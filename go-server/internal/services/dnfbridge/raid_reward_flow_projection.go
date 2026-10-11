@@ -87,6 +87,25 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		}
 	}
+	// Compare the complete authoritative projection before removing an already
+	// delivered card list. Otherwise the filtered second send has a different
+	// signature and replays the same standby transition/inventory refresh.
+	hash := sha256.New()
+	for _, packet := range packets {
+		hash.Write([]byte{byte(packet.opcode), byte(packet.opcode >> 8)})
+		body := packet.body
+		if b.Mode == 2 && packet.opcode == 596 && len(body) == 13 {
+			// Luke starts this duration at receive time. The absolute end
+			// identifies the clock; elapsed time alone is not a new transition.
+			body = body[:9]
+		}
+		hash.Write(body)
+	}
+	var signature [32]byte
+	copy(signature[:], hash.Sum(nil))
+	if o.rewardFlowIdentity == identity && o.rewardFlowSignature == signature {
+		return nil
+	}
 	// The authoritative card list and the later phase-break transition are
 	// distinct deliveries. Finishing the display must not replay the same
 	// list just because its break/timer packets changed the full signature.
@@ -107,16 +126,6 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		packets = filtered
 	}
 	if len(packets) == 0 {
-		return nil
-	}
-	hash := sha256.New()
-	for _, packet := range packets {
-		hash.Write([]byte{byte(packet.opcode), byte(packet.opcode >> 8)})
-		hash.Write(packet.body)
-	}
-	var signature [32]byte
-	copy(signature[:], hash.Sum(nil))
-	if o.rewardFlowIdentity == identity && o.rewardFlowSignature == signature {
 		return nil
 	}
 	if !f.FinishedAt.IsZero() && !f.Single && f.Phase == 0 {

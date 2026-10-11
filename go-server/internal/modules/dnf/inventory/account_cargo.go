@@ -33,6 +33,10 @@ func (o *Owner) moveAccountCargo(ctx context.Context, characterID string, cmd Co
 	if !created {
 		return MoveResult{}, ErrAccountCargoNotCreated
 	}
+	if dnfrepo.IsAccountSharedInventorySlot(cmd.SourceListType, cmd.SourceSlotIndex) ||
+		dnfrepo.IsAccountSharedInventorySlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
+		return MoveResult{}, fmt.Errorf("%w: account cargo cannot address crystal/soul endpoints", ErrUnsupportedList)
+	}
 	if err := checkAccountCargoSlot(cmd.SourceListType, cmd.SourceSlotIndex, capacity); err != nil {
 		return MoveResult{}, err
 	}
@@ -78,9 +82,28 @@ func (o *Owner) moveAccountCargo(ctx context.Context, characterID string, cmd Co
 		if err != nil {
 			return err
 		}
-		result, err = moveAccountCargoMaps(characterID, cmd, srcItems, dstItems)
+		result, err = moveAccountCargoMaps(characterID, cmd, srcItems, dstItems, capacity)
 		if err != nil || !result.Changed {
 			return err
+		}
+		switch result.Mode {
+		case "auto_stack", "auto_stack_reverse", "stack", "split", "reverse_split":
+			result.Refresh = make(map[byte]map[string]dnfrepo.ItemStack)
+			for _, listType := range []byte{cmd.SourceListType, cmd.DestinationListType} {
+				if listType == listTypeAccountCargo {
+					continue
+				}
+				if _, exists := result.Refresh[listType]; exists {
+					continue
+				}
+				view := character
+				if listType == listTypeMain {
+					view = dnfrepo.MergeAccountSharedInventory(character, cargo)
+				}
+				items, _ := itemMapForList(&view, listType)
+				result.Refresh[listType] = cloneItemMap(items)
+				result.RefreshListTypes = append(result.RefreshListTypes, listType)
+			}
 		}
 		return saveAccountCargoMove(ctx, accounts, characters, character, cargo, srcField, dstField, sourceCargo, destinationCargo, result)
 	})
@@ -126,7 +149,7 @@ func accountCargoItemMap(
 	}
 }
 
-func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems map[string]dnfrepo.ItemStack) (MoveResult, error) {
+func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems map[string]dnfrepo.ItemStack, capacity int16) (MoveResult, error) {
 	srcKey := slotKey(cmd.SourceListType, cmd.SourceSlotIndex)
 	dstKey := slotKey(cmd.DestinationListType, cmd.DestinationSlotIndex)
 	result := MoveResult{
@@ -157,10 +180,38 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 		if moveCount <= 0 {
 			return MoveResult{}, fmt.Errorf("%w: list=%d slot=%d count=%d", ErrSlotNotFound, cmd.DestinationListType, cmd.DestinationSlotIndex, destination.Count)
 		}
+		excludedSlots := []int16{cmd.SourceSlotIndex}
+		if cmd.SourceListType == cmd.DestinationListType {
+			excludedSlots = append(excludedSlots, cmd.DestinationSlotIndex)
+		}
+		if !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
+			if targetSlot, target, ok := findCompatibleStackSlot(
+				accountCargoMergeCandidates(srcItems, cmd.SourceListType, capacity),
+				cmd.SourceListType,
+				destination,
+				moveCount,
+				excludedSlots...,
+			); ok {
+				target.Count += moveCount
+				updateStackRawAmount(&target)
+				if destination.Count <= moveCount {
+					delete(dstItems, dstKey)
+				} else {
+					destination.Count -= moveCount
+					updateStackRawAmount(&destination)
+					dstItems[dstKey] = destination
+				}
+				srcItems[slotKey(cmd.SourceListType, targetSlot)] = target
+				result.MoveCount, result.Mode, result.Changed = moveCount, "auto_stack_reverse", true
+				return result, nil
+			}
+		}
 		if canSplitStack(destination, moveCount) {
 			moved := cloneStack(destination)
 			moved.Count = moveCount
+			updateStackRawAmount(&moved)
 			destination.Count -= moveCount
+			updateStackRawAmount(&destination)
 			dstItems[dstKey] = destination
 			srcItems[srcKey] = moved
 			result.MoveCount, result.Mode, result.Changed = moveCount, "reverse_split", true
@@ -176,10 +227,38 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 		return MoveResult{}, fmt.Errorf("%w: list=%d slot=%d count=%d", ErrSlotNotFound, cmd.SourceListType, cmd.SourceSlotIndex, source.Count)
 	}
 	if !destinationOK {
+		excludedSlots := []int16{cmd.DestinationSlotIndex}
+		if cmd.SourceListType == cmd.DestinationListType {
+			excludedSlots = append(excludedSlots, cmd.SourceSlotIndex)
+		}
+		if !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
+			if targetSlot, target, ok := findCompatibleStackSlot(
+				accountCargoMergeCandidates(dstItems, cmd.DestinationListType, capacity),
+				cmd.DestinationListType,
+				source,
+				moveCount,
+				excludedSlots...,
+			); ok {
+				target.Count += moveCount
+				updateStackRawAmount(&target)
+				if source.Count <= moveCount {
+					delete(srcItems, srcKey)
+				} else {
+					source.Count -= moveCount
+					updateStackRawAmount(&source)
+					srcItems[srcKey] = source
+				}
+				dstItems[slotKey(cmd.DestinationListType, targetSlot)] = target
+				result.MoveCount, result.Mode, result.Changed = moveCount, "auto_stack", true
+				return result, nil
+			}
+		}
 		if canSplitStack(source, moveCount) {
 			moved := cloneStack(source)
 			moved.Count = moveCount
+			updateStackRawAmount(&moved)
 			source.Count -= moveCount
+			updateStackRawAmount(&source)
 			srcItems[srcKey] = source
 			dstItems[dstKey] = moved
 			result.MoveCount, result.Mode, result.Changed = moveCount, "split", true
@@ -192,10 +271,12 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 	}
 	if canStack(source, destination, moveCount) {
 		destination.Count += moveCount
+		updateStackRawAmount(&destination)
 		if source.Count <= moveCount {
 			delete(srcItems, srcKey)
 		} else {
 			source.Count -= moveCount
+			updateStackRawAmount(&source)
 			srcItems[srcKey] = source
 		}
 		dstItems[dstKey] = destination
@@ -206,6 +287,21 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 	dstItems[dstKey] = source
 	result.MoveCount, result.Mode, result.Changed = source.Count, "swap", true
 	return result, nil
+}
+
+// Historical rows outside the persisted cargo capacity cannot be merge targets.
+func accountCargoMergeCandidates(items map[string]dnfrepo.ItemStack, listType byte, capacity int16) map[string]dnfrepo.ItemStack {
+	if listType != listTypeAccountCargo {
+		return items
+	}
+	candidates := make(map[string]dnfrepo.ItemStack)
+	for key, stack := range items {
+		list, slot, ok := parseSlotKey(key)
+		if ok && list == listTypeAccountCargo && slot >= 0 && slot < capacity {
+			candidates[key] = stack
+		}
+	}
+	return candidates
 }
 
 func saveAccountCargoMove(

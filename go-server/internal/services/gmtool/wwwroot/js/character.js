@@ -493,14 +493,26 @@ async function createCloneAccount(e) {
 
 let growOptions = null;
 
+// Default loading and job changes can overlap for the same character.
+// Only the newest request may change the selection or report an error.
+let growOptionsRequestSeq = 0;
+
+function growOptionsResponseIsCurrent(epoch, characterId, seq) {
+  return seq === growOptionsRequestSeq && epoch === selectEpoch &&
+    !!currentChar && currentChar.characterId === characterId;
+}
+
 async function loadGrowOptions() {
   if (!currentChar) return;
   const epoch = selectEpoch;
+  const characterId = currentChar.characterId;
+  const seq = ++growOptionsRequestSeq;
   try {
-    const fetched = await api(`/api/characters/${currentChar.characterId}/growoptions`);
-    if (epoch !== selectEpoch) return;
+    const fetched = await api(`/api/characters/${characterId}/growoptions`);
+    if (!growOptionsResponseIsCurrent(epoch, characterId, seq)) return;
     renderGrowOptions(fetched);
   } catch (e) {
+    if (!growOptionsResponseIsCurrent(epoch, characterId, seq)) return;
     toast(e.message, true);
   }
 }
@@ -509,11 +521,14 @@ async function loadGrowOptionsForJob() {
   if (!currentChar) return;
   const job = parseInt($('#grow-job').value, 10);
   const epoch = selectEpoch;
+  const characterId = currentChar.characterId;
+  const seq = ++growOptionsRequestSeq;
   try {
-    const fetched = await api(`/api/characters/${currentChar.characterId}/growoptions?job=${encodeURIComponent(job)}`);
-    if (epoch !== selectEpoch) return;
+    const fetched = await api(`/api/characters/${characterId}/growoptions?job=${encodeURIComponent(job)}`);
+    if (!growOptionsResponseIsCurrent(epoch, characterId, seq)) return;
     renderGrowOptions(fetched);
   } catch (e) {
+    if (!growOptionsResponseIsCurrent(epoch, characterId, seq)) return;
     toast(e.message, true);
   }
 }

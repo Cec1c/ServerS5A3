@@ -1,3 +1,11 @@
+## 2026-10-12 — Integrate four-worker repairs and GM request ordering
+
+- Preserve accepted yellow records and original closed groups. Keep the four-subagent cap and record four actual deliveries; reuse lanes for disjoint next tasks.
+- Merge account cargo auto-stack/count mirrors and atomic shared-crystal sort snapshots, exact training fatigue policy, actual quest tuple wildcards, character-scoped option saves and complete reward projection deduplication. Preserve GUI/SQL boundaries and broader historical PVF failures.
+- Protect GM grow-options responses and errors by request generation and character identity. Retain male/female job values and labels; seven offline frontend scenarios pass after three baseline failures.
+- Validate8266 core and332 scoped actual-PVF passes without failures, with740 environment skips and one separate-asset skip. Complete scoped vet and Windows/Linux builds; GM461 passes with17 skips. Preserve the failed output-decoding wrapper and occupied-QA preflight evidence.
+- Synchronize3393 source files; running isolated QA stays frozen51886be, daily production staysr98. Volcano native animation/damage and remaining player acceptance stay open.
+
 # Repository changelog
 
 ## 2026-10-12 — Player report classification and gunner GM labels

@@ -1199,7 +1199,12 @@ func definitionMatchesCharacter(definition Definition, character CharacterEligib
 		firstGrowType := character.GrowType & 0x0f
 		awakeningStage := (character.GrowType >> 4) & 0x0f
 		for _, rule := range definition.TargetCharacterRules {
-			if jobmap.MatchesQuestTag(rule.JobTag, character.Job) && rule.FirstGrowType == firstGrowType && rule.AwakeningStage == awakeningStage {
+			// Actual forest transfer quests use 0/-1 and existing-profession
+			// variants use -1/-1. -1 leaves that tuple component unrestricted;
+			// it cannot equal a packed grow-type nibble (0..15).
+			if jobmap.MatchesQuestTag(rule.JobTag, character.Job) &&
+				(rule.FirstGrowType == -1 || rule.FirstGrowType == firstGrowType) &&
+				(rule.AwakeningStage == -1 || rule.AwakeningStage == awakeningStage) {
 				matched = true
 				break
 			}

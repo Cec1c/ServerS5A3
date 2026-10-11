@@ -1,7 +1,7 @@
 {
-  "source_file_count": 3384,
+  "source_file_count": 3393,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 GM gunner label ambiguity only; active QA stays frozen51886be",
+  "stage": "D33 four-worker first batch plus GM async response ordering; runtime QA unchanged",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -1700,8 +1700,8 @@
     },
     {
       "path": "internal/modules/dnf/inventory/account_cargo.go",
-      "bytes": 8384,
-      "sha256": "8fca8c21590b826db7376398282696c05e5fbdc3557ea40cd6f6d2719d080112"
+      "bytes": 11932,
+      "sha256": "979a8c4d28570d39913b8a9eb687ac7165a1df0d499f13ad836677027ad2e5e8"
     },
     {
       "path": "internal/modules/dnf/inventory/account_cargo_sort.go",
@@ -1717,6 +1717,11 @@
       "path": "internal/modules/dnf/inventory/account_cargo_test.go",
       "bytes": 4430,
       "sha256": "a95fcd13b6761c28f9d76d79cd7137f1a84421c477e4002cd1b665fbe0759913"
+    },
+    {
+      "path": "internal/modules/dnf/inventory/account_container_persistence_test.go",
+      "bytes": 20517,
+      "sha256": "b90cc01c0696901c533e8eaa2929c33e9902783b1643694a669f86a88d13e9eb"
     },
     {
       "path": "internal/modules/dnf/inventory/account_shared.go",
@@ -1900,8 +1905,8 @@
     },
     {
       "path": "internal/modules/dnf/inventory/owner.go",
-      "bytes": 129382,
-      "sha256": "6eb367217c75e08065acaf6aaa99b7f8d79b77dd736d81d0fc670508d4b22dfe"
+      "bytes": 131459,
+      "sha256": "f06c2e6bca8c698c4e509200ae21ce5eda10af588c6830b8f2b35afca6aa4527"
     },
     {
       "path": "internal/modules/dnf/inventory/owner_amplify.go",
@@ -3035,8 +3040,8 @@
     },
     {
       "path": "internal/modules/dnf/quest/catalog.go",
-      "bytes": 50453,
-      "sha256": "04133243a5644684c2df2a7f582b5de20f537166e1d5ad952de6249e924f38a4"
+      "bytes": 50719,
+      "sha256": "59e7c951d24a13a5b73d24a141d28a6a3ebe7ff9f8ae0290088612d2268eab13"
     },
     {
       "path": "internal/modules/dnf/quest/catalog_real_pvf_test.go",
@@ -3284,6 +3289,11 @@
       "sha256": "2e16254e76757c73bbaf35f9b7a09601f4e36d4c744b9807f44157e190f82283"
     },
     {
+      "path": "internal/modules/dnf/quest/player_issues_forest_real_pvf_test.go",
+      "bytes": 3795,
+      "sha256": "2a226716bebe425f482f4159583770fc68575881b3405b29a57d591645ef0be4"
+    },
+    {
       "path": "internal/modules/dnf/quest/presentation_text.go",
       "bytes": 998,
       "sha256": "0ef40b83523e8b5658165b70395d992ca73894b543e3473a138801d2555412c4"
@@ -3337,6 +3347,11 @@
       "path": "internal/modules/dnf/quest/subquest_activation_owner.go",
       "bytes": 2808,
       "sha256": "01809a351e8eed011e03a3d13da04068c9507bd0f11e284ee95642da4d6cb87b"
+    },
+    {
+      "path": "internal/modules/dnf/quest/target_character_wildcard_test.go",
+      "bytes": 1512,
+      "sha256": "ff2675d267b67a05dc53337e1e3bd382013f45437a5dd2e554e53acf6381e197"
     },
     {
       "path": "internal/modules/dnf/raid/admission.go",
@@ -7475,8 +7490,8 @@
     },
     {
       "path": "internal/services/dnfbridge/character_fatigue.go",
-      "bytes": 4552,
-      "sha256": "b9958bfcaea741e6d000b1e3eaefbdf5df32a37552f0810ef5b02f8e6367409f"
+      "bytes": 4562,
+      "sha256": "9b66c9baa63ab7c28b1f4ddb8f75250bc0fd3cac3cea810fd77fac4a4458ee04"
     },
     {
       "path": "internal/services/dnfbridge/character_fatigue_test.go",
@@ -9115,8 +9130,8 @@
     },
     {
       "path": "internal/services/dnfbridge/dungeon_runtime_state.go",
-      "bytes": 45750,
-      "sha256": "e8d2f642f27d9f89d30cf19a06206f9097c6869386bab30582acfd4f8aaf09db"
+      "bytes": 45760,
+      "sha256": "25fd862916e63fb2aa50d0b66b2d28aa617b8db3bfd195fedab7617611647ca9"
     },
     {
       "path": "internal/services/dnfbridge/dungeon_runtime_test.go",
@@ -9387,6 +9402,16 @@
       "path": "internal/services/dnfbridge/dungeon_tournament_test.go",
       "bytes": 41462,
       "sha256": "36a94e6924e43b5d381bb23cfe6e2fc8cea1e55ec96467e1e035dc39ddab51ee"
+    },
+    {
+      "path": "internal/services/dnfbridge/dungeon_training_fatigue.go",
+      "bytes": 669,
+      "sha256": "e18f2eec3d26b9f46ae4f49022b24d010418a182e6072178bbcfb7b9f33f21de"
+    },
+    {
+      "path": "internal/services/dnfbridge/dungeon_training_fatigue_test.go",
+      "bytes": 1938,
+      "sha256": "f5f705eebd3d377abc108ba99175935764939785ef405c03c5e02b8ab590d2bc"
     },
     {
       "path": "internal/services/dnfbridge/dungeon_tutorial_basic_action.go",
@@ -12419,14 +12444,19 @@
       "sha256": "c711cb1d5ee1828e2818b036fe3765f22f978fbc4854352edb0e70135274c018"
     },
     {
+      "path": "internal/services/dnfbridge/game_option_entry_guard_character_scope_test.go",
+      "bytes": 3840,
+      "sha256": "003004f3879246769f3d9746fec960a8149464c70cca1e718c4e2874f404615c"
+    },
+    {
       "path": "internal/services/dnfbridge/game_option_settings.go",
-      "bytes": 30050,
-      "sha256": "b366f0c445f3ab960b573396ab35102929c707bcd915a00674d4191a0a86f390"
+      "bytes": 30345,
+      "sha256": "f0800f828d771f45bd33276a0309748b1da19b2e3d4ea18de9df9137029888ee"
     },
     {
       "path": "internal/services/dnfbridge/game_option_settings_test.go",
-      "bytes": 13012,
-      "sha256": "5865197c8044aa4d5f5cb57ec8663607c784820fbac5c5822aa0bf3b92f4a6d3"
+      "bytes": 13079,
+      "sha256": "5bdd93e34cb5d5569d264e7a68039d607605419ebc519e4a47550c122795c399"
     },
     {
       "path": "internal/services/dnfbridge/game_select_request_boundary_test.go",
@@ -14119,6 +14149,11 @@
       "sha256": "5d3b079c8c8ea6336fd303513e598bc0e2a6121a8bc6e0d0f7b4524b97c08430"
     },
     {
+      "path": "internal/services/dnfbridge/persistence_account_cargo_real_pvf_test.go",
+      "bytes": 2751,
+      "sha256": "0a7883ca1b6ccbc046992765c8354a010e7dfde3a9cf04acf17b7be73754b366"
+    },
+    {
       "path": "internal/services/dnfbridge/pet_cold_login_enchant_test.go",
       "bytes": 3307,
       "sha256": "73cf433fec947e4501a83c3d17ddd7f35d680e25490a0f599b2b3c8fd59d4755"
@@ -14192,6 +14227,11 @@
       "path": "internal/services/dnfbridge/pet_scene_ready_enchant_test.go",
       "bytes": 5288,
       "sha256": "e5f58ba7503e8f4e65515d0f7e63f1e6410c6436c93475d5dd6052a294c832df"
+    },
+    {
+      "path": "internal/services/dnfbridge/player_issues_training_fatigue_real_pvf_test.go",
+      "bytes": 3460,
+      "sha256": "93db3e0c18179c8383f4b1c9ae55200ee9cc696c5bc73dd0e64804a986074970"
     },
     {
       "path": "internal/services/dnfbridge/premium_contract_grant_notice.go",
@@ -14634,6 +14674,11 @@
       "sha256": "8792a369ffbaaedeb83149244d77cc2c5a415f705c76fca9e2182aecb5fecb7d"
     },
     {
+      "path": "internal/services/dnfbridge/raid_luke_break_projection_regression_test.go",
+      "bytes": 5344,
+      "sha256": "dfc3fe9584c8d1c8edd64690b96fe2d9dbf253b9cded9359302ab3b0807f57a2"
+    },
+    {
       "path": "internal/services/dnfbridge/raid_luke_catalog_test.go",
       "bytes": 1993,
       "sha256": "888d89df244df5b13899059a8dff51a40b058145efb3fb4f849703ae79a39422"
@@ -14855,8 +14900,8 @@
     },
     {
       "path": "internal/services/dnfbridge/raid_reward_flow_projection.go",
-      "bytes": 5894,
-      "sha256": "9bfdf8d4b232c1ad80151c2c6fcbfa33eaeeefd7723f7ef4ad0ac859009f2b0c"
+      "bytes": 6358,
+      "sha256": "36065e9c837bf0e4a940c9a9a7f5268cdbb7644b8cae60ac5ff4bdf08e7be379"
     },
     {
       "path": "internal/services/dnfbridge/raid_reward_flow_test.go",
@@ -16600,8 +16645,8 @@
     },
     {
       "path": "internal/services/gmtool/wwwroot/js/character.js",
-      "bytes": 28422,
-      "sha256": "67dae0847d8ba84725f6f252958be970014ed6a0633c604f69614bc2ba607331"
+      "bytes": 29152,
+      "sha256": "a96ec818386ba74eb5c034e9dd2ebb29e4c471e1537a419c8da6f5dc0288faa0"
     },
     {
       "path": "internal/services/gmtool/wwwroot/js/core.js",

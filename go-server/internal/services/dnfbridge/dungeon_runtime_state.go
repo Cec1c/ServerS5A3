@@ -939,7 +939,7 @@ func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Du
 		PartyCount:          partyCount,
 		PartyLimit:          dungeon.Metadata.LimitPartyCount.Value,
 		PartyLimitSet:       dungeon.Metadata.LimitPartyCount.Set,
-		NoFatigue:           dungeon.Metadata.NoFatigue,
+		NoFatigue:           currentDungeonUsesNoFatigue(dungeon),
 		EnterWithoutFatigue: dungeon.Metadata.Flags["enter without fatigue"],
 		Fatigue:             fatigue,
 		FatigueKnown:        fatigueKnown,

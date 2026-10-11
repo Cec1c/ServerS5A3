@@ -1015,6 +1015,26 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 	}
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
+	if cmd.SourceListType == listTypeMain && strings.TrimSpace(cmd.AccountID) != "" && !o.inAccountItemTx {
+		if o.accountRepo == nil || o.accountItems == nil {
+			return SortResult{}, ErrAccountSharedOwnerUnavailable
+		}
+		var result SortResult
+		err := o.accountItems.WithinAccountCharacterItems(ctx, strings.TrimSpace(cmd.AccountID), characterID, func(accounts dnfrepo.AccountInventoryRepository, characters dnfrepo.InventoryRepository) error {
+			txOwner := *o
+			txOwner.repo = characters
+			txOwner.accountRepo = accounts
+			txOwner.inItemTransaction = true
+			txOwner.inAccountItemTx = true
+			var err error
+			result, err = txOwner.Sort(ctx, cmd)
+			return err
+		})
+		if err != nil {
+			return SortResult{}, err
+		}
+		return result, nil
+	}
 	if !o.inItemTransaction {
 		var result SortResult
 		err := o.withinInventoryTransaction(ctx, characterID, func(txOwner *Owner) error {
@@ -1043,6 +1063,10 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 
 	items, field := itemMapForList(&record, cmd.SourceListType)
 	start, end, ok := sortSegment(cmd.SourceListType, cmd.Category)
+	initialRefresh, err := o.sortRefreshSnapshot(ctx, cmd, items)
+	if err != nil {
+		return SortResult{}, err
+	}
 	result := SortResult{
 		CharacterID: characterID,
 		ListType:    cmd.SourceListType,
@@ -1050,7 +1074,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		StartSlot:   start,
 		EndSlot:     end,
 		Mode:        "noop",
-		Refresh:     cloneItemMap(items),
+		Refresh:     initialRefresh,
 	}
 	if !ok {
 		return result, nil
@@ -1098,9 +1122,38 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		return SortResult{}, err
 	}
 	result.Mode = "sort"
-	result.Refresh = cloneItemMap(items)
+	result.Refresh, err = o.sortRefreshSnapshot(ctx, cmd, items)
+	if err != nil {
+		return SortResult{}, err
+	}
 	result.Changed = true
 	return result, nil
+}
+
+// sortRefreshSnapshot freezes the op13 view a sort ACK advertises. The body is
+// a full-table snapshot, so every row the client owns has to be present: list 0
+// keeps the account-owned crystal/soul rows at their unchanged 354..365
+// addresses, exactly like the session snapshot and the post-move refresh.
+// Omitting these rows constructs a partial full-table snapshot; the P66 GUI
+// report is consistent with that gap, but still needs native acceptance.
+func (o *Owner) sortRefreshSnapshot(
+	ctx context.Context,
+	cmd Command,
+	items map[string]dnfrepo.ItemStack,
+) (map[string]dnfrepo.ItemStack, error) {
+	snapshot := cloneItemMap(items)
+	if cmd.SourceListType != listTypeMain || o == nil || o.accountRepo == nil {
+		return snapshot, nil
+	}
+	accountID := strings.TrimSpace(cmd.AccountID)
+	if accountID == "" {
+		return snapshot, nil
+	}
+	account, _, err := o.accountRepo.Load(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return dnfrepo.MergeAccountSharedInventory(dnfrepo.InventoryRecord{Slots: snapshot}, account).Slots, nil
 }
 
 // Repair 按当前仓储中已有的耐久证据修复背包/仓库装备。
@@ -3178,7 +3231,8 @@ func findCompatibleStackSlot(
 	moveCount int64,
 	excludedSlots ...int16,
 ) (int16, dnfrepo.ItemStack, bool) {
-	if listType != listTypeMain && listType != listTypeAvatar && listType != listTypePersonalCargo {
+	// Account cargo uses the same compatible-stack search as personal cargo.
+	if listType != listTypeMain && listType != listTypeAvatar && listType != listTypePersonalCargo && listType != listTypeAccountCargo {
 		return 0, dnfrepo.ItemStack{}, false
 	}
 	excluded := make(map[int16]struct{}, len(excludedSlots))

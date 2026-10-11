@@ -109,7 +109,7 @@ func (s *Service) debitDungeonRoomFatigue(session *gameSession, runtime *runtime
 	if runtime.fatigueRooms[scene.Coordinate] {
 		return nil
 	}
-	if runtime.Dungeon.Metadata.NoFatigue {
+	if currentDungeonUsesNoFatigue(runtime.Dungeon) {
 		runtime.fatigueRooms[scene.Coordinate] = true
 		return nil
 	}

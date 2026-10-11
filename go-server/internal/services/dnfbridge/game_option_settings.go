@@ -135,6 +135,9 @@ const currentGameOptionEntryGuardEnv = "DNFBRIDGE_GAME_OPTION_ENTRY_GUARD"
 // town/dungeon scene — so anything arriving during the entry bootstrap is
 // answered (0x00AD is already sent before it) but not persisted, and the skip
 // is logged so live logs can prove the rule.
+//
+// Both readiness markers belong to a character. A previous character's marker
+// must not admit the current character's entry template after selection changes.
 func gameOptionSaveWindowOpen(session *gameSession) bool {
 	if session == nil {
 		return false
@@ -142,11 +145,14 @@ func gameOptionSaveWindowOpen(session *gameSession) bool {
 	if !envBool(currentGameOptionEntryGuardEnv, true) {
 		return true
 	}
-	if session.townSceneReadyCharacterID != 0 {
-		return true
-	}
-	if session.initialTownRouteStage >= currentInitialTownRoutePlayerStateSent {
-		return true
+	if selected := session.selectedCharacterID; selected != 0 {
+		if session.townSceneReadyCharacterID == selected {
+			return true
+		}
+		if session.initialTownRouteStage >= currentInitialTownRoutePlayerStateSent &&
+			session.initialTownRouteCharacterID == selected {
+			return true
+		}
 	}
 	return currentDungeonSceneActive(session)
 }

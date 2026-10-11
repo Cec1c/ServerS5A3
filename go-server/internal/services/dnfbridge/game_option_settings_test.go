@@ -54,6 +54,7 @@ func testGameOptionFixture(t *testing.T) (*Service, *gameSession, *bufferConn, d
 	// mark this fixture as "player is in the world" so the entry-window guard
 	// does not defer the save (see gameOptionSaveWindowOpen).
 	session.initialTownRouteStage = currentInitialTownRoutePlayerStateSent
+	session.initialTownRouteCharacterID = session.selectedCharacterID
 	return service, session, connection, repos
 }
 
