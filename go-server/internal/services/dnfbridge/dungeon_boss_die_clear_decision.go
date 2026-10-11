@@ -22,6 +22,9 @@ func (s *Service) completeValidatedDungeonBossDieCheckLocked(
 		completionSource = "cleared_tutorial_boss_room"
 	}
 	storyAIBossGate, storyAIBossGateActive := currentDungeonStoryAIBossDeathGate(runtime, scene)
+	if currentLukeNormalBossesPending(runtime, scene) {
+		return nil
+	}
 	if !tutorialScene && storyAIBossGateActive && !storyAIBossGate.Ready {
 		s.logGameEvent(session, "game-dungeon-boss-die-check-blocked",
 			"dungeon_id", runtime.Dungeon.ID,

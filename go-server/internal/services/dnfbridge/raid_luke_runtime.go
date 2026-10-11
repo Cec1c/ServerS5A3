@@ -69,6 +69,9 @@ func (s *Service) reduceCurrentLukeSceneLocked(session *gameSession, runtime *ru
 			return runtimeRaidState{}, false, fmt.Errorf("Luke entry run is not active")
 		}
 		next, _, err = luke.EnterDungeon(e.RunID, uint32(runtime.Dungeon.ID), e.Attempt, now)
+		if err == nil {
+			err = s.commitCurrentLukeRouteLocked(b, session.selectedCharacterID, uint32(runtime.Dungeon.ID))
+		}
 	case "map":
 		if runtime.Session.Snapshot().Run.Status != worldmap.DungeonRunActive || !luke.HasEnteredRun(e.RunID, uint32(runtime.Dungeon.ID)) {
 			return runtimeRaidState{}, false, fmt.Errorf("Luke map has no accepted active entry")

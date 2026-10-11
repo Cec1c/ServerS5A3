@@ -39,4 +39,5 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	emotionGameplayModule(),
 	joustGameplayModule(),
 	collectboxGameplayModule(),
+	webViewerGameplayModule(),
 )

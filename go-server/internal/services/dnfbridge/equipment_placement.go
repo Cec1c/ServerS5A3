@@ -184,6 +184,15 @@ func (v *currentEquipmentPlacementValidator) ValidateEquipmentPlacement(ctx cont
 		)
 	}
 	targetMatchesPVFType := placement.TargetSlotIndex == rule.targetSlot
+	if !targetMatchesPVFType && rule.pvfType == "[weapon]" && placement.TargetSlotIndex == 24 {
+		// A21 InventoryMoveService.IsValidEquipmentSlotForItem admits a normal
+		// weapon in SupportWeapon (24) for female slayer job 11, Vagabond
+		// branch 4, including awakened packed grow types. Read the authoritative
+		// character fields; missing or invalid growth must not grant the exception.
+		job, jobErr := strconv.Atoi(strings.TrimSpace(character.Job))
+		growth := characterGrowType(character)
+		targetMatchesPVFType = jobErr == nil && job == 11 && growth.InDomain && growth.Branch == 4
+	}
 	if !targetMatchesPVFType {
 		// The current client uses worn avatar slot 9 for the aura whose stats
 		// remain active and slot 11 for the separately selected aura animation.

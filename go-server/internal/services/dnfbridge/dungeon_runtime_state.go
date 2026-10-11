@@ -463,6 +463,9 @@ func (s *Service) prepareDungeonRuntimePlanned(
 			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("%w: rift=%d got=%d designated=%v", errDungeonDifficultyInvalid, dungeon.ID, request.Difficulty, dungeon.Metadata.DesignatedDifficulties)
 		}
 	}
+	if err := s.validateCurrentLukeNormalThroneEntry(ctx, session, dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	}
 	character, err := s.dungeonCharacter(ctx, session.selectedCharacterID, session)
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err

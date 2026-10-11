@@ -43,7 +43,7 @@ func TestSemesterRewardActualSQLTransaction(t *testing.T) {
 			campaign := oe.EpicCampaign{Version: 1, Starts: start, Ends: start.AddDate(0, 0, 28), CreatedAt: start}
 			now := campaign.Ends.Add(-time.Hour)
 			key := oe.SemesterJournalKey(campaign)
-			state := &semesterSQLState{scenario: mode}
+			state := newSemesterSQLState(mode)
 			db := sql.OpenDB(semesterRewardSQLConnector{state, key})
 			defer db.Close()
 			u := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{db: SQLDBAdapter{DB: db}, readDBs: []string{"readonly"}, writeDBs: []string{"shard_a", "shard_b"}, tablePrefix: "dnf_", now: time.Now}}
@@ -65,19 +65,27 @@ func TestSemesterRewardActualSQLTransaction(t *testing.T) {
 			}
 			cat := &oe.SemesterCatalog{Rewards: [3]oe.AttendancePVFItemReward{{ItemID: 490010219, Count: 1}, {ItemID: 490010217, Count: 1}, {ItemID: 490010215, Count: 1}}}
 			_, e := oe.ClaimSemesterReward(ctx, repo.Group{MailboxAssets: u}, cat, cmd)
-			if state.begins != 1 || state.writes == 0 {
-				t.Fatal(state, e)
+			if mode != "success" && mode != "commit-unknown" {
+				// Error paths release the physical transaction. On a canceled context
+				// database/sql performs that release from its async awaitDone goroutine,
+				// so join on the driver rollback before sampling the counters instead of
+				// racing it.
+				state.awaitRollback(t)
+			}
+			begins, commits, rollbacks, writes := state.snapshot()
+			if begins != 1 || writes == 0 {
+				t.Fatalf("transaction not exercised: state=%s err=%v", state.describe(), e)
 			}
 			if mode == "success" {
-				if e != nil || state.commits != 1 || state.rollbacks != 0 {
-					t.Fatal(state, e)
+				if e != nil || commits != 1 || rollbacks != 0 {
+					t.Fatalf("state=%s err=%v", state.describe(), e)
 				}
 			} else if mode == "commit-unknown" {
-				if e == nil || state.commits != 1 {
-					t.Fatal(state, e)
+				if e == nil || commits != 1 {
+					t.Fatalf("state=%s err=%v", state.describe(), e)
 				}
-			} else if e == nil || state.commits != 0 || state.rollbacks != 1 {
-				t.Fatal(state, e)
+			} else if e == nil || commits != 0 || rollbacks != 1 {
+				t.Fatalf("state=%s err=%v", state.describe(), e)
 			}
 		})
 	}

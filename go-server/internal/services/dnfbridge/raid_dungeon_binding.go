@@ -110,6 +110,9 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 			return fmt.Errorf("raid entry prepared group/account mismatch")
 		}
 		seen[id] = true
+		if !s.currentLukeRouteAllowedLocked(b, id, uint32(r.Dungeon.ID)) {
+			return fmt.Errorf("Luke prepared member belongs to the other route")
+		}
 		open := false
 		for _, d := range b.Dungeons {
 			if int64(d.ID) == r.Dungeon.ID && d.State == 0 {
@@ -216,6 +219,9 @@ func (s *Service) validateCurrentRaidDungeonEntry(session *gameSession, runtime 
 	}
 	if !seen[session.selectedCharacterID] || (b.Single && len(entry.Participants) != 1) {
 		return fmt.Errorf("raid entry does not contain its runtime owner")
+	}
+	if !s.currentLukeRouteAllowedLocked(b, session.selectedCharacterID, uint32(runtime.Dungeon.ID)) {
+		return fmt.Errorf("Luke committed member belongs to the other route")
 	}
 	for _, d := range b.Dungeons {
 		if int64(d.ID) == runtime.Dungeon.ID && d.State == 0 {

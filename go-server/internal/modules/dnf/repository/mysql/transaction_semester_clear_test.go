@@ -8,15 +8,66 @@ import (
 	"fmt"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
+// semesterSQLState records the physical transaction boundaries observed by the
+// semester repository fixtures. The counters are mutex-guarded because
+// database/sql may release a canceled transaction from its async awaitDone
+// goroutine, which runs the driver Rollback concurrently with the caller and
+// with the caller-side counter reads that would otherwise race it.
 type semesterSQLState struct {
-	begins, commits, rollbacks, writes int
-	queries                            []string
-	scenario                           string
+	mu        sync.Mutex
+	begins    int
+	commits   int
+	rollbacks int
+	writes    int
+	queries   []string
+	scenario  string
+
+	// rollbackDone is closed once the driver Rollback has actually run. Tests
+	// that cancel the transaction context join on it before reading the counters;
+	// the caller-facing Tx.Rollback returns ErrTxDone before this driver call
+	// executes, so the count must not be sampled earlier.
+	rollbackDone chan struct{}
 }
+
+func newSemesterSQLState(scenario string) *semesterSQLState {
+	return &semesterSQLState{scenario: scenario, rollbackDone: make(chan struct{})}
+}
+
+func (s *semesterSQLState) snapshot() (begins, commits, rollbacks, writes int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.begins, s.commits, s.rollbacks, s.writes
+}
+
+func (s *semesterSQLState) describe() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return fmt.Sprintf("{begins:%d commits:%d rollbacks:%d writes:%d scenario:%s queries:%v}", s.begins, s.commits, s.rollbacks, s.writes, s.scenario, s.queries)
+}
+
+// awaitRollback blocks until database/sql has invoked the driver Rollback. A
+// canceled context can be released from the async awaitDone goroutine, where the
+// caller-facing Tx.Rollback returns ErrTxDone before that driver call runs.
+func (s *semesterSQLState) awaitRollback(t *testing.T) {
+	t.Helper()
+	s.mu.Lock()
+	done := s.rollbackDone
+	s.mu.Unlock()
+	if done == nil {
+		t.Fatal("semester SQL state has no rollback signal")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("driver rollback did not complete: %s", s.describe())
+	}
+}
+
 type semesterSQLConnector struct{ s *semesterSQLState }
 
 func (c semesterSQLConnector) Connect(context.Context) (driver.Conn, error) {
@@ -33,14 +84,22 @@ type semesterSQLConn struct{ s *semesterSQLState }
 func (c semesterSQLConn) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("unexpected prepare")
 }
-func (c semesterSQLConn) Close() error              { return nil }
-func (c semesterSQLConn) Begin() (driver.Tx, error) { c.s.begins++; return semesterSQLTx{c.s}, nil }
+func (c semesterSQLConn) Close() error { return nil }
+func (c semesterSQLConn) Begin() (driver.Tx, error) {
+	c.s.mu.Lock()
+	c.s.begins++
+	c.s.mu.Unlock()
+	return semesterSQLTx{c.s}, nil
+}
 func (c semesterSQLConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
 	return c.Begin()
 }
 func (c semesterSQLConn) QueryContext(_ context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
+	c.s.mu.Lock()
 	c.s.queries = append(c.s.queries, q)
-	if c.s.begins != 1 {
+	begins := c.s.begins
+	c.s.mu.Unlock()
+	if begins != 1 {
 		return nil, errors.New("read escaped physical transaction")
 	}
 	if !strings.Contains(q, "FOR UPDATE") {
@@ -70,13 +129,17 @@ func (c semesterSQLConn) QueryContext(_ context.Context, q string, args []driver
 	return rows, nil
 }
 func (c semesterSQLConn) ExecContext(_ context.Context, q string, _ []driver.NamedValue) (driver.Result, error) {
+	c.s.mu.Lock()
 	if c.s.begins != 1 || c.s.commits != 0 || c.s.rollbacks != 0 {
+		c.s.mu.Unlock()
 		return nil, errors.New("write escaped transaction")
 	}
 	if strings.Contains(q, "readonly") {
+		c.s.mu.Unlock()
 		return nil, errors.New("write escaped router")
 	}
 	c.s.writes++
+	c.s.mu.Unlock()
 	if c.s.scenario == "write-failure" {
 		return nil, errors.New("write-failure")
 	}
@@ -86,19 +149,33 @@ func (c semesterSQLConn) ExecContext(_ context.Context, q string, _ []driver.Nam
 type semesterSQLTx struct{ s *semesterSQLState }
 
 func (t semesterSQLTx) Commit() error {
+	t.s.mu.Lock()
 	t.s.commits++
+	t.s.mu.Unlock()
 	if t.s.scenario == "commit-unknown" {
 		return errors.New("commit outcome unknown")
 	}
 	return nil
 }
-func (t semesterSQLTx) Rollback() error { t.s.rollbacks++; return nil }
+func (t semesterSQLTx) Rollback() error {
+	t.s.mu.Lock()
+	t.s.rollbacks++
+	if t.s.rollbackDone != nil {
+		select {
+		case <-t.s.rollbackDone:
+		default:
+			close(t.s.rollbackDone)
+		}
+	}
+	t.s.mu.Unlock()
+	return nil
+}
 
 func TestSemesterClearSQLSamePhysicalTransaction(t *testing.T) {
 	scenarios := []string{"success", "foreign-physical-owner", "wrong-physical-record", "foreign-char", "foreign-account", "foreign-quest", "foreign-scope", "callback-failure", "write-failure", "cancel", "panic", "commit-unknown", "pre-cancel"}
 	for _, scenario := range scenarios {
 		t.Run(scenario, func(t *testing.T) {
-			state := &semesterSQLState{scenario: scenario}
+			state := newSemesterSQLState(scenario)
 			db := sql.OpenDB(semesterSQLConnector{state})
 			defer db.Close()
 			u := &mysqlSemesterClearUnitOfWork{router: mysqlRouter{db: SQLDBAdapter{DB: db}, readDBs: []string{"readonly"}, writeDBs: []string{"shard_a", "shard_b"}, tablePrefix: "dnf_", now: time.Now}}
@@ -156,18 +233,25 @@ func TestSemesterClearSQLSamePhysicalTransaction(t *testing.T) {
 					return nil
 				})
 			}()
+			if scenario == "cancel" {
+				// A canceled context lets database/sql release the physical transaction
+				// from its async awaitDone goroutine; join on the driver rollback before
+				// sampling the counters.
+				state.awaitRollback(t)
+			}
+			begins, commits, rollbacks, writes := state.snapshot()
 			switch scenario {
 			case "success":
-				if err != nil || state.begins != 1 || state.commits != 1 || state.rollbacks != 0 || state.writes < 6 {
-					t.Fatalf("success err=%v state=%+v", err, state)
+				if err != nil || begins != 1 || commits != 1 || rollbacks != 0 || writes < 6 {
+					t.Fatalf("success err=%v state=%s", err, state.describe())
 				}
 			case "pre-cancel":
-				if err == nil || invoked || state.begins != 0 {
-					t.Fatal("pre-cancel", err, state)
+				if err == nil || invoked || begins != 0 {
+					t.Fatal("pre-cancel", err, state.describe())
 				}
 			case "commit-unknown":
-				if !errors.Is(err, repo.ErrSemesterClearCommitUnknown) || state.commits != 1 || state.rollbacks != 0 {
-					t.Fatal("unknown commit misrepresented", err, state)
+				if !errors.Is(err, repo.ErrSemesterClearCommitUnknown) || commits != 1 || rollbacks != 0 {
+					t.Fatal("unknown commit misrepresented", err, state.describe())
 				}
 			default:
 				if scenario == "panic" {
@@ -177,12 +261,12 @@ func TestSemesterClearSQLSamePhysicalTransaction(t *testing.T) {
 				} else if err == nil {
 					t.Fatal("fault accepted")
 				}
-				if state.commits != 0 || state.rollbacks != 1 {
-					t.Fatal("rollback boundary", err, state)
+				if commits != 0 || rollbacks != 1 {
+					t.Fatal("rollback boundary", err, state.describe())
 				}
 			}
 			if scenario == "foreign-physical-owner" || scenario == "wrong-physical-record" {
-				if invoked || state.writes != 0 {
+				if invoked || writes != 0 {
 					t.Fatal("foreign physical row reached callback")
 				}
 			}

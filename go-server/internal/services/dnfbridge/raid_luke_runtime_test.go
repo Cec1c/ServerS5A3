@@ -253,12 +253,20 @@ func TestRealPVFLukeOwnedTwoPhasesRewardsAndWeekly(t *testing.T) {
 		t.Fatal("Luke next phase", states, errs)
 	}
 	at = b.EnterAfter.Add(time.Second)
+	peer := f.session()
+	peer.selectedCharacterID, peer.accountID = 20, "account-20"
+	peer.channel, peer.loginPacketSeen, peer.accountFromToken = session.channel, true, true
+	f.service.bindGameSessionCharacter(peer, 20)
 	for _, id := range []uint32{5311, 5313, 5057, 5058, 5059, 5060, 5064, 5065, 5061, 5062} {
-		clearOwnedLuke(t, f, session, id, at)
+		owner := session
+		if id == 5313 || id == 5058 || id == 5060 || id == 5065 || id == 5062 {
+			owner = peer
+		}
+		clearOwnedLuke(t, f, owner, id, at)
 		at = at.Add(time.Second)
 	}
 	final := b.RewardFlow[1]
-	if !b.PhaseCompleted || final == nil || final.Mode != 2 || final.Rewards.MinimumClears != 2 || len(final.Recipients) != 1 || final.Recipients[0].CharacterID != 19 {
+	if !b.PhaseCompleted || final == nil || final.Mode != 2 || final.Rewards.MinimumClears != 2 || len(final.Recipients) != 2 || final.Recipients[0].CharacterID != 19 || final.Recipients[1].CharacterID != 20 {
 		t.Fatal("Luke final owned minimum", final)
 	}
 	result, err = prepareCurrentAntonResultProjection(cloneRuntimeRaidState(*f.state), 0)
@@ -270,7 +278,7 @@ func TestRealPVFLukeOwnedTwoPhasesRewardsAndWeekly(t *testing.T) {
 		t.Fatal("weekly transaction not required", errs)
 	}
 	done, errs := f.service.commitCurrentRaidWeeklyIntents(at)
-	if len(done) != 1 || len(errs) != 0 || done[0].Mode != 2 || len(done[0].Members) != 1 {
+	if len(done) != 1 || len(errs) != 0 || done[0].Mode != 2 || len(done[0].Members) != 2 {
 		t.Fatal("Luke weekly owner", done, errs)
 	}
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(final.AutoSelectAt, zeroAntonRoll); len(errs) != 0 || !final.Party[19].Committed || !final.Squad[19].Committed {
@@ -289,7 +297,7 @@ func TestRealPVFLukeOwnedTwoPhasesRewardsAndWeekly(t *testing.T) {
 		if character.Stats["raid_reward_v1_2_"+b.InstanceID+"_0_1"] == 0 || character.Stats["raid_reward_v1_1_"+b.InstanceID+"_0_1"] != 0 {
 			t.Fatal("Luke receipt mode mixup", id, character.Stats)
 		}
-		if id == "19" && character.Stats["raid_weekly_clears_v1_2"] != 1 || id == "20" && character.Stats["raid_weekly_clears_v1_2"] != 0 {
+		if character.Stats["raid_weekly_clears_v1_2"] != 1 {
 			t.Fatal("Luke weekly participation", id, character.Stats)
 		}
 	}

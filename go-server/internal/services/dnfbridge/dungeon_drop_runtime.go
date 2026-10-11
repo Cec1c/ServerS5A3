@@ -447,6 +447,22 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	// The LCG is advanced even when no standard scene item survived the real
 	// PVF selection.  This mirrors the reference room stream across kills.
 	visit.DropRNG = rng.Seed()
+	if runtime.raidEntry != nil && runtime.raidEntry.ChannelType == 32 {
+		filtered := selectedDrops[:0]
+		for _, selected := range selectedDrops {
+			if !selected.gold {
+				definition, err := dropCatalog.ResolveItem(selected.itemID)
+				if err != nil {
+					return nil, err
+				}
+				if s.currentLukeTeamMonsterMaterialSuppressed(runtime, definition) {
+					continue
+				}
+			}
+			filtered = append(filtered, selected)
+		}
+		selectedDrops = filtered
+	}
 	if len(selectedDrops) == 0 {
 		return nil, nil
 	}

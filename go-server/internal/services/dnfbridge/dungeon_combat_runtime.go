@@ -831,7 +831,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		}
 		s.checkCurrentDungeonQuestMonsterDrops(session, runtime, rewardMonster.Spawn.MonsterID)
 	}
-	if bossActorDeath && !storyAIBossGateActive && !isPVFTutorialDungeonScene(runtime, scene) &&
+	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
 		forcedDefeated, forcedVisual, forcedCleared, forceErr := s.forceCurrentDungeonRemainingHostilesForCombatEndLocked(
 			session,

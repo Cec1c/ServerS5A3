@@ -12,7 +12,7 @@ import (
 func TestMailboxSQLPhysicalRollbackAndUnknownCommit(t *testing.T) {
 	for _, mode := range []string{"success", "error", "panic", "cancel", "commit-unknown"} {
 		t.Run(mode, func(t *testing.T) {
-			state := &semesterSQLState{scenario: mode}
+			state := newSemesterSQLState(mode)
 			db := sql.OpenDB(semesterSQLConnector{state})
 			defer db.Close()
 			u := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{db: SQLDBAdapter{DB: db}, readDBs: []string{"readonly"}, writeDBs: []string{"shard_a", "shard_b"}, tablePrefix: "dnf_", now: time.Now}}
@@ -46,17 +46,24 @@ func TestMailboxSQLPhysicalRollbackAndUnknownCommit(t *testing.T) {
 					return nil
 				})
 			}()
-			if state.begins != 1 || state.writes < 2 {
-				t.Fatalf("physical writes not exercised: %+v err=%v", state, err)
+			if mode != "success" && mode != "commit-unknown" {
+				// A canceled context lets database/sql release the physical transaction
+				// from its async awaitDone goroutine; join on the driver rollback before
+				// sampling the counters.
+				state.awaitRollback(t)
+			}
+			begins, commits, rollbacks, writes := state.snapshot()
+			if begins != 1 || writes < 2 {
+				t.Fatalf("physical writes not exercised: state=%s err=%v", state.describe(), err)
 			}
 			switch mode {
 			case "success":
-				if err != nil || caught != nil || state.commits != 1 || state.rollbacks != 0 {
-					t.Fatal(err, caught, state)
+				if err != nil || caught != nil || commits != 1 || rollbacks != 0 {
+					t.Fatal(err, caught, state.describe())
 				}
 			case "commit-unknown":
-				if err == nil || caught != nil || state.commits != 1 || state.rollbacks != 0 {
-					t.Fatal("unknown outcome misrepresented", err, caught, state)
+				if err == nil || caught != nil || commits != 1 || rollbacks != 0 {
+					t.Fatal("unknown outcome misrepresented", err, caught, state.describe())
 				}
 			default:
 				if mode == "panic" {
@@ -66,8 +73,8 @@ func TestMailboxSQLPhysicalRollbackAndUnknownCommit(t *testing.T) {
 				} else if err == nil || caught != nil {
 					t.Fatal(err, caught)
 				}
-				if state.commits != 0 || state.rollbacks != 1 {
-					t.Fatal("physical transaction leaked", state)
+				if commits != 0 || rollbacks != 1 {
+					t.Fatal("physical transaction leaked", state.describe())
 				}
 			}
 		})

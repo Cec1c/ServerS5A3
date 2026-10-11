@@ -93,6 +93,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"emotion",
 		"joust",
 		"collectbox",
+		"web-viewer",
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
 		t.Fatalf("module names=%v want=%v", currentGameplayModules.names, wantNames)
@@ -208,6 +209,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketJoustBetting):                   "joust",
 		uint16(dnfenum.CmdPacketJoustMatchHistory):              "joust",
 		uint16(dnfenum.CmdPacketCompoundAvatar):                 "avatar-compound",
+		uint16(dnfenum.CmdPacketWebViewerInfo):                  "web-viewer",
 	}
 	for opcode, want := range upperOwners {
 		if route, ok := currentGameplayModules.upperHandlers[opcode]; !ok || route.module != want {

@@ -17,6 +17,7 @@ import (
 // The online raid owns these values. Notifications are projections of this
 // instance, never substitutes for an admission transaction or a cleared map.
 type runtimeRaidBattle struct {
+	LukeMemberRoutes     map[uint16]currentLukeMemberRoute
 	LukeSanctumMazeGroup *currentLukeSanctumMazeGroup
 	InstanceID           string
 	Mode                 byte
@@ -65,6 +66,10 @@ func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {
 		return nil
 	}
 	v := *b
+	v.LukeMemberRoutes = make(map[uint16]currentLukeMemberRoute, len(b.LukeMemberRoutes))
+	for id, route := range b.LukeMemberRoutes {
+		v.LukeMemberRoutes[id] = route
+	}
 	if b.LukeSanctumMazeGroup != nil {
 		group := *b.LukeSanctumMazeGroup
 		group.Configuration = group.Configuration.Clone()
@@ -460,6 +465,9 @@ func (s *Service) currentRaidDungeonSelectionAllowed(session *gameSession, dunge
 		return false
 	}
 	if b.PhaseCompleted || b.TimedOut || now.Before(b.EnterAfter) || !now.Before(b.Deadline) {
+		return false
+	}
+	if !s.currentLukeRouteAllowedLocked(b, session.selectedCharacterID, dungeonID) {
 		return false
 	}
 	for _, dungeon := range b.Dungeons {
