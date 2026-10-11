@@ -1,5 +1,11 @@
 # Repository changelog
 
+## 2026-10-12 — Isolated QA service switched to candidate33
+
+- Shut down the exact owned QA09 service normally and retain the same database/config/assets. Preserve the initial port preflight block on the old admin connection's TIME_WAIT, with no candidate process created at that point.
+- After endpoint release, start the frozen final32 candidate once; independently verify new-PID READY and118 game TCP listeners, then read the original necklace instance without granting/crafting again.
+- Keep the player's standard client and dailyr98 untouched. New native PID binding and volcano animation/monster-damage acceptance remain open; source CI pending is separate from successful local builds.
+
 ## 2026-10-12 — Initial town snapshot deadline and preserved QA evidence
 
 - Give the full initial-town player-state snapshot the existing15-second budget instead of the3-second mutation budget; preserve packet order, route/character guards and error withholding of typed op24. One legacy achievement cleanup transaction inherits the longer budget; other independently scoped contexts stay unchanged.
