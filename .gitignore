@@ -13,5 +13,6 @@
 !*.example
 Script.pvf
 channel_info.etc
+!go-server/internal/services/dnfbridge/testdata/channel_info.etc
 .DS_Store
 Thumbs.db
