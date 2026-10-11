@@ -6,7 +6,7 @@
 
 ## 范围
 
-历史导入基线为3,356文件，包含D22修复和D23测试；D33已在此基线上追加候选修复，当前源码3368文件。逐文件字节数/SHA256见source-manifest.json。主工程冻结清单SHA256：e3e04729afb0573f311afde7785173d2fe9cb153cc6b83a8cd80df28f1e6fb0d。
+历史导入基线为3,356文件，包含D22修复和D23测试；D33已在此基线上追加候选修复，当前源码3374文件。逐文件字节数/SHA256见source-manifest.json。主工程冻结清单SHA256：e3e04729afb0573f311afde7785173d2fe9cb153cc6b83a8cd80df28f1e6fb0d。
 
 保留新仓库原master提交，追加导入，不重写历史。根目录文档、构建脚本、CI和示例为仓库协作材料；D33源码修改详见[D33修复状态](D33_REPAIR_STATUS.md)和current-source-manifest.json，source-manifest.json保留为历史导入证据。D29-D32自有角色QA导入/认证工具不属于主源码闭包，未纳入上传；含部署细节的完整本地运维日志也不上传。
 

@@ -1,7 +1,7 @@
 {
   "source_file_count": 3374,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 recipe/shop reviewed candidate",
+  "stage": "D33 raw declaration guard; final11 validated",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -9775,13 +9775,13 @@
     },
     {
       "path": "internal/services/dnfbridge/equipment_recipe_compound.go",
-      "bytes": 25968,
-      "sha256": "11873ffd62ac22bfd8e536d85e6ea829817a825620636348b32d1bae8a1597ae"
+      "bytes": 33978,
+      "sha256": "6c62504a652fe914d328474d28902ff7a587dd1abb0331583d694e5c77afd760"
     },
     {
       "path": "internal/services/dnfbridge/equipment_recipe_compound_test.go",
-      "bytes": 50595,
-      "sha256": "614238dca7e9410a9a47ff3c0e076e278d8e23a7e92b290854a2d68e5e818968"
+      "bytes": 87759,
+      "sha256": "7b2609f8d9f5122197cacf1a6744be807e716c8812c1808a6213996f3a54d2cd"
     },
     {
       "path": "internal/services/dnfbridge/equipment_stats.go",

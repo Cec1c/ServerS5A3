@@ -18,9 +18,11 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +30,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 	platformpvf "longheng.io/server/internal/platform/pvf"
@@ -406,7 +409,7 @@ func TestCurrentEquipmentRecipeCompoundSupportBoundary(t *testing.T) {
 			if string(entry.Kind) != test.wantKind {
 				t.Fatalf("kind=%s want=%s entry=%+v", entry.Kind, test.wantKind, entry)
 			}
-			if got := currentEquipmentRecipeCompoundRejectReason(entry); got != test.wantReason {
+			if got := currentEquipmentRecipeCompoundRejectReason(entry, catalog.source); got != test.wantReason {
 				t.Fatalf("reason=%q want=%q entry=%+v", got, test.wantReason, entry)
 			}
 		})
@@ -783,6 +786,7 @@ func TestCurrentEquipmentRecipeCompoundSharedAssetsAtomicity(t *testing.T) {
 	// character capacity after both inventories and gold have already changed.
 	doc := strings.ReplaceAll(equipmentRecipeCompoundTestGoldDoc, "2000 2", "2000 2 3037 9")
 	doc = strings.ReplaceAll(doc, "3000 1", "3033 1 4000 1")
+	doc += "[minimum itemmaking level]\n`weapon` 1\n"
 	for _, test := range []struct {
 		name                string
 		shared              int64
@@ -914,7 +918,7 @@ func TestCurrentEquipmentRecipeCompoundUnprovenSemanticsLeaveAssetsUntouched(t *
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got := currentEquipmentRecipeCompoundRejectReason(entry); got != test.reason {
+				if got := currentEquipmentRecipeCompoundRejectReason(entry, catalog.source); got != test.reason {
 					t.Fatalf("reason=%s want=%s entry=%+v", got, test.reason, entry)
 				}
 			}
@@ -934,17 +938,344 @@ func TestCurrentEquipmentRecipeCompoundUnprovenSemanticsLeaveAssetsUntouched(t *
 	}
 	base := equipmentRecipeEntry{Kind: equipmentRecipeKindMaterialOutput, Materials: []equipmentRecipeItemStack{{ItemID: 2000, Count: 1}}, Outputs: []equipmentRecipeItemStack{{ItemID: 3000, Count: 1}}}
 	base.MinimumItemmakingField = "weapon"
-	if currentEquipmentRecipeCompoundRejectReason(base) != "itemmaking_level_semantics_unproven" {
+	if currentEquipmentRecipeCompoundRejectReason(base, nil) != "itemmaking_level_shape_invalid" {
 		t.Fatal("partial making field bypass")
 	}
 	base.MinimumItemmakingField = ""
 	base.MinimumItemmakingFound = true
-	if currentEquipmentRecipeCompoundRejectReason(base) != "itemmaking_level_semantics_unproven" {
+	if currentEquipmentRecipeCompoundRejectReason(base, nil) != "itemmaking_level_shape_invalid" {
 		t.Fatal("making found bypass")
 	}
 	base.MinimumItemmakingFound = false
-	if currentEquipmentRecipeCompoundRejectReason(base) != "" {
+	if currentEquipmentRecipeCompoundRejectReason(base, nil) != "" {
 		t.Fatal("empty need skill must be allowed")
+	}
+}
+
+// proof08: the current client's making-level query has a floor of 1 for
+// each exact enum. This admission reads PVF shape; no character ability is seeded.
+func TestCurrentEquipmentRecipeCompoundItemmakingFloorEnums(t *testing.T) {
+	for _, category := range []string{"weapon", "cloth", "leather", "larmor", "harmor", "plate", "amulet", "wrist", "ring", "support", "magic stone"} {
+		t.Run(category, func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			characterBefore := dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: 1, Stats: map[string]int64{"gold": 100}}
+			inventoryBefore := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:69": {ItemID: 1000, Count: 2}, "0:20": {ItemID: 2000, Count: 4}}}
+			if err := repos.Character.Save(ctx, characterBefore); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.Inventory.Save(ctx, inventoryBefore); err != nil {
+				t.Fatal(err)
+			}
+			doc := equipmentRecipeCompoundTestGoldDoc + "[minimum itemmaking level]\n`" + category + "` 1\n[minimum level]\n1\n[usable job]\n`[all]`\n[/usable job]\n[need skill]\n[/need skill]\n"
+			source := equipmentRecipeCompoundTestSource(doc)
+			catalog, err := newPVFEquipmentRecipeCatalog(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, found, err := catalog.Recipe(1000)
+			if err != nil || !found {
+				t.Fatalf("entry found=%t err=%v", found, err)
+			}
+			if got := currentEquipmentRecipeCompoundRejectReason(entry, source); got != "" {
+				t.Fatalf("floor rejected: %s", got)
+			}
+			s := equipmentRecipeCompoundTestService(t, source, repos)
+			conn := &bufferConn{}
+			session := &gameSession{conn: conn, selectedCharacterID: 19, itemListMigrationsDone: true}
+			// Native observed 9B enters the existing owner, even with no making Stats.
+			if err := s.handleGameCommand(session, 1, 25, append(equipmentRecipeCompoundTestSlotRequest(69, 1), 0, 1)); err != nil {
+				t.Fatal(err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			if !bytes.Equal(ack.Body, []byte{1, 0, 0}) {
+				t.Fatalf("ack=%x", ack.Body)
+			}
+			equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 1, 2000: 2, 3000: 1}, map[uint16][2]uint32{0: {0, 50}, 69: {1000, 1}, 20: {2000, 2}, 3: {3000, 1}})
+			character, _, err := repos.Character.Load(ctx, "19")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := dnfrepo.CloneCharacter(characterBefore)
+			want.Stats["gold"] = 50
+			want.UpdatedAt = character.UpdatedAt
+			if !reflect.DeepEqual(character, want) {
+				t.Fatalf("floor fabricated character capability: got=%+v want=%+v", character, want)
+			}
+		})
+	}
+}
+
+func TestCurrentEquipmentRecipeCompoundItemmakingFloorMalformedAndOtherGatesAtomic(t *testing.T) {
+	for _, test := range []struct{ name, suffix, reason string }{
+		{"unknown category", "[minimum itemmaking level]\n`cooking` 1\n", "itemmaking_category_unproven"},
+		{"enum alias", "[minimum itemmaking level]\n`Weapon` 1\n", "itemmaking_category_unproven"},
+		{"enum sentinel", "[minimum itemmaking level]\n`11` 1\n", "itemmaking_category_unproven"},
+		{"untyped category", "[minimum itemmaking level]\nweapon 1\n", "itemmaking_level_shape_invalid"},
+		{"zero", "[minimum itemmaking level]\n`weapon` 0\n", "itemmaking_level_shape_invalid"},
+		{"negative", "[minimum itemmaking level]\n`weapon` -1\n", "itemmaking_level_shape_invalid"},
+		{"higher level", "[minimum itemmaking level]\n`weapon` 2\n", "itemmaking_level_semantics_unproven"},
+		{"empty section", "[minimum itemmaking level]\n[/minimum itemmaking level]\n", "itemmaking_level_shape_invalid"},
+		{"missing integer", "[minimum itemmaking level]\n`weapon`\n", "itemmaking_level_shape_invalid"},
+		{"missing category", "[minimum itemmaking level]\n1\n", "itemmaking_level_shape_invalid"},
+		{"excess integer", "[minimum itemmaking level]\n`weapon` 1 9\n", "itemmaking_level_shape_invalid"},
+		{"excess text", "[minimum itemmaking level]\n`weapon` 1 `cloth`\n", "itemmaking_level_shape_invalid"},
+		{"reversed fields", "[minimum itemmaking level]\n1 `weapon`\n", "itemmaking_level_shape_invalid"},
+		{"float", "[minimum itemmaking level]\n`weapon` 1.0\n", "itemmaking_level_shape_invalid"},
+		{"symbol", "[minimum itemmaking level]\n`weapon` { 1 }\n", "itemmaking_level_shape_invalid"},
+		{"duplicate section", "[minimum itemmaking level]\n`weapon` 1\n[minimum itemmaking level]\n`weapon` 1\n", "itemmaking_level_shape_invalid"},
+		{"orphan making closer", "[/minimum itemmaking level]\n", "itemmaking_level_shape_invalid"},
+		{"making closer payload", "[minimum itemmaking level]\n`weapon` 1\n[/minimum itemmaking level]\n9\n", "itemmaking_level_shape_invalid"},
+		{"duplicate making closer", "[minimum itemmaking level]\n`weapon` 1\n[/minimum itemmaking level]\n[/minimum itemmaking level]\n", "itemmaking_level_shape_invalid"},
+		{"floor with need skill", "[minimum itemmaking level]\n`weapon` 1\n[need skill]\n140 1\n[/need skill]\n", "need_skill_semantics_unproven"},
+		{"floor with success100", "[minimum itemmaking level]\n`weapon` 1\n[success rate]\n100\n", "success_rate_unit_unproven"},
+		{"floor with creation1000", "[minimum itemmaking level]\n`weapon` 1\n[creation rate]\n1000\n", "creation_rate_unit_unproven"},
+		{"floor with success10000", "[minimum itemmaking level]\n`weapon` 1\n[success rate]\n10000\n", "success_rate_unit_unproven"},
+		{"floor with creation100", "[minimum itemmaking level]\n`weapon` 1\n[creation rate]\n100\n", "creation_rate_unit_unproven"},
+		{"floor with success0", "[minimum itemmaking level]\n`weapon` 1\n[success rate]\n0\n", "success_rate_unit_unproven"},
+		{"floor with empty rate", "[minimum itemmaking level]\n`weapon` 1\n[creation rate]\n[/creation rate]\n", "creation_rate_unit_unproven"},
+		{"no minimum empty rate", "[success rate]\n[/success rate]\n", "success_rate_unit_unproven"},
+		{"no minimum symbolic rate", "[creation rate]\n{}\n", "creation_rate_unit_unproven"},
+		{"orphan explicit rate closer", "[/success rate]\n", "success_rate_unit_unproven"},
+		{"empty skill missing closer", "[need skill]\n", "need_skill_shape_invalid"},
+		{"empty skill orphan closer", "[/need skill]\n", "need_skill_shape_invalid"},
+		{"empty skill duplicate", "[need skill]\n[/need skill]\n[need skill]\n[/need skill]\n", "need_skill_shape_invalid"},
+		{"empty skill symbols", "[need skill]\n{}\n[/need skill]\n", "need_skill_shape_invalid"},
+		{"empty skill closer payload", "[need skill]\n[/need skill]\n1\n", "need_skill_shape_invalid"},
+		{"dated floor", "[minimum itemmaking level]\n`weapon` 1\n[expiration date]\n`2014-07-01 00:00:00`\n", "source_expiration_semantics_unproven"},
+		{"empty date", "[expiration date]\n", "source_expiration_semantics_unproven"},
+		{"future date still unknown", "[expiration date]\n`2999-07-01 00:00:00`\n", "source_expiration_semantics_unproven"},
+		{"ordinary minimum missing", "[minimum level]\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum excess", "[minimum level]\n9 10\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum duplicate", "[minimum level]\n9\n[minimum level]\n9\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum zero", "[minimum level]\n0\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum negative", "[minimum level]\n-9\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum float", "[minimum level]\n9.0\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum string", "[minimum level]\n`9`\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum symbols", "[minimum level]\n{9}\n", "source_minimum_level_shape_invalid"},
+		{"orphan ordinary minimum closer", "[/minimum level]\n", "source_minimum_level_shape_invalid"},
+		{"ordinary minimum closer payload", "[minimum level]\n9\n[/minimum level]\n10\n", "source_minimum_level_shape_invalid"},
+		{"unknown usable job", "[usable job]\n`[unknown]`\n[/usable job]\n", "source_usable_job_semantics_unproven"},
+		{"unproved restricted job", "[usable job]\n`[swordman]`\n[/usable job]\n", "source_usable_job_semantics_unproven"},
+		{"excess usable job", "[usable job]\n`[all]` 1\n[/usable job]\n", "source_usable_job_semantics_unproven"},
+		{"duplicate usable job", "[usable job]\n`[all]`\n[/usable job]\n[usable job]\n`[all]`\n[/usable job]\n", "source_usable_job_semantics_unproven"},
+		{"usable job closer payload", "[usable job]\n`[all]`\n[/usable job]\n`[swordman]`\n", "source_usable_job_semantics_unproven"},
+		{"floor with upgrade", "[minimum itemmaking level]\n`weapon` 1\n[action type]\n`[infinite upgrade recipe]`\n", "upgrade_present"},
+		{"floor with maintain", "[minimum itemmaking level]\n`weapon` 1\n[maintain ability]\n`normal`\n", "maintain_present"},
+		{"floor with fail output", "[minimum itemmaking level]\n`weapon` 1\n[fail output]\n3000 1\n[/fail output]\n", "fail_output_present"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			characterBefore := dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: 90, Stats: map[string]int64{"gold": 100}}
+			inventoryBefore := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:69": {ItemID: 1000, Count: 2}, "0:20": {ItemID: 2000, Count: 4}}}
+			accountBefore := dnfrepo.AccountInventoryRecord{AccountID: "account-1", Slots: map[string]dnfrepo.ItemStack{"0:358": {ItemID: 3037, Count: 77}}}
+			if err := repos.Character.Save(ctx, characterBefore); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.Inventory.Save(ctx, inventoryBefore); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.AccountInventory.Save(ctx, accountBefore); err != nil {
+				t.Fatal(err)
+			}
+			source := equipmentRecipeCompoundTestSource(equipmentRecipeCompoundTestGoldDoc + test.suffix)
+			catalog, err := newPVFEquipmentRecipeCatalog(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, found, err := catalog.Recipe(1000)
+			if err != nil || !found {
+				t.Fatalf("entry found=%t err=%v", found, err)
+			}
+			if got := currentEquipmentRecipeCompoundRejectReason(entry, source); got != test.reason {
+				t.Fatalf("reason=%s want=%s", got, test.reason)
+			}
+			s := equipmentRecipeCompoundTestService(t, source, repos)
+			conn := &bufferConn{}
+			equipmentRecipeCompoundTestDispatch(t, s, &gameSession{conn: conn, selectedCharacterID: 19, itemListMigrationsDone: true}, 1, equipmentRecipeCompoundTestSlotRequest(69, 1))
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			character, _, _ := repos.Character.Load(ctx, "19")
+			inventory, _, _ := repos.Inventory.Load(ctx, "19")
+			account, _, _ := repos.AccountInventory.Load(ctx, "account-1")
+			if !bytes.Equal(ack.Body, []byte{0, 0}) || len(rest) != 0 || !reflect.DeepEqual(character, characterBefore) || !reflect.DeepEqual(inventory, inventoryBefore) || !reflect.DeepEqual(account, accountBefore) {
+				t.Fatalf("rejected floor gate changed assets: ack=%x char=%+v inv=%+v account=%+v", ack.Body, character, inventory, account)
+			}
+		})
+	}
+	// Catalog summary mismatches cannot authorize the raw, otherwise valid pair.
+	source := equipmentRecipeCompoundTestSource(equipmentRecipeCompoundTestSupportedDoc + "[minimum itemmaking level]\n`weapon` 1\n")
+	catalog, err := newPVFEquipmentRecipeCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _, err := catalog.Recipe(1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*equipmentRecipeEntry){
+		func(e *equipmentRecipeEntry) { e.MinimumItemmakingFound = false },
+		func(e *equipmentRecipeEntry) { e.MinimumItemmakingField = "" },
+		func(e *equipmentRecipeEntry) { e.MinimumItemmakingLevel = 0 },
+		func(e *equipmentRecipeEntry) { e.MinimumItemmakingLevel = 2 },
+	} {
+		copy := entry
+		mutate(&copy)
+		if got := currentEquipmentRecipeCompoundRejectReason(copy, source); got != "itemmaking_level_shape_invalid" {
+			t.Fatalf("catalog mismatch accepted reason=%q entry=%+v", got, copy)
+		}
+	}
+	if got := currentEquipmentRecipeCompoundRejectReason(entry, nil); got == "" {
+		t.Fatal("floor without shape source accepted")
+	}
+	missing := equipmentRecipeCompoundTestSource(equipmentRecipeCompoundTestSupportedDoc)
+	if got := currentEquipmentRecipeCompoundRejectReason(entry, missing); got != "itemmaking_level_shape_invalid" {
+		t.Fatalf("catalog says minimum, raw absent: %s", got)
+	}
+	delete(missing, entry.PVFPath)
+	if got := currentEquipmentRecipeCompoundRejectReason(entry, missing); got != "itemmaking_document_unavailable" {
+		t.Fatalf("missing raw PVF: %s", got)
+	}
+}
+
+// B1: symbols/empty sections and orphan closers must not disappear through
+// catalog projections. Check both legacy recipes and the newly admitted floor.
+func TestCurrentEquipmentRecipeCompoundRawUnsupportedDeclarationsAtomic(t *testing.T) {
+	for _, floor := range []bool{false, true} {
+		base := equipmentRecipeCompoundTestGoldDoc
+		if floor {
+			base += "[minimum itemmaking level]\n`weapon` 1\n"
+		}
+		for _, tag := range []string{"need material", "bead item", "fail output", "item category", "action type", "custom upgrade type", "maintain ability", "maintain socket stat", "expertjob only", "int data"} {
+			shapes := []struct{ name, suffix string }{
+				{"empty", "[" + tag + "]\n[/" + tag + "]\n"},
+				{"symbols", "[" + tag + "]\n{}\n[/" + tag + "]\n"},
+				{"unknown type", "[" + tag + "]\n`unproved`\n[/" + tag + "]\n"},
+				{"first empty duplicate", "[" + tag + "]\n[" + tag + "]\n`unproved`\n[/" + tag + "]\n"},
+				{"orphan closer", "[/" + tag + "]\n"},
+				{"closer payload", "[/" + tag + "]\n17\n"},
+			}
+			if tag == "int data" {
+				shapes = append(shapes, struct{ name, suffix string }{"mixed integer encoding", "[int data]\n1 2000 1 1 3000 1 0\n[/int data]\n"})
+			}
+			for _, shape := range shapes {
+				t.Run(fmt.Sprintf("floor=%t/%s/%s", floor, tag, shape.name), func(t *testing.T) {
+					ctx := context.Background()
+					repos := dnfrepomemory.NewMemoryGroup()
+					characterBefore := dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: 90, Stats: map[string]int64{"gold": 100}}
+					inventoryBefore := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:69": {ItemID: 1000, Count: 2}, "0:20": {ItemID: 2000, Count: 4}}}
+					accountBefore := dnfrepo.AccountInventoryRecord{AccountID: "account-1", Slots: map[string]dnfrepo.ItemStack{"0:358": {ItemID: 3037, Count: 77}}}
+					if err := repos.Character.Save(ctx, characterBefore); err != nil {
+						t.Fatal(err)
+					}
+					if err := repos.Inventory.Save(ctx, inventoryBefore); err != nil {
+						t.Fatal(err)
+					}
+					if err := repos.AccountInventory.Save(ctx, accountBefore); err != nil {
+						t.Fatal(err)
+					}
+					source := equipmentRecipeCompoundTestSource(base + shape.suffix)
+					catalog, err := newPVFEquipmentRecipeCatalog(source)
+					if err != nil {
+						t.Fatal(err)
+					}
+					entry, found, err := catalog.Recipe(1000)
+					if err != nil && !errors.Is(err, errEquipmentRecipePVFDocumentShape) {
+						t.Fatalf("entry found=%t err=%v", found, err)
+					}
+					if err == nil && (!found || currentEquipmentRecipeCompoundRejectReason(entry, source) == "") {
+						t.Fatalf("raw %s declaration bypassed rejection", tag)
+					}
+					s := equipmentRecipeCompoundTestService(t, source, repos)
+					conn := &bufferConn{}
+					equipmentRecipeCompoundTestDispatch(t, s, &gameSession{conn: conn, selectedCharacterID: 19, itemListMigrationsDone: true}, 1, equipmentRecipeCompoundTestSlotRequest(69, 1))
+					ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+					character, _, _ := repos.Character.Load(ctx, "19")
+					inventory, _, _ := repos.Inventory.Load(ctx, "19")
+					account, _, _ := repos.AccountInventory.Load(ctx, "account-1")
+					if !bytes.Equal(ack.Body, []byte{0, 0}) || len(rest) != 0 || !reflect.DeepEqual(character, characterBefore) || !reflect.DeepEqual(inventory, inventoryBefore) || !reflect.DeepEqual(account, accountBefore) {
+						t.Fatalf("unproved raw declaration changed assets or refreshed: ack=%x char=%+v inv=%+v account=%+v", ack.Body, character, inventory, account)
+					}
+				})
+			}
+		}
+		// An integer-encoded alternative must not hide behind a positive
+		// material-output kind; pure UI metadata and strict empty skill stay legal.
+		for _, test := range []struct {
+			suffix string
+			reject bool
+		}{
+			{"[int data]\n1 2000 1 1 3000 1 0\n[/int data]\n", true},
+			{"[explain]\n`UI description`\n[need skill]\n[/need skill]\n", false},
+		} {
+			source := equipmentRecipeCompoundTestSource(base + test.suffix)
+			catalog, err := newPVFEquipmentRecipeCatalog(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, found, err := catalog.Recipe(1000)
+			if err != nil || !found {
+				t.Fatalf("entry found=%t err=%v", found, err)
+			}
+			if rejected := currentEquipmentRecipeCompoundRejectReason(entry, source) != ""; rejected != test.reject {
+				t.Fatalf("mixed encoding/metadata rejection=%t want=%t", rejected, test.reject)
+			}
+		}
+	}
+}
+
+func TestCurrentEquipmentRecipeCompoundOrdinarySourceLevelAtomic(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		level       int
+		making      bool
+		wantSuccess bool
+	}{
+		{"floor does not waive ordinary level", 8, true, false},
+		{"no making minimum still needs ordinary level", 8, false, false},
+		{"exact ordinary minimum", 9, true, true},
+		{"above ordinary minimum", 90, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			before := dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: test.level, Stats: map[string]int64{"gold": 100}}
+			inventoryBefore := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:69": {ItemID: 1000, Count: 2}, "0:20": {ItemID: 2000, Count: 4}}}
+			accountBefore := dnfrepo.AccountInventoryRecord{AccountID: "account-1", Slots: map[string]dnfrepo.ItemStack{"0:358": {ItemID: 3037, Count: 77}}}
+			if err := repos.Character.Save(ctx, before); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.Inventory.Save(ctx, inventoryBefore); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.AccountInventory.Save(ctx, accountBefore); err != nil {
+				t.Fatal(err)
+			}
+			doc := equipmentRecipeCompoundTestGoldDoc + "[minimum level]\n9\n[usable job]\n`[all]`\n[/usable job]\n[need skill]\n[/need skill]\n"
+			if test.making {
+				doc += "[minimum itemmaking level]\n`weapon` 1\n"
+			}
+			source := equipmentRecipeCompoundTestSource(doc)
+			s := equipmentRecipeCompoundTestService(t, source, repos)
+			conn := &bufferConn{}
+			if err := s.handleGameCommand(&gameSession{conn: conn, selectedCharacterID: 19, itemListMigrationsDone: true}, 1, 25, append(equipmentRecipeCompoundTestSlotRequest(69, 1), 0, 1)); err != nil {
+				t.Fatal(err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			character, _, _ := repos.Character.Load(ctx, "19")
+			inventory, _, _ := repos.Inventory.Load(ctx, "19")
+			account, _, _ := repos.AccountInventory.Load(ctx, "account-1")
+			if !test.wantSuccess {
+				if !bytes.Equal(ack.Body, []byte{0, 0}) || len(rest) != 0 || !reflect.DeepEqual(character, before) || !reflect.DeepEqual(inventory, inventoryBefore) || !reflect.DeepEqual(account, accountBefore) {
+					t.Fatalf("source qualification failure changed assets: char=%+v inv=%+v account=%+v ack=%x", character, inventory, account, ack.Body)
+				}
+				return
+			}
+			if !bytes.Equal(ack.Body, []byte{1, 0, 0}) || character.Level != before.Level || !reflect.DeepEqual(account, accountBefore) {
+				t.Fatal("source qualification success mismatch")
+			}
+			equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 1, 2000: 2, 3000: 1, 3037: 77}, map[uint16][2]uint32{0: {0, 50}, 69: {1000, 1}, 20: {2000, 2}, 3: {3000, 1}, 358: {3037, 77}})
+		})
 	}
 }
 
@@ -1001,6 +1332,109 @@ func TestCurrentEquipmentRecipeCompoundPlanningOverflowAndCountGuard(t *testing.
 	}
 }
 
+// Independent09 P5/P7: real dates remain rejected without a clock guess, and
+// the catalog's existing zero-count normalization must retain its audit row.
+func equipmentRecipeCompoundTestRealCapabilityAudits(t *testing.T, items *pvfDungeonDropCatalog, recipes *pvfEquipmentRecipeCatalog) {
+	t.Helper()
+	for id := int64(10093760); id <= 10093784; id++ {
+		entry, found, err := recipes.Recipe(id)
+		if err != nil || !found {
+			t.Fatalf("dated recipe %d found=%t err=%v", id, found, err)
+		}
+		if got := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); got != "source_expiration_semantics_unproven" {
+			t.Fatalf("dated recipe %d reason=%s", id, got)
+		}
+		text, err := recipes.source.ReadText(entry.PVFPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, err := dnfpvf.Parse(entry.PVFPath, text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		date, found := doc.Text("expiration date")
+		if !found || date != "2014-07-01 00:00:00" {
+			t.Fatalf("dated recipe %d date=%q", id, date)
+		}
+		t.Run("dated atomic "+strconv.FormatInt(id, 10), func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			characterBefore := dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: 90, Stats: map[string]int64{"gold": 100000}}
+			inventoryBefore := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:69": {ItemID: id, Count: 2}}}
+			accountBefore := dnfrepo.AccountInventoryRecord{AccountID: "account-1", Slots: map[string]dnfrepo.ItemStack{"0:354": {ItemID: 3033, Count: 11}}}
+			for i, material := range entry.Materials {
+				if fixed, shared := dnfrepo.AccountWarehouseSlotForItem(material.ItemID); shared {
+					accountBefore.Slots[dnfrepo.AccountSharedInventorySlotKey(fixed)] = dnfrepo.ItemStack{ItemID: material.ItemID, Count: material.Count * 2}
+				} else {
+					inventoryBefore.Slots[currentCeraShopInventorySlotKey(0, int16(121+i))] = dnfrepo.ItemStack{ItemID: material.ItemID, Count: material.Count * 2}
+				}
+			}
+			if err := repos.Character.Save(ctx, characterBefore); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.Inventory.Save(ctx, inventoryBefore); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.AccountInventory.Save(ctx, accountBefore); err != nil {
+				t.Fatal(err)
+			}
+			s := equipmentRecipeCompoundTestService(t, equipmentRecipeCompoundTestSource(equipmentRecipeCompoundTestSupportedDoc), repos)
+			s.pvfItemCatalog = items
+			conn := &bufferConn{}
+			if err := s.handleGameCommand(&gameSession{conn: conn, selectedCharacterID: 19, itemListMigrationsDone: true}, 1, 25, append(equipmentRecipeCompoundTestSlotRequest(69, 1), 0, 1)); err != nil {
+				t.Fatal(err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			character, _, _ := repos.Character.Load(ctx, "19")
+			inventory, _, _ := repos.Inventory.Load(ctx, "19")
+			account, _, _ := repos.AccountInventory.Load(ctx, "account-1")
+			if !bytes.Equal(ack.Body, []byte{0, 0}) || len(rest) != 0 || !reflect.DeepEqual(character, characterBefore) || !reflect.DeepEqual(inventory, inventoryBefore) || !reflect.DeepEqual(account, accountBefore) {
+				t.Fatalf("dated recipe %d mutated assets", id)
+			}
+		})
+	}
+	entry, found, err := recipes.Recipe(2654516)
+	if err != nil || !found {
+		t.Fatalf("zero-count audit found=%t err=%v", found, err)
+	}
+	if !reflect.DeepEqual(entry.ZeroCountPairs, []equipmentRecipeItemStack{{3174, 0}}) {
+		t.Fatalf("zero-count audit lost: %v", entry.ZeroCountPairs)
+	}
+	for _, material := range entry.Materials {
+		if material.ItemID == 3174 {
+			t.Fatalf("zero-count pair became payable material: %v", entry.Materials)
+		}
+	}
+	text, err := recipes.source.ReadText(entry.PVFPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := dnfpvf.Parse(entry.PVFPath, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, found, err := equipmentRecipePayloadTokens(doc, "input item")
+	if err != nil || !found {
+		t.Fatal("raw zero-count input missing")
+	}
+	rawPair := false
+	for i := 0; i+1 < len(tokens); i += 2 {
+		if tokens[i].Kind == dnfpvf.TokenInt && tokens[i].Int == 3174 && tokens[i+1].Kind == dnfpvf.TokenInt && tokens[i+1].Int == 0 {
+			rawPair = true
+		}
+	}
+	if !rawPair {
+		t.Fatal("raw zero-count pair lost")
+	}
+	if reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); reason != "" {
+		t.Fatalf("zero-count audited candidate rejected: %s", reason)
+	}
+	if _, err := currentEquipmentRecipeCompoundOutputPlan(items, entry, 1); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("real zero-count audit id=%d path=%s ZeroCountPairs=%v payable=%v", entry.ItemID, entry.PVFPath, entry.ZeroCountPairs, entry.Materials)
+}
+
 // (8) 真实档 opt-in：目录覆盖率、支持子集非空、被支持条目的材料/产出真的能解析，
 // 并记录目录构造成本（运行时不做缓存，成本必须可接受）。
 func TestRealPVFEquipmentRecipeCompoundDeterministicSupport(t *testing.T) {
@@ -1031,41 +1465,113 @@ func TestRealPVFEquipmentRecipeCompoundDeterministicSupport(t *testing.T) {
 
 	supported := 0
 	plannable := 0
+	floorSupported, floorPlannable := 0, 0
+	floorDated, emptyFloorSkills := 0, 0
+	floorQualifiedIDs, otherDatedIDs := []int64{}, []int64{}
+	floorUnresolved := []int64{}
 	notPlannable := make([]int64, 0, 8)
 	reasons := map[string]int{}
 	for _, entry := range entries {
-		reason := currentEquipmentRecipeCompoundRejectReason(entry)
+		reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source)
+		if entry.MinimumItemmakingFound && entry.MinimumItemmakingLevel == 1 {
+			if reason == "source_expiration_semantics_unproven" {
+				floorDated++
+			}
+			if reason == "" || reason == "source_expiration_semantics_unproven" {
+				text, err := recipes.source.ReadText(entry.PVFPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				doc, err := dnfpvf.Parse(entry.PVFPath, text)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tokens, found, err := equipmentRecipePayloadTokens(doc, "need skill"); err != nil {
+					t.Fatal(err)
+				} else if found && len(tokens) == 0 {
+					emptyFloorSkills++
+				}
+			}
+		}
 		if reason != "" {
+			if reason == "source_expiration_semantics_unproven" && !entry.MinimumItemmakingFound {
+				otherDatedIDs = append(otherDatedIDs, entry.ItemID)
+			}
 			reasons[reason]++
 			continue
 		}
+		// This is a source-qualified level90 plan count, not native acceptance.
+		if err := currentEquipmentRecipeCompoundSourceQualification(entry, recipes.source, &dnfrepo.CharacterRecord{Level: 90}); err != nil {
+			reasons["source_qualification_failed"]++
+			continue
+		}
 		supported++
+		if entry.MinimumItemmakingFound {
+			floorSupported++
+			floorQualifiedIDs = append(floorQualifiedIDs, entry.ItemID)
+		}
 		materials, gold, materialErr := currentEquipmentRecipeCompoundMaterials(entry, 1)
 		if materialErr != nil || len(materials) == 0 || gold < 0 {
 			t.Fatalf("supported entry %d has an unusable material plan: materials=%+v gold=%d err=%v", entry.ItemID, materials, gold, materialErr)
 		}
 		if _, planErr := currentEquipmentRecipeCompoundOutputPlan(items, entry, 1); planErr != nil {
 			notPlannable = append(notPlannable, entry.ItemID)
+			if entry.MinimumItemmakingFound {
+				floorUnresolved = append(floorUnresolved, entry.ItemID)
+			}
 			continue
 		}
 		plannable++
+		if entry.MinimumItemmakingFound {
+			floorPlannable++
+		}
 	}
 	t.Logf("supported=%d plannable=%d not_plannable=%v reasons=%v", supported, plannable, notPlannable, reasons)
-	// Re-measured after C1/C2/C3. These are filter/plan counts, not native QA.
-	if supported != 803 || plannable != 799 || !reflect.DeepEqual(notPlannable, []int64{10012063, 10012064, 10012115, 10012116}) {
+	// Historical baseline 803/799 and pre-review measurement1101/1097 remain
+	// history. The298 raw /273 undated candidates are not presumed final support.
+	t.Logf("floor_supported=%d floor_plannable=%d floor_unresolved=%v", floorSupported, floorPlannable, floorUnresolved)
+	t.Logf("floor_dated_rejected=%d floor_empty_need_skill_candidates=%d", floorDated, emptyFloorSkills)
+	t.Logf("floor_qualified_ids=%v other_dated_ids=%v", floorQualifiedIDs, otherDatedIDs)
+	// Final09 measured1062/1058. The raw-presence guard also rejects the four
+	// old unresolved outputs because their empty item-category sections are
+	// explicit unproved upgrade semantics. Floor coverage stays273/273.
+	if supported != 1058 || plannable != 1058 || floorSupported != 273 || floorPlannable != 273 || len(floorUnresolved) != 0 || floorDated != 25 || emptyFloorSkills != 210 ||
+		reasons["source_expiration_semantics_unproven"] != 39 || len(otherDatedIDs) != 14 ||
+		reasons["item_category_upgrade_table_unproven"] != 740 ||
+		reasons["itemmaking_level_semantics_unproven"] != 2752 || reasons["need_skill_semantics_unproven"] != 6 ||
+		len(notPlannable) != 0 {
 		t.Fatalf("real PVF scope changed: supported=%d plannable=%d unresolved=%v", supported, plannable, notPlannable)
 	}
-	for _, id := range []int64{5003, 5001, 1242, 5539, 5781, 10001499} {
+	for _, id := range []int64{10012063, 10012064, 10012115, 10012116} {
+		entry, found, err := recipes.Recipe(id)
+		if err != nil || !found {
+			t.Fatalf("old unresolved drawing %d found=%t err=%v", id, found, err)
+		}
+		text, err := recipes.source.ReadText(entry.PVFPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		document, err := dnfpvf.Parse(entry.PVFPath, text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens, present, err := equipmentRecipeSectionTokens(document, "item category")
+		if err != nil || !present || len(tokens) != 0 || currentEquipmentRecipeCompoundRejectReason(entry, recipes.source) != "item_category_upgrade_table_unproven" {
+			t.Fatalf("old unresolved drawing %d must reject its empty item category: tokens=%v present=%t err=%v", id, tokens, present, err)
+		}
+		t.Logf("old unresolved drawing %d now rejected for explicit empty item category", id)
+	}
+	for _, id := range []int64{5003, 5001, 1242, 5539, 5781, 10001499, 2654000, 2659502, 2659010} {
 		entry, found, err := recipes.Recipe(id)
 		if err != nil || !found {
 			t.Fatalf("GM sample %d found=%t err=%v", id, found, err)
 		}
-		t.Logf("GM sample id=%d name=%s reason=%q materials=%v gold=%d outputs=%v", id, entry.Name, currentEquipmentRecipeCompoundRejectReason(entry), entry.Materials, entry.GoldCost, entry.Outputs)
+		t.Logf("GM sample id=%d name=%s reason=%q materials=%v gold=%d outputs=%v", id, entry.Name, currentEquipmentRecipeCompoundRejectReason(entry, recipes.source), entry.Materials, entry.GoldCost, entry.Outputs)
 	}
 	t.Run("real 5003 shared materials committed and cold read", func(t *testing.T) {
 		ctx := context.Background()
 		repos := dnfrepomemory.NewMemoryGroup()
-		if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Stats: map[string]int64{"gold": 1000}}); err != nil {
+		if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: 90, Stats: map[string]int64{"gold": 1000}}); err != nil {
 			t.Fatal(err)
 		}
 		if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:70": {ItemID: 5003, Count: 2}, "0:71": {ItemID: 5003, Count: 1}, "0:121": {ItemID: 3055, Count: 90}}}); err != nil {
@@ -1107,6 +1613,8 @@ func TestRealPVFEquipmentRecipeCompoundDeterministicSupport(t *testing.T) {
 		}
 		equipmentRecipeCompoundTestRefresh(t, coldConn.write.Bytes(), want, rows)
 	})
+	equipmentRecipeCompoundTestRealFloorTransactions(t, items, recipes)
+	equipmentRecipeCompoundTestRealCapabilityAudits(t, items, recipes)
 	pinned := []struct {
 		itemID     int64
 		wantReason string
@@ -1124,7 +1632,7 @@ func TestRealPVFEquipmentRecipeCompoundDeterministicSupport(t *testing.T) {
 		if !found {
 			t.Fatalf("pinned entry %d not found in the real catalog", sample.itemID)
 		}
-		if got := currentEquipmentRecipeCompoundRejectReason(entry); got != sample.wantReason {
+		if got := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); got != sample.wantReason {
 			t.Fatalf("pinned entry %d reason=%q want=%q kind=%s", sample.itemID, got, sample.wantReason, entry.Kind)
 		}
 	}
@@ -1133,8 +1641,181 @@ func TestRealPVFEquipmentRecipeCompoundDeterministicSupport(t *testing.T) {
 	// material-output，但升级表选择器未证，必须落在拒绝侧（具体原因由该文档其余段决定）。
 	if entry, found, err := recipes.Recipe(10097920); err != nil || !found {
 		t.Fatalf("pinned 10097920 found=%t err=%v", found, err)
-	} else if entry.Kind != equipmentRecipeKindMaterialOutput || currentEquipmentRecipeCompoundRejectReason(entry) == "" {
+	} else if entry.Kind != equipmentRecipeKindMaterialOutput || currentEquipmentRecipeCompoundRejectReason(entry, recipes.source) == "" {
 		t.Fatalf("pinned 10097920 kind=%s reason=%q: an upgrade-table design drawing must be rejected",
-			entry.Kind, currentEquipmentRecipeCompoundRejectReason(entry))
+			entry.Kind, currentEquipmentRecipeCompoundRejectReason(entry, recipes.source))
+	}
+}
+
+// Real recipes exercise the same account/character owner with real equipment
+// output metadata. Do not manufacture skill or category experience fields.
+func equipmentRecipeCompoundTestRealFloorTransactions(t *testing.T, items *pvfDungeonDropCatalog, recipes *pvfEquipmentRecipeCatalog) {
+	t.Helper()
+	for _, sample := range []struct {
+		id, output int64
+		category   string
+		materials  []equipmentRecipeItemStack
+	}{
+		{2654000, 2220102, "weapon", []equipmentRecipeItemStack{{3037, 53}, {3152, 7}, {3053, 4}, {3161, 20}, {3166, 1}, {3174, 1}}},
+		{2659502, 20195, "amulet", []equipmentRecipeItemStack{{3157, 3}, {3053, 1}, {3161, 6}, {3166, 1}}},
+		{2659010, 2300104, "plate", []equipmentRecipeItemStack{{3037, 96}, {3149, 13}, {3051, 4}, {3163, 2}, {3166, 5}}},
+	} {
+		t.Run("floor real "+strconv.FormatInt(sample.id, 10), func(t *testing.T) {
+			entry, found, err := recipes.Recipe(sample.id)
+			if err != nil || !found {
+				t.Fatalf("recipe found=%t err=%v", found, err)
+			}
+			if entry.MinimumItemmakingField != sample.category || !entry.MinimumItemmakingFound || entry.MinimumItemmakingLevel != 1 || !reflect.DeepEqual(entry.Materials, sample.materials) || !reflect.DeepEqual(entry.Outputs, []equipmentRecipeItemStack{{sample.output, 1}}) || currentEquipmentRecipeCompoundRejectReason(entry, recipes.source) != "" {
+				t.Fatalf("real candidate changed: %+v", entry)
+			}
+			outputs, err := currentEquipmentRecipeCompoundOutputPlan(items, entry, 2)
+			if err != nil || len(outputs) != 1 || outputs[0].Count != 2 || outputs[0].Definition.Kind != dungeonDropItemEquipment || outputs[0].Definition.SlotStart != 9 || outputs[0].Definition.SlotEnd != 64 {
+				t.Fatalf("real equipment plan=%+v err=%v", outputs, err)
+			}
+			t.Logf("real floor id=%d category=%s materials=%v gold=%d output=%+v", sample.id, sample.category, entry.Materials, entry.GoldCost, outputs[0])
+			text, err := recipes.source.ReadText(entry.PVFPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc, err := dnfpvf.Parse(entry.PVFPath, text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			minimum, found := doc.Int("minimum level")
+			if !found || minimum <= 1 {
+				t.Fatal("real source minimum missing")
+			}
+			t.Logf("source ordinary minimum level=%d", minimum)
+			for _, test := range []struct {
+				name                     string
+				shortage, full, lowLevel bool
+			}{
+				{name: "commit count2 and cold read"},
+				{name: "material short atomic rollback", shortage: true},
+				{name: "equipment full after material consumption rolls back both inventories", full: true},
+				{name: "ordinary level below source minimum rolls back all assets", lowLevel: true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					ctx := context.Background()
+					repos := dnfrepomemory.NewMemoryGroup()
+					characterBefore := dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Level: int(minimum), Stats: map[string]int64{"gold": 1000}}
+					if test.lowLevel {
+						characterBefore.Level--
+					}
+					inventoryBefore := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:69": {ItemID: sample.id, Count: 3}, "0:70": {ItemID: sample.id, Count: 1}}}
+					// Keep an unrelated durable account row: empty map saves normalize to nil.
+					accountBefore := dnfrepo.AccountInventoryRecord{AccountID: "account-1", Slots: map[string]dnfrepo.ItemStack{"0:354": {ItemID: 3033, Count: 11}}}
+					for i, material := range entry.Materials {
+						count := material.Count * 2
+						if test.shortage && i == 0 {
+							count--
+						}
+						stack := dnfrepo.ItemStack{ItemID: material.ItemID, Count: count}
+						if fixed, shared := dnfrepo.AccountWarehouseSlotForItem(material.ItemID); shared {
+							accountBefore.Slots[dnfrepo.AccountSharedInventorySlotKey(fixed)] = stack
+							// A historical role copy must not fill a shared shortage.
+							inventoryBefore.Slots[dnfrepo.AccountSharedInventorySlotKey(fixed)] = dnfrepo.ItemStack{ItemID: material.ItemID, Count: 9999}
+						} else {
+							inventoryBefore.Slots[currentCeraShopInventorySlotKey(0, int16(121+i))] = stack
+						}
+					}
+					if test.full {
+						for slot := int16(9); slot <= 64; slot++ {
+							inventoryBefore.Slots[currentCeraShopInventorySlotKey(0, slot)] = dnfrepo.ItemStack{ItemID: sample.output, Count: 1, Extra: map[string]string{"item_kind": "equipment"}}
+						}
+					}
+					if err := repos.Character.Save(ctx, characterBefore); err != nil {
+						t.Fatal(err)
+					}
+					if err := repos.Inventory.Save(ctx, inventoryBefore); err != nil {
+						t.Fatal(err)
+					}
+					if err := repos.AccountInventory.Save(ctx, accountBefore); err != nil {
+						t.Fatal(err)
+					}
+					s := equipmentRecipeCompoundTestService(t, equipmentRecipeCompoundTestSource(equipmentRecipeCompoundTestSupportedDoc), repos)
+					s.pvfItemCatalog = items
+					conn := &bufferConn{}
+					session := &gameSession{conn: conn, selectedCharacterID: 19, itemListMigrationsDone: true}
+					if test.shortage || test.full || test.lowLevel {
+						_, err := s.commitCurrentEquipmentRecipeCompound(ctx, session, currentEquipmentRecipeCompoundRequest{SourceSlot: 69, SourceItemID: -1, Count: 2})
+						wantErr := errCurrentEquipmentRecipeCompoundMaterials
+						if test.full {
+							wantErr = errDungeonPickupInventoryFull
+						}
+						if test.lowLevel {
+							wantErr = errCurrentEquipmentRecipeCompoundSourceInvalid
+						}
+						if !errors.Is(err, wantErr) {
+							t.Fatalf("real floor rejected for wrong cause: %v want=%v", err, wantErr)
+						}
+					} else {
+						if err := s.handleGameCommand(session, 1, 25, append(equipmentRecipeCompoundTestSlotRequest(69, 2), 0, 1)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					character, _, err := repos.Character.Load(ctx, "19")
+					if err != nil {
+						t.Fatal(err)
+					}
+					inventory, _, err := repos.Inventory.Load(ctx, "19")
+					if err != nil {
+						t.Fatal(err)
+					}
+					account, _, err := repos.AccountInventory.Load(ctx, "account-1")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if test.shortage || test.full || test.lowLevel {
+						if conn.write.Len() != 0 || !reflect.DeepEqual(character, characterBefore) || !reflect.DeepEqual(inventory, inventoryBefore) || !reflect.DeepEqual(account, accountBefore) {
+							t.Fatalf("atomic real failure changed assets: char=%+v inv=%+v account=%+v", character, inventory, account)
+						}
+						return
+					}
+					if !reflect.DeepEqual(character, characterBefore) || inventory.Slots["0:69"].Count != 1 || inventory.Slots["0:70"].Count != 1 || equipmentRecipeCompoundTestTotal(inventory, sample.output) != 2 {
+						t.Fatalf("real floor commit mismatch: char=%+v inv=%+v", character, inventory)
+					}
+					for _, material := range entry.Materials {
+						if fixed, shared := dnfrepo.AccountWarehouseSlotForItem(material.ItemID); shared {
+							if _, remains := account.Slots[dnfrepo.AccountSharedInventorySlotKey(fixed)]; remains {
+								t.Fatal("account material not consumed")
+							}
+							if inventory.Slots[dnfrepo.AccountSharedInventorySlotKey(fixed)].Count != 9999 {
+								t.Fatal("historical role copy changed")
+							}
+						} else if equipmentRecipeCompoundTestTotal(inventory, material.ItemID) != 0 {
+							t.Fatalf("material %d not consumed", material.ItemID)
+						}
+					}
+					wireRows := map[uint16][2]uint32{0: {0, 1000}, 69: {uint32(sample.id), 1}, 70: {uint32(sample.id), 1}, 354: {3033, 11}}
+					wireTotals := map[uint32]uint64{uint32(sample.id): 2, 3033: 11}
+					for _, slot := range []int16{9, 10} {
+						stack := inventory.Slots[currentCeraShopInventorySlotKey(0, slot)]
+						if stack.ItemID != sample.output || stack.Count != 1 || len(stack.RawEntry) != 119 || stack.Extra["pvf_path"] != outputs[0].Definition.PVFPath || stack.Extra["item_kind"] != "equipment" {
+							t.Fatalf("real equipment instance=%+v", stack)
+						}
+						// Equipment wire +6 is instance quality, not the count.
+						value := binary.LittleEndian.Uint32(stack.RawEntry[6:10])
+						wireRows[uint16(slot)] = [2]uint32{uint32(sample.output), value}
+						wireTotals[uint32(sample.output)] += uint64(value)
+					}
+					ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+					if !bytes.Equal(ack.Body, []byte{1, 0, 0}) {
+						t.Fatalf("real floor ack=%x", ack.Body)
+					}
+					equipmentRecipeCompoundTestRefresh(t, rest, wireTotals, wireRows)
+					cold := equipmentRecipeCompoundTestService(t, equipmentRecipeCompoundTestSource(equipmentRecipeCompoundTestSupportedDoc), repos)
+					cold.pvfItemCatalog = items
+					coldConn := &bufferConn{}
+					if err := cold.sendSelectedCurrentContainerListsRefresh(&gameSession{conn: coldConn, selectedCharacterID: 19, itemListMigrationsDone: true}, "floor_real_cold_read"); err != nil {
+						t.Fatal(err)
+					}
+					equipmentRecipeCompoundTestRefresh(t, coldConn.write.Bytes(), wireTotals, wireRows)
+					if !bytes.Equal(rest, coldConn.write.Bytes()) {
+						t.Fatal("cold container projection differs from committed refresh")
+					}
+				})
+			}
+		})
 	}
 }

@@ -1,5 +1,25 @@
 # Repository changelog
 
+## 2026-10-11 — D33 raw declaration guards and CI runner diagnosis
+
+- Reject ten unproved operation tags by raw section presence, including empty/symbol/duplicate/orphan declarations; retain atomic failure and legal floor1 controls. Independent B1 review passed.
+- Final11 measured 1,058 supported/plannable level90 recipes, including273 floor recipes. Four former unresolved outputs declare empty item-category sections and now fail the raw guard; preserve1062/1058 as historical measurement.
+- Validate8,220 core PASS/0 FAIL/725 environment SKIP,84 real-PVF PASS/0 FAIL/0 SKIP, go list, scoped vet and Windows/Linux builds; preserve final10 assertion failure.
+- Record user acceptance of one2659502 necklace craft, retain remaining recipe/experience/cold-login work and UI pause until2026-10-12 01:30 HK. Production staysr98.
+- Diagnose pipeline164381: both builds failed stuck_pending_no_matching_runners before script execution. Enable project shared runners; sole instance runner remains paused/offline. Keep CI gates and record the external runner dependency.
+
+## 2026-10-11 — D33 bounded crafting floor and source qualifications
+
+- Permit strict making-level1 in the eleven proved client categories; validate raw PVF shape instead of trusting the catalog projection. Preserve rejection for higher levels, skill gates, explicit rates and unknown semantics.
+- Check ordinary drawing level in the owner transaction, reject restricted or malformed job fields, and conservatively reject all 39 drawings declaring unproved date semantics. Retain zero-count material audit and shared-asset rollback.
+- Measure 1,062 supported / 1,058 plannable recipes at level90, including 273 floor recipes; preserve historical counts and avoid claiming native acceptance from catalog coverage.
+- Validate final09: 8,097 core passes with 725 environment skips, 84 real-PVF passes without skips, scoped vet, go list, maintenance preflight and Windows/Linux builds. Keep native floor crafting and experience progression pending; production remains r98.
+
+## 2026-10-11 — D33 native Vagabond checkpoint
+
+- Verify one isolated level90 Vagabond support weapon through three native equip/unequip moves, unchanged item instance and durability on bag readback, and a new native client process retaining support slot24.
+- Preserve combat and post-combat persistence as pending; additional item12 remains open. Shut down only the owned QA client/server and retain its database. Production remains r98.
+
 ## 2026-10-11 — D33 recipe settlement and observed native routes
 
 - Read equipment design recipes from real PVF; fail closed for unproven rates, skill/itemmaking gates, upgrade tables and alternative source semantics.

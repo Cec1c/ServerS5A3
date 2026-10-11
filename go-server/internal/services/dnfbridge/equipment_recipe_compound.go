@@ -8,7 +8,13 @@ package dnfbridge
 // A21 TryConsumeFromSlot(RequestedCount); PVF itself does not encode this policy.
 //
 // Support only explicit material-output without rates, failure/upgrade/maintain,
-// expert-job, need-material, bead/category, skill or itemmaking-level semantics.
+// expert-job, need-material, bead/category or skill semantics. Itemmaking permits
+// only a strict known-category + level 1 pair: recipe-capability-proof08 proves
+// the client query 0x27A38E0 has floor 1. Higher levels need an authoritative
+// category experience ledger. No crafting experience or gain notice is invented.
+// Floor admission never waives the drawing's ordinary minimum level. Check it
+// against the character snapshot in the same transaction; dated drawings remain
+// rejected until their use/expiration rule is proved (independent09 P5).
 // All explicit success/creation rates, including 100, remain unproven.
 // Materials/gold/output quantities and item classifications come from PVF.
 // Fixed warehouse items use AccountWarehouseSlotForItem and account assets only.
@@ -36,6 +42,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -133,7 +140,7 @@ func parseCurrentEquipmentRecipeCompoundRequest(body []byte) (currentEquipmentRe
 // currentEquipmentRecipeCompoundRejectReason 把一条已解析的设计图映射成"拒绝原因"。
 // 返回空串表示落在最小确定性 material-output 支持范围内。判据按"未证即拒绝"排列，
 // 每个分支都能在交接说明里对应到一条未证语义。
-func currentEquipmentRecipeCompoundRejectReason(entry equipmentRecipeEntry) string {
+func currentEquipmentRecipeCompoundRejectReason(entry equipmentRecipeEntry, source dnfpvf.Source) string {
 	switch {
 	case entry.Kind != equipmentRecipeKindMaterialOutput:
 		// unsupported / int-data-encoded / in-place-upgrade 都在这里被挡住：
@@ -157,14 +164,181 @@ func currentEquipmentRecipeCompoundRejectReason(entry equipmentRecipeEntry) stri
 		return "item_category_upgrade_table_unproven"
 	case len(entry.NeedSkillInts) > 0:
 		return "need_skill_semantics_unproven"
-	case entry.MinimumItemmakingFound || entry.MinimumItemmakingField != "":
-		return "itemmaking_level_semantics_unproven"
+	}
+	if reason := currentEquipmentRecipeCompoundItemmakingRejectReason(entry, source); reason != "" {
+		return reason
+	}
+	switch {
 	case entry.SuccessRateFound:
 		return "success_rate_unit_unproven"
 	case entry.CreationRateFound:
 		return "creation_rate_unit_unproven"
 	}
 	return ""
+}
+
+// The catalog intentionally projects only the first text/integer of minimum.
+// Re-read its resolved PVF document here, inside the settlement callback, so an
+// empty, duplicate or excess-field section cannot masquerade as the proven pair.
+// No minimum is still legal; a declared minimum must match the catalog fields.
+func currentEquipmentRecipeCompoundItemmakingRejectReason(entry equipmentRecipeEntry, source dnfpvf.Source) string {
+	declared := entry.MinimumItemmakingFound || entry.MinimumItemmakingField != "" || entry.MinimumItemmakingLevel != 0
+	if source == nil {
+		if declared {
+			return "itemmaking_level_shape_invalid"
+		}
+		return ""
+	}
+	text, err := source.ReadText(entry.PVFPath)
+	if err != nil {
+		return "itemmaking_document_unavailable"
+	}
+	document, err := dnfpvf.Parse(entry.PVFPath, text)
+	if err != nil {
+		return "itemmaking_level_shape_invalid"
+	}
+	tokens, found, err := currentEquipmentRecipeCompoundQualificationTokens(document, "minimum itemmaking level")
+	if err != nil {
+		return "itemmaking_level_shape_invalid"
+	}
+	if !found {
+		if declared {
+			return "itemmaking_level_shape_invalid"
+		}
+		return currentEquipmentRecipeCompoundDocumentRejectReason(document)
+	}
+	if len(tokens) != 2 || tokens[0].Kind != dnfpvf.TokenString || tokens[1].Kind != dnfpvf.TokenInt ||
+		!entry.MinimumItemmakingFound || tokens[0].Value != entry.MinimumItemmakingField || tokens[1].Int != entry.MinimumItemmakingLevel || tokens[1].Int <= 0 {
+		return "itemmaking_level_shape_invalid"
+	}
+	// Exact enums read by 0x3B452DF into template +0x9F0; no aliases/default.
+	switch tokens[0].Value {
+	case "weapon", "cloth", "leather", "larmor", "harmor", "plate", "amulet", "wrist", "ring", "support", "magic stone":
+	default:
+		return "itemmaking_category_unproven"
+	}
+	if entry.MinimumItemmakingLevel != 1 {
+		return "itemmaking_level_semantics_unproven"
+	}
+	return currentEquipmentRecipeCompoundDocumentRejectReason(document)
+}
+
+// Raw guards apply to drawings with and without a making minimum. Catalog
+// first-value/empty-vector projections must not erase an explicit unknown gate.
+func currentEquipmentRecipeCompoundDocumentRejectReason(document *dnfpvf.Document) string {
+	// Empty rate sections are also explicit unknown semantics. Do not let
+	// catalog Found=false erase them when admitting the new floor subset.
+	for _, rate := range []struct{ section, reason string }{
+		{"success rate", "success_rate_unit_unproven"},
+		{"creation rate", "creation_rate_unit_unproven"},
+	} {
+		if _, present, err := equipmentRecipeSectionTokens(document, rate.section); err != nil || present {
+			return rate.reason
+		}
+		if _, present, err := equipmentRecipeSectionTokens(document, "/"+rate.section); err != nil || present {
+			return rate.reason
+		}
+	}
+	// A genuinely empty vector has one opening and its immediate empty closing
+	// section. Symbols, orphan/missing closers and duplicate vectors are unknown.
+	needSkillOpen, needSkillClose := -1, -1
+	for i, section := range document.Sections {
+		name := strings.ToLower(strings.TrimSpace(section.Name))
+		// The catalog omits symbols and takes first scalar values. Presence of
+		// these unproved operations is therefore the boundary, even if empty,
+		// malformed, duplicated, or represented by an orphan closing section.
+		switch strings.TrimPrefix(name, "/") {
+		case "need material":
+			return "need_material_semantics_unproven"
+		case "bead item":
+			return "bead_item_semantics_unproven"
+		case "fail output":
+			return "fail_output_present"
+		case "item category":
+			return "item_category_upgrade_table_unproven"
+		case "action type", "custom upgrade type":
+			return "upgrade_present"
+		case "maintain ability", "maintain socket stat":
+			return "maintain_present"
+		case "expertjob only":
+			return "expert_job_only"
+		case "int data":
+			return "int_data_semantics_unproven"
+		}
+		switch name {
+		case "need skill":
+			if needSkillOpen >= 0 || section.Start != section.End {
+				return "need_skill_shape_invalid"
+			}
+			needSkillOpen = i
+		case "/need skill":
+			if needSkillClose >= 0 || section.Start != section.End {
+				return "need_skill_shape_invalid"
+			}
+			needSkillClose = i
+		case "expiration date", "/expiration date":
+			// Presence, not a guessed comparison with today's date, is the gate.
+			return "source_expiration_semantics_unproven"
+		}
+	}
+	if (needSkillOpen >= 0 || needSkillClose >= 0) && (needSkillOpen < 0 || needSkillClose != needSkillOpen+1) {
+		return "need_skill_shape_invalid"
+	}
+	level, present, err := currentEquipmentRecipeCompoundQualificationTokens(document, "minimum level")
+	if err != nil || (present && (len(level) != 1 || level[0].Kind != dnfpvf.TokenInt || level[0].Int <= 0)) {
+		return "source_minimum_level_shape_invalid"
+	}
+	jobs, present, err := currentEquipmentRecipeCompoundQualificationTokens(document, "usable job")
+	if err != nil || (present && (len(jobs) != 1 || jobs[0].Kind != dnfpvf.TokenString || jobs[0].Value != "[all]")) {
+		return "source_usable_job_semantics_unproven"
+	}
+	return ""
+}
+
+// Scalar qualification fields need one opening; their optional closing tag
+// must be unique, empty and immediately after that opening. The generic PVF
+// parser treats closing tags as sections, so their payload needs checking too.
+func currentEquipmentRecipeCompoundQualificationTokens(document *dnfpvf.Document, section string) ([]dnfpvf.Token, bool, error) {
+	tokens, found, err := equipmentRecipePayloadTokens(document, section)
+	if err != nil {
+		return nil, found, err
+	}
+	closed := false
+	for i, candidate := range document.Sections {
+		if !strings.EqualFold(strings.TrimSpace(candidate.Name), "/"+section) {
+			continue
+		}
+		if !found || closed || candidate.Start != candidate.End || i == 0 || !strings.EqualFold(strings.TrimSpace(document.Sections[i-1].Name), section) {
+			return nil, found, fmt.Errorf("qualification section=%s has invalid closing tag", section)
+		}
+		closed = true
+	}
+	return tokens, found, nil
+}
+
+// Ordinary character level is an existing authoritative source-use condition,
+// distinct from the making-level floor. No premium/job or crafting bonus is
+// inferred. This helper runs before any mutation, on the owner-loaded snapshot.
+func currentEquipmentRecipeCompoundSourceQualification(entry equipmentRecipeEntry, source dnfpvf.Source, character *dnfrepo.CharacterRecord) error {
+	if source == nil || character == nil {
+		return errCurrentEquipmentRecipeCompoundUnavailable
+	}
+	text, err := source.ReadText(entry.PVFPath)
+	if err != nil {
+		return fmt.Errorf("%w: source document: %v", errCurrentEquipmentRecipeCompoundUnsupported, err)
+	}
+	document, err := dnfpvf.Parse(entry.PVFPath, text)
+	if err != nil {
+		return fmt.Errorf("%w: source document: %v", errCurrentEquipmentRecipeCompoundUnsupported, err)
+	}
+	if reason := currentEquipmentRecipeCompoundDocumentRejectReason(document); reason != "" {
+		return fmt.Errorf("%w: reason=%s", errCurrentEquipmentRecipeCompoundUnsupported, reason)
+	}
+	level, present, err := currentEquipmentRecipeCompoundQualificationTokens(document, "minimum level")
+	if err != nil || (present && int64(character.Level) < level[0].Int) {
+		return fmt.Errorf("%w: source_minimum_level_not_met character_level=%d", errCurrentEquipmentRecipeCompoundSourceInvalid, character.Level)
+	}
+	return nil
 }
 
 // currentEquipmentRecipeCompoundOutputs 把 [output item] ×count 合并、解析成真实 PVF 定义。
@@ -499,8 +673,11 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if !found {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d is not a [recipe] design drawing", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID)
 			}
-			if reason := currentEquipmentRecipeCompoundRejectReason(entry); reason != "" {
+			if reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); reason != "" {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d reason=%s", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID, reason)
+			}
+			if err := currentEquipmentRecipeCompoundSourceQualification(entry, recipes.source, assets.Character); err != nil {
+				return dnfexpertjob.Changes{}, err
 			}
 			if source.Count < request.Count {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d slot=%d count=%d need=%d",
