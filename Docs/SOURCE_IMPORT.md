@@ -2,6 +2,8 @@
 
 日期：2026-10-11（香港）。
 
+在线仓库：[16ww/servers5a3](https://gitgud.io/16ww/servers5a3)，完整3,356文件源码已合并`master`，源码提交为[22960444](https://gitgud.io/16ww/servers5a3/-/commit/22960444f648a4f2f5bcc7b8a3fbe7086eebc5cc)。此前已验收项目及对应“已合并”状态详见[在线仓库与验收交接](ACCEPTANCE_HANDOFF.md)。
+
 ## 范围
 
 go-server为当前主工程完整3,356文件原样副本，包含D22修复和D23测试。逐文件字节数/SHA256见source-manifest.json。主工程冻结清单SHA256：e3e04729afb0573f311afde7785173d2fe9cb153cc6b83a8cd80df28f1e6fb0d。
