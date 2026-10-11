@@ -187,8 +187,8 @@ func fileSHA256(path string) (string, error) {
 }
 
 func safeManifestPath(path string) (string, error) {
-	path = filepath.FromSlash(strings.TrimSpace(path))
-	if path == "" || filepath.IsAbs(path) || escapesRoot(path) {
+	path = portablePath(strings.TrimSpace(path))
+	if path == "" || absoluteOrVolumePath(path) || escapesRoot(path) {
 		return "", fmt.Errorf("unsafe manifest path %q", path)
 	}
 	return filepath.Clean(path), nil

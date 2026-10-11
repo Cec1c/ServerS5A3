@@ -1,5 +1,10 @@
 # Repository changelog
 
+## 2026-10-12 — Portable controller path validation
+
+- GitHub's first Linux run reproduced two existing controller failures: backslash traversal was accepted in an installation receipt and Windows absolute assets bypassed the expected path guard.
+- Normalize both separator styles and reject drive-relative/absolute Windows paths and UNC paths on every host. Retain Windows behavior and add cross-platform escape cases; do not skip the failing checks.
+
 ## 2026-10-12 — Optional GitHub / GitGud fork synchronization
 
 - Add an opt-in GitHub Actions synchronizer for one master branch, using only fast-forward pushes and an independently scoped GitGud Deploy Key. Stop on divergent history or imported changes to CI definitions.
