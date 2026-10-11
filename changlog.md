@@ -3,6 +3,7 @@
 ## 2026-10-12 — Anton volcano native barrier state and adventure friend presence
 
 - Derive native Anton symbol111 from full barrier depletion/recovery after verifying the shipped client controller. Keep it latched during partial recharge and restore it in reconnect snapshots; preserve ordered110/111/126 and110/111/127 writes without altering formal PVF markers. Exclude phase1 and Luke.
+- Verify unmodified Go-exported break/recovery frames through actual v96/v97 native receive/583/store/UI111 branches; confirm AC and cutscene selection with explicit external fixtures, retain failed harness attempts, keep GUI/damage acceptance open.
 - Verify real-PVF cross-squad delivery and actual server16 frames; add low-frequency successful-send diagnostics. Keep native animation and monster damage acceptance open; user reproduces on daily r98.
 - Filter adventure-group friends to verified online characters; persist last-selected identity through the existing metadata entry and use per-account bind-generation ordering to prevent stale writes. Verify offline cold read and account isolation; native UI remains pending.
 - Validate8227 core PASS/0 FAIL/736 environment SKIP and272 scoped real-PVF PASS/0 FAIL/1 separate-asset SKIP, scoped vet and Windows/Linux builds. Preserve the broader PVF run's seven assertion failures and timeout; reproduce all seven on the prior source baseline. Keep retained-QA port preflight failure explicit.
