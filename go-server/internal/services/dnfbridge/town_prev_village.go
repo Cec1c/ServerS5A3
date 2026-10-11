@@ -143,7 +143,7 @@ func (s *Service) currentTownPrevVillageOriginIsPersistable(origin currentTownPo
 	table := s.townCatalog
 	s.townCatalogMu.RUnlock()
 	town, found := table.Find(int64(origin.TownID))
-	if !found || town.DisableSavePoint {
+	if !found || town.DisableSavePoint || currentTownIsEpicRoadReturnOrigin(town) {
 		return mapPath, false
 	}
 	return mapPath, true
@@ -221,8 +221,8 @@ func (s *Service) handleCurrentPrevVillage(session *gameSession, requestBody []b
 		s.logCurrentPrevVillageBlocked(session, origin, "selected_character_location_missing")
 		return nil
 	}
-	if origin.CharacterID != characterID || !origin.PositionValid {
-		if persistedOrigin, ok := currentTownPrevVillageOriginFromPersistedStats(characterID, character); ok {
+	if origin.CharacterID != characterID || !origin.PositionValid || s.currentTownEpicRoadReturnOrigin(origin) {
+		if persistedOrigin, ok := currentTownPrevVillageOriginFromPersistedStats(characterID, character); ok && !s.currentTownEpicRoadReturnOrigin(persistedOrigin) {
 			origin = persistedOrigin
 			session.townMu.Lock()
 			session.townPrevVillageSnapshot = origin
@@ -232,7 +232,7 @@ func (s *Service) handleCurrentPrevVillage(session *gameSession, requestBody []b
 	}
 	// 原点缺失不再立刻失败关闭：只要落点能从运行时 PVF 解析出来（来源城镇的门，或退一步
 	// 房间所在城镇的外门口），就有权威落点；两者都没有时才按旧口径失败关闭。
-	originMissing := origin.CharacterID != characterID || !origin.PositionValid
+	originMissing := origin.CharacterID != characterID || !origin.PositionValid || s.currentTownEpicRoadReturnOrigin(origin)
 	currentTownID, currentAreaID, err := currentSceneTransitionLocation(character, true)
 	if err != nil {
 		s.logCurrentPrevVillageBlocked(session, origin, err.Error())
@@ -489,6 +489,9 @@ func (s *Service) currentTownSeriaRoomEntryOriginFrom(
 	}
 	if townMapPathLooksLikeSeria(mapPath) {
 		return currentTownPositionSnapshot{}, false, "seria_room_entry_origin_is_itself_a_seria_room"
+	}
+	if s.currentTownEpicRoadReturnOrigin(entry) {
+		return currentTownPositionSnapshot{}, false, "seria_room_entry_origin_is_epic_road_excursion"
 	}
 	// 朝向兜底：进门来源没有朝向时用城镇房间的既有初值，避免把 direction=0 写进 op24 与落库。
 	if entry.MovementCode == 0 {

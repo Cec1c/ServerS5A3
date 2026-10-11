@@ -12,6 +12,11 @@ import (
 func parseSkill(job byte, id uint16, skillPath string, doc *dnfpvf.Document) (Skill, error) {
 	kind := firstText(doc, "skill type", "type", "kind")
 	fixedLevelBase, fixedLevelSkill := doc.Int("fixed level skill")
+	// The real QA PVF uses a container with no integer after its header.
+	// Its first free level is one; numeric legacy fixtures retain their base.
+	if _, present := doc.Section("fixed level skill"); present && !fixedLevelSkill {
+		fixedLevelBase, fixedLevelSkill = 1, true
+	}
 	fixedLevelInterval := firstIntValue(doc, "interval level")
 	if fixedLevelInterval <= 0 {
 		fixedLevelInterval = 1

@@ -580,6 +580,9 @@ func (o *Owner) applyBuyMutation(
 		if !definition.SupportsCharacterGrowth(growType) {
 			return MutationResult{}, fmt.Errorf("%w: skill=%d grow=%d%s", ErrSkillGrowType, entry.SkillID, growType, growTypeDetail)
 		}
+		if definition.FixedLevelSkill {
+			return MutationResult{}, fmt.Errorf("%w: automatic skill=%d", ErrSkillLevel, entry.SkillID)
+		}
 		state := record.Skills[int64(entry.SkillID)]
 		currentLevel := state.Level
 		targetLevel := currentLevel + entry.SignedDelta()
@@ -754,8 +757,12 @@ func (o *Owner) ApplyReset(ctx context.Context, cmd Command) (ResetMutationResul
 		if level == 0 {
 			continue
 		}
-		if _, ok := o.catalog.Find(job, skillID); !ok {
+		definition, ok := o.catalog.Find(job, skillID)
+		if !ok {
 			return ResetMutationResult{}, fmt.Errorf("%w: initial job=%d skill=%d", ErrSkillNotFound, job, skillID)
+		}
+		if fixedLevel := definition.FixedLevelForCharacter(character.Level); fixedLevel > level {
+			level = fixedLevel
 		}
 		states[int64(skillID)] = dnfrepo.SkillState{Level: level, Enabled: true}
 	}

@@ -1,7 +1,7 @@
 {
-  "source_file_count": 3393,
+  "source_file_count": 3403,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 four-worker first batch plus GM async response ordering; runtime QA unchanged",
+  "stage": "D33 reviewed skill reset, Epic return and Luke waiting; durability candidate withheld; QA frozen51886be",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -2794,6 +2794,11 @@
       "sha256": "a463c6ffaca2685388326c4bc250ac1be13595ea8ef2ed4a7f7ba9686205377b"
     },
     {
+      "path": "internal/modules/dnf/profession/skill_reset.go",
+      "bytes": 1194,
+      "sha256": "eb80df2494504febde558416905686920945314677f3d2e741893547eb5abafc"
+    },
+    {
       "path": "internal/modules/dnf/profession/transition.go",
       "bytes": 3495,
       "sha256": "22a03beb8537c0e1a65055f269c8f09603ee1a240c177c43e7406f17375532d3"
@@ -4554,6 +4559,11 @@
       "sha256": "38951b79d83eadbc271b00652edfdb000cfaa7f14d5c0683ca115d223b5badd7"
     },
     {
+      "path": "internal/modules/dnf/skill/fixed_container39_test.go",
+      "bytes": 818,
+      "sha256": "10c19aedd524c7428075804010740a9a6125c7795c1eec7ac56c0016d3781c57"
+    },
+    {
       "path": "internal/modules/dnf/skill/grow_type_direction_test.go",
       "bytes": 4254,
       "sha256": "c6cd780c3e641fafaaac3a554557ec49b9fd66d04f4e737b22b226344526c179"
@@ -4570,8 +4580,8 @@
     },
     {
       "path": "internal/modules/dnf/skill/parse.go",
-      "bytes": 4989,
-      "sha256": "2514c787a35273da8260fddc68a4e1f985ac98b444139647e992aa33b3562945"
+      "bytes": 5265,
+      "sha256": "2a6b740f4a1b959977ad887747bb10bc825c1773335570ca1cf184a6d68ee343"
     },
     {
       "path": "internal/modules/dnf/skill/path.go",
@@ -4635,8 +4645,8 @@
     },
     {
       "path": "internal/modules/dnf/skillcmd/owner.go",
-      "bytes": 46642,
-      "sha256": "f55cf1df2505584405afb56f4423112ee4d71df1dd5b13dad8f9f7adee03219f"
+      "bytes": 46903,
+      "sha256": "b94441469e940a43e766cc14a639b3ef87bb78dc69c9d611a9740418814bc168"
     },
     {
       "path": "internal/modules/dnf/skillcmd/owner_test.go",
@@ -12380,8 +12390,8 @@
     },
     {
       "path": "internal/services/dnfbridge/game_aligned.go",
-      "bytes": 55344,
-      "sha256": "62d5e3aa195f4ec24144daf9ef8e5bf9672608c3d0830bb0cea503d9ad30c661"
+      "bytes": 55559,
+      "sha256": "22902ceedfdd0acc41c7f8282dab0827dc244291ff1adeeb24e72d01eb2c64cc"
     },
     {
       "path": "internal/services/dnfbridge/game_aligned_appearance_skill_refresh_test.go",
@@ -14274,6 +14284,11 @@
       "sha256": "8e90352cba6468436e4f3fff9ec4bff1597899fe64e160048bf7da6921e39322"
     },
     {
+      "path": "internal/services/dnfbridge/profession_transition_automatic_skills_real_pvf_test.go",
+      "bytes": 8708,
+      "sha256": "9d742f17f081687a315e74db584d7d08341a7d367f07330a63062a868b77aa4e"
+    },
+    {
       "path": "internal/services/dnfbridge/pvp_mission_combo.go",
       "bytes": 5229,
       "sha256": "b24e1ccdc9eae75bd5950f40388da9d5c540ab5bff35c2bc3a7f698393cb40d5"
@@ -14754,6 +14769,16 @@
       "sha256": "6b5dc45f25d213e5f5fa8563a0c0f9d35e89d1bfebedce11ada7638ffe4fcc76"
     },
     {
+      "path": "internal/services/dnfbridge/raid_luke_waiting_area_ownership.go",
+      "bytes": 732,
+      "sha256": "73b235ef5682436cc71686122714cc2f158158278ca96f734b66720a1eb77fc5"
+    },
+    {
+      "path": "internal/services/dnfbridge/raid_luke_waiting_area_ownership_test.go",
+      "bytes": 13643,
+      "sha256": "7cf24b37f17a1976c8f461d9f79706b507335668764b6f6f8334b19bdfbec022"
+    },
+    {
       "path": "internal/services/dnfbridge/raid_member_clear_projection.go",
       "bytes": 824,
       "sha256": "2b4515a027d002dec9c85ea0f482cf424489ba03ae16c73ceaa2888f194871af"
@@ -15020,8 +15045,8 @@
     },
     {
       "path": "internal/services/dnfbridge/raid_waiting_area_ownership.go",
-      "bytes": 4427,
-      "sha256": "a6c519de7bf01afbd04f315be7da1ab46ea9dae9cfebd491311aff2cc5664703"
+      "bytes": 4902,
+      "sha256": "d16a5e164c6974e28d28e4938b9cdd9f6842dcd7d51cf3b59187d9da2dd26d83"
     },
     {
       "path": "internal/services/dnfbridge/raid_waiting_area_ownership_test.go",
@@ -15549,6 +15574,21 @@
       "sha256": "a26d78a078f4ebf0a68fefe2944c1d69f66e334ce908a21319a6f3e9a2ea0859"
     },
     {
+      "path": "internal/services/dnfbridge/skill_reset_missing_grants_real_pvf_test.go",
+      "bytes": 3211,
+      "sha256": "1b86fa7aace9766c9f905c3da3e20703d35013f57cf76e1110ec00c52b8e32d2"
+    },
+    {
+      "path": "internal/services/dnfbridge/skill_reset_real_pvf39_test.go",
+      "bytes": 9640,
+      "sha256": "929457b8ec44f7caa5dcf7d526d4169e4554cfd8b48516ddf3afb967ac30a1e9"
+    },
+    {
+      "path": "internal/services/dnfbridge/skill_reset_rules.go",
+      "bytes": 1519,
+      "sha256": "7d1751f913e406e5549c95f9e5dbf72ed280a4c5edb400122eeb537c3c51e478"
+    },
+    {
       "path": "internal/services/dnfbridge/skill_switch_inventory.go",
       "bytes": 54529,
       "sha256": "e0ba5484f09425d54cb9a3a9c1efa0de9066aeec6cf656393f0ee22e2459a3cd"
@@ -15804,6 +15844,16 @@
       "sha256": "d4b05b54ff4199f623c87f7779db3901b86aebbc58c0c91d1802906bd553ea1a"
     },
     {
+      "path": "internal/services/dnfbridge/town_epic_road_real_pvf_test.go",
+      "bytes": 12316,
+      "sha256": "a2cecd81018db666fd0dae2efc8fd2dc7afc37155d746bd8da0e1b2d34f2a1bd"
+    },
+    {
+      "path": "internal/services/dnfbridge/town_epic_road_return.go",
+      "bytes": 1137,
+      "sha256": "cd412fe848077c962ce73d72ab0a09759871176f6028cb1a5486f2fb6e7d03ef"
+    },
+    {
       "path": "internal/services/dnfbridge/town_move.go",
       "bytes": 28557,
       "sha256": "16783fb94ba33637d9cf3f4ba688bdebe2a527946c57de920b7e9754b54822c2"
@@ -15860,8 +15910,8 @@
     },
     {
       "path": "internal/services/dnfbridge/town_prev_village.go",
-      "bytes": 21810,
-      "sha256": "6878032564c4787999c11a497c187c66c97a15b7681da12432f1930da9eb9866"
+      "bytes": 22144,
+      "sha256": "739e3b12e3937705c75f1fb1a957cd44644115dfb9c7a3fc06965240a7faeca5"
     },
     {
       "path": "internal/services/dnfbridge/town_prev_village_official249_test.go",

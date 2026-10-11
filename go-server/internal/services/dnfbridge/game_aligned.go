@@ -142,7 +142,11 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	var equipmentPlacement alignedcmd.EquipmentPlacementValidator
 	var petHatchResolver alignedcmd.PetHatchResolver
 	if alignedSkillOwnerRulesRequired(dnfenum.CmdPacket(typ)) {
-		skillCatalog, initialSkillLevels, skillPointBaseline = s.skillOwnerRules(context.Background(), repos, session.selectedCharacterID)
+		if dnfenum.CmdPacket(typ) == dnfenum.CmdPacketSkillInit {
+			skillCatalog, initialSkillLevels, skillPointBaseline = s.skillResetOwnerRules(context.Background(), repos, session.selectedCharacterID)
+		} else {
+			skillCatalog, initialSkillLevels, skillPointBaseline = s.skillOwnerRules(context.Background(), repos, session.selectedCharacterID)
+		}
 	}
 	petHatchResolver, petCatalogErr := s.alignedPetHatchResolverForCommand(dnfenum.CmdPacket(typ))
 	if petCatalogErr != nil {

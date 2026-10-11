@@ -8,7 +8,12 @@ import (
 
 // The formal 369d town19/area2 map and gate27, also observed in current
 // client op36, identify the Anton entrance. Main deck and Seria stay separate.
+// Retain this existing hook name for town/raid callers; the exact Luke program
+// waiting room shares the same admission, presence and removal lifecycle.
 func (s *Service) currentAntonWaitingArea(townID, areaID byte) bool {
+	if s.currentLukeWaitingArea(townID, areaID) {
+		return true
+	}
 	if s == nil || s.options.currentClientVersion != "official-24.9" || townID != 19 || areaID != 2 {
 		return false
 	}
@@ -24,12 +29,16 @@ func (s *Service) lockCurrentAntonWaitingAreaScope(session *gameSession, townID,
 	if !s.currentAntonWaitingArea(townID, areaID) {
 		return 0, "", true, noop
 	}
-	if !s.currentRaidAuthenticated(session) || session.channel.Type != 23 || session.channel.ID <= 0 || session.channel.ID > 255 {
+	channelType, route := byte(23), byte(0)
+	if s.currentLukeWaitingArea(townID, areaID) {
+		channelType, route = 32, 1
+	}
+	if !s.currentRaidAuthenticated(session) || session.channel.Type != channelType || session.channel.ID <= 0 || session.channel.ID > 255 {
 		return 0, "", false, noop
 	}
 	s.raidMu.Lock()
 	state := s.runtimeRaidByMemberLocked(session.selectedCharacterID)
-	if state == nil || !state.CurrentLayout || state.RaidKey == 0 || state.RouteOrRaidType != 0 || byte(state.RaidKey>>16) != byte(session.channel.ID) || byte(state.RaidKey>>24) != byte(s.channelAdvertiseID()) {
+	if state == nil || !state.CurrentLayout || state.RaidKey == 0 || state.RouteOrRaidType != route || byte(state.RaidKey>>16) != byte(session.channel.ID) || byte(state.RaidKey>>24) != byte(s.channelAdvertiseID()) {
 		s.raidMu.Unlock()
 		return 0, "", false, noop
 	}
@@ -48,7 +57,7 @@ func (s *Service) lockCurrentAntonWaitingAreaScope(session *gameSession, townID,
 // Leaving or losing admission uses the existing PVF raid Seria landing and
 // exact op36 route. Coordinates are resolved by that existing owner, not guessed.
 func (s *Service) returnCurrentAntonMemberToGate(session *gameSession) error {
-	if session == nil || session.channel.Type != 23 || !s.currentRaidAuthenticated(session) {
+	if session == nil || (session.channel.Type != 23 && session.channel.Type != 32) || !s.currentRaidAuthenticated(session) {
 		return nil
 	}
 	repos, ok := s.repositoryGroup()
@@ -91,13 +100,13 @@ func (m *OnlinePlayerManager) bindAntonWaitingBattleInstance(raidKey uint32, bat
 	defer m.mu.Unlock()
 	ids := make([]uint16, 0)
 	for id, key := range m.byChar {
-		if key.TownID == 19 && key.AreaID == 2 && key.Instance == raidKey {
+		if ((key.TownID == 19 && key.AreaID == 2) || (key.TownID == 32 && key.AreaID == 4)) && key.Instance == raidKey {
 			ids = append(ids, id)
 		}
 	}
 	for _, id := range ids {
 		key := m.byChar[id]
-		if key.TownID != 19 || key.AreaID != 2 || key.Instance != raidKey {
+		if !((key.TownID == 19 && key.AreaID == 2) || (key.TownID == 32 && key.AreaID == 4)) || key.Instance != raidKey {
 			continue
 		}
 		info := m.byArea[key][id]

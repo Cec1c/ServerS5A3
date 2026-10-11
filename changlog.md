@@ -1,3 +1,11 @@
+## 2026-10-12 — Review and integrate skill reset, Epic return and Luke waiting
+
+- Rebuild free profession skills for op491, parse real automatic-level containers and reject manual mutations. Cover actual planner-produced class change/awakening, missing real grants, ownership and rollback; record the shared effect on73 automatic skills and recovery of historical points through full reset.
+- Exclude the exact Epic Road resource from ordinary return origins; retain explicit compatibility mode and old snapshot limits. Bind the exact Luke waiting room to existing raid ownership without restricting ordinary area2.
+- Withhold the durability tool proposal after independent review disproved its section classification and client-cause claim. Preserve P86/P87 and existing-data acceptance as open.
+- Complete 8279 core and 388 scoped real-PVF passes, with 773 environment skips and one separate-asset skip; go list, scoped vet and Windows/Linux builds pass. Synchronize3403 source files and keep broader historical PVF failures visible.
+- Preserve four actual worker deliveries/cross reviews and cap4. Record the isolated native raid-create failure and unbound-token evidence; running QA stays51886be and dailyr98 remains unchanged. No new GUI acceptance or public deployment.
+
 ## 2026-10-12 — Integrate four-worker repairs and GM request ordering
 
 - Preserve accepted yellow records and original closed groups. Keep the four-subagent cap and record four actual deliveries; reuse lanes for disjoint next tasks.
