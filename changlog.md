@@ -1,5 +1,13 @@
 # Repository changelog
 
+## 2026-10-12 — Docker Linux profile and local token launcher
+
+- Add a separate Linux image and generated Compose profile under ignored runtime/docker, with a dedicated MariaDB volume, private interface bindings, embedded UDP relay and timezone data. Extract real PVF channel assets with a source-built tool and preserve explicit external table overrides.
+- Bind the embedded UDP relay to gameListenHost when configured while preserving the advertised host address and the legacy default; cover NAT address separation and invalid bind addresses.
+- Add BAT/Python local-client entrypoints for the inspected v56 executable, API-issued login tokens, duplicate-client and asset-hash checks. Keep the vendor updater and binaries unchanged.
+- Verify actual Linux server/database startup and local account registration/login. Client GUI compatibility and token binding remain under investigation; a successful API response alone does not prove in-game login.
+- Complete live fast-forward synchronization in both directions: GitHub Actions runs 38162071646 (GitHub to GitGud) and 38162153930 (GitGud to GitHub). Linux Verify passed after portable controller path fixes (38161846104).
+
 ## 2026-10-12 — Portable controller path validation
 
 - GitHub's first Linux run reproduced two existing controller failures: backslash traversal was accepted in an installation receipt and Windows absolute assets bypassed the expected path guard.

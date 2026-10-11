@@ -1500,6 +1500,7 @@ func (s *Service) newPartyUDPRelayBackends() (*currentPartyUDPRelayRemote, *curr
 	relay, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 		enabled:          s.options.partyUDPRelayEnabled,
 		advertiseIP:      s.options.serverIP,
+		bindHost:         s.options.gameListenHost,
 		portStart:        s.options.partyUDPRelayPortStart,
 		portCount:        s.options.partyUDPRelayPortCount,
 		endpointFallback: s.partyUDPRelayEndpointFallbackMode().enabled(),

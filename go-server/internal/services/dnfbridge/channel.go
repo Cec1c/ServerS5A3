@@ -139,7 +139,12 @@ func (s *Service) handleLegacyChannelRequest(reader *bufio.Reader, session *chan
 		"remote", session.conn.RemoteAddr().String(),
 		"local", session.conn.LocalAddr().String(),
 		"bootstrap", bootstrap)
-	session.closeAfterBootstrapDirectory = bootstrap
+	// The official 24.9/v56 client retries on a new socket when this first
+	// directory is closed. That retry has no script request and loses the
+	// bootstrap landing filter, randomly selecting a special entrance.
+	// Keep its bootstrap socket alive; preserve the NoPack lifecycle.
+	session.closeAfterBootstrapDirectory = bootstrap &&
+		!strings.EqualFold(strings.TrimSpace(s.options.currentClientVersion), "official-24.9")
 	return true, nil
 }
 
