@@ -41,3 +41,17 @@ two writable repositories. Keep upstream updates and contributions separate:
 fetch upstream, review on a branch, and submit a GitGud merge request from the
 fork branch. Repository synchronization does not synchronize issues, merge
 requests, releases, settings, or secrets.
+
+## Contributing through the fork
+
+Keep `upstream` read-only and create a topic branch from a reviewed upstream tip.
+Push that branch to the GitGud fork, then open a merge request targeting the
+original project's `master`. The mirror job handles only `master`; it neither
+publishes topic branches nor accepts upstream contributions automatically.
+
+If a sync fails, inspect its Actions log before retrying. For a divergence,
+fetch both remotes and resolve the changes on a review branch; do not reset
+either remote to silence the failure. For a Deploy Key error, check that the
+key is enabled for the fork with write permission and allowed by its protected
+branch settings. A scheduled run is not guaranteed to start on the minute;
+`Run workflow` can request an immediate check.
