@@ -1,5 +1,12 @@
 # Repository changelog
 
+## 2026-10-12 — Initial town snapshot deadline and preserved QA evidence
+
+- Give the full initial-town player-state snapshot the existing15-second budget instead of the3-second mutation budget; preserve packet order, route/character guards and error withholding of typed op24. One legacy achievement cleanup transaction inherits the longer budget; other independently scoped contexts stay unchanged.
+- Reproduce lost context after3.1 seconds with a real actor-route regression against the previous production file; verify healthy snapshot ordering and unchanged repository-error rejection after the patch. This is a unit-budget proof, not native/MySQL acceptance.
+- Preserve cold29 disconnect/verify failure and cold30 early exit; retain the same crafted necklace by read-only snapshot without granting/crafting again. Standard launcher login is user-confirmed; volcano deployment and GUI acceptance remain open.
+- Complete final32 domain/bridge/control, scoped actual-PVF, go list, scoped vet and Windows/Linux builds. Retain broader historical PVF failures, the separate-asset skip and the occupied-QA preflight boundary. Production staysr98.
+
 ## 2026-10-12 — Anton expired completed-map return across phases
 
 - Preserve an already-owned first-phase expired-completed return receipt after the same Anton instance advances to the real second phase; retain exact run/account/channel/participant guards and town-only permission.

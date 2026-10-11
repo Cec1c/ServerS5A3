@@ -1,7 +1,7 @@
 {
-  "source_file_count": 3383,
+  "source_file_count": 3384,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 Anton expired completed-map town receipt preserved across phase advance",
+  "stage": "D33 initial town snapshot deadline candidate with preserved volcano/phase return fixes",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -12995,8 +12995,8 @@
     },
     {
       "path": "internal/services/dnfbridge/initial_town_player_state.go",
-      "bytes": 20373,
-      "sha256": "c31311dacaea291f0ffb146491a410d66ebd6b30b01a76d1e1baed52c4b87181"
+      "bytes": 20677,
+      "sha256": "821546ffe27b591f20688cccf100361b191c05e23a86c228cbc0c2549f4903b6"
     },
     {
       "path": "internal/services/dnfbridge/initial_town_private_area.go",
@@ -13067,6 +13067,11 @@
       "path": "internal/services/dnfbridge/initial_town_shared_area_presence_test.go",
       "bytes": 4952,
       "sha256": "d9b6bfb19425898eb89a643f226fff2b397dd65551ba8eb79afb912e9768b443"
+    },
+    {
+      "path": "internal/services/dnfbridge/initial_town_snapshot_deadline_regression_test.go",
+      "bytes": 8678,
+      "sha256": "2c6fd88cbd74fa75302dddf571224172033dcbdbe67731fbe53d89b905daad40"
     },
     {
       "path": "internal/services/dnfbridge/initial_town_transition.go",
