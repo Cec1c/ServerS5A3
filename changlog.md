@@ -20,6 +20,25 @@
 - Add an opt-in GitHub Actions synchronizer for one master branch, using only fast-forward pushes and an independently scoped GitGud Deploy Key. Stop on divergent history or imported changes to CI definitions.
 - Add a read-only verification workflow for Go checks, Linux/Windows builds and synchronization tests, including checks after token-driven synchronization.
 - Validate seven integration cases with temporary bare repositories: equality, dry run, both directions, divergence, CI-change rejection and missing branches. Remote workflow results are recorded separately after publication.
+## 2026-10-12 — Player report classification and gunner GM labels
+
+- Classify72 source reports, close the five yellow acceptance records, preserve previous accepted groups and assign every remaining source record to an isolated lane. Record actual429 dispatch failures and the user-requested four-agent cap; resumed dispatch is not evidence of normal worker progress.
+- Distinguish male/female gunner labels in GM choices after actual-PVF confirmation that both base names are identical while their awakening profiles differ. Preserve job values and keep the reported gender overwrite's full GUI cause open.
+- Validate8230 core tests and461 GM tests without failures, scoped vet and Windows/Linux builds; synchronize3384 source files. Preserve prior PVF evidence and skips separately.
+- Verify the original necklace remains visible in a fresh isolated client and read the same instance without granting/crafting. Retain formal-token verification failure and pending volcano damage acceptance. Daily r98 and the frozen51886be QA service are not replaced by the new GM build.
+
+## 2026-10-12 — Isolated QA service switched to candidate33
+
+- Shut down the exact owned QA09 service normally and retain the same database/config/assets. Preserve the initial port preflight block on the old admin connection's TIME_WAIT, with no candidate process created at that point.
+- After endpoint release, start the frozen final32 candidate once; independently verify new-PID READY and118 game TCP listeners, then read the original necklace instance without granting/crafting again.
+- Keep the player's standard client and dailyr98 untouched. New native PID binding and volcano animation/monster-damage acceptance remain open; source CI pending is separate from successful local builds.
+
+## 2026-10-12 — Initial town snapshot deadline and preserved QA evidence
+
+- Give the full initial-town player-state snapshot the existing15-second budget instead of the3-second mutation budget; preserve packet order, route/character guards and error withholding of typed op24. One legacy achievement cleanup transaction inherits the longer budget; other independently scoped contexts stay unchanged.
+- Reproduce lost context after3.1 seconds with a real actor-route regression against the previous production file; verify healthy snapshot ordering and unchanged repository-error rejection after the patch. This is a unit-budget proof, not native/MySQL acceptance.
+- Preserve cold29 disconnect/verify failure and cold30 early exit; retain the same crafted necklace by read-only snapshot without granting/crafting again. Standard launcher login is user-confirmed; volcano deployment and GUI acceptance remain open.
+- Complete final32 domain/bridge/control, scoped actual-PVF, go list, scoped vet and Windows/Linux builds. Retain broader historical PVF failures, the separate-asset skip and the occupied-QA preflight boundary. Production staysr98.
 
 ## 2026-10-12 — Anton expired completed-map return across phases
 

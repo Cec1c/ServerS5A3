@@ -587,10 +587,14 @@ function renderSecondOptions() {
 }
 
 function jobLabelWithGender(job, label) {
-  return label;
+  const gender = jobGenderSuffix(job);
+  return gender ? `${label}（${gender}）` : label;
 }
 
 function jobGenderSuffix(job) {
+  // The shipped PVF uses the same base name for both gunner jobs.
+  if (Number(job) === 2) return '男';
+  if (Number(job) === 5) return '女';
   return '';
 }
 

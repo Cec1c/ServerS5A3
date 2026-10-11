@@ -60,7 +60,11 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	// This context spans all scene snapshots, including synchronous catalog
+	// work and inventory bootstrap before the final quest read. Use the
+	// existing snapshot budget so those phases do not exhaust a mutation's
+	// short deadline and disconnect an otherwise valid selected character.
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	charID, charName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID != characterID || !hasCharacter {
