@@ -196,29 +196,6 @@ func TestLegacyDirectoryRefreshKeepsConnectionOpen(t *testing.T) {
 	}
 }
 
-func TestOfficialBootstrapDirectoryKeepsConnectionOpen(t *testing.T) {
-	service := channelLifecycleTestService(t)
-	service.options.currentClientVersion = "official-24.9"
-	server, client := net.Pipe()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	defer client.Close()
-	go service.handleChannelConn(ctx, server)
-	writeLegacyLifecyclePacket(t, client, dnfproto.BuildLegacyClientPacket(dnfenum.LegacyMsgDofLoginPreface, make([]byte, dnfproto.DofLoginTokenSize)))
-	_ = readLegacyLifecyclePacket(t, client)
-	writeLegacyLifecyclePacket(t, client, dnfproto.BuildLegacyClientPacket(dnfenum.LegacyMsgDofGetScript, nil))
-	_ = readLegacyLifecyclePacket(t, client)
-	writeLegacyLifecyclePacket(t, client, dnfproto.BuildLegacyClientPacket(dnfenum.LegacyMsgAskChannelInfo, []byte("cain")))
-	_ = readLegacyLifecyclePacket(t, client)
-	_ = client.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	var trailing [1]byte
-	if _, err := client.Read(trailing[:]); err == nil {
-		t.Fatal("unexpected trailing packet")
-	} else if networkErr, ok := err.(net.Error); !ok || !networkErr.Timeout() {
-		t.Fatalf("official bootstrap socket closed: %v", err)
-	}
-}
-
 func channelLifecycleTestService(t *testing.T) *Service {
 	t.Helper()
 	return &Service{

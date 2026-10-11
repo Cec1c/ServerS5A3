@@ -5,7 +5,9 @@
 - Add a separate Linux image and generated Compose profile under ignored runtime/docker, with a dedicated MariaDB volume, private interface bindings, embedded UDP relay and timezone data. Extract real PVF channel assets with a source-built tool and preserve explicit external table overrides.
 - Bind the embedded UDP relay to gameListenHost when configured while preserving the advertised host address and the legacy default; cover NAT address separation and invalid bind addresses.
 - Add BAT/Python local-client entrypoints for the inspected v56 executable, API-issued login tokens, duplicate-client and asset-hash checks. Keep the vendor updater and binaries unchanged.
-- Verify actual Linux server/database startup and local account registration/login. Client GUI compatibility and token binding remain under investigation; a successful API response alone does not prove in-game login.
+- Match the inspected v56 executable to the existing official-24.9 packet counts and recognize its observed 606-byte login body/token offset. Verify actual token-bound Linux game login, character creation, persisted roster after restarts, and keyboard movement in the Lorain tutorial; do not infer full gameplay acceptance.
+- Add an opt-in restriction of default-group directory requests to a real ordinary landing channel for clients that repeat bootstrap lookups without the script download. Enable it in the Docker local profile; retain named groups and the original server defaults/lifecycle. Revert an ineffective experimental keep-open change.
+- Explicitly select the repository's existing channel reference for the tested v56 assets, retaining provenance and the PVF-extracted table. Keep the observed missing raid-map references and full gameplay verification open; no old one-click database or client binary patch is needed for this smoke test.
 - Complete live fast-forward synchronization in both directions: GitHub Actions runs 38162071646 (GitHub to GitGud) and 38162153930 (GitGud to GitHub). Linux Verify passed after portable controller path fixes (38161846104).
 
 ## 2026-10-12 — Portable controller path validation

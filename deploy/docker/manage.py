@@ -95,6 +95,7 @@ def prepare(args):
             "admin_token": secrets.token_hex(32), "joust_event_enabled": True,
             "client_dir": str(Path(args.client_dir).resolve()) if args.client_dir else "",
             "body_codec": "plaintext", "client_body_codec": "plaintext",
+            "default_group_login_only": True,
         }
     private_ipv4(config["host_ip"])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -125,7 +126,7 @@ def prepare(args):
         override.chmod(0o644)
         config["channel_file"] = override.name
         config["channel_source"] = str(source)
-    # Decode using the very same Go library as the server. No sample tables.
+    # Decode the PVF or explicitly selected external table with the server's library.
     user = f"{os.getuid()}:{os.getgid()}" if os.name != "nt" else "0:0"
     channel_file = config.get("channel_file", "channel_info.etc")
     if channel_file not in ("channel_info.etc", "channel.override.etc"):
@@ -214,6 +215,7 @@ create_databases = false
         "DNFBRIDGE_CHANNEL_INFO_BODY_MODE": "latest", "DNFBRIDGE_CHANNEL_SERVER_INDEX": "1",
         "DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": "0", "DNF_SCRIPT_VERSION": "59",
         "DNFBRIDGE_CURRENT_CLIENT_VERSION": c.get("client_version", "official-24.9"),
+        "DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY": str(c.get("default_group_login_only", True)).lower(),
         "DNFBRIDGE_GAME_UPPER_HEADER": "server16", "DNFBRIDGE_GAME_UPPER_BODY_CODEC": c["body_codec"],
         "DNFBRIDGE_GAME_UPPER_CLIENT_BODY_CODEC": c["client_body_codec"], "DNFBRIDGE_DPROTO_MODE": "legacy_patch",
         "DNFBRIDGE_PARTY_UDP_RELAY_MODE": "embedded", "DNFBRIDGE_PARTY_UDP_RELAY_PORT_START": "30000",

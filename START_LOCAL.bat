@@ -1,9 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-docker info >nul 2>&1
+docker.exe info >nul 2>&1
 if errorlevel 1 (
-  docker desktop start
+  docker.exe desktop start
   if errorlevel 1 goto failed
 )
 call DOCKER.bat up

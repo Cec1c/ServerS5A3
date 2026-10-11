@@ -139,12 +139,7 @@ func (s *Service) handleLegacyChannelRequest(reader *bufio.Reader, session *chan
 		"remote", session.conn.RemoteAddr().String(),
 		"local", session.conn.LocalAddr().String(),
 		"bootstrap", bootstrap)
-	// The official 24.9/v56 client retries on a new socket when this first
-	// directory is closed. That retry has no script request and loses the
-	// bootstrap landing filter, randomly selecting a special entrance.
-	// Keep its bootstrap socket alive; preserve the NoPack lifecycle.
-	session.closeAfterBootstrapDirectory = bootstrap &&
-		!strings.EqualFold(strings.TrimSpace(s.options.currentClientVersion), "official-24.9")
+	session.closeAfterBootstrapDirectory = bootstrap
 	return true, nil
 }
 
@@ -470,7 +465,11 @@ func (s *Service) channelsForRequestMode(group string, bootstrap bool) []channel
 		return nil
 	}
 	var channels []channelcatalog.Channel
-	if bootstrap {
+	// Some clients repeat the default-group lookup on a separate connection
+	// without requesting the script. The local opt-in applies the same real
+	// landing-channel filter to those requests, including manual default-group
+	// refreshes. Named groups and the default server behavior stay unchanged.
+	if bootstrap || (s.options.defaultGroupLoginOnly && isDefaultChannelGroup(group)) {
 		channels = catalog.FilterForBootstrap(group)
 		// The native client randomly chooses from the bootstrap directory.
 		// Advertising special entrances here leaves the socket in e.g. crack
