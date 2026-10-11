@@ -1,3 +1,10 @@
+## 2026-10-12 — Normal isolated QA live checkpoint and Runner failure
+
+- Record the one normal controller start of source31e2 using the retained database, the read-only adoption after a case-only SHA guard correction, wrong-password rejection, and fresh native token-bound town entry.
+- Preserve the original crafted necklace and saved512-byte option/skill data; keep skill GUI restoration and ordinary Anton0% animation/monster damage open. Record the failed additional-client attempt without inventing its cause or counting persisted roles as simultaneous online members.
+- Keep the isolated joust2365 catalog mismatch open after persisting its existing disabled setting. Daily r98 and accepted player reports remain unchanged.
+- Confirm pipeline164529 and source31e2 pipeline164570 failed with stuck_pending_no_matching_runners before scripts; current project Runner settings are enabled but the sole visible instance Runner is paused/offline/stale. Local combined56 validation does not replace remote CI execution. This update changes documentation only.
+
 ## 2026-10-12 — Reviewed normal native launch and character options replay
 
 Integrate the current-Service username/password token route and consume its fresh token through normal launch-client. Keep PID registration as ownership metadata and retain existing raid/token/character guards. Login payloads and unknown provider/transport errors retain only bounded length/hash diagnostics; fixed domain-rule diagnostics remain readable. Preserve the independent nested-provider disclosure regression and the rejected round47 evidence.

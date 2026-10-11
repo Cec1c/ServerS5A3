@@ -4,6 +4,20 @@ GitGUD流水线164529对应58145b08。Windows/Linux build两作业均stuck_pendi
 
 # CI执行状态与处理
 
+## 当前状态：2026-10-12 07:05（香港）
+
+邮件截图对应提交 `58145b08` 的 [流水线 164529](https://gitgud.io/16ww/servers5a3/-/pipelines/164529)。Windows 作业 570581 和 Linux 作业 570580 均失败，`failure_reason=stuck_pending_no_matching_runners`；Runner 与脚本开始时间为空，trace 为 0 字节，构建脚本没有执行。core-tests 和 SAST 被跳过。
+
+最新已验证源码 `31e2b51` 的 [流水线 164570](https://gitgud.io/16ww/servers5a3/-/pipelines/164570) 也已失败。香港 07:03:39 的 API 回查确认 Windows 作业 570646、Linux 作业 570645 为同一失败原因；07:05:15 的回查进一步确认四个作业 trace 均为 0 字节。两项 build 没有 Runner、没有开始时间，core-tests/SAST 被跳过。此前 06:38 的 pending 是历史快照，不能继续作为当前状态。
+
+07:05 的项目及执行器回查：项目共享和组 Runner 都已启用，可见唯一站点执行器仍为 `paused=true / online=false / status=stale`。需要站点管理员恢复共享执行器，或为项目提供可运行现有 Linux Docker 构建环境的 Runner。项目开关已经打开，尚没有可用执行器；现有 build/core-tests/SAST 门控保持。
+
+本机组合 56 核心 **8560 PASS / 0 FAIL / 774 环境 SKIP**、指定真实 PVF 专项 **396 PASS / 0 FAIL / 1 独立资产 SKIP**，go list、规定范围 vet、Windows/Linux 各三个程序构建通过。这些结果支持候选源码验证，不代表远端 CI 通过；远端没有执行编译或测试，当前也没有远端源码编译错误证据。
+
+隔离候选已正常启动并完成新的客户端登录入城，日常 r98 保持不变；火山实机验收状态见 [D33_NORMAL_QA_STATUS.md](D33_NORMAL_QA_STATUS.md)。后续文档提交触发的新流水线另行记录实际 API 状态，不把新建或 pending 记作通过。
+
+## 历史检查点
+
 2026-10-11（香港）。邮件对应[流水线164381](https://gitgud.io/16ww/servers5a3/-/pipelines/164381)，master提交cba767e123e00e3112598012e61f5485b14640ea。
 
 Windows作业570311与Linux作业570310均failed，failure_reason=stuck_pending_no_matching_runners；trace为空，构建脚本未执行。core-tests/semgrep-sast均skipped。没有远端编译错误证据，不能将该流水线写为通过。
