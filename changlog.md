@@ -59,3 +59,9 @@
 - Include example configuration with placeholder password; exclude runtime assets, credentials, player data and binaries.
 - Record candidate/online version boundaries and pending acceptance in Docs/SOURCE_IMPORT.md.
 - Build organization reference: rewio/ServerS4A21 commit 1f4a4e80610c767278008cd666588cb9a9629e34.
+
+## 2026-10-11 — D33 latest user acceptance and volcano priority
+
+- Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
+- Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
+- Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
