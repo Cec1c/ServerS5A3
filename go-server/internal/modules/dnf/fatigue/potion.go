@@ -1,0 +1,112 @@
+package fatigue
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"longheng.io/server/internal/modules/dnf/premium"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+)
+
+type PotionDefinition struct {
+	ItemID, Points, DailyLimit, CoolTimeMS int64
+	MinimumLevel                           int64
+	PVFPath, Group                         string
+}
+type PotionResult struct {
+	Remaining int64
+	Character dnfrepo.CharacterRecord
+}
+
+// RestorePotion owns both the stack debit and durable character-day usage.
+// Values originate in the active PVF, never in the client action arguments.
+func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.AccountRecord, characterID string, slot int16, definition PotionDefinition, now time.Time) (PotionResult, error) {
+	if repos.CharacterAssets == nil {
+		return PotionResult{}, dnfrepo.ErrCharacterAssetTransactionUnavailable
+	}
+	if slot < 0 || definition.ItemID <= 0 || definition.Points <= 0 || definition.PVFPath == "" {
+		return PotionResult{}, fmt.Errorf("invalid fatigue potion contract")
+	}
+	var result PotionResult
+	err := repos.CharacterAssets.WithinCharacterAssets(ctx, characterID, func(characters dnfrepo.CharacterRepository, items dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+		character, found, err := characters.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("fatigue character missing")
+		}
+		if character.AccountID != "" && character.AccountID != account.AccountID {
+			return fmt.Errorf("fatigue potion account mismatch")
+		}
+		if int64(character.Level) < definition.MinimumLevel {
+			return fmt.Errorf("fatigue potion minimum level not met")
+		}
+		inventory, found, err := items.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("fatigue inventory missing")
+		}
+		key := "0:" + strconv.Itoa(int(slot))
+		stack, found := inventory.Slots[key]
+		if !found || stack.ItemID != definition.ItemID || stack.Count <= 0 {
+			return fmt.Errorf("fatigue potion source changed")
+		}
+		character = dnfrepo.CloneCharacter(character)
+		inventory = dnfrepo.CloneInventory(inventory)
+		Refresh(&character, account, now)
+		if character.Stats["fatigue"] >= character.Stats["fatigue_limit"] {
+			return fmt.Errorf("fatigue is already full")
+		}
+		group := definition.Group
+		if group == "" {
+			group = strconv.FormatInt(definition.ItemID, 10)
+		}
+		dayKey, countKey, lastKey := "fatigue_potion_day_"+group, "fatigue_potion_used_"+group, "fatigue_potion_time_"+group
+		day := premium.ServiceDayID(now)
+		if character.Stats[dayKey] != day {
+			character.Stats[dayKey] = day
+			character.Stats[countKey] = 0
+			character.Stats[lastKey] = 0
+		}
+		// Long maintained cooldowns are daily potion allowances. They refresh
+		// with fatigue at 06:00, rather than stretching into the following day.
+		limit := definition.DailyLimit
+		if limit <= 0 && definition.CoolTimeMS >= 22*3600*1000 {
+			limit = 1
+		}
+		if limit > 0 && character.Stats[countKey] >= limit {
+			return fmt.Errorf("fatigue potion daily limit reached")
+		}
+		if definition.CoolTimeMS > 0 && definition.CoolTimeMS < 22*3600*1000 && character.Stats[lastKey] > 0 && now.UnixMilli()-character.Stats[lastKey] < definition.CoolTimeMS {
+			return fmt.Errorf("fatigue potion cooldown")
+		}
+		character.Stats["fatigue"] += definition.Points
+		if character.Stats["fatigue"] > character.Stats["fatigue_limit"] {
+			character.Stats["fatigue"] = character.Stats["fatigue_limit"]
+		}
+		character.Stats["fatigue_used"] = character.Stats["fatigue_limit"] - character.Stats["fatigue"]
+		character.Stats["fatigue_display_update"] = character.Stats["fatigue_used"]
+		character.Stats[countKey]++
+		character.Stats[lastKey] = now.UnixMilli()
+		stack.Count--
+		if stack.Count == 0 {
+			delete(inventory.Slots, key)
+		} else {
+			inventory.Slots[key] = stack
+		}
+		if err := dnfrepo.SaveInventoryFields(ctx, items, inventory, dnfrepo.InventoryFieldSlots); err != nil {
+			return err
+		}
+		if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+			return err
+		}
+		result = PotionResult{Remaining: stack.Count, Character: character}
+		return nil
+	})
+	return result, err
+}

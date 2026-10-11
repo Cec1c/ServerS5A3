@@ -6,7 +6,42 @@
 # Note that environment variables can be set in several places
 # See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
 stages:
+- build
 - test
+variables:
+  GOTOOLCHAIN: local
+  CGO_ENABLED: "0"
+  GOPATH: "$CI_PROJECT_DIR/.cache/go"
+default:
+  image: golang:1.26.5
+  cache:
+    key:
+      files:
+      - go-server/go.sum
+    paths:
+    - .cache/go/pkg/mod/
+build:
+  stage: build
+  parallel:
+    matrix:
+    - TARGET_OS: [linux, windows]
+      TARGET_ARCH: [amd64]
+  script:
+  - sh build.sh "$TARGET_OS" "$TARGET_ARCH"
+  artifacts:
+    name: "dnf90-$TARGET_OS-$TARGET_ARCH-$CI_COMMIT_SHORT_SHA"
+    paths:
+    - dist/
+    expire_in: 7 days
+core-tests:
+  stage: test
+  script:
+  - cd go-server
+  - go list -buildvcs=false -mod=readonly ./...
+  - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
+  - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
+  - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
+  - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
 sast:
   stage: test
 include:

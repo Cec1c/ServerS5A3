@@ -1,93 +1,80 @@
-# ServerS5A3轻装上阵
+# ServerS5A3 / DNF90 Go 服务端
 
+DNF90 服务端Go源码仓库，包含服务端、部署控制器、部署检查工具、领域模块、协议实现和测试。
 
+本次导入为2026-10-11的D22/D23候选源码，共3,356个源文件，与本地冻结源码逐文件一致。线上仍使用r98，候选修复尚未完成全部游戏实机验收，详见[源码状态](Docs/SOURCE_IMPORT.md)。
 
-## Getting started
+## 构建
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+安装 **Go 1.26.5**，确保`go`在PATH中。首次构建需要下载go.mod指定模块，已有模块缓存可离线构建。
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Windows在仓库根目录运行：
 
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitgud.io/16ww/servers5a3.git
-git branch -M master
-git push -uf origin master
+```bat
+build.bat
+build.bat linux amd64
 ```
 
-## Integrate with your tools
+Linux/macOS：
 
-* [Set up project integrations](https://gitgud.io/16ww/servers5a3/-/settings/integrations)
+```sh
+sh build.sh
+sh build.sh windows amd64
+sh build.sh linux amd64
+```
 
-## Collaborate with your team
+构建`DNF90Server`、`DNF90Control`和`DNF90Doctor`，输出到`dist/<GOOS>-<GOARCH>/`，失败立即返回非零状态。Windows默认windows/amd64，shell默认当前平台；可用`GO_EXE`指定Go编译器。构建只产生文件，不启动服务或访问数据库。
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+直接构建服务端：
 
-## Test and Deploy
+```sh
+cd go-server
+go build -buildvcs=false -mod=readonly -trimpath -o ../dist/DNF90Server ./cmd/server/dnf90
+```
 
-Use the built-in continuous integration in GitLab.
+构建组织参考[rewio/ServerS4A21](https://gitgud.io/rewio/ServerS4A21)的根目录脚本和独立发布目录。参考项目为.NET，本仓库按Go模块构建，未复制其实现。
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+## 测试
 
-***
+```sh
+cd go-server
+go list -buildvcs=false -mod=readonly ./...
+go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
+go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
+go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
+go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+```
 
-# Editing this README
+数据库、客户端或专用资源测试有独立启用条件，跳过不能视为现场验收通过。GitLab CI提供Linux/Windows amd64构建、上述测试和原有SAST模板，实际CI结果以仓库流水线为准。
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## 运行准备
 
-## Suggestions for a good README
+构建后仍需准备匹配客户端、`Script.pvf`、`channel_info.etc`、数据库和实例配置。仓库不包含运行资产、玩家数据、凭据或预编译程序。
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+`deploy/templates/instance.example.json`为旧`90cn-decode-bypass-v1`控制器示例，数据库密码为占位符，使用前必须修改。该控制器只支持原portable MySQL/hook客户端环境，不能直接接管D32 MariaDB/native实例。仅下载源码不能保证直接运行或适配任意客户端。
 
-## Name
-Choose a self-explaining name for your project.
+```text
+runtime/bin/                   编译后程序
+runtime/config/instance.json   私有实例配置
+runtime/configs/               生成配置
+runtime/data/dnf/              PVF和通道文件
+runtime/logs/                  日志
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+已有匹配环境可使用`deploy/windows/control.bat`。bootstrap/admin/MySQL保持loopback，game和UDP按受支持私有LAN配置。构建脚本不自动部署。
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## 目录与协作
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```text
+go-server/cmd/server/                    服务端及工具入口
+go-server/internal/app/dnf90/            单一组装入口
+go-server/internal/services/dnfbridge/   传输、会话和协议兼容
+go-server/internal/modules/dnf/          领域规则和事务
+go-server/internal/services/logic/dnf/   仓储组装
+go-server/internal/platform/             框架闭包
+go-server/pkg/                           公共包
+deploy/                                 示例配置和BAT入口
+Docs/                                   导入状态和逐文件清单
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+协作前阅读[AGENTS.md](AGENTS.md)和[changlog.md](changlog.md)。源码模块保持source-only，运行配置、密码、日志、数据库、PVF及构建产物不得提交。

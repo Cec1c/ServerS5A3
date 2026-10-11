@@ -1,0 +1,17 @@
+/runtime/
+/dist/
+/.cache/
+*.exe
+*.dll
+*.pdb
+*.log
+*.dpapi
+*.pem
+*.key
+.env
+.env.*
+!*.example
+Script.pvf
+channel_info.etc
+.DS_Store
+Thumbs.db
