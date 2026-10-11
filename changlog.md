@@ -1,5 +1,12 @@
 # Repository changelog
 
+## 2026-10-12 — Player report classification and gunner GM labels
+
+- Classify72 source reports, close the five yellow acceptance records, preserve previous accepted groups and assign every remaining source record to an isolated lane. Record actual429 dispatch failures and the user-requested four-agent cap; resumed dispatch is not evidence of normal worker progress.
+- Distinguish male/female gunner labels in GM choices after actual-PVF confirmation that both base names are identical while their awakening profiles differ. Preserve job values and keep the reported gender overwrite's full GUI cause open.
+- Validate8230 core tests and461 GM tests without failures, scoped vet and Windows/Linux builds; synchronize3384 source files. Preserve prior PVF evidence and skips separately.
+- Verify the original necklace remains visible in a fresh isolated client and read the same instance without granting/crafting. Retain formal-token verification failure and pending volcano damage acceptance. Daily r98 and the frozen51886be QA service are not replaced by the new GM build.
+
 ## 2026-10-12 — Isolated QA service switched to candidate33
 
 - Shut down the exact owned QA09 service normally and retain the same database/config/assets. Preserve the initial port preflight block on the old admin connection's TIME_WAIT, with no candidate process created at that point.

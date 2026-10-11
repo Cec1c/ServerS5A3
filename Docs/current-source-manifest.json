@@ -1,7 +1,7 @@
 {
   "source_file_count": 3384,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 initial town snapshot deadline candidate with preserved volcano/phase return fixes",
+  "stage": "D33 GM gunner label ambiguity only; active QA stays frozen51886be",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -16600,8 +16600,8 @@
     },
     {
       "path": "internal/services/gmtool/wwwroot/js/character.js",
-      "bytes": 28201,
-      "sha256": "d6b47643f224d7e2694a603d57e1f1268ad66becf251093b8f563533d95a3906"
+      "bytes": 28422,
+      "sha256": "67dae0847d8ba84725f6f252958be970014ed6a0633c604f69614bc2ba607331"
     },
     {
       "path": "internal/services/gmtool/wwwroot/js/core.js",
