@@ -1,5 +1,12 @@
 # Repository changelog
 
+## 2026-10-12 — Anton expired completed-map return across phases
+
+- Preserve an already-owned first-phase expired-completed return receipt after the same Anton instance advances to the real second phase; retain exact run/account/channel/participant guards and town-only permission.
+- Reproduce both op42/op72 failures before the patch with the real PVF phase VM, then cover phase advance, foreign instance rejection and unchanged retry/reward gates. Keep native phase-return root cause and GUI acceptance open.
+- Complete final27 domain/bridge/control, scoped real-PVF, go list, scoped vet and Windows/Linux builds; preserve historical broader PVF failures and asset skip. Production stays r98 and QA09 retained.
+
+
 ## 2026-10-12 — Anton volcano native barrier state and adventure friend presence
 
 - Derive native Anton symbol111 from full barrier depletion/recovery after verifying the shipped client controller. Keep it latched during partial recharge and restore it in reconnect snapshots; preserve ordered110/111/126 and110/111/127 writes without altering formal PVF markers. Exclude phase1 and Luke.

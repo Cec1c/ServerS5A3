@@ -26,9 +26,9 @@ func TestRealPVFExpiredCompletedRaidMapCanReturnWithoutEarningClear(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ expired, op42 bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+	for _, tc := range []struct{ expired, op42, advanced bool }{{false, false, false}, {true, false, false}, {false, true, false}, {true, true, false}, {true, false, true}, {true, true, true}} {
 		expired := tc.expired
-		t.Run(fmt.Sprintf("expired=%v/op42=%v", expired, tc.op42), func(t *testing.T) {
+		t.Run(fmt.Sprintf("expired=%v/op42=%v/advanced=%v", expired, tc.op42, tc.advanced), func(t *testing.T) {
 			s, r, session, conn := prepareOrdinaryCompletedSettlementRuntimeForExitTest(t)
 			completeSettlementExitBarriersForTest(t, s, r, session)
 			s.options.currentClientVersion = "official-24.9"
@@ -148,6 +148,36 @@ func TestRealPVFExpiredCompletedRaidMapCanReturnWithoutEarningClear(t *testing.T
 						}
 					})
 				}
+			}
+			if tc.advanced {
+				// Explicit in-memory other-squad completion through the actual
+				// PVF phase VM. The old expired run earns no bridge clear/reward.
+				for n, dungeon := range []uint32{210, 210, 210, 210, 213, 213, 215, 215} {
+					next, replay, err := b.Anton.ClearDungeon(fmt.Sprintf("other-squad-%d", n), dungeon, b.Anton.Epoch(), reportAt.Add(time.Duration(n+1)*time.Second))
+					if err != nil || replay {
+						t.Fatal("actual phase completion", n, err, replay)
+					}
+					b.Anton = next
+				}
+				if !b.Anton.PhaseCleared() {
+					t.Fatal("actual first phase not complete")
+				}
+				next, err := b.Anton.BeginNextPhase(reportAt.Add(10 * time.Second))
+				if err != nil {
+					t.Fatal(err)
+				}
+				b.Phase, b.Anton, b.Dungeons = 1, next, next.Dungeons()
+				if s.currentRaidCompletedMapExitReady(session, r) {
+					t.Fatal("old expired map authorized retry after phase advance")
+				}
+				// The preserved receipt still rejects another instance/owner and
+				// cannot be inferred from the new phase's reset attempt number.
+				instance := b.InstanceID
+				b.InstanceID += "-foreign"
+				if s.currentRaidCompletedMapTownReturnReady(session, r) {
+					t.Fatal("cross-instance expired return authorized")
+				}
+				b.InstanceID = instance
 			}
 			conn.write.Reset()
 			var exitErr error

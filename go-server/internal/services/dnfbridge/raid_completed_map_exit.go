@@ -36,7 +36,13 @@ func (s *Service) currentRaidCompletedMapExitReceiptReady(session *gameSession, 
 		return false
 	}
 	run, found := b.ClearedRuns[e.RunID]
-	if !found && allowExpired && b.Mode == 1 && !b.Single && b.Phase == 0 && e.Phase == b.Phase && b.Anton != nil && b.Anton.Epoch() > e.Attempt {
+	// An accepted return-only receipt remains owned by this run when the same
+	// instance advances to phase two. Its first-phase attempt must not be
+	// compared with the new phase's reset epoch. Retry/selector never use it.
+	expiredPhaseCurrent := b.Anton != nil && e.Phase == 0 &&
+		(b.Phase == 0 && b.Anton.Phase() == 0 && b.Anton.Epoch() > e.Attempt ||
+			b.Phase == 1 && b.Anton.Phase() == 1)
+	if !found && allowExpired && b.Mode == 1 && !b.Single && expiredPhaseCurrent {
 		run, found = b.ExpiredCompletedRuns[e.RunID]
 	}
 	if !found || run.DungeonID != uint32(runtime.Dungeon.ID) || run.Phase != e.Phase || run.Attempt != e.Attempt ||

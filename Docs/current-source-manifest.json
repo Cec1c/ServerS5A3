@@ -1,7 +1,7 @@
 {
   "source_file_count": 3383,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 volcano native111 state and adventure friend presence candidate",
+  "stage": "D33 Anton expired completed-map town receipt preserved across phase advance",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -14455,8 +14455,8 @@
     },
     {
       "path": "internal/services/dnfbridge/raid_completed_map_exit.go",
-      "bytes": 3005,
-      "sha256": "f25d53e111a76d727619e179d49182cbad44b37004a2b0ef2a5779ecb8ab58d6"
+      "bytes": 3338,
+      "sha256": "3aa4048fd9c0fec2a2c286ec6a72667a7a37010392b2a5a6daadd5bd832b63ba"
     },
     {
       "path": "internal/services/dnfbridge/raid_completed_map_exit_test.go",
@@ -14605,8 +14605,8 @@
     },
     {
       "path": "internal/services/dnfbridge/raid_expired_completed_return_audit_test.go",
-      "bytes": 6605,
-      "sha256": "9fc2e5162e9ff2dc1b8e16c8e74f580708714ae9d46b290db732a65b50696267"
+      "bytes": 7972,
+      "sha256": "fa5c028eda11dcc05f3bed0eba89b709f1a5ed0ebd7c3542e5aa64f990150c7b"
     },
     {
       "path": "internal/services/dnfbridge/raid_final_weekly.go",
