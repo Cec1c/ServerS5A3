@@ -1,3 +1,7 @@
+## 2026-10-12 邮件流水线164529实际核查
+
+GitGUD流水线164529对应58145b08。Windows/Linux build两作业均stuck_pending_no_matching_runners，runner与started_at为空、trace为0字节；core-tests/SAST跳过。项目shared/group runners已启用，但API可见唯一instance runner处于paused/offline/stale，未执行脚本。不能把邮件称为编译错误，也不能把本机组合56 GREEN称为远端CI GREEN。新源码提交的流水线另行回查；不绕过现有门控或修改全局Runner。
+
 # CI执行状态与处理
 
 2026-10-11（香港）。邮件对应[流水线164381](https://gitgud.io/16ww/servers5a3/-/pipelines/164381)，master提交cba767e123e00e3112598012e61f5485b14640ea。

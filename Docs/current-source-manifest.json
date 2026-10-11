@@ -1,7 +1,7 @@
 {
-  "source_file_count": 3403,
+  "source_file_count": 3433,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 reviewed skill reset, Epic return and Luke waiting; durability candidate withheld; QA frozen51886be",
+  "stage": "D33 current-service credential launch, native character options replay and explicit existing QA database reuse",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -400,8 +400,8 @@
     },
     {
       "path": "cmd/server/control/account_auth.go",
-      "bytes": 14309,
-      "sha256": "6f48477cd4570a7ddada5f8e9b16e65b5d8ba0169b4729f080cb01df491bde49"
+      "bytes": 13526,
+      "sha256": "6a120fe03b2ca06b5df6c52ec01c22c174bf7ea28d5650bb0f806fb71bbc2a50"
     },
     {
       "path": "cmd/server/control/account_auth_test.go",
@@ -435,8 +435,8 @@
     },
     {
       "path": "cmd/server/control/config.go",
-      "bytes": 13000,
-      "sha256": "70987ba49f758a15e30f77cde03f1e3ca5e72007d09b49c3553e74c986a28195"
+      "bytes": 14039,
+      "sha256": "26471556cd1c66a9632f0432a09945349a3497d0715bfec3f3d37c60d4f4c796"
     },
     {
       "path": "cmd/server/control/control_test.go",
@@ -445,28 +445,43 @@
     },
     {
       "path": "cmd/server/control/controller.go",
-      "bytes": 30868,
-      "sha256": "90bc05623da527c6630fdb2cd5b1427d04d7547ddc0722e3bcff2458d9c37fad"
+      "bytes": 31624,
+      "sha256": "454aafd26e2e5f7844fca37f1ae154376700393552f8bdb988858465639f23c6"
     },
     {
       "path": "cmd/server/control/instance.go",
-      "bytes": 17053,
-      "sha256": "0c3e9446e32d905d21a4c2d674908810e501a530667a7c1c94717b366c7c74a0"
+      "bytes": 17689,
+      "sha256": "6bf043230600172e564219f13d73924aadb59fa9f46d76db466919c9c1a17a5d"
+    },
+    {
+      "path": "cmd/server/control/local_account_token.go",
+      "bytes": 5103,
+      "sha256": "704b0d51ed51745238bf7eb9171a42ba648f5c97bce2281c8a01fe3756d89a06"
+    },
+    {
+      "path": "cmd/server/control/local_account_token_test.go",
+      "bytes": 4978,
+      "sha256": "4910a21faa53b56b2804cce83e39bbbabdcf6f37379423e9b36d5acfae76d71a"
     },
     {
       "path": "cmd/server/control/main.go",
-      "bytes": 5171,
-      "sha256": "65fa5a87ede0098286bac370a6cb4e5a165a7e0924d92de29a319f0b0a4877f0"
+      "bytes": 5606,
+      "sha256": "343a5c51eb60a998e3159ab94635dc83c88725fefe57b1109968935506227a27"
     },
     {
       "path": "cmd/server/control/model.go",
-      "bytes": 7424,
-      "sha256": "2258d984f1cb3f197aa6ee84affdf82f78a1e5e00274ff0f581fb829c1771672"
+      "bytes": 7581,
+      "sha256": "5ae45d5bc3eed41f8da024c2049031bd0c4d527f9ffd86001aa118b8b0c58a5f"
     },
     {
       "path": "cmd/server/control/mysql_bundle.go",
       "bytes": 11772,
       "sha256": "519e33c3aa8e7a9b9501cbf5273d1cf6e74328a192542070c6e0d6ac6043a5d2"
+    },
+    {
+      "path": "cmd/server/control/normal_control_native46_test.go",
+      "bytes": 13144,
+      "sha256": "8d856f1676e384b5049fdde0f35d3842626d20513b4cab0cc113371dada4c0b7"
     },
     {
       "path": "cmd/server/control/paths.go",
@@ -507,6 +522,21 @@
       "path": "cmd/server/control/replace_file_windows.go",
       "bytes": 452,
       "sha256": "39c23b0ca8f5789903f3d08d7dbf87bbbfde96f4b6495b42af4cab5c3740ba7f"
+    },
+    {
+      "path": "cmd/server/control/running_database.go",
+      "bytes": 1625,
+      "sha256": "e82187b349ef22d5f35943f62e9ad31163b68f866b4277ce5a0522aacbf14804"
+    },
+    {
+      "path": "cmd/server/control/startup50_contract_test.go",
+      "bytes": 3654,
+      "sha256": "0e3a6e08c518ef7aed0bbd4c119888cb7eeb3526fd19b17e97b9507b06ab0bd5"
+    },
+    {
+      "path": "cmd/server/control/startup50_functions_test.go",
+      "bytes": 7519,
+      "sha256": "4d57fb4f1d6e2b47ed5a6cbbbbb6c1dd7dd6cc9e4ed91af693179c68ec9a8fb8"
     },
     {
       "path": "cmd/server/dnf90/main.go",
@@ -600,8 +630,13 @@
     },
     {
       "path": "internal/app/dnf90/components.go",
-      "bytes": 3139,
-      "sha256": "7c0dd7b03c544ffae1659f4823086c67ae157f1589f6580ccef82648518a5ed6"
+      "bytes": 3392,
+      "sha256": "ea20936fbe4440d85f80602ab4ec5b3371369e9a0a8340c77d10b27e63044bc1"
+    },
+    {
+      "path": "internal/app/dnf90/local_account_login_test.go",
+      "bytes": 1729,
+      "sha256": "ff362dc9d7074822ca8373a48a94c0f092effe31ab8058208b8a492cec72a207"
     },
     {
       "path": "internal/architecture/dependency_test.go",
@@ -2259,6 +2294,16 @@
       "sha256": "9bdae60521473c3915b89a9a9ce98a7142ebfa82c4d51a66c3241b42e85c2ae1"
     },
     {
+      "path": "internal/modules/dnf/localaccount/login.go",
+      "bytes": 2678,
+      "sha256": "ae30d64d988320ec9c8c6a45fa34efc874eff13a7ab0a9697189d92ab1334e3a"
+    },
+    {
+      "path": "internal/modules/dnf/localaccount/login_test.go",
+      "bytes": 2592,
+      "sha256": "b5b72b65cef3ca1ddc1a11154914592be27d62a6499ba5f736eb2f89caadf419"
+    },
+    {
       "path": "internal/modules/dnf/mail/attachment_avatar_test.go",
       "bytes": 3234,
       "sha256": "b949c2497d2bc006bcd510aad6df3ceb9c76878a3145cb8bd9eb56e749203b6b"
@@ -3850,8 +3895,8 @@
     },
     {
       "path": "internal/modules/dnf/repository/group.go",
-      "bytes": 2103,
-      "sha256": "da7b234767dbf9d81c8c44fb2eebfbd5dfad437153fdef96ad2d75f821455f8a"
+      "bytes": 2281,
+      "sha256": "43f53860182041a266198b0aa5764f9afa49da7a70172576d2489bdb53926421"
     },
     {
       "path": "internal/modules/dnf/repository/inventory_repository.go",
@@ -4255,8 +4300,8 @@
     },
     {
       "path": "internal/modules/dnf/repository/mysql/mysql_group.go",
-      "bytes": 5729,
-      "sha256": "936c088f1275e5de2dfdfffccb970104c09d75e84e7082f95397596c378ff441"
+      "bytes": 5775,
+      "sha256": "93d265142dad951e65a4d2383f1a25fe772755c20792269e99b2fc3de346d229"
     },
     {
       "path": "internal/modules/dnf/repository/mysql/mysql_helpers.go",
@@ -4287,6 +4332,16 @@
       "path": "internal/modules/dnf/repository/mysql/mysql_legacy_userinfo.go",
       "bytes": 3576,
       "sha256": "9094d90c40209db32a73178563e38c9be132b9c37ee5bb5f735d87e8fafac8f2"
+    },
+    {
+      "path": "internal/modules/dnf/repository/mysql/mysql_local_login.go",
+      "bytes": 1724,
+      "sha256": "7c733d675feca5671a7053ca468d862d7c709792e71d2dbba7dc548068799000"
+    },
+    {
+      "path": "internal/modules/dnf/repository/mysql/mysql_local_login_test.go",
+      "bytes": 3198,
+      "sha256": "f5c2b112bb1e6ecc9fb82984a18adf22b5320715e93834573d9f6b0d7a20c0f2"
     },
     {
       "path": "internal/modules/dnf/repository/mysql/mysql_mail.go",
@@ -6935,8 +6990,8 @@
     },
     {
       "path": "internal/services/dnfbridge/account_login_token.go",
-      "bytes": 11907,
-      "sha256": "94150a38984eaccd9931d160dd6aefc0c38abb2ffcc12fe395d2812464c95f3a"
+      "bytes": 11899,
+      "sha256": "3e5178862f780bbdc7a2e5ed6dfac9c99b20d91f8d73ef6dae6bde80c5fffee2"
     },
     {
       "path": "internal/services/dnfbridge/account_login_token_test.go",
@@ -7289,6 +7344,11 @@
       "sha256": "05b3326620ed0d6c066ca4de9ef7f918ac97ace4aa4fbe2284d90fdb9a27e323"
     },
     {
+      "path": "internal/services/dnfbridge/business_log_diagnostic.go",
+      "bytes": 1467,
+      "sha256": "7fd8f2c0001876e5fb7b3fe278d564951fc40e7b16cc2b3d3fa759e192da3dae"
+    },
+    {
       "path": "internal/services/dnfbridge/cera_package.go",
       "bytes": 29663,
       "sha256": "d366a02979088905973236cf9db08138576e0a365e112e269fc356786b8eaade"
@@ -7522,6 +7582,16 @@
       "path": "internal/services/dnfbridge/character_initialization.go",
       "bytes": 6137,
       "sha256": "fcc91a0677998f01b43fb4b445c737ce0bfb820e8c785de4cb485d8e5de7db44"
+    },
+    {
+      "path": "internal/services/dnfbridge/character_option_entry_failure_regression48_test.go",
+      "bytes": 3578,
+      "sha256": "651f16a0e4bf5890e99a7b652deaad9fb753802582e0acf3c9c4967bf77457a6"
+    },
+    {
+      "path": "internal/services/dnfbridge/character_option_entry_regression46_test.go",
+      "bytes": 14811,
+      "sha256": "5d697a78e343fa1bf44beb66c130adf2bd57dcde53b833888eb5cf8c077f5d00"
     },
     {
       "path": "internal/services/dnfbridge/character_option_notice_test.go",
@@ -8345,8 +8415,8 @@
     },
     {
       "path": "internal/services/dnfbridge/dungeon_drop_pickup.go",
-      "bytes": 31023,
-      "sha256": "4eb3e436f4c076ff2f858c5a8488d3e228941dd0a9334e272e7462025fc16283"
+      "bytes": 31046,
+      "sha256": "0fc645f7972aa1ad10ae1db0c7f4a9d237941e538965b58ba464a39428b525c9"
     },
     {
       "path": "internal/services/dnfbridge/dungeon_drop_pickup_test.go",
@@ -9370,8 +9440,8 @@
     },
     {
       "path": "internal/services/dnfbridge/dungeon_tournament_flow.go",
-      "bytes": 92110,
-      "sha256": "405db5ce266915d897d5c12c3a860268b79d3496a853859c7483a0a647a7bbd2"
+      "bytes": 92133,
+      "sha256": "3964ababa9d7505c4499ed9b83106052bb3eb5ec010fef36e942c67913d4ceb7"
     },
     {
       "path": "internal/services/dnfbridge/dungeon_tournament_flow_test.go",
@@ -9860,8 +9930,8 @@
     },
     {
       "path": "internal/services/dnfbridge/equipped_creature_item_refresh.go",
-      "bytes": 8799,
-      "sha256": "1debc297a23dad208950b523e3db95385a2706128d407bb1281858290a60ca1f"
+      "bytes": 9246,
+      "sha256": "91f2d3257521239e8c7536ce65a6fa8563c082fc5fc5af259fc83011cbefcd38"
     },
     {
       "path": "internal/services/dnfbridge/equipped_effect_rune_item_refresh.go",
@@ -12385,8 +12455,8 @@
     },
     {
       "path": "internal/services/dnfbridge/game.go",
-      "bytes": 34234,
-      "sha256": "06ff0a7c86aa2352f9b61f73be9d28c9be1d3d1d59d5f75af21438eace7a8d3c"
+      "bytes": 34330,
+      "sha256": "33665ee2da9a2a01c86cb405490387a93de0cba9cc293e80a879ac0bf1b8ed5c"
     },
     {
       "path": "internal/services/dnfbridge/game_aligned.go",
@@ -12460,8 +12530,8 @@
     },
     {
       "path": "internal/services/dnfbridge/game_option_settings.go",
-      "bytes": 30345,
-      "sha256": "f0800f828d771f45bd33276a0309748b1da19b2e3d4ea18de9df9137029888ee"
+      "bytes": 30569,
+      "sha256": "c590f6dcc1ece3c765607d60f986f2cde28e9a2184afe95969d5ebdce44bf684"
     },
     {
       "path": "internal/services/dnfbridge/game_option_settings_test.go",
@@ -12570,8 +12640,8 @@
     },
     {
       "path": "internal/services/dnfbridge/game_wire.go",
-      "bytes": 20276,
-      "sha256": "9ee5873ebb472457bd9a62079eb07e942bb4abf6a20a62d854315b016a876074"
+      "bytes": 20884,
+      "sha256": "d0277e2eb5caf868524be055a9ab818c9448aebf8f240ec4e0252c32278bff51"
     },
     {
       "path": "internal/services/dnfbridge/game_wire_concurrency_test.go",
@@ -12715,8 +12785,8 @@
     },
     {
       "path": "internal/services/dnfbridge/gameplay_module_equipment_disjoint.go",
-      "bytes": 15385,
-      "sha256": "61d88e190810dfd4fed11c310dcb085cb50e3767e3d8b9842d8803350680fc21"
+      "bytes": 15477,
+      "sha256": "ddb73ed6cda2225385b3c31abf0c54dd037765152eb00d89828330b570a84c9c"
     },
     {
       "path": "internal/services/dnfbridge/gameplay_module_equipment_effect.go",
@@ -13065,8 +13135,8 @@
     },
     {
       "path": "internal/services/dnfbridge/initial_town_route_packets.go",
-      "bytes": 13816,
-      "sha256": "1b7ebe9e5c3bf37b94e36b04d4a554f0dda2e13c2cc33cd890d6fd1e38633e5e"
+      "bytes": 13704,
+      "sha256": "ab5d9043f208249d51c9fb9e44f2f7c0ad7412ea073b14fb9a24d3661e6553f7"
     },
     {
       "path": "internal/services/dnfbridge/initial_town_route_progress.go",
@@ -13075,8 +13145,8 @@
     },
     {
       "path": "internal/services/dnfbridge/initial_town_route_state.go",
-      "bytes": 4955,
-      "sha256": "d09cecd316aa3c9512982b652c11bcb42810eb9e6a3696154cd4b21f5ca45c76"
+      "bytes": 4998,
+      "sha256": "41c6480160877e9abb7e44732455915373607b79e7c9f207750f422a47d3bf62"
     },
     {
       "path": "internal/services/dnfbridge/initial_town_scene_ready.go",
@@ -13369,14 +13439,24 @@
       "sha256": "fe9b3d172697257828700922e02667e9e12b493fa7ed82400d112fb1b2d33568"
     },
     {
+      "path": "internal/services/dnfbridge/local_account_login.go",
+      "bytes": 4046,
+      "sha256": "ef30da020fb479f1e3a01544b74e31b1553e1ab11c753aa7124547030ca16b7c"
+    },
+    {
+      "path": "internal/services/dnfbridge/local_account_login_test.go",
+      "bytes": 8170,
+      "sha256": "9dfd923a0167128e9258e3cce3cd092908f685bad44ff05536883d44d0fcb0d3"
+    },
+    {
       "path": "internal/services/dnfbridge/login_actor_generation_rebuild.go",
-      "bytes": 30179,
-      "sha256": "025c78739d66feb7003e8b05eec9540e432d2e37073b41c7a30697fb33c27e60"
+      "bytes": 30602,
+      "sha256": "292a2d49744c3792f225fae3fc75e0fc86b028c1e0a5470445245a61e2c0f5f2"
     },
     {
       "path": "internal/services/dnfbridge/login_actor_generation_rebuild_test.go",
-      "bytes": 27740,
-      "sha256": "036098cead09ba6f069820649a4f078417891b610ace91e4f43e1531f1b83327"
+      "bytes": 28228,
+      "sha256": "1f3ccfc04b34bb5eff49be4130a583f0c0118fdb71a683a86db05fe8c79740d5"
     },
     {
       "path": "internal/services/dnfbridge/login_authoritative_before_commit.go",
@@ -13417,6 +13497,16 @@
       "path": "internal/services/dnfbridge/login_mode1_last_before_commit_test.go",
       "bytes": 9101,
       "sha256": "4b04a01853f960bf85302686c0dd1335a066f3cf66118455d9cbf726c1e77521"
+    },
+    {
+      "path": "internal/services/dnfbridge/login_packet_log_redaction.go",
+      "bytes": 4581,
+      "sha256": "e62caff1e15fde2054a44a5050848c6b164a5e3ef86e86814c197be6adfe9edb"
+    },
+    {
+      "path": "internal/services/dnfbridge/login_packet_log_redaction_test.go",
+      "bytes": 2429,
+      "sha256": "d2cec4a2fd1a3e81e45c510d59be645bbdc1c4d1cf7bc49498b61a89b437d2f7"
     },
     {
       "path": "internal/services/dnfbridge/login_skill_switch_loadout_after_commit.go",
@@ -13557,6 +13647,26 @@
       "path": "internal/services/dnfbridge/name_tag_card_test.go",
       "bytes": 5439,
       "sha256": "9c931f685b5c470bf142169495c900d535c496f7d964a53c09458c0447095133"
+    },
+    {
+      "path": "internal/services/dnfbridge/native_log_business47_test.go",
+      "bytes": 3754,
+      "sha256": "b271ab21b749105c6c95b0e8482b10b6b3178b628955364e3ef8aec3a4b0603e"
+    },
+    {
+      "path": "internal/services/dnfbridge/native_log_business48_test.go",
+      "bytes": 5033,
+      "sha256": "2fec6038686bd93f937aedf4f8dd8b0c945db0f060811ec2405dd9ba8f2a7e66"
+    },
+    {
+      "path": "internal/services/dnfbridge/native_log_supplement44_test.go",
+      "bytes": 5312,
+      "sha256": "05452d4ec089fe5d52e0f52e1b61e99de72f63e4aeb772436b3c9614c2f9ef03"
+    },
+    {
+      "path": "internal/services/dnfbridge/native_log_supplement45_test.go",
+      "bytes": 5382,
+      "sha256": "54e1456f7618b6acae96ca8b975a900f7e33e5ba44be7ce13a10f612c6a83914"
     },
     {
       "path": "internal/services/dnfbridge/new_semester_clear_journal.go",
@@ -13755,8 +13865,8 @@
     },
     {
       "path": "internal/services/dnfbridge/packet_log.go",
-      "bytes": 7726,
-      "sha256": "6fb54e559897648fcafece7bca866c6919550cdd1cb1ff6f030c7b83b445e050"
+      "bytes": 8129,
+      "sha256": "a6d7608ae1df2ed405e77cd4762ea24dca77ce38f92ce1a335db23b5902c4f5d"
     },
     {
       "path": "internal/services/dnfbridge/packet_log_timestamps_test.go",
@@ -15174,6 +15284,36 @@
       "sha256": "d4e40720edda9a3fbcfea8bae7fa55a562858cae2363a946e896946144be44a1"
     },
     {
+      "path": "internal/services/dnfbridge/review43_bridge_logs_test.go",
+      "bytes": 10005,
+      "sha256": "17a47f89fa6715691d176acd4b287d68113caffdbd89f539f824b42aca8907a1"
+    },
+    {
+      "path": "internal/services/dnfbridge/review44_controls_test.go",
+      "bytes": 3399,
+      "sha256": "d4446af73e177581cf795677cd9d75d5ea5ad00c595155b6df778b5957acb80b"
+    },
+    {
+      "path": "internal/services/dnfbridge/review44_nil_boundaries_test.go",
+      "bytes": 1101,
+      "sha256": "d61fd3792eb80530b66ecb82e78e6563ba3f699b67c7a9644a94d1029484a2b6"
+    },
+    {
+      "path": "internal/services/dnfbridge/review45_error_controls_test.go",
+      "bytes": 5193,
+      "sha256": "f1b20b0bcb3b6e610071809719f2f830b8c94744f3a5df8210fc7c6f38fb83d1"
+    },
+    {
+      "path": "internal/services/dnfbridge/review45_plain_provider_control_test.go",
+      "bytes": 2470,
+      "sha256": "e43f98d5be3cd118a85f48f39a561dccff5bc2f0e27b4faac32f9ec5ebc9b991"
+    },
+    {
+      "path": "internal/services/dnfbridge/review47_trust_boundary_controls_test.go",
+      "bytes": 5222,
+      "sha256": "528c162c6239a87de8eac0abc2aa2544d975c87495f424ee3bee19b0a6322856"
+    },
+    {
       "path": "internal/services/dnfbridge/review_584_manager_move_test.go",
       "bytes": 9371,
       "sha256": "e5d07d1f28995efdaff02604166cd44f64875416dc2498d288dc209e87ecf25f"
@@ -15530,8 +15670,8 @@
     },
     {
       "path": "internal/services/dnfbridge/service.go",
-      "bytes": 48456,
-      "sha256": "5d70500cc36c3bf97f343a154517b41e38dbefcf05f384c4f99b9ee6c1ec8329"
+      "bytes": 48739,
+      "sha256": "ffc4602d81cdb667249329b895b9eae09488b7c038f716a1225e3291a5e5c98f"
     },
     {
       "path": "internal/services/dnfbridge/service_test.go",
@@ -15574,6 +15714,16 @@
       "sha256": "a26d78a078f4ebf0a68fefe2944c1d69f66e334ce908a21319a6f3e9a2ea0859"
     },
     {
+      "path": "internal/services/dnfbridge/skill_option43_test.go",
+      "bytes": 3346,
+      "sha256": "52a8628dca04d0e73a613685a2568005703b719f80faa9d142b93156ec7f9384"
+    },
+    {
+      "path": "internal/services/dnfbridge/skill_options_review44_test.go",
+      "bytes": 3866,
+      "sha256": "1313cdd430c50ff57ca4bc586b3cdf9186f1cc73d1caa934b91d70e6bdd38e4e"
+    },
+    {
       "path": "internal/services/dnfbridge/skill_reset_missing_grants_real_pvf_test.go",
       "bytes": 3211,
       "sha256": "1b86fa7aace9766c9f905c3da3e20703d35013f57cf76e1110ec00c52b8e32d2"
@@ -15590,8 +15740,8 @@
     },
     {
       "path": "internal/services/dnfbridge/skill_switch_inventory.go",
-      "bytes": 54529,
-      "sha256": "e0ba5484f09425d54cb9a3a9c1efa0de9066aeec6cf656393f0ee22e2459a3cd"
+      "bytes": 54552,
+      "sha256": "4901c34040744cdb700701f6ed0d4aed535a24189f8763235ec208b05aef8c83"
     },
     {
       "path": "internal/services/dnfbridge/skill_switch_inventory_answer.go",
@@ -15735,8 +15885,8 @@
     },
     {
       "path": "internal/services/dnfbridge/story_digest.go",
-      "bytes": 13594,
-      "sha256": "7f0d7b5c68c51a9bf10daae240bc305fa3bb5db1e541f1743dd96c78668c45d2"
+      "bytes": 13617,
+      "sha256": "5af094f33523dcaca9952f7633da12d9b844d888b6e61f532bfd52080a86b0b3"
     },
     {
       "path": "internal/services/dnfbridge/story_digest_account_test.go",

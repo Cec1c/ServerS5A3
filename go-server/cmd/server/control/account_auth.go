@@ -10,11 +10,10 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	mysql "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
+	"longheng.io/server/internal/modules/dnf/localaccount"
 )
 
 const (
@@ -470,39 +469,11 @@ func ensureLocalLoginAccountSchema(ctx context.Context, db *sql.DB) error {
 }
 
 func normalizeLocalUsername(username string) (string, error) {
-	username = strings.ToLower(strings.TrimSpace(username))
-	count := utf8.RuneCountInString(username)
-	if !utf8.ValidString(username) || count < 3 || count > 32 {
-		return "", errors.New("username must contain 3 to 32 characters")
-	}
-	for _, character := range username {
-		if unicode.IsLetter(character) ||
-			unicode.IsDigit(character) ||
-			character == '_' ||
-			character == '-' ||
-			character == '.' {
-			continue
-		}
-		return "", errors.New(
-			"username may contain only letters, numbers, '_', '-', or '.'",
-		)
-	}
-	return username, nil
+	return localaccount.NormalizeUsername(username)
 }
 
 func validateLocalPassword(password string) error {
-	if !utf8.ValidString(password) {
-		return errors.New("password must be valid UTF-8")
-	}
-	if len(password) < 8 || len(password) > 72 {
-		return errors.New("password must contain 8 to 72 UTF-8 bytes")
-	}
-	for _, character := range password {
-		if unicode.IsControl(character) {
-			return errors.New("password must not contain control characters")
-		}
-	}
-	return nil
+	return localaccount.ValidatePassword(password)
 }
 
 func readLocalAccountPassword(r io.Reader) (string, error) {

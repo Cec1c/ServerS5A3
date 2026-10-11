@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"longheng.io/server/internal/modules/dnf/localaccount"
 
 	"longheng.io/server/internal/platform/db"
 )
@@ -10,6 +11,8 @@ import (
 var ErrRepoMissing = errors.New("dnf repository is missing")
 
 type Group struct {
+	// Optional local credentials; absence disables local token issuance only.
+	LocalLogin           localaccount.Repository
 	Account              AccountRepository
 	AccountInventory     AccountInventoryRepository
 	Character            CharacterRepository

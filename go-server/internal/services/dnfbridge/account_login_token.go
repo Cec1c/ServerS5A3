@@ -265,7 +265,7 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 			"conn_id", session.connID,
 			"channel_id", session.channel.ID,
 			"client_ip", session.clientIP,
-			"token_prefix", token[:8],
+			"token_present", true,
 			"session_account_bound", session.accountID != "")
 		// 令牌存在但查不到账号是"账号串号"的决定性失败点，用 WARN 而不是 INFO：
 		// 出现它就说明这条连接拿不到权威账号 —— 除非本地 PID 登记兜住，否则
@@ -275,7 +275,7 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 			"channel_id", session.channel.ID,
 			"client_ip", session.clientIP,
 			"client_pid", session.clientPID,
-			"token_prefix", token[:8],
+			"token_present", true,
 			"session_account_id", session.accountID,
 			"session_account_bound", session.accountID != "",
 			"reason", sharedAccountReasonTokenNotRecognised)

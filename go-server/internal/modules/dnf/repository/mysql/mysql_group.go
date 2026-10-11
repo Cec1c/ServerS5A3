@@ -102,6 +102,7 @@ func NewMySQLGroup(db SQLDB, options MySQLGroupOptions) (repository.Group, error
 func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repository.Group {
 	base := mysqlStoreBase{router: router}
 	group := repository.Group{
+		LocalLogin:        localLoginStore(router),
 		Account:           &mysqlAccountStore{mysqlStoreBase: base},
 		AccountInventory:  &mysqlAccountInventoryStore{mysqlStoreBase: base},
 		Character:         &mysqlCharStore{mysqlStoreBase: base},

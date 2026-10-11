@@ -165,6 +165,11 @@ func (l *packetLogger) Log(direction string, kind string, data []byte, fields ..
 	if l == nil || l.file == nil {
 		return
 	}
+	fields = redactPacketDiagnosticErrors(fields)
+	if metadata, sensitive := loginPacketLogMetadata(kind, data, fields); sensitive {
+		l.writeLine(redactedLoginPacketLogLine(direction, kind, data, metadata))
+		return
+	}
 	// 截断只作用于即将写进日志的十六进制**副本**：hexData 是 data 的重新切片，
 	// 调用方的包体、长度与发送时序都不受影响。
 	hexData := data
@@ -184,6 +189,10 @@ func (l *packetLogger) Log(direction string, kind string, data []byte, fields ..
 func (l *packetLogger) Event(kind string, fields ...any) {
 	if l == nil || l.file == nil {
 		return
+	}
+	fields = redactPacketDiagnosticErrors(fields)
+	if metadata, sensitive := loginPacketLogMetadata(kind, nil, fields); sensitive {
+		fields = append(metadata, "payload_redacted", true)
 	}
 	line := "EVENT kind=" + kind
 	for i := 0; i+1 < len(fields); i += 2 {

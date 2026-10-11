@@ -3,8 +3,10 @@ package dnfbridge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -87,8 +89,18 @@ func TestLoginActorGenerationInvalidPetStillAttemptsBuffAndRetainsErrorsOnce(t *
 					t.Fatalf("missing failure evidence %q", want)
 				}
 			}
-			if failBuff && !strings.Contains(logText, "test buff snapshot write failed") {
-				t.Fatal("combined error lost buff failure")
+			if failBuff {
+				writeText := "test buff snapshot write failed" // public synthetic fixture
+				exact := fmt.Sprintf("error=redacted error_len=%d error_sha256=%x", len(writeText), sha256.Sum256([]byte(writeText)))
+				found := false
+				for _, line := range strings.Split(logText, "\n") {
+					if strings.Contains(line, "kind=game-login-actor-generation-buff-refresh-failed ") && strings.Contains(line, exact) {
+						found = true
+					}
+				}
+				if !found || strings.Contains(logText, writeText) {
+					t.Fatal("buff transport failure lost exact hash evidence or exposed its body")
+				}
 			}
 		})
 	}

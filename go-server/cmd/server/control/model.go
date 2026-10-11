@@ -6,16 +6,17 @@ import (
 )
 
 type instanceConfig struct {
-	SchemaVersion  int             `json:"schemaVersion"`
-	InstallationID string          `json:"installationId"`
-	Mode           string          `json:"mode"`
-	Server         serverConfig    `json:"server"`
-	Database       databaseConfig  `json:"database"`
-	LegacyRedis    json.RawMessage `json:"redis,omitempty"`
-	Game           gameConfig      `json:"game"`
-	Protocol       protocolConfig  `json:"protocol"`
-	Build          buildConfig     `json:"build"`
-	Client         clientConfig    `json:"client"`
+	UseRunningDatabase bool            `json:"-"`
+	SchemaVersion      int             `json:"schemaVersion"`
+	InstallationID     string          `json:"installationId"`
+	Mode               string          `json:"mode"`
+	Server             serverConfig    `json:"server"`
+	Database           databaseConfig  `json:"database"`
+	LegacyRedis        json.RawMessage `json:"redis,omitempty"`
+	Game               gameConfig      `json:"game"`
+	Protocol           protocolConfig  `json:"protocol"`
+	Build              buildConfig     `json:"build"`
+	Client             clientConfig    `json:"client"`
 }
 
 type serverConfig struct {
@@ -90,6 +91,7 @@ type clientManifestEntry struct {
 }
 
 type processState struct {
+	UsesRunningDatabase bool      `json:"usesRunningDatabase,omitempty"`
 	PID                 int       `json:"pid"`
 	StartedAt           time.Time `json:"startedAt"`
 	ProcessCreatedAt    time.Time `json:"processCreatedAt"`

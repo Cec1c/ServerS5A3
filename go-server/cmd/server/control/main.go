@@ -54,10 +54,10 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	var runErr error
 	switch strings.ToLower(strings.TrimSpace(args[0])) {
 	case "start":
-		fs := newFlagSet("start", stderr)
-		rebuild := fs.Bool("rebuild", false, "rebuild server and doctor before starting")
-		if runErr = parseFlags(fs, args[1:]); runErr == nil {
-			runErr = controller.start(ctx, *rebuild)
+		opts, err := parseStartOptions(args[1:], stderr)
+		runErr = err
+		if runErr == nil {
+			runErr = controller.startWithOptions(ctx, opts)
 		}
 	case "stop":
 		fs := newFlagSet("stop", stderr)
@@ -133,6 +133,16 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func parseStartOptions(args []string, stderr io.Writer) (startOptions, error) {
+	fs := newFlagSet("start", stderr)
+	rebuild := fs.Bool("rebuild", false, "rebuild server and doctor before starting")
+	useRunning := fs.Bool("use-running-database", false, "reuse the configured running loopback database without managing its lifecycle")
+	if err := parseFlags(fs, args); err != nil {
+		return startOptions{}, err
+	}
+	return startOptions{rebuild: *rebuild, useRunningDatabase: *useRunning}, nil
+}
+
 func newFlagSet(name string, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -153,7 +163,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `DNF90 native local server controller
 
 Usage:
-  DNF90Control.exe start [--rebuild]
+  DNF90Control.exe start [--rebuild] [--use-running-database]
   DNF90Control.exe stop [--keep-database]
   DNF90Control.exe status
   DNF90Control.exe build [--force=true]

@@ -109,9 +109,13 @@ type Service struct {
 	packetID             uint64
 	clientAccounts       clientAccountRegistry
 	// loginTokens 保存启动器登录签发的令牌到账号的映射（见 account_login_token.go）。
-	loginTokens accountLoginTokenStore
-	accountAPI  *accountAPIServer
-	gmTool      *gmtool.Server
+	loginTokens       accountLoginTokenStore
+	localLoginMu      sync.Mutex
+	localLoginEpoch   uint64
+	localLoginStopped bool
+	localLoginTokens  map[string]struct{}
+	accountAPI        *accountAPIServer
+	gmTool            *gmtool.Server
 	// 账号判定只有两条依据：启动器登录令牌（loginTokens）与本地客户端进程号登记
 	// （clientAccounts）。原来"最近登录 IP → 账号"的内存表与 accountIPCache
 	// 已于 2026-09-25 删除，见 client_account_ip.go。
@@ -262,6 +266,7 @@ func NewWithOptions(env *appkit.Env, serviceOptions ServiceOptions) *Service {
 		repositoryProvider:      serviceOptions.RepositoryProvider,
 		dprotoProvider:          serviceOptions.DprotoProvider,
 		clientAccounts:          newClientAccountRegistry(),
+		localLoginStopped:       true,
 		runtimePartyManager:     party.NewRuntimePartyManager(),
 	}
 	service.gameplayTimers = newProcessGameplayTimeQueue(func(name string, recovered any) {
@@ -726,6 +731,7 @@ func (s *Service) Start(ctx context.Context) error {
 		// legacy/0/off/false/no = 逐字节回到恒写 currentTownInitialMovementRate。
 		// 证据与厂商对照见 initial_town_location_notifications.go。
 		"town_peer_motion_state", currentTownPeerMotionStateMode())
+	s.startLocalLoginTokens()
 	return nil
 }
 
@@ -739,6 +745,7 @@ func gameListenAddress(host string, port int) string {
 
 // Stop 关闭监听并等待连接处理退出。
 func (s *Service) Stop(ctx context.Context) error {
+	s.stopLocalLoginTokens()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1035,12 +1042,12 @@ func (s *Service) aesKey() string {
 
 func (s *Service) logInfo(msg string, args ...any) {
 	if s.logger != nil {
-		s.logger.Info(msg, args...)
+		s.logger.Info(msg, redactPacketDiagnosticErrors(args)...)
 	}
 }
 
 func (s *Service) logWarn(msg string, args ...any) {
 	if s.logger != nil {
-		s.logger.Warn(msg, args...)
+		s.logger.Warn(msg, redactPacketDiagnosticErrors(args)...)
 	}
 }

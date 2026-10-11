@@ -124,6 +124,7 @@ func (s *Service) resetCurrentInitialTownRoute(session *gameSession) {
 	session.initialTownActorSceneSnapshotSent = false
 	session.initialTownLocationNotificationsSent = false
 	session.initialTownQuestSnapshotsSent = false
+	session.characterOptionNoticeSent = false
 	session.initialTownSkillInfoPrepared = false
 	session.initialTownSkillInfoSent = false
 	session.initialTownSkillInfo = currentSceneSkillInfoProjection{}

@@ -271,7 +271,7 @@ func (s *Service) handleCurrentStoryDigestAccepted(session *gameSession, classif
 			"account_viewed_level", accountViewedLevel,
 			"previous_account_viewed_level", previousAccountViewedLevel,
 			"account_record_found", accountFound,
-			"error", accountAdvanceErr)
+			"error", businessLogDiagnostic(accountAdvanceErr))
 	}
 	s.logGameEvent(session, "game-current-story-digest-advanced",
 		"char_id", session.selectedCharacterID,

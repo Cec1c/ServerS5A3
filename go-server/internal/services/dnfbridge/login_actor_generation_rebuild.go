@@ -440,6 +440,16 @@ func (s *Service) rebuildLoginActorGenerationAfterSceneCommit(session *gameSessi
 			"error", petErr)
 	}
 	buffErr := s.sendBuffSwapReapply(session, trigger+"_after_actor_generation_rebuild")
+	if buffErr != nil {
+		// Send/Write/provider returns are untrusted, including every joined leaf.
+		// Keep the original object for errors.Join; only the log hashes its text.
+		s.logPacketEvent("game-login-actor-generation-buff-refresh-failed",
+			"conn_id", session.connID,
+			"char_id", charID,
+			"source", trigger+"_after_actor_generation_rebuild",
+			"diagnostic_source", "buff_snapshot_send",
+			"error", buffErr)
+	}
 	return errors.Join(petErr, buffErr)
 }
 

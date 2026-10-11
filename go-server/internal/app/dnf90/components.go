@@ -65,6 +65,10 @@ func components(env *appkit.Env, cancel context.CancelFunc) ([]appkit.Component,
 	bridge := dnfbridge.NewWithOptions(env, dnfbridge.ServiceOptions{
 		RepositoryProvider: runtime.Group,
 	})
+	// Never expose password authentication without the existing admin policy.
+	if env != nil && env.AdminMux != nil && env.AdminAuth != nil {
+		env.AdminMux.HandleFunc("/local/account/login", env.AdminAuth("platform", bridge.LocalAccountLoginHandler))
+	}
 	if env != nil && env.AdminMux != nil {
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {

@@ -110,7 +110,15 @@ func (c *controller) check(ctx context.Context, opts checkOptions) error {
 }
 
 func (c *controller) start(ctx context.Context, rebuild bool) error {
+	return c.startWithOptions(ctx, startOptions{rebuild: rebuild})
+}
+
+func (c *controller) startWithOptions(ctx context.Context, opts startOptions) error {
 	cfg, err := loadInstance(c.paths)
+	if err != nil {
+		return err
+	}
+	cfg, err = configureStartupDatabase(cfg, opts.useRunningDatabase)
 	if err != nil {
 		return err
 	}
@@ -134,11 +142,17 @@ func (c *controller) start(ctx context.Context, rebuild bool) error {
 		fmt.Fprintf(c.stdout, "DNF90 is already READY. PID=%d\n", state.PID)
 		return nil
 	}
-	if mysqlState, found, err := c.loadManagedMySQLProcess(cfg, true); err != nil {
-		return err
-	} else if found {
-		if err := validateRunningDatabaseConfig(c.paths, cfg, mysqlState); err != nil {
+	if cfg.UseRunningDatabase {
+		if err := rejectOwnedDatabaseState(c.paths.mysqlProcessState); err != nil {
 			return err
+		}
+	} else {
+		if mysqlState, found, err := c.loadManagedMySQLProcess(cfg, true); err != nil {
+			return err
+		} else if found {
+			if err := validateRunningDatabaseConfig(c.paths, cfg, mysqlState); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -154,10 +168,10 @@ func (c *controller) start(ctx context.Context, rebuild bool) error {
 			return err
 		}
 	}
-	if err := c.buildBinaries(ctx, cfg, rebuild); err != nil {
+	if err := c.buildBinaries(ctx, cfg, opts.rebuild); err != nil {
 		return err
 	}
-	databaseStarted, err := c.startDatabase(ctx, cfg)
+	databaseStarted, err := beginStartupDatabase(ctx, cfg, c.startDatabase)
 	if err != nil {
 		if databaseStarted {
 			return errors.Join(err, c.rollbackDatabase(cfg))
@@ -254,7 +268,7 @@ func (c *controller) stop(ctx context.Context, keepDatabase bool) error {
 		}
 		fmt.Fprintln(c.stdout, "DNF90 server stopped.")
 	}
-	if !keepDatabase {
+	if shouldStopStartupDatabase(keepDatabase, found, state) {
 		if err := c.stopDatabase(ctx, cfg); err != nil {
 			return err
 		}
@@ -364,22 +378,12 @@ func (c *controller) launchClient(
 	if !c.httpReady(ctx, readyURL) {
 		return errors.New("DNF90 server is not ready; run control start first")
 	}
-	accountID := cfg.Server.AccountID
-	if strings.TrimSpace(username) != "" {
-		accountID, err = c.authenticateRunningLocalAccount(
-			ctx,
-			cfg,
-			username,
-			password,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	argument, err := clientLaunchArgument(cfg)
-	if err != nil {
-		return err
-	}
+	return launchWithLocalLoginToken(ctx, cfg, username, password, c.requestLocalLoginToken, func(accountID, argument string) error {
+		return c.startLocalClient(ctx, cfg, clientRoot, executable, multiInstance, accountID, argument)
+	})
+}
+
+func (c *controller) startLocalClient(ctx context.Context, cfg instanceConfig, clientRoot, executable string, multiInstance bool, accountID, argument string) error {
 	cmd := exec.Command(executable, argument)
 	cmd.Dir = clientRoot
 	hookCreate := "0"
@@ -703,6 +707,7 @@ func (c *controller) startServerProcess(cfg instanceConfig) (processState, error
 		ExecutableSHA256:    executableSHA256,
 		InstallationID:      cfg.InstallationID,
 		RuntimeConfigSHA256: runtimeConfigSHA256,
+		UsesRunningDatabase: cfg.UseRunningDatabase,
 		Stdout:              stdoutPath,
 		Stderr:              stderrPath,
 	}
@@ -740,6 +745,11 @@ func (c *controller) validateRunningServerConfig(
 	cfg instanceConfig,
 	state processState,
 ) (processState, error) {
+	var err error
+	cfg, err = configureStartupDatabase(cfg, state.UsesRunningDatabase)
+	if err != nil {
+		return processState{}, err
+	}
 	desiredSHA256, err := desiredServerRuntimeConfigSHA256(cfg)
 	if err != nil {
 		return processState{}, err

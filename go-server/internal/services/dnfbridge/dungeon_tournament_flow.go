@@ -954,7 +954,7 @@ func (s *Service) logTournamentRewardSelectionBlocked(
 		"card_index", cardIndex,
 		"card_count", cardCount,
 		"reason", reason,
-		"error", failureReason,
+		"error", businessLogDiagnostic(failureReason),
 		"source", source.String())
 }
 

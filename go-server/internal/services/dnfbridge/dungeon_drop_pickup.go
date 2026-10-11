@@ -210,7 +210,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			"drop_object_key", request.DropObjectKey,
 			"picker_actor_object_key", pickerActorObjectKey,
 			"reason", "runtime_drop_owner_rejected",
-			"error", err)
+			"error", businessLogDiagnostic(err))
 		return nil
 	}
 	if drop.Status == runtimeDungeonDropConsumed {

@@ -47,8 +47,10 @@ func generateRuntimeConfigs(paths projectPaths, cfg instanceConfig) error {
 		return err
 	}
 
-	if err := writeFile(paths.mysqlConfig, []byte(renderMySQLConfig(paths, cfg)), 0o600); err != nil {
-		return err
+	if !cfg.UseRunningDatabase {
+		if err := writeFile(paths.mysqlConfig, []byte(renderMySQLConfig(paths, cfg)), 0o600); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -307,12 +309,13 @@ mysql_conn_max_lifetime_seconds = 300
 shard_id = %s
 table_prefix = "dnf"
 server_group_plan_file = "configs/servergroup/plan.json"
-auto_create_schema = true
+auto_create_schema = %t
 csharp_legacy_schema = true
 create_databases = false
 `,
 		tomlString(dsn),
 		tomlString(cfg.Game.ShardID),
+		!cfg.UseRunningDatabase,
 	)
 }
 
@@ -414,6 +417,25 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		"DNFBRIDGE_CHANNEL_SERVER_INDEX":           strconv.Itoa(cfg.Protocol.ChannelServerIndex),
 		"DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": strconv.Itoa(cfg.Protocol.ChannelAdvertiseServerIndex),
 		"DNF_SCRIPT_VERSION":                       "59",
+	}
+	if cfg.Protocol.Profile == officialNativeProtocolProfile {
+		// The existing official-24.9 native contract runs without the 90CN hook.
+		// Its version and embedded UDP probes must survive inherited-env scrubbing.
+		relayPortStart := cfg.Server.PartyUDPRelayPortStart
+		if relayPortStart == 0 {
+			relayPortStart = officialNativeRelayPortStart
+		}
+		relayPortCount := cfg.Server.PartyUDPRelayPortCount
+		if relayPortCount == 0 {
+			relayPortCount = defaultPartyUDPRelayPortCount
+		}
+		values["DNFBRIDGE_PARTY_UDP_RELAY_PORT_START"] = strconv.Itoa(relayPortStart)
+		values["DNFBRIDGE_PARTY_UDP_RELAY_PORT_COUNT"] = strconv.Itoa(relayPortCount)
+		values["DNFBRIDGE_CURRENT_CLIENT_VERSION"] = "official-24.9"
+		values["DNFBRIDGE_PARTY_UDP_RELAY_MODE"] = "embedded"
+		values["DNFBRIDGE_PARTY_UDP_RELAY_PROBE_LISTEN"] = "on"
+		values["DNFBRIDGE_PARTY_UDP_RELAY_SEED_FORWARD"] = "on"
+		values["DNFBRIDGE_PARTY_UDP_RELAY_PROBE_PORTS"] = fmt.Sprintf("2311,2312,%d", relayPortStart)
 	}
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }

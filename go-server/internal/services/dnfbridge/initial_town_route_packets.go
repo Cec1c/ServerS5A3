@@ -142,15 +142,17 @@ func (s *Service) sendCurrentInitialTownActorRoutePacketsWithOptionsLocked(
 				"char_id", characterID,
 				"error", err)
 		}
-		// 每角色选项（class0/0x0187）与账号选项同窗口回放：客户端对这份
-		// `u32 len + 512B` 选项没有本地存储，只落库不回放就是"重登后被重置"
-		// （操作者报障：Buff强化换装栏 / 换装栏 重登被重置）。同一个
-		// `gameOptionNoticeSent` 闸门保证重连路由不会重复回放。
+	}
+	// Character options must replay for every new selection on this connection.
+	// Keep the accepted account-option gate unchanged (P55).
+	if !session.characterOptionNoticeSent {
 		if err := s.sendCharacterOptionNotice(session, "initial_town_before_actor_prerequisites"); err != nil {
 			s.logWarn("dnfbridge character option replay deferred",
 				"conn_id", session.connID,
 				"char_id", characterID,
 				"error", err)
+		} else {
+			session.characterOptionNoticeSent = true
 		}
 	}
 	if err := s.sendCurrentTownActorPrerequisitesLocked(session, characterID, objectBody, prerequisiteMode1Body); err != nil {

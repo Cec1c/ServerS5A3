@@ -325,7 +325,9 @@ func (s *Service) handleSaveQuickchat(session *gameSession, body []byte) error {
 
 func (s *Service) handleSaveCharacterOption(session *gameSession, body []byte) error {
 	blob, ok := lengthPrefixedOptionBlob(body, currentGameOptionBlobMaxLen)
-	if !ok {
+	// Pinned v97 NOTI390 reader (2255DB0) accepts exactly 512 bytes.
+	// Reject incompatible saves before they can replace a valid character snapshot.
+	if !ok || (s.options.currentClientVersion == "official-24.9" && len(blob) != 512) {
 		s.logGameEvent(session, "game-save-character-option-blocked",
 			"body_len", len(body),
 			"reason", "invalid_length_prefixed_blob")

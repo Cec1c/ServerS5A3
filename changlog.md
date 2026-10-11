@@ -1,3 +1,13 @@
+## 2026-10-12 — Reviewed normal native launch and character options replay
+
+Integrate the current-Service username/password token route and consume its fresh token through normal launch-client. Keep PID registration as ownership metadata and retain existing raid/token/character guards. Login payloads and unknown provider/transport errors retain only bounded length/hash diagnostics; fixed domain-rule diagnostics remain readable. Preserve the independent nested-provider disclosure regression and the rejected round47 evidence.
+
+Reset the character option replay gate on a real role entry and consume it only after successful op390 delivery, before op19. Reject non512 option saves only for the evidenced official24.9 profile. Preserve failed-write then fresh-reentry regression; same-entry retry and native GUI restoration remain open.
+
+Support the verified official native/hookfalse profile through normal control. Add explicit start --use-running-database, default false, for the existing loopback QA database. This path creates only its own verified server process state, skips portable DB init/start/rollback/mysql.ini, closes schema initialization, and does not stop that external database. Existing owned DB lifecycle remains the default.
+
+The exact combined56 source passes go list, 8560 core tests with774 environment skips, 396 scoped actual-PVF tests with one separate-asset skip, scoped vet and Windows/Linux BAT builds of all three programs. Log48 independent joint controls pass210/0/0; control50 independent tests and eight-file SHA audit pass. Mirror3433 source files. Earlier full-PVF failures remain historical evidence; this is source validation, not new GUI acceptance. Daily r98 remains unchanged; isolated native animation/damage, lock restoration and fresh token owner binding still need actual tests.
+
 ## 2026-10-12 — Review and integrate skill reset, Epic return and Luke waiting
 
 - Rebuild free profession skills for op491, parse real automatic-level containers and reject manual mutations. Cover actual planner-produced class change/awakening, missing real grants, ownership and rollback; record the shared effect on73 automatic skills and recovery of historical points through full reset.

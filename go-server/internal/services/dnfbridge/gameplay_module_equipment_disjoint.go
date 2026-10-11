@@ -51,7 +51,7 @@ func (s *Service) handleCurrentDisjointItem(session *gameSession, body []byte) e
 	}
 	request, err := parseCurrentDisjointItemRequest(body)
 	if err != nil {
-		s.logGameEvent(session, "game-disjoint-item-rejected", "body_len", len(body), "reason", err)
+		s.logGameEvent(session, "game-disjoint-item-rejected", "body_len", len(body), "reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketDisjointItem), currentDisjointFailureCode(err))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -61,7 +61,7 @@ func (s *Service) handleCurrentDisjointItem(session *gameSession, body []byte) e
 		err = s.commitCurrentDisjointItem(ctx, session, catalog, request)
 	}
 	if err != nil {
-		s.logGameEvent(session, "game-disjoint-item-rejected", "slot", request.SourceSlot, "reason", err)
+		s.logGameEvent(session, "game-disjoint-item-rejected", "slot", request.SourceSlot, "reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketDisjointItem), currentDisjointFailureCode(err))
 	}
 	return nil
@@ -93,7 +93,7 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 	batch, err := decodeCurrentDisjointBatchRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-disjoint-item-batch-rejected",
-			"body_len", len(body), "slot", currentDisjointErrorSlot(err), "reason", err)
+			"body_len", len(body), "slot", currentDisjointErrorSlot(err), "reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, opcode, currentDisjointFailureCode(err))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -111,7 +111,7 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 		s.logGameEvent(session, "game-disjoint-item-batch-rejected",
 			"count", len(batch.Slots), "slots", batch.SlotListText(),
 			"slot", currentDisjointErrorSlot(err), "tool_slot", batch.ToolSlot, "context", batch.Context,
-			"reason", err)
+			"reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, opcode, currentDisjointFailureCode(err))
 	}
 	rewardRows, units := 0, uint32(0)

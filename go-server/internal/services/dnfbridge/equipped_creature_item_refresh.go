@@ -44,11 +44,20 @@ func (s *Service) sendSelectedEquippedCreatureItemRefresh(session *gameSession, 
 	}
 	creature := currentEquippedCreatureFromEquipment(equipped)
 	if !creature.valid() || int64(creature.itemID) != equipped.ItemID {
-		return fmt.Errorf(
+		ruleErr := fmt.Errorf(
 			"equipped creature item refresh rejected invalid slot 26: item=%d serial=%d",
 			equipped.ItemID,
 			creature.serialOrHandle,
 		)
+		// This local rule creates only a fixed diagnostic with numeric values.
+		// Repository/send/provider errors never acquire this public provenance.
+		s.logPacketEvent("game-upper-current-equipped-creature-item-rule-rejected",
+			"conn_id", session.connID,
+			"char_id", session.selectedCharacterID,
+			"source", source,
+			"diagnostic_source", "local_equipped_creature_slot_rule",
+			"error", businessLogDiagnostic(ruleErr))
+		return ruleErr
 	}
 	if currentEquippedCreatureEnchantCardID(equipped) == 0 && repositories.Pet != nil {
 		petRecord, found, err := repositories.Pet.Load(ctx, characterID)

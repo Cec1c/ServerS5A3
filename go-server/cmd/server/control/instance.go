@@ -22,6 +22,8 @@ const (
 	defaultAccountIDPrefix        = "dnf:"
 	defaultPartyUDPRelayPortStart = 30000
 	defaultPartyUDPRelayPortCount = 64
+	officialNativeProtocolProfile = "native-channel-profile-official-24.9"
+	officialNativeRelayPortStart  = 31000
 )
 
 var (
@@ -93,6 +95,9 @@ func loadInstance(paths projectPaths) (instanceConfig, error) {
 	}
 	if cfg.Server.PartyUDPRelayPortStart == 0 {
 		cfg.Server.PartyUDPRelayPortStart = defaultPartyUDPRelayPortStart
+		if cfg.Protocol.Profile == officialNativeProtocolProfile {
+			cfg.Server.PartyUDPRelayPortStart = officialNativeRelayPortStart
+		}
 		changed = true
 	}
 	if cfg.Server.PartyUDPRelayPortCount == 0 {
@@ -199,6 +204,9 @@ func validateInstance(cfg instanceConfig) error {
 	relayPortStart := cfg.Server.PartyUDPRelayPortStart
 	if relayPortStart == 0 {
 		relayPortStart = defaultPartyUDPRelayPortStart
+		if cfg.Protocol.Profile == officialNativeProtocolProfile {
+			relayPortStart = officialNativeRelayPortStart
+		}
 	}
 	relayPortCount := cfg.Server.PartyUDPRelayPortCount
 	if relayPortCount == 0 {
@@ -278,8 +286,10 @@ func validateInstance(cfg instanceConfig) error {
 		filepath.ToSlash(cfg.Game.ChannelInfoPath) != "data/dnf/channel_info.etc" {
 		return errorsf("the 90cn profile locks game asset paths to data/dnf/Script.pvf and data/dnf/channel_info.etc")
 	}
-	if cfg.Protocol.Profile != "90cn-decode-bypass-v1" {
-		return errorsf("protocol.profile must be 90cn-decode-bypass-v1")
+	switch cfg.Protocol.Profile {
+	case "90cn-decode-bypass-v1", officialNativeProtocolProfile:
+	default:
+		return errorsf("protocol.profile must be 90cn-decode-bypass-v1 or %s", officialNativeProtocolProfile)
 	}
 	if cfg.Protocol.GameUpperHeader != "server16" {
 		return errorsf("protocol.gameUpperHeader must be server16 for this client profile")
@@ -298,7 +308,11 @@ func validateInstance(cfg instanceConfig) error {
 	if cfg.Client.InitialGamePort != 0 {
 		return errorsf("client.initialGamePort must be 0 for the 90cn dynamic channel profile")
 	}
-	if !cfg.Client.HookCreate {
+	if cfg.Protocol.Profile == officialNativeProtocolProfile {
+		if cfg.Client.HookCreate {
+			return errorsf("client.hookCreate must be false for the official native client profile")
+		}
+	} else if !cfg.Client.HookCreate {
 		return errorsf("client.hookCreate must be true for this client profile")
 	}
 	if strings.TrimSpace(cfg.Build.GoExecutable) == "" {

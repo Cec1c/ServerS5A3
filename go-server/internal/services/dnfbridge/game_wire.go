@@ -14,15 +14,31 @@ func (s *Service) handleGameFrame(session *gameSession, frame []byte) error {
 	if err != nil {
 		return err
 	}
+	// A transport frame may mix login and ordinary records. Logging that whole
+	// frame for each ordinary record would disclose the neighbouring login body.
+	// Keep ordinary-only frame diagnostics unchanged; scope mixed/login frames
+	// to the already parsed record body without changing any dispatch bytes.
+	hasLoginRecord := false
+	for _, record := range records {
+		if dnfenum.GameType(record.GameHeader.Type) == dnfenum.GameTypeLogin {
+			hasLoginRecord = true
+		}
+	}
 	for _, record := range records {
 		runtimeName := runtimeCmdPacketName(record.GameHeader.Cmd, record.GameHeader.Type)
 		runtimeKnown := runtimeCmdPacketKnown(record.GameHeader.Cmd, record.GameHeader.Type)
-		s.logGamePacket(session, "RECV", "game", frame,
+		logData := frame
+		if hasLoginRecord {
+			logData = record.Body
+		}
+		s.logGamePacket(session, "RECV", "game", logData,
 			"cmd", record.GameHeader.Cmd,
 			"type", record.GameHeader.Type,
 			"runtime_cmd_name", runtimeName,
 			"runtime_cmd_known", runtimeKnown,
-			"body_len", len(record.Body))
+			"body_len", len(record.Body),
+			"frame_len", len(frame),
+			"record_scoped", hasLoginRecord)
 		s.logPacketEvent("game-transport-meta",
 			"conn_id", session.connID,
 			"channel_id", session.channel.ID,

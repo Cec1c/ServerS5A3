@@ -509,7 +509,7 @@ func (s *Service) applySkillSwitchInventory(session *gameSession, record skillsw
 			"record_hex", record.Hex(),
 			"slot", record.Slot,
 			"sub_mode", record.Mode,
-			"reason", err,
+			"reason", businessLogDiagnostic(err),
 			"reject_error", err.Error())
 		return nil
 	}
