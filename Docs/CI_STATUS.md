@@ -4,7 +4,9 @@ GitGUD流水线164529对应58145b08。Windows/Linux build两作业均stuck_pendi
 
 # CI执行状态与处理
 
-## 当前状态：2026-10-12 07:05（香港）
+## 当前状态：2026-10-12（香港）
+
+香港 07:38:33 的只读 API 回查：纯文档提交 `c7b748b3` 的 [流水线 164588](https://gitgud.io/16ww/servers5a3/-/pipelines/164588) 仍为 pending。Windows 作业 570675、Linux 作业 570674 的 Runner 与开始时间均为空，core-tests/SAST 仍为 created。该结果只对应此提交和检查时点；之后文档提交的新流水线另行核对，运行及完整已验证源码仍为 `31e2b51`。
 
 邮件截图对应提交 `58145b08` 的 [流水线 164529](https://gitgud.io/16ww/servers5a3/-/pipelines/164529)。Windows 作业 570581 和 Linux 作业 570580 均失败，`failure_reason=stuck_pending_no_matching_runners`；Runner 与脚本开始时间为空，trace 为 0 字节，构建脚本没有执行。core-tests 和 SAST 被跳过。
 

@@ -1,3 +1,10 @@
+## 2026-10-12 — Bounded volcano flag evidence and open activity rules
+
+- Record nine bounded fixed-client controls through conditional scene refresh, actor flag setters, real obfuscated storage/readback and attack-target qualification. Keep actual monster spawn, damage, HP and GUI acceptance open.
+- Record the independently reviewed local second-client diagnostic preparation with explicit optimization rejection; it has not been executed against the game. Preserve the unknown cause of the earlier single failed normal CLI attempt.
+- Reject the catalog-only joust draft after actual-resource transaction controls confirm material, participation reward and limit ownership gaps. Preserve old ledger behavior and leave the unproved new settlement rule open. Qualify the gold-cap source and native evidence without inventing fields or packets.
+- Update the timestamped documentation pipeline snapshot. This commit changes documentation only; validated and running source stays31e2b51, daily r98 and accepted player reports remain unchanged.
+
 ## 2026-10-12 — Normal isolated QA live checkpoint and Runner failure
 
 - Record the one normal controller start of source31e2 using the retained database, the read-only adoption after a case-only SHA guard correction, wrong-password rejection, and fresh native token-bound town entry.
