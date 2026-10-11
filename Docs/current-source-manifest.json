@@ -1,7 +1,7 @@
 {
-  "source_file_count": 3374,
+  "source_file_count": 3383,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33 raw declaration guard; final11 validated",
+  "stage": "D33 volcano native111 state and adventure friend presence candidate",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -3355,8 +3355,8 @@
     },
     {
       "path": "internal/modules/dnf/raid/anton_barrier_test.go",
-      "bytes": 4637,
-      "sha256": "72c1940741a1ff5c22b9f8799fa01630018360ed363962ba76fe5bf55c761b9f"
+      "bytes": 4705,
+      "sha256": "ee89ab4aa40068a3ebbd027baeaa18a1a1e10c6ef4f66bee24590fc112096d9a"
     },
     {
       "path": "internal/modules/dnf/raid/anton_flow_config.go",
@@ -3385,13 +3385,13 @@
     },
     {
       "path": "internal/modules/dnf/raid/anton_progression.go",
-      "bytes": 14175,
-      "sha256": "96fdb1f373438f64272afd41de248479d3ce9fc98f866141bff23c30aa11e597"
+      "bytes": 14390,
+      "sha256": "6b3a3525e4b3c71c5ffa1e125d500af61c10e1127c883fb6ae54b0104cdb0bbd"
     },
     {
       "path": "internal/modules/dnf/raid/anton_progression_test.go",
-      "bytes": 9357,
-      "sha256": "5904cf1014be925a2208fd7a2a5765f69160c7cc9e40315164c543826dd2bd4c"
+      "bytes": 9570,
+      "sha256": "5e495e8470d9ebe9eff230143b76c15d25423654b83ae4418e44db3447e0a298"
     },
     {
       "path": "internal/modules/dnf/raid/anton_rewards.go",
@@ -3415,8 +3415,8 @@
     },
     {
       "path": "internal/modules/dnf/raid/anton_symbol_journal.go",
-      "bytes": 2570,
-      "sha256": "f7cb9169e98f184c431f67504bf0745443cddb6b7a77bb36d23d83d470ad8cc5"
+      "bytes": 2682,
+      "sha256": "ac6a29260a3338b45f5e336226882dc294b841a19683ea7f89ba81df4ce80912"
     },
     {
       "path": "internal/modules/dnf/raid/anton_symbol_journal_test.go",
@@ -3425,13 +3425,23 @@
     },
     {
       "path": "internal/modules/dnf/raid/anton_symbols.go",
-      "bytes": 3772,
-      "sha256": "4b13861b56c1b5fdcebca84d178e5a76aeecbd0d5b21399887ade5d4048b2b5c"
+      "bytes": 3926,
+      "sha256": "7b94d5082a52055d0004e63cd263f2771761ca8b55de0e22a48cf21707caa1f0"
     },
     {
       "path": "internal/modules/dnf/raid/anton_timer_projection_test.go",
       "bytes": 2048,
       "sha256": "d6416288181e1f228ef1223834782b0927228cd1c37c70dd1c53a0a28779c0d7"
+    },
+    {
+      "path": "internal/modules/dnf/raid/anton_volcano_native.go",
+      "bytes": 1050,
+      "sha256": "b2e49039f318333f947ec0fd81a7241c709ae2c1dc9146b1e313c472f3964008"
+    },
+    {
+      "path": "internal/modules/dnf/raid/anton_volcano_native_test.go",
+      "bytes": 3091,
+      "sha256": "1f4794797f53507219a34feb4bddf8f8408f7b1d4f521a6164db8a50ae1b779e"
     },
     {
       "path": "internal/modules/dnf/raid/battle_config.go",
@@ -6845,13 +6855,13 @@
     },
     {
       "path": "internal/services/dnfbridge/account_friend_channel_projection_test.go",
-      "bytes": 1711,
-      "sha256": "ae510f9ef20e572b4058b0d85423eb70dcdc55102235af5ea9ce99d6a1936fc3"
+      "bytes": 1793,
+      "sha256": "f7283787e5159438ea7c6979b9f18716cb09ccc8c57c44903b81f66cf9c1f2cf"
     },
     {
       "path": "internal/services/dnfbridge/account_friend_current.go",
-      "bytes": 11388,
-      "sha256": "5cc63314944992c6927a7852ef3421bfbefd8f1e886090a8376340e2601dd8e9"
+      "bytes": 14741,
+      "sha256": "9a87f5514ea592543081c5c799899ea6d47358635e31c2c52ee353b801808c10"
     },
     {
       "path": "internal/services/dnfbridge/account_friend_current_codec.go",
@@ -6865,13 +6875,18 @@
     },
     {
       "path": "internal/services/dnfbridge/account_friend_current_test.go",
-      "bytes": 8417,
-      "sha256": "65eeecf87b98417712185c4ade8d6445d75263b5fe1f93a749fcbdd13b748d85"
+      "bytes": 8735,
+      "sha256": "0a603bc9742e1340a14660fd50c0ffa0f07ef879a9ddfb798f1337428cf65fba"
     },
     {
       "path": "internal/services/dnfbridge/account_friend_offline_reload_test.go",
-      "bytes": 2691,
-      "sha256": "aceda69021c55be628c09375946eb99d806d29c27a5ca32705e0af343f6a1cde"
+      "bytes": 2737,
+      "sha256": "7a7c1f266c4bcf7eebf6ad11c1ad5705dac80f22cb235df2acb730ff2164652b"
+    },
+    {
+      "path": "internal/services/dnfbridge/account_friend_presence_projection_test.go",
+      "bytes": 3900,
+      "sha256": "0e6b4da1d9cc81ca1f8e9a0c5ca9a8399568c9a24e125fb42b70aa2cec192e14"
     },
     {
       "path": "internal/services/dnfbridge/account_honor.go",
@@ -6882,6 +6897,16 @@
       "path": "internal/services/dnfbridge/account_honor_test.go",
       "bytes": 1975,
       "sha256": "892c613b19c8d4b0ea32d9e8d8e461ee0af4eb0535a95e34b1b6ff1d74252dd1"
+    },
+    {
+      "path": "internal/services/dnfbridge/account_last_online_character.go",
+      "bytes": 4342,
+      "sha256": "b9fd5a398866a0453417d25b37eeda1189c189873ae96b1a094a95f645d6c60a"
+    },
+    {
+      "path": "internal/services/dnfbridge/account_last_online_character_test.go",
+      "bytes": 11618,
+      "sha256": "51224684ff828a1d93748bee9241244be26ae912a55053b82f6cb02988b1741a"
     },
     {
       "path": "internal/services/dnfbridge/account_login_token.go",
@@ -8202,6 +8227,11 @@
       "path": "internal/services/dnfbridge/dungeon_combat_runtime.go",
       "bytes": 50185,
       "sha256": "8dc6c11ff1cd8d5eedc8213ff50f9935ddd21cdd8f34c9ab63ace8028259933a"
+    },
+    {
+      "path": "internal/services/dnfbridge/dungeon_consumable_transition_test.go",
+      "bytes": 5817,
+      "sha256": "dfd26a5153e0fb8178272761c59cca6f0b17aa2547860f3402c22fd82e905b90"
     },
     {
       "path": "internal/services/dnfbridge/dungeon_context_op27.go",
@@ -12435,8 +12465,8 @@
     },
     {
       "path": "internal/services/dnfbridge/game_select_scene_entry.go",
-      "bytes": 15214,
-      "sha256": "21479e83937154b365294b350ab2168320a904f1f0cdf8d6548bd15bc0483b08"
+      "bytes": 15470,
+      "sha256": "aae6f13b45b27dc8a4651e9f84496d4ec073090a612174f5efc8ab202afe0479"
     },
     {
       "path": "internal/services/dnfbridge/game_select_scene_object_projection.go",
@@ -12465,8 +12495,8 @@
     },
     {
       "path": "internal/services/dnfbridge/game_select_state.go",
-      "bytes": 2304,
-      "sha256": "8343fe24ba03355f1f19b5f6c254bd1197a16eb47411047e51861a71f1f41774"
+      "bytes": 2560,
+      "sha256": "6ce1fac56ff1d43244ea6892d201c197a880cff8d7dce020ee5e06e07583a837"
     },
     {
       "path": "internal/services/dnfbridge/game_session_events.go",
@@ -14374,6 +14404,11 @@
       "sha256": "67a01bee9555b7285ebbbcf9f8eeaa3356b2cdc77201d412eb5338488d7b0fd9"
     },
     {
+      "path": "internal/services/dnfbridge/raid_barrier_projection_trace.go",
+      "bytes": 1787,
+      "sha256": "f65899a79089ab5b19ca5965937e9078c66815ad9959d2616431122670ece056"
+    },
+    {
       "path": "internal/services/dnfbridge/raid_battle_runtime.go",
       "bytes": 16889,
       "sha256": "19413029a691df044f284fb427c83b71d594af251b7e0208ceb0012f6569b2f9"
@@ -14664,6 +14699,11 @@
       "sha256": "24f3fc1f90fb490aaeee47fcf2d57841aa4b327f836131fa1d61eb3ba573a1ad"
     },
     {
+      "path": "internal/services/dnfbridge/raid_luke_sanctum_repeat_regression_test.go",
+      "bytes": 5280,
+      "sha256": "6b5dc45f25d213e5f5fa8563a0c0f9d35e89d1bfebedce11ada7638ffe4fcc76"
+    },
+    {
       "path": "internal/services/dnfbridge/raid_member_clear_projection.go",
       "bytes": 824,
       "sha256": "2b4515a027d002dec9c85ea0f482cf424489ba03ae16c73ceaa2888f194871af"
@@ -14750,8 +14790,8 @@
     },
     {
       "path": "internal/services/dnfbridge/raid_progress_projection.go",
-      "bytes": 10895,
-      "sha256": "48fcd9323a799a6e459370c35d6fbd45b95cd7661c43af487f8e4864baadb330"
+      "bytes": 10969,
+      "sha256": "90d1f492a82a51890c8901827cfbadbb6989271b3b2f2af5ae5e08752825fc1b"
     },
     {
       "path": "internal/services/dnfbridge/raid_progress_projection_test.go",
@@ -14922,6 +14962,11 @@
       "path": "internal/services/dnfbridge/raid_start_safety_test.go",
       "bytes": 7018,
       "sha256": "c553a75e0a3373ac0b8f9c976d038d3e531e1e94806c312012db3c669743ce98"
+    },
+    {
+      "path": "internal/services/dnfbridge/raid_volcano_cross_squad_projection_test.go",
+      "bytes": 29353,
+      "sha256": "eef816be60aa262c1265fe95b643d68e56eed211ee3fd3493fba1543e5bb9275"
     },
     {
       "path": "internal/services/dnfbridge/raid_waiting_area_ownership.go",
@@ -15410,8 +15455,8 @@
     },
     {
       "path": "internal/services/dnfbridge/service.go",
-      "bytes": 48339,
-      "sha256": "c2989d4f57e94d27db8cf7afe4260c033afd230ae1bb8c9787c7df444efae89e"
+      "bytes": 48456,
+      "sha256": "5d70500cc36c3bf97f343a154517b41e38dbefcf05f384c4f99b9ee6c1ec8329"
     },
     {
       "path": "internal/services/dnfbridge/service_test.go",

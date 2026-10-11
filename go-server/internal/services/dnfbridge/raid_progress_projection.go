@@ -250,6 +250,7 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 			}
 			return err
 		}
+		s.traceCurrentAntonBarrierProjection(session, b, packet, fresh, cursor)
 		if packet.symbolCursor != 0 {
 			cursor = packet.symbolCursor
 		}

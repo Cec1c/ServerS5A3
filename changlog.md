@@ -1,5 +1,13 @@
 # Repository changelog
 
+## 2026-10-12 — Anton volcano native barrier state and adventure friend presence
+
+- Derive native Anton symbol111 from full barrier depletion/recovery after verifying the shipped client controller. Keep it latched during partial recharge and restore it in reconnect snapshots; preserve ordered110/111/126 and110/111/127 writes without altering formal PVF markers. Exclude phase1 and Luke.
+- Verify real-PVF cross-squad delivery and actual server16 frames; add low-frequency successful-send diagnostics. Keep native animation and monster damage acceptance open; user reproduces on daily r98.
+- Filter adventure-group friends to verified online characters; persist last-selected identity through the existing metadata entry and use per-account bind-generation ordering to prevent stale writes. Verify offline cold read and account isolation; native UI remains pending.
+- Validate8227 core PASS/0 FAIL/736 environment SKIP and272 scoped real-PVF PASS/0 FAIL/1 separate-asset SKIP, scoped vet and Windows/Linux builds. Preserve the broader PVF run's seven assertion failures and timeout; reproduce all seven on the prior source baseline. Keep retained-QA port preflight failure explicit.
+- Synchronize3383 source files to maintenance and current manifest. Production remainsr98, QA09 retained, computer control paused until2026-10-12 01:30 HK.
+
 ## 2026-10-11 — D33 raw declaration guards and CI runner diagnosis
 
 - Reject ten unproved operation tags by raw section presence, including empty/symbol/duplicate/orphan declarations; retain atomic failure and legal floor1 controls. Independent B1 review passed.

@@ -103,11 +103,14 @@ func TestAccountFriendRequestAcceptProjectsAllCharactersAndDeletesBothSides(t *t
 	bc.write.Reset()
 	callAccountFriend(t, s, b, 1437, "Alpha", "", 0)
 	rows, pendingRows, err := s.currentAccountFriendProjection(context.Background(), "dnf:1")
-	if err != nil || len(rows) != 2 || len(pendingRows) != 0 {
+	// D33 feedback 10: an adventure-group friend list is a presence projection.
+	// Only the online character of dnf:2 may appear; the offline 小号 must not
+	// be enumerated.
+	if err != nil || len(rows) != 1 || len(pendingRows) != 0 {
 		t.Fatal("account roster", rows, pendingRows, err)
 	}
-	if rows[0].CharacterName != "来来来" || rows[0].Channel != 42 || rows[1].CharacterName != "小号" || rows[1].Channel != 0 {
-		t.Fatal("actual online/offline identities", rows)
+	if rows[0].CharacterName != "来来来" || rows[0].Channel != 42 {
+		t.Fatal("actual online identities", rows)
 	}
 	accepted, err := accountfriend.NewOwner(g).List(nil, "dnf:2")
 	if err != nil || len(accepted) != 1 || accepted[0].Relation.State != accountfriend.Friend {
@@ -130,7 +133,7 @@ func TestAccountFriendRequestAcceptProjectsAllCharactersAndDeletesBothSides(t *t
 	bc.write.Reset()
 	callAccountFriend(t, s, a, 1438, "小号", "", 0)
 	ids := accountFriendPacketIDs(t, ac)
-	if len(ids) != 5 || ids[0] != 1438 || ids[1] != 1373 || ids[2] != 1373 || ids[3] != 1371 || ids[4] != 1372 {
+	if len(ids) != 4 || ids[0] != 1438 || ids[1] != 1373 || ids[2] != 1371 || ids[3] != 1372 {
 		t.Fatal("delete missing character removals", ids)
 	}
 	ids = accountFriendPacketIDs(t, bc)
@@ -156,7 +159,7 @@ func TestAccountFriendPresenceUsesSessionDirectoryAndRemovesRenamedRow(t *testin
 	bc.write.Reset()
 	s.unbindGameSession(b)
 	rows, _, err := s.currentAccountFriendProjection(context.Background(), "dnf:1")
-	if err != nil || rows[0].Channel != 0 {
+	if err != nil || len(rows) != 1 || rows[0].CharacterName != "来来来" || rows[0].Channel != 0 {
 		t.Fatal("offline directory stale", rows, err)
 	}
 	ids := accountFriendPacketIDs(t, ac)
@@ -165,7 +168,9 @@ func TestAccountFriendPresenceUsesSessionDirectoryAndRemovesRenamedRow(t *testin
 	}
 	ac.write.Reset()
 	g, _ := s.repositoryGroup()
-	character, _, _ := g.Character.Load(nil, "8")
+	// Rename the character the offline row actually projects (the persisted
+	// accept-time character); the stale 1371 node must be replaced by 1373+1371.
+	character, _, _ := g.Character.Load(nil, "5")
 	character.Name = "改名"
 	if err := g.Character.Save(nil, character); err != nil {
 		t.Fatal(err)
@@ -174,7 +179,7 @@ func TestAccountFriendPresenceUsesSessionDirectoryAndRemovesRenamedRow(t *testin
 		t.Fatal(err)
 	}
 	ids = accountFriendPacketIDs(t, ac)
-	if len(ids) != 3 || ids[0] != 1373 || ids[1] != 1371 {
+	if len(ids) != 3 || ids[0] != 1373 || ids[1] != 1371 || ids[2] != 1372 {
 		t.Fatal("stale renamed node left in native manager", ids)
 	}
 }

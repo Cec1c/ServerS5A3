@@ -28,8 +28,8 @@ func TestAccountFriendProjectionPreservesRealUint16Channel(t *testing.T) {
 			b.channel.ID = tc.channel
 			b.residentChannel.ID = 11
 			rows, _, err := s.currentAccountFriendProjection(context.Background(), "dnf:1")
-			if err != nil || len(rows) != 2 || rows[0].Channel != tc.want || rows[1].Channel != 0 {
-				t.Fatalf("projection rows=%+v err=%v, want real channel=%d and offline=0", rows, err, tc.want)
+			if err != nil || len(rows) != 1 || rows[0].CharacterName != "来来来" || rows[0].Channel != tc.want {
+				t.Fatalf("projection rows=%+v err=%v, want only online 来来来 channel=%d", rows, err, tc.want)
 			}
 			body, err := buildCurrentAccountFriendInfoBody(rows)
 			if err != nil {
@@ -45,8 +45,8 @@ func TestAccountFriendProjectionPreservesRealUint16Channel(t *testing.T) {
 			}
 			s.unbindGameSession(b)
 			rows, _, err = s.currentAccountFriendProjection(context.Background(), "dnf:1")
-			if err != nil || len(rows) != 2 || rows[0].Channel != 0 {
-				t.Fatalf("offline friendship disappeared or kept channel: rows=%+v err=%v", rows, err)
+			if err != nil || len(rows) != 1 || rows[0].CharacterName != "来来来" || rows[0].Channel != 0 {
+				t.Fatalf("offline friend must fall back to one persisted character at channel 0: rows=%+v err=%v", rows, err)
 			}
 		})
 	}

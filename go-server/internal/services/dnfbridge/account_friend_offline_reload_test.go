@@ -47,13 +47,11 @@ func TestAccountFriendOfflineRequesterColdReloadAndAccept(t *testing.T) {
 	cold.unbindGameSession(reloaded)
 	second := &Service{options: s.options, repositoryProvider: s.repositoryProvider}
 	rows, pending, err := second.currentAccountFriendProjection(context.Background(), "dnf:1")
-	if err != nil || len(rows) != 2 || len(pending) != 0 {
+	if err != nil || len(rows) != 1 || len(pending) != 0 {
 		t.Fatal("accepted account roster lost after both peers offline", rows, pending, err)
 	}
-	for _, row := range rows {
-		if row.Channel != 0 {
-			t.Fatal("cold offline row has a live location", row)
-		}
+	if rows[0].CharacterName != "来来来" || rows[0].Channel != 0 {
+		t.Fatalf("cold offline row must fall back to the persisted friend character: %+v", rows)
 	}
 	if bc.write.Len() == 0 {
 		t.Fatal("original request did not deliver recipient projection")

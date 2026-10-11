@@ -31,8 +31,8 @@ func TestRealPVFAntonBarrierActualAmountsChargeAndTransientMovies(t *testing.T) 
 	if s.NativeSymbols()[110] != 0 {
 		t.Fatal("shield subtraction wrapped", s.NativeSymbols()[110])
 	}
-	writes, err := s.SymbolWritesAfter(s.SymbolSequence() - 2)
-	if err != nil || len(writes) != 2 || writes[0].ID != 110 || writes[0].Value != 0 || writes[1].ID != 126 || writes[1].Value != 1 {
+	writes, err := s.SymbolWritesAfter(s.SymbolSequence() - 3)
+	if err != nil || len(writes) != 3 || writes[0].ID != 110 || writes[0].Value != 0 || writes[1].ID != AntonVolcanoOpenSymbolID || writes[1].Value != 1 || writes[2].ID != 126 || writes[2].Value != 1 {
 		t.Fatal("break movie journal", writes, err)
 	}
 	replay, replayed, err := s.ApplyBarrierDamage("energy/run/room/object3", AntonLargeTransmission, 218, s.Epoch(), base)

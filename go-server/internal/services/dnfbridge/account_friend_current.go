@@ -156,27 +156,110 @@ func (s *Service) currentAccountFriendProjection(ctx context.Context, accountID 
 		if err != nil {
 			return nil, nil, err
 		}
+		// The adventure-group friend list is a presence projection: it must list
+		// only the friend characters that are actually online. Enumerating the
+		// whole account roster (including offline characters with channel 0) is
+		// what the current client reported as "shows every character of the
+		// friend's adventure group at once".
+		online := 0
 		for _, c := range characters {
 			if c.AccountID != entry.Account.AccountID {
 				return nil, nil, errCurrentSocialBodyInvalid
 			}
-			id, err := strconv.ParseUint(c.CharacterID, 10, 16)
-			job := numericCharacterStat(c.Job)
-			if err != nil || id == 0 || c.Level < 0 || c.Level > 255 || job < 0 || job > 255 {
-				return nil, nil, errCurrentSocialBodyInvalid
+			channel, live := s.currentAccountFriendOnlineChannel(c)
+			if !live {
+				continue
 			}
-			channel := uint16(0)
-			if online, ok := s.onlineGameSessionCharacterSnapshot(uint16(id)); ok && s.accountIDForSession(online.session) == c.AccountID && s.boundGameSessionCharacterCurrent(online) {
-				// NOTI1371 carries a u16 real channel, unlike actor owner
-				// fields. Do not substitute the resident u8 channel here.
-				if ch := online.session.channel.ID; ch > 0 && ch <= 0xffff {
-					channel = uint16(ch)
-				}
+			row, err := currentAccountFriendRowForCharacter(entry, c, channel)
+			if err != nil {
+				return nil, nil, err
 			}
-			rows = append(rows, currentAccountFriendNativeRow{Head: uint16(currentAdventureCharacterServerGroup(c)), AdventureName: entry.Account.RepresentAccountName, Level: byte(c.Level), Job: byte(job), Grow: characterGrowTypeByte(c), Channel: channel, CharacterName: c.Name, Remark: entry.Relation.Note})
+			rows = append(rows, row)
+			online++
 		}
+		if online > 0 {
+			continue
+		}
+		// The friend has no live character. Fall back to the durable character the
+		// account last selected (written on successful selection), then to the peer
+		// character recorded on the accepted relation for friendships that predate
+		// that record. Never the offline roster, never an arbitrary "first"
+		// character; without any durable identity the row is omitted.
+		last, ok := s.currentAccountFriendOfflineCharacter(ctx, repositories, entry)
+		if !ok {
+			continue
+		}
+		row, err := currentAccountFriendRowForCharacter(entry, last, 0)
+		if err != nil {
+			return nil, nil, err
+		}
+		rows = append(rows, row)
 	}
 	return rows, pending, nil
+}
+
+// currentAccountFriendOnlineChannel resolves the live directory owner for one
+// character. A session counts only when it owns the character directory entry,
+// belongs to the character account, is fully logged in, and still holds the
+// same generation. The row keeps the real u16 channel from that session;
+// NOTI1371 carries a u16 real channel, unlike actor owner fields, so the
+// resident u8 channel is never substituted.
+func (s *Service) currentAccountFriendOnlineChannel(c repo.CharacterRecord) (uint16, bool) {
+	id, err := strconv.ParseUint(strings.TrimSpace(c.CharacterID), 10, 16)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	online, ok := s.onlineGameSessionCharacterSnapshot(uint16(id))
+	if !ok || online.session == nil {
+		return 0, false
+	}
+	if !online.session.loginPacketSeen || !online.session.accountFromToken || s.accountIDForSession(online.session) != c.AccountID || !s.boundGameSessionCharacterCurrent(online) {
+		return 0, false
+	}
+	if ch := online.session.channel.ID; ch > 0 && ch <= 0xffff {
+		return uint16(ch), true
+	}
+	return 0, true
+}
+
+// currentAccountFriendOfflineCharacter resolves the single character to show for
+// an offline friend. Precedence:
+//
+//  1. the account's durable last-selected character
+//     (lastOnlineCharacterMetadataKey, written on successful selection);
+//  2. the peer character durably recorded on the accepted relation, for
+//     friendships created before that record existed.
+//
+// Both are durable, account-scoped character identities; the row is omitted when
+// neither resolves. The repository keeps no separate last-login clock.
+func (s *Service) currentAccountFriendOfflineCharacter(ctx context.Context, repositories repo.Group, entry accountfriend.Entry) (repo.CharacterRecord, bool) {
+	if repositories.Character == nil {
+		return repo.CharacterRecord{}, false
+	}
+	candidates := [2]string{
+		strings.TrimSpace(entry.Account.Metadata[lastOnlineCharacterMetadataKey]),
+		strings.TrimSpace(entry.Relation.PeerCharacterID),
+	}
+	for _, id := range candidates {
+		if id == "" {
+			continue
+		}
+		character, found, err := repositories.Character.Load(ctx, id)
+		if err != nil || !found || character.CharacterID != id || strings.TrimSpace(character.AccountID) != strings.TrimSpace(entry.Account.AccountID) {
+			continue
+		}
+		return character, true
+	}
+	return repo.CharacterRecord{}, false
+}
+
+func currentAccountFriendRowForCharacter(entry accountfriend.Entry, c repo.CharacterRecord, channel uint16) (currentAccountFriendNativeRow, error) {
+	id, err := strconv.ParseUint(strings.TrimSpace(c.CharacterID), 10, 16)
+	job := numericCharacterStat(c.Job)
+	if err != nil || id == 0 || c.Level < 0 || c.Level > 255 || job < 0 || job > 255 {
+		return currentAccountFriendNativeRow{}, errCurrentSocialBodyInvalid
+	}
+	return currentAccountFriendNativeRow{Head: uint16(currentAdventureCharacterServerGroup(c)), AdventureName: entry.Account.RepresentAccountName, Level: byte(c.Level), Job: byte(job), Grow: characterGrowTypeByte(c), Channel: channel, CharacterName: c.Name, Remark: entry.Relation.Note}, nil
 }
 
 func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source string) error {

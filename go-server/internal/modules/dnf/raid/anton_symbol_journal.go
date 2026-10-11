@@ -18,8 +18,12 @@ func (s *AntonProgression) SymbolSequence() uint64 {
 }
 
 func (s *AntonProgression) recordSymbolWrite(name string, value uint32) {
+	s.recordNativeSymbolWrite(s.program.symbols[name], value)
+}
+
+func (s *AntonProgression) recordNativeSymbolWrite(id, value uint32) {
 	s.symbolSequence++
-	s.symbolWrites = append(s.symbolWrites, AntonSymbolWrite{Sequence: s.symbolSequence, SymbolValue: SymbolValue{ID: s.program.symbols[name], Value: value}})
+	s.symbolWrites = append(s.symbolWrites, AntonSymbolWrite{Sequence: s.symbolSequence, SymbolValue: SymbolValue{ID: id, Value: value}})
 	if len(s.symbolWrites) > AntonSymbolJournalLimit {
 		s.symbolWrites = append([]AntonSymbolWrite(nil), s.symbolWrites[len(s.symbolWrites)-AntonSymbolJournalLimit:]...)
 	}

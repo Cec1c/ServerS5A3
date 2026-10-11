@@ -53,6 +53,8 @@ type AntonProgression struct {
 	last              time.Time
 	barrierNext       time.Time
 	barrierEvents     map[string]bool
+	volcanoOpen       bool
+	volcanoStateKnown bool
 }
 
 func (p *AntonProgram) BeginPhase(phase int, now time.Time, seed uint64) (*AntonProgression, error) {
@@ -176,6 +178,7 @@ func (s *AntonProgression) SameProjection(other *AntonProgression) bool {
 	}
 	return s.phase == other.phase && s.phaseCleared == other.phaseCleared && s.phaseFailed == other.phaseFailed && s.epoch == other.epoch && s.infection == other.infection &&
 		s.symbolSequence == other.symbolSequence &&
+		s.volcanoOpen == other.volcanoOpen && s.volcanoStateKnown == other.volcanoStateKnown &&
 		maps.Equal(s.dungeons, other.dungeons) && maps.Equal(s.symbols, other.symbols) && maps.Equal(s.timers, other.timers)
 }
 
@@ -328,6 +331,9 @@ func (s *AntonProgression) setSymbol(name string, value uint32, events *[]antonE
 	// An explicit SET is also a native callback, including an unchanged
 	// value. Keep its ordered write even when ON CHANGE rules do not fire.
 	s.recordSymbolWrite(name, value)
+	if name == "BLACK VOLCANO BARRIER" {
+		s.updateVolcanoNativeState(value)
+	}
 	if s.symbols[name] == value {
 		return
 	}

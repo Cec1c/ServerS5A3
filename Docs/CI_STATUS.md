@@ -9,3 +9,5 @@ Windows作业570311与Linux作业570310均failed，failure_reason=stuck_pending_
 下一步需要站点管理员恢复共享Runner，或为本项目注册可运行Linux Docker executor的Runner；项目设置不能启动站点执行器。现有CI在Go1.26.5 Linux容器中分别交叉构建Windows/Linux，不要求Windows主机。未修改站点全局执行器、未安装本机服务、未删除或绕过build/core-tests/SAST门控。
 
 本机final11核心8220 PASS/0 FAIL/725环境SKIP、真实PVF84 PASS/0 FAIL/0 SKIP、go list、规定范围vet、Windows/Linux各三个程序构建通过。本机测试和交叉构建不能替代远端CI执行；产物不部署到r98，不上传玩家数据或运行配置。新源码推送后的流水线状态另以本地API收据记录，若pending也不能计作通过。
+
+2026-10-12本轮本机验证：常规8227 PASS/0 FAIL/736环境SKIP，相关真实PVF272 PASS/0 FAIL/1单独资源门控SKIP，规定vet及Windows/Linux三个程序构建通过。扩大PVF运行的七个基线断言失败和超时保留。该本机结果不能替代远端流水线，推送后状态以API回查记录。

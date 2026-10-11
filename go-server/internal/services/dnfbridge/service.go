@@ -155,29 +155,31 @@ type Service struct {
 	adventureGroupRuntimeMu sync.Mutex
 	adventureGroupTable     *adventuregroup.Tables
 	adventureGroupLoadErr   error
-	honorMu                 sync.Mutex
-	honorTable              *dnfhonor.Tables
-	honorLoadErr            error
-	initialSkillsMu         sync.Mutex
-	initialSkillsByJob      map[byte][]initialSkillEntry
-	skillCatalog            *dnfskill.Table
-	initialSPTable          map[int]int
-	initialTPTable          map[int]int
-	professionMu            sync.Mutex
-	professionProfiles      *dnfprofession.Profiles
-	professionProfilesErr   error
-	questCatalogMu          sync.Mutex
-	questCatalog            *dnfquest.Catalog
-	questCatalogLoadErr     error
-	ceraShopMu              sync.Mutex
-	ceraShopCatalog         *pvfCeraShopCatalog
-	ceraShopCatalogLoadErr  error
-	ceraShopPurchaseMu      sync.Mutex
-	deathTowerMu            sync.Mutex
-	deathTowerStageMapIDs   []int
-	deathTowerBasisLevel    int
-	titleBookMappingMu      sync.Mutex
-	titleBookMappingCache   map[int32]titleBookMappingEntry
+	// lastOnlineCharacter 是账号级写序列点，见 account_last_online_character.go。
+	lastOnlineCharacter    lastOnlineCharacterState
+	honorMu                sync.Mutex
+	honorTable             *dnfhonor.Tables
+	honorLoadErr           error
+	initialSkillsMu        sync.Mutex
+	initialSkillsByJob     map[byte][]initialSkillEntry
+	skillCatalog           *dnfskill.Table
+	initialSPTable         map[int]int
+	initialTPTable         map[int]int
+	professionMu           sync.Mutex
+	professionProfiles     *dnfprofession.Profiles
+	professionProfilesErr  error
+	questCatalogMu         sync.Mutex
+	questCatalog           *dnfquest.Catalog
+	questCatalogLoadErr    error
+	ceraShopMu             sync.Mutex
+	ceraShopCatalog        *pvfCeraShopCatalog
+	ceraShopCatalogLoadErr error
+	ceraShopPurchaseMu     sync.Mutex
+	deathTowerMu           sync.Mutex
+	deathTowerStageMapIDs  []int
+	deathTowerBasisLevel   int
+	titleBookMappingMu     sync.Mutex
+	titleBookMappingCache  map[int32]titleBookMappingEntry
 	// collectboxCatalog* 缓存运行期 PVF 的收集箱目录（localization/collectbox/
 	// collectboxinfo.etc），见 collectbox_state.go。
 	collectboxCatalogMu      sync.Mutex

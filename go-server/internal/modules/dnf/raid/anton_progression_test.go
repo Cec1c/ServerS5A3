@@ -257,7 +257,7 @@ func TestRealPVFAntonNativeSymbolTableAndProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if int(body[0]) != len(p.symbols) || len(body) != 1+8*len(p.symbols) {
+	if int(body[0]) != len(p.symbols)+1 || len(body) != 1+8*(len(p.symbols)+1) {
 		t.Fatal("native symbol projection shape")
 	}
 	seen := map[uint32]uint32{}
@@ -267,8 +267,13 @@ func TestRealPVFAntonNativeSymbolTableAndProjection(t *testing.T) {
 	if seen[106] != 1 || seen[110] != 10000 || seen[127] != 1 || seen[50] != 0 {
 		t.Fatal("native symbol projection lost actual phase values", seen)
 	}
-	if _, exists := seen[111]; exists {
-		t.Fatal("unconfigured reference-only symbol was invented")
+	if value, exists := seen[AntonVolcanoOpenSymbolID]; !exists || value != 0 {
+		t.Fatal("native volcano initial closed state missing", seen)
+	}
+	for name, id := range p.symbols {
+		if id == AntonVolcanoOpenSymbolID {
+			t.Fatal("native-only volcano state was inserted into the formal PVF table", name)
+		}
 	}
 	if dir := os.Getenv("DNF90_ANTON_NATIVE_DIR"); dir != "" {
 		if err := os.MkdirAll(dir, 0755); err != nil {

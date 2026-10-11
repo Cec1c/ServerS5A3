@@ -75,12 +75,14 @@ func (s *AntonProgression) NativeSymbols() map[uint32]uint32 {
 	for name, id := range s.program.symbols {
 		result[id] = s.symbols[name]
 	}
+	s.appendVolcanoNativeSymbol(result)
 	return result
 }
 
 // A reconnect restores current values without replaying past death, kick,
-// phase-transition or AVI instructions. Those are live ordered events,
-// unlike HP, hatchery flags and barrier values. Anton IDs 126/127 enter the
+// phase-transition or one-shot AVI instructions. The derived Anton 111 latch
+// is current state: restoring it lets the controller restore the barrier flag
+// even when the recipient missed its edge. Anton IDs 126/127 enter the
 // native controller default state branch; their MOVIE names do not make them
 // AVI requests. Keep Luke and unproved movie IDs under the existing policy.
 func (s *AntonProgression) ReconnectSymbols() map[uint32]uint32 {
@@ -106,5 +108,6 @@ func (s *AntonProgression) ReconnectSymbols() map[uint32]uint32 {
 		}
 		result[id] = value
 	}
+	s.appendVolcanoNativeSymbol(result)
 	return result
 }
