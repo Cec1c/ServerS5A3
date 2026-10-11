@@ -1,5 +1,13 @@
 # Repository changelog
 
+## 2026-10-11 — D33 recipe settlement and observed native routes
+
+- Read equipment design recipes from real PVF; fail closed for unproven rates, skill/itemmaking gates, upgrade tables and alternative source semantics.
+- Settle supported drawings, character materials, account warehouse materials, gold and outputs atomically through the existing owner; reject historical character copies of account assets.
+- Register observed native legacy op25 and op65 routes alongside their proved Upper owners. Refresh recipe inventory with op13 after commit; do not invent 119-byte reward fields.
+- Retain rollback, locked/corrupt asset, overflow, shared refresh, cold read and native dispatch regressions; validate domain/bridge/control, real PVF, scoped vet and Windows/Linux builds (final07).
+- Record isolated PID-bound native town entry and bounded recharge/diamond window recovery; verify one native 5003 craft and client cold relaunch; keep other recipes/failure paths, membership/payment, Luke and equipment acceptance open. Production remains r98; isolate the joust catalog workaround.
+
 ## 2026-10-11 — D33 candidate repairs and user acceptance
 
 - Record user acceptance of original groups 1/2/3 and additional item 3. Production remains r98.

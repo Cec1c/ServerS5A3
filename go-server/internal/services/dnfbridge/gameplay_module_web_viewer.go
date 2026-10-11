@@ -7,9 +7,9 @@ import (
 
 // 当前客户端 op773（ENUM_CMDPACKET_WEB_VIEWER_INFO）的最小回包 owner。
 //
-// 现场问题：商城内点击「点券充值 / 黑钻会员」后，服务端对这条 class1 上行一个字节
-// 都不回（旧行为落进 game_dispatch_upper.go 末尾的 `unhandled latest upper packet`），
-// 该 ticket 应答因此缺失。本 owner 只补全**已证形状**的应答；是否由此解决现场卡死
+// 商城网页票据有两条请求路线：实测充值先发 op65，由同模块的
+// currentCeraTicketGameplayHandler 处理；op773 的已证一字节请求由本 owner 处理。
+// 本 owner 只补全**已证形状**的应答；是否由此解决现场卡死
 // 属 GUI 待验，不在本文件宣称范围内。
 //
 // 契约证据（只读静态反汇编；对象是 v97 签名客户端 DNF.exe
@@ -63,7 +63,15 @@ func webViewerGameplayModule() gameplayModuleDefinition {
 	opcode := uint16(dnfenum.CmdPacketWebViewerInfo)
 	return gameplayModuleDefinition{
 		Name: "web-viewer",
+		// The native empty op65 request is observed on the legacy decoder
+		// (once04 packet log); its COMMAND reply uses the same proved layout.
+		LegacyHandlers: map[uint16]gameplayHandler{
+			uint16(dnfenum.CmdPacketGenCeraticket): func(s *Service, session *gameSession, request gameplayRequest) error {
+				return s.handleCurrentCeraTicket(session, request.Body)
+			},
+		},
 		UpperHandlers: map[uint16]gameplayHandler{
+			uint16(dnfenum.CmdPacketGenCeraticket): currentCeraTicketGameplayHandler(),
 			opcode: defaultClassGameplayHandler(
 				"game-web-viewer-blocked",
 				"current_exe_op773_command_class_mismatch",

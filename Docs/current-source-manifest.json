@@ -1,7 +1,7 @@
 {
-  "source_file_count": 3368,
+  "source_file_count": 3374,
   "previous_import_manifest": "source-manifest.json",
-  "stage": "D33",
+  "stage": "D33 recipe/shop reviewed candidate",
   "files": [
     {
       "path": "cmd/scratch/grantlevel90loadout/main.go",
@@ -9764,6 +9764,26 @@
       "sha256": "00d720327358d544089d79c7493c3fd7bccc91a344c094cc798286366f2a514f"
     },
     {
+      "path": "internal/services/dnfbridge/equipment_recipe_catalog.go",
+      "bytes": 32820,
+      "sha256": "476a6270f2e174fa202f07ca859e6968347e30abad8236fce4f36cffb5e1dedd"
+    },
+    {
+      "path": "internal/services/dnfbridge/equipment_recipe_catalog_test.go",
+      "bytes": 27437,
+      "sha256": "c2295aba6d6925e9a3bd970494cea4f4dcb91d2f273411cecb9f708592983500"
+    },
+    {
+      "path": "internal/services/dnfbridge/equipment_recipe_compound.go",
+      "bytes": 25968,
+      "sha256": "11873ffd62ac22bfd8e536d85e6ea829817a825620636348b32d1bae8a1597ae"
+    },
+    {
+      "path": "internal/services/dnfbridge/equipment_recipe_compound_test.go",
+      "bytes": 50595,
+      "sha256": "614238dca7e9410a9a47ff3c0e076e278d8e23a7e92b290854a2d68e5e818968"
+    },
+    {
       "path": "internal/services/dnfbridge/equipment_stats.go",
       "bytes": 6676,
       "sha256": "c889312e04e7d145a347b0f5d28aa2124a63bcb6e5507c1119ceec64b8cdff6e"
@@ -12559,6 +12579,16 @@
       "sha256": "fe1fc838e2f25a00b7d3b8e8ba6425df70c7e1479963c4ef1327108e766c4040"
     },
     {
+      "path": "internal/services/dnfbridge/gameplay_module_cera_ticket.go",
+      "bytes": 3044,
+      "sha256": "d70ff941445847c9df406984db19f0adf3874c84b8b0c2d11e02a4a522fb131c"
+    },
+    {
+      "path": "internal/services/dnfbridge/gameplay_module_cera_ticket_test.go",
+      "bytes": 5268,
+      "sha256": "73d1f5f7474ca8e832cf44669858812a994fff866b5be2961f90575523cc77d6"
+    },
+    {
       "path": "internal/services/dnfbridge/gameplay_module_clone_title.go",
       "bytes": 3018,
       "sha256": "d9101b9c33d1c580c0b24705328b6f91fa44d38df61697b0930e42a85d4a4622"
@@ -12700,8 +12730,8 @@
     },
     {
       "path": "internal/services/dnfbridge/gameplay_module_test.go",
-      "bytes": 12759,
-      "sha256": "91ab18802bc8e833ef9363ee4c4d4c51cf3ae8d973b27d69e367885466b01be8"
+      "bytes": 13112,
+      "sha256": "388f5590191a522f81c56015996203e0d7a5a60d9500dde43335f13caf24d008"
     },
     {
       "path": "internal/services/dnfbridge/gameplay_module_title_book.go",
@@ -12715,8 +12745,8 @@
     },
     {
       "path": "internal/services/dnfbridge/gameplay_module_web_viewer.go",
-      "bytes": 6517,
-      "sha256": "f0e71aea2a106307419c961dc21ae2813f48c5c4fdc4e64a210b49a4d310e6d7"
+      "bytes": 6904,
+      "sha256": "1a6ca2d7057fcee81562e2a05bc839dadbeba920f2ff83eac7a275e62293f749"
     },
     {
       "path": "internal/services/dnfbridge/gameplay_module_web_viewer_test.go",
@@ -12725,8 +12755,8 @@
     },
     {
       "path": "internal/services/dnfbridge/gameplay_modules.go",
-      "bytes": 1267,
-      "sha256": "f89d7bf7bf152b6b2c7f7b030aa0b3d0ef510deca7ebfd74b303125e5367df7a"
+      "bytes": 1309,
+      "sha256": "878601855e5eae5e327a829db9adfa9594d74cd2c4043d73ebdb688d798fab69"
     },
     {
       "path": "internal/services/dnfbridge/gameplay_time_queue.go",
