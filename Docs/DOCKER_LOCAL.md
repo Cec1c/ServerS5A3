@@ -81,7 +81,8 @@ The Docker profile selects `official-24.9` (CMD 1579 / NOTI 1543), matching the
 inspected executable, and accepts its observed 606-byte login body with the
 account token at offset 9. It also defaults `default_group_login_only` to true:
 default/Cain directory requests, including repeat requests without a script
-download, return the catalog's ordinary login channel. This deliberately limits
+download, return the catalog's ordinary resident channels with IDs at most 255.
+Multiple real rows are retained for native auto-selection. This deliberately limits
 the manual default-group directory too; named-group queries remain unchanged.
 Set that option to false and run `up` to restore the full default directory.
 The server outside this Docker profile retains the original default behavior.

@@ -466,10 +466,16 @@ func (s *Service) channelsForRequestMode(group string, bootstrap bool) []channel
 	}
 	var channels []channelcatalog.Channel
 	// Some clients repeat the default-group lookup on a separate connection
-	// without requesting the script. The local opt-in applies the same real
-	// landing-channel filter to those requests, including manual default-group
-	// refreshes. Named groups and the default server behavior stay unchanged.
-	if bootstrap || (s.options.defaultGroupLoginOnly && isDefaultChannelGroup(group)) {
+	// without requesting the script. Restrict the local directory to real
+	// resident channels, retaining multiple choices for native auto-selection.
+	// This also limits manual default-group refreshes, but not named groups.
+	if s.options.defaultGroupLoginOnly && isDefaultChannelGroup(group) {
+		for _, channel := range catalog.FilterForBootstrap(group) {
+			if channelcatalog.IsResidentChannel(channel) && channel.ID <= currentOwnerChannelByteLimit {
+				channels = append(channels, channel)
+			}
+		}
+	} else if bootstrap {
 		channels = catalog.FilterForBootstrap(group)
 		// The native client randomly chooses from the bootstrap directory.
 		// Advertising special entrances here leaves the socket in e.g. crack

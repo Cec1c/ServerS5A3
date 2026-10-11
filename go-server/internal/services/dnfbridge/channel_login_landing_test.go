@@ -78,8 +78,14 @@ func TestLocalDefaultGroupLandingCoversRepeatRequestsWithoutChangingNamedGroups(
 	for _, bootstrap := range []bool{true, false} {
 		for _, group := range []string{"", "cain", "[cain]", "`[cain]`"} {
 			channels := service.channelsForRequestMode(group, bootstrap)
-			if len(channels) != 1 || channels[0].ID != dnfenum.DefaultGameChannelID || !channelcatalog.IsResidentChannel(channels[0]) {
+			if len(channels) <= 1 || len(channels) >= len(complete) {
 				t.Fatalf("local directory group=%q bootstrap=%t: %+v", group, bootstrap, channels)
+			}
+			for _, channel := range channels {
+				original, exists := catalog.Channel(channel.ID)
+				if !exists || !reflect.DeepEqual(original, channel) || !channelcatalog.IsResidentChannel(channel) || channel.ID > currentOwnerChannelByteLimit {
+					t.Fatalf("local directory contains a changed or non-resident row: %+v", channel)
+				}
 			}
 		}
 	}
