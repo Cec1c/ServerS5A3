@@ -1,3 +1,9 @@
+## 2026-10-12 — Deploy the validated source to the actual standard test server
+
+- Apply the user's new direction: the existing online service is exclusively for testing, replacing the earlier keep-r98 policy. Use the standard launcher channel for acceptance; both update channels launch the same live game service.
+- Deploy the exact validated18393b1d Linux amd64 artifact and3452-file public source archive to the existing dnf90.service. Independently verify the new PID, running binary, readiness,118 game listeners and bootstrap/auth/GM ownership. Retain the actual prior binary backup for rollback.
+- Keep the client manifests, PVF, effective configuration and relay state byte-identical. No GUI or manual SQL operation occurs. Publish only the completed Anton town-return and activity-origin subscopes for retesting; keep all reported broader failures and accepted closures accurate.
+
 ## 2026-10-12 — Preserve owned completed Anton returns and ordinary Seria origins
 
 - Freeze an internal return owner on legal normal Anton map entry and record only locally authenticated map completion before global clear guards. Allow completed town return after another squad, timer or phase changes global progress; preserve the existing reward, clear-count and retry/selector boundaries.
