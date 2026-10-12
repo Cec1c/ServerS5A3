@@ -1,3 +1,9 @@
+## 2026-10-12 本机Runner路线停止，等待云服务器
+
+用户已要求停止在本机安装Docker，后续将提供云服务器。停止指令到达前，官方Docker Desktop4.94.0.241994已完成当前用户安装（数字签名Valid、安装退出码0）；现有WSL3.0.1默认版本2。容器引擎创建WSL虚拟机失败，错误为`Wsl/Service/RegisterDistro/CreateVm/HCS/ERROR_NOT_FOUND`；正常停止和WSL关闭后的唯一重试仍失败。Windows存在CBS待重启标记，但未确定根因，也未重启系统。
+
+已停止Docker并核实其Desktop/backend进程不存在，禁用安装生成的当前用户登录自启动；软件保留，未卸载。没有创建或注册项目Runner，没有开始新的远端CI作业。后续改在用户提供的云服务器部署Linux容器执行器，不能把本机安装成功称为Runner恢复。现有build/core-tests/SAST及个人失败邮件关闭设置保持，已验证/运行Go源码仍为31e2b51，日常r98未改。
+
 ## 2026-10-12 08:17 持续失败邮件处理
 
 08:24推送后实查：配置提交`5f200362`已同步远端master，正常push确实创建[流水线164607](https://gitgud.io/16ww/servers5a3/-/pipelines/164607)，包含两项build、core-tests及semgrep-sast，证明CI配置变化仍进入既有四job。四项都没有Runner/started_at；仅在确认尚未执行后取消，并GET读回canceled，避免继续空排队。共享Runner仍paused/offline/stale，失败邮件开关再次读回false。这次配置触发成功不代表Runner或远端构建成功；下一次普通纯Docs推送应由新workflow过滤，真实触发结果保存至本地交接收据。

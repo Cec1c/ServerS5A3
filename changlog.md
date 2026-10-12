@@ -1,3 +1,9 @@
+## 2026-10-12 — Stop the local Runner setup route at user request
+
+- Record the completed per-user Docker Desktop installation and failed WSL VM engine starts separately. WSL3.0.1/default2 and Windows virtualization were already present. Do not claim a usable container engine or Runner.
+- Stop Docker, verify Desktop/backend processes are absent, and disable its newly created current-user login startup entry. Retain the installed software and avoid a system reboot. No Runner was created or registered and no CI job started.
+- Move the next Runner setup to the cloud server the user will provide. Preserve CI job definitions, notification preferences, running source31e2b51, daily r98 and player acceptance status.
+
 ## 2026-10-12 — Limit repeated CI failure emails and documentation pipelines
 
 - Set this user's project notification level to custom with failed_pipeline=false, then read it back; leave global notification settings untouched. Keep other event fields at their existing/default values. Cancel the pending documentation pipeline164597 after verifying no job has started. Previously queued emails may still arrive.
