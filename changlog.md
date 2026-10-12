@@ -1,3 +1,15 @@
+## 2026-10-13 — Verify the merged master pipeline on the restored cloud Runner
+
+- Independently read pipeline164976 at2026-10-13 00:30:45 Hong Kong: exact b181abd1 source, all four Linux/Windows/core-tests/Semgrep jobs success on Runner1615, complete timestamps, runner online and unpaused.
+- Preserve historical path-test failures and the user-requested stop. The game service remains18393; the merged Go source and pending game candidates are not deployed by this documentation update.
+
+## 2026-10-13 — Stop the current section and preserve an acceptance handover
+
+- Publish the current standard-server retest scopes and remaining reports after explicit player acceptance; retain P66 gold loss separately and stop superseded ordinary Luke sequence work.
+- Fast-forward the local repository to the player's merged MR1 b181abd1. Keep the running game at validated18393 and the maintenance Go tree unchanged; repository merge is not deployment.
+- Restore cloud Runner1615 and execute actual Linux/Windows builds and SAST. Preserve old core-test failures and the running merged-master verification pipeline rather than declaring full CI success prematurely.
+- Save the four workers' completed evidence and unfinished steps, pause the02:00 test heartbeat at the user's stop request, and record restart conditions. No game/SQL/client operation or local Docker installation occurs.
+
 ## 2026-10-12 — Reconcile explicit player acceptance and stop superseded work
 
 - Close P80 forest main-quest progression from the player's additional acceptance; retain unrelated activity admission issues.

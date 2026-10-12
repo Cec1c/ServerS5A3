@@ -1,3 +1,30 @@
+## 本段最终CI与停止结论（528，香港2026-10-13 00:30:45独立回读）
+
+用户合入MR1的b181abd1已在云Runner1615完成[流水线164976](https://gitgud.io/16ww/servers5a3/-/pipelines/164976)：pipeline为success，Linux build571415、Windows build571416、core-tests571418、semgrep-sast571417四项均实际success，开始/完成时间完整、均由1615执行。再次独立GET pipeline/jobs/runner均HTTP200，Runner online=true、paused=false；不是仅Runner在线或允许失败导致的pipeline绿色。旧164936/164963核心测试失败记录保留。
+
+四路已完成交接且关闭，02:00恢复heartbeat已回读PAUSED，后续需用户明确继续。线上游戏仍为18393b1d，合并b181及独立候选未部署；本轮只同步交接文档。可验收/未修复清单以本文件523/524节为准；账号金库候选完整仍有3项FAIL，P66金币与P57按钮尚未定位，团队掉落候选未集成。新流水线成功不关闭玩家尚未通过的报告。
+
+## 2026-10-13 最终代理交接及停止回读（524）
+
+四路510/517/516/522均已完成交接并停止，各自报告无遗留自有检查进程。各报告仅作为其fork时点的证据，不覆盖当前远端master/实际线上版本。
+
+- Hilbert510：R基线6PASS/7FAIL、409同样6/7、439完整控制10PASS/3FAIL，合法容量/资源边界子范围9PASS/0FAIL。三项未通过是不同stackable_type、expire_time、expire_unix被合并；尚未证为玩家现场根因。实际PVF417是[waste]，合法消耗品3..8或65..120；材料页对照用3277，12个合法共享晶体/灵魂均没有正容量上限。不得沿用“417是材料121..176”错误前提或把完整候选写GREEN。报告在player-issues36/raid/evidence/account-vault-normal-route510/HANDOFF-REPORT510.md。
+- Turing517：已定位截图红三角在好友列表行、真实行命中→选中→事件0x18→条件式本地popup_menu，804只是一条条件分支；三角具体图帧与命中绑定尚未完成，无生产改动。报告在social-ui/evidence/adventure-red-button517/HANDOFF517.md。
+- Pauli516：list0/list12所有已实现分类的生产Sort，金币余额和金钱行保持4321；真实客户端晶体整理opcode/list/category及刷新因果仍缺，无产品RED或生产修改。报告在persistence/evidence/crystal-sort-gold516/HANDOVER-516.md。
+- Schrodinger522：b181 control整包以及新增v56/protocol/UDP测试实际exit0，独立路径边界回退前合并树RED、合并后GREEN。Linux云CI结果另以实际回读为准；未执行完整新base bridge/其他规定检查。scripts/ci/sync_repositories.py仍把git私密stderr带入SyncError和CI输出，存在凭据URL暴露风险，未修；恢复时优先最小去除原始stderr并测试。报告在raid/evidence/merged-master-review522/HANDOFF-522.md。
+
+截至香港2026-10-13 00:26:05，164976的两个build成功、core-tests和semgrep-sast仍running，未确认全四项success。526回执保留；个人失败邮件开关未作额外改变。凌晨02:00恢复heartbeat已回读PAUSED；代理停止，线上游戏与云Runner保留运行。稍后的最终CI回读若有结果另附，不改旧失败记录。
+
+## 2026-10-13 云Runner、合并及本段停止（523）
+
+云117.72.214.66已安装Docker并实际启用项目Runner1615，locked且仅项目51684，Docker executor、非privileged、concurrent=2，官方Go1.26.5/helper19.4.0/semgrep6镜像已校验并实际运行。本机Docker仍停止。注册凭据只在云root0600配置，文档及仓库没有明文凭据。
+
+旧流水线164936与164963两项build及semgrep-sast均success，core-tests为script_failure。私密trace仅内存读取：当前已定位TestResolveBinaryInstallStateRejectsEscapingPath、TestValidateInstance两个公开路径校验失败，未保存或散列私密trace。Runner离线/未匹配的问题已解决，不能把旧流水线写成整体通过。
+
+用户已合并MR1，merge commit b181abd1，本地ff-only同步。合并含portablePath/absoluteOrVolumePath/safeManifestPath处理；新流水线164976已在Runner1615实际开始。截至香港2026-10-13 00:21:45，两平台build均success，core-tests和semgrep-sast仍running；完整CI尚未通过确认。后续回读如有新结果，另附精确时点，不覆写历史失败。
+
+用户要求本段完成后停止；02:00恢复测试heartbeat已PAUSED。云Runner服务保留运行，站点已经调度的CI正常继续；代理不继续轮询或改代码，后续用户明确恢复时先核164976最终结果。个人本项目failed_pipeline通知此前已回读false，不改变其他项目或全局通知。
+
 ## 2026-10-12 当前源码同步及CI边界（255）
 
 Go源码20b0c911已同步远端master，3443文件已部署到正常隔离QA并完成启动；日常r98不变。其源码流水线164662保留四项既有build/core-tests/SAST定义，四job均未分配Runner、未开始，已取消并独立读回全canceled。个人本项目failed_pipeline通知已读回false。没有远端编译/测试通过结论，也未恢复Runner。
