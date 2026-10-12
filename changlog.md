@@ -1,3 +1,9 @@
+## 2026-10-12 — Observe native Epic NPC return and preserve unresolved volcano scope
+
+- Handle the latest ten-minute GUI delay once after its13:31:27 Hong Kong deadline and a fresh identity check. Observe the ordinary isolated native NPC entry and return to Seria; keep relogin/town-exit and Abis admission open rather than closing original13.
+- Preserve complete frozen service/packet inputs and the actual external after guard. The prior parser refused association; correct the new adapter's unsupported login-binding attribution and identify four duplicate grow_type diagnostics using source-declared event/key counts only. Keep new adapter and native multi-instance candidates outside deployment pending finite independent review.
+- Retain validated/running Go source20b0c911, daily r98, accepted reports and the four-agent cap. Keep local Docker/Runner stopped and remote CI execution unproven while awaiting the user's cloud server.
+
 ## 2026-10-12 — Switch normal isolated QA and confirm native material delivery
 
 - Complete the reviewed normal BAT/controller switch with private backups, keep the external database running, install the exact3443-file source map and verified programs, pass the real endpoint preflight and prove READY with121 TCP/3 initial UDP. Enable GM through the normal loopback instance configuration; independently verify the new process/state and retained database.
