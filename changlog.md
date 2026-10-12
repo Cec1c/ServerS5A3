@@ -1,3 +1,9 @@
+## 2026-10-12 — Correct deployment provenance and acceptance wording
+
+- Freshly verify the running isolated server PID, startup time and binary hash. Its installed 3443 source files exactly match20b0c911; the published3449-file tree only adds controller/diagnostic changes relative to that instance.
+- Clearly distinguish source candidates, repository publication, installation/startup and player acceptance. Keep402/398/409 unintegrated and undeployed. Do not attribute all failed player retests to missing updates: prior game changes present in the installed tree remain unresolved where the player reports failure.
+- Retain the daily r98 deployment, four-worker limit, local Docker/Runner stop and native test pause until Hong Kong2026-10-13 02:00. This checkpoint changes documentation and state only.
+
 ## 2026-10-12 — Record ordinary Luke sequence and Seria bottom-door regressions
 
 - Keep team-raid ground loot prohibition separate from ordinary Luke map unlocking and the two independent Light Altar boss quest grants. Remove the previous throne/essence subscopes from the current candidate queue after the player's failed retest.
