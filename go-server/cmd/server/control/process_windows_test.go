@@ -16,7 +16,10 @@ func TestProcessExistsInSnapshot(t *testing.T) {
 		t.Fatal("current process is absent from the process snapshot")
 	}
 
-	exists, err = processExistsInSnapshot(int(^uint32(0)))
+	// Convert the variable, not the constant: the same impossible DWORD PID
+	// must also compile for the new Windows386 controller/test target.
+	impossiblePID := ^uint32(0)
+	exists, err = processExistsInSnapshot(int(impossiblePID))
 	if err != nil {
 		t.Fatalf("processExistsInSnapshot(impossible) error = %v", err)
 	}

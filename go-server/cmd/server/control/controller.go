@@ -399,50 +399,57 @@ func (c *controller) startLocalClient(ctx context.Context, cfg instanceConfig, c
 		"DNF_MULTI_CLIENT": multiClient,
 	})
 	configureClientProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start client: %w", err)
+	process, err := startClient270(ctx, cmd, multiInstance, func(pid int) error {
+		if err := c.registerClientAccount(ctx, cfg, pid, accountID); err != nil {
+			return fmt.Errorf("bind client PID %d to authenticated account: %w", pid, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+	cmd.Process = process
+	return c.finishStartedClient270(ctx, cmd, multiInstance, executable)
+}
+
+// The preserved five-second diagnostics198 guards/fact format is shared by the new owned-child
+// adapter and the ordinary exec path; helper tests need no fake DNF asset bypass.
+func (c *controller) finishStartedClient270(ctx context.Context, cmd *exec.Cmd, multiInstance bool, executable string) error {
 	pid := cmd.Process.Pid
-	if err := c.registerClientAccount(ctx, cfg, pid, accountID); err != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-		return fmt.Errorf("bind client PID %d to authenticated account: %w", pid, err)
-	}
 	if multiInstance {
 		timer := time.NewTimer(5 * time.Second)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			_ = cmd.Process.Release()
-			return ctx.Err()
+			return multi270CleanupError(ctx.Err(), cmd.Process)
 		case <-timer.C:
 		}
 		process, inspectErr := inspectProcess(pid)
 		if inspectErr != nil {
 			facts := captureClientStartFacts(cmd.Process)
-			_ = cmd.Process.Release()
-			return fmt.Errorf("controller inspect of additional client PID %d failed (controller_inspect=failed); %s", pid, facts.Describe())
+			return multi270CleanupError(fmt.Errorf("controller inspect of additional client PID %d failed (controller_inspect=failed); %s", pid, facts.Describe()), cmd.Process)
 		}
 		if !process.running {
 			facts := captureClientStartFacts(cmd.Process)
-			_ = cmd.Process.Release()
-			return fmt.Errorf(
+			return multi270CleanupError(fmt.Errorf(
 				"additional client PID %d exited during the 5-second startup check; %s",
 				pid,
 				facts.Describe(),
-			)
+			), cmd.Process)
 		}
 		if !sameExecutable(process.executable, executable) {
-			_ = cmd.Process.Release()
-			return fmt.Errorf(
+			return multi270CleanupError(fmt.Errorf(
 				"additional client PID %d executable changed from %s to %s",
 				pid,
 				executable,
 				process.executable,
-			)
+			), cmd.Process)
 		}
 	}
 	if err := cmd.Process.Release(); err != nil {
+		if multiInstance {
+			return multi270CleanupError(fmt.Errorf("release client process handle: %w", err), cmd.Process)
+		}
 		return fmt.Errorf("release client process handle: %w", err)
 	}
 	if multiInstance {

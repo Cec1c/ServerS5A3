@@ -1,3 +1,11 @@
+## 2026-10-12 — Integrate owned native multi-instance startup and observe two roles
+
+- Add the reviewed Windows386 controller route for the fixed native client: hold the new child identity, restrict single-instance call interception to declared native call sites, restore the startup gate, bind the normal authenticated PID and detach before the existing five-second check. Preserve first-client/server/database identities and explicit unsupported-architecture refusal.
+- Integrate seven exact control production/test paths into repository and maintenance source. Confirm the complete3447-file source/module/fixture map, formatting, package listing, scoped vet and Windows amd64/386 plus Linux amd64 controller compilation. Reuse184 control/Doctor passes with4 expected skips from identical reviewed inputs; retain domain/bridge/PVF results at their original scope.
+- Execute one independently reviewed external386-controller trial successfully and observe two native role windows. Keep installed/running isolated source20b0c911 unchanged; newly compiled controllers are not installed or executed. Default amd64 explicit multi remains unsupported.
+- Observe a normal native raid-create failure and confirm source-declared accepted channel type23. Preserve complete logs and safe metadata without exporting packet bodies, credentials or original log digests; raid authentication/binding and the failure cause remain unproven. Keep ordinary volcano animation/damage/kill/reset acceptance open.
+- Record native Epic NPC return and same-role reselect subscenes only. Preserve accepted player items, daily r98, the four-agent cap and stopped local Docker/Runner route. Do not claim restored remote CI or full original13 acceptance.
+
 ## 2026-10-12 — Observe native Epic NPC return and preserve unresolved volcano scope
 
 - Handle the latest ten-minute GUI delay once after its13:31:27 Hong Kong deadline and a fresh identity check. Observe the ordinary isolated native NPC entry and return to Seria; keep relogin/town-exit and Abis admission open rather than closing original13.

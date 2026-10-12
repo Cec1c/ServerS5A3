@@ -14,15 +14,21 @@ import (
 // On non-Windows the process exit code is truncated to 8 bits (259 becomes 3), so
 // this assertion is not a portable contract and is confined by the build tag.
 func TestDiag198RealPathExit259Message(t *testing.T) {
-	cfg := native46Instance()
-	diag198AdminStub(t, &cfg)
 	paths := newProjectPaths(t.TempDir())
 	if err := paths.ensureDirectories(); err != nil {
 		t.Fatal(err)
 	}
 	c := newController(paths, io.Discard, io.Discard)
 	t.Setenv(diag198ChildEnv, "1")
-	err := c.startLocalClient(context.Background(), cfg, t.TempDir(), os.Args[0], true, "diag198", "-test.run=^TestDiag198HelperExit259$")
+	// A Go helper is deliberately not the fixed DNF image. Start it normally and
+	// exercise the same production post-start guard, without bypassing multi270's
+	// image gate or pretending this is a real compatible DNF child.
+	cmd := helper198Command("exit259")
+	configureClientProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	err := c.finishStartedClient270(context.Background(), cmd, true, os.Args[0])
 	if err == nil {
 		t.Fatalf("real multi-instance path unexpectedly succeeded for an exited child")
 	}
