@@ -1,3 +1,10 @@
+## 2026-10-12 — Add fixed raid-create rejection diagnostics and narrow QA prerequisites
+
+- Add reviewed fixed rejection events at the current create handler and its outer op664 authentication dispatcher. Preserve authentication, short-circuit order, original failure frames, successful metadata-before-ACK and other commands; log only fixed stage enums and existing safe connection metadata.
+- Integrate four exact production/test paths into repository and maintenance source, with3449 source/module/fixture entries matching the sealed candidate. Complete bridge default-core regression with5635 passing nodes,0 failures and654 retained environment skips. Build Windows amd64 and Linux amd64 servers; preserve the separate Windows386 server's existing constant-overflow failure and do not replace the field-tested386 client controller.
+- Observe bounded unbound auth metadata from the immutable full capture. Identify the normal local launcher's15-minute in-memory token lifetime and the later channel-hop token-unbound event, without declaring canonical cause or changing token lifetime or raid gates. Record that a normal fresh process is required for a new launch token.
+- Read the second role's actual quest prerequisites through normal authenticated GM GETs:12829,3779 and3757 are not started or acceptable, with no3262 inventory rows. Preserve normal quest settlement and all accepted player reports. Keep installed QA20b0c911, daily r98, whole-volcano GUI acceptance, stopped local Docker/Runner and remote-CI limits explicit.
+
 ## 2026-10-12 — Narrow ordinary raid-create failure and record second-role prerequisites
 
 - Publish reviewed native startup source12650e3f and confirm failure-pipeline notifications disabled. Cancel only the new pipeline whose four jobs were unstarted and unassigned; keep Runner and local Docker stopped, with no remote-CI success claim.

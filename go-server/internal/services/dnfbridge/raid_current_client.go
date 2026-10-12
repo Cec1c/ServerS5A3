@@ -83,15 +83,36 @@ func currentRaidRouteForChannel(channelType int) (byte, bool) {
 
 func (s *Service) handleCurrentCreateRaid(session *gameSession, op uint16, body []byte) error {
 	req, err := raid.DecodeCurrentCreateRaidRequest(body)
-	if err != nil || !currentRaidNameValid(req.NameBytes) || !currentRaidFlagsSupported(req.UIFlags) || !s.currentRaidAuthenticated(session) {
+	// Diagnostic-only: preserve the original short-circuit order and failure body.
+	// Reasons are fixed literals; never log names, owners, payloads or error text.
+	if err != nil {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "request_decode_rejected")
+		return s.sendRaidCommandFailure(session, op)
+	}
+	if !currentRaidNameValid(req.NameBytes) {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "raid_name_rejected")
+		return s.sendRaidCommandFailure(session, op)
+	}
+	if !currentRaidFlagsSupported(req.UIFlags) {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "ui_flags_rejected")
+		return s.sendRaidCommandFailure(session, op)
+	}
+	if !s.currentRaidAuthenticated(session) {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "authentication_rejected")
 		return s.sendRaidCommandFailure(session, op)
 	}
 	route, supported := currentRaidRouteForChannel(int(session.channel.Type))
-	if !supported || req.Route != route {
+	if !supported {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "channel_type_unsupported")
+		return s.sendRaidCommandFailure(session, op)
+	}
+	if req.Route != route {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "route_mismatch")
 		return s.sendRaidCommandFailure(session, op)
 	}
 	state, err := s.createCurrentRuntimeRaid(session, req)
 	if err != nil {
+		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "runtime_create_rejected")
 		return s.sendRaidCommandFailure(session, op)
 	}
 	// The current ACK opens waiting window 0x7A synchronously. Its

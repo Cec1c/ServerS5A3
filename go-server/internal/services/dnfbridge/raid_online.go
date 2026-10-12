@@ -59,6 +59,9 @@ func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body
 		}
 	}
 	if s.options.currentClientVersion == "official-24.9" && onlineRaidCommandKnown(typ) && !s.currentRaidAuthenticated(session) {
+		if dnfenum.CmdPacket(typ) == dnfenum.CmdPacketCreateRaid {
+			s.logGameEvent(session, "game-current-raid-create-rejected", "op", typ, "reason", "dispatch_authentication_rejected")
+		}
 		return true, s.sendRaidCommandFailure(session, typ)
 	}
 	switch dnfenum.CmdPacket(typ) {
