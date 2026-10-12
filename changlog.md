@@ -1,3 +1,9 @@
+## 2026-10-12 — Record normal Anton prerequisite completion and reconcile remote CI state
+
+- Observe the second native role completing the supported Lv89 story sweep, ordinary Anton side quest12829 acceptance, native claim of100 golden cubes from one normal GM mail, and ordinary material submission/reward settlement. Authenticated readonly checks confirm12829/3779/3757 completed and all100 cubes consumed; before/after runtime identities remain intact. Keep normal channel admission and the whole-volcano acceptance open.
+- Correct the earlier unconfirmed347 push reference with successful ordinary353 source commit1de3be47, and retain355's final canceled pipeline164782 with all four jobs unstarted and unassigned. Read failed-pipeline notifications disabled without claiming restored Runner or remote-CI success.
+- Preserve installed QA20b0c911/3443, reviewed source3449, daily r98, accepted player items and the stopped local Docker route. Publish this evidence as a separate docs-only commit.
+
 ## 2026-10-12 — Add fixed raid-create rejection diagnostics and narrow QA prerequisites
 
 - Add reviewed fixed rejection events at the current create handler and its outer op664 authentication dispatcher. Preserve authentication, short-circuit order, original failure frames, successful metadata-before-ACK and other commands; log only fixed stage enums and existing safe connection metadata.
