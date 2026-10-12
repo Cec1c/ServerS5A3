@@ -1,5 +1,7 @@
 ## 2026-10-12 08:17 持续失败邮件处理
 
+08:24推送后实查：配置提交`5f200362`已同步远端master，正常push确实创建[流水线164607](https://gitgud.io/16ww/servers5a3/-/pipelines/164607)，包含两项build、core-tests及semgrep-sast，证明CI配置变化仍进入既有四job。四项都没有Runner/started_at；仅在确认尚未执行后取消，并GET读回canceled，避免继续空排队。共享Runner仍paused/offline/stale，失败邮件开关再次读回false。这次配置触发成功不代表Runner或远端构建成功；下一次普通纯Docs推送应由新workflow过滤，真实触发结果保存至本地交接收据。
+
 项目51684（16ww/servers5a3）已将当前用户的本项目通知改为custom、failed_pipeline=false。PUT后独立GET读回一致；账号全局通知仍为participating。只显式提交这两个通知字段，其他事件保持原有或默认值；不承诺custom的所有事件语义与participating完全相同。项目没有活动pipeline email integration，列表为空、pipelines-email查询404。该开关控制此项目之后的普通失败通知，已排队或已发送的邮件不能撤回。[GitLab通知API](https://docs.gitlab.com/api/notification_settings/)
 
 文档流水线164597在各job尚未获配Runner、没有started_at时取消，GET回读为canceled；历史失败流水线保留。通知过滤和取消空排队不代表远端CI执行或通过。
