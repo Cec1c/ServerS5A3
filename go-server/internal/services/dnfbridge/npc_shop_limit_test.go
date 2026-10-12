@@ -96,7 +96,7 @@ func TestRealPVFCurrentRaidBoxPurchaseLimits(t *testing.T) {
 		reset   bool
 	}{{10162064, "", 0, false}, {10161942, "account", 10, true}} {
 		pricing, err := resolveCurrentNPCShopPricing(shop, items, row.id)
-		if err != nil || pricing.DailyPurchaseScope != row.scope || pricing.DailyPurchaseLimit != row.maximum || pricing.DailyPurchaseReset != row.reset {
+		if err != nil || pricing.PurchaseLimitScope != row.scope || pricing.PurchaseLimitValue != row.maximum || pricing.PurchaseLimitReset != row.reset {
 			t.Fatalf("item=%d pricing=%+v err=%v", row.id, pricing, err)
 		}
 	}

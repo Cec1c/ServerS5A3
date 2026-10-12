@@ -769,6 +769,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 				moveCount,
 				excludedSlots...,
 			); ok {
+				preserveMergedStackLimit(&target, destination)
 				target.Count += moveCount
 				updateStackRawAmount(&target)
 				if destination.Count <= moveCount {
@@ -840,6 +841,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 				moveCount,
 				excludedSlots...,
 			); ok {
+				preserveMergedStackLimit(&target, source)
 				target.Count += moveCount
 				updateStackRawAmount(&target)
 				if source.Count <= moveCount {
@@ -895,6 +897,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 	}
 
 	if canStack(source, destination, moveCount) {
+		preserveMergedStackLimit(&destination, source)
 		destination.Count += moveCount
 		updateStackRawAmount(&destination)
 		if source.Count <= moveCount {
@@ -3198,18 +3201,71 @@ func canStack(source dnfrepo.ItemStack, destination dnfrepo.ItemStack, moveCount
 	if source.ItemID != destination.ItemID || source.Bind != destination.Bind || !source.ExpireAt.Equal(destination.ExpireAt) {
 		return false
 	}
+	// P61/P68：仓库层已经在 repository.ItemStackIdentityExtraKeys 里声明了堆叠品身份键，
+	// 但本判据历史上只比 item/bind/实例到期，外加下方的 StackContract（规范化 pvf_path +
+	// item_kind + [stack limit]），从未比较 stackable_type / expire_time / expire_unix。
+	// 账号金库因此会把同 item、身份却不同的两行并成一行。这里复用仓库层同一份"两边都写
+	// 且不同才拒绝、缺省即兼容"的判据，不另立第二套口径；pvf_path / item_kind 跳过，因为
+	// StackContract 已按规范化形式比较过（避免大小写与分隔符差异被当成身份冲突）。
+	for _, key := range dnfrepo.ItemStackIdentityExtraKeys {
+		if key == "pvf_path" || key == "item_kind" {
+			continue
+		}
+		if !dnfrepo.ItemStackIdentityExtraCompatible(source.Extra, destination.Extra, key) {
+			return false
+		}
+	}
 	sourcePath, sourceLimit, sourceOK := pvfStackContract(source)
 	destinationPath, destinationLimit, destinationOK := pvfStackContract(destination)
-	if !sourceOK || !destinationOK || sourcePath != destinationPath || sourceLimit != destinationLimit {
+	if !sourceOK || !destinationOK || sourcePath != destinationPath {
 		return false
 	}
-	if sourceLimit == 0 {
+	// P61/P68: a sibling row whose writer never recorded [stack limit] is still
+	// the same PVF contract as a row that did - the limit belongs to the item
+	// document, and the bridge's projection already repairs the missing key from
+	// the runtime PVF. Adopt the one recorded value instead of refusing to merge,
+	// so depositing the same item into the account vault stacks. Two explicitly
+	// recorded values that differ (including an explicit 0) still refuse.
+	limit := sourceLimit
+	switch {
+	case !stackLimitRecorded(source) && stackLimitRecorded(destination):
+		limit = destinationLimit
+	case stackLimitRecorded(source) && !stackLimitRecorded(destination):
+		limit = sourceLimit
+	case sourceLimit != destinationLimit:
+		return false
+	}
+	if limit == 0 {
 		// Runtime PVF uses an omitted [stack limit] as an uncapped stackable,
 		// not as evidence that the item cannot stack. The current client and
 		// the 86JP reference keep these counts in a signed 32-bit value.
 		return moveCount <= math.MaxInt32 && destination.Count <= math.MaxInt32-moveCount
 	}
-	return destination.Count <= destinationLimit-moveCount
+	return destination.Count <= limit-moveCount
+}
+
+// stackLimitRecorded reports whether the row itself carries a [stack limit]
+// key. An absent key means the writer did not record it; an explicit "0" is a
+// real uncapped record and is never reconciled with a different explicit value.
+func stackLimitRecorded(stack dnfrepo.ItemStack) bool {
+	return stack.Extra != nil && strings.TrimSpace(stack.Extra["stack_limit"]) != ""
+}
+
+// preserveMergedStackLimit retains the contract already accepted by canStack.
+// Otherwise a missing-key destination loses an adopted cap after this merge,
+// and the next missing-key sibling can treat the destination as uncapped.
+// Copy Extra before writing: the original source/destination snapshots must
+// remain unchanged for transaction rollback and caller-owned records.
+func preserveMergedStackLimit(destination *dnfrepo.ItemStack, source dnfrepo.ItemStack) {
+	if stackLimitRecorded(*destination) || !stackLimitRecorded(source) {
+		return
+	}
+	extra := make(map[string]string, len(destination.Extra)+1)
+	for key, value := range destination.Extra {
+		extra[key] = value
+	}
+	extra["stack_limit"] = source.Extra["stack_limit"]
+	destination.Extra = extra
 }
 
 func isStackable(stack dnfrepo.ItemStack) bool {

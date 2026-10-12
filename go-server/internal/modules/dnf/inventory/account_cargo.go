@@ -192,6 +192,7 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 				moveCount,
 				excludedSlots...,
 			); ok {
+				preserveMergedStackLimit(&target, destination)
 				target.Count += moveCount
 				updateStackRawAmount(&target)
 				if destination.Count <= moveCount {
@@ -239,6 +240,7 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 				moveCount,
 				excludedSlots...,
 			); ok {
+				preserveMergedStackLimit(&target, source)
 				target.Count += moveCount
 				updateStackRawAmount(&target)
 				if source.Count <= moveCount {
@@ -270,6 +272,7 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 		return result, nil
 	}
 	if canStack(source, destination, moveCount) {
+		preserveMergedStackLimit(&destination, source)
 		destination.Count += moveCount
 		updateStackRawAmount(&destination)
 		if source.Count <= moveCount {

@@ -248,6 +248,9 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	if !ok {
 		return nil, errDungeonWorldMapUnavailable
 	}
+	if currentTeamRaidGroundDropsDisabled(runtime) {
+		return nil, nil
+	}
 	roomKey := runtimeDungeonRoomKeyFromScene(scene)
 	monsterCatalog, err := s.dungeonMonsterCatalog()
 	if err != nil {

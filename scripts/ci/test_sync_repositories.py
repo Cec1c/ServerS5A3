@@ -3,8 +3,33 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from sync_repositories import SyncError, synchronize
+from sync_repositories import SyncError, git, main, synchronize
+
+
+class RepositorySyncErrorTests(unittest.TestCase):
+    def test_failed_git_omits_provider_output_and_arguments(self):
+        secret = "SYNTHETIC_SYNC_SECRET"
+        url = f"https://test-user:{secret}@example.invalid/repo.git"
+        failure = subprocess.CompletedProcess([], 128, stdout=secret, stderr=f"fatal: {url}")
+        with patch("sync_repositories.subprocess.run", return_value=failure):
+            with self.assertRaises(SyncError) as raised:
+                git(Path("."), "fetch", url)
+        self.assertEqual(str(raised.exception), "git fetch failed (exit 128)")
+        self.assertNotIn(secret, str(raised.exception))
+
+    def test_cli_failure_does_not_print_provider_output(self):
+        secret = "SYNTHETIC_SYNC_SECRET"
+        failure = subprocess.CompletedProcess([], 128, stdout="", stderr=secret)
+        with patch("sys.argv", ["sync", "--github", "example-gh", "--gitgud", "example-gg"]), \
+             patch.dict(os.environ, {"GH_SYNC_TOKEN": ""}), \
+             patch("sync_repositories.subprocess.run", return_value=failure), \
+             patch("builtins.print") as output:
+            with self.assertRaises(SystemExit) as raised:
+                main()
+        self.assertEqual(raised.exception.code, 1)
+        output.assert_called_once_with("Synchronization stopped: git init failed (exit 128)")
 
 
 class RepositorySyncTests(unittest.TestCase):

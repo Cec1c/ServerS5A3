@@ -105,6 +105,9 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 }
 
 func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, source string) error {
+	if currentTeamRaidGroundDropsDisabled(runtime) {
+		return nil
+	}
 	room := runtimeDungeonRoomKeyFromScene(scene)
 	if runtime.passiveItemDropsPlanned[room] {
 		return nil

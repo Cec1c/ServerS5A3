@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -219,6 +220,11 @@ func mergeMailboxItemIdentityExtra(
 	}
 	if pvfPath := strings.TrimSpace(definition.PVFPath); pvfPath != "" {
 		identity["pvf_path"] = pvfPath
+	}
+	// Persist the same positive PVF cap as dungeon/shop instance constructors.
+	// The claim allocator's StackLimit alone does not survive account-cargo moves.
+	if definition.Kind == dungeonDropItemStackable && definition.StackLimit > 0 {
+		identity["stack_limit"] = strconv.FormatInt(definition.StackLimit, 10)
 	}
 	if stackableType := strings.TrimSpace(definition.StackableType); stackableType != "" {
 		identity["stackable_type"] = stackableType

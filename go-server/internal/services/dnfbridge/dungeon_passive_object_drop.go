@@ -477,7 +477,7 @@ func (s *Service) prepareCurrentDungeonPassiveObjectDrops(
 	if registration == nil {
 		return nil
 	}
-	if !rowMode.emitsRow() {
+	if !rowMode.emitsRow() || currentTeamRaidGroundDropsDisabled(runtime) {
 		return nil
 	}
 	// 非深渊房间**静默跳过**（与 `sendCurrentHellPartyMonsterInfo` 同一风格）：probe 档
@@ -720,6 +720,9 @@ func (runtime *runtimeDungeonState) registerCurrentDungeonPassiveObjectDrop(
 	amount uint32,
 ) (*runtimeDungeonDrop, uint16, error) {
 	if runtime == nil || item.ItemID == 0 || amount == 0 {
+		return nil, 0, errDungeonDropNotFound
+	}
+	if currentTeamRaidGroundDropsDisabled(runtime) {
 		return nil, 0, errDungeonDropNotFound
 	}
 	owner := runtime.DropOwner

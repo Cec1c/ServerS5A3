@@ -20,7 +20,7 @@ def git(directory, *arguments, check=True):
     )
     if check and result.returncode:
         # Do not echo remote URLs or credential-bearing arguments.
-        raise SyncError(f"git {arguments[0]} failed (exit {result.returncode}): {result.stderr.strip()}")
+        raise SyncError(f"git {arguments[0]} failed (exit {result.returncode})")
     return result
 
 

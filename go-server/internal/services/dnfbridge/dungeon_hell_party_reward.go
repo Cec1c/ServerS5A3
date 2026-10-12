@@ -672,6 +672,9 @@ func (s *Service) registerHellPartyRewardDrops(
 	if runtime == nil || len(selected) == 0 {
 		return nil, nil
 	}
+	if currentTeamRaidGroundDropsDisabled(runtime) {
+		return nil, nil
+	}
 	owner := runtime.DropOwner
 	if owner == nil {
 		owner = newRuntimeDungeonDropOwner()

@@ -22,6 +22,14 @@ type currentRaidDungeonEntry struct {
 	// Every participant's boss completion therefore reduces this run once.
 	RunID        string
 	Participants []uint16
+	// This admitted mode stays with the map after global raid progress changes.
+	teamMode bool
+}
+
+// Team raids do not create floor items or gold. Keep this rule on the frozen
+// entry, so an expired or retired battle cannot restore ordinary map drops.
+func currentTeamRaidGroundDropsDisabled(runtime *runtimeDungeonState) bool {
+	return runtime != nil && runtime.raidEntry != nil && runtime.raidEntry.teamMode
 }
 
 func (s *Service) currentRaidDungeonBindingRequired(session *gameSession) bool {
@@ -167,6 +175,7 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 		}
 		b.Anton = next.AntonProgression
 	}
+	entry.teamMode = !b.Single
 	for _, target := range targets {
 		copy := entry
 		copy.Participants = append([]uint16(nil), entry.Participants...)

@@ -1,3 +1,9 @@
+## 2026-10-13 续修整合验证（536s）
+
+用户已明确恢复，P2/P37/P50无需再修，已验收关闭项保持关闭。四路候选已限定整合到仓库：P61/P68金库身份与容量、P20团队地面掉落、P56网页票据完整回包、P29真实账号每周限购70；另整合P66整理刷新钱包预读与提交边界。联合默认领域/桥/control、固定PVF相关专项、scoped vet、Windows/Linux成品及真实BAT预检通过。环境跳过不计通过，初次联合内存失败、固定PVF全包超时及既有资源审计失败保留。
+
+本检查点尚未部署，线上仍18393b1d；源码最新不等于已运行。P56关闭、P66真实晶体按钮及其余玩家实机验收、追加7两Boss精髓仍待验证。P57继续静态图帧绑定，未修改生产。02:00后电脑自测与道具/属性发放已获授权，heartbeat为本聊天ACTIVE；旧停止段落是历史。C盘已清理未用默认编译缓存，4份旧缓存迁至H并保留C目录联接，当前主缓存与模块源码保留。
+
 ## 本段最终CI与停止结论（528，香港2026-10-13 00:30:45独立回读）
 
 用户合入MR1的b181abd1已在云Runner1615完成[流水线164976](https://gitgud.io/16ww/servers5a3/-/pipelines/164976)：pipeline为success，Linux build571415、Windows build571416、core-tests571418、semgrep-sast571417四项均实际success，开始/完成时间完整、均由1615执行。再次独立GET pipeline/jobs/runner均HTTP200，Runner online=true、paused=false；不是仅Runner在线或允许失败导致的pipeline绿色。旧164936/164963核心测试失败记录保留。

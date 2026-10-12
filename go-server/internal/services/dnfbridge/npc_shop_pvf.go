@@ -34,16 +34,17 @@ type currentNPCShopCatalog struct {
 }
 
 type currentNPCShopPricing struct {
-	DailyPurchaseScope string
-	DailyPurchaseLimit int64
-	DailyPurchaseReset bool
-	Definition         dungeonDropItemDefinition
-	BuyGold            int64
-	SellGold           int64
-	Buyable            bool
-	MaterialExchange   bool
-	NeedMaterialItem   uint32
-	NeedMaterialCount  int64
+	PurchaseLimitScope  string
+	PurchaseLimitPeriod string
+	PurchaseLimitValue  int64
+	PurchaseLimitReset  bool
+	Definition          dungeonDropItemDefinition
+	BuyGold             int64
+	SellGold            int64
+	Buyable             bool
+	MaterialExchange    bool
+	NeedMaterialItem    uint32
+	NeedMaterialCount   int64
 }
 
 func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, error) {
@@ -212,13 +213,28 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 		SellGold:         sellGold,
 		MaterialExchange: materialExchange,
 	}
-	if tokens, found := document.Section("daily purchase limit"); found {
+	// Current client shape: [purchase limit] <scope> <period> <count>, for
+	// example "account weekly 70" as declared by the Epic Road talisman
+	// 490010214 in itemshop/2018_epicroad_kairyu.shp (NPC 3136). An unknown
+	// scope or period fails closed instead of silently dropping the limit.
+	if tokens, found := document.Section("purchase limit"); found {
+		if len(tokens) != 3 || tokens[0].Kind != dnfpvf.TokenString || tokens[1].Kind != dnfpvf.TokenString ||
+			tokens[2].Kind != dnfpvf.TokenInt ||
+			(tokens[0].Value != "character" && tokens[0].Value != "account") ||
+			(tokens[1].Value != "daily" && tokens[1].Value != "weekly") ||
+			tokens[2].Int <= 0 || tokens[2].Int > math.MaxInt32 {
+			return currentNPCShopPricing{}, fmt.Errorf("%w: invalid purchase limit item=%d", errCurrentNPCShopProductUnavailable, itemID)
+		}
+		pricing.PurchaseLimitScope, pricing.PurchaseLimitPeriod, pricing.PurchaseLimitValue = tokens[0].Value, tokens[1].Value, tokens[2].Int
+		_, pricing.PurchaseLimitReset = document.Section("reset daily purchase item")
+	} else if tokens, found := document.Section("daily purchase limit"); found {
+		// Legacy shape: <scope> <count>; Period stays empty so the historical ResetDaily semantics apply.
 		if len(tokens) != 2 || tokens[0].Kind != dnfpvf.TokenString || tokens[1].Kind != dnfpvf.TokenInt ||
 			(tokens[0].Value != "character" && tokens[0].Value != "account") || tokens[1].Int <= 0 || tokens[1].Int > math.MaxInt32 {
 			return currentNPCShopPricing{}, fmt.Errorf("%w: invalid daily purchase limit item=%d", errCurrentNPCShopProductUnavailable, itemID)
 		}
-		pricing.DailyPurchaseScope, pricing.DailyPurchaseLimit = tokens[0].Value, tokens[1].Int
-		_, pricing.DailyPurchaseReset = document.Section("reset daily purchase item")
+		pricing.PurchaseLimitScope, pricing.PurchaseLimitPeriod, pricing.PurchaseLimitValue = tokens[0].Value, "", tokens[1].Int
+		_, pricing.PurchaseLimitReset = document.Section("reset daily purchase item")
 	}
 	if materialExchange {
 		pricing.NeedMaterialItem = uint32(needMaterial[0])
@@ -239,8 +255,8 @@ func currentNPCShopContainsItem(catalog *currentNPCShopCatalog, itemID uint32) b
 }
 
 func currentNPCShopPurchaseLimit(pricing currentNPCShopPricing, count uint32) *dnfnpcshop.PurchaseLimit {
-	if pricing.DailyPurchaseLimit <= 0 {
+	if pricing.PurchaseLimitValue <= 0 {
 		return nil
 	}
-	return &dnfnpcshop.PurchaseLimit{ItemID: pricing.Definition.ItemID, Scope: pricing.DailyPurchaseScope, Maximum: pricing.DailyPurchaseLimit, ResetDaily: pricing.DailyPurchaseReset, Count: int64(count)}
+	return &dnfnpcshop.PurchaseLimit{ItemID: pricing.Definition.ItemID, Scope: pricing.PurchaseLimitScope, Period: pricing.PurchaseLimitPeriod, Maximum: pricing.PurchaseLimitValue, ResetDaily: pricing.PurchaseLimitReset, Count: int64(count)}
 }

@@ -1,3 +1,45 @@
+## 2026-10-13 — Preserve account-vault stack identities and known PVF caps
+
+- Compare the repository's explicit stack identity fields before merging, while retaining normalized PVF contract comparisons. Reject conflicting stackable type and expiration metadata.
+- Reconcile a missing cap with the matching item's recorded cap and preserve that cap on the merged destination without mutating caller snapshots. Explicit conflicting caps still reject. Mail construction now records the positive resource cap.
+- Preserve red baseline and default missing-PVF failures. The final actual-resource mail/deposit and identity controls pass 13 cases without skips; default resource-dependent controls explicitly skip when no PVF is provided. Native P61/P68 acceptance remains pending.
+
+## 2026-10-13 — Suppress ground items for admitted team raid runs
+
+- Freeze team mode on the legal raid entry and suppress six ground-item creation routes for all admitted participants, including expired/retired entries. Ordinary and single raid drops retain their positive controls.
+- Integrate only the verified six production files and three tests. Preserve and reject the earlier mixed comparison patch; preserve full real-PVF timeout and baseline resource failures separately.
+- Luke Light Altar quest essence grants are a separate direct-inventory route; extra7 and native player acceptance remain open.
+
+## 2026-10-13 — Load sort-wallet projection before committing inventory
+
+- Independently reproduce the first gold candidate's transient-read boundary: it sorted and persisted inventory before failing its later Character load and reporting the request blocked.
+- Load and clamp the authoritative wallet before owner.Sort. A read error now rejects before any inventory write or ACK; after commit only the prepared value is used. Keep optional state and non-wallet slot conflicts unchanged.
+- Reject the proposed fallback that would send a full main-list refresh without the wallet on read failure. Preserve both earlier candidates and their failure evidence; native crystal-button acceptance remains pending.
+
+## 2026-10-13 — Enforce resource-declared NPC purchase windows
+
+- Read the current three-token purchase-limit form, including the real Epic Road account weekly70 policy for490010214, and retain the legacy two-token form's cumulative/daily-marker behavior.
+- Correct the first candidate's explicit-daily reset gap: an explicit daily period uses the existing06:00 service day without requiring a separate reset marker. Weekly uses the server's existing Thursday06:00 operating policy; the weekday is not a PVF fact.
+- Retain transaction quota consumption, cross-character account scope, concurrency and rollback controls. Both the original omission and the first-candidate daily defect have preserved RED/GREEN evidence. Native purchase/acceptance and deployment remain pending.
+
+## 2026-10-13 — Correct native mall web-ticket replies
+
+- Match the current op773 consumer's success/type/string-length/string/code fields, correcting the old6-byte short reply. Supply the user-authorized about:blank address in op773/op65 with the proved ASCII length limits.
+- Keep failure replies, ticket request limits and the registered handlers intact. The protocol mismatch has static and RED/GREEN evidence; the effect on subsequent parsing and the player's inability to close the mall still requires native acceptance.
+- Integrate only four web-ticket production/test files after a clean patch check. Candidate bridge/vet passed; combined-source validation and deployment remain pending. Do not close P56 from an offline reply test.
+
+## 2026-10-13 — Preserve authoritative gold during inventory sort refresh
+
+- Reproduce four missing/stale wallet failures through the real Sort handler and native full-list response. Character.Stats retains4321 while the old response omits the wallet or emits9; the prior516 fixture already contained the wallet and did not cover this projection gap.
+- Project Character.Stats gold into a cloned list0 snapshot, matching login limits and preserving non-wallet slot conflicts, absent optional state and other containers. Do not persist a synthetic gold inventory row.
+- Full inventory package, projection boundary controls and merged controller/protocol retry pass. Preserve531's initial startup timeout; GOTELEMETRY=off is used for the completed retry. The exact player crystal-button request and native acceptance remain unconfirmed; P66 stays open. Deployment has not occurred.
+
+## 2026-10-13 — Resume four repair lanes with updated player scope
+
+- Resume D33 at the user's direction, exclude player issues P2/P37/P50 from repair, and preserve accepted closures and the canceled ordinary Luke sequence work.
+- Assign isolated account-vault, team-ground-drop, mall-close and Epic Road limit candidates. Permit native testing and test item/attribute grants after Hong Kong 02:00; before that continue source and offline validation only.
+- Remove raw provider stderr from repository synchronization failures and add synthetic git/CLI error-output regression checks while preserving operation and exit metadata.
+
 ## 2026-10-13 — Verify the merged master pipeline on the restored cloud Runner
 
 - Independently read pipeline164976 at2026-10-13 00:30:45 Hong Kong: exact b181abd1 source, all four Linux/Windows/core-tests/Semgrep jobs success on Runner1615, complete timestamps, runner online and unpaused.

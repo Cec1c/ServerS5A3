@@ -158,11 +158,19 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
+		// Read the authoritative wallet BEFORE owner.Sort persists anything: a read
+		// failure must reject the request with no inventory movement and no ACK.
+		// The sort itself never writes the Character gold stat, so the prepared
+		// balance stays authoritative for the response built after the commit.
+		gold, err := loadSortRefreshGold(ctx, req.Repositories.Character, cmd.SourceListType, strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10))
+		if err != nil {
+			return ownerBlockedResult(cmd, err), nil
+		}
 		result, err := owner.Sort(ctx, cmd)
 		if err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
-		return ownerAppliedSortResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+		return ownerAppliedSortResult(ctx, req.Repositories.Settings, req.Opcode, cmd, applySortRefreshGold(result, gold)), nil
 	case dnfenum.CmdPacketBuyItem:
 		parsed, err := DecodeBuyItemRequest(req.Body)
 		cmd := NewBuyCommand(req, parsed)
