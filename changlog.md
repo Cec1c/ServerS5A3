@@ -1,3 +1,23 @@
+## 2026-10-13 自主继续工作检查点600（香港 2026-10-13T05:09:40.699077+08:00）
+
+用户已明确授权使用自测账号并自主完成后续工作，四个现有子代理继续并发，P2/P37/P50退出修复队列，已验收关闭项保持关闭。
+
+容器初始化及保存失败控制已完成597联合验证：默认8805 pass节点/825 skip节点/0 fail，固定PVF相关233 pass节点/0 skip/0 fail，required专项齐全。gofmt、list210包、scoped vet、Windows/Linux构建及真实BAT check --skip-database全部通过。源码3471文件验证前后哈希相符。本批尚未部署，当前线上仍4d7b1b2b；跳过与历史全PVF失败、超时分别保留，不能计为通过。
+
+自测账号10070/角色106 qa57590级继续原生验收。正常任务5578“急切的青龙”和“被破坏的祥瑞溪谷”均通过对话完成，正常金币奖励共992；第二任务ID只读回读待补。随后正常进入祥瑞溪谷，打开海流商店，购买490010214一张，单价200000，客户端周限由0/70变为1/70。只读回读确认物品主栏121数量1、expireTime1830268800、金币19800992。没有GM完成任务或重置购次。70/71边界、重开及重选持久化仍待验收。
+
+P66已见真实op20消费品按类型整理（category2/condition3/response_count2），417×600从主栏66移到65，整理时钱包20000000保持一致；没有独立op13日志，晶体按钮路径仍开放。P61/P68金库打开成功但拖动未见op19，不能计存入。P56两页打开关闭及两次op65确认，about:blank效果和op773仍未通过。原生邮件已领取417总5600、3277×7；发放未重复，无其他玩家改动或外部支付。
+
+团本571b资源摘要/恢复占用补丁冻结，571c真实活会话截止回城4 PASS，移除重绑分支的行为负例1 FAIL；完整Settings恢复和所有生产持久化接线仍在四代理候选区，未混入共享源码。C盘清理约28GiB已完成，当前主Go缓存、模块及工具链保留，验证继续通过。
+
+证据：container-combined-validation597/receipt597.json、continuation-checkpoint600/native600.json、native-qa-account574/own-events583-epicroad598.json、native-self-test543/gm543-purchase598check.json。以下旧段落均为各自时点历史。
+
+## 2026-10-13 — Initialize missing move-container state and preserve honest native acceptance
+
+- Before routing a valid selected-character move between known character containers, establish missing main/avatar/cargo state through the settings owner, then read it back. Existing valid state stays unchanged; load or save failures reject before inventory mutation or ACK. Wrong class, malformed requests and unrelated containers retain their original guards.
+- Preserve baseline failures and verify the integrated owner/handler controls: inventory 543 and related bridge 118 passing nodes, plus four passing save-failure test nodes without skips. Scoped vet and build passed. Full combined validation and deployment of this new batch remain pending.
+- Continue native testing under the user's own-QA authorization. Normal login, creation, town entry, virtual gold and mail claims are confirmed for the QA character. Mall pages open and close, but about:blank is not accepted; no op773 was observed. Empty-tab sort and vault drag attempts do not prove op13/op19 acceptance. Keep P2/P37/P50 excluded and all unverified cases open.
+
 ## 2026-10-13 — Verify all four cloud jobs for the deployed resumed source
 
 - Independently GET pipeline165000 and jobs for source4d7b1b2b: Linux571472, Windows571473, core-tests571475 and Semgrep571474 all succeeded on Runner1615 with complete timestamps. Semgrep itself succeeded despite its allow_failure configuration.

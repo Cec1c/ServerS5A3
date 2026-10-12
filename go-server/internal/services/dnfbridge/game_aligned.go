@@ -456,6 +456,18 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			}
 		}
 	}
+	// 567r2：op19 在进入域处理之前，按唯一工厂做一次 missing-only 的容器状态准备。
+	// 只对通过既有 class/路由/body/角色边界的 0/1/2 容器移动生效；其余一律不介入
+	// （保持旧拒绝语义，不新写 Settings）。非法状态或读失败 → 拒绝本次移动。
+	if dnfenum.CmdPacket(typ) == dnfenum.CmdPacketMoveItemspace {
+		if err := s.prepareMoveContainerState(session, cmd, typ, repos, body); err != nil {
+			s.logWarn("dnfbridge op19 container state rejected",
+				"conn_id", session.connID,
+				"char_id", session.selectedCharacterID,
+				"err", err)
+			return true, nil
+		}
+	}
 	session.party.mu.Lock()
 	result, ok, err := gameAlignedRegistry.Route(context.Background(), alignedcmd.Request{
 		Command:                      cmd,
