@@ -1,3 +1,9 @@
+## 2026-10-13 — Deploy and independently verify the resumed batch
+
+- Publish source4d7b1b2b after validating identical committed bytes; deploy its Linux artifact with a verified backup and rollback path. Independently confirm process1159493, zero restarts, ready, binary SHA25692ab4a57 and all118 game listeners.
+- Preserve runtime configuration, resource PVF, client feeds and relay. Match formal v96 to both feeds; synchronize3468 validated source files to the maintenance tree after backing up its previous3452 files.
+- Record default8791 pass/824 skip nodes and related actual-PVF218 pass/0 skip nodes, scoped vet and both builds. Preserve initial resource-allocation failure and prior full-PVF failures; native acceptance remains pending after02:00.
+
 ## 2026-10-13 — Preserve account-vault stack identities and known PVF caps
 
 - Compare the repository's explicit stack identity fields before merging, while retaining normalized PVF contract comparisons. Reject conflicting stackable type and expiration metadata.
