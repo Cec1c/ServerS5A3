@@ -1,3 +1,11 @@
+## 2026-10-12 — Record real raid creation and bounded follow-up evidence
+
+- Record an ordinary native UI raid creation after normal token-bound login: one actual role in phase0, insufficient entry material and no raid start. Supersede the pending manual-name assistance state.
+- Execute the independently reviewed second-client115 preparation once. Preserve SECOND_CLIENT_EXITED_AT_5S_CHECK, the retained first client and the unknown inner cause; seal that run and do not retry it.
+- Independently verify the original Epic-return rollback counterexample passes with both errors exposed. Keep the external candidate unintegrated while its native NPC request contract remains open; partial socket writes and failed persistence rollback remain explicit limits.
+- Verify four actual-PVF Abis calendar/admission/preflight controls without finding a production contradiction or introducing a candidate. Retain native request and player-quota acceptance as open.
+- Record the user-requested GUI pause until09:35 Hong Kong and one scheduled resume, while four source/review lanes continue. Keep Go source31e2b51, daily r98, closed acceptance items and the stopped local Docker route unchanged.
+
 ## 2026-10-12 — Stop the local Runner setup route at user request
 
 - Record the completed per-user Docker Desktop installation and failed WSL VM engine starts separately. WSL3.0.1/default2 and Windows virtualization were already present. Do not claim a usable container engine or Runner.
