@@ -1,3 +1,8 @@
+## 2026-10-12 — Pause native tests until02:00 and reconcile current acceptance scopes
+
+- Honor the new Hong Kong2026-10-13 02:00 native-test deadline while continuing code work. Update the existing one-shot recovery, candidate scope list, unresolved original-player reports and accepted closures. Keep source/runtime/deployment distinctions and the unconfirmed357 docs push explicit.
+- Preserve the failed independent worker evidence and replace the closed slot within the four-agent cap for offline review. Keep native launches, daily r98, local Docker and Runner operations stopped as directed.
+
 ## 2026-10-12 — Record normal Anton prerequisite completion and reconcile remote CI state
 
 - Observe the second native role completing the supported Lv89 story sweep, ordinary Anton side quest12829 acceptance, native claim of100 golden cubes from one normal GM mail, and ordinary material submission/reward settlement. Authenticated readonly checks confirm12829/3779/3757 completed and all100 cubes consumed; before/after runtime identities remain intact. Keep normal channel admission and the whole-volcano acceptance open.
