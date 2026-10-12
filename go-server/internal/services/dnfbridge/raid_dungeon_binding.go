@@ -171,6 +171,9 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 		copy := entry
 		copy.Participants = append([]uint16(nil), entry.Participants...)
 		target.runtime.raidEntry = &copy
+		if b.Mode == 1 && !b.Single {
+			freezeCurrentAntonMapReturnOwner(target.session, target.runtime)
+		}
 	}
 	return nil
 }

@@ -38,6 +38,7 @@ func (s *Service) reduceCurrentRaidDungeonClearLocked(session *gameSession, runt
 		return runtimeRaidState{}, false, fmt.Errorf("raid clear instance unavailable")
 	}
 	b := state.Battle
+	recordCurrentAntonMapReturnCompletion(b, session, runtime)
 	if b.Anton != nil && now.Before(b.Anton.LastTime()) {
 		now = b.Anton.LastTime()
 	}

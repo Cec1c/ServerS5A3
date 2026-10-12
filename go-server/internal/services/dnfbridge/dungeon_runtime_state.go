@@ -41,6 +41,7 @@ type runtimeDungeonState struct {
 	semesterRun           *currentSemesterRun
 	epicEntry             *currentEpicEntry
 	raidEntry             *currentRaidDungeonEntry
+	antonMapReturnOwner   *currentAntonMapReturnOwner
 	antonHatcheryTransfer *currentAntonHatcheryTransfer
 	deathStateSent        bool
 	riftLoot              *currentRiftLootDefinition

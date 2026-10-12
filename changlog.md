@@ -1,3 +1,9 @@
+## 2026-10-12 — Preserve owned completed Anton returns and ordinary Seria origins
+
+- Freeze an internal return owner on legal normal Anton map entry and record only locally authenticated map completion before global clear guards. Allow completed town return after another squad, timer or phase changes global progress; preserve the existing reward, clear-count and retry/selector boundaries.
+- Exclude the complete actual PVF town28 Epic Road identity from ordinary Seria origins, preserving town50 behavior, ordinary saved origins and existing room-door fallback. Do not claim the player's native target or full relogin/Abis behavior is proved.
+- Validate the exact combined3452-file source: all DNF domains/bridge/control8712 pass nodes,0 fail,783 environment skips; fixed-PVF155 pass,0 fail,0 skip; required vet and Windows/Linux amd64 server builds exit0. Preserve the initial missing-root-template control failure and repair only its exact public fixture before the full control rerun. No runtime deployment or GUI acceptance occurs.
+
 ## 2026-10-12 — Correct deployment provenance and acceptance wording
 
 - Freshly verify the running isolated server PID, startup time and binary hash. Its installed 3443 source files exactly match20b0c911; the published3449-file tree only adds controller/diagnostic changes relative to that instance.

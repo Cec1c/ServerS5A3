@@ -45,6 +45,9 @@ func (s *Service) currentRaidCompletedMapExitReceiptReady(session *gameSession, 
 	if !found && allowExpired && b.Mode == 1 && !b.Single && expiredPhaseCurrent {
 		run, found = b.ExpiredCompletedRuns[e.RunID]
 	}
+	if !found && allowExpired && b.Mode == 1 && !b.Single && currentAntonMapReturnOwnerMatches(session, runtime) && runtime.antonMapReturnOwner.Completed {
+		return true
+	}
 	if !found || run.DungeonID != uint32(runtime.Dungeon.ID) || run.Phase != e.Phase || run.Attempt != e.Attempt ||
 		!sameRaidParticipants(run.Participants, e.Participants) {
 		return false
