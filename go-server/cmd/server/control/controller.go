@@ -419,14 +419,17 @@ func (c *controller) startLocalClient(ctx context.Context, cfg instanceConfig, c
 		}
 		process, inspectErr := inspectProcess(pid)
 		if inspectErr != nil {
+			facts := captureClientStartFacts(cmd.Process)
 			_ = cmd.Process.Release()
-			return fmt.Errorf("inspect additional client PID %d: %w", pid, inspectErr)
+			return fmt.Errorf("controller inspect of additional client PID %d failed (controller_inspect=failed); %s", pid, facts.Describe())
 		}
 		if !process.running {
+			facts := captureClientStartFacts(cmd.Process)
 			_ = cmd.Process.Release()
 			return fmt.Errorf(
-				"additional client PID %d exited during the 5-second startup check",
+				"additional client PID %d exited during the 5-second startup check; %s",
 				pid,
+				facts.Describe(),
 			)
 		}
 		if !sameExecutable(process.executable, executable) {

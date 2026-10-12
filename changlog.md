@@ -1,3 +1,10 @@
+## 2026-10-12 — Preserve native additional-client exit diagnostics and portable regression sources
+
+- Capture liveness, true exit status including259, and100ns birth facts through the held Windows process handle before Release. Keep unknown facts explicit and retain the existing registration, environment,5-second guard and successful-start behavior. Do not infer the cause of the earlier live client failures.
+- Integrate the four production files reviewed by202 and five permanent tests approved by214. Replace the rejected author-absolute formatter source with the current package source; assert the exact nil enum for each platform and reject fabricated zero exits or known birth facts.
+- Verify the complete3443-file candidate with144 control/Doctor passes,0 failures and3 expected skips, gofmt/list/vet and Linux control-test compilation. Reuse209 Windows/Linux program builds after proving every non-test source file unchanged; compilation is not Linux runtime execution. Retain173 domain/bridge/scoped-PVF results at their original scope.
+- Keep runtime QA on31e2b51/3433 source while preparing the normal GM switch. A fresh read-only check confirms the former client absent and no related DNF processes, with server and retained database identities unchanged. Preserve unknown exit cause, player acceptance conclusions, daily r98 and the stopped local Docker route.
+
 ## 2026-10-12 — Enable explicit normal loopback GM configuration and reject endpoint reuse
 
 - Add optional server.gmListen, disabled when absent/blank. Require a valid127.0.0.1 port and reject numeric aliases of admin/channel endpoints. Generate GM environment values only through normal instance configuration; preserve inherited bridge-env scrubbing and default legacy behavior.

@@ -1,0 +1,132 @@
+{
+  "baseline_repository_commit": "dd0516b3e44751ed6ab2beee2a5ae56699907e95",
+  "source_files": 3443,
+  "source_manifest_sha256": "a2b22f56ca2bd6f5abef5fe81947a1347a5ea33e8011927a780d87cf06963b28",
+  "changed_source_sha256": {
+    "cmd/server/control/controller.go": "a13723329e71b41453fc0003fa20dd0f8d8ccd0627e743de2c0cb31b3535c044",
+    "cmd/server/control/client_start_facts.go": "53bfdd9419e417537bb1c0fa9201236f11e3b8872e17a82d1c44a88e2c920c73",
+    "cmd/server/control/client_start_facts_windows.go": "1f72558b7907b8048fd2a868e2103959c894d95ad16fe2363636c91bbfa21040",
+    "cmd/server/control/client_start_facts_other.go": "fe6225f4e470e089055f80ed6af2067f017eb2872d650538f315e4f9ea2f7dfc",
+    "cmd/server/control/diag198_format_test.go": "0132e7bada045cfd4c159f48251d6ef3f700fdd86fe985ae06abe627e1c182bc",
+    "cmd/server/control/diag198_shared_test.go": "fc4e0d8db79b9eba7824a3a6df6cba98ced3e2eab19f281a76cd5fafef55597e",
+    "cmd/server/control/diag198_message_test.go": "78c6c50b9deeae77a1e0ea7d52b9c64923c8deb68c8027867d0bc5b29dcd770d",
+    "cmd/server/control/diag198_facts_test.go": "fb732f32ab19d5de8d186b0cf1b8a0a42af1a70e5b1e6c24b4d84b2536f81985",
+    "cmd/server/control/diag211_source_test.go": "f14f04a443b88d55a0dbbe73d7a165e5d713334cd7303c23745b37536bdb9b8f"
+  },
+  "production_review202": {
+    "scope": "four production files only",
+    "windows_independent": {
+      "pass": 14,
+      "fail": 0,
+      "skip": 0
+    }
+  },
+  "permanent_test_review214": {
+    "status": "GREEN_APPROVED_EXACT_FINAL211V02_FIVE_PERMANENT_TESTS",
+    "windows_independent": {
+      "pass": 7,
+      "fail": 0,
+      "skip": 0
+    },
+    "other_platform_hosted_semantics": {
+      "pass": 3,
+      "fail": 0,
+      "skip": 0,
+      "actual_linux_execution": false,
+      "adaptations": {
+        "build_constraint_removed_from_other_capture": true,
+        "windows_capture_suppressed": true,
+        "GOOS_references_substituted": 2,
+        "unused_runtime_import_removed": true,
+        "actual_linux_execution": false,
+        "original_v02_tests_unmodified": true
+      }
+    },
+    "four_negative_controls_rejected": true
+  },
+  "final_changed_packages216": [
+    {
+      "label": "gofmt",
+      "exit": 0,
+      "seconds": 0.03
+    },
+    {
+      "label": "list",
+      "exit": 0,
+      "seconds": 2.26
+    },
+    {
+      "label": "control-doctor",
+      "exit": 0,
+      "seconds": 7.79,
+      "tests": {
+        "pass": 144,
+        "fail": 0,
+        "skip": 3
+      },
+      "skipped": [
+        "TestDiag198NonWindowsEnumIsUnsupported",
+        "TestDiag198HelperExit259",
+        "TestDiag198HelperSleep"
+      ]
+    },
+    {
+      "label": "vet",
+      "exit": 0,
+      "seconds": 1.19
+    },
+    {
+      "label": "linux-control-tests-compile",
+      "exit": 0,
+      "seconds": 1.03
+    }
+  ],
+  "production_build209": [
+    {
+      "path": "dist/linux-amd64/DNF90Control",
+      "bytes": 10879517,
+      "sha256": "4f0ca7f06e4419d76a3a791b626a86eb5b44166f789a894533834318e68b0c9b"
+    },
+    {
+      "path": "dist/linux-amd64/DNF90Doctor",
+      "bytes": 26745294,
+      "sha256": "e6f0bde9d1ce0094c59dc447643ae2ecf696ea7058963e20c4f92cffc3bbce76"
+    },
+    {
+      "path": "dist/linux-amd64/DNF90Server",
+      "bytes": 56451516,
+      "sha256": "4444babcc7829c4cdda8327ab8617262336b453a6ec3f936f31f47a26c85116a"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Control.exe",
+      "bytes": 11407360,
+      "sha256": "3e167ae32a8b2d180eacb5950f90eda3d40b1f7789cd011399ce971d31978951"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Doctor.exe",
+      "bytes": 27250688,
+      "sha256": "6fe80b8ac873e334005e0bc949496eacb73422543fe789b4fefa5301617e3b78"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Server.exe",
+      "bytes": 57192448,
+      "sha256": "4d09a58ca5d4cadb66098c5c297c1f68e6374468f155c90bd7078cf58b9ca1b9"
+    }
+  ],
+  "production_build_reused_after_test_only_fix": true,
+  "production_non_test_source_identical_to_build209": true,
+  "domain_bridge_scoped_PVF_reference": "D33_SOURCE_VALIDATION183.json; snapshot173 source unchanged in these packages",
+  "actual_Linux_runtime_tests_executed": false,
+  "whole_actual_PVF_passed": false,
+  "running_QA_source_commit": "31e2b51b605a4b070869e27ab88279302181d486",
+  "running_QA_source_files": 3433,
+  "runtime_GM_enabled": false,
+  "ordinary_full_preflight_passed": false,
+  "former_client_absent220": true,
+  "client_exit_cause": "unknown",
+  "GUI_acceptance": false,
+  "remote_CI_passed": false,
+  "daily_r98_changed": false,
+  "local_Docker_route": "USER_STOPPED",
+  "normal_QA_switch": "212 workflow implementation and218 review in progress; not executed"
+}
