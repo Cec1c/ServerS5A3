@@ -1,3 +1,10 @@
+## 2026-10-12 — Reconcile explicit player acceptance and stop superseded work
+
+- Close P80 forest main-quest progression from the player's additional acceptance; retain unrelated activity admission issues.
+- Close the player's accepted volcano barrier, raid return, waiting-area access, training admission, skill-option persistence, sound and awakening-reset reports. Preserve earlier accepted results and distinguish the new crystal-sort gold loss from the accepted crystal display.
+- Accept mechanical-throne prerequisites by the reported behavior, retain the P18/P19 numbering alias, and stop unshipped sequential-unlock candidates at the user's explicit direction. Keep the unrelated light/dark reconnect report separate.
+- Accept the current adventure-friend character display. Investigate the small button from actual client evidence, replacing the unproved collapse/expand assumption. Reassign the same four agents; no runtime, client or database operation occurs in this record.
+
 ## 2026-10-12 — Deploy the validated source to the actual standard test server
 
 - Apply the user's new direction: the existing online service is exclusively for testing, replacing the earlier keep-r98 policy. Use the standard launcher channel for acceptance; both update channels launch the same live game service.
