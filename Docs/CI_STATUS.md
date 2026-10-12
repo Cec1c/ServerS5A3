@@ -1,3 +1,15 @@
+## 2026-10-12 08:17 持续失败邮件处理
+
+项目51684（16ww/servers5a3）已将当前用户的本项目通知改为custom、failed_pipeline=false。PUT后独立GET读回一致；账号全局通知仍为participating。只显式提交这两个通知字段，其他事件保持原有或默认值；不承诺custom的所有事件语义与participating完全相同。项目没有活动pipeline email integration，列表为空、pipelines-email查询404。该开关控制此项目之后的普通失败通知，已排队或已发送的邮件不能撤回。[GitLab通知API](https://docs.gitlab.com/api/notification_settings/)
+
+文档流水线164597在各job尚未获配Runner、没有started_at时取消，GET回读为canceled；历史失败流水线保留。通知过滤和取消空排队不代表远端CI执行或通过。
+
+本次增加workflow创建规则：已有普通分支的纯根Docs/README/AGENTS/changlog推送不创建流水线。完整go-server子树（包括依赖、测试及嵌入资源）、构建脚本、CI及deploy输入变化仍创建流水线；源码与文档混合推送也保留。tag、首次新分支和web/api/trigger/schedule等显式入口保持。以后新增go-server外的构建模块或不在规则中的输入，须同次更新changes路径。[GitLab workflow规则](https://docs.gitlab.com/ci/yaml/workflow/)
+
+服务端静态CI Lint基线与候选均valid=true、errors/warnings为空；更严格的全定义比较发现build/core的隐式only归一化差异，原始结果保留。随后真实服务端dry_run模拟基线与候选均产生相同的四个实际jobs：Linux build、Windows build、core-tests及semgrep-sast，脚本、stage和既有allow_failure策略一致。所有原job/include正文保留；此处验证配置，不称远端编译/测试通过。推送后的真实普通文档触发行为另行核对。
+
+08:14实际API现状：唯一可见站点Runner1仍paused=true、online=false、status=stale，available_runners为空。当前Windows电脑没有已安装的Docker或WSL Linux环境，无法直接运行现有SAST容器。远端CI恢复仍需站点管理员启动共享执行器，或提供本项目专用、可运行Linux容器的Docker执行器；现有Go镜像、双平台构建、核心测试和SAST保持。项目设置及邮件过滤不能启动站点执行器，不新增allow_failure或删除job来制造绿色。日常r98及已验证/运行源码31e2b51不变。
+
 ## 2026-10-12 邮件流水线164529实际核查
 
 GitGUD流水线164529对应58145b08。Windows/Linux build两作业均stuck_pending_no_matching_runners，runner与started_at为空、trace为0字节；core-tests/SAST跳过。项目shared/group runners已启用，但API可见唯一instance runner处于paused/offline/stale，未执行脚本。不能把邮件称为编译错误，也不能把本机组合56 GREEN称为远端CI GREEN。新源码提交的流水线另行回查；不绕过现有门控或修改全局Runner。

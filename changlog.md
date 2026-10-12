@@ -1,3 +1,10 @@
+## 2026-10-12 — Limit repeated CI failure emails and documentation pipelines
+
+- Set this user's project notification level to custom with failed_pipeline=false, then read it back; leave global notification settings untouched. Keep other event fields at their existing/default values. Cancel the pending documentation pipeline164597 after verifying no job has started. Previously queued emails may still arrive.
+- Add workflow rules that skip ordinary existing-branch pushes changing only root documentation. Preserve the complete Go subtree, build/CI/deploy inputs, tags, new branches and explicit pipeline entrypoints. Keep all existing build, core-test and SAST definitions intact; new build modules outside the watched paths must update the rules with their introduction.
+- Validate the proposed configuration with the site's CI Lint and pipeline simulation. Both baseline and candidate simulations retain the same two builds, core-tests and semgrep-sast. Preserve the stricter static comparison's implicit-only normalization difference separately; this is configuration validation, not remote execution.
+- Keep the unavailable Runner dependency explicit: the only visible instance Runner remains paused/offline/stale and no project Runner is available. This change reduces notifications and unnecessary queues; it does not make remote CI pass. Go source stays31e2b51 and daily r98 remains unchanged.
+
 ## 2026-10-12 — Bounded volcano flag evidence and open activity rules
 
 - Record nine bounded fixed-client controls through conditional scene refresh, actor flag setters, real obfuscated storage/readback and attack-target qualification. Keep actual monster spawn, damage, HP and GUI acceptance open.
