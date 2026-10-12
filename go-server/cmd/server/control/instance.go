@@ -303,7 +303,7 @@ func validateInstance(cfg instanceConfig) error {
 		return errorsf("game.pvfMaxBytes must be positive")
 	}
 	for _, value := range []string{cfg.Game.PVFPath, cfg.Game.ChannelInfoPath} {
-		if strings.TrimSpace(value) == "" || filepath.IsAbs(value) {
+		if strings.TrimSpace(value) == "" || absoluteOrVolumePath(value) {
 			return errorsf("game asset paths must be non-empty paths relative to runtime")
 		}
 		if escapesRoot(value) {
@@ -550,8 +550,20 @@ func listenPort(address string) (int, error) {
 }
 
 func escapesRoot(path string) bool {
-	cleaned := filepath.Clean(path)
+	cleaned := filepath.Clean(portablePath(path))
 	return cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))
+}
+
+// Configuration and installation receipts can move between Windows and Linux.
+// Interpret both separators before validating them, irrespective of the host OS.
+func portablePath(path string) string {
+	return filepath.FromSlash(strings.ReplaceAll(path, `\`, "/"))
+}
+
+func absoluteOrVolumePath(path string) bool {
+	path = portablePath(path)
+	return filepath.IsAbs(path) || strings.HasPrefix(filepath.ToSlash(path), "/") ||
+		(len(path) >= 2 && path[1] == ':')
 }
 
 func errorsf(format string, args ...any) error {

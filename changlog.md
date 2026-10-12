@@ -169,6 +169,33 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 
 # Repository changelog
 
+## 2026-10-12 — Tencent Linux remote test environment
+
+- Add a separate Windows remote entrypoint using the inspected client, private WireGuard game address and loopback-only SSH bootstrap/account forwards. Preserve the existing local entrypoint, PVF/executable hash guards and API login tokens.
+- Deploy the Linux image and MariaDB 11.8 to the 90cn host, with a dedicated persistent database volume, bounded container memory, VPN-before-Docker ordering, a systemd service and daily consistent logical backups. Copy the two existing local characters into the new remote database without replacing local data. Verify service recovery after an actual host reboot.
+- Reproduce the remote v56 login failure: the unchanged client sends class1/op1 with a 610-byte body, routed into the legacy ignore path. Accept this observed exact length alongside 606 in stream and lifecycle classification; retain adjacent-length rejection and token binding. Regression cases fail before the change and pass afterward. The cause of the four-byte layout difference remains unproven.
+- Verify actual remote token login, channel 10, the migrated roster, Lorain movement and a monster kill acknowledged with 39 experience, followed by town entry. Stop computer interaction at the user's request once connectivity is established. Full quest/party/raid acceptance remains separate; document validation and the legacy Windows preflight dependency in Docs/REMOTE_TEST.md.
+
+## 2026-10-12 — Docker Linux profile and local token launcher
+
+- Add a separate Linux image and generated Compose profile under ignored runtime/docker, with a dedicated MariaDB volume, private interface bindings, embedded UDP relay and timezone data. Extract real PVF channel assets with a source-built tool and preserve explicit external table overrides.
+- Bind the embedded UDP relay to gameListenHost when configured while preserving the advertised host address and the legacy default; cover NAT address separation and invalid bind addresses.
+- Add BAT/Python local-client entrypoints for the inspected v56 executable, API-issued login tokens, duplicate-client and asset-hash checks. Keep the vendor updater and binaries unchanged.
+- Match the inspected v56 executable to the existing official-24.9 packet counts and recognize its observed 606-byte login body/token offset. Verify actual token-bound Linux game login, character creation, persisted roster after restarts, and keyboard movement in the Lorain tutorial; do not infer full gameplay acceptance.
+- Add an opt-in restriction of default-group directory requests to real ordinary resident channels for clients that repeat bootstrap lookups without the script download. Retain multiple rows for native auto-selection. Enable it in the Docker local profile; retain named groups and the original server defaults/lifecycle. Revert an ineffective experimental keep-open change.
+- Explicitly select the repository's existing channel reference for the tested v56 assets, retaining provenance and the PVF-extracted table. Keep the observed missing raid-map references and full gameplay verification open; no old one-click database or client binary patch is needed for this smoke test.
+- Complete live fast-forward synchronization in both directions: GitHub Actions runs 38162071646 (GitHub to GitGud) and 38162153930 (GitGud to GitHub). Linux Verify passed after portable controller path fixes (38161846104).
+
+## 2026-10-12 — Portable controller path validation
+
+- GitHub's first Linux run reproduced two existing controller failures: backslash traversal was accepted in an installation receipt and Windows absolute assets bypassed the expected path guard.
+- Normalize both separator styles and reject drive-relative/absolute Windows paths and UNC paths on every host. Retain Windows behavior and add cross-platform escape cases; do not skip the failing checks.
+
+## 2026-10-12 — Optional GitHub / GitGud fork synchronization
+
+- Add an opt-in GitHub Actions synchronizer for one master branch, using only fast-forward pushes and an independently scoped GitGud Deploy Key. Stop on divergent history or imported changes to CI definitions.
+- Add a read-only verification workflow for Go checks, Linux/Windows builds and synchronization tests, including checks after token-driven synchronization.
+- Validate seven integration cases with temporary bare repositories: equality, dry run, both directions, divergence, CI-change rejection and missing branches. Remote workflow results are recorded separately after publication.
 ## 2026-10-12 — Player report classification and gunner GM labels
 
 - Classify72 source reports, close the five yellow acceptance records, preserve previous accepted groups and assign every remaining source record to an isolated lane. Record actual429 dispatch failures and the user-requested four-agent cap; resumed dispatch is not evidence of normal worker progress.

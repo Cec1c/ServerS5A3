@@ -410,6 +410,7 @@ type currentPartyUDPRelay struct {
 type currentPartyUDPRelaySettings struct {
 	enabled          bool
 	advertiseIP      string
+	bindHost         string // Empty preserves the original advertise-address binding.
 	portStart        int
 	portCount        int
 	endpointFallback bool
@@ -514,7 +515,14 @@ func newCurrentPartyUDPRelayWithSettings(settings currentPartyUDPRelaySettings) 
 		return nil, fmt.Errorf("party UDP relay port range %d+%d is invalid", portStart, portCount)
 	}
 	ipv4 := ip.To4()
-	relay.bindIP = append(net.IP(nil), ipv4...)
+	bindIP := ipv4
+	if settings.bindHost != "" {
+		bindIP = net.ParseIP(settings.bindHost).To4()
+		if bindIP == nil || bindIP.IsUnspecified() {
+			return nil, fmt.Errorf("party UDP relay requires a concrete IPv4 bind address, got %q", settings.bindHost)
+		}
+	}
+	relay.bindIP = append(net.IP(nil), bindIP...)
 	copy(relay.advertise[:], ipv4)
 	relay.portStart = portStart
 	relay.portCount = portCount
@@ -1010,7 +1018,8 @@ func (r *currentPartyUDPRelay) logLegClosure(legs []*currentPartyUDPRelayLeg, re
 //
 // 同时写 `bind=`/`advertise=`：`bind` 是 relay **实际 ListenUDP 的地址**（永远是具体 IPv4；
 // 配置成 0.0.0.0/未指定时 `newCurrentPartyUDPRelay` 直接返回错误），`advertise` 是写进 op11 的
-// 地址，两者都取自 `DNFBRIDGE_SERVER_IP`。线上"看不到 31000/31001 入向流量"先看这条：
+// 地址。通告取自 `DNFBRIDGE_SERVER_IP`，监听优先取 `DNFBRIDGE_GAME_LISTEN_HOST`，
+// 未指定时保留原通告地址绑定。线上"看不到 31000/31001 入向流量"先看这条：
 // **没有 party 就没有腿、没有 UDP socket**，此时零入向是必然；只有出现 `leg listening`
 // 才代表那对端口真的在监听。
 func (r *currentPartyUDPRelay) logLegCreation(legs []*currentPartyUDPRelayLeg) {
@@ -1051,7 +1060,7 @@ func (r *currentPartyUDPRelay) endpointFallbackModeLabel() string {
 	return partyUDPRelayEndpointFallbackValueOff
 }
 
-// bindAddressString 是 relay 实际 ListenUDP 用的 IPv4（`DNFBRIDGE_SERVER_IP`）。
+// bindAddressString 是 relay 实际 ListenUDP 用的 IPv4（可与通告地址不同）。
 func (r *currentPartyUDPRelay) bindAddressString() string {
 	if r == nil || r.bindIP == nil {
 		return ""

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"encoding/binary"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
@@ -58,5 +59,41 @@ func TestInitialLoginFallsBackToCatalogOrdinaryChannel(t *testing.T) {
 	initial := service.channelsForRequestMode("cain", true)
 	if len(initial) != 1 || initial[0].ID != 11 {
 		t.Fatalf("fallback bootstrap = %+v", initial)
+	}
+}
+
+func TestLocalDefaultGroupLandingCoversRepeatRequestsWithoutChangingNamedGroups(t *testing.T) {
+	service := &Service{options: options{channelInfoFile: filepath.Join("testdata", "channel_info.etc"), channelServerID: 1}}
+	catalog, script, err := service.loadChannelAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.catalog, service.channelScript = catalog, script
+	complete := service.channelsForRequestMode("cain", false)
+	named := service.channelsForRequestMode("granfloris", false)
+	if len(complete) <= 1 || len(named) == 0 {
+		t.Fatal("fixture must have a complete default directory and named group")
+	}
+	service.options.defaultGroupLoginOnly = true
+	for _, bootstrap := range []bool{true, false} {
+		for _, group := range []string{"", "cain", "[cain]", "`[cain]`"} {
+			channels := service.channelsForRequestMode(group, bootstrap)
+			if len(channels) <= 1 || len(channels) >= len(complete) {
+				t.Fatalf("local directory group=%q bootstrap=%t: %+v", group, bootstrap, channels)
+			}
+			for _, channel := range channels {
+				original, exists := catalog.Channel(channel.ID)
+				if !exists || !reflect.DeepEqual(original, channel) || !channelcatalog.IsResidentChannel(channel) || channel.ID > currentOwnerChannelByteLimit {
+					t.Fatalf("local directory contains a changed or non-resident row: %+v", channel)
+				}
+			}
+		}
+	}
+	if got := service.channelsForRequestMode("granfloris", false); !reflect.DeepEqual(got, named) {
+		t.Fatalf("named group changed: got %+v, want %+v", got, named)
+	}
+	service.options.defaultGroupLoginOnly = false
+	if got := service.channelsForRequestMode("cain", false); !reflect.DeepEqual(got, complete) {
+		t.Fatal("disabling local restriction must restore the complete directory")
 	}
 }

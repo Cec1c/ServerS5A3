@@ -33,6 +33,14 @@ const (
 	// 「正在连接服务器……」。该端点请求只按长度识别、不解析内容
 	// （见 dnfbridge 的 handleCurrentGameEndpointRequest），因此把 586 一并接受。
 	currentObservedChannelDisplayRebindBodySize = 586
+	// v56 DNF.exe SHA256 bc613e36... emits 13 + 606 bytes after CHANNELINFO.
+	// The body carries the launcher token at offset 9, verified on the local
+	// Linux deployment. It must reach the existing authenticated upper route.
+	v56ChannelDisplayRebindBodySize = 606
+	// Same unmodified v56 EXE, observed over the remote VPN on 2026-10-12:
+	// class1/op1 has 13 + 610 bytes and the same offset-9 launcher token.
+	// Without this exact shape it is silently consumed as a legacy login.
+	v56RemoteChannelDisplayRebindBodySize = 610
 )
 
 // LatestGameStreamPacket 是从 game TCP 字节流切出的完整包。
@@ -271,7 +279,9 @@ func isKnownClientUpperMsg(msgID uint16, body []byte) bool {
 		// accepting it keeps that same endpoint request out of the legacy path.
 		return bodyLen == currentChannelDisplayRebindSize ||
 			bodyLen == reference90CNChannelDisplayRebindBodySize ||
-			bodyLen == currentObservedChannelDisplayRebindBodySize
+			bodyLen == currentObservedChannelDisplayRebindBodySize ||
+			bodyLen == v56ChannelDisplayRebindBodySize ||
+			bodyLen == v56RemoteChannelDisplayRebindBodySize
 	case 2:
 		// A channel transfer opens the target game port without requesting the
 		// ordinary roster and emits this exact 31-byte native upper probe.

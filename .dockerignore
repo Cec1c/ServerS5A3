@@ -1,0 +1,10 @@
+*
+!go-server/
+!go-server/**
+!deploy/
+!deploy/docker/
+!deploy/docker/Dockerfile
+**/*.exe
+**/*.log
+**/.env
+**/__pycache__

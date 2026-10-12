@@ -16,6 +16,10 @@ const (
 	// 2026-09-24 远程部署实测：客户端回的 class1/op1 端点请求体是 586 字节。
 	// 与 protocol.stream 的 currentObservedChannelDisplayRebindBodySize 成对。
 	currentObservedChannelReconnectDisplayProbeSize = 586
+	// Paired with protocol.v56ChannelDisplayRebindBodySize; observed v56 login.
+	v56ChannelReconnectDisplayProbeSize = 606
+	// Paired with protocol.v56RemoteChannelDisplayRebindBodySize.
+	v56RemoteChannelReconnectDisplayProbeSize = 610
 )
 
 type currentInitialTownRouteStage byte
@@ -54,7 +58,9 @@ func isCurrentChannelReconnectLifecycleBody(msgID uint16, classification byte, b
 func isCurrentChannelReconnectDisplayProbeBodyLen(bodyLen int) bool {
 	return bodyLen == currentChannelReconnectDisplayProbeSize ||
 		bodyLen == reference90CNChannelReconnectDisplayProbeBodySize ||
-		bodyLen == currentObservedChannelReconnectDisplayProbeSize
+		bodyLen == currentObservedChannelReconnectDisplayProbeSize ||
+		bodyLen == v56ChannelReconnectDisplayProbeSize ||
+		bodyLen == v56RemoteChannelReconnectDisplayProbeSize
 }
 
 func markCurrentChannelReconnect(session *gameSession, bodyLen int) bool {

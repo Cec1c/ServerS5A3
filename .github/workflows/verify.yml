@@ -1,0 +1,42 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Repository sync]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go-server/go.mod
+          cache-dependency-path: go-server/go.sum
+      - name: Synchronization integration tests
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
+      - name: Docker deployment boundary checks
+        run: python3 -m unittest discover -s deploy/docker -p 'test_*.py' -v
+      - name: Core validation
+        working-directory: go-server
+        run: |
+          go list -buildvcs=false -mod=readonly ./...
+          go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/... ./internal/services/dnfbridge ./cmd/server/control
+          go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+      - name: Linux build
+        run: sh build.sh linux amd64
+      - name: Windows build
+        run: sh build.sh windows amd64
+      - name: Linux container build
+        run: docker build -t servers5a3-ci -f deploy/docker/Dockerfile .

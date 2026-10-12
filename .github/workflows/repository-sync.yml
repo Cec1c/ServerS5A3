@@ -1,0 +1,50 @@
+name: Repository sync
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repository-sync-master
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    if: vars.GITGUD_SYNC_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Prepare repository-scoped SSH identity
+        env:
+          SYNC_KEY: ${{ secrets.GITGUD_SYNC_SSH_KEY }}
+          SYNC_HOSTS: ${{ secrets.GITGUD_SYNC_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          test -n "$SYNC_KEY"
+          test -n "$SYNC_HOSTS"
+          install -d -m 700 "$RUNNER_TEMP/gitgud-ssh"
+          printf '%s\n' "$SYNC_KEY" > "$RUNNER_TEMP/gitgud-ssh/key"
+          printf '%s\n' "$SYNC_HOSTS" > "$RUNNER_TEMP/gitgud-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/gitgud-ssh/key"
+          echo "GIT_SSH_COMMAND=ssh -i $RUNNER_TEMP/gitgud-ssh/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/gitgud-ssh/known_hosts" >> "$GITHUB_ENV"
+      - name: Synchronize master without rewriting history
+        env:
+          GH_SYNC_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GITGUD_REPOSITORY: ${{ vars.GITGUD_SYNC_REPOSITORY }}
+        run: |
+          python3 scripts/ci/sync_repositories.py \
+            --github "https://github.com/$GH_REPOSITORY.git" \
+            --gitgud "$GITGUD_REPOSITORY" --apply
+      - name: Remove temporary identity
+        if: always()
+        run: rm -f "$RUNNER_TEMP/gitgud-ssh/key"
