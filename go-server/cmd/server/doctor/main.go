@@ -144,8 +144,18 @@ func run(opts options) error {
 	}
 
 	if !opts.skipPorts {
+		// Do not silently dedup role endpoints. When GM reuses the channel or admin
+		// endpoint the real service would bind the same socket twice and fail at
+		// start, and one generic listener must not stand in for GM in
+		// -expect-listening mode.
+		if err := checkDistinctRoleEndpoints(opts.channelAddr, serviceCfg.Admin.Listen, strings.TrimSpace(os.Getenv("DNFBRIDGE_GM_LISTEN"))); err != nil {
+			return err
+		}
 		addresses := make([]string, 0, len(ports)+2)
 		addresses = append(addresses, opts.channelAddr, serviceCfg.Admin.Listen)
+		if gm := strings.TrimSpace(os.Getenv("DNFBRIDGE_GM_LISTEN")); gm != "" {
+			addresses = append(addresses, gm)
+		}
 		for _, port := range ports {
 			addresses = append(addresses, net.JoinHostPort(strings.Trim(opts.gameHost, "[]"), strconv.Itoa(port)))
 		}
@@ -329,4 +339,38 @@ func joinInts(values []int) string {
 		parts = append(parts, strconv.Itoa(value))
 	}
 	return strings.Join(parts, ",")
+}
+
+// checkDistinctRoleEndpoints rejects a preflight plan where two role endpoints
+// (channel, admin, GM) resolve to the same host:port, which would make the real
+// server bind one socket twice.
+func checkDistinctRoleEndpoints(endpoints ...string) error {
+	seen := make(map[string]string, len(endpoints))
+	for _, raw := range endpoints {
+		address := canonicalEndpoint(raw)
+		if address == "" {
+			continue
+		}
+		if previous, ok := seen[address]; ok {
+			return fmt.Errorf("listen endpoints %s and %s resolve to the same address %s", previous, strings.TrimSpace(raw), address)
+		}
+		seen[address] = strings.TrimSpace(raw)
+	}
+	return nil
+}
+
+// canonicalEndpoint reuses dialAddress address parsing and additionally folds
+// leading-zero numeric ports so "127.0.0.1:028211" and "127.0.0.1:28211" compare
+// equal.
+func canonicalEndpoint(address string) string {
+	address = dialAddress(address)
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return address
+	}
+	numeric, err := strconv.Atoi(port)
+	if err != nil {
+		return address
+	}
+	return net.JoinHostPort(host, strconv.Itoa(numeric))
 }

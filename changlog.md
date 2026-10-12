@@ -1,3 +1,11 @@
+## 2026-10-12 — Enable explicit normal loopback GM configuration and reject endpoint reuse
+
+- Add optional server.gmListen, disabled when absent/blank. Require a valid127.0.0.1 port and reject numeric aliases of admin/channel endpoints. Generate GM environment values only through normal instance configuration; preserve inherited bridge-env scrubbing and default legacy behavior.
+- Reject duplicate role endpoints in the standalone Doctor path too. Integrate exact independent161-v04 production files and independent181 permanent tests; make two Doctor regressions require the explicit collision error rather than passing on a previously occupied listener.
+- Validate snapshot173 with9042 core passes and791 environment skips,396 scoped actual-PVF passes and one separate-asset skip, list/vet and all three Windows/Linux BAT builds. After the test-only correction, validate all control/Doctor tests with136 passes under shuffle, preserve actual v03 two-test RED, and vet the final changed packages. No further production or build change. Earlier broad real-PVF failures remain historical evidence.
+- Preflight an independent runtime copy: normal check --skip-database rejects occupied QA endpoints; check additionally skipping ports passes assets/client/configuration. Do not label the ordinary preflight or remote CI passed. Keep running QA source31e2b51 and daily r98; optional GM has not been enabled in either running instance.
+- Record the latest GUI pause to2026-10-12 10:44:03 Hong Kong, preserve accepted items, and continue four source lanes. Keep unsafe159/163 capture revisions rejected pending corrected independent reviews. Keep local Docker/Runner work stopped awaiting the user's cloud server.
+
 ## 2026-10-12 — Record real raid creation and bounded follow-up evidence
 
 - Record an ordinary native UI raid creation after normal token-bound login: one actual role in phase0, insufficient entry material and no raid start. Supersede the pending manual-name assistance state.

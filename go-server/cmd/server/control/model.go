@@ -28,6 +28,7 @@ type serverConfig struct {
 	PacketLog              bool   `json:"packetLog"`
 	PartyUDPRelayPortStart int    `json:"partyUdpRelayPortStart"`
 	PartyUDPRelayPortCount int    `json:"partyUdpRelayPortCount"`
+	GMListen               string `json:"gmListen,omitempty"`
 }
 
 type databaseConfig struct {
