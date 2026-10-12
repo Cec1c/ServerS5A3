@@ -1,3 +1,9 @@
+## 2026-10-12 — Record ordinary Luke sequence and Seria bottom-door regressions
+
+- Keep team-raid ground loot prohibition separate from ordinary Luke map unlocking and the two independent Light Altar boss quest grants. Remove the previous throne/essence subscopes from the current candidate queue after the player's failed retest.
+- Accept only the Epic Road NPC return to Seria. Keep the bottom door still reaching Auspicious Valley, cold relogin and Abis admission unresolved. Record nine candidate and49 open scope groups while retaining every earlier accepted closure.
+- Retain source-only four-worker assignments and native pause until Hong Kong2026-10-13 02:00. Preserve417's failed push and418's fresh old remote head instead of claiming publication.
+
 ## 2026-10-12 — Review Linux/remote deployment merge request against current master
 
 - Inspect MR1 source ca254089 in an isolated object store. Its exact combined tree merges cleanly with f894304 and passes protocol/bridge/control regression, deployment and sync tests, scoped vet and Windows/Linux server builds. Preserve environment skips and unexecuted Docker/native checks.
