@@ -1,3 +1,10 @@
+## 2026-10-12 — Narrow ordinary raid-create failure and record second-role prerequisites
+
+- Publish reviewed native startup source12650e3f and confirm failure-pipeline notifications disabled. Cancel only the new pipeline whose four jobs were unstarted and unassigned; keep Runner and local Docker stopped, with no remote-CI success claim.
+- Validate the observed op664 legacy request/meta pair and native header privately; its route0, ordinary UI flags000, two-byte ASCII name and current length shape pass existing source gates. Observe one normal same-role reselect and same-name creation still rejected; preserve session-auth/runtime-membership uncertainty without lowering any gate.
+- Observe the second role's ordinary Anton-channel prerequisite rejection. Identify the real PVF side quest12829, prerequisite3779 and material3262x100; record the interrupted source worker and unfinished normal-completion route instead of modifying quest data or claiming a raid formed.
+- Preserve all previously accepted player items, daily r98, installed QA source20b0c911 and open whole-volcano animation/damage/kill/reset scope. New rejection diagnostics and bounded auth projection remain external work in progress.
+
 ## 2026-10-12 — Integrate owned native multi-instance startup and observe two roles
 
 - Add the reviewed Windows386 controller route for the fixed native client: hold the new child identity, restrict single-instance call interception to declared native call sites, restore the startup gate, bind the normal authenticated PID and detach before the existing five-second check. Preserve first-client/server/database identities and explicit unsupported-architecture refusal.
