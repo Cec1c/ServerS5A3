@@ -1,3 +1,10 @@
+## 2026-10-12 — Switch normal isolated QA and confirm native material delivery
+
+- Complete the reviewed normal BAT/controller switch with private backups, keep the external database running, install the exact3443-file source map and verified programs, pass the real endpoint preflight and prove READY with121 TCP/3 initial UDP. Enable GM through the normal loopback instance configuration; independently verify the new process/state and retained database.
+- Observe normal account login and native entry to Seria. Send one entry-material attachment through normal GM mail, claim it in the native mailbox, and independently confirm main-inventory count1 with the previously accepted necklace unchanged.
+- Execute one new supported additional-client diagnostic using the integrated held-handle facts. Record genuine native exit1 during the5-second check, retain the first client and unknown inner cause, and preserve the sealed115 history. Ordinary two-member volcano damage-shield acceptance remains open.
+- Keep daily r98 and accepted items, the four-agent limit, disabled project failure mail and stopped local Docker/Runner route. Remote CI has not executed; preserve all gates and await the user's cloud server.
+
 ## 2026-10-12 — Preserve native additional-client exit diagnostics and portable regression sources
 
 - Capture liveness, true exit status including259, and100ns birth facts through the held Windows process handle before Release. Keep unknown facts explicit and retain the existing registration, environment,5-second guard and successful-start behavior. Do not infer the cause of the earlier live client failures.

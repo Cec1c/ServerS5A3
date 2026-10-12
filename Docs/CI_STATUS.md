@@ -1,3 +1,11 @@
+## 2026-10-12 当前源码同步及CI边界（255）
+
+Go源码20b0c911已同步远端master，3443文件已部署到正常隔离QA并完成启动；日常r98不变。其源码流水线164662保留四项既有build/core-tests/SAST定义，四job均未分配Runner、未开始，已取消并独立读回全canceled。个人本项目failed_pipeline通知已读回false。没有远端编译/测试通过结论，也未恢复Runner。
+
+当前用户已停止本机Docker/Runner路线，后续等待其提供云服务器；不再安装、启动Docker、注册Runner或重启系统。本次仅根Docs及changlog同步，按现有workflow规则应跳过普通文档流水线，实际远端触发结果另以同步收据记录，不使用skip-ci标记或删减门控。
+
+以下为历史检查点，以本节最新源码/QA状态及后续同步收据为准。
+
 ## 2026-10-12 本机Runner路线停止，等待云服务器
 
 用户已要求停止在本机安装Docker，后续将提供云服务器。停止指令到达前，官方Docker Desktop4.94.0.241994已完成当前用户安装（数字签名Valid、安装退出码0）；现有WSL3.0.1默认版本2。容器引擎创建WSL虚拟机失败，错误为`Wsl/Service/RegisterDistro/CreateVm/HCS/ERROR_NOT_FOUND`；正常停止和WSL关闭后的唯一重试仍失败。Windows存在CBS待重启标记，但未确定根因，也未重启系统。
