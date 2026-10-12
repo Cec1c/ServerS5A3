@@ -1,3 +1,7 @@
+## 2026-10-13 本批云CI全部成功（539d，香港01:57独立回读）
+
+实际部署源码 `4d7b1b2b` 的[流水线165000](https://gitgud.io/16ww/servers5a3/-/pipelines/165000)已success。Linux build571472、Windows build571473、core-tests571475、semgrep-sast571474四项均实际success，均由Runner1615执行且开始/完成时间完整。SAST虽配置allow_failure，但本次自身状态也是success。未读取私密trace，旧失败记录保留。本结论对应当前部署源码，不以此前b181的流水线替代；客户端实机验收另记，02:00前尚未执行。
+
 ## 2026-10-13 当前实际部署（540/541，香港01:44独立回读）
 
 续修源码 `4d7b1b2b200276c4f43018a4221d2e11fed2e0ef` 已部署到“标准测试”，运行成品SHA256为 `92ab4a570f81ac9a3cddd84b814940613ae0736558fff4a76a0138fa81f1324d`。dnf90.service于香港01:43:26启动，PID1159493、NRestarts=0、ready=true，118个游戏监听及7001/7002/7003归属同一进程。配置、PVF、stable/preview客户端清单及relay保留。正式v96客户端与两个发布清单逐字哈希相符，无需更新客户端。

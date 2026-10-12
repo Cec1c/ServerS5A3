@@ -1,3 +1,8 @@
+## 2026-10-13 — Verify all four cloud jobs for the deployed resumed source
+
+- Independently GET pipeline165000 and jobs for source4d7b1b2b: Linux571472, Windows571473, core-tests571475 and Semgrep571474 all succeeded on Runner1615 with complete timestamps. Semgrep itself succeeded despite its allow_failure configuration.
+- Preserve previous CI/resource failures and keep native acceptance separate. No private job trace was read or exported.
+
 ## 2026-10-13 — Deploy and independently verify the resumed batch
 
 - Publish source4d7b1b2b after validating identical committed bytes; deploy its Linux artifact with a verified backup and rollback path. Independently confirm process1159493, zero restarts, ready, binary SHA25692ab4a57 and all118 game listeners.
