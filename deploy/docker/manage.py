@@ -134,7 +134,7 @@ def prepare(args):
     channel_args = ["-channel", "/data/" + channel_file] if channel_file == "channel.override.etc" else []
     report = run("docker", "run", "--rm", "--network", "none", "--user", user,
                  "--mount", f"type=bind,source={assets},target=/data", "--entrypoint", "DNF90Assets",
-                 IMAGE, "-pvf", "/data/Script.pvf", "-output", "/data/" + channel_file, *channel_args, capture=True)
+                 config.get("server_image", IMAGE), "-pvf", "/data/Script.pvf", "-output", "/data/" + channel_file, *channel_args, capture=True)
     catalog = json.loads(report)
     (assets / channel_file).chmod(0o644)
     catalog["pvf_sha256"] = digest(target)
@@ -223,7 +223,7 @@ create_databases = false
         "DNFBRIDGE_ACCOUNT_API_DSN": dsn, "DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER": "true",
         "DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN": "true", "DNFBRIDGE_PACKET_LOG": str(c.get("packet_log", False)).lower(),
         "DNFBRIDGE_JOUST_EVENT_ENABLED": str(c["joust_event_enabled"]).lower(),
-        "GOMEMLIMIT": "3500MiB",
+        "GOMEMLIMIT": c.get("go_memory_limit", "3500MiB"),
         "TZ": c.get("timezone", "Asia/Shanghai"),
     }
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
@@ -231,15 +231,15 @@ create_databases = false
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}
     spec = {
         "services": {
-            "db": {"image": "mariadb:11.8@sha256:be1ef4fe5f14589325c08a41c76334097ce66c86264b75e1d28342c742782a61",
+            "db": {"image": c.get("database_image", "mariadb:11.8@sha256:be1ef4fe5f14589325c08a41c76334097ce66c86264b75e1d28342c742782a61"),
                    "env_file": ["database.env"], "volumes": ["database:/var/lib/mysql"],
                    "command": ["--bind-address=" + c["database_ip"], "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"],
                    "networks": {"private": {"ipv4_address": c["database_ip"]}}, "logging": logging,
                    "healthcheck": {"test": ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"], "interval": "5s", "timeout": "5s", "retries": 30}},
-            "server": {"image": IMAGE, "init": True, "stop_grace_period": "45s",
+            "server": {"image": c.get("server_image", IMAGE), "init": True, "stop_grace_period": "45s",
                        "user": f"{os.getuid()}:{os.getgid()}" if os.name != "nt" else "10001:10001",
                        "env_file": ["server.env"], "volumes": ["./server:/runtime", "./data:/runtime/data/dnf:ro"],
-                       "depends_on": {"db": {"condition": "service_healthy"}}, "mem_limit": "4g", "logging": logging,
+                       "depends_on": {"db": {"condition": "service_healthy"}}, "mem_limit": c.get("server_memory_limit", "4g"), "logging": logging,
                        "networks": {"private": {"ipv4_address": c["server_ip"]}},
                        "ports": [f"127.0.0.1:{p}:{p}/tcp" for p in (7001, 17002, 18111)] +
                                 [f"{c['host_ip']}:{p}:{p}/tcp" for p in catalog["ports"]] +
@@ -250,17 +250,26 @@ create_databases = false
         "networks": {"private": {"ipam": {"config": [{"subnet": c["subnet"]}]}}},
         "volumes": {"database": {}},
     }
+    if c.get("database_memory_limit"):
+        spec["services"]["db"]["mem_limit"] = c["database_memory_limit"]
+    for service in spec["services"].values():
+        service["restart"] = c.get("restart", "no")
     write(RUNTIME / "compose.json", json.dumps(spec, indent=2) + "\n")
 
 
 def main():
+    global RUNTIME, PROJECT, IMAGE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "build", "up", "down", "status", "logs"))
     parser.add_argument("--pvf")
     parser.add_argument("--host-ip")
     parser.add_argument("--client-dir")
     parser.add_argument("--channel-info", help="Explicit external channel table; preserves the PVF-extracted table")
+    parser.add_argument("--runtime-dir", type=Path, default=RUNTIME)
+    parser.add_argument("--project", default=PROJECT)
+    parser.add_argument("--image", default=IMAGE)
     args = parser.parse_args()
+    RUNTIME, PROJECT, IMAGE = args.runtime_dir.resolve(), args.project, args.image
     if args.action == "build":
         build()
     elif args.action == "prepare":

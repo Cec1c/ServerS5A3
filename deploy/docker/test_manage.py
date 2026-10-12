@@ -40,6 +40,22 @@ class DeploymentBoundaries(unittest.TestCase):
         with patch.object(manage, "run", side_effect=["abc\n", json.dumps(other)]), self.assertRaisesRegex(ValueError, "overlaps"):
             manage.check_network(config)
 
+    def test_remote_profile_keeps_database_private_and_survives_container_exit(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            config = {"host_ip": "10.90.0.1", "server_ip": "10.254.90.2", "database_ip": "10.254.90.3",
+                      "subnet": "10.254.90.0/24", "database_password": "abc", "root_password": "def",
+                      "admin_token": "123", "body_codec": "plaintext", "client_body_codec": "plaintext",
+                      "joust_event_enabled": True, "go_memory_limit": "2500MiB", "server_memory_limit": "3g",
+                      "database_memory_limit": "384m", "restart": "unless-stopped"}
+            manage.generate(config, {"ports": [10006, 10508]})
+            services = json.loads((Path(directory) / "compose.json").read_text())["services"]
+            self.assertNotIn("ports", services["db"])
+            self.assertEqual(services["db"]["mem_limit"], "384m")
+            self.assertEqual(services["server"]["mem_limit"], "3g")
+            self.assertEqual(services["server"]["restart"], "unless-stopped")
+            self.assertEqual(services["server"]["ports"][3], "10.90.0.1:10006:10006/tcp")
+            self.assertIn("GOMEMLIMIT=2500MiB", (Path(directory) / "server.env").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

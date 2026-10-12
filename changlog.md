@@ -1,5 +1,12 @@
 # Repository changelog
 
+## 2026-10-12 — Tencent Linux remote test environment
+
+- Add a separate Windows remote entrypoint using the inspected client, private WireGuard game address and loopback-only SSH bootstrap/account forwards. Preserve the existing local entrypoint, PVF/executable hash guards and API login tokens.
+- Deploy the Linux image and MariaDB 11.8 to the 90cn host, with a dedicated persistent database volume, bounded container memory, VPN-before-Docker ordering, a systemd service and daily consistent logical backups. Copy the two existing local characters into the new remote database without replacing local data. Verify service recovery after an actual host reboot.
+- Reproduce the remote v56 login failure: the unchanged client sends class1/op1 with a 610-byte body, routed into the legacy ignore path. Accept this observed exact length alongside 606 in stream and lifecycle classification; retain adjacent-length rejection and token binding. Regression cases fail before the change and pass afterward. The cause of the four-byte layout difference remains unproven.
+- Verify actual remote token login, channel 10, the migrated roster, Lorain movement and a monster kill acknowledged with 39 experience, followed by town entry. Stop computer interaction at the user's request once connectivity is established. Full quest/party/raid acceptance remains separate; document validation and the legacy Windows preflight dependency in Docs/REMOTE_TEST.md.
+
 ## 2026-10-12 — Docker Linux profile and local token launcher
 
 - Add a separate Linux image and generated Compose profile under ignored runtime/docker, with a dedicated MariaDB volume, private interface bindings, embedded UDP relay and timezone data. Extract real PVF channel assets with a source-built tool and preserve explicit external table overrides.
