@@ -1,3 +1,14 @@
+## 2026-10-12 — Review Linux/remote deployment merge request against current master
+
+- Inspect MR1 source ca254089 in an isolated object store. Its exact combined tree merges cleanly with f894304 and passes protocol/bridge/control regression, deployment and sync tests, scoped vet and Windows/Linux server builds. Preserve environment skips and unexecuted Docker/native checks.
+- Prepare a bounded synchronization error-output correction with synthetic RED/GREEN and all seven synchronization integration tests passing; recommend it before merge. Source pipeline details return403, so keep its failure cause unconfirmed. No online merge, runtime change, Runner registration or local Docker operation occurs.
+
+## 2026-10-12 — Reconcile latest player regressions and accepted sound setting
+
+- Close P55 from explicit player acceptance. Retain P56 click-crash acceptance as partial while mall closing remains unresolved; the player permits a blank-page route. Move the nine failed scopes out of the current acceptance-candidate queue without deleting prior source-test evidence.
+- Prioritize Anton reference comparison and in-dungeon progress/other-squad return failures. Expand P20 from material filtering to every floor item and gold drop in team raids. Preserve free-fatigue, skill-lock/CD selection, account-vault stacking, crystal sorting and automatic first-awakening reports as unresolved.
+- Keep the four-agent cap and the native pause until Hong Kong2026-10-13 02:00. This checkpoint records player evidence only; daily r98, installed QA and stopped local Docker/Runner remain unchanged.
+
 ## 2026-10-12 — Clarify P57 adventure-group friend layout scope
 
 - Record the player's screenshot contract: top-level entries are adventure-group friends; characters of the same group belong to its expandable content. Keep the online-only and last-online-character fallback rules, but classify grouping and collapse/expand behavior as unresolved until the current-client consumer contract is verified.
