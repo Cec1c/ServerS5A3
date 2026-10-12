@@ -1,3 +1,8 @@
+## 2026-10-12 — Clarify P57 adventure-group friend layout scope
+
+- Record the player's screenshot contract: top-level entries are adventure-group friends; characters of the same group belong to its expandable content. Keep the online-only and last-online-character fallback rules, but classify grouping and collapse/expand behavior as unresolved until the current-client consumer contract is verified.
+- Preserve the native-test pause until Hong Kong2026-10-13 02:00, the four-agent cap, accepted items, daily r98 and stopped local Docker/Runner. This checkpoint changes documentation only; no protocol field, product source, runtime, database or client operation is introduced.
+
 ## 2026-10-12 — Pause native tests until02:00 and reconcile current acceptance scopes
 
 - Honor the new Hong Kong2026-10-13 02:00 native-test deadline while continuing code work. Update the existing one-shot recovery, candidate scope list, unresolved original-player reports and accepted closures. Keep source/runtime/deployment distinctions and the unconfirmed357 docs push explicit.
