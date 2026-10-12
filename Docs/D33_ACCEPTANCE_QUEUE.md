@@ -1,3 +1,11 @@
+## 2026-10-13 — Project one top-level row per friend adventure group
+
+- Project each accepted friend account once. Prefer its durable last-selected character while online; otherwise choose the least online character ID using a total order. Preserve the existing offline fallback, row fields, pending relations and 255-row batching.
+- Keep the existing projection admission/error behavior. The representative helper only orders admitted candidates; it adds no rejection gate. Numeric ties have a stable spelling tie-break.
+- Preserve decoded 1373 deletion followed by 1371 upsert and 1372 completion on representative changes. Current formal-client handlers 1371/1373 use account-friend manager 0x56A3774; character-friend 291 uses separate manager 0x56A37D0.
+- Candidate baseline target-rule RED and candidate regression receipts are preserved under p57-group-projection591. Parent validation641 passed: gofmt, 210-package list, default core, fixed-PVF related tests, scoped vet, Windows/Linux builds and actual BAT preflight. Audit646 confirms every new group test passed; skipped tests remain skips. Native populated-friend grouping and the small red-box control remain open; this source change is not full P57 acceptance and is not deployed.
+- P29 independent own-account read626 proves count1/week2962 persists; ack627/639 sends item490010214 count1 in list0. Native display remains0/70 and current own client cache reads635/637 find no key in either counter. Continue actual opcode715 consumer/codec investigation; do not attribute this to lost persistence or Tuesday reset.
+
 ## 2026-10-13 自主继续工作检查点618（香港 2026-10-13T06:20:15.064345+08:00）
 
 容器修复ad246477cf1ac12d965de33d15b2e200f8b0ee82已完成597联合验证、165066四项云CI success、608标准服部署及609独立复核。线上PID1166774，自动重启0，二进制SHA2561d303d010d0ee607ac24b5ca48209b6b5344b293a9e40daa91b30c002fcd53d6，118游戏监听，配置/PVF/更新清单/relay保留。回滚备份/opt/dnf90/backups/d33-resume-ad246477-20261013-608。612备份旧3468文件维护源码并同步3471文件，四个路径变化，运行配置未改。团本571私有候选未部署。

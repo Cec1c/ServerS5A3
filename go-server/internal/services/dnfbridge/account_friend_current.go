@@ -161,7 +161,12 @@ func (s *Service) currentAccountFriendProjection(ctx context.Context, accountID 
 		// whole account roster (including offline characters with channel 0) is
 		// what the current client reported as "shows every character of the
 		// friend's adventure group at once".
-		online := 0
+		// One friend account (adventure group) is exactly one top-level row.
+		// Characters of the same account must never become independent top-level
+		// rows, so at most one online character is projected and the durable
+		// last-selected character is used when none is online.
+		var onlineChars []repo.CharacterRecord
+		var onlineChannels []uint16
 		for _, c := range characters {
 			if c.AccountID != entry.Account.AccountID {
 				return nil, nil, errCurrentSocialBodyInvalid
@@ -170,14 +175,16 @@ func (s *Service) currentAccountFriendProjection(ctx context.Context, accountID 
 			if !live {
 				continue
 			}
-			row, err := currentAccountFriendRowForCharacter(entry, c, channel)
+			onlineChars = append(onlineChars, c)
+			onlineChannels = append(onlineChannels, channel)
+		}
+		if len(onlineChars) > 0 {
+			idx := selectAccountFriendRepresentative(entry, onlineChars)
+			row, err := currentAccountFriendRowForCharacter(entry, onlineChars[idx], onlineChannels[idx])
 			if err != nil {
 				return nil, nil, err
 			}
 			rows = append(rows, row)
-			online++
-		}
-		if online > 0 {
 			continue
 		}
 		// The friend has no live character. Fall back to the durable character the
@@ -196,6 +203,98 @@ func (s *Service) currentAccountFriendProjection(ctx context.Context, accountID 
 		rows = append(rows, row)
 	}
 	return rows, pending, nil
+}
+
+// accountFriendCharacterIDNumber reports the decimal value of a character id for
+// ORDERING ONLY. It is deliberately not a validity gate: the projection already
+// decides which characters may be projected through its own u16 gates
+// (currentAccountFriendOnlineChannel and currentAccountFriendRowForCharacter),
+// and the representative choice must never turn a character that production
+// would merely skip into a whole-page failure. 64-bit decimal keeps every
+// numeric spelling (including ids above 65535) in the same numeric class.
+func accountFriendCharacterIDNumber(id string) (uint64, bool) {
+	value, err := strconv.ParseUint(strings.TrimSpace(id), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+// compareAccountFriendCharacterID is a strict total order over character ids.
+// It is a single ordered key, never "numeric when both parse, string otherwise",
+// because that rule is not transitive (9 < 10 < "1a" < 9) and would make the
+// representative depend on the enumeration order:
+//
+//	class 0: valid decimal ids, ordered by numeric value, then by the trimmed
+//	         spelling so equal values with different spellings ("01" vs "1")
+//	         still have a defined tie-break;
+//	class 1: everything else, ordered by trimmed spelling;
+//	class 0 always sorts before class 1.
+//
+// This is an ordering rule only. It rejects nothing and the projection does not
+// reject class 1 either: the candidate set is exactly the characters the
+// projection already admitted, so a non-decimal spelling can never fail the
+// list - it only sorts after every decimal id. The class rule exists to make the
+// order total (and therefore permutation invariant) for every input.
+func compareAccountFriendCharacterID(a, b string) int {
+	av, aok := accountFriendCharacterIDNumber(a)
+	bv, bok := accountFriendCharacterIDNumber(b)
+	at, bt := strings.TrimSpace(a), strings.TrimSpace(b)
+	switch {
+	case aok && bok:
+		if av != bv {
+			if av < bv {
+				return -1
+			}
+			return 1
+		}
+	case aok != bok:
+		if aok {
+			return -1
+		}
+		return 1
+	}
+	if at == bt {
+		return 0
+	}
+	if at < bt {
+		return -1
+	}
+	return 1
+}
+
+// selectAccountFriendRepresentative picks the single character projected for a
+// friend adventure group while at least one of its characters is online.
+// Precedence:
+//
+//  1. the account's durable last-selected character, when that character is one
+//     of the online ones: the row then does not churn as sibling characters log
+//     in and out of the same adventure group;
+//  2. otherwise the least online character id under the total order above:
+//     deterministic, so any permutation of the same online set yields the same
+//     row.
+//
+// It never rejects and never returns an error: the candidate set is exactly the
+// one the projection already admitted, so the helper cannot widen the projection
+// error surface. The returned index addresses online (-1 for an empty set).
+func selectAccountFriendRepresentative(entry accountfriend.Entry, online []repo.CharacterRecord) int {
+	if len(online) == 0 {
+		return -1
+	}
+	if want := strings.TrimSpace(entry.Account.Metadata[lastOnlineCharacterMetadataKey]); want != "" {
+		for i, c := range online {
+			if strings.TrimSpace(c.CharacterID) == want {
+				return i
+			}
+		}
+	}
+	best := 0
+	for i := 1; i < len(online); i++ {
+		if compareAccountFriendCharacterID(online[i].CharacterID, online[best].CharacterID) < 0 {
+			best = i
+		}
+	}
+	return best
 }
 
 // currentAccountFriendOnlineChannel resolves the live directory owner for one

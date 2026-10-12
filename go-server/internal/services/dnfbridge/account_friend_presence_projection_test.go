@@ -28,17 +28,25 @@ func TestAccountFriendProjectionListsOnlyOnlineOrPersistedCharacter(t *testing.T
 		t.Fatalf("one online character: rows=%+v err=%v", rows, err)
 	}
 
-	// A second online character of the same friend account is listed as well.
+	// A second online character of the same friend account must NOT become a
+	// second top-level row: one friend adventure group is exactly one row. With
+	// no durable last-selected character yet the deterministic rule picks the
+	// lowest character id of the online set (来来来, id 5).
 	second := &gameSession{conn: &bufferConn{}, accountID: "dnf:2", selectedCharacterID: 8, loginPacketSeen: true, accountFromToken: true, channel: channelcatalog.Channel{ID: 7}}
 	s.bindGameSessionCharacter(second, 8)
 	rows, _, err = s.currentAccountFriendProjection(ctx, "dnf:1")
-	channels := map[string]uint16{}
-	for _, row := range rows {
-		channels[row.CharacterName] = row.Channel
+	if err != nil || len(rows) != 1 || rows[0].CharacterName != "来来来" || rows[0].Channel != 42 || rows[0].AdventureName != "Beta" {
+		t.Fatalf("one row per adventure group, lowest-id representative: rows=%+v err=%v", rows, err)
 	}
-	if err != nil || len(rows) != 2 || channels["来来来"] != 42 || channels["小号"] != 7 {
-		t.Fatalf("two online characters: rows=%+v err=%v", rows, err)
+
+	// The durable last-selected character wins while it is online, so the single
+	// row follows the friend's actual current character instead of adding a row.
+	setAccountMetadataValue(t, g, "dnf:2", lastOnlineCharacterMetadataKey, "8")
+	rows, _, err = s.currentAccountFriendProjection(ctx, "dnf:1")
+	if err != nil || len(rows) != 1 || rows[0].CharacterName != "小号" || rows[0].Channel != 7 {
+		t.Fatalf("representative follows the last-selected online character: rows=%+v err=%v", rows, err)
 	}
+	setAccountMetadataValue(t, g, "dnf:2", lastOnlineCharacterMetadataKey, "")
 
 	// Once every character is offline only the persisted accept-time character
 	// remains, at channel 0.
