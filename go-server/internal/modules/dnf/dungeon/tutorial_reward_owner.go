@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -153,27 +154,20 @@ func PlaceTutorialReward(
 	if record.Slots == nil {
 		record.Slots = make(map[string]dnfrepo.ItemStack)
 	}
-	if slot, ok, err := stackTutorialRewardInRange(record, reward, project, 3, 8); err != nil {
-		return 0, err
-	} else if ok {
-		return uint16(slot), nil
+	policy := dnfplacement.SlotPolicy{ListType: dnfrepo.MainInventoryListType,
+		Start: reward.SlotStart, End: reward.SlotEnd, PreferQuickSlots: true, AllowQuickSlots: true}
+	// 先叠加已有消耗品，再选空格；不能因空快捷格而拆散背包中已有的同一物品。
+	for _, slot := range policy.MergeSlots() {
+		if destination, ok, err := stackTutorialRewardInRange(record, reward, project, slot, slot); err != nil {
+			return 0, err
+		} else if ok {
+			return uint16(destination), nil
+		}
 	}
-	if slot, ok := firstEmptyMainSlot(record, 3, 8); ok {
-		return insertTutorialReward(record, slot, progress, reward, project)
-	}
-	if slot, ok, err := stackTutorialRewardInRange(
-		record,
-		reward,
-		project,
-		reward.SlotStart,
-		reward.SlotEnd,
-	); err != nil {
-		return 0, err
-	} else if ok {
-		return uint16(slot), nil
-	}
-	if slot, ok := firstEmptyMainSlot(record, reward.SlotStart, reward.SlotEnd); ok {
-		return insertTutorialReward(record, slot, progress, reward, project)
+	for _, slot := range policy.EmptySlots() {
+		if _, occupied := record.Slots[mainSlotKey(uint16(slot))]; !occupied {
+			return insertTutorialReward(record, slot, progress, reward, project)
+		}
 	}
 	return 0, fmt.Errorf(
 		"%w: progress=%d item=%d quick=3..8 fallback=%d..%d",

@@ -200,7 +200,7 @@ func TestHandleDungeonTutorialProgress38UsesNextEmptyQuickSlot(t *testing.T) {
 	}
 }
 
-func TestAddCurrentDungeonTutorialRewardUsesEmptyQuickSlotBeforeCategoryStack(t *testing.T) {
+func TestAddCurrentDungeonTutorialRewardMergesCategoryBeforeOpeningEmptyQuickSlot(t *testing.T) {
 	record := dnfrepo.InventoryRecord{Slots: map[string]dnfrepo.ItemStack{
 		"0:65": {ItemID: 8474, Count: 5},
 	}}
@@ -228,10 +228,7 @@ func TestAddCurrentDungeonTutorialRewardUsesEmptyQuickSlotBeforeCategoryStack(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slot != currentDungeonTutorialQuickSlotStart ||
-		record.Slots["0:3"].ItemID != 8474 ||
-		record.Slots["0:3"].Count != 1 ||
-		record.Slots["0:65"].Count != 5 {
+	if slot != 65 || record.Slots["0:65"].Count != 6 || len(record.Slots) != 1 {
 		t.Fatalf("slot=%d inventory=%+v", slot, record.Slots)
 	}
 }

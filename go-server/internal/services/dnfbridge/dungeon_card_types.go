@@ -28,15 +28,18 @@ const (
 )
 
 type dungeonCardItemReward struct {
-	ItemID    int64
-	Count     int64
-	Stackable bool
-	Bind      bool
-	SlotStart int16
-	SlotEnd   int16
-	ExpireAt  time.Time
-	RawEntry  []byte
-	Extra     map[string]string
+	AllowQuickSlots  bool
+	PreferQuickSlots bool
+	StackLimit       int64
+	ItemID           int64
+	Count            int64
+	Stackable        bool
+	Bind             bool
+	SlotStart        int16
+	SlotEnd          int16
+	ExpireAt         time.Time
+	RawEntry         []byte
+	Extra            map[string]string
 }
 
 type dungeonCardRewardBundle struct {

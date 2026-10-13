@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -44,6 +45,12 @@ func parseCurrentTownSetUserAreaRequest(body []byte) (currentTownSetUserAreaRequ
 }
 
 func (s *Service) handleTownSetUserArea(session *gameSession, body []byte) error {
+	return s.handleTownSetUserAreaWithQuestNotice(session, body, true)
+}
+
+// 原生 op36 请求需要任务提示；药剂、单人传送和团本内部移动由各自流程负责反馈，
+// 复用移动逻辑时关闭此提示，避免给其他命令额外发送 op36 失败包。
+func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, body []byte, notifyQuestFailure bool) error {
 	if session == nil {
 		return nil
 	}
@@ -187,7 +194,7 @@ func (s *Service) handleTownSetUserArea(session *gameSession, body []byte) error
 		return nil
 	}
 	if len(area.NeedQuests) > 0 && !relaxAreaGates {
-		needQuestsCompleted, questErr := s.townAreaNeedQuestsCompleted(ctx, repositories, characterID, area.NeedQuests)
+		needQuestsCompleted, missingQuestID, questErr := s.townAreaQuestRequirement(ctx, repositories, characterID, area.NeedQuests)
 		if questErr != nil {
 			s.logGameEvent(session, "game-town-set-user-area-need-quest-check-failed",
 				"char_id", session.selectedCharacterID,
@@ -199,6 +206,9 @@ func (s *Service) handleTownSetUserArea(session *gameSession, body []byte) error
 		}
 		if !needQuestsCompleted {
 			s.logTownSetUserAreaBlocked(session, request, "target_area_has_pvf_quest_requirement_without_completed_quest_owner")
+			if questErr == nil && notifyQuestFailure {
+				return s.sendTownAreaQuestRequirementFailure(session, request, missingQuestID)
+			}
 			return nil
 		}
 	}
@@ -525,28 +535,39 @@ func (s *Service) townAreaNeedQuestsCompleted(
 	characterID string,
 	needQuests []int64,
 ) (bool, error) {
+	completed, _, err := s.townAreaQuestRequirement(ctx, repositories, characterID, needQuests)
+	return completed, err
+}
+
+// 同一次任务读取同时给出准入结果和首个未完成任务，避免提示与拒绝使用不同快照。
+func (s *Service) townAreaQuestRequirement(ctx context.Context, repositories dnfrepo.Group, characterID string, needQuests []int64) (bool, int64, error) {
 	if len(needQuests) == 0 {
-		return true, nil
+		return true, 0, nil
 	}
 	if repositories.Quest == nil {
-		return false, dnfrepo.ErrRepoMissing
+		return false, 0, dnfrepo.ErrRepoMissing
 	}
 	record, found, err := repositories.Quest.Load(ctx, characterID)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	if !found || record.CharacterID != characterID {
-		return false, nil
+		for _, questID := range needQuests {
+			if questID > 0 {
+				return false, questID, nil
+			}
+		}
+		return false, 0, nil
 	}
 	for _, questID := range needQuests {
 		if questID <= 0 {
 			continue
 		}
 		if !townQuestStateCompleted(record, questID) {
-			return false, nil
+			return false, questID, nil
 		}
 	}
-	return true, nil
+	return true, 0, nil
 }
 
 func townQuestStateCompleted(record dnfrepo.QuestRecord, questID int64) bool {
@@ -637,6 +658,28 @@ func townAreaInstanceForMapPath(mapPath string, characterID uint16) uint32 {
 		return 0
 	}
 	return uint32(characterID)
+}
+
+// 当前本机客户端（SHA256 80def469…）的 class1/op36 处理函数 0x1fd08d0：
+// 通用分发器先读 success/error；error=7 时再读 u8 town、u8 area，
+// 用客户端已有的区域任务表填充文案 32025「想去%s要完成[%s]任务」。
+// 只反馈已确认的任务门槛失败；查询错误不冒充任务未完成，拒绝不改变位置或任务账。
+func (s *Service) sendTownAreaQuestRequirementFailure(session *gameSession, request currentTownSetUserAreaRequest, missingQuestID int64) error {
+	// 这版客户端 error=7 的地区名只按 town 查，38/5 会误导为“艾尔文防线”。
+	// official-24.9 用独立系统文字反馈；旧配置保留原生 error=7 消费契约。
+	if s.options.currentClientVersion == "official-24.9" {
+		return s.sendTownQuestTextFailure(session, request, missingQuestID)
+	}
+	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUserArea),
+		[]byte{0, 7, request.TownID, request.AreaID}, dnfproto.DefaultChannelClassification); err != nil {
+		return err
+	}
+	s.logGameEvent(session, "game-town-set-user-area-quest-notice",
+		"char_id", session.selectedCharacterID,
+		"town_id", request.TownID,
+		"area_id", request.AreaID,
+		"message", "前置任务未完成，已发送客户端原生区域准入提示")
+	return nil
 }
 
 func (s *Service) logTownSetUserAreaBlocked(session *gameSession, request currentTownSetUserAreaRequest, reason string) {

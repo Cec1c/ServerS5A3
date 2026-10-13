@@ -640,8 +640,13 @@ func dungeonDropStackableSlotRange(stackableType string) (int16, int16) {
 
 func dungeonDropStackablePrefersItemQuickSlots(stackableType string) bool {
 	normalized := normalizeDungeonDropStackableType(stackableType)
-	return strings.HasPrefix(normalized, "[waste]") ||
-		strings.HasPrefix(normalized, "[material]")
+	if normalized == "" {
+		return false
+	}
+	policy := currentPVFItemPlacementPolicy(dungeonDropItemDefinition{
+		Kind: dungeonDropItemStackable, StackableType: normalized,
+	})
+	return policy.PreferQuickSlots
 }
 
 func normalizeDungeonDropStackableType(stackableType string) string {

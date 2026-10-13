@@ -25,7 +25,12 @@ func TestBoosterLastBoxReplacedByOrbRemovesNativeSourceBeforeReward(t *testing.T
 		if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:65": {ItemID: 500, Count: count}}}); err != nil {
+		// 消耗品现在优先快捷栏；占满快捷格以继续覆盖原地替换时先删除旧对象的回包顺序。
+		slots := map[string]dnfrepo.ItemStack{"0:65": {ItemID: 500, Count: count}}
+		for slot := int16(3); slot <= 8; slot++ {
+			slots[currentDungeonPickupMainSlotKey(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 1}
+		}
+		if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "19", Slots: slots}); err != nil {
 			t.Fatal(err)
 		}
 		connection := &bufferConn{}

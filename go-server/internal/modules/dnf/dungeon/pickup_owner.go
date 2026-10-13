@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"math"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type PickupItemDefinition struct {
 	SlotStart       int16
 	SlotEnd         int16
 	PreferQuickSlot bool
+	AllowQuickSlots bool
 }
 
 type PickupItemPlacement struct {
@@ -130,41 +132,22 @@ func PlacePickupItem(record *dnfrepo.InventoryRecord, placement PickupItemPlacem
 	if record.Slots == nil {
 		record.Slots = make(map[string]dnfrepo.ItemStack)
 	}
-	if definition.Kind == PickupItemStackable && definition.PreferQuickSlot {
-		if slot, stack, ok, err := stackPickupInRange(record, placement, 3, 8); err != nil {
+	policy := dnfplacement.SlotPolicy{
+		ListType: dnfrepo.MainInventoryListType, Start: definition.SlotStart, End: definition.SlotEnd,
+		AllowQuickSlots:  definition.AllowQuickSlots,
+		PreferQuickSlots: definition.Kind == PickupItemStackable && definition.PreferQuickSlot,
+	}
+	for _, slot := range policy.MergeSlots() {
+		if destination, stack, ok, err := stackPickupInRange(record, placement, slot, slot); err != nil {
 			return 0, dnfrepo.ItemStack{}, err
 		} else if ok {
-			return slot, stack, nil
+			return destination, stack, nil
 		}
-		// Quick slots and the PVF category are ranges of the same main
-		// inventory. Merge every existing stack before allocating another
-		// quick-slot stack so one pickup cannot split an already bagged item.
-		if slot, stack, ok, err := stackPickupInRange(
-			record,
-			placement,
-			definition.SlotStart,
-			definition.SlotEnd,
-		); err != nil {
-			return 0, dnfrepo.ItemStack{}, err
-		} else if ok {
-			return slot, stack, nil
-		}
-		if slot, ok := firstEmptyMainSlot(record, 3, 8); ok {
+	}
+	for _, slot := range policy.EmptySlots() {
+		if _, occupied := record.Slots[mainSlotKey(uint16(slot))]; !occupied {
 			return insertPickup(record, placement, slot)
 		}
-	}
-	if slot, stack, ok, err := stackPickupInRange(
-		record,
-		placement,
-		definition.SlotStart,
-		definition.SlotEnd,
-	); err != nil {
-		return 0, dnfrepo.ItemStack{}, err
-	} else if ok {
-		return slot, stack, nil
-	}
-	if slot, ok := firstEmptyMainSlot(record, definition.SlotStart, definition.SlotEnd); ok {
-		return insertPickup(record, placement, slot)
 	}
 	return 0, dnfrepo.ItemStack{}, fmt.Errorf(
 		"%w: item=%d range=%d..%d",

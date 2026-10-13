@@ -1129,15 +1129,19 @@ func currentTournamentRewardBundle(
 			"tournament item reward PVF definition mismatch: card_item=%d resolved_item=%d",
 			reward.ItemID, definition.ItemID)
 	}
+	policy := currentPVFItemPlacementPolicy(*definition)
 	return dungeonCardRewardBundle{
 		Items: []dungeonCardItemReward{{
-			ItemID:    reward.ItemID,
-			Count:     reward.StackCount,
-			Stackable: definition.Kind == dungeonDropItemStackable,
-			SlotStart: definition.SlotStart,
-			SlotEnd:   definition.SlotEnd,
-			ExpireAt:  definition.ExpirationDate,
-			Extra:     currentTournamentRewardItemExtra(*definition),
+			ItemID:           reward.ItemID,
+			Count:            reward.StackCount,
+			Stackable:        definition.Kind == dungeonDropItemStackable,
+			SlotStart:        definition.SlotStart,
+			SlotEnd:          definition.SlotEnd,
+			ExpireAt:         definition.ExpirationDate,
+			Extra:            currentTournamentRewardItemExtra(*definition),
+			AllowQuickSlots:  policy.AllowQuickSlots,
+			PreferQuickSlots: policy.PreferQuickSlots,
+			StackLimit:       definition.StackLimit,
 		}},
 	}, nil
 }

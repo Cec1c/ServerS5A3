@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -35,11 +36,14 @@ var (
 type StackProjector func(dnfrepo.ItemStack, time.Time) (dnfrepo.ItemStack, error)
 
 type CardItemReward struct {
-	Stack     dnfrepo.ItemStack
-	Stackable bool
-	SlotStart int16
-	SlotEnd   int16
-	ExpireAt  time.Time
+	Stack            dnfrepo.ItemStack
+	Stackable        bool
+	SlotStart        int16
+	SlotEnd          int16
+	ExpireAt         time.Time
+	AllowQuickSlots  bool
+	PreferQuickSlots bool
+	StackLimit       int64
 }
 
 type CardRewardBundle struct {
@@ -417,9 +421,14 @@ func addCardItem(
 		slotStart = reward.SlotStart
 		slotEnd = reward.SlotEnd
 	}
+	if reward.Stackable && reward.StackLimit > 0 && reward.Stack.Count > reward.StackLimit {
+		return 0, ErrRewardInvalid
+	}
+	policy := dnfplacement.SlotPolicy{ListType: dnfrepo.MainInventoryListType, Start: slotStart, End: slotEnd,
+		AllowQuickSlots: reward.AllowQuickSlots, PreferQuickSlots: reward.Stackable && reward.PreferQuickSlots}
 	if reward.Stackable {
 		incoming := cardRewardGrantIdentity(reward)
-		for slot := slotStart; slot <= slotEnd; slot++ {
+		for _, slot := range policy.MergeSlots() {
 			key := mainSlotKey(uint16(slot))
 			stack, ok := record.Slots[key]
 			if !ok || stack.ItemID != reward.Stack.ItemID || stack.Bind != reward.Stack.Bind {
@@ -429,6 +438,9 @@ func addCardItem(
 			// 实例到期时间冲突的行不得并。旧代码在 reward 带到期时间时会把奖励的
 			// 到期时间 project 进已有行，等于把两个不同实例合成一个。
 			if !dnfrepo.CanMergeItemStack(stack, incoming) {
+				continue
+			}
+			if reward.StackLimit > 0 && stack.Count > reward.StackLimit-reward.Stack.Count {
 				continue
 			}
 			if reward.ExpireAt.IsZero() {
@@ -450,7 +462,7 @@ func addCardItem(
 			return int16(slot), nil
 		}
 	}
-	for slot := slotStart; slot <= slotEnd; slot++ {
+	for _, slot := range policy.EmptySlots() {
 		key := mainSlotKey(uint16(slot))
 		if _, occupied := record.Slots[key]; occupied {
 			continue

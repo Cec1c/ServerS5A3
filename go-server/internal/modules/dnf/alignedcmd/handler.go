@@ -540,6 +540,8 @@ type MagicBoxRewardItem struct {
 	ExpireAt         time.Time
 	UsablePeriodDays int64
 	Durability       uint16
+	AllowQuickSlots  bool
+	PreferQuickSlots bool
 	// PremiumType/PremiumDurationSeconds come from etc/premiumlist_new.etc
 	// [type]/[item]/[term]; zero means the reward is an ordinary item.
 	PremiumType            int64
@@ -673,6 +675,10 @@ type MailboxItemResolution struct {
 	SlotStart     int16
 	SlotEnd       int16
 	StackLimit    int64
+	// PreferQuickSlot 由 PVF 解析器与购买、拾取共用规则给出；可堆叠本身不代表
+	// 优先在快捷栏新开格；普通装备/材料的满页回落资格通过 AllowQuickSlots 给出。
+	PreferQuickSlot bool
+	AllowQuickSlots bool
 	// TargetListType 是领取附件时应该写入的容器；零值即主背包
 	// (dnfrepo.MainInventoryListType)。宠物更名卡等 [creature]/[feed] 道具只在
 	// 宠物背包 list 7 里有合法槽位，放进主背包客户端既看不到也用不了。

@@ -554,7 +554,7 @@ func TestCommitCurrentEpicProductionCompoundConsumesSharedSoulGrantsCatalystAndP
 	plan := currentEpicProductionCompoundPlan{
 		Recipe: currentEpicProductionTestCatalog().catalysts[10163130],
 		OutputDefinition: dungeonDropItemDefinition{
-			ItemID: 10163130, Kind: dungeonDropItemStackable, StackableType: "[material]", SlotStart: 97, SlotEnd: 120,
+			ItemID: 10163130, Kind: dungeonDropItemStackable, StackableType: "[material]", SlotStart: 121, SlotEnd: 176,
 		},
 		Contribution: 100000,
 	}
@@ -570,7 +570,7 @@ func TestCommitCurrentEpicProductionCompoundConsumesSharedSoulGrantsCatalystAndP
 		t.Fatalf("epic soul count=%d want=9799", got)
 	}
 	inventory, _, _ := repositories.Inventory.Load(ctx, "2")
-	if got := inventory.Slots["0:3"]; got.ItemID != 10163130 || got.Count != 1 {
+	if got := inventory.Slots["0:121"]; got.ItemID != 10163130 || got.Count != 1 {
 		t.Fatalf("catalyst stack=%+v", got)
 	}
 	character, _, _ := repositories.Character.Load(ctx, "2")

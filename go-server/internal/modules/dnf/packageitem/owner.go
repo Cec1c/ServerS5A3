@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -699,12 +700,9 @@ func drawMagicBoxRewards(resolution alignedcmd.MagicBoxResolution, opens int64) 
 	return granted
 }
 
-// grantMagicBoxReward places one aggregated reward into the main inventory:
-// existing same-item-and-expiration stacks in quick slots 3-8 first, then
-// ascending slots, each topped up to the PVF stack limit (0 = unlimited),
-// then fresh empty slots inside the item's PVF slot range (86JP
-// TryAddBoosterRewardItems order). An old expire=0 row can therefore never
-// absorb a newly granted relative-period reward.
+// grantMagicBoxReward 共用叠加和空格选择策略：先并入同身份已有行，
+// 再按 PVF 分类寻找空格；消耗品优先快捷栏，装备/材料页满回落快捷栏。
+// 堆叠上限、到期身份和溢出邮件保持，独立容器不占主包快捷格。
 func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64) (int64, []dnfrepo.ItemStack, error) {
 	if count <= 0 {
 		return 0, nil, nil
@@ -718,7 +716,7 @@ func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.M
 	// 都落在 list 7 的 189..238，必须各归各行。
 	incoming := magicBoxRewardGrantIdentity(reward)
 	fill := func(key string) {
-		if remaining <= 0 || reward.StackLimit == 1 {
+		if remaining <= 0 || reward.Kind != "stackable" || reward.StackLimit == 1 {
 			return
 		}
 		stack, ok := items[key]
@@ -748,15 +746,15 @@ func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.M
 		items[key] = stack
 		remaining -= add
 	}
-	if targetListType == listTypeMain {
-		for slot := int16(3); slot <= 8 && remaining > 0; slot++ {
-			fill(slotKey(listTypeMain, slot))
-		}
-	}
-	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+	policy := dnfplacement.SlotPolicy{ListType: targetListType, Start: reward.SlotStart, End: reward.SlotEnd,
+		AllowQuickSlots: reward.AllowQuickSlots, PreferQuickSlots: reward.Kind == "stackable" && reward.PreferQuickSlots}
+	for _, slot := range policy.MergeSlots() {
 		fill(slotKey(targetListType, slot))
 	}
-	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+	for _, slot := range policy.EmptySlots() {
+		if remaining <= 0 {
+			break
+		}
 		key := slotKey(targetListType, slot)
 		if _, occupied := items[key]; occupied {
 			continue

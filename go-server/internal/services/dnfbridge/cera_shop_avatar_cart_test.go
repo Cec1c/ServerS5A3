@@ -200,7 +200,12 @@ func TestCurrentCeraShopNonAvatarEquipmentStillUsesTheMainBag(t *testing.T) {
 	ctx := context.Background()
 	catalog := shopCatalogWithAvatarOutsideAvatarSection(t)
 	repositories := dnfrepomemory.NewMemoryGroup()
-	seedShopCharacter(t, ctx, repositories, "78", 4000, fullMainEquipmentSlots())
+	slots := fullMainEquipmentSlots()
+	// 两处皆满才拒绝；普通装备的满页回落由共同规则处理。
+	for slot := int16(3); slot <= 8; slot++ {
+		slots["0:"+strconv.Itoa(int(slot))] = dnfrepo.ItemStack{ItemID: 9004, Count: 1}
+	}
+	seedShopCharacter(t, ctx, repositories, "78", 4000, slots)
 	connection := &bufferConn{}
 	service := shopTestService(repositories, catalog)
 	session := &gameSession{conn: connection, connID: "cera-coat-cart", selectedCharacterID: 78}

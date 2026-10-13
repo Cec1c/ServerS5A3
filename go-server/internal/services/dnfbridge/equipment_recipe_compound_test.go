@@ -449,7 +449,7 @@ func TestCurrentEquipmentRecipeCompoundConsumesSourceAndMaterialsThroughOwnerTra
 	if !bytes.Equal(ack.Body, []byte{1, 0, 0}) {
 		t.Fatalf("ack body=%x want 01 00 00 (success + changedCount 0 + rewardCount 0)", ack.Body)
 	}
-	equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{2000: 6, 3000: 2}, map[uint16][2]uint32{0: {0, 5000}, 20: {2000, 6}, 3: {3000, 2}})
+	equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{2000: 6, 3000: 2}, map[uint16][2]uint32{0: {0, 5000}, 20: {2000, 6}, 121: {3000, 2}})
 	if len(rest) == 0 {
 		t.Fatal("success ack must be followed by the current item list container refresh")
 	}
@@ -508,7 +508,7 @@ func TestCurrentEquipmentRecipeCompoundSlotFormConsumesOnlySelectedSlotAndGold(t
 	if !bytes.Equal(ack.Body, []byte{1, 0, 0}) {
 		t.Fatalf("ack body=%x", ack.Body)
 	}
-	equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 3, 2000: 8, 3000: 1}, map[uint16][2]uint32{0: {0, 4950}, 12: {1000, 2}, 30: {1000, 1}, 20: {2000, 8}, 3: {3000, 1}})
+	equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 3, 2000: 8, 3000: 1}, map[uint16][2]uint32{0: {0, 4950}, 12: {1000, 2}, 30: {1000, 1}, 20: {2000, 8}, 121: {3000, 1}})
 	inventory, found, err := repositories.Inventory.Load(ctx, "19")
 	if err != nil || !found {
 		t.Fatalf("load inventory found=%t err=%v", found, err)
@@ -991,7 +991,7 @@ func TestCurrentEquipmentRecipeCompoundItemmakingFloorEnums(t *testing.T) {
 			if !bytes.Equal(ack.Body, []byte{1, 0, 0}) {
 				t.Fatalf("ack=%x", ack.Body)
 			}
-			equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 1, 2000: 2, 3000: 1}, map[uint16][2]uint32{0: {0, 50}, 69: {1000, 1}, 20: {2000, 2}, 3: {3000, 1}})
+			equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 1, 2000: 2, 3000: 1}, map[uint16][2]uint32{0: {0, 50}, 69: {1000, 1}, 20: {2000, 2}, 121: {3000, 1}})
 			character, _, err := repos.Character.Load(ctx, "19")
 			if err != nil {
 				t.Fatal(err)
@@ -1274,7 +1274,7 @@ func TestCurrentEquipmentRecipeCompoundOrdinarySourceLevelAtomic(t *testing.T) {
 			if !bytes.Equal(ack.Body, []byte{1, 0, 0}) || character.Level != before.Level || !reflect.DeepEqual(account, accountBefore) {
 				t.Fatal("source qualification success mismatch")
 			}
-			equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 1, 2000: 2, 3000: 1, 3037: 77}, map[uint16][2]uint32{0: {0, 50}, 69: {1000, 1}, 20: {2000, 2}, 3: {3000, 1}, 358: {3037, 77}})
+			equipmentRecipeCompoundTestRefresh(t, rest, map[uint32]uint64{1000: 1, 2000: 2, 3000: 1, 3037: 77}, map[uint16][2]uint32{0: {0, 50}, 69: {1000, 1}, 20: {2000, 2}, 121: {3000, 1}, 358: {3037, 77}})
 		})
 	}
 }

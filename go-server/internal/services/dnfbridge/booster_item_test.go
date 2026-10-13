@@ -217,9 +217,8 @@ func TestCurrentBoosterRandomRouteConsumesSourceAndGrantsPVFReward(t *testing.T)
 	if source := inventory.Slots["0:75"]; source.ItemID != 500 || source.Count != 1 {
 		t.Fatalf("source=%+v", source)
 	}
-	// Material rewards follow the established quick-slot preference before
-	// falling back to the material bag segment.
-	reward, found := inventory.Slots["0:3"]
+	// 材料奖励直接进入材料页，不占用空快捷格。
+	reward, found := inventory.Slots["0:121"]
 	if !found || reward.ItemID != 600 || reward.Count != 3 || reward.Extra["source"] != "booster_item" || len(reward.RawEntry) != currentItemListEntryWireSize {
 		t.Fatalf("reward=%+v found=%t", reward, found)
 	}
@@ -292,7 +291,7 @@ func TestCurrentLotteryDoubleRewardUsesOp27AndConsumesDailyQuota(t *testing.T) {
 	if source := inventory.Slots["0:75"]; source.ItemID != 508 || source.Count != 1 {
 		t.Fatalf("source=%+v", source)
 	}
-	reward, found := inventory.Slots["0:3"]
+	reward, found := inventory.Slots["0:121"]
 	if !found || reward.ItemID != 600 || reward.Count != 6 {
 		t.Fatalf("double reward=%+v found=%t", reward, found)
 	}
@@ -1017,7 +1016,7 @@ func TestGrantCurrentCeraShopProductFillsPartialStackBeforeSpill(t *testing.T) {
 	inventory := dnfrepo.InventoryRecord{
 		CharacterID: "19",
 		Slots: map[string]dnfrepo.ItemStack{
-			"0:9": {ItemID: 600, Count: 60},
+			"0:121": {ItemID: 600, Count: 60},
 		},
 	}
 	definition := dungeonDropItemDefinition{
@@ -1025,20 +1024,20 @@ func TestGrantCurrentCeraShopProductFillsPartialStackBeforeSpill(t *testing.T) {
 		Kind:          dungeonDropItemStackable,
 		StackableType: "[material]",
 		StackLimit:    100,
-		SlotStart:     9,
-		SlotEnd:       104,
+		SlotStart:     121,
+		SlotEnd:       176,
 	}
 	slots, err := grantCurrentCeraShopProduct(&inventory, definition, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(slots, []uint16{9, 3}) {
+	if !reflect.DeepEqual(slots, []uint16{121, 122}) {
 		t.Fatalf("slots=%v", slots)
 	}
-	if stack := inventory.Slots["0:9"]; stack.ItemID != 600 || stack.Count != 100 || len(stack.RawEntry) != currentItemListEntryWireSize {
+	if stack := inventory.Slots["0:121"]; stack.ItemID != 600 || stack.Count != 100 || len(stack.RawEntry) != currentItemListEntryWireSize {
 		t.Fatalf("filled stack=%+v", stack)
 	}
-	if stack := inventory.Slots["0:3"]; stack.ItemID != 600 || stack.Count != 60 || len(stack.RawEntry) != currentItemListEntryWireSize {
+	if stack := inventory.Slots["0:122"]; stack.ItemID != 600 || stack.Count != 60 || len(stack.RawEntry) != currentItemListEntryWireSize {
 		t.Fatalf("spill stack=%+v", stack)
 	}
 }

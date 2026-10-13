@@ -240,7 +240,7 @@ func (s *Service) handleTeleportPotion(session *gameSession, body []byte) error 
 	relaxAreaGates := currentTeleportPotionAreaGatesMode() == currentTeleportPotionAreaGatesRelaxed
 	commitErr := func() error {
 		if !relaxAreaGates {
-			return s.handleTownSetUserArea(session, buildCurrentTeleportPotionMoveBody(request.TownID, landingArea.ID, landingX, landingY, currentTown))
+			return s.handleTownSetUserAreaWithQuestNotice(session, buildCurrentTeleportPotionMoveBody(request.TownID, landingArea.ID, landingX, landingY, currentTown), false)
 		}
 		// 只在这一次提交期间放宽目标区域的 [need level]/[need quest]，defer 保证
 		// 无论提交成功、被拒还是出错都立刻复位，绝不留给后续的普通 op36。
@@ -252,7 +252,7 @@ func (s *Service) handleTeleportPotion(session *gameSession, body []byte) error 
 			session.townTeleportPotionLandingRelaxed = false
 			session.townMu.Unlock()
 		}()
-		return s.handleTownSetUserArea(session, buildCurrentTeleportPotionMoveBody(request.TownID, landingArea.ID, landingX, landingY, currentTown))
+		return s.handleTownSetUserAreaWithQuestNotice(session, buildCurrentTeleportPotionMoveBody(request.TownID, landingArea.ID, landingX, landingY, currentTown), false)
 	}()
 	if commitErr != nil {
 		return commitErr
