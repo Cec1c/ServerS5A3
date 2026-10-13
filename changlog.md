@@ -1,3 +1,8 @@
+## 2026-10-14 — Cover Grandine room transitions with passive drops
+
+- Add matching-PVF coverage for both ordinary Grandine routes, including the fifth-room exit. Before the passive-drop allocator fix, actors and drops shared identifiers and a later room was rejected for reusing an earlier drop key.
+- Assert scene identity separation, allocator progress, stable room rebuilds and arrival at the boss. The previously introduced allocator repair covers these routes without additional runtime changes; native gameplay acceptance remains separate.
+
 ## 2026-10-14 — Restore Gust Zone boss-room transitions
 
 - Accept repeated identical passive-item group definitions across maze declarations without multiplying rewards. Continue rejecting malformed or conflicting definitions.
