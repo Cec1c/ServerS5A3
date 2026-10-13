@@ -430,8 +430,8 @@ func TestCompletedSelectProgress36BindsRealActorBeforeTypedTownTransition(t *tes
 		dungeonDropItemDefinition{
 			ItemID:        3227,
 			Kind:          dungeonDropItemStackable,
-			PVFPath:       "stackable/material/test_drop.stk",
-			StackableType: "[material]",
+			PVFPath:       "stackable/waste/test_drop.stk",
+			StackableType: "[waste]",
 			StackLimit:    999,
 			SlotStart:     65,
 			SlotEnd:       120,
@@ -443,7 +443,7 @@ func TestCompletedSelectProgress36BindsRealActorBeforeTypedTownTransition(t *tes
 		t.Fatal(err)
 	}
 	if pickupSlot != 5 {
-		t.Fatalf("material pickup slot=%d, want existing quick slot 5", pickupSlot)
+		t.Fatalf("consumable pickup slot=%d, want existing quick slot 5", pickupSlot)
 	}
 	connection := session.conn.(*bufferConn)
 	transitionWaitCalls := 0

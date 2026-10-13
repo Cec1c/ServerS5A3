@@ -268,7 +268,7 @@ func TestMaterialGrantPathsTargetMaterialSegment(t *testing.T) {
 		}
 	})
 
-	t.Run("发放落库：快捷格空着时进快捷格（既有规则），但绝不进装备段", func(t *testing.T) {
+	t.Run("发放落库：快捷格空着时材料仍进入材料页", func(t *testing.T) {
 		for _, definition := range []dungeonDropItemDefinition{material, plainMaterial} {
 			inventory := dnfrepo.InventoryRecord{CharacterID: "19"}
 			slots, err := grantCurrentCeraShopProduct(&inventory, definition, 3)
@@ -279,8 +279,8 @@ func TestMaterialGrantPathsTargetMaterialSegment(t *testing.T) {
 				t.Fatalf("item=%d slots = %v, want one granted row", definition.ItemID, slots)
 			}
 			slot := int16(slots[0])
-			if slot >= currentPVFMainEquipmentSlotStart && slot <= currentPVFMainEquipmentSlotEnd {
-				t.Fatalf("item=%d landed in the equipment segment at slot %d", definition.ItemID, slot)
+			if slot != currentPVFMainMaterialStart {
+				t.Fatalf("item=%d landed at slot %d, want material slot 121", definition.ItemID, slot)
 			}
 			stack, found := inventory.Slots[currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)]
 			if !found || stack.ItemID != int64(definition.ItemID) || stack.Count != 3 {

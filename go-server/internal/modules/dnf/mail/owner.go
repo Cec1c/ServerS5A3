@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -969,7 +970,7 @@ func addAttachmentToInventory(inventory *dnfrepo.InventoryRecord, attachment dnf
 		markChanged(slot)
 		remaining -= capacity
 	}
-	for _, slot := range mailboxClaimStackSlots(resolution) {
+	for _, slot := range mailboxClaimSlotPolicy(resolution).EmptySlots() {
 		if remaining <= 0 {
 			break
 		}
@@ -1003,21 +1004,14 @@ func mailboxClaimSlotRangeValid(resolution alignedcmd.MailboxItemResolution) boo
 		resolution.SlotEnd <= mailboxMainLastItemSlot
 }
 
+func mailboxClaimSlotPolicy(resolution alignedcmd.MailboxItemResolution) dnfplacement.SlotPolicy {
+	return dnfplacement.SlotPolicy{ListType: resolution.TargetListType,
+		Start: resolution.SlotStart, End: resolution.SlotEnd,
+		AllowQuickSlots: resolution.AllowQuickSlots, PreferQuickSlots: resolution.PreferQuickSlot}
+}
+
 func mailboxClaimStackSlots(resolution alignedcmd.MailboxItemResolution) []int16 {
-	slots := make([]int16, 0, 6+int(resolution.SlotEnd-resolution.SlotStart+1))
-	// 主背包优先用 3..8 快捷格；宠物背包没有这个概念，直接用解析器给的区间。
-	if resolution.TargetListType == dnfrepo.MainInventoryListType && resolution.StackLimit != 1 {
-		for slot := int16(3); slot <= 8; slot++ {
-			slots = append(slots, slot)
-		}
-	}
-	for slot := resolution.SlotStart; slot <= resolution.SlotEnd; slot++ {
-		if resolution.TargetListType == dnfrepo.MainInventoryListType && slot >= 3 && slot <= 8 {
-			continue
-		}
-		slots = append(slots, slot)
-	}
-	return slots
+	return mailboxClaimSlotPolicy(resolution).MergeSlots()
 }
 
 func mailboxAttachmentStack(attachment dnfrepo.MailAttachment, count int64, resolution alignedcmd.MailboxItemResolution) dnfrepo.ItemStack {

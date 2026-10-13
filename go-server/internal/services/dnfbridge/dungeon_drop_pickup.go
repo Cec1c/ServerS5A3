@@ -720,15 +720,16 @@ func currentDungeonPickupPlacement(
 		definition.ExpirationDate = itemexpiration.NextDailyDeleteAt(time.Now().UTC())
 	}
 	kind := dnfdungeon.PickupItemKind(definition.Kind)
+	policy := currentPVFItemPlacementPolicy(definition)
 	placement := dnfdungeon.PickupItemPlacement{
 		Definition: dnfdungeon.PickupItemDefinition{
-			ItemID:     definition.ItemID,
-			Kind:       kind,
-			StackLimit: definition.StackLimit,
-			SlotStart:  definition.SlotStart,
-			SlotEnd:    definition.SlotEnd,
-			PreferQuickSlot: definition.Kind == dungeonDropItemStackable &&
-				dungeonDropStackablePrefersItemQuickSlots(definition.StackableType),
+			ItemID:          definition.ItemID,
+			Kind:            kind,
+			StackLimit:      definition.StackLimit,
+			SlotStart:       definition.SlotStart,
+			SlotEnd:         definition.SlotEnd,
+			PreferQuickSlot: policy.PreferQuickSlots,
+			AllowQuickSlots: policy.AllowQuickSlots,
 		},
 		Amount: amount,
 		// 所有"把可堆叠道具放进背包"的路径都先并入同身份的既有行：判据交给

@@ -429,7 +429,7 @@ func TestCurrentDungeonPickupLedgerSurvivesRoomChangeAndMultipleSameRoomPickups(
 	if err != nil || !found || len(inventory.Slots) != 1 {
 		t.Fatalf("same-room pickups did not persist two units into one stack slots=%+v err=%v", inventory.Slots, err)
 	}
-	if stack := inventory.Slots["0:3"]; stack.Count != 2 {
+	if stack := inventory.Slots["0:121"]; stack.Count != 2 {
 		t.Fatalf("same-room pickups persisted count=%d want 2 slots=%+v", stack.Count, inventory.Slots)
 	}
 
@@ -473,7 +473,7 @@ func TestCurrentDungeonPickupLedgerSurvivesRoomChangeAndMultipleSameRoomPickups(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stack := inventory.Slots["0:3"]; stack.Count != 3 {
+	if stack := inventory.Slots["0:121"]; stack.Count != 3 {
 		t.Fatalf("new-room pickup persisted count=%d want 3 slots=%+v", stack.Count, inventory.Slots)
 	}
 	if len(runtime.DropOwner.byObjectKey) != 4 {

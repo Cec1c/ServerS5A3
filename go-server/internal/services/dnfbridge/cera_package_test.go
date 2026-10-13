@@ -127,7 +127,7 @@ func TestCurrentCeraPackageLegacyRouteAtomicallyConsumesAndGrantsPVFRewards(t *t
 	if source := inventory.Slots["0:75"]; source.ItemID != 500 || source.Count != 1 || binary.LittleEndian.Uint32(source.RawEntry[6:10]) != 1 {
 		t.Fatalf("source after=%+v raw=%x", source, source.RawEntry)
 	}
-	stackable, found := inventory.Slots["0:3"]
+	stackable, found := inventory.Slots["0:121"]
 	minExpire := time.Unix(before.Unix()+7*86400, 0).UTC()
 	maxExpire := time.Unix(time.Now().UTC().Unix()+7*86400, 0).UTC()
 	if !found || stackable.ItemID != 600 || stackable.Count != 3 || stackable.Extra["source"] != "cera_package" ||

@@ -62,6 +62,7 @@ import (
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -162,15 +163,19 @@ func upgradeDestroyBonusMergeSlots(items map[string]dnfrepo.ItemStack, container
 }
 
 // upgradeDestroyBonusNewSlot 选新开格的落点：先在本道具 PVF 段内找第一个空格，
-// 段满（或有界判定不可用）才退回历史顺序 firstEmptyUpgradeSlot()（60..69 → 9..59）。
-// 这样"材料被塞进装备页"这一类不会再发生，而背包真满时仍然照旧有格可用。
+// 有有效 PVF 分类时共用分类页/快捷格顺序，两处皆满即拒绝选格；
+// 仅无分类证据的历史调用继续使用旧顺序，不让已知材料满页后进入装备页。
 func upgradeDestroyBonusNewSlot(items map[string]dnfrepo.ItemStack, container alignedcmd.StackGrantContainer) (byte, int16) {
 	if container.Valid() {
-		for slot := container.SlotStart; slot <= container.SlotEnd; slot++ {
+		policy := dnfplacement.SlotPolicy{ListType: container.ListType, Start: container.SlotStart, End: container.SlotEnd,
+			AllowQuickSlots:  container.ListType == listTypeMain && container.SlotStart >= 65 && container.SlotStart < 289,
+			PreferQuickSlots: container.ListType == listTypeMain && container.SlotStart == 65}
+		for _, slot := range policy.EmptySlots() {
 			if _, ok := items[slotKey(container.ListType, slot)]; !ok {
 				return container.ListType, slot
 			}
 		}
+		return container.ListType, -1
 	}
 	slot := firstEmptyUpgradeSlot(items)
 	if slot < 0 {

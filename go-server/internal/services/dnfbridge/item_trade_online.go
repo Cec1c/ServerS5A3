@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/inventory"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/itemtrade"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -485,7 +487,20 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 		s.cancelOnlineItemTrade(trade, "repository_unavailable")
 		return nil
 	}
-	owner, err := itemtrade.NewOwner(repositories)
+	owner, err := itemtrade.NewOwner(repositories, func(offer itemtrade.Offer, stack dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error) {
+		if stack.ItemID <= 0 || stack.ItemID > math.MaxUint32 {
+			return dnfplacement.SlotPolicy{}, itemtrade.ErrInvalidOffer
+		}
+		catalog, err := s.currentPVFItemCatalog()
+		if err != nil {
+			return dnfplacement.SlotPolicy{}, err
+		}
+		definition, err := catalog.ResolveItem(uint32(stack.ItemID))
+		if err != nil {
+			return dnfplacement.SlotPolicy{}, err
+		}
+		return currentPVFItemPlacementPolicy(definition), nil
+	})
 	if err != nil {
 		s.cancelOnlineItemTrade(trade, "transaction_owner_unavailable")
 		return nil

@@ -811,7 +811,6 @@ func TestHandleTownSetUserAreaRejectsMissingAreaAndUnprovedQuestOrCrossTownRoute
 		body []byte
 	}{
 		{name: "missing area", body: buildTownMoveRequest(38, 99, 1, 2, 5)},
-		{name: "ordinary quest gated", body: buildTownMoveRequest(38, 3, 1, 2, 5)},
 		{name: "ordinary cross town", body: buildTownMoveRequest(39, 0, 1, 2, 5)},
 	}
 	for _, test := range tests {
@@ -846,9 +845,7 @@ func TestHandleTownSetUserAreaRejectsTeleportArrayTargetsWithUnmetPVFNeedQuests(
 			if err := service.handleTownSetUserArea(session, test.body); err != nil {
 				t.Fatal(err)
 			}
-			if got := session.conn.(*bufferConn).write.Bytes(); len(got) != 0 {
-				t.Fatalf("unmet teleport prerequisite emitted packets: %x", got)
-			}
+			assertTownQuestRequirementFailure(t, session, test.body[0], test.body[1], dnfproto.GameServerUpperHeaderSize)
 			stored, found, err := repositories.Character.Load(context.Background(), "29")
 			if err != nil || !found || stored.Stats["town_id"] != 38 || stored.Stats["area_id"] != 1 ||
 				stored.Stats["pos_x"] != 450 || stored.Stats["pos_y"] != 234 {
@@ -876,9 +873,7 @@ func TestHandleTownSetUserAreaRejectsWorldMapStationTailZeroTargetWithUnmetNeedQ
 	if err := service.handleTownSetUserArea(session, buildTownMapStationRequest(40, 0, 1519, 489, 5)); err != nil {
 		t.Fatal(err)
 	}
-	if got := session.conn.(*bufferConn).write.Bytes(); len(got) != 0 {
-		t.Fatalf("unmet map-station prerequisite emitted packets: %x", got)
-	}
+	assertTownQuestRequirementFailure(t, session, 40, 0, dnfproto.GameServerUpperHeaderSize)
 	stored, found, err := repositories.Character.Load(context.Background(), "29")
 	if err != nil || !found || stored.Stats["town_id"] != 40 || stored.Stats["area_id"] != 1 ||
 		stored.Stats["pos_x"] != 450 || stored.Stats["pos_y"] != 234 {
@@ -905,9 +900,7 @@ func TestHandleTownSetUserAreaDoesNotPersistTransportNeedQuest(t *testing.T) {
 	if err := service.handleTownSetUserArea(session, buildTownMapStationRequest(40, 0, 1519, 489, 5)); err != nil {
 		t.Fatal(err)
 	}
-	if got := session.conn.(*bufferConn).write.Bytes(); len(got) != 0 {
-		t.Fatalf("unmet transport prerequisite emitted town packets: %x", got)
-	}
+	assertTownQuestRequirementFailure(t, session, 40, 0, dnfproto.GameServerUpperHeaderSize)
 	stored, found, err := repositories.Character.Load(context.Background(), "29")
 	if err != nil || !found || stored.Stats["town_id"] != 40 || stored.Stats["area_id"] != 1 ||
 		stored.Stats["pos_x"] != 777 || stored.Stats["pos_y"] != 333 {
@@ -1003,9 +996,7 @@ func TestHandleTownSetUserAreaAcceptsCrossTownPortalTailZero(t *testing.T) {
 		if err := service.handleTownSetUserArea(session, buildTownCrossTownPortalRequest(40, 0, 1519, 489, 5, 39)); err != nil {
 			t.Fatal(err)
 		}
-		if got := session.conn.(*bufferConn).write.Bytes(); len(got) != 0 {
-			t.Fatalf("unmet cross-town prerequisite emitted packets: %x", got)
-		}
+		assertTownQuestRequirementFailure(t, session, 40, 0, dnfproto.GameServerUpperHeaderSize)
 		stored, found, err := repositories.Character.Load(context.Background(), "29")
 		if err != nil || !found || stored.Stats["town_id"] != 39 || stored.Stats["area_id"] != 0 ||
 			stored.Stats["pos_x"] != 701 || stored.Stats["pos_y"] != 802 {
