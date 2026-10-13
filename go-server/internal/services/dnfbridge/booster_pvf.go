@@ -56,6 +56,10 @@ func resolveCurrentBoosterDefinition(
 	}
 	stackableType := normalizeDungeonDropStackableType(magicBoxDocumentText(document, "stackable type"))
 	definition := currentBoosterDefinition{Source: sourceDefinition, StackableType: stackableType}
+	definition.LotteryGoldCost, _, err = currentLotteryOpeningGold(document)
+	if err != nil {
+		return currentBoosterDefinition{}, err
+	}
 	switch requestKind {
 	case currentBoosterRequestSelection:
 		if stackableType != "[booster selection]" {

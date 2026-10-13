@@ -18,6 +18,8 @@ var (
 	ErrAccountMismatch   = errors.New("booster character account mismatch")
 	ErrInventoryNotFound = errors.New("booster inventory is not found")
 	ErrProjectorRequired = errors.New("booster mutation projector is required")
+	ErrGoldCostInvalid   = errors.New("booster gold cost is invalid")
+	ErrGoldInsufficient  = errors.New("booster gold is insufficient")
 )
 
 type Assets struct {
@@ -38,6 +40,7 @@ type Command struct {
 	AccountID   string
 	CharacterID string
 	UpdatedAt   time.Time
+	GoldCost    int64
 	Project     Projector
 }
 
@@ -68,6 +71,9 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 	}
 	if command.Project == nil {
 		return ErrProjectorRequired
+	}
+	if command.GoldCost < 0 {
+		return ErrGoldCostInvalid
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -100,6 +106,12 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 			return fmt.Errorf("%w: account=%s character=%s", ErrAccountMismatch, accountID, characterID)
 		}
 		character = dnfrepo.CloneCharacter(character)
+		if command.GoldCost > 0 {
+			if character.Stats["gold"] < command.GoldCost {
+				return ErrGoldInsufficient
+			}
+			character.Stats["gold"] -= command.GoldCost
+		}
 		inventory, found, err := inventories.Load(ctx, characterID)
 		if err != nil {
 			return err
@@ -132,7 +144,7 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 				return err
 			}
 		}
-		if changes.Character {
+		if changes.Character || command.GoldCost > 0 {
 			character.UpdatedAt = now
 			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
 				return err
