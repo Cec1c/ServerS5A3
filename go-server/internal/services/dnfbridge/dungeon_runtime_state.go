@@ -300,6 +300,8 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	// INIT FAILED 后继续，奖励路径届时按"没有池子"降级。
 	s.logPacketEvent(hellPartyRewardPoolReadyEvent,
 		hellPartyRewardPoolWarmUpFields(monsterTable)...)
+	s.logPacketEvent("dnf-dungeon-clear-card-equipment-pool",
+		clearCardEquipmentPoolWarmUpFields(monsterTable)...)
 
 	s.worldMapMu.Lock()
 	s.worldMapTable = table
