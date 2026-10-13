@@ -1,3 +1,9 @@
+## 2026-10-14 — Restore equipment-based catalyst crafting
+
+- Accept complete PVF equipment recipe predicates instead of rejecting every recipe without an explicit item-ID list. Check type, part, rarity, level range, one-item instances and sealing capability; incomplete recipes remain rejected. Sealed and previously unsealed resealable weapons follow the same PVF eligibility rule.
+- Use the PVF minimum/maximum output counts and bounded per-unit maximum-output probability, retaining the existing atomic material/output settlement and reply format. Validate probability ranges and abort on random-source errors.
+- Regression coverage includes matching-PVF weapon selection, material rejection, account soul costs, spent-input replay, ownership/locks, output probability boundaries and transaction rollback. Native crafting animation acceptance remains pending.
+
 ## 2026-10-14 — Charge fixed catalyst ingredients for every crafting unit
 
 - Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
