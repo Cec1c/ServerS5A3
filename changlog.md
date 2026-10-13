@@ -1,3 +1,9 @@
+## 2026-10-13 — Allow automatic code synchronization without builds
+
+- Add an explicit upstream sync-only mode that skips source tests, database jobs and binary/image builds. Keep exact-commit, conflict, CI-review and concurrent-update guards, and identify untested synchronization in the PR and result.
+- Make the standalone verification workflow manual-only. Document disabling CI/CD on runnerless GitGud forks without changing the original project's CI or SSH synchronization. These workflows do not publish releases or deploy a server.
+- Real-Git regression coverage includes sync-only promotion and retained conflict/CI-review guards, alongside the existing mirror and concurrency checks.
+
 ## 2026-10-13 — Validate and integrate original upstream updates
 
 - Separate upstream intake from bidirectional fork mirroring. A scheduled/manual workflow opens an upstream PR, validates its exact merge commit with read-only jobs, rechecks base/head/merge identities, and promotes only that tested commit using a non-force push. Conflicts, failed tests, CI changes and moving branches leave the update unmerged. Successful promotion explicitly dispatches fork synchronization; it does not deploy a server.

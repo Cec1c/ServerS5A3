@@ -1,7 +1,7 @@
-"""Stage upstream PRs and promote only the exact merge commit that passed CI.
+"""Stage upstream PRs and promote an exact, guarded merge candidate.
 
 Run this trusted script from the default branch, never from the incoming PR.
-Validation runs separately with read-only credentials and no deployment secrets.
+Validation, when enabled, runs separately with read-only credentials and no deployment secrets.
 """
 import argparse
 import base64
@@ -57,18 +57,21 @@ def guarded_changes(directory, base, head):
     return any(p.startswith(GUARDED) or p == ".gitlab-ci.yml" for p in names)
 
 
-def pr_body(base, head, reason):
+def pr_body(base, head, reason, sync_only=False):
     run = os.environ.get("GITHUB_RUN_ID", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
-    link = f"\n\nValidation: https://github.com/{repo}/actions/runs/{run}" if run and repo else ""
+    link = f"\n\nWorkflow: https://github.com/{repo}/actions/runs/{run}" if run and repo else ""
+    policy = ("Sync-only mode: source tests and builds are not run. Only the exact conflict-free merge "
+              "candidate may be fast-forwarded to master. Conflicts, CI changes or moving refs leave "
+              "this PR open. " if sync_only else
+              "Only the exact merge commit that passes all validation jobs may be fast-forwarded to master. "
+              "Conflicts, failures, CI changes or a moving base leave this PR open. ")
     return ("Bring the original GitGud upstream changes into this fork while retaining fork changes.\n\n"
             f"Base: `{base}`\nUpstream: `{head}`\n\n{reason}\n\n"
-            "Only the exact merge commit that passes all validation jobs may be fast-forwarded to master. "
-            "Conflicts, failures, CI changes or a moving base leave this PR open. This does not deploy a server."
-            + link)
+            + policy + "This does not deploy a server or publish a release." + link)
 
 
-def prepare(directory, upstream, api, attempts=8):
+def prepare(directory, upstream, api, attempts=8, sync_only=False):
     git(directory, "fetch", "--no-tags", "origin", "+refs/heads/master:refs/upstream-check/base")
     git(directory, "fetch", "--no-tags", upstream, "+refs/heads/master:refs/upstream-check/head")
     base = sha(git(directory, "rev-parse", "refs/upstream-check/base").stdout.strip())
@@ -84,7 +87,7 @@ def prepare(directory, upstream, api, attempts=8):
     git(directory, "push", "origin", f"{head}:refs/heads/{BRANCH}")
     owner = api.repository.split("/")[0]
     matches = api.request("GET", f"pulls?state=open&base=master&head={owner}:{BRANCH}")
-    body = pr_body(base, head, "Preparing the merge candidate for validation.")
+    body = pr_body(base, head, "Preparing the exact merge candidate.", sync_only)
     if matches:
         number = int(matches[0]["number"])
         api.request("PATCH", f"pulls/{number}", {"body": body})
@@ -99,7 +102,7 @@ def prepare(directory, upstream, api, attempts=8):
     elif git(directory, "merge-tree", "--write-tree", base, head, check=False).returncode:
         reason = "The upstream changes conflict with the fork; resolve and review this PR manually."
     if reason:
-        api.request("PATCH", f"pulls/{number}", {"body": pr_body(base, head, reason)})
+        api.request("PATCH", f"pulls/{number}", {"body": pr_body(base, head, reason, sync_only)})
         result["state"] = "review"
         return result
     # GitHub asynchronously creates refs/pull/N/merge even for a PR opened by
@@ -114,13 +117,13 @@ def prepare(directory, upstream, api, attempts=8):
             merge = sha(git(directory, "rev-parse", "refs/upstream-check/merge").stdout.strip())
             parents = git(directory, "show", "-s", "--format=%P", merge).stdout.strip().split()
             if parents == [base, head]:
-                result.update(state="validate", merge=merge)
+                result.update(state="synchronize" if sync_only else "validate", merge=merge)
                 return result
         time.sleep(2)
     raise SyncError("GitHub merge candidate is not ready; PR retained for retry")
 
 
-def promote(directory, api, base, head, merge, number):
+def promote(directory, api, base, head, merge, number, sync_only=False):
     base, head, merge = sha(base), sha(head), sha(merge)
     pr = api.request("GET", f"pulls/{int(number)}")
     if (pr["state"] != "open" or pr["head"]["sha"] != head or pr["base"]["sha"] != base
@@ -137,7 +140,7 @@ def promote(directory, api, base, head, merge, number):
     if guarded_changes(directory, base, head):
         raise SyncError("CI changes require manual review")
     # A normal non-force push atomically refuses an intervening divergent base.
-    # The tested merge itself reaches master; no new untested merge is created.
+    # The selected merge itself reaches master; no new merge is created here.
     git(directory, "push", "origin", f"{merge}:refs/heads/master")
     observed = git(directory, "ls-remote", "origin", "refs/heads/master").stdout.split()[0]
     if observed != merge:
@@ -145,13 +148,15 @@ def promote(directory, api, base, head, merge, number):
     # GITHUB_TOKEN pushes do not trigger another push workflow. Explicitly
     # dispatch the trusted mirror workflow so the writable GitGud fork follows.
     api.request("POST", "actions/workflows/repository-sync.yml/dispatches", {"ref": "master"})
-    return {"state": "merged", "pr": str(number), "merge": merge}
+    return {"state": "merged", "pr": str(number), "merge": merge,
+            "validation": "not-run-sync-only" if sync_only else "required-workflow-jobs"}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "promote"))
     parser.add_argument("--upstream")
+    parser.add_argument("--sync-only", action="store_true", help="Skip source/build jobs; retain Git and CI-review guards")
     for name in ("base", "head", "merge", "pr"):
         parser.add_argument("--" + name)
     args = parser.parse_args()
@@ -166,9 +171,9 @@ def main():
     if args.action == "prepare":
         if not args.upstream or not re.fullmatch(r"https://gitgud\.io/[A-Za-z0-9_./-]+\.git", args.upstream):
             raise SyncError("Expected a public GitGud HTTPS repository URL")
-        result = prepare(".", args.upstream, api)
+        result = prepare(".", args.upstream, api, sync_only=args.sync_only)
     else:
-        result = promote(".", api, args.base or "", args.head or "", args.merge or "", args.pr or "0")
+        result = promote(".", api, args.base or "", args.head or "", args.merge or "", args.pr or "0", sync_only=args.sync_only)
     print(json.dumps(result, indent=2))
     if output := os.environ.get("GITHUB_OUTPUT"):
         with open(output, "a", encoding="utf-8") as stream:

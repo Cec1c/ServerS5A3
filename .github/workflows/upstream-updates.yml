@@ -37,7 +37,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM: ${{ vars.GITGUD_UPSTREAM_REPOSITORY }}
-        run: python3 scripts/ci/upstream_updates.py prepare --upstream "$UPSTREAM"
+          SYNC_ONLY: ${{ vars.UPSTREAM_SYNC_ONLY }}
+        run: |
+          args=()
+          if [[ "$SYNC_ONLY" == true ]]; then args+=(--sync-only); fi
+          python3 scripts/ci/upstream_updates.py prepare --upstream "$UPSTREAM" "${args[@]}"
   source:
     needs: prepare
     if: needs.prepare.outputs.state == 'validate'
@@ -117,7 +121,11 @@ jobs:
           if [ -f launcher/Tests/Launcher.Tests.csproj ]; then dotnet run --project launcher/Tests -c Release; fi
   promote:
     needs: [prepare, source, database, windows]
-    if: needs.prepare.outputs.state == 'validate' && needs.source.result == 'success' && needs.database.result == 'success' && needs.windows.result == 'success'
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      ((needs.prepare.outputs.state == 'synchronize' && vars.UPSTREAM_SYNC_ONLY == 'true') ||
+       (needs.prepare.outputs.state == 'validate' && needs.source.result == 'success' &&
+        needs.database.result == 'success' && needs.windows.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -131,11 +139,15 @@ jobs:
           ref: ${{ needs.prepare.outputs.base }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Promote the tested merge and dispatch fork synchronization
+      - name: Promote the exact merge and dispatch fork synchronization
         env:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ needs.prepare.outputs.base }}
           HEAD: ${{ needs.prepare.outputs.head }}
           MERGE: ${{ needs.prepare.outputs.merge }}
           PR: ${{ needs.prepare.outputs.pr }}
-        run: python3 scripts/ci/upstream_updates.py promote --base "$BASE" --head "$HEAD" --merge "$MERGE" --pr "$PR"
+          SYNC_ONLY: ${{ vars.UPSTREAM_SYNC_ONLY }}
+        run: |
+          args=()
+          if [[ "$SYNC_ONLY" == true ]]; then args+=(--sync-only); fi
+          python3 scripts/ci/upstream_updates.py promote --base "$BASE" --head "$HEAD" --merge "$MERGE" --pr "$PR" "${args[@]}"

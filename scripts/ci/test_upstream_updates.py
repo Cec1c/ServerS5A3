@@ -200,6 +200,38 @@ class UpstreamUpdatesTests(unittest.TestCase):
                     api.request("GET", "pulls/1")
             self.assertNotIn("secret", str(raised.exception).lower())
 
+    def test_sync_only_promotes_exact_candidate_without_claiming_tests(self):
+        self.incoming()
+        result = updates.prepare(self.work, str(self.upstream), self.api, attempts=1, sync_only=True)
+        self.assertEqual(result["state"], "synchronize")
+        self.assertIn("source tests and builds are not run", self.api.pr["body"])
+        self.assertEqual(self.head(), self.base)
+        promoted = updates.promote(self.work, self.api, result["base"], result["head"], result["merge"], result["pr"], sync_only=True)
+        self.assertEqual(promoted["validation"], "not-run-sync-only")
+        self.assertEqual(self.head(), result["merge"])
+        self.assertEqual(len(self.api.dispatches), 1)
+
+    def test_sync_only_retains_ci_review_and_promotion_guard(self):
+        self.incoming(".gitlab-ci.yml", "unreviewed CI")
+        result = updates.prepare(self.work, str(self.upstream), self.api, attempts=1, sync_only=True)
+        self.assertEqual(result["state"], "review")
+        self.assertIn("source tests and builds are not run", self.api.pr["body"])
+        merge = git(self.origin, "rev-parse", "refs/pull/1/merge").stdout.strip()
+        with self.assertRaisesRegex(SyncError, "CI changes"):
+            updates.promote(self.work, self.api, result["base"], result["head"], merge, result["pr"], sync_only=True)
+        self.assertEqual(self.head(), self.base)
+
+    def test_sync_only_conflict_stays_open(self):
+        self.incoming("base.txt", "upstream conflict")
+        git(self.work, "reset", "--hard", self.base)
+        fork = self.commit("base.txt", "fork conflict")
+        git(self.work, "push", "origin", "master")
+        result = updates.prepare(self.work, str(self.upstream), self.api, attempts=1, sync_only=True)
+        self.assertEqual(result["state"], "review")
+        self.assertEqual(self.head(), fork)
+        self.assertEqual(self.api.pr["state"], "open")
+        self.assertFalse(self.api.dispatches)
+
 
 if __name__ == "__main__":
     unittest.main()

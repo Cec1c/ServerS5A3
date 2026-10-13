@@ -26,9 +26,8 @@ The workflow runs on `master` pushes, manual dispatch, and approximately every
 No forced updates, automatic merges, branch deletion, or tag replacement are
 performed. The job serializes writes and reads back both tips afterward. GitGud
 changes to `.github/` or `scripts/ci/` require review and merge on GitHub first;
-the synchronizer never executes fetched code. A read-only `Verify` workflow
-runs after successful synchronization because `GITHUB_TOKEN` pushes do not
-normally trigger another push workflow.
+the synchronizer never executes fetched code. `Verify` is manual-only; ordinary
+pushes, PRs and mirror runs do not automatically build binaries or images.
 
 Run the integration tests with:
 
@@ -51,17 +50,21 @@ enable **Allow GitHub Actions to create and approve pull requests** in repositor
 Actions settings; only the prepare/promote jobs request write permissions.
 
 Updates are proposed from `automation/gitgud-upstream` in a PR against `master`.
-Source tests, isolated MariaDB transaction tests, Windows checks and Linux image
-builds run against GitHub's exact merge commit. Validation jobs have read-only
-repository permissions and receive no mirror SSH key or deployment secrets.
-The final job uses the trusted base version of the promotion script, rechecks
-the PR, base/head and merge commit, then fast-forwards `master` to that tested
-commit and explicitly dispatches **Repository sync**.
+By default, source tests, isolated MariaDB transaction tests, Windows checks and
+Linux image builds run against GitHub's exact merge commit. Set the repository
+variable `UPSTREAM_SYNC_ONLY` to `true` to skip all of those jobs and synchronize
+code only. This mode does not claim that incoming source has passed tests.
+Validation jobs, when enabled, have read-only repository permissions and receive
+no mirror SSH key or deployment secrets. The final job uses the trusted base
+version of the promotion script, rechecks the PR, base/head and merge commit,
+then fast-forwards `master` to that exact candidate and explicitly dispatches
+**Repository sync**. Neither mode publishes releases or deploys a server.
 
 | Upstream update | Result |
 | --- | --- |
 | Already included in master | No new PR or write |
 | Conflict-free and all required jobs pass | Merge the tested commit and synchronize the fork |
+| Conflict-free with `UPSTREAM_SYNC_ONLY=true` | Merge the exact candidate and synchronize; no source tests or builds |
 | Merge conflict or failed validation | Keep PR open; no automatic merge |
 | Changes under `.github/`, `scripts/ci/`, `.gitlab/`, or `.gitlab-ci.yml` | Keep PR open for manual CI review |
 | Base/head moves during validation | Stop; validate a fresh candidate on the next run |
@@ -74,6 +77,23 @@ Branch protection must permit the promotion job's normal push, or a human must
 merge the validated PR according to that protection. No server is automatically
 deployed. CI does not include proprietary PVF/client resources, and a passing
 workflow does not establish native game compatibility.
+
+## GitGud forks without runners
+
+GitGud CI is independent of the GitHub synchronization jobs. If the fork has no
+eligible runner, disable its **CI/CD** project feature under **Settings → General
+→ Visibility, project features, permissions** (API: `builds_access_level=disabled`).
+Cancel existing pending/running pipelines first. Keep the repository, SSH deploy
+key, merge requests and branch permissions enabled; those are needed for Git
+synchronization and contributions. This setting affects only that fork and
+survives upstream changes to `.gitlab-ci.yml`; do not disable the original
+author's project or remove their CI file to work around a fork runner shortage.
+
+For automatic code synchronization only, combine that GitGud project setting
+with `UPSTREAM_SYNC_ONLY=true`. `Verify` remains available through manual
+**Run workflow** when a deliberate build/test is wanted. To restore validated
+upstream intake, remove the variable or set it to `false`; re-enable GitGud CI/CD
+only after an eligible runner is available.
 
 ## Contributing through the fork
 

@@ -1,19 +1,13 @@
 name: Verify
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
-  workflow_run:
-    workflows: [Repository sync]
-    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
   source:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
