@@ -1,3 +1,13 @@
+## 2026-10-13 — Native weekly counter accepted; expiration merge validated
+
+Own account10070 / character106 completed normal purchases to70/70. The actual 71st attempt returned server opcode21 error0x85 without changing gold or quota. Shop reopen and a complete new client process retained70/70; read-only SQL and client counter both agreed. Earlier inventory-capacity refusal at56 returned0x04; normal QA-item sales freed space before purchases resumed. Native evidence and the signed public client publication are preserved under continuation-checkpoint697 and public-feed-publication695.
+
+Signed stable/preview version24.9.12.42-v97-d33-715 enables the existing opcode715 consumer through one EXE allow bit. Independent shipped UpdateEngine.Fetch/Check verifies the release and actual downloadable blob. Only the DNF.exe row changes; old blob and manifests are retained for rollback. Current protocol/resource compatibility is recorded in changlog.md.
+
+The server separately normalizes retired absolute expiration dates before stack comparison so subsequent grants can reuse an existing compatible row. Seven shipping regressions cover repeated buy,70/71, insufficient gold, future dates, daily deletion, distinct instance expiry and actual repository Save failure rollback. Parent combined validation699 passed: default8813 passing nodes/830 skips/0 failures; fixed-PVF240 passing nodes/0 skips/0 failures; formatting,210-package list, scoped vet, both builds and actual BAT preflight. Deployment and native merge verification remain pending. This does not combine existing separate inventory rows or reset account quota. Friend-group source ce124 is included in the next source release but populated-friend/native red-box acceptance remains open.
+
+P2/P37/P50 stay excluded, ordinary Luke unlock remains cancelled, and already accepted items stay closed. Private raid recovery/reward candidates remain outside the release. Earlier dated entries below describe their historical state.
+
 ## 2026-10-13 — Project one top-level row per friend adventure group
 
 - Project each accepted friend account once. Prefer its durable last-selected character while online; otherwise choose the least online character ID using a total order. Preserve the existing offline fallback, row fields, pending relations and 255-row batching.

@@ -408,6 +408,12 @@ func grantCurrentCeraShopProductAt(inventory *dnfrepo.InventoryRecord, definitio
 			return nil, err
 		}
 	}
+	// Compare both stored expiration and grant identity against the expiration
+	// that will be persisted. Retired absolute PVF dates are renewed on write;
+	// future dates and the daily-delete path retain their existing values.
+	if !definition.DailyDeleteItem && !definition.ExpirationDate.IsZero() {
+		definition.ExpirationDate = currentPVFRenewedRetiredExpirationDate(definition.ExpirationDate, now)
+	}
 	if inventory == nil || count == 0 {
 		return nil, errCurrentCeraShopProductUnavailable
 	}
