@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ func (s *Service) awardSuitableDungeonLuckyStar(session *gameSession, runtime *r
 	}
 	result, err := owner.AwardLuckyStar(ctx, dnfdungeon.LuckyStarCommand{
 		AccountID:      accountID,
+		CharacterID:    strconv.FormatUint(uint64(session.selectedCharacterID), 10),
 		CharacterLevel: characterLevel,
 		RecommendedMin: minLevel,
 		RecommendedMax: maxLevel,

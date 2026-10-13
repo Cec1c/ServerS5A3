@@ -1,3 +1,9 @@
+## 2026-10-14 — Serialize dungeon lucky-star awards with account wallet changes
+
+- Settle each lucky-star award inside the existing rental account/character transaction instead of an unprotected account read/overwrite. Concurrent awards and wallet operations now share the account-row lock.
+- Validate the selected character's account ownership before writing and retain the suitability rules, cap and per-run replay guard. Transaction failures remain retryable without reporting an award or changing account metadata.
+- A deterministic regression reproduces two successful awards losing one increment. Coverage also includes ownership, missing transaction support, rollback and the existing settlement replay/notification-failure paths. A disposable MySQL check verifies eight concurrent awards alongside a gold purchase, durable reload and late rollback. No protocol, schema or historical balance changes.
+
 ## 2026-10-14 — Prevent duplicate lucky stars on settlement replay
 
 - Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
