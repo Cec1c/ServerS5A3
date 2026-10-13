@@ -38,24 +38,7 @@ func currentEquipmentQualitySeedFromExtra(extra map[string]string) uint32 {
 }
 
 func currentEquipmentQualitySeedFromStack(stack dnfrepo.ItemStack) uint32 {
-	// quality_seed is equipment-specific durable metadata. Accept it directly
-	// for legacy inventory rows that predate the item_kind normalization.
-	if seed := sceneInventoryExtraUint32(stack.Extra, "quality_seed"); validCurrentEquipmentQualitySeed(seed) {
-		return seed
-	}
-	if !strings.EqualFold(strings.TrimSpace(stack.Extra["item_kind"]), string(dungeonDropItemEquipment)) {
-		return 0
-	}
-	if seed := currentEquipmentQualitySeedFromExtra(stack.Extra); validCurrentEquipmentQualitySeed(seed) {
-		return seed
-	}
-	if currentItemStackHasCurrentRaw77(stack) {
-		seed := binary.LittleEndian.Uint32(stack.RawEntry[6:10])
-		if validCurrentEquipmentQualitySeed(seed) {
-			return seed
-		}
-	}
-	return 0
+	return itemquality.FromStack(stack)
 }
 
 func applyCurrentEquipmentQualitySeed(stack *dnfrepo.ItemStack, seed uint32) error {
