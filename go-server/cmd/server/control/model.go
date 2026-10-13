@@ -55,6 +55,7 @@ type protocolConfig struct {
 	GameOuterToken              string `json:"gameOuterToken"`
 	ChannelServerIndex          int    `json:"channelServerIndex"`
 	ChannelAdvertiseServerIndex int    `json:"channelAdvertiseServerIndex"`
+	ChannelScriptEncoding       string `json:"channelScriptEncoding,omitempty"`
 }
 
 type buildConfig struct {

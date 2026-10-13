@@ -64,7 +64,8 @@ const (
 type Config struct {
 	Listen   string
 	Password string
-	// Table 是启动器注册账号表（A21 里的 accounts）。
+	// Table 是启动器注册账号表。dnf_login_accounts 使用本地账号适配，
+	// 其他表保持旧 web 账号的查询契约。
 	Table string
 	// DSN 指向 90CN 使用的 MySQL/MariaDB。
 	DSN string

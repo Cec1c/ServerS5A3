@@ -1,3 +1,9 @@
+## 2026-10-13 — 整理本地 Windows 测试的服务端修复
+
+- 整理本地注册反馈、频道下载编码、GM 本地账号映射、翻牌后主线刷新/完成后接续、回城旧场景状态抑制、任务手册快照顺序与旧协议正常放弃。
+- 纳入幸运星结算/GM 钱包读写/购买余额刷新、金币罐原子发奖与结算拾取槽位修复，并保留最新上游 NPC 商店期限合并和购买数量更新。
+- 改动附领域/桥接/控制器/GM 回归及配套 PVF 专项，独立源码执行约定检查与 Windows 构建；客户端依赖、用户已验收项目及未完成边界见 `Docs/LOCAL_FIXES_20261013.md`。不包含升级券、GM 职业候选或客户端/PVF 二进制，不改运行环境或数据库。
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.

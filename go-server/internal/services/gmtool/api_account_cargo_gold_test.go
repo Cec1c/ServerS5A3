@@ -228,7 +228,6 @@ func TestCurrencyExistingTypesAreUnchanged(t *testing.T) {
 	// 其它 type 的既有拒绝文案逐字不变。
 	for _, testCase := range []struct{ kind, want string }{
 		{"token", "90CN 的点券只有一个账号级池子（account_cera），没有独立的代币券数值；请用 cera。"},
-		{"luckystar", "90CN 服务端没有幸运星数值，无法设置。"},
 		{"serialuck", "90CN 服务端没有赛丽亚幸运数值，无法设置。"},
 		{"nonsense", "不支持的类型: nonsense (可用: cera)"},
 	} {

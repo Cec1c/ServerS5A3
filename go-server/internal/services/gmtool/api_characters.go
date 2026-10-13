@@ -138,7 +138,7 @@ func (s *Server) handleCharacterList(w http.ResponseWriter, r *http.Request) {
 			"jobName":     s.jobDisplayName(byte(job), byte(grow)),
 			"bonusSp":     statInt(character, "bonus_sp"),
 			"bonusTp":     statInt(character, "bonus_tp"),
-			"accountId":   panelIDFromAccountID(character.AccountID),
+			"accountId":   s.accountPanelID(character.AccountID),
 			"accountName": character.AccountID,
 		})
 	}
@@ -179,7 +179,7 @@ func (s *Server) characterPayload(record dnfrepo.CharacterRecord, accountCera in
 	exEquip := statInt(record, "ex_equip_slot_stat")
 	return map[string]any{
 		"characterId":                 panelIDOfCharacter(record),
-		"accountId":                   panelIDFromAccountID(record.AccountID),
+		"accountId":                   s.accountPanelID(record.AccountID),
 		"name":                        record.Name,
 		"level":                       record.Level,
 		"exp":                         statInt(record, "exp"),

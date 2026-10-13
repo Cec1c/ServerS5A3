@@ -303,7 +303,7 @@ func (s *Server) clonePlanPayload(
 	sourcePanelID int,
 	accounts []webAccount,
 ) map[string]any {
-	sourceAccountPanelID := panelIDFromAccountID(source.AccountID)
+	sourceAccountPanelID := s.accountPanelID(source.AccountID)
 	rows := make([]map[string]any, 0, len(accounts))
 	for _, account := range accounts {
 		characters, err := s.charactersForAccount(ctx, group, account.AccountID)
@@ -621,6 +621,10 @@ func (s *Server) applyCharacterClone(
 // ensureAccountLevelRecords，带 source/state/元数据），而且账号级容器也在那里一起
 // 补齐。这里另建一份就得自己发明 State/Metadata，宁可留给那条唯一实现。
 func (s *Server) handleAccountCreateForClone(w http.ResponseWriter, r *http.Request) {
+	if s.usesLocalLoginAccounts() {
+		writeFailure(w, "本地账号请通过本地登录器注册，再刷新面板选择该账号。")
+		return
+	}
 	body, ok := decodeBody[cloneAccountRequest](w, r)
 	if !ok {
 		return
