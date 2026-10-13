@@ -54,7 +54,7 @@ func TestAddCurrentDungeonPickupUsesPVFTypeQuickSlotPriority(t *testing.T) {
 		SlotEnd:       176,
 	}
 
-	t.Run("merge same quick slot before empty quick slot and category", func(t *testing.T) {
+	t.Run("material merges existing quick slot before category", func(t *testing.T) {
 		record := dnfrepo.InventoryRecord{Slots: map[string]dnfrepo.ItemStack{
 			"0:4":   {ItemID: 3227, Count: 2},
 			"0:121": {ItemID: 3227, Count: 5},
@@ -272,7 +272,7 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 	}
 	pickupPacket, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	itemUpdate, trailing := splitGameServerUpperPacket(t, rest)
-	wantPickup, err := buildCurrentDungeonNormalPickupResultBody(firstDropObjectKey, currentSceneActorObjectKey(99), 3)
+	wantPickup, err := buildCurrentDungeonNormalPickupResultBody(firstDropObjectKey, currentSceneActorObjectKey(99), 121)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 		len(itemUpdate.Body) != 3+currentItemListEntryWireSize ||
 		itemUpdate.Body[0] != dnfrepo.MainInventoryListType ||
 		binary.LittleEndian.Uint16(itemUpdate.Body[1:3]) != 1 ||
-		binary.LittleEndian.Uint16(itemUpdate.Body[3:5]) != 3 ||
+		binary.LittleEndian.Uint16(itemUpdate.Body[3:5]) != 121 ||
 		binary.LittleEndian.Uint32(itemUpdate.Body[5:9]) != 3227 ||
 		binary.LittleEndian.Uint32(itemUpdate.Body[9:13]) != 1 {
 		t.Fatalf("pickup item update header=%+v body=%x", itemUpdate.Header, itemUpdate.Body)
@@ -295,7 +295,7 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 	if err != nil || !found {
 		t.Fatalf("inventory found=%t err=%v", found, err)
 	}
-	stack := inventory.Slots["0:3"]
+	stack := inventory.Slots["0:121"]
 	if stack.ItemID != 3227 || stack.Count != 1 || stack.Extra["pvf_path"] != "stackable/material/test_drop.stk" ||
 		stack.Extra["stack_limit"] != "999" || len(stack.RawEntry) != currentItemListEntryWireSize {
 		t.Fatalf("persisted stack=%+v", stack)
@@ -318,13 +318,13 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 		)
 	}
 	reloadedEntry := reloadBody[5:]
-	if binary.LittleEndian.Uint16(reloadedEntry[0:2]) != 3 ||
+	if binary.LittleEndian.Uint16(reloadedEntry[0:2]) != 121 ||
 		binary.LittleEndian.Uint32(reloadedEntry[2:6]) != 3227 ||
 		binary.LittleEndian.Uint32(reloadedEntry[6:10]) != 1 {
 		t.Fatalf("persisted pickup reloaded entry=%x", reloadedEntry)
 	}
 	drop := runtime.DropOwner.byObjectKey[firstDropObjectKey]
-	if drop.Status != runtimeDungeonDropConsumed || drop.DestinationSlot != 3 || len(drop.PickupResponseBody) != currentDungeonPickupResultSize {
+	if drop.Status != runtimeDungeonDropConsumed || drop.DestinationSlot != 121 || len(drop.PickupResponseBody) != currentDungeonPickupResultSize {
 		t.Fatalf("consumed drop=%+v", drop)
 	}
 
@@ -339,7 +339,7 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 		t.Fatalf("replay body=%x update=%x trailing=%x", replayPacket.Body, replayUpdate.Body, replayTrailing)
 	}
 	inventory, _, err = repositories.Inventory.Load(context.Background(), "99")
-	if err != nil || inventory.Slots["0:3"].Count != 1 {
+	if err != nil || inventory.Slots["0:121"].Count != 1 {
 		t.Fatalf("duplicate pickup changed inventory=%+v err=%v", inventory.Slots, err)
 	}
 }

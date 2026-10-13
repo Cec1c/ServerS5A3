@@ -51,10 +51,13 @@ func grantDungeonCardRewardBundle(
 				RawEntry: append([]byte(nil), reward.RawEntry...),
 				Extra:    cloneDungeonCardStringMap(reward.Extra),
 			},
-			Stackable: reward.Stackable,
-			SlotStart: reward.SlotStart,
-			SlotEnd:   reward.SlotEnd,
-			ExpireAt:  reward.ExpireAt,
+			Stackable:        reward.Stackable,
+			SlotStart:        reward.SlotStart,
+			SlotEnd:          reward.SlotEnd,
+			ExpireAt:         reward.ExpireAt,
+			AllowQuickSlots:  reward.AllowQuickSlots,
+			PreferQuickSlots: reward.PreferQuickSlots,
+			StackLimit:       reward.StackLimit,
 		})
 	}
 	result, err := owner.GrantCardReward(ctx, dnfdungeon.CardRewardCommand{

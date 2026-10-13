@@ -112,7 +112,7 @@ func TestCurrentCeraPackageWithoutAvatarRewardsResolvesAndOpensWithZeroChoices(t
 	if source := inventory.Slots["0:75"]; source.ItemID != 505 || source.Count != 1 {
 		t.Fatalf("source after open=%+v, want item 505 count 1", source)
 	}
-	// [material] 家族优先落快捷栏 3..8，再落材料页 121..176；这里只钉"恰好一行 600×3"。
+	// [material] 家族直接进入材料页 121..176；此处核对恰好一行 600×3。
 	rewardSlots := make([]string, 0, 1)
 	rewardUnits := int64(0)
 	for key, stack := range inventory.Slots {

@@ -171,14 +171,15 @@ func findClaimedTestStack(t *testing.T, inventory *dnfrepo.InventoryRecord, item
 	return 0, dnfrepo.ItemStack{}, false
 }
 
-// 主背包附件的既有行为必须保持不变：3..8 快捷格优先，刷新仍然带 list 0。
+// 解析器声明可自动进快捷栏的消耗品保持 3..8 优先，刷新仍然带 list 0。
 func TestAddAttachmentToInventoryKeepsMainListBehaviour(t *testing.T) {
 	inventory := &dnfrepo.InventoryRecord{CharacterID: "1", Slots: map[string]dnfrepo.ItemStack{}}
 	resolution := alignedcmd.MailboxItemResolution{
-		Kind:       "stackable",
-		SlotStart:  65,
-		SlotEnd:    120,
-		StackLimit: 1000,
+		Kind:            "stackable",
+		SlotStart:       65,
+		SlotEnd:         120,
+		StackLimit:      1000,
+		PreferQuickSlot: true,
 	}
 	refreshes, err := addAttachmentToInventory(inventory, dnfrepo.MailAttachment{ItemID: 2683901, Count: 3}, resolution)
 	if err != nil {

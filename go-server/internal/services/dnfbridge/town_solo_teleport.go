@@ -95,9 +95,10 @@ func (s *Service) handleCurrentSoloTeleport(session *gameSession, body []byte) e
 	// op36 portal click. Preserve the persisted current town as the transport
 	// source so the PVF-validated route can admit a cross-town destination
 	// without weakening normal op36 movement checks.
-	return s.handleTownSetUserArea(
+	return s.handleTownSetUserAreaWithQuestNotice(
 		session,
 		buildCurrentSoloTeleportMoveBody(request, uint16(currentTown)),
+		false,
 	)
 }
 

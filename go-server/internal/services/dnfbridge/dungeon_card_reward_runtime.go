@@ -314,14 +314,18 @@ func currentDungeonRandomCardItem(
 		qualitySeed := rng.NextUint32()%currentEquipmentRandomQualitySeedCount + 1
 		extra["quality_seed"] = strconv.FormatUint(uint64(qualitySeed), 10)
 	}
+	policy := currentPVFItemPlacementPolicy(definition)
 	return dungeonCardItemReward{
-		ItemID:    int64(itemID),
-		Count:     1,
-		Stackable: definition.Kind == dungeonDropItemStackable,
-		SlotStart: definition.SlotStart,
-		SlotEnd:   definition.SlotEnd,
-		ExpireAt:  definition.ExpirationDate,
-		Extra:     extra,
+		ItemID:           int64(itemID),
+		Count:            1,
+		Stackable:        definition.Kind == dungeonDropItemStackable,
+		SlotStart:        definition.SlotStart,
+		SlotEnd:          definition.SlotEnd,
+		ExpireAt:         definition.ExpirationDate,
+		Extra:            extra,
+		AllowQuickSlots:  policy.AllowQuickSlots,
+		PreferQuickSlots: policy.PreferQuickSlots,
+		StackLimit:       definition.StackLimit,
 	}, true, nil
 }
 

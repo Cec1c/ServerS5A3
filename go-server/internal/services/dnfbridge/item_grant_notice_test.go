@@ -335,7 +335,7 @@ func TestItemGrantNoticeDeltaSendsBoosterRewardRowsWithoutContainerReplay(t *tes
 		t.Fatalf("delta rows = %+v, want the source row and the reward row", rows)
 	}
 	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 75, 500, 1)
-	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 3, 600, 3)
+	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 121, 600, 3)
 	if lists := itemGrantNoticeContainerFrames(packets); len(lists) != 0 {
 		t.Fatalf("delta mode must not replay whole containers, got lists %v", lists)
 	}
@@ -344,7 +344,7 @@ func TestItemGrantNoticeDeltaSendsBoosterRewardRowsWithoutContainerReplay(t *tes
 	if err != nil || !found {
 		t.Fatalf("load inventory found=%t err=%v", found, err)
 	}
-	if reward := inventory.Slots["0:3"]; reward.ItemID != 600 || reward.Count != 3 {
+	if reward := inventory.Slots["0:121"]; reward.ItemID != 600 || reward.Count != 3 {
 		t.Fatalf("reward stack = %+v, want item 600 count 3 (the projected row must be authoritative)", reward)
 	}
 }
@@ -368,13 +368,13 @@ func TestItemGrantNoticeContainersRollbackKeepsBoosterFullContainerStream(t *tes
 		t.Fatalf("containers mode must keep exactly the source row, got %+v", rows)
 	}
 	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 75, 500, 1)
-	// 回退档下奖励落点**只能**从整容器里被客户端看到：0:3 那一行必须出现在 list0 帧里。
+	// 回退档下奖励落点**只能**从整容器里被客户端看到：0:121 那一行必须出现在 list0 帧里。
 	list0 := packets[2]
 	if list0.msgID != uint16(dnfenum.CmdPacketLeaveParty) || list0.body[0] != dnfrepo.MainInventoryListType {
 		t.Fatalf("list0 container frame = msg %d list %d", list0.msgID, list0.body[0])
 	}
 	containerRows := itemGrantNoticeContainerBodyRows(t, dnfrepo.MainInventoryListType, list0.body)
-	requireItemGrantNoticeRow(t, containerRows, dnfrepo.MainInventoryListType, 3, 600, 3)
+	requireItemGrantNoticeRow(t, containerRows, dnfrepo.MainInventoryListType, 121, 600, 3)
 	requireItemGrantNoticeRow(t, containerRows, dnfrepo.MainInventoryListType, 75, 500, 1)
 }
 
@@ -508,7 +508,7 @@ func TestItemGrantNoticeDeltaSendsCeraPackageRewardRowsWithoutContainerReplay(t 
 		t.Fatalf("delta rows = %+v, want 3 rows", rows)
 	}
 	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 75, 500, 1)
-	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 3, 600, 3)
+	requireItemGrantNoticeRow(t, rows, dnfrepo.MainInventoryListType, 121, 600, 3)
 	// 装扮行（list 1）的数量不在固定行的 [6:10]（那是 0），而在可选 blob / raw[0x0E..]
 	// 的 amount_or_count 上 —— 这里只钉"这一格被逐槽通知到了"，数量投影由既有的
 	// 装扮行投影测试负责。
