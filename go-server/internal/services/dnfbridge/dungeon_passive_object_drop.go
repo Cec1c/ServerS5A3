@@ -465,7 +465,22 @@ func (s *Service) prepareCurrentDungeonPassiveObjectDrops(
 	if runtime == nil {
 		return nil
 	}
-	if err := s.prepareCurrentDungeonPVFPassiveItemDrops(session, runtime, scene, source); err != nil {
+	return s.prepareCurrentDungeonPassiveObjectDropsAfterActors(session, runtime, scene, source, runtime.NextObjectKey)
+}
+
+// A move has already planned its target actors without committing their keys.
+// Passive rewards must start after that range, even before the room is entered.
+func (s *Service) prepareCurrentDungeonPassiveObjectDropsAfterActors(
+	session *gameSession,
+	runtime *runtimeDungeonState,
+	scene worldmap.DungeonRoomScene,
+	source string,
+	minimumObjectKey uint32,
+) error {
+	if runtime == nil {
+		return nil
+	}
+	if err := s.prepareCurrentDungeonPVFPassiveItemDrops(session, runtime, scene, source, minimumObjectKey); err != nil {
 		return err
 	}
 	rowMode := dungeonPassiveObjectDropRowModeFromEnv()
@@ -529,6 +544,7 @@ func (s *Service) prepareCurrentDungeonPassiveObjectDrops(
 			"error", err)
 		return nil
 	}
+	runtime.commitDungeonNextObjectKey(max(runtime.NextObjectKey, minimumObjectKey))
 	drop, sceneSlot, err := runtime.registerCurrentDungeonPassiveObjectDrop(
 		runtimeDungeonRoomKeyFromScene(scene),
 		pillar.ObjectIndex,

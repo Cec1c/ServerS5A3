@@ -1,3 +1,9 @@
+## 2026-10-14 — Restore Gust Zone boss-room transitions
+
+- Accept repeated identical passive-item group definitions across maze declarations without multiplying rewards. Continue rejecting malformed or conflicting definitions.
+- Reserve planned actor identifiers before allocating passive drops, and retain the highest allocator position when committing a room transition. Preserve shared party allocation and prepared drops across transport retries.
+- Regression coverage includes conflicting definitions, solo/shared identifier allocation and matching-PVF traversal of both ordinary Gust Zone boss routes. Verify the existing start-map payload, distinct actor/drop identifiers, failed-write retry and exactly-once pickup. Native in-game traversal remains pending acceptance.
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.
