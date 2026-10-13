@@ -260,7 +260,8 @@ func (s *Service) commitCurrentExpertJobCompound(ctx context.Context, session *g
 				card.RawEntry = append([]byte(nil), entry.data[:]...)
 				assets.Inventory.Slots[cardKey] = card
 			}
-			if consumeErr := s.consumeCurrentExpertJobRecipe(assets.Character, assets.Inventory, beadPlan.Recipe.Materials, 0); consumeErr != nil {
+			accountDirty, consumeErr := s.consumeCurrentRecipeMaterials(assets, beadPlan.Recipe.Materials, 0)
+			if consumeErr != nil {
 				return dnfexpertjob.Changes{}, consumeErr
 			}
 			compoundPlan := dnfexpertjob.CompoundPlan{
@@ -298,14 +299,15 @@ func (s *Service) commitCurrentExpertJobCompound(ctx context.Context, session *g
 			}
 			assets.Character.Stats["expert_job_exp"] = beadPlan.FinalExperience
 			result = currentExpertJobCompoundResult{Plan: compoundPlan, JobType: jobType}
-			return dnfexpertjob.Changes{Character: beadPlan.ExperienceGain != 0, Inventory: true}, nil
+			return dnfexpertjob.Changes{Character: beadPlan.ExperienceGain != 0, Inventory: true, AccountInventory: accountDirty}, nil
 		}
 		learned := assets.Character.Stats[currentExpertJobRecipeStatKey(jobType, request.RecipeItemID)] != 0
 		plan, err := jobCatalog.PlanCompoundWithLearned(jobType, experience, request.RecipeItemID, request.Count, learned, rand.IntN)
 		if err != nil {
 			return dnfexpertjob.Changes{}, err
 		}
-		if err := s.consumeCurrentExpertJobRecipe(assets.Character, assets.Inventory, plan.Materials, plan.GoldCost); err != nil {
+		accountDirty, err := s.consumeCurrentRecipeMaterials(assets, plan.Materials, plan.GoldCost)
+		if err != nil {
 			return dnfexpertjob.Changes{}, err
 		}
 		for _, reward := range plan.Rewards {
@@ -329,7 +331,7 @@ func (s *Service) commitCurrentExpertJobCompound(ctx context.Context, session *g
 		// GoldCost>0 就必须把 Character 一起标脏，否则这笔记账不会落库。
 		// 回退档（inventory_wallet）下多标一次 Character 只是把同一份 stats 原样
 		// 写回，无副作用。
-		return dnfexpertjob.Changes{Character: plan.ExperienceGain != 0 || plan.GoldCost > 0, Inventory: true}, nil
+		return dnfexpertjob.Changes{Character: plan.ExperienceGain != 0 || plan.GoldCost > 0, Inventory: true, AccountInventory: accountDirty}, nil
 	}})
 	return result, err
 }

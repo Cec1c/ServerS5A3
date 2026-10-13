@@ -1,3 +1,9 @@
+## 2026-10-14 — Consume profession crafting materials from their durable owners
+
+- Reuse the existing recipe material projector for profession crafting, including enchanter products and card-to-bead crafting. Shared crystals and souls are debited from the account warehouse; ordinary materials remain in the character bag. Historical character copies cannot substitute for account balances.
+- Persist warehouse changes in the same settlement transaction as materials, products, gold and profession experience. Preserve recipe requirements, success rates and the verified request/reply layouts; refresh the committed container balances after acknowledgement.
+- Matching-PVF regression reproduces the prior insufficient-material rejection and covers all eleven enchanter product recipes, batch quantities, bead metadata, wrong/locked/insufficient shared rows, foreign ownership and late transaction rollback. Existing equipment-recipe behavior is retained. Native crafting UI acceptance remains pending.
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.
