@@ -79,6 +79,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"item-grade-adjust",
 		"equipment-effect",
 		"aura-skin-slot",
+		"carry-gold",
 		"quest",
 		"dungeon-navigation",
 		"dungeon-combat-drop",

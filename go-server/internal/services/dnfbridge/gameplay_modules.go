@@ -25,6 +25,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	itemGradeAdjustGameplayModule(),
 	equipmentEffectGameplayModule(),
 	auraSkinGameplayModule(),
+	carryGoldGameplayModule(),
 	questGameplayModule(),
 	dungeonNavigationGameplayModule(),
 	dungeonCombatDropGameplayModule(),

@@ -112,6 +112,7 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 	character.Level = 90
 	character.Stats[currentDungeonTutorialCompletedKey] = currentDungeonTutorialCompleteFlag
 	character.Stats[currentOpenAuraSkinSlotFlagStat] = 1
+	character.Stats["carry_gold_stage"] = 3
 	if err := repositories.Character.Save(ctx, character); err != nil {
 		t.Fatal(err)
 	}
@@ -145,11 +146,19 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 	lastContainerIndex := -1
 	auraRestoreCount := 0
 	auraRestoreIndex := -1
+	carryGoldCount, carryGoldIndex := 0, -1
 	adventureInfoIndex := -1
 	packetIndex := 0
 	for ownerStream := fullStream; len(ownerStream) > 0; {
 		packet, next := splitCurrentGameServerUpperPacketAuto(t, ownerStream)
 		ownerStream = next
+		if packet.Header.Classification == 0 && packet.Header.MsgID == 947 {
+			carryGoldCount++
+			carryGoldIndex = packetIndex
+			if len(packet.Body) != 1 || packet.Body[0] != 3 {
+				t.Fatalf("cold-login carry gold stage=%x want 03", packet.Body)
+			}
+		}
 		if packet.Header.Classification == 0 &&
 			packet.Header.MsgID == uint16(dnfenum.CmdPacketLeaveParty) {
 			lastContainerIndex = packetIndex
@@ -200,6 +209,9 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 			lastContainerIndex,
 			adventureInfoIndex,
 		)
+	}
+	if carryGoldCount != 1 || carryGoldIndex <= lastContainerIndex || carryGoldIndex >= adventureInfoIndex {
+		t.Fatalf("carry gold count=%d index=%d containers=%d adventure=%d", carryGoldCount, carryGoldIndex, lastContainerIndex, adventureInfoIndex)
 	}
 	if mode0Count < 1 || mode1Count < 1 || op9Count < 1 {
 		t.Fatalf(
