@@ -1,3 +1,9 @@
+## 2026-10-14 — Prevent duplicate lucky stars on settlement replay
+
+- Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
+- Resolve capped awards as well, so spending later cannot make an old clear grantable again. Repository failures remain retryable and a fresh dungeon run retains its own award.
+- Regression tests reproduce repeated grants before the change and cover duplicate requests, account-save failure, notice failure, caps and unsuitable levels. This does not change lucky-star purchase protocols or establish native UI acceptance.
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.
