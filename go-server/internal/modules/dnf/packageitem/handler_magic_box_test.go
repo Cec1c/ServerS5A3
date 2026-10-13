@@ -49,16 +49,18 @@ func TestHandlerMagicBoxSendsSingleAckThenRefresh(t *testing.T) {
 	if ack.MsgID != uint16(dnfenum.CmdPacketUseRandomboxItem) {
 		t.Fatalf("ack msg = 0x%04X, want 0x00D0", ack.MsgID)
 	}
-	row := func(slot uint16, itemID uint32, count uint32) []byte {
+	row := func(slot uint16, itemID uint32, count uint32, seal byte) []byte {
 		r := make([]byte, currentMagicBoxEntrySize)
 		binary.LittleEndian.PutUint16(r[0x00:0x02], slot)
 		binary.LittleEndian.PutUint32(r[0x02:0x06], itemID)
 		binary.LittleEndian.PutUint32(r[0x06:0x0A], count)
+		r[0x0D] = seal
 		return r
 	}
 	want := []byte{0x01, 0x00, 0x00, 0x0A, 0x00, 0x79, 0x00, 0x02, 0x00}
-	want = append(want, row(65, 2600014, 2)...)
-	want = append(want, row(66, 2682272, 1)...)
+	want = append(want, row(65, 2600014, 2, 0)...)
+	// magicBoxTestRewardItems明确将2682272声明为封装物品；结果行必须保留该身份。
+	want = append(want, row(66, 2682272, 1, 1)...)
 	if string(ack.Body) != string(want) {
 		t.Fatalf("ack body = %x, want %x", ack.Body, want)
 	}

@@ -833,7 +833,7 @@ func finishOwnerInput(tables *progression.Tables, allocator FinishItemAllocator)
 }
 
 func finishOwnerAllocator(fail error) FinishItemAllocator {
-	return func(record *dnfrepo.InventoryRecord, request FinishItemGrantRequest) (FinishCommittedItem, error) {
+	return func(record *dnfrepo.InventoryRecord, request FinishItemGrantRequest) ([]FinishCommittedItem, error) {
 		if record.Slots == nil {
 			record.Slots = make(map[string]dnfrepo.ItemStack)
 		}
@@ -849,9 +849,9 @@ func finishOwnerAllocator(fail error) FinishItemAllocator {
 		binary.LittleEndian.PutUint32(raw[6:10], uint32(postCount))
 		record.Slots[key] = dnfrepo.ItemStack{ItemID: request.ItemID, Count: postCount, RawEntry: append([]byte(nil), raw...)}
 		if fail != nil {
-			return FinishCommittedItem{}, fail
+			return nil, fail
 		}
-		return FinishCommittedItem{SlotKey: key, SlotIndex: slot, ItemID: request.ItemID, Delta: request.Count, PostCount: postCount, CountOrSeed: uint32(request.Count), RawEntry: raw}, nil
+		return []FinishCommittedItem{{SlotKey: key, SlotIndex: slot, ItemID: request.ItemID, Delta: request.Count, PostCount: postCount, CountOrSeed: uint32(request.Count), RawEntry: raw}}, nil
 	}
 }
 

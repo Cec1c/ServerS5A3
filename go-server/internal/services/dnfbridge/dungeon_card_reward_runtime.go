@@ -314,6 +314,9 @@ func currentDungeonRandomCardItem(
 		qualitySeed := rng.NextUint32()%currentEquipmentRandomQualitySeedCount + 1
 		extra["quality_seed"] = strconv.FormatUint(uint64(qualitySeed), 10)
 	}
+	if currentNewPVFEquipmentSealFlag(definition) != 0 {
+		extra["seal_flag"] = "1"
+	}
 	policy := currentPVFItemPlacementPolicy(definition)
 	return dungeonCardItemReward{
 		ItemID:           int64(itemID),

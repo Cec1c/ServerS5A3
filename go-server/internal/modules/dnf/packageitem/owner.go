@@ -96,6 +96,8 @@ type MagicBoxGrantedReward struct {
 	Kind        string
 	QualitySeed uint32
 	Durability  uint16
+	// SealFlag 与已发放实例的PVF封装一致，由各开盒结果列表写入0x0D。
+	SealFlag byte
 }
 
 // MagicBoxContractActivation 是一次"契约物品直接叠加账号时长"的记账行。
@@ -649,6 +651,9 @@ func magicBoxResultReward(item alignedcmd.MagicBoxRewardItem, count int64, slot 
 	if item.Kind == "equipment" {
 		reward.Count = 1
 		reward.QualitySeed = currentMagicBoxTopQualitySeed
+	}
+	if item.Seal {
+		reward.SealFlag = 1
 	}
 	return reward
 }

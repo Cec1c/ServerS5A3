@@ -84,7 +84,9 @@ type FinishConsumedItem struct {
 	RawEntry  []byte `json:"raw_entry,omitempty"`
 }
 
-type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) (FinishCommittedItem, error)
+// 一个PVF奖励数量可对应多格独立装备。每格回执的Delta之和必须等于请求数量，
+// 分配器只修改事务副本；任何一格失败仍由任务结算事务整笔回滚。
+type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) ([]FinishCommittedItem, error)
 
 type FinishCommitInput struct {
 	AccountID              string
@@ -765,18 +767,32 @@ func allocateFinishRewardItems(
 		return nil, ErrFinishItemAllocatorRequired
 	}
 	items := make([]FinishCommittedItem, 0, len(coalesced))
+	occupied := make(map[string]struct{})
 	for _, rule := range coalesced {
 		request := base
 		request.ItemID = rule.ItemID
 		request.Count = rule.Count
-		item, err := allocator(record, request)
+		granted, err := allocator(record, request)
 		if err != nil {
 			return nil, err
 		}
-		if item.ItemID != rule.ItemID || item.Delta != rule.Count || item.SlotKey == "" || item.PostCount < item.Delta || item.CountOrSeed == 0 || len(item.RawEntry) == 0 {
-			return nil, fmt.Errorf("%w: invalid allocator receipt item=%d", ErrQuestRewardMalformed, rule.ItemID)
+		// 当前普通交任务奖励行数为u8；提交前拒绝超限，避免资产已提交却组不了ACK。
+		if len(granted) == 0 || len(granted) > math.MaxUint8-len(items) {
+			return nil, fmt.Errorf("%w: invalid allocator receipt count item=%d", ErrQuestRewardMalformed, rule.ItemID)
 		}
-		items = append(items, item)
+		remaining := rule.Count
+		for _, item := range granted {
+			_, duplicate := occupied[item.SlotKey]
+			if item.ItemID != rule.ItemID || item.Delta <= 0 || item.Delta > remaining || item.SlotKey == "" || duplicate || item.PostCount < item.Delta || item.CountOrSeed == 0 || len(item.RawEntry) == 0 {
+				return nil, fmt.Errorf("%w: invalid allocator receipt item=%d", ErrQuestRewardMalformed, rule.ItemID)
+			}
+			occupied[item.SlotKey] = struct{}{}
+			remaining -= item.Delta
+		}
+		if remaining != 0 {
+			return nil, fmt.Errorf("%w: allocator receipt quantity mismatch item=%d", ErrQuestRewardMalformed, rule.ItemID)
+		}
+		items = append(items, granted...)
 	}
 	return items, nil
 }

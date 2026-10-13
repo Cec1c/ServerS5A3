@@ -354,9 +354,10 @@ func validateCurrentProfessionFinishResult(session *gameSession, result dnfquest
 }
 
 // sendCurrentProfessionFinishPostCommitSnapshots applies only repository/PVF
-// state returned by the committed quest owner. The current finish ACK already
-// owns the actor's grow-type rebuild, so the finish flow must not push the
-// panel-owning mode1/mode3 personal-information snapshots.
+// state returned by the committed quest owner. 当前 v97 的完成 ACK 将 GrowNumber
+// 用于选择职业精通和授予技能，没有把它写入场景角色的职业身份；op37/op19 也不携带
+// 该身份。因此先用既有严格 typed mode0 投影已提交职业，再刷新数值和技能。
+// 不发送会打开个人面板的 mode1/mode3，不重做转职事务。
 //
 // 2026-09-26 — 转职/觉醒还必须下发一次 op19（SKILLINFO）：`profession.ApplySkillTransition`
 // 在 KindClassChange 下把技能行整体换成新方向的免费授予、`Cooldowns` 清空、SP/TP 全额退回
@@ -369,6 +370,9 @@ func validateCurrentProfessionFinishResult(session *gameSession, result dnfquest
 // 角色状态 → 技能表 → 任务列表 的既有顺序。
 func (s *Service) sendCurrentProfessionFinishPostCommitSnapshots(session *gameSession, result dnfquest.FinishCommitResult) error {
 	if err := validateCurrentProfessionFinishResult(session, result); err != nil {
+		return err
+	}
+	if err := s.sendCurrentProfessionFinishActorIdentity(session, result); err != nil {
 		return err
 	}
 	characterBody := buildCurrentFinishLoadingCharacterStateBody(result.PostCommitCharacter, result.PostCommitSkill.Points)
@@ -398,6 +402,9 @@ func (s *Service) sendCurrentProfessionFinishPostCommitSnapshots(session *gameSe
 		result.PostCommitQuest,
 		"current_exe_op34_after_profession_actor_refresh_before_active_snapshot",
 	); err != nil {
+		return err
+	}
+	if err := s.refreshCurrentTownQuestGateScene(session, result); err != nil {
 		return err
 	}
 	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op34_after_profession_actor_refresh"); err != nil {
@@ -474,6 +481,9 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 		result.PostCommitQuest,
 		"current_exe_op34_after_atomic_finish_completed_quest_scene_refresh",
 	); err != nil {
+		return err
+	}
+	if err := s.refreshCurrentTownQuestGateScene(session, result); err != nil {
 		return err
 	}
 	// 86JP QuestManager publishes the active quest notification immediately
@@ -657,53 +667,66 @@ func (s *Service) currentQuestFinishResources(ctx context.Context) (*progression
 }
 
 func currentQuestFinishItemAllocator(catalog *pvfDungeonDropCatalog) dnfquest.FinishItemAllocator {
-	return func(record *dnfrepo.InventoryRecord, request dnfquest.FinishItemGrantRequest) (dnfquest.FinishCommittedItem, error) {
+	return func(record *dnfrepo.InventoryRecord, request dnfquest.FinishItemGrantRequest) ([]dnfquest.FinishCommittedItem, error) {
 		if catalog == nil || record == nil || request.ItemID <= 0 || request.ItemID > math.MaxUint32 || request.Count <= 0 || request.Count > math.MaxUint32 {
-			return dnfquest.FinishCommittedItem{}, errDungeonPickupItemInvalid
+			return nil, errDungeonPickupItemInvalid
 		}
 		definition, err := catalog.ResolveItem(uint32(request.ItemID))
 		if err != nil {
-			return dnfquest.FinishCommittedItem{}, err
+			return nil, err
 		}
 		definition, err = currentPVFItemDefinitionForGrantAt(definition, time.Now().UTC())
 		if err != nil {
-			return dnfquest.FinishCommittedItem{}, err
+			return nil, err
 		}
-		occupied := make(map[string]struct{}, len(record.Slots))
-		for key := range record.Slots {
-			occupied[key] = struct{}{}
-		}
-		slot, err := addCurrentDungeonPickupToInventory(record, definition, uint32(request.Count))
-		if err != nil {
-			return dnfquest.FinishCommittedItem{}, err
-		}
-		key := currentDungeonPickupMainSlotKey(int16(slot))
-		stack, found := record.Slots[key]
-		if !found || stack.ItemID != request.ItemID || stack.Count < request.Count {
-			return dnfquest.FinishCommittedItem{}, errDungeonPickupItemInvalid
-		}
-		entry := currentItemListEntryFromStack(0, int16(slot), stack)
-		stack.RawEntry = append([]byte(nil), entry.data[:]...)
-		if stack.Extra == nil {
-			stack.Extra = make(map[string]string, 6)
-		}
-		if _, existed := occupied[key]; !existed {
-			stack.Extra["source"] = "quest_pvf_finish_reward"
-		}
-		stack.Extra["last_grant_source"] = "quest_pvf_finish_reward"
-		stack.Extra["last_grant_quest_id"] = strconv.FormatInt(request.QuestID, 10)
-		stack.Extra["last_grant_completion_key"] = request.CompletionKey
-		stack.Extra["last_grant_pvf_source"] = request.Source
-		record.Slots[key] = stack
-		countOrSeed := uint32(request.Count)
+		instances, quantity := int64(1), request.Count
 		if definition.Kind == dungeonDropItemEquipment {
-			countOrSeed = binary.LittleEndian.Uint32(entry.data[0x06:0x0a])
+			// PVF同ID的多件装备不能形成count>1的堆栈，每件必须独立入格并回执。
+			// 先检查原生ACK行数上限，避免巨大奖励循环；领域再核对整笔总行数。
+			if request.Count > math.MaxUint8 {
+				return nil, dnfquest.ErrQuestRewardMalformed
+			}
+			instances, quantity = request.Count, 1
 		}
-		return dnfquest.FinishCommittedItem{
-			SlotKey: key, SlotIndex: slot, ItemID: request.ItemID,
-			Delta: request.Count, PostCount: stack.Count, CountOrSeed: countOrSeed,
-			RawEntry: append([]byte(nil), entry.data[:]...),
-		}, nil
+		items := make([]dnfquest.FinishCommittedItem, 0, int(instances))
+		for instance := int64(0); instance < instances; instance++ {
+			occupied := make(map[string]struct{}, len(record.Slots))
+			for key := range record.Slots {
+				occupied[key] = struct{}{}
+			}
+			slot, err := addCurrentDungeonPickupToInventory(record, definition, uint32(quantity))
+			if err != nil {
+				return nil, err
+			}
+			key := currentDungeonPickupMainSlotKey(int16(slot))
+			stack, found := record.Slots[key]
+			if !found || stack.ItemID != request.ItemID || stack.Count < quantity {
+				return nil, errDungeonPickupItemInvalid
+			}
+			entry := currentItemListEntryFromStack(0, int16(slot), stack)
+			stack.RawEntry = append([]byte(nil), entry.data[:]...)
+			if stack.Extra == nil {
+				stack.Extra = make(map[string]string, 6)
+			}
+			if _, existed := occupied[key]; !existed {
+				stack.Extra["source"] = "quest_pvf_finish_reward"
+			}
+			stack.Extra["last_grant_source"] = "quest_pvf_finish_reward"
+			stack.Extra["last_grant_quest_id"] = strconv.FormatInt(request.QuestID, 10)
+			stack.Extra["last_grant_completion_key"] = request.CompletionKey
+			stack.Extra["last_grant_pvf_source"] = request.Source
+			record.Slots[key] = stack
+			countOrSeed := uint32(quantity)
+			if definition.Kind == dungeonDropItemEquipment {
+				countOrSeed = binary.LittleEndian.Uint32(entry.data[0x06:0x0a])
+			}
+			items = append(items, dnfquest.FinishCommittedItem{
+				SlotKey: key, SlotIndex: slot, ItemID: request.ItemID,
+				Delta: quantity, PostCount: stack.Count, CountOrSeed: countOrSeed,
+				RawEntry: append([]byte(nil), entry.data[:]...),
+			})
+		}
+		return items, nil
 	}
 }
 

@@ -776,6 +776,9 @@ func buildCurrentDungeonPickupStack(
 	if definition.EquipmentType != "" {
 		extra["equipment_type"] = definition.EquipmentType
 	}
+	if currentNewPVFEquipmentSealFlag(definition) != 0 {
+		extra["seal_flag"] = "1"
+	}
 	stack := dnfrepo.ItemStack{
 		ItemID: int64(definition.ItemID),
 		Count:  int64(amount),

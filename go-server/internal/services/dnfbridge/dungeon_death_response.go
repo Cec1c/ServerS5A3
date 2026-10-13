@@ -137,5 +137,6 @@ func currentDungeonDeathDropItemState(
 	if definition.Kind == dungeonDropItemEquipment && definition.Durability != 0 {
 		entry.setUint16(0x0B, definition.Durability)
 	}
+	entry.setByte(0x0D, currentNewPVFEquipmentSealFlag(definition))
 	return entry, nil
 }
