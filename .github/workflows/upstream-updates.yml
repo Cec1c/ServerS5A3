@@ -1,0 +1,141 @@
+name: Upstream updates
+
+on:
+  schedule:
+    - cron: '11,41 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-updates-master
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: vars.GITGUD_UPSTREAM_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      state: ${{ steps.plan.outputs.state }}
+      base: ${{ steps.plan.outputs.base }}
+      head: ${{ steps.plan.outputs.head }}
+      merge: ${{ steps.plan.outputs.merge }}
+      pr: ${{ steps.plan.outputs.pr }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Open or refresh the upstream PR
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: ${{ vars.GITGUD_UPSTREAM_REPOSITORY }}
+        run: python3 scripts/ci/upstream_updates.py prepare --upstream "$UPSTREAM"
+  source:
+    needs: prepare
+    if: needs.prepare.outputs.state == 'validate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.prepare.outputs.merge }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go-server/go.mod
+          cache-dependency-path: go-server/go.sum
+      - name: Source and deployment checks
+        run: |
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
+          python3 -m unittest discover -s deploy/docker -p 'test_*.py' -v
+          cd go-server
+          go list -buildvcs=false -mod=readonly ./...
+          go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/... ./internal/services/dnfbridge ./internal/services/gmtool ./cmd/server/control ./cmd/server/doctor ./internal/app/dnf90
+          go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge ./internal/services/gmtool
+          if [ -d cmd/playergateway ]; then go test -buildvcs=false -count=1 ./cmd/playergateway; fi
+      - name: Build Linux image and Windows binaries
+        run: |
+          sh build.sh windows amd64
+          docker build -t servers5a3-upstream-check -f deploy/docker/Dockerfile .
+  database:
+    needs: prepare
+    if: needs.prepare.outputs.state == 'validate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: disposable-ci-password
+          MARIADB_DATABASE: player_tests
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.prepare.outputs.merge }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go-server/go.mod
+          cache-dependency-path: go-server/go.sum
+      - name: Isolated registration and benefits transactions
+        working-directory: go-server
+        env:
+          DNFBRIDGE_PLAYER_TEST_DSN: root:disposable-ci-password@tcp(127.0.0.1:3306)/player_tests?parseTime=true
+        run: go test -buildvcs=false -count=1 ./internal/modules/dnf/... ./internal/services/dnfbridge ./internal/services/gmtool -run '^Test(Player|Benefits)'
+  windows:
+    needs: prepare
+    if: needs.prepare.outputs.state == 'validate'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.prepare.outputs.merge }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go-server/go.mod
+          cache-dependency-path: go-server/go.sum
+      - name: Windows controller and launcher tests
+        shell: bash
+        run: |
+          cd go-server
+          go test -buildvcs=false -count=1 ./cmd/server/control ./cmd/server/doctor
+          cd ..
+          if [ -f launcher/Tests/Launcher.Tests.csproj ]; then dotnet run --project launcher/Tests -c Release; fi
+  promote:
+    needs: [prepare, source, database, windows]
+    if: needs.prepare.outputs.state == 'validate' && needs.source.result == 'success' && needs.database.result == 'success' && needs.windows.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
+    steps:
+      # Trusted default-branch code only. Incoming code ran in read-only jobs.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Promote the tested merge and dispatch fork synchronization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ needs.prepare.outputs.base }}
+          HEAD: ${{ needs.prepare.outputs.head }}
+          MERGE: ${{ needs.prepare.outputs.merge }}
+          PR: ${{ needs.prepare.outputs.pr }}
+        run: python3 scripts/ci/upstream_updates.py promote --base "$BASE" --head "$HEAD" --merge "$MERGE" --pr "$PR"

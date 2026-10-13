@@ -1,3 +1,10 @@
+## 2026-10-13 — Validate and integrate original upstream updates
+
+- Separate upstream intake from bidirectional fork mirroring. A scheduled/manual workflow opens an upstream PR, validates its exact merge commit with read-only jobs, rechecks base/head/merge identities, and promotes only that tested commit using a non-force push. Conflicts, failed tests, CI changes and moving branches leave the update unmerged. Successful promotion explicitly dispatches fork synchronization; it does not deploy a server.
+- Keep privileged prepare/promotion code on the trusted base; do not pass mirror or deployment secrets to incoming-code jobs. Document repository variables, PR permission, protected-branch constraints, conflict handling and the limits of source-only CI.
+- Real-Git integration tests cover no-op, exact-commit promotion, merge conflicts, CI review, moved refs, racing pushes and branch divergence. All 19 synchronization tests and workflow static validation passed locally.
+- Validate the upstream integration with retained local extensions: default Go suite 9,208 passing test nodes and 849 explicit skips, 12 focused actual-PVF tests, isolated account/benefit transaction checks, scoped vet, Windows build, Linux Docker build and 65 launcher checks passed. Windows local-profile preflight remains blocked by its missing bundled channel asset; this does not validate or invalidate the independent remote profile. Proprietary client/PVF resources are unchanged and native gameplay acceptance remains separate.
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.

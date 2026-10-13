@@ -4,7 +4,7 @@ GitHub Actions can keep a GitHub repository and one writable GitGud fork on the
 same `master` commit. It does not push to the original author's repository.
 
 Set the repository variable `GITGUD_SYNC_REPOSITORY` to the fork SSH URL, for
-example `git@ssh.gitgud.io:Cecic/servers5a3.git`. Without this variable the sync job
+example `git@ssh.gitgud.io:YOUR_NAMESPACE/YOUR_FORK.git`. Without this variable the sync job
 is disabled, including in upstream repositories and new forks.
 
 Add a dedicated **project Deploy Key** with write access to that GitGud fork.
@@ -37,10 +37,43 @@ python -m unittest discover -s scripts/ci -p "test_*.py" -v
 ```
 
 The Python synchronizer defaults to a dry run. Use `--apply` only for the intended
-two writable repositories. Keep upstream updates and contributions separate:
-fetch upstream, review on a branch, and submit a GitGud merge request from the
-fork branch. Repository synchronization does not synchronize issues, merge
+two writable repositories. Repository synchronization does not synchronize issues, merge
 requests, releases, settings, or secrets.
+
+## Receiving original upstream updates
+
+The separate **Upstream updates** workflow checks the original repository on
+manual dispatch and twice an hour (GitHub may delay schedules). Set the repository
+variable `GITGUD_UPSTREAM_REPOSITORY` to its public HTTPS Git URL, such as
+`https://gitgud.io/ORIGINAL_NAMESPACE/PROJECT.git`. Without this variable the
+workflow is disabled. Keep the Actions default token permission read-only and
+enable **Allow GitHub Actions to create and approve pull requests** in repository
+Actions settings; only the prepare/promote jobs request write permissions.
+
+Updates are proposed from `automation/gitgud-upstream` in a PR against `master`.
+Source tests, isolated MariaDB transaction tests, Windows checks and Linux image
+builds run against GitHub's exact merge commit. Validation jobs have read-only
+repository permissions and receive no mirror SSH key or deployment secrets.
+The final job uses the trusted base version of the promotion script, rechecks
+the PR, base/head and merge commit, then fast-forwards `master` to that tested
+commit and explicitly dispatches **Repository sync**.
+
+| Upstream update | Result |
+| --- | --- |
+| Already included in master | No new PR or write |
+| Conflict-free and all required jobs pass | Merge the tested commit and synchronize the fork |
+| Merge conflict or failed validation | Keep PR open; no automatic merge |
+| Changes under `.github/`, `scripts/ci/`, `.gitlab/`, or `.gitlab-ci.yml` | Keep PR open for manual CI review |
+| Base/head moves during validation | Stop; validate a fresh candidate on the next run |
+| Upstream or automation branch history diverges | Stop without force-pushing |
+
+Do not repurpose the automation branch for manual development. To resolve a
+conflict, merge the upstream changes into `master` through a reviewed topic PR;
+the automation branch should continue to track the original upstream history.
+Branch protection must permit the promotion job's normal push, or a human must
+merge the validated PR according to that protection. No server is automatically
+deployed. CI does not include proprietary PVF/client resources, and a passing
+workflow does not establish native game compatibility.
 
 ## Contributing through the fork
 
