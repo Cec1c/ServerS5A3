@@ -41,7 +41,12 @@ func loadCurrentDisjointPVFConfig(source dnfpvf.Source) (currentDisjointPVFConfi
 	}
 	config.Additional = currentDisjointParseAdditional(disjoint.Ints("additional result"))
 	config.AdditionalConsts = currentDisjointParseAdditionalConsts(disjoint.Numbers("additional result const"), len(config.Additional))
-	config.Expands = currentDisjointParseExpands(disjoint.Ints("additional result expand"), disjoint.Numbers("additional result expand const"))
+	expandItems := disjoint.Ints("additional result expand")
+	expandValues := disjoint.Numbers("additional result expand const")
+	config.Expands = currentDisjointParseExpands(expandItems, expandValues)
+	if (len(expandItems) != 0 || len(expandValues) != 0) && config.Expands == nil {
+		return currentDisjointPVFConfig{}, errCurrentDisjointRewardInvalid
+	}
 	config.AvatarByJob = currentDisjointParseAvatarByJob(disjoint)
 	config.AvatarEmblemTables = currentDisjointLoadAvatarEmblemTables(source)
 
@@ -102,28 +107,50 @@ func currentDisjointParseAdditionalConsts(values []float64, rows int) []currentD
 	return out
 }
 
+// Each rarity is a counted item row, including a single zero for disabled
+// rows. Constants likewise retain one placeholder for a disabled row and
+// three values for an enabled row. Never shift legendary onto chronicle's
+// disabled row or silently accept a partial reward table.
 func currentDisjointParseExpands(ids []int64, values []float64) []currentDisjointExpand {
-	out := make([]currentDisjointExpand, 0, len(ids)/2)
-	for index := 0; index+1 < len(ids); index += 2 {
-		itemID := uint32(0)
-		if ids[index+1] > 0 && ids[index+1] <= math.MaxUint32 {
-			itemID = uint32(ids[index+1])
+	var out []currentDisjointExpand
+	for offset := 0; offset < len(ids); {
+		count := ids[offset]
+		offset++
+		row := currentDisjointExpand{}
+		switch count {
+		case 0:
+		case 1:
+			if offset >= len(ids) || ids[offset] <= 0 || ids[offset] > math.MaxUint32 {
+				return nil
+			}
+			row.Enabled, row.ItemID = true, uint32(ids[offset])
+			offset++
+		default:
+			return nil
 		}
-		out = append(out, currentDisjointExpand{Enabled: ids[index] > 0 && itemID > 0, ItemID: itemID})
+		out = append(out, row)
 	}
 	offset := 0
 	for index := range out {
-		remaining := len(out) - index - 1
-		if !out[index].Enabled && out[index].ItemID == 0 && offset+1 < len(values) && len(values)-(offset+2) == remaining*3 {
-			out[index].LevelDivisor, out[index].GreatChance = values[offset], values[offset+1]
-			offset += 2
-			continue
+		width := 1
+		if out[index].Enabled {
+			width = 3
 		}
-		if offset+2 >= len(values) {
-			break
+		if len(values)-offset < width {
+			return nil
 		}
-		out[index].LevelDivisor, out[index].GreatChance, out[index].NormalChance = values[offset], values[offset+1], values[offset+2]
-		offset += 3
+		for _, value := range values[offset : offset+width] {
+			if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+				return nil
+			}
+		}
+		if out[index].Enabled {
+			out[index].LevelDivisor, out[index].GreatChance, out[index].NormalChance = values[offset], values[offset+1], values[offset+2]
+		}
+		offset += width
+	}
+	if offset != len(values) {
+		return nil
 	}
 	return out
 }
@@ -284,9 +311,8 @@ func currentEquipmentDisjointRewards(config currentDisjointPVFConfig, document *
 		}
 		currentDisjointMergeReward(&rewards, currentDisjointReward{ItemID: config.Additional[additionalIndex][index], Count: count})
 	}
-	// 86JP DisjointFile.MapRarityToExpandIndex：只有 0..4 与 6 有 expand 行，
-	// 其余（含缺 [rarity] 造成的 -1、以及 5/越界）一律"没有 expand"，绝不借用
-	// 邻行的概率表。
+	// Keep each current-PVF rarity at its own counted row; a disabled row
+	// suppresses only that rarity and does not shift the following souls.
 	expandIndex := currentDisjointRarityExpandIndex(rarity)
 	if expandIndex >= 0 && expandIndex < len(config.Expands) {
 		expand := config.Expands[expandIndex]
@@ -541,15 +567,10 @@ func currentDisjointRarityRowIndex(rarity int64) int {
 	return int(rarity)
 }
 
-// currentDisjointRarityExpandIndex mirrors 86JP PvfLib
-// DisjointFile.MapRarityToExpandIndex: rarity 6 shares row 5, rarities 0..4
-// own their row, and every other value (including the missing-[rarity] -1)
-// has no expand row at all.
+// The current PVF retains all seven rarity rows, including the disabled
+// chronicle row at 5. Legendary therefore reads row 6, not a compacted row 5.
 func currentDisjointRarityExpandIndex(rarity int64) int {
-	if rarity == 6 {
-		return 5
-	}
-	if rarity >= 0 && rarity <= 4 {
+	if rarity >= 0 && rarity <= 6 {
 		return int(rarity)
 	}
 	return -1

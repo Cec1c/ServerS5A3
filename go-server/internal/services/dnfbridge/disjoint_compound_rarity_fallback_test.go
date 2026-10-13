@@ -28,8 +28,8 @@ import (
 //     再把负值折到第 0 行，于是缺 [rarity] 的装备照样分解、至少 1 个无色小晶块。
 //     旧代码在这里 `return errCurrentDisjointRewardInvalid`，客户端显示成
 //     "目前无法分解"。
-//   - `MapRarityToExpandIndex` 只有 0..4 与 6 有 expand 行，其余（含 -1）没有
-//     expand；旧代码对 `[rarity] 5/7` 会借用邻行的概率表。
+//   - 当前 PVF 保留 0..6 每一档；第 5 档显式禁用，第 6 档为传说。
+//     越界或缺失稀有度没有 expand，不能借用邻行的概率表。
 //   - `[value]/[price]` 缺失走 `Math.Max(1, SellGold ?? 1)`（上一轮已修）。
 //
 // 运行时 PVF 全量枚举见 TestRealPVFDisjointEveryEquipmentSourceDecomposes：
@@ -71,7 +71,7 @@ func currentDisjointRarityFallbackAssets(t *testing.T, slots map[string]dnfrepo.
 		// 越界 rarity：倍率/附加产物折回第 0 行，expand 没有行。
 		"equipment/rarity_seven_coat.equ": "[equipment type] `[coat]`\n[rarity] 7\n[minimum level] 10\n[value] 300\n",
 		"equipment/rarity_one_coat.equ":   "[equipment type] `[coat]`\n[rarity] 1\n[minimum level] 10\n[value] 300\n",
-		// rarity 5：附加产物走第 5 行，但 expand 按参考实现没有行（6 才映射到第 5 行）。
+		// rarity 5：附加产物走第 5 行，但 expand 第5行在当前PVF中显式禁用（6保留在第6行）。
 		"equipment/rarity_five_coat.equ": "[equipment type] `[coat]`\n[rarity] 5\n[minimum level] 10\n[value] 300\n",
 		// 缺 rarity 也缺 value/price：两个兜底同时生效，仍产出 1 个无色小晶块。
 		"equipment/no_rarity_no_value.equ": "[equipment type] `[coat]`\n[minimum level] 1\n",
@@ -79,8 +79,8 @@ func currentDisjointRarityFallbackAssets(t *testing.T, slots map[string]dnfrepo.
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1 3\n[/cube creation const]\n" +
 			"[additional result]\n1 3033 1 3034 1 3035 1 3036 1 3166 1 3229 1 3332\n[/additional result]\n" +
-			"[additional result expand]\n1 10100115 1 10100116 1 10099773 1 10099774 1 10158124 1 10099775 1 10158124 1 10158124\n[/additional result expand]\n" +
-			"[additional result expand const]\n25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100\n[/additional result expand const]\n" +
+			"[additional result expand]\n1 10100115 1 10100116 1 10099773 1 10099774 1 10158124 0 1 10099775 1 10158124\n[/additional result expand]\n" +
+			"[additional result expand const]\n25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100 25 0.00 100 0 25 0.00 100 25 0.00 100\n[/additional result expand const]\n" +
 			"[avatar disjoint info]\n[fighter]\n2559000 2559003 2559006 2559009 2559006 2559001 2559004 2559007 2559010 2559007 2559002 2559005 2559008 2559011 2559014\n[/fighter]\n[/avatar disjoint info]\n",
 		"etc/emblemcompound.etc": "[emblem compound info]\n1 2 9000\n[/emblem compound info]\n",
 	}
@@ -105,7 +105,7 @@ func currentDisjointFallbackDocument(t *testing.T, catalog *pvfDungeonDropCatalo
 	return document, definition.PVFPath
 }
 
-// TestCurrentDisjointRarityIndexMappings pin 86JP DisjointFile 的三个 rarity
+// TestCurrentDisjointRarityIndexMappings pins current-PVF rarity
 // 映射函数，包括"缺 [rarity] → -1 → 第 0 行 / 没有 expand"这一条。
 func TestCurrentDisjointRarityIndexMappings(t *testing.T) {
 	for _, tc := range []struct {
@@ -117,8 +117,8 @@ func TestCurrentDisjointRarityIndexMappings(t *testing.T) {
 		{0, 0, 0},
 		{1, 1, 1},
 		{4, 4, 4},
-		{5, 5, -1},
-		{6, 6, 5},
+		{5, 5, 5},
+		{6, 6, 6},
 		{7, 7, -1},
 		{64, 64, -1},
 	} {
@@ -154,7 +154,7 @@ func TestCurrentDisjointMissingRarityFallsBackToRowZero(t *testing.T) {
 		{"rarity 1 uses row 1", 5003, []currentDisjointReward{{ItemID: 3037, Count: 6}, {ItemID: 3034, Count: 1}, {ItemID: 10100116, Count: 1}}},
 		// rarity 7：倍率折回第 0 行（2），附加产物越界 → 无，expand 没有行 → 无。
 		{"out-of-range rarity 7 falls back to row 0 without expand", 5002, []currentDisjointReward{{ItemID: 3037, Count: 2}}},
-		// rarity 5：附加产物走第 5 行，但 expand 按参考实现没有行。
+		// rarity 5：附加产物走第 5 行，但 expand 第5行在当前PVF中显式禁用。
 		{"rarity 5 has no expand row", 5004, []currentDisjointReward{{ItemID: 3037, Count: 2}, {ItemID: 3229, Count: 1}}},
 	} {
 		document, path := currentDisjointFallbackDocument(t, catalog, tc.itemID)
@@ -312,8 +312,8 @@ func TestInitialEquipmentSeededRowStillDecomposes(t *testing.T) {
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1.12 1.35\n[/cube creation const]\n" +
 			"[additional result]\n0 1 3166 1 3166\n[/additional result]\n" +
-			"[additional result expand]\n0 0\n[/additional result expand]\n" +
-			"[additional result expand const]\n0 0 0\n[/additional result expand const]\n" +
+			"[additional result expand]\n0\n[/additional result expand]\n" +
+			"[additional result expand const]\n0\n[/additional result expand const]\n" +
 			"[avatar disjoint info]\n[fighter]\n2559000 2559003 2559006 2559009 2559006 2559001 2559004 2559007 2559010 2559007 2559002 2559005 2559008 2559011 2559014\n[/fighter]\n[/avatar disjoint info]\n",
 		"etc/emblemcompound.etc": "[emblem compound info]\n1 2 9000\n[/emblem compound info]\n",
 	}

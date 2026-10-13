@@ -1,3 +1,9 @@
+## 2026-10-14 — Preserve legendary souls in equipment disassembly
+
+- Read disassembly soul rows as counted PVF records, retaining the disabled chronicle row and its constant placeholder. Legendary equipment now uses its own rarity row instead of a truncated or shifted entry.
+- Reject malformed or partial soul tables before consuming equipment. Preserve the existing reward quantities, item transactions and account soul-warehouse projection; no asset or balance rewrite is required.
+- Regression coverage includes the real-PVF missing-soul failure, all rarity rows, malformed tables, source-item preservation on failure and committed warehouse rewards matching the acknowledgement. Native disassembly display remains pending acceptance.
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.

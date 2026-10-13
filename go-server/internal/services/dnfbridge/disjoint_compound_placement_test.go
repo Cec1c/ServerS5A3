@@ -57,8 +57,8 @@ func mustCurrentDisjointPlacementAssets(t *testing.T, slots map[string]dnfrepo.I
 			"[cube creation const]\n150 1.12 1.35 0.07 1.48 1.80 0.70 1.53\n[/cube creation const]\n" +
 			"[additional result]\n0 4 3033 3034 3035 3036 1 3166 1 3167 0 1 3229 1 3332\n[/additional result]\n" +
 			"[additional result const]\n0.00 0.30 8.70 8 5 50 50 8 10 0.19 5.65 8 20 0.00 1.30 5.50 6 15 0.19 5.65 8 20\n[/additional result const]\n" +
-			"[additional result expand]\n1 10100115 1 10100116 1 10099773 1 10099773 1 10158124 0 1\n[/additional result expand]\n" +
-			"[additional result expand const]\n25 0 100 25 0 100 20 0 100 20 0 100 25 0 100 0 0 0\n[/additional result expand const]\n" +
+			"[additional result expand]\n1 10100115 1 10100116 1 10099773 1 10099773 1 10158124 0 1 10099775\n[/additional result expand]\n" +
+			"[additional result expand const]\n25 0 100 25 0 100 20 0 100 20 0 100 25 0 100 0 16 0 100\n[/additional result expand const]\n" +
 			"[avatar disjoint info]\n[fighter]\n2559000 2559003 2559006 2559009 2559006 2559001 2559004 2559007 2559010 2559007 2559002 2559005 2559008 2559011 2559014\n[/fighter]\n[/avatar disjoint info]\n",
 		"etc/emblemcompound.etc":                  "[emblem compound info]\n1 2 9000\n[/emblem compound info]\n",
 		"etc/avatardisjoint/emblemlistinfo_0.etc": "[result info]\n1 9000 100 1 0\n[/result info]\n",
