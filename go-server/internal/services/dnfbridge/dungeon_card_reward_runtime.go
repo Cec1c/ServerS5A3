@@ -498,23 +498,8 @@ func (s *Service) commitCurrentDungeonCardSideRewardLocked(
 	side dungeonCardSide,
 	source string,
 ) error {
-	if runtime == nil || side >= dungeonCardSideCount {
-		return nil
-	}
-	if side == dungeonCardSideFree && session != nil {
-		// op574 can open a native quest-completion page. The pre-settlement
-		// snapshot is consumed before the score/card UI replaces that page;
-		// re-project the still-active story quest after the free card commits.
-		// This is also reached on a card replay, without granting its reward twice.
-		defer func() {
-			if err := s.sendCurrentDungeonStoryQuestAfterFreeCardLocked(session, runtime); err != nil {
-				s.logGameEvent(session, "game-dungeon-story-quest-after-card-snapshot-deferred",
-					"source", source, "char_id", session.selectedCharacterID,
-					"dungeon_id", runtime.Dungeon.ID, "error", err)
-			}
-		}()
-	}
-	if runtime.settlementCardSideRewardCommitted[side] {
+	if runtime == nil || side >= dungeonCardSideCount ||
+		runtime.settlementCardSideRewardCommitted[side] {
 		return nil
 	}
 	if !runtime.settlementCardSideSelectionKnown[side] ||

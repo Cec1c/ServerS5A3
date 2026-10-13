@@ -322,11 +322,6 @@ func validateInstance(cfg instanceConfig) error {
 	if cfg.Protocol.GameUpperHeader != "server16" {
 		return errorsf("protocol.gameUpperHeader must be server16 for this client profile")
 	}
-	switch cfg.Protocol.ChannelScriptEncoding {
-	case "", "utf8", "gbk":
-	default:
-		return errorsf("protocol.channelScriptEncoding must be utf8 or gbk")
-	}
 	if cfg.Protocol.GameUpperBodyCodec != "plaintext" ||
 		cfg.Protocol.GameUpperClientBodyCodec != "plaintext" {
 		return errorsf("protocol body codecs must both be plaintext for this client profile")

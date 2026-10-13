@@ -519,10 +519,6 @@ func (s *Service) commitCurrentDungeonSettlement(
 			weekly = &dnfdungeon.WeeklyClearContract{Catalog: catalog, Season: season}
 		}
 	}
-	luckyPolicy, err := s.currentDungeonLuckyStarPolicy(runtime)
-	if err != nil {
-		return currentDungeonSettlementCommitResult{}, err
-	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
@@ -530,7 +526,6 @@ func (s *Service) commitCurrentDungeonSettlement(
 		Tables:                  tables,
 		Experience:              gain,
 		RecommendedDungeonClear: currentDungeonIsRecommendedClear(runtime),
-		LuckyStar:               luckyPolicy,
 		MonthlyAttendance:       s.currentMonthlyAttendanceEnabled(),
 		WeeklyAttendance:        weekly,
 		AdventureRuntime:        &adventureRuntime,
@@ -541,7 +536,6 @@ func (s *Service) commitCurrentDungeonSettlement(
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
 	}
-	runtime.settlementLuckyStar = result.LuckyStar
 	if s.currentMonthlyAttendanceEnabled() {
 		// Experience/clear receipt is already committed. Mail delivery is
 		// retried from that durable account state if transport or mail fails.
@@ -763,8 +757,8 @@ type currentDungeonSettlementForeignDropReceipt struct {
 // currentDungeonCommittedDropReceiptsLocked 是结算计划读掉落收据的**会话入口**。
 // 默认档做两件事：① 把账号级史诗碎片拾取从"必须在背包里找到槽位"里豁免掉；
 // ② 只统计**属于本角色**的已消耗掉落（组队共享账本里别人的掉落不算本角色的收据）。
-// 两件事各有可判读事件。穿戴拾取装备的核验独立于这两个开关；没有提供
-// 穿戴记录的纯函数入口仍保留原背包判据。
+// 两件事都为每一条写一行可判读事件。两个开关同时回退档时才**直接转调**旧的纯函数
+// （逐字节等于改动前）。
 func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 	session *gameSession,
 	runtime *runtimeDungeonState,
@@ -772,6 +766,9 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 ) ([]currentDungeonClearRewardDrop, error) {
 	exemptMode := abyssSettlementFragmentReceiptModeFromEnv()
 	ownerMode := partySettlementReceiptOwnerModeFromEnv()
+	if !exemptMode.exempts() && !ownerMode.filtersForeignOwned() {
+		return currentDungeonCommittedDropReceipts(runtime, inventory)
+	}
 	selfActorObjectKey := uint16(0)
 	if session != nil {
 		selfActorObjectKey = currentSceneActorObjectKey(session.selectedCharacterID)
@@ -783,32 +780,6 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 		ownerMode.filtersForeignOwned(),
 		selfActorObjectKey,
 	)
-	// A picked equipment item can be worn before clear (the tutorial requires
-	// this). It no longer owns a bag slot; verify its committed pickup row in
-	// this character's equipment aggregate instead of fabricating an op35 row.
-	if errors.Is(err, errCurrentDungeonSettlementStateInvalid) && s != nil && session != nil {
-		if repositories, ok := s.repositoryGroup(); ok && repositories.Equipment != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			equipment, found, loadErr := repositories.Equipment.Load(ctx, fmt.Sprint(session.selectedCharacterID))
-			cancel()
-			if loadErr != nil {
-				return nil, loadErr
-			}
-			if found && equipment.CharacterID == inventory.CharacterID && equipment.CharacterID == fmt.Sprint(session.selectedCharacterID) {
-				drops, exempted, foreign, err = currentDungeonCommittedDropReceiptsFiltered(
-					runtime, inventory, exemptMode.exempts(), ownerMode.filtersForeignOwned(), selfActorObjectKey, equipment,
-				)
-				if err == nil {
-					s.logGameEvent(session, "game-dungeon-settlement-equipped-pickup-verified",
-						"char_id", session.selectedCharacterID,
-						"dungeon_id", runtime.Dungeon.ID,
-						"bag_projection_count", len(drops),
-						"source", "committed_pickup_op39_op14_and_owned_persisted_equipment",
-						"bag_item_fabricated", false)
-				}
-			}
-		}
-	}
 	if err != nil || s == nil || session == nil || runtime == nil ||
 		(len(exempted) == 0 && len(foreign) == 0) {
 		return drops, err
@@ -920,7 +891,6 @@ func currentDungeonCommittedDropReceiptsFiltered(
 	exemptAccountLedgerDrops bool,
 	filterForeignOwned bool,
 	selfActorObjectKey uint16,
-	equipment ...dnfrepo.EquipmentRecord,
 ) (
 	[]currentDungeonClearRewardDrop,
 	[]currentDungeonSettlementExemptDropReceipt,
@@ -977,9 +947,6 @@ func currentDungeonCommittedDropReceiptsFiltered(
 		}
 		slot, stack, found := currentDungeonCommittedPickupSlot(drop, inventory)
 		if !found {
-			if len(equipment) == 1 && currentDungeonCommittedPickupIsEquipped(drop, inventory, equipment[0]) {
-				continue
-			}
 			return nil, nil, nil, errCurrentDungeonSettlementStateInvalid
 		}
 		bySlot[slot] = currentDungeonClearRewardDrop{

@@ -1150,16 +1150,6 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	if character.Level < definition.LevelMin || character.Level > definition.LevelMax {
 		return false
 	}
-	// The renewal forest and the old NPC chains can award the same class
-	// through different terminal IDs. A completed forest terminal therefore
-	// does not satisfy the old chain's collision list. Match the existing
-	// profession transition rule before offering another initial-class reward.
-	// Keep active rows visible so a task accepted before a GM class change can
-	// still be abandoned, and keep story/follow-up nodes that grant no class.
-	if !alreadyActive && character.GrowType != 0 && definition.JobChangeQuest == 1 &&
-		normalizeQuestTag(definition.RewardType) == "grow type" {
-		return false
-	}
 	if !definitionMatchesCharacter(definition, character) {
 		return false
 	}

@@ -235,7 +235,11 @@ func (s *Service) handleCurrentChargeRentalPoint(session *gameSession, body []by
 	// 厂商 `LuckyStarClientNotifier.cs:44-68`：成功体为
 	// `01 <i32 mode> <i32 quantity> <i32 totalLuckyStar>`，`mode`/`quantity` 原样回显请求。
 	vendorShapes := currentRentalRejectAckVendorShapes(currentRentalRejectAckMode())
-	if err := s.sendCurrentRentalChargeCommitted(session, request, result); err != nil {
+	response := buildCurrentRentalChargeSuccessBody(request.ChargeType, request.Count, result.Points, vendorShapes)
+	if err := s.sendGameUpperSuccess(session, chargeOpcode, response); err != nil {
+		return err
+	}
+	if err := s.sendSelectedCurrentRentalPointState(session, "op1000_after_atomic_charge", true); err != nil {
 		return err
 	}
 	appliedFields := []any{
@@ -255,25 +259,4 @@ func (s *Service) handleCurrentChargeRentalPoint(session *gameSession, body []by
 	}
 	s.logGameEvent(session, "game-upper-rental-point-charge-applied", appliedFields...)
 	return nil
-}
-
-// The current class1/op1000 handler (1d892a0) reads mode, quantity and
-// absolute points, and refreshes the rental panel. It never changes gold.
-// Only a committed purchase may publish its absolute gold wallet; login and
-// ordinary rental-state refreshes must not publish a synthetic inventory row.
-func (s *Service) sendCurrentRentalChargeCommitted(session *gameSession, request currentChargeRentalPointRequest, result currentRentalAssetResult) error {
-	currentClient := s.options.currentClientVersion == "official-24.9"
-	echoQuantity := currentClient || currentRentalRejectAckVendorShapes(currentRentalRejectAckMode())
-	response := buildCurrentRentalChargeSuccessBody(request.ChargeType, request.Count, result.Points, echoQuantity)
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketChargeRentpoint), response); err != nil {
-		return err
-	}
-	if currentClient {
-		// This is the same absolute money row already verified by the current
-		// native op14 reader and accepted in the gold-jar path. No delta replay.
-		if err := s.sendGameUpperRawClass(session, 14, buildCurrentGoldStateBody(result.Gold), 0); err != nil {
-			return err
-		}
-	}
-	return s.sendSelectedCurrentRentalPointState(session, "op1000_after_atomic_charge", true)
 }

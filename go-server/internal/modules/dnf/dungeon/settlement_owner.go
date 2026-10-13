@@ -36,7 +36,6 @@ type SettlementCommand struct {
 	Tables                  *progression.Tables
 	Experience              uint32
 	RecommendedDungeonClear bool
-	LuckyStar               *LuckyStarPolicy
 	MonthlyAttendance       bool
 	WeeklyAttendance        *WeeklyClearContract
 	AdventureRuntime        *adventuregroup.RuntimeConfig
@@ -54,7 +53,6 @@ type SettlementResult struct {
 	SPGain          int
 	TPGain          int
 	Replayed        bool
-	LuckyStar       LuckyStarResult
 }
 
 // CommitSettlement atomically advances experience and the SP/TP ledger and
@@ -64,9 +62,6 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		strings.TrimSpace(cmd.AccountID) == "" || strings.TrimSpace(cmd.CompletionKey) == "" ||
 		cmd.Tables == nil || cmd.Experience == 0 {
 		return SettlementResult{}, ErrOwnerUnavailable
-	}
-	if cmd.LuckyStar != nil && !cmd.RecommendedDungeonClear {
-		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	ctx = contextOrBackground(ctx)
 	wantHash := sha256.Sum256([]byte(cmd.CompletionKey))
@@ -104,12 +99,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			if err != nil {
 				return err
 			}
-			lucky, err := readSettlementLuckyStarReceipt(character.Stats)
-			if err != nil {
-				return err
-			}
 			result = SettlementResult{
-				LuckyStar: lucky,
 				Character: character, Skill: skill, Inventory: inventory,
 				ExperienceGain: receiptGain, SPGain: receiptSP, Replayed: true,
 			}
@@ -171,10 +161,6 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			if count < math.MaxUint16 {
 				character.Stats[adventuregroup.RecommendedDungeonClearStatKey] = count + 1
 			}
-		}
-		lucky, err := commitSettlementLuckyStar(ctx, tx, &character, cmd.LuckyStar, now)
-		if err != nil {
-			return err
 		}
 		writeSettlementReceipt(
 			character.Stats,
@@ -273,7 +259,6 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		result = SettlementResult{
-			LuckyStar: lucky,
 			Character: character, Skill: skill, Inventory: inventory,
 			ExperienceGain:  cmd.Experience,
 			HonorExpertGain: appliedHonorExpertGain,

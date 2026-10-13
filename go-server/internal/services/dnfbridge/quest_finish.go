@@ -393,20 +393,17 @@ func (s *Service) sendCurrentProfessionFinishPostCommitSnapshots(session *gameSe
 	if err := s.sendGameUpperRawClass(session, currentSkillInfoMsgID, skillBody, 0); err != nil {
 		return err
 	}
-	if err := s.sendCurrentActiveQuestSnapshotFromCommittedQuest(
+	if err := s.sendCurrentClearQuestListFromCommittedQuest(
 		session,
 		result.PostCommitQuest,
-		"current_exe_op34_after_profession_actor_refresh",
+		"current_exe_op34_after_profession_actor_refresh_before_active_snapshot",
 	); err != nil {
 		return err
 	}
-	// An empty op574 clears the client's completed-quest lookup too. Restore
-	// that lookup with op356 before publishing newly acceptable definitions.
-	if err := s.sendCurrentClearQuestListFromCommittedQuest(session, result.PostCommitQuest,
-		"current_exe_op34_after_profession_active_snapshot_before_acceptable"); err != nil {
+	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op34_after_profession_actor_refresh"); err != nil {
 		return err
 	}
-	return s.sendCurrentAcceptableQuestListOnlyForSession(session, "current_exe_op34_after_profession_completed_snapshot")
+	return s.sendCurrentAcceptableQuestListOnlyForSession(session, "current_exe_op34_after_profession_active_snapshot")
 }
 
 // sendCurrentFinishQuestPostCommitSnapshots publishes only the immutable state
@@ -418,8 +415,8 @@ func (s *Service) sendCurrentProfessionFinishPostCommitSnapshots(session *gameSe
 // carrier for ex_equip_slot_stat; mode3 remains suppressed.
 //
 // The order is intentional: changed inventory rows first, then only genuinely
-// changed character/skill state, then active, completed and acceptable quest
-// views. Empty active views reset the client's completed lookup as well.
+// changed character/skill state, and finally the active and acceptable quest
+// views. This keeps quest completion delta-scoped.
 func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession, result dnfquest.FinishCommitResult) error {
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
 	if !result.AtomicCommitted || result.CharacterID != characterID ||
@@ -472,24 +469,22 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 			"completion_key", result.CompletionKey,
 			"reason", "finish_ack_owns_exp_and_no_level_sp_or_expert_job_delta")
 	}
-	// Current YKCN90 EXE op574 (0x2014370), when count is zero, calls
-	// 0x1cb7e40 -> 0x1d506c0 to clear QuestManager+0xc4, the completed lookup.
-	// op356 (0x2009690 -> 0x1cc07f0) must rebuild it after that reset. A
-	// completed table sent first is lost just when the last active quest ends.
-	if err := s.sendCurrentActiveQuestSnapshotFromCommittedQuest(
+	if err := s.sendCurrentClearQuestListFromCommittedQuest(
 		session,
 		result.PostCommitQuest,
-		"current_exe_op34_after_atomic_finish_state_refresh",
+		"current_exe_op34_after_atomic_finish_completed_quest_scene_refresh",
 	); err != nil {
 		return err
 	}
-	if err := s.sendCurrentClearQuestListFromCommittedQuest(session, result.PostCommitQuest,
-		"current_exe_op34_after_active_snapshot_completed_quest_scene_refresh"); err != nil {
+	// 86JP QuestManager publishes the active quest notification immediately
+	// before the acceptable list and leaves that list as the final finish-flow
+	// notification. Keep that domain order while using only the current EXE's
+	// proved op574/op21 builders. The server never auto-accepts the successor;
+	// the client presents it from PVF and sends op31 only after player consent.
+	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op34_after_atomic_finish_state_refresh"); err != nil {
 		return err
 	}
-	// Publish acceptable definitions last, with their prerequisites present.
-	// Acceptance remains owned by the player's native op31 request.
-	return s.sendCurrentAcceptableQuestListOnlyForSession(session, "current_exe_op34_after_completed_snapshot_final")
+	return s.sendCurrentAcceptableQuestListOnlyForSession(session, "current_exe_op34_after_active_snapshot_final")
 }
 
 func (s *Service) sendCurrentFinishQuestSlotExpansionMode1Snapshot(

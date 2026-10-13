@@ -288,9 +288,6 @@ type webAccount struct {
 }
 
 func (s *Server) webAccounts(ctx context.Context) ([]webAccount, error) {
-	if s.usesLocalLoginAccounts() {
-		return s.localLoginAccounts(ctx)
-	}
 	query := "SELECT id, account, account_id, created_at, last_login_at, last_login_ip FROM " +
 		quoteIdentifier(s.cfg.Table) + " ORDER BY id"
 	rows, err := s.db.QueryContext(ctx, query)

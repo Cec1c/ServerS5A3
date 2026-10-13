@@ -134,7 +134,6 @@ func (s *Service) handleCurrentLotteryOverflowConfirm(session *gameSession, body
 		return err
 	}
 	request := currentBoosterOpenRequest{
-		AllowLotteryGold:    true,
 		Kind:                currentBoosterRequestRandom,
 		SourceSlot:          slot,
 		RewardMultiplier:    1,
@@ -159,17 +158,6 @@ func (s *Service) handleCurrentLotteryOverflowConfirm(session *gameSession, body
 	}
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseLotteryItem), resultBody, dnfproto.DefaultChannelClassification); err != nil {
 		return err
-	}
-	if result.GoldAmount > 0 {
-		var entry currentItemListEntry
-		entry.patchCore(0, 0, result.GoldAfter)
-		var writer packetWriter
-		writer.writeByte(dnfrepo.MainInventoryListType)
-		writer.writeUint16(1)
-		writer.writeBytes(entry.data[:])
-		if err := s.sendGameUpperRawClass(session, 14, writer.bytes(), 0); err != nil {
-			return err
-		}
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(
 		session,
@@ -197,8 +185,6 @@ func (s *Service) handleCurrentLotteryOverflowConfirm(session *gameSession, body
 		"source_item", result.SourceItemID,
 		"source_remaining", result.SourceRemaining,
 		"double_reward", doubleReward,
-		"gold_amount", result.GoldAmount,
-		"gold_after", result.GoldAfter,
 		"reward_count", len(result.Rewards),
 		"rewards", fmt.Sprint(result.Rewards))
 	return nil
@@ -210,19 +196,6 @@ func (s *Service) buildCurrentLotteryResultBody(
 	catalog *pvfDungeonDropCatalog,
 	result currentBoosterCommitResult,
 ) ([]byte, error) {
-	if result.GoldAmount > 0 && s.options.currentClientVersion == "official-24.9" {
-		// Native CMD27 reads source u16, a full raw77 reward row, then
-		// u32 currency amount. A zero-template/zero-count row selects the
-		// currency presentation branch; op14 follows with the absolute wallet.
-		var entry currentItemListEntry
-		entry.patchCore(0, 0, 0)
-		var writer packetWriter
-		writer.writeByte(1)
-		writer.writeUint16(uint16(result.SourceSlot))
-		writer.writeBytes(entry.data[:])
-		writer.writeUint32(result.GoldAmount)
-		return writer.bytes(), nil
-	}
 	if len(result.Rewards) == 0 {
 		return s.currentLotteryErrorBody(), nil
 	}

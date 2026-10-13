@@ -127,7 +127,7 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 		if len(values) == 0 || len(values)%3 != 0 {
 			return alignedcmd.MagicBoxResolution{}, fmt.Errorf("legacy jar item=%d invalid reward triples", boxItemID)
 		}
-		group, err := weightedMagicBoxLotteryGroup(append([]int64{1}, values...), 3)
+		group, err := weightedMagicBoxBoosterGroup(append([]int64{1}, values...), 3)
 		if err != nil {
 			return alignedcmd.MagicBoxResolution{}, err
 		}
@@ -283,23 +283,14 @@ func parseMagicBoxBoosterGroup(name string, values []int64) (alignedcmd.MagicBox
 
 // weightedMagicBoxBoosterGroup reads the leading DrawCount and the
 // (item, weight, count) head of every fixed-width row. A zero item id is the
-// PVF's explicit "no item" placeholder in ordinary boosters. Legacy lottery
-// jars instead use item zero for a weighted gold reward. A negative
+// PVF's explicit "no item" placeholder row and contributes nothing; a negative
 // item id, a negative weight or a non-positive count is a malformed table and
 // rejects the whole box instead of dropping value silently.
 func weightedMagicBoxBoosterGroup(values []int64, stride int) (alignedcmd.MagicBoxRewardGroup, error) {
-	return weightedMagicBoxGroup(values, stride, false)
-}
-
-func weightedMagicBoxLotteryGroup(values []int64, stride int) (alignedcmd.MagicBoxRewardGroup, error) {
-	return weightedMagicBoxGroup(values, stride, true)
-}
-
-func weightedMagicBoxGroup(values []int64, stride int, allowGold bool) (alignedcmd.MagicBoxRewardGroup, error) {
 	group := alignedcmd.MagicBoxRewardGroup{DrawCount: maxMagicBoxInt(values[0], 1)}
 	for index := 1; index+2 < len(values); index += stride {
 		itemID, weight, count := values[index], values[index+1], values[index+2]
-		if itemID == 0 && !allowGold {
+		if itemID == 0 {
 			continue
 		}
 		if itemID < 0 || weight < 0 || count < 1 {

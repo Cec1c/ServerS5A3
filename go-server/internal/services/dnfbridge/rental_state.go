@@ -142,27 +142,22 @@ func (s *Service) cleanupSelectedExpiredRentalEquipment(session *gameSession, so
 }
 
 func (s *Service) sendSelectedCurrentRentalPointState(session *gameSession, source string, refresh bool) error {
-	_, err := s.sendSelectedCurrentRentalPointStateResult(session, source, refresh)
-	return err
-}
-
-func (s *Service) sendSelectedCurrentRentalPointStateResult(session *gameSession, source string, refresh bool) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	repositories, characterID, _, err := s.currentRentalSelectedCharacter(ctx, session)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-current-rental-state-deferred", "source", source, "reason", err)
-		return false, nil
+		return nil
 	}
 	account, found, err := repositories.Account.Load(ctx, s.accountIDForSession(session))
 	if err != nil || !found {
 		s.logGameEvent(session, "game-upper-current-rental-state-deferred", "source", source, "character_id", characterID, "reason", errCurrentRentalStateMissing)
-		return false, nil
+		return nil
 	}
 	points, err := currentRentalPoints(account)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-current-rental-state-deferred", "source", source, "character_id", characterID, "reason", err)
-		return false, nil
+		return nil
 	}
 	active := currentRentalActiveEntries(ctx, repositories, characterID, time.Now().UTC())
 	body := buildCurrentRentalPointStateBody(points, active)
@@ -175,12 +170,12 @@ func (s *Service) sendSelectedCurrentRentalPointStateResult(session *gameSession
 		"active_count", len(active),
 		"body_len", len(body),
 		"refresh", refresh,
-		"body_source", "current_exe_sub_1D89DE0_u32_points_u32_count_rows_item_expire")
+		"body_source", "current_exe_sub_1AE2990_u32_points_u32_count_rows_item_expire")
 	if err := s.sendGameUpperRawClass(session, currentRentalStateMsgID, body, 0); err != nil {
-		return false, err
+		return err
 	}
 	session.selectedRentalWalletStateSent = true
-	return true, nil
+	return nil
 }
 
 func currentRentalActiveEntries(ctx context.Context, repositories dnfrepo.Group, characterID string, now time.Time) []currentRentalActiveEntry {

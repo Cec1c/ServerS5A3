@@ -67,7 +67,6 @@ type currentBoosterSelectionRequest struct {
 // category item twice: first N*u32 item IDs, then u8 N and N*{u32 item,u8
 // option}, followed by one trailing UI byte.
 type currentBoosterOpenRequest struct {
-	AllowLotteryGold    bool
 	Kind                currentBoosterRequestKind
 	SourceSlot          int16
 	SelectionContext    uint16
@@ -113,7 +112,6 @@ type currentBoosterGrantedReward struct {
 }
 
 type currentBoosterDefinition struct {
-	GoldMinimumLevel  int64
 	Source            dungeonDropItemDefinition
 	StackableType     string
 	SelectionRequired int
@@ -125,8 +123,6 @@ type currentBoosterDefinition struct {
 }
 
 type currentBoosterCommitResult struct {
-	GoldAmount      uint32
-	GoldAfter       uint32
 	SourceItemID    uint32
 	SourceSlot      int16
 	SourceRemaining uint32

@@ -36,23 +36,20 @@ var (
 )
 
 type runtimeDungeonState struct {
-	entryCharacterLevel          int
-	settlementLuckyStar          dnfdungeon.LuckyStarResult
-	settlementLuckyStarStateSent bool
-	raidDeadlineReturn           *currentRaidDeadlineReturn
-	lukeSanctumMaze              *currentLukeSanctumMazePreparation
-	semesterRun                  *currentSemesterRun
-	epicEntry                    *currentEpicEntry
-	raidEntry                    *currentRaidDungeonEntry
-	antonMapReturnOwner          *currentAntonMapReturnOwner
-	antonHatcheryTransfer        *currentAntonHatcheryTransfer
-	deathStateSent               bool
-	riftLoot                     *currentRiftLootDefinition
-	fatigueRooms                 map[worldmap.RoomCoordinate]bool
-	Request                      dungeoncmd.SelectDungeonRequest
-	Dungeon                      worldmap.Dungeon
-	MazeIndex                    int
-	Character                    dnfrepo.CharacterRecord
+	raidDeadlineReturn    *currentRaidDeadlineReturn
+	lukeSanctumMaze       *currentLukeSanctumMazePreparation
+	semesterRun           *currentSemesterRun
+	epicEntry             *currentEpicEntry
+	raidEntry             *currentRaidDungeonEntry
+	antonMapReturnOwner   *currentAntonMapReturnOwner
+	antonHatcheryTransfer *currentAntonHatcheryTransfer
+	deathStateSent        bool
+	riftLoot              *currentRiftLootDefinition
+	fatigueRooms          map[worldmap.RoomCoordinate]bool
+	Request               dungeoncmd.SelectDungeonRequest
+	Dungeon               worldmap.Dungeon
+	MazeIndex             int
+	Character             dnfrepo.CharacterRecord
 	// AccountID 是**建这个 runtime 的那条会话**的账号（accountIDForSession，在请求
 	// 边界冻结，与 currentEquipmentPlacementValidator.selectedAccountID 同一口径）。
 	// 副本内所有**账号级**读取（成长契约/黑钻等 entitlement、掉落按账号取的加成）
@@ -161,7 +158,6 @@ type runtimeDungeonState struct {
 	clearMapCompletionPendingQuestIDs    []int64
 	clearMapCompletionActiveSnapshotSent bool
 	clearMapCompletionNotificationClosed bool
-	storyQuestAfterFreeCardSnapshotSent  bool
 	tutorialCompletedReentry             bool
 	tutorialCompletedReentryExitSent     bool
 	tutorialFinalFlagAckSent             bool
@@ -767,8 +763,7 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		lukeSanctumMaze:       lukeSanctumMaze,
 		Request:               request, Dungeon: dungeon, MazeIndex: mazeIndex,
 		Character: character, AccountID: s.accountIDForSession(session),
-		entryCharacterLevel: character.Level,
-		Session:             dungeonSession, Room: room, NextObjectKey: nextObjectKey,
+		Session: dungeonSession, Room: room, NextObjectKey: nextObjectKey,
 		BossCoordinate: bossCoordinate, BossSet: true,
 		LayeredMapIndex: -1, StoryStageIndex: -1, Seed: seed,
 		LayerChains: make(map[worldmap.RoomCoordinate]*runtimeDungeonLayerChain),

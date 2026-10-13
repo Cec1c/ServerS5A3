@@ -392,10 +392,6 @@ func mysqlOptionValue(value string) string {
 }
 
 func runtimeEnvironment(cfg instanceConfig) []string {
-	channelScriptEncoding := cfg.Protocol.ChannelScriptEncoding
-	if channelScriptEncoding == "" {
-		channelScriptEncoding = "utf8"
-	}
 	values := map[string]string{
 		"LONGHENG_DNF_CONFIG":                      "configs/dnf/logic.toml",
 		"DNFBRIDGE_SERVER_IP":                      cfg.Server.AdvertiseIP,
@@ -406,7 +402,6 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		"DNFBRIDGE_PARTY_UDP_RELAY_PORT_COUNT":     strconv.Itoa(cfg.Server.PartyUDPRelayPortCount),
 		"DNFBRIDGE_CHANNEL_INFO_PATH":              filepath.ToSlash(cfg.Game.ChannelInfoPath),
 		"DNFBRIDGE_CHANNEL_INFO_BODY_MODE":         "latest",
-		"DNFBRIDGE_CHANNEL_SCRIPT_ENCODING":        channelScriptEncoding,
 		"DNFBRIDGE_PVF_PATH":                       filepath.ToSlash(cfg.Game.PVFPath),
 		"DNFBRIDGE_ACCOUNT_ID":                     cfg.Server.AccountID,
 		"DNFBRIDGE_PACKET_LOG":                     strconv.FormatBool(cfg.Server.PacketLog),
@@ -446,9 +441,6 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		values["DNFBRIDGE_GM_LISTEN"] = gm
 		values["DNFBRIDGE_GM_PASSWORD"] = cfg.Server.AdminToken
 		values["DNFBRIDGE_GM_DSN"] = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4,utf8", cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name)
-		if cfg.Protocol.Profile == "native-channel-profile-official-24.9" {
-			values["DNFBRIDGE_GM_ACCOUNT_TABLE"] = localLoginAccountTable
-		}
 	}
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }

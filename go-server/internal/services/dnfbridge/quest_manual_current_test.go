@@ -3,7 +3,6 @@ package dnfbridge
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"reflect"
 	"testing"
 	"time"
@@ -11,50 +10,6 @@ import (
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
-
-func TestCurrentQuestManualKeepsCompletedPrerequisitesWhenActiveListBecomesEmpty(t *testing.T) {
-	s, session, repos := currentQuestManualFixture(t)
-	ctx := context.Background()
-	if err := repos.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "17", States: map[int64]dnfrepo.QuestState{100: {Status: "active", ProgressValue: 1}}}); err != nil {
-		t.Fatal(err)
-	}
-	dispatchCurrentQuestManual(t, s, session, false, 1, 1427, []byte{0, 0, 0, 0})
-	session.conn.(*bufferConn).write.Reset()
-	dispatchCurrentQuestManual(t, s, session, false, 1, 1454, nil)
-	completed := map[int]bool{}
-	sawEmpty := false
-	sawAcceptable := false
-	stream := session.conn.(*bufferConn).write.Bytes()
-	for len(stream) > 0 {
-		packet, next := splitGameServerUpperPacket(t, stream)
-		stream = next
-		switch packet.Header.MsgID {
-		case currentActiveQuestSnapshotMsgID:
-			if binary.LittleEndian.Uint32(packet.Body[:4]) == 0 {
-				sawEmpty = true
-				clear(completed)
-			}
-		case currentClearQuestListMsgID:
-			plain, err := zlibDecompress(packet.Body[3:])
-			if err != nil {
-				t.Fatal(err)
-			}
-			for id, flag := range plain[4:] {
-				if flag != 0 {
-					completed[id] = true
-				}
-			}
-		case currentAcceptableQuestListMsgID:
-			sawAcceptable = true
-			if !completed[100] {
-				t.Fatal("native completed prerequisite lost before successor list")
-			}
-		}
-	}
-	if !sawEmpty || !sawAcceptable || !completed[100] {
-		t.Fatal("empty active list erased completed prerequisite")
-	}
-}
 
 func currentQuestManualFixture(t *testing.T) (*Service, *gameSession, dnfrepo.Group) {
 	t.Helper()

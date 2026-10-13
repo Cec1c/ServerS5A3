@@ -29,11 +29,10 @@ type currentRentalGroupKey struct {
 }
 
 type currentRentalCatalog struct {
-	Limit              uint32
-	DungeonClearPoints uint32
-	GoldPerPoint       int64
-	Tiers              []currentRentalTier
-	Groups             map[currentRentalGroupKey]map[uint32]uint32
+	Limit        uint32
+	GoldPerPoint int64
+	Tiers        []currentRentalTier
+	Groups       map[currentRentalGroupKey]map[uint32]uint32
 }
 
 func parseCurrentRentalCatalog(source initialEquipmentTextSource) (*currentRentalCatalog, error) {
@@ -66,7 +65,7 @@ func parseCurrentRentalCatalog(source initialEquipmentTextSource) (*currentRenta
 			chargeInts = append(chargeInts, token.Int)
 		}
 	}
-	if len(chargeTexts) != 2 || len(chargeInts) != 2 || chargeTexts[0] != "pdungeon" || chargeTexts[1] != "gold" || (chargeInts[0] <= 0 || chargeInts[0] > limit) || chargeInts[1] <= 0 {
+	if len(chargeTexts) != 2 || len(chargeInts) != 2 || chargeTexts[0] != "pdungeon" || chargeTexts[1] != "gold" || chargeInts[0] != 1 || chargeInts[1] <= 0 {
 		return nil, fmt.Errorf("%w: unsupported [point charge] texts=%v ints=%v", errRentalCatalogInvalid, chargeTexts, chargeInts)
 	}
 
@@ -154,11 +153,10 @@ func parseCurrentRentalCatalog(source initialEquipmentTextSource) (*currentRenta
 		return nil, fmt.Errorf("%w: no rental groups", errRentalCatalogInvalid)
 	}
 	return &currentRentalCatalog{
-		Limit:              uint32(limit),
-		DungeonClearPoints: uint32(chargeInts[0]),
-		GoldPerPoint:       chargeInts[1],
-		Tiers:              tiers,
-		Groups:             groups,
+		Limit:        uint32(limit),
+		GoldPerPoint: chargeInts[1],
+		Tiers:        tiers,
+		Groups:       groups,
 	}, nil
 }
 

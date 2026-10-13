@@ -1,42 +1,13 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
-	"longheng.io/server/internal/modules/dnf/localaccount"
 )
-
-func TestRegistrationExplainsInvalidFieldsBeforeDatabaseAccess(t *testing.T) {
-	for _, tc := range []struct {
-		name, username, password, message string
-	}{
-		{"short-password", "7667744", "1234567", "密码格式不符合要求"},
-		{"long-password", "7667744", strings.Repeat("x", 73), "密码格式不符合要求"},
-		{"control-character", "7667744", "secret\npassword", "密码格式不符合要求"},
-		{"short-username", "ab", "valid-password", "账号格式不符合要求"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			// No runtime/database exists: invalid input must fail before any setup.
-			c := &controller{paths: newProjectPaths(t.TempDir())}
-			err := c.registerLocalLoginAccount(context.Background(), tc.username, tc.password, false)
-			if !errors.Is(err, localaccount.ErrCredentials) || !strings.Contains(err.Error(), tc.message) {
-				t.Fatalf("missing registration guidance: %v", err)
-			}
-			if strings.Contains(err.Error(), tc.password) {
-				t.Fatal("registration error disclosed password")
-			}
-			if _, err := os.Stat(c.paths.runtimeRoot); !os.IsNotExist(err) {
-				t.Fatal("invalid registration touched runtime")
-			}
-		})
-	}
-}
 
 func TestNormalizeLocalUsername(t *testing.T) {
 	tests := map[string]string{

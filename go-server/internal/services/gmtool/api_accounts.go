@@ -53,19 +53,12 @@ func (s *Server) accountListPayload(ctx context.Context, group dnfrepo.Group, ac
 			names = append(names, character.Name)
 		}
 		cera := s.accountCera(ctx, group, account.AccountID)
-		value, starErr := accountLuckyStars(ctx, group, account.AccountID)
-		var luckyStars any = value
-		// Keep the established zero display for a launcher account whose
-		// gameplay wallet has not been created. Other read failures are unknown.
-		if starErr != nil && starErr != errAccountMissing {
-			luckyStars = nil
-		}
 		payload = append(payload, map[string]any{
 			"accountId":      account.PanelID,
 			"name":           account.Account,
 			"cera":           cera,
 			"tokenCera":      0,
-			"luckyStar":      luckyStars,
+			"luckyStar":      0,
 			"characterCount": len(characters),
 			"characterNames": names,
 		})
@@ -92,17 +85,12 @@ func (s *Server) handleAccountDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	characters, _ := s.charactersForAccount(ctx, group, account.AccountID)
 
-	luckyStars, starErr := accountLuckyStars(ctx, group, account.AccountID)
-	if starErr != nil {
-		writeFailure(w, "读取幸运星失败: "+starErr.Error())
-		return
-	}
 	currencies := map[string]any{
 		"name":           account.Account,
 		"cera":           s.accountCera(ctx, group, account.AccountID),
 		"tokenCera":      int64(0),
 		"happyTokenCera": int64(0),
-		"luckyStar":      luckyStars,
+		"luckyStar":      int64(0),
 		"seriaLuck":      int64(0),
 	}
 
@@ -190,7 +178,7 @@ type accountCurrencyRequest struct {
 
 // handleAccountCurrency 覆写/增减账号级点券。
 // 90CN 把点券存在角色数值里，所以这里对该账号的所有角色统一取值；
-// 幸运星走账号租赁钱包；赛丽亚幸运仍无对应字段。
+// 幸运星/赛丽亚幸运在 90CN 没有对应字段，直接返回明确失败。
 func (s *Server) handleAccountCurrency(w http.ResponseWriter, r *http.Request) {
 	panelID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("id")), 10, 64)
 	if err != nil {
@@ -238,7 +226,7 @@ func (s *Server) applyAccountCurrency(
 		writeFailure(w, "90CN 的点券只有一个账号级池子（account_cera），没有独立的代币券数值；请用 cera。")
 		return
 	case "luckystar":
-		s.handleAccountLuckyStars(w, ctx, group, account, body)
+		writeFailure(w, "90CN 服务端没有幸运星数值，无法设置。")
 		return
 	case "serialuck":
 		writeFailure(w, "90CN 服务端没有赛丽亚幸运数值，无法设置。")
