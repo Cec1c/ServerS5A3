@@ -1,3 +1,19 @@
+## 2026-10-13 — Native merging persists; instantaneous merged-purchase count fix integrated
+
+Own account10071/character108 completed the activity prerequisites normally and bought two talismans on server703. Read-only snapshots prove one inventory row/count2, gold600992 and unchanged expiry after a complete normal client restart. SQL count2/week2962 and the restarted native2/70 agree. This closes the tested new-purchase merge/persistence boundary. It does not close the live-count defect: the second merged purchase showed3/70 until restart, and the original screenshots are retained in own-expiration-merge711.
+
+Private actual-client analysis722 identifies the BuyItem ACK quantity as the increment at VA0x1FD8E51/0x1C61450. The integrated server candidate projects stackable ACKs with the purchased quantity, then keeps full inventory totals in the following op14 update and in storage. Three meaningful controls (pre-existing gold stack, two actual-PVF purchases and merged material exchange) fail on baseline and pass on candidate724; equipment instance data stays unchanged. Combined validation and deployed native verification remain pending.
+
+Four original agents continue private raid and reward work. Persistent-read failure uses a candidate disconnect strategy; cross-Service key/token/generation collision and true nonzero-token start/clear/restart still require proof. Reward restore trace controls are progressing with original REDs retained. None of these private candidates is included. P2/P37/P50 stay excluded, ordinary Luke unlock remains cancelled, and accepted items stay closed.
+
+## 2026-10-13 — Expiration merge deployed; restart preservation verified
+
+Source970aaf5f0ef7c20e67cc556170b381690ad909e0 is now deployed through703 after all four jobs of pipeline165161 succeeded. Independent704 verifies the validated binary,118 game listeners and unchanged own-account assets;705 synchronizes3475 maintenance source files after backup. The signed v97 feed, configuration, PVF and relay remain unchanged by this deployment.
+
+Full normal own-account login706, native shop view and read-only counter708 agree on70/70 and gold6000992 after the new server starts. SQL707 retains count70/week2962. The new expiration merge has seven passing actual-PVF controls and is deployed; a fresh successful native purchase/merge still needs an eligible own-QA account because this account has reached its weekly limit. Existing separate rows remain separate, and the quota is not reset.
+
+Private raid candidates have now proved a real664 nonzero token and a counted member-removal save failure at function level; actual leave-handler ACK evidence and the nonzero-token clear/restart chain remain open. Unknown-commit exact-write readback handles cancelled contexts in a private candidate, but unavailable reads and caller pending-state handling remain open. Four-card legal reward replay passes; bounded generability and real draw trace persistence are not full reward-recovery acceptance. None of these private candidates is deployed. P2/P37/P50 stay excluded, ordinary Luke unlock remains cancelled, and prior accepted items stay closed.
+
 ## 2026-10-13 — Native weekly counter accepted; expiration merge validated
 
 Own account10070 / character106 completed normal purchases to70/70. The actual 71st attempt returned server opcode21 error0x85 without changing gold or quota. Shop reopen and a complete new client process retained70/70; read-only SQL and client counter both agreed. Earlier inventory-capacity refusal at56 returned0x04; normal QA-item sales freed space before purchases resumed. Native evidence and the signed public client publication are preserved under continuation-checkpoint697 and public-feed-publication695.

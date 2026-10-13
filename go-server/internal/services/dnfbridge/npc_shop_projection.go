@@ -104,7 +104,7 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 			result = currentNPCShopBuyResult{
 				GoldAfter: goldAfter,
 				SPAfter:   character.Stats["sp"],
-				Item:      itemEntry,
+				Item:      currentNPCShopBuyAckEntry(itemEntry, pricing.Definition, request.Count),
 				Updates:   updates,
 				Slot:      slot,
 				ItemID:    request.ItemID,
@@ -281,7 +281,7 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 			sortCurrentItemListEntries(updates)
 			result.GoldAfter = gold
 			result.SPAfter = character.Stats["sp"]
-			result.Item = itemEntry
+			result.Item = currentNPCShopBuyAckEntry(itemEntry, pricing.Definition, request.Count)
 			result.Updates = updates
 			result.Slot = grantSlots[0]
 			result.ItemID = request.ItemID

@@ -125,6 +125,17 @@ func parseCurrentNPCShopSellRequest(body []byte) (currentNPCShopSellRequest, err
 	return request, nil
 }
 
+// BuyItem's stack quantity also increments the native purchase counter at
+// VA 0x1FD8E3A/0x1C61450. Carry this purchase's quantity in the ACK; the
+// following class0/op14 update and durable RawEntry retain the full stack.
+// Equipment uses these bytes as instance data and must retain them.
+func currentNPCShopBuyAckEntry(entry currentItemListEntry, definition dungeonDropItemDefinition, quantity uint32) currentItemListEntry {
+	if definition.Kind == dungeonDropItemStackable {
+		binary.LittleEndian.PutUint32(entry.data[6:10], quantity)
+	}
+	return entry
+}
+
 func buildCurrentNPCShopBuySuccessBody(result currentNPCShopBuyResult) []byte {
 	var body packetWriter
 	body.writeByte(1)
