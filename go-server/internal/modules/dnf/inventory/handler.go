@@ -969,8 +969,14 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 	if result.Mode == "noop" {
 		moveValue = 0
 	}
+	// P61/P68：金库（个人 list 2 / 账号 list 12）存入时，领域层会把物品自动并入
+	// **已有同类堆**，真正改动的落点不是客户端点名的空槽。MoveResult 的端点就是
+	// 那对落库端点（与 equip/owner 的 committed endpoint 约定一致），op19 ACK 必须
+	// 回它，以消除应答空槽与事务结果不一致。现服客户端即时归并效果仍待验证。
+	// 非金库端点、或本次没有发生落点重定向时，ackCommand 与请求端点逐字节相同。
+	ackCommand := vaultCommittedMoveAckCommand(cmd, result)
 	responses := []alignedcmd.UpperResponse{
-		class1Response(opcode, buildMoveItemspaceSuccessAck(cmd, moveValue)),
+		class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 	}
 	itemSlotRefreshes := make([]alignedcmd.ItemSlotRefresh, 0, 2)
 	crossContainerStack := result.Changed &&
@@ -1019,18 +1025,54 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
 		Reason: fmt.Sprintf(
-			"inventory owner applied: %s moveMode=%s moveCount=%d changed=%t refreshLists=%v incrementalSlots=%v; opened 0x0013 ACK then authoritative refresh for changed counts",
+			"inventory owner applied: %s moveMode=%s moveCount=%d changed=%t refreshLists=%v incrementalSlots=%v requestEndpoints=(%d,%d)->(%d,%d) ackEndpoints=(%d,%d)->(%d,%d); opened 0x0013 ACK then authoritative refresh for changed counts",
 			cmd.String(),
 			result.Mode,
 			result.MoveCount,
 			result.Changed,
 			result.RefreshListTypes,
 			itemSlotRefreshes,
+			cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex,
+			ackCommand.SourceListType, ackCommand.SourceSlotIndex, ackCommand.DestinationListType, ackCommand.DestinationSlotIndex,
 		),
 		UpperResponses:    responses,
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+}
+
+// vaultCommittedMoveAckCommand 回答"这条 op19 应答该回哪对端点"。
+//
+// 金库（个人金库 list 2 / 账号金库 list 12）的存入会由领域层自动并入已有同类堆：
+// Owner 把 MoveResult 端点写成**真正改动的落库端点**（与 equip/owner 的 committed
+// endpoint 约定一致），于是这里回的 ACK 端点可能与客户端点名的槽不同。
+// 候选依据：既有协议实现用 ACK 端点投影搬运；将端点对齐实际合并行，
+// 避免应答空槽与事务结果不一致。现服 EXE 的原生效果仍需主代理验证。
+//
+// 只有金库端点参与、且本次确实发生了落点重定向时才改写；背包内移动、装扮、勋章、
+// 宠物以及一切未重定向的移动都返回原 cmd，下行字节逐字节不变。
+func vaultCommittedMoveAckCommand(cmd Command, result MoveResult) Command {
+	if !result.Changed || (result.Mode != "auto_stack" && result.Mode != "auto_stack_reverse") ||
+		(!isVaultContainerList(cmd.SourceListType) && !isVaultContainerList(cmd.DestinationListType)) {
+		return cmd
+	}
+	if result.SourceListType == cmd.SourceListType &&
+		result.SourceSlotIndex == cmd.SourceSlotIndex &&
+		result.DestinationListType == cmd.DestinationListType &&
+		result.DestinationSlotIndex == cmd.DestinationSlotIndex {
+		return cmd
+	}
+	ack := cmd
+	ack.SourceListType = result.SourceListType
+	ack.SourceSlotIndex = result.SourceSlotIndex
+	ack.DestinationListType = result.DestinationListType
+	ack.DestinationSlotIndex = result.DestinationSlotIndex
+	return ack
+}
+
+// isVaultContainerList 回答某个容器端点是否是金库容器。
+func isVaultContainerList(listType byte) bool {
+	return listType == listTypePersonalCargo || listType == listTypeAccountCargo
 }
 
 func ownerAppliedSellResult(opcode uint16, cmd Command, result SellResult) alignedcmd.Result {

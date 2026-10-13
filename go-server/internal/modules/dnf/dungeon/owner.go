@@ -16,7 +16,6 @@ import (
 
 const (
 	LuckyStarMetadataKey = "rental_lucky_stars"
-	LuckyStarMaximum     = uint32(999)
 )
 
 var (
@@ -79,20 +78,6 @@ type GoldPickupCommand struct {
 type GoldPickupResult struct {
 	GoldBefore int64
 	GoldAfter  int64
-}
-
-type LuckyStarCommand struct {
-	AccountID      string
-	CharacterLevel int
-	RecommendedMin int
-	RecommendedMax int
-	UpdatedAt      time.Time
-}
-
-type LuckyStarResult struct {
-	Awarded bool
-	Before  uint32
-	After   uint32
 }
 
 // Owner is the durable mutation boundary for dungeon rewards. Packet parsing,
@@ -309,43 +294,6 @@ func (o *Owner) GrantPickupGold(ctx context.Context, cmd GoldPickupCommand) (Gol
 	})
 	if err != nil {
 		return GoldPickupResult{}, err
-	}
-	return result, nil
-}
-
-func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (LuckyStarResult, error) {
-	if o == nil || o.accounts == nil || strings.TrimSpace(cmd.AccountID) == "" {
-		return LuckyStarResult{}, ErrOwnerUnavailable
-	}
-	if cmd.CharacterLevel <= 0 || cmd.RecommendedMin <= 0 || cmd.RecommendedMax < cmd.RecommendedMin {
-		return LuckyStarResult{}, ErrRewardInvalid
-	}
-	if cmd.CharacterLevel < cmd.RecommendedMin || cmd.CharacterLevel > cmd.RecommendedMax {
-		return LuckyStarResult{}, nil
-	}
-	ctx = contextOrBackground(ctx)
-	account, found, err := o.accounts.Load(ctx, cmd.AccountID)
-	if err != nil {
-		return LuckyStarResult{}, err
-	}
-	if !found {
-		return LuckyStarResult{}, ErrAccountNotFound
-	}
-	account = dnfrepo.CloneAccount(account)
-	if account.Metadata == nil {
-		account.Metadata = make(map[string]string, 1)
-	}
-	current := parseLuckyStars(account.Metadata[LuckyStarMetadataKey])
-	result := LuckyStarResult{Before: current, After: current}
-	if current >= LuckyStarMaximum {
-		return result, nil
-	}
-	result.Awarded = true
-	result.After = current + 1
-	account.Metadata[LuckyStarMetadataKey] = strconv.FormatUint(uint64(result.After), 10)
-	account.UpdatedAt = updatedAtOrNow(cmd.UpdatedAt)
-	if err := o.accounts.Save(ctx, account); err != nil {
-		return LuckyStarResult{}, err
 	}
 	return result, nil
 }

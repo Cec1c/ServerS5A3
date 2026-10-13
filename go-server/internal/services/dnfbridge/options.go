@@ -145,6 +145,7 @@ type options struct {
 	channelServerID          int
 	channelAdvertiseID       int
 	channelInfoBodyMode      string
+	channelScriptEncoding    string
 	serverIP                 string
 	scriptVersion            string
 	gameOuterToken           uint32
@@ -777,13 +778,14 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 			"DNFBRIDGE_CHANNEL_INFO_BODY_MODE",
 			channelInfoBodyLatest,
 		)),
-		serverIP:          chooseServerIP(cfg),
-		scriptVersion:     envString("DNF_SCRIPT_VERSION", defaultScriptVersion),
-		gameOuterToken:    envUint32Any([]string{"DNFBRIDGE_GAME_OUTER_TOKEN", "DFO_GAME_OUTER_TOKEN"}, 0),
-		gameInitialMode:   normalizeGameInitialMode(envString("DNFBRIDGE_GAME_INITIAL_MODE", gameInitialModeNotice)),
-		gamePreBootstrap:  normalizeGamePreBootstrap(envString("DNFBRIDGE_GAME_PRE_BOOTSTRAP", gamePreBootstrapNone)),
-		gamePostBootstrap: normalizeGamePostBootstrap(envString("DNFBRIDGE_GAME_POST_BOOTSTRAP", gamePostBootstrapNone)),
-		gameUpperHeader:   normalizeGameUpperHeader(envString("DNFBRIDGE_GAME_UPPER_HEADER", gameUpperHeaderChannel13)),
+		channelScriptEncoding: envString("DNFBRIDGE_CHANNEL_SCRIPT_ENCODING", "utf8"),
+		serverIP:              chooseServerIP(cfg),
+		scriptVersion:         envString("DNF_SCRIPT_VERSION", defaultScriptVersion),
+		gameOuterToken:        envUint32Any([]string{"DNFBRIDGE_GAME_OUTER_TOKEN", "DFO_GAME_OUTER_TOKEN"}, 0),
+		gameInitialMode:       normalizeGameInitialMode(envString("DNFBRIDGE_GAME_INITIAL_MODE", gameInitialModeNotice)),
+		gamePreBootstrap:      normalizeGamePreBootstrap(envString("DNFBRIDGE_GAME_PRE_BOOTSTRAP", gamePreBootstrapNone)),
+		gamePostBootstrap:     normalizeGamePostBootstrap(envString("DNFBRIDGE_GAME_POST_BOOTSTRAP", gamePostBootstrapNone)),
+		gameUpperHeader:       normalizeGameUpperHeader(envString("DNFBRIDGE_GAME_UPPER_HEADER", gameUpperHeaderChannel13)),
 		gameUpperBodyCodec: normalizeGameUpperBodyCodec(envString(
 			"DNFBRIDGE_GAME_UPPER_BODY_CODEC",
 			gameUpperBodyCodecAuto,

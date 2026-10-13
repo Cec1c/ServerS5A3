@@ -40,7 +40,7 @@ func TestParseCurrentRentalCatalogPreservesJobTierPairs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse catalog: %v", err)
 	}
-	if catalog.Limit != 400 || catalog.GoldPerPoint != 100000 {
+	if catalog.Limit != 400 || catalog.DungeonClearPoints != 1 || catalog.GoldPerPoint != 100000 {
 		t.Fatalf("wallet config = limit %d gold %d", catalog.Limit, catalog.GoldPerPoint)
 	}
 	if tier, ok := catalog.tierForLevel(1); !ok || tier != 0 {
@@ -334,7 +334,7 @@ func TestRealScriptPVFCurrentRentalCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse real rental catalog: %v", err)
 	}
-	if catalog.Limit != 400 || catalog.GoldPerPoint != 100000 {
+	if catalog.Limit != 400 || catalog.DungeonClearPoints != 1 || catalog.GoldPerPoint != 100000 {
 		t.Fatalf("real wallet config = %+v", catalog)
 	}
 	if cost, ok := catalog.itemCost("[gun blader]", 0, 416000000); !ok || cost != 3 {

@@ -414,51 +414,6 @@ func TestOwnerCompleteTutorialPersistsNextLoginState(t *testing.T) {
 	}
 }
 
-func TestOwnerAwardLuckyStarOwnsSuitabilityAndCap(t *testing.T) {
-	ctx := context.Background()
-	repos := dnfrepomemory.NewMemoryGroup()
-	if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{
-		AccountID: "account-1",
-		Metadata:  map[string]string{LuckyStarMetadataKey: "998"},
-	}); err != nil {
-		t.Fatalf("seed account: %v", err)
-	}
-	owner, _ := NewOwner(repos)
-	result, err := owner.AwardLuckyStar(ctx, LuckyStarCommand{
-		AccountID:      "account-1",
-		CharacterLevel: 50,
-		RecommendedMin: 45,
-		RecommendedMax: 55,
-	})
-	if err != nil {
-		t.Fatalf("AwardLuckyStar: %v", err)
-	}
-	if !result.Awarded || result.Before != 998 || result.After != 999 {
-		t.Fatalf("result = %+v", result)
-	}
-	capped, err := owner.AwardLuckyStar(ctx, LuckyStarCommand{
-		AccountID:      "account-1",
-		CharacterLevel: 50,
-		RecommendedMin: 45,
-		RecommendedMax: 55,
-	})
-	if err != nil {
-		t.Fatalf("capped AwardLuckyStar: %v", err)
-	}
-	if capped.Awarded || capped.Before != 999 || capped.After != 999 {
-		t.Fatalf("capped = %+v", capped)
-	}
-	outside, err := owner.AwardLuckyStar(ctx, LuckyStarCommand{
-		AccountID:      "account-1",
-		CharacterLevel: 60,
-		RecommendedMin: 45,
-		RecommendedMax: 55,
-	})
-	if err != nil || outside.Awarded {
-		t.Fatalf("outside = %+v, err=%v", outside, err)
-	}
-}
-
 func TestOwnerCommitSettlementAdvancesAndReplaysReceipt(t *testing.T) {
 	ctx := context.Background()
 	tables, err := progression.Load(ctx, settlementTestSource())

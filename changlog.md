@@ -1,3 +1,21 @@
+## 2026-10-13 — 设计图升级修复（待实机验收）
+
+- 补齐装备设计图升级：扣除设计图和所需材料后，在原位置替换为升级装备，并保留品级、强化、增幅和附魔；配方要求保留徽章时一并保留。
+- 材料不足、装备锁定或保存失败时，整次升级取消，不扣除任何物品或金币。
+- 已离线检查全部 9,598 张设计图；同类属性继承设计图中，90 张符合本次支持条件，包含全部 25 张卢克 90B 防具设计图。游戏内效果仍待凌晨 2 点后的实机验收。
+- 同时修复历史幸运星余额超过上限时无法结算的问题，已有余额保留。
+- 金库自动合并的应答改为实际合并格，避免服务端先指向空格；已完成服务端回归，实际显示速度待验收。
+- 剑豪中心切换按钮的请求已兼容，并保留职业、等级、装备类型和保存失败回滚检查。
+- 卢克一阶段翻牌后避免重复打开同一奖励画面；二阶段回归已通过，实际动画待验收。
+- 自动化测试和集成由主代理统一执行；四个子代理交付后均已关闭。
+- 本条记录的是私有候选改动，尚未部署或发布新的客户端 EXE。正式发布时会在仓库更新玩家版日志、下载文件和校验值。
+
+## 2026-10-13 — 整理本地 Windows 测试的服务端修复
+
+- 整理本地注册反馈、频道下载编码、GM 本地账号映射、翻牌后主线刷新/完成后接续、回城旧场景状态抑制、任务手册快照顺序与旧协议正常放弃。
+- 纳入幸运星结算/GM 钱包读写/购买余额刷新、金币罐原子发奖与结算拾取槽位修复，并保留最新上游 NPC 商店期限合并和购买数量更新。
+- 改动附领域/桥接/控制器/GM 回归及配套 PVF 专项，独立源码执行约定检查与 Windows 构建；客户端依赖、用户已验收项目及未完成边界见 `Docs/LOCAL_FIXES_20261013.md`。不包含升级券、GM 职业候选或客户端/PVF 二进制，不改运行环境或数据库。
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.

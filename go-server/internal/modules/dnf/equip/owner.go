@@ -651,7 +651,13 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 	}
 	creatureMove := kind == moveKindPet
 	petAggregateMove := creatureMove || kind == moveKindArtifact
-	if cmd.MoveCount != 1 {
+	// Current EXE c3ea63ec's dual-weapon button (0276C260 -> 025EBBF0)
+	// sends list3/12 -> list3/24 with count=0. Here zero denotes a worn-slot
+	// exchange, not a stack quantity. Keep every other move's count=1 rule;
+	// PVF placement and the character item transaction still authorize the swap.
+	weaponButtonSwap := cmd.SourceListType == wireListEquipment && cmd.SourceSlotIndex == 12 &&
+		cmd.DestinationListType == wireListEquipment && cmd.DestinationSlotIndex == 24 && cmd.MoveCount == 0
+	if cmd.MoveCount != 1 && !weaponButtonSwap {
 		return MoveResult{}, fmt.Errorf("%w: count=%d", ErrMoveStackCountInvalid, cmd.MoveCount)
 	}
 	if !creatureMove && o.placementValidator == nil {
@@ -757,7 +763,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			return MoveResult{}, err
 		}
 	}
-	if reversed {
+	if reversed && cmd.SourceListType != cmd.DestinationListType {
 		// Keep the request's A/B list direction, but return the authoritative
 		// inventory slot selected by the owner. Cross-list op19 accepts a
 		// redirected final slot; this is required when the client's stale bag
@@ -765,6 +771,10 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 		result.SourceListType = cmd.SourceListType
 		result.SourceSlotIndex = result.DestinationSlotIndex
 		result.DestinationListType = cmd.DestinationListType
+		result.DestinationSlotIndex = cmd.DestinationSlotIndex
+	}
+	if reversed && cmd.SourceListType == wireListEquipment && cmd.DestinationListType == wireListEquipment {
+		result.SourceSlotIndex = cmd.SourceSlotIndex
 		result.DestinationSlotIndex = cmd.DestinationSlotIndex
 	}
 	return result, nil

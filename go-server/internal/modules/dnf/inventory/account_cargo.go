@@ -204,6 +204,10 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 				}
 				srcItems[slotKey(cmd.SourceListType, targetSlot)] = target
 				result.MoveCount, result.Mode, result.Changed = moveCount, "auto_stack_reverse", true
+				// P61/P68：自动并入已有同类堆时，MoveResult 端点记录**真正改动的那一格**
+				// （与 equip/owner 的 committed endpoint 约定一致）。dnfbridge 按它生成 op19 ACK，
+				// 用实际落点消除 ACK 与事务结果差异；现服客户端效果仍需验证。
+				result.SourceSlotIndex = targetSlot
 				return result, nil
 			}
 		}
@@ -252,6 +256,8 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 				}
 				dstItems[slotKey(cmd.DestinationListType, targetSlot)] = target
 				result.MoveCount, result.Mode, result.Changed = moveCount, "auto_stack", true
+				// 同上：记录真正被加仓的那一格，供 op19 ACK 即时投影。
+				result.DestinationSlotIndex = targetSlot
 				return result, nil
 			}
 		}

@@ -782,6 +782,10 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 				srcItems[slotKey(cmd.SourceListType, targetSlot)] = target
 				result.MoveCount = moveCount
 				result.Mode = "auto_stack_reverse"
+				// 金库跨容器自动合并记录实际落点，供 ACK 投影；其他搬运保持既有结果。
+				if isVaultContainerList(cmd.SourceListType) || isVaultContainerList(cmd.DestinationListType) {
+					result.SourceSlotIndex = targetSlot
+				}
 				result, err = o.withMoveRefresh(ctx, cmd, result, &record, cmd.SourceListType, cmd.DestinationListType)
 				if err != nil {
 					return MoveResult{}, err
@@ -854,6 +858,10 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 				dstItems[slotKey(cmd.DestinationListType, targetSlot)] = target
 				result.MoveCount = moveCount
 				result.Mode = "auto_stack"
+				// 金库自动合并记录实际落点，供 ACK 投影。
+				if isVaultContainerList(cmd.SourceListType) || isVaultContainerList(cmd.DestinationListType) {
+					result.DestinationSlotIndex = targetSlot
+				}
 				result, err = o.withMoveRefresh(ctx, cmd, result, &record, cmd.SourceListType, cmd.DestinationListType)
 				if err != nil {
 					return MoveResult{}, err
