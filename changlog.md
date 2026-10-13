@@ -1,3 +1,9 @@
+## 2026-10-14 — Charge fixed catalyst ingredients for every crafting unit
+
+- Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
+- Preserve the account/character asset transaction and committed balance refresh. Refuse insufficient stock and arithmetic overflow without consuming contribution materials, changing carry or granting products.
+- Regression coverage includes the matching-PVF dimensional catalyst, single/batch account and bag costs, carry, output multipliers and rollback. Native crafting animation acceptance remains separate.
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.
