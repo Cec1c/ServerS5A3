@@ -1,3 +1,10 @@
+## 2026-10-14 — Avoid repeated friend online notifications after room loading
+
+- Keep the last successfully delivered adventure-friend projection for each selected character generation. Unchanged room-loading and presence refreshes no longer resend the native online-notification packet; changed rows and pending invitations still refresh normally.
+- New selections and connections bootstrap their lists again. Commit the projection only after successful information writes, before sending pending invitations, so a pending-list retry does not replay an online notification.
+- Regression coverage includes repeated finish-loading, offline/online changes, notes, character switching, reconnects, renamed/deleted rows and transport failures. Current-client disassembly confirms the repeated-notification branch; native UI acceptance remains pending.
+
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.
