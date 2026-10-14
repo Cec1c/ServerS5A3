@@ -49,6 +49,9 @@ var gameAlignedRegistry = alignedcmd.NewRegistry(
 // handleAlignedGameCommand 把协议号已对齐、但尚未落业务实现的命令归入模块边界。
 // 当前只记录分流证据，不伪造成功 ACK；具体回包必须等对应模块按 EXE/日志补齐。
 func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ uint16, body []byte) (bool, error) {
+	if handled, err := s.handleCurrentMonsterCardCommand(session, typ, body); handled || err != nil {
+		return handled, err
+	}
 	if session != nil && dnfenum.CmdPacket(typ) == dnfenum.CmdPacketMoveItemspace {
 		// Keep the durable move, ACK, changed-slot rows and immediate appearance
 		// projection in the same order as a taken 200ms appearance callback.
