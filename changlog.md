@@ -1,3 +1,11 @@
+## 2026-10-14 — 技能选项（锁定 / CD 提示）字段取证与保存回放可观测性（装备席）
+
+- 按固定客户端 EXE（SHA256 bb42898c02fb43ad30537da776f648ce26ac37df2ff47912ca7174df43c80531）已证字段表记录每角色选项 blob 的编码：技能锁表 = word 128..191（树0）与 192..255（树1），每树 64 项，值 = 客户端技能槽号，空项 0xFFFF，写入 0x39A6BA0 / 读取 0x39A6C00，导出 0x2255AA0、恢复 0x2255880；CD 提示列表 = word 2..21（树0）与 22..41（树1），每树 20 项，导出 0x22555F0、恢复 0x2254FC0。攻击类型（物理/魔法）仍无字段或包证据，不实现，也不用其它字段代替。
+- 新增只读解码 character_option_words.go，并把 op447 保存与 class0/390 回放事件接上字段证据：previous_saved、payload_sha256、option_words_decoded、changed_word_count、changed_word_indexes、lock_tree0/1_slots、cd_tree0/1_slots、lock_slot_count、cd_slot_count、option_word_encoding；另新增具名事件 game-character-option-skill-lists-cleared（上一份存档的锁定 / CD 列表在新存档里消失时）。落库与回放逐字节不变，保存门禁不变。
+- 用 45 批原生取证的真实锁定帧（角色 31 点锁定后落库的 512B，sha256 4fe7d38648f9d5a19c372a73c684c7d66bd473dc9db6245da8bc0e9a3d7e297b，word128=5）做固定 fixture，新增六个回归：真实帧解码、四张列表按树且槽号 0 合法、非 512 一律不认、word 差异、清空点名，以及真实 op4 选角 + 真实 447 分发 + 冷进入与同连接再选角的 390 逐字节回放与日志字段。
+- 旧失败复现：临时把角色选项回放改回旧的一次性连接闸门后，返回选角、同角色重进与 A→B/B→A 三组均 390=-1（19 仍为 30），本轮新增端到端用例同样 RED；按 SHA256 校验还原后全部 GREEN（-run TestCharacterOption）。未跑全套重测试。
+- DOC-060 / DOC-114 / DOC-053 的三条症状未关闭：锁定与 CD 提示的数据载体在基线上已整帧存取并按每次选角回放（45 批漏 390 的连接闸门已由 31e2b51 修复），但原生 GUI 验收、攻击类型字段与冷连接时序仍开放。现场 A/B 步骤见 Docs/D33_SKILL_OPTION_WORDS_20261014.md。
+- 只在独立工作树 work/bugs-round2-equipment（基线 5fc6807）改动；未部署、未推送、未改其它工作树 / 用户 DOCX / 原台账 / 生产资产，也未改装备或任务领域。
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
