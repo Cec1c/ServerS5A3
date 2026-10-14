@@ -1,17 +1,13 @@
-## 2026-10-14 — Verify the three reported Luke purchases
+## 2026-10-14 — 服务端与本地 GM 边界验证
 
-- User clarified DOC-100: the Luke tab's finished equipment 王冠非冠 (100344527), 黑暗祭礼 (100390011) and 王座本源 (100352839). The pinned real-PVF regression now verifies each item's explicit 2500000 gold plus 100 monolium cost, committed grant, and no asset change with insufficient gold. All three real-PVF cases pass.
-- User confirmed avatar right-click disconnect and missing weapons after character selection were already repaired but left uncolored. Record those symptoms as user-accepted; retain the other DOC-053 skill-setting symptoms.
-- Full validation exposed a pre-existing probabilistic test failure: the upgrade-rate helper retried up to 64 times to obtain a successful roll even though these tests only inspect the calculated probability. Inspect the accepted result on either outcome instead, retaining all expected-weight assertions and guaranteed-success verification at 100 percent. No upgrade production behavior changes.
-- Validation at 6f1da33 passes formatting/list/vet, Windows/Linux builds, core tests (9337 passed nodes, 861 skipped, zero failures), and all 146 required real-PVF roots (678 passed nodes, two packages without selected tests, zero failures). The missing source-worktree channel_info.etc still prevents BAT preflight; no deployment or native acceptance is claimed.
+- 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。
+- 原GM文件保留本地，独立本地工具不进入在线仓库；CI边界正反对照通过。
 
-## 2026-10-14 — Charge mixed raid-shop prices and restore quest abandonment
+## 2026-10-14 — 按用户要求将在线仓库与本地 GM 工具分离
 
-- Continue from merged master 5fc6807 using the updated issue document; fully colored paragraphs remain accepted. See Docs/BUGS_20261014_ROUND2.md for scope and remaining native checks.
-- Charge an explicit PVF purchase price together with material exchange costs in the existing atomic NPC-shop owner. Preserve material-only exchanges without treating sell value as a purchase surcharge; project the committed gold balance in the ACK and inventory update. The real Luke earring 100390011 requires 2500000 gold plus 100 monolium.
-- Route current legacy op32 to the same durable abandonment handler as upper op32. Admit collection quests only when every target is proven an ordinary material and no activation grants or quest drops require reclamation. Preserve the prohibition for quest items, missing metadata and cant-giveup definitions. Real quests8581/13613 now abandon without deleting ordinary inventory materials.
-- Baseline regressions reproduce both defects. Full validation at c0bf70f passes gofmt/list/vet and Windows/Linux builds; core tests record 9337 passed nodes, 861 skipped nodes and zero failures. All 146 required real-PVF regression roots pass (675 passed nodes, two packages without selected tests, zero failures). The first run exposed an obsolete trading-fixture expectation, corrected to charge its explicit price before the successful rerun.
-- Actual BAT preflight stops with exit 1 because this source worktree lacks deploy/assets/channel_info.etc. No production deployment or native acceptance is claimed; remaining uncolored issues stay open.
+- 在线版本移除 GM Web 工具包及嵌入服务端的启动/停止绑定；本地原始 GM 文件和用户正在使用的工程全部保留。隔离清理树采用取消 Git 跟踪，未删除本地工具源码。
+- 控制器不再生成 GM 环境配置，doctor 不再要求 GM 端口随游戏服务器启动。旧 gmListen 配置兼容读取后忽略；服务端游戏及通用管理接口保持原职责。
+- 添加忽略规则、仓库边界检查及协作规范，防止后续 GM 更新重新进入在线仓库。验证与在线清理结果后补。
 
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
@@ -589,3 +585,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
+
+- Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
+- DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
+- GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
+
