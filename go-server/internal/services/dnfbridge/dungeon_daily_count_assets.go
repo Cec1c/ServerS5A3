@@ -116,8 +116,8 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 		source = "dimension_gate_daily_count"
 		character, consumed, err = s.consumeCurrentDimensionGateDailyEntry(session, runtime, assets)
 	} else {
-		source = "dungeon_cycle_daily_count"
-		character, consumed, err = s.consumeCurrentDungeonCycleDailyEntry(session, runtime, assets)
+		source = "dungeon_cycle_entry_assets"
+		character, consumed, err = s.consumeCurrentDungeonCycleEntryAssets(session, runtime, assets)
 	}
 	if err != nil {
 		return err

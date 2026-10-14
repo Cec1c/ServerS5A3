@@ -196,8 +196,26 @@ func TestRealPVFDimensionDungeonSharedDailyCounterAndEkernCycleLimits(t *testing
 			t.Fatal(err)
 		}
 		used, err := dnfdungeon.DailyEntryUsed(stored, 5097, queue.now)
+		if err != nil || used != 0 {
+			t.Fatalf("5097 entry %d must not consume the clear count: used=%d err=%v", i, used, err)
+		}
+	}
+	// 艾肯按**通关**计数（真档每日任务 `[condition under clear]`）：每轮通关提交一次。
+	ekernDungeon, found := s.worldMapTable.FindDungeon(5097)
+	if !found {
+		t.Fatal("5097 missing from the real PVF")
+	}
+	for i := int64(1); i <= expected[5097]; i++ {
+		if err := s.consumeCurrentDungeonCycleClearCount(ekern, &runtimeDungeonState{Dungeon: ekernDungeon}); err != nil {
+			t.Fatalf("5097 clear %d rejected: %v", i, err)
+		}
+		stored, _, err := repos.Character.Load(ctx, "31")
+		if err != nil {
+			t.Fatal(err)
+		}
+		used, err := dnfdungeon.DailyEntryUsed(stored, 5097, queue.now)
 		if err != nil || used != i {
-			t.Fatalf("5097 entry %d persisted used=%d err=%v", i, used, err)
+			t.Fatalf("5097 clear %d persisted count=%d err=%v", i, used, err)
 		}
 	}
 	if _, err := enterDungeonOnce(t, s, ekern, 5097); !errors.Is(err, dnfdungeon.ErrDailyEntryLimit) {

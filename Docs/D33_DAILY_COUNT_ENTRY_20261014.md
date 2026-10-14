@@ -109,7 +109,40 @@ TestBaselineProbeEkernDungeonCycleDailyCount:
   `MissionSystem.etc` 两处），因此字段语义无法用本 build 的 EXE 反证。实现继续只按"副本 id
   后一位是额度"使用第 4 个整数，其余位置不解释。
 
-## 7. 待原生验证
+## 7. 待原生验证（同事务修复之前列出的项）
+## 8. 艾肯次数语义更正：按**通关**计数（2026-10-14 二次核对）
+
+上一批按"入场"计数是**未证的推断**，已更正为按通关计数，依据是真档每日任务：
+
+- `n_quest/new_quest/daily_90_legend_01.qst`（单人）：`[grade] [daily mission]`、
+  `[type] [hunt enemy]`、`[dungeon info] 5097 -1 5098 -1`、
+  `[int data] 5097 -1 53764 3 3  5098 -1 107001865 1 1`（53764 正是 5097 的
+  destroy-object 通关目标），条件文案「通关3次『艾肯（单人） - 遗落的神殿』、1次『艾肯（单人）
+  - 试炼』。(通关3次『遗落的神殿』后会出现『试炼』地下城。)」。
+- `n_quest/new_quest/daily_90_legend_cdnf_01.qst`（组队 3570/3571）：`[type] [condition under clear]`、
+  `[int data] 3571 -1`，文案同样是「通关3次…1次…」，并注明试炼的出现条件。
+- 两点结论：`[dungeon cycle]` 第 4 个整数 = 当日**通关**上限（3 / 1，与任务逐字一致）；
+  5098/3571（试炼）的解锁依赖当日通关 5097/3570 三次（第 5 列 0/1 与之相关，但第 2/5 列的
+  确切含义仍未证）。5097 与 5098 共用同一个区域入口（`worldmap/Legend.wdm` 区域 45，
+  任务 `[dungeon info]` 也把两者放在同一组）。
+
+实现随之调整：
+
+- 入场只提交门票 + 入场房间疲劳（同一事务，并在事务内复核当日次数未用尽），**不写次数**；
+  中止/失败的入场不再吃掉当天次数。
+- 通关时（boss die check 结算、每轮一次，进入运行时 Completed 之后）提交一次当日通关次数；
+  提交失败只记事件、不阻塞已经打完的结果流程。
+- 异次元裂缝（7100/7165-7179）维持按**入场**计数：`etc/dungeonetc/dimensiondungeoninfo.etc` 的
+  `[hidden boss appear rate by enter count]` 与 `[max daily enter count]` 都是 enter 口径。
+
+EXE 侧负证据（本轮补充）：当前 v96 客户端里 `dungeon cycle`、`[dungeon cycle]`、
+`dungeoncyclesystem` 三种写法在 ASCII 与 UTF-16 下**全部零命中**（唯一的 `cycle` 命中是 protobuf 的
+`lifecycle_id_generator_`），说明客户端根本不打开这张表，它的语义必须由 PVF 任务/官方服务端证据来定。
+另外客户端确实内嵌 protobuf 描述符 `DNFPB.noti.PB_ENUM_NOTIPACKET_DAY_OF_THE_DUNGEON.dungeonEntryCount`
+（来自 `DNFShared/PB_Packet/PacketHeaders.pb.cc`）——这是"每日副本"家族的次数 NOTI，与艾肯/裂缝的对应
+关系未证，列为待查项，不发猜测包。
+
+## 9. 待原生验证（通关计数更正后）
 
 - 客户端"剩余次数"显示：本批仍然**不发包**（829/830 已用于 316，未扩到这两类入场），因此
   7100/5097/7165-7179 的界面计数不会因为本批而变化；要扩需先钉住 829 limit 标量的作用域与

@@ -269,8 +269,25 @@ func TestDailyCountEntryRejectionKeepsFatigueAndTicketsUnchanged(t *testing.T) {
 			if controlAfter.stats["fatigue"] != wantFatigue {
 				t.Fatalf("control fatigue=%d want %d (fatigue-free=%t)", controlAfter.stats["fatigue"], wantFatigue, !test.fatigue)
 			}
-			if got := test.used(t, repos, "19", queue.now); got != 1 {
-				t.Fatalf("control counter=%d want 1", got)
+			// 异次元裂缝按**入场**计数；艾肯按**通关**计数（真档 `[condition under clear]` 每日任务）。
+			wantUsed := int64(0)
+			if test.shared {
+				wantUsed = 1
+			}
+			if got := test.used(t, repos, "19", queue.now); got != wantUsed {
+				t.Fatalf("control counter=%d want %d after entry", got, wantUsed)
+			}
+			if !test.shared {
+				dungeon, found := s.worldMapTable.FindDungeon(int64(test.dungeonID))
+				if !found {
+					t.Fatalf("dungeon %d missing from the real PVF", test.dungeonID)
+				}
+				if err := s.consumeCurrentDungeonCycleClearCount(controlSession, &runtimeDungeonState{Dungeon: dungeon}); err != nil {
+					t.Fatalf("control clear rejected: %v", err)
+				}
+				if got := test.used(t, repos, "19", queue.now); got != 1 {
+					t.Fatalf("control counter=%d want 1 after clear", got)
+				}
 			}
 			for _, itemID := range test.itemIDs {
 				if got := itemCountInSlots(controlAfter.slots, itemID); got != 0 {

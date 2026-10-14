@@ -103,6 +103,19 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 		}
 	}
 	if !tutorialDungeon && runtime.clearMapCompletionPhaseAPersisted {
+		if !runtime.dungeonCycleClearCountCommitted {
+			if err := s.consumeCurrentDungeonCycleClearCount(session, runtime); err != nil {
+				s.logGameEvent(session, "game-dungeon-cycle-clear-count-deferred",
+					"char_id", session.selectedCharacterID,
+					"dungeon_id", runtime.Dungeon.ID,
+					"maze_index", runtime.MazeIndex,
+					"source", source,
+					"reason", "clear_count_commit_failed_nonblocking",
+					"error", err)
+			} else {
+				runtime.dungeonCycleClearCountCommitted = true
+			}
+		}
 		if err := s.sendCurrentDungeonClearMapCompletionNotificationLocked(ctx, session, runtime); err != nil {
 			s.logGameEvent(session, "game-dungeon-boss-die-check-completion-active-snapshot-nonblocking",
 				"char_id", session.selectedCharacterID,

@@ -10,7 +10,7 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// ── 艾肯副本（`[dungeon cycle]`）每日入场次数 ────────────────────────────────────
+// ── 艾肯副本（`[dungeon cycle]`）每日次数 ──────────────────────────────────────
 //
 // DOC-094：「角色 小小栗子 艾肯地下城不会消耗进场次数 艾肯装备升级没反应」。
 //
@@ -20,20 +20,30 @@ import (
 //	45 -1 5097 3 0  45 -1 5098 1 1  45 0 3570 3 0  45 0 3571 1 1
 //	[/dungeon cycle]
 //
-// 行是 5 个整数一组，第 3 个整数是副本 id，紧跟其后的是该副本的每日入场次数：
+// 第 3 个整数是副本 id，第 4 个整数与真档每日任务逐字对应，且这些次数是**通关(clear)**
+// 次数而不是入场次数：
 //
-//	5097 `dungeon/Legend/Ekern/Warriors/Warriors.dgn`（艾肯（单人）- 遗落的神殿）→ 3
-//	5098 `dungeon/Legend/Ekern/Duel/Ekern2nd.dgn`（艾肯（单人）- 试炼）→ 1
-//	3570 `dungeon/Legend/Ekern/Warriors/CDNF_Party_Warriors.dgn`（组队版遗落的神殿）→ 3
-//	3571 `dungeon/Legend/Ekern/Duel/CDNF_Party_Ekern2nd.dgn`（组队版试炼）→ 1
+//	`n_quest/new_quest/daily_90_legend_01.qst`（单人，`[dungeon info] 5097 -1 5098 -1`）
+//	  `[grade] [daily mission]`、`[type] [hunt enemy]`、
+//	  `[int data] 5097 -1 53764 3 3  5098 -1 107001865 1 1`
+//	  （53764 = 5097 的 destroy-object 通关目标）、
+//	  条件文案「通关3次『艾肯（单人） - 遗落的神殿』、 1次『艾肯（单人） - 试炼』。
+//	  (通关3次『遗落的神殿』后会出现『试炼』地下城。)」
+//	`n_quest/new_quest/daily_90_legend_cdnf_01.qst`（组队，`3570/3571`）同构，
+//	  `[type] [condition under clear]`、`[int data] 3571 -1`，文案同样写「通关3次…1次」。
 //
-// 单人与组队版本同一内容取同一额度（5097/3570 = 3，5098/3571 = 1），与该文件只覆盖区域 45
-// 「魔界集结地」(`worldmap/Legend.wdm` 的 5097/5098/3570/3571) 完全吻合；四份真档一致说明这
-// 不是某一版的临时数据。第 2、5 个整数（-1/0 与 0/1）本仓**没有**可引用的解析器，因此这里
-// 只使用"副本 id 后一位是额度"这一条，其余位置不解释、不臆造——额度取不到时 fail closed。
+// 因此：
 //
-// 该规则与魔界裂缝 316（`[dimension dungeon]` 之外的独立规则）以及异次元裂缝共享池都不同：
-// 艾肯按副本各记一份日计数，只复用既有的 `dungeon_daily_entry_<id>` 角色计数器。
+//  1. 次数在**通关**时提交（`consumeCurrentDungeonCycleClearCount`），中止/失败的入场不吃当天次数；
+//  2. 入场仍要校验额度（用尽则拒绝读图），并在同一个事务里扣门票与入场房间疲劳
+//     （`consumeCurrentDungeonCycleEntryAssets`）——门票仍是入场材料，真档在 prepare 阶段
+//     只是被我们的旧顺序预扣，现在与疲劳同事务；
+//  3. 第 2、5 个整数（-1/0 与 0/1）**仍未证**：C# 参考服务端没有 `[dungeon cycle]` 解析器，
+//     当前 EXE 里也读不到任何 `dungeon cycle`/`dungeoncyclesystem` 字符串（ASCII 与 UTF-16 都为零命中），
+//     即客户端根本不打开这张表；这里只使用第 4 个整数，其余位置不解释。
+//
+// 与魔界裂缝 316（次数与票本来就在一个事务里）以及异次元裂缝共享池（按入场计，见
+// `etc/dungeonetc/dimensiondungeoninfo.etc` 的 `[hidden boss appear rate by enter count]`）都不同。
 const (
 	currentDungeonCycleConfigPath      = "etc/dungeoncyclesystem.etc"
 	currentDungeonCycleSection         = "dungeon cycle"
@@ -63,7 +73,7 @@ func (s *Service) currentDungeonCycleDailyLimits() (map[int64]int64, bool, error
 }
 
 // parseCurrentDungeonCycleDailyLimits 是纯解析：5 个整数一行、第 3 个是副本 id、第 4 个是该
-// 副本的每日入场次数。缺段 = 没有声明（返回空表、declared 真）；行不完整、额度非正或副本 id
+// 副本的每日通关次数。缺段 = 没有声明（返回空表、declared 真）；行不完整、额度非正或副本 id
 // 重复都硬失败，绝不猜一个额度出来。
 func parseCurrentDungeonCycleDailyLimits(text string) (map[int64]int64, bool, error) {
 	document, err := dnfpvf.Parse(currentDungeonCycleConfigPath, text)
@@ -104,13 +114,19 @@ func (s *Service) validateCurrentDungeonCycleDailyCount(character dnfrepo.Charac
 	return nil
 }
 
-// consumeCurrentDungeonCycleDailyEntry 在运行时准备完成、活动运行闸门已持有时，把该副本的
-// 日计数与同批入场资产（门票、入场房间疲劳）放进同一个角色事务提交；调用方
-// `consumeCurrentDailyCountEntry` 负责槽位刷新与疲劳房间标记。
-//
-// 门票只在既有锦标赛开关打开时随本事务扣除（与改动前 prepare 阶段的消耗条件/数量一致）；
-// 开关关闭时一行都不扣，与改动前相同。
-func (s *Service) consumeCurrentDungeonCycleDailyEntry(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
+// currentDungeonCycleDailyCountForDungeon 供准入链查询：返回 (额度, 是否声明, 错误)。
+func (s *Service) currentDungeonCycleDailyCountForDungeon(dungeonID int64) (int64, bool, error) {
+	limits, declared, err := s.currentDungeonCycleDailyLimits()
+	if err != nil || !declared {
+		return 0, false, err
+	}
+	limit, ok := limits[dungeonID]
+	return limit, ok, nil
+}
+
+// consumeCurrentDungeonCycleEntryAssets 在**入场**只提交门票与入场房间疲劳（同一个角色事务），
+// 不写每日次数；门票只在既有锦标赛开关打开时扣除（与改动前的条件/数量逐字一致）。
+func (s *Service) consumeCurrentDungeonCycleEntryAssets(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
 	if runtime == nil || s == nil || s.options.currentClientVersion != "official-24.9" {
 		return dnfrepo.CharacterRecord{}, nil, nil
 	}
@@ -135,36 +151,70 @@ func (s *Service) consumeCurrentDungeonCycleDailyEntry(session *gameSession, run
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	result, err := owner.ConsumeDailyEntry(ctx, dnfdungeon.DailyEntryCommand{
+	result, err := owner.ConsumeEntryAssets(ctx, dnfdungeon.EntryAssetsCommand{
 		CharacterID:   strconv.Itoa(int(session.selectedCharacterID)),
-		DungeonID:     runtime.Dungeon.ID,
-		Limit:         limit,
 		Requirements:  assets.requirements,
 		UpdatedAt:     s.gameplayNow(),
 		Project:       assets.project,
 		InTransaction: assets.inTransaction,
+		// 通关计数的额度只在事务内复核（不在这里自增），避免 prepare 与 commit 之间的窗口。
+		AllowanceDungeonID: runtime.Dungeon.ID,
+		AllowanceLimit:     limit,
 	})
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, nil, err
 	}
-	s.logGameEvent(session, "game-dungeon-cycle-daily-entry-committed",
+	s.logGameEvent(session, "game-dungeon-cycle-entry-assets-committed",
+		"char_id", session.selectedCharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"daily_limit", limit,
+		"counts_on", "clear",
+		"entry_items", len(result.Consumed),
+		"fatigue_commit", assets.debitRoomFatigue,
+		"source", currentDungeonCycleConfigPath)
+	return result.Character, result.Consumed, nil
+}
+
+// consumeCurrentDungeonCycleClearCount 在**通关**时记一次当日通关次数（不扣门票、不发奖励）。
+// 调用方（boss die check 结算）保证每轮只调用一次。
+func (s *Service) consumeCurrentDungeonCycleClearCount(session *gameSession, runtime *runtimeDungeonState) error {
+	if runtime == nil || s == nil || s.options.currentClientVersion != "official-24.9" {
+		return nil
+	}
+	limit, declared, err := s.currentDungeonCycleDailyCountForDungeon(runtime.Dungeon.ID)
+	if err != nil {
+		return err
+	}
+	if !declared {
+		return nil
+	}
+	repos, ok := s.repositoryGroup()
+	if !ok || repos.CharacterAssets == nil {
+		return dnfdungeon.ErrOwnerUnavailable
+	}
+	owner, err := dnfdungeon.NewOwner(repos)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	result, err := owner.ConsumeDailyEntry(ctx, dnfdungeon.DailyEntryCommand{
+		CharacterID: strconv.Itoa(int(session.selectedCharacterID)),
+		DungeonID:   runtime.Dungeon.ID,
+		Limit:       limit,
+		UpdatedAt:   s.gameplayNow(),
+	})
+	if err != nil {
+		return err
+	}
+	runtime.Character = result.Character
+	s.logGameEvent(session, "game-dungeon-cycle-clear-count-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
 		"used", result.Used,
 		"limit", limit,
+		"counts_on", "clear",
 		"source", currentDungeonCycleConfigPath,
-		"entry_items", len(result.Consumed),
-		"fatigue_commit", assets.debitRoomFatigue,
 		"reset", "06:00_UTC+8")
-	return result.Character, result.Consumed, nil
-}
-
-// currentDungeonCycleDailyCountForDungeon 供准入链查询：返回 (额度, 是否声明, 错误)。
-func (s *Service) currentDungeonCycleDailyCountForDungeon(dungeonID int64) (int64, bool, error) {
-	limits, declared, err := s.currentDungeonCycleDailyLimits()
-	if err != nil || !declared {
-		return 0, false, err
-	}
-	limit, ok := limits[dungeonID]
-	return limit, ok, nil
+	return nil
 }

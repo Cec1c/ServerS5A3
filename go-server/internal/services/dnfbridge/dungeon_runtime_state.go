@@ -148,6 +148,8 @@ type runtimeDungeonState struct {
 	settlementBossExperience             uint32
 	tutorialCompletionPersisted          bool
 	clearMapCompletionPhaseAPersisted    bool
+	// dungeonCycleClearCountCommitted 说明本轮的通关次数已提交（艾肯是按通关计数的副本）。
+	dungeonCycleClearCountCommitted      bool
 	hellQuestCompletionKey               string
 	hellQuestCompletionAt                time.Time
 	hellQuestCompletionPersisted         bool
