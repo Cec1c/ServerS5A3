@@ -123,9 +123,9 @@ func TestRealScriptPVFCompletedFarewellMomentHidesItsSubQuestsAndKeepsTheSuccess
 
 // TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable replays the
 // live defect end to end with the real catalog: the Lv1~90 coupon completes
-// [epic] quests up to Lv89 - including the [quest clear] parent 3971 - and
-// leaves its grade-[sub] children alone. The resulting op21 list must still be
-// fully acceptable.
+// [epic] quests up to Lv90 - including the [quest clear] parent 3971 - and
+// closes their linked [sub] children. The resulting op21 list must still be
+// fully acceptable; unrelated hidden-parent rows remain filtered.
 func TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable(t *testing.T) {
 	catalog, _ := loadRealScriptPVFCatalogForClientList(t)
 	eligibility := farewellMomentEligibility()
@@ -163,13 +163,11 @@ func TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable(t *testin
 	if len(list.IDs) == 0 {
 		t.Fatal("the swept record must still have an acceptable-quest list")
 	}
-	// 源头上已经修好：扫完的 `[sub]` 子任务都完成了，所以 accept-preflight 过滤器
-	// 在这一形态下**无事可做**。（过滤器仍然有效——旧记录的自愈形态由
-	// TestRealScriptPVFCouponSweepRepairsTheLiveDanglingFarewellMomentState 断言
-	// preflight_excluded 2 -> 0。两者是"源头修好"与"安全网兜住"两个方向。）
-	if list.PreflightExcluded != 0 {
-		t.Fatalf("a completed sweep must leave nothing for the safety net: excluded=%d ids=%v", list.PreflightExcluded, list.IDs)
-	}
+	// 12075..12078 belong to hidden parent 12074, outside the epic sweep.
+	// Pin the exact surviving exclusions rather than demanding that the coupon
+	// make every unrelated catalog row acceptable.
+	assertHiddenParentOutsideCouponSweep(t, catalog, record)
+	assertRealPVFPreflightExcludedIDs(t, catalog, eligibility, record, []int32{12075, 12076, 12077, 12078})
 	for _, unwanted := range []int32{3971, 3972, 3973} {
 		if containsQuestID(list.IDs, unwanted) {
 			t.Fatalf("quest %d is still offered after the sweep: ids=%v", unwanted, list.IDs)

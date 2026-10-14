@@ -238,12 +238,12 @@ func TestRealScriptPVFCouponSweepRepairsTheLiveDanglingFarewellMomentState(t *te
 	listBefore := catalog.QuestList(eligibility, live)
 	t.Logf("acceptable list before repair=%d after repair=%d (preflight-excluded %d -> %d)",
 		len(listBefore.IDs), len(list.IDs), listBefore.PreflightExcluded, list.PreflightExcluded)
-	if listBefore.PreflightExcluded != 2 {
-		t.Fatalf("the dangling live shape must exclude exactly the two [sub] rows: %d", listBefore.PreflightExcluded)
-	}
-	if list.PreflightExcluded != 0 {
-		t.Fatalf("after the repair nothing may be excluded by the preflight: %d", list.PreflightExcluded)
-	}
+	// Only 3972/3973 leave the excluded set. The unrelated hidden-parent
+	// family remains outside both the sweep and the client list.
+	assertRealPVFPreflightExcludedIDs(t, catalog, eligibility, live, []int32{3972, 3973, 12075, 12076, 12077, 12078})
+	assertRealPVFPreflightExcludedIDs(t, catalog, eligibility, plan.Record, []int32{12075, 12076, 12077, 12078})
+	assertHiddenParentOutsideCouponSweep(t, catalog, plan.Record)
+	assertClientListSatisfiesAcceptPreflight(t, catalog, eligibility, plan.Record)
 }
 
 // TestRealScriptPVFCouponCutoffIsTheCopyCeilingAndCoversTheManualSweep pins 决策 2
