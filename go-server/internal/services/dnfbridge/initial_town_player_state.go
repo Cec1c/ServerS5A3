@@ -71,9 +71,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		return fmt.Errorf("initial town player state character mismatch: selected=%d loaded=%d found=%t", characterID, charID, hasCharacter)
 	}
 	objectKey := currentSceneActorObjectKey(charID)
-	sequence := "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op863_aura_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op9_op120_then_typed_op24"
+	sequence := "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op9_op120_then_typed_op24"
 	if policy.includeReportClientSpec {
-		sequence = "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op863_aura_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op124_op9_op120_then_typed_op24"
+		sequence = "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op124_op9_op120_then_typed_op24"
 	}
 	s.logGameEvent(session, "game-initial-town-player-state-send",
 		"source", source,
@@ -127,11 +127,8 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	); err != nil {
 		return err
 	}
-	// The durable aura_flag is not sufficient for the current EXE to render the
-	// aura appearance slot as open. Publish the marked op863 state on cold
-	// login, return-select, and reconnect after the inventory managers exist.
-	// This bootstrap is the sole lifecycle owner: ordinary op36 town movement
-	// must not append state packets or disturb its response ordering.
+	// 冷登录只核对光环开启状态；后续原生USERINFO携带0x08权限位。
+	// 不在这里向默认锁定角色发送未经请求的op863开启效果或自定义标记。
 	if err := s.sendCurrentAuraSkinSlotTownUIReadyState(session); err != nil {
 		return err
 	}

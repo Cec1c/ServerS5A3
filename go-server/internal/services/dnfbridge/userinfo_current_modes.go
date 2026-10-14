@@ -99,10 +99,16 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode3InContext(characte
 
 func currentExtraEquipmentSlotState(character dnfrepo.CharacterRecord) byte {
 	value := numericCharacterStatValue(character, "ex_equip_slot_stat")
-	if value <= 0 {
-		return 0
+	var state byte
+	if value > 0 {
+		state = byte(value) & dnfquest.ExEquipSlotAll
 	}
-	return byte(value) & dnfquest.ExEquipSlotAll
+	// 当前固定 EXE 的光环幻化槽11通过0x2961950读取同一状态的0x08位。
+	// 只从已提交的光环开启标记投影；不从其他装备栏标记借用权限。
+	if numericCharacterStatValue(character, currentOpenAuraSkinSlotFlagStat) != 0 {
+		state |= currentAuraSkinSlotNativeStateBit
+	}
+	return state
 }
 
 func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *packetWriter, character dnfrepo.CharacterRecord, extraEquipmentSlotState byte, creature currentEquippedCreatureSnapshot) {
