@@ -197,55 +197,62 @@ func TestCurrentQuestClearCouponCompletesMainStoryWithNoRewardAndConsumesOne(t *
 // "没有可完成任务"时是幂等空操作，不消耗道具，但仍然回包（否则玩家看到的还是
 // 最初那个"右键使用无反应"）。
 func TestCurrentQuestClearCouponNoopKeepsTheCouponWhenNothingCanBeCleared(t *testing.T) {
-	ctx := context.Background()
-	service, session, repositories := newQuestClearCouponTestService(t, 2)
-	// 这条主线区间里的每条主线（含 102，[level] 90 = 券的上限）以及 100 的
-	// `[sub]` 子任务 150 都已经完成 ⇒ 完成券无事可做。
-	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{
-		CharacterID: "17",
-		States: map[int64]dnfrepo.QuestState{
-			100: {Status: "completed"},
-			101: {Status: "completed"},
-			102: {Status: "completed"},
-			106: {Status: "completed"},
-			150: {Status: "completed"},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
-	if err != nil || !handled {
-		t.Fatalf("handled=%t err=%v", handled, err)
-	}
-	stored, _, err := repositories.Quest.Load(ctx, "17")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, questID := range []int64{100, 101, 102, 106, 150} {
-		state := stored.States[questID]
-		if state.Status != "completed" || state.Extra["auto_complete_reason"] != "" {
-			t.Fatalf("no-op coupon rewrote already-completed quest %d: %+v", questID, state)
+	for _, quantity := range []int64{1, 2} {
+		ctx := context.Background()
+		service, session, repositories := newQuestClearCouponTestService(t, quantity)
+		// 这条主线区间里的每条主线（含 102，[level] 90 = 券的上限）以及 100 的
+		// `[sub]` 子任务 150 都已经完成 ⇒ 完成券无事可做。
+		if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{
+			CharacterID: "17",
+			States: map[int64]dnfrepo.QuestState{
+				100: {Status: "completed"},
+				101: {Status: "completed"},
+				102: {Status: "completed"},
+				106: {Status: "completed"},
+				150: {Status: "completed"},
+			},
+		}); err != nil {
+			t.Fatal(err)
 		}
-	}
-	inventory, _, err := repositories.Inventory.Load(ctx, "17")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stack := inventory.Slots["0:87"]; stack.Count != 2 {
-		t.Fatalf("no-op coupon was consumed: %+v", stack)
-	}
-	ack, tail := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
-	if len(tail) == 0 {
-		t.Fatal("no-op must refresh the unchanged slot after success ACK")
-	}
-	refresh, _ := splitGameServerUpperPacket(t, tail)
-	if refresh.Header.MsgID != 14 {
-		t.Fatalf("no-op refresh msg=%d", refresh.Header.MsgID)
-	}
-	wantAck := []byte{1, 0x57, 0x00, 0x00, 167, 0x00, 0x00, 0x00}
-	if !bytes.Equal(ack.Body, wantAck) {
-		t.Fatalf("no-op ack body=%x want=%x", ack.Body, wantAck)
+
+		handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
+		if err != nil || !handled {
+			t.Fatalf("handled=%t err=%v", handled, err)
+		}
+		stored, _, err := repositories.Quest.Load(ctx, "17")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, questID := range []int64{100, 101, 102, 106, 150} {
+			state := stored.States[questID]
+			if state.Status != "completed" || state.Extra["auto_complete_reason"] != "" {
+				t.Fatalf("no-op coupon rewrote already-completed quest %d: %+v", questID, state)
+			}
+		}
+		inventory, _, err := repositories.Inventory.Load(ctx, "17")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stack := inventory.Slots["0:87"]; stack.Count != quantity {
+			t.Fatalf("no-op coupon was consumed: %+v", stack)
+		}
+		ack, tail := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
+		if len(tail) == 0 {
+			t.Fatal("no-op must refresh the unchanged slot after success ACK")
+		}
+		refresh, _ := splitGameServerUpperPacket(t, tail)
+		if refresh.Header.MsgID != 14 || refresh.Header.Classification != 0 ||
+			len(refresh.Body) != 3+currentItemListEntryWireSize || refresh.Body[0] != 0 ||
+			binary.LittleEndian.Uint16(refresh.Body[1:3]) != 1 ||
+			binary.LittleEndian.Uint16(refresh.Body[3:5]) != 87 ||
+			binary.LittleEndian.Uint32(refresh.Body[5:9]) != testQuestClearCouponItemID ||
+			binary.LittleEndian.Uint32(refresh.Body[9:13]) != uint32(quantity) {
+			t.Fatalf("no-op must restore exact slot and quantity=%d: header=%+v body=%x", quantity, refresh.Header, refresh.Body)
+		}
+		wantAck := []byte{1, 0x57, 0x00, 0x00, 167, 0x00, 0x00, 0x00}
+		if !bytes.Equal(ack.Body, wantAck) {
+			t.Fatalf("no-op ack body=%x want=%x", ack.Body, wantAck)
+		}
 	}
 }
 
