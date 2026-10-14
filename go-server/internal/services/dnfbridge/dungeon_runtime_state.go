@@ -868,7 +868,14 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
 	}
 	session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
-	if scene, ok := runtime.Session.Scene(); ok {
+	scene, hasScene := runtime.Session.Scene()
+	// 异次元裂缝与艾肯的每日次数与入场房间疲劳在同一个事务里提交（见
+	// dungeon_daily_count_assets.go），因此这里不再单独扣一次疲劳。
+	dailyCountEntry, err := s.currentDailyCountEntryEnabled(runtime.Dungeon)
+	if err != nil {
+		return err
+	}
+	if hasScene && !dailyCountEntry {
 		if err := s.debitDungeonRoomFatigue(session, runtime, scene); err != nil {
 			return err
 		}
@@ -879,11 +886,10 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	if err := s.consumeCurrentDayDungeonEntry(session, runtime); err != nil {
 		return err
 	}
-	if err := s.consumeCurrentDimensionGateDailyEntry(session, runtime); err != nil {
-		return err
-	}
-	if err := s.consumeCurrentDungeonCycleDailyEntry(session, runtime); err != nil {
-		return err
+	if dailyCountEntry {
+		if err := s.consumeCurrentDailyCountEntry(session, runtime, scene, hasScene); err != nil {
+			return err
+		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
 	session.dungeon.runtime = runtime

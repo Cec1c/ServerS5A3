@@ -104,52 +104,59 @@ func (s *Service) validateCurrentDungeonCycleDailyCount(character dnfrepo.Charac
 	return nil
 }
 
-// consumeCurrentDungeonCycleDailyEntry 在运行时准备完成、活动运行闸门已持有时提交该副本的
-// 日计数。Requirements 传空：艾肯的入场券（`[required item]` 10158700/10161610 ×5）由既有
-// 门票路径扣，本函数只落计数器，绝不重复扣票。
-func (s *Service) consumeCurrentDungeonCycleDailyEntry(session *gameSession, runtime *runtimeDungeonState) error {
+// consumeCurrentDungeonCycleDailyEntry 在运行时准备完成、活动运行闸门已持有时，把该副本的
+// 日计数与同批入场资产（门票、入场房间疲劳）放进同一个角色事务提交；调用方
+// `consumeCurrentDailyCountEntry` 负责槽位刷新与疲劳房间标记。
+//
+// 门票只在既有锦标赛开关打开时随本事务扣除（与改动前 prepare 阶段的消耗条件/数量一致）；
+// 开关关闭时一行都不扣，与改动前相同。
+func (s *Service) consumeCurrentDungeonCycleDailyEntry(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
 	if runtime == nil || s == nil || s.options.currentClientVersion != "official-24.9" {
-		return nil
+		return dnfrepo.CharacterRecord{}, nil, nil
 	}
 	limits, declared, err := s.currentDungeonCycleDailyLimits()
 	if err != nil {
-		return err
+		return dnfrepo.CharacterRecord{}, nil, err
 	}
 	if !declared {
-		return nil
+		return dnfrepo.CharacterRecord{}, nil, nil
 	}
 	limit, cycleDungeon := limits[runtime.Dungeon.ID]
 	if !cycleDungeon {
-		return nil
+		return dnfrepo.CharacterRecord{}, nil, nil
 	}
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.CharacterAssets == nil {
-		return dnfdungeon.ErrOwnerUnavailable
+		return dnfrepo.CharacterRecord{}, nil, dnfdungeon.ErrOwnerUnavailable
 	}
 	owner, err := dnfdungeon.NewOwner(repos)
 	if err != nil {
-		return err
+		return dnfrepo.CharacterRecord{}, nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := owner.ConsumeDailyEntry(ctx, dnfdungeon.DailyEntryCommand{
-		CharacterID: strconv.Itoa(int(session.selectedCharacterID)),
-		DungeonID:   runtime.Dungeon.ID,
-		Limit:       limit,
-		UpdatedAt:   s.gameplayNow(),
+		CharacterID:   strconv.Itoa(int(session.selectedCharacterID)),
+		DungeonID:     runtime.Dungeon.ID,
+		Limit:         limit,
+		Requirements:  assets.requirements,
+		UpdatedAt:     s.gameplayNow(),
+		Project:       assets.project,
+		InTransaction: assets.inTransaction,
 	})
 	if err != nil {
-		return err
+		return dnfrepo.CharacterRecord{}, nil, err
 	}
-	runtime.Character = result.Character
 	s.logGameEvent(session, "game-dungeon-cycle-daily-entry-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
 		"used", result.Used,
 		"limit", limit,
 		"source", currentDungeonCycleConfigPath,
+		"entry_items", len(result.Consumed),
+		"fatigue_commit", assets.debitRoomFatigue,
 		"reset", "06:00_UTC+8")
-	return nil
+	return result.Character, result.Consumed, nil
 }
 
 // currentDungeonCycleDailyCountForDungeon 供准入链查询：返回 (额度, 是否声明, 错误)。

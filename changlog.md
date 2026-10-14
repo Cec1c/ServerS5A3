@@ -1,3 +1,11 @@
+## 2026-10-14 — 异次元裂缝/艾肯每日次数与入场资产同事务（DOC-083/094 审阅阻断点）
+
+- 消除「次数提交失败或被同角色另一会话抢走额度时，先前已落库的入场房间疲劳/门票不返还」：这两类入场的每日次数、DGN `ConsumeOnEntry` 门票与入场房间疲劳改为**同一个**角色资产事务提交（domain 新增 `InTransaction` 钩子，桥侧把 `fatigue.Refresh + Debit` 并入同一事务；门票只在既有锦标赛开关打开时随该事务扣除，prepare 阶段不再预扣）。不使用补偿写回或事后返还。
+- 桥级故障注入同时给出旧损失回执与修复证明：同一个测试在 55e559a 上显示 7100 的门票在 prepare 被预扣且拒绝后不返还、5097 在额度竞争下被拒后疲劳 100→99；修复后两个副本的三个场景（成功 / 次数写失败 / 另一会话抢额度）全部通过，拒绝时角色 Stats 与背包槽位逐字节不变且不采纳运行时。
+- 真档补证：16 个异次元裂缝副本（7100、7165-7179）全部 `[no fatigue]`，门票据 `[required item]` 为 3332 × 1/3/5（对应 `etc/dungeonetc/dimensiondungeoninfo.etc` 的难度档位表）；艾肯 5097/5098 既扣疲劳又收 10158700/10161610 ×5。范围只到这两类入场，316 魔界裂缝、4906-4910 每日副本、锦标赛/史诗入场的事务边界与顺序不动。
+- 验证：`./internal/modules/dnf/...` 与 `./internal/services/dnfbridge` 全部测试、14 项入场相关真档用例（含既有裂隙/每日副本/地狱派对/锦标赛）、gofmt、vet、list 与全量构建通过。官方 24.9 的 class0/812 计数下行仍未验证，本批不发包、不改 opcode。
+- 证据与旧失败回执见 `Docs/D33_DAILY_COUNT_ENTRY_20261014.md`。
+
 ## 2026-10-14 — 异次元裂缝与艾肯副本的每日入场次数落库（DOC-083/094）
 
 - 真档 `Script.pvf` 依据：`worldmap/DimensionGate.wdm` 区域 13「异次元裂缝」的 16 个副本（7100 `dungeon/Impossible/dimension.dgn` 异次元裂缝-异界的强者、7165-7179 黑色大地外围/黑色大地/罗特斯的堡垒/巴卡尔之城/痛苦之村列瑟芬）都声明 `[dimension dungeon]`；`etc/dimensiongate.etc` 的 `[daily default enter count]`/`[daily default extra enter count]` 真档读出 5/0，沿用既有 reader，不写死副本 id。

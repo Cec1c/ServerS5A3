@@ -102,6 +102,20 @@ func TestRealPVFDimensionDungeonSharedDailyCounterAndEkernCycleLimits(t *testing
 		if !s.currentDimensionGateDailyEntryEnabled(dungeon) {
 			t.Fatalf("dungeon %d is not gated by the dimension daily count", id)
 		}
+		// 真档事实：16 个异次元裂缝副本全部 `[no fatigue]`，门票据 `[required item]` 固定为 3332
+		// 且按难度档位 1/3/5（对应 etc/dungeonetc/dimensiondungeoninfo.etc 的
+		// `[num of require item by difficult] 0 1 1 3 2 5`）。次数与门票的分摊由本条与桥侧
+		// 原子提交测试共同钉住。
+		if !dungeon.Metadata.NoFatigue {
+			t.Fatalf("dimension dungeon %d must stay fatigue-free per the real PVF", id)
+		}
+		required := currentTournamentEntryItems(dungeon)
+		if len(required) != 1 || required[0].ItemID != 3332 || !required[0].ConsumeOnEntry {
+			t.Fatalf("dimension dungeon %d required items=%+v, want one consuming 3332 ticket", id, required)
+		}
+		if required[0].Count != 1 && required[0].Count != 3 && required[0].Count != 5 {
+			t.Fatalf("dimension dungeon %d ticket count=%d, want the published 1/3/5 difficulty ladder", id, required[0].Count)
+		}
 	}
 	for _, id := range []int64{316, 5097, 5098, 3570, 3571} {
 		dungeon, ok := s.worldMapTable.FindDungeon(id)

@@ -66,46 +66,50 @@ func (s *Service) validateCurrentDimensionGateDailyCount(character dnfrepo.Chara
 	return nil
 }
 
-// consumeCurrentDimensionGateDailyEntry 在整轮运行时准备完成、活动运行闸门已持有时提交共享
-// 日计数（与 `consumeCurrentRiftEntry` / `consumeCurrentDayDungeonEntry` 同一边界）。重传的
-// SELECT_DUNGEON 落在同一个活动运行上，不会再扣一次。
+// consumeCurrentDimensionGateDailyEntry 在整轮运行时准备完成、活动运行闸门已持有时，把共享
+// 日计数与同批入场资产（门票、入场房间疲劳）放进同一个角色事务提交；调用方
+// `consumeCurrentDailyCountEntry` 负责槽位刷新与疲劳房间标记。
 //
-// 本函数只提交计数：客户端计数投影（官方 24.9 的 812 handler）尚未验证，见
-// `dimension_gate_entrance.go`，因此这里不发包、不改 opcode。
-func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, runtime *runtimeDungeonState) error {
+// 客户端计数投影（官方 24.9 的 812 handler）尚未验证，见 `dimension_gate_entrance.go`，
+// 因此这里不发包、不改 opcode。
+func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
 	if runtime == nil || !s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon) {
-		return nil
+		return dnfrepo.CharacterRecord{}, nil, nil
 	}
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.CharacterAssets == nil {
-		return dnfdungeon.ErrOwnerUnavailable
+		return dnfrepo.CharacterRecord{}, nil, dnfdungeon.ErrOwnerUnavailable
 	}
 	limit, source, err := s.currentDimensionGateDailyEntryLimit()
 	if err != nil {
-		return err
+		return dnfrepo.CharacterRecord{}, nil, err
 	}
 	owner, err := dnfdungeon.NewOwner(repos)
 	if err != nil {
-		return err
+		return dnfrepo.CharacterRecord{}, nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := owner.ConsumeDimensionGateEntry(ctx, dnfdungeon.DimensionGateEntryCommand{
-		CharacterID: strconv.Itoa(int(session.selectedCharacterID)),
-		Limit:       limit,
-		UpdatedAt:   s.gameplayNow(),
+		CharacterID:   strconv.Itoa(int(session.selectedCharacterID)),
+		Limit:         limit,
+		Requirements:  assets.requirements,
+		UpdatedAt:     s.gameplayNow(),
+		Project:       assets.project,
+		InTransaction: assets.inTransaction,
 	})
 	if err != nil {
-		return err
+		return dnfrepo.CharacterRecord{}, nil, err
 	}
-	runtime.Character = result.Character
 	s.logGameEvent(session, "game-dimension-gate-daily-entry-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
 		"used", result.Used,
 		"limit", limit,
 		"limit_source", source,
+		"entry_items", len(result.Consumed),
+		"fatigue_commit", assets.debitRoomFatigue,
 		"client_projection", "pending_native_812_verification",
 		"reset", "06:00_UTC+8")
-	return nil
+	return result.Character, result.Consumed, nil
 }

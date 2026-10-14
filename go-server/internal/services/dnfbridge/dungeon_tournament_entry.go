@@ -236,6 +236,13 @@ func (s *Service) consumeDungeonEntryItemsWithTournament(
 		// Rift tickets and count commit together after full runtime preparation.
 		return nil
 	}
+	if dailyCountEntry, err := s.currentDailyCountEntryEnabled(dungeon); err != nil {
+		return err
+	} else if dailyCountEntry {
+		// 异次元裂缝与艾肯的门票与每日次数在 commit 阶段同一个事务里扣（见
+		// dungeon_daily_count_assets.go）：这里不再预扣，避免次数写失败时票已落库。
+		return nil
+	}
 	if !dungeonTournamentEnabled() {
 		return nil
 	}

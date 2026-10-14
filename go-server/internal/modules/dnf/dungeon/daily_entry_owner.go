@@ -25,6 +25,9 @@ type DailyEntryCommand struct {
 	FreePasses []EntryItemRequirement
 	UpdatedAt  time.Time
 	Project    EntryItemProjector
+	// InTransaction 在同一角色事务内、额度判据之后、计数写入之前执行，供桥侧把
+	// 入场房间疲劳这类同批资产并入本次提交（全部成功才提交，任一失败全部回滚）。
+	InTransaction func(character *dnfrepo.CharacterRecord) error
 }
 
 type DailyEntryResult struct {
@@ -124,37 +127,15 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 			return ErrEntryItemConsumeInsufficient
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
-		var requirements []EntryItemRequirement
-		selected := false
-		for _, alternative := range alternatives {
-			candidate := dnfrepo.CloneInventory(inventory)
-			valid := true
-			for _, requirement := range alternative {
-				if !requirement.ConsumeOnEntry {
-					continue
-				}
-				if _, err := consumeEntryItemRequirement(&candidate, requirement, nil); err != nil {
-					valid = false
-					break
-				}
-			}
-			if valid {
-				requirements, selected = alternative, true
-				break
-			}
+		consumed, err := consumeEntryAlternatives(&inventory, alternatives, cmd.Project)
+		if err != nil {
+			return err
 		}
-		if !selected {
-			return ErrEntryItemConsumeInsufficient
-		}
-		for _, requirement := range requirements {
-			if !requirement.ConsumeOnEntry {
-				continue
-			}
-			slots, err := consumeEntryItemRequirement(&inventory, requirement, cmd.Project)
-			if err != nil {
+		result.Consumed = consumed
+		if cmd.InTransaction != nil {
+			if err := cmd.InTransaction(&character); err != nil {
 				return err
 			}
-			result.Consumed = append(result.Consumed, EntryItemConsumedStack{ItemID: requirement.ItemID, Count: requirement.Count, Slots: slots})
 		}
 		if len(result.Consumed) > 0 {
 			inventory.UpdatedAt = cmd.UpdatedAt
@@ -179,4 +160,46 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		return DailyEntryResult{}, err
 	}
 	return result, nil
+}
+
+// consumeEntryAlternatives 从 ordered 替代门票里选出**第一组可负担**的并真正扣除，返回被扣的
+// 栈与槽位。一组都付不起时返回 ErrEntryItemConsumeInsufficient（调用方回滚整次入场）。
+//
+// 本函数是既有每日次数入场扣票逻辑的原样抽出，异次元裂缝共享池复用同一实现，
+// 保证两条路径的选票/扣票语义逐字一致。
+func consumeEntryAlternatives(inventory *dnfrepo.InventoryRecord, alternatives [][]EntryItemRequirement, project EntryItemProjector) ([]EntryItemConsumedStack, error) {
+	selected := false
+	var requirements []EntryItemRequirement
+	for _, alternative := range alternatives {
+		candidate := dnfrepo.CloneInventory(*inventory)
+		valid := true
+		for _, requirement := range alternative {
+			if !requirement.ConsumeOnEntry {
+				continue
+			}
+			if _, err := consumeEntryItemRequirement(&candidate, requirement, nil); err != nil {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			requirements, selected = alternative, true
+			break
+		}
+	}
+	if !selected {
+		return nil, ErrEntryItemConsumeInsufficient
+	}
+	var consumed []EntryItemConsumedStack
+	for _, requirement := range requirements {
+		if !requirement.ConsumeOnEntry {
+			continue
+		}
+		slots, err := consumeEntryItemRequirement(inventory, requirement, project)
+		if err != nil {
+			return nil, err
+		}
+		consumed = append(consumed, EntryItemConsumedStack{ItemID: requirement.ItemID, Count: requirement.Count, Slots: slots})
+	}
+	return consumed, nil
 }
