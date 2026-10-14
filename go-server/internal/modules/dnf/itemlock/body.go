@@ -10,8 +10,8 @@ const (
 	itemLockStatePending byte = 2
 )
 
-// LockListMessageID is the class-0 notification that replaces the client's
-// complete item-lock cache for the selected character.
+// LockListMessageID is the class-0 notification that applies lock state to
+// each listed item. The current client does not clear unlisted items.
 const LockListMessageID = msgItemLockList
 
 type packetWriter struct {

@@ -711,3 +711,8 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Validation: old-red/new-green after reverting only handler.go + sort_lock.go to HEAD (inventory 4 and dnfbridge 2 cases fail, then all pass; the two files were restored byte-identically, SHA256 545A8840.../9834395A...). gofmt on the changed files, go list, ./internal/modules/dnf/..., ./internal/services/dnfbridge, ./cmd/server/control, go vet and a server build all pass. Independent client-candidate check (E:/90/repair-round3-20261015/client-candidate/DNF.exe, sha256 6e61c361...): exactly two bitmap bytes differ from 1ac12645... (438 and 713/714); the real gate under unicorn over all 65536 opcodes changes only those three.
 - Not closed: native GUI acceptance of the instant icon; 252 NOTI remains gated by the client bitmap. No deployment, no PVF change, no player-data change, nothing pushed to a remote.
 
+
+## 2026-10-15 - Expired unlock notification compatibility
+
+- v101 drops op252, while admitted class0/op251 applies each listed state through the same setter (0x1d46e70). Append a state-zero op251 delta after an expired unlock ACK and legacy op252 notice, preserving object identity and existing clients. The regression fails before this change.
+- Correct the op251 comment: it updates listed objects rather than replacing a separate cache. Native expiry UI remains pending acceptance.

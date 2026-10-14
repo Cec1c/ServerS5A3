@@ -277,3 +277,14 @@ func loadTestInventory(t *testing.T, ctx context.Context, repos dnfrepo.Group, c
 	}
 	return record
 }
+
+func TestExpiredUnlockClearsThroughAdmittedLockListDelta(t *testing.T) {
+	responses := itemLockUpperResponses(uint16(dnfenum.CmdPacketRequestItemUnlock), "request_item_unlock", Result{ListType: 0, SlotIndex: 35, State: "", RemainingSeconds: 0})
+	if len(responses) != 3 {
+		t.Fatalf("want ACK, legacy notice, admitted state delta; got %d", len(responses))
+	}
+	last := responses[2]
+	if last.MsgID != msgItemLockList || last.Classification != 0 || string(last.Body) != string([]byte{1, 0, 0, 35, 0, 0}) {
+		t.Fatalf("unlock delta = %+v", last)
+	}
+}

@@ -95,6 +95,10 @@ func itemLockUpperResponses(opcode uint16, operation string, result Result) []al
 		responses := []alignedcmd.UpperResponse{class1Response(opcode, buildUnlockAck(result.ListType, result.SlotIndex, result.RemainingSeconds))}
 		if result.State == "" {
 			responses = append(responses, class0Response(msgItemUnlockNotice, buildLockLocation(result.ListType, result.SlotIndex)))
+			// v101 admits op251 but drops op252 before class dispatch. Its
+			// op251 callback applies state 0 with the same item setter as
+			// op252, preserving the object and avoiding a container rebuild.
+			responses = append(responses, class0Response(msgItemLockList, buildLockListDelta(result.ListType, result.SlotIndex, 0, 0)))
 		}
 		return responses
 	case "request_item_unlock_cancel":
