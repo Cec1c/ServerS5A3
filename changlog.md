@@ -1,3 +1,14 @@
+## 2026-10-14 — 安徒恩每日任务按服务日刷新（DOC-120/122）
+
+- 固定真档 Script.pvf（sha256 369d072b82c715aea4e02813d89ad9225686983e147bc7be0ee0cae2e296bb06）里安徒恩每日任务用的是 grade 「[daily mission]」：10019 n_quest/anton/anton_limit_01.qst「提取安徒恩的神经细胞」、2683 n_quest/anton/daily_anton_upgrade_01.qst「[安徒恩]高级塔尔坦星人的精髓」。参考实现 ServerS4A21-build-reference-20261011 把每日完成放在按角色/任务/日分桶的台账里（Game/Quests/DailyQuestCompletionCycle.cs + Game/Quests/QuestRepository.cs 的当日投影，06:00 北京换日），且它自己的每日完成循环自测把 2683 当每日任务。
+- 缺口：finish 把完成行永久写成 completed，而 grade 判定（repeatableGrade）不含 daily mission；于是 op21 可接列表、接取预检与 op356 完成表都把它当成永久完成 —— 每日任务不再刷新（DOC-120），前一日已完成/已确认的每日任务在次日也无法确认（DOC-122 的服务端形态）。现场存档证据：角色 6 的 10019 completed@2026-10-10、角色 46 的 10019 completed@2026-10-12。
+- 修复：新增 internal/modules/dnf/quest/daily_refresh.go。每日完成的所属服务日优先读结算写入的 Extra 日键，旧存档回落到 state.UpdatedAt；ProjectDailyQuestRollover 只把**严格早于今天**的每日完成从读侧投影里拿掉，未来日期、无完成日证据的行与进行中行一律保留，避免时钟回拨或未知回执让已发奖的每日任务重新可接、重复发奖。op21 可接列表、op356 完成表与接取预检统一走该投影；op34 结算按同一玩法时钟把「本日完成」落库。
+- 时钟：op21 与 op356 的投影改用 Service.gameplayNow()，op34 的 CommittedAt 同源；Owner.ApplyAccept 一次操作只取一次 now，Decide/Plan 不再可能跨 06:00 换日各读一天。quest Owner 自身没有注入时钟，这条仍开放。
+- grade daily 仍按既有 repeatable 规则（同一服务日可重复接取，见 client_acceptable_preflight_test.go 的 5020 回归），本次不改；只让 daily mission 这类非 repeatable 每日档按服务日滚动。
+- 回归（旧源码失败、修复后通过）：quest TestRealPVFStaleDailyMissionCompletionRefreshesNextServiceDay（真档 10019/2683 隔天回到 op21 列表并可再接，同日完成仍拦；非每日 12830 对照不受影响）、quest TestOwnerFinishUnclaimedDailyMissionFromEarlierServiceDay（真实 ApplyFinishSettlement：前一服务日达成条件未领取，次日确认成功、扣 3 个 10157840、只发 5 个 10157918、落库完成日键，并按回执重放不重复发奖）、bridge TestCurrentClearQuestListHidesRolledOverDailyCompletion（op356 投影：过期每日完成置 0，未来日期与无完成日证据保持 1，持久化行保留完成态）。另有合成目录单测覆盖档位分类、投影保留规则与完成日键只打在每日档。
+- 验证：默认领域/桥/control 记 9322 通过节点、860 环境跳过、0 失败；根回归清单固定 PVF 记 653 通过、2 跳过、0 失败（清单里 7 条 giveup/npcshop 回归属其他代理的树，本树基线不含）；gofmt、go list 212 包、scoped vet、Windows/Linux 构建通过。BAT 预检在本源档仍因缺资源路径失败，不作为通过；固定 PVF 全包运行超时，未作为证据。
+- 未完成边界：DOC-122「未领取 active」形态的服务端确认结算在修复前即可成功（新回归在旧代码只缺完成日键），因此「次日无法确认」的精确客户端交互仍缺现场报文；本轮只证明并修复服务端完成行不按服务日刷新的缺口。未改每日地下城次数、GM、技能与任务放弃；未部署、未 push、未写生产库。
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.

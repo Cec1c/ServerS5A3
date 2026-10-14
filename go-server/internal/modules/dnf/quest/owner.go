@@ -163,11 +163,14 @@ func (o *Owner) ApplyAccept(ctx context.Context, catalog *Catalog, eligibility C
 	if !definitionKnown {
 		return AcceptResult{}, ErrQuestDefinitionMissing
 	}
+	// 一次接取只取一次时钟：Decide 与 Plan 必须用同一个服务日做每日投影，
+	// 否则恰好跨 06:00 换日时两边可能对“今天还能不能接”给出不同答案。
+	now := time.Now()
 	// DecideAccept is the same authority the client-facing acceptable-quest list
 	// runs (Catalog.QuestList). Routing both sides through it is what keeps
 	// "the client was told it may accept this" and "the server accepts this"
 	// from drifting apart.
-	decision, err := catalog.DecideAccept(eligibility, record, int64(cmd.QuestID))
+	decision, err := catalog.DecideAcceptAt(eligibility, record, int64(cmd.QuestID), now)
 	if err != nil {
 		return AcceptResult{}, err
 	}
@@ -189,11 +192,10 @@ func (o *Owner) ApplyAccept(ctx context.Context, catalog *Catalog, eligibility C
 			QuestType:   definition.Type,
 		}, nil
 	}
-	plan, err := catalog.PlanAccept(eligibility, record, int64(cmd.QuestID))
+	plan, err := catalog.PlanAcceptAt(eligibility, record, int64(cmd.QuestID), now)
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	now := time.Now()
 	if record.States == nil {
 		record.States = make(map[int64]dnfrepo.QuestState, 1)
 	}
