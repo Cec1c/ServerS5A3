@@ -80,16 +80,23 @@ func (s *Service) handleCurrentUpgradeCarryGold(session *gameSession, body []byt
 		if replyErr := s.sendCarryGoldUpgradeReply(session, result.Stage, code); replyErr != nil {
 			return replyErr
 		}
-		if result.Known {
-			// The previous reply may have been lost after commit. Repair both the
-			// cached tier and the wallet while refusing this duplicate request,
-			// so the next click can target the following stage.
-			if err := s.publishCurrentCarryGoldStage(session, result.Stage, "carry_gold_stale_request"); err != nil {
-				return err
+		switch {
+		case errors.Is(err, carrygold.ErrStage), errors.Is(err, carrygold.ErrGold), errors.Is(err, carrygold.ErrLevel):
+			// Known business refusals. A previous reply may have been lost after
+			// commit, so repair the cached tier and the wallet while refusing this
+			// duplicate request; the next click can then target the next stage.
+			// carrygold.Upgrade sets result.Known before persisting, so this repair
+			// is deliberately limited to these three refusals: a real repository
+			// failure must keep propagating and must never publish a tier or wallet
+			// that the transaction did not commit.
+			if result.Known {
+				if err := s.publishCurrentCarryGoldStage(session, result.Stage, "carry_gold_stale_request"); err != nil {
+					return err
+				}
+				return s.sendCarryGoldWallet(session, result.Gold)
 			}
-			return s.sendCarryGoldWallet(session, result.Gold)
-		}
-		if errors.Is(err, carrygold.ErrGold) || errors.Is(err, carrygold.ErrLevel) || errors.Is(err, carrygold.ErrStage) || errors.Is(err, carrygold.ErrOwnership) || errors.Is(err, carrygold.ErrUnavailable) {
+			return nil
+		case errors.Is(err, carrygold.ErrOwnership), errors.Is(err, carrygold.ErrUnavailable):
 			return nil
 		}
 		return err

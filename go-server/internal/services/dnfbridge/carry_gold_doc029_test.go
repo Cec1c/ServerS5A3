@@ -3,10 +3,14 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"reflect"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
 
 // DOC029（金币持有上限重复升级）回归。
@@ -97,5 +101,64 @@ func TestCarryGoldDoc029RepeatUpgradeAfterLostReply(t *testing.T) {
 	stored, _, _ := repos.Character.Load(context.Background(), "17")
 	if stored.Stats["gold"] != 15_000_000 || stored.Stats["carry_gold_stage"] != 2 {
 		t.Fatalf("重复升级后 stats=%v", stored.Stats)
+	}
+}
+
+// failingCarryGoldCommit 让真实事务在 apply 成功之后提交失败，模拟仓储/持久化故障。
+type failingCarryGoldCommit struct {
+	base    dnfrepo.CharacterAssetUnitOfWork
+	failure error
+}
+
+func (f failingCarryGoldCommit) WithinCharacterAssets(
+	ctx context.Context,
+	characterID string,
+	apply func(dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error,
+) error {
+	return f.base.WithinCharacterAssets(ctx, characterID, func(characters dnfrepo.CharacterRepository, inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
+		if err := apply(characters, inventory, equipment); err != nil {
+			return err
+		}
+		return f.failure
+	})
+}
+
+// DOC029：真实仓储/持久化错误必须继续向外传播。carrygold.Upgrade 在写库之前就把
+// result.Known 置为 true，所以“档位已知”不能当作业务拒绝处理；否则保存失败会被
+// 当成成功路径，既吞掉错误，又把未提交的档位/钱包当成已提交状态发布出去。
+func TestCarryGoldDoc029RepositoryFailurePropagatesWithoutTierPublish(t *testing.T) {
+	injected := errors.New("character asset commit failed")
+	repos := dnfrepomemory.NewMemoryGroup()
+	if err := repos.Character.Save(context.Background(), dnfrepo.CharacterRecord{
+		CharacterID: "17", AccountID: "dnf:1", Level: 90,
+		Stats: map[string]int64{"gold": 25_000_000, "carry_gold_stage": 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repos.CharacterAssets = failingCarryGoldCommit{base: repos.CharacterAssets, failure: injected}
+	conn := &bufferConn{}
+	s := &Service{
+		options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true },
+	}
+	session := &gameSession{conn: conn, selectedCharacterID: 17, accountID: "dnf:1"}
+
+	err := s.handleCurrentUpgradeCarryGold(session, carryGoldRequest(1))
+	if !errors.Is(err, injected) {
+		t.Fatalf("仓储错误被吞掉: err=%v", err)
+	}
+	for stream := conn.write.Bytes(); len(stream) > 0; {
+		var packet dnfproto.ChannelPacket
+		packet, stream = splitCurrentGameServerUpperPacketAuto(t, stream)
+		if packet.Header.MsgID == currentCarryGoldStageMsgID {
+			t.Fatalf("仓储错误后仍发布档位通知: %+v body=%x", packet.Header, packet.Body)
+		}
+		if packet.Header.MsgID == 978 && len(packet.Body) > 0 && packet.Body[0] == 1 {
+			t.Fatalf("仓储错误后仍发布成功回包: %x", packet.Body)
+		}
+	}
+	stored, _, _ := repos.Character.Load(context.Background(), "17")
+	if stored.Stats["gold"] != 25_000_000 || stored.Stats["carry_gold_stage"] != 0 {
+		t.Fatalf("失败事务改动了资产: %v", stored.Stats)
 	}
 }
