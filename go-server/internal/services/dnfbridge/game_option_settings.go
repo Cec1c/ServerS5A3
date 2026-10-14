@@ -365,7 +365,9 @@ func (s *Service) handleSaveCharacterOption(session *gameSession, body []byte) e
 	})
 	fields := []any{"char_id", characterID, "blob_len", len(blob), "frame_len", len(frame), "save_error", err}
 	s.logGameEvent(session, "game-character-option-saved", append(fields, characterOptionSaveLogFields(previous, blob)...)...)
-	s.logCharacterOptionSkillListsCleared(session, characterID, previous, blob)
+	if err == nil {
+		s.logCharacterOptionSkillListsCleared(session, characterID, previous, blob)
+	}
 	return nil
 }
 

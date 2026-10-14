@@ -8,7 +8,46 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
+
+func TestCharacterOptionFailedSaveDoesNotReportListsCleared(t *testing.T) {
+	s, session, repos := scope44Fixture(t)
+	scope44Select(t, s, session, 29)
+	locked := pinnedNativeLockedFrame(t)
+	scope44Save(t, s, session, locked)
+	logPath := filepath.Join(t.TempDir(), "failed-save.log")
+	logger, err := openPacketLogger(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.packetLog = logger
+	t.Cleanup(func() { _ = logger.Close() })
+	failing := repos
+	stub := &countingSettings567r4{base: repos.Settings, failSave: true}
+	failing.Settings = stub
+	s.repositoryProvider = func() (dnfrepo.Group, bool) { return failing, true }
+	cleared := append([]byte(nil), pinnedNativeLockedBlob(t)...)
+	characterOptionPutWord(cleared, 128, 0xffff)
+	scope44Save(t, s, session, characterOptionFrame(cleared))
+	if stub.saveCalls == 0 {
+		t.Fatal("failed save was not exercised")
+	}
+	if got := scope44Stored(t, repos, "29"); got != hex.EncodeToString(locked) {
+		t.Fatal("failed save changed persisted options")
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "game-character-option-skill-lists-cleared") {
+		t.Fatal("failed save was reported as a committed clearing of skill lists")
+	}
+}
 
 // 真实捕获：45 批原生取证（H:/YKCN90工作区/调查资料/续修-D33-20261011/native-skill-observation45）
 // 里，操作者对角色 q7a 在技能面板点「锁定」后，客户端实际发出的 op447 被逐字节落库的那份
