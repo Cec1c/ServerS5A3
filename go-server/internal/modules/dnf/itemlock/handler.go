@@ -94,7 +94,7 @@ func itemLockUpperResponses(opcode uint16, operation string, result Result) []al
 	case "request_item_unlock":
 		return []alignedcmd.UpperResponse{
 			class1Response(opcode, buildUnlockAck(result.ListType, result.SlotIndex, 0)),
-			class0Response(msgItemUnlockNotice, buildLockAck(result.ListType, result.SlotIndex)),
+			class0Response(msgItemUnlockNotice, buildLockLocation(result.ListType, result.SlotIndex)),
 		}
 	case "request_item_unlock_cancel":
 		return []alignedcmd.UpperResponse{

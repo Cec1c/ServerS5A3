@@ -1,3 +1,8 @@
+## 2026-10-14 — Correct equipment-lock success ACK framing
+
+- Current-client class1 op267/268/269 expects a success byte before list/slot (unlock also carries remaining seconds). The itemlock owner responses omitted that byte, so main-list zero selected the failure branch and other lists shifted the location fields. Add the success prefix only to ACKs; preserve the class0/op252 location-only notification and existing persistence semantics.
+- Add a bridge regression covering all four supported list types and three operations through the real handler, repository and send path. All twelve cases fail on the old bytes. Native validation and the previously unsupported equipped-list owner remain open; see Docs/BUGS_20261014_EQUIPMENT_LOCK_ACK.md.
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
