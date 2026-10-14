@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	"math"
 	"math/rand"
 	"sort"
@@ -3440,15 +3441,7 @@ func (o *Owner) withMoveRefresh(
 }
 
 func isEquipmentLocked(stack dnfrepo.ItemStack) bool {
-	if stack.Extra == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stack.Extra["equipment_lock_state"])) {
-	case "1", "2", "active", "locked", "unlocking", "pending_unlock":
-		return true
-	default:
-		return false
-	}
+	return dnfitemlock.IsLocked(stack)
 }
 
 func cloneStack(stack dnfrepo.ItemStack) dnfrepo.ItemStack {

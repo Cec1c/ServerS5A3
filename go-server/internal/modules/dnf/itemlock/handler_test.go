@@ -88,7 +88,7 @@ func TestOwnerLockPersists(t *testing.T) {
 	}
 }
 
-func TestOwnerUnlockClearsLock(t *testing.T) {
+func TestOwnerUnlockStartsDelay(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
 	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
@@ -109,13 +109,13 @@ func TestOwnerUnlockClearsLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply error = %v", err)
 	}
-	if !result.Changed || result.State != "" {
+	if !result.Changed || result.State != "2" {
 		t.Fatalf("result = %+v", result)
 	}
 
 	loaded := loadTestInventory(t, ctx, repos, "27")
-	if _, ok := loaded.Slots[slotKey(listTypeAvatar, 4)].Extra["equipment_lock_state"]; ok {
-		t.Fatalf("lock state should be cleared: %+v", loaded.Slots[slotKey(listTypeAvatar, 4)].Extra)
+	if loaded.Slots[slotKey(listTypeAvatar, 4)].Extra["equipment_lock_state"] != "2" {
+		t.Fatalf("lock state should remain pending: %+v", loaded.Slots[slotKey(listTypeAvatar, 4)].Extra)
 	}
 }
 
@@ -189,7 +189,7 @@ func TestHandlerUsesOwnerAndReturnsLockAckThenListDelta(t *testing.T) {
 	}
 }
 
-func TestHandlerUnlockReturnsAckThenUnlockNotice(t *testing.T) {
+func TestHandlerUnlockReturnsPendingAck(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
 	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
@@ -212,19 +212,16 @@ func TestHandlerUnlockReturnsAckThenUnlockNotice(t *testing.T) {
 	if !got.Handled || !got.ResponseAllowed || got.Operation != "request_item_unlock" {
 		t.Fatalf("result = %+v", got)
 	}
-	if len(got.UpperResponses) != 2 {
-		t.Fatalf("response count = %d, want 2", len(got.UpperResponses))
+	if len(got.UpperResponses) != 1 {
+		t.Fatalf("response count = %d, want 1", len(got.UpperResponses))
 	}
-	if ack := got.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemUnlock) || string(ack.Body) != string([]byte{1, listTypeAvatar, 0x04, 0x00, 0, 0, 0, 0}) {
+	if ack := got.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemUnlock) || string(ack.Body) != string([]byte{1, listTypeAvatar, 0x04, 0x00, 0x80, 0xf4, 3, 0}) {
 		t.Fatalf("ack = %+v", ack)
-	}
-	if notice := got.UpperResponses[1]; notice.MsgID != msgItemUnlockNotice || notice.Classification != 0 || string(notice.Body) != string([]byte{listTypeAvatar, 0x04, 0x00}) {
-		t.Fatalf("notice = %+v", notice)
 	}
 
 	loaded := loadTestInventory(t, ctx, repos, "27")
-	if _, ok := loaded.Slots[slotKey(listTypeAvatar, 4)].Extra["equipment_lock_state"]; ok {
-		t.Fatalf("lock state should be cleared: %+v", loaded.Slots[slotKey(listTypeAvatar, 4)].Extra)
+	if loaded.Slots[slotKey(listTypeAvatar, 4)].Extra["equipment_lock_state"] != "2" {
+		t.Fatalf("lock state should remain pending: %+v", loaded.Slots[slotKey(listTypeAvatar, 4)].Extra)
 	}
 }
 

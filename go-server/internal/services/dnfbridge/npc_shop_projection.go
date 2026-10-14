@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	"math"
 	"strconv"
 	"strings"
@@ -386,15 +387,7 @@ func (s *Service) commitCurrentNPCShopSell(ctx context.Context, session *gameSes
 }
 
 func currentNPCShopItemLocked(stack dnfrepo.ItemStack) bool {
-	if stack.Extra == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stack.Extra["equipment_lock_state"])) {
-	case "1", "2", "active", "locked", "unlocking", "pending_unlock":
-		return true
-	default:
-		return false
-	}
+	return dnfitemlock.IsLocked(stack)
 }
 
 func (s *Service) currentNPCShopMutationOwner(session *gameSession) (string, string, dnfrepo.Group, *dnfnpcshop.Owner, error) {

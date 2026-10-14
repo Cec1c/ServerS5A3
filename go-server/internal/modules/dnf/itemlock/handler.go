@@ -92,10 +92,11 @@ func itemLockUpperResponses(opcode uint16, operation string, result Result) []al
 			class0Response(msgItemLockList, buildLockListDelta(result.ListType, result.SlotIndex, itemLockStateActive, 0)),
 		}
 	case "request_item_unlock":
-		return []alignedcmd.UpperResponse{
-			class1Response(opcode, buildUnlockAck(result.ListType, result.SlotIndex, 0)),
-			class0Response(msgItemUnlockNotice, buildLockLocation(result.ListType, result.SlotIndex)),
+		responses := []alignedcmd.UpperResponse{class1Response(opcode, buildUnlockAck(result.ListType, result.SlotIndex, result.RemainingSeconds))}
+		if result.State == "" {
+			responses = append(responses, class0Response(msgItemUnlockNotice, buildLockLocation(result.ListType, result.SlotIndex)))
 		}
+		return responses
 	case "request_item_unlock_cancel":
 		return []alignedcmd.UpperResponse{
 			class1Response(opcode, buildLockAck(result.ListType, result.SlotIndex)),

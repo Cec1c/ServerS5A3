@@ -45,7 +45,7 @@ func TestCurrentEquipmentLockAcksIncludeSuccessBeforeLocation(t *testing.T) {
 				ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 				want := []byte{1, list, 65, 0}
 				if opcode == 268 {
-					want = append(want, 0, 0, 0, 0)
+					want = append(want, 0x80, 0xf4, 3, 0)
 				}
 				if ack.Header.Classification != 1 || ack.Header.MsgID != opcode || !bytes.Equal(ack.Body, want) {
 					t.Fatalf("current client needs success/list/slot payload: header=%+v body=%x want=%x", ack.Header, ack.Body, want)
@@ -54,16 +54,15 @@ func TestCurrentEquipmentLockAcksIncludeSuccessBeforeLocation(t *testing.T) {
 				if ack.Body[1] != list || binary.LittleEndian.Uint16(ack.Body[2:4]) != 65 {
 					t.Fatal("client location shifted")
 				}
-				notice, tail := splitGameServerUpperPacket(t, rest)
-				if len(tail) != 0 || notice.Header.Classification != 0 {
-					t.Fatal("notification ordering/framing changed")
-				}
 				if opcode == 268 {
-					if notice.Header.MsgID != 252 || !bytes.Equal(notice.Body, []byte{list, 65, 0}) {
-						t.Fatalf("unlock NOTI must not gain success prefix: %x", notice.Body)
+					if len(rest) != 0 {
+						t.Fatal("pending unlock must not send early removal")
 					}
-				} else if notice.Header.MsgID != 251 || !bytes.Equal(notice.Body, []byte{1, 0, list, 65, 0, 1}) {
-					t.Fatalf("lock snapshot changed: %x", notice.Body)
+				} else {
+					notice, tail := splitGameServerUpperPacket(t, rest)
+					if len(tail) != 0 || notice.Header.Classification != 0 || notice.Header.MsgID != 251 || !bytes.Equal(notice.Body, []byte{1, 0, list, 65, 0, 1}) {
+						t.Fatalf("lock notice: %x", notice.Body)
+					}
 				}
 				after, found, err := repos.Inventory.Load(ctx, "27")
 				if err != nil || !found {
@@ -75,7 +74,7 @@ func TestCurrentEquipmentLockAcksIncludeSuccessBeforeLocation(t *testing.T) {
 				}
 				wantState := "1"
 				if opcode == 268 {
-					wantState = ""
+					wantState = "2"
 				}
 				if item.ItemID != 1001 || item.Count != 1 || item.Extra["instance_marker"] != "preserved" || item.Extra["equipment_lock_state"] != wantState {
 					t.Fatalf("unexpected committed instance: %+v", item)

@@ -692,3 +692,15 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 ## 2026-10-15 - Updated issue document accepts female-priest level-15 continuity
 
 - Updated user document marks the female-priest level-15 mainline/job-change report accepted. Merge MR37 regression coverage; it adds tests rather than a new runtime fix. Other quest and experience reports remain open.
+- Integrate the pinned MR41 cargo-capacity and MR42 monster-card upgrade/compound diffs onto deployed f9bcd3f for user acceptance only. Keep the existing gameplay candidates and independent GM private API. Do not merge or publish these unaccepted requests into master.
+- Resolve overlapping inventory settings fields by retaining both consumers, and preserve forging request fields alongside cargo validators. Combine purchased cargo sort capacity with existing locked-slot exclusions; add a combined regression.
+- DOC029, DOC066, DOC075, DOC087 and DOC098 remain unaccepted. This release does not claim to fix the latest enchant/forge UI feedback. Guild MR33 and historical embedded-GM MR2 are excluded from this incremental deployment.
+- MR42 requires client COMMAND reception for op603/op414; record the exact client compatibility delta and deployment/validation results in external release receipts. No PVF change or manual player asset edits are planned.
+- Combined regression initially exposed fixture assumptions: the existing cargo lock move lacked purchased capacity, and the card test expected same-ID incompatible stacks to swap despite MR41 rejecting that case. Supply real purchased capacity in the fixture and assert rejection leaves both card grades unchanged; retain subsequent empty-slot movement and sorting checks.
+
+## 2026-10-15 - Persist the requested 72-hour equipment unlock delay
+
+- Unlock requests now persist an absolute deadline and acknowledge 259200 seconds instead of clearing protection immediately. Repeated requests retain the deadline; cancellation restores the active lock. Missing or malformed legacy deadlines fail closed.
+- Serialize item-lock mutations through the existing character-item transaction. Login snapshots derive remaining time from the deadline; inventory, collectbox, limited-cube, NPC sale and dungeon discard protections share expiry semantics. No player records are migrated or manually edited.
+- Keep success-prefixed 267/268/269 responses. Pending requests do not send the class0 removal notice early. Expired pending locks cease blocking operations and disappear from login snapshots; native online countdown expiry remains to be accepted.
+- The old implementation fails the pending-state regression; targeted tests cover retries, cancel/restart, exact expiry, malformed deadlines, write failure and concurrent slots. Full validation is recorded separately; this candidate is not deployed or user-accepted.
