@@ -8,6 +8,11 @@
 - Build a separate ordinary-card equipment pool from list-backed PVF minimum level, rarity and positive creation rate. Legacy dictionary gaps no longer substitute crafting recipes for high-level equipment; monster and abyss policies remain unchanged.
 - Preserve existing rarity rolls and level windows, exclude cosmetic/special equipment, honor original/revised asset precedence and reject incomplete scans. Stream and warm the cached pool during startup to avoid a first-clear scan delay.
 - Regression coverage reproduces the former recipe fallback, checks high-level candidates, weights, level limits, special/disabled items and failed scans. Optional real-PVF sampling verifies varied equipment at low and high levels. Native card display/claim remains pending acceptance.
+## 2026-10-14 — Preserve legendary souls in equipment disassembly
+
+- Read disassembly soul rows as counted PVF records, retaining the disabled chronicle row and its constant placeholder. Legendary equipment now uses its own rarity row instead of a truncated or shifted entry.
+- Reject malformed or partial soul tables before consuming equipment. Preserve the existing reward quantities, item transactions and account soul-warehouse projection; no asset or balance rewrite is required.
+- Regression coverage includes the real-PVF missing-soul failure, all rarity rows, malformed tables, source-item preservation on failure and committed warehouse rewards matching the acknowledgement. Native disassembly display remains pending acceptance.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
