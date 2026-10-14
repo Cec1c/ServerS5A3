@@ -1,3 +1,9 @@
+## 2026-10-14 — 副职业商店放置区域（DOC-096）
+
+- op598建店之前补充真实城镇地图可行走矩形与NPC禁摆范围校验。副职业域负责位置判定，地图域解析导入NPC；缺失或损坏数据拒绝，不登记、不广播、不改资产。
+- 真实PVF主街在旧代码复现分解/附魔两种商店的地图外与NPC附近四组错误成功；候选拒绝四组并保留两组合法位置。额外验证矩形间隙/边界、异常数据、NPC导入与循环/缺失导入。
+- 当前EXE已核对op598回调与82错误分支；旧参考190没有专用显示，地图不可用沿用通用失败19。完整源码验证待本候选执行；未部署，原生摆摊验收保持开放。详见Docs/BUGS_20261014_STORE_PLACEMENT.md。
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.

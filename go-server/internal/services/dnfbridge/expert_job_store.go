@@ -362,6 +362,10 @@ func (s *Service) createCurrentExpertJobStore(session *gameSession, request curr
 		s.logCurrentExpertJobStoreCreateBlocked(session, request, "store_kind_unsupported")
 		return nil, dnfexpertjob.ErrMachineInvalid
 	}
+	if err := s.validateCurrentExpertJobStorePlacement(player, request); err != nil {
+		s.logCurrentExpertJobStoreCreateBlocked(session, request, "store_placement_not_allowed", "town_id", player.TownID, "area_id", player.AreaID, "error", err)
+		return nil, err
+	}
 	s.expertJobStoreMu.Lock()
 	defer s.expertJobStoreMu.Unlock()
 	if s.expertJobStores == nil {
@@ -761,6 +765,12 @@ func buildCurrentExpertJobStoreEnterSuccess(store *currentExpertJobStore) []byte
 
 func currentExpertJobStoreError(err error) byte {
 	switch {
+	case errors.Is(err, dnfexpertjob.ErrStorePointUnavailable):
+		// The current client has no placement message for the old reference's
+		// 190. Keep the existing generic create rejection for unavailable maps.
+		return 19
+	case errors.Is(err, dnfexpertjob.ErrStoreCommercialZone):
+		return 82
 	case errors.Is(err, dnfexpertjob.ErrInsufficientGold):
 		return 21
 	case errors.Is(err, dnfexpertjob.ErrLevelTooLow):
