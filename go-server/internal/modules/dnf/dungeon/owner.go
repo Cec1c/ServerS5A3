@@ -100,6 +100,7 @@ type LuckyStarResult struct {
 // runtime room state, packet ordering, and current-client raw projection stay
 // in dnfbridge.
 type Owner struct {
+	settings      dnfrepo.SettingsRepository
 	assets        dnfrepo.CharacterAssetUnitOfWork
 	accounts      dnfrepo.AccountRepository
 	settlements   dnfrepo.CharacterSettlementUnitOfWork
@@ -118,6 +119,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		settings:      repos.Settings,
 		assets:        repos.CharacterAssets,
 		accounts:      repos.Account,
 		settlements:   repos.CharacterSettlement,
@@ -174,6 +176,9 @@ func (o *Owner) GrantCardReward(ctx context.Context, cmd CardRewardCommand) (Car
 		}
 		if !found {
 			inventory = dnfrepo.InventoryRecord{CharacterID: cmd.CharacterID}
+		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if inventory.Slots == nil {
@@ -444,6 +449,7 @@ func addCardItem(
 	}
 	policy := dnfplacement.SlotPolicy{ListType: dnfrepo.MainInventoryListType, Start: slotStart, End: slotEnd,
 		AllowQuickSlots: reward.AllowQuickSlots, PreferQuickSlots: reward.Stackable && reward.PreferQuickSlots}
+	policy = policy.ForInventory(record)
 	if reward.Stackable {
 		incoming := cardRewardGrantIdentity(reward)
 		for _, slot := range policy.MergeSlots() {

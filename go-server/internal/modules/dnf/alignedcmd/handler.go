@@ -349,9 +349,10 @@ type UpgradePolicyResolution struct {
 // 零值（SlotEnd < SlotStart）表示"没有容器信息"：调用方必须退回历史落点顺序，
 // 绝不允许把零值当成"槽段 0..0"。
 type StackGrantContainer struct {
-	ListType  byte
-	SlotStart int16
-	SlotEnd   int16
+	ContainerState *dnfrepo.CharacterContainerState
+	ListType       byte
+	SlotStart      int16
+	SlotEnd        int16
 }
 
 // Valid 报告容器信息是否可用（零值不可用）。

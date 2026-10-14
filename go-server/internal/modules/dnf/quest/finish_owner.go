@@ -266,6 +266,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if !found || strings.TrimSpace(inventory.CharacterID) != input.CharacterID {
 			return fmt.Errorf("%w: inventory record", ErrFinishSettlementUnavailable)
 		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.repositories.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if equipment, equipmentFound, err := tx.Equipment.Load(ctx, input.CharacterID); err != nil {
 			return err

@@ -50,6 +50,7 @@ func moveSlotAllowed(cmd Command, moving dnfrepo.ItemStack, list byte, slot int1
 	if err != nil {
 		return err
 	}
+	policy.ContainerState = state
 	allowed := false
 	if policy.ListType == list {
 		for _, candidate := range policy.MergeSlots() {

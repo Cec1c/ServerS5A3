@@ -134,7 +134,7 @@ func upgradeDestroyBonusMergeSlots(items map[string]dnfrepo.ItemStack, container
 	rest := make([]upgradeDestroyBonusSlotRef, 0, len(items))
 	for key, stack := range items {
 		listType, slot, ok := parseSlotKey(key)
-		if !ok || stack.Count <= 0 {
+		if !ok || stack.Count <= 0 || !dnfplacement.SlotOpen(listType, slot, container.ContainerState) {
 			continue
 		}
 		ref := upgradeDestroyBonusSlotRef{listType: listType, slot: slot}
@@ -168,6 +168,7 @@ func upgradeDestroyBonusMergeSlots(items map[string]dnfrepo.ItemStack, container
 func upgradeDestroyBonusNewSlot(items map[string]dnfrepo.ItemStack, container alignedcmd.StackGrantContainer) (byte, int16) {
 	if container.Valid() {
 		policy := dnfplacement.SlotPolicy{ListType: container.ListType, Start: container.SlotStart, End: container.SlotEnd,
+			ContainerState:   container.ContainerState,
 			AllowQuickSlots:  container.ListType == listTypeMain && container.SlotStart >= 65 && container.SlotStart < 289,
 			PreferQuickSlots: container.ListType == listTypeMain && container.SlotStart == 65}
 		for _, slot := range policy.EmptySlots() {

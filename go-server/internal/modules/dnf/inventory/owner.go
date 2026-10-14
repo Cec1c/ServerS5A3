@@ -1384,7 +1384,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		return result, nil
 	}
 
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return UpgradeResult{}, err
 	}
@@ -1622,6 +1622,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 			// 与开关见 upgrade_destroy_bonus.go：旧代码无条件 firstEmptyUpgradeSlot()，
 			// 于是每摧毁一把武器就多一行（现场角色 6 的 3243 四行同源）。
 			if cmd.UpgradeDestroyBonusItemID > 0 && cmd.UpgradeDestroyBonusCount > 0 {
+				cmd.UpgradeDestroyBonusContainer.ContainerState = record.ContainerState
 				placement, ok := placeUpgradeDestroyBonus(
 					items,
 					int64(cmd.UpgradeDestroyBonusItemID),
@@ -2440,7 +2441,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return UseStackableResult{}, err
 	}
@@ -2485,7 +2486,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		RandomRewardEffectIndex: outcome.EffectIndex,
 	}
 	if outcome.Reward.ItemID > 0 {
-		slots, err := grantRandomRewardItem(record.Slots, outcome.Reward, 1)
+		slots, err := grantRandomRewardItem(record.Slots, outcome.Reward, 1, record.ContainerState)
 		if err != nil {
 			return UseStackableResult{}, err
 		}
@@ -2535,7 +2536,11 @@ func chooseRandomRewardItemOutcome(outcomes []alignedcmd.RandomRewardItemOutcome
 // 189..238（resolveCurrentMagicBoxRewardItem 按 stackable type 给出）。旧代码
 // 硬要求 `reward.TargetListType == listTypeMain`，于是"开出宠物饲料"的盒子整个
 // 使用请求以 ErrRandomRewardContractRequired 失败（玩家看到用了没反应）。
-func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64) ([]int16, error) {
+func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64, states ...*dnfrepo.CharacterContainerState) ([]int16, error) {
+	var state *dnfrepo.CharacterContainerState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	if count <= 0 {
 		return nil, nil
 	}
@@ -2559,6 +2564,9 @@ func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd
 	// dnfrepo.CanMergeItemStack 做"缺省即兼容"的比较，发放来源之类的记账键不参与。
 	incoming := randomRewardGrantIdentity(reward)
 	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+		if !dnfplacement.SlotOpen(reward.TargetListType, slot, state) {
+			continue
+		}
 		key := slotKey(targetListType, slot)
 		stack, found := items[key]
 		if !found || stack.ItemID != reward.ItemID || stack.Count <= 0 || reward.StackLimit == 1 ||
@@ -2584,6 +2592,9 @@ func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd
 		markChanged(slot)
 	}
 	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+		if !dnfplacement.SlotOpen(reward.TargetListType, slot, state) {
+			continue
+		}
 		key := slotKey(targetListType, slot)
 		if _, occupied := items[key]; occupied {
 			continue
