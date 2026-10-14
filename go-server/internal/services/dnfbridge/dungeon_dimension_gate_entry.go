@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
@@ -38,7 +39,7 @@ func (s *Service) currentDimensionGateDailyEntryEnabled(dungeon worldmap.Dungeon
 	return s != nil && s.options.currentClientVersion == "official-24.9" && dungeon.Metadata.Flags[currentDimensionGateDungeonPVFFlag]
 }
 
-// currentDimensionGateDailyEntryLimit 返回共享池的准入总额度（默认档 + 额外档）。
+// currentDimensionGateDailyEntryLimit 返回共享池的初始额度（不含用券获得的追加次数）。
 // 读不到正额度时拒绝入场，而不是静默放行。
 func (s *Service) currentDimensionGateDailyEntryLimit() (int64, string, error) {
 	limit := s.currentDimensionGateEntryLimitForSession()
@@ -49,6 +50,62 @@ func (s *Service) currentDimensionGateDailyEntryLimit() (int64, string, error) {
 	return total, limit.source, nil
 }
 
+const currentDimensionDungeonInfoPath = "etc/dungeonetc/dimensiondungeoninfo.etc"
+
+// The new-family maxima are ceilings, not free entries. The local ticket PVF
+// explicitly says at most five extra grants per day, reset at 06:00.
+func parseCurrentDimensionGateExtraLimit(text string, base int64) (int64, error) {
+	doc, err := dnfpvf.Parse(currentDimensionDungeonInfoPath, text)
+	if err != nil {
+		return 0, err
+	}
+	read := func(name string) (int64, error) {
+		count := 0
+		for _, section := range doc.Sections {
+			if section.Name == name {
+				count++
+			}
+		}
+		values, ok := doc.Section(name)
+		if count != 1 || !ok || len(values) != 1 || values[0].Kind != dnfpvf.TokenInt || values[0].Int < 0 {
+			return 0, fmt.Errorf("invalid dimension entry policy: %s", name)
+		}
+		return values[0].Int, nil
+	}
+	maximum, err := read("max daily enter count")
+	if err != nil {
+		return 0, err
+	}
+	extra, err := read("max extra enter count")
+	if err != nil {
+		return 0, err
+	}
+	if base <= 0 || maximum < base || extra > maximum-base {
+		return 0, fmt.Errorf("inconsistent dimension entry policy: base=%d max=%d extra=%d", base, maximum, extra)
+	}
+	return extra, nil
+}
+
+func (s *Service) currentDimensionGateDailyExtraLimit(base int64) (int64, error) {
+	if s == nil {
+		return 0, dnfdungeon.ErrOwnerUnavailable
+	}
+	s.initialEquipmentMu.Lock()
+	archive, err := s.initialEquipmentArchiveLocked()
+	s.initialEquipmentMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	if archive == nil {
+		return 0, dnfdungeon.ErrOwnerUnavailable
+	}
+	text, _, err := readInitialPVFText(archive, currentDimensionDungeonInfoPath)
+	if err != nil {
+		return 0, err
+	}
+	return parseCurrentDimensionGateExtraLimit(text, base)
+}
+
 // validateCurrentDimensionGateDailyCount 只判每日次数：等级/队伍/疲劳/门票仍由调用方既有的
 // 准入链负责，避免把两条独立规则搅在一起。
 func (s *Service) validateCurrentDimensionGateDailyCount(character dnfrepo.CharacterRecord) error {
@@ -56,11 +113,15 @@ func (s *Service) validateCurrentDimensionGateDailyCount(character dnfrepo.Chara
 	if err != nil {
 		return err
 	}
-	used, err := dnfdungeon.DimensionGateDailyUsed(character, s.gameplayNow())
+	extraLimit, err := s.currentDimensionGateDailyExtraLimit(limit)
 	if err != nil {
 		return err
 	}
-	if used >= limit {
+	used, _, total, err := dnfdungeon.DimensionGateDailyAllowance(character, s.gameplayNow(), limit, extraLimit)
+	if err != nil {
+		return err
+	}
+	if used >= total {
 		return dnfdungeon.ErrDailyEntryLimit
 	}
 	return nil
@@ -70,8 +131,7 @@ func (s *Service) validateCurrentDimensionGateDailyCount(character dnfrepo.Chara
 // 日计数与同批入场资产（门票、入场房间疲劳）放进同一个角色事务提交；调用方
 // `consumeCurrentDailyCountEntry` 负责槽位刷新与疲劳房间标记。
 //
-// 客户端计数投影（官方 24.9 的 812 handler）尚未验证，见 `dimension_gate_entrance.go`，
-// 因此这里不发包、不改 opcode。
+// 客户端次数 UI 仍待核验。当前 EXE 的 812 不是次数通知；此处不发包。
 func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
 	if runtime == nil || !s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon) {
 		return dnfrepo.CharacterRecord{}, nil, nil
@@ -84,6 +144,10 @@ func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, ru
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, nil, err
 	}
+	extraLimit, err := s.currentDimensionGateDailyExtraLimit(limit)
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, nil, err
+	}
 	owner, err := dnfdungeon.NewOwner(repos)
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, nil, err
@@ -93,6 +157,7 @@ func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, ru
 	result, err := owner.ConsumeDimensionGateEntry(ctx, dnfdungeon.DimensionGateEntryCommand{
 		CharacterID:   strconv.Itoa(int(session.selectedCharacterID)),
 		Limit:         limit,
+		ExtraLimit:    extraLimit,
 		Requirements:  assets.requirements,
 		UpdatedAt:     s.gameplayNow(),
 		Project:       assets.project,
@@ -105,11 +170,12 @@ func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, ru
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
 		"used", result.Used,
-		"limit", limit,
+		"base_limit", limit,
+		"extra_limit", extraLimit,
 		"limit_source", source,
 		"entry_items", len(result.Consumed),
 		"fatigue_commit", assets.debitRoomFatigue,
-		"client_projection", "pending_native_812_verification",
+		"client_projection", "pending_native_count_ui_verification",
 		"reset", "06:00_UTC+8")
 	return result.Character, result.Consumed, nil
 }

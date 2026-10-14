@@ -22,7 +22,7 @@ import (
 //
 // 真档 PVF dungeon ids（`worldmap/DimensionGate.wdm` 区域 13 / `worldmap/Legend.wdm` 区域 45）：
 //
-//	7100  异次元裂缝 - 异界的强者      (DOC-083 上报副本)
+//	7100  旧六房间裂缝；用户已确认 DOC-083 实际目标为下述新版分支地图
 //	7165-7179 黑色大地外围 / 黑色大地 / 罗特斯的堡垒 / 巴卡尔之城 / 痛苦之村列瑟芬
 //	5097/5098 艾肯（单人）遗落的神殿 / 试炼；3570/3571 组队版 (DOC-094)
 //	316   魔界裂缝（`particular hell`，**不是** dimension dungeon；沿用 3 次规则，不得混淆）

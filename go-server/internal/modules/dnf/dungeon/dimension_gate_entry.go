@@ -2,6 +2,7 @@ package dungeon
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 //	`Game\Dungeon\DungeonEntryLimitService.cs`
 //	  `character_dimensiongate_records(character_id PRIMARY KEY, day_id, current_count,
 //	  extra_count, used_count)` —— 记录按 character_id 建主键，没有 dgn_id 列；
-//	  `TryConsumeDimensionGateLimit` / `TryAddDimensionGateExtraCount` 都按角色读写同一行。
+//	  `TryConsumeDimensionGateLimit` 按角色读写同一行。
 //	`Network\Handlers\Dungeon\DungeonEntryHandler.cs:4405-4432/4480-4519`
 //	  准入 `TryCheckDimensionGateLimit(...)`、入场 `TryConsumeDimensionGateLimit(...)`，
 //	  两者只在 `DungeonData.IsDimensionDungeon(dungeonId)`（= DGN `[dimension dungeon]`）为真时走。
@@ -26,11 +27,12 @@ import (
 //
 // 额度用尽即拒绝入场；计数与**同一轮入场的其他资产**（门票、入场房间疲劳）必须在同一个
 // `WithinCharacterAssets` 事务里提交，否则拒绝分支会留下已经扣掉的疲劳或门票。
-// 本仓这里只做持久计数与准入判据，**不发包**：官方 24.9 客户端没有验证过的 count 下行
-// （见 `dimension_gate_entrance.go` 的 812 说明），所以客户端投影保持待验。
+// 本仓这里只做持久计数与准入判据，不发包；当前 EXE 的 812 不是次数通知。
+// 计数 UI 保持待验，见 Docs/D33_DAILY_COUNT_ENTRY_20261014.md 的反汇编纠正。
 const (
-	dimensionGateDayKey  = "dimension_gate_daily_entry_day"
-	dimensionGateUsedKey = "dimension_gate_daily_entry_used"
+	dimensionGateDayKey   = "dimension_gate_daily_entry_day"
+	dimensionGateUsedKey  = "dimension_gate_daily_entry_used"
+	dimensionGateExtraKey = "dimension_gate_daily_entry_extra_granted"
 )
 
 // DimensionGateDailyUsed 沿用既有 06:00（UTC+8）服务日口径。读到新的一天不写库；
@@ -46,9 +48,33 @@ func DimensionGateDailyUsed(character dnfrepo.CharacterRecord, now time.Time) (i
 	return used, nil
 }
 
+// DimensionGateDailyAllowance returns the used count and earned allowance for
+// this service day. Extra is the cumulative grant, not the unspent balance:
+// spending an entry must never reopen the daily ticket grant limit.
+// Missing extra state preserves records created before tickets were supported.
+func DimensionGateDailyAllowance(character dnfrepo.CharacterRecord, now time.Time, base, extraLimit int64) (used, extra, total int64, err error) {
+	if now.IsZero() || base <= 0 || extraLimit < 0 || extraLimit > math.MaxInt64-base {
+		return 0, 0, 0, ErrEntryItemConsumeInvalid
+	}
+	used, err = DimensionGateDailyUsed(character, now)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if character.Stats[dimensionGateDayKey] == premium.ServiceDayID(now) {
+		extra = character.Stats[dimensionGateExtraKey]
+	}
+	if extra < 0 || extra > extraLimit {
+		return 0, 0, 0, ErrEntryItemConsumeInvalid
+	}
+	return used, extra, base + extra, nil
+}
+
 type DimensionGateEntryCommand struct {
 	CharacterID string
 	Limit       int64
+	// ExtraLimit is the verified daily ticket grant cap; zero disables grants.
+	// Limit remains the initial allowance, never the maximum including tickets.
+	ExtraLimit int64
 	// Requirements / FreePasses / Project 与本仓既有每日次数命令同义：DGN 声明的
 	// `ConsumeOnEntry` 门票在同一事务里扣除，失败则整轮拒绝且不写任何字节。
 	Requirements []EntryItemRequirement
@@ -83,11 +109,11 @@ func (o *Owner) ConsumeDimensionGateEntry(ctx context.Context, cmd DimensionGate
 			return ErrCharacterNotFound
 		}
 		character = dnfrepo.CloneCharacter(character)
-		used, err := DimensionGateDailyUsed(character, cmd.UpdatedAt)
+		used, extra, total, err := DimensionGateDailyAllowance(character, cmd.UpdatedAt, cmd.Limit, cmd.ExtraLimit)
 		if err != nil {
 			return err
 		}
-		if used >= cmd.Limit {
+		if used >= total {
 			return ErrDailyEntryLimit
 		}
 		alternatives, err := DailyEntryAlternatives(cmd.Requirements, cmd.FreePasses, 0, 0)
@@ -122,6 +148,7 @@ func (o *Owner) ConsumeDimensionGateEntry(ctx context.Context, cmd DimensionGate
 		}
 		character.Stats[dimensionGateDayKey] = premium.ServiceDayID(cmd.UpdatedAt)
 		character.Stats[dimensionGateUsedKey] = used + 1
+		character.Stats[dimensionGateExtraKey] = extra
 		character.UpdatedAt = cmd.UpdatedAt
 		if err := dnfrepo.SaveCharacterFields(ctx, chars, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
