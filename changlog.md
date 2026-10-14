@@ -716,3 +716,8 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 
 - v101 drops op252, while admitted class0/op251 applies each listed state through the same setter (0x1d46e70). Append a state-zero op251 delta after an expired unlock ACK and legacy op252 notice, preserving object identity and existing clients. The regression fails before this change.
 - Correct the op251 comment: it updates listed objects rather than replacing a separate cache. Native expiry UI remains pending acceptance.
+## 2026-10-15 — DOC098 附魔门店材料事务
+
+- 按 test15 原生反馈与真实 PVF 配方的 `[input item]`，在门店附魔事务中复用既有材料消费器，消费请求方背包及账号共享固定槽材料；不足或锁定时连同卡片、手续费、经验和耐久回滚。A21 门店本身也未消费材料，不能作为本修复的权威依据。
+- 请求无材料槽位，支付方采用与卡片同侧的请求方；这一归属仍是基于现有协议形状的判断。保留现有失败码映射和成功 ACK，宝珠生成分支不变。
+- 仓库仅在槽内容确实变化时写回，空 map 与 nil 视为相同。新增自服务/访客内存事务和真实 PVF 回归；红绿原始输出与检查结果见独立 evidence/lane-a 目录，客户端结果窗口不属于本项验收。
