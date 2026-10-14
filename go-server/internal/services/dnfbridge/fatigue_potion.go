@@ -103,7 +103,14 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 		return true, s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUseStackableAction), 1)
 	}
 	s.logGameEvent(session, "game-fatigue-potion-used", "char_id", session.selectedCharacterID, "item_id", stack.ItemID, "points", definition.Points, "daily_limit", definition.DailyLimit, "cooltime_ms", definition.CoolTimeMS, "remaining_fatigue", result.Character.Stats["fatigue"])
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), buildCurrentQuestClearCouponAck(slot, result.Remaining), 1); err != nil {
+	// Correlate the reply with this request; the quest coupon owns action 167.
+	// The persisted item and PVF above remain the authority for the mutation.
+	var ack packetWriter
+	ack.writeByte(1)
+	ack.writeUint16(uint16(slot))
+	ack.writeByte(body[2])
+	ack.writeUint32(binary.LittleEndian.Uint32(body[7:11]))
+	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), ack.bytes(), 1); err != nil {
 		return true, err
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "fatigue_potion_after_ack", []alignedcmd.ItemSlotRefresh{{ListType: 0, SlotIndex: slot}}); err != nil {
