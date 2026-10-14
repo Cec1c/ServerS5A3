@@ -1,3 +1,12 @@
+## 2026-10-14 — 主线任务经验（DOC-121）两位数 [difficulty] 档位修复候选
+
+- 真档依据：`n_quest/questParameter.etc` 的 `[difficulty]` 同时声明单字符档（字母、`1`..`9`）与两位数档（`10`..`17`，如 `12`=600、`17`=734），因此难度是**字符串键**而非单 rune。扫描真实 PVF 的 8920 个带 `[difficulty]` 的任务，其中 378 个（全为 `[epic]` 主线：安徒恩85、镜像贝希摩斯58-59、卢克87-88、时空裂缝88 等）写的是两位数档。
+- 根因：`progression/quest_experience.go` 的 `difficultyWeight` 是 `map[rune]int`，parse 用 `utf8.DecodeRuneInString` 直接跳过长度大于 1 的键；`quest/catalog.go` 的 `PlanFinishReward` 也只在 `len([]rune(definition.Difficulty))==1` 时把 PVF 难度投影到 plan，否则保留默认 `G`(30)。这些主线因此静默退回 `G` 权重。
+- 旧失败/新通过（真实 PVF，同一只读探针）：任务 3481 `[difficulty] 10` 基线 `planDiff='G'` exp=251546，候选 `planDiff="10"` exp=417127（+65.8%）；任务 3926 `[difficulty] 17` 基线 `planDiff='G'` exp=756620，候选 `planDiff="17"` exp=1273766（+68.4%）。单字符档 3149 `[difficulty] 1` 两版均为 exp=6680，行为不变。
+- 修复：`difficultyWeight` 改为 `map[string]int`，parse 以整 token（大写归一，兼容数据里的大小写混用）为键；`QuestExperience`/`FinishRewardPlan.Difficulty` 改为 `string`，`PlanFinishReward` 直接投影大写后的整 token，仅当 PVF 未写时才回退 `G`。改动限于 quest 与 progression 两个包的难度键，不动等级门槛、罚则、经验表与金币表。
+- 回归：新增 `TestQuestExperienceUsesMultiCharacterDifficultyKey`（合成 `10`/`17` 键位）、`TestRealScriptPVFMainQuestTwoDigitDifficultyIsHonored`（真实 PVF 3149/3481/3482/3926/3927），并在既有 `TestRealScriptPVFQuestExperienceUsesVendorPermilleFormula` 增加 `10`/`17` 权重断言与 `difficulty=10` 用例。
+- 边界：①参考实现 C# `ComputeExp` 形参是 `char`；本修复按 PVF 自身定义的两位数键取整 token，若厂商运行时实为首字符语义需另证，未在无厂商源码/原生读数前下结论。②相邻发现未修、非本项范围：真实 `[gold reward table]` 是 200 项平铺表，parse 却按 `value -1` 成对、步长 2 读取，`goldByLevel` 只有 100 项且等级错位（金币另案）。未部署、未改数据库/PVF/客户端。
+
 ## 2026-10-14 — 服务端与本地 GM 边界验证
 
 - 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。

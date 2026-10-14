@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"unicode/utf8"
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
@@ -12,7 +11,7 @@ import (
 type questExperienceRules struct {
 	baseByLevel      []uint32
 	goldByLevel      []uint32
-	difficultyWeight map[rune]int
+	difficultyWeight map[string]int
 	greenPenalty     int
 	greyPenalty      int
 	// epicGreenPenalty / epicGreyPenalty 是 `[epic green level penalty]` /
@@ -83,13 +82,18 @@ func (t *Tables) DungeonClearBaseExperience(dungeonBasisLevel int) (uint32, erro
 //	weighted = base * (1000 + weight) / 1000      // `[difficulty]` 是**千分 additive**，不是百分比
 //	value    = weighted * penalty / 100           // penalty 是百分比（100 = 不罚）
 //
-// 两处此前的偏差（现场报障「主线给的经验少 lv10-lv11」）：
+// 三处此前的偏差（现场报障「主线给的经验少 lv10-lv11」）：
 //   - 旧实现把 weight 当百分比：`penalty * ((weight*base/100)/100)`。对常见难度
 //     `G`(30)/`S`(10) 等于只给 0.3/0.1 倍 base（比对手册少 3.4~10 倍），
 //     对 `1`(1780) 又反而多给 6.4 倍。
 //   - 罚则档位读的是 section 的**第一个**整数（`7`/`12`，那是等级差下限），
 //     正确值是最后一个整数（`80`/`30`）。见 parseQuestExperienceRules。
-func (t *Tables) QuestExperience(playerLevel, questMinLevel int, difficulty rune, questGrade string, ignoreLevel bool) (uint32, error) {
+//   - `[difficulty]` 档位是**字符串键**：PVF 同时声明单字符档（字母、`1`..`9`）
+//     与两位数档（`10`..`17`）。旧实现只接受单 rune 键，parse 丢掉 `10`..`17`，
+//     且任务难度 `[difficulty] 10`/`17` 在 catalog 里被静默退回默认 `G`(30)，
+//     令 378 个真实主线（安徒恩/镜像贝希摩斯/卢克等）少给约 40% 经验。
+//     见 parseQuestExperienceRules 与 quest.Catalog.PlanFinishReward。
+func (t *Tables) QuestExperience(playerLevel, questMinLevel int, difficulty string, questGrade string, ignoreLevel bool) (uint32, error) {
 	if t == nil || playerLevel <= 0 || questMinLevel <= 0 {
 		return 0, fmt.Errorf("%w: player=%d quest_min=%d", ErrLevelOutOfRange, playerLevel, questMinLevel)
 	}
@@ -102,7 +106,7 @@ func (t *Tables) QuestExperience(playerLevel, questMinLevel int, difficulty rune
 	}
 	weight, ok := t.quest.difficultyWeight[normalizeDifficulty(difficulty)]
 	if !ok {
-		return 0, fmt.Errorf("%w: %q", ErrQuestDifficulty, string(difficulty))
+		return 0, fmt.Errorf("%w: %q", ErrQuestDifficulty, difficulty)
 	}
 	penalty := 100
 	if !ignoreLevel {
@@ -156,7 +160,7 @@ func parseQuestExperienceRules(doc *dnfpvf.Document) (questExperienceRules, erro
 		return questExperienceRules{}, fmt.Errorf("%w: %s", ErrTableEmpty, QuestParameterPath)
 	}
 	rules := questExperienceRules{
-		difficultyWeight: make(map[rune]int),
+		difficultyWeight: make(map[string]int),
 	}
 	expValues := doc.Ints("exp reward table")
 	if len(expValues) == 0 || len(expValues)%2 != 0 {
@@ -188,9 +192,8 @@ func parseQuestExperienceRules(doc *dnfpvf.Document) (questExperienceRules, erro
 		if token.Kind != dnfpvf.TokenString && token.Kind != dnfpvf.TokenIdent {
 			continue
 		}
-		key := strings.TrimSpace(token.Value)
-		r, width := utf8.DecodeRuneInString(key)
-		if r == utf8.RuneError || width != len(key) {
+		key := normalizeDifficulty(token.Value)
+		if key == "" {
 			continue
 		}
 		for next := index + 1; next < len(difficultyTokens); next++ {
@@ -201,7 +204,7 @@ func parseQuestExperienceRules(doc *dnfpvf.Document) (questExperienceRules, erro
 			if value <= 0 || value > math.MaxInt {
 				return questExperienceRules{}, fmt.Errorf("%w: %s difficulty=%q weight=%d", ErrTableMalformed, QuestParameterPath, key, value)
 			}
-			rules.difficultyWeight[normalizeDifficulty(r)] = int(value)
+			rules.difficultyWeight[key] = int(value)
 			index = next
 			break
 		}
@@ -271,6 +274,10 @@ func questPenaltyPercent(doc *dnfpvf.Document, name string) (value int, present 
 	return int(last), true, nil
 }
 
-func normalizeDifficulty(value rune) rune {
-	return []rune(strings.ToUpper(string(value)))[0]
+// normalizeDifficulty keys the `[difficulty]` weight table. The runtime PVF
+// declares one-character ranks (letters, `1`..`9`) and two-digit ranks
+// (`10`..`17`), so the whole trimmed token — upper-cased, since the data mixes
+// `f`/`F` — is the key rather than a single rune.
+func normalizeDifficulty(value string) string {
+	return strings.ToUpper(strings.TrimSpace(value))
 }

@@ -224,7 +224,7 @@ func TestCatalogPlanFinishRewardFiltersPVFJobAndSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Difficulty != '1' || !plan.RewardSelectionUsed || len(plan.Items) != 3 ||
+	if plan.Difficulty != "1" || !plan.RewardSelectionUsed || len(plan.Items) != 3 ||
 		plan.Items[0].ItemID != 10165055 || plan.Items[1].ItemID != 104010230 || plan.Items[2].ItemID != 2002 {
 		t.Fatalf("finish reward plan = %+v", plan)
 	}
