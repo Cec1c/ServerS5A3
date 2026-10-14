@@ -1,3 +1,10 @@
+## 2026-10-14 — DOC-067 位置锁：真实桥接端到端与失败回包边界（sort-lock 席，复核轮）
+
+- 新增 sort_lock_bridge_integration_test.go：legacy cmd=1/op713 经 handleGameStreamPacket → handleAlignedGameCommand → Owner.ApplySortLock 落库，回包**只有**一条 class1/713 `01 00 0e 00`；随后整表/冷登录 op13 容器页里该槽 `0x60=1`，同一页的钱包行（0:0 金币 123456）、账号共享晶块行（0:359 = 5000）、品级种子 999999998、强化字节 6、属性/附魔块逐项不变；714 解锁后增量 op14 单行 `0x60=0` 且这些字段仍在。
+- 复核对齐两个帧形状：桥的 upper 头是 16 字节（splitAllCurrentGameServerUpperPackets 按 13 字节旧头切帧会把头部尾 3 字节并进 Body，测试改用 splitGameServerUpperPacketWithHeader + GameServerUpperHeaderSize16）；list 0 整表 op13 容器页头 = listType + u16 容器档位 + u16 行数（5 字节，行 0x77），取页时需按长度校验与同 msg id 的容器状态帧区分。
+- 失败回包边界取证（回答「不回包会不会卡住」）：0x1faee80/0x1faeee0 的失败分支只把 error 字节读进栈上局部（[ebp+0xf]）后返回，该局部此后无任何读取；两个处理器没有全局/UI 写、没有 pending/超时标记；上行 713 分支（0x32d3767）写体前只调一次 UI helper 0x1a685c0(1,3,0xd)，与回包无回调关联。因此失败不回包不会让客户端停在等待状态，最坏只是没有错误提示；90CN 也没有已证 sort-lock 错误码枚举（A21 的 17/19/21/22 属 267/268/269 资产锁），保持 fail-closed，不臆造 `0 + error`。
+- 空槽判据按仓储契约收紧：ApplySortLock 由原先 `found && ItemID==0 && Count>0` 会放行的写法改为 `!found || ItemID <= 0`（与 CurrentInventoryItemProjects / item_stack_contract.go 同一口径）；新增用例钉住「无物品行（ItemID=0、Count>0）必须按空槽拒绝」与「永久装扮（ItemID>0、Count==0）必须允许并投影 0x60=1」。
+- 回归：./internal/modules/dnf/...、./internal/services/dnfbridge、./cmd/server/control 全包通过；gofmt/go vet 干净。未部署、未推送、未改用户 DOCX/原台账/生产资产。
 ## 2026-10-14 — DOC-067 物品栏位置锁定（位置锁持久化 / 整理跳过 / 行投影）
 
 - 当前客户端（DNF.exe SHA256 8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387）已证：C2S 713 = 置 1、714 = 置 0（不是 toggle），体 = u8 list + u16 slot；客户端收到 713/714 分别写 item+0x2aa=1/0，所以成功回包必须用同一 opcode 的 class1 `u8 1 + u8 list + u16 slot`；旧 C# 的 toggle 与 714/715 方向在本客户端会翻反，未照搬。

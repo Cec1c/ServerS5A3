@@ -40,6 +40,10 @@ func newSortLockFixture(t *testing.T) (context.Context, dnfrepo.Group) {
 		Slots: map[string]dnfrepo.ItemStack{
 			slotKey(listTypeMain, 20): sortLockStack(1001, map[string]string{"item_kind": "equipment", "pvf_path": "equipment/x.equ"}),
 			slotKey(listTypeMain, 4):  sortLockStack(1002, map[string]string{"item_kind": "stackable"}),
+			// 无物品行（ItemID=0 但 Count>0）：必须按空槽拒绝，不能被放行。
+			slotKey(listTypeMain, 30): {ItemID: 0, Count: 5, Extra: map[string]string{"item_kind": "stackable"}},
+			// 永久装扮：真实占格但 Count==0，必须允许锁定。
+			slotKey(listTypeAvatar, 30): {ItemID: 2002, Count: 0, Extra: map[string]string{"item_kind": "avatar"}},
 		},
 	})
 	return ctx, repos
@@ -137,6 +141,7 @@ func TestSortLockRejectsUnsupportedListSharedSlotEmptySlotAndBadBody(t *testing.
 		{"account_cargo", listTypeAccountCargo, 0},
 		{"account_shared_slot", listTypeMain, dnfrepo.CrystalWarehouseFirstSlot},
 		{"empty_slot", listTypeMain, 999},
+		{"no_item_row", listTypeMain, 30},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := handleSortLock(t, ctx, repos, uint16(dnfenum.CmdPacketRequestItemSortLock), tc.listType, tc.slot)
@@ -183,6 +188,22 @@ func TestSortLockRejectsForeignCharacterAccount(t *testing.T) {
 		t.Fatalf("foreign account changed state: %+v", stack)
 	}
 	_ = record
+}
+
+// 永久装扮（Count==0）是真实占格：位置锁必须能加、也必须能投影出去。
+func TestSortLockAcceptsPermanentAvatarRowWithZeroCount(t *testing.T) {
+	ctx, repos := newSortLockFixture(t)
+	result := handleSortLock(t, ctx, repos, uint16(dnfenum.CmdPacketRequestItemSortLock), listTypeAvatar, 30)
+	if !result.ResponseAllowed || len(result.UpperResponses) != 1 {
+		t.Fatalf("avatar lock refused: %+v", result)
+	}
+	stack, ok := storedSortLock(t, ctx, repos, listTypeAvatar, 30)
+	if !ok || !IsSortLocked(stack) || stack.Count != 0 {
+		t.Fatalf("avatar lock not persisted: %+v", stack)
+	}
+	if got := SortLockRowValue(stack); got != SortLockRowLocked {
+		t.Fatalf("avatar row value = %d want 1", got)
+	}
 }
 
 // failingInventoryStore 让 Save 失败，用来证明落库失败不产生半截状态、也不给成功包。

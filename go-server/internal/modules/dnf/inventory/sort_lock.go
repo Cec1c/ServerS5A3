@@ -310,7 +310,11 @@ func (o *Owner) ApplySortLock(ctx context.Context, cmd Command) (SortLockResult,
 	items, field := itemMapForList(&record, cmd.SourceListType)
 	key := slotKey(cmd.SourceListType, cmd.SourceSlotIndex)
 	stack, found := items[key]
-	if !found || (stack.ItemID == 0 && stack.Count <= 0) {
+	// 仓储有效物品契约：CurrentInventoryItemProjects / item_stack_contract.go 都以
+	// ItemID <= 0 表示「这一格没有物品」（0:0 金币行同理）。Count 不参与判据：
+	// 永久装扮是真实占格但 Count==0 的行（见 equip/owner.go 的说明），用 Count>0
+	// 会把时装页的位置锁整体拒掉。
+	if !found || stack.ItemID <= 0 {
 		return SortLockResult{}, fmt.Errorf("%w: list=%d slot=%d", ErrSortLockSlotEmpty, cmd.SourceListType, cmd.SourceSlotIndex)
 	}
 
