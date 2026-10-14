@@ -490,7 +490,7 @@ func buildCurrentEquipmentRecipeCompoundSuccessBody() []byte {
 // Consume through the existing recipe projector, but expose only each item's
 // durable owner. Historical character copies of warehouse items are never money.
 // Copy the resulting rows back to their owners only after all balances pass.
-func (s *Service) consumeCurrentEquipmentRecipeCompoundMaterials(assets *dnfexpertjob.Assets, materials []dnfexpertjob.RecipeEntry, gold int64) (bool, error) {
+func (s *Service) consumeCurrentRecipeMaterials(assets *dnfexpertjob.Assets, materials []dnfexpertjob.RecipeEntry, gold int64) (bool, error) {
 	view := dnfrepo.CloneInventory(*assets.Inventory)
 	for key, stack := range view.Slots {
 		list, slot, ok := parseSceneInventorySlotKey(key)
@@ -695,7 +695,7 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if err := currentEquipmentRecipeCompoundConsumeSource(assets.Inventory, source, request.Count); err != nil {
 				return dnfexpertjob.Changes{}, err
 			}
-			accountDirty, err := s.consumeCurrentEquipmentRecipeCompoundMaterials(assets, materials, goldCost)
+			accountDirty, err := s.consumeCurrentRecipeMaterials(assets, materials, goldCost)
 			if err != nil {
 				if errors.Is(err, errCurrentExpertJobInsufficientMaterials) {
 					return dnfexpertjob.Changes{}, fmt.Errorf("%w: %v", errCurrentEquipmentRecipeCompoundMaterials, err)

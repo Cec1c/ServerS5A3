@@ -19,6 +19,11 @@
 - Persist the debit and purchased stage in one character asset transaction. Reject foreign owners, malformed requests, insufficient funds and corrupt stages; a duplicate request repairs the client's stage and wallet without another charge.
 - Publish the saved stage during actor initialization, including zero on character changes. Existing reward, trade and auction policies are unchanged; this repair restores the purchase and the native client's cap selection.
 - Regression coverage includes both transports, concurrent duplicates, transaction rollback, native failure messages and login ordering. An opt-in disposable MySQL test checks reload and rollback across the wallet and supplementary stat tables. Native UI acceptance remains pending.
+## 2026-10-14 — Consume profession crafting materials from their durable owners
+
+- Reuse the existing recipe material projector for profession crafting, including enchanter products and card-to-bead crafting. Shared crystals and souls are debited from the account warehouse; ordinary materials remain in the character bag. Historical character copies cannot substitute for account balances.
+- Persist warehouse changes in the same settlement transaction as materials, products, gold and profession experience. Preserve recipe requirements, success rates and the verified request/reply layouts; refresh the committed container balances after acknowledgement.
+- Matching-PVF regression reproduces the prior insufficient-material rejection and covers all eleven enchanter product recipes, batch quantities, bead metadata, wrong/locked/insufficient shared rows, foreign ownership and late transaction rollback. Existing equipment-recipe behavior is retained. Native crafting UI acceptance remains pending.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
