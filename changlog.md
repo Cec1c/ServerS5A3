@@ -1,4 +1,9 @@
 ## 2026-10-14 — 女圣职者 15 级主线/转职链路真档回归（DOC-123）
+## 2026-10-15 — Check rental wallet send failure after committed purchase
+
+- Add a real-PVF/memory regression injecting zero-byte and seven-byte-prefix errors on the wallet op14 write after the successful op1000/op985 frames. The original connection error propagates; gold and lucky-star points remain committed exactly once, without a compensating failure ACK or automatic repeat purchase.
+- A fresh backend service/session reloads and explicitly projects the committed values without another asset transaction. Both cases pass. This manual backend projection is not a full login test, native display acceptance, or proof of the original incident's cause.
+
 ## 2026-10-15 — Preserve exact enchant target identity through handler serialization
 
 - Add a pinned real-PVF, independent-memory 601 handler regression for belt100220137/card3621/recipe10015129 at target28/card237, with weapon28309 in decoy slot9. Both peer-store and registered-self-store requests must produce one successful ACK before the main op13, retaining each slot identity, target enchant and card count; a short-material request preserves all fixture assets and sends no success refresh.
