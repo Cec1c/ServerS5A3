@@ -259,7 +259,7 @@ func currentDungeonRandomCardItem(
 	default:
 		rarity = 3
 	}
-	itemID, found, err := catalog.SelectGenericEquipment(
+	itemID, found, err := catalog.selectClearCardEquipment(
 		rng,
 		dungeonLevel,
 		reference.ValueA,
@@ -269,18 +269,7 @@ func currentDungeonRandomCardItem(
 	if err != nil {
 		return dungeonCardItemReward{}, false, err
 	}
-	if !found {
-		itemID, found, err = catalog.SelectGenericStackable(
-			rng,
-			dungeonLevel,
-			reference.ValueA,
-			reference.ValueB,
-			rarity,
-		)
-		if err != nil {
-			return dungeonCardItemReward{}, false, err
-		}
-	}
+
 	if !found || itemID == 0 {
 		return dungeonCardItemReward{}, false, nil
 	}

@@ -113,10 +113,13 @@ type pvfDungeonDropCatalog struct {
 	// The generic pools deliberately stay separate from itemCache.  Loading
 	// every eligible runtime PVF item only happens once, on the first actual
 	// generic drop roll, and has no effect on packet layout or persistence.
-	genericLoaded     bool
-	genericErr        error
-	genericStackables map[dungeonDropGradeRarityKey][]uint32
-	genericEquipment  map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
+	clearCardEquipmentLoaded bool
+	clearCardEquipmentErr    error
+	clearCardEquipment       map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
+	genericLoaded            bool
+	genericErr               error
+	genericStackables        map[dungeonDropGradeRarityKey][]uint32
+	genericEquipment         map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
 
 	// hellPartyRewardPool 是**厂商口径**的深渊装备池（`equipment/equipment.lst`
 	// + `equipment/<path>` 的 `.equ`，键 `grade*10+rarity`）。与 genericEquipment

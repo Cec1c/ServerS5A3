@@ -3,6 +3,11 @@
 - Use the same durable quality-seed precedence for inventory refreshes and login: dedicated metadata, equipment-only legacy aliases, then a matching complete current-client row. Sorting no longer replaces quality with the equipment stack count.
 - Keep legacy quality aliases out of the independent item-state field. Preserve persisted item instances and stackable quantities; do not generate replacement quality or change assets.
 - Regression coverage includes first/repeated sorting, bag/personal cargo, ordinary/top quality, legacy and raw-row sources, quantity isolation and invalid/foreign raw data. The new handler regression fails before the repair and passes afterward. Native in-game quality display remains pending acceptance.
+## 2026-10-14 — Use current equipment definitions for ordinary clear cards
+
+- Build a separate ordinary-card equipment pool from list-backed PVF minimum level, rarity and positive creation rate. Legacy dictionary gaps no longer substitute crafting recipes for high-level equipment; monster and abyss policies remain unchanged.
+- Preserve existing rarity rolls and level windows, exclude cosmetic/special equipment, honor original/revised asset precedence and reject incomplete scans. Stream and warm the cached pool during startup to avoid a first-clear scan delay.
+- Regression coverage reproduces the former recipe fallback, checks high-level candidates, weights, level limits, special/disabled items and failed scans. Optional real-PVF sampling verifies varied equipment at low and high levels. Native card display/claim remains pending acceptance.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
