@@ -219,5 +219,12 @@ RED_NONCE after_session_2_first_run used=2
 - nonce 改为**每轮独立随机**的 128bit 值（`ClearNonceHi`/`ClearNonceLo` 两个 int64 半段持久化，
   `crypto/rand`；全零视为未生成并重取），首次提交时生成并固定在本轮运行时上
   （`ensureCurrentDungeonCycleClearNonce`），不再使用会话内递增的 `lifecycleToken`。
-- 重试用同一对值 → 幂等回放只计一次；不同会话/不同轮次必然不同 → 重登后的新一轮一定计数，
+- 重试用同一对值 → 幂等回放只计一次；不同会话/不同轮次独立取样，128bit随机碰撞概率可忽略 → 重登后的新一轮一定计数，
   不会撞号漏计。128bit 也把同一天内多轮的撞号概率降到可忽略，避免「碰撞被当成回放」的漏计。
+
+
+## 12. 主代理完整验证与发布边界
+
+源码f63f320。核心9320通过节点、864跳过、零失败；固定真实PVF的148个指定回归根全部通过（661通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
+
+本批仅修服务端每日次数与入场资产事务。DOC-083的碎片/隐藏BOSS掉落、DOC-094的装备升级和两类次数UI显示仍开放，不能标整条已修或验收。
