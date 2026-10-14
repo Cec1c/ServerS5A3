@@ -8,6 +8,13 @@
 - 局限：本项依据真档目录、前置与目标元组推导，未取得该玩家角色当时的 quest_states（现网只读快照中没有 job 14 角色），因此未复现该角色的具体存档状态；本条只声明当前主线（9de2ecb）上该链通过，DOC-123 仍待原生验收。DOC-124（已转职角色仍可接永远结算不了的转职任务）属另一候选，未包含在本次改动内。
 - 时间线：报告为 10.13 14:30；包含该判据的 D33 已知问题分支在 10.14 15:52(HKT) 才并回 master（5fc6807）。报告当时线上是否已含 2da7982 无法从本仓证明。
 - 验证（本树，改动仅测试文件头注释与本文档）：gofmt 无差异；`go list -buildvcs=false ./...` 211 包；AGENTS 指定的 vet 目标（cmd/server/control、cmd/server/dnf90、cmd/server/doctor、internal/app/dnf90、internal/services/dnfbridge）0 输出；核心 `./internal/modules/dnf/... ./internal/services/dnfbridge ./cmd/server/control` 79 个包 ok、0 失败、2 包无测试文件（dnfbridge 22.2s、control 6.1s，本机未设真实 PVF 环境变量故真档用例跳过）；Windows 构建 `go build -buildvcs=false -o ..\runtime\bin\DNF90Server.exe ./cmd/server/dnf90` 通过并产出二进制；固定真实 PVF（sha256 369d072b…）两根 `TestRealPVFAtPriestLevel15BranchReachesClassChange`、`TestRealPVFEveryJobLevel15BranchReachesClassChange` 全部通过。BAT 预检 `control.bat check --skip-database` 在本机需先把 Go 加入 PATH（否则报 DNF90Control.exe/Go 缺失，exit 10），加 PATH 后仍因源码包缺少 `deploy/assets/channel_info.etc` 失败（exit 1），故未计部署通过。
+## 2026-10-15 — DOC029 金币持有上限重复升级（已提交档位重新发布）
+
+- 现场：首次点击扣费后，再次点击不再扣费、上限显示也不动。当前 v101 客户端（DNF.exe sha256 1ac1264553f8f762e64f2c637c4c26d3bf5ff0fdc60a090ca8b077d452fd4331）的金币持有上限完全由客户端档位字节 [0x057B7008] 决定：0x032EA592 在档位 0 时取 0x17D78400（4亿），否则取档位表 0x4CF88D8（0x4CF88DC..E8 = 5/6/7/8亿）。
+- 根因（已由父代理现场复核）：该字节只有两个写入点——op978 回包处理器 0x01FD4B5A（class1 成功位 + 1 字节档位 + u32 结果；仅 flag!=0 且 result==0 才写入）与档位通知 op947 处理器 0x0203AE86（读 1 字节）。当前 v101 客户端在 COMMAND 分发前有接收门控 0x06E83610：`bt dword [0x6E92300], opcode`（>0x5C2 直接 0），位为 0 的 opcode 在 0x02523C96 被丢弃，即使已登记处理器也不会分发。位图解码：op978 = bit2@0x6E9237A(0x00)、op947 = bit3@0x6E92376(0x80) 均为 0（父代理复核确认 947=0、978=0），而 op14 = bit6@0x6E92301(0xFF) 为 1。因此客户端档位永远是 0：上限不变，每次点击都发同一档位，服务端按重复请求拒绝（不扣费）；钱包行 op14 被接收，所以现场只看到“首次扣金币”。重登也不恢复，因为登录档位投影同样走 op947。
+- 服务端修复：新增 publishCurrentCarryGoldStage，在一次升级请求被处理完后（成功，以及档位已知的拒绝：重复请求、金币不足）都通过 op947 重新发布已提交档位（A21 参考 GoldLimitHandler.cs 同样每次都发档位通知），回包内容与顺序保持“op978 回包 → op947 档位 → 钱包行 op14”；成功路径的扣费、档位推进与事务回滚语义不变，重复请求仍不二次扣费。仅涉及金币上限代码。
+- 验证（证据目录 gold-verification-20261015，v1 日志不覆盖）：新增 DOC029 回归在基线 c0e275a 为红（doc029-red.log：TestCarryGoldDoc029CommittedTierIsPublishedAfterUpgrade 与 TestCarryGoldDoc029RepeatUpgradeAfterLostReply 均 FAIL，原 4 个 carrygold 用例仍 PASS），修复后为绿（doc029-green.log：6/6 PASS）；另附 v2 门控证据 gate-opcode-bitmap.json 与 REPORT-v2-gate.md；gofmt 无输出、go list/vet、cmd/server/control、internal/modules/dnf/... 全通过，真实 PVF 专项见同目录记录。
+- 边界：客户端位图属父代理“统一客户端白名单候选”，父代理将制作 v2 额外放行 947/978；本次未执行/未修改客户端二进制，也未新增/更换服务端其它 opcode，未改动完整物品表、锻造/附魔/锁定代码，未部署、未推送远端、未改动生产玩家数据。
 
 ## 2026-10-14 — 服务端与本地 GM 边界验证
 

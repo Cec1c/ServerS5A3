@@ -20,12 +20,27 @@ const currentCarryGoldStageMsgID = uint16(947)
 // displays the generic rejection. NOTI 947 at 0x0203AE60 reads one stage byte.
 // All paths share 0x057B7008. Stages 1..4 select the client cap tables
 // 0x04CF88D8 / 0x04D13FFC (500M, 600M, 700M, 800M).
+//
+// 0x032EA592 turns that same 0x057B7008 byte into the gold-carry cap the client
+// displays and enforces (tier 0 = 0x17D78400 = 400M, tier 1..4 = the table
+// above), so a client whose tier byte is stale shows an unchanged cap and keeps
+// requesting the stage it already bought. Both writers of the byte are covered
+// here: the op978 reply and the currentCarryGoldStageMsgID notification.
 func (s *Service) sendCurrentCarryGoldStage(session *gameSession, character dnfrepo.CharacterRecord) error {
 	stage, err := carrygold.Stage(character)
 	if err != nil {
 		return err
 	}
-	return s.sendCurrentSceneFixedClass0Packet(session, currentCarryGoldStageMsgID, []byte{stage}, "carry_gold_durable_stage")
+	return s.publishCurrentCarryGoldStage(session, stage, "carry_gold_durable_stage")
+}
+
+// publishCurrentCarryGoldStage re-publishes the durable stage through the
+// client's dedicated tier notification. The client cap is a pure function of
+// this byte, so every handled upgrade request ends with the committed tier on
+// the wire: a lost op978 reply can no longer leave the client requesting an
+// already purchased stage (DOC029).
+func (s *Service) publishCurrentCarryGoldStage(session *gameSession, stage byte, owner string) error {
+	return s.sendCurrentSceneFixedClass0Packet(session, currentCarryGoldStageMsgID, []byte{stage}, owner)
 }
 
 func (s *Service) sendCarryGoldUpgradeReply(session *gameSession, stage byte, result uint32) error {
@@ -65,10 +80,11 @@ func (s *Service) handleCurrentUpgradeCarryGold(session *gameSession, body []byt
 		if replyErr := s.sendCarryGoldUpgradeReply(session, result.Stage, code); replyErr != nil {
 			return replyErr
 		}
-		if errors.Is(err, carrygold.ErrStage) && result.Known {
-			// The previous ACK may have been lost after commit. Repair both
-			// cached stage and wallet while refusing the duplicate purchase.
-			if err := s.sendCurrentSceneFixedClass0Packet(session, currentCarryGoldStageMsgID, []byte{result.Stage}, "carry_gold_stale_request"); err != nil {
+		if result.Known {
+			// The previous reply may have been lost after commit. Repair both the
+			// cached tier and the wallet while refusing this duplicate request,
+			// so the next click can target the following stage.
+			if err := s.publishCurrentCarryGoldStage(session, result.Stage, "carry_gold_stale_request"); err != nil {
 				return err
 			}
 			return s.sendCarryGoldWallet(session, result.Gold)
@@ -80,6 +96,9 @@ func (s *Service) handleCurrentUpgradeCarryGold(session *gameSession, body []byt
 	}
 	s.logGameEvent(session, "game-carry-gold-upgrade-committed", "char_id", session.selectedCharacterID, "stage", result.Stage, "cost", carrygold.StageCost)
 	if err := s.sendCarryGoldUpgradeReply(session, result.Stage, 0); err != nil {
+		return err
+	}
+	if err := s.publishCurrentCarryGoldStage(session, result.Stage, "carry_gold_committed_stage"); err != nil {
 		return err
 	}
 	return s.sendCarryGoldWallet(session, result.Gold)
