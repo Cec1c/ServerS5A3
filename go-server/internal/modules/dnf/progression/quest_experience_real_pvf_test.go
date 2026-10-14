@@ -10,10 +10,10 @@ import (
 
 // 真实运行时 PVF 上的 EXP 公式钉子（`DNFBRIDGE_REAL_PVF_SMOKE=<Script.pvf>` 才跑）。
 //
-// 现场报障：「主线给的经验少 lv10-lv11导致做任务必须要刷一把白图才能拯救赛丽亚」。
-// 「营救赛丽亚」= 任务 3149（`n_quest/Quest_Renewal/Epic_Quest/ElvenGard/elvengard_epic_05.qst`，
-// `[level] 11 99`、`[difficulty] 1`、`[grade] [epic]`），所以这里的锚点就是
-// "11 级角色做 11 级 `[difficulty] 1` 的 `[epic]` 主线"。
+// 背景报障：「主线给的经验少 lv10-lv11」。DOC-121 原文未指定具体任务，因此这里只用
+// 任务 3149（`n_quest/Quest_Renewal/Epic_Quest/ElvenGard/ElvenGard_Epic_05.qst`，
+// `[level] 11 99`、`[difficulty] 1`、`[grade] [epic]`）作为**数值锚点**
+// （"11 级角色做 11 级 `[difficulty] 1` 的 `[epic]` 主线"），不表示已确认现场任务就是 3149。
 //
 // 改动前的读数（旧公式 `penalty * ((weight*base/100)/100)`）：
 //   - `[difficulty] 1`（weight 1780）：42,700（比参考实现多 6.4 倍）

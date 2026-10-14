@@ -15,12 +15,15 @@ import (
 // 的两位数难度档位补证。
 //
 // 真实 PVF `n_quest/questParameter.etc` 的 `[difficulty]` 同时声明单字符档
-// （字母与 `1`..`9`）和两位数档（`10`..`17`）。378 个真实 `[epic]` 主线
-// （安徒恩 85、镜像贝希摩斯 58-59、卢克 87-88、时空裂缝 88）在 `[difficulty]` 里
-// 写的就是两位数。旧实现按单 rune 建表，并把长度不为 1 的难度值静默退回默认
-// `G`(30)，这些主线因此少给约 40% 经验，与现场「主线给的经验少」一致。
+// （字母与 `1`..`9`）和两位数档（`10`..`17`）。`n_quest` **归档**里有 378 个
+// `[epic]` 主线（安徒恩 85、镜像贝希摩斯 58-59、卢克 87-88、时空裂缝 88）在
+// `[difficulty]` 里写两位数；378 是归档 .qst 资源数，当前 `quest.lst` catalog 实际
+// 只解析出 243 个（见 TestRealScriptPVFEveryQuestDifficultyKeyResolves）。旧实现按单
+// rune 建表，并把长度不为 1 的难度值静默退回默认 `G`(30)，这些任务因此少给约 40% 经验。
 //
-// 同时确认单字符档位（3149「营救赛丽亚」`[difficulty] 1`）仍然正确。
+// 这是本轮发现的**一类**缺口，只覆盖两位数难度档位：既不声称已解释 DOC-121 描述的
+// 整条升级/接取流程，DOC-121 原文也没有指定任何具体任务。3149（`[difficulty] 1`，
+// 单字符档）在这里只作对照锚点，确认单字符档位行为不变。
 func TestRealScriptPVFMainQuestTwoDigitDifficultyIsHonored(t *testing.T) {
 	pvfPath := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if pvfPath == "" {
