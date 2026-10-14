@@ -1153,7 +1153,14 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	if !definitionMatchesCharacter(definition, character) {
 		return false
 	}
-	if _, exists := active[definition.ID]; exists && !includeActive {
+	_, isActive := active[definition.ID]
+	if isActive && !includeActive {
+		return false
+	}
+	// 只在新接取路径上拒绝「接了也永远结算不了」的转职任务。已 active 的旧行必须继续
+	// 出现在可接列表/快照里，玩家才能看到并放弃或结算它——否则就是把「仅阻止新接取」
+	// 误报成「存量卡任务已修复」。
+	if !isActive && !classChangeRewardAcceptable(definition, character) {
 		return false
 	}
 	if _, exists := completed[definition.ID]; exists && !repeatableGrade(grade) {
@@ -1185,6 +1192,29 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 		}
 	}
 	return true
+}
+
+// classChangeRewardAcceptable 用 profession 的域规则判断一条 [reward type] [grow type]
+// 转职任务是否还可能被当前角色结算成功。真档 15 级转职任务（例：7803 剑魂、7814 阿修罗、
+// 2633 决战者）的 PVF 只有 [job] 与 [grow type] -1，没有转职阶段门槛，所以已经转职
+// （first != 0）或已觉醒的角色过去仍能接取它们，而 Owner.ApplyFinishSettlement 的
+// PlanTransition 必然以 ErrTransitionOutOfStep 拒绝，形成永远做不完的 active 任务。
+// 这里复用 profession.CheckClassChangePrecondition（PlanTransition 的同一前置）把
+// 接取预检与结算对齐，并让可接列表投影同步收敛；觉醒任务与分支主线（[item] 奖励）
+// 不在此判断范围内。
+func classChangeRewardAcceptable(definition Definition, character CharacterEligibility) bool {
+	if normalizeQuestTag(definition.RewardType) != "grow type" {
+		return true
+	}
+	request, err := profession.ParseReward(definition.JobChangeQuest, definition.RewardType, definition.RewardIntData)
+	if err != nil || request.Kind != profession.KindClassChange {
+		// 解析失败或不是转职链：保持既有可接取判定，不在这里发明新的拒绝条件。
+		return true
+	}
+	if character.GrowType < 0 || character.GrowType > math.MaxUint8 {
+		return false
+	}
+	return profession.CheckClassChangePrecondition(byte(character.GrowType), request) == nil
 }
 
 // definitionMatchesCharacter is the shared PVF job/grow-type predicate for
