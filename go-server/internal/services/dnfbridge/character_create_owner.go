@@ -27,8 +27,8 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 		applyCharacterPVFStats(&record, init.Stats)
 	}
 	var welcomeCera int64
-	if s.testBenefits != nil {
-		policy, err := s.testBenefits.Policy(ctx)
+	if s.signupBenefits != nil {
+		policy, err := s.signupBenefits.Policy(ctx)
 		if err != nil {
 			return fmt.Errorf("load character benefits: %w", err)
 		}
@@ -38,7 +38,7 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 			}
 			record.Stats["gold"] = policy.CharacterGold
 		}
-		welcomeCera, err = s.testBenefits.SignupCera(ctx, record.AccountID)
+		welcomeCera, err = s.signupBenefits.SignupCera(ctx, record.AccountID)
 		if err != nil {
 			return fmt.Errorf("load signup benefits: %w", err)
 		}

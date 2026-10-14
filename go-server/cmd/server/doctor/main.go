@@ -144,18 +144,13 @@ func run(opts options) error {
 	}
 
 	if !opts.skipPorts {
-		// Do not silently dedup role endpoints. When GM reuses the channel or admin
-		// endpoint the real service would bind the same socket twice and fail at
-		// start, and one generic listener must not stand in for GM in
-		// -expect-listening mode.
-		if err := checkDistinctRoleEndpoints(opts.channelAddr, serviceCfg.Admin.Listen, strings.TrimSpace(os.Getenv("DNFBRIDGE_GM_LISTEN"))); err != nil {
+		// Game-owned listeners must remain distinct. GM is managed separately.
+		if err := checkDistinctRoleEndpoints(opts.channelAddr, serviceCfg.Admin.Listen); err != nil {
 			return err
 		}
 		addresses := make([]string, 0, len(ports)+2)
 		addresses = append(addresses, opts.channelAddr, serviceCfg.Admin.Listen)
-		if gm := strings.TrimSpace(os.Getenv("DNFBRIDGE_GM_LISTEN")); gm != "" {
-			addresses = append(addresses, gm)
-		}
+
 		for _, port := range ports {
 			addresses = append(addresses, net.JoinHostPort(strings.Trim(opts.gameHost, "[]"), strconv.Itoa(port)))
 		}
@@ -342,7 +337,7 @@ func joinInts(values []int) string {
 }
 
 // checkDistinctRoleEndpoints rejects a preflight plan where two role endpoints
-// (channel, admin, GM) resolve to the same host:port, which would make the real
+// (channel, admin) resolve to the same host:port, which would make the real
 // server bind one socket twice.
 func checkDistinctRoleEndpoints(endpoints ...string) error {
 	seen := make(map[string]string, len(endpoints))

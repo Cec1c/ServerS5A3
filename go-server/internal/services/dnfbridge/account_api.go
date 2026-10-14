@@ -16,7 +16,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
-	"longheng.io/server/internal/modules/dnf/testbenefits"
+	"longheng.io/server/internal/modules/dnf/signupbenefits"
 )
 
 // 远程部署用的账号 HTTP API。
@@ -230,7 +230,7 @@ func (a *accountAPIServer) ensureSchema(ctx context.Context) error {
 	if err := a.ensureLoginTokenSchema(ctx); err != nil {
 		return err
 	}
-	benefits, err := testbenefits.NewStore(a.db, a.table)
+	benefits, err := signupbenefits.NewStore(a.db, a.table)
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func (a *accountAPIServer) ensureSchema(ctx context.Context) error {
 		return err
 	}
 	if a.service != nil {
-		a.service.testBenefits = benefits
+		a.service.signupBenefits = benefits
 	}
 	return nil
 }
@@ -381,8 +381,8 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
 		return
 	}
-	if a.service.testBenefits != nil {
-		if err := a.service.testBenefits.CaptureSignup(ctx, tx, accountID); err != nil {
+	if a.service.signupBenefits != nil {
+		if err := a.service.signupBenefits.CaptureSignup(ctx, tx, accountID); err != nil {
 			writeAccountAPIError(w, http.StatusInternalServerError, "创建账号福利记录失败")
 			return
 		}

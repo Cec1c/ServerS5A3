@@ -1,4 +1,5 @@
 import ipaddress
+from argparse import Namespace
 import json
 from pathlib import Path
 import tempfile
@@ -19,54 +20,41 @@ class DeploymentBoundaries(unittest.TestCase):
             spec = json.loads((Path(directory) / "compose.json").read_text())
             self.assertFalse(any(":18112:" in p for p in spec["services"]["server"]["ports"]))
 
-    def test_gm_is_loopback_only_and_keeps_password_out_of_compose(self):
+    def test_legacy_gm_requires_migration_before_any_write(self):
+        for enabled in (True, "true", None):
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                original = Path(directory) / "compose.json"
+                original.write_text('{"services":{"gm":{"image":"keep-running"}}}')
+                before = original.read_bytes()
+                with self.assertRaisesRegex(ValueError, "GM moved"):
+                    manage.generate(self.gm_config() | {"gm_enabled": enabled}, {"ports": [10006]})
+                self.assertEqual(original.read_bytes(), before)
+                self.assertEqual([p.name for p in Path(directory).iterdir()], ["compose.json"])
+
+    def test_private_game_api_remains_without_gm(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
             secret = "ab" * 24
-            config = self.gm_config() | {"gm_enabled": True, "gm_password": secret, "gm_port": 18115,
-                                              "player_admin_secret": "cd" * 24}
-            manage.generate(config, {"ports": [10006], "pvf_sha256": "a" * 64})
-            raw = (Path(directory) / "compose.json").read_text()
-            spec = json.loads(raw)
-            self.assertNotIn(secret, raw)
-            self.assertNotIn("ports", spec["services"]["db"])
-            self.assertNotIn("127.0.0.1:18115:18115/tcp", spec["services"]["server"]["ports"])
-            self.assertEqual(spec["services"]["gm"]["ports"], ["127.0.0.1:18115:18115/tcp"])
-            self.assertNotIn("server", spec["services"]["gm"]["depends_on"])
-            self.assertEqual(spec["services"]["gm"]["environment"]["GOMEMLIMIT"], "768MiB")
-            self.assertNotEqual(spec["services"]["server"]["image"], spec["services"]["gm"]["image"])
-            env = (Path(directory) / "server.env").read_text()
-            self.assertNotIn("DNFBRIDGE_GM_", env)
-            self.assertNotIn(secret, env)
-            gm = json.loads((Path(directory) / "gm/config.json").read_text())
-            self.assertEqual(gm["listen"], "10.254.90.4:18115")
-            self.assertEqual(gm["password"], secret)
-            self.assertEqual(gm["pvfSha256"], "a" * 64)
-
-    def test_independent_gm_rejects_wrong_asset_or_colliding_address(self):
-        good = self.gm_config() | {"gm_enabled": True, "gm_password": "ab" * 24,
-                                      "player_admin_secret": "cd" * 24}
-        for changes in ({"gm_ip": "10.254.90.2"}, {"gm_ip": "10.254.90.3"},
-                        {"gm_ip": "10.254.90.1"}, {"gm_ip": "8.8.8.8"},
-                        {"player_admin_secret": "short"}):
-            with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
-                with self.assertRaises(ValueError):
-                    manage.generate(good | changes, {"ports": [10006], "pvf_sha256": "a" * 64})
-                self.assertEqual(list(Path(directory).iterdir()), [])
+            manage.generate(self.gm_config() | {"player_admin_secret": secret}, {"ports": [10006]})
+            spec = json.loads((Path(directory) / "compose.json").read_text())
+            self.assertEqual(set(spec["services"]), {"server", "db"})
+            self.assertNotIn(secret, json.dumps(spec))
+            self.assertIn("DNFBRIDGE_PLAYER_ADMIN_SECRET=" + secret, (Path(directory) / "server.env").read_text())
+            self.assertFalse((Path(directory) / "gm").exists())
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
             with self.assertRaises(ValueError):
-                manage.generate(good, {"ports": [10006]})
+                manage.generate(self.gm_config() | {"player_admin_secret": "invalid"}, {"ports": [10006]})
+            self.assertEqual(list(Path(directory).iterdir()), [])
 
-    def test_gm_rejects_bad_secrets_and_port_collisions_before_writing(self):
-        good = self.gm_config() | {"gm_enabled": True, "gm_password": "ab" * 24}
-        invalid = [{"gm_port": p} for p in (True, "18112", 443, 65536, 27001, 10006, 7001, 17002, 18111, 3306, 30000)]
-        invalid += [{"gm_password": p} for p in (None, "", "abc", "ab" * 24 + "\nINJECT=1")]
-        invalid += [{"gm_enabled": "true"}]
-        for changes in invalid:
-            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
-                with self.assertRaises(ValueError):
-                    manage.generate(good | changes, {"ports": [10006]})
-                self.assertEqual(list(Path(directory).iterdir()), [])
-
+    def test_prepare_refuses_legacy_gm_before_assets_or_docker(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)), patch.object(manage, "run") as run:
+            instance = Path(directory) / "instance.json"
+            instance.write_text(json.dumps(self.gm_config() | {"gm_enabled": True}))
+            original = instance.read_bytes()
+            with self.assertRaisesRegex(ValueError, "GM moved"):
+                manage.prepare(Namespace(host_ip=None, client_dir=None))
+            self.assertEqual(instance.read_bytes(), original)
+            self.assertEqual([p.name for p in Path(directory).iterdir()], ["instance.json"])
+            run.assert_not_called()
 
     def test_only_lan_addresses_are_accepted(self):
         for value in ("0.0.0.0", "127.0.0.1", "8.8.8.8", "169.254.1.1", "::1"):

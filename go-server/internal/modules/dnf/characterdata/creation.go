@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
-	"longheng.io/server/internal/modules/dnf/testbenefits"
+	"longheng.io/server/internal/modules/dnf/signupbenefits"
 )
 
 var ErrChildCharacterMismatch = errors.New("character child record belongs to another character")
@@ -81,7 +81,7 @@ func (c *Creator) Create(ctx context.Context, creation Creation) error {
 				}
 				account = existing
 			}
-			if err := testbenefits.WelcomeCera(&account, creation.WelcomeCera); err != nil {
+			if err := signupbenefits.WelcomeCera(&account, creation.WelcomeCera); err != nil {
 				return err
 			}
 			if err := tx.Account.Save(ctx, account); err != nil {
