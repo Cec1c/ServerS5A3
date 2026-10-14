@@ -111,6 +111,11 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentSelectInventoryBootstrap(session, source+"_after_actor_before_full_player_state"); err != nil {
 		return err
 	}
+	// Reset even a zero stage on every selected actor generation so changing
+	// characters cannot inherit the previous character's purchased cap.
+	if err := s.sendCurrentCarryGoldStage(session, character); err != nil {
+		return err
+	}
 	// Current NoPack dispatches op898 only through the class0 notification
 	// table. Publish the durable crystal selection after all six native
 	// inventory managers exist, but before op1340/full mode1/op24 can expose

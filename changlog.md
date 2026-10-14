@@ -13,6 +13,12 @@
 - Read disassembly soul rows as counted PVF records, retaining the disabled chronicle row and its constant placeholder. Legendary equipment now uses its own rarity row instead of a truncated or shifted entry.
 - Reject malformed or partial soul tables before consuming equipment. Preserve the existing reward quantities, item transactions and account soul-warehouse projection; no asset or balance rewrite is required.
 - Regression coverage includes the real-PVF missing-soul failure, all rarity rows, malformed tables, source-item preservation on failure and committed warehouse rewards matching the acknowledgement. Native disassembly display remains pending acceptance.
+## 2026-10-14 — Restore gold-cap upgrade purchases
+
+- Handle the current client's upgrade request using its verified 14-byte request and stage/result reply. Charge the advertised 5,000,000 gold once per stage, require level 60 and sequential stages, and stop at stage four.
+- Persist the debit and purchased stage in one character asset transaction. Reject foreign owners, malformed requests, insufficient funds and corrupt stages; a duplicate request repairs the client's stage and wallet without another charge.
+- Publish the saved stage during actor initialization, including zero on character changes. Existing reward, trade and auction policies are unchanged; this repair restores the purchase and the native client's cap selection.
+- Regression coverage includes both transports, concurrent duplicates, transaction rollback, native failure messages and login ordering. An opt-in disposable MySQL test checks reload and rollback across the wallet and supplementary stat tables. Native UI acceptance remains pending.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
