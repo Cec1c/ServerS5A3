@@ -993,7 +993,7 @@ func TestDungeonCardExitRetryReEntersOrdinaryDungeonWithOriginFreeze(t *testing.
 	}
 }
 
-func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runtimeDungeonState, *gameSession, *bufferConn) {
+func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runtimeDungeonState, *gameSession, *bufferConn, dnfrepo.Group) {
 	t.Helper()
 	source := bridgePVFSource{
 		worldmap.DefaultMapList: "100 `dungeon/test/story_a.map`\n200 `dungeon/test/story_b.map`\n",
@@ -1021,6 +1021,12 @@ func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runti
 			"[minimum required level]\n10\n" +
 			"[basis level]\n20\n" +
 			"[limit party count]\n1\n" +
+			"[maze info]\n" +
+			"[size]\n1 1\n" +
+			"[greed]\n`B`\n" +
+			"[map specification]\n`map` 0 0 200\n" +
+			"[start map]\n0 0\n" +
+			"[boss map]\n0 0\n" +
 			"[maze info]\n" +
 			"[quest connection]\n0 3149\n" +
 			"[size]\n1 1\n" +
@@ -1117,11 +1123,11 @@ func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runti
 		t.Fatalf("fixture origin freeze: %v", err)
 	}
 	completeSettlementRuntimeForTest(t, service, runtime, session)
-	return service, runtime, session, conn
+	return service, runtime, session, conn, repositories
 }
 
 func TestDungeonCardExitStoryNextQuestEntersNextDungeon(t *testing.T) {
-	service, runtime, session, connection := prepareStoryChainCompletedSettlementRuntime(t)
+	service, runtime, session, connection, _ := prepareStoryChainCompletedSettlementRuntime(t)
 	runtime.settlementPlayResultReceived = true
 	runtime.settlementStatisticReceived = true
 	markCurrentDungeonCardRewardCommittedForTest(runtime)
@@ -1161,6 +1167,97 @@ func TestDungeonCardExitStoryNextQuestEntersNextDungeon(t *testing.T) {
 	}
 	if newRuntime.Session.Snapshot().Run.Status != worldmap.DungeonRunActive {
 		t.Fatalf("story next-quest runtime status=%v want active", newRuntime.Session.Snapshot().Run.Status)
+	}
+}
+
+// TestDungeonCardExitStoryNextQuestStartsSuccessorOnItsQuestMaze is the DOC-118
+// regression (传说中的白化变异哥布林 -> 猛毒雷鸣废墟). In the real data a quest
+// dungeon carries the quest as a maze quest connection (dungeon 6 maze 1 =
+// [0 3147 -1]), and maze selection only picks it while the quest is active. The
+// dialog's 开始下个任务 must therefore start the successor quest through the same
+// op31 accept preflight before the server-driven entry, or the entry lands on the
+// dungeon's non-quest maze and the chain cannot progress.
+func TestDungeonCardExitStoryNextQuestStartsSuccessorOnItsQuestMaze(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	// The accept preflight needs a valid job; the shared fixture omits it.
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "99", States: map[int64]dnfrepo.QuestState{
+		3148: {Status: "completed"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime == runtime || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("story next-quest runtime=%+v, want a fresh dungeon 800 runtime", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) < 2 || maze.QuestConnection[0] != 0 || maze.QuestConnection[1] != 3149 {
+		t.Fatalf("story next-quest entered maze %d connection=%v, want the successor quest 3149 quest maze",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	record, found, err := repositories.Quest.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("reload quest record found=%t err=%v", found, err)
+	}
+	if state, ok := record.States[3149]; !ok || state.Status != "active" {
+		t.Fatalf("story next-quest must start the successor quest, state=%+v ok=%t", state, ok)
+	}
+}
+
+// TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance is the
+// negative control for the same path: an eligible-successor check that fails must
+// leave the quest record untouched (no faked acceptable list, no skipped
+// prerequisite), and the entry keeps its previous target.
+func TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("story next-quest runtime=%+v, want the chain's successor dungeon", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) != 0 {
+		t.Fatalf("an ineligible successor must not select a quest maze: maze=%d connection=%v",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	if record, found, err := repositories.Quest.Load(ctx, "99"); err != nil {
+		t.Fatal(err)
+	} else if found {
+		if state, ok := record.States[3149]; ok {
+			t.Fatalf("an ineligible successor must not be accepted: state=%+v", state)
+		}
 	}
 }
 

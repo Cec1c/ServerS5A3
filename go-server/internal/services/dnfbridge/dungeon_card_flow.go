@@ -632,6 +632,16 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 	request := runtime.Request
 	dungeonID := runtime.Dungeon.ID
 	nextDungeonID, nextQuestID, hasNextStory := s.resolveNextStoryQuestDungeon(runtime)
+	if runtime.raidEntry == nil && hasNextStory && nextDungeonID != dungeonID && nextQuestID > 0 {
+		// 开始下个任务 = start the next quest: enter its dungeon only after the
+		// successor quest is active. The successor dungeon's quest maze is bound
+		// to that quest's active maze connection, so entering without the accept
+		// would land on the dungeon's non-quest maze and the chain would stall
+		// (real Script.pvf dungeon 6 猛毒雷鸣废墟 maze 1 = [0 3147 -1]).
+		// Best effort: an ineligible successor is not force-accepted and the
+		// entry target keeps the previous behavior.
+		s.acceptCurrentStorySuccessorQuest(session, nextQuestID)
+	}
 	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)
 	if ownerErr != nil {
 		return ownerErr
