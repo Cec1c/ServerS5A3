@@ -585,3 +585,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
+
+- Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
+- DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
+- GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
+
