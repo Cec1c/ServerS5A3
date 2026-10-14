@@ -120,11 +120,8 @@ func TestCharacterOptionWordsDecodePinnedNativeLockFrame(t *testing.T) {
 	if len(lists.LockTree1) != 0 || len(lists.CDTree0) != 0 || len(lists.CDTree1) != 0 {
 		t.Fatalf("unexpected lists: lock1=%v cd0=%v cd1=%v", lists.LockTree1, lists.CDTree0, lists.CDTree1)
 	}
-	if lists.lockCount() != 1 || lists.cdCount() != 0 || lists.empty() {
-		t.Fatalf("counts lock=%d cd=%d empty=%t", lists.lockCount(), lists.cdCount(), lists.empty())
-	}
-	if got := lists.summary(); got != "lock0=5;lock1=-;cd0=-;cd1=-" {
-		t.Fatalf("summary = %q", got)
+	if lists.lockCount() != 1 || lists.cdCount() != 0 {
+		t.Fatalf("counts lock=%d cd=%d", lists.lockCount(), lists.cdCount())
 	}
 	// word43 是 ExportScenarioDifficulty，word126/127 是时装可见/称号不透明度：本解码器不动它们。
 	for _, index := range []int{43, 126, 127} {

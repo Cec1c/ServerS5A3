@@ -9,39 +9,30 @@ import (
 	"strings"
 )
 
-// character_option_words.go —— 512 字节「每角色选项」里**已证字段**的只读解码器。
+// character_option_words.go —— 512 字节每角色选项里已证字段的只读解码器。
 //
-// 载体：op447 SAVE_CHARACTER_OPTION（C2S，u32 512 + 512B）与 class0/390（S2C，同一帧形状）。
-// 落库与回放都在 game_option_settings.go，本文件只解码、不改写一个字节。
+// 载体：op447（C2S）与 class0/390（S2C）的 u32 512 + 512B 帧。落库与回放都在
+// game_option_settings.go；本文件只解码，不改写一个字节，也不做保存门禁。
 //
-// 字段表来自固定磁盘客户端 DNF.exe（SHA256
-// bb42898c02fb43ad30537da776f648ce26ac37df2ff47912ca7174df43c80531，即 45 批原生取证用的
-// 同一下载客户端）。三个 reader/writer 的基址都是 owner+0x1CC，也就是这份 512B blob 本身：
+// 已证字段（读写 helper 基址都是 owner+0x1CC，即这份 blob 本身）：
 //
-//	技能锁表（面板 SEAL_ON / SEAL_OFF）
-//	  写 0x39A6BA0、读 0x39A6C00：index = (bank+2)*64 + entry，bank0/1 各 64 项，
-//	  ⇒ word 128..191 = 树0、word 192..255 = 树1；值 = **客户端技能槽号**（不是 PVF
-//	  模板技能 ID），空项 0xFFFF。导出 0x2255AA0（面板 0x293AFD0 的 SEAL_ON/SEAL_OFF 分支在
-//	  0x293B24F 调它；导出里还会写 word0/word1，本文件只读不改），恢复 0x2255880
-//	  （S2C390 读取端 0x2255DB0 在复制 512B 之后调用）。
+//	技能锁表    word 128..191 = 树0、192..255 = 树1，每树 64 项；值 = 客户端技能槽号，
+//	            空项 0xFFFF。写 0x39A6BA0 / 读 0x39A6C00：index = (bank+2)*64+entry，
+//	            越界返回 0xFFFFFFFF；导出 0x2255AA0、恢复 0x2255880。
+//	CD 提示列表 word 2..21 = 树0、22..41 = 树1，每树 20 项，空项 0xFFFF。
+//	            导出 0x22555F0、恢复 0x2254FC0（先清全部 512 槽再按两树恢复）。
 //
-//	CD 提示列表
-//	  导出 0x22555F0：word 2..21 = 树0 的 20 项、word 22..41 = 树1 的 20 项，空项 0xFFFF；
-//	  恢复 0x2254FC0（先对全部 512 槽清标记，再按两树列表恢复，含技能可用性保护）。
-//	  面板入口 0x1E923E4..3F9（读 0x292AFA0 后调 0x292AFC0(flag, 1)）下发同一份 op447。
+// 其余 word（word43 = ExportScenarioDifficulty、word126/127 = 时装可见 / 称号不透明度等）
+// 没有语义：不重定义、不清除、不填默认值。
 //
-//	word43 = ExportScenarioDifficulty（写端 0x2255CA0）。
-//	word126/127 = 全身时装可见 / 称号不透明度（厂商 AccountSettings.ProjectCharacterOptionBlob）。
+// 取证与复核：字段表来自 43 批对 DNF.exe SHA256 bb42898c… 的只读反汇编（报告与 asm/bin
+// 切片在调查资料 43 批目录）。scripts/verify_client_skill_option_words.py 在当前客户端
+// DNF.exe SHA256 8bf1d39d…（2026-10-14）上离线复核：11 个相关函数仍在同一 VA，保留的
+// 整函数字节切片逐字节相同，raw/bank 边界 0x7F/0x80、索引算法 (bank+2)*64+entry、blob
+// 基址 +0x1CC、帧长恰好 0x200、CD 列表 2..41（每树 20 项、步长 20）全部未变。
 //
-// 边界（照 43 批报告的口径，不许外推）：其余 word 与其余字节**没有**被本文件赋予语义，
-// 不重定义、不清除、不填默认值。解码只服务两件事 ——
-//
-//  1. 日志可观测性：客户端不会上报「点了哪个菜单」，一次锁定 / 一次 CD 提示开关在服务端只
-//     表现为一份新的 512B。把「这次保存相对上一份存档改了哪些 word」和「锁表/CD 列表现在是
-//     什么」写进日志，现场 A/B 才能把「包存在」升级成「字段对应」；
-//  2. 回归断言：用真实捕获帧把 word 索引钉死，防止以后改保存/回放时把它们抹掉。
-//
-// 落库与回放**逐字节不变**：解码结果只进日志，不参与写入决策、不做保存门禁。
+// 详细证据、边界与现场 A/B 步骤见 Docs/D33_SKILL_OPTION_WORDS_20261014.md。
+
 const (
 	// currentCharacterOptionWordCount 是 512B / 2。
 	currentCharacterOptionWordCount = 256
@@ -51,12 +42,10 @@ const (
 	// 锁表：word 128..191 = 树0，192..255 = 树1，每 bank 64 项。
 	currentCharacterOptionLockFirstIndex  = 128
 	currentCharacterOptionLockBankEntries = 64
-	currentCharacterOptionLockBankCount   = 2
 
 	// CD 提示列表：word 2..21 = 树0，22..41 = 树1，每树 20 项。
 	currentCharacterOptionCDListFirstIndex  = 2
 	currentCharacterOptionCDListTreeEntries = 20
-	currentCharacterOptionCDListTreeCount   = 2
 
 	// characterOptionLogSlotLimit 限制单条日志里每个列表 / 每个索引列表打印多少项。
 	characterOptionLogSlotLimit = 8
@@ -77,16 +66,6 @@ type characterOptionSkillLists struct {
 func (l characterOptionSkillLists) lockCount() int { return len(l.LockTree0) + len(l.LockTree1) }
 
 func (l characterOptionSkillLists) cdCount() int { return len(l.CDTree0) + len(l.CDTree1) }
-
-func (l characterOptionSkillLists) empty() bool { return l.lockCount() == 0 && l.cdCount() == 0 }
-
-// summary 是单行、无空格、可直接 grep 的列表摘要（空列表记 -）。
-func (l characterOptionSkillLists) summary() string {
-	return "lock0=" + characterOptionSlotsField(l.LockTree0) +
-		";lock1=" + characterOptionSlotsField(l.LockTree1) +
-		";cd0=" + characterOptionSlotsField(l.CDTree0) +
-		";cd1=" + characterOptionSlotsField(l.CDTree1)
-}
 
 // characterOptionPayload 从「完整帧」（u32 长度前缀 + blob）里取出 512B blob。
 //
