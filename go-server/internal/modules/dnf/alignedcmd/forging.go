@@ -83,12 +83,23 @@ type ForgingResolution struct {
 	// 要求实例耐久等于它，即"满耐久才能锻造"）。
 	TargetDurability int64
 	TargetPVFPath    string
+	// TargetMinimumLevel 是目标装备 PVF `[minimum level]`（装备等级要求）。
+	// 材料槽那一件的 `[check usable itemlevel]` 窗口比的就是它：厂商
+	// ItemUpgradeRestriction.AllowsItemLevel 的入参 context.EquipmentLevel 就是
+	// targetMetadata.MinimumLevel（不是 [grade]，也不是角色等级）。PVF 未写 = 0。
+	TargetMinimumLevel int
 
 	// MaterialItemID 是解析器实际分类的那一件材料模板 id（必须与领域层从权威
 	// 背包里读出来的那一行逐字相同，否则领域层拒绝本次请求）。
 	MaterialItemID int
 	// MaterialPVFPath 是材料槽那一件的 stackable 路径（取证用）。
 	MaterialPVFPath string
+	// MaterialUsableItemLevelMin/Max 是材料槽那一件 PVF `[check usable itemlevel]`
+	// 的窗口。真档：便携式锻造炉 10164035 = 1..90、10090052 = 1..85；
+	// 125 张锻造券与 3 张幸运锻造券都没有这一段（实测交集为 0）。
+	// 负值 = 该端没写 = 不限；两端都是 0 = 没给这一段（真档下界恒为 1）。
+	MaterialUsableItemLevelMin int
+	MaterialUsableItemLevelMax int
 	// PortableFurnace 表示材料槽那一件是便携式锻造炉
 	// （`[action type] [portable genuine damage upgrade upgrede]`）：
 	// 消耗 1 个炉子、**不消耗** 3326，这是它唯一的改动。

@@ -636,6 +636,69 @@ func TestOwnerSeparateUpgradeRequiresResolver(t *testing.T) {
 	}
 }
 
+// TestOwnerSeparateUpgradeEnforcesMaterialUsableItemLevelWindow 钉死耗材自己的
+// `[check usable itemlevel]` 窗口：真档便携式锻造炉带这一段（10164035 = 1..90、
+// 10090052 = 1..85），比的是目标装备的 `[minimum level]`（厂商同族口径）。
+// 窗口只影响"能不能用这件耗材"，拒绝时材料与等级都不许动。
+func TestOwnerSeparateUpgradeEnforcesMaterialUsableItemLevelWindow(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		windowMin   int
+		windowMax   int
+		targetMinLv int
+		wantApplied bool
+		wantCode    byte
+		wantReason  string
+	}{
+		{name: "inside window applies", windowMin: 1, windowMax: 90, targetMinLv: 90, wantApplied: true},
+		{name: "lower bound inclusive", windowMin: 85, windowMax: 90, targetMinLv: 85, wantApplied: true},
+		{name: "above window rejects", windowMin: 1, windowMax: 85, targetMinLv: 90, wantCode: forgingErrorRestriction, wantReason: "material_item_level_window"},
+		{name: "below window rejects", windowMin: 30, windowMax: 90, targetMinLv: 20, wantCode: forgingErrorRestriction, wantReason: "material_item_level_window"},
+		{name: "target level unknown fails closed", windowMin: 1, windowMax: 85, targetMinLv: 0, wantCode: forgingErrorRestriction, wantReason: "material_item_level_window"},
+		{name: "no window applies", targetMinLv: 96, wantApplied: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repos := dnfrepomemory.NewMemoryGroup()
+			saveForgingFixture(t, ctx, repos, 0, nil, forgingTestMaterialItemID, 5)
+			owner := newForgingOwner(t, repos)
+			resolution := forgingTestResolution(func(r *alignedcmd.ForgingResolution) {
+				r.MaterialUsableItemLevelMin = tc.windowMin
+				r.MaterialUsableItemLevelMax = tc.windowMax
+				r.TargetMinimumLevel = tc.targetMinLv
+			})
+			result, err := owner.SeparateUpgrade(ctx, forgingCommand(listTypeMain, forgingTestTargetSlot, 700, forgingTestMaterialSlot),
+				forgingTestResolver(resolution, nil))
+			if err != nil {
+				t.Fatalf("SeparateUpgrade error = %v", err)
+			}
+			loaded := loadTestInventory(t, ctx, repos, "77")
+			if tc.wantApplied {
+				if !result.Success || result.Rejected || result.NewLevel != 1 {
+					t.Fatalf("result = %+v, want applied forge", result)
+				}
+				if got := loaded.Slots[slotKey(listTypeMain, forgingTestMaterialSlot)].Count; got != 3 {
+					t.Fatalf("material count = %d, want 3", got)
+				}
+				if got := forgingLevelOf(loaded.Slots[slotKey(listTypeMain, forgingTestTargetSlot)]); got != 1 {
+					t.Fatalf("target forge level = %d, want 1", got)
+				}
+				return
+			}
+			if result.Success || !result.Rejected || result.ErrorCode != tc.wantCode || result.RejectionReason != tc.wantReason {
+				t.Fatalf("result = %+v, want rejection %d reason %q", result, tc.wantCode, tc.wantReason)
+			}
+			if got := loaded.Slots[slotKey(listTypeMain, forgingTestMaterialSlot)].Count; got != 5 {
+				t.Fatalf("material consumed on window rejection: %d", got)
+			}
+			if got := forgingLevelOf(loaded.Slots[slotKey(listTypeMain, forgingTestTargetSlot)]); got != 0 {
+				t.Fatalf("target changed on window rejection: %d", got)
+			}
+		})
+	}
+}
+
 // forgingFailingEquipmentSaveUOW 复刻"同一事务里装备表写入失败"的存储故障：
 // owner 在事务内先写装备表再写背包表，装备表 Save 返回错误 ⇒ 整条事务不提交。
 type forgingFailingEquipmentSaveUOW struct {

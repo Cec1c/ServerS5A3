@@ -4,10 +4,12 @@
 //
 // 回包体本身同样由 dnfbridge 组装（见 dnfbridge/forging_codec.go）：
 //
-//	校验类拒绝 → class1 失败体 0 + u8 error（客户端回调 0x2483b60 先复位锻造 UI）；
+//	校验类拒绝 → class1 失败体 0 + u8 error；
 //	成功/掷点失败 → class1 成功体 13 字节（outcome 0/1）。
 //
-// 也就是说三条路径都会结束 UI，不会出现"客户端永远等回包"的卡死。
+// 三条路径都会结束 UI：客户端失败回调 0x2483b60 的第一件事就是无条件调 0x12030a0
+// 复位锻造 UI（先于读错误码/查表），成功回调则按回包体里的 targetList/targetSlot/
+// newLevel 就地更新。因此不会出现"客户端永远等回包、窗口关不掉"的卡死。
 package inventory
 
 import (

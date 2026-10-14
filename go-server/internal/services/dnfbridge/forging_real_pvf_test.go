@@ -37,6 +37,9 @@ const (
 	realForgingFurnaceItemID  = 10164035
 	realForgingTicketItemID   = 490000622
 	realForgingTicketTargetID = 401000024
+	// realForgingNarrowFurnaceItemID 是同一族的便携式锻造炉，但它的
+	// [check usable itemlevel] 只到 1..85（10164035 是 1..90），用来做窗口超限回归。
+	realForgingNarrowFurnaceItemID = 10090052
 
 	realForgingTargetSlot   = 9
 	realForgingMaterialSlot = 121
@@ -180,6 +183,9 @@ func TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket(t *testing.T) {
 		if !ordinary.TargetIsWeapon || ordinary.TargetGrade != 96 || ordinary.TargetRarity != 4 || ordinary.TargetDurability != 48 {
 			t.Fatalf("weapon = %+v", ordinary)
 		}
+		if ordinary.TargetMinimumLevel != 90 {
+			t.Fatalf("weapon minimum level = %d, want 90", ordinary.TargetMinimumLevel)
+		}
 		if ordinary.PortableFurnace || ordinary.ForgingTicketUsable() {
 			t.Fatalf("breath misclassified: %+v", ordinary)
 		}
@@ -189,6 +195,16 @@ func TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket(t *testing.T) {
 		}
 		if !furnace.PortableFurnace || furnace.ForgingTicketUsable() {
 			t.Fatalf("furnace = %+v", furnace)
+		}
+		if furnace.MaterialUsableItemLevelMin != 1 || furnace.MaterialUsableItemLevelMax != 90 {
+			t.Fatalf("furnace usable item level window = %d..%d, want 1..90", furnace.MaterialUsableItemLevelMin, furnace.MaterialUsableItemLevelMax)
+		}
+		narrow, err := resolver(realForgingNarrowFurnaceItemID, realForgingWeaponItemID)
+		if err != nil {
+			t.Fatalf("resolve error = %v", err)
+		}
+		if !narrow.PortableFurnace || narrow.MaterialUsableItemLevelMin != 1 || narrow.MaterialUsableItemLevelMax != 85 {
+			t.Fatalf("narrow furnace = %+v, want portable with window 1..85", narrow)
 		}
 		ticket, err := resolver(realForgingTicketItemID, realForgingTicketTargetID)
 		if err != nil {
@@ -205,6 +221,11 @@ func TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket(t *testing.T) {
 		}
 		if !listed {
 			t.Fatalf("whitelist = %v, want %d", ticket.TicketWhitelist, realForgingTicketTargetID)
+		}
+		// 锻造券不带 [check usable itemlevel]（真档 125 张券 + 3 张幸运券实测相交为 0）：
+		// 解析器保持 -1（不限），券档因此不受窗口约束。
+		if ticket.MaterialUsableItemLevelMin >= 0 || ticket.MaterialUsableItemLevelMax >= 0 {
+			t.Fatalf("ticket carries a usable item level window: %+v", ticket)
 		}
 	})
 
@@ -305,6 +326,36 @@ func TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket(t *testing.T) {
 		}
 		if got := record.Slots[slotKeyOf(realForgingTargetSlot)].RawEntry[0x57]; got != 1 {
 			t.Fatalf("target level = %d, want 1", got)
+		}
+	})
+
+	t.Run("portable furnace item level window rejects a higher level weapon", func(t *testing.T) {
+		ctx := context.Background()
+		repos := dnfrepomemory.NewMemoryGroup()
+		// 10090052 的窗口是 1..85，圣耀救赎光剑的 [minimum level] 是 90 ⇒ 超上限拒绝。
+		if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+			CharacterID: "77",
+			Slots: map[string]dnfrepo.ItemStack{
+				slotKeyOf(realForgingTargetSlot):  realForgingWeaponStack(realForgingWeaponItemID, 48),
+				slotKeyOf(realForgingFurnaceSlot): realForgingStack(realForgingNarrowFurnaceItemID, 3, 0, map[string]string{"item_kind": "stackable"}),
+			},
+		}); err != nil {
+			t.Fatalf("save inventory error = %v", err)
+		}
+		ack, record := runRealForgingCommand(t, pvfPath, repos,
+			realForgingBody(0, realForgingTargetSlot, realForgingWeaponItemID, realForgingFurnaceSlot))
+		if !bytes.Equal(ack, []byte{0, 19}) {
+			t.Fatalf("ack = %x, want failure body 0 + 19 (restriction)", ack)
+		}
+		if got := record.Slots[slotKeyOf(realForgingFurnaceSlot)].Count; got != 3 {
+			t.Fatalf("furnace consumed on window rejection: %d", got)
+		}
+		rejectedTarget := record.Slots[slotKeyOf(realForgingTargetSlot)]
+		if rejectedTarget.RawEntry[0x57] != 0 {
+			t.Fatalf("target raw 0x57 changed on window rejection: %d", rejectedTarget.RawEntry[0x57])
+		}
+		if _, found := rejectedTarget.Extra["byte_57"]; found {
+			t.Fatalf("target gained byte_57 on window rejection: %+v", rejectedTarget.Extra)
 		}
 	})
 

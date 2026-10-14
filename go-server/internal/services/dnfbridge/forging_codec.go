@@ -102,16 +102,23 @@ func buildCurrentForgingAck(request currentForgingRequest, remaining uint32, old
 }
 
 // buildCurrentForgingFailureAck 组装 class1 438 的失败体：u8 0 + u8 error。
-// 客户端回调 0x2483b60 先 0x12030a0 复位锻造 UI，再按错误码查表显示文案；
-// 表里没有的错误码也会落到通用文案（push esi; push 0x67e），所以任何一条拒绝
-// 都会让"锻造窗口关不掉"的现场缺陷消失。
+//
+// 客户端回调 0x2483b60 的第一件事就是 push 0/0/0/4 调 0x12030a0 复位锻造 UI
+// （无条件、先于读错误码），所以只要回了失败体，"锻造窗口关不掉"就不会发生。
+// 之后它才 movzx esi, byte[ebp+0x10] 取码并查表显示文案：> 0xd6 落 default 分支
+// （0x2483c23，文案键 0x67e + 码），<= 0xd6 走 0x2483d38 字节索引表 → 0x2483d0c
+// 的 11 槽跳转表；其中码 0/118 落"不显示"槽，且显示前还有一道闸门
+// （0x35ca060，为真时直接跳到函数出口）。逐码实测表见
+// modules/dnf/inventory/owner_separate_upgrade.go 的错误码常量注释。
 func buildCurrentForgingFailureAck(errorCode byte) []byte {
 	return []byte{0, errorCode}
 }
 
 // currentForgingFailureInvalidTarget 是"请求体根本解不出来"时回给客户端的错误码：
-// 取厂商 SeparateUpgradeResult.ErrorInvalidTarget（=4，与 op50 的同义码一致，
-// 也是失败回调 0x2483b60 查表输入之一）。同一个玩法的官方枚举，不臆造新值。
+// 取厂商同族实现 SeparateUpgradeResult.ErrorInvalidTarget（=4，与 op50 的"目标无效"
+// 同值）。实测在当前 EXE 上 4 命中专用槽 1 → 0x2483a1c → 文案键 0x67a
+// （不是 default 分支的 0x67e）。不是"客户端官方枚举"，是同一玩法族里已被本 EXE
+// 专用槽覆盖的取值。
 const currentForgingFailureInvalidTarget byte = 4
 
 // buildCurrentForgingOutcomeAck 把领域结果翻成 class1 438 回包体：

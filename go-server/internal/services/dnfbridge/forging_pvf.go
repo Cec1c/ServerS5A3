@@ -39,6 +39,19 @@ const (
 	currentForgingPortableActionToken = "[portable genuine damage upgrade upgrede]"
 	currentForgingTicketSection       = "equipment separate reinforcement ticket"
 	currentForgingWhitelistSection    = "reinforcement usable item list"
+	// currentForgingUsableItemLevelSection 是耗材的可用等级窗口段。实测（本仓真档）：便携式
+	// 锻造炉 10164035 = 1..90、10090052 = 1..85；同族 1阶..5阶强化器的窗口是五段
+	// 1..29 / 30..39 / 40..49 / 50..59 / 60..69，与物品名的 1阶..5阶 一一对应；
+	// 凯丽的强化器 (Lv1~90) / 一次性增幅器 (Lv1~90) 这两个**物品名**里也逐字写着同一个窗口。
+	//
+	// 窗口比的是哪一个等级：厂商同族实现给的是**目标装备的** [minimum level]
+	// （ItemUpgradeRestriction.AllowsItemLevel 的入参 context.EquipmentLevel 就是
+	// targetMetadata.MinimumLevel，不是 [grade]、也不是角色等级），本仓按同一口径执行。
+	// 该选择是有区别的：真档 101040493 的 [minimum level] 是 90、[grade] 是 96，
+	// 在 1..90 的窗口下前者放行、后者拒绝（本仓的真档用例按 minimum-level 口径断言）。
+	// 客户端原生行为（UI 是否也按同一端拦截）仍待主代理验收，见
+	// Docs/D33_FORGING_20261014.md 第 5 节。
+	currentForgingUsableItemLevelSection = "check usable itemlevel"
 
 	currentForgingLuckyEnchantDeedAction   = "[lucky enchant deed]"
 	currentForgingLuckyRefineParam         = 2
@@ -231,6 +244,13 @@ func currentForgingResolver(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 				if rarity, found := document.Int("rarity"); found {
 					resolution.TargetRarity = int(rarity)
 				}
+				// 目标装备的 `[minimum level]`：材料槽那一件的
+				// `[check usable itemlevel]` 窗口比的就是它（厂商
+				// ItemUpgradeRestriction.AllowsItemLevel(context.EquipmentLevel)，
+				// context.EquipmentLevel = targetMetadata.MinimumLevel）。
+				if minimum, found := document.Int("minimum level"); found {
+					resolution.TargetMinimumLevel = int(minimum)
+				}
 				resolution.TargetDurability = int64(definition.Durability)
 			case err == nil:
 				// 不是装备 ⇒ 目标不是武器。
@@ -301,6 +321,18 @@ func classifyCurrentForgingMaterial(document *dnfpvf.Document, path string, reso
 	}
 	if whitelist := document.Ints(currentForgingWhitelistSection); len(whitelist) > 0 {
 		resolution.TicketWhitelist = append([]int64(nil), whitelist...)
+	}
+	// `[check usable itemlevel]`：这件耗材只允许用在"装备等级"（装备 PVF 的
+	// `[minimum level]`）落在窗口内的目标上。真档便携式锻造炉带这一段
+	// （10164035 = 1..90、10090052 = 1..85），锻造券/幸运锻造券都不带。
+	window := document.Ints(currentForgingUsableItemLevelSection)
+	resolution.MaterialUsableItemLevelMin = -1
+	resolution.MaterialUsableItemLevelMax = -1
+	if len(window) > 0 {
+		resolution.MaterialUsableItemLevelMin = int(window[0])
+	}
+	if len(window) > 1 {
+		resolution.MaterialUsableItemLevelMax = int(window[1])
 	}
 }
 

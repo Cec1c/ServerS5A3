@@ -27,7 +27,11 @@
 //   - 掷点满值是 **10000**（[table] 第 3 个数就是百分数×100），不是 op50 的 100000；
 //   - 失败**不摧毁、不掉级**（普通锻造失败只是材料没了；券档只有显式写了
 //     FailureDecrementLevel 才掉级，真档的幸运锻造券是 0），所以这里不接
-//     保护券/补偿道具那一套。
+//     保护券/补偿道具那一套；
+//   - 耗材若写了 `[check usable itemlevel]` 窗口（真档便携式锻造炉 1..90 / 1..85，
+//     锻造券与幸运锻造券都没有这一段），目标装备的 `[minimum level]` 必须落在窗口内，
+//     否则按厂商同族的 ErrorRestriction 口径拒绝（客户端可见码 19，实测命中专用文案键
+//     0x6a1a）。见 forgingConsumableAllowsTargetLevel。
 package inventory
 
 import (
@@ -54,16 +58,37 @@ var (
 	ErrForgingEquipmentOwnerUnavailable = errors.New("separate upgrade requires an equipment repository for the worn target")
 )
 
-// 客户端可见错误码（= 厂商 SeparateUpgradeResult.Error*，同一个玩法的官方枚举）。
-// 失败体形状是 0 + u8 error（见 dnfbridge/forging_codec.go）；当前 EXE 的失败回调
-// 0x2483b60 会先复位锻造 UI、再按错误码查表显示，未列出的码也会落到通用文案，
-// 所以这里用参考实现自己的枚举，不臆造新值。
+// 客户端可见错误码：取值来自厂商同族实现 SeparateUpgradeResult.Error*，并且已在本机对
+// 当前 EXE（DNF.exe 8bf1d39d…）的 438 失败回调 0x2483b60 逐码核对过跳转：
+//
+//	0x2483b60 先 push 0/0/0/4 调 0x12030a0 复位锻造 UI（**无条件、先于读错误码**），
+//	再 movzx esi, byte[ebp+0x10] 取码；码 > 0xd6 走 0x2483c23 的 default 分支
+//	（文案键 0x67e，把码格式化进去）；码 <= 0xd6 走 0x2483d38 的字节索引表 +
+//	0x2483d0c 的 11 槽跳转表。下表是逐码实测（本文件用到的 7 个码全部命中**专用**槽）：
+//
+//	码 4  -> 槽 1 -> 0x2483a1c 文案键 0x67a      码 7  -> 槽 2 -> 0x2483bf0 文案键 0x4e20
+//	码 10 -> 槽 3 -> 0x2483bba 文案键 0x67c      码 13 -> 槽 4 -> 0x2483bdf 文案键 0x676
+//	码 17 -> 槽 5 -> 0x2483ba6 文案键 0x8904     码 19 -> 槽 6 -> 0x2483bce 文案键 0x6a1a
+//	码 22 -> 槽 7 -> 0x2483b4c 文案键 0x67d      码 95 -> 槽 4 -> 0x2483bdf 文案键 0x676
+//	码 175 -> 槽 8 -> 0x2483c01 文案键 0x5338    码 214 -> 槽 9 -> 0x2483c12 文案键 0xa4f8
+//	码 0 / 118 -> 槽 0 -> 0x2483c5f **不显示任何文案**（直接跳到函数出口）
+//	其余 203 个码 + 所有 > 0xd6 的码 -> 槽 10 -> 0x2483c23 default（文案键 0x67e + 码）
+//
+// 另有一道前置闸门（0x2483b7c 调 0x35ca060，test al,al / jne 0x2483c5f）：闸门为真时
+// **连文案都不显示**，所以"某码一定弹出某句文案"不成立；能保证的只有"复位 UI 一定执行"。
+// 文案键对应的具体字串没有在本树里解析（客户端字符串是打包存储），这里只记录命中的键。
+// 因此选用的是厂商同族枚举中**在本 EXE 有专用文案槽**的那几个码，不臆造新值。
 const (
-	forgingErrorInvalidTarget   byte = 4
-	forgingErrorDurability      byte = 7
-	forgingErrorUnsupported     byte = 13
-	forgingErrorMaterialCommit  byte = 17
-	forgingErrorNotWeapon       byte = 19
+	forgingErrorInvalidTarget  byte = 4
+	forgingErrorDurability     byte = 7
+	forgingErrorUnsupported    byte = 13
+	forgingErrorMaterialCommit byte = 17
+	forgingErrorNotWeapon      byte = 19
+	// forgingErrorRestriction 是"这件耗材不允许用在这件目标上"的客户端可见码，与
+	// forgingErrorNotWeapon 同值（19）：厂商同族里 op50 的等级/部位限制用
+	// ItemUpgradeResult.ErrorRestriction=19，separate-upgrade 的"非武器"用 19，
+	// 当前 EXE 的 438 失败回调把 19（0x13）映射到同一个专用文案键 0x6a1a。
+	forgingErrorRestriction     byte = 19
 	forgingErrorInvalidMaterial byte = 22
 	forgingErrorMaxLevel        byte = 95
 )
@@ -276,6 +301,14 @@ func (o *Owner) SeparateUpgrade(ctx context.Context, cmd Command, resolver align
 		result.RejectionReason = "target_not_weapon"
 		return result, nil
 	}
+	// 耗材自己声明的可用装备等级窗口（真实例：便携式锻造炉 10164035 = 1..90、
+	// 10090052 = 1..85）。比的是目标装备的 [minimum level]（厂商口径），
+	// 缺省（两端都没给）不判；判失败时按"限制"拒绝，材料/等级都不动。
+	if !forgingConsumableAllowsTargetLevel(resolution) {
+		result.ErrorCode = forgingErrorRestriction
+		result.RejectionReason = "material_item_level_window"
+		return result, nil
+	}
 	// 厂商口径：实例耐久必须等于 PVF 元数据耐久（满耐久）才能锻造。
 	if !forgingDurabilitySatisfied(target, resolution.TargetDurability) {
 		result.ErrorCode = forgingErrorDurability
@@ -470,6 +503,33 @@ func forgingWhitelistContains(whitelist []int64, itemID int64) bool {
 		}
 	}
 	return false
+}
+
+// forgingConsumableAllowsTargetLevel 判材料槽那一件的 `[check usable itemlevel]`
+// 窗口是否覆盖目标装备的 `[minimum level]`。
+//
+// 口径（厂商同族实现 ItemUpgradeRestriction.AllowsItemLevel：
+// ItemLevelMin/Max 来自耗材的 [check usable itemlevel]，入参是 targetMetadata.MinimumLevel）：
+//
+//	窗口两端都没给（解析器给 -1，或字面量零值 0/0 -- 真档窗口下界恒为 1）
+//	  ⇒ 这件耗材不限目标等级，直接放行（锻造券/幸运锻造券就是这种形状，真档实测
+//	     125 张券与 3 张幸运券都没有这一段）；
+//	只给了一端 ⇒ 只判给出来的那一端；
+//	目标 PVF 没写 [minimum level]（解析成 0）而窗口写了 ⇒ 失败关闭（判不进去）。
+func forgingConsumableAllowsTargetLevel(resolution alignedcmd.ForgingResolution) bool {
+	min := resolution.MaterialUsableItemLevelMin
+	max := resolution.MaterialUsableItemLevelMax
+	if min == 0 && max == 0 {
+		return true
+	}
+	level := resolution.TargetMinimumLevel
+	if min > 0 && level < min {
+		return false
+	}
+	if max > 0 && level > max {
+		return false
+	}
+	return true
 }
 
 // forgingDurabilitySatisfied 判"实例耐久 == PVF 元数据耐久"（厂商 separate-upgrade
