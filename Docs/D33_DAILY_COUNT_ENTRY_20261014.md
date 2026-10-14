@@ -135,9 +135,11 @@ TestBaselineProbeEkernDungeonCycleDailyCount:
 - 异次元裂缝（7100/7165-7179）维持按**入场**计数：`etc/dungeonetc/dimensiondungeoninfo.etc` 的
   `[hidden boss appear rate by enter count]` 与 `[max daily enter count]` 都是 enter 口径。
 
-EXE 侧负证据（本轮补充）：当前 v96 客户端里 `dungeon cycle`、`[dungeon cycle]`、
-`dungeoncyclesystem` 三种写法在 ASCII 与 UTF-16 下**全部零命中**（唯一的 `cycle` 命中是 protobuf 的
-`lifecycle_id_generator_`），说明客户端根本不打开这张表，它的语义必须由 PVF 任务/官方服务端证据来定。
+EXE 侧观察（本轮补充，注意**不构成**「客户端不读这张表」的结论）：当前 v96 客户端里 `dungeon cycle`、
+`[dungeon cycle]`、`dungeoncyclesystem` 三种写法在 ASCII 与 UTF-16 下零命中（唯一的 `cycle` 命中是
+protobuf 的 `lifecycle_id_generator_`）。这只说明「未以明文形式出现」；客户端完全可能通过字符串池/
+哈希表间接持有这些标签，因此**不能**据此断定客户端不打开该表。该表语义仍只由 PVF 任务文案定，
+客户端是否消费它保持未证。
 另外客户端确实内嵌 protobuf 描述符 `DNFPB.noti.PB_ENUM_NOTIPACKET_DAY_OF_THE_DUNGEON.dungeonEntryCount`
 （来自 `DNFShared/PB_Packet/PacketHeaders.pb.cc`）——这是"每日副本"家族的次数 NOTI，与艾肯/裂缝的对应
 关系未证，列为待查项，不发猜测包。
