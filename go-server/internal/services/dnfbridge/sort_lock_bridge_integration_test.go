@@ -16,7 +16,9 @@ import (
 // DOC-067 端到端（真实桥接，不把 handler 结果手工拼回去）：
 //
 //  1. legacy cmd=1/op713 经 handleGameStreamPacket → handleAlignedGameCommand → inventory owner 落库；
-//  2. 回包只有一条 class1/713 `1 + list + slot`（客户端自己应用状态，服务端不再补发容器）；
+//  2. 回包两条：class1/713 `1 + list + slot`（客户端 handler 0x1faee80 直接写 item+0x2aa）
+//     后跟一条 class0/0x000D 整容器刷新（当前客户端准入位图没有 713 位，ACK 会被丢，
+//     所以蓝锁图标现在由这条刷新保证即时显示；见 sort_lock_instant_refresh_test.go）；
 //  3. 冷登录/整表 op13 与增量 op14 都必须把 0x77 行 0x60 投影出去，同时钱包（0:0 金币）、
 //     账号共享晶块（0:359）、品级种子与装备属性逐项不回退；
 //  4. 解锁后同一投影必须显式回到 0。
@@ -33,8 +35,8 @@ func TestSortLockBridgePersistsAndProjectsLoginAndIncrementalRows(t *testing.T) 
 		t.Fatalf("legacy sort-lock dispatch: %v", err)
 	}
 	frames := splitSortLockFrames(t, f.buffer.write.Bytes())
-	if len(frames) != 1 {
-		t.Fatalf("lock reply frames = %d, want exactly the class1 ACK", len(frames))
+	if len(frames) != 2 {
+		t.Fatalf("lock reply frames = %d, want the class1 ACK plus the authoritative container refresh", len(frames))
 	}
 	ack := frames[0]
 	if ack.Header.MsgID != uint16(dnfenum.CmdPacketRequestItemSortLock) || ack.Header.Classification != 1 ||
@@ -69,7 +71,7 @@ func TestSortLockBridgePersistsAndProjectsLoginAndIncrementalRows(t *testing.T) 
 		t.Fatalf("unlock dispatch handled=%t err=%v", handled, err)
 	}
 	unlock := splitSortLockFrames(t, f.buffer.write.Bytes())
-	if len(unlock) != 1 || unlock[0].Header.MsgID != uint16(dnfenum.CmdPacketRequestItemSortUnlock) || unlock[0].Header.Classification != 1 {
+	if len(unlock) != 2 || unlock[0].Header.MsgID != uint16(dnfenum.CmdPacketRequestItemSortUnlock) || unlock[0].Header.Classification != 1 {
 		t.Fatalf("unlock reply = %+v", unlock)
 	}
 	inventory, _, err = f.group.Inventory.Load(ctx, "19")

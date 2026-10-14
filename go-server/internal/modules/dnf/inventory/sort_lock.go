@@ -335,3 +335,34 @@ func (o *Owner) ApplySortLock(ctx context.Context, cmd Command) (SortLockResult,
 	result.Changed = true
 	return result, nil
 }
+
+// sortLockContainerRefresh 给出 713/714 之后要重建的整容器：占位包体 + 是否要发。
+//
+// 2026-10-15（DOC-067 / DOC-105 现场：蓝锁图标不实时显示、重选角色后才出现）：
+// 当前下发客户端把入站 opcode 先过一遍 1440 位准入位图（EXE `.rebuild` 0x6E83610，
+// 位表 0x6E92300，见 Docs/D33_SORT_LOCK_20261014.md 第 7 节），713/714 的位是 0，
+// 于是 class1/713、class1/714 的成功 ACK 在派发前就被丢掉，客户端直到重选角色
+// （登录整表 op13）才把 0x77 行 0x60 投影进 item+0x2aa。
+//
+// 位图补丁在客户端候选里（父代理线）；服务端这一侧再补一条**同一 Result 的
+// class0/0x000D 整容器刷新**：body 由桥接的会话权威投影替换
+// （dnfbridge/authoritative_list_refresh.go，与登录、整理、搬运同一条 builder），
+// 未打补丁的当前客户端也能立刻看到蓝锁。钱包行（0:0 金币）、账号共享格
+// （0:354..0:365 晶块/灵魂）、装备品级种子/孔位/符文、附魔与使用期限都由那份
+// 权威投影一次带上——**不回退**模块快照（2026-10-14 的抹金币/降品级事故就是
+// 模块快照拼出来的，见 authoritative_list_refresh.go 顶部现场注）。
+//
+// 只对 DOC-067 支持的三个列表开刷新（与 checkSortListType 同一批）：
+// 主背包 / 时装 / 个人金库；宠物、账号金库、穿戴栏没有位置锁语义，保持单条 ACK。
+//
+// 返回的占位包体只用于让桥接认出「这条 class0/0x000D 要重建哪个列表」
+// （currentAuthoritativeListRefreshListType 读 body 首字节）。被点名的列表一定由
+// 权威投影重建；建不出来时桥接**跳过**这条刷新而不发模块快照，因此占位包体
+// 永远不会上线（bridge 回归按 on-wire 包体逐字节钉住这一点）。
+func sortLockContainerRefresh(listType byte) ([]byte, bool) {
+	switch listType {
+	case listTypeMain, listTypeAvatar, listTypePersonalCargo:
+		return []byte{listType}, true
+	}
+	return nil, false
+}

@@ -76,8 +76,12 @@ func TestSortLockSetAndClearPersistExplicitState(t *testing.T) {
 	ctx, repos := newSortLockFixture(t)
 
 	lock := handleSortLock(t, ctx, repos, uint16(dnfenum.CmdPacketRequestItemSortLock), listTypeMain, 20)
-	if !lock.Handled || !lock.ResponseAllowed || len(lock.UpperResponses) != 1 {
+	// 713 回包 = class1 ACK + class0/0x000D 整容器刷新（见 sort_lock_refresh_test.go）。
+	if !lock.Handled || !lock.ResponseAllowed || len(lock.UpperResponses) != 2 {
 		t.Fatalf("lock result = %+v", lock)
+	}
+	if refresh := lock.UpperResponses[1]; refresh.MsgID != msgItemListRefresh || refresh.Classification != 0 {
+		t.Fatalf("lock refresh envelope = %+v", refresh)
 	}
 	ack := lock.UpperResponses[0]
 	if ack.MsgID != uint16(dnfenum.CmdPacketRequestItemSortLock) || ack.Classification != 1 {
@@ -96,8 +100,11 @@ func TestSortLockSetAndClearPersistExplicitState(t *testing.T) {
 	}
 
 	unlock := handleSortLock(t, ctx, repos, uint16(dnfenum.CmdPacketRequestItemSortUnlock), listTypeMain, 20)
-	if !unlock.ResponseAllowed || len(unlock.UpperResponses) != 1 {
+	if !unlock.ResponseAllowed || len(unlock.UpperResponses) != 2 {
 		t.Fatalf("unlock result = %+v", unlock)
+	}
+	if refresh := unlock.UpperResponses[1]; refresh.MsgID != msgItemListRefresh || refresh.Classification != 0 {
+		t.Fatalf("unlock refresh envelope = %+v", refresh)
 	}
 	if ack := unlock.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemSortUnlock) || ack.Classification != 1 {
 		t.Fatalf("unlock ack envelope = %+v", ack)
@@ -194,7 +201,7 @@ func TestSortLockRejectsForeignCharacterAccount(t *testing.T) {
 func TestSortLockAcceptsPermanentAvatarRowWithZeroCount(t *testing.T) {
 	ctx, repos := newSortLockFixture(t)
 	result := handleSortLock(t, ctx, repos, uint16(dnfenum.CmdPacketRequestItemSortLock), listTypeAvatar, 30)
-	if !result.ResponseAllowed || len(result.UpperResponses) != 1 {
+	if !result.ResponseAllowed || len(result.UpperResponses) != 2 {
 		t.Fatalf("avatar lock refused: %+v", result)
 	}
 	stack, ok := storedSortLock(t, ctx, repos, listTypeAvatar, 30)

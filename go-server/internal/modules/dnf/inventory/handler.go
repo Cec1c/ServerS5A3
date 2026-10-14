@@ -1874,18 +1874,33 @@ func buildSortLockAck(listType byte, slotIndex int16) []byte {
 
 // ownerAppliedSortLockResult 只在 durable owner 返回后开成功回包；幂等命中（Changed=false）
 // 同样回成功，因为客户端要的状态已经成立。
+//
+// 除了客户端 0x1faee80/0x1faeee0 要的 class1 `1 + list + u16 slot` ACK，
+// 同一 Result 里再排一条 class0/0x000D 整容器刷新：当前下发客户端的入站准入
+// 位图没有 713/714 位，ACK 会在派发前被丢掉，只有整容器刷新（与登录整表同一条
+// 权威投影）能让蓝锁图标立即出现，且不会退回会抹金币/降品级的模块快照。
+// 依据与边界见 sort_lock.go 的 sortLockContainerRefresh 长注。
 func ownerAppliedSortLockResult(opcode uint16, cmd Command, result SortLockResult) alignedcmd.Result {
+	responses := []alignedcmd.UpperResponse{
+		class1Response(opcode, buildSortLockAck(result.ListType, result.SlotIndex)),
+	}
+	var authoritativeListRefreshes []byte
+	refreshNote := "no container refresh for this list"
+	if placeholder, ok := sortLockContainerRefresh(result.ListType); ok {
+		responses = append(responses, class0Response(msgItemListRefresh, placeholder))
+		authoritativeListRefreshes = []byte{result.ListType}
+		refreshNote = fmt.Sprintf("authoritative class0/%d container refresh follows the ACK", msgItemListRefresh)
+	}
 	return alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
 		Reason: fmt.Sprintf(
-			"inventory owner applied: %s locked=%t changed=%t; opened class1/%d list+slot ACK in current-EXE order",
-			cmd.String(), result.Locked, result.Changed, opcode,
+			"inventory owner applied: %s locked=%t changed=%t; opened class1/%d list+slot ACK in current-EXE order; %s",
+			cmd.String(), result.Locked, result.Changed, opcode, refreshNote,
 		),
-		UpperResponses: []alignedcmd.UpperResponse{
-			class1Response(opcode, buildSortLockAck(result.ListType, result.SlotIndex)),
-		},
+		UpperResponses:             responses,
+		AuthoritativeListRefreshes: authoritativeListRefreshes,
 	}
 }
 
