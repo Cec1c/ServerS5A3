@@ -1,3 +1,9 @@
+## 2026-10-14 — 主线后继任务主代理完整验证
+
+- 核心9320通过节点、860跳过、零失败；固定真实PVF的144个指定回归根全部通过（655通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
+- 功能测试针对e99c174；随后单独将dungeon_card_flow.go的CRLF转LF，逐字节证明仅换行变化并重新通过gofmt，功能测试无需重复。原始与格式修正后清单均已保留。
+- DOC-118仍待原生验收；DOC-123/124/126不计入本次修复。
+
 ## 2026-10-14 — 剧情链「开始下个任务」先接取后继任务再进图（DOC-118）
 
 - 固定真档链路：3146 n_quest/quest_renewal/epic_quest/elvengard/elvengard_epic_02.qst「传说中的白化变异哥布林」（[quest clear]、dungeon info 3）的后继是 3147 elvengard_epic_03.qst「毒泉的主人」（[clear map]、[pre required quest] 3146、dungeon info 6）；dungeon/act1/mirkwood.dgn 的 maze 2 带 [quest connection] 0 3146 -1，dungeon/act1/sunderlandpoison.dgn（猛毒雷鸣废墟）的 maze 1 带 0 3147 -1，maze 0 是无连接的非任务迷宫。
