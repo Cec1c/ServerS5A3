@@ -1,3 +1,14 @@
+## 2026-10-14 — 服务端与本地 GM 边界验证
+
+- 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。
+- 原GM文件保留本地，独立本地工具不进入在线仓库；CI边界正反对照通过。
+
+## 2026-10-14 — 按用户要求将在线仓库与本地 GM 工具分离
+
+- 在线版本移除 GM Web 工具包及嵌入服务端的启动/停止绑定；本地原始 GM 文件和用户正在使用的工程全部保留。隔离清理树采用取消 Git 跟踪，未删除本地工具源码。
+- 控制器不再生成 GM 环境配置，doctor 不再要求 GM 端口随游戏服务器启动。旧 gmListen 配置兼容读取后忽略；服务端游戏及通用管理接口保持原职责。
+- 添加忽略规则、仓库边界检查及协作规范，防止后续 GM 更新重新进入在线仓库。验证与在线清理结果后补。
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
