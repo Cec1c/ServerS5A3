@@ -55,6 +55,12 @@
 - Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
 - Resolve capped awards as well, so spending later cannot make an old clear grantable again. Repository failures remain retryable and a fresh dungeon run retains its own award.
 - Regression tests reproduce repeated grants before the change and cover duplicate requests, account-save failure, notice failure, caps and unsuitable levels. This does not change lucky-star purchase protocols or establish native UI acceptance.
+## 2026-10-14 — Restore equipment-based catalyst crafting
+
+- Accept complete PVF equipment recipe predicates instead of rejecting every recipe without an explicit item-ID list. Check type, part, rarity, level range, one-item instances and sealing capability; incomplete recipes remain rejected. Sealed and previously unsealed resealable weapons follow the same PVF eligibility rule.
+- Use the PVF minimum/maximum output counts and bounded per-unit maximum-output probability, retaining the existing atomic material/output settlement and reply format. Validate probability ranges and abort on random-source errors.
+- Regression coverage includes matching-PVF weapon selection, material rejection, account soul costs, spent-input replay, ownership/locks, output probability boundaries and transaction rollback. Native crafting animation acceptance remains pending.
+
 ## 2026-10-14 — Charge fixed catalyst ingredients for every crafting unit
 
 - Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
