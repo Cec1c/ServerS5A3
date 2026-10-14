@@ -50,6 +50,17 @@
 
 - Read rarity and equipment-type cost weights through the PVF numeric accessor. The integer-only accessor dropped decimal tokens and shifted subsequent indexes (real upgrade.etc starts rarity weights 0.50/1.50 and type weights 1.20/0).
 - Regression fails on the original parser and passes after repair; pinned real-PVF weight and existing upgrade-material checks pass (3 roots, zero skips). This repairs the parsed input only: Jonathan fee settlement and native material consumption remain open.
+
+## 2026-10-15 — 新段102 购买幸运星后的已提交金币钱包投影（租赁充值 op1000）
+
+- 现场：租赁武器系统用金币购买幸运星（op1000 充值）成功后，背包金币显示不变，只有重选角色（整容器重建）之后才减少。服务端事务本身是对的——金币已经落在角色仓储里，缺的是成功路径上的即时钱包投影：改动前成功只回厂商 13 字节应答 `01 <i32 mode> <i32 quantity> <i32 totalLuckyStar>` 加一条 op985 租赁点面板刷新，没有任何一条报文携带已提交的金币，客户端本地金币行因此保持旧值。
+- 权威来源：`purchaseCurrentRentalPoints` 走 `dnfrental.Owner.Charge`，在同一个 `RentalAssets` 事务内扣金币、加幸运星并把 `character.Stats["gold"]` 写回，返回的 `WalletResult.Gold` 就是提交后的值；投影用的就是这个值，不重算、不读缓存、不从请求推导。
+- 服务端修复：成功提交后追加一条 class0/op14 的已提交钱包行（`buildCurrentGoldStateBody`，list0/slot0、itemID 0、余额在 stack_count），顺序固定为「op1000 应答 → op985 面板 → 钱包行」，是严格增量：不改任何既有报文的字节、顺序或 sequence 分配。事务前拒绝（解析失败、未选角、PVF 目录不可用、owner 不可用）与事务拒绝（金币不足、幸运星越限、仓储失败）一条都不发，失败仍然不扣。
+- 形状依据（非新发明）：与既有 carry-gold `sendCarryGoldWallet`、掉落拾取、普通 NPC 商店、登录与整理的钱包投影逐字节同形（3 字节头 = listType + u16 行数 + 0x77 行），既有 `TestCurrentRentalProtocolBodies` 已钉住同形；当前 v101 客户端门控位图 0x6E92301 bit6=0xFF 允许 op14，DOC029 现场已观察该钱包行被接收并更新金币显示。
+- 开关联动：新增 `DNFBRIDGE_RENTAL_CHARGE_WALLET`（空/vendor = 开启，off/0/false/no/legacy/disable/disabled = 逐字节回退）；既有 `DNFBRIDGE_RENTAL_REJECT_ACK=off` 同时抑制本投影，保证那条开关“op999/op1000 整条线逐字节回到今天”的承诺继续成立。
+- 验证：旧红新绿——只把 `gameplay_module_rental.go` 回退到 HEAD（测试与新文件保留）时 `TestRealPVFRentalChargePublishesCommittedGoldWallet` 失败（`game upper packet too short: 0`，即应答+面板之后没有第三条钱包报文），恢复后 7/7 全过、文件 SHA256 逐字节还原为 dc5eb008…。真实 PVF 租赁专项 19 项全过（含既有 `TestRealScriptPVFCurrentRentalCatalog`，0 跳过）；全量 dnfbridge 3309 通过 / 0 失败 / 536 环境跳过；gofmt、go list、`internal/modules/dnf/...`、`cmd/server/control`、scoped vet 与 Windows 服务器构建全部通过。原始日志见 rental-evidence/。
+- 边界：未部署、未推送远端、未合并主线，未改客户端/PVF/生产玩家数据，未使用游戏 UI。原生游戏内“购买幸运星后金币立即刷新”仍未验收，不得据此关闭现场问题；`rental_state.go` 中“旧登录刷新写入合成金币行曾污染客户端物品对象”的历史注释与本条的区别（本条只在提交后的独立 op14 更新里发，不改登录/op985 组合）仍待原生复验确认。
+
 ## 2026-10-15 — DOC029 金币持有上限重复升级（已提交档位重新发布）
 
 - 现场：首次点击扣费后，再次点击不再扣费、上限显示也不动。当前 v101 客户端（DNF.exe sha256 1ac1264553f8f762e64f2c637c4c26d3bf5ff0fdc60a090ca8b077d452fd4331）的金币持有上限完全由客户端档位字节 [0x057B7008] 决定：0x032EA592 在档位 0 时取 0x17D78400（4亿），否则取档位表 0x4CF88D8（0x4CF88DC..E8 = 5/6/7/8亿）。

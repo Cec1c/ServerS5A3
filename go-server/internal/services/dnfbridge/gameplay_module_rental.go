@@ -242,6 +242,11 @@ func (s *Service) handleCurrentChargeRentalPoint(session *gameSession, body []by
 	if err := s.sendSelectedCurrentRentalPointState(session, "op1000_after_atomic_charge", true); err != nil {
 		return err
 	}
+	// 成功提交后立刻把已提交的金币行投影给客户端（class0/op14 list0 单行），
+	// 否则背包金币要等重选角色（整容器重建）才刷新。
+	if err := s.publishCurrentRentalChargeWallet(session, result.Gold); err != nil {
+		return err
+	}
 	appliedFields := []any{
 		"character_id", characterID,
 		"count", request.Count,
