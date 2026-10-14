@@ -1,3 +1,13 @@
+## 2026-10-14 — DOC121 主代理复核：扩展真档既有失败对照
+
+- 子代理扩展 quest 包真实PVF测试有5项失败，不能记为全量通过。主代理以同一固定PVF分别对9de2ecb与f0adaff复跑这5项，均exit1，失败集合及逐项诊断行完全相同。此次经验键修复未引入这5项失败，仍保留为既有开放问题。
+  - `TestRealScriptPVFQuest3146Definition`
+  - `TestRealScriptPVFProfessionQuestRewardsAndBranchZeroChains`
+  - `TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable`
+  - `TestRealScriptPVFCouponSweepRepairsTheLiveDanglingFarewellMomentState`
+  - `TestRealScriptPVFJobChangeQuestBucketsMatchTheDumpedCounts`
+- 本候选保持Draft、未部署、未验收；通过范围仅为明确记录的核心检查及指定回归。对照仅补文档，未改生产代码或测试。
+
 ## 2026-10-14 — 主线任务经验（DOC-121）两位数 [difficulty] 档位修复候选
 
 - 真档依据：`n_quest/questParameter.etc` 的 `[difficulty]` 同时声明单字符档（字母、`1`..`9`）与两位数档（`10`..`17`，如 `12`=600、`17`=734），因此难度是**字符串键**而非单 rune。真实 PVF 里 `n_quest` 下 8920 个带 `[difficulty]` 的**归档 .qst** 中有 378 个写两位数档（全为 `[epic]` 主线：安徒恩85、镜像贝希摩斯58-59、卢克87-88、时空裂缝88 等）；这 378 是归档资源数，当前 `quest.lst` catalog 实际只解析出 243 个多字符难度定义，不能把 378 全部当成当前可接任务。
