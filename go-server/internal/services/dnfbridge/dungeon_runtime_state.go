@@ -879,6 +879,12 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	if err := s.consumeCurrentDayDungeonEntry(session, runtime); err != nil {
 		return err
 	}
+	if err := s.consumeCurrentDimensionGateDailyEntry(session, runtime); err != nil {
+		return err
+	}
+	if err := s.consumeCurrentDungeonCycleDailyEntry(session, runtime); err != nil {
+		return err
+	}
 	runtime.lifecycleToken = session.dungeon.runToken
 	session.dungeon.runtime = runtime
 	// 阶段二：同一队伍的成员进图时解析到同一个实例键（队伍+副本+迷宫+房间+地图+种子）

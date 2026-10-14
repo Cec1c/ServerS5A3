@@ -1,3 +1,12 @@
+## 2026-10-14 — 异次元裂缝与艾肯副本的每日入场次数落库（DOC-083/094）
+
+- 真档 `Script.pvf` 依据：`worldmap/DimensionGate.wdm` 区域 13「异次元裂缝」的 16 个副本（7100 `dungeon/Impossible/dimension.dgn` 异次元裂缝-异界的强者、7165-7179 黑色大地外围/黑色大地/罗特斯的堡垒/巴卡尔之城/痛苦之村列瑟芬）都声明 `[dimension dungeon]`；`etc/dimensiongate.etc` 的 `[daily default enter count]`/`[daily default extra enter count]` 真档读出 5/0，沿用既有 reader，不写死副本 id。
+- `etc/dungeoncyclesystem.etc` 的 `[dungeon cycle]` 声明艾肯四人副本的每日次数：5097/3570（遗落的神殿，单人与组队）为 3、5098/3571（试炼）为 1；该表只覆盖区域 45「魔界集结地」(`worldmap/Legend.wdm`) 的这四个副本。魔界裂缝 316（`particular hell`）不在两张表内，沿用既有 3 次与 2/4/6 成本，两者不互相套用。
+- 新增角色级共享日计数（异次元裂缝按角色共享一份、跨副本累计）与按副本的艾肯日计数：准入在读图前判定，计数在运行时准备完成且活动运行闸门持有时提交，沿用 06:00（UTC+8）服务日与既有 `dungeon_daily_entry_<id>` 角色计数器；艾肯只落计数，不重复扣入场券。
+- 官方 24.9 客户端的计数下行（class0/812）仍未验证，因此本轮只做校验与落库：不发包、不改 opcode，客户端计数投影保留原生待验。
+- 修复前先在真档重现旧行为：进入 7100 一次后角色 Stats 里没有任何日计数；5097 连续进入后 `DailyEntryUsed` 恒为 0、第 4 次仍被接受。
+- 回归：`TestRealPVFDimensionDungeonSharedDailyCounterAndEkernCycleLimits`（7100 与 7165 共享同一份 5 次额度、7171 被拒；5097 三次后拒绝且 10158700/10161610 未被重复扣）、`TestCurrentDungeonCycleDailyLimitsParseAndFailClosed` 与 dungeon 域的共享计数并发/换日/非法命令单测；域与桥两个包全部测试、13 项入场相关真档用例、gofmt/vet/list 与全量构建通过。未改任务结算 finish、掉落与装备升级路径。
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.

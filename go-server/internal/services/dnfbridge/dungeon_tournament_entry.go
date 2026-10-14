@@ -160,6 +160,20 @@ func (s *Service) validateDungeonEntryWithTournament(
 	if s.currentDayDungeonEntryEnabled(dungeon.ID) {
 		return s.validateCurrentDayDungeonEntry(ctx, character, dungeon, session)
 	}
+	// 每日次数闸门：异次元裂缝（PVF `[dimension dungeon]` 共享角色池）与艾肯副本循环
+	// （`etc/dungeoncyclesystem.etc` `[dungeon cycle]` 的按副本额度）。两条都只判次数，
+	// 等级/队伍/疲劳/门票继续由下面的既有准入分支负责，两者不互相替代。
+	if s.currentDimensionGateDailyEntryEnabled(dungeon) {
+		if err := s.validateCurrentDimensionGateDailyCount(character); err != nil {
+			return err
+		}
+	} else if limit, declared, err := s.currentDungeonCycleDailyCountForDungeon(dungeon.ID); err != nil {
+		return err
+	} else if declared {
+		if err := s.validateCurrentDungeonCycleDailyCount(character, dungeon.ID, limit); err != nil {
+			return err
+		}
+	}
 	if !dungeonTournamentEnabled() && !s.currentEpicEntryEnabled(dungeon.ID) {
 		return validateDungeonEntry(character, dungeon, session)
 	}
