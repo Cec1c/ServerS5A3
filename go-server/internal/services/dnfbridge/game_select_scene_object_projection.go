@@ -140,7 +140,7 @@ func (s *Service) buildCurrentSceneObjectListBodyForSessionInContextWithPolicy(
 		}
 		guild = currentSceneGuildProjection{}
 	}
-	body := buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(objectKey, character, hasCharacter, charName, creature, adventureName, ownerChannel, guild)
+	body := buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(objectKey, character, hasCharacter, charName, creature, adventureName, ownerChannel, s.currentSceneActorRoute(), guild)
 	rows := currentSceneObjectEquipSummary(character, hasCharacter)
 	rawBytes := 0
 	for _, row := range rows {

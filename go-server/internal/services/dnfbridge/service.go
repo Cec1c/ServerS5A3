@@ -287,6 +287,9 @@ func (s *Service) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := s.validateCurrentSceneActorRoute(); err != nil {
+		return err
+	}
 	if err := s.validateDprotoConfiguration(); err != nil {
 		return err
 	}

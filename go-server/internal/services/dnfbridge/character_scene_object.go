@@ -67,7 +67,7 @@ func buildCurrentSceneObjectListBodyWithCreatureInContext(sceneObjectKey uint16,
 // organization-name display field. This display projection does not create a
 // guild or alter social state. An optional authoritative guild projection
 // replaces that display field for actual members.
-func buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool, fallbackName string, creature currentEquippedCreatureSnapshot, adventureName string, ownerChannel byte, guild ...currentSceneGuildProjection) []byte {
+func buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool, fallbackName string, creature currentEquippedCreatureSnapshot, adventureName string, ownerChannel, serverRoute byte, guild ...currentSceneGuildProjection) []byte {
 	if sceneObjectKey == 0 {
 		sceneObjectKey = currentSceneBootstrapObjectKey
 	}
@@ -78,9 +78,9 @@ func buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(sceneO
 	var writer packetWriter
 	writer.writeByte(0)
 	writer.writeUint16(1)
-	// MCP/live hook: mode0 对象 entry 使用 00/00；sub_2009160 会用第二个字节
-	// 和 dword_51B0EF0 当前容器比较，匹配时才走 sub_20036C0 创建主场景对象。
-	writer.writeByte(currentSceneObjectRoute)
+	// The paired client's local-actor branch requires the announced server as
+	// well as the owner channel; a hardcoded server 0 selects a foreign actor.
+	writer.writeByte(serverRoute)
 	writer.writeByte(ownerChannel)
 	writeCurrentSceneObjectEntryWithCreatureAndAdventureName(&writer, sceneObjectKey, character, hasCharacter, fallbackName, creature, adventureName, guild...)
 	return writer.bytes()
