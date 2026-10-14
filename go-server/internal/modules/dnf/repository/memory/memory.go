@@ -50,5 +50,6 @@ func NewMemoryGroup() repository.Group {
 		CharacterProgression: &memoryCharacterProgressionUnitOfWork{sharedMu: aggregateTxMu, character: characters, skills: skills},
 		CharacterSettlement:  &memoryCharacterSettlementUnitOfWork{sharedMu: aggregateTxMu, account: accounts, accountInventory: accountInventory, character: characters, quests: quests, inventory: inventory, equipment: equipment, skills: skills},
 		SemesterClear:        &memorySemesterClearUnitOfWork{sharedMu: aggregateTxMu, character: characters, quest: quests, settings: settings},
+		Guild:                &memoryGuildUnitOfWork{sharedMu: aggregateTxMu, character: characters, settings: settings},
 	}
 }

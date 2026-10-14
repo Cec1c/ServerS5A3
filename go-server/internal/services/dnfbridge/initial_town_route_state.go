@@ -139,6 +139,7 @@ func (s *Service) resetCurrentInitialTownRoute(session *gameSession) {
 	session.loginActorGenerationRebuildSent = false
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
+	session.initialTownGuildStateProjectionSent = false
 	session.crystalContractMu.Lock()
 	session.crystalContractTownUIReadyStateSent = false
 	session.crystalContractMu.Unlock()

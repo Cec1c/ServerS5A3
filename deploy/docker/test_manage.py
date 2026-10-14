@@ -9,6 +9,13 @@ import manage
 
 
 class DeploymentBoundaries(unittest.TestCase):
+    def test_advertised_region_rejects_invalid_values_before_writing(self):
+        for value in (-1, 250, True, "1", 1.5):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                with patch.object(manage, "RUNTIME", Path(directory)), self.assertRaisesRegex(ValueError, "channel_advertise_server"):
+                    manage.generate({"channel_advertise_server": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_only_lan_addresses_are_accepted(self):
         for value in ("0.0.0.0", "127.0.0.1", "8.8.8.8", "169.254.1.1", "::1"):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -32,6 +39,10 @@ class DeploymentBoundaries(unittest.TestCase):
             for port in ports:
                 self.assertFalse(ipaddress.ip_address(port.split(":")[0]).is_unspecified)
             self.assertIn("DNFBRIDGE_PARTY_UDP_RELAY_MODE=embedded", (Path(directory) / "server.env").read_text())
+            self.assertIn("DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX=0\n", (Path(directory) / "server.env").read_text())
+            config["channel_advertise_server"] = 1
+            manage.generate(config, {"ports": [10011, 10019]})
+            self.assertIn("DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX=1\n", (Path(directory) / "server.env").read_text())
             self.assertEqual(spec["volumes"], {"database": {}})
 
     def test_overlapping_network_fails_before_deployment(self):

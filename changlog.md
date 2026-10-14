@@ -1,3 +1,10 @@
+## 2026-10-14 — 接通当前客户端的公会创建、成员加入与重登投影
+
+- 接入名称检查、介绍、在线创建成员邀请与双方认证；拒绝、超时、断线、换角和会话替换会撤销未完成认证。创建通过受限公会事务原子扣除 300000 金币并登记两名成员，持久回执防止成功回包丢失后的重复扣费。
+- 增加搜索、加入／申请审批、成员与等级列表、账号公会索引及重登恢复；按匹配客户端修正 1450～1453 协议映射、成员行尾和审批失败回包，场景就绪后才下发登录公会状态。
+- Docker 可显式设置 `channel_advertise_server`，保留原默认 0；客户端认证区服选择需要 1～249。公告编号变更须同步登录入口的目录校验与频道历史，不能因此改写角色的社交区服编号。详见 `Docs/GUILD_FOUNDATION.md`。
+- 覆盖并发创建、身份／权限边界、保存失败回滚、重复请求、回包丢失及重登；一次性 MariaDB 验证跨仓储实例串行化与真实 SQL 失败回滚。自动化验证不代替两名玩家的原生邀请、创建和重登验收，公会金库／战斗等扩展不在本次实现内。
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.

@@ -26,6 +26,7 @@ func (s *Service) armCurrentInitialTownRoute(session *gameSession, characterID u
 	session.loginActorGenerationRebuildSent = false
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
+	session.initialTownGuildStateProjectionSent = false
 	session.crystalContractMu.Lock()
 	session.crystalContractTownUIReadyStateSent = false
 	session.crystalContractMu.Unlock()

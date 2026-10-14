@@ -20,6 +20,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		return
 	}
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
+		s.closeCurrentGuildCreateSession(session)
 		s.closeCurrentExpertJobStoreSession(session, true)
 		s.detachOnlineItemTrade(session, "selected_character_changed")
 		s.detachRuntimePartySession(session, "selected_character_changed")
@@ -83,6 +84,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	s.gameSessions[charID] = session
 	s.mu.Unlock()
 	if previous != nil && previous != session {
+		s.closeCurrentGuildCreateSession(previous)
 		s.rebindManagedRuntimePartySession(previous, session)
 	}
 	s.restoreCurrentRaidPresence(session)
@@ -125,6 +127,7 @@ func (s *Service) promoteResidentGameSession(session *gameSession, charID uint16
 	s.gameSessions[charID] = session
 	s.mu.Unlock()
 	if previous != nil && previous != session {
+		s.closeCurrentGuildCreateSession(previous)
 		s.rebindManagedRuntimePartySession(previous, session)
 	}
 }
@@ -164,6 +167,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	if s == nil || session == nil {
 		return
 	}
+	s.closeCurrentGuildCreateSession(session)
 	s.unregisterLiveGameSession(session)
 	s.mu.Lock()
 	canonical := session.selectedCharacterID != 0 && s.gameSessions[session.selectedCharacterID] == session
