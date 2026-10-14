@@ -64,6 +64,7 @@ type gameSession struct {
 	questManualClearIdentity         boundGameSessionCharacter
 	questManualClearReadyAt          time.Time
 	currentAccountFriendNames        map[string]struct{}
+	currentAccountFriendInfo         currentAccountFriendSentView
 	currentAdventureExpeditionView   currentAdventureExpeditionSentView
 	rosterRequested                  bool
 	channelReconnect                 bool

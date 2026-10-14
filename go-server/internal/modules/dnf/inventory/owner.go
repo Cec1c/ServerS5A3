@@ -293,6 +293,7 @@ type UseStackableResult struct {
 	InstanceValue  int32
 	ItemID         int64
 	RemainingCount int64
+	PreviousCount  int64
 	Changed        bool
 	// UnlimitedUse 为真表示这次命中的是 `[unlimited waste]` 族：PVF 明确"使用后不会
 	// 被消耗"，所以只回成功 ACK、**不扣源道具数量**（见 use_limited_waste.go）。
@@ -2315,6 +2316,7 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 	// use_limited_waste.go），所以这一族只回与 `[waste]` 同形的成功 ACK，
 	// **不扣数、不写库**：随后那条 op14 行刷新读到的仍是原数量。
 	skipSourceConsumption := stackableTypeSkipsSourceConsumption(stackableType)
+	previousCount := stack.Count
 	remaining := stack.Count
 	if !skipSourceConsumption {
 		remaining = stack.Count - 1
@@ -2378,6 +2380,7 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 		InstanceValue:           cmd.SourceInstanceValue,
 		ItemID:                  stack.ItemID,
 		RemainingCount:          remaining,
+		PreviousCount:           previousCount,
 		Changed:                 !skipSourceConsumption,
 		UnlimitedUse:            skipSourceConsumption,
 		PVFPath:                 pvfPath,
@@ -2451,6 +2454,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		InstanceValue:           cmd.SourceInstanceValue,
 		ItemID:                  int64(cmd.ItemTemplateID),
 		RemainingCount:          remaining,
+		PreviousCount:           remaining + 1,
 		Changed:                 true,
 		PVFPath:                 resolution.SourcePVFPath,
 		StackableType:           resolution.StackableType,
@@ -2709,6 +2713,7 @@ func (o *Owner) usePremiumContract(ctx context.Context, cmd Command, resolution 
 			InstanceValue:           cmd.SourceInstanceValue,
 			ItemID:                  stack.ItemID,
 			RemainingCount:          remaining,
+			PreviousCount:           remaining + 1,
 			Changed:                 true,
 			PremiumActivated:        true,
 			PremiumType:             resolution.PremiumType,

@@ -1548,7 +1548,7 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	// 换房 op29 之前同样先备好 map-owned 注册表 / 预生成掉落行（纯读的构建器依赖它）。
 	// 两个开关都是默认档时这一行是空操作。见 dungeon_passive_object_drop.go。
 	if plan.PayloadMode != currentDungeonStartMapPayloadCached {
-		if err := s.prepareCurrentDungeonPassiveObjectDrops(session, runtime, plan.Target, "move_map_target_room"); err != nil {
+		if err := s.prepareCurrentDungeonPassiveObjectDropsAfterActors(session, runtime, plan.Target, "move_map_target_room", plan.NextObjectKey); err != nil {
 			s.logGameEvent(session, "game-dungeon-move-blocked",
 				"dungeon_id", runtime.Dungeon.ID,
 				"maze_index", runtime.MazeIndex,
@@ -1558,6 +1558,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 				"error", err)
 			return nil
 		}
+		// Preparation may have reserved passive rewards beyond the planned
+		// actors. Committing the move must not rewind the solo allocator.
+		plan.NextObjectKey = max(plan.NextObjectKey, runtime.NextObjectKey)
 	}
 	startMapBody, err := buildCurrentDungeonMoveStartMapBody(runtime, plan)
 	if err != nil {

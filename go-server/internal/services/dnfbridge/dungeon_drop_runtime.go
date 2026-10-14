@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
 
 var (
@@ -54,6 +56,8 @@ type runtimeDungeonDrop struct {
 	EpicPieceBalance     uint32
 	PickupResponseBody   []byte
 	PickupItemUpdateBody []byte
+	// 本局库存使用事务已将对应堆栈用完，不再要求结算时仍有背包行。
+	ConsumptionReceipt *alignedcmd.StackableConsumption
 	// MapOwnedPassiveObject 标记"这条掉落是 op29 预生成的建筑掉落"（厂商
 	// `PassiveObjectDropEntry` / `PassiveObjectDropProjectionService.cs:122-140` 那条通道，
 	// 见 dungeon_passive_object_drop.go）：它的身份是 **scene slot**（= START_MAP 里那条

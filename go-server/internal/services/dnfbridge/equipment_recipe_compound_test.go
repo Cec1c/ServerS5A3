@@ -1327,7 +1327,7 @@ func TestCurrentEquipmentRecipeCompoundPlanningOverflowAndCountGuard(t *testing.
 		t.Fatalf("outputs=%v err=%v", outputs, err)
 	}
 	assets := &dnfexpertjob.Assets{Character: &dnfrepo.CharacterRecord{}, Inventory: &dnfrepo.InventoryRecord{Slots: map[string]dnfrepo.ItemStack{"0:20": {ItemID: 2000, Count: math.MaxInt64}, "0:21": {ItemID: 2000, Count: 1}}}, AccountInventory: &dnfrepo.AccountInventoryRecord{Slots: map[string]dnfrepo.ItemStack{}}}
-	if _, err := (&Service{}).consumeCurrentEquipmentRecipeCompoundMaterials(assets, []dnfexpertjob.RecipeEntry{{ItemID: 2000, Count: 1}}, 0); !errors.Is(err, errCurrentEquipmentRecipeCompoundOverflow) {
+	if _, err := (&Service{}).consumeCurrentRecipeMaterials(assets, []dnfexpertjob.RecipeEntry{{ItemID: 2000, Count: 1}}, 0); !errors.Is(err, errCurrentEquipmentRecipeCompoundOverflow) {
 		t.Fatalf("persisted balance overflow err=%v", err)
 	}
 }

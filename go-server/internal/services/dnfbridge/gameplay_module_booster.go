@@ -109,7 +109,9 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 	// 逐槽行（见 item_grant_notice.go）。list 38 例外仍走整容器；list 7 的写入进
 	// Delta 后由发送侧改期成 1500 ms 整容器。写 containers 一键回退到今天的线格式。
 	grantContainerLists := result.ChangedLists
-	if itemGrantNoticeUsesDelta() {
+	// A paid jar also changes the character wallet, which is projected only
+	// by the full main-container refresh, not an inventory-slot delta.
+	if itemGrantNoticeUsesDelta() && definition.LotteryGoldCost == 0 {
 		plan := buildItemGrantNoticePlan(result.GrantSlots)
 		if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "use_booster_item", plan.Delta); err != nil {
 			return err
@@ -192,6 +194,7 @@ func (s *Service) commitCurrentBooster(
 		SourceSlot:   request.SourceSlot,
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
+		GoldCost:    definition.LotteryGoldCost,
 		AccountID:   accountID,
 		CharacterID: characterID,
 		UpdatedAt:   now,

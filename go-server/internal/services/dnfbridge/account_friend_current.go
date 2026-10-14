@@ -5,6 +5,7 @@ import (
 	"errors"
 	"longheng.io/server/internal/modules/dnf/accountfriend"
 	repo "longheng.io/server/internal/modules/dnf/repository"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -361,6 +362,19 @@ func currentAccountFriendRowForCharacter(entry accountfriend.Entry, c repo.Chara
 	return currentAccountFriendNativeRow{Head: uint16(currentAdventureCharacterServerGroup(c)), AdventureName: entry.Account.RepresentAccountName, Level: byte(c.Level), Job: byte(job), Grow: characterGrowTypeByte(c), Channel: channel, CharacterName: c.Name, Remark: entry.Relation.Note}, nil
 }
 
+// NOTI1371 is an upsert, not a silent snapshot replacement. The current EXE
+// (0201FE50, notification branch 02020098) announces a single online row whenever
+// its friend manager is already nonempty. Replaying an unchanged row at every
+// room's finish-loading therefore repeats the online toast. Keep the successful
+// projection for this selected character generation; reconnects and selections
+// must bootstrap their own native manager again.
+type currentAccountFriendSentView struct {
+	character  uint16
+	generation uint64
+	rows       []currentAccountFriendNativeRow
+	ready      bool
+}
+
 func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source string) error {
 	if s.options.currentClientVersion != "official-24.9" || session == nil || !session.loginPacketSeen || !session.accountFromToken {
 		return nil
@@ -424,21 +438,32 @@ func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source str
 	if !s.boundGameSessionCharacterCurrent(identity) {
 		return nil
 	}
-	for _, body := range removals {
-		if err := s.sendGameUpperRawClassCodec(session, 1373, body, 0, true); err != nil {
-			return err
+	previous := session.currentAccountFriendInfo
+	unchanged := previous.ready && previous.character == identity.character &&
+		previous.generation == identity.generation && slices.Equal(previous.rows, rows)
+	if !unchanged {
+		for _, body := range removals {
+			if err := s.sendGameUpperRawClassCodec(session, 1373, body, 0, true); err != nil {
+				return err
+			}
 		}
-	}
-	for _, body := range bodies {
-		if err := s.sendGameUpperRawClassCodec(session, 1371, body, 0, true); err != nil {
-			return err
+		for _, body := range bodies {
+			if err := s.sendGameUpperRawClassCodec(session, 1371, body, 0, true); err != nil {
+				return err
+			}
+		}
+		// A later pending-list failure must not replay already delivered online
+		// rows. Failed info/removal writes leave the last successful view intact.
+		session.currentAccountFriendNames = names
+		session.currentAccountFriendInfo = currentAccountFriendSentView{
+			character: identity.character, generation: identity.generation,
+			rows: slices.Clone(rows), ready: true,
 		}
 	}
 	if err := s.sendGameUpperRawClassCodec(session, 1372, pendingBody, 0, true); err != nil {
 		return err
 	}
-	session.currentAccountFriendNames = names
-	s.logGameEvent(session, "game-account-friend-list-send", "source", source, "characters", len(rows), "pending", len(pending), "removed", len(removals))
+	s.logGameEvent(session, "game-account-friend-list-send", "source", source, "characters", len(rows), "pending", len(pending), "removed", len(removals), "info_unchanged", unchanged)
 	return nil
 }
 

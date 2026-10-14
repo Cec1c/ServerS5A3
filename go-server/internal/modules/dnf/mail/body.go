@@ -423,6 +423,15 @@ func mailboxAttachmentRaw(attachment dnfrepo.MailAttachment) []byte {
 	if durability := mailboxAttachmentDurability(attachment); durability > 0 {
 		binary.LittleEndian.PutUint16(raw[0x0b:0x0d], durability)
 	}
+	// 系统模板附件尚无原始行时，封装来自已按PVF初始化的实例Extra；
+	// 有原始行的玩家附件保持原有封装，零值不覆盖已有字节。
+	for _, key := range []string{"seal_flag", "seal", "bind_flag", "bind"} {
+		value, err := strconv.ParseUint(strings.TrimSpace(attachment.Extra[key]), 10, 8)
+		if err == nil && value != 0 {
+			raw[0x0d] = byte(value)
+			break
+		}
+	}
 	if attachment.Bind && raw[0x0d] == 0 {
 		raw[0x0d] = 1
 	}

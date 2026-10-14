@@ -329,6 +329,7 @@ func buildMagicBoxBatchRewardRow(reward MagicBoxGrantedReward) []byte {
 	} else {
 		binary.LittleEndian.PutUint32(row[0x06:0x0A], uint32(reward.Count))
 	}
+	row[0x0D] = reward.SealFlag
 	return row
 }
 

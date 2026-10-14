@@ -179,6 +179,7 @@ type runtimeDungeonState struct {
 	actorDirection                       byte
 	actorPositionValid                   bool
 	settlementDungeonPermissionSent      bool
+	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState
 	// Tournament 是本次 run 的锦标赛赛制运行时（厂商
 	// `DungeonInstance.Mechanisms.Tournament`）。只有
@@ -300,6 +301,8 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	// INIT FAILED 后继续，奖励路径届时按"没有池子"降级。
 	s.logPacketEvent(hellPartyRewardPoolReadyEvent,
 		hellPartyRewardPoolWarmUpFields(monsterTable)...)
+	s.logPacketEvent("dnf-dungeon-clear-card-equipment-pool",
+		clearCardEquipmentPoolWarmUpFields(monsterTable)...)
 
 	s.worldMapMu.Lock()
 	s.worldMapTable = table

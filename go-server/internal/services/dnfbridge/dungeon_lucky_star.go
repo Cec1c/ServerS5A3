@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,8 +17,9 @@ const (
 // awardSuitableDungeonLuckyStar grants 1 lucky star when the cleared dungeon's
 // recommended level range includes the character's pre-settlement level.
 // Mirrors 86JP PR #461: notification is best-effort after settlement packets.
+// The caller holds session.dungeon.mu; a completed settlement may be replayed.
 func (s *Service) awardSuitableDungeonLuckyStar(session *gameSession, runtime *runtimeDungeonState) {
-	if session == nil || runtime == nil || runtime.Dungeon.ID <= 0 {
+	if session == nil || runtime == nil || runtime.Dungeon.ID <= 0 || runtime.settlementLuckyStarResolved {
 		return
 	}
 	if !currentDungeonMatchesRecommendedLevel(runtime) {
@@ -46,6 +48,7 @@ func (s *Service) awardSuitableDungeonLuckyStar(session *gameSession, runtime *r
 	}
 	result, err := owner.AwardLuckyStar(ctx, dnfdungeon.LuckyStarCommand{
 		AccountID:      accountID,
+		CharacterID:    strconv.FormatUint(uint64(session.selectedCharacterID), 10),
 		CharacterLevel: characterLevel,
 		RecommendedMin: minLevel,
 		RecommendedMax: maxLevel,
@@ -58,6 +61,10 @@ func (s *Service) awardSuitableDungeonLuckyStar(session *gameSession, runtime *r
 			"reason", err)
 		return
 	}
+	// Resolve the run before best-effort network writes. A capped award is also
+	// final: spending later must not make this completed run grantable again.
+	// Repository errors above remain retryable.
+	runtime.settlementLuckyStarResolved = true
 	if !result.Awarded {
 		return
 	}

@@ -1,3 +1,11 @@
+## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
+
+- Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
+- Preserve independent command-result snapshots for authoritative list refreshes and committed stackable-consumption receipts together; neither result may alias the handler's mutable storage. Add a regression covering handler reuse and consumer mutation with both fields populated.
+- Keep exact-instance removal for equipment recipe upgrades, then consume remaining materials through the shared account-warehouse-aware recipe consumer. Preserve transaction rollback and inherited equipment attributes.
+- Validate the resolved source: gofmt, go list, go vet, Windows and Linux builds pass; core tests record 9778 passed nodes, 876 skipped nodes and zero failures. The pinned real-PVF run passes all 137 required regression roots, recording 648 passed nodes, two packages with no selected tests and zero failures.
+- The isolated BAT preflight stops because deploy/assets/channel_info.etc is absent from the source archive. This run does not establish deployment or native-client acceptance; retain the existing draft and open native validation items.
+
 ## 2026-10-14 — 已部署候选的原生验收与独立草稿同步（920）
 
 - 919组合源完成9479通过节点、854环境跳过、0失败；固定PVF473通过、0跳过、0失败，gofmt/list/vet、双平台构建和实际BAT预检通过。Linux候选22a67ab64a0fb8b01b9a1685f22145eb44a16b585efb0080b919d2780a49ab56已部署，健康检查与部署前后完整采集资产比对通过。本条及验收文档只更新证据，所有Go文件与919验证快照逐字节相同。
@@ -51,6 +59,90 @@
 - P56 空白网页导航仍在客户端定位中，本次没有客户端 EXE 或资源改动；香港 2026-10-14 02:00 后再执行游戏操作。
 - 登记 2026-10-13 20:40 高优先级城镇跨角色卸武器反馈，关联 P33/P39/追加9；新增掌握技能武器触发条件；用户确认受影响角色重登后仍未装备，按持久化状态变化优先定位，尚未修复。
 - 草稿源码尚未合并、部署或发布客户端 Release。
+## 2026-10-14 — Preserve equipment quality after sorting
+
+- Use the same durable quality-seed precedence for inventory refreshes and login: dedicated metadata, equipment-only legacy aliases, then a matching complete current-client row. Sorting no longer replaces quality with the equipment stack count.
+- Keep legacy quality aliases out of the independent item-state field. Preserve persisted item instances and stackable quantities; do not generate replacement quality or change assets.
+- Regression coverage includes first/repeated sorting, bag/personal cargo, ordinary/top quality, legacy and raw-row sources, quantity isolation and invalid/foreign raw data. The new handler regression fails before the repair and passes afterward. Native in-game quality display remains pending acceptance.
+## 2026-10-14 — Use current equipment definitions for ordinary clear cards
+
+- Build a separate ordinary-card equipment pool from list-backed PVF minimum level, rarity and positive creation rate. Legacy dictionary gaps no longer substitute crafting recipes for high-level equipment; monster and abyss policies remain unchanged.
+- Preserve existing rarity rolls and level windows, exclude cosmetic/special equipment, honor original/revised asset precedence and reject incomplete scans. Stream and warm the cached pool during startup to avoid a first-clear scan delay.
+- Regression coverage reproduces the former recipe fallback, checks high-level candidates, weights, level limits, special/disabled items and failed scans. Optional real-PVF sampling verifies varied equipment at low and high levels. Native card display/claim remains pending acceptance.
+## 2026-10-14 — Preserve legendary souls in equipment disassembly
+
+- Read disassembly soul rows as counted PVF records, retaining the disabled chronicle row and its constant placeholder. Legendary equipment now uses its own rarity row instead of a truncated or shifted entry.
+- Reject malformed or partial soul tables before consuming equipment. Preserve the existing reward quantities, item transactions and account soul-warehouse projection; no asset or balance rewrite is required.
+- Regression coverage includes the real-PVF missing-soul failure, all rarity rows, malformed tables, source-item preservation on failure and committed warehouse rewards matching the acknowledgement. Native disassembly display remains pending acceptance.
+## 2026-10-14 — Restore gold-cap upgrade purchases
+
+- Handle the current client's upgrade request using its verified 14-byte request and stage/result reply. Charge the advertised 5,000,000 gold once per stage, require level 60 and sequential stages, and stop at stage four.
+- Persist the debit and purchased stage in one character asset transaction. Reject foreign owners, malformed requests, insufficient funds and corrupt stages; a duplicate request repairs the client's stage and wallet without another charge.
+- Publish the saved stage during actor initialization, including zero on character changes. Existing reward, trade and auction policies are unchanged; this repair restores the purchase and the native client's cap selection.
+- Regression coverage includes both transports, concurrent duplicates, transaction rollback, native failure messages and login ordering. An opt-in disposable MySQL test checks reload and rollback across the wallet and supplementary stat tables. Native UI acceptance remains pending.
+## 2026-10-14 — Consume profession crafting materials from their durable owners
+
+- Reuse the existing recipe material projector for profession crafting, including enchanter products and card-to-bead crafting. Shared crystals and souls are debited from the account warehouse; ordinary materials remain in the character bag. Historical character copies cannot substitute for account balances.
+- Persist warehouse changes in the same settlement transaction as materials, products, gold and profession experience. Preserve recipe requirements, success rates and the verified request/reply layouts; refresh the committed container balances after acknowledgement.
+- Matching-PVF regression reproduces the prior insufficient-material rejection and covers all eleven enchanter product recipes, batch quantities, bead metadata, wrong/locked/insufficient shared rows, foreign ownership and late transaction rollback. Existing equipment-recipe behavior is retained. Native crafting UI acceptance remains pending.
+## 2026-10-14 — Charge lottery jar opening prices atomically
+
+- Read explicit lottery gold prices independently from NPC acquisition materials. Paid hero jars no longer require their exchange token a second time. Preserve explicit opening materials and the existing material-only legacy jar policy; reject malformed prices instead of treating them as free.
+- Settle gold, source jars and rewards in one account/character asset transaction. Inventory-only magic-box entrypoints reject paid jars; lottery and booster entrypoints refresh the committed wallet after success.
+- Regression coverage includes matching-PVF hero and legacy jars, complete reward references, both lottery reply layouts, duplicate confirmations, insufficient gold, full bags, foreign ownership and rollback after all writes. Disposable MySQL validation covers competing opens, durable reload and rollback on a late database error. Native opening animation and reward display remain pending acceptance.
+## 2026-10-14 — Cover Grandine room transitions with passive drops
+
+- Add matching-PVF coverage for both ordinary Grandine routes, including the fifth-room exit. Before the passive-drop allocator fix, actors and drops shared identifiers and a later room was rejected for reusing an earlier drop key.
+- Assert scene identity separation, allocator progress, stable room rebuilds and arrival at the boss. The previously introduced allocator repair covers these routes without additional runtime changes; native gameplay acceptance remains separate.
+
+## 2026-10-14 — Restore Gust Zone boss-room transitions
+
+- Accept repeated identical passive-item group definitions across maze declarations without multiplying rewards. Continue rejecting malformed or conflicting definitions.
+- Reserve planned actor identifiers before allocating passive drops, and retain the highest allocator position when committing a room transition. Preserve shared party allocation and prepared drops across transport retries.
+- Regression coverage includes conflicting definitions, solo/shared identifier allocation and matching-PVF traversal of both ordinary Gust Zone boss routes. Verify the existing start-map payload, distinct actor/drop identifiers, failed-write retry and exactly-once pickup. Native in-game traversal remains pending acceptance.
+## 2026-10-14 — Avoid repeated friend online notifications after room loading
+
+- Keep the last successfully delivered adventure-friend projection for each selected character generation. Unchanged room-loading and presence refreshes no longer resend the native online-notification packet; changed rows and pending invitations still refresh normally.
+- New selections and connections bootstrap their lists again. Commit the projection only after successful information writes, before sending pending invitations, so a pending-list retry does not replay an online notification.
+- Regression coverage includes repeated finish-loading, offline/online changes, notes, character switching, reconnects, renamed/deleted rows and transport failures. Current-client disassembly confirms the repeated-notification branch; native UI acceptance remains pending.
+## 2026-10-14 — Give adventure-shop purchases their PVF use periods
+
+- Resolve a product's relative PVF use period at purchase time before granting it. Adventure-shop potions now receive a durable expiration date instead of a zero deadline; use the same purchase clock for the grant and account settlement.
+- Preserve permanent items, reject unrepresentable deadlines before charging, and retain the existing account/inventory transaction. Existing instances are not assigned invented purchase dates or renewed by later purchases.
+- Regression coverage includes the matching-PVF seven-day potion, inventory refresh fields, relogin projection, separate purchase deadlines, insufficient points, full inventory, foreign ownership and late transaction rollback. Native tooltip and use acceptance remain pending.
+## 2026-10-14 — Serialize dungeon lucky-star awards with account wallet changes
+
+- Settle each lucky-star award inside the existing rental account/character transaction instead of an unprotected account read/overwrite. Concurrent awards and wallet operations now share the account-row lock.
+- Validate the selected character's account ownership before writing and retain the suitability rules, cap and per-run replay guard. Transaction failures remain retryable without reporting an award or changing account metadata.
+- A deterministic regression reproduces two successful awards losing one increment. Coverage also includes ownership, missing transaction support, rollback and the existing settlement replay/notification-failure paths. A disposable MySQL check verifies eight concurrent awards alongside a gold purchase, durable reload and late rollback. No protocol, schema or historical balance changes.
+
+## 2026-10-14 — Prevent duplicate lucky stars on settlement replay
+
+- Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
+- Resolve capped awards as well, so spending later cannot make an old clear grantable again. Repository failures remain retryable and a fresh dungeon run retains its own award.
+- Regression tests reproduce repeated grants before the change and cover duplicate requests, account-save failure, notice failure, caps and unsuitable levels. This does not change lucky-star purchase protocols or establish native UI acceptance.
+## 2026-10-14 — Restore equipment-based catalyst crafting
+
+- Accept complete PVF equipment recipe predicates instead of rejecting every recipe without an explicit item-ID list. Check type, part, rarity, level range, one-item instances and sealing capability; incomplete recipes remain rejected. Sealed and previously unsealed resealable weapons follow the same PVF eligibility rule.
+- Use the PVF minimum/maximum output counts and bounded per-unit maximum-output probability, retaining the existing atomic material/output settlement and reply format. Validate probability ranges and abort on random-source errors.
+- Regression coverage includes matching-PVF weapon selection, material rejection, account soul costs, spent-input replay, ownership/locks, output probability boundaries and transaction rollback. Native crafting animation acceptance remains pending.
+
+## 2026-10-14 — Charge fixed catalyst ingredients for every crafting unit
+
+- Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
+- Preserve the account/character asset transaction and committed balance refresh. Refuse insufficient stock and arithmetic overflow without consuming contribution materials, changing carry or granting products.
+- Regression coverage includes the matching-PVF dimensional catalyst, single/batch account and bag costs, carry, output multipliers and rollback. Native crafting animation acceptance remains separate.
+## 2026-10-14 — 按 PVF 阵营识别怪物型友方 NPC 的击杀贡献
+
+- 友方协战贡献同时覆盖 AI 角色和原生怪物两种对象类型；怪物型贡献者必须是已宣告存活、绑定匹配地图行且被 PVF [monster team] 显式设为玩家阵营的对象。跨房跟随沿用本次副本来源房间的身份与阵营证据，不以 NPC、地图或技能 ID 放行。
+- 保留当前房间目标、未知类型、敌对/未宣告/退役对象及教程边界；拒绝将友方对象本身作为此兼容路径的击杀目标。重复死亡和发送失败重试仅补发已提交的死亡通知。
+- 新增针对性失败回归及匹配 PVF 的怪物型协战全链路验证：五个房间共 23 次击杀、重复请求不重复结算并进入第六房；既有 AI 协战回归保持通过。画面与真实玩家复测仍单独验收。
+
+## 2026-10-14 — 修复友好 APC 击杀后怪物残留、房间无法清空
+
+- 兼容当前官方客户端的死亡报文：击杀归属为 `0xffff` 时，允许携带服务端已宣告、仍存活的友好 APC 战斗贡献项。继续验证当前房间的普通怪物绑定；未知/敌对/未宣告 APC、跨房目标、教程及旧协议不因此放宽。
+- 复用既有死亡、经验、掉落与清房流程；重复死亡或通知写入失败后的重试仅补发权威死亡通知，不重新结算击杀奖励。保留跨房跟随 APC 的原对象标识。
+- 增加原生报文边界、拒绝路径、重复结算及传输失败回归，并用匹配 PVF 重建阿甘左协战房间，验证六只阻挡怪死亡及后续过图。游戏内画面效果仍需实机验收。
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 

@@ -259,7 +259,7 @@ func currentDungeonRandomCardItem(
 	default:
 		rarity = 3
 	}
-	itemID, found, err := catalog.SelectGenericEquipment(
+	itemID, found, err := catalog.selectClearCardEquipment(
 		rng,
 		dungeonLevel,
 		reference.ValueA,
@@ -269,18 +269,7 @@ func currentDungeonRandomCardItem(
 	if err != nil {
 		return dungeonCardItemReward{}, false, err
 	}
-	if !found {
-		itemID, found, err = catalog.SelectGenericStackable(
-			rng,
-			dungeonLevel,
-			reference.ValueA,
-			reference.ValueB,
-			rarity,
-		)
-		if err != nil {
-			return dungeonCardItemReward{}, false, err
-		}
-	}
+
 	if !found || itemID == 0 {
 		return dungeonCardItemReward{}, false, nil
 	}
@@ -313,6 +302,9 @@ func currentDungeonRandomCardItem(
 	if definition.Kind == dungeonDropItemEquipment {
 		qualitySeed := rng.NextUint32()%currentEquipmentRandomQualitySeedCount + 1
 		extra["quality_seed"] = strconv.FormatUint(uint64(qualitySeed), 10)
+	}
+	if currentNewPVFEquipmentSealFlag(definition) != 0 {
+		extra["seal_flag"] = "1"
 	}
 	policy := currentPVFItemPlacementPolicy(definition)
 	return dungeonCardItemReward{

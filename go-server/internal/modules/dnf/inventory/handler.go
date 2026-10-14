@@ -1733,7 +1733,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 			result.UpgradeRateBuffUntil,
 			UpgradeRateBuffBoostEnv)
 	}
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:           true,
 		ResponseAllowed:   true,
 		Operation:         cmd.Operation,
@@ -1742,6 +1742,15 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
+		result.PreviousCount-result.RemainingCount == 1 {
+		applied.StackableConsumption = &alignedcmd.StackableConsumption{
+			CharacterID: result.CharacterID, ListType: result.ListType,
+			SlotIndex: result.SlotIndex, ItemID: result.ItemID,
+			PreviousCount: result.PreviousCount, RemainingCount: result.RemainingCount,
+		}
+	}
+	return applied
 }
 
 func ownerAppliedDamageFontUnlockResult(opcode uint16, cmd Command, result DamageFontUnlockResult) alignedcmd.Result {

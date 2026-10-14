@@ -119,6 +119,7 @@ type currentBoosterDefinition struct {
 	SelectionCategory map[uint16][]currentBoosterSelectionCandidate
 	MaterialItemID    int64
 	MaterialCount     int64
+	LotteryGoldCost   int64
 	Random            alignedcmd.MagicBoxResolution
 }
 

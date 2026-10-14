@@ -96,12 +96,20 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	}
 	// `DNFBRIDGE_DUNGEON_DEATH_ROOM_PROOF=room_proven` 时追加的服务端自证判据：
 	// 这条 op39 的目标是不是本房间在册、仍在场的敌对 actor。默认档（strict）下恒为
-	// false，两条闸门与改动前逐字节一致。见 dungeon_death_room_proof.go。
+	// false；已验证的友好 APC 贡献兼容路径另作窄范围判断。见 dungeon_death_room_proof.go。
 	roomProvenHostile := false
 	if hasScene && s.dungeonDeathRoomProofActive() {
 		roomProvenHostile = currentDungeonRoomAnnouncedLiveHostile(runtime, scene, request.RuntimeObjectKey)
 	}
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
+	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
+	if friendlyAPCDeath {
+		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+			// Repair a duplicate or failed notification without settling the kill
+			// again. The proof above still requires this room's ordinary target.
+			return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+		}
+	}
 	var scriptedTutorialMonster runtimeDungeonMonster
 	var scriptedTutorialEvidence dungeonTutorialScriptEvidence
 	scriptedTutorialDeath := false
@@ -109,7 +117,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	ownerSentinelBlockingClearTarget := false
 	ownerSentinelBlockingClearSource := ""
 	if ownerIsSentinel {
-		if request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0 {
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath {
 			if !roomProvenHostile {
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 					"dungeon_id", runtime.Dungeon.ID,
@@ -916,6 +924,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		"owner_sentinel_blocking_clear_target", ownerSentinelBlockingClearTarget,
 		"owner_sentinel_blocking_clear_source", ownerSentinelBlockingClearSource,
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
+		"friendly_apc_contribution_proven", friendlyAPCDeath,
 		"response_kind", target.ResponseKind,
 		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),
 		"response_body_len", len(responseBody),
