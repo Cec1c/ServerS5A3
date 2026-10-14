@@ -3,6 +3,8 @@ package dnfbridge
 import (
 	"encoding/binary"
 	"fmt"
+
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
 
 // 当前客户端（DNF.exe 8bf1d39d…）锻造 / 别升级（separate upgrade）族的线协议。
@@ -97,4 +99,34 @@ func buildCurrentForgingAck(request currentForgingRequest, remaining uint32, old
 	body[10] = request.List
 	binary.LittleEndian.PutUint16(body[11:13], uint16(request.Slot))
 	return body
+}
+
+// buildCurrentForgingFailureAck 组装 class1 438 的失败体：u8 0 + u8 error。
+// 客户端回调 0x2483b60 先 0x12030a0 复位锻造 UI，再按错误码查表显示文案；
+// 表里没有的错误码也会落到通用文案（push esi; push 0x67e），所以任何一条拒绝
+// 都会让"锻造窗口关不掉"的现场缺陷消失。
+func buildCurrentForgingFailureAck(errorCode byte) []byte {
+	return []byte{0, errorCode}
+}
+
+// currentForgingFailureInvalidTarget 是"请求体根本解不出来"时回给客户端的错误码：
+// 取厂商 SeparateUpgradeResult.ErrorInvalidTarget（=4，与 op50 的同义码一致，
+// 也是失败回调 0x2483b60 查表输入之一）。同一个玩法的官方枚举，不臆造新值。
+const currentForgingFailureInvalidTarget byte = 4
+
+// buildCurrentForgingOutcomeAck 把领域结果翻成 class1 438 回包体：
+//
+//	校验类/存储类拒绝 → 0 + u8 error（领域层给的 ErrorCode）；
+//	成功或掷点失败     → 13 字节成功体（Succeeded 决定 outcome 0/1）。
+//
+// list/slot/materialSlot 直接取请求体解出来的坐标：它们就是客户端回报单时用的键，
+// 领域层也只在最外层拒绝了才可能不一致（那种情况走的是失败体）。
+func buildCurrentForgingOutcomeAck(request currentForgingRequest, outcome *alignedcmd.ForgingOutcome) []byte {
+	if outcome == nil {
+		return buildCurrentForgingFailureAck(currentForgingFailureInvalidTarget)
+	}
+	if outcome.Rejected {
+		return buildCurrentForgingFailureAck(outcome.ErrorCode)
+	}
+	return buildCurrentForgingAck(request, outcome.MaterialRemaining, outcome.OldLevel, outcome.NewLevel, outcome.Succeeded)
 }

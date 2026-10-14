@@ -1,3 +1,12 @@
+## 2026-10-14 — DOC-087/092 锻造（op438）域事务与桥接回包落地（forging 席，续 615ba52）
+
+- 桥接：438 在 `Registry.Route` 之前用 `forging_codec.go` 解包（**畸形帧也回失败体**，客户端因此必定走完"复位锻造 UI"的回调）；领域结果组 class1 438（成功/掷点失败 13 字节、校验/存储失败 `0+u8 error`），ACK 先于逐槽 op14 增量。新增 `forging_pvf.go`（`etc/upgrade_separate.etc` 表 + 材料三种身份 + 目标武器/品级/稀有度/耐久），`dnfenum/aligned.go` 登记 438。
+- 域：`inventory/owner_separate_upgrade.go` 在同一个角色物品事务里完成材料消耗 + 锻造等级写入（**0x77 行 0x57 + Extra `byte_57`/`value_57`**），覆盖主背包 list 0 与穿戴 list 3；校验目标归属 / equipment / 模板一致 / 资产锁 / 武器 / 满耐久 / 等级上限 / 品级材料 / 稀有度 / 券白名单 / additional 起始等级；错误码取厂商 `SeparateUpgradeResult.Error*`（4/7/13/17/19/22/95）。校验失败与存储失败都回失败体让 UI 结束，事务回滚保证资产不动。
+- 真档语义：便携式锻造炉 10164035 只消耗炉子 1 个、**不消耗 3326**；锻造券 125 件的 `fixed`/`additional` 档 + 券自带 `[reinforcement usable item list]` 白名单；幸运锻造券 10007408 失败**不掉级**。普通锻造材料 = `max(1, int(BaseCount×rarityWeight×levelMaterialWeight + 1e-7))`。
+- 测试：合成 + 真档（PIN 369d072b…）全链路 —— 普通锻造消耗 67 个强烈的气息、耐久门槛 `0+7`、便携炉 3→2、+5 券 0→5、白名单拒绝 `0+4`；另有存储失败回滚、额外属性保留、12 条校验拒绝与畸形帧回包。分节与真档命令见 `Docs/D33_FORGING_20261014.md` §4。
+- 验证：`gofmt -l` 干净；`go list` / `go vet`（control、dnf90、doctor、app/dnf90、dnfbridge）/ `go build` 通过；core 套件（`./internal/modules/dnf/...` + `./internal/services/dnfbridge` + `./cmd/server/control`）0 失败。
+- 未完成：原生 GUI 验收（锻造动画 / 窗口关闭 / 锻造器）仍待主代理；`[check usable itemlevel]` 未在服务端强制（与既有 op50 portable 档口径一致）。未部署、未推送、未改 PVF/客户端/生产库/用户文档。
+
 ## 2026-10-14 — DOC-087/092 锻造 438 线协议复核修正与真档取证（forging 席）
 
 - 复核并修正主代理留下的 forging_codec.go / forging_codec_test.go：gofmt；样例注释改为实际 hex 对应的 item **101011368**（原注释 101010856 与 hex 不符）；去掉**没有证据**的 confirmation ≤ 2 限制（发送端把它当函数参数传入，全 EXE 扫描找不到直接调用点，取值域不可证；误拒会让客户端拿不到回包），保留有证据的结构校验；测试补成功/失败两套 ACK golden（含穿戴目标 list 3）、截断与畸形帧拒绝、confirmation 任意字节必须解析通过。

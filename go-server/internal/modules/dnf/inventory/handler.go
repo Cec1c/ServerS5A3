@@ -387,6 +387,8 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			return ownerBlockedResult(cmd, err), nil
 		}
 		return ownerAppliedUpgradeResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+	case dnfenum.CmdPacketUpgradeItemSeparate:
+		return handlerSeparateUpgrade(ctx, req)
 	case dnfenum.CmdPacketEnchantByBead:
 		parsed, err := DecodeEnchantByBeadRequest(req.Body)
 		cmd := NewEnchantCommand(req, parsed)

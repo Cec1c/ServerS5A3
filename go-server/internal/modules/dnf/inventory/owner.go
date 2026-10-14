@@ -356,9 +356,13 @@ func (o *Owner) withinInventoryTransaction(ctx context.Context, characterID stri
 	if o.items == nil {
 		return ErrInventoryTransactionRequired
 	}
-	return o.items.WithinCharacterItems(ctx, characterID, func(inventory dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+	return o.items.WithinCharacterItems(ctx, characterID, func(inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
 		txOwner := *o
 		txOwner.repo = inventory
+		// 锻造（op438）的目标可能是**穿戴中**的武器（list 3）：它住在装备聚合里，
+		// 与主背包同属角色物品事务。这里把事务内的装备仓储一并交给 owner，
+		// 让"材料消耗 + 锻造等级写入"落在同一个事务里。既有调用方不使用这个字段。
+		txOwner.equipment = equipment
 		txOwner.inItemTransaction = true
 		return apply(&txOwner)
 	})
