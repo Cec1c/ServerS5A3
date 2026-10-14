@@ -1,3 +1,30 @@
+## 2026-10-14 — 副本次数候选主代理完整验证
+
+- 源码f63f320：核心9320通过节点、864跳过、零失败；固定真实PVF的148个指定回归根全部通过（661通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
+- 异次元裂缝按入场共享次数，艾肯按通关次数及试炼前置；跨会话随机nonce、写入失败重试和门票/疲劳同事务回归通过。次数UI、碎片掉落、艾肯装备升级未包含，原生验收开放。
+
+## 2026-10-14 — 异次元裂缝/艾肯每日次数与入场资产同事务（DOC-083/094 审阅阻断点）
+
+- 消除「次数提交失败或被同角色另一会话抢走额度时，先前已落库的入场房间疲劳/门票不返还」：这两类入场的每日次数、DGN `ConsumeOnEntry` 门票与入场房间疲劳改为**同一个**角色资产事务提交（domain 新增 `InTransaction` 钩子，桥侧把 `fatigue.Refresh + Debit` 并入同一事务；门票只在既有锦标赛开关打开时随该事务扣除，prepare 阶段不再预扣）。不使用补偿写回或事后返还。
+- 桥级故障注入同时给出旧损失回执与修复证明：同一个测试在 55e559a 上显示 7100 的门票在 prepare 被预扣且拒绝后不返还、5097 在额度竞争下被拒后疲劳 100→99；修复后两个副本的三个场景（成功 / 次数写失败 / 另一会话抢额度）全部通过，拒绝时角色 Stats 与背包槽位逐字节不变且不采纳运行时。
+- 真档补证：16 个异次元裂缝副本（7100、7165-7179）全部 `[no fatigue]`，门票据 `[required item]` 为 3332 × 1/3/5（对应 `etc/dungeonetc/dimensiondungeoninfo.etc` 的难度档位表）；艾肯 5097/5098 既扣疲劳又收 10158700/10161610 ×5。范围只到这两类入场，316 魔界裂缝、4906-4910 每日副本、锦标赛/史诗入场的事务边界与顺序不动。
+- 验证：`./internal/modules/dnf/...` 与 `./internal/services/dnfbridge` 全部测试、14 项入场相关真档用例（含既有裂隙/每日副本/地狱派对/锦标赛）、gofmt、vet、list 与全量构建通过。官方 24.9 的 class0/812 计数下行仍未验证，本批不发包、不改 opcode。
+- 证据与旧失败回执见 `Docs/D33_DAILY_COUNT_ENTRY_20261014.md`。
+ - 修复主审阻断点：通关计数 nonce 不再复用会话内递增的 `lifecycleToken`（重登后首轮又为 1，会与当日已记 nonce 撞号被当成回放而漏计次数），改为**每轮独立随机的 128bit nonce**（`ClearNonceHi/Lo` 两个 int64 半段持久化、`crypto/rand`、全零重取），首次提交时生成并固定在本轮运行时上。RED（a125397）：两个「新会话首轮」都拿到 token 1，第二轮被当成回放（`used=1`，应为 2）；GREEN（本批）：两个新会话各计一次（`used=2`），同轮写后重试仍只计一次，每日上限不可绕过。回执见文档第 11 节。
+ - 补两项已证准入并附 RED/GREEN：①试炼前置由服务端强制（5098 需同服务日已通关 5097 三次、3571 需 3570 三次），prepare 判一次并在门票/疲劳同一事务内复核，失败整批回滚不扣资产；②通关计数改为这一轮通关的**阻塞前置**（失败不确认、不发 op115/不进入结算、由客户端重传重试），计数带每轮 nonce 幂等回放，重试只计一次且不能绕过每日上限。RED（1c9ce61）：未通关 5097 三次也放行 5098、同一轮重试被计两次（used=2）；GREEN（本批）：前置拒绝 + 门票不扣、重试 used=1、上限仍拒绝。回执见文档第 10 节。
+ - 修正文档措辞：EXE 内 `dungeon cycle`/`dungeoncyclesystem` 明文零命中只说明「未以明文出现」，字符串池/哈希仍可能间接持有，**不得**据此断定客户端不打开该表；该表语义仍只由 PVF 任务文案定。
+ - 艾肯次数语义更正为**按通关计数**（真档每日任务 `daily_90_legend_01.qst` / `daily_90_legend_cdnf_01.qst`：`[daily mission]`、`[condition under clear]`、`[int data] 5097 -1 53764 3 3  5098 -1 107001865 1 1`，文案「通关3次『遗落的神殿』、1次『试炼』（通关3次后出现试炼）」）：入场只提交门票与入场房间疲劳（同一事务，并在事务内复核当日次数未用尽），通关时（boss die check 结算、每轮一次）才记一次次数；中止的入场不再吃掉当天次数。异次元裂缝维持按入场计数（`[hidden boss appear rate by enter count]`）。此阶段对客户端读表的推断已撤回：明文零命中不能排除字符串池/哈希；后续已按任务文案强制试炼前置，829 limit作用域仍待证。
+ - 当前 EXE（v96，`8bf1d39d…`）计数下行以反汇编收口：812 的真实 handler 是 `0x1fd5f20`（按对象句柄设字段，非次数投影），厂商 `DIMENSION_GATE_ENTRANCE_INFO = 0x0326`（806）在本 client 无登记项；真正的次数载体是 829/830（`u32 limit` + 32 × (`u32 dungeonId`, `u32 used`)，显示口径 `limit − used`），本仓已用于 316。因 829 的 limit 是单一标量且这些副本 id 的 UI 渲染无证据，本批**仍不发投影**；`etc/dungeoncyclesystem.etc` 第 2/5 个整数无 C#/EXE 证据，保持未证。详见同文档第 6 节。
+
+## 2026-10-14 — 异次元裂缝与艾肯副本的每日入场次数落库（DOC-083/094）
+
+- 真档 `Script.pvf` 依据：`worldmap/DimensionGate.wdm` 区域 13「异次元裂缝」的 16 个副本（7100 `dungeon/Impossible/dimension.dgn` 异次元裂缝-异界的强者、7165-7179 黑色大地外围/黑色大地/罗特斯的堡垒/巴卡尔之城/痛苦之村列瑟芬）都声明 `[dimension dungeon]`；`etc/dimensiongate.etc` 的 `[daily default enter count]`/`[daily default extra enter count]` 真档读出 5/0，沿用既有 reader，不写死副本 id。
+- `etc/dungeoncyclesystem.etc` 的 `[dungeon cycle]` 声明艾肯四人副本的每日次数：5097/3570（遗落的神殿，单人与组队）为 3、5098/3571（试炼）为 1；该表只覆盖区域 45「魔界集结地」(`worldmap/Legend.wdm`) 的这四个副本。魔界裂缝 316（`particular hell`）不在两张表内，沿用既有 3 次与 2/4/6 成本，两者不互相套用。
+- 新增角色级共享日计数（异次元裂缝按角色共享一份、跨副本累计）与按副本的艾肯日计数：准入在读图前判定，计数在运行时准备完成且活动运行闸门持有时提交，沿用 06:00（UTC+8）服务日与既有 `dungeon_daily_entry_<id>` 角色计数器；艾肯只落计数，不重复扣入场券。
+- 官方 24.9 客户端的计数下行（class0/812）仍未验证，因此本轮只做校验与落库：不发包、不改 opcode，客户端计数投影保留原生待验。
+- 修复前先在真档重现旧行为：进入 7100 一次后角色 Stats 里没有任何日计数；5097 连续进入后 `DailyEntryUsed` 恒为 0、第 4 次仍被接受。
+- 回归：`TestRealPVFDimensionDungeonSharedDailyCounterAndEkernCycleLimits`（7100 与 7165 共享同一份 5 次额度、7171 被拒；5097 三次后拒绝且 10158700/10161610 未被重复扣）、`TestCurrentDungeonCycleDailyLimitsParseAndFailClosed` 与 dungeon 域的共享计数并发/换日/非法命令单测；域与桥两个包全部测试、13 项入场相关真档用例、gofmt/vet/list 与全量构建通过。未改任务结算 finish、掉落与装备升级路径。
+
 ## 2026-10-14 — 服务端与本地 GM 边界验证
 
 - 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。

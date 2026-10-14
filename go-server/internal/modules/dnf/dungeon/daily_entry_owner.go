@@ -25,6 +25,16 @@ type DailyEntryCommand struct {
 	FreePasses []EntryItemRequirement
 	UpdatedAt  time.Time
 	Project    EntryItemProjector
+	// InTransaction 在同一角色事务内、额度判据之后、计数写入之前执行，供桥侧把
+	// 入场房间疲劳这类同批资产并入本次提交（全部成功才提交，任一失败全部回滚）。
+	InTransaction func(character *dnfrepo.CharacterRecord) error
+	// ClearNonceHi/ClearNonceLo 非零时把这次提交变成「每轮一次」的幂等通关计数：同一对 nonce 在
+	// 同一个服务日已经记过就直接回放（返回已记的次数、不重复自增、不扣任何资产）。
+	// nonce 必须是**每轮独立随机**的值（128bit、两个 int64 半段持久化，见桥侧
+	// `ensureCurrentDungeonCycleClearNonce`），绝不能用会话内递增的计数：那种值在重登后会重复出现，
+	// 会被误判成回放而漏计次数。
+	ClearNonceHi int64
+	ClearNonceLo int64
 }
 
 type DailyEntryResult struct {
@@ -35,6 +45,11 @@ type DailyEntryResult struct {
 
 func dailyEntryKeys(dungeonID int64) (string, string) {
 	return fmt.Sprintf("dungeon_daily_entry_%d_day", dungeonID), fmt.Sprintf("dungeon_daily_entry_%d_used", dungeonID)
+}
+
+// dailyEntryNonceKeys 记录「最后一次已计入该副本每日次数的每轮 nonce」的两个半段（128bit）。
+func dailyEntryNonceKeys(dungeonID int64) (string, string) {
+	return fmt.Sprintf("dungeon_daily_entry_%d_nonce_hi", dungeonID), fmt.Sprintf("dungeon_daily_entry_%d_nonce_lo", dungeonID)
 }
 
 // DailyEntryUsed follows the existing 06:00 UTC+8 service day. Reading a new
@@ -109,6 +124,16 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		if err != nil {
 			return err
 		}
+		if cmd.ClearNonceHi != 0 || cmd.ClearNonceLo != 0 {
+			hiKey, loKey := dailyEntryNonceKeys(cmd.DungeonID)
+			dayKey, _ := dailyEntryKeys(cmd.DungeonID)
+			if character.Stats[hiKey] == cmd.ClearNonceHi && character.Stats[loKey] == cmd.ClearNonceLo &&
+				character.Stats[dayKey] == premium.ServiceDayID(cmd.UpdatedAt) {
+				// 幂等回放：这一轮已经计过，重试不得再计一次，也不扣资产。
+				result.Character, result.Used = character, used
+				return nil
+			}
+		}
 		if used >= cmd.Limit {
 			return ErrDailyEntryLimit
 		}
@@ -124,37 +149,15 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 			return ErrEntryItemConsumeInsufficient
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
-		var requirements []EntryItemRequirement
-		selected := false
-		for _, alternative := range alternatives {
-			candidate := dnfrepo.CloneInventory(inventory)
-			valid := true
-			for _, requirement := range alternative {
-				if !requirement.ConsumeOnEntry {
-					continue
-				}
-				if _, err := consumeEntryItemRequirement(&candidate, requirement, nil); err != nil {
-					valid = false
-					break
-				}
-			}
-			if valid {
-				requirements, selected = alternative, true
-				break
-			}
+		consumed, err := consumeEntryAlternatives(&inventory, alternatives, cmd.Project)
+		if err != nil {
+			return err
 		}
-		if !selected {
-			return ErrEntryItemConsumeInsufficient
-		}
-		for _, requirement := range requirements {
-			if !requirement.ConsumeOnEntry {
-				continue
-			}
-			slots, err := consumeEntryItemRequirement(&inventory, requirement, cmd.Project)
-			if err != nil {
+		result.Consumed = consumed
+		if cmd.InTransaction != nil {
+			if err := cmd.InTransaction(&character); err != nil {
 				return err
 			}
-			result.Consumed = append(result.Consumed, EntryItemConsumedStack{ItemID: requirement.ItemID, Count: requirement.Count, Slots: slots})
 		}
 		if len(result.Consumed) > 0 {
 			inventory.UpdatedAt = cmd.UpdatedAt
@@ -168,6 +171,10 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		dayKey, usedKey := dailyEntryKeys(cmd.DungeonID)
 		character.Stats[dayKey] = premium.ServiceDayID(cmd.UpdatedAt)
 		character.Stats[usedKey] = used + 1
+		if cmd.ClearNonceHi != 0 || cmd.ClearNonceLo != 0 {
+			hiKey, loKey := dailyEntryNonceKeys(cmd.DungeonID)
+			character.Stats[hiKey], character.Stats[loKey] = cmd.ClearNonceHi, cmd.ClearNonceLo
+		}
 		character.UpdatedAt = cmd.UpdatedAt
 		if err := dnfrepo.SaveCharacterFields(ctx, chars, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
@@ -179,4 +186,46 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		return DailyEntryResult{}, err
 	}
 	return result, nil
+}
+
+// consumeEntryAlternatives 从 ordered 替代门票里选出**第一组可负担**的并真正扣除，返回被扣的
+// 栈与槽位。一组都付不起时返回 ErrEntryItemConsumeInsufficient（调用方回滚整次入场）。
+//
+// 本函数是既有每日次数入场扣票逻辑的原样抽出，异次元裂缝共享池复用同一实现，
+// 保证两条路径的选票/扣票语义逐字一致。
+func consumeEntryAlternatives(inventory *dnfrepo.InventoryRecord, alternatives [][]EntryItemRequirement, project EntryItemProjector) ([]EntryItemConsumedStack, error) {
+	selected := false
+	var requirements []EntryItemRequirement
+	for _, alternative := range alternatives {
+		candidate := dnfrepo.CloneInventory(*inventory)
+		valid := true
+		for _, requirement := range alternative {
+			if !requirement.ConsumeOnEntry {
+				continue
+			}
+			if _, err := consumeEntryItemRequirement(&candidate, requirement, nil); err != nil {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			requirements, selected = alternative, true
+			break
+		}
+	}
+	if !selected {
+		return nil, ErrEntryItemConsumeInsufficient
+	}
+	var consumed []EntryItemConsumedStack
+	for _, requirement := range requirements {
+		if !requirement.ConsumeOnEntry {
+			continue
+		}
+		slots, err := consumeEntryItemRequirement(inventory, requirement, project)
+		if err != nil {
+			return nil, err
+		}
+		consumed = append(consumed, EntryItemConsumedStack{ItemID: requirement.ItemID, Count: requirement.Count, Slots: slots})
+	}
+	return consumed, nil
 }

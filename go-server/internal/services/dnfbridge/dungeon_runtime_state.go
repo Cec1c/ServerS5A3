@@ -148,6 +148,13 @@ type runtimeDungeonState struct {
 	settlementBossExperience             uint32
 	tutorialCompletionPersisted          bool
 	clearMapCompletionPhaseAPersisted    bool
+	// dungeonCycleClearCountCommitted 说明本轮的通关次数已提交（艾肯是按通关计数的副本）。
+	dungeonCycleClearCountCommitted bool
+	// dungeonCycleClearNonceHi/Lo 是本轮**独立随机**的通关计数 nonce（128bit，两个 int64 半段）：
+	// 首次提交时生成并固定在本轮运行时上，重试用同一对值（幂等回放）；不同会话/不同轮次必然取到
+	// 不同随机值，因此不会像会话内递增的 lifecycleToken 那样在重登后撞号被误判成回放。
+	dungeonCycleClearNonceHi             int64
+	dungeonCycleClearNonceLo             int64
 	hellQuestCompletionKey               string
 	hellQuestCompletionAt                time.Time
 	hellQuestCompletionPersisted         bool
@@ -868,7 +875,14 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
 	}
 	session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
-	if scene, ok := runtime.Session.Scene(); ok {
+	scene, hasScene := runtime.Session.Scene()
+	// 异次元裂缝与艾肯的每日次数与入场房间疲劳在同一个事务里提交（见
+	// dungeon_daily_count_assets.go），因此这里不再单独扣一次疲劳。
+	dailyCountEntry, err := s.currentDailyCountEntryEnabled(runtime.Dungeon)
+	if err != nil {
+		return err
+	}
+	if hasScene && !dailyCountEntry {
 		if err := s.debitDungeonRoomFatigue(session, runtime, scene); err != nil {
 			return err
 		}
@@ -878,6 +892,11 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	}
 	if err := s.consumeCurrentDayDungeonEntry(session, runtime); err != nil {
 		return err
+	}
+	if dailyCountEntry {
+		if err := s.consumeCurrentDailyCountEntry(session, runtime, scene, hasScene); err != nil {
+			return err
+		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
 	session.dungeon.runtime = runtime

@@ -160,6 +160,21 @@ func (s *Service) validateDungeonEntryWithTournament(
 	if s.currentDayDungeonEntryEnabled(dungeon.ID) {
 		return s.validateCurrentDayDungeonEntry(ctx, character, dungeon, session)
 	}
+	// 每日次数闸门：异次元裂缝（PVF `[dimension dungeon]` 共享角色池）与艾肯副本循环
+	// （`etc/dungeoncyclesystem.etc` `[dungeon cycle]` 的按副本额度）。两条都只判次数，
+	// 等级/队伍/疲劳/门票继续由下面的既有准入分支负责，两者不互相替代。
+	if s.currentDimensionGateDailyEntryEnabled(dungeon) {
+		if err := s.validateCurrentDimensionGateDailyCount(character); err != nil {
+			return err
+		}
+	} else if requirement, declared, err := s.currentDungeonCycleRequirementForDungeon(dungeon.ID); err != nil {
+		return err
+	} else if declared {
+		// 每日次数（按通关）与试炼前置都在这里判一次；同一个判据在门票/疲劳事务里再复核一次。
+		if err := s.validateCurrentDungeonCycleDailyCount(character, requirement); err != nil {
+			return err
+		}
+	}
 	if !dungeonTournamentEnabled() && !s.currentEpicEntryEnabled(dungeon.ID) {
 		return validateDungeonEntry(character, dungeon, session)
 	}
@@ -220,6 +235,13 @@ func (s *Service) consumeDungeonEntryItemsWithTournament(
 	}
 	if s.currentRiftEntryEnabled(dungeon.ID) {
 		// Rift tickets and count commit together after full runtime preparation.
+		return nil
+	}
+	if dailyCountEntry, err := s.currentDailyCountEntryEnabled(dungeon); err != nil {
+		return err
+	} else if dailyCountEntry {
+		// 异次元裂缝与艾肯的门票与每日次数在 commit 阶段同一个事务里扣（见
+		// dungeon_daily_count_assets.go）：这里不再预扣，避免次数写失败时票已落库。
 		return nil
 	}
 	if !dungeonTournamentEnabled() {
