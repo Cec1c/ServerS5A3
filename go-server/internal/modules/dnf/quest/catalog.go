@@ -1153,7 +1153,14 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	if !definitionMatchesCharacter(definition, character) {
 		return false
 	}
-	if _, exists := active[definition.ID]; exists && !includeActive {
+	_, isActive := active[definition.ID]
+	if isActive && !includeActive {
+		return false
+	}
+	// 只在新接取路径上拒绝觉醒阶段不匹配的任务。已 active 的旧行必须继续
+	// 出现在可接列表/快照里，玩家才能看到并放弃或结算它——否则就是把「仅阻止新接取」
+	// 误报成「存量卡任务已修复」。
+	if !isActive && !awakeningRewardAcceptable(definition, character) {
 		return false
 	}
 	if _, exists := completed[definition.ID]; exists && !repeatableGrade(grade) {
@@ -1185,6 +1192,29 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 		}
 	}
 	return true
+}
+
+// awakeningRewardAcceptable 用 profession 的域规则判断一条 [reward type] awakening type
+// 的觉醒任务是否还可能被当前角色结算成功。
+//
+// 真档任务3368、2698、4929等按转职分支筛选，不限制觉醒阶段。
+// 即使其它接取条件满足，重复一觉或跳过一觉的二觉奖励仍被结算阶段规则拒绝。
+//
+// 这里复用 profession.CheckAwakeningPrecondition（PlanTransition 的同一前置），让接取预检、
+// 结算与可接列表投影一致；合法的第一次/第二次觉醒（目标正好是当前阶段 +1）不受影响。
+func awakeningRewardAcceptable(definition Definition, character CharacterEligibility) bool {
+	if normalizeQuestTag(definition.RewardType) != "awakening type" {
+		return true
+	}
+	request, err := profession.ParseReward(definition.JobChangeQuest, definition.RewardType, definition.RewardIntData)
+	if err != nil || request.Kind != profession.KindAwakening {
+		// 解析失败：保持既有可接取判定，不在这里发明新的拒绝条件。
+		return true
+	}
+	if character.GrowType < 0 || character.GrowType > math.MaxUint8 {
+		return false
+	}
+	return profession.CheckAwakeningPrecondition(byte(character.GrowType), request) == nil
 }
 
 // definitionMatchesCharacter is the shared PVF job/grow-type predicate for

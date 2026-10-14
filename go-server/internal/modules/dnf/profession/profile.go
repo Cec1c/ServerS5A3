@@ -271,10 +271,10 @@ func (p *Profiles) PlanTransition(job byte, current byte, request Request) (Tran
 			FirstGrowType: request.GrowNumber, AwakeningStage: 0,
 		}, nil
 	case KindAwakening:
-		target := request.GrowNumber
-		if request.ChainType != 2 || target == 0 || target > 2 || target != awakening+1 {
-			return Transition{}, fmt.Errorf("%w: awakening current=0x%02x target=%d", ErrTransitionOutOfStep, current, target)
+		if err := CheckAwakeningPrecondition(current, request); err != nil {
+			return Transition{}, err
 		}
+		target := request.GrowNumber
 		if !profile.awakeningSupported[first][target] {
 			return Transition{}, fmt.Errorf("%w: job=%d first=%d awakening=%d", ErrTransitionInvalid, job, first, target)
 		}
