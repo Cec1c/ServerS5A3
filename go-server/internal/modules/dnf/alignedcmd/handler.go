@@ -784,6 +784,8 @@ type Result struct {
 	Operation       string
 	Reason          string
 	UpperResponses  []UpperResponse
+	// 消耗凭证仅由成功返回的库存事务提供，bridge 在回包前关联本局拾取记录。
+	StackableConsumption *StackableConsumption
 	// MailboxAlarmRecipientID asks the bridge to deliver the exact class0/0x63
 	// mailbox alarm to this already-online character after the sender's ACK and
 	// its local post-actions are fully written. Zero means no cross-session send.
@@ -838,6 +840,15 @@ type Result struct {
 	// destroyed). Nil for every command that never reached that branch, and for
 	// the legacy switch value. The bridge owns the grep-able event.
 	UpgradeProtectTicket *UpgradeProtectTicket
+}
+
+type StackableConsumption struct {
+	CharacterID    string
+	ListType       byte
+	SlotIndex      int16
+	ItemID         int64
+	PreviousCount  int64
+	RemainingCount int64
 }
 
 // UpgradeDestroyBonusMerge is the destroy-branch compensation placement,
@@ -1001,5 +1012,9 @@ func (r Registry) Route(ctx context.Context, req Request) (Result, bool, error) 
 		result.UpperResponses[i].Body = append([]byte(nil), result.UpperResponses[i].Body...)
 	}
 	result.PostActions = append([]PostAction(nil), result.PostActions...)
+	if result.StackableConsumption != nil {
+		fact := *result.StackableConsumption
+		result.StackableConsumption = &fact
+	}
 	return result, true, err
 }

@@ -1094,6 +1094,9 @@ func currentTournamentRewardItemExtra(definition dungeonDropItemDefinition) map[
 		extra["durability"] = strconv.FormatUint(uint64(definition.Durability), 10)
 		extra["max_durability"] = strconv.FormatUint(uint64(definition.Durability), 10)
 	}
+	if currentNewPVFEquipmentSealFlag(definition) != 0 {
+		extra["seal_flag"] = "1"
+	}
 	return extra
 }
 

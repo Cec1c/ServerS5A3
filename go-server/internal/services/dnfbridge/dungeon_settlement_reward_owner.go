@@ -798,6 +798,13 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 		runStatus = string(runtime.Session.Snapshot().Run.Status)
 	}
 	for _, drop := range exempted {
+		if drop.AssetOwner == "character_inventory_committed_consumption" {
+			s.logGameEvent(session, "game-dungeon-settlement-consumed-pickup-receipt",
+				"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+				"drop_object_key", drop.ObjectKey, "item_id", drop.ItemID,
+				"message", "已确认拾取物品在本局正常用完，结算不再要求背包现存行，不重复发放")
+			continue
+		}
 		s.logGameEvent(session, "game-dungeon-settlement-drop-receipt-exempt",
 			"char_id", session.selectedCharacterID,
 			"dungeon_id", runtime.Dungeon.ID,
@@ -851,8 +858,8 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 	return drops, err
 }
 
-// currentDungeonCommittedDropReceipts 是改动前的纯函数（逐字节保留）：
-// 每一条已消耗掉落都必须在背包里按目的槽位找到同一件物品。
+// 兼容入口保持碎片与归属策略；新增的已提交使用凭证在各档均有效。
+// 普通拾取仍须对应现存背包行，正常用完的物品只验证拾取与使用凭证。
 func currentDungeonCommittedDropReceipts(
 	runtime *runtimeDungeonState,
 	inventory dnfrepo.InventoryRecord,
@@ -942,6 +949,14 @@ func currentDungeonCommittedDropReceiptsFiltered(
 				DestinationSlot: drop.DestinationSlot,
 				StackCount:      drop.Amount,
 				AssetOwner:      "account_epic_piece_metadata_counter",
+			})
+			continue
+		}
+		if committedDungeonPickupUsedUp(drop, inventory) {
+			exempted = append(exempted, currentDungeonSettlementExemptDropReceipt{
+				ObjectKey: drop.ObjectKey, SceneSlot: drop.SceneSlot, ItemID: drop.Item.ItemID,
+				DestinationSlot: drop.DestinationSlot, StackCount: drop.Amount,
+				AssetOwner: "character_inventory_committed_consumption",
 			})
 			continue
 		}
