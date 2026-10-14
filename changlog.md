@@ -29,6 +29,16 @@
 - Read explicit lottery gold prices independently from NPC acquisition materials. Paid hero jars no longer require their exchange token a second time. Preserve explicit opening materials and the existing material-only legacy jar policy; reject malformed prices instead of treating them as free.
 - Settle gold, source jars and rewards in one account/character asset transaction. Inventory-only magic-box entrypoints reject paid jars; lottery and booster entrypoints refresh the committed wallet after success.
 - Regression coverage includes matching-PVF hero and legacy jars, complete reward references, both lottery reply layouts, duplicate confirmations, insufficient gold, full bags, foreign ownership and rollback after all writes. Disposable MySQL validation covers competing opens, durable reload and rollback on a late database error. Native opening animation and reward display remain pending acceptance.
+## 2026-10-14 — Cover Grandine room transitions with passive drops
+
+- Add matching-PVF coverage for both ordinary Grandine routes, including the fifth-room exit. Before the passive-drop allocator fix, actors and drops shared identifiers and a later room was rejected for reusing an earlier drop key.
+- Assert scene identity separation, allocator progress, stable room rebuilds and arrival at the boss. The previously introduced allocator repair covers these routes without additional runtime changes; native gameplay acceptance remains separate.
+
+## 2026-10-14 — Restore Gust Zone boss-room transitions
+
+- Accept repeated identical passive-item group definitions across maze declarations without multiplying rewards. Continue rejecting malformed or conflicting definitions.
+- Reserve planned actor identifiers before allocating passive drops, and retain the highest allocator position when committing a room transition. Preserve shared party allocation and prepared drops across transport retries.
+- Regression coverage includes conflicting definitions, solo/shared identifier allocation and matching-PVF traversal of both ordinary Gust Zone boss routes. Verify the existing start-map payload, distinct actor/drop identifiers, failed-write retry and exactly-once pickup. Native in-game traversal remains pending acceptance.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 

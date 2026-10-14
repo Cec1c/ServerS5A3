@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
@@ -34,6 +35,7 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 		return nil, nil
 	}
 	groups := make(map[int64][]currentPassiveItemChoice)
+	selectors := make(map[int64]int64)
 	for _, section := range dungeon.SourceSections {
 		if strings.Trim(strings.ToLower(section.Name), "[] ") != "special passive object item" {
 			continue
@@ -49,11 +51,8 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 			if len(values) < 3 || values[0] < 0 || values[1] < -1 || values[2] < 0 || values[2] > int64((len(values)-3)/2) {
 				return nil, fmt.Errorf("invalid passive item group header")
 			}
-			id, count := values[0], int(values[2])
+			id, selector, count := values[0], values[1], int(values[2])
 			values = values[3:]
-			if _, duplicate := groups[id]; duplicate {
-				return nil, fmt.Errorf("duplicate passive item group %d", id)
-			}
 			choices := make([]currentPassiveItemChoice, 0, count)
 			total := int64(0)
 			for i := 0; i < count; i++ {
@@ -64,7 +63,14 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 				total += weight
 				choices = append(choices, currentPassiveItemChoice{uint32(item), int(weight)})
 			}
-			groups[id] = choices
+			// Real DGN files can repeat the same group after another maze
+			// declaration. This is one definition, not extra draws. Conflicting
+			// definitions remain an error rather than guessing which to use.
+			if previous, duplicate := groups[id]; duplicate &&
+				(selectors[id] != selector || !slices.Equal(previous, choices)) {
+				return nil, fmt.Errorf("conflicting passive item group %d", id)
+			}
+			groups[id], selectors[id] = choices, selector
 			values = values[count*2:]
 		}
 	}
@@ -104,7 +110,7 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 	return plan, nil
 }
 
-func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, source string) error {
+func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, source string, minimumObjectKey uint32) error {
 	if currentTeamRaidGroundDropsDisabled(runtime) {
 		return nil
 	}
@@ -153,9 +159,9 @@ func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession,
 	if owner == nil {
 		owner = newRuntimeDungeonDropOwner()
 	}
-	nextKey := runtime.NextObjectKey
+	nextKey := max(runtime.NextObjectKey, minimumObjectKey)
 	if instance != nil {
-		nextKey = instance.nextObjectKey
+		nextKey = max(nextKey, instance.nextObjectKey)
 	}
 	nextSlot := owner.nextSceneSlot
 	if nextKey == 0 || nextKey+uint32(len(plan)) > math.MaxUint16 || nextSlot == 0 || int(nextSlot)+len(plan) > math.MaxUint16 {
