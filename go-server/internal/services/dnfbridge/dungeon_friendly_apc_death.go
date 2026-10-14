@@ -11,6 +11,8 @@ import (
 // of its contribution list. A friendly APC kill can therefore have owner=ffff
 // and one or more 14-byte contributions. Prove both the contributor and target
 // against this run; a nonempty list or sentinel alone grants no authority.
+// Story allies can be AI characters (native kind 0x111) or ordinary monsters
+// explicitly assigned to the player side by PVF [monster team] (kind 0x211).
 func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, request dungeoncmd.DieMonsterRequest) bool {
 	if s.options.currentClientVersion != "official-24.9" ||
 		request.OwnerObjectKey != ^uint16(0) || request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat ||
@@ -27,6 +29,9 @@ func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, s
 	if !bound || reference.Kind != worldmap.HostileMonster || !runtimeSceneContainsHostile(scene.ExpectedHostiles, reference) {
 		return false
 	}
+	if reference.Index >= 0 && reference.Index < len(scene.Map.Map.MonsterTeam) && scene.Map.Map.MonsterTeam[reference.Index] == 0 {
+		return false
+	}
 	target, found := runtime.Room.MonsterByReference(reference, runtimeDungeonMonsterAnnounced, runtimeDungeonMonsterDefeated)
 	if !found || target.ObjectKey != request.RuntimeObjectKey {
 		return false
@@ -38,21 +43,49 @@ func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, s
 	}
 	for offset := 0; offset < len(request.CombatEntries); offset += dungeoncmd.Official249DieMonsterEntrySize {
 		entry := request.CombatEntries[offset:]
-		// 0x111 is the native character kind observed for friendly APCs. Do not
-		// interpret the remaining opaque combat fields as authoritative damage.
-		if binary.LittleEndian.Uint16(entry) != 0x111 || binary.LittleEndian.Uint64(entry[4:]) == 0 {
+		// Native kind selects the server-owned actor table; it is not proof of
+		// allegiance. Do not use the opaque contribution value to settle damage.
+		if binary.LittleEndian.Uint64(entry[4:]) == 0 {
 			continue
 		}
+		kind := binary.LittleEndian.Uint16(entry)
 		key := uint32(binary.LittleEndian.Uint16(entry[2:]))
-		if runtime.Room.ContainsAnnouncedNonHostileAICharacterObjectKey(key) {
+		if currentDungeonRoomContainsFriendlyContributor(runtime.Room, scene, kind, key) {
 			return true
 		}
-		// Friendly followers retain their original announced key across rooms.
+		// Followers retain the original key and faction after leaving their
+		// spawning room. Use that visit's PVF scene, not the destination's rows.
 		for _, visit := range runtime.Rooms {
-			if visit != nil && visit.Room != nil && visit.Room != runtime.Room && visit.Room.ContainsAnnouncedNonHostileAICharacterObjectKey(key) {
+			if visit != nil && visit.Room != nil && visit.Room != runtime.Room &&
+				currentDungeonRoomContainsFriendlyContributor(visit.Room, visit.Scene, kind, key) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func currentDungeonRoomContainsFriendlyContributor(room *runtimeDungeonRoom, scene worldmap.DungeonRoomScene, kind uint16, key uint32) bool {
+	switch kind {
+	case 0x111:
+		return room.ContainsAnnouncedNonHostileAICharacterObjectKey(key)
+	case 0x211:
+		monster, ok := room.AnnouncedMonster(key)
+		if !ok || monster.Reference.Kind != worldmap.HostileMonster {
+			return false
+		}
+		snapshot := room.Snapshot()
+		index := monster.Reference.Index
+		// A missing team row means hostile by default. Neither a nonblocking
+		// flag nor a client-reported kind is enough to establish a friendly NPC.
+		if snapshot.MapID != scene.Map.Map.ID || snapshot.Coordinate != scene.Coordinate ||
+			index < 0 || index >= len(scene.Map.Map.MonsterTeam) || scene.Map.Map.MonsterTeam[index] != 0 ||
+			index >= len(scene.Map.Map.Monsters) || scene.Map.Map.Monsters[index].MonsterID != monster.Spawn.MonsterID {
+			return false
+		}
+		reference, bound := scene.RuntimeObjects[key]
+		return bound && reference == monster.Reference
+	default:
+		return false
+	}
 }
