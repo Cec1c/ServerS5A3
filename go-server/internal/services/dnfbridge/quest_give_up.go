@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -102,10 +104,23 @@ func (s *Service) handleCurrentGiveUpQuest(session *gameSession, body []byte) er
 	if err != nil {
 		return fmt.Errorf("create quest give-up owner: %w", err)
 	}
-	result, err := owner.ApplyGiveUp(ctx, catalog, dnfquest.NewQuestIDCommand(alignedcmd.Request{
+	result, err := owner.ApplyGiveUpWithMaterialResolver(ctx, catalog, dnfquest.NewQuestIDCommand(alignedcmd.Request{
 		AccountID:           s.accountIDForSession(session),
 		SelectedCharacterID: session.selectedCharacterID,
-	}, "giveup_quest", request))
+	}, "giveup_quest", request), func(itemID int64) (bool, error) {
+		if itemID <= 0 || itemID > math.MaxUint32 {
+			return false, nil
+		}
+		items, err := s.currentPVFItemCatalog()
+		if err != nil {
+			return false, err
+		}
+		item, err := items.ResolveItem(uint32(itemID))
+		if err != nil {
+			return false, err
+		}
+		return item.Kind == dungeonDropItemStackable && strings.TrimSpace(item.StackableType) == "[material]", nil
+	})
 	if err != nil {
 		s.logGameEvent(session, "game-upper-give-up-quest-blocked",
 			"quest_id", request.QuestID,

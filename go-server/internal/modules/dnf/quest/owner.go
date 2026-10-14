@@ -278,6 +278,14 @@ func isActiveQuestStatus(status string) bool {
 // Quests whose PVF definition can own quest items fail closed until their
 // inventory reclamation can share the same transaction.
 func (o *Owner) ApplyGiveUp(ctx context.Context, catalog *Catalog, cmd Command) (GiveUpResult, error) {
+	return o.ApplyGiveUpWithMaterialResolver(ctx, catalog, cmd, nil)
+}
+
+// ApplyGiveUpWithMaterialResolver also admits collection quests whose targets
+// are proven ordinary materials. The reference recovery policy retains these
+// items on abandonment. Activation grants, quest drops and quest items still
+// require an inventory transaction and remain rejected on this no-asset path.
+func (o *Owner) ApplyGiveUpWithMaterialResolver(ctx context.Context, catalog *Catalog, cmd Command, ordinaryMaterial func(int64) (bool, error)) (GiveUpResult, error) {
 	if o == nil || o.characters == nil || o.quests == nil {
 		return GiveUpResult{}, ErrOwnerUnavailable
 	}
@@ -298,7 +306,9 @@ func (o *Owner) ApplyGiveUp(ctx context.Context, catalog *Catalog, cmd Command) 
 		return GiveUpResult{}, ErrQuestCannotGiveUp
 	}
 	if questGiveUpNeedsAssetTransaction(definition) {
-		return GiveUpResult{}, ErrGiveUpNeedsAssets
+		if !giveUpCanRetainOrdinaryMaterials(definition, ordinaryMaterial) {
+			return GiveUpResult{}, ErrGiveUpNeedsAssets
+		}
 	}
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
@@ -355,6 +365,43 @@ func (o *Owner) ApplyGiveUp(ctx context.Context, catalog *Catalog, cmd Command) 
 		CharacterID: characterID,
 		QuestID:     cmd.QuestID,
 	}, nil
+}
+
+func giveUpCanRetainOrdinaryMaterials(definition Definition, resolve func(int64) (bool, error)) bool {
+	if resolve == nil || definition.HasDependGiveItem || len(definition.MonsterRewardItems) != 0 || len(definition.EnemyRewardItems) != 0 {
+		return false
+	}
+	// Admit only understood, complete item/count pairs. Other quest types and
+	// missing item metadata retain the conservative reclamation boundary.
+	switch normalizeQuestTag(definition.Type) {
+	case "seeking":
+		if len(definition.IntData) == 0 || len(definition.IntData)%2 != 0 {
+			return false
+		}
+	case "seek n meet npc":
+		if len(definition.IntData) < 2 {
+			return false
+		}
+	default:
+		return false
+	}
+	rules := finishDefinitionSeekingRules(definition)
+	if len(rules) == 0 {
+		return false
+	}
+	if normalizeQuestTag(definition.Type) == "seeking" && len(rules)*2 != len(definition.IntData) {
+		return false
+	}
+	for _, rule := range rules {
+		if rule.ItemID <= 0 || rule.Count <= 0 {
+			return false
+		}
+		ordinary, err := resolve(rule.ItemID)
+		if err != nil || !ordinary {
+			return false
+		}
+	}
+	return true
 }
 
 func questGiveUpNeedsAssetTransaction(definition Definition) bool {
