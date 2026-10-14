@@ -11,6 +11,11 @@ func questGameplayModule() gameplayModuleDefinition {
 	return gameplayModuleDefinition{
 		Name: "quest",
 		LegacyHandlers: map[uint16]gameplayHandler{
+			// The current selective-plaintext client sends the same four-byte
+			// op32 echo/quest request through the legacy command route.
+			giveUpOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
+				return service.handleCurrentGiveUpQuest(session, request.Body)
+			},
 			// handleGameCommand has already admitted cmd1. The legacy
 			// registry does not carry classification into gameplayRequest.
 			currentQuestManualCheckOpcode: func(s *Service, session *gameSession, request gameplayRequest) error {

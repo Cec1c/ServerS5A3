@@ -1,8 +1,13 @@
-## 2026-10-14 — 副职业商店放置区域（DOC-096）
+## 2026-10-14 — 服务端与本地 GM 边界验证
 
-- op598建店之前补充真实城镇地图可行走矩形与NPC禁摆范围校验。副职业域负责位置判定，地图域解析导入NPC；缺失或损坏数据拒绝，不登记、不广播、不改资产。
-- 真实PVF主街在旧代码复现分解/附魔两种商店的地图外与NPC附近四组错误成功；候选拒绝四组并保留两组合法位置。额外验证矩形间隙/边界、异常数据、NPC导入与循环/缺失导入。
-- 当前EXE已核对op598回调与82错误分支；旧参考190没有专用显示，地图不可用沿用通用失败19。核心测试9334通过节点、860环境跳过、零失败；固定真实PVF的142个指定回归根全部通过（675通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。原生摆摊验收保持开放。详见Docs/BUGS_20261014_STORE_PLACEMENT.md。
+- 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。
+- 原GM文件保留本地，独立本地工具不进入在线仓库；CI边界正反对照通过。
+
+## 2026-10-14 — 按用户要求将在线仓库与本地 GM 工具分离
+
+- 在线版本移除 GM Web 工具包及嵌入服务端的启动/停止绑定；本地原始 GM 文件和用户正在使用的工程全部保留。隔离清理树采用取消 Git 跟踪，未删除本地工具源码。
+- 控制器不再生成 GM 环境配置，doctor 不再要求 GM 端口随游戏服务器启动。旧 gmListen 配置兼容读取后忽略；服务端游戏及通用管理接口保持原职责。
+- 添加忽略规则、仓库边界检查及协作规范，防止后续 GM 更新重新进入在线仓库。验证与在线清理结果后补。
 
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
@@ -580,3 +585,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
+
+- Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
+- DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
+- GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
+
