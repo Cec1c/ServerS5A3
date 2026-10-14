@@ -144,7 +144,7 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 	op9Count := 0
 	lastContainerIndex := -1
 	auraRestoreCount := 0
-	auraRestoreIndex := -1
+	var lastMode1SlotState byte
 	adventureInfoIndex := -1
 	packetIndex := 0
 	for ownerStream := fullStream; len(ownerStream) > 0; {
@@ -157,10 +157,6 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 		if packet.Header.Classification == dnfproto.DefaultChannelClassification &&
 			packet.Header.MsgID == uint16(dnfenum.CmdPacketOpenAuraSkinSlot) {
 			auraRestoreCount++
-			auraRestoreIndex = packetIndex
-			if string(packet.Body) != string([]byte{1, 'A', 'U', 'R', 'A'}) {
-				t.Fatalf("cold-login aura restore body=%x want 0141555241", packet.Body)
-			}
 		}
 		if packet.Header.Classification == 0 &&
 			packet.Header.MsgID == currentAdventureInfoPushMsgID {
@@ -183,6 +179,7 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 				mode0Count++
 			} else {
 				mode1Count++
+				lastMode1SlotState = auraSlotNativeState(t, packet.Body)
 			}
 		case packet.Header.Classification == 0 &&
 			packet.Header.MsgID == uint16(dnfenum.CmdPacketRecoverStamina):
@@ -191,12 +188,10 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 		}
 		packetIndex++
 	}
-	if auraRestoreCount != 1 || auraRestoreIndex <= lastContainerIndex ||
-		adventureInfoIndex <= auraRestoreIndex {
+	if auraRestoreCount != 0 || adventureInfoIndex <= lastContainerIndex {
 		t.Fatalf(
-			"cold-login aura restore count=%d index=%d containers_end=%d adventure=%d",
+			"cold-login unsolicited aura ACK count=%d containers_end=%d adventure=%d",
 			auraRestoreCount,
-			auraRestoreIndex,
 			lastContainerIndex,
 			adventureInfoIndex,
 		)
@@ -208,6 +203,9 @@ func TestDeferredSelectSceneTailResumesInitialTownRouteFromHeartbeatWithoutProgr
 			mode1Count,
 			op9Count,
 		)
+	}
+	if lastMode1SlotState&0x08 == 0 {
+		t.Fatal("cold-login final native mode1 lost committed aura skin state")
 	}
 
 	_, transition, rest := splitInitialTownPreparedStateBeforeTransition(t, fullStream)
