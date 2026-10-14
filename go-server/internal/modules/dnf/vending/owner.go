@@ -55,6 +55,9 @@ func Use(ctx context.Context, repos repo.Group, cmd Command) (Result, error) {
 		if !found {
 			return fmt.Errorf("vending inventory missing")
 		}
+		if err := repo.BindInventoryContainerState(ctx, repos.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = repo.CloneInventory(inventory)
 		key := "0:" + strconv.Itoa(int(cmd.CoinSlot))
 		coin, found := inventory.Slots[key]

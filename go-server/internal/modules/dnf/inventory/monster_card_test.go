@@ -350,16 +350,16 @@ func TestMonsterCardMoveAndSortPreserveDifferentGrades(t *testing.T) {
 	if canStack(cardTestStack(100, 3, 0), cardTestStack(100, 2, 1), 1) {
 		t.Fatal("手工搬运仍可合并不同级")
 	}
-	// 上游允许两堆异级卡整堆交换；卡片身份修复只阻止混级合并。
+	// MR41 rejects an incompatible same-item destination; preserve both grades on rejection.
 	moved, e := o.Move(context.Background(), Command{Operation: "move_itemspace", AccountID: "acc", SelectedCharacterID: 77, SourceListType: 0, SourceSlotIndex: 233, DestinationListType: 0, DestinationSlotIndex: 234, MoveCount: 3})
-	if e != nil || !moved.Changed || moved.Mode != "swap" {
+	if !errors.Is(e, ErrMoveCannotStack) || moved.Changed {
 		t.Fatal(moved, e)
 	}
 	swapped := loadTestInventory(t, context.Background(), r, "77")
-	if !reflect.DeepEqual(swapped.Slots["0:233"], cardTestStack(100, 2, 1)) || !reflect.DeepEqual(swapped.Slots["0:234"], cardTestStack(100, 3, 0)) {
+	if !reflect.DeepEqual(swapped.Slots["0:233"], cardTestStack(100, 3, 0)) || !reflect.DeepEqual(swapped.Slots["0:234"], cardTestStack(100, 2, 1)) {
 		t.Fatal("整堆交换混合了级数或数量", swapped)
 	}
-	moved, e = o.Move(context.Background(), Command{Operation: "move_itemspace", AccountID: "acc", SelectedCharacterID: 77, SourceListType: 0, SourceSlotIndex: 233, DestinationListType: 0, DestinationSlotIndex: 236, MoveCount: 2})
+	moved, e = o.Move(context.Background(), Command{Operation: "move_itemspace", AccountID: "acc", SelectedCharacterID: 77, SourceListType: 0, SourceSlotIndex: 234, DestinationListType: 0, DestinationSlotIndex: 236, MoveCount: 2})
 	if e != nil || !moved.Changed {
 		t.Fatal(moved, e)
 	}

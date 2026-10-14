@@ -549,6 +549,13 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			account := assets.Account
 			character := assets.Character
 			inventory := assets.Inventory
+			if assets.SettingsFound || hasContainerUpgrade {
+				state, stateErr := dnfrepo.CharacterContainerStateFromSettings(*assets.Settings, characterID)
+				if stateErr != nil {
+					return dnfcerashop.CheckoutChanges{}, stateErr
+				}
+				inventory.ContainerState = &state
+			}
 			equipment := assets.Equipment
 			changedSlots := make(map[string]currentCeraShopChangedSlot)
 			entriesByList := make(map[byte][]currentItemListEntry)

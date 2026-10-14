@@ -493,7 +493,7 @@ func grantCurrentCeraShopProductAt(inventory *dnfrepo.InventoryRecord, definitio
 			appendTouched(uint16(slot))
 		}
 	}
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForInventory(inventory)
 	// 目录负责分类；这里仍使用调用方提供的合法段，保持既有直接发放接口。
 	policy.Start, policy.End = definition.SlotStart, definition.SlotEnd
 	for _, slot := range policy.MergeSlots() {

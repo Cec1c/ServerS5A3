@@ -16,6 +16,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/creaturestate"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/itemquality"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -57,6 +58,7 @@ var (
 
 // Owner 是穿戴装备和耐久的 durable owner 边界。
 type Owner struct {
+	settings           dnfrepo.SettingsRepository
 	equipment          dnfrepo.EquipmentRepository
 	inventory          dnfrepo.InventoryRepository
 	character          dnfrepo.CharacterRepository
@@ -191,6 +193,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		settings:  repos.Settings,
 		equipment: repos.Equipment,
 		inventory: repos.Inventory,
 		character: repos.Character,
@@ -675,6 +678,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			}
 			err = o.petItems.WithinCharacterPets(ctx, characterID, func(inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository, pets dnfrepo.PetRepository) error {
 				txOwner := &Owner{
+					settings:           o.settings,
 					equipment:          equipment,
 					inventory:          inventory,
 					character:          o.character,
@@ -692,6 +696,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			}
 			err = o.items.WithinCharacterItems(ctx, characterID, func(inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
 				txOwner := &Owner{
+					settings:           o.settings,
 					equipment:          equipment,
 					inventory:          inventory,
 					character:          o.character,
@@ -1379,6 +1384,9 @@ func (o *Owner) equip(ctx context.Context, cmd MoveCommand) (MoveResult, error) 
 	// （回退档）时本函数不改 entry 一个字节。
 	entry = o.withCloneAvatarAppearance(entry, previous, occupied)
 	if occupied {
+		if !dnfplacement.SlotOpen(cmd.SourceListType, cmd.SourceSlotIndex, inventory.ContainerState) {
+			return MoveResult{}, fmt.Errorf("%w: 被替换装备不能放回未解锁格", ErrMoveUnsupported)
+		}
 		if previous.SlotIndex != cmd.DestinationSlotIndex {
 			return MoveResult{}, fmt.Errorf("%w: key=%d entry=%d", ErrMoveSlotMismatch, cmd.DestinationSlotIndex, previous.SlotIndex)
 		}
@@ -1463,13 +1471,16 @@ func (o *Owner) unequip(ctx context.Context, cmd MoveCommand) (MoveResult, error
 	}
 	dstKey := inventoryKey(cmd.DestinationListType, cmd.DestinationSlotIndex)
 	if _, occupied := dstItems[dstKey]; occupied && cmd.DestinationInstanceValue == 0 {
-		actualSlot, found := nextEmptyUnequipInventorySlot(dstItems, cmd.DestinationListType, cmd.DestinationSlotIndex)
+		actualSlot, found := nextEmptyUnequipInventorySlot(dstItems, cmd.DestinationListType, cmd.DestinationSlotIndex, inventory.ContainerState)
 		if !found {
 			return MoveResult{}, fmt.Errorf("%w: no empty unequip destination after list=%d slot=%d", ErrMoveSlotNotFound, cmd.DestinationListType, cmd.DestinationSlotIndex)
 		}
 		cmd.DestinationSlotIndex = actualSlot
 		result.DestinationSlotIndex = actualSlot
 		dstKey = inventoryKey(cmd.DestinationListType, actualSlot)
+	}
+	if !dnfplacement.SlotOpen(cmd.DestinationListType, cmd.DestinationSlotIndex, inventory.ContainerState) {
+		return MoveResult{}, fmt.Errorf("%w: 目标格尚未解锁", ErrMoveUnsupported)
 	}
 	if previous, occupied := dstItems[dstKey]; occupied {
 		entry, err := entryFromStack(previous, cmd.DestinationListType, cmd.SourceSlotIndex, cmd.DestinationInstanceValue)
@@ -1559,7 +1570,7 @@ const (
 	guildMedalInventorySlotEnd      int16 = 48
 )
 
-func nextEmptyUnequipInventorySlot(items map[string]dnfrepo.ItemStack, listType byte, requested int16) (int16, bool) {
+func nextEmptyUnequipInventorySlot(items map[string]dnfrepo.ItemStack, listType byte, requested int16, states ...*dnfrepo.CharacterContainerState) (int16, bool) {
 	start, end := mainEquipmentInventorySlotStart, mainEquipmentInventorySlotEnd
 	switch listType {
 	case wireListMain:
@@ -1590,6 +1601,9 @@ func nextEmptyUnequipInventorySlot(items map[string]dnfrepo.ItemStack, listType 
 	}
 	if requested < start || requested > end {
 		return 0, false
+	}
+	if len(states) > 0 {
+		end = dnfplacement.OpenRangeEnd(listType, start, end, states[0])
 	}
 	for slot := requested; slot <= end; slot++ {
 		if _, occupied := items[inventoryKey(listType, slot)]; !occupied {
@@ -1709,6 +1723,9 @@ func (o *Owner) loadMoveRecords(ctx context.Context, characterID string) (dnfrep
 	}
 	if !ok {
 		return dnfrepo.InventoryRecord{}, dnfrepo.EquipmentRecord{}, ErrInventoryNotFound
+	}
+	if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+		return dnfrepo.InventoryRecord{}, dnfrepo.EquipmentRecord{}, err
 	}
 	equipment, ok, err := o.equipment.Load(ctx, characterID)
 	if err != nil {

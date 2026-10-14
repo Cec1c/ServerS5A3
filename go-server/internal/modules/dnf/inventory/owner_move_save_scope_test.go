@@ -461,6 +461,7 @@ func TestMoveThreadsExactlyChangedKeys(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			repo := &recordingMoveRepository{loaded: moveTestInventoryRecord()}
+			repo.loaded.ContainerState = &dnfrepo.CharacterContainerState{MainSlotCount: 24, PersonalCargoSlotCount: 200}
 			group := dnfrepo.Group{
 				Inventory:        repo,
 				CharacterItems:   recordingMoveUnitOfWork{inventory: repo},

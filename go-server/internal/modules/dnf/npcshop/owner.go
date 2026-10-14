@@ -48,6 +48,7 @@ type Command struct {
 // character wallet, and character inventory commit. Current-client packet
 // rows and PVF projections remain in the bridge.
 type Owner struct {
+	settings    dnfrepo.SettingsRepository
 	settlements dnfrepo.CharacterSettlementUnitOfWork
 }
 
@@ -55,7 +56,7 @@ func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.CharacterSettlement == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{settlements: repositories.CharacterSettlement}, nil
+	return &Owner{settings: repositories.Settings, settlements: repositories.CharacterSettlement}, nil
 }
 
 func (o *Owner) Mutate(ctx context.Context, command Command) error {
@@ -121,6 +122,9 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 		}
 
 		character = dnfrepo.CloneCharacter(character)
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		accountInventory = dnfrepo.CloneAccountInventory(accountInventory)
 		accountInventory.AccountID = accountID

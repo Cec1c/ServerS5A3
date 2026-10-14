@@ -327,11 +327,11 @@ func TestAccountCargoDepositFailureKeepsCommittedAckClosedAndRollsBack(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ResponseAllowed || len(got.UpperResponses) != 0 || len(got.PostActions) != 0 {
-		t.Fatalf("failed vault save still answered: %+v", got)
+	if !got.ResponseAllowed || len(got.UpperResponses) != 1 || !reflect.DeepEqual(got.UpperResponses[0].Body, []byte{0, 17, listTypeMain, listTypeAccountCargo}) || len(got.PostActions) != 0 {
+		t.Fatalf("保存失败必须返回原生失败，不能发成功或容器刷新: %+v", got)
 	}
-	if !strings.Contains(got.Reason, "禁止回成功包") {
-		t.Fatalf("reason=%q, want the blocked-ACK marker", got.Reason)
+	if !strings.Contains(got.Reason, "persistence injected account save failure") {
+		t.Fatalf("保存失败原因未保留: %q", got.Reason)
 	}
 	character := loadTestInventory(t, ctx, repos, "77")
 	if character.Slots[slotKey(listTypeMain, 21)].Count != 5 {

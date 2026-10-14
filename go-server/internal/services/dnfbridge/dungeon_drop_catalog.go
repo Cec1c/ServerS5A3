@@ -43,24 +43,25 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
-	ItemID            uint32
-	Kind              dungeonDropItemKind
-	PVFPath           string
-	AttachType        string
-	EquipmentType     string
-	Grade             int64
-	StackableType     string
-	EquipmentEffectID uint16
-	StackLimit        int64
-	SlotStart         int16
-	SlotEnd           int16
-	Durability        uint16
-	ExpirationDate    time.Time
-	UsablePeriodDays  int64
-	DailyDeleteItem   bool
-	Price             int64
-	PriceFound        bool
-	ActionType        string
+	ItemID             uint32
+	Kind               dungeonDropItemKind
+	PVFPath            string
+	AttachType         string
+	ImpossibleContents []string
+	EquipmentType      string
+	Grade              int64
+	StackableType      string
+	EquipmentEffectID  uint16
+	StackLimit         int64
+	SlotStart          int16
+	SlotEnd            int16
+	Durability         uint16
+	ExpirationDate     time.Time
+	UsablePeriodDays   int64
+	DailyDeleteItem    bool
+	Price              int64
+	PriceFound         bool
+	ActionType         string
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -253,6 +254,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 	}
 	definition := dungeonDropItemDefinition{ItemID: itemID, Kind: reference.kind, PVFPath: docPath}
 	definition.AttachType, _ = document.Text("attach type")
+	definition.ImpossibleContents = document.Texts("impossible contents")
 	if price, found := document.Int("price"); found && price >= 0 {
 		definition.Price = price
 		definition.PriceFound = true

@@ -18,6 +18,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/creaturestate"
 	dnfequip "longheng.io/server/internal/modules/dnf/equip"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrevivecoin "longheng.io/server/internal/modules/dnf/revivecoin"
@@ -110,6 +111,7 @@ const (
 // 当前只改 repository 状态；旧客户端 ACK/刷新顺序必须在 EXE 证据闭合后再开放。
 type Owner struct {
 	cardSettings  dnfrepo.SettingsRepository
+	settings      dnfrepo.SettingsRepository
 	repo          dnfrepo.InventoryRepository
 	accountRepo   dnfrepo.AccountInventoryRepository
 	accounts      dnfrepo.AccountRepository
@@ -157,6 +159,7 @@ type MoveResult struct {
 	RefreshListTypes     []byte
 	Refresh              map[byte]map[string]dnfrepo.ItemStack
 	Changed              bool
+	ItemSlotRefreshes    []alignedcmd.ItemSlotRefresh
 }
 
 // SortResult 描述一次整理物品栏的写库结果；Refresh 是上层构造 0x000D 全量刷新所需的列表快照。
@@ -340,6 +343,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 	}
 	return &Owner{
 		cardSettings:  repos.Settings,
+		settings:      repos.Settings,
 		repo:          repos.Inventory,
 		accountRepo:   repos.AccountInventory,
 		accounts:      repos.Account,
@@ -710,7 +714,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return MoveResult{}, err
 	}
@@ -729,6 +733,10 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 
 	srcItems, srcField := itemMapForList(&record, cmd.SourceListType)
 	dstItems, dstField := itemMapForList(&record, cmd.DestinationListType)
+	cmd, err = planCargoMove(cmd, srcItems, dstItems, record.ContainerState, 0)
+	if err != nil {
+		return MoveResult{}, err
+	}
 	srcKey := slotKey(cmd.SourceListType, cmd.SourceSlotIndex)
 	dstKey := slotKey(cmd.DestinationListType, cmd.DestinationSlotIndex)
 	result := MoveResult{
@@ -742,6 +750,9 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 	}
 	if srcField == dstField && srcKey == dstKey {
 		return result, nil
+	}
+	if err := validateMovePlacement(cmd, srcItems, dstItems, record.ContainerState); err != nil {
+		return MoveResult{}, err
 	}
 
 	source, sourceOK := srcItems[srcKey]
@@ -764,9 +775,9 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		if cmd.SourceListType == cmd.DestinationListType {
 			excludedSlots = append(excludedSlots, cmd.DestinationSlotIndex)
 		}
-		if !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
+		if allowMoveAutoMerge(cmd) && !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
 			if targetSlot, target, ok := findCompatibleStackSlot(
-				srcItems,
+				moveMergeCandidates(srcItems, cmd, destination, cmd.SourceListType, record.ContainerState),
 				cmd.SourceListType,
 				destination,
 				moveCount,
@@ -840,9 +851,9 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		if cmd.SourceListType == cmd.DestinationListType {
 			excludedSlots = append(excludedSlots, cmd.SourceSlotIndex)
 		}
-		if !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
+		if allowMoveAutoMerge(cmd) && !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
 			if targetSlot, target, ok := findCompatibleStackSlot(
-				dstItems,
+				moveMergeCandidates(dstItems, cmd, source, cmd.DestinationListType, record.ContainerState),
 				cmd.DestinationListType,
 				source,
 				moveCount,
@@ -1058,7 +1069,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return SortResult{}, err
 	}
@@ -1093,7 +1104,18 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 	if !ok {
 		return result, nil
 	}
+	if cmd.SourceListType == listTypePersonalCargo && record.ContainerState != nil && record.ContainerState.PersonalCargoSlotCount > 0 {
+		if capacityEnd := int16(record.ContainerState.PersonalCargoSlotCount) - 1; capacityEnd > end {
+			end = capacityEnd
+		}
+	}
 	candidates := sortCandidates(items, cmd.SourceListType, start, end)
+	// 旧越界行参与容量核对；装不下时拒绝整次整理，保留所有真实物品。
+	end = dnfplacement.OpenRangeEnd(cmd.SourceListType, start, end, record.ContainerState)
+	if len(candidates) > int(end-start+1) {
+		return SortResult{}, ErrMoveSlotLocked
+	}
+	result.EndSlot = end
 	result.MovedCount = len(candidates)
 	if len(candidates) == 0 {
 		return result, nil
@@ -1141,6 +1163,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		return SortResult{}, err
 	}
 	result.Changed = true
+
 	return result, nil
 }
 
@@ -1363,7 +1386,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		return result, nil
 	}
 
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return UpgradeResult{}, err
 	}
@@ -1601,6 +1624,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 			// 与开关见 upgrade_destroy_bonus.go：旧代码无条件 firstEmptyUpgradeSlot()，
 			// 于是每摧毁一把武器就多一行（现场角色 6 的 3243 四行同源）。
 			if cmd.UpgradeDestroyBonusItemID > 0 && cmd.UpgradeDestroyBonusCount > 0 {
+				cmd.UpgradeDestroyBonusContainer.ContainerState = record.ContainerState
 				placement, ok := placeUpgradeDestroyBonus(
 					items,
 					int64(cmd.UpgradeDestroyBonusItemID),
@@ -2419,7 +2443,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return UseStackableResult{}, err
 	}
@@ -2464,7 +2488,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		RandomRewardEffectIndex: outcome.EffectIndex,
 	}
 	if outcome.Reward.ItemID > 0 {
-		slots, err := grantRandomRewardItem(record.Slots, outcome.Reward, 1)
+		slots, err := grantRandomRewardItem(record.Slots, outcome.Reward, 1, record.ContainerState)
 		if err != nil {
 			return UseStackableResult{}, err
 		}
@@ -2514,7 +2538,11 @@ func chooseRandomRewardItemOutcome(outcomes []alignedcmd.RandomRewardItemOutcome
 // 189..238（resolveCurrentMagicBoxRewardItem 按 stackable type 给出）。旧代码
 // 硬要求 `reward.TargetListType == listTypeMain`，于是"开出宠物饲料"的盒子整个
 // 使用请求以 ErrRandomRewardContractRequired 失败（玩家看到用了没反应）。
-func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64) ([]int16, error) {
+func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64, states ...*dnfrepo.CharacterContainerState) ([]int16, error) {
+	var state *dnfrepo.CharacterContainerState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	if count <= 0 {
 		return nil, nil
 	}
@@ -2538,6 +2566,9 @@ func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd
 	// dnfrepo.CanMergeItemStack 做"缺省即兼容"的比较，发放来源之类的记账键不参与。
 	incoming := randomRewardGrantIdentity(reward)
 	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+		if !dnfplacement.SlotOpen(reward.TargetListType, slot, state) {
+			continue
+		}
 		key := slotKey(targetListType, slot)
 		stack, found := items[key]
 		if !found || stack.ItemID != reward.ItemID || stack.Count <= 0 || reward.StackLimit == 1 ||
@@ -2563,6 +2594,9 @@ func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd
 		markChanged(slot)
 	}
 	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+		if !dnfplacement.SlotOpen(reward.TargetListType, slot, state) {
+			continue
+		}
 		key := slotKey(targetListType, slot)
 		if _, occupied := items[key]; occupied {
 			continue
@@ -3445,6 +3479,23 @@ func saveMoveResult(
 		return MoveResult{}, err
 	}
 	result.Changed = true
+	if keys != nil {
+		for _, listKeys := range keys.keys {
+			for _, key := range listKeys {
+				list, slot, ok := parseSlotKey(key)
+				if ok {
+					result.ItemSlotRefreshes = append(result.ItemSlotRefreshes, alignedcmd.ItemSlotRefresh{ListType: list, SlotIndex: slot})
+				}
+			}
+		}
+		sort.Slice(result.ItemSlotRefreshes, func(i, j int) bool {
+			left, right := result.ItemSlotRefreshes[i], result.ItemSlotRefreshes[j]
+			if left.ListType != right.ListType {
+				return left.ListType < right.ListType
+			}
+			return left.SlotIndex < right.SlotIndex
+		})
+	}
 	return result, nil
 }
 

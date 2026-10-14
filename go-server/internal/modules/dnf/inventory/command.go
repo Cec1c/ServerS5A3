@@ -7,10 +7,14 @@ import (
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // Command 是 inventory handler 交给后续 inventory/equipment/wallet owner 的最小命令计划。
 type Command struct {
+	ItemPlacement          func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	CargoInsert            func(dnfrepo.ItemStack, byte) error
 	Operation              string
 	AccountID              string
 	SelectedCharacterID    uint16
@@ -118,11 +122,16 @@ func NewDeleteCommand(req alignedcmd.Request, parsed DeleteRequest) Command {
 // NewMoveCommand 构造移动或拆分物品命令计划。
 func NewMoveCommand(req alignedcmd.Request, parsed MoveItemspaceRequest) Command {
 	cmd := baseCommand(req, "move_itemspace", "inventory/equipment/cargo owner + mutation id + backpack/USERINFO/NOTI order")
+	cmd.CargoInsert = req.InventoryCargoInsert
 	cmd.SourceListType = parsed.SourceListType
 	cmd.SourceSlotIndex = parsed.SourceSlotIndex
 	cmd.SourceInstanceValue = parsed.SourceInstanceValue
 	cmd.MoveCount = parsed.MoveCount
 	cmd.DestinationListType = parsed.DestinationListType
+	// 本次PVF分类校验用于金库存取；非金库移动保持原分类守卫的开关语义。
+	if isVaultContainerList(cmd.SourceListType) || isVaultContainerList(cmd.DestinationListType) {
+		cmd.ItemPlacement = req.InventoryItemPlacement
+	}
 	cmd.DestinationSlotIndex = parsed.DestinationSlotIndex
 	cmd.DestinationInstance = parsed.DestinationInstanceValue
 	cmd.DestinationStack = parsed.DestinationStack

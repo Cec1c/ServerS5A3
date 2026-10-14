@@ -591,3 +591,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
 - GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
 
+## 2026-10-15 - MR41 accepted integration with MR42
+
+- User confirmed personal and account cargo, the last slot and the full-cargo notice all pass native acceptance; the earlier last-slot report was withdrawn after retesting.
+- Resolve the inventory Owner conflict by retaining both cargo settings and monster-card settings. Align the mixed-grade card move regression with MR41's incompatible-stack rejection and verify both stacks remain unchanged before moving to an empty slot.
+- MR42 was already accepted and merged. This integration does not include unrelated unaccepted candidates, embedded GM code, runtime configuration or player data. Validation and exact merged-tree evidence are recorded separately.
+

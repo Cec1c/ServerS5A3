@@ -5,6 +5,7 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -145,7 +146,7 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		result, err := owner.Move(ctx, cmd)
 		if err != nil {
-			return ownerBlockedResult(cmd, err), nil
+			return ownerRejectedMoveResult(req.Opcode, cmd, err), nil
 		}
 		return ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketSortItem:
@@ -992,8 +993,8 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 		isMainPersonalCargoCrossList(cmd.SourceListType, cmd.DestinationListType)
 	if crossContainerStack {
 		itemSlotRefreshes = append(itemSlotRefreshes,
-			alignedcmd.ItemSlotRefresh{ListType: cmd.SourceListType, SlotIndex: cmd.SourceSlotIndex},
-			alignedcmd.ItemSlotRefresh{ListType: cmd.DestinationListType, SlotIndex: cmd.DestinationSlotIndex},
+			alignedcmd.ItemSlotRefresh{ListType: result.SourceListType, SlotIndex: result.SourceSlotIndex},
+			alignedcmd.ItemSlotRefresh{ListType: result.DestinationListType, SlotIndex: result.DestinationSlotIndex},
 		)
 	} else {
 		for _, listType := range result.RefreshListTypes {
@@ -1014,6 +1015,18 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 				// writes equipment Count over quality. Reuse the login projection
 				// at this response's position, with its wallet-read failure guard.
 				authoritativeListRefreshes = []byte{listTypeMain}
+			}
+		}
+	}
+	if result.Changed && len(itemSlotRefreshes) == 0 && len(result.RefreshListTypes) == 0 &&
+		(isVaultContainerList(cmd.SourceListType) || isVaultContainerList(cmd.DestinationListType)) {
+		rows := result.ItemSlotRefreshes
+		if len(rows) == 0 {
+			rows = []alignedcmd.ItemSlotRefresh{{ListType: result.SourceListType, SlotIndex: result.SourceSlotIndex}, {ListType: result.DestinationListType, SlotIndex: result.DestinationSlotIndex}}
+		}
+		for _, row := range rows {
+			if row.ListType == listTypeMain || row.ListType == listTypePersonalCargo || row.ListType == listTypeAvatar {
+				itemSlotRefreshes = append(itemSlotRefreshes, row)
 			}
 		}
 	}
@@ -1067,7 +1080,7 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 // 只有金库端点参与、且本次确实发生了落点重定向时才改写；背包内移动、装扮、勋章、
 // 宠物以及一切未重定向的移动都返回原 cmd，下行字节逐字节不变。
 func vaultCommittedMoveAckCommand(cmd Command, result MoveResult) Command {
-	if !result.Changed || (result.Mode != "auto_stack" && result.Mode != "auto_stack_reverse") ||
+	if !result.Changed ||
 		(!isVaultContainerList(cmd.SourceListType) && !isVaultContainerList(cmd.DestinationListType)) {
 		return cmd
 	}
@@ -1877,5 +1890,18 @@ func blockedParsedResult(operation string, summary string, err error) alignedcmd
 		ResponseAllowed: false,
 		Operation:       operation,
 		Reason:          fmt.Sprintf("已解析 %s：%s；资产写路径需接入 durable owner、事务、幂等和当前 EXE S2C 刷新顺序后才能回包", operation, summary),
+	}
+}
+
+func ownerRejectedMoveResult(opcode uint16, cmd Command, err error) alignedcmd.Result {
+	cargo := cmd.SourceListType == 2 || cmd.SourceListType == 12 || cmd.DestinationListType == 2 || cmd.DestinationListType == 12
+	known := errors.Is(err, ErrMoveSlotLocked) || errors.Is(err, ErrMoveItemPlacement) || errors.Is(err, ErrCargoIncompatibleStack) || errors.Is(err, ErrMoveCannotStack) || errors.Is(err, ErrMoveCannotSwap) || errors.Is(err, ErrCargoInsertRejected)
+	if cmd.SelectedCharacterID == 0 || (!cargo && !known) || errors.Is(err, ErrUnsupportedList) || errors.Is(err, ErrAccountRequired) {
+		return ownerBlockedResult(cmd, err)
+	}
+	return alignedcmd.Result{
+		Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+		Reason:         fmt.Sprintf("物品移动已拒绝，资产保持: %v", err),
+		UpperResponses: []alignedcmd.UpperResponse{class1Response(opcode, []byte{0, 17, cmd.SourceListType, cmd.DestinationListType})},
 	}
 }
