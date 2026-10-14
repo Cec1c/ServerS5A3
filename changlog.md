@@ -1,3 +1,9 @@
+## 2026-10-14 — 修复友好 APC 击杀后怪物残留、房间无法清空
+
+- 兼容当前官方客户端的死亡报文：击杀归属为 `0xffff` 时，允许携带服务端已宣告、仍存活的友好 APC 战斗贡献项。继续验证当前房间的普通怪物绑定；未知/敌对/未宣告 APC、跨房目标、教程及旧协议不因此放宽。
+- 复用既有死亡、经验、掉落与清房流程；重复死亡或通知写入失败后的重试仅补发权威死亡通知，不重新结算击杀奖励。保留跨房跟随 APC 的原对象标识。
+- 增加原生报文边界、拒绝路径、重复结算及传输失败回归，并用匹配 PVF 重建阿甘左协战房间，验证六只阻挡怪死亡及后续过图。游戏内画面效果仍需实机验收。
+
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
 - Own normal QA account10071/character108 bought two talismans490010214 on server703. Native inventory merged to slot3/count2, gold fell from1000992 to600992, and read-only SQL retained count2/week2962. Full normal client restart716 preserved the inventory, gold and expiry and displayed2/70. The live second purchase displayed3/70 and shop reopen retained3, so instantaneous display remained a real defect.
