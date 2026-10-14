@@ -20,6 +20,8 @@ type InventoryRecord struct {
 	Slots       map[string]ItemStack `json:"slots,omitempty"`
 	Warehouse   map[string]ItemStack `json:"warehouse,omitempty"`
 	UpdatedAt   time.Time            `json:"updated_at,omitempty"`
+	// ContainerState 是本次发放读取的容量快照，不写入背包表或物品元数据。
+	ContainerState *CharacterContainerState `json:"-"`
 }
 
 // ItemStack 是背包或仓库中的一组物品。
@@ -42,6 +44,7 @@ const (
 
 // SaveInventoryFields 保存背包指定字段；底层不支持局部保存时退化为整条保存。
 func SaveInventoryFields(ctx context.Context, repo InventoryRepository, record InventoryRecord, fields ...InventoryField) error {
+	record.ContainerState = nil
 	return db.SaveFields(ctx, repo, record, InventoryFields.Normalize, fields...)
 }
 
@@ -49,7 +52,31 @@ func SaveInventoryFields(ctx context.Context, repo InventoryRepository, record I
 func CloneInventory(record InventoryRecord) InventoryRecord {
 	record.Slots = cloneItemMap(record.Slots)
 	record.Warehouse = cloneItemMap(record.Warehouse)
+	if record.ContainerState != nil {
+		state := *record.ContainerState
+		record.ContainerState = &state
+	}
 	return record
+}
+
+// BindInventoryContainerState 读取真实扩容记录；未有扩容记录时保持基础容量，
+// 不创建设置行、不自动全开，也不隐藏已有越界物品。
+func BindInventoryContainerState(ctx context.Context, settings SettingsRepository, record *InventoryRecord) error {
+	if record == nil {
+		return ErrCharacterContainerStateInvalid
+	}
+	if settings == nil {
+		return nil
+	}
+	state, found, err := LoadCharacterContainerState(ctx, settings, record.CharacterID)
+	if err != nil {
+		return err
+	}
+	record.ContainerState = nil
+	if found {
+		record.ContainerState = &state
+	}
+	return nil
 }
 
 func InventoryKey(record InventoryRecord) string {

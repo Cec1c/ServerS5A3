@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
 )
@@ -14,22 +15,24 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
-	Command               byte
-	CommandKnown          bool
-	Opcode                uint16
-	Body                  []byte
-	AccountID             string
-	SelectedCharacterID   uint16
-	Repositories          dnfrepo.Group
-	EquipmentPlacement    EquipmentPlacementValidator
-	AvatarClassifier      AvatarClassifier
-	NameTagChecker        func(itemID uint32) bool
-	PetHatchResolver      PetHatchResolver
-	EnchantBeadResolver   EnchantBeadResolver
-	AmplifyItemResolver   AmplifyItemResolver
-	RandomOptionResolver  RandomOptionResolver
-	UpgradeTicketResolver UpgradeTicketResolver
-	UpgradePolicyResolver UpgradePolicyResolver
+	Command                byte
+	CommandKnown           bool
+	Opcode                 uint16
+	Body                   []byte
+	AccountID              string
+	SelectedCharacterID    uint16
+	Repositories           dnfrepo.Group
+	EquipmentPlacement     EquipmentPlacementValidator
+	InventoryItemPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	InventoryCargoInsert   func(dnfrepo.ItemStack, byte) error
+	AvatarClassifier       AvatarClassifier
+	NameTagChecker         func(itemID uint32) bool
+	PetHatchResolver       PetHatchResolver
+	EnchantBeadResolver    EnchantBeadResolver
+	AmplifyItemResolver    AmplifyItemResolver
+	RandomOptionResolver   RandomOptionResolver
+	UpgradeTicketResolver  UpgradeTicketResolver
+	UpgradePolicyResolver  UpgradePolicyResolver
 	// UpgradeProtectTicketResolver 让 op50 的"失败即摧毁"档能按运行时 PVF
 	// 认出背包里的装备强化/增幅保护券（`[action type] [protect equipment]` /
 	// `[amplify protect equipment]`）。为零时该档保持改动前的行为（直接摧毁），

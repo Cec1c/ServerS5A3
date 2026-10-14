@@ -61,6 +61,9 @@ func (o *Owner) moveAccountCargo(ctx context.Context, characterID string, cmd Co
 			cargo = dnfrepo.AccountInventoryRecord{AccountID: accountID}
 		}
 		character = dnfrepo.CloneInventory(character)
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &character); err != nil {
+			return err
+		}
 		cargo = dnfrepo.CloneAccountInventory(cargo)
 		character.CharacterID = characterID
 		cargo.AccountID = accountID
@@ -82,7 +85,7 @@ func (o *Owner) moveAccountCargo(ctx context.Context, characterID string, cmd Co
 		if err != nil {
 			return err
 		}
-		result, err = moveAccountCargoMaps(characterID, cmd, srcItems, dstItems, capacity)
+		result, err = moveAccountCargoMaps(characterID, cmd, srcItems, dstItems, capacity, character.ContainerState)
 		if err != nil || !result.Changed {
 			return err
 		}
@@ -149,8 +152,17 @@ func accountCargoItemMap(
 	}
 }
 
-func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems map[string]dnfrepo.ItemStack, capacity int16) (MoveResult, error) {
+func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems map[string]dnfrepo.ItemStack, capacity int16, states ...*dnfrepo.CharacterContainerState) (MoveResult, error) {
+	var state *dnfrepo.CharacterContainerState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	srcKey := slotKey(cmd.SourceListType, cmd.SourceSlotIndex)
+	var err error
+	cmd, err = planCargoMove(cmd, srcItems, dstItems, state, capacity)
+	if err != nil {
+		return MoveResult{}, err
+	}
 	dstKey := slotKey(cmd.DestinationListType, cmd.DestinationSlotIndex)
 	result := MoveResult{
 		CharacterID:          characterID,
@@ -163,6 +175,9 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 	}
 	if cmd.SourceListType == cmd.DestinationListType && srcKey == dstKey {
 		return result, nil
+	}
+	if err := validateMovePlacement(cmd, srcItems, dstItems, state); err != nil {
+		return MoveResult{}, err
 	}
 	source, sourceOK := srcItems[srcKey]
 	destination, destinationOK := dstItems[dstKey]
@@ -184,9 +199,9 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 		if cmd.SourceListType == cmd.DestinationListType {
 			excludedSlots = append(excludedSlots, cmd.DestinationSlotIndex)
 		}
-		if !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
+		if cmd.SourceListType != cmd.DestinationListType && !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
 			if targetSlot, target, ok := findCompatibleStackSlot(
-				accountCargoMergeCandidates(srcItems, cmd.SourceListType, capacity),
+				moveMergeCandidates(accountCargoMergeCandidates(srcItems, cmd.SourceListType, capacity), cmd, destination, cmd.SourceListType, state),
 				cmd.SourceListType,
 				destination,
 				moveCount,
@@ -236,9 +251,9 @@ func moveAccountCargoMaps(characterID string, cmd Command, srcItems, dstItems ma
 		if cmd.SourceListType == cmd.DestinationListType {
 			excludedSlots = append(excludedSlots, cmd.SourceSlotIndex)
 		}
-		if !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
+		if cmd.SourceListType != cmd.DestinationListType && !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
 			if targetSlot, target, ok := findCompatibleStackSlot(
-				accountCargoMergeCandidates(dstItems, cmd.DestinationListType, capacity),
+				moveMergeCandidates(accountCargoMergeCandidates(dstItems, cmd.DestinationListType, capacity), cmd, source, cmd.DestinationListType, state),
 				cmd.DestinationListType,
 				source,
 				moveCount,

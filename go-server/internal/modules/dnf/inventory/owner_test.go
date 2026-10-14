@@ -1177,7 +1177,7 @@ func TestOwnerSortMainSegmentPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sort error = %v", err)
 	}
-	if !result.Changed || result.Mode != "sort" || result.MovedCount != 3 || result.StartSlot != 9 || result.EndSlot != 64 {
+	if !result.Changed || result.Mode != "sort" || result.MovedCount != 3 || result.StartSlot != 9 || result.EndSlot != 40 {
 		t.Fatalf("result = %+v", result)
 	}
 
