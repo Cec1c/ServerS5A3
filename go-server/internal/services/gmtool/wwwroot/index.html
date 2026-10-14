@@ -13,6 +13,7 @@
     <div class="header-actions">
       <span id="status" class="status">连接中…</span>
 	  <button id="btn-activities" class="mini" type="button">活动管理</button>
+      <button id="btn-benefits" class="mini" type="button">测试福利</button>
       <button id="btn-inventory-anomalies" class="mini danger hidden" type="button">异常物品清理</button>
       <button id="btn-runtime-source" class="mini hidden" type="button">数据源</button>
       <button id="btn-logout" class="mini hidden" type="button">退出</button>
@@ -130,6 +131,45 @@
         <span id="activities-state" class="hint" aria-live="polite"></span>
       </div>
       <p class="hint">安徒恩频道与普通／单人选择由团本入口管理。这里列出当前服务器已实现的可选活动。</p>
+    </div>
+  </section>
+
+  <section id="benefits-panel" class="runtime-source-panel hidden" role="dialog" aria-modal="true" aria-labelledby="benefits-title">
+    <div class="runtime-source-dialog">
+      <div class="runtime-source-title-row"><h2 id="benefits-title">测试福利</h2><button id="btn-close-benefits" class="mini" type="button">关闭</button></div>
+      <p id="benefits-state" class="hint" aria-live="polite"></p>
+      <h3>新手额度</h3>
+      <p class="hint">留空或 0 表示关闭。保存后立即对后续注册／创建生效，不改已有余额。点券在注册时锁定额度，首次成功创建角色时到账一次，同账号角色共享；金币给每个新角色。</p>
+      <form id="benefits-policy-form">
+        <label>每个新账号初始点券 <input id="benefits-cera" type="number" min="0" max="2147483647" step="1" placeholder="关闭" /></label>
+        <label>每个新角色初始金币 <input id="benefits-gold" type="number" min="0" max="2147483647" step="1" placeholder="关闭" /></label>
+        <button id="benefits-save" type="submit" disabled>保存新手额度</button>
+      </form>
+      <hr />
+      <h3>全服物品邮件 · 新角色福利</h3>
+      <p class="hint">直接填写物品 ID 和数量，按当前 PVF 校验名称。同一规则每个角色只发一次，领取或删除邮件后仍保留记录。后续补发请复用同一规则；新建规则会独立发放。</p>
+      <form id="benefits-item-form">
+        <label>物品 ID <input id="benefits-item-id" type="number" min="1" max="2147483647" step="1" required placeholder="例如 490009735" /></label>
+        <label>每个角色数量 <input id="benefits-item-count" type="number" min="1" max="2147483647" step="1" required value="1" /></label>
+        <label>邮件标题 <input id="benefits-item-title" type="text" maxlength="60" required value="新角色福利" /></label>
+        <label>邮件正文 <textarea id="benefits-item-body" maxlength="240" rows="2">欢迎加入，请在游戏邮箱领取。</textarea></label>
+        <label class="benefits-checkbox"><input id="benefits-item-auto" type="checkbox" /> 后续新角色自动发放</label>
+        <p class="hint">新建规则默认停用。启用后，首次启用时间之后创建的角色由后台定时发放邮件；老角色需预览后手动补发。暂停再启用不清空记录，暂停期间创建的角色也可补领。</p>
+        <button id="benefits-item-create" type="submit">校验物品并保存停用规则</button>
+      </form>
+      <div id="benefits-campaigns"></div>
+      <hr />
+      <h3>全服金币邮件</h3>
+      <p class="hint">预览时已有的每个角色各一封，领取后金币到账。先预览名单，再确认发放；在线玩家可尝试重开邮箱，必要时重新登录。不覆盖角色现有金币。</p>
+      <form id="benefits-mail-form">
+        <label>每封邮件金币 <input id="benefits-mail-gold" type="number" min="1" max="2147483647" step="1" required placeholder="填写金额" /></label>
+        <label>邮件标题 <input id="benefits-mail-title" type="text" value="测试服金币福利" maxlength="60" required /></label>
+        <label>邮件正文 <textarea id="benefits-mail-body" maxlength="240" rows="2">供测试使用，请在游戏邮箱领取。</textarea></label>
+        <button id="benefits-preview" type="submit">预览收件角色</button>
+      </form>
+      <hr />
+      <div class="runtime-source-title-row"><h3>预览与发放记录（最近 20 批）</h3><button id="benefits-refresh" class="mini" type="button">刷新</button></div>
+      <div id="benefits-jobs"></div>
     </div>
   </section>
 
@@ -666,6 +706,7 @@
   <!-- 顺序即依赖: core 提供通用助手, bindings 必须最后(全部事件绑定与启动调用) -->
   <script src="js/core.js"></script>
   <script src="js/activities.js"></script>
+  <script src="js/benefits.js"></script>
   <script src="js/sidebar.js"></script>
 	<script src="js/premium.js"></script>
   <script src="js/environment.js"></script>

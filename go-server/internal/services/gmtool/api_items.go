@@ -381,7 +381,7 @@ func (s *Server) handleItemGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fingerprint := grantFingerprint(body)
-	if existing, ok := s.lookupGrant(requestID); ok {
+	if existing, ok := s.lookupGrant(requestID); ok && s.deps.Runtime == nil {
 		if existing.fingerprint != fingerprint {
 			writeFailure(w, "同一请求编号已用于不同的发放内容，请刷新页面后重试")
 			return
@@ -421,7 +421,7 @@ func (s *Server) handleItemGrant(w http.ResponseWriter, r *http.Request) {
 				"result", "applied")
 		}
 	}
-	mailID, err := dnfrepo.AppendSystemMail(ctx, group.Mailbox, dnfrepo.SystemMailDelivery{
+	delivery := dnfrepo.SystemMailDelivery{
 		RecipientCharacterID: character.CharacterID,
 		Title:                "GM物品发放",
 		Body:                 fmt.Sprintf("GM 已发放「%s」×%d，请在邮件中领取。", entry.Name, body.Count),
@@ -430,7 +430,14 @@ func (s *Server) handleItemGrant(w http.ResponseWriter, r *http.Request) {
 			{ItemID: int64(entry.ID), Count: int64(body.Count), ExpireAt: attachmentExpireAt, Extra: attachmentExtra},
 		},
 		CreatedAt: now,
-	})
+	}
+	var mailID string
+	var replayed bool
+	if s.deps.Runtime != nil {
+		mailID, replayed, err = sendItemMailOnce(ctx, group, character, requestID, fingerprint, delivery)
+	} else {
+		mailID, err = dnfrepo.AppendSystemMail(ctx, group.Mailbox, delivery)
+	}
 	if err != nil {
 		writeFailure(w, "邮件发放失败: "+err.Error())
 		return
@@ -442,7 +449,7 @@ func (s *Server) handleItemGrant(w http.ResponseWriter, r *http.Request) {
 		count:       body.Count,
 		at:          time.Now(),
 	})
-	writeOK(w, grantMailPayload(panelID, entry, body.Count, mailID, false))
+	writeOK(w, grantMailPayload(panelID, entry, body.Count, mailID, replayed))
 }
 
 func grantMailPayload(panelID int, entry itemEntry, count int, mailID string, replayed bool) map[string]any {

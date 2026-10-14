@@ -9,50 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/adminapi"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// J0：在线会话探针 + 写路由守卫（P2）。
-//
-// 这个文件不是"一次性判断"，而是 P3/P4/P5/P7 全部写批次共用的地基，三个部分：
-//
-//  1. 能力注入：`Deps.Online`（gmtool.go）是一个**可空**函数字段，由宿主
-//     `internal/services/dnfbridge/gmtool_service.go` 在装配时接到本进程真实的
-//     对局会话表上（`Service.onlineGameSession`，game_sessions.go:373 —— 与上游
-//     0.1.8 `dnfbridge/gm.go:450/524/...` 用的同一个判据）。gmtool 不持有会话表、
-//     也不 import dnfbridge，依赖方向保持单向。
-//  2. 开关：`DNFBRIDGE_GM_REQUIRE_OFFLINE`。**只有显式 `on` 才启用**；未设置/空/
-//     其它任何值（含 `true`/`1`/`yes`）= false = 不检查在线 = 逐字节今天的行为
-//     （与 equipment_slots.go:340-342 的 `EquipSlotQuestSyncFromEnv` 同一约定）。
-//  3. 安全降级：`Deps.Online == nil`（未注入）或面板主键超出会话表的 uint16 范围时，
-//     一律视为"未知/不在线"：放行 + 记一条 `gm-online-guard-probe-missing`。
-//     **绝不因为拿不到探针就 panic 或拒绝一切**。
-//
-// 作用域红线：守卫**只作用于 P2 起新增的写路由**。既有 35 条路由一个字节都不变 ——
-// 默认档下 `requireOffline` 在读 `cfg.RequireOffline` 后立刻返回 true，既不探针、
-// 也不写日志。绝不要把这个调用默认加到既有路由上（那会改变 route 26
-// `equipment-slots/unlock` 等既有路由的行为）。
-//
-// 后续批次新增写路由时的用法（顺序：解析角色 → 校验请求体 → 守卫 → 事务）：
-//
-//	ctx, group, panelID, character, ok := s.characterRequest(w, r)
-//	if !ok {
-//		return
-//	}
-//	// …请求体校验…
-//	if !s.requireOffline(w, "items-delete", panelID) {
-//		return
-//	}
-//	// …这里之后才允许写库…
-//
-// 账号级用法（P4 的 `container="account"`、P3 的账号晶块）需要"账号内其他角色在线"：
-// 探针原语同样是 `Deps.Online` —— 用 `group.Character.ListByAccount` 取该账号的角色，
-// 逐个 `probeCharacterID` + `characterOnline` 判定即可。P3 已按这份配方落地
-// `requireAccountOffline`（本文件底部），晶块写入与 `cargo_gold` 都在用。
-// 拿不到角色列表时**放行**（安全降级 + `gm-online-guard-probe-missing`），
-// 绝不因为一次仓储故障把整个面板锁死。
-
-// requireOfflineEnv 是"写路由是否要求目标角色离线"的开关名。
+// Independent GM queries the private runtime API and rejects guarded writes
+// when it cannot establish an offline state. The legacy callback mode remains
+// for fixtures; its historical opt-in behavior is preserved. Existing route
+// guards retain their scope; this does not claim an account-wide login lease.
 const requireOfflineEnv = "DNFBRIDGE_GM_REQUIRE_OFFLINE"
 
 // RequireOfflineFromEnv 解析 DNFBRIDGE_GM_REQUIRE_OFFLINE。
@@ -64,10 +28,7 @@ func RequireOfflineFromEnv(value string) bool {
 
 // RequireOfflineFromEnvironment 读取进程环境里的同一个开关。
 //
-// 为什么在这里直接 `os.Getenv` 而不走 `dnfbridge/options.go`：options.go 是本树
-// 改动最密集的文件（111 处 DNFBRIDGE_ 引用）且此刻有其它子代理在写，往里加字段
-// 是并发冲突风险；本仓已有"开关自读环境"的先例（dnfbridge/initial_town_login_owner.go:457
-// 的 currentLoginFallbackKeepsTown）。解析规则仍只有 RequireOfflineFromEnv 一处。
+// 仅保留兼容调用入口。独立 GM 装配直接启用 RequireOffline，不能用此环境变量关闭。
 func RequireOfflineFromEnvironment() bool {
 	return RequireOfflineFromEnv(os.Getenv(requireOfflineEnv))
 }
@@ -81,6 +42,13 @@ type onlineStatus struct {
 
 // characterOnline 询问注入的在线探针。未注入时返回 {false,false}。
 func (s *Server) characterOnline(characterID uint16) onlineStatus {
+	if s != nil && s.deps.Runtime != nil {
+		result, err := s.deps.Runtime.Call(context.Background(), adminapi.Request{Action: "online", CharacterID: characterID})
+		if err != nil {
+			return onlineStatus{}
+		}
+		return onlineStatus{online: result.Online, known: true}
+	}
 	if s == nil || s.deps.Online == nil {
 		return onlineStatus{}
 	}
@@ -120,12 +88,20 @@ func (s *Server) requireOffline(w http.ResponseWriter, action string, panelID in
 	}
 	characterID, probeable := probeCharacterID(panelID)
 	if !probeable {
+		if s.deps.Runtime != nil {
+			writeFailure(w, "无法确认角色在线状态，已拒绝写入")
+			return false
+		}
 		s.logEvent("gm-online-guard-probe-missing", "action", action, "panel_id", panelID,
 			"reason", "character_id_out_of_uint16_range")
 		return true
 	}
 	status := s.characterOnline(characterID)
 	if !status.known {
+		if s.deps.Runtime != nil {
+			writeFailure(w, "游戏管理接口不可用，无法确认离线，已拒绝写入")
+			return false
+		}
 		s.logEvent("gm-online-guard-probe-missing", "action", action, "panel_id", panelID,
 			"character_id", characterID, "reason", "probe_not_injected")
 		return true
@@ -136,7 +112,7 @@ func (s *Server) requireOffline(w http.ResponseWriter, action string, panelID in
 	s.logEvent("gm-online-guard-rejected", "action", action, "panel_id", panelID,
 		"character_id", characterID, "reason", "character_online")
 	writeFailure(w, fmt.Sprintf(
-		"角色 %d 正在游戏内在线，已拒绝本次写入；请让玩家退到选人界面后重试（面板开关 DNFBRIDGE_GM_REQUIRE_OFFLINE=on）。",
+		"角色 %d 正在游戏内在线，已拒绝本次写入；请让玩家退到选人界面后重试。",
 		panelID))
 	return false
 }
@@ -151,8 +127,8 @@ func (s *Server) requireOffline(w http.ResponseWriter, action string, panelID in
 // 与 requireOffline 完全同一条契约：
 //   - 默认档（cfg.RequireOffline=false）直接放行：不拉角色列表、不探针、不写日志；
 //   - 失败形态恒 HTTP 200 + success:false；
-//   - 探针未注入 / 角色号超出 uint16 / 角色列表读不出来 —— 一律**放行**并记
-//     `gm-online-guard-probe-missing`，绝不 panic、也绝不把整个账号锁死。
+//   - 独立 Runtime 模式遇到探针失败、无效身份或不完整角色列表时拒绝写入；
+//   - 旧回调模式保留原来的缺失探针放行与日志行为，仅用于兼容调用。
 //
 // 返回 false 表示已经写出失败响应，调用者必须立刻 return。
 func (s *Server) requireAccountOffline(
@@ -167,6 +143,28 @@ func (s *Server) requireAccountOffline(
 		return true
 	}
 	accountID = strings.TrimSpace(accountID)
+	if s.deps.Runtime != nil {
+		if accountID == "" || group.Character == nil {
+			writeFailure(w, "无法核对账号角色，已拒绝写入")
+			return false
+		}
+		records, err := group.Character.ListByAccount(ctx, accountID, dnfrepo.DefaultCharacterSlotLimit+1)
+		if err != nil || len(records) > dnfrepo.DefaultCharacterSlotLimit {
+			writeFailure(w, "无法完整核对账号角色，已拒绝写入")
+			return false
+		}
+		for _, record := range records {
+			id, err := strconv.Atoi(record.CharacterID)
+			if err != nil || record.AccountID != accountID {
+				writeFailure(w, "账号角色数据不一致，已拒绝写入")
+				return false
+			}
+			if !s.requireOffline(w, action, id) {
+				return false
+			}
+		}
+		return true
+	}
 	if accountID == "" {
 		s.logEvent("gm-online-guard-probe-missing", "action", action, "panel_id", panelID,
 			"reason", "account_id_missing")
@@ -210,7 +208,7 @@ func (s *Server) requireAccountOffline(
 		"account_id", accountID, "online_characters", strings.Join(online, ","),
 		"reason", "account_character_online")
 	writeFailure(w, fmt.Sprintf(
-		"账号 %s 内仍有角色在线（角色 %s），账号级数据会被在线会话缓存，已拒绝本次写入；请让玩家退到选人界面后重试（面板开关 DNFBRIDGE_GM_REQUIRE_OFFLINE=on）。",
+		"账号 %s 内仍有角色在线（角色 %s），账号级数据会被在线会话缓存，已拒绝本次写入；请让玩家退到选人界面后重试。",
 		accountID, strings.Join(online, ", ")))
 	return false
 }

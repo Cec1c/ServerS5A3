@@ -5,10 +5,20 @@ import (
 	"io"
 	"net/http"
 
+	"longheng.io/server/internal/modules/dnf/adminapi"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
 )
 
 func (s *Server) handleActivities(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Runtime != nil {
+		result, err := s.deps.Runtime.Call(r.Context(), adminapi.Request{Action: "activities"})
+		if err != nil || result.Activities == nil {
+			writeFailure(w, "游戏活动接口不可用")
+			return
+		}
+		writeOK(w, map[string]any{"activityControls": result.Activities})
+		return
+	}
 	if s.deps.Activities == nil {
 		writeFailure(w, "当前服务未接入活动管理")
 		return
@@ -17,7 +27,7 @@ func (s *Server) handleActivities(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSaveActivities(w http.ResponseWriter, r *http.Request) {
-	if s.deps.Activities == nil {
+	if s.deps.Activities == nil && s.deps.Runtime == nil {
 		writeFailure(w, "当前服务未接入活动管理")
 		return
 	}
@@ -50,7 +60,21 @@ func (s *Server) handleSaveActivities(w http.ResponseWriter, r *http.Request) {
 		}
 		changes = append(changes, onlineevent.ControlChange{ID: row.ID, Enabled: *row.Enabled})
 	}
-	snapshot, err := s.deps.Activities.Save(r.Context(), *request.Revision, changes)
+	var snapshot onlineevent.ControlSnapshot
+	var err error
+	if s.deps.Runtime != nil {
+		var result adminapi.Response
+		result, err = s.deps.Runtime.Call(r.Context(), adminapi.Request{Action: "save_activities", Revision: *request.Revision, Changes: changes})
+		if err == nil && result.Activities == nil {
+			writeFailure(w, "游戏活动接口响应无效")
+			return
+		}
+		if err == nil {
+			snapshot = *result.Activities
+		}
+	} else {
+		snapshot, err = s.deps.Activities.Save(r.Context(), *request.Revision, changes)
+	}
 	if err != nil {
 		writeFailure(w, err.Error())
 		return

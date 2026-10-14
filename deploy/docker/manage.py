@@ -2,9 +2,11 @@
 import argparse
 import hashlib
 import ipaddress
+import itertools
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import socket
@@ -52,6 +54,54 @@ def detect_ip():
 
 def build():
     run("docker", "build", "-t", IMAGE, "-f", ROOT / "deploy/docker/Dockerfile", ROOT)
+
+
+def build_gm(image):
+    run("docker", "build", "-t", image, "-f", ROOT / "deploy/docker/Dockerfile.gm", ROOT)
+
+
+def gm_settings(c, catalog, port):
+    if port is None:
+        return None
+    token = c.get("player_admin_secret") or c["admin_token"]
+    if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32,128}", token):
+        raise ValueError("Independent GM requires a generated private game admin secret")
+    checksum = catalog.get("pvf_sha256", "")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", checksum):
+        raise ValueError("Independent GM requires the actual PVF manifest SHA256")
+    network = ipaddress.ip_network(c["subnet"])
+    reserved = {ipaddress.ip_address(c[key]) for key in ("server_ip", "database_ip")}
+    reserved.add(next(network.hosts()))
+    candidate = c.get("gm_ip") or next((str(ip) for ip in itertools.islice(network.hosts(), 1, 32) if ip not in reserved), None)
+    if candidate is None:
+        raise ValueError("No separate GM address available in subnet")
+    address = ipaddress.ip_address(private_ipv4(candidate))
+    if address not in network or address in reserved or address in (network.network_address, network.broadcast_address):
+        raise ValueError("gm_ip must be a distinct usable address in subnet")
+    dsn = f"dnf:{c['database_password']}@tcp({c['database_ip']}:3306)/dnf_local?parseTime=true&charset=utf8mb4&loc=UTC"
+    return {"listen": f"{address}:{port}", "password": c["gm_password"],
+            "registrationDsn": dsn, "repositoryDsn": dsn,
+            "accountTable": "dnf90_web_accounts", "databases": ["dnf_local"], "tablePrefix": "dnf",
+            "pvfPath": "/assets/Script.pvf", "pvfSha256": checksum,
+            "itemIndexPath": "/runtime/item-index.json",
+            "gameApi": f"http://{c['server_ip']}:17002/api/game/admin", "gameToken": token, "scanSeconds": 30}
+
+
+def gm_port(config, catalog, bootstrap):
+    """Opt-in GM stays on host loopback and reuses the private account DSN."""
+    enabled = config.get("gm_enabled", False)
+    if type(enabled) is not bool:
+        raise ValueError("gm_enabled must be a boolean")
+    if not enabled:
+        return None
+    password = config.get("gm_password", "")
+    if not isinstance(password, str) or not re.fullmatch(r"[0-9a-f]{32,128}", password):
+        raise ValueError("gm_password must be a generated hex secret of at least 32 characters")
+    port = config.get("gm_port", 18112)
+    reserved = {3306, 7001, 17002, 18111, bootstrap, *catalog["ports"]}
+    if type(port) is not int or not 1024 <= port <= 65535 or port in reserved or 30000 <= port <= 30063:
+        raise ValueError("gm_port must not overlap game, bootstrap or existing management ports")
+    return port
 
 
 def compose(*args):
@@ -145,6 +195,8 @@ def prepare(args):
 
 
 def generate(c, catalog):
+    management_port = gm_port(c, catalog, 27001)
+    gm = gm_settings(c, catalog, management_port)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
         directory.mkdir(parents=True, exist_ok=True)
@@ -226,6 +278,8 @@ create_databases = false
         "GOMEMLIMIT": c.get("go_memory_limit", "3500MiB"),
         "TZ": c.get("timezone", "Asia/Shanghai"),
     }
+    if management_port is not None:
+        env["DNFBRIDGE_PLAYER_ADMIN_SECRET"] = gm["gameToken"]
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}
@@ -252,6 +306,21 @@ create_databases = false
     }
     if c.get("database_memory_limit"):
         spec["services"]["db"]["mem_limit"] = c["database_memory_limit"]
+    if management_port is not None:
+        write(RUNTIME / "gm/config.json", json.dumps(gm, indent=2) + "\n")
+        (RUNTIME / "gm/state").mkdir(parents=True, exist_ok=True)
+        spec["services"]["gm"] = {
+            "image": c.get("gm_image", "servers5a3-gm:dev"), "init": True,
+            "environment": {"GOMEMLIMIT": c.get("gm_go_memory_limit", "768MiB")},
+            "user": spec["services"]["server"]["user"],
+            "command": ["--config", "/config/gm.json", "--init-schema"],
+            "volumes": ["./gm/config.json:/config/gm.json:ro", "./gm/state:/runtime", "./data/Script.pvf:/assets/Script.pvf:ro"],
+            "networks": {"private": {"ipv4_address": gm["listen"].rsplit(":", 1)[0]}},
+            "depends_on": {"db": {"condition": "service_healthy"}},
+            "ports": [f"127.0.0.1:{management_port}:{management_port}/tcp"],
+            "mem_limit": c.get("gm_memory_limit", "2g"), "logging": logging,
+            "healthcheck": {"test": ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", f"http://{gm['listen']}/api/status"],
+                            "start_period": "180s", "interval": "15s", "timeout": "5s", "retries": 12}}
     for service in spec["services"].values():
         service["restart"] = c.get("restart", "no")
     write(RUNTIME / "compose.json", json.dumps(spec, indent=2) + "\n")
@@ -260,7 +329,8 @@ create_databases = false
 def main():
     global RUNTIME, PROJECT, IMAGE
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "build", "up", "down", "status", "logs"))
+    parser.add_argument("action", choices=("prepare", "build", "build-gm", "up", "up-gm", "down", "status", "logs"))
+    parser.add_argument("--gm-image", default="servers5a3-gm:dev")
     parser.add_argument("--pvf")
     parser.add_argument("--host-ip")
     parser.add_argument("--client-dir")
@@ -272,6 +342,14 @@ def main():
     RUNTIME, PROJECT, IMAGE = args.runtime_dir.resolve(), args.project, args.image
     if args.action == "build":
         build()
+    elif args.action == "build-gm":
+        build_gm(args.gm_image)
+    elif args.action == "up-gm":
+        # Configuration is reviewed/generated separately. Never restart game or DB.
+        spec = json.loads((RUNTIME / "compose.json").read_text(encoding="utf-8"))
+        if "gm" not in spec.get("services", {}):
+            raise ValueError("Generate the independent GM configuration first")
+        compose("up", "-d", "--no-deps", "--wait", "--wait-timeout", "300", "gm")
     elif args.action == "prepare":
         prepare(args)
     elif args.action == "up":

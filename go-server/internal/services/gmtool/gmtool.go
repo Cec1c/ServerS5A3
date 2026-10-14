@@ -27,9 +27,11 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"longheng.io/server/internal/modules/dnf/adminapi"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/testbenefits"
 )
 
 //go:embed wwwroot
@@ -98,32 +100,19 @@ type Config struct {
 	Logger          func(string, ...any)
 }
 
-// Deps 是 gmtool 需要宿主注入的运行时依赖。
+// Deps binds shared domain repositories and private game-runtime capabilities.
+// Production uses an independent database/PVF and Runtime HTTP client. Local
+// callbacks are retained for isolated fixtures and domain-only embedding.
 type Deps struct {
-	Activities *onlineevent.Controls
-	// Repos 返回 DNF 仓储组；未就绪时返回 false。
-	Repos func() (dnfrepo.Group, bool)
-	// PVF 返回当前运行时 PVF。
-	PVF func() (dnfpvf.Source, error)
-	// PremiumTypes exposes only contract types registered in the runtime PVF.
-	PremiumTypes func() ([]int64, error)
-	// Online 是**可选**的在线会话探针（J0）：返回该角色是否仍在对局会话里。
-	// 由 dnfbridge/gmtool_service.go 接到 Service.onlineGameSession 上。
-	// 未注入（nil）时在线守卫安全降级为"未知/不在线"并记一条具名日志，
-	// 绝不 panic、也不拒绝一切（见 online_guard.go）。
-	Online func(characterID uint16) bool
-	// CrystalCubeItemIDs 是**可选**的账号晶块商品表（J7）：返回 6 个原生槽位
-	// （黑/白/红/蓝/透明/金）的物品 id，顺序即 selection 0..5。
-	// 由 dnfbridge/gmtool_service.go 接到本进程唯一的解析结果
-	// （Service.currentPremiumCatalog().crystalCubeIDs，premium_pvf.go:126-153）。
-	// 未注入或返回 0/负数时，晶块读/写都**明确失败**，绝不填 0（上游 gm_extended.go:407）。
+	Runtime            *adminapi.Client
+	Benefits           *testbenefits.Store
+	Activities         *onlineevent.Controls
+	Repos              func() (dnfrepo.Group, bool)
+	PVF                func() (dnfpvf.Source, error)
+	PremiumTypes       func() ([]int64, error)
+	Online             func(characterID uint16) bool
 	CrystalCubeItemIDs func() ([6]int64, error)
-	// EncodeStackRow 是**可选**的物品行编码器（J7）：把 (listType, slot, stack)
-	// 编码成当前客户端 0x77 行字节。由 dnfbridge/gmtool_service.go 包住本进程
-	// 唯一的编码器 currentItemListEntryFromStack（current_item_list_stack_projection.go:27）。
-	// 未注入时晶块写入仍会落 ItemID/Count/Extra，只是不写 RawEntry —— 见
-	// api_account_cubes.go 的 D4，不会凭空造字节。
-	EncodeStackRow func(listType byte, slot int16, stack dnfrepo.ItemStack) []byte
+	EncodeStackRow     func(listType byte, slot int16, stack dnfrepo.ItemStack) []byte
 }
 
 // Server 是 GM 面板的 HTTP 服务。
@@ -196,7 +185,7 @@ func New(cfg Config, deps Deps) (*Server, error) {
 	}
 	// 开关开着却没有探针 = 守卫全程降级（放行 + 每次记 gm-online-guard-probe-missing）。
 	// 启动时说清楚，避免操作者以为"已经拦住在线角色"。
-	if cfg.RequireOffline && deps.Online == nil {
+	if cfg.RequireOffline && deps.Online == nil && deps.Runtime == nil {
 		cfg.Logger("gm-online-guard-probe-missing", "action", "startup", "reason", "probe_not_injected")
 	}
 	server.items = newItemIndex(cfg.ItemIndexCachePath, server, cfg.Logger)
@@ -278,6 +267,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/environment", s.envHandleInfo)
 	mux.HandleFunc("GET /api/activities", s.handleActivities)
 	mux.HandleFunc("POST /api/activities", s.handleSaveActivities)
+	mux.HandleFunc("GET /api/benefits", s.handleBenefits)
+	mux.HandleFunc("POST /api/benefits/campaigns", s.handleBenefitsCampaignCreate)
+	mux.HandleFunc("POST /api/benefits/campaigns/{id}/state", s.handleBenefitsCampaignState)
+	mux.HandleFunc("POST /api/benefits/campaigns/{id}/preview", s.handleBenefitsCampaignPreview)
+	mux.HandleFunc("POST /api/benefits/policy", s.handleBenefitsPolicy)
+	mux.HandleFunc("POST /api/benefits/preview", s.handleBenefitsPreview)
+	mux.HandleFunc("POST /api/benefits/jobs/{id}/run", s.handleBenefitsRun)
 	// 账号金库（api_account_cargo.go）：扩容 / 清空 / 删除单条，都走既有金库 owner 写入路径。
 	mux.HandleFunc("POST /api/accounts/{id}/cargo/max", s.handleAccountCargoMax)
 	mux.HandleFunc("POST /api/accounts/{id}/cargo/clear", s.handleAccountCargoClear)

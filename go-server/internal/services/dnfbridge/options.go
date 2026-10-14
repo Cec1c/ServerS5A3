@@ -13,7 +13,6 @@ import (
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"longheng.io/server/internal/platform/config"
 	platformpvf "longheng.io/server/internal/platform/pvf"
-	"longheng.io/server/internal/services/gmtool"
 )
 
 const (
@@ -693,6 +692,7 @@ type options struct {
 	// 注意：置 0 时按来源 IP 的那条兜底通道**已经不存在**（2026-09-25 删除，
 	// 见 client_account_ip.go），会话会直接落到共享兜底账号并写 WARN。
 	accountAPILoginToken bool
+	playerAdminSecret    string
 
 	// gameProactiveEndpointWhenUnbound 是握手顺序的回退开关
 	// （DNFBRIDGE_GAME_PROACTIVE_ENDPOINT_WHEN_UNBOUND=1）。
@@ -747,20 +747,6 @@ type options struct {
 	// 失败码 21 → 客户端「所持金币不足」）。
 	// 现场、逐字段读法与 DB 证据见 expert_job_gold_source.go 文件头。
 	expertJobGoldSource expertJobGoldSourceMode
-
-	// 90CN Web GM 面板（A21 前端 + 本进程仓储）。
-	gmListen        string
-	gmPassword      string
-	gmDSN           string
-	gmTable         string
-	gmWWWRoot       string
-	gmItemIndexPath string
-	// gmEquipSlotQuestSync 控制 GM 面板「开启特殊装备槽」是否**同时**把运行时 PVF 里
-	// 授权该槽位的任务标成 completed。默认 false = 只写 ex_equip_slot_stat 的位，
-	// 与 A21 C# 工具、上游 0.1.8 的 dnfbridge/gm.go 以及本仓既有的
-	// cmd/scratch/grantlevel90loadout 三个参考实现逐字节同口径（见
-	// internal/services/gmtool/equipment_slots.go 的开关说明）。
-	gmEquipSlotQuestSync bool
 }
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
@@ -947,22 +933,12 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		accountAPITable:      envString("DNFBRIDGE_ACCOUNT_API_TABLE", defaultAccountAPITable),
 		accountAPIRegister:   envBool("DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER", true),
 		accountAPILoginToken: envBool("DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN", true),
+		playerAdminSecret:    envString("DNFBRIDGE_PLAYER_ADMIN_SECRET", ""),
 		// 握手顺序回退开关：置 1 才恢复"未绑定会话收主动端点成功包"的旧行为。
 		gameProactiveEndpointWhenUnbound: envBool("DNFBRIDGE_GAME_PROACTIVE_ENDPOINT_WHEN_UNBOUND", false),
 		patchDistDir:                     envString("DNFBRIDGE_PATCH_DIST_DIR", defaultPatchDistDir),
 		patchPayloadDir:                  envString("DNFBRIDGE_PATCH_DIR", defaultPatchPayloadDir),
 		tutorialDeferUserState:           envBool("DNFBRIDGE_TUTORIAL_DEFER_USER_STATE", true),
-
-		gmListen:        envString("DNFBRIDGE_GM_LISTEN", ""),
-		gmPassword:      envString("DNFBRIDGE_GM_PASSWORD", ""),
-		gmDSN:           envString("DNFBRIDGE_GM_DSN", ""),
-		gmTable:         envString("DNFBRIDGE_GM_ACCOUNT_TABLE", ""),
-		gmWWWRoot:       envString("DNFBRIDGE_GM_WWWROOT", ""),
-		gmItemIndexPath: envString("DNFBRIDGE_GM_ITEM_INDEX_PATH", ""),
-		// 只有显式 `on` 才启用（未设置/空/其它任何值都取默认 = 只写位）。
-		// 解析规则与实现同处一函数，避免"手滑的别名"改掉默认语义。
-		gmEquipSlotQuestSync: gmtool.EquipSlotQuestSyncFromEnv(
-			envString("DNFBRIDGE_GM_EQUIP_SLOT_QUEST_SYNC", "")),
 	}
 	// 单变量 A/B 开关（默认 zero = 现行为）：只影响副本内发给其他队员的 op2/op9 的
 	// owner 字节。非法取值回退默认并在启动时记一条日志。

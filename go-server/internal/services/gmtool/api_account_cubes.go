@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/adminapi"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -25,7 +26,7 @@ import (
 //	               parseCurrentCrystalContractCubes：按 stackable/stackable.lst 里
 //	               material/cubepiece_{black,white,red,blue,clear,gold}.stk 六个路径取 id）。
 //	               gmtool 不重写这段解析，改为经 Deps.CrystalCubeItemIDs 注入同一份结果
-//	               （装配点 dnfbridge/gmtool_service.go），避免第二套"商品表"实现。
+//	               （独立 GM 通过私有 catalog 接口获取），避免第二套"商品表"实现。
 //
 // 与上游 `gm_extended.go:379-505` 的逐段对拍：
 //
@@ -319,8 +320,18 @@ func (s *Server) handleSetAccountCube(w http.ResponseWriter, r *http.Request) {
 			if definition.StackLimit > 0 {
 				stack.Extra["stack_limit"] = strconv.FormatInt(definition.StackLimit, 10)
 			}
-			// 上游 :494-495：用本进程唯一的行编码器把 0x77 行重编码写回 RawEntry。
-			if s.deps.EncodeStackRow != nil {
+			// 上游 :494-495：复用游戏服的行编码器把 0x77 行重编码写回 RawEntry。
+			if s.deps.Runtime != nil {
+				projection, err := s.deps.Runtime.Call(ctx, adminapi.Request{Action: "encode_stack", ListType: dnfrepo.MainInventoryListType, Slot: slot, Stack: &stack})
+				if err != nil {
+					return err
+				}
+				if len(projection.StackRow) == 0 {
+					return fmt.Errorf("game stack projection unavailable")
+				}
+				stack.RawEntry = projection.StackRow
+				encoded = true
+			} else if s.deps.EncodeStackRow != nil {
 				stack.RawEntry = s.deps.EncodeStackRow(dnfrepo.MainInventoryListType, slot, stack)
 				encoded = len(stack.RawEntry) > 0
 			}

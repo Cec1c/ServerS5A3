@@ -26,6 +26,23 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 	if init.HasStats {
 		applyCharacterPVFStats(&record, init.Stats)
 	}
+	var welcomeCera int64
+	if s.testBenefits != nil {
+		policy, err := s.testBenefits.Policy(ctx)
+		if err != nil {
+			return fmt.Errorf("load character benefits: %w", err)
+		}
+		if policy.CharacterGold > 0 {
+			if record.Stats == nil {
+				record.Stats = make(map[string]int64)
+			}
+			record.Stats["gold"] = policy.CharacterGold
+		}
+		welcomeCera, err = s.testBenefits.SignupCera(ctx, record.AccountID)
+		if err != nil {
+			return fmt.Errorf("load signup benefits: %w", err)
+		}
+	}
 	var equipment *dnfrepo.EquipmentRecord
 	if built := initialEquipmentRecord(record.CharacterID, init.Equipment, now); len(built.Entries) > 0 {
 		equipment = &built
@@ -33,6 +50,7 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 	skill := initialSkillRecord(record, init, now)
 	settings := s.newCharacterCSharpDefaultSettings(ctx, record, now)
 	creation := dnfcharacterdata.Creation{
+		WelcomeCera: welcomeCera,
 		Account: &dnfrepo.AccountRecord{
 			AccountID: record.AccountID,
 			State:     "active",

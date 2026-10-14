@@ -359,6 +359,23 @@ header h1::before {
 
 .login-dialog { width: min(400px, 100%); }
 
+#benefits-panel h3 { margin: 18px 0 8px; }
+#benefits-panel .hint { margin: 8px 0 14px; line-height: 1.6; }
+#benefits-panel form { display: grid; gap: 12px; margin: 12px 0 20px; }
+#benefits-panel label { display: grid; gap: 6px; }
+#benefits-panel input, #benefits-panel textarea { width: 100%; }
+#benefits-panel textarea { padding: 9px; border: 1px solid var(--border, #30485c); border-radius: 4px; color: inherit; background: #172534; font: inherit; resize: vertical; }
+#benefits-panel .benefits-checkbox { display: flex; align-items: center; gap: 8px; }
+#benefits-panel input[type=checkbox] { width: auto; }
+#benefits-campaigns .card { margin-top: 12px; padding: 16px; overflow-wrap: anywhere; }
+#benefits-campaigns p { margin: 6px 0; }
+#benefits-campaigns button { margin: 6px 8px 0 0; }
+#benefits-panel form button { justify-self: start; }
+#benefits-jobs .card { margin-top: 12px; padding: 16px; overflow-wrap: anywhere; }
+#benefits-jobs p { margin: 6px 0; }
+#benefits-jobs ul { margin: 10px 0 14px; padding-left: 24px; }
+#benefits-jobs summary { cursor: pointer; margin: 12px 0; }
+
 .runtime-source-title-row,
 .runtime-source-actions {
   display: flex;
