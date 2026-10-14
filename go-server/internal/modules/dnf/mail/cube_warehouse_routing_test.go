@@ -139,7 +139,7 @@ func TestMailboxClaimKeepsCubeInBagWithoutWarehouseCreditor(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load inventory ok=%v error=%v", ok, err)
 	}
-	stack, found := inventory.Slots["0:3"]
+	stack, found := inventory.Slots["0:121"]
 	if !found || stack.ItemID != 3037 || stack.Count != 9999 {
 		t.Fatalf("inventory = %+v, want the cube still on the bag path (legacy)", inventory.Slots)
 	}
@@ -173,7 +173,7 @@ func TestMailboxClaimKeepsCubeInBagWhenResolverDoesNotMarkIt(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load inventory ok=%v error=%v", ok, err)
 	}
-	if stack := inventory.Slots["0:3"]; stack.ItemID != 3037 || stack.Count != 12 {
+	if stack := inventory.Slots["0:121"]; stack.ItemID != 3037 || stack.Count != 12 {
 		t.Fatalf("inventory = %+v, want the legacy bag placement", inventory.Slots)
 	}
 }

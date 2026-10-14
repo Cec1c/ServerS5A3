@@ -175,7 +175,11 @@ func TestOwnerApplyMagicBoxMergesExistingStacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := owner.ApplyMagicBox(ctx, magicBoxTestCommand(10, 121), staticMagicBoxResolver(magicBoxTestResolution()), staticMagicBoxRewardResolver(magicBoxTestRewardItems()))
+	rewards := magicBoxTestRewardItems()
+	reward := rewards[2600014]
+	reward.AllowQuickSlots, reward.PreferQuickSlots = true, true
+	rewards[2600014] = reward
+	result, err := owner.ApplyMagicBox(ctx, magicBoxTestCommand(10, 121), staticMagicBoxResolver(magicBoxTestResolution()), staticMagicBoxRewardResolver(rewards))
 	if err != nil {
 		t.Fatalf("ApplyMagicBox error = %v", err)
 	}

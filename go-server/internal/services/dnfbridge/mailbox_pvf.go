@@ -120,17 +120,20 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 		return alignedcmd.MailboxItemResolution{}, fmt.Errorf("mailbox item %d has invalid negative runtime-PVF price", definition.ItemID)
 	}
 	stackLimit := definition.StackLimit
+	policy := currentPVFItemPlacementPolicy(definition)
 	if definition.Kind == dungeonDropItemEquipment {
 		stackLimit = 1
 	}
 	resolution := alignedcmd.MailboxItemResolution{
-		Price:         definition.Price,
-		PVFPath:       definition.PVFPath,
-		Kind:          string(definition.Kind),
-		EquipmentType: definition.EquipmentType,
-		SlotStart:     definition.SlotStart,
-		SlotEnd:       definition.SlotEnd,
-		StackLimit:    stackLimit,
+		Price:           definition.Price,
+		PVFPath:         definition.PVFPath,
+		Kind:            string(definition.Kind),
+		EquipmentType:   definition.EquipmentType,
+		SlotStart:       definition.SlotStart,
+		SlotEnd:         definition.SlotEnd,
+		StackLimit:      stackLimit,
+		PreferQuickSlot: policy.PreferQuickSlots,
+		AllowQuickSlots: policy.AllowQuickSlots,
 	}
 	// 附件行本身可能没有实例到期时间（GM 面板发的邮件就是这样）。当前客户端把
 	// "到期时间为 0"渲染成"已超过使用期限"，所以这里按运行时 PVF 先算好创建期

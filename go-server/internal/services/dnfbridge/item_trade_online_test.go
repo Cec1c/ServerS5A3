@@ -27,7 +27,17 @@ func TestOnlineItemTradeProjectsOfferAndAtomicallyCommitsOnBothReady(t *testing.
 	if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "5", Slots: map[string]dnfrepo.ItemStack{}}); err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := newPVFDungeonDropCatalog(bridgePVFSource{
+		"monster/monster.lst":            "",
+		"stackable/stackable.lst":        "10008073 `trade_consumable.stk`\n",
+		"equipment/equipment.lst":        "",
+		"stackable/trade_consumable.stk": "[stackable type] `[waste]`\n[stack limit] 99\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{
+		pvfItemCatalog:     catalog,
 		options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
 		onlinePlayers:      newOnlinePlayerManager(),
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
@@ -122,7 +132,7 @@ func TestOnlineItemTradeProjectsOfferAndAtomicallyCommitsOnBothReady(t *testing.
 	if _, present := firstInventory.Slots["0:97"]; present {
 		t.Fatalf("source inventory still contains traded item: %+v", firstInventory.Slots)
 	}
-	if got := secondInventory.Slots["0:65"]; got.ItemID != 10008073 || got.Count != 1 {
+	if got := secondInventory.Slots["0:3"]; got.ItemID != 10008073 || got.Count != 1 {
 		t.Fatalf("recipient item = %+v", got)
 	}
 	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), 0)
@@ -143,7 +153,17 @@ func TestOnlineItemTradeCancelReturnsAssignedItemRowAndClearsState(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := newPVFDungeonDropCatalog(bridgePVFSource{
+		"monster/monster.lst":            "",
+		"stackable/stackable.lst":        "10008073 `trade_consumable.stk`\n",
+		"equipment/equipment.lst":        "",
+		"stackable/trade_consumable.stk": "[stackable type] `[waste]`\n[stack limit] 99\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{
+		pvfItemCatalog:     catalog,
 		options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
 		onlinePlayers:      newOnlinePlayerManager(),
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
@@ -192,7 +212,17 @@ func TestOnlineItemTradeProjectsAndAtomicallyCommitsGold(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	catalog, err := newPVFDungeonDropCatalog(bridgePVFSource{
+		"monster/monster.lst":            "",
+		"stackable/stackable.lst":        "10008073 `trade_consumable.stk`\n",
+		"equipment/equipment.lst":        "",
+		"stackable/trade_consumable.stk": "[stackable type] `[waste]`\n[stack limit] 99\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{
+		pvfItemCatalog:     catalog,
 		options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
 		onlinePlayers:      newOnlinePlayerManager(),
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
@@ -262,7 +292,7 @@ func assertOnlineItemTradeFinishPacket(t *testing.T, data []byte, wantCount uint
 			if len(packet.Body) < 2 || binary.LittleEndian.Uint16(packet.Body[:2]) != wantCount {
 				t.Fatalf("finish body = % X, want count %d", packet.Body, wantCount)
 			}
-			if wantCount == 1 && (len(packet.Body) != 6 || binary.LittleEndian.Uint16(packet.Body[2:4]) != 3 || binary.LittleEndian.Uint16(packet.Body[4:6]) != 65) {
+			if wantCount == 1 && (len(packet.Body) != 6 || binary.LittleEndian.Uint16(packet.Body[2:4]) != 3 || binary.LittleEndian.Uint16(packet.Body[4:6]) != 3) {
 				t.Fatalf("finish transfer body = % X", packet.Body)
 			}
 			return

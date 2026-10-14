@@ -1,10 +1,32 @@
 package dnfbridge
 
 import (
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"strings"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
+
+// currentPVFItemPlacementPolicy 将已有 PVF 容器分类转换为共同选格规则。
+// 主包消耗品优先快捷格；普通装备、材料/任务品等分类页满后使用快捷格，独立容器不回落。
+func currentPVFItemPlacementPolicy(definition dungeonDropItemDefinition) dnfplacement.SlotPolicy {
+	container := currentPVFItemTargetContainer(definition)
+	policy := dnfplacement.SlotPolicy{ListType: container.ListType, Start: container.SlotStart, End: container.SlotEnd}
+	if container.ListType != dnfrepo.MainInventoryListType {
+		return policy
+	}
+	if definition.Kind == dungeonDropItemEquipment {
+		policy.AllowQuickSlots = container.SlotStart == currentPVFMainEquipmentSlotStart && container.SlotEnd == currentPVFMainEquipmentSlotEnd
+		return policy
+	}
+	if definition.Kind != dungeonDropItemStackable ||
+		normalizeDungeonDropStackableType(definition.StackableType) == "" {
+		return policy
+	}
+	policy.AllowQuickSlots = container.SlotStart != currentPVFMainEmblemStart
+	policy.PreferQuickSlots = container.SlotStart == currentPVFMainConsumableStart && container.SlotEnd == currentPVFMainConsumableEnd
+	return policy
+}
 
 // 本文件是**"这次发放的道具应该落到哪个容器 / 哪一段"的唯一判定**。
 //

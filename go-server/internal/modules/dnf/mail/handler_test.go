@@ -585,8 +585,8 @@ func TestMailboxExtractUsesPVFItemTabWithInitialExpansionMarker(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("load inventory found=%v err=%v", found, err)
 	}
-	if stack := inventory.Slots["0:3"]; stack.ItemID != 2001 || stack.Count != 2 {
-		t.Fatalf("material claim = %+v, want item 2001 x2 in quick slot 0:3", stack)
+	if stack := inventory.Slots["0:121"]; stack.ItemID != 2001 || stack.Count != 2 {
+		t.Fatalf("material claim = %+v, want item 2001 x2 in material slot 0:121", stack)
 	}
 	box, _, _ := repos.Mailbox.Load(ctx, "77")
 	if !box.Mails["1"].Claimed || !box.Mails["1"].Deleted || len(box.Mails["1"].Attachments) != 0 {
@@ -1360,10 +1360,12 @@ func mustSaveCharacter(t *testing.T, repos dnfrepo.Group, record dnfrepo.Charact
 func mailboxClaimTestResolver(start int16, end int16, stackLimit int64) alignedcmd.MailboxItemResolver {
 	return func(uint32) (alignedcmd.MailboxItemResolution, error) {
 		return alignedcmd.MailboxItemResolution{
-			Kind:       "stackable",
-			SlotStart:  start,
-			SlotEnd:    end,
-			StackLimit: stackLimit,
+			Kind:            "stackable",
+			SlotStart:       start,
+			SlotEnd:         end,
+			StackLimit:      stackLimit,
+			PreferQuickSlot: start >= 65 && end <= 120,
+			AllowQuickSlots: start >= 65 && end <= 288,
 		}, nil
 	}
 }

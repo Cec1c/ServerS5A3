@@ -579,10 +579,10 @@ func TestOwnerUpgradeDestroyBonusFallsBackWhenContainerSegmentIsFull(t *testing.
 		container:  destroyBonusMaterialContainer(),
 		slots:      slots,
 	})
-	if result.DestroyBonusSlot != 60 || result.DestroyBonusMerged {
-		t.Fatalf("placement = %+v, want the legacy fallback slot 60 merged=false", result)
+	if result.DestroyBonusSlot != 3 || result.DestroyBonusMerged {
+		t.Fatalf("placement = %+v, want the quick-slot fallback 3 merged=false", result)
 	}
-	if got := loaded.Slots[slotKey(listTypeMain, 60)]; got.ItemID != 3243 || got.Count != 7 {
+	if got := loaded.Slots[slotKey(listTypeMain, 3)]; got.ItemID != 3243 || got.Count != 7 {
 		t.Fatalf("fallback row = %+v, want item 3243 count 7", got)
 	}
 }

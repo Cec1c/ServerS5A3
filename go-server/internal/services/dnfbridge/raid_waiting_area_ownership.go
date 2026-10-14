@@ -87,7 +87,7 @@ func (s *Service) returnCurrentAntonMemberToGate(session *gameSession) error {
 	writer.writeUint16(0)
 	writer.writeUint32(0)
 	writer.writeByte(0)
-	return s.handleTownSetUserArea(session, writer.bytes())
+	return s.handleTownSetUserAreaWithQuestNotice(session, writer.bytes(), false)
 }
 
 // Rebucket the already admitted waiting members together when their frozen

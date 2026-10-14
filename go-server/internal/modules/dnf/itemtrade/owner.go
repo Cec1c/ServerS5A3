@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"math"
 	"sort"
 	"strconv"
@@ -80,15 +81,23 @@ type Result struct {
 }
 
 type Owner struct {
-	repositories dnfrepo.Group
-	now          func() time.Time
+	repositories        dnfrepo.Group
+	now                 func() time.Time
+	destinationResolver DestinationResolver
 }
 
-func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
+// DestinationResolver 由运行时 PVF 提供收件分类；未知旧调用仍使用原有来源段。
+type DestinationResolver func(Offer, dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+
+func NewOwner(repositories dnfrepo.Group, resolvers ...DestinationResolver) (*Owner, error) {
 	if repositories.CharacterTrade == nil {
 		return nil, ErrRepositoryUnavailable
 	}
-	return &Owner{repositories: repositories, now: time.Now}, nil
+	owner := &Owner{repositories: repositories, now: time.Now}
+	if len(resolvers) > 0 {
+		owner.destinationResolver = resolvers[0]
+	}
+	return owner, nil
 }
 
 func (o *Owner) Exchange(ctx context.Context, first Participant, second Participant) (Result, error) {
@@ -198,13 +207,17 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 				for _, row := range staged[participant.CharacterID] {
 					stack := cloneStack(row.stack)
 					stack.Count = row.offer.Count
+					policy, err := o.destinationSlotPolicy(row.offer, stack)
+					if err != nil {
+						return err
+					}
 					// 堆叠品先并入同身份的既有行（同一页段内优先），只有装不下的
 					// 剩余部分才另开空格。旧代码无条件 allocateDestinationSlot() 开新格，
 					// 于是"交易收下同一件材料"每次都多一行（仓库里 2:22 ×8480 与
 					// 2:23 ×25 就是这么并存的）。判据是仓库层的 dnfrepo.StackContract
 					// 与 dnfrepo.CanMergeItemStack，与发放路径同口径。
 					remaining, mergedSlot, mergedStack, merged := mergeTradeStack(
-						record.Slots, row.offer.SourceList, row.offer.SourceSlot, stack)
+						record.Slots, policy, stack)
 					if merged {
 						received[recipient.CharacterID] = append(received[recipient.CharacterID], Transfer{
 							FromCharacterID: participant.CharacterID,
@@ -218,7 +231,7 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 					if remaining <= 0 {
 						continue
 					}
-					destinationSlot, err := allocateDestinationSlot(record.Slots, row.offer.SourceList, row.offer.SourceSlot)
+					destinationSlot, err := allocateDestinationByPolicy(record.Slots, policy)
 					if err != nil {
 						return fmt.Errorf("character %s receiving trade slot %d: %w", recipient.CharacterID, row.offer.TradeSlot, err)
 					}
@@ -311,12 +324,34 @@ func allocateDestinationSlot(slots map[string]dnfrepo.ItemStack, listType byte, 
 	if !ok {
 		return 0, ErrInvalidOffer
 	}
-	for slot := start; slot <= end; slot++ {
-		if _, occupied := slots[slotKey(listType, slot)]; !occupied {
+	return allocateDestinationByPolicy(slots, dnfplacement.SlotPolicy{ListType: listType, Start: start, End: end})
+}
+
+func allocateDestinationByPolicy(slots map[string]dnfrepo.ItemStack, policy dnfplacement.SlotPolicy) (int16, error) {
+	for _, slot := range policy.EmptySlots() {
+		if _, occupied := slots[slotKey(policy.ListType, slot)]; !occupied {
 			return slot, nil
 		}
 	}
 	return 0, ErrInventoryFull
+}
+
+func (o *Owner) destinationSlotPolicy(offer Offer, stack dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error) {
+	if o.destinationResolver != nil {
+		policy, err := o.destinationResolver(offer, stack)
+		if err != nil {
+			return policy, err
+		}
+		if policy.ListType != offer.SourceList || len(policy.EmptySlots()) == 0 {
+			return policy, ErrInvalidOffer
+		}
+		return policy, nil
+	}
+	start, end, ok := destinationSlotRange(offer.SourceList, offer.SourceSlot)
+	if !ok {
+		return dnfplacement.SlotPolicy{}, ErrInvalidOffer
+	}
+	return dnfplacement.SlotPolicy{ListType: offer.SourceList, Start: start, End: end}, nil
 }
 
 // destinationSlotRange keeps an incoming item in the same current-client bag
@@ -331,6 +366,7 @@ func destinationSlotRange(listType byte, sourceSlot int16) (int16, int16, bool) 
 		return avatarFirst, avatarLast, true
 	}
 	for _, page := range [...]struct{ first, last int16 }{
+		{3, 8},
 		{equipmentFirst, equipmentLast},
 		{consumableFirst, consumableLast},
 		{materialFirst, materialLast},
@@ -350,7 +386,7 @@ func supportedSourceList(listType byte) bool {
 	return listType == mainListType || listType == avatarListType
 }
 
-// mergeTradeStack 把交易收下的 stack 先并进收件人**同一页段**内同身份的既有行，
+// mergeTradeStack 按共同选格规则，把交易收下的 stack 并入收件人同身份的既有行，
 // 返回还没落位的剩余量与"并入的那一行"（槽位 + 合并后的行；没并上就是 ok=false）。
 //
 // 为什么必须并：交易以前无条件 allocateDestinationSlot() 另开一格，于是收下同一件
@@ -363,7 +399,7 @@ func supportedSourceList(listType byte) bool {
 //
 // 装备/时装/已达上限而 Contract 不成立的行一律跳过，剩余部分仍走原来的空格逻辑，
 // 所以"收下装备"与"背包满"两条老行为一个字都没变。
-func mergeTradeStack(slots map[string]dnfrepo.ItemStack, listType byte, sourceSlot int16, incoming dnfrepo.ItemStack) (int64, int16, dnfrepo.ItemStack, bool) {
+func mergeTradeStack(slots map[string]dnfrepo.ItemStack, policy dnfplacement.SlotPolicy, incoming dnfrepo.ItemStack) (int64, int16, dnfrepo.ItemStack, bool) {
 	if incoming.Count <= 0 {
 		return incoming.Count, 0, dnfrepo.ItemStack{}, false
 	}
@@ -371,15 +407,14 @@ func mergeTradeStack(slots map[string]dnfrepo.ItemStack, listType byte, sourceSl
 	if !ok || path == "" {
 		return incoming.Count, 0, dnfrepo.ItemStack{}, false
 	}
-	start, end, ok := destinationSlotRange(listType, sourceSlot)
-	if !ok {
-		return incoming.Count, 0, dnfrepo.ItemStack{}, false
-	}
 	remaining := incoming.Count
 	mergedSlot := int16(-1)
 	mergedStack := dnfrepo.ItemStack{}
-	for slot := start; slot <= end && remaining > 0; slot++ {
-		key := slotKey(listType, slot)
+	for _, slot := range policy.MergeSlots() {
+		if remaining <= 0 {
+			break
+		}
+		key := slotKey(policy.ListType, slot)
 		existing, found := slots[key]
 		if !found || existing.Count <= 0 {
 			continue
