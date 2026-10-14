@@ -111,13 +111,13 @@ func buildUseStackableSuccessAck(result UseStackableResult) []byte {
 }
 
 func buildUseStackableActionSuccessAck(result DamageFontUnlockResult) []byte {
+	// v96 class1 dispatch consumes result; 0x24f3580 then reads slot/list/action.
+	// Remaining quantity is projected by the following authoritative item refresh.
 	var writer packetWriter
 	writer.writeByte(1)
 	writer.writeInt16(result.SourceSlotIndex)
-	writer.writeInt16(0)
-	writer.writeInt16(int16(result.RemainingCount))
-	writer.writeInt16(0)
-	writer.writeByte(1)
+	writer.writeByte(listTypeMain)
+	writer.writeInt32(int32(damageFontActionIndex))
 	return writer.bytes()
 }
 

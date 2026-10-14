@@ -67,7 +67,7 @@ func TestDamageFontUnlockAndSelectionAreRepositoryBacked(t *testing.T) {
 	if !result.ResponseAllowed || len(result.UpperResponses) != 1 {
 		t.Fatalf("result = %+v", result)
 	}
-	wantAck := []byte{1, 76, 0, 0, 0, 1, 0, 0, 0, 1}
+	wantAck := []byte{1, 76, 0, 0, 162, 0, 0, 0}
 	if !bytes.Equal(result.UpperResponses[0].Body, wantAck) {
 		t.Fatalf("op515 ACK = %x, want %x", result.UpperResponses[0].Body, wantAck)
 	}

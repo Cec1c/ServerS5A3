@@ -184,7 +184,7 @@ func TestCurrentQuestClearCouponCompletesMainStoryWithNoRewardAndConsumesOne(t *
 		ack.Header.Classification != dnfproto.DefaultChannelClassification {
 		t.Fatalf("op515 ack header=%+v", ack.Header)
 	}
-	wantAck := []byte{1, 0x57, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
+	wantAck := []byte{1, 0x57, 0x00, 0x00, 167, 0x00, 0x00, 0x00}
 	if !bytes.Equal(ack.Body, wantAck) {
 		t.Fatalf("op515 ack body=%x want=%x", ack.Body, wantAck)
 	}
@@ -235,8 +235,15 @@ func TestCurrentQuestClearCouponNoopKeepsTheCouponWhenNothingCanBeCleared(t *tes
 	if stack := inventory.Slots["0:87"]; stack.Count != 2 {
 		t.Fatalf("no-op coupon was consumed: %+v", stack)
 	}
-	ack, _ := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
-	wantAck := []byte{1, 0x57, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01}
+	ack, tail := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
+	if len(tail) == 0 {
+		t.Fatal("no-op must refresh the unchanged slot after success ACK")
+	}
+	refresh, _ := splitGameServerUpperPacket(t, tail)
+	if refresh.Header.MsgID != 14 {
+		t.Fatalf("no-op refresh msg=%d", refresh.Header.MsgID)
+	}
+	wantAck := []byte{1, 0x57, 0x00, 0x00, 167, 0x00, 0x00, 0x00}
 	if !bytes.Equal(ack.Body, wantAck) {
 		t.Fatalf("no-op ack body=%x want=%x", ack.Body, wantAck)
 	}
@@ -401,14 +408,14 @@ func TestCurrentQuestClearCouponConsumptionIsFailClosedWithoutRepository(t *test
 	}
 }
 
-func TestCurrentQuestClearCouponAckMatchesTheVerifiedDamageFontShape(t *testing.T) {
-	if got := buildCurrentQuestClearCouponAck(87, 3); !bytes.Equal(got, []byte{1, 0x57, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01}) {
+func TestCurrentQuestClearCouponAckMatchesCurrentClientActionHeader(t *testing.T) {
+	if got := buildCurrentQuestClearCouponAck(87, 3); !bytes.Equal(got, []byte{1, 0x57, 0x00, 0x00, 167, 0x00, 0x00, 0x00}) {
 		t.Fatalf("ack body=%x", got)
 	}
 	if got := len(buildCurrentQuestClearCouponAck(0, 0)); got != currentQuestClearCouponAckSize {
 		t.Fatalf("ack size=%d want=%d", got, currentQuestClearCouponAckSize)
 	}
-	if got := buildCurrentQuestClearCouponAck(1, 70000); binary.LittleEndian.Uint16(got[5:7]) != 4464 {
-		t.Fatalf("remaining outside u16 must wrap deterministically: %x", got)
+	if got := buildCurrentQuestClearCouponAck(1, 70000); binary.LittleEndian.Uint32(got[4:8]) != 167 {
+		t.Fatalf("remaining quantity must not replace the action: %x", got)
 	}
 }

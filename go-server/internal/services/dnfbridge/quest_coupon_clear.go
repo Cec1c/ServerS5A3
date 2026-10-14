@@ -50,11 +50,11 @@ import (
 //
 // # 回包形状
 //
-// op515 只有一个响应 opcode 且体内**不带 action index**，说明这个响应形状与
-// action 无关；因此直接复用同包已验证的 damage-font（action 162）成功体
-// （`inventory.buildUseStackableActionSuccessAck`）逐字节同形的 10 字节：
-//
-//	result=1, i16 slot, i16 0, i16 remaining, i16 0, u8 1
+// 当前 EXE 的 class1 分发器先消费结果字节；成功处理器 0x24f3580
+// 随后读 u16 槽位、u8 列表、u32 动作号。任务完成券动作号为 167，
+// damage-font 为 162。此前按剩余数量构造的 10 字节体会把数量左移 8 位
+// 当成动作号。数量应由后续 op14 权威槽位刷新传递。
+// 证据与原生待验边界见 Docs/D33_STACKABLE_ACTION_ACK_20261014.md。
 //
 // 不新增、不臆造任何 opcode 或失败码：失败时保持现有行为（只记日志、不回包），
 // 因为本 opcode 的失败路径在客户端不会像 op44 那样卡住界面（操作者连续点了三次
@@ -64,7 +64,7 @@ const (
 	// 发出的 op515 动作号。它由操作者右键那一刻的封包日志定死，不是推测值。
 	currentQuestClearCouponActionIndex uint32 = 167
 	currentQuestClearCouponBodySize           = 19
-	currentQuestClearCouponAckSize            = 10
+	currentQuestClearCouponAckSize            = 8
 	// currentQuestClearCouponDebugCommand 是客户端在同一动作里补发的 op176 文本前缀。
 	currentQuestClearCouponDebugCommand = "//lvclear"
 
@@ -109,18 +109,14 @@ func currentQuestClearCouponActionSupported(actionType string) bool {
 }
 
 // buildCurrentQuestClearCouponAck 生成 op515 成功回包体。
-// 与同包已证实的 damage-font 成功体逐字节同形（见上面的注释）。
-func buildCurrentQuestClearCouponAck(slot int16, remaining int64) []byte {
-	if remaining < 0 {
-		remaining = 0
-	}
+// 当前客户端先由分发器读取 result，再读 u16 slot/u8 list/u32 action。
+// remaining 不属于此回包；数量由后续权威槽位刷新下发。
+func buildCurrentQuestClearCouponAck(slot int16, _ int64) []byte {
 	var writer packetWriter
 	writer.writeByte(1)
 	writer.writeUint16(uint16(slot))
-	writer.writeUint16(0)
-	writer.writeUint16(uint16(remaining))
-	writer.writeUint16(0)
-	writer.writeByte(1)
+	writer.writeByte(byte(dnfrepo.MainInventoryListType))
+	writer.writeUint32(currentQuestClearCouponActionIndex)
 	return writer.bytes()
 }
 
@@ -315,7 +311,14 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 			"reason", "no_main_story_quest_at_or_below_cutoff_remains_incomplete",
 			"quest_mutation", "none",
 			"item_mutation", "none")
-		return true, s.sendCurrentQuestClearCouponAck(session, request, stack.Count, "noop")
+		if err := s.sendCurrentQuestClearCouponAck(session, request, stack.Count, "noop"); err != nil {
+			return true, err
+		}
+		// The success handler may decrement the local item instance. Restore the
+		// unchanged authoritative slot even when there was nothing to complete.
+		return true, s.sendSelectedIncrementalItemSlotRefreshes(session, "quest_clear_coupon_noop_after_ack", []alignedcmd.ItemSlotRefresh{{
+			ListType: dnfrepo.MainInventoryListType, SlotIndex: request.SourceSlotIndex,
+		}})
 	}
 
 	owner, err := dnfquest.NewOwner(repositories)
@@ -360,7 +363,7 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 		"highest_completed_quest", result.HighestCompletedQuest,
 		"remaining_coupon_count", remaining,
 		"reward_granted", false,
-		"body_source", "current_exe_op515_action_167_with_damage_font_verified_ack_shape")
+		"body_source", "current_exe_op515_result_slot_list_action")
 	if err := s.sendCurrentQuestClearCouponAck(session, request, remaining, "committed"); err != nil {
 		return true, err
 	}
