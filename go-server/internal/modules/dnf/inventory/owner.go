@@ -214,6 +214,8 @@ type UpgradeResult struct {
 	TargetUpdatedStack          dnfrepo.ItemStack
 	MaterialUpdated             bool
 	MaterialUpdatedStack        dnfrepo.ItemStack
+	ConversionMaterialUpdated   bool
+	ConversionMaterialSlot      int16
 	Changed                     bool
 	// DestroyBonusSlot 是 op50 摧毁档 ACK 里报给客户端的那个槽：有并入时是第一个并入的
 	// 既有行，没有可并的行时就是新开的那一格（修复前语义 = 恒为新开格）。
@@ -1549,6 +1551,36 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 	}
 	result.UpdatedGold = character.Stats["gold"]
 	goldCost := upgradeGoldCostOf(target, cmd.Mode, oldLevel)
+	var conversionKey string
+	var conversionCount int64
+	if cmd.UpgradeCostResolver != nil && !(portable != nil && upgradePortableConsumableEnabled()) {
+		quote, err := cmd.UpgradeCostResolver(cmd.Mode, target.ItemID, int(oldLevel), cmd.UpgradeNPCPresent, cmd.UpgradeNPCID)
+		if err != nil {
+			return UpgradeResult{}, &upgradeCostResolutionError{cause: err}
+		}
+		if quote.Resolved {
+			if quote.GoldCost < 0 || quote.ConversionCount < 0 || (quote.ConversionCount > 0 && quote.ConversionItemID <= 0) {
+				return UpgradeResult{}, &upgradeCostResolutionError{cause: fmt.Errorf("invalid upgrade cost resolution")}
+			}
+			goldCost = quote.GoldCost
+			if quote.ConversionCount > 0 {
+				slot := cmd.UpgradeNPCMaterialSlot
+				// The packet supplies only a coordinate. Item identity and quantity come
+				// from PVF; aliases with the target, normal material or ticket are refused.
+				if !cmd.UpgradeNPCPresent || slot < upgradeProtectTicketScanStart || slot == cmd.TargetSlotIndex || slot == cmd.MaterialSlotIndex || slot == cmd.OptionalTicketSlot || dnfrepo.IsAccountSharedInventorySlot(listTypeMain, slot) {
+					result.ErrorCode = upgradeErrorInvalidMaterial
+					return result, nil
+				}
+				conversionKey = slotKey(listTypeMain, slot)
+				stack, found := items[conversionKey]
+				if !found || stack.ItemID != quote.ConversionItemID || stack.Count < quote.ConversionCount {
+					result.ErrorCode = upgradeErrorInvalidMaterial
+					return result, nil
+				}
+				conversionCount = quote.ConversionCount
+			}
+		}
+	}
 	if portable != nil && upgradePortableConsumableEnabled() {
 		// 一次性增幅器 / 凯丽的强化器：PVF `[explain]` 与厂商 `FromPortable` 都写明
 		// 「不消耗矛盾的结晶体和金币」⇒ 金币恒为 0，也不做金币校验。
@@ -1601,7 +1633,11 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 			// 回落到券的 FailureRetainLevel，resultCode 从 3 变 2（= max(1, effectivePenaltyType)）；
 			// 找不到才真的摧毁。判定真源与开关见 upgrade_protect_ticket.go。
 			// 现场缺陷：这一档以前只有 `delete(items, targetKey)`，保护券不参与也不消耗。
-			protectSelection, protectAsked, protectErr, protectOK := findUpgradeProtectTicket(items, cmd)
+			reservedConversionSlot := int16(-1)
+			if conversionCount > 0 {
+				reservedConversionSlot = cmd.UpgradeNPCMaterialSlot
+			}
+			protectSelection, protectAsked, protectErr, protectOK := findUpgradeProtectTicket(items, cmd, reservedConversionSlot)
 			result.ProtectTicketScanned = upgradeProtectTicketLookupActive(cmd)
 			result.ProtectTicketCandidates = protectAsked
 			result.ProtectTicketScanError = protectErr
@@ -1693,6 +1729,23 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 				return UpgradeResult{}, err
 			}
 		}
+	}
+	if conversionCount > 0 {
+		// Modify the same inventory snapshot that carries the equipment mutation;
+		// the account material, wallet and this snapshot share the existing UoW.
+		stack := cloneStack(items[conversionKey])
+		if stack.Count < conversionCount {
+			return UpgradeResult{}, fmt.Errorf("reserved conversion material changed before debit")
+		}
+		stack.Count -= conversionCount
+		if stack.Count == 0 {
+			delete(items, conversionKey)
+		} else {
+			updateStackRawAmount(&stack)
+			items[conversionKey] = stack
+		}
+		result.ConversionMaterialUpdated = true
+		result.ConversionMaterialSlot = cmd.UpgradeNPCMaterialSlot
 	}
 	if goldCost > 0 {
 		character = dnfrepo.CloneCharacter(character)

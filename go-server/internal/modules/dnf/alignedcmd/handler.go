@@ -33,6 +33,7 @@ type Request struct {
 	RandomOptionResolver   RandomOptionResolver
 	UpgradeTicketResolver  UpgradeTicketResolver
 	UpgradePolicyResolver  UpgradePolicyResolver
+	UpgradeCostResolver    UpgradeCostResolver
 	// ForgingResolver 让 op438（锻造 / 别升级 separate upgrade）拿到这一次
 	// 材料/目标在**运行时 PVF** 里的事实：etc/upgrade_separate.etc 的等级表与
 	// 材料表、目标的武器/品级/稀有度/耐久、材料槽那一件是不是便携式锻造炉或

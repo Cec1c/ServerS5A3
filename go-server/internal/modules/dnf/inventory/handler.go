@@ -403,6 +403,12 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		result, err := owner.Upgrade(ctx, cmd)
 		if err != nil {
+			var quoteErr *upgradeCostResolutionError
+			if errors.As(err, &quoteErr) {
+				rejected := ownerAppliedUpgradeResult(ctx, req.Repositories.Settings, req.Opcode, cmd, UpgradeResult{ErrorCode: upgradeErrorInvalidMaterial})
+				rejected.Reason += "; " + err.Error()
+				return rejected, nil
+			}
 			return ownerBlockedResult(cmd, err), nil
 		}
 		return ownerAppliedUpgradeResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
@@ -678,6 +684,15 @@ func ownerAppliedUpgradeResult(ctx context.Context, settings dnfrepo.SettingsRep
 	if entries := upgradeItemUpdateEntries(cmd, result); len(entries) > 0 {
 		responses = append(responses, class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, entries)))
 	}
+	// The native op50 ACK carries material/level fields but no gold balance.
+	// Only the new authoritative-fee path adds the committed wallet projection.
+	if cmd.UpgradeCostResolver != nil && result.GoldCost > 0 {
+		var wallet packetWriter
+		wallet.writeByte(listTypeMain)
+		wallet.writeUint16(1)
+		wallet.writeBytes(makeCurrentItemListEntry(0, 0, result.UpdatedGold))
+		responses = append(responses, class0Response(msgItemListUpdate, wallet.bytes()))
+	}
 	// NOTI 0x0056 upgrade announcement when level meets notice threshold.
 	if cmd.UpgradeNoticeLevel >= 0 {
 		noticeLevel := result.NewLevel
@@ -791,6 +806,9 @@ func upgradeItemUpdateEntries(cmd Command, result UpgradeResult) []commonItemLis
 	updates := make(map[int16]dnfrepo.ItemStack, 3)
 	if result.TargetSlotIndex >= 0 {
 		updates[result.TargetSlotIndex] = result.TargetUpdatedStack
+	}
+	if result.ConversionMaterialUpdated {
+		updates[result.ConversionMaterialSlot] = result.MainRefresh[slotKey(listTypeMain, result.ConversionMaterialSlot)]
 	}
 	if result.MaterialUpdated && result.MaterialSlotIndex >= 0 {
 		updates[result.MaterialSlotIndex] = result.MaterialUpdatedStack

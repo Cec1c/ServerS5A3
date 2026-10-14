@@ -739,3 +739,14 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - 按 test15 原生反馈与真实 PVF 配方的 `[input item]`，在门店附魔事务中复用既有材料消费器，消费请求方背包及账号共享固定槽材料；不足或锁定时连同卡片、手续费、经验和耐久回滚。A21 门店本身也未消费材料，不能作为本修复的权威依据。
 - 请求无材料槽位，支付方采用与卡片同侧的请求方；这一归属仍是基于现有协议形状的判断。保留现有失败码映射和成功 ACK，宝珠生成分支不变。
 - 仓库仅在槽内容确实变化时写回，空 map 与 nil 视为相同。新增自服务/访客内存事务和真实 PVF 回归；红绿原始输出与检查结果见独立 evidence/lane-a 目录，客户端结果窗口不属于本项验收。
+## 2026-10-15 - Forging result reception root cause
+
+- Trace the actual v101 COMMAND438 allowlist rejection against a captured successful server result and current x86 UI callback. Preserve the server packet and transaction; prepare a separate minimal client candidate.
+- Offline opcode and callback execution evidence is documented in Docs/CLIENT_FORGING_RECEPTION_20261015.md. This does not establish native UI acceptance or deployment.
+
+## 2026-10-15 - Opt-in authoritative reinforcement payment candidate
+
+- Wire the previously retained NPC trailer into a server-derived PVF quote inside the existing character/account asset transaction. Equipment grade, rarity, slot type and current reinforcement level determine gold; NPC conversion rules come from npc.lst and the NPC document, never a client price. Normal upgrade-table materials remain additional.
+- Add an explicitly disabled-by-default `DNFBRIDGE_NATIVE_UPGRADE_COST=candidate` path. Require a ready, bound character town scene containing the conversion NPC; stale character generations, missing scenes and foreign NPCs reject without silently charging gold. This proves area membership, not interaction distance; exact-multiple client preflight versus displayed conversion rounding remains unresolved, so this is not deployment-ready.
+- Reject currency/shared/target/material/ticket aliases and exclude the reserved conversion slot from protection-ticket scanning. Portable upgrade consumables keep their existing no-gold/material substitution. Project only committed conversion rows and gold balances; quote failures return the existing invalid-material ACK and preserve the diagnostic cause.
+- Add authoritative-payment, shared-material late-failure rollback, wallet projection, real-PVF cost and NPC scene regressions. Independent review and targeted validation are in the external round4 evidence; full integrated validation is recorded separately. No deployment, production data edits, PVF changes or native acceptance are claimed.

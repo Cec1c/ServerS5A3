@@ -69,8 +69,12 @@ type Command struct {
 	// PenaltyType: 0=fail no change, 1=downgrade, 3=destroy.
 	UpgradePenaltyType int
 	// MaterialItemID/Count are the runtime-PVF upgrade table requirement.
-	UpgradeMaterialItemID int
-	UpgradeMaterialCount  int
+	UpgradeMaterialItemID  int
+	UpgradeMaterialCount   int
+	UpgradeCostResolver    alignedcmd.UpgradeCostResolver
+	UpgradeNPCPresent      bool
+	UpgradeNPCID           uint16
+	UpgradeNPCMaterialSlot int16
 	// DestroyBonusItemID/Count: compensation item on destruction.
 	UpgradeDestroyBonusItemID int
 	UpgradeDestroyBonusCount  int
@@ -243,6 +247,10 @@ func NewUpgradeCommand(req alignedcmd.Request, parsed UpgradeItemRequest) Comman
 	cmd.OptionalTicketSlot = parsed.OptionalTicketSlotIndex
 	cmd.TargetItemName = parsed.TargetItemName
 	cmd.UpgradeNoticeLevel = -1
+	cmd.UpgradeCostResolver = req.UpgradeCostResolver
+	cmd.UpgradeNPCPresent = parsed.NPCContextPresent
+	cmd.UpgradeNPCID = parsed.NPCTemplateID
+	cmd.UpgradeNPCMaterialSlot = parsed.NPCMaterialSlotIndex
 	cmd.UpgradeProtectTicketResolver = req.UpgradeProtectTicketResolver
 	return cmd
 }
