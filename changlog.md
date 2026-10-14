@@ -1,4 +1,19 @@
 ## 2026-10-14 — 女圣职者 15 级主线/转职链路真档回归（DOC-123）
+## 2026-10-15 — Replay Jonathan payment through the real request handler
+
+- Add an isolated memory/real-PVF request-handler regression using observed target28309, target slot54, normal-material slot358 and NPC476/material slot135 trailer fields. The name and character are synthetic; this is not a replay of historical player state.
+- Default-off control leaves conversion stones unchanged. Candidate mode consumes one stone and ten ordinary materials without gold; ordinary NPC mode consumes gold84975 and the same ordinary materials. Missing conversion material returns the existing rejection with all assets unchanged. Check ACK-before-op14, target identity, committed material quantities and the ordinary-NPC wallet balance on the serialized wire.
+- The whole handler replay passed together with the party candidate and other backend trials. It does not enable the default-off fee candidate or establish native consumption/display acceptance.
+
+## 2026-10-15 — DOC075 后续：独立最小双位准入候选与既有候选查重（离线，非生产）
+
+- 查重（第三轮既有白名单候选）：client-candidate/DNF.exe（sha256 6e61c3615f37fff6b6b9ad7b6e2f7878ee0d33bc2ed8f505ca6af5ebbfe30bcf）只放行 438/713/714，client-candidate-v2/DNF.exe（sha256 1be9466fb7a76611ea4894608c4601f018462253e9293ab8f85bd9e94161a4e3）追加 947/978；两者分别只改 2 与 4 个位图字节，**都不含 0x382(898)/0x217(535)**，也没有对 .cryssel/.dshcard 加任何东西（这两段本就在基线镜像里），因此本次晶体两位不重复。生成器与格式见 E:/90/repair-round3-20261015/prepare_client_candidate.py 与 prepare_client_candidate_v2.py（断言基线 sha → 只 OR 位图位 → 断言改动偏移集合 → 全量 65536 opcode 仿真对比）。
+- 新增独立最小候选（仅供评审的离线副本）：crystal-evidence/prepare_crystal_gate_candidate.py + DNF-crystal-contract-898-535-candidate.exe（sha256 4020530dbdcb910d42d79229fc3d8481316e685286da7561247450a32f8e9274）。脚本严格校验基线 sha256 1ac12645…fd4331 与位图原字节（0x6E92342=0x20、0x6E92370=0x08）、只 OR 目标位；改动文件偏移恰为 111747906 与 111747952 两处、每处 1 位（即两个 bit、两个字节）；全量仿真显示放行集合 223→225 且变化的 opcode 恰为 {535,898}；清位还原后 sha 与基线逐字节一致（可恢复）。
+- 幂等：同一输入重复执行不重写（第二次 pristine 运行 idempotent_no_change=true 且 mtime 不变）；把候选自身当输入时走 already_patched_input 分支——判定规则是“清掉目标位后等于基线 sha”，不靠猜测，同样不重写。
+- 独立复验：修正版门控探针以 --exe 指向该副本重跑（probe_gate.py --exe … --out-json v101-gate-probe-crystal-candidate.json）→ op535/op898 admitted=true、放行计数 225、锚点 14/251 放行与 252/713/714/947/978 丢弃保持不变。
+- 组合方案（只说明、不生成）：若最终需要一个候选，可在 client-candidate-v2 基础上再置 0x6E92342 bit7(0x80) 与 0x6E92370 bit2(0x04)，预计改动 6 个位图字节，放行集合 = 438/713/714/947/978/535/898；本脚本支持改 --opcodes 自行产出，但本轮未产出组合件。
+- 更正上一条描述：v1 探针的仿真输入本身是正确的（在 0x6E83610 执行真实谓词、位图已在 0x6E92300），错在把位图地址当成 gate 函数标签、并把 res[0]=0 当“接受值”导致极性反转；留档已更名为 probe_gate-v1-mislabeled-gate-va-and-polarity.py.bak。
+- 边界：产物仅为 crystal-evidence 内的离线副本，未安装、未部署、未运行 UI、未改生产 EXE/PVF/服务端；静态位图丢包＋客户端进程级缓存仍只是**机制证据**，不是已验收的实机根因。
 
 - 报告（固定真档 Script.pvf，sha256 369d072b82c715aea4e02813d89ad9225686983e147bc7be0ee0cae2e296bb06）：玩家报告「女圣职者15级主线完成后没有转职任务也没有主线任务」。当前主线上的真档走查（job 14 = character/character.lst 第 14 项 `Priest/ATPriest.chr`）为：完成 3151→3152→3153 后出现该职业自己的「守护森林的战斗」分支（占位 6929 与真实分支 6945–6949），完成任一分支解锁 3155「赛丽亚的决心」，再由 3155 开放 2908–2911「转职 - 圣骑士/异端审判者/巫女/诱魔者」。真实旧源码（`2da7982^`）按 `[target character]` 元组精确比较，真实分支携带的 -1（该分量不限制）永远等不上打包的成长半字节，于是只留下既无奖励、也不在 3155 前置里的占位任务 6929，链路在 3153 之后断死——重现了与报告一致的「无后续主线、无转职任务」症状。
 - 2da7982（DOC-116 同批）把 -1 视为不限制该分量，且 2da7982 已是 9de2ecb 的祖先；本次不改运行逻辑，只补上此前仅覆盖剑魂（job 0）的真档回归。当时在线版本与角色存档未经证明。
@@ -802,3 +817,15 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 
 - Reject level-linear equipment, cost discounts, custom upgrade modes and exclusive upgrade materials before deriving an ordinary reinforcement quote. These metadata paths are not implemented by the candidate; presence alone does not prove the previous numeric quote was incorrect. An error aborts the existing owner transaction instead of silently falling back to the old price.
 - Isolated red/green coverage includes empty sections, normalized names, nested grade metadata and real PVF items 10194/104000339; ordinary target 28309 keeps its verified four prices. Full integrated validation is recorded against the subsequent frozen commit. The candidate remains disabled by default and is not deployed.
+
+
+## 2026-10-15 - Routed party request expiry before handler start
+
+- A leader task that expired or was rejected in the event queue never installed the handler's deferred refusal, leaving the follower with ACK only and a pending token. Atomically claim either handler start or cancellation before start; only the latter sends a token-bound refusal using a fresh bounded deadline. A running handler retains ownership and may commit after the dispatch wait expires.
+- Capture log identities using the existing locked session snapshot; do not read leader identity from another session loop. Clarify that an answer returning false at its deadline may still finish an already-started write, so false is not permission to retry.
+- Old-red/new-green tests cover real queue expiry, leader stopped before/after enqueue, and an already-started handler that passes the deadline then commits both runtimes without a refusal. Existing checks cover delayed writes, duplicate tokens and successful-handler cleanup. Independent review confirms claim mutual exclusion and lock ordering. Follower queue/socket failures remain delivery failures, not guaranteed recovery; native button behavior is still unaccepted. Integrated checks are recorded against the frozen commit.
+## 2026-10-15 — Close a routed party peer after its refusal send fails
+
+- A routed member's refusal runs in that member's event callback. A send error was reduced to a log/false after consuming the request token, so it did not reach the member's socket read loop and its normal disconnect cleanup. Close only that peer connection inside the actual send-error branch, preserving the original error and the healthy leader's refusal. Do not retry a potentially partial frame or close on the caller's queue deadline/cancellation alone.
+- Six regression roots cover zero/partial writes, the leader's independent reply, healthy refusal, stale sequence/character, queued cancellation and started writes completing after the caller deadline. The same tests fail on cf3943f only at the four expected missing-close leaves and pass on the candidate. All DOC104 tests plus three isolated real-PVF backend replays pass together: 44 passing nodes, zero skips/failures. The send chain can also fail before a socket write; this follows the existing synchronous disconnect policy and is not a claim that every such TCP connection is itself broken.
+- Background fixtures only; no native button acceptance, deployment, push or merge. Existing v2 validation/package still describes cf3943f; new integrated validation follows separately.
