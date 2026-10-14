@@ -145,6 +145,9 @@ def prepare(args):
 
 
 def generate(c, catalog):
+    solo_create = c.get("guild_solo_create", False)
+    if type(solo_create) is not bool:
+        raise ValueError("guild_solo_create must be a boolean")
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
@@ -212,6 +215,7 @@ create_databases = false
                                                    "dnf.repository.read_database": "dnf_local"}}]}
     write(server / "configs/servergroup/plan.json", json.dumps(plan, indent=2))
     env = {
+        "DNFBRIDGE_GUILD_SOLO_CREATE": str(solo_create).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
         "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",

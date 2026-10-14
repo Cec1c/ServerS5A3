@@ -13,6 +13,7 @@ import (
 var ErrCreationReceipt = errors.New("guild creation receipt does not match request")
 
 type CreationReceipt struct {
+	Solo      bool               `json:"solo,omitempty"`
 	Creator   dnfrepo.GuildOwner `json:"creator"`
 	Founder   dnfrepo.GuildOwner `json:"founder"`
 	Name      string             `json:"name"`
@@ -59,6 +60,16 @@ func Update(ctx context.Context, uow dnfrepo.GuildUnitOfWork, owners []dnfrepo.G
 // durable retry receipt together. Session authentication/consent is checked by
 // the bridge; the domain rechecks ownership, uniqueness and balances here.
 func CreateWithFoundingMember(ctx context.Context, uow dnfrepo.GuildUnitOfWork, request CreateRequest, now time.Time) (CreateResult, error) {
+	return createGuild(ctx, uow, request, now, false)
+}
+
+// CreateSolo is an explicit server policy, not consent from a fabricated member.
+// The same transaction and receipt protect the single creator's gold and guild.
+func CreateSolo(ctx context.Context, uow dnfrepo.GuildUnitOfWork, request CreateRequest, now time.Time) (CreateResult, error) {
+	return createGuild(ctx, uow, request, now, true)
+}
+
+func createGuild(ctx context.Context, uow dnfrepo.GuildUnitOfWork, request CreateRequest, now time.Time, solo bool) (CreateResult, error) {
 	var result CreateResult
 	if _, err := hex.DecodeString(request.OperationID); err != nil {
 		return result, ErrCreationReceipt
@@ -75,7 +86,13 @@ func CreateWithFoundingMember(ctx context.Context, uow dnfrepo.GuildUnitOfWork, 
 		return result, err
 	}
 	owners := []dnfrepo.GuildOwner{request.Creator, request.Founder}
-	want := CreationReceipt{Creator: request.Creator, Founder: request.Founder, Name: request.Name, Promotion: request.Promotion}
+	if solo {
+		if request.Founder != (dnfrepo.GuildOwner{}) {
+			return result, ErrCreationReceipt
+		}
+		owners = owners[:1]
+	}
+	want := CreationReceipt{Solo: solo, Creator: request.Creator, Founder: request.Founder, Name: request.Name, Promotion: request.Promotion}
 	err := Update(ctx, uow, owners, now, func(tx dnfrepo.Group, r *Registry) error {
 		if request.Revalidate != nil && !request.Revalidate() {
 			return ErrCharacterNotFound
@@ -87,12 +104,15 @@ func CreateWithFoundingMember(ctx context.Context, uow dnfrepo.GuildUnitOfWork, 
 		if !found {
 			return ErrCharacterNotFound
 		}
-		founder, found, err := tx.Character.Load(ctx, request.Founder.CharacterID)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return ErrCharacterNotFound
+		var founder dnfrepo.CharacterRecord
+		if !solo {
+			founder, found, err = tx.Character.Load(ctx, request.Founder.CharacterID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return ErrCharacterNotFound
+			}
 		}
 		if old, ok := r.Creations[request.OperationID]; ok {
 			comparison := old
@@ -107,7 +127,7 @@ func CreateWithFoundingMember(ctx context.Context, uow dnfrepo.GuildUnitOfWork, 
 			if g.MasterCharacterID != creator.CharacterID {
 				return ErrCreationReceipt
 			}
-			if _, ok := g.Members[founder.CharacterID]; !ok {
+			if _, ok := g.Members[founder.CharacterID]; !solo && !ok {
 				return ErrCreationReceipt
 			}
 			result = CreateResult{Guild: g, GoldAfter: creator.Stats["gold"], Replay: true}
@@ -121,8 +141,10 @@ func CreateWithFoundingMember(ctx context.Context, uow dnfrepo.GuildUnitOfWork, 
 			return err
 		}
 		g.Promotion = request.Promotion
-		if _, err = r.JoinDirect(g.ID, founder, now); err != nil {
-			return err
+		if !solo {
+			if _, err = r.JoinDirect(g.ID, founder, now); err != nil {
+				return err
+			}
 		}
 		creator = dnfrepo.CloneCharacter(creator)
 		creator.Stats["gold"] -= DefaultCreateGold

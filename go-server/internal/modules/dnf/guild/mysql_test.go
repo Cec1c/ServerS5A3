@@ -134,4 +134,38 @@ func TestGuildMySQLAtomicCreationAndRegistryLock(t *testing.T) {
 	if _, err = CreateWithFoundingMember(ctx, g.Guild, guildRequest(5, 6, "回滚公会", 3), time.Now()); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
+	// Single-founder policy uses the same real SQL transaction and persistent
+	// receipt, without loading or changing a made-up second character.
+	solo := guildRequest(7, 8, "单人公会", 7)
+	solo.Founder = r.GuildOwner{}
+	first, err := CreateSolo(ctx, g.Guild, solo, time.Now())
+	if err != nil || len(first.Guild.Members) != 1 || first.GoldAfter != 600000 {
+		t.Fatalf("solo create=%+v err=%v", first, err)
+	}
+	replay, err := CreateSolo(ctx, newGroup().Guild, solo, time.Now())
+	if err != nil || !replay.Replay || replay.GoldAfter != 600000 {
+		t.Fatalf("solo durable replay=%+v err=%v", replay, err)
+	}
+	solo = guildRequest(8, 7, "单人回滚", 8)
+	solo.Founder = r.GuildOwner{}
+	if _, err = db.ExecContext(ctx, trigger); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = CreateSolo(ctx, g.Guild, solo, time.Now()); err == nil {
+		t.Fatal("solo SQL failure accepted")
+	}
+	if _, err = db.ExecContext(ctx, "DROP TRIGGER `"+name+"`.reject_guild_state"); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err = newGroup().Character.Load(ctx, "8")
+	if err != nil || c.Stats["gold"] != 900000 {
+		t.Fatalf("solo rollback gold=%v err=%v", c.Stats, err)
+	}
+	reg, err = Load(ctx, newGroup().Settings)
+	if err != nil || len(reg.Guilds) != 3 || len(reg.Creations) != 3 {
+		t.Fatal("solo rollback left state")
+	}
+	if _, err = CreateSolo(ctx, g.Guild, solo, time.Now()); err != nil {
+		t.Fatalf("solo retry: %v", err)
+	}
 }

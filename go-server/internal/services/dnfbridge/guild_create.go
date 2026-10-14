@@ -45,6 +45,7 @@ type guildSessionState struct {
 	createCommitted     bool
 	createInvitation    *currentGuildCreateInvitation
 	lastCreate          *dnfguild.CreateRequest
+	soloOperationID     string
 	memberListRequested bool
 }
 
@@ -73,6 +74,14 @@ func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) er
 					founder = peer
 				}
 			}
+		} else if s.options.guildSoloCreate {
+			if !session.guild.nameChecked || session.guild.soloOperationID == "" {
+				return dnfguild.CreateResult{}, dnfguild.ErrPermissionDenied
+			}
+			req = dnfguild.CreateRequest{OperationID: session.guild.soloOperationID,
+				Creator: dnfrepo.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))},
+				Name:    session.guild.pendingName, Promotion: session.guild.promotion,
+				Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(identity) }}
 		} else {
 			invite := session.guild.createInvitation
 			if invite == nil || !invite.accepted || invite.creator.session != session || !session.guild.nameChecked {
@@ -86,7 +95,7 @@ func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) er
 		ctx, cancel := s.currentGuildContext()
 		defer cancel()
 		identities := []boundGameSessionCharacter{identity}
-		if !session.guild.createCommitted {
+		if !session.guild.createCommitted && !s.options.guildSoloCreate {
 			identities = append(identities, founder)
 		}
 		release, err := s.reserveCurrentGuildParticipants(ctx, identities)
@@ -94,7 +103,11 @@ func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) er
 			return dnfguild.CreateResult{}, err
 		}
 		defer release()
-		created, err := dnfguild.CreateWithFoundingMember(ctx, repos.Guild, req, s.gameplayNow())
+		create := dnfguild.CreateWithFoundingMember
+		if s.options.guildSoloCreate {
+			create = dnfguild.CreateSolo
+		}
+		created, err := create(ctx, repos.Guild, req, s.gameplayNow())
 		if err != nil {
 			return dnfguild.CreateResult{}, err
 		}
@@ -197,6 +210,7 @@ func (s *Service) closeCurrentGuildCreateSession(session *gameSession) {
 	session.guild.promotion = ""
 	session.guild.createCommitted = false
 	session.guild.lastCreate = nil
+	session.guild.soloOperationID = ""
 	session.guild.memberListRequested = false
 	session.guild.mu.Unlock()
 }
@@ -286,6 +300,7 @@ func (s *Service) handleCurrentGuildNameCheck(session *gameSession, body []byte)
 	}
 	session.guild.mu.Lock()
 	session.guild.nameChecked = false
+	session.guild.soloOperationID = ""
 	session.guild.mu.Unlock()
 	name, ok := currentGuildDSTRAtStart(body)
 	if !ok || dnfguild.ValidateName(name) != nil {
@@ -304,16 +319,31 @@ func (s *Service) handleCurrentGuildNameCheck(session *gameSession, body []byte)
 	if !available {
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketCheckGuildNameDouble), currentGuildDuplicateNameError)
 	}
+	operationID := ""
+	if s.options.guildSoloCreate {
+		var raw [16]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			return err
+		}
+		operationID = hex.EncodeToString(raw[:])
+	}
 	session.guild.mu.Lock()
 	session.guild.pendingName = name
 	session.guild.nameChecked = true
 	session.guild.promotion = ""
 	session.guild.createCommitted = false
+	session.guild.soloOperationID = operationID
 	session.guild.mu.Unlock()
 	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketCheckGuildNameDouble), nil); err != nil {
 		return err
 	}
-	return s.sendGameUpperSecondaryRaw(session, currentGuildCreateAuthStateOpcode, []byte{currentGuildCreateAuthResetValue})
+	state := currentGuildCreateAuthResetValue
+	if s.options.guildSoloCreate {
+		// Native state 1 enables the paid create button. No invitation or second
+		// membership exists under this explicitly configured server policy.
+		state = 1
+	}
+	return s.sendGameUpperSecondaryRaw(session, currentGuildCreateAuthStateOpcode, []byte{state})
 }
 
 func (s *Service) handleCurrentGuildPromoterCheck(session *gameSession, body []byte) error {
@@ -360,6 +390,9 @@ func (s *Service) rejectCurrentGuildCreatePermit(session *gameSession, founder s
 func (s *Service) handleCurrentGuildCreatePermit(session *gameSession, body []byte) error {
 	s.guildCreateMu.Lock()
 	defer s.guildCreateMu.Unlock()
+	if s.options.guildSoloCreate {
+		return s.rejectCurrentGuildCreatePermit(session, "", "solo creation does not use invitations", nil)
+	}
 	session.guild.mu.Lock()
 	committed := session.guild.createCommitted
 	session.guild.mu.Unlock()

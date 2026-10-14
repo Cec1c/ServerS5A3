@@ -139,6 +139,7 @@ func readPartyDungeonAllMemberUserState() (bool, string, bool) {
 }
 
 type options struct {
+	guildSoloCreate          bool
 	channelListen            string
 	gameListenHost           string
 	channelInfoFile          string
@@ -765,6 +766,7 @@ type options struct {
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
 	opts := options{
+		guildSoloCreate: envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
 		channelListen:   envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),
 		gameListenHost:  strings.TrimSpace(os.Getenv("DNFBRIDGE_GAME_LISTEN_HOST")),
 		channelInfoFile: firstEnv([]string{"DNFBRIDGE_CHANNEL_INFO_PATH", "DNF_CHANNEL_INFO_FILE"}, defaultChannelInfoFile),

@@ -9,6 +9,18 @@ import manage
 
 
 class DeploymentBoundaries(unittest.TestCase):
+    def test_guild_solo_creation_requires_explicit_boolean(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            for value in [None, False, True]:
+                config = {"host_ip": "192.168.1.50", "server_ip": "10.253.90.2", "database_ip": "10.253.90.3", "subnet": "10.253.90.0/24", "database_password": "abc", "root_password": "def", "admin_token": "abc", "body_codec": "plaintext", "client_body_codec": "plaintext", "joust_event_enabled": True}
+                if value is not None:
+                    config["guild_solo_create"] = value
+                manage.generate(config, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_SOLO_CREATE=" + str(value is True).lower(), (Path(directory) / "server.env").read_text())
+            for value in ["false", "true", 0, 1]:
+                with self.assertRaises(ValueError):
+                    manage.generate({"host_ip": "192.168.1.50", "server_ip": "10.253.90.2", "database_ip": "10.253.90.3", "subnet": "10.253.90.0/24", "database_password": "abc", "root_password": "def", "admin_token": "abc", "body_codec": "plaintext", "client_body_codec": "plaintext", "joust_event_enabled": True} | {"guild_solo_create": value}, {"ports": [10006]})
+
     def test_advertised_region_rejects_invalid_values_before_writing(self):
         for value in (-1, 250, True, "1", 1.5):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
