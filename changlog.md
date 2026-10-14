@@ -1,3 +1,11 @@
+## 2026-10-14 — DOC-087/092 锻造 438 线协议复核修正与真档取证（forging 席）
+
+- 复核并修正主代理留下的 forging_codec.go / forging_codec_test.go：gofmt；样例注释改为实际 hex 对应的 item **101011368**（原注释 101010856 与 hex 不符）；去掉**没有证据**的 confirmation ≤ 2 限制（发送端把它当函数参数传入，全 EXE 扫描找不到直接调用点，取值域不可证；误拒会让客户端拿不到回包），保留有证据的结构校验；测试补成功/失败两套 ACK golden（含穿戴目标 list 3）、截断与畸形帧拒绝、confirmation 任意字节必须解析通过。
+- 线协议取证：C2S 438 写序 = u8 list / u16 slot / u32 itemTemplateID / u16 materialSlot / u32 长度前缀名字 / u8 confirmation；class1 438 回包注册 0x447a740 → 回调 0x24836b0，成功体 13 字节读取顺序 = u16 materialSlot / u32 materialRemaining / u8 oldLevel / u8 outcome / u8 newLevel / u8 targetList / u16 targetSlot（outcome 0=成功、1=掷点失败）；失败回调 0x2483b60 先 0x12030a0 复位锻造 UI。class0 438（0x200e590）是另一条只读 u16 通知，不得混用。
+- 真档参数（同一份运行时 Script.pvf，SHA256 369d072b…）：etc/upgrade_separate.etc 的 [separate upgrade max]=8、[table]=10 档×4（第 3=10000 基成功率、第 4=材料倍率）、[item weights by grade]=三元组（grade、材料模板 3326、基础数量）、[item weights by rarity]=7 权重；参考 InventorySeparateUpgradeService.cs（普通锻造 :175-270、券 :60-160）的材料公式 max(1, BaseCount×rarityWeight×MaterialWeight)、掷点 roll<SuccessWeight、失败掉级仅当 FailureDecrementLevel>0。便携炉 10164035 的 action `[portable genuine damage upgrade upgrede]` 与「不消耗强烈的气息」已记入证据文档。
+- 已证持久化落点：锻造等级 = 0x77 行 0x57 + Extra byte_57/value_57（GM 工具已有读写与真档测试；alignedcmd 已明确便携炉不属于 op50 强化族）。
+- **未落地（明确分界）**：域事务（材料消耗+等级写+回滚）、桥接 438 登记/handler/op14 刷新、便携炉消耗、券参数与目标白名单、失败体 `0 + u8 error` 错误码枚举；原生 GUI 验收（动画/窗口关闭/锻造器）待主代理。证据、公式与下一步清单见 Docs/D33_FORGING_20261014.md。
+- 验证：`go test -run TestCurrentForging ./internal/services/dnfbridge` 通过，gofmt 干净；固定 PVF 与失败资产未改动；未部署、未推送、未改用户 DOCX/原台账/生产资产。
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
