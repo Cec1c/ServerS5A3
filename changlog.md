@@ -39,6 +39,12 @@
 - Accept repeated identical passive-item group definitions across maze declarations without multiplying rewards. Continue rejecting malformed or conflicting definitions.
 - Reserve planned actor identifiers before allocating passive drops, and retain the highest allocator position when committing a room transition. Preserve shared party allocation and prepared drops across transport retries.
 - Regression coverage includes conflicting definitions, solo/shared identifier allocation and matching-PVF traversal of both ordinary Gust Zone boss routes. Verify the existing start-map payload, distinct actor/drop identifiers, failed-write retry and exactly-once pickup. Native in-game traversal remains pending acceptance.
+## 2026-10-14 — Avoid repeated friend online notifications after room loading
+
+- Keep the last successfully delivered adventure-friend projection for each selected character generation. Unchanged room-loading and presence refreshes no longer resend the native online-notification packet; changed rows and pending invitations still refresh normally.
+- New selections and connections bootstrap their lists again. Commit the projection only after successful information writes, before sending pending invitations, so a pending-list retry does not replay an online notification.
+- Regression coverage includes repeated finish-loading, offline/online changes, notes, character switching, reconnects, renamed/deleted rows and transport failures. Current-client disassembly confirms the repeated-notification branch; native UI acceptance remains pending.
+
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
