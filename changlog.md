@@ -1,6 +1,7 @@
 ## 2026-10-14 — Keep skill-setting diagnostics consistent with committed state
 
 - Only log skill/CD lists as cleared after settings persistence succeeds. A regression injects a repository save failure, confirms the previous frame survives, and rejects a misleading cleared event; it fails before the guard and passes afterward. Save/replay bytes and error handling remain unchanged.
+- Full validation at 556a2fb: gofmt/list/vet and Windows/Linux builds pass; core records 9323 passed nodes, 859 skipped and zero failures. All 146 required real-PVF roots pass (657 passed nodes, two packages without selected tests). BAT preflight remains blocked by absent source-worktree channel_info.etc. Parent independently rechecked all 11 current-client layout probes. Native skill-setting acceptance remains open.
 
 ## 2026-10-14 — 技能选项字段在当前客户端离线复核与收敛（装备席）
 

@@ -38,6 +38,8 @@ op447 逐字节落库（official-24.9 只接受 512，与客户端读取端同�
 - GREEN：-run TestCharacterOption 全部通过（含 6 个新用例与既有投影 / 守卫 / 回放回归）；整个 internal/services/dnfbridge 包通过（20.3s）；gofmt、go vet、go list 干净。未跑全套重测试（主代理负责集成）。
 - 命令口径：固定 go C:/Users/16ww/go-tc/go/bin/go.exe，GOTOOLCHAIN=local、GOPROXY=off、GOSUMDB=off、GOENV=off、GOWORK=off、-mod=readonly -buildvcs=false -count=1。
 
+主代理审核补充：保存失败时不能记作已经清空列表。新增故障仓储回归先重现误报，再确认保护后旧存档保持且不再发 cleared 事件；保存和回放字节不变。源码 `556a2fb` 完整验证通过：gofmt/list/vet、Windows/Linux 构建；核心 9323 通过节点、859 跳过、零失败；固定真实 PVF 全部 146 个指定测试根通过，657 通过节点、2 个无选中测试的包跳过、零失败。BAT 预检因源码工作树缺 `channel_info.etc` 返回 1。主代理独立复跑当前 EXE 的 11 项离线布局检查均通过。
+
 ## 5. 现场 A/B（43 批留下的三条取证目标）
 
 1. 让操作者做一次动作（点一次锁定 / 切一次 CD 提示），两次之间退出到选角再进同一角色。日志里 game-character-option-saved 的 changed_word_indexes 就是这次动作改了哪些 word（锁定落在 128..255 段、CD 提示落在 2..41 段），lock_tree0_slots / cd_tree0_slots 给出槽号，lock_slot_count / cd_slot_count 给出项数。
@@ -50,7 +52,7 @@ op447 逐字节落库（official-24.9 只接受 512，与客户端读取端同�
 - 攻击类型（物理/魔法）没有取得字段或包证据：不实现、也不用其它字段代替。
 - 同一连接再选角时客户端是否重推 op447：45 批实测在重进同一角色时没有 447（只有服务端 390/19），因此不改保存门禁；若现场出现「被默认模板刷掉」，第 5 节的 cleared 事件会先抓出来。
 - 冷连接（全新客户端进程）的 390 / 19 顺序与内容：源码回归覆盖，实机未验。
-- DOC-053 的「时装右键掉线」「重选后武器栏空白」已由用户确认为客户端已修（仅未涂色），本席不再排查。
+- DOC-053 的「时装右键掉线」「重选后武器栏空白」已由用户确认已修（仅未涂色），本席不再排查；用户未说明修复位于客户端还是服务端。
 
 ## 7. 交付边界
 
