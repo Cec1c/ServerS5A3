@@ -5,6 +5,7 @@
 - 真档补证：16 个异次元裂缝副本（7100、7165-7179）全部 `[no fatigue]`，门票据 `[required item]` 为 3332 × 1/3/5（对应 `etc/dungeonetc/dimensiondungeoninfo.etc` 的难度档位表）；艾肯 5097/5098 既扣疲劳又收 10158700/10161610 ×5。范围只到这两类入场，316 魔界裂缝、4906-4910 每日副本、锦标赛/史诗入场的事务边界与顺序不动。
 - 验证：`./internal/modules/dnf/...` 与 `./internal/services/dnfbridge` 全部测试、14 项入场相关真档用例（含既有裂隙/每日副本/地狱派对/锦标赛）、gofmt、vet、list 与全量构建通过。官方 24.9 的 class0/812 计数下行仍未验证，本批不发包、不改 opcode。
 - 证据与旧失败回执见 `Docs/D33_DAILY_COUNT_ENTRY_20261014.md`。
+ - 当前 EXE（v96，`8bf1d39d…`）计数下行以反汇编收口：812 的真实 handler 是 `0x1fd5f20`（按对象句柄设字段，非次数投影），厂商 `DIMENSION_GATE_ENTRANCE_INFO = 0x0326`（806）在本 client 无登记项；真正的次数载体是 829/830（`u32 limit` + 32 × (`u32 dungeonId`, `u32 used`)，显示口径 `limit − used`），本仓已用于 316。因 829 的 limit 是单一标量且这些副本 id 的 UI 渲染无证据，本批**仍不发投影**；`etc/dungeoncyclesystem.etc` 第 2/5 个整数无 C#/EXE 证据，保持未证。详见同文档第 6 节。
 
 ## 2026-10-14 — 异次元裂缝与艾肯副本的每日入场次数落库（DOC-083/094）
 

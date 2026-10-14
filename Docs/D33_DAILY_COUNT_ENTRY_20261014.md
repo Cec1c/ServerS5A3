@@ -78,10 +78,45 @@ TestBaselineProbeEkernDungeonCycleDailyCount:
 - `./internal/modules/dnf/...` 与 `./internal/services/dnfbridge` 两个包全部测试通过（含
   `TestDungeonBridgeFilesHaveNoDirectRepositoryWrites` 的域边界约束）。
 
-## 6. 待原生验证
+## 6. 当前 EXE 的计数下行证据（2026-10-14 补）
 
-- 官方 24.9 客户端 class0/812 计数下行的字节布局与发送/重登时机尚未闭环：本批仍然**不发包**，
-  客户端"剩余次数"显示不会因为本批而变化。
-- 门票从 prepare 阶段移到 commit 阶段（同一入场流程内、发 entry 包之前）属于时序变化，
-  需要一次原生复测确认客户端背包在进图前正常刷新。
+对象：`H:/YKCN90工作区/正式客户端-v96/client/DNF.exe`，SHA-256 `8bf1d39d…41e387`。
+方法：解析 PE 后扫描登记函数 `0x25242a0` 的全部调用点，重建「opcode → handler」表，
+再用 capstone 反汇编相关 handler 与它的消费方。
+
+- **812 不是次数投影**：本 build 的 812 handler 是 `0x1fd5f20`（不是旧注释里的 `0x01049E00`），
+  它读取 `u8 kind + u32 对象句柄`，随后按 kind 走两套分支：kind=1 读 `u8 count` 后循环
+  `u8 索引 + 1 字节值` 调 `0x133b060` 设对象字段；kind=0 读 `u16 + u32 + u8` 调
+  `0x133a570/0x133b740/0x133c710/0x133cae0`。这是"按句柄设字段"的通用处理器，与每日次数无关；
+  同一 build 里形如 `u32/u32/u8` 的 handler 有几十个（200/276/279/347/348/352/783…），
+  说明旧注释把这条形状当成 812 的证据并不成立。
+- **厂商的 806 不能用**：本 client 的登记表里 806/805 都没有登记项，厂商
+  `DIMENSION_GATE_ENTRANCE_INFO = 0x0326` 的 `u32 remaining + u32 extra` 在本 build 无人消费。
+- **真正的次数载体是 829/830 家族**（本仓已用于 316 的同一套）：
+  - 829 handler `0x203b5a0`：读 `u32 limit` → `0x2961a20` 写 `[manager+0x8d4]`；再读 0x104 字节
+    原始块（= 1 个被忽略的 `u32` + 32 × (`u32 dungeonId`, `u32 used`)），逐对调 `0x2969320`
+    写入 `map[manager+0x8d8][dungeonId] = used`。
+  - 830 handler `0x20351b0`：读 `(u32 dungeonId, u32 used)` 调同一个 `0x2969320` 更新一对。
+  - 显示口径由消费方钉住：`0x1591c9f` 读 `0x2961a30`（limit）与 `0x2969340`（map[dungeonId]），
+    然后 `sub ecx, eax` = **limit − used**，再按 ≤0 切换样式格式化显示。
+  - 结论：829/830 的第二项是**已用次数**，客户端显示 `limit − used`（剩余次数）。
+- **仍未实现投影**（不发猜测包）：829 的 limit 是 manager 上的**单个标量**，一份 829 会把 32 对
+  全部重写，因此 316（3）、异次元裂缝（5）、艾肯（3/1）混合额度无法在同一份载荷里无歧义表达；
+  且客户端 UI 是否真的为 7100/5097/7165-7179 这些 id 渲染该计数（依赖 client 侧 PVF/UI 配置）
+  没有证据；艾肯的每副本额度还可能来自 client 自己读的 `etc/dungeoncyclesystem.etc`。
+- `etc/dungeoncyclesystem.etc` 第 2、5 个整数（-1/0 与 0/1）**仍未证**：C# 参考服务端没有任何
+  解析 `[dungeon cycle]` 的代码；当前 EXE 里也读不到明文 .etc 名称（全文件只有 `NpkIndex.etc`、
+  `MissionSystem.etc` 两处），因此字段语义无法用本 build 的 EXE 反证。实现继续只按"副本 id
+  后一位是额度"使用第 4 个整数，其余位置不解释。
+
+## 7. 待原生验证
+
+- 客户端"剩余次数"显示：本批仍然**不发包**（829/830 已用于 316，未扩到这两类入场），因此
+  7100/5097/7165-7179 的界面计数不会因为本批而变化；要扩需先钉住 829 limit 标量的作用域与
+  这些 id 的 UI 渲染证据。
+- 门票从 prepare 阶段移到 commit 阶段（同一入场流程内、发 entry 包之前）属于时序变化，需要
+  一次原生复测确认客户端背包在进图前正常刷新。
+- 组队入场：成员提交失败时既有语义是"只摘运行时、不返还资产"
+  （`rollbackRuntimePartyPreparedFollowers`），本批没有改变它；成员侧被回滚的那些次提交是否会
+  留下已提交的次数/门票/疲劳，需要单独的原生/评审确认。
 
