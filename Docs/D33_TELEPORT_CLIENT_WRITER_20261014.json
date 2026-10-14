@@ -1,0 +1,90 @@
+{
+  "exe_sha256": "8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387",
+  "executed": [
+    "0x25110d5 selected map hit-test return",
+    "0x1f40160 selection tuple setter",
+    "0x248b223..0x248b2e6 op237 sender and actual field getters"
+  ],
+  "stubbed": [
+    "inventory slot lookup returns fixture slot 6",
+    "packet writer sink captures bytes instead of network"
+  ],
+  "limitations": [
+    "map hit-testing/UI not executed end to end",
+    "no native gameplay acceptance"
+  ],
+  "cases": [
+    {
+      "selected_map_record": [
+        38,
+        5
+      ],
+      "coordinates": [
+        485,
+        382
+      ],
+      "actual_writer_body": "06004eac2700002605e5017e01",
+      "passed": true
+    },
+    {
+      "selected_map_record": [
+        38,
+        0
+      ],
+      "coordinates": [
+        1400,
+        249
+      ],
+      "actual_writer_body": "06004eac27000026007805f900",
+      "passed": true
+    },
+    {
+      "selected_map_record": [
+        31,
+        2
+      ],
+      "coordinates": [
+        246,
+        320
+      ],
+      "actual_writer_body": "06004eac2700001f02f6004001",
+      "passed": true
+    },
+    {
+      "selected_map_record": [
+        14,
+        2
+      ],
+      "coordinates": [
+        336,
+        313
+      ],
+      "actual_writer_body": "06004eac2700000e0250013901",
+      "passed": true
+    },
+    {
+      "selected_map_record": [
+        43,
+        1
+      ],
+      "coordinates": [
+        337,
+        449
+      ],
+      "actual_writer_body": "06004eac2700002b015101c101",
+      "passed": true
+    },
+    {
+      "selected_map_record": [
+        22,
+        4
+      ],
+      "coordinates": [
+        582,
+        336
+      ],
+      "actual_writer_body": "06004eac270000160446025001",
+      "passed": true
+    }
+  ]
+}
