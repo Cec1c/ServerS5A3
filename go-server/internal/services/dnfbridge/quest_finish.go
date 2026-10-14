@@ -211,6 +211,7 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		experienceBonusPercent = growthEffect.BonusExperiencePercent
 	}
 	timing.markTxStart()
+	// 与本次会话的玩法时钟一致：每日任务的完成日键按这个时间落库。
 	result, err := owner.ApplyFinishSettlement(ctx, catalog, dnfquest.FinishCommitInput{
 		AccountID:              accountID,
 		CharacterID:            characterID,
@@ -218,7 +219,7 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		RewardSelectIndex:      request.RewardSelectIndex,
 		HasRewardSelect:        request.HasRewardSelect,
 		Multiplier:             request.Multiplier,
-		CommittedAt:            time.Now().UTC(),
+		CommittedAt:            s.gameplayNow().UTC(),
 		Progression:            tables,
 		ExperienceBonusPercent: experienceBonusPercent,
 		AllocateItem:           allocator,

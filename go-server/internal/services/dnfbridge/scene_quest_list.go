@@ -173,7 +173,8 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 		s.logGameEvent(session, "game-upper-current-acceptable-quest-list-skipped", "reason", "epic350_prerequisite_resource_mismatch", "error", policyErr)
 		return nil, false
 	}
-	result := catalog.QuestList(eligibility, record)
+	// 每日任务的跨日投影必须和本次会话的玩法时钟一致，不能另取墙上时钟。
+	result := catalog.QuestListAt(eligibility, record, s.gameplayNow())
 	body := buildCurrentAcceptableQuestListBody(character.Level, result.IDs)
 	// 2026-10-02 (V20): `quest_ids` 是**有界**日志（前 32 条），而这一次排查里它被当成了全量：
 	// 限定任务 10019/2901 排在第 32 条之后，于是"不在 quest_ids 里"被误读成"服务端没下发"，

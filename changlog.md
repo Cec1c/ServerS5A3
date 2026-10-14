@@ -1,21 +1,13 @@
-## 2026-10-14 — 主线后继任务主代理完整验证
+## 2026-10-14 — 服务端与本地 GM 边界验证
 
-- 核心9320通过节点、860跳过、零失败；固定真实PVF的144个指定回归根全部通过（655通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
-- 功能测试针对e99c174；随后单独将dungeon_card_flow.go的CRLF转LF，逐字节证明仅换行变化并重新通过gofmt，功能测试无需重复。原始与格式修正后清单均已保留。
-- DOC-118仍待原生验收；DOC-123/124/126不计入本次修复。
+- 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。
+- 原GM文件保留本地，独立本地工具不进入在线仓库；CI边界正反对照通过。
 
-## 2026-10-14 — 剧情链「开始下个任务」先接取后继任务再进图（DOC-118）
+## 2026-10-14 — 按用户要求将在线仓库与本地 GM 工具分离
 
-- 固定真档链路：3146 n_quest/quest_renewal/epic_quest/elvengard/elvengard_epic_02.qst「传说中的白化变异哥布林」（[quest clear]、dungeon info 3）的后继是 3147 elvengard_epic_03.qst「毒泉的主人」（[clear map]、[pre required quest] 3146、dungeon info 6）；dungeon/act1/mirkwood.dgn 的 maze 2 带 [quest connection] 0 3146 -1，dungeon/act1/sunderlandpoison.dgn（猛毒雷鸣废墟）的 maze 1 带 0 3147 -1，maze 0 是无连接的非任务迷宫。
-- 缺口：结算弹窗的「开始下个任务」与再次挑战同值（op72 {1,0}）→ retryCurrentCompletedDungeon → resolveNextStoryQuestDungeon 只把进入目标换成后继副本，这条链上没有任何一步接取后继任务。迷宫选择只在任务 active 时命中任务迷宫（selectDungeonMaze 先 active_quest_connection，再 type 1 的 cleared，否则回落非任务迷宫），所以服务端驱动进图时 3147 尚未 active，真档里会选中 dungeon 6 的非任务 maze 0：玩家进了猛毒雷鸣废墟却不是任务那一趟，链条无法推进。
-- 修复：新增 dnfbridge/dungeon_story_quest_accept.go 的 acceptCurrentStorySuccessorQuest：进入后继副本前，用与 op31 完全相同的接取预检（Catalog.DecideAccept 的 PVF 等级/职业/成长/前置/碰撞 + 持久化记录）接取后继任务。结果按四种结局返回：accepted（本次新接取）、idempotent（已是进行中）、ineligible（PVF/角色状态本身不可接，零写入）、failed（仓储/上下文/持久化校验真实失败）。retryCurrentCompletedDungeon 只在 raidEntry == nil、后继副本不同于当前副本时调用：accepted/idempotent 才进入后继副本；ineligible 保持原行为（不伪造可接清单、不跳前置、不放宽等级）；failed 一律不退休旧 runtime、不进无任务迷宫、不扣入场资产，并放开本次一次性退出门让玩家重试（重试时接取幂等，因此只接一次）。
-- 客户端投影：op31 的非幂等分支在接取成功后会补发 op574 活动任务快照；剧情链的服务端接取没有 op31 ACK，因此 accepted 与 idempotent 两个结局都补发活动任务快照（接取真实写入后报错时记录已是 active，重试会走 idempotent，只给 accepted 补发就会漏掉投影），避免「DB 已 active、客户端没有任务」。既有副本入场路径不发该投影（已核对 dungeon 入场/场景路径只有场景尾声或副本结算路径发送）。为确认投影真的下发，新增 sendCurrentActiveQuestSnapshotChecked（仓库不可用/记录读失败/记录缺失都返回错误），该调用方使用它；投影失败一律不退休旧 runtime、不入场并退回一次性退出门允许重试。
-- 审查修正（发布前）：新增 storySuccessorFaultQuestStore 两个故障回归。TestDungeonCardExitStoryNextQuestStorageFailureStopsEntryAndRetriesOnce 注入 Quest 仓储写失败：断言旧 runtime 未被退休、一次性退出门被退回、无 3149 行、疲劳未变；清除故障后重试，断言进入后继任务迷宫且只成功接取一次。TestDungeonCardExitStoryNextQuestCommittedAcceptWithFailedProjectionRetriesIdempotently 注入「接取已落库但投影读取失败」：断言不退休、退出门退回、3149 已 active；清除故障后重试，断言重试幂等（不再次写入）但仍补发 op574 快照后才进入后继任务迷宫。
-- 与 DOC-126 的边界：本改动只服务「结算弹窗显式点击开始下个任务」的剧情链后继任务，不触碰 2695 这类服务端已下发 op21、客户端没有接取请求的觉醒任务；该项保持开放，不盲开 op31。
-- 回归（旧源码失败、修复后通过）：bridge TestDungeonCardExitStoryNextQuestStartsSuccessorOnItsQuestMaze（合成 fixture 的后继副本按真档形状给两个迷宫：非任务 maze 0 + 任务 maze 1；旧源码进入 maze 0，修复后先接取 3149 再进入 maze 1，并断言记录里 3149=active）；真实固定 PVF TestRealScriptPVFStoryNextDungeonUsesSuccessorQuestMaze（真档 3146→3147 与迷宫绑定、Successors(3146)=[3147]、DOC-118 角色 job8 lv50 grow5 接取后必须命中 dungeon 6 的任务迷宫，前置不满足时零写入）。负例 TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance 固定「接不成就不接、也不选任务迷宫」。
-- 验证：默认领域/桥/control 记 9320 通过节点、860 环境跳过、0 失败；根回归清单固定 PVF 记 651 通过、2 跳过、0 失败；gofmt（CRLF 文件除外，见行尾说明）、go list 212 包、scoped vet、Windows/Linux 构建通过。BAT 预检在本源档仍因缺资源路径失败，不作为通过。
-- 未完成/边界：DOC-118 的最终判定仍需实机（客户端点按后的实际进入）；本轮证明并修复的是「服务端选迷宫前没有启动后继任务」这一缺口。DOC-123（女圣职 15 级后无主线/转职）与 DOC-124（魔枪士/瞎子转职与主线颠倒）本轮未改动，仍在取证。
-- 行尾说明：dungeon_card_flow.go 在基线就是 CRLF（29079 字节、735 CRLF）。本轮曾一度被 gofmt -w 改成 LF，导致整档行尾差异；现已恢复跟踪行尾，base→index 只剩 41 行实改（含本轮 outcome/failure 处理），没有整档改写。gofmt -l 会把 CRLF 判为未格式化，这一点对基线文件同样成立（对 5fc6807 的 blob 副本执行 gofmt -l 也会列出该文件），因此本候选不改变该文件的既有属性；若流水线要求该文件 gofmt 全绿，需要单独一次行尾归一化提交（代价就是 735 行行尾差异），请按流水线取舍。新增文件与 dungeon_card_flow_test.go 为 LF。
+- 在线版本移除 GM Web 工具包及嵌入服务端的启动/停止绑定；本地原始 GM 文件和用户正在使用的工程全部保留。隔离清理树采用取消 Git 跟踪，未删除本地工具源码。
+- 控制器不再生成 GM 环境配置，doctor 不再要求 GM 端口随游戏服务器启动。旧 gmListen 配置兼容读取后忽略；服务端游戏及通用管理接口保持原职责。
+- 添加忽略规则、仓库边界检查及协作规范，防止后续 GM 更新重新进入在线仓库。验证与在线清理结果后补。
 
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
@@ -593,3 +585,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
+
+- Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
+- DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
+- GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
+

@@ -36,7 +36,8 @@ func TestTradingCatalogUsesNPCMembershipAndMaterialTransaction(t *testing.T) {
 		t.Fatalf("buy=%+v err=%v", result, err)
 	}
 	result, err = service.commitCurrentNPCShopBuy(context.Background(), session, shop, items, currentNPCShopBuyRequest{ItemID: 602, Count: 3, ActorContext: 476})
-	if err != nil || result.CostItemNewCount != 4 || result.GoldAfter != 625 {
+	// The shop-item definition also declares an explicit price of 100 each.
+	if err != nil || result.CostItemNewCount != 4 || result.GoldAfter != 325 {
 		t.Fatalf("exchange=%+v err=%v", result, err)
 	}
 	inventory, _, _ := repos.Inventory.Load(context.Background(), "19")
