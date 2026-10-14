@@ -44,6 +44,11 @@
 - Keep the last successfully delivered adventure-friend projection for each selected character generation. Unchanged room-loading and presence refreshes no longer resend the native online-notification packet; changed rows and pending invitations still refresh normally.
 - New selections and connections bootstrap their lists again. Commit the projection only after successful information writes, before sending pending invitations, so a pending-list retry does not replay an online notification.
 - Regression coverage includes repeated finish-loading, offline/online changes, notes, character switching, reconnects, renamed/deleted rows and transport failures. Current-client disassembly confirms the repeated-notification branch; native UI acceptance remains pending.
+## 2026-10-14 — Give adventure-shop purchases their PVF use periods
+
+- Resolve a product's relative PVF use period at purchase time before granting it. Adventure-shop potions now receive a durable expiration date instead of a zero deadline; use the same purchase clock for the grant and account settlement.
+- Preserve permanent items, reject unrepresentable deadlines before charging, and retain the existing account/inventory transaction. Existing instances are not assigned invented purchase dates or renewed by later purchases.
+- Regression coverage includes the matching-PVF seven-day potion, inventory refresh fields, relogin projection, separate purchase deadlines, insufficient points, full inventory, foreign ownership and late transaction rollback. Native tooltip and use acceptance remain pending.
 
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity

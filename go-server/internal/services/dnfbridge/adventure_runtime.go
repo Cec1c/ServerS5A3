@@ -520,6 +520,13 @@ func (s *Service) handleCurrentAdventureShopPurchase(session *gameSession, body 
 	if err != nil {
 		return s.sendGameUpperFailure(session, currentAdventureShopPurchaseMsgID, currentAdventureGenericFailureCode)
 	}
+	// The catalog retains relative PVF periods. Freeze the purchase deadline
+	// before granting, as the other reward owners do; a raw relative definition
+	// otherwise creates a row with a zero deadline and appears already expired.
+	definition, err = currentPVFItemDefinitionForGrantAt(definition, now)
+	if err != nil {
+		return s.sendGameUpperFailure(session, currentAdventureShopPurchaseMsgID, currentAdventureGenericFailureCode)
+	}
 	var result currentAdventureShopCommit
 	err = state.Repositories.CeraShopAssets.WithinCeraShopAssets(
 		ctx,
@@ -552,7 +559,7 @@ func (s *Service) handleCurrentAdventureShopPurchase(session *gameSession, body 
 			if err := runtime.Spend(category, product); err != nil {
 				return err
 			}
-			slots, err := grantCurrentCeraShopProduct(&inventory, definition, 1)
+			slots, err := grantCurrentCeraShopProductAt(&inventory, definition, 1, now)
 			if err != nil {
 				return err
 			}
