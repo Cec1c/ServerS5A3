@@ -14,6 +14,15 @@ import (
 // into object+0x54. vtable+0x28 returns object+8, and the fee caller reads
 // state+0x4c. Do not substitute minimum level or add a rarity offset again.
 func resolveNativeUpgradeEquipmentCost(table *currentUpgradeTable, doc *dnfpvf.Document, level int) (int64, error) {
+	// The candidate supports only ordinary static equipment metadata. These
+	// sections need native semantics that are not implemented here; their
+	// presence is not itself evidence that the ordinary fee is incorrect.
+	// Section reports presence even for empty bodies and normalizes names.
+	for _, name := range []string{"level linear ability", "upgrade cost discount", "custom upgrade type", "upgrade exclusive material"} {
+		if _, present := doc.Section(name); present {
+			return 0, fmt.Errorf("upgrade cost unsupported metadata %q", name)
+		}
+	}
 	scalar := func(name string) (int, error) {
 		values, found := doc.Section(name)
 		if !found || len(values) != 1 || values[0].Kind != dnfpvf.TokenInt || values[0].Int < 0 || values[0].Int > math.MaxInt32 {

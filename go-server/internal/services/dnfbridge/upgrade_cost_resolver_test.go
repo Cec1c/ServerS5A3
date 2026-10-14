@@ -152,3 +152,92 @@ func TestNativeUpgradeCostCandidateIsExplicitOptIn(t *testing.T) {
 		t.Fatal("candidate resolver missing")
 	}
 }
+
+// Unsupported metadata is rejected until its native semantics are implemented;
+// presence alone does not prove that an ordinary quote would be mispriced.
+func TestNativeUpgradeCostRejectsUnsupportedMetadata(t *testing.T) {
+	table := &currentUpgradeTable{Costs: []int{10, 100}, TypeWeights: []float64{1}, CostWeightsByRarity: []float64{1}, CostWeightsByUpgradeLevel: map[int][2]float64{0: {1, 1}}}
+	base := "[grade]\n1\n[rarity]\n0\n[equipment type]\n\x60[weapon]\x60 22\n"
+	for _, name := range []string{"level linear ability", "upgrade cost discount", "custom upgrade type", "upgrade exclusive material"} {
+		for _, body := range []string{"", "1 70\n", "\x60unsupported\x60\n"} {
+			t.Run(name+"/"+body, func(t *testing.T) {
+				doc, err := dnfpvf.Parse("equipment/test.equ", base+"["+name+"]\n"+body+"[/"+name+"]\n")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := resolveNativeUpgradeEquipmentCost(table, doc, 0); err == nil {
+					t.Fatal("accepted unsupported metadata")
+				}
+			})
+		}
+	}
+	for _, suffix := range []string{"[ LeVeL LiNeAr AbIlItY ]\n", "[level linear ability]\n1 70\n[grade]\n1 70\n[/level linear ability]\n"} {
+		doc, err := dnfpvf.Parse("equipment/test.equ", base+suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := resolveNativeUpgradeEquipmentCost(table, doc, 0); err == nil {
+			t.Fatal("accepted normalized or nested unsupported metadata")
+		}
+	}
+	doc, err := dnfpvf.Parse("equipment/test.equ", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveNativeUpgradeEquipmentCost(table, doc, 0); err != nil || got != 100 {
+		t.Fatalf("ordinary quote=%d err=%v", got, err)
+	}
+}
+
+func TestRealPVFUpgradeCostUnsupportedMetadataBoundary(t *testing.T) {
+	pvfPath := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
+	if pvfPath == "" {
+		t.Skip("set DNFBRIDGE_REAL_PVF_SMOKE")
+	}
+	archive, err := platformpvf.Open(pvfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := archive.ReadText(currentUpgradePVFPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	td, err := dnfpvf.Parse(currentUpgradePVFPath, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := parseCurrentUpgradeTable(td, raw)
+	for _, tc := range []struct {
+		id          int
+		path        string
+		unsupported string
+	}{
+		{10194, "equipment/character/common/jacket/cloth/coat_10194.equ", "level linear ability"},
+		{104000339, "equipment/character/gunner/weapon/revolver/104000339.equ", "upgrade exclusive material"},
+		{28309, "equipment/character/swordman/weapon/beamsword/beamswd_28309.equ", ""},
+	} {
+		raw, err := archive.ReadText(tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, err := dnfpvf.Parse(tc.path, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.unsupported != "" {
+			if _, present := doc.Section(tc.unsupported); !present {
+				t.Fatalf("item %d missing expected metadata", tc.id)
+			}
+			if _, err := resolveNativeUpgradeEquipmentCost(table, doc, 0); err == nil {
+				t.Errorf("item %d accepted unsupported %s", tc.id, tc.unsupported)
+			}
+			continue
+		}
+		for level, want := range map[int]int64{0: 84975, 4: 169950, 10: 254925, 12: 679800} {
+			got, err := resolveNativeUpgradeEquipmentCost(table, doc, level)
+			if err != nil || got != want {
+				t.Errorf("item %d +%d gold=%d err=%v want=%d", tc.id, level, got, err, want)
+			}
+		}
+	}
+}
