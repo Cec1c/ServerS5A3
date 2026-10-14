@@ -6,7 +6,7 @@
   - 新增 `TestRealPVFAtPriestLevel15BranchReachesClassChange`：钉死 6945/6946 的名称与 `[target character]` 元组、3153 后 6929+6945–6949 必须可接（6945 DecideAccept=AcceptNew）、完成分支解锁 3155、完成 3155 后 2908–2911 可接。基线失败于「at-priest level-15 branch quest 6945 not offered after the mainline; listed=[3105 … 3145 6929 8581]」。
   - 新增 `TestRealPVFEveryJobLevel15BranchReachesClassChange`：对 character.lst 的每个职业跑同一条链（分支 → 3155 → 转职）；黑骑士(9)/缔造者(10) 按真档留在普通转职家族之外。基线 14 个职业失败于「no level-15 branch variant」。
 - 局限：本项依据真档目录、前置与目标元组推导，未取得该玩家角色当时的 quest_states（现网只读快照中没有 job 14 角色），因此未复现该角色的具体存档状态；本条只声明当前主线（9de2ecb）上该链通过，DOC-123 仍待原生验收。DOC-124（已转职角色仍可接永远结算不了的转职任务）属另一候选，未包含在本次改动内。
-- 时间线：报告为 10.13 14:30；包含该判据的 D33 已知问题分支在 10.14 15:52(HKT) 才并回 master（5fc6807），10-14 的部署（916/918/919/920）之后才带上该改动。报告当时线上是否已含 2da7982 无法从本仓证明。
+- 时间线：报告为 10.13 14:30；包含该判据的 D33 已知问题分支在 10.14 15:52(HKT) 才并回 master（5fc6807）。报告当时线上是否已含 2da7982 无法从本仓证明。
 - 验证（本树，改动仅测试文件头注释与本文档）：gofmt 无差异；`go list -buildvcs=false ./...` 211 包；AGENTS 指定的 vet 目标（cmd/server/control、cmd/server/dnf90、cmd/server/doctor、internal/app/dnf90、internal/services/dnfbridge）0 输出；核心 `./internal/modules/dnf/... ./internal/services/dnfbridge ./cmd/server/control` 79 个包 ok、0 失败、2 包无测试文件（dnfbridge 22.2s、control 6.1s，本机未设真实 PVF 环境变量故真档用例跳过）；Windows 构建 `go build -buildvcs=false -o ..\runtime\bin\DNF90Server.exe ./cmd/server/dnf90` 通过并产出二进制；固定真实 PVF（sha256 369d072b…）两根 `TestRealPVFAtPriestLevel15BranchReachesClassChange`、`TestRealPVFEveryJobLevel15BranchReachesClassChange` 全部通过。BAT 预检 `control.bat check --skip-database` 在本机需先把 Go 加入 PATH（否则报 DNF90Control.exe/Go 缺失，exit 10），加 PATH 后仍因源码包缺少 `deploy/assets/channel_info.etc` 失败（exit 1），故未计部署通过。
 
 ## 2026-10-14 — 服务端与本地 GM 边界验证
