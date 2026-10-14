@@ -123,21 +123,42 @@ func TestNPCShopMixedCostFailurePreservesAllAssets(t *testing.T) {
 
 func TestRealPVFNPCShopLukeMixedPriceDebitsGoldAndMonolium(t *testing.T) {
 	shop, items := realPVF535(t)
-	const itemID = uint32(100390011)
-	pricing, err := resolveCurrentNPCShopPricing(shop, items, itemID)
-	if err != nil || pricing.BuyGold != 2500000 || pricing.NeedMaterialItem != 10159623 || pricing.NeedMaterialCount != 100 {
-		t.Fatalf("real Luke price changed: %+v err=%v", pricing, err)
+	// All three finished Luke items named in the user's DOC-100 reproduction.
+	for _, tc := range []struct {
+		name   string
+		itemID uint32
+	}{
+		{"王冠非冠", 100344527},
+		{"黑暗祭礼", 100390011},
+		{"王座本源", 100352839},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing, err := resolveCurrentNPCShopPricing(shop, items, tc.itemID)
+			if err != nil || pricing.BuyGold != 2500000 || pricing.NeedMaterialItem != 10159623 || pricing.NeedMaterialCount != 100 {
+				t.Fatalf("real Luke price changed: %+v err=%v", pricing, err)
+			}
+			for _, gold := range []int64{3000000, 2499999} {
+				repos := mustCurrentNPCShopRepositories(t, gold, map[string]dnfrepo.ItemStack{"0:121": {ItemID: 10159623, Count: 150}})
+				beforeChar, _, _ := repos.Character.Load(context.Background(), "19")
+				beforeBag, _, _ := repos.Inventory.Load(context.Background(), "19")
+				s := currentNPCShopTestService(repos, shop, items)
+				result, err := s.commitCurrentNPCShopBuy(context.Background(), &gameSession{selectedCharacterID: 19}, shop, items, currentNPCShopBuyRequest{ItemID: tc.itemID, Count: 1})
+				character, _, _ := repos.Character.Load(context.Background(), "19")
+				bag, _, _ := repos.Inventory.Load(context.Background(), "19")
+				if gold < 2500000 {
+					if err == nil || !reflect.DeepEqual(beforeChar, character) || !reflect.DeepEqual(beforeBag, bag) {
+						t.Fatalf("insufficient-gold purchase must reject without changing assets: err=%v", err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.GoldAfter != 500000 || character.Stats["gold"] != 500000 || bag.Slots["0:121"].Count != 50 {
+					t.Fatalf("gold result=%d stored=%d material=%d", result.GoldAfter, character.Stats["gold"], bag.Slots["0:121"].Count)
+				}
+				assertCurrentNPCShopInventoryAmount(t, bag, int64(tc.itemID), 1)
+			}
+		})
 	}
-	repos := mustCurrentNPCShopRepositories(t, 3000000, map[string]dnfrepo.ItemStack{"0:121": {ItemID: 10159623, Count: 150}})
-	s := currentNPCShopTestService(repos, shop, items)
-	result, err := s.commitCurrentNPCShopBuy(context.Background(), &gameSession{selectedCharacterID: 19}, shop, items, currentNPCShopBuyRequest{ItemID: itemID, Count: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	character, _, _ := repos.Character.Load(context.Background(), "19")
-	bag, _, _ := repos.Inventory.Load(context.Background(), "19")
-	if result.GoldAfter != 500000 || character.Stats["gold"] != 500000 || bag.Slots["0:121"].Count != 50 {
-		t.Fatalf("gold result=%d stored=%d material=%d", result.GoldAfter, character.Stats["gold"], bag.Slots["0:121"].Count)
-	}
-	assertCurrentNPCShopInventoryAmount(t, bag, int64(itemID), 1)
 }
