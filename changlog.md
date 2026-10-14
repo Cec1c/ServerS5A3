@@ -71,6 +71,17 @@
 - Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
 - Preserve the account/character asset transaction and committed balance refresh. Refuse insufficient stock and arithmetic overflow without consuming contribution materials, changing carry or granting products.
 - Regression coverage includes the matching-PVF dimensional catalyst, single/batch account and bag costs, carry, output multipliers and rollback. Native crafting animation acceptance remains separate.
+## 2026-10-14 — 按 PVF 阵营识别怪物型友方 NPC 的击杀贡献
+
+- 友方协战贡献同时覆盖 AI 角色和原生怪物两种对象类型；怪物型贡献者必须是已宣告存活、绑定匹配地图行且被 PVF [monster team] 显式设为玩家阵营的对象。跨房跟随沿用本次副本来源房间的身份与阵营证据，不以 NPC、地图或技能 ID 放行。
+- 保留当前房间目标、未知类型、敌对/未宣告/退役对象及教程边界；拒绝将友方对象本身作为此兼容路径的击杀目标。重复死亡和发送失败重试仅补发已提交的死亡通知。
+- 新增针对性失败回归及匹配 PVF 的怪物型协战全链路验证：五个房间共 23 次击杀、重复请求不重复结算并进入第六房；既有 AI 协战回归保持通过。画面与真实玩家复测仍单独验收。
+
+## 2026-10-14 — 修复友好 APC 击杀后怪物残留、房间无法清空
+
+- 兼容当前官方客户端的死亡报文：击杀归属为 `0xffff` 时，允许携带服务端已宣告、仍存活的友好 APC 战斗贡献项。继续验证当前房间的普通怪物绑定；未知/敌对/未宣告 APC、跨房目标、教程及旧协议不因此放宽。
+- 复用既有死亡、经验、掉落与清房流程；重复死亡或通知写入失败后的重试仅补发权威死亡通知，不重新结算击杀奖励。保留跨房跟随 APC 的原对象标识。
+- 增加原生报文边界、拒绝路径、重复结算及传输失败回归，并用匹配 PVF 重建阿甘左协战房间，验证六只阻挡怪死亡及后续过图。游戏内画面效果仍需实机验收。
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
