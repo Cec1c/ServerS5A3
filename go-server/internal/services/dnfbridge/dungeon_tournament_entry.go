@@ -167,10 +167,11 @@ func (s *Service) validateDungeonEntryWithTournament(
 		if err := s.validateCurrentDimensionGateDailyCount(character); err != nil {
 			return err
 		}
-	} else if limit, declared, err := s.currentDungeonCycleDailyCountForDungeon(dungeon.ID); err != nil {
+	} else if requirement, declared, err := s.currentDungeonCycleRequirementForDungeon(dungeon.ID); err != nil {
 		return err
 	} else if declared {
-		if err := s.validateCurrentDungeonCycleDailyCount(character, dungeon.ID, limit); err != nil {
+		// 每日次数（按通关）与试炼前置都在这里判一次；同一个判据在门票/疲劳事务里再复核一次。
+		if err := s.validateCurrentDungeonCycleDailyCount(character, requirement); err != nil {
 			return err
 		}
 	}

@@ -26,6 +26,11 @@ type EntryAssetsCommand struct {
 	//「prepare 通过、commit 后额度被别人抢走」的窗口。
 	AllowanceDungeonID int64
 	AllowanceLimit     int64
+	// PrerequisiteDungeonID/PrerequisiteCount 非零时，在同一事务内要求
+	// `DailyEntryUsed(character, PrerequisiteDungeonID) >= PrerequisiteCount`（真档每日任务：
+	// 试炼 5098/3571 需要当日通关遗落的神殿 5097/3570 三次）。不满足即整批拒绝，不扣票/疲劳。
+	PrerequisiteDungeonID int64
+	PrerequisiteCount     int64
 }
 
 type EntryAssetsResult struct {
@@ -55,6 +60,15 @@ func (o *Owner) ConsumeEntryAssets(ctx context.Context, cmd EntryAssetsCommand) 
 			}
 			if used >= cmd.AllowanceLimit {
 				return ErrDailyEntryLimit
+			}
+		}
+		if cmd.PrerequisiteDungeonID > 0 && cmd.PrerequisiteCount > 0 {
+			cleared, err := DailyEntryUsed(character, cmd.PrerequisiteDungeonID, cmd.UpdatedAt)
+			if err != nil {
+				return err
+			}
+			if cleared < cmd.PrerequisiteCount {
+				return ErrEntryPrerequisiteMissing
 			}
 		}
 		alternatives, err := DailyEntryAlternatives(cmd.Requirements, cmd.FreePasses, 0, 0)

@@ -28,6 +28,10 @@ type DailyEntryCommand struct {
 	// InTransaction 在同一角色事务内、额度判据之后、计数写入之前执行，供桥侧把
 	// 入场房间疲劳这类同批资产并入本次提交（全部成功才提交，任一失败全部回滚）。
 	InTransaction func(character *dnfrepo.CharacterRecord) error
+	// ClearNonce 非零时把这次提交变成「每轮一次」的幂等通关计数：同一个 nonce 在同一个服务日
+	// 已经记过就直接回放（返回已记的次数、不重复自增、不扣任何资产）。调用方用稳定可重试的
+	// 每轮标识（例如运行时 token）填充它，因此「先提交成功、后返回错误」的重试不会重复计数。
+	ClearNonce int64
 }
 
 type DailyEntryResult struct {
@@ -38,6 +42,11 @@ type DailyEntryResult struct {
 
 func dailyEntryKeys(dungeonID int64) (string, string) {
 	return fmt.Sprintf("dungeon_daily_entry_%d_day", dungeonID), fmt.Sprintf("dungeon_daily_entry_%d_used", dungeonID)
+}
+
+// dailyEntryNonceKey 记录「最后一次已计入该副本每日次数的每轮 nonce」。
+func dailyEntryNonceKey(dungeonID int64) string {
+	return fmt.Sprintf("dungeon_daily_entry_%d_nonce", dungeonID)
 }
 
 // DailyEntryUsed follows the existing 06:00 UTC+8 service day. Reading a new
@@ -112,6 +121,15 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		if err != nil {
 			return err
 		}
+		if cmd.ClearNonce != 0 {
+			nonceKey := dailyEntryNonceKey(cmd.DungeonID)
+			dayKey, _ := dailyEntryKeys(cmd.DungeonID)
+			if character.Stats[nonceKey] == cmd.ClearNonce && character.Stats[dayKey] == premium.ServiceDayID(cmd.UpdatedAt) {
+				// 幂等回放：这一轮已经计过，重试不得再计一次，也不扣资产。
+				result.Character, result.Used = character, used
+				return nil
+			}
+		}
 		if used >= cmd.Limit {
 			return ErrDailyEntryLimit
 		}
@@ -149,6 +167,9 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		dayKey, usedKey := dailyEntryKeys(cmd.DungeonID)
 		character.Stats[dayKey] = premium.ServiceDayID(cmd.UpdatedAt)
 		character.Stats[usedKey] = used + 1
+		if cmd.ClearNonce != 0 {
+			character.Stats[dailyEntryNonceKey(cmd.DungeonID)] = cmd.ClearNonce
+		}
 		character.UpdatedAt = cmd.UpdatedAt
 		if err := dnfrepo.SaveCharacterFields(ctx, chars, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err

@@ -73,6 +73,24 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 			"settlement_persistence_barrier_ready", true,
 			"source", "owned_cleared_runtime_boss_op117")
 	}
+	// 按通关计数的副本（艾肯）：次数提交是这一轮通关的**阻塞前置**。失败时保持
+	// dungeonCycleClearCountCommitted=false 并直接返回——不进入后续结算、不发 op115/终局包，
+	// 由客户端重传触发重试（计数用每轮 nonce 幂等，重试只计一次）。
+	// 放在 clear-map quest 同步之前：持久化失败不得被当成成功，也不能绕过每日上限。
+	if !runtime.dungeonCycleClearCountCommitted {
+		if err := s.commitCurrentDungeonCycleClearCountLocked(session, runtime); err != nil {
+			s.logGameEvent(session, "game-dungeon-cycle-clear-count-blocked",
+				"char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID,
+				"maze_index", runtime.MazeIndex,
+				"source", source,
+				"reason", "clear_count_commit_failed_retryable_block",
+				"op115_sent", runtime.bossDieCheckResponseSent,
+				"settlement_entry_sent", runtime.settlementEntrySent,
+				"error", err)
+			return nil
+		}
+	}
 	if !runtime.clearMapCompletionPhaseAPersisted {
 		if err := s.persistCurrentDungeonClearMapCompletionPhaseA(ctx, session, runtime, snapshot); err != nil {
 			s.logGameEvent(session, "game-dungeon-boss-die-check-completion-quest-sync-nonblocking",
@@ -103,19 +121,6 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 		}
 	}
 	if !tutorialDungeon && runtime.clearMapCompletionPhaseAPersisted {
-		if !runtime.dungeonCycleClearCountCommitted {
-			if err := s.consumeCurrentDungeonCycleClearCount(session, runtime); err != nil {
-				s.logGameEvent(session, "game-dungeon-cycle-clear-count-deferred",
-					"char_id", session.selectedCharacterID,
-					"dungeon_id", runtime.Dungeon.ID,
-					"maze_index", runtime.MazeIndex,
-					"source", source,
-					"reason", "clear_count_commit_failed_nonblocking",
-					"error", err)
-			} else {
-				runtime.dungeonCycleClearCountCommitted = true
-			}
-		}
 		if err := s.sendCurrentDungeonClearMapCompletionNotificationLocked(ctx, session, runtime); err != nil {
 			s.logGameEvent(session, "game-dungeon-boss-die-check-completion-active-snapshot-nonblocking",
 				"char_id", session.selectedCharacterID,

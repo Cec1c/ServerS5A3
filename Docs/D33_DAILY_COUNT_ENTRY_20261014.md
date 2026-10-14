@@ -155,3 +155,37 @@ protobuf 的 `lifecycle_id_generator_`）。这只说明「未以明文形式出
   （`rollbackRuntimePartyPreparedFollowers`），本批没有改变它；成员侧被回滚的那些次提交是否会
   留下已提交的次数/门票/疲劳，需要单独的原生/评审确认。
 
+## 10. 试炼前置与通关计数幂等：RED/GREEN 回执（2026-10-14）
+
+RED = 修复前（1c9ce61）用只依赖两版共有 API 的临时探针 `TestZZCyclePrerequisiteAndNonceRedProbe`：
+
+```
+RED_A prepare_5098_error=<nil>
+RED_A: 5098 accepted without the three-clear prerequisite
+RED_B used_after_two_identical_submissions=2
+RED_B: retry double counted (2 != 1)
+RED_C clear nonce 9 rejected early: dungeon daily entry limit reached
+--- FAIL: TestZZCyclePrerequisiteAndNonceRedProbe
+```
+
+GREEN = 修复后（探针 + 两个常驻用例）：
+
+```
+RED_A prepare_5098_error=dungeon entry prerequisite is not met
+RED_B used_after_two_identical_submissions=1
+RED_C over_limit_error=dungeon daily entry limit reached
+--- PASS: TestCurrentDungeonCycleEkernPrerequisiteBlocksEntryWithoutConsumingTickets
+--- PASS: TestCurrentDungeonCycleClearCountRetryIsIdempotentAndCannotBypassLimit
+--- PASS: TestCurrentDungeonCycleDailyLimitsParseAndFailClosed
+```
+
+实现要点：
+
+- 试炼前置（服务端强制，不依赖客户端隐藏）：prepare 判一次，`EntryAssetsCommand` 在同一事务里
+  再复核一次（`AllowanceDungeonID/Limit` + `PrerequisiteDungeonID/Count`）；失败整批回滚，
+  门票与入场房间疲劳一分不扣。前置由表结构推导（同 worldmap、同第 2 列分组内，第 5 列=1 的副本以
+  第 5 列=0 的副本为前置，所需次数取后者第 4 列），与真档任务文案 5098←5097≥3、3571←3570≥3 一致。
+- 通关计数：成为这一轮通关的**阻塞前置**（`commitCurrentDungeonCycleClearCountLocked`，位于
+  clear-map 同步之前）。失败时保持 `dungeonCycleClearCountCommitted=false` 并直接返回——不进入
+  后续结算、不发 op115/终局包，客户端重传触发重试；计数带 `ClearNonce = runtime.lifecycleToken`，
+  同服务日同 nonce 是幂等回放，重试只计一次，失败也不会绕过每日上限。

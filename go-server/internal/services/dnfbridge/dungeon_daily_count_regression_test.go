@@ -229,8 +229,15 @@ func TestRealPVFDimensionDungeonSharedDailyCounterAndEkernCycleLimits(t *testing
 	if used, err := dnfdungeon.DailyEntryUsed(storedEkern, 5098, queue.now); err != nil || used != 0 {
 		t.Fatalf("5098 must keep its own counter: used=%d err=%v", used, err)
 	}
-	if err := s.validateCurrentDungeonCycleDailyCount(storedEkern, 5098, expected[5098]); err != nil {
-		t.Fatalf("5098 must keep its own allowance: %v", err)
+	trialRequirement, declared, err := s.currentDungeonCycleRequirementForDungeon(5098)
+	if err != nil || !declared {
+		t.Fatalf("5098 requirement: declared=%t err=%v", declared, err)
+	}
+	if trialRequirement.PrerequisiteDungeonID != 5097 || trialRequirement.PrerequisiteDailyCount != expected[5097] {
+		t.Fatalf("5098 prerequisite=%d>=%d, want 5097>=%d", trialRequirement.PrerequisiteDungeonID, trialRequirement.PrerequisiteDailyCount, expected[5097])
+	}
+	if err := s.validateCurrentDungeonCycleDailyCount(storedEkern, trialRequirement); err != nil {
+		t.Fatalf("5098 allowance after three 5097 clears: %v", err)
 	}
 	// 只落计数器，不重复扣票。
 	storedBag, _, err := repos.Inventory.Load(ctx, "31")

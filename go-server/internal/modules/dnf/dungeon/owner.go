@@ -28,6 +28,8 @@ var (
 	ErrGoldOverflow           = errors.New("dungeon gold would overflow")
 	ErrStackProjectorRequired = errors.New("dungeon expiring stack projector is required")
 	ErrPremiumDailyLimit      = errors.New("dungeon premium service daily limit reached")
+	// ErrEntryPrerequisiteMissing：真档每日任务要求的「先通关前置副本 N 次」尚未满足。
+	ErrEntryPrerequisiteMissing = errors.New("dungeon entry prerequisite is not met")
 )
 
 // StackProjector lets the transport compatibility layer project current-client
