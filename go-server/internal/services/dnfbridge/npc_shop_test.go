@@ -453,7 +453,7 @@ func TestCurrentNPCShopBuyMaterialExchangeConsumesCharacterStack(t *testing.T) {
 		t.Fatalf("exchange ACK header=%+v body=%x", ack.Header, ack.Body)
 	}
 	if len(ack.Body) != 1+4*4+currentItemListEntryWireSize+1+8 ||
-		binary.LittleEndian.Uint32(ack.Body[1:5]) != 1000 || // gold untouched
+		binary.LittleEndian.Uint32(ack.Body[1:5]) != 700 || // explicit price 100 x 3
 		ack.Body[len(ack.Body)-9] != 1 || binary.LittleEndian.Uint32(ack.Body[len(ack.Body)-8:]) != 900 || binary.LittleEndian.Uint32(ack.Body[len(ack.Body)-4:]) != 4 {
 		t.Fatalf("exchange ACK cost rows=%x", ack.Body)
 	}
@@ -462,8 +462,8 @@ func TestCurrentNPCShopBuyMaterialExchangeConsumesCharacterStack(t *testing.T) {
 		t.Fatalf("exchange trailing packets=%d", len(trailing))
 	}
 	character, _, _ := repositories.Character.Load(context.Background(), "19")
-	if character.Stats["gold"] != 1000 {
-		t.Fatalf("gold after exchange=%d want unchanged 1000", character.Stats["gold"])
+	if character.Stats["gold"] != 700 {
+		t.Fatalf("gold after exchange=%d want 700", character.Stats["gold"])
 	}
 	inventory, _, _ := repositories.Inventory.Load(context.Background(), "19")
 	if stack := inventory.Slots["0:121"]; stack.ItemID != 900 || stack.Count != 4 {
