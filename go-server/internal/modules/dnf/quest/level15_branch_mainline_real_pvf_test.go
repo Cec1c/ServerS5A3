@@ -15,15 +15,19 @@ import (
 // "守护森林的战斗" branch variant per job, and only a completed branch variant
 // unlocks 3155 (赛丽亚的决心); the class-change (转职) quests hang off 3155.
 //
-// DOC-116 (角色 尊, guardian) reported the same shape: after the level-15
-// mainline neither the branch mainline nor the follow-up appeared. DOC-123
-// reports it for 女圣职者 (job 14 = Priest/ATPriest.chr). The root cause was the
-// `[target character]` tuple comparison: every real branch variant carries a
-// `-1` component (unrestricted), and the old exact comparison never matched a
-// packed grow-type nibble, so only the inert dummy 6929 stayed acceptable and
-// the chain dead-ended. Fix #2da7982 treats `-1` as unrestricted. These tests
-// pin the corrected chain for the reported job and for every other job so the
-// same class of report cannot regress silently.
+// DOC-116 (角色 尊, guardian) and DOC-123 (女圣职者, job 14 =
+// Priest/ATPriest.chr) both report ending up with neither the branch mainline
+// nor the follow-up after the level-15 mainline. On the pre-2da7982 source the
+// `[target character]` tuple was compared exactly, so the `-1` component every
+// real branch variant carries (unrestricted) never matched a packed grow-type
+// nibble and only the inert dummy 6929 stayed acceptable; that source reproduces
+// the same symptom. 2da7982 treats `-1` as unrestricted, is an ancestor of this
+// baseline, and the current source serves the chain asserted below.
+//
+// These tests pin the chain as it behaves on the current mainline, for the job
+// named in the report and for every other job, so the same class of report
+// cannot regress silently. They do not establish which build or which character
+// save the reporter used, and DOC-123 still awaits native in-game acceptance.
 
 const (
 	level15BranchMinID     = int64(6929)
@@ -114,8 +118,8 @@ func level15JobChangeQuestIDs(catalog *Catalog, job int) []int64 {
 	return ids
 }
 
-// TestRealPVFAtPriestLevel15BranchReachesClassChange pins the exact DOC-123
-// report: 女圣职者 (job 14) after the level-15 mainline must be offered her own
+// TestRealPVFAtPriestLevel15BranchReachesClassChange pins the level-15 chain for the job named in DOC-123:
+// 女圣职者 (job 14) after the level-15 mainline must be offered her own
 // "守护森林的战斗" branch variants, the branch must unlock 3155, and 3155 must
 // offer 转职 - 圣骑士 / 异端审判者 / 巫女 / 诱魔者.
 func TestRealPVFAtPriestLevel15BranchReachesClassChange(t *testing.T) {
