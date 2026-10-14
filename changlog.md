@@ -1,3 +1,9 @@
+## 2026-10-14 — Verify the three reported Luke purchases
+
+- User clarified DOC-100: the Luke tab's finished equipment 王冠非冠 (100344527), 黑暗祭礼 (100390011) and 王座本源 (100352839). The pinned real-PVF regression now verifies each item's explicit 2500000 gold plus 100 monolium cost, committed grant, and no asset change with insufficient gold. All three real-PVF cases pass.
+- User confirmed avatar right-click disconnect and missing weapons after character selection were already repaired but left uncolored. Record those symptoms as user-accepted; retain the other DOC-053 skill-setting symptoms.
+- Full validation exposed a pre-existing probabilistic test failure: the upgrade-rate helper retried up to 64 times to obtain a successful roll even though these tests only inspect the calculated probability. Inspect the accepted result on either outcome instead, retaining all expected-weight assertions and guaranteed-success verification at 100 percent. No upgrade production behavior changes. Final validation follows below.
+
 ## 2026-10-14 — Charge mixed raid-shop prices and restore quest abandonment
 
 - Continue from merged master 5fc6807 using the updated issue document; fully colored paragraphs remain accepted. See Docs/BUGS_20261014_ROUND2.md for scope and remaining native checks.
