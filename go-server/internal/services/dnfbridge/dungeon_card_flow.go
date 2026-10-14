@@ -661,15 +661,27 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 				"error", acceptErr)
 			return nil
 		}
-		if outcome == storySuccessorAcceptAccepted {
-			// 新接取的行为必须让客户端看到进行中的后继任务，否则只剩 DB active。
-			// op31 的非幂等分支同样在成功后补发 op574（活动任务快照）。
-			if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op72_story_next_quest_after_accept"); err != nil {
-				s.logGameEvent(session, "game-dungeon-card-story-successor-snapshot-blocked",
+		if outcome == storySuccessorAcceptAccepted || outcome == storySuccessorAcceptIdempotent {
+			// 客户端必须看到进行中的后继任务，否则只剩 DB active。两个结局都要发：
+			// 接取真实写入后报错时记录已经是 active，重试会变成幂等，只有 Accepted 补发
+			// 就会漏掉投影。用 checked 版本，记录读不出来同样视为失败。
+			if err := s.sendCurrentActiveQuestSnapshotChecked(session, "current_exe_op72_story_next_quest_after_accept"); err != nil {
+				// 投影没发出去就不能带着「DB 有任务、客户端没有」继续退休/入场：
+				// 退回一次性退出门，重试时接取幂等并补发同一投影。
+				session.dungeon.mu.Lock()
+				if session.dungeon.runtime == runtime {
+					runtime.settlementCardExitAckSent = false
+				}
+				session.dungeon.mu.Unlock()
+				s.logGameEvent(session, "game-dungeon-card-story-successor-snapshot-failed-retry-armed",
 					"char_id", characterID,
-					"quest_id", nextQuestID,
+					"dungeon_id", dungeonID,
+					"next_quest_id", nextQuestID,
 					"source", source,
+					"reason", "successor_active_quest_projection_failed_before_retire_and_entry",
+					"runtime_retired", false,
 					"error", err)
+				return nil
 			}
 		}
 	}

@@ -1279,10 +1279,28 @@ func TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance(t *testin
 // other repositories.
 type storySuccessorFaultQuestStore struct {
 	dnfrepo.QuestRepository
-	fail     bool
-	failErr  error
-	attempts int
-	accepted int
+	fail                  bool
+	failErr               error
+	attempts              int
+	accepted              int
+	failActiveRead        int
+	activeReads           int
+	projectionReadFailure int
+}
+
+func (s *storySuccessorFaultQuestStore) Load(ctx context.Context, characterID string) (dnfrepo.QuestRecord, bool, error) {
+	record, found, err := s.QuestRepository.Load(ctx, characterID)
+	if err != nil || !found {
+		return record, found, err
+	}
+	if state, ok := record.States[3149]; ok && state.Status == "active" {
+		s.activeReads++
+		if s.failActiveRead > 0 && s.activeReads >= s.failActiveRead {
+			s.projectionReadFailure++
+			return dnfrepo.QuestRecord{}, false, errors.New("injected successor projection read failure")
+		}
+	}
+	return record, found, nil
 }
 
 func (s *storySuccessorFaultQuestStore) SaveFields(ctx context.Context, record dnfrepo.QuestRecord, fields ...dnfrepo.QuestField) error {
@@ -1413,6 +1431,95 @@ func TestDungeonCardExitStoryNextQuestStorageFailureStopsEntryAndRetriesOnce(t *
 		t.Fatalf("reload quest record after retry found=%t err=%v", found, err)
 	} else if state, ok := record.States[3149]; !ok || state.Status != "active" {
 		t.Fatalf("retry successor state=%+v ok=%t", state, ok)
+	}
+}
+
+// TestDungeonCardExitStoryNextQuestCommittedAcceptWithFailedProjectionRetriesIdempotently
+// covers the review case where the successor accept is already durable but the standard
+// active-quest snapshot could not be sent: the entry must stop (no retire, retry armed),
+// and the retry must be idempotent yet still send the snapshot before entering.
+func TestDungeonCardExitStoryNextQuestCommittedAcceptWithFailedProjectionRetriesIdempotently(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "99", States: map[int64]dnfrepo.QuestState{
+		3148: {Status: "completed"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	group, ok := service.repositoryProvider()
+	if !ok {
+		t.Fatal("fixture repository group is unavailable")
+	}
+	// The first read that observes a durable active 3149 is ApplyAccept's own verify
+	// read; the second one is the projection read, which we inject a failure into.
+	fault := &storySuccessorFaultQuestStore{QuestRepository: group.Quest, failActiveRead: 2}
+	group.Quest = fault
+	service.repositoryProvider = func() (dnfrepo.Group, bool) { return group, true }
+
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if session.dungeon.runtime != runtime {
+		t.Fatalf("failed projection retired the completed runtime: got %p want %p", session.dungeon.runtime, runtime)
+	}
+	if runtime.settlementCardExitAckSent {
+		t.Fatal("failed projection must re-arm the one-shot exit gate so the click can be retried")
+	}
+	if fault.projectionReadFailure != 1 {
+		t.Fatalf("injected projection read failure fired %d times, want 1", fault.projectionReadFailure)
+	}
+	if fault.accepted != 1 {
+		t.Fatalf("the successor must be accepted once before the projection failure, got %d", fault.accepted)
+	}
+	record, found, err := repositories.Quest.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("reload quest record found=%t err=%v", found, err)
+	}
+	if state := record.States[3149]; state.Status != "active" {
+		t.Fatalf("durable successor state=%+v, want active", state)
+	}
+
+	// Retry with the projection fault cleared: the accept is idempotent, the snapshot
+	// must still be sent, and only then may the entry use the successor quest maze.
+	fault.failActiveRead = 0
+	connection.write.Reset()
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime == runtime || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("retry runtime=%+v, want a fresh dungeon 800 runtime", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) < 2 || maze.QuestConnection[0] != 0 || maze.QuestConnection[1] != 3149 {
+		t.Fatalf("retry entered maze %d connection=%v, want the successor quest 3149 quest maze",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	if fault.accepted != 1 {
+		t.Fatalf("idempotent retry wrote the successor again: accepted=%d want 1", fault.accepted)
+	}
+	foundSnapshot := false
+	for rest := connection.write.Bytes(); len(rest) > 0; {
+		packet, tail := splitGameServerUpperPacket(t, rest)
+		if packet.Header.MsgID == currentActiveQuestSnapshotMsgID {
+			foundSnapshot = true
+		}
+		rest = tail
+	}
+	if !foundSnapshot {
+		t.Fatalf("idempotent retry emitted no active-quest snapshot stream=%x", connection.write.Bytes())
 	}
 }
 

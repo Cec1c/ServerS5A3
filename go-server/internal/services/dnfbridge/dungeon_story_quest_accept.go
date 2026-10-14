@@ -10,7 +10,7 @@ import (
 
 var errStorySuccessorAcceptUnavailable = errors.New("dnf story successor quest accept is unavailable")
 
-// storySuccessorAcceptOutcome 区分三种结局，调用者据此决定是否继续下一任务入场：
+// storySuccessorAcceptOutcome 区分四种结局，调用者据此决定是否继续下一任务入场：
 //   - storySuccessorAcceptFailed：真实失败（仓储/上下文/持久化校验）。记录可能未变
 //     也可能已写入，但一律不退休旧 runtime、不进后继副本、不扣入场资产，并允许重试。
 //   - storySuccessorAcceptIneligible：PVF/角色状态本来就不可接取，记录未变；保持原有
