@@ -83,6 +83,7 @@ type GoldPickupResult struct {
 
 type LuckyStarCommand struct {
 	AccountID      string
+	CharacterID    string
 	CharacterLevel int
 	RecommendedMin int
 	RecommendedMax int
@@ -107,12 +108,13 @@ type Owner struct {
 	characters    dnfrepo.CharacterRepository
 	mailboxAssets dnfrepo.MailboxAssetUnitOfWork
 	accountAssets dnfrepo.AccountCharacterAssetUnitOfWork
+	rentalAssets  dnfrepo.RentalAssetUnitOfWork
 }
 
 func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 	if repos.CharacterAssets == nil && repos.Account == nil && repos.CharacterSettlement == nil &&
 		repos.CharacterItems == nil && repos.Inventory == nil && repos.Character == nil &&
-		repos.AccountAssets == nil {
+		repos.AccountAssets == nil && repos.RentalAssets == nil {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
@@ -124,6 +126,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		characters:    repos.Character,
 		mailboxAssets: repos.MailboxAssets,
 		accountAssets: repos.AccountAssets,
+		rentalAssets:  repos.RentalAssets,
 	}, nil
 }
 
@@ -314,7 +317,9 @@ func (o *Owner) GrantPickupGold(ctx context.Context, cmd GoldPickupCommand) (Gol
 }
 
 func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (LuckyStarResult, error) {
-	if o == nil || o.accounts == nil || strings.TrimSpace(cmd.AccountID) == "" {
+	cmd.AccountID = strings.TrimSpace(cmd.AccountID)
+	cmd.CharacterID = strings.TrimSpace(cmd.CharacterID)
+	if o == nil || o.rentalAssets == nil || cmd.AccountID == "" || cmd.CharacterID == "" {
 		return LuckyStarResult{}, ErrOwnerUnavailable
 	}
 	if cmd.CharacterLevel <= 0 || cmd.RecommendedMin <= 0 || cmd.RecommendedMax < cmd.RecommendedMin {
@@ -324,27 +329,40 @@ func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (Lucky
 		return LuckyStarResult{}, nil
 	}
 	ctx = contextOrBackground(ctx)
-	account, found, err := o.accounts.Load(ctx, cmd.AccountID)
+	var result LuckyStarResult
+	// Use the same account-row lock as point purchases and rentals. Session
+	// locks alone cannot protect an account shared by concurrent operations.
+	err := o.rentalAssets.WithinRentalAssets(ctx, cmd.AccountID, cmd.CharacterID, func(accounts dnfrepo.AccountRepository, characters dnfrepo.CharacterRepository, _ dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+		account, found, err := accounts.Load(ctx, cmd.AccountID)
+		if err != nil {
+			return err
+		}
+		if !found || account.AccountID != cmd.AccountID {
+			return ErrAccountNotFound
+		}
+		character, found, err := characters.Load(ctx, cmd.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !found || character.CharacterID != cmd.CharacterID || strings.TrimSpace(character.AccountID) != cmd.AccountID {
+			return ErrCharacterNotFound
+		}
+		account = dnfrepo.CloneAccount(account)
+		if account.Metadata == nil {
+			account.Metadata = make(map[string]string, 1)
+		}
+		current := parseLuckyStars(account.Metadata[LuckyStarMetadataKey])
+		result = LuckyStarResult{Before: current, After: current}
+		if current >= LuckyStarMaximum {
+			return nil
+		}
+		result.Awarded = true
+		result.After = current + 1
+		account.Metadata[LuckyStarMetadataKey] = strconv.FormatUint(uint64(result.After), 10)
+		account.UpdatedAt = updatedAtOrNow(cmd.UpdatedAt)
+		return accounts.Save(ctx, account)
+	})
 	if err != nil {
-		return LuckyStarResult{}, err
-	}
-	if !found {
-		return LuckyStarResult{}, ErrAccountNotFound
-	}
-	account = dnfrepo.CloneAccount(account)
-	if account.Metadata == nil {
-		account.Metadata = make(map[string]string, 1)
-	}
-	current := parseLuckyStars(account.Metadata[LuckyStarMetadataKey])
-	result := LuckyStarResult{Before: current, After: current}
-	if current >= LuckyStarMaximum {
-		return result, nil
-	}
-	result.Awarded = true
-	result.After = current + 1
-	account.Metadata[LuckyStarMetadataKey] = strconv.FormatUint(uint64(result.After), 10)
-	account.UpdatedAt = updatedAtOrNow(cmd.UpdatedAt)
-	if err := o.accounts.Save(ctx, account); err != nil {
 		return LuckyStarResult{}, err
 	}
 	return result, nil

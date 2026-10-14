@@ -16,6 +16,9 @@ func newLuckyStarSettlementReplayTest(t *testing.T, repos dnfrepo.Group) (*Servi
 	s.options.accountID = "lucky-replay"
 	s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
 	runtime.Character.Level = 5
+	if err := repos.Character.Save(context.Background(), dnfrepo.CharacterRecord{CharacterID: strconv.FormatUint(uint64(session.selectedCharacterID), 10), AccountID: "lucky-replay", Level: 5}); err != nil {
+		t.Fatal(err)
+	}
 	runtime.Dungeon.Metadata.RecommendedLevels = []int64{1, 10}
 	plan := currentDungeonSettlementPacketPlanForTest(t, runtime, 73)
 	runtime.settlementResultPlan = &plan
@@ -82,7 +85,7 @@ func TestSettlementLuckyStarRetryAfterSaveFailure(t *testing.T) {
 	repos := memory.NewMemoryGroup()
 	luckyStarReplayAccount(t, repos, 10)
 	failing := &luckyStarReplaySaveFailure{AccountRepository: repos.Account, fail: true}
-	repos.Account = failing
+	repos.RentalAssets = luckyStarReplayFailingAssets{repos.RentalAssets, failing}
 	s, _, session, _, body := newLuckyStarSettlementReplayTest(t, repos)
 	if err := s.handleDungeonSetPlayResult(session, body); err != nil {
 		t.Fatal(err)
@@ -137,4 +140,15 @@ func TestSettlementLuckyStarUnsuitableDungeonDoesNotAward(t *testing.T) {
 		}
 	}
 	assertLuckyStarReplayBalance(t, repos, 10)
+}
+
+type luckyStarReplayFailingAssets struct {
+	dnfrepo.RentalAssetUnitOfWork
+	failure *luckyStarReplaySaveFailure
+}
+
+func (u luckyStarReplayFailingAssets) WithinRentalAssets(ctx context.Context, account, character string, apply func(dnfrepo.AccountRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
+	return u.RentalAssetUnitOfWork.WithinRentalAssets(ctx, account, character, func(a dnfrepo.AccountRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository) error {
+		return apply(&luckyStarReplaySaveFailure{AccountRepository: a, fail: u.failure.fail}, c, i, e)
+	})
 }

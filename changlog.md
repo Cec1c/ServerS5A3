@@ -49,6 +49,11 @@
 - Resolve a product's relative PVF use period at purchase time before granting it. Adventure-shop potions now receive a durable expiration date instead of a zero deadline; use the same purchase clock for the grant and account settlement.
 - Preserve permanent items, reject unrepresentable deadlines before charging, and retain the existing account/inventory transaction. Existing instances are not assigned invented purchase dates or renewed by later purchases.
 - Regression coverage includes the matching-PVF seven-day potion, inventory refresh fields, relogin projection, separate purchase deadlines, insufficient points, full inventory, foreign ownership and late transaction rollback. Native tooltip and use acceptance remain pending.
+## 2026-10-14 — Serialize dungeon lucky-star awards with account wallet changes
+
+- Settle each lucky-star award inside the existing rental account/character transaction instead of an unprotected account read/overwrite. Concurrent awards and wallet operations now share the account-row lock.
+- Validate the selected character's account ownership before writing and retain the suitability rules, cap and per-run replay guard. Transaction failures remain retryable without reporting an award or changing account metadata.
+- A deterministic regression reproduces two successful awards losing one increment. Coverage also includes ownership, missing transaction support, rollback and the existing settlement replay/notification-failure paths. A disposable MySQL check verifies eight concurrent awards alongside a gold purchase, durable reload and late rollback. No protocol, schema or historical balance changes.
 
 ## 2026-10-14 — Prevent duplicate lucky stars on settlement replay
 
