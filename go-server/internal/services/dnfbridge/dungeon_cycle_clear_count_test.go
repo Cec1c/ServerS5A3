@@ -136,17 +136,23 @@ func TestCurrentDungeonCycleClearCountRetryIsIdempotentAndCannotBypassLimit(t *t
 	if got := used(); got != 1 {
 		t.Fatalf("re-commit double counted: %d", got)
 	}
-	// 内存标记丢失后的重放（同一 nonce）也不重复计。
-	if err := s.consumeCurrentDungeonCycleClearCount(session, &runtimeDungeonState{Dungeon: dungeon, lifecycleToken: 7}); err != nil {
+	// 内存标记丢失但同一轮的 nonce 仍在（重试/重放）也不重复计。
+	replay := &runtimeDungeonState{
+		Dungeon:                  dungeon,
+		lifecycleToken:           7,
+		dungeonCycleClearNonceHi: runtime.dungeonCycleClearNonceHi,
+		dungeonCycleClearNonceLo: runtime.dungeonCycleClearNonceLo,
+	}
+	if err := s.consumeCurrentDungeonCycleClearCount(session, replay); err != nil {
 		t.Fatal(err)
 	}
 	if got := used(); got != 1 {
 		t.Fatalf("nonce replay double counted: %d", got)
 	}
-	// 新的一轮继续计到上限，之后再计被拒（失败/重试都不能绕过上限）。
-	for _, nonce := range []uint64{8, 9} {
-		if err := s.consumeCurrentDungeonCycleClearCount(session, &runtimeDungeonState{Dungeon: dungeon, lifecycleToken: nonce}); err != nil {
-			t.Fatalf("clear nonce %d: %v", nonce, err)
+	// 新的一轮（新随机 nonce）继续计到上限，之后再计被拒（失败/重试都不能绕过上限）。
+	for run := 0; run < 2; run++ {
+		if err := s.consumeCurrentDungeonCycleClearCount(session, &runtimeDungeonState{Dungeon: dungeon, lifecycleToken: uint64(8 + run)}); err != nil {
+			t.Fatalf("new run %d: %v", run+1, err)
 		}
 	}
 	if got := used(); got != requirement.DailyCount {
@@ -163,4 +169,48 @@ func TestCurrentDungeonCycleClearCountRetryIsIdempotentAndCannotBypassLimit(t *t
 		t.Fatalf("entry after the daily limit: %v", err)
 	}
 	_ = time.Time{}
+}
+
+// 主审报告的绕过路径：lifecycleToken 每个会话都从 1 重新计数，重登后首轮又拿到同一个值，
+// 会被当作幂等回放而漏计次数。独立随机的每轮 nonce 必须让两个新会话的首轮各计一次。
+func TestCurrentDungeonCycleClearCountNonceIsSessionIndependent(t *testing.T) {
+	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
+	if path == "" {
+		t.Skip("requires published PVF")
+	}
+	s, repos, _, queue := newDailyCountAtomicTestService(t, path)
+	dungeon, found := s.worldMapTable.FindDungeon(5097)
+	if !found {
+		t.Fatal("5097 missing from the real PVF")
+	}
+	session := seedDungeonDailyCountCharacter(t, repos, "63", 63, "nonce-session-account")
+	bindDungeonSelectorOriginForTestAt(t, s, session, 107, 0, 250, 224)
+	used := func() int64 {
+		t.Helper()
+		stored, found, err := repos.Character.Load(context.Background(), "63")
+		if err != nil || !found {
+			t.Fatalf("load 63: err=%v found=%t", err, found)
+		}
+		value, err := dnfdungeon.DailyEntryUsed(stored, 5097, queue.now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	// 两个"新会话的首轮"：lifecycleToken 都是 1（正是旧实现撞号的情形）。
+	first := &runtimeDungeonState{Dungeon: dungeon, lifecycleToken: 1}
+	if err := s.consumeCurrentDungeonCycleClearCount(session, first); err != nil {
+		t.Fatalf("first session run: %v", err)
+	}
+	second := &runtimeDungeonState{Dungeon: dungeon, lifecycleToken: 1}
+	if err := s.consumeCurrentDungeonCycleClearCount(session, second); err != nil {
+		t.Fatalf("second session run: %v", err)
+	}
+	if first.dungeonCycleClearNonceHi == second.dungeonCycleClearNonceHi &&
+		first.dungeonCycleClearNonceLo == second.dungeonCycleClearNonceLo {
+		t.Fatalf("two runs reused the same nonce: %d/%d", first.dungeonCycleClearNonceHi, first.dungeonCycleClearNonceLo)
+	}
+	if got := used(); got != 2 {
+		t.Fatalf("two new-session first runs counted %d times, want 2", got)
+	}
 }

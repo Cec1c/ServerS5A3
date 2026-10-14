@@ -149,7 +149,12 @@ type runtimeDungeonState struct {
 	tutorialCompletionPersisted          bool
 	clearMapCompletionPhaseAPersisted    bool
 	// dungeonCycleClearCountCommitted 说明本轮的通关次数已提交（艾肯是按通关计数的副本）。
-	dungeonCycleClearCountCommitted      bool
+	dungeonCycleClearCountCommitted bool
+	// dungeonCycleClearNonceHi/Lo 是本轮**独立随机**的通关计数 nonce（128bit，两个 int64 半段）：
+	// 首次提交时生成并固定在本轮运行时上，重试用同一对值（幂等回放）；不同会话/不同轮次必然取到
+	// 不同随机值，因此不会像会话内递增的 lifecycleToken 那样在重登后撞号被误判成回放。
+	dungeonCycleClearNonceHi             int64
+	dungeonCycleClearNonceLo             int64
 	hellQuestCompletionKey               string
 	hellQuestCompletionAt                time.Time
 	hellQuestCompletionPersisted         bool

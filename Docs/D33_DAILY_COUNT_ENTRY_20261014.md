@@ -189,3 +189,35 @@ RED_C over_limit_error=dungeon daily entry limit reached
   clear-map 同步之前）。失败时保持 `dungeonCycleClearCountCommitted=false` 并直接返回——不进入
   后续结算、不发 op115/终局包，客户端重传触发重试；计数带 `ClearNonce = runtime.lifecycleToken`，
   同服务日同 nonce 是幂等回放，重试只计一次，失败也不会绕过每日上限。
+## 11. nonce 跨会话唯一性修复（2026-10-14 主审阻断点）
+
+问题：`ClearNonce = int64(runtime.lifecycleToken)` 不跨会话唯一（`session.dungeon.runToken` 每会话从 0 递增，
+重登后首轮又是 1），当日已记 nonce=1 时，重登后的新一轮会被误判成幂等回放而不计次数 → 可反复绕过。
+
+RED（a125397，探针 `TestZZCycleNonceSessionIndependenceRedProbe`，两个「新会话首轮」lifecycleToken 都是 1）：
+
+```
+RED_NONCE after_session_1_first_run used=1
+RED_NONCE after_session_2_first_run used=1
+RED_NONCE: second new session was treated as a replay (used=1, want 2)
+--- FAIL: TestZZCycleNonceSessionIndependenceRedProbe
+```
+
+GREEN（本批，同一探针 + 常驻用例）：
+
+```
+RED_NONCE after_session_1_first_run used=1
+RED_NONCE after_session_2_first_run used=2
+--- PASS: TestCurrentDungeonCycleClearCountNonceIsSessionIndependent
+--- PASS: TestCurrentDungeonCycleClearCountRetryIsIdempotentAndCannotBypassLimit
+--- PASS: TestCurrentDungeonCycleEkernPrerequisiteBlocksEntryWithoutConsumingTickets
+--- PASS: TestCurrentDungeonCycleDailyLimitsParseAndFailClosed
+```
+
+实现：
+
+- nonce 改为**每轮独立随机**的 128bit 值（`ClearNonceHi`/`ClearNonceLo` 两个 int64 半段持久化，
+  `crypto/rand`；全零视为未生成并重取），首次提交时生成并固定在本轮运行时上
+  （`ensureCurrentDungeonCycleClearNonce`），不再使用会话内递增的 `lifecycleToken`。
+- 重试用同一对值 → 幂等回放只计一次；不同会话/不同轮次必然不同 → 重登后的新一轮一定计数，
+  不会撞号漏计。128bit 也把同一天内多轮的撞号概率降到可忽略，避免「碰撞被当成回放」的漏计。

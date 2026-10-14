@@ -2,6 +2,8 @@ package dnfbridge
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"sort"
 	"strconv"
@@ -299,7 +301,34 @@ func (s *Service) consumeCurrentDungeonCycleEntryAssets(session *gameSession, ru
 }
 
 // consumeCurrentDungeonCycleClearCount 在**通关**时记一次当日通关次数（不扣门票、不发奖励）。
-// 每轮 nonce = 运行时生命周期 token：同一个 nonce 的重试是幂等回放，只计一次。
+// ensureCurrentDungeonCycleClearNonce 给本轮生成一次**独立随机**的通关计数 nonce 并固定在本轮运行时上：
+// 生成一次后所有重试都用同一对值（幂等回放），不同会话/不同轮次必然不同。
+// 用 128bit（两个 int64 半段）而不是单个 64bit：同一天内多轮也几乎不可能撞号；全零视为未生成，重取。
+func ensureCurrentDungeonCycleClearNonce(runtime *runtimeDungeonState) error {
+	if runtime == nil {
+		return nil
+	}
+	if runtime.dungeonCycleClearNonceHi != 0 || runtime.dungeonCycleClearNonceLo != 0 {
+		return nil
+	}
+	for attempt := 0; attempt < 8; attempt++ {
+		var raw [16]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			return fmt.Errorf("generate dungeon cycle clear nonce: %w", err)
+		}
+		hi := int64(binary.LittleEndian.Uint64(raw[0:8]))
+		lo := int64(binary.LittleEndian.Uint64(raw[8:16]))
+		if hi == 0 && lo == 0 {
+			continue
+		}
+		runtime.dungeonCycleClearNonceHi, runtime.dungeonCycleClearNonceLo = hi, lo
+		return nil
+	}
+	return fmt.Errorf("generate dungeon cycle clear nonce: zero value repeated")
+}
+
+// 每轮 nonce 由 ensureCurrentDungeonCycleClearNonce 独立随机生成：同一轮的重试是幂等回放只计一次，
+// 不同会话/不同轮次不会撞号（重登后的新一轮一定计数）。
 func (s *Service) consumeCurrentDungeonCycleClearCount(session *gameSession, runtime *runtimeDungeonState) error {
 	if runtime == nil || s == nil || s.options.currentClientVersion != "official-24.9" {
 		return nil
@@ -319,14 +348,18 @@ func (s *Service) consumeCurrentDungeonCycleClearCount(session *gameSession, run
 	if err != nil {
 		return err
 	}
+	if err := ensureCurrentDungeonCycleClearNonce(runtime); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := owner.ConsumeDailyEntry(ctx, dnfdungeon.DailyEntryCommand{
-		CharacterID: strconv.Itoa(int(session.selectedCharacterID)),
-		DungeonID:   requirement.DungeonID,
-		Limit:       requirement.DailyCount,
-		UpdatedAt:   s.gameplayNow(),
-		ClearNonce:  int64(runtime.lifecycleToken),
+		CharacterID:  strconv.Itoa(int(session.selectedCharacterID)),
+		DungeonID:    requirement.DungeonID,
+		Limit:        requirement.DailyCount,
+		UpdatedAt:    s.gameplayNow(),
+		ClearNonceHi: runtime.dungeonCycleClearNonceHi,
+		ClearNonceLo: runtime.dungeonCycleClearNonceLo,
 	})
 	if err != nil {
 		return err
@@ -338,7 +371,8 @@ func (s *Service) consumeCurrentDungeonCycleClearCount(session *gameSession, run
 		"used", result.Used,
 		"limit", requirement.DailyCount,
 		"counts_on", "clear",
-		"nonce", runtime.lifecycleToken,
+		"clear_nonce_hi", runtime.dungeonCycleClearNonceHi,
+		"clear_nonce_lo", runtime.dungeonCycleClearNonceLo,
 		"source", currentDungeonCycleConfigPath,
 		"reset", "06:00_UTC+8")
 	return nil
