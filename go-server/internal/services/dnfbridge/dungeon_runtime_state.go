@@ -179,6 +179,7 @@ type runtimeDungeonState struct {
 	actorDirection                       byte
 	actorPositionValid                   bool
 	settlementDungeonPermissionSent      bool
+	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState
 	// Tournament 是本次 run 的锦标赛赛制运行时（厂商
 	// `DungeonInstance.Mechanisms.Tournament`）。只有

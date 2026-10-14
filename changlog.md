@@ -50,6 +50,11 @@
 - Preserve permanent items, reject unrepresentable deadlines before charging, and retain the existing account/inventory transaction. Existing instances are not assigned invented purchase dates or renewed by later purchases.
 - Regression coverage includes the matching-PVF seven-day potion, inventory refresh fields, relogin projection, separate purchase deadlines, insufficient points, full inventory, foreign ownership and late transaction rollback. Native tooltip and use acceptance remain pending.
 
+## 2026-10-14 — Prevent duplicate lucky stars on settlement replay
+
+- Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
+- Resolve capped awards as well, so spending later cannot make an old clear grantable again. Repository failures remain retryable and a fresh dungeon run retains its own award.
+- Regression tests reproduce repeated grants before the change and cover duplicate requests, account-save failure, notice failure, caps and unsuitable levels. This does not change lucky-star purchase protocols or establish native UI acceptance.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
