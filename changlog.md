@@ -1,3 +1,9 @@
+## 2026-10-14 — 建立公开客户端函数与协议索引
+
+- 按完整模块 SHA256、架构和 RVA 建立版本化索引，首批覆盖死亡报文、金币携带上限、好友提示、报文写入封装及 DLL 导出导航；区分函数入口、内部片段和仅有导出信息的条目。
+- 附代码窗口摘要、离线核对方法、固定公共提交及回归入口，明确语义和验收边界。客户端文件、原始反编译、私人日志和环境资料保持本地忽略。
+- AGENTS.md 增加索引入口和维护规则。本次只补文档与索引数据，不改变协议、运行配置或部署。
+
 ## 2026-10-13 — Allow automatic code synchronization without builds
 
 - Add an explicit upstream sync-only mode that skips source tests, database jobs and binary/image builds. Keep exact-commit, conflict, CI-review and concurrent-update guards, and identify untested synchronization in the PR and result.
