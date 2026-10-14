@@ -640,7 +640,38 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 		// (real Script.pvf dungeon 6 猛毒雷鸣废墟 maze 1 = [0 3147 -1]).
 		// Best effort: an ineligible successor is not force-accepted and the
 		// entry target keeps the previous behavior.
-		s.acceptCurrentStorySuccessorQuest(session, nextQuestID)
+		outcome, acceptErr := s.acceptCurrentStorySuccessorQuest(session, nextQuestID)
+		if outcome == storySuccessorAcceptFailed {
+			// 真实存储/上下文失败：不退休旧 runtime、不进无任务迷宫、不扣入场资产。
+			// 退回本次一次性退出门，玩家再点一次即可重试（接取本身是幂等的）。
+			session.dungeon.mu.Lock()
+			if session.dungeon.runtime == runtime {
+				runtime.settlementCardExitAckSent = false
+			}
+			session.dungeon.mu.Unlock()
+			s.logGameEvent(session, "game-dungeon-card-story-successor-retry-armed",
+				"char_id", characterID,
+				"dungeon_id", dungeonID,
+				"next_dungeon_id", nextDungeonID,
+				"next_quest_id", nextQuestID,
+				"source", source,
+				"reason", "successor_accept_failed_before_retire_and_entry",
+				"entry_assets_consumed", false,
+				"runtime_retired", false,
+				"error", acceptErr)
+			return nil
+		}
+		if outcome == storySuccessorAcceptAccepted {
+			// 新接取的行为必须让客户端看到进行中的后继任务，否则只剩 DB active。
+			// op31 的非幂等分支同样在成功后补发 op574（活动任务快照）。
+			if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op72_story_next_quest_after_accept"); err != nil {
+				s.logGameEvent(session, "game-dungeon-card-story-successor-snapshot-blocked",
+					"char_id", characterID,
+					"quest_id", nextQuestID,
+					"source", source,
+					"error", err)
+			}
+		}
 	}
 	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)
 	if ownerErr != nil {

@@ -116,8 +116,8 @@ func TestRealScriptPVFStoryNextDungeonUsesSuccessorQuestMaze(t *testing.T) {
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
 	}
 	session := &gameSession{connID: "doc118-story-successor", selectedCharacterID: 94}
-	if !service.acceptCurrentStorySuccessorQuest(session, 3147) {
-		t.Fatal("real PVF: the eligible 3147 successor must be started before the entry")
+	if outcome, err := service.acceptCurrentStorySuccessorQuest(session, 3147); outcome != storySuccessorAcceptAccepted {
+		t.Fatalf("real PVF: the eligible 3147 successor must be started before the entry, outcome=%v err=%v", outcome, err)
 	}
 	record, found, err := repositories.Quest.Load(ctx, "94")
 	if err != nil || !found {
@@ -157,8 +157,8 @@ func TestRealScriptPVFStoryNextDungeonUsesSuccessorQuestMaze(t *testing.T) {
 		questCatalog:       catalog,
 		repositoryProvider: func() (dnfrepo.Group, bool) { return ineligible, true },
 	}
-	if ineligibleService.acceptCurrentStorySuccessorQuest(session, 3147) {
-		t.Fatal("an ineligible 3147 must not be accepted")
+	if outcome, err := ineligibleService.acceptCurrentStorySuccessorQuest(session, 3147); outcome != storySuccessorAcceptIneligible {
+		t.Fatalf("an ineligible 3147 must be refused as ineligible, outcome=%v err=%v", outcome, err)
 	}
 	stored, found, err := ineligible.Quest.Load(ctx, "94")
 	if err != nil || !found {
