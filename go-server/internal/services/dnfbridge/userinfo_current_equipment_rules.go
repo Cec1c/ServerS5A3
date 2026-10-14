@@ -13,6 +13,12 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentType(equipped dnfrepo.
 }
 
 func currentEXEActorEquipmentSlot(equipped dnfrepo.EquipmentEntry) (uint64, bool) {
+	// Old center-button swaps persisted the new SlotIndex but left the prior
+	// current-client slot marker behind. Runtime provenance makes the persisted
+	// main/support slot authoritative without reinterpreting untouched starters.
+	if (equipped.SlotIndex == 12 || equipped.SlotIndex == 24) && sceneInventoryExtraByte(equipped.Extra, "current_exe_runtime_move") != 0 {
+		return uint64(equipped.SlotIndex), true
+	}
 	if value, ok := sceneInventoryExtraUint(equipped.Extra, "current_exe_equipment_type"); ok {
 		if !isPVFInitialEquipment(equipped) || sceneInventoryExtraByte(equipped.Extra, "current_exe_runtime_move") != 0 {
 			return value, true

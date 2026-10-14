@@ -651,7 +651,13 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 	}
 	creatureMove := kind == moveKindPet
 	petAggregateMove := creatureMove || kind == moveKindArtifact
-	if cmd.MoveCount != 1 {
+	// Current EXE c3ea63ec's dual-weapon button (0276C260 -> 025EBBF0)
+	// sends list3/12 -> list3/24 with count=0. Here zero denotes a worn-slot
+	// exchange, not a stack quantity. Keep every other move's count=1 rule;
+	// PVF placement and the character item transaction still authorize the swap.
+	weaponButtonSwap := cmd.SourceListType == wireListEquipment && cmd.SourceSlotIndex == 12 &&
+		cmd.DestinationListType == wireListEquipment && cmd.DestinationSlotIndex == 24 && cmd.MoveCount == 0
+	if cmd.MoveCount != 1 && !weaponButtonSwap {
 		return MoveResult{}, fmt.Errorf("%w: count=%d", ErrMoveStackCountInvalid, cmd.MoveCount)
 	}
 	if !creatureMove && o.placementValidator == nil {
@@ -757,7 +763,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			return MoveResult{}, err
 		}
 	}
-	if reversed {
+	if reversed && cmd.SourceListType != cmd.DestinationListType {
 		// Keep the request's A/B list direction, but return the authoritative
 		// inventory slot selected by the owner. Cross-list op19 accepts a
 		// redirected final slot; this is required when the client's stale bag
@@ -765,6 +771,10 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 		result.SourceListType = cmd.SourceListType
 		result.SourceSlotIndex = result.DestinationSlotIndex
 		result.DestinationListType = cmd.DestinationListType
+		result.DestinationSlotIndex = cmd.DestinationSlotIndex
+	}
+	if reversed && cmd.SourceListType == wireListEquipment && cmd.DestinationListType == wireListEquipment {
+		result.SourceSlotIndex = cmd.SourceSlotIndex
 		result.DestinationSlotIndex = cmd.DestinationSlotIndex
 	}
 	return result, nil
@@ -1638,10 +1648,10 @@ func (o *Owner) swapEquipSlots(ctx context.Context, cmd MoveCommand) (MoveResult
 			return MoveResult{}, err
 		}
 	}
-	source.SlotIndex = cmd.DestinationSlotIndex
+	source = equipmentEntryAfterSlotSwap(source, cmd.DestinationSlotIndex)
 	record.Entries[dstKey] = source
 	if destinationOK {
-		destination.SlotIndex = cmd.SourceSlotIndex
+		destination = equipmentEntryAfterSlotSwap(destination, cmd.SourceSlotIndex)
 		record.Entries[srcKey] = destination
 	} else {
 		delete(record.Entries, srcKey)
@@ -1665,6 +1675,31 @@ func (o *Owner) swapEquipSlots(ctx context.Context, cmd MoveCommand) (MoveResult
 		result.SwappedItemID = destination.ItemID
 	}
 	return result, nil
+}
+
+// Only the validated current-client main/support pair carries this runtime
+// slot identity. Other worn-slot formats retain their existing representation.
+func equipmentEntryAfterSlotSwap(entry dnfrepo.EquipmentEntry, slot int16) dnfrepo.EquipmentEntry {
+	old := entry.SlotIndex
+	entry.SlotIndex = slot
+	if !((old == 12 && slot == 24) || (old == 24 && slot == 12)) {
+		return entry
+	}
+	entry.Extra = cloneExtra(entry.Extra)
+	for _, key := range []string{"equipped_slot", "equipment_slot", "current_exe_equipment_type"} {
+		entry.Extra[key] = strconv.Itoa(int(slot))
+	}
+	entry.Extra["current_exe_runtime_move"] = "1"
+	if len(entry.RawEntry) == currentEquipmentRawEntryWireSize {
+		entry.RawEntry = append([]byte(nil), entry.RawEntry...)
+		binary.LittleEndian.PutUint16(entry.RawEntry[:2], uint16(slot))
+		for _, key := range []string{"raw_entry_hex", "equipment_raw_entry_hex"} {
+			if _, ok := entry.Extra[key]; ok {
+				entry.Extra[key] = hex.EncodeToString(entry.RawEntry)
+			}
+		}
+	}
+	return entry
 }
 
 func (o *Owner) loadMoveRecords(ctx context.Context, characterID string) (dnfrepo.InventoryRecord, dnfrepo.EquipmentRecord, error) {

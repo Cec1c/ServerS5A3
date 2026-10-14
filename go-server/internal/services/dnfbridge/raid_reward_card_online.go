@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"time"
@@ -63,6 +64,16 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	}
 	if markScreen {
 		o.rewardScreenIdentity, o.rewardScreenSent = identity, true
+	}
+	if latest.Battle.Mode == 2 && latest.Battle.Phase == 0 && !latest.Battle.Single {
+		// Share successful manual party displays with the flow projection.
+		// Gold masks must not replace the party display signature.
+		for _, packet := range packets {
+			if packet.class == 0 && packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+				o.rewardDisplayIdentity = identity
+				o.rewardDisplaySignature = sha256.Sum256(packet.body)
+			}
+		}
 	}
 	return nil
 }

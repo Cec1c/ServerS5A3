@@ -722,10 +722,54 @@ func (s *Service) skillOwnerRules(ctx context.Context, repos dnfrepo.Group, char
 // sendAlignedUpperResponses 发送模块返回的真实 upper 响应。
 // 模块给出的 Body 已经是完整业务包体，不能再统一套成功字节。
 func (s *Service) sendAlignedUpperResponses(session *gameSession, result alignedcmd.Result) error {
+	authoritativeLists := currentAuthoritativeListRefreshSet(result.AuthoritativeListRefreshes)
+	handledLists := make(map[byte]bool, len(authoritativeLists))
 	for _, response := range result.UpperResponses {
+		if listType, ok := currentAuthoritativeListRefreshListType(response, authoritativeLists); ok {
+			handledLists[listType] = true
+			body, source, entryCount, built := s.buildCurrentAuthoritativeListRefreshBody(session, listType)
+			if !built {
+				// 权威投影建不出来时绝不退回模块那份仓库快照：op13 是整表替换，那份快照
+				// 正是 2026-10-14 现场抹掉钱包行/账号共享格/品级的来源。只跳过这一条刷新，
+				// 后面的 class1 ACK 必须照发（落库已经完成，ACK 不能丢）。
+				s.logPacketEvent("game-upper-authoritative-list-refresh-skipped",
+					"conn_id", session.connID,
+					"operation", result.Operation,
+					"char_id", session.selectedCharacterID,
+					"list_type", listType,
+					"reason", "authoritative_projection_unavailable")
+				continue
+			}
+			s.logPacketEvent("game-upper-authoritative-list-refresh-send",
+				"conn_id", session.connID,
+				"operation", result.Operation,
+				"char_id", session.selectedCharacterID,
+				"msg_id", response.MsgID,
+				"classification", response.Classification,
+				"list_type", listType,
+				"entry_count", entryCount,
+				"body_len", len(body),
+				"body_source", source,
+				"source", "session_projection_replaces_module_snapshot")
+			if err := s.sendGameUpperRawClassCodec(session, response.MsgID, body, response.Classification, response.AllowCodec); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := s.sendGameUpperRawClassCodec(session, response.MsgID, response.Body, response.Classification, response.AllowCodec); err != nil {
 			return err
 		}
+	}
+	for listType := range authoritativeLists {
+		if handledLists[listType] {
+			continue
+		}
+		s.logPacketEvent("game-upper-authoritative-list-refresh-missing",
+			"conn_id", session.connID,
+			"operation", result.Operation,
+			"char_id", session.selectedCharacterID,
+			"list_type", listType,
+			"reason", "no_matching_class0_refresh_response")
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err

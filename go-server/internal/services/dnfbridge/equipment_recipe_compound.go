@@ -673,11 +673,27 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if !found {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d is not a [recipe] design drawing", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID)
 			}
-			if reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); reason != "" {
+			var upgrade *currentEquipmentRecipeUpgradePlan
+			if entry.MaintainAbility == "normal" {
+				document, err := currentEquipmentRecipeUpgradeDocument(entry, recipes.source)
+				if err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
+				level, present, err := currentEquipmentRecipeCompoundQualificationTokens(document, "minimum level")
+				if err != nil || (present && int64(assets.Character.Level) < level[0].Int) {
+					return dnfexpertjob.Changes{}, errCurrentEquipmentRecipeCompoundSourceInvalid
+				}
+				upgrade, err = planCurrentEquipmentRecipeUpgrade(entry, items, assets.Inventory, request.Count)
+				if err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
+			} else if reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); reason != "" {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d reason=%s", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID, reason)
 			}
-			if err := currentEquipmentRecipeCompoundSourceQualification(entry, recipes.source, assets.Character); err != nil {
-				return dnfexpertjob.Changes{}, err
+			if upgrade == nil {
+				if err := currentEquipmentRecipeCompoundSourceQualification(entry, recipes.source, assets.Character); err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
 			}
 			if source.Count < request.Count {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d slot=%d count=%d need=%d",
@@ -691,9 +707,21 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if err != nil {
 				return dnfexpertjob.Changes{}, err
 			}
+			materialCount, outputCount := len(materials), len(outputs)
 			// 以上全部是只读判定；下面才开始写入，且都在同一个克隆事务里。
 			if err := currentEquipmentRecipeCompoundConsumeSource(assets.Inventory, source, request.Count); err != nil {
 				return dnfexpertjob.Changes{}, err
+			}
+			if upgrade != nil {
+				// Remove exactly the chosen equipment instance. The generic material
+				// consumer must not choose a different row of the same template.
+				delete(assets.Inventory.Slots, upgrade.Key)
+				for i, material := range materials {
+					if material.ItemID == upgrade.Stack.ItemID {
+						materials = append(materials[:i], materials[i+1:]...)
+						break
+					}
+				}
 			}
 			accountDirty, err := s.consumeCurrentRecipeMaterials(assets, materials, goldCost)
 			if err != nil {
@@ -703,6 +731,13 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 				return dnfexpertjob.Changes{}, err
 			}
 			granted := make([]int16, 0, len(outputs))
+			if upgrade != nil {
+				if err := applyCurrentEquipmentRecipeUpgrade(assets.Inventory, upgrade); err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
+				granted = append(granted, upgrade.Slot)
+				outputs = nil
+			}
 			for _, output := range outputs {
 				if fixed, shared := dnfrepo.AccountWarehouseSlotForItem(int64(output.Definition.ItemID)); shared {
 					// Never fall back to a character copy of an account-owned item.
@@ -729,9 +764,9 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			result = currentEquipmentRecipeCompoundResult{
 				RecipeItemID: source.ItemID,
 				SourceSlot:   source.Slot,
-				Materials:    len(materials),
+				Materials:    materialCount,
 				GoldSpent:    goldCost,
-				Outputs:      len(outputs),
+				Outputs:      outputCount,
 				GrantedSlots: granted,
 			}
 			return dnfexpertjob.Changes{Character: goldCost > 0, Inventory: true, AccountInventory: accountDirty}, nil

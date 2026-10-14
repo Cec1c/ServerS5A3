@@ -1719,8 +1719,9 @@ func equipmentRecipeCompoundTestRealFloorTransactions(t *testing.T, items *pvfDu
 							inventoryBefore.Slots[currentCeraShopInventorySlotKey(0, int16(121+i))] = stack
 						}
 					}
+					// The merged inventory rules include the six quick slots (3..8).
 					if test.full {
-						for slot := int16(9); slot <= 64; slot++ {
+						for slot := int16(3); slot <= 64; slot++ {
 							inventoryBefore.Slots[currentCeraShopInventorySlotKey(0, slot)] = dnfrepo.ItemStack{ItemID: sample.output, Count: 1, Extra: map[string]string{"item_kind": "equipment"}}
 						}
 					}

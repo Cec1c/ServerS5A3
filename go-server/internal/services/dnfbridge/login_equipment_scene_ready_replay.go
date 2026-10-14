@@ -250,6 +250,8 @@ func (s *Service) replayLoginEquipmentSceneReadyContainer(session *gameSession, 
 	// 汇总"提交之后交付了哪几个 list"：list 3 的行数在这里回填，list 1 由
 	// `login_switch_inventory_scene_ready_replay.go` 在紧随其后的同一处边界回填。
 	s.noteLoginPostCommitEquipmentRows(session, source, rows)
+	// Restore row-tail state omitted by mode1 equipment creation.
+	s.reassertLoginEquipmentTailRows(session, source+"_after_equipment_container")
 	// The scene commit and the list-3 create replay replace the creature object
 	// that received the earlier op14. Reapply only the authoritative worn pet's
 	// dynamic state after that create; actor and creature initialization packets
