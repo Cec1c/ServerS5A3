@@ -1,3 +1,12 @@
+## 2026-10-14 — DOC-067 物品栏位置锁定（位置锁持久化 / 整理跳过 / 行投影）
+
+- 当前客户端（DNF.exe SHA256 8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387）已证：C2S 713 = 置 1、714 = 置 0（不是 toggle），体 = u8 list + u16 slot；客户端收到 713/714 分别写 item+0x2aa=1/0，所以成功回包必须用同一 opcode 的 class1 `u8 1 + u8 list + u16 slot`；旧 C# 的 toggle 与 714/715 方向在本客户端会翻反，未照搬。
+- 0x77 物品行的 0x60 字节经 0x1fd824c（读 row+0x60）→ 0x1fd8c38（struct+0xaa）→ 0x1d45fcc（item+0x2aa）链进入客户端物品对象；本席复核 op13 处理器 0x2024cf0 与 op14 处理器 0x2025a90 都用同一 0x77 行缓冲调用同一组行解析 helper（0x242d4a0 调用点 0x20257e3 / 0x2025c76）与已证解析器 0x1fd80e0 一致。
+- 新增 internal/modules/dnf/inventory/sort_lock.go：sort_lock Extra 键、支持列表/账号共享格边界、Sort 跳过锁定物品与被锁槽位、搬运携带规则（穿戴/跨 list/主背包快捷槽 3..8 清锁；个人金库内部与同分段保留）与 Owner.ApplySortLock（校验→幂等→事务落库）。handler 接入 713/714 并只在 durable 提交后回同 opcode class1 成功包；失败一律不回包（90CN 错误码枚举无证据，不臆造）。
+- 行投影在 dnfbridge 显式写 0x60 = 0/1（setByte 会跳过 0，必须直接写才能清掉 raw 脏值，保证重登/整表刷新恢复锁定图标）；穿戴路径进场时删除位置锁，装备资产锁 267/268/269 与宠物/账号仓库未改动。
+- 新增 inventory/sort_lock_test.go 与 dnfbridge/sort_lock_row_projection_test.go：落库与回包形状、其他 Extra 键不被清、幂等不重写、非法 list/账号共享槽/空槽/长度不符不回包、跨账号拒绝、落库失败无半截状态、整理跳过、搬运规则矩阵、行字节显式 0/1。
+- 旧代码复现：把 handler/owner/aligned/行投影/account_cargo_sort 临时还原到 5fc6807 后，713 未登记无回包、整理搬走锁定物品、快捷槽与跨容器搬运保留锁、行字节保留脏值 1；按 SHA256 校验还原后以上用例全部 GREEN，`./internal/modules/dnf/...`、`./internal/services/dnfbridge`、`./cmd/server/control` 全包通过，gofmt/go vet 通过。
+- 未部署、未推送、未改用户 DOCX/原台账/生产资产；原生 GUI 验收与失败回包错误码仍开放。详见 Docs/D33_SORT_LOCK_20261014.md。
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.

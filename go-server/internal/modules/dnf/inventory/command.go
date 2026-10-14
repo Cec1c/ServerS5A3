@@ -55,6 +55,10 @@ type Command struct {
 	Category               byte
 	Condition              byte
 	NeedsOwner             string
+	// SortLock / SortLockRequested 承接 op713/714 的位置锁意图（DOC-067）：
+	// SortLock 由 opcode 决定（713=锁、714=解锁），不是 toggle。
+	SortLock          bool
+	SortLockRequested bool
 	// Upgrade policy fields (populated by dnfbridge from PVF table).
 	// SuccessWeight is out of 100000; >= 100000 means guaranteed success.
 	UpgradeSuccessWeight int

@@ -32,6 +32,11 @@ type ItemStack struct {
 	Extra    map[string]string `json:"extra,omitempty"`
 }
 
+// SortLockExtraKey 是物品栈上「物品栏位置锁定」（DOC-067）的持久化键。
+// 值为 "1" 表示锁定；键不存在表示未锁。放在 repository 侧是因为
+// 背包 owner 与穿戴 owner 都要读写它，而 equip 不能反向 import inventory。
+const SortLockExtraKey = "sort_lock"
+
 // InventoryField 表示背包记录可局部保存的字段。
 type InventoryField string
 

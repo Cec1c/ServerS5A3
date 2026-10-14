@@ -805,7 +805,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			destination.Count -= moveCount
 			updateStackRawAmount(&destination)
 			dstItems[dstKey] = destination
-			srcItems[srcKey] = moved
+			srcItems[srcKey] = applySortLockOnMove(moved, cmd.DestinationListType, cmd.DestinationSlotIndex, cmd.SourceListType, cmd.SourceSlotIndex)
 			result.MoveCount = moveCount
 			result.Mode = "reverse_split"
 			if cmd.SourceListType == cmd.DestinationListType {
@@ -820,7 +820,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			return saveMoveResult(ctx, o.repo, record, srcField, dstField, keys, result)
 		}
 		delete(dstItems, dstKey)
-		srcItems[srcKey] = destination
+		srcItems[srcKey] = applySortLockOnMove(destination, cmd.DestinationListType, cmd.DestinationSlotIndex, cmd.SourceListType, cmd.SourceSlotIndex)
 		result.MoveCount = destination.Count
 		result.Mode = "reverse_move"
 		keys := newBagMoveWriteKeys(srcField, dstField)
@@ -881,7 +881,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			source.Count -= moveCount
 			updateStackRawAmount(&source)
 			srcItems[srcKey] = source
-			dstItems[dstKey] = moved
+			dstItems[dstKey] = applySortLockOnMove(moved, cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex)
 			result.MoveCount = moveCount
 			result.Mode = "split"
 			if cmd.SourceListType == cmd.DestinationListType {
@@ -896,7 +896,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			return saveMoveResult(ctx, o.repo, record, srcField, dstField, keys, result)
 		}
 		delete(srcItems, srcKey)
-		dstItems[dstKey] = source
+		dstItems[dstKey] = applySortLockOnMove(source, cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex)
 		result.MoveCount = source.Count
 		result.Mode = "move"
 		keys := newBagMoveWriteKeys(srcField, dstField)
@@ -935,8 +935,8 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		return saveMoveResult(ctx, o.repo, record, srcField, dstField, keys, result)
 	}
 
-	srcItems[srcKey] = destination
-	dstItems[dstKey] = source
+	srcItems[srcKey] = applySortLockOnMove(destination, cmd.DestinationListType, cmd.DestinationSlotIndex, cmd.SourceListType, cmd.SourceSlotIndex)
+	dstItems[dstKey] = applySortLockOnMove(source, cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex)
 	result.MoveCount = source.Count
 	result.Mode = "swap"
 	keys := newBagMoveWriteKeys(srcField, dstField)
@@ -1091,10 +1091,14 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 	if !ok {
 		return result, nil
 	}
-	candidates := sortCandidates(items, cmd.SourceListType, start, end)
+	candidates, lockedSlots := sortCandidates(items, cmd.SourceListType, start, end)
 	result.MovedCount = len(candidates)
+	targets := sortTargetSlots(start, end, lockedSlots)
 	if len(candidates) == 0 {
 		return result, nil
+	}
+	if len(targets) < len(candidates) {
+		return SortResult{}, fmt.Errorf("%w: candidates=%d targets=%d", ErrSortLockSlotMismatch, len(candidates), len(targets))
 	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -1111,8 +1115,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 
 	changed := false
 	for index, candidate := range candidates {
-		targetSlot := start + int16(index)
-		if candidate.slot != targetSlot {
+		if candidate.slot != targets[index] {
 			changed = true
 			break
 		}
@@ -1125,8 +1128,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		delete(items, slotKey(cmd.SourceListType, candidate.slot))
 	}
 	for index, candidate := range candidates {
-		targetSlot := start + int16(index)
-		items[slotKey(cmd.SourceListType, targetSlot)] = candidate.stack
+		items[slotKey(cmd.SourceListType, targets[index])] = candidate.stack
 	}
 
 	record.UpdatedAt = time.Now()
@@ -3123,11 +3125,19 @@ type sortCandidate struct {
 	stack dnfrepo.ItemStack
 }
 
-func sortCandidates(items map[string]dnfrepo.ItemStack, listType byte, start int16, end int16) []sortCandidate {
+// sortCandidates 收集可参与整理的物品，并把被位置锁占用的槽位单独返回。
+// DOC-067：锁定物品留在原槽（不是候选），它的槽位也不能被别的物品占用；
+// 这两条合起来就是 A21 InventorySortService 的 lockedSlots / targetSlots 行为。
+func sortCandidates(items map[string]dnfrepo.ItemStack, listType byte, start int16, end int16) ([]sortCandidate, map[int16]bool) {
 	out := make([]sortCandidate, 0)
+	locked := make(map[int16]bool)
 	for key, stack := range items {
 		keyListType, slot, ok := parseSlotKey(key)
 		if !ok || keyListType != listType || slot < start || slot > end {
+			continue
+		}
+		if IsSortLocked(stack) && SortLockCanApply(listType, slot) {
+			locked[slot] = true
 			continue
 		}
 		out = append(out, sortCandidate{
@@ -3136,7 +3146,19 @@ func sortCandidates(items map[string]dnfrepo.ItemStack, listType byte, start int
 			stack: stack,
 		})
 	}
-	return out
+	return out, locked
+}
+
+// sortTargetSlots 返回 [start,end] 里未被位置锁占用的槽位（升序）。
+func sortTargetSlots(start, end int16, locked map[int16]bool) []int16 {
+	targets := make([]int16, 0, int(end-start)+1)
+	for slot := start; slot <= end; slot++ {
+		if locked[slot] {
+			continue
+		}
+		targets = append(targets, slot)
+	}
+	return targets
 }
 
 func parseSlotKey(key string) (byte, int16, bool) {

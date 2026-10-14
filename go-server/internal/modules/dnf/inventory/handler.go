@@ -148,6 +148,24 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			return ownerBlockedResult(cmd, err), nil
 		}
 		return ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+	case dnfenum.CmdPacketRequestItemSortLock, dnfenum.CmdPacketRequestItemSortUnlock:
+		// DOC-067 位置锁：713=置1、714=置0（不是 toggle）。请求体 u8 list + u16 slot；
+		// 成功回同一 opcode 的 class1 `1 + list + slot`，失败不回包（错误码枚举未证，不臆造）。
+		parsed, err := DecodeSortLockRequest(req.Body)
+		locked := dnfenum.CmdPacket(req.Opcode) == dnfenum.CmdPacketRequestItemSortLock
+		cmd := NewSortLockCommand(req, parsed, locked)
+		if err != nil {
+			return blockedParsedResult(cmd.Operation, cmd.String(), err), nil
+		}
+		owner, err := NewOwner(req.Repositories)
+		if err != nil {
+			return ownerBlockedResult(cmd, err), nil
+		}
+		result, err := owner.ApplySortLock(ctx, cmd)
+		if err != nil {
+			return ownerBlockedResult(cmd, err), nil
+		}
+		return ownerAppliedSortLockResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketSortItem:
 		parsed, err := DecodeSortItemRequest(req.Body)
 		cmd := NewSortCommand(req, parsed)
@@ -1828,6 +1846,34 @@ func ownerAppliedDeleteResult(opcode uint16, cmd Command, result DeleteResult) a
 	}
 }
 
+// buildSortLockAck 是 713/714 的 class1 成功体：u8 1 + u8 list + u16 slot。
+// 形状来自客户端 handler 0x1faee80/0x1faeee0（先读 success 字节，再读 list/slot），
+// 与旧 C# SortItemLockBuilder.BuildLock 同序；旧 C# 的 714/715 方向在本客户端会反相，不采用。
+func buildSortLockAck(listType byte, slotIndex int16) []byte {
+	var writer packetWriter
+	writer.writeByte(1)
+	writer.writeByte(listType)
+	writer.writeInt16(slotIndex)
+	return writer.bytes()
+}
+
+// ownerAppliedSortLockResult 只在 durable owner 返回后开成功回包；幂等命中（Changed=false）
+// 同样回成功，因为客户端要的状态已经成立。
+func ownerAppliedSortLockResult(opcode uint16, cmd Command, result SortLockResult) alignedcmd.Result {
+	return alignedcmd.Result{
+		Handled:         true,
+		ResponseAllowed: true,
+		Operation:       cmd.Operation,
+		Reason: fmt.Sprintf(
+			"inventory owner applied: %s locked=%t changed=%t; opened class1/%d list+slot ACK in current-EXE order",
+			cmd.String(), result.Locked, result.Changed, opcode,
+		),
+		UpperResponses: []alignedcmd.UpperResponse{
+			class1Response(opcode, buildSortLockAck(result.ListType, result.SlotIndex)),
+		},
+	}
+}
+
 func class1Response(opcode uint16, body []byte) alignedcmd.UpperResponse {
 	return alignedcmd.UpperResponse{
 		MsgID:          opcode,
@@ -1856,6 +1902,10 @@ func ackEvidenceLabel(operation string) string {
 		return "0x0013"
 	case "sort_item":
 		return "0x0014"
+	case "request_item_sort_lock":
+		return "0x02C9 (713)"
+	case "request_item_sort_unlock":
+		return "0x02CA (714)"
 	case "repair_equipment":
 		return "0x0017"
 	default:
