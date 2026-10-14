@@ -1,4 +1,10 @@
 ## 2026-10-14 — 女圣职者 15 级主线/转职链路真档回归（DOC-123）
+## 2026-10-15 — Preserve exact enchant target identity through handler serialization
+
+- Add a pinned real-PVF, independent-memory 601 handler regression for belt100220137/card3621/recipe10015129 at target28/card237, with weapon28309 in decoy slot9. Both peer-store and registered-self-store requests must produce one successful ACK before the main op13, retaining each slot identity, target enchant and card count; a short-material request preserves all fixture assets and sends no success refresh.
+- This fills the gap left by the older direct-commit test with a dynamically selected target/card. Deep-copy boundaries and actual serialized rows were independently reviewed. Three cases pass; legitimate three-byte empty non-main container pages are not misclassified as malformed main pages.
+- No product behavior change or client-window fix is claimed. The regression cannot reconstruct the historical callback global, object lifetime or icon display, and does not implement an unverified personal self-entry protocol.
+
 ## 2026-10-15 — Replay Jonathan payment through the real request handler
 
 - Add an isolated memory/real-PVF request-handler regression using observed target28309, target slot54, normal-material slot358 and NPC476/material slot135 trailer fields. The name and character are synthetic; this is not a replay of historical player state.
