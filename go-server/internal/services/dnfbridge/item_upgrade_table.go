@@ -179,9 +179,9 @@ func parseCurrentUpgradeTable(doc *dnfpvf.Document, rawText string) *currentUpgr
 		table.Costs = append(table.Costs, int(v))
 	}
 	// [cost weights by rarity]
-	table.CostWeightsByRarity = parseFloats(doc.Ints("cost weights by rarity"))
+	table.CostWeightsByRarity = doc.Numbers("cost weights by rarity")
 	// [type]
-	table.TypeWeights = parseFloats(doc.Ints("type"))
+	table.TypeWeights = doc.Numbers("type")
 	// [destroy level by rarity]
 	parseCurrentUpgradeStringIntPairs(rawText, "destroy level by rarity", table.DestroyLevelByRarity)
 	// [disjoint] section
@@ -353,14 +353,6 @@ func currentUpgradeRarityName(rarity int) string {
 	default:
 		return ""
 	}
-}
-
-func parseFloats(ints []int64) []float64 {
-	out := make([]float64, len(ints))
-	for i, v := range ints {
-		out[i] = float64(v)
-	}
-	return out
 }
 
 // alignedUpgradePolicyResolver returns a closure that resolves the PVF upgrade
