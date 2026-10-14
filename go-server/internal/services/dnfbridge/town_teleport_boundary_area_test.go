@@ -54,7 +54,7 @@ func TestHandleTeleportPotionLandsOnMainAreaPastBoundaryGateAtAreaZero(t *testin
 		t.Fatalf("fixture must reproduce the bug: legacy landing area=(%+v,%t) want area 0", legacy, found)
 	}
 
-	if err := service.handleTeleportPotion(session, buildTeleportPotionClickRequest(65, 2600014, 31, 675, 342)); err != nil {
+	if err := service.handleTeleportPotion(session, buildTeleportPotionAreaClickRequest(65, 2600014, 31, 1, 675, 342)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,7 +309,7 @@ func TestTeleportPotionCommittedEventCarriesLandingAreaSourceAndReason(t *testin
 	}
 	service.packetLog = logger
 
-	if err := service.handleTeleportPotion(session, buildTeleportPotionClickRequest(65, 2600014, 31, 675, 342)); err != nil {
+	if err := service.handleTeleportPotion(session, buildTeleportPotionAreaClickRequest(65, 2600014, 31, 1, 675, 342)); err != nil {
 		t.Fatal(err)
 	}
 	// 把角色挪回 town 38 area 1，再打一条不带点击点的请求，触发回退档。
@@ -339,8 +339,7 @@ func TestTeleportPotionCommittedEventCarriesLandingAreaSourceAndReason(t *testin
 		"kind=game-town-teleport-potion-committed",
 		"town_id=31 area_id=1 position_x=675 position_y=342 map_path=Town/CentralPark/CentralPark.map",
 		"landing_source=client_click_point",
-		"landing_area_source=main_area_after_boundary_gate",
-		"boundary_signals=gate_map_name+pvf_gate_marker",
+		"landing_area_source=client_requested_area",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("committed event line missing %q:\n%s", want, text)
@@ -378,7 +377,7 @@ func TestTeleportPotionLandingDecisionGateSwitchKeepsLegacyBoundaryLanding(t *te
 		t.Fatalf("gate switch decision=%+v want the legacy [gate] area at (474,234)", decision)
 	}
 
-	if err := service.handleTeleportPotion(session, buildTeleportPotionClickRequest(65, 2600014, 31, 675, 342)); err != nil {
+	if err := service.handleTeleportPotion(session, buildTeleportPotionAreaClickRequest(65, 2600014, 31, 1, 675, 342)); err != nil {
 		t.Fatal(err)
 	}
 	splitTownTransitionAndPostState(
