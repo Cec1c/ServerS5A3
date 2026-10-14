@@ -3,7 +3,8 @@
 - Continue from merged master 5fc6807 using the updated issue document; fully colored paragraphs remain accepted. See Docs/BUGS_20261014_ROUND2.md for scope and remaining native checks.
 - Charge an explicit PVF purchase price together with material exchange costs in the existing atomic NPC-shop owner. Preserve material-only exchanges without treating sell value as a purchase surcharge; project the committed gold balance in the ACK and inventory update. The real Luke earring 100390011 requires 2500000 gold plus 100 monolium.
 - Route current legacy op32 to the same durable abandonment handler as upper op32. Admit collection quests only when every target is proven an ordinary material and no activation grants or quest drops require reclamation. Preserve the prohibition for quest items, missing metadata and cant-giveup definitions. Real quests8581/13613 now abandon without deleting ordinary inventory materials.
-- Baseline regressions reproduce both defects. Initial combined focused tests pass62 nodes with zero skips/failures; full validation is pending at this checkpoint. No production deployment or native acceptance is claimed.
+- Baseline regressions reproduce both defects. Full validation at c0bf70f passes gofmt/list/vet and Windows/Linux builds; core tests record 9337 passed nodes, 861 skipped nodes and zero failures. All 146 required real-PVF regression roots pass (675 passed nodes, two packages without selected tests, zero failures). The first run exposed an obsolete trading-fixture expectation, corrected to charge its explicit price before the successful rerun.
+- Actual BAT preflight stops with exit 1 because this source worktree lacks deploy/assets/channel_info.etc. No production deployment or native acceptance is claimed; remaining uncolored issues stay open.
 
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
