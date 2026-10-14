@@ -1641,27 +1641,6 @@ func (s *Service) commitCurrentEpicProductionCompound(
 				updates[material.Slot] = entry
 			}
 
-			if plan.Recipe.MustNeedItemID != 0 && plan.Recipe.MustNeedItemCount != 0 {
-				if fixedSlot, shared := currentDisjointWarehouseFixedSlots[plan.Recipe.MustNeedItemID]; shared {
-					entry, consumeErr := currentEpicProductionConsumeAccountStack(&account, fixedSlot, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					if consumeErr != nil {
-						return consumeErr
-					}
-					accountChanged = true
-					updates[fixedSlot] = entry
-				} else {
-					slot, found := currentEpicProductionFindMaterialSlot(inventory, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					if !found {
-						return fmt.Errorf("%w: compound must item=%d need=%d", errCurrentEpicProductionMaterial, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					}
-					entry, consumeErr := currentEpicProductionConsumeStack(&inventory, slot, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					if consumeErr != nil {
-						return consumeErr
-					}
-					updates[slot] = entry
-				}
-			}
-
 			carryStat, groupSelector := currentEpicProductionCarryStat(plan.Recipe.GroupKey)
 			carry := uint64(0)
 			if carryStat != "" {
@@ -1687,6 +1666,33 @@ func (s *Service) commitCurrentEpicProductionCompound(
 			if output64 == 0 || output64 > math.MaxUint32 {
 				return fmt.Errorf("%w: compound output=%d", errCurrentEpicProductionMaterial, output64)
 			}
+			// Fixed recipe materials are charged per crafting unit, including
+			// units completed with saved contribution, not once per request.
+			if plan.Recipe.MustNeedItemID != 0 && plan.Recipe.MustNeedItemCount != 0 {
+				if units > math.MaxUint32/uint64(plan.Recipe.MustNeedItemCount) {
+					return fmt.Errorf("%w: compound must item=%d units=%d overflows", errCurrentEpicProductionMaterial, plan.Recipe.MustNeedItemID, units)
+				}
+				mustNeedTotal := uint32(units * uint64(plan.Recipe.MustNeedItemCount))
+				if fixedSlot, shared := currentDisjointWarehouseFixedSlots[plan.Recipe.MustNeedItemID]; shared {
+					entry, consumeErr := currentEpicProductionConsumeAccountStack(&account, fixedSlot, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					if consumeErr != nil {
+						return consumeErr
+					}
+					accountChanged = true
+					updates[fixedSlot] = entry
+				} else {
+					slot, found := currentEpicProductionFindMaterialSlot(inventory, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					if !found {
+						return fmt.Errorf("%w: compound must item=%d need=%d", errCurrentEpicProductionMaterial, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					}
+					entry, consumeErr := currentEpicProductionConsumeStack(&inventory, slot, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					if consumeErr != nil {
+						return consumeErr
+					}
+					updates[slot] = entry
+				}
+			}
+
 			carryValue := uint32(0)
 			if carryStat != "" {
 				carryValue = uint32(total % uint64(plan.Recipe.NeedCount))

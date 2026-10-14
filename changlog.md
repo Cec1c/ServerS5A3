@@ -55,6 +55,11 @@
 - Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
 - Resolve capped awards as well, so spending later cannot make an old clear grantable again. Repository failures remain retryable and a fresh dungeon run retains its own award.
 - Regression tests reproduce repeated grants before the change and cover duplicate requests, account-save failure, notice failure, caps and unsuitable levels. This does not change lucky-star purchase protocols or establish native UI acceptance.
+## 2026-10-14 — Charge fixed catalyst ingredients for every crafting unit
+
+- Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
+- Preserve the account/character asset transaction and committed balance refresh. Refuse insufficient stock and arithmetic overflow without consuming contribution materials, changing carry or granting products.
+- Regression coverage includes the matching-PVF dimensional catalyst, single/batch account and bag costs, carry, output multipliers and rollback. Native crafting animation acceptance remains separate.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
