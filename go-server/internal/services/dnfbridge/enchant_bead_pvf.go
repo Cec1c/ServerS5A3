@@ -100,9 +100,18 @@ func resolveCurrentEnchantBeadMetadata(catalog *pvfDungeonDropCatalog, source dn
 	resolution.AllowedEquipmentTypes = append([]string(nil), currentEnchantCardParts(cardDocument)...)
 	resolution.UpgradeCounts = append([]int64(nil), cardDocument.Ints("enchant index")...)
 	if tableTokens, ok := cardDocument.Section("enchant table"); ok {
-		for _, token := range tableTokens {
-			if token.Kind == dnfpvf.TokenInt {
-				resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+		// 嵌套表逐个读取实际级数，附魔属性整数不属于升级级数。
+		if stages := currentMonsterCardStages(cardDocument); len(stages) > 0 {
+			resolution.UpgradeCounts = nil
+			for _, stage := range stages {
+				resolution.UpgradeCounts = append(resolution.UpgradeCounts, int64(stage))
+			}
+		} else {
+			// 没有嵌套级数时保持旧平铺表的已有口径。
+			for _, token := range tableTokens {
+				if token.Kind == dnfpvf.TokenInt {
+					resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+				}
 			}
 		}
 	}
@@ -202,9 +211,18 @@ func resolveCurrentEnchantCardMetadata(catalog *pvfDungeonDropCatalog, source dn
 	resolution.AllowedEquipmentTypes = append([]string(nil), currentEnchantCardParts(cardDocument)...)
 	resolution.UpgradeCounts = append([]int64(nil), cardDocument.Ints("enchant index")...)
 	if tableTokens, ok := cardDocument.Section("enchant table"); ok {
-		for _, token := range tableTokens {
-			if token.Kind == dnfpvf.TokenInt {
-				resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+		// 嵌套表逐个读取实际级数，附魔属性整数不属于升级级数。
+		if stages := currentMonsterCardStages(cardDocument); len(stages) > 0 {
+			resolution.UpgradeCounts = nil
+			for _, stage := range stages {
+				resolution.UpgradeCounts = append(resolution.UpgradeCounts, int64(stage))
+			}
+		} else {
+			// 没有嵌套级数时保持旧平铺表的已有口径。
+			for _, token := range tableTokens {
+				if token.Kind == dnfpvf.TokenInt {
+					resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+				}
 			}
 		}
 	}

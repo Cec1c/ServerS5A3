@@ -109,6 +109,7 @@ const (
 // Owner 是背包资产的 durable owner 边界。
 // 当前只改 repository 状态；旧客户端 ACK/刷新顺序必须在 EXE 证据闭合后再开放。
 type Owner struct {
+	cardSettings  dnfrepo.SettingsRepository
 	repo          dnfrepo.InventoryRepository
 	accountRepo   dnfrepo.AccountInventoryRepository
 	accounts      dnfrepo.AccountRepository
@@ -338,6 +339,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		cardSettings:  repos.Settings,
 		repo:          repos.Inventory,
 		accountRepo:   repos.AccountInventory,
 		accounts:      repos.Account,
@@ -3208,6 +3210,9 @@ func canSplitStack(stack dnfrepo.ItemStack, moveCount int64) bool {
 }
 
 func canStack(source dnfrepo.ItemStack, destination dnfrepo.ItemStack, moveCount int64) bool {
+	if !dnfrepo.MonsterCardUpgradeIdentityCompatible(source, destination) {
+		return false
+	}
 	if moveCount <= 0 || source.Count < moveCount || destination.Count <= 0 {
 		return false
 	}
