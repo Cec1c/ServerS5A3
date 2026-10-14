@@ -888,7 +888,7 @@ func ownerAppliedEnchantResult(ctx context.Context, settings dnfrepo.SettingsRep
 	// selected-container refresh after the ACK destroys and recreates the
 	// item objects while the popup still owns the pointer, so the popup can
 	// render an unrelated item that later reuses the same allocation.
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
@@ -905,6 +905,13 @@ func ownerAppliedEnchantResult(ctx context.Context, settings dnfrepo.SettingsRep
 			class1Response(opcode, buildEnchantByBeadSuccessAck(result)),
 		},
 	}
+	// 成功路径回的是 class0/0x000D list 0 整表刷新；op13 是替换语义，而 0:0 钱包行、
+	// 账号共享的 0:354..0:365 与装备行的品级种子/孔位/符文/期限都不在角色快照里，
+	// 所以这条刷新必须由桥侧用会话权威投影重建（上面的 Body 只留作领域侧证据，
+	// 不再上线）。见 dnfbridge/authoritative_list_refresh.go 与 native-next914/
+	// enchant-gold-fix/v2 的 README。
+	applied.AuthoritativeListRefreshes = []byte{listTypeMain}
+	return applied
 }
 
 func ownerAppliedUpgradeTicketResult(ctx context.Context, settings dnfrepo.SettingsRepository, opcode uint16, cmd Command, result UpgradeTicketResult) alignedcmd.Result {
@@ -975,6 +982,7 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 	// 回它，以消除应答空槽与事务结果不一致。现服客户端即时归并效果仍待验证。
 	// 非金库端点、或本次没有发生落点重定向时，ackCommand 与请求端点逐字节相同。
 	ackCommand := vaultCommittedMoveAckCommand(cmd, result)
+	var authoritativeListRefreshes []byte
 	responses := []alignedcmd.UpperResponse{
 		class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 	}
@@ -1001,6 +1009,12 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 				msgItemListRefresh,
 				buildCommonItemListRefreshBodyWithState(listType, slots, state),
 			))
+			if listType == listTypeMain {
+				// Replacing the bag from the module snapshot drops its wallet and
+				// writes equipment Count over quality. Reuse the login projection
+				// at this response's position, with its wallet-read failure guard.
+				authoritativeListRefreshes = []byte{listTypeMain}
+			}
 		}
 	}
 	postActions := make([]alignedcmd.PostAction, 0, 1)
@@ -1035,9 +1049,10 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 			cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex,
 			ackCommand.SourceListType, ackCommand.SourceSlotIndex, ackCommand.DestinationListType, ackCommand.DestinationSlotIndex,
 		),
-		UpperResponses:    responses,
-		ItemSlotRefreshes: itemSlotRefreshes,
-		PostActions:       postActions,
+		UpperResponses:             responses,
+		ItemSlotRefreshes:          itemSlotRefreshes,
+		PostActions:                postActions,
+		AuthoritativeListRefreshes: authoritativeListRefreshes,
 	}
 }
 
@@ -1107,6 +1122,12 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 	if !ok {
 		return ownerAppliedResult(cmd, fmt.Sprintf("sortMode=%s moved=%d range=%d-%d changed=%t; list=%d needs dedicated 0x000D body", result.Mode, result.MovedCount, result.StartSlot, result.EndSlot, result.Changed, result.ListType))
 	}
+	var authoritativeListRefreshes []byte
+	if result.ListType == listTypeMain {
+		// Sort uses the same replacing bag body as a cargo merge; its
+		// equipment instances also need the authoritative quality projection.
+		authoritativeListRefreshes = []byte{listTypeMain}
+	}
 	return alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
@@ -1124,6 +1145,7 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 			class1Response(opcode, buildSortItemAck(result.ListType)),
 			class0Response(msgItemListRefresh, refreshBody),
 		},
+		AuthoritativeListRefreshes: authoritativeListRefreshes,
 	}
 }
 

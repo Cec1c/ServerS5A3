@@ -150,7 +150,7 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 			),
 			state1E636E0:        binary.LittleEndian.Uint16(entry.data[0x45:0x47]),
 			indexedState1C61F40: indexedState,
-			state120:            sceneInventoryExtraByte(equipped.Extra, "mode1_state_120", "state_120"),
+			state120:            currentMode1EquipmentExtraByteOr(equipped.Extra, entry.data[0x57], "mode1_state_120", "state_120"),
 			state160:            sceneInventoryExtraByte(equipped.Extra, "mode1_state_160", "state_160"),
 			state128:            sceneInventoryExtraByte(equipped.Extra, "mode1_state_128", "state_128"),
 			state140:            sceneInventoryExtraUint16(equipped.Extra, "mode1_state_140", "state_140"),

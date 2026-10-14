@@ -1648,10 +1648,10 @@ func (o *Owner) swapEquipSlots(ctx context.Context, cmd MoveCommand) (MoveResult
 			return MoveResult{}, err
 		}
 	}
-	source.SlotIndex = cmd.DestinationSlotIndex
+	source = equipmentEntryAfterSlotSwap(source, cmd.DestinationSlotIndex)
 	record.Entries[dstKey] = source
 	if destinationOK {
-		destination.SlotIndex = cmd.SourceSlotIndex
+		destination = equipmentEntryAfterSlotSwap(destination, cmd.SourceSlotIndex)
 		record.Entries[srcKey] = destination
 	} else {
 		delete(record.Entries, srcKey)
@@ -1675,6 +1675,31 @@ func (o *Owner) swapEquipSlots(ctx context.Context, cmd MoveCommand) (MoveResult
 		result.SwappedItemID = destination.ItemID
 	}
 	return result, nil
+}
+
+// Only the validated current-client main/support pair carries this runtime
+// slot identity. Other worn-slot formats retain their existing representation.
+func equipmentEntryAfterSlotSwap(entry dnfrepo.EquipmentEntry, slot int16) dnfrepo.EquipmentEntry {
+	old := entry.SlotIndex
+	entry.SlotIndex = slot
+	if !((old == 12 && slot == 24) || (old == 24 && slot == 12)) {
+		return entry
+	}
+	entry.Extra = cloneExtra(entry.Extra)
+	for _, key := range []string{"equipped_slot", "equipment_slot", "current_exe_equipment_type"} {
+		entry.Extra[key] = strconv.Itoa(int(slot))
+	}
+	entry.Extra["current_exe_runtime_move"] = "1"
+	if len(entry.RawEntry) == currentEquipmentRawEntryWireSize {
+		entry.RawEntry = append([]byte(nil), entry.RawEntry...)
+		binary.LittleEndian.PutUint16(entry.RawEntry[:2], uint16(slot))
+		for _, key := range []string{"raw_entry_hex", "equipment_raw_entry_hex"} {
+			if _, ok := entry.Extra[key]; ok {
+				entry.Extra[key] = hex.EncodeToString(entry.RawEntry)
+			}
+		}
+	}
+	return entry
 }
 
 func (o *Owner) loadMoveRecords(ctx context.Context, characterID string) (dnfrepo.InventoryRecord, dnfrepo.EquipmentRecord, error) {

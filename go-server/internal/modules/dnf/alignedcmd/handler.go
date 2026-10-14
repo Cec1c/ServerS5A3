@@ -838,6 +838,31 @@ type Result struct {
 	// destroyed). Nil for every command that never reached that branch, and for
 	// the legacy switch value. The bridge owns the grep-able event.
 	UpgradeProtectTicket *UpgradeProtectTicket
+	// AuthoritativeListRefreshes names container list types whose class0/0x000D
+	// refresh inside UpperResponses must be rebuilt from the bridge's session-scoped
+	// authoritative projection (the same builder login bootstrap, the container-list
+	// post actions and the cera shop use) instead of the module-provided repository
+	// snapshot.
+	//
+	// op13 is whole-table semantics: the client replaces the whole container, including
+	// rows the module snapshot does not own. For list 0 those are the reserved 0:0
+	// wallet row (gold lives in Character.Stats), the account-shared 0:354..0:365
+	// crystal/soul warehouse rows (AccountInventory), and the per-row fields the
+	// shared 0x77 encoder does not reproduce (equipment quality seed at raw+0x06,
+	// emblem/socket vector, effect rune, stackable use period, expiration). Shipping
+	// the snapshot instead erases or rewrites them in the client while the database
+	// stays intact (2026-10-14 role-106 op272 evidence).
+	//
+	// The bridge sends the rebuild in the same position and envelope as the response it
+	// replaces, so the refresh still precedes the class1 ACK of the same Result. It
+	// only ever looks at (classification 0, msg 0x000D) responses whose list type is
+	// named here, so every other opcode keeps its bytes. When the authoritative build
+	// fails the bridge drops that one refresh (it never falls back to the snapshot
+	// body) and still sends the remaining responses, because the durable mutation and
+	// its ACK must not be lost.
+	//
+	// Empty = previous behavior: every UpperResponse body is sent verbatim.
+	AuthoritativeListRefreshes []byte
 }
 
 // UpgradeDestroyBonusMerge is the destroy-branch compensation placement,
@@ -1001,5 +1026,6 @@ func (r Registry) Route(ctx context.Context, req Request) (Result, bool, error) 
 		result.UpperResponses[i].Body = append([]byte(nil), result.UpperResponses[i].Body...)
 	}
 	result.PostActions = append([]PostAction(nil), result.PostActions...)
+	result.AuthoritativeListRefreshes = append([]byte(nil), result.AuthoritativeListRefreshes...)
 	return result, true, err
 }

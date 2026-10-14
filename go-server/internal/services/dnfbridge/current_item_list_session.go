@@ -12,6 +12,9 @@ import (
 	dnfrevivecoin "longheng.io/server/internal/modules/dnf/revivecoin"
 )
 
+// Marks that this body includes the authoritative character gold row.
+const currentGoldWalletProjectionSource = "character_gold_wallet_projection"
+
 func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, session *gameSession, listType byte) ([]byte, string, int, bool) {
 	repos, ok := s.repositoryGroup()
 	if !ok {
@@ -193,9 +196,9 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 					if walletProjected {
 						known = true
 						if source == "" {
-							source = "character_gold_wallet_projection"
+							source = currentGoldWalletProjectionSource
 						} else {
-							source += "+character_gold_wallet_projection"
+							source += "+" + currentGoldWalletProjectionSource
 						}
 					} else if walletSlotConflict {
 						s.logPacketEvent("game-upper-current-gold-wallet-slot-conflict",
