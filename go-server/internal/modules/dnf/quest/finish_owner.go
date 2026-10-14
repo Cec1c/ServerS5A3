@@ -482,6 +482,9 @@ func (o *Owner) ApplyFinishSettlement(
 		state.Extra["reward_state"] = finishRewardGranted
 		state.Extra["settlement_source"] = source
 		state.Extra[finishSettlementReceiptKey] = string(receiptJSON)
+		// 每日任务在这里记下本次完成所属的服务日；读侧投影据此让完成行在
+		// 下一个服务日自动失效（见 daily_refresh.go）。非每日任务不写该键。
+		markDailyQuestCompletion(&state, definition, now)
 		switch field {
 		case dnfrepo.QuestFieldStates:
 			quests.States[input.QuestID] = state

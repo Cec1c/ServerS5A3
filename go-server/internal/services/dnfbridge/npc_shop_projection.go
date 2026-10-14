@@ -148,6 +148,10 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 		return currentNPCShopBuyResult{}, fmt.Errorf("%w: exchange item=%d cost=%d x%d", errCurrentNPCShopProductUnavailable, request.ItemID, pricing.NeedMaterialItem, pricing.NeedMaterialCount)
 	}
 	totalMaterial := pricing.NeedMaterialCount * int64(request.Count)
+	if pricing.ExchangeGold < 0 || pricing.ExchangeGold > math.MaxInt64/int64(request.Count) {
+		return currentNPCShopBuyResult{}, errCurrentNPCShopGoldOverflow
+	}
+	totalGold := pricing.ExchangeGold * int64(request.Count)
 	accountID, characterID, repositories, owner, err := s.currentNPCShopMutationOwner(session)
 	if err != nil {
 		return currentNPCShopBuyResult{}, err
@@ -166,6 +170,10 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 				return dnfnpcshop.Changes{}, errCurrentNPCShopOwnerUnavailable
 			}
 			gold := character.Stats["gold"]
+			if gold < totalGold {
+				return dnfnpcshop.Changes{}, errCurrentNPCShopGoldInsufficient
+			}
+			gold -= totalGold
 			updates := make([]currentItemListEntry, 0, 4)
 
 			// Consume the material cost.
@@ -286,7 +294,8 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 			result.Slot = grantSlots[0]
 			result.ItemID = request.ItemID
 			result.Count = request.Count
-			return dnfnpcshop.Changes{AccountInventory: accountDirty, Inventory: true}, nil
+			character.Stats["gold"] = gold
+			return dnfnpcshop.Changes{AccountInventory: accountDirty, Inventory: true, Character: totalGold != 0}, nil
 		},
 	})
 	if err != nil {

@@ -632,6 +632,59 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 	request := runtime.Request
 	dungeonID := runtime.Dungeon.ID
 	nextDungeonID, nextQuestID, hasNextStory := s.resolveNextStoryQuestDungeon(runtime)
+	if runtime.raidEntry == nil && hasNextStory && nextDungeonID != dungeonID && nextQuestID > 0 {
+		// 开始下个任务 = start the next quest: enter its dungeon only after the
+		// successor quest is active. The successor dungeon's quest maze is bound
+		// to that quest's active maze connection, so entering without the accept
+		// would land on the dungeon's non-quest maze and the chain would stall
+		// (real Script.pvf dungeon 6 猛毒雷鸣废墟 maze 1 = [0 3147 -1]).
+		// Best effort: an ineligible successor is not force-accepted and the
+		// entry target keeps the previous behavior.
+		outcome, acceptErr := s.acceptCurrentStorySuccessorQuest(session, nextQuestID)
+		if outcome == storySuccessorAcceptFailed {
+			// 真实存储/上下文失败：不退休旧 runtime、不进无任务迷宫、不扣入场资产。
+			// 退回本次一次性退出门，玩家再点一次即可重试（接取本身是幂等的）。
+			session.dungeon.mu.Lock()
+			if session.dungeon.runtime == runtime {
+				runtime.settlementCardExitAckSent = false
+			}
+			session.dungeon.mu.Unlock()
+			s.logGameEvent(session, "game-dungeon-card-story-successor-retry-armed",
+				"char_id", characterID,
+				"dungeon_id", dungeonID,
+				"next_dungeon_id", nextDungeonID,
+				"next_quest_id", nextQuestID,
+				"source", source,
+				"reason", "successor_accept_failed_before_retire_and_entry",
+				"entry_assets_consumed", false,
+				"runtime_retired", false,
+				"error", acceptErr)
+			return nil
+		}
+		if outcome == storySuccessorAcceptAccepted || outcome == storySuccessorAcceptIdempotent {
+			// 客户端必须看到进行中的后继任务，否则只剩 DB active。两个结局都要发：
+			// 接取真实写入后报错时记录已经是 active，重试会变成幂等，只有 Accepted 补发
+			// 就会漏掉投影。用 checked 版本，记录读不出来同样视为失败。
+			if err := s.sendCurrentActiveQuestSnapshotChecked(session, "current_exe_op72_story_next_quest_after_accept"); err != nil {
+				// 投影没发出去就不能带着「DB 有任务、客户端没有」继续退休/入场：
+				// 退回一次性退出门，重试时接取幂等并补发同一投影。
+				session.dungeon.mu.Lock()
+				if session.dungeon.runtime == runtime {
+					runtime.settlementCardExitAckSent = false
+				}
+				session.dungeon.mu.Unlock()
+				s.logGameEvent(session, "game-dungeon-card-story-successor-snapshot-failed-retry-armed",
+					"char_id", characterID,
+					"dungeon_id", dungeonID,
+					"next_quest_id", nextQuestID,
+					"source", source,
+					"reason", "successor_active_quest_projection_failed_before_retire_and_entry",
+					"runtime_retired", false,
+					"error", err)
+				return nil
+			}
+		}
+	}
 	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)
 	if ownerErr != nil {
 		return ownerErr

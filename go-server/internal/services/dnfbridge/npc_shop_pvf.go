@@ -45,6 +45,9 @@ type currentNPCShopPricing struct {
 	MaterialExchange    bool
 	NeedMaterialItem    uint32
 	NeedMaterialCount   int64
+	// ExchangeGold is the explicit [price] charged alongside [need material].
+	// A sell [value] alone must not turn a material-only exchange into a gold sale.
+	ExchangeGold int64
 }
 
 func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, error) {
@@ -239,9 +242,15 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 	if materialExchange {
 		pricing.NeedMaterialItem = uint32(needMaterial[0])
 		pricing.NeedMaterialCount = needMaterial[1]
+		if priceFound {
+			if price < 0 {
+				return currentNPCShopPricing{}, fmt.Errorf("%w: item=%d negative exchange price", errCurrentNPCShopProductUnavailable, itemID)
+			}
+			pricing.ExchangeGold = price
+		}
 	}
-	// Material-exchange goods pay with their [need material] rows instead of
-	// gold; the client shop UI shows only the material cost for them.
+	// Material goods may also declare an explicit gold price (e.g. Luke raid
+	// equipment). Both costs belong to the same purchase transaction.
 	pricing.Buyable = listed && (materialExchange || buyGold > 0)
 	return pricing, nil
 }

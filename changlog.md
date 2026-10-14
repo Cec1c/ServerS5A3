@@ -1,10 +1,3 @@
-## 2026-10-14 — DOC-106 药剂传送保留客户端区域与落点
-
-- 复核当前EXE地图选择返回、窗口字段setter与op237发送端，确认body[8]为独立的目标区域。实际指令离线执行生成test99 19:23亡者峡谷原始报文；同城镇不同地图坐标重叠不改变此字段含义。
-- 完整请求按运行时PVF验证并保留显式区域，避免亡者峡谷area5坐标落到艾尔文防线area0；不再使用几何唯一拟合或Gate文件名覆盖请求。未知区域或缺失本区域落点失败时不消耗药水、不移动角色，旧8字节与gate回退保留。
-- 增加十条真实请求的持久化/药剂数量/op24一致性回归及显式区域、拒绝边界测试；补齐旧合成主街夹具遗漏的区域字节。核心回归9303通过节点、859跳过、零失败；固定真实PVF 143个指定根全部通过（673通过节点、2未选中包）。gofmt/list/vet及Windows/Linux构建通过。BAT预检缺源码包未包含的channel_info.etc，不计部署通过。 未部署、未原生验收。
-- 基于已完成GM分离的9de2ecb，仅提交服务器代码与证据，不提交GM、客户端二进制或运行时资产。详见Docs/D33_TELEPORT_DOC106_20261014.md。
-
 ## 2026-10-14 — 服务端与本地 GM 边界验证
 
 - 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。
@@ -592,3 +585,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
+
+- Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
+- DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
+- GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
+
