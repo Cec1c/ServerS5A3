@@ -65,6 +65,36 @@
 - 新增 inventory/sort_lock_test.go 与 dnfbridge/sort_lock_row_projection_test.go：落库与回包形状、其他 Extra 键不被清、幂等不重写、非法 list/账号共享槽/空槽/长度不符不回包、跨账号拒绝、落库失败无半截状态、整理跳过、搬运规则矩阵、行字节显式 0/1。
 - 旧代码复现：把 handler/owner/aligned/行投影/account_cargo_sort 临时还原到 5fc6807 后，713 未登记无回包、整理搬走锁定物品、快捷槽与跨容器搬运保留锁、行字节保留脏值 1；按 SHA256 校验还原后以上用例全部 GREEN，`./internal/modules/dnf/...`、`./internal/services/dnfbridge`、`./cmd/server/control` 全包通过，gofmt/go vet 通过。
 - 未部署、未推送、未改用户 DOCX/原台账/生产资产；原生 GUI 验收与失败回包错误码仍开放。详见 Docs/D33_SORT_LOCK_20261014.md。
+## 2026-10-14 — 锻造候选主代理完整验证
+
+- 源码4e8a429：核心9378通过节点、860跳过、零失败；固定真实PVF的160个指定回归根全部通过（719通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
+- 普通锻造、便携炉、券、失败回包、事务回滚、装备等级窗口均纳入验证；DOC-087/092原生验收保持开放。
+
+## 2026-10-14 — 锻造审查补充：耗材等级窗口强制 + 438 失败码逐码核对（forging 席续作）
+
+- 关闭边界：耗材的 `[check usable itemlevel]` 不再忽略。真档实测 315 个 stackable 带这一段，而 125 张锻造券与 3 张幸运锻造券**都不带**（交集 0）；便携式锻造炉 10164035 = `1 90`、10090052 = `1 85`、10094127 = `1 86`；同族 1阶..5阶强化器 = 1..29 / 30..39 / 40..49 / 50..59 / 60..69，客户端物品名（`凯丽的强化器 (Lv1~90)` / `一次性增幅器 (Lv1~90)`）逐字写着同一窗口。
+- 语义按厂商同族口径：窗口比的是**目标装备的 `[minimum level]`**（`ItemUpgradeRestriction.AllowsItemLevel` 的入参就是 `targetMetadata.MinimumLevel`，不是 `[grade]`、也不是角色等级）。在域事务内、掷点与扣料之前强制；失败按客户端"限制"码 19 拒绝且材料/等级不动；目标 PVF 没写 `[minimum level]` 而窗口写了 = 失败关闭。
+- 该选择在真档上可区分：101040493 的 `[minimum level]` = 90、`[grade]` = 96 ⇒ 1..90 的炉子边界放行、1..85 的炉子超限拒绝（新增真档用例，旧红新绿）。
+- 438 失败回调 0x2483b60 逐码核对（本机读表，脚本/原始输出在 E:/90/_forging-scratch/forgeerr/）：先无条件 `push 0/0/0/4; call 0x12030a0` 复位锻造 UI，再读码；> 0xd6 走 default（文案键 0x67e + 码），≤ 0xd6 走 0x2483d38 字节索引表 → 0x2483d0c 的 11 槽跳转表。实测 4→槽1/0x67a、7→槽2/0x4e20、10→槽3/0x67c、13 与 95→槽4/0x676、17→槽5/0x8904、19→槽6/0x6a1a、22→槽7/0x67d、175→槽8/0x5338、214→槽9/0xa4f8、0/118→槽0 不显示、其余 203 码 → 槽10。本实现用的 7 个码**全部命中专用槽**。
+- 删除未证实的泛化断言（"未列出的码也会落到通用文案"）：0/118 根本不显示，且显示前还有闸门 0x35ca060 可跳过文案；能保证的只有复位 UI 无条件先执行。也不再称厂商同名 enum 为"当前客户端官方枚举"，改述为"厂商同族实现 + 本 EXE 专用槽实测覆盖"。
+- 验证：真档 `TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket`（含窗口边界放行与 1..85 超限 0+19）通过；合成档新增窗口回归（边界/超限/下界/未写 minimum level 失败关闭/无窗口放行）；core 套件 0 失败。未部署、未推送。
+## 2026-10-14 — DOC-087/092 锻造（op438）域事务与桥接回包落地（forging 席，续 615ba52）
+
+- 桥接：438 在 `Registry.Route` 之前用 `forging_codec.go` 解包（**畸形帧也回失败体**，客户端因此必定走完"复位锻造 UI"的回调）；领域结果组 class1 438（成功/掷点失败 13 字节、校验/存储失败 `0+u8 error`），ACK 先于逐槽 op14 增量。新增 `forging_pvf.go`（`etc/upgrade_separate.etc` 表 + 材料三种身份 + 目标武器/品级/稀有度/耐久），`dnfenum/aligned.go` 登记 438。
+- 域：`inventory/owner_separate_upgrade.go` 在同一个角色物品事务里完成材料消耗 + 锻造等级写入（**0x77 行 0x57 + Extra `byte_57`/`value_57`**），覆盖主背包 list 0 与穿戴 list 3；校验目标归属 / equipment / 模板一致 / 资产锁 / 武器 / 满耐久 / 等级上限 / 品级材料 / 稀有度 / 券白名单 / additional 起始等级；错误码取厂商 `SeparateUpgradeResult.Error*`（4/7/13/17/19/22/95）。校验失败与存储失败都回失败体让 UI 结束，事务回滚保证资产不动。
+- 真档语义：便携式锻造炉 10164035 只消耗炉子 1 个、**不消耗 3326**；锻造券 125 件的 `fixed`/`additional` 档 + 券自带 `[reinforcement usable item list]` 白名单；幸运锻造券 10007408 失败**不掉级**。普通锻造材料 = `max(1, int(BaseCount×rarityWeight×levelMaterialWeight + 1e-7))`。
+- 测试：合成 + 真档（PIN 369d072b…）全链路 —— 普通锻造消耗 67 个强烈的气息、耐久门槛 `0+7`、便携炉 3→2、+5 券 0→5、白名单拒绝 `0+4`；另有存储失败回滚、额外属性保留、12 条校验拒绝与畸形帧回包。分节与真档命令见 `Docs/D33_FORGING_20261014.md` §4。
+- 验证：`gofmt -l` 干净；`go list` / `go vet`（control、dnf90、doctor、app/dnf90、dnfbridge）/ `go build` 通过；core 套件（`./internal/modules/dnf/...` + `./internal/services/dnfbridge` + `./cmd/server/control`）0 失败。
+- 未完成：原生 GUI 验收（锻造动画 / 窗口关闭 / 锻造器）仍待主代理；`[check usable itemlevel]` 未在服务端强制（与既有 op50 portable 档口径一致）。未部署、未推送、未改 PVF/客户端/生产库/用户文档。
+
+## 2026-10-14 — DOC-087/092 锻造 438 线协议复核修正与真档取证（forging 席）
+
+- 复核并修正主代理留下的 forging_codec.go / forging_codec_test.go：gofmt；样例注释改为实际 hex 对应的 item **101011368**（原注释 101010856 与 hex 不符）；去掉**没有证据**的 confirmation ≤ 2 限制（发送端把它当函数参数传入，全 EXE 扫描找不到直接调用点，取值域不可证；误拒会让客户端拿不到回包），保留有证据的结构校验；测试补成功/失败两套 ACK golden（含穿戴目标 list 3）、截断与畸形帧拒绝、confirmation 任意字节必须解析通过。
+- 线协议取证：C2S 438 写序 = u8 list / u16 slot / u32 itemTemplateID / u16 materialSlot / u32 长度前缀名字 / u8 confirmation；class1 438 回包注册 0x447a740 → 回调 0x24836b0，成功体 13 字节读取顺序 = u16 materialSlot / u32 materialRemaining / u8 oldLevel / u8 outcome / u8 newLevel / u8 targetList / u16 targetSlot（outcome 0=成功、1=掷点失败）；失败回调 0x2483b60 先 0x12030a0 复位锻造 UI。class0 438（0x200e590）是另一条只读 u16 通知，不得混用。
+- 真档参数（同一份运行时 Script.pvf，SHA256 369d072b…）：etc/upgrade_separate.etc 的 [separate upgrade max]=8、[table]=10 档×4（第 3=10000 基成功率、第 4=材料倍率）、[item weights by grade]=三元组（grade、材料模板 3326、基础数量）、[item weights by rarity]=7 权重；参考 InventorySeparateUpgradeService.cs（普通锻造 :175-270、券 :60-160）的材料公式 max(1, BaseCount×rarityWeight×MaterialWeight)、掷点 roll<SuccessWeight、失败掉级仅当 FailureDecrementLevel>0。便携炉 10164035 的 action `[portable genuine damage upgrade upgrede]` 与「不消耗强烈的气息」已记入证据文档。
+- 已证持久化落点：锻造等级 = 0x77 行 0x57 + Extra byte_57/value_57（GM 工具已有读写与真档测试；alignedcmd 已明确便携炉不属于 op50 强化族）。
+- **未落地（明确分界）**：域事务（材料消耗+等级写+回滚）、桥接 438 登记/handler/op14 刷新、便携炉消耗、券参数与目标白名单、失败体 `0 + u8 error` 错误码枚举；原生 GUI 验收（动画/窗口关闭/锻造器）待主代理。证据、公式与下一步清单见 Docs/D33_FORGING_20261014.md。
+- 验证：`go test -run TestCurrentForging ./internal/services/dnfbridge` 通过，gofmt 干净；固定 PVF 与失败资产未改动；未部署、未推送、未改用户 DOCX/原台账/生产资产。
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.

@@ -121,6 +121,12 @@ var alignedCommands = map[CmdPacket]AlignedCommand{
 	CmdPacketInvestItemAmplifyOption: aligned(CmdPacketInvestItemAmplifyOption, AlignedDomainInventory, AlignedSupportDirect, "装备增幅属性赋予/扭转/黄金书"),
 	CmdPacketUnsealRandomOption:      aligned(CmdPacketUnsealRandomOption, AlignedDomainInventory, AlignedSupportDirect, "魔法封印装备解除"),
 	CmdPacketChangeRandomOption:      aligned(CmdPacketChangeRandomOption, AlignedDomainInventory, AlignedSupportDirect, "魔法封印装备单词条变更"),
+	CmdPacketUpgradeItemSeparate: aligned(
+		CmdPacketUpgradeItemSeparate,
+		AlignedDomainInventory,
+		AlignedSupportDirect,
+		"current EXE op438 锻造/别升级：C2S u8 list,u16 slot,u32 templateId,u16 materialSlot,长度前缀名字,u8 confirmation（发送端 0x25fae16，writers 0x25fae55/62/72/83/be/ce）；class1 438 成功体 13 字节（u16 materialSlot,u32 materialRemaining,u8 oldLevel,u8 outcome,u8 newLevel,u8 targetList,u16 targetSlot，回调 0x24836b0），失败体 0+u8 error（回调 0x2483b60 先 0x12030a0 复位锻造 UI）；class0 438（0x200e590）是另一条只读 u16 通知，不得当 ACK",
+	),
 
 	CmdPacketRenameCreature: aligned(
 		CmdPacketRenameCreature,
