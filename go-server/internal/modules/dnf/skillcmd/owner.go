@@ -1131,8 +1131,8 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 }
 
 func allocateSkillSlot(definition dnfskill.Skill, tree int, occupied dnfrepo.SkillLayout) int {
-	// sub_248AE60 rebuilds tree zero active rows in the six primary and six
-	// extension slots before the grouped ranges used by sub_1FE5710.
+	// 保留既有领域/数据库的两段快捷栏编号。90客户端线上编号由dnfbridge
+	// 在op19/op29/op28边界统一转换，不能把这里的198直接解释成当前线上快捷栏。
 	if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active {
 		if slot := firstFreeSkillSlot(occupied, 0, 6); slot >= 0 {
 			return slot

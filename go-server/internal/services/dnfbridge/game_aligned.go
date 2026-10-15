@@ -526,7 +526,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		Command:                      cmd,
 		CommandKnown:                 true,
 		Opcode:                       typ,
-		Body:                         body,
+		Body:                         currentSkillSlotRequestBody(typ, body),
 		AccountID:                    accountID,
 		SelectedCharacterID:          session.selectedCharacterID,
 		Repositories:                 repos,
@@ -848,7 +848,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			}
 			continue
 		}
-		if err := s.sendGameUpperRawClassCodec(session, response.MsgID, response.Body, response.Classification, response.AllowCodec); err != nil {
+		wireBody, err := currentSkillSlotResponseBody(response)
+		if err != nil {
+			return err
+		}
+		if err := s.sendGameUpperRawClassCodec(session, response.MsgID, wireBody, response.Classification, response.AllowCodec); err != nil {
 			return err
 		}
 	}
