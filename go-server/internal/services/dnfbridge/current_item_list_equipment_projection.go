@@ -25,6 +25,9 @@ func currentItemListEntryFromEquipment(equipped dnfrepo.EquipmentEntry) (current
 	// emblem state into its proved raw+0x3C..+0x44 vector.
 	raw := append([]byte(nil), equipped.RawEntry...)
 	entry := currentItemListEntryFromRaw(raw, extra)
+	// Position locks belong to sortable inventory containers, never worn
+	// equipment. Old persisted rows may still contain the inventory byte.
+	entry.data[0x60] = 0
 	entry.patchCore(int16(actorSlot), sceneInventoryUint32FromInt64(equipped.ItemID), currentItemListEquipmentInstance(equipped))
 	if currentItemListStackExtraIsAvatar(extra) {
 		// 穿戴中的装扮行与背包行同一处投影：属性在 +0x0B 的 u16，+0x0A 恒 0。

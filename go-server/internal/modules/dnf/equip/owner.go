@@ -1929,6 +1929,13 @@ func entryFromStack(stack dnfrepo.ItemStack, sourceListType byte, equipSlot int1
 	}
 	raw = overlayEquipmentTailDataFromExtra(raw, stack.Extra)
 	extra := cloneExtra(stack.Extra)
+	// DOC-067：穿戴栏不展示位置锁，穿/脱一律不携带（A21 InventoryMoveService.cs:806-810，
+	// source/destination 任一端是 Equipment 即清）。清在进穿戴行这一步，脱下时背包副本
+	// 由穿戴行重建，因此两个方向都不会把锁带回来。
+	delete(extra, dnfrepo.SortLockExtraKey)
+	if len(raw) == currentEquipmentRawEntryWireSize {
+		raw[0x60] = 0
+	}
 	// A permanent avatar is a real, occupied list-1 item whose current-EXE
 	// amount field is zero.  Count==0 therefore cannot mean "empty slot" for
 	// this container. Preserve the repository value explicitly while the item
@@ -2178,6 +2185,11 @@ func (o *Owner) inheritPetEnchantFields(ctx context.Context, characterID string,
 func stackFromEntry(entry dnfrepo.EquipmentEntry) dnfrepo.ItemStack {
 	extra := cloneExtra(entry.Extra)
 	raw := overlayEquipmentTailDataFromExtra(append([]byte(nil), entry.RawEntry...), entry.Extra)
+	// Also clear historical worn records that predate the equip-side cleanup.
+	delete(extra, dnfrepo.SortLockExtraKey)
+	if len(raw) == currentEquipmentRawEntryWireSize {
+		raw[0x60] = 0
+	}
 	if len(raw) > 0 {
 		extra["raw_entry_hex"] = hex.EncodeToString(raw)
 	}

@@ -44,6 +44,27 @@
 - Current-client class1 op267/268/269 expects a success byte before list/slot (unlock also carries remaining seconds). The itemlock owner responses omitted that byte, so main-list zero selected the failure branch and other lists shifted the location fields. Add the success prefix only to ACKs; preserve the class0/op252 location-only notification and existing persistence semantics.
 - Add a bridge regression covering all four supported list types and three operations through the real handler, repository and send path. All twelve cases fail on the old bytes. Native validation and the previously unsupported equipped-list owner remain open; see Docs/BUGS_20261014_EQUIPMENT_LOCK_ACK.md.
 
+## 2026-10-14 — Clear position-lock bytes on equipment transitions
+
+- Parent review found that deleting only the sort_lock Extra key left raw row +0x60 set on equipped items, and historical equipped records could return the old key on unequip. Clear both the key and the current 0x77 row byte in both directions; clear the worn-row projection independently for existing records. Preserve shorter legacy row layouts and unrelated attributes.
+- Two new regressions fail on 56d101d and pass after the fix, covering equip/unequip conversion, historical worn rows, projection and input immutability. Full final validation follows this source change; earlier 56d101d results do not validate it.
+
+## 2026-10-14 — DOC-067 位置锁：真实桥接端到端与失败回包边界（sort-lock 席，复核轮）
+
+- 新增 sort_lock_bridge_integration_test.go：legacy cmd=1/op713 经 handleGameStreamPacket → handleAlignedGameCommand → Owner.ApplySortLock 落库，回包**只有**一条 class1/713 `01 00 0e 00`；随后整表/冷登录 op13 容器页里该槽 `0x60=1`，同一页的钱包行（0:0 金币 123456）、账号共享晶块行（0:359 = 5000）、品级种子 999999998、强化字节 6、属性/附魔块逐项不变；714 解锁后增量 op14 单行 `0x60=0` 且这些字段仍在。
+- 复核对齐两个帧形状：桥的 upper 头是 16 字节（splitAllCurrentGameServerUpperPackets 按 13 字节旧头切帧会把头部尾 3 字节并进 Body，测试改用 splitGameServerUpperPacketWithHeader + GameServerUpperHeaderSize16）；list 0 整表 op13 容器页头 = listType + u16 容器档位 + u16 行数（5 字节，行 0x77），取页时需按长度校验与同 msg id 的容器状态帧区分。
+- 失败回包边界取证（回答「不回包会不会卡住」）：0x1faee80/0x1faeee0 的失败分支只把 error 字节读进栈上局部（[ebp+0xf]）后返回，该局部此后无任何读取；两个处理器没有全局/UI 写、没有 pending/超时标记；上行 713 分支（0x32d3767）写体前只调一次 UI helper 0x1a685c0(1,3,0xd)，与回包无回调关联。因此失败不回包不会让客户端停在等待状态，最坏只是没有错误提示；90CN 也没有已证 sort-lock 错误码枚举（A21 的 17/19/21/22 属 267/268/269 资产锁），保持 fail-closed，不臆造 `0 + error`。
+- 空槽判据按仓储契约收紧：ApplySortLock 由原先 `found && ItemID==0 && Count>0` 会放行的写法改为 `!found || ItemID <= 0`（与 CurrentInventoryItemProjects / item_stack_contract.go 同一口径）；新增用例钉住「无物品行（ItemID=0、Count>0）必须按空槽拒绝」与「永久装扮（ItemID>0、Count==0）必须允许并投影 0x60=1」。
+- 回归：./internal/modules/dnf/...、./internal/services/dnfbridge、./cmd/server/control 全包通过；gofmt/go vet 干净。未部署、未推送、未改用户 DOCX/原台账/生产资产。
+## 2026-10-14 — DOC-067 物品栏位置锁定（位置锁持久化 / 整理跳过 / 行投影）
+
+- 当前客户端（DNF.exe SHA256 8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387）已证：C2S 713 = 置 1、714 = 置 0（不是 toggle），体 = u8 list + u16 slot；客户端收到 713/714 分别写 item+0x2aa=1/0，所以成功回包必须用同一 opcode 的 class1 `u8 1 + u8 list + u16 slot`；旧 C# 的 toggle 与 714/715 方向在本客户端会翻反，未照搬。
+- 0x77 物品行的 0x60 字节经 0x1fd824c（读 row+0x60）→ 0x1fd8c38（struct+0xaa）→ 0x1d45fcc（item+0x2aa）链进入客户端物品对象；本席复核 op13 处理器 0x2024cf0 与 op14 处理器 0x2025a90 都用同一 0x77 行缓冲调用同一组行解析 helper（0x242d4a0 调用点 0x20257e3 / 0x2025c76）与已证解析器 0x1fd80e0 一致。
+- 新增 internal/modules/dnf/inventory/sort_lock.go：sort_lock Extra 键、支持列表/账号共享格边界、Sort 跳过锁定物品与被锁槽位、搬运携带规则（穿戴/跨 list/主背包快捷槽 3..8 清锁；个人金库内部与同分段保留）与 Owner.ApplySortLock（校验→幂等→事务落库）。handler 接入 713/714 并只在 durable 提交后回同 opcode class1 成功包；失败一律不回包（90CN 错误码枚举无证据，不臆造）。
+- 行投影在 dnfbridge 显式写 0x60 = 0/1（setByte 会跳过 0，必须直接写才能清掉 raw 脏值，保证重登/整表刷新恢复锁定图标）；穿戴路径进场时删除位置锁，装备资产锁 267/268/269 与宠物/账号仓库未改动。
+- 新增 inventory/sort_lock_test.go 与 dnfbridge/sort_lock_row_projection_test.go：落库与回包形状、其他 Extra 键不被清、幂等不重写、非法 list/账号共享槽/空槽/长度不符不回包、跨账号拒绝、落库失败无半截状态、整理跳过、搬运规则矩阵、行字节显式 0/1。
+- 旧代码复现：把 handler/owner/aligned/行投影/account_cargo_sort 临时还原到 5fc6807 后，713 未登记无回包、整理搬走锁定物品、快捷槽与跨容器搬运保留锁、行字节保留脏值 1；按 SHA256 校验还原后以上用例全部 GREEN，`./internal/modules/dnf/...`、`./internal/services/dnfbridge`、`./cmd/server/control` 全包通过，gofmt/go vet 通过。
+- 未部署、未推送、未改用户 DOCX/原台账/生产资产；原生 GUI 验收与失败回包错误码仍开放。详见 Docs/D33_SORT_LOCK_20261014.md。
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
