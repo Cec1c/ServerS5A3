@@ -17,6 +17,8 @@
 
 ## Data and Protocol Rules
 
+- 服务端修复若依赖 EXE 变更，必须先发布最终 EXE Release 并同步指定镜像，再核验玩家实际更新源/通道的签名清单、下载文件摘要及配套 PVF/dstr/NPK 与批准 profile 一致，最后部署依赖服务端。任一环节未更新或摘要不同即停止上线；preview 不能代替玩家仍使用的 stable。完整流程见 `Docs/CLIENT_RELEASE_SYNC.md`。
+
 - Current EXE behavior is authoritative for uncertain packet layouts.
 - Never invent inventory, character, database, PVF, channel, or map data to hide a missing dependency.
 - The local profile is single-account and local-only. The 90CN bootstrap/channel download endpoint, admin endpoint, and MySQL stay on loopback. Dynamic channel-directory advertisements and every game port must use an automatically detected or explicitly configured private LAN IPv4 and bind only that local interface; never use a wildcard or public address.
@@ -61,3 +63,5 @@ Run deployment preflight without a database:
 - Record meaningful code, deployment, database, test, and compatibility changes in `changlog.md`.
 - Never record plaintext generated passwords in `changlog.md`, logs, screenshots, commits, or support bundles.
 - The requested runtime profile deliberately uses a plaintext `root` DSN. Keep it loopback-only and never commit generated runtime configuration.
+
+- 客户端 EXE 发布资产在上游 GitGud Release 与本方 GitHub Release 之间直接双向同步；GitGud fork 仅用于源码贡献，不参与 Release 镜像。EXE 同步不构建或部署服务端，源码仍通过 fork 的 PR/MR 进入上游。
