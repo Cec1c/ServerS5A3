@@ -136,7 +136,7 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 			rawB:                       rawB,
 			readsDurabilityOverrideU32: currentMode1EquipmentReadsDurabilityOverrideU32(equipped.Extra, equipmentType, equipmentTypeKnown),
 			durabilityOverride:         currentMode1EquipmentDurabilityOverride(equipped),
-			vector1D6E020:              currentMode1EquipmentVectorRecords(equipped.Extra, "mode1_sub_1d6e020_records_hex", "mode1_vector_records_hex"),
+			vector1D6E020:              currentChronicleMode1Vector(equipped.Extra, entry),
 			state112:                   currentMode1EquipmentState112(equipped, entry),
 			// sub_1D77560 reads this through sub_225CCA0 and applies it to
 			// ordinary equipment through the same vtable +280 method used

@@ -42,5 +42,6 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	emotionGameplayModule(),
 	joustGameplayModule(),
 	collectboxGameplayModule(),
+	chronicleRefineGameplayModule(),
 	webViewerGameplayModule(),
 )

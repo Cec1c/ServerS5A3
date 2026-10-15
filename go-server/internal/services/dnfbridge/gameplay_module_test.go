@@ -96,6 +96,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"emotion",
 		"joust",
 		"collectbox",
+		"chronicle-refine",
 		"web-viewer",
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
@@ -155,6 +156,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketDropItem):                       "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketDieMonster):                     "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketGetItem):                        "dungeon-combat-drop",
+		uint16(dnfenum.CmdPacketEnchant3rdChronicleItem):        "chronicle-refine",
 		uint16(dnfenum.CmdPacketDieCharacter):                   "dungeon-death-revive",
 		uint16(dnfenum.CmdPacketScoreScrollState):               "dungeon-settlement-card",
 		uint16(dnfenum.CmdPacketCardSelectRightState):           "dungeon-settlement-card",
@@ -200,6 +202,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketDieMonster):                     "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketGetItem):                        "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketBossDieCheck):                   "dungeon-combat-drop",
+		uint16(dnfenum.CmdPacketEnchant3rdChronicleItem):        "chronicle-refine",
 		uint16(dnfenum.CmdPacketDieCharacter):                   "dungeon-death-revive",
 		uint16(dnfenum.CmdPacketUseCoin):                        "dungeon-death-revive",
 		uint16(dnfenum.CmdPacketSetPlayResult):                  "dungeon-settlement-card",
