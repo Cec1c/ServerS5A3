@@ -339,6 +339,13 @@ func TestMovePreservesOrClearsSortLockOnPersistedRow(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repos := dnfrepomemory.NewMemoryGroup()
+			if tc.destinationList == listTypePersonalCargo {
+				settings := capacityTestSettings("77", 0)
+				settings.Values["personal_cargo_list_param16"] = "24"
+				if err := repos.Settings.Save(ctx, settings); err != nil {
+					t.Fatal(err)
+				}
+			}
 			saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "acc"})
 			saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{
 				slotKey(listTypeMain, 20): sortLockStack(1001, map[string]string{"item_kind": "equipment", SortLockExtraKey: "1"}),
