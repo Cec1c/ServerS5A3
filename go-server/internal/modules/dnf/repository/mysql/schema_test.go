@@ -44,8 +44,8 @@ func TestMySQLSchemaCreatesDatabaseAndTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MySQLSchema() error = %v", err)
 	}
-	if len(schema) != 41 {
-		t.Fatalf("schema statement count = %d, want 41", len(schema))
+	if len(schema) != 43 {
+		t.Fatalf("schema statement count = %d, want 43", len(schema))
 	}
 	joined := strings.Join(schema, "\n")
 	for _, want := range []string{
@@ -265,8 +265,8 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() error = %v", err)
 	}
-	if len(exec.statements) != 55 {
-		t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+	if len(exec.statements) != 58 {
+		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 	}
 	wantMigrations := []string{
 		"ALTER TABLE `dnf_s1_w1`.`dnf_accounts` ADD COLUMN `honor_exp` BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER `state`",
@@ -280,7 +280,7 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 		"ALTER TABLE `dnf_s1_w1`.`dnf_characters` ADD COLUMN `premium_crystal_selection` TINYINT NOT NULL DEFAULT -1 AFTER `aura_flag`",
 	}
 	for index, want := range wantMigrations {
-		if got := exec.statements[len(exec.statements)-14+index]; got != want {
+		if got := exec.statements[len(exec.statements)-15+index]; got != want {
 			t.Fatalf("migration %d = %q, want %q", index, got, want)
 		}
 	}
@@ -288,7 +288,7 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 
 func TestEnsureMySQLSchemaIgnoresExistingHonorExpColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  42,
+		failAt:  44,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'honor_exp'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -299,14 +299,14 @@ func TestEnsureMySQLSchemaIgnoresExistingHonorExpColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate honor migration error = %v", err)
 	}
-	if len(exec.statements) != 55 {
-		t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+	if len(exec.statements) != 58 {
+		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingRepresentNameIndex(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  44,
+		failAt:  46,
 		failErr: &mysql.MySQLError{Number: 1061, Message: "Duplicate key name 'uk_dnf_accounts_represent_account_name'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -317,14 +317,14 @@ func TestEnsureMySQLSchemaIgnoresExistingRepresentNameIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate represent-name index error = %v", err)
 	}
-	if len(exec.statements) != 55 {
-		t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+	if len(exec.statements) != 58 {
+		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingTutorialFlagColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  45,
+		failAt:  47,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'tutorial_completed'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -335,14 +335,14 @@ func TestEnsureMySQLSchemaIgnoresExistingTutorialFlagColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate migration error = %v", err)
 	}
-	if len(exec.statements) != 55 {
-		t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+	if len(exec.statements) != 58 {
+		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingTutorialRewardFlagColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  46,
+		failAt:  48,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'tutorial_reward_progress_38'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -353,8 +353,8 @@ func TestEnsureMySQLSchemaIgnoresExistingTutorialRewardFlagColumn(t *testing.T) 
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate reward migration error = %v", err)
 	}
-	if len(exec.statements) != 55 {
-		t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+	if len(exec.statements) != 58 {
+		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 	}
 }
 
@@ -364,8 +364,8 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 		failAt int
 		column string
 	}{
-		{name: "last level", failAt: 47, column: "story_digest_last_level"},
-		{name: "migration version", failAt: 48, column: "story_digest_migration_version"},
+		{name: "last level", failAt: 49, column: "story_digest_last_level"},
+		{name: "migration version", failAt: 50, column: "story_digest_migration_version"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			exec := &fakeSchemaExec{
@@ -380,8 +380,8 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EnsureMySQLSchema() duplicate %s error = %v", test.column, err)
 			}
-			if len(exec.statements) != 55 {
-				t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+			if len(exec.statements) != 58 {
+				t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 			}
 		})
 	}
@@ -389,7 +389,7 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 
 func TestEnsureMySQLSchemaIgnoresExistingCeraColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  49,
+		failAt:  51,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'cera'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -400,8 +400,8 @@ func TestEnsureMySQLSchemaIgnoresExistingCeraColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate cera migration error = %v", err)
 	}
-	if len(exec.statements) != 55 {
-		t.Fatalf("executed statements = %d, want 55", len(exec.statements))
+	if len(exec.statements) != 58 {
+		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
 	}
 }
 

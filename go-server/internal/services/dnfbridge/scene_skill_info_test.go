@@ -226,6 +226,12 @@ func TestBuildCurrentSceneSkillInfoBodyDuplicatesDirectLevelsAcrossBothTrees(t *
 	}
 	for treeIndex, rawTree := range outerMessages[2] {
 		treeVarints, treeMessages := consumeCurrentSkillInfoFields(t, rawTree)
+		if treeIndex == 1 {
+			if len(treeMessages[3]) != 0 || !reflect.DeepEqual(treeVarints[1], []uint64{0}) || !reflect.DeepEqual(treeVarints[2], []uint64{0}) {
+				t.Fatalf("未购买第二页不应复制第一套: %v %v", treeVarints, treeMessages)
+			}
+			continue
+		}
 		if !reflect.DeepEqual(treeVarints[1], []uint64{12}) || !reflect.DeepEqual(treeVarints[2], []uint64{3}) {
 			t.Fatalf("tree %d points sp=%v tp=%v", treeIndex, treeVarints[1], treeVarints[2])
 		}

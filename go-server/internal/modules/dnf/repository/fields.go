@@ -30,6 +30,7 @@ var (
 		SkillFieldPoints,
 		SkillFieldLayouts,
 		SkillFieldCooldowns,
+		SkillFieldTrees,
 	})
 	SettingsFields = db.NewFieldRegistry([]SettingsField{
 		SettingsFieldValues,

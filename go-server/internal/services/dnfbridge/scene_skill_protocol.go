@@ -16,7 +16,7 @@ const (
 	currentSkillInfoTreeCount   = 2
 )
 
-func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
+func buildCurrentSceneSkillTree(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
 	slots := make([]int, 0, len(layout))
 	for slot, skillID := range layout {
 		state, ok := record.Skills[int64(skillID)]
@@ -60,13 +60,29 @@ func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.S
 		}
 	}
 
+	return tree, activeSlots, nil
+}
+
+func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
+	active := dnfrepo.ActiveSkillTree(record)
 	var message []byte
 	message = appendProtoVarint(message, 1, currentSkillInfoMessageType)
-	// sub_1D6E240 indexes repeated SkillTree messages by their repeated-field
-	// position, then restores the actor's selected tree. Fresh characters need
-	// the same initial learned skills in both pages, matching the PVF/C# source.
+	var activeSlots []int
 	for index := 0; index < currentSkillInfoTreeCount; index++ {
+		profile := record
+		pageLayout := layout
+		if index != active {
+			profile.Skills, profile.Points = record.Trees.Other.Skills, record.Trees.Other.Points
+			pageLayout = record.Layouts[index]
+		}
+		tree, slots, err := buildCurrentSceneSkillTree(profile, pageLayout, commands)
+		if err != nil {
+			return nil, nil, err
+		}
 		message = appendProtoBytes(message, 2, tree)
+		if index == active {
+			activeSlots = slots
+		}
 	}
 	body := make([]byte, 4, 4+len(message))
 	binary.LittleEndian.PutUint32(body, uint32(len(message)))

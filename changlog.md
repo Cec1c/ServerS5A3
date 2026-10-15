@@ -1,3 +1,8 @@
+## 2026-10-15 — 双技能页：任务完成后刷新当前页
+
+- 普通任务及转职/觉醒任务完成后，技能快照使用已提交角色的当前技能页布局，避免第二页激活时错误发送第一页快捷栏。该补丁已随本轮验收版本部署，现补入 !46。
+- 增加实际任务完成发送链路回归，覆盖升级、SP 奖励、觉醒三种情况，检查两页技能、SP/TP、当前快捷栏和仓库存档不变。
+
 ## 2026-10-15 — 兼容已观测的 594 字节登录握手
 
 - 将完整 class1/op1 的 594 字节请求体加入上行分流与端点握手长度识别，避免 607 字节首包被归入旧协议、无法进入现有令牌绑定和握手流程。
@@ -114,6 +119,13 @@
 
 - Only log skill/CD lists as cleared after settings persistence succeeds. A regression injects a repository save failure, confirms the previous frame survives, and rejects a misleading cleared event; it fails before the guard and passes afterward. Save/replay bytes and error handling remain unchanged.
 - Full validation at 556a2fb: gofmt/list/vet and Windows/Linux builds pass; core records 9323 passed nodes, 859 skipped and zero failures. All 146 required real-PVF roots pass (657 passed nodes, two packages without selected tests). BAT preflight remains blocked by absent source-worktree channel_info.etc. Parent independently rechecked all 11 current-client layout probes. Native skill-setting acceptance remains open.
+
+## 2026-10-15 — 修复双技能加点页及技能类型扩展券
+
+- 第二套技能加点默认锁定，商城821技能类型扩展券按实际PVF身份和价格购买后即时开启，重复购买拒绝；购买资格、第二页初始配置及点券在同一事务保存。历史默认页码不作已购买凭据，已有第一页加点保留。
+- 两页独立保存技能等级、SP/TP及快捷技能位置，切换原子更新当前活动配置和页码，冷却共享。加点、重置及快捷技能修改检查已解锁且属于当前页，重置保留另一页；升级点数与转职觉醒同步两页。
+- 新增技能页状态及非活动页技能两张关系表，启动增量建表；旧页码镜像支持-1。当前角色mode0按购买资格发送0xff或0/1，购买后用当前版角色信息及双页op19刷新，不修改客户端或PVF。
+- 回归覆盖未购买拒绝、真实PVF扩展券购买与重复拒绝、独立配置切换/冷读取、点数同步、重置隔离及事务失败回滚。用户已在本地配套实测确认修复效果；原生验收范围以实际反馈为准。
 
 ## 2026-10-14 — 技能选项字段在当前客户端离线复核与收敛（装备席）
 

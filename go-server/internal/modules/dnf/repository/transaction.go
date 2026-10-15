@@ -148,6 +148,13 @@ type CeraShopAssetUnitOfWork interface {
 	) error
 }
 
+// CeraShopSkillAssetUnitOfWork 在原商城事务内增加选中角色的技能仓储。
+// 普通商品不加载技能；扩展券缺少这一能力时拒绝，不能先扣费再单独保存技能。
+type CeraShopSkillAssetUnitOfWork interface {
+	WithinCeraShopSkillAssets(context.Context, string, string, string,
+		func(AccountRepository, CharacterRepository, InventoryRepository, EquipmentRepository, SettingsRepository, SkillRepository) error) error
+}
+
 // CharacterSkillUnitOfWork serializes and atomically commits one character's
 // learned levels and SP/TP ledger.
 type CharacterSkillUnitOfWork interface {

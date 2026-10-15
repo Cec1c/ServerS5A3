@@ -493,6 +493,22 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	settingsScope string,
 	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository) error,
 ) error {
+	if apply == nil {
+		return repository.ErrCeraShopAssetTransactionUnavailable
+	}
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope,
+		func(a repository.AccountRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository, s repository.SettingsRepository, _ repository.SkillRepository) error {
+			return apply(a, c, i, e, s)
+		})
+}
+
+func (u *mysqlCeraShopAssetUnitOfWork) WithinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope, apply)
+}
+
+func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
 	settingsScope = strings.TrimSpace(settingsScope)
@@ -527,7 +543,8 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}
 	settings := &ceraShopScopedSettingsRepository{scope: settingsScope, base: txGroup.Settings}
-	if err := apply(accounts, characters, inventories, equipment, settings); err != nil {
+	skills := &characterProgressionScopedSkillRepository{characterID: characterID, base: txGroup.Skill}
+	if err := apply(accounts, characters, inventories, equipment, settings, skills); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err := ctx.Err(); err != nil {

@@ -17,6 +17,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
 
 const (
@@ -73,6 +74,7 @@ type currentCeraShopCommitResult struct {
 	CeraAfter                  int64
 	PremiumActivations         []currentCeraShopPremiumActivation
 	NameTagActivation          *currentNameTagCardActivation
+	SkillTreeExpanded          bool
 }
 
 // currentCeraShopPremiumActivation is one premium contract activated at
@@ -111,6 +113,7 @@ type currentCeraShopResolvedPurchase struct {
 	PremiumDurationSeconds int64
 	PremiumPackage         bool
 	NameTagDurationSeconds int64
+	SkillTreeExpansion     bool
 }
 
 type currentCeraShopChangedSlot struct {
@@ -234,6 +237,11 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 	if result.NameTagActivation != nil {
 		if err := s.currentSendNameTagRefresh(ctx, session); err != nil {
 			s.logGameEvent(session, "game-name-tag-card-refresh-failed", "err", err)
+		}
+	}
+	if result.SkillTreeExpanded {
+		if err := s.currentSendSkillTreeExpansionRefresh(ctx, session); err != nil {
+			s.logWarn("技能类型扩展已保存，客户端刷新待下次登录收敛", "character_id", session.selectedCharacterID, "error", err)
 		}
 	}
 	notifiedPremiumActivations := 0
@@ -445,6 +453,18 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			purchases = append(purchases, resolved)
 			continue
 		}
+		if product.ItemID == currentSkillTreeExpansionItemID {
+			if product.Count != 1 || len(request.Items) != 1 || request.PaymentMode != currentCeraShopPaymentModeCera || len(catalog.bonusByCommodity[product.CommodityID]) != 0 {
+				return currentCeraShopCommitResult{}, fmt.Errorf("%w: 技能类型扩展券需要单独购买一件", errCurrentCeraShopProductUnavailable)
+			}
+			definition, err := catalog.items.ResolveItem(product.ItemID)
+			if err != nil || !currentIsSkillTreeExpansionItem(definition) {
+				return currentCeraShopCommitResult{}, errCurrentCeraShopProductUnavailable
+			}
+			resolved.SkillTreeExpansion = true
+			purchases = append(purchases, resolved)
+			continue
+		}
 		definition, definitionErr := catalog.items.ResolveItem(product.ItemID)
 		if definitionErr != nil {
 			return currentCeraShopCommitResult{}, fmt.Errorf("%w: commodity=%d item=%d: %v", errCurrentCeraShopProductUnavailable, product.CommodityID, product.ItemID, definitionErr)
@@ -528,6 +548,14 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		}
 		return commitCurrentCeraShopAccountCargoUpgrade(ctx, checkoutOwner, accountID, characterID, purchases[0], int64(totalCost), s.gameplayNow())
 	}
+	includeSkills := len(purchases) == 1 && purchases[0].SkillTreeExpansion
+	var skillOptions skillcmd.OwnerOptions
+	if includeSkills {
+		skillOptions, err = s.currentSkillTreeExpansionRules(ctx, repositories, session.selectedCharacterID)
+		if err != nil {
+			return currentCeraShopCommitResult{}, err
+		}
+	}
 	var result currentCeraShopCommitResult
 	checkoutNow := s.gameplayNow().UTC()
 	checkoutResult, err := checkoutOwner.Checkout(ctx, dnfcerashop.CheckoutCommand{
@@ -536,6 +564,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		SettingsScope: dnfrepo.CharacterContainerStateScope(characterID),
 		Cost:          int64(totalCost),
 		UpdatedAt:     checkoutNow,
+		IncludeSkills: includeSkills,
 		Project: func(assets *dnfcerashop.CheckoutAssets) (dnfcerashop.CheckoutChanges, error) {
 			if assets == nil || assets.Account == nil || assets.Character == nil || assets.Inventory == nil ||
 				assets.Equipment == nil || assets.Settings == nil {
@@ -577,6 +606,23 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			premiumNow := checkoutNow
 			for _, purchase := range purchases {
 				product := purchase.Product
+				if purchase.SkillTreeExpansion {
+					if assets.Skill == nil {
+						return dnfcerashop.CheckoutChanges{}, errCurrentCeraShopOwnerUnavailable
+					}
+					expanded, err := skillcmd.ExpandSkillTree(*character, *assets.Skill, skillOptions)
+					if err != nil {
+						return dnfcerashop.CheckoutChanges{}, err
+					}
+					*assets.Skill = expanded
+					if character.Stats == nil {
+						character.Stats = make(map[string]int64)
+					}
+					character.Stats["skill_tree_index"] = 0
+					character.Stats["skill_tree_expanded"] = 1
+					changes.Character, changes.Skill = true, true
+					continue
+				}
 				if purchase.AvatarCouponItemID != 0 {
 					entry, err := consumeCurrentCeraShopAvatarCoupon(inventory, purchase.AvatarCouponItemID)
 					if err != nil {
@@ -782,6 +828,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 				GuildMedalInventoryChanged: guildMedalInventoryChanged,
 				PremiumActivations:         premiumActivations,
 				NameTagActivation:          nameTagActivation,
+				SkillTreeExpanded:          includeSkills,
 			}
 			changes.Inventory = inventoryChanged
 			return changes, nil
