@@ -6,11 +6,6 @@ on:
   schedule:
     - cron: '13,43 * * * *'
   workflow_dispatch:
-    inputs:
-      forks_only:
-        description: '只同步本方两个 fork，不导入上游'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -21,7 +16,7 @@ concurrency:
 
 jobs:
   synchronize:
-    if: vars.GITGUD_RELEASE_PROJECT != ''
+    if: vars.GITGUD_CLIENT_RELEASE_PROJECT != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -31,25 +26,17 @@ jobs:
           persist-credentials: false
       - name: Validate release synchronization
         run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client_releases.py' -v
-      - name: Import upstream and synchronize fork releases
+      - name: Synchronize client EXE releases with GitGud
         env:
           GH_TOKEN: ${{ github.token }}
-          GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_RELEASE_TOKEN }}
-          RELEASE_PROJECT: ${{ vars.GITGUD_RELEASE_PROJECT }}
-          UPSTREAM_PROJECT: ${{ vars.GITGUD_RELEASE_UPSTREAM_PROJECT }}
-          FORKS_ONLY: ${{ inputs.forks_only || false }}
+          RELEASE_PROJECT: ${{ vars.GITGUD_CLIENT_RELEASE_PROJECT }}
+          GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_CLIENT_RELEASE_TOKEN }}
         run: |
           set -eu
+          test -n "$RELEASE_PROJECT"
           test -n "$GITGUD_RELEASE_TOKEN"
-          test -n "$UPSTREAM_PROJECT"
-          test "$RELEASE_PROJECT" -ne "$UPSTREAM_PROJECT"
-          source_args=()
-          if [ "$FORKS_ONLY" != 'true' ]; then
-            source_args=(--upstream-project "$UPSTREAM_PROJECT")
-          fi
           python3 scripts/ci/sync_client_releases.py \
             --github "$GITHUB_REPOSITORY" --gitgud-project "$RELEASE_PROJECT" \
-            "${source_args[@]}" \
             --cache "$RUNNER_TEMP/client-releases" \
             --receipt "$RUNNER_TEMP/client-release-sync.json" --apply
       - name: Keep synchronization receipt

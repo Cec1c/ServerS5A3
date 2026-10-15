@@ -63,3 +63,5 @@ Run deployment preflight without a database:
 - Record meaningful code, deployment, database, test, and compatibility changes in `changlog.md`.
 - Never record plaintext generated passwords in `changlog.md`, logs, screenshots, commits, or support bundles.
 - The requested runtime profile deliberately uses a plaintext `root` DSN. Keep it loopback-only and never commit generated runtime configuration.
+
+- 客户端 EXE 发布资产在上游 GitGud Release 与本方 GitHub Release 之间直接双向同步；GitGud fork 仅用于源码贡献，不参与 Release 镜像。EXE 同步不构建或部署服务端，源码仍通过 fork 的 PR/MR 进入上游。

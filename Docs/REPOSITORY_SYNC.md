@@ -37,7 +37,8 @@ python -m unittest discover -s scripts/ci -p "test_*.py" -v
 
 The Python synchronizer defaults to a dry run. Use `--apply` only for the intended
 two writable repositories. Repository synchronization does not synchronize issues, merge
-requests, settings, or secrets. Client Release assets use the separate workflow
+requests, settings, or secrets. Client EXE Release assets synchronize directly between the original GitGud
+project and GitHub; the GitGud fork is not a Release mirror. Use the separate workflow
 described in [客户端 Release 同步与上线门槛](CLIENT_RELEASE_SYNC.md).
 
 ## Receiving original upstream updates

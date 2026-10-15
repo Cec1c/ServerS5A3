@@ -1,7 +1,7 @@
-"""Mirror client Release assets by content identity; never change source branches.
+"""Synchronize client EXE Releases between GitGud and GitHub by content identity.
 
-The upstream is an import source. The two configured forks synchronize in both
-directions. Existing tags/assets are immutable; all conflicts stop before writes.
+Only Release assets and their tags are synchronized; source branches are never
+written and no server binary is built. Conflicts stop before writes.
 """
 import argparse
 import base64
@@ -385,11 +385,9 @@ def content_identity(item):
     return (item["commit"], item.get("preview",False), tuple(sorted((n,a["sha256"],a["length"]) for n,a in item["assets"].items())))
 
 
-def validate_configuration(github, target, upstream):
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",github) or target<=0 or (upstream is not None and upstream<=0):
+def validate_configuration(github, target):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",github) or target<=0:
         raise SyncError("Invalid repository configuration")
-    if upstream == target:
-        raise SyncError("Read-only upstream cannot be a synchronization destination")
 
 
 def plan(inventory, repositories):
@@ -426,7 +424,6 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--github",required=True)
     p.add_argument("--gitgud-project",required=True,type=int)
-    p.add_argument("--upstream-project",type=int)
     p.add_argument("--cache",type=Path,required=True)
     p.add_argument("--receipt",type=Path,required=True)
     p.add_argument("--apply",action="store_true")
@@ -434,14 +431,12 @@ def main():
     p.add_argument("--tag",action="append",default=[])
     p.add_argument("--write-to",choices=("github","gitgud"),action="append",default=[])
     args=p.parse_args()
-    validate_configuration(args.github,args.gitgud_project,args.upstream_project)
+    validate_configuration(args.github,args.gitgud_project)
     gh=os.environ.get("GH_TOKEN","");gl=os.environ.get("GITGUD_RELEASE_TOKEN","")
     if args.local_auth:
         gh=gh or local_token(["gh","auth","token"])
         gl=gl or local_token(["glab","config","get","token","--host","gitgud.io"])
-    repos=[]
-    if args.upstream_project:repos.append(Repository("upstream","gitlab",args.upstream_project))
-    repos += [Repository("gitgud","gitlab",args.gitgud_project,gl,True),Repository("github","github",args.github,gh,True)]
+    repos=[Repository("gitgud","gitlab",args.gitgud_project,gl,True),Repository("github","github",args.github,gh,True)]
     if args.write_to:
         for repo in repos:
             repo.writable = repo.writable and repo.key in args.write_to

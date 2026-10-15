@@ -17,7 +17,7 @@ class ClientReleaseTests(unittest.TestCase):
         self.gh=sync.Repository("github","github","owner/repo","token",True)
         self.item={"tag":"client-v105","commit":"a"*40,"source":"https://gitgud.io/source/repo/-/releases/client-v105","assets":{"DNF-v105.zip":{"sha256":"b"*64,"length":100}},"repo":self.up}
 
-    def test_upstream_imports_into_both_forks_only(self):
+    def test_readonly_inventory_is_never_a_destination(self):
         actions=sync.plan({"upstream":[self.item],"gitgud":[],"github":[]},[self.up,self.gl,self.gh])
         self.assertEqual([r.key for r,_ in actions],["gitgud","github"])
 
@@ -76,8 +76,8 @@ class ClientReleaseTests(unittest.TestCase):
     def test_malformed_provenance_rejected(self):
         with self.assertRaises(sync.SyncError):sync.provenance(sync.MARKER+'{} -->')
 
-    def test_upstream_cannot_be_configured_as_destination(self):
-        with self.assertRaises(sync.SyncError):sync.validate_configuration('owner/repo',51684,51684)
+    def test_invalid_project_is_refused(self):
+        with self.assertRaises(sync.SyncError):sync.validate_configuration('owner/repo',0)
 
     def test_preview_identity_survives_gitlab_hop(self):
         self.item['preview']=True
