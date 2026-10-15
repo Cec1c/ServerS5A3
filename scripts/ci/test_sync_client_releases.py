@@ -2,6 +2,7 @@ import copy
 import io
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 import urllib.request
 from unittest.mock import patch
@@ -104,6 +105,27 @@ class ClientReleaseTests(unittest.TestCase):
         with patch.object(self.gh,'tag_commit',return_value='a'*40),patch.object(sync.subprocess,'run') as run:
             self.gh.ensure_tag(self.item,'.')
             run.assert_not_called()
+
+    def test_new_github_tag_requires_non_recursive_ci_token(self):
+        with patch.dict(sync.os.environ,{},clear=True),patch.object(self.gh,'tag_commit',return_value=None),patch.object(sync.subprocess,'run') as run:
+            with self.assertRaisesRegex(sync.SyncError,'trusted CI'):
+                self.gh.ensure_tag(self.item,'.')
+            run.assert_not_called()
+        with patch.dict(sync.os.environ,{'GITHUB_ACTIONS':'true','GITHUB_TOKEN':'token'},clear=True):
+            self.gh.require_tag_policy(None)
+        with patch.dict(sync.os.environ,{'GITHUB_ACTIONS':'true','GITHUB_TOKEN':'different'},clear=True):
+            with self.assertRaises(sync.SyncError):self.gh.require_tag_policy(None)
+
+    def test_gitgud_tag_push_skips_pipeline_and_never_pushes_branch(self):
+        self.gl.git='https://gitgud.io/owner/repo.git'
+        self.item['repo']=self.gh
+        def fake_run(argv,**kwargs):
+            return SimpleNamespace(returncode=0,stdout=('a'*40).encode() if 'rev-parse' in argv else b'')
+        with patch.object(self.gl,'tag_commit',return_value=None),patch.object(sync.subprocess,'run',side_effect=fake_run) as run:
+            self.gl.ensure_tag(self.item,'.')
+        pushes=[c.args[0] for c in run.call_args_list if 'push' in c.args[0]]
+        self.assertEqual(len(pushes),1)
+        self.assertEqual(pushes[0][-4:],['-o','ci.skip',self.gl.git,'refs/sync/source:refs/tags/client-v105'])
 
     def test_interrupted_draft_resumes_only_with_verified_assets(self):
         draft={'id':1,'tag_name':'client-v105','draft':True,'prerelease':False,'body':sync.MARKER+sync.json.dumps(sync.release_record(self.item))+' -->','assets':[{'name':'DNF-v105.zip','size':100,'digest':'sha256:'+'b'*64}]}

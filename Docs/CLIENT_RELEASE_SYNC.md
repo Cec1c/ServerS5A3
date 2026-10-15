@@ -17,6 +17,8 @@ GitHub 使用短期 `GITHUB_TOKEN`。工作流在手动运行、发布 Release �
 
 本机可使用 `--local-auth` 从已登录的 `gh` / `glab` 获取凭据，仅在内存中使用；CI 使用环境变量 `GH_TOKEN` / `GITGUD_RELEASE_TOKEN`。不要把 token 写入参数、日志或仓库。
 
+新建 GitHub 标签须通过可信 Actions 的短期 `GITHUB_TOKEN`，避免旧标签内的历史工作流被个人凭据再次触发；本机仍可检查计划及处理已有标签。GitGud 标签推送使用 `ci.skip`，不触发服务端流水线。
+
 ```text
 python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project UPSTREAM_RELEASE_PROJECT_ID --cache runtime/client-release-cache --receipt runtime/client-release-sync.json
 ```
