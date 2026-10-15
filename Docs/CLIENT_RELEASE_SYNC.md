@@ -14,6 +14,8 @@
 
 GitHub 使用短期 `GITHUB_TOKEN`。工作流在手动运行、发布 Release 和每小时两次定时检查时执行；调度可能延迟。任务串行执行，从可信的 `master` 读取同步实现，不执行 Release 附件或来源仓库代码。
 
+手动运行可勾选 `forks_only`，仅核验和同步本方两个 fork，适合分别验证两个方向；定时和发布事件继续导入上游。
+
 本机可使用 `--local-auth` 从已登录的 `gh` / `glab` 获取凭据，仅在内存中使用；CI 使用环境变量 `GH_TOKEN` / `GITGUD_RELEASE_TOKEN`。不要把 token 写入参数、日志或仓库。
 
 ```text
