@@ -32,6 +32,7 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 	extra := stack.Extra
 	raw := append([]byte(nil), stack.RawEntry...)
 	entry := currentItemListEntryFromRaw(raw, extra)
+	currentApplyChronicleOptionsToEntry(&entry, extra)
 	entry.patchCore(slot, sceneInventoryUint32FromInt64(stack.ItemID), currentItemListStackAmount(listType, stack))
 	if currentItemListStackIsAvatar(listType, stack) {
 		// 装扮：玩家选的属性是 +0x0B 的 u16（与耐久同字），+0x0A 是强化字节

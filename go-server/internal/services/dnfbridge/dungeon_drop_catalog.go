@@ -103,6 +103,8 @@ type dungeonDropWeightedItem struct {
 // not decide how often a monster drops, allocate a scene slot, or mutate the
 // player's inventory. Those are separate runtime/asset transactions.
 type pvfDungeonDropCatalog struct {
+	chronicleCatalogCache
+
 	mu sync.Mutex
 
 	source       dnfpvf.Source
