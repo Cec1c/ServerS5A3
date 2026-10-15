@@ -138,7 +138,7 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 			"state_source", "persisted_dungeon_clear_state_after_settlement")
 	}
 	runtime.advanceSettlementPhase(currentDungeonSettlementPhaseResultShown)
-	// Award lucky star for clearing a suitable-level dungeon (86JP PR #461).
-	s.awardSuitableDungeonLuckyStar(session, runtime)
+	// Publish the receipted wallet without a second durable award.
+	s.sendSuitableDungeonLuckyStarState(session, runtime)
 	return nil
 }

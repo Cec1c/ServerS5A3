@@ -235,11 +235,7 @@ func (s *Service) handleCurrentChargeRentalPoint(session *gameSession, body []by
 	// 厂商 `LuckyStarClientNotifier.cs:44-68`：成功体为
 	// `01 <i32 mode> <i32 quantity> <i32 totalLuckyStar>`，`mode`/`quantity` 原样回显请求。
 	vendorShapes := currentRentalRejectAckVendorShapes(currentRentalRejectAckMode())
-	response := buildCurrentRentalChargeSuccessBody(request.ChargeType, request.Count, result.Points, vendorShapes)
-	if err := s.sendGameUpperSuccess(session, chargeOpcode, response); err != nil {
-		return err
-	}
-	if err := s.sendSelectedCurrentRentalPointState(session, "op1000_after_atomic_charge", true); err != nil {
+	if err := s.sendCurrentRentalChargeCommitted(session, request, result); err != nil {
 		return err
 	}
 	// 成功提交后立刻把已提交的金币行投影给客户端（class0/op14 list0 单行），
@@ -264,4 +260,18 @@ func (s *Service) handleCurrentChargeRentalPoint(session *gameSession, body []by
 	}
 	s.logGameEvent(session, "game-upper-rental-point-charge-applied", appliedFields...)
 	return nil
+}
+
+// The current class1/op1000 handler (1d892a0) reads mode, quantity and
+// absolute points, and refreshes the rental panel. It never changes gold.
+// The caller publishes the committed gold wallet after this ACK and points
+// snapshot. Keep that single publication and its existing rollback switches.
+func (s *Service) sendCurrentRentalChargeCommitted(session *gameSession, request currentChargeRentalPointRequest, result currentRentalAssetResult) error {
+	currentClient := s.options.currentClientVersion == "official-24.9"
+	echoQuantity := currentClient || currentRentalRejectAckVendorShapes(currentRentalRejectAckMode())
+	response := buildCurrentRentalChargeSuccessBody(request.ChargeType, request.Count, result.Points, echoQuantity)
+	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketChargeRentpoint), response); err != nil {
+		return err
+	}
+	return s.sendSelectedCurrentRentalPointState(session, "op1000_after_atomic_charge", true)
 }
