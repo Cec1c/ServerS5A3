@@ -172,7 +172,7 @@ func TestHandlerUsesOwnerAndReturnsLockAckThenListDelta(t *testing.T) {
 	if ack.MsgID != uint16(dnfenum.CmdPacketRequestItemLock) || ack.Classification != dnfproto.DefaultChannelClassification || !ack.AllowCodec {
 		t.Fatalf("ack = %+v", ack)
 	}
-	if want := []byte{listTypeMain, 0x08, 0x00}; string(ack.Body) != string(want) {
+	if want := []byte{1, listTypeMain, 0x08, 0x00}; string(ack.Body) != string(want) {
 		t.Fatalf("ack body = % X, want % X", ack.Body, want)
 	}
 	refresh := got.UpperResponses[1]
@@ -215,7 +215,7 @@ func TestHandlerUnlockReturnsAckThenUnlockNotice(t *testing.T) {
 	if len(got.UpperResponses) != 2 {
 		t.Fatalf("response count = %d, want 2", len(got.UpperResponses))
 	}
-	if ack := got.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemUnlock) || string(ack.Body) != string([]byte{listTypeAvatar, 0x04, 0x00, 0, 0, 0, 0}) {
+	if ack := got.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemUnlock) || string(ack.Body) != string([]byte{1, listTypeAvatar, 0x04, 0x00, 0, 0, 0, 0}) {
 		t.Fatalf("ack = %+v", ack)
 	}
 	if notice := got.UpperResponses[1]; notice.MsgID != msgItemUnlockNotice || notice.Classification != 0 || string(notice.Body) != string([]byte{listTypeAvatar, 0x04, 0x00}) {
@@ -254,7 +254,7 @@ func TestHandlerUnlockCancelReturnsAckThenListDelta(t *testing.T) {
 	if len(got.UpperResponses) != 2 {
 		t.Fatalf("response count = %d, want 2", len(got.UpperResponses))
 	}
-	if ack := got.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemUnlockCancel) || string(ack.Body) != string([]byte{listTypePet, 0x02, 0x00}) {
+	if ack := got.UpperResponses[0]; ack.MsgID != uint16(dnfenum.CmdPacketRequestItemUnlockCancel) || string(ack.Body) != string([]byte{1, listTypePet, 0x02, 0x00}) {
 		t.Fatalf("ack = %+v", ack)
 	}
 	if refresh := got.UpperResponses[1]; refresh.MsgID != msgItemLockList || string(refresh.Body) != string([]byte{1, 0, listTypePet, 0x02, 0x00, itemLockStateActive}) {

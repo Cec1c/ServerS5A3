@@ -39,6 +39,11 @@
 - 旧失败复现：临时把角色选项回放改回旧的一次性连接闸门后，返回选角、同角色重进与 A→B/B→A 三组均 390=-1（19 仍为 30），本轮新增端到端用例同样 RED；按 SHA256 校验还原后全部 GREEN（-run TestCharacterOption）。未跑全套重测试。
 - DOC-060 / DOC-114 / DOC-053 的三条症状未关闭：锁定与 CD 提示的数据载体在基线上已整帧存取并按每次选角回放（45 批漏 390 的连接闸门已由 31e2b51 修复），但原生 GUI 验收、攻击类型字段与冷连接时序仍开放。现场 A/B 步骤见 Docs/D33_SKILL_OPTION_WORDS_20261014.md。
 - 只在独立工作树 work/bugs-round2-equipment（基线 5fc6807）改动；未部署、未推送、未改其它工作树 / 用户 DOCX / 原台账 / 生产资产，也未改装备或任务领域。
+## 2026-10-14 — Correct equipment-lock success ACK framing
+
+- Current-client class1 op267/268/269 expects a success byte before list/slot (unlock also carries remaining seconds). The itemlock owner responses omitted that byte, so main-list zero selected the failure branch and other lists shifted the location fields. Add the success prefix only to ACKs; preserve the class0/op252 location-only notification and existing persistence semantics.
+- Add a bridge regression covering all four supported list types and three operations through the real handler, repository and send path. All twelve cases fail on the old bytes. Native validation and the previously unsupported equipped-list owner remain open; see Docs/BUGS_20261014_EQUIPMENT_LOCK_ACK.md.
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
