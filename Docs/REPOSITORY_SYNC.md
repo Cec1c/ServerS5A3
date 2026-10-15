@@ -37,7 +37,8 @@ python -m unittest discover -s scripts/ci -p "test_*.py" -v
 
 The Python synchronizer defaults to a dry run. Use `--apply` only for the intended
 two writable repositories. Repository synchronization does not synchronize issues, merge
-requests, releases, settings, or secrets.
+requests, settings, or secrets. Client Release assets use the separate workflow
+described in [客户端 Release 同步与上线门槛](CLIENT_RELEASE_SYNC.md).
 
 ## Receiving original upstream updates
 
