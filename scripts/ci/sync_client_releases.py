@@ -228,6 +228,8 @@ class Repository:
                 draft = drafts[0]
                 if provenance(draft.get("body") or "") != release_record(item):
                     raise SyncError("Existing draft has a different release identity")
+                if draft.get("prerelease") is not item.get("preview", False):
+                    raise SyncError("Existing draft preview state differs from release identity")
                 names = set()
                 for asset in draft["assets"]:
                     name = asset["name"]

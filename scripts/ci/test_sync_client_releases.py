@@ -106,11 +106,20 @@ class ClientReleaseTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_interrupted_draft_resumes_only_with_verified_assets(self):
-        draft={'id':1,'tag_name':'client-v105','draft':True,'body':sync.MARKER+sync.json.dumps(sync.release_record(self.item))+' -->','assets':[{'name':'DNF-v105.zip','size':100,'digest':'sha256:'+'b'*64}]}
+        draft={'id':1,'tag_name':'client-v105','draft':True,'prerelease':False,'body':sync.MARKER+sync.json.dumps(sync.release_record(self.item))+' -->','assets':[{'name':'DNF-v105.zip','size':100,'digest':'sha256:'+'b'*64}]}
         with patch.object(self.gh,'tag_commit',return_value='a'*40),patch.object(self.gh,'list',return_value=[draft]):
             self.assertEqual(self.gh.prepare(self.item),draft)
             draft['assets'][0]['digest']='sha256:'+'c'*64
             with self.assertRaises(sync.SyncError):self.gh.prepare(self.item)
+
+    def test_draft_preview_mismatch_prevents_publication(self):
+        self.item['preview']=True
+        draft={'id':1,'tag_name':'client-v105','draft':True,'prerelease':False,'body':sync.MARKER+sync.json.dumps(sync.release_record(self.item))+' -->','assets':[]}
+        with patch.object(self.gh,'tag_commit',return_value='a'*40),patch.object(self.gh,'list',return_value=[draft]),patch.object(self.gh,'ensure_tag') as tag,patch.object(self.gh,'api') as api:
+            with self.assertRaisesRegex(sync.SyncError,'preview state'):
+                self.gh.publish(self.item,'.','.')
+            tag.assert_not_called()
+            api.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
