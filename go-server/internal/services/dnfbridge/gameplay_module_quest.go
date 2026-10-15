@@ -28,6 +28,10 @@ func questGameplayModule() gameplayModuleDefinition {
 			},
 			// The selective DPROTO route carries class-1 op33 through the
 			// legacy decoder and still requires the durable owner plus ACK.
+			// The paired client's task UI sends op32 through the legacy cmd1 route.
+			giveUpOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
+				return service.handleCurrentGiveUpQuest(session, request.Body)
+			},
 			triggerOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
 				return service.handleCurrentSetQuestTrigger(session, request.Body)
 			},

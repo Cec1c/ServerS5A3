@@ -87,6 +87,15 @@ func resolveCurrentBoosterDefinition(
 		if stackableType != "[booster]" && stackableType != "[cera booster]" && stackableType != "[booster random]" && stackableType != "[random upgradable legacy]" && stackableType != "[upgradable legacy]" {
 			return currentBoosterDefinition{}, fmt.Errorf("%w: source item=%d type=%q is not random", errCurrentBoosterPVFInvalid, sourceItemID, stackableType)
 		}
+		if stackableType == "[upgradable legacy]" {
+			levels := document.Ints("minimum level")
+			if len(levels) > 1 || (len(levels) == 1 && (levels[0] < 0 || levels[0] > math.MaxUint8)) {
+				return currentBoosterDefinition{}, errCurrentBoosterPVFInvalid
+			}
+			if len(levels) == 1 {
+				definition.GoldMinimumLevel = levels[0]
+			}
+		}
 		definition.Random, err = resolveCurrentMagicBox(catalog, catalog.source, int64(sourceItemID))
 		if err != nil {
 			return currentBoosterDefinition{}, err
@@ -366,7 +375,7 @@ func resolveCurrentBoosterRewardAmounts(
 		for _, group := range definition.Random.Groups {
 			totalWeight := int64(0)
 			for _, entry := range group.Entries {
-				if entry.ItemID <= 0 || entry.ItemID > math.MaxUint32 || entry.Weight < 0 || entry.Count <= 0 || entry.Count > currentBoosterMaxRewardUnits {
+				if entry.ItemID < 0 || (entry.ItemID == 0 && definition.StackableType != "[upgradable legacy]") || entry.ItemID > math.MaxUint32 || entry.Weight < 0 || entry.Count <= 0 || uint64(entry.Count) > currentBoosterRewardUnitLimit(uint32(entry.ItemID)) {
 					return nil, nil, errCurrentBoosterPVFInvalid
 				}
 				if entry.Weight > math.MaxInt64-totalWeight {
@@ -396,7 +405,7 @@ func resolveCurrentBoosterRewardAmounts(
 						continue
 					}
 					current := uint64(amounts[uint32(entry.ItemID)])
-					if current+uint64(entry.Count) > currentBoosterMaxRewardUnits {
+					if current+uint64(entry.Count) > currentBoosterRewardUnitLimit(uint32(entry.ItemID)) {
 						return nil, nil, errCurrentBoosterPVFInvalid
 					}
 					amounts[uint32(entry.ItemID)] = uint32(current + uint64(entry.Count))
@@ -499,4 +508,11 @@ func currentBoosterPlacement(definition dungeonDropItemDefinition) (currentBoost
 	default:
 		return currentBoosterRewardMain, errCurrentBoosterPVFInvalid
 	}
+}
+
+func currentBoosterRewardUnitLimit(itemID uint32) uint64 {
+	if itemID == 0 {
+		return math.MaxInt32
+	}
+	return currentBoosterMaxRewardUnits
 }

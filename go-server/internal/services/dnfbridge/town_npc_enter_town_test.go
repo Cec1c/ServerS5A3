@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -104,8 +105,28 @@ func TestRealPVFHandleAbisEnterTownKeepsLevelAndQuestGates(t *testing.T) {
 					t.Fatalf("did not commit: %+v", got.Stats)
 				}
 				_, _, _ = splitTownAreaTransitionSequenceWithClearQuest(t, data, 29, 107, 0, 1151, 259, 5, 3)
-			} else if len(data) != 0 || got.Stats["town_id"] != 38 || got.Stats["area_id"] != 1 {
-				t.Fatalf("rejected route mutated location or wrote packets: %x %+v", data, got.Stats)
+			} else {
+				if got.Stats["town_id"] != 38 || got.Stats["area_id"] != 1 {
+					t.Fatalf("rejected route mutated location: %+v", got.Stats)
+				}
+				if name == "active" {
+					// The deployed native op36 contract sends its rejection and
+					// task hint while preserving the uncompleted quest gate.
+					ack, rest := splitGameServerUpperPacket(t, data)
+					if ack.Header.Classification != 1 || ack.Header.MsgID != 36 || !bytes.Equal(ack.Body, []byte{0, 0, 107, 0}) {
+						t.Fatalf("official route rejection=%+v body=%x", ack.Header, ack.Body)
+					}
+					notice, rest := splitGameServerUpperPacket(t, rest)
+					if notice.Header.Classification != 0 || notice.Header.MsgID != 12 || len(notice.Body) < 12 || len(rest) != 0 {
+						t.Fatalf("official quest hint=%+v body=%x trailing=%x", notice.Header, notice.Body, rest)
+					}
+					textLength := int(binary.LittleEndian.Uint32(notice.Body[4:8]))
+					if textLength == 0 || textLength > 240 || len(notice.Body) != textLength+12 {
+						t.Fatalf("official quest hint length=%d body=%x", textLength, notice.Body)
+					}
+				} else if len(data) != 0 {
+					t.Fatalf("unproven route wrote packets: %x", data)
+				}
 			}
 			q, _, err := repos.Quest.Load(context.Background(), "29")
 			if err != nil || q.States[8618].Status != status {

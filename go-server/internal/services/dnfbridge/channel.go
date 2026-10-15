@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
+
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
@@ -372,6 +374,19 @@ func (s *Service) buildScriptBody() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("build 90CN online channel script: %w", err)
 		}
+	}
+	// The external resource and the owner parser stay UTF-8. Encode only the
+	// downloaded text, after projection, for a client whose code page is 936.
+	switch s.options.channelScriptEncoding {
+	case "", "utf8":
+	case "gbk":
+		var err error
+		script, err = simplifiedchinese.GBK.NewEncoder().Bytes(script)
+		if err != nil {
+			return nil, fmt.Errorf("encode channel script as GBK: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported channel script encoding %q", s.options.channelScriptEncoding)
 	}
 	return encryptChannelData(script, s.aesKey(), true)
 }
