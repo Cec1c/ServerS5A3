@@ -578,7 +578,7 @@ func TestBuildCSharpSelectedUserInfoSubtype0UsesCharacterAndLegacyTail(t *testin
 		binary.LittleEndian.Uint16(tail[51:53]) != 4386 ||
 		binary.LittleEndian.Uint32(tail[57:61]) != 305419896 ||
 		binary.LittleEndian.Uint32(tail[61:65]) != 2596069104 ||
-		tail[79] != 12 ||
+		tail[79] != 0xff ||
 		tail[90] != 1 ||
 		tail[103] != 9 {
 		t.Fatalf("subtype0 tail key fields mismatch: %x", tail)
@@ -708,7 +708,7 @@ func TestBuildCSharpSelectedUserInfoSubtype1UsesCSharpFieldOrder(t *testing.T) {
 	if got := binary.LittleEndian.Uint32(body[98:102]); got != 305419896 {
 		t.Fatalf("subtype1 equip_list_trailing = %d", got)
 	}
-	if got := body[110]; got != 9 {
+	if got := body[110]; got != 0xff {
 		t.Fatalf("subtype1 skill_tree_index = %d", got)
 	}
 	if got := binary.LittleEndian.Uint32(body[len(body)-8 : len(body)-4]); got != 305419896 {

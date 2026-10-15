@@ -1,8 +1,22 @@
+## 2026-10-15 — 双技能页：任务完成后刷新当前页
+
+- 普通任务及转职/觉醒任务完成后，技能快照使用已提交角色的当前技能页布局，避免第二页激活时错误发送第一页快捷栏。该补丁已随本轮验收版本部署，现补入 !46。
+- 增加实际任务完成发送链路回归，覆盖升级、SP 奖励、觉醒三种情况，检查两页技能、SP/TP、当前快捷栏和仓库存档不变。
+
 ## 2026-10-15 — 兼容已观测的 594 字节登录握手
 
 - 将完整 class1/op1 的 594 字节请求体加入上行分流与端点握手长度识别，避免 607 字节首包被归入旧协议、无法进入现有令牌绑定和握手流程。
 - 只增加已观测的精确长度，保留现有令牌解析、账号绑定与握手单次响应行为；不扩大相邻长度或改变账号认证策略。
 - 回归覆盖分片重组、593/595 字节拒绝、594 字节生命周期及端点应答，并验证有效、未知、缺失和过期令牌的账号绑定边界。新增场景已在修复前复现失败；自动化验证与玩家原生登录验收分别记录。
+
+## 2026-10-15 — 修复90版金库升级上限与即时刷新
+
+- 个人金库合法容量扩展到264格，账号金库扩展到240格。个人升级目标优先读取工具脚本[explain]，修正safe_upgradekit2及8/9等旧路径后缀与真实档位不一致的问题；账号档位、商品和道具身份读取etc/accountcargo.etc的[upgrade info]，价格来自同一PVF的etc/cerashop.etc，支持移出旧目录的后续升级工具。
+- 旧商城窗口重复购买时顺延到实际下一档并按该商品价格扣费；满级、余额不足、配置缺失或事务中容量变化时拒绝，保留原子扣费和回滚边界。成功结果确认原请求商品，保持客户端购买状态对应。
+- 个人扩容在商城op64前发送class0/op66子类型1的u16容量通知，更新档位而不重建整份物品列表，修复换角色后未打开过金库直接购买出现闪退的复现路径及下一档商品不立即刷新的问题。账号扩容在op64前发送class1/op306成功通知和权威list12容量，使已打开金库立即显示新增格。未修改客户端或接收开关。
+- 回归覆盖真实PVF全档商品/价格、普通库存保留、新格边界、旧档位计价、满级/余额不足和陈旧计划拒绝。原补丁基线db11236的独立纯服务端完整领域/桥接/控制器9622 PASS、883 SKIP、0 FAIL，真实PVF专项5 PASS；gofmt/list/vet、仓库边界和Windows/Linux编译通过，BAT配套预检明确跳过数据库和运行中端口。原生验证在已安装配套上通过个人换角色首次/连续升级与商城即时换档、账号144到240连续升级及新增格存取；新主线整合以本轮自动化检查为准，不扩大为所有库存操作已验收。
+- 合入主线7d820f631e53的594字节登录握手修复，保留双方新增记录；本次仅处理该记录冲突，11份金库业务源码及测试逐字节保持。
+
 
 ## 2026-10-15 — 保留已部署排序锁用例的金库容量前置
 
@@ -105,6 +119,13 @@
 
 - Only log skill/CD lists as cleared after settings persistence succeeds. A regression injects a repository save failure, confirms the previous frame survives, and rejects a misleading cleared event; it fails before the guard and passes afterward. Save/replay bytes and error handling remain unchanged.
 - Full validation at 556a2fb: gofmt/list/vet and Windows/Linux builds pass; core records 9323 passed nodes, 859 skipped and zero failures. All 146 required real-PVF roots pass (657 passed nodes, two packages without selected tests). BAT preflight remains blocked by absent source-worktree channel_info.etc. Parent independently rechecked all 11 current-client layout probes. Native skill-setting acceptance remains open.
+
+## 2026-10-15 — 修复双技能加点页及技能类型扩展券
+
+- 第二套技能加点默认锁定，商城821技能类型扩展券按实际PVF身份和价格购买后即时开启，重复购买拒绝；购买资格、第二页初始配置及点券在同一事务保存。历史默认页码不作已购买凭据，已有第一页加点保留。
+- 两页独立保存技能等级、SP/TP及快捷技能位置，切换原子更新当前活动配置和页码，冷却共享。加点、重置及快捷技能修改检查已解锁且属于当前页，重置保留另一页；升级点数与转职觉醒同步两页。
+- 新增技能页状态及非活动页技能两张关系表，启动增量建表；旧页码镜像支持-1。当前角色mode0按购买资格发送0xff或0/1，购买后用当前版角色信息及双页op19刷新，不修改客户端或PVF。
+- 回归覆盖未购买拒绝、真实PVF扩展券购买与重复拒绝、独立配置切换/冷读取、点数同步、重置隔离及事务失败回滚。用户已在本地配套实测确认修复效果；原生验收范围以实际反馈为准。
 
 ## 2026-10-14 — 技能选项字段在当前客户端离线复核与收敛（装备席）
 
@@ -237,6 +258,18 @@
 - P56 空白网页导航仍在客户端定位中，本次没有客户端 EXE 或资源改动；香港 2026-10-14 02:00 后再执行游戏操作。
 - 登记 2026-10-13 20:40 高优先级城镇跨角色卸武器反馈，关联 P33/P39/追加9；新增掌握技能武器触发条件；用户确认受影响角色重登后仍未装备，按持久化状态变化优先定位，尚未修复。
 - 草稿源码尚未合并、部署或发布客户端 Release。
+## 2026-10-15 — 同级合成池缺失时按PVF概率重建来源模板
+
+- 仅在同级合法候选为空时，使用启动缓存中一致且合格的来源模板补齐同级分支，保留PVF原等级权重与单件权重。抽中同级重新生成同ID新装备，材料照扣，旧强化、附魔、耐久不继承；有正常同级池时继续从原池随机，不改粉装与圣物共池规则。
+- 来源未加载、定义不一致或被排除时仍拒绝；PVF显式零同级权重不凭空加分支，缺合法升级候选仍只产出合法同级装备。新增粉装/圣物/传说的概率边界、配置变更、缓存准入和同ID新实例扣材/库存包顺序回归；未修改客户端或PVF。
+- 本轮重新执行两个源码环境的规定完整检查：本机9267 PASS、843 SKIP，独立分支9585 PASS、868 SKIP，均0 FAIL；跳过不计通过。gofmt/list/vet、Windows候选编译、真实PVF桥接通过，独立分支另通过Linux编译及仓库边界检查。独立副本BAT配套预检通过，数据库与游戏占用端口明确跳过；未安装本轮候选或重启当前游戏。
+
+## 2026-10-15 — 按90版PVF实现装备合成与启动预载
+
+- 新增粉装、圣物、传说的装备合成领域事务及407桥接入口。普通粉装与圣物共用品质3等级/大类池，武器、防具、首饰、特殊装备只限定大类；核对来源实例封装、锁定、期限、归属和实际开放容量，材料及新装备在账号/角色原事务中保存。
+- 启动监听前从PVF预载目录和规则，请求阶段复用完整缓存。等级升级权重、特殊装备相对权重、明确排除ID、部位组及分级材料均读取PVF；仅有同级合法候选的稀疏目录按同级处理。拒绝魔法封印粉装生成模板，不按名称旧字或Force Result Item Rule单独筛除正常装备。
+- 结果先更新权威库存，再返回407结果槽；产物封装，不继承来源强化/附魔。领域和桥接回归覆盖共池双向、跨细类、事务回滚、封装拒绝、配置变动和概率区间；原生客户端结果与动画仍按实际配套验收。
+
 ## 2026-10-14 — Preserve equipment quality after sorting
 
 - Use the same durable quality-seed precedence for inventory refreshes and login: dedicated metadata, equipment-only legacy aliases, then a matching complete current-client row. Sorting no longer replaces quality with the equipment stack count.

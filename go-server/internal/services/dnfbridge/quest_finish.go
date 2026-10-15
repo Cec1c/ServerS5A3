@@ -389,7 +389,7 @@ func (s *Service) sendCurrentProfessionFinishPostCommitSnapshots(session *gameSe
 	}
 	skillBody, _, err := buildCurrentSceneSkillInfoBody(
 		result.PostCommitSkill,
-		result.PostCommitSkill.Layouts[currentSkillInfoTreeIndex],
+		result.PostCommitSkill.Layouts[dnfrepo.ActiveSkillTree(result.PostCommitSkill)],
 		skillCommands,
 	)
 	if err != nil {
@@ -462,7 +462,7 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 		}
 		skillBody, _, err := buildCurrentSceneSkillInfoBody(
 			result.PostCommitSkill,
-			result.PostCommitSkill.Layouts[currentSkillInfoTreeIndex],
+			result.PostCommitSkill.Layouts[dnfrepo.ActiveSkillTree(result.PostCommitSkill)],
 			skillCommands,
 		)
 		if err != nil {

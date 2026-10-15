@@ -761,7 +761,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 
 func alignedSkillOwnerRulesRequired(opcode dnfenum.CmdPacket) bool {
 	switch opcode {
-	case dnfenum.CmdPacketChangeSkillslot, dnfenum.CmdPacketBuySkill, dnfenum.CmdPacketSkillInit:
+	case dnfenum.CmdPacketChangeSkillslot, dnfenum.CmdPacketBuySkill, dnfenum.CmdPacketSkillInit, dnfenum.CmdPacketChangeAnotherSkillTree:
 		return true
 	default:
 		return false
@@ -785,7 +785,7 @@ func (s *Service) skillOwnerRules(ctx context.Context, repos dnfrepo.Group, char
 		s.logInfo("dnfbridge skill rules unavailable", "character_id", characterID, "job", job, "error", err)
 		return nil, nil, nil
 	}
-	points, err := s.initialSkillPoints(ctx, record.Level)
+	points, err := s.currentPVFSkillPointTarget(ctx, record)
 	if err != nil {
 		s.logInfo("dnfbridge skill point baseline unavailable", "character_id", characterID, "level", record.Level, "error", err)
 		return nil, nil, nil

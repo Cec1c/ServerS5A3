@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -110,6 +111,9 @@ type pvfDungeonDropCatalog struct {
 	stackableIDs []uint32
 	poolCache    map[int64][]dungeonMonsterDropPoolEntry
 	itemCache    map[uint32]dungeonDropItemDefinition
+
+	// 装备合成目录与本份PVF生命周期一致，独立于掉落概率和物品投影缓存。
+	equipmentCompoundCatalog *dnfequipmentcompound.Catalog
 
 	// The generic pools deliberately stay separate from itemCache.  Loading
 	// every eligible runtime PVF item only happens once, on the first actual

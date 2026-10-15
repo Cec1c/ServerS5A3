@@ -336,6 +336,7 @@ func (s *Service) Start(ctx context.Context) error {
 		{"character stat table", s.preloadCharacterStatTable},
 		{"equipment stat index", s.preloadEquipmentStatIndex},
 		{"combat power affix catalog", s.preloadCombatPowerAffixCatalog},
+		{"装备合成目录", s.preloadEquipmentRegenerationCatalog},
 	}
 	for _, preload := range pvfPreloads {
 		if err := preload.load(runCtx); err != nil {

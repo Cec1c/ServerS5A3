@@ -506,7 +506,7 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 		skillFields := []dnfrepo.SkillField{dnfrepo.SkillFieldPoints}
 		if reward.HasProfession {
-			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns)
+			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns, dnfrepo.SkillFieldTrees)
 		}
 		if err := dnfrepo.SaveSkillFields(ctx, tx.Skill, skill, skillFields...); err != nil {
 			return err
