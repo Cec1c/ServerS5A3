@@ -212,10 +212,17 @@ class Repository:
             obj = self.api("/git/tags/" + obj["sha"])["object"]
         raise SyncError("Unsupported or recursive tag target")
 
-    def prepare(self, item, cache=None):
+    def require_tag_policy(self, existing):
+        if self.provider == "github" and existing is None:
+            if os.environ.get("GITHUB_ACTIONS") != "true" or not self.token or self.token != os.environ.get("GITHUB_TOKEN"):
+                raise SyncError("Create new GitHub tags through trusted CI using GITHUB_TOKEN to avoid historical build workflows")
+
+    def prepare(self, item, cache=None, publishing=False):
         commit = self.tag_commit(item["tag"])
         if commit is not None and commit != item["commit"]:
             raise SyncError("Destination tag differs; never replace it")
+        if publishing:
+            self.require_tag_policy(commit)
         if self.provider != "github" and cache is not None:
             for name,asset in item["assets"].items():
                 url = self.base + self.package_path(item,name,asset)
@@ -310,6 +317,7 @@ class Repository:
             if existing != commit:
                 raise SyncError("Destination tag differs; never replace it")
             return
+        self.require_tag_policy(existing)
         source = item["repo"]
         if source.git is None:
             source.git = source.api("")["http_url_to_repo"]
@@ -330,12 +338,13 @@ class Repository:
         login = "x-access-token" if self.provider == "github" else "oauth2"
         auth = base64.b64encode((login + ":" + self.token).encode()).decode()
         env = {**os.environ, "GIT_TERMINAL_PROMPT":"0", "GIT_CONFIG_COUNT":"1", "GIT_CONFIG_KEY_0":f"http.https://{host}/.extraheader", "GIT_CONFIG_VALUE_0":"Authorization: Basic " + auth}
-        git("push", "--quiet", self.git, f"refs/sync/source:refs/tags/{tag}", env=env)
+        options = ["-o", "ci.skip"] if self.provider == "gitlab" else []
+        git("push", "--quiet", *options, self.git, f"refs/sync/source:refs/tags/{tag}", env=env)
 
     def publish(self, item, cache, tags):
         if not self.writable:
             raise SyncError("Read-only repository")
-        draft = self.prepare(item,cache)
+        draft = self.prepare(item,cache,publishing=True)
         observed = self.get(item["tag"])
         if observed is not None and not (draft and observed["id"] == draft["id"]):
             raise SyncError("Destination release appeared during synchronization; re-run")
@@ -447,7 +456,7 @@ def main():
         print(f"Verified {repo.key}: {len(rows)} client releases",flush=True)
     actions=plan(inventory,repos)
     for repo,item in actions:
-        repo.prepare(item,args.cache)
+        repo.prepare(item,args.cache,publishing=args.apply)
     receipt={"timeUtc":datetime.now(timezone.utc).isoformat(),"apply":args.apply,"verified":{key:[release_record(x) for x in rows] for key,rows in inventory.items()},"actions":[{"target":r.key,"tag":x["tag"],"identity":content_identity(x)} for r,x in actions],"completed":[]}
     args.receipt.parent.mkdir(parents=True,exist_ok=True)
     save_receipt(args.receipt,receipt)

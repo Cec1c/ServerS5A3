@@ -29,6 +29,7 @@ jobs:
       - name: Synchronize client EXE releases with GitGud
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           RELEASE_PROJECT: ${{ vars.GITGUD_CLIENT_RELEASE_PROJECT }}
           GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_CLIENT_RELEASE_TOKEN }}
         run: |
