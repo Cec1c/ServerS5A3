@@ -108,7 +108,7 @@ func currentAvatarInventoryExpansion(value uint16) bool {
 }
 
 func currentPersonalCargoSlotCount(value uint16) bool {
-	return value >= 8 && value <= 200 && (value-8)%16 == 0
+	return value >= 8 && value <= 264 && (value-8)%16 == 0
 }
 
 func requiredContainerUint16(values map[string]string, key string) (uint16, error) {
