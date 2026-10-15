@@ -68,6 +68,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"emblem-compound",
 		"expert-job",
 		"equipment-recipe-compound",
+		"equipment-regeneration",
 		"booster-item",
 		"equipment-rental",
 		"epic-production",
@@ -117,6 +118,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	legacyOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",
 		uint16(dnfenum.CmdPacketBuyItem):                        "npc-shop",
@@ -178,6 +180,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	upperOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
 		uint16(dnfenum.CmdPacketShopPurchaseCount):              "npc-shop",
