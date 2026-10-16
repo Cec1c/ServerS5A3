@@ -1180,7 +1180,7 @@ func restoreCharacterRecord(repo repository.CharacterRepository, characterID str
 		return nil
 	}
 	if existed {
-		return repo.Save(context.Background(), record)
+		return repo.Save(levelUpRollbackContext(), record)
 	}
 	deleter, ok := repo.(interface {
 		Delete(context.Context, string) error

@@ -11,6 +11,7 @@ import (
 
 const (
 	currentDungeonIndependentDropPath        = "Etc/Independent_Drop.etc"
+	currentDungeonIndependentCardDropPath    = "Etc/Independent_Drop_Card.etc"
 	currentDungeonWorldDropPath              = "Etc/WorldDrop.etc"
 	currentDungeonIndependentDropDenominator = 1000000
 	currentDungeonWorldDropDenominator       = 100000
@@ -82,6 +83,21 @@ func loadCurrentDungeonSpecialDrops(source dnfpvf.Source) (*currentDungeonSpecia
 		catalog.IndependentByMonster = entries
 		catalog.SkippedListFlag2 = skipped
 	}
+	// 90版怪物卡片单列在此表；末字段3是直接卡片项，不跟随[list]。
+	cardText, cardErr := source.ReadText(currentDungeonIndependentCardDropPath)
+	if cardErr != nil && !currentDungeonDimensionDropDocumentMissing(cardErr) {
+		return nil, cardErr
+	}
+	if strings.TrimSpace(cardText) != "" {
+		cards, skipped, err := parseCurrentDungeonIndependentDropsAtPath(cardText, currentDungeonIndependentCardDropPath, true)
+		if err != nil {
+			return nil, err
+		}
+		for monsterID, rows := range cards {
+			catalog.IndependentByMonster[monsterID] = append(catalog.IndependentByMonster[monsterID], rows...)
+		}
+		catalog.SkippedListFlag2 += skipped
+	}
 	if text, err := source.ReadText(currentDungeonWorldDropPath); err == nil && strings.TrimSpace(text) != "" {
 		levels, parseErr := parseCurrentDungeonWorldDrops(text)
 		if parseErr != nil {
@@ -93,7 +109,11 @@ func loadCurrentDungeonSpecialDrops(source dnfpvf.Source) (*currentDungeonSpecia
 }
 
 func parseCurrentDungeonIndependentDrops(text string) (map[int64][]currentDungeonIndependentDropEntry, int, error) {
-	document, err := dnfpvf.Parse(currentDungeonIndependentDropPath, text)
+	return parseCurrentDungeonIndependentDropsAtPath(text, currentDungeonIndependentDropPath, false)
+}
+
+func parseCurrentDungeonIndependentDropsAtPath(text string, path string, cardTable bool) (map[int64][]currentDungeonIndependentDropEntry, int, error) {
+	document, err := dnfpvf.Parse(path, text)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -110,55 +130,61 @@ func parseCurrentDungeonIndependentDrops(text string) (map[int64][]currentDungeo
 			break
 		}
 		if tokens[index].Kind == dnfpvf.TokenSection {
-			return nil, 0, fmt.Errorf("%s: unexpected section %q at line %d", currentDungeonIndependentDropPath, tokens[index].Value, tokens[index].Line)
+			return nil, 0, fmt.Errorf("%s: unexpected section %q at line %d", path, tokens[index].Value, tokens[index].Line)
 		}
 		if index+17 > len(tokens) {
-			return nil, 0, fmt.Errorf("%s: truncated independent-drop record at token %d", currentDungeonIndependentDropPath, index)
+			return nil, 0, fmt.Errorf("%s: truncated independent-drop record at token %d", path, index)
 		}
 		var values [17]int64
 		for field := range values {
 			token := tokens[index+field]
 			if token.Kind != dnfpvf.TokenInt {
-				return nil, 0, fmt.Errorf("%s: record field %d at line %d is %s", currentDungeonIndependentDropPath, field, token.Line, token.Kind)
+				return nil, 0, fmt.Errorf("%s: record field %d at line %d is %s", path, field, token.Line, token.Kind)
 			}
 			values[field] = token.Int
 		}
 		index += len(values)
 
 		listFlag := values[16]
+		if cardTable && listFlag == 3 {
+			if values[2] <= 0 || values[2] > math.MaxUint32 {
+				return nil, 0, fmt.Errorf("%s：怪物%d的卡片编号无效", path, values[1])
+			}
+			listFlag = 0
+		}
 		var weighted []currentDungeonSpecialDropWeightedItem
 		var totalWeight uint32
 		if listFlag != 0 {
 			if index >= len(tokens) || !currentDungeonDropTokenSection(tokens[index], "list") {
-				return nil, 0, fmt.Errorf("%s: list flag %d has no [list] after monster %d", currentDungeonIndependentDropPath, listFlag, values[1])
+				return nil, 0, fmt.Errorf("%s: list flag %d has no [list] after monster %d", path, listFlag, values[1])
 			}
 			index++
 			listValues := make([]int64, 0, 8)
 			for index < len(tokens) && !currentDungeonDropTokenSection(tokens[index], "/list") {
 				if tokens[index].Kind != dnfpvf.TokenInt {
-					return nil, 0, fmt.Errorf("%s: monster %d list token at line %d is %s", currentDungeonIndependentDropPath, values[1], tokens[index].Line, tokens[index].Kind)
+					return nil, 0, fmt.Errorf("%s: monster %d list token at line %d is %s", path, values[1], tokens[index].Line, tokens[index].Kind)
 				}
 				listValues = append(listValues, tokens[index].Int)
 				index++
 			}
 			if index >= len(tokens) {
-				return nil, 0, fmt.Errorf("%s: monster %d list is not closed", currentDungeonIndependentDropPath, values[1])
+				return nil, 0, fmt.Errorf("%s: monster %d list is not closed", path, values[1])
 			}
 			index++
 			if listFlag == 1 {
 				if len(listValues)%2 != 0 {
-					return nil, 0, fmt.Errorf("%s: monster %d inline list has odd value count %d", currentDungeonIndependentDropPath, values[1], len(listValues))
+					return nil, 0, fmt.Errorf("%s: monster %d inline list has odd value count %d", path, values[1], len(listValues))
 				}
 				var listErr error
 				weighted, totalWeight, listErr = currentDungeonSpecialDropWeightedItems(listValues)
 				if listErr != nil {
-					return nil, 0, fmt.Errorf("%s: monster %d inline list: %w", currentDungeonIndependentDropPath, values[1], listErr)
+					return nil, 0, fmt.Errorf("%s: monster %d inline list: %w", path, values[1], listErr)
 				}
 			} else if listFlag == 2 {
 				skippedListFlag2++
 				continue
 			} else {
-				return nil, 0, fmt.Errorf("%s: monster %d unsupported list flag %d", currentDungeonIndependentDropPath, values[1], listFlag)
+				return nil, 0, fmt.Errorf("%s: monster %d unsupported list flag %d", path, values[1], listFlag)
 			}
 		}
 		if values[0] != 0 {
@@ -182,7 +208,7 @@ func parseCurrentDungeonIndependentDrops(text string) (map[int64][]currentDungeo
 			probability := values[3+difficulty]
 			attempts := values[8+difficulty]
 			if probability < 0 || probability > math.MaxInt32 || attempts < 0 || attempts > math.MaxUint16 {
-				return nil, 0, fmt.Errorf("%s: monster %d difficulty %d probability=%d attempts=%d", currentDungeonIndependentDropPath, monsterID, difficulty, probability, attempts)
+				return nil, 0, fmt.Errorf("%s: monster %d difficulty %d probability=%d attempts=%d", path, monsterID, difficulty, probability, attempts)
 			}
 			entry.Probability[difficulty] = int(probability)
 			entry.Attempts[difficulty] = int(attempts)

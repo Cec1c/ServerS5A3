@@ -737,8 +737,9 @@ func (s *Service) handleCurrentAdventureGrowthCapsule(session *gameSession, body
 		character = dnfrepo.CloneCharacter(character)
 		skill = dnfrepo.CloneSkill(skill)
 		account = dnfrepo.CloneAccount(account)
-		character.Level = plan.Experience.NewLevel
-		character.Stats["exp"] = int64(plan.Experience.NewExperience)
+		if err := progression.ApplyCharacterExperience(&character, &skill, plan.Experience.NewLevel, plan.Experience.NewExperience, plan.SkillPoints.New, now); err != nil {
+			return err
+		}
 		if honorExpertGain > 0 {
 			nextHonor, err := planCurrentHonorExpertProgress(honorTables, character, honorExpertGain)
 			if err != nil {
