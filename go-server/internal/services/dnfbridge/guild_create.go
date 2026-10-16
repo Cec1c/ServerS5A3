@@ -203,6 +203,7 @@ func (s *Service) cancelCurrentGuildCreateInvitation(invite *currentGuildCreateI
 }
 
 func (s *Service) closeCurrentGuildCreateSession(session *gameSession) {
+	s.ensureGameplayTimeQueue().Cancel(guildBenefitTimerName(session))
 	s.guildCreateMu.Lock()
 	defer s.guildCreateMu.Unlock()
 	s.closeCurrentGuildInvitationsLocked(session)

@@ -19,6 +19,7 @@ import (
 )
 
 type gameSession struct {
+	guildBuffs                          guildBuffProjection
 	guild                               guildSessionState
 	initialTownGuildStateProjectionSent bool
 	conn                                net.Conn

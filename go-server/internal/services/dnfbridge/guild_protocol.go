@@ -392,6 +392,11 @@ func buildCurrentGuildManagementBody(guild *dnfguild.Guild, onlineCount int, now
 		value   uint32
 	}
 	rows := make([]benefitRow, 0, 8)
+	for _, kind := range []byte{1, 3, 5} {
+		if b, found := guild.Benefits[kind]; found && b.Active(now) {
+			rows = append(rows, benefitRow{typ: b.Type, expires: b.ExpiresAt, value: b.Value})
+		}
+	}
 	if guild.MemberLimit > 0 {
 		rows = append(rows, benefitRow{typ: 6, value: uint32(guild.MemberLimit)})
 	}

@@ -24,6 +24,8 @@ func guildPurchaseError(err error) byte {
 		return 105
 	case errors.Is(err, guild.ErrMemberExpansionUsed):
 		return 116
+	case errors.Is(err, guild.ErrPermanentBenefitOwned):
+		return 9
 	default:
 		return 14
 	}
@@ -53,7 +55,7 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 	}
 	contentID := binary.LittleEndian.Uint32(request.Body)
 	content, found := catalog.Contents[contentID]
-	if !found || (content.Type != 4 && content.Type != 6) {
+	if !found || (content.Type != 4 && content.Type != 6 && content.Type != 1 && content.Type != 3 && content.Type != 5) {
 		s.logGameEvent(session, "game-guild-content-unavailable", "content_id", contentID)
 		return fail(34) // No success or charge for effects not implemented yet.
 	}
@@ -72,19 +74,27 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 		release()
 		return fail(14)
 	}
-	purchase := guild.PurchaseCargo
-	if content.Type == 6 {
-		purchase = guild.PurchaseMemberExpansion
-	}
-	result, err := purchase(ctx, repos.Guild, guild.CargoPurchase{
+	query := guild.CargoPurchase{
 		Owner:     r.GuildOwner{CharacterID: strconv.Itoa(int(source.character)), AccountID: s.accountIDForSession(session)},
 		ContentID: contentID, RequestID: requestID, InitialCapacity: currentGuildCargoInitialCapacity,
 		Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(source) },
-	}, catalog, s.gameplayNow())
+	}
+	var guildID uint32
+	if content.Type == 4 || content.Type == 6 {
+		purchase := guild.PurchaseCargo
+		if content.Type == 6 {
+			purchase = guild.PurchaseMemberExpansion
+		}
+		result, purchaseErr := purchase(ctx, repos.Guild, query, catalog, s.gameplayNow())
+		guildID, err = result.GuildID, purchaseErr
+	} else {
+		result, purchaseErr := guild.PurchaseBenefit(ctx, repos.Guild, query, catalog, s.gameplayNow())
+		guildID, err = result.GuildID, purchaseErr
+	}
 	release()
-	sendErr := s.finishCurrentGuildEdit(ctx, source, result.GuildID, currentGuildPurchaseOpcode, true, err, guildPurchaseError(err))
+	sendErr := s.finishCurrentGuildEdit(ctx, source, guildID, currentGuildPurchaseOpcode, true, err, guildPurchaseError(err))
 	if err == nil && content.Type == 4 {
-		s.refreshCurrentGuildCargoPurchase(ctx, result.GuildID, source)
+		s.refreshCurrentGuildCargoPurchase(ctx, guildID, source)
 	}
 	return sendErr
 }

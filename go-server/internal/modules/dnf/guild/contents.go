@@ -197,6 +197,9 @@ func purchaseExpansion(ctx context.Context, uow r.GuildUnitOfWork, query CargoPu
 		if _, reused := other[query.RequestID]; reused {
 			return ErrPurchaseIdentity
 		}
+		if _, reused := reg.BenefitPurchases[query.RequestID]; reused {
+			return ErrPurchaseIdentity
+		}
 		if previous, exists := receipts[query.RequestID]; exists {
 			if previous.Owner != query.Owner || previous.GuildID != g.ID || previous.ContentID != query.ContentID {
 				return ErrPurchaseIdentity

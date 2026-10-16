@@ -44,12 +44,13 @@ var (
 )
 
 type Registry struct {
-	Version          int                             `json:"version"`
-	NextID           uint32                          `json:"next_id"`
-	Guilds           map[uint32]*Guild               `json:"guilds,omitempty"`
-	Creations        map[string]CreationReceipt      `json:"creations,omitempty"`
-	CargoPurchases   map[string]CargoPurchaseReceipt `json:"cargo_purchases,omitempty"`
-	MemberExpansions map[string]CargoPurchaseReceipt `json:"member_expansions,omitempty"`
+	Version          int                               `json:"version"`
+	NextID           uint32                            `json:"next_id"`
+	Guilds           map[uint32]*Guild                 `json:"guilds,omitempty"`
+	Creations        map[string]CreationReceipt        `json:"creations,omitempty"`
+	CargoPurchases   map[string]CargoPurchaseReceipt   `json:"cargo_purchases,omitempty"`
+	MemberExpansions map[string]CargoPurchaseReceipt   `json:"member_expansions,omitempty"`
+	BenefitPurchases map[string]BenefitPurchaseReceipt `json:"benefit_purchases,omitempty"`
 }
 
 type Guild struct {
@@ -61,6 +62,7 @@ type Guild struct {
 	Experience         uint32                `json:"experience"`
 	Mileage            uint32                `json:"mileage"`
 	MileageHistory     []MileageHistoryEntry `json:"mileage_history,omitempty"`
+	Benefits           map[byte]Benefit      `json:"benefits,omitempty"`
 	Cargo              *Cargo                `json:"cargo,omitempty"`
 	Notice             string                `json:"notice,omitempty"`
 	Promotion          string                `json:"promotion,omitempty"`
@@ -606,6 +608,9 @@ func SortedApplications(guild *Guild) []Application {
 // Reject corrupt/unknown state rather than silently discarding members or
 // changing IDs. This registry is new and has no legacy version to migrate.
 func validateRegistry(r Registry) error {
+	if err := validateBenefits(r); err != nil {
+		return err
+	}
 	if err := validateCargoPurchases(r.CargoPurchases); err != nil {
 		return err
 	}

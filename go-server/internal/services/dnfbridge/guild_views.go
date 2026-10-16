@@ -71,7 +71,10 @@ func (s *Service) writeCurrentGuildManagementState(session *gameSession, g *dnfg
 	if err := s.sendGameUpperRawClass(session, 127, []byte{grade}, 0); err != nil {
 		return err
 	}
-	return s.sendGameUpperRawClass(session, currentGuildMembershipNotificationMsgID, buildCurrentGuildMembershipNotificationBody(g), 0)
+	if err := s.sendGameUpperRawClass(session, currentGuildMembershipNotificationMsgID, buildCurrentGuildMembershipNotificationBody(g), 0); err != nil {
+		return err
+	}
+	return s.writeCurrentGuildBuffProjection(session, g, false)
 }
 
 // A peer may be transitioning while another member sends a refresh. Skipping
