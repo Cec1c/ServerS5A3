@@ -1111,7 +1111,8 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 			continue
 		}
 		slot := -1
-		if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active && primaryActive < initialPrimaryQuickSlotCount {
+		// 与 allocateSkillSlot 同一判据，避免新建/重建路径把 TP 技能填回普通快捷栏。
+		if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active && !definition.IsTPSkill() && primaryActive < initialPrimaryQuickSlotCount {
 			slot = firstFreeSkillSlot(layout, 0, initialPrimaryQuickSlotCount)
 			if slot >= 0 {
 				primaryActive++
@@ -1133,7 +1134,12 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 func allocateSkillSlot(definition dnfskill.Skill, tree int, occupied dnfrepo.SkillLayout) int {
 	// 保留既有领域/数据库的两段快捷栏编号。90客户端线上编号由dnfbridge
 	// 在op19/op29/op28边界统一转换，不能把这里的198直接解释成当前线上快捷栏。
-	if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active {
+	//
+	// TP（强化/EX）技能不参与普通快捷栏（0..5、198..203）的自动填空：真档唯一的 active TP
+	// （固定QA档 job 11 id 220 强化 - 招架反击）会把这当成第一空位。普通主动技能照旧优先填空；
+	// TP 技能只拿 currentSlotGroup 的技能页展示槽，手动绑定（op28）与已有布局不受影响。
+	// 113段反馈的 强化 - 上挑（真档 job 0 id 215）是 passive，本来就不过这个分支。
+	if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active && !definition.IsTPSkill() {
 		if slot := firstFreeSkillSlot(occupied, 0, 6); slot >= 0 {
 			return slot
 		}
