@@ -409,8 +409,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if err != nil {
 			return err
 		}
-		character.Level = progressPlan.Experience.NewLevel
-		character.Stats["exp"] = int64(progressPlan.Experience.NewExperience)
+		if err := progression.ApplyCharacterExperience(&character, &skill, progressPlan.Experience.NewLevel, progressPlan.Experience.NewExperience, progressPlan.SkillPoints.New, now); err != nil {
+			return err
+		}
 		character.UpdatedAt = now
 		skill.Points = progressPlan.SkillPoints.New
 		if reward.HasProfession {

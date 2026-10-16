@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"longheng.io/server/internal/modules/dnf/repository"
+	"strings"
 )
 
 // mergeCharacterExtraStat 合并一条 `dnf_character_stats` 行到记录里。
@@ -179,7 +180,10 @@ func replaceCharacterExtraStats(
 	table, characterID string,
 	stats map[string]int64,
 ) error {
-	if _, err := database.ExecContext(ctx, "DELETE FROM "+table+" WHERE character_id = ?", characterID); err != nil {
+	// 升级事件和领取审计是永久事实，不能随普通数值整包替换被旧快照删除。
+	if _, err := database.ExecContext(ctx, "DELETE FROM "+table+" WHERE character_id = ? AND LEFT(stat_key, ?) <> ? AND LEFT(stat_key, ?) <> ?", characterID,
+		len(repository.LevelUpEventStatPrefix), repository.LevelUpEventStatPrefix,
+		len(repository.LevelUpRewardStatPrefix), repository.LevelUpRewardStatPrefix); err != nil {
 		return err
 	}
 	known := make(map[string]struct{}, len(mysqlCharacterStatColumns))
@@ -191,7 +195,13 @@ func replaceCharacterExtraStats(
 		if _, ok := known[key]; ok {
 			continue
 		}
-		if _, err := database.ExecContext(ctx, query, characterID, key, stats[key]); err != nil {
+		keyQuery := query
+		if _, event := repository.LevelUpEventLevel(key); event {
+			keyQuery += " ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), IF(stat_value < 0 OR VALUES(stat_value) >= 0, stat_value, VALUES(stat_value)))"
+		} else if strings.HasPrefix(key, repository.LevelUpRewardStatPrefix) {
+			keyQuery += " ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), stat_value)"
+		}
+		if _, err := database.ExecContext(ctx, keyQuery, characterID, key, stats[key]); err != nil {
 			return err
 		}
 	}
