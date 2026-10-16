@@ -251,16 +251,20 @@ func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSec
 	}
 }
 
-const towerOfDespairSectionKey = "tower of despair"
+const (
+	towerOfDespairSectionKey = "tower of despair"
+	towerOfGriefSectionKey   = "tower of grief"
+)
 
-// Real tower scripts use a bare marker. DungeonFile.cs:570-571 treats it as 1;
-// explicit integers keep their value. Symbols and other nonempty invalid
+// Real despair and grief scripts use a bare presence marker. Despair also
+// follows DungeonFile.cs:570-571. Explicit integers keep their value.
+// Symbols and other nonempty invalid
 // values, and empty sections of other kinds, retain the existing diagnostic.
 func integerMetadataValue(key string, section RawSection) (int64, bool) {
 	if value, ok := firstInt(section); ok {
 		return value, true
 	}
-	if key == towerOfDespairSectionKey && len(section.Tokens) == 0 {
+	if (key == towerOfDespairSectionKey || key == towerOfGriefSectionKey) && len(section.Tokens) == 0 {
 		return 1, true
 	}
 	return 0, false
