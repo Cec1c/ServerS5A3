@@ -82,5 +82,6 @@ func guildGameplayModule() gameplayModuleDefinition {
 		upper[opcode] = defaultClassGameplayHandler("game-guild-class-rejected", "command_class_mismatch", run)
 	}
 	upper[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
+	legacy[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
 	return gameplayModuleDefinition{Name: "guild", LegacyHandlers: legacy, UpperHandlers: upper}
 }

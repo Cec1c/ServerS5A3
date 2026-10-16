@@ -43,7 +43,11 @@ func sendGuildPurchase(t *testing.T, s *Service, p *gameSession, id uint32, seq 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.handleGameUpper(p, wire); err != nil {
+	packets, remaining, skipped, err := protocol.SplitLatestGameStream(wire, 65535)
+	if err != nil || len(packets) != 1 || len(remaining) != 0 || skipped != 0 {
+		t.Fatalf("purchase split: packets=%d remaining=%x skipped=%d err=%v", len(packets), remaining, skipped, err)
+	}
+	if err := s.handleGameStreamPacket(p, packets[0]); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -95,7 +99,6 @@ func TestGuildCargoPurchaseBridgeRejectsWithoutCharge(t *testing.T) {
 				body = append(body, 0)
 			case "unsupported":
 				binary.LittleEndian.PutUint32(body, 22)
-				want = 34
 			case "save_failure":
 				broken := repos
 				broken.Guild = guildTextFailUoW{repos.Guild}
@@ -117,16 +120,16 @@ func TestGuildCargoPurchaseBridgeRejectsWithoutCharge(t *testing.T) {
 				}
 			case "legacy":
 				handled, err := currentGameplayModules.DispatchLegacy(s, p[0], 761, body)
-				if handled || err != nil {
-					t.Fatal("unproven legacy purchase accepted")
+				if !handled || err != nil {
+					t.Fatal(handled, err)
 				}
 			default:
 				wire, _ := protocol.BuildChannelPacket(761, body, 30, 1)
-				if err := s.handleGameUpper(p[0], wire); err != nil {
+				if err := s.handleLegacyGamePacket(p[0], wire); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if mode != "legacy" && !bytes.Equal(guildReply(t, p[0], 761), []byte{0, want}) {
+			if !bytes.Equal(guildReply(t, p[0], 761), []byte{0, want}) {
 				t.Fatal("wrong purchase rejection")
 			}
 			after, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)

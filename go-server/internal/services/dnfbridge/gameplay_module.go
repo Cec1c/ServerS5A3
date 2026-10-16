@@ -16,7 +16,7 @@ type gameplayRequest struct {
 	Opcode         uint16
 	Classification byte
 	Body           []byte
-	Sequence       *uint64 // Extended native connection sequence; nil for legacy/direct dispatch.
+	Sequence       *uint64 // Extended native connection sequence; nil for direct dispatch without a wire header.
 }
 
 type gameplayHandler func(*Service, *gameSession, gameplayRequest) error
@@ -125,14 +125,18 @@ func (r *gameplayModuleRegistry) DispatchLegacy(
 	opcode uint16,
 	body []byte,
 ) (bool, error) {
+	return r.dispatchLegacyRequest(service, session, gameplayRequest{Opcode: opcode, Classification: dnfproto.DefaultChannelClassification, Body: body})
+}
+
+func (r *gameplayModuleRegistry) dispatchLegacyRequest(service *Service, session *gameSession, request gameplayRequest) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
-	route, ok := r.legacyHandlers[opcode]
+	route, ok := r.legacyHandlers[request.Opcode]
 	if !ok {
 		return false, nil
 	}
-	return true, route.handler(service, session, gameplayRequest{Opcode: opcode, Body: body})
+	return true, route.handler(service, session, request)
 }
 
 func (r *gameplayModuleRegistry) DispatchUpper(

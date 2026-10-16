@@ -8,8 +8,8 @@ import (
 	"sync"
 )
 
-// Native upper packets carry a connection-wide uint16 sequence. Observe all
-// upper packets so intervening traffic and rollover do not make two legitimate
+// Native upper and legacy packets share a connection-wide uint16 sequence.
+// Observe both paths so intervening traffic and rollover do not make two legitimate
 // purchases share an identity. The serial window is half the wire space.
 type guildPurchaseSequence struct {
 	mu          sync.Mutex

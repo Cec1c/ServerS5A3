@@ -57,7 +57,9 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 	content, found := catalog.Contents[contentID]
 	if !found || (content.Type != 4 && content.Type != 6 && content.Type != 1 && content.Type != 3 && content.Type != 5) {
 		s.logGameEvent(session, "game-guild-content-unavailable", "content_id", contentID)
-		return fail(34) // No success or charge for effects not implemented yet.
+		// The native 761 callback has no case for generic error 34: it silently
+		// closes the confirmation. Error 14 is its visible purchase-failed path.
+		return fail(14) // No success or charge for effects not implemented yet.
 	}
 	requestID, err := session.guild.purchaseSequence.identity(*request.Sequence)
 	if err != nil {
