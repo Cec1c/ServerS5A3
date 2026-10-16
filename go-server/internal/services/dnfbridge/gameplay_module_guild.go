@@ -4,6 +4,8 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildHongbaoListOpcode:                       (*Service).handleCurrentGuildHongbaoList,
+		currentGuildHongbaoPointsOpcode:                     (*Service).handleCurrentGuildHongbaoPoints,
 		currentGuildMarkOpcode:                              (*Service).handleCurrentGuildMark,
 		currentGuildAuraOpcode:                              (*Service).handleCurrentGuildAura,
 		currentGuildCargoOpcode:                             (*Service).handleCurrentGuildCargo,
@@ -57,6 +59,9 @@ func guildGameplayModule() gameplayModuleDefinition {
 				return s.sendVendorGuildMemberListState(session, "guild_unselected")
 			}
 			if _, err := s.currentGuildOwnedSelectedCharacter(session); err != nil {
+				if opcode == currentGuildHongbaoListOpcode || opcode == currentGuildHongbaoPointsOpcode {
+					return s.sendCurrentGuildHongbaoFailure(session, opcode)
+				}
 				if opcode == currentGuildCargoOpcode || opcode == currentGuildCargoHistoryOpcode {
 					return s.sendGameUpperFailure(session, opcode, 8)
 				}
