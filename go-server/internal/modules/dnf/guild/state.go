@@ -51,6 +51,7 @@ type Registry struct {
 	CargoPurchases   map[string]CargoPurchaseReceipt   `json:"cargo_purchases,omitempty"`
 	MemberExpansions map[string]CargoPurchaseReceipt   `json:"member_expansions,omitempty"`
 	BenefitPurchases map[string]BenefitPurchaseReceipt `json:"benefit_purchases,omitempty"`
+	ContractClaims   map[string]ContractClaimReceipt   `json:"contract_claims,omitempty"`
 }
 
 type Guild struct {

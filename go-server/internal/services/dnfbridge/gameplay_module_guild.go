@@ -83,5 +83,7 @@ func guildGameplayModule() gameplayModuleDefinition {
 	}
 	upper[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
 	legacy[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
+	upper[currentGuildContractOpcode] = (*Service).handleCurrentGuildContract
+	legacy[currentGuildContractOpcode] = (*Service).handleCurrentGuildContract
 	return gameplayModuleDefinition{Name: "guild", LegacyHandlers: legacy, UpperHandlers: upper}
 }

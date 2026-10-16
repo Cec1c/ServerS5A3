@@ -10,9 +10,11 @@ import (
 )
 
 var ErrPermanentBenefitOwned = errors.New("permanent guild benefit already owned")
+var ErrContractMemberLimit = errors.New("guild contract member tier does not match")
+var ErrContractDuration = errors.New("guild contract exceeds thirty days")
 
 // Benefit is an entitlement, not an inventory grant. Its type selects the
-// actual consumer: 1 monster EXP, 3 temporary stats, 5 permanent stats.
+// actual consumer: 1 monster EXP, 3 temporary stats, 5 permanent stats, 21 daily reward.
 type Benefit struct {
 	Type      byte      `json:"type"`
 	Value     uint32    `json:"value"`
@@ -29,6 +31,8 @@ func (b Benefit) valid() bool {
 		return ((b.Type == 1 && b.Value == 10) || (b.Type == 3 && b.Value == 167)) && !b.ExpiresAt.IsZero() && b.ExpiresAt.Unix() > 0 && b.ExpiresAt.Unix() <= math.MaxInt32
 	case 5:
 		return b.Value == 169 && b.ExpiresAt.IsZero()
+	case 21:
+		return (b.Value == 300 || b.Value == 500 || b.Value == 700 || b.Value == 1000) && !b.ExpiresAt.IsZero() && b.ExpiresAt.Unix() > 0 && b.ExpiresAt.Unix() <= math.MaxInt32
 	}
 	return false
 }
@@ -40,13 +44,15 @@ type BenefitPurchaseReceipt struct {
 	Benefit   Benefit      `json:"benefit"`
 	Price     uint32       `json:"price"`
 	At        time.Time    `json:"at"`
+	Gold      bool         `json:"gold,omitempty"`
 }
 
 func validateBenefits(reg Registry) error {
 	for id, receipt := range reg.BenefitPurchases {
 		_, cargo := reg.CargoPurchases[id]
 		_, members := reg.MemberExpansions[id]
-		if cargo || members || !validPurchaseID(id) || receipt.Owner.CharacterID == "" || receipt.Owner.AccountID == "" || receipt.GuildID == 0 || receipt.ContentID == 0 || !receipt.Benefit.valid() || receipt.Price == 0 || receipt.At.IsZero() {
+		_, claim := reg.ContractClaims[id]
+		if cargo || members || claim || receipt.Gold != (receipt.Benefit.Type == 21) || !validPurchaseID(id) || receipt.Owner.CharacterID == "" || receipt.Owner.AccountID == "" || receipt.GuildID == 0 || receipt.ContentID == 0 || !receipt.Benefit.valid() || receipt.Price == 0 || receipt.At.IsZero() {
 			return ErrInvalidRegistry
 		}
 	}
@@ -60,7 +66,7 @@ func validateBenefits(reg Registry) error {
 			}
 		}
 	}
-	return nil
+	return validateContractClaims(reg)
 }
 
 // PurchaseBenefit extends active time, starting from now only when expired.
@@ -101,7 +107,8 @@ func PurchaseBenefit(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurc
 		}
 		_, cargo := reg.CargoPurchases[query.RequestID]
 		_, expansion := reg.MemberExpansions[query.RequestID]
-		if cargo || expansion {
+		_, claim := reg.ContractClaims[query.RequestID]
+		if cargo || expansion || claim {
 			return ErrPurchaseIdentity
 		}
 		if old, found := reg.BenefitPurchases[query.RequestID]; found {
@@ -115,7 +122,7 @@ func PurchaseBenefit(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurc
 			return nil
 		}
 		c, found := catalog.Contents[query.ContentID]
-		if !found || c.ID != query.ContentID || c.Gold || c.Mode != 0 || c.Price == 0 || c.Value <= 0 {
+		if !found || c.ID != query.ContentID || c.Gold != (c.Type == 21) || c.Mode != 0 || c.Price == 0 || c.Value <= 0 {
 			return ErrInvalidContent
 		}
 		next := Benefit{Type: c.Type, Value: uint32(c.Value)}
@@ -125,6 +132,21 @@ func PurchaseBenefit(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurc
 			}
 			if g.Benefits[5].Active(now) {
 				return ErrPermanentBenefitOwned
+			}
+		} else if c.Type == 21 {
+			if catalog.ContractRewardItemID == 0 || catalog.ContractRewardCount != 1 || c.Days != 1 {
+				return ErrInvalidContent
+			}
+			if int(c.Value) != g.MemberLimit {
+				return ErrContractMemberLimit
+			}
+			start := now.UTC().Truncate(time.Second)
+			if old := g.Benefits[21]; old.Active(now) {
+				start = old.ExpiresAt
+			}
+			next.ExpiresAt = start.Add(24 * time.Hour)
+			if next.ExpiresAt.After(now.UTC().Truncate(time.Second).Add(30 * 24 * time.Hour)) {
+				return ErrContractDuration
 			}
 		} else if c.Type == 1 || c.Type == 3 {
 			if c.Days != 1 && c.Days != 7 && c.Days != 30 {
@@ -144,19 +166,31 @@ func PurchaseBenefit(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurc
 		if !next.valid() {
 			return ErrInvalidContent
 		}
-		if g.Mileage < c.Price {
-			return ErrInsufficientMileage
+		if c.Gold {
+			if actor.Stats["gold"] < int64(c.Price) {
+				return ErrInsufficientGold
+			}
+			actor = r.CloneCharacter(actor)
+			actor.Stats["gold"] -= int64(c.Price)
+			actor.UpdatedAt = now
+			if err := r.SaveCharacterFields(ctx, tx.Character, actor, r.CharacterFieldStats); err != nil {
+				return err
+			}
+		} else {
+			if g.Mileage < c.Price {
+				return ErrInsufficientMileage
+			}
+			if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: actor.CharacterID, CharacterName: actor.Name, Kind: MileageHistoryPurchase, Amount: c.Price, ContentID: c.ID}); err != nil {
+				return err
+			}
+			g.Mileage -= c.Price
 		}
-		if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: actor.CharacterID, CharacterName: actor.Name, Kind: MileageHistoryPurchase, Amount: c.Price, ContentID: c.ID}); err != nil {
-			return err
-		}
-		g.Mileage -= c.Price
 		g.UpdatedAt = now
 		if g.Benefits == nil {
 			g.Benefits = make(map[byte]Benefit)
 		}
 		g.Benefits[c.Type] = next
-		result = BenefitPurchaseReceipt{Owner: query.Owner, GuildID: g.ID, ContentID: c.ID, Benefit: next, Price: c.Price, At: now}
+		result = BenefitPurchaseReceipt{Owner: query.Owner, GuildID: g.ID, ContentID: c.ID, Benefit: next, Price: c.Price, At: now, Gold: c.Gold}
 		if reg.BenefitPurchases == nil {
 			reg.BenefitPurchases = make(map[string]BenefitPurchaseReceipt)
 		}

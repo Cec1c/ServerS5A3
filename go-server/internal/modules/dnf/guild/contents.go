@@ -31,8 +31,10 @@ type Content struct {
 }
 
 type ContentCatalog struct {
-	Contents   map[uint32]Content
-	CargoLimit uint32
+	Contents             map[uint32]Content
+	CargoLimit           uint32
+	ContractRewardItemID uint32
+	ContractRewardCount  uint32
 }
 
 // LoadContentCatalog preserves the native nine/ten-column layouts. A display
@@ -92,6 +94,23 @@ func LoadContentCatalog(source pvf.Source) (ContentCatalog, error) {
 		return c, ErrInvalidContent
 	}
 	c.CargoLimit = uint32(limit[0].Int)
+	if rows, found := doc.Section("guild contracts"); found {
+		if len(rows)%3 != 0 {
+			return c, ErrInvalidContent
+		}
+		for i := 0; i < len(rows); i += 3 {
+			if rows[i].Kind != pvf.TokenInt || rows[i+1].Kind != pvf.TokenInt || rows[i+2].Kind != pvf.TokenInt {
+				return c, ErrInvalidContent
+			}
+			if rows[i].Int != 21 {
+				continue
+			}
+			if c.ContractRewardItemID != 0 || rows[i+1].Int <= 0 || rows[i+1].Int > math.MaxUint32 || rows[i+2].Int != 1 {
+				return c, ErrInvalidContent
+			}
+			c.ContractRewardItemID, c.ContractRewardCount = uint32(rows[i+1].Int), 1
+		}
+	}
 	return c, nil
 }
 
@@ -198,6 +217,9 @@ func purchaseExpansion(ctx context.Context, uow r.GuildUnitOfWork, query CargoPu
 			return ErrPurchaseIdentity
 		}
 		if _, reused := reg.BenefitPurchases[query.RequestID]; reused {
+			return ErrPurchaseIdentity
+		}
+		if _, reused := reg.ContractClaims[query.RequestID]; reused {
 			return ErrPurchaseIdentity
 		}
 		if previous, exists := receipts[query.RequestID]; exists {

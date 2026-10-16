@@ -26,6 +26,12 @@ func guildPurchaseError(err error) byte {
 		return 116
 	case errors.Is(err, guild.ErrPermanentBenefitOwned):
 		return 9
+	case errors.Is(err, guild.ErrInsufficientGold):
+		return 10
+	case errors.Is(err, guild.ErrContractMemberLimit):
+		return 38
+	case errors.Is(err, guild.ErrContractDuration):
+		return 19
 	default:
 		return 14
 	}
@@ -55,11 +61,16 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 	}
 	contentID := binary.LittleEndian.Uint32(request.Body)
 	content, found := catalog.Contents[contentID]
-	if !found || (content.Type != 4 && content.Type != 6 && content.Type != 1 && content.Type != 3 && content.Type != 5) {
+	if !found || (content.Type != 4 && content.Type != 6 && content.Type != 1 && content.Type != 3 && content.Type != 5 && content.Type != 21) {
 		s.logGameEvent(session, "game-guild-content-unavailable", "content_id", contentID)
 		// The native 761 callback has no case for generic error 34: it silently
 		// closes the confirmation. Error 14 is its visible purchase-failed path.
 		return fail(14) // No success or charge for effects not implemented yet.
+	}
+	if content.Type == 21 {
+		if _, err := resolveCurrentGuildContractReward(itemCatalog, catalog); err != nil {
+			return fail(14)
+		}
 	}
 	requestID, err := session.guild.purchaseSequence.identity(*request.Sequence)
 	if err != nil {
@@ -97,6 +108,20 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 	sendErr := s.finishCurrentGuildEdit(ctx, source, guildID, currentGuildPurchaseOpcode, true, err, guildPurchaseError(err))
 	if err == nil && content.Type == 4 {
 		s.refreshCurrentGuildCargoPurchase(ctx, guildID, source)
+	}
+	if err == nil && sendErr == nil && content.Gold {
+		// Receipts may be replayed after another wallet operation. Always read
+		// the current actor balance under the same identity reservation.
+		release, reserveErr := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{source})
+		if reserveErr != nil {
+			return nil
+		}
+		defer release()
+		actor, loadErr := s.currentGuildOwnedSelectedCharacter(session)
+		if loadErr != nil {
+			return loadErr
+		}
+		return s.sendCarryGoldWallet(session, actor.Stats["gold"])
 	}
 	return sendErr
 }
