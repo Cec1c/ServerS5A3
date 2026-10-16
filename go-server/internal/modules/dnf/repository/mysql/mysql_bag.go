@@ -14,6 +14,8 @@ const mysqlBagTable = "inventories"
 
 type mysqlBagStore struct {
 	mysqlStoreBase
+	trackSlotChanges bool
+	loadedSnapshot   *repository.InventoryRecord
 }
 
 // Load 按角色 ID 从 MySQL 读取 DNF 背包记录。
@@ -54,6 +56,10 @@ func (s *mysqlBagStore) Load(ctx context.Context, characterID string) (repositor
 		return repository.InventoryRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackSlotChanges {
+		snapshot := repository.CloneInventory(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.CloneInventory(record), true, nil
 }
 
@@ -85,28 +91,28 @@ func (s *mysqlBagStore) SaveFields(ctx context.Context, record repository.Invent
 	if err != nil {
 		return err
 	}
-	return withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
+	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
 		if execErr := s.upsertRecord(ctx, database, table, characterID, record.UpdatedAt); execErr != nil {
 			return execErr
 		}
 		for _, field := range fields {
 			switch field {
 			case repository.InventoryFieldSlots:
-				if err := replaceItemStackCollection(
-					ctx, database, itemsTable, extraTable, "character_id", characterID, "slots", true, record.Slots,
-				); err != nil {
+				if err := s.saveAccountTransactionCollection(ctx, database, itemsTable, extraTable, record, field); err != nil {
 					return err
 				}
 			case repository.InventoryFieldWarehouse:
-				if err := replaceItemStackCollection(
-					ctx, database, itemsTable, extraTable, "character_id", characterID, "warehouse", true, record.Warehouse,
-				); err != nil {
+				if err := s.saveAccountTransactionCollection(ctx, database, itemsTable, extraTable, record, field); err != nil {
 					return err
 				}
 			}
 		}
 		return nil
 	})
+	if err == nil && s.trackSlotChanges {
+		s.rememberAccountTransactionFields(record, fields)
+	}
+	return err
 }
 
 // SaveItemStackSlotDelta 是 O-B 的增量落点：只重写 record 里 keys 指定的 slot
