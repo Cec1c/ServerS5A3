@@ -61,6 +61,7 @@ type Offer struct {
 
 type Participant struct {
 	CharacterID string
+	AccountID   string
 	Offers      []Offer
 	Gold        int64
 }
@@ -124,11 +125,8 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 		return participants[i].CharacterID < participants[j].CharacterID
 	})
 	result := Result{}
-	err := o.repositories.CharacterTrade.WithinCharacterTrade(
-		ctx,
-		participants[0].CharacterID,
-		participants[1].CharacterID,
-		func(characters dnfrepo.CharacterRepository, inventories dnfrepo.InventoryRepository) error {
+	err := o.withTradeRepositories(ctx, participants,
+		func(characters dnfrepo.CharacterRepository, inventories dnfrepo.InventoryRepository, shared *crystalTradeState) error {
 			loaded := make(map[string]dnfrepo.InventoryRecord, 2)
 			for _, participant := range participants {
 				record, found, err := inventories.Load(ctx, participant.CharacterID)
@@ -179,7 +177,7 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 
 			staged := make(map[string][]stagedOffer, 2)
 			for _, participant := range participants {
-				rows, err := validateOffers(loaded[participant.CharacterID], participant.Offers, o.clock())
+				rows, err := validateOffersWithCrystals(shared.view(participant.CharacterID, loaded[participant.CharacterID]), participant.Offers, o.clock(), shared != nil)
 				if err != nil {
 					return fmt.Errorf("character %s: %w", participant.CharacterID, err)
 				}
@@ -192,6 +190,12 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 			for _, participant := range participants {
 				record := loaded[participant.CharacterID]
 				for _, row := range staged[participant.CharacterID] {
+					if handled, err := shared.remove(participant.CharacterID, row); handled || err != nil {
+						if err != nil {
+							return err
+						}
+						continue
+					}
 					stack := record.Slots[row.sourceKey]
 					if row.offer.Count == stack.Count {
 						delete(record.Slots, row.sourceKey)
@@ -208,6 +212,13 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 				recipient := participants[1-index]
 				record := loaded[recipient.CharacterID]
 				for _, row := range staged[participant.CharacterID] {
+					if transfer, handled, err := shared.receive(participant.CharacterID, recipient.CharacterID, row); handled || err != nil {
+						if err != nil {
+							return err
+						}
+						received[recipient.CharacterID] = append(received[recipient.CharacterID], transfer)
+						continue
+					}
 					stack := cloneStack(row.stack)
 					stack.Count = row.offer.Count
 					policy, err := o.destinationSlotPolicy(row.offer, stack)
@@ -292,6 +303,10 @@ type stagedOffer struct {
 }
 
 func validateOffers(record dnfrepo.InventoryRecord, offers []Offer, now time.Time) ([]stagedOffer, error) {
+	return validateOffersWithCrystals(record, offers, now, false)
+}
+
+func validateOffersWithCrystals(record dnfrepo.InventoryRecord, offers []Offer, now time.Time, shared bool) ([]stagedOffer, error) {
 	rows := make([]stagedOffer, 0, len(offers))
 	tradeSlots := make(map[uint16]struct{}, len(offers))
 	sourceCounts := make(map[string]int64, len(offers))
@@ -301,7 +316,7 @@ func validateOffers(record dnfrepo.InventoryRecord, offers []Offer, now time.Tim
 		if _, duplicate := tradeSlots[offer.TradeSlot]; duplicate || offer.Count <= 0 || !supportedSourceList(offer.SourceList) || offer.SourceSlot < 0 {
 			return nil, ErrInvalidOffer
 		}
-		if dnfrepo.IsAccountSharedInventorySlot(offer.SourceList, offer.SourceSlot) {
+		if dnfrepo.IsAccountSharedInventorySlot(offer.SourceList, offer.SourceSlot) && !shared {
 			return nil, ErrItemNotTradeable
 		}
 		tradeSlots[offer.TradeSlot] = struct{}{}
@@ -310,13 +325,18 @@ func validateOffers(record dnfrepo.InventoryRecord, offers []Offer, now time.Tim
 		if !found || stack.ItemID <= 0 || stack.Count <= 0 || (offer.ExpectedItem > 0 && stack.ItemID != offer.ExpectedItem) {
 			return nil, ErrItemUnavailable
 		}
+		if dnfrepo.IsAccountSharedInventorySlot(offer.SourceList, offer.SourceSlot) {
+			if slot, ok := TradableCrystalSlot(stack.ItemID); !ok || slot != offer.SourceSlot {
+				return nil, ErrItemNotTradeable
+			}
+		}
 		if stack.Bind || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(now)) {
 			return nil, ErrItemNotTradeable
 		}
-		sourceCounts[key] += offer.Count
-		if sourceCounts[key] > stack.Count {
+		if offer.Count > stack.Count-sourceCounts[key] {
 			return nil, ErrItemUnavailable
 		}
+		sourceCounts[key] += offer.Count
 		rows = append(rows, stagedOffer{offer: offer, sourceKey: key, stack: cloneStack(stack)})
 	}
 	return rows, nil

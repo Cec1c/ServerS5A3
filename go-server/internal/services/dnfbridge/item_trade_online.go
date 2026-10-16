@@ -3,10 +3,10 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -43,6 +43,7 @@ type onlineItemTradeOffer struct {
 
 type onlineItemTrade struct {
 	participants [2]uint16
+	accounts     map[uint16]string
 	offers       map[uint16]map[uint16]onlineItemTradeOffer
 	gold         map[uint16]int64
 	states       map[uint16]byte
@@ -83,6 +84,7 @@ func (s *Service) beginOnlineItemTrade(first, second *gameSession) {
 	}
 	trade := &onlineItemTrade{
 		participants: [2]uint16{firstID, secondID},
+		accounts:     map[uint16]string{firstID: strings.TrimSpace(first.accountID), secondID: strings.TrimSpace(second.accountID)},
 		offers: map[uint16]map[uint16]onlineItemTradeOffer{
 			firstID:  make(map[uint16]onlineItemTradeOffer),
 			secondID: make(map[uint16]onlineItemTradeOffer),
@@ -237,15 +239,9 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
-	record, found, err := repositories.Inventory.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
-	if err != nil || !found {
-		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
-	}
-	sourceKey := fmt.Sprintf("%d:%d", request.SourceListType, request.SourceSlotIndex)
-	stack, found := record.Slots[sourceKey]
+	stack, found, err := s.loadOnlineItemTradeOfferStack(ctx, repositories, session, request)
 	if !found || stack.ItemID <= 0 || stack.Count < int64(request.MoveCount) || stack.Bind ||
-		(!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) ||
-		dnfrepo.IsAccountSharedInventorySlot(request.SourceListType, request.SourceSlotIndex) {
+		err != nil || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	// The request's source-instance field is an opaque value read from the
@@ -482,6 +478,10 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 	firstID, secondID := trade.participants[0], trade.participants[1]
 	firstOffers, secondOffers := snapshotOnlineItemTradeOffers(trade, firstID), snapshotOnlineItemTradeOffers(trade, secondID)
 	firstGold, secondGold := snapshotOnlineItemTradeGold(trade, firstID), snapshotOnlineItemTradeGold(trade, secondID)
+	if !s.onlineWarehouseTradeOwnersReady(trade) {
+		s.cancelOnlineItemTrade(trade, "warehouse_trade_account_owner_changed")
+		return nil
+	}
 	repositories, ok := s.repositoryGroup()
 	if !ok {
 		s.cancelOnlineItemTrade(trade, "repository_unavailable")
@@ -508,8 +508,8 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	result, err := owner.Exchange(ctx,
-		itemtrade.Participant{CharacterID: strconv.Itoa(int(firstID)), Offers: itemTradeDomainOffers(firstOffers), Gold: firstGold},
-		itemtrade.Participant{CharacterID: strconv.Itoa(int(secondID)), Offers: itemTradeDomainOffers(secondOffers), Gold: secondGold},
+		itemtrade.Participant{CharacterID: strconv.Itoa(int(firstID)), AccountID: trade.accounts[firstID], Offers: itemTradeDomainOffers(firstOffers), Gold: firstGold},
+		itemtrade.Participant{CharacterID: strconv.Itoa(int(secondID)), AccountID: trade.accounts[secondID], Offers: itemTradeDomainOffers(secondOffers), Gold: secondGold},
 	)
 	if err != nil {
 		s.logInfo("dnfbridge item trade atomic commit rejected", "first_char_id", firstID, "second_char_id", secondID, "error", err)
