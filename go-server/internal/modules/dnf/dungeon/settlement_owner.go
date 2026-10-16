@@ -142,8 +142,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			cmd.MaximumCharacterLevel,
 			cmd.Tables,
 		)
-		character.Level = planned.Experience.NewLevel
-		character.Stats["exp"] = int64(planned.Experience.NewExperience)
+		if err := progression.ApplyCharacterExperience(&character, &skill, planned.Experience.NewLevel, planned.Experience.NewExperience, planned.SkillPoints.New, now); err != nil {
+			return err
+		}
 		appliedHonorExpertGain := uint32(0)
 		if maximumLevelExperience > 0 && cmd.HonorExpertTables != nil {
 			currentExpert, err := honor.ExpertProgressFromStats(character.Stats)

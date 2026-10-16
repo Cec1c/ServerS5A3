@@ -166,6 +166,9 @@ func TestCurrentDungeonMonsterExperienceLevelUpCommitsSPWithExperience(t *testin
 	if err != nil || character.Level != 21 || character.Stats["exp"] != 200 {
 		t.Fatalf("persisted character=%+v err=%v", character, err)
 	}
+	if character.Stats[dnfrepo.LevelUpEventKey(21)] <= 0 {
+		t.Fatal("怪物经验升级没有在同一事务保存升级事件")
+	}
 	skill, _, err := repositories.Skill.Load(context.Background(), "99")
 	if err != nil || skill.Points != result.Skill.Points {
 		t.Fatalf("persisted skill=%+v err=%v", skill, err)
