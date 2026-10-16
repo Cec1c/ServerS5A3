@@ -147,6 +147,9 @@ func PurchaseBenefit(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurc
 		if g.Mileage < c.Price {
 			return ErrInsufficientMileage
 		}
+		if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: actor.CharacterID, CharacterName: actor.Name, Kind: MileageHistoryPurchase, Amount: c.Price, ContentID: c.ID}); err != nil {
+			return err
+		}
 		g.Mileage -= c.Price
 		g.UpdatedAt = now
 		if g.Benefits == nil {

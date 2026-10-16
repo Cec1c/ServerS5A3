@@ -129,4 +129,7 @@ func TestGuildCargoPurchaseMySQLAtomicSave(t *testing.T) {
 	if err != nil || reg.Guilds[1].Cargo.Capacity != 40 || reg.Guilds[1].Mileage != 0 || len(reg.CargoPurchases) != 2 {
 		t.Fatal("reconnect readback differs", err)
 	}
+	if history := reg.Guilds[1].MileageHistory; len(history) != 2 || history[0].Kind != MileageHistoryPurchase || history[0].ContentID != 11 || history[0].Amount != 10000 {
+		t.Fatalf("SQL purchase history/replay=%+v", history)
+	}
 }

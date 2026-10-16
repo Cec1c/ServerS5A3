@@ -241,6 +241,9 @@ func purchaseExpansion(ctx context.Context, uow r.GuildUnitOfWork, query CargoPu
 		if g.Mileage < content.Price {
 			return ErrInsufficientMileage
 		}
+		if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: actor.CharacterID, CharacterName: actor.Name, Kind: MileageHistoryPurchase, Amount: content.Price, ContentID: content.ID}); err != nil {
+			return err
+		}
 		if kind == 6 {
 			g.MemberLimit = int(after)
 		} else {

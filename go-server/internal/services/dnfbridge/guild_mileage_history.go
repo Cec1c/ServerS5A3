@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"encoding/binary"
-	"math"
 	"sort"
 	"strconv"
 
@@ -11,7 +10,8 @@ import (
 
 // Matched class1 op747 (RVA 0x1bc2340) reads count u32 then 48-byte rows.
 // The UI uses timestamp at 0, a NUL-terminated name at 4, kind at 34 and
-// amount at 40. Kind 8 selects dstr.dat 20992 "使用积分累计道具" +40162.
+// content ID at 36 and amount at 40. Kinds 3/8 select dungeon/item income;
+// kind 5 resolves the purchased content's name and selects the expense format.
 func buildCurrentGuildMileageHistoryBody(history []dnfguild.MileageHistoryEntry) ([]byte, error) {
 	rows := append([]dnfguild.MileageHistoryEntry(nil), history...)
 	// Use persisted order for equal-second events; newest insertion comes first.
@@ -25,7 +25,7 @@ func buildCurrentGuildMileageHistoryBody(history []dnfguild.MileageHistoryEntry)
 	body := make([]byte, 4+48*len(rows))
 	binary.LittleEndian.PutUint32(body, uint32(len(rows)))
 	for i, entry := range rows {
-		if entry.Kind != dnfguild.MileageHistoryItem || entry.At.Unix() <= 0 || entry.At.Unix() > math.MaxInt32 || entry.Amount == 0 || entry.Amount > math.MaxInt32 {
+		if !entry.Valid() {
 			return nil, dnfguild.ErrMileageHistory
 		}
 		row := body[4+i*48 : 4+(i+1)*48]
@@ -46,6 +46,7 @@ func buildCurrentGuildMileageHistoryBody(history []dnfguild.MileageHistoryEntry)
 		}
 		copy(row[4:34], name)
 		row[34] = entry.Kind
+		binary.LittleEndian.PutUint32(row[36:40], entry.ContentID)
 		binary.LittleEndian.PutUint32(row[40:44], entry.Amount)
 	}
 	return body, nil

@@ -4,12 +4,60 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
+	"longheng.io/server/internal/modules/dnf/protocol"
 )
+
+func TestGuildMileageHistoryCommittedPurchaseThroughStream(t *testing.T) {
+	s, peers, _, _ := guildBenefitsFixture(t)
+	sendGuildPurchase(t, s, peers[0], 2, 30)
+	sendGuildPurchase(t, s, peers[0], 2, 30) // Same receipt must not add history twice.
+	wire, _ := protocol.BuildChannelPacket(747, nil, 31, 1)
+	packets, rest, skipped, err := protocol.SplitLatestGameStream(wire, 65535)
+	if err != nil || len(packets) != 1 || len(rest) != 0 || skipped != 0 {
+		t.Fatal("invalid history stream")
+	}
+	if err := s.handleGameStreamPacket(peers[0], packets[0]); err != nil {
+		t.Fatal(err)
+	}
+	body := guildReply(t, peers[0], 747)
+	if len(body) != 53 || body[0] != 1 || binary.LittleEndian.Uint32(body[1:5]) != 1 {
+		t.Fatalf("purchase history=%x", body)
+	}
+	row := body[5:]
+	if row[34] != 5 || row[35] != 0 || binary.LittleEndian.Uint32(row[36:40]) != 2 || binary.LittleEndian.Uint32(row[40:44]) != 200 {
+		t.Fatalf("native content expense=%x", row)
+	}
+}
+
+func TestGuildMileageHistoryIncomeExpenseNativeKinds(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	for _, entry := range []dnfguild.MileageHistoryEntry{
+		{At: now, CharacterName: "通关者", Kind: 3, Amount: 10},
+		{At: now, CharacterName: "购买者", Kind: 5, ContentID: 11, Amount: 10000},
+		{At: now, CharacterName: "使用者", Kind: 8, Amount: 100},
+	} {
+		body, err := buildCurrentGuildMileageHistoryBody([]dnfguild.MileageHistoryEntry{entry})
+		if err != nil || len(body) != 52 || body[38] != entry.Kind || binary.LittleEndian.Uint32(body[40:44]) != entry.ContentID || binary.LittleEndian.Uint32(body[44:48]) != entry.Amount {
+			t.Fatalf("entry=%+v body=%x err=%v", entry, body, err)
+		}
+	}
+	for _, entry := range []dnfguild.MileageHistoryEntry{
+		{At: now, CharacterName: "test", Kind: 5, Amount: 10},
+		{At: now, CharacterName: "test", Kind: 3, ContentID: 11, Amount: 10},
+		{At: now, CharacterName: "test", Kind: 4, Amount: 10},
+		{At: now, CharacterName: "test", Kind: 3, Amount: math.MaxInt32 + 1},
+	} {
+		if _, err := buildCurrentGuildMileageHistoryBody([]dnfguild.MileageHistoryEntry{entry}); err == nil {
+			t.Fatalf("invalid native row accepted: %+v", entry)
+		}
+	}
+}
 
 func TestGuildMileageHistoryNativeNameAndOrdering(t *testing.T) {
 	now := time.Unix(1700000000, 0)

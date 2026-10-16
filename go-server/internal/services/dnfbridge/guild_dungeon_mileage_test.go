@@ -102,6 +102,10 @@ func TestGuildSettlementBridgeCreditsOnceAndRefreshes(t *testing.T) {
 	if reg.Guilds[1].Mileage != 10 {
 		t.Fatalf("balance=%d", reg.Guilds[1].Mileage)
 	}
+	history := reg.Guilds[1].MileageHistory
+	if len(history) != 1 || history[0].Kind != 3 || history[0].Amount != 10 || history[0].CharacterName != ch.Name {
+		t.Fatalf("committed clear/replay history=%+v", history)
+	}
 	body := guildReply(t, session, 70)
 	if len(body) < 35 || binary.LittleEndian.Uint32(body[len(body)-35:]) != 10 {
 		t.Fatalf("NOTI70 balance not refreshed: %x", body)

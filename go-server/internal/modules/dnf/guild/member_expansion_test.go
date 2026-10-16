@@ -55,6 +55,9 @@ func TestGuildMemberExpansionTiersAndHistoricalLimits(t *testing.T) {
 	if err != nil || reg.Guilds[1].MemberLimit != 1000 || reg.Guilds[1].Mileage != 0 || len(reg.MemberExpansions) != 3 || reg.Guilds[1].Cargo != nil {
 		t.Fatal("wrong member expansion state", err)
 	}
+	if history := reg.Guilds[1].MileageHistory; len(history) != 3 || history[2].Kind != MileageHistoryPurchase || history[2].ContentID != 18 || history[2].Amount != 500000 {
+		t.Fatalf("expansion history/replay=%+v", history)
+	}
 	for _, limit := range []int{0, 500, 700, 1000, 1200} {
 		reg.Guilds[1].MemberLimit = limit
 		if err := Save(ctx, repos.Settings, reg, now); err != nil {

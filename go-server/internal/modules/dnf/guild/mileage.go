@@ -15,6 +15,8 @@ var ErrMileageHistory = errors.New("guild mileage event cannot be represented by
 // This is a bounded recent-history view, not a replay/deduplication journal.
 // Future automatic grants must keep their durable event receipts separately.
 const MileageHistoryLimit = 50
+const MileageHistoryDungeon byte = 3
+const MileageHistoryPurchase byte = 5
 const MileageHistoryItem byte = 8
 
 type MileageHistoryEntry struct {
@@ -23,6 +25,34 @@ type MileageHistoryEntry struct {
 	CharacterName string    `json:"character_name"`
 	Kind          byte      `json:"kind"`
 	Amount        uint32    `json:"amount"`
+	ContentID     uint32    `json:"content_id,omitempty"`
+}
+
+// Valid checks the native signed amount/time fields and known renderer kinds.
+// Purchase amounts stay positive; the native kind selects the minus sign.
+func (entry MileageHistoryEntry) Valid() bool {
+	if entry.At.Unix() <= 0 || entry.At.Unix() > math.MaxInt32 || entry.Amount == 0 || entry.Amount > math.MaxInt32 || strings.TrimSpace(entry.CharacterName) == "" || strings.ContainsRune(entry.CharacterName, '\x00') {
+		return false
+	}
+	switch entry.Kind {
+	case MileageHistoryDungeon, MileageHistoryItem:
+		return entry.ContentID == 0
+	case MileageHistoryPurchase:
+		return entry.ContentID > 0 && entry.ContentID <= math.MaxInt32
+	}
+	return false
+}
+
+func (g *Guild) appendMileageHistory(entry MileageHistoryEntry) error {
+	if !entry.Valid() {
+		return ErrMileageHistory
+	}
+	entry.At = entry.At.UTC()
+	g.MileageHistory = append(g.MileageHistory, entry)
+	if len(g.MileageHistory) > MileageHistoryLimit {
+		g.MileageHistory = append([]MileageHistoryEntry(nil), g.MileageHistory[len(g.MileageHistory)-MileageHistoryLimit:]...)
+	}
+	return nil
 }
 
 // GrantItemMileage applies the PVF [add guildmileage] reward to the guild pool.
@@ -39,15 +69,10 @@ func (r *Registry) GrantItemMileage(owner dnfrepo.GuildOwner, amount uint32, nam
 	if amount == 0 || amount > ^uint32(0)-g.Mileage {
 		return nil, ErrMileageOverflow
 	}
-	// The history renderer uses a signed decimal delta and localtime32.
-	if amount > math.MaxInt32 || now.Unix() <= 0 || now.Unix() > math.MaxInt32 || strings.TrimSpace(name) == "" || strings.ContainsRune(name, '\x00') {
-		return nil, ErrMileageHistory
+	if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: owner.CharacterID, CharacterName: name, Kind: MileageHistoryItem, Amount: amount}); err != nil {
+		return nil, err
 	}
 	g.Mileage += amount
-	g.MileageHistory = append(g.MileageHistory, MileageHistoryEntry{At: now.UTC(), CharacterID: owner.CharacterID, CharacterName: name, Kind: MileageHistoryItem, Amount: amount})
-	if len(g.MileageHistory) > MileageHistoryLimit {
-		g.MileageHistory = append([]MileageHistoryEntry(nil), g.MileageHistory[len(g.MileageHistory)-MileageHistoryLimit:]...)
-	}
 	g.UpdatedAt = now
 	return g, nil
 }

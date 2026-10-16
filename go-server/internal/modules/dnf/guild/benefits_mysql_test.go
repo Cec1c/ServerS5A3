@@ -131,4 +131,7 @@ func TestGuildBenefitPurchaseMySQLAtomicSave(t *testing.T) {
 	if err != nil || !reg.Guilds[1].Benefits[3].ExpiresAt.Equal(firstExpires.Add(7*24*time.Hour)) || reg.Guilds[1].Mileage != 298400 || len(reg.BenefitPurchases) != 2 {
 		t.Fatal("reconnect readback differs", err)
 	}
+	if history := reg.Guilds[1].MileageHistory; len(history) != 2 || history[1].Kind != MileageHistoryPurchase || history[1].ContentID != 5 || history[1].Amount != 1400 {
+		t.Fatalf("SQL benefit history/replay=%+v", history)
+	}
 }

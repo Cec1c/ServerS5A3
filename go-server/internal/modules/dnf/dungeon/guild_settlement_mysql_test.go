@@ -135,4 +135,7 @@ func TestGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T) {
 	if err != nil || !replayed.Replayed || reg.Guilds[1].Mileage != 30 {
 		t.Fatalf("restart old replay=%+v err=%v", replayed, err)
 	}
+	if history := reg.Guilds[1].MileageHistory; len(history) != 3 || history[0].Kind != guild.MileageHistoryDungeon || history[0].Amount != 10 {
+		t.Fatalf("SQL dungeon history/replay=%+v", history)
+	}
 }

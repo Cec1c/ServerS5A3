@@ -64,6 +64,9 @@ func TestGuildCargoPurchaseNativeRequestRefreshAndRetry(t *testing.T) {
 	if err != nil || reg.Guilds[1].Cargo == nil || reg.Guilds[1].Cargo.Capacity != 40 || reg.Guilds[1].Mileage != 10000 || len(reg.CargoPurchases) != 2 {
 		t.Fatalf("state=%+v err=%v", reg.Guilds[1], err)
 	}
+	if history := reg.Guilds[1].MileageHistory; len(history) != 2 || history[0].Kind != 5 || history[0].Amount != 10000 {
+		t.Fatalf("purchase/replay history=%+v", history)
+	}
 	for _, peer := range p[:2] {
 		guildReply(t, peer, 70)
 	}
