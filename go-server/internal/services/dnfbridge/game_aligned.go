@@ -86,8 +86,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			return handled, err
 		}
 	}
-	// 任务完成券（`[gm quest clear]` / `[lv clear]`）右键用的是 op515 action 167；
-	// 这条动作号此前没有 handler，客户端因此等不到任何回包（"右键使用无反应"）。
+	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
