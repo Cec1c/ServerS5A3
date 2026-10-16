@@ -20,6 +20,7 @@ const (
 	registryStateKey    = "state"
 	DefaultCreateGold   = int64(300000)
 	DefaultMemberLimit  = 1000
+	InitialMemberLimit  = 300 // New guilds only; historical missing limits retain 1000.
 	DefaultMasterGrade  = byte(1)
 	DefaultMemberGrade  = byte(4)
 	GradePermissionMask = uint32(1<<18 - 1)
@@ -43,11 +44,12 @@ var (
 )
 
 type Registry struct {
-	Version        int                             `json:"version"`
-	NextID         uint32                          `json:"next_id"`
-	Guilds         map[uint32]*Guild               `json:"guilds,omitempty"`
-	Creations      map[string]CreationReceipt      `json:"creations,omitempty"`
-	CargoPurchases map[string]CargoPurchaseReceipt `json:"cargo_purchases,omitempty"`
+	Version          int                             `json:"version"`
+	NextID           uint32                          `json:"next_id"`
+	Guilds           map[uint32]*Guild               `json:"guilds,omitempty"`
+	Creations        map[string]CreationReceipt      `json:"creations,omitempty"`
+	CargoPurchases   map[string]CargoPurchaseReceipt `json:"cargo_purchases,omitempty"`
+	MemberExpansions map[string]CargoPurchaseReceipt `json:"member_expansions,omitempty"`
 }
 
 type Guild struct {
@@ -372,7 +374,7 @@ func (r *Registry) Create(character dnfrepo.CharacterRecord, name string, now ti
 		Level:             1,
 		JoinMode:          1,
 
-		MemberLimit:  DefaultMemberLimit,
+		MemberLimit:  InitialMemberLimit,
 		GradeNames:   defaultGradeNames(),
 		Members:      map[string]Member{character.CharacterID: member},
 		Applications: make(map[string]Application),
@@ -606,6 +608,14 @@ func SortedApplications(guild *Guild) []Application {
 func validateRegistry(r Registry) error {
 	if err := validateCargoPurchases(r.CargoPurchases); err != nil {
 		return err
+	}
+	if err := validateCargoPurchases(r.MemberExpansions); err != nil {
+		return err
+	}
+	for id, receipt := range r.MemberExpansions {
+		if _, duplicate := r.CargoPurchases[id]; duplicate || previousMemberLimit(receipt.After) != int(receipt.Before) {
+			return ErrInvalidRegistry
+		}
 	}
 	if r.Version != 1 {
 		return ErrInvalidRegistry

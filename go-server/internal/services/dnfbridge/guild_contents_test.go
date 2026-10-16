@@ -184,6 +184,12 @@ func TestGuildCargoPurchaseRealPVF(t *testing.T) {
 			t.Fatal("gold product classified as guild mileage", id)
 		}
 	}
+	for i, want := range []int32{500, 700, 1000} {
+		v := c.Contents[uint32(16+i)]
+		if v.Type != 6 || v.Value != want || v.Days != -1 || v.Mode != 0 || v.Gold || v.Price != []uint32{100000, 200000, 500000}[i] {
+			t.Fatal("member expansion product differs", v)
+		}
+	}
 }
 
 func TestGuildCargoPurchaseRefreshesWarehouseAndPreservesItems(t *testing.T) {

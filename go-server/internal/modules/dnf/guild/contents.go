@@ -14,9 +14,11 @@ import (
 const PurchasePermission uint32 = 1 << 8
 
 var (
-	ErrInvalidContent    = errors.New("invalid or unsupported guild content")
-	ErrCargoLimitReached = errors.New("guild cargo limit reached")
-	ErrPurchaseIdentity  = errors.New("guild purchase identity mismatch")
+	ErrInvalidContent              = errors.New("invalid or unsupported guild content")
+	ErrCargoLimitReached           = errors.New("guild cargo limit reached")
+	ErrPurchaseIdentity            = errors.New("guild purchase identity mismatch")
+	ErrMemberExpansionUsed         = errors.New("guild member expansion already applied")
+	ErrMemberExpansionPrerequisite = errors.New("guild member expansion prerequisite missing")
 )
 
 type Content struct {
@@ -133,6 +135,29 @@ func validateCargoPurchases(receipts map[string]CargoPurchaseReceipt) error {
 // PurchaseCargo expands the real cargo and debits guild mileage atomically.
 // Other types/currencies remain unsupported until their effects are connected.
 func PurchaseCargo(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurchase, catalog ContentCatalog, now time.Time) (CargoPurchaseReceipt, error) {
+	return purchaseExpansion(ctx, uow, query, catalog, now, 4)
+}
+
+// PurchaseMemberExpansion changes the same limit used by all membership paths.
+// Existing guilds keep their current capacity; purchases may only increase it.
+func PurchaseMemberExpansion(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurchase, catalog ContentCatalog, now time.Time) (CargoPurchaseReceipt, error) {
+	return purchaseExpansion(ctx, uow, query, catalog, now, 6)
+}
+
+func previousMemberLimit(target uint32) int {
+	switch target {
+	case 500:
+		return InitialMemberLimit
+	case 700:
+		return 500
+	case 1000:
+		return 700
+	default:
+		return -1
+	}
+}
+
+func purchaseExpansion(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurchase, catalog ContentCatalog, now time.Time, kind byte) (CargoPurchaseReceipt, error) {
 	var result CargoPurchaseReceipt
 	if uow == nil || query.Revalidate == nil {
 		return result, ErrRepositoryUnavailable
@@ -140,7 +165,7 @@ func PurchaseCargo(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurcha
 	if !validPurchaseID(query.RequestID) {
 		return result, ErrPurchaseIdentity
 	}
-	if query.InitialCapacity == 0 || query.InitialCapacity > catalog.CargoLimit || catalog.CargoLimit > math.MaxInt16+1 || now.IsZero() {
+	if now.IsZero() || (kind == 4 && (query.InitialCapacity == 0 || query.InitialCapacity > catalog.CargoLimit || catalog.CargoLimit > math.MaxInt16+1)) {
 		return result, ErrInvalidContent
 	}
 	err := uow.WithinGuild(ctx, []r.GuildOwner{query.Owner}, func(tx r.Group) error {
@@ -165,7 +190,14 @@ func PurchaseCargo(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurcha
 		if GradePermissionsFor(g, member.Grade)&PurchasePermission == 0 {
 			return ErrPermissionDenied
 		}
-		if previous, exists := reg.CargoPurchases[query.RequestID]; exists {
+		receipts, other := reg.CargoPurchases, reg.MemberExpansions
+		if kind == 6 {
+			receipts, other = other, receipts
+		}
+		if _, reused := other[query.RequestID]; reused {
+			return ErrPurchaseIdentity
+		}
+		if previous, exists := receipts[query.RequestID]; exists {
 			if previous.Owner != query.Owner || previous.GuildID != g.ID || previous.ContentID != query.ContentID {
 				return ErrPurchaseIdentity
 			}
@@ -176,30 +208,56 @@ func PurchaseCargo(ctx context.Context, uow r.GuildUnitOfWork, query CargoPurcha
 			return nil
 		}
 		content, found := catalog.Contents[query.ContentID]
-		if !found || content.ID != query.ContentID || content.Type != 4 || content.Gold || content.Value <= 0 || content.Days != -1 || content.Mode != 0 || content.Price == 0 {
+		if !found || content.ID != query.ContentID || content.Type != kind || content.Gold || content.Value <= 0 || content.Days != -1 || content.Mode != 0 || content.Price == 0 {
 			return ErrInvalidContent
 		}
-		capacity := query.InitialCapacity
-		if g.Cargo != nil {
-			capacity = g.Cargo.Capacity
-		}
-		if capacity == 0 || capacity > catalog.CargoLimit || uint32(content.Value) > catalog.CargoLimit-capacity {
-			return ErrCargoLimitReached
+		var capacity, after uint32
+		if kind == 6 {
+			after = uint32(content.Value)
+			previous := previousMemberLimit(after)
+			if previous < 0 {
+				return ErrInvalidContent
+			}
+			if g.MemberLimit >= int(after) {
+				return ErrMemberExpansionUsed
+			}
+			if g.MemberLimit != previous {
+				return ErrMemberExpansionPrerequisite
+			}
+			capacity = uint32(g.MemberLimit)
+		} else {
+			capacity = query.InitialCapacity
+			if g.Cargo != nil {
+				capacity = g.Cargo.Capacity
+			}
+			if capacity == 0 || capacity > catalog.CargoLimit || uint32(content.Value) > catalog.CargoLimit-capacity {
+				return ErrCargoLimitReached
+			}
+			after = capacity + uint32(content.Value)
 		}
 		if g.Mileage < content.Price {
 			return ErrInsufficientMileage
 		}
-		if g.Cargo == nil {
-			g.Cargo = &Cargo{}
+		if kind == 6 {
+			g.MemberLimit = int(after)
+		} else {
+			if g.Cargo == nil {
+				g.Cargo = &Cargo{}
+			}
+			g.Cargo.Capacity = after
 		}
-		g.Cargo.Capacity = capacity + uint32(content.Value)
 		g.Mileage -= content.Price
 		g.UpdatedAt = now
-		result = CargoPurchaseReceipt{Owner: query.Owner, GuildID: g.ID, ContentID: content.ID, Before: capacity, After: g.Cargo.Capacity, Price: content.Price, At: now}
-		if reg.CargoPurchases == nil {
-			reg.CargoPurchases = make(map[string]CargoPurchaseReceipt)
+		result = CargoPurchaseReceipt{Owner: query.Owner, GuildID: g.ID, ContentID: content.ID, Before: capacity, After: after, Price: content.Price, At: now}
+		if receipts == nil {
+			receipts = make(map[string]CargoPurchaseReceipt)
 		}
-		reg.CargoPurchases[query.RequestID] = result
+		receipts[query.RequestID] = result
+		if kind == 6 {
+			reg.MemberExpansions = receipts
+		} else {
+			reg.CargoPurchases = receipts
+		}
 		if !query.Revalidate() {
 			return ErrCharacterNotFound
 		}

@@ -20,6 +20,10 @@ func guildPurchaseError(err error) byte {
 		return 22
 	case errors.Is(err, guild.ErrCargoLimitReached):
 		return 13
+	case errors.Is(err, guild.ErrMemberExpansionPrerequisite):
+		return 105
+	case errors.Is(err, guild.ErrMemberExpansionUsed):
+		return 116
 	default:
 		return 14
 	}
@@ -49,7 +53,7 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 	}
 	contentID := binary.LittleEndian.Uint32(request.Body)
 	content, found := catalog.Contents[contentID]
-	if !found || content.Type != 4 {
+	if !found || (content.Type != 4 && content.Type != 6) {
 		s.logGameEvent(session, "game-guild-content-unavailable", "content_id", contentID)
 		return fail(34) // No success or charge for effects not implemented yet.
 	}
@@ -68,14 +72,18 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 		release()
 		return fail(14)
 	}
-	result, err := guild.PurchaseCargo(ctx, repos.Guild, guild.CargoPurchase{
+	purchase := guild.PurchaseCargo
+	if content.Type == 6 {
+		purchase = guild.PurchaseMemberExpansion
+	}
+	result, err := purchase(ctx, repos.Guild, guild.CargoPurchase{
 		Owner:     r.GuildOwner{CharacterID: strconv.Itoa(int(source.character)), AccountID: s.accountIDForSession(session)},
 		ContentID: contentID, RequestID: requestID, InitialCapacity: currentGuildCargoInitialCapacity,
 		Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(source) },
 	}, catalog, s.gameplayNow())
 	release()
 	sendErr := s.finishCurrentGuildEdit(ctx, source, result.GuildID, currentGuildPurchaseOpcode, true, err, guildPurchaseError(err))
-	if err == nil {
+	if err == nil && content.Type == 4 {
 		s.refreshCurrentGuildCargoPurchase(ctx, result.GuildID, source)
 	}
 	return sendErr
