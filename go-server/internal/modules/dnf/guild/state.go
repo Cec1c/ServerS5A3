@@ -58,6 +58,7 @@ type Guild struct {
 	Experience         uint32                `json:"experience"`
 	Mileage            uint32                `json:"mileage"`
 	MileageHistory     []MileageHistoryEntry `json:"mileage_history,omitempty"`
+	Cargo              *Cargo                `json:"cargo,omitempty"`
 	Notice             string                `json:"notice,omitempty"`
 	Promotion          string                `json:"promotion,omitempty"`
 	Mark               byte                  `json:"mark,omitempty"`
@@ -610,6 +611,9 @@ func validateRegistry(r Registry) error {
 	for id, g := range r.Guilds {
 		if id == 0 || g == nil || g.ID != id || ValidateName(g.Name) != nil {
 			return ErrInvalidRegistry
+		}
+		if err := ValidateCargo(g.Cargo); err != nil {
+			return err
 		}
 		name := strings.ToLower(strings.TrimSpace(g.Name))
 		if names[name] {
