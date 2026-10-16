@@ -45,10 +45,43 @@ func (s *Service) sendCurrentDungeonResourceState(
 	runtime *runtimeDungeonState,
 	source string,
 ) error {
-	if session == nil || runtime == nil || runtime.Dungeon.ID <= 0 {
+	if session == nil || runtime == nil || runtime.Dungeon.ID <= 0 || runtime.Dungeon.ID > int64(^uint32(0)) {
 		return nil
 	}
-	body := buildCurrentDungeonResourceStateBody(uint32(runtime.Dungeon.ID))
+	// op5 updates the same client cache as the persisted difficulty snapshot.
+	// A low-difficulty/story entry must not replace an already unlocked state.
+	state := byte(currentDungeonResourceSelectedState)
+	if session.selectedCharacterID != 0 {
+		if repositories, ok := s.repositoryGroup(); ok && repositories.DungeonPermission != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			record, found, err := repositories.DungeonPermission.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+			cancel()
+			if err != nil {
+				// Entry has already committed. Omit this optional cache update rather
+				// than sending a downgrade or aborting the committed entry.
+				s.logGameEvent(session, "game-upper-current-dungeon-resource-state-op5-blocked",
+					"source", source, "char_id", session.selectedCharacterID,
+					"dungeon_id", runtime.Dungeon.ID, "reason", "permission_load_failed")
+				return nil
+			}
+			if found {
+				maxState := currentDungeonMaxClearState(runtime.Dungeon)
+				for _, entry := range record.Entries {
+					if entry.DungeonID != uint32(runtime.Dungeon.ID) {
+						continue
+					}
+					saved := entry.ClearState
+					if saved > maxState {
+						saved = maxState
+					}
+					if saved > state {
+						state = saved
+					}
+				}
+			}
+		}
+	}
+	body := buildCurrentDungeonResourceStateEntriesBody([]currentDungeonResourceStateEntry{{DungeonID: uint32(runtime.Dungeon.ID), State: state}})
 	s.logGameEvent(session, "game-upper-current-dungeon-resource-state-op5-send",
 		"source", source,
 		"char_id", session.selectedCharacterID,
@@ -57,8 +90,8 @@ func (s *Service) sendCurrentDungeonResourceState(
 		"body_len", len(body),
 		"row_count", 1,
 		"dungeon_id", runtime.Dungeon.ID,
-		"state", currentDungeonResourceSelectedState,
-		"state_source", "validated_current_select_dungeon_request_and_real_pvf_runtime",
+		"state", state,
+		"state_source", "validated_entry_and_persisted_permission_capped_by_pvf",
 		"body_source", "current_exe_sub_1D37AC0_u16_count_u32_key_u8_state")
 	return s.sendGameUpperRawClass(session, currentDungeonResourceStateMsgID, body, 0)
 }

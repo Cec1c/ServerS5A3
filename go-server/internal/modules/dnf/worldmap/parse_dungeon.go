@@ -149,7 +149,7 @@ func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSec
 		return
 	}
 	if _, ok := dungeonIntegerSections[key]; ok {
-		value, ok := firstInt(section)
+		value, ok := integerMetadataValue(key, section)
 		if !ok {
 			result.Diagnostics = append(result.Diagnostics, diagnostic(section, "expected integer metadata value"))
 			return
@@ -249,6 +249,21 @@ func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSec
 	case "limit party count":
 		setOptionalInt(&result.Metadata.LimitPartyCount, section, &result.Diagnostics)
 	}
+}
+
+const towerOfDespairSectionKey = "tower of despair"
+
+// Real tower scripts use a bare marker. DungeonFile.cs:570-571 treats it as 1;
+// explicit integers keep their value. Symbols and other nonempty invalid
+// values, and empty sections of other kinds, retain the existing diagnostic.
+func integerMetadataValue(key string, section RawSection) (int64, bool) {
+	if value, ok := firstInt(section); ok {
+		return value, true
+	}
+	if key == towerOfDespairSectionKey && len(section.Tokens) == 0 {
+		return 1, true
+	}
+	return 0, false
 }
 
 func parseMazeSection(maze *Maze, section RawSection) {

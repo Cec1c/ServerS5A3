@@ -276,8 +276,8 @@ func (p *Profiles) PlanTransition(job byte, current byte, request Request) (Tran
 	first, awakening := Decode(current)
 	switch request.Kind {
 	case KindClassChange:
-		if request.ChainType != 1 || request.GrowNumber == 0 || first != 0 || awakening != 0 {
-			return Transition{}, fmt.Errorf("%w: class change current=0x%02x target=%d", ErrTransitionOutOfStep, current, request.GrowNumber)
+		if err := CheckClassChangePrecondition(current, request); err != nil {
+			return Transition{}, err
 		}
 		if !profile.growSupported[request.GrowNumber] {
 			return Transition{}, fmt.Errorf("%w: job=%d class=%d", ErrTransitionInvalid, job, request.GrowNumber)
