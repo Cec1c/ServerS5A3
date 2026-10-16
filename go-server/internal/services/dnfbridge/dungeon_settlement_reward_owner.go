@@ -530,6 +530,7 @@ func (s *Service) commitCurrentDungeonSettlement(
 		Tables:                  tables,
 		Experience:              gain,
 		RecommendedDungeonClear: currentDungeonIsRecommendedClear(runtime),
+		GuildOrdinaryClear:      currentDungeonEarnsGuildMileage(runtime),
 		LuckyStar:               luckyPolicy,
 		MonthlyAttendance:       s.currentMonthlyAttendanceEnabled(),
 		WeeklyAttendance:        weekly,
@@ -542,6 +543,9 @@ func (s *Service) commitCurrentDungeonSettlement(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if result.GuildMileage.GuildID != 0 {
+		s.refreshCurrentDungeonGuildMileage(session, result.GuildMileage.GuildID)
+	}
 	if s.currentMonthlyAttendanceEnabled() {
 		// Experience/clear receipt is already committed. Mail delivery is
 		// retried from that durable account state if transport or mail fails.

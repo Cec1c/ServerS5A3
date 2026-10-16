@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
+	"longheng.io/server/internal/modules/dnf/guild"
 	"longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -36,16 +37,19 @@ type SettlementCommand struct {
 	Tables                  *progression.Tables
 	Experience              uint32
 	RecommendedDungeonClear bool
-	LuckyStar               *LuckyStarPolicy
-	MonthlyAttendance       bool
-	WeeklyAttendance        *WeeklyClearContract
-	AdventureRuntime        *adventuregroup.RuntimeConfig
-	HonorExpertTables       *honor.Tables
-	MaximumCharacterLevel   int
-	UpdatedAt               time.Time
+	// GuildOrdinaryClear is set only by the server after ordinary-mode and entry-level checks.
+	GuildOrdinaryClear    bool
+	LuckyStar             *LuckyStarPolicy
+	MonthlyAttendance     bool
+	WeeklyAttendance      *WeeklyClearContract
+	AdventureRuntime      *adventuregroup.RuntimeConfig
+	HonorExpertTables     *honor.Tables
+	MaximumCharacterLevel int
+	UpdatedAt             time.Time
 }
 
 type SettlementResult struct {
+	GuildMileage    guild.DungeonMileageResult
 	Character       dnfrepo.CharacterRecord
 	Skill           dnfrepo.SkillRecord
 	Inventory       dnfrepo.InventoryRecord
@@ -65,7 +69,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		cmd.Tables == nil || cmd.Experience == 0 {
 		return SettlementResult{}, ErrOwnerUnavailable
 	}
-	if cmd.LuckyStar != nil && !cmd.RecommendedDungeonClear {
+	if (cmd.LuckyStar != nil || cmd.GuildOrdinaryClear) && !cmd.RecommendedDungeonClear {
 		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	ctx = contextOrBackground(ctx)
@@ -73,7 +77,19 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 	now := updatedAtOrNow(cmd.UpdatedAt)
 
 	var result SettlementResult
-	err := o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, func(tx dnfrepo.Group) error {
+	within := func(apply func(dnfrepo.Group) error) error {
+		return o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, apply)
+	}
+	if cmd.GuildOrdinaryClear {
+		uow, ok := o.settlements.(dnfrepo.GuildSettlementUnitOfWork)
+		if !ok {
+			return SettlementResult{}, ErrOwnerUnavailable
+		}
+		within = func(apply func(dnfrepo.Group) error) error {
+			return uow.WithinGuildSettlement(ctx, dnfrepo.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}, cmd.CompletionKey, apply)
+		}
+	}
+	err := within(func(tx dnfrepo.Group) error {
 		character, found, err := tx.Character.Load(ctx, cmd.CharacterID)
 		if err != nil {
 			return err
@@ -99,6 +115,13 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character = dnfrepo.CloneCharacter(character)
 		skill = dnfrepo.CloneSkill(skill)
 		inventory = dnfrepo.CloneInventory(inventory)
+		if cmd.GuildOrdinaryClear {
+			result = SettlementResult{Character: character, Skill: skill, Inventory: inventory}
+			found, err := readGuildSettlementReceipt(ctx, tx.Settings, cmd, &result)
+			if err != nil || found {
+				return err
+			}
+		}
 		if settlementReceiptMatches(character.Stats, wantHash) {
 			receiptGain, receiptSP, err := settlementReceiptValues(character, skill)
 			if err != nil {
@@ -112,6 +135,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				LuckyStar: lucky,
 				Character: character, Skill: skill, Inventory: inventory,
 				ExperienceGain: receiptGain, SPGain: receiptSP, Replayed: true,
+			}
+			// A pre-upgrade settlement is not a new clear: migrate its receipt without a retroactive award.
+			if cmd.GuildOrdinaryClear {
+				return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 			}
 			return nil
 		}
@@ -280,6 +307,14 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			HonorExpertGain: appliedHonorExpertGain,
 			SPGain:          planned.SkillPoints.SPGain,
 			TPGain:          planned.SkillPoints.TPGain,
+		}
+		if cmd.GuildOrdinaryClear {
+			mileage, err := guild.GrantDungeonMileage(ctx, tx.Settings, dnfrepo.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}, now)
+			if err != nil {
+				return err
+			}
+			result.GuildMileage = mileage
+			return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 		}
 		return nil
 	})
