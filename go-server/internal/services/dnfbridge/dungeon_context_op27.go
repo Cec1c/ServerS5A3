@@ -1,10 +1,12 @@
 package dnfbridge
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 )
 
 var (
@@ -139,6 +141,26 @@ func (packet currentDungeonContext) Build() ([]byte, error) {
 
 func (s *Service) sendCurrentDungeonContextOp27(session *gameSession, source string) error {
 	packet := currentDungeonContext{}
+	// Current EXE 0x203a520 reads this u16 and 0x1c55230 stores it in
+	// the despair tower controller (getter 0x36252d0), clamped to 1..100.
+	// Read the committed character, including after reconnect/return.
+	if session != nil && session.selectedCharacterID != 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
+		character, err := s.dungeonCharacter(ctx, session.selectedCharacterID, session)
+		cancel()
+		if err != nil {
+			return err
+		}
+		floor, err := dnfdungeon.DespairNextFloor(character.Stats)
+		if err != nil {
+			return err
+		}
+		// Zero already displays floor one through the client's 1..100 clamp.
+		// Preserve the existing empty-context bytes until a clear is committed.
+		if floor > 1 {
+			packet.ContextValue1 = uint16(floor)
+		}
+	}
 	// 深渊派对准入的 **blocked 槽位**就写在这条下发体的 `List0` 上：本仓
 	// `currentDungeonContext` 的 `List0`（`u8 条数 + N×u16`）与厂商
 	// `EnterSelectDungeonStateBuilder.BuildA21EnterSelectDungeon` 的
@@ -168,7 +190,8 @@ func (s *Service) sendCurrentDungeonContextOp27(session *gameSession, source str
 		"hell_blocked_pvf_status", session.hellBlocked.PvfStatus,
 		"hell_blocked_area", session.hellBlocked.AreaID,
 		"body_source", "current_exe_sub_1D868B0_typed_minimum",
-		"context_source", "no_confirmed_current_context_owner")
+		"despair_next_floor", packet.ContextValue1,
+		"context_source", "persisted_character_despair_highest_cleared")
 	if err := s.sendGameUpperRawClass(session, currentDungeonContextMsgID, body, 0); err != nil {
 		return err
 	}
