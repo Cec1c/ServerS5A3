@@ -546,6 +546,8 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		UpgradeRateBuffResolver:      upgradeRateBuffResolver,
 		ForgingResolver:              forgingResolver,
 		Forging:                      forgingRequest,
+		ExperienceBuffResolver:       s.experienceBuffResolver(dnfenum.CmdPacket(typ)),
+		ExperienceBuffNow:            s.gameplayNow(),
 		MagicBoxResolver:             magicBoxResolver,
 		MagicBoxRewardItemResolver:   magicBoxRewardResolver,
 		RandomRewardItemResolver:     randomRewardItemResolver,

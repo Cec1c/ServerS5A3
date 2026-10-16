@@ -2346,10 +2346,10 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 	if !o.inItemTransaction {
 		var result UseStackableResult
 		wrap := o.withinInventoryTransaction
-		// 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
+		// 经验 / 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
 		// 所以这一族走角色资产事务：药水被扣掉与 buff 被记上要么一起成立、
 		// 要么一起不成立。其它消耗品保持既有事务口径（逐字节不变）。
-		if cmd.UseUpgradeBuff != nil && o.assets != nil {
+		if cmd.UseExperienceBuff != nil || (cmd.UseUpgradeBuff != nil && o.assets != nil) {
 			wrap = o.withinCharacterAssetTransaction
 		}
 		err := wrap(ctx, characterID, func(txOwner *Owner) error {
@@ -2395,6 +2395,11 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 			cmd.SourceSlotIndex,
 			stack.ItemID,
 		)
+	}
+	if cmd.UseExperienceBuff != nil {
+		if err := o.recordExperiencePotion(ctx, cmd, characterID, stack); err != nil {
+			return UseStackableResult{}, err
+		}
 	}
 	reviveCoinConsumable := dnfrevivecoin.IsConsumable(stack)
 
