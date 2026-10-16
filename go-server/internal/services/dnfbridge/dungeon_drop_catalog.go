@@ -103,6 +103,9 @@ type dungeonDropWeightedItem struct {
 // not decide how often a monster drops, allocate a scene slot, or mutate the
 // player's inventory. Those are separate runtime/asset transactions.
 type pvfDungeonDropCatalog struct {
+	despairPoolLoaded bool
+	despairPools      [2]map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
+	despairPoolErr    error
 	chronicleCatalogCache
 
 	mu sync.Mutex
