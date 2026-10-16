@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/premium"
@@ -35,6 +36,7 @@ type currentDungeonSettlementRewardResources struct {
 }
 
 type currentDungeonSettlementCommitResult struct {
+	DespairItems    []dnfdungeon.DespairGrantedItem
 	Character       dnfrepo.CharacterRecord
 	Skill           dnfrepo.SkillRecord
 	Inventory       dnfrepo.InventoryRecord
@@ -232,9 +234,12 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		if err != nil {
 			return err
 		}
-		// No unproved tower item award is synthesized. This packet presents
-		// the committed clear/time; ordinary pickup receipts are not new awards.
-		plan.DespairResultBody, err = buildCurrentDespairResultBody(presentation.ClearTimeMS, uint16(floor), nil)
+		items := make([]currentDespairResultItem, 0, len(result.DespairItems))
+		for _, item := range result.DespairItems {
+			items = append(items, currentDespairResultItem{ItemID: item.ItemID, Quantity: item.Quantity})
+			plan.DespairItemSlots = append(plan.DespairItemSlots, alignedcmd.ItemSlotRefresh{ListType: item.ListType, SlotIndex: item.Slot})
+		}
+		plan.DespairResultBody, err = buildCurrentDespairResultBody(presentation.ClearTimeMS, uint16(floor), items)
 		if err != nil {
 			return err
 		}
@@ -539,8 +544,14 @@ func (s *Service) commitCurrentDungeonSettlement(
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
 	}
+	if despairFloor != 0 {
+		if err := s.freezeCurrentDespairRewardsLocked(runtime); err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
 		DespairClearedFloor:     despairFloor,
+		DespairRewards:          runtime.settlementDespairRewards,
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
 		CompletionKey:           runtime.clearMapCompletionKey,
@@ -572,6 +583,7 @@ func (s *Service) commitCurrentDungeonSettlement(
 		}
 	}
 	return currentDungeonSettlementCommitResult{
+		DespairItems:    result.DespairItems,
 		Character:       result.Character,
 		Skill:           result.Skill,
 		Inventory:       result.Inventory,

@@ -8,6 +8,15 @@ func (s *Service) sendCurrentDespairSettlementLocked(session *gameSession, runti
 	if len(plan.DespairResultBody) < 7 {
 		return errCurrentDungeonSettlementPlanShape
 	}
+	if !runtime.settlementDespairItemsSent {
+		refreshes := plan.DespairItemSlots
+		if len(refreshes) > 0 {
+			if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "despair-settlement", refreshes); err != nil {
+				return err
+			}
+		}
+		runtime.settlementDespairItemsSent = true
+	}
 	if !runtime.settlementDespairResultSent {
 		if err := s.sendGameUpperRawClass(session, currentDespairResultMsgID, plan.DespairResultBody, 0); err != nil {
 			return err

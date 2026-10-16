@@ -135,6 +135,7 @@ func TestDespairProducerPersistsFloorAndSelectorReadsCommittedProgress(t *testin
 	rt.startedAt = time.Unix(1700000000, 0)
 	rt.clearMapCompletionAt = rt.startedAt.Add(12345 * time.Millisecond)
 	resources := currentDungeonSettlementTestResources(t)
+	rt.settlementDespairRewards = &dnfdungeon.DespairRewards{}
 	if err := s.produceCurrentDungeonSettlementPlanWithResourcesLocked(context.Background(), session, rt, resources); err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -26,6 +27,7 @@ type currentDungeonSettlementPacketPlan struct {
 	ClearRewardBody       []byte
 	DungeonPermissionBody []byte
 	DespairResultBody     []byte
+	DespairItemSlots      []alignedcmd.ItemSlotRefresh
 }
 
 func buildCurrentDungeonSettlementPacketPlan(

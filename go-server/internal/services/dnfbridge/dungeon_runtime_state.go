@@ -130,6 +130,8 @@ type runtimeDungeonState struct {
 	settlementCharacterStateSent         bool
 	settlementClearRewardSent            bool
 	settlementDespairResultSent          bool
+	settlementDespairItemsSent           bool
+	settlementDespairRewards             *dnfdungeon.DespairRewards
 	settlementCardScrollStateSent        bool
 	settlementCardRightStateSent         bool
 	settlementCardLayoutSent             bool
