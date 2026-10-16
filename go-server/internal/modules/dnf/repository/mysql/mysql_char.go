@@ -629,7 +629,7 @@ func (s *mysqlCharStore) FindIDByName(ctx context.Context, name string) (string,
 	}
 	for _, database := range s.router.readDBs {
 		table := mysqlTable(database, s.router.tablePrefix, mysqlCharTable)
-		query := "SELECT character_id FROM " + table + " WHERE name = ? AND delete_flag = 0 LIMIT 1"
+		query := s.router.selectQuery("SELECT character_id FROM " + table + " WHERE name = ? AND delete_flag = 0 LIMIT 1")
 		var id string
 		err := s.router.db.QueryRowContext(ctx, query, name).Scan(&id)
 		if err == nil {
