@@ -116,6 +116,8 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	ownerSentinelOrdinaryTarget := false
 	ownerSentinelBlockingClearTarget := false
 	ownerSentinelBlockingClearSource := ""
+	var storyProcEvidence dungeonStoryProcDeathEvidence
+	storyProcDeath := false
 	if ownerIsSentinel {
 		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath {
 			if !roomProvenHostile {
@@ -163,8 +165,16 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 				}
 			}
 		}
+		if hasScene && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget {
+			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
+			if storyProcDeath {
+				if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+					return s.replayCurrentDungeonStoryProcDeathLocked(session, runtime, request.RuntimeObjectKey)
+				}
+			}
+		}
 	}
-	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget {
+	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath {
 		target, retirementErr := runtime.Room.RetireNonHostileAIActor(request.RuntimeObjectKey)
 		if retirementErr != nil {
 			if hasScene {
@@ -282,7 +292,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	// 开关、取证与"退化成最小伤害 1"的判定见 dungeon_party_hit_owner.go。
 	hitOwnerMode := s.dungeonPartyHitOwnerGate()
 	hitOwner := s.resolveCurrentDungeonPartyHitOwner(session, runtime, request.OwnerObjectKey, hitOwnerMode)
-	if !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget &&
+	if !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath &&
 		request.OwnerObjectKey != playerObjectKey &&
 		!roomProvenHostile &&
 		!dungeonRuntimeContainsDeathOwnerObjectKey(runtime, uint32(request.OwnerObjectKey)) &&
@@ -601,6 +611,12 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			"error", reportErr)
 		return nil
 	}
+	if storyProcDeath {
+		if runtime.storyProcDeaths == nil {
+			runtime.storyProcDeaths = make(map[uint32]dungeonStoryProcDeathReceipt)
+		}
+		runtime.storyProcDeaths[request.RuntimeObjectKey] = dungeonStoryProcDeathReceipt{Evidence: storyProcEvidence, MapID: scene.Map.Map.ID, Coordinate: scene.Coordinate, Reference: target.Reference}
+	}
 	scene, _ = runtime.Session.Scene()
 	storyAIBossGate, storyAIBossGateActive := currentDungeonStoryAIBossDeathGate(runtime, scene)
 	rewardMonster := dropMonster
@@ -916,6 +932,12 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		"combat_entry_count", request.CombatEntryCount,
 		"actor_kind", target.Reference.Kind,
 		"scripted_tutorial_death", scriptedTutorialDeath,
+		"story_proc_death", storyProcDeath,
+		"story_proc_quest_id", storyProcEvidence.QuestID,
+		"story_proc_ai_id", storyProcEvidence.AICharacterID,
+		"story_proc_action_path", storyProcEvidence.ActionPath,
+		"story_proc_passive_id", storyProcEvidence.PassiveObjectID,
+		"story_proc_behavior_index", storyProcEvidence.BehaviorIndex,
 		"scripted_tutorial_monster_id", scriptedTutorialMonster.Spawn.MonsterID,
 		"scripted_tutorial_rank", scriptedTutorialMonster.Spawn.Rank,
 		"scripted_tutorial_monster_index", scriptedTutorialEvidence.MonsterIndex,
