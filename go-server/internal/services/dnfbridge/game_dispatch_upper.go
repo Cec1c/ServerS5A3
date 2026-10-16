@@ -13,6 +13,7 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	if err != nil {
 		return err
 	}
+	requestSequence := session.guild.purchaseSequence.observe(packet.Header.Seq)
 	runtimeName := upperRuntimeCmdPacketName(packet.Header.MsgID, packet.Header.Classification)
 	runtimeKnown := upperRuntimeCmdPacketKnown(packet.Header.MsgID, packet.Header.Classification)
 	wireBodyLen := len(packet.Body)
@@ -121,13 +122,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	if s.options.currentClientVersion == "official-24.9" && packet.Header.MsgID == official249PrevVillageCmdID && packet.Header.Classification == dnfproto.DefaultChannelClassification {
 		return s.handleCurrentPrevVillage(session, packet.Body)
 	}
-	if handled, err := currentGameplayModules.DispatchUpper(
-		s,
-		session,
-		packet.Header.MsgID,
-		packet.Header.Classification,
-		packet.Body,
-	); handled || err != nil {
+	if handled, err := currentGameplayModules.dispatchUpperRequest(s, session, gameplayRequest{
+		Opcode: packet.Header.MsgID, Classification: packet.Header.Classification, Body: packet.Body, Sequence: &requestSequence,
+	}); handled || err != nil {
 		return err
 	}
 	if handled, err := s.handleCurrentEpicWishCommand(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {

@@ -36,7 +36,16 @@ func (s *Service) handleCurrentGuildCargoHistory(session *gameSession, body []by
 }
 
 func (s *Service) handleCurrentGuildCargoQuery(session *gameSession, op uint16, request []byte) error {
-	fail := func(code byte) error { return s.sendGameUpperFailure(session, op, code) }
+	return s.handleCurrentGuildCargoQueryForGuild(session, op, request, 0)
+}
+
+func (s *Service) handleCurrentGuildCargoQueryForGuild(session *gameSession, op uint16, request []byte, expectedGuild uint32) error {
+	fail := func(code byte) error {
+		if expectedGuild != 0 {
+			return nil
+		}
+		return s.sendGameUpperFailure(session, op, code)
+	}
 	if len(request) != 0 {
 		return fail(8)
 	}
@@ -86,11 +95,18 @@ func (s *Service) handleCurrentGuildCargoQuery(session *gameSession, op uint16, 
 	if err != nil {
 		return fail(8)
 	}
-	view, err := guild.OpenCargo(ctx, repos.Guild, guild.CargoQuery{Owner: r.GuildOwner{CharacterID: strconv.Itoa(int(identity.character)), AccountID: s.accountIDForSession(session)}, Revalidate: revalidate}, guild.CargoInitialization{
-		InitialCapacity: currentGuildCargoInitialCapacity, MaxCapacity: limit, Now: s.gameplayNow(),
-	})
+	query := guild.CargoQuery{Owner: r.GuildOwner{CharacterID: strconv.Itoa(int(identity.character)), AccountID: s.accountIDForSession(session)}, Revalidate: revalidate}
+	var view guild.CargoView
+	if expectedGuild != 0 {
+		view, err = guild.ReadCargo(ctx, repos.Guild, query)
+	} else {
+		view, err = guild.OpenCargo(ctx, repos.Guild, query, guild.CargoInitialization{InitialCapacity: currentGuildCargoInitialCapacity, MaxCapacity: limit, Now: s.gameplayNow()})
+	}
 	if err != nil {
 		return fail(currentGuildCargoQueryError(op, err))
+	}
+	if expectedGuild != 0 && view.GuildID != expectedGuild {
+		return nil
 	}
 	var body []byte
 	if op == currentGuildCargoOpcode {
