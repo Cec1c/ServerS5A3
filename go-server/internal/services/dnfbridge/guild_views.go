@@ -55,6 +55,10 @@ func (s *Service) currentGuildOnlineChannels(g *dnfguild.Guild, requester *gameS
 // The caller must already own the selected town-scene lock. Do not call the
 // scene readiness helper here: login invokes this after committing its actor.
 func (s *Service) writeCurrentGuildManagementState(session *gameSession, g *dnfguild.Guild) error {
+	return s.writeCurrentGuildManagementProjection(session, g, true)
+}
+
+func (s *Service) writeCurrentGuildManagementProjection(session *gameSession, g *dnfguild.Guild, notifyMembership bool) error {
 	grade := byte(100)
 	if g != nil {
 		if m, ok := g.Members[strconv.Itoa(int(session.selectedCharacterID))]; ok && m.AccountID == s.accountIDForSession(session) {
@@ -68,11 +72,13 @@ func (s *Service) writeCurrentGuildManagementState(session *gameSession, g *dnfg
 			return err
 		}
 	}
-	if err := s.sendGameUpperRawClass(session, 127, []byte{grade}, 0); err != nil {
-		return err
-	}
-	if err := s.sendGameUpperRawClass(session, currentGuildMembershipNotificationMsgID, buildCurrentGuildMembershipNotificationBody(g), 0); err != nil {
-		return err
+	if notifyMembership {
+		if err := s.sendGameUpperRawClass(session, 127, []byte{grade}, 0); err != nil {
+			return err
+		}
+		if err := s.sendGameUpperRawClass(session, currentGuildMembershipNotificationMsgID, buildCurrentGuildMembershipNotificationBody(g), 0); err != nil {
+			return err
+		}
 	}
 	return s.writeCurrentGuildBuffProjection(session, g, false)
 }
@@ -81,6 +87,12 @@ func (s *Service) writeCurrentGuildManagementState(session *gameSession, g *dnfg
 // that optional projection avoids a cross-session town-lock inversion; the
 // peer's own scene commit or next member-list request restores current state.
 func (s *Service) sendCurrentGuildManagementState(session *gameSession, g *dnfguild.Guild) error {
+	return s.sendCurrentGuildManagementProjection(session, g, true)
+}
+
+// A roster query also runs when opening the hongbao tab. Keep its model and
+// buff refresh, without replaying login/membership-change notifications.
+func (s *Service) sendCurrentGuildManagementProjection(session *gameSession, g *dnfguild.Guild, notifyMembership bool) error {
 	if session == nil || !session.townMu.TryLock() {
 		return nil
 	}
@@ -88,7 +100,7 @@ func (s *Service) sendCurrentGuildManagementState(session *gameSession, g *dnfgu
 	if session.townSceneReadyCharacterID != session.selectedCharacterID || session.selectedCharacterID == 0 {
 		return nil
 	}
-	return s.writeCurrentGuildManagementState(session, g)
+	return s.writeCurrentGuildManagementProjection(session, g, notifyMembership)
 }
 
 func (s *Service) refreshCurrentGuildMembership(ctx context.Context, session *gameSession, g *dnfguild.Guild) error {
@@ -218,7 +230,7 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
 	cursor := opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberListNext)
 	if full {
-		if err = s.sendCurrentGuildManagementState(session, g); err != nil {
+		if err = s.sendCurrentGuildManagementProjection(session, g, false); err != nil {
 			return err
 		}
 	}
