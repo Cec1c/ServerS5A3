@@ -332,6 +332,40 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		session.dungeon.mu.Unlock()
 		return nil
 	}
+	if currentDungeonIsDespairTower(runtime) {
+		// Tower rewards have their own durable receipt and result window. They
+		// never enter the ordinary op69/70/71 card handshake.
+		if !currentDespairCompletedResultExitReady(runtime, session.selectedCharacterID) || !runtime.settlementDespairResultSent ||
+			(!shouldReturnToTown && !shouldOpenOtherSelector) {
+			s.logGameEvent(session, "game-dungeon-despair-result-action-blocked", "char_id", session.selectedCharacterID,
+				"request_value_a", request.ValueA, "request_value_b", request.ValueB, "reason", "result_not_ready_or_action_not_allowed")
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if shouldOpenOtherSelector && !retryRequesterIsLeader {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+			runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		}
+		session.dungeon.mu.Unlock()
+		if shouldOpenOtherSelector {
+			return s.selectOtherDungeonForCompletedParty(session, runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_despair_return_to_town")
+	}
 	if shouldReturnToTown && s.currentRaidCompletedMapTownReturnReady(session, runtime) {
 		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {

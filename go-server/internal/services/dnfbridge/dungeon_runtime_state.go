@@ -129,6 +129,9 @@ type runtimeDungeonState struct {
 	settlementResultNoticeSent           bool
 	settlementCharacterStateSent         bool
 	settlementClearRewardSent            bool
+	settlementDespairResultSent          bool
+	settlementDespairItemsSent           bool
+	settlementDespairRewards             *dnfdungeon.DespairRewards
 	settlementCardScrollStateSent        bool
 	settlementCardRightStateSent         bool
 	settlementCardLayoutSent             bool
@@ -477,6 +480,14 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	character, err := s.dungeonCharacter(ctx, session.selectedCharacterID, session)
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
+	}
+	if floor, err := currentDespairFloor(dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	} else if floor != 0 {
+		next, err := dnfdungeon.DespairNextFloor(character.Stats)
+		if err != nil || floor != next {
+			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
+		}
 	}
 	character, err = s.updateCurrentCharacterFatigue(ctx, session, false)
 	if err != nil {
