@@ -18,6 +18,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	boosterGameplayModule(),
 	rentalGameplayModule(),
 	epicProductionGameplayModule(),
+	epicBookGameplayModule(),
 	guardianGemGameplayModule(),
 	equipmentSocketGameplayModule(),
 	equipmentEmblemControlGameplayModule(),
