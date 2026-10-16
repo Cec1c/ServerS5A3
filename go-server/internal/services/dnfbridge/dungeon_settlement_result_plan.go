@@ -25,6 +25,7 @@ type currentDungeonSettlementPacketPlan struct {
 	CharacterBody         []byte
 	ClearRewardBody       []byte
 	DungeonPermissionBody []byte
+	DespairResultBody     []byte
 }
 
 func buildCurrentDungeonSettlementPacketPlan(

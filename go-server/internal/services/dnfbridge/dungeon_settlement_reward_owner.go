@@ -227,6 +227,18 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if len(permissionBody) != 0 {
 		plan.DungeonPermissionBody = append([]byte(nil), permissionBody...)
 	}
+	if currentDungeonIsDespairTower(runtime) {
+		floor, err := currentDespairFloor(runtime.Dungeon)
+		if err != nil {
+			return err
+		}
+		// No unproved tower item award is synthesized. This packet presents
+		// the committed clear/time; ordinary pickup receipts are not new awards.
+		plan.DespairResultBody, err = buildCurrentDespairResultBody(presentation.ClearTimeMS, uint16(floor), nil)
+		if err != nil {
+			return err
+		}
+	}
 	runtime.Character = dnfrepo.CloneCharacter(result.Character)
 	runtime.settlementResultPlan = &plan
 	s.logGameEvent(session, "game-dungeon-settlement-plan-frozen",
@@ -523,7 +535,12 @@ func (s *Service) commitCurrentDungeonSettlement(
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
 	}
+	despairFloor, err := currentDespairFloor(runtime.Dungeon)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		DespairClearedFloor:     despairFloor,
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
 		CompletionKey:           runtime.clearMapCompletionKey,

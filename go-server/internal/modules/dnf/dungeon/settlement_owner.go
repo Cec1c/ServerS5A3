@@ -30,6 +30,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	DespairClearedFloor     int
 	AccountID               string
 	CharacterID             string
 	CompletionKey           string
@@ -114,6 +115,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				ExperienceGain: receiptGain, SPGain: receiptSP, Replayed: true,
 			}
 			return nil
+		}
+		if cmd.DespairClearedFloor != 0 {
+			if err := ApplyDespairClear(character.Stats, cmd.DespairClearedFloor); err != nil {
+				return err
+			}
 		}
 		experience, present := character.Stats["exp"]
 		if !present || experience < 0 || uint64(experience) > math.MaxUint32 ||
