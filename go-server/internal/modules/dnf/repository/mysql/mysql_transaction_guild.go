@@ -9,6 +9,14 @@ import (
 type mysqlGuildUnitOfWork struct{ router mysqlRouter }
 
 func (u *mysqlGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, apply)
+}
+
+func (u *mysqlGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, apply)
+}
+
+func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory bool, apply func(repository.Group) error) error {
 	ordered, err := repository.GuildOwners(owners)
 	if err != nil {
 		return err
@@ -47,11 +55,19 @@ func (u *mysqlGuildUnitOfWork) WithinGuild(ctx context.Context, owners []reposit
 		return err
 	}
 	group := repository.GuildScopedGroup(newMySQLGroupFromRouter(router, false), ordered)
+	if withInventory {
+		group = repository.GuildInventoryScopedGroup(newMySQLGroupFromRouter(router, false), ordered[0])
+	}
 	if _, _, err = group.Settings.Load(ctx, repository.GuildRegistryScope); err != nil {
 		return err
 	}
 	for _, owner := range ordered {
 		if _, _, err = group.Character.Load(ctx, owner.CharacterID); err != nil {
+			return err
+		}
+	}
+	if withInventory {
+		if _, _, err = group.Inventory.Load(ctx, ordered[0].CharacterID); err != nil {
 			return err
 		}
 	}

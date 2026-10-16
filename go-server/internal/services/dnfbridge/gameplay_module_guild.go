@@ -4,6 +4,14 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildInviteOpcode:                            (*Service).handleCurrentGuildInvitation,
+		currentGuildInviteReplyOpcode:                       (*Service).handleCurrentGuildInvitationReply,
+		uint16(dnfenum.CmdPacketSetSubGuildMaster):          (*Service).handleCurrentGuildMemberGrade,
+		uint16(dnfenum.CmdPacketChangeGuildGradeName):       (*Service).handleCurrentGuildGradeName,
+		uint16(dnfenum.CmdPacketChangeGuildGrade):           (*Service).handleCurrentGuildGradePermissions,
+		uint16(dnfenum.CmdPacketModifyGuildPromoteMsg):      (*Service).handleCurrentGuildSettings,
+		uint16(dnfenum.CmdPacketNotifyMessageToGuild):       (*Service).handleCurrentGuildNotice,
+		uint16(dnfenum.CmdPacketWriteGuildMemberMemo):       (*Service).handleCurrentGuildMemberMemo,
 		uint16(dnfenum.CmdPacketCheckJoinGuild):             (*Service).handleCurrentGuildJoinCheck,
 		uint16(dnfenum.CmdPacketRequestJoinGuild):           (*Service).handleCurrentGuildApply,
 		uint16(dnfenum.CmdPacketCancelJoinGuild):            (*Service).handleCurrentGuildCancelApply,
@@ -17,6 +25,7 @@ func guildGameplayModule() gameplayModuleDefinition {
 		uint16(dnfenum.CmdPacketReplyGuildCreatePermit):     (*Service).handleCurrentGuildCreatePermitReply,
 		uint16(dnfenum.CmdPacketCancelGuildCreate):          (*Service).handleCurrentGuildCreateCancel,
 		uint16(dnfenum.CmdPacketGuildInfo):                  (*Service).handleCurrentGuildInfo,
+		uint16(dnfenum.CmdPacketReqGuildMileageHistory):     (*Service).handleCurrentGuildMileageHistory,
 		currentGuildAccountIndexOpcode:                      (*Service).handleCurrentGuildAccountList,
 		uint16(dnfenum.CmdPacketReqGuildInfoOfMyChars):      (*Service).handleCurrentGuildAccountList,
 		currentGuildSearchOpcode:                            (*Service).handleCurrentGuildSearch,
@@ -44,6 +53,12 @@ func guildGameplayModule() gameplayModuleDefinition {
 				return s.sendVendorGuildMemberListState(session, "guild_unselected")
 			}
 			if _, err := s.currentGuildOwnedSelectedCharacter(session); err != nil {
+				if opcode == uint16(dnfenum.CmdPacketSetSubGuildMaster) {
+					return s.sendGameUpperFailure(session, opcode, 3)
+				}
+				if opcode == uint16(dnfenum.CmdPacketNotifyMessageToGuild) || opcode == uint16(dnfenum.CmdPacketWriteGuildMemberMemo) || opcode == uint16(dnfenum.CmdPacketModifyGuildPromoteMsg) {
+					return s.sendGameUpperFailure(session, opcode, 34)
+				}
 				return s.rejectCurrentGuildRequest(session, opcode, body)
 			}
 			s.logGameEvent(session, "game-guild-request", "opcode", opcode, "body_len", len(body))

@@ -14,11 +14,7 @@ import (
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
 
-// 现场抓到的 op515 体（香港 packet_log.20260925-034443.txt line 429，
-// 操作者会话 game-000007 右键 `Lv1~90主线任务完成券`）：
-//
-//	57 00 00 00 00 00 00 00 a7 00 00 00 00 00 00 00 00 00 00
-//	i16 slot=87, u8 list=0, u32 action=167, reserved all zero
+// Matching-client native action IDs: gm quest clear 169, lv clear 179.
 const (
 	testQuestClearCouponItemID = 10164630
 	testQuestClearCouponPath   = "stackable/10164001/10164630.stk"
@@ -120,12 +116,12 @@ func TestCurrentQuestClearCouponCompletesMainStoryWithNoRewardAndConsumesOne(t *
 		t.Fatalf("load character found=%t err=%v", found, err)
 	}
 
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
+	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 169))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !handled {
-		t.Fatal("op515 action 167 was not claimed by the completion-coupon handler")
+		t.Fatal("op515 action 169 was not claimed by the completion-coupon handler")
 	}
 
 	stored, found, err := repositories.Quest.Load(ctx, "17")
@@ -184,7 +180,7 @@ func TestCurrentQuestClearCouponCompletesMainStoryWithNoRewardAndConsumesOne(t *
 		ack.Header.Classification != dnfproto.DefaultChannelClassification {
 		t.Fatalf("op515 ack header=%+v", ack.Header)
 	}
-	wantAck := []byte{1, 0x57, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
+	wantAck := []byte{1, 87, 0, 0, 169, 0, 0, 0}
 	if !bytes.Equal(ack.Body, wantAck) {
 		t.Fatalf("op515 ack body=%x want=%x", ack.Body, wantAck)
 	}
@@ -214,7 +210,7 @@ func TestCurrentQuestClearCouponNoopKeepsTheCouponWhenNothingCanBeCleared(t *tes
 		t.Fatal(err)
 	}
 
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
+	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 169))
 	if err != nil || !handled {
 		t.Fatalf("handled=%t err=%v", handled, err)
 	}
@@ -236,22 +232,22 @@ func TestCurrentQuestClearCouponNoopKeepsTheCouponWhenNothingCanBeCleared(t *tes
 		t.Fatalf("no-op coupon was consumed: %+v", stack)
 	}
 	ack, _ := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
-	wantAck := []byte{1, 0x57, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01}
+	wantAck := []byte{0, 17, 87, 0, 0, 169}
 	if !bytes.Equal(ack.Body, wantAck) {
 		t.Fatalf("no-op ack body=%x want=%x", ack.Body, wantAck)
 	}
 }
 
 // TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem 覆盖两条
-// fail-closed 边界：damage-font 的 action 162 必须继续走原路由；非完成券道具
+// fail-closed 边界：damage-font 的 action 164 必须继续走原路由；非完成券道具
 // 落在该格时零写入、零回包。
 func TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem(t *testing.T) {
 	ctx := context.Background()
 	service, session, repositories := newQuestClearCouponTestService(t, 1)
 
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 162))
+	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 164))
 	if err != nil || handled {
-		t.Fatalf("damage-font action 162 must fall through: handled=%t err=%v", handled, err)
+		t.Fatalf("damage-font action 164 must fall through: handled=%t err=%v", handled, err)
 	}
 	if len(session.conn.(*bufferConn).write.Bytes()) != 0 {
 		t.Fatal("foreign action index produced a packet")
@@ -268,7 +264,7 @@ func TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem(t *testi
 		t.Fatal(err)
 	}
 
-	handled, err = service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
+	handled, err = service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 169))
 	if err != nil || !handled {
 		t.Fatalf("foreign item must be claimed then rejected: handled=%t err=%v", handled, err)
 	}
@@ -291,11 +287,11 @@ func TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem(t *testi
 	}
 }
 
-// TestCurrentQuestClearCouponAcceptsTheLevelClearFamilyOnlyThroughTheSameAction
+// TestCurrentQuestClearCouponAcceptsTheLevelClearFamilyThroughItsNativeAction
 // 固定 "真档里 [lv clear] 只有一个成员且声明 90" 这个前提：本实现按与
 // [gm quest clear] 完全相同的口径处理它（同一个 handler、同一个 planner、
 // 同一个 cutoff = 券的 PVF 上限 90）。
-func TestCurrentQuestClearCouponAcceptsTheLevelClearFamilyOnlyThroughTheSameAction(t *testing.T) {
+func TestCurrentQuestClearCouponAcceptsTheLevelClearFamilyThroughItsNativeAction(t *testing.T) {
 	ctx := context.Background()
 	service, session, repositories := newQuestClearCouponTestService(t, 1)
 	inventory, _, err := repositories.Inventory.Load(ctx, "17")
@@ -308,7 +304,7 @@ func TestCurrentQuestClearCouponAcceptsTheLevelClearFamilyOnlyThroughTheSameActi
 	if err := repositories.Inventory.Save(ctx, inventory); err != nil {
 		t.Fatal(err)
 	}
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
+	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 179))
 	if err != nil || !handled {
 		t.Fatalf("handled=%t err=%v", handled, err)
 	}
@@ -392,7 +388,7 @@ func TestCurrentQuestClearCouponDebugCommandIsObservedOnly(t *testing.T) {
 func TestCurrentQuestClearCouponConsumptionIsFailClosedWithoutRepository(t *testing.T) {
 	service, session, _ := newQuestClearCouponTestService(t, 1)
 	service.repositoryProvider = func() (dnfrepo.Group, bool) { return dnfrepo.Group{}, false }
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 167))
+	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 169))
 	if err != nil || !handled {
 		t.Fatalf("handled=%t err=%v", handled, err)
 	}
@@ -401,14 +397,11 @@ func TestCurrentQuestClearCouponConsumptionIsFailClosedWithoutRepository(t *test
 	}
 }
 
-func TestCurrentQuestClearCouponAckMatchesTheVerifiedDamageFontShape(t *testing.T) {
-	if got := buildCurrentQuestClearCouponAck(87, 3); !bytes.Equal(got, []byte{1, 0x57, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01}) {
-		t.Fatalf("ack body=%x", got)
-	}
-	if got := len(buildCurrentQuestClearCouponAck(0, 0)); got != currentQuestClearCouponAckSize {
-		t.Fatalf("ack size=%d want=%d", got, currentQuestClearCouponAckSize)
-	}
-	if got := buildCurrentQuestClearCouponAck(1, 70000); binary.LittleEndian.Uint16(got[5:7]) != 4464 {
-		t.Fatalf("remaining outside u16 must wrap deterministically: %x", got)
+func TestCurrentQuestClearCouponAckUsesNativeActionField(t *testing.T) {
+	for _, action := range []uint32{169, 179} {
+		got := buildCurrentQuestClearCouponAck(87, action)
+		if !bytes.Equal(got, []byte{1, 87, 0, 0, byte(action), 0, 0, 0}) {
+			t.Fatalf("native action %d ack=%x", action, got)
+		}
 	}
 }

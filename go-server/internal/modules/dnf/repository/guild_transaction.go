@@ -24,6 +24,49 @@ type GuildUnitOfWork interface {
 	WithinGuild(context.Context, []GuildOwner, func(Group) error) error
 }
 
+// GuildInventoryUnitOfWork adds only the actor's inventory to the guild lock
+// boundary. Creation and member-management transactions retain their original
+// scope. Lock order is registry, owned character, owned inventory.
+type GuildInventoryUnitOfWork interface {
+	WithinGuildInventory(context.Context, GuildOwner, func(Group) error) error
+}
+
+func GuildInventoryScopedGroup(base Group, owner GuildOwner) Group {
+	group := GuildScopedGroup(base, []GuildOwner{owner})
+	group.Inventory = &guildInventory{base: base.Inventory, characterID: owner.CharacterID}
+	return group
+}
+
+type guildInventory struct {
+	base        InventoryRepository
+	characterID string
+}
+
+func (r *guildInventory) Load(ctx context.Context, id string) (InventoryRecord, bool, error) {
+	if r.base == nil || id != r.characterID {
+		return InventoryRecord{}, false, ErrGuildTransaction
+	}
+	record, found, err := r.base.Load(ctx, id)
+	if err == nil && found && record.CharacterID != id {
+		return InventoryRecord{}, false, ErrGuildTransaction
+	}
+	return record, found, err
+}
+
+func (r *guildInventory) Save(ctx context.Context, record InventoryRecord) error {
+	if r.base == nil || record.CharacterID != r.characterID {
+		return ErrGuildTransaction
+	}
+	return r.base.Save(ctx, record)
+}
+
+func (r *guildInventory) SaveFields(ctx context.Context, record InventoryRecord, fields ...InventoryField) error {
+	if r.base == nil || record.CharacterID != r.characterID {
+		return ErrGuildTransaction
+	}
+	return SaveInventoryFields(ctx, r.base, record, fields...)
+}
+
 func GuildOwners(owners []GuildOwner) ([]GuildOwner, error) {
 	if len(owners) < 1 || len(owners) > 2 {
 		return nil, ErrGuildTransaction

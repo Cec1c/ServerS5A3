@@ -314,7 +314,13 @@ func (s *Service) publishTownPresenceInArea(
 	mapPath := ""
 	if area, found := s.townArea(int64(townID), int64(areaID)); found {
 		mapPath = area.MapPath
-		areaInstance = townAreaInstanceForMapPath(area.MapPath, characterID)
+		var err error
+		areaInstance, err = s.currentTownAreaInstance(ctx, session, character, area.MapPath)
+		if err != nil {
+			s.logGameEvent(session, "game-town-presence-guild-hall-rejected", "source", source, "error", err)
+			s.retireCurrentGuildHallPresence(session)
+			return
+		}
 	}
 	raidBattle := ""
 	playerInfo := &onlinePlayerInfo{

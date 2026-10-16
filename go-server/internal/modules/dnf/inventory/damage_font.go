@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	damageFontActionIndex               uint32 = 162
+	damageFontActionIndex               uint32 = 164
 	damageFontSelectionErrorUnavailable byte   = 17
 	DamageFontSelectedStatKey                  = "damage_font_selected"
 	damageFontOwnershipStatPrefix              = "damage_font_skin_"

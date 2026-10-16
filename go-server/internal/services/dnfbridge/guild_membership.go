@@ -42,6 +42,9 @@ func (s *Service) mutateCurrentGuildForSession(ctx context.Context, session *gam
 		if !found {
 			return dnfguild.ErrCharacterNotFound
 		}
+		if _, member, exists := r.GuildForCharacter(actor.CharacterID); exists && member.AccountID != actor.AccountID {
+			return dnfguild.ErrNotMember
+		}
 		return apply(tx, r, actor)
 	})
 }
@@ -151,6 +154,13 @@ func (s *Service) handleCurrentGuildCancelApply(session *gameSession, body []byt
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	err := s.mutateCurrentGuildForSession(ctx, session, nil, func(_ dnfrepo.Group, r *dnfguild.Registry, actor dnfrepo.CharacterRecord) error {
+		g, found := r.GuildByID(id)
+		if !found {
+			return dnfguild.ErrGuildNotFound
+		}
+		if application, found := g.Applications[actor.CharacterID]; !found || application.AccountID != actor.AccountID {
+			return dnfguild.ErrApplicationNotFound
+		}
 		return r.CancelApplication(id, actor.CharacterID, s.gameplayNow())
 	})
 	if err != nil {
@@ -170,9 +180,13 @@ func (s *Service) handleCurrentGuildApplicationList(session *gameSession, _ []by
 	if err != nil {
 		return err
 	}
-	g, member, found := r.GuildForCharacter(strconv.Itoa(int(session.selectedCharacterID)))
+	character, err := s.currentGuildOwnedSelectedCharacter(session)
+	if err != nil {
+		return s.rejectCurrentGuildRequest(session, op, nil)
+	}
+	g, member, found := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	if !found || member.Grade > 2 {
-		return s.sendGameUpperFailure(session, op, currentGuildGenericError)
+		return s.rejectCurrentGuildRequest(session, op, nil)
 	}
 	var rows []dnfguild.Application
 	for _, a := range dnfguild.SortedApplications(g) {
@@ -220,7 +234,7 @@ func (s *Service) decideCurrentGuildApplication(session *gameSession, body []byt
 		return err
 	}
 	if !found {
-		return s.rejectCurrentGuildRequest(session, op, body)
+		return s.rejectCurrentGuildDecision(session, op, body)
 	}
 	owner := dnfrepo.GuildOwner{AccountID: target.AccountID, CharacterID: targetID}
 	var selected *dnfguild.Guild
@@ -251,7 +265,7 @@ func (s *Service) decideCurrentGuildApplication(session *gameSession, body []byt
 		return err
 	})
 	if err != nil {
-		return s.rejectCurrentGuildRequest(session, op, body)
+		return s.rejectCurrentGuildDecision(session, op, body)
 	}
 	if err = s.sendGameUpperSuccess(session, op, body); err != nil {
 		return err
@@ -272,10 +286,25 @@ func (s *Service) decideCurrentGuildApplication(session *gameSession, body []byt
 	return s.handleCurrentGuildApplicationList(session, nil)
 }
 
+// Native row actions remove applications optimistically before the reply. Read
+// back the authorized list after a failed decision so the row can be restored.
+// This is a read of committed state, including after a failed Guild UoW.
+func (s *Service) rejectCurrentGuildDecision(session *gameSession, op uint16, body []byte) error {
+	if err := s.rejectCurrentGuildRequest(session, op, body); err != nil {
+		return err
+	}
+	return s.handleCurrentGuildApplicationList(session, nil)
+}
+
 // The matched op350 callback reads {u32 character, u8 region} on failure as
 // well as success (RVA 0x01bddbf2). A bare error byte leaves it reading past
 // the packet. Malformed requests still get a complete zero identity.
 func (s *Service) rejectCurrentGuildRequest(session *gameSession, op uint16, body []byte) error {
+	if op == uint16(dnfenum.CmdPacketGuildJoinList) {
+		// v105 class1 callback 0x01fe19d0 clears cached rows on error 36.
+		// Other errors retain the previous character's or rank's visible list.
+		return s.sendGameUpperFailure(session, op, 36)
+	}
 	if op != uint16(dnfenum.CmdPacketApproveJoinGuild) {
 		return s.sendGameUpperFailure(session, op, currentGuildGenericError)
 	}

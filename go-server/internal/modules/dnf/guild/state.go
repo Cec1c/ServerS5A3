@@ -50,31 +50,33 @@ type Registry struct {
 }
 
 type Guild struct {
-	ID                  uint32                 `json:"id"`
-	Name                string                 `json:"name"`
-	MasterCharacterID   string                 `json:"master_character_id"`
-	MasterName          string                 `json:"master_name"`
-	Level               uint16                 `json:"level"`
-	Experience          uint32                 `json:"experience"`
-	Mileage             uint32                 `json:"mileage"`
-	Notice              string                 `json:"notice,omitempty"`
-	Promotion           string                 `json:"promotion,omitempty"`
-	Mark                byte                   `json:"mark,omitempty"`
-	AuraMark            uint32                 `json:"aura_mark,omitempty"`
-	AuraFrame           uint32                 `json:"aura_frame,omitempty"`
-	RecommendedRegion   uint32                 `json:"recommended_region,omitempty"`
-	RecommendedChannel  uint32                 `json:"recommended_channel,omitempty"`
-	AllianceRecruitment bool                   `json:"alliance_recruitment,omitempty"`
-	Tags                []byte                 `json:"tags,omitempty"`
-	JoinMode            byte                   `json:"join_mode"`
-	MemberLimit         int                    `json:"member_limit"`
-	GradeNames          map[byte]string        `json:"grade_names,omitempty"`
-	GradePermissions    map[byte]uint32        `json:"grade_permissions,omitempty"`
-	Members             map[string]Member      `json:"members,omitempty"`
-	Applications        map[string]Application `json:"applications,omitempty"`
-	Invitations         map[string]Invitation  `json:"invitations,omitempty"`
-	CreatedAt           time.Time              `json:"created_at"`
-	UpdatedAt           time.Time              `json:"updated_at"`
+	ID                 uint32                `json:"id"`
+	Name               string                `json:"name"`
+	MasterCharacterID  string                `json:"master_character_id"`
+	MasterName         string                `json:"master_name"`
+	Level              uint16                `json:"level"`
+	Experience         uint32                `json:"experience"`
+	Mileage            uint32                `json:"mileage"`
+	MileageHistory     []MileageHistoryEntry `json:"mileage_history,omitempty"`
+	Notice             string                `json:"notice,omitempty"`
+	Promotion          string                `json:"promotion,omitempty"`
+	Mark               byte                  `json:"mark,omitempty"`
+	AuraMark           uint32                `json:"aura_mark,omitempty"`
+	AuraFrame          uint32                `json:"aura_frame,omitempty"`
+	RecommendedRegion  uint32                `json:"recommended_region,omitempty"`
+	RecommendedChannel uint32                `json:"recommended_channel,omitempty"`
+	// Keep the legacy JSON key while naming the actual native web-promotion flag.
+	WebPromotion     bool                   `json:"alliance_recruitment,omitempty"`
+	Tags             []byte                 `json:"tags,omitempty"`
+	JoinMode         byte                   `json:"join_mode"`
+	MemberLimit      int                    `json:"member_limit"`
+	GradeNames       map[byte]string        `json:"grade_names,omitempty"`
+	GradePermissions map[byte]uint32        `json:"grade_permissions,omitempty"`
+	Members          map[string]Member      `json:"members,omitempty"`
+	Applications     map[string]Application `json:"applications,omitempty"`
+	Invitations      map[string]Invitation  `json:"invitations,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
 }
 
 type Member struct {
@@ -98,10 +100,10 @@ type Member struct {
 	// ChatAt is the last 公会聊天 contribution grant; the rule is once per
 	// local day (help text 76515 进行公会聊天， 可以获得2点公会贡献。).
 	ChatAt time.Time `json:"chat_at,omitempty"`
-	// LastOnlineAt is refreshed whenever the member is seen with a live game
-	// session. The member row carries the elapsed seconds since then, which is
-	// how the client tells an offline member from an online one -- AttendedAt
-	// cannot serve here because it only advances once per local day.
+	// LastOnlineAt records a canonical login or departure observation. Abrupt
+	// process loss retains the last durable observation, not an invented crash
+	// time. The bridge encodes elapsed seconds for offline rows and projects
+	// online status separately from the current canonical session/channel.
 	LastOnlineAt time.Time `json:"last_online_at,omitempty"`
 }
 
@@ -275,6 +277,19 @@ func (r *Registry) GuildForCharacter(characterID string) (*Guild, Member, bool) 
 		}
 	}
 	return nil, Member{}, false
+}
+
+// A character ID alone is not membership authority. Retained registry entries
+// must not attach a former account's guild to the current owner of that ID.
+func (r *Registry) GuildForOwner(owner dnfrepo.GuildOwner) (*Guild, Member, bool) {
+	if owner.CharacterID == "" || owner.AccountID == "" {
+		return nil, Member{}, false
+	}
+	g, member, found := r.GuildForCharacter(owner.CharacterID)
+	if !found || member.AccountID != owner.AccountID {
+		return nil, Member{}, false
+	}
+	return g, member, true
 }
 
 func (r *Registry) removeApplicationsForCharacter(characterID string, now time.Time) {
@@ -498,8 +513,8 @@ func (r *Registry) DecideApplication(guildID uint32, actorID, characterID string
 	if !found {
 		return Member{}, ErrApplicationNotFound
 	}
-	delete(guild.Applications, characterID)
 	if !approve {
+		delete(guild.Applications, characterID)
 		guild.UpdatedAt = now
 		return Member{}, nil
 	}

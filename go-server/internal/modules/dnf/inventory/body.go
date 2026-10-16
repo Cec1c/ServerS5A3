@@ -111,14 +111,7 @@ func buildUseStackableSuccessAck(result UseStackableResult) []byte {
 }
 
 func buildUseStackableActionSuccessAck(result DamageFontUnlockResult) []byte {
-	var writer packetWriter
-	writer.writeByte(1)
-	writer.writeInt16(result.SourceSlotIndex)
-	writer.writeInt16(0)
-	writer.writeInt16(int16(result.RemainingCount))
-	writer.writeInt16(0)
-	writer.writeByte(1)
-	return writer.bytes()
+	return BuildStackableActionAck(result.SourceSlotIndex, listTypeMain, damageFontActionIndex)
 }
 
 func buildSelectDamageFontSuccessAck(fontIndex uint16) []byte {

@@ -86,9 +86,12 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			return handled, err
 		}
 	}
-	// 任务完成券（`[gm quest clear]` / `[lv clear]`）右键用的是 op515 action 167；
+	// 任务完成券（`[gm quest clear]` / `[lv clear]`）右键用的是 op515 action 169/179；
 	// 这条动作号此前没有 handler，客户端因此等不到任何回包（"右键使用无反应"）。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
+		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
 		}

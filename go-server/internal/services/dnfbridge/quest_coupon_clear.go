@@ -10,61 +10,22 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfinventory "longheng.io/server/internal/modules/dnf/inventory"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// 任务完成券（"Lv1~90主线任务完成券"家族）右键使用链路。
-//
-// # 现场证据（2026-09-25 香港封包日志 + 真档 PVF）
-//
-// 道具：item **10164630**，PVF `stackable/10164001/10164630.stk`
-//
-//	[name] Lv1~90主线任务完成券
-//	[minimum level] 90   [stack limit] 1   [stackable type] `[etc]`
-//	[action type] `[gm quest clear]`
-//	[use action packet] 0
-//
-// （同族 `Lv1~90主线/成就任务完成券` item 10301410 =
-// `stackable/10301001/10301410.stk`，`[action type] `[lv clear]` 90`。
-// 全档 stackable 中带 `[gm quest clear]` 的只有 10164630，带 `[lv clear]` 的
-// 只有 10301410。）
-//
-// 操作者右键这张券时，客户端在**同一毫秒**连发两条上行（
-// `packet_log.20260925-034443.txt` line 427/429，操作者会话 game-000007）：
-//
-//	op176 ENUM_CMDPACKET_GMDEBUG_COMMAND body_len=16 hex=...000c0000002f2f6c76636c656172203930
-//	   → u32(12) + ASCII `//lvclear 90`
-//	op515 ENUM_CMDPACKET_USE_STACKABLE_ACTION body_len=19 hex=...57000000000000 00a700000000000000000000
-//	   → i16 slot=87, u8 list=0, u32 action=**167**, reserved 全零
-//
-// 服务端此前对这两条都没有 handler：
-//
-//   - op176 落到 `handleGameCommand` 的 default 分支，只写一行
-//     "unhandled latest game command"，一个字节都不回；
-//   - op515 `DecodeUseStackableActionRequest` 只认 action 162（damage font），
-//     167 直接判"unsupported"⇒ ResponseAllowed=false ⇒ bridge 也不回包。
-//
-// 客户端发完就在等结果，于是玩家看到的就是"右键使用后无反应"。
-//
-// # 回包形状
-//
-// op515 只有一个响应 opcode 且体内**不带 action index**，说明这个响应形状与
-// action 无关；因此直接复用同包已验证的 damage-font（action 162）成功体
-// （`inventory.buildUseStackableActionSuccessAck`）逐字节同形的 10 字节：
-//
-//	result=1, i16 slot, i16 0, i16 remaining, i16 0, u8 1
-//
-// 不新增、不臆造任何 opcode 或失败码：失败时保持现有行为（只记日志、不回包），
-// 因为本 opcode 的失败路径在客户端不会像 op44 那样卡住界面（操作者连续点了三次
-// 仍能继续操作其它界面）。
+// The matching EXE maps [gm quest clear] to 169 and [lv clear] to 179.
+// Their item callbacks reach the common op515 sender (RVA 0x20edd89), which
+// writes the action from the runtime item. Historical 167 captures and the
+// former remaining-count ACK belong to the previous protocol assumption.
+// See Docs/GUILD_POINTS.md and the op515 compatibility evidence.
 const (
-	// currentQuestClearCouponActionIndex 是当前 EXE 为 `[gm quest clear]` 完成券
-	// 发出的 op515 动作号。它由操作者右键那一刻的封包日志定死，不是推测值。
-	currentQuestClearCouponActionIndex uint32 = 167
+	currentQuestClearCouponActionIndex uint32 = 169
+	currentQuestLevelClearActionIndex  uint32 = 179
 	currentQuestClearCouponBodySize           = 19
-	currentQuestClearCouponAckSize            = 10
+	currentQuestClearCouponAckSize            = 8
 	// currentQuestClearCouponDebugCommand 是客户端在同一动作里补发的 op176 文本前缀。
 	currentQuestClearCouponDebugCommand = "//lvclear"
 
@@ -83,7 +44,7 @@ type currentQuestClearCouponRequest struct {
 }
 
 // decodeCurrentQuestClearCouponRequest 只在"这是完成券那条 op515"时返回 ok=true。
-// 其它形状（含 action 162 的 damage-font 请求）一律 ok=false，交给既有路由。
+// 其它形状（含 action 164 的 damage-font 请求）一律 ok=false，交给既有路由。
 func decodeCurrentQuestClearCouponRequest(body []byte) (currentQuestClearCouponRequest, bool) {
 	if len(body) != currentQuestClearCouponBodySize {
 		return currentQuestClearCouponRequest{}, false
@@ -93,35 +54,17 @@ func decodeCurrentQuestClearCouponRequest(body []byte) (currentQuestClearCouponR
 		ListType:        body[2],
 		ActionIndex:     binary.LittleEndian.Uint32(body[7:11]),
 	}
-	if request.ActionIndex != currentQuestClearCouponActionIndex {
+	if request.ActionIndex != currentQuestClearCouponActionIndex && request.ActionIndex != currentQuestLevelClearActionIndex {
 		return currentQuestClearCouponRequest{}, false
+	}
+	if request.SourceSlotIndex < 0 || request.ListType != dnfrepo.MainInventoryListType || binary.LittleEndian.Uint32(body[3:7]) != 0 || binary.LittleEndian.Uint32(body[11:15]) != 0 || binary.LittleEndian.Uint32(body[15:19]) != 0 {
+		return request, false
 	}
 	return request, true
 }
 
-func currentQuestClearCouponActionSupported(actionType string) bool {
-	switch strings.ToLower(strings.TrimSpace(actionType)) {
-	case currentQuestClearCouponActionGmQuestClear, currentQuestClearCouponActionLevelClear:
-		return true
-	default:
-		return false
-	}
-}
-
-// buildCurrentQuestClearCouponAck 生成 op515 成功回包体。
-// 与同包已证实的 damage-font 成功体逐字节同形（见上面的注释）。
-func buildCurrentQuestClearCouponAck(slot int16, remaining int64) []byte {
-	if remaining < 0 {
-		remaining = 0
-	}
-	var writer packetWriter
-	writer.writeByte(1)
-	writer.writeUint16(uint16(slot))
-	writer.writeUint16(0)
-	writer.writeUint16(uint16(remaining))
-	writer.writeUint16(0)
-	writer.writeByte(1)
-	return writer.bytes()
+func buildCurrentQuestClearCouponAck(slot int16, action uint32) []byte {
+	return dnfinventory.BuildStackableActionAck(slot, dnfrepo.MainInventoryListType, action)
 }
 
 func (s *Service) logQuestClearCouponEvent(session *gameSession, name string, request currentQuestClearCouponRequest, extra ...any) {
@@ -137,7 +80,7 @@ func (s *Service) logQuestClearCouponEvent(session *gameSession, name string, re
 	s.logGameEvent(session, name, fields...)
 }
 
-// handleCurrentQuestClearCouponUse 处理 op515 action 167（任务完成券右键使用）。
+// handleCurrentQuestClearCouponUse 处理 op515 action 169/179（任务完成券右键使用）。
 //
 // 返回 (false, nil) 表示"这不是完成券那条 op515"，调用方继续走原路由；
 // 返回 (true, nil) 表示本函数已经接管（成功回包，或按 fail-closed 只记日志）。
@@ -233,7 +176,9 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 			"item_mutation", "none")
 		return true, nil
 	}
-	if definition.Kind != dungeonDropItemStackable || !currentQuestClearCouponActionSupported(definition.ActionType) {
+	if definition.Kind != dungeonDropItemStackable ||
+		(request.ActionIndex == currentQuestClearCouponActionIndex && !strings.EqualFold(definition.ActionType, currentQuestClearCouponActionGmQuestClear)) ||
+		(request.ActionIndex == currentQuestLevelClearActionIndex && !strings.EqualFold(definition.ActionType, currentQuestClearCouponActionLevelClear)) {
 		s.logQuestClearCouponEvent(session, "game-quest-clear-coupon-blocked", request,
 			"slot_key", slotKey,
 			"item_id", stack.ItemID,
@@ -315,7 +260,9 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 			"reason", "no_main_story_quest_at_or_below_cutoff_remains_incomplete",
 			"quest_mutation", "none",
 			"item_mutation", "none")
-		return true, s.sendCurrentQuestClearCouponAck(session, request, stack.Count, "noop")
+		// A success ACK makes the native client debit one item locally. An
+		// unchanged inventory must use the full failure shape instead.
+		return true, s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), dnfinventory.BuildStackableActionFailure(request.SourceSlotIndex, request.ListType, byte(request.ActionIndex), 17), 1)
 	}
 
 	owner, err := dnfquest.NewOwner(repositories)
@@ -360,7 +307,7 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 		"highest_completed_quest", result.HighestCompletedQuest,
 		"remaining_coupon_count", remaining,
 		"reward_granted", false,
-		"body_source", "current_exe_op515_action_167_with_damage_font_verified_ack_shape")
+		"body_source", "matched_exe_op515_action_ack")
 	if err := s.sendCurrentQuestClearCouponAck(session, request, remaining, "committed"); err != nil {
 		return true, err
 	}
@@ -390,7 +337,7 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 }
 
 func (s *Service) sendCurrentQuestClearCouponAck(session *gameSession, request currentQuestClearCouponRequest, remaining int64, source string) error {
-	body := buildCurrentQuestClearCouponAck(request.SourceSlotIndex, remaining)
+	body := buildCurrentQuestClearCouponAck(request.SourceSlotIndex, request.ActionIndex)
 	s.logQuestClearCouponEvent(session, "game-quest-clear-coupon-ack-send", request,
 		"ack_source", source,
 		"remaining_coupon_count", remaining,
@@ -450,7 +397,7 @@ func consumeCurrentQuestClearCoupon(
 // 客户端右键完成券时会先补发 `//lvclear <N>`。这条 opcode 是通用的 GM 调试命令行
 // 通道：任何一个改过的客户端都能直接发它。把它当成"清任务"的授权会变成一个无需
 // 消耗道具就能清主线任务的后门，所以这里只解析并记日志，不执行任何写操作——
-// 真正的授权来自 op515 action 167 + 运行时 PVF 的券族判定 + 背包里的实物。
+// 真正的授权来自 op515 action 169/179 + 运行时 PVF 的券族判定 + 背包里的实物。
 func (s *Service) handleCurrentQuestClearCouponDebugCommand(session *gameSession, body []byte) (bool, error) {
 	command, ok := decodeCurrentQuestClearCouponDebugCommand(body)
 	if !ok {
@@ -463,7 +410,7 @@ func (s *Service) handleCurrentQuestClearCouponDebugCommand(session *gameSession
 		"command", command,
 		"quest_mutation", "none",
 		"item_mutation", "none",
-		"note", "op176 is a generic client-authored debug console; the coupon authority is op515 action 167 plus the runtime-PVF coupon family and the physical item",
+		"note", "op176 is a generic client-authored debug console; the coupon authority is op515 action 169/179 plus the runtime-PVF coupon family and the physical item",
 	}
 	if level, matched := parseCurrentQuestClearCouponDebugCommand(command); matched {
 		fields = append(fields,

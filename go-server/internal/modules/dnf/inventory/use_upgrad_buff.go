@@ -161,6 +161,11 @@ func stackableUseProvenance(
 	if resolver != nil && !currentUsePVFProvenanceRollback() {
 		resolution, err := resolver(stack.ItemID)
 		if err == nil && resolution.Found && resolution.ItemID == stack.ItemID {
+			// This server-side reward must use the guild/inventory transaction.
+			// Generic op44/op251 consumption cannot apply it.
+			if strings.EqualFold(strings.TrimSpace(resolution.ActionType), "[add guildmileage]") {
+				return "", "", false
+			}
 			path := strings.TrimSpace(resolution.PVFPath)
 			token := stackableTypeToken(resolution.StackableType)
 			if path != "" && token != "" {
@@ -172,6 +177,11 @@ func stackableUseProvenance(
 				return "", "", false
 			}
 		}
+	}
+	// The paired archive's known guild bag must never fall back to a bare
+	// [waste] debit if PVF is unavailable or provenance rollback is enabled.
+	if stack.ItemID == 10153530 || strings.EqualFold(strings.TrimSpace(stack.Extra["action_type"]), "[add guildmileage]") {
+		return "", "", false
 	}
 	return pvfProvenWasteStack(stack)
 }

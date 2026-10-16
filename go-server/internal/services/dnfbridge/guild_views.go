@@ -16,7 +16,14 @@ func (s *Service) currentGuildForSelectedCharacter(session *gameSession) (*dnfgu
 	if err != nil {
 		return nil, err
 	}
-	g, _, _ := registry.GuildForCharacter(strconv.Itoa(int(session.selectedCharacterID)))
+	if _, _, found := registry.GuildForCharacter(strconv.Itoa(int(session.selectedCharacterID))); !found {
+		return nil, nil
+	}
+	character, err := s.currentGuildOwnedSelectedCharacter(session)
+	if err != nil {
+		return nil, err
+	}
+	g, _, _ := registry.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	return g, nil
 }
 
@@ -33,7 +40,11 @@ func (s *Service) currentGuildOnlineChannels(g *dnfguild.Guild, requester *gameS
 		return online
 	}
 	for id, m := range g.Members {
-		peer, ok := s.onlineGameSessionCharacterSnapshot(uint16(currentGuildNumericID(id)))
+		numericID, err := strconv.ParseUint(id, 10, 16)
+		if err != nil || numericID == 0 {
+			continue
+		}
+		peer, ok := s.onlineGameSessionCharacterSnapshot(uint16(numericID))
 		if ok && peer.session.conn != nil && s.accountIDForSession(peer.session) == m.AccountID && s.boundGameSessionCharacterCurrent(peer) {
 			online[id] = currentGuildMemberChannelByte(peer.session.channel.ID)
 		}
@@ -46,7 +57,7 @@ func (s *Service) currentGuildOnlineChannels(g *dnfguild.Guild, requester *gameS
 func (s *Service) writeCurrentGuildManagementState(session *gameSession, g *dnfguild.Guild) error {
 	grade := byte(100)
 	if g != nil {
-		if m, ok := g.Members[strconv.Itoa(int(session.selectedCharacterID))]; ok {
+		if m, ok := g.Members[strconv.Itoa(int(session.selectedCharacterID))]; ok && m.AccountID == s.accountIDForSession(session) {
 			grade = m.Grade
 		} else {
 			g = nil
@@ -127,7 +138,7 @@ func (s *Service) guildAccountProjection(ctx context.Context, session *gameSessi
 		if c.AccountID != s.accountIDForSession(session) {
 			return nil, nil, nil, dnfguild.ErrCharacterNotFound
 		}
-		if g, member, ok := r.GuildForCharacter(c.CharacterID); ok {
+		if g, member, ok := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: c.CharacterID, AccountID: c.AccountID}); ok {
 			members = append(members, currentGuildCharacterProjection{CharacterName: c.Name, GuildName: g.Name, GuildID: g.ID, ServerGroup: member.ServerGroup})
 			if !seen[g.ID] {
 				guilds = append(guilds, g)
@@ -136,7 +147,7 @@ func (s *Service) guildAccountProjection(ctx context.Context, session *gameSessi
 			continue
 		}
 		for _, g := range r.Search("", 0, len(r.Guilds)) {
-			if _, ok := g.Applications[c.CharacterID]; ok && c.CharacterID == strconv.Itoa(int(session.selectedCharacterID)) {
+			if a, ok := g.Applications[c.CharacterID]; ok && a.AccountID == c.AccountID && c.CharacterID == strconv.Itoa(int(session.selectedCharacterID)) {
 				applications = append(applications, currentGuildCharacterProjection{CharacterName: c.Name, GuildName: g.Name, GuildID: g.ID, ApplicationPending: 1})
 				if !seen[g.ID] {
 					guilds = append(guilds, g)
@@ -183,7 +194,11 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
-	g, _, _ := r.GuildForCharacter(strconv.Itoa(int(session.selectedCharacterID)))
+	character, err := s.currentGuildOwnedSelectedCharacter(session)
+	if err != nil {
+		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
+	}
+	g, _, _ := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	// Refresh only this detached read projection. Listing a guild is not a
 	// mutation and never rewrites another player's persisted profile.
 	if g != nil {
@@ -242,9 +257,11 @@ func (s *Service) handleCurrentGuildSearch(session *gameSession, body []byte) er
 	if err != nil {
 		return err
 	}
-	all := r.Search(request.Query, 0, len(r.Guilds))
-	page := r.Search(request.Query, request.Page, currentGuildPageSize)
-	return s.sendGameUpperSuccess(session, currentGuildSearchOpcode, buildCurrentGuildSearchListBody(len(all), request.Page, page))
+	total, page, err := r.SearchDirectory(request.Filter, request.Page, currentGuildPageSize)
+	if err != nil {
+		return s.sendGameUpperFailure(session, currentGuildSearchOpcode, currentGuildGenericError)
+	}
+	return s.sendGameUpperSuccess(session, currentGuildSearchOpcode, buildCurrentGuildSearchListBody(total, request.Page, page))
 }
 
 func (s *Service) handleCurrentGuildRecommend(session *gameSession, _ []byte) error {
@@ -298,15 +315,15 @@ func (s *Service) handleCurrentGuildDetail(session *gameSession, body []byte) er
 func (s *Service) handleCurrentGuildApplicationNotice(session *gameSession, _ []byte) error {
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	repos, r, err := s.loadCurrentGuildRegistry(ctx)
+	_, r, err := s.loadCurrentGuildRegistry(ctx)
 	if err != nil {
 		return err
 	}
-	c, err := selectedGuildCharacter(ctx, repos, session)
+	c, err := s.currentGuildOwnedSelectedCharacter(session)
 	if err != nil {
 		return err
 	}
-	g, _, found := r.GuildForCharacter(c.CharacterID)
+	g, _, found := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: c.CharacterID, AccountID: c.AccountID})
 	id := uint32(0)
 	if found {
 		id = g.ID

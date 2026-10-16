@@ -11,9 +11,18 @@ type memoryGuildUnitOfWork struct {
 	sharedMu  *sync.Mutex
 	character repository.CharacterRepository
 	settings  repository.SettingsRepository
+	inventory repository.InventoryRepository
 }
 
-func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) (result error) {
+func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, apply)
+}
+
+func (u *memoryGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, apply)
+}
+
+func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory bool, apply func(repository.Group) error) (result error) {
 	ordered, err := repository.GuildOwners(owners)
 	if err != nil {
 		return err
@@ -50,6 +59,20 @@ func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []reposi
 	}
 	settings := &memorySettingsTransaction{scope: repository.GuildRegistryScope, record: repository.CloneSettings(before), exists: found}
 	group := repository.GuildScopedGroup(repository.Group{Character: chars, Settings: settings}, ordered)
+	var inventoryBefore repository.InventoryRecord
+	var inventoryFound bool
+	var inventory *memoryInventoryTransaction
+	if withInventory {
+		if u.inventory == nil {
+			return repository.ErrGuildTransaction
+		}
+		inventoryBefore, inventoryFound, err = u.inventory.Load(ctx, ordered[0].CharacterID)
+		if err != nil {
+			return err
+		}
+		inventory = &memoryInventoryTransaction{characterID: ordered[0].CharacterID, record: repository.CloneInventory(inventoryBefore), exists: inventoryFound}
+		group = repository.GuildInventoryScopedGroup(repository.Group{Character: chars, Settings: settings, Inventory: inventory}, ordered[0])
+	}
 	if err = apply(group); err != nil {
 		return err
 	}
@@ -57,7 +80,7 @@ func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []reposi
 		return err
 	}
 	touched := []string{}
-	settingsTouched, committed := false, false
+	settingsTouched, inventoryTouched, committed := false, false, false
 	defer func() {
 		if committed {
 			return
@@ -65,6 +88,9 @@ func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []reposi
 		var failures []error
 		if settingsTouched {
 			failures = append(failures, restoreSettingsRecord(u.settings, repository.GuildRegistryScope, before, found, true))
+		}
+		if inventoryTouched {
+			failures = append(failures, restoreInventoryRecord(u.inventory, ordered[0].CharacterID, inventoryBefore, inventoryFound))
 		}
 		for i := len(touched) - 1; i >= 0; i-- {
 			id := touched[i]
@@ -82,6 +108,15 @@ func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []reposi
 			if err = ctx.Err(); err != nil {
 				return err
 			}
+		}
+	}
+	if inventory != nil && inventory.dirty {
+		inventoryTouched = true
+		if err = u.inventory.Save(ctx, inventory.record); err != nil {
+			return err
+		}
+		if err = ctx.Err(); err != nil {
+			return err
 		}
 	}
 	if settings.dirty {

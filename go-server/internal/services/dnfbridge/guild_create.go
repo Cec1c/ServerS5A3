@@ -44,6 +44,8 @@ type guildSessionState struct {
 	promotion           string
 	createCommitted     bool
 	createInvitation    *currentGuildCreateInvitation
+	incomingInvitation  *currentGuildInvitation
+	outgoingInvitations map[*currentGuildInvitation]struct{}
 	lastCreate          *dnfguild.CreateRequest
 	soloOperationID     string
 	memberListRequested bool
@@ -75,6 +77,9 @@ func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) er
 				}
 			}
 		} else if s.options.guildSoloCreate {
+			if session.guild.incomingInvitation != nil {
+				return dnfguild.CreateResult{}, dnfguild.ErrPermissionDenied
+			}
 			if !session.guild.nameChecked || session.guild.soloOperationID == "" {
 				return dnfguild.CreateResult{}, dnfguild.ErrPermissionDenied
 			}
@@ -199,6 +204,7 @@ func (s *Service) cancelCurrentGuildCreateInvitation(invite *currentGuildCreateI
 func (s *Service) closeCurrentGuildCreateSession(session *gameSession) {
 	s.guildCreateMu.Lock()
 	defer s.guildCreateMu.Unlock()
+	s.closeCurrentGuildInvitationsLocked(session)
 	if invite := session.guild.createInvitation; invite != nil {
 		if err := s.cancelCurrentGuildCreateInvitation(invite, currentGuildCreateAuthResetValue, true); err != nil {
 			s.logGameEvent(session, "game-guild-create-cancel-notify-failed", "error", err)
@@ -403,7 +409,7 @@ func (s *Service) handleCurrentGuildCreatePermit(session *gameSession, body []by
 			currentGuildCreatePermitStale,
 		)
 	}
-	if len(body) < 5 || int(body[0]) != s.channelAdvertiseID() || session.guild.createInvitation != nil {
+	if len(body) < 5 || int(body[0]) != s.channelAdvertiseID() || session.guild.createInvitation != nil || session.guild.incomingInvitation != nil {
 		return s.rejectCurrentGuildCreatePermit(session, "", "request state", nil)
 	}
 	name, next, ok := parseCurrentGuildDSTR(body, 1)
@@ -430,7 +436,7 @@ func (s *Service) handleCurrentGuildCreatePermit(session *gameSession, body []by
 			return dnfguild.ErrCharacterNotFound
 		}
 		target, found = s.onlineGameSessionCharacterSnapshot(uint16(numericID))
-		if !found || target.session.guild.createInvitation != nil {
+		if !found || target.session.guild.createInvitation != nil || target.session.guild.incomingInvitation != nil {
 			return dnfguild.ErrCharacterNotFound
 		}
 		promoter, found, err := repositories.Character.Load(ctx, id)

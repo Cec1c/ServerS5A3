@@ -21,10 +21,8 @@ const currentGuildMemberOfflineChannel byte = 0xff
 const currentGuildMemberUnrepresentedChannel byte = 0xfe
 
 type currentGuildSearchRequest struct {
-	Mode     byte
-	Page     int
-	Category byte
-	Query    string
+	Filter dnfguild.SearchFilter
+	Page   int
 }
 
 type currentGuildCharacterProjection struct {
@@ -39,24 +37,25 @@ func parseCurrentGuildSearchRequest(body []byte) (currentGuildSearchRequest, boo
 	if len(body) < 1 {
 		return currentGuildSearchRequest{}, false
 	}
-	request := currentGuildSearchRequest{Mode: body[0]}
-	if request.Mode == 2 {
+	request := currentGuildSearchRequest{Filter: dnfguild.SearchFilter{Mode: dnfguild.SearchMode(body[0])}}
+	if request.Filter.Mode == dnfguild.SearchTags {
 		if len(body) != 6 {
 			return currentGuildSearchRequest{}, false
 		}
-		request.Page = int(binary.LittleEndian.Uint32(body[1:5]))
-		request.Category = body[5]
+		// v105 VA 0x11d6310 assembles seven checkbox bits; 0x11ce710 sends
+		// that u32 followed by the zero-based byte page from the selector.
+		request.Filter.TagMask = binary.LittleEndian.Uint32(body[1:5])
+		request.Page = int(body[5])
 		return request, true
 	}
-	raw, next, ok := readCurrentRawDstr(body, 1)
-	if !ok || next != len(body) {
+	if request.Filter.Mode != dnfguild.SearchGuildName && request.Filter.Mode != dnfguild.SearchMasterName {
 		return currentGuildSearchRequest{}, false
 	}
-	query, err := decodeCharacterName(raw)
-	if err != nil {
+	query, ok := parseCurrentGuildText(body[1:], dnfguild.SearchTextMaxBytes)
+	if !ok {
 		return currentGuildSearchRequest{}, false
 	}
-	request.Query = strings.TrimSpace(query)
+	request.Filter.Query = query
 	return request, true
 }
 
@@ -416,7 +415,7 @@ func buildCurrentGuildManagementBody(guild *dnfguild.Guild, onlineCount int, now
 	writer.writeUint32(guild.AuraMark)
 	writer.writeUint32(guild.AuraFrame)
 	writer.writeUint16(0)
-	writer.writeByte(boolByte(guild.AllianceRecruitment))
+	writer.writeByte(boolByte(guild.WebPromotion))
 	writer.writeByte(0)
 	tags := currentGuildTagsMask(guild)
 	writer.writeUint32(tags)
