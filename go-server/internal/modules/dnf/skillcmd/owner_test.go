@@ -63,6 +63,7 @@ func TestOwnerPlanReadsSkillState(t *testing.T) {
 func TestOwnerApplyTreeSwitchPersistsOppositeTreeAndRejectsReplay(t *testing.T) {
 	ctx := context.Background()
 	repos := seededSkillOwnerRepositories(t, ctx)
+	unlockSkillOwnerFixture(t, ctx, repos)
 	owner, err := NewOwner(repos)
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +232,7 @@ func TestOwnerApplyResetRestoresPVFInitialStateAndRefundsPointsAtomically(t *tes
 	if len(persisted.Skills) != 1 || persisted.Skills[46].Level != 1 {
 		t.Fatalf("reset skills = %+v", persisted.Skills)
 	}
-	if persisted.Points != result.Points || len(persisted.Layouts) != 1 || persisted.Layouts[0][0] != 46 {
+	if persisted.Points != result.Points || len(persisted.Layouts) != 2 || persisted.Layouts[0][0] != 46 || persisted.Layouts[1][0] != 47 {
 		t.Fatalf("reset points/layouts = %+v", persisted)
 	}
 	if !persisted.Cooldowns[46].Equal(cooldown) {

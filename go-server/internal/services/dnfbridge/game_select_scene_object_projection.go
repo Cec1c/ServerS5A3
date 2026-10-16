@@ -119,6 +119,22 @@ func (s *Service) buildCurrentSceneObjectListBodyForSessionInContextWithPolicy(
 		character.Stats["name_tag_item_id"] = int64(itemID)
 		character.Stats["name_tag_expire_time"] = int64(expireTime)
 	}
+	if repositories, ok := s.repositoryGroupFor(ctx); ok && repositories.Skill != nil {
+		record, found, err := repositories.Skill.Load(ctx, strconv.Itoa(int(charID)))
+		if err != nil && strict {
+			return nil, fmt.Errorf("读取技能页购买状态: %w", err)
+		}
+		character = dnfrepo.CloneCharacter(character)
+		if character.Stats == nil {
+			character.Stats = make(map[string]int64)
+		}
+		character.Stats["skill_tree_expanded"] = 0
+		character.Stats["skill_tree_index"] = -1
+		if err == nil && found && record.Trees.Expanded {
+			character.Stats["skill_tree_expanded"] = 1
+			character.Stats["skill_tree_index"] = int64(dnfrepo.ActiveSkillTree(record))
+		}
+	}
 	objectKey := currentSceneActorObjectKey(charID)
 	creature, creatureErr := s.currentEquippedCreatureForCharacterWithError(ctx, strconv.Itoa(int(charID)))
 	if creatureErr != nil {

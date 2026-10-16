@@ -137,7 +137,8 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	writer.writeUint16(0)                                       // sub_20029A0
 	writer.writeByte(0)                                         // sub_20029A0
 	writer.writeUint16(0)                                       // sub_2002A20
-	writer.writeByte(0)                                         // sub_2004510
+	// 当前固定EXE 22c6458 -> 22bff00：该字节决定actor+0x5d78的第二页资格。
+	writer.writeByte(currentActorSkillTreeWireIndex(character)) // ff=未购买，0/1=已购买并选中该页
 	writer.writeByte(0)                                         // sub_2690AF0
 	writer.writeUint32(0)                                       // object internal +267
 }

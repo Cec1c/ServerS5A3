@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	"math"
 	"strconv"
 	"strings"
@@ -150,15 +151,7 @@ func currentDungeonDiscardTradeable(definition dungeonDropItemDefinition) bool {
 }
 
 func currentDungeonDiscardStackLocked(stack dnfrepo.ItemStack) bool {
-	if stack.Extra == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stack.Extra["equipment_lock_state"])) {
-	case "1", "2", "active", "locked", "unlocking", "pending_unlock":
-		return true
-	default:
-		return false
-	}
+	return dnfitemlock.IsLocked(stack)
 }
 
 func currentDungeonDiscardStackExpired(stack dnfrepo.ItemStack, now time.Time) bool {

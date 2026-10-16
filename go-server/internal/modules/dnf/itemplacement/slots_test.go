@@ -1,6 +1,7 @@
 package itemplacement
 
 import (
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"reflect"
 	"testing"
 )
@@ -21,6 +22,7 @@ func TestSlotPolicySeparatesMergingFromNewMaterialSlots(t *testing.T) {
 
 func TestSlotPolicyKeepsEquipmentAndOtherContainersOutOfQuickSlots(t *testing.T) {
 	for _, p := range []SlotPolicy{{ListType: 0, Start: 9, End: 64}, {ListType: 7, Start: 189, End: 238, AllowQuickSlots: true, PreferQuickSlots: true}, {ListType: 1, Start: 0, End: 500}} {
+		p.ContainerState = &dnfrepo.CharacterContainerState{MainSlotCount: 24}
 		for _, slots := range [][]int16{p.MergeSlots(), p.EmptySlots()} {
 			if len(slots) != int(p.End-p.Start)+1 || slots[0] != p.Start || slots[len(slots)-1] != p.End {
 				t.Fatalf("容器分类被改变：%+v slots=%v", p, slots)

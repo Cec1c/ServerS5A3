@@ -17,6 +17,223 @@
 - Docker 可显式设置 `channel_advertise_server`，保留原默认 0；客户端认证区服选择需要 1～249。公告编号变更须同步登录入口的目录校验与频道历史，不能因此改写角色的社交区服编号。详见 `Docs/GUILD_FOUNDATION.md`。
 - 覆盖并发创建、身份／权限边界、保存失败回滚、重复请求、回包丢失及重登；一次性 MariaDB 验证跨仓储实例串行化与真实 SQL 失败回滚。自动化验证不代替两名玩家的原生邀请、创建和重登验收，公会金库／战斗等扩展不在本次实现内。
 
+## 2026-10-16 — 史诗图鉴制作用户验收通过
+
+- 用户在v108（基于EXE107）明确验收史诗图鉴制作，并要求提交合并。解析真实PVF配方，788按输出装备ID提交碎片、两种灵魂扣除与装备发放，账号物品/碎片在同事务提交；失败回滚，成功刷新账本和背包。
+- 仅整合已验收图鉴功能及必要仓储/分派，不包含单人卢克、图片活动、塔/大会或完整史诗生产领取等未验收内容。客户端788接收位须使用已发布配套v108或其后继，保留107改动。完整史诗生产另项开放。
+- 独立当前master集成检查：领域、桥接、control、vet、双平台构建及图鉴真实PVF专项通过；一次性MySQL用例无DSN跳过，既有真实SQL事务证据保留在本地报告。
+
+## 2026-10-16 — !50 修复70级异次元首饰精炼误拒绝
+
+- 用户test99报告00:38对70级装备精炼提示材料不足。只读日志定位00:37:58 op370，装备425064/槽34、蓝色气息1255/槽98、选项14；错误哈希对应ErrTarget而非实际缺气息。真实PVF的裂魂之异次元戒指没有durability字段，旧解析器误将无耐久部位全部拒绝。
+- 对PVF未声明耐久的项链/手镯/戒指/辅助装备/魔法石沿用既有投影的零耐久语义；武器/防具缺字段、显式非法耐久仍拒绝，事务满耐久检查不变。没有补造装备、材料或PVF规则，不修改玩家数据。
+- 隔离内存按实际请求、物品元数据和已记录扩容重放，原版本目录与handler均红，新版成功扣一气息并保存选项/刷新；覆盖11部位×5种字段边界，保持六种气息与既有真实PVF行为。!50仍待用户原生复测验收，不合并。
+
+## 2026-10-16 — !49 / !48 / !2 用户验收后合并
+
+- 用户明确验收技能快捷栏、复活币道具和!2游戏服务端修复，授权合并。!50的70级异界精炼反馈单独继续修复，不纳入本次合并。
+- !2同步已验收主线与!49/!48，解决转职身份/任务通知、幸运星事务回执和已移除内嵌GM的冲突。保留验收服的活动技能页、同图任务门槛刷新与唯一金币行发布，不恢复旧内嵌GM。
+- 保留旧独立幸运星领域API的账号事务保护；当前通关采用!2结算回执，避免重复发奖。真实PVF购买、任务、转职与回归/构建/BAT证据在外部验收合并目录，不将远端CI标作成功。
+
+## 2026-10-15 — 双技能页：任务完成后刷新当前页
+
+- 普通任务及转职/觉醒任务完成后，技能快照使用已提交角色的当前技能页布局，避免第二页激活时错误发送第一页快捷栏。该补丁已随本轮验收版本部署，现补入 !46。
+- 增加实际任务完成发送链路回归，覆盖升级、SP 奖励、觉醒三种情况，检查两页技能、SP/TP、当前快捷栏和仓库存档不变。
+
+## 2026-10-15 — 兼容已观测的 594 字节登录握手
+
+- 将完整 class1/op1 的 594 字节请求体加入上行分流与端点握手长度识别，避免 607 字节首包被归入旧协议、无法进入现有令牌绑定和握手流程。
+- 只增加已观测的精确长度，保留现有令牌解析、账号绑定与握手单次响应行为；不扩大相邻长度或改变账号认证策略。
+- 回归覆盖分片重组、593/595 字节拒绝、594 字节生命周期及端点应答，并验证有效、未知、缺失和过期令牌的账号绑定边界。新增场景已在修复前复现失败；自动化验证与玩家原生登录验收分别记录。
+
+## 2026-10-15 — 修复90版金库升级上限与即时刷新
+
+- 个人金库合法容量扩展到264格，账号金库扩展到240格。个人升级目标优先读取工具脚本[explain]，修正safe_upgradekit2及8/9等旧路径后缀与真实档位不一致的问题；账号档位、商品和道具身份读取etc/accountcargo.etc的[upgrade info]，价格来自同一PVF的etc/cerashop.etc，支持移出旧目录的后续升级工具。
+- 旧商城窗口重复购买时顺延到实际下一档并按该商品价格扣费；满级、余额不足、配置缺失或事务中容量变化时拒绝，保留原子扣费和回滚边界。成功结果确认原请求商品，保持客户端购买状态对应。
+- 个人扩容在商城op64前发送class0/op66子类型1的u16容量通知，更新档位而不重建整份物品列表，修复换角色后未打开过金库直接购买出现闪退的复现路径及下一档商品不立即刷新的问题。账号扩容在op64前发送class1/op306成功通知和权威list12容量，使已打开金库立即显示新增格。未修改客户端或接收开关。
+- 回归覆盖真实PVF全档商品/价格、普通库存保留、新格边界、旧档位计价、满级/余额不足和陈旧计划拒绝。原补丁基线db11236的独立纯服务端完整领域/桥接/控制器9622 PASS、883 SKIP、0 FAIL，真实PVF专项5 PASS；gofmt/list/vet、仓库边界和Windows/Linux编译通过，BAT配套预检明确跳过数据库和运行中端口。原生验证在已安装配套上通过个人换角色首次/连续升级与商城即时换档、账号144到240连续升级及新增格存取；新主线整合以本轮自动化检查为准，不扩大为所有库存操作已验收。
+- 合入主线7d820f631e53的594字节登录握手修复，保留双方新增记录；本次仅处理该记录冲突，11份金库业务源码及测试逐字节保持。
+
+
+## 2026-10-15 — 保留已部署排序锁用例的金库容量前置
+
+- 合并MR26与已验收MR41时，旧cargo_move夹具未解锁目标槽10，核心回归被现有容量守卫正确拒绝。恢复已部署2f0d20b中同一测试的24格金库前置，不改产品守卫或锁标志断言；首轮失败记录保留。
+
+## 2026-10-15 — 合并用户确认的第三/四轮修复，保留失败子项
+
+- 用户已验收乔纳森、晶体切角、金币上限、黄锁、蓝锁和锻造窗口；附魔材料及幸运星金币扣除子项通过。只集成这些实现及回归。
+- 幸运星点数即时显示、附魔错窗和菜单入口仍失败，组队返回按钮未反馈；未将相关候选整体推入主线。保留主线已验收金库容量与放置校验。
+- 客户端v102已独立发布，乔纳森仍显式candidate开关；现网本次不重启。完整边界见Docs/R4_ACCEPTANCE_20261015.md。验证以本次最终组合回执为准。
+
+## 2026-10-14 — 女圣职者 15 级主线/转职链路真档回归（DOC-123）
+## 2026-10-15 — Check rental wallet send failure after committed purchase
+
+- Add a real-PVF/memory regression injecting zero-byte and seven-byte-prefix errors on the wallet op14 write after the successful op1000/op985 frames. The original connection error propagates; gold and lucky-star points remain committed exactly once, without a compensating failure ACK or automatic repeat purchase.
+- A fresh backend service/session reloads and explicitly projects the committed values without another asset transaction. Both cases pass. This manual backend projection is not a full login test, native display acceptance, or proof of the original incident's cause.
+
+## 2026-10-15 — Preserve exact enchant target identity through handler serialization
+
+- Add a pinned real-PVF, independent-memory 601 handler regression for belt100220137/card3621/recipe10015129 at target28/card237, with weapon28309 in decoy slot9. Both peer-store and registered-self-store requests must produce one successful ACK before the main op13, retaining each slot identity, target enchant and card count; a short-material request preserves all fixture assets and sends no success refresh.
+- This fills the gap left by the older direct-commit test with a dynamically selected target/card. Deep-copy boundaries and actual serialized rows were independently reviewed. Three cases pass; legitimate three-byte empty non-main container pages are not misclassified as malformed main pages.
+- No product behavior change or client-window fix is claimed. The regression cannot reconstruct the historical callback global, object lifetime or icon display, and does not implement an unverified personal self-entry protocol.
+
+## 2026-10-15 — Replay Jonathan payment through the real request handler
+
+- Add an isolated memory/real-PVF request-handler regression using observed target28309, target slot54, normal-material slot358 and NPC476/material slot135 trailer fields. The name and character are synthetic; this is not a replay of historical player state.
+- Default-off control leaves conversion stones unchanged. Candidate mode consumes one stone and ten ordinary materials without gold; ordinary NPC mode consumes gold84975 and the same ordinary materials. Missing conversion material returns the existing rejection with all assets unchanged. Check ACK-before-op14, target identity, committed material quantities and the ordinary-NPC wallet balance on the serialized wire.
+- The whole handler replay passed together with the party candidate and other backend trials. It does not enable the default-off fee candidate or establish native consumption/display acceptance.
+
+## 2026-10-15 — DOC075 后续：独立最小双位准入候选与既有候选查重（离线，非生产）
+
+- 查重（第三轮既有白名单候选）：client-candidate/DNF.exe（sha256 6e61c3615f37fff6b6b9ad7b6e2f7878ee0d33bc2ed8f505ca6af5ebbfe30bcf）只放行 438/713/714，client-candidate-v2/DNF.exe（sha256 1be9466fb7a76611ea4894608c4601f018462253e9293ab8f85bd9e94161a4e3）追加 947/978；两者分别只改 2 与 4 个位图字节，**都不含 0x382(898)/0x217(535)**，也没有对 .cryssel/.dshcard 加任何东西（这两段本就在基线镜像里），因此本次晶体两位不重复。生成器与格式见 E:/90/repair-round3-20261015/prepare_client_candidate.py 与 prepare_client_candidate_v2.py（断言基线 sha → 只 OR 位图位 → 断言改动偏移集合 → 全量 65536 opcode 仿真对比）。
+- 新增独立最小候选（仅供评审的离线副本）：crystal-evidence/prepare_crystal_gate_candidate.py + DNF-crystal-contract-898-535-candidate.exe（sha256 4020530dbdcb910d42d79229fc3d8481316e685286da7561247450a32f8e9274）。脚本严格校验基线 sha256 1ac12645…fd4331 与位图原字节（0x6E92342=0x20、0x6E92370=0x08）、只 OR 目标位；改动文件偏移恰为 111747906 与 111747952 两处、每处 1 位（即两个 bit、两个字节）；全量仿真显示放行集合 223→225 且变化的 opcode 恰为 {535,898}；清位还原后 sha 与基线逐字节一致（可恢复）。
+- 幂等：同一输入重复执行不重写（第二次 pristine 运行 idempotent_no_change=true 且 mtime 不变）；把候选自身当输入时走 already_patched_input 分支——判定规则是“清掉目标位后等于基线 sha”，不靠猜测，同样不重写。
+- 独立复验：修正版门控探针以 --exe 指向该副本重跑（probe_gate.py --exe … --out-json v101-gate-probe-crystal-candidate.json）→ op535/op898 admitted=true、放行计数 225、锚点 14/251 放行与 252/713/714/947/978 丢弃保持不变。
+- 组合方案（只说明、不生成）：若最终需要一个候选，可在 client-candidate-v2 基础上再置 0x6E92342 bit7(0x80) 与 0x6E92370 bit2(0x04)，预计改动 6 个位图字节，放行集合 = 438/713/714/947/978/535/898；本脚本支持改 --opcodes 自行产出，但本轮未产出组合件。
+- 更正上一条描述：v1 探针的仿真输入本身是正确的（在 0x6E83610 执行真实谓词、位图已在 0x6E92300），错在把位图地址当成 gate 函数标签、并把 res[0]=0 当“接受值”导致极性反转；留档已更名为 probe_gate-v1-mislabeled-gate-va-and-polarity.py.bak。
+- 边界：产物仅为 crystal-evidence 内的离线副本，未安装、未部署、未运行 UI、未改生产 EXE/PVF/服务端；静态位图丢包＋客户端进程级缓存仍只是**机制证据**，不是已验收的实机根因。
+
+- 报告（固定真档 Script.pvf，sha256 369d072b82c715aea4e02813d89ad9225686983e147bc7be0ee0cae2e296bb06）：玩家报告「女圣职者15级主线完成后没有转职任务也没有主线任务」。当前主线上的真档走查（job 14 = character/character.lst 第 14 项 `Priest/ATPriest.chr`）为：完成 3151→3152→3153 后出现该职业自己的「守护森林的战斗」分支（占位 6929 与真实分支 6945–6949），完成任一分支解锁 3155「赛丽亚的决心」，再由 3155 开放 2908–2911「转职 - 圣骑士/异端审判者/巫女/诱魔者」。真实旧源码（`2da7982^`）按 `[target character]` 元组精确比较，真实分支携带的 -1（该分量不限制）永远等不上打包的成长半字节，于是只留下既无奖励、也不在 3155 前置里的占位任务 6929，链路在 3153 之后断死——重现了与报告一致的「无后续主线、无转职任务」症状。
+- 2da7982（DOC-116 同批）把 -1 视为不限制该分量，且 2da7982 已是 9de2ecb 的祖先；本次不改运行逻辑，只补上此前仅覆盖剑魂（job 0）的真档回归。当时在线版本与角色存档未经证明。
+- 回归（固定真档，旧红新绿；旧源码基线 `2da7982^`＝78f90b6，catalog.go 仍为精确比较）：
+  - 新增 `TestRealPVFAtPriestLevel15BranchReachesClassChange`：钉死 6945/6946 的名称与 `[target character]` 元组、3153 后 6929+6945–6949 必须可接（6945 DecideAccept=AcceptNew）、完成分支解锁 3155、完成 3155 后 2908–2911 可接。基线失败于「at-priest level-15 branch quest 6945 not offered after the mainline; listed=[3105 … 3145 6929 8581]」。
+  - 新增 `TestRealPVFEveryJobLevel15BranchReachesClassChange`：对 character.lst 的每个职业跑同一条链（分支 → 3155 → 转职）；黑骑士(9)/缔造者(10) 按真档留在普通转职家族之外。基线 14 个职业失败于「no level-15 branch variant」。
+- 局限：本项依据真档目录、前置与目标元组推导，未取得该玩家角色当时的 quest_states（现网只读快照中没有 job 14 角色），因此未复现该角色的具体存档状态；本条只声明当前主线（9de2ecb）上该链通过，DOC-123 仍待原生验收。DOC-124（已转职角色仍可接永远结算不了的转职任务）属另一候选，未包含在本次改动内。
+- 时间线：报告为 10.13 14:30；包含该判据的 D33 已知问题分支在 10.14 15:52(HKT) 才并回 master（5fc6807）。报告当时线上是否已含 2da7982 无法从本仓证明。
+- 验证（本树，改动仅测试文件头注释与本文档）：gofmt 无差异；`go list -buildvcs=false ./...` 211 包；AGENTS 指定的 vet 目标（cmd/server/control、cmd/server/dnf90、cmd/server/doctor、internal/app/dnf90、internal/services/dnfbridge）0 输出；核心 `./internal/modules/dnf/... ./internal/services/dnfbridge ./cmd/server/control` 79 个包 ok、0 失败、2 包无测试文件（dnfbridge 22.2s、control 6.1s，本机未设真实 PVF 环境变量故真档用例跳过）；Windows 构建 `go build -buildvcs=false -o ..\runtime\bin\DNF90Server.exe ./cmd/server/dnf90` 通过并产出二进制；固定真实 PVF（sha256 369d072b…）两根 `TestRealPVFAtPriestLevel15BranchReachesClassChange`、`TestRealPVFEveryJobLevel15BranchReachesClassChange` 全部通过。BAT 预检 `control.bat check --skip-database` 在本机需先把 Go 加入 PATH（否则报 DNF90Control.exe/Go 缺失，exit 10），加 PATH 后仍因源码包缺少 `deploy/assets/channel_info.etc` 失败（exit 1），故未计部署通过。
+## 2026-10-15 — DOC075（原 P62）晶体契约跨角色串用：客户端准入位图复核与换角重放回归
+
+- 现场：同一账号角色 1 选了晶体契约属性后，其他角色也显示同一属性；重登/换角后选择还会“消失”。服务端把选择持久化在角色自身 Stats[premium_crystal_selection]（crystalcontract/owner.go），角色作用域本身正确，问题不在持久化。
+- 客户端复核（真实 v101 DNF.exe，sha256 1ac1264553f8f762e64f2c637c4c26d3bf5ff0fdc60a090ca8b077d452fd4331，只读反汇编+仿真，未改二进制）：接收准入谓词在 .rebuild 段 0x6E83610 = bt dword [0x6E92300], opcode + setb al，即 **EAX=1 才放行**；位图在 .dshcard 段 0x6E92300，每 opcode 一位、无 class 维度。上一轮探针把位图地址 0x6E92300 当成函数入口（实际是数据），又用 res[0] 当“接受值”，结论整体被反转。修正后对全部 65536 个 opcode 求值：**op898(0x382) 与 op535(0x217) 的准入位都是 0**，即晶体契约状态通知与选择 ACK 都在分发前被丢弃；同时复现上一轮锚点（14/251 放行；252、713/714、947、978 丢弃），并给出最小放行改动位置。
+- 客户端处理器（同一 EXE）：class0 注册块 0x4454FDE 把 535→0x212C4B0、898→0x212D6F0；898 处理器只读报文第 2 字节作为选择值（0xFF=未选），末尾跳进新增的 .cryssel detour（0x6E97000）写入进程级全局缓存 0x5590CF0。535 处理器以 class1 信封字节为 ACK 标志，负载为 {sourceFlag, selection}——这正是上一轮包读取日志“B ack 标签错位”的成因。缓存是**一个客户端进程一份**（服务端驱动的写入点只有 898 detour，另有客户端自身选择/清空写入点），服务端无法按角色刷新它，这就是跨角色串用的机制。
+- 服务端不改产品代码：客户端在分发前丢包，本仓库无法修复；按“可证实才改产品代码”的要求只补测试。新增 go-server/internal/services/dnfbridge/crystal_contract_doc075_test.go，读取一律走会话自己的连接、断言按包型（class+msgID）而非读取顺序，覆盖：两角色不同选择的首次登录与重登隔离、同连接 op7 换角后按当前角色重放一次（不重复、不带上一角色选择）、换回原角色后重放原值、换角不篡改对侧持久值。旧的 zz_scratch_crystal_isolation_test.go（角色 21 选择时误读角色 19 连接）已删除。
+- 验证：go test -buildvcs=false -count=1 ./internal/services/dnfbridge -run "TestDoc075|TestCurrentCrystalContract|TestLegacyCrystalContract|TestTownAreaReadyReplaysPersistedCrystalSelection|TestDeferredSelectSceneTail|TestPremiumGameplayModuleRegisters|TestCurrentLimitedCube|TestCeraShopPurchaseCrystalContract" 全绿（23 根用例、0 失败、0 跳过）；go fmt 无输出；go vet ./internal/services/dnfbridge 通过。按父代理要求单进程运行（GOMAXPROCS=2），本轮未跑完整回归。
+- 边界：未修改任何 Go 产品代码、PVF、客户端二进制、部署或线上数据；未部署、未推送、未合并远端。证据目录 E:/90/repair-round4-20261015/crystal-evidence（probe_gate.py、probe_898_handler.py、v101-gate-probe.json、v101-crystal-handler-probe.json；旧探针与其错误结论分别留档为 *-v1*.bak / -v1-invalid.json）。
+- 父代理待决点：v2 客户端白名单候选若要让晶体契约可见，需在白名单位图额外放行 0x382 与 0x217（当前最小改动：0x6E92370 bit2 = 0x04、0x6E92342 bit7 = 0x80；不可只放行 898，535 的 class1 ACK 同样被丢）。原生 GUI 验收仍未做，本次只有离线反汇编/仿真与服务端回归证据。
+
+## 2026-10-15 — Preserve native upgrade NPC context and isolate cost arithmetic
+
+- Decode the optional v101 op50 trailer as NPC template u16 + conversion-material slot i16, after the counted name. Captured dc018700 decodes to (476,135); ffffffff and legacy absent trailers remain distinguishable. Reject partial/unknown trailer lengths and oversized names. These are lookup hints only; no client-supplied price or material identity becomes authoritative.
+- Parse current-level cost-weight triples without dropping fractional tokens or shifting keys. Add a separately tested native arithmetic helper: base table index, type, rarity, then current-level weight, with float32 weights and integer rounding at every stage; type 24 aliases the weapon type weight while type 25 consumes the final PVF entry. This helper is not wired to payment yet.
+- Evidence: current EXE native instruction slices pass 42 rounding and 7 conversion boundary probes; decoded native PVF parser tags confirm NPC conversion fields and the two level-weight maps. Go tests cover trailer formats, malformed lengths, stage rounding, malformed triples, and fixed real-PVF values. Baseline overlay rejects test is red (old parser accepted all four malformed trailers); new parser is green.
+- Still open: resolve the native equipment cost-index field to its exact PVF source; reconcile display ceil versus preflight floor-plus-one conversion, and then connect validated fees/materials to the atomic owner path. This commit does not claim Jonathan material settlement or native acceptance.
+
+## 2026-10-15 — Preserve fractional upgrade cost-table weights
+
+- Read rarity and equipment-type cost weights through the PVF numeric accessor. The integer-only accessor dropped decimal tokens and shifted subsequent indexes (real upgrade.etc starts rarity weights 0.50/1.50 and type weights 1.20/0).
+- Regression fails on the original parser and passes after repair; pinned real-PVF weight and existing upgrade-material checks pass (3 roots, zero skips). This repairs the parsed input only: Jonathan fee settlement and native material consumption remain open.
+
+## 2026-10-15 — 新段102 购买幸运星后的已提交金币钱包投影（租赁充值 op1000）
+
+- 现场：租赁武器系统用金币购买幸运星（op1000 充值）成功后，背包金币显示不变，只有重选角色（整容器重建）之后才减少。服务端事务本身是对的——金币已经落在角色仓储里，缺的是成功路径上的即时钱包投影：改动前成功只回厂商 13 字节应答 `01 <i32 mode> <i32 quantity> <i32 totalLuckyStar>` 加一条 op985 租赁点面板刷新，没有任何一条报文携带已提交的金币，客户端本地金币行因此保持旧值。
+- 权威来源：`purchaseCurrentRentalPoints` 走 `dnfrental.Owner.Charge`，在同一个 `RentalAssets` 事务内扣金币、加幸运星并把 `character.Stats["gold"]` 写回，返回的 `WalletResult.Gold` 就是提交后的值；投影用的就是这个值，不重算、不读缓存、不从请求推导。
+- 服务端修复：成功提交后追加一条 class0/op14 的已提交钱包行（`buildCurrentGoldStateBody`，list0/slot0、itemID 0、余额在 stack_count），顺序固定为「op1000 应答 → op985 面板 → 钱包行」，是严格增量：不改任何既有报文的字节、顺序或 sequence 分配。事务前拒绝（解析失败、未选角、PVF 目录不可用、owner 不可用）与事务拒绝（金币不足、幸运星越限、仓储失败）一条都不发，失败仍然不扣。
+- 形状依据（非新发明）：与既有 carry-gold `sendCarryGoldWallet`、掉落拾取、普通 NPC 商店、登录与整理的钱包投影逐字节同形（3 字节头 = listType + u16 行数 + 0x77 行），既有 `TestCurrentRentalProtocolBodies` 已钉住同形；当前 v101 客户端门控位图 0x6E92301 bit6=0xFF 允许 op14，DOC029 现场已观察该钱包行被接收并更新金币显示。
+- 开关联动：新增 `DNFBRIDGE_RENTAL_CHARGE_WALLET`（空/vendor = 开启，off/0/false/no/legacy/disable/disabled = 逐字节回退）；既有 `DNFBRIDGE_RENTAL_REJECT_ACK=off` 同时抑制本投影，保证那条开关“op999/op1000 整条线逐字节回到今天”的承诺继续成立。
+- 验证：旧红新绿——只把 `gameplay_module_rental.go` 回退到 HEAD（测试与新文件保留）时 `TestRealPVFRentalChargePublishesCommittedGoldWallet` 失败（`game upper packet too short: 0`，即应答+面板之后没有第三条钱包报文），恢复后 7/7 全过、文件 SHA256 逐字节还原为 dc5eb008…。真实 PVF 租赁专项 19 项全过（含既有 `TestRealScriptPVFCurrentRentalCatalog`，0 跳过）；全量 dnfbridge 3309 通过 / 0 失败 / 536 环境跳过；gofmt、go list、`internal/modules/dnf/...`、`cmd/server/control`、scoped vet 与 Windows 服务器构建全部通过。原始日志见 rental-evidence/。
+- 边界：未部署、未推送远端、未合并主线，未改客户端/PVF/生产玩家数据，未使用游戏 UI。原生游戏内“购买幸运星后金币立即刷新”仍未验收，不得据此关闭现场问题；`rental_state.go` 中“旧登录刷新写入合成金币行曾污染客户端物品对象”的历史注释与本条的区别（本条只在提交后的独立 op14 更新里发，不改登录/op985 组合）仍待原生复验确认。
+
+## 2026-10-15 — DOC029 金币持有上限重复升级（已提交档位重新发布）
+
+- 现场：首次点击扣费后，再次点击不再扣费、上限显示也不动。当前 v101 客户端（DNF.exe sha256 1ac1264553f8f762e64f2c637c4c26d3bf5ff0fdc60a090ca8b077d452fd4331）的金币持有上限完全由客户端档位字节 [0x057B7008] 决定：0x032EA592 在档位 0 时取 0x17D78400（4亿），否则取档位表 0x4CF88D8（0x4CF88DC..E8 = 5/6/7/8亿）。
+- 根因（已由父代理现场复核）：该字节只有两个写入点——op978 回包处理器 0x01FD4B5A（class1 成功位 + 1 字节档位 + u32 结果；仅 flag!=0 且 result==0 才写入）与档位通知 op947 处理器 0x0203AE86（读 1 字节）。当前 v101 客户端在 COMMAND 分发前有接收门控 0x06E83610：`bt dword [0x6E92300], opcode`（>0x5C2 直接 0），位为 0 的 opcode 在 0x02523C96 被丢弃，即使已登记处理器也不会分发。位图解码：op978 = bit2@0x6E9237A(0x00)、op947 = bit3@0x6E92376(0x80) 均为 0（父代理复核确认 947=0、978=0），而 op14 = bit6@0x6E92301(0xFF) 为 1。因此客户端档位永远是 0：上限不变，每次点击都发同一档位，服务端按重复请求拒绝（不扣费）；钱包行 op14 被接收，所以现场只看到“首次扣金币”。重登也不恢复，因为登录档位投影同样走 op947。
+- 服务端修复：新增 publishCurrentCarryGoldStage，在一次升级请求被处理完后（成功，以及档位已知的拒绝：重复请求、金币不足）都通过 op947 重新发布已提交档位（A21 参考 GoldLimitHandler.cs 同样每次都发档位通知），回包内容与顺序保持“op978 回包 → op947 档位 → 钱包行 op14”；成功路径的扣费、档位推进与事务回滚语义不变，重复请求仍不二次扣费。仅涉及金币上限代码。
+- 验证（证据目录 gold-verification-20261015，v1 日志不覆盖）：新增 DOC029 回归在基线 c0e275a 为红（doc029-red.log：TestCarryGoldDoc029CommittedTierIsPublishedAfterUpgrade 与 TestCarryGoldDoc029RepeatUpgradeAfterLostReply 均 FAIL，原 4 个 carrygold 用例仍 PASS），修复后为绿（doc029-green.log：6/6 PASS）；另附 v2 门控证据 gate-opcode-bitmap.json 与 REPORT-v2-gate.md；gofmt 无输出、go list/vet、cmd/server/control、internal/modules/dnf/... 全通过，真实 PVF 专项见同目录记录。
+- 边界：客户端位图属父代理“统一客户端白名单候选”，父代理将制作 v2 额外放行 947/978；本次未执行/未修改客户端二进制，也未新增/更换服务端其它 opcode，未改动完整物品表、锻造/附魔/锁定代码，未部署、未推送远端、未改动生产玩家数据。
+
+## 2026-10-14 — 服务端与本地 GM 边界验证
+
+- 干净检出验证：核心9293通过节点、858跳过、零失败；固定真实PVF 143个指定回归根全过（656通过节点、2未选中包）；gofmt/list/vet、Windows/Linux构建通过。BAT预检缺源码包未含的deploy/assets/channel_info.etc，未计部署通过。
+- 原GM文件保留本地，独立本地工具不进入在线仓库；CI边界正反对照通过。
+
+## 2026-10-14 — 按用户要求将在线仓库与本地 GM 工具分离
+
+- 在线版本移除 GM Web 工具包及嵌入服务端的启动/停止绑定；本地原始 GM 文件和用户正在使用的工程全部保留。隔离清理树采用取消 Git 跟踪，未删除本地工具源码。
+- 控制器不再生成 GM 环境配置，doctor 不再要求 GM 端口随游戏服务器启动。旧 gmListen 配置兼容读取后忽略；服务端游戏及通用管理接口保持原职责。
+- 添加忽略规则、仓库边界检查及协作规范，防止后续 GM 更新重新进入在线仓库。验证与在线清理结果后补。
+
+## 2026-10-14 — Keep skill-setting diagnostics consistent with committed state
+
+- Only log skill/CD lists as cleared after settings persistence succeeds. A regression injects a repository save failure, confirms the previous frame survives, and rejects a misleading cleared event; it fails before the guard and passes afterward. Save/replay bytes and error handling remain unchanged.
+- Full validation at 556a2fb: gofmt/list/vet and Windows/Linux builds pass; core records 9323 passed nodes, 859 skipped and zero failures. All 146 required real-PVF roots pass (657 passed nodes, two packages without selected tests). BAT preflight remains blocked by absent source-worktree channel_info.etc. Parent independently rechecked all 11 current-client layout probes. Native skill-setting acceptance remains open.
+
+## 2026-10-15 — 修复双技能加点页及技能类型扩展券
+
+- 第二套技能加点默认锁定，商城821技能类型扩展券按实际PVF身份和价格购买后即时开启，重复购买拒绝；购买资格、第二页初始配置及点券在同一事务保存。历史默认页码不作已购买凭据，已有第一页加点保留。
+- 两页独立保存技能等级、SP/TP及快捷技能位置，切换原子更新当前活动配置和页码，冷却共享。加点、重置及快捷技能修改检查已解锁且属于当前页，重置保留另一页；升级点数与转职觉醒同步两页。
+- 新增技能页状态及非活动页技能两张关系表，启动增量建表；旧页码镜像支持-1。当前角色mode0按购买资格发送0xff或0/1，购买后用当前版角色信息及双页op19刷新，不修改客户端或PVF。
+- 回归覆盖未购买拒绝、真实PVF扩展券购买与重复拒绝、独立配置切换/冷读取、点数同步、重置隔离及事务失败回滚。用户已在本地配套实测确认修复效果；原生验收范围以实际反馈为准。
+
+## 2026-10-14 — 技能选项字段在当前客户端离线复核与收敛（装备席）
+
+- 用 scripts/verify_client_skill_option_words.py 对当前客户端 DNF.exe（SHA256 8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387，2026-10-14 07:36）离线复核 43 批字段结论：11 个相关函数仍在同一 VA，保留的整函数字节切片逐字节相同（CD 恢复 2176B、390 读取端 1616B、锁表导出 464B、CD 导出 672B、447 写出端 672B 等），raw/bank 边界 0x7F/0x80、索引算法 (bank+2)*64+entry、blob 基址 +0x1CC、帧长恰好 0x200、CD 列表 2..41（每树 20 项、步长 20）均未变，all_ok=True。旧参考 EXE 为 SHA256 bb42898c…（111763456B）；不再把旧哈希当作现状证据。
+- 收敛注释与文档：character_option_words.go 头部压缩为字段表 + 复核结论；删除未被使用的 empty() / summary() 方法与两个未用常量；Docs/D33_SKILL_OPTION_WORDS_20261014.md 去掉重复叙述并补上复核结果与日志负担说明。
+- 仅新增只读复核脚本 scripts/verify_client_skill_option_words.py（capstone 目录与客户端路径全部参数化）；保存与回放字节、保存门禁、账号档闸门均未改。
+- 未部署、未推送；未改其它工作树 / 用户 DOCX / 原台账 / 生产资产，未改装备或任务领域。DOC-053 的时装右键掉线与重选后武器栏空白由用户确认已修（仅未涂色），本席不再排查；用户没有说明修复位于客户端还是服务端。
+## 2026-10-14 — 技能选项（锁定 / CD 提示）字段取证与保存回放可观测性（装备席）
+
+- 按固定客户端 EXE（SHA256 bb42898c02fb43ad30537da776f648ce26ac37df2ff47912ca7174df43c80531）已证字段表记录每角色选项 blob 的编码：技能锁表 = word 128..191（树0）与 192..255（树1），每树 64 项，值 = 客户端技能槽号，空项 0xFFFF，写入 0x39A6BA0 / 读取 0x39A6C00，导出 0x2255AA0、恢复 0x2255880；CD 提示列表 = word 2..21（树0）与 22..41（树1），每树 20 项，导出 0x22555F0、恢复 0x2254FC0。攻击类型（物理/魔法）仍无字段或包证据，不实现，也不用其它字段代替。
+- 新增只读解码 character_option_words.go，并把 op447 保存与 class0/390 回放事件接上字段证据：previous_saved、payload_sha256、option_words_decoded、changed_word_count、changed_word_indexes、lock_tree0/1_slots、cd_tree0/1_slots、lock_slot_count、cd_slot_count、option_word_encoding；另新增具名事件 game-character-option-skill-lists-cleared（上一份存档的锁定 / CD 列表在新存档里消失时）。落库与回放逐字节不变，保存门禁不变。
+- 用 45 批原生取证的真实锁定帧（角色 31 点锁定后落库的 512B，sha256 4fe7d38648f9d5a19c372a73c684c7d66bd473dc9db6245da8bc0e9a3d7e297b，word128=5）做固定 fixture，新增六个回归：真实帧解码、四张列表按树且槽号 0 合法、非 512 一律不认、word 差异、清空点名，以及真实 op4 选角 + 真实 447 分发 + 冷进入与同连接再选角的 390 逐字节回放与日志字段。
+- 旧失败复现：临时把角色选项回放改回旧的一次性连接闸门后，返回选角、同角色重进与 A→B/B→A 三组均 390=-1（19 仍为 30），本轮新增端到端用例同样 RED；按 SHA256 校验还原后全部 GREEN（-run TestCharacterOption）。未跑全套重测试。
+- DOC-060 / DOC-114 / DOC-053 的三条症状未关闭：锁定与 CD 提示的数据载体在基线上已整帧存取并按每次选角回放（45 批漏 390 的连接闸门已由 31e2b51 修复），但原生 GUI 验收、攻击类型字段与冷连接时序仍开放。现场 A/B 步骤见 Docs/D33_SKILL_OPTION_WORDS_20261014.md。
+- 只在独立工作树 work/bugs-round2-equipment（基线 5fc6807）改动；未部署、未推送、未改其它工作树 / 用户 DOCX / 原台账 / 生产资产，也未改装备或任务领域。
+## 2026-10-14 — Correct equipment-lock success ACK framing
+
+- Current-client class1 op267/268/269 expects a success byte before list/slot (unlock also carries remaining seconds). The itemlock owner responses omitted that byte, so main-list zero selected the failure branch and other lists shifted the location fields. Add the success prefix only to ACKs; preserve the class0/op252 location-only notification and existing persistence semantics.
+- Add a bridge regression covering all four supported list types and three operations through the real handler, repository and send path. All twelve cases fail on the old bytes. Native validation and the previously unsupported equipped-list owner remain open; see Docs/BUGS_20261014_EQUIPMENT_LOCK_ACK.md.
+
+## 2026-10-14 — Clear position-lock bytes on equipment transitions
+
+- Parent review found that deleting only the sort_lock Extra key left raw row +0x60 set on equipped items, and historical equipped records could return the old key on unequip. Clear both the key and the current 0x77 row byte in both directions; clear the worn-row projection independently for existing records. Preserve shorter legacy row layouts and unrelated attributes.
+- Two new regressions fail on 56d101d and pass after the fix, covering equip/unequip conversion, historical worn rows, projection and input immutability. Full final validation follows this source change; earlier 56d101d results do not validate it.
+
+## 2026-10-14 — DOC-067 位置锁：真实桥接端到端与失败回包边界（sort-lock 席，复核轮）
+
+- 新增 sort_lock_bridge_integration_test.go：legacy cmd=1/op713 经 handleGameStreamPacket → handleAlignedGameCommand → Owner.ApplySortLock 落库，回包**只有**一条 class1/713 `01 00 0e 00`；随后整表/冷登录 op13 容器页里该槽 `0x60=1`，同一页的钱包行（0:0 金币 123456）、账号共享晶块行（0:359 = 5000）、品级种子 999999998、强化字节 6、属性/附魔块逐项不变；714 解锁后增量 op14 单行 `0x60=0` 且这些字段仍在。
+- 复核对齐两个帧形状：桥的 upper 头是 16 字节（splitAllCurrentGameServerUpperPackets 按 13 字节旧头切帧会把头部尾 3 字节并进 Body，测试改用 splitGameServerUpperPacketWithHeader + GameServerUpperHeaderSize16）；list 0 整表 op13 容器页头 = listType + u16 容器档位 + u16 行数（5 字节，行 0x77），取页时需按长度校验与同 msg id 的容器状态帧区分。
+- 失败回包边界取证（回答「不回包会不会卡住」）：0x1faee80/0x1faeee0 的失败分支只把 error 字节读进栈上局部（[ebp+0xf]）后返回，该局部此后无任何读取；两个处理器没有全局/UI 写、没有 pending/超时标记；上行 713 分支（0x32d3767）写体前只调一次 UI helper 0x1a685c0(1,3,0xd)，与回包无回调关联。因此失败不回包不会让客户端停在等待状态，最坏只是没有错误提示；90CN 也没有已证 sort-lock 错误码枚举（A21 的 17/19/21/22 属 267/268/269 资产锁），保持 fail-closed，不臆造 `0 + error`。
+- 空槽判据按仓储契约收紧：ApplySortLock 由原先 `found && ItemID==0 && Count>0` 会放行的写法改为 `!found || ItemID <= 0`（与 CurrentInventoryItemProjects / item_stack_contract.go 同一口径）；新增用例钉住「无物品行（ItemID=0、Count>0）必须按空槽拒绝」与「永久装扮（ItemID>0、Count==0）必须允许并投影 0x60=1」。
+- 回归：./internal/modules/dnf/...、./internal/services/dnfbridge、./cmd/server/control 全包通过；gofmt/go vet 干净。未部署、未推送、未改用户 DOCX/原台账/生产资产。
+## 2026-10-14 — DOC-067 物品栏位置锁定（位置锁持久化 / 整理跳过 / 行投影）
+
+- 当前客户端（DNF.exe SHA256 8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387）已证：C2S 713 = 置 1、714 = 置 0（不是 toggle），体 = u8 list + u16 slot；客户端收到 713/714 分别写 item+0x2aa=1/0，所以成功回包必须用同一 opcode 的 class1 `u8 1 + u8 list + u16 slot`；旧 C# 的 toggle 与 714/715 方向在本客户端会翻反，未照搬。
+- 0x77 物品行的 0x60 字节经 0x1fd824c（读 row+0x60）→ 0x1fd8c38（struct+0xaa）→ 0x1d45fcc（item+0x2aa）链进入客户端物品对象；本席复核 op13 处理器 0x2024cf0 与 op14 处理器 0x2025a90 都用同一 0x77 行缓冲调用同一组行解析 helper（0x242d4a0 调用点 0x20257e3 / 0x2025c76）与已证解析器 0x1fd80e0 一致。
+- 新增 internal/modules/dnf/inventory/sort_lock.go：sort_lock Extra 键、支持列表/账号共享格边界、Sort 跳过锁定物品与被锁槽位、搬运携带规则（穿戴/跨 list/主背包快捷槽 3..8 清锁；个人金库内部与同分段保留）与 Owner.ApplySortLock（校验→幂等→事务落库）。handler 接入 713/714 并只在 durable 提交后回同 opcode class1 成功包；失败一律不回包（90CN 错误码枚举无证据，不臆造）。
+- 行投影在 dnfbridge 显式写 0x60 = 0/1（setByte 会跳过 0，必须直接写才能清掉 raw 脏值，保证重登/整表刷新恢复锁定图标）；穿戴路径进场时删除位置锁，装备资产锁 267/268/269 与宠物/账号仓库未改动。
+- 新增 inventory/sort_lock_test.go 与 dnfbridge/sort_lock_row_projection_test.go：落库与回包形状、其他 Extra 键不被清、幂等不重写、非法 list/账号共享槽/空槽/长度不符不回包、跨账号拒绝、落库失败无半截状态、整理跳过、搬运规则矩阵、行字节显式 0/1。
+- 旧代码复现：把 handler/owner/aligned/行投影/account_cargo_sort 临时还原到 5fc6807 后，713 未登记无回包、整理搬走锁定物品、快捷槽与跨容器搬运保留锁、行字节保留脏值 1；按 SHA256 校验还原后以上用例全部 GREEN，`./internal/modules/dnf/...`、`./internal/services/dnfbridge`、`./cmd/server/control` 全包通过，gofmt/go vet 通过。
+- 未部署、未推送、未改用户 DOCX/原台账/生产资产；原生 GUI 验收与失败回包错误码仍开放。详见 Docs/D33_SORT_LOCK_20261014.md。
+## 2026-10-14 — 锻造候选主代理完整验证
+
+- 源码4e8a429：核心9378通过节点、860跳过、零失败；固定真实PVF的160个指定回归根全部通过（719通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
+- 普通锻造、便携炉、券、失败回包、事务回滚、装备等级窗口均纳入验证；DOC-087/092原生验收保持开放。
+
+## 2026-10-14 — 锻造审查补充：耗材等级窗口强制 + 438 失败码逐码核对（forging 席续作）
+
+- 关闭边界：耗材的 `[check usable itemlevel]` 不再忽略。真档实测 315 个 stackable 带这一段，而 125 张锻造券与 3 张幸运锻造券**都不带**（交集 0）；便携式锻造炉 10164035 = `1 90`、10090052 = `1 85`、10094127 = `1 86`；同族 1阶..5阶强化器 = 1..29 / 30..39 / 40..49 / 50..59 / 60..69，客户端物品名（`凯丽的强化器 (Lv1~90)` / `一次性增幅器 (Lv1~90)`）逐字写着同一窗口。
+- 语义按厂商同族口径：窗口比的是**目标装备的 `[minimum level]`**（`ItemUpgradeRestriction.AllowsItemLevel` 的入参就是 `targetMetadata.MinimumLevel`，不是 `[grade]`、也不是角色等级）。在域事务内、掷点与扣料之前强制；失败按客户端"限制"码 19 拒绝且材料/等级不动；目标 PVF 没写 `[minimum level]` 而窗口写了 = 失败关闭。
+- 该选择在真档上可区分：101040493 的 `[minimum level]` = 90、`[grade]` = 96 ⇒ 1..90 的炉子边界放行、1..85 的炉子超限拒绝（新增真档用例，旧红新绿）。
+- 438 失败回调 0x2483b60 逐码核对（本机读表，脚本/原始输出在 E:/90/_forging-scratch/forgeerr/）：先无条件 `push 0/0/0/4; call 0x12030a0` 复位锻造 UI，再读码；> 0xd6 走 default（文案键 0x67e + 码），≤ 0xd6 走 0x2483d38 字节索引表 → 0x2483d0c 的 11 槽跳转表。实测 4→槽1/0x67a、7→槽2/0x4e20、10→槽3/0x67c、13 与 95→槽4/0x676、17→槽5/0x8904、19→槽6/0x6a1a、22→槽7/0x67d、175→槽8/0x5338、214→槽9/0xa4f8、0/118→槽0 不显示、其余 203 码 → 槽10。本实现用的 7 个码**全部命中专用槽**。
+- 删除未证实的泛化断言（"未列出的码也会落到通用文案"）：0/118 根本不显示，且显示前还有闸门 0x35ca060 可跳过文案；能保证的只有复位 UI 无条件先执行。也不再称厂商同名 enum 为"当前客户端官方枚举"，改述为"厂商同族实现 + 本 EXE 专用槽实测覆盖"。
+- 验证：真档 `TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket`（含窗口边界放行与 1..85 超限 0+19）通过；合成档新增窗口回归（边界/超限/下界/未写 minimum level 失败关闭/无窗口放行）；core 套件 0 失败。未部署、未推送。
+## 2026-10-14 — DOC-087/092 锻造（op438）域事务与桥接回包落地（forging 席，续 615ba52）
+
+- 桥接：438 在 `Registry.Route` 之前用 `forging_codec.go` 解包（**畸形帧也回失败体**，客户端因此必定走完"复位锻造 UI"的回调）；领域结果组 class1 438（成功/掷点失败 13 字节、校验/存储失败 `0+u8 error`），ACK 先于逐槽 op14 增量。新增 `forging_pvf.go`（`etc/upgrade_separate.etc` 表 + 材料三种身份 + 目标武器/品级/稀有度/耐久），`dnfenum/aligned.go` 登记 438。
+- 域：`inventory/owner_separate_upgrade.go` 在同一个角色物品事务里完成材料消耗 + 锻造等级写入（**0x77 行 0x57 + Extra `byte_57`/`value_57`**），覆盖主背包 list 0 与穿戴 list 3；校验目标归属 / equipment / 模板一致 / 资产锁 / 武器 / 满耐久 / 等级上限 / 品级材料 / 稀有度 / 券白名单 / additional 起始等级；错误码取厂商 `SeparateUpgradeResult.Error*`（4/7/13/17/19/22/95）。校验失败与存储失败都回失败体让 UI 结束，事务回滚保证资产不动。
+- 真档语义：便携式锻造炉 10164035 只消耗炉子 1 个、**不消耗 3326**；锻造券 125 件的 `fixed`/`additional` 档 + 券自带 `[reinforcement usable item list]` 白名单；幸运锻造券 10007408 失败**不掉级**。普通锻造材料 = `max(1, int(BaseCount×rarityWeight×levelMaterialWeight + 1e-7))`。
+- 测试：合成 + 真档（PIN 369d072b…）全链路 —— 普通锻造消耗 67 个强烈的气息、耐久门槛 `0+7`、便携炉 3→2、+5 券 0→5、白名单拒绝 `0+4`；另有存储失败回滚、额外属性保留、12 条校验拒绝与畸形帧回包。分节与真档命令见 `Docs/D33_FORGING_20261014.md` §4。
+- 验证：`gofmt -l` 干净；`go list` / `go vet`（control、dnf90、doctor、app/dnf90、dnfbridge）/ `go build` 通过；core 套件（`./internal/modules/dnf/...` + `./internal/services/dnfbridge` + `./cmd/server/control`）0 失败。
+- 未完成：原生 GUI 验收（锻造动画 / 窗口关闭 / 锻造器）仍待主代理；`[check usable itemlevel]` 未在服务端强制（与既有 op50 portable 档口径一致）。未部署、未推送、未改 PVF/客户端/生产库/用户文档。
+
+## 2026-10-14 — DOC-087/092 锻造 438 线协议复核修正与真档取证（forging 席）
+
+- 复核并修正主代理留下的 forging_codec.go / forging_codec_test.go：gofmt；样例注释改为实际 hex 对应的 item **101011368**（原注释 101010856 与 hex 不符）；去掉**没有证据**的 confirmation ≤ 2 限制（发送端把它当函数参数传入，全 EXE 扫描找不到直接调用点，取值域不可证；误拒会让客户端拿不到回包），保留有证据的结构校验；测试补成功/失败两套 ACK golden（含穿戴目标 list 3）、截断与畸形帧拒绝、confirmation 任意字节必须解析通过。
+- 线协议取证：C2S 438 写序 = u8 list / u16 slot / u32 itemTemplateID / u16 materialSlot / u32 长度前缀名字 / u8 confirmation；class1 438 回包注册 0x447a740 → 回调 0x24836b0，成功体 13 字节读取顺序 = u16 materialSlot / u32 materialRemaining / u8 oldLevel / u8 outcome / u8 newLevel / u8 targetList / u16 targetSlot（outcome 0=成功、1=掷点失败）；失败回调 0x2483b60 先 0x12030a0 复位锻造 UI。class0 438（0x200e590）是另一条只读 u16 通知，不得混用。
+- 真档参数（同一份运行时 Script.pvf，SHA256 369d072b…）：etc/upgrade_separate.etc 的 [separate upgrade max]=8、[table]=10 档×4（第 3=10000 基成功率、第 4=材料倍率）、[item weights by grade]=三元组（grade、材料模板 3326、基础数量）、[item weights by rarity]=7 权重；参考 InventorySeparateUpgradeService.cs（普通锻造 :175-270、券 :60-160）的材料公式 max(1, BaseCount×rarityWeight×MaterialWeight)、掷点 roll<SuccessWeight、失败掉级仅当 FailureDecrementLevel>0。便携炉 10164035 的 action `[portable genuine damage upgrade upgrede]` 与「不消耗强烈的气息」已记入证据文档。
+- 已证持久化落点：锻造等级 = 0x77 行 0x57 + Extra byte_57/value_57（GM 工具已有读写与真档测试；alignedcmd 已明确便携炉不属于 op50 强化族）。
+- **未落地（明确分界）**：域事务（材料消耗+等级写+回滚）、桥接 438 登记/handler/op14 刷新、便携炉消耗、券参数与目标白名单、失败体 `0 + u8 error` 错误码枚举；原生 GUI 验收（动画/窗口关闭/锻造器）待主代理。证据、公式与下一步清单见 Docs/D33_FORGING_20261014.md。
+- 验证：`go test -run TestCurrentForging ./internal/services/dnfbridge` 通过，gofmt 干净；固定 PVF 与失败资产未改动；未部署、未推送、未改用户 DOCX/原台账/生产资产。
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
@@ -78,6 +295,18 @@
 - P56 空白网页导航仍在客户端定位中，本次没有客户端 EXE 或资源改动；香港 2026-10-14 02:00 后再执行游戏操作。
 - 登记 2026-10-13 20:40 高优先级城镇跨角色卸武器反馈，关联 P33/P39/追加9；新增掌握技能武器触发条件；用户确认受影响角色重登后仍未装备，按持久化状态变化优先定位，尚未修复。
 - 草稿源码尚未合并、部署或发布客户端 Release。
+## 2026-10-15 — 同级合成池缺失时按PVF概率重建来源模板
+
+- 仅在同级合法候选为空时，使用启动缓存中一致且合格的来源模板补齐同级分支，保留PVF原等级权重与单件权重。抽中同级重新生成同ID新装备，材料照扣，旧强化、附魔、耐久不继承；有正常同级池时继续从原池随机，不改粉装与圣物共池规则。
+- 来源未加载、定义不一致或被排除时仍拒绝；PVF显式零同级权重不凭空加分支，缺合法升级候选仍只产出合法同级装备。新增粉装/圣物/传说的概率边界、配置变更、缓存准入和同ID新实例扣材/库存包顺序回归；未修改客户端或PVF。
+- 本轮重新执行两个源码环境的规定完整检查：本机9267 PASS、843 SKIP，独立分支9585 PASS、868 SKIP，均0 FAIL；跳过不计通过。gofmt/list/vet、Windows候选编译、真实PVF桥接通过，独立分支另通过Linux编译及仓库边界检查。独立副本BAT配套预检通过，数据库与游戏占用端口明确跳过；未安装本轮候选或重启当前游戏。
+
+## 2026-10-15 — 按90版PVF实现装备合成与启动预载
+
+- 新增粉装、圣物、传说的装备合成领域事务及407桥接入口。普通粉装与圣物共用品质3等级/大类池，武器、防具、首饰、特殊装备只限定大类；核对来源实例封装、锁定、期限、归属和实际开放容量，材料及新装备在账号/角色原事务中保存。
+- 启动监听前从PVF预载目录和规则，请求阶段复用完整缓存。等级升级权重、特殊装备相对权重、明确排除ID、部位组及分级材料均读取PVF；仅有同级合法候选的稀疏目录按同级处理。拒绝魔法封印粉装生成模板，不按名称旧字或Force Result Item Rule单独筛除正常装备。
+- 结果先更新权威库存，再返回407结果槽；产物封装，不继承来源强化/附魔。领域和桥接回归覆盖共池双向、跨细类、事务回滚、封装拒绝、配置变动和概率区间；原生客户端结果与动画仍按实际配套验收。
+
 ## 2026-10-14 — Preserve equipment quality after sorting
 
 - Use the same durable quality-seed precedence for inventory refreshes and login: dedicated metadata, equipment-only legacy aliases, then a matching complete current-client row. Sorting no longer replaces quality with the equipment stack count.
@@ -162,6 +391,18 @@
 - 兼容当前官方客户端的死亡报文：击杀归属为 `0xffff` 时，允许携带服务端已宣告、仍存活的友好 APC 战斗贡献项。继续验证当前房间的普通怪物绑定；未知/敌对/未宣告 APC、跨房目标、教程及旧协议不因此放宽。
 - 复用既有死亡、经验、掉落与清房流程；重复死亡或通知写入失败后的重试仅补发权威死亡通知，不重新结算击杀奖励。保留跨房跟随 APC 的原对象标识。
 - 增加原生报文边界、拒绝路径、重复结算及传输失败回归，并用匹配 PVF 重建阿甘左协战房间，验证六只阻挡怪死亡及后续过图。游戏内画面效果仍需实机验收。
+
+## 2026-10-14 — 同步上游传送提示与道具入包更新
+
+- 将上游 master 的 f30f50a（含 6004771、b524132）合入本地贡献分支，保留传送前置任务不足提示、普通道具分类入包规则及玩家更新日志；保留此前任务/幸运星/金币罐等修复，不混入升级券和 GM 职业未提交候选。
+- 核对 MR !2 仍开放且未合并。昨日派生库流水线 165295 的两项构建因 stuck_pending_no_matching_runners 失败，未开始代码构建；core-tests 跳过。派生库共享 Runner 已启用，但仅可见的共享 Runner 暂停且离线，当前账号无可分配 Runner。此项是 CI 执行资源阻塞，不用关闭检查或改业务代码掩盖。
+- 本次独立合并源码通过修改文件 gofmt、go list、完整 DNF 领域/桥接/控制器/GM 回归及约定 vet、Windows/Linux amd64 服务端/控制器/doctor 六项构建与配套 PVF 专项。实际 BAT 预检因在线保护拒绝，未停服绕过；代码验证与云端无 Runner 阻塞分别记录。本次仅更新仓库，不部署、替换客户端、重启或改数据库。
+
+## 2026-10-13 — 整理本地 Windows 测试的服务端修复
+
+- 整理本地注册反馈、频道下载编码、GM 本地账号映射、翻牌后主线刷新/完成后接续、回城旧场景状态抑制、任务手册快照顺序与旧协议正常放弃。
+- 纳入幸运星结算/GM 钱包读写/购买余额刷新、金币罐原子发奖与结算拾取槽位修复，并保留最新上游 NPC 商店期限合并和购买数量更新。
+- 改动附领域/桥接/控制器/GM 回归及配套 PVF 专项，独立源码执行约定检查与 Windows 构建；客户端依赖、用户已验收项目及未完成边界见 `Docs/LOCAL_FIXES_20261013.md`。不包含升级券、GM 职业候选或客户端/PVF 二进制，不改运行环境或数据库。
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
@@ -593,3 +834,118 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
+
+- Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
+- DOC098 is explicitly untested after clarification, not accepted. DOC087 remains untested. DOC029 repeat upgrades, DOC066 immediate blue-lock display/72-hour yellow-lock delay, and DOC075 cross-character crystal behavior remain open. Other unmentioned candidates are not implicitly accepted or merged.
+- GM is switched to the user-selected Cec1c/DNF90GM as a separate system. Conflict resolution, tests and actual remote merge outcomes are tracked in external receipts; this entry does not predeclare those operations completed.
+
+## 2026-10-15 - MR41 accepted integration with MR42
+
+- User confirmed personal and account cargo, the last slot and the full-cargo notice all pass native acceptance; the earlier last-slot report was withdrawn after retesting.
+- Resolve the inventory Owner conflict by retaining both cargo settings and monster-card settings. Align the mixed-grade card move regression with MR41's incompatible-stack rejection and verify both stacks remain unchanged before moving to an empty slot.
+- MR42 was already accepted and merged. This integration does not include unrelated unaccepted candidates, embedded GM code, runtime configuration or player data. Validation and exact merged-tree evidence are recorded separately.
+
+
+## 2026-10-15 - User acceptance of MR23
+
+- User explicitly accepted MR23 and authorized merging. Updated issue document also marks skill-lock and CD persistence items accepted. Preserve the remaining independent quick-cast/attack-type issues.
+- Reconcile only changelog history; preserve skill option bytes, existing save guards and diagnostic limits.
+
+## 2026-10-15 - Updated issue document accepts female-priest level-15 continuity
+
+- Updated user document marks the female-priest level-15 mainline/job-change report accepted. Merge MR37 regression coverage; it adds tests rather than a new runtime fix. Other quest and experience reports remain open.
+- Integrate the pinned MR41 cargo-capacity and MR42 monster-card upgrade/compound diffs onto deployed f9bcd3f for user acceptance only. Keep the existing gameplay candidates and independent GM private API. Do not merge or publish these unaccepted requests into master.
+- Resolve overlapping inventory settings fields by retaining both consumers, and preserve forging request fields alongside cargo validators. Combine purchased cargo sort capacity with existing locked-slot exclusions; add a combined regression.
+- DOC029, DOC066, DOC075, DOC087 and DOC098 remain unaccepted. This release does not claim to fix the latest enchant/forge UI feedback. Guild MR33 and historical embedded-GM MR2 are excluded from this incremental deployment.
+- MR42 requires client COMMAND reception for op603/op414; record the exact client compatibility delta and deployment/validation results in external release receipts. No PVF change or manual player asset edits are planned.
+- Combined regression initially exposed fixture assumptions: the existing cargo lock move lacked purchased capacity, and the card test expected same-ID incompatible stacks to swap despite MR41 rejecting that case. Supply real purchased capacity in the fixture and assert rejection leaves both card grades unchanged; retain subsequent empty-slot movement and sorting checks.
+
+## 2026-10-15 - Persist the requested 72-hour equipment unlock delay
+
+- Unlock requests now persist an absolute deadline and acknowledge 259200 seconds instead of clearing protection immediately. Repeated requests retain the deadline; cancellation restores the active lock. Missing or malformed legacy deadlines fail closed.
+- Serialize item-lock mutations through the existing character-item transaction. Login snapshots derive remaining time from the deadline; inventory, collectbox, limited-cube, NPC sale and dungeon discard protections share expiry semantics. No player records are migrated or manually edited.
+- Keep success-prefixed 267/268/269 responses. Pending requests do not send the class0 removal notice early. Expired pending locks cease blocking operations and disappear from login snapshots; native online countdown expiry remains to be accepted.
+- The old implementation fails the pending-state regression; targeted tests cover retries, cancel/restart, exact expiry, malformed deadlines, write failure and concurrent slots. Full validation is recorded separately; this candidate is not deployed or user-accepted.
+## 2026-10-15 - DOC-067 / new doc 105 blue sort-lock instant icon refresh
+
+- Root cause is client-side and was re-verified offline from the shipped EXE: the inbound admission bitmap (`.rebuild` predicate 0x6E83610, bitmap VA 0x6E92300, one bit per opcode, no class dimension) has bit 0 for 713/714, and the receive entry 0x25239A0 evaluates it before the class switch; the false branch (0x2523F47) returns without dispatching. The class1/713 and class1/714 ACKs were therefore dropped before the client handlers 0x1FAEE80/0x1FAEEE0, so item+0x2aa stayed 0 and the blue lock icon only appeared after re-selecting the character (login op13 row byte 0x60). The same table also gates class0 notifications: 0x00FB (251, lock-list delta) is admitted, 0x00FC (252, unlock notice) is not; this report does not widen the client allowlist.
+- Server side now emits, in the same result as the class1 ACK, an authoritative class0/0x000D container refresh for the three DOC-067 lists (main bag / avatar / personal cargo), so the icon refreshes immediately on the currently deployed client. The body is rebuilt by the bridge from the session projection (wallet row 0:0, account-shared slots, equipment quality seed/sockets/emblems); the module placeholder body never reaches the wire and a missing projection skips the refresh instead of falling back to a module snapshot.
+- Validation: old-red/new-green after reverting only handler.go + sort_lock.go to HEAD (inventory 4 and dnfbridge 2 cases fail, then all pass; the two files were restored byte-identically, SHA256 545A8840.../9834395A...). gofmt on the changed files, go list, ./internal/modules/dnf/..., ./internal/services/dnfbridge, ./cmd/server/control, go vet and a server build all pass. Independent client-candidate check (E:/90/repair-round3-20261015/client-candidate/DNF.exe, sha256 6e61c361...): exactly two bitmap bytes differ from 1ac12645... (438 and 713/714); the real gate under unicorn over all 65536 opcodes changes only those three.
+- Not closed: native GUI acceptance of the instant icon; 252 NOTI remains gated by the client bitmap. No deployment, no PVF change, no player-data change, nothing pushed to a remote.
+
+
+## 2026-10-15 - Expired unlock notification compatibility
+
+- v101 drops op252, while admitted class0/op251 applies each listed state through the same setter (0x1d46e70). Append a state-zero op251 delta after an expired unlock ACK and legacy op252 notice, preserving object identity and existing clients. The regression fails before this change.
+- Correct the op251 comment: it updates listed objects rather than replacing a separate cache. Native expiry UI remains pending acceptance.
+## 2026-10-15 — DOC098 附魔门店材料事务
+
+- 按 test15 原生反馈与真实 PVF 配方的 `[input item]`，在门店附魔事务中复用既有材料消费器，消费请求方背包及账号共享固定槽材料；不足或锁定时连同卡片、手续费、经验和耐久回滚。A21 门店本身也未消费材料，不能作为本修复的权威依据。
+- 请求无材料槽位，支付方采用与卡片同侧的请求方；这一归属仍是基于现有协议形状的判断。保留现有失败码映射和成功 ACK，宝珠生成分支不变。
+- 仓库仅在槽内容确实变化时写回，空 map 与 nil 视为相同。新增自服务/访客内存事务和真实 PVF 回归；红绿原始输出与检查结果见独立 evidence/lane-a 目录，客户端结果窗口不属于本项验收。
+## 2026-10-15 - Forging result reception root cause
+
+- Trace the actual v101 COMMAND438 allowlist rejection against a captured successful server result and current x86 UI callback. Preserve the server packet and transaction; prepare a separate minimal client candidate.
+- Offline opcode and callback execution evidence is documented in Docs/CLIENT_FORGING_RECEPTION_20261015.md. This does not establish native UI acceptance or deployment.
+
+## 2026-10-15 - Opt-in authoritative reinforcement payment candidate
+
+- Wire the previously retained NPC trailer into a server-derived PVF quote inside the existing character/account asset transaction. Equipment grade, rarity, slot type and current reinforcement level determine gold; NPC conversion rules come from npc.lst and the NPC document, never a client price. Normal upgrade-table materials remain additional.
+- Add an explicitly disabled-by-default `DNFBRIDGE_NATIVE_UPGRADE_COST=candidate` path. Require a ready, bound character town scene containing the conversion NPC; stale character generations, missing scenes and foreign NPCs reject without silently charging gold. This proves area membership, not interaction distance; exact-multiple client preflight versus displayed conversion rounding remains unresolved, so this is not deployment-ready.
+- Reject currency/shared/target/material/ticket aliases and exclude the reserved conversion slot from protection-ticket scanning. Portable upgrade consumables keep their existing no-gold/material substitution. Project only committed conversion rows and gold balances; quote failures return the existing invalid-material ACK and preserve the diagnostic cause.
+- Add authoritative-payment, shared-material late-failure rollback, wallet projection, real-PVF cost and NPC scene regressions. Independent review and targeted validation are in the external round4 evidence; full integrated validation is recorded separately. No deployment, production data edits, PVF changes or native acceptance are claimed.
+## 2026-10-15 - 文档段104：组队未解锁的整队拒绝应答
+
+- 现场口径（用户文档第104段原文）：组队时队伍里某个队员没有解锁所选地图，返回城镇的选项直接消失、只能等倒计时退出。服务端那一半的缺陷是"整队进图在提交之前被拒绝时不回包"：队长按进图时 `prepareRuntimePartyDungeonEntry` 逐个成员做同一套前置校验，队员那条返回 `ErrEntryLevelTooLow` 后只写一条 `game-party-dungeon-entry-blocked` 就静默 `return nil`；队员自己按进图时更糟——它那条 op16 已经被回成功 ACK、并异步路由给队长执行，随后同样没有任何回包。两个客户端都停在"等进图"的等待窗口里，队员那边就是"返回城镇选项消失、只能等倒计时"。
+- 修法：新增挂起态（角色号 + `characterGeneration`）记录"这名队员自己那条 op16 已被回 ACK、正在等队长那条整队进图流程给结果"。整队进图这条流程上**任何一条提交前拒绝**都按**权威**名单（`runtimePartyMembers(state)` + `onlineGameSession`）解挂并补一条**既有形状**的拒绝包 `{0, reason, 0}`（msg id = op16、普通频道分类，与成功 ACK 同一个 msg id），reason/class 与发起者那条逐字节相同——等级不足 = 14、`InvalidSelectionState` = 0x13、默认 `DungeonUnavailable` = 0x01，全部取自既有映射与既有站点取值，**没有新增包型、没有新增错误码**。实现见 `go-server/internal/services/dnfbridge/party_entry_refusal_before_commit.go`。
+- 出口覆盖（都在任何 runtime/场景提交之前）：队员进图前置失败、`prepareCurrentRaidDungeonEntry`、返回城镇原点不可用、进图包前置、深渊派对入场消耗、安徒恩孵化转移、**队员运行时提交失败**、**队长 runtime 提交失败**。后两条是"晚期错误"：队员自己的 runtime 已经提交（失败时被回滚），改动前这里对两边都是静默 `return nil`；现在先回滚（队员挂着活动副本运行时的时候既有静默口径会吞掉拒绝包）、再解挂、再回包。挂起态的清除点也从"队员自己的 runtime 提交"移到"队长自己的 runtime 提交成功之后"，否则队长那条提交失败并回滚队员时挂起态已经没了、补不出包。
+- 解锁门禁一个字节不动：等级/疲劳/队伍/门票/前置校验仍然按成员逐个执行、仍然全部发生在任何 runtime/场景提交之前；本次只补"拒绝之后要回包、要解挂"这半步，不放行任何未解锁地图。
+- 换角与重复应答：挂起态同时绑 `characterGeneration`（`bindGameSessionCharacter` 每次换角都让 generation 前进一步），换角之后再换回来也取不出旧挂起态、不会把拒绝包发给新角色；take 即清，同一个 op16 只回一包（队员按两次 + 队长按一次 ⇒ 队员恰好两包、队长恰好三包）。
+- 复审修正（父代理指出的排队竞态）：解挂那条包是投递到**队员自己的事件循环**上执行的，在队列里等待期间队员可能换角——"投递之前判定 + take"会把拒绝包发给换角之后的新角色，并吃掉不属于这条流程的挂起态。现在角色号 / `characterGeneration` / 队伍投影的资格判定与 take **全部落在 `callGameSession` 的 callback 内**，返回计数只算**真的发出**的那几包（既有静默口径吞掉的、资格不成立的都不计）；"这条拒绝会不会真的回包"的判据抽成 `dungeonSelectRefusalSuppression`，与 `refuseDungeonSelectEntry` 共用一处，避免日志与计数漂移。
+- 复审修正（挂起态结束点，父代理要求核实）：`finishPartyDungeonEntryRoutedPending` 按"创建这条队员记录时的（角色号, generation）"做资格判定，只清属于本流程的那一条挂起态——队员换角之后新挂上的路由请求留给它自己的流程处理。（这条流程能走到提交成功本身也说明队员没换角：换角会让队员自己的 runtime 提交失败、整条流程走不到这一步；该判定是防投递并发窗口的兜底。）
+- 旧红新绿 A（handler 接线）：单独把 `dungeon_navigation_runtime.go` 恢复到 HEAD（新文件与新用例保留）后，`TestDoc104RoutedFollowerRefusalAnswersBothWaitingClients`、`TestDoc104LeaderRefusalAnswersLeaderAndLeavesIdleFollowerSilent`、`TestDoc104RepeatedEntryAttemptsAnswerOncePerRoutedOp16`、`TestDoc104LateEntryRefusalStillAnswersAwaitingFollower` 四项 FAIL——其中"晚期拒绝"那条的原始输出正是现场形状：`follower` 收到 op16 ACK + op15/op36/op27 选择器页之后**末尾没有任何回包**；`TestDoc104CharacterSwitchDropsTheRoutedPendingAnswer` 仍 PASS（它钉的是解挂函数自身的契约，不依赖 handler 接线）。恢复后全绿（原始日志 `old-red-doc104.log` / `new-green-doc104.log`）。
+- 旧红新绿 B（排队竞态，本次复审修复）：把资格判定临时挪回"投递之前"后 `TestDoc104QueuedRefusalDoesNotReachASwitchedCharacter` FAIL（`queued refusal reported 1 delivered refusals, want 0 after the character switch`），放回 callback 内即 PASS（原始日志 `old-red-queued-switch.log`）。
+- 本次提交的文件哈希（SHA256）：`party_entry_refusal_before_commit.go` `56C360C4A73CFBFF3EFABA849DDED8CDE4F404056FE6C7A65DEABF88A64D05EA`、`dungeon_navigation_runtime.go` `1D9FF4E1937C543A4F8E22D7490A34A1731C34FE6BADCAA11607691AD6CB340A`、`game.go` `4BC20DA5FC3510B534B849B17032912BD3EB954A568F3660E7093BCF488CD867`、`doc104_party_entry_refusal_test.go` `7B7CF1DC331595348FF8F165A3931F3241C8F863799D3F5C9689B5C82DECEDDC`、`dungeon_entry_packets_test.go` `A8187FA494C00DF7C75BF63B66F4355879816CAB86B95909503AA5C7F80F1922`。
+- 既有回归联改：`TestPartyDungeonEntryRejectsEveryMemberBeforeCommitWhenFollowerLevelIsTooLow` 原先钉的是"两名客户端都 0 字节"（= 缺陷口径本身），改为"发起者恰好一包 `{0,14,0}`、没按过进图的队员仍然 0 字节"，并保留"没有 runtime 部分提交""城镇在场没有被移除"两条断言。
+- 已验证：`gofmt -l`（改动文件无输出）、`go list -buildvcs=false ./...`、`go test -buildvcs=false -count=1 ./internal/modules/dnf/...`、`go test -buildvcs=false -count=1 ./internal/services/dnfbridge`（整包 PASS）、`go test -buildvcs=false -count=1 ./cmd/server/control`、`go vet ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge`、Windows 与 Linux `go build ./cmd/server/dnf90` 全部通过；原始日志在 E:/90/repair-round4-20261015/party-evidence/。未跑 BAT 部署预检（`deploy/assets/channel_info.etc` 缺席，与既知失败一致，不计通过）。
+- EXE 侧核实到这一步（不猜）：当前客户端 EXE（H:/86JP启动器/_dist/YKCN90服务器-玩家客户端-20261005/client/DNF.exe，SHA256 `1ac1264553f8f762e64f2c637c4c26d3bf5ff0fdc60a090ca8b077d452fd4331`）的入站准入位图（VA `0x6E92300`，谓词 VA `0x6E83610` = `movzx eax,[esp+4] → cmp eax,0x5C2 → ja → bt [0x6E92300],eax`）对 opcode 16（0x10）置位、且该表没有 class 维度（同表 251/0xFB 置位、252/0xFC 未置位，与既有结论一致）⇒ op16 回包（成功 ACK 与拒绝共用同一个 msg id）会进入客户端处理器。**未证**：客户端在"已经认为自己选图成功"之后再收到这条 op16 失败时是否一定退出等待窗口——准入位图只能证明包被派发。这一条需要实机抓包或更长的离线 RE，按"协议不明交父代理"上报。
+- 边界：未部署、未推送、未合并远端；未改客户端、未改 PVF、未动生产数据；未使用游戏 UI。工作树 repair-round4-20261015/party（分支 repair/r4-party-return，基 0a4d83d737d9a88eb72f1144548f4853968b28ed）。
+
+## 2026-10-15 - 文档段104复审：路由请求令牌 + 安全身份快照
+
+- 复审问题①（跨事件循环裸读会话身份）：`session.selectedCharacterID` / `session.characterGeneration` 由 `bindGameSessionCharacter`（持 `session.dungeon.mu` + `s.mu`）、会话解绑（持 `s.mu`）、`return_select_character`（持 `s.mu` + `session.dungeon.mu`）改写；上一版在队长事件循环里裸读这两个字段没有互斥保证。现在一律走仓库既有的安全快照 `boundGameSessionCharacterSnapshot` / `boundGameSessionCharacterCurrent`（都在 `s.mu` 下读），挂起态本身仍在 `session.dungeon.mu` 下读写，两把锁**不嵌套**（`bindGameSessionCharacter` 的顺序是 `session.dungeon.mu` → `s.mu`，嵌套会构成 ABBA）。发送前的身份复核改在**队员自己的事件循环**里做（`callGameSession` 的 callback 内）。
+- 复审问题②（没有请求序号 ⇒ 旧拒绝可能吞新 pending）：改成本次路由请求一个**令牌** `partyDungeonEntryRoutedRequest`（角色号 + generation + 递增 seq）。队员那条 op16 被回 ACK 时在队员自己的事件循环上绑定并拿到令牌，令牌跟着这次路由一起投递给队长那条流程；队长那条流程只用**自己拿到的那个令牌**应答（三者都匹配才取走并回包），整队进图真正提交之后也只结清"还是这个令牌"的那一条。于是"一个 op16 一包结论"逐请求成立：同角色连续按两次进图时，旧那条流程的拒绝不再吞掉新请求的挂起态（新请求由它自己的流程应答）。既有串行化（队长事件循环串行执行各条流程）保证不会并发双答，令牌把"谁该被答"钉到请求粒度。
+- 复审问题③（文件头口径）：删掉"所有出口都在任何 runtime 之前"这句与晚期回滚自相矛盾的断言。改为按出口分别写明：普通出口（队员进图前置、raid 冻结、返回城镇原点、进图包前置、深渊派对入场消耗、安徒生孵化转移）都在**队长自己的** runtime/场景提交之前；两条晚期错误（队员 runtime 提交失败、队长 runtime 提交失败）先回滚已提交的队员运行时再回包 —— 所以队员收到拒绝包时不在副本里，也才不会被"已有活动运行时"的静默口径吞掉。
+- 旧红新绿（本次两条修复各一次，均逐字节还原：`party_entry_refusal_before_commit.go` SHA256 `B473B04F0E6ED65BDAEBEB04266A81FCCBE297677A1B89007FFB7D8FBDC77B23`）：① 临时去掉令牌比较里的 seq 条件（= 旧的单槽 take）后 `TestDoc104OlderRoutedRefusalDoesNotConsumeANewerRequest` FAIL（`the older request was still answered after a newer request was bound`）；② 临时去掉发送前的身份复核后 `TestDoc104QueuedRefusalDoesNotReachASwitchedCharacter` FAIL（`the queued refusal reported a delivered packet after the character switch`）。还原后 8 个 DOC104 用例全绿。
+- 用例改名/新增：`TestDoc104FinishClearsOnlyThePreparedMembersOwnPending`（钉的是已删除的 finish 函数）改为 `TestDoc104RoutedTokenDiscardsOnlyItsOwnRequest`（令牌只结清自己那一次：换角、换回之后的新请求都必须留着）；新增 `TestDoc104OlderRoutedRefusalDoesNotConsumeANewerRequest`。
+- 本次提交的文件哈希（SHA256）：`party_entry_refusal_before_commit.go` `B473B04F0E6ED65BDAEBEB04266A81FCCBE297677A1B89007FFB7D8FBDC77B23`、`dungeon_navigation_runtime.go` `C857B31701ABB01716BF8ADF533095493EE7BD3A209FAE1761CF920580E45B72`、`game.go` `FC71C8DC19568C0C44C015D8FBF9B7B48E326A9416BA1FECA20355A84E05A317`、`doc104_party_entry_refusal_test.go` `37587D2187E0233EC3C754BAAA302D7319F1500EE4C53A17842A7051F57A3329`、`party_dungeon_entry_barrier.go` `CCF127EBD9B29B21E1896A51CC149B55416FB92AE57EB517973F69D7CA161C9F`。
+- 已验证：`gofmt -l`（改动文件无输出）、`go list -buildvcs=false ./...`、`go test ./internal/modules/dnf/...`、`go test ./internal/services/dnfbridge`（整包 PASS 20.747s）、`go test ./cmd/server/control`、`go vet`（5 包）、Windows 与 Linux `go build ./cmd/server/dnf90` 全部 exit 0；日志在 E:/90/repair-round4-20261015/party-evidence/。
+- 边界不变：未部署、未推送、未合并远端；未改客户端/PVF/生产数据；"客户端收到 op16 失败之后如何退出等待窗口"仍然**未证**（离线 EXE 追踪另见 party-evidence/README.md 第 4 节）。
+
+## 2026-10-15 - 文档段104 第二轮复审：take 移入事件循环 + 流程兜底出口
+
+- 复审问题④（take 仍早于投递）：上一版在 `callGameSession` **之前**取令牌，投递排队期间队员又按一次进图（同角色、新 seq）时会先被旧流程取走，而回调只核身份 ⇒ 旧拒绝会打到新请求上。现在 `takePartyDungeonEntryRoutedRequest` 落在**队员事件循环的 callback 内、发送之前**：取不到令牌（换角、或队员已经又按了一次进图）就一包不发，把新请求原样留给它自己那条流程应答。`take` 内部同时核身份（`s.mu` 下的安全快照）与（角色号, generation, seq），回调不再重复判身份。
+- 复审问题⑤（只靠 8 个手工出口）：整队进图这条流程的 return 点不止那 8 个（例如 `prepareDungeonRuntime` 早期失败、raid 选图拒绝、深渊派对拦截、pending 回城提交失败、`replayDungeonSelectAck`、op9 预览移除失败…）。现在在请求解码之后对 `routed != nil` 装一个 **defer 兜底**：流程返回时如果这次路由请求还没有被任何出口精确应答（令牌仍挂着），就补一条既有形状的拒绝包（厂商 default `DungeonUnavailable` = 0x01，站点 reason `party_entry_routed_flow_exited_without_answer`）。精确出口先取走令牌 ⇒ 兜底不重复；整队已进图（令牌被 `discard`）、队员又按了一次进图（seq 变了）、换角，都取不到令牌 ⇒ 一包不发。已提交副本（post-commit 发包失败）仍由"已有活动运行时"静默口径保护。
+- 旧红新绿（两条修复各一次，均逐字节还原：`party_entry_refusal_before_commit.go` SHA256 `A8BA057FE6EFDA0388A10FB5540BAD6C9821E1A7C8A644C600BDE00FB62C5CA2`）：① 把 take 临时挪回投递之前 ⇒ `TestDoc104QueuedAnswerDoesNotDisturbANewerRequestFromTheSameCharacter` FAIL（`the older answer was delivered although a newer request was bound`）；② 把兜底 defer 临时关掉 ⇒ `TestDoc104RoutedFlowBackstopAnswersOnAnUnwiredExit` FAIL（`timed out waiting for the backstop to answer the routed request`）。还原后 10 个 DOC104 用例全绿。
+- 用例调整/新增：`TestDoc104QueuedRefusalDoesNotReachASwitchedCharacter` 的期望从"换角时令牌已被消费"改为"令牌取不到、挂起态原样留着"（与新语义一致）；新增 `TestDoc104QueuedAnswerDoesNotDisturbANewerRequestFromTheSameCharacter`（排队→新同角色请求 bind→旧回调 0 包且新令牌保留）与 `TestDoc104RoutedFlowBackstopAnswersOnAnUnwiredExit`（未精确应答的出口由兜底补包）。
+- 本次提交的文件哈希（SHA256）：`party_entry_refusal_before_commit.go` `A8BA057FE6EFDA0388A10FB5540BAD6C9821E1A7C8A644C600BDE00FB62C5CA2`、`dungeon_navigation_runtime.go` `E6A674079B6258A7909C409586A29CE35F4138D582CBD7392274E7FA909D2933`、`game.go` `FC71C8DC19568C0C44C015D8FBF9B7B48E326A9416BA1FECA20355A84E05A317`、`doc104_party_entry_refusal_test.go` `6FD1F2860BC54A1BD9569286473C9F72A921685CCF6EBF5FCDF9A5C1A69E3F8B`、`party_dungeon_entry_barrier.go` `CCF127EBD9B29B21E1896A51CC149B55416FB92AE57EB517973F69D7CA161C9F`。（本文件里 `2026-10-15 - 文档段104复审：路由请求令牌 + 安全身份快照` 一节记录的 `B473B04F…`/`C857B317…`/`37587D21…` 是那一版（提交 `86a03bb`）的历史哈希，不是最终版；上一节 `5f…`/`56C360C4…`/`1D9FF4E1…` 同理是更早版本的历史哈希。）
+- 已验证：`gofmt -l`（改动文件无输出）、`go list -buildvcs=false ./...`、`go test ./internal/modules/dnf/...`、`go test ./internal/services/dnfbridge`（整包 PASS 21.096s）、`go test ./cmd/server/control`、`go vet`（5 包）、Windows 与 Linux `go build ./cmd/server/dnf90` 全部 exit 0。
+
+
+## 2026-10-15 - Candidate quote support boundary
+
+- Reject level-linear equipment, cost discounts, custom upgrade modes and exclusive upgrade materials before deriving an ordinary reinforcement quote. These metadata paths are not implemented by the candidate; presence alone does not prove the previous numeric quote was incorrect. An error aborts the existing owner transaction instead of silently falling back to the old price.
+- Isolated red/green coverage includes empty sections, normalized names, nested grade metadata and real PVF items 10194/104000339; ordinary target 28309 keeps its verified four prices. Full integrated validation is recorded against the subsequent frozen commit. The candidate remains disabled by default and is not deployed.
+
+
+## 2026-10-15 - Routed party request expiry before handler start
+
+- A leader task that expired or was rejected in the event queue never installed the handler's deferred refusal, leaving the follower with ACK only and a pending token. Atomically claim either handler start or cancellation before start; only the latter sends a token-bound refusal using a fresh bounded deadline. A running handler retains ownership and may commit after the dispatch wait expires.
+- Capture log identities using the existing locked session snapshot; do not read leader identity from another session loop. Clarify that an answer returning false at its deadline may still finish an already-started write, so false is not permission to retry.
+- Old-red/new-green tests cover real queue expiry, leader stopped before/after enqueue, and an already-started handler that passes the deadline then commits both runtimes without a refusal. Existing checks cover delayed writes, duplicate tokens and successful-handler cleanup. Independent review confirms claim mutual exclusion and lock ordering. Follower queue/socket failures remain delivery failures, not guaranteed recovery; native button behavior is still unaccepted. Integrated checks are recorded against the frozen commit.
+## 2026-10-15 — Close a routed party peer after its refusal send fails
+
+- A routed member's refusal runs in that member's event callback. A send error was reduced to a log/false after consuming the request token, so it did not reach the member's socket read loop and its normal disconnect cleanup. Close only that peer connection inside the actual send-error branch, preserving the original error and the healthy leader's refusal. Do not retry a potentially partial frame or close on the caller's queue deadline/cancellation alone.
+- Six regression roots cover zero/partial writes, the leader's independent reply, healthy refusal, stale sequence/character, queued cancellation and started writes completing after the caller deadline. The same tests fail on cf3943f only at the four expected missing-close leaves and pass on the candidate. All DOC104 tests plus three isolated real-PVF backend replays pass together: 44 passing nodes, zero skips/failures. The send chain can also fail before a socket write; this follows the existing synchronous disconnect policy and is not a claim that every such TCP connection is itself broken.
+- Background fixtures only; no native button acceptance, deployment, push or merge. Existing v2 validation/package still describes cf3943f; new integrated validation follows separately.

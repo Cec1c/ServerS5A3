@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/jobmap"
 	"longheng.io/server/internal/modules/dnf/profession"
@@ -414,13 +415,20 @@ func (c *Catalog) Successors(questID int64) []Definition {
 // client-node closure; QuestList is the client-facing projection and
 // DecideAccept is the accept preflight.
 func (c *Catalog) Acceptable(character CharacterEligibility, record dnfrepo.QuestRecord) EligibilityResult {
+	return c.AcceptableAt(character, record, time.Now())
+}
+
+// AcceptableAt is Acceptable with an explicit clock, so the per-service-day
+// daily-quest rollover projection can be pinned in tests. Production callers
+// use Acceptable.
+func (c *Catalog) AcceptableAt(character CharacterEligibility, record dnfrepo.QuestRecord, now time.Time) EligibilityResult {
 	if c == nil || !jobmap.Valid(character.Job) {
 		return EligibilityResult{}
 	}
 	if character.Level <= 0 {
 		character.Level = 1
 	}
-	completed, active := questStateSets(record)
+	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	result := EligibilityResult{IDs: make([]int32, 0, 64)}
 	for _, definition := range c.ordered {
 		if !definitionAcceptable(definition, character, completed, active, false) {
@@ -455,13 +463,21 @@ func (c *Catalog) Acceptable(character CharacterEligibility, record dnfrepo.Ques
 // outside the sweep - stayed acceptable, and the client kept offering node
 // 3971 while op31 for 3971 was rejected with ErrQuestNotAcceptable.
 func (c *Catalog) QuestList(character CharacterEligibility, record dnfrepo.QuestRecord) EligibilityResult {
+	return c.QuestListAt(character, record, time.Now())
+}
+
+// QuestListAt is QuestList with an explicit clock. The client-facing
+// acceptable-quest list (op21) and the accept preflight must agree on which
+// quests are still completed today, so both run the same daily rollover
+// projection before the accept predicate.
+func (c *Catalog) QuestListAt(character CharacterEligibility, record dnfrepo.QuestRecord, now time.Time) EligibilityResult {
 	if c == nil || !jobmap.Valid(character.Job) {
 		return EligibilityResult{}
 	}
 	if character.Level <= 0 {
 		character.Level = 1
 	}
-	completed, active := questStateSets(record)
+	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	result := EligibilityResult{IDs: make([]int32, 0, 64)}
 	for _, definition := range c.ordered {
 		if !definitionAcceptable(definition, character, completed, active, true) {
@@ -486,6 +502,11 @@ func (c *Catalog) QuestList(character CharacterEligibility, record dnfrepo.Quest
 // Owner.ApplyAccept, which itself calls this function before planning or
 // persisting anything.
 func (c *Catalog) DecideAccept(character CharacterEligibility, record dnfrepo.QuestRecord, questID int64) (AcceptDecision, error) {
+	return c.DecideAcceptAt(character, record, questID, time.Now())
+}
+
+// DecideAcceptAt is DecideAccept with an explicit clock; see QuestListAt.
+func (c *Catalog) DecideAcceptAt(character CharacterEligibility, record dnfrepo.QuestRecord, questID int64, now time.Time) (AcceptDecision, error) {
 	definition, ok := c.Find(questID)
 	if !ok {
 		return AcceptRejected, ErrQuestDefinitionMissing
@@ -496,7 +517,7 @@ func (c *Catalog) DecideAccept(character CharacterEligibility, record dnfrepo.Qu
 	if character.Level <= 0 {
 		character.Level = 1
 	}
-	completed, active := questStateSets(record)
+	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	return c.decideAcceptForDefinition(definition, character, record, completed, active)
 }
 
@@ -550,6 +571,11 @@ func (c *Catalog) clientListNodeAcceptable(definition Definition, character Char
 // acceptance remain blocked until inventory and quest state share one unit of
 // work.
 func (c *Catalog) PlanAccept(character CharacterEligibility, record dnfrepo.QuestRecord, questID int64) (AcceptPlan, error) {
+	return c.PlanAcceptAt(character, record, questID, time.Now())
+}
+
+// PlanAcceptAt is PlanAccept with an explicit clock; see QuestListAt.
+func (c *Catalog) PlanAcceptAt(character CharacterEligibility, record dnfrepo.QuestRecord, questID int64, now time.Time) (AcceptPlan, error) {
 	definition, ok := c.Find(questID)
 	if !ok {
 		return AcceptPlan{}, ErrQuestDefinitionMissing
@@ -560,7 +586,7 @@ func (c *Catalog) PlanAccept(character CharacterEligibility, record dnfrepo.Ques
 	if character.Level <= 0 {
 		character.Level = 1
 	}
-	completed, active := questStateSets(record)
+	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	decision, err := c.decideAcceptForDefinition(definition, character, record, completed, active)
 	if decision != AcceptNew {
 		if err == nil {
@@ -1150,12 +1176,27 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	if character.Level < definition.LevelMin || character.Level > definition.LevelMax {
 		return false
 	}
+	// The renewal forest and the old NPC chains can award the same class
+	// through different terminal IDs. A completed forest terminal therefore
+	// does not satisfy the old chain's collision list. Match the existing
+	// profession transition rule before offering another initial-class reward.
+	// Keep active rows visible so a task accepted before a GM class change can
+	// still be abandoned, and keep story/follow-up nodes that grant no class.
+	if !alreadyActive && character.GrowType != 0 && definition.JobChangeQuest == 1 &&
+		normalizeQuestTag(definition.RewardType) == "grow type" {
+		return false
+	}
 	if !definitionMatchesCharacter(definition, character) {
 		return false
 	}
 	if _, exists := active[definition.ID]; exists && !includeActive {
 		return false
 	}
+	// 每日任务的“隔天重新可接”由 ProjectDailyQuestRollover 负责：它只把更早服务日
+	// 的完成投影掉，这里的完成判定保持既有规则。grade daily 在 90CN 侧被钉为“立即
+	// 重复”（repeatableGrade，见 client_acceptable_preflight_test.go 的 5020 回归）；
+	// 真档安徒恩每日任务用的 daily mission 不在 repeatable 里，同一天完成后仍不可
+	// 再接，隔天完成行过期后重新进 op21 列表。两档行为都不改。
 	if _, exists := completed[definition.ID]; exists && !repeatableGrade(grade) {
 		return false
 	}

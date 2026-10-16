@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -361,6 +362,10 @@ func (s *Service) createCurrentExpertJobStore(session *gameSession, request curr
 	default:
 		s.logCurrentExpertJobStoreCreateBlocked(session, request, "store_kind_unsupported")
 		return nil, dnfexpertjob.ErrMachineInvalid
+	}
+	if err := s.validateCurrentExpertJobStorePlacement(player, request); err != nil {
+		s.logCurrentExpertJobStoreCreateBlocked(session, request, "store_placement_not_allowed", "town_id", player.TownID, "area_id", player.AreaID, "error", err)
+		return nil, err
 	}
 	s.expertJobStoreMu.Lock()
 	defer s.expertJobStoreMu.Unlock()
@@ -761,6 +766,12 @@ func buildCurrentExpertJobStoreEnterSuccess(store *currentExpertJobStore) []byte
 
 func currentExpertJobStoreError(err error) byte {
 	switch {
+	case errors.Is(err, dnfexpertjob.ErrStorePointUnavailable):
+		// The current client has no placement message for the old reference's
+		// 190. Keep the existing generic create rejection for unavailable maps.
+		return 19
+	case errors.Is(err, dnfexpertjob.ErrStoreCommercialZone):
+		return 82
 	case errors.Is(err, dnfexpertjob.ErrInsufficientGold):
 		return 21
 	case errors.Is(err, dnfexpertjob.ErrLevelTooLow):
@@ -1239,7 +1250,7 @@ func (s *Service) commitCurrentExpertJobStoreEnchant(ctx context.Context, sessio
 		return currentExpertJobStoreUseResult{}, sourceErr
 	}
 	var result currentExpertJobStoreUseResult
-	err = s.mutateCurrentExpertJobStorePair(ctx, session, store, func(requesterCharacter *dnfrepo.CharacterRecord, requesterInventory *dnfrepo.InventoryRecord, ownerCharacter *dnfrepo.CharacterRecord, ownerInventory *dnfrepo.InventoryRecord) error {
+	err = s.mutateCurrentExpertJobStoreAssets(ctx, session, store, true, func(requesterCharacter *dnfrepo.CharacterRecord, requesterInventory *dnfrepo.InventoryRecord, ownerCharacter *dnfrepo.CharacterRecord, ownerInventory *dnfrepo.InventoryRecord, warehouse *dnfrepo.AccountInventoryRecord) error {
 		jobType, experience, stateErr := currentExpertJobCharacterState(ownerCharacter)
 		if stateErr != nil || jobType != dnfexpertjob.EnchanterType {
 			return dnfexpertjob.ErrJobUnsupported
@@ -1270,6 +1281,13 @@ func (s *Service) commitCurrentExpertJobStoreEnchant(ctx context.Context, sessio
 		upgradeCount := currentExpertJobEnchantUpgradeCount(card)
 		if resolution.CardItemID != card.ItemID || resolution.TargetKind != string(dungeonDropItemEquipment) || !currentExpertJobStoreStringContainsFold(resolution.AllowedEquipmentTypes, resolution.TargetEquipmentType) || (len(resolution.UpgradeCounts) > 0 && !currentExpertJobStoreIntContains(resolution.UpgradeCounts, int64(upgradeCount))) || (len(resolution.UpgradeCounts) == 0 && upgradeCount != 0) {
 			return dnfexpertjob.ErrExtractionInvalid
+		}
+		// The requester supplies the card and recipe materials. Consume both
+		// within the same owner transaction, including fixed account slots.
+		if _, consumeErr := s.consumeCurrentRecipeMaterials(&dnfexpertjob.Assets{
+			Character: requesterCharacter, Inventory: requesterInventory, AccountInventory: warehouse,
+		}, plan.Recipe.Materials, 0); consumeErr != nil {
+			return consumeErr
 		}
 		requesterGold, ownerGold, feeErr := s.currentExpertJobSettleStoreFee(requesterCharacter, requesterInventory, ownerCharacter, ownerInventory, store.Cost)
 		if feeErr != nil {
@@ -1384,10 +1402,11 @@ func (s *Service) mutateCurrentExpertJobStoreAssets(ctx context.Context, request
 		}
 		accountID := strings.TrimSpace(s.accountIDForSession(requesterSession))
 		return owner.Machine(ctx, dnfexpertjob.Command{AccountID: accountID, CharacterID: requesterID, UpdatedAt: s.gameplayNow(), Project: func(assets *dnfexpertjob.Assets) (dnfexpertjob.Changes, error) {
+			beforeWarehouse := dnfrepo.CloneAccountInventory(*assets.AccountInventory)
 			if err := apply(assets.Character, assets.Inventory, assets.Character, assets.Inventory, assets.AccountInventory); err != nil {
 				return dnfexpertjob.Changes{}, err
 			}
-			return dnfexpertjob.Changes{Character: true, Inventory: true, AccountInventory: withWarehouse}, nil
+			return dnfexpertjob.Changes{Character: true, Inventory: true, AccountInventory: withWarehouse && currentExpertJobStoreWarehouseChanged(beforeWarehouse, *assets.AccountInventory)}, nil
 		}})
 	}
 	if repositories.CharacterTrade == nil {
@@ -1443,6 +1462,10 @@ func (s *Service) mutateCurrentExpertJobStoreAssets(ctx context.Context, request
 			}
 			warehouse = &record
 		}
+		var beforeWarehouse dnfrepo.AccountInventoryRecord
+		if warehouse != nil {
+			beforeWarehouse = dnfrepo.CloneAccountInventory(*warehouse)
+		}
 		if err := apply(&requesterCharacter, &requesterInventory, &ownerCharacter, &ownerInventory, warehouse); err != nil {
 			return err
 		}
@@ -1460,7 +1483,8 @@ func (s *Service) mutateCurrentExpertJobStoreAssets(ctx context.Context, request
 				return err
 			}
 		}
-		if warehouse != nil {
+		// Loading shared assets must not rewrite unrelated warehouse rows.
+		if warehouse != nil && currentExpertJobStoreWarehouseChanged(beforeWarehouse, *warehouse) {
 			warehouse.UpdatedAt = now
 			if err := accounts.Save(ctx, *warehouse); err != nil {
 				return err
@@ -1493,4 +1517,13 @@ func currentExpertJobSetEnchantFields(stack *dnfrepo.ItemStack, cardItemID int64
 		binary.LittleEndian.PutUint32(stack.RawEntry[0x0E:0x12], value)
 		stack.RawEntry[0x12] = upgradeCount
 	}
+}
+
+// Repository cloning can normalize an empty slot map to nil. Neither form
+// represents a material change and neither should cause an account write.
+func currentExpertJobStoreWarehouseChanged(before, after dnfrepo.AccountInventoryRecord) bool {
+	if len(before.Slots) == 0 && len(after.Slots) == 0 {
+		return false
+	}
+	return !reflect.DeepEqual(before.Slots, after.Slots)
 }

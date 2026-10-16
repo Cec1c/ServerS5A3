@@ -61,6 +61,8 @@ import (
 //
 // 一键回退：`DNFBRIDGE_RENTAL_REJECT_ACK=off`（或 0/false/no/legacy/disable/disabled）
 // ⇒ 逐字节回到今天（静默丢弃 + 事务拒绝 `01 <u32 1>` / `00 01` / 充值应答 u32 0）。
+// `off` 档同时抑制成功路径后续新增的已提交钱包投影（见 rental_charge_wallet.go 的
+// DNFBRIDGE_RENTAL_CHARGE_WALLET），所以这条开关仍然表示“op999/op1000 整条线逐字节回到今天”。
 const (
 	// currentRentalRejectAckEnv 是本条修复的开关。
 	//

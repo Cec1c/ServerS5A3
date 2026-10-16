@@ -630,7 +630,7 @@ func TestCurrentCeraShopPurchaseNormalizesPackageQuantityAndUsesMainContainer(t 
 	}
 }
 
-func TestCurrentCeraShopPurchaseConsumesPersonalCargoUpgradeAndRefreshesListTwo(t *testing.T) {
+func TestCurrentCeraShopPurchaseConsumesPersonalCargoUpgradeAndNotifiesCapacity(t *testing.T) {
 	catalog := mustCurrentCeraShopTestCatalog(t)
 	repositories := dnfrepomemory.NewMemoryGroup()
 	ctx := context.Background()
@@ -655,13 +655,13 @@ func TestCurrentCeraShopPurchaseConsumesPersonalCargoUpgradeAndRefreshesListTwo(
 		t.Fatal(err)
 	}
 
-	ack, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+	cargo, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+	if cargo.Header.Classification != 0 || cargo.Header.MsgID != 66 || !bytes.Equal(cargo.Body, []byte{1, 0, 24, 0}) {
+		t.Fatalf("cargo state before purchase: %+v", cargo)
+	}
+	ack, rest := splitGameServerUpperPacket(t, rest)
 	if ack.Header.MsgID != uint16(dnfenum.CmdPacketBuyCerashopItem) || !bytes.Equal(ack.Body, buildCurrentCeraShopPurchaseSuccessBodyWithCount(100080, 1)) {
 		t.Fatalf("cargo upgrade ACK=%+v body=%x", ack.Header, ack.Body)
-	}
-	cargo, rest := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
-	if cargo.Header.Classification != 0 || cargo.Header.MsgID != uint16(dnfenum.CmdPacketLeaveParty) || !bytes.Equal(cargo.Body, []byte{2, 24, 0, 0, 0, 0}) {
-		t.Fatalf("cargo refresh header=%+v body=%x", cargo.Header, cargo.Body)
 	}
 	balance, trailing := splitGameServerUpperPacket(t, rest)
 	if len(trailing) != 0 || balance.Header.MsgID != currentCeraShopUpdateMsgID || !bytes.Equal(balance.Body, buildCurrentCeraShopBalanceBody(60)) {
@@ -684,12 +684,17 @@ func TestCurrentCeraShopPurchaseConsumesPersonalCargoUpgradeAndRefreshesListTwo(
 	if err := service.handleCurrentCeraShopPurchase(&gameSession{conn: retryConnection, selectedCharacterID: 22}, currentCeraShopTestRequestBody(100080)); err != nil {
 		t.Fatal(err)
 	}
-	failure, trailing := splitGameServerUpperPacket(t, retryConnection.write.Bytes())
-	if len(trailing) != 0 || failure.Header.MsgID != uint16(dnfenum.CmdPacketBuyCerashopItem) || !bytes.Equal(failure.Body, buildCurrentCeraShopPurchaseFailureBody()) {
-		t.Fatalf("repeated cargo upgrade response=%+v body=%x trailing=%d", failure.Header, failure.Body, len(trailing))
+	retryCargo, rest := splitGameServerUpperPacket(t, retryConnection.write.Bytes())
+	if retryCargo.Header.MsgID != 66 || !bytes.Equal(retryCargo.Body, []byte{1, 0, 40, 0}) {
+		t.Fatal("repeat purchase capacity did not advance to 40")
 	}
-	if got := loadCeraShopAccountCera(t, ctx, repositories, "account-1"); got != 60 {
-		t.Fatalf("repeated cargo upgrade debited account Cera: %d", got)
+	retryAck, rest := splitGameServerUpperPacket(t, rest)
+	if !bytes.Equal(retryAck.Body, buildCurrentCeraShopPurchaseSuccessBodyWithCount(100080, 1)) {
+		t.Fatal("ACK must identify requested commodity")
+	}
+	_, trailing = splitGameServerUpperPacket(t, rest)
+	if len(trailing) != 0 || loadCeraShopAccountCera(t, ctx, repositories, "account-1") != 0 {
+		t.Fatal("repeat purchase balance incorrect")
 	}
 }
 
@@ -902,13 +907,13 @@ func TestCurrentCeraShopPurchaseConsumesDocumentDefinedPersonalCargoUpgrade(t *t
 	if err := service.handleCurrentCeraShopPurchase(&gameSession{conn: connection, selectedCharacterID: 24}, currentCeraShopTestRequestBody(100082)); err != nil {
 		t.Fatal(err)
 	}
-	ack, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+	cargo, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+	if cargo.Header.Classification != 0 || cargo.Header.MsgID != 66 || !bytes.Equal(cargo.Body, []byte{1, 0, 168, 0}) {
+		t.Fatalf("document-defined cargo refresh header=%+v body=%x", cargo.Header, cargo.Body)
+	}
+	ack, rest := splitGameServerUpperPacket(t, rest)
 	if ack.Header.MsgID != uint16(dnfenum.CmdPacketBuyCerashopItem) || !bytes.Equal(ack.Body, buildCurrentCeraShopPurchaseSuccessBodyWithCount(100082, 1)) {
 		t.Fatalf("document-defined cargo ACK=%+v body=%x", ack.Header, ack.Body)
-	}
-	cargo, rest := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
-	if cargo.Header.Classification != 0 || cargo.Header.MsgID != uint16(dnfenum.CmdPacketLeaveParty) || !bytes.Equal(cargo.Body, []byte{2, 168, 0, 0, 0, 0}) {
-		t.Fatalf("document-defined cargo refresh header=%+v body=%x", cargo.Header, cargo.Body)
 	}
 	balance, trailing := splitGameServerUpperPacket(t, rest)
 	if len(trailing) != 0 || balance.Header.MsgID != currentCeraShopUpdateMsgID || !bytes.Equal(balance.Body, buildCurrentCeraShopBalanceBody(0)) {
@@ -1638,6 +1643,7 @@ func TestCurrentCeraShopPurchaseCommitsNameTagWithWalletInOneCheckout(t *testing
 func mustCurrentCeraShopTestCatalog(t *testing.T) *pvfCeraShopCatalog {
 	t.Helper()
 	source := bridgePVFSource{
+		"etc/accountcargo.etc": "[upgrade info]\n1 10000000 -1 0 100000 -1\n8 100000000 -1 0 0 100083\n[/upgrade info]\n",
 		"etc/cerashop.etc": "[item]\n100050 37 3 0 0 80 `test potion` 0 0\n100056 43 1 0 0 20 `test timed item` 0 0\n100080 38 1 0 0 60 `test personal cargo upgrade` 0 0\n100081 39 1 0 0 60 `test personal cargo upgrade two` 0 0\n100082 40 1 0 0 2500 `test personal cargo upgrade 168` 0 0\n100083 41 1 0 0 2000 `test account cargo upgrade` 0 0\n101098 2660296 1 0 0 60 `test main inventory upgrade one` 0 0\n102046 2660297 1 0 0 70 `test main inventory upgrade two` 0 0\n102531 2683675 1 0 0 80 `test main inventory upgrade three` 0 0\n[/item]\n" +
 			"[premium]\n100090 44 1 0 0 1080 `test expert contract` 0 0\n[/premium]\n[creature]\n100055 42 10 0 0 20 `test pet feed` 0 0\n[/creature]\n[coin]\n[/coin]\n[material]\n[/material]\n[recoveryitem]\n[/recoveryitem]\n" +
 			"[package]\n100060 37 0 0 50 `test package` 0 0 0 0 0\n[/package]\n" +

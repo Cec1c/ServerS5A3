@@ -14,6 +14,7 @@ import (
 // that locks account metadata, the selected character wallet, and inventory
 // together. That makes the claim receipt and its rewards one atomic commit.
 type Owner struct {
+	settings    dnfrepo.SettingsRepository
 	settlements dnfrepo.CharacterSettlementUnitOfWork
 }
 
@@ -21,7 +22,7 @@ func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.CharacterSettlement == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{settlements: repositories.CharacterSettlement}, nil
+	return &Owner{settings: repositories.Settings, settlements: repositories.CharacterSettlement}, nil
 }
 
 // Status returns the authoritative progress used by a future proved login/UI
@@ -277,6 +278,9 @@ func (o *Owner) Claim(ctx context.Context, command ClaimCommand) (ClaimResult, e
 			}
 			if !inventoryFound || strings.TrimSpace(inventory.CharacterID) != characterID {
 				return fmt.Errorf("%w: character=%s", ErrInventoryNotFound, characterID)
+			}
+			if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+				return err
 			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			if inventory.Slots == nil {

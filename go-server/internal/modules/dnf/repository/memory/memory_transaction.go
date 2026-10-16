@@ -327,6 +327,7 @@ type memoryCeraShopAssetUnitOfWork struct {
 	pet            repository.PetRepository
 	ownedLegacy    []repository.OwnedLegacyItem
 	hasOwnedLegacy bool
+	skills         repository.SkillRepository
 }
 
 type memoryCharacterSkillUnitOfWork struct {
@@ -946,6 +947,22 @@ func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	settingsScope string,
 	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository) error,
 ) error {
+	if apply == nil {
+		return repository.ErrCeraShopAssetTransactionUnavailable
+	}
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope, false,
+		func(a repository.AccountRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository, s repository.SettingsRepository, _ repository.SkillRepository) error {
+			return apply(a, c, i, e, s)
+		})
+}
+
+func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope, true, apply)
+}
+
+func (u *memoryCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string, includeSkill bool,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
 	settingsScope = strings.TrimSpace(settingsScope)
@@ -993,7 +1010,20 @@ func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	inventoryTx := &memoryInventoryTransaction{characterID: characterID, record: repository.CloneInventory(inventory), exists: inventoryExists}
 	equipmentTx := &memoryEquipmentTransaction{characterID: characterID, record: repository.CloneEquipment(equipment), exists: equipmentExists}
 	settingsTx := &memorySettingsTransaction{scope: settingsScope, record: repository.CloneSettings(settings), exists: settingsExists}
-	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx, settingsTx); err != nil {
+	var skills repository.SkillRecord
+	var skillExists bool
+	skillTx := &memorySkillTransaction{characterID: characterID}
+	if includeSkill {
+		if u.skills == nil {
+			return repository.ErrCeraShopAssetTransactionUnavailable
+		}
+		skills, skillExists, err = u.skills.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		skillTx.record, skillTx.exists = repository.CloneSkill(skills), skillExists
+	}
+	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx, settingsTx, skillTx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -1045,6 +1075,17 @@ func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
 				restoreAccountRecord(u.account, accountID, account, accountExists, accountTx.dirty),
 			)
+		}
+	}
+	if includeSkill && skillTx.dirty {
+		if err := u.skills.Save(ctx, skillTx.record); err != nil {
+			return errors.Join(err,
+				restoreSkillRecord(u.skills, characterID, skills, skillExists, true),
+				restoreSettingsRecord(u.settings, settingsScope, settings, settingsExists, settingsTx.dirty),
+				restoreEquipmentRecordIfDirty(u.equipment, characterID, equipment, equipmentExists, equipmentTx.dirty),
+				restoreInventoryRecordIfDirty(u.inventory, characterID, inventory, inventoryExists, inventoryTx.dirty),
+				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
+				restoreAccountRecord(u.account, accountID, account, accountExists, accountTx.dirty))
 		}
 	}
 	return nil

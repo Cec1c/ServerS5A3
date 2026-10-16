@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -43,24 +44,25 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
-	ItemID            uint32
-	Kind              dungeonDropItemKind
-	PVFPath           string
-	AttachType        string
-	EquipmentType     string
-	Grade             int64
-	StackableType     string
-	EquipmentEffectID uint16
-	StackLimit        int64
-	SlotStart         int16
-	SlotEnd           int16
-	Durability        uint16
-	ExpirationDate    time.Time
-	UsablePeriodDays  int64
-	DailyDeleteItem   bool
-	Price             int64
-	PriceFound        bool
-	ActionType        string
+	ItemID             uint32
+	Kind               dungeonDropItemKind
+	PVFPath            string
+	AttachType         string
+	ImpossibleContents []string
+	EquipmentType      string
+	Grade              int64
+	StackableType      string
+	EquipmentEffectID  uint16
+	StackLimit         int64
+	SlotStart          int16
+	SlotEnd            int16
+	Durability         uint16
+	ExpirationDate     time.Time
+	UsablePeriodDays   int64
+	DailyDeleteItem    bool
+	Price              int64
+	PriceFound         bool
+	ActionType         string
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -101,6 +103,8 @@ type dungeonDropWeightedItem struct {
 // not decide how often a monster drops, allocate a scene slot, or mutate the
 // player's inventory. Those are separate runtime/asset transactions.
 type pvfDungeonDropCatalog struct {
+	chronicleCatalogCache
+
 	mu sync.Mutex
 
 	source       dnfpvf.Source
@@ -109,6 +113,9 @@ type pvfDungeonDropCatalog struct {
 	stackableIDs []uint32
 	poolCache    map[int64][]dungeonMonsterDropPoolEntry
 	itemCache    map[uint32]dungeonDropItemDefinition
+
+	// 装备合成目录与本份PVF生命周期一致，独立于掉落概率和物品投影缓存。
+	equipmentCompoundCatalog *dnfequipmentcompound.Catalog
 
 	// The generic pools deliberately stay separate from itemCache.  Loading
 	// every eligible runtime PVF item only happens once, on the first actual
@@ -253,6 +260,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 	}
 	definition := dungeonDropItemDefinition{ItemID: itemID, Kind: reference.kind, PVFPath: docPath}
 	definition.AttachType, _ = document.Text("attach type")
+	definition.ImpossibleContents = document.Texts("impossible contents")
 	if price, found := document.Int("price"); found && price >= 0 {
 		definition.Price = price
 		definition.PriceFound = true

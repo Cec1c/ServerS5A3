@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
 )
@@ -14,22 +15,35 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
-	Command               byte
-	CommandKnown          bool
-	Opcode                uint16
-	Body                  []byte
-	AccountID             string
-	SelectedCharacterID   uint16
-	Repositories          dnfrepo.Group
-	EquipmentPlacement    EquipmentPlacementValidator
-	AvatarClassifier      AvatarClassifier
-	NameTagChecker        func(itemID uint32) bool
-	PetHatchResolver      PetHatchResolver
-	EnchantBeadResolver   EnchantBeadResolver
-	AmplifyItemResolver   AmplifyItemResolver
-	RandomOptionResolver  RandomOptionResolver
-	UpgradeTicketResolver UpgradeTicketResolver
-	UpgradePolicyResolver UpgradePolicyResolver
+	Command                byte
+	CommandKnown           bool
+	Opcode                 uint16
+	Body                   []byte
+	AccountID              string
+	SelectedCharacterID    uint16
+	Repositories           dnfrepo.Group
+	EquipmentPlacement     EquipmentPlacementValidator
+	InventoryItemPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	InventoryCargoInsert   func(dnfrepo.ItemStack, byte) error
+	AvatarClassifier       AvatarClassifier
+	NameTagChecker         func(itemID uint32) bool
+	PetHatchResolver       PetHatchResolver
+	EnchantBeadResolver    EnchantBeadResolver
+	AmplifyItemResolver    AmplifyItemResolver
+	RandomOptionResolver   RandomOptionResolver
+	UpgradeTicketResolver  UpgradeTicketResolver
+	UpgradePolicyResolver  UpgradePolicyResolver
+	UpgradeCostResolver    UpgradeCostResolver
+	// ForgingResolver 让 op438（锻造 / 别升级 separate upgrade）拿到这一次
+	// 材料/目标在**运行时 PVF** 里的事实：etc/upgrade_separate.etc 的等级表与
+	// 材料表、目标的武器/品级/稀有度/耐久、材料槽那一件是不是便携式锻造炉或
+	// （券参数 + 目标白名单）。为零 = 该命令必须失败关闭（不回成功 ACK）。
+	// 语义与取证见 dnfbridge/forging_pvf.go 与 Docs/D33_FORGING_20261014.md。
+	ForgingResolver ForgingResolver
+	// Forging 是 dnfbridge 用当前 EXE 的 438 编解码器解出来的锻造请求
+	// （协议形状归桥接层，见 dnfbridge/forging_codec.go）。为零 = 该命令的请求体
+	// 没有被解出来，领域层按"目标无效"回失败体，绝不猜坐标。
+	Forging *ForgingRequest
 	// UpgradeProtectTicketResolver 让 op50 的"失败即摧毁"档能按运行时 PVF
 	// 认出背包里的装备强化/增幅保护券（`[action type] [protect equipment]` /
 	// `[amplify protect equipment]`）。为零时该档保持改动前的行为（直接摧毁），
@@ -346,9 +360,10 @@ type UpgradePolicyResolution struct {
 // 零值（SlotEnd < SlotStart）表示"没有容器信息"：调用方必须退回历史落点顺序，
 // 绝不允许把零值当成"槽段 0..0"。
 type StackGrantContainer struct {
-	ListType  byte
-	SlotStart int16
-	SlotEnd   int16
+	ContainerState *dnfrepo.CharacterContainerState
+	ListType       byte
+	SlotStart      int16
+	SlotEnd        int16
 }
 
 // Valid 报告容器信息是否可用（零值不可用）。
@@ -840,6 +855,10 @@ type Result struct {
 	// destroyed). Nil for every command that never reached that branch, and for
 	// the legacy switch value. The bridge owns the grep-able event.
 	UpgradeProtectTicket *UpgradeProtectTicket
+	// Forging 是 op438 锻造这一次的领域结果（含校验类拒绝）。dnfbridge 用它
+	// 组装 class1 438 回包：成功/掷点失败回 13 字节体，校验类拒绝回 0+u8 error。
+	// 见 dnfbridge/forging_codec.go。
+	Forging *ForgingOutcome
 	// AuthoritativeListRefreshes names container list types whose class0/0x000D
 	// refresh inside UpperResponses must be rebuilt from the bridge's session-scoped
 	// authoritative projection (the same builder login bootstrap, the container-list

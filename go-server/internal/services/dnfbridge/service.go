@@ -36,7 +36,6 @@ import (
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	appkit "longheng.io/server/internal/platform/app"
 	platformpvf "longheng.io/server/internal/platform/pvf"
-	"longheng.io/server/internal/services/gmtool"
 )
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
@@ -116,7 +115,6 @@ type Service struct {
 	localLoginStopped bool
 	localLoginTokens  map[string]struct{}
 	accountAPI        *accountAPIServer
-	gmTool            *gmtool.Server
 	// 账号判定只有两条依据：启动器登录令牌（loginTokens）与本地客户端进程号登记
 	// （clientAccounts）。原来"最近登录 IP → 账号"的内存表与 accountIPCache
 	// 已于 2026-09-25 删除，见 client_account_ip.go。
@@ -342,6 +340,7 @@ func (s *Service) Start(ctx context.Context) error {
 		{"character stat table", s.preloadCharacterStatTable},
 		{"equipment stat index", s.preloadEquipmentStatIndex},
 		{"combat power affix catalog", s.preloadCombatPowerAffixCatalog},
+		{"装备合成目录", s.preloadEquipmentRegenerationCatalog},
 	}
 	for _, preload := range pvfPreloads {
 		if err := preload.load(runCtx); err != nil {
@@ -418,12 +417,6 @@ func (s *Service) Start(ctx context.Context) error {
 	s.startForceDungeonTrigger(runCtx)
 
 	if err := s.startAccountAPI(runCtx); err != nil {
-		cancel()
-		_ = s.Stop(context.Background())
-		return err
-	}
-
-	if err := s.startGMTool(runCtx); err != nil {
 		cancel()
 		_ = s.Stop(context.Background())
 		return err
@@ -788,7 +781,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		stopErr = errors.Join(stopErr, partyRelayRemote.Close())
 	}
 	stopErr = errors.Join(stopErr, s.stopAccountAPI())
-	stopErr = errors.Join(stopErr, s.stopGMTool())
 	stopErr = errors.Join(stopErr, packetLog.Close())
 	done := make(chan struct{})
 	go func() {

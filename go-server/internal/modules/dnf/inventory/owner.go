@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	"math"
 	"math/rand"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/creaturestate"
 	dnfequip "longheng.io/server/internal/modules/dnf/equip"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrevivecoin "longheng.io/server/internal/modules/dnf/revivecoin"
@@ -109,6 +111,8 @@ const (
 // Owner 是背包资产的 durable owner 边界。
 // 当前只改 repository 状态；旧客户端 ACK/刷新顺序必须在 EXE 证据闭合后再开放。
 type Owner struct {
+	cardSettings  dnfrepo.SettingsRepository
+	settings      dnfrepo.SettingsRepository
 	repo          dnfrepo.InventoryRepository
 	accountRepo   dnfrepo.AccountInventoryRepository
 	accounts      dnfrepo.AccountRepository
@@ -156,6 +160,7 @@ type MoveResult struct {
 	RefreshListTypes     []byte
 	Refresh              map[byte]map[string]dnfrepo.ItemStack
 	Changed              bool
+	ItemSlotRefreshes    []alignedcmd.ItemSlotRefresh
 }
 
 // SortResult 描述一次整理物品栏的写库结果；Refresh 是上层构造 0x000D 全量刷新所需的列表快照。
@@ -209,6 +214,8 @@ type UpgradeResult struct {
 	TargetUpdatedStack          dnfrepo.ItemStack
 	MaterialUpdated             bool
 	MaterialUpdatedStack        dnfrepo.ItemStack
+	ConversionMaterialUpdated   bool
+	ConversionMaterialSlot      int16
 	Changed                     bool
 	// DestroyBonusSlot 是 op50 摧毁档 ACK 里报给客户端的那个槽：有并入时是第一个并入的
 	// 既有行，没有可并的行时就是新开的那一格（修复前语义 = 恒为新开格）。
@@ -338,6 +345,8 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		cardSettings:  repos.Settings,
+		settings:      repos.Settings,
 		repo:          repos.Inventory,
 		accountRepo:   repos.AccountInventory,
 		accounts:      repos.Account,
@@ -356,9 +365,13 @@ func (o *Owner) withinInventoryTransaction(ctx context.Context, characterID stri
 	if o.items == nil {
 		return ErrInventoryTransactionRequired
 	}
-	return o.items.WithinCharacterItems(ctx, characterID, func(inventory dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+	return o.items.WithinCharacterItems(ctx, characterID, func(inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
 		txOwner := *o
 		txOwner.repo = inventory
+		// 锻造（op438）的目标可能是**穿戴中**的武器（list 3）：它住在装备聚合里，
+		// 与主背包同属角色物品事务。这里把事务内的装备仓储一并交给 owner，
+		// 让"材料消耗 + 锻造等级写入"落在同一个事务里。既有调用方不使用这个字段。
+		txOwner.equipment = equipment
 		txOwner.inItemTransaction = true
 		return apply(&txOwner)
 	})
@@ -708,7 +721,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return MoveResult{}, err
 	}
@@ -727,6 +740,10 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 
 	srcItems, srcField := itemMapForList(&record, cmd.SourceListType)
 	dstItems, dstField := itemMapForList(&record, cmd.DestinationListType)
+	cmd, err = planCargoMove(cmd, srcItems, dstItems, record.ContainerState, 0)
+	if err != nil {
+		return MoveResult{}, err
+	}
 	srcKey := slotKey(cmd.SourceListType, cmd.SourceSlotIndex)
 	dstKey := slotKey(cmd.DestinationListType, cmd.DestinationSlotIndex)
 	result := MoveResult{
@@ -740,6 +757,9 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 	}
 	if srcField == dstField && srcKey == dstKey {
 		return result, nil
+	}
+	if err := validateMovePlacement(cmd, srcItems, dstItems, record.ContainerState); err != nil {
+		return MoveResult{}, err
 	}
 
 	source, sourceOK := srcItems[srcKey]
@@ -762,9 +782,9 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		if cmd.SourceListType == cmd.DestinationListType {
 			excludedSlots = append(excludedSlots, cmd.DestinationSlotIndex)
 		}
-		if !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
+		if allowMoveAutoMerge(cmd) && !isMainItemQuickSlot(cmd.SourceListType, cmd.SourceSlotIndex) {
 			if targetSlot, target, ok := findCompatibleStackSlot(
-				srcItems,
+				moveMergeCandidates(srcItems, cmd, destination, cmd.SourceListType, record.ContainerState),
 				cmd.SourceListType,
 				destination,
 				moveCount,
@@ -805,7 +825,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			destination.Count -= moveCount
 			updateStackRawAmount(&destination)
 			dstItems[dstKey] = destination
-			srcItems[srcKey] = moved
+			srcItems[srcKey] = applySortLockOnMove(moved, cmd.DestinationListType, cmd.DestinationSlotIndex, cmd.SourceListType, cmd.SourceSlotIndex)
 			result.MoveCount = moveCount
 			result.Mode = "reverse_split"
 			if cmd.SourceListType == cmd.DestinationListType {
@@ -820,7 +840,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			return saveMoveResult(ctx, o.repo, record, srcField, dstField, keys, result)
 		}
 		delete(dstItems, dstKey)
-		srcItems[srcKey] = destination
+		srcItems[srcKey] = applySortLockOnMove(destination, cmd.DestinationListType, cmd.DestinationSlotIndex, cmd.SourceListType, cmd.SourceSlotIndex)
 		result.MoveCount = destination.Count
 		result.Mode = "reverse_move"
 		keys := newBagMoveWriteKeys(srcField, dstField)
@@ -838,9 +858,9 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		if cmd.SourceListType == cmd.DestinationListType {
 			excludedSlots = append(excludedSlots, cmd.SourceSlotIndex)
 		}
-		if !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
+		if allowMoveAutoMerge(cmd) && !isMainItemQuickSlot(cmd.DestinationListType, cmd.DestinationSlotIndex) {
 			if targetSlot, target, ok := findCompatibleStackSlot(
-				dstItems,
+				moveMergeCandidates(dstItems, cmd, source, cmd.DestinationListType, record.ContainerState),
 				cmd.DestinationListType,
 				source,
 				moveCount,
@@ -881,7 +901,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			source.Count -= moveCount
 			updateStackRawAmount(&source)
 			srcItems[srcKey] = source
-			dstItems[dstKey] = moved
+			dstItems[dstKey] = applySortLockOnMove(moved, cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex)
 			result.MoveCount = moveCount
 			result.Mode = "split"
 			if cmd.SourceListType == cmd.DestinationListType {
@@ -896,7 +916,7 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 			return saveMoveResult(ctx, o.repo, record, srcField, dstField, keys, result)
 		}
 		delete(srcItems, srcKey)
-		dstItems[dstKey] = source
+		dstItems[dstKey] = applySortLockOnMove(source, cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex)
 		result.MoveCount = source.Count
 		result.Mode = "move"
 		keys := newBagMoveWriteKeys(srcField, dstField)
@@ -935,8 +955,8 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		return saveMoveResult(ctx, o.repo, record, srcField, dstField, keys, result)
 	}
 
-	srcItems[srcKey] = destination
-	dstItems[dstKey] = source
+	srcItems[srcKey] = applySortLockOnMove(destination, cmd.DestinationListType, cmd.DestinationSlotIndex, cmd.SourceListType, cmd.SourceSlotIndex)
+	dstItems[dstKey] = applySortLockOnMove(source, cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex)
 	result.MoveCount = source.Count
 	result.Mode = "swap"
 	keys := newBagMoveWriteKeys(srcField, dstField)
@@ -1056,7 +1076,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return SortResult{}, err
 	}
@@ -1091,10 +1111,25 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 	if !ok {
 		return result, nil
 	}
-	candidates := sortCandidates(items, cmd.SourceListType, start, end)
+	if cmd.SourceListType == listTypePersonalCargo && record.ContainerState != nil && record.ContainerState.PersonalCargoSlotCount > 0 {
+		if capacityEnd := int16(record.ContainerState.PersonalCargoSlotCount) - 1; capacityEnd > end {
+			end = capacityEnd
+		}
+	}
+	candidates, lockedSlots := sortCandidates(items, cmd.SourceListType, start, end)
+	// 旧越界行参与容量核对；装不下时拒绝整次整理，保留所有真实物品。
+	end = dnfplacement.OpenRangeEnd(cmd.SourceListType, start, end, record.ContainerState)
+	if len(candidates) > int(end-start+1) {
+		return SortResult{}, ErrMoveSlotLocked
+	}
+	result.EndSlot = end
 	result.MovedCount = len(candidates)
+	targets := sortTargetSlots(start, end, lockedSlots)
 	if len(candidates) == 0 {
 		return result, nil
+	}
+	if len(targets) < len(candidates) {
+		return SortResult{}, fmt.Errorf("%w: candidates=%d targets=%d", ErrSortLockSlotMismatch, len(candidates), len(targets))
 	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -1111,8 +1146,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 
 	changed := false
 	for index, candidate := range candidates {
-		targetSlot := start + int16(index)
-		if candidate.slot != targetSlot {
+		if candidate.slot != targets[index] {
 			changed = true
 			break
 		}
@@ -1125,8 +1159,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		delete(items, slotKey(cmd.SourceListType, candidate.slot))
 	}
 	for index, candidate := range candidates {
-		targetSlot := start + int16(index)
-		items[slotKey(cmd.SourceListType, targetSlot)] = candidate.stack
+		items[slotKey(cmd.SourceListType, targets[index])] = candidate.stack
 	}
 
 	record.UpdatedAt = time.Now()
@@ -1139,6 +1172,7 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		return SortResult{}, err
 	}
 	result.Changed = true
+
 	return result, nil
 }
 
@@ -1361,7 +1395,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		return result, nil
 	}
 
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return UpgradeResult{}, err
 	}
@@ -1517,6 +1551,36 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 	}
 	result.UpdatedGold = character.Stats["gold"]
 	goldCost := upgradeGoldCostOf(target, cmd.Mode, oldLevel)
+	var conversionKey string
+	var conversionCount int64
+	if cmd.UpgradeCostResolver != nil && !(portable != nil && upgradePortableConsumableEnabled()) {
+		quote, err := cmd.UpgradeCostResolver(cmd.Mode, target.ItemID, int(oldLevel), cmd.UpgradeNPCPresent, cmd.UpgradeNPCID)
+		if err != nil {
+			return UpgradeResult{}, &upgradeCostResolutionError{cause: err}
+		}
+		if quote.Resolved {
+			if quote.GoldCost < 0 || quote.ConversionCount < 0 || (quote.ConversionCount > 0 && quote.ConversionItemID <= 0) {
+				return UpgradeResult{}, &upgradeCostResolutionError{cause: fmt.Errorf("invalid upgrade cost resolution")}
+			}
+			goldCost = quote.GoldCost
+			if quote.ConversionCount > 0 {
+				slot := cmd.UpgradeNPCMaterialSlot
+				// The packet supplies only a coordinate. Item identity and quantity come
+				// from PVF; aliases with the target, normal material or ticket are refused.
+				if !cmd.UpgradeNPCPresent || slot < upgradeProtectTicketScanStart || slot == cmd.TargetSlotIndex || slot == cmd.MaterialSlotIndex || slot == cmd.OptionalTicketSlot || dnfrepo.IsAccountSharedInventorySlot(listTypeMain, slot) {
+					result.ErrorCode = upgradeErrorInvalidMaterial
+					return result, nil
+				}
+				conversionKey = slotKey(listTypeMain, slot)
+				stack, found := items[conversionKey]
+				if !found || stack.ItemID != quote.ConversionItemID || stack.Count < quote.ConversionCount {
+					result.ErrorCode = upgradeErrorInvalidMaterial
+					return result, nil
+				}
+				conversionCount = quote.ConversionCount
+			}
+		}
+	}
 	if portable != nil && upgradePortableConsumableEnabled() {
 		// 一次性增幅器 / 凯丽的强化器：PVF `[explain]` 与厂商 `FromPortable` 都写明
 		// 「不消耗矛盾的结晶体和金币」⇒ 金币恒为 0，也不做金币校验。
@@ -1569,7 +1633,11 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 			// 回落到券的 FailureRetainLevel，resultCode 从 3 变 2（= max(1, effectivePenaltyType)）；
 			// 找不到才真的摧毁。判定真源与开关见 upgrade_protect_ticket.go。
 			// 现场缺陷：这一档以前只有 `delete(items, targetKey)`，保护券不参与也不消耗。
-			protectSelection, protectAsked, protectErr, protectOK := findUpgradeProtectTicket(items, cmd)
+			reservedConversionSlot := int16(-1)
+			if conversionCount > 0 {
+				reservedConversionSlot = cmd.UpgradeNPCMaterialSlot
+			}
+			protectSelection, protectAsked, protectErr, protectOK := findUpgradeProtectTicket(items, cmd, reservedConversionSlot)
 			result.ProtectTicketScanned = upgradeProtectTicketLookupActive(cmd)
 			result.ProtectTicketCandidates = protectAsked
 			result.ProtectTicketScanError = protectErr
@@ -1599,6 +1667,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 			// 与开关见 upgrade_destroy_bonus.go：旧代码无条件 firstEmptyUpgradeSlot()，
 			// 于是每摧毁一把武器就多一行（现场角色 6 的 3243 四行同源）。
 			if cmd.UpgradeDestroyBonusItemID > 0 && cmd.UpgradeDestroyBonusCount > 0 {
+				cmd.UpgradeDestroyBonusContainer.ContainerState = record.ContainerState
 				placement, ok := placeUpgradeDestroyBonus(
 					items,
 					int64(cmd.UpgradeDestroyBonusItemID),
@@ -1660,6 +1729,23 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 				return UpgradeResult{}, err
 			}
 		}
+	}
+	if conversionCount > 0 {
+		// Modify the same inventory snapshot that carries the equipment mutation;
+		// the account material, wallet and this snapshot share the existing UoW.
+		stack := cloneStack(items[conversionKey])
+		if stack.Count < conversionCount {
+			return UpgradeResult{}, fmt.Errorf("reserved conversion material changed before debit")
+		}
+		stack.Count -= conversionCount
+		if stack.Count == 0 {
+			delete(items, conversionKey)
+		} else {
+			updateStackRawAmount(&stack)
+			items[conversionKey] = stack
+		}
+		result.ConversionMaterialUpdated = true
+		result.ConversionMaterialSlot = cmd.UpgradeNPCMaterialSlot
 	}
 	if goldCost > 0 {
 		character = dnfrepo.CloneCharacter(character)
@@ -2417,7 +2503,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		})
 		return result, err
 	}
-	record, ok, err := o.repo.Load(ctx, characterID)
+	record, ok, err := o.loadInventoryWithContainerState(ctx, characterID)
 	if err != nil {
 		return UseStackableResult{}, err
 	}
@@ -2462,7 +2548,7 @@ func (o *Owner) useRandomRewardItem(ctx context.Context, cmd Command, resolution
 		RandomRewardEffectIndex: outcome.EffectIndex,
 	}
 	if outcome.Reward.ItemID > 0 {
-		slots, err := grantRandomRewardItem(record.Slots, outcome.Reward, 1)
+		slots, err := grantRandomRewardItem(record.Slots, outcome.Reward, 1, record.ContainerState)
 		if err != nil {
 			return UseStackableResult{}, err
 		}
@@ -2512,7 +2598,11 @@ func chooseRandomRewardItemOutcome(outcomes []alignedcmd.RandomRewardItemOutcome
 // 189..238（resolveCurrentMagicBoxRewardItem 按 stackable type 给出）。旧代码
 // 硬要求 `reward.TargetListType == listTypeMain`，于是"开出宠物饲料"的盒子整个
 // 使用请求以 ErrRandomRewardContractRequired 失败（玩家看到用了没反应）。
-func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64) ([]int16, error) {
+func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64, states ...*dnfrepo.CharacterContainerState) ([]int16, error) {
+	var state *dnfrepo.CharacterContainerState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	if count <= 0 {
 		return nil, nil
 	}
@@ -2536,6 +2626,9 @@ func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd
 	// dnfrepo.CanMergeItemStack 做"缺省即兼容"的比较，发放来源之类的记账键不参与。
 	incoming := randomRewardGrantIdentity(reward)
 	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+		if !dnfplacement.SlotOpen(reward.TargetListType, slot, state) {
+			continue
+		}
 		key := slotKey(targetListType, slot)
 		stack, found := items[key]
 		if !found || stack.ItemID != reward.ItemID || stack.Count <= 0 || reward.StackLimit == 1 ||
@@ -2561,6 +2654,9 @@ func grantRandomRewardItem(items map[string]dnfrepo.ItemStack, reward alignedcmd
 		markChanged(slot)
 	}
 	for slot := reward.SlotStart; slot <= reward.SlotEnd && remaining > 0; slot++ {
+		if !dnfplacement.SlotOpen(reward.TargetListType, slot, state) {
+			continue
+		}
 		key := slotKey(targetListType, slot)
 		if _, occupied := items[key]; occupied {
 			continue
@@ -3123,11 +3219,19 @@ type sortCandidate struct {
 	stack dnfrepo.ItemStack
 }
 
-func sortCandidates(items map[string]dnfrepo.ItemStack, listType byte, start int16, end int16) []sortCandidate {
+// sortCandidates 收集可参与整理的物品，并把被位置锁占用的槽位单独返回。
+// DOC-067：锁定物品留在原槽（不是候选），它的槽位也不能被别的物品占用；
+// 这两条合起来就是 A21 InventorySortService 的 lockedSlots / targetSlots 行为。
+func sortCandidates(items map[string]dnfrepo.ItemStack, listType byte, start int16, end int16) ([]sortCandidate, map[int16]bool) {
 	out := make([]sortCandidate, 0)
+	locked := make(map[int16]bool)
 	for key, stack := range items {
 		keyListType, slot, ok := parseSlotKey(key)
 		if !ok || keyListType != listType || slot < start || slot > end {
+			continue
+		}
+		if IsSortLocked(stack) && SortLockCanApply(listType, slot) {
+			locked[slot] = true
 			continue
 		}
 		out = append(out, sortCandidate{
@@ -3136,7 +3240,19 @@ func sortCandidates(items map[string]dnfrepo.ItemStack, listType byte, start int
 			stack: stack,
 		})
 	}
-	return out
+	return out, locked
+}
+
+// sortTargetSlots 返回 [start,end] 里未被位置锁占用的槽位（升序）。
+func sortTargetSlots(start, end int16, locked map[int16]bool) []int16 {
+	targets := make([]int16, 0, int(end-start)+1)
+	for slot := start; slot <= end; slot++ {
+		if locked[slot] {
+			continue
+		}
+		targets = append(targets, slot)
+	}
+	return targets
 }
 
 func parseSlotKey(key string) (byte, int16, bool) {
@@ -3208,6 +3324,9 @@ func canSplitStack(stack dnfrepo.ItemStack, moveCount int64) bool {
 }
 
 func canStack(source dnfrepo.ItemStack, destination dnfrepo.ItemStack, moveCount int64) bool {
+	if !dnfrepo.MonsterCardUpgradeIdentityCompatible(source, destination) {
+		return false
+	}
 	if moveCount <= 0 || source.Count < moveCount || destination.Count <= 0 {
 		return false
 	}
@@ -3375,15 +3494,7 @@ func (o *Owner) withMoveRefresh(
 }
 
 func isEquipmentLocked(stack dnfrepo.ItemStack) bool {
-	if stack.Extra == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stack.Extra["equipment_lock_state"])) {
-	case "1", "2", "active", "locked", "unlocking", "pending_unlock":
-		return true
-	default:
-		return false
-	}
+	return dnfitemlock.IsLocked(stack)
 }
 
 func cloneStack(stack dnfrepo.ItemStack) dnfrepo.ItemStack {
@@ -3440,6 +3551,23 @@ func saveMoveResult(
 		return MoveResult{}, err
 	}
 	result.Changed = true
+	if keys != nil {
+		for _, listKeys := range keys.keys {
+			for _, key := range listKeys {
+				list, slot, ok := parseSlotKey(key)
+				if ok {
+					result.ItemSlotRefreshes = append(result.ItemSlotRefreshes, alignedcmd.ItemSlotRefresh{ListType: list, SlotIndex: slot})
+				}
+			}
+		}
+		sort.Slice(result.ItemSlotRefreshes, func(i, j int) bool {
+			left, right := result.ItemSlotRefreshes[i], result.ItemSlotRefreshes[j]
+			if left.ListType != right.ListType {
+				return left.ListType < right.ListType
+			}
+			return left.SlotIndex < right.SlotIndex
+		})
+	}
 	return result, nil
 }
 

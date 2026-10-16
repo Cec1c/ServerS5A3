@@ -19,7 +19,6 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
-	"longheng.io/server/internal/services/gmtool"
 )
 
 // ---------------------------------------------------------------------------
@@ -176,32 +175,17 @@ func p7bAssertSameExpirationOutcome(t *testing.T, marked, unmarked dnfrepo.ItemS
 // 1. 开关：与写入端同一口径、同一个环境变量名
 // ---------------------------------------------------------------------------
 
-// TestGMExpirationOverrideGateMatchesGrantWriterSwitch 证明"发放"与"保持"用的是
-// 同一个开关、同一套解析口径：本包的门（currentGMExpirationOverrideEnabled）与
-// 写入端导出的 gmtool.GMMailOptionsFromEnv 对同一批取值必须给出同一个答案。
-func TestGMExpirationOverrideGateMatchesGrantWriterSwitch(t *testing.T) {
-	values := []string{"", " ", "on", "ON", " on ", "On", "oN", "off", "true", "1", "yes", "0", "false", "enforce"}
-	for _, value := range values {
-		t.Run("value="+strconv.Quote(value), func(t *testing.T) {
-			t.Setenv(currentGMExpirationOverrideEnv, value)
-			want := gmtool.GMMailOptionsFromEnv(value)
-			if got := currentGMExpirationOverrideEnabled(); got != want {
-				t.Fatalf("消费端门(%q)=%t，写入端门=%t（同一个开关必须同一口径）", value, got, want)
-			}
-		})
-	}
-
-	// 钉死"空 = off，只认显式 on"：true/1/yes 一律不算开。
-	for _, value := range []string{"", " ", "off", "true", "1", "yes", "0", "false"} {
+func TestGMExpirationOverrideGateAcceptsOnlyExplicitOn(t *testing.T) {
+	for _, value := range []string{"", " ", "off", "true", "1", "yes", "0", "false", "enforce"} {
 		t.Setenv(currentGMExpirationOverrideEnv, value)
 		if currentGMExpirationOverrideEnabled() {
-			t.Fatalf("%q 不该被当成 on", value)
+			t.Fatalf("%q must not enable the server expiration override", value)
 		}
 	}
-	for _, value := range []string{"on", "ON", " on "} {
+	for _, value := range []string{"on", "ON", " on ", "On", "oN"} {
 		t.Setenv(currentGMExpirationOverrideEnv, value)
 		if !currentGMExpirationOverrideEnabled() {
-			t.Fatalf("%q 应该是 on", value)
+			t.Fatalf("%q must enable the server expiration override", value)
 		}
 	}
 }
@@ -209,93 +193,21 @@ func TestGMExpirationOverrideGateMatchesGrantWriterSwitch(t *testing.T) {
 // ---------------------------------------------------------------------------
 // 2. 写入点 ↔ 消费点：同一个键、同一层
 // ---------------------------------------------------------------------------
-
-// TestGMExpirationOverrideMarkerMatchesGrantWriter 是**跨包契约**断言：
-// 消费端读的标记值/开关名必须逐字等于写入端源码里的字面量。写入端只有函数是
-// 未导出的，所以这里直接解析它的源码取常量值 —— 任何一边改名都会让这条变红，
-// 而"看起来修了其实没接上"正是 P7 报告 §5.1 遗留缺口复发的方式。
-func TestGMExpirationOverrideMarkerMatchesGrantWriter(t *testing.T) {
+// TestGMExpirationOverrideMarkerContractIsServerOwned 守住**服务器侧**的标记契约：
+// 消费端读的来源值/开关名必须逐字稳定，并且邮件附件 Extra 必须原样落到背包堆栈 Extra。
+// 写入端（GM 工具）在本地独立维护，其常量由工具自己的测试守。
+func TestGMExpirationOverrideMarkerContractIsServerOwned(t *testing.T) {
+	if currentGMExpirationOverrideSource != "gm_override" {
+		t.Fatalf("marker source=%q, want gm_override", currentGMExpirationOverrideSource)
+	}
+	if currentGMExpirationOverrideEnv != "DNFBRIDGE_GM_MAIL_OPTIONS" {
+		t.Fatalf("marker env=%q, want DNFBRIDGE_GM_MAIL_OPTIONS", currentGMExpirationOverrideEnv)
+	}
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(currentFile)
-	grantOptionsPath := filepath.Join(root, "..", "gmtool", "api_items_grant_options.go")
-	raw, err := os.ReadFile(grantOptionsPath)
-	if err != nil {
-		t.Fatalf("read writer source: %v", err)
-	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), grantOptionsPath, raw, 0)
-	if err != nil {
-		t.Fatalf("parse writer source: %v", err)
-	}
-	literals := map[string]string{}
-	for _, declaration := range parsed.Decls {
-		generic, isGeneric := declaration.(*ast.GenDecl)
-		if !isGeneric || generic.Tok != token.CONST {
-			continue
-		}
-		for _, spec := range generic.Specs {
-			value, isValue := spec.(*ast.ValueSpec)
-			if !isValue {
-				continue
-			}
-			for index, name := range value.Names {
-				if index >= len(value.Values) {
-					continue
-				}
-				literal, isLiteral := value.Values[index].(*ast.BasicLit)
-				if !isLiteral || literal.Kind != token.STRING {
-					continue
-				}
-				unquoted, unquoteErr := strconv.Unquote(literal.Value)
-				if unquoteErr != nil {
-					t.Fatalf("unquote %s: %v", name.Name, unquoteErr)
-				}
-				literals[name.Name] = unquoted
-			}
-		}
-	}
-
-	if got := literals["gmExpirationSource"]; got != currentGMExpirationOverrideSource {
-		t.Fatalf("写入端 gmExpirationSource=%q，消费端 currentGMExpirationOverrideSource=%q：标记值必须逐字相同",
-			got, currentGMExpirationOverrideSource)
-	}
-	if got := literals["gmMailOptionsEnv"]; got != currentGMExpirationOverrideEnv {
-		t.Fatalf("写入端 gmMailOptionsEnv=%q，消费端 currentGMExpirationOverrideEnv=%q：必须是同一个开关",
-			got, currentGMExpirationOverrideEnv)
-	}
-
-	// 写入端确实把这个值写进**物品 Extra 的 expiration_source 键**
-	// （而不是别的层、别的键）——消费端读的就是这个键。
-	writerText := string(raw)
-	for _, marker := range []string{
-		`stack.Extra["expiration_source"] = gmExpirationSource`,
-		`stack.Extra["gm_expire_days"] = days`,
-	} {
-		if !strings.Contains(writerText, marker) {
-			t.Fatalf("写入端没有找到 %q：标记的写入键变了，消费端会静默失效", marker)
-		}
-	}
-
-	// 写入端把投影结果交给**邮件附件**（Extra + ExpireAt）：这是标记落库的那一层。
-	grantPath := filepath.Join(root, "..", "gmtool", "api_items.go")
-	grantRaw, err := os.ReadFile(grantPath)
-	if err != nil {
-		t.Fatalf("read grant source: %v", err)
-	}
-	grantText := string(grantRaw)
-	for _, marker := range []string{
-		"attachmentExtra = projection.extra",
-		"attachmentExpireAt = projection.expireAt",
-		"Extra: attachmentExtra",
-		"ExpireAt: attachmentExpireAt",
-	} {
-		if !strings.Contains(grantText, marker) {
-			t.Fatalf("发放端没有把投影写进邮件附件：找不到 %q", marker)
-		}
-	}
-
 	// 领取桥：mail/owner.go 的 mailboxAttachmentStack 必须把**附件 Extra 原样**
 	// 带进落地堆栈 Extra（AST 断言，避免依赖 gofmt 对齐空格）。
 	ownerPath := filepath.Join(root, "..", "..", "modules", "dnf", "mail", "owner.go")

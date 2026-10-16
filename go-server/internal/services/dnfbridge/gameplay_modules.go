@@ -15,9 +15,11 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	emblemCompoundGameplayModule(),
 	expertJobGameplayModule(),
 	equipmentRecipeCompoundGameplayModule(),
+	equipmentRegenerationGameplayModule(),
 	boosterGameplayModule(),
 	rentalGameplayModule(),
 	epicProductionGameplayModule(),
+	epicBookGameplayModule(),
 	guardianGemGameplayModule(),
 	equipmentSocketGameplayModule(),
 	equipmentEmblemControlGameplayModule(),
@@ -42,5 +44,6 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	emotionGameplayModule(),
 	joustGameplayModule(),
 	collectboxGameplayModule(),
+	chronicleRefineGameplayModule(),
 	webViewerGameplayModule(),
 )

@@ -33,22 +33,25 @@ var (
 )
 
 type Owner struct {
-	repo dnfrepo.InventoryRepository
+	repo        dnfrepo.InventoryRepository
+	transaction dnfrepo.CharacterItemUnitOfWork
+	now         func() time.Time
 }
 
 type Result struct {
-	CharacterID string
-	ListType    byte
-	SlotIndex   int16
-	State       string
-	Changed     bool
+	CharacterID      string
+	ListType         byte
+	SlotIndex        int16
+	State            string
+	Changed          bool
+	RemainingSeconds int32
 }
 
 func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 	if repos.Inventory == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{repo: repos.Inventory}, nil
+	return &Owner{repo: repos.Inventory, transaction: repos.CharacterItems, now: time.Now}, nil
 }
 
 func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
@@ -63,6 +66,21 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 	}
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
+	if o.transaction != nil {
+		var result Result
+		err := o.transaction.WithinCharacterItems(ctx, characterID, func(repo dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+			tx := &Owner{repo: repo, now: o.now}
+			var err error
+			result, err = tx.Apply(ctx, cmd)
+			return err
+		})
+		return result, err
+	}
+	now := time.Now()
+	if o.now != nil {
+		now = o.now()
+	}
+
 	record, ok, err := o.repo.Load(ctx, characterID)
 	if err != nil {
 		return Result{}, err
@@ -96,7 +114,7 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 
 	switch cmd.Operation {
 	case "request_item_lock":
-		if isLocked(stack) {
+		if IsLockedAt(stack, now) {
 			return Result{}, fmt.Errorf("%w: list=%d slot=%d", ErrAlreadyLocked, cmd.ListType, cmd.SlotIndex)
 		}
 		stack = setLockState(stack, lockStateActive, cmd.ListType, cmd.SlotIndex)
@@ -106,11 +124,23 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 		if !isLocked(stack) {
 			return Result{}, fmt.Errorf("%w: list=%d slot=%d", ErrNotLocked, cmd.ListType, cmd.SlotIndex)
 		}
-		stack = clearLockState(stack)
-		result.State = ""
-		result.Changed = true
+		if deadline, valid := unlockDeadline(stack); isPendingState(currentLockState(stack)) && valid {
+			if !now.Before(deadline) {
+				stack = clearLockState(stack)
+				result.State = ""
+				result.Changed = true
+			} else {
+				result.RemainingSeconds = remainingUntil(deadline, now)
+			}
+		} else {
+			stack = setLockState(stack, "2", cmd.ListType, cmd.SlotIndex)
+			stack.Extra["equipment_unlock_at"] = strconv.FormatInt(now.Add(72*time.Hour).Unix(), 10)
+			result.State = "2"
+			result.RemainingSeconds = 259200
+			result.Changed = true
+		}
 	case "request_item_unlock_cancel":
-		if !isLocked(stack) {
+		if !IsLockedAt(stack, now) {
 			return Result{}, fmt.Errorf("%w: list=%d slot=%d", ErrNotLocked, cmd.ListType, cmd.SlotIndex)
 		}
 		if currentLockState(stack) != lockStateActive {
@@ -126,7 +156,7 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 		return result, nil
 	}
 	items[key] = stack
-	record.UpdatedAt = time.Now()
+	record.UpdatedAt = now
 	if err := dnfrepo.SaveInventoryFields(ctx, o.repo, record, field); err != nil {
 		return Result{}, err
 	}
@@ -180,6 +210,7 @@ func setLockState(stack dnfrepo.ItemStack, state string, listType byte, slotInde
 	stack.Extra["equipment_lock_list_type"] = strconv.Itoa(int(listType))
 	stack.Extra["equipment_lock_slot"] = strconv.Itoa(int(slotIndex))
 	delete(stack.Extra, "equipment_lock_remaining_seconds")
+	delete(stack.Extra, "equipment_unlock_at")
 	return stack
 }
 
@@ -192,6 +223,7 @@ func clearLockState(stack dnfrepo.ItemStack) dnfrepo.ItemStack {
 	delete(stack.Extra, "equipment_lock_list_type")
 	delete(stack.Extra, "equipment_lock_slot")
 	delete(stack.Extra, "equipment_lock_remaining_seconds")
+	delete(stack.Extra, "equipment_unlock_at")
 	if len(stack.Extra) == 0 {
 		stack.Extra = nil
 	}

@@ -163,6 +163,7 @@ func clearKnightAmountStats(stats map[string]int64) {
 }
 
 type Owner struct {
+	settings      dnfrepo.SettingsRepository
 	assets        dnfrepo.CharacterAssetUnitOfWork
 	mailboxAssets dnfrepo.MailboxAssetUnitOfWork
 }
@@ -171,7 +172,7 @@ func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.CharacterAssets == nil || repositories.MailboxAssets == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{assets: repositories.CharacterAssets, mailboxAssets: repositories.MailboxAssets}, nil
+	return &Owner{settings: repositories.Settings, assets: repositories.CharacterAssets, mailboxAssets: repositories.MailboxAssets}, nil
 }
 
 func (o *Owner) Bet(ctx context.Context, cmd Command) (Result, error) {
@@ -251,6 +252,9 @@ func (o *Owner) Bet(ctx context.Context, cmd Command) (Result, error) {
 		}
 		if !found || strings.TrimSpace(inventory.CharacterID) != characterID {
 			return fmt.Errorf("%w: character=%s", ErrInventoryNotFound, characterID)
+		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		key := fmt.Sprintf("%d:%d", dnfrepo.MainInventoryListType, cmd.SourceSlot)

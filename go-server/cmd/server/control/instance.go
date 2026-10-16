@@ -165,6 +165,8 @@ func decodeInstance(path string) (instanceConfig, error) {
 		}
 		return instanceConfig{}, fmt.Errorf("invalid JSON in %s: %w", path, err)
 	}
+	// Retire the former embedded-tool setting without rewriting the local source file.
+	cfg.Server.LegacyGMListen = ""
 	return cfg, nil
 }
 
@@ -231,34 +233,6 @@ func validateInstance(cfg instanceConfig) error {
 	if err := validateLoopbackListenAddress("server.adminListen", cfg.Server.AdminListen); err != nil {
 		return err
 	}
-	if gm := strings.TrimSpace(cfg.Server.GMListen); gm != "" {
-		if err := validateListenAddress("server.gmListen", gm, false); err != nil {
-			return err
-		}
-		if err := validateLoopbackListenAddress("server.gmListen", gm); err != nil {
-			return err
-		}
-		// channelListen, adminListen and gmListen are all loopback-enforced (127.0.0.1),
-		// so equal ports are the same bound socket. The service binds channel first,
-		// then the admin HTTP server and the GM panel each net.Listen in this same
-		// process; a reused port makes the later bind fail at start (verified:
-		// "bind: Only one usage of each socket address").
-		gmPort, err := listenPort(gm)
-		if err != nil {
-			return err
-		}
-		channelPort, err := listenPort(cfg.Server.ChannelListen)
-		if err != nil {
-			return err
-		}
-		adminPort, err := listenPort(cfg.Server.AdminListen)
-		if err != nil {
-			return err
-		}
-		if gmPort == channelPort || gmPort == adminPort {
-			return errorsf("server.gmListen must not reuse the channel or admin listen port")
-		}
-	}
 	if err := validateSafeValue("server.adminToken", cfg.Server.AdminToken); err != nil {
 		return err
 	}
@@ -321,6 +295,11 @@ func validateInstance(cfg instanceConfig) error {
 	}
 	if cfg.Protocol.GameUpperHeader != "server16" {
 		return errorsf("protocol.gameUpperHeader must be server16 for this client profile")
+	}
+	switch cfg.Protocol.ChannelScriptEncoding {
+	case "", "utf8", "gbk":
+	default:
+		return errorsf("protocol.channelScriptEncoding must be utf8 or gbk")
 	}
 	if cfg.Protocol.GameUpperBodyCodec != "plaintext" ||
 		cfg.Protocol.GameUpperClientBodyCodec != "plaintext" {

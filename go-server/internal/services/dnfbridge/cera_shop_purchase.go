@@ -17,6 +17,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
 
 const (
@@ -73,6 +74,7 @@ type currentCeraShopCommitResult struct {
 	CeraAfter                  int64
 	PremiumActivations         []currentCeraShopPremiumActivation
 	NameTagActivation          *currentNameTagCardActivation
+	SkillTreeExpanded          bool
 }
 
 // currentCeraShopPremiumActivation is one premium contract activated at
@@ -97,8 +99,11 @@ type currentCeraShopResolvedPurchase struct {
 	AttributeValue              byte
 	MainInventoryUpgradeStage   uint16
 	PersonalCargoUpgradeTarget  uint16
+	PersonalCargoUpgradeFrom    uint16
 	AvatarInventoryUpgradeStage uint16
 	AccountCargoUpgrade         bool
+	AccountCargoUpgradeFrom     int64
+	AccountCargoUpgradeTarget   int64
 	AvatarCouponItemID          int64
 	// PremiumType > 0 means the purchase is consumed at checkout and activates
 	// this account-level premium contract instead of entering any container
@@ -108,6 +113,7 @@ type currentCeraShopResolvedPurchase struct {
 	PremiumDurationSeconds int64
 	PremiumPackage         bool
 	NameTagDurationSeconds int64
+	SkillTreeExpansion     bool
 }
 
 type currentCeraShopChangedSlot struct {
@@ -207,11 +213,19 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 			"prev_expire_time", activation.PreviousExpire)
 	}
 
-	for _, product := range result.Products {
+	if err := s.sendCurrentCeraShopCargoRefresh(ctx, session, result); err != nil {
+		return err
+	}
+	for index, product := range result.Products {
+		commodityID := product.CommodityID
+		if (result.PersonalCargoSlotCount != 0 || result.AccountCargoSelectionKey != 0) && index < len(request.Items) {
+			// 顺延档位按新商品计价；ACK仍对应客户端这次请求的商品，结束原购买状态。
+			commodityID = request.Items[index].CommodityID
+		}
 		if err := s.sendGameUpperRawClass(
 			session,
 			uint16(dnfenum.CmdPacketBuyCerashopItem),
-			buildCurrentCeraShopPurchaseSuccessBodyWithCount(product.CommodityID, product.Count, catalog.bonusByCommodity[product.CommodityID]...),
+			buildCurrentCeraShopPurchaseSuccessBodyWithCount(commodityID, product.Count, catalog.bonusByCommodity[product.CommodityID]...),
 			dnfproto.DefaultChannelClassification,
 		); err != nil {
 			return err
@@ -223,6 +237,11 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 	if result.NameTagActivation != nil {
 		if err := s.currentSendNameTagRefresh(ctx, session); err != nil {
 			s.logGameEvent(session, "game-name-tag-card-refresh-failed", "err", err)
+		}
+	}
+	if result.SkillTreeExpanded {
+		if err := s.currentSendSkillTreeExpansionRefresh(ctx, session); err != nil {
+			s.logWarn("技能类型扩展已保存，客户端刷新待下次登录收敛", "character_id", session.selectedCharacterID, "error", err)
 		}
 	}
 	notifiedPremiumActivations := 0
@@ -279,15 +298,6 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 			return err
 		}
 	}
-	if result.PersonalCargoSlotCount != 0 {
-		cargoBody, _, _, ok := s.buildCurrentItemListBodyForSession(ctx, session, currentExeInventoryPersonalCargoListType)
-		if !ok {
-			return errCurrentCeraShopOwnerUnavailable
-		}
-		if err := s.sendCurrentSceneItemList(session, uint16(dnfenum.CmdPacketLeaveParty), cargoBody); err != nil {
-			return err
-		}
-	}
 	if result.AvatarInventoryExpansion != 0 {
 		// 装扮栏(list 1)容量变了：客户端只在 op13 头部读 avatar_list_param16，
 		// 所以必须整份重发装扮列表，否则玩家要重登才看到新格子。
@@ -296,15 +306,6 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 			return errCurrentCeraShopOwnerUnavailable
 		}
 		if err := s.sendCurrentSceneItemList(session, uint16(dnfenum.CmdPacketLeaveParty), avatarBody); err != nil {
-			return err
-		}
-	}
-	if result.AccountCargoSelectionKey != 0 {
-		cargoBody, _, _, ok := s.buildCurrentItemListBodyForSession(ctx, session, 12)
-		if !ok {
-			return errCurrentCeraShopOwnerUnavailable
-		}
-		if err := s.sendCurrentSceneItemList(session, uint16(dnfenum.CmdPacketLeaveParty), cargoBody); err != nil {
 			return err
 		}
 	}
@@ -452,6 +453,18 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			purchases = append(purchases, resolved)
 			continue
 		}
+		if product.ItemID == currentSkillTreeExpansionItemID {
+			if product.Count != 1 || len(request.Items) != 1 || request.PaymentMode != currentCeraShopPaymentModeCera || len(catalog.bonusByCommodity[product.CommodityID]) != 0 {
+				return currentCeraShopCommitResult{}, fmt.Errorf("%w: 技能类型扩展券需要单独购买一件", errCurrentCeraShopProductUnavailable)
+			}
+			definition, err := catalog.items.ResolveItem(product.ItemID)
+			if err != nil || !currentIsSkillTreeExpansionItem(definition) {
+				return currentCeraShopCommitResult{}, errCurrentCeraShopProductUnavailable
+			}
+			resolved.SkillTreeExpansion = true
+			purchases = append(purchases, resolved)
+			continue
+		}
 		definition, definitionErr := catalog.items.ResolveItem(product.ItemID)
 		if definitionErr != nil {
 			return currentCeraShopCommitResult{}, fmt.Errorf("%w: commodity=%d item=%d: %v", errCurrentCeraShopProductUnavailable, product.CommodityID, product.ItemID, definitionErr)
@@ -496,12 +509,29 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		}
 		purchases = append(purchases, resolved)
 	}
+	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+	accountID := strings.TrimSpace(s.accountIDForSession(session))
+	if err := resolveCurrentCeraShopCargoPurchases(ctx, repositories, catalog, accountID, characterID, purchases); err != nil {
+		return currentCeraShopCommitResult{}, err
+	}
+	// 旧窗口重复点击时可能顺延到价格更高的档位，必须重新按实际商品计价。
+	totalCost = 0
+	if request.PaymentMode == currentCeraShopPaymentModeCera {
+		for index, purchase := range purchases {
+			if uint64(purchase.Product.CeraPrice) > math.MaxUint64-totalCost {
+				return currentCeraShopCommitResult{}, errCurrentCeraShopProductUnavailable
+			}
+			totalCost += uint64(purchase.Product.CeraPrice)
+			if purchase.Product.CommodityID != request.Items[index].CommodityID {
+				s.logGameEvent(session, "仓库升级购买按当前档位计价", "requested_commodity", request.Items[index].CommodityID,
+					"charged_commodity", purchase.Product.CommodityID, "cera_cost", purchase.Product.CeraPrice)
+			}
+		}
+	}
 	if totalCost > math.MaxInt64 {
 		return currentCeraShopCommitResult{}, errCurrentCeraShopProductUnavailable
 	}
 
-	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	accountID := strings.TrimSpace(s.accountIDForSession(session))
 	checkoutOwner, err := dnfcerashop.NewOwner(repositories)
 	if err != nil {
 		return currentCeraShopCommitResult{}, errCurrentCeraShopOwnerUnavailable
@@ -518,6 +548,14 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		}
 		return commitCurrentCeraShopAccountCargoUpgrade(ctx, checkoutOwner, accountID, characterID, purchases[0], int64(totalCost), s.gameplayNow())
 	}
+	includeSkills := len(purchases) == 1 && purchases[0].SkillTreeExpansion
+	var skillOptions skillcmd.OwnerOptions
+	if includeSkills {
+		skillOptions, err = s.currentSkillTreeExpansionRules(ctx, repositories, session.selectedCharacterID)
+		if err != nil {
+			return currentCeraShopCommitResult{}, err
+		}
+	}
 	var result currentCeraShopCommitResult
 	checkoutNow := s.gameplayNow().UTC()
 	checkoutResult, err := checkoutOwner.Checkout(ctx, dnfcerashop.CheckoutCommand{
@@ -526,6 +564,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		SettingsScope: dnfrepo.CharacterContainerStateScope(characterID),
 		Cost:          int64(totalCost),
 		UpdatedAt:     checkoutNow,
+		IncludeSkills: includeSkills,
 		Project: func(assets *dnfcerashop.CheckoutAssets) (dnfcerashop.CheckoutChanges, error) {
 			if assets == nil || assets.Account == nil || assets.Character == nil || assets.Inventory == nil ||
 				assets.Equipment == nil || assets.Settings == nil {
@@ -549,6 +588,13 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			account := assets.Account
 			character := assets.Character
 			inventory := assets.Inventory
+			if assets.SettingsFound || hasContainerUpgrade {
+				state, stateErr := dnfrepo.CharacterContainerStateFromSettings(*assets.Settings, characterID)
+				if stateErr != nil {
+					return dnfcerashop.CheckoutChanges{}, stateErr
+				}
+				inventory.ContainerState = &state
+			}
 			equipment := assets.Equipment
 			changedSlots := make(map[string]currentCeraShopChangedSlot)
 			entriesByList := make(map[byte][]currentItemListEntry)
@@ -560,6 +606,23 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			premiumNow := checkoutNow
 			for _, purchase := range purchases {
 				product := purchase.Product
+				if purchase.SkillTreeExpansion {
+					if assets.Skill == nil {
+						return dnfcerashop.CheckoutChanges{}, errCurrentCeraShopOwnerUnavailable
+					}
+					expanded, err := skillcmd.ExpandSkillTree(*character, *assets.Skill, skillOptions)
+					if err != nil {
+						return dnfcerashop.CheckoutChanges{}, err
+					}
+					*assets.Skill = expanded
+					if character.Stats == nil {
+						character.Stats = make(map[string]int64)
+					}
+					character.Stats["skill_tree_index"] = 0
+					character.Stats["skill_tree_expanded"] = 1
+					changes.Character, changes.Skill = true, true
+					continue
+				}
 				if purchase.AvatarCouponItemID != 0 {
 					entry, err := consumeCurrentCeraShopAvatarCoupon(inventory, purchase.AvatarCouponItemID)
 					if err != nil {
@@ -765,6 +828,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 				GuildMedalInventoryChanged: guildMedalInventoryChanged,
 				PremiumActivations:         premiumActivations,
 				NameTagActivation:          nameTagActivation,
+				SkillTreeExpanded:          includeSkills,
 			}
 			changes.Inventory = inventoryChanged
 			return changes, nil
@@ -810,7 +874,7 @@ func commitCurrentCeraShopAccountCargoUpgrade(
 				return dnfcerashop.CheckoutChanges{}, errCurrentCeraShopProductUnavailable
 			}
 			next, ok := dnfcargo.NextAccountCargoTier(previous)
-			if !ok || next <= previous || next > math.MaxUint16 {
+			if !ok || next <= previous || next > math.MaxUint16 || previous != purchase.AccountCargoUpgradeFrom || next != purchase.AccountCargoUpgradeTarget {
 				return dnfcerashop.CheckoutChanges{}, errCurrentCeraShopProductUnavailable
 			}
 			account.Metadata["account_cargo_created"] = "true"

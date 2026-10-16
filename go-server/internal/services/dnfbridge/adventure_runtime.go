@@ -559,6 +559,9 @@ func (s *Service) handleCurrentAdventureShopPurchase(session *gameSession, body 
 			if err := runtime.Spend(category, product); err != nil {
 				return err
 			}
+			if err := dnfrepo.BindInventoryContainerState(ctx, state.Repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			slots, err := grantCurrentCeraShopProductAt(&inventory, definition, 1, now)
 			if err != nil {
 				return err

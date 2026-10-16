@@ -266,6 +266,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if !found || strings.TrimSpace(inventory.CharacterID) != input.CharacterID {
 			return fmt.Errorf("%w: inventory record", ErrFinishSettlementUnavailable)
 		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.repositories.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if equipment, equipmentFound, err := tx.Equipment.Load(ctx, input.CharacterID); err != nil {
 			return err
@@ -482,6 +485,9 @@ func (o *Owner) ApplyFinishSettlement(
 		state.Extra["reward_state"] = finishRewardGranted
 		state.Extra["settlement_source"] = source
 		state.Extra[finishSettlementReceiptKey] = string(receiptJSON)
+		// 每日任务在这里记下本次完成所属的服务日；读侧投影据此让完成行在
+		// 下一个服务日自动失效（见 daily_refresh.go）。非每日任务不写该键。
+		markDailyQuestCompletion(&state, definition, now)
 		switch field {
 		case dnfrepo.QuestFieldStates:
 			quests.States[input.QuestID] = state
@@ -500,7 +506,7 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 		skillFields := []dnfrepo.SkillField{dnfrepo.SkillFieldPoints}
 		if reward.HasProfession {
-			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns)
+			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns, dnfrepo.SkillFieldTrees)
 		}
 		if err := dnfrepo.SaveSkillFields(ctx, tx.Skill, skill, skillFields...); err != nil {
 			return err

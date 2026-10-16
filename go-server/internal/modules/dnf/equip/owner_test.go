@@ -1402,6 +1402,15 @@ func TestOwnerMoveResolvesFixedEndpointsForEquipAndUnequip(t *testing.T) {
 			}
 			saveTestInventory(t, ctx, repos, inventory)
 			saveTestEquipment(t, ctx, repos, dnfrepo.EquipmentRecord{CharacterID: "77", Entries: map[string]dnfrepo.EquipmentEntry{}})
+			if tt.listType == wireListPersonalCargo {
+				// 本用例要求脱回第30格，必须显式提供已购买的40格容量。
+				if err := repos.Settings.Save(ctx, dnfrepo.SettingsRecord{
+					Scope:  dnfrepo.CharacterContainerStateScope("77"),
+					Values: map[string]string{"main_list_param16": "0", "avatar_list_param16": "0", "personal_cargo_list_param16": "40"},
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			validator := &recordingPlacementValidator{}
 			owner, err := NewOwnerWithPlacementValidator(repos, validator)

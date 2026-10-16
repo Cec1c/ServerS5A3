@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/inventory"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -31,6 +32,7 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 	extra := stack.Extra
 	raw := append([]byte(nil), stack.RawEntry...)
 	entry := currentItemListEntryFromRaw(raw, extra)
+	currentApplyChronicleOptionsToEntry(&entry, extra)
 	entry.patchCore(slot, sceneInventoryUint32FromInt64(stack.ItemID), currentItemListStackAmount(listType, stack))
 	if currentItemListStackIsAvatar(listType, stack) {
 		// 装扮：玩家选的属性是 +0x0B 的 u16（与耐久同字），+0x0A 是强化字节
@@ -96,6 +98,10 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 	} else {
 		entry.setUint32(currentItemListExpireTimeOffset, expire)
 	}
+	// DOC-067 物品栏位置锁定：0x77 行的 0x60 字节被客户端读进 item+0x2aa（锁定图标）。
+	// 显式写 0/1，清掉旧 raw 行里的历史脏值；重登/整表刷新都靠这一行还原。
+	// setByte 会跳过 0，所以这里直接写：未锁时必须显式清掉 raw 可能残留的旧值。
+	entry.data[inventory.SortLockRowOffset] = inventory.SortLockRowValue(stack)
 	entry.setByte(0x57, sceneInventoryExtraByte(extra, "byte_57", "value_57"))
 	entry.setByte(0x58, sceneInventoryExtraByte(extra, "byte_58", "value_58"))
 	entry.setByte(0x59, sceneInventoryExtraByte(extra, "byte_59", "value_59"))

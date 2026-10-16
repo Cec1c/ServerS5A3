@@ -10,8 +10,8 @@ const (
 	itemLockStatePending byte = 2
 )
 
-// LockListMessageID is the class-0 notification that replaces the client's
-// complete item-lock cache for the selected character.
+// LockListMessageID is the class-0 notification that applies lock state to
+// each listed item. The current client does not clear unlisted items.
 const LockListMessageID = msgItemLockList
 
 type packetWriter struct {
@@ -42,15 +42,23 @@ func (w *packetWriter) bytes() []byte {
 	return append([]byte(nil), w.data...)
 }
 
-func buildLockAck(listType byte, slotIndex int16) []byte {
+// buildLockLocation is the class0/op252 location-only notification body.
+func buildLockLocation(listType byte, slotIndex int16) []byte {
 	var writer packetWriter
 	writer.writeByte(listType)
 	writer.writeInt16(slotIndex)
 	return writer.bytes()
 }
 
+// Class1 responses include the success byte consumed by the dispatcher before
+// the current EXE's 267/268/269 callbacks read list and slot. Class0 does not.
+func buildLockAck(listType byte, slotIndex int16) []byte {
+	return append([]byte{1}, buildLockLocation(listType, slotIndex)...)
+}
+
 func buildUnlockAck(listType byte, slotIndex int16, remainingSeconds int32) []byte {
 	var writer packetWriter
+	writer.writeByte(1)
 	writer.writeByte(listType)
 	writer.writeInt16(slotIndex)
 	writer.writeInt32(remainingSeconds)

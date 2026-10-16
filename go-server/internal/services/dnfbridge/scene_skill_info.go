@@ -112,7 +112,11 @@ func (s *Service) buildCurrentSceneSkillInfoProjection(
 	})
 	quickSkillIDs := make([]uint16, 0, len(activeSlots))
 	for _, slot := range activeSlots {
-		quickSkillIDs = append(quickSkillIDs, layout[slot])
+		storedSlot, err := currentSkillSlotFromWire(slot)
+		if err != nil {
+			return currentSceneSkillInfoProjection{}, false, err
+		}
+		quickSkillIDs = append(quickSkillIDs, layout[storedSlot])
 	}
 	commandSkillIDs := make([]uint16, 0, len(commands))
 	for skillID := range commands {
@@ -157,6 +161,7 @@ func (s *Service) sendCurrentSceneSkillInfoProjection(
 		"custom_command_skill_ids", projection.commandSkillIDs,
 		"tree_count", currentSkillInfoTreeCount,
 		"wire_level_encoding", "persisted_level_direct",
+		"wire_slot_encoding", "90版连续12格快捷栏",
 		"body_source", "current_exe_sub_1D6E240_length_prefixed_DNFPB_skillinfo")
 	return s.sendGameUpperRawClass(session, currentSkillInfoMsgID, projection.body, 0)
 }

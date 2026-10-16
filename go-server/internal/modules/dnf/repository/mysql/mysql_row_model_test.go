@@ -22,6 +22,8 @@ import (
 
 // rowModelPrimaryKeys 是参与比对的六张表的主键列。
 var rowModelPrimaryKeys = map[string][]string{
+	"dnf_settings":              {"scope"},
+	"dnf_setting_values":        {"scope", "entry_key"},
 	"dnf_inventories":           {"character_id"},
 	"dnf_inventory_items":       {"character_id", "collection_name", "entry_key"},
 	"dnf_inventory_item_extra":  {"character_id", "collection_name", "entry_key", "extra_key"},
@@ -181,6 +183,12 @@ func rowModelConditions(predicate string, args []any, conditions []rowModelCondi
 		return conditions, "", nil
 	}
 	switch {
+	case strings.HasPrefix(predicate, "scope = ?"):
+		if len(args) == 0 {
+			return nil, "", fmt.Errorf("row model: scope predicate arg underflow")
+		}
+		conditions = append(conditions, rowModelCondition{column: "scope", value: args[0]})
+		return rowModelConditions(strings.TrimPrefix(predicate, "scope = ?"), args[1:], conditions)
 	case strings.HasPrefix(predicate, "character_id = ?"):
 		if len(args) == 0 {
 			return nil, "", fmt.Errorf("row model: predicate arg underflow for %q", predicate)
