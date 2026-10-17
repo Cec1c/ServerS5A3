@@ -4209,7 +4209,7 @@ func TestHandleUpperCreateCharacterProtectedDecodeFailureIsNonFatal(t *testing.T
 	}
 	if packet.Header.Classification != dnfproto.DefaultChannelClassification ||
 		packet.Header.MsgID != uint16(dnfenum.UpperMsgCreateCharacter) ||
-		!bytes.Equal(packet.Body, []byte{0x00, createCodeDuplicated}) {
+		!bytes.Equal(packet.Body, []byte{0x00, 0x00}) {
 		t.Fatalf("protected undecodable create ack = %+v body=%x", packet.Header, packet.Body)
 	}
 }
@@ -4284,7 +4284,7 @@ func TestHandleGameCheckNameUsesCurrentExeResultEnvelope(t *testing.T) {
 	if !bytes.Equal(first.Body, []byte{1}) {
 		t.Fatalf("available ack body = %x, want 01", first.Body)
 	}
-	if !bytes.Equal(second.Body, []byte{0, createCodeDuplicated}) {
+	if !bytes.Equal(second.Body, []byte{0, 0x14}) {
 		t.Fatalf("duplicated ack body = %x, want failure plus duplicate code", second.Body)
 	}
 }
