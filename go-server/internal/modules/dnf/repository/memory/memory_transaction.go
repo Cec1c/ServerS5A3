@@ -13,7 +13,8 @@ import (
 )
 
 type memoryCharacterCreationUnitOfWork struct {
-	mu sync.Mutex
+	mu       sync.Mutex
+	sharedMu *sync.Mutex
 }
 
 // memoryCreationStore buffers writes until the creation callback succeeds.
@@ -25,6 +26,8 @@ type memoryCreationStore[T any] struct {
 	keyFn   db.KeyFunc[T]
 	cloneFn db.CloneFunc[T]
 	pending map[string]T
+	before  map[string]T
+	existed map[string]bool
 }
 
 func newMemoryCreationStore[T any](base db.Store[T], keyFn db.KeyFunc[T], cloneFn db.CloneFunc[T]) *memoryCreationStore[T] {
@@ -77,6 +80,15 @@ func (s *memoryCreationStore[T]) commit() error {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
+		before, existed, err := s.base.Load(context.Background(), key)
+		if err != nil {
+			return err
+		}
+		if s.before == nil {
+			s.before = make(map[string]T)
+			s.existed = make(map[string]bool)
+		}
+		s.before[key], s.existed[key] = s.cloneFn(before), existed
 		if err := s.base.Save(context.Background(), s.pending[key]); err != nil {
 			return err
 		}
@@ -84,12 +96,36 @@ func (s *memoryCreationStore[T]) commit() error {
 	return nil
 }
 
+func (s *memoryCreationStore[T]) rollback() error {
+	if s == nil {
+		return nil
+	}
+	var result error
+	for key, record := range s.before {
+		if s.existed[key] {
+			result = errors.Join(result, s.base.Save(context.Background(), record))
+			continue
+		}
+		if d, ok := s.base.(interface {
+			Delete(context.Context, string) error
+		}); ok {
+			result = errors.Join(result, d.Delete(context.Background(), key))
+		} else {
+			result = errors.Join(result, errors.New("creation rollback cannot remove newly created record"))
+		}
+	}
+	return result
+}
+
 type memoryCharacterCreationStore struct {
-	base        repository.CharacterRepository
-	expectedID  string
-	pending     repository.CharacterRecord
-	hasPending  bool
-	createWrite bool
+	base           repository.CharacterRepository
+	expectedID     string
+	pending        repository.CharacterRecord
+	hasPending     bool
+	createWrite    bool
+	before         repository.CharacterRecord
+	beforeExists   bool
+	beforeCaptured bool
 }
 
 func (s *memoryCharacterCreationStore) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
@@ -196,10 +232,24 @@ func (s *memoryCharacterCreationStore) commit() error {
 	if !s.hasPending {
 		return nil
 	}
+	var err error
+	s.before, s.beforeExists, err = s.base.Load(context.Background(), s.expectedID)
+	if err != nil {
+		return err
+	}
+	s.beforeCaptured = true
 	if s.createWrite {
 		return repository.CreateCharacter(context.Background(), s.base, s.pending)
 	}
 	return s.base.Save(context.Background(), s.pending)
+}
+
+func (s *memoryCharacterCreationStore) rollback() error {
+	return restoreCharacterRecord(s.base, s.expectedID, s.before, s.beforeExists, s.beforeCaptured)
+}
+
+func (u *memoryCharacterCreationUnitOfWork) WithinCharacterNameMutation(ctx context.Context, characterID string, base repository.Group, apply func(repository.Group) error) error {
+	return u.WithinCharacterCreation(ctx, characterID, base, apply)
 }
 
 func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.Context, characterID string, base repository.Group, apply func(repository.Group) error) error {
@@ -214,8 +264,12 @@ func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.
 		return err
 	}
 
-	u.mu.Lock()
-	defer u.mu.Unlock()
+	lock := &u.mu
+	if u.sharedMu != nil {
+		lock = u.sharedMu
+	}
+	lock.Lock()
+	defer lock.Unlock()
 
 	characters := &memoryCharacterCreationStore{base: base.Character, expectedID: characterID}
 	accounts := newMemoryCreationStore[repository.AccountRecord](base.Account, repository.AccountKey, repository.CloneAccount)
@@ -257,8 +311,11 @@ func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	rollback := func(cause error) error {
+		return errors.Join(cause, mailboxes.rollback(), settings.rollback(), pets.rollback(), quests.rollback(), skills.rollback(), equipment.rollback(), inventory.rollback(), accounts.rollback(), characters.rollback())
+	}
 	if err := characters.commit(); err != nil {
-		return err
+		return rollback(err)
 	}
 	for _, commit := range []func() error{
 		accounts.commit,
@@ -271,7 +328,7 @@ func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.
 		mailboxes.commit,
 	} {
 		if err := commit(); err != nil {
-			return err
+			return rollback(err)
 		}
 	}
 	return nil

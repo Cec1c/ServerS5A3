@@ -33,6 +33,8 @@ type WeeklyClearContract struct {
 type SettlementCommand struct {
 	DespairClearedFloor int
 	DespairRewards      *DespairRewards
+	GriefClearedFloor   int
+	GriefRewards        *GriefRewards
 	AccountID           string
 	CharacterID         string
 	CompletionKey       string
@@ -62,6 +64,7 @@ type SettlementResult struct {
 	Replayed        bool
 	LuckyStar       LuckyStarResult
 	DespairItems    []DespairGrantedItem
+	GriefItems      []GriefGrantedItem
 }
 
 // CommitSettlement atomically advances experience and the SP/TP ledger and
@@ -73,6 +76,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		return SettlementResult{}, ErrOwnerUnavailable
 	}
 	if cmd.LuckyStar != nil && !cmd.RecommendedDungeonClear {
+		return SettlementResult{}, ErrSettlementStateInvalid
+	}
+	if cmd.GriefClearedFloor < 0 || cmd.GriefClearedFloor > griefMaximumFloor ||
+		(cmd.GriefClearedFloor != 0) != (cmd.GriefRewards != nil) ||
+		(cmd.GriefClearedFloor != 0 && (cmd.DespairClearedFloor != 0 || cmd.DespairRewards != nil)) {
 		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	if cmd.DespairRewards != nil && (cmd.DespairClearedFloor < 1 || cmd.DespairClearedFloor > 100) {
@@ -110,6 +118,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		skill = dnfrepo.CloneSkill(skill)
 		inventory = dnfrepo.CloneInventory(inventory)
 		if settlementReceiptMatches(character.Stats, wantHash) {
+			griefItems, err := readGriefRewardReceipt(character.Stats, cmd.GriefClearedFloor, cmd.GriefRewards != nil)
+			if err != nil {
+				return err
+			}
 			despairItems, err := readDespairRewardReceipt(character.Stats, cmd.DespairClearedFloor, cmd.DespairRewards != nil)
 			if err != nil {
 				return err
@@ -124,6 +136,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 			result = SettlementResult{
 				DespairItems: despairItems,
+				GriefItems:   griefItems,
 				LuckyStar:    lucky,
 				Character:    character, Skill: skill, Inventory: inventory,
 				ExperienceGain: receiptGain, PotionBonus: uint32(character.Stats[settlementReceiptPrefix+"potion_bonus"]), SPGain: receiptSP, Replayed: true,
@@ -132,6 +145,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 		if cmd.DespairClearedFloor != 0 {
 			if err := ApplyDespairClear(character.Stats, cmd.DespairClearedFloor); err != nil {
+				return err
+			}
+		}
+		if cmd.GriefClearedFloor != 0 {
+			if err := ApplyGriefClear(character.Stats, cmd.GriefClearedFloor); err != nil {
 				return err
 			}
 		}
@@ -201,6 +219,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			return err
 		}
 		despairItems, err := commitDespairRewards(ctx, o.settings, tx, &character, &inventory, cmd.DespairClearedFloor, cmd.DespairRewards, now)
+		if err != nil {
+			return err
+		}
+		griefItems, err := commitGriefRewards(ctx, o.settings, tx, &character, &inventory, cmd.GriefClearedFloor, cmd.GriefRewards, now)
 		if err != nil {
 			return err
 		}
@@ -303,6 +325,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 		result = SettlementResult{
 			DespairItems: despairItems,
+			GriefItems:   griefItems,
 			LuckyStar:    lucky,
 			Character:    character, Skill: skill, Inventory: inventory,
 			ExperienceGain:  gain,

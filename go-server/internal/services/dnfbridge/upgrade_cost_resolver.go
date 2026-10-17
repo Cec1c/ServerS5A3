@@ -14,6 +14,10 @@ import (
 // into object+0x54. vtable+0x28 returns object+8, and the fee caller reads
 // state+0x4c. Do not substitute minimum level or add a rarity offset again.
 func resolveNativeUpgradeEquipmentCost(table *currentUpgradeTable, doc *dnfpvf.Document, level int) (int64, error) {
+	return resolveNativeEquipmentGoldCost(table, doc, level, nativeUpgradeGoldCost)
+}
+
+func resolveNativeEquipmentGoldCost(table *currentUpgradeTable, doc *dnfpvf.Document, level int, calculate func(*currentUpgradeTable, int, int, int, int) (int64, error)) (int64, error) {
 	// The candidate supports only ordinary static equipment metadata. These
 	// sections need native semantics that are not implemented here; their
 	// presence is not itself evidence that the ordinary fee is incorrect.
@@ -48,7 +52,7 @@ func resolveNativeUpgradeEquipmentCost(table *currentUpgradeTable, doc *dnfpvf.D
 			return 0, fmt.Errorf("equipment forbids upgrade")
 		}
 	}
-	return nativeUpgradeGoldCost(table, grade, rarity, int(rule.targetSlot), level)
+	return calculate(table, grade, rarity, int(rule.targetSlot), level)
 }
 
 // A quote remains optional until the caller explicitly installs this resolver.
@@ -57,9 +61,7 @@ func resolveNativeUpgradeEquipmentCost(table *currentUpgradeTable, doc *dnfpvf.D
 func (s *Service) alignedNativeUpgradeCostResolver() alignedcmd.UpgradeCostResolver {
 	return func(mode string, itemID int64, level int, npcPresent bool, npcID uint16) (alignedcmd.UpgradeCostResolution, error) {
 		result := alignedcmd.UpgradeCostResolution{}
-		// This evidence set concerns ordinary reinforcement; amplification and
-		// special cost modes retain their separate existing policy.
-		if mode != "reinforce" {
+		if mode != "reinforce" && mode != "amplify" {
 			return result, nil
 		}
 		if itemID <= 0 || itemID > math.MaxUint32 {
@@ -84,12 +86,17 @@ func (s *Service) alignedNativeUpgradeCostResolver() alignedcmd.UpgradeCostResol
 		if err != nil {
 			return result, err
 		}
-		cost, err := resolveNativeUpgradeEquipmentCost(table, doc, level)
+		calculate := nativeUpgradeGoldCost
+		if mode == "amplify" {
+			calculate = nativeAmplifyGoldCost
+		}
+		cost, err := resolveNativeEquipmentGoldCost(table, doc, level, calculate)
 		if err != nil {
 			return result, err
 		}
 		result.Resolved, result.GoldCost = true, cost
-		if !npcPresent || npcID == math.MaxUint16 {
+		// NPC material conversion remains the separately verified reinforce path.
+		if mode == "amplify" || !npcPresent || npcID == math.MaxUint16 {
 			return result, nil
 		}
 		materialID, unitGold, converts, err := s.currentUpgradeNPCConversion(npcID)
@@ -114,10 +121,12 @@ func (s *Service) alignedNativeUpgradeCostResolver() alignedcmd.UpgradeCostResol
 	}
 }
 
-// Native NPC conversion still has a display/preflight exact-multiple discrepancy.
-// Keep the new payment path opt-in while offline and native acceptance continue.
+// Default installs the ordinary amplification gold quote. Portable consumables bypass quotation in the owner.
+// "candidate" additionally enables ordinary reinforcement gold quotation;
+// other nonempty values retain the existing explicit opt-out behavior.
 func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.UpgradeCostResolver {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("DNFBRIDGE_NATIVE_UPGRADE_COST")), "candidate") {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DNFBRIDGE_NATIVE_UPGRADE_COST"))) {
+	case "candidate":
 		base := s.alignedNativeUpgradeCostResolver()
 		identity, _ := s.boundGameSessionCharacterSnapshot(session)
 		return func(mode string, itemID int64, level int, present bool, npcID uint16) (alignedcmd.UpgradeCostResolution, error) {
@@ -131,6 +140,14 @@ func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.
 				}
 			}
 			return quote, nil
+		}
+	case "":
+		base := s.alignedNativeUpgradeCostResolver()
+		return func(mode string, itemID int64, level int, present bool, npcID uint16) (alignedcmd.UpgradeCostResolution, error) {
+			if mode == "amplify" {
+				return base(mode, itemID, level, present, npcID)
+			}
+			return alignedcmd.UpgradeCostResolution{}, nil
 		}
 	}
 	return nil
