@@ -1,0 +1,256 @@
+package dnfbridge
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+)
+
+func TestOnlineTradeOfferWriteFailureCancelsWholeTrade(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		remove    bool
+		fromPeer  bool
+		failMsgID uint16
+		failClass byte
+		failPeer  bool
+	}{
+		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "remove_peer_ack", remove: true, fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "remove_offerer_peer_change", remove: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "remove_peer_peer_change", remove: true, fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newOnlineCrystalTradeFixture(t, nil)
+			saveOnlineTradeAccountSlots(t, f, onlineCrystalTradePeerAccount, map[string]dnfrepo.ItemStack{
+				dnfrepo.AccountSharedInventorySlotKey(onlineCrystalTradeSlot): {
+					ItemID: onlineCrystalTradeItemID, Count: onlineCrystalTradeCount,
+				},
+			})
+			if test.remove {
+				addOnlineTradeTestCrystal(t, f, test.fromPeer)
+			}
+			f.offerConn.write.Reset()
+			f.peerConn.write.Reset()
+
+			sender, peer := f.offerer, f.peer
+			senderConn, peerConn := f.offerConn, f.peerConn
+			if test.fromPeer {
+				sender, peer = peer, sender
+				senderConn, peerConn = peerConn, senderConn
+			}
+			injected := errors.New("injected trade offer projection write failure")
+			targetSession, targetConn := sender, senderConn
+			if test.failPeer {
+				targetSession, targetConn = peer, peerConn
+			}
+			targetSession.conn = &onlineItemTradeStageFailingConn{
+				bufferConn: targetConn, msgID: test.failMsgID, classification: test.failClass, err: injected,
+			}
+
+			request := buildOnlineItemTradeMoveRequest(
+				dnfrepo.MainInventoryListType, onlineCrystalTradeSlot, 0, onlineCrystalTradeMovedCount,
+				currentItemTradeListType, 0,
+			)
+			if test.remove {
+				request = buildOnlineItemTradeMoveRequest(
+					currentItemTradeListType, int16(currentItemTradeOfferFirst), 0, onlineCrystalTradeMovedCount,
+					dnfrepo.MainInventoryListType, onlineCrystalTradeSlot,
+				)
+			}
+			handled, err := f.service.handleAlignedGameCommand(sender, byte(dnfenum.GameCmdCommand), currentItemTradeMoveMsg, request)
+			if !handled || !errors.Is(err, injected) {
+				t.Fatalf("handled=%t err=%v, want injected projection failure", handled, err)
+			}
+			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer)
+			assertOnlineTradeAccountBalances(t, f)
+		})
+	}
+}
+
+func TestOnlineTradeGoldWriteFailureCancelsWholeTrade(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		remove    bool
+		fromPeer  bool
+		failMsgID uint16
+		failClass byte
+		failPeer  bool
+	}{
+		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "remove_peer_ack", remove: true, fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
+		{name: "remove_offerer_peer_change", remove: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "remove_peer_peer_change", remove: true, fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newOnlineCrystalTradeFixture(t, nil)
+			setOnlineTradeGold(t, f, 1_000_000, 1_000_000)
+			if test.remove {
+				addOnlineTradeTestGold(t, f, test.fromPeer, 100_000)
+			}
+			f.offerConn.write.Reset()
+			f.peerConn.write.Reset()
+
+			sender, peer := f.offerer, f.peer
+			senderConn, peerConn := f.offerConn, f.peerConn
+			if test.fromPeer {
+				sender, peer = peer, sender
+				senderConn, peerConn = peerConn, senderConn
+			}
+			injected := errors.New("injected trade gold projection write failure")
+			targetSession, targetConn := sender, senderConn
+			if test.failPeer {
+				targetSession, targetConn = peer, peerConn
+			}
+			targetSession.conn = &onlineItemTradeStageFailingConn{
+				bufferConn: targetConn, msgID: test.failMsgID, classification: test.failClass, err: injected,
+			}
+
+			request := buildOnlineItemTradeMoveRequest(dnfrepo.MainInventoryListType, 0, 0, 100_000, currentItemTradeListType, 0)
+			if test.remove {
+				request = buildOnlineItemTradeMoveRequest(currentItemTradeListType, 0, 0, 0, dnfrepo.MainInventoryListType, 0)
+			}
+			handled, err := f.service.handleAlignedGameCommand(sender, byte(dnfenum.GameCmdCommand), currentItemTradeMoveMsg, request)
+			if !handled || !errors.Is(err, injected) {
+				t.Fatalf("handled=%t err=%v, want injected projection failure", handled, err)
+			}
+			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer)
+			assertOnlineTradeGoldUnchanged(t, f, 1_000_000, 1_000_000)
+		})
+	}
+}
+
+func saveOnlineTradeAccountSlots(t *testing.T, f *onlineCrystalTradeFixture, accountID string, slots map[string]dnfrepo.ItemStack) {
+	t.Helper()
+	if err := f.repositories.AccountInventory.Save(context.Background(), dnfrepo.AccountInventoryRecord{
+		AccountID: accountID,
+		Slots:     slots,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setOnlineTradeGold(t *testing.T, f *onlineCrystalTradeFixture, first, second int64) {
+	t.Helper()
+	for _, record := range []dnfrepo.CharacterRecord{
+		{CharacterID: "1", AccountID: onlineCrystalTradeAccount, Stats: map[string]int64{"gold": first}},
+		{CharacterID: "5", AccountID: onlineCrystalTradePeerAccount, Stats: map[string]int64{"gold": second}},
+	} {
+		if err := f.repositories.Character.Save(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func addOnlineTradeTestCrystal(t *testing.T, f *onlineCrystalTradeFixture, fromPeer bool) {
+	t.Helper()
+	sender := f.offerer
+	if fromPeer {
+		sender = f.peer
+	}
+	request := buildOnlineItemTradeMoveRequest(
+		dnfrepo.MainInventoryListType, onlineCrystalTradeSlot, 0, onlineCrystalTradeMovedCount,
+		currentItemTradeListType, 0,
+	)
+	handled, err := f.service.handleAlignedGameCommand(sender, byte(dnfenum.GameCmdCommand), currentItemTradeMoveMsg, request)
+	if !handled || err != nil {
+		t.Fatalf("prepare crystal offer handled=%t err=%v", handled, err)
+	}
+}
+
+func addOnlineTradeTestGold(t *testing.T, f *onlineCrystalTradeFixture, fromPeer bool, count int32) {
+	t.Helper()
+	sender := f.offerer
+	if fromPeer {
+		sender = f.peer
+	}
+	request := buildOnlineItemTradeMoveRequest(dnfrepo.MainInventoryListType, 0, 0, count, currentItemTradeListType, 0)
+	handled, err := f.service.handleAlignedGameCommand(sender, byte(dnfenum.GameCmdCommand), currentItemTradeMoveMsg, request)
+	if !handled || err != nil {
+		t.Fatalf("prepare gold offer handled=%t err=%v", handled, err)
+	}
+}
+
+func assertOnlineTradeCancelledAndCannotCommit(t *testing.T, f *onlineCrystalTradeFixture, first, second *gameSession) {
+	t.Helper()
+	if f.service.currentOnlineItemTrade(first.selectedCharacterID) != nil ||
+		f.service.currentOnlineItemTrade(second.selectedCharacterID) != nil {
+		t.Fatal("projection failure left the trade registered")
+	}
+	for index, conn := range []*bufferConn{f.offerConn, f.peerConn} {
+		if count := countTradePackets(t, conn.write.Bytes(), 0, currentItemTradeCancelMsg); count != 1 {
+			t.Fatalf("participant %d cancellation count=%d, want one", index, count)
+		}
+		if count := countTradePackets(t, conn.write.Bytes(), 0, currentItemTradeFinishMsg); count != 0 {
+			t.Fatalf("participant %d received completion after projection failure", index)
+		}
+		conn.write.Reset()
+	}
+	for _, state := range []byte{currentItemTradeAddRequest, currentItemTradeReady} {
+		for _, session := range []*gameSession{first, second} {
+			if err := f.service.handleOnlineItemTradeState(session, state); err != nil {
+				t.Fatalf("post-cancel state %d char=%d err=%v", state, session.selectedCharacterID, err)
+			}
+		}
+	}
+	if f.service.currentOnlineItemTrade(first.selectedCharacterID) != nil ||
+		f.service.currentOnlineItemTrade(second.selectedCharacterID) != nil {
+		t.Fatal("post-cancel state recreated the trade")
+	}
+	for index, conn := range []*bufferConn{f.offerConn, f.peerConn} {
+		if count := countTradePackets(t, conn.write.Bytes(), 0, currentItemTradeFinishMsg); count != 0 {
+			t.Fatalf("participant %d committed after cancellation", index)
+		}
+	}
+}
+
+func countTradePackets(t *testing.T, data []byte, classification byte, msgID uint16) int {
+	t.Helper()
+	count := 0
+	for len(data) > 0 {
+		packet, rest := splitGameServerUpperPacket(t, data)
+		if packet.Header.Classification == classification && packet.Header.MsgID == msgID {
+			count++
+		}
+		data = rest
+	}
+	return count
+}
+
+func assertOnlineTradeAccountBalances(t *testing.T, f *onlineCrystalTradeFixture) {
+	t.Helper()
+	for _, accountID := range []string{onlineCrystalTradeAccount, onlineCrystalTradePeerAccount} {
+		account, found, err := f.repositories.AccountInventory.Load(context.Background(), accountID)
+		if err != nil || !found {
+			t.Fatalf("account %s load found=%t err=%v", accountID, found, err)
+		}
+		stack := account.Slots[dnfrepo.AccountSharedInventorySlotKey(onlineCrystalTradeSlot)]
+		if stack.ItemID != onlineCrystalTradeItemID || stack.Count != onlineCrystalTradeCount {
+			t.Fatalf("account %s changed after failed projection: %+v", accountID, stack)
+		}
+	}
+}
+
+func assertOnlineTradeGoldUnchanged(t *testing.T, f *onlineCrystalTradeFixture, first, second int64) {
+	t.Helper()
+	for characterID, want := range map[string]int64{"1": first, "5": second} {
+		character, found, err := f.repositories.Character.Load(context.Background(), characterID)
+		if err != nil || !found {
+			t.Fatalf("character %s load found=%t err=%v", characterID, found, err)
+		}
+		if got := character.Stats["gold"]; got != want {
+			t.Fatalf("character %s gold=%d, want %d", characterID, got, want)
+		}
+	}
+}

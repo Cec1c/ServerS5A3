@@ -195,10 +195,12 @@ func (s *Service) addOnlineItemTradeGold(session *gameSession, request inventory
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
+		s.cancelOnlineItemTrade(trade, "gold_offer_ack_write_failed")
 		return err
 	}
 	entry := currentGoldWalletItemListEntry(int64(request.MoveCount))
 	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, entry.data[:], 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "gold_offer_peer_delivery_failed")
 		return err
 	}
 	s.logGameEvent(session, "game-item-trade-gold-added",
@@ -222,13 +224,18 @@ func (s *Service) removeOnlineItemTradeGold(session *gameSession, request invent
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
+		s.cancelOnlineItemTrade(trade, "gold_withdrawal_ack_write_failed")
 		return err
 	}
 	peer, peerOnline := s.onlineGameSession(peerID)
 	if !peerOnline {
 		return nil
 	}
-	return s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(0), 0, true)
+	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(0), 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "gold_withdrawal_peer_delivery_failed")
+		return err
+	}
+	return nil
 }
 
 func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventory.MoveItemspaceRequest) error {
@@ -313,11 +320,13 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	ackRequest := request
 	ackRequest.DestinationSlotIndex = int16(tradeSlot)
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(ackRequest)); err != nil {
+		s.cancelOnlineItemTrade(trade, "item_offer_ack_write_failed")
 		return err
 	}
 	offer.stack.Count = int64(offer.count)
 	entry := currentItemListEntryFromStack(offer.sourceList, int16(offer.tradeSlot), offer.stack)
 	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, entry.data[:], 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "item_offer_peer_delivery_failed")
 		return err
 	}
 	s.logGameEvent(session, "game-item-trade-offer-added",
@@ -350,13 +359,18 @@ func (s *Service) removeOnlineItemTradeOffer(session *gameSession, request inven
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
+		s.cancelOnlineItemTrade(trade, "item_withdrawal_ack_write_failed")
 		return err
 	}
 	peer, peerOnline := s.onlineGameSession(peerID)
 	if !peerOnline {
 		return nil
 	}
-	return s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(tradeSlot), 0, true)
+	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(tradeSlot), 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "item_withdrawal_peer_delivery_failed")
+		return err
+	}
+	return nil
 }
 
 func buildOnlineItemTradeRemovedEntry(tradeSlot uint16) []byte {
