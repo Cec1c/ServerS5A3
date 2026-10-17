@@ -44,7 +44,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinBuffOwnedSnapshot(
 	router.lockReads = true
 	group := newMySQLGroupFromRouter(router, false)
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: group.Character}
-	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: &mysqlBuffInventoryStore{mysqlBagStore{mysqlStoreBase{router: router}}}}
+	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: &mysqlBuffInventoryStore{mysqlBagStore{mysqlStoreBase: mysqlStoreBase{router: router}}}}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: group.Equipment}
 	settings := &ceraShopScopedSettingsRepository{scope: settingsScope, base: group.Settings}
 	petMetadata := &mysqlBuffPetMetadataStore{mysqlStoreBase: mysqlStoreBase{router: router}, characterID: characterID}
