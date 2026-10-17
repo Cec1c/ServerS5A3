@@ -7,6 +7,15 @@
 - Edit `runtime/config/instance.json` or `deploy/templates/instance.example.json`; do not hand-edit generated files under `runtime/configs`.
 - Windows deployment entrypoints must stay BAT-only. Do not add PowerShell scripts or PowerShell calls.
 
+## Seeker 研究与执行工作流
+
+- 用户指定当前会话为 Seeker 或调用 Seeker 工作流时，按 [Seeker 工作流](Docs/SEEKER_WORKFLOW.md) 推进：Astra 取证、解释成因、在 `Docs/seeker/` 留可公开方案；DeepSeek Flash 执行明确的小任务；Astra 验收关键结果。
+- 方案写清目标、必要文件、解决思路、测试与验收条件，简洁直接。明确告诉执行者：允许失败，返回已尝试方法、失败证据和下一步所需信息。
+- 默认一次一个 DeepSeek Flash 执行子代理，`low`、最小上下文、不嵌套；复杂问题由 Seeker 处理，或交用户指定的同模型 Helper。当前任务的委派授权随交接记录保存，其他会话仍按用户当次指令启用。
+- 任务板块优先主线相关问题；原文涂色表示其他人已完成，默认跳过且不计入本轮成果。PVF 写入交用户指定的 PVF-Writer；同步与发布交 Syncer，并传递本次授权范围及依赖。
+- 可按证据需要使用代码/Git 搜索、日志与协议探针、真实 PVF 只读查询、REA/IDA/Capstone 静态分析、浏览器原格式读取和隔离测试。工具与模型以当前可用能力为准；Pebrel 面板先核对身份再派工。
+- 公共方案只保留可复用技术结论；原始 BUG、截图、环境及面板身份保存在 ignored `local-notes/seeker/`。入口、任务状态和续接方法见该目录及 `local-notes/AGENT_HANDOFF.md`。
+
 ## Source Boundaries
 
 - `go-server/internal/app/dnf90` is the single composition root.
