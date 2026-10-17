@@ -56,6 +56,34 @@ func TestGuildSettlementOrdinaryModeAndEntryLevel(t *testing.T) {
 	}
 }
 
+func TestGuildSettlementExcludesTowerMetadata(t *testing.T) {
+	for _, tower := range []string{"tower of despair", "tower of grief"} {
+		for _, form := range []string{"flag", "integer", "source"} {
+			t.Run(tower+"/"+form, func(t *testing.T) {
+				runtime := &runtimeDungeonState{
+					Dungeon:             worldmap.Dungeon{ID: 6, Metadata: worldmap.DungeonMetadata{RecommendedLevels: []int64{5, 8}}},
+					Character:           r.CharacterRecord{Level: 8},
+					entryCharacterLevel: 8, ordinaryFinalRoomClearAccepted: true,
+				}
+				if !currentDungeonEarnsGuildMileage(runtime) {
+					t.Fatal("ordinary control must be eligible before adding the tower marker")
+				}
+				switch form {
+				case "flag":
+					runtime.Dungeon.Metadata.Flags = map[string]bool{tower: true}
+				case "integer":
+					runtime.Dungeon.Metadata.IntegerValues = map[string]int64{tower: 1}
+				case "source":
+					runtime.Dungeon.SourceSections = []worldmap.RawSection{{Name: tower}}
+				}
+				if currentDungeonEarnsGuildMileage(runtime) {
+					t.Fatal("tower clear was treated as an ordinary dungeon for guild mileage")
+				}
+			})
+		}
+	}
+}
+
 func TestGuildSettlementBridgeCreditsOnceAndRefreshes(t *testing.T) {
 	s, runtime, session, conn, _ := prepareCompletedSettlementRuntime(t)
 	ctx := context.Background()
@@ -144,7 +172,7 @@ func TestGuildSettlementRealPVF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wants := map[int64]bool{6: true, 11: true, 191: true, 8500: false, 11000: false, 11008: false, 5101: false, 210: false, 5000: false}
+	wants := map[int64]bool{6: true, 11: true, 191: true, 8500: false, 11000: false, 11008: false, 5101: false, 5115: false, 5214: false, 210: false, 5000: false}
 	for _, entry := range pvf.ParseList(doc) {
 		want, found := wants[entry.ID]
 		if !found {

@@ -36,7 +36,7 @@ func currentDungeonEarnsGuildMileage(r *runtimeDungeonState) bool {
 }
 
 var guildMileageSpecialSections = []string{
-	"guild dungeon", "raid dungeon", "raid normal dungeon", "normal luke dungeon", "tournament dungeon", "tower of despair", "death tower map indexes",
+	"guild dungeon", "raid dungeon", "raid normal dungeon", "normal luke dungeon", "tournament dungeon", "tower of despair", "tower of grief", "death tower map indexes",
 	"defense dungeon", "blood dungeon", "dimension dungeon", "powerwar dungeon", "risk dungeon",
 	"ancient dungeon", "event dungeon", "crack of dimension dungeon", "special dungeon", "kronos dungeon",
 	"sao dungeon", "inferno dungeon", "ignore default dungeon clear", "advance altar type", "lost land parameters",
