@@ -276,6 +276,16 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err := checkUseStackableListType(cmd.SourceListType); err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
+		if req.ExperienceBuffResolver != nil {
+			effect, err := req.ExperienceBuffResolver(int64(cmd.ItemTemplateID))
+			if err != nil {
+				return ownerBlockedResult(cmd, err), nil
+			}
+			if effect.Kind != "" {
+				cmd.UseExperienceBuff = &effect
+				cmd.ExperienceBuffNow = req.ExperienceBuffNow
+			}
+		}
 		if err := applyUpgradeRateBuffResolution(req, &cmd); err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
