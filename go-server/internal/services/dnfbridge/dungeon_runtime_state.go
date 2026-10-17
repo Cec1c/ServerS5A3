@@ -53,6 +53,7 @@ type runtimeDungeonState struct {
 	Request                      dungeoncmd.SelectDungeonRequest
 	Dungeon                      worldmap.Dungeon
 	MazeIndex                    int
+	storyExperience              currentDungeonStoryExperienceProfile
 	Character                    dnfrepo.CharacterRecord
 	// AccountID 是**建这个 runtime 的那条会话**的账号（accountIDForSession，在请求
 	// 边界冻结，与 currentEquipmentPlacementValidator.selectedAccountID 同一口径）。
@@ -564,12 +565,19 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("choose dungeon maze: %w", err)
 	}
 	mazeIndex := mazeSelection.Index
+	storyExperience := s.captureCurrentDungeonStoryExperience(ctx, dungeon, mazeSelection, request.Difficulty, questRecord)
+	if partyPlan != nil && partyPlan.storyQuestID > 0 {
+		storyExperience = s.captureCurrentDungeonStoryExperience(ctx, dungeon,
+			dungeonMazeSelection{Index: mazeIndex, Reason: "active_quest_connection", QuestID: partyPlan.storyQuestID}, request.Difficulty, questRecord)
+	}
 	s.logGameEvent(session, "game-dungeon-maze-selected",
 		"dungeon_id", request.DungeonID,
 		"difficulty", request.Difficulty,
 		"maze_index", mazeIndex,
 		"selection_reason", mazeSelection.Reason,
 		"quest_id", mazeSelection.QuestID,
+		"story_experience_quest_id", storyExperience.QuestID,
+		"story_experience_rate_percent", storyExperience.RatePercent,
 		"quest_record_found", questRecordFound,
 		"body_source", "runtime_pvf_quest_connection_and_persisted_quest_state")
 	chooser := func(choice worldmap.DungeonMapChoice) (int64, error) {
@@ -795,7 +803,8 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		randomizedObjects:     randomizedObjects,
 		lukeSanctumMaze:       lukeSanctumMaze,
 		Request:               request, Dungeon: dungeon, MazeIndex: mazeIndex,
-		Character: character, AccountID: s.accountIDForSession(session),
+		storyExperience: storyExperience,
+		Character:       character, AccountID: s.accountIDForSession(session),
 		entryCharacterLevel: character.Level,
 		Session:             dungeonSession, Room: room, NextObjectKey: nextObjectKey,
 		BossCoordinate: bossCoordinate, BossSet: true,

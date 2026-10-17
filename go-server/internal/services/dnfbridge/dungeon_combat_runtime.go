@@ -809,6 +809,8 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			"named_monster", monsterExperience.Award.NamedMonster,
 			"monster_table_exp", monsterExperience.Award.MonsterTableEXP,
 			"dungeon_weight", monsterExperience.Award.DungeonWeight,
+			"story_experience_quest_id", runtime.storyExperience.QuestID,
+			"story_experience_rate_percent", runtime.storyExperience.RatePercent,
 			"difficulty_rate", monsterExperience.Award.DifficultyRate,
 			"monster_type_rate", monsterExperience.Award.MonsterTypeRate,
 			"level_penalty", monsterExperience.Award.LevelPenalty,

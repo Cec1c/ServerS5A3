@@ -164,6 +164,7 @@ func currentDungeonMonsterExperienceAwardFor(
 		runtime.Dungeon.Metadata.ExperienceIncreasingPoint.Value >= 0 {
 		weight = float32(runtime.Dungeon.Metadata.ExperienceIncreasingPoint.Value)
 	}
+	weight *= float32(currentDungeonStoryExperienceMultiplier(runtime))
 	if !currentDungeonMonsterExperienceFiniteNonNegative(weight) {
 		return currentDungeonMonsterExperienceAward{}, fmt.Errorf(
 			"%w: dungeon weight=%v",
