@@ -129,11 +129,13 @@ type NPCSpawn struct {
 
 type AICharacter struct {
 	Code      int64   `json:"code"`
+	Level     int64   `json:"level,omitempty"`
 	Position  Point   `json:"position"`
 	Direction int64   `json:"direction"`
 	Faction   string  `json:"faction"`
 	AIType    string  `json:"ai_type"`
 	Params    []int64 `json:"params,omitempty"`
+	Blocking  bool    `json:"blocking,omitempty"`
 }
 
 type MapFlags struct {

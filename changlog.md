@@ -1,3 +1,9 @@
+## 2026-10-18 — 黑龙大会122 APC入口与四轮推进
+
+- 122 的锦标赛 type 5..8 对手现在投影为真实 hostile AICharacter，保留真实 code、level、坐标和 normal/champion/super-champion/boss 类型；仅 tournament 投影携带 blocking，extended actors 挂载后才绑定 firstSequence。普通 type 0/3 仍走 MonsterSpawn，普通地图 APC 的 blocking 与地图缓存不变。
+- 既有 op39 权威死亡 handler 现在接受当前轮 extended APC 死亡并推进锦标赛轮次，前三轮保持房间阻挡，第四轮进入既有冠军、奖励冻结和 clear 提交链。未来轮在提交前拒绝；非法对象和重复请求不重复推进或结算。op144 仍为只读观察。
+- 固定真实 PVF 下五图 op16 矩阵、正确协议档的122四轮APC handler、未来轮/非法对象/重复请求、对象键与赛程顺序、投影clone隔离通过；完整领域/bridge/control、list/vet/Windows构建通过，真档专项171通过事件、无跳过。五图32项原生reader与奖励状态有限验证通过。未改环境配置、PVF、EXE或玩家数据，未部署；原生画面、战败、翻牌/超时、回城和任务状态仍待实机验收。
+
 ## 2026-10-18 — QST-002 中途清房推进与父子任务状态一致
 
 - 当前迷宫绑定的无奖励clear-map子项，在匹配的中途房间权威清空后同事务归档并重算父进度；稳定回执覆盖死亡重放、通知失败、队员独立资格及离房重试，不触发最终副本奖励。
