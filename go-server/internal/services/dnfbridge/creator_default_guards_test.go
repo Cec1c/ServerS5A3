@@ -275,7 +275,15 @@ func TestCreatorDefaultGuardsMissingPVFStaysSilent(t *testing.T) {
 	}
 	service, session, connection, repos := newCreatorDefaultGuardFixture(t, "10", missingPVF)
 	beforeAccount := seedCreatorDefaultGuardAccount(t, repos)
-	assertCreatorDefaultGuardNo454(t, service, session, connection, "creator_guard_missing_pvf")
+	connection.write.Reset()
+	if err := service.sendAccountGameOptionNotices(session, "creator_guard_missing_pvf"); err == nil {
+		t.Fatal("missing-PVF Creator default unexpectedly reported success")
+	}
+	for _, packet := range drainUpperPackets(t, connection) {
+		if packet.msgID == creatorDefaultNoticeMsgID {
+			t.Fatalf("missing-PVF Creator default sent 454, body=%x", packet.body)
+		}
+	}
 
 	if _, found, err := repos.Settings.Load(context.Background(), characterHotkeyConfigScope("19")); err != nil {
 		t.Fatal(err)

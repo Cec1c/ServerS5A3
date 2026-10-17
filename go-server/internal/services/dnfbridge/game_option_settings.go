@@ -645,7 +645,7 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 			if err != nil {
 				cancel()
 				s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "creator_default_configuration_unavailable", "error", err)
-				return nil
+				return err
 			}
 		} else {
 			cancel()
