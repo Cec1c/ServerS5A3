@@ -529,15 +529,10 @@ func (s *Service) saveSettingsValues(session *gameSession, scope string, values 
 
 var errSettingsRepositoryUnavailable = errors.New("settings repository unavailable")
 
-// sendAccountGameOptionNotices replays the persisted account settings at
-// character entry. The 0x00AD body is the reference implementation's three
-// length-prefixed blobs (main game option, quickchat bank 0, bank 1) and the
-// 0x01C7 body is `u8 key_type + u32 len + u16 slots[]`.
-//
-// Nothing is sent when the account has no saved main option: that is exactly
-// the reference `TryBuild` contract ("账号无已保存设置时不下发, 由客户端使用本地
-// 默认"), so accounts that never opened the option window keep byte-identical
-// traffic.
+// sendAccountGameOptionNotices replays persisted account options. Current
+// official hotkeys use 454 with `u8 key_type + u32 length + text`; legacy
+// clients retain 455 and their slot layout. Missing main options stay local,
+// while a fresh Creator receives its separately resolved PVF keyboard defaults.
 func (s *Service) sendAccountGameOptionNotices(session *gameSession, source string) error {
 	if s == nil || session == nil {
 		return nil
@@ -559,12 +554,16 @@ func (s *Service) sendAccountGameOptionNotices(session *gameSession, source stri
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	record, found, err := repos.Settings.Load(ctx, accountGameOptionScope(accountID))
-	if err != nil || !found {
-		if err != nil {
-			s.logWarn("dnfbridge game option load failed",
-				"conn_id", session.connID,
-				"account_id", accountID,
-				"error", err)
+	if err != nil {
+		s.logWarn("dnfbridge game option load failed",
+			"conn_id", session.connID,
+			"account_id", accountID,
+			"error", err)
+		return nil
+	}
+	if !found {
+		if s.options.currentClientVersion == "official-24.9" {
+			return s.sendAccountHotkeyNotice(session, source, accountID, nil)
 		}
 		return nil
 	}
@@ -617,20 +616,51 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 		}
 		id := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
 		record, found, err := repos.Settings.Load(ctx, characterHotkeyConfigScope(id))
-		cancel()
 		if err != nil {
+			cancel()
 			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "saved_configuration_load_failed", "error", err)
 			return nil
 		}
-		if !found {
+		if repos.Character == nil {
+			cancel()
 			return nil
 		}
-		slots = decodeSettingsHex(record.Values["hotkey_config_hex"])
+		character, characterFound, characterErr := repos.Character.Load(ctx, id)
+		if characterErr != nil || !characterFound ||
+			strings.TrimSpace(character.AccountID) != strings.TrimSpace(accountID) ||
+			strings.TrimSpace(s.accountIDForSession(session)) != strings.TrimSpace(accountID) ||
+			strconv.FormatUint(uint64(session.selectedCharacterID), 10) != id {
+			cancel()
+			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "saved_configuration_character_unavailable_or_owner_changed")
+			return nil
+		}
+		job, jobErr := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
+		creator := jobErr == nil && byte(job) == csharpCreatorMageJob
+		if found {
+			slots = decodeSettingsHex(record.Values["hotkey_config_hex"])
+			slotSource = "character_op198_complete_configuration"
+		} else if creator {
+			slots, err = s.creatorDefaultConfig(ctx)
+			slotSource = "creator_default_pvf_configuration"
+			if err != nil {
+				cancel()
+				s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "creator_default_configuration_unavailable", "error", err)
+				return nil
+			}
+		} else {
+			cancel()
+			return nil
+		}
+		cancel()
 		if len(slots) == 0 || len(slots) >= 0x578 {
 			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "configuration_exceeds_native_capacity", "blob_len", len(slots))
 			return nil
 		}
-		slotSource = "character_op198_complete_configuration"
+		// Job 10 selects the native CreatorType bank. Existing saved text is
+		// replayed verbatim; defaults are projected only when no record exists.
+		if creator {
+			keyType = 1
+		}
 	}
 	if len(slots) == 0 && session.selectedCharacterID != 0 && currentHotkeySeededLayoutEnabled() {
 		characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
