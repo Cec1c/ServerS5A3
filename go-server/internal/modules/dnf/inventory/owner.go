@@ -1934,7 +1934,11 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	if err != nil {
 		return EnchantResult{}, err
 	}
-	if resolution.CardItemID <= 0 {
+	randomTitle := resolution.RandomTitleEnchantConfigID != 0 || resolution.RandomTitleEnchantRowID != 0
+	if randomTitle && (resolution.RandomTitleEnchantConfigID == 0 || resolution.RandomTitleEnchantRowID == 0 || resolution.CardItemID != 0 || cmd.TargetListType != listTypeMain || !strings.EqualFold(strings.TrimSpace(resolution.TargetEquipmentType), "[title name]") || len(resolution.TargetWhitelist) == 0) {
+		return result, nil
+	}
+	if !randomTitle && resolution.CardItemID <= 0 {
 		return result, nil
 	}
 	result.CardItemID = resolution.CardItemID
@@ -2015,8 +2019,16 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		return result, nil
 	}
 
+	if randomTitle && (target.Count != 1 || isEquipmentLocked(target) || isEquipmentLocked(bead) || (!target.ExpireAt.IsZero() && !time.Now().Before(target.ExpireAt)) || (!bead.ExpireAt.IsZero() && !time.Now().Before(bead.ExpireAt))) {
+		result.ErrorCode = enchantErrorInvalidTarget
+		return result, nil
+	}
 	target = cloneStack(target)
-	setEnchantFields(&target, resolution.CardItemID, upgradeCount)
+	if randomTitle {
+		setRandomTitleEnchantFields(&target, resolution.RandomTitleEnchantConfigID, resolution.RandomTitleEnchantRowID)
+	} else {
+		setEnchantFields(&target, resolution.CardItemID, upgradeCount)
+	}
 	if wornPetTarget {
 		// 穿戴中的宠物：更新装备表槽 26 那一行（Extra + raw），并把结果作为
 		// "穿戴行刷新"交给上层，客户端不需要重登就能看到宝珠。
@@ -2257,9 +2269,12 @@ func setEnchantFields(stack *dnfrepo.ItemStack, cardItemID int64, upgradeCount b
 	if stack == nil {
 		return
 	}
+	restoreEnchantRawCache(stack)
 	if stack.Extra == nil {
 		stack.Extra = make(map[string]string, 4)
 	}
+	delete(stack.Extra, "random_title_enchant_config_id")
+	delete(stack.Extra, "random_title_enchant_row_id")
 	stack.Extra["value_a"] = strconv.FormatInt(cardItemID, 10)
 	stack.Extra["enchant_card_id"] = strconv.FormatInt(cardItemID, 10)
 	stack.Extra["byte_12"] = strconv.Itoa(int(upgradeCount))
@@ -2272,6 +2287,8 @@ func setEnchantFields(stack *dnfrepo.ItemStack, cardItemID int64, upgradeCount b
 		stack.RawEntry[0x10] = byte(value >> 16)
 		stack.RawEntry[0x11] = byte(value >> 24)
 		stack.RawEntry[0x12] = upgradeCount
+		clear(stack.RawEntry[0x61:0x65])
+		stack.Extra["raw_entry_hex"] = hex.EncodeToString(stack.RawEntry)
 	}
 }
 
@@ -2379,10 +2396,10 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 	if !o.inItemTransaction {
 		var result UseStackableResult
 		wrap := o.withinInventoryTransaction
-		// 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
+		// 经验 / 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
 		// 所以这一族走角色资产事务：药水被扣掉与 buff 被记上要么一起成立、
 		// 要么一起不成立。其它消耗品保持既有事务口径（逐字节不变）。
-		if cmd.UseUpgradeBuff != nil && o.assets != nil {
+		if cmd.UseExperienceBuff != nil || (cmd.UseUpgradeBuff != nil && o.assets != nil) {
 			wrap = o.withinCharacterAssetTransaction
 		}
 		err := wrap(ctx, characterID, func(txOwner *Owner) error {
@@ -2428,6 +2445,11 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 			cmd.SourceSlotIndex,
 			stack.ItemID,
 		)
+	}
+	if cmd.UseExperienceBuff != nil {
+		if err := o.recordExperiencePotion(ctx, cmd, characterID, stack); err != nil {
+			return UseStackableResult{}, err
+		}
 	}
 	reviveCoinConsumable := dnfrevivecoin.IsConsumable(stack)
 
@@ -3896,4 +3918,30 @@ func (o *Owner) UpgradeTicket(ctx context.Context, cmd Command, resolver aligned
 	result.MainRefresh = cloneItemMap(record.Slots)
 	result.Changed = true
 	return result, nil
+}
+
+func setRandomTitleEnchantFields(stack *dnfrepo.ItemStack, configID, rowID uint16) {
+	if stack == nil || configID == 0 || rowID == 0 {
+		return
+	}
+	restoreEnchantRawCache(stack)
+	if stack.Extra == nil {
+		stack.Extra = make(map[string]string, 8)
+	}
+	stack.Extra["value_a"] = "0"
+	stack.Extra["enchant_card_id"] = "0"
+	stack.Extra["byte_12"] = "0"
+	stack.Extra["enchant_upgrade_count"] = "0"
+	stack.Extra["random_title_enchant_config_id"] = strconv.FormatUint(uint64(configID), 10)
+	stack.Extra["random_title_enchant_row_id"] = strconv.FormatUint(uint64(rowID), 10)
+	if len(stack.RawEntry) == currentItemListEntrySize {
+		stack.RawEntry = append([]byte(nil), stack.RawEntry...)
+		for index := 0; index < 4; index++ {
+			stack.RawEntry[0x0E+index] = 0
+		}
+		stack.RawEntry[0x12] = 0
+		binary.LittleEndian.PutUint16(stack.RawEntry[0x61:0x63], configID)
+		binary.LittleEndian.PutUint16(stack.RawEntry[0x63:0x65], rowID)
+		stack.Extra["raw_entry_hex"] = hex.EncodeToString(stack.RawEntry)
+	}
 }

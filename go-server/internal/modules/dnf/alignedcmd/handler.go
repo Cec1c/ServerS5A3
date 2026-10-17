@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
@@ -54,6 +55,8 @@ type Request struct {
 	// 并把 PVF `[upgrade prob increase]` 的十万分比加成与 `[stat change duration]`
 	// 的持续时间交给领域层记账。为零 = 不记账（既有行为：药水只被消耗，成功率不变）。
 	// 见 inventory/upgrade_rate_buff.go。
+	ExperienceBuffResolver     func(int64) (experiencebuff.Effect, error)
+	ExperienceBuffNow          time.Time
 	UpgradeRateBuffResolver    UpgradeRateBuffResolver
 	MagicBoxResolver           MagicBoxResolver
 	MagicBoxRewardItemResolver MagicBoxRewardItemResolver
@@ -169,13 +172,15 @@ type PetHatchResolver func(eggItemID int64) (PetHatchResolution, error)
 // invalid bead. UpgradeCounts is the card's allowed enchant-upgrade table; an
 // empty table means only upgrade count zero is accepted.
 type EnchantBeadResolution struct {
-	CardItemID            int64
-	CardPVFPath           string
-	TargetWhitelist       []int64
-	AllowedEquipmentTypes []string
-	UpgradeCounts         []int64
-	TargetEquipmentType   string
-	TargetKind            string
+	RandomTitleEnchantConfigID uint16
+	RandomTitleEnchantRowID    uint16
+	CardItemID                 int64
+	CardPVFPath                string
+	TargetWhitelist            []int64
+	AllowedEquipmentTypes      []string
+	UpgradeCounts              []int64
+	TargetEquipmentType        string
+	TargetKind                 string
 }
 
 // EnchantBeadResolver resolves the bead and target templates through the

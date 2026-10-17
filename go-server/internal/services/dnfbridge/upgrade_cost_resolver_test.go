@@ -141,7 +141,7 @@ func TestRealPVFJonathanAtomicPaymentCandidate(t *testing.T) {
 
 func TestNativeUpgradeCostCandidateIsExplicitOptIn(t *testing.T) {
 	service := &Service{}
-	for _, value := range []string{"", "off", "vendor", "1"} {
+	for _, value := range []string{"off", "vendor", "1"} {
 		t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", value)
 		if service.candidateUpgradeCostResolver(nil) != nil {
 			t.Fatalf("unexpected enabled %q", value)

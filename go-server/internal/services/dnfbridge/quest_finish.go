@@ -282,7 +282,7 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		"completion_key", result.CompletionKey,
 		"reward_source", result.Source,
 		"base_experience_delta", result.BaseExperienceDelta,
-		"growth_contract_bonus", result.ExperienceBonusDelta,
+		"experience_bonus", result.ExperienceBonusDelta,
 		"experience_delta", result.ExperienceDelta,
 		"level_before", result.PreviousLevel,
 		"level_after", result.NewLevel,
