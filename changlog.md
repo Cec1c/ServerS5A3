@@ -1,8 +1,9 @@
-## 2026-10-18 — QST-002 父任务标量回调按子项事实重算
+## 2026-10-18 — QST-002 中途清房推进与父子任务状态一致
 
+- 当前迷宫绑定的无奖励clear-map子项，在匹配的中途房间权威清空后同事务归档并重算父进度；稳定回执覆盖死亡重放、通知失败、队员独立资格及离房重试，不触发最终副本奖励。
 - quest-clear 父任务 op33 不再因没有新归档的城镇子项而回退普通减一；领域层按已提交子项重算剩余数，未完成 clear-map 子项存在时父进度保持 1，历史父 0／子 1 会恢复到 1，且不补造子项完成。
 - 保留合法对话子项归档；全部子项达成active/0时父任务可交，物品仍由op34统一事务结算。相同父进度的重复回调保持静默，子项随后变化继续推进。保留普通任务原op33路径。任务目录不可用仅在持久化记录存在父任务类型或 `main_quest_id` 关系证据时失败关闭，普通记录继续原路径。
-- 真实 PVF 探针中 `parent-callback-must-not-finish-unresolved-child` 与 `target-credit-finishes-parent` 均通过，领域、bridge、control完整测试及list/vet/构建通过；末子奖励兼容、回调反馈循环与保存后回滚覆盖。A中途清房仍未接线。
+- 真实 PVF 探针中 `parent-callback-must-not-finish-unresolved-child` 与 `target-credit-finishes-parent` 均通过，领域、bridge、control完整测试及list/vet/构建通过；末子奖励兼容、回调反馈循环与保存后回滚覆盖。真实PVF六怪死亡handler、父回调与结算三组通过；中途清房边界、队员资格及通知失败重试覆盖。
 
 ## 2026-10-18 — 合并上游更新并保留独立 GM 与同步边界
 

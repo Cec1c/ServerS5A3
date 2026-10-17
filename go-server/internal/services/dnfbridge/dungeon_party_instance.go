@@ -526,6 +526,9 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession,
 		if !ok || !scene.Cleared {
 			return nil
 		}
+		if err := s.persistCurrentDungeonRoomClearQuestLocked(peer, runtime); err != nil {
+			return err
+		}
 		s.awardCurrentPetRoomClearLocked(peer, runtime, scene, "authoritative_peer_room_clear")
 		if err := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey); err != nil {
 			return err
