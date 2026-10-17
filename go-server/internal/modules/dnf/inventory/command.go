@@ -5,8 +5,10 @@ package inventory
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -104,7 +106,9 @@ type Command struct {
 	// UseUpgradeBuff 非空表示这次 op44 用的是「强化/增幅成功率 buff 药水」：
 	// 扣掉药水之后要把 buff 记进角色 Stats（同一个角色资产事务），op50 掷点时再读。
 	// 为零 = 普通消耗品（既有行为）。见 upgrade_rate_buff.go。
-	UseUpgradeBuff *alignedcmd.UpgradeRateBuffResolution
+	UseUpgradeBuff    *alignedcmd.UpgradeRateBuffResolution
+	UseExperienceBuff *experiencebuff.Effect
+	ExperienceBuffNow time.Time
 	// StackableUseProvenanceResolver 是 op44/op251 的**运行时 PVF 身份**解析器，
 	// 由 alignedcmd.Request 透传（见 use_upgrad_buff.go 的"PVF 优先、元数据兜底"判据）。
 	// 为零 = 只用库存元数据判定 = 改动前的行为（所有既有调用方与测试无需改动）。
