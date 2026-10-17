@@ -169,13 +169,15 @@ type PetHatchResolver func(eggItemID int64) (PetHatchResolution, error)
 // invalid bead. UpgradeCounts is the card's allowed enchant-upgrade table; an
 // empty table means only upgrade count zero is accepted.
 type EnchantBeadResolution struct {
-	CardItemID            int64
-	CardPVFPath           string
-	TargetWhitelist       []int64
-	AllowedEquipmentTypes []string
-	UpgradeCounts         []int64
-	TargetEquipmentType   string
-	TargetKind            string
+	RandomTitleEnchantConfigID uint16
+	RandomTitleEnchantRowID    uint16
+	CardItemID                 int64
+	CardPVFPath                string
+	TargetWhitelist            []int64
+	AllowedEquipmentTypes      []string
+	UpgradeCounts              []int64
+	TargetEquipmentType        string
+	TargetKind                 string
 }
 
 // EnchantBeadResolver resolves the bead and target templates through the
