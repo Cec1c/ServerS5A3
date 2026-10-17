@@ -1199,6 +1199,9 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	if !isActive && !classChangeRewardAcceptable(definition, character) {
 		return false
 	}
+	if !isActive && !awakeningRewardAcceptable(definition, character) {
+		return false
+	}
 	// 每日任务的“隔天重新可接”由 ProjectDailyQuestRollover 负责：它只把更早服务日
 	// 的完成投影掉，这里的完成判定保持既有规则。grade daily 在 90CN 侧被钉为“立即
 	// 重复”（repeatableGrade，见 client_acceptable_preflight_test.go 的 5020 回归）；
@@ -1266,6 +1269,26 @@ func classChangeRequest(definition Definition) (profession.Request, bool) {
 		return profession.Request{}, false
 	}
 	return request, true
+}
+
+// awakeningRewardAcceptable 用 profession 的域规则判断一条 [reward type] awakening type
+// 的觉醒任务是否还可能被当前角色结算成功。真档部分觉醒奖励任务按转职分支筛选，
+// 不限制觉醒阶段；重复一觉或跳过一觉的二觉奖励仍会被结算阶段规则拒绝。
+// 这里复用 profession.CheckAwakeningPrecondition（PlanTransition 的同一前置），让新接取、
+// 结算与可接列表投影一致；合法的第一次/第二次觉醒不受影响。
+func awakeningRewardAcceptable(definition Definition, character CharacterEligibility) bool {
+	if normalizeQuestTag(definition.RewardType) != "awakening type" {
+		return true
+	}
+	request, err := profession.ParseReward(definition.JobChangeQuest, definition.RewardType, definition.RewardIntData)
+	if err != nil || request.Kind != profession.KindAwakening {
+		// 解析失败：保持既有可接取判定，不在这里发明新的拒绝条件。
+		return true
+	}
+	if character.GrowType < 0 || character.GrowType > math.MaxUint8 {
+		return false
+	}
+	return profession.CheckAwakeningPrecondition(byte(character.GrowType), request) == nil
 }
 
 // activeClassChangeConflict rejects a second unsettled class-change quest only
