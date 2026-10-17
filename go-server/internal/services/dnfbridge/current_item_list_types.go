@@ -20,6 +20,9 @@ type currentItemListEntry struct {
 	data             [currentItemListEntryWireSize]byte
 	avatarSocketData []byte
 	avatarColorData  []byte
+	// Local provenance only; never serialized into the 0x77 item row.
+	independentExpiration     bool
+	expirationProvenanceKnown bool
 }
 
 type currentEquipmentUpdateEntry struct {
