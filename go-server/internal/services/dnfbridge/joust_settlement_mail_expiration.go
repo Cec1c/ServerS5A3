@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	dnfmail "longheng.io/server/internal/modules/dnf/mail"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -178,6 +179,13 @@ func (s *Service) reconcileCurrentMailAttachmentExpirations(
 				if resolveErr != nil {
 					// 未收录/不可解析的道具保持原样：这里是修复，不是校验。
 					continue
+				}
+				container := currentPVFItemTargetContainer(definition)
+				if definition.Kind == dungeonDropItemEquipment && !container.Avatar && !container.PetBody && !container.PetArtifact {
+					if dnfmail.RestoreEquipmentAttachmentInstanceExtra(attachment) {
+						mailChanged = true
+						changed++
+					}
 				}
 				// 退役绝对日期策略（见 currentPVFRetiredExpirationRenewalDate）：
 				// 附件行 0x38 写的就是下面的 expiration，所以先按统一策略把"已经过去的

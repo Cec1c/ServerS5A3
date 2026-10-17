@@ -26,6 +26,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	avatarSocketGameplayModule(),
 	avatarEmblemGameplayModule(),
 	itemGradeAdjustGameplayModule(),
+	equipmentTransferGameplayModule(),
 	equipmentEffectGameplayModule(),
 	auraSkinGameplayModule(),
 	carryGoldGameplayModule(),

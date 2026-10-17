@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfsvc "longheng.io/server/internal/modules/dnf/equipmentservice"
 	dnfitemgrade "longheng.io/server/internal/modules/dnf/itemgrade"
 )
 
@@ -20,24 +21,45 @@ type currentResetItemAttrRequest struct {
 	TargetSlot   int16
 	TargetItemID int32
 	MaterialSlot int16
+	Mode         uint16
 }
 
 func decodeCurrentResetItemAttrRequest(body []byte) (currentResetItemAttrRequest, error) {
-	if len(body) < 8 {
-		return currentResetItemAttrRequest{}, fmt.Errorf("reset_item_attr body too short: %d", len(body))
+	if len(body) != 8 && len(body) != 10 {
+		return currentResetItemAttrRequest{}, fmt.Errorf("装备属性请求正文长度%d，预期8或10", len(body))
 	}
-	return currentResetItemAttrRequest{
+	request := currentResetItemAttrRequest{
 		TargetSlot:   int16(binary.LittleEndian.Uint16(body[0:2])),
 		TargetItemID: int32(binary.LittleEndian.Uint32(body[2:6])),
 		MaterialSlot: int16(binary.LittleEndian.Uint16(body[6:8])),
-	}, nil
+	}
+	if len(body) == 10 {
+		request.Mode = binary.LittleEndian.Uint16(body[8:10])
+	}
+	return request, nil
 }
 
 func (s *Service) handleCurrentResetItemAttr(session *gameSession, body []byte) error {
 	request, err := decodeCurrentResetItemAttrRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-reset-item-attr-parse-failed", "body_len", len(body), "err", err)
+		if len(body) >= 10 && binary.LittleEndian.Uint16(body[8:10]) == 1 {
+			return nil
+		}
 		return s.sendGameUpperFailure(session, currentResetItemAttrOpcode, 1)
+	}
+	if request.TargetItemID <= 0 || session == nil || session.selectedCharacterID == 0 {
+		if request.Mode == 1 {
+			return s.rejectCurrentEquipmentReseal(session, request, fmt.Errorf("封装目标或角色无效"))
+		}
+		return s.sendGameUpperFailure(session, currentResetItemAttrOpcode, 2)
+	}
+	reseal, routeErr := s.currentRequestUsesEquipmentReseal(session, request)
+	if routeErr != nil {
+		return s.rejectCurrentEquipmentReseal(session, request, routeErr)
+	}
+	if reseal {
+		return s.handleCurrentEquipmentReseal(session, request)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -141,8 +163,10 @@ func (c currentItemGradeCatalog) ResolveItem(itemID uint32) (dnfitemgrade.ItemDe
 	if err != nil {
 		return dnfitemgrade.ItemDefinition{}, err
 	}
+	_, resealMaterial := dnfsvc.WaxKind(dnfsvc.Definition{ItemID: itemID, PVFPath: definition.PVFPath})
 	return dnfitemgrade.ItemDefinition{
 		StackableType:    definition.StackableType,
+		ResealMaterial:   resealMaterial,
 		UsableEquipTypes: append([]string(nil), definition.UsableEquipTypes...),
 	}, nil
 }

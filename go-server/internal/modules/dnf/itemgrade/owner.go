@@ -25,7 +25,8 @@ var (
 // the material's [stackable type] and, when the adjuster declares one, its
 // [usable equip type] whitelist.
 type ItemDefinition struct {
-	StackableType string
+	StackableType  string
+	ResealMaterial bool
 	// UsableEquipTypes is the adjuster's PVF [usable equip type] list. An empty
 	// list means the item is not slot-restricted (the reference implementation
 	// documents the same rule: "空表示不限部位"), which is why the plain
@@ -120,6 +121,10 @@ func (o *Owner) Adjust(ctx context.Context, cmd Command) (Result, error) {
 	// IsResettableEquipmentType(type) && (!HasExplicitEquipmentTypes ||
 	// _allowedEquipmentTypes.Contains(type))。
 	materialDefinition, definitionFound := o.itemDefinition(material.ItemID)
+	// 目录暂不可用时也不能把标准黄金蜜蜡当作普通品级材料。
+	if material.ItemID == 14 || definitionFound && materialDefinition.ResealMaterial {
+		return Result{}, ErrMaterialTypeInvalid
+	}
 	if definitionFound && !AllowsTargetEquipmentType(materialDefinition, cmd.TargetEquipmentType) {
 		return Result{}, fmt.Errorf("%w: slot=%d item=%d target_type=%q usable=%v",
 			ErrTargetTypeNotUsable,
