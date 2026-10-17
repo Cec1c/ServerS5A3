@@ -28,7 +28,7 @@ func currentDungeonCardLayoutValues(state ...*dungeonCardState) [dungeonCardWire
 }
 
 func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
-	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonIsDespairTower(runtime) {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
 		return nil
 	}
 	if !runtime.settlementClearRewardSent || runtime.settlementPhase < currentDungeonSettlementPhaseResultShown {
@@ -64,7 +64,7 @@ func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, 
 }
 
 func (s *Service) sendCurrentDungeonCardLayoutLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
-	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonIsDespairTower(runtime) {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
 		return nil
 	}
 	if !runtime.settlementCardScrollStateSent || runtime.settlementPhase < currentDungeonSettlementPhaseCardScrollStarted {
@@ -308,6 +308,45 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
+
+	if s.options.currentClientVersion == "official-24.9" && runtime != nil && runtime.Tournament != nil {
+		// Tournament rewards use their own durable selection flow and never
+		// emit the ordinary result/card chain. Accept only the proved town
+		// click after every enabled reward row has successfully committed.
+		if !currentDungeonTournamentResultExitReady(runtime, session.selectedCharacterID) ||
+			!runtime.tournamentReward.isSelectionComplete() ||
+			(!shouldReturnToTown && !(isFocusNotification && request.ValueB <= 2)) {
+			s.logGameEvent(session, "game-dungeon-tournament-result-action-blocked", "char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID, "request_value_a", request.ValueA, "request_value_b", request.ValueB,
+				"reason", "owned_completed_selection_or_town_action_required")
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if isFocusNotification || !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand),
+				buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+		}
+		if isFocusNotification {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		runtime.settlementCardExitAckSent = true
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		s.logGameEvent(session, "game-dungeon-tournament-result-town-accepted", "char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand))
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
+			uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tournament_return_to_town")
+	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
 		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
 			"char_id", session.selectedCharacterID,
@@ -332,10 +371,14 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		session.dungeon.mu.Unlock()
 		return nil
 	}
-	if currentDungeonIsDespairTower(runtime) {
+	if currentDungeonUsesDedicatedTowerResult(runtime) {
 		// Tower rewards have their own durable receipt and result window. They
 		// never enter the ordinary op69/70/71 card handshake.
-		if !currentDespairCompletedResultExitReady(runtime, session.selectedCharacterID) || !runtime.settlementDespairResultSent ||
+		resultSent := runtime.settlementDespairResultSent
+		if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+			resultSent = runtime.settlementGriefResultSent
+		}
+		if !completedDungeonSettlementExitReady(runtime, session.selectedCharacterID) || !resultSent ||
 			(!shouldReturnToTown && !shouldOpenOtherSelector) {
 			s.logGameEvent(session, "game-dungeon-despair-result-action-blocked", "char_id", session.selectedCharacterID,
 				"request_value_a", request.ValueA, "request_value_b", request.ValueB, "reason", "result_not_ready_or_action_not_allowed")
@@ -364,7 +407,7 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		if err != nil {
 			return err
 		}
-		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_despair_return_to_town")
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tower_return_to_town")
 	}
 	if shouldReturnToTown && s.currentRaidCompletedMapTownReturnReady(session, runtime) {
 		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)

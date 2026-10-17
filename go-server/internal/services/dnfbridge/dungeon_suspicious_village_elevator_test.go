@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -120,6 +121,10 @@ func TestCurrentSuspiciousVillageElevatorScope(t *testing.T) {
 	}
 }
 
+// TestRealScriptPVFSuspiciousVillageElevatorScope 用真档断言疑惑之村电梯房的守卫范围。
+// dungeon 53（疑惑之村）有三张电梯房：maze0/map16408、maze1/map400263，以及任务3352 的
+// layered 房 maze2/map76384。每张真档房间必须给出被动对象1111/1113、1112 生成 56716 与
+// 4 个 event monster positions；控制怪未退役时挡住换房，退役后放行，去掉1113 则不再命中。
 func TestRealScriptPVFSuspiciousVillageElevatorScope(t *testing.T) {
 	pvfPath := os.Getenv("DNF_WORLDMAP_REAL_PVF_SMOKE")
 	if pvfPath == "" {
@@ -137,38 +142,69 @@ func TestRealScriptPVFSuspiciousVillageElevatorScope(t *testing.T) {
 	if !ok {
 		t.Fatal("real PVF dungeon 53 is missing")
 	}
-	for index, mapID := range []int64{16408, 400263} {
-		mapValue, found := table.FindMap(mapID)
-		if !found {
-			t.Fatalf("real PVF elevator map %d is missing", mapID)
-		}
-		coordinate := worldmap.RoomCoordinate{X: int64(2 + index), Y: int64(5 + index)}
-		scene := worldmap.DungeonRoomScene{
-			Coordinate:            coordinate,
-			Map:                   worldmap.ResolvedMap{Map: mapValue},
-			PassiveObjects:        append([]worldmap.PassiveObject(nil), mapValue.PassiveObjects...),
-			SpecialPassiveObjects: append([]worldmap.SpecialPassiveObject(nil), mapValue.SpecialPassiveObjects...),
-		}
-		runtime := &runtimeDungeonState{Dungeon: dungeon, MazeIndex: index}
-		room := runtimeDungeonRoomSnapshot{
-			Coordinate: coordinate,
-			MapID:      mapValue.ID,
-			ExtendedActors: []runtimeDungeonExtendedActor{{
-				Kind:      runtimeDungeonActorSpecialMonster,
-				ObjectKey: 403,
-				Packet:    currentDungeonStartMapActor{Code: uint32(currentSuspiciousVillageElevatorMonsterID)},
-			}},
-		}
-		if !currentSuspiciousVillageElevatorScope(runtime, scene, room) {
-			t.Fatalf(
-				"real elevator scope mismatch: map=%d path=%q passive=%+v special=%+v event_positions=%d",
-				scene.Map.Map.ID,
-				scene.Map.Map.Path,
-				scene.PassiveObjects,
-				scene.SpecialPassiveObjects,
-				len(scene.Map.Map.EventMonsterPositions),
-			)
-		}
+
+	tests := []struct {
+		mapID      int64
+		mazeIndex  int
+		coordinate worldmap.RoomCoordinate
+	}{
+		{mapID: 16408, mazeIndex: 0, coordinate: worldmap.RoomCoordinate{X: 2, Y: 5}},
+		{mapID: 400263, mazeIndex: 1, coordinate: worldmap.RoomCoordinate{X: 2, Y: 5}},
+		{mapID: 76384, mazeIndex: 2, coordinate: worldmap.RoomCoordinate{X: 1, Y: 2}},
+	}
+	for _, test := range tests {
+		t.Run(strconv.FormatInt(test.mapID, 10), func(t *testing.T) {
+			mapValue, found := table.FindMap(test.mapID)
+			if !found {
+				t.Fatalf("real PVF elevator map %d is missing", test.mapID)
+			}
+			scene := worldmap.DungeonRoomScene{
+				Coordinate:            test.coordinate,
+				Map:                   worldmap.ResolvedMap{Map: mapValue},
+				PassiveObjects:        append([]worldmap.PassiveObject(nil), mapValue.PassiveObjects...),
+				SpecialPassiveObjects: append([]worldmap.SpecialPassiveObject(nil), mapValue.SpecialPassiveObjects...),
+			}
+			runtime := &runtimeDungeonState{Dungeon: dungeon, MazeIndex: test.mazeIndex}
+			room := runtimeDungeonRoomSnapshot{
+				Coordinate: test.coordinate,
+				MapID:      mapValue.ID,
+				ExtendedActors: []runtimeDungeonExtendedActor{{
+					Kind:      runtimeDungeonActorSpecialMonster,
+					ObjectKey: 403,
+					Packet:    currentDungeonStartMapActor{Code: uint32(currentSuspiciousVillageElevatorMonsterID)},
+				}},
+			}
+			if !currentSuspiciousVillageElevatorScope(runtime, scene, room) {
+				t.Fatalf(
+					"real elevator scope mismatch: map=%d maze=%d room=%s snapshot=%s path=%q passive=%+v special=%+v event_positions=%d",
+					test.mapID, test.mazeIndex, test.coordinate.String(), room.Coordinate.String(), mapValue.Path,
+					scene.PassiveObjects, scene.SpecialPassiveObjects, len(mapValue.EventMonsterPositions),
+				)
+			}
+			if !currentSuspiciousVillageElevatorMoveBlocked(runtime, scene, room) {
+				t.Fatalf("unfinished real elevator did not block room movement: map=%d maze=%d room=%s", test.mapID, test.mazeIndex, test.coordinate.String())
+			}
+			runtime.suspiciousVillageElevator.Completed = true
+			if currentSuspiciousVillageElevatorMoveBlocked(runtime, scene, room) {
+				t.Fatalf("completed real elevator still blocked room movement: map=%d maze=%d room=%s", test.mapID, test.mazeIndex, test.coordinate.String())
+			}
+
+			// 控制对象1113是当前EXE op254 的唯一路由对象：真档房间里去掉它，守卫必须不再命中。
+			trimmed := make([]worldmap.PassiveObject, 0, len(scene.PassiveObjects))
+			for _, object := range scene.PassiveObjects {
+				if object.ObjectID == currentSuspiciousVillageElevatorControlID {
+					continue
+				}
+				trimmed = append(trimmed, object)
+			}
+			if len(trimmed) == len(scene.PassiveObjects) {
+				t.Fatalf("real elevator map %d did not expose passive object %d", test.mapID, currentSuspiciousVillageElevatorControlID)
+			}
+			scene.PassiveObjects = trimmed
+			if currentSuspiciousVillageElevatorScope(runtime, scene, room) {
+				t.Fatalf("elevator scope survived without passive object %d: map=%d maze=%d room=%s", currentSuspiciousVillageElevatorControlID, test.mapID, test.mazeIndex, test.coordinate.String())
+			}
+		})
 	}
 }
 

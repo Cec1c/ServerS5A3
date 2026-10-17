@@ -435,6 +435,9 @@ func (s *Service) rebuildLoginActorGenerationAfterSceneCommit(session *gameSessi
 	// Actual r62 cold-login wire109/142 refreshed the pet before generation
 	// rebuild147; the newly current slot26 cache then remained checksum-valid
 	// zero. Restore repository-backed instance/enchant after this last mode1.
+	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, trigger+"_after_actor_generation_rebuild"); err != nil {
+		return err
+	}
 	petErr := s.sendSelectedEquippedCreatureItemRefresh(session, trigger+"_after_actor_generation_rebuild")
 	if petErr != nil {
 		s.logPacketEvent("game-login-actor-generation-pet-refresh-failed",

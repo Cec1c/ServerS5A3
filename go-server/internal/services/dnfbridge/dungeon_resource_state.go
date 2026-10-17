@@ -11,7 +11,8 @@ import (
 
 const (
 	currentDungeonResourceStateMsgID = 5
-	// The accepted select-dungeon request owns state 1 for its selected PVF dungeon.
+	// Legacy resource selection state. Official 24.9 uses persisted clear
+	// permission here; entering a dungeon cannot unlock its next difficulty.
 	currentDungeonResourceSelectedState = 1
 )
 
@@ -51,6 +52,18 @@ func (s *Service) sendCurrentDungeonResourceState(
 	// op5 updates the same client cache as the persisted difficulty snapshot.
 	// A low-difficulty/story entry must not replace an already unlocked state.
 	state := byte(currentDungeonResourceSelectedState)
+	if s.options.currentClientVersion == "official-24.9" {
+		state = 0
+		repositories, ok := s.repositoryGroup()
+		if session.selectedCharacterID == 0 || !ok || repositories.DungeonPermission == nil {
+			// No authoritative absence can be inferred from a missing dependency.
+			// Entry is already committed; leave the client cache alone.
+			s.logGameEvent(session, "game-upper-current-dungeon-resource-state-op5-blocked",
+				"source", source, "char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID, "reason", "permission_owner_or_repository_unavailable")
+			return nil
+		}
+	}
 	if session.selectedCharacterID != 0 {
 		if repositories, ok := s.repositoryGroup(); ok && repositories.DungeonPermission != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -91,8 +104,8 @@ func (s *Service) sendCurrentDungeonResourceState(
 		"row_count", 1,
 		"dungeon_id", runtime.Dungeon.ID,
 		"state", state,
-		"state_source", "validated_entry_and_persisted_permission_capped_by_pvf",
-		"body_source", "current_exe_sub_1D37AC0_u16_count_u32_key_u8_state")
+		"state_source", "persisted_permission_capped_by_pvf_or_profile_default",
+		"body_source", "current_exe_sub_1FE8A80_u16_count_u32_key_u8_state")
 	return s.sendGameUpperRawClass(session, currentDungeonResourceStateMsgID, body, 0)
 }
 
@@ -125,7 +138,7 @@ func (s *Service) sendCurrentDungeonPermissionSnapshot(
 		"classification", 0,
 		"body_len", len(body),
 		"row_count", len(entries),
-		"body_source", "current_exe_sub_1D37AC0_u16_count_u32_key_u8_state",
+		"body_source", "current_exe_sub_1FE8A80_u16_count_u32_key_u8_state",
 		"state_source", "persisted_dungeon_clear_state")
 	return s.sendGameUpperRawClass(session, currentDungeonResourceStateMsgID, body, 0)
 }
@@ -278,7 +291,7 @@ func (s *Service) commitCurrentDungeonPermission(
 		"difficulty", runtime.Request.Difficulty,
 		"state", entry.ClearState,
 		"body_len", len(body),
-		"body_source", "current_exe_sub_1D37AC0_u16_count_u32_key_u8_state",
+		"body_source", "current_exe_sub_1FE8A80_u16_count_u32_key_u8_state",
 		"state_source", "settlement_clear_difficulty_plus_one_capped_by_runtime_pvf")
 	return body, entry.ClearState, true, nil
 }

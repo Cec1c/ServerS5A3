@@ -16,13 +16,16 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dproto"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 type gameSession struct {
-	conn      net.Conn
-	connID    string
-	accountID string
-	clientPID uint32
+	pendingTitleEnchantCharacterID uint16
+	pendingTitleEnchantRow         *currentItemListEntry
+	conn                           net.Conn
+	connID                         string
+	accountID                      string
+	clientPID                      uint32
 	// clientIP 只用于日志与排查（连接来源），**绝不参与账号判定** ——
 	// 见 repository_access.go 的 accountIDForSession 与 client_account_ip.go。
 	clientIP string
@@ -67,6 +70,8 @@ type gameSession struct {
 	currentAccountFriendInfo         currentAccountFriendSentView
 	currentAdventureExpeditionView   currentAdventureExpeditionSentView
 	rosterRequested                  bool
+	currentRenameRoster              []dnfrepo.CharacterRecord
+	currentRenameRosterPrepared      []dnfrepo.CharacterRecord
 	channelReconnect                 bool
 	townActorOwnerChannel            byte
 	// loginWearReassertWindowOpenedAt / ...Consumed 界定"DNFBRIDGE_EQUIP_LOGIN_REASSERT_NOOP
