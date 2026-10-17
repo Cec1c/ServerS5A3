@@ -332,6 +332,19 @@ func buildDungeonPartyRoomSlotTableBody(
 	hostSlot byte,
 	shape dungeonPartyRoomSlotTableShape,
 ) []byte {
+	return buildDungeonPartyRoomSlotTableBodyForProfile(actor, rows, hostSlot, shape, false)
+}
+
+// Official24.9 NOTI9 consumes actor metadata at2016913 before the member
+// count and five fixed identity bytes plus two DSTRs at2016BC1..C85. The
+// historic 68B vendor fixture belongs to the legacy profile only.
+func buildDungeonPartyRoomSlotTableBodyForProfile(
+	actor dungeonPartyRoomSlotTableActor,
+	rows []dungeonPartyRoomSlotTableRow,
+	hostSlot byte,
+	shape dungeonPartyRoomSlotTableShape,
+	official249 bool,
+) []byte {
 	objectKey := actor.ObjectKey
 	if objectKey == 0 {
 		objectKey = currentSceneBootstrapObjectKey
@@ -355,6 +368,9 @@ func buildDungeonPartyRoomSlotTableBody(
 	writer.writeByte(0)
 	writer.writeByte(0)
 	writer.writeUint16(0)
+	if official249 {
+		writer.writeByte(0) // actor metadata+0x55 before native member count
+	}
 	writer.writeByte(byte(len(rows)))
 	for _, row := range rows {
 		writer.writeByte(row.Slot)
@@ -365,7 +381,14 @@ func buildDungeonPartyRoomSlotTableBody(
 		writer.writeByte(row.Level)
 		writer.writeByte(row.Grow)
 		writer.writeByte(0)
+		if official249 {
+			writer.writeByte(0)
+		}
 		writer.writeRawDstr(rosterNameBytes(row.Name))
+		if official249 {
+			writer.writeRawDstr(nil)
+			writer.writeByte(0)
+		}
 		writer.writeByte(0)
 		writer.writeByte(shape.RowHPPercent)
 		writer.writeByte(shape.RowRoomFlag)
@@ -615,7 +638,7 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 		actorGrow = characterGrowTypeByte(character)
 	}
 	objectKey := currentSceneActorObjectKey(charID)
-	body := buildDungeonPartyRoomSlotTableBody(
+	body := buildDungeonPartyRoomSlotTableBodyForProfile(
 		dungeonPartyRoomSlotTableActor{
 			ObjectKey: objectKey,
 			Name:      charName,
@@ -625,6 +648,7 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 		rows,
 		hostSlot,
 		vendorDungeonPartyRoomSlotTableShape,
+		s.options.currentClientVersion == "official-24.9",
 	)
 	room := ""
 	mapID := int64(0)
