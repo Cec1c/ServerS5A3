@@ -133,6 +133,9 @@ type runtimeDungeonState struct {
 	settlementDespairResultSent          bool
 	settlementDespairItemsSent           bool
 	settlementDespairRewards             *dnfdungeon.DespairRewards
+	settlementGriefResultSent            bool
+	settlementGriefItemsSent             bool
+	settlementGriefRewards               *dnfdungeon.GriefRewards
 	settlementCardScrollStateSent        bool
 	settlementCardRightStateSent         bool
 	settlementCardLayoutSent             bool
@@ -489,6 +492,14 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		return nil, worldmap.DungeonRoomScene{}, err
 	} else if floor != 0 {
 		next, err := dnfdungeon.DespairNextFloor(character.Stats)
+		if err != nil || floor != next {
+			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
+		}
+	}
+	if floor, err := currentGriefFloor(dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	} else if floor != 0 {
+		next, err := dnfdungeon.GriefNextFloor(character.Stats)
 		if err != nil || floor != next {
 			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
 		}

@@ -170,7 +170,7 @@ func (c *Catalog) PlanCouponMainQuestClear(
 	// 回退语义保持不变。
 	sweptParents := make(map[int64]struct{})
 	for _, definition := range c.ordered {
-		if !mainStoryQuestAutoClearable(definition, character, cutoffLevel) {
+		if definition.JobChangeQuest != 0 || !mainStoryQuestAutoClearable(definition, character, cutoffLevel) {
 			continue
 		}
 		if sweep {
@@ -225,7 +225,9 @@ func (c *Catalog) PlanCouponMainQuestClear(
 	// 一并完成，否则客户端会保留一个"父已完成、子仍可接取"的死节点——2026-09-25
 	// char3 的 3971「离别时刻」+ 3972/3973 就是这个形态（券只扫 `[epic]`，
 	// 子任务是 `[sub]`）。闭包同样不发奖励、不写结算回执。
-	maxSubQuestID := c.applyMainQuestSweepSubClosure(&plan, sweptParents, cutoffLevel, clearedAt)
+	maxSubQuestID := c.applyMainQuestSweepSubClosure(&plan, sweptParents, cutoffLevel, clearedAt, func(def Definition) bool {
+		return def.LevelMin <= cutoffLevel && def.JobChangeQuest == 0 && !def.IsEvent && definitionMatchesCharacter(def, character)
+	})
 	if plan.HighestCompletedQuest == 0 && maxSubQuestID > 0 {
 		// 只有闭包有活干时（旧记录的自愈），回包仍需要一个非零的最高任务 id。
 		plan.HighestCompletedQuest = maxSubQuestID
