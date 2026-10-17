@@ -7,7 +7,7 @@ import (
 )
 
 func TestAccountCargoPVFLateTiersAndNoUnpricedDirectUpgrade(t *testing.T) {
-	for previous := int64(64); previous < 120; previous += 8 {
+	for previous := int64(64); previous < 240; previous += 8 {
 		next, ok := NextAccountCargoTier(previous)
 		if !ok || next != previous+8 {
 			t.Fatalf("tier %d: next=%d ok=%t", previous, next, ok)
@@ -21,7 +21,7 @@ func TestAccountCargoPVFLateTiersAndNoUnpricedDirectUpgrade(t *testing.T) {
 			t.Fatal("rejected direct upgrade changed balances")
 		}
 	}
-	if _, ok := NextAccountCargoTier(120); ok {
-		t.Fatal("120 is PVF maximum")
+	if _, ok := NextAccountCargoTier(240); ok {
+		t.Fatal("240 is PVF maximum")
 	}
 }

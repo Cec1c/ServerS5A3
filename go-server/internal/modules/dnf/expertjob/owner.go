@@ -42,6 +42,7 @@ type Command struct {
 }
 
 type Owner struct {
+	settings    dnfrepo.SettingsRepository
 	settlements dnfrepo.CharacterSettlementUnitOfWork
 }
 
@@ -49,7 +50,7 @@ func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.CharacterSettlement == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{settlements: repositories.CharacterSettlement}, nil
+	return &Owner{settings: repositories.Settings, settlements: repositories.CharacterSettlement}, nil
 }
 
 func (o *Owner) Compound(ctx context.Context, command Command) error {
@@ -124,6 +125,9 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 			return err
 		}
 		character = dnfrepo.CloneCharacter(character)
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		accountInventory = dnfrepo.CloneAccountInventory(accountInventory)
 		accountInventory.AccountID = accountID

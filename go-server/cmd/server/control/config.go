@@ -392,6 +392,10 @@ func mysqlOptionValue(value string) string {
 }
 
 func runtimeEnvironment(cfg instanceConfig) []string {
+	channelScriptEncoding := cfg.Protocol.ChannelScriptEncoding
+	if channelScriptEncoding == "" {
+		channelScriptEncoding = "utf8"
+	}
 	values := map[string]string{
 		"LONGHENG_DNF_CONFIG":                      "configs/dnf/logic.toml",
 		"DNFBRIDGE_SERVER_IP":                      cfg.Server.AdvertiseIP,
@@ -402,6 +406,7 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		"DNFBRIDGE_PARTY_UDP_RELAY_PORT_COUNT":     strconv.Itoa(cfg.Server.PartyUDPRelayPortCount),
 		"DNFBRIDGE_CHANNEL_INFO_PATH":              filepath.ToSlash(cfg.Game.ChannelInfoPath),
 		"DNFBRIDGE_CHANNEL_INFO_BODY_MODE":         "latest",
+		"DNFBRIDGE_CHANNEL_SCRIPT_ENCODING":        channelScriptEncoding,
 		"DNFBRIDGE_PVF_PATH":                       filepath.ToSlash(cfg.Game.PVFPath),
 		"DNFBRIDGE_ACCOUNT_ID":                     cfg.Server.AccountID,
 		"DNFBRIDGE_PACKET_LOG":                     strconv.FormatBool(cfg.Server.PacketLog),

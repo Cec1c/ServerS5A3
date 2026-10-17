@@ -122,7 +122,18 @@ func (o *Owner) Plan(ctx context.Context, cmd Command) (PlanResult, error) {
 // ApplyAccept closes the no-event-item accept path with one quest-row upsert.
 // The ACK owner must call this first and may report success only after the
 // persisted active state has been reloaded and verified.
+//
+// The wall clock stays here so existing callers and the deterministic 06:00
+// boundary tests keep the old API; multi-service-day lifecycle tests use
+// ApplyAcceptAt with an explicit clock.
 func (o *Owner) ApplyAccept(ctx context.Context, catalog *Catalog, eligibility CharacterEligibility, cmd Command) (AcceptResult, error) {
+	return o.ApplyAcceptAt(ctx, catalog, eligibility, cmd, time.Now())
+}
+
+// ApplyAcceptAt is ApplyAccept with an explicit accept time. The accepted row's
+// UpdatedAt and the daily rollover share this single reading, so a fence that
+// uses a fake gameplay clock can pin the accept to one service day.
+func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility CharacterEligibility, cmd Command, now time.Time) (AcceptResult, error) {
 	if o == nil || o.characters == nil || o.quests == nil {
 		return AcceptResult{}, ErrOwnerUnavailable
 	}
@@ -163,11 +174,13 @@ func (o *Owner) ApplyAccept(ctx context.Context, catalog *Catalog, eligibility C
 	if !definitionKnown {
 		return AcceptResult{}, ErrQuestDefinitionMissing
 	}
+	// 一次接取只取一次时钟：Decide 与 Plan 必须用同一个服务日做每日投影，
+	// 否则恰好跨 06:00 换日时两边可能对“今天还能不能接”给出不同答案。
 	// DecideAccept is the same authority the client-facing acceptable-quest list
 	// runs (Catalog.QuestList). Routing both sides through it is what keeps
 	// "the client was told it may accept this" and "the server accepts this"
 	// from drifting apart.
-	decision, err := catalog.DecideAccept(eligibility, record, int64(cmd.QuestID))
+	decision, err := catalog.DecideAcceptAt(eligibility, record, int64(cmd.QuestID), now)
 	if err != nil {
 		return AcceptResult{}, err
 	}
@@ -189,11 +202,10 @@ func (o *Owner) ApplyAccept(ctx context.Context, catalog *Catalog, eligibility C
 			QuestType:   definition.Type,
 		}, nil
 	}
-	plan, err := catalog.PlanAccept(eligibility, record, int64(cmd.QuestID))
+	plan, err := catalog.PlanAcceptAt(eligibility, record, int64(cmd.QuestID), now)
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	now := time.Now()
 	if record.States == nil {
 		record.States = make(map[int64]dnfrepo.QuestState, 1)
 	}
@@ -266,6 +278,14 @@ func isActiveQuestStatus(status string) bool {
 // Quests whose PVF definition can own quest items fail closed until their
 // inventory reclamation can share the same transaction.
 func (o *Owner) ApplyGiveUp(ctx context.Context, catalog *Catalog, cmd Command) (GiveUpResult, error) {
+	return o.ApplyGiveUpWithMaterialResolver(ctx, catalog, cmd, nil)
+}
+
+// ApplyGiveUpWithMaterialResolver also admits collection quests whose targets
+// are proven ordinary materials. The reference recovery policy retains these
+// items on abandonment. Activation grants, quest drops and quest items still
+// require an inventory transaction and remain rejected on this no-asset path.
+func (o *Owner) ApplyGiveUpWithMaterialResolver(ctx context.Context, catalog *Catalog, cmd Command, ordinaryMaterial func(int64) (bool, error)) (GiveUpResult, error) {
 	if o == nil || o.characters == nil || o.quests == nil {
 		return GiveUpResult{}, ErrOwnerUnavailable
 	}
@@ -286,7 +306,9 @@ func (o *Owner) ApplyGiveUp(ctx context.Context, catalog *Catalog, cmd Command) 
 		return GiveUpResult{}, ErrQuestCannotGiveUp
 	}
 	if questGiveUpNeedsAssetTransaction(definition) {
-		return GiveUpResult{}, ErrGiveUpNeedsAssets
+		if !giveUpCanRetainOrdinaryMaterials(definition, ordinaryMaterial) {
+			return GiveUpResult{}, ErrGiveUpNeedsAssets
+		}
 	}
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
@@ -343,6 +365,43 @@ func (o *Owner) ApplyGiveUp(ctx context.Context, catalog *Catalog, cmd Command) 
 		CharacterID: characterID,
 		QuestID:     cmd.QuestID,
 	}, nil
+}
+
+func giveUpCanRetainOrdinaryMaterials(definition Definition, resolve func(int64) (bool, error)) bool {
+	if resolve == nil || definition.HasDependGiveItem || len(definition.MonsterRewardItems) != 0 || len(definition.EnemyRewardItems) != 0 {
+		return false
+	}
+	// Admit only understood, complete item/count pairs. Other quest types and
+	// missing item metadata retain the conservative reclamation boundary.
+	switch normalizeQuestTag(definition.Type) {
+	case "seeking":
+		if len(definition.IntData) == 0 || len(definition.IntData)%2 != 0 {
+			return false
+		}
+	case "seek n meet npc":
+		if len(definition.IntData) < 2 {
+			return false
+		}
+	default:
+		return false
+	}
+	rules := finishDefinitionSeekingRules(definition)
+	if len(rules) == 0 {
+		return false
+	}
+	if normalizeQuestTag(definition.Type) == "seeking" && len(rules)*2 != len(definition.IntData) {
+		return false
+	}
+	for _, rule := range rules {
+		if rule.ItemID <= 0 || rule.Count <= 0 {
+			return false
+		}
+		ordinary, err := resolve(rule.ItemID)
+		if err != nil || !ordinary {
+			return false
+		}
+	}
+	return true
 }
 
 func questGiveUpNeedsAssetTransaction(definition Definition) bool {

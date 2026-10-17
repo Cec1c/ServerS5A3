@@ -28,7 +28,8 @@ var (
 	ErrSkillPointLedger               = errors.New("skill point ledger is invalid or stale")
 	ErrSkillPoints                    = errors.New("insufficient skill points")
 	ErrSkillTree                      = errors.New("skill tree is not proven by current EXE evidence")
-	ErrSkillTreeUnavailable           = errors.New("alternate skill tree is unavailable")
+	ErrSkillTreeAlreadyExpanded       = errors.New("角色已经购买技能类型扩展")
+	ErrSkillTreeUnavailable           = fmt.Errorf("%w: alternate skill tree is unavailable", ErrSkillTree)
 	ErrSkillTreeStateMismatch         = errors.New("skill tree switch current index is stale")
 	ErrSkillSlot                      = errors.New("skill UI slot allocation failed")
 	ErrSkillSlotContext               = errors.New("skill slot context is outside the current EXE writer range")
@@ -188,7 +189,7 @@ func (o *Owner) ApplyTreeSwitch(ctx context.Context, cmd Command) (TreeSwitchMut
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	result := TreeSwitchMutationResult{CharacterID: characterID}
-	err := o.progressTx.WithinCharacterProgression(ctx, characterID, func(characters dnfrepo.CharacterRepository, _ dnfrepo.SkillRepository) error {
+	err := o.progressTx.WithinCharacterProgression(ctx, characterID, func(characters dnfrepo.CharacterRepository, skills dnfrepo.SkillRepository) error {
 		character, ok, err := characters.Load(ctx, characterID)
 		if err != nil {
 			return err
@@ -200,15 +201,37 @@ func (o *Owner) ApplyTreeSwitch(ctx context.Context, cmd Command) (TreeSwitchMut
 			return ErrCharacterOwner
 		}
 
-		current, owned := character.Stats[currentEXESkillTreeIndexStat]
-		if !owned || current < 0 {
+		record, found, err := skills.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if !found || !record.Trees.Expanded {
 			return ErrSkillTreeUnavailable
 		}
-		if current >= currentEXESkillTreeCount {
-			return fmt.Errorf("%w: persisted current=%d", ErrSkillTree, current)
+		if err := validateActiveSkillTree(record, cmd.SkillTree); err != nil {
+			return err
 		}
-		if byte(current) != cmd.SkillTree {
-			return fmt.Errorf("%w: request current=%d persisted current=%d", ErrSkillTreeStateMismatch, cmd.SkillTree, current)
+		if len(record.Trees.Other.Skills) == 0 {
+			return ErrSkillRulesMissing
+		}
+		record = dnfrepo.CloneSkill(record)
+		if o.baseline != nil {
+			points, _, err := dnfskill.SyncPointState(record.Points, *o.baseline)
+			if err != nil {
+				return err
+			}
+			record.Points = points
+		}
+		if _, err := SyncOtherSkillPoints(&record); err != nil {
+			return err
+		}
+		previous := dnfrepo.SkillProfile{Skills: record.Skills, Points: record.Points}
+		record.Skills, record.Points = record.Trees.Other.Skills, record.Trees.Other.Points
+		record.Trees.Other = previous
+		record.Trees.Active = cmd.SkillTree ^ 1
+		record.UpdatedAt = time.Now().UTC()
+		if err := dnfrepo.SaveSkillFields(ctx, skills, record, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldPoints, dnfrepo.SkillFieldTrees); err != nil {
+			return err
 		}
 
 		target := cmd.SkillTree ^ 1
@@ -270,6 +293,9 @@ func (o *Owner) sweepExpiredOverSkill(ctx context.Context, cmd Command, characte
 		}
 		if !exists || len(record.Skills) == 0 {
 			return nil
+		}
+		if err := validateActiveSkillTree(record, cmd.SkillTree); err != nil {
+			return err
 		}
 		record = dnfrepo.CloneSkill(record)
 		changed := false
@@ -353,6 +379,9 @@ func (o *Owner) unlearnSkillToFloor(record *dnfrepo.SkillRecord, job byte, skill
 	if floor == 0 {
 		delete(record.Skills, int64(skillID))
 		for tree, layout := range record.Layouts {
+			if tree != dnfrepo.ActiveSkillTree(*record) {
+				continue
+			}
 			for slot, layoutID := range layout {
 				if layoutID == skillID {
 					delete(layout, slot)
@@ -434,6 +463,17 @@ func (o *Owner) ApplyBuy(ctx context.Context, cmd Command) (MutationResult, erro
 	}
 	if accountID := strings.TrimSpace(cmd.AccountID); accountID != "" && accountID != strings.TrimSpace(character.AccountID) {
 		return MutationResult{}, ErrCharacterOwner
+	}
+	currentRecord, found, loadErr := o.skills.Load(ctx, characterID)
+	if loadErr != nil {
+		return MutationResult{}, loadErr
+	}
+	if found {
+		if err := validateActiveSkillTree(currentRecord, cmd.SkillTree); err != nil {
+			return MutationResult{}, err
+		}
+	} else if cmd.SkillTree != 0 {
+		return MutationResult{}, ErrSkillTreeUnavailable
 	}
 	jobValue, err := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
 	if err != nil {
@@ -545,6 +585,9 @@ func (o *Owner) applyBuyMutation(
 	}
 	if !exists {
 		return MutationResult{}, ErrSkillPointLedger
+	}
+	if err := validateActiveSkillTree(record, cmd.SkillTree); err != nil {
+		return MutationResult{}, err
 	}
 	record = dnfrepo.CloneSkill(record)
 	points, err := synchronizePointLedger(record.Points, o.baseline, character.Level, o.catalog, job, o.initial, record.Skills)
@@ -785,10 +828,16 @@ func (o *Owner) ApplyReset(ctx context.Context, cmd Command) (ResetMutationResul
 		if !exists {
 			return ErrSkillPointLedger
 		}
+		if err := validateActiveSkillTree(record, cmd.SkillTree); err != nil {
+			return err
+		}
 		record = dnfrepo.CloneSkill(record)
 		record.Skills = states
 		record.Points = points
-		record.Layouts = map[int]dnfrepo.SkillLayout{int(cmd.SkillTree): layout}
+		if record.Layouts == nil {
+			record.Layouts = make(map[int]dnfrepo.SkillLayout)
+		}
+		record.Layouts[int(cmd.SkillTree)] = layout
 		record.UpdatedAt = time.Now().UTC()
 		return dnfrepo.SaveSkillFields(ctx, repo, record, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldPoints, dnfrepo.SkillFieldLayouts)
 	})
@@ -826,6 +875,17 @@ func (o *Owner) ApplySlot(ctx context.Context, cmd Command) (SlotMutationResult,
 	if accountID := strings.TrimSpace(cmd.AccountID); accountID != "" && accountID != strings.TrimSpace(character.AccountID) {
 		return SlotMutationResult{}, ErrCharacterOwner
 	}
+	currentRecord, found, loadErr := o.skills.Load(ctx, characterID)
+	if loadErr != nil {
+		return SlotMutationResult{}, loadErr
+	}
+	if found {
+		if err := validateActiveSkillTree(currentRecord, cmd.SkillTree); err != nil {
+			return SlotMutationResult{}, err
+		}
+	} else if cmd.SkillTree != 0 {
+		return SlotMutationResult{}, ErrSkillTreeUnavailable
+	}
 	jobValue, err := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
 	if err != nil {
 		return SlotMutationResult{}, fmt.Errorf("%w: job=%q", ErrSkillRulesMissing, character.Job)
@@ -844,6 +904,9 @@ func (o *Owner) ApplySlot(ctx context.Context, cmd Command) (SlotMutationResult,
 		}
 		if !exists || len(record.Skills) == 0 {
 			return ErrSkillSlot
+		}
+		if err := validateActiveSkillTree(record, cmd.SkillTree); err != nil {
+			return err
 		}
 		record = dnfrepo.CloneSkill(record)
 		tree := int(cmd.SkillTree)
@@ -891,7 +954,7 @@ func (o *Owner) ApplySlot(ctx context.Context, cmd Command) (SlotMutationResult,
 }
 
 func validateSkillSlotCommand(cmd Command) error {
-	if cmd.SkillTree != currentEXEProvenBuySkillTree {
+	if cmd.SkillTree >= currentEXESkillTreeCount {
 		return fmt.Errorf("%w: tree=%d; persisted op19 layout currently owns tree=%d", ErrSkillTree, cmd.SkillTree, currentEXEProvenBuySkillTree)
 	}
 	if int(cmd.From) >= currentEXESkillSlotCount || int(cmd.To) >= currentEXESkillSlotCount {
@@ -943,7 +1006,7 @@ func validateSkillLayoutBounds(layout dnfrepo.SkillLayout) error {
 }
 
 func validateBuySkillTree(tree byte) error {
-	if tree != currentEXEProvenBuySkillTree {
+	if tree >= currentEXESkillTreeCount {
 		return fmt.Errorf("%w: tree=%d; only tree=%d has a current EXE reconstruction path", ErrSkillTree, tree, currentEXEProvenBuySkillTree)
 	}
 	return nil
@@ -1048,7 +1111,8 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 			continue
 		}
 		slot := -1
-		if tree == 0 && definition.Active && primaryActive < initialPrimaryQuickSlotCount {
+		// 与 allocateSkillSlot 同一判据，避免新建/重建路径把 TP 技能填回普通快捷栏。
+		if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active && !definition.IsTPSkill() && primaryActive < initialPrimaryQuickSlotCount {
 			slot = firstFreeSkillSlot(layout, 0, initialPrimaryQuickSlotCount)
 			if slot >= 0 {
 				primaryActive++
@@ -1068,9 +1132,14 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 }
 
 func allocateSkillSlot(definition dnfskill.Skill, tree int, occupied dnfrepo.SkillLayout) int {
-	// sub_248AE60 rebuilds tree zero active rows in the six primary and six
-	// extension slots before the grouped ranges used by sub_1FE5710.
-	if tree == 0 && definition.Active {
+	// 保留既有领域/数据库的两段快捷栏编号。90客户端线上编号由dnfbridge
+	// 在op19/op29/op28边界统一转换，不能把这里的198直接解释成当前线上快捷栏。
+	//
+	// TP（强化/EX）技能不参与普通快捷栏（0..5、198..203）的自动填空：真档唯一的 active TP
+	// （固定QA档 job 11 id 220 强化 - 招架反击）会把这当成第一空位。普通主动技能照旧优先填空；
+	// TP 技能只拿 currentSlotGroup 的技能页展示槽，手动绑定（op28）与已有布局不受影响。
+	// 113段反馈的 强化 - 上挑（真档 job 0 id 215）是 passive，本来就不过这个分支。
+	if tree >= 0 && tree < currentEXESkillTreeCount && definition.Active && !definition.IsTPSkill() {
 		if slot := firstFreeSkillSlot(occupied, 0, 6); slot >= 0 {
 			return slot
 		}

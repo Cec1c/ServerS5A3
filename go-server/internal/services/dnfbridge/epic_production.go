@@ -895,6 +895,9 @@ func (s *Service) commitCurrentEpicProductionAbility(
 			if account.Slots == nil {
 				account.Slots = make(map[string]dnfrepo.ItemStack)
 			}
+			if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			account = dnfrepo.CloneAccountInventory(account)
 
@@ -1393,6 +1396,9 @@ func (s *Service) commitCurrentEpicProductionChange(
 
 			character = dnfrepo.CloneCharacter(character)
 			account = dnfrepo.CloneAccountInventory(account)
+			if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			updates := make([]currentItemListEntry, 0, len(request.Materials))
 			accountChanged := false
@@ -1619,6 +1625,9 @@ func (s *Service) commitCurrentEpicProductionCompound(
 			}
 
 			character = dnfrepo.CloneCharacter(character)
+			if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			account = dnfrepo.CloneAccountInventory(account)
 			if character.Stats == nil {
@@ -1861,6 +1870,9 @@ func (s *Service) commitCurrentEpicProductionProcess(
 			return errCurrentEpicProductionMaterial
 		}
 		character = dnfrepo.CloneCharacter(character)
+		if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		weeklyCount := character.Stats[currentEpicProductionWeeklyCountStat]
 		if character.Stats[currentEpicProductionWeekStartStat] != weekStart {

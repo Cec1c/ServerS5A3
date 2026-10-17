@@ -48,12 +48,13 @@ func TestRealScriptPVFMainQuestTwoDigitDifficultyIsHonored(t *testing.T) {
 	cases := []struct {
 		questID    int64
 		difficulty string
+		experience uint32
 	}{
-		{3149, "1"},  // ElvenGard_Epic_05「营救赛丽亚」：单字符档位，修复前已正确。
-		{3481, "10"}, // mirrorbehimos_epic_04：两位数档位。
-		{3482, "10"},
-		{3926, "17"}, // luke_f_epic_02_01。
-		{3927, "17"},
+		{3149, "1", 6680},    // ElvenGard_Epic_05：单字符对照。
+		{3481, "10", 417127}, // mirrorbehimos_epic_04。
+		{3482, "10", 417127},
+		{3926, "17", 1273766}, // luke_f_epic_02_01。
+		{3927, "17", 1273766},
 	}
 	for _, test := range cases {
 		definition, ok := catalog.Find(test.questID)
@@ -71,19 +72,19 @@ func TestRealScriptPVFMainQuestTwoDigitDifficultyIsHonored(t *testing.T) {
 			t.Fatalf("quest %d plan difficulty = %q, want %q (pvf=%q): two-digit rank fell back to the default",
 				test.questID, plan.Difficulty, test.difficulty, definition.Difficulty)
 		}
-		if plan.Difficulty == "1" {
-			continue
-		}
-		// 两位数档位的经验必须高于旧默认 `G`(30) 的读数。
 		got, err := tables.QuestExperience(definition.LevelMin, plan.QuestLevel, plan.Difficulty, definition.Grade, plan.IgnoreLevel4Exp)
 		if err != nil {
 			t.Fatalf("quest %d QuestExperience error = %v", test.questID, err)
+		}
+		if got != test.experience {
+			t.Fatalf("quest %d experience=%d, want %d", test.questID, got, test.experience)
 		}
 		fallback, err := tables.QuestExperience(definition.LevelMin, plan.QuestLevel, "G", definition.Grade, plan.IgnoreLevel4Exp)
 		if err != nil {
 			t.Fatalf("quest %d G fallback error = %v", test.questID, err)
 		}
-		if got <= fallback {
+		t.Logf("quest %d difficulty=%s experience=%d old-G=%d", test.questID, plan.Difficulty, got, fallback)
+		if plan.Difficulty != "1" && got <= fallback {
 			t.Fatalf("quest %d exp=%d must exceed the old G fallback=%d", test.questID, got, fallback)
 		}
 	}

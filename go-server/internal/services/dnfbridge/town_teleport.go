@@ -20,7 +20,7 @@ import (
 // (item 2600014) is used. Body layout, read off every live request body found in
 // the 2026-09-25 packet logs (13-byte body, 13-byte transport header):
 //
-//	i16 potionSlot, i32 itemCode, u8 unused, u8 townID, u8 unused,
+//	i16 potionSlot, i32 itemCode, u8 unused, u8 townID, u8 targetAreaID,
 //	u16 clickX, u16 clickY
 //
 // 现场样本（body hex → 解析）：
@@ -37,19 +37,22 @@ import (
 // 尾部这对 u16 就是操作者在**目标地区地图**上点的那个点。真档 PVF 里 2600014
 // （stackable/stackable.lst → professional/potion/ptn_instantmovement.stk）的说明是
 // 「使用后， 可以将自己的角色传送到其他地区的任意位置。」，所以请求里带点击点、
-// 区域由服务端按目标城镇解析。上一版只解析前 8 字节、把落点固定成目标城镇的 PVF
+// 区域由请求显式指定、服务端按运行时PVF核对。早期实现只解析前 8 字节、把落点固定成目标城镇的 PVF
 // `[gate]` 区坐标，于是"落点和点击的地方不一样"（操作者报障）。
 //
 // On success the server teleports the character to the clicked point on the
-// destination region's principal map through the proven op36 teleport-array
+// explicitly selected destination map through the proven op36 teleport-array
 // commit chain, consumes one potion, refreshes the bag, and returns the op237
 // ACK {01, i16 slot, i32 code}. The failure ACK {00, 23} drives the client's own
 // op237 error text (id 36288) — 操作者截图「对方正忙，无法对其使用该功能。」
-// 就是它 —— 因此只在目标地区**完全解析不出来**时才发。
+// 就是它。无效区域或无法取得该区域落点时沿用此失败应答。
 type currentTeleportPotionRequest struct {
 	PotionSlotIndex int16
 	ItemCode        int32
 	TownID          byte
+	// The current EXE writes the selected map record's area separately from town.
+	TargetAreaID  int64
+	HasTargetArea bool
 	// ClickX/ClickY 是客户端请求里带的点击点（目标地区地图坐标）。只有完整的
 	// 13 字节 body 才有；更短的旧体没有坐标，此时按目标区域自带的默认落点提交。
 	ClickX        int64
@@ -60,7 +63,7 @@ type currentTeleportPotionRequest struct {
 const currentTeleportPotionErrorUnsupported byte = 23
 
 // currentTeleportPotionLandingDecision 是提交给 op36 的"目标区域 + 落点"成对决定。
-// 区域与坐标必须来自同一张图，理由与判据见 currentTeleportPotionLandingDecision 函数。
+// 区域与坐标必须来自同一张图，完整请求保留客户端明确选中的地图。
 type currentTeleportPotionLandingDecision struct {
 	Area dnftown.Area
 	X, Y int64
@@ -79,7 +82,7 @@ type currentTeleportPotionLandingDecision struct {
 // 落点策略开关（默认 = 修好后的行为，回退值见下）：
 //
 //	DNFBRIDGE_TELEPORT_POTION_LANDING
-//	  ""/"region-main-click"（默认）：目标区域 = 目标地区**按地图/区域语义解析出来的
+//	  ""/"region-main-click"（默认）：完整请求使用显式区域；旧请求的目标区域按地图/区域语义解析为
 //	    城镇主图**（dnftown.Table.FindPrincipalArea），落点 = 客户端点击点。
 //	    area 0 本来就不是城镇边界门图的城镇（真档 38/53）解析结果就是 area 0，
 //	    与改动前逐字节一致；area 0 是边界门图的城镇（真档 15/53，例：town 31 中央公园
@@ -105,6 +108,7 @@ const (
 	currentTeleportPotionAreaSourceAfterGate     = "main_area_after_boundary_gate"
 	currentTeleportPotionAreaSourceLegacyKept    = "legacy_area_kept"
 	currentTeleportPotionAreaSourceLegacyGate    = "legacy_gate_mode"
+	currentTeleportPotionAreaSourceRequestedArea = "client_requested_area"
 )
 
 // 区域门槛开关（默认 = 修好后的行为，回退值见下）：
@@ -152,6 +156,8 @@ func parseCurrentTeleportPotionRequest(body []byte) (currentTeleportPotionReques
 	// body[11:13]=clickY。点击点 (0,0) 视为"没带坐标"（城镇地图上没有这样的可点位置，
 	// 用区域默认落点更安全）。
 	if len(body) >= 13 {
+		request.TargetAreaID = int64(body[8])
+		request.HasTargetArea = true
 		clickX := int64(binary.LittleEndian.Uint16(body[9:11]))
 		clickY := int64(binary.LittleEndian.Uint16(body[11:13]))
 		if clickX != 0 || clickY != 0 {
@@ -181,6 +187,8 @@ func (s *Service) handleTeleportPotion(session *gameSession, body []byte) error 
 		"item_code", request.ItemCode,
 		"potion_slot", request.PotionSlotIndex,
 		"town_id", request.TownID,
+		"request_area_id", request.TargetAreaID,
+		"has_request_area", request.HasTargetArea,
 		"has_click_point", request.HasClickPoint,
 		"click_x", request.ClickX,
 		"click_y", request.ClickY,
@@ -307,32 +315,9 @@ func (s *Service) handleTeleportPotion(session *gameSession, body []byte) error 
 // 判据与来源（真档 Script.pvf sha256 cc517a6e2b7c77a4ba0f30a1869a3ab234e281fe6251e35d60f0f04a82aacee1，
 // 2026-09-27 全量扫描，53 个城镇）：
 //
-//  1. 目标区域 = 城镇主图，由 town 模块的 Table.FindPrincipalArea 按**城镇文档语义**解析
-//     （判据写在 town/types.go）：area 0 的地图文件名以 `Gate_` 开头就说明它是城镇边界
-//     门图（**命名约定**，真档 15/53 个城镇命中，且这 15 个的 area 0 同时带 PVF `[gate]`
-//     入口坐标作为佐证），此时改取文档顺序里第一个非 `Gate_` 区域（优先带 `[normal]`）。
-//     真档 38/53 城镇的 area 0 本来就是主图 ⇒ 结果与改动前逐字节一致；
-//     15/53 城镇的 area 0 是 `Gate_*` 边界门图（town 31 中央公园 area 0 =
-//     `Town/CentralPark/Gate_CentralPark.map`，主街 area 1 = `Town/CentralPark/CentralPark.map`；
-//     town 30 魔界营地 area 0 = `Town/MetroCenter/Gate_MetroCenter.map`，主城区 area 1 =
-//     `Town/MetroCenter/Metro_Time.map`）⇒ 本修复把它们从边界图挪回主城区。
-//     刻意不把 PVF `[gate] <x> <y>` 标记当判据：真档 town 33/103 的 area 0 带这个标记，
-//     但它们就是该城镇的村图主图（详见 town/types.go 的取证注释）。
-//     现场证据：packet_log.txt 里 town 31 ×5、town 30 ×1 六条
-//     `game-town-teleport-potion-committed` 的 map_path 全是 Gate_*，操作者随即报假死。
-//
-//  2. 落点 = 客户端点击点，**前提是它确实画在主城区上**：只有走第 1 条判据、且解析出的
-//     就是主城区时才用它。客户端药水界面显示的是目标地区的主图（否则改动前
-//     "Gate 图 + 主街坐标"不会假死，而是能正常渲染），所以主城区 + 点击点自洽。
-//
-//  3. 请求不带点击点（旧 8 字节 body）且主城区自己没有声明落点时：**不发明坐标**，
-//     也不拿别的图声明过的坐标（边界图的 `[gate]` 坐标是边界图上的点，提交到主城区
-//     同样非法 ⇒ 同一族假死）。此时逐字节回退到改动前那一对（边界图 + 它自己的落点），
-//     并在事件里记 reason=。
-//
-//  4. 该城镇解析不出任何非边界图区域（真档不存在：15 个 `Gate_*` 边界图城镇每个都还有
-//     非边界图区域）⇒ 逐字节回退到改动前的选择（townTeleportPotionLandingArea），
-//     并记 reason=。这一步保证"证据不足 ⇒ 与今天完全一样"。
+// 完整请求按当前EXE发送的区域选择落点，不以主城区覆盖显式区域。
+// 缺失区域字段的旧8字节请求继续使用主城区/入口回退链；gate开关保留原行为。
+// 默认位置必须属于选中的区域，不能借用另一张地图的入口坐标。
 func (s *Service) currentTeleportPotionLandingDecision(request currentTeleportPotionRequest, character dnfrepo.CharacterRecord) (currentTeleportPotionLandingDecision, string) {
 	townID := int64(request.TownID)
 	if currentTeleportPotionLandingMode() == currentTeleportPotionLandingLegacy {
@@ -352,6 +337,26 @@ func (s *Service) currentTeleportPotionLandingDecision(request currentTeleportPo
 			Reason:         "landing_mode_gate_switch",
 		}, ""
 	}
+	// Current EXE: hit-test 0x2510c80 returns the selected map record's
+	// town/area and transformed coordinates; 0x1f40160 stores that tuple;
+	// 0x248b268 writes it as u8 town, u8 area, u16 x, u16 y.
+	// Coordinates in different maps may overlap. Never infer area from them
+	// or silently substitute the principal map for an explicit selection.
+	if request.HasTargetArea {
+		area, found := s.townArea(townID, request.TargetAreaID)
+		if !found || strings.TrimSpace(area.MapPath) == "" {
+			return currentTeleportPotionLandingDecision{}, "requested_area_missing_from_runtime_pvf"
+		}
+		if !request.HasClickPoint && area.Gate == nil && area.DefaultPosition == nil {
+			return currentTeleportPotionLandingDecision{}, "requested_area_has_no_declared_position"
+		}
+		x, y, source := s.currentTeleportPotionLandingPosition(request, area, character)
+		return currentTeleportPotionLandingDecision{
+			Area: area, X: x, Y: y, PositionSource: source,
+			AreaSource: currentTeleportPotionAreaSourceRequestedArea,
+		}, ""
+	}
+	// Legacy requests have no area field. Preserve their existing selection.
 	legacyArea, legacyFound := s.townTeleportPotionLandingArea(townID)
 	principalArea, principalFound := s.townTeleportPotionPrincipalArea(townID)
 	boundarySignals := s.townTeleportPotionBoundarySignals(townID)

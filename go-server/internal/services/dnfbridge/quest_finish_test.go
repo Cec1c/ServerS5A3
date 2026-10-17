@@ -422,7 +422,7 @@ func TestCurrentFinishQuestProfessionCommitPublishesCurrentEXEStateOrder(t *test
 	// ACK → typed mode0 职业身份 → 数值 → 技能 → 任务；面板类 mode1/mode3 保持禁止。
 	if !(mode0 > 0 && mode1 == -1 && mode3 == -1 &&
 		characterIndex > mode0 && skillIndex > characterIndex &&
-		clearQuestIndex > skillIndex && activeIndex > clearQuestIndex && acceptableIndex > activeIndex) {
+		activeIndex > skillIndex && clearQuestIndex > activeIndex && acceptableIndex > clearQuestIndex) {
 		t.Fatalf("profession order ack=0 skill=%d mode0=%d mode1=%d mode3=%d character=%d clear=%d active=%d acceptable=%d ids=%v", skillIndex, mode0, mode1, mode3, characterIndex, clearQuestIndex, activeIndex, acceptableIndex, finishBridgePacketIDs(packets))
 	}
 	if body := packets[mode0].Body; binary.LittleEndian.Uint16(body[5+0x47:5+0x47+2]) != 19 ||
@@ -776,12 +776,12 @@ func TestCurrentFinishQuestWithoutLevelOrSPDeltaSkipsFullCharacterPackets(t *tes
 	}
 	packets := splitAllFinishBridgePackets(t, connection.write.Bytes())
 	if len(packets) != 3 ||
-		packets[0].Header.Classification != 0 || packets[0].Header.MsgID != currentClearQuestListMsgID ||
-		packets[1].Header.Classification != 0 || packets[1].Header.MsgID != currentActiveQuestSnapshotMsgID ||
+		packets[0].Header.Classification != 0 || packets[0].Header.MsgID != currentActiveQuestSnapshotMsgID ||
+		packets[1].Header.Classification != 0 || packets[1].Header.MsgID != currentClearQuestListMsgID ||
 		packets[2].Header.Classification != 0 || packets[2].Header.MsgID != currentAcceptableQuestListMsgID {
 		t.Fatalf("no-delta finish packets=%v", finishBridgePacketIDs(packets))
 	}
-	assertFinishBridgeClearQuestProjection(t, packets[0], 8581)
+	assertFinishBridgeClearQuestProjection(t, packets[1], 8581)
 	assertFinishBridgeNoPersonalInfoSnapshots(t, packets)
 	for _, packet := range packets {
 		if packet.Header.MsgID == currentDungeonCharacterStateMsgID || packet.Header.MsgID == currentSkillInfoMsgID {
@@ -1141,7 +1141,7 @@ func assertFinishBridgePostCommitOrder(t *testing.T, packets []dnfproto.ChannelP
 		}
 		stateStart = mode1
 	}
-	if !(ack == 0 && character > stateStart && skill > character && clearQuest > skill && active > clearQuest && acceptable > active) {
+	if !(ack == 0 && character > stateStart && skill > character && active > skill && clearQuest > active && acceptable > clearQuest) {
 		t.Fatalf("post-commit order ack=%d item=%d mode1=%d mode3=%d clear=%d acceptable=%d active=%d character=%d skill=%d packets=%v",
 			ack, item, mode1, mode3, clearQuest, acceptable, active, character, skill, finishBridgePacketIDs(packets))
 	}

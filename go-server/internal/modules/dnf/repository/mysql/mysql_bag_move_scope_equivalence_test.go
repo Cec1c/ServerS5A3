@@ -230,6 +230,13 @@ func newRowModelBagGroup(t *testing.T, db *rowModelDB) repository.Group {
 	t.Helper()
 	group := newRowModelGroup(t, db, true)
 	group.AccountInventory = rowModelAccountInventory{}
+	// 本组验证增量写入，夹具明确开放原先使用的全部主包/仓库格。
+	if err := group.Settings.Save(context.Background(), repository.SettingsRecord{
+		Scope:  repository.CharacterContainerStateScope("77"),
+		Values: map[string]string{"main_list_param16": "24", "avatar_list_param16": "0", "personal_cargo_list_param16": "200"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return group
 }
 

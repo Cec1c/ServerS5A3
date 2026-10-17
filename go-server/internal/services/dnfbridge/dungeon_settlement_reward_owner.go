@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -35,10 +37,13 @@ type currentDungeonSettlementRewardResources struct {
 }
 
 type currentDungeonSettlementCommitResult struct {
+	DespairItems    []dnfdungeon.DespairGrantedItem
+	GriefItems      []dnfdungeon.GriefGrantedItem
 	Character       dnfrepo.CharacterRecord
 	Skill           dnfrepo.SkillRecord
 	Inventory       dnfrepo.InventoryRecord
 	ExperienceGain  uint32
+	PotionBonus     uint32
 	HonorExpertGain uint32
 	SPGain          int
 	TPGain          int
@@ -116,7 +121,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	scoreBonus := currentDungeonScoreBonusExp(gain, resources, clientRankPoint)
 	// 黑钻加成: base × 10% (premium type 1 or 17).
 	blackDiamondBonus := s.currentBlackDiamondBonusExp(ctx, s.accountIDForSession(session), gain)
-	totalGain := gain + growthBonus + scoreBonus + blackDiamondBonus
+	totalGain := uint32(min(uint64(gain)+uint64(growthBonus)+uint64(scoreBonus)+uint64(blackDiamondBonus), uint64(math.MaxUint32)))
 	presentation, err := currentDungeonSettlementPresentationForRuntime(
 		runtime,
 		resources.ClearRankCatalog,
@@ -125,12 +130,13 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if err != nil {
 		return err
 	}
-	result, err := s.commitCurrentDungeonSettlement(
+	result, err := s.commitCurrentDungeonSettlementWithPotion(
 		ctx,
 		session,
 		runtime,
 		resources.Progression,
 		totalGain,
+		gain,
 	)
 	if err != nil {
 		return err
@@ -162,6 +168,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	}
 	cardSlots := currentDungeonClearRewardCardSlotsFromRuntime(runtime, currentDungeonCardFlipRowStateValue(session))
 	var bonusPresentation [currentDungeonClearRewardBonusFieldCount]uint32
+	bonusPresentation[currentDungeonClearRewardBonusClearAncientElixirIndex] = result.PotionBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearBlackDiamondIndex] = blackDiamondBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearGrowthContractIndex] = growthBonus
 	bonusPresentation[currentDungeonClearRewardBonusMonsterGrowthContractIndex] = runtime.settlementMonsterGrowthContractBonus
@@ -226,6 +233,38 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	}
 	if len(permissionBody) != 0 {
 		plan.DungeonPermissionBody = append([]byte(nil), permissionBody...)
+	}
+	if currentDungeonIsDespairTower(runtime) {
+		floor, err := currentDespairFloor(runtime.Dungeon)
+		if err != nil {
+			return err
+		}
+		items := make([]currentDespairResultItem, 0, len(result.DespairItems))
+		for _, item := range result.DespairItems {
+			items = append(items, currentDespairResultItem{ItemID: item.ItemID, Quantity: item.Quantity})
+			plan.DespairItemSlots = append(plan.DespairItemSlots, alignedcmd.ItemSlotRefresh{ListType: item.ListType, SlotIndex: item.Slot})
+		}
+		plan.DespairResultBody, err = buildCurrentDespairResultBody(presentation.ClearTimeMS, uint16(floor), items)
+		if err != nil {
+			return err
+		}
+	}
+	if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+		floor, err := currentGriefFloor(runtime.Dungeon)
+		if err != nil {
+			return err
+		}
+		items := make([]currentDespairResultItem, len(result.GriefItems))
+		for i, item := range result.GriefItems {
+			items[i] = currentDespairResultItem{ItemID: item.ItemID, Quantity: item.Quantity}
+			if item.ItemID != 0 {
+				plan.GriefItemSlots = append(plan.GriefItemSlots, alignedcmd.ItemSlotRefresh{ListType: 0, SlotIndex: item.Slot})
+			}
+		}
+		plan.GriefResultBody, err = buildCurrentGriefResultBody(presentation.ClearTimeMS, uint16(floor), items)
+		if err != nil {
+			return err
+		}
 	}
 	runtime.Character = dnfrepo.CloneCharacter(result.Character)
 	runtime.settlementResultPlan = &plan
@@ -460,12 +499,17 @@ func (s *Service) currentBlackDiamondBonusExp(ctx context.Context, accountID str
 	return uint32(bonus)
 }
 
-func (s *Service) commitCurrentDungeonSettlement(
+func (s *Service) commitCurrentDungeonSettlement(ctx context.Context, session *gameSession, runtime *runtimeDungeonState, tables *progression.Tables, gain uint32) (currentDungeonSettlementCommitResult, error) {
+	return s.commitCurrentDungeonSettlementWithPotion(ctx, session, runtime, tables, gain, 0)
+}
+
+func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	ctx context.Context,
 	session *gameSession,
 	runtime *runtimeDungeonState,
 	tables *progression.Tables,
 	gain uint32,
+	potionBase uint32,
 ) (currentDungeonSettlementCommitResult, error) {
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.CharacterSettlement == nil || tables == nil || gain == 0 {
@@ -485,11 +529,23 @@ func (s *Service) commitCurrentDungeonSettlement(
 	if !present || runtimeExperience < 0 || uint64(runtimeExperience) > math.MaxUint32 {
 		return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
 	}
+	now := s.gameplayNow()
+	predictedGain := gain
+	if potionBase > 0 {
+		character, found, err := s.loadExperiencePotionCharacter(ctx, session)
+		if err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+		if !found {
+			return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
+		}
+		predictedGain += min(experiencebuff.Bonus(character, experiencebuff.Clear, potionBase, now), math.MaxUint32-gain)
+	}
 	honorExpertGain, err := currentHonorExpertExperienceGain(
 		tables,
 		runtime.Character.Level,
 		uint32(runtimeExperience),
-		gain,
+		predictedGain,
 	)
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
@@ -519,23 +575,52 @@ func (s *Service) commitCurrentDungeonSettlement(
 			weekly = &dnfdungeon.WeeklyClearContract{Catalog: catalog, Season: season}
 		}
 	}
+	luckyPolicy, err := s.currentDungeonLuckyStarPolicy(runtime)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	despairFloor, err := currentDespairFloor(runtime.Dungeon)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	if despairFloor != 0 {
+		if err := s.freezeCurrentDespairRewardsLocked(runtime); err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+	}
+	griefFloor, err := currentGriefFloor(runtime.Dungeon)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	if griefFloor != 0 {
+		if err := s.freezeCurrentGriefRewardsLocked(runtime); err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		DespairClearedFloor:     despairFloor,
+		GriefClearedFloor:       griefFloor,
+		GriefRewards:            runtime.settlementGriefRewards,
+		DespairRewards:          runtime.settlementDespairRewards,
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
 		CompletionKey:           runtime.clearMapCompletionKey,
 		Tables:                  tables,
 		Experience:              gain,
+		ClearPotionBase:         potionBase,
 		RecommendedDungeonClear: currentDungeonIsRecommendedClear(runtime),
+		LuckyStar:               luckyPolicy,
 		MonthlyAttendance:       s.currentMonthlyAttendanceEnabled(),
 		WeeklyAttendance:        weekly,
 		AdventureRuntime:        &adventureRuntime,
 		HonorExpertTables:       honorTables,
 		MaximumCharacterLevel:   currentAdventureCharacterLevelCap,
-		UpdatedAt:               s.gameplayNow(),
+		UpdatedAt:               now,
 	})
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
 	}
+	runtime.settlementLuckyStar = result.LuckyStar
 	if s.currentMonthlyAttendanceEnabled() {
 		// Experience/clear receipt is already committed. Mail delivery is
 		// retried from that durable account state if transport or mail fails.
@@ -549,10 +634,13 @@ func (s *Service) commitCurrentDungeonSettlement(
 		}
 	}
 	return currentDungeonSettlementCommitResult{
+		DespairItems:    result.DespairItems,
+		GriefItems:      result.GriefItems,
 		Character:       result.Character,
 		Skill:           result.Skill,
 		Inventory:       result.Inventory,
 		ExperienceGain:  result.ExperienceGain,
+		PotionBonus:     result.PotionBonus,
 		HonorExpertGain: result.HonorExpertGain,
 		SPGain:          result.SPGain,
 		TPGain:          result.TPGain,
@@ -757,8 +845,8 @@ type currentDungeonSettlementForeignDropReceipt struct {
 // currentDungeonCommittedDropReceiptsLocked 是结算计划读掉落收据的**会话入口**。
 // 默认档做两件事：① 把账号级史诗碎片拾取从"必须在背包里找到槽位"里豁免掉；
 // ② 只统计**属于本角色**的已消耗掉落（组队共享账本里别人的掉落不算本角色的收据）。
-// 两件事都为每一条写一行可判读事件。两个开关同时回退档时才**直接转调**旧的纯函数
-// （逐字节等于改动前）。
+// 两件事各有可判读事件。穿戴拾取装备的核验独立于这两个开关；没有提供
+// 穿戴记录的纯函数入口仍保留原背包判据。
 func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 	session *gameSession,
 	runtime *runtimeDungeonState,
@@ -766,9 +854,6 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 ) ([]currentDungeonClearRewardDrop, error) {
 	exemptMode := abyssSettlementFragmentReceiptModeFromEnv()
 	ownerMode := partySettlementReceiptOwnerModeFromEnv()
-	if !exemptMode.exempts() && !ownerMode.filtersForeignOwned() {
-		return currentDungeonCommittedDropReceipts(runtime, inventory)
-	}
 	selfActorObjectKey := uint16(0)
 	if session != nil {
 		selfActorObjectKey = currentSceneActorObjectKey(session.selectedCharacterID)
@@ -780,6 +865,32 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 		ownerMode.filtersForeignOwned(),
 		selfActorObjectKey,
 	)
+	// A picked equipment item can be worn before clear (the tutorial requires
+	// this). It no longer owns a bag slot; verify its committed pickup row in
+	// this character's equipment aggregate instead of fabricating an op35 row.
+	if errors.Is(err, errCurrentDungeonSettlementStateInvalid) && s != nil && session != nil {
+		if repositories, ok := s.repositoryGroup(); ok && repositories.Equipment != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			equipment, found, loadErr := repositories.Equipment.Load(ctx, fmt.Sprint(session.selectedCharacterID))
+			cancel()
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if found && equipment.CharacterID == inventory.CharacterID && equipment.CharacterID == fmt.Sprint(session.selectedCharacterID) {
+				drops, exempted, foreign, err = currentDungeonCommittedDropReceiptsFiltered(
+					runtime, inventory, exemptMode.exempts(), ownerMode.filtersForeignOwned(), selfActorObjectKey, equipment,
+				)
+				if err == nil {
+					s.logGameEvent(session, "game-dungeon-settlement-equipped-pickup-verified",
+						"char_id", session.selectedCharacterID,
+						"dungeon_id", runtime.Dungeon.ID,
+						"bag_projection_count", len(drops),
+						"source", "committed_pickup_op39_op14_and_owned_persisted_equipment",
+						"bag_item_fabricated", false)
+				}
+			}
+		}
+	}
 	if err != nil || s == nil || session == nil || runtime == nil ||
 		(len(exempted) == 0 && len(foreign) == 0) {
 		return drops, err
@@ -898,6 +1009,7 @@ func currentDungeonCommittedDropReceiptsFiltered(
 	exemptAccountLedgerDrops bool,
 	filterForeignOwned bool,
 	selfActorObjectKey uint16,
+	equipment ...dnfrepo.EquipmentRecord,
 ) (
 	[]currentDungeonClearRewardDrop,
 	[]currentDungeonSettlementExemptDropReceipt,
@@ -962,6 +1074,9 @@ func currentDungeonCommittedDropReceiptsFiltered(
 		}
 		slot, stack, found := currentDungeonCommittedPickupSlot(drop, inventory)
 		if !found {
+			if len(equipment) == 1 && currentDungeonCommittedPickupIsEquipped(drop, inventory, equipment[0]) {
+				continue
+			}
 			return nil, nil, nil, errCurrentDungeonSettlementStateInvalid
 		}
 		bySlot[slot] = currentDungeonClearRewardDrop{

@@ -112,10 +112,10 @@ func (c *controller) registerLocalLoginAccount(
 ) error {
 	username, err := normalizeLocalUsername(username)
 	if err != nil {
-		return err
+		return fmt.Errorf("账号格式不符合要求：请输入 3～32 个字符，只能使用字母、数字、下划线、横线或点：%w", err)
 	}
 	if err := validateLocalPassword(password); err != nil {
-		return err
+		return fmt.Errorf("密码格式不符合要求：请输入 8～72 字节的密码，不能包含换行等控制字符（英文或数字至少 8 位）：%w", err)
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword(
 		[]byte(password),

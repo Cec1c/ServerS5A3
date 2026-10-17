@@ -85,6 +85,23 @@ func TestProfilesApplyClassChangeAndCumulativeAwakening(t *testing.T) {
 	if preserved.Points != points || preserved.Skills[99].Level != 2 || preserved.Skills[3].Level != 1 {
 		t.Fatalf("awakening changed learned skills or point ledger = %+v", preserved)
 	}
+	purchased.Trees = dnfrepo.SkillTreeState{Expanded: true, Active: 1, Other: dnfrepo.SkillProfile{Skills: map[int64]dnfrepo.SkillState{99: {Level: 3, Enabled: true}}, Points: dnfrepo.SkillPointState{TotalSP: 100, RemainingSP: 40, TotalTP: 10, RemainingTP: 8, SyncedLevel: 50}}}
+	purchased.Layouts = map[int]dnfrepo.SkillLayout{0: {5: 99}, 1: {4: 99}}
+	both, err := profiles.ApplySkillTransition(catalog, 2, 50, Transition{Kind: KindAwakening, FirstGrowType: 1, AwakeningStage: 1}, purchased, points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if both.Skills[99].Level != 2 || both.Trees.Other.Skills[99].Level != 3 || both.Skills[3].Level != 1 || both.Trees.Other.Skills[3].Level != 1 || both.Layouts[1][4] != 99 || both.Layouts[0][5] != 99 || both.Trees.Other.Points.RemainingSP != 40 {
+		t.Fatalf("觉醒覆盖双页独立状态: %+v", both)
+	}
+	both, err = profiles.ApplySkillTransition(catalog, 2, 50, Transition{Kind: KindClassChange, FirstGrowType: 1}, both, points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(both.Skills) != 2 || len(both.Trees.Other.Skills) != 2 || both.Points.RemainingSP != 100 || both.Trees.Other.Points.RemainingSP != 100 || both.Trees.Active != 1 {
+		t.Fatalf("转职未同时重置两页: %+v", both)
+	}
+
 }
 
 func TestProfilesDisplayNameUsesPVFGrowAndAwakeningNames(t *testing.T) {

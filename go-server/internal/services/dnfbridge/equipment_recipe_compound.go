@@ -3,7 +3,8 @@ package dnfbridge
 // op25 equipment-design-drawing owner. Wire evidence: current-client-contracts/
 // resume02 and recipe-row-proof03 (v97 EXE bb42898c...531). Decode only the
 // proven 7B source/u8 mode/u16 count and 9B form with tail 00 01. Item-ID
-// mode is decoded but rejected: its drawing ownership/consumption is unproven.
+// mode resolves a ready town NPC's PVF product-item menu without consuming a
+// drawing. Ordinary item-shop listings do not grant production permission.
 // Slot mode consumes count drawings from that unlocked main-bag row, following
 // A21 TryConsumeFromSlot(RequestedCount); PVF itself does not encode this policy.
 //
@@ -627,6 +628,14 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return currentEquipmentRecipeCompoundResult{}, errCurrentEquipmentRecipeCompoundUnavailable
 	}
+	var productionIdentity boundGameSessionCharacter
+	if request.SourceIsItemID {
+		var bound bool
+		productionIdentity, bound = s.boundGameSessionCharacterSnapshot(session)
+		if !bound {
+			return currentEquipmentRecipeCompoundResult{}, errCurrentEquipmentRecipeCompoundSourceInvalid
+		}
+	}
 	items, err := s.currentPVFItemCatalog()
 	if err != nil {
 		return currentEquipmentRecipeCompoundResult{}, err
@@ -651,6 +660,9 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 		return currentEquipmentRecipeCompoundResult{}, errCurrentEquipmentRecipeCompoundUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+	if request.SourceIsItemID {
+		characterID = strconv.FormatUint(uint64(productionIdentity.character), 10)
+	}
 	now := s.gameplayNow()
 
 	var result currentEquipmentRecipeCompoundResult
@@ -662,7 +674,13 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if assets == nil || assets.Character == nil || assets.Inventory == nil || assets.AccountInventory == nil {
 				return dnfexpertjob.Changes{}, errCurrentEquipmentRecipeCompoundUnavailable
 			}
-			source, err := currentEquipmentRecipeCompoundSourceStack(assets.Inventory, request)
+			var source currentEquipmentRecipeCompoundSource
+			var err error
+			if request.SourceIsItemID {
+				source, err = s.currentNPCProductionSource(productionIdentity, items.source, request)
+			} else {
+				source, err = currentEquipmentRecipeCompoundSourceStack(assets.Inventory, request)
+			}
 			if err != nil {
 				return dnfexpertjob.Changes{}, err
 			}
@@ -674,7 +692,7 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d is not a [recipe] design drawing", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID)
 			}
 			var upgrade *currentEquipmentRecipeUpgradePlan
-			if entry.MaintainAbility == "normal" {
+			if entry.MaintainAbility == "normal" && !request.SourceIsItemID {
 				document, err := currentEquipmentRecipeUpgradeDocument(entry, recipes.source)
 				if err != nil {
 					return dnfexpertjob.Changes{}, err
@@ -709,8 +727,10 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			}
 			materialCount, outputCount := len(materials), len(outputs)
 			// 以上全部是只读判定；下面才开始写入，且都在同一个克隆事务里。
-			if err := currentEquipmentRecipeCompoundConsumeSource(assets.Inventory, source, request.Count); err != nil {
-				return dnfexpertjob.Changes{}, err
+			if !request.SourceIsItemID {
+				if err := currentEquipmentRecipeCompoundConsumeSource(assets.Inventory, source, request.Count); err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
 			}
 			if upgrade != nil {
 				// Remove exactly the chosen equipment instance. The generic material
@@ -768,6 +788,9 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 				GoldSpent:    goldCost,
 				Outputs:      outputCount,
 				GrantedSlots: granted,
+			}
+			if request.SourceIsItemID && !s.boundGameSessionCharacterCurrent(productionIdentity) {
+				return dnfexpertjob.Changes{}, errCurrentEquipmentRecipeCompoundSourceInvalid
 			}
 			return dnfexpertjob.Changes{Character: goldCost > 0, Inventory: true, AccountInventory: accountDirty}, nil
 		},

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -85,6 +86,9 @@ func lockSnapshotState(stack dnfrepo.ItemStack) (byte, int32, bool) {
 	case "1", "active", "locked":
 		return itemLockStateActive, 0, true
 	case "2", "unlocking", "pending_unlock":
+		if !IsLocked(stack) {
+			return 0, 0, false
+		}
 		return itemLockStatePending, lockSnapshotRemainingSeconds(stack), true
 	default:
 		return 0, 0, false
@@ -92,6 +96,9 @@ func lockSnapshotState(stack dnfrepo.ItemStack) (byte, int32, bool) {
 }
 
 func lockSnapshotRemainingSeconds(stack dnfrepo.ItemStack) int32 {
+	if deadline, ok := unlockDeadline(stack); ok {
+		return remainingUntil(deadline, time.Now())
+	}
 	if stack.Extra == nil {
 		return 0
 	}

@@ -22,7 +22,7 @@ func TestTradeUsesResolvedMaterialCategoryAndQuickSlotFallback(t *testing.T) {
 			sender := dnfrepo.InventoryRecord{CharacterID: "1", Slots: map[string]dnfrepo.ItemStack{"0:65": incoming}}
 			receiver := dnfrepo.InventoryRecord{CharacterID: "2", Slots: map[string]dnfrepo.ItemStack{}}
 			if mode > 0 {
-				for slot := 121; slot <= 176; slot++ {
+				for slot := 121; slot <= 152; slot++ {
 					receiver.Slots["0:"+strconv.Itoa(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 1}
 				}
 			}
@@ -79,7 +79,7 @@ func TestTradeEquipmentUsesBagThenQuickSlots(t *testing.T) {
 			sender := dnfrepo.InventoryRecord{CharacterID: "1", Slots: map[string]dnfrepo.ItemStack{"0:65": incoming}}
 			receiver := dnfrepo.InventoryRecord{CharacterID: "2", Slots: map[string]dnfrepo.ItemStack{"0:3": incoming}}
 			if mode > 0 {
-				for slot := 9; slot <= 64; slot++ {
+				for slot := 9; slot <= 40; slot++ {
 					receiver.Slots["0:"+strconv.Itoa(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 1}
 				}
 			}

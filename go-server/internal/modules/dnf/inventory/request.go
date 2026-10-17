@@ -142,6 +142,11 @@ type UpgradeItemRequest struct {
 	MaterialSlotIndex       int16
 	OptionalTicketSlotIndex int16
 	TargetItemName          string
+	// Optional current-client trailer: NPC template and its conversion-material
+	// slot. These are lookup hints, never authority for a price or item identity.
+	NPCContextPresent    bool
+	NPCTemplateID        uint16
+	NPCMaterialSlotIndex int16
 }
 
 // EnchantByBeadRequest 描述宝珠附魔请求。
@@ -588,9 +593,17 @@ func DecodeUpgradeItemRequest(body []byte) (UpgradeItemRequest, error) {
 	if nameLength < 0 {
 		return UpgradeItemRequest{}, fmt.Errorf("name length %d invalid", nameLength)
 	}
+	if uint64(nameLength) > uint64(len(body)-16) {
+		return UpgradeItemRequest{}, fmt.Errorf("upgrade name length %d exceeds body %d", nameLength, len(body))
+	}
 	end := 16 + int(nameLength)
-	if len(body) < end {
-		return UpgradeItemRequest{}, shortBodyError(len(body), end)
+	tail := body[end:]
+	if len(tail) != 0 && len(tail) != 4 {
+		return UpgradeItemRequest{}, fmt.Errorf("upgrade NPC trailer length %d invalid", len(tail))
+	}
+	npcID, npcSlot := uint16(0xffff), int16(-1)
+	if len(tail) == 4 {
+		npcID, npcSlot = readU16(tail, 0), readI16(tail, 2)
 	}
 	mode := "reinforce"
 	if rawMode == 1 {
@@ -604,6 +617,9 @@ func DecodeUpgradeItemRequest(body []byte) (UpgradeItemRequest, error) {
 		MaterialSlotIndex:       readI16(body, 8),
 		OptionalTicketSlotIndex: readI16(body, 10),
 		TargetItemName:          string(body[16:end]),
+		NPCContextPresent:       len(tail) == 4,
+		NPCTemplateID:           npcID,
+		NPCMaterialSlotIndex:    npcSlot,
 	}, nil
 }
 
