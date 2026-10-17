@@ -247,6 +247,29 @@
 - 幸运星点数即时显示、附魔错窗和菜单入口仍失败，组队返回按钮未反馈；未将相关候选整体推入主线。保留主线已验收金库容量与放置校验。
 - 客户端v102已独立发布，乔纳森仍显式candidate开关；现网本次不重启。完整边界见Docs/R4_ACCEPTANCE_20261015.md。验证以本次最终组合回执为准。
 
+## 2026-10-14 — 觉醒任务接取复用结算的阶段检查
+
+- 真PVF的部分觉醒奖励任务按转职分支筛选，但接取时未核对觉醒阶段，已觉醒角色仍可能接到再次一觉的任务，最终结算被既有阶段规则拒绝。
+- 将结算已有的阶段检查提取为profession.CheckAwakeningPrecondition，供新接取和可接列表共同使用。合法一觉/二觉保留；存量active任务继续可见、可放弃，不清理玩家任务数据。
+- 补充真实PVF回归，包括不合法阶段接取零写入、合法阶段对照、存量任务放弃及虚空行者2695入口保持可接。核心9294通过节点/862跳过/零失败；真实PVF 144个指定根全过（657通过节点/2未选中包）；gofmt/list/vet、Windows/Linux构建及GM边界检查通过。BAT缺源码包未含channel_info.etc，不计部署通过。
+- 用户补充确认DOC126原始“任务列表缺失/无法接受”已正常，登记已验收并停止排查。历史线上日志有char94/2695列表构建和发送事件，离线记录重建也包含2695；这些证据不证明客户端显示正常，本项阶段保护尚未部署，用户验收不能归因于本候选。
+- 基于server-only master9de2ecb；GM不进入在线仓库，未部署生产。详见Docs/D33_AWAKENING_PREFLIGHT_20261014.md。
+
+## 2026-10-14 — 转职接取候选主代理完整验证
+
+- 源码e086018：核心9317通过节点、863跳过、零失败；固定真实PVF的144个指定回归根全部通过（655通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
+- 仅阻止新接取无法结算的转职任务，已有任务及其他DOC-124症状保留验收边界。
+
+## 2026-10-14 — 已转职角色不再能接取永远结算不了的转职任务（DOC-124）
+
+- 缺陷（真档固定 PVF，sha256 369d072b82c715aea4e02813d89ad9225686983e147bc7be0ee0cae2e296bb06）：[reward type] [grow type] 的老式转职任务只有 [job] 与 [grow type] -1，没有转职阶段门槛。审计全部 114 条 grow type 任务 × grow {0,1,2,3,4,0x11}：285 个组合能通过接取预检（DecideAccept=AcceptNew）却必然在结算被 profession.PlanTransition 以 ErrTransitionOutOfStep 拒绝，涉及 57 条任务——16 个职业的整条老式转职家族（例：7814 阿修罗、2633/2634/5761/5762 魔枪士、7803/7807/7810/7814 剑魂/鬼泣/狂战士/阿修罗、2908-2911 女圣职、2684/2685/2686/4065/4068、4621/4622/13101/13102、6881-6883/6926、1687/2616/12757/12770 等）。玩家接下后得到一条永远做不完的 active 任务，与 DOC-124「转职和主线任务反过来了 / 任务不能完成」的服务端形态一致。
+- 修复：把 PlanTransition 的转职前置抽成 profession.CheckClassChangePrecondition（同一条规则，不再两处各写位掩码），PlanTransition 自身改调它；quest.classChangeRewardAcceptable 在接取预检 definitionAcceptable 里对 [reward type] [grow type] 且 KindClassChange 的任务复用该前置，让接取预检、结算与 op21 可接投影三者一致（bridge 的 op21 直接使用 Catalog.QuestList，因此投影同步收敛）。
+- 范围：只阻止**新接取**（已 active 的行继续留在可接列表/快照里，玩家仍能看到并放弃或结算它，避免把「仅阻止新接」误报成「存量卡任务已修复」）。觉醒任务（[awakening type]）与 15 级分支主线（[job change quest] 1 但 reward type 为 [item]）不受影响；grow 0 的合法链路保持可接。
+- 存量卡任务：真档回归确认已经 active 的此类任务仍能正常放弃（questGiveUpNeedsAssetTransaction 对这些 [clear map] 转职任务为 false，CantGiveUp 未置位），放弃后行被移除；本修复不改任何玩家数据、不批量清理存量行。DOC-127（接了任务无法放弃）是另一条报告，未在此处理。觉醒家族另有一处同型残留（176 条 awakening type 任务在该审计口径下有 5 个组合可接不可结算），按「保留觉醒行为」未改，DOC-126 保持开放。
+- 回归（旧源码失败、修复后通过）：quest TestRealPVFJobChangeQuestRefusedForChangedCharacter（阿修罗 7814 与魔枪士 2633/2634/5761/5762：grow 0x01/0x02/0x03/0x04/0x11 必须 AcceptRejected 且不进可接投影；grow 0 仍 AcceptNew 且在投影内）、quest TestRealPVFJobChangeAcceptEntryRefusesChangedCharacter（走 Owner.ApplyAccept 接取入口：grow 0x01/0x11 被拒且零写入，grow 0 对照正常接取落库）。基线上这两条分别失败于「decision=1 err=nil, want rejected」与「ApplyAccept err=nil, want ErrQuestNotAcceptable」。
+- 守护（两个版本都通过，证明改动没有扩大范围）：quest TestRealPVFAwakeningQuestStaysAcceptableAfterClassChange（已转职未觉醒 0x01 仍可接剑圣觉醒 977，计划侧仍产出 awakening 请求）、quest TestRealPVFStuckJobChangeQuestCanBeAbandoned（存量 active 行为可正常放弃）、profession TestCheckClassChangePreconditionMirrorsPlanTransitionState。
+- 验证：见提交说明；本候选只动 profession/transition.go、profession/profile.go、quest/catalog.go 与两个测试文件。
+
 ## 2026-10-14 — 女圣职者 15 级主线/转职链路真档回归（DOC-123）
 ## 2026-10-15 — Check rental wallet send failure after committed purchase
 
