@@ -2,8 +2,11 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"sort"
+	"time"
 
+	"longheng.io/server/internal/modules/dnf/characterdata"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -31,8 +34,15 @@ func (s *Service) characterNameExists(ctx context.Context, repos dnfrepo.Group, 
 	if repos.Character == nil {
 		return false, errCharacterRepositoryMissing
 	}
-	_, found, err := repos.Character.FindIDByName(ctx, name)
-	return found, err
+	if repos.Settings == nil {
+		_, found, err := repos.Character.FindIDByName(ctx, name)
+		return found, err
+	}
+	err := characterdata.CheckNameAvailable(ctx, repos.Character, repos.Settings, name, time.Now().UTC())
+	if errors.Is(err, dnfrepo.ErrCharacterNameExists) {
+		return true, nil
+	}
+	return false, err
 }
 
 func (s *Service) nextCharacterID(ctx context.Context, repos dnfrepo.Group, records []dnfrepo.CharacterRecord) (int, error) {

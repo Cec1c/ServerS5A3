@@ -33,6 +33,9 @@ func (s *Service) sendSelectedCurrentItemListsWithRefresh(session *gameSession, 
 	if err := s.sendSelectedRentalWalletStateWithRefresh(session, source, refresh); err != nil {
 		return err
 	}
+	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_containers"); err != nil {
+		return err
+	}
 	return s.sendSelectedGuardianGemWornMedalRefresh(session, source+"_after_containers")
 }
 
