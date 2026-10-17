@@ -133,6 +133,9 @@ type runtimeDungeonState struct {
 	settlementDespairResultSent          bool
 	settlementDespairItemsSent           bool
 	settlementDespairRewards             *dnfdungeon.DespairRewards
+	settlementGriefResultSent            bool
+	settlementGriefItemsSent             bool
+	settlementGriefRewards               *dnfdungeon.GriefRewards
 	settlementCardScrollStateSent        bool
 	settlementCardRightStateSent         bool
 	settlementCardLayoutSent             bool
@@ -154,6 +157,9 @@ type runtimeDungeonState struct {
 	settlementSuperChampionExperience    uint32
 	settlementBossExperience             uint32
 	tutorialCompletionPersisted          bool
+	dungeonCycleClearCountCommitted      bool
+	dungeonCycleClearNonceHi             int64
+	dungeonCycleClearNonceLo             int64
 	clearMapCompletionPhaseAPersisted    bool
 	hellQuestCompletionKey               string
 	hellQuestCompletionAt                time.Time
@@ -489,6 +495,14 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		return nil, worldmap.DungeonRoomScene{}, err
 	} else if floor != 0 {
 		next, err := dnfdungeon.DespairNextFloor(character.Stats)
+		if err != nil || floor != next {
+			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
+		}
+	}
+	if floor, err := currentGriefFloor(dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	} else if floor != 0 {
+		next, err := dnfdungeon.GriefNextFloor(character.Stats)
 		if err != nil || floor != next {
 			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
 		}
@@ -888,7 +902,12 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
 	}
 	session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
-	if scene, ok := runtime.Session.Scene(); ok {
+	scene, hasScene := runtime.Session.Scene()
+	dailyCountEntry, err := s.currentDailyCountEntryEnabled(runtime.Dungeon)
+	if err != nil {
+		return err
+	}
+	if hasScene && !dailyCountEntry {
 		if err := s.debitDungeonRoomFatigue(session, runtime, scene); err != nil {
 			return err
 		}
@@ -898,6 +917,11 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	}
 	if err := s.consumeCurrentDayDungeonEntry(session, runtime); err != nil {
 		return err
+	}
+	if dailyCountEntry {
+		if err := s.consumeCurrentDailyCountEntry(session, runtime, scene, hasScene); err != nil {
+			return err
+		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
 	session.dungeon.runtime = runtime

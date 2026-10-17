@@ -17,7 +17,12 @@ func writeOfficial249RosterEntry(writer *packetWriter, index int, character dnfr
 func writeOfficial249RosterEntryWithPermission(writer *packetWriter, index int, character dnfrepo.CharacterRecord, permission dnfquest.SpecialChannelPermission) {
 	writer.writeUint16(uint16(rosterSlotValue(character.Slot, index)))
 	writer.writeRawDstr(rosterRawNameBytes(character))
-	writer.writeZero(2)
+	if currentCharacterRenamePending(character) {
+		writer.writeByte(1)
+	} else {
+		writer.writeByte(0)
+	}
+	writer.writeByte(0)
 	writer.writeByte(byte(numericCharacterStat(character.Job)))
 	writer.writeByte(characterGrowTypeByte(character))
 	writer.writeByte(rosterLevel(character))
