@@ -13,9 +13,13 @@ import (
 // 固定翻牌候选核对真实装备定义和实际发放状态，不声明当前副本的抽取概率。
 func TestRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t *testing.T) {
 	catalog := realPackageSealCatalog(t)
-	const itemID = uint32(10016)
+	testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t, catalog, 10016)
+}
+
+func testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t *testing.T, catalog *pvfDungeonDropCatalog, itemID uint32) {
+	t.Helper()
 	definition, err := catalog.ResolveItem(itemID)
-	if err != nil || normalizeMagicBoxPVFType(definition.AttachType) != "sealing" {
+	if err != nil || currentNewPVFEquipmentSealFlag(definition) != 1 {
 		t.Fatalf("真实封装装备定义不可用：definition=%+v err=%v", definition, err)
 	}
 	catalog.clearCardEquipmentLoaded = true
