@@ -1,3 +1,5 @@
+后续默认配置文本已补齐，当前范围和证据见 [CREATOR_DEFAULT_TEXT_20261017.md](CREATOR_DEFAULT_TEXT_20261017.md)。下文保留首次saved-type修复记录。
+
 # 已保存缔造者键位的职业体系回放
 
 原问题文档当前第90段缔造者WASD和第112段设置恢复默认仍有完整验收范围。本候选只修复已保存完整配置回放时的职业体系选择：角色job10应使用CreatorType=1，原Go代码却直接取账号hotkey_key_type（无生产写入，缺省0），可把缔造者WASD配置施加到NormalType。
