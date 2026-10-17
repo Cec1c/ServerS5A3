@@ -1,3 +1,7 @@
+## 2026-10-17 — 已验收魔封初始封装同步主线
+
+- 用户追加验收!47后整合当前主线；冲突的道具定义同时保留魔封Rarity／RandomOption和礼盒历史期限字段，沿用各自解析／封装／续期逻辑。仅整合已验收范围，未部署服务器或改玩家数据。最终检查与合并回执独立保存。
+
 ## 2026-10-17 — 已验收悲叹结算同步主线
 
 - 整合已验收主线与悲叹之塔候选，冲突处同时保留悲叹层数／奖励字段及通关经验药基础、加成与持久回执；不改变验收服和玩家数据。合并后的完整检查、真实PVF专项与BAT回执独立保存。
@@ -454,6 +458,13 @@
 - Use the same durable quality-seed precedence for inventory refreshes and login: dedicated metadata, equipment-only legacy aliases, then a matching complete current-client row. Sorting no longer replaces quality with the equipment stack count.
 - Keep legacy quality aliases out of the independent item-state field. Preserve persisted item instances and stackable quantities; do not generate replacement quality or change assets.
 - Regression coverage includes first/repeated sorting, bag/personal cargo, ordinary/top quality, legacy and raw-row sources, quantity isolation and invalid/foreign raw data. The new handler regression fails before the repair and passes afterward. Native in-game quality display remains pending acceptance.
+## 2026-10-15 — 新生成魔法封印紫粉装备初始化交易封装
+
+- 装备目录缓存PVF的[rarity]和[random option]。保留原[attach type]=[sealing]规则；对品质2/3、[random option]>0且[attach type]=[free]的新装备补齐seal_flag=1，读取实际模板字段，不按名称或物品ID写名单。普通白蓝装、非魔封自由模板及其他绑定类型不套用此特例；不改产出池或抽取概率。
+- 常规新装备创建与翻牌沿用现有0x77库存行0x0D字段，礼盒和魔盒奖励解析同步采用相同条件，保留原有非装备封装语义。首次穿戴按既有流程永久解封，库存投影不重新封装旧实例；系统模板邮件仅在原有来源和无旧实例证据的边界内初始化，玩家邮件及明确解封附件保持。
+- 新回归在旧实现复现魔封紫、魔封粉及另一组PVF正值配置的封装缺失。真实PVF以现场密制乌金护腿100130169核对免费/付费/双倍/黑钻/锦标赛、正常入包/快捷栏回落/满包转邮件领取；原普通封装紫装及现场白蓝装保持。固定候选仅验证实例状态，不声明实际抽取概率；原生客户端显示与交易仍待部署后验收。
+- 独立分支完整领域、桥接、控制器共9653 PASS、883 SKIP、0 FAIL，跳过不计通过；封装专项、真实PVF双样本翻牌专项、格式/list/vet、仓库边界、Windows候选编译及隔离BAT配套预检通过。预检明确跳过数据库和运行中端口；未安装候选、重启游戏或修改玩家物品。
+
 ## 2026-10-14 — Use current equipment definitions for ordinary clear cards
 
 - Build a separate ordinary-card equipment pool from list-backed PVF minimum level, rarity and positive creation rate. Legacy dictionary gaps no longer substitute crafting recipes for high-level equipment; monster and abyss policies remain unchanged.
