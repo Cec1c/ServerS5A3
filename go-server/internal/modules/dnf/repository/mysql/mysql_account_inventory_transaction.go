@@ -66,9 +66,28 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 	characterID string,
 	apply func(repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error,
 ) error {
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, false, func(_ repository.AccountRepository, a repository.AccountInventoryRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository) error {
+		if apply == nil {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+		return apply(a, c, i, e)
+	})
+}
+
+func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterLedgerAssets(ctx context.Context, accountID, characterID string, apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error) error {
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, true, apply)
+}
+
+func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	includeLedger bool,
+	apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error,
+) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
-	if accountID == "" || characterID == "" || apply == nil {
+	if u == nil || accountID == "" || characterID == "" || apply == nil {
 		return repository.ErrAccountCharacterAssetTransactionUnavailable
 	}
 	if ctx == nil {
@@ -86,6 +105,8 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 		return err
 	}
 
+	defer tx.Rollback()
+
 	// Account inventory and character rows can hash to different logical
 	// databases. They still share one physical MySQL transaction, so keep the
 	// full write plan while forcing locked reads through the transaction.
@@ -95,11 +116,23 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	var ledger repository.AccountRepository
+	if includeLedger {
+		ledger = &rentalScopedAccountRepository{accountID: accountID, base: txGroup.Account}
+		// 先锁账号再锁其它资产，避免与拾取自增/图鉴制作发生反序。
+		record, found, err := ledger.Load(ctx, accountID)
+		if err != nil {
+			return errors.Join(err, tx.Rollback())
+		}
+		if !found || record.AccountID != accountID {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+	}
 	accounts := &accountInventoryScopedRepository{accountID: accountID, base: txGroup.AccountInventory}
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: txGroup.Character}
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}
-	if err := apply(accounts, characters, inventories, equipment); err != nil {
+	if err := apply(ledger, accounts, characters, inventories, equipment); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err := ctx.Err(); err != nil {

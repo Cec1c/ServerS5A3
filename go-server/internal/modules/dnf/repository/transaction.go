@@ -195,3 +195,9 @@ func TransactionKeyError(ctx context.Context, expected string, actual string) er
 type AccountCharacterMailboxAssetUnitOfWork interface {
 	WithinAccountCharacterMailboxAssets(context.Context, string, string, func(AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository, MailboxRepository) error) error
 }
+
+// AccountCharacterLedgerAssetUnitOfWork 将账号碎片账本与开盒消耗、金币、
+// 账号材料及奖励放进同一事务。实现须与拾取入账及图鉴制作共用账号锁。
+type AccountCharacterLedgerAssetUnitOfWork interface {
+	WithinAccountCharacterLedgerAssets(context.Context, string, string, func(AccountRepository, AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository) error) error
+}
