@@ -814,6 +814,9 @@ func (s *Service) skillOwnerRules(ctx context.Context, repos dnfrepo.Group, char
 // sendAlignedUpperResponses 发送模块返回的真实 upper 响应。
 // 模块给出的 Body 已经是完整业务包体，不能再统一套成功字节。
 func (s *Service) sendAlignedUpperResponses(session *gameSession, result alignedcmd.Result) error {
+	if err := s.sendWornEquipmentMutationSlots(session, result.Operation, result.WornEquipmentSlotRefreshes); err != nil {
+		return err
+	}
 	authoritativeLists := currentAuthoritativeListRefreshSet(result.AuthoritativeListRefreshes)
 	handledLists := make(map[byte]bool, len(authoritativeLists))
 	for _, response := range result.UpperResponses {
@@ -870,7 +873,7 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
 	}
-	refreshCombatPowerAffixes := false
+	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
 	for _, action := range result.PostActions {
 		if alignedPostActionTouchesCombatPower(action) {
 			refreshCombatPowerAffixes = true
