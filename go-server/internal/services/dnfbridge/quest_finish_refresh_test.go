@@ -136,13 +136,13 @@ func TestTownQuestGateFinishRefreshKeepsPositionAndQuestOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := session.conn.(*bufferConn).write.Bytes()
-	clear, data := splitCurrentGameServerUpperPacketAuto(t, data)
-	assertFinishBridgeClearQuestProjection(t, clear, 3156)
+	active, data := splitCurrentGameServerUpperPacketAuto(t, data)
 	transition, data := splitTownAreaTransitionSequence(t, data, 29, 38, 3, 562, 321, 5, 3)
 	if binary.LittleEndian.Uint16(transition.Body[2:4]) != 1 {
 		t.Fatalf("当前区域名册应只有真实本机角色: %x", transition.Body)
 	}
-	active, data := splitCurrentGameServerUpperPacketAuto(t, data)
+	clear, data := splitCurrentGameServerUpperPacketAuto(t, data)
+	assertFinishBridgeClearQuestProjection(t, clear, 3156)
 	acceptable, rest := splitCurrentGameServerUpperPacketAuto(t, data)
 	if active.Header.MsgID != currentActiveQuestSnapshotMsgID || acceptable.Header.MsgID != currentAcceptableQuestListMsgID || len(rest) != 0 {
 		t.Fatalf("出口刷新后的任务列表顺序错误 active=%d acceptable=%d rest=%x", active.Header.MsgID, acceptable.Header.MsgID, rest)

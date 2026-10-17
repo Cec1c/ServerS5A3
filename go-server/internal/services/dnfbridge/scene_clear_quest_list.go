@@ -67,6 +67,24 @@ func currentClearQuestCount(body []byte) int {
 	return count
 }
 
+// projectCurrentDailyQuestRollover drops earlier-service-day daily-quest
+// completions from a loaded record before it becomes the client-facing
+// completed-quest table (op356). The op21 acceptable list runs the same
+// projection inside Catalog.QuestListAt. It is a read-only projection: the
+// persisted quest row keeps its completion and settlement receipt, so a replay
+// stays a replay.
+func (s *Service) projectCurrentDailyQuestRollover(ctx context.Context, record dnfrepo.QuestRecord) dnfrepo.QuestRecord {
+	if s == nil {
+		return record
+	}
+	catalog, err := s.loadQuestCatalog(ctx)
+	if err != nil || catalog == nil {
+		return record
+	}
+	// 用本次会话的玩法时钟，和 op21 可接列表、op34 结算取同一个服务日。
+	return catalog.ProjectDailyQuestRollover(record, s.gameplayNow())
+}
+
 func (s *Service) buildCurrentClearQuestListTransportBodyForSession(
 	ctx context.Context,
 	session *gameSession,
@@ -91,6 +109,7 @@ func (s *Service) buildCurrentClearQuestListTransportBodyForSession(
 	if found && strings.TrimSpace(record.CharacterID) != characterID {
 		return nil, fmt.Errorf("clear quest list owner mismatch: selected=%s record=%q", characterID, record.CharacterID)
 	}
+	record = s.projectCurrentDailyQuestRollover(ctx, record)
 	return s.buildCurrentClearQuestListTransportBodyForRecord(session, record, found, source)
 }
 
@@ -175,6 +194,7 @@ func (s *Service) sendCurrentPersistedClearQuestListIfCompleted(
 	if err != nil {
 		return false, err
 	}
+	record = s.projectCurrentDailyQuestRollover(ctx, record)
 	if !found || currentClearQuestCount(buildCurrentClearQuestListBody(record, true)) == 0 {
 		return false, nil
 	}

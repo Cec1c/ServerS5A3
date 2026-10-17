@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	"sort"
 	"strconv"
 	"strings"
@@ -349,15 +350,7 @@ func mutationTime(value time.Time) time.Time {
 }
 
 func itemLocked(stack dnfrepo.ItemStack) bool {
-	if stack.Extra == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stack.Extra["equipment_lock_state"])) {
-	case "1", "2", "active", "locked", "unlocking", "pending_unlock":
-		return true
-	default:
-		return false
-	}
+	return dnfitemlock.IsLocked(stack)
 }
 
 func maxInt64(left, right int64) int64 {

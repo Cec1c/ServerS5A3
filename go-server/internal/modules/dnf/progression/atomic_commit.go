@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -174,12 +175,12 @@ func Commit(
 			)
 		}
 
-		character.Level = plan.Next.Level
-		character.Stats[characterExperienceStatKey] = int64(plan.Next.Experience)
+		if err := ApplyCharacterExperience(&character, &skill, plan.Next.Level, plan.Next.Experience, plan.Next.SkillPoints, time.Now().UTC()); err != nil {
+			return err
+		}
 		for key, value := range plan.NextCharacterStats {
 			character.Stats[key] = value
 		}
-		skill.Points = plan.Next.SkillPoints
 		if err := dnfrepo.SaveCharacterFields(
 			ctx,
 			characters,

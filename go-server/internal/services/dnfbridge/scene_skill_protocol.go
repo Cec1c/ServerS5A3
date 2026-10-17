@@ -16,7 +16,7 @@ const (
 	currentSkillInfoTreeCount   = 2
 )
 
-func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
+func buildCurrentSceneSkillTree(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
 	slots := make([]int, 0, len(layout))
 	for slot, skillID := range layout {
 		state, ok := record.Skills[int64(skillID)]
@@ -33,15 +33,19 @@ func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.S
 	var tree []byte
 	tree = appendProtoVarint(tree, 1, uint64(nonNegativeInt(record.Points.RemainingSP)))
 	tree = appendProtoVarint(tree, 2, uint64(nonNegativeInt(record.Points.RemainingTP)))
-	activeSlots := make([]int, 0, 6)
+	activeSlots := make([]int, 0, currentSkillQuickSlotCount)
 	for _, slot := range slots {
 		skillID := layout[slot]
 		state := record.Skills[int64(skillID)]
+		wireSlot, err := currentSkillSlotToWire(slot)
+		if err != nil {
+			return nil, nil, err
+		}
 		if state.Level > 0x7fffffff {
 			return nil, nil, fmt.Errorf("current skill level out of client rank range: skill=%d level=%d", skillID, state.Level)
 		}
 		var skill []byte
-		skill = appendProtoVarint(skill, 1, uint64(slot))
+		skill = appendProtoVarint(skill, 1, uint64(wireSlot))
 		skill = appendProtoVarint(skill, 2, uint64(skillID))
 		// sub_2666AE0 preserves the wire rank unless a current actor mapping
 		// explicitly replaces it. Persisted learned levels therefore stay direct.
@@ -55,18 +59,34 @@ func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.S
 			skill = appendProtoBytes(skill, 4, command)
 		}
 		tree = appendProtoBytes(tree, 3, skill)
-		if slot >= 0 && slot < 6 {
-			activeSlots = append(activeSlots, slot)
+		if wireSlot < currentSkillQuickSlotCount {
+			activeSlots = append(activeSlots, wireSlot)
 		}
 	}
 
+	return tree, activeSlots, nil
+}
+
+func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
+	active := dnfrepo.ActiveSkillTree(record)
 	var message []byte
 	message = appendProtoVarint(message, 1, currentSkillInfoMessageType)
-	// sub_1D6E240 indexes repeated SkillTree messages by their repeated-field
-	// position, then restores the actor's selected tree. Fresh characters need
-	// the same initial learned skills in both pages, matching the PVF/C# source.
+	var activeSlots []int
 	for index := 0; index < currentSkillInfoTreeCount; index++ {
+		profile := record
+		pageLayout := layout
+		if index != active {
+			profile.Skills, profile.Points = record.Trees.Other.Skills, record.Trees.Other.Points
+			pageLayout = record.Layouts[index]
+		}
+		tree, slots, err := buildCurrentSceneSkillTree(profile, pageLayout, commands)
+		if err != nil {
+			return nil, nil, err
+		}
 		message = appendProtoBytes(message, 2, tree)
+		if index == active {
+			activeSlots = slots
+		}
 	}
 	body := make([]byte, 4, 4+len(message))
 	binary.LittleEndian.PutUint32(body, uint32(len(message)))

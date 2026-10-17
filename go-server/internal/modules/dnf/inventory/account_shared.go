@@ -164,6 +164,9 @@ func (o *Owner) moveAccountShared(ctx context.Context, characterID string, cmd C
 		return MoveResult{}, ErrInventoryNotFound
 	}
 	character = dnfrepo.CloneInventory(character)
+	if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &character); err != nil {
+		return MoveResult{}, err
+	}
 	if character.Slots == nil {
 		character.Slots = make(map[string]dnfrepo.ItemStack)
 	}
@@ -205,6 +208,18 @@ func (o *Owner) moveAccountShared(ctx context.Context, characterID string, cmd C
 
 	source, sourceOK := srcItems[srcKey]
 	destination, destinationOK := dstItems[dstKey]
+	// 共享材料有独立的账号事务，但实际落入主包/个人金库时仍受开放容量约束。
+	// 只检查承接物品的格子，历史越界行仍可取出；交换时双方都会承接物品。
+	if sourceOK {
+		if err := moveSlotCapacityAllowed(cmd.DestinationListType, cmd.DestinationSlotIndex, character.ContainerState); err != nil {
+			return MoveResult{}, err
+		}
+	}
+	if destinationOK && (!sourceOK || !canStack(source, destination, normalizeMoveCount(source, int64(cmd.MoveCount)))) {
+		if err := moveSlotCapacityAllowed(cmd.SourceListType, cmd.SourceSlotIndex, character.ContainerState); err != nil {
+			return MoveResult{}, err
+		}
+	}
 	if !sourceOK {
 		if !destinationOK {
 			return MoveResult{}, fmt.Errorf("%w: list=%d slot=%d", ErrSlotNotFound, cmd.SourceListType, cmd.SourceSlotIndex)

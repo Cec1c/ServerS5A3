@@ -13,6 +13,10 @@ import (
 // notification; that numeric ID is not registered by this client version.
 const currentActiveQuestSnapshotMsgID = uint16(0x023E)
 
+// errCurrentActiveQuestSnapshotUnavailable 表示这次活动任务快照根本没有发给客户端：
+// 仓库不可用、记录读不出来或记录缺失。需要确认投影已下发的调用方据此停止后续动作。
+var errCurrentActiveQuestSnapshotUnavailable = fmt.Errorf("dnf current active quest snapshot is unavailable")
+
 func buildCurrentActiveQuestSnapshotBody(record dnfrepo.QuestRecord, hasRecord bool) []byte {
 	rows := currentSelectAckQuestRows(record, hasRecord)
 	var writer packetWriter
@@ -51,6 +55,17 @@ func (s *Service) sendCurrentActiveQuestSnapshotFromCommittedQuest(
 }
 
 func (s *Service) sendCurrentActiveQuestSnapshotForSession(session *gameSession, source string) error {
+	return s.sendCurrentActiveQuestSnapshot(session, source, false)
+}
+
+// sendCurrentActiveQuestSnapshotChecked 是给「必须确认客户端真的收到投影」的调用方：
+// 仓库不可用、记录读取失败或记录缺失同样返回错误，而不是只记录后继续，从而避免出现
+// 「DB 里任务已经 active、客户端却没有任务」。真实发包失败在两种模式下都返回错误。
+func (s *Service) sendCurrentActiveQuestSnapshotChecked(session *gameSession, source string) error {
+	return s.sendCurrentActiveQuestSnapshot(session, source, true)
+}
+
+func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source string, required bool) error {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
@@ -61,6 +76,9 @@ func (s *Service) sendCurrentActiveQuestSnapshotForSession(session *gameSession,
 			"msg_id", currentActiveQuestSnapshotMsgID,
 			"source", source,
 			"reason", "quest_repository_unavailable")
+		if required {
+			return fmt.Errorf("%w: quest_repository_unavailable", errCurrentActiveQuestSnapshotUnavailable)
+		}
 		return nil
 	}
 
@@ -74,9 +92,21 @@ func (s *Service) sendCurrentActiveQuestSnapshotForSession(session *gameSession,
 			"source", source,
 			"reason", "quest_record_load_failed",
 			"error", err)
+		if required {
+			return fmt.Errorf("%w: quest_record_load_failed: %v", errCurrentActiveQuestSnapshotUnavailable, err)
+		}
 		return nil
 	}
 	if !found {
+		if required {
+			cancel()
+			s.logGameEvent(session, "game-upper-current-active-quest-snapshot-skipped",
+				"char_id", session.selectedCharacterID,
+				"msg_id", currentActiveQuestSnapshotMsgID,
+				"source", source,
+				"reason", "quest_record_missing")
+			return fmt.Errorf("%w: quest_record_missing", errCurrentActiveQuestSnapshotUnavailable)
+		}
 		record = dnfrepo.QuestRecord{CharacterID: strconv.Itoa(int(session.selectedCharacterID))}
 	} else {
 		record = s.reconcileLegacySaturatedActiveQuestTriggers(ctx, session, repositories.Quest, record)

@@ -718,6 +718,7 @@ func TestGameEndpointRequestRequiresNoticeAndKnownShape(t *testing.T) {
 
 func TestGameEndpointHandshakeAcceptsCurrentRequestSizes(t *testing.T) {
 	for _, bodyLen := range []int{
+		594,
 		v56ChannelReconnectDisplayProbeSize,
 		currentChannelReconnectDisplayProbeSize,
 		reference90CNChannelReconnectDisplayProbeBodySize,

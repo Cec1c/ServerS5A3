@@ -80,7 +80,10 @@ func TestRealScriptPVFTeleportPotionBoundaryAreaLanding(t *testing.T) {
 			t.Fatalf("%s: live freeze case must have landed off the main map before the fix", item.name)
 		}
 
-		if err := service.handleTeleportPotion(session, buildTeleportPotionClickRequest(65, 2600014, item.townID, item.clickX, item.clickY)); err != nil {
+		// Reconstructed main-map fixture: explicitly name the map under test.
+		// Older fixtures left body[8] zero because the parser ignored it.
+		// Exact captured bodies are covered by RequestedAreaLanding separately.
+		if err := service.handleTeleportPotion(session, buildTeleportPotionAreaClickRequest(65, 2600014, item.townID, byte(item.wantArea), item.clickX, item.clickY)); err != nil {
 			t.Fatalf("%s: %v", item.name, err)
 		}
 		splitTownTransitionAndPostState(

@@ -47,14 +47,15 @@ type Command struct {
 // Owner owns booster authorization and the atomic account-warehouse plus
 // character-inventory commit. Packet and raw-row projection stay in bridge.
 type Owner struct {
-	assets dnfrepo.AccountCharacterAssetUnitOfWork
+	settings dnfrepo.SettingsRepository
+	assets   dnfrepo.AccountCharacterAssetUnitOfWork
 }
 
 func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.AccountAssets == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{assets: repositories.AccountAssets}, nil
+	return &Owner{settings: repositories.Settings, assets: repositories.AccountAssets}, nil
 }
 
 func (o *Owner) Open(ctx context.Context, command Command) error {
@@ -127,6 +128,9 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		accountInventory.AccountID = accountID
 		if accountInventory.Slots == nil {
 			accountInventory.Slots = make(map[string]dnfrepo.ItemStack)
+		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
 

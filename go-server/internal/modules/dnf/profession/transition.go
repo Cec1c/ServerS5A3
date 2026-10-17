@@ -58,6 +58,19 @@ func Encode(first byte, awakening byte) (byte, error) {
 	return awakening<<4 | first, nil
 }
 
+// CheckClassChangePrecondition 判断一次 class change 请求能否作用在当前 grow 编码上，
+// 判据与 PlanTransition 的 KindClassChange 前置完全一致：只认 chain type 1、目标非 0，
+// 且角色仍处于未转职（first==0）、未觉醒（awakening==0）状态。它只做状态判断，不依赖
+// character/*.chr 的 profile（那是“该职业是否存在这个分支”的问题），因此任务接取预检
+// 与结算共用这一处规则，不各自维护位掩码。
+func CheckClassChangePrecondition(current byte, request Request) error {
+	first, awakening := Decode(current)
+	if request.Kind != KindClassChange || request.ChainType != 1 || request.GrowNumber == 0 || first != 0 || awakening != 0 {
+		return fmt.Errorf("%w: class change current=0x%02x target=%d", ErrTransitionOutOfStep, current, request.GrowNumber)
+	}
+	return nil
+}
+
 // CheckAwakeningPrecondition 判断一次 awakening 请求能否作用在当前 grow 编码上，判据与
 // PlanTransition 的 KindAwakening 前置完全一致：只认 chain type 2、目标 1..2，且目标必须
 // 正好是当前觉醒阶段的下一个（target == awakening+1）。它只做状态判断，不依赖

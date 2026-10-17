@@ -178,7 +178,7 @@ func currentCeraShopPersonalCargoUpgradeTarget(definition dungeonDropItemDefinit
 	const (
 		firstPersonalCargoUpgradeSlots = 24
 		personalCargoUpgradeStep       = 16
-		maximumPersonalCargoUpgrade    = 200
+		maximumPersonalCargoUpgrade    = 264
 	)
 	target := firstPersonalCargoUpgradeSlots + tier*personalCargoUpgradeStep
 	if target > maximumPersonalCargoUpgrade {
@@ -195,6 +195,18 @@ func (c *pvfCeraShopCatalog) isAccountCargoUpgradeTool(definition dungeonDropIte
 		return false
 	}
 	cleanPath := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(definition.PVFPath, "\\", "/")))
+	c.loadAccountCargoUpgrades()
+	if c.accountCargoItems[definition.ItemID] {
+		return true
+	}
+	// 新版工具已移出旧目录；明确的道具名也须进入升级校验，配置异常时拒绝，不能发进背包。
+	if c.source != nil {
+		if document, err := parseDungeonCardPVFDocument(c.source, definition.PVFPath); err == nil {
+			if name, ok := document.Text("name"); ok && strings.TrimSpace(name) == "帐号金库升级工具" {
+				return true
+			}
+		}
+	}
 	return path.Ext(cleanPath) == ".stk" && strings.Contains(cleanPath, "cash/chn_account_cargo/account_cargo")
 }
 
@@ -205,9 +217,7 @@ func (c *pvfCeraShopCatalog) isAccountCargoUpgradeTool(definition dungeonDropIte
 // supplied the requested Cera product; neither a client field nor a static
 // commodity-ID map can turn an ordinary item into a warehouse upgrade.
 func (c *pvfCeraShopCatalog) personalCargoUpgradeTarget(definition dungeonDropItemDefinition) (uint16, bool) {
-	if target, isUpgrade := currentCeraShopPersonalCargoUpgradeTarget(definition); isUpgrade {
-		return target, true
-	}
+	legacyTarget, knownPath := currentCeraShopPersonalCargoUpgradeTarget(definition)
 	if c == nil || c.source == nil || definition.Kind != dungeonDropItemStackable {
 		return 0, false
 	}
@@ -217,13 +227,16 @@ func (c *pvfCeraShopCatalog) personalCargoUpgradeTarget(definition dungeonDropIt
 	}
 	document, err := parseDungeonCardPVFDocument(c.source, definition.PVFPath)
 	if err != nil {
-		return 0, false
+		return currentCeraShopPersonalCargoUpgradeTarget(definition)
 	}
 	name, nameFound := document.Text("name")
-	if !nameFound || strings.TrimSpace(name) != "金库升级工具" {
+	if !knownPath && (!nameFound || strings.TrimSpace(name) != "金库升级工具") {
 		return 0, false
 	}
 	explain, explainFound := document.Text("explain")
+	if !explainFound && knownPath {
+		return legacyTarget, true
+	}
 	target, valid := currentCeraShopPersonalCargoTargetFromExplain(explain)
 	if !explainFound || !valid {
 		// This is positively a warehouse tool but its target is not a current
@@ -238,7 +251,7 @@ func currentCeraShopPersonalCargoTargetFromExplain(explain string) (uint16, bool
 	const (
 		prefix = "可以使金库的空间增加到"
 		suffix = "格"
-		max    = uint64(200)
+		max    = uint64(264)
 	)
 	clean := strings.TrimSpace(explain)
 	if !strings.HasPrefix(clean, prefix) {
@@ -325,6 +338,9 @@ func currentCeraShopPrepareContainerUpgrades(
 			lastMainCommodityID = purchase.Product.CommodityID
 		}
 		if purchase.PersonalCargoUpgradeTarget != 0 {
+			if purchase.PersonalCargoUpgradeFrom != 0 && purchase.PersonalCargoUpgradeFrom != targetSlots {
+				return dnfrepo.SettingsRecord{}, currentCeraShopContainerUpgradeResult{}, false, errCurrentCeraShopProductUnavailable
+			}
 			if purchase.PersonalCargoUpgradeTarget <= targetSlots {
 				return dnfrepo.SettingsRecord{}, currentCeraShopContainerUpgradeResult{}, false, fmt.Errorf("%w: commodity=%d target_slots=%d current_slots=%d", errCurrentCeraShopProductUnavailable, purchase.Product.CommodityID, purchase.PersonalCargoUpgradeTarget, targetSlots)
 			}
@@ -493,7 +509,7 @@ func grantCurrentCeraShopProductAt(inventory *dnfrepo.InventoryRecord, definitio
 			appendTouched(uint16(slot))
 		}
 	}
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForInventory(inventory)
 	// 目录负责分类；这里仍使用调用方提供的合法段，保持既有直接发放接口。
 	policy.Start, policy.End = definition.SlotStart, definition.SlotEnd
 	for _, slot := range policy.MergeSlots() {

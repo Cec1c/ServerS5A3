@@ -303,6 +303,7 @@ func SaveInventoryFieldsScoped(
 	fields []InventoryField,
 	keys InventorySlotDeltaKeys,
 ) error {
+	record.ContainerState = nil
 	if InventorySaveScopeMode() != SaveScopeSlot {
 		return SaveInventoryFields(ctx, repo, record, fields...)
 	}

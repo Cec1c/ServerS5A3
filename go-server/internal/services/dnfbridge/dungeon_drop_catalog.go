@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -43,24 +45,28 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
-	ItemID            uint32
-	Kind              dungeonDropItemKind
-	PVFPath           string
-	AttachType        string
-	EquipmentType     string
-	Grade             int64
-	StackableType     string
-	EquipmentEffectID uint16
-	StackLimit        int64
-	SlotStart         int16
-	SlotEnd           int16
-	Durability        uint16
-	ExpirationDate    time.Time
-	UsablePeriodDays  int64
-	DailyDeleteItem   bool
-	Price             int64
-	PriceFound        bool
-	ActionType        string
+	ItemID                   uint32
+	Kind                     dungeonDropItemKind
+	PVFPath                  string
+	AttachType               string
+	ImpossibleContents       []string
+	EquipmentType            string
+	Grade                    int64
+	Rarity                   int64
+	RandomOption             int64
+	StackableType            string
+	EquipmentEffectID        uint16
+	StackLimit               int64
+	SlotStart                int16
+	SlotEnd                  int16
+	Durability               uint16
+	ExpirationDate           time.Time
+	GiftBoxExpirationHistory []uint32
+	UsablePeriodDays         int64
+	DailyDeleteItem          bool
+	Price                    int64
+	PriceFound               bool
+	ActionType               string
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -101,14 +107,23 @@ type dungeonDropWeightedItem struct {
 // not decide how often a monster drops, allocate a scene slot, or mutate the
 // player's inventory. Those are separate runtime/asset transactions.
 type pvfDungeonDropCatalog struct {
+	despairPoolLoaded bool
+	despairPools      [2]map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
+	despairPoolErr    error
+	chronicleCatalogCache
+
 	mu sync.Mutex
 
-	source       dnfpvf.Source
-	monsterPaths map[int64]string
-	itemRefs     map[uint32]dungeonDropItemReference
-	stackableIDs []uint32
-	poolCache    map[int64][]dungeonMonsterDropPoolEntry
-	itemCache    map[uint32]dungeonDropItemDefinition
+	source         dnfpvf.Source
+	monsterPaths   map[int64]string
+	itemRefs       map[uint32]dungeonDropItemReference
+	stackableIDs   []uint32
+	giftBoxHistory map[string]currentGiftBoxHistoryRow
+	poolCache      map[int64][]dungeonMonsterDropPoolEntry
+	itemCache      map[uint32]dungeonDropItemDefinition
+
+	// 装备合成目录与本份PVF生命周期一致，独立于掉落概率和物品投影缓存。
+	equipmentCompoundCatalog *dnfequipmentcompound.Catalog
 
 	// The generic pools deliberately stay separate from itemCache.  Loading
 	// every eligible runtime PVF item only happens once, on the first actual
@@ -168,13 +183,18 @@ func newPVFDungeonDropCatalog(source dnfpvf.Source) (*pvfDungeonDropCatalog, err
 			itemRefs[uint32(itemID)] = dungeonDropItemReference{kind: dungeonDropItemEquipment, path: itemPath}
 		}
 	}
+	history, err := loadCurrentGiftBoxExpirationHistory(source)
+	if err != nil {
+		return nil, err
+	}
 	return &pvfDungeonDropCatalog{
-		source:       source,
-		monsterPaths: monsterPaths,
-		itemRefs:     itemRefs,
-		stackableIDs: append([]uint32(nil), stackableIDs...),
-		poolCache:    make(map[int64][]dungeonMonsterDropPoolEntry),
-		itemCache:    make(map[uint32]dungeonDropItemDefinition),
+		source:         source,
+		monsterPaths:   monsterPaths,
+		itemRefs:       itemRefs,
+		stackableIDs:   append([]uint32(nil), stackableIDs...),
+		giftBoxHistory: history,
+		poolCache:      make(map[int64][]dungeonMonsterDropPoolEntry),
+		itemCache:      make(map[uint32]dungeonDropItemDefinition),
 	}, nil
 }
 
@@ -253,6 +273,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 	}
 	definition := dungeonDropItemDefinition{ItemID: itemID, Kind: reference.kind, PVFPath: docPath}
 	definition.AttachType, _ = document.Text("attach type")
+	definition.ImpossibleContents = document.Texts("impossible contents")
 	if price, found := document.Int("price"); found && price >= 0 {
 		definition.Price = price
 		definition.PriceFound = true
@@ -273,6 +294,8 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		definition.SlotStart, definition.SlotEnd = 9, 64
 		definition.EquipmentType, _ = document.Text("equipment type")
 		definition.Grade, _ = document.Int("grade")
+		definition.Rarity, _ = document.Int("rarity")
+		definition.RandomOption, _ = document.Int("random option")
 		for _, name := range []string{"durability", "maximum durability", "max durability"} {
 			value, found := document.Int(name)
 			if !found || value <= 0 {
@@ -303,6 +326,12 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		if err := parseCurrentDamageFontDefinition(document, &definition); err != nil {
 			return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s damage font: %w", itemID, docPath, err)
 		}
+	}
+	if row, found := c.giftBoxHistory[strings.ToLower(docPath)]; found {
+		if definition.Kind != dungeonDropItemStackable || definition.StackableType != row.kind || definition.DailyDeleteItem || definition.UsablePeriodDays > 0 || currentPVFExpirationUnix(definition.ExpirationDate) != itemexpiration.GiftBoxHistoryDeadline {
+			return dungeonDropItemDefinition{}, fmt.Errorf("item=%d giftbox provenance does not match current definition", itemID)
+		}
+		definition.GiftBoxExpirationHistory = append([]uint32(nil), row.history...)
 	}
 	c.itemCache[itemID] = definition
 	return definition, nil

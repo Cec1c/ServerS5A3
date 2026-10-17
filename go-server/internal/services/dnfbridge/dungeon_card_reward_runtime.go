@@ -24,6 +24,9 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if s == nil || session == nil || runtime == nil || session.dungeon.runtime != runtime {
 		return errDungeonCardAssetOwnerUnavailable
 	}
+	if currentDungeonUsesDedicatedTowerResult(runtime) {
+		return nil
+	}
 	if runtime.settlementCardRewardState != nil {
 		return nil
 	}
@@ -60,6 +63,31 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		return fmt.Errorf("%w: dungeon_level=%d", errDungeonCardPVFSectionMissing, dungeonLevel)
 	}
 
+	dimensionCatalog, err := currentDungeonDimensionDrops(monsterCatalog)
+	if err != nil {
+		return err
+	}
+	_, dimensionChronicleActive := currentDungeonDimensionTier(dimensionCatalog, runtime.Dungeon.ID, runtime.Character.Level)
+	dimensionChronicleActive = dimensionChronicleActive && len(dimensionCatalog.ChronicleByCareer) > 0
+	now := s.gameplayNow().UTC()
+	randomCardItem := func(rollRNG *currentDungeonDropLCG, owner uint16) (dungeonCardItemReward, bool, error) {
+		if !dimensionChronicleActive {
+			return currentDungeonRandomCardItem(rollRNG, itemCatalog, dungeonLevel, itemDropReference, now)
+		}
+		character := runtime.Character
+		if owner != session.selectedCharacterID {
+			var loadErr error
+			character, loadErr = s.loadDimensionDropCharacter(owner)
+			if loadErr != nil {
+				return dungeonCardItemReward{}, false, loadErr
+			}
+		}
+		job, parseErr := strconv.ParseUint(character.Job, 10, 8)
+		if parseErr != nil {
+			return dungeonCardItemReward{}, false, fmt.Errorf("异界翻牌角色职业无效：%q", character.Job)
+		}
+		return currentDungeonRandomDimensionCardItem(rollRNG, itemCatalog, dimensionCatalog, runtime.Dungeon.ID, character.Level, byte(job), byte(character.Stats["grow_type"])&0x0f, now)
+	}
 	rng := newCurrentDungeonDropLCG(runtime.Seed)
 	var visit *runtimeDungeonRoomVisit
 	if runtime.Session != nil {
@@ -70,26 +98,13 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 			}
 		}
 	}
-	now := s.gameplayNow().UTC()
 	freeGold := currentDungeonCardGoldAmount(rng, goldReference, int(runtime.Request.Difficulty))
-	freeItem, freeItemFound, err := currentDungeonRandomCardItem(
-		rng,
-		itemCatalog,
-		dungeonLevel,
-		itemDropReference,
-		now,
-	)
+	freeItem, freeItemFound, err := randomCardItem(rng, session.selectedCharacterID)
 	if err != nil {
 		return err
 	}
 	paidGold := currentDungeonCardGoldAmount(rng, goldReference, int(runtime.Request.Difficulty))
-	paidItem, paidItemFound, err := currentDungeonRandomCardItem(
-		rng,
-		itemCatalog,
-		dungeonLevel,
-		itemDropReference,
-		now,
-	)
+	paidItem, paidItemFound, err := randomCardItem(rng, session.selectedCharacterID)
 	if err != nil {
 		return err
 	}
@@ -123,7 +138,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 			// their room RNG, so order of op46 requests cannot change the card.
 			bonusRNG := newCurrentDungeonDropLCG(runtime.Seed ^ (uint32(owner) * 0x9E3779B9))
 			bundle := dungeonCardRewardBundle{Gold: currentDungeonCardGoldAmount(bonusRNG, goldReference, int(runtime.Request.Difficulty))}
-			item, found, err := currentDungeonRandomCardItem(bonusRNG, itemCatalog, dungeonLevel, itemDropReference, now)
+			item, found, err := randomCardItem(bonusRNG, owner)
 			if err != nil {
 				return dungeonCardRewardBundle{}, err
 			}
@@ -141,7 +156,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		blackDiamond = partyBlackDiamondCardForOwner(runtime, session.selectedCharacterID)
 	} else if premiumErr == nil && premium.Active(account, premium.TypeBlackDiamond, now) {
 		blackDiamond.Gold = currentDungeonCardGoldAmount(rng, goldReference, int(runtime.Request.Difficulty))
-		item, found, rollErr := currentDungeonRandomCardItem(rng, itemCatalog, dungeonLevel, itemDropReference, now)
+		item, found, rollErr := randomCardItem(rng, session.selectedCharacterID)
 		if rollErr != nil {
 			return rollErr
 		}
@@ -273,13 +288,19 @@ func currentDungeonRandomCardItem(
 	if !found || itemID == 0 {
 		return dungeonCardItemReward{}, false, nil
 	}
+	item, err := currentDungeonCardItemReward(rng, catalog, itemID, now)
+	return item, err == nil, err
+}
+
+// 指定物品与普通翻牌共用实例初始化，保留封装、品级、耐久和放置策略。
+func currentDungeonCardItemReward(rng *currentDungeonDropLCG, catalog *pvfDungeonDropCatalog, itemID uint32, now time.Time) (dungeonCardItemReward, error) {
 	definition, err := catalog.ResolveItem(itemID)
 	if err != nil {
-		return dungeonCardItemReward{}, false, err
+		return dungeonCardItemReward{}, err
 	}
 	definition, err = currentPVFItemDefinitionForGrantAt(definition, now)
 	if err != nil {
-		return dungeonCardItemReward{}, false, err
+		return dungeonCardItemReward{}, err
 	}
 	extra := map[string]string{
 		"source":    "dungeon_card_reward",
@@ -318,7 +339,7 @@ func currentDungeonRandomCardItem(
 		AllowQuickSlots:  policy.AllowQuickSlots,
 		PreferQuickSlots: policy.PreferQuickSlots,
 		StackLimit:       definition.StackLimit,
-	}, true, nil
+	}, nil
 }
 
 func currentDungeonCardGoldAmount(
@@ -360,6 +381,7 @@ func (s *Service) selectCurrentDungeonCardLocked(
 	source string,
 ) error {
 	if session == nil || runtime == nil || session.dungeon.runtime != runtime ||
+		currentDungeonUsesDedicatedTowerResult(runtime) ||
 		!runtime.settlementCardLayoutSent ||
 		runtime.settlementPhase < currentDungeonSettlementPhaseCardsRevealed ||
 		side >= dungeonCardSideCount || memberIndex >= dungeonCardSlotsPerSide {
@@ -490,8 +512,23 @@ func (s *Service) commitCurrentDungeonCardSideRewardLocked(
 	side dungeonCardSide,
 	source string,
 ) error {
-	if runtime == nil || side >= dungeonCardSideCount ||
-		runtime.settlementCardSideRewardCommitted[side] {
+	if runtime == nil || side >= dungeonCardSideCount {
+		return nil
+	}
+	if side == dungeonCardSideFree && session != nil {
+		// op574 can open a native quest-completion page. The pre-settlement
+		// snapshot is consumed before the score/card UI replaces that page;
+		// re-project the still-active story quest after the free card commits.
+		// This is also reached on a card replay, without granting its reward twice.
+		defer func() {
+			if err := s.sendCurrentDungeonStoryQuestAfterFreeCardLocked(session, runtime); err != nil {
+				s.logGameEvent(session, "game-dungeon-story-quest-after-card-snapshot-deferred",
+					"source", source, "char_id", session.selectedCharacterID,
+					"dungeon_id", runtime.Dungeon.ID, "error", err)
+			}
+		}()
+	}
+	if runtime.settlementCardSideRewardCommitted[side] {
 		return nil
 	}
 	if !runtime.settlementCardSideSelectionKnown[side] ||

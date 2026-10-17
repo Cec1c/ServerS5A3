@@ -265,7 +265,7 @@ func (r csharpLegacyUserInfoReader) writeCSharpUserInfoSubtype0Tail(w *packetWri
 	w.writeUint16(channelDisplayMode)
 	w.writeByte(channelType)
 	w.writeUint16(channelID)
-	w.writeByte(rowStatU8(addition, character, "skill_tree_index", 0))
+	w.writeByte(r.skillTreeWireIndex(character))
 	w.writeByte(rowU8(tail, "is_return_user", 0))
 	w.writeByte(rowU8(tail, "link_slot_enabled", byte(numericCharacterStatValue(character, "link_slot_enabled"))))
 	w.writeByte(rowU8(tail, "link_type_a", 0))

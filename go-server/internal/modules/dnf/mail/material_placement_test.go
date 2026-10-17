@@ -17,7 +17,7 @@ func TestMailMaterialFullTabKeepsAttachmentAndGold(t *testing.T) {
 	repos := dnfrepomemory.NewMemoryGroup()
 	mustSaveCharacter(t, repos, dnfrepo.CharacterRecord{CharacterID: "77", Stats: map[string]int64{"gold": 10}})
 	slots := map[string]dnfrepo.ItemStack{}
-	for slot := 121; slot <= 176; slot++ {
+	for slot := 121; slot <= 152; slot++ {
 		slots["0:"+strconv.Itoa(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 99}
 	}
 	for slot := 3; slot <= 8; slot++ {
@@ -66,7 +66,7 @@ func TestMailMaterialPlacementStaysInCategory(t *testing.T) {
 	})
 	t.Run("full_material_tab_falls_back_to_empty_quick_slots", func(t *testing.T) {
 		inventory := dnfrepo.InventoryRecord{Slots: map[string]dnfrepo.ItemStack{}}
-		for slot := 121; slot <= 176; slot++ {
+		for slot := 121; slot <= 152; slot++ {
 			inventory.Slots["0:"+strconv.Itoa(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 99}
 		}
 		before := dnfrepo.CloneInventory(inventory)
@@ -79,6 +79,46 @@ func TestMailMaterialPlacementStaysInCategory(t *testing.T) {
 			t.Fatal("回落改变已有材料页")
 		}
 	})
+}
+
+func TestMailClaimUsesPersistedExpansionForLockedMaterialCells(t *testing.T) {
+	ctx := context.Background()
+	repos := dnfrepomemory.NewMemoryGroup()
+	mustSaveCharacter(t, repos, dnfrepo.CharacterRecord{CharacterID: "77", Stats: map[string]int64{"gold": 10}})
+	slots := map[string]dnfrepo.ItemStack{}
+	for slot := 121; slot <= 152; slot++ {
+		slots["0:"+strconv.Itoa(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 99}
+	}
+	for slot := 3; slot <= 8; slot++ {
+		slots["0:"+strconv.Itoa(slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 99}
+	}
+	if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "77", Slots: slots}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Settings.Save(ctx, dnfrepo.SettingsRecord{
+		Scope:  dnfrepo.CharacterContainerStateScope("77"),
+		Values: map[string]string{"main_list_param16": "8", "avatar_list_param16": "0", "personal_cargo_list_param16": "8"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mail := dnfrepo.MailRecord{MailID: "1", Gold: 100, Attachments: []dnfrepo.MailAttachment{{ItemID: 3175, Count: 1}}}
+	if err := repos.Mailbox.Save(ctx, dnfrepo.MailboxRecord{CharacterID: "77", Mails: map[string]dnfrepo.MailRecord{"1": mail}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHandler().Handle(ctx, alignedcmd.Request{Opcode: uint16(dnfenum.CmdPacketMailboxExtractItem), SelectedCharacterID: 77,
+		Repositories: repos, MailboxItemResolver: mailboxClaimTestResolver(121, 176, 99), Body: currentMailIDList(1)}); err != nil {
+		t.Fatal(err)
+	}
+	box, _, _ := repos.Mailbox.Load(ctx, "77")
+	character, _, _ := repos.Character.Load(ctx, "77")
+	inventory, _, _ := repos.Inventory.Load(ctx, "77")
+	if !box.Mails["1"].Claimed || character.Stats["gold"] != 110 || inventory.Slots["0:153"].ItemID != 3175 || inventory.Slots["0:153"].Count != 1 {
+		t.Fatalf("已购扩容应允许附件进入新增材料格并原子领取金币: mail=%+v gold=%d slots=%+v", box.Mails["1"], character.Stats["gold"], inventory.Slots)
+	}
+	delete(inventory.Slots, "0:153")
+	if !reflect.DeepEqual(inventory.Slots, slots) {
+		t.Fatal("领取改变了既有物品")
+	}
 }
 
 func TestMailPlacementQuickSlotsRequireExplicitEligibility(t *testing.T) {

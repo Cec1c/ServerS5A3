@@ -8,6 +8,23 @@ type SlotPolicy struct {
 	Start, End       int16
 	AllowQuickSlots  bool
 	PreferQuickSlots bool
+	ContainerState   *dnfrepo.CharacterContainerState
+}
+
+// ForInventory 在原分类规则上附加角色容量，不改变事务、分页和快捷栏优先级。
+func (p SlotPolicy) ForInventory(record *dnfrepo.InventoryRecord) SlotPolicy {
+	if record != nil {
+		p.ContainerState = record.ContainerState
+	}
+	return p
+}
+
+func (p SlotPolicy) Contains(listType byte, slot int16) bool {
+	if listType != p.ListType || !SlotOpen(listType, slot, p.ContainerState) {
+		return false
+	}
+	return (slot >= p.Start && slot <= p.End) ||
+		(listType == dnfrepo.MainInventoryListType && slot >= 3 && slot <= 8 && (p.AllowQuickSlots || p.PreferQuickSlots))
 }
 
 // MergeSlots 先查已有同身份堆栈。快捷格的序号较小，参照 86 先查快捷格再查分类页。
@@ -30,6 +47,9 @@ func (p SlotPolicy) slots(merging bool) []int16 {
 	appendRange := func(start, end int16) {
 		for value := int(start); value <= int(end); value++ {
 			slot := int16(value)
+			if !SlotOpen(p.ListType, slot, p.ContainerState) {
+				continue
+			}
 			// 账号晶块/灵魂格由专属路由管理，不允许自动发放写入角色背包的同号格。
 			if dnfrepo.IsAccountSharedInventorySlot(p.ListType, slot) {
 				continue

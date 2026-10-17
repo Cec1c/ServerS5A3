@@ -271,8 +271,18 @@ func (s *Service) syncCurrentSceneSkillPointLedger(
 		return dnfrepo.SkillRecord{}, false, err
 	}
 	_, changed, err := syncCurrentSkillPointState(record.Points, target)
-	if err != nil || !changed {
+	if err != nil {
 		return record, false, err
+	}
+	if record.Trees.Expanded {
+		_, otherChanged, syncErr := syncCurrentSkillPointState(record.Trees.Other.Points, target)
+		if syncErr != nil {
+			return record, false, syncErr
+		}
+		changed = changed || otherChanged
+	}
+	if !changed {
+		return record, false, nil
 	}
 	owner, err := currentSceneSkillOwner(repos)
 	if err != nil {
@@ -286,8 +296,8 @@ func (s *Service) syncCurrentSceneSkillPointLedger(
 }
 
 func (s *Service) ensureCurrentSceneSkillLayout(ctx context.Context, repos dnfrepo.Group, character dnfrepo.CharacterRecord, job byte, catalog *dnfskill.Table, record dnfrepo.SkillRecord) (dnfrepo.SkillRecord, dnfrepo.SkillLayout, bool, error) {
-	if existing := record.Layouts[currentSkillInfoTreeIndex]; len(existing) > 0 {
-		layout, err := skillcmd.BuildCurrentSkillLayout(catalog, job, currentSkillInfoTreeIndex, record.Skills, existing)
+	if existing := record.Layouts[dnfrepo.ActiveSkillTree(record)]; len(existing) > 0 {
+		layout, err := skillcmd.BuildCurrentSkillLayout(catalog, job, dnfrepo.ActiveSkillTree(record), record.Skills, existing)
 		return record, layout, false, err
 	}
 	initial, err := s.initialCharacterSkills(ctx, job)
@@ -295,13 +305,13 @@ func (s *Service) ensureCurrentSceneSkillLayout(ctx context.Context, repos dnfre
 		return dnfrepo.SkillRecord{}, nil, false, fmt.Errorf("load job %d initial skills for layout: %w", job, err)
 	}
 	build := func(current dnfrepo.SkillRecord) (dnfrepo.SkillLayout, error) {
-		if existing := current.Layouts[currentSkillInfoTreeIndex]; len(existing) > 0 {
-			return skillcmd.BuildCurrentSkillLayout(catalog, job, currentSkillInfoTreeIndex, current.Skills, existing)
+		if existing := current.Layouts[dnfrepo.ActiveSkillTree(record)]; len(existing) > 0 {
+			return skillcmd.BuildCurrentSkillLayout(catalog, job, dnfrepo.ActiveSkillTree(record), current.Skills, existing)
 		}
 		if skillRecordMatchesPVFInitialSkills(current.Skills, initial) {
-			return skillcmd.BuildInitialSkillLayout(catalog, job, currentSkillInfoTreeIndex, current.Skills)
+			return skillcmd.BuildInitialSkillLayout(catalog, job, dnfrepo.ActiveSkillTree(record), current.Skills)
 		}
-		return skillcmd.BuildCurrentSkillLayout(catalog, job, currentSkillInfoTreeIndex, current.Skills, nil)
+		return skillcmd.BuildCurrentSkillLayout(catalog, job, dnfrepo.ActiveSkillTree(record), current.Skills, nil)
 	}
 	candidate, err := build(record)
 	if err != nil {
@@ -316,7 +326,7 @@ func (s *Service) ensureCurrentSceneSkillLayout(ctx context.Context, repos dnfre
 	}
 	return owner.EnsureLayout(ctx, dnfskill.EnsureLayoutCommand{
 		CharacterID: character.CharacterID,
-		TreeIndex:   currentSkillInfoTreeIndex,
+		TreeIndex:   dnfrepo.ActiveSkillTree(record),
 		UpdatedAt:   time.Now().UTC(),
 		Build:       build,
 	})

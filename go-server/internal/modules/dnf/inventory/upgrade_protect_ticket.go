@@ -166,11 +166,12 @@ func upgradeProtectTicketLookupActive(cmd Command) bool {
 func findUpgradeProtectTicket(
 	items map[string]dnfrepo.ItemStack,
 	cmd Command,
+	excludedSlots ...int16,
 ) (upgradeProtectTicketSelection, int, string, bool) {
 	if !upgradeProtectTicketLookupActive(cmd) {
 		return upgradeProtectTicketSelection{}, 0, "", false
 	}
-	slots := upgradeProtectTicketCandidateSlots(items, cmd)
+	slots := upgradeProtectTicketCandidateSlots(items, cmd, excludedSlots...)
 	asked := 0
 	firstErr := ""
 	for _, slot := range slots {
@@ -216,7 +217,7 @@ func findUpgradeProtectTicket(
 // 从 3 起，显式排除账号共享固定槽 —— 见文件头"扫描顺序为什么是主背包升序"。
 // 目标槽与材料槽一并排除：目标是装备（永远不可能是 stackable 券），材料槽这一轮已经
 // 被当成材料按张扣过（同一行既当材料又当保护券会把一张券扣两次）。
-func upgradeProtectTicketCandidateSlots(items map[string]dnfrepo.ItemStack, cmd Command) []int16 {
+func upgradeProtectTicketCandidateSlots(items map[string]dnfrepo.ItemStack, cmd Command, excludedSlots ...int16) []int16 {
 	slots := make([]int16, 0, len(items))
 	for key, stack := range items {
 		if stack.Count <= 0 || stack.ItemID <= 0 {
@@ -230,6 +231,16 @@ func upgradeProtectTicketCandidateSlots(items map[string]dnfrepo.ItemStack, cmd 
 			continue
 		}
 		if dnfrepo.IsAccountSharedInventorySlot(listTypeMain, slot) {
+			continue
+		}
+		excluded := false
+		for _, reserved := range excludedSlots {
+			if slot == reserved {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
 			continue
 		}
 		slots = append(slots, slot)

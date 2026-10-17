@@ -483,7 +483,8 @@ func (r *DungeonRun) validateMoveLocked(target RoomCoordinate) (DungeonRoom, err
 	if !ok {
 		return DungeonRoom{}, fmt.Errorf("%w: room=%s", ErrRoomNotFound, target)
 	}
-	if abs64(target.X-r.current.x)+abs64(target.Y-r.current.y) != 1 {
+	if abs64(target.X-r.current.x)+abs64(target.Y-r.current.y) != 1 &&
+		!roomHasWarpTarget(r.topology.rooms[r.current], target) {
 		return DungeonRoom{}, fmt.Errorf(
 			"%w: current=%s target=%s",
 			ErrRoomNotAdjacent, RoomCoordinate{X: r.current.x, Y: r.current.y}, target,
