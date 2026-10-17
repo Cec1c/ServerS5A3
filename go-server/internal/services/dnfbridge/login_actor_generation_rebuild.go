@@ -230,8 +230,9 @@ func (s *Service) armLoginActorGenerationRebuild(session *gameSession) {
 //
 // 必须同时成立：
 //   - 路由归属 + 场景已提交 + 本次进场的 type1345 ack 已经消费（= 已经越过那条会崩的边界）；
-//   - **本次会话从未布防过副本返回世代**（`townPostTransition.generation == 0`）
-//     且返回世代处于 idle、没有挂账的返回重建 —— 回城那次已经由
+//   - 本次选角开始后未布防新的城镇返回世代，且返回游标处于 idle、
+//     没有挂账的返回重建。以前选角的单调代数不属于当前 actor；
+//     本次选角之后发生的回城已经由
 //     `town_post_transition_player_state.go` 重建过 mode0/mode1，再补一份就是
 //     "把客户端绑到另一个原生对象上"（该文件 `:11-14` 的警告）。
 func loginActorGenerationRebuildOwnedLocked(session *gameSession) bool {
@@ -244,8 +245,11 @@ func loginActorGenerationRebuildOwnedLocked(session *gameSession) bool {
 		!session.initialTownLegacySceneReadyAccepted {
 		return false
 	}
-	if session.townPostTransition.generation != 0 ||
-		session.townPostTransition.stage != currentTownPostTransitionIdle {
+	session.townPostTransition.mu.Lock()
+	townOwnsActor := session.townPostTransition.generation != session.initialTownRouteTownGeneration ||
+		session.townPostTransition.stage != currentTownPostTransitionIdle
+	session.townPostTransition.mu.Unlock()
+	if townOwnsActor {
 		return false
 	}
 	if session.confirmedDungeonReturnStatePending {

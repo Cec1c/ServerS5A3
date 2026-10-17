@@ -13,6 +13,11 @@ func (s *Service) armCurrentInitialTownRoute(session *gameSession, characterID u
 	session.townMu.Lock()
 	session.completedTownSceneTailOwner = nil
 	resetCurrentTownPostTransitionPlayerState(session)
+	// History from a previous selection cannot own this new actor. Keep the
+	// counter monotonic so a later transition in this selection still wins.
+	session.townPostTransition.mu.Lock()
+	session.initialTownRouteTownGeneration = session.townPostTransition.generation
+	session.townPostTransition.mu.Unlock()
 	session.initialTownRouteCharacterID = characterID
 	session.initialTownRouteStage = currentInitialTownRouteArmed
 	session.initialTownActorSceneSnapshotSent = false

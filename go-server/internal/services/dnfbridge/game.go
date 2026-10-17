@@ -216,6 +216,8 @@ type gameSession struct {
 	initialTownSkillInfoSent             bool
 	initialTownSkillInfo                 currentSceneSkillInfoProjection
 	initialTownLegacySceneReadyAccepted  bool
+	// Snapshot of the monotonic town cursor when this selector route starts.
+	initialTownRouteTownGeneration uint64
 	// loginActorGenerationRebuildArmed 在登录路径的 legacy type1345 场景就绪 ack 上布防，
 	// loginActorGenerationRebuildSent 保证一次进场只重建一次 actor 世代。
 	// 触发面 = **ack 之后的第一条客户端游戏报文**（`handleGameStreamPacket` 在派发前取
