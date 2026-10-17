@@ -105,7 +105,8 @@ func collectChangeHostFrames(t *testing.T, session *gameSession) changeHostFrame
 
 // assertChangeHostRoster 断言一次"委任队长"之后，某个成员客户端收到的完整队伍表：
 //   - **恰好一份** op153，且是带真实 HP 的完整名单（不是 1 字节的空实时名单）；
-//   - 每个成员各一条 op9 kind0（自己的 + 队友的），两条的队伍槽位表都指向新队长 0 号位。
+//   - 每个成员各一条 op9 kind0（自己的 + 队友的），两条都保留固定槽位，
+//     队长行字段指向新队长原来的槽位（这里是 1）。
 func assertChangeHostRoster(t *testing.T, name string, session *gameSession, newLeaderID uint16) {
 	t.Helper()
 	collected := collectChangeHostFrames(t, session)
@@ -141,11 +142,11 @@ func assertChangeHostRoster(t *testing.T, name string, session *gameSession, new
 		if len(rows) != 2 {
 			t.Fatalf("%s: op9 rows=%d want 2 body=% X", name, len(rows), record)
 		}
-		if rows[0].uid != newLeaderID || rows[0].slot != 0 {
-			t.Fatalf("%s: op9 slot0=%+v want the new leader %d body=% X", name, rows[0], newLeaderID, record)
+		if rows[0].slot != 0 || rows[0].uid != 1001 || rows[1].slot != 1 || rows[1].uid != newLeaderID {
+			t.Fatalf("%s: op9 fixed slots=%+v want former leader 1001 at 0 and new leader %d at 1 body=% X", name, rows, newLeaderID, record)
 		}
-		if leaderSlot != 0 {
-			t.Fatalf("%s: op9 leader slot byte=%d want 0 body=% X", name, leaderSlot, record)
+		if leaderSlot != 1 || rows[leaderSlot].uid != newLeaderID {
+			t.Fatalf("%s: op9 leader slot byte=%d uid=%d want fixed slot 1 for new leader %d body=% X", name, leaderSlot, rows[leaderSlot].uid, newLeaderID, record)
 		}
 		actorKey := uint16(record[4]) | uint16(record[5])<<8
 		if actorKey != 1001 && actorKey != 1002 {

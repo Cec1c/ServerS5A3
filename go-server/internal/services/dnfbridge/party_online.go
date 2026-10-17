@@ -676,35 +676,10 @@ func (s *Service) handleOnlineChangePartyMemberPosition(session *gameSession, ty
 	if !sourceOK || fromMember.UserID == 0 || fromMember.UserID == snapshot.Leader {
 		return s.sendPartyCommandFailure(session, typ, walkoutPartyFailureInvalid)
 	}
-	fromSlot := byte(0xff)
-	for _, member := range snapshot.Members {
-		if member.UserID == fromMember.UserID {
-			fromSlot = member.Slot
-			break
-		}
-	}
+	fromSlot := fromMember.Slot
 	toSlot := parsed.Position
 	if destination, destinationOK := runtimePartyMemberBySlot(visibleState, parsed.Position); destinationOK && destination.UserID != 0 {
-		for _, member := range snapshot.Members {
-			if member.UserID == destination.UserID {
-				toSlot = member.Slot
-				break
-			}
-		}
-	} else {
-		for candidate := byte(1); candidate < 4; candidate++ {
-			occupied := false
-			for _, member := range snapshot.Members {
-				if member.Slot == candidate {
-					occupied = true
-					break
-				}
-			}
-			if !occupied {
-				toSlot = candidate
-				break
-			}
-		}
+		toSlot = destination.Slot
 	}
 	result := manager.Reposition(identity.character, identity.generation, fromSlot, toSlot)
 	if !result.OK {
@@ -1548,12 +1523,10 @@ func (s *Service) sendRuntimePartyRealtimeInfoLocal(session *gameSession, state 
 // 客户端把 op153 与 op9 名册按**同一条队伍槽位顺序**解释：同族实现（S4A21
 // `PartyRealtimeInfoBuilder` 与 `PartyInfoNotiBuilder`）两者都取自同一个
 // `party.MembersBySlot()`，写进 op153 的 slot 字节就是成员自己的 `SlotIndex`。
-// 本仓库模块侧的 `party.BuildSingleMemberRealtimeInfo` 写的是**成员切片下标**，
-// 而 op9 的每一行由 `runtimePartyMembers` 产出（队长固定第一行，见该函数注释）。
-// 一旦这两份顺序不一致（委任队长/调整位置之后成员顺序不再等于"队长优先"），
-// 客户端就会把血条绑到错误的队伍框行上：现场（2026-09-25）症状正是
-// "转让队长后血条 UI 出错、两个队员的框互相交换"。
-// 因此顺序统一在 bridge 侧决定（模块侧包体形状不变），op153 与 op9 永远同序。
+// 本仓库模块侧的 `party.BuildSingleMemberRealtimeInfo` 写成员自己的 `Slot`；
+// bridge 侧在发送前统一用 `runtimePartyMembers` 的权威顺序。全零旧调用仍按
+// leader-first 兼容顺序补成 0..n-1；固定槽位状态则按 `Slot` 排序并保留空洞。
+// op153 与 op9 使用同一份顺序，避免委任队长或调整位置后把血条绑定到错误行。
 func runtimePartyRealtimeInfoBody(state alignedcmd.PartyState) []byte {
 	return party.BuildSingleMemberRealtimeInfo(canonicalRuntimePartyStateForRealtimeInfo(state))
 }
@@ -1981,6 +1954,7 @@ func runtimePartyMember(session *gameSession, state alignedcmd.PartyState) align
 	}
 	for _, existing := range state.Members {
 		if existing.UserID == session.selectedCharacterID {
+			member.Slot = existing.Slot
 			if existing.UserState != 0 {
 				member.UserState = existing.UserState
 			}
@@ -2028,10 +2002,12 @@ func cloneRuntimePartyState(state alignedcmd.PartyState) alignedcmd.PartyState {
 
 func runtimePartyMemberBySlot(state alignedcmd.PartyState, slot byte) (alignedcmd.PartyMemberState, bool) {
 	members := runtimePartyMembers(state)
-	if int(slot) >= len(members) {
-		return alignedcmd.PartyMemberState{}, false
+	for _, member := range members {
+		if member.Slot == slot {
+			return member, true
+		}
 	}
-	return members[int(slot)], true
+	return alignedcmd.PartyMemberState{}, false
 }
 
 func runtimePartyMembers(state alignedcmd.PartyState) []alignedcmd.PartyMemberState {
@@ -2043,9 +2019,15 @@ func runtimePartyMembers(state alignedcmd.PartyState) []alignedcmd.PartyMemberSt
 	for _, member := range state.Members {
 		members = appendRuntimePartyMember(members, member, maxMembers)
 	}
-	// The current client has no independent leader field in its party member
-	// table: slot zero is the leader. Keep the authoritative leader first for
-	// every roster, realtime, endpoint and dungeon projection.
+	if runtimePartyMembersHaveFixedSlots(members) {
+		members = normalizeRuntimePartyMemberSlots(members, maxMembers)
+		sort.SliceStable(members, func(i, j int) bool { return members[i].Slot < members[j].Slot })
+		return members
+	}
+	// Legacy callers that supplied only zero-valued Slot fields keep the
+	// historical leader-first projection. States carrying a fixed slot from
+	// StateFor follow the slot-preserving branch above; the leader remains a
+	// separate identity in the state.
 	if state.UserID != 0 {
 		for index := 1; index < len(members); index++ {
 			if members[index].UserID != state.UserID {
@@ -2055,6 +2037,41 @@ func runtimePartyMembers(state alignedcmd.PartyState) []alignedcmd.PartyMemberSt
 			copy(members[1:index+1], members[0:index])
 			members[0] = leader
 			break
+		}
+	}
+	for index := range members {
+		members[index].Slot = byte(index)
+	}
+	return members
+}
+
+func runtimePartyMembersHaveFixedSlots(members []alignedcmd.PartyMemberState) bool {
+	for _, member := range members {
+		if member.Slot != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeRuntimePartyMemberSlots keeps unique fixed slots and assigns the
+// first free slot only to duplicates or out-of-range values. Production states
+// come from StateFor and are already unique; this protects manual/legacy state
+// from collapsing several members onto slot zero.
+func normalizeRuntimePartyMemberSlots(members []alignedcmd.PartyMemberState, maxMembers byte) []alignedcmd.PartyMemberState {
+	used := make([]bool, int(maxMembers))
+	nextFree := byte(0)
+	for index := range members {
+		slot := members[index].Slot
+		if int(slot) >= len(used) || used[slot] {
+			for int(nextFree) < len(used) && used[nextFree] {
+				nextFree++
+			}
+			slot = nextFree
+			members[index].Slot = slot
+		}
+		if int(slot) < len(used) {
+			used[slot] = true
 		}
 	}
 	return members

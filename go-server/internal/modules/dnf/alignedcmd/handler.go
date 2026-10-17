@@ -788,11 +788,14 @@ type PartyState struct {
 }
 
 // PartyMemberState 是已验证队伍包里能安全写出的队员槽位状态。
+// Slot 是 RuntimePartyMember.Slot 的投影：0 是合法槽位；多个成员同时为 0
+// 表示旧调用方没有提供固定槽位，bridge 会按输入顺序补成 0..n-1。
 type PartyMemberState struct {
 	UserID    uint16
 	UserState byte
 	HPPercent byte
 	MPPercent byte
+	Slot      byte
 }
 
 // Result 表示模块化分流后的处理结果。

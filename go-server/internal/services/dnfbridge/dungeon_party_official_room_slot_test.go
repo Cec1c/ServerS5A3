@@ -30,7 +30,9 @@ func TestOfficial249PartyRoomTableAfterHostTransferFitsCurrentReader(t *testing.
 		session.conn.(*bufferConn).write.Reset()
 	}
 	f.selectDungeon(t, f.follower, 700)
-	expected := []uint16{inviteAcceptFollowerCharacterID, inviteAcceptLeaderCharacterID}
+	// Fixed slots are not renumbered by the transfer: char99 keeps slot zero and
+	// char100 keeps slot one even though char100 is now the authoritative leader.
+	expected := []uint16{inviteAcceptLeaderCharacterID, inviteAcceptFollowerCharacterID}
 	total := 0
 	for _, session := range []*gameSession{f.leader, f.follower} {
 		wire := session.conn.(*bufferConn).write.Bytes()
@@ -40,9 +42,12 @@ func TestOfficial249PartyRoomTableAfterHostTransferFitsCurrentReader(t *testing.
 			if packet.Header.Classification != 0 || packet.Header.MsgID != 9 || len(packet.Body) < 10 || packet.Body[9] != 0 {
 				continue
 			}
-			ids, err := readPartyRoomOfficial249Record(packet.Body, session.channel.ID)
-			if err != nil || !reflect.DeepEqual(ids, expected) {
+			ids, slots, hostSlot, err := readPartyRoomOfficial249Record(packet.Body, session.channel.ID)
+			if err != nil || !reflect.DeepEqual(ids, expected) || !reflect.DeepEqual(slots, []byte{0, 1}) {
 				t.Fatalf("char%d current NOTI9 ids=%v want%v len%d err=%v body=%x", session.selectedCharacterID, ids, expected, len(packet.Body), err, packet.Body)
+			}
+			if hostSlot != 1 {
+				t.Fatalf("char%d current NOTI9 host slot=%d want the new leader's fixed slot 1 body=%x", session.selectedCharacterID, hostSlot, packet.Body)
 			}
 			total++
 		}
@@ -52,7 +57,7 @@ func TestOfficial249PartyRoomTableAfterHostTransferFitsCurrentReader(t *testing.
 	}
 }
 
-func readPartyRoomOfficial249Record(body []byte, localChannel int) (ids []uint16, err error) {
+func readPartyRoomOfficial249Record(body []byte, localChannel int) (ids []uint16, slots []byte, hostSlot byte, err error) {
 	position := 0
 	take := func(n int) []byte {
 		if err != nil || n < 0 || n > len(body)-position {
@@ -72,25 +77,23 @@ func readPartyRoomOfficial249Record(body []byte, localChannel int) (ids []uint16
 		take(int(n))
 	}
 	if binary.LittleEndian.Uint16(take(2)) != 1 || binary.LittleEndian.Uint16(take(2)) != 9999 {
-		return nil, fmt.Errorf("record header")
+		return nil, nil, 0, fmt.Errorf("record header")
 	}
 	take(2) // actor key
 	outer := take(4)
 	owner := outer[1]
 	if outer[3] != 0 {
-		return nil, fmt.Errorf("record kind")
+		return nil, nil, 0, fmt.Errorf("record kind")
 	}
 	take(2)
 	dstr()
 	take(14)
 	count := int(take(1)[0])
 	if count > 8 {
-		return nil, fmt.Errorf("party count")
+		return nil, nil, 0, fmt.Errorf("party count")
 	}
-	for slot := 0; slot < count; slot++ {
-		if take(1)[0] != byte(slot) {
-			return nil, fmt.Errorf("slot boundary")
-		}
+	for row := 0; row < count; row++ {
+		slots = append(slots, take(1)[0])
 		ids = append(ids, binary.LittleEndian.Uint16(take(2)))
 		if int(owner) != localChannel {
 			take(5)
@@ -100,11 +103,14 @@ func readPartyRoomOfficial249Record(body []byte, localChannel int) (ids []uint16
 		}
 		take(3)
 	}
-	take(4)
+	tail := take(4)
+	if err == nil {
+		hostSlot = tail[1]
+	}
 	if err == nil && position != len(body) {
 		err = fmt.Errorf("unconsumed bytes: %d", len(body)-position)
 	}
-	return ids, err
+	return ids, slots, hostSlot, err
 }
 
 func TestOfficial249RoomTableProfilesAndNativeFixture(t *testing.T) {
@@ -122,9 +128,14 @@ func TestOfficial249RoomTableProfilesAndNativeFixture(t *testing.T) {
 			t.Fatal("legacy profile changed")
 		}
 		current := buildDungeonPartyRoomSlotTableBodyForProfile(actor, rows, 0, vendorDungeonPartyRoomSlotTableShape, true)
-		got, err := readPartyRoomOfficial249Record(current, 42)
+		got, slots, _, err := readPartyRoomOfficial249Record(current, 42)
 		if err != nil || !reflect.DeepEqual(got, ids) && !(count == 0 && len(got) == 0) {
 			t.Fatalf("rows%d got%v want%v err%v", count, got, ids, err)
+		}
+		for index := range slots {
+			if slots[index] != byte(index) {
+				t.Fatalf("rows%d slot[%d]=%d want %d", count, index, slots[index], index)
+			}
 		}
 		if len(current)-len(legacy) != 1+6*count {
 			t.Fatal("native actor/identity boundary delta")

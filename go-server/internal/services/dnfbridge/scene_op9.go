@@ -1,6 +1,8 @@
 package dnfbridge
 
 import (
+	"sort"
+
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -212,8 +214,8 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 
 	members = currentSceneOp9PartyMembers(members)
 	writer.writeByte(byte(len(members)))
-	for slot, member := range members {
-		writer.writeByte(byte(slot))
+	for _, member := range members {
+		writer.writeByte(member.State.Slot)
 		writer.writeUint16(member.State.UserID)
 		// 判据是"记录 owner 字节 vs 客户端当前频道"（int 比较；会话频道 > 255 时任何
 		// u8 都不可能相等 ⇒ 一律写身份块）。见函数头注释。
@@ -242,24 +244,28 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	return writer.bytes()
 }
 
-// currentSceneOp9PartyMemberSlot 解析某个成员在队伍槽位表里的行号（0 基）。
+// currentSceneOp9PartyMemberSlot 返回某个成员在队伍槽位表里的固定槽位，
+// 不是该成员在当前投影切片里的下标。
 func currentSceneOp9PartyMemberSlot(members []currentSceneOp9PartyMemberProjection, memberID uint16) (byte, bool) {
 	if memberID == 0 {
 		return 0, false
 	}
-	for slot, member := range members {
+	for _, member := range currentSceneOp9PartyMembers(members) {
 		if member.State.UserID == memberID {
-			return byte(slot), true
+			return member.State.Slot, true
 		}
 	}
 	return 0, false
 }
 
-// currentSceneOp9PartyLeaderSlot 给出队长所在的行号。权威名单永远把队长排在 0 号位
-// （`runtimePartyMembers` 的既有不变量），所以找不到队长时回落到 0：它一定是真实占用的行。
+// currentSceneOp9PartyLeaderSlot 给出队长固定槽位，不是它在切片里的下标。
+// 找不到队长时回落到第一行的槽位；空名单才回落到 0。
 func currentSceneOp9PartyLeaderSlot(members []currentSceneOp9PartyMemberProjection, leaderID uint16) byte {
 	if slot, ok := currentSceneOp9PartyMemberSlot(members, leaderID); ok {
 		return slot
+	}
+	if len(members) > 0 {
+		return members[0].State.Slot
 	}
 	return 0
 }
@@ -290,6 +296,35 @@ func currentSceneOp9PartyMembers(members []currentSceneOp9PartyMemberProjection)
 			break
 		}
 	}
+	hasFixedSlot := false
+	for _, member := range filtered {
+		if member.State.Slot != 0 {
+			hasFixedSlot = true
+			break
+		}
+	}
+	if !hasFixedSlot {
+		for index := range filtered {
+			filtered[index].State.Slot = byte(index)
+		}
+		return filtered
+	}
+	used := make([]bool, maxCurrentScenePartySlots)
+	nextFree := byte(0)
+	for index := range filtered {
+		slot := filtered[index].State.Slot
+		if int(slot) >= len(used) || used[slot] {
+			for int(nextFree) < len(used) && used[nextFree] {
+				nextFree++
+			}
+			slot = nextFree
+			filtered[index].State.Slot = slot
+		}
+		if int(slot) < len(used) {
+			used[slot] = true
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].State.Slot < filtered[j].State.Slot })
 	return filtered
 }
 

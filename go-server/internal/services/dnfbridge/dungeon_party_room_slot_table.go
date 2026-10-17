@@ -606,10 +606,10 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 			memberGrow = characterGrowTypeByte(memberCharacter)
 		}
 		if member.UserID == state.UserID {
-			hostSlot = byte(len(rows))
+			hostSlot = member.Slot
 		}
 		rows = append(rows, dungeonPartyRoomSlotTableRow{
-			Slot:   byte(len(rows)),
+			Slot:   member.Slot,
 			UserID: member.UserID,
 			Job:    memberJob,
 			Level:  memberLevel,
