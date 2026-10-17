@@ -33,12 +33,13 @@ const (
 )
 
 type onlineItemTradeOffer struct {
-	tradeSlot  uint16
-	sourceList byte
-	sourceSlot int16
-	count      int32
-	itemID     int64
-	stack      dnfrepo.ItemStack
+	tradeSlot      uint16
+	sourceList     byte
+	wireSourceList byte // original client endpoint, only distinct for crystal list36
+	sourceSlot     int16
+	count          int32
+	itemID         int64
+	stack          dnfrepo.ItemStack
 }
 
 type onlineItemTrade struct {
@@ -229,8 +230,8 @@ func (s *Service) removeOnlineItemTradeGold(session *gameSession, request invent
 }
 
 func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventory.MoveItemspaceRequest) error {
-	if request.MoveCount <= 0 || request.DestinationSlotIndex < 0 || request.SourceSlotIndex < 0 ||
-		(request.SourceListType != dnfrepo.MainInventoryListType && request.SourceListType != 1) {
+	sourceList, supported := onlineItemTradeStorageSourceList(request.SourceListType, request.SourceSlotIndex)
+	if request.MoveCount <= 0 || request.DestinationSlotIndex < 0 || request.SourceSlotIndex < 0 || !supported {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	repositories, ok := s.repositoryGroup()
@@ -239,7 +240,9 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
-	stack, found, err := s.loadOnlineItemTradeOfferStack(ctx, repositories, session, request)
+	storageRequest := request
+	storageRequest.SourceListType = sourceList
+	stack, found, err := s.loadOnlineItemTradeOfferStack(ctx, repositories, session, storageRequest)
 	if !found || stack.ItemID <= 0 || stack.Count < int64(request.MoveCount) || stack.Bind ||
 		err != nil || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
@@ -249,7 +252,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	// stable across every equipment/stackable representation.  The repository
 	// slot and authoritative count above are sufficient to prevent item
 	// injection, so a projection mismatch must not reject a valid trade.
-	projectedSourceValue := currentItemListStackAmount(request.SourceListType, stack)
+	projectedSourceValue := currentItemListStackAmount(sourceList, stack)
 	if request.SourceInstanceValue != 0 && uint32(request.SourceInstanceValue) != projectedSourceValue {
 		s.logGameEvent(session, "game-item-trade-source-instance-projection-mismatch",
 			"char_id", session.selectedCharacterID,
@@ -279,7 +282,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 			}
 		}
 		for _, existing := range trade.offers[session.selectedCharacterID] {
-			if existing.sourceList == request.SourceListType && existing.sourceSlot == request.SourceSlotIndex {
+			if existing.sourceList == sourceList && existing.sourceSlot == request.SourceSlotIndex {
 				valid = false
 				break
 			}
@@ -287,7 +290,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	}
 	valid = valid && slotAvailable
 	offer := onlineItemTradeOffer{
-		tradeSlot: tradeSlot, sourceList: request.SourceListType, sourceSlot: request.SourceSlotIndex,
+		tradeSlot: tradeSlot, sourceList: sourceList, wireSourceList: request.SourceListType, sourceSlot: request.SourceSlotIndex,
 		count: request.MoveCount, itemID: stack.ItemID, stack: cloneOnlineItemTradeStack(stack),
 	}
 	if valid {
@@ -317,7 +320,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	}
 	s.logGameEvent(session, "game-item-trade-offer-added",
 		"char_id", session.selectedCharacterID, "peer_char_id", peerID,
-		"source_list", offer.sourceList, "source_slot", offer.sourceSlot,
+		"source_list", offer.sourceList, "wire_source_list", request.SourceListType, "source_slot", offer.sourceSlot,
 		"trade_slot", offer.tradeSlot, "item_id", offer.itemID, "count", offer.count)
 	return nil
 }
@@ -331,12 +334,17 @@ func (s *Service) removeOnlineItemTradeOffer(session *gameSession, request inven
 	var found bool
 	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady {
 		offer, found = trade.offers[session.selectedCharacterID][tradeSlot]
+		destinationList, supported := onlineItemTradeStorageSourceList(request.DestinationListType, request.DestinationSlotIndex)
+		found = found && supported && destinationList == offer.sourceList
+		if request.DestinationListType == currentItemTradeCrystalWireList {
+			found = found && request.DestinationSlotIndex == offer.sourceSlot
+		}
 		if found {
 			delete(trade.offers[session.selectedCharacterID], tradeSlot)
 		}
 	}
 	s.tradeMu.Unlock()
-	if !found || request.DestinationListType != offer.sourceList {
+	if !found {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
@@ -641,7 +649,7 @@ func buildOnlineItemTradeCancelBody(offers []onlineItemTradeOffer, gold int64) [
 	}
 	for _, offer := range offers {
 		writer.writeUint16(offer.tradeSlot)
-		writer.writeByte(offer.sourceList)
+		writer.writeByte(onlineItemTradeOfferWireSourceList(offer))
 		writer.writeUint16(uint16(offer.sourceSlot))
 	}
 	return writer.bytes()
