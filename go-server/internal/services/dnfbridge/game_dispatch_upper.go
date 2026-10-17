@@ -121,6 +121,14 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	if s.options.currentClientVersion == "official-24.9" && packet.Header.MsgID == official249PrevVillageCmdID && packet.Header.Classification == dnfproto.DefaultChannelClassification {
 		return s.handleCurrentPrevVillage(session, packet.Body)
 	}
+	if s.options.currentClientVersion == "official-24.9" && packet.Header.Classification == dnfproto.DefaultChannelClassification && !characterRenameLegacy() {
+		switch packet.Header.MsgID {
+		case uint16(dnfenum.CmdPacketChangeCharacName):
+			return s.handleCurrentCharacterRename(session, packet.Body)
+		case uint16(dnfenum.CmdPacketUseRenameCard):
+			return s.handleCurrentRenameCard(session, packet.Body)
+		}
+	}
 	if handled, err := currentGameplayModules.DispatchUpper(
 		s,
 		session,
