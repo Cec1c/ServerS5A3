@@ -630,6 +630,25 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "configuration_exceeds_native_capacity", "blob_len", len(slots))
 			return nil
 		}
+		// The current client's keyboard selector maps job 10 (Creator) to
+		// CreatorType=1. Account defaults cannot select its NormalType bank.
+		// Resolve the owner/job without rewriting the account or saved text.
+		if repos.Character == nil {
+			return nil
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), createWriteTimeout)
+		character, characterFound, characterErr := repos.Character.Load(ctx, id)
+		cancel()
+		if characterErr != nil || !characterFound ||
+			strings.TrimSpace(character.AccountID) != strings.TrimSpace(accountID) ||
+			strings.TrimSpace(s.accountIDForSession(session)) != strings.TrimSpace(accountID) ||
+			strconv.FormatUint(uint64(session.selectedCharacterID), 10) != id {
+			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "saved_configuration_character_unavailable_or_owner_changed")
+			return nil
+		}
+		if job, err := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8); err == nil && byte(job) == csharpCreatorMageJob {
+			keyType = 1
+		}
 		slotSource = "character_op198_complete_configuration"
 	}
 	if len(slots) == 0 && session.selectedCharacterID != 0 && currentHotkeySeededLayoutEnabled() {
