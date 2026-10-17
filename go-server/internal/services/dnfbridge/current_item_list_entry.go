@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,15 @@ func sortCurrentEquipmentUpdateEntries(entries []currentEquipmentUpdateEntry) {
 }
 
 func currentItemListBindFlag(bind bool, extra map[string]string) byte {
+	// Relic conversion binds the output to the character but preserves the
+	// source's seal byte, including an authoritative zero. Bind alone cannot
+	// represent these two independent states. Other item projections retain
+	// their existing fallback behavior.
+	if extra["source"] == "equipment_emancipate" {
+		if value, err := strconv.ParseUint(extra["emancipate_seal_flag"], 10, 8); err == nil {
+			return byte(value)
+		}
+	}
 	value := sceneInventoryExtraByte(extra, "seal_flag", "seal", "bind_flag", "bind")
 	if value != 0 {
 		return value

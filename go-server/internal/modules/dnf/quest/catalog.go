@@ -537,6 +537,9 @@ func (c *Catalog) decideAcceptForDefinition(definition Definition, character Cha
 	if !definitionAcceptable(definition, character, completed, active, false) {
 		return AcceptRejected, ErrQuestNotAcceptable
 	}
+	if c.activeClassChangeConflict(definition, active) {
+		return AcceptRejected, ErrQuestNotAcceptable
+	}
 	return AcceptNew, nil
 }
 
@@ -1189,7 +1192,11 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	if !definitionMatchesCharacter(definition, character) {
 		return false
 	}
-	if _, exists := active[definition.ID]; exists && !includeActive {
+	_, isActive := active[definition.ID]
+	if isActive && !includeActive {
+		return false
+	}
+	if !isActive && !classChangeRewardAcceptable(definition, character) {
 		return false
 	}
 	// 每日任务的“隔天重新可接”由 ProjectDailyQuestRollover 负责：它只把更早服务日
@@ -1226,6 +1233,81 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 		}
 	}
 	return true
+}
+
+// classChangeRewardAcceptable 用 profession 的域规则判断一条 [reward type] [grow type]
+// 转职任务是否还可能被当前角色结算成功。真档 15 级转职任务（例：7803 剑魂、7814 阿修罗、
+// 2633 决战者）的 PVF 只有 [job] 与 [grow type] -1，没有转职阶段门槛，所以已经转职
+// （first != 0）或已觉醒的角色过去仍能接取它们，而 Owner.ApplyFinishSettlement 的
+// PlanTransition 必然以 ErrTransitionOutOfStep 拒绝，形成永远做不完的 active 任务。
+// 这里复用 profession.CheckClassChangePrecondition（PlanTransition 的同一前置）把
+// 接取预检与结算对齐，并让可接列表投影同步收敛；觉醒任务与分支主线（[item] 奖励）
+// 不在此判断范围内。
+func classChangeRewardAcceptable(definition Definition, character CharacterEligibility) bool {
+	request, isClassChange := classChangeRequest(definition)
+	if !isClassChange {
+		// 解析失败或不是转职链：保持既有可接取判定，不在这里发明新的拒绝条件。
+		return true
+	}
+	if character.GrowType < 0 || character.GrowType > math.MaxUint8 {
+		return false
+	}
+	return profession.CheckClassChangePrecondition(byte(character.GrowType), request) == nil
+}
+
+// classChangeRequest 解析一条 [reward type] [grow type] 转职任务的结算请求。
+// 奖励类型不是 [grow type]、解析失败或不是 class change 链时第二个返回值为 false。
+func classChangeRequest(definition Definition) (profession.Request, bool) {
+	if normalizeQuestTag(definition.RewardType) != "grow type" {
+		return profession.Request{}, false
+	}
+	request, err := profession.ParseReward(definition.JobChangeQuest, definition.RewardType, definition.RewardIntData)
+	if err != nil || request.Kind != profession.KindClassChange {
+		return profession.Request{}, false
+	}
+	return request, true
+}
+
+// activeClassChangeConflict rejects a second unsettled class-change quest only
+// when both definitions are class changes and their PVF collision declarations
+// name each other. Ordinary quests and item-reward branches remain independent.
+// Existing active quests return AcceptIdempotent before this check.
+func (c *Catalog) activeClassChangeConflict(definition Definition, active map[int64]struct{}) bool {
+	if _, isClassChange := classChangeRequest(definition); !isClassChange {
+		return false
+	}
+	for id := range active {
+		if id == definition.ID {
+			continue
+		}
+		other, known := c.byID[id]
+		if !known {
+			continue
+		}
+		if _, isClassChange := classChangeRequest(other); !isClassChange {
+			continue
+		}
+		if !mutualQuestCollision(definition, other) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// mutualQuestCollision 判断两条任务是否在 PVF 的 [collision quest] 里互相点名。
+// 只认双向声明：单向的历史/畸形数据不足以证明两个家族互斥。
+func mutualQuestCollision(left, right Definition) bool {
+	return declaresQuestCollision(left, right.ID) && declaresQuestCollision(right, left.ID)
+}
+
+func declaresQuestCollision(definition Definition, otherID int64) bool {
+	for _, id := range definition.CollisionQuests {
+		if id == otherID {
+			return true
+		}
+	}
+	return false
 }
 
 // definitionMatchesCharacter is the shared PVF job/grow-type predicate for

@@ -197,5 +197,11 @@ func currentDungeonSettlementPacketPlanForTest(
 	if err != nil {
 		t.Fatal(err)
 	}
+	if currentDungeonIsDespairTower(runtime) {
+		plan.DespairResultBody, err = buildCurrentDespairResultBody(12345, 1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	return plan
 }

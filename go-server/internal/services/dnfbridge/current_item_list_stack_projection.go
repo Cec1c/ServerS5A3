@@ -57,6 +57,11 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 		}
 	}
 	entry.setByte(0x0D, currentItemListBindFlag(stack.Bind, extra))
+	if extra["source"] == "equipment_emancipate" {
+		// Conversion has an explicit seal state; zero must clear the newly
+		// created output template's default seal rather than being skipped.
+		entry.data[0x0D] = currentItemListBindFlag(stack.Bind, extra)
+	}
 	valueA := currentItemListStackValueA(listType, stack)
 	if listType == currentPetInventoryListType {
 		// A list-7 row is authoritative even when the field is zero: clear a

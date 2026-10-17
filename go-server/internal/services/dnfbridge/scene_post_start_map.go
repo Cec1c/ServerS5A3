@@ -257,7 +257,10 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 		return fmt.Errorf("post-start-map player state requires selected character")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	// This scene bootstrap loads several authoritative repository snapshots;
+	// it is not a single mutation. In the live tower entry, writing op13 alone
+	// outlasted the mutation deadline and expired the later mode1/quest reads.
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	charID, charName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID == 0 {
@@ -383,6 +386,11 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	if err := s.sendCurrentSelectInventoryBootstrap(session, source+"_after_actor_before_player_object"); err != nil {
 		return err
 	}
+	// The container bootstrap owns its own bounded snapshot context and socket
+	// writes. Its elapsed time must not consume the following actor/quest reads.
+	cancel()
+	ctx, cancel = context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
+	defer cancel()
 	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, session, character, hasCharacter)
 	adventureLevel := uint32(adventureSummary.ManageLevel)
 	mode1Body := s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
