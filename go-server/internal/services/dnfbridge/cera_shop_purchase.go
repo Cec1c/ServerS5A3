@@ -13,6 +13,7 @@ import (
 
 	dnfcargo "longheng.io/server/internal/modules/dnf/cargo"
 	dnfcerashop "longheng.io/server/internal/modules/dnf/cerashop"
+	"longheng.io/server/internal/modules/dnf/characterdata"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
@@ -60,6 +61,7 @@ type currentCeraShopPurchaseRequestItem struct {
 }
 
 type currentCeraShopCommitResult struct {
+	CharacterRenamePending   bool
 	Products                 []currentCeraShopProduct
 	Updates                  []currentCeraShopItemUpdate
 	MainInventoryExpansion   uint16
@@ -95,6 +97,7 @@ type currentCeraShopItemUpdate struct {
 }
 
 type currentCeraShopResolvedPurchase struct {
+	CharacterRenameRules        *currentRenameCardRules
 	Product                     currentCeraShopProduct
 	AttributeValue              byte
 	MainInventoryUpgradeStage   uint16
@@ -193,6 +196,32 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	var renameReservation *currentCharacterAssetReservation
+	if s.options.currentClientVersion == "official-24.9" && !characterRenameLegacy() && session != nil {
+		for _, requested := range request.Items {
+			product, found := catalog.Product(requested.CommodityID)
+			if !found {
+				continue
+			}
+			definition, definitionErr := catalog.items.ResolveItem(product.ItemID)
+			if definitionErr != nil || !strings.EqualFold(strings.ReplaceAll(definition.PVFPath, "\\", "/"), "stackable/cash/chn_character_rename.stk") {
+				continue
+			}
+			s.mu.Lock()
+			identity := boundGameSessionCharacter{session: session, character: session.selectedCharacterID, generation: session.characterGeneration}
+			account := session.accountID
+			s.mu.Unlock()
+			if !session.loginPacketSeen || account == "" {
+				return s.sendCurrentCeraShopPurchaseFailure(session)
+			}
+			renameReservation, err = s.reserveCurrentCharacterAssets(ctx, identity, account)
+			if err != nil {
+				return s.sendCurrentCeraShopPurchaseFailure(session)
+			}
+			defer s.releaseCurrentCharacterAssets(renameReservation)
+			break
+		}
+	}
 	result, err := s.commitCurrentCeraShopPurchase(ctx, session, catalog, request)
 	if err != nil {
 		s.logGameEvent(session, "game-cera-shop-purchase-rejected",
@@ -340,6 +369,13 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 		"premium_notification_count", notifiedPremiumActivations,
 		"crystal_state_refreshed", crystalPremiumActivated,
 		"ack_body", "current_exe_op64_sub_CD9490", "item_update_body", "current_exe_op14_raw77", "cera_body", "current_exe_op53_u8_u32_u32_u32", "premium_body", "current_exe_class0_op66_u8_types_only_internal_devil_slots_suppressed")
+	if result.CharacterRenamePending {
+		if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketUseRenameCard), nil); err != nil {
+			return err
+		}
+		s.releaseCurrentCharacterAssets(renameReservation)
+		return s.handleUpperReturnSelectCharacter(session, nil)
+	}
 	return nil
 }
 
@@ -468,6 +504,21 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		definition, definitionErr := catalog.items.ResolveItem(product.ItemID)
 		if definitionErr != nil {
 			return currentCeraShopCommitResult{}, fmt.Errorf("%w: commodity=%d item=%d: %v", errCurrentCeraShopProductUnavailable, product.CommodityID, product.ItemID, definitionErr)
+		}
+		if s.options.currentClientVersion == "official-24.9" && !characterRenameLegacy() && strings.EqualFold(strings.ReplaceAll(definition.PVFPath, "\\", "/"), "stackable/cash/chn_character_rename.stk") {
+			if product.Count != 1 || len(request.Items) != 1 || request.PaymentMode != currentCeraShopPaymentModeCera || len(catalog.bonusByCommodity[product.CommodityID]) != 0 || session.townSceneReadyCharacterID != session.selectedCharacterID {
+				return currentCeraShopCommitResult{}, errCurrentCeraShopProductUnavailable
+			}
+			if _, inRaid := s.runtimeRaidForMember(session.selectedCharacterID); inRaid {
+				return currentCeraShopCommitResult{}, errCurrentCeraShopProductUnavailable
+			}
+			rules, err := currentRenameCardRulesFromPVF(catalog, product.ItemID)
+			if err != nil {
+				return currentCeraShopCommitResult{}, err
+			}
+			resolved.CharacterRenameRules = &rules
+			purchases = append(purchases, resolved)
+			continue
 		}
 		if durationSeconds, isNameTag := currentNameTagCardDuration(catalog.source, definition); isNameTag {
 			resolved.NameTagDurationSeconds = durationSeconds
@@ -606,6 +657,21 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			premiumNow := checkoutNow
 			for _, purchase := range purchases {
 				product := purchase.Product
+				if rules := purchase.CharacterRenameRules; rules != nil {
+					if character.Level < int(rules.minimumLevel) || character.Stats[characterdata.RenameEntitlementStat] != 0 || character.Stats[characterdata.RenameNextAllowedUnixStat] > checkoutNow.Unix() || character.Location.DungeonID != 0 {
+						return dnfcerashop.CheckoutChanges{}, characterdata.ErrRenameUnavailable
+					}
+					if character.Stats == nil {
+						character.Stats = make(map[string]int64)
+					}
+					character.Stats[characterdata.RenameEntitlementStat] = 1
+					character.Stats[characterdata.RenameCardSlotStat] = -1
+					character.Stats[characterdata.RenameMinimumLevelStat] = rules.minimumLevel
+					character.Stats[characterdata.RenameCooldownSecondsStat] = rules.cooldownSeconds
+					character.Stats[characterdata.RenameReservationSecondsStat] = rules.reservationSeconds
+					changes.Character = true
+					continue
+				}
 				if purchase.SkillTreeExpansion {
 					if assets.Skill == nil {
 						return dnfcerashop.CheckoutChanges{}, errCurrentCeraShopOwnerUnavailable
@@ -819,6 +885,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 				products = append(products, purchase.Product)
 			}
 			result = currentCeraShopCommitResult{
+				CharacterRenamePending:     len(purchases) == 1 && purchases[0].CharacterRenameRules != nil,
 				Products:                   products,
 				Updates:                    updates,
 				MainInventoryExpansion:     containerUpgrades.MainInventoryExpansion,

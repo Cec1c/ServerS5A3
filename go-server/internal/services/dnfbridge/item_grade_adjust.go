@@ -45,6 +45,9 @@ func (s *Service) handleCurrentResetItemAttr(session *gameSession, body []byte) 
 	if !ok {
 		return s.sendGameUpperFailure(session, currentResetItemAttrOpcode, 2)
 	}
+	if handled, waxErr := s.tryCurrentGoldenWax(ctx, session, request, body, repos); handled {
+		return waxErr
+	}
 
 	var catalog dnfitemgrade.ItemCatalog
 	targetEquipmentType := ""
@@ -143,6 +146,7 @@ func (c currentItemGradeCatalog) ResolveItem(itemID uint32) (dnfitemgrade.ItemDe
 	}
 	return dnfitemgrade.ItemDefinition{
 		StackableType:    definition.StackableType,
+		ResealMaterial:   definition.ItemID == 14,
 		UsableEquipTypes: append([]string(nil), definition.UsableEquipTypes...),
 	}, nil
 }

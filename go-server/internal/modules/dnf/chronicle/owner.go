@@ -26,6 +26,7 @@ var (
 )
 
 type Request struct {
+	TargetList               byte
 	MaterialSlot, TargetSlot int16
 	MaterialID, TargetID     int64
 	Option                   byte
@@ -68,6 +69,8 @@ type Command struct {
 	FailureRewards         func(Equipment, State, Material) ([]Reward, error)
 	GrantRewards           func(*repository.InventoryRecord, *repository.AccountInventoryRecord, []Reward) ([]RewardSlot, bool, error)
 	Encode                 func(int16, repository.ItemStack) repository.ItemStack
+	WornTarget             func(repository.EquipmentRecord, int16) (string, repository.ItemStack, error)
+	WornUpdate             func(repository.EquipmentEntry, repository.ItemStack) repository.EquipmentEntry
 	Random                 func(int) int
 }
 type Owner struct {
@@ -88,7 +91,7 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 		return Result{}, ErrOwner
 	}
 	r := c.Request
-	if r.MaterialSlot < 3 || r.TargetSlot < 3 || r.MaterialSlot == r.TargetSlot || r.MaterialID <= 0 || r.TargetID <= 0 || r.Option > 31 {
+	if r.MaterialSlot < 3 || r.TargetSlot < 0 || (r.TargetList != 0 && r.TargetList != 3) || (r.TargetList == 0 && (r.TargetSlot < 3 || r.MaterialSlot == r.TargetSlot)) || r.MaterialID <= 0 || r.TargetID <= 0 || r.Option > 31 {
 		return Result{}, ErrMaterial
 	}
 	if ctx == nil {
@@ -99,7 +102,7 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 		now = time.Now().UTC()
 	}
 	var result Result
-	err := o.assets.WithinAccountCharacterAssets(ctx, c.AccountID, c.CharacterID, func(accounts repository.AccountInventoryRepository, characters repository.CharacterRepository, inventories repository.InventoryRepository, _ repository.EquipmentRepository) error {
+	err := o.assets.WithinAccountCharacterAssets(ctx, c.AccountID, c.CharacterID, func(accounts repository.AccountInventoryRepository, characters repository.CharacterRepository, inventories repository.InventoryRepository, equipments repository.EquipmentRepository) error {
 		character, found, err := characters.Load(ctx, c.CharacterID)
 		if err != nil {
 			return err
@@ -134,11 +137,32 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 		mk, tk := slotKey(r.MaterialSlot), slotKey(r.TargetSlot)
 		mat, mok := inv.Slots[mk]
 		target, tok := inv.Slots[tk]
+		var worn repository.EquipmentRecord
+		wornKey := ""
+		if r.TargetList == 3 {
+			if equipments == nil || c.WornTarget == nil || c.WornUpdate == nil {
+				return ErrTarget
+			}
+			var found bool
+			worn, found, err = equipments.Load(ctx, c.CharacterID)
+			if err != nil {
+				return err
+			}
+			if !found || worn.CharacterID != c.CharacterID {
+				return ErrOwner
+			}
+			worn = repository.CloneEquipment(worn)
+			wornKey, target, err = c.WornTarget(worn, r.TargetSlot)
+			if err != nil {
+				return err
+			}
+			_, tok = worn.Entries[wornKey]
+		}
 		if !mok || mat.Count <= 0 || !c.MaterialPolicy.ForInventory(&inv).Contains(0, r.MaterialSlot) || !usable(mat, now) {
 			return ErrMaterial
 		}
 		equipmentPolicy := itemplacement.SlotPolicy{ListType: 0, Start: 9, End: 64, AllowQuickSlots: true}.ForInventory(&inv)
-		if !tok || target.Count != 1 || !equipmentPolicy.Contains(0, r.TargetSlot) || !usable(target, now) {
+		if !tok || target.Count != 1 || (r.TargetList == 0 && !equipmentPolicy.Contains(0, r.TargetSlot)) || !usable(target, now) {
 			return ErrTarget
 		}
 		if mat.ItemID != r.MaterialID || target.ItemID != r.TargetID {
@@ -151,6 +175,9 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 		equipment, err := c.Catalog.Equipment(target.ItemID)
 		if err != nil {
 			return err
+		}
+		if r.TargetList == 3 && r.TargetSlot != int16(equipment.TypeID) && !(equipment.TypeID == 12 && r.TargetSlot == 24) {
+			return ErrTarget
 		}
 		if !material.Allows(job, grow, equipment, r.Option) {
 			return ErrTarget
@@ -190,7 +217,10 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 		}
 		probability := material.Probabilities[len(state.Options)]
 		success := probability >= 100 || roll <= probability
-		changed := map[int16]bool{r.MaterialSlot: true, r.TargetSlot: true}
+		changed := map[int16]bool{r.MaterialSlot: true}
+		if r.TargetList == 0 {
+			changed[r.TargetSlot] = true
+		}
 		mat.Count--
 		if mat.Count == 0 {
 			delete(inv.Slots, mk)
@@ -205,7 +235,11 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 			if err != nil {
 				return err
 			}
-			inv.Slots[tk] = c.Encode(r.TargetSlot, target)
+			if r.TargetList == 3 {
+				worn.Entries[wornKey] = c.WornUpdate(worn.Entries[wornKey], target)
+			} else {
+				inv.Slots[tk] = c.Encode(r.TargetSlot, target)
+			}
 		} else {
 			if c.FailureRewards == nil || c.GrantRewards == nil {
 				return ErrRules
@@ -214,7 +248,11 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 			if err != nil {
 				return err
 			}
-			delete(inv.Slots, tk)
+			if r.TargetList == 3 {
+				delete(worn.Entries, wornKey)
+			} else {
+				delete(inv.Slots, tk)
+			}
 			rows, accountDirty, err = c.GrantRewards(&inv, &acc, rewards)
 			if err != nil {
 				return err
@@ -230,6 +268,12 @@ func (o *Owner) Refine(ctx context.Context, c Command) (Result, error) {
 			return err
 		}
 		inv.UpdatedAt = now
+		if r.TargetList == 3 {
+			worn.UpdatedAt = now
+			if err = repository.SaveEquipmentFields(ctx, equipments, worn, repository.EquipmentFieldEntries); err != nil {
+				return err
+			}
+		}
 		if err = repository.SaveInventoryFields(ctx, inventories, inv, repository.InventoryFieldSlots); err != nil {
 			return err
 		}

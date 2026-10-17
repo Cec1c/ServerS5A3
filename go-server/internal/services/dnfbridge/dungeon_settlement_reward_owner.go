@@ -11,6 +11,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -37,10 +38,12 @@ type currentDungeonSettlementRewardResources struct {
 
 type currentDungeonSettlementCommitResult struct {
 	DespairItems    []dnfdungeon.DespairGrantedItem
+	GriefItems      []dnfdungeon.GriefGrantedItem
 	Character       dnfrepo.CharacterRecord
 	Skill           dnfrepo.SkillRecord
 	Inventory       dnfrepo.InventoryRecord
 	ExperienceGain  uint32
+	PotionBonus     uint32
 	HonorExpertGain uint32
 	SPGain          int
 	TPGain          int
@@ -118,7 +121,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	scoreBonus := currentDungeonScoreBonusExp(gain, resources, clientRankPoint)
 	// 黑钻加成: base × 10% (premium type 1 or 17).
 	blackDiamondBonus := s.currentBlackDiamondBonusExp(ctx, s.accountIDForSession(session), gain)
-	totalGain := gain + growthBonus + scoreBonus + blackDiamondBonus
+	totalGain := uint32(min(uint64(gain)+uint64(growthBonus)+uint64(scoreBonus)+uint64(blackDiamondBonus), uint64(math.MaxUint32)))
 	presentation, err := currentDungeonSettlementPresentationForRuntime(
 		runtime,
 		resources.ClearRankCatalog,
@@ -127,12 +130,13 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if err != nil {
 		return err
 	}
-	result, err := s.commitCurrentDungeonSettlement(
+	result, err := s.commitCurrentDungeonSettlementWithPotion(
 		ctx,
 		session,
 		runtime,
 		resources.Progression,
 		totalGain,
+		gain,
 	)
 	if err != nil {
 		return err
@@ -164,6 +168,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	}
 	cardSlots := currentDungeonClearRewardCardSlotsFromRuntime(runtime, currentDungeonCardFlipRowStateValue(session))
 	var bonusPresentation [currentDungeonClearRewardBonusFieldCount]uint32
+	bonusPresentation[currentDungeonClearRewardBonusClearAncientElixirIndex] = result.PotionBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearBlackDiamondIndex] = blackDiamondBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearGrowthContractIndex] = growthBonus
 	bonusPresentation[currentDungeonClearRewardBonusMonsterGrowthContractIndex] = runtime.settlementMonsterGrowthContractBonus
@@ -240,6 +245,23 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 			plan.DespairItemSlots = append(plan.DespairItemSlots, alignedcmd.ItemSlotRefresh{ListType: item.ListType, SlotIndex: item.Slot})
 		}
 		plan.DespairResultBody, err = buildCurrentDespairResultBody(presentation.ClearTimeMS, uint16(floor), items)
+		if err != nil {
+			return err
+		}
+	}
+	if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+		floor, err := currentGriefFloor(runtime.Dungeon)
+		if err != nil {
+			return err
+		}
+		items := make([]currentDespairResultItem, len(result.GriefItems))
+		for i, item := range result.GriefItems {
+			items[i] = currentDespairResultItem{ItemID: item.ItemID, Quantity: item.Quantity}
+			if item.ItemID != 0 {
+				plan.GriefItemSlots = append(plan.GriefItemSlots, alignedcmd.ItemSlotRefresh{ListType: 0, SlotIndex: item.Slot})
+			}
+		}
+		plan.GriefResultBody, err = buildCurrentGriefResultBody(presentation.ClearTimeMS, uint16(floor), items)
 		if err != nil {
 			return err
 		}
@@ -477,12 +499,17 @@ func (s *Service) currentBlackDiamondBonusExp(ctx context.Context, accountID str
 	return uint32(bonus)
 }
 
-func (s *Service) commitCurrentDungeonSettlement(
+func (s *Service) commitCurrentDungeonSettlement(ctx context.Context, session *gameSession, runtime *runtimeDungeonState, tables *progression.Tables, gain uint32) (currentDungeonSettlementCommitResult, error) {
+	return s.commitCurrentDungeonSettlementWithPotion(ctx, session, runtime, tables, gain, 0)
+}
+
+func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	ctx context.Context,
 	session *gameSession,
 	runtime *runtimeDungeonState,
 	tables *progression.Tables,
 	gain uint32,
+	potionBase uint32,
 ) (currentDungeonSettlementCommitResult, error) {
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.CharacterSettlement == nil || tables == nil || gain == 0 {
@@ -502,11 +529,23 @@ func (s *Service) commitCurrentDungeonSettlement(
 	if !present || runtimeExperience < 0 || uint64(runtimeExperience) > math.MaxUint32 {
 		return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
 	}
+	now := s.gameplayNow()
+	predictedGain := gain
+	if potionBase > 0 {
+		character, found, err := s.loadExperiencePotionCharacter(ctx, session)
+		if err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+		if !found {
+			return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
+		}
+		predictedGain += min(experiencebuff.Bonus(character, experiencebuff.Clear, potionBase, now), math.MaxUint32-gain)
+	}
 	honorExpertGain, err := currentHonorExpertExperienceGain(
 		tables,
 		runtime.Character.Level,
 		uint32(runtimeExperience),
-		gain,
+		predictedGain,
 	)
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
@@ -549,14 +588,26 @@ func (s *Service) commitCurrentDungeonSettlement(
 			return currentDungeonSettlementCommitResult{}, err
 		}
 	}
+	griefFloor, err := currentGriefFloor(runtime.Dungeon)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	if griefFloor != 0 {
+		if err := s.freezeCurrentGriefRewardsLocked(runtime); err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
 		DespairClearedFloor:     despairFloor,
+		GriefClearedFloor:       griefFloor,
+		GriefRewards:            runtime.settlementGriefRewards,
 		DespairRewards:          runtime.settlementDespairRewards,
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
 		CompletionKey:           runtime.clearMapCompletionKey,
 		Tables:                  tables,
 		Experience:              gain,
+		ClearPotionBase:         potionBase,
 		RecommendedDungeonClear: currentDungeonIsRecommendedClear(runtime),
 		LuckyStar:               luckyPolicy,
 		MonthlyAttendance:       s.currentMonthlyAttendanceEnabled(),
@@ -564,7 +615,7 @@ func (s *Service) commitCurrentDungeonSettlement(
 		AdventureRuntime:        &adventureRuntime,
 		HonorExpertTables:       honorTables,
 		MaximumCharacterLevel:   currentAdventureCharacterLevelCap,
-		UpdatedAt:               s.gameplayNow(),
+		UpdatedAt:               now,
 	})
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
@@ -584,10 +635,12 @@ func (s *Service) commitCurrentDungeonSettlement(
 	}
 	return currentDungeonSettlementCommitResult{
 		DespairItems:    result.DespairItems,
+		GriefItems:      result.GriefItems,
 		Character:       result.Character,
 		Skill:           result.Skill,
 		Inventory:       result.Inventory,
 		ExperienceGain:  result.ExperienceGain,
+		PotionBonus:     result.PotionBonus,
 		HonorExpertGain: result.HonorExpertGain,
 		SPGain:          result.SPGain,
 		TPGain:          result.TPGain,

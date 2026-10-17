@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -47,6 +48,12 @@ func (c *Creator) Create(ctx context.Context, creation Creation) error {
 	ctx = ctxOrBackground(ctx)
 	characterID := creation.Character.CharacterID
 	err = c.repositories.CharacterCreate.WithinCharacterCreation(ctx, characterID, c.repositories, func(tx dnfrepo.Group) error {
+		// Test fixtures may omit a name; every real creation supplies one.
+		if creation.Character.Name != "" {
+			if err := CheckNameAvailable(ctx, tx.Character, tx.Settings, creation.Character.Name, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
 		if creation.Account != nil {
 			if tx.Account == nil {
 				return repositoryError("account")
