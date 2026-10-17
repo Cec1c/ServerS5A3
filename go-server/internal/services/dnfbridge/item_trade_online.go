@@ -3,6 +3,8 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -525,28 +527,33 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 		return nil
 	}
 	s.clearOnlineItemTrade(trade)
+	var notificationErr error
 	for _, characterID := range []uint16{firstID, secondID} {
 		session, online := s.onlineGameSession(characterID)
 		if !online {
 			continue
 		}
-		body := buildOnlineItemTradeFinishBody(result.Received[strconv.Itoa(int(characterID))])
-		if err := s.sendGameUpperRawClassCodec(session, currentItemTradeFinishMsg, body, 0, true); err != nil {
-			return err
-		}
-		if character, changed := result.Characters[strconv.Itoa(int(characterID))]; changed {
-			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentGoldStateBody(character.Stats["gold"]), 0); err != nil {
-				return err
-			}
-		}
-		if err := s.sendSelectedCurrentContainerListsRefresh(session, "current_exe_item_trade_atomic_commit"); err != nil {
-			return err
+		if err := s.sendOnlineItemTradeCompletion(session, result, characterID); err != nil {
+			notificationErr = errors.Join(notificationErr, fmt.Errorf("notify item trade recipient %d: %w", characterID, err))
 		}
 	}
 	s.logInfo("dnfbridge item trade atomic commit completed", "first_char_id", firstID, "second_char_id", secondID,
 		"first_offer_count", len(firstOffers), "second_offer_count", len(secondOffers),
 		"first_gold", firstGold, "second_gold", secondGold)
-	return nil
+	return notificationErr
+}
+
+func (s *Service) sendOnlineItemTradeCompletion(session *gameSession, result itemtrade.Result, characterID uint16) error {
+	body := buildOnlineItemTradeFinishBody(result.Received[strconv.Itoa(int(characterID))])
+	if err := s.sendGameUpperRawClassCodec(session, currentItemTradeFinishMsg, body, 0, true); err != nil {
+		return err
+	}
+	if character, changed := result.Characters[strconv.Itoa(int(characterID))]; changed {
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentGoldStateBody(character.Stats["gold"]), 0); err != nil {
+			return err
+		}
+	}
+	return s.sendSelectedCurrentContainerListsRefresh(session, "current_exe_item_trade_atomic_commit")
 }
 
 func snapshotOnlineItemTradeGold(trade *onlineItemTrade, characterID uint16) int64 {

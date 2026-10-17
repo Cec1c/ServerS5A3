@@ -73,6 +73,10 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 			"settlement_persistence_barrier_ready", true,
 			"source", "owned_cleared_runtime_boss_op117")
 	}
+	if err := s.commitCurrentDungeonCycleClearCountLocked(session, runtime); err != nil {
+		s.logGameEvent(session, "game-dungeon-cycle-clear-count-blocked", "source", source, "error", err)
+		return nil
+	}
 	if !runtime.clearMapCompletionPhaseAPersisted {
 		if err := s.persistCurrentDungeonClearMapCompletionPhaseA(ctx, session, runtime, snapshot); err != nil {
 			s.logGameEvent(session, "game-dungeon-boss-die-check-completion-quest-sync-nonblocking",

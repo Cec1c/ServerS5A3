@@ -46,6 +46,7 @@ type currentUpgradeTable struct {
 	Rows                      []currentUpgradeTableRow
 	NoticeLevel               int
 	Costs                     []int
+	GoldCostMetadataError     error
 	CostWeightsByRarity       []float64
 	TypeWeights               []float64
 	CostWeightsByUpgradeLevel map[int][2]float64
@@ -204,6 +205,7 @@ func parseCurrentUpgradeTable(doc *dnfpvf.Document, rawText string) *currentUpgr
 			table.CostWeightsByUpgradeLevel[int(level)] = [2]float64{weights[i+1], weights[i+2]}
 		}
 	}
+	table.GoldCostMetadataError = validateAmplifyGoldCostMetadata(doc)
 	// [destroy level by rarity]
 	parseCurrentUpgradeStringIntPairs(rawText, "destroy level by rarity", table.DestroyLevelByRarity)
 	// [disjoint] section

@@ -17,6 +17,7 @@ const DefaultCharacterSlotLimit = 32
 
 var (
 	ErrCharacterIDExists            = errors.New("dnf character id already exists")
+	ErrCharacterNameExists          = errors.New("dnf character name already exists or is reserved")
 	ErrCharacterSlotOccupied        = errors.New("dnf character slot is occupied")
 	ErrCharacterCreateMissing       = errors.New("dnf character create repository is missing")
 	ErrCharacterSlotMissing         = errors.New("dnf character slot is missing")
