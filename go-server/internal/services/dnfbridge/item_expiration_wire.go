@@ -63,7 +63,7 @@ func (s *Service) applyCurrentPVFUsePeriodsToEntriesWithCatalog(ctx context.Cont
 		rowUnix := binary.LittleEndian.Uint32(entries[index].data[currentItemListExpireTimeOffset : currentItemListExpireTimeOffset+4])
 		effectiveUnix := pvfUnix
 		if rowUnix != 0 {
-			if !currentPVFInstanceExpirationSupersededByRenewal(rowUnix, rawDefinitionExpiration, definition.ExpirationDate) {
+			if !currentPVFInstanceExpirationSupersededByRenewal(rowUnix, rawDefinitionExpiration, definition.ExpirationDate) && currentGiftBoxHistoryExpiration(definition, rowUnix, entries[index].independentExpiration || !entries[index].expirationProvenanceKnown).IsZero() {
 				// 实例自己的时间戳仍然权威（租用 24 小时、相对期限发放……）。
 				effectiveUnix = rowUnix
 			}

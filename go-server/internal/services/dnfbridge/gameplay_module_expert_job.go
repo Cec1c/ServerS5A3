@@ -145,7 +145,7 @@ func parseCurrentExpertJobCompoundRequest(body []byte) (currentExpertJobCompound
 		Count:        int(binary.LittleEndian.Uint16(body[4:6])),
 		CardSlot:     int16(binary.LittleEndian.Uint16(body[6:8])),
 	}
-	if request.RecipeItemID <= 0 || request.Count <= 0 || request.CardSlot < -1 || (request.CardSlot >= 0 && request.Count != 1) {
+	if request.RecipeItemID <= 0 || request.Count <= 0 || request.CardSlot < -1 {
 		return currentExpertJobCompoundRequest{}, errors.New("expert job compound request is invalid")
 	}
 	return request, nil
@@ -239,20 +239,20 @@ func (s *Service) commitCurrentExpertJobCompound(ctx context.Context, session *g
 			return dnfexpertjob.Changes{}, err
 		}
 		if request.CardSlot >= 0 {
-			if jobType != dnfexpertjob.EnchanterType {
-				return dnfexpertjob.Changes{}, dnfexpertjob.ErrJobUnsupported
+			if jobType != dnfexpertjob.EnchanterType || request.Count <= 0 || request.Count > math.MaxUint16 {
+				return dnfexpertjob.Changes{}, dnfexpertjob.ErrRecipeUnavailable
 			}
 			cardKey := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, request.CardSlot)
 			card, found := assets.Inventory.Slots[cardKey]
-			if !found || card.ItemID <= 0 || card.Count <= 0 || currentNPCShopItemLocked(card) {
+			upgradeCount, validUpgrade := dnfrepo.MonsterCardUpgradeCount(card)
+			if !found || card.ItemID <= 0 || card.Count < int64(request.Count) || currentNPCShopItemLocked(card) || !validUpgrade {
 				return dnfexpertjob.Changes{}, dnfexpertjob.ErrRecipeUnavailable
 			}
-			beadPlan, planErr := jobCatalog.PlanEnchanterBead(experience, request.RecipeItemID, card.ItemID, rand.IntN)
+			plan, planErr := jobCatalog.PlanEnchanterBeads(experience, request.RecipeItemID, card.ItemID, request.Count, rand.IntN)
 			if planErr != nil {
 				return dnfexpertjob.Changes{}, planErr
 			}
-			upgradeCount := currentExpertJobEnchantUpgradeCount(card)
-			card.Count--
+			card.Count -= int64(request.Count)
 			if card.Count == 0 {
 				delete(assets.Inventory.Slots, cardKey)
 			} else {
@@ -260,46 +260,28 @@ func (s *Service) commitCurrentExpertJobCompound(ctx context.Context, session *g
 				card.RawEntry = append([]byte(nil), entry.data[:]...)
 				assets.Inventory.Slots[cardKey] = card
 			}
-			accountDirty, consumeErr := s.consumeCurrentRecipeMaterials(assets, beadPlan.Recipe.Materials, 0)
+			accountDirty, consumeErr := s.consumeCurrentRecipeMaterials(assets, plan.Materials, 0)
 			if consumeErr != nil {
 				return dnfexpertjob.Changes{}, consumeErr
 			}
-			compoundPlan := dnfexpertjob.CompoundPlan{
-				FinalExperience: beadPlan.FinalExperience,
-				ExperienceGain:  beadPlan.ExperienceGain,
-				LevelChanged:    beadPlan.LevelChanged,
-			}
-			if beadPlan.Success {
-				if beadPlan.BeadItemID <= 0 || beadPlan.BeadItemID > math.MaxUint32 {
+			for _, reward := range plan.Rewards {
+				if reward.ItemID <= 0 || reward.ItemID > math.MaxUint32 || reward.Count <= 0 || reward.Count > math.MaxUint32 {
 					return dnfexpertjob.Changes{}, dnfexpertjob.ErrRecipeUnavailable
 				}
-				definition, resolveErr := items.ResolveItem(uint32(beadPlan.BeadItemID))
-				if resolveErr != nil || definition.Kind != dungeonDropItemStackable {
-					return dnfexpertjob.Changes{}, dnfexpertjob.ErrRecipeUnavailable
+				definition, resolveErr := items.ResolveItem(uint32(reward.ItemID))
+				if resolveErr != nil {
+					return dnfexpertjob.Changes{}, resolveErr
 				}
-				slots, grantErr := grantCurrentCeraShopProduct(assets.Inventory, definition, 1)
-				if grantErr != nil || len(slots) != 1 {
-					if grantErr != nil {
-						return dnfexpertjob.Changes{}, grantErr
-					}
-					return dnfexpertjob.Changes{}, dnfexpertjob.ErrRecipeUnavailable
+				if err := grantCurrentExpertJobBeads(assets.Inventory, definition, uint32(reward.Count), upgradeCount, s.gameplayNow()); err != nil {
+					return dnfexpertjob.Changes{}, err
 				}
-				grantedKey := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, int16(slots[0]))
-				granted := assets.Inventory.Slots[grantedKey]
-				currentExpertJobSetEnchantUpgradeCount(&granted, upgradeCount)
-				assets.Inventory.Slots[grantedKey] = granted
-				compoundPlan.AttemptedOutputs = []dnfexpertjob.RecipeEntry{{ItemID: beadPlan.BeadItemID, Count: 1}}
-				compoundPlan.Rewards = append([]dnfexpertjob.RecipeEntry(nil), compoundPlan.AttemptedOutputs...)
-				compoundPlan.SuccessCount = 1
-			} else {
-				compoundPlan.FailureCount = 1
 			}
 			if assets.Character.Stats == nil {
 				assets.Character.Stats = make(map[string]int64)
 			}
-			assets.Character.Stats["expert_job_exp"] = beadPlan.FinalExperience
-			result = currentExpertJobCompoundResult{Plan: compoundPlan, JobType: jobType}
-			return dnfexpertjob.Changes{Character: beadPlan.ExperienceGain != 0, Inventory: true, AccountInventory: accountDirty}, nil
+			assets.Character.Stats["expert_job_exp"] = plan.FinalExperience
+			result = currentExpertJobCompoundResult{Plan: plan, JobType: jobType}
+			return dnfexpertjob.Changes{Character: plan.ExperienceGain != 0, Inventory: true, AccountInventory: accountDirty}, nil
 		}
 		learned := assets.Character.Stats[currentExpertJobRecipeStatKey(jobType, request.RecipeItemID)] != 0
 		plan, err := jobCatalog.PlanCompoundWithLearned(jobType, experience, request.RecipeItemID, request.Count, learned, rand.IntN)

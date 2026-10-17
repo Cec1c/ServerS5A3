@@ -163,6 +163,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentParticularHellInfo(session, character); err != nil {
 		return err
 	}
+	if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
+		return err
+	}
 
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	if repos, ok := s.repositoryGroup(); ok {
@@ -243,6 +246,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		// 记账：登录路径上这一帧带装备 create 行的 mode1 已经发出
 		// （`login_mode1_last_before_commit.go`：提交前最后一条 mode1 必须是这一种）。
 		s.noteLoginMode1Send(session, mode1Body, "initial_town_full_equipment_mode1_before_player_state")
+	}
+	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_initial_mode1"); err != nil {
+		return err
 	}
 	session.selectedUserInfoRefreshSent = true
 	// Mode1 creates the worn medal object but does not carry its guardian-gem

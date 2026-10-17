@@ -90,6 +90,9 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 	if currentDungeonIsDespairTower(runtime) && len(plan.DespairResultBody) < 7 {
 		return errCurrentDungeonSettlementPlanShape
 	}
+	if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 && (len(plan.GriefResultBody) != 87 || plan.GriefResultBody[6] != 10) {
+		return errCurrentDungeonSettlementPlanShape
+	}
 	if !runtime.settlementResultNoticeSent {
 		if err := s.sendGameUpperRawClass(session, currentDungeonPlayResultNoticeMsgID, plan.PlayResultBody, 0); err != nil {
 			return err
@@ -142,6 +145,11 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 	}
 	if currentDungeonIsDespairTower(runtime) {
 		if err := s.sendCurrentDespairSettlementLocked(session, runtime, plan); err != nil {
+			return err
+		}
+	}
+	if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+		if err := s.sendCurrentGriefSettlementLocked(session, runtime, plan); err != nil {
 			return err
 		}
 	}
