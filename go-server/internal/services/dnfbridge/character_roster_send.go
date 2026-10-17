@@ -38,7 +38,11 @@ func (s *Service) sendCharacterBootstrap(session *gameSession, source string) er
 // 当前 bridge 只落账号、角色、空背包和空技能记录；后续 starter 装备、技能和经济初始化要迁入 DNF 角色 owner。
 
 func (s *Service) sendUpperRoster(session *gameSession, characters []dnfrepo.CharacterRecord) error {
-	return s.sendGameUpperCharacterRosterRaw(session, s.buildCurrentRosterBody(characters))
+	if err := s.sendGameUpperCharacterRosterRaw(session, s.buildCurrentRosterBody(characters)); err != nil {
+		return err
+	}
+	s.rememberCurrentRenameRoster(session, characters)
+	return nil
 }
 
 func (s *Service) sendCharacterList(session *gameSession, characters []dnfrepo.CharacterRecord) error {
@@ -81,6 +85,7 @@ func (s *Service) sendCurrentCharacterSelectRoster(session *gameSession, charact
 		return err
 	}
 	noteEmptyRosterSlotProbe(session, body)
+	s.rememberCurrentRenameRoster(session, characters)
 	return nil
 }
 
