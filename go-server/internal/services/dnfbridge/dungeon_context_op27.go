@@ -160,6 +160,17 @@ func (s *Service) sendCurrentDungeonContextOp27(session *gameSession, source str
 		if floor > 1 {
 			packet.ContextValue1 = uint16(floor)
 		}
+		// The op27 tail u16 goes through 0xB62A90 to the other tower
+		// control (+e4), independently of the Despair control (+dc).
+		// Its result callback maps floor N to dungeon 5114+N, the real
+		// Tower of Grief directory. Both controls clamp through 1C55230.
+		griefFloor, err := dnfdungeon.GriefNextFloor(character.Stats)
+		if err != nil {
+			return err
+		}
+		if griefFloor > 1 {
+			packet.CappedValue = uint16(griefFloor)
+		}
 	}
 	// 深渊派对准入的 **blocked 槽位**就写在这条下发体的 `List0` 上：本仓
 	// `currentDungeonContext` 的 `List0`（`u8 条数 + N×u16`）与厂商
@@ -191,6 +202,7 @@ func (s *Service) sendCurrentDungeonContextOp27(session *gameSession, source str
 		"hell_blocked_area", session.hellBlocked.AreaID,
 		"body_source", "current_exe_sub_1D868B0_typed_minimum",
 		"despair_next_floor", packet.ContextValue1,
+		"grief_next_floor", packet.CappedValue,
 		"context_source", "persisted_character_despair_highest_cleared")
 	if err := s.sendGameUpperRawClass(session, currentDungeonContextMsgID, body, 0); err != nil {
 		return err
