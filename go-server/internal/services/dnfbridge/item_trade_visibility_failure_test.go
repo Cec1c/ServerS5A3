@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -9,23 +10,31 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
+var (
+	onlineTradeCancelEmpty    = []byte{0, 0}
+	onlineTradeCancelOffer358 = []byte{1, 0, 3, 0, 0, 0x66, 1}
+	onlineTradeCancelGold     = []byte{1, 0, 0, 0, 0, 0, 0}
+)
+
 func TestOnlineTradeOfferWriteFailureCancelsWholeTrade(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		remove    bool
-		fromPeer  bool
-		failMsgID uint16
-		failClass byte
-		failPeer  bool
+		name             string
+		remove           bool
+		fromPeer         bool
+		failMsgID        uint16
+		failClass        byte
+		failPeer         bool
+		wantSenderCancel []byte
+		wantPeerCancel   []byte
 	}{
-		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true},
-		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
-		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "remove_peer_ack", remove: true, fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "remove_offerer_peer_change", remove: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
-		{name: "remove_peer_peer_change", remove: true, fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_peer_ack", remove: true, fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_offerer_peer_change", remove: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_peer_peer_change", remove: true, fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newOnlineCrystalTradeFixture(t, nil)
@@ -69,7 +78,7 @@ func TestOnlineTradeOfferWriteFailureCancelsWholeTrade(t *testing.T) {
 			if !handled || !errors.Is(err, injected) {
 				t.Fatalf("handled=%t err=%v, want injected projection failure", handled, err)
 			}
-			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer)
+			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer, test.wantSenderCancel, test.wantPeerCancel)
 			assertOnlineTradeAccountBalances(t, f)
 		})
 	}
@@ -77,21 +86,23 @@ func TestOnlineTradeOfferWriteFailureCancelsWholeTrade(t *testing.T) {
 
 func TestOnlineTradeGoldWriteFailureCancelsWholeTrade(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		remove    bool
-		fromPeer  bool
-		failMsgID uint16
-		failClass byte
-		failPeer  bool
+		name             string
+		remove           bool
+		fromPeer         bool
+		failMsgID        uint16
+		failClass        byte
+		failPeer         bool
+		wantSenderCancel []byte
+		wantPeerCancel   []byte
 	}{
-		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true},
-		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
-		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "remove_peer_ack", remove: true, fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1},
-		{name: "remove_offerer_peer_change", remove: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
-		{name: "remove_peer_peer_change", remove: true, fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true},
+		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_peer_ack", remove: true, fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_offerer_peer_change", remove: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "remove_peer_peer_change", remove: true, fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newOnlineCrystalTradeFixture(t, nil)
@@ -125,7 +136,7 @@ func TestOnlineTradeGoldWriteFailureCancelsWholeTrade(t *testing.T) {
 			if !handled || !errors.Is(err, injected) {
 				t.Fatalf("handled=%t err=%v, want injected projection failure", handled, err)
 			}
-			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer)
+			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer, test.wantSenderCancel, test.wantPeerCancel)
 			assertOnlineTradeGoldUnchanged(t, f, 1_000_000, 1_000_000)
 		})
 	}
@@ -182,16 +193,19 @@ func addOnlineTradeTestGold(t *testing.T, f *onlineCrystalTradeFixture, fromPeer
 	}
 }
 
-func assertOnlineTradeCancelledAndCannotCommit(t *testing.T, f *onlineCrystalTradeFixture, first, second *gameSession) {
+func assertOnlineTradeCancelledAndCannotCommit(t *testing.T, f *onlineCrystalTradeFixture, first, second *gameSession, wantSenderCancel, wantPeerCancel []byte) {
 	t.Helper()
 	if f.service.currentOnlineItemTrade(first.selectedCharacterID) != nil ||
 		f.service.currentOnlineItemTrade(second.selectedCharacterID) != nil {
 		t.Fatal("projection failure left the trade registered")
 	}
-	for index, conn := range []*bufferConn{f.offerConn, f.peerConn} {
-		if count := countTradePackets(t, conn.write.Bytes(), 0, currentItemTradeCancelMsg); count != 1 {
-			t.Fatalf("participant %d cancellation count=%d, want one", index, count)
-		}
+	senderConn, peerConn := f.offerConn, f.peerConn
+	if first == f.peer {
+		senderConn, peerConn = f.peerConn, f.offerConn
+	}
+	assertOnlineTradeCancelBody(t, senderConn.write.Bytes(), wantSenderCancel)
+	assertOnlineTradeCancelBody(t, peerConn.write.Bytes(), wantPeerCancel)
+	for index, conn := range []*bufferConn{senderConn, peerConn} {
 		if count := countTradePackets(t, conn.write.Bytes(), 0, currentItemTradeFinishMsg); count != 0 {
 			t.Fatalf("participant %d received completion after projection failure", index)
 		}
@@ -212,6 +226,27 @@ func assertOnlineTradeCancelledAndCannotCommit(t *testing.T, f *onlineCrystalTra
 		if count := countTradePackets(t, conn.write.Bytes(), 0, currentItemTradeFinishMsg); count != 0 {
 			t.Fatalf("participant %d committed after cancellation", index)
 		}
+	}
+}
+
+func assertOnlineTradeCancelBody(t *testing.T, data, want []byte) {
+	t.Helper()
+	found := false
+	for len(data) > 0 {
+		packet, rest := splitGameServerUpperPacket(t, data)
+		if packet.Header.Classification == 0 && packet.Header.MsgID == currentItemTradeCancelMsg {
+			if found {
+				t.Fatal("multiple cancellation packets for one participant")
+			}
+			found = true
+			if !bytes.Equal(packet.Body, want) {
+				t.Fatalf("cancel body=% X, want % X", packet.Body, want)
+			}
+		}
+		data = rest
+	}
+	if !found {
+		t.Fatal("cancellation packet not sent")
 	}
 }
 

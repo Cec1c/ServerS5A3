@@ -27,6 +27,14 @@
 
 成功路径的报文、顺序、slot、数量和成功 ACK 未改。
 
+### remove ACK 失败的取消投影
+
+物品删除和金币取回在 ACK 之前已经从会话状态删行或清零。若 ACK 写失败，直接 snapshot 当前交易会丢掉刚取回的那一行，客户端又没收到成功确认，op16 就缺少恢复映射。
+
+现只在 remove 的 ACK 写失败时传入一个取消投影：取消 helper 在锁内取得当前 offer/gold，仅把操作前的旧 offer 或旧 gold 加到该 sender 的 op16 快照中，随后清理双方索引并发送。旧 row/gold 从不写回 trade.offers 或 trade.gold，因此不会恢复成可成交状态。
+
+add ACK 失败仍按当前 snapshot 取消；remove 的对端 op15 写失败发生在 ACK 成功之后，也保持当前 snapshot，避免健康 sender 收到重复恢复行。
+
 ## 回归
 
 新增 item_trade_visibility_failure_test.go，共 16 个子场景：
@@ -38,12 +46,19 @@
 
 每项都验证双方索引为空、双方各一次取消、无完成包、后续 state5/state3 不能成交，以及仓库晶块或角色金币未变化。
 
-旧生产文件下 16/16 红，补修后 16/16 绿。后续完整检查另以本地回执记录。
+上一提交 90ea627 下原有 16 个子场景为旧红、新绿。本轮精确 cancel body 断言相对 90ea627 有 4 个 remove ACK 子场景旧红：
+
+- 物品 remove ACK 失败：sender 旧投影为 00 00，期望 01 00 03 00 00 66 01；
+- 金币 remove ACK 失败：sender 旧投影为 00 00，期望 01 00 00 00 00 00 00。
+
+其余 12 个场景在新旧提交下保持通过，防止向健康对端或 ACK 已成功的 sender 重复恢复。
 
 ## 未覆盖
 
 - op15 已成功写入 socket 但客户端未接收或未绘制；
 - 锁定状态变化时客户端是否清空交易行；
+- op16 是否能完整恢复客户端 UI；
+- add ACK 失败时取消包中的 new row 是否可能要求回到 null source；旧 native 曾出现 null source，本轮不扩大动作；
 - 网络写成功之外的消息丢失；
 - 并发 ready 与 offer 变更之间的竞态窗口。
 

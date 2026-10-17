@@ -224,7 +224,10 @@ func (s *Service) removeOnlineItemTradeGold(session *gameSession, request invent
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
-		s.cancelOnlineItemTrade(trade, "gold_withdrawal_ack_write_failed")
+		s.cancelOnlineItemTradeWithProjection(trade, "gold_withdrawal_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID: session.selectedCharacterID,
+			gold:        &gold,
+		})
 		return err
 	}
 	peer, peerOnline := s.onlineGameSession(peerID)
@@ -359,7 +362,10 @@ func (s *Service) removeOnlineItemTradeOffer(session *gameSession, request inven
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
-		s.cancelOnlineItemTrade(trade, "item_withdrawal_ack_write_failed")
+		s.cancelOnlineItemTradeWithProjection(trade, "item_withdrawal_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID: session.selectedCharacterID,
+			addOffer:    &offer,
+		})
 		return err
 	}
 	peer, peerOnline := s.onlineGameSession(peerID)
@@ -614,13 +620,43 @@ func (s *Service) clearOnlineItemTrade(trade *onlineItemTrade) {
 }
 
 func (s *Service) cancelOnlineItemTrade(trade *onlineItemTrade, reason string) {
+	s.cancelOnlineItemTradeWithProjection(trade, reason, nil)
+}
+
+type onlineItemTradeCancelProjection struct {
+	characterID uint16
+	addOffer    *onlineItemTradeOffer
+	gold        *int64
+}
+
+func (s *Service) cancelOnlineItemTradeWithProjection(trade *onlineItemTrade, reason string, projection *onlineItemTradeCancelProjection) {
 	if trade == nil {
 		return
 	}
 	firstID, secondID := trade.participants[0], trade.participants[1]
+	s.tradeMu.Lock()
 	firstOffers, secondOffers := snapshotOnlineItemTradeOffers(trade, firstID), snapshotOnlineItemTradeOffers(trade, secondID)
 	firstGold, secondGold := snapshotOnlineItemTradeGold(trade, firstID), snapshotOnlineItemTradeGold(trade, secondID)
-	s.clearOnlineItemTrade(trade)
+	if projection != nil {
+		switch projection.characterID {
+		case firstID:
+			firstOffers = appendCancelProjectionOffer(firstOffers, projection.addOffer)
+			if projection.gold != nil {
+				firstGold = *projection.gold
+			}
+		case secondID:
+			secondOffers = appendCancelProjectionOffer(secondOffers, projection.addOffer)
+			if projection.gold != nil {
+				secondGold = *projection.gold
+			}
+		}
+	}
+	for _, characterID := range trade.participants {
+		if s.itemTrades[characterID] == trade {
+			delete(s.itemTrades, characterID)
+		}
+	}
+	s.tradeMu.Unlock()
 	for _, row := range []struct {
 		characterID uint16
 		offers      []onlineItemTradeOffer
@@ -631,6 +667,21 @@ func (s *Service) cancelOnlineItemTrade(trade *onlineItemTrade, reason string) {
 		}
 	}
 	s.logInfo("dnfbridge item trade cancelled", "first_char_id", firstID, "second_char_id", secondID, "reason", reason)
+}
+
+func appendCancelProjectionOffer(offers []onlineItemTradeOffer, offer *onlineItemTradeOffer) []onlineItemTradeOffer {
+	if offer == nil {
+		return offers
+	}
+	for index := range offers {
+		if offers[index].tradeSlot == offer.tradeSlot {
+			offers[index] = *offer
+			return offers
+		}
+	}
+	offers = append(offers, *offer)
+	sort.Slice(offers, func(i, j int) bool { return offers[i].tradeSlot < offers[j].tradeSlot })
+	return offers
 }
 
 func (s *Service) detachOnlineItemTrade(session *gameSession, reason string) {

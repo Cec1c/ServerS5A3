@@ -1,3 +1,11 @@
+## 2026-10-18 — remove ACK失败取消投影保留旧row/gold
+
+- 物品删除或金币取回先更新会话状态，再发发起方 ACK；ACK 写失败时原补修的取消 snapshot 已不含被取回 row/gold，客户端没有收到成功确认却可能仍把物品留在 trade UI。
+- 仅 remove 的 ACK 写失败使用取消投影覆盖：从操作前捕获的旧 offer 或旧 gold 生成该 sender 的 op16 body。覆盖发生在快照/清理阶段，不把旧 row/gold 回填可交易 map，不改变 op15、成功包、slot 或时间字段。
+- add 的 ACK 失败继续使用现有取消 snapshot；对端 op15 失败且发起方 ACK 已成功时仍使用当前 snapshot，避免重复恢复。没有新增快照或重发协议。
+- 精确 cancel body 回归追加：物品 remove ACK 失败必须为 sender 返回 01 00 03 00 00 66 01，金币 remove ACK 失败必须返回 01 00 00 00 00 00 00；健康对端保持 00 00。其余 12 个子场景也固定 sender/peer 的取消投影。新代码 16/16 绿；相对上一提交，4 个 remove ACK 子场景旧红、新绿。
+- 本轮不宣称 op16 已能完整恢复客户端 UI，也不宣称 add ACK 失败的 new row 恢复路径已在 native 证实；旧 native 曾出现 null source，op16 安全性仍需证据。
+
 ## 2026-10-17 — 交易 offer/金币投影写失败取消整次交易
 
 - 当前远端现场的两条物品 op15 均已成功发出（119B，trade slot 3），随后双端 op17/state1、两次 state3 和双端 op18 均出现；因此本项不作为 !72“锁定后未见对方物品”的已证 UI 根因，也不把发送日志等同于客户端已绘制。
