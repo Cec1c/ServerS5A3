@@ -273,13 +273,13 @@ func TestRealPVFNPCEquipmentServicesFourEntries(t *testing.T) {
 	}
 	wax := uint32(0)
 	for id, ref := range items.itemRefs {
-		if strings.EqualFold(strings.TrimPrefix(ref.path, "stackable/"), "cash/candle_goldwax.stk") {
+		if strings.EqualFold(strings.TrimPrefix(ref.path, "stackable/"), "cash/candle_goldwax_oneshot.stk") {
 			wax = id
 			break
 		}
 	}
 	if wax == 0 {
-		t.Fatal("当前PVF无普通黄金蜜蜡")
+		t.Fatal("当前PVF无一次性黄金蜜蜡")
 	}
 	for _, kind := range []string{"NPC跨界", "跨界石", "NPC封装", "蜜蜡封装"} {
 		t.Run(kind, func(t *testing.T) {

@@ -308,7 +308,9 @@ func TestRealPVFEquipmentFollowupNativeWaxAndInstance(t *testing.T) {
 	}
 	for _, mode := range []uint16{0, 1} {
 		t.Run(fmt.Sprint(mode), func(t *testing.T) {
-			s, session, conn, g := npcEquipmentFixture(t, items, 28309, 14, 0)
+			// 材料14已由主线黄金蜜蜡事务接管；本专项验证装备服务对一次性
+			// 蜜蜡的原生分流与实例保留。
+			s, session, conn, g := npcEquipmentFixture(t, items, 28309, 2660238, 0)
 			ctx := context.Background()
 			i, _, _ := g.Inventory.Load(ctx, "19")
 			target := i.Slots["0:9"]
@@ -331,7 +333,10 @@ func TestRealPVFEquipmentFollowupNativeWaxAndInstance(t *testing.T) {
 			after, _, _ := g.Inventory.Load(ctx, "19")
 			got := after.Slots["0:9"]
 			want := append([]byte(nil), target.RawEntry...)
-			want[10] = (want[10] & 31) | 32
+			// 一次性蜜蜡不增加再封装次数；NPC灵魂封装仍增加普通次数。
+			if mode == 1 {
+				want[10] = (want[10] & 31) | 32
+			}
 			want[13] = 1
 			if got.Bind || !bytes.Equal(got.RawEntry, want) || got.Extra["enchant_card"] != "777" || got.Extra["avatar_socket_data"] != target.Extra["avatar_socket_data"] {
 				t.Fatal("真实粉装再封装丢失实例或仍绑定")
