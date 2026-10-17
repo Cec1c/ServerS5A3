@@ -127,6 +127,11 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	}); handled || err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentLuckyStarItemRequest(session, gameplayRequest{
+		Opcode: packet.Header.MsgID, Classification: packet.Header.Classification, Body: packet.Body, Sequence: &requestSequence,
+	}); handled || err != nil {
+		return err
+	}
 	if handled, err := s.handleCurrentEpicWishCommand(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
 		return err
 	}

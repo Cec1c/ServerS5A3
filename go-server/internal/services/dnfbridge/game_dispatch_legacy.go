@@ -160,6 +160,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	if handled, err := currentGameplayModules.dispatchLegacyRequest(s, session, request); handled || err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentLuckyStarItemRequest(session, request); handled || err != nil {
+		return err
+	}
 	if handled, err := s.handleCurrentUserChannel(session, typ, 1, body); handled || err != nil {
 		return err
 	}
