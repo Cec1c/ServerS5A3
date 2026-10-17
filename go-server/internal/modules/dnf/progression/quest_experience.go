@@ -91,7 +91,8 @@ func (t *Tables) DungeonClearBaseExperience(dungeonBasisLevel int) (uint32, erro
 //   - `[difficulty]` 档位是**字符串键**：PVF 同时声明单字符档（字母、`1`..`9`）
 //     与两位数档（`10`..`17`）。旧实现只接受单 rune 键，parse 丢掉 `10`..`17`，
 //     且任务难度 `[difficulty] 10`/`17` 在 catalog 里被静默退回默认 `G`(30)，
-//     令 378 个真实主线（安徒恩/镜像贝希摩斯/卢克等）少给约 40% 经验。
+//     令使用这些键的任务少给约 40% 经验。真实归档含 378 份相关资源，
+//     当前目录含 243 项定义（安徒恩/镜像贝希摩斯/卢克等），不等于当前可接数。
 //     见 parseQuestExperienceRules 与 quest.Catalog.PlanFinishReward。
 func (t *Tables) QuestExperience(playerLevel, questMinLevel int, difficulty string, questGrade string, ignoreLevel bool) (uint32, error) {
 	if t == nil || playerLevel <= 0 || questMinLevel <= 0 {
