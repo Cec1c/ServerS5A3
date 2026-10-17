@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -61,6 +62,9 @@ func (s *Service) createCharacter(session *gameSession, req createCharacterReque
 	}
 	if err := s.saveNewCharacter(ctx, repos, record); err != nil {
 		s.logGameEvent(session, "game-create-save-failed", "account_id", accountID, "character_id", characterID, "error", err)
+		if errors.Is(err, dnfrepo.ErrCharacterNameExists) {
+			return s.sendCreateFailure(session, upper, createCodeDuplicated)
+		}
 		return s.sendCreateFailure(session, upper, createCodeServerError)
 	}
 	updated, err := s.listCharacters(ctx, repos, accountID)

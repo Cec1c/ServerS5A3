@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	"longheng.io/server/internal/modules/dnf/jobmap"
 	"longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -384,6 +385,10 @@ func (o *Owner) ApplyFinishSettlement(
 			}
 		}
 		experienceDelta, experienceBonusDelta := finishExperienceWithBonus(baseExperienceDelta, input.ExperienceBonusPercent)
+		potionBonus := experiencebuff.Bonus(character, experiencebuff.Quest, baseExperienceDelta, now)
+		potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
+		experienceDelta += potionBonus
+		experienceBonusDelta += potionBonus
 		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta)
 		if err != nil {
 			return err

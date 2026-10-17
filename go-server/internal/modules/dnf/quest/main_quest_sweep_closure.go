@@ -37,13 +37,13 @@ const mainQuestSweepMaxDepth = 4
 // （`timebeast_epic_25_01.qst` / `_02.qst`）的 `[grade]` 都是 `[sub]`、
 // `[main quest]` 都是 3971。完成券只扫 `[epic]`，所以 3971 被完成而 3972/3973
 // 没有被完成，客户端于是长期保留一个"父已完成、子仍可接取"的死节点。
-func (c *Catalog) mainQuestSweepSubClosure(parents map[int64]struct{}) []int64 {
+func (c *Catalog) mainQuestSweepSubClosure(parents map[int64]struct{}, include ...func(Definition) bool) []int64 {
 	if c == nil || len(parents) == 0 {
 		return nil
 	}
 	children := make(map[int64][]int64, len(parents))
 	for _, definition := range c.ordered {
-		if definition.MainQuestID <= 0 || normalizeQuestTag(definition.Grade) != "sub" {
+		if definition.MainQuestID <= 0 || normalizeQuestTag(definition.Grade) != "sub" || (len(include) > 0 && !include[0](definition)) {
 			continue
 		}
 		children[definition.MainQuestID] = append(children[definition.MainQuestID], definition.ID)
@@ -132,12 +132,13 @@ func (c *Catalog) applyMainQuestSweepSubClosure(
 	parents map[int64]struct{},
 	cutoffLevel int,
 	completedAt time.Time,
+	include ...func(Definition) bool,
 ) int64 {
 	if plan == nil || len(parents) == 0 {
 		return 0
 	}
 	maxSubID := int64(0)
-	for _, subID := range c.mainQuestSweepSubClosure(parents) {
+	for _, subID := range c.mainQuestSweepSubClosure(parents, include...) {
 		definition, known := c.Find(subID)
 		if !known {
 			continue

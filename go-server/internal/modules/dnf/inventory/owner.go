@@ -276,6 +276,7 @@ type EnchantResult struct {
 	// （目标坐标 list 3 槽 26）。此时没有 list 7 行可刷新，穿戴行本身要重发。
 	WornPetTarget       bool
 	WornPetUpdatedStack dnfrepo.ItemStack
+	WornEquipmentTarget bool
 	MainRefresh         map[string]dnfrepo.ItemStack
 	Changed             bool
 	// 部位限制的取证字段：PartRejection 非空表示这次拒绝来自部位判定
@@ -1805,8 +1806,9 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	// 穿戴中的宠物（list 3 槽 26）同样是合法目标：操作者现场报障"宠物要脱下才能打宝珠"，
 	// 客户端给的就是 (3,26)。这条路径只写 PetEntry + 穿戴行，不经 list 7 行。
 	wornPetTarget := cmd.TargetListType == listTypeEquipment && cmd.TargetSlotIndex == currentPetWornEquipmentSlot
+	wornEquipmentTarget := cmd.TargetListType == listTypeEquipment && cmd.TargetSlotIndex >= 12 && cmd.TargetSlotIndex <= 25
 	if cmd.BeadListType != listTypeMain ||
-		(cmd.TargetListType != listTypeMain && cmd.TargetListType != listTypePet && !wornPetTarget) {
+		(cmd.TargetListType != listTypeMain && cmd.TargetListType != listTypePet && !wornPetTarget && !wornEquipmentTarget) {
 		base.ErrorCode = enchantErrorUnsupported
 		return base, nil
 	}
@@ -1839,7 +1841,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		}
 		return result, nil
 	}
-	if cmd.TargetListType == listTypeMain && !o.inItemTransaction {
+	if (cmd.TargetListType == listTypeMain || wornEquipmentTarget) && !o.inItemTransaction {
 		var result EnchantResult
 		err := o.withinInventoryTransaction(ctx, characterID, func(txOwner *Owner) error {
 			var err error
@@ -1884,6 +1886,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	var target dnfrepo.ItemStack
 	var wornEquipment dnfrepo.EquipmentRecord
 	var wornEntry dnfrepo.EquipmentEntry
+	wornKey := ""
 	targetFound := false
 	if wornPetTarget {
 		// 穿戴中的宠物不在背包里：目标行从装备表槽 26 读。
@@ -1893,6 +1896,23 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		}
 		if targetFound {
 			target = stackFromWornPetEntry(wornEntry)
+		}
+	} else if wornEquipmentTarget {
+		if o.equipment == nil {
+			return EnchantResult{}, ErrForgingEquipmentOwnerUnavailable
+		}
+		wornEquipment, targetFound, err = o.equipment.Load(ctx, characterID)
+		if err != nil {
+			return EnchantResult{}, err
+		}
+		if targetFound && wornEquipment.CharacterID == characterID {
+			wornEquipment = dnfrepo.CloneEquipment(wornEquipment)
+			wornKey, wornEntry, targetFound = wornEnchantEntry(wornEquipment, cmd.TargetSlotIndex)
+			if targetFound {
+				target = forgingStackFromEquipmentEntry(wornEntry)
+			}
+		} else {
+			targetFound = false
 		}
 	} else {
 		target, targetFound = items[targetKey]
@@ -1905,12 +1925,20 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		return result, nil
 	}
 	result.TargetItemID = target.ItemID
+	if wornEquipmentTarget && (target.Count != 1 || isEquipmentLocked(target) || (!target.ExpireAt.IsZero() && !time.Now().Before(target.ExpireAt))) {
+		result.ErrorCode = enchantErrorInvalidTarget
+		return result, nil
+	}
 
 	resolution, err := resolver(bead.ItemID, target.ItemID)
 	if err != nil {
 		return EnchantResult{}, err
 	}
-	if resolution.CardItemID <= 0 {
+	randomTitle := resolution.RandomTitleEnchantConfigID != 0 || resolution.RandomTitleEnchantRowID != 0
+	if randomTitle && (resolution.RandomTitleEnchantConfigID == 0 || resolution.RandomTitleEnchantRowID == 0 || resolution.CardItemID != 0 || cmd.TargetListType != listTypeMain || !strings.EqualFold(strings.TrimSpace(resolution.TargetEquipmentType), "[title name]") || len(resolution.TargetWhitelist) == 0) {
+		return result, nil
+	}
+	if !randomTitle && resolution.CardItemID <= 0 {
 		return result, nil
 	}
 	result.CardItemID = resolution.CardItemID
@@ -1933,6 +1961,10 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		result.PartRejection = rejection
 		result.BeadParts = append([]string(nil), resolution.AllowedEquipmentTypes...)
 		result.TargetPart = resolution.TargetEquipmentType
+		return result, nil
+	}
+	if wornEquipmentTarget && !wornEnchantSlotMatches(cmd.TargetSlotIndex, resolution.TargetEquipmentType) {
+		result.ErrorCode = enchantErrorInvalidTarget
 		return result, nil
 	}
 	var petRecord dnfrepo.PetRecord
@@ -1987,8 +2019,16 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		return result, nil
 	}
 
+	if randomTitle && (target.Count != 1 || isEquipmentLocked(target) || isEquipmentLocked(bead) || (!target.ExpireAt.IsZero() && !time.Now().Before(target.ExpireAt)) || (!bead.ExpireAt.IsZero() && !time.Now().Before(bead.ExpireAt))) {
+		result.ErrorCode = enchantErrorInvalidTarget
+		return result, nil
+	}
 	target = cloneStack(target)
-	setEnchantFields(&target, resolution.CardItemID, upgradeCount)
+	if randomTitle {
+		setRandomTitleEnchantFields(&target, resolution.RandomTitleEnchantConfigID, resolution.RandomTitleEnchantRowID)
+	} else {
+		setEnchantFields(&target, resolution.CardItemID, upgradeCount)
+	}
 	if wornPetTarget {
 		// 穿戴中的宠物：更新装备表槽 26 那一行（Extra + raw），并把结果作为
 		// "穿戴行刷新"交给上层，客户端不需要重登就能看到宝珠。
@@ -2000,6 +2040,11 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		wornEquipment.Entries[strconv.Itoa(int(currentPetWornEquipmentSlot))] = wornEntry
 		result.WornPetTarget = true
 		result.WornPetUpdatedStack = cloneStack(target)
+	} else if wornEquipmentTarget {
+		wornEntry = setWornEquipmentEnchantFields(wornEntry, resolution.CardItemID, upgradeCount)
+		wornEquipment.Entries[wornKey] = wornEntry
+		result.WornEquipmentTarget = true
+		result.TargetUpdatedStack = forgingStackFromEquipmentEntry(wornEntry)
 	} else {
 		items[targetKey] = target
 		result.TargetUpdatedStack = cloneStack(target)
@@ -2034,7 +2079,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 			return EnchantResult{}, err
 		}
 	}
-	if wornPetTarget {
+	if wornPetTarget || wornEquipmentTarget {
 		if o.equipment == nil {
 			return EnchantResult{}, ErrPetInventoryOwnerRequired
 		}
@@ -2224,9 +2269,12 @@ func setEnchantFields(stack *dnfrepo.ItemStack, cardItemID int64, upgradeCount b
 	if stack == nil {
 		return
 	}
+	restoreEnchantRawCache(stack)
 	if stack.Extra == nil {
 		stack.Extra = make(map[string]string, 4)
 	}
+	delete(stack.Extra, "random_title_enchant_config_id")
+	delete(stack.Extra, "random_title_enchant_row_id")
 	stack.Extra["value_a"] = strconv.FormatInt(cardItemID, 10)
 	stack.Extra["enchant_card_id"] = strconv.FormatInt(cardItemID, 10)
 	stack.Extra["byte_12"] = strconv.Itoa(int(upgradeCount))
@@ -2239,6 +2287,8 @@ func setEnchantFields(stack *dnfrepo.ItemStack, cardItemID int64, upgradeCount b
 		stack.RawEntry[0x10] = byte(value >> 16)
 		stack.RawEntry[0x11] = byte(value >> 24)
 		stack.RawEntry[0x12] = upgradeCount
+		clear(stack.RawEntry[0x61:0x65])
+		stack.Extra["raw_entry_hex"] = hex.EncodeToString(stack.RawEntry)
 	}
 }
 
@@ -2346,10 +2396,10 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 	if !o.inItemTransaction {
 		var result UseStackableResult
 		wrap := o.withinInventoryTransaction
-		// 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
+		// 经验 / 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
 		// 所以这一族走角色资产事务：药水被扣掉与 buff 被记上要么一起成立、
 		// 要么一起不成立。其它消耗品保持既有事务口径（逐字节不变）。
-		if cmd.UseUpgradeBuff != nil && o.assets != nil {
+		if cmd.UseExperienceBuff != nil || (cmd.UseUpgradeBuff != nil && o.assets != nil) {
 			wrap = o.withinCharacterAssetTransaction
 		}
 		err := wrap(ctx, characterID, func(txOwner *Owner) error {
@@ -2395,6 +2445,11 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 			cmd.SourceSlotIndex,
 			stack.ItemID,
 		)
+	}
+	if cmd.UseExperienceBuff != nil {
+		if err := o.recordExperiencePotion(ctx, cmd, characterID, stack); err != nil {
+			return UseStackableResult{}, err
+		}
 	}
 	reviveCoinConsumable := dnfrevivecoin.IsConsumable(stack)
 
@@ -3863,4 +3918,30 @@ func (o *Owner) UpgradeTicket(ctx context.Context, cmd Command, resolver aligned
 	result.MainRefresh = cloneItemMap(record.Slots)
 	result.Changed = true
 	return result, nil
+}
+
+func setRandomTitleEnchantFields(stack *dnfrepo.ItemStack, configID, rowID uint16) {
+	if stack == nil || configID == 0 || rowID == 0 {
+		return
+	}
+	restoreEnchantRawCache(stack)
+	if stack.Extra == nil {
+		stack.Extra = make(map[string]string, 8)
+	}
+	stack.Extra["value_a"] = "0"
+	stack.Extra["enchant_card_id"] = "0"
+	stack.Extra["byte_12"] = "0"
+	stack.Extra["enchant_upgrade_count"] = "0"
+	stack.Extra["random_title_enchant_config_id"] = strconv.FormatUint(uint64(configID), 10)
+	stack.Extra["random_title_enchant_row_id"] = strconv.FormatUint(uint64(rowID), 10)
+	if len(stack.RawEntry) == currentItemListEntrySize {
+		stack.RawEntry = append([]byte(nil), stack.RawEntry...)
+		for index := 0; index < 4; index++ {
+			stack.RawEntry[0x0E+index] = 0
+		}
+		stack.RawEntry[0x12] = 0
+		binary.LittleEndian.PutUint16(stack.RawEntry[0x61:0x63], configID)
+		binary.LittleEndian.PutUint16(stack.RawEntry[0x63:0x65], rowID)
+		stack.Extra["raw_entry_hex"] = hex.EncodeToString(stack.RawEntry)
+	}
 }

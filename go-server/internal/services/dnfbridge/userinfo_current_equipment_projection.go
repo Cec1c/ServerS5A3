@@ -78,6 +78,7 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 	if r == nil || r.service == nil || strings.TrimSpace(r.characterID) == "" {
 		return nil
 	}
+	r.resetCurrentRandomTitleEnchantRow()
 	repos, ok := r.service.repositoryGroupFor(r.ctx)
 	if !ok || repos.Equipment == nil {
 		return nil
@@ -102,6 +103,9 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 			continue
 		}
 		instance := r.currentMode1EquipmentTimeOrInstance(equipped, &entry)
+		if currentMode1EquipmentCreateEnabled(equipped) {
+			r.noteCurrentRandomTitleEnchantRow(entry)
+		}
 		equipmentType, equipmentTypeKnown := r.currentMode1EquipmentType(equipped)
 		durability, durabilityKnown := currentMode1EquipmentDurabilityWord(equipped, entry)
 		indexedState := currentMode1EquipmentIndexedStateFromCurrentItem(entry)
