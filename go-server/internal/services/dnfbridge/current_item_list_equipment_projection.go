@@ -57,6 +57,7 @@ func currentItemListEntryFromEquipment(equipped dnfrepo.EquipmentEntry) (current
 	entry.avatarColorData = currentItemListAvatarColorData(extra)
 	currentApplyEquipmentSocketVectorToEntry(&entry, extra)
 	currentApplyEquipmentEffectRuneToEntry(&entry, extra)
+	overlayCurrentRandomTitleEnchantEntry(&entry, extra)
 	return entry, true
 }
 

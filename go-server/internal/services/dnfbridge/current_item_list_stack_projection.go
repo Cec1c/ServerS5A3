@@ -119,6 +119,7 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 		currentApplyEquipmentSocketVectorToEntry(&entry, extra)
 		currentApplyEquipmentEffectRuneToEntry(&entry, extra)
 	}
+	overlayCurrentRandomTitleEnchantEntry(&entry, extra)
 	return entry
 }
 

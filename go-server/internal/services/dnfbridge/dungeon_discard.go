@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"math"
 	"strconv"
 	"strings"
@@ -177,12 +178,23 @@ func cloneRuntimeDungeonDiscardStack(stack dnfrepo.ItemStack) dnfrepo.ItemStack 
 	return stack
 }
 
-func (s *Service) handleCurrentDungeonDiscard(session *gameSession, body []byte) (bool, error) {
+func (s *Service) handleCurrentDungeonDiscard(session *gameSession, body []byte) (handled bool, resultErr error) {
 	if session == nil {
 		return false, nil
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
+	recoverContainer := false
+	defer func() {
+		session.dungeon.mu.Unlock()
+		if recoverContainer && resultErr == nil {
+			// 现用 EXE 过滤 op47 应答，op14 只更新物品行，不会结清丢弃等待队列。
+			// 原生 op13 重建主背包时会清空该队列，否则后续自动拾取在发 op43 前被拦下。
+			// 成功和业务拒绝都从权威库存重建；读取/发送失败交由连接错误路径处理。
+			resultErr = s.sendCurrentContainerListTypesWithRefresh(
+				session, "副本丢弃后恢复物品操作状态", true, []byte{dnfrepo.MainInventoryListType},
+			)
+		}
+	}()
 
 	runtime := session.dungeon.runtime
 	if runtime == nil {
@@ -195,6 +207,11 @@ func (s *Service) handleCurrentDungeonDiscard(session *gameSession, body []byte)
 			"error", errCurrentDungeonDiscardRuntimeMissing)
 		return true, nil
 	}
+	// 只为本角色副本中形状完整的主背包请求恢复等待状态；未知模式仍由解析器拒绝，
+	// 不会因此扣除物品或生成地面对象。
+	recoverContainer = len(body) == currentDungeonDiscardRequestSize &&
+		body[4] == dnfrepo.MainInventoryListType &&
+		binary.LittleEndian.Uint16(body[5:7]) <= math.MaxInt16
 	request, err := parseCurrentDungeonDiscardRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-dungeon-discard-blocked",
@@ -464,16 +481,16 @@ func (s *Service) handleCurrentDungeonDiscard(session *gameSession, body []byte)
 
 func restoreCurrentDungeonDiscardedItem(
 	ctx context.Context,
-	uow dnfrepo.AccountCharacterAssetUnitOfWork,
+	repositories dnfrepo.Group,
 	accountID string,
 	characterID string,
 	origin runtimeDungeonDiscardOrigin,
 	definition dungeonDropItemDefinition,
 	now time.Time,
 ) (uint16, currentItemListEntry, error) {
-	if uow == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(characterID) == "" ||
+	if repositories.AccountAssets == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(characterID) == "" ||
 		origin.ListType != dnfrepo.MainInventoryListType || origin.SourceSlot < 0 ||
-		origin.Stack.ItemID <= 0 || origin.Stack.Count <= 0 ||
+		origin.Stack.ItemID <= 0 || origin.Stack.Count <= 0 || origin.Stack.Count > math.MaxUint32 ||
 		uint64(origin.Stack.ItemID) > math.MaxUint32 ||
 		uint32(origin.Stack.ItemID) != definition.ItemID {
 		return 0, currentItemListEntry{}, errCurrentDungeonDiscardTransaction
@@ -488,7 +505,7 @@ func restoreCurrentDungeonDiscardedItem(
 		destination uint16
 		itemUpdate  currentItemListEntry
 	)
-	owner, err := dnfdungeon.NewOwner(dnfrepo.Group{AccountAssets: uow})
+	owner, err := dnfdungeon.NewOwner(repositories)
 	if err != nil {
 		return 0, currentItemListEntry{}, errCurrentDungeonDiscardTransaction
 	}
@@ -499,24 +516,31 @@ func restoreCurrentDungeonDiscardedItem(
 		UpdatedAt:    now,
 		Apply: func(slots map[string]dnfrepo.ItemStack) (bool, error) {
 			stack := cloneRuntimeDungeonDiscardStack(origin.Stack)
+			slot := origin.SourceSlot
 			key := currentDungeonPickupMainSlotKey(origin.SourceSlot)
 			if origin.AccountOwned {
 				if !dnfrepo.IsAccountSharedInventorySlot(origin.ListType, origin.SourceSlot) {
 					return false, errCurrentDungeonDiscardRestoreConflict
 				}
 				key = dnfrepo.AccountSharedInventorySlotKey(origin.SourceSlot)
-			}
-			if existing, occupied := slots[key]; occupied {
-				stack, err = mergeCurrentDungeonDiscardOrigin(existing, stack, definition)
+				if existing, occupied := slots[key]; occupied {
+					stack, err = mergeCurrentDungeonDiscardOrigin(existing, stack, definition)
+					if err != nil {
+						return false, errors.Join(errDungeonPickupInventoryFull, err)
+					}
+				}
+			} else {
+				slot, stack, err = placeCurrentDungeonDiscardOrigin(ctx, repositories.Settings, characterID, slots, origin, definition)
 				if err != nil {
 					return false, err
 				}
+				key = currentDungeonPickupMainSlotKey(slot)
 			}
-			entry := currentItemListEntryFromStack(origin.ListType, origin.SourceSlot, stack)
+			entry := currentItemListEntryFromStack(origin.ListType, slot, stack)
 			stack.RawEntry = append([]byte(nil), entry.data[:]...)
 			itemUpdate = entry
 			slots[key] = stack
-			destination = uint16(origin.SourceSlot)
+			destination = uint16(slot)
 			return true, nil
 		},
 	})
@@ -531,6 +555,49 @@ func restoreCurrentDungeonDiscardedItem(
 	return destination, itemUpdate, nil
 }
 
+// 原格可用时保持原位；原格被占用时，按共享选格规则查找合法合并行或空格。
+// 使用原实例的完整属性与到期时间，不重新生成装备或延长有效期。
+func placeCurrentDungeonDiscardOrigin(
+	ctx context.Context, settings dnfrepo.SettingsRepository, characterID string,
+	slots map[string]dnfrepo.ItemStack, origin runtimeDungeonDiscardOrigin, definition dungeonDropItemDefinition,
+) (int16, dnfrepo.ItemStack, error) {
+	if definition.SlotStart <= 0 || definition.SlotEnd < definition.SlotStart {
+		return 0, dnfrepo.ItemStack{}, errDungeonPickupItemInvalid
+	}
+	record := dnfrepo.InventoryRecord{CharacterID: characterID, Slots: slots}
+	if err := dnfrepo.BindInventoryContainerState(ctx, settings, &record); err != nil {
+		return 0, dnfrepo.ItemStack{}, err
+	}
+	placement := currentDungeonPickupPlacement(definition, uint32(origin.Stack.Count)).Definition
+	policy := (dnfplacement.SlotPolicy{
+		ListType: dnfrepo.MainInventoryListType, Start: placement.SlotStart, End: placement.SlotEnd,
+		AllowQuickSlots: placement.AllowQuickSlots, PreferQuickSlots: placement.PreferQuickSlot,
+	}).ForInventory(&record)
+	try := func(slot int16, allowEmpty bool) (dnfrepo.ItemStack, bool) {
+		if existing, occupied := slots[currentDungeonPickupMainSlotKey(slot)]; occupied {
+			merged, err := mergeCurrentDungeonDiscardOrigin(existing, origin.Stack, definition)
+			return merged, err == nil
+		}
+		return cloneRuntimeDungeonDiscardStack(origin.Stack), allowEmpty
+	}
+	if policy.Contains(origin.ListType, origin.SourceSlot) {
+		if stack, ok := try(origin.SourceSlot, true); ok {
+			return origin.SourceSlot, stack, nil
+		}
+	}
+	for _, slot := range policy.MergeSlots() {
+		if stack, ok := try(slot, false); ok {
+			return slot, stack, nil
+		}
+	}
+	for _, slot := range policy.EmptySlots() {
+		if _, occupied := slots[currentDungeonPickupMainSlotKey(slot)]; !occupied {
+			return slot, cloneRuntimeDungeonDiscardStack(origin.Stack), nil
+		}
+	}
+	return 0, dnfrepo.ItemStack{}, errDungeonPickupInventoryFull
+}
+
 func mergeCurrentDungeonDiscardOrigin(
 	existing dnfrepo.ItemStack,
 	returned dnfrepo.ItemStack,
@@ -538,6 +605,7 @@ func mergeCurrentDungeonDiscardOrigin(
 ) (dnfrepo.ItemStack, error) {
 	if definition.Kind != dungeonDropItemStackable ||
 		existing.ItemID != returned.ItemID ||
+		!dnfrepo.CanMergeItemStack(existing, returned) ||
 		existing.Bind != returned.Bind ||
 		existing.Bind ||
 		currentDungeonDiscardStackLocked(existing) ||
