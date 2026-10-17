@@ -276,6 +276,16 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err := checkUseStackableListType(cmd.SourceListType); err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
+		if req.ExperienceBuffResolver != nil {
+			effect, err := req.ExperienceBuffResolver(int64(cmd.ItemTemplateID))
+			if err != nil {
+				return ownerBlockedResult(cmd, err), nil
+			}
+			if effect.Kind != "" {
+				cmd.UseExperienceBuff = &effect
+				cmd.ExperienceBuffNow = req.ExperienceBuffNow
+			}
+		}
 		if err := applyUpgradeRateBuffResolution(req, &cmd); err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
@@ -917,6 +927,17 @@ func ownerAppliedEnchantResult(ctx context.Context, settings dnfrepo.SettingsRep
 			),
 			UpperResponses: []alignedcmd.UpperResponse{
 				targetUpdate,
+				class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, []commonItemListEntry{{slot: result.BeadSlotIndex, stack: result.BeadUpdatedStack}})),
+				class1Response(opcode, buildEnchantByBeadSuccessAck(result)),
+			},
+		}
+	}
+	if result.WornEquipmentTarget {
+		return alignedcmd.Result{
+			Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+			Reason:                     "穿戴装备附魔已提交；目标原位更新及材料刷新先于结果回包",
+			WornEquipmentSlotRefreshes: []int16{result.TargetSlotIndex},
+			UpperResponses: []alignedcmd.UpperResponse{
 				class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, []commonItemListEntry{{slot: result.BeadSlotIndex, stack: result.BeadUpdatedStack}})),
 				class1Response(opcode, buildEnchantByBeadSuccessAck(result)),
 			},
