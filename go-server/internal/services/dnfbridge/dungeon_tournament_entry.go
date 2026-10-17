@@ -161,7 +161,11 @@ func (s *Service) validateDungeonEntryWithTournament(
 		return s.validateCurrentDayDungeonEntry(ctx, character, dungeon, session)
 	}
 	if s != nil && s.options.currentClientVersion == "official-24.9" {
-		if req, found, err := s.currentDungeonCycleRequirementForDungeon(dungeon.ID); err != nil {
+		if s.currentDimensionGateDailyEntryEnabled(dungeon) {
+			if err := s.validateCurrentDimensionGateDailyCount(character); err != nil {
+				return err
+			}
+		} else if req, found, err := s.currentDungeonCycleRequirementForDungeon(dungeon.ID); err != nil {
 			return err
 		} else if found {
 			if err := s.validateCurrentDungeonCycleDailyCount(character, req); err != nil {
@@ -231,9 +235,11 @@ func (s *Service) consumeDungeonEntryItemsWithTournament(
 		// Rift tickets and count commit together after full runtime preparation.
 		return nil
 	}
-	if cycle, err := s.currentDailyCountEntryEnabled(dungeon); err != nil {
+	if dailyCountEntry, err := s.currentDailyCountEntryEnabled(dungeon); err != nil {
 		return err
-	} else if cycle {
+	} else if dailyCountEntry {
+		// Dimension-gate and cycle counts, tickets, and room fatigue commit
+		// together after runtime preparation. Keep the prepare path read-only.
 		return nil
 	}
 	if !dungeonTournamentEnabled() {
