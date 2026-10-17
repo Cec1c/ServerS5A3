@@ -313,14 +313,21 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 					"msg_id", currentSceneTransitionMsgID,
 					"tutorial_completed", false,
 					"reason", "tutorial_pending_first_scene_is_dungeon_not_town")
-				if job, ok := characterJobByte(selectedCharacter); ok && job == csharpCreatorMageJob && !session.gameOptionNoticeSent {
-					if err := s.sendAccountGameOptionNotices(session, "select_character_after_ack_tutorial_before_op15"); err != nil {
+				if job, ok := characterJobByte(selectedCharacter); ok && job == csharpCreatorMageJob {
+					var optionErr error
+					if !session.gameOptionNoticeSent {
+						optionErr = s.sendAccountGameOptionNotices(session, "select_character_after_ack_tutorial_before_op15")
+						if optionErr == nil {
+							session.gameOptionNoticeSent = true
+						}
+					} else {
+						optionErr = s.sendSelectedCharacterHotkeyNotice(session, "select_character_after_ack_tutorial_before_op15")
+					}
+					if optionErr != nil {
 						s.logWarn("dnfbridge account game option replay deferred",
 							"conn_id", session.connID,
 							"char_id", charID,
-							"error", err)
-					} else {
-						session.gameOptionNoticeSent = true
+							"error", optionErr)
 					}
 				}
 				if err := s.sendEnterSelectDungeonState(session, "select_character_after_ack_15", false, false); err != nil {

@@ -594,6 +594,31 @@ func (s *Service) sendAccountGameOptionNotices(session *gameSession, source stri
 	return s.sendAccountHotkeyNotice(session, source, accountID, record.Values)
 }
 
+// sendSelectedCharacterHotkeyNotice restores the character-specific bank after
+// the connection has already consumed its account-option replay. Account options
+// remain connection-scoped; successful hotkey sends are scoped to the bound
+// character generation so a selection retry cannot repeatedly reset its keys.
+func (s *Service) sendSelectedCharacterHotkeyNotice(session *gameSession, source string) error {
+	if s == nil || session == nil || session.selectedCharacterID == 0 ||
+		s.options.currentClientVersion != "official-24.9" || !currentGameOptionNoticeEnabled() {
+		return nil
+	}
+	if session.selectedHotkeyNoticeCharacterID == session.selectedCharacterID &&
+		session.selectedHotkeyNoticeGeneration == session.characterGeneration {
+		s.logGameEvent(session, "game-selected-hotkey-notice-skipped", "source", source,
+			"char_id", session.selectedCharacterID, "character_generation", session.characterGeneration,
+			"reason", "selected_generation_already_sent")
+		return nil
+	}
+	accountID := strings.TrimSpace(s.accountIDForSession(session))
+	if accountID == "" {
+		return nil
+	}
+	// Official hotkeys are resolved from the character record/defaults below.
+	// They do not require an account settings read or account hotkey prefix.
+	return s.sendAccountHotkeyNotice(session, source, accountID, nil)
+}
+
 // sendAccountHotkeyNotice replays class0/0x01C7. The hotkey slots come from the
 // account-scoped prefix of the last op198 when one exists; otherwise the value
 // seeded for the character at creation (`character:<id>:hotkeys`, PVF/C#
@@ -681,8 +706,14 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 	if err := s.sendGameUpperRawClass(session, s.currentAccountHotkeyNoticeID(), body, 0); err != nil {
 		return err
 	}
+	if s.options.currentClientVersion == "official-24.9" {
+		session.selectedHotkeyNoticeCharacterID = session.selectedCharacterID
+		session.selectedHotkeyNoticeGeneration = session.characterGeneration
+	}
 	s.logGameEvent(session, "game-account-hotkey-notice-send",
 		"source", source,
+		"char_id", session.selectedCharacterID,
+		"character_generation", session.characterGeneration,
 		"account_id", accountID,
 		"msg_id", s.currentAccountHotkeyNoticeID(),
 		"classification", 0,
