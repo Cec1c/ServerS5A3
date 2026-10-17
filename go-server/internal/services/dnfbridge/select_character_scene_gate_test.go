@@ -425,7 +425,7 @@ func TestCompletedSelectProgress36BindsRealActorBeforeTypedTownTransition(t *tes
 	}
 	pickupSlot, _, err := grantCurrentDungeonPickupItem(
 		context.Background(),
-		repositories.CharacterItems,
+		repositories,
 		"29",
 		dungeonDropItemDefinition{
 			ItemID:        3227,
