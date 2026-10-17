@@ -131,7 +131,7 @@ func route510Mail(t *testing.T, r repo.Group, id uint32, count int64, legacy boo
 }
 func route510Drop(t *testing.T, r repo.Group, d dungeonDropItemDefinition, count uint32) int16 {
 	t.Helper()
-	slot, _, err := grantCurrentDungeonPickupItem(context.Background(), r.CharacterItems, "77", d, count, time.Unix(1900000000, 0).UTC())
+	slot, _, err := grantCurrentDungeonPickupItem(context.Background(), r, "77", d, count, time.Unix(1900000000, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

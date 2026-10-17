@@ -288,6 +288,7 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 	definition.ExpirationDate = currentPVFRenewedRetiredExpirationDate(rawExpiration, now)
 	expirationDate := definition.ExpirationDate
 	if instanceExpire := currentItemListStackExpire(stack); instanceExpire != 0 &&
+		currentGiftBoxHistoryExpiration(definition, instanceExpire, currentGiftBoxInstanceHasIndependentExpiration(stack.Extra)).IsZero() &&
 		!currentJoustEventHasRetiredInstanceExpiration(
 			sceneInventoryUint32FromInt64(stack.ItemID), instanceExpire, definition.ExpirationDate) &&
 		!currentPVFInstanceExpirationSupersededByRenewal(
