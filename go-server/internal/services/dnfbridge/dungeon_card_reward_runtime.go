@@ -24,7 +24,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if s == nil || session == nil || runtime == nil || session.dungeon.runtime != runtime {
 		return errDungeonCardAssetOwnerUnavailable
 	}
-	if currentDungeonIsDespairTower(runtime) {
+	if currentDungeonUsesDedicatedTowerResult(runtime) {
 		return nil
 	}
 	if runtime.settlementCardRewardState != nil {
@@ -381,7 +381,7 @@ func (s *Service) selectCurrentDungeonCardLocked(
 	source string,
 ) error {
 	if session == nil || runtime == nil || session.dungeon.runtime != runtime ||
-		currentDungeonIsDespairTower(runtime) ||
+		currentDungeonUsesDedicatedTowerResult(runtime) ||
 		!runtime.settlementCardLayoutSent ||
 		runtime.settlementPhase < currentDungeonSettlementPhaseCardsRevealed ||
 		side >= dungeonCardSideCount || memberIndex >= dungeonCardSlotsPerSide {
