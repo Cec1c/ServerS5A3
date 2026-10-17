@@ -1,3 +1,9 @@
+## 2026-10-18 — MR!29 追加券材料需求同事务消费
+
+- 真实 PVF 的 `10158126` 声明 `[need material] 3228 60`；内部 `DimensionGateExtraEntryCommand` 新增显式 `MaterialItemID`/`MaterialCount`，只接受成对正数或全零，材料、券与追加次数在同一个 `WithinCharacterAssets` 事务提交。
+- 缺料在扣券后、写库前返回 `ErrEntryItemConsumeInsufficient`，券、料和次数均不落库；足料跨栈扣 60、券扣 1、追加 1 次；同一 `UpdatedAt` 的重放被冷却拒绝，不重复扣；提交失败回滚后重试只成功一次。无材料券保持只扣券。
+- 真档 PVF 用例实际解析三张普通券：`10158125`/`10158692` 无材料，`10158126` 为 `3228 × 60`。未接 opcode/ACK/806 通知，未改 PVF、玩家库或运行服，未部署、未 push。
+
 ## 2026-10-18 — MR!29 旧来源分支主线整合准备
 
 - 以当前 master `3478cbb9377822c906c4b3c76b2530e10eb2c6a7` 合入原 MR!29 来源头 `5ac69216358d950dd1c5fcc28411d03903246461`。艾肯沿用主线当前独立入场次数、试炼前置与原生周期通知，不把来源分支旧的按通关计数实现重新盖回；其未使用的 `ConsumeEntryAssets` 与旧通关计数专项一并移除。

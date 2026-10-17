@@ -15,7 +15,10 @@ const dimensionGateExtraLastUseKey = "dimension_gate_extra_last_use_ms"
 // DimensionGateExtraEntryCommand is an internal, PVF-resolved command, not a
 // network request. The bridge must resolve the item action, expiration, level,
 // cooldown and usable place before dispatch; opcode/ACK wiring remains pending.
-// A ticket is consumed from the exact requested main-inventory slot.
+// A ticket is consumed from the exact requested main-inventory slot. When the
+// ticket declares `[need material]`, MaterialItemID/MaterialCount carry the
+// first positive pair from that section and are charged in the same character
+// asset transaction as the ticket and the cumulative grant.
 type DimensionGateExtraEntryCommand struct {
 	CharacterID          string
 	AccountID            string
@@ -30,20 +33,45 @@ type DimensionGateExtraEntryCommand struct {
 	RequireBaseExhausted bool
 	UpdatedAt            time.Time
 	Project              EntryItemProjector
+	// MaterialItemID/MaterialCount are the explicit PVF `[need material]` pair.
+	// Both zero means this ticket has no material fee. A partial or negative
+	// pair is invalid and is rejected before the transaction starts.
+	MaterialItemID int64
+	MaterialCount  int64
 }
 
 type DimensionGateExtraEntryResult struct {
-	Character dnfrepo.CharacterRecord
-	Granted   int64
-	Total     int64
-	Slot      EntryItemConsumedSlot
+	Character     dnfrepo.CharacterRecord
+	Granted       int64
+	Total         int64
+	Slot          EntryItemConsumedSlot
+	MaterialSlots []EntryItemConsumedSlot
 }
 
-// GrantDimensionGateExtraEntry commits one ticket and its cumulative daily
-// grant in the same character asset transaction. It grants the whole amount or
-// rejects without consuming the ticket; it never silently truncates a grant.
+// DimensionGateExtraMaterialRequirement applies the vendor ticket resolver to
+// a PVF `[need material]` integer list: use the first positive id/count pair,
+// and treat a missing or wholly invalid list as no material fee. The vendor
+// (`ItemMetadataResolver.ParseNeedMaterials`) walks pairs and skips invalid
+// ones; the ticket service then takes only the first valid material.
+func DimensionGateExtraMaterialRequirement(values []int64) (itemID, count int64) {
+	for index := 0; index+1 < len(values); index += 2 {
+		itemID, count = values[index], values[index+1]
+		if itemID > 0 && count > 0 {
+			return itemID, count
+		}
+	}
+	return 0, 0
+}
+
+// GrantDimensionGateExtraEntry commits one ticket, its optional material fee
+// and its cumulative daily grant in the same character asset transaction. It
+// grants the whole amount or rejects without consuming the ticket or material;
+// it never silently truncates a grant.
 func (o *Owner) GrantDimensionGateExtraEntry(ctx context.Context, cmd DimensionGateExtraEntryCommand) (DimensionGateExtraEntryResult, error) {
 	if o == nil || o.assets == nil || strings.TrimSpace(cmd.CharacterID) == "" || strings.TrimSpace(cmd.AccountID) == "" || cmd.Slot < 0 || cmd.ItemID <= 0 || cmd.Count <= 0 || cmd.MinimumLevel < 0 || cmd.Cooldown < 0 || cmd.UpdatedAt.IsZero() {
+		return DimensionGateExtraEntryResult{}, ErrEntryItemConsumeInvalid
+	}
+	if cmd.MaterialItemID < 0 || cmd.MaterialCount < 0 || (cmd.MaterialItemID > 0) != (cmd.MaterialCount > 0) {
 		return DimensionGateExtraEntryResult{}, ErrEntryItemConsumeInvalid
 	}
 	if _, _, _, err := DimensionGateDailyAllowance(dnfrepo.CharacterRecord{}, cmd.UpdatedAt, cmd.BaseLimit, cmd.ExtraLimit); err != nil || cmd.Count > cmd.ExtraLimit {
@@ -76,6 +104,8 @@ func (o *Owner) GrantDimensionGateExtraEntry(ctx context.Context, cmd DimensionG
 		if cmd.RequireBaseExhausted && used < cmd.BaseLimit {
 			return ErrDailyEntryLimit
 		}
+		// An identical replay inside the PVF cooldown is rejected before the bag
+		// is loaded, so it cannot consume the ticket or material a second time.
 		last := character.Stats[dimensionGateExtraLastUseKey]
 		if last < 0 || (last != 0 && cmd.UpdatedAt.Before(time.UnixMilli(last).Add(cmd.Cooldown))) {
 			return ErrEntryItemConsumeInvalid
@@ -107,6 +137,22 @@ func (o *Owner) GrantDimensionGateExtraEntry(ctx context.Context, cmd DimensionG
 		} else {
 			delete(inventory.Slots, key)
 		}
+		// Charge the explicit material fee after the ticket is known to exist.
+		// Both changes stay on the cloned inventory and are saved together.
+		// Reuse consumeEntryItemRequirement unchanged: material selection keeps
+		// the same main-inventory and stack rules as other entry consumers,
+		// without adding a material-specific lock or expiration exception.
+		var materialSlots []EntryItemConsumedSlot
+		if cmd.MaterialItemID > 0 {
+			materialSlots, err = consumeEntryItemRequirement(&inventory, EntryItemRequirement{
+				ItemID:         cmd.MaterialItemID,
+				Count:          cmd.MaterialCount,
+				ConsumeOnEntry: true,
+			}, cmd.Project)
+			if err != nil {
+				return err
+			}
+		}
 		inventory.UpdatedAt = cmd.UpdatedAt
 		if character.Stats == nil {
 			character.Stats = map[string]int64{}
@@ -122,7 +168,13 @@ func (o *Owner) GrantDimensionGateExtraEntry(ctx context.Context, cmd DimensionG
 		if err := dnfrepo.SaveCharacterFields(ctx, chars, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
 		}
-		result = DimensionGateExtraEntryResult{Character: character, Granted: extra + cmd.Count, Total: total + cmd.Count, Slot: consumed[0]}
+		result = DimensionGateExtraEntryResult{
+			Character:     character,
+			Granted:       extra + cmd.Count,
+			Total:         total + cmd.Count,
+			Slot:          consumed[0],
+			MaterialSlots: materialSlots,
+		}
 		return nil
 	})
 	if err != nil {
