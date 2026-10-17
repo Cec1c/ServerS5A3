@@ -22,13 +22,14 @@ type GuildCargoWithdrawalRequest struct {
 	ItemID          uint32
 	Count           uint32
 	DestinationList byte
+	RequestID       string
 	Revalidate      func() bool
 }
 
 func (o *Owner) WithdrawGuildCargo(ctx context.Context, req GuildCargoWithdrawalRequest, rules GuildCargoRules, now time.Time) (GuildCargoResult, error) {
 	return o.transferGuildCargo(ctx, GuildCargoRequest{
 		Owner: req.Owner, GuildID: req.GuildID, Source: GuildCargoLocation{Cargo: true, Slot: req.CargoSlot},
-		Destination: GuildCargoLocation{List: req.DestinationList}, SourceItemID: req.ItemID, Count: req.Count, Revalidate: req.Revalidate,
+		Destination: GuildCargoLocation{List: req.DestinationList}, SourceItemID: req.ItemID, Count: req.Count, Revalidate: req.Revalidate, RequestID: req.RequestID,
 	}, rules, now, guildCargoAllocateWithdrawal)
 }
 

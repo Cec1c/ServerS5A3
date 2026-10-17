@@ -2,11 +2,15 @@ package inventory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
 	guild "longheng.io/server/internal/modules/dnf/guild"
+	"longheng.io/server/internal/modules/dnf/itemplacement"
 	r "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -30,11 +34,11 @@ type GuildCargoRequest struct {
 	SourceItemID      uint32
 	DestinationItemID uint32
 	Count             uint32
+	RequestID         string
 	Revalidate        func() bool
 }
 
-// Rules are supplied by the trusted runtime/PVF resolver. No production caller
-// is registered until its complete eligibility and initialization rules exist.
+// Rules are supplied by the trusted runtime/PVF resolver.
 // Validate receives copies and must not perform writes or network I/O.
 type GuildCargoRules struct {
 	MaxCapacity uint32
@@ -42,6 +46,8 @@ type GuildCargoRules struct {
 	// WithdrawalRange derives the allowed range from the locked character and
 	// authoritative item/PVF rules. Like Validate, it receives detached copies.
 	WithdrawalRange func(r.CharacterRecord, r.ItemStack) (GuildCargoSlotRange, error)
+	Placement       func(r.CharacterRecord, r.ItemStack) (itemplacement.SlotPolicy, error)
+	Normalize       func(r.ItemStack) (r.ItemStack, error)
 }
 
 type GuildCargoResult struct {
@@ -49,11 +55,12 @@ type GuildCargoResult struct {
 	Moved       uint32
 	Remaining   uint32
 	Destination GuildCargoLocation
+	Replayed    bool
 }
 
 // TransferGuildCargo commits character inventory and guild ownership together.
-// It never retries an error or an unknown commit outcome. Native commands have
-// no operation nonce; transport/session replay handling remains a bridge task.
+// It never retries an error or an unknown commit outcome. The bridge derives a
+// durable request ID from the authenticated connection's extended sequence.
 func (o *Owner) TransferGuildCargo(ctx context.Context, req GuildCargoRequest, rules GuildCargoRules, now time.Time) (GuildCargoResult, error) {
 	return o.transferGuildCargo(ctx, req, rules, now, guildCargoExactDestination)
 }
@@ -72,7 +79,7 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 		(!req.Source.Cargo && !req.Destination.Cargo) || req.Revalidate == nil || rules.Validate == nil ||
 		rules.MaxCapacity == 0 || rules.MaxCapacity > math.MaxUint16+1 || !validGuildCargoLocation(req.Source) ||
 		(!allocate && !validGuildCargoLocation(req.Destination)) ||
-		(allocate && (!req.Source.Cargo || req.Destination.Cargo || rules.WithdrawalRange == nil || !validGuildCargoInventoryList(req.Destination.List))) ||
+		(allocate && (!req.Source.Cargo || req.Destination.Cargo || (rules.WithdrawalRange == nil && rules.Placement == nil) || !validGuildCargoInventoryList(req.Destination.List))) ||
 		(mode == guildCargoResolveDeposit && (req.Source.Cargo || !req.Destination.Cargo)) {
 		return GuildCargoResult{}, ErrGuildCargoRequest
 	}
@@ -88,6 +95,14 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 		ctx = context.Background()
 	}
 	var result GuildCargoResult
+	var fingerprint string
+	if req.RequestID != "" {
+		id, err := hex.DecodeString(req.RequestID)
+		if err != nil || len(id) != 32 {
+			return result, ErrGuildCargoRequest
+		}
+		fingerprint = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q|%q|%d|%+v|%+v|%d|%d|%d|%d", req.Owner.AccountID, req.Owner.CharacterID, req.GuildID, req.Source, req.Destination, req.SourceItemID, req.DestinationItemID, req.Count, mode))))
+	}
 	err := uow.WithinGuildInventory(ctx, req.Owner, func(tx r.Group) error {
 		if !req.Revalidate() {
 			return guild.ErrPermissionDenied
@@ -113,6 +128,16 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 		if g.Cargo == nil {
 			return guild.ErrCargoUninitialized
 		}
+		if receipt, found := g.Cargo.Transfers[req.RequestID]; req.RequestID != "" && found {
+			if receipt.Fingerprint != fingerprint {
+				return ErrGuildCargoStale
+			}
+			if !req.Revalidate() {
+				return guild.ErrPermissionDenied
+			}
+			result = GuildCargoResult{GuildID: g.ID, Moved: receipt.Moved, Remaining: receipt.Remaining, Destination: GuildCargoLocation{Cargo: receipt.Cargo, List: receipt.List, Slot: receipt.Slot}, Replayed: true}
+			return nil
+		}
 		if g.Cargo.Capacity > rules.MaxCapacity ||
 			(req.Source.Cargo && uint32(req.Source.Slot) >= g.Cargo.Capacity) ||
 			(req.Destination.Cargo && uint32(req.Destination.Slot) >= g.Cargo.Capacity) {
@@ -133,6 +158,23 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 		if isEquipmentLocked(source) {
 			return ErrItemLocked
 		}
+		if rules.Normalize != nil {
+			source, err = normalizeGuildCargoStack(source, rules.Normalize)
+			if err != nil {
+				return err
+			}
+		}
+		var placement itemplacement.SlotPolicy
+		if rules.Placement != nil {
+			placement, err = rules.Placement(r.CloneCharacter(character), cloneStack(source))
+			if err != nil {
+				return err
+			}
+			placement = placement.ForInventory(&inv)
+			if !req.Source.Cargo && !placement.Contains(req.Source.List, int16(req.Source.Slot)) {
+				return ErrGuildCargoRequest
+			}
+		}
 		if !swap {
 			count := int64(req.Count)
 			if count > source.Count || (!isStackable(source) && (source.Count != 1 || count != 1)) {
@@ -140,11 +182,19 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 			}
 		}
 		if allocate {
-			allowed, err := rules.WithdrawalRange(r.CloneCharacter(character), cloneStack(source))
-			if err != nil {
-				return err
+			var location GuildCargoLocation
+			if rules.Placement != nil {
+				location, err = allocateGuildCargoPolicy(inv, source, req.Count, req.Destination.List, placement, rules.Normalize)
+			} else {
+				allowed, err := rules.WithdrawalRange(r.CloneCharacter(character), cloneStack(source))
+				if err != nil {
+					return err
+				}
+				location, err = allocateGuildCargoWithdrawal(inv, source, req.Count, req.Destination.List, allowed)
+				if err != nil {
+					return err
+				}
 			}
-			location, err := allocateGuildCargoWithdrawal(inv, source, req.Count, req.Destination.List, allowed)
 			if err != nil {
 				return err
 			}
@@ -163,6 +213,15 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 		}
 		if dest.ItemID != 0 && isEquipmentLocked(dest) {
 			return ErrItemLocked
+		}
+		if dest.ItemID != 0 && rules.Normalize != nil {
+			dest, err = normalizeGuildCargoStack(dest, rules.Normalize)
+			if err != nil {
+				return err
+			}
+		}
+		if rules.Placement != nil && !req.Destination.Cargo && !placement.Contains(req.Destination.List, int16(req.Destination.Slot)) {
+			return ErrGuildCargoRequest
 		}
 		if err = rules.Validate(r.CloneCharacter(character), req, cloneStack(source), cloneStack(dest)); err != nil {
 			return err
@@ -203,6 +262,12 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 				return err
 			}
 			result = GuildCargoResult{GuildID: g.ID, Moved: req.Count, Remaining: uint32(source.Count), Destination: req.Destination}
+		}
+		if req.RequestID != "" {
+			if g.Cargo.Transfers == nil {
+				g.Cargo.Transfers = map[string]guild.CargoTransferReceipt{}
+			}
+			g.Cargo.Transfers[req.RequestID] = guild.CargoTransferReceipt{Fingerprint: fingerprint, Moved: result.Moved, Remaining: result.Remaining, Cargo: result.Destination.Cargo, List: result.Destination.List, Slot: result.Destination.Slot}
 		}
 		inv.UpdatedAt, g.UpdatedAt = now, now
 		if !swap {

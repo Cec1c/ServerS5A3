@@ -1,6 +1,7 @@
 package guild
 
 import (
+	"encoding/hex"
 	"errors"
 	"math"
 
@@ -14,9 +15,18 @@ var ErrCargoUninitialized = errors.New("guild cargo capacity has not been establ
 // A nil Cargo preserves legacy registry state without inventing an initial
 // capacity. Initialization/migration must use the matching rules separately.
 type Cargo struct {
-	Capacity uint32                 `json:"capacity"`
-	Slots    map[uint16]r.ItemStack `json:"slots,omitempty"`
-	History  []CargoHistoryEntry    `json:"history,omitempty"`
+	Capacity  uint32                          `json:"capacity"`
+	Slots     map[uint16]r.ItemStack          `json:"slots,omitempty"`
+	History   []CargoHistoryEntry             `json:"history,omitempty"`
+	Transfers map[string]CargoTransferReceipt `json:"transfers,omitempty"`
+}
+
+type CargoTransferReceipt struct {
+	Fingerprint      string `json:"fingerprint"`
+	Moved, Remaining uint32
+	Cargo            bool
+	List             byte
+	Slot             uint16
 }
 
 func ValidateCargo(c *Cargo) error {
@@ -38,6 +48,13 @@ func ValidateCargo(c *Cargo) error {
 	}
 	for _, entry := range c.History {
 		if ValidateCargoHistoryEntry(entry) != nil {
+			return ErrInvalidRegistry
+		}
+	}
+	for id, receipt := range c.Transfers {
+		key, err := hex.DecodeString(id)
+		fingerprint, ferr := hex.DecodeString(receipt.Fingerprint)
+		if err != nil || ferr != nil || len(key) != 32 || len(fingerprint) != 32 || receipt.Moved == 0 {
 			return ErrInvalidRegistry
 		}
 	}

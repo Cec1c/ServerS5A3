@@ -71,7 +71,13 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 			return err
 		}
 		inventory = &memoryInventoryTransaction{characterID: ordered[0].CharacterID, record: repository.CloneInventory(inventoryBefore), exists: inventoryFound}
-		group = repository.GuildInventoryScopedGroup(repository.Group{Character: chars, Settings: settings, Inventory: inventory}, ordered[0])
+		containerScope := repository.CharacterContainerStateScope(ordered[0].CharacterID)
+		container, exists, loadErr := u.settings.Load(ctx, containerScope)
+		if loadErr != nil {
+			return loadErr
+		}
+		readSettings := &memoryGuildInventorySettings{SettingsRepository: settings, scope: containerScope, record: repository.CloneSettings(container), found: exists}
+		group = repository.GuildInventoryScopedGroup(repository.Group{Character: chars, Settings: readSettings, Inventory: inventory}, ordered[0])
 	}
 	if err = apply(group); err != nil {
 		return err
@@ -130,4 +136,20 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 	}
 	committed = true
 	return nil
+}
+
+// Capacity is a read-only snapshot under the same owner lock. Settings writes
+// still delegate to the registry-only transaction; other owners remain hidden.
+type memoryGuildInventorySettings struct {
+	repository.SettingsRepository
+	scope  string
+	record repository.SettingsRecord
+	found  bool
+}
+
+func (s *memoryGuildInventorySettings) Load(ctx context.Context, scope string) (repository.SettingsRecord, bool, error) {
+	if scope == s.scope {
+		return repository.CloneSettings(s.record), s.found, nil
+	}
+	return s.SettingsRepository.Load(ctx, scope)
 }

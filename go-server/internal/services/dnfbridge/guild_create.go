@@ -38,18 +38,21 @@ type currentGuildCreateInvitation struct {
 }
 
 type guildSessionState struct {
-	mu                  sync.Mutex
-	purchaseSequence    guildPurchaseSequence
-	pendingName         string
-	nameChecked         bool
-	promotion           string
-	createCommitted     bool
-	createInvitation    *currentGuildCreateInvitation
-	incomingInvitation  *currentGuildInvitation
-	outgoingInvitations map[*currentGuildInvitation]struct{}
-	lastCreate          *dnfguild.CreateRequest
-	soloOperationID     string
-	memberListRequested bool
+	mu                    sync.Mutex
+	purchaseSequence      guildPurchaseSequence
+	pendingName           string
+	nameChecked           bool
+	promotion             string
+	createCommitted       bool
+	createInvitation      *currentGuildCreateInvitation
+	incomingInvitation    *currentGuildInvitation
+	outgoingInvitations   map[*currentGuildInvitation]struct{}
+	lastCreate            *dnfguild.CreateRequest
+	soloOperationID       string
+	memberListRequested   bool
+	cargoLoadedGuild      uint32
+	cargoLoadedGeneration uint64
+	cargoPending          uint32
 }
 
 func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) error {

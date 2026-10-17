@@ -129,6 +129,12 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 // Refresh actual warehouse state only for members entitled to read it and
 // currently in its real hall/NPC scene. Everyone receives the NOTI70 balance.
 func (s *Service) refreshCurrentGuildCargoPurchase(ctx context.Context, id uint32, source boundGameSessionCharacter) {
+	s.guildCargoMu.Lock()
+	defer s.guildCargoMu.Unlock()
+	s.refreshCurrentGuildCargoLocked(ctx, id, source)
+}
+
+func (s *Service) refreshCurrentGuildCargoLocked(ctx context.Context, id uint32, source boundGameSessionCharacter) {
 	_, reg, err := s.loadCurrentGuildRegistry(ctx)
 	if err != nil {
 		return
@@ -149,6 +155,12 @@ func (s *Service) refreshCurrentGuildCargoPurchase(ctx context.Context, id uint3
 		if !online {
 			continue
 		}
+		peer.session.guild.mu.Lock()
+		pending := peer.session.guild.cargoPending != 0
+		peer.session.guild.mu.Unlock()
+		if pending && peer.session != source.session {
+			continue // That request will refresh after its ACK, including rejection.
+		}
 		if !peer.session.townMu.TryLock() {
 			continue
 		}
@@ -161,7 +173,7 @@ func (s *Service) refreshCurrentGuildCargoPurchase(ctx context.Context, id uint3
 		}
 		// The query rechecks the exact membership, permission, generation and
 		// physical NPC and reads the latest committed capacity/items.
-		if err := s.handleCurrentGuildCargoQueryForGuild(peer.session, currentGuildCargoOpcode, nil, id); err != nil {
+		if err := s.handleCurrentGuildCargoQueryLocked(peer.session, currentGuildCargoOpcode, nil, id); err != nil {
 			s.logGameEvent(source.session, "game-guild-cargo-refresh-failed", "error", err)
 		}
 	}

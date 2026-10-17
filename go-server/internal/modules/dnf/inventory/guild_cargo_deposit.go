@@ -17,6 +17,7 @@ type GuildCargoDepositRequest struct {
 	ItemID     uint32
 	Count      uint32
 	CargoSlot  uint16
+	RequestID  string
 	Revalidate func() bool
 }
 
@@ -25,6 +26,6 @@ func (o *Owner) DepositGuildCargo(ctx context.Context, req GuildCargoDepositRequ
 		Owner: req.Owner, GuildID: req.GuildID,
 		Source:       GuildCargoLocation{List: req.SourceList, Slot: req.SourceSlot},
 		Destination:  GuildCargoLocation{Cargo: true, Slot: req.CargoSlot},
-		SourceItemID: req.ItemID, Count: req.Count, Revalidate: req.Revalidate,
+		SourceItemID: req.ItemID, Count: req.Count, Revalidate: req.Revalidate, RequestID: req.RequestID,
 	}, rules, now, guildCargoResolveDeposit)
 }

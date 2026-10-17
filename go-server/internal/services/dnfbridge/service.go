@@ -40,7 +40,10 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
-	guildCreateMu    sync.Mutex
+	guildCreateMu sync.Mutex
+	// Serializes warehouse ACKs and snapshots; never acquire while holding an
+	// actor reservation. A snapshot must not overtake its transfer's ACK.
+	guildCargoMu     sync.Mutex
 	levelUpRewards   levelUpRewardRuntime
 	activityControls *onlineevent.Controls
 	logger           *slog.Logger

@@ -33,12 +33,13 @@ type GuildInventoryUnitOfWork interface {
 
 func GuildInventoryScopedGroup(base Group, owner GuildOwner) Group {
 	group := GuildScopedGroup(base, []GuildOwner{owner})
-	group.Inventory = &guildInventory{base: base.Inventory, characterID: owner.CharacterID}
+	group.Inventory = &guildInventory{base: base.Inventory, settings: base.Settings, characterID: owner.CharacterID}
 	return group
 }
 
 type guildInventory struct {
 	base        InventoryRepository
+	settings    SettingsRepository
 	characterID string
 }
 
@@ -49,6 +50,9 @@ func (r *guildInventory) Load(ctx context.Context, id string) (InventoryRecord, 
 	record, found, err := r.base.Load(ctx, id)
 	if err == nil && found && record.CharacterID != id {
 		return InventoryRecord{}, false, ErrGuildTransaction
+	}
+	if err == nil && found {
+		err = BindInventoryContainerState(ctx, r.settings, &record)
 	}
 	return record, found, err
 }

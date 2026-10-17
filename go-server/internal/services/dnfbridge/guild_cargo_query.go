@@ -40,6 +40,12 @@ func (s *Service) handleCurrentGuildCargoQuery(session *gameSession, op uint16, 
 }
 
 func (s *Service) handleCurrentGuildCargoQueryForGuild(session *gameSession, op uint16, request []byte, expectedGuild uint32) error {
+	s.guildCargoMu.Lock()
+	defer s.guildCargoMu.Unlock()
+	return s.handleCurrentGuildCargoQueryLocked(session, op, request, expectedGuild)
+}
+
+func (s *Service) handleCurrentGuildCargoQueryLocked(session *gameSession, op uint16, request []byte, expectedGuild uint32) error {
 	fail := func(code byte) error {
 		if expectedGuild != 0 {
 			return nil
@@ -125,5 +131,13 @@ func (s *Service) handleCurrentGuildCargoQueryForGuild(session *gameSession, op 
 	if !revalidate() {
 		return fail(8)
 	}
-	return s.sendGameUpperSuccess(session, op, body)
+	if err := s.sendGameUpperSuccess(session, op, body); err != nil {
+		return err
+	}
+	if op == currentGuildCargoOpcode {
+		session.guild.mu.Lock()
+		session.guild.cargoLoadedGuild, session.guild.cargoLoadedGeneration = view.GuildID, identity.generation
+		session.guild.mu.Unlock()
+	}
+	return nil
 }
