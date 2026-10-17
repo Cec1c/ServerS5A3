@@ -154,6 +154,9 @@ type runtimeDungeonState struct {
 	settlementSuperChampionExperience    uint32
 	settlementBossExperience             uint32
 	tutorialCompletionPersisted          bool
+	dungeonCycleClearCountCommitted      bool
+	dungeonCycleClearNonceHi             int64
+	dungeonCycleClearNonceLo             int64
 	clearMapCompletionPhaseAPersisted    bool
 	hellQuestCompletionKey               string
 	hellQuestCompletionAt                time.Time
@@ -885,7 +888,12 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
 	}
 	session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
-	if scene, ok := runtime.Session.Scene(); ok {
+	scene, hasScene := runtime.Session.Scene()
+	dailyCountEntry, err := s.currentDailyCountEntryEnabled(runtime.Dungeon)
+	if err != nil {
+		return err
+	}
+	if hasScene && !dailyCountEntry {
 		if err := s.debitDungeonRoomFatigue(session, runtime, scene); err != nil {
 			return err
 		}
@@ -895,6 +903,11 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	}
 	if err := s.consumeCurrentDayDungeonEntry(session, runtime); err != nil {
 		return err
+	}
+	if dailyCountEntry {
+		if err := s.consumeCurrentDailyCountEntry(session, runtime, scene, hasScene); err != nil {
+			return err
+		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
 	session.dungeon.runtime = runtime
