@@ -25,7 +25,7 @@ func dungeonRuntimeContainsDeathOwnerObjectKey(runtime *runtimeDungeonState, obj
 		if visit == nil || visit.Room == nil || visit.Room == runtime.Room {
 			continue
 		}
-		if visit.Room.ContainsAnnouncedNonHostileAICharacterObjectKey(objectKey) {
+		if currentDungeonRoomContainsFriendlyOwner(visit.Room, visit.Scene, objectKey, true) {
 			return true
 		}
 	}
@@ -103,7 +103,8 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	}
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
 	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
-	if friendlyAPCDeath {
+	friendlyOwnerDeath := hasScene && s.currentDungeonFriendlyOwnerDeath(runtime, scene, request)
+	if friendlyAPCDeath || friendlyOwnerDeath {
 		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
 			// Repair a duplicate or failed notification without settling the kill
 			// again. The proof above still requires this room's ordinary target.
@@ -295,6 +296,8 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	if !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath &&
 		request.OwnerObjectKey != playerObjectKey &&
 		!roomProvenHostile &&
+		!friendlyAPCDeath &&
+		!friendlyOwnerDeath &&
 		!dungeonRuntimeContainsDeathOwnerObjectKey(runtime, uint32(request.OwnerObjectKey)) &&
 		!hitOwner.accepted {
 		if hitOwnerMode == dungeonPartyHitOwnerParty {
@@ -956,6 +959,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		"owner_sentinel_blocking_clear_source", ownerSentinelBlockingClearSource,
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
 		"friendly_apc_contribution_proven", friendlyAPCDeath,
+		"friendly_owner_proven", friendlyOwnerDeath,
 		"response_kind", target.ResponseKind,
 		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),
 		"response_body_len", len(responseBody),
