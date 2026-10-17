@@ -248,6 +248,11 @@ func (s *Service) sendEnterSelectDungeonState(
 	} else if err := s.sendGameUpperRawClass(session, currentFatigueMsgID, fatigueBody, 0); err != nil {
 		return err
 	}
+	if hasCharacter {
+		if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
+			return err
+		}
+	}
 	session.enterSelectDungeonSent = true
 	if requestDriven {
 		session.enterSelectDungeonAckSent = true

@@ -160,6 +160,15 @@ func (s *Service) validateDungeonEntryWithTournament(
 	if s.currentDayDungeonEntryEnabled(dungeon.ID) {
 		return s.validateCurrentDayDungeonEntry(ctx, character, dungeon, session)
 	}
+	if s != nil && s.options.currentClientVersion == "official-24.9" {
+		if req, found, err := s.currentDungeonCycleRequirementForDungeon(dungeon.ID); err != nil {
+			return err
+		} else if found {
+			if err := s.validateCurrentDungeonCycleDailyCount(character, req); err != nil {
+				return err
+			}
+		}
+	}
 	if !dungeonTournamentEnabled() && !s.currentEpicEntryEnabled(dungeon.ID) {
 		return validateDungeonEntry(character, dungeon, session)
 	}
@@ -220,6 +229,11 @@ func (s *Service) consumeDungeonEntryItemsWithTournament(
 	}
 	if s.currentRiftEntryEnabled(dungeon.ID) {
 		// Rift tickets and count commit together after full runtime preparation.
+		return nil
+	}
+	if cycle, err := s.currentDailyCountEntryEnabled(dungeon); err != nil {
+		return err
+	} else if cycle {
 		return nil
 	}
 	if !dungeonTournamentEnabled() {
