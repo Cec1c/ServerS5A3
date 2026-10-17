@@ -28,7 +28,7 @@ func currentDungeonCardLayoutValues(state ...*dungeonCardState) [dungeonCardWire
 }
 
 func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
-	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonIsDespairTower(runtime) {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
 		return nil
 	}
 	if !runtime.settlementClearRewardSent || runtime.settlementPhase < currentDungeonSettlementPhaseResultShown {
@@ -64,7 +64,7 @@ func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, 
 }
 
 func (s *Service) sendCurrentDungeonCardLayoutLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
-	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonIsDespairTower(runtime) {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
 		return nil
 	}
 	if !runtime.settlementCardScrollStateSent || runtime.settlementPhase < currentDungeonSettlementPhaseCardScrollStarted {
@@ -371,10 +371,14 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		session.dungeon.mu.Unlock()
 		return nil
 	}
-	if currentDungeonIsDespairTower(runtime) {
+	if currentDungeonUsesDedicatedTowerResult(runtime) {
 		// Tower rewards have their own durable receipt and result window. They
 		// never enter the ordinary op69/70/71 card handshake.
-		if !currentDespairCompletedResultExitReady(runtime, session.selectedCharacterID) || !runtime.settlementDespairResultSent ||
+		resultSent := runtime.settlementDespairResultSent
+		if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+			resultSent = runtime.settlementGriefResultSent
+		}
+		if !completedDungeonSettlementExitReady(runtime, session.selectedCharacterID) || !resultSent ||
 			(!shouldReturnToTown && !shouldOpenOtherSelector) {
 			s.logGameEvent(session, "game-dungeon-despair-result-action-blocked", "char_id", session.selectedCharacterID,
 				"request_value_a", request.ValueA, "request_value_b", request.ValueB, "reason", "result_not_ready_or_action_not_allowed")
@@ -403,7 +407,7 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		if err != nil {
 			return err
 		}
-		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_despair_return_to_town")
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tower_return_to_town")
 	}
 	if shouldReturnToTown && s.currentRaidCompletedMapTownReturnReady(session, runtime) {
 		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)

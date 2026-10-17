@@ -38,6 +38,7 @@ type currentDungeonSettlementRewardResources struct {
 
 type currentDungeonSettlementCommitResult struct {
 	DespairItems    []dnfdungeon.DespairGrantedItem
+	GriefItems      []dnfdungeon.GriefGrantedItem
 	Character       dnfrepo.CharacterRecord
 	Skill           dnfrepo.SkillRecord
 	Inventory       dnfrepo.InventoryRecord
@@ -244,6 +245,23 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 			plan.DespairItemSlots = append(plan.DespairItemSlots, alignedcmd.ItemSlotRefresh{ListType: item.ListType, SlotIndex: item.Slot})
 		}
 		plan.DespairResultBody, err = buildCurrentDespairResultBody(presentation.ClearTimeMS, uint16(floor), items)
+		if err != nil {
+			return err
+		}
+	}
+	if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+		floor, err := currentGriefFloor(runtime.Dungeon)
+		if err != nil {
+			return err
+		}
+		items := make([]currentDespairResultItem, len(result.GriefItems))
+		for i, item := range result.GriefItems {
+			items[i] = currentDespairResultItem{ItemID: item.ItemID, Quantity: item.Quantity}
+			if item.ItemID != 0 {
+				plan.GriefItemSlots = append(plan.GriefItemSlots, alignedcmd.ItemSlotRefresh{ListType: 0, SlotIndex: item.Slot})
+			}
+		}
+		plan.GriefResultBody, err = buildCurrentGriefResultBody(presentation.ClearTimeMS, uint16(floor), items)
 		if err != nil {
 			return err
 		}
@@ -570,8 +588,19 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 			return currentDungeonSettlementCommitResult{}, err
 		}
 	}
+	griefFloor, err := currentGriefFloor(runtime.Dungeon)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	if griefFloor != 0 {
+		if err := s.freezeCurrentGriefRewardsLocked(runtime); err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
 		DespairClearedFloor:     despairFloor,
+		GriefClearedFloor:       griefFloor,
+		GriefRewards:            runtime.settlementGriefRewards,
 		DespairRewards:          runtime.settlementDespairRewards,
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
@@ -606,6 +635,7 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	}
 	return currentDungeonSettlementCommitResult{
 		DespairItems:    result.DespairItems,
+		GriefItems:      result.GriefItems,
 		Character:       result.Character,
 		Skill:           result.Skill,
 		Inventory:       result.Inventory,
