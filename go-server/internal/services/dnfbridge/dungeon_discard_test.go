@@ -145,7 +145,11 @@ func TestCurrentDungeonDiscardMainInventoryCreatesGroundDropAndRepicks(t *testin
 
 	scenePacket, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	ack, rest := splitGameServerUpperPacket(t, rest)
-	update, trailing := splitGameServerUpperPacket(t, rest)
+	update, rest := splitGameServerUpperPacket(t, rest)
+	refresh, trailing := splitGameServerUpperPacket(t, rest)
+	if refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 {
+		t.Fatalf("丢弃后未重建主背包：%+v", refresh.Header)
+	}
 	if ack.Header.MsgID != currentDungeonDiscardOpcode ||
 		ack.Header.Classification != dnfproto.DefaultChannelClassification ||
 		len(ack.Body) != currentDungeonDiscardAckSize+1 ||
@@ -235,7 +239,11 @@ func TestCurrentDungeonDiscardAccountSharedRoundTripsSameSlot(t *testing.T) {
 	}
 	scenePacket, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	_, rest = splitGameServerUpperPacket(t, rest)
-	update, trailing := splitGameServerUpperPacket(t, rest)
+	update, rest := splitGameServerUpperPacket(t, rest)
+	refresh, trailing := splitGameServerUpperPacket(t, rest)
+	if refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 {
+		t.Fatalf("共享格丢弃后未重建主背包：%+v", refresh.Header)
+	}
 	if len(trailing) != 0 {
 		t.Fatalf("scene trailing=%x", trailing)
 	}
@@ -307,7 +315,11 @@ func TestCurrentDungeonDiscardWholeStackPublishesDeleteRow(t *testing.T) {
 	}
 	_, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	_, rest = splitGameServerUpperPacket(t, rest)
-	update, trailing := splitGameServerUpperPacket(t, rest)
+	update, rest := splitGameServerUpperPacket(t, rest)
+	refresh, trailing := splitGameServerUpperPacket(t, rest)
+	if refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 {
+		t.Fatalf("整叠丢弃后未重建主背包：%+v", refresh.Header)
+	}
 	if len(trailing) != 0 ||
 		update.Header.MsgID != uint16(dnfenum.CmdPacketWalkoutPartyMember) ||
 		len(update.Body) != 3+currentItemListEntryWireSize ||
@@ -359,7 +371,8 @@ func TestCurrentDungeonDiscardIsDungeonOnlyAndRejectsBoundItems(t *testing.T) {
 	if err != nil || !handled {
 		t.Fatalf("bound handled=%t err=%v", handled, err)
 	}
-	if connection.write.Len() != 0 || runtime.DropOwner != nil {
+	refresh, trailing := splitGameServerUpperPacket(t, connection.write.Bytes())
+	if refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 || len(trailing) != 0 || runtime.DropOwner != nil {
 		t.Fatalf("bound discard wrote=%x drop_owner=%+v", connection.write.Bytes(), runtime.DropOwner)
 	}
 	inventory, _, err = repositories.Inventory.Load(context.Background(), "99")
