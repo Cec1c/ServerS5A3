@@ -217,6 +217,62 @@
 - 增加搜索、加入／申请审批、成员与等级列表、账号公会索引及重登恢复；按匹配客户端修正 1450～1453 协议映射、成员行尾和审批失败回包，场景就绪后才下发登录公会状态。
 - Docker 可显式设置 `channel_advertise_server`，保留原默认 0；客户端认证区服选择需要 1～249。公告编号变更须同步登录入口的目录校验与频道历史，不能因此改写角色的社交区服编号。详见 `Docs/GUILD_FOUNDATION.md`。
 - 覆盖并发创建、身份／权限边界、保存失败回滚、重复请求、回包丢失及重登；一次性 MariaDB 验证跨仓储实例串行化与真实 SQL 失败回滚。自动化验证不代替两名玩家的原生邀请、创建和重登验收，公会金库／战斗等扩展不在本次实现内。
+## 2026-10-17 — 罗杰生产MR同步已验收主线
+
+- !56/59/60/62已按用户验收合入master，MR58同步该基线并保留双方日志。NPC生产三份代码/测试文件与原2c04740完全一致，净差仍四文件；实机验收及用户合并继续待办。
+
+## 2026-10-16 — 接通NPC生产配方ID模式（罗杰材料加工）
+
+- 当前EXE op25支持7/9字节两种形状：UI+2a0为真直接发配方ID，槽位模式才调用背包索引解析。真实NPC29的product item20键控itemshop.lst的ItemProduct1.shp，表内31配方包含5072制作钢铁片（3027×1+1400金币→3150×1）。原服务端解码ID后固定拒绝，现接通菜单配方来源。
+- 只允许当前已绑定角色的就绪城镇地图中NPC声明的product item菜单，表NPC归属及配方列表须对应；普通item shop不构成制作许可。ID模式不查找/消耗图纸，槽位模式仍消耗持有的图纸。沿用既有配方资格、材料/金币/产物规则与角色/账号仓库同事务，保留随机/升级等未证规则拒绝，未改当前客户端、PVF或玩家数据。
+- 合成NPC/菜单场景与事务失败守卫覆盖无绑定/未就绪/错区域/隐藏NPC/错菜单归属/列表外ID/重复索引/缺料金币/锁料/事务内保存失败/ACK失败/换角；真实PVF31条菜单制作与缺料重放通过，5072材料金币产物有固定期望。原红用例证实ID模式被拒。首次保存失败注入误加在UOW外仓储，未命中事务，改为事务内注入后复测；未为夹具放宽产品。
+- 用户已确认塔首层可通关返城；没有结算画面与再次选图仍首层继续开放。本批NPC制作候选不变更验收服或替代塔专属进度/奖励修复。
+
+## 2026-10-17 — 剧情APC被动对象脚本死亡兼容候选
+
+- 寻找阿甘左任务的真实PVF声明香料被动对象触发APC的SET HP 0。旧owner=ffff路径排除敌对APC，使该脚本死亡不能进入权威通知与既有clear-map结算。本候选仅在official-24.9严格请求形状、当前角色/run/房间/在册APC、活动任务目标和该APC的真实proc动作共同匹配时接收；无具体ID例外，不扩大教程和其它APC请求。
+- 死亡后冻结本run/房间证明，写包失败重放原op38并继续未完成的原结算阶段；不再次发奖，不生成任务物品或改玩家资产。真实资源兼容回放完成3213进度持久化，边界与重试回归覆盖。原账号现场包仍缺，回放不代表原生验收；未合并或部署。细节见Docs/STORY_APC_PROC_DEATH_20261017.md。
+
+## 2026-10-16 — 绝望之塔结果页按钮与配套客户端
+
+- test99在23:18反馈结果页操作无效。实际op72返回城镇/选图请求被普通卡牌链挡住；塔现在在精确角色/完成键、持久化、46/123结果统计及348发送成功后处理town/selector，保留冻结路线和写失败续发，拒绝retry与未知操作。普通副本和原op42路线保持。
+- 当前EXE原生重试状态/刷新定位完成；配套基于v111，仅塔348 kind1清理分支禁用retry，保存寄存器/flags并回原清理。用户追加的557跨界结果包放行配套同时完成，65536编号比较只有557改变。客户端不入服务端仓库；离线指令与服务端回归不算用户原生验收，557位开放不代表跨界事务已实现。细节见Docs/DESPAIR_RESULT_BUTTONS_20261016.md。
+## 2026-10-16 — 绝望之塔专属奖励候选与同事务回执
+
+- 接续!59的空物品结果体，按参考塔5次/镜像层9次+合成器/100层5次+奖章规则冻结候选。读取当前PVF的itemdropinfo_clearreward类型权重/稀有度阈值/grade窗口及装备creation rate，普通与avatar独立池，不复用普通翻牌的minimum-level选择或白装回退。1252/3314真实元数据核验，数量规则来自参考代码而非物品名称。
+- 物品、经验/SP、层数与completion回执进入同一角色结算事务；保存原物品/list/slot，重试读原回执，不重新发奖。满包/保存失败整批回滚，真实分页容量和堆叠身份保持；avatar走既有list1创建投影，未知放置类别拒绝。原经验结果后先刷新已保存行再发348，写失败可续发。
+- 真PVF1/10/100层冻结/落袋/回执重放与合成类型/grade/坏表边界、领域满包/保存失败、发送失败续发覆盖。本批为独立候选，未部署、未修改玩家库或补发历史奖励，!59结果窗口和层数仍待用户原生验收。规则来源和边界见Docs/DESPAIR_REWARDS_20261016.md。
+
+## 2026-10-16 — 绝望之塔专用结果通知与角色层数持久化
+
+- 用户确认首层可返城但无结算画面、再选仍首层。核证当前v111的class0注册表，NOTI348实际handler1c577a0读取时间/已通关层/奖励列表并打开塔专用UI；旧同号COMMAND回调不能作为通知协议。op27经实际NOTI接收器2039b30确认ContextValue1写绝望塔控制器，最小体offset15，非参考offset14。
+- 通关最高层写角色Stats，进入既有经验/SP结算事务与completion回执；拒绝越层，单调保存0..100，重复不推进、失败回滚。选图按保存的下一层从真实PVF路径索引副本，prepare在门票消耗前复核每个角色；重连选图从仓储读层数。
+- 塔在既有34/37/35经验状态结果后补发348专用窗口，保留角色/完成键/原始结果/统计/持久化与写包重试屏障；不移除可能承载客户端状态/123统计的原包链，普通翻牌保持。奖励列表本批为空，不把已拾取物品伪装为新授予，塔专属随机/固定奖励仍开放；未补写旧玩家通关记录。当前客户端/PVF无需改动。取证与验收边界见Docs/DESPAIR_SETTLEMENT_20261016.md。
+
+## 2026-10-16 — 修复绝望之塔读条后落位超时断线
+
+- 用户test99反馈21:51进绝望之塔读条后断线。实际21:50:45入场11008/map15130，op29已提交；背包快照写入超过3秒后，落位函数仍用已过期的短事务context读取装备/冒险团/任务，最终load clear quest list超时并关闭连接。通过日志错误长度与SHA256确认错误原文，没有把日志错误长度当下行包。
+- 仅将post-start-map场景快照改用既有15秒仓储快照期限，并在独立背包快照发送结束后重建后续读取context，不让其写包时间消耗角色/任务读取期限。保留真实仓储错误和写包失败，维持包顺序、教程/组队屏障、门票及塔结算规则。
+- 新回归注入成功但超过3秒的op13写入，并让任务仓储实际检查context；旧版复现同一任务读取超时，新版完整落位与原包序通过。1/2/4按用户编号登记已验收，第3项塔入场继续等待修复后原生复测，未据此合并MR。
+
+## 2026-10-16 — 主动TP技能不自动占用普通快捷栏
+
+- 真档中主动TP技能（job11/id220 强化-招架反击）新学/补全布局时会自动占用普通快捷栏。学习与布局重建的共用选槽助手、初始前三主动技能布局都排除IsTPSkill，仍给技能页展示槽；普通主动技能自动填栏、已有布局和op28手动拖动保持。
+- 实际ApplyBuy回归及固定PVF的781支TP布局检查旧红/新绿。原反馈点名的强化-上挑（job0/id215）是passive，本来就不进该分支，未复现该技能现场症状，继续开放；本补丁仅关闭可证的主动TP自动填栏缺口。
+- 子代理最终口述曾引用历史PVF哈希369d072而非指定文件，父已要求纠正并以实际ad7d05c7固定文件独立补跑。此记录不把子代理口述哈希当验证来源，最终结果以本轮回执为准。
+
+## 2026-10-16 — 悲叹之塔独立资源标记
+
+- 当前真实PVF的悲叹之塔100层（5115..5214）在maze之后声明空段tower of grief，过去归入maze未知段，领域元数据丢失塔身份。将该段登记为地下城整数元数据，裸标记保留1，显式值原样；无段不补标记，非整数/纯符号继续诊断。仅保留资源身份，不赋予绝望之塔身份。
+- 合成段归属及固定真实PVF全部100层检查旧红/新绿；既有绝望之塔标记边界保持。新增解析登记会被isDungeonMetadataSection使用，因此即便声明位于maze之后也正确归地下城；子审查关于“登记后仍会被maze先截住”的一句推断已由实际红绿更正。
+- 真实首层5115/map100247/APC470回放确认死亡、46/123结果可完成，42仍等待普通翻牌。这是请求夹具回放，不证明真实客户端不发送翻牌链；当前日志未找到该塔入场，参考树也没有grief协议判据，因此本批不改返城、进度或奖励规则，悲叹之塔原反馈继续开放。
+
+## 2026-10-16 — 主线接取、塔退场及进图难度权限候选
+
+- 依据20:00更新的问题文档，阻止已转职角色接取必定无法结算的新转职任务；对于PVF双向声明互斥的同族转职任务，只允许持有一条。接取与可接列表共用判据，已有任务保持可见、幂等及可放弃，不批量清理玩家记录。该补丁包含原!31前置规则及本轮同族互斥增量；旧主线错序和已卡历史任务仍待原生验收。
+- 绝望之塔按真实PVF空段标记识别。在通关持久化、角色/完成键对应及46结果/123统计均就绪后，允许42返城，不再等待该客户端不发送的普通翻牌链；写包失败可重试。未实现塔专属进度/奖励。新反馈悲叹之塔保留独立开放，不能只按名称套用。
+- 进图op5原来固定发送状态1，可覆盖已保存的高难度状态；现在取角色已保存权限与入场最低状态的较大值，再将已存权限裁剪到PVF上限。读取失败时不发送潜在降级通知，继续已经提交的进图，不写回权限。旧状态4被发为1已由测试复现；与伦道夫退出后难度消失的现场因果仍待复测。
+- 本候选基于远端master42eb931，仅含上述服务端改动；不带累计工作树中的单人卢克、活动、客户端或其他候选。已验收和延后项保留；新增问题及旧/新段落映射见Docs/ROUND7_MAINLINE_DUNGEON_20261016.md。验证回执在本轮外部工作目录，未合并、未部署。
 
 ## 2026-10-16 — 史诗图鉴制作用户验收通过
 
@@ -1150,3 +1206,9 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - A routed member's refusal runs in that member's event callback. A send error was reduced to a log/false after consuming the request token, so it did not reach the member's socket read loop and its normal disconnect cleanup. Close only that peer connection inside the actual send-error branch, preserving the original error and the healthy leader's refusal. Do not retry a potentially partial frame or close on the caller's queue deadline/cancellation alone.
 - Six regression roots cover zero/partial writes, the leader's independent reply, healthy refusal, stale sequence/character, queued cancellation and started writes completing after the caller deadline. The same tests fail on cf3943f only at the four expected missing-close leaves and pass on the candidate. All DOC104 tests plus three isolated real-PVF backend replays pass together: 44 passing nodes, zero skips/failures. The send chain can also fail before a socket write; this follows the existing synchronous disconnect policy and is not a claim that every such TCP connection is itself broken.
 - Background fixtures only; no native button acceptance, deployment, push or merge. Existing v2 validation/package still describes cf3943f; new integrated validation follows separately.
+## 2026-10-16 — 圣物转换271的Lv85与Lv90候选
+
+- 新问题62段：当前服务端没有271处理入口。新增严格19字节请求、按背包内实际转换书与目标装备ID/槽位取PVF的emancipate嵌套段；本批只支持ticket17与20。转换书need material是购买价，转换消耗只取源装备input；不扣购买用红玉髓。传承ticket18的保留上限、其它票种和勇者升级仍开放。
+- 书与普通碎片从角色背包扣除，灵魂从账号固定格扣除，并和原位装备替换处在同一结算事务。拒绝锁定、过期、材料不足、不同账号、错误配对、重复请求及不完整规则；不拿角色历史灵魂副本垫付账号材料。新装备按两种书原文清除强化/增幅/锻造/附魔等旧实例属性，保留源封装位，并设角色绑定。专用封装零值投影仅作用于本路径，不改其它物品Bind回落规则。
+- 当前EXE的271发送/接收函数与v103、v107、已发布v110相关字节一致；成功回包按消费者读取的消耗记录发送，之后先清旧目标再发权威槽位。v107及v110接收位图都拒收271，配套候选基于v110只置一个位图bit；65536编号比较仅271变化，保留已有788/86/大会/公会修改。EXE/PVF不进入源码树；哈希和验收界限见Docs/ROUND9_RELIC_CONVERSION_20261016.md。
+- 自动化覆盖真实Lv85/90资源的注册表处理、角色和账号扣除、回包顺序、封装零值、失败回滚、账号保存失败后的跨聚合回滚，以及回包失败后不重复提交。客户端原生UI、交易显示仍待用户验收；这不是全部圣物转换或全部已知问题完成。

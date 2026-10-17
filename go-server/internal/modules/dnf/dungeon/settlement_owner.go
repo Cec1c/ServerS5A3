@@ -31,6 +31,8 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	DespairClearedFloor     int
+	DespairRewards          *DespairRewards
 	AccountID               string
 	CharacterID             string
 	CompletionKey           string
@@ -59,6 +61,7 @@ type SettlementResult struct {
 	TPGain          int
 	Replayed        bool
 	LuckyStar       LuckyStarResult
+	DespairItems    []DespairGrantedItem
 }
 
 // CommitSettlement atomically advances experience and the SP/TP ledger and
@@ -70,6 +73,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		return SettlementResult{}, ErrOwnerUnavailable
 	}
 	if (cmd.LuckyStar != nil || cmd.GuildOrdinaryClear) && !cmd.RecommendedDungeonClear {
+		return SettlementResult{}, ErrSettlementStateInvalid
+	}
+	if cmd.DespairRewards != nil && (cmd.DespairClearedFloor < 1 || cmd.DespairClearedFloor > 100) {
 		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	ctx = contextOrBackground(ctx)
@@ -123,6 +129,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		if settlementReceiptMatches(character.Stats, wantHash) {
+			despairItems, err := readDespairRewardReceipt(character.Stats, cmd.DespairClearedFloor, cmd.DespairRewards != nil)
+			if err != nil {
+				return err
+			}
 			receiptGain, receiptSP, err := settlementReceiptValues(character, skill)
 			if err != nil {
 				return err
@@ -132,8 +142,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 			result = SettlementResult{
-				LuckyStar: lucky,
-				Character: character, Skill: skill, Inventory: inventory,
+				DespairItems: despairItems,
+				LuckyStar:    lucky,
+				Character:    character, Skill: skill, Inventory: inventory,
 				ExperienceGain: receiptGain, SPGain: receiptSP, Replayed: true,
 			}
 			// A pre-upgrade settlement is not a new clear: migrate its receipt without a retroactive award.
@@ -141,6 +152,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 			}
 			return nil
+		}
+		if cmd.DespairClearedFloor != 0 {
+			if err := ApplyDespairClear(character.Stats, cmd.DespairClearedFloor); err != nil {
+				return err
+			}
 		}
 		experience, present := character.Stats["exp"]
 		if !present || experience < 0 || uint64(experience) > math.MaxUint32 ||
@@ -201,6 +217,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		lucky, err := commitSettlementLuckyStar(ctx, tx, &character, cmd.LuckyStar, now)
+		if err != nil {
+			return err
+		}
+		despairItems, err := commitDespairRewards(ctx, o.settings, tx, &character, &inventory, cmd.DespairClearedFloor, cmd.DespairRewards, now)
 		if err != nil {
 			return err
 		}
@@ -301,8 +321,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		result = SettlementResult{
-			LuckyStar: lucky,
-			Character: character, Skill: skill, Inventory: inventory,
+			DespairItems: despairItems,
+			LuckyStar:    lucky,
+			Character:    character, Skill: skill, Inventory: inventory,
 			ExperienceGain:  cmd.Experience,
 			HonorExpertGain: appliedHonorExpertGain,
 			SPGain:          planned.SkillPoints.SPGain,

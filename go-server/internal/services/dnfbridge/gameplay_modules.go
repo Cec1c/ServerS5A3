@@ -16,6 +16,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	expertJobGameplayModule(),
 	equipmentRecipeCompoundGameplayModule(),
 	equipmentRegenerationGameplayModule(),
+	equipmentEmancipateGameplayModule(),
 	boosterGameplayModule(),
 	rentalGameplayModule(),
 	epicProductionGameplayModule(),

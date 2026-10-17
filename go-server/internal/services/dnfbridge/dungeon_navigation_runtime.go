@@ -180,6 +180,10 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 		return nil
 	}
 	request.DungeonID = s.resolveCurrentSingleAntonSelector(session, request.DungeonID)
+	request.DungeonID, err = s.resolveCurrentDespairSelection(session, request.DungeonID)
+	if err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
 	if !s.currentRaidDungeonSelectionAllowed(session, uint32(request.DungeonID)) {
 		s.logGameEvent(session, "game-raid-dungeon-selection-rejected", "dungeon_id", request.DungeonID)
 		return s.sendGameUpperRawClass(session, uint16(dnfenum.GameTypeSelectDungeon), []byte{0, currentSelectDungeonInvalidSelectionStateReason, 0}, 1)

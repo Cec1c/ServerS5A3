@@ -70,6 +70,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"expert-job",
 		"equipment-recipe-compound",
 		"equipment-regeneration",
+		"equipment-emancipate",
 		"booster-item",
 		"equipment-rental",
 		"epic-production",
