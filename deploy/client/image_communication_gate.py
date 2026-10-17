@@ -1,4 +1,4 @@
-"""Build the hash-pinned V124 image-communication receive-gate candidate.
+"""Build the hash-pinned V126 image-communication receive-gate candidate.
 
 Only opcode 475's existing registration becomes reachable. The source is never
 overwritten; the output and receipt must be new files.
@@ -12,15 +12,26 @@ import struct
 
 from story_pause_gate import file_offset, pe_layout
 
-SOURCE_SHA256 = "eaa2485609fa9cc2c9ca99fadd743b5206a37b5517dd07d195eb35b3c0a29d50"
+SOURCE_SHA256 = "c175ecc93cdabe43c55d7f2ecdf3b1d3c87c7a90ec58c79b88b6f648db046939"
 GATE_VA = 0x06E83610
 BITMAP_VA = 0x06E92300
 OPCODE = 475
 
 
+def pe_checksum(data, offset):
+    copy = bytearray(data)
+    struct.pack_into("<I", copy, offset, 0)
+    if len(copy) % 2:
+        copy.append(0)
+    total = sum(word[0] for word in struct.iter_unpack("<H", copy))
+    while total >> 16:
+        total = (total & 0xffff) + (total >> 16)
+    return total + len(data)
+
+
 def build(data):
     if hashlib.sha256(data).hexdigest() != SOURCE_SHA256:
-        raise ValueError("input is not the pinned published V124 client")
+        raise ValueError("input is not the pinned published V126 client")
     base, _, sections = pe_layout(data)
     if base != 0x00400000:
         raise ValueError("unexpected image base")
@@ -39,12 +50,21 @@ def build(data):
     delta = [op for op in range(65536) if allowed(data, op) != allowed(output, op)]
     if delta != [OPCODE] or output[:offset] != data[:offset] or output[offset + 1:] != data[offset + 1:]:
         raise ValueError("unexpected change outside the single receive-gate bit")
+    checksum_offset = struct.unpack_from("<I", data, 0x3c)[0] + 24 + 64
+    old_checksum = struct.unpack_from("<I", data, checksum_offset)[0]
+    if old_checksum != pe_checksum(data, checksum_offset):
+        raise ValueError("source PE checksum mismatch")
+    new_checksum = pe_checksum(output, checksum_offset)
+    struct.pack_into("<I", output, checksum_offset, new_checksum)
     return bytes(output), {
         "source_sha256": SOURCE_SHA256,
         "candidate_sha256": hashlib.sha256(output).hexdigest(),
         "size": len(output),
         "changes": [{"offset": offset, "rva": hex(BITMAP_VA - base + OPCODE // 8), "before": 0, "after": 8}],
         "changed_admissions": delta,
+        "pe_checksum": {"offset": checksum_offset, "before": old_checksum, "after": new_checksum},
+        "preserved_receive_opcodes": [447, 510, 580, 657, 809],
+        "preserved_trade_reveal_section": True,
         "gate_applies_to_all_classes": True,
         "published": False,
         "native_ui_acceptance": False,
