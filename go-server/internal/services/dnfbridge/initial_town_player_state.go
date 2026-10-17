@@ -163,6 +163,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentParticularHellInfo(session, character); err != nil {
 		return err
 	}
+	if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
+		return err
+	}
 
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	if repos, ok := s.repositoryGroup(); ok {
