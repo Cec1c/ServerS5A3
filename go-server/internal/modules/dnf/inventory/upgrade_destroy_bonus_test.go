@@ -595,6 +595,9 @@ func TestOwnerMoveCannotStackLegacyShapedDestroyBonusRow(t *testing.T) {
 	t.Setenv(UpgradeDestroyBonusPlacementEnv, UpgradeDestroyBonusPlacementLegacyRow)
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
+	if err := repos.Settings.Save(ctx, capacityTestSettings("77", 24)); err != nil {
+		t.Fatal(err)
+	}
 	saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{
 		CharacterID: "77", AccountID: "acc", Stats: map[string]int64{"gold": 12345},
 	})

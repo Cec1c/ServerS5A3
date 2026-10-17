@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
@@ -99,8 +100,24 @@ func TestCarryGoldRejectedRequestsPreserveStateAndUseNativeFailure(t *testing.T)
 				return
 			}
 			ack, rest := splitCurrentGameServerUpperPacketAuto(t, conn.write.Bytes())
-			if ack.Header.MsgID != 978 || len(ack.Body) != 6 || ack.Body[0] != 0 || binary.LittleEndian.Uint32(ack.Body[2:]) != code || len(rest) != 0 {
+			if ack.Header.MsgID != 978 || len(ack.Body) != 6 || ack.Body[0] != 0 || binary.LittleEndian.Uint32(ack.Body[2:]) != code {
 				t.Fatalf("refusal=%+v %x rest=%x", ack.Header, ack.Body, rest)
+			}
+			if name == "funds" {
+				// funds 是唯一"档位已知"的拒绝：金币不足时客户端档位与钱包同样必须
+				// 重新同步（DOC029），因此回包之后还有档位通知与钱包刷新。
+				tier, rest := splitCurrentGameServerUpperPacketAuto(t, rest)
+				if tier.Header.MsgID != currentCarryGoldStageMsgID || !reflect.DeepEqual(tier.Body, []byte{0}) {
+					t.Fatalf("funds tier=%+v %x rest=%x", tier.Header, tier.Body, rest)
+				}
+				wallet, rest := splitCurrentGameServerUpperPacketAuto(t, rest)
+				if wallet.Header.MsgID != uint16(dnfenum.CmdPacketWalkoutPartyMember) || len(rest) != 0 {
+					t.Fatalf("funds wallet=%+v rest=%x", wallet.Header, rest)
+				}
+				return
+			}
+			if len(rest) != 0 {
+				t.Fatalf("refusal trailing rest=%x", rest)
 			}
 		})
 	}
@@ -150,6 +167,10 @@ func TestCarryGoldUpgradeDispatchChargesOnceAndRefreshesWallet(t *testing.T) {
 			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 			if ack.Header.MsgID != 978 || ack.Header.Classification != 1 || len(ack.Body) != 6 || ack.Body[0] != 1 || ack.Body[1] != 1 || binary.LittleEndian.Uint32(ack.Body[2:]) != 0 {
 				t.Fatalf("upgrade ACK header=%+v body=%x", ack.Header, ack.Body)
+			}
+			tier, rest := splitCurrentGameServerUpperPacketAuto(t, rest)
+			if tier.Header.MsgID != currentCarryGoldStageMsgID || tier.Header.Classification != 0 || !reflect.DeepEqual(tier.Body, []byte{1}) {
+				t.Fatalf("upgrade tier header=%+v body=%x rest=%x", tier.Header, tier.Body, rest)
 			}
 			wallet, rest := splitGameServerUpperPacket(t, rest)
 			if wallet.Header.MsgID != 14 || wallet.Header.Classification != 0 || len(rest) != 0 {

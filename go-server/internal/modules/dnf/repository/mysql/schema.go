@@ -145,6 +145,7 @@ func mysqlSchemaMigrations(options SchemaOptions) ([]string, error) {
 			mysqlCharacterCrystalSelectionStatDDL,
 			quoteSQLIdentifier("aura_flag"),
 		))
+		statements = append(statements, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s SMALLINT NOT NULL DEFAULT -1", mysqlTable(database, tablePrefix, mysqlCharTable), quoteSQLIdentifier("skill_tree_index")))
 		skillTable := mysqlTable(database, tablePrefix, mysqlSkillTable)
 		statements = append(statements,
 			fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INT NOT NULL DEFAULT 0", skillTable, quoteSQLIdentifier("total_sp")),
@@ -299,6 +300,7 @@ func mysqlTableSchema(database, prefix string) []string {
   PRIMARY KEY (scope)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`, settings),
 	}
+	statements = append(statements, mysqlSkillTreeSchema(database, prefix)...)
 	return append(statements, mysqlRelationalTableSchema(database, prefix)...)
 }
 

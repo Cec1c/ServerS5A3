@@ -152,7 +152,7 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 		if len(values) == 0 || len(values)%3 != 0 {
 			return alignedcmd.MagicBoxResolution{}, fmt.Errorf("legacy jar item=%d invalid reward triples", boxItemID)
 		}
-		group, err := weightedMagicBoxBoosterGroup(append([]int64{1}, values...), 3)
+		group, err := weightedMagicBoxLotteryGroup(append([]int64{1}, values...), 3)
 		if err != nil {
 			return alignedcmd.MagicBoxResolution{}, err
 		}
@@ -308,14 +308,23 @@ func parseMagicBoxBoosterGroup(name string, values []int64) (alignedcmd.MagicBox
 
 // weightedMagicBoxBoosterGroup reads the leading DrawCount and the
 // (item, weight, count) head of every fixed-width row. A zero item id is the
-// PVF's explicit "no item" placeholder row and contributes nothing; a negative
+// PVF's explicit "no item" placeholder in ordinary boosters. Legacy lottery
+// jars instead use item zero for a weighted gold reward. A negative
 // item id, a negative weight or a non-positive count is a malformed table and
 // rejects the whole box instead of dropping value silently.
 func weightedMagicBoxBoosterGroup(values []int64, stride int) (alignedcmd.MagicBoxRewardGroup, error) {
+	return weightedMagicBoxGroup(values, stride, false)
+}
+
+func weightedMagicBoxLotteryGroup(values []int64, stride int) (alignedcmd.MagicBoxRewardGroup, error) {
+	return weightedMagicBoxGroup(values, stride, true)
+}
+
+func weightedMagicBoxGroup(values []int64, stride int, allowGold bool) (alignedcmd.MagicBoxRewardGroup, error) {
 	group := alignedcmd.MagicBoxRewardGroup{DrawCount: maxMagicBoxInt(values[0], 1)}
 	for index := 1; index+2 < len(values); index += stride {
 		itemID, weight, count := values[index], values[index+1], values[index+2]
-		if itemID == 0 {
+		if itemID == 0 && !allowGold {
 			continue
 		}
 		if itemID < 0 || weight < 0 || count < 1 {
@@ -482,7 +491,7 @@ func resolveCurrentMagicBoxRewardItem(catalog *pvfDungeonDropCatalog, source dnf
 		return alignedcmd.MagicBoxRewardItem{}, fmt.Errorf("parse magic box reward item=%d path=%s: %w", itemID, definition.PVFPath, err)
 	}
 	attachType := normalizeMagicBoxPVFType(magicBoxDocumentText(document, "attach type"))
-	item.Seal = attachType == "sealing"
+	item.Seal = attachType == "sealing" || currentNewPVFEquipmentSealFlag(definition) != 0
 	// 与 dungeon_drop_catalog.go:244 同口径的三键回退（提取为 firstPositivePVFInt）：
 	// 这里要的是"新造实例的满耐久"，即 PVF 的最大耐久，而不是当前耐久 ——
 	// 消费方 packageitem/owner.go:784 与 :865 把同一个值同时写进 Extra 的

@@ -28,6 +28,8 @@ var (
 	ErrGoldOverflow           = errors.New("dungeon gold would overflow")
 	ErrStackProjectorRequired = errors.New("dungeon expiring stack projector is required")
 	ErrPremiumDailyLimit      = errors.New("dungeon premium service daily limit reached")
+	// ErrEntryPrerequisiteMissing：真档每日任务要求的「先通关前置副本 N 次」尚未满足。
+	ErrEntryPrerequisiteMissing = errors.New("dungeon entry prerequisite is not met")
 )
 
 // StackProjector lets the transport compatibility layer project current-client
@@ -90,7 +92,7 @@ type LuckyStarCommand struct {
 	UpdatedAt      time.Time
 }
 
-type LuckyStarResult struct {
+type LegacyLuckyStarResult struct {
 	Awarded bool
 	Before  uint32
 	After   uint32
@@ -100,6 +102,7 @@ type LuckyStarResult struct {
 // runtime room state, packet ordering, and current-client raw projection stay
 // in dnfbridge.
 type Owner struct {
+	settings      dnfrepo.SettingsRepository
 	assets        dnfrepo.CharacterAssetUnitOfWork
 	accounts      dnfrepo.AccountRepository
 	settlements   dnfrepo.CharacterSettlementUnitOfWork
@@ -118,6 +121,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		settings:      repos.Settings,
 		assets:        repos.CharacterAssets,
 		accounts:      repos.Account,
 		settlements:   repos.CharacterSettlement,
@@ -174,6 +178,9 @@ func (o *Owner) GrantCardReward(ctx context.Context, cmd CardRewardCommand) (Car
 		}
 		if !found {
 			inventory = dnfrepo.InventoryRecord{CharacterID: cmd.CharacterID}
+		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if inventory.Slots == nil {
@@ -316,20 +323,20 @@ func (o *Owner) GrantPickupGold(ctx context.Context, cmd GoldPickupCommand) (Gol
 	return result, nil
 }
 
-func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (LuckyStarResult, error) {
+func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (LegacyLuckyStarResult, error) {
 	cmd.AccountID = strings.TrimSpace(cmd.AccountID)
 	cmd.CharacterID = strings.TrimSpace(cmd.CharacterID)
 	if o == nil || o.rentalAssets == nil || cmd.AccountID == "" || cmd.CharacterID == "" {
-		return LuckyStarResult{}, ErrOwnerUnavailable
+		return LegacyLuckyStarResult{}, ErrOwnerUnavailable
 	}
 	if cmd.CharacterLevel <= 0 || cmd.RecommendedMin <= 0 || cmd.RecommendedMax < cmd.RecommendedMin {
-		return LuckyStarResult{}, ErrRewardInvalid
+		return LegacyLuckyStarResult{}, ErrRewardInvalid
 	}
 	if cmd.CharacterLevel < cmd.RecommendedMin || cmd.CharacterLevel > cmd.RecommendedMax {
-		return LuckyStarResult{}, nil
+		return LegacyLuckyStarResult{}, nil
 	}
 	ctx = contextOrBackground(ctx)
-	var result LuckyStarResult
+	var result LegacyLuckyStarResult
 	// Use the same account-row lock as point purchases and rentals. Session
 	// locks alone cannot protect an account shared by concurrent operations.
 	err := o.rentalAssets.WithinRentalAssets(ctx, cmd.AccountID, cmd.CharacterID, func(accounts dnfrepo.AccountRepository, characters dnfrepo.CharacterRepository, _ dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
@@ -352,7 +359,7 @@ func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (Lucky
 			account.Metadata = make(map[string]string, 1)
 		}
 		current := parseLuckyStars(account.Metadata[LuckyStarMetadataKey])
-		result = LuckyStarResult{Before: current, After: current}
+		result = LegacyLuckyStarResult{Before: current, After: current}
 		if current >= LuckyStarMaximum {
 			return nil
 		}
@@ -363,7 +370,7 @@ func (o *Owner) AwardLuckyStar(ctx context.Context, cmd LuckyStarCommand) (Lucky
 		return accounts.Save(ctx, account)
 	})
 	if err != nil {
-		return LuckyStarResult{}, err
+		return LegacyLuckyStarResult{}, err
 	}
 	return result, nil
 }
@@ -444,6 +451,7 @@ func addCardItem(
 	}
 	policy := dnfplacement.SlotPolicy{ListType: dnfrepo.MainInventoryListType, Start: slotStart, End: slotEnd,
 		AllowQuickSlots: reward.AllowQuickSlots, PreferQuickSlots: reward.Stackable && reward.PreferQuickSlots}
+	policy = policy.ForInventory(record)
 	if reward.Stackable {
 		incoming := cardRewardGrantIdentity(reward)
 		for _, slot := range policy.MergeSlots() {

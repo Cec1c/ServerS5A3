@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"os"
@@ -68,15 +69,14 @@ func TestRealPVFFatiguePotionAckPreservesRequestAction(t *testing.T) {
 			}
 			service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}, initialEquipmentArchive: archive, pvfItemCatalog: catalog, gameplayTimers: queue, repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }}
 			session := &gameSession{conn: &bufferConn{}, connID: "fatigue-ack", selectedCharacterID: 17, accountID: account.AccountID}
-			// An opaque test value verifies correlation, not a native fatigue action ID.
-			const action = uint32(0x12345678)
+			const action = currentFatiguePotionAction
 			handled, err := service.handleCurrentFatiguePotionUse(session, testQuestClearCouponRequestBody(87, action))
 			if err != nil || !handled {
 				t.Fatalf("handled=%t err=%v", handled, err)
 			}
 			ack, rest := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
 			if ack.Header.MsgID != uint16(dnfenum.CmdPacketUseStackableAction) || ack.Header.Classification != 1 || len(ack.Body) != 8 || ack.Body[0] != 1 || binary.LittleEndian.Uint16(ack.Body[1:3]) != 87 || ack.Body[3] != 0 || binary.LittleEndian.Uint32(ack.Body[4:8]) != action {
-				t.Fatalf("fatigue ACK header=%+v body=%x; expected original action %x", ack.Header, ack.Body, action)
+				t.Fatalf("fatigue ACK header=%+v body=%x; expected native action %d", ack.Header, ack.Body, action)
 			}
 			refresh, rest := splitGameServerUpperPacket(t, rest)
 			if refresh.Header.MsgID != 14 || refresh.Header.Classification != 0 {
@@ -93,6 +93,53 @@ func TestRealPVFFatiguePotionAckPreservesRequestAction(t *testing.T) {
 			bag, _, err := repos.Inventory.Load(ctx, "17")
 			if err != nil || bag.Slots["0:87"].Count != count-1 {
 				t.Fatalf("remaining=%d want=%d err=%v", bag.Slots["0:87"].Count, count-1, err)
+			}
+		})
+	}
+}
+
+func TestFatiguePotionRejectsNonNativeActionBeforeMutation(t *testing.T) {
+	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}}
+	session := &gameSession{conn: &bufferConn{}, connID: "fatigue-action", selectedCharacterID: 17}
+	handled, err := service.handleCurrentFatiguePotionUse(session, testQuestClearCouponRequestBody(87, 0x12345678))
+	if err != nil || handled {
+		t.Fatalf("non-native action handled=%t err=%v", handled, err)
+	}
+	if got := len(session.conn.(*bufferConn).write.Bytes()); got != 0 {
+		t.Fatalf("non-native action wrote %d bytes", got)
+	}
+}
+
+func TestFatiguePotionInvalidRequestUsesActionBearingFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func([]byte)
+	}{
+		{"reserved_3", func(body []byte) { body[3] = 1 }},
+		{"reserved_11", func(body []byte) { body[11] = 1 }},
+		{"reserved_15", func(body []byte) { body[15] = 1 }},
+		{"list_type", func(body []byte) { body[2] = 1 }},
+		{"missing_character", func([]byte) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}}
+			session := &gameSession{conn: &bufferConn{}, connID: "fatigue-invalid", selectedCharacterID: 17}
+			if tc.name == "missing_character" {
+				session.selectedCharacterID = 0
+			}
+			body := testQuestClearCouponRequestBody(87, currentFatiguePotionAction)
+			tc.mutate(body)
+			handled, err := service.handleCurrentFatiguePotionUse(session, body)
+			if err != nil || !handled {
+				t.Fatalf("handled=%t err=%v", handled, err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
+			if len(rest) != 0 {
+				t.Fatalf("unexpected trailing packets: %d", len(rest))
+			}
+			want := []byte{0, 1, 0x57, 0, body[2], byte(currentFatiguePotionAction)}
+			if ack.Header.MsgID != uint16(dnfenum.CmdPacketUseStackableAction) || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, want) {
+				t.Fatalf("failure header=%+v body=%x want=%x", ack.Header, ack.Body, want)
 			}
 		})
 	}

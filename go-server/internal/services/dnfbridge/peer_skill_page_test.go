@@ -316,8 +316,8 @@ func TestPeerSkillPageSubtype1BodyStaysByteIdenticalWhenOff(t *testing.T) {
 	seeded := peerSkillPageTestService(t, peerSkillPageTestSkills())
 	baseline := peerSkillPageTestSubtype1Body(&seeded)
 	// 改动前的现行为：tree index 之后就是两个 0x00（见 userinfo_selected_subtype1.go:57-59 的旧实现）。
-	if got := baseline[110]; got != peerSkillPageTestTreeIndex {
-		t.Fatalf("subtype1 skill_tree_index = %d, want %d", got, peerSkillPageTestTreeIndex)
+	if got := baseline[110]; got != 0xff {
+		t.Fatalf("subtype1 skill_tree_index = %d, want %d", got, byte(0xff))
 	}
 	if baseline[111] != 0 || baseline[112] != 0 {
 		t.Fatalf("subtype1 skill page counts = %d/%d, want 0/0 at offsets 111/112", baseline[111], baseline[112])
@@ -351,8 +351,8 @@ func TestPeerSkillPageSubtype1BodyCarriesSkillPagesWhenOn(t *testing.T) {
 	mustSetPeerSkillPageEnv(t, "on")
 	onBody := peerSkillPageTestSubtype1Body(&service)
 
-	if got := onBody[110]; got != peerSkillPageTestTreeIndex {
-		t.Fatalf("on subtype1 skill_tree_index = %d, want %d at offset 110", got, peerSkillPageTestTreeIndex)
+	if got := onBody[110]; got != 0xff {
+		t.Fatalf("on subtype1 skill_tree_index = %d, want %d at offset 110", got, byte(0xff))
 	}
 	if !bytes.Equal(onBody[111:125], peerSkillPageTestPages()) {
 		t.Fatalf("on subtype1 skill pages = %x, want %x", onBody[111:125], peerSkillPageTestPages())
@@ -360,7 +360,7 @@ func TestPeerSkillPageSubtype1BodyCarriesSkillPagesWhenOn(t *testing.T) {
 	if got := onBody[125]; got != 11 {
 		t.Fatalf("on subtype1 equipped creature level = %d, want 11", got)
 	}
-	assertPeerSkillPageReplacesTwoZeroCounts(t, "subtype1", onBody, offBody, peerSkillPageTestTreeIndex)
+	assertPeerSkillPageReplacesTwoZeroCounts(t, "subtype1", onBody, offBody, 0xff)
 }
 
 func TestPeerSkillPageMode1AndMode3BodiesCarrySkillPagesWhenOn(t *testing.T) {

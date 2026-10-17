@@ -478,6 +478,9 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			} else {
 				inventory = loadedInventory
 			}
+			if err := dnfrepo.BindInventoryContainerState(ctx, o.repos.Settings, &inventory); err != nil {
+				return err
+			}
 			if inventory.Slots == nil {
 				inventory.Slots = make(map[string]dnfrepo.ItemStack)
 			}
@@ -940,7 +943,8 @@ func addAttachmentToInventory(inventory *dnfrepo.InventoryRecord, attachment dnf
 		}
 		changedSlots = append(changedSlots, refresh)
 	}
-	for _, slot := range mailboxClaimStackSlots(resolution) {
+	policy := mailboxClaimSlotPolicy(resolution).ForInventory(inventory)
+	for _, slot := range policy.MergeSlots() {
 		if remaining <= 0 {
 			break
 		}
@@ -970,7 +974,7 @@ func addAttachmentToInventory(inventory *dnfrepo.InventoryRecord, attachment dnf
 		markChanged(slot)
 		remaining -= capacity
 	}
-	for _, slot := range mailboxClaimSlotPolicy(resolution).EmptySlots() {
+	for _, slot := range policy.EmptySlots() {
 		if remaining <= 0 {
 			break
 		}

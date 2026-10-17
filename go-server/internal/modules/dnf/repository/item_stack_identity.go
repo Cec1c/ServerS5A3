@@ -35,6 +35,10 @@ func CanMergeItemStack(existing, incoming ItemStack) bool {
 	if existing.ItemID != incoming.ItemID || existing.Bind != incoming.Bind {
 		return false
 	}
+	// 卡片升级次数改变属性，不同级数不能沿用普通缺省身份叠加。
+	if !MonsterCardUpgradeIdentityCompatible(existing, incoming) {
+		return false
+	}
 	if !existing.ExpireAt.IsZero() && !incoming.ExpireAt.IsZero() && !existing.ExpireAt.Equal(incoming.ExpireAt) {
 		return false
 	}

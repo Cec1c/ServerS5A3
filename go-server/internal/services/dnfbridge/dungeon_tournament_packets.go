@@ -135,6 +135,9 @@ type tournamentRewardState struct {
 	Cards [tournamentCardTypeCount][tournamentCardsPerType]tournamentCardReward
 	// Selected 是每类已选中的卡下标（未选 = tournamentUnselectedCard）。
 	Selected [tournamentCardTypeCount]byte
+	// Set only after this run's requested command-state reply was sent.
+	// The current official client initializes its card slots in that handler.
+	commandStateReady bool
 }
 
 // tournamentUnselectedCard 对应 TournamentParticipantRewardState.cs:25 的

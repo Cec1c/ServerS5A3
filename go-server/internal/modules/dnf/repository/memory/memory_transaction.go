@@ -13,7 +13,8 @@ import (
 )
 
 type memoryCharacterCreationUnitOfWork struct {
-	mu sync.Mutex
+	mu       sync.Mutex
+	sharedMu *sync.Mutex
 }
 
 // memoryCreationStore buffers writes until the creation callback succeeds.
@@ -25,6 +26,8 @@ type memoryCreationStore[T any] struct {
 	keyFn   db.KeyFunc[T]
 	cloneFn db.CloneFunc[T]
 	pending map[string]T
+	before  map[string]T
+	existed map[string]bool
 }
 
 func newMemoryCreationStore[T any](base db.Store[T], keyFn db.KeyFunc[T], cloneFn db.CloneFunc[T]) *memoryCreationStore[T] {
@@ -77,6 +80,15 @@ func (s *memoryCreationStore[T]) commit() error {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
+		before, existed, err := s.base.Load(context.Background(), key)
+		if err != nil {
+			return err
+		}
+		if s.before == nil {
+			s.before = make(map[string]T)
+			s.existed = make(map[string]bool)
+		}
+		s.before[key], s.existed[key] = s.cloneFn(before), existed
 		if err := s.base.Save(context.Background(), s.pending[key]); err != nil {
 			return err
 		}
@@ -84,12 +96,36 @@ func (s *memoryCreationStore[T]) commit() error {
 	return nil
 }
 
+func (s *memoryCreationStore[T]) rollback() error {
+	if s == nil {
+		return nil
+	}
+	var result error
+	for key, record := range s.before {
+		if s.existed[key] {
+			result = errors.Join(result, s.base.Save(context.Background(), record))
+			continue
+		}
+		if d, ok := s.base.(interface {
+			Delete(context.Context, string) error
+		}); ok {
+			result = errors.Join(result, d.Delete(context.Background(), key))
+		} else {
+			result = errors.Join(result, errors.New("creation rollback cannot remove newly created record"))
+		}
+	}
+	return result
+}
+
 type memoryCharacterCreationStore struct {
-	base        repository.CharacterRepository
-	expectedID  string
-	pending     repository.CharacterRecord
-	hasPending  bool
-	createWrite bool
+	base           repository.CharacterRepository
+	expectedID     string
+	pending        repository.CharacterRecord
+	hasPending     bool
+	createWrite    bool
+	before         repository.CharacterRecord
+	beforeExists   bool
+	beforeCaptured bool
 }
 
 func (s *memoryCharacterCreationStore) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
@@ -196,10 +232,24 @@ func (s *memoryCharacterCreationStore) commit() error {
 	if !s.hasPending {
 		return nil
 	}
+	var err error
+	s.before, s.beforeExists, err = s.base.Load(context.Background(), s.expectedID)
+	if err != nil {
+		return err
+	}
+	s.beforeCaptured = true
 	if s.createWrite {
 		return repository.CreateCharacter(context.Background(), s.base, s.pending)
 	}
 	return s.base.Save(context.Background(), s.pending)
+}
+
+func (s *memoryCharacterCreationStore) rollback() error {
+	return restoreCharacterRecord(s.base, s.expectedID, s.before, s.beforeExists, s.beforeCaptured)
+}
+
+func (u *memoryCharacterCreationUnitOfWork) WithinCharacterNameMutation(ctx context.Context, characterID string, base repository.Group, apply func(repository.Group) error) error {
+	return u.WithinCharacterCreation(ctx, characterID, base, apply)
 }
 
 func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.Context, characterID string, base repository.Group, apply func(repository.Group) error) error {
@@ -214,8 +264,12 @@ func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.
 		return err
 	}
 
-	u.mu.Lock()
-	defer u.mu.Unlock()
+	lock := &u.mu
+	if u.sharedMu != nil {
+		lock = u.sharedMu
+	}
+	lock.Lock()
+	defer lock.Unlock()
 
 	characters := &memoryCharacterCreationStore{base: base.Character, expectedID: characterID}
 	accounts := newMemoryCreationStore[repository.AccountRecord](base.Account, repository.AccountKey, repository.CloneAccount)
@@ -257,8 +311,11 @@ func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	rollback := func(cause error) error {
+		return errors.Join(cause, mailboxes.rollback(), settings.rollback(), pets.rollback(), quests.rollback(), skills.rollback(), equipment.rollback(), inventory.rollback(), accounts.rollback(), characters.rollback())
+	}
 	if err := characters.commit(); err != nil {
-		return err
+		return rollback(err)
 	}
 	for _, commit := range []func() error{
 		accounts.commit,
@@ -271,7 +328,7 @@ func (u *memoryCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.
 		mailboxes.commit,
 	} {
 		if err := commit(); err != nil {
-			return err
+			return rollback(err)
 		}
 	}
 	return nil
@@ -327,6 +384,7 @@ type memoryCeraShopAssetUnitOfWork struct {
 	pet            repository.PetRepository
 	ownedLegacy    []repository.OwnedLegacyItem
 	hasOwnedLegacy bool
+	skills         repository.SkillRepository
 }
 
 type memoryCharacterSkillUnitOfWork struct {
@@ -946,6 +1004,22 @@ func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	settingsScope string,
 	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository) error,
 ) error {
+	if apply == nil {
+		return repository.ErrCeraShopAssetTransactionUnavailable
+	}
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope, false,
+		func(a repository.AccountRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository, s repository.SettingsRepository, _ repository.SkillRepository) error {
+			return apply(a, c, i, e, s)
+		})
+}
+
+func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope, true, apply)
+}
+
+func (u *memoryCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string, includeSkill bool,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
 	settingsScope = strings.TrimSpace(settingsScope)
@@ -993,7 +1067,20 @@ func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	inventoryTx := &memoryInventoryTransaction{characterID: characterID, record: repository.CloneInventory(inventory), exists: inventoryExists}
 	equipmentTx := &memoryEquipmentTransaction{characterID: characterID, record: repository.CloneEquipment(equipment), exists: equipmentExists}
 	settingsTx := &memorySettingsTransaction{scope: settingsScope, record: repository.CloneSettings(settings), exists: settingsExists}
-	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx, settingsTx); err != nil {
+	var skills repository.SkillRecord
+	var skillExists bool
+	skillTx := &memorySkillTransaction{characterID: characterID}
+	if includeSkill {
+		if u.skills == nil {
+			return repository.ErrCeraShopAssetTransactionUnavailable
+		}
+		skills, skillExists, err = u.skills.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		skillTx.record, skillTx.exists = repository.CloneSkill(skills), skillExists
+	}
+	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx, settingsTx, skillTx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -1045,6 +1132,17 @@ func (u *memoryCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
 				restoreAccountRecord(u.account, accountID, account, accountExists, accountTx.dirty),
 			)
+		}
+	}
+	if includeSkill && skillTx.dirty {
+		if err := u.skills.Save(ctx, skillTx.record); err != nil {
+			return errors.Join(err,
+				restoreSkillRecord(u.skills, characterID, skills, skillExists, true),
+				restoreSettingsRecord(u.settings, settingsScope, settings, settingsExists, settingsTx.dirty),
+				restoreEquipmentRecordIfDirty(u.equipment, characterID, equipment, equipmentExists, equipmentTx.dirty),
+				restoreInventoryRecordIfDirty(u.inventory, characterID, inventory, inventoryExists, inventoryTx.dirty),
+				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
+				restoreAccountRecord(u.account, accountID, account, accountExists, accountTx.dirty))
 		}
 	}
 	return nil
@@ -1139,7 +1237,7 @@ func restoreCharacterRecord(repo repository.CharacterRepository, characterID str
 		return nil
 	}
 	if existed {
-		return repo.Save(context.Background(), record)
+		return repo.Save(levelUpRollbackContext(), record)
 	}
 	deleter, ok := repo.(interface {
 		Delete(context.Context, string) error

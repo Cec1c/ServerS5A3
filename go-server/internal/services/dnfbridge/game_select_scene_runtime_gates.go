@@ -65,6 +65,26 @@ func (s *Service) sendRuntimeSceneReadySequence(session *gameSession, source str
 }
 
 func (s *Service) sendRuntimeAfterBlacklistSeedOnce(session *gameSession, source string) error {
+	// The native client requests the blacklist again between the return op24
+	// and its town-side op35 confirmation. The old dungeon's op29 flag is still
+	// set then; it does not authorize a mode3 refresh in the new town scene.
+	// That scene's actor generation belongs exclusively to the confirmed
+	// return chain (mode0/mode1), including retries after confirmation.
+	if session != nil {
+		session.dungeon.mu.Lock()
+		runtime := session.dungeon.runtime
+		returnOwnsPlayerState := session.confirmedDungeonReturnStatePending ||
+			session.returnTownFinishLoadingAckOnly ||
+			(runtime != nil && runtime.townReturnPending && runtime.townReturnOp24Sent)
+		session.dungeon.mu.Unlock()
+		if returnOwnsPlayerState {
+			s.logGameEvent(session, "game-upper-request-blacklist-runtime-seed-deferred",
+				"source", source,
+				"char_id", session.selectedCharacterID,
+				"reason", "typed_town_return_owns_actor_generation")
+			return nil
+		}
+	}
 	if session == nil || !session.postStartMapPlayerStateSent {
 		if session != nil {
 			s.logPacketEvent("game-upper-request-blacklist-runtime-seed-deferred",

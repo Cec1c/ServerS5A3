@@ -31,7 +31,7 @@ func TestMagicBoxSingleAndBatchUseSharedSlotPolicy(t *testing.T) {
 				repos := dnfrepomemory.NewMemoryGroup()
 				slots := map[string]dnfrepo.ItemStack{"0:70": {ItemID: 600, Count: 2}}
 				if scenario.fullPage {
-					for slot := scenario.reward.SlotStart; slot <= scenario.reward.SlotEnd; slot++ {
+					for slot := scenario.reward.SlotStart; slot <= scenario.reward.SlotStart+31; slot++ {
 						slots[slotKey(scenario.reward.TargetListType, slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 99}
 					}
 				}
@@ -80,7 +80,7 @@ func TestMagicBoxEquipmentFullPageFallsBackWithoutMerging(t *testing.T) {
 			ctx := context.Background()
 			repos := dnfrepomemory.NewMemoryGroup()
 			slots := map[string]dnfrepo.ItemStack{"0:70": {ItemID: 600, Count: 2}, "0:3": {ItemID: 700, Count: 1, Extra: map[string]string{"item_kind": "equipment"}}}
-			for slot := int16(9); slot <= 64; slot++ {
+			for slot := int16(9); slot <= 40; slot++ {
 				slots[slotKey(0, slot)] = dnfrepo.ItemStack{ItemID: 999, Count: 1}
 			}
 			saveMagicBoxFixture(t, ctx, repos, slots)

@@ -15,12 +15,12 @@ import (
 )
 
 func TestDecodeDamageFontRequestsUseVerifiedWireWidths(t *testing.T) {
-	body := []byte{0x4c, 0x00, 0x00, 0, 0, 0, 0, 0xa2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	body := []byte{0x4c, 0x00, 0x00, 0, 0, 0, 0, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	action, err := DecodeUseStackableActionRequest(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if action.SourceSlotIndex != 76 || action.ListType != 0 || action.ActionIndex != 162 {
+	if action.SourceSlotIndex != 76 || action.ListType != 0 || action.ActionIndex != 164 {
 		t.Fatalf("action = %+v", action)
 	}
 	selection, err := DecodeSelectDamageFontRequest([]byte{0x88, 0x13})
@@ -46,7 +46,7 @@ func TestDamageFontUnlockAndSelectionAreRepositoryBacked(t *testing.T) {
 
 	result, err := NewHandler().Handle(ctx, alignedcmd.Request{
 		Opcode:              uint16(dnfenum.CmdPacketUseStackableAction),
-		Body:                []byte{0x4c, 0, 0, 0, 0, 0, 0, 0xa2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		Body:                []byte{0x4c, 0, 0, 0, 0, 0, 0, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		SelectedCharacterID: 77,
 		Repositories:        repos,
 		DamageFontNow:       now,
@@ -67,7 +67,7 @@ func TestDamageFontUnlockAndSelectionAreRepositoryBacked(t *testing.T) {
 	if !result.ResponseAllowed || len(result.UpperResponses) != 1 {
 		t.Fatalf("result = %+v", result)
 	}
-	wantAck := []byte{1, 76, 0, 0, 162, 0, 0, 0}
+	wantAck := []byte{1, 76, 0, 0, 164, 0, 0, 0}
 	if !bytes.Equal(result.UpperResponses[0].Body, wantAck) {
 		t.Fatalf("op515 ACK = %x, want %x", result.UpperResponses[0].Body, wantAck)
 	}

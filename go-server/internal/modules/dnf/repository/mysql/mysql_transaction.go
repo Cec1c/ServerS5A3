@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"strings"
+	"time"
 )
 
 type sqlTxBeginner interface {
@@ -67,6 +69,10 @@ type mysqlCharacterCreationUnitOfWork struct {
 	router mysqlRouter
 }
 
+func (u *mysqlCharacterCreationUnitOfWork) WithinCharacterNameMutation(ctx context.Context, characterID string, base repository.Group, apply func(repository.Group) error) error {
+	return u.WithinCharacterCreation(ctx, characterID, base, apply)
+}
+
 func (u *mysqlCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.Context, characterID string, _ repository.Group, apply func(repository.Group) error) error {
 	characterID = strings.TrimSpace(characterID)
 	if characterID == "" || apply == nil {
@@ -83,13 +89,34 @@ func (u *mysqlCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.C
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	txRouter := u.router
 	txRouter.db = sqlTransactionDB{tx: tx}
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
+	// All writers use the same coordinator key, independent of the character's
+	// shard. INSERT IGNORE handles the first concurrent use; SELECT FOR UPDATE
+	// holds an InnoDB row lock until the character/name transaction commits.
+	table, err := txRouter.writeTable(mysqlSettingsTable, repository.CharacterNameMutationScope)
+	if err != nil {
+		return err
+	}
+	if _, err := txRouter.db.ExecContext(ctx, "INSERT IGNORE INTO "+table+" (scope, updated_at) VALUES (?, ?)", repository.CharacterNameMutationScope, timeOrNow(time.Time{}, txRouter.now)); err != nil {
+		return err
+	}
+	var lockedScope string
+	if err := txRouter.db.QueryRowContext(ctx, "SELECT scope FROM "+table+" WHERE scope = ? FOR UPDATE", repository.CharacterNameMutationScope).Scan(&lockedScope); err != nil {
+		return err
+	}
+	if lockedScope != repository.CharacterNameMutationScope {
+		return fmt.Errorf("character name namespace lock was not acquired")
+	}
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
 	if err := apply(txGroup); err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+	if err := ctx.Err(); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	return tx.Commit()
@@ -493,6 +520,22 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	settingsScope string,
 	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository) error,
 ) error {
+	if apply == nil {
+		return repository.ErrCeraShopAssetTransactionUnavailable
+	}
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope,
+		func(a repository.AccountRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository, s repository.SettingsRepository, _ repository.SkillRepository) error {
+			return apply(a, c, i, e, s)
+		})
+}
+
+func (u *mysqlCeraShopAssetUnitOfWork) WithinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
+	return u.withinCeraShopSkillAssets(ctx, accountID, characterID, settingsScope, apply)
+}
+
+func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Context, accountID, characterID, settingsScope string,
+	apply func(repository.AccountRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.SettingsRepository, repository.SkillRepository) error) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
 	settingsScope = strings.TrimSpace(settingsScope)
@@ -527,7 +570,8 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinCeraShopAssets(
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}
 	settings := &ceraShopScopedSettingsRepository{scope: settingsScope, base: txGroup.Settings}
-	if err := apply(accounts, characters, inventories, equipment, settings); err != nil {
+	skills := &characterProgressionScopedSkillRepository{characterID: characterID, base: txGroup.Skill}
+	if err := apply(accounts, characters, inventories, equipment, settings, skills); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err := ctx.Err(); err != nil {

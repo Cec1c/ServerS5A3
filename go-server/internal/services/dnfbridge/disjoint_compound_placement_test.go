@@ -255,7 +255,7 @@ func TestCurrentDisjointUsesRealFreeMaterialSlots(t *testing.T) {
 	for slot := int16(3); slot <= 8; slot++ {
 		slots[currentCeraShopInventorySlotKey(0, slot)] = dnfrepo.ItemStack{ItemID: 3227, Count: 1}
 	}
-	for slot := int16(121); slot <= 175; slot++ {
+	for slot := int16(121); slot <= 151; slot++ {
 		slots[currentCeraShopInventorySlotKey(0, slot)] = dnfrepo.ItemStack{ItemID: 3227, Count: 1}
 	}
 	repositories, catalog := mustCurrentDisjointPlacementAssets(t, slots)
@@ -270,12 +270,12 @@ func TestCurrentDisjointUsesRealFreeMaterialSlots(t *testing.T) {
 		t.Fatalf("one free material slot must be enough, got %x trailing=%d", ack.Body, len(trailing))
 	}
 	rows := parseCurrentDisjointRewardRows(t, ack.Body)
-	if element := currentDisjointRewardRowForItem(t, rows, 3166); element != (currentDisjointRewardRow{Slot: 176, ItemID: 3166, Granted: 1}) {
-		t.Fatalf("element row=%+v want the only free material slot 176", element)
+	if element := currentDisjointRewardRowForItem(t, rows, 3166); element != (currentDisjointRewardRow{Slot: 152, ItemID: 3166, Granted: 1}) {
+		t.Fatalf("element row=%+v want the only free material slot 152", element)
 	}
 	inventory, _, _ := repositories.Inventory.Load(context.Background(), "19")
-	if stack := inventory.Slots["0:176"]; stack.ItemID != 3166 || stack.Count != 1 {
-		t.Fatalf("slot 176=%+v want 3166x1", stack)
+	if stack := inventory.Slots["0:152"]; stack.ItemID != 3166 || stack.Count != 1 {
+		t.Fatalf("slot 152=%+v want 3166x1", stack)
 	}
 }
 

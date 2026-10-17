@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
@@ -993,7 +994,7 @@ func TestDungeonCardExitRetryReEntersOrdinaryDungeonWithOriginFreeze(t *testing.
 	}
 }
 
-func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runtimeDungeonState, *gameSession, *bufferConn) {
+func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runtimeDungeonState, *gameSession, *bufferConn, dnfrepo.Group) {
 	t.Helper()
 	source := bridgePVFSource{
 		worldmap.DefaultMapList: "100 `dungeon/test/story_a.map`\n200 `dungeon/test/story_b.map`\n",
@@ -1021,6 +1022,12 @@ func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runti
 			"[minimum required level]\n10\n" +
 			"[basis level]\n20\n" +
 			"[limit party count]\n1\n" +
+			"[maze info]\n" +
+			"[size]\n1 1\n" +
+			"[greed]\n`B`\n" +
+			"[map specification]\n`map` 0 0 200\n" +
+			"[start map]\n0 0\n" +
+			"[boss map]\n0 0\n" +
 			"[maze info]\n" +
 			"[quest connection]\n0 3149\n" +
 			"[size]\n1 1\n" +
@@ -1117,11 +1124,11 @@ func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runti
 		t.Fatalf("fixture origin freeze: %v", err)
 	}
 	completeSettlementRuntimeForTest(t, service, runtime, session)
-	return service, runtime, session, conn
+	return service, runtime, session, conn, repositories
 }
 
 func TestDungeonCardExitStoryNextQuestEntersNextDungeon(t *testing.T) {
-	service, runtime, session, connection := prepareStoryChainCompletedSettlementRuntime(t)
+	service, runtime, session, connection, _ := prepareStoryChainCompletedSettlementRuntime(t)
 	runtime.settlementPlayResultReceived = true
 	runtime.settlementStatisticReceived = true
 	markCurrentDungeonCardRewardCommittedForTest(runtime)
@@ -1161,6 +1168,358 @@ func TestDungeonCardExitStoryNextQuestEntersNextDungeon(t *testing.T) {
 	}
 	if newRuntime.Session.Snapshot().Run.Status != worldmap.DungeonRunActive {
 		t.Fatalf("story next-quest runtime status=%v want active", newRuntime.Session.Snapshot().Run.Status)
+	}
+}
+
+// TestDungeonCardExitStoryNextQuestStartsSuccessorOnItsQuestMaze is the DOC-118
+// regression (传说中的白化变异哥布林 -> 猛毒雷鸣废墟). In the real data a quest
+// dungeon carries the quest as a maze quest connection (dungeon 6 maze 1 =
+// [0 3147 -1]), and maze selection only picks it while the quest is active. The
+// dialog's 开始下个任务 must therefore start the successor quest through the same
+// op31 accept preflight before the server-driven entry, or the entry lands on the
+// dungeon's non-quest maze and the chain cannot progress.
+func TestDungeonCardExitStoryNextQuestStartsSuccessorOnItsQuestMaze(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	// The accept preflight needs a valid job; the shared fixture omits it.
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "99", States: map[int64]dnfrepo.QuestState{
+		3148: {Status: "completed"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime == runtime || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("story next-quest runtime=%+v, want a fresh dungeon 800 runtime", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) < 2 || maze.QuestConnection[0] != 0 || maze.QuestConnection[1] != 3149 {
+		t.Fatalf("story next-quest entered maze %d connection=%v, want the successor quest 3149 quest maze",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	record, found, err := repositories.Quest.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("reload quest record found=%t err=%v", found, err)
+	}
+	if state, ok := record.States[3149]; !ok || state.Status != "active" {
+		t.Fatalf("story next-quest must start the successor quest, state=%+v ok=%t", state, ok)
+	}
+	// 接取后的活动任务投影必须沿既有 op31 路径补发，否则只剩 DB active、客户端没有任务。
+	foundSnapshot := false
+	for rest := connection.write.Bytes(); len(rest) > 0; {
+		packet, tail := splitGameServerUpperPacket(t, rest)
+		if packet.Header.MsgID == currentActiveQuestSnapshotMsgID {
+			foundSnapshot = true
+		}
+		rest = tail
+	}
+	if !foundSnapshot {
+		t.Fatalf("story next-quest accept emitted no active-quest snapshot (op574) stream=%x", connection.write.Bytes())
+	}
+}
+
+// TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance is the
+// negative control for the same path: an eligible-successor check that fails must
+// leave the quest record untouched (no faked acceptable list, no skipped
+// prerequisite), and the entry keeps its previous target.
+func TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("story next-quest runtime=%+v, want the chain's successor dungeon", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) != 0 {
+		t.Fatalf("an ineligible successor must not select a quest maze: maze=%d connection=%v",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	if record, found, err := repositories.Quest.Load(ctx, "99"); err != nil {
+		t.Fatal(err)
+	} else if found {
+		if state, ok := record.States[3149]; ok {
+			t.Fatalf("an ineligible successor must not be accepted: state=%+v", state)
+		}
+	}
+}
+
+// storySuccessorFaultQuestStore injects a real storage failure into the quest
+// repository so the story successor accept path is exercised without touching the
+// other repositories.
+type storySuccessorFaultQuestStore struct {
+	dnfrepo.QuestRepository
+	fail                  bool
+	failErr               error
+	attempts              int
+	accepted              int
+	failActiveRead        int
+	activeReads           int
+	projectionReadFailure int
+}
+
+func (s *storySuccessorFaultQuestStore) Load(ctx context.Context, characterID string) (dnfrepo.QuestRecord, bool, error) {
+	record, found, err := s.QuestRepository.Load(ctx, characterID)
+	if err != nil || !found {
+		return record, found, err
+	}
+	if state, ok := record.States[3149]; ok && state.Status == "active" {
+		s.activeReads++
+		if s.failActiveRead > 0 && s.activeReads >= s.failActiveRead {
+			s.projectionReadFailure++
+			return dnfrepo.QuestRecord{}, false, errors.New("injected successor projection read failure")
+		}
+	}
+	return record, found, nil
+}
+
+func (s *storySuccessorFaultQuestStore) SaveFields(ctx context.Context, record dnfrepo.QuestRecord, fields ...dnfrepo.QuestField) error {
+	s.attempts++
+	if s.fail {
+		return s.failErr
+	}
+	s.countAcceptedWrite(ctx, record)
+	if fieldStore, ok := s.QuestRepository.(interface {
+		SaveFields(context.Context, dnfrepo.QuestRecord, ...dnfrepo.QuestField) error
+	}); ok {
+		return fieldStore.SaveFields(ctx, record, fields...)
+	}
+	return s.QuestRepository.Save(ctx, record)
+}
+
+func (s *storySuccessorFaultQuestStore) Save(ctx context.Context, record dnfrepo.QuestRecord) error {
+	s.attempts++
+	if s.fail {
+		return s.failErr
+	}
+	s.countAcceptedWrite(ctx, record)
+	return s.QuestRepository.Save(ctx, record)
+}
+
+// countAcceptedWrite counts durable writes that *newly* activate quest 3149, so a
+// later projection write of the same active row cannot look like a second accept.
+func (s *storySuccessorFaultQuestStore) countAcceptedWrite(ctx context.Context, record dnfrepo.QuestRecord) {
+	if state, ok := record.States[3149]; !ok || state.Status != "active" {
+		return
+	}
+	previous, found, err := s.QuestRepository.Load(ctx, record.CharacterID)
+	if err == nil && found {
+		if state, ok := previous.States[3149]; ok && state.Status == "active" {
+			return
+		}
+	}
+	s.accepted++
+}
+
+// TestDungeonCardExitStoryNextQuestStorageFailureStopsEntryAndRetriesOnce pins the
+// review requirement: a real storage failure while starting the successor quest
+// must not retire the completed runtime, must not enter the non-quest maze and must
+// not consume entry assets; it must re-arm the one-shot exit gate so a retry can
+// start the successor exactly once.
+func TestDungeonCardExitStoryNextQuestStorageFailureStopsEntryAndRetriesOnce(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "99", States: map[int64]dnfrepo.QuestState{
+		3148: {Status: "completed"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	group, ok := service.repositoryProvider()
+	if !ok {
+		t.Fatal("fixture repository group is unavailable")
+	}
+	fault := &storySuccessorFaultQuestStore{
+		QuestRepository: group.Quest,
+		fail:            true,
+		failErr:         errors.New("injected story successor storage failure"),
+	}
+	group.Quest = fault
+	service.repositoryProvider = func() (dnfrepo.Group, bool) { return group, true }
+	fatigueBefore := character.Stats["fatigue"]
+
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if session.dungeon.runtime != runtime {
+		t.Fatalf("storage failure retired the completed runtime: got %p want %p", session.dungeon.runtime, runtime)
+	}
+	if runtime.settlementCardExitAckSent {
+		t.Fatal("storage failure must re-arm the one-shot exit gate so the click can be retried")
+	}
+	if fault.attempts == 0 {
+		t.Fatal("the injected storage failure was never exercised")
+	}
+	if fault.accepted != 0 {
+		t.Fatalf("storage failure reported %d accepted successor writes, want 0", fault.accepted)
+	}
+	if record, found, err := repositories.Quest.Load(ctx, "99"); err != nil {
+		t.Fatal(err)
+	} else if found {
+		if state, exists := record.States[3149]; exists {
+			t.Fatalf("storage failure left a successor row: %+v", state)
+		}
+	}
+	reloaded, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("reload character found=%t err=%v", found, err)
+	}
+	if got := reloaded.Stats["fatigue"]; got != fatigueBefore {
+		t.Fatalf("storage failure consumed entry assets: fatigue=%d want %d", got, fatigueBefore)
+	}
+
+	// Clear the injected fault and retry the same click: the successor must be
+	// started exactly once and the entry must use its quest maze.
+	fault.fail = false
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime == runtime || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("retry runtime=%+v, want a fresh dungeon 800 runtime", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) < 2 || maze.QuestConnection[0] != 0 || maze.QuestConnection[1] != 3149 {
+		t.Fatalf("retry entered maze %d connection=%v, want the successor quest 3149 quest maze",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	if fault.accepted != 1 {
+		t.Fatalf("retry accepted the successor %d times, want exactly 1", fault.accepted)
+	}
+	if record, found, err := repositories.Quest.Load(ctx, "99"); err != nil || !found {
+		t.Fatalf("reload quest record after retry found=%t err=%v", found, err)
+	} else if state, ok := record.States[3149]; !ok || state.Status != "active" {
+		t.Fatalf("retry successor state=%+v ok=%t", state, ok)
+	}
+}
+
+// TestDungeonCardExitStoryNextQuestCommittedAcceptWithFailedProjectionRetriesIdempotently
+// covers the review case where the successor accept is already durable but the standard
+// active-quest snapshot could not be sent: the entry must stop (no retire, retry armed),
+// and the retry must be idempotent yet still send the snapshot before entering.
+func TestDungeonCardExitStoryNextQuestCommittedAcceptWithFailedProjectionRetriesIdempotently(t *testing.T) {
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "99", States: map[int64]dnfrepo.QuestState{
+		3148: {Status: "completed"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	group, ok := service.repositoryProvider()
+	if !ok {
+		t.Fatal("fixture repository group is unavailable")
+	}
+	// The first read that observes a durable active 3149 is ApplyAccept's own verify
+	// read; the second one is the projection read, which we inject a failure into.
+	fault := &storySuccessorFaultQuestStore{QuestRepository: group.Quest, failActiveRead: 2}
+	group.Quest = fault
+	service.repositoryProvider = func() (dnfrepo.Group, bool) { return group, true }
+
+	runtime.settlementPlayResultReceived = true
+	runtime.settlementStatisticReceived = true
+	markCurrentDungeonCardRewardCommittedForTest(runtime)
+	connection.write.Reset()
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if session.dungeon.runtime != runtime {
+		t.Fatalf("failed projection retired the completed runtime: got %p want %p", session.dungeon.runtime, runtime)
+	}
+	if runtime.settlementCardExitAckSent {
+		t.Fatal("failed projection must re-arm the one-shot exit gate so the click can be retried")
+	}
+	if fault.projectionReadFailure != 1 {
+		t.Fatalf("injected projection read failure fired %d times, want 1", fault.projectionReadFailure)
+	}
+	if fault.accepted != 1 {
+		t.Fatalf("the successor must be accepted once before the projection failure, got %d", fault.accepted)
+	}
+	record, found, err := repositories.Quest.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("reload quest record found=%t err=%v", found, err)
+	}
+	if state := record.States[3149]; state.Status != "active" {
+		t.Fatalf("durable successor state=%+v, want active", state)
+	}
+
+	// Retry with the projection fault cleared: the accept is idempotent, the snapshot
+	// must still be sent, and only then may the entry use the successor quest maze.
+	fault.failActiveRead = 0
+	connection.write.Reset()
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := session.dungeon.runtime
+	if newRuntime == nil || newRuntime == runtime || newRuntime.Dungeon.ID != 800 {
+		t.Fatalf("retry runtime=%+v, want a fresh dungeon 800 runtime", newRuntime)
+	}
+	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
+	if len(maze.QuestConnection) < 2 || maze.QuestConnection[0] != 0 || maze.QuestConnection[1] != 3149 {
+		t.Fatalf("retry entered maze %d connection=%v, want the successor quest 3149 quest maze",
+			newRuntime.MazeIndex, maze.QuestConnection)
+	}
+	if fault.accepted != 1 {
+		t.Fatalf("idempotent retry wrote the successor again: accepted=%d want 1", fault.accepted)
+	}
+	foundSnapshot := false
+	for rest := connection.write.Bytes(); len(rest) > 0; {
+		packet, tail := splitGameServerUpperPacket(t, rest)
+		if packet.Header.MsgID == currentActiveQuestSnapshotMsgID {
+			foundSnapshot = true
+		}
+		rest = tail
+	}
+	if !foundSnapshot {
+		t.Fatalf("idempotent retry emitted no active-quest snapshot stream=%x", connection.write.Bytes())
 	}
 }
 

@@ -73,6 +73,12 @@ func TestOwnerMoveAutoStacksIntoLowestTargetThatFitsPVFLimit(t *testing.T) {
 func TestOwnerMoveAutoStackIntoPersonalCargoSynchronizesDurableCountFields(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
+	// 本用例验证已扩容金库的移动，显式提供其真实开放容量。
+	settings := capacityTestSettings("77", 0)
+	settings.Values["personal_cargo_list_param16"] = "56"
+	if err := repos.Settings.Save(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
 	source := pvfMoveStack(3330, 5850, 0)
 	source.RawEntry = make([]byte, currentItemListEntrySize)
 	binary.LittleEndian.PutUint32(source.RawEntry[0x06:0x0A], 5850)
@@ -354,6 +360,9 @@ func TestCanStackRequiresMatchingPVFIdentityOwnershipExpiryAndCapacity(t *testin
 func TestOwnerManualMoveStacksPVFUnlimitedRows(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
+	if err := repos.Settings.Save(ctx, capacityTestSettings("77", 24)); err != nil {
+		t.Fatal(err)
+	}
 	source := pvfMoveStack(2660671, 200, 10)
 	destination := pvfMoveStack(2660671, 200, 10)
 	delete(source.Extra, "stack_limit")
@@ -401,6 +410,9 @@ func TestOwnerManualMoveStacksPVFUnlimitedRows(t *testing.T) {
 func TestHandlerManualMoveStacksCapturedPVFUnlimitedRows(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
+	if err := repos.Settings.Save(ctx, capacityTestSettings("19", 24)); err != nil {
+		t.Fatal(err)
+	}
 	source := pvfMoveStack(2660671, 200, 10)
 	destination := pvfMoveStack(2660671, 200, 10)
 	delete(source.Extra, "stack_limit")
@@ -790,6 +802,12 @@ func TestOwnerCrossListPartialSplitDoesNotRequestRefresh(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			repos := dnfrepomemory.NewMemoryGroup()
+			// 本用例验证已扩容金库的移动，显式提供其真实开放容量。
+			settings := capacityTestSettings("77", 0)
+			settings.Values["personal_cargo_list_param16"] = "24"
+			if err := repos.Settings.Save(ctx, settings); err != nil {
+				t.Fatal(err)
+			}
 			characterSlots := make(map[string]dnfrepo.ItemStack)
 			accountSlots := make(map[string]dnfrepo.ItemStack)
 			if test.shared {
@@ -855,7 +873,7 @@ func TestHandlerAccountSharedExplicitStackTransactionFailureSendsNoSuccessAndRol
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	if !got.Handled || got.ResponseAllowed || len(got.UpperResponses) != 0 {
+	if !got.Handled || !got.ResponseAllowed || len(got.UpperResponses) != 1 || got.UpperResponses[0].Body[0] != 0 {
 		t.Fatalf("failure result = %+v", got)
 	}
 	character := loadTestInventory(t, ctx, repos, "77")
@@ -898,6 +916,12 @@ func TestHandlerMainAndPersonalCargoExplicitStackUsesTwoSlotIncrementalRefresh(t
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			repos := dnfrepomemory.NewMemoryGroup()
+			// 本用例验证已扩容金库的移动，显式提供其真实开放容量。
+			settings := capacityTestSettings("77", 0)
+			settings.Values["personal_cargo_list_param16"] = "24"
+			if err := repos.Settings.Save(ctx, settings); err != nil {
+				t.Fatal(err)
+			}
 			record := dnfrepo.InventoryRecord{
 				CharacterID: "77",
 				Slots:       make(map[string]dnfrepo.ItemStack),

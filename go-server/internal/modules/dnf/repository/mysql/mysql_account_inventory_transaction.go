@@ -49,6 +49,15 @@ func (u *mysqlAccountCharacterItemUnitOfWork) WithinAccountCharacterItems(
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// These stores live only for this locked account/character item transaction.
+	// Their own successful Load provides the complete before-image; saves must
+	// never derive dirty keys from the client's requested destination.
+	if store, ok := txGroup.AccountInventory.(*mysqlAccountInventoryStore); ok {
+		store.trackSlotChanges = true
+	}
+	if store, ok := txGroup.Inventory.(*mysqlBagStore); ok {
+		store.trackSlotChanges = true
+	}
 	accounts := &accountInventoryScopedRepository{accountID: accountID, base: txGroup.AccountInventory}
 	characters := &accountCharacterInventoryScopedRepository{characterID: characterID, base: txGroup.Inventory}
 	if err := apply(accounts, characters); err != nil {

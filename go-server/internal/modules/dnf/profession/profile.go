@@ -191,15 +191,19 @@ func (p *Profiles) ApplySkillTransition(catalog *dnfskill.Table, job byte, chara
 	}
 	grants = grantsAtCharacterLevel(catalog, job, characterLevel, grants)
 	record = dnfrepo.CloneSkill(record)
+	active := dnfrepo.ActiveSkillTree(record)
 	switch transition.Kind {
 	case KindClassChange:
 		record.Skills = grantStates(grants)
 		record.Cooldowns = nil
-		layout, err := skillcmd.BuildInitialSkillLayout(catalog, job, 0, record.Skills)
+		layout, err := skillcmd.BuildInitialSkillLayout(catalog, job, active, record.Skills)
 		if err != nil {
 			return dnfrepo.SkillRecord{}, err
 		}
-		record.Layouts = map[int]dnfrepo.SkillLayout{0: layout}
+		if record.Layouts == nil {
+			record.Layouts = make(map[int]dnfrepo.SkillLayout)
+		}
+		record.Layouts[active] = layout
 		points.RemainingSP = points.TotalSP
 		points.RemainingTP = points.TotalTP
 		record.Points = points
@@ -217,19 +221,32 @@ func (p *Profiles) ApplySkillTransition(catalog *dnfskill.Table, job byte, chara
 		}
 		var existing dnfrepo.SkillLayout
 		if record.Layouts != nil {
-			existing = record.Layouts[0]
+			existing = record.Layouts[active]
 		}
-		layout, err := skillcmd.BuildCurrentSkillLayout(catalog, job, 0, record.Skills, existing)
+		layout, err := skillcmd.BuildCurrentSkillLayout(catalog, job, active, record.Skills, existing)
 		if err != nil {
 			return dnfrepo.SkillRecord{}, err
 		}
 		if record.Layouts == nil {
 			record.Layouts = make(map[int]dnfrepo.SkillLayout)
 		}
-		record.Layouts[0] = layout
+		record.Layouts[active] = layout
 		record.Points = points
 	default:
 		return dnfrepo.SkillRecord{}, fmt.Errorf("%w: kind=%d", ErrTransitionInvalid, transition.Kind)
+	}
+	if record.Trees.Expanded {
+		other := dnfrepo.SkillRecord{Skills: record.Trees.Other.Skills, Points: record.Trees.Other.Points, Layouts: map[int]dnfrepo.SkillLayout{0: record.Layouts[active^1]}}
+		otherPoints, _, err := dnfskill.SyncPointState(other.Points, points)
+		if err != nil {
+			return dnfrepo.SkillRecord{}, err
+		}
+		other, err = p.ApplySkillTransition(catalog, job, characterLevel, transition, other, otherPoints)
+		if err != nil {
+			return dnfrepo.SkillRecord{}, err
+		}
+		record.Trees.Other = dnfrepo.SkillProfile{Skills: other.Skills, Points: other.Points}
+		record.Layouts[active^1] = other.Layouts[0]
 	}
 	return record, nil
 }
@@ -256,11 +273,11 @@ func (p *Profiles) PlanTransition(job byte, current byte, request Request) (Tran
 	if !ok {
 		return Transition{}, fmt.Errorf("%w: job=%d", ErrProfileMissing, job)
 	}
-	first, awakening := Decode(current)
+	first, _ := Decode(current)
 	switch request.Kind {
 	case KindClassChange:
-		if request.ChainType != 1 || request.GrowNumber == 0 || first != 0 || awakening != 0 {
-			return Transition{}, fmt.Errorf("%w: class change current=0x%02x target=%d", ErrTransitionOutOfStep, current, request.GrowNumber)
+		if err := CheckClassChangePrecondition(current, request); err != nil {
+			return Transition{}, err
 		}
 		if !profile.growSupported[request.GrowNumber] {
 			return Transition{}, fmt.Errorf("%w: job=%d class=%d", ErrTransitionInvalid, job, request.GrowNumber)
@@ -271,10 +288,10 @@ func (p *Profiles) PlanTransition(job byte, current byte, request Request) (Tran
 			FirstGrowType: request.GrowNumber, AwakeningStage: 0,
 		}, nil
 	case KindAwakening:
-		target := request.GrowNumber
-		if request.ChainType != 2 || target == 0 || target > 2 || target != awakening+1 {
-			return Transition{}, fmt.Errorf("%w: awakening current=0x%02x target=%d", ErrTransitionOutOfStep, current, target)
+		if err := CheckAwakeningPrecondition(current, request); err != nil {
+			return Transition{}, err
 		}
+		target := request.GrowNumber
 		if !profile.awakeningSupported[first][target] {
 			return Transition{}, fmt.Errorf("%w: job=%d first=%d awakening=%d", ErrTransitionInvalid, job, first, target)
 		}

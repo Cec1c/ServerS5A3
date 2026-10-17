@@ -17,8 +17,14 @@ func (s *Service) sendSelectCharacterState(session *gameSession, body []byte) er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	charID, _, _, hasCharacter, slot := s.resolveSelectedCharacter(ctx, session, body)
+	charID, _, selectedCharacter, hasCharacter, slot := s.resolveSelectedCharacter(ctx, session, body)
+	if s.options.currentClientVersion == "official-24.9" && hasCharacter && currentCharacterRenamePending(selectedCharacter) {
+		return s.sendCharacterBootstrap(session, "pending_rename_legacy_select_retry")
+	}
 	s.bindGameSessionCharacter(session, charID)
+	if hasCharacter && !s.currentRenameSelectionStillCurrent(ctx, session, selectedCharacter) {
+		return s.handleUpperReturnSelectCharacter(session, nil)
+	}
 	// 与 upper 选角入口同一条口径：先补齐账号级记录再往下走（见
 	// account_record_bootstrap.go）。
 	s.ensureAccountRecordsForSelection(ctx, session, accountRecordBootstrapLegacySource)

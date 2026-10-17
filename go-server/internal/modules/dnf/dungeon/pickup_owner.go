@@ -80,6 +80,9 @@ func (o *Owner) GrantPickupItem(ctx context.Context, cmd PickupItemCommand) (Pic
 		if !found {
 			return ErrInventoryNotFound
 		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &record); err != nil {
+			return err
+		}
 		record = dnfrepo.CloneInventory(record)
 		slot, stack, err := PlacePickupItem(&record, cmd.Placement)
 		if err != nil {
@@ -137,6 +140,7 @@ func PlacePickupItem(record *dnfrepo.InventoryRecord, placement PickupItemPlacem
 		AllowQuickSlots:  definition.AllowQuickSlots,
 		PreferQuickSlots: definition.Kind == PickupItemStackable && definition.PreferQuickSlot,
 	}
+	policy = policy.ForInventory(record)
 	for _, slot := range policy.MergeSlots() {
 		if destination, stack, ok, err := stackPickupInRange(record, placement, slot, slot); err != nil {
 			return 0, dnfrepo.ItemStack{}, err

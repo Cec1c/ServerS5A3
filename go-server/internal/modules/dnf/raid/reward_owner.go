@@ -53,14 +53,15 @@ type RewardCommand struct {
 type RewardResult struct{ Replayed bool }
 
 type RewardOwner struct {
-	assets repo.AccountCharacterAssetUnitOfWork
+	settings repo.SettingsRepository
+	assets   repo.AccountCharacterAssetUnitOfWork
 }
 
 func NewRewardOwner(group repo.Group) (*RewardOwner, error) {
 	if group.AccountAssets == nil {
 		return nil, ErrRewardOwnerUnavailable
 	}
-	return &RewardOwner{assets: group.AccountAssets}, nil
+	return &RewardOwner{assets: group.AccountAssets, settings: group.Settings}, nil
 }
 
 // Grant receives only a server-frozen entitlement. It does not roll rewards,
@@ -141,6 +142,9 @@ func (o *RewardOwner) Grant(ctx context.Context, cmd RewardCommand) (RewardResul
 		account.AccountID = cmd.AccountID
 		if account.Slots == nil {
 			account.Slots = map[string]repo.ItemStack{}
+		}
+		if err := repo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
 		}
 		inventory = repo.CloneInventory(inventory)
 		character = repo.CloneCharacter(character)
