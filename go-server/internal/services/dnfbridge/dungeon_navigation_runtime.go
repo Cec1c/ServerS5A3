@@ -321,6 +321,11 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	if prepared == nil {
+		if err := s.validateCurrentRiftPartyUnlock(ctx, session, partyStateAtRequest, int64(request.DungeonID)); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
+	}
 	var runtime *runtimeDungeonState
 	var scene worldmap.DungeonRoomScene
 	if prepared != nil {
@@ -1205,6 +1210,8 @@ func (s *Service) sendSelectDungeonFailure(session *gameSession, reason byte) er
 // 未知失败按厂商 default（DungeonUnavailable）回 0x01 —— 静默丢弃才是缺陷。
 func currentSelectDungeonEntryFailureReason(err error) (byte, string) {
 	switch {
+	case errors.Is(err, errDungeonMapQuestRequired):
+		return currentSelectDungeonMissingPermissionReason, "entry_map_quest_required"
 	case errors.Is(err, dnfdungeon.ErrDayDungeonClosed):
 		return currentSelectDungeonUnavailableReason, "entry_day_dungeon_closed"
 	case errors.Is(err, dnfdungeon.ErrDailyEntryLimit):
