@@ -28,6 +28,8 @@ type currentDungeonSettlementPacketPlan struct {
 	DungeonPermissionBody []byte
 	DespairResultBody     []byte
 	DespairItemSlots      []alignedcmd.ItemSlotRefresh
+	GriefResultBody       []byte
+	GriefItemSlots        []alignedcmd.ItemSlotRefresh
 }
 
 func buildCurrentDungeonSettlementPacketPlan(

@@ -203,5 +203,11 @@ func currentDungeonSettlementPacketPlanForTest(
 			t.Fatal(err)
 		}
 	}
+	if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+		plan.GriefResultBody, err = buildCurrentGriefResultBody(12345, 1, make([]currentDespairResultItem, 10))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	return plan
 }

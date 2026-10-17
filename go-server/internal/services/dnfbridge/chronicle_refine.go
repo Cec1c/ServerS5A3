@@ -29,11 +29,11 @@ func chronicleRefineGameplayModule() gameplayModuleDefinition {
 	}}, UpperHandlers: map[uint16]gameplayHandler{op: defaultClassGameplayHandler("勇者装备精炼分类拒绝", "370请求必须为class1", (*Service).handleCurrentChronicleRefine)}}
 }
 func parseCurrentChronicleRefineRequest(body []byte) (dnfchronicle.Request, error) {
-	if len(body) != 14 || body[6] != 0 {
+	if len(body) != 14 || (body[6] != 0 && body[6] != 3) {
 		return dnfchronicle.Request{}, dnfchronicle.ErrMaterial
 	}
-	r := dnfchronicle.Request{MaterialSlot: int16(binary.LittleEndian.Uint16(body)), MaterialID: int64(binary.LittleEndian.Uint32(body[2:])), TargetSlot: int16(binary.LittleEndian.Uint16(body[7:])), TargetID: int64(binary.LittleEndian.Uint32(body[9:])), Option: body[13]}
-	if r.MaterialSlot < 3 || r.TargetSlot < 3 || r.MaterialSlot == r.TargetSlot || r.MaterialID <= 0 || r.TargetID <= 0 || r.Option > 31 {
+	r := dnfchronicle.Request{TargetList: body[6], MaterialSlot: int16(binary.LittleEndian.Uint16(body)), MaterialID: int64(binary.LittleEndian.Uint32(body[2:])), TargetSlot: int16(binary.LittleEndian.Uint16(body[7:])), TargetID: int64(binary.LittleEndian.Uint32(body[9:])), Option: body[13]}
+	if r.MaterialSlot < 3 || r.TargetSlot < 0 || (r.TargetList == 0 && (r.TargetSlot < 3 || r.MaterialSlot == r.TargetSlot)) || r.MaterialID <= 0 || r.TargetID <= 0 || r.Option > 31 {
 		return r, dnfchronicle.ErrMaterial
 	}
 	return r, nil
@@ -68,8 +68,16 @@ func buildCurrentChronicleRefineSuccessBody(r dnfchronicle.Result) []byte {
 	if r.Succeeded {
 		body[5] = 1
 	}
-	binary.LittleEndian.PutUint16(body[7:], uint16(r.Request.TargetSlot))
+	targetSlot := uint16(r.Request.TargetSlot)
+	if !r.Succeeded && r.Request.TargetList == 3 {
+		// 现用EXE 0x1fdb8f4无视容器，按此字段删除主背包槽。
+		// 0xffff经0x25ee9e1容量检查直接返回；真正穿戴目标由结果前的
+		// list3/op14清除，避免误删同号背包再补回而触发“获得物品”。
+		targetSlot = math.MaxUint16
+	}
+	binary.LittleEndian.PutUint16(body[7:], targetSlot)
 	body[9] = byte(len(r.Rewards))
+	body[6] = r.Request.TargetList
 	for i, row := range r.Rewards {
 		offset := 10 + i*10
 		binary.LittleEndian.PutUint16(body[offset:], uint16(row.Slot))
@@ -118,14 +126,24 @@ func (s *Service) handleCurrentChronicleRefine(session *gameSession, body []byte
 		return reject(err)
 	}
 	s.logGameEvent(session, "勇者装备精炼已提交", "op", currentChronicleRefineOpcode, "装备ID", request.TargetID, "装备槽", request.TargetSlot, "气息ID", request.MaterialID, "选项", request.Option, "精炼成功", result.Succeeded, "属性数", result.Options, "成功阈值", result.Probability, "随机值", result.Roll, "气息剩余", result.MaterialRemaining, "奖励行数", len(result.Rewards))
-	if err = s.sendGameUpperRawClass(session, currentChronicleRefineOpcode, buildCurrentChronicleRefineSuccessBody(result), dnfproto.DefaultChannelClassification); err != nil {
-		return err
-	}
+	return s.sendCurrentChronicleRefineResult(session, result)
+}
+
+func (s *Service) sendCurrentChronicleRefineResult(session *gameSession, result dnfchronicle.Result) error {
+	request := result.Request
 	refreshes := make([]alignedcmd.ItemSlotRefresh, 0, len(result.ChangedSlots))
 	for _, slot := range result.ChangedSlots {
 		refreshes = append(refreshes, alignedcmd.ItemSlotRefresh{ListType: 0, SlotIndex: slot})
 	}
-	return s.sendSelectedIncrementalItemSlotRefreshes(session, "勇者装备精炼结果刷新", refreshes)
+	var wornSlots []int16
+	if request.TargetList == 3 {
+		wornSlots = []int16{request.TargetSlot}
+	}
+	return s.sendAlignedUpperResponses(session, alignedcmd.Result{
+		Operation: "勇者装备精炼结果刷新", WornEquipmentSlotRefreshes: wornSlots,
+		UpperResponses:    []alignedcmd.UpperResponse{{MsgID: currentChronicleRefineOpcode, Body: buildCurrentChronicleRefineSuccessBody(result), Classification: dnfproto.DefaultChannelClassification, AllowCodec: true}},
+		ItemSlotRefreshes: refreshes,
+	})
 }
 
 func (s *Service) currentChronicleRefineCommand(session *gameSession, items *pvfDungeonDropCatalog, material dungeonDropItemDefinition, request dnfchronicle.Request) dnfchronicle.Command {
@@ -138,6 +156,7 @@ func (s *Service) currentChronicleRefineCommand(session *gameSession, items *pvf
 			return job, characterGrowTypeByte(c) & 15, nil
 		},
 		State: currentChronicleItemState, SetOptions: currentSetChronicleOptions,
+		WornTarget: currentWornChronicleTarget, WornUpdate: currentWornChronicleUpdate,
 		FailureRewards: func(e dnfchronicle.Equipment, state dnfchronicle.State, m dnfchronicle.Material) ([]dnfchronicle.Reward, error) {
 			config, err := loadCurrentDisjointPVFConfig(items.source)
 			if err != nil {
