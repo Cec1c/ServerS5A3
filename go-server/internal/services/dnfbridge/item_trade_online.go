@@ -454,6 +454,12 @@ func (s *Service) handleOnlineItemTradeState(session *gameSession, state byte) e
 		"both_ready", ready)
 
 	if err := s.sendGameUpperSuccess(session, currentItemTradeReadyMsg, nil); err != nil {
+		// Final consent reserved the trade before this write. No asset exchange
+		// has started, so release the reservation and notify both clients through
+		// the existing cancellation path instead of stranding a committing trade.
+		if ready {
+			s.cancelOnlineItemTrade(trade, "final_confirmation_ack_write_failed")
+		}
 		return err
 	}
 	// The current client moves itself to "waiting for the other participant's
