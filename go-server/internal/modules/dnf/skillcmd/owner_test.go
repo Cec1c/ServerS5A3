@@ -63,6 +63,7 @@ func TestOwnerPlanReadsSkillState(t *testing.T) {
 func TestOwnerApplyTreeSwitchPersistsOppositeTreeAndRejectsReplay(t *testing.T) {
 	ctx := context.Background()
 	repos := seededSkillOwnerRepositories(t, ctx)
+	unlockSkillOwnerFixture(t, ctx, repos)
 	owner, err := NewOwner(repos)
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +232,7 @@ func TestOwnerApplyResetRestoresPVFInitialStateAndRefundsPointsAtomically(t *tes
 	if len(persisted.Skills) != 1 || persisted.Skills[46].Level != 1 {
 		t.Fatalf("reset skills = %+v", persisted.Skills)
 	}
-	if persisted.Points != result.Points || len(persisted.Layouts) != 1 || persisted.Layouts[0][0] != 46 {
+	if persisted.Points != result.Points || len(persisted.Layouts) != 2 || persisted.Layouts[0][0] != 46 || persisted.Layouts[1][0] != 47 {
 		t.Fatalf("reset points/layouts = %+v", persisted)
 	}
 	if !persisted.Cooldowns[46].Equal(cooldown) {
@@ -463,8 +464,12 @@ func TestOwnerApplyBuyUsesSpecialPurchaseCostForTPSkill(t *testing.T) {
 	if result.Points.RemainingTP != 6 || result.Points.RemainingSP != 100 || len(result.Entries) != 1 || !result.Entries[0].TP {
 		t.Fatalf("TP mutation result = %+v", result)
 	}
-	if result.Entries[0].Slot != 1 {
-		t.Fatalf("tree-zero active slot = %d, want 1", result.Entries[0].Slot)
+	// 113段反馈（2026-10-15 20:00 角色123）：学习TP技能后普通技能快捷栏被自动占用。
+	// 48 是 fixture 里 feature skill type 1 + special purchase cost 的 active TP 技能，
+	// 必须落在技能页展示槽（active 分组 150..197），不能再拿 0..5 / 198..203 这两段
+	// 普通快捷栏。普通主动技能（46/47）的自动填空仍由其它用例钉住。
+	if result.Entries[0].Slot != 150 {
+		t.Fatalf("TP skill slot = %d, want 150 (skill-page slot, not an ordinary quick slot)", result.Entries[0].Slot)
 	}
 }
 
@@ -569,13 +574,21 @@ func TestBuildInitialSkillLayoutLimitsQuickbarToThreeActiveSkills(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := dnfrepo.SkillLayout{0: 46, 1: 47, 2: 48, 54: 50, 150: 49}
+	// 48 是 fixture 的 active TP 技能：与学习路径同一判据，初始布局也不把它算进
+	// 普通快捷栏的前三格（113段反馈的 TP 自动填槽缺口覆盖新建/重建路径）。
+	// 48 让位后三格由普通主动技能 46/47/49 填满，48 落在 active 技能页分组槽 150。
+	want := dnfrepo.SkillLayout{0: 46, 1: 47, 2: 49, 54: 50, 150: 48}
 	if !reflect.DeepEqual(layout, want) {
 		t.Fatalf("layout=%v, want %v", layout, want)
 	}
 	for slot := 3; slot < 6; slot++ {
 		if skillID, ok := layout[slot]; ok {
 			t.Fatalf("unexpected primary slot %d skill %d", slot, skillID)
+		}
+	}
+	for slot := 0; slot < 6; slot++ {
+		if skillID, ok := layout[slot]; ok && skillID == 48 {
+			t.Fatalf("TP fixture skill 48 was placed in ordinary quick slot %d: %v", slot, layout)
 		}
 	}
 }

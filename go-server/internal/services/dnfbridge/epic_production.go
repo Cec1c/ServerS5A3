@@ -130,9 +130,10 @@ type currentEpicProductionCompoundRequest struct {
 }
 
 type currentEpicProductionCompoundPlan struct {
-	Recipe           currentEpicProductionCatalyst
-	OutputDefinition dungeonDropItemDefinition
-	Contribution     uint64
+	MaxItemCountMaxRate uint32
+	Recipe              currentEpicProductionCatalyst
+	OutputDefinition    dungeonDropItemDefinition
+	Contribution        uint64
 }
 
 type currentEpicProductionCompoundResult struct {
@@ -894,6 +895,9 @@ func (s *Service) commitCurrentEpicProductionAbility(
 			if account.Slots == nil {
 				account.Slots = make(map[string]dnfrepo.ItemStack)
 			}
+			if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			account = dnfrepo.CloneAccountInventory(account)
 
@@ -1135,24 +1139,25 @@ func validateCurrentEpicProductionCompoundPlan(
 		recipe.MinMakeCount == 0 || recipe.MaxMakeCount < recipe.MinMakeCount {
 		return currentEpicProductionCompoundPlan{}, fmt.Errorf("%w: catalyst=%d has no complete PVF recipe", errCurrentEpicProductionMaterial, request.CatalystItemID)
 	}
-	// The current implementation accepts recipes whose exact input IDs are
-	// enumerated by this PVF. Type-only equipment recipes require their seal,
-	// level and part predicates to be resolved separately.
-	if len(recipe.NeedItemIDs) == 0 {
-		return currentEpicProductionCompoundPlan{}, fmt.Errorf("%w: catalyst=%d uses a type-only recipe", errCurrentEpicProductionMaterial, request.CatalystItemID)
-	}
 	outputDefinition, err := items.ResolveItem(request.CatalystItemID)
 	if err != nil || outputDefinition.Kind != dungeonDropItemStackable {
 		return currentEpicProductionCompoundPlan{}, fmt.Errorf("%w: resolve catalyst=%d: %v", errCurrentEpicProductionMaterial, request.CatalystItemID, err)
 	}
 	var contribution uint64
 	for _, material := range request.Materials {
-		if _, allowed := recipe.NeedItemIDs[material.ItemID]; !allowed {
-			return currentEpicProductionCompoundPlan{}, fmt.Errorf("%w: catalyst=%d rejects item=%d", errCurrentEpicProductionMaterial, request.CatalystItemID, material.ItemID)
+		if len(recipe.NeedItemIDs) != 0 {
+			if _, allowed := recipe.NeedItemIDs[material.ItemID]; !allowed {
+				return currentEpicProductionCompoundPlan{}, fmt.Errorf("%w: catalyst=%d rejects item=%d", errCurrentEpicProductionMaterial, request.CatalystItemID, material.ItemID)
+			}
 		}
 		definition, resolveErr := items.ResolveItem(material.ItemID)
 		if resolveErr != nil {
 			return currentEpicProductionCompoundPlan{}, fmt.Errorf("%w: resolve material=%d: %v", errCurrentEpicProductionMaterial, material.ItemID, resolveErr)
+		}
+		if len(recipe.NeedItemIDs) == 0 {
+			if err := validateCurrentEpicProductionEquipmentRecipeMaterial(source, definition, recipe, material); err != nil {
+				return currentEpicProductionCompoundPlan{}, err
+			}
 		}
 		if recipe.NeedItemType == "material" &&
 			(definition.Kind != dungeonDropItemStackable || normalizeDungeonDropStackableType(definition.StackableType) != "[material]") {
@@ -1185,7 +1190,7 @@ func validateCurrentEpicProductionCompoundPlan(
 	if contribution == 0 {
 		return currentEpicProductionCompoundPlan{}, errCurrentEpicProductionMaterial
 	}
-	return currentEpicProductionCompoundPlan{Recipe: recipe, OutputDefinition: outputDefinition, Contribution: contribution}, nil
+	return currentEpicProductionCompoundPlan{Recipe: recipe, OutputDefinition: outputDefinition, Contribution: contribution, MaxItemCountMaxRate: catalog.maxItemCountMaxRate}, nil
 }
 
 func currentEpicProductionCarryStat(group int32) (string, byte) {
@@ -1391,6 +1396,9 @@ func (s *Service) commitCurrentEpicProductionChange(
 
 			character = dnfrepo.CloneCharacter(character)
 			account = dnfrepo.CloneAccountInventory(account)
+			if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			updates := make([]currentItemListEntry, 0, len(request.Materials))
 			accountChanged := false
@@ -1617,6 +1625,9 @@ func (s *Service) commitCurrentEpicProductionCompound(
 			}
 
 			character = dnfrepo.CloneCharacter(character)
+			if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+				return err
+			}
 			inventory = dnfrepo.CloneInventory(inventory)
 			account = dnfrepo.CloneAccountInventory(account)
 			if character.Stats == nil {
@@ -1641,27 +1652,6 @@ func (s *Service) commitCurrentEpicProductionCompound(
 				updates[material.Slot] = entry
 			}
 
-			if plan.Recipe.MustNeedItemID != 0 && plan.Recipe.MustNeedItemCount != 0 {
-				if fixedSlot, shared := currentDisjointWarehouseFixedSlots[plan.Recipe.MustNeedItemID]; shared {
-					entry, consumeErr := currentEpicProductionConsumeAccountStack(&account, fixedSlot, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					if consumeErr != nil {
-						return consumeErr
-					}
-					accountChanged = true
-					updates[fixedSlot] = entry
-				} else {
-					slot, found := currentEpicProductionFindMaterialSlot(inventory, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					if !found {
-						return fmt.Errorf("%w: compound must item=%d need=%d", errCurrentEpicProductionMaterial, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					}
-					entry, consumeErr := currentEpicProductionConsumeStack(&inventory, slot, plan.Recipe.MustNeedItemID, plan.Recipe.MustNeedItemCount)
-					if consumeErr != nil {
-						return consumeErr
-					}
-					updates[slot] = entry
-				}
-			}
-
 			carryStat, groupSelector := currentEpicProductionCarryStat(plan.Recipe.GroupKey)
 			carry := uint64(0)
 			if carryStat != "" {
@@ -1679,14 +1669,38 @@ func (s *Service) commitCurrentEpicProductionCompound(
 			if units == 0 || units > math.MaxUint32 {
 				return fmt.Errorf("%w: compound points=%d need=%d", errCurrentEpicProductionMaterial, total, plan.Recipe.NeedCount)
 			}
-			output64 := units * uint64(plan.Recipe.MinMakeCount)
-			// The client preview derives the whole batch result from the
-			// accumulated points divided by [need item count], then applies the
-			// per-unit make multiplier. [max make item count] is not a cap on
-			// the whole request.
-			if output64 == 0 || output64 > math.MaxUint32 {
-				return fmt.Errorf("%w: compound output=%d", errCurrentEpicProductionMaterial, output64)
+			outputCount, outputErr := currentEpicProductionCompoundOutputCount(plan, units, currentEpicProductionRandomBelow)
+			if outputErr != nil {
+				return outputErr
 			}
+			output64 := uint64(outputCount)
+			// Fixed recipe materials are charged per crafting unit, including
+			// units completed with saved contribution, not once per request.
+			if plan.Recipe.MustNeedItemID != 0 && plan.Recipe.MustNeedItemCount != 0 {
+				if units > math.MaxUint32/uint64(plan.Recipe.MustNeedItemCount) {
+					return fmt.Errorf("%w: compound must item=%d units=%d overflows", errCurrentEpicProductionMaterial, plan.Recipe.MustNeedItemID, units)
+				}
+				mustNeedTotal := uint32(units * uint64(plan.Recipe.MustNeedItemCount))
+				if fixedSlot, shared := currentDisjointWarehouseFixedSlots[plan.Recipe.MustNeedItemID]; shared {
+					entry, consumeErr := currentEpicProductionConsumeAccountStack(&account, fixedSlot, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					if consumeErr != nil {
+						return consumeErr
+					}
+					accountChanged = true
+					updates[fixedSlot] = entry
+				} else {
+					slot, found := currentEpicProductionFindMaterialSlot(inventory, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					if !found {
+						return fmt.Errorf("%w: compound must item=%d need=%d", errCurrentEpicProductionMaterial, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					}
+					entry, consumeErr := currentEpicProductionConsumeStack(&inventory, slot, plan.Recipe.MustNeedItemID, mustNeedTotal)
+					if consumeErr != nil {
+						return consumeErr
+					}
+					updates[slot] = entry
+				}
+			}
+
 			carryValue := uint32(0)
 			if carryStat != "" {
 				carryValue = uint32(total % uint64(plan.Recipe.NeedCount))
@@ -1856,6 +1870,9 @@ func (s *Service) commitCurrentEpicProductionProcess(
 			return errCurrentEpicProductionMaterial
 		}
 		character = dnfrepo.CloneCharacter(character)
+		if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		weeklyCount := character.Stats[currentEpicProductionWeeklyCountStat]
 		if character.Stats[currentEpicProductionWeekStartStat] != weekStart {

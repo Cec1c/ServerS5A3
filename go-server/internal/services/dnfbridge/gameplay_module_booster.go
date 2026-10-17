@@ -109,7 +109,9 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 	// 逐槽行（见 item_grant_notice.go）。list 38 例外仍走整容器；list 7 的写入进
 	// Delta 后由发送侧改期成 1500 ms 整容器。写 containers 一键回退到今天的线格式。
 	grantContainerLists := result.ChangedLists
-	if itemGrantNoticeUsesDelta() {
+	// A paid jar also changes the character wallet, which is projected only
+	// by the full main-container refresh, not an inventory-slot delta.
+	if itemGrantNoticeUsesDelta() && definition.LotteryGoldCost == 0 {
 		plan := buildItemGrantNoticePlan(result.GrantSlots)
 		if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "use_booster_item", plan.Delta); err != nil {
 			return err
@@ -176,12 +178,17 @@ func (s *Service) commitCurrentBooster(
 	if request.RewardMultiplier > 1 {
 		for itemID, count := range rewardAmounts {
 			multiplied := uint64(count) * uint64(request.RewardMultiplier)
-			if multiplied > currentBoosterMaxRewardUnits {
+			if multiplied > currentBoosterRewardUnitLimit(itemID) {
 				return currentBoosterCommitResult{}, errCurrentBoosterPVFInvalid
 			}
 			rewardAmounts[itemID] = uint32(multiplied)
 		}
 	}
+	goldAmount := rewardAmounts[0]
+	if goldAmount > 0 && (!request.AllowLotteryGold || definition.StackableType != "[upgradable legacy]" || s.options.currentClientVersion != "official-24.9") {
+		return currentBoosterCommitResult{}, errCurrentBoosterPVFInvalid
+	}
+	delete(rewardAmounts, 0)
 	accountID, characterID, owner, err := s.currentBoosterMutationOwner(session)
 	if err != nil {
 		return currentBoosterCommitResult{}, err
@@ -192,6 +199,7 @@ func (s *Service) commitCurrentBooster(
 		SourceSlot:   request.SourceSlot,
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
+		GoldCost:    definition.LotteryGoldCost,
 		AccountID:   accountID,
 		CharacterID: characterID,
 		UpdatedAt:   now,
@@ -210,6 +218,14 @@ func (s *Service) commitCurrentBooster(
 				return dnfbooster.Changes{}, err
 			}
 			characterDirty := false
+			if goldAmount > 0 {
+				after, err := dnfbooster.CreditGold(assets.Character, goldAmount, definition.GoldMinimumLevel)
+				if err != nil {
+					return dnfbooster.Changes{}, err
+				}
+				result.GoldAmount, result.GoldAfter = goldAmount, after
+				characterDirty = true
+			}
 			if request.ConsumePremiumDaily {
 				if assets.Character == nil || !premium.TryConsumeDaily(assets.Character, request.PremiumDailySlot, now) {
 					return dnfbooster.Changes{}, fmt.Errorf("premium slot %d daily limit reached", request.PremiumDailySlot)

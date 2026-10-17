@@ -38,9 +38,27 @@ func (s *Service) planPartyDungeonMonsterDrops(session *gameSession, runtime *ru
 	if len(recipients) == 1 {
 		return s.planCurrentDungeonMonsterDrops(runtime, monster, actorKey)
 	}
+	monsterCatalog, err := s.dungeonMonsterCatalog()
+	if err != nil {
+		return nil, err
+	}
+	dimension, err := currentDungeonDimensionDrops(monsterCatalog)
+	if err != nil {
+		return nil, err
+	}
+	_, dimensionMatched := currentDungeonDimensionTier(dimension, runtime.Dungeon.ID, runtime.Character.Level)
 	var all []currentDungeonDeathDropWire
 	for _, recipient := range recipients {
 		view := *runtime
+		if dimensionMatched && recipient.CharacterID != session.selectedCharacterID {
+			character, err := s.loadDimensionDropCharacter(recipient.CharacterID)
+			if err != nil {
+				s.logGameEvent(session, "game-dungeon-party-member-drop-deferred", "recipient_char_id", recipient.CharacterID, "error", err)
+				continue
+			}
+			view.Character = character
+		}
+
 		view.AccountID = recipient.AccountID
 		// An unavailable peer account must not inherit the killer's contract.
 		view.Character.AccountID = recipient.AccountID

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/jobmap"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -72,7 +73,7 @@ type loginEquipRequiredSkillRow struct {
 
 // loginEquipRequirementStatus 是一行穿戴行的判读结果：要求里哪些在本次技能页里，
 // 分别在多少级；哪些不在。`ServedOK` 是**判据**（要求表里任意一个被下发即满足），
-// `Missing` 是信息（同一件装备在别的职业下的那份要求，本角色当然没有）。
+// 要求已按本次技能页的职业筛选；其他职业的同编号技能不能充当掌握技能。
 type loginEquipRequirementStatus struct {
 	Row      loginEquipRequiredSkillRow
 	Served   []string // "33:10"（技能 id : 本页下发的等级）
@@ -87,6 +88,7 @@ type loginEquipRequirementStatus struct {
 func wornEquipmentRequiredSkillRows(
 	source equipRequirementTextSource,
 	entries map[string]dnfrepo.EquipmentEntry,
+	job byte,
 ) ([]loginEquipRequiredSkillRow, int) {
 	if source == nil || len(entries) == 0 {
 		return nil, 0
@@ -127,7 +129,11 @@ func wornEquipmentRequiredSkillRows(
 			unreadable++
 			continue
 		}
-		ids := normalizeRequiredSkillIDs(document.Ints(skillEquipRequirementSection))
+		ids, valid := equipRequiredSkillIDsForJob(document, job)
+		if !valid {
+			unreadable++
+			continue
+		}
 		if len(ids) == 0 {
 			continue
 		}
@@ -139,6 +145,38 @@ func wornEquipmentRequiredSkillRows(
 		})
 	}
 	return rows, unreadable
+}
+
+// Keep the PVF job/skill pairs together: numeric IDs are reused between jobs.
+// An absent section or a different job's pair contributes no requirement here.
+// An unparseable pair is unknown, never evidence that a requirement was served.
+func equipRequiredSkillIDsForJob(document *dnfpvf.Document, job byte) ([]int64, bool) {
+	tags := jobmap.QuestTags(int(job))
+	if len(tags) == 0 {
+		return nil, false
+	}
+	tokens, exists := document.Section(skillEquipRequirementSection)
+	if !exists {
+		return nil, true
+	}
+	if len(tokens)%2 != 0 {
+		return nil, false
+	}
+	var ids []int64
+	for index := 0; index < len(tokens); index += 2 {
+		tag, skill := tokens[index], tokens[index+1]
+		if (tag.Kind != dnfpvf.TokenString && tag.Kind != dnfpvf.TokenIdent) ||
+			skill.Kind != dnfpvf.TokenInt || skill.Int <= 0 || skill.Int > 0xffff {
+			return nil, false
+		}
+		for _, expected := range tags {
+			if strings.EqualFold(strings.TrimSpace(tag.Value), expected) {
+				ids = append(ids, skill.Int)
+				break
+			}
+		}
+	}
+	return normalizeRequiredSkillIDs(ids), true
 }
 
 func normalizeRequiredSkillIDs(values []int64) []int64 {
@@ -160,13 +198,8 @@ func normalizeRequiredSkillIDs(values []int64) []int64 {
 
 // evaluateEquipRequirements 把穿戴行的要求与**本次技能页真正下发的内容**对照。
 //
-// 判据（两条，都有 PVF/操作者证据）：
-//  1. `[required job skill]` 是**按职业分行的候选表**，不是"全都要"：
-//     现场的光剑是 “ `[swordman]` 33 `[demonic swordman]` 33 `[at swordman]` 95 “，
-//     33 = 光剑掌握（鬼剑士系），95 = 剑影自己那一系的同名掌握。角色只会拥有
-//     自己 job 列表里的技能，所以「要求表里**任意一个**被下发」就是满足。
-//  2. 只看**存在性**，不看等级：操作者原话「光剑掌握只要学习 1 就可以穿戴光剑，
-//     更多 lv 只能提供更多数值」（等级只影响攻速/冷却，与能否穿戴无关）。
+// rows 已按职业筛选：光剑的 [swordman] 要求33，[at swordman] 要求95。
+// 比较该职业候选技能的正等级存在性；其他职业的同编号不参与判断。
 func evaluateEquipRequirements(
 	rows []loginEquipRequiredSkillRow,
 	servedLevels map[int64]int,
@@ -245,6 +278,12 @@ func (s *Service) auditLoginEquipRequirements(
 	if s == nil || !skillEquipRequirementAuditEnabled() {
 		return
 	}
+	if !jobmap.Valid(int(projection.job)) {
+		s.logGameEvent(session, skillEquipRequirementSkippedEvent,
+			"source", source, "character_id", character.CharacterID,
+			"job", projection.job, "reason", "unsupported_job")
+		return
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -286,9 +325,12 @@ func (s *Service) auditLoginEquipRequirements(
 			"error", archiveErr.Error())
 		return
 	}
-	rows, unreadable := wornEquipmentRequiredSkillRows(archive, record.Entries)
+	rows, unreadable := wornEquipmentRequiredSkillRows(archive, record.Entries, projection.job)
 	statuses := evaluateEquipRequirements(rows, projection.learnedLevels)
 	verdict := "all_requirements_served"
+	if unreadable > 0 {
+		verdict = "requirement_audit_incomplete"
+	}
 	for _, status := range statuses {
 		if !status.ServedOK {
 			verdict = "requirement_missing_in_served_skill_page"

@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
+	"longheng.io/server/internal/modules/dnf/itemquality"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -439,10 +440,14 @@ func commonItemListRowIsEmittable(listType byte, slot int16, stack dnfrepo.ItemS
 
 func writeCommonItemListEntry(writer *packetWriter, slot int16, stack dnfrepo.ItemStack) {
 	extra := stack.Extra
+	amount := firstExtraInt(extra, stack.Count, "amount_or_count", "amount", "count", "stack", "quantity")
+	if seed := itemquality.FromStack(stack); seed != 0 {
+		amount = int64(seed)
+	}
 	entry := makeCurrentItemListEntry(
 		slot,
 		stack.ItemID,
-		firstExtraInt(extra, stack.Count, "amount_or_count", "amount", "count", "stack", "quantity"),
+		amount,
 		stack.RawEntry,
 	)
 	entry[0x0A] = clampByte(firstExtraInt(extra, 0, "ext_data0", "ext0", "packed_flag_byte", "packed_flag", "packed"))
@@ -467,6 +472,13 @@ func writeCommonItemListEntry(writer *packetWriter, slot int16, stack dnfrepo.It
 }
 
 func commonItemListStackValueA(stack dnfrepo.ItemStack) int64 {
+	if firstExtraInt(stack.Extra, 0, "quality_seed") != 0 ||
+		(strings.EqualFold(strings.TrimSpace(stack.Extra["item_kind"]), "equipment") &&
+			firstExtraInt(stack.Extra, 0, "quality_seed", "amount_or_count", "count_or_instance") != 0) {
+		// Quality aliases describe raw+0x06, not the independent raw+0x0E
+		// item state. Match the login projection for legacy equipment rows.
+		return firstExtraInt(stack.Extra, 0, "value_a", "item_uid", "serial")
+	}
 	if value := firstExtraInt(stack.Extra, 0, "value_a", "instance_value", "item_uid", "serial", "count_or_instance"); value != 0 {
 		return value
 	}

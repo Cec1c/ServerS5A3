@@ -16,6 +16,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/creaturestate"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/itemquality"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -57,6 +58,7 @@ var (
 
 // Owner 是穿戴装备和耐久的 durable owner 边界。
 type Owner struct {
+	settings           dnfrepo.SettingsRepository
 	equipment          dnfrepo.EquipmentRepository
 	inventory          dnfrepo.InventoryRepository
 	character          dnfrepo.CharacterRepository
@@ -191,6 +193,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		settings:  repos.Settings,
 		equipment: repos.Equipment,
 		inventory: repos.Inventory,
 		character: repos.Character,
@@ -651,7 +654,13 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 	}
 	creatureMove := kind == moveKindPet
 	petAggregateMove := creatureMove || kind == moveKindArtifact
-	if cmd.MoveCount != 1 {
+	// Current EXE c3ea63ec's dual-weapon button (0276C260 -> 025EBBF0)
+	// sends list3/12 -> list3/24 with count=0. Here zero denotes a worn-slot
+	// exchange, not a stack quantity. Keep every other move's count=1 rule;
+	// PVF placement and the character item transaction still authorize the swap.
+	weaponButtonSwap := cmd.SourceListType == wireListEquipment && cmd.SourceSlotIndex == 12 &&
+		cmd.DestinationListType == wireListEquipment && cmd.DestinationSlotIndex == 24 && cmd.MoveCount == 0
+	if cmd.MoveCount != 1 && !weaponButtonSwap {
 		return MoveResult{}, fmt.Errorf("%w: count=%d", ErrMoveStackCountInvalid, cmd.MoveCount)
 	}
 	if !creatureMove && o.placementValidator == nil {
@@ -669,6 +678,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			}
 			err = o.petItems.WithinCharacterPets(ctx, characterID, func(inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository, pets dnfrepo.PetRepository) error {
 				txOwner := &Owner{
+					settings:           o.settings,
 					equipment:          equipment,
 					inventory:          inventory,
 					character:          o.character,
@@ -686,6 +696,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			}
 			err = o.items.WithinCharacterItems(ctx, characterID, func(inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
 				txOwner := &Owner{
+					settings:           o.settings,
 					equipment:          equipment,
 					inventory:          inventory,
 					character:          o.character,
@@ -757,7 +768,7 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 			return MoveResult{}, err
 		}
 	}
-	if reversed {
+	if reversed && cmd.SourceListType != cmd.DestinationListType {
 		// Keep the request's A/B list direction, but return the authoritative
 		// inventory slot selected by the owner. Cross-list op19 accepts a
 		// redirected final slot; this is required when the client's stale bag
@@ -765,6 +776,10 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 		result.SourceListType = cmd.SourceListType
 		result.SourceSlotIndex = result.DestinationSlotIndex
 		result.DestinationListType = cmd.DestinationListType
+		result.DestinationSlotIndex = cmd.DestinationSlotIndex
+	}
+	if reversed && cmd.SourceListType == wireListEquipment && cmd.DestinationListType == wireListEquipment {
+		result.SourceSlotIndex = cmd.SourceSlotIndex
 		result.DestinationSlotIndex = cmd.DestinationSlotIndex
 	}
 	return result, nil
@@ -1369,6 +1384,9 @@ func (o *Owner) equip(ctx context.Context, cmd MoveCommand) (MoveResult, error) 
 	// （回退档）时本函数不改 entry 一个字节。
 	entry = o.withCloneAvatarAppearance(entry, previous, occupied)
 	if occupied {
+		if !dnfplacement.SlotOpen(cmd.SourceListType, cmd.SourceSlotIndex, inventory.ContainerState) {
+			return MoveResult{}, fmt.Errorf("%w: 被替换装备不能放回未解锁格", ErrMoveUnsupported)
+		}
 		if previous.SlotIndex != cmd.DestinationSlotIndex {
 			return MoveResult{}, fmt.Errorf("%w: key=%d entry=%d", ErrMoveSlotMismatch, cmd.DestinationSlotIndex, previous.SlotIndex)
 		}
@@ -1453,13 +1471,16 @@ func (o *Owner) unequip(ctx context.Context, cmd MoveCommand) (MoveResult, error
 	}
 	dstKey := inventoryKey(cmd.DestinationListType, cmd.DestinationSlotIndex)
 	if _, occupied := dstItems[dstKey]; occupied && cmd.DestinationInstanceValue == 0 {
-		actualSlot, found := nextEmptyUnequipInventorySlot(dstItems, cmd.DestinationListType, cmd.DestinationSlotIndex)
+		actualSlot, found := nextEmptyUnequipInventorySlot(dstItems, cmd.DestinationListType, cmd.DestinationSlotIndex, inventory.ContainerState)
 		if !found {
 			return MoveResult{}, fmt.Errorf("%w: no empty unequip destination after list=%d slot=%d", ErrMoveSlotNotFound, cmd.DestinationListType, cmd.DestinationSlotIndex)
 		}
 		cmd.DestinationSlotIndex = actualSlot
 		result.DestinationSlotIndex = actualSlot
 		dstKey = inventoryKey(cmd.DestinationListType, actualSlot)
+	}
+	if !dnfplacement.SlotOpen(cmd.DestinationListType, cmd.DestinationSlotIndex, inventory.ContainerState) {
+		return MoveResult{}, fmt.Errorf("%w: 目标格尚未解锁", ErrMoveUnsupported)
 	}
 	if previous, occupied := dstItems[dstKey]; occupied {
 		entry, err := entryFromStack(previous, cmd.DestinationListType, cmd.SourceSlotIndex, cmd.DestinationInstanceValue)
@@ -1549,7 +1570,7 @@ const (
 	guildMedalInventorySlotEnd      int16 = 48
 )
 
-func nextEmptyUnequipInventorySlot(items map[string]dnfrepo.ItemStack, listType byte, requested int16) (int16, bool) {
+func nextEmptyUnequipInventorySlot(items map[string]dnfrepo.ItemStack, listType byte, requested int16, states ...*dnfrepo.CharacterContainerState) (int16, bool) {
 	start, end := mainEquipmentInventorySlotStart, mainEquipmentInventorySlotEnd
 	switch listType {
 	case wireListMain:
@@ -1580,6 +1601,9 @@ func nextEmptyUnequipInventorySlot(items map[string]dnfrepo.ItemStack, listType 
 	}
 	if requested < start || requested > end {
 		return 0, false
+	}
+	if len(states) > 0 {
+		end = dnfplacement.OpenRangeEnd(listType, start, end, states[0])
 	}
 	for slot := requested; slot <= end; slot++ {
 		if _, occupied := items[inventoryKey(listType, slot)]; !occupied {
@@ -1638,10 +1662,10 @@ func (o *Owner) swapEquipSlots(ctx context.Context, cmd MoveCommand) (MoveResult
 			return MoveResult{}, err
 		}
 	}
-	source.SlotIndex = cmd.DestinationSlotIndex
+	source = equipmentEntryAfterSlotSwap(source, cmd.DestinationSlotIndex)
 	record.Entries[dstKey] = source
 	if destinationOK {
-		destination.SlotIndex = cmd.SourceSlotIndex
+		destination = equipmentEntryAfterSlotSwap(destination, cmd.SourceSlotIndex)
 		record.Entries[srcKey] = destination
 	} else {
 		delete(record.Entries, srcKey)
@@ -1667,6 +1691,31 @@ func (o *Owner) swapEquipSlots(ctx context.Context, cmd MoveCommand) (MoveResult
 	return result, nil
 }
 
+// Only the validated current-client main/support pair carries this runtime
+// slot identity. Other worn-slot formats retain their existing representation.
+func equipmentEntryAfterSlotSwap(entry dnfrepo.EquipmentEntry, slot int16) dnfrepo.EquipmentEntry {
+	old := entry.SlotIndex
+	entry.SlotIndex = slot
+	if !((old == 12 && slot == 24) || (old == 24 && slot == 12)) {
+		return entry
+	}
+	entry.Extra = cloneExtra(entry.Extra)
+	for _, key := range []string{"equipped_slot", "equipment_slot", "current_exe_equipment_type"} {
+		entry.Extra[key] = strconv.Itoa(int(slot))
+	}
+	entry.Extra["current_exe_runtime_move"] = "1"
+	if len(entry.RawEntry) == currentEquipmentRawEntryWireSize {
+		entry.RawEntry = append([]byte(nil), entry.RawEntry...)
+		binary.LittleEndian.PutUint16(entry.RawEntry[:2], uint16(slot))
+		for _, key := range []string{"raw_entry_hex", "equipment_raw_entry_hex"} {
+			if _, ok := entry.Extra[key]; ok {
+				entry.Extra[key] = hex.EncodeToString(entry.RawEntry)
+			}
+		}
+	}
+	return entry
+}
+
 func (o *Owner) loadMoveRecords(ctx context.Context, characterID string) (dnfrepo.InventoryRecord, dnfrepo.EquipmentRecord, error) {
 	inventory, ok, err := o.inventory.Load(ctx, characterID)
 	if err != nil {
@@ -1674,6 +1723,9 @@ func (o *Owner) loadMoveRecords(ctx context.Context, characterID string) (dnfrep
 	}
 	if !ok {
 		return dnfrepo.InventoryRecord{}, dnfrepo.EquipmentRecord{}, ErrInventoryNotFound
+	}
+	if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+		return dnfrepo.InventoryRecord{}, dnfrepo.EquipmentRecord{}, err
 	}
 	equipment, ok, err := o.equipment.Load(ctx, characterID)
 	if err != nil {
@@ -1877,6 +1929,13 @@ func entryFromStack(stack dnfrepo.ItemStack, sourceListType byte, equipSlot int1
 	}
 	raw = overlayEquipmentTailDataFromExtra(raw, stack.Extra)
 	extra := cloneExtra(stack.Extra)
+	// DOC-067：穿戴栏不展示位置锁，穿/脱一律不携带（A21 InventoryMoveService.cs:806-810，
+	// source/destination 任一端是 Equipment 即清）。清在进穿戴行这一步，脱下时背包副本
+	// 由穿戴行重建，因此两个方向都不会把锁带回来。
+	delete(extra, dnfrepo.SortLockExtraKey)
+	if len(raw) == currentEquipmentRawEntryWireSize {
+		raw[0x60] = 0
+	}
 	// A permanent avatar is a real, occupied list-1 item whose current-EXE
 	// amount field is zero.  Count==0 therefore cannot mean "empty slot" for
 	// this container. Preserve the repository value explicitly while the item
@@ -2126,6 +2185,11 @@ func (o *Owner) inheritPetEnchantFields(ctx context.Context, characterID string,
 func stackFromEntry(entry dnfrepo.EquipmentEntry) dnfrepo.ItemStack {
 	extra := cloneExtra(entry.Extra)
 	raw := overlayEquipmentTailDataFromExtra(append([]byte(nil), entry.RawEntry...), entry.Extra)
+	// Also clear historical worn records that predate the equip-side cleanup.
+	delete(extra, dnfrepo.SortLockExtraKey)
+	if len(raw) == currentEquipmentRawEntryWireSize {
+		raw[0x60] = 0
+	}
 	if len(raw) > 0 {
 		extra["raw_entry_hex"] = hex.EncodeToString(raw)
 	}

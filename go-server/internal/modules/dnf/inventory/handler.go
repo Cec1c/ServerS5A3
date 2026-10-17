@@ -5,6 +5,7 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -145,9 +146,27 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		result, err := owner.Move(ctx, cmd)
 		if err != nil {
-			return ownerBlockedResult(cmd, err), nil
+			return ownerRejectedMoveResult(req.Opcode, cmd, err), nil
 		}
 		return ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+	case dnfenum.CmdPacketRequestItemSortLock, dnfenum.CmdPacketRequestItemSortUnlock:
+		// DOC-067 位置锁：713=置1、714=置0（不是 toggle）。请求体 u8 list + u16 slot；
+		// 成功回同一 opcode 的 class1 `1 + list + slot`，失败不回包（错误码枚举未证，不臆造）。
+		parsed, err := DecodeSortLockRequest(req.Body)
+		locked := dnfenum.CmdPacket(req.Opcode) == dnfenum.CmdPacketRequestItemSortLock
+		cmd := NewSortLockCommand(req, parsed, locked)
+		if err != nil {
+			return blockedParsedResult(cmd.Operation, cmd.String(), err), nil
+		}
+		owner, err := NewOwner(req.Repositories)
+		if err != nil {
+			return ownerBlockedResult(cmd, err), nil
+		}
+		result, err := owner.ApplySortLock(ctx, cmd)
+		if err != nil {
+			return ownerBlockedResult(cmd, err), nil
+		}
+		return ownerAppliedSortLockResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketSortItem:
 		parsed, err := DecodeSortItemRequest(req.Body)
 		cmd := NewSortCommand(req, parsed)
@@ -256,6 +275,16 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		if err := checkUseStackableListType(cmd.SourceListType); err != nil {
 			return ownerBlockedResult(cmd, err), nil
+		}
+		if req.ExperienceBuffResolver != nil {
+			effect, err := req.ExperienceBuffResolver(int64(cmd.ItemTemplateID))
+			if err != nil {
+				return ownerBlockedResult(cmd, err), nil
+			}
+			if effect.Kind != "" {
+				cmd.UseExperienceBuff = &effect
+				cmd.ExperienceBuffNow = req.ExperienceBuffNow
+			}
 		}
 		if err := applyUpgradeRateBuffResolution(req, &cmd); err != nil {
 			return ownerBlockedResult(cmd, err), nil
@@ -384,9 +413,17 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		result, err := owner.Upgrade(ctx, cmd)
 		if err != nil {
+			var quoteErr *upgradeCostResolutionError
+			if errors.As(err, &quoteErr) {
+				rejected := ownerAppliedUpgradeResult(ctx, req.Repositories.Settings, req.Opcode, cmd, UpgradeResult{ErrorCode: upgradeErrorInvalidMaterial})
+				rejected.Reason += "; " + err.Error()
+				return rejected, nil
+			}
 			return ownerBlockedResult(cmd, err), nil
 		}
 		return ownerAppliedUpgradeResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+	case dnfenum.CmdPacketUpgradeItemSeparate:
+		return handlerSeparateUpgrade(ctx, req)
 	case dnfenum.CmdPacketEnchantByBead:
 		parsed, err := DecodeEnchantByBeadRequest(req.Body)
 		cmd := NewEnchantCommand(req, parsed)
@@ -657,6 +694,15 @@ func ownerAppliedUpgradeResult(ctx context.Context, settings dnfrepo.SettingsRep
 	if entries := upgradeItemUpdateEntries(cmd, result); len(entries) > 0 {
 		responses = append(responses, class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, entries)))
 	}
+	// The native op50 ACK carries material/level fields but no gold balance.
+	// Only the new authoritative-fee path adds the committed wallet projection.
+	if cmd.UpgradeCostResolver != nil && result.GoldCost > 0 {
+		var wallet packetWriter
+		wallet.writeByte(listTypeMain)
+		wallet.writeUint16(1)
+		wallet.writeBytes(makeCurrentItemListEntry(0, 0, result.UpdatedGold))
+		responses = append(responses, class0Response(msgItemListUpdate, wallet.bytes()))
+	}
 	// NOTI 0x0056 upgrade announcement when level meets notice threshold.
 	if cmd.UpgradeNoticeLevel >= 0 {
 		noticeLevel := result.NewLevel
@@ -771,6 +817,9 @@ func upgradeItemUpdateEntries(cmd Command, result UpgradeResult) []commonItemLis
 	if result.TargetSlotIndex >= 0 {
 		updates[result.TargetSlotIndex] = result.TargetUpdatedStack
 	}
+	if result.ConversionMaterialUpdated {
+		updates[result.ConversionMaterialSlot] = result.MainRefresh[slotKey(listTypeMain, result.ConversionMaterialSlot)]
+	}
 	if result.MaterialUpdated && result.MaterialSlotIndex >= 0 {
 		updates[result.MaterialSlotIndex] = result.MaterialUpdatedStack
 	}
@@ -883,12 +932,23 @@ func ownerAppliedEnchantResult(ctx context.Context, settings dnfrepo.SettingsRep
 			},
 		}
 	}
+	if result.WornEquipmentTarget {
+		return alignedcmd.Result{
+			Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+			Reason:                     "穿戴装备附魔已提交；目标原位更新及材料刷新先于结果回包",
+			WornEquipmentSlotRefreshes: []int16{result.TargetSlotIndex},
+			UpperResponses: []alignedcmd.UpperResponse{
+				class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, []commonItemListEntry{{slot: result.BeadSlotIndex, stack: result.BeadUpdatedStack}})),
+				class1Response(opcode, buildEnchantByBeadSuccessAck(result)),
+			},
+		}
+	}
 	// The current EXE's 0x0110 success handler resolves the target slot to an
 	// item pointer and publishes that pointer to the result popup. A generic
 	// selected-container refresh after the ACK destroys and recreates the
 	// item objects while the popup still owns the pointer, so the popup can
 	// render an unrelated item that later reuses the same allocation.
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
@@ -905,6 +965,13 @@ func ownerAppliedEnchantResult(ctx context.Context, settings dnfrepo.SettingsRep
 			class1Response(opcode, buildEnchantByBeadSuccessAck(result)),
 		},
 	}
+	// 成功路径回的是 class0/0x000D list 0 整表刷新；op13 是替换语义，而 0:0 钱包行、
+	// 账号共享的 0:354..0:365 与装备行的品级种子/孔位/符文/期限都不在角色快照里，
+	// 所以这条刷新必须由桥侧用会话权威投影重建（上面的 Body 只留作领域侧证据，
+	// 不再上线）。见 dnfbridge/authoritative_list_refresh.go 与 native-next914/
+	// enchant-gold-fix/v2 的 README。
+	applied.AuthoritativeListRefreshes = []byte{listTypeMain}
+	return applied
 }
 
 func ownerAppliedUpgradeTicketResult(ctx context.Context, settings dnfrepo.SettingsRepository, opcode uint16, cmd Command, result UpgradeTicketResult) alignedcmd.Result {
@@ -969,8 +1036,15 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 	if result.Mode == "noop" {
 		moveValue = 0
 	}
+	// P61/P68：金库（个人 list 2 / 账号 list 12）存入时，领域层会把物品自动并入
+	// **已有同类堆**，真正改动的落点不是客户端点名的空槽。MoveResult 的端点就是
+	// 那对落库端点（与 equip/owner 的 committed endpoint 约定一致），op19 ACK 必须
+	// 回它，以消除应答空槽与事务结果不一致。现服客户端即时归并效果仍待验证。
+	// 非金库端点、或本次没有发生落点重定向时，ackCommand 与请求端点逐字节相同。
+	ackCommand := vaultCommittedMoveAckCommand(cmd, result)
+	var authoritativeListRefreshes []byte
 	responses := []alignedcmd.UpperResponse{
-		class1Response(opcode, buildMoveItemspaceSuccessAck(cmd, moveValue)),
+		class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 	}
 	itemSlotRefreshes := make([]alignedcmd.ItemSlotRefresh, 0, 2)
 	crossContainerStack := result.Changed &&
@@ -978,8 +1052,8 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 		isMainPersonalCargoCrossList(cmd.SourceListType, cmd.DestinationListType)
 	if crossContainerStack {
 		itemSlotRefreshes = append(itemSlotRefreshes,
-			alignedcmd.ItemSlotRefresh{ListType: cmd.SourceListType, SlotIndex: cmd.SourceSlotIndex},
-			alignedcmd.ItemSlotRefresh{ListType: cmd.DestinationListType, SlotIndex: cmd.DestinationSlotIndex},
+			alignedcmd.ItemSlotRefresh{ListType: result.SourceListType, SlotIndex: result.SourceSlotIndex},
+			alignedcmd.ItemSlotRefresh{ListType: result.DestinationListType, SlotIndex: result.DestinationSlotIndex},
 		)
 	} else {
 		for _, listType := range result.RefreshListTypes {
@@ -995,6 +1069,24 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 				msgItemListRefresh,
 				buildCommonItemListRefreshBodyWithState(listType, slots, state),
 			))
+			if listType == listTypeMain {
+				// Replacing the bag from the module snapshot drops its wallet and
+				// writes equipment Count over quality. Reuse the login projection
+				// at this response's position, with its wallet-read failure guard.
+				authoritativeListRefreshes = []byte{listTypeMain}
+			}
+		}
+	}
+	if result.Changed && len(itemSlotRefreshes) == 0 && len(result.RefreshListTypes) == 0 &&
+		(isVaultContainerList(cmd.SourceListType) || isVaultContainerList(cmd.DestinationListType)) {
+		rows := result.ItemSlotRefreshes
+		if len(rows) == 0 {
+			rows = []alignedcmd.ItemSlotRefresh{{ListType: result.SourceListType, SlotIndex: result.SourceSlotIndex}, {ListType: result.DestinationListType, SlotIndex: result.DestinationSlotIndex}}
+		}
+		for _, row := range rows {
+			if row.ListType == listTypeMain || row.ListType == listTypePersonalCargo || row.ListType == listTypeAvatar {
+				itemSlotRefreshes = append(itemSlotRefreshes, row)
+			}
 		}
 	}
 	postActions := make([]alignedcmd.PostAction, 0, 1)
@@ -1019,18 +1111,55 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
 		Reason: fmt.Sprintf(
-			"inventory owner applied: %s moveMode=%s moveCount=%d changed=%t refreshLists=%v incrementalSlots=%v; opened 0x0013 ACK then authoritative refresh for changed counts",
+			"inventory owner applied: %s moveMode=%s moveCount=%d changed=%t refreshLists=%v incrementalSlots=%v requestEndpoints=(%d,%d)->(%d,%d) ackEndpoints=(%d,%d)->(%d,%d); opened 0x0013 ACK then authoritative refresh for changed counts",
 			cmd.String(),
 			result.Mode,
 			result.MoveCount,
 			result.Changed,
 			result.RefreshListTypes,
 			itemSlotRefreshes,
+			cmd.SourceListType, cmd.SourceSlotIndex, cmd.DestinationListType, cmd.DestinationSlotIndex,
+			ackCommand.SourceListType, ackCommand.SourceSlotIndex, ackCommand.DestinationListType, ackCommand.DestinationSlotIndex,
 		),
-		UpperResponses:    responses,
-		ItemSlotRefreshes: itemSlotRefreshes,
-		PostActions:       postActions,
+		UpperResponses:             responses,
+		ItemSlotRefreshes:          itemSlotRefreshes,
+		PostActions:                postActions,
+		AuthoritativeListRefreshes: authoritativeListRefreshes,
 	}
+}
+
+// vaultCommittedMoveAckCommand 回答"这条 op19 应答该回哪对端点"。
+//
+// 金库（个人金库 list 2 / 账号金库 list 12）的存入会由领域层自动并入已有同类堆：
+// Owner 把 MoveResult 端点写成**真正改动的落库端点**（与 equip/owner 的 committed
+// endpoint 约定一致），于是这里回的 ACK 端点可能与客户端点名的槽不同。
+// 候选依据：既有协议实现用 ACK 端点投影搬运；将端点对齐实际合并行，
+// 避免应答空槽与事务结果不一致。现服 EXE 的原生效果仍需主代理验证。
+//
+// 只有金库端点参与、且本次确实发生了落点重定向时才改写；背包内移动、装扮、勋章、
+// 宠物以及一切未重定向的移动都返回原 cmd，下行字节逐字节不变。
+func vaultCommittedMoveAckCommand(cmd Command, result MoveResult) Command {
+	if !result.Changed ||
+		(!isVaultContainerList(cmd.SourceListType) && !isVaultContainerList(cmd.DestinationListType)) {
+		return cmd
+	}
+	if result.SourceListType == cmd.SourceListType &&
+		result.SourceSlotIndex == cmd.SourceSlotIndex &&
+		result.DestinationListType == cmd.DestinationListType &&
+		result.DestinationSlotIndex == cmd.DestinationSlotIndex {
+		return cmd
+	}
+	ack := cmd
+	ack.SourceListType = result.SourceListType
+	ack.SourceSlotIndex = result.SourceSlotIndex
+	ack.DestinationListType = result.DestinationListType
+	ack.DestinationSlotIndex = result.DestinationSlotIndex
+	return ack
+}
+
+// isVaultContainerList 回答某个容器端点是否是金库容器。
+func isVaultContainerList(listType byte) bool {
+	return listType == listTypePersonalCargo || listType == listTypeAccountCargo
 }
 
 func ownerAppliedSellResult(opcode uint16, cmd Command, result SellResult) alignedcmd.Result {
@@ -1065,6 +1194,12 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 	if !ok {
 		return ownerAppliedResult(cmd, fmt.Sprintf("sortMode=%s moved=%d range=%d-%d changed=%t; list=%d needs dedicated 0x000D body", result.Mode, result.MovedCount, result.StartSlot, result.EndSlot, result.Changed, result.ListType))
 	}
+	var authoritativeListRefreshes []byte
+	if result.ListType == listTypeMain {
+		// Sort uses the same replacing bag body as a cargo merge; its
+		// equipment instances also need the authoritative quality projection.
+		authoritativeListRefreshes = []byte{listTypeMain}
+	}
 	return alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
@@ -1082,6 +1217,7 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 			class1Response(opcode, buildSortItemAck(result.ListType)),
 			class0Response(msgItemListRefresh, refreshBody),
 		},
+		AuthoritativeListRefreshes: authoritativeListRefreshes,
 	}
 }
 
@@ -1669,7 +1805,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 			result.UpgradeRateBuffUntil,
 			UpgradeRateBuffBoostEnv)
 	}
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:           true,
 		ResponseAllowed:   true,
 		Operation:         cmd.Operation,
@@ -1678,6 +1814,15 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
+		result.PreviousCount-result.RemainingCount == 1 {
+		applied.StackableConsumption = &alignedcmd.StackableConsumption{
+			CharacterID: result.CharacterID, ListType: result.ListType,
+			SlotIndex: result.SlotIndex, ItemID: result.ItemID,
+			PreviousCount: result.PreviousCount, RemainingCount: result.RemainingCount,
+		}
+	}
+	return applied
 }
 
 func ownerAppliedDamageFontUnlockResult(opcode uint16, cmd Command, result DamageFontUnlockResult) alignedcmd.Result {
@@ -1755,6 +1900,49 @@ func ownerAppliedDeleteResult(opcode uint16, cmd Command, result DeleteResult) a
 	}
 }
 
+// buildSortLockAck 是 713/714 的 class1 成功体：u8 1 + u8 list + u16 slot。
+// 形状来自客户端 handler 0x1faee80/0x1faeee0（先读 success 字节，再读 list/slot），
+// 与旧 C# SortItemLockBuilder.BuildLock 同序；旧 C# 的 714/715 方向在本客户端会反相，不采用。
+func buildSortLockAck(listType byte, slotIndex int16) []byte {
+	var writer packetWriter
+	writer.writeByte(1)
+	writer.writeByte(listType)
+	writer.writeInt16(slotIndex)
+	return writer.bytes()
+}
+
+// ownerAppliedSortLockResult 只在 durable owner 返回后开成功回包；幂等命中（Changed=false）
+// 同样回成功，因为客户端要的状态已经成立。
+//
+// 除了客户端 0x1faee80/0x1faeee0 要的 class1 `1 + list + u16 slot` ACK，
+// 同一 Result 里再排一条 class0/0x000D 整容器刷新：当前下发客户端的入站准入
+// 位图没有 713/714 位，ACK 会在派发前被丢掉，只有整容器刷新（与登录整表同一条
+// 权威投影）能让蓝锁图标立即出现，且不会退回会抹金币/降品级的模块快照。
+// 依据与边界见 sort_lock.go 的 sortLockContainerRefresh 长注。
+func ownerAppliedSortLockResult(opcode uint16, cmd Command, result SortLockResult) alignedcmd.Result {
+	responses := []alignedcmd.UpperResponse{
+		class1Response(opcode, buildSortLockAck(result.ListType, result.SlotIndex)),
+	}
+	var authoritativeListRefreshes []byte
+	refreshNote := "no container refresh for this list"
+	if placeholder, ok := sortLockContainerRefresh(result.ListType); ok {
+		responses = append(responses, class0Response(msgItemListRefresh, placeholder))
+		authoritativeListRefreshes = []byte{result.ListType}
+		refreshNote = fmt.Sprintf("authoritative class0/%d container refresh follows the ACK", msgItemListRefresh)
+	}
+	return alignedcmd.Result{
+		Handled:         true,
+		ResponseAllowed: true,
+		Operation:       cmd.Operation,
+		Reason: fmt.Sprintf(
+			"inventory owner applied: %s locked=%t changed=%t; opened class1/%d list+slot ACK in current-EXE order; %s",
+			cmd.String(), result.Locked, result.Changed, opcode, refreshNote,
+		),
+		UpperResponses:             responses,
+		AuthoritativeListRefreshes: authoritativeListRefreshes,
+	}
+}
+
 func class1Response(opcode uint16, body []byte) alignedcmd.UpperResponse {
 	return alignedcmd.UpperResponse{
 		MsgID:          opcode,
@@ -1783,6 +1971,10 @@ func ackEvidenceLabel(operation string) string {
 		return "0x0013"
 	case "sort_item":
 		return "0x0014"
+	case "request_item_sort_lock":
+		return "0x02C9 (713)"
+	case "request_item_sort_unlock":
+		return "0x02CA (714)"
 	case "repair_equipment":
 		return "0x0017"
 	default:
@@ -1804,5 +1996,18 @@ func blockedParsedResult(operation string, summary string, err error) alignedcmd
 		ResponseAllowed: false,
 		Operation:       operation,
 		Reason:          fmt.Sprintf("已解析 %s：%s；资产写路径需接入 durable owner、事务、幂等和当前 EXE S2C 刷新顺序后才能回包", operation, summary),
+	}
+}
+
+func ownerRejectedMoveResult(opcode uint16, cmd Command, err error) alignedcmd.Result {
+	cargo := cmd.SourceListType == 2 || cmd.SourceListType == 12 || cmd.DestinationListType == 2 || cmd.DestinationListType == 12
+	known := errors.Is(err, ErrMoveSlotLocked) || errors.Is(err, ErrMoveItemPlacement) || errors.Is(err, ErrCargoIncompatibleStack) || errors.Is(err, ErrMoveCannotStack) || errors.Is(err, ErrMoveCannotSwap) || errors.Is(err, ErrCargoInsertRejected)
+	if cmd.SelectedCharacterID == 0 || (!cargo && !known) || errors.Is(err, ErrUnsupportedList) || errors.Is(err, ErrAccountRequired) {
+		return ownerBlockedResult(cmd, err)
+	}
+	return alignedcmd.Result{
+		Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+		Reason:         fmt.Sprintf("物品移动已拒绝，资产保持: %v", err),
+		UpperResponses: []alignedcmd.UpperResponse{class1Response(opcode, []byte{0, 17, cmd.SourceListType, cmd.DestinationListType})},
 	}
 }

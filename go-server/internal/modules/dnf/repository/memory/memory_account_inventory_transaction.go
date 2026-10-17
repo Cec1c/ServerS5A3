@@ -18,6 +18,7 @@ type memoryAccountCharacterItemUnitOfWork struct {
 type memoryAccountCharacterAssetUnitOfWork struct {
 	mu               sync.Mutex
 	sharedMu         *sync.Mutex
+	account          *memoryAccountStore
 	accountInventory repository.AccountInventoryRepository
 	character        repository.CharacterRepository
 	inventory        repository.InventoryRepository

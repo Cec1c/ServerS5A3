@@ -156,7 +156,7 @@ func seedCreatedSubtype1Stats(stats map[string]int64) {
 		"stat_block_marker":       csharpSubtype1StatBlockMarker,
 		"name_tag_expire_time":    0,
 		"equip_list_trailing":     0,
-		"skill_tree_index":        0,
+		"skill_tree_index":        -1,
 		"equipped_creature_level": 0,
 		"manage_level":            0,
 		"flag_byte":               0,

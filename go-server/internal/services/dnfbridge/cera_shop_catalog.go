@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"fmt"
 	"math"
+	"sync"
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
@@ -37,10 +38,17 @@ type currentCeraShopProduct struct {
 // pvfCeraShopCatalog owns only static runtime PVF state.  Inventory placement
 // and Cera deduction are handled within the character settlement transaction.
 type pvfCeraShopCatalog struct {
-	products         map[uint32]currentCeraShopProduct
-	bonusByCommodity map[uint32][]currentCeraShopBonusItem
-	items            *pvfDungeonDropCatalog
-	source           dnfpvf.Source
+	products              map[uint32]currentCeraShopProduct
+	bonusByCommodity      map[uint32][]currentCeraShopBonusItem
+	items                 *pvfDungeonDropCatalog
+	source                dnfpvf.Source
+	accountCargoOnce      sync.Once
+	accountCargoErr       error
+	accountCargoTargets   map[uint32]int64
+	accountCargoNext      map[int64]currentCeraShopProduct
+	accountCargoItems     map[uint32]bool
+	personalCargoOnce     sync.Once
+	personalCargoProducts map[uint16]currentCeraShopProduct
 }
 
 func newPVFCeraShopCatalog(source dnfpvf.Source) (*pvfCeraShopCatalog, error) {

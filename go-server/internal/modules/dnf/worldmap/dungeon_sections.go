@@ -16,7 +16,7 @@ var dungeonIntegerSections = stringSet(
 	"dummy appear count", "party num check", "quest npc dungeon", "herosmode enable",
 	"herosmode required quest", "event dungeon difficulty", "event dungeon cof",
 	"adjust mob exp by level", "blood max round", "mob level charac level replace flag",
-	"tower of despair", "tower fp cubepiece", "tower limit of stackable item",
+	"tower of despair", "tower of grief", "tower fp cubepiece", "tower limit of stackable item",
 	"tower max clear item num", "tower item drop", "tower random map indexes", "warroom map index",
 	"max monster", "spawn step max", "battle spawn time", "player kc",
 	"tournament round fatigue", "tournament clear reward gold rate", "monster random appear only",

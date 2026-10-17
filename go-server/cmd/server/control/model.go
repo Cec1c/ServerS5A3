@@ -28,7 +28,8 @@ type serverConfig struct {
 	PacketLog              bool   `json:"packetLog"`
 	PartyUDPRelayPortStart int    `json:"partyUdpRelayPortStart"`
 	PartyUDPRelayPortCount int    `json:"partyUdpRelayPortCount"`
-	GMListen               string `json:"gmListen,omitempty"`
+	// LegacyGMListen is accepted only to read old instance files; the server never starts a GM tool.
+	LegacyGMListen string `json:"gmListen,omitempty"`
 }
 
 type databaseConfig struct {
@@ -55,6 +56,7 @@ type protocolConfig struct {
 	GameOuterToken              string `json:"gameOuterToken"`
 	ChannelServerIndex          int    `json:"channelServerIndex"`
 	ChannelAdvertiseServerIndex int    `json:"channelAdvertiseServerIndex"`
+	ChannelScriptEncoding       string `json:"channelScriptEncoding,omitempty"`
 }
 
 type buildConfig struct {

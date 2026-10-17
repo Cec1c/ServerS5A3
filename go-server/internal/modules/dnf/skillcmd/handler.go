@@ -62,7 +62,9 @@ func applyTreeOwner(ctx context.Context, req alignedcmd.Request, cmd Command, pa
 	if parseErr != nil {
 		return treeSwitchFailureResult(req, cmd, parseErr)
 	}
-	owner, err := NewOwner(req.Repositories)
+	owner, err := NewOwner(req.Repositories, OwnerOptions{
+		Catalog: req.SkillCatalog, InitialLevels: req.InitialSkillLevels, PointBaseline: req.SkillPointBaseline,
+	})
 	if err != nil {
 		return treeSwitchFailureResult(req, cmd, err)
 	}
@@ -82,6 +84,7 @@ func applyTreeOwner(ctx context.Context, req alignedcmd.Request, cmd Command, pa
 			"applied %s: char=%s current=%d target=%d; persisted before current EXE op260 success",
 			cmd.Operation, result.CharacterID, result.Current, result.Target,
 		),
+		PostActions: []alignedcmd.PostAction{alignedcmd.PostActionRefreshSelectedActorSkills},
 		UpperResponses: []alignedcmd.UpperResponse{{
 			MsgID:          req.Opcode,
 			Body:           body,

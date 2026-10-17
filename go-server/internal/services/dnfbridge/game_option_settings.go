@@ -356,17 +356,18 @@ func (s *Service) handleSaveCharacterOption(session *gameSession, body []byte) e
 	// `CharacterOptionBodyBuilder` 原样回放；所以回放要走这一份，而不是只有 blob 的
 	// `character_option_hex`。长度按声明的 blob 截断，避免尾部垃圾被无限存下来。
 	frame := body[:4+len(blob)]
+	previous := s.loadSavedCharacterOptionBlob(characterID)
 	err := s.saveCharacterSettingsValues(session, characterOptionScope(characterID), map[string]string{
 		"character_option_body_hex": hex.EncodeToString(frame),
 		"character_option_hex":      hex.EncodeToString(blob),
 		"character_option_len":      strconv.Itoa(len(blob)),
 		"source":                    "current_exe_op447",
 	})
-	s.logGameEvent(session, "game-character-option-saved",
-		"char_id", characterID,
-		"blob_len", len(blob),
-		"frame_len", len(frame),
-		"save_error", err)
+	fields := []any{"char_id", characterID, "blob_len", len(blob), "frame_len", len(frame), "save_error", err}
+	s.logGameEvent(session, "game-character-option-saved", append(fields, characterOptionSaveLogFields(previous, blob)...)...)
+	if err == nil {
+		s.logCharacterOptionSkillListsCleared(session, characterID, previous, blob)
+	}
 	return nil
 }
 
@@ -443,7 +444,7 @@ func (s *Service) sendCharacterOptionNotice(session *gameSession, source string)
 	if err := s.sendGameUpperRawClass(session, s.currentCharacterOptionNoticeID(), frame, 0); err != nil {
 		return err
 	}
-	s.logGameEvent(session, "game-character-option-notice-send",
+	fields := []any{
 		"source", source,
 		"char_id", characterID,
 		"msg_id", s.currentCharacterOptionNoticeID(),
@@ -453,7 +454,9 @@ func (s *Service) sendCharacterOptionNotice(session *gameSession, source string)
 		"character_option_projection", projectionMode,
 		"projection_env_raw", characterOptionProjectionEnvRaw(),
 		"env", currentCharacterOptionNoticeEnv,
-		"body_source", "csharp_CharacterOptionBodyBuilder_u32_len_prefixed_verbatim_replay")
+		"body_source", "csharp_CharacterOptionBodyBuilder_u32_len_prefixed_verbatim_replay",
+	}
+	s.logGameEvent(session, "game-character-option-notice-send", append(fields, characterOptionNoticeLogFields(frame)...)...)
 	return nil
 }
 

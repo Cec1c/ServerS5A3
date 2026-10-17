@@ -3,7 +3,7 @@ package dnfbridge
 // 567r2 测试（基线纯 4d7 与候选共用同一份字节）。
 //
 // 两类腿，绝不混称：
-//   * generic_contract/* —— 通用库存合约 fixture：不加载 PVF，Extra 取 417 已记录的
+//   * generic_contract/* —— 小型PVF夹具与通用库存合约；非真实完整PVF，Extra取417已记录的
 //     契约值（stackable/event/chn_event_tau_2009/chn_tau_vita.stk、[waste]、1000）。
 //     槽位合法可达：源主背包 65（[waste] 页 65..120）、目标个人库 2:1（< 8 格容量）、
 //     库内既有行 2:0；源 3 + 既有 5 = 8 属正例范围。
@@ -105,6 +105,7 @@ func TestMoveContainerStateEnsure567r2(t *testing.T) {
 			t.Setenv(op19PlayerFlagEnv, "")
 			t.Setenv(op19PlayerFlagQuietEnv, "")
 			f := newLoginWearBridgeFixture(t)
+			f.service.pvfItemCatalog = currentCargoFixtureCatalog(t)
 			ctx := context.Background()
 			if err := f.group.Inventory.Save(ctx, dnfrepo.InventoryRecord{
 				CharacterID: moveEnsure567r2Key(),

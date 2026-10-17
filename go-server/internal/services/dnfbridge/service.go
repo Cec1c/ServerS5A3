@@ -41,6 +41,7 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	levelUpRewards   levelUpRewardRuntime
 	activityControls *onlineevent.Controls
 	logger           *slog.Logger
 	options          options
@@ -338,6 +339,7 @@ func (s *Service) Start(ctx context.Context) error {
 		{"character stat table", s.preloadCharacterStatTable},
 		{"equipment stat index", s.preloadEquipmentStatIndex},
 		{"combat power affix catalog", s.preloadCombatPowerAffixCatalog},
+		{"装备合成目录", s.preloadEquipmentRegenerationCatalog},
 	}
 	for _, preload := range pvfPreloads {
 		if err := preload.load(runCtx); err != nil {
@@ -394,6 +396,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.startGameplayTimeQueue(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)
+	s.startCurrentLevelUpRewardClock(runCtx)
 	// 强制组队测试触发器：**默认 off**（off 档直接 return，零副作用）。
 	// 见 party_force_trigger.go。
 	s.startPartyForceTrigger(runCtx)

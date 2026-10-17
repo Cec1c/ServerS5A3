@@ -61,6 +61,10 @@ func (s *mysqlSkillStore) Load(ctx context.Context, characterID string) (reposit
 	if err != nil {
 		return repository.SkillRecord{}, false, err
 	}
+	record.Trees, err = s.loadSkillTrees(ctx, characterID)
+	if err != nil {
+		return repository.SkillRecord{}, false, err
+	}
 	record.UpdatedAt = scanTime(updatedAt)
 	return repository.CloneSkill(record), true, nil
 }
@@ -127,6 +131,10 @@ func (s *mysqlSkillStore) SaveFields(ctx context.Context, record repository.Skil
 		}
 		for _, field := range fields {
 			switch field {
+			case repository.SkillFieldTrees:
+				if err := s.saveSkillTrees(ctx, database, characterID, record.Trees); err != nil {
+					return err
+				}
 			case repository.SkillFieldSkills:
 				if err := replaceSkillStates(ctx, database, statesTable, characterID, record.Skills); err != nil {
 					return err

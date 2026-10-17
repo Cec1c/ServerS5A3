@@ -71,9 +71,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		return fmt.Errorf("initial town player state character mismatch: selected=%d loaded=%d found=%t", characterID, charID, hasCharacter)
 	}
 	objectKey := currentSceneActorObjectKey(charID)
-	sequence := "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op863_aura_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op9_op120_then_typed_op24"
+	sequence := "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op9_op120_then_typed_op24"
 	if policy.includeReportClientSpec {
-		sequence = "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op863_aura_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op124_op9_op120_then_typed_op24"
+		sequence = "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op124_op9_op120_then_typed_op24"
 	}
 	s.logGameEvent(session, "game-initial-town-player-state-send",
 		"source", source,
@@ -111,6 +111,11 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentSelectInventoryBootstrap(session, source+"_after_actor_before_full_player_state"); err != nil {
 		return err
 	}
+	// Reset even a zero stage on every selected actor generation so changing
+	// characters cannot inherit the previous character's purchased cap.
+	if err := s.sendCurrentCarryGoldStage(session, character); err != nil {
+		return err
+	}
 	// Current NoPack dispatches op898 only through the class0 notification
 	// table. Publish the durable crystal selection after all six native
 	// inventory managers exist, but before op1340/full mode1/op24 can expose
@@ -122,11 +127,8 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	); err != nil {
 		return err
 	}
-	// The durable aura_flag is not sufficient for the current EXE to render the
-	// aura appearance slot as open. Publish the marked op863 state on cold
-	// login, return-select, and reconnect after the inventory managers exist.
-	// This bootstrap is the sole lifecycle owner: ordinary op36 town movement
-	// must not append state packets or disturb its response ordering.
+	// 冷登录只核对光环开启状态；后续原生USERINFO携带0x08权限位。
+	// 不在这里向默认锁定角色发送未经请求的op863开启效果或自定义标记。
 	if err := s.sendCurrentAuraSkinSlotTownUIReadyState(session); err != nil {
 		return err
 	}
@@ -159,6 +161,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		return err
 	}
 	if err := s.sendCurrentParticularHellInfo(session, character); err != nil {
+		return err
+	}
+	if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
 		return err
 	}
 
@@ -241,6 +246,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		// 记账：登录路径上这一帧带装备 create 行的 mode1 已经发出
 		// （`login_mode1_last_before_commit.go`：提交前最后一条 mode1 必须是这一种）。
 		s.noteLoginMode1Send(session, mode1Body, "initial_town_full_equipment_mode1_before_player_state")
+	}
+	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_initial_mode1"); err != nil {
+		return err
 	}
 	session.selectedUserInfoRefreshSent = true
 	// Mode1 creates the worn medal object but does not carry its guardian-gem

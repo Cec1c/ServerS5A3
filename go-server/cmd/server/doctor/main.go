@@ -144,13 +144,12 @@ func run(opts options) error {
 	}
 
 	if !opts.skipPorts {
-		// Game-owned listeners must remain distinct. GM is managed separately.
+		// Only the server's own channel/admin endpoints belong to this preflight.
 		if err := checkDistinctRoleEndpoints(opts.channelAddr, serviceCfg.Admin.Listen); err != nil {
 			return err
 		}
 		addresses := make([]string, 0, len(ports)+2)
 		addresses = append(addresses, opts.channelAddr, serviceCfg.Admin.Listen)
-
 		for _, port := range ports {
 			addresses = append(addresses, net.JoinHostPort(strings.Trim(opts.gameHost, "[]"), strconv.Itoa(port)))
 		}

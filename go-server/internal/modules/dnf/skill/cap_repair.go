@@ -158,7 +158,10 @@ func (o *SceneOwner) RepairLevelCaps(ctx context.Context, table *Table, command 
 			})
 			if target <= 0 {
 				delete(current.Skills, int64(skillID))
-				for _, layout := range current.Layouts {
+				for tree, layout := range current.Layouts {
+					if tree != dnfrepo.ActiveSkillTree(current) {
+						continue
+					}
 					for slot, slotted := range layout {
 						if slotted == skillID {
 							delete(layout, slot)

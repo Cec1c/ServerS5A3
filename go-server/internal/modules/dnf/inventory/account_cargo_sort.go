@@ -52,7 +52,7 @@ func (o *Owner) sortAccountCargo(ctx context.Context, cmd Command) (SortResult, 
 		if cmd.Category != 11 {
 			return nil
 		}
-		candidates := sortCandidates(cargo.Slots, listTypeAccountCargo, 0, capacity-1)
+		candidates, _ := sortCandidates(cargo.Slots, listTypeAccountCargo, 0, capacity-1)
 		result.MovedCount = len(candidates)
 		sort.SliceStable(candidates, func(i, j int) bool {
 			if candidates[i].kind != candidates[j].kind {

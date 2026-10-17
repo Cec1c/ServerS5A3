@@ -65,6 +65,7 @@ build:
     - TARGET_OS: [linux, windows]
       TARGET_ARCH: [amd64]
   script:
+  - sh scripts/check-server-boundary.sh
   - sh build.sh "$TARGET_OS" "$TARGET_ARCH"
   artifacts:
     name: "dnf90-$TARGET_OS-$TARGET_ARCH-$CI_COMMIT_SHORT_SHA"
@@ -74,6 +75,7 @@ build:
 core-tests:
   stage: test
   script:
+  - sh scripts/check-server-boundary.sh
   - cd go-server
   - go list -buildvcs=false -mod=readonly ./...
   - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...

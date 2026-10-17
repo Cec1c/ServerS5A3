@@ -13,6 +13,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfexperienceitem "longheng.io/server/internal/modules/dnf/experienceitem"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	dnfrevivecoin "longheng.io/server/internal/modules/dnf/revivecoin"
 )
 
 const (
@@ -126,6 +127,9 @@ func (s *Service) handleCurrentExperienceItemUse(session *gameSession, body []by
 	stack, stackFound := inventory.Slots[experienceItemMainSlotKey(slotIndex)]
 	if !stackFound || stack.Count <= 0 || stack.ItemID <= 0 {
 		return s.answerRejectedExperienceItem(session, slotIndex, 0, "source_slot_empty", nil)
+	}
+	if stack.ItemID == dnfrevivecoin.ConsumableItemID {
+		return s.handleCurrentReviveCoinItemUse(ctx, repositories, session, slotIndex)
 	}
 
 	book, err := s.resolveCurrentSkillBook(stack.ItemID)

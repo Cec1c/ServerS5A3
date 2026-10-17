@@ -101,12 +101,12 @@ func TestCharacterContainerStateAcceptsMaxAvatarExpansion(t *testing.T) {
 }
 
 func TestCurrentPersonalCargoSlotCountMatchesCurrentExeTable(t *testing.T) {
-	for _, value := range []uint16{8, 24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200} {
+	for _, value := range []uint16{8, 24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200, 216, 232, 248, 264} {
 		if !currentPersonalCargoSlotCount(value) {
 			t.Fatalf("current EXE slot count %d rejected", value)
 		}
 	}
-	for _, value := range []uint16{0, 7, 9, 199, 201} {
+	for _, value := range []uint16{0, 7, 9, 199, 201, 263, 265, 280} {
 		if currentPersonalCargoSlotCount(value) {
 			t.Fatalf("non-table slot count %d accepted", value)
 		}

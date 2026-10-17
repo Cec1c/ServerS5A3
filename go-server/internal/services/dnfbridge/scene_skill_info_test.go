@@ -31,11 +31,12 @@ func TestSendCurrentSceneSkillInfoBackfillsEachJobsOwnPVFInitialSkills(t *testin
 	}
 
 	tests := []struct {
-		name      string
-		job       byte
-		entries   []initialSkillEntry
-		wantSlots map[int]uint16
-		rowExists bool
+		name          string
+		job           byte
+		entries       []initialSkillEntry
+		wantSlots     map[int]uint16
+		wantWireSlots map[int]uint16
+		rowExists     bool
 	}{
 		{
 			name: "swordman missing row",
@@ -43,7 +44,8 @@ func TestSendCurrentSceneSkillInfoBackfillsEachJobsOwnPVFInitialSkills(t *testin
 			entries: []initialSkillEntry{
 				{SkillID: 46, Level: 1}, {SkillID: 47, Level: 1}, {SkillID: 48, Level: 1}, {SkillID: 49, Level: 1},
 			},
-			wantSlots: map[int]uint16{0: 46, 1: 47, 2: 48, 54: 49},
+			wantSlots:     map[int]uint16{0: 46, 1: 47, 2: 48, 54: 49},
+			wantWireSlots: map[int]uint16{0: 46, 1: 47, 2: 48, 60: 49},
 		},
 		{
 			name: "fighter empty row",
@@ -51,8 +53,9 @@ func TestSendCurrentSceneSkillInfoBackfillsEachJobsOwnPVFInitialSkills(t *testin
 			entries: []initialSkillEntry{
 				{SkillID: 10, Level: 1}, {SkillID: 20, Level: 1}, {SkillID: 30, Level: 1}, {SkillID: 40, Level: 1},
 			},
-			wantSlots: map[int]uint16{0: 10, 1: 20, 2: 30, 54: 40},
-			rowExists: true,
+			wantSlots:     map[int]uint16{0: 10, 1: 20, 2: 30, 54: 40},
+			wantWireSlots: map[int]uint16{0: 10, 1: 20, 2: 30, 60: 40},
+			rowExists:     true,
 		},
 	}
 
@@ -81,8 +84,8 @@ func TestSendCurrentSceneSkillInfoBackfillsEachJobsOwnPVFInitialSkills(t *testin
 			if len(rest) != 0 || packet.Header.Classification != 0 || packet.Header.MsgID != currentSkillInfoMsgID {
 				t.Fatalf("packet=%+v rest=%x", packet.Header, rest)
 			}
-			if got := currentSkillInfoFirstTreeSlots(t, packet.Body); !reflect.DeepEqual(got, test.wantSlots) {
-				t.Fatalf("job %d slots=%v, want %v", test.job, got, test.wantSlots)
+			if got := currentSkillInfoFirstTreeSlots(t, packet.Body); !reflect.DeepEqual(got, test.wantWireSlots) {
+				t.Fatalf("job %d slots=%v, want %v", test.job, got, test.wantWireSlots)
 			}
 
 			saved, found, err := repositories.Skill.Load(context.Background(), characterID)
@@ -180,8 +183,9 @@ func TestSendCurrentSceneSkillInfoPersistsInitialLayoutWithAtMostThreeActiveQuic
 		t.Fatalf("rest=%x", rest)
 	}
 	want := map[int]uint16{0: 5, 1: 8, 2: 46, 54: 174, 150: 108}
-	if got := currentSkillInfoFirstTreeSlots(t, packet.Body); !reflect.DeepEqual(got, want) {
-		t.Fatalf("wire slots=%v, want %v", got, want)
+	wantWire := map[int]uint16{0: 5, 1: 8, 2: 46, 60: 174, 156: 108}
+	if got := currentSkillInfoFirstTreeSlots(t, packet.Body); !reflect.DeepEqual(got, wantWire) {
+		t.Fatalf("wire slots=%v, want %v", got, wantWire)
 	}
 	saved, found, err := repositories.Skill.Load(context.Background(), "99")
 	if err != nil || !found || !reflect.DeepEqual(saved.Layouts[0], dnfrepo.SkillLayout(want)) {
@@ -222,10 +226,16 @@ func TestBuildCurrentSceneSkillInfoBodyDuplicatesDirectLevelsAcrossBothTrees(t *
 	}
 	want := map[int][2]uint64{
 		0: {1, 1}, 1: {50, 1}, 2: {169, 1},
-		102: {174, 1}, 103: {179, 7}, 104: {511, 1},
+		108: {174, 1}, 109: {179, 7}, 110: {511, 1},
 	}
 	for treeIndex, rawTree := range outerMessages[2] {
 		treeVarints, treeMessages := consumeCurrentSkillInfoFields(t, rawTree)
+		if treeIndex == 1 {
+			if len(treeMessages[3]) != 0 || !reflect.DeepEqual(treeVarints[1], []uint64{0}) || !reflect.DeepEqual(treeVarints[2], []uint64{0}) {
+				t.Fatalf("未购买第二页不应复制第一套: %v %v", treeVarints, treeMessages)
+			}
+			continue
+		}
 		if !reflect.DeepEqual(treeVarints[1], []uint64{12}) || !reflect.DeepEqual(treeVarints[2], []uint64{3}) {
 			t.Fatalf("tree %d points sp=%v tp=%v", treeIndex, treeVarints[1], treeVarints[2])
 		}

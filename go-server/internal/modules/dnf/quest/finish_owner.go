@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	"longheng.io/server/internal/modules/dnf/jobmap"
 	"longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -84,7 +85,9 @@ type FinishConsumedItem struct {
 	RawEntry  []byte `json:"raw_entry,omitempty"`
 }
 
-type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) (FinishCommittedItem, error)
+// 一个PVF奖励数量可对应多格独立装备。每格回执的Delta之和必须等于请求数量，
+// 分配器只修改事务副本；任何一格失败仍由任务结算事务整笔回滚。
+type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) ([]FinishCommittedItem, error)
 
 type FinishCommitInput struct {
 	AccountID              string
@@ -264,6 +267,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if !found || strings.TrimSpace(inventory.CharacterID) != input.CharacterID {
 			return fmt.Errorf("%w: inventory record", ErrFinishSettlementUnavailable)
 		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.repositories.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if equipment, equipmentFound, err := tx.Equipment.Load(ctx, input.CharacterID); err != nil {
 			return err
@@ -379,6 +385,10 @@ func (o *Owner) ApplyFinishSettlement(
 			}
 		}
 		experienceDelta, experienceBonusDelta := finishExperienceWithBonus(baseExperienceDelta, input.ExperienceBonusPercent)
+		potionBonus := experiencebuff.Bonus(character, experiencebuff.Quest, baseExperienceDelta, now)
+		potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
+		experienceDelta += potionBonus
+		experienceBonusDelta += potionBonus
 		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta)
 		if err != nil {
 			return err
@@ -404,8 +414,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if err != nil {
 			return err
 		}
-		character.Level = progressPlan.Experience.NewLevel
-		character.Stats["exp"] = int64(progressPlan.Experience.NewExperience)
+		if err := progression.ApplyCharacterExperience(&character, &skill, progressPlan.Experience.NewLevel, progressPlan.Experience.NewExperience, progressPlan.SkillPoints.New, now); err != nil {
+			return err
+		}
 		character.UpdatedAt = now
 		skill.Points = progressPlan.SkillPoints.New
 		if reward.HasProfession {
@@ -480,6 +491,9 @@ func (o *Owner) ApplyFinishSettlement(
 		state.Extra["reward_state"] = finishRewardGranted
 		state.Extra["settlement_source"] = source
 		state.Extra[finishSettlementReceiptKey] = string(receiptJSON)
+		// 每日任务在这里记下本次完成所属的服务日；读侧投影据此让完成行在
+		// 下一个服务日自动失效（见 daily_refresh.go）。非每日任务不写该键。
+		markDailyQuestCompletion(&state, definition, now)
 		switch field {
 		case dnfrepo.QuestFieldStates:
 			quests.States[input.QuestID] = state
@@ -498,7 +512,7 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 		skillFields := []dnfrepo.SkillField{dnfrepo.SkillFieldPoints}
 		if reward.HasProfession {
-			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns)
+			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns, dnfrepo.SkillFieldTrees)
 		}
 		if err := dnfrepo.SaveSkillFields(ctx, tx.Skill, skill, skillFields...); err != nil {
 			return err
@@ -765,18 +779,32 @@ func allocateFinishRewardItems(
 		return nil, ErrFinishItemAllocatorRequired
 	}
 	items := make([]FinishCommittedItem, 0, len(coalesced))
+	occupied := make(map[string]struct{})
 	for _, rule := range coalesced {
 		request := base
 		request.ItemID = rule.ItemID
 		request.Count = rule.Count
-		item, err := allocator(record, request)
+		granted, err := allocator(record, request)
 		if err != nil {
 			return nil, err
 		}
-		if item.ItemID != rule.ItemID || item.Delta != rule.Count || item.SlotKey == "" || item.PostCount < item.Delta || item.CountOrSeed == 0 || len(item.RawEntry) == 0 {
-			return nil, fmt.Errorf("%w: invalid allocator receipt item=%d", ErrQuestRewardMalformed, rule.ItemID)
+		// 当前普通交任务奖励行数为u8；提交前拒绝超限，避免资产已提交却组不了ACK。
+		if len(granted) == 0 || len(granted) > math.MaxUint8-len(items) {
+			return nil, fmt.Errorf("%w: invalid allocator receipt count item=%d", ErrQuestRewardMalformed, rule.ItemID)
 		}
-		items = append(items, item)
+		remaining := rule.Count
+		for _, item := range granted {
+			_, duplicate := occupied[item.SlotKey]
+			if item.ItemID != rule.ItemID || item.Delta <= 0 || item.Delta > remaining || item.SlotKey == "" || duplicate || item.PostCount < item.Delta || item.CountOrSeed == 0 || len(item.RawEntry) == 0 {
+				return nil, fmt.Errorf("%w: invalid allocator receipt item=%d", ErrQuestRewardMalformed, rule.ItemID)
+			}
+			occupied[item.SlotKey] = struct{}{}
+			remaining -= item.Delta
+		}
+		if remaining != 0 {
+			return nil, fmt.Errorf("%w: allocator receipt quantity mismatch item=%d", ErrQuestRewardMalformed, rule.ItemID)
+		}
+		items = append(items, granted...)
 	}
 	return items, nil
 }

@@ -423,9 +423,13 @@ func TestOwnerAwardLuckyStarOwnsSuitabilityAndCap(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
+	if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "star-character", AccountID: "account-1", Level: 50}); err != nil {
+		t.Fatal(err)
+	}
 	owner, _ := NewOwner(repos)
 	result, err := owner.AwardLuckyStar(ctx, LuckyStarCommand{
 		AccountID:      "account-1",
+		CharacterID:    "star-character",
 		CharacterLevel: 50,
 		RecommendedMin: 45,
 		RecommendedMax: 55,
@@ -438,6 +442,7 @@ func TestOwnerAwardLuckyStarOwnsSuitabilityAndCap(t *testing.T) {
 	}
 	capped, err := owner.AwardLuckyStar(ctx, LuckyStarCommand{
 		AccountID:      "account-1",
+		CharacterID:    "star-character",
 		CharacterLevel: 50,
 		RecommendedMin: 45,
 		RecommendedMax: 55,
@@ -450,6 +455,7 @@ func TestOwnerAwardLuckyStarOwnsSuitabilityAndCap(t *testing.T) {
 	}
 	outside, err := owner.AwardLuckyStar(ctx, LuckyStarCommand{
 		AccountID:      "account-1",
+		CharacterID:    "star-character",
 		CharacterLevel: 60,
 		RecommendedMin: 45,
 		RecommendedMax: 55,

@@ -100,6 +100,7 @@ func TestHandlerSkillInitCommitsBeforeCurrentEXESuccess(t *testing.T) {
 func TestHandlerChangeAnotherSkillTreeCommitsBeforeCurrentEXESuccess(t *testing.T) {
 	ctx := context.Background()
 	repos := seededSkillOwnerRepositories(t, ctx)
+	unlockSkillOwnerFixture(t, ctx, repos)
 	got, err := NewHandler().Handle(ctx, alignedcmd.Request{
 		Opcode:              uint16(dnfenum.CmdPacketChangeAnotherSkillTree),
 		Body:                []byte{0, 0x3e, 0x74, 0x5e, 0x7a},
@@ -110,7 +111,7 @@ func TestHandlerChangeAnotherSkillTreeCommitsBeforeCurrentEXESuccess(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Handled || !got.ResponseAllowed || len(got.UpperResponses) != 1 || len(got.PostActions) != 0 {
+	if !got.Handled || !got.ResponseAllowed || len(got.UpperResponses) != 1 || len(got.PostActions) != 1 || got.PostActions[0] != alignedcmd.PostActionRefreshSelectedActorSkills {
 		t.Fatalf("result = %+v", got)
 	}
 	response := got.UpperResponses[0]

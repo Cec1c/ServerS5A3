@@ -111,10 +111,9 @@ func TestAccountFriendNormalTownBootstrapRestoresNonemptyDurableLists(t *testing
 	if err := s.sendCurrentAccountFriendLists(session, "later_finish_loading_replacement"); err != nil {
 		t.Fatal(err)
 	}
-	info, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
-	request, rest := splitGameServerUpperPacket(t, rest)
-	if info.Header.MsgID != 1371 || request.Header.MsgID != 1372 || !bytes.Equal(info.Body, wantInfo) || !bytes.Equal(request.Body, wantPending) || len(rest) != 0 {
-		t.Fatal("later replacement changed durable rows")
+	request, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+	if request.Header.MsgID != 1372 || !bytes.Equal(request.Body, wantPending) || len(rest) != 0 {
+		t.Fatal("unchanged bootstrap replayed online rows or lost pending requests")
 	}
 }
 

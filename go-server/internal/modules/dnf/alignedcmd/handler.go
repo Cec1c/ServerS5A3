@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
 )
@@ -14,22 +16,35 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
-	Command               byte
-	CommandKnown          bool
-	Opcode                uint16
-	Body                  []byte
-	AccountID             string
-	SelectedCharacterID   uint16
-	Repositories          dnfrepo.Group
-	EquipmentPlacement    EquipmentPlacementValidator
-	AvatarClassifier      AvatarClassifier
-	NameTagChecker        func(itemID uint32) bool
-	PetHatchResolver      PetHatchResolver
-	EnchantBeadResolver   EnchantBeadResolver
-	AmplifyItemResolver   AmplifyItemResolver
-	RandomOptionResolver  RandomOptionResolver
-	UpgradeTicketResolver UpgradeTicketResolver
-	UpgradePolicyResolver UpgradePolicyResolver
+	Command                byte
+	CommandKnown           bool
+	Opcode                 uint16
+	Body                   []byte
+	AccountID              string
+	SelectedCharacterID    uint16
+	Repositories           dnfrepo.Group
+	EquipmentPlacement     EquipmentPlacementValidator
+	InventoryItemPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	InventoryCargoInsert   func(dnfrepo.ItemStack, byte) error
+	AvatarClassifier       AvatarClassifier
+	NameTagChecker         func(itemID uint32) bool
+	PetHatchResolver       PetHatchResolver
+	EnchantBeadResolver    EnchantBeadResolver
+	AmplifyItemResolver    AmplifyItemResolver
+	RandomOptionResolver   RandomOptionResolver
+	UpgradeTicketResolver  UpgradeTicketResolver
+	UpgradePolicyResolver  UpgradePolicyResolver
+	UpgradeCostResolver    UpgradeCostResolver
+	// ForgingResolver 让 op438（锻造 / 别升级 separate upgrade）拿到这一次
+	// 材料/目标在**运行时 PVF** 里的事实：etc/upgrade_separate.etc 的等级表与
+	// 材料表、目标的武器/品级/稀有度/耐久、材料槽那一件是不是便携式锻造炉或
+	// （券参数 + 目标白名单）。为零 = 该命令必须失败关闭（不回成功 ACK）。
+	// 语义与取证见 dnfbridge/forging_pvf.go 与 Docs/D33_FORGING_20261014.md。
+	ForgingResolver ForgingResolver
+	// Forging 是 dnfbridge 用当前 EXE 的 438 编解码器解出来的锻造请求
+	// （协议形状归桥接层，见 dnfbridge/forging_codec.go）。为零 = 该命令的请求体
+	// 没有被解出来，领域层按"目标无效"回失败体，绝不猜坐标。
+	Forging *ForgingRequest
 	// UpgradeProtectTicketResolver 让 op50 的"失败即摧毁"档能按运行时 PVF
 	// 认出背包里的装备强化/增幅保护券（`[action type] [protect equipment]` /
 	// `[amplify protect equipment]`）。为零时该档保持改动前的行为（直接摧毁），
@@ -40,6 +55,8 @@ type Request struct {
 	// 并把 PVF `[upgrade prob increase]` 的十万分比加成与 `[stat change duration]`
 	// 的持续时间交给领域层记账。为零 = 不记账（既有行为：药水只被消耗，成功率不变）。
 	// 见 inventory/upgrade_rate_buff.go。
+	ExperienceBuffResolver     func(int64) (experiencebuff.Effect, error)
+	ExperienceBuffNow          time.Time
 	UpgradeRateBuffResolver    UpgradeRateBuffResolver
 	MagicBoxResolver           MagicBoxResolver
 	MagicBoxRewardItemResolver MagicBoxRewardItemResolver
@@ -155,13 +172,15 @@ type PetHatchResolver func(eggItemID int64) (PetHatchResolution, error)
 // invalid bead. UpgradeCounts is the card's allowed enchant-upgrade table; an
 // empty table means only upgrade count zero is accepted.
 type EnchantBeadResolution struct {
-	CardItemID            int64
-	CardPVFPath           string
-	TargetWhitelist       []int64
-	AllowedEquipmentTypes []string
-	UpgradeCounts         []int64
-	TargetEquipmentType   string
-	TargetKind            string
+	RandomTitleEnchantConfigID uint16
+	RandomTitleEnchantRowID    uint16
+	CardItemID                 int64
+	CardPVFPath                string
+	TargetWhitelist            []int64
+	AllowedEquipmentTypes      []string
+	UpgradeCounts              []int64
+	TargetEquipmentType        string
+	TargetKind                 string
 }
 
 // EnchantBeadResolver resolves the bead and target templates through the
@@ -346,9 +365,10 @@ type UpgradePolicyResolution struct {
 // 零值（SlotEnd < SlotStart）表示"没有容器信息"：调用方必须退回历史落点顺序，
 // 绝不允许把零值当成"槽段 0..0"。
 type StackGrantContainer struct {
-	ListType  byte
-	SlotStart int16
-	SlotEnd   int16
+	ContainerState *dnfrepo.CharacterContainerState
+	ListType       byte
+	SlotStart      int16
+	SlotEnd        int16
 }
 
 // Valid 报告容器信息是否可用（零值不可用）。
@@ -784,6 +804,11 @@ type Result struct {
 	Operation       string
 	Reason          string
 	UpperResponses  []UpperResponse
+	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
+	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
+	WornEquipmentSlotRefreshes []int16
+	// 消耗凭证仅由成功返回的库存事务提供，bridge 在回包前关联本局拾取记录。
+	StackableConsumption *StackableConsumption
 	// MailboxAlarmRecipientID asks the bridge to deliver the exact class0/0x63
 	// mailbox alarm to this already-online character after the sender's ACK and
 	// its local post-actions are fully written. Zero means no cross-session send.
@@ -838,6 +863,44 @@ type Result struct {
 	// destroyed). Nil for every command that never reached that branch, and for
 	// the legacy switch value. The bridge owns the grep-able event.
 	UpgradeProtectTicket *UpgradeProtectTicket
+	// Forging 是 op438 锻造这一次的领域结果（含校验类拒绝）。dnfbridge 用它
+	// 组装 class1 438 回包：成功/掷点失败回 13 字节体，校验类拒绝回 0+u8 error。
+	// 见 dnfbridge/forging_codec.go。
+	Forging *ForgingOutcome
+	// AuthoritativeListRefreshes names container list types whose class0/0x000D
+	// refresh inside UpperResponses must be rebuilt from the bridge's session-scoped
+	// authoritative projection (the same builder login bootstrap, the container-list
+	// post actions and the cera shop use) instead of the module-provided repository
+	// snapshot.
+	//
+	// op13 is whole-table semantics: the client replaces the whole container, including
+	// rows the module snapshot does not own. For list 0 those are the reserved 0:0
+	// wallet row (gold lives in Character.Stats), the account-shared 0:354..0:365
+	// crystal/soul warehouse rows (AccountInventory), and the per-row fields the
+	// shared 0x77 encoder does not reproduce (equipment quality seed at raw+0x06,
+	// emblem/socket vector, effect rune, stackable use period, expiration). Shipping
+	// the snapshot instead erases or rewrites them in the client while the database
+	// stays intact (2026-10-14 role-106 op272 evidence).
+	//
+	// The bridge sends the rebuild in the same position and envelope as the response it
+	// replaces, so the refresh still precedes the class1 ACK of the same Result. It
+	// only ever looks at (classification 0, msg 0x000D) responses whose list type is
+	// named here, so every other opcode keeps its bytes. When the authoritative build
+	// fails the bridge drops that one refresh (it never falls back to the snapshot
+	// body) and still sends the remaining responses, because the durable mutation and
+	// its ACK must not be lost.
+	//
+	// Empty = previous behavior: every UpperResponse body is sent verbatim.
+	AuthoritativeListRefreshes []byte
+}
+
+type StackableConsumption struct {
+	CharacterID    string
+	ListType       byte
+	SlotIndex      int16
+	ItemID         int64
+	PreviousCount  int64
+	RemainingCount int64
 }
 
 // UpgradeDestroyBonusMerge is the destroy-branch compensation placement,
@@ -1001,5 +1064,10 @@ func (r Registry) Route(ctx context.Context, req Request) (Result, bool, error) 
 		result.UpperResponses[i].Body = append([]byte(nil), result.UpperResponses[i].Body...)
 	}
 	result.PostActions = append([]PostAction(nil), result.PostActions...)
+	result.AuthoritativeListRefreshes = append([]byte(nil), result.AuthoritativeListRefreshes...)
+	if result.StackableConsumption != nil {
+		fact := *result.StackableConsumption
+		result.StackableConsumption = &fact
+	}
 	return result, true, err
 }

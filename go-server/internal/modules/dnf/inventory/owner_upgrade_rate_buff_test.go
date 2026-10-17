@@ -187,10 +187,9 @@ func TestHandlerUseStackableWithoutRateBuffKeepsLegacyShape(t *testing.T) {
 // ③ op50 掷点：基础成功率 13000 × 1.1 = 14300（乘算，不是 13000+10000）。
 func TestHandlerUpgradeAppliesRateBuffMultiplicatively(t *testing.T) {
 	got, _, result := runRateBuffUpgrade(t, rateBuffUpgradeCase{
-		mode:          "reinforce",
-		baseWeight:    13000,
-		stats:         map[string]int64{"upgrade_rate_buff_reinforce_bonus": 10000, "upgrade_rate_buff_reinforce_until_unix": time.Now().Unix() + 600},
-		successWeight: 100000, // 必定成功，只为把最终权重打进日志
+		mode:       "reinforce",
+		baseWeight: 13000,
+		stats:      map[string]int64{"upgrade_rate_buff_reinforce_bonus": 10000, "upgrade_rate_buff_reinforce_until_unix": time.Now().Unix() + 600},
 	})
 	if !strings.Contains(got.Reason, "rate_buff_bonus=10000") {
 		t.Fatalf("reason must report the applied buff: %q", got.Reason)
@@ -221,10 +220,9 @@ func TestHandlerUpgradeRateBuffExpiryModeIsolationAndAbsence(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			got, _, result := runRateBuffUpgrade(t, rateBuffUpgradeCase{
-				mode:          test.mode,
-				baseWeight:    13000,
-				stats:         test.stats,
-				successWeight: 100000,
+				mode:       test.mode,
+				baseWeight: 13000,
+				stats:      test.stats,
 			})
 			if result.UpgradeSuccessWeight != 13000 {
 				t.Fatalf("success weight = %d, want the untouched 13000", result.UpgradeSuccessWeight)
@@ -239,10 +237,9 @@ func TestHandlerUpgradeRateBuffExpiryModeIsolationAndAbsence(t *testing.T) {
 // ⑤ 封顶：基础 95000 × 1.1 = 104500 → 封顶 100000（= 必定成功，永不与失败惩罚档错位）。
 func TestHandlerUpgradeRateBuffIsCappedAtFull(t *testing.T) {
 	_, _, result := runRateBuffUpgrade(t, rateBuffUpgradeCase{
-		mode:          "reinforce",
-		baseWeight:    95000,
-		stats:         map[string]int64{"upgrade_rate_buff_reinforce_bonus": 10000, "upgrade_rate_buff_reinforce_until_unix": time.Now().Unix() + 600},
-		successWeight: 100000,
+		mode:       "reinforce",
+		baseWeight: 95000,
+		stats:      map[string]int64{"upgrade_rate_buff_reinforce_bonus": 10000, "upgrade_rate_buff_reinforce_until_unix": time.Now().Unix() + 600},
 	})
 	if result.UpgradeSuccessWeight != upgradeSuccessWeightScale {
 		t.Fatalf("success weight = %d, want the 100000 cap", result.UpgradeSuccessWeight)
@@ -272,11 +269,10 @@ func TestUpgradeRateBuffBoostEnvOverride(t *testing.T) {
 	for _, test := range cases {
 		t.Run("env="+test.env, func(t *testing.T) {
 			_, _, result := runRateBuffUpgrade(t, rateBuffUpgradeCase{
-				mode:          "reinforce",
-				baseWeight:    13000,
-				stats:         stats,
-				successWeight: 100000,
-				boostEnv:      test.env,
+				mode:       "reinforce",
+				baseWeight: 13000,
+				stats:      stats,
+				boostEnv:   test.env,
 			})
 			if result.UpgradeSuccessWeight != test.want {
 				t.Fatalf("env=%q success weight = %d, want %d", test.env, result.UpgradeSuccessWeight, test.want)
@@ -318,11 +314,10 @@ func TestRecordUpgradeRateBuffTakesTheHighestNotTheProduct(t *testing.T) {
 }
 
 type rateBuffUpgradeCase struct {
-	mode          string
-	baseWeight    int
-	stats         map[string]int64
-	successWeight int
-	boostEnv      string
+	mode       string
+	baseWeight int
+	stats      map[string]int64
+	boostEnv   string
 }
 
 // runRateBuffUpgrade 走 handler 的 op50 口径，返回（结果, 背包, 领域层 UpgradeResult 的等价事实）。
@@ -332,68 +327,70 @@ func runRateBuffUpgrade(t *testing.T, fixture rateBuffUpgradeCase) (alignedcmd.R
 	t.Helper()
 	t.Setenv(UpgradeRateBuffBoostEnv, fixture.boostEnv)
 	ctx := context.Background()
-	for attempt := 0; attempt < 64; attempt++ {
-		repos := dnfrepomemory.NewMemoryGroup()
-		stats := map[string]int64{"gold": 12345}
-		for key, value := range fixture.stats {
-			stats[key] = value
-		}
-		saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "acc", Stats: stats})
-		extra := map[string]string{
-			"item_kind":      "equipment",
-			"durability":     "45",
-			"max_durability": "45",
-		}
-		if fixture.mode == "amplify" {
-			extra["amplify_type"] = "3"
-			extra["amplify_value"] = "5"
-		}
-		raw := make([]byte, currentItemListEntrySize)
-		raw[0x0A] = 10
-		saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
-			CharacterID: "77",
-			Slots: map[string]dnfrepo.ItemStack{
-				slotKey(listTypeMain, 9): {ItemID: 700, Count: 1, RawEntry: raw, Extra: extra},
-			},
-		})
-		body := []byte{
-			0x00, 0x00,
-			0x09, 0x00,
-			0xBC, 0x02, 0x00, 0x00,
-			0xFF, 0xFF,
-			0xFF, 0xFF,
-			0x00, 0x00, 0x00, 0x00,
-		}
-		if fixture.mode == "amplify" {
-			body[0] = 0x01
-		}
-		got, err := NewHandler().Handle(ctx, alignedcmd.Request{
-			Opcode:              uint16(dnfenum.CmdPacketUpgradeItem),
-			Body:                body,
-			AccountID:           "acc",
-			SelectedCharacterID: 77,
-			Repositories:        repos,
-			UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
-				return alignedcmd.UpgradePolicyResolution{
-					SuccessWeight: fixture.baseWeight, PenaltyType: 3,
-				}, nil
-			},
-		})
-		if err != nil {
-			t.Fatalf("Handle error = %v", err)
-		}
-		ack := got.UpperResponses[0]
-		wantSuccess := fixture.successWeight >= upgradeSuccessWeightScale
-		if len(ack.Body) > 12 && (ack.Body[12] == upgradeResultCodeSuccess) == wantSuccess {
-			outcome := rateBuffUpgradeOutcome{reason: got.Reason}
-			if m := regexpSuccessWeight.FindStringSubmatch(got.Reason); len(m) == 2 {
-				outcome.UpgradeSuccessWeight = mustAtoiTest(t, m[1])
-			}
-			return got, loadTestInventory(t, ctx, repos, "77"), outcome
-		}
+	repos := dnfrepomemory.NewMemoryGroup()
+	stats := map[string]int64{"gold": 12345}
+	for key, value := range fixture.stats {
+		stats[key] = value
 	}
-	t.Fatalf("64 次都没落到期望档位")
-	return alignedcmd.Result{}, dnfrepo.InventoryRecord{}, rateBuffUpgradeOutcome{}
+	saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "acc", Stats: stats})
+	extra := map[string]string{
+		"item_kind":      "equipment",
+		"durability":     "45",
+		"max_durability": "45",
+	}
+	if fixture.mode == "amplify" {
+		extra["amplify_type"] = "3"
+		extra["amplify_value"] = "5"
+	}
+	raw := make([]byte, currentItemListEntrySize)
+	raw[0x0A] = 10
+	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
+		CharacterID: "77",
+		Slots: map[string]dnfrepo.ItemStack{
+			slotKey(listTypeMain, 9): {ItemID: 700, Count: 1, RawEntry: raw, Extra: extra},
+		},
+	})
+	body := []byte{
+		0x00, 0x00,
+		0x09, 0x00,
+		0xBC, 0x02, 0x00, 0x00,
+		0xFF, 0xFF,
+		0xFF, 0xFF,
+		0x00, 0x00, 0x00, 0x00,
+	}
+	if fixture.mode == "amplify" {
+		body[0] = 0x01
+	}
+	got, err := NewHandler().Handle(ctx, alignedcmd.Request{
+		Opcode:              uint16(dnfenum.CmdPacketUpgradeItem),
+		Body:                body,
+		AccountID:           "acc",
+		SelectedCharacterID: 77,
+		Repositories:        repos,
+		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+			return alignedcmd.UpgradePolicyResolution{
+				SuccessWeight: fixture.baseWeight, PenaltyType: 3,
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Handle error = %v", err)
+	}
+	// Weight is reported for both successful and failed random rolls. These
+	// tests verify rate calculation, so never wait for a particular outcome.
+	if len(got.UpperResponses) == 0 || len(got.UpperResponses[0].Body) <= 12 || got.UpperResponses[0].Body[0] != 1 {
+		t.Fatalf("upgrade did not produce an accepted result: %+v", got)
+	}
+	outcome := rateBuffUpgradeOutcome{reason: got.Reason}
+	m := regexpSuccessWeight.FindStringSubmatch(got.Reason)
+	if len(m) != 2 {
+		t.Fatalf("missing success weight: %q", got.Reason)
+	}
+	outcome.UpgradeSuccessWeight = mustAtoiTest(t, m[1])
+	if outcome.UpgradeSuccessWeight == upgradeSuccessWeightScale && got.UpperResponses[0].Body[12] != upgradeResultCodeSuccess {
+		t.Fatal("a full probability must succeed")
+	}
+	return got, loadTestInventory(t, ctx, repos, "77"), outcome
 }
 
 type rateBuffUpgradeOutcome struct {

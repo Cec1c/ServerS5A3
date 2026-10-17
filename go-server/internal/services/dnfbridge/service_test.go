@@ -243,7 +243,9 @@ func TestBuildCurrentItemListBodyForSessionUsesExe119ByteRows(t *testing.T) {
 	ctx := context.Background()
 	repos := testRepositoryGroup()
 	rawEntry := make([]byte, currentItemListEntryWireSize)
+	// DOC-067 之后 0x60 由位置锁拥有：这里放一个旧脏值，未锁时投影必须显式清 0。
 	rawEntry[0x60] = 0xA5
+	rawEntry[0x61] = 0xA5 // 仍未被投影器赋值的字节必须原样往返
 	binary.LittleEndian.PutUint32(rawEntry[legacyWrongCurrentItemListExpireTimeOffset:legacyWrongCurrentItemListExpireTimeOffset+4], 123456)
 	binary.LittleEndian.PutUint32(rawEntry[0x6E:0x72], 123456)
 	if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{
@@ -297,7 +299,8 @@ func TestBuildCurrentItemListBodyForSessionUsesExe119ByteRows(t *testing.T) {
 		binary.LittleEndian.Uint16(entry[0x14:0x16]) != 321 ||
 		binary.LittleEndian.Uint32(entry[currentItemListExpireTimeOffset:currentItemListExpireTimeOffset+4]) != 123456 ||
 		binary.LittleEndian.Uint32(entry[legacyWrongCurrentItemListExpireTimeOffset:legacyWrongCurrentItemListExpireTimeOffset+4]) != 0 ||
-		entry[0x60] != 0xA5 ||
+		entry[0x60] != 0 ||
+		entry[0x61] != 0xA5 ||
 		binary.LittleEndian.Uint32(entry[0x6E:0x72]) != 123456 {
 		t.Fatalf("op13 entry mismatch: %x", entry)
 	}
@@ -5569,7 +5572,7 @@ func splitCurrentGameServerUpperPacketAuto(t *testing.T, data []byte) (dnfproto.
 	t.Helper()
 	if len(data) >= dnfproto.GameServerUpperHeaderSize16 && data[0] == 0 && bytes.Equal(data[11:16], make([]byte, 5)) {
 		switch binary.LittleEndian.Uint16(data[1:3]) {
-		case uint16(dnfenum.CmdPacketLeaveParty), uint16(dnfenum.CmdPacketWalkoutPartyMember), currentTownActorSceneSnapshotMsgID, currentTownUserPositionNotificationMsgID, currentTownUserAreaNotificationMsgID, currentTownWorldTownContextNotificationMsgID:
+		case uint16(dnfenum.CmdPacketLeaveParty), uint16(dnfenum.CmdPacketWalkoutPartyMember), currentTownActorSceneSnapshotMsgID, currentTownUserPositionNotificationMsgID, currentTownUserAreaNotificationMsgID, currentTownWorldTownContextNotificationMsgID, currentCarryGoldStageMsgID:
 			return splitGameServerUpperPacketWithHeader(t, data, dnfproto.GameServerUpperHeaderSize16)
 		}
 	}
