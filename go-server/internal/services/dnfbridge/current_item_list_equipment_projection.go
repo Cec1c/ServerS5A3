@@ -25,6 +25,8 @@ func currentItemListEntryFromEquipment(equipped dnfrepo.EquipmentEntry) (current
 	// emblem state into its proved raw+0x3C..+0x44 vector.
 	raw := append([]byte(nil), equipped.RawEntry...)
 	entry := currentItemListEntryFromRaw(raw, extra)
+	entry.independentExpiration = currentGiftBoxInstanceHasIndependentExpiration(extra)
+	entry.expirationProvenanceKnown = true
 	currentApplyChronicleOptionsToEntry(&entry, extra)
 	// Position locks belong to sortable inventory containers, never worn
 	// equipment. Old persisted rows may still contain the inventory byte.
@@ -57,6 +59,7 @@ func currentItemListEntryFromEquipment(equipped dnfrepo.EquipmentEntry) (current
 	entry.avatarColorData = currentItemListAvatarColorData(extra)
 	currentApplyEquipmentSocketVectorToEntry(&entry, extra)
 	currentApplyEquipmentEffectRuneToEntry(&entry, extra)
+	overlayCurrentRandomTitleEnchantEntry(&entry, extra)
 	return entry, true
 }
 

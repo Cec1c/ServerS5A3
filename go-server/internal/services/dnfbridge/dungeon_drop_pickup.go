@@ -20,10 +20,12 @@ import (
 const (
 	// Opcode 39 is directional: C2S op39 reports monster death, while current
 	// class0/S2C op39 is the ordinary scene-item pickup result.
-	currentDungeonPickupResultOpcode   uint16 = 39
-	currentDungeonPickupResultSize            = 19
-	currentDungeonPickupQuickSlotStart        = int16(3)
-	currentDungeonPickupQuickSlotEnd          = int16(8)
+	currentDungeonPickupResultOpcode      uint16 = 39
+	currentDungeonPickupResultSize               = 19
+	currentDungeonPickupRequestOpcode     uint16 = 43
+	currentDungeonPickupInventoryFullCode byte   = 4
+	currentDungeonPickupQuickSlotStart           = int16(3)
+	currentDungeonPickupQuickSlotEnd             = int16(8)
 )
 
 var (
@@ -371,7 +373,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		characterID := strconv.Itoa(int(session.selectedCharacterID))
 		destinationSlot, itemUpdate, err := restoreCurrentDungeonDiscardedItem(
 			context.Background(),
-			repositories.AccountAssets,
+			repositories,
 			strings.TrimSpace(s.accountIDForSession(session)),
 			characterID,
 			*drop.DiscardOrigin,
@@ -390,6 +392,11 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 				"account_owned", drop.DiscardOrigin.AccountOwned,
 				"reason", "discard_origin_restore_transaction_failed_drop_remains_available",
 				"error", err)
+			if errors.Is(err, errDungeonPickupInventoryFull) {
+				// 自行丢弃物品也必须回满包失败，清除客户端等待和地面拾取中标记。
+				return s.sendGameUpperRawClass(session, currentDungeonPickupRequestOpcode,
+					[]byte{0, currentDungeonPickupInventoryFullCode}, 1)
+			}
 			return nil
 		}
 		responseBody, err := buildCurrentDungeonNormalPickupResultBody(
@@ -554,7 +561,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 	characterID := strconv.Itoa(int(session.selectedCharacterID))
 	destinationSlot, itemUpdate, err := grantCurrentDungeonPickupItem(
 		context.Background(),
-		repositories.CharacterItems,
+		repositories,
 		characterID,
 		drop.Item,
 		drop.Amount,
@@ -571,6 +578,13 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			"amount", drop.Amount,
 			"reason", "character_items_transaction_failed_drop_remains_available",
 			"error", err)
+		if errors.Is(err, errDungeonPickupInventoryFull) {
+			// 当前EXE的class1/43回调0x1fa77b0以失败码4提示满包，
+			// 随后0x265a370清除地面物品的拾取中标记；缺应答会阻止重试。
+			// 失败不发送class0/39成功通知，地面物品继续保留在账本中。
+			return s.sendGameUpperRawClass(session, currentDungeonPickupRequestOpcode,
+				[]byte{0, currentDungeonPickupInventoryFullCode}, 1)
+		}
 		return nil
 	}
 	responseBody, err := buildCurrentDungeonNormalPickupResultBody(
@@ -636,14 +650,14 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 
 func grantCurrentDungeonPickupItem(
 	ctx context.Context,
-	uow dnfrepo.CharacterItemUnitOfWork,
+	repositories dnfrepo.Group,
 	characterID string,
 	definition dungeonDropItemDefinition,
 	amount uint32,
 	now time.Time,
 	qualitySeed ...uint32,
 ) (uint16, currentItemListEntry, error) {
-	if uow == nil || characterID == "" {
+	if repositories.CharacterItems == nil || characterID == "" {
 		return 0, currentItemListEntry{}, errDungeonPickupTransactionMissing
 	}
 	if definition.ItemID == 0 || definition.SlotStart <= 0 || definition.SlotEnd < definition.SlotStart || amount == 0 {
@@ -667,7 +681,8 @@ func grantCurrentDungeonPickupItem(
 	if err != nil {
 		return 0, currentItemListEntry{}, err
 	}
-	owner, err := dnfdungeon.NewOwner(dnfrepo.Group{CharacterItems: uow})
+	// 拾取须同时读取持久化扩容状态，否则已扩容角色也只会按基础32格判满。
+	owner, err := dnfdungeon.NewOwner(repositories)
 	if err != nil {
 		return 0, currentItemListEntry{}, errDungeonPickupTransactionMissing
 	}

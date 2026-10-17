@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"math/bits"
 	"strconv"
 	"strings"
@@ -407,6 +408,7 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 		}
 	}
 	noteEmptyRosterSlotProbe(session, body)
+	s.rememberCurrentRenameRoster(session, session.currentRenameRosterPrepared)
 	// Current NoPack keeps the role-selector adventure name/level outside the
 	// mode2 roster body. Do not append op1340 here: the client has not yet
 	// acknowledged that the selector objects are ready, and the former
@@ -416,6 +418,7 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 }
 
 func (s *Service) buildUpperGetUserInfoRosterBody(session *gameSession) []byte {
+	session.currentRenameRosterPrepared = nil
 	repos, ok := s.repositoryGroup()
 	// 这里就是"玩家即将看到哪个角色表"的决定性时刻：账号如果仍然没识别出来，
 	// 服务端就要用共享兜底账号的角色表回答 —— 同一台机器上换任何账号登录都会
@@ -439,6 +442,7 @@ func (s *Service) buildUpperGetUserInfoRosterBody(session *gameSession) []byte {
 	}
 	// GET_USERINFO 是客户端请求触发的被动角色表；这里只从仓库构造 roster，不触发栏位扩展包。
 	s.logGameEvent(session, "game-upper-getuserinfo-roster-built", "account_id", accountID, "count", len(characters))
+	session.currentRenameRosterPrepared = append([]dnfrepo.CharacterRecord(nil), characters[:rosterCount(characters)]...)
 	return s.buildCurrentRosterBody(characters)
 }
 

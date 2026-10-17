@@ -36,7 +36,7 @@ func NewMemoryGroup() repository.Group {
 		PacketTemplate:       db.NewMemoryStore(repository.PacketTemplateKey, repository.ClonePacketTemplate),
 		Settings:             settings,
 		Mailbox:              mailboxes,
-		CharacterCreate:      &memoryCharacterCreationUnitOfWork{},
+		CharacterCreate:      &memoryCharacterCreationUnitOfWork{sharedMu: aggregateTxMu},
 		CharacterItems:       &memoryCharacterItemUnitOfWork{sharedMu: aggregateTxMu, inventory: inventory, equipment: equipment},
 		CharacterTrade:       &memoryCharacterTradeUnitOfWork{sharedMu: aggregateTxMu, character: characters, inventory: inventory, accountInventory: accountInventory},
 		CharacterPets:        &memoryCharacterPetUnitOfWork{sharedMu: aggregateTxMu, inventory: inventory, equipment: equipment, pets: pets},

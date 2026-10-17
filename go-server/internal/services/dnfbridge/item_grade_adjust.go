@@ -54,18 +54,23 @@ func (s *Service) handleCurrentResetItemAttr(session *gameSession, body []byte) 
 		}
 		return s.sendGameUpperFailure(session, currentResetItemAttrOpcode, 2)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	repos, ok := s.repositoryGroup()
+	if !ok {
+		return s.sendGameUpperFailure(session, currentResetItemAttrOpcode, 2)
+	}
+	// 主线黄金蜜蜡事务优先：材料14的再封装口径由 itemgrade wax owner
+	// 维护，不能被其它封装材料分流提前截走。
+	if handled, waxErr := s.tryCurrentGoldenWax(ctx, session, request, body, repos); handled {
+		return waxErr
+	}
 	reseal, routeErr := s.currentRequestUsesEquipmentReseal(session, request)
 	if routeErr != nil {
 		return s.rejectCurrentEquipmentReseal(session, request, routeErr)
 	}
 	if reseal {
 		return s.handleCurrentEquipmentReseal(session, request)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
-	repos, ok := s.repositoryGroup()
-	if !ok {
-		return s.sendGameUpperFailure(session, currentResetItemAttrOpcode, 2)
 	}
 
 	var catalog dnfitemgrade.ItemCatalog
@@ -166,7 +171,7 @@ func (c currentItemGradeCatalog) ResolveItem(itemID uint32) (dnfitemgrade.ItemDe
 	_, resealMaterial := dnfsvc.WaxKind(dnfsvc.Definition{ItemID: itemID, PVFPath: definition.PVFPath})
 	return dnfitemgrade.ItemDefinition{
 		StackableType:    definition.StackableType,
-		ResealMaterial:   resealMaterial,
+		ResealMaterial:   definition.ItemID == 14 || resealMaterial,
 		UsableEquipTypes: append([]string(nil), definition.UsableEquipTypes...),
 	}, nil
 }
