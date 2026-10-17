@@ -922,6 +922,17 @@ func ownerAppliedEnchantResult(ctx context.Context, settings dnfrepo.SettingsRep
 			},
 		}
 	}
+	if result.WornEquipmentTarget {
+		return alignedcmd.Result{
+			Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+			Reason:                     "穿戴装备附魔已提交；目标原位更新及材料刷新先于结果回包",
+			WornEquipmentSlotRefreshes: []int16{result.TargetSlotIndex},
+			UpperResponses: []alignedcmd.UpperResponse{
+				class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, []commonItemListEntry{{slot: result.BeadSlotIndex, stack: result.BeadUpdatedStack}})),
+				class1Response(opcode, buildEnchantByBeadSuccessAck(result)),
+			},
+		}
+	}
 	// The current EXE's 0x0110 success handler resolves the target slot to an
 	// item pointer and publishes that pointer to the result popup. A generic
 	// selected-container refresh after the ACK destroys and recreates the

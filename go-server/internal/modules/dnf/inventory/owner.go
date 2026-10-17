@@ -276,6 +276,7 @@ type EnchantResult struct {
 	// （目标坐标 list 3 槽 26）。此时没有 list 7 行可刷新，穿戴行本身要重发。
 	WornPetTarget       bool
 	WornPetUpdatedStack dnfrepo.ItemStack
+	WornEquipmentTarget bool
 	MainRefresh         map[string]dnfrepo.ItemStack
 	Changed             bool
 	// 部位限制的取证字段：PartRejection 非空表示这次拒绝来自部位判定
@@ -1805,8 +1806,9 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	// 穿戴中的宠物（list 3 槽 26）同样是合法目标：操作者现场报障"宠物要脱下才能打宝珠"，
 	// 客户端给的就是 (3,26)。这条路径只写 PetEntry + 穿戴行，不经 list 7 行。
 	wornPetTarget := cmd.TargetListType == listTypeEquipment && cmd.TargetSlotIndex == currentPetWornEquipmentSlot
+	wornEquipmentTarget := cmd.TargetListType == listTypeEquipment && cmd.TargetSlotIndex >= 12 && cmd.TargetSlotIndex <= 25
 	if cmd.BeadListType != listTypeMain ||
-		(cmd.TargetListType != listTypeMain && cmd.TargetListType != listTypePet && !wornPetTarget) {
+		(cmd.TargetListType != listTypeMain && cmd.TargetListType != listTypePet && !wornPetTarget && !wornEquipmentTarget) {
 		base.ErrorCode = enchantErrorUnsupported
 		return base, nil
 	}
@@ -1839,7 +1841,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		}
 		return result, nil
 	}
-	if cmd.TargetListType == listTypeMain && !o.inItemTransaction {
+	if (cmd.TargetListType == listTypeMain || wornEquipmentTarget) && !o.inItemTransaction {
 		var result EnchantResult
 		err := o.withinInventoryTransaction(ctx, characterID, func(txOwner *Owner) error {
 			var err error
@@ -1884,6 +1886,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	var target dnfrepo.ItemStack
 	var wornEquipment dnfrepo.EquipmentRecord
 	var wornEntry dnfrepo.EquipmentEntry
+	wornKey := ""
 	targetFound := false
 	if wornPetTarget {
 		// 穿戴中的宠物不在背包里：目标行从装备表槽 26 读。
@@ -1893,6 +1896,23 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		}
 		if targetFound {
 			target = stackFromWornPetEntry(wornEntry)
+		}
+	} else if wornEquipmentTarget {
+		if o.equipment == nil {
+			return EnchantResult{}, ErrForgingEquipmentOwnerUnavailable
+		}
+		wornEquipment, targetFound, err = o.equipment.Load(ctx, characterID)
+		if err != nil {
+			return EnchantResult{}, err
+		}
+		if targetFound && wornEquipment.CharacterID == characterID {
+			wornEquipment = dnfrepo.CloneEquipment(wornEquipment)
+			wornKey, wornEntry, targetFound = wornEnchantEntry(wornEquipment, cmd.TargetSlotIndex)
+			if targetFound {
+				target = forgingStackFromEquipmentEntry(wornEntry)
+			}
+		} else {
+			targetFound = false
 		}
 	} else {
 		target, targetFound = items[targetKey]
@@ -1905,6 +1925,10 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		return result, nil
 	}
 	result.TargetItemID = target.ItemID
+	if wornEquipmentTarget && (target.Count != 1 || isEquipmentLocked(target) || (!target.ExpireAt.IsZero() && !time.Now().Before(target.ExpireAt))) {
+		result.ErrorCode = enchantErrorInvalidTarget
+		return result, nil
+	}
 
 	resolution, err := resolver(bead.ItemID, target.ItemID)
 	if err != nil {
@@ -1933,6 +1957,10 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		result.PartRejection = rejection
 		result.BeadParts = append([]string(nil), resolution.AllowedEquipmentTypes...)
 		result.TargetPart = resolution.TargetEquipmentType
+		return result, nil
+	}
+	if wornEquipmentTarget && !wornEnchantSlotMatches(cmd.TargetSlotIndex, resolution.TargetEquipmentType) {
+		result.ErrorCode = enchantErrorInvalidTarget
 		return result, nil
 	}
 	var petRecord dnfrepo.PetRecord
@@ -2000,6 +2028,11 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		wornEquipment.Entries[strconv.Itoa(int(currentPetWornEquipmentSlot))] = wornEntry
 		result.WornPetTarget = true
 		result.WornPetUpdatedStack = cloneStack(target)
+	} else if wornEquipmentTarget {
+		wornEntry = setWornEquipmentEnchantFields(wornEntry, resolution.CardItemID, upgradeCount)
+		wornEquipment.Entries[wornKey] = wornEntry
+		result.WornEquipmentTarget = true
+		result.TargetUpdatedStack = forgingStackFromEquipmentEntry(wornEntry)
 	} else {
 		items[targetKey] = target
 		result.TargetUpdatedStack = cloneStack(target)
@@ -2034,7 +2067,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 			return EnchantResult{}, err
 		}
 	}
-	if wornPetTarget {
+	if wornPetTarget || wornEquipmentTarget {
 		if o.equipment == nil {
 			return EnchantResult{}, ErrPetInventoryOwnerRequired
 		}
