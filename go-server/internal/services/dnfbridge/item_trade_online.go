@@ -176,7 +176,7 @@ func (s *Service) addOnlineItemTradeGold(session *gameSession, request inventory
 	s.tradeMu.Lock()
 	trade := s.itemTrades[session.selectedCharacterID]
 	peerID, inTrade := trade.other(session.selectedCharacterID)
-	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady
+	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0
 	previousGold := int64(0)
 	if valid {
 		previousGold = trade.gold[session.selectedCharacterID]
@@ -195,7 +195,10 @@ func (s *Service) addOnlineItemTradeGold(session *gameSession, request inventory
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
-		s.cancelOnlineItemTrade(trade, "gold_offer_ack_write_failed")
+		s.cancelOnlineItemTradeWithProjection(trade, "gold_offer_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID: session.selectedCharacterID,
+			gold:        &previousGold,
+		})
 		return err
 	}
 	entry := currentGoldWalletItemListEntry(int64(request.MoveCount))
@@ -213,7 +216,7 @@ func (s *Service) removeOnlineItemTradeGold(session *gameSession, request invent
 	trade := s.itemTrades[session.selectedCharacterID]
 	peerID, inTrade := trade.other(session.selectedCharacterID)
 	gold := int64(0)
-	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady {
+	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0 {
 		gold = trade.gold[session.selectedCharacterID]
 		if gold > 0 {
 			trade.gold[session.selectedCharacterID] = 0
@@ -277,7 +280,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	s.tradeMu.Lock()
 	trade := s.itemTrades[session.selectedCharacterID]
 	peerID, inTrade := trade.other(session.selectedCharacterID)
-	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady
+	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0
 	tradeSlot := uint16(0)
 	slotAvailable := false
 	if valid {
@@ -323,7 +326,13 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	ackRequest := request
 	ackRequest.DestinationSlotIndex = int16(tradeSlot)
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(ackRequest)); err != nil {
-		s.cancelOnlineItemTrade(trade, "item_offer_ack_write_failed")
+		// The ACK creates the local trade row. If it was not written, cancel
+		// must not ask the client to dereference that absent row while restoring
+		// the source slot. Previously acknowledged rows still need restoring.
+		s.cancelOnlineItemTradeWithProjection(trade, "item_offer_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID:  session.selectedCharacterID,
+			excludeOffer: &tradeSlot,
+		})
 		return err
 	}
 	offer.stack.Count = int64(offer.count)
@@ -346,7 +355,7 @@ func (s *Service) removeOnlineItemTradeOffer(session *gameSession, request inven
 	peerID, inTrade := trade.other(session.selectedCharacterID)
 	var offer onlineItemTradeOffer
 	var found bool
-	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady {
+	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0 {
 		offer, found = trade.offers[session.selectedCharacterID][tradeSlot]
 		destinationList, supported := onlineItemTradeStorageSourceList(request.DestinationListType, request.DestinationSlotIndex)
 		found = found && supported && destinationList == offer.sourceList
@@ -425,13 +434,15 @@ func (s *Service) handleOnlineItemTradeState(session *gameSession, state byte) e
 	// Live current-EXE traffic distinguishes the two buttons even though the
 	// server-facing state table does not: "adding complete" submits 5 and must
 	// be projected to class0/op17 state 1; choosing Yes in resource 727 submits
-	// 3 and must be projected as state 3.  A second value 5 is retained only as
-	// a compatibility spelling of final consent for older clients.  Neither
-	// spelling may skip the shared state-1 confirmation boundary.
+	// 3 is the explicit final consent. Retrying the lock request must never
+	// become final consent on the current profile.
 	switch state {
 	case currentItemTradeAddRequest:
 		if trade.states[characterID] == 0 {
 			projectedState = currentItemTradeAddingDone
+		} else if s.options.currentClientVersion == "official-24.9" && trade.states[characterID] == currentItemTradeAddingDone {
+			s.tradeMu.Unlock()
+			return s.sendGameUpperSuccess(session, currentItemTradeReadyMsg, nil)
 		} else if trade.states[characterID] == currentItemTradeAddingDone &&
 			(peerState == currentItemTradeAddingDone || peerState == currentItemTradeReady) {
 			projectedState = currentItemTradeReady
@@ -451,7 +462,7 @@ func (s *Service) handleOnlineItemTradeState(session *gameSession, state byte) e
 			return s.sendGameUpperFailure(session, currentItemTradeReadyMsg, 1)
 		}
 	case 0:
-		if trade.states[characterID] == currentItemTradeReady {
+		if trade.states[characterID] == currentItemTradeReady || peerState == currentItemTradeReady {
 			s.tradeMu.Unlock()
 			return s.sendGameUpperFailure(session, currentItemTradeReadyMsg, 1)
 		}
@@ -624,9 +635,10 @@ func (s *Service) cancelOnlineItemTrade(trade *onlineItemTrade, reason string) {
 }
 
 type onlineItemTradeCancelProjection struct {
-	characterID uint16
-	addOffer    *onlineItemTradeOffer
-	gold        *int64
+	characterID  uint16
+	addOffer     *onlineItemTradeOffer
+	excludeOffer *uint16
+	gold         *int64
 }
 
 func (s *Service) cancelOnlineItemTradeWithProjection(trade *onlineItemTrade, reason string, projection *onlineItemTradeCancelProjection) {
@@ -641,11 +653,13 @@ func (s *Service) cancelOnlineItemTradeWithProjection(trade *onlineItemTrade, re
 		switch projection.characterID {
 		case firstID:
 			firstOffers = appendCancelProjectionOffer(firstOffers, projection.addOffer)
+			firstOffers = excludeCancelProjectionOffer(firstOffers, projection.excludeOffer)
 			if projection.gold != nil {
 				firstGold = *projection.gold
 			}
 		case secondID:
 			secondOffers = appendCancelProjectionOffer(secondOffers, projection.addOffer)
+			secondOffers = excludeCancelProjectionOffer(secondOffers, projection.excludeOffer)
 			if projection.gold != nil {
 				secondGold = *projection.gold
 			}
@@ -667,6 +681,18 @@ func (s *Service) cancelOnlineItemTradeWithProjection(trade *onlineItemTrade, re
 		}
 	}
 	s.logInfo("dnfbridge item trade cancelled", "first_char_id", firstID, "second_char_id", secondID, "reason", reason)
+}
+
+func excludeCancelProjectionOffer(offers []onlineItemTradeOffer, slot *uint16) []onlineItemTradeOffer {
+	if slot == nil {
+		return offers
+	}
+	for index := range offers {
+		if offers[index].tradeSlot == *slot {
+			return append(offers[:index], offers[index+1:]...)
+		}
+	}
+	return offers
 }
 
 func appendCancelProjectionOffer(offers []onlineItemTradeOffer, offer *onlineItemTradeOffer) []onlineItemTradeOffer {

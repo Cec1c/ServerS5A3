@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/inventory"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -27,8 +28,8 @@ func TestOnlineTradeOfferWriteFailureCancelsWholeTrade(t *testing.T) {
 		wantSenderCancel []byte
 		wantPeerCancel   []byte
 	}{
-		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
-		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
 		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
 		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
 		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelOffer358, wantPeerCancel: onlineTradeCancelEmpty},
@@ -95,8 +96,8 @@ func TestOnlineTradeGoldWriteFailureCancelsWholeTrade(t *testing.T) {
 		wantSenderCancel []byte
 		wantPeerCancel   []byte
 	}{
-		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
-		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_offerer_ack", failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
+		{name: "add_peer_ack", fromPeer: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelEmpty, wantPeerCancel: onlineTradeCancelEmpty},
 		{name: "add_offerer_peer_change", failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
 		{name: "add_peer_peer_change", fromPeer: true, failMsgID: currentItemTradeChangeMsg, failPeer: true, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
 		{name: "remove_offerer_ack", remove: true, failMsgID: currentItemTradeMoveMsg, failClass: 1, wantSenderCancel: onlineTradeCancelGold, wantPeerCancel: onlineTradeCancelEmpty},
@@ -137,6 +138,41 @@ func TestOnlineTradeGoldWriteFailureCancelsWholeTrade(t *testing.T) {
 				t.Fatalf("handled=%t err=%v, want injected projection failure", handled, err)
 			}
 			assertOnlineTradeCancelledAndCannotCommit(t, f, sender, peer, test.wantSenderCancel, test.wantPeerCancel)
+			assertOnlineTradeGoldUnchanged(t, f, 1_000_000, 1_000_000)
+		})
+	}
+}
+
+// Only the newly unacknowledged row is absent locally. Earlier ACKs must
+// continue to restore their assigned rows, including a previously set wallet.
+func TestOnlineTradeAddAckFailurePreservesAcknowledgedCancellationRows(t *testing.T) {
+	for _, gold := range []bool{false, true} {
+		t.Run(map[bool]string{false: "item", true: "gold"}[gold], func(t *testing.T) {
+			f := newOnlineCrystalTradeFixture(t, nil)
+			addOnlineTradeTestCrystal(t, f, false)
+			setOnlineTradeGold(t, f, 1_000_000, 1_000_000)
+			if gold {
+				addOnlineTradeTestGold(t, f, false, 100_000)
+			} else {
+				prepareOnlineTradeSecondCrystal(t, f)
+			}
+			f.offerConn.write.Reset()
+			f.peerConn.write.Reset()
+			injected := errors.New("new offer ACK failed after earlier acknowledged offer")
+			f.offerer.conn = &onlineItemTradeStageFailingConn{bufferConn: f.offerConn, msgID: currentItemTradeMoveMsg, classification: 1, err: injected}
+			request := inventory.MoveItemspaceRequest{SourceListType: 0, SourceSlotIndex: 354, MoveCount: 100, DestinationListType: 4}
+			if gold {
+				request.SourceSlotIndex = 0
+				request.MoveCount = 200_000
+			}
+			if err := f.service.handleOnlineItemTradeMove(f.offerer, request); !errors.Is(err, injected) {
+				t.Fatalf("err=%v", err)
+			}
+			want := onlineTradeCancelOffer358
+			if gold {
+				want = []byte{2, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0x66, 1}
+			}
+			assertOnlineTradeCancelledAndCannotCommit(t, f, f.offerer, f.peer, want, onlineTradeCancelEmpty)
 			assertOnlineTradeGoldUnchanged(t, f, 1_000_000, 1_000_000)
 		})
 	}
@@ -288,4 +324,26 @@ func assertOnlineTradeGoldUnchanged(t *testing.T, f *onlineCrystalTradeFixture, 
 			t.Fatalf("character %s gold=%d, want %d", characterID, got, want)
 		}
 	}
+}
+
+func prepareOnlineTradeSecondCrystal(t *testing.T, f *onlineCrystalTradeFixture) {
+	t.Helper()
+	account, _, err := f.repositories.AccountInventory.Load(context.Background(), onlineCrystalTradeAccount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.Slots[dnfrepo.AccountSharedInventorySlotKey(354)] = dnfrepo.ItemStack{ItemID: 3033, Count: 5000}
+	if err := f.repositories.AccountInventory.Save(context.Background(), account); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := newPVFDungeonDropCatalog(bridgePVFSource{
+		"monster/monster.lst": "", "equipment/equipment.lst": "",
+		"stackable/stackable.lst": "3037 `a.stk`\n3033 `b.stk`\n",
+		"stackable/a.stk":         "[stackable type] `[material]`\n[attach type] `[free]`\n",
+		"stackable/b.stk":         "[stackable type] `[material]`\n[attach type] `[free]`\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.pvfItemCatalog = catalog
 }
