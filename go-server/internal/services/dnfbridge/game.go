@@ -16,13 +16,16 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dproto"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 type gameSession struct {
-	conn      net.Conn
-	connID    string
-	accountID string
-	clientPID uint32
+	pendingTitleEnchantCharacterID uint16
+	pendingTitleEnchantRow         *currentItemListEntry
+	conn                           net.Conn
+	connID                         string
+	accountID                      string
+	clientPID                      uint32
 	// clientIP 只用于日志与排查（连接来源），**绝不参与账号判定** ——
 	// 见 repository_access.go 的 accountIDForSession 与 client_account_ip.go。
 	clientIP string
@@ -64,8 +67,11 @@ type gameSession struct {
 	questManualClearIdentity         boundGameSessionCharacter
 	questManualClearReadyAt          time.Time
 	currentAccountFriendNames        map[string]struct{}
+	currentAccountFriendInfo         currentAccountFriendSentView
 	currentAdventureExpeditionView   currentAdventureExpeditionSentView
 	rosterRequested                  bool
+	currentRenameRoster              []dnfrepo.CharacterRecord
+	currentRenameRosterPrepared      []dnfrepo.CharacterRecord
 	channelReconnect                 bool
 	townActorOwnerChannel            byte
 	// loginWearReassertWindowOpenedAt / ...Consumed 界定"DNFBRIDGE_EQUIP_LOGIN_REASSERT_NOOP
@@ -625,6 +631,7 @@ func (s *Service) gameListenPorts(catalog *channelcatalog.Catalog) []int {
 }
 
 func (s *Service) handleGameStreamPacket(session *gameSession, packet dnfproto.LatestGameStreamPacket) error {
+	defer s.afterCurrentLevelUpRewardCommand(session)
 	// 登录路径的 actor 世代重建钩子：布防发生在 type1345 那一包的**派发过程中**，
 	// 所以"派发前已经布防"恰好等价于"这是场景就绪 ack 之后的第一条客户端报文"。
 	// 见 login_actor_generation_rebuild.go。

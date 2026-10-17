@@ -165,6 +165,7 @@ func decodeInstance(path string) (instanceConfig, error) {
 		}
 		return instanceConfig{}, fmt.Errorf("invalid JSON in %s: %w", path, err)
 	}
+	// Preserve obsolete settings until validation can require an explicit GM migration.
 	return cfg, nil
 }
 
@@ -231,7 +232,7 @@ func validateInstance(cfg instanceConfig) error {
 	if err := validateLoopbackListenAddress("server.adminListen", cfg.Server.AdminListen); err != nil {
 		return err
 	}
-	if strings.TrimSpace(cfg.Server.GMListen) != "" {
+	if strings.TrimSpace(cfg.Server.LegacyGMListen) != "" {
 		return errorsf("server.gmListen has moved to the independent DNF90GM repository; migrate GM and remove this legacy setting")
 	}
 	if err := validateSafeValue("server.adminToken", cfg.Server.AdminToken); err != nil {
@@ -296,6 +297,11 @@ func validateInstance(cfg instanceConfig) error {
 	}
 	if cfg.Protocol.GameUpperHeader != "server16" {
 		return errorsf("protocol.gameUpperHeader must be server16 for this client profile")
+	}
+	switch cfg.Protocol.ChannelScriptEncoding {
+	case "", "utf8", "gbk":
+	default:
+		return errorsf("protocol.channelScriptEncoding must be utf8 or gbk")
 	}
 	if cfg.Protocol.GameUpperBodyCodec != "plaintext" ||
 		cfg.Protocol.GameUpperClientBodyCodec != "plaintext" {

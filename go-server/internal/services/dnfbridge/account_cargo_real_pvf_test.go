@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestRealPVFAccountCargoPurchasesFrom64To120(t *testing.T) {
+func TestRealPVFAccountCargoPurchasesFrom64To240(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
 		t.Skip("real PVF required")
@@ -42,7 +42,7 @@ func TestRealPVFAccountCargoPurchasesFrom64To120(t *testing.T) {
 	service := &Service{options: options{accountID: "cargo-real"}, repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true }}
 	session := &gameSession{selectedCharacterID: 29}
 	remaining := initialCera
-	for index, commodity := range []uint32{103665, 103666, 103667, 103668, 103669, 103670, 103671} {
+	for index, commodity := range []uint32{103665, 103666, 103667, 103668, 103669, 103670, 103671, 104893, 104894, 104895, 104896, 104897, 104898, 104899, 104900, 104901, 104902, 104903, 104904, 104905, 104906, 104907} {
 		product, found := catalog.Product(commodity)
 		if !found || product.CeraPrice == 0 {
 			t.Fatalf("PVF commodity %d missing priced row", commodity)
@@ -65,9 +65,9 @@ func TestRealPVFAccountCargoPurchasesFrom64To120(t *testing.T) {
 			t.Fatalf("capacity metadata=%v", account.Metadata)
 		}
 	}
-	request, _ := parseCurrentCeraShopPurchaseRequest(currentCeraShopTestRequestBody(103671))
+	request, _ := parseCurrentCeraShopPurchaseRequest(currentCeraShopTestRequestBody(104907))
 	if _, err := service.commitCurrentCeraShopPurchase(ctx, session, catalog, request); err == nil {
-		t.Fatal("purchase past 120 accepted")
+		t.Fatal("purchase past 240 accepted")
 	}
 	if balance := loadCeraShopAccountCera(t, ctx, repositories, "cargo-real"); balance != remaining {
 		t.Fatalf("rejected max purchase deducted cera: %d != %d", balance, remaining)

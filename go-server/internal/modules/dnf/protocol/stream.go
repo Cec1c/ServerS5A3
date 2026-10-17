@@ -41,6 +41,11 @@ const (
 	// class1/op1 has 13 + 610 bytes and the same offset-9 launcher token.
 	// Without this exact shape it is silently consumed as a legacy login.
 	v56RemoteChannelDisplayRebindBodySize = 610
+	// Observed class1/op1 login on 2026-10-14: a complete 13+594-byte
+	// packet with the current launcher token at body offset 9. Route it to
+	// upper authentication rather than treating it as an unauthenticated
+	// legacy command. This does not validate or bypass the login token.
+	observedTokenLoginBodySize = 594
 )
 
 // LatestGameStreamPacket 是从 game TCP 字节流切出的完整包。
@@ -281,7 +286,8 @@ func isKnownClientUpperMsg(msgID uint16, body []byte) bool {
 			bodyLen == reference90CNChannelDisplayRebindBodySize ||
 			bodyLen == currentObservedChannelDisplayRebindBodySize ||
 			bodyLen == v56ChannelDisplayRebindBodySize ||
-			bodyLen == v56RemoteChannelDisplayRebindBodySize
+			bodyLen == v56RemoteChannelDisplayRebindBodySize ||
+			bodyLen == observedTokenLoginBodySize
 	case 2:
 		// A channel transfer opens the target game port without requesting the
 		// ordinary roster and emits this exact 31-byte native upper probe.

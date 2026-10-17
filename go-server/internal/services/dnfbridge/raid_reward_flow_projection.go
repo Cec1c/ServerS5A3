@@ -125,6 +125,19 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		packets = filtered
 	}
+	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
+	if lukePartyOnly && o.rewardScreenSent && o.rewardScreenIdentity == identity {
+		// Luke phase one has no squad screen. Updating party cards or entering
+		// standby must not re-enter state 4 and restart its current animation.
+		filtered := packets[:0]
+		for _, packet := range packets {
+			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
+				continue
+			}
+			filtered = append(filtered, packet)
+		}
+		packets = filtered
+	}
 	if len(packets) == 0 {
 		return nil
 	}
@@ -160,6 +173,13 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			_ = session.conn.Close()
 		}
 		return err
+	}
+	if lukePartyOnly {
+		for _, packet := range packets {
+			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
+				o.rewardScreenIdentity, o.rewardScreenSent = identity, true
+			}
+		}
 	}
 	o.rewardFlowIdentity, o.rewardFlowSignature = identity, signature
 	if displaySignature != [32]byte{} {

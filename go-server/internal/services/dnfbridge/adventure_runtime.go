@@ -520,6 +520,13 @@ func (s *Service) handleCurrentAdventureShopPurchase(session *gameSession, body 
 	if err != nil {
 		return s.sendGameUpperFailure(session, currentAdventureShopPurchaseMsgID, currentAdventureGenericFailureCode)
 	}
+	// The catalog retains relative PVF periods. Freeze the purchase deadline
+	// before granting, as the other reward owners do; a raw relative definition
+	// otherwise creates a row with a zero deadline and appears already expired.
+	definition, err = currentPVFItemDefinitionForGrantAt(definition, now)
+	if err != nil {
+		return s.sendGameUpperFailure(session, currentAdventureShopPurchaseMsgID, currentAdventureGenericFailureCode)
+	}
 	var result currentAdventureShopCommit
 	err = state.Repositories.CeraShopAssets.WithinCeraShopAssets(
 		ctx,
@@ -552,7 +559,10 @@ func (s *Service) handleCurrentAdventureShopPurchase(session *gameSession, body 
 			if err := runtime.Spend(category, product); err != nil {
 				return err
 			}
-			slots, err := grantCurrentCeraShopProduct(&inventory, definition, 1)
+			if err := dnfrepo.BindInventoryContainerState(ctx, state.Repositories.Settings, &inventory); err != nil {
+				return err
+			}
+			slots, err := grantCurrentCeraShopProductAt(&inventory, definition, 1, now)
 			if err != nil {
 				return err
 			}
@@ -727,8 +737,9 @@ func (s *Service) handleCurrentAdventureGrowthCapsule(session *gameSession, body
 		character = dnfrepo.CloneCharacter(character)
 		skill = dnfrepo.CloneSkill(skill)
 		account = dnfrepo.CloneAccount(account)
-		character.Level = plan.Experience.NewLevel
-		character.Stats["exp"] = int64(plan.Experience.NewExperience)
+		if err := progression.ApplyCharacterExperience(&character, &skill, plan.Experience.NewLevel, plan.Experience.NewExperience, plan.SkillPoints.New, now); err != nil {
+			return err
+		}
 		if honorExpertGain > 0 {
 			nextHonor, err := planCurrentHonorExpertProgress(honorTables, character, honorExpertGain)
 			if err != nil {

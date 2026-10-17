@@ -65,3 +65,10 @@ Run deployment preflight without a database:
 - The requested runtime profile deliberately uses a plaintext `root` DSN. Keep it loopback-only and never commit generated runtime configuration.
 
 - 客户端 EXE 发布资产在上游 GitGud Release 与本方 GitHub Release 之间直接双向同步；GitGud fork 仅用于源码贡献，不参与 Release 镜像。EXE 同步不构建或部署服务端，源码仍通过 fork 的 PR/MR 进入上游。
+
+## Repository Boundary
+
+- This online repository contains the game server only. The GM tool is an independent local system.
+- Do not commit GM UI, HTTP tool implementation, embedded startup wiring, tool configuration, or tool releases here.
+- Preserve local GM files and changes. Repository cleanup must not delete the user's local tool.
+- Shared gameplay/domain rules and server administration infrastructure may remain when used by the server; do not delete gameplay logic merely because GM also calls it.

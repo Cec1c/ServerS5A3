@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
+
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
 
 var (
@@ -54,6 +57,8 @@ type runtimeDungeonDrop struct {
 	EpicPieceBalance     uint32
 	PickupResponseBody   []byte
 	PickupItemUpdateBody []byte
+	// 本局库存使用事务已将对应堆栈用完，不再要求结算时仍有背包行。
+	ConsumptionReceipt *alignedcmd.StackableConsumption
 	// MapOwnedPassiveObject 标记"这条掉落是 op29 预生成的建筑掉落"（厂商
 	// `PassiveObjectDropEntry` / `PassiveObjectDropProjectionService.cs:122-140` 那条通道，
 	// 见 dungeon_passive_object_drop.go）：它的身份是 **scene slot**（= START_MAP 里那条
@@ -344,53 +349,176 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		selectedDrops = append(selectedDrops, plannedDrop{itemID: itemID, amount: 1})
 		return nil
 	}
+	dimensionDrops, err := currentDungeonDimensionDrops(monsterCatalog)
+	if err != nil {
+		return nil, err
+	}
+	dimensionTier, dimensionPool, dimensionMatched, err := currentDungeonDimensionDropPool(
+		dimensionDrops,
+		runtime.Dungeon.ID,
+		runtime.Character.Level,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// 当前异界地图的两种次数各自控制随机装备与指定材料；其它副本沿用既有路径。
+	randomDropAttempts, fixedDropAttempts := 1, 1
+	if dimensionMatched {
+		randomDropAttempts, err = currentDungeonMapDropAttempts(monster.Spawn.RandomDropCount, "random")
+		if err != nil {
+			return nil, err
+		}
+		fixedDropAttempts, err = currentDungeonMapDropAttempts(monster.Spawn.FixedDropCount, "specified")
+		if err != nil {
+			return nil, err
+		}
+	}
+	characterJob := byte(0)
+	characterGrowType := byte(runtime.Character.Stats["grow_type"]) & 0x0f
+	if dimensionMatched && len(dimensionDrops.ChronicleByCareer) > 0 {
+		jobValue, parseErr := strconv.ParseUint(strings.TrimSpace(runtime.Character.Job), 10, 8)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: dimension character job=%q", errCurrentDungeonDimensionDropInvalid, runtime.Character.Job)
+		}
+		characterJob = byte(jobValue)
+	}
+	selectedDimensionChronicleItems := make([]uint32, 0, randomDropAttempts)
+	selectedDimensionChronicleGroups := make([]string, 0, randomDropAttempts)
 	if probabilityFound && itemReferenceFound {
-		if rate := currentDungeonDropRate(probability.Rates[1], raw.MonsterTypeBonus[1][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
-			rarity := currentDungeonDropRarity(rng, rules)
-			itemID, selected, err := dropCatalog.SelectGenericStackable(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
-			if err != nil {
-				return nil, err
-			}
-			if selected {
-				if err := appendSelected(itemID); err != nil {
+		for attempt := 0; attempt < randomDropAttempts; attempt++ {
+			if rate := currentDungeonDropRate(probability.Rates[1], raw.MonsterTypeBonus[1][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
+				rarity := currentDungeonDropRarity(rng, rules)
+				itemID, selected, err := dropCatalog.SelectGenericStackable(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
+				if err != nil {
 					return nil, err
 				}
-			}
-		}
-		if rate := currentDungeonDropRate(probability.Rates[2], raw.MonsterTypeBonus[2][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
-			rarity := currentDungeonDropRarity(rng, rules)
-			itemID, selected, err := dropCatalog.SelectGenericEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
-			if err != nil {
-				return nil, err
-			}
-			if selected {
-				if err := appendSelected(itemID); err != nil {
-					return nil, err
+				if selected {
+					if err := appendSelected(itemID); err != nil {
+						return nil, err
+					}
 				}
 			}
-		}
-		if rate := currentDungeonDropRate(probability.Rates[3], raw.MonsterTypeBonus[3][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
-			rarity := currentDungeonDropRarity(rng, rules)
-			itemID, selected, err := dropCatalog.SelectGenericStackable(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
-			if err != nil {
-				return nil, err
+			if rate := currentDungeonDropRate(probability.Rates[2], raw.MonsterTypeBonus[2][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
+				var itemID uint32
+				var selected bool
+				if dimensionMatched && len(dimensionDrops.ChronicleByCareer) > 0 {
+					var group string
+					_, itemID, group, _, selected, err = currentDungeonDimensionChronicleItem(
+						dimensionDrops,
+						runtime.Dungeon.ID,
+						runtime.Character.Level,
+						characterJob,
+						characterGrowType,
+						rng,
+						false,
+					)
+					if err != nil {
+						return nil, err
+					}
+					if selected {
+						selectedDimensionChronicleItems = append(selectedDimensionChronicleItems, itemID)
+						selectedDimensionChronicleGroups = append(selectedDimensionChronicleGroups, group)
+					}
+				} else {
+					rarity := currentDungeonDropRarity(rng, rules)
+					itemID, selected, err = dropCatalog.SelectGenericEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
+					if err != nil {
+						return nil, err
+					}
+				}
+				if selected {
+					if err := appendSelected(itemID); err != nil {
+						return nil, err
+					}
+				}
 			}
-			if selected {
-				if err := appendSelected(itemID); err != nil {
+			if rate := currentDungeonDropRate(probability.Rates[3], raw.MonsterTypeBonus[3][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
+				rarity := currentDungeonDropRarity(rng, rules)
+				itemID, selected, err := dropCatalog.SelectGenericStackable(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
+				if err != nil {
 					return nil, err
+				}
+				if selected {
+					if err := appendSelected(itemID); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
 	}
-	if len(pool) > 0 && currentDungeonExplicitPoolRate > rng.Next(currentDungeonDropDenominator) {
-		poolEntry, selected := selectDungeonMonsterDrop(pool, uint64(rng.NextUint32()))
-		if selected {
-			if err := appendSelected(poolEntry.ItemID); err != nil {
-				return nil, err
+	dimensionCandidates := make([]uint32, 0, len(dimensionPool))
+	for _, entry := range dimensionPool {
+		dimensionCandidates = append(dimensionCandidates, entry.ItemID)
+	}
+	selectedSpecialDimensionItems := make([]uint32, 0, fixedDropAttempts*len(dimensionPool))
+	if monsterType == 0 {
+		// Normal monsters expose dimension materials only as ordinary area
+		// candidates. They therefore retain the shared 1000/10000 outer roll
+		// and cannot inherit the fixed special-monster projection.
+		pool = append(pool, dimensionPool...)
+	} else {
+		// Champion, super-champion and boss actors keep the dimension dungeon's
+		// special fixed projection. This was the original fragment path before
+		// normal monsters were separated from it; keep the PVF fixed_drop_count
+		// and every tier/group row authoritative rather than inventing another
+		// rank probability.
+		for attempt := 0; attempt < fixedDropAttempts; attempt++ {
+			for _, entry := range dimensionPool {
+				if err := appendSelected(entry.ItemID); err != nil {
+					return nil, err
+				}
+				selectedSpecialDimensionItems = append(selectedSpecialDimensionItems, entry.ItemID)
 			}
 		}
 	}
-
+	selectedPoolItems := make([]uint32, 0, fixedDropAttempts)
+	if len(pool) > 0 {
+		for attempt := 0; attempt < fixedDropAttempts; attempt++ {
+			if currentDungeonExplicitPoolRate <= rng.Next(currentDungeonDropDenominator) {
+				continue
+			}
+			poolEntry, selected := selectDungeonMonsterDrop(pool, uint64(rng.NextUint32()))
+			if selected {
+				if err := appendSelected(poolEntry.ItemID); err != nil {
+					return nil, err
+				}
+				selectedPoolItems = append(selectedPoolItems, poolEntry.ItemID)
+			}
+		}
+	}
+	if dimensionMatched {
+		eventName := "game-dungeon-monster-dimension-ordinary-pool-roll"
+		dropMode := "ordinary_pool"
+		if monsterType != 0 {
+			eventName = "game-dungeon-monster-dimension-special-rank-projection"
+			dropMode = "special_rank_fixed"
+		}
+		s.logGameEvent(nil, eventName,
+			"dungeon_id", runtime.Dungeon.ID,
+			"maze_index", runtime.MazeIndex,
+			"room", scene.Coordinate.String(),
+			"map_id", scene.Map.Map.ID,
+			"monster_id", monster.Spawn.MonsterID,
+			"monster_object_key", monster.ObjectKey,
+			"monster_rank", monster.Spawn.Rank,
+			"monster_type", monsterType,
+			"character_level", runtime.Character.Level,
+			"dimension_tier", dimensionTier,
+			"drop_mode", dropMode,
+			"ordinary_pool_rate", currentDungeonExplicitPoolRate,
+			"ordinary_pool_denominator", currentDungeonDropDenominator,
+			"ordinary_pool_attempts", fixedDropAttempts,
+			"ordinary_pool_candidate_count", len(pool),
+			"dimension_candidate_items", dimensionCandidates,
+			"selected_pool_items", selectedPoolItems,
+			"selected_special_dimension_items", selectedSpecialDimensionItems,
+			"selected_chronicle_items", selectedDimensionChronicleItems,
+			"selected_chronicle_groups", selectedDimensionChronicleGroups,
+			"chronicle_job", characterJob,
+			"chronicle_grow_type", characterGrowType,
+			"special_probability_shared", false,
+			"source", currentDungeonDimensionGatePath+"+"+currentDungeonDimensionInfoPath+"+"+currentDungeonDimensionDropListPath+"+"+currentDungeonDimensionDropExcludePath+"+rank_split_monster_template_pool")
+	}
 	specialDrops, err := currentDungeonSpecialDrops(monsterCatalog)
 	if err != nil {
 		return nil, err

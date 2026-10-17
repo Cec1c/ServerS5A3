@@ -11,14 +11,14 @@ import (
 
 	dnfaura "longheng.io/server/internal/modules/dnf/auraskin"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
-	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 const (
-	currentOpenAuraSkinSlotRequestSize = 4
-	currentOpenAuraSkinSlotFlagStat    = dnfaura.FlagStat
-	currentAuraSkinSilentRestoreSource = "current_exe_town_ui_lifecycle_marked_restore"
+	currentOpenAuraSkinSlotRequestSize      = 4
+	currentOpenAuraSkinSlotFlagStat         = dnfaura.FlagStat
+	currentAuraSkinSilentRestoreSource      = "current_exe_town_ui_lifecycle_native_actor_state"
+	currentAuraSkinSlotNativeStateBit  byte = 0x08
 )
 
 var errCurrentOpenAuraSkinSlotInvalidRequest = errors.New("current aura skin slot request invalid")
@@ -52,11 +52,7 @@ func (s *Service) handleCurrentOpenAuraSkinSlot(session *gameSession, body []byt
 			"reason", err.Error())
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketOpenAuraSkinSlot), 4)
 	}
-	// Current NoPack registration 0x1D3798F binds op863 to
-	// sub_1D25590.  Its success path consumes only the common result marker;
-	// it does not read a source slot or any other business byte.  Keep the
-	// status success marker supplied by sendGameUpperSuccess, but do not append
-	// the request's source slot to the response.
+	// 当前固定 EXE 的1/op863登记到0x1FD6330，成功应答不读取来源格位。
 	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketOpenAuraSkinSlot), nil); err != nil {
 		return err
 	}
@@ -75,14 +71,13 @@ func (s *Service) handleCurrentOpenAuraSkinSlot(session *gameSession, body []byt
 			return err
 		}
 	}
-	// The ordinary success ACK intentionally reaches sub_1D25590 once so the
-	// real expansion keeps its native effect. Follow it with the compatibility
-	// marker that mirrors the committed state into sub_26905A0's durable bit;
-	// the DLL consumes this marker without replaying the effect.
-	if err := s.sendCurrentAuraSkinSlotPersistentStateMarker(session, true, "current_exe_op863_commit"); err != nil {
+	// 扣材事务提交后，用既有原生角色刷新同步0x08权限位；当前配套没有
+	// 识别“AURA”自定义标记的DLL，不能再次把该标记当成功应答发送。
+	if err := s.sendSelectedActorMode1AppearanceRefresh(session, "open_aura_skin_slot", "op863_ack_then_material_update_then_native_actor_state"); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-current-open-aura-skin-slot-accepted",
+		"char_id", session.selectedCharacterID,
 		"source_slot", result.SourceSlot,
 		"source_item_id", result.SourceItemID,
 		"source_pvf_path", result.SourcePVFPath,
@@ -122,11 +117,8 @@ func (s *Service) commitCurrentOpenAuraSkinSlot(ctx context.Context, session *ga
 	})
 }
 
-// sendCurrentAuraSkinSlotTownUIReadyState projects the durable aura-slot flag
-// once per town UI lifecycle. Both open and closed state are explicit so a
-// process that changes characters cannot inherit the previous actor's bit.
-// The matching DLL consumes the marker without invoking op863's one-shot
-// unlock-effect handler.
+// 冷登录的开启状态由后续USERINFO完整角色状态恢复。此处只核对所属角色
+// 并记录状态，不发送未经请求的op863，以免默认锁定角色收到错误/开启效果。
 func (s *Service) sendCurrentAuraSkinSlotTownUIReadyState(session *gameSession) error {
 	if session == nil || session.selectedCharacterID == 0 {
 		return nil
@@ -170,33 +162,13 @@ func (s *Service) sendCurrentAuraSkinSlotTownUIReadyState(session *gameSession) 
 		return fmt.Errorf("aura skin state character %s account mismatch", characterID)
 	}
 	opened := character.Stats != nil && character.Stats[currentOpenAuraSkinSlotFlagStat] != 0
-	if err := s.sendCurrentAuraSkinSlotPersistentStateMarker(session, opened, currentAuraSkinSilentRestoreSource); err != nil {
-		resetGate()
-		return err
-	}
-	return nil
-}
-
-func (s *Service) sendCurrentAuraSkinSlotPersistentStateMarker(session *gameSession, opened bool, source string) error {
-	state := byte(0)
-	if opened {
-		state = 1
-	}
-	body := []byte{state, 'A', 'U', 'R', 'A'}
-	s.logGameEvent(session, "game-current-aura-skin-slot-state-send",
-		"source", source,
+	s.logGameEvent(session, "game-current-aura-skin-slot-state-ready",
+		"source", currentAuraSkinSilentRestoreSource,
 		"char_id", session.selectedCharacterID,
-		"msg_id", uint16(dnfenum.CmdPacketOpenAuraSkinSlot),
-		"classification", dnfproto.DefaultChannelClassification,
-		"body_len", len(body),
 		"opened", opened,
-		"restore_mode", "marked_persistent_native_state_without_unlock_effect")
-	return s.sendGameUpperRawClass(
-		session,
-		uint16(dnfenum.CmdPacketOpenAuraSkinSlot),
-		body,
-		dnfproto.DefaultChannelClassification,
-	)
+		"native_slot_state", currentExtraEquipmentSlotState(character),
+		"wire_owner", "后续原生USERINFO角色状态，不发送开启动画应答")
+	return nil
 }
 
 type currentAuraSkinCatalog struct {

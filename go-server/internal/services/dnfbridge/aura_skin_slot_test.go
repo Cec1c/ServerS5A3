@@ -1,9 +1,9 @@
 package dnfbridge
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"testing"
 
@@ -87,12 +87,12 @@ func TestCurrentOpenAuraSkinSlotConsumesPVFTicketAndPersistsFlag(t *testing.T) {
 		binary.LittleEndian.Uint32(row[6:10]) != 0 {
 		t.Fatalf("remove row=%x", row[:10])
 	}
-	marker, rest := splitGameServerUpperPacket(t, rest)
-	if len(rest) != 0 || marker.Header.Classification != dnfproto.DefaultChannelClassification ||
-		marker.Header.MsgID != uint16(dnfenum.CmdPacketOpenAuraSkinSlot) ||
-		!bytes.Equal(marker.Body, []byte{1, 'A', 'U', 'R', 'A'}) {
-		t.Fatalf("persistent marker header=%+v body=%x trailing=%d", marker.Header, marker.Body, len(rest))
+	refresh, rest := splitGameServerUpperPacket(t, rest)
+	if len(rest) != 0 || refresh.Header.Classification != 0 ||
+		refresh.Header.MsgID != uint16(dnfenum.CmdPacketSetUDPIPPort) {
+		t.Fatalf("native aura state header=%+v trailing=%d", refresh.Header, len(rest))
 	}
+	assertAuraSlotNativeState(t, refresh.Body, 0x08)
 }
 
 func TestCurrentOpenAuraSkinSlotAlreadyOpenDoesNotConsumeAgain(t *testing.T) {
@@ -138,13 +138,58 @@ func TestCurrentOpenAuraSkinSlotAlreadyOpenDoesNotConsumeAgain(t *testing.T) {
 	if ack.Header.MsgID != uint16(dnfenum.CmdPacketOpenAuraSkinSlot) || len(ack.Body) != 1 || ack.Body[0] != 1 {
 		t.Fatalf("already-open ack header=%+v body=%x", ack.Header, ack.Body)
 	}
-	marker, rest := splitGameServerUpperPacket(t, rest)
-	if len(rest) != 0 || !bytes.Equal(marker.Body, []byte{1, 'A', 'U', 'R', 'A'}) {
-		t.Fatalf("already-open marker=%x trailing=%d", marker.Body, len(rest))
+	refresh, rest := splitGameServerUpperPacket(t, rest)
+	if len(rest) != 0 || refresh.Header.MsgID != uint16(dnfenum.CmdPacketSetUDPIPPort) || refresh.Header.Classification != 0 {
+		t.Fatalf("already-open native aura state=%+v trailing=%d", refresh.Header, len(rest))
+	}
+	assertAuraSlotNativeState(t, refresh.Body, 0x08)
+}
+
+func TestCurrentAuraSkinSlotMissingMaterialKeepsDefaultLocked(t *testing.T) {
+	for _, itemID := range []int64{0, 42} {
+		t.Run(fmt.Sprintf("材料编号%d", itemID), func(t *testing.T) {
+			ctx := context.Background()
+			repositories := dnfrepomemory.NewMemoryGroup()
+			if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1"}); err != nil {
+				t.Fatal(err)
+			}
+			inventory := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{}}
+			if itemID != 0 {
+				inventory.Slots["0:122"] = dnfrepo.ItemStack{ItemID: itemID, Count: 2}
+			}
+			if err := repositories.Inventory.Save(ctx, inventory); err != nil {
+				t.Fatal(err)
+			}
+			service := &Service{
+				options:            options{accountID: "account-1", gameUpperHeader: gameUpperHeaderChannel13, gameUpperBodyCodec: gameUpperBodyCodecPlain},
+				pvfItemCatalog:     mustTestAuraSkinSlotCatalog(t),
+				repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+			}
+			conn := &bufferConn{}
+			session := &gameSession{conn: conn, selectedCharacterID: 19}
+			var request [4]byte
+			binary.LittleEndian.PutUint32(request[:], 122)
+			if err := service.handleCurrentOpenAuraSkinSlot(session, request[:]); err != nil {
+				t.Fatal(err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			if len(rest) != 0 || len(ack.Body) != 2 || ack.Body[0] != 0 {
+				t.Fatalf("missing ticket ACK=%x trailing=%d", ack.Body, len(rest))
+			}
+			character, _, err := repositories.Character.Load(ctx, "19")
+			if err != nil || character.Stats[currentOpenAuraSkinSlotFlagStat] != 0 {
+				t.Fatalf("unpaid aura state=%v error=%v", character.Stats, err)
+			}
+			assertAuraSlotNativeState(t, service.buildCurrentSelectedUserInfoMode1Body(ctx, session, nil, character, true, 19), 0)
+			after, _, err := repositories.Inventory.Load(ctx, "19")
+			if err != nil || len(after.Slots) != len(inventory.Slots) || after.Slots["0:122"].Count != inventory.Slots["0:122"].Count {
+				t.Fatalf("rejected ticket changed inventory=%v error=%v", after.Slots, err)
+			}
+		})
 	}
 }
 
-func TestCurrentAuraSkinSlotTownUIReadyStateSendsMarkedRestoreOnce(t *testing.T) {
+func TestCurrentAuraSkinSlotTownUIReadyStateUsesNativeRestoreWithoutUnsolicitedAck(t *testing.T) {
 	ctx := context.Background()
 	repositories := dnfrepomemory.NewMemoryGroup()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
@@ -167,18 +212,17 @@ func TestCurrentAuraSkinSlotTownUIReadyStateSendsMarkedRestoreOnce(t *testing.T)
 	if err := service.sendCurrentAuraSkinSlotTownUIReadyState(session); err != nil {
 		t.Fatalf("send duplicate aura restore: %v", err)
 	}
-	packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
-	if len(rest) != 0 {
-		t.Fatalf("unexpected duplicate aura restore bytes=%d", len(rest))
+	if conn.write.Len() != 0 {
+		t.Fatalf("cold login sent unsolicited aura ACK bytes=%d", conn.write.Len())
 	}
-	if packet.Header.MsgID != uint16(dnfenum.CmdPacketOpenAuraSkinSlot) ||
-		packet.Header.Classification != dnfproto.DefaultChannelClassification ||
-		!bytes.Equal(packet.Body, []byte{1, 'A', 'U', 'R', 'A'}) {
-		t.Fatalf("aura restore header=%+v body=%x", packet.Header, packet.Body)
+	character, _, err := repositories.Character.Load(ctx, "19")
+	if err != nil {
+		t.Fatal(err)
 	}
+	assertAuraSlotNativeState(t, service.buildCurrentSelectedUserInfoMode1Body(ctx, session, nil, character, true, 19), 0x08)
 }
 
-func TestCurrentAuraSkinSlotTownUIReadyStateSendsClosedState(t *testing.T) {
+func TestCurrentAuraSkinSlotTownUIReadyStateKeepsDefaultLockedWithoutUnsolicitedAck(t *testing.T) {
 	ctx := context.Background()
 	repositories := dnfrepomemory.NewMemoryGroup()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
@@ -198,12 +242,14 @@ func TestCurrentAuraSkinSlotTownUIReadyStateSendsClosedState(t *testing.T) {
 	if err := service.sendCurrentAuraSkinSlotTownUIReadyState(session); err != nil {
 		t.Fatalf("check closed aura slot: %v", err)
 	}
-	packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
-	if len(rest) != 0 || packet.Header.MsgID != uint16(dnfenum.CmdPacketOpenAuraSkinSlot) ||
-		packet.Header.Classification != dnfproto.DefaultChannelClassification ||
-		!bytes.Equal(packet.Body, []byte{0, 'A', 'U', 'R', 'A'}) {
-		t.Fatalf("closed aura state header=%+v body=%x trailing=%d", packet.Header, packet.Body, len(rest))
+	if conn.write.Len() != 0 {
+		t.Fatalf("locked character received unsolicited aura ACK bytes=%d", conn.write.Len())
 	}
+	character, _, err := repositories.Character.Load(ctx, "19")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAuraSlotNativeState(t, service.buildCurrentSelectedUserInfoMode1Body(ctx, session, nil, character, true, 19), 0)
 }
 
 func mustTestAuraSkinSlotCatalog(t *testing.T) *pvfDungeonDropCatalog {

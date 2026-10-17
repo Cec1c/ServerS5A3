@@ -28,6 +28,7 @@ type CheckoutChanges struct {
 	Inventory bool
 	Equipment bool
 	Settings  bool
+	Skill     bool
 }
 
 type CheckoutAssets struct {
@@ -38,6 +39,8 @@ type CheckoutAssets struct {
 	Settings       *dnfrepo.SettingsRecord
 	EquipmentFound bool
 	SettingsFound  bool
+	Skill          *dnfrepo.SkillRecord
+	SkillFound     bool
 }
 
 type CheckoutProjector func(*CheckoutAssets) (CheckoutChanges, error)
@@ -48,6 +51,7 @@ type CheckoutCommand struct {
 	SettingsScope string
 	Cost          int64
 	UpdatedAt     time.Time
+	IncludeSkills bool
 	Project       CheckoutProjector
 }
 
@@ -89,7 +93,19 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 	}
 
 	var result CheckoutResult
-	err := o.assets.WithinCeraShopAssets(
+	within := func(ctx context.Context, accountID, characterID, scope string, apply func(dnfrepo.AccountRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository, dnfrepo.SettingsRepository, dnfrepo.SkillRepository) error) error {
+		return o.assets.WithinCeraShopAssets(ctx, accountID, characterID, scope, func(a dnfrepo.AccountRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository, s dnfrepo.SettingsRepository) error {
+			return apply(a, c, i, e, s, nil)
+		})
+	}
+	if command.IncludeSkills {
+		extended, ok := o.assets.(dnfrepo.CeraShopSkillAssetUnitOfWork)
+		if !ok {
+			return CheckoutResult{}, ErrOwnerUnavailable
+		}
+		within = extended.WithinCeraShopSkillAssets
+	}
+	err := within(
 		ctx,
 		accountID,
 		characterID,
@@ -100,6 +116,7 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 			inventories dnfrepo.InventoryRepository,
 			equipment dnfrepo.EquipmentRepository,
 			settings dnfrepo.SettingsRepository,
+			skills dnfrepo.SkillRepository,
 		) error {
 			if accounts == nil || characters == nil || inventories == nil || equipment == nil || settings == nil {
 				return ErrOwnerUnavailable
@@ -143,6 +160,21 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 				settingsRecord = dnfrepo.SettingsRecord{Scope: settingsScope}
 			}
 
+			skillRecord := dnfrepo.SkillRecord{CharacterID: characterID}
+			skillFound := false
+			if command.IncludeSkills {
+				if skills == nil {
+					return ErrOwnerUnavailable
+				}
+				skillRecord, skillFound, err = skills.Load(ctx, characterID)
+				if err != nil {
+					return err
+				}
+				if !skillFound {
+					skillRecord.CharacterID = characterID
+				}
+				skillRecord = dnfrepo.CloneSkill(skillRecord)
+			}
 			account = dnfrepo.CloneAccount(account)
 			character = dnfrepo.CloneCharacter(character)
 			inventory = dnfrepo.CloneInventory(inventory)
@@ -164,6 +196,7 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 				Settings:       &settingsRecord,
 				EquipmentFound: equipmentFound,
 				SettingsFound:  settingsFound,
+				Skill:          &skillRecord, SkillFound: skillFound,
 			}
 			changes, err := command.Project(assets)
 			if err != nil {
@@ -195,6 +228,15 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 			if changes.Settings {
 				settingsRecord.UpdatedAt = now
 				if err := dnfrepo.SaveSettingsFields(ctx, settings, settingsRecord, dnfrepo.SettingsFieldValues); err != nil {
+					return err
+				}
+			}
+			if changes.Skill {
+				if !command.IncludeSkills || skills == nil {
+					return ErrOwnerUnavailable
+				}
+				skillRecord.UpdatedAt = now
+				if err := dnfrepo.SaveSkillFields(ctx, skills, skillRecord, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldPoints, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldTrees); err != nil {
 					return err
 				}
 			}

@@ -418,13 +418,16 @@ func TestCurrentFinishQuestProfessionCommitPublishesCurrentEXEStateOrder(t *test
 	clearQuestIndex := indexMessage(currentClearQuestListMsgID)
 	activeIndex := indexMessage(currentActiveQuestSnapshotMsgID)
 	acceptableIndex := indexMessage(currentAcceptableQuestListMsgID)
-	// 2026-09-26：转职/觉醒提交后必须补发一次 op19 技能表（见
-	// sendCurrentProfessionFinishPostCommitSnapshots 注释）。面板类 mode1/mode3 仍然禁止；
-	// 顺序保持 角色状态 → 技能表 → 任务列表。
-	if !(mode0 == -1 && mode1 == -1 && mode3 == -1 &&
-		characterIndex > 0 && skillIndex > characterIndex &&
-		clearQuestIndex > skillIndex && activeIndex > clearQuestIndex && acceptableIndex > activeIndex) {
+	// 身份必须携带事务提交后的 grow_type；数值/技能通知没有该字段。
+	// ACK → typed mode0 职业身份 → 数值 → 技能 → 任务；面板类 mode1/mode3 保持禁止。
+	if !(mode0 > 0 && mode1 == -1 && mode3 == -1 &&
+		characterIndex > mode0 && skillIndex > characterIndex &&
+		activeIndex > skillIndex && clearQuestIndex > activeIndex && acceptableIndex > clearQuestIndex) {
 		t.Fatalf("profession order ack=0 skill=%d mode0=%d mode1=%d mode3=%d character=%d clear=%d active=%d acceptable=%d ids=%v", skillIndex, mode0, mode1, mode3, characterIndex, clearQuestIndex, activeIndex, acceptableIndex, finishBridgePacketIDs(packets))
+	}
+	if body := packets[mode0].Body; binary.LittleEndian.Uint16(body[5+0x47:5+0x47+2]) != 19 ||
+		body[actorGrowByteStart(character.Name)] != 2 {
+		t.Fatalf("转职身份仍为旧值或角色不符: %x", body)
 	}
 	if len(packets[skillIndex].Body) == 0 {
 		t.Fatalf("profession op19 skill body is empty")
@@ -509,7 +512,7 @@ func TestCurrentQuestFinishItemAllocatorUsesDeltaInAckAndPostCountInInventory(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.CountOrSeed != 2 || first.PostCount != 2 || second.CountOrSeed != 3 || second.PostCount != 5 {
+	if len(first) != 1 || len(second) != 1 || first[0].CountOrSeed != 2 || first[0].PostCount != 2 || second[0].CountOrSeed != 3 || second[0].PostCount != 5 {
 		t.Fatalf("allocator receipts first=%+v second=%+v", first, second)
 	}
 	stack := record.Slots["0:65"]
@@ -537,13 +540,17 @@ func TestCurrentQuestFinishItemAllocatorInstantiatesEquipmentUsablePeriod(t *tes
 	}
 	record := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{}}
 	before := time.Now().UTC().Add(2 * 24 * time.Hour)
-	receipt, err := currentQuestFinishItemAllocator(catalog)(&record, dnfquest.FinishItemGrantRequest{
+	receipts, err := currentQuestFinishItemAllocator(catalog)(&record, dnfquest.FinishItemGrantRequest{
 		QuestID: 3272, CompletionKey: "quest-finish/19/3272", Source: "pvf",
 		ItemID: 100300883, Count: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(receipts) != 1 {
+		t.Fatalf("限时装备回执数量=%d", len(receipts))
+	}
+	receipt := receipts[0]
 	after := time.Now().UTC().Add(2 * 24 * time.Hour)
 	stack := record.Slots[receipt.SlotKey]
 	if stack.ExpireAt.Before(before.Add(-time.Second)) || stack.ExpireAt.After(after.Add(time.Second)) ||
@@ -769,12 +776,12 @@ func TestCurrentFinishQuestWithoutLevelOrSPDeltaSkipsFullCharacterPackets(t *tes
 	}
 	packets := splitAllFinishBridgePackets(t, connection.write.Bytes())
 	if len(packets) != 3 ||
-		packets[0].Header.Classification != 0 || packets[0].Header.MsgID != currentClearQuestListMsgID ||
-		packets[1].Header.Classification != 0 || packets[1].Header.MsgID != currentActiveQuestSnapshotMsgID ||
+		packets[0].Header.Classification != 0 || packets[0].Header.MsgID != currentActiveQuestSnapshotMsgID ||
+		packets[1].Header.Classification != 0 || packets[1].Header.MsgID != currentClearQuestListMsgID ||
 		packets[2].Header.Classification != 0 || packets[2].Header.MsgID != currentAcceptableQuestListMsgID {
 		t.Fatalf("no-delta finish packets=%v", finishBridgePacketIDs(packets))
 	}
-	assertFinishBridgeClearQuestProjection(t, packets[0], 8581)
+	assertFinishBridgeClearQuestProjection(t, packets[1], 8581)
 	assertFinishBridgeNoPersonalInfoSnapshots(t, packets)
 	for _, packet := range packets {
 		if packet.Header.MsgID == currentDungeonCharacterStateMsgID || packet.Header.MsgID == currentSkillInfoMsgID {
@@ -1134,7 +1141,7 @@ func assertFinishBridgePostCommitOrder(t *testing.T, packets []dnfproto.ChannelP
 		}
 		stateStart = mode1
 	}
-	if !(ack == 0 && character > stateStart && skill > character && clearQuest > skill && active > clearQuest && acceptable > active) {
+	if !(ack == 0 && character > stateStart && skill > character && active > skill && clearQuest > active && acceptable > clearQuest) {
 		t.Fatalf("post-commit order ack=%d item=%d mode1=%d mode3=%d clear=%d acceptable=%d active=%d character=%d skill=%d packets=%v",
 			ack, item, mode1, mode3, clearQuest, acceptable, active, character, skill, finishBridgePacketIDs(packets))
 	}
@@ -1415,7 +1422,7 @@ func finishBridgeProgression(t *testing.T) *progression.Tables {
 }
 
 func finishBridgeAllocator(fail error) dnfquest.FinishItemAllocator {
-	return func(record *dnfrepo.InventoryRecord, request dnfquest.FinishItemGrantRequest) (dnfquest.FinishCommittedItem, error) {
+	return func(record *dnfrepo.InventoryRecord, request dnfquest.FinishItemGrantRequest) ([]dnfquest.FinishCommittedItem, error) {
 		if record.Slots == nil {
 			record.Slots = make(map[string]dnfrepo.ItemStack)
 		}
@@ -1431,9 +1438,9 @@ func finishBridgeAllocator(fail error) dnfquest.FinishItemAllocator {
 		binary.LittleEndian.PutUint32(raw[6:10], uint32(postCount))
 		record.Slots[key] = dnfrepo.ItemStack{ItemID: request.ItemID, Count: postCount, RawEntry: append([]byte(nil), raw...)}
 		if fail != nil {
-			return dnfquest.FinishCommittedItem{}, fail
+			return nil, fail
 		}
-		return dnfquest.FinishCommittedItem{SlotKey: key, SlotIndex: slot, ItemID: request.ItemID, Delta: request.Count, PostCount: postCount, CountOrSeed: uint32(request.Count), RawEntry: raw}, nil
+		return []dnfquest.FinishCommittedItem{{SlotKey: key, SlotIndex: slot, ItemID: request.ItemID, Delta: request.Count, PostCount: postCount, CountOrSeed: uint32(request.Count), RawEntry: raw}}, nil
 	}
 }
 

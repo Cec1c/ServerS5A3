@@ -58,9 +58,9 @@ func (r *csharpLegacyUserInfoReader) buildCSharpUserInfoSubtype1(character dnfre
 	// （tree index 字节 + 两个 0x00）。on 档见 peer_skill_page.go，位置与 A21
 	// UserInfoSubtype1Builder.cs:59-62 的 SkillTreeIndex/WriteSkillPage×2 相同。
 	if peerSkillPageEnabled() {
-		writePeerSkillPageBlock(&w, rowStatU8(row, character, "skill_tree_index", 0), r.loadPeerSkillPageSkills(character.CharacterID))
+		writePeerSkillPageBlock(&w, r.skillTreeWireIndex(character), r.loadPeerSkillPageSkills(character.CharacterID))
 	} else {
-		w.writeByte(rowStatU8(row, character, "skill_tree_index", 0))
+		w.writeByte(r.skillTreeWireIndex(character))
 		w.writeByte(0)
 		w.writeByte(0)
 	}

@@ -484,3 +484,49 @@ func TestTownLegacyDispatchReachesTeleportPotionHandler(t *testing.T) {
 		t.Fatalf("teleport potion was not consumed exactly once: %+v", inventory.Slots["0:65"])
 	}
 }
+
+func TestParseCurrentTeleportPotionRequestCarriesRequestedArea(t *testing.T) {
+	cases := []struct {
+		name     string
+		bodyHex  string
+		wantArea int64
+		wantX    int64
+		wantY    int64
+	}{
+		{name: "death_valley_area_5", bodyHex: "06004eac2700002605e5017e01", wantArea: 5, wantX: 485, wantY: 382},
+		{name: "main_area_0", bodyHex: "06004eac27000026007805f900", wantArea: 0, wantX: 1400, wantY: 249},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := hex.DecodeString(tc.bodyHex)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := parseCurrentTeleportPotionRequest(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if request.TownID != 38 || !request.HasTargetArea || request.TargetAreaID != tc.wantArea {
+				t.Fatalf("request=%+v want town=38 has_area=true area=%d", request, tc.wantArea)
+			}
+			if !request.HasClickPoint || request.ClickX != tc.wantX || request.ClickY != tc.wantY {
+				t.Fatalf("request=%+v want click=(%d,%d)", request, tc.wantX, tc.wantY)
+			}
+		})
+	}
+	// 旧 8 字节体没有区域字段：HasTargetArea 必须为 false，区域交给改动前的选择链。
+	legacy, err := parseCurrentTeleportPotionRequest(buildTeleportPotionRequest(65, 2600014, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.HasTargetArea {
+		t.Fatalf("legacy 8-byte body must not claim a requested area: %+v", legacy)
+	}
+}
+
+// Explicit destination in the 13-byte current-client body.
+func buildTeleportPotionAreaClickRequest(slot int16, itemCode int32, townID, areaID byte, x, y int64) []byte {
+	body := buildTeleportPotionClickRequest(slot, itemCode, townID, x, y)
+	body[8] = areaID
+	return body
+}

@@ -3,7 +3,8 @@ package dnfbridge
 // op25 equipment-design-drawing owner. Wire evidence: current-client-contracts/
 // resume02 and recipe-row-proof03 (v97 EXE bb42898c...531). Decode only the
 // proven 7B source/u8 mode/u16 count and 9B form with tail 00 01. Item-ID
-// mode is decoded but rejected: its drawing ownership/consumption is unproven.
+// mode resolves a ready town NPC's PVF product-item menu without consuming a
+// drawing. Ordinary item-shop listings do not grant production permission.
 // Slot mode consumes count drawings from that unlocked main-bag row, following
 // A21 TryConsumeFromSlot(RequestedCount); PVF itself does not encode this policy.
 //
@@ -490,7 +491,7 @@ func buildCurrentEquipmentRecipeCompoundSuccessBody() []byte {
 // Consume through the existing recipe projector, but expose only each item's
 // durable owner. Historical character copies of warehouse items are never money.
 // Copy the resulting rows back to their owners only after all balances pass.
-func (s *Service) consumeCurrentEquipmentRecipeCompoundMaterials(assets *dnfexpertjob.Assets, materials []dnfexpertjob.RecipeEntry, gold int64) (bool, error) {
+func (s *Service) consumeCurrentRecipeMaterials(assets *dnfexpertjob.Assets, materials []dnfexpertjob.RecipeEntry, gold int64) (bool, error) {
 	view := dnfrepo.CloneInventory(*assets.Inventory)
 	for key, stack := range view.Slots {
 		list, slot, ok := parseSceneInventorySlotKey(key)
@@ -627,6 +628,14 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return currentEquipmentRecipeCompoundResult{}, errCurrentEquipmentRecipeCompoundUnavailable
 	}
+	var productionIdentity boundGameSessionCharacter
+	if request.SourceIsItemID {
+		var bound bool
+		productionIdentity, bound = s.boundGameSessionCharacterSnapshot(session)
+		if !bound {
+			return currentEquipmentRecipeCompoundResult{}, errCurrentEquipmentRecipeCompoundSourceInvalid
+		}
+	}
 	items, err := s.currentPVFItemCatalog()
 	if err != nil {
 		return currentEquipmentRecipeCompoundResult{}, err
@@ -651,6 +660,9 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 		return currentEquipmentRecipeCompoundResult{}, errCurrentEquipmentRecipeCompoundUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+	if request.SourceIsItemID {
+		characterID = strconv.FormatUint(uint64(productionIdentity.character), 10)
+	}
 	now := s.gameplayNow()
 
 	var result currentEquipmentRecipeCompoundResult
@@ -662,7 +674,13 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if assets == nil || assets.Character == nil || assets.Inventory == nil || assets.AccountInventory == nil {
 				return dnfexpertjob.Changes{}, errCurrentEquipmentRecipeCompoundUnavailable
 			}
-			source, err := currentEquipmentRecipeCompoundSourceStack(assets.Inventory, request)
+			var source currentEquipmentRecipeCompoundSource
+			var err error
+			if request.SourceIsItemID {
+				source, err = s.currentNPCProductionSource(productionIdentity, items.source, request)
+			} else {
+				source, err = currentEquipmentRecipeCompoundSourceStack(assets.Inventory, request)
+			}
 			if err != nil {
 				return dnfexpertjob.Changes{}, err
 			}
@@ -673,11 +691,27 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if !found {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d is not a [recipe] design drawing", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID)
 			}
-			if reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); reason != "" {
+			var upgrade *currentEquipmentRecipeUpgradePlan
+			if entry.MaintainAbility == "normal" && !request.SourceIsItemID {
+				document, err := currentEquipmentRecipeUpgradeDocument(entry, recipes.source)
+				if err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
+				level, present, err := currentEquipmentRecipeCompoundQualificationTokens(document, "minimum level")
+				if err != nil || (present && int64(assets.Character.Level) < level[0].Int) {
+					return dnfexpertjob.Changes{}, errCurrentEquipmentRecipeCompoundSourceInvalid
+				}
+				upgrade, err = planCurrentEquipmentRecipeUpgrade(entry, items, assets.Inventory, request.Count)
+				if err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
+			} else if reason := currentEquipmentRecipeCompoundRejectReason(entry, recipes.source); reason != "" {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d reason=%s", errCurrentEquipmentRecipeCompoundUnsupported, source.ItemID, reason)
 			}
-			if err := currentEquipmentRecipeCompoundSourceQualification(entry, recipes.source, assets.Character); err != nil {
-				return dnfexpertjob.Changes{}, err
+			if upgrade == nil {
+				if err := currentEquipmentRecipeCompoundSourceQualification(entry, recipes.source, assets.Character); err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
 			}
 			if source.Count < request.Count {
 				return dnfexpertjob.Changes{}, fmt.Errorf("%w: item=%d slot=%d count=%d need=%d",
@@ -691,11 +725,25 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			if err != nil {
 				return dnfexpertjob.Changes{}, err
 			}
+			materialCount, outputCount := len(materials), len(outputs)
 			// 以上全部是只读判定；下面才开始写入，且都在同一个克隆事务里。
-			if err := currentEquipmentRecipeCompoundConsumeSource(assets.Inventory, source, request.Count); err != nil {
-				return dnfexpertjob.Changes{}, err
+			if !request.SourceIsItemID {
+				if err := currentEquipmentRecipeCompoundConsumeSource(assets.Inventory, source, request.Count); err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
 			}
-			accountDirty, err := s.consumeCurrentEquipmentRecipeCompoundMaterials(assets, materials, goldCost)
+			if upgrade != nil {
+				// Remove exactly the chosen equipment instance. The generic material
+				// consumer must not choose a different row of the same template.
+				delete(assets.Inventory.Slots, upgrade.Key)
+				for i, material := range materials {
+					if material.ItemID == upgrade.Stack.ItemID {
+						materials = append(materials[:i], materials[i+1:]...)
+						break
+					}
+				}
+			}
+			accountDirty, err := s.consumeCurrentRecipeMaterials(assets, materials, goldCost)
 			if err != nil {
 				if errors.Is(err, errCurrentExpertJobInsufficientMaterials) {
 					return dnfexpertjob.Changes{}, fmt.Errorf("%w: %v", errCurrentEquipmentRecipeCompoundMaterials, err)
@@ -703,6 +751,13 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 				return dnfexpertjob.Changes{}, err
 			}
 			granted := make([]int16, 0, len(outputs))
+			if upgrade != nil {
+				if err := applyCurrentEquipmentRecipeUpgrade(assets.Inventory, upgrade); err != nil {
+					return dnfexpertjob.Changes{}, err
+				}
+				granted = append(granted, upgrade.Slot)
+				outputs = nil
+			}
 			for _, output := range outputs {
 				if fixed, shared := dnfrepo.AccountWarehouseSlotForItem(int64(output.Definition.ItemID)); shared {
 					// Never fall back to a character copy of an account-owned item.
@@ -729,10 +784,13 @@ func (s *Service) commitCurrentEquipmentRecipeCompound(ctx context.Context, sess
 			result = currentEquipmentRecipeCompoundResult{
 				RecipeItemID: source.ItemID,
 				SourceSlot:   source.Slot,
-				Materials:    len(materials),
+				Materials:    materialCount,
 				GoldSpent:    goldCost,
-				Outputs:      len(outputs),
+				Outputs:      outputCount,
 				GrantedSlots: granted,
+			}
+			if request.SourceIsItemID && !s.boundGameSessionCharacterCurrent(productionIdentity) {
+				return dnfexpertjob.Changes{}, errCurrentEquipmentRecipeCompoundSourceInvalid
 			}
 			return dnfexpertjob.Changes{Character: goldCost > 0, Inventory: true, AccountInventory: accountDirty}, nil
 		},

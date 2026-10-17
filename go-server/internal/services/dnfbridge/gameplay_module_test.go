@@ -68,9 +68,12 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"emblem-compound",
 		"expert-job",
 		"equipment-recipe-compound",
+		"equipment-regeneration",
+		"equipment-emancipate",
 		"booster-item",
 		"equipment-rental",
 		"epic-production",
+		"epic-book",
 		"guardian-gem",
 		"equipment-socket",
 		"equipment-emblem-control",
@@ -79,6 +82,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"item-grade-adjust",
 		"equipment-effect",
 		"aura-skin-slot",
+		"carry-gold",
 		"quest",
 		"dungeon-navigation",
 		"dungeon-combat-drop",
@@ -94,6 +98,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"emotion",
 		"joust",
 		"collectbox",
+		"chronicle-refine",
 		"web-viewer",
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
@@ -116,6 +121,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	legacyOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",
 		uint16(dnfenum.CmdPacketBuyItem):                        "npc-shop",
@@ -152,6 +158,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketDropItem):                       "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketDieMonster):                     "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketGetItem):                        "dungeon-combat-drop",
+		uint16(dnfenum.CmdPacketEnchant3rdChronicleItem):        "chronicle-refine",
 		uint16(dnfenum.CmdPacketDieCharacter):                   "dungeon-death-revive",
 		uint16(dnfenum.CmdPacketScoreScrollState):               "dungeon-settlement-card",
 		uint16(dnfenum.CmdPacketCardSelectRightState):           "dungeon-settlement-card",
@@ -177,6 +184,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	upperOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
 		uint16(dnfenum.CmdPacketShopPurchaseCount):              "npc-shop",
@@ -196,6 +204,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketDieMonster):                     "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketGetItem):                        "dungeon-combat-drop",
 		uint16(dnfenum.CmdPacketBossDieCheck):                   "dungeon-combat-drop",
+		uint16(dnfenum.CmdPacketEnchant3rdChronicleItem):        "chronicle-refine",
 		uint16(dnfenum.CmdPacketDieCharacter):                   "dungeon-death-revive",
 		uint16(dnfenum.CmdPacketUseCoin):                        "dungeon-death-revive",
 		uint16(dnfenum.CmdPacketSetPlayResult):                  "dungeon-settlement-card",

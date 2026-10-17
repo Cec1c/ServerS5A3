@@ -63,7 +63,7 @@ func (s *Service) alignedMagicBoxResolversForCommand(opcode dnfenum.CmdPacket) (
 		premiumCatalog = nil
 	}
 	return func(boxItemID int64) (alignedcmd.MagicBoxResolution, error) {
-			return resolveCurrentMagicBox(catalog, source, boxItemID)
+			return resolveCurrentInventoryMagicBox(catalog, source, boxItemID)
 		}, func(itemID int64) (alignedcmd.MagicBoxRewardItem, error) {
 			item, err := resolveCurrentMagicBoxRewardItem(catalog, source, itemID)
 			if err != nil {
@@ -72,6 +72,28 @@ func (s *Service) alignedMagicBoxResolversForCommand(opcode dnfenum.CmdPacket) (
 			item.PremiumType, item.PremiumDurationSeconds = currentMagicBoxRewardContract(premiumCatalog, itemID)
 			return item, nil
 		}, nil
+}
+
+// resolveCurrentInventoryMagicBox excludes prices that the inventory-only owner cannot settle.
+func resolveCurrentInventoryMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source, boxItemID int64) (alignedcmd.MagicBoxResolution, error) {
+	resolution, err := resolveCurrentMagicBox(catalog, source, boxItemID)
+	if err != nil || resolution.Kind == "" {
+		return resolution, err
+	}
+	document, err := parseDungeonCardPVFDocument(source, resolution.BoxPVFPath)
+	if err != nil {
+		return alignedcmd.MagicBoxResolution{}, err
+	}
+	cost, _, err := currentLotteryOpeningGold(document)
+	if err != nil {
+		return alignedcmd.MagicBoxResolution{}, err
+	}
+	// This inventory/mailbox owner cannot charge character gold. Paid
+	// lottery jars must use the atomic lottery/booster owner instead.
+	if cost > 0 {
+		return alignedcmd.MagicBoxResolution{}, fmt.Errorf("paid lottery item=%d requires lottery owner", boxItemID)
+	}
+	return resolution, nil
 }
 
 // currentMagicBoxRewardContract reports the runtime-PVF contract mapping of one
@@ -117,6 +139,9 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 		return alignedcmd.MagicBoxResolution{}, fmt.Errorf("parse magic box item=%d path=%s: %w", boxItemID, definition.PVFPath, err)
 	}
 	resolution.BoxPVFPath = definition.PVFPath
+	if _, _, err := currentLotteryOpeningGold(document); err != nil {
+		return alignedcmd.MagicBoxResolution{}, err
+	}
 
 	switch normalizeMagicBoxPVFType(magicBoxDocumentText(document, "stackable type")) {
 	case "upgradable legacy":
@@ -127,7 +152,7 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 		if len(values) == 0 || len(values)%3 != 0 {
 			return alignedcmd.MagicBoxResolution{}, fmt.Errorf("legacy jar item=%d invalid reward triples", boxItemID)
 		}
-		group, err := weightedMagicBoxBoosterGroup(append([]int64{1}, values...), 3)
+		group, err := weightedMagicBoxLotteryGroup(append([]int64{1}, values...), 3)
 		if err != nil {
 			return alignedcmd.MagicBoxResolution{}, err
 		}
@@ -283,14 +308,23 @@ func parseMagicBoxBoosterGroup(name string, values []int64) (alignedcmd.MagicBox
 
 // weightedMagicBoxBoosterGroup reads the leading DrawCount and the
 // (item, weight, count) head of every fixed-width row. A zero item id is the
-// PVF's explicit "no item" placeholder row and contributes nothing; a negative
+// PVF's explicit "no item" placeholder in ordinary boosters. Legacy lottery
+// jars instead use item zero for a weighted gold reward. A negative
 // item id, a negative weight or a non-positive count is a malformed table and
 // rejects the whole box instead of dropping value silently.
 func weightedMagicBoxBoosterGroup(values []int64, stride int) (alignedcmd.MagicBoxRewardGroup, error) {
+	return weightedMagicBoxGroup(values, stride, false)
+}
+
+func weightedMagicBoxLotteryGroup(values []int64, stride int) (alignedcmd.MagicBoxRewardGroup, error) {
+	return weightedMagicBoxGroup(values, stride, true)
+}
+
+func weightedMagicBoxGroup(values []int64, stride int, allowGold bool) (alignedcmd.MagicBoxRewardGroup, error) {
 	group := alignedcmd.MagicBoxRewardGroup{DrawCount: maxMagicBoxInt(values[0], 1)}
 	for index := 1; index+2 < len(values); index += stride {
 		itemID, weight, count := values[index], values[index+1], values[index+2]
-		if itemID == 0 {
+		if itemID == 0 && !allowGold {
 			continue
 		}
 		if itemID < 0 || weight < 0 || count < 1 {
@@ -394,7 +428,8 @@ func resolveMagicBoxNeedMaterial(document *dnfpvf.Document, boxItemID int64) (in
 	// changing a revival booster must not silently waive a working jar cost.
 	if normalizeMagicBoxPVFType(magicBoxDocumentText(document, "stackable type")) == "upgradable legacy" {
 		ints = document.Ints("lottery use need item")
-		if len(ints) == 0 {
+		_, explicitPrice := document.Section("lottery use cost")
+		if len(ints) == 0 && !explicitPrice {
 			ints = document.Ints("need material")
 		}
 		if len(ints) >= 2 && ints[0] > 0 && ints[1] > 0 && ints[0] != boxItemID {
@@ -456,7 +491,7 @@ func resolveCurrentMagicBoxRewardItem(catalog *pvfDungeonDropCatalog, source dnf
 		return alignedcmd.MagicBoxRewardItem{}, fmt.Errorf("parse magic box reward item=%d path=%s: %w", itemID, definition.PVFPath, err)
 	}
 	attachType := normalizeMagicBoxPVFType(magicBoxDocumentText(document, "attach type"))
-	item.Seal = attachType == "sealing"
+	item.Seal = attachType == "sealing" || currentNewPVFEquipmentSealFlag(definition) != 0
 	// 与 dungeon_drop_catalog.go:244 同口径的三键回退（提取为 firstPositivePVFInt）：
 	// 这里要的是"新造实例的满耐久"，即 PVF 的最大耐久，而不是当前耐久 ——
 	// 消费方 packageitem/owner.go:784 与 :865 把同一个值同时写进 Extra 的

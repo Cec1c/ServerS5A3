@@ -72,7 +72,7 @@ func TestWornEquipmentRequiredSkillRowsOnlyPicksItemsThatNameASkill(t *testing.T
 		"12": {SlotIndex: 12, ItemID: auditBeamswordID, Extra: map[string]string{"pvf_path": auditBeamswordPath}},
 		"11": {SlotIndex: 11, ItemID: auditClubID, Extra: map[string]string{"pvf_path": auditClubPath}},
 	}
-	rows, unreadable := wornEquipmentRequiredSkillRows(auditWeaponSource(), entries)
+	rows, unreadable := wornEquipmentRequiredSkillRows(auditWeaponSource(), entries, 0)
 	if unreadable != 0 {
 		t.Fatalf("unreadable=%d, want 0", unreadable)
 	}
@@ -83,8 +83,8 @@ func TestWornEquipmentRequiredSkillRowsOnlyPicksItemsThatNameASkill(t *testing.T
 	if row.Slot != 12 || row.ItemID != auditBeamswordID {
 		t.Fatalf("row=%+v, want slot 12 item %d", row, auditBeamswordID)
 	}
-	if len(row.RequiredIDs) != 2 || row.RequiredIDs[0] != auditLightSwordID || row.RequiredIDs[1] != 95 {
-		t.Fatalf("required ids=%v, want [33 95] (deduplicated, ascending)", row.RequiredIDs)
+	if len(row.RequiredIDs) != 1 || row.RequiredIDs[0] != auditLightSwordID {
+		t.Fatalf("required ids=%v, want [33] for job 0", row.RequiredIDs)
 	}
 }
 
@@ -116,22 +116,6 @@ func TestEvaluateEquipRequirementsIsPresenceOnly(t *testing.T) {
 	// 钝器那种"没有要求"的行走不进判读，所以它永远不会被判成 missing。
 	if got := loginEquipRequirementRowsText(nil); got != "none" {
 		t.Fatalf("empty rows text = %q, want none", got)
-	}
-}
-
-// `[required job skill]` 是**按职业分行的候选表**（现场光剑：`[swordman] 33
-// [demonic swordman] 33 [at swordman] 95`）。角色只拥有自己 job 列表里的技能，
-// 所以"任意一个被下发"就是满足；另一个职业那一份落在 missing[] 里只是信息。
-func TestEvaluateEquipRequirementsTreatsTheJobListAsAlternatives(t *testing.T) {
-	rows := []loginEquipRequiredSkillRow{{
-		Slot: 12, ItemID: auditBeamswordID, PVFPath: auditBeamswordPath, RequiredIDs: []int64{33, 95},
-	}}
-	statuses := evaluateEquipRequirements(rows, map[int64]int{33: 10})
-	if len(statuses) != 1 || !statuses[0].ServedOK {
-		t.Fatalf("skill 33 alone must satisfy the row: %+v", statuses)
-	}
-	if got := loginEquipRequirementRowsText(statuses); got != "12:101040493:req[33,95]:served[33:10]:missing[95]:served" {
-		t.Fatalf("rows text = %q", got)
 	}
 }
 
@@ -206,7 +190,7 @@ func TestRealPVFBeamswordNamesLightSwordMasteryAndTheClubNamesNothing(t *testing
 		"12": {SlotIndex: 12, ItemID: auditBeamswordID, Extra: map[string]string{"pvf_path": auditBeamswordPath}},
 		"11": {SlotIndex: 11, ItemID: auditClubID, Extra: map[string]string{"pvf_path": auditClubPath}},
 	}
-	rows, unreadable := wornEquipmentRequiredSkillRows(archive, entries)
+	rows, unreadable := wornEquipmentRequiredSkillRows(archive, entries, 0)
 	if unreadable != 0 {
 		t.Fatalf("unreadable rows=%d, want 0", unreadable)
 	}
@@ -305,9 +289,8 @@ func TestRealPVFBeamswordAuditLogNamesTheSkillAndTheServedLevel(t *testing.T) {
 		false,
 	)
 	// 真档光剑的要求表是 `[swordman] 33 [demonic swordman] 33 [at swordman] 95`：
-	// 本角色（job 0）只可能有 33，所以 `served[33:10]` 就够了；95 是另一个职业那一份，
-	// 它出现在 missing[] 里是**信息**而不是判负。
-	if !strings.Contains(log, "rows=12:101040493:req[33,95]:served[33:10]:missing[95]:served") ||
+	// 本角色（job 0）的要求是33；95属于另一职业，不能进入本角色的要求或缺失列表。
+	if !strings.Contains(log, "rows=12:101040493:req[33]:served[33:10]:missing[-]:served") ||
 		!strings.Contains(log, "verdict=all_requirements_served") {
 		t.Fatalf("the beamsword row must name skill 33 and its served level; log=\n%s", log)
 	}
@@ -322,8 +305,8 @@ func TestRealPVFBeamswordAuditLogNamesTheSkillAndTheServedLevel(t *testing.T) {
 		dnfrepo.SkillLayout{57: auditBluntMasteryID},
 		true,
 	)
-	if !strings.Contains(missingLog, "rows=12:101040493:req[33,95]:served[-]:missing[33,95]:missing") ||
-		!strings.Contains(missingLog, "required_skill_ids=[33 95]") ||
+	if !strings.Contains(missingLog, "rows=12:101040493:req[33]:served[-]:missing[33]:missing") ||
+		!strings.Contains(missingLog, "required_skill_ids=[33]") ||
 		!strings.Contains(missingLog, "verdict=worn_item_requirement_not_in_served_skill_page") {
 		t.Fatalf("missing event must name the required ids and the verdict; log=\n%s", missingLog)
 	}

@@ -184,6 +184,10 @@ func (s *Service) reconcileCurrentMailAttachmentExpirations(
 				// 绝对 [expiration date]"续期到 2028-01-01。邮件/背包/仓库/领取共用同一个
 				// 常量与同一个判据，同一道具在各处得到的到期时间必然一致；重复修补幂等。
 				definition.ExpirationDate = currentPVFRenewedRetiredExpirationDate(definition.ExpirationDate, now)
+				if initializeCurrentSystemMailEquipmentSeal(mail, attachment, definition) {
+					mailChanged = true
+					changed++
+				}
 				// 附件行是按"道具类型"分叉编码的：当前客户端的 [creature] 附件走 type-26
 				// 分支，会先多读一个 dword + 一个 flag。GM 面板发的邮件不带任何 Extra，
 				// 于是那个分支不触发、客户端按错误长度解析整封邮件列表 —— 线上实测就是

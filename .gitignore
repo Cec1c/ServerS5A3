@@ -18,3 +18,12 @@ channel_info.etc
 Thumbs.db
 __pycache__/
 *.pyc
+
+# GM is a separate local system; never publish its implementation here.
+/go-server/internal/services/gmtool/
+/go-server/internal/services/dnfbridge/gmtool_service.go
+/go-server/cmd/server/control/gm_environment_regression_test.go
+/go-server/cmd/server/doctor/gm_doctor_preflight_regression_test.go
+/gm-tool/
+/gmtool/
+/go-server/internal/services/dnfbridge/gm_administrative_membership.go

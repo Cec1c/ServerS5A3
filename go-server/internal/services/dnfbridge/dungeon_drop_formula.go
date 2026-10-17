@@ -22,6 +22,15 @@ var (
 	errCurrentDungeonGoldReferenceInvalid = errors.New("current dungeon gold PVF reference is invalid")
 )
 
+var errCurrentDungeonMapDropCountInvalid = errors.New("异界地图掉落次数无效")
+
+func currentDungeonMapDropAttempts(value int64, kind string) (int, error) {
+	if value < 0 || value > math.MaxUint8 {
+		return 0, fmt.Errorf("%w: kind=%s count=%d", errCurrentDungeonMapDropCountInvalid, kind, value)
+	}
+	return int(value), nil
+}
+
 // currentDungeonDropLCG is the room PRNG algorithm used by the verified C#
 // domain implementation.  Its state is persisted in the room visit, not
 // reconstructed from a monster key, so sequential kills consume the same

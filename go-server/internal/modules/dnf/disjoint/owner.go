@@ -42,14 +42,15 @@ type Command struct {
 // Owner owns character/account authorization plus the atomic account
 // warehouse and character inventory write used by all three gameplays.
 type Owner struct {
-	assets dnfrepo.AccountCharacterAssetUnitOfWork
+	settings dnfrepo.SettingsRepository
+	assets   dnfrepo.AccountCharacterAssetUnitOfWork
 }
 
 func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.AccountAssets == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{assets: repositories.AccountAssets}, nil
+	return &Owner{settings: repositories.Settings, assets: repositories.AccountAssets}, nil
 }
 
 func (o *Owner) DisjointEquipment(ctx context.Context, command Command) error {
@@ -124,6 +125,9 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		accountInventory.AccountID = accountID
 		if accountInventory.Slots == nil {
 			accountInventory.Slots = make(map[string]dnfrepo.ItemStack)
+		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
 

@@ -4,6 +4,7 @@ package dnfbridge
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/packageitem"
 	"longheng.io/server/internal/modules/dnf/party"
 	"longheng.io/server/internal/modules/dnf/pet"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	"longheng.io/server/internal/modules/dnf/quest"
 	"longheng.io/server/internal/modules/dnf/raid"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -49,6 +51,9 @@ var gameAlignedRegistry = alignedcmd.NewRegistry(
 // handleAlignedGameCommand 把协议号已对齐、但尚未落业务实现的命令归入模块边界。
 // 当前只记录分流证据，不伪造成功 ACK；具体回包必须等对应模块按 EXE/日志补齐。
 func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ uint16, body []byte) (bool, error) {
+	if handled, err := s.handleCurrentMonsterCardCommand(session, typ, body); handled || err != nil {
+		return handled, err
+	}
 	if session != nil && dnfenum.CmdPacket(typ) == dnfenum.CmdPacketMoveItemspace {
 		// Keep the durable move, ACK, changed-slot rows and immediate appearance
 		// projection in the same order as a taken 200ms appearance callback.
@@ -81,8 +86,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			return handled, err
 		}
 	}
-	// 任务完成券（`[gm quest clear]` / `[lv clear]`）右键用的是 op515 action 167；
-	// 这条动作号此前没有 handler，客户端因此等不到任何回包（"右键使用无反应"）。
+	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
@@ -257,6 +261,22 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			"selected_character_id", session.selectedCharacterID,
 			"type", typ,
 			"error", magicBoxCatalogErr)
+	}
+	// op438 锻造（别升级 / separate upgrade）的运行时 PVF 真源：等级/材料表 +
+	// 材料身份（便携式锻造炉 / 锻造券 / 幸运锻造券）+ 目标的武器/品级/稀有度/耐久。
+	// 只有 op438 会拿到它，其它命令连 PVF 目录都不开（见 forging_pvf.go）。
+	forgingResolver, forgingResolverErr := s.alignedForgingResolverForCommand(dnfenum.CmdPacket(typ))
+	if forgingResolverErr != nil {
+		s.logPacketEvent("game-aligned-forging-resolver-unavailable",
+			"conn_id", session.connID,
+			"account_id", accountID,
+			"selected_character_id", session.selectedCharacterID,
+			"type", typ,
+			"error", forgingResolverErr)
+		s.logInfo("dnfbridge forging resolver unavailable",
+			"selected_character_id", session.selectedCharacterID,
+			"type", typ,
+			"error", forgingResolverErr)
 	}
 	// 开盒子（op208/op1128）在 changed_only 档下要知道"这次开盒写到了哪些容器"：
 	// 把 bridge 自己的奖励模板解析器包一层，packageitem 每解析一个**实际发放**的
@@ -468,16 +488,50 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			return true, nil
 		}
 	}
+	consumptionSnapshot := s.prepareDungeonConsumptionSnapshot(session, repos, typ, body)
+	// op438 的请求体归桥接层解（forging_codec.go 是唯一解包点）：畸形帧也要回失败体，
+	// 否则客户端就在等一条永远不会到的回包（现场缺陷：锻造窗口关不掉）。
+	var forgingRequest *alignedcmd.ForgingRequest
+	var forgingWire *currentForgingRequest
+	if dnfenum.CmdPacket(typ) == dnfenum.CmdPacketUpgradeItemSeparate {
+		decoded, decodeErr := decodeCurrentForgingRequest(body)
+		if decodeErr != nil {
+			ack := buildCurrentForgingFailureAck(currentForgingFailureInvalidTarget)
+			s.logPacketEvent("game-forging-request-rejected",
+				"conn_id", session.connID,
+				"channel_id", session.channel.ID,
+				"account_id", accountID,
+				"selected_character_id", session.selectedCharacterID,
+				"type", typ,
+				"runtime_cmd_name", runtimeCmdPacketName(cmd, typ),
+				"body_len", len(body),
+				"reason", "decode_failed",
+				"error", decodeErr,
+				"returned_ack_hex", hex.EncodeToString(ack))
+			return true, s.sendGameUpperRawClass(session, typ, ack, dnfproto.DefaultChannelClassification)
+		}
+		forgingRequest = &alignedcmd.ForgingRequest{
+			List:         decoded.List,
+			Slot:         decoded.Slot,
+			ItemID:       decoded.ItemID,
+			MaterialSlot: decoded.MaterialSlot,
+			Name:         decoded.Name,
+			Confirmation: decoded.Confirmation,
+		}
+		forgingWire = &decoded
+	}
 	session.party.mu.Lock()
 	result, ok, err := gameAlignedRegistry.Route(context.Background(), alignedcmd.Request{
 		Command:                      cmd,
 		CommandKnown:                 true,
 		Opcode:                       typ,
-		Body:                         body,
+		Body:                         currentSkillSlotRequestBody(typ, body),
 		AccountID:                    accountID,
 		SelectedCharacterID:          session.selectedCharacterID,
 		Repositories:                 repos,
 		EquipmentPlacement:           equipmentPlacement,
+		InventoryItemPlacement:       s.currentInventoryMovePlacement,
+		InventoryCargoInsert:         s.currentInventoryCargoInsert,
 		AvatarClassifier:             s.currentCloneAvatarClassifier(),
 		NameTagChecker:               func(itemID uint32) bool { return s.currentIsNameTagItem(itemID) },
 		PetHatchResolver:             petHatchResolver,
@@ -486,8 +540,13 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		RandomOptionResolver:         randomOptionResolver,
 		UpgradeTicketResolver:        upgradeTicketResolver,
 		UpgradePolicyResolver:        upgradePolicyResolver,
+		UpgradeCostResolver:          s.candidateUpgradeCostResolver(session),
 		UpgradeProtectTicketResolver: upgradeProtectTicketResolver,
 		UpgradeRateBuffResolver:      upgradeRateBuffResolver,
+		ForgingResolver:              forgingResolver,
+		Forging:                      forgingRequest,
+		ExperienceBuffResolver:       s.experienceBuffResolver(dnfenum.CmdPacket(typ)),
+		ExperienceBuffNow:            s.gameplayNow(),
 		MagicBoxResolver:             magicBoxResolver,
 		MagicBoxRewardItemResolver:   magicBoxRewardResolver,
 		RandomRewardItemResolver:     randomRewardItemResolver,
@@ -524,6 +583,42 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	if err != nil || !ok {
 		return ok, err
 	}
+	// op438：class1 438 回包体由桥接层按领域结果组装（协议形状只在这一层）。
+	// 成功/掷点失败回 13 字节体，校验类拒绝回 0 + u8 error；两条都要发，
+	// 客户端才会走完"结束锻造 UI"的回调。改动行的逐槽 op14 增量由
+	// result.ItemSlotRefreshes 在 ACK 之后照常发出（只覆盖主背包 list 0）。
+	if result.Forging != nil && forgingWire != nil {
+		ack := buildCurrentForgingOutcomeAck(*forgingWire, result.Forging)
+		result.UpperResponses = append([]alignedcmd.UpperResponse{{
+			MsgID:          typ,
+			Body:           ack,
+			Classification: dnfproto.DefaultChannelClassification,
+			AllowCodec:     true,
+		}}, result.UpperResponses...)
+		s.logPacketEvent("game-forging-command-response",
+			"conn_id", session.connID,
+			"channel_id", session.channel.ID,
+			"account_id", accountID,
+			"selected_character_id", session.selectedCharacterID,
+			"type", typ,
+			"runtime_cmd_name", runtimeCmdPacketName(cmd, typ),
+			"operation", result.Operation,
+			"rejected", result.Forging.Rejected,
+			"error_code", result.Forging.ErrorCode,
+			"target_list", result.Forging.TargetList,
+			"target_slot", result.Forging.TargetSlot,
+			"material_slot", result.Forging.MaterialSlot,
+			"material_remaining", result.Forging.MaterialRemaining,
+			"old_level", result.Forging.OldLevel,
+			"new_level", result.Forging.NewLevel,
+			"roll_succeeded", result.Forging.Succeeded,
+			"portable_furnace", result.Forging.PortableFurnace,
+			"ticket_applied", result.Forging.TicketApplied,
+			"level_changed", result.Forging.LevelChanged,
+			"ack_hex", hex.EncodeToString(ack),
+			"slot_refreshes", len(result.ItemSlotRefreshes))
+	}
+	s.commitDungeonConsumptionSnapshot(session, consumptionSnapshot, result)
 	// delta 档：模块已经把奖励写进库了，这里立刻算差分并把逐槽增量挂到
 	// `result.ItemSlotRefreshes`（`sendAlignedUpperResponses` 会在 ACK 之后无条件发成
 	// class0/msg14），同时把仍需整容器的例外容器记到会话上供后置动作读取。
@@ -667,7 +762,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 
 func alignedSkillOwnerRulesRequired(opcode dnfenum.CmdPacket) bool {
 	switch opcode {
-	case dnfenum.CmdPacketChangeSkillslot, dnfenum.CmdPacketBuySkill, dnfenum.CmdPacketSkillInit:
+	case dnfenum.CmdPacketChangeSkillslot, dnfenum.CmdPacketBuySkill, dnfenum.CmdPacketSkillInit, dnfenum.CmdPacketChangeAnotherSkillTree:
 		return true
 	default:
 		return false
@@ -691,7 +786,7 @@ func (s *Service) skillOwnerRules(ctx context.Context, repos dnfrepo.Group, char
 		s.logInfo("dnfbridge skill rules unavailable", "character_id", characterID, "job", job, "error", err)
 		return nil, nil, nil
 	}
-	points, err := s.initialSkillPoints(ctx, record.Level)
+	points, err := s.currentPVFSkillPointTarget(ctx, record)
 	if err != nil {
 		s.logInfo("dnfbridge skill point baseline unavailable", "character_id", characterID, "level", record.Level, "error", err)
 		return nil, nil, nil
@@ -720,15 +815,66 @@ func (s *Service) skillOwnerRules(ctx context.Context, repos dnfrepo.Group, char
 // sendAlignedUpperResponses 发送模块返回的真实 upper 响应。
 // 模块给出的 Body 已经是完整业务包体，不能再统一套成功字节。
 func (s *Service) sendAlignedUpperResponses(session *gameSession, result alignedcmd.Result) error {
+	if err := s.sendWornEquipmentMutationSlots(session, result.Operation, result.WornEquipmentSlotRefreshes); err != nil {
+		return err
+	}
+	authoritativeLists := currentAuthoritativeListRefreshSet(result.AuthoritativeListRefreshes)
+	handledLists := make(map[byte]bool, len(authoritativeLists))
 	for _, response := range result.UpperResponses {
-		if err := s.sendGameUpperRawClassCodec(session, response.MsgID, response.Body, response.Classification, response.AllowCodec); err != nil {
+		if listType, ok := currentAuthoritativeListRefreshListType(response, authoritativeLists); ok {
+			handledLists[listType] = true
+			body, source, entryCount, built := s.buildCurrentAuthoritativeListRefreshBody(session, listType)
+			if !built {
+				// 权威投影建不出来时绝不退回模块那份仓库快照：op13 是整表替换，那份快照
+				// 正是 2026-10-14 现场抹掉钱包行/账号共享格/品级的来源。只跳过这一条刷新，
+				// 后面的 class1 ACK 必须照发（落库已经完成，ACK 不能丢）。
+				s.logPacketEvent("game-upper-authoritative-list-refresh-skipped",
+					"conn_id", session.connID,
+					"operation", result.Operation,
+					"char_id", session.selectedCharacterID,
+					"list_type", listType,
+					"reason", "authoritative_projection_unavailable")
+				continue
+			}
+			s.logPacketEvent("game-upper-authoritative-list-refresh-send",
+				"conn_id", session.connID,
+				"operation", result.Operation,
+				"char_id", session.selectedCharacterID,
+				"msg_id", response.MsgID,
+				"classification", response.Classification,
+				"list_type", listType,
+				"entry_count", entryCount,
+				"body_len", len(body),
+				"body_source", source,
+				"source", "session_projection_replaces_module_snapshot")
+			if err := s.sendGameUpperRawClassCodec(session, response.MsgID, body, response.Classification, response.AllowCodec); err != nil {
+				return err
+			}
+			continue
+		}
+		wireBody, err := currentSkillSlotResponseBody(response)
+		if err != nil {
 			return err
 		}
+		if err := s.sendGameUpperRawClassCodec(session, response.MsgID, wireBody, response.Classification, response.AllowCodec); err != nil {
+			return err
+		}
+	}
+	for listType := range authoritativeLists {
+		if handledLists[listType] {
+			continue
+		}
+		s.logPacketEvent("game-upper-authoritative-list-refresh-missing",
+			"conn_id", session.connID,
+			"operation", result.Operation,
+			"char_id", session.selectedCharacterID,
+			"list_type", listType,
+			"reason", "no_matching_class0_refresh_response")
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
 	}
-	refreshCombatPowerAffixes := false
+	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
 	for _, action := range result.PostActions {
 		if alignedPostActionTouchesCombatPower(action) {
 			refreshCombatPowerAffixes = true

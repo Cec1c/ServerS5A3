@@ -10,7 +10,7 @@ func TestLegacyGMSettingRequiresMigration(t *testing.T) {
 		if err := validateInstance(cfg); err != nil {
 			t.Fatal(err)
 		}
-		cfg.Server.GMListen = "127.0.0.1:18112"
+		cfg.Server.LegacyGMListen = "127.0.0.1:18112"
 		if err := validateInstance(cfg); err == nil || !strings.Contains(err.Error(), "independent DNF90GM") {
 			t.Fatalf("legacy GM setting must explicitly require migration: %v", err)
 		}

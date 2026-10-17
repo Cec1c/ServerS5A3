@@ -11,6 +11,11 @@ func questGameplayModule() gameplayModuleDefinition {
 	return gameplayModuleDefinition{
 		Name: "quest",
 		LegacyHandlers: map[uint16]gameplayHandler{
+			// The current selective-plaintext client sends the same four-byte
+			// op32 echo/quest request through the legacy command route.
+			giveUpOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
+				return service.handleCurrentGiveUpQuest(session, request.Body)
+			},
 			// handleGameCommand has already admitted cmd1. The legacy
 			// registry does not carry classification into gameplayRequest.
 			currentQuestManualCheckOpcode: func(s *Service, session *gameSession, request gameplayRequest) error {
@@ -23,6 +28,10 @@ func questGameplayModule() gameplayModuleDefinition {
 			},
 			// The selective DPROTO route carries class-1 op33 through the
 			// legacy decoder and still requires the durable owner plus ACK.
+			// The paired client's task UI sends op32 through the legacy cmd1 route.
+			giveUpOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
+				return service.handleCurrentGiveUpQuest(session, request.Body)
+			},
 			triggerOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
 				return service.handleCurrentSetQuestTrigger(session, request.Body)
 			},
