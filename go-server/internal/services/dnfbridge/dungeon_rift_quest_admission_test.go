@@ -114,9 +114,10 @@ func TestRealPVFRiftPartyRefusesBeforeAnyMemberRuntimeOrDebit(t *testing.T) {
 		t.Fatal(e)
 	}
 	packet, rest := splitGameServerUpperPacket(t, leader.conn.(*bufferConn).write.Bytes())
-	if len(rest) != 0 || packet.Header.MsgID != 16 || !bytes.Equal(packet.Body, []byte{0, currentSelectDungeonMissingPermissionReason, 0}) {
+	if packet.Header.MsgID != 16 || !bytes.Equal(packet.Body, []byte{0, currentSelectDungeonInvalidSelectionStateReason, 0}) {
 		t.Fatalf("not one explicit permission refusal: msg=%d body=%x rest=%d", packet.Header.MsgID, packet.Body, len(rest))
 	}
+	assertRiftUnlockSystemText(t, rest, "队伍中有角色尚未完成魔界裂缝的入场前置任务，无法进入。")
 	for _, id := range []string{"6", "72"} {
 		bag, _, _ := f.repos.Inventory.Load(ctx, id)
 		ch, _, _ := f.repos.Character.Load(ctx, id)

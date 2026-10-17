@@ -5,11 +5,54 @@ import (
 	"errors"
 	"fmt"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
 var errDungeonMapQuestRequired = errors.New("dungeon map unlock quest is incomplete")
+
+// Preserve the failing identity through wrapped preparation errors. The
+// current client's 0xad message also depends on its local entry counter, so
+// a roster slot alone cannot reliably express a missing unlock quest.
+type dungeonMapQuestRequiredError struct {
+	characterID uint16
+	dungeonID   int64
+	questID     int64
+}
+
+func (e *dungeonMapQuestRequiredError) Error() string {
+	return fmt.Sprintf("%s: character=%d dungeon=%d quest=%d", errDungeonMapQuestRequired, e.characterID, e.dungeonID, e.questID)
+}
+
+func (e *dungeonMapQuestRequiredError) Unwrap() error { return errDungeonMapQuestRequired }
+
+func (s *Service) sendCurrentRiftUnlockFailure(session *gameSession, err error) error {
+	var failure *dungeonMapQuestRequiredError
+	if !errors.As(err, &failure) || !s.currentRiftEntryEnabled(failure.dungeonID) {
+		return s.sendSelectDungeonFailure(session, currentSelectDungeonMissingPermissionReason)
+	}
+	// Reuse the established failure ACK and native system-text channel. 0x13
+	// does not select a possibly unrelated party member's entry-limit popup.
+	if sendErr := s.sendSelectDungeonFailure(session, currentSelectDungeonInvalidSelectionStateReason); sendErr != nil {
+		return sendErr
+	}
+	message := "队伍中有角色尚未完成魔界裂缝的入场前置任务，无法进入。"
+	if failure.characterID == sessionSelectedCharacterID(session) {
+		message = "尚未完成魔界裂缝的入场前置任务，无法进入。"
+	}
+	encoded, encodeErr := simplifiedchinese.GBK.NewEncoder().Bytes([]byte(message))
+	if encodeErr != nil {
+		return encodeErr
+	}
+	var writer packetWriter
+	writer.writeByte(0)
+	writer.writeUint16(0xffff)
+	writer.writeByte(0)
+	writer.writeRawDstr(encoded)
+	writer.writeRawDstr(nil)
+	return s.sendGameUpperRawClass(session, currentAreaChatNotifyOpcode, writer.bytes(), 0)
+}
 
 // Scope is the current client's particular-hell map. Other worldmap marker
 // forms need their own evidence before generalising this admission rule.
@@ -49,7 +92,7 @@ func (s *Service) validateCurrentRiftUnlock(ctx context.Context, session *gameSe
 	}
 	_, cleared := dungeonQuestStateSets(record)
 	if _, ok := cleared[required]; !ok {
-		return fmt.Errorf("%w: character=%d dungeon=%d quest=%d", errDungeonMapQuestRequired, id, dungeon.ID, required)
+		return &dungeonMapQuestRequiredError{characterID: id, dungeonID: dungeon.ID, questID: required}
 	}
 	return nil
 }
