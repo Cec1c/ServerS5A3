@@ -32,6 +32,8 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 	extra := stack.Extra
 	raw := append([]byte(nil), stack.RawEntry...)
 	entry := currentItemListEntryFromRaw(raw, extra)
+	entry.independentExpiration = currentGiftBoxInstanceHasIndependentExpiration(extra)
+	entry.expirationProvenanceKnown = true
 	currentApplyChronicleOptionsToEntry(&entry, extra)
 	entry.patchCore(slot, sceneInventoryUint32FromInt64(stack.ItemID), currentItemListStackAmount(listType, stack))
 	if currentItemListStackIsAvatar(listType, stack) {
