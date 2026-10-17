@@ -92,6 +92,7 @@ func TestEnsureSaveFail567r4(t *testing.T) {
 			t.Setenv(op19PlayerFlagEnv, "")
 			t.Setenv(op19PlayerFlagQuietEnv, "")
 			f := newLoginWearBridgeFixture(t)
+			f.service.pvfItemCatalog = currentCargoFixtureCatalog(t)
 			ctx := context.Background()
 			if err := f.group.Inventory.Save(ctx, dnfrepo.InventoryRecord{
 				CharacterID: key,

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSplitV56LoginBeforeLegacyAndAcrossReads(t *testing.T) {
-	for _, size := range []int{606, 610} {
+	for _, size := range []int{594, 606, 610} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			body := make([]byte, size)
 			binary.LittleEndian.PutUint32(body, 1)
@@ -30,7 +30,7 @@ func TestSplitV56LoginBeforeLegacyAndAcrossReads(t *testing.T) {
 			}
 		})
 	}
-	for _, size := range []int{605, 607, 609, 611} {
+	for _, size := range []int{593, 595, 605, 607, 609, 611} {
 		if isKnownClientUpperMsg(1, make([]byte, size)) {
 			t.Fatalf("accepted adjacent length %d", size)
 		}

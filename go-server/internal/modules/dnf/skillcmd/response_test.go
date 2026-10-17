@@ -63,7 +63,7 @@ func TestBuildBuySkillSuccessMatchesCurrentEXEReader(t *testing.T) {
 }
 
 func TestBuildBuySkillSuccessRejectsUnprovenTree(t *testing.T) {
-	_, err := BuildBuySkillSuccess(MutationResult{SkillTree: 1})
+	_, err := BuildBuySkillSuccess(MutationResult{SkillTree: 2})
 	if !errors.Is(err, ErrSkillTree) {
 		t.Fatalf("BuildBuySkillSuccess() error = %v, want ErrSkillTree", err)
 	}

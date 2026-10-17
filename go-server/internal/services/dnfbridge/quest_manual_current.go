@@ -137,10 +137,12 @@ func (s *Service) handleCurrentQuestManualCommit(session *gameSession, body []by
 	s.logGameEvent(session, "game-current-quest-manual-committed", "char_id", identity.character,
 		"cutoff_level", cutoff, "changed_main_count", len(result.ChangedQuestIDs),
 		"changed_sub_count", len(result.ChangedLinkedSubIDs), "reward_granted", false, "item_consumed", false)
-	if err := s.sendCurrentClearQuestListFromCommittedQuest(session, result.PostCommitQuest, "current_manual_1454_committed"); err != nil {
+	// Native op574 with no active rows clears the completed-prerequisite
+	// lookup. Publish it before op356 restores the committed bitmap.
+	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_manual_1454_committed"); err != nil {
 		return err
 	}
-	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_manual_1454_committed"); err != nil {
+	if err := s.sendCurrentClearQuestListFromCommittedQuest(session, result.PostCommitQuest, "current_manual_1454_committed"); err != nil {
 		return err
 	}
 	return s.sendCurrentAcceptableQuestListOnlyForSession(session, "current_manual_1454_committed")

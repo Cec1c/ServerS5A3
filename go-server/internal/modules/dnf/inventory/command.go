@@ -5,12 +5,18 @@ package inventory
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
+	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // Command 是 inventory handler 交给后续 inventory/equipment/wallet owner 的最小命令计划。
 type Command struct {
+	ItemPlacement          func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	CargoInsert            func(dnfrepo.ItemStack, byte) error
 	Operation              string
 	AccountID              string
 	SelectedCharacterID    uint16
@@ -55,14 +61,22 @@ type Command struct {
 	Category               byte
 	Condition              byte
 	NeedsOwner             string
+	// SortLock / SortLockRequested 承接 op713/714 的位置锁意图（DOC-067）：
+	// SortLock 由 opcode 决定（713=锁、714=解锁），不是 toggle。
+	SortLock          bool
+	SortLockRequested bool
 	// Upgrade policy fields (populated by dnfbridge from PVF table).
 	// SuccessWeight is out of 100000; >= 100000 means guaranteed success.
 	UpgradeSuccessWeight int
 	// PenaltyType: 0=fail no change, 1=downgrade, 3=destroy.
 	UpgradePenaltyType int
 	// MaterialItemID/Count are the runtime-PVF upgrade table requirement.
-	UpgradeMaterialItemID int
-	UpgradeMaterialCount  int
+	UpgradeMaterialItemID  int
+	UpgradeMaterialCount   int
+	UpgradeCostResolver    alignedcmd.UpgradeCostResolver
+	UpgradeNPCPresent      bool
+	UpgradeNPCID           uint16
+	UpgradeNPCMaterialSlot int16
 	// DestroyBonusItemID/Count: compensation item on destruction.
 	UpgradeDestroyBonusItemID int
 	UpgradeDestroyBonusCount  int
@@ -92,11 +106,16 @@ type Command struct {
 	// UseUpgradeBuff 非空表示这次 op44 用的是「强化/增幅成功率 buff 药水」：
 	// 扣掉药水之后要把 buff 记进角色 Stats（同一个角色资产事务），op50 掷点时再读。
 	// 为零 = 普通消耗品（既有行为）。见 upgrade_rate_buff.go。
-	UseUpgradeBuff *alignedcmd.UpgradeRateBuffResolution
+	UseUpgradeBuff    *alignedcmd.UpgradeRateBuffResolution
+	UseExperienceBuff *experiencebuff.Effect
+	ExperienceBuffNow time.Time
 	// StackableUseProvenanceResolver 是 op44/op251 的**运行时 PVF 身份**解析器，
 	// 由 alignedcmd.Request 透传（见 use_upgrad_buff.go 的"PVF 优先、元数据兜底"判据）。
 	// 为零 = 只用库存元数据判定 = 改动前的行为（所有既有调用方与测试无需改动）。
 	StackableUseProvenanceResolver alignedcmd.StackableUseProvenanceResolver
+	// ForgingConfirmation 是 op438 请求尾字节。当前 EXE 把它当发送函数参数传入，
+	// 取值域没有证据（见 Docs/D33_FORGING_20261014.md），因此只做日志、不参与校验。
+	ForgingConfirmation byte
 }
 
 // NewDeleteCommand 构造删除物品命令计划。
@@ -118,11 +137,16 @@ func NewDeleteCommand(req alignedcmd.Request, parsed DeleteRequest) Command {
 // NewMoveCommand 构造移动或拆分物品命令计划。
 func NewMoveCommand(req alignedcmd.Request, parsed MoveItemspaceRequest) Command {
 	cmd := baseCommand(req, "move_itemspace", "inventory/equipment/cargo owner + mutation id + backpack/USERINFO/NOTI order")
+	cmd.CargoInsert = req.InventoryCargoInsert
 	cmd.SourceListType = parsed.SourceListType
 	cmd.SourceSlotIndex = parsed.SourceSlotIndex
 	cmd.SourceInstanceValue = parsed.SourceInstanceValue
 	cmd.MoveCount = parsed.MoveCount
 	cmd.DestinationListType = parsed.DestinationListType
+	// 本次PVF分类校验用于金库存取；非金库移动保持原分类守卫的开关语义。
+	if isVaultContainerList(cmd.SourceListType) || isVaultContainerList(cmd.DestinationListType) {
+		cmd.ItemPlacement = req.InventoryItemPlacement
+	}
 	cmd.DestinationSlotIndex = parsed.DestinationSlotIndex
 	cmd.DestinationInstance = parsed.DestinationInstanceValue
 	cmd.DestinationStack = parsed.DestinationStack
@@ -227,7 +251,26 @@ func NewUpgradeCommand(req alignedcmd.Request, parsed UpgradeItemRequest) Comman
 	cmd.OptionalTicketSlot = parsed.OptionalTicketSlotIndex
 	cmd.TargetItemName = parsed.TargetItemName
 	cmd.UpgradeNoticeLevel = -1
+	cmd.UpgradeCostResolver = req.UpgradeCostResolver
+	cmd.UpgradeNPCPresent = parsed.NPCContextPresent
+	cmd.UpgradeNPCID = parsed.NPCTemplateID
+	cmd.UpgradeNPCMaterialSlot = parsed.NPCMaterialSlotIndex
 	cmd.UpgradeProtectTicketResolver = req.UpgradeProtectTicketResolver
+	return cmd
+}
+
+// NewSeparateUpgradeCommand 构造锻造（别升级 / separate upgrade，op438）命令计划。
+// 请求体已由 dnfbridge/forging_codec.go 解出（协议形状归桥接层），这里只搬字段。
+func NewSeparateUpgradeCommand(req alignedcmd.Request, forging *alignedcmd.ForgingRequest) Command {
+	cmd := baseCommand(req, "upgrade_item_separate", "inventory owner + equipment owner + runtime-PVF separate-upgrade table + class1 438 ACK")
+	if forging != nil {
+		cmd.TargetListType = forging.List
+		cmd.TargetSlotIndex = forging.Slot
+		cmd.TargetItemTemplateID = int32(forging.ItemID)
+		cmd.MaterialSlotIndex = forging.MaterialSlot
+		cmd.TargetItemName = string(forging.Name)
+		cmd.ForgingConfirmation = forging.Confirmation
+	}
 	return cmd
 }
 
@@ -320,6 +363,8 @@ func (c Command) String() string {
 		return fmt.Sprintf("%s targetSlot=%d managerState=0x%04X needs=%s", base, c.TargetSlotIndex, c.InventoryManagerState, c.NeedsOwner)
 	case "change_random_option":
 		return fmt.Sprintf("%s targetSlot=%d reserved=0x%04X optionIndex=%d needs=%s", base, c.TargetSlotIndex, c.ReservedValue, c.RandomOptionIndex, c.NeedsOwner)
+	case "upgrade_item_separate":
+		return fmt.Sprintf("%s target=(%d,%d,item=%d) materialSlot=%d confirmation=%d name=%q needs=%s", base, c.TargetListType, c.TargetSlotIndex, uint32(c.TargetItemTemplateID), c.MaterialSlotIndex, c.ForgingConfirmation, c.TargetItemName, c.NeedsOwner)
 	default:
 		return fmt.Sprintf("%s needs=%s", base, c.NeedsOwner)
 	}

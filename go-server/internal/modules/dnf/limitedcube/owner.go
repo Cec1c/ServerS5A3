@@ -7,6 +7,7 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	"math"
 	"math/big"
 	"sort"
@@ -451,13 +452,5 @@ func minInt64(left, right int64) int64 {
 }
 
 func limitedCubeItemLocked(stack dnfrepo.ItemStack) bool {
-	if stack.Extra == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stack.Extra["equipment_lock_state"])) {
-	case "1", "2", "active", "locked", "unlocking", "pending_unlock":
-		return true
-	default:
-		return false
-	}
+	return dnfitemlock.IsLocked(stack)
 }

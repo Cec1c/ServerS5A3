@@ -178,12 +178,17 @@ func (s *Service) commitCurrentBooster(
 	if request.RewardMultiplier > 1 {
 		for itemID, count := range rewardAmounts {
 			multiplied := uint64(count) * uint64(request.RewardMultiplier)
-			if multiplied > currentBoosterMaxRewardUnits {
+			if multiplied > currentBoosterRewardUnitLimit(itemID) {
 				return currentBoosterCommitResult{}, errCurrentBoosterPVFInvalid
 			}
 			rewardAmounts[itemID] = uint32(multiplied)
 		}
 	}
+	goldAmount := rewardAmounts[0]
+	if goldAmount > 0 && (!request.AllowLotteryGold || definition.StackableType != "[upgradable legacy]" || s.options.currentClientVersion != "official-24.9") {
+		return currentBoosterCommitResult{}, errCurrentBoosterPVFInvalid
+	}
+	delete(rewardAmounts, 0)
 	accountID, characterID, owner, err := s.currentBoosterMutationOwner(session)
 	if err != nil {
 		return currentBoosterCommitResult{}, err
@@ -213,6 +218,14 @@ func (s *Service) commitCurrentBooster(
 				return dnfbooster.Changes{}, err
 			}
 			characterDirty := false
+			if goldAmount > 0 {
+				after, err := dnfbooster.CreditGold(assets.Character, goldAmount, definition.GoldMinimumLevel)
+				if err != nil {
+					return dnfbooster.Changes{}, err
+				}
+				result.GoldAmount, result.GoldAfter = goldAmount, after
+				characterDirty = true
+			}
 			if request.ConsumePremiumDaily {
 				if assets.Character == nil || !premium.TryConsumeDaily(assets.Character, request.PremiumDailySlot, now) {
 					return dnfbooster.Changes{}, fmt.Errorf("premium slot %d daily limit reached", request.PremiumDailySlot)

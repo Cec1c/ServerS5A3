@@ -470,7 +470,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 		if _, isContract := contractRewards[itemID]; isContract {
 			continue
 		}
-		remaining, stacks, grantErr := grantMagicBoxReward(items, rewardItems[itemID], granted[itemID])
+		remaining, stacks, grantErr := grantMagicBoxReward(items, rewardItems[itemID], granted[itemID], record.ContainerState)
 		if grantErr != nil {
 			if errors.Is(grantErr, ErrRewardInventoryFull) {
 				result.Reason = grantErr.Error()
@@ -708,7 +708,7 @@ func drawMagicBoxRewards(resolution alignedcmd.MagicBoxResolution, opens int64) 
 // grantMagicBoxReward 共用叠加和空格选择策略：先并入同身份已有行，
 // 再按 PVF 分类寻找空格；消耗品优先快捷栏，装备/材料页满回落快捷栏。
 // 堆叠上限、到期身份和溢出邮件保持，独立容器不占主包快捷格。
-func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64) (int64, []dnfrepo.ItemStack, error) {
+func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64, states ...*dnfrepo.CharacterContainerState) (int64, []dnfrepo.ItemStack, error) {
 	if count <= 0 {
 		return 0, nil, nil
 	}
@@ -753,6 +753,9 @@ func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.M
 	}
 	policy := dnfplacement.SlotPolicy{ListType: targetListType, Start: reward.SlotStart, End: reward.SlotEnd,
 		AllowQuickSlots: reward.AllowQuickSlots, PreferQuickSlots: reward.Kind == "stackable" && reward.PreferQuickSlots}
+	if len(states) > 0 {
+		policy.ContainerState = states[0]
+	}
 	for _, slot := range policy.MergeSlots() {
 		fill(slotKey(targetListType, slot))
 	}
@@ -1048,6 +1051,7 @@ type PlanResult struct {
 
 // Owner 只负责礼包/随机箱的可靠边界预检，不在奖励包体闭合前提交资产变更。
 type Owner struct {
+	settings             dnfrepo.SettingsRepository
 	inventory            dnfrepo.InventoryRepository
 	items                dnfrepo.CharacterItemUnitOfWork
 	accounts             dnfrepo.AccountRepository
@@ -1063,6 +1067,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
+		settings:      repos.Settings,
 		inventory:     repos.Inventory,
 		items:         repos.CharacterItems,
 		accounts:      repos.Account,
@@ -1134,6 +1139,9 @@ func (o *Owner) loadInventory(ctx context.Context, selectedCharacterID uint16) (
 	}
 	if !ok {
 		return dnfrepo.InventoryRecord{}, "", ErrInventoryNotFound
+	}
+	if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &record); err != nil {
+		return dnfrepo.InventoryRecord{}, "", err
 	}
 	record = dnfrepo.CloneInventory(record)
 	if record.Slots == nil {

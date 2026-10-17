@@ -36,20 +36,24 @@ var (
 )
 
 type runtimeDungeonState struct {
-	raidDeadlineReturn    *currentRaidDeadlineReturn
-	lukeSanctumMaze       *currentLukeSanctumMazePreparation
-	semesterRun           *currentSemesterRun
-	epicEntry             *currentEpicEntry
-	raidEntry             *currentRaidDungeonEntry
-	antonMapReturnOwner   *currentAntonMapReturnOwner
-	antonHatcheryTransfer *currentAntonHatcheryTransfer
-	deathStateSent        bool
-	riftLoot              *currentRiftLootDefinition
-	fatigueRooms          map[worldmap.RoomCoordinate]bool
-	Request               dungeoncmd.SelectDungeonRequest
-	Dungeon               worldmap.Dungeon
-	MazeIndex             int
-	Character             dnfrepo.CharacterRecord
+	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
+	entryCharacterLevel          int
+	settlementLuckyStar          dnfdungeon.LuckyStarResult
+	settlementLuckyStarStateSent bool
+	raidDeadlineReturn           *currentRaidDeadlineReturn
+	lukeSanctumMaze              *currentLukeSanctumMazePreparation
+	semesterRun                  *currentSemesterRun
+	epicEntry                    *currentEpicEntry
+	raidEntry                    *currentRaidDungeonEntry
+	antonMapReturnOwner          *currentAntonMapReturnOwner
+	antonHatcheryTransfer        *currentAntonHatcheryTransfer
+	deathStateSent               bool
+	riftLoot                     *currentRiftLootDefinition
+	fatigueRooms                 map[worldmap.RoomCoordinate]bool
+	Request                      dungeoncmd.SelectDungeonRequest
+	Dungeon                      worldmap.Dungeon
+	MazeIndex                    int
+	Character                    dnfrepo.CharacterRecord
 	// AccountID 是**建这个 runtime 的那条会话**的账号（accountIDForSession，在请求
 	// 边界冻结，与 currentEquipmentPlacementValidator.selectedAccountID 同一口径）。
 	// 副本内所有**账号级**读取（成长契约/黑钻等 entitlement、掉落按账号取的加成）
@@ -126,6 +130,12 @@ type runtimeDungeonState struct {
 	settlementResultNoticeSent           bool
 	settlementCharacterStateSent         bool
 	settlementClearRewardSent            bool
+	settlementDespairResultSent          bool
+	settlementDespairItemsSent           bool
+	settlementDespairRewards             *dnfdungeon.DespairRewards
+	settlementGriefResultSent            bool
+	settlementGriefItemsSent             bool
+	settlementGriefRewards               *dnfdungeon.GriefRewards
 	settlementCardScrollStateSent        bool
 	settlementCardRightStateSent         bool
 	settlementCardLayoutSent             bool
@@ -147,6 +157,9 @@ type runtimeDungeonState struct {
 	settlementSuperChampionExperience    uint32
 	settlementBossExperience             uint32
 	tutorialCompletionPersisted          bool
+	dungeonCycleClearCountCommitted      bool
+	dungeonCycleClearNonceHi             int64
+	dungeonCycleClearNonceLo             int64
 	clearMapCompletionPhaseAPersisted    bool
 	hellQuestCompletionKey               string
 	hellQuestCompletionAt                time.Time
@@ -158,6 +171,7 @@ type runtimeDungeonState struct {
 	clearMapCompletionPendingQuestIDs    []int64
 	clearMapCompletionActiveSnapshotSent bool
 	clearMapCompletionNotificationClosed bool
+	storyQuestAfterFreeCardSnapshotSent  bool
 	tutorialCompletedReentry             bool
 	tutorialCompletedReentryExitSent     bool
 	tutorialFinalFlagAckSent             bool
@@ -474,6 +488,22 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
+	if floor, err := currentDespairFloor(dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	} else if floor != 0 {
+		next, err := dnfdungeon.DespairNextFloor(character.Stats)
+		if err != nil || floor != next {
+			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
+		}
+	}
+	if floor, err := currentGriefFloor(dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	} else if floor != 0 {
+		next, err := dnfdungeon.GriefNextFloor(character.Stats)
+		if err != nil || floor != next {
+			return nil, worldmap.DungeonRoomScene{}, dnfdungeon.ErrSettlementStateInvalid
+		}
+	}
 	character, err = s.updateCurrentCharacterFatigue(ctx, session, false)
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
@@ -766,7 +796,8 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		lukeSanctumMaze:       lukeSanctumMaze,
 		Request:               request, Dungeon: dungeon, MazeIndex: mazeIndex,
 		Character: character, AccountID: s.accountIDForSession(session),
-		Session: dungeonSession, Room: room, NextObjectKey: nextObjectKey,
+		entryCharacterLevel: character.Level,
+		Session:             dungeonSession, Room: room, NextObjectKey: nextObjectKey,
 		BossCoordinate: bossCoordinate, BossSet: true,
 		LayeredMapIndex: -1, StoryStageIndex: -1, Seed: seed,
 		LayerChains: make(map[worldmap.RoomCoordinate]*runtimeDungeonLayerChain),
@@ -868,7 +899,12 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
 	}
 	session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
-	if scene, ok := runtime.Session.Scene(); ok {
+	scene, hasScene := runtime.Session.Scene()
+	dailyCountEntry, err := s.currentDailyCountEntryEnabled(runtime.Dungeon)
+	if err != nil {
+		return err
+	}
+	if hasScene && !dailyCountEntry {
 		if err := s.debitDungeonRoomFatigue(session, runtime, scene); err != nil {
 			return err
 		}
@@ -878,6 +914,11 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	}
 	if err := s.consumeCurrentDayDungeonEntry(session, runtime); err != nil {
 		return err
+	}
+	if dailyCountEntry {
+		if err := s.consumeCurrentDailyCountEntry(session, runtime, scene, hasScene); err != nil {
+			return err
+		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
 	session.dungeon.runtime = runtime

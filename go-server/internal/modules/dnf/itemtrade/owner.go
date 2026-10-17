@@ -141,6 +141,9 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 				if record.Slots == nil {
 					record.Slots = make(map[string]dnfrepo.ItemStack)
 				}
+				if err := dnfrepo.BindInventoryContainerState(ctx, o.repositories.Settings, &record); err != nil {
+					return err
+				}
 				loaded[participant.CharacterID] = record
 			}
 			loadedCharacters := make(map[string]dnfrepo.CharacterRecord, 2)
@@ -211,6 +214,7 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 					if err != nil {
 						return err
 					}
+					policy = policy.ForInventory(&record)
 					// 堆叠品先并入同身份的既有行（同一页段内优先），只有装不下的
 					// 剩余部分才另开空格。旧代码无条件 allocateDestinationSlot() 开新格，
 					// 于是"交易收下同一件材料"每次都多一行（仓库里 2:22 ×8480 与
@@ -253,7 +257,9 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 			for _, participant := range participants {
 				record := loaded[participant.CharacterID]
 				record.UpdatedAt = o.clock().UTC()
-				if err := inventories.Save(ctx, record); err != nil {
+				persisted := record
+				persisted.ContainerState = nil
+				if err := inventories.Save(ctx, persisted); err != nil {
 					return err
 				}
 				loaded[participant.CharacterID] = record
