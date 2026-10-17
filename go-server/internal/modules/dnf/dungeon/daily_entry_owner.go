@@ -51,8 +51,9 @@ func DailyEntryUsed(character dnfrepo.CharacterRecord, dungeonID int64, now time
 	return used, nil
 }
 
-// Official 24.9 1FAB59C..1FAB5E5 multiplies the PVF required count by
-// pow(used+1, [required item weight]); the live rift weight is exactly 1.
+// Preserve the reported rift charges: base * pow(used+1, weight), or 2/4/6
+// with the current PVF weight 1. The original client reverses the operands;
+// its display/precheck compatibility patch is documented in RIFT_TICKET_DISPLAY_20261017.
 func DailyEntryRequirements(base []EntryItemRequirement, used int64, weight float64) ([]EntryItemRequirement, error) {
 	if used < 0 || weight < 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {
 		return nil, ErrEntryItemConsumeInvalid
