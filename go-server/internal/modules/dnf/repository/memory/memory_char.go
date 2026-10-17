@@ -35,6 +35,9 @@ func (s *memoryCharStore) savePreservingStoryDigest(ctx context.Context, record 
 	if existing, found, err := s.MemoryStore.Load(ctx, record.CharacterID); err != nil {
 		return err
 	} else if found {
+		if !isLevelUpRollback(ctx) {
+			repository.PreserveLevelUpHistory(&record, existing)
+		}
 		if record.Stats == nil {
 			record.Stats = make(map[string]int64, 2)
 		}

@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS `dnf_s9999_w01`.`dnf_characters` (
   `stat_weight` BIGINT NOT NULL DEFAULT 0,
   `stat_level` TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `name_tag_expire_time` BIGINT NOT NULL DEFAULT 0,
-  `skill_tree_index` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `skill_tree_index` SMALLINT NOT NULL DEFAULT -1,
   `equipped_creature_level` TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `equip_list_trailing` BIGINT NOT NULL DEFAULT 0,
   `manage_level` TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -3037,3 +3037,23 @@ INSERT IGNORE INTO `dnf_s9999_w01`.`dnf_legacy_accounts` (account_id, m_id, pass
 
 INSERT IGNORE INTO `dnf_s9999_w01`.`dnf_legacy_account_cargo_state` (account_id, selection_key, value32) VALUES
     (1, 16, 0);
+
+CREATE TABLE IF NOT EXISTS `dnf_s9999_w01`.`dnf_skill_tree_profiles` (
+  character_id VARCHAR(128) NOT NULL,
+  expanded TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  active_tree TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  total_sp INT NOT NULL DEFAULT 0,
+  remaining_sp INT NOT NULL DEFAULT 0,
+  total_tp INT NOT NULL DEFAULT 0,
+  remaining_tp INT NOT NULL DEFAULT 0,
+  synced_level INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (character_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dnf_s9999_w01`.`dnf_skill_tree_profile_states` (
+  character_id VARCHAR(128) NOT NULL,
+  skill_id BIGINT NOT NULL,
+  skill_level INT NOT NULL DEFAULT 0,
+  enabled TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (character_id, skill_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

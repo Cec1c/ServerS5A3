@@ -71,6 +71,7 @@ func TestPartyMemberTownEnterSelectSynchronizesCompleteOtherMemberStateWithCurre
 	}
 	followerConn := &bufferConn{}
 	follower := &gameSession{
+		accountID:                       "account-1",
 		conn:                            followerConn,
 		channel:                         leader.channel,
 		residentChannel:                 leader.residentChannel,

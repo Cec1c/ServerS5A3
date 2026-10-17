@@ -43,16 +43,18 @@ func (r currentUpgradeTableRow) SuccessWeight() int {
 
 // currentUpgradeTable is the parsed PVF upgrade/amplify configuration.
 type currentUpgradeTable struct {
-	Rows                    []currentUpgradeTableRow
-	NoticeLevel             int
-	Costs                   []int
-	CostWeightsByRarity     []float64
-	TypeWeights             []float64
-	DestroyLevelByRarity    map[string]int
-	DisjointBonusItemID     int
-	DisjointEquipLevelConst int
-	DisjointWeightByRarity  map[string]float64
-	DisjointLevelConst      int
+	Rows                      []currentUpgradeTableRow
+	NoticeLevel               int
+	Costs                     []int
+	GoldCostMetadataError     error
+	CostWeightsByRarity       []float64
+	TypeWeights               []float64
+	CostWeightsByUpgradeLevel map[int][2]float64
+	DestroyLevelByRarity      map[string]int
+	DisjointBonusItemID       int
+	DisjointEquipLevelConst   int
+	DisjointWeightByRarity    map[string]float64
+	DisjointLevelConst        int
 }
 
 func (t *currentUpgradeTable) RowForLevel(level int) (currentUpgradeTableRow, bool) {
@@ -179,9 +181,31 @@ func parseCurrentUpgradeTable(doc *dnfpvf.Document, rawText string) *currentUpgr
 		table.Costs = append(table.Costs, int(v))
 	}
 	// [cost weights by rarity]
-	table.CostWeightsByRarity = parseFloats(doc.Ints("cost weights by rarity"))
+	table.CostWeightsByRarity = doc.Numbers("cost weights by rarity")
 	// [type]
-	table.TypeWeights = parseFloats(doc.Ints("type"))
+	table.TypeWeights = doc.Numbers("type")
+	// Current EXE 0x3a736cd reads triples: current upgrade level, weapon
+	// weight, nonweapon weight (maps at +0x89c and +0x8b0 respectively).
+	// Keep explicit keys; a missing level must not shift subsequent rows.
+	table.CostWeightsByUpgradeLevel = make(map[int][2]float64)
+	weights := doc.Numbers("cost weight by upgrade level")
+	if len(weights)%3 == 0 {
+		for i := 0; i < len(weights); i += 3 {
+			level := weights[i]
+			if math.IsNaN(level) || math.IsInf(level, 0) || level < 0 || level > 255 || level != math.Trunc(level) ||
+				math.IsNaN(weights[i+1]) || math.IsInf(weights[i+1], 0) || weights[i+1] < 0 ||
+				math.IsNaN(weights[i+2]) || math.IsInf(weights[i+2], 0) || weights[i+2] < 0 {
+				clear(table.CostWeightsByUpgradeLevel)
+				break
+			}
+			if _, duplicate := table.CostWeightsByUpgradeLevel[int(level)]; duplicate {
+				clear(table.CostWeightsByUpgradeLevel)
+				break
+			}
+			table.CostWeightsByUpgradeLevel[int(level)] = [2]float64{weights[i+1], weights[i+2]}
+		}
+	}
+	table.GoldCostMetadataError = validateAmplifyGoldCostMetadata(doc)
 	// [destroy level by rarity]
 	parseCurrentUpgradeStringIntPairs(rawText, "destroy level by rarity", table.DestroyLevelByRarity)
 	// [disjoint] section
@@ -353,14 +377,6 @@ func currentUpgradeRarityName(rarity int) string {
 	default:
 		return ""
 	}
-}
-
-func parseFloats(ints []int64) []float64 {
-	out := make([]float64, len(ints))
-	for i, v := range ints {
-		out[i] = float64(v)
-	}
-	return out
 }
 
 // alignedUpgradePolicyResolver returns a closure that resolves the PVF upgrade

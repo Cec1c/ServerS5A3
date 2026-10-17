@@ -133,9 +133,21 @@ func (o *SceneOwner) SyncPoints(ctx context.Context, command SyncPointsCommand) 
 		if err != nil {
 			return err
 		}
+		fields := []dnfrepo.SkillField{dnfrepo.SkillFieldPoints}
+		if current.Trees.Expanded {
+			var changed bool
+			current.Trees.Other.Points, changed, err = SyncPointState(current.Trees.Other.Points, current.Points)
+			if err != nil {
+				return err
+			}
+			if changed {
+				persisted = true
+				fields = append(fields, dnfrepo.SkillFieldTrees)
+			}
+		}
 		if persisted {
 			current.UpdatedAt = normalizedSceneTime(command.UpdatedAt)
-			if err := dnfrepo.SaveSkillFields(ctx, skills, current, dnfrepo.SkillFieldPoints); err != nil {
+			if err := dnfrepo.SaveSkillFields(ctx, skills, current, fields...); err != nil {
 				return err
 			}
 		}
@@ -173,6 +185,9 @@ func (o *SceneOwner) EnsureLayout(ctx context.Context, command EnsureLayoutComma
 		}
 		if !found || len(current.Skills) == 0 {
 			return fmt.Errorf("%w: character=%s", ErrSkillRecordMissing, characterID)
+		}
+		if command.TreeIndex != dnfrepo.ActiveSkillTree(current) {
+			return fmt.Errorf("构造栏位时技能页已切换")
 		}
 		layout, err := command.Build(dnfrepo.CloneSkill(current))
 		if err != nil {

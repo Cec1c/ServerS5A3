@@ -37,12 +37,13 @@ type RoomNeighbor struct {
 }
 
 type DungeonRoom struct {
-	Coordinate      RoomCoordinate `json:"coordinate"`
-	Start           bool           `json:"start,omitempty"`
-	Boss            bool           `json:"boss,omitempty"`
-	Map             *ResolvedMap   `json:"map,omitempty"`
-	ResolutionError string         `json:"resolution_error,omitempty"`
-	Neighbors       []RoomNeighbor `json:"neighbors,omitempty"`
+	Coordinate      RoomCoordinate   `json:"coordinate"`
+	Start           bool             `json:"start,omitempty"`
+	Boss            bool             `json:"boss,omitempty"`
+	Map             *ResolvedMap     `json:"map,omitempty"`
+	ResolutionError string           `json:"resolution_error,omitempty"`
+	Neighbors       []RoomNeighbor   `json:"neighbors,omitempty"`
+	WarpTargets     []RoomCoordinate `json:"warp_targets,omitempty"`
 }
 
 type TopologyDiagnostic struct {
@@ -174,6 +175,7 @@ func BuildDungeonTopology(resolver *Resolver, dungeonID int64, mazeIndex int) (*
 		}
 		topology.rooms[key] = room
 	}
+	addDeclaredDungeonWarps(topology, dungeon.SourceSections)
 	return topology, nil
 }
 
@@ -460,6 +462,7 @@ func mazeBossCoordinates(point *MazePoint) []RoomCoordinate {
 
 func cloneDungeonRoom(room DungeonRoom) DungeonRoom {
 	room.Neighbors = append([]RoomNeighbor(nil), room.Neighbors...)
+	room.WarpTargets = append([]RoomCoordinate(nil), room.WarpTargets...)
 	if room.Map != nil {
 		resolved := *room.Map
 		resolved.Map = cloneMap(resolved.Map)

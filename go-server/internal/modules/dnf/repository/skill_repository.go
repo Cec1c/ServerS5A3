@@ -20,8 +20,39 @@ type SkillRecord struct {
 	Skills      map[int64]SkillState `json:"skills,omitempty"`
 	Points      SkillPointState      `json:"points,omitempty"`
 	Layouts     map[int]SkillLayout  `json:"layouts,omitempty"`
+	Trees       SkillTreeState       `json:"trees,omitempty"`
 	Cooldowns   map[int64]time.Time  `json:"cooldowns,omitempty"`
 	UpdatedAt   time.Time            `json:"updated_at,omitempty"`
+}
+
+// SkillTreeState 保存扩展资格、当前页及另一页的独立加点。
+// Skills/Points 始终是当前生效页，供战斗、装备校验和升级等既有入口使用。
+// 冷却属于角色，两页共用，切页不能清除冷却。
+type SkillTreeState struct {
+	Expanded bool         `json:"expanded,omitempty"`
+	Active   byte         `json:"active,omitempty"`
+	Other    SkillProfile `json:"other,omitempty"`
+}
+
+type SkillProfile struct {
+	Skills map[int64]SkillState `json:"skills,omitempty"`
+	Points SkillPointState      `json:"points,omitempty"`
+}
+
+// ActiveSkillTree 对历史默认页码不授予购买资格；原有技能保持为第一页。
+func ActiveSkillTree(record SkillRecord) int {
+	if record.Trees.Expanded && record.Trees.Active == 1 {
+		return 1
+	}
+	return 0
+}
+
+// SkillTreeWireIndex 的 0xff 表示尚未购买第二套加点。
+func SkillTreeWireIndex(record SkillRecord) byte {
+	if !record.Trees.Expanded || record.Trees.Active > 1 {
+		return 0xff
+	}
+	return byte(ActiveSkillTree(record))
 }
 
 // SkillState 是单个技能的可变状态。
@@ -50,6 +81,7 @@ const (
 	SkillFieldPoints    SkillField = "points"
 	SkillFieldLayouts   SkillField = "layouts"
 	SkillFieldCooldowns SkillField = "cooldowns"
+	SkillFieldTrees     SkillField = "trees"
 )
 
 // SaveSkillFields 保存技能指定字段；底层不支持局部保存时退化为整条保存。
@@ -60,6 +92,7 @@ func SaveSkillFields(ctx context.Context, repo SkillRepository, record SkillReco
 // CloneSkill 拷贝技能记录，避免技能表和冷却表与调用方共享。
 func CloneSkill(record SkillRecord) SkillRecord {
 	record.Skills = cloneSkillMap(record.Skills)
+	record.Trees.Other.Skills = cloneSkillMap(record.Trees.Other.Skills)
 	record.Layouts = cloneSkillLayouts(record.Layouts)
 	record.Cooldowns = cloneTimeMap(record.Cooldowns)
 	return record

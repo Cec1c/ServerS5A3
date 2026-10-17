@@ -466,6 +466,9 @@ func (s *Service) commitCurrentCeraPackage(
 		if !found || inventory.CharacterID != characterID {
 			return errCurrentCeraPackageOwnerUnavailable
 		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, repositories.Settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if inventory.Slots == nil {
 			return errCurrentCeraPackageSourceMissing

@@ -10,6 +10,8 @@ const mysqlAccountInventoryTable = "account_inventories"
 
 type mysqlAccountInventoryStore struct {
 	mysqlStoreBase
+	trackSlotChanges bool
+	loadedSnapshot   *repository.AccountInventoryRecord
 }
 
 func (s *mysqlAccountInventoryStore) Load(ctx context.Context, accountID string) (repository.AccountInventoryRecord, bool, error) {
@@ -40,6 +42,10 @@ func (s *mysqlAccountInventoryStore) Load(ctx context.Context, accountID string)
 		return repository.AccountInventoryRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackSlotChanges {
+		snapshot := repository.CloneAccountInventory(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.CloneAccountInventory(record), true, nil
 }
 
@@ -63,12 +69,24 @@ func (s *mysqlAccountInventoryStore) Save(ctx context.Context, record repository
 	columns := []string{"account_id", "updated_at"}
 	args := []any{accountID, timeOrNow(record.UpdatedAt, s.router.now)}
 	updates := []string{updateValue("updated_at")}
-	return withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
+	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
 		if _, execErr := database.ExecContext(ctx, buildUpsert(table, columns, updates), args...); execErr != nil {
 			return execErr
+		}
+		if s.trackSlotChanges && s.loadedSnapshot != nil && s.loadedSnapshot.AccountID == accountID {
+			keys := changedAccountItemKeys(s.loadedSnapshot.Slots, record.Slots)
+			if len(keys) == 0 {
+				return nil
+			}
+			return replaceItemStackKeys(ctx, database, itemsTable, extraTable, "account_id", accountID, "", false, record.Slots, keys)
 		}
 		return replaceItemStackCollection(
 			ctx, database, itemsTable, extraTable, "account_id", accountID, "", false, record.Slots,
 		)
 	})
+	if err == nil && s.trackSlotChanges {
+		snapshot := repository.CloneAccountInventory(record)
+		s.loadedSnapshot = &snapshot
+	}
+	return err
 }

@@ -144,7 +144,7 @@ func buildMySQLCharacterStatColumns() []mysqlCharacterStatColumn {
 		mysqlCharacterStatColumn{column: "stat_weight", key: "stat_weight", ddl: "BIGINT NOT NULL DEFAULT 0"},
 		mysqlCharacterStatColumn{column: "stat_level", key: "stat_level", ddl: "TINYINT UNSIGNED NOT NULL DEFAULT 0"},
 		mysqlCharacterStatColumn{column: "name_tag_expire_time", key: "name_tag_expire_time", ddl: "BIGINT NOT NULL DEFAULT 0"},
-		mysqlCharacterStatColumn{column: "skill_tree_index", key: "skill_tree_index", ddl: "TINYINT UNSIGNED NOT NULL DEFAULT 0"},
+		mysqlCharacterStatColumn{column: "skill_tree_index", key: "skill_tree_index", ddl: "SMALLINT NOT NULL DEFAULT -1", fallback: -1},
 		mysqlCharacterStatColumn{column: "equipped_creature_level", key: "equipped_creature_level", ddl: "TINYINT UNSIGNED NOT NULL DEFAULT 0"},
 		mysqlCharacterStatColumn{column: "equip_list_trailing", key: "equip_list_trailing", ddl: "BIGINT NOT NULL DEFAULT 0"},
 		mysqlCharacterStatColumn{column: "manage_level", key: "manage_level", ddl: "TINYINT UNSIGNED NOT NULL DEFAULT 0"},
@@ -462,6 +462,11 @@ func characterStatMirrorValue(record repository.CharacterRecord, key string, fal
 	if !ok {
 		return fallback
 	}
+	// 技能页的-1有明确协议语义，不能被通用无符号夹取变回已解锁的0。
+	if key == "skill_tree_index" && value == -1 {
+		return -1
+	}
+
 	if value < 0 {
 		return 0
 	}
@@ -624,7 +629,7 @@ func (s *mysqlCharStore) FindIDByName(ctx context.Context, name string) (string,
 	}
 	for _, database := range s.router.readDBs {
 		table := mysqlTable(database, s.router.tablePrefix, mysqlCharTable)
-		query := "SELECT character_id FROM " + table + " WHERE name = ? AND delete_flag = 0 LIMIT 1"
+		query := s.router.selectQuery("SELECT character_id FROM " + table + " WHERE name = ? AND delete_flag = 0 LIMIT 1")
 		var id string
 		err := s.router.db.QueryRowContext(ctx, query, name).Scan(&id)
 		if err == nil {

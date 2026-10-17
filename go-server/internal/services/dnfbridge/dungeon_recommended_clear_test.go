@@ -50,3 +50,26 @@ func TestCurrentDungeonMatchesRecommendedLevelRejectsMalformedPVFRange(t *testin
 		t.Fatal("incomplete PVF range matched")
 	}
 }
+
+func TestCurrentDungeonRecommendedClearUsesActualLegacyPVFAndEntryLevel(t *testing.T) {
+	runtime := &runtimeDungeonState{Dungeon: worldmap.Dungeon{ID: 6, Metadata: worldmap.DungeonMetadata{
+		MinimumRequiredLevel: worldmap.OptionalInt{Set: true, Value: 5}, BasisLevel: worldmap.OptionalInt{Set: true, Value: 8},
+	}}, Character: dnfrepo.CharacterRecord{Level: 9}, entryCharacterLevel: 6, ordinaryFinalRoomClearAccepted: true}
+	if !currentDungeonIsRecommendedClear(runtime) {
+		t.Fatal("suitable entry level lost after in-dungeon level-up")
+	}
+	runtime.entryCharacterLevel = 90
+	if currentDungeonIsRecommendedClear(runtime) {
+		t.Fatal("level90 clearing low-level dungeon awarded")
+	}
+	runtime.entryCharacterLevel = 6
+	runtime.Dungeon.Metadata.RecommendedLevels = []int64{8}
+	if currentDungeonIsRecommendedClear(runtime) {
+		t.Fatal("malformed explicit range fell back")
+	}
+	runtime.Dungeon.Metadata.RecommendedLevels = nil
+	runtime.Dungeon.Metadata.BasisLevel.Set = false
+	if currentDungeonIsRecommendedClear(runtime) {
+		t.Fatal("missing range fabricated")
+	}
+}

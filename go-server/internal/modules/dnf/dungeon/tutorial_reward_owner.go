@@ -90,6 +90,9 @@ func (o *Owner) GrantTutorialReward(ctx context.Context, cmd TutorialRewardComma
 		if !found {
 			inventory = dnfrepo.InventoryRecord{CharacterID: cmd.CharacterID}
 		}
+		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
+			return err
+		}
 		inventory = dnfrepo.CloneInventory(inventory)
 		if inventory.Slots == nil {
 			inventory.Slots = make(map[string]dnfrepo.ItemStack)
@@ -156,6 +159,7 @@ func PlaceTutorialReward(
 	}
 	policy := dnfplacement.SlotPolicy{ListType: dnfrepo.MainInventoryListType,
 		Start: reward.SlotStart, End: reward.SlotEnd, PreferQuickSlots: true, AllowQuickSlots: true}
+	policy = policy.ForInventory(record)
 	// 先叠加已有消耗品，再选空格；不能因空快捷格而拆散背包中已有的同一物品。
 	for _, slot := range policy.MergeSlots() {
 		if destination, ok, err := stackTutorialRewardInRange(record, reward, project, slot, slot); err != nil {

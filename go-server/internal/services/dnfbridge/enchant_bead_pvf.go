@@ -71,6 +71,9 @@ func resolveCurrentEnchantBeadMetadata(catalog *pvfDungeonDropCatalog, source dn
 	if len(resolution.TargetWhitelist) == 0 {
 		resolution.TargetWhitelist = append([]int64(nil), beadDocument.Ints("target item id")...)
 	}
+	if _, random := beadDocument.Int("random title enchant"); random {
+		return resolveCurrentRandomTitleEnchantMetadata(catalog, source, beadDocument, targetItemID)
+	}
 	cardItemID, found := beadDocument.Int("monster card id")
 	if !found {
 		cardItemID, found = beadDocument.Int("enchant index")
@@ -100,9 +103,18 @@ func resolveCurrentEnchantBeadMetadata(catalog *pvfDungeonDropCatalog, source dn
 	resolution.AllowedEquipmentTypes = append([]string(nil), currentEnchantCardParts(cardDocument)...)
 	resolution.UpgradeCounts = append([]int64(nil), cardDocument.Ints("enchant index")...)
 	if tableTokens, ok := cardDocument.Section("enchant table"); ok {
-		for _, token := range tableTokens {
-			if token.Kind == dnfpvf.TokenInt {
-				resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+		// 嵌套表逐个读取实际级数，附魔属性整数不属于升级级数。
+		if stages := currentMonsterCardStages(cardDocument); len(stages) > 0 {
+			resolution.UpgradeCounts = nil
+			for _, stage := range stages {
+				resolution.UpgradeCounts = append(resolution.UpgradeCounts, int64(stage))
+			}
+		} else {
+			// 没有嵌套级数时保持旧平铺表的已有口径。
+			for _, token := range tableTokens {
+				if token.Kind == dnfpvf.TokenInt {
+					resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+				}
 			}
 		}
 	}
@@ -202,9 +214,18 @@ func resolveCurrentEnchantCardMetadata(catalog *pvfDungeonDropCatalog, source dn
 	resolution.AllowedEquipmentTypes = append([]string(nil), currentEnchantCardParts(cardDocument)...)
 	resolution.UpgradeCounts = append([]int64(nil), cardDocument.Ints("enchant index")...)
 	if tableTokens, ok := cardDocument.Section("enchant table"); ok {
-		for _, token := range tableTokens {
-			if token.Kind == dnfpvf.TokenInt {
-				resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+		// 嵌套表逐个读取实际级数，附魔属性整数不属于升级级数。
+		if stages := currentMonsterCardStages(cardDocument); len(stages) > 0 {
+			resolution.UpgradeCounts = nil
+			for _, stage := range stages {
+				resolution.UpgradeCounts = append(resolution.UpgradeCounts, int64(stage))
+			}
+		} else {
+			// 没有嵌套级数时保持旧平铺表的已有口径。
+			for _, token := range tableTokens {
+				if token.Kind == dnfpvf.TokenInt {
+					resolution.UpgradeCounts = append(resolution.UpgradeCounts, token.Int)
+				}
 			}
 		}
 	}
@@ -229,4 +250,69 @@ func resolveCurrentEnchantCardMetadata(catalog *pvfDungeonDropCatalog, source dn
 	}
 	resolution.TargetEquipmentType = equipmentType
 	return resolution, nil
+}
+
+// Random-title beads carry PVF config/row identifiers, not a monster-card item.
+func resolveCurrentRandomTitleEnchantMetadata(catalog *pvfDungeonDropCatalog, source dnfpvf.Source, bead *dnfpvf.Document, targetItemID int64) (alignedcmd.EnchantBeadResolution, error) {
+	r := alignedcmd.EnchantBeadResolution{}
+	kind, _ := bead.Text("stackable type")
+	config, ok := bead.Int("random title enchant")
+	if !ok || config <= 0 || config > 0xffff || !strings.EqualFold(strings.TrimSpace(kind), "[auto enchant]") {
+		return r, nil
+	}
+	if len(bead.Ints("monster card id")) > 0 || len(bead.Ints("enchant index")) > 0 {
+		return r, nil
+	}
+	r.TargetWhitelist = append([]int64(nil), bead.Ints("bead limited usable item")...)
+	if len(r.TargetWhitelist) == 0 {
+		return alignedcmd.EnchantBeadResolution{}, nil
+	}
+	allowed := false
+	for _, id := range r.TargetWhitelist {
+		if id == targetItemID {
+			allowed = true
+		}
+	}
+	if !allowed {
+		return alignedcmd.EnchantBeadResolution{}, nil
+	}
+	parts := bead.Texts("string data")
+	hasTitle := false
+	for _, part := range parts {
+		if strings.EqualFold(strings.TrimSpace(part), "[title name]") {
+			hasTitle = true
+		}
+	}
+	if !hasTitle {
+		return alignedcmd.EnchantBeadResolution{}, nil
+	}
+	target, err := catalog.ResolveItem(uint32(targetItemID))
+	if err != nil {
+		return r, err
+	}
+	if target.Kind != dungeonDropItemEquipment {
+		return alignedcmd.EnchantBeadResolution{}, nil
+	}
+	document, err := parseDungeonCardPVFDocument(source, target.PVFPath)
+	if err != nil {
+		return r, err
+	}
+	targetType, _ := document.Text("equipment type")
+	if !strings.EqualFold(strings.TrimSpace(targetType), "[title name]") {
+		return alignedcmd.EnchantBeadResolution{}, nil
+	}
+	random, err := parseCurrentRandomTitleEnchantCatalog(source)
+	if err != nil {
+		return r, err
+	}
+	row, err := random.choose(uint16(config))
+	if err != nil {
+		return r, err
+	}
+	r.RandomTitleEnchantConfigID = uint16(config)
+	r.RandomTitleEnchantRowID = row.ID
+	r.TargetKind = "equipment"
+	r.TargetEquipmentType = "[title name]"
+	r.AllowedEquipmentTypes = []string{"[title name]"}
+	return r, nil
 }

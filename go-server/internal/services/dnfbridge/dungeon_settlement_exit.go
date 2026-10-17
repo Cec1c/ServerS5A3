@@ -177,6 +177,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 		source = "current_exe_op31_completed_tutorial_or_settlement_timed_op42"
 		completedTutorial := isPVFTutorialDungeon(runtime)
 		completedRaid := s.currentRaidCompletedMapTownReturnReady(session, runtime)
+		completedDespair := currentDespairCompletedResultExitReady(runtime, session.selectedCharacterID)
 		if completedTutorial {
 			source = "current_exe_completed_pvf_tutorial_first_op42_return_to_town"
 		}
@@ -203,6 +204,26 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 				uint16(dnfenum.CmdPacketGiveupGame),
 				source,
 			)
+		}
+		if completedDespair {
+			runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+			session.dungeon.mu.Unlock()
+			s.logGameEvent(session, "game-dungeon-despair-completed-exit-accepted",
+				"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+				"completion_key", runtime.clearMapCompletionKey,
+				"source", "current_exe_completed_floor_op46_op123_op42_without_ordinary_cards")
+			return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
+				uint16(dnfenum.CmdPacketGiveupGame), "current_exe_completed_despair_floor_op42_return_to_town")
+		}
+		if currentGriefCompletedResultExitReady(runtime, session.selectedCharacterID) {
+			runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+			session.dungeon.mu.Unlock()
+			s.logGameEvent(session, "game-dungeon-grief-completed-exit-accepted",
+				"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+				"completion_key", runtime.clearMapCompletionKey,
+				"source", "current_exe_grief_op46_op123_op42_without_ordinary_cards")
+			return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
+				uint16(dnfenum.CmdPacketGiveupGame), "current_exe_completed_grief_floor_op42_return_to_town")
 		}
 		if !completedTutorial && !completedRaid && runtime.settlementCardLayoutSent &&
 			!runtime.settlementCardSideSelectionSent[dungeonCardSideFree] {
@@ -266,6 +287,12 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 }
 
 func completedDungeonSettlementExitReady(runtime *runtimeDungeonState, characterID uint16) bool {
+	if currentDespairCompletedResultExitReady(runtime, characterID) {
+		return true
+	}
+	if runtime != nil && runtime.settlementGriefResultSent && currentGriefCompletedResultExitReady(runtime, characterID) {
+		return true
+	}
 	if currentDungeonTournamentResultExitReady(runtime, characterID) {
 		return true
 	}
