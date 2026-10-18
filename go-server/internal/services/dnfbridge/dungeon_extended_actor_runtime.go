@@ -17,6 +17,7 @@ var (
 	errDungeonAICharacterDefinitionMiss   = errors.New("dnf dungeon AI character definition is missing")
 	errDungeonAICharacterType             = errors.New("dnf dungeon AI character type is unsupported")
 	errDungeonAICharacterFaction          = errors.New("dnf dungeon AI character faction is unsupported")
+	errDungeonAICharacterLevel            = errors.New("dnf dungeon AI character projected level is invalid")
 )
 
 type runtimeDungeonExtendedActorKind string
@@ -192,13 +193,20 @@ func planRuntimeDungeonExtendedActors(
 		if err != nil {
 			return runtimeDungeonExtendedActorPlan{}, fmt.Errorf("AI character index %d code %d: %w", actorIndex, actorValue.Code, err)
 		}
+		if actorValue.Blocking {
+			blocking = 1
+		}
+		level, err := currentDungeonAICharacterLevel(actorValue, definition)
+		if err != nil {
+			return runtimeDungeonExtendedActorPlan{}, fmt.Errorf("AI character index %d code %d: %w", actorIndex, actorValue.Code, err)
+		}
 		actor, err := newRuntimeDungeonExtendedActor(
 			runtimeDungeonActorAICharacter,
 			plan.NextObjectKey,
 			actorValue.Code,
 			currentDungeonStartMapActor{
 				PacketIndex: uint32(actorIndex),
-				Level:       definition.Level,
+				Level:       level,
 				Type:        actorType,
 				Blocking:    blocking,
 			},
@@ -281,6 +289,19 @@ func currentDungeonAICharacterBlocking(value string) (byte, error) {
 	// AICharacter/APC row (types 5..8) from the room-door blocking set. Faction
 	// still determines combat ownership, but never this wire flag.
 	return 0, nil
+}
+
+func currentDungeonAICharacterLevel(
+	actor worldmap.AICharacter,
+	definition pvfDungeonAICharacterDefinition,
+) (byte, error) {
+	if actor.Level == 0 {
+		return definition.Level, nil
+	}
+	if actor.Level < 0 || actor.Level > 0xff {
+		return 0, fmt.Errorf("%w: code=%d level=%d", errDungeonAICharacterLevel, actor.Code, actor.Level)
+	}
+	return byte(actor.Level), nil
 }
 
 func currentDungeonAICharacterHostile(value string) (bool, error) {

@@ -9,6 +9,12 @@
 - 客户端 Release ZIP 可附根级 scripts/ 内的 Python 源码，仅读取并校验归档，不解压或执行；其余路径与文件类型规则保持。
 - 补充归档正反例、路径/重复/链接/大小/数量/EXE/CRC及下载摘要回归，修复带源码证据的新客户端包被镜像拒绝的问题。镜像本身不改变玩家通道或部署服务端。
 
+## 2026-10-18 — 黑龙大会122 APC入口与四轮推进
+
+- 122 的锦标赛 type 5..8 对手现在投影为真实 hostile AICharacter，保留真实 code、level、坐标和 normal/champion/super-champion/boss 类型；仅 tournament 投影携带 blocking，extended actors 挂载后才绑定 firstSequence。普通 type 0/3 仍走 MonsterSpawn，普通地图 APC 的 blocking 与地图缓存不变。
+- 既有 op39 权威死亡 handler 现在接受当前轮 extended APC 死亡并推进锦标赛轮次，前三轮保持房间阻挡，第四轮进入既有冠军、奖励冻结和 clear 提交链。未来轮在提交前拒绝；非法对象和重复请求不重复推进或结算。op144 仍为只读观察。
+- 固定真实 PVF 下五图 op16 矩阵、正确协议档的122四轮APC handler、未来轮/非法对象/重复请求、对象键与赛程顺序、投影clone隔离通过；完整领域/bridge/control、list/vet/Windows构建通过，真档专项171通过事件、无跳过。五图32项原生reader与奖励状态有限验证通过。未改环境配置、PVF、EXE或玩家数据，未部署；原生画面、战败、翻牌/超时、回城和任务状态仍待实机验收。
+
 ## 2026-10-18 — 友军死亡通知重放与跟随怪跨房归属
 
 - 使用实际友军对象编号的重复死亡及通知写失败重试接入权威op38重放，保持原经验、掉落与任务事务；新增真实MAP同索引team0/follow跟随怪跨房owner证明。
@@ -84,6 +90,7 @@
 - quest-clear 父任务 op33 不再因没有新归档的城镇子项而回退普通减一；领域层按已提交子项重算剩余数，未完成 clear-map 子项存在时父进度保持 1，历史父 0／子 1 会恢复到 1，且不补造子项完成。
 - 保留合法对话子项归档；全部子项达成active/0时父任务可交，物品仍由op34统一事务结算。相同父进度的重复回调保持静默，子项随后变化继续推进。保留普通任务原op33路径。任务目录不可用仅在持久化记录存在父任务类型或 `main_quest_id` 关系证据时失败关闭，普通记录继续原路径。
 - 真实 PVF 探针中 `parent-callback-must-not-finish-unresolved-child` 与 `target-credit-finishes-parent` 均通过，领域、bridge、control完整测试及list/vet/构建通过；末子奖励兼容、回调反馈循环与保存后回滚覆盖。真实PVF六怪死亡handler、父回调与结算三组通过；中途清房边界、队员资格及通知失败重试覆盖。
+
 
 
 

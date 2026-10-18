@@ -94,6 +94,21 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			return nil
 		}
 	}
+	if hasScene && runtime.Tournament != nil && runtime.Tournament.Definition != nil {
+		room := runtime.Room.Snapshot()
+		if room.MapID == runtime.Tournament.Definition.MapID &&
+			tournamentActorIsAnnounced(room, request.RuntimeObjectKey) &&
+			!runtime.Tournament.canAcceptActorDeath(int(request.RuntimeObjectKey)) {
+			s.logGameEvent(session, "game-dungeon-tournament-actor-death-rejected",
+				"dungeon_id", runtime.Dungeon.ID,
+				"map_id", room.MapID,
+				"object_key", request.RuntimeObjectKey,
+				"current_round", runtime.Tournament.currentRoundNumber(),
+				"terminal", runtime.Tournament.snapshot().Terminal,
+				"reason", "actor_is_not_in_the_current_tournament_round")
+			return nil
+		}
+	}
 	// `DNFBRIDGE_DUNGEON_DEATH_ROOM_PROOF=room_proven` 时追加的服务端自证判据：
 	// 这条 op39 的目标是不是本房间在册、仍在场的敌对 actor。默认档（strict）下恒为
 	// false；已验证的友好 APC 贡献兼容路径另作窄范围判断。见 dungeon_death_room_proof.go。

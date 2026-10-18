@@ -742,7 +742,11 @@ func dungeonRoomScene(room DungeonRoom) (DungeonRoomScene, error) {
 	}
 	for index, actor := range scene.AICharacters {
 		if strings.EqualFold(strings.Trim(actor.Faction, "[] \t"), "monster") {
-			scene.ExpectedHostiles = append(scene.ExpectedHostiles, HostileReference{Kind: HostileAICharacter, Index: index})
+			reference := HostileReference{Kind: HostileAICharacter, Index: index}
+			scene.ExpectedHostiles = append(scene.ExpectedHostiles, reference)
+			if actor.Blocking {
+				scene.BlockingHostiles = append(scene.BlockingHostiles, reference)
+			}
 		}
 	}
 	if len(scene.BlockingHostiles) == 0 {
