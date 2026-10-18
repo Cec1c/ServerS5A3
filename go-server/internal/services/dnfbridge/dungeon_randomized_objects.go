@@ -107,20 +107,26 @@ func (s *Service) prepareCurrentDungeonRandomizedOwner(dungeon worldmap.Dungeon,
 			return nil, err
 		}
 		passivePath, hasPassive := passives[entry.ObjectID]
+		var monsterKind string
+		if hasMonster && ((entry.ObjectType == "" && hasPassive) || entry.Regenerate.Value == 99) {
+			text, err := archive.ReadText(monster.Path)
+			if err != nil {
+				return nil, err
+			}
+			doc, err := dnfpvf.Parse(monster.Path, text)
+			if err != nil {
+				return nil, err
+			}
+			monsterKind, _ = doc.Text("monster object type")
+		}
+		if entry.Regenerate.Value == 99 && (!hasMonster || strings.Trim(strings.ToLower(monsterKind), "[] \t\r\n") != "ridable object") {
+			return nil, fmt.Errorf("regenerating randomized object %d requires an explicit ridable MOB template", entry.ObjectID)
+		}
 		isPassive := entry.ObjectType == "passive object"
 		if entry.ObjectType == "" && hasPassive {
 			isPassive = true
 			if hasMonster {
-				text, err := archive.ReadText(monster.Path)
-				if err != nil {
-					return nil, err
-				}
-				doc, err := dnfpvf.Parse(monster.Path, text)
-				if err != nil {
-					return nil, err
-				}
-				kind, _ := doc.Text("monster object type")
-				isPassive = !strings.Contains(strings.ToLower(kind), "ridable object")
+				isPassive = !strings.Contains(strings.ToLower(monsterKind), "ridable object")
 			}
 		}
 		if isPassive {
