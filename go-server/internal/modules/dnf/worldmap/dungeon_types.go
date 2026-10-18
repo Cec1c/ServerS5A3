@@ -39,6 +39,20 @@ type DungeonRequiredItem struct {
 	ConsumeOnEntry bool  `json:"consume_on_entry,omitempty"`
 }
 
+// DungeonStoryMode is the typed [story mode] block. DifficultySize and
+// IncreaseExperienceRates preserve the values declared by the PVF; this parser
+// does not infer a business index range. The bridge owns eligibility, the
+// difficulty guard, and the experience calculation. Malformed means the block
+// was present but at least one required field was missing, duplicated,
+// non-integral, negative, or dimensionally inconsistent, so no experience bonus
+// may be used.
+type DungeonStoryMode struct {
+	DifficultySize          int64   `json:"difficulty_size,omitempty"`
+	IncreaseExperienceRates []int64 `json:"increase_experience_rates,omitempty"`
+	QuestIDs                []int64 `json:"quest_ids,omitempty"`
+	Malformed               bool    `json:"malformed,omitempty"`
+}
+
 type DungeonMetadata struct {
 	Name                      string              `json:"name,omitempty"`
 	Explain                   string              `json:"explain,omitempty"`
@@ -57,6 +71,7 @@ type DungeonMetadata struct {
 	Difficulty                OptionalInt         `json:"difficulty"`
 	DifficultyLevels          []int64             `json:"difficulty_levels,omitempty"`
 	DesignatedDifficulties    []int64             `json:"designated_difficulties,omitempty"`
+	StoryMode                 *DungeonStoryMode   `json:"story_mode,omitempty"`
 	TutorialDungeon           OptionalInt         `json:"tutorial_dungeon"`
 	NoFatigue                 bool                `json:"no_fatigue,omitempty"`
 	NamedMonsters             []int64             `json:"named_monsters,omitempty"`

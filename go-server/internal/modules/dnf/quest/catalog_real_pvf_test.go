@@ -176,7 +176,7 @@ func TestRealScriptPVFQuest3145HasTypedAcceptPlan(t *testing.T) {
 		t.Fatalf("quest 3145 PlanFinishReward error = %v", err)
 	}
 	want := []int64{10165055, 104010230, 10403, 12403, 14403, 16403, 18403}
-	if len(reward.Items) != len(want) || reward.Difficulty != '1' {
+	if len(reward.Items) != len(want) || reward.Difficulty != "1" {
 		t.Fatalf("quest 3145 finish reward = %+v, want ids=%v difficulty=1", reward, want)
 	}
 	for index, itemID := range want {
