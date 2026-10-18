@@ -723,21 +723,15 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("create dungeon monster owner: %w", err)
 	}
-	// 锦标赛：把赛制的 `firstSequence` 绑到本房间第一个怪物的 object key 上。
+	// 锦标赛：把赛制的 `firstSequence` 绑到本房间第一个已投影 actor 的 object key 上。
 	//
 	// 厂商在 START_MAP 提交时绑 `instanceRoom.FirstActorSequenceId`
 	// （DungeonMapHandler.cs:508-515 / :597-604），而 `DungeonInstance.cs:691` 的
 	// `sequenceId = FirstActorSequenceId + index` 说明"sequence = 公告出去的 actor id"。
-	// 本仓等价物就是 `newRuntimeDungeonRoom` 从 `firstDungeonMonsterObjectKey` 起
-	// 连续分配的 `ObjectKey`；op39 上报的 `RuntimeObjectKey` 正是同一个值。
+	// 普通怪和 extended AICharacter 都从 `firstDungeonMonsterObjectKey` 起连续分配
+	// `ObjectKey`；op39 上报的 `RuntimeObjectKey` 正是同一个值。APC-only 的 122
+	// 必须等 extended actors 挂载后再绑定，不能假定 `room.monsters[0]` 存在。
 	// 默认档 `tournamentRuntime == nil` ⇒ 这一整段不可达。
-	if tournamentRuntime != nil && len(room.monsters) != 0 {
-		if !tournamentRuntime.tryBindFirstActorSequence(uint16(room.monsters[0].ObjectKey)) {
-			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf(
-				"bind tournament actor sequence: first_object_key=%d path_actors=%d",
-				room.monsters[0].ObjectKey, len(tournamentRuntime.PathActors))
-		}
-	}
 	var aiCharacterCatalog *pvfDungeonAICharacterCatalog
 	if len(scene.AICharacters) != 0 {
 		aiCharacterCatalog, err = s.dungeonAICharacterCatalog()
@@ -765,6 +759,18 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	}
 	if err := room.AttachExtendedActors(extendedPlan); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("attach dungeon extended actor owner: %w", err)
+	}
+	if tournamentRuntime != nil {
+		firstObjectKey, err := tournamentFirstActorObjectKey(room.Snapshot(), tournamentRuntime.snapshot().PathActors)
+		if err != nil {
+			return nil, worldmap.DungeonRoomScene{}, err
+		}
+		if firstObjectKey == 0 ||
+			!tournamentRuntime.tryBindFirstActorSequence(uint16(firstObjectKey)) {
+			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf(
+				"bind tournament actor sequence: first_object_key=%d path_actors=%d",
+				firstObjectKey, len(tournamentRuntime.PathActors))
+		}
 	}
 	if _, err := s.configurePVFTutorialBasicActionRoom(dungeon, scene, room); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("configure tutorial basic-action room: %w", err)
