@@ -10,12 +10,13 @@ import (
 )
 
 type memoryMailboxAssetUnitOfWork struct {
-	mu        sync.Mutex
-	sharedMu  *sync.Mutex
-	account   repository.AccountRepository
-	character repository.CharacterRepository
-	inventory repository.InventoryRepository
-	mailbox   repository.MailboxRepository
+	mu               sync.Mutex
+	sharedMu         *sync.Mutex
+	account          repository.AccountRepository
+	accountInventory repository.AccountInventoryRepository
+	character        repository.CharacterRepository
+	inventory        repository.InventoryRepository
+	mailbox          repository.MailboxRepository
 }
 
 func (u *memoryMailboxAssetUnitOfWork) WithinMailboxAssets(

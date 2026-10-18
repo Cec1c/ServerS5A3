@@ -81,6 +81,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"avatar-socket",
 		"avatar-emblem",
 		"item-grade-adjust",
+		"equipment-transfer",
 		"equipment-effect",
 		"aura-skin-slot",
 		"carry-gold",
