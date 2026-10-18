@@ -149,7 +149,14 @@ func (s *Service) buildCurrentSceneObjectListBodyForSessionInContextWithPolicy(
 		creature = currentEquippedCreatureSnapshot{}
 	}
 	adventureName := s.currentSceneObjectAdventureOverheadName(ctx, session, charID, character, hasCharacter)
-	body := buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(objectKey, character, hasCharacter, charName, creature, adventureName, ownerChannel)
+	guild, guildErr := s.currentSceneGuild(ctx, charID)
+	if guildErr != nil {
+		if strict {
+			return nil, fmt.Errorf("load selected actor guild: %w", guildErr)
+		}
+		guild = currentSceneGuildProjection{}
+	}
+	body := buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(objectKey, character, hasCharacter, charName, creature, adventureName, ownerChannel, s.currentSceneActorRoute(), guild)
 	rows := currentSceneObjectEquipSummary(character, hasCharacter)
 	rawBytes := 0
 	for _, row := range rows {

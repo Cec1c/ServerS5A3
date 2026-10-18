@@ -331,6 +331,7 @@ func buildDungeonPartyRoomSlotTableBody(
 	rows []dungeonPartyRoomSlotTableRow,
 	hostSlot byte,
 	shape dungeonPartyRoomSlotTableShape,
+	serverRoute ...byte,
 ) []byte {
 	objectKey := actor.ObjectKey
 	if objectKey == 0 {
@@ -340,7 +341,11 @@ func buildDungeonPartyRoomSlotTableBody(
 	writer.writeUint16(1)
 	writer.writeUint16(currentSceneOp9StableSceneValue)
 	writer.writeUint16(objectKey)
-	writer.writeByte(0)
+	server := byte(currentSceneObjectRoute)
+	if len(serverRoute) != 0 {
+		server = serverRoute[0]
+	}
+	writer.writeByte(server)
 	writer.writeByte(currentSceneObjectContext)
 	writer.writeByte(0)
 	writer.writeByte(currentSceneOp9ActorDisplayKind)
@@ -625,6 +630,7 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 		rows,
 		hostSlot,
 		vendorDungeonPartyRoomSlotTableShape,
+		s.currentSceneActorRoute(),
 	)
 	room := ""
 	mapID := int64(0)

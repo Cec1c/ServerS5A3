@@ -57,6 +57,8 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	if s == nil || session == nil {
 		return 0, false
 	}
+	s.closeCurrentGuildCreateSession(session)
+	guildClock := s.ensureGameplayTimeQueue()
 	s.closeCurrentExpertJobStoreSession(session, true)
 	s.retireCurrentLukeSessionRun(session)
 	s.detachRuntimePartySession(session, "return_select_character")
@@ -82,6 +84,7 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 
 	s.lockCurrentCharacterBindingMutation(session, 0)
 	previousCharacterID := session.selectedCharacterID
+	guildObservation := s.currentGuildPresenceObservationLocked(session, guildClock.Now())
 	if previousCharacterID != 0 && s.gameSessions[previousCharacterID] == session {
 		delete(s.gameSessions, previousCharacterID)
 	}
@@ -103,6 +106,7 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	session.selectedCharacterID = 0
 	s.mu.Unlock()
 	session.dungeon.mu.Unlock()
+	s.persistCurrentGuildPresence(guildObservation)
 
 	if presenceEvicted {
 		if len(evictedPeers) > 0 {

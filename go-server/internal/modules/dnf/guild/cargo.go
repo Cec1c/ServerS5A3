@@ -1,0 +1,62 @@
+package guild
+
+import (
+	"encoding/hex"
+	"errors"
+	"math"
+
+	r "longheng.io/server/internal/modules/dnf/repository"
+)
+
+const CargoPermission uint32 = 1 << 15
+
+var ErrCargoUninitialized = errors.New("guild cargo capacity has not been established")
+
+// A nil Cargo preserves legacy registry state without inventing an initial
+// capacity. Initialization/migration must use the matching rules separately.
+type Cargo struct {
+	Capacity  uint32                          `json:"capacity"`
+	Slots     map[uint16]r.ItemStack          `json:"slots,omitempty"`
+	History   []CargoHistoryEntry             `json:"history,omitempty"`
+	Transfers map[string]CargoTransferReceipt `json:"transfers,omitempty"`
+}
+
+type CargoTransferReceipt struct {
+	Fingerprint      string `json:"fingerprint"`
+	Moved, Remaining uint32
+	Cargo            bool
+	List             byte
+	Slot             uint16
+}
+
+func ValidateCargo(c *Cargo) error {
+	if c == nil {
+		return nil
+	}
+	// Slots are u16 on the wire. The lower PVF capacity limit is checked by
+	// the operation's trusted rules, not frozen into the persistence format.
+	if c.Capacity > math.MaxUint16+1 {
+		return ErrInvalidRegistry
+	}
+	for slot, item := range c.Slots {
+		if uint32(slot) >= c.Capacity || item.ItemID <= 0 || item.ItemID > math.MaxUint32 || item.Count <= 0 || item.Count > math.MaxUint32 {
+			return ErrInvalidRegistry
+		}
+	}
+	if len(c.History) > CargoHistoryLimit {
+		return ErrInvalidRegistry
+	}
+	for _, entry := range c.History {
+		if ValidateCargoHistoryEntry(entry) != nil {
+			return ErrInvalidRegistry
+		}
+	}
+	for id, receipt := range c.Transfers {
+		key, err := hex.DecodeString(id)
+		fingerprint, ferr := hex.DecodeString(receipt.Fingerprint)
+		if err != nil || ferr != nil || len(key) != 32 || len(fingerprint) != 32 || receipt.Moved == 0 {
+			return ErrInvalidRegistry
+		}
+	}
+	return nil
+}

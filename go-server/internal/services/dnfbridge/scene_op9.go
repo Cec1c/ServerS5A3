@@ -29,12 +29,17 @@ func buildCurrentSceneOp9ActorRemovalBody(sceneObjectKey uint16) []byte {
 func buildCurrentSceneOp9ActorRemovalBodyInContext(
 	sceneObjectKey uint16,
 	ownerChannel byte,
+	serverRoute ...byte,
 ) []byte {
 	var writer packetWriter
 	writer.writeUint16(1)
 	writer.writeUint16(currentSceneOp9StableSceneValue)
 	writer.writeUint16(sceneObjectKey)
-	writer.writeByte(0)
+	server := byte(currentSceneObjectRoute)
+	if len(serverRoute) != 0 {
+		server = serverRoute[0]
+	}
+	writer.writeByte(server)
 	writer.writeByte(ownerChannel)
 	writer.writeByte(0)
 	writer.writeByte(currentSceneOp9ActorRemoveKind)
@@ -52,6 +57,7 @@ func (s *Service) sendCurrentSceneOp9PreviewActorRemovalOnce(session *gameSessio
 	body := buildCurrentSceneOp9ActorRemovalBodyInContext(
 		objectKey,
 		session.selectPreviewActorOwnerChannel,
+		s.currentSceneActorRoute(),
 	)
 	s.logGameEvent(session, "game-upper-current-scene-op9-preview-actor-remove-send",
 		"source", source,
@@ -151,7 +157,7 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyInContextWithSelectedChannel(
 }
 
 func (s *Service) buildCurrentSceneOp9ActorDisplayBodyInContext(sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool, fallbackName string, ownerChannel byte) []byte {
-	return buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(sceneObjectKey, character, hasCharacter, fallbackName, ownerChannel, int(ownerChannel), nil, 0, s.options.currentClientVersion == "official-24.9")
+	return buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(sceneObjectKey, character, hasCharacter, fallbackName, ownerChannel, int(ownerChannel), nil, 0, s.options.currentClientVersion == "official-24.9", s.currentSceneActorRoute())
 }
 
 // Official 24.9 NOTI9 (2016350) reads one additional actor byte at
@@ -163,6 +169,7 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	fallbackName string, ownerChannel byte, localChannel int,
 	members []currentSceneOp9PartyMemberProjection, partyLeaderSlot byte,
 	official249 bool,
+	serverRoute ...byte,
 ) []byte {
 	if sceneObjectKey == 0 {
 		sceneObjectKey = currentSceneBootstrapObjectKey
@@ -187,7 +194,11 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	writer.writeUint16(currentSceneOp9StableSceneValue)
 
 	writer.writeUint16(sceneObjectKey)
-	writer.writeByte(0)
+	server := byte(currentSceneObjectRoute)
+	if len(serverRoute) != 0 {
+		server = serverRoute[0]
+	}
+	writer.writeByte(server)
 	writer.writeByte(ownerChannel)
 	writer.writeByte(0)
 	writer.writeByte(currentSceneOp9ActorDisplayKind)

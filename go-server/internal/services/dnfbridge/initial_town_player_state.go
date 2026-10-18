@@ -407,7 +407,7 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	}
 
 	partyState := runtimePartyStateSnapshot(session)
-	op9Body := buildCurrentSceneOp9ActorRemovalBodyInContext(objectKey, session.townActorOwnerChannel)
+	op9Body := buildCurrentSceneOp9ActorRemovalBodyInContext(objectKey, session.townActorOwnerChannel, s.currentSceneActorRoute())
 	op9Kind := currentSceneOp9ActorRemoveKind
 	bodySource := "current_exe_sub_1D64CA0_kind3_remove_party_manager_record"
 	if partyState.PartyID > 0 {

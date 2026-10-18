@@ -134,6 +134,7 @@ func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repos
 			group.CharacterProgression = &mysqlCharacterProgressionUnitOfWork{router: router}
 			group.CharacterSettlement = &mysqlCharacterSettlementUnitOfWork{router: router}
 			group.SemesterClear = &mysqlSemesterClearUnitOfWork{router: router}
+			group.Guild = &mysqlGuildUnitOfWork{router: router}
 		}
 	}
 	return group

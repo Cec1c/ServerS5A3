@@ -24,6 +24,7 @@ const (
 	currentTownPostTransitionFinishStateSent
 	currentTownPostTransitionFinishCompletionSent
 	currentTownPostTransitionSkillSent
+	currentTownPostTransitionGuildBuffsSent
 	currentTownPostTransitionComplete
 )
 
@@ -240,6 +241,12 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		session.initialTownSkillInfoSent = true
 		session.initialTownSkillInfo = currentSceneSkillInfoProjection{}
 		session.townPostTransition.stage = currentTownPostTransitionSkillSent
+	}
+	if session.townPostTransition.stage < currentTownPostTransitionGuildBuffsSent {
+		if err := s.restoreCurrentGuildBuffProjection(session); err != nil {
+			return err
+		}
+		session.townPostTransition.stage = currentTownPostTransitionGuildBuffsSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionComplete {
 		placementBody := buildCurrentSceneActorPlacementBody()

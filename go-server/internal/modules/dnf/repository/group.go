@@ -43,6 +43,7 @@ type Group struct {
 	CharacterProgression CharacterProgressionUnitOfWork
 	CharacterSettlement  CharacterSettlementUnitOfWork
 	SemesterClear        SemesterClearUnitOfWork
+	Guild                GuildUnitOfWork
 }
 
 type RepositoryGroup = Group

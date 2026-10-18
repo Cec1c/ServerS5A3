@@ -114,7 +114,7 @@ var alignedCommands = map[CmdPacket]AlignedCommand{
 	CmdPacketDisjointItem:            aligned(CmdPacketDisjointItem, AlignedDomainInventory, AlignedSupportDirect, "分解物品"),
 	CmdPacketUseStackable:            aligned(CmdPacketUseStackable, AlignedDomainInventory, AlignedSupportDirect, "使用消耗品"),
 	CmdPacketUseSharedEffectItem:     aligned(CmdPacketUseSharedEffectItem, AlignedDomainInventory, AlignedSupportDirect, "current EXE op251：共享特效道具（春节欢庆爆竹族）右键使用；现场 C2S body = u32 itemCode + u16 slot"),
-	CmdPacketUseStackableAction:      aligned(CmdPacketUseStackableAction, AlignedDomainInventory, AlignedSupportDirect, "current EXE op515: damage-font action 162 request and response verified"),
+	CmdPacketUseStackableAction:      aligned(CmdPacketUseStackableAction, AlignedDomainInventory, AlignedSupportDirect, "current EXE op515: matched-client damage-font action 164 and action ACK"),
 	CmdPacketSelectDamageFontSkin:    aligned(CmdPacketSelectDamageFontSkin, AlignedDomainInventory, AlignedSupportDirect, "current EXE op1288: u16 font index request; success and error-17 responses verified"),
 	CmdPacketUpgradeItem:             aligned(CmdPacketUpgradeItem, AlignedDomainInventory, AlignedSupportDirect, "装备强化"),
 	CmdPacketEnchantByBead:           aligned(CmdPacketEnchantByBead, AlignedDomainInventory, AlignedSupportDirect, "宝珠附魔"),

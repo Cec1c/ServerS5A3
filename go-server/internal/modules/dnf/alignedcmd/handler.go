@@ -623,6 +623,7 @@ type StackableUseProvenanceResolution struct {
 	ItemID        int64
 	PVFPath       string
 	StackableType string
+	ActionType    string
 	Found         bool
 }
 
