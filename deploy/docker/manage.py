@@ -163,6 +163,9 @@ def generate(c, catalog):
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
+    multiplier = c.get("main_quest_exp_multiplier")
+    if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
+        raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
     game_token = management_token(c)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
@@ -248,6 +251,8 @@ create_databases = false
     }
     if game_token:
         env["DNFBRIDGE_PLAYER_ADMIN_SECRET"] = game_token
+    if multiplier is not None:
+        env["DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"] = str(multiplier)
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}

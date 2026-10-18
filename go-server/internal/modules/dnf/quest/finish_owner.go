@@ -101,19 +101,20 @@ type FinishTerminalChildSettlement struct {
 type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) ([]FinishCommittedItem, error)
 
 type FinishCommitInput struct {
-	AccountID              string
-	CharacterID            string
-	QuestID                int64
-	RewardSelectIndex      uint16
-	HasRewardSelect        bool
-	Multiplier             uint16
-	ExpectedCompletionKey  string
-	CommittedAt            time.Time
-	Progression            *progression.Tables
-	ExperienceBonusPercent int64
-	AllocateItem           FinishItemAllocator
-	ProfessionProfiles     *profession.Profiles
-	SkillCatalog           *dnfskill.Table
+	AccountID                     string
+	CharacterID                   string
+	QuestID                       int64
+	RewardSelectIndex             uint16
+	HasRewardSelect               bool
+	Multiplier                    uint16
+	MainQuestExperienceMultiplier int
+	ExpectedCompletionKey         string
+	CommittedAt                   time.Time
+	Progression                   *progression.Tables
+	ExperienceBonusPercent        int64
+	AllocateItem                  FinishItemAllocator
+	ProfessionProfiles            *profession.Profiles
+	SkillCatalog                  *dnfskill.Table
 }
 
 // FinishCommitResult is a detached post-commit snapshot. Every map, slice and
@@ -214,6 +215,10 @@ func (o *Owner) ApplyFinishSettlement(
 	if input.Multiplier != 1 {
 		return FinishCommitResult{}, fmt.Errorf("%w: multiplier=%d", ErrFinishQuestMultiplierUnsupported, input.Multiplier)
 	}
+	mainQuestExperienceMultiplier, err := normalizeMainQuestExperienceMultiplier(input.MainQuestExperienceMultiplier)
+	if err != nil {
+		return FinishCommitResult{}, err
+	}
 	if input.CommittedAt.IsZero() {
 		return FinishCommitResult{}, ErrFinishQuestCommitTimeRequired
 	}
@@ -225,7 +230,7 @@ func (o *Owner) ApplyFinishSettlement(
 	}
 
 	var candidate FinishCommitResult
-	err := o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
+	err = o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
 		if tx.AccountInventory == nil || tx.Character == nil || tx.Quest == nil || tx.Skill == nil || tx.Inventory == nil || tx.Equipment == nil {
 			return ErrFinishSettlementUnavailable
 		}
@@ -368,6 +373,7 @@ func (o *Owner) ApplyFinishSettlement(
 		if !definitionKnown {
 			return ErrQuestDefinitionMissing
 		}
+		mainQuestExperience := isMainQuestExperienceDefinition(catalog, definition)
 		reward, err := catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
 		if err != nil {
 			return err
@@ -405,6 +411,17 @@ func (o *Owner) ApplyFinishSettlement(
 		potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
 		experienceDelta += potionBonus
 		experienceBonusDelta += potionBonus
+		if mainQuestExperience {
+			baseExperienceDelta, experienceBonusDelta, experienceDelta, err = applyMainQuestExperienceMultiplier(
+				baseExperienceDelta,
+				experienceBonusDelta,
+				experienceDelta,
+				mainQuestExperienceMultiplier,
+			)
+			if err != nil {
+				return err
+			}
+		}
 		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta)
 		if err != nil {
 			return err
