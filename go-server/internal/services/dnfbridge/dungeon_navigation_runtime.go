@@ -1023,14 +1023,17 @@ func runtimePartyMemberIndexForSession(session *gameSession) (byte, bool) {
 	return runtimePartyMemberIndex(session.selectedCharacterID, runtimePartyStateSnapshot(session))
 }
 
+// runtimePartyMemberIndex returns the normalized fixed slot, not the slice index.
+// runtimePartyMembers has already expanded legacy all-zero slots to 0..n-1.
+// A one-member roster keeps the existing (0, false) sentinel.
 func runtimePartyMemberIndex(characterID uint16, state alignedcmd.PartyState) (byte, bool) {
 	members := runtimePartyMembers(state)
 	if len(members) <= 1 {
 		return 0, false
 	}
-	for index, member := range members {
-		if member.UserID == characterID && index <= int(^uint8(0)) {
-			return byte(index), true
+	for _, member := range members {
+		if member.UserID == characterID {
+			return member.Slot, true
 		}
 	}
 	return 0, false

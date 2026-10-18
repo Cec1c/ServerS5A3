@@ -1162,7 +1162,7 @@ func TestHandleOnlineChangePartyMemberPositionBroadcastsSlots(t *testing.T) {
 	}
 }
 
-func TestHandleOnlineChangeHostMovesLeaderToFirstSlotAndRebuildsAllMembers(t *testing.T) {
+func TestHandleOnlineChangeHostPreservesFixedSlotsAndRebuildsAllMembers(t *testing.T) {
 	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}}
 	leaderConn := &bufferConn{}
 	memberConn := &bufferConn{}
@@ -1197,7 +1197,8 @@ func TestHandleOnlineChangeHostMovesLeaderToFirstSlotAndRebuildsAllMembers(t *te
 	for name, session := range map[string]*gameSession{"old_leader": leader, "new_leader": member} {
 		got := runtimePartyStateSnapshot(session)
 		members := runtimePartyMembers(got)
-		if got.UserID != 1002 || got.PartyID == 1001 || len(members) != 2 || members[0].UserID != 1002 || members[1].UserID != 1001 {
+		if got.UserID != 1002 || got.PartyID == 1001 || len(members) != 2 ||
+			members[0].UserID != 1001 || members[0].Slot != 0 || members[1].UserID != 1002 || members[1].Slot != 1 {
 			t.Fatalf("%s party state=%+v members=%+v", name, got, members)
 		}
 	}
@@ -1215,14 +1216,11 @@ func TestHandleOnlineChangeHostMovesLeaderToFirstSlotAndRebuildsAllMembers(t *te
 			data = rest
 		}
 		if !reflect.DeepEqual(msgIDs, []uint16{
-			uint16(dnfenum.CmdPacketRecoverStamina),
-			0x000b,
 			0x0099,
 			uint16(dnfenum.CmdPacketRecoverStamina),
 		}) {
-			t.Fatalf("%s change-host packets=%v, want op9 old-table clear then vendor formation order "+
-				"(op11 phase-1 barrier before op153, then the fresh roster; no empty 0x0099 realtime list: "+
-				"it clears the whole client slot table)", name, msgIDs)
+			t.Fatalf("%s change-host packets=%v, want one authoritative op153 plus op9 roster "+
+				"without an old-table clear or op11 endpoint rehandshake", name, msgIDs)
 		}
 	}
 }
