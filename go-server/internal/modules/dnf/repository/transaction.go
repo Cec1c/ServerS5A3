@@ -114,6 +114,16 @@ type CharacterAssetUnitOfWork interface {
 	WithinCharacterAssets(context.Context, string, func(CharacterRepository, InventoryRepository, EquipmentRepository) error) error
 }
 
+// CharacterAssetQuestUnitOfWork reads quest eligibility under the same asset
+// lock/transaction as a wallet mutation. It exposes no quest writes.
+type CharacterAssetQuestUnitOfWork interface {
+	WithinCharacterAssetsAndQuest(context.Context, string, func(CharacterRepository, QuestReader) error) error
+}
+
+type QuestReader interface {
+	Load(context.Context, string) (QuestRecord, bool, error)
+}
+
 // MailboxAssetUnitOfWork atomically moves wallet/inventory assets between one
 // character and one mailbox aggregate. The two owner IDs may differ for send
 // and are equal for attachment extraction.

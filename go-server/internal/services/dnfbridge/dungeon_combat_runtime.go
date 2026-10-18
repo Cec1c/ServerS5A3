@@ -25,7 +25,7 @@ func dungeonRuntimeContainsDeathOwnerObjectKey(runtime *runtimeDungeonState, obj
 		if visit == nil || visit.Room == nil || visit.Room == runtime.Room {
 			continue
 		}
-		if visit.Room.ContainsAnnouncedNonHostileAICharacterObjectKey(objectKey) {
+		if currentDungeonRoomContainsFriendlyOwner(visit.Room, visit.Scene, objectKey, true) {
 			return true
 		}
 	}
@@ -94,6 +94,21 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			return nil
 		}
 	}
+	if hasScene && runtime.Tournament != nil && runtime.Tournament.Definition != nil {
+		room := runtime.Room.Snapshot()
+		if room.MapID == runtime.Tournament.Definition.MapID &&
+			tournamentActorIsAnnounced(room, request.RuntimeObjectKey) &&
+			!runtime.Tournament.canAcceptActorDeath(int(request.RuntimeObjectKey)) {
+			s.logGameEvent(session, "game-dungeon-tournament-actor-death-rejected",
+				"dungeon_id", runtime.Dungeon.ID,
+				"map_id", room.MapID,
+				"object_key", request.RuntimeObjectKey,
+				"current_round", runtime.Tournament.currentRoundNumber(),
+				"terminal", runtime.Tournament.snapshot().Terminal,
+				"reason", "actor_is_not_in_the_current_tournament_round")
+			return nil
+		}
+	}
 	// `DNFBRIDGE_DUNGEON_DEATH_ROOM_PROOF=room_proven` 时追加的服务端自证判据：
 	// 这条 op39 的目标是不是本房间在册、仍在场的敌对 actor。默认档（strict）下恒为
 	// false；已验证的友好 APC 贡献兼容路径另作窄范围判断。见 dungeon_death_room_proof.go。
@@ -103,7 +118,8 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	}
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
 	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
-	if friendlyAPCDeath {
+	friendlyOwnerDeath := hasScene && s.currentDungeonFriendlyOwnerDeath(runtime, scene, request)
+	if friendlyAPCDeath || friendlyOwnerDeath {
 		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
 			// Repair a duplicate or failed notification without settling the kill
 			// again. The proof above still requires this room's ordinary target.
@@ -295,6 +311,8 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	if !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath &&
 		request.OwnerObjectKey != playerObjectKey &&
 		!roomProvenHostile &&
+		!friendlyAPCDeath &&
+		!friendlyOwnerDeath &&
 		!dungeonRuntimeContainsDeathOwnerObjectKey(runtime, uint32(request.OwnerObjectKey)) &&
 		!hitOwner.accepted {
 		if hitOwnerMode == dungeonPartyHitOwnerParty {
@@ -532,6 +550,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 			return fmt.Errorf("cache dungeon room after special monster retirement: %w", err)
 		}
+		if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+			return err
+		}
 		scene, _ = runtime.Session.Scene()
 		s.awardCurrentPetRoomClearLocked(session, runtime, scene, "authoritative_special_monster_retirement")
 		s.logGameEvent(session, "game-dungeon-special-monster-retired",
@@ -602,6 +623,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		// 单人/无队伍不进实例，行为与原来逐字节一致（重复 op39 仍然静默）。
 		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) && runtime.partyInstance != nil {
 			return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+		}
+		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+			return s.persistCurrentDungeonRoomClearQuestLocked(session, runtime)
 		}
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 			"dungeon_id", runtime.Dungeon.ID,
@@ -905,6 +929,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 		return fmt.Errorf("cache dungeon room after actor death: %w", err)
 	}
+	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+		return err
+	}
 	if cleared || (storyAIBossGateActive && storyAIBossGate.Ready && scene.Cleared) {
 		if clearedScene, ok := runtime.Session.Scene(); ok {
 			s.awardCurrentPetRoomClearLocked(session, runtime, clearedScene, "authoritative_monster_room_clear")
@@ -948,6 +975,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		"owner_sentinel_blocking_clear_source", ownerSentinelBlockingClearSource,
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
 		"friendly_apc_contribution_proven", friendlyAPCDeath,
+		"friendly_owner_proven", friendlyOwnerDeath,
 		"response_kind", target.ResponseKind,
 		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),
 		"response_body_len", len(responseBody),
@@ -1095,6 +1123,9 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 		}
 	}
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, body, currentSceneActorObjectKey(session.selectedCharacterID)), 0); err != nil {
+		return err
+	}
+	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-dungeon-monster-death-replayed",

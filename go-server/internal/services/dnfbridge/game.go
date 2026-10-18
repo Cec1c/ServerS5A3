@@ -59,6 +59,11 @@ type gameSession struct {
 	wireMu sync.Mutex
 	dproto dproto.Session
 
+	// Image-communication identity is guarded by townMu. Scene resets advance
+	// its generation; the nonce belongs only to this connection.
+	imageCommunicationNonce           [32]byte
+	imageCommunicationSceneGeneration uint64
+
 	endpointHandshakeMu              sync.Mutex
 	currentChannelResidentNoticeSent bool
 	gameEndpointSuccessSent          bool
@@ -348,6 +353,7 @@ type questReplayState struct {
 	giveUpAnswered     map[currentGiveUpQuestReplayKey]struct{}
 	triggerMu          sync.Mutex
 	triggerNoop        map[currentSetQuestTriggerReplayKey]struct{}
+	linkedTriggerValue map[currentSetQuestTriggerReplayKey]int64
 	finishMu           sync.Mutex
 	finishAnswered     map[currentFinishQuestReplayKey]struct{}
 }

@@ -208,6 +208,10 @@ type Service struct {
 	combatPowerCatalogErr    error
 	townCatalogMu            sync.RWMutex
 	townCatalog              *dnftown.Table
+
+	imageCommunicationMu        sync.Mutex
+	imageCommunicationResources *currentImageCommunicationResources
+
 	// seriaRoomDoors 缓存"赛丽亚房间外门口"的 PVF 解析结果（键 = 房间的城镇/区域），
 	// 见 town_seria_room_door.go：每次 op1425 都要用，但 PVF 文档只需读一次。
 	seriaRoomDoorMu sync.Mutex
