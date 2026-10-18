@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	darkcombo "longheng.io/server/internal/modules/dnf/darkknightcombo"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
 	"longheng.io/server/internal/modules/dnf/skillcmd"
@@ -296,9 +297,17 @@ func (s *Service) syncCurrentSceneSkillPointLedger(
 }
 
 func (s *Service) ensureCurrentSceneSkillLayout(ctx context.Context, repos dnfrepo.Group, character dnfrepo.CharacterRecord, job byte, catalog *dnfskill.Table, record dnfrepo.SkillRecord) (dnfrepo.SkillRecord, dnfrepo.SkillLayout, bool, error) {
+	normalized := false
+	if job == darkcombo.Job && repos.CharacterSkills != nil {
+		var err error
+		record, normalized, err = normalizeDarkKnightLayouts(ctx, repos, catalog, character.CharacterID)
+		if err != nil {
+			return dnfrepo.SkillRecord{}, nil, false, err
+		}
+	}
 	if existing := record.Layouts[dnfrepo.ActiveSkillTree(record)]; len(existing) > 0 {
 		layout, err := skillcmd.BuildCurrentSkillLayout(catalog, job, dnfrepo.ActiveSkillTree(record), record.Skills, existing)
-		return record, layout, false, err
+		return record, layout, normalized, err
 	}
 	initial, err := s.initialCharacterSkills(ctx, job)
 	if err != nil {

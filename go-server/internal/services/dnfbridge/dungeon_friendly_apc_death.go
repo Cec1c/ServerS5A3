@@ -14,24 +14,32 @@ import (
 // against this run; a nonempty list or sentinel alone grants no authority.
 // Story allies can be AI characters (native kind 0x111) or ordinary monsters
 // explicitly assigned to the player side by PVF [monster team] (kind 0x211).
+//
+// Tutorial dungeons use the same owner/contribution shape for their story APC.
+// The PVF [tutorial dungeon] metadata is the tutorial ownership proof; its
+// absence on a tutorial namespace stays fail-closed. The tutorial allowance is
+// limited to a contributor announced in the current room, because the reported
+// 7118 start room has [apc follow type] none. Ordinary dungeons keep their
+// existing follower/cross-room contributor path unchanged.
 func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, request dungeoncmd.DieMonsterRequest) bool {
 	if s.options.currentClientVersion != "official-24.9" ||
 		request.OwnerObjectKey != ^uint16(0) || request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat ||
 		request.CombatEntryCount == 0 || len(request.CombatEntries) != int(request.CombatEntryCount)*dungeoncmd.Official249DieMonsterEntrySize ||
 		runtime == nil || runtime.Room == nil || runtime.Session == nil ||
-		isPVFTutorialDungeon(runtime) || currentDungeonPathUsesTutorialNamespace(runtime.Dungeon.Path) {
+		(currentDungeonPathUsesTutorialNamespace(runtime.Dungeon.Path) && !isPVFTutorialDungeon(runtime)) {
 		return false
 	}
 	if !currentDungeonFriendlyDeathTarget(runtime, scene, request.RuntimeObjectKey) {
 		return false
 	}
+	tutorial := isPVFTutorialDungeon(runtime)
 	target, _ := runtime.Room.MonsterByReference(
 		scene.RuntimeObjects[request.RuntimeObjectKey],
 		runtimeDungeonMonsterAnnounced,
 		runtimeDungeonMonsterDefeated,
 	)
 	if target.State == runtimeDungeonMonsterAnnounced {
-		if _, ok := currentDungeonOwnerSentinelAnnouncedOrdinaryMonster(runtime, scene, request.RuntimeObjectKey); !ok {
+		if _, ok := currentDungeonAnnouncedOrdinaryMonsterTarget(runtime, scene, request.RuntimeObjectKey); !ok {
 			return false
 		}
 	}
@@ -46,6 +54,12 @@ func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, s
 		key := uint32(binary.LittleEndian.Uint16(entry[2:]))
 		if currentDungeonRoomContainsFriendlyContributor(runtime.Room, scene, kind, key, false) {
 			return true
+		}
+		if tutorial {
+			// The reported tutorial APC does not follow across rooms. Do not
+			// extend the new tutorial allowance to a stale contributor from an
+			// earlier room visit.
+			continue
 		}
 		// Followers retain the original key and faction after leaving their
 		// spawning room. Use that visit's PVF scene, not the destination's rows.

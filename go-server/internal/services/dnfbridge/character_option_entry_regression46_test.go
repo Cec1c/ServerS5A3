@@ -79,8 +79,31 @@ func scope44Upper(t *testing.T, s *Service, se *gameSession, op uint16, body []b
 }
 func scope44Select(t *testing.T, s *Service, se *gameSession, id uint16) {
 	t.Helper()
+	rows := se.currentRenameRoster
+	if len(rows) == 0 {
+		repositories, ok := s.repositoryGroup()
+		if !ok {
+			t.Fatal("selector fixture repository missing")
+		}
+		var err error
+		rows, err = s.listCharacters(context.Background(), repositories, s.accountIDForSession(se))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	rowIndex := -1
+	for index, row := range rows {
+		if numericCharacterID(row) == int(id) {
+			rowIndex = index
+			break
+		}
+	}
+	if rowIndex < 0 {
+		t.Fatalf("target %d is absent from the client roster", id)
+	}
+	// The fixture takes a target ID; the current two-byte wire field is its row.
 	b := make([]byte, 2)
-	binary.LittleEndian.PutUint16(b, id)
+	binary.LittleEndian.PutUint16(b, uint16(rowIndex))
 	scope44Upper(t, s, se, uint16(dnfenum.UpperMsgSelectCharacter), b)
 	if se.selectedCharacterID != id {
 		t.Fatalf("real op4 selected %d want %d", se.selectedCharacterID, id)

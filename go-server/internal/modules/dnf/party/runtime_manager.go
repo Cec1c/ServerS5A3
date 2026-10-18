@@ -61,6 +61,16 @@ type runtimePartyInvite struct {
 	inviterGeneration uint64
 	partyID           uint16
 	mode              byte
+	request           RuntimePeerRequest
+}
+
+// RuntimePeerRequest fixes the join direction when the prompt is registered.
+// Mode 0 is shared by Invite and Join; accepting a Join prompt must not make
+// the existing leader join the requesting player's newly created lobby.
+type RuntimePeerRequest struct {
+	PartyID  uint16
+	JoinerID uint16
+	AnchorID uint16
 }
 
 const currentRuntimePartyMaxMembers = 4
@@ -375,22 +385,63 @@ func (m *RuntimePartyManager) RecordInvite(invitee uint16, inviteeGeneration uin
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.invites[invitee] = runtimePartyInvite{invitee: invitee, inviteeGeneration: inviteeGeneration, inviter: inviter, inviterGeneration: inviterGeneration, partyID: partyID, mode: mode}
+	m.invites[invitee] = runtimePartyInvite{invitee: invitee, inviteeGeneration: inviteeGeneration, inviter: inviter, inviterGeneration: inviterGeneration, partyID: partyID, mode: mode,
+		request: RuntimePeerRequest{PartyID: partyID, JoinerID: invitee, AnchorID: inviter}}
 	return true
 }
 
+// RecordOnlinePeerRequest resolves ordinary party requests from the two
+// authoritative memberships under the same lock. Forced invitations retain
+// their explicit direction through RecordInvite instead.
+func (m *RuntimePartyManager) RecordOnlinePeerRequest(recipient uint16, recipientGeneration uint64, requester uint16, requesterGeneration uint64, mode byte) (RuntimePeerRequest, bool) {
+	if m == nil || recipient == 0 || requester == 0 || recipient == requester || recipientGeneration == 0 || requesterGeneration == 0 {
+		return RuntimePeerRequest{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	request := RuntimePeerRequest{JoinerID: recipient, AnchorID: requester}
+	sourceParty, sourceMember := m.partyMemberLocked(requester)
+	targetParty, targetMember := m.partyMemberLocked(recipient)
+	if sourceMember != nil && sourceMember.SessionGeneration != requesterGeneration || targetMember != nil && targetMember.SessionGeneration != recipientGeneration {
+		return RuntimePeerRequest{}, false
+	}
+	if mode == 0 || mode == 12 {
+		if targetParty != nil && (sourceParty == nil || sourceParty.count() == 1) {
+			if targetParty.leader != recipient {
+				return RuntimePeerRequest{}, false
+			}
+			request.JoinerID, request.AnchorID = requester, recipient
+			request.PartyID = targetParty.id
+		} else if sourceParty != nil {
+			if sourceParty.leader != requester || targetParty != nil {
+				return RuntimePeerRequest{}, false
+			}
+			request.PartyID = sourceParty.id
+		}
+	} else if sourceParty != nil {
+		request.PartyID = sourceParty.id
+	}
+	m.invites[recipient] = runtimePartyInvite{invitee: recipient, inviteeGeneration: recipientGeneration, inviter: requester, inviterGeneration: requesterGeneration, partyID: request.PartyID, mode: mode, request: request}
+	return request, true
+}
+
 func (m *RuntimePartyManager) ConsumeInvite(invitee uint16, inviteeGeneration uint64, inviter uint16, inviterGeneration uint64, mode byte) (uint16, bool) {
+	request, ok := m.ConsumePeerRequest(invitee, inviteeGeneration, inviter, inviterGeneration, mode)
+	return request.PartyID, ok
+}
+
+func (m *RuntimePartyManager) ConsumePeerRequest(invitee uint16, inviteeGeneration uint64, inviter uint16, inviterGeneration uint64, mode byte) (RuntimePeerRequest, bool) {
 	if m == nil {
-		return 0, false
+		return RuntimePeerRequest{}, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	invite, ok := m.invites[invitee]
 	if !ok || invite.inviteeGeneration != inviteeGeneration || invite.inviter != inviter || invite.inviterGeneration != inviterGeneration || invite.mode != mode {
-		return 0, false
+		return RuntimePeerRequest{}, false
 	}
 	delete(m.invites, invitee)
-	return invite.partyID, true
+	return invite.request, true
 }
 
 func (m *RuntimePartyManager) UpdateSettings(userID uint16, generation uint64, settings alignedcmd.PartyState) RuntimePartyResult {

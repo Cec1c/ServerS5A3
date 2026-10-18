@@ -34,6 +34,20 @@ func dungeonRuntimeContainsDeathOwnerObjectKey(runtime *runtimeDungeonState, obj
 
 // currentDungeonRoomAnnouncedLiveHostile 的完整说明与开关见 dungeon_death_room_proof.go。
 func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) error {
+	return s.handleDungeonMonsterDeathRequest(session, body, nil)
+}
+
+func (s *Service) handleDungeonMonsterDeathRequest(
+	session *gameSession,
+	body []byte,
+	sequence *uint64,
+) (resultErr error) {
+	var huntProgressErr error
+	defer func() {
+		if resultErr == nil {
+			resultErr = huntProgressErr
+		}
+	}()
 	request, err := s.decodeCurrentDungeonMonsterDeath(body)
 	if err != nil {
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -69,28 +83,36 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
-	// map-owned 特殊被动对象（深渊柱子）的破坏事件：厂商在 DIE_MONSTER 里用
-	// `body[4:6] == 0xFFFF`（本仓解码器的 `OwnerObjectKey`）+ 目标 code 命中房间
-	// `[special passive object]` 列表来识别，并且**不回 op38**
-	// （`DungeonCombatHandler.cs:78-152`、`DungeonInstance.cs:378-404`）。
-	// 默认档（`DNFBRIDGE_MAP_OWNED_PASSIVE_OBJECT=legacy`）下这一行是空操作，
-	// 本函数的其余分支逐字节等于今天。见 dungeon_passive_object_drop.go。
-	//
-	// 这里**刻意只做"收下并 return"**：不补 op38、也不去动 op24 待回城状态——厂商那条
-	// 分支同样什么都不发（`DungeonCombatHandler.cs:117-152`），而默认档下这类 op39 本来
-	// 也只会走"形状不可证 ⇒ 记 blocked"这一条路（不 cancel 任何东西）。多做的每一件事
-	// 都会变成 opt-in 档里没有依据的行为差。
-	if hasScene && dungeonMapOwnedPassiveObjectModeFromEnv().registers() {
-		handled, passiveErr := s.handleCurrentDungeonMapOwnedPassiveObjectDeathLocked(
-			session,
-			runtime,
-			scene,
-			request,
-		)
-		if passiveErr != nil {
-			return passiveErr
+	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
+	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
+	if hasScene {
+		mapOwnedEnabled := dungeonMapOwnedPassiveObjectModeFromEnv().registers()
+		var questDropHandled bool
+		var questDropErr error
+		if sequence != nil {
+			questDropHandled, questDropErr = s.handleCurrentDungeonQuestPassiveDropDeathLocked(
+				session,
+				runtime,
+				scene,
+				request,
+				body,
+				*sequence,
+			)
 		}
-		if handled {
+		var mapOwnedHandled bool
+		var mapOwnedErr error
+		if mapOwnedEnabled {
+			mapOwnedHandled, mapOwnedErr = s.handleCurrentDungeonMapOwnedPassiveObjectDeathLocked(
+				session,
+				runtime,
+				scene,
+				request,
+			)
+		}
+		if questDropErr != nil || mapOwnedErr != nil {
+			return errors.Join(questDropErr, mapOwnedErr)
+		}
+		if questDropHandled || mapOwnedHandled {
 			return nil
 		}
 	}
@@ -190,7 +212,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			}
 		}
 	}
-	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath {
+	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath && !friendlyAPCDeath {
 		target, retirementErr := runtime.Room.RetireNonHostileAIActor(request.RuntimeObjectKey)
 		if retirementErr != nil {
 			if hasScene {
@@ -615,6 +637,11 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		}
 	}
 	target, cleared, reportErr := runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+		if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
+			return err
+		}
+	}
 	if reportErr != nil {
 		// 阶段二（队伍级共享实例）：同一只怪被两个成员各自判定死亡时，后到的那次请求
 		// 落在**共享房间**里必然是 already_defeated。此时不能只记 blocked：
@@ -625,6 +652,13 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 		}
 		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+			// A single-session retry can still be the recovery request for a
+			// transaction or packet failure after the death commit. Only replay
+			// while no authoritative death body has been recorded; ordinary
+			// repeated op39 requests keep the historical silent behavior.
+			if _, responseRecorded := runtime.Room.DeathResponseBody(request.RuntimeObjectKey); !responseRecorded {
+				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+			}
 			return s.persistCurrentDungeonRoomClearQuestLocked(session, runtime)
 		}
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -643,6 +677,13 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	}
 	scene, _ = runtime.Session.Scene()
 	storyAIBossGate, storyAIBossGateActive := currentDungeonStoryAIBossDeathGate(runtime, scene)
+	if err := s.settleCurrentDungeonRewardEnemyQuestDropLocked(
+		session,
+		runtime,
+		request.RuntimeObjectKey,
+	); err != nil {
+		return err
+	}
 	rewardMonster := dropMonster
 	rewardMonsterCandidate := ordinaryDropCandidate
 	if !rewardMonsterCandidate {
@@ -881,6 +922,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 				"error", huntErr)
 		}
 		s.checkCurrentDungeonQuestMonsterDrops(session, runtime, rewardMonster.Spawn.MonsterID)
+		// Keep ordinary drops, EXP and boss/story completion in their existing
+		// order even if quest persistence or its snapshot needs a retry.
+		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 	}
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
@@ -1064,6 +1108,17 @@ func (s *Service) replayCurrentDungeonMonsterDeathLocked(
 	runtime *runtimeDungeonState,
 	objectKey uint32,
 ) error {
+	if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, objectKey); err != nil {
+		return err
+	}
+	if err := s.settleCurrentDungeonRewardEnemyQuestDropLocked(session, runtime, objectKey); err != nil {
+		s.logGameEvent(session, "game-dungeon-monster-death-reward-replay-deferred",
+			"dungeon_id", runtime.Dungeon.ID,
+			"maze_index", runtime.MazeIndex,
+			"object_key", objectKey,
+			"error", err)
+		return err
+	}
 	if body, ok := runtime.Room.DeathResponseBody(objectKey); ok {
 		return s.replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			session,
@@ -1115,6 +1170,14 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			sessionRoomCleared = cleared
 		case errors.Is(markErr, worldmap.ErrHostileAlreadyDefeated):
 			sessionSceneMarked = true
+			// APC quest-drop handling can fail after committing the actor death.
+			// Resume its final-room handling from the authoritative scene while
+			// preserving the ordinary-monster notification replay path.
+			if target, found := runtime.Room.DefeatedDeathTarget(objectKey); found && target.Reference.Kind == worldmap.HostileAICharacter {
+				if scene, ok := runtime.Session.Scene(); ok {
+					sessionRoomCleared = scene.Cleared
+				}
+			}
 		case errors.Is(markErr, worldmap.ErrHostileNotBound):
 			// 请求方这一侧没有这个 actor（非敌对 actor 不参与阻挡怪扫描）：只重放通知。
 		default:

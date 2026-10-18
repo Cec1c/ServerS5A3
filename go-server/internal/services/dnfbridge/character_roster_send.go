@@ -42,18 +42,22 @@ func (s *Service) sendUpperRoster(session *gameSession, characters []dnfrepo.Cha
 		return err
 	}
 	s.rememberCurrentRenameRoster(session, characters)
-	return nil
+	return s.sendCurrentDarkKnightComboPreload(session, context.Background(), characters, "角色表更新")
 }
 
 func (s *Service) sendCharacterList(session *gameSession, characters []dnfrepo.CharacterRecord) error {
 	// 86 级 C# inventory.db 的 get_userinfo_template 证明 0x0002 必须带 route=1。
-	return s.sendGameWithTransport(
+	if err := s.sendGameWithTransport(
 		session,
 		byte(dnfenum.GameCmdNotice),
 		uint16(dnfenum.GameTypeCharacterList),
 		buildCharacterListBody(characters),
 		dnfproto.TransportOptions{Route: latestCharacterStateRoute},
-	)
+	); err != nil {
+		return err
+	}
+	s.rememberCurrentRenameRoster(session, characters)
+	return nil
 }
 
 // sendCurrentCharacterSelectRoster is the current NoPack mode-2 character
@@ -86,7 +90,7 @@ func (s *Service) sendCurrentCharacterSelectRoster(session *gameSession, charact
 	}
 	noteEmptyRosterSlotProbe(session, body)
 	s.rememberCurrentRenameRoster(session, characters)
-	return nil
+	return s.sendCurrentDarkKnightComboPreload(session, context.Background(), characters, "角色选择列表")
 }
 
 func buildCharacterListBody(characters []dnfrepo.CharacterRecord) []byte {

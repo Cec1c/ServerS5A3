@@ -715,8 +715,7 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 		// to that quest's active maze connection, so entering without the accept
 		// would land on the dungeon's non-quest maze and the chain would stall
 		// (real Script.pvf dungeon 6 猛毒雷鸣废墟 maze 1 = [0 3147 -1]).
-		// Best effort: an ineligible successor is not force-accepted and the
-		// entry target keeps the previous behavior.
+		// An ineligible successor leaves this action as a same-dungeon retry.
 		outcome, acceptErr := s.acceptCurrentStorySuccessorQuest(session, nextQuestID)
 		if outcome == storySuccessorAcceptFailed {
 			// 真实存储/上下文失败：不退休旧 runtime、不进无任务迷宫、不扣入场资产。
@@ -760,6 +759,11 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 					"error", err)
 				return nil
 			}
+		} else {
+			// A quest connection identifies a possible next dungeon; successful
+			// acceptance authorizes entering it. Keep the current quest's dungeon
+			// while its objectives, hand-in or successor eligibility are pending.
+			hasNextStory = false
 		}
 	}
 	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)

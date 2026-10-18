@@ -225,20 +225,23 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 	if !sourceBound || !targetBound || targetIdentity.session == nil {
 		return nil
 	}
-	invitePartyID := uint16(0)
 	inviteRecorded := false
+	var recordedRequest party.RuntimePeerRequest
 	if manager := s.runtimePartyManagerForService(); manager != nil {
-		if snapshot, found := manager.SnapshotByUser(sourceIdentity.character, sourceIdentity.generation); found {
-			invitePartyID = snapshot.ID
+		if s.options.currentClientVersion == "official-24.9" {
+			recordedRequest, inviteRecorded = manager.RecordOnlinePeerRequest(
+				targetIdentity.character, targetIdentity.generation,
+				sourceIdentity.character, sourceIdentity.generation, parsed.Mode,
+			)
+		} else {
+			var partyID uint16
+			if snapshot, found := manager.SnapshotByUser(sourceIdentity.character, sourceIdentity.generation); found {
+				partyID = snapshot.ID
+			}
+			inviteRecorded = manager.RecordInvite(targetIdentity.character, targetIdentity.generation,
+				sourceIdentity.character, sourceIdentity.generation, partyID, parsed.Mode)
+			recordedRequest = party.RuntimePeerRequest{PartyID: partyID, JoinerID: targetIdentity.character, AnchorID: sourceIdentity.character}
 		}
-		inviteRecorded = manager.RecordInvite(
-			targetIdentity.character,
-			targetIdentity.generation,
-			sourceIdentity.character,
-			sourceIdentity.generation,
-			invitePartyID,
-			parsed.Mode,
-		)
 	}
 	if !inviteRecorded {
 		s.logGameEvent(session, "game-peer-request-invite-deferred",
@@ -249,6 +252,10 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 			"reason", "session_generation_changed_before_invite_registration")
 		return nil
 	}
+	s.logGameEvent(session, "game-party-peer-request-direction-registered",
+		"char_id", sourceID, "target_char_id", parsed.TargetID, "mode", parsed.Mode,
+		"party_id", recordedRequest.PartyID, "joiner_char_id", recordedRequest.JoinerID,
+		"leader_char_id", recordedRequest.AnchorID)
 	noticeBody := party.BuildRequestPeerNotice(sourceID, parsed)
 	s.logGameEvent(session, "game-peer-request-notice-forward",
 		"type", 0x0007,
@@ -849,11 +856,11 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 			"target_channel", currentTownPresenceChannelID(targetIdentity.session),
 			"reason", partyMemberChannelMismatchReason)
 	}
-	invitePartyID := uint16(0)
+	var recordedRequest party.RuntimePeerRequest
 	inviteConsumed := false
 	if acceptorBound && targetBound {
 		if manager := s.runtimePartyManagerForService(); manager != nil {
-			invitePartyID, inviteConsumed = manager.ConsumeInvite(
+			recordedRequest, inviteConsumed = manager.ConsumePeerRequest(
 				acceptorIdentity.character,
 				acceptorIdentity.generation,
 				targetIdentity.character,
@@ -870,7 +877,19 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 			"mode", parsed.Mode)
 		return nil
 	}
-	_ = invitePartyID // recorded generation is revalidated by create/join below.
+
+	// Direction was fixed before the recipient opened its local op12 window.
+	// A changed/retired target party must not silently turn into a new lobby.
+	if isPartyInviteResponse(parsed) && !peerResponseRejected(parsed) && recordedRequest.PartyID != 0 {
+		snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(recordedRequest.AnchorID, 0)
+		if !found || snapshot.ID != recordedRequest.PartyID || snapshot.Leader != recordedRequest.AnchorID {
+			s.logGameEvent(session, "game-party-peer-request-target-changed",
+				"char_id", selectedCharacterID(session), "party_id", recordedRequest.PartyID,
+				"leader_char_id", recordedRequest.AnchorID)
+			return nil
+		}
+	}
+
 	ackPayload := party.BuildResponsePeerAckPayload(parsed.TargetID, parsed.Mode)
 	if err := s.sendGameUpperSuccess(session, typ, ackPayload); err != nil {
 		return err
@@ -910,27 +929,24 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 	if !isPartyInviteResponse(parsed) {
 		return nil
 	}
-	// op8 is emitted by the accepting player, so it joins the invite target's
-	// already-owned party (or creates that target's lobby).
-	// 被邀请方在接受之前很可能持有 op12（本地队伍窗口）留下的单人队伍投影。
-	// 仓库里另一处注释已记录当前客户端的行为："只要缓存的 party id 非零，
-	// 它就被当成进图队长权限，即使名单里只有一行"。所以被邀请方会**先显示成队长**、
-	// 并且能点"委任队长"——线上实测正是如此（op121 由被邀请方发出、被判 sender_is_not_leader）。
-	// 加入之前先把那份过期投影清空（发空 realtime 名单），再下发真正的队伍快照。
-	if invitePartyID := runtimePartyStateSnapshot(session).PartyID; invitePartyID > 0 {
-		if targetPartyID := runtimePartyStateSnapshot(targetSession).PartyID; invitePartyID != targetPartyID {
-			if err := s.sendRuntimePartySnapshot(session, alignedcmd.PartyState{}); err != nil {
+	joiner, anchor := session, targetSession
+	if recordedRequest.JoinerID == targetIdentity.character && recordedRequest.AnchorID == acceptorIdentity.character {
+		joiner, anchor = targetSession, session
+	}
+	if invitePartyID := runtimePartyStateSnapshot(joiner).PartyID; invitePartyID > 0 {
+		if targetPartyID := runtimePartyStateSnapshot(anchor).PartyID; invitePartyID != targetPartyID {
+			if err := s.sendRuntimePartySnapshot(joiner, alignedcmd.PartyState{}); err != nil {
 				return err
 			}
-			s.logGameEvent(session, "game-party-invitee-stale-projection-cleared",
+			s.logGameEvent(joiner, "game-party-invitee-stale-projection-cleared",
 				"type", typ,
-				"char_id", session.selectedCharacterID,
-				"target_id", parsed.TargetID,
+				"char_id", joiner.selectedCharacterID,
+				"target_id", selectedCharacterID(anchor),
 				"stale_party_id", invitePartyID,
 				"target_party_id", targetPartyID)
 		}
 	}
-	state, result, ok := s.createOrJoinManagedRuntimeParty(session, targetSession)
+	state, result, ok := s.createOrJoinManagedRuntimeParty(joiner, anchor)
 	if !ok {
 		s.logGameEvent(session, "game-party-response-peer-party-full",
 			"type", typ,
@@ -955,8 +971,8 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 	// 刚建立对端后再重放会让当前客户端拆掉健康连接进入 connecting（仓库既有注释）。
 	if manager := s.runtimePartyManagerForService(); manager != nil {
 		if snapshot, found := manager.SnapshotByID(uint16(state.PartyID)); found {
-			joinerState := snapshot.StateFor(session.selectedCharacterID)
-			if err := s.sendRuntimePartyRosterLocal(session, joinerState, "party_invite_join_authoritative_roster"); err != nil {
+			joinerState := snapshot.StateFor(joiner.selectedCharacterID)
+			if err := s.sendRuntimePartyRosterLocal(joiner, joinerState, "party_invite_join_authoritative_roster"); err != nil {
 				return err
 			}
 			var slotZeroCharID uint16
@@ -964,10 +980,10 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				// 权威名单是 leader-first：0 号位就是队长（客户端以第一行判队长）。
 				slotZeroCharID = joinerState.Members[0].UserID
 			}
-			s.logGameEvent(session, "game-party-join-authoritative-snapshot-sent",
+			s.logGameEvent(joiner, "game-party-join-authoritative-snapshot-sent",
 				"type", typ,
-				"char_id", session.selectedCharacterID,
-				"target_id", parsed.TargetID,
+				"char_id", selectedCharacterID(joiner),
+				"target_id", selectedCharacterID(anchor),
 				"party_id", state.PartyID,
 				"leader_char_id", state.UserID,
 				"member_count", len(state.Members),

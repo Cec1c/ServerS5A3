@@ -154,6 +154,7 @@ func (s *Service) handleGameDeleteCharacter(session *gameSession, body []byte) e
 		"delete_flag", characterDeleteDeletedFlag,
 		"roster_after", len(records)-1,
 		"roster_replay", "none_vendor_1005_1006")
+	s.removeCurrentSelectorRosterCharacter(session, target.CharacterID)
 	// 成功 ACK 回显请求里的客户端 0-based slot（厂商 :990-1003，勿用 charId）。
 	return s.sendGameDeleteCharacterSuccess(session, req.Slot)
 }
