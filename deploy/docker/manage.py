@@ -157,15 +157,15 @@ def prepare(args):
 
 
 def generate(c, catalog):
-    multiplier = c.get("main_quest_exp_multiplier")
-    if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
-        raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
     solo_create = c.get("guild_solo_create", False)
     if type(solo_create) is not bool:
         raise ValueError("guild_solo_create must be a boolean")
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
+    multiplier = c.get("main_quest_exp_multiplier")
+    if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
+        raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
     game_token = management_token(c)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
