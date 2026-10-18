@@ -20,6 +20,7 @@ type memoryCharacterSettlementUnitOfWork struct {
 	inventory        repository.InventoryRepository
 	equipment        repository.EquipmentRepository
 	skills           repository.SkillRepository
+	settings         repository.SettingsRepository
 }
 
 func (u *memoryCharacterSettlementUnitOfWork) WithinCharacterSettlement(
@@ -122,6 +123,12 @@ func (u *memoryCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 			exists:    accountExists,
 		}
 	}
+
+	settingsTx := &memorySettlementSettingsTransaction{
+		characterID: characterID, base: u.settings,
+		records: make(map[string]repository.SettingsRecord), exists: make(map[string]bool),
+		original: make(map[string]repository.SettingsRecord), originalExists: make(map[string]bool), dirty: make(map[string]bool),
+	}
 	txGroup := repository.Group{
 		Account:          accountTx,
 		AccountInventory: accountInventoryTx,
@@ -130,6 +137,9 @@ func (u *memoryCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 		Inventory:        inventoryTx,
 		Equipment:        equipmentTx,
 		Skill:            skillTx,
+	}
+	if u.settings != nil {
+		txGroup.Settings = settingsTx
 	}
 	if err := apply(txGroup); err != nil {
 		return err
@@ -216,6 +226,19 @@ func (u *memoryCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 				restoreQuestRecordIfDirty(u.quests, characterID, questRecord, questExists, questTx.dirty),
 				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
 			)
+		}
+	}
+
+	if settingsTx.dirtyCount() > 0 {
+		if err := settingsTx.commit(ctx); err != nil {
+			return errors.Join(err,
+				restoreAccountRecord(u.account, accountID, account, accountExists, accountTx != nil && accountTx.dirty),
+				restoreAccountInventoryRecordIfDirty(u.accountInventory, accountID, accountInventory, accountInventoryExists, accountInventoryTx.dirty),
+				restoreEquipmentRecordIfDirty(u.equipment, characterID, equipment, equipmentExists, equipmentTx.dirty),
+				restoreInventoryRecordIfDirty(u.inventory, characterID, inventory, inventoryExists, inventoryTx.dirty),
+				restoreSkillRecord(u.skills, characterID, skills, skillExists, skillTx.dirty),
+				restoreQuestRecordIfDirty(u.quests, characterID, questRecord, questExists, questTx.dirty),
+				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty))
 		}
 	}
 	return nil

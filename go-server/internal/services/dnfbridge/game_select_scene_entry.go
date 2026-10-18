@@ -36,6 +36,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 	if !s.currentRenameSelectionStillCurrent(ctx, session, selectedCharacter) {
 		return s.handleUpperReturnSelectCharacter(session, nil)
 	}
+	if err := s.preSyncGuardianShieldMainProjection(ctx, session, selectedCharacter, hasSelectedCharacter); err != nil {
+		s.logGameEvent(session, "game-guardian-shield-login-repair-deferred", "原因", err)
+	}
 	// 选角是本会话"确定要用哪个账号的角色池"的唯一时刻：先把账号级记录补齐，
 	// 后面的账号级读取（账号金库 12 号容器、晶体契约 op898、冒险团、在线活动）
 	// 才不会在进场景途中把会话打断。缺失时才写、失败只告警，见

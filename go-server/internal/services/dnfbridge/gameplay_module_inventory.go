@@ -8,6 +8,7 @@ func inventoryGameplayModule() gameplayModuleDefinition {
 	return gameplayModuleDefinition{
 		Name: "inventory",
 		LegacyNormalizers: map[uint16]gameplayLegacyNormalizer{
+			uint16(dnfenum.CmdPacketChangeDeckInfo): func(body []byte) []byte { return stripLegacyTransportTrailer(body, 20) },
 			moveOpcode: func(body []byte) []byte {
 				return stripLegacyTransportTrailer(body, 28)
 			},

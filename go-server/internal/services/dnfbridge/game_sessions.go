@@ -16,6 +16,11 @@ type boundGameSessionCharacter struct {
 }
 
 func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) {
+	if session != nil {
+		session.darkKnightCombo.reset()
+		session.initialTownGuardianShieldDeckSent = false
+		session.initialTownGuardianShieldAppearanceSent = false
+	}
 	if s == nil || session == nil || charID == 0 {
 		return
 	}

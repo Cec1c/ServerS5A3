@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	darkcombo "longheng.io/server/internal/modules/dnf/darkknightcombo"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
@@ -890,7 +891,11 @@ func (o *Owner) ApplySlot(ctx context.Context, cmd Command) (SlotMutationResult,
 	if err != nil {
 		return SlotMutationResult{}, fmt.Errorf("%w: job=%q", ErrSkillRulesMissing, character.Job)
 	}
+
 	job := byte(jobValue)
+	if job == darkcombo.Job && (darkcombo.IsExclusiveComboSlot(int(cmd.From)) || darkcombo.IsExclusiveComboSlot(int(cmd.To))) {
+		return SlotMutationResult{}, fmt.Errorf("%w: 黑武前六格由连招栏管理", ErrSkillSlot)
+	}
 	result := SlotMutationResult{
 		CharacterID: characterID,
 		SkillTree:   cmd.SkillTree,
@@ -1072,6 +1077,10 @@ func ensureSkillLayout(catalog *dnfskill.Table, job byte, tree int, states map[i
 		layout[slot] = skillID
 		assigned[skillID] = struct{}{}
 	}
+	if job == darkcombo.Job {
+		normalized, _, err := darkcombo.NormalizeFixedComboRootSlots(catalog, states, layout)
+		return normalized, err
+	}
 	return layout, nil
 }
 
@@ -1127,6 +1136,10 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 			return nil, fmt.Errorf("%w: initial layout skill=%d group=%d", ErrSkillSlot, skillID, currentSlotGroup(definition))
 		}
 		layout[slot] = skillID
+	}
+	if job == darkcombo.Job {
+		normalized, _, err := darkcombo.NormalizeFixedComboRootSlots(catalog, states, layout)
+		return normalized, err
 	}
 	return layout, nil
 }

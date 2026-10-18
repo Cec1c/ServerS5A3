@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	darkcombo "longheng.io/server/internal/modules/dnf/darkknightcombo"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
@@ -95,7 +96,15 @@ func (s *Service) buildCurrentSceneSkillInfoProjection(
 			"layout_source", "job_scoped_pvf_initial_skill_layout")
 	}
 	commands := s.loadSkillCommandProjection(ctx, repos, character.CharacterID)
-	body, activeSlots, err := buildCurrentSceneSkillInfoBody(record, layout, commands)
+
+	var comboPages []darkcombo.Page
+	if job == darkcombo.Job {
+		comboPages, err = s.loadDarkKnightComboPages(ctx, repos, character, catalog, record)
+		if err != nil {
+			return currentSceneSkillInfoProjection{}, false, err
+		}
+	}
+	body, activeSlots, err := buildCurrentSceneSkillInfoBodyWithCombo(record, layout, commands, comboPages)
 	if err != nil {
 		return currentSceneSkillInfoProjection{}, false, err
 	}
@@ -163,7 +172,14 @@ func (s *Service) sendCurrentSceneSkillInfoProjection(
 		"wire_level_encoding", "persisted_level_direct",
 		"wire_slot_encoding", "90版连续12格快捷栏",
 		"body_source", "current_exe_sub_1D6E240_length_prefixed_DNFPB_skillinfo")
-	return s.sendGameUpperRawClass(session, currentSkillInfoMsgID, projection.body, 0)
+
+	if err := s.sendGameUpperRawClass(session, currentSkillInfoMsgID, projection.body, 0); err != nil {
+		return err
+	}
+	if projection.job == darkcombo.Job {
+		return s.sendSelectedDarkKnightComboInitialization(session, source+"_after_op19")
+	}
+	return nil
 }
 
 func (s *Service) sendCurrentSceneSkillInfo(session *gameSession, ctx context.Context, character dnfrepo.CharacterRecord, source string) error {
@@ -230,4 +246,24 @@ func (s *Service) sendSelectedActorCurrentSceneSkillInfo(session *gameSession, s
 		return err
 	}
 	return s.sendBuffSwapReapply(session, source+"_after_selected_actor_skills")
+}
+
+func (s *Service) sendSelectedActorCurrentSceneSkillInfoOnly(session *gameSession, source string) error {
+	if session == nil || session.selectedCharacterID == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	_, _, character, found := s.selectedCharacterForEnter(ctx, session)
+	if !found {
+		return fmt.Errorf("连招快捷栏刷新角色不存在")
+	}
+	projection, ready, err := s.buildCurrentSceneSkillInfoProjection(session, ctx, character, source)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		return fmt.Errorf("连招快捷栏投影未就绪")
+	}
+	return s.sendGameUpperRawClass(session, currentSkillInfoMsgID, projection.body, 0)
 }

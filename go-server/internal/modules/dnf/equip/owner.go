@@ -711,6 +711,17 @@ func (o *Owner) Move(ctx context.Context, cmd MoveCommand) (MoveResult, error) {
 		}
 		return result, err
 	}
+	// 盾牌栏的slot24是外观/属性投影，不能通过普通穿脱变成背包实物。
+	if (cmd.SourceListType == wireListEquipment && cmd.SourceSlotIndex == 24) ||
+		(cmd.DestinationListType == wireListEquipment && cmd.DestinationSlotIndex == 24) {
+		worn, _, loadErr := o.equipment.Load(ctx, characterID)
+		if loadErr != nil {
+			return MoveResult{}, loadErr
+		}
+		if worn.Entries["24"].Extra["guardian_shield_deck_projection"] == "1" {
+			return MoveResult{}, fmt.Errorf("%w: 守护者盾牌投影只允许由盾牌栏管理", ErrMoveUnsupported)
+		}
+	}
 	if !petAggregateMove {
 		if _, err := o.normalizeLegacyPVFInitialEquipmentSlots(ctx, characterID); err != nil {
 			return MoveResult{}, err
