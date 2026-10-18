@@ -15,8 +15,13 @@ const creatorDefaultConfigPVFPath = "clientonly/hotkeysystem_ver3.co"
 var creatorConfigKeyID = regexp.MustCompile(`^[A-Z][0-9]{2}$`)
 
 // The current 454 consumer parses key-name/tab/value/newline text, not the
-// legacy u16 seed table. Only fresh Creator configurations use this PVF bank.
+// legacy u16 seed table. PVF values are Windows VKs; saved 454 text contains
+// engine key codes, so only newly generated defaults need conversion.
 func (s *Service) creatorDefaultConfig(ctx context.Context) ([]byte, error) {
+	return s.nativeDefaultConfig(ctx, true)
+}
+
+func (s *Service) nativeDefaultConfig(ctx context.Context, creator bool) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -36,17 +41,25 @@ func (s *Service) creatorDefaultConfig(ctx context.Context) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return parseCreatorDefaultConfig(text)
+	return parseNativeDefaultConfig(text, creator)
 }
 
 func parseCreatorDefaultConfig(text string) ([]byte, error) {
+	return parseNativeDefaultConfig(text, true)
+}
+
+func parseNativeDefaultConfig(text string, creator bool) ([]byte, error) {
 	doc, err := dnfpvf.Parse(creatorDefaultConfigPVFPath, text)
 	if err != nil {
 		return nil, err
 	}
 	var out strings.Builder
 	seen := map[string]bool{}
-	creator := false
+	bank := "NormalType"
+	if creator {
+		bank = "CreatorType"
+	}
+	bankFound := false
 	for _, section := range doc.Sections {
 		if strings.Trim(section.Name, "[] ") != "key" {
 			continue
@@ -55,7 +68,7 @@ func parseCreatorDefaultConfig(text string) ([]byte, error) {
 		if len(v) != 6 {
 			return nil, fmt.Errorf("creator hotkey key row has %d fields", len(v))
 		}
-		if v[5].Value != "CommonType" && v[5].Value != "CreatorType" {
+		if v[5].Value != "CommonType" && v[5].Value != bank {
 			continue
 		}
 		if v[1].Kind != dnfpvf.TokenString || !creatorConfigKeyID.MatchString(v[1].Value) || v[4].Kind != dnfpvf.TokenInt {
@@ -67,21 +80,19 @@ func parseCreatorDefaultConfig(text string) ([]byte, error) {
 		}
 		seen[id] = true
 		value := v[4].Int
-		if value == -1 {
-			value = 0x86
-		}
-		if value < 0 || value > 0xff {
+		if value < -1 || value > 0xff {
 			return nil, fmt.Errorf("creator hotkey key value invalid")
 		}
-		if v[5].Value == "CreatorType" {
-			creator = true
+		value = int64(nativeHotkeyCodeFromVK(value))
+		if v[5].Value == bank {
+			bankFound = true
 		}
 		out.WriteString(id)
 		out.WriteByte('\t')
 		out.WriteString(strconv.FormatInt(value, 10))
 		out.WriteByte('\n')
 	}
-	if !creator || !seen["I01"] || !seen["I02"] || !seen["I03"] || !seen["I04"] || !seen["I06"] || out.Len() == 0 || out.Len() >= 0x578 {
+	if !bankFound || !seen["I01"] || !seen["I02"] || !seen["I03"] || !seen["I04"] || !seen["I06"] || out.Len() == 0 || out.Len() >= 0x578 {
 		return nil, fmt.Errorf("creator hotkey configuration incomplete or too large")
 	}
 	return []byte(out.String()), nil

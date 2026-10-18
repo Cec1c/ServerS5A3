@@ -664,25 +664,28 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 		if found {
 			slots = decodeSettingsHex(record.Values["hotkey_config_hex"])
 			slotSource = "character_op198_complete_configuration"
-		} else if creator {
-			slots, err = s.creatorDefaultConfig(ctx)
-			slotSource = "creator_default_pvf_configuration"
+		} else {
+			slots, err = s.nativeDefaultConfig(ctx, creator)
+			slotSource = "normal_default_pvf_configuration"
+			if creator {
+				slotSource = "creator_default_pvf_configuration"
+			}
 			if err != nil {
 				cancel()
 				s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "creator_default_configuration_unavailable", "error", err)
 				return err
 			}
-		} else {
-			cancel()
-			return nil
 		}
 		cancel()
 		if len(slots) == 0 || len(slots) >= 0x578 {
 			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "configuration_exceeds_native_capacity", "blob_len", len(slots))
 			return nil
 		}
-		// Job 10 selects the native CreatorType bank. Existing saved text is
-		// replayed verbatim; defaults are projected only when no record exists.
+		// The actual 454 consumer (2005e00 -> 2261680) retains this type.
+		// Always select the current job's bank; skipping a fresh normal role
+		// after Creator would leave both active and reset-default behavior at 1.
+		// Saved op198 text already uses engine codes and is replayed verbatim.
+		keyType = 0
 		if creator {
 			keyType = 1
 		}

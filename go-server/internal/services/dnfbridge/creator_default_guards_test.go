@@ -90,7 +90,7 @@ func assertCreatorDefaultTextNotice(t *testing.T, packet struct {
 		t.Fatalf("454 text length = %d, body has %d text bytes", declared, len(packet.body)-5)
 	}
 	text := packet.body[5:]
-	if !bytes.Contains(text, []byte("I01\t87\n")) {
+	if !bytes.Contains(text, []byte("I01\t77\n")) {
 		t.Fatalf("454 body is not the PVF Creator key text: %q", text)
 	}
 }
@@ -125,7 +125,7 @@ func TestCreatorDefaultGuardsFreshCreatorGetsType1Text454(t *testing.T) {
 	}
 }
 
-func TestCreatorDefaultGuardsNonCreatorJobsStaySilent(t *testing.T) {
+func TestCreatorDefaultGuardsNonCreatorJobsRestoreNormalDefaults(t *testing.T) {
 	path := creatorDefaultGuardRealPVF(t)
 	service, session, connection, repos := newCreatorDefaultGuardFixture(t, "10", path)
 	beforeAccount := seedCreatorDefaultGuardAccount(t, repos)
@@ -142,7 +142,14 @@ func TestCreatorDefaultGuardsNonCreatorJobsStaySilent(t *testing.T) {
 			if err := repos.Character.Save(ctx, record); err != nil {
 				t.Fatal(err)
 			}
-			assertCreatorDefaultGuardNo454(t, service, session, connection, "creator_guard_job_"+job)
+			connection.write.Reset()
+			if err := service.sendAccountGameOptionNotices(session, "creator_guard_job_"+job); err != nil {
+				t.Fatal(err)
+			}
+			packets := drainUpperPackets(t, connection)
+			if len(packets) != 1 || packets[0].msgID != 454 || packets[0].body[0] != 0 || !bytes.Contains(packets[0].body[5:], []byte("I01\t2\n")) {
+				t.Fatalf("normal job inherited Creator defaults: %+v", packets)
+			}
 			if _, found, err := repos.Settings.Load(ctx, characterHotkeyConfigScope("19")); err != nil {
 				t.Fatal(err)
 			} else if found {

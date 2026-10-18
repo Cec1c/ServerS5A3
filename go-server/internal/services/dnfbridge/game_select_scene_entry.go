@@ -313,7 +313,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 					"msg_id", currentSceneTransitionMsgID,
 					"tutorial_completed", false,
 					"reason", "tutorial_pending_first_scene_is_dungeon_not_town")
-				if job, ok := characterJobByte(selectedCharacter); ok && job == csharpCreatorMageJob {
+				// Every tutorial character must select its own keyboard bank.
+				// A fresh normal role can follow Creator on the same connection.
+				if _, ok := characterJobByte(selectedCharacter); ok {
 					var optionErr error
 					if !session.gameOptionNoticeSent {
 						optionErr = s.sendAccountGameOptionNotices(session, "select_character_after_ack_tutorial_before_op15")

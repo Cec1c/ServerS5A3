@@ -37,7 +37,7 @@ func TestCreatorHotkeySavedConfigurationUsesCharacterKeyboardType(t *testing.T) 
 				if err := s.sendAccountGameOptionNotices(session, "relogin"); err != nil {
 					t.Fatal(err)
 				}
-				wantType := parseSettingsUint8(accountType)
+				wantType := byte(0)
 				if job == 10 {
 					wantType = 1
 				}

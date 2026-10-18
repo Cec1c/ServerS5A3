@@ -45,7 +45,7 @@ func TestRealPVFFreshCreatorReceivesDefaultTextWithoutOverwritingSettings(t *tes
 			if len(body) < 5 || body[0] != 1 || int(binary.LittleEndian.Uint32(body[1:5])) != len(body)-5 {
 				t.Fatal("invalid text notice shape")
 			}
-			for _, pair := range []string{"I01\t87\n", "I02\t65\n", "I03\t83\n", "I04\t68\n", "I06\t32\n", "I21\t81\n", "I22\t69\n", "I23\t82\n"} {
+			for _, pair := range []string{"I01\t77\n", "I02\t55\n", "I03\t73\n", "I04\t58\n", "I06\t13\n", "I21\t71\n", "I22\t59\n", "I23\t72\n"} {
 				if !bytes.Contains(body[5:], []byte(pair)) {
 					t.Fatalf("missing PVF default %q", pair)
 				}

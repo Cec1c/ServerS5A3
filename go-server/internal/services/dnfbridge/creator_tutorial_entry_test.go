@@ -42,7 +42,7 @@ func assertCreatorTutorialHotkeyNotice(t *testing.T, packet dnfproto.ChannelPack
 		t.Fatalf("tutorial creator 454 text length = %d, body has %d text bytes", declared, len(packet.Body)-5)
 	}
 	text := packet.Body[5:]
-	for _, pair := range []string{"I01\t87\n", "I02\t65\n", "I03\t83\n", "I04\t68\n", "I06\t32\n"} {
+	for _, pair := range []string{"I01\t77\n", "I02\t55\n", "I03\t73\n", "I04\t58\n", "I06\t13\n"} {
 		if !bytes.Contains(text, []byte(pair)) {
 			t.Fatalf("tutorial creator 454 missing %q in %q", pair, text)
 		}
@@ -99,7 +99,7 @@ func TestPendingTutorialCreatorSelectEntrySendsType1Hotkey454(t *testing.T) {
 	}
 }
 
-func TestPendingTutorialNonCreatorSelectEntryDoesNotSendCreator454(t *testing.T) {
+func TestPendingTutorialNonCreatorSelectEntryRestoresNormal454(t *testing.T) {
 	t.Setenv(currentGameOptionNoticeEnv, "1")
 	path := creatorDefaultGuardRealPVF(t)
 	service, session := creatorTutorialEntryFixture(t, path, "0")
@@ -109,11 +109,12 @@ func TestPendingTutorialNonCreatorSelectEntryDoesNotSendCreator454(t *testing.T)
 		t.Fatalf("pending non-creator entry: %v", err)
 	}
 	packets := splitAllCurrentGameServerUpperPackets(t, conn.write.Bytes())
-	if got := len(creatorHotkeyNoticePackets(packets)); got != 0 {
-		t.Fatalf("pending non-creator entry sent %d Creator 454 packets", got)
+	notices := creatorHotkeyNoticePackets(packets)
+	if len(notices) != 1 || notices[0].Body[0] != 0 || !bytes.Contains(notices[0].Body[5:], []byte("I01\t2\n")) {
+		t.Fatalf("pending non-creator entry did not restore NormalType: %+v", notices)
 	}
-	if session.gameOptionNoticeSent {
-		t.Fatal("pending non-creator entry consumed the Creator/account notice gate")
+	if !session.gameOptionNoticeSent {
+		t.Fatal("pending non-creator entry did not latch account notice gate")
 	}
 	if !session.selectPreviewObjectStateSent {
 		t.Fatal("pending non-creator entry lost the tutorial preview")
