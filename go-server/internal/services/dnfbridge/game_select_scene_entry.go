@@ -355,6 +355,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 	}
+	if err := s.sendCurrentAccountWallet(session, true); err != nil {
+		s.logGameEvent(session, "选角账号钱包显示刷新暂缓", "error", err)
+	}
 	if session.channelReconnect {
 		return s.sendCurrentChannelReconnectTownEntry(session)
 	}

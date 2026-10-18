@@ -74,6 +74,7 @@ type currentCeraShopCommitResult struct {
 	// 不能用 list 0/1 的 op14 增量行刷。
 	GuildMedalInventoryChanged bool
 	CeraAfter                  int64
+	WalletAfter                dnfcerashop.Wallet
 	PremiumActivations         []currentCeraShopPremiumActivation
 	NameTagActivation          *currentNameTagCardActivation
 	SkillTreeExpanded          bool
@@ -361,7 +362,7 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 			return err
 		}
 	}
-	if err := s.sendGameUpperRawClass(session, currentCeraShopUpdateMsgID, buildCurrentCeraShopBalanceBody(result.CeraAfter), 0); err != nil {
+	if err := s.sendGameUpperRawClass(session, currentCeraShopUpdateMsgID, buildCurrentCeraShopWalletBody(result.CeraAfter, result.WalletAfter.TokenCera, result.WalletAfter.HappyTokenCera), 0); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-cera-shop-purchase-committed",
@@ -587,6 +588,20 @@ func (s *Service) commitCurrentCeraShopPurchase(
 	if err != nil {
 		return currentCeraShopCommitResult{}, errCurrentCeraShopOwnerUnavailable
 	}
+	var ceraOnlyCost, tokenOnlyCost int64
+	for _, purchase := range purchases {
+		definition, e := catalog.items.ResolveItem(purchase.Product.ItemID)
+		if e != nil {
+			// 契约目录可提供服务型商品，无法读取普通道具限制时保留原来的纯点券扣费。
+			ceraOnlyCost += int64(purchase.Product.CeraPrice)
+			continue
+		}
+		if definition.CeraOnly {
+			ceraOnlyCost += int64(purchase.Product.CeraPrice)
+		} else if definition.TokenCeraOnly {
+			tokenOnlyCost += int64(purchase.Product.CeraPrice)
+		}
+	}
 	accountCargoUpgrades := 0
 	for _, purchase := range purchases {
 		if purchase.AccountCargoUpgrade {
@@ -597,7 +612,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		if accountCargoUpgrades != 1 || len(purchases) != 1 {
 			return currentCeraShopCommitResult{}, fmt.Errorf("%w: account cargo upgrade must be purchased alone", errCurrentCeraShopProductUnavailable)
 		}
-		return commitCurrentCeraShopAccountCargoUpgrade(ctx, checkoutOwner, accountID, characterID, purchases[0], int64(totalCost), s.gameplayNow())
+		return commitCurrentCeraShopAccountCargoUpgrade(ctx, checkoutOwner, accountID, characterID, purchases[0], int64(totalCost), s.gameplayNow(), ceraOnlyCost, tokenOnlyCost)
 	}
 	includeSkills := len(purchases) == 1 && purchases[0].SkillTreeExpansion
 	var skillOptions skillcmd.OwnerOptions
@@ -614,6 +629,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		CharacterID:   characterID,
 		SettingsScope: dnfrepo.CharacterContainerStateScope(characterID),
 		Cost:          int64(totalCost),
+		PayPolicy:     dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: ceraOnlyCost, TokenOnlyCost: tokenOnlyCost,
 		UpdatedAt:     checkoutNow,
 		IncludeSkills: includeSkills,
 		Project: func(assets *dnfcerashop.CheckoutAssets) (dnfcerashop.CheckoutChanges, error) {
@@ -905,6 +921,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		return currentCeraShopCommitResult{}, err
 	}
 	result.CeraAfter = checkoutResult.CeraAfter
+	result.WalletAfter = checkoutResult.WalletAfter
 	return result, nil
 }
 
@@ -916,17 +933,23 @@ func commitCurrentCeraShopAccountCargoUpgrade(
 	purchase currentCeraShopResolvedPurchase,
 	cost int64,
 	now time.Time,
+	restrictedCosts ...int64,
 ) (currentCeraShopCommitResult, error) {
 	if owner == nil || accountID == "" || characterID == "" || cost < 0 {
 		return currentCeraShopCommitResult{}, errCurrentCeraShopOwnerUnavailable
 	}
 	var result currentCeraShopCommitResult
+	var cashOnly, tokenOnly int64
+	if len(restrictedCosts) >= 2 {
+		cashOnly, tokenOnly = restrictedCosts[0], restrictedCosts[1]
+	}
 	checkout, err := owner.Checkout(ctx, dnfcerashop.CheckoutCommand{
 		AccountID:     accountID,
 		CharacterID:   characterID,
 		SettingsScope: dnfrepo.CharacterContainerStateScope(characterID),
 		Cost:          cost,
-		UpdatedAt:     now,
+		PayPolicy:     dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: cashOnly, TokenOnlyCost: tokenOnly,
+		UpdatedAt: now,
 		Project: func(assets *dnfcerashop.CheckoutAssets) (dnfcerashop.CheckoutChanges, error) {
 			if assets == nil || assets.Account == nil || assets.Character == nil ||
 				assets.Character.Stats == nil {
@@ -960,5 +983,6 @@ func commitCurrentCeraShopAccountCargoUpgrade(
 		return currentCeraShopCommitResult{}, err
 	}
 	result.CeraAfter = checkout.CeraAfter
+	result.WalletAfter = checkout.WalletAfter
 	return result, nil
 }

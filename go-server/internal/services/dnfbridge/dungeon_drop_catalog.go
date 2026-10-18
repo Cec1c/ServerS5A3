@@ -46,6 +46,15 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
+	CeraOnly, TokenCeraOnly  bool
+	AuctionUsableJobs        []string
+	AuctionRecipeOutputID    uint32
+	AuctionRecipeOutput      *dungeonDropItemDefinition
+	AuctionExpertJobs        []byte
+	AuctionExtractor         bool
+	Name                     string
+	AuctionRuleFound         bool
+	AuctionAllowed           bool
 	ItemID                   uint32
 	Kind                     dungeonDropItemKind
 	PVFPath                  string
@@ -274,12 +283,26 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s: %w", itemID, docPath, err)
 	}
 	definition := dungeonDropItemDefinition{ItemID: itemID, Kind: reference.kind, PVFPath: docPath}
+	definition.AuctionUsableJobs = document.Texts("usable job")
+	if output := document.Ints("output item"); len(output) >= 2 && output[0] > 0 && output[0] <= math.MaxUint32 && output[1] > 0 {
+		definition.AuctionRecipeOutputID = uint32(output[0])
+	}
+	_, definition.CeraOnly = document.Section("buy only cash")
+	_, definition.TokenCeraOnly = document.Section("buy only cera point")
 	definition.AttachType, _ = document.Text("attach type")
 	definition.ImpossibleContents = document.Texts("impossible contents")
 	if price, found := document.Int("price"); found && price >= 0 {
 		definition.Price = price
 		definition.PriceFound = true
 	}
+	if n, ok := document.Text("name"); ok {
+		definition.Name = n
+	}
+	if n, ok := document.Int("available auction"); ok {
+		definition.AuctionRuleFound = true
+		definition.AuctionAllowed = n != 0
+	}
+
 	expirationDate, err := parseCurrentPVFExpirationDate(document)
 	if err != nil {
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s expiration date: %w", itemID, docPath, err)

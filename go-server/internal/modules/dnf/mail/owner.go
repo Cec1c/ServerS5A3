@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	shop "longheng.io/server/internal/modules/dnf/cerashop"
 	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -82,6 +83,7 @@ type SendResult struct {
 }
 
 type ClaimResult struct {
+	WalletChanged     bool
 	MailIDs           []uint32
 	Gold              int64
 	ItemCount         int
@@ -390,19 +392,48 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 	if !found {
 		return ClaimResult{}, ErrMailboxMailNotFound
 	}
-	hasAttachments := false
+	hasAttachments, hasVouchers := false, false
 	for _, id := range req.MailIDs {
 		mail, ok := record.Mails[strconv.FormatUint(uint64(id), 10)]
-		if ok && !mail.Claimed && len(mail.Attachments) > 0 {
-			hasAttachments = true
-			break
+		if !ok || mail.Claimed {
+			continue
+		}
+		for _, item := range mail.Attachments {
+			if shop.IsVoucher(item.ItemID) {
+				hasVouchers = true
+			} else {
+				hasAttachments = true
+			}
 		}
 	}
 	if hasAttachments && o.itemResolver == nil {
 		return ClaimResult{}, ErrMailboxItemResolverMissing
 	}
 	result := ClaimResult{}
-	if err := o.repos.MailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(
+	var accounts dnfrepo.AccountRepository
+	var accountID string
+	within := o.repos.MailboxAssets.WithinMailboxAssets
+	if hasVouchers {
+		tx, ok := o.repos.MailboxAssets.(dnfrepo.AccountTradeMailboxUnitOfWork)
+		if !ok || o.repos.Character == nil {
+			return ClaimResult{}, ErrMailboxAssetsUOW
+		}
+		ch, found, e := o.repos.Character.Load(ctx, characterID)
+		if e != nil {
+			return ClaimResult{}, e
+		}
+		if !found || ch.AccountID == "" {
+			return ClaimResult{}, ErrMailboxCharacterMissing
+		}
+		accountID = ch.AccountID
+		within = func(ctx context.Context, _, _ string, apply func(dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.MailboxRepository) error) error {
+			return tx.WithinAccountTradeMailbox(ctx, accountID, []string{characterID}, characterID, func(a dnfrepo.AccountRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, m dnfrepo.MailboxRepository) error {
+				accounts = a
+				return apply(c, i, m)
+			})
+		}
+	}
+	if err := within(ctx, characterID, characterID, func(
 		characters dnfrepo.CharacterRepository,
 		inventories dnfrepo.InventoryRepository,
 		mailboxes dnfrepo.MailboxRepository,
@@ -492,6 +523,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 		// real item tab earlier in the same request.
 		accepted := make([]claimCandidate, 0, len(selected))
 		var totalGold int64
+		acceptedVouchers := shop.VoucherCounts{}
 		inventoryChanged := false
 		inventoryFull := false
 		// acceptedPieces 是"已接受但还没入账"的碎片，按碎片 id 聚合。
@@ -515,6 +547,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			}
 			candidateRefreshes := make([]alignedcmd.ItemSlotRefresh, 0, len(candidate.mail.Attachments))
 			candidateItemCount := 0
+			candidateVouchers := shop.VoucherCounts{}
 			candidateInventoryChanged := false
 			candidatePieces := make(map[uint32]int64)
 			candidateWarehouse := make(map[int16]mailboxWarehouseCreditItem)
@@ -522,6 +555,24 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			for _, attachment := range candidate.mail.Attachments {
 				if attachment.ItemID <= 0 || attachment.Count <= 0 {
 					return ErrMailboxInvalidRequest
+				}
+				if kind := shop.VoucherKindOf(attachment.ItemID); kind != shop.VoucherNone {
+					if accounts == nil || attachment.Count > shop.MaxWalletBalance {
+						return ErrMailboxAssetMismatch
+					}
+					target := &candidateVouchers.TokenCera
+					if kind == shop.VoucherHappyTokenCera {
+						target = &candidateVouchers.HappyTokenCera
+					}
+					if *target > shop.MaxWalletBalance-attachment.Count {
+						return shop.ErrWalletOverflow
+					}
+					*target += attachment.Count
+					candidateItemCount++
+					continue
+				}
+				if o.itemResolver == nil {
+					return ErrMailboxItemResolverMissing
 				}
 				resolution, resolveErr := o.itemResolver(uint32(attachment.ItemID))
 				if resolveErr != nil {
@@ -602,6 +653,10 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				return ErrMailboxInvalidRequest
 			}
 			totalGold += candidate.mail.Gold
+			if acceptedVouchers.TokenCera > shop.MaxWalletBalance-candidateVouchers.TokenCera || acceptedVouchers.HappyTokenCera > shop.MaxWalletBalance-candidateVouchers.HappyTokenCera {
+				return shop.ErrWalletOverflow
+			}
+			acceptedVouchers = acceptedVouchers.Add(candidateVouchers)
 			inventory = candidateInventory
 			inventoryChanged = inventoryChanged || candidateInventoryChanged
 			for pieceID, count := range candidatePieces {
@@ -638,6 +693,23 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			return ErrMailboxAlreadyClaimed
 		}
 		result.Gold = totalGold
+		if !acceptedVouchers.IsZero() {
+			account, found, e := accounts.Load(ctx, accountID)
+			if e != nil {
+				return e
+			}
+			if !found || account.AccountID != accountID {
+				return ErrMailboxCharacterMissing
+			}
+			if _, e = shop.CreditVoucherCounts(&account, acceptedVouchers); e != nil {
+				return e
+			}
+			account.UpdatedAt = now
+			if e = accounts.Save(ctx, account); e != nil {
+				return e
+			}
+			result.WalletChanged = true
+		}
 
 		if totalGold > 0 {
 			character, ok, err := characters.Load(ctx, characterID)

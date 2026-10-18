@@ -165,6 +165,7 @@ func handleMailboxExtract(ctx context.Context, req alignedcmd.Request) (alignedc
 		fmt.Sprintf("claimed mails=%v gold=%d items=%d epic_pieces=%d warehouse_slots=%d", result.MailIDs, result.Gold, result.ItemCount, len(result.EpicPieces), len(result.WarehouseCredits)),
 		buildExtractAck(result.MailIDs),
 	)
+	out.AccountWalletChanged = result.WalletChanged
 	// 小晶块/灵魂并入账号晶块仓库后，槽位行（list 0 354..365）由下面这一处统一带上
 	// （result.ItemSlotRefreshes 里已经含仓库格；桥接层对账号共享格会从账号仓库记录
 	// 重读权威行）。这里**只**保留那一次 append，不能重复。
