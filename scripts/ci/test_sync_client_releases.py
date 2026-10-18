@@ -59,6 +59,70 @@ class ClientReleaseTests(unittest.TestCase):
                     p.write_bytes(p.read_bytes().replace(name.replace('\\','/').encode(),name.encode()))
                 with self.assertRaises(sync.SyncError):sync.inspect_zip(p)
 
+    def test_python_sources_under_scripts_are_only_read_as_archive_members(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'client.zip';marker=Path(d)/'executed'
+            script=f'from pathlib import Path\nPath({str(marker)!r}).touch()\nraise RuntimeError("must not execute")\n'
+            with zipfile.ZipFile(p,'w') as z:
+                z.writestr('client/DNF.exe',b'MZtest')
+                z.writestr('scripts/patch.py',script)
+                z.writestr('scripts/client/test_patch.py',script)
+                z.writestr('README.md','source evidence')
+            self.assertEqual(sync.inspect_zip(p),{'sha256':sync.hashlib.sha256(b'MZtest').hexdigest(),'length':6})
+            self.assertEqual(list(Path(d).iterdir()),[p])
+            self.assertFalse(marker.exists())
+
+    def test_python_member_allowance_does_not_extend_to_other_paths_or_types(self):
+        for name in ['patch.py','other/patch.py','client/scripts/patch.py','Scripts/patch.py',
+                     'scripts/patch.pyc','scripts/patch.py.exe','scripts/patch.sh',
+                     'scripts/../patch.py','scripts/./patch.py','scripts//patch.py',
+                     '/scripts/patch.py','scripts/drive:patch.py']:
+            with self.subTest(name=name),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'client.zip'
+                with zipfile.ZipFile(p,'w') as z:z.writestr('DNF.exe',b'MZtest');z.writestr(name,b'pass')
+                with self.assertRaises(sync.SyncError):sync.inspect_zip(p)
+
+    def test_python_members_keep_duplicate_and_non_file_guards(self):
+        for kind in ['duplicate','symlink','directory','backslash','nul']:
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'client.zip'
+                with zipfile.ZipFile(p,'w') as z:
+                    z.writestr('DNF.exe',b'MZtest')
+                    if kind=='duplicate':
+                        z.writestr('scripts/a.py',b'pass');z.writestr('scripts/A.py',b'pass')
+                    elif kind=='symlink':
+                        entry=zipfile.ZipInfo('scripts/link.py');entry.create_system=3;entry.external_attr=0o120777<<16
+                        z.writestr(entry,b'../outside')
+                    elif kind=='directory':z.writestr('scripts/',b'')
+                    else:z.writestr('scripts/a.py',b'pass')
+                if kind=='backslash':p.write_bytes(p.read_bytes().replace(b'scripts/a.py',b'scripts\\a.py'))
+                if kind=='nul':p.write_bytes(p.read_bytes().replace(b'scripts/a.py',b'scripts/\0.py'))
+                with self.assertRaises(sync.SyncError):sync.inspect_zip(p)
+
+    def test_python_members_keep_executable_and_archive_limits(self):
+        for kind in ['missing-exe','multiple-exe','invalid-exe','size','count']:
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'client.zip'
+                with zipfile.ZipFile(p,'w') as z:
+                    z.writestr('scripts/patch.py',b'pass')
+                    if kind!='missing-exe':z.writestr('DNF.exe',b'bad' if kind=='invalid-exe' else b'MZtest')
+                    if kind=='multiple-exe':z.writestr('client/DNF.exe',b'MZtest')
+                    if kind=='count':
+                        for i in range(19):z.writestr(f'scripts/a{i}.py',b'pass')
+                with patch.object(sync,'MAX_ASSET',9 if kind=='size' else sync.MAX_ASSET):
+                    with self.assertRaises(sync.SyncError):sync.inspect_zip(p)
+
+    def test_python_source_crc_and_download_digest_are_still_checked(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'client.zip'
+            with zipfile.ZipFile(p,'w') as z:z.writestr('DNF.exe',b'MZtest');z.writestr('scripts/a.py',b'original source')
+            expected=sync.digest(p);tampered=p.read_bytes().replace(b'original source',b'modified source')
+            p.write_bytes(tampered)
+            with self.assertRaisesRegex(sync.SyncError,'Invalid client ZIP'):sync.inspect_zip(p)
+            with patch.object(sync.OPENER,'open',return_value=io.BytesIO(tampered)):
+                with self.assertRaisesRegex(sync.SyncError,'digest conflicts'):
+                    sync.download('https://example.test/client.zip',Path(d)/'cache',expected,fresh=True)
+
     def test_plain_http_and_embedded_credentials_rejected(self):
         for url in ['http://example.test/a','https://user:secret@example.test/a','https://example.test/a#x']:
             with self.assertRaises(sync.SyncError):sync.safe_url(url)
