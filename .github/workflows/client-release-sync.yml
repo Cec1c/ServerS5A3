@@ -1,0 +1,49 @@
+name: Client Release sync
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: '13,43 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: client-release-sync
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    if: vars.GITGUD_CLIENT_RELEASE_PROJECT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: master
+          persist-credentials: false
+      - name: Validate release synchronization
+        run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client_releases.py' -v
+      - name: Synchronize client EXE releases with GitGud
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_PROJECT: ${{ vars.GITGUD_CLIENT_RELEASE_PROJECT }}
+          GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_CLIENT_RELEASE_TOKEN }}
+        run: |
+          set -eu
+          test -n "$RELEASE_PROJECT"
+          test -n "$GITGUD_RELEASE_TOKEN"
+          python3 scripts/ci/sync_client_releases.py \
+            --github "$GITHUB_REPOSITORY" --gitgud-project "$RELEASE_PROJECT" \
+            --cache "$RUNNER_TEMP/client-releases" \
+            --receipt "$RUNNER_TEMP/client-release-sync.json" --apply
+      - name: Keep synchronization receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: client-release-sync
+          path: ${{ runner.temp }}/client-release-sync.json
+          if-no-files-found: ignore

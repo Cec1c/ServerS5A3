@@ -1,19 +1,13 @@
 name: Verify
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
-  workflow_run:
-    workflows: [Repository sync]
-    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
   source:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -28,6 +22,8 @@ jobs:
         run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
       - name: Docker deployment boundary checks
         run: python3 -m unittest discover -s deploy/docker -p 'test_*.py' -v
+      - name: Server/GM source boundary
+        run: python3 scripts/check_server_boundary.py
       - name: Core validation
         working-directory: go-server
         run: |

@@ -35,6 +35,15 @@ type CharacterCreationUnitOfWork interface {
 	WithinCharacterCreation(context.Context, string, Group, func(Group) error) error
 }
 
+// CharacterNameMutationUnitOfWork shares the namespace lock with character
+// creation. The character and name reservations commit in the same transaction;
+// a preflight FindIDByName outside this boundary cannot protect a name claim.
+type CharacterNameMutationUnitOfWork interface {
+	WithinCharacterNameMutation(context.Context, string, Group, func(Group) error) error
+}
+
+const CharacterNameMutationScope = "server:character-name-mutation"
+
 // CharacterItemUnitOfWork supplies transaction-scoped inventory and equipment
 // repositories for one character. The callback owns domain decisions; the
 // repository only owns atomic commit and rollback.

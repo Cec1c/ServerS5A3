@@ -31,6 +31,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/signupbenefits"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -119,6 +120,7 @@ type Service struct {
 	localLoginStopped bool
 	localLoginTokens  map[string]struct{}
 	accountAPI        *accountAPIServer
+	signupBenefits    *signupbenefits.Store
 	// 账号判定只有两条依据：启动器登录令牌（loginTokens）与本地客户端进程号登记
 	// （clientAccounts）。原来"最近登录 IP → 账号"的内存表与 accountIPCache
 	// 已于 2026-09-25 删除，见 client_account_ip.go。

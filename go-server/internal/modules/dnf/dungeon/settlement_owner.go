@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
+	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	"longheng.io/server/internal/modules/dnf/guild"
 	"longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
@@ -31,13 +32,17 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
-	DespairClearedFloor     int
-	DespairRewards          *DespairRewards
-	AccountID               string
-	CharacterID             string
-	CompletionKey           string
-	Tables                  *progression.Tables
-	Experience              uint32
+	DespairClearedFloor int
+	DespairRewards      *DespairRewards
+	GriefClearedFloor   int
+	GriefRewards        *GriefRewards
+	AccountID           string
+	CharacterID         string
+	CompletionKey       string
+	Tables              *progression.Tables
+	Experience          uint32
+	// ClearPotionBase is the clear EXP before rank, contracts and other bonuses.
+	ClearPotionBase         uint32
 	RecommendedDungeonClear bool
 	// GuildOrdinaryClear is set only by the server after ordinary-mode and entry-level checks.
 	GuildOrdinaryClear    bool
@@ -56,12 +61,14 @@ type SettlementResult struct {
 	Skill           dnfrepo.SkillRecord
 	Inventory       dnfrepo.InventoryRecord
 	ExperienceGain  uint32
+	PotionBonus     uint32
 	HonorExpertGain uint32
 	SPGain          int
 	TPGain          int
 	Replayed        bool
 	LuckyStar       LuckyStarResult
 	DespairItems    []DespairGrantedItem
+	GriefItems      []GriefGrantedItem
 }
 
 // CommitSettlement atomically advances experience and the SP/TP ledger and
@@ -73,6 +80,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		return SettlementResult{}, ErrOwnerUnavailable
 	}
 	if (cmd.LuckyStar != nil || cmd.GuildOrdinaryClear) && !cmd.RecommendedDungeonClear {
+		return SettlementResult{}, ErrSettlementStateInvalid
+	}
+	if cmd.GriefClearedFloor < 0 || cmd.GriefClearedFloor > griefMaximumFloor ||
+		(cmd.GriefClearedFloor != 0) != (cmd.GriefRewards != nil) ||
+		(cmd.GriefClearedFloor != 0 && (cmd.DespairClearedFloor != 0 || cmd.DespairRewards != nil)) {
 		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	if cmd.DespairRewards != nil && (cmd.DespairClearedFloor < 1 || cmd.DespairClearedFloor > 100) {
@@ -129,6 +141,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		if settlementReceiptMatches(character.Stats, wantHash) {
+			griefItems, err := readGriefRewardReceipt(character.Stats, cmd.GriefClearedFloor, cmd.GriefRewards != nil)
+			if err != nil {
+				return err
+			}
 			despairItems, err := readDespairRewardReceipt(character.Stats, cmd.DespairClearedFloor, cmd.DespairRewards != nil)
 			if err != nil {
 				return err
@@ -143,9 +159,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 			result = SettlementResult{
 				DespairItems: despairItems,
+				GriefItems:   griefItems,
 				LuckyStar:    lucky,
 				Character:    character, Skill: skill, Inventory: inventory,
-				ExperienceGain: receiptGain, SPGain: receiptSP, Replayed: true,
+				ExperienceGain: receiptGain, PotionBonus: uint32(character.Stats[settlementReceiptPrefix+"potion_bonus"]), SPGain: receiptSP, Replayed: true,
 			}
 			// A pre-upgrade settlement is not a new clear: migrate its receipt without a retroactive award.
 			if cmd.GuildOrdinaryClear {
@@ -158,6 +175,14 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 		}
+		if cmd.GriefClearedFloor != 0 {
+			if err := ApplyGriefClear(character.Stats, cmd.GriefClearedFloor); err != nil {
+				return err
+			}
+		}
+		potionBonus := experiencebuff.Bonus(character, experiencebuff.Clear, cmd.ClearPotionBase, now)
+		potionBonus = min(potionBonus, math.MaxUint32-cmd.Experience)
+		gain := cmd.Experience + potionBonus
 		experience, present := character.Stats["exp"]
 		if !present || experience < 0 || uint64(experience) > math.MaxUint32 ||
 			character.Level <= 0 || skill.Points.SyncedLevel != character.Level {
@@ -171,7 +196,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			cmd.Tables,
 			character.Level,
 			uint32(experience),
-			cmd.Experience,
+			gain,
 			skill.Points,
 			maximumLevel,
 		)
@@ -181,7 +206,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		maximumLevelExperience := maximumLevelExperienceGain(
 			character.Level,
 			uint32(experience),
-			cmd.Experience,
+			gain,
 			cmd.MaximumCharacterLevel,
 			cmd.Tables,
 		)
@@ -224,14 +249,19 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		if err != nil {
 			return err
 		}
+		griefItems, err := commitGriefRewards(ctx, o.settings, tx, &character, &inventory, cmd.GriefClearedFloor, cmd.GriefRewards, now)
+		if err != nil {
+			return err
+		}
 		writeSettlementReceipt(
 			character.Stats,
 			wantHash,
-			cmd.Experience,
+			gain,
 			planned.SkillPoints.SPGain,
 			planned.Experience.NewLevel,
 			planned.Experience.NewExperience,
 		)
+		character.Stats[settlementReceiptPrefix+"potion_bonus"] = int64(potionBonus)
 		// This is inside the accepted completion's existing receipt/UOW. A
 		// replay returned above and cannot increment an account-day twice.
 		if cmd.MonthlyAttendance && cmd.RecommendedDungeonClear {
@@ -322,9 +352,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 		result = SettlementResult{
 			DespairItems: despairItems,
+			GriefItems:   griefItems,
 			LuckyStar:    lucky,
 			Character:    character, Skill: skill, Inventory: inventory,
-			ExperienceGain:  cmd.Experience,
+			ExperienceGain:  gain,
+			PotionBonus:     potionBonus,
 			HonorExpertGain: appliedHonorExpertGain,
 			SPGain:          planned.SkillPoints.SPGain,
 			TPGain:          planned.SkillPoints.TPGain,
@@ -465,7 +497,7 @@ func settlementReceiptValues(
 	stats := character.Stats
 	gain := stats[settlementReceiptPrefix+"experience_gain"]
 	spGain := stats[settlementReceiptPrefix+"sp_gain"]
-	if gain <= 0 || gain > math.MaxUint32 || spGain < 0 || spGain > math.MaxInt ||
+	if stats[settlementReceiptPrefix+"potion_bonus"] < 0 || stats[settlementReceiptPrefix+"potion_bonus"] > gain || gain <= 0 || gain > math.MaxUint32 || spGain < 0 || spGain > math.MaxInt ||
 		stats[settlementReceiptPrefix+"new_level"] != int64(character.Level) ||
 		stats[settlementReceiptPrefix+"new_experience"] != stats["exp"] ||
 		skill.Points.SyncedLevel != character.Level {

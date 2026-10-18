@@ -1,0 +1,529 @@
+{
+  "schema_version": 1,
+  "client_id": "paired-20261013",
+  "reviewed_at": "2026-10-14",
+  "scope": "静态兼容性索引；不是资产分发、运行配置或游戏验收报告。",
+  "address_convention": "rva；VA = 模块基址 + RVA；file_offset 仅用于精确匹配文件的窗口摘要核验。",
+  "tools": {
+    "pefile": "2023.2.7",
+    "capstone": "5.0.7"
+  },
+  "modules": [
+    {
+      "id": "DNF.exe",
+      "file_name": "DNF.exe",
+      "sha256": "2af985b6e344e5fdbb78f6598d40924f152af924a156f5d45b671bed350a9675",
+      "size_bytes": 111734784,
+      "machine": "0x014c",
+      "architecture": "x86",
+      "preferred_image_base": "0x00400000"
+    },
+    {
+      "id": "ijl15.dll",
+      "file_name": "ijl15.dll",
+      "sha256": "41d37bfb0a39017497e0aa373dc01f71ac9c5046c75f7cd269bee52112a5f3a1",
+      "size_bytes": 352256,
+      "machine": "0x014c",
+      "architecture": "x86",
+      "preferred_image_base": "0x60000000"
+    },
+    {
+      "id": "RS.dll",
+      "file_name": "RS.dll",
+      "sha256": "5269d40e0cf1770f90f9ed907d2a179e23e405d23f694c9454c0ed977a352000",
+      "size_bytes": 114688,
+      "machine": "0x014c",
+      "architecture": "x86",
+      "preferred_image_base": "0x10000000"
+    }
+  ],
+  "entries": [
+    {
+      "id": "CF-001",
+      "module": "DNF.exe",
+      "label": "怪物死亡请求的 owner 与贡献列表写入片段",
+      "symbol_source": "analyst_label",
+      "kind": "code_region",
+      "rva": "0x02358b10",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "static_and_server_regression",
+      "packet_ids": [
+        {
+          "direction": "C2S",
+          "family": "command",
+          "id": 39
+        }
+      ],
+      "anchors": [
+        {
+          "rva": "0x02358b10",
+          "length_bytes": 108,
+          "file_offset": "0x02358b10",
+          "sha256": "81c9331c27ad3932ee66b1d87567007506f98f55f00c07533b241a1156254164",
+          "observation": "owner 缺省为 0xffff；以 0x27 开始请求，先写目标再写 owner。此地址不是已确认的函数入口。"
+        },
+        {
+          "rva": "0x02358f29",
+          "length_bytes": 192,
+          "file_offset": "0x02358f29",
+          "sha256": "225eefb44298ce992680219bab61cd00e07cd63bc003988a6a95f40820cd9c6a",
+          "observation": "贡献计数独立写为 1 字节；循环依次调用 2、2、8、2 字节写入器。"
+        }
+      ],
+      "server_refs": [
+        {
+          "commit": "2607d652fa9c44ceb9b6a5b61a807f0f3f843e3b",
+          "path": "go-server/internal/services/dnfbridge/dungeon_friendly_apc_death_test.go",
+          "symbol": "TestOfficialFriendlyAPCSentinelDeathAndReplay"
+        },
+        {
+          "commit": "2607d652fa9c44ceb9b6a5b61a807f0f3f843e3b",
+          "path": "go-server/internal/services/dnfbridge/dungeon_friendly_apc_death_test.go",
+          "symbol": "TestOfficialFriendlyAPCDeathRejectsUnprovenRequests"
+        }
+      ],
+      "review_url": "https://gitgud.io/16ww/servers5a3/-/merge_requests/19"
+    },
+    {
+      "id": "CF-002",
+      "module": "DNF.exe",
+      "label": "金币携带上限升级请求",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x01993000",
+      "function_start_rva": "0x01993000",
+      "function_end_rva_exclusive": "0x0199305b",
+      "evidence_level": "static_and_server_regression",
+      "packet_ids": [
+        {
+          "direction": "C2S",
+          "family": "command",
+          "id": 978
+        }
+      ],
+      "anchors": [
+        {
+          "rva": "0x01993000",
+          "length_bytes": 91,
+          "file_offset": "0x01993000",
+          "sha256": "220443628757fd080a18d2615e69076a9255d76f552e0691ff86105786c4ea8c",
+          "observation": "发送 0x3d2；从栈传出 14 字节，本函数只显式赋值最后一字节为当前档位加一。"
+        }
+      ],
+      "server_refs": [
+        {
+          "commit": "d57711c6e2182ab2989a08bd9a180d03bc7fffa1",
+          "path": "go-server/internal/services/dnfbridge/carry_gold_upgrade_test.go",
+          "symbol": "TestCarryGoldUpgradeDispatchChargesOnceAndRefreshesWallet"
+        }
+      ],
+      "review_url": "https://gitgud.io/16ww/servers5a3/-/merge_requests/8"
+    },
+    {
+      "id": "CF-003",
+      "module": "DNF.exe",
+      "label": "金币携带上限升级应答读取",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x01bd4b00",
+      "function_start_rva": "0x01bd4b00",
+      "function_end_rva_exclusive": null,
+      "evidence_level": "static_and_server_regression",
+      "packet_ids": [
+        {
+          "direction": "S2C",
+          "family": "command_ack",
+          "id": 978
+        }
+      ],
+      "anchors": [
+        {
+          "rva": "0x01bd4b00",
+          "length_bytes": 101,
+          "file_offset": "0x01bd4b00",
+          "sha256": "e8adf8a4ea95086aec3157cd80b527268f94960562b7a85b2d7ab0ff7b3cdb74",
+          "observation": "读取 5 字节 stage/result，并在成功路径更新共同档位全局；ACK 标志由调度参数传入。"
+        },
+        {
+          "rva": "0x01be86c1",
+          "length_bytes": 19,
+          "file_offset": "0x01be86c1",
+          "sha256": "7a2780a41812fcfa73fb906a2d143b67cb0f28b7f73306ad5f445317f0340cde",
+          "observation": "调度注册同时引用处理入口和命令 0x3d2。"
+        }
+      ],
+      "server_refs": [
+        {
+          "commit": "d57711c6e2182ab2989a08bd9a180d03bc7fffa1",
+          "path": "go-server/internal/services/dnfbridge/carry_gold_upgrade.go",
+          "symbol": "sendCarryGoldUpgradeReply"
+        },
+        {
+          "commit": "d57711c6e2182ab2989a08bd9a180d03bc7fffa1",
+          "path": "go-server/internal/services/dnfbridge/carry_gold_upgrade_test.go",
+          "symbol": "TestCarryGoldRejectedRequestsPreserveStateAndUseNativeFailure"
+        }
+      ],
+      "review_url": "https://gitgud.io/16ww/servers5a3/-/merge_requests/8"
+    },
+    {
+      "id": "CF-004",
+      "module": "DNF.exe",
+      "label": "持久金币携带档位通知读取",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x01c3ae60",
+      "function_start_rva": "0x01c3ae60",
+      "function_end_rva_exclusive": null,
+      "evidence_level": "static_and_server_regression",
+      "packet_ids": [
+        {
+          "direction": "S2C",
+          "family": "notification",
+          "id": 947
+        }
+      ],
+      "anchors": [
+        {
+          "rva": "0x01c3ae60",
+          "length_bytes": 44,
+          "file_offset": "0x01c3ae60",
+          "sha256": "184afc4b748167c4cc9eb6542123b12eacf05a79f6390d9cd01fce99e33dcf8d",
+          "observation": "读取一个档位字节，写入与升级应答共同使用的全局 VA 0x057b7008。"
+        },
+        {
+          "rva": "0x01c469b4",
+          "length_bytes": 19,
+          "file_offset": "0x01c469b4",
+          "sha256": "d59855a56b19eb5816f26401ae7e6565e53d773a5e5aada77e677daf8b739258",
+          "observation": "通知注册引用处理入口和 0x3b3。"
+        }
+      ],
+      "server_refs": [
+        {
+          "commit": "d57711c6e2182ab2989a08bd9a180d03bc7fffa1",
+          "path": "go-server/internal/services/dnfbridge/carry_gold_upgrade_test.go",
+          "symbol": "TestCarryGoldRelogProjectionResetsPreviousCharacterStage"
+        }
+      ],
+      "review_url": "https://gitgud.io/16ww/servers5a3/-/merge_requests/8"
+    },
+    {
+      "id": "CF-005",
+      "module": "DNF.exe",
+      "label": "好友列表接收及上线提示",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x01c1fe50",
+      "function_start_rva": "0x01c1fe50",
+      "function_end_rva_exclusive": null,
+      "evidence_level": "static_and_server_regression",
+      "packet_ids": [
+        {
+          "direction": "S2C",
+          "family": "notification",
+          "id": 1371
+        }
+      ],
+      "anchors": [
+        {
+          "rva": "0x01c1fe50",
+          "length_bytes": 166,
+          "file_offset": "0x01c1fe50",
+          "sha256": "22480e684f1ef1003b69c121c2eb47705e78a0812c0b5e22df19b2d9d1d4de60",
+          "observation": "记录原好友集合是否非空，并读取本次列表数量。"
+        },
+        {
+          "rva": "0x01c32a7e",
+          "length_bytes": 19,
+          "file_offset": "0x01c32a7e",
+          "sha256": "d8e8643354a63ee78714ae9ea465f71688f96e44c27b4fb434626e5702c426a1",
+          "observation": "通知注册引用入口 0x0201fe50 和 0x55b。"
+        },
+        {
+          "rva": "0x01c20098",
+          "length_bytes": 179,
+          "file_offset": "0x01c20098",
+          "sha256": "079d01c73fbf9721dd4eb5b5b870d895e89d8fc40d3da12653dd9d3ce786a833",
+          "observation": "已有集合、频道非零、行数不大于一且名字非空时进入提示分支，引用 DSTR 100000083。"
+        }
+      ],
+      "server_refs": [
+        {
+          "commit": "51a19f30fa47276a93be9bf3e805b83bbf77964a",
+          "path": "go-server/internal/services/dnfbridge/account_friend_unchanged_presence_test.go",
+          "symbol": "TestAccountFriendUnchangedPresenceAcrossFinishLoading"
+        },
+        {
+          "commit": "51a19f30fa47276a93be9bf3e805b83bbf77964a",
+          "path": "go-server/internal/services/dnfbridge/account_friend_unchanged_presence_test.go",
+          "symbol": "TestAccountFriendUnchangedPresenceStillUpdatesOnlineStateAndNotes"
+        }
+      ],
+      "review_url": "https://gitgud.io/16ww/servers5a3/-/merge_requests/12"
+    },
+    {
+      "id": "CF-006",
+      "module": "DNF.exe",
+      "label": "包缓冲 1 字节追加封装",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x0334f390",
+      "function_start_rva": "0x0334f390",
+      "function_end_rva_exclusive": "0x0334f3b7",
+      "evidence_level": "static",
+      "packet_ids": [],
+      "anchors": [
+        {
+          "rva": "0x0334f390",
+          "length_bytes": 39,
+          "file_offset": "0x0334f390",
+          "sha256": "ea7cf96867b069b2a7101ada27b14384335df2e7766eb913176936e297fc862b",
+          "observation": "检查启用标记；长度累计增加 1 并以 1 调用共同缓冲写入器。"
+        }
+      ],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-007",
+      "module": "DNF.exe",
+      "label": "包缓冲 2 字节追加封装",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x0334f3c0",
+      "function_start_rva": "0x0334f3c0",
+      "function_end_rva_exclusive": "0x0334f3e8",
+      "evidence_level": "static",
+      "packet_ids": [],
+      "anchors": [
+        {
+          "rva": "0x0334f3c0",
+          "length_bytes": 40,
+          "file_offset": "0x0334f3c0",
+          "sha256": "286cf240770fcdbd4e17071da4dddef41d90675e2df30083fc612b2ebb2f4e4c",
+          "observation": "检查启用标记；长度累计增加 2 并以 2 调用共同缓冲写入器。"
+        }
+      ],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-008",
+      "module": "DNF.exe",
+      "label": "包缓冲 4 字节追加封装",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x0334f3f0",
+      "function_start_rva": "0x0334f3f0",
+      "function_end_rva_exclusive": "0x0334f418",
+      "evidence_level": "static",
+      "packet_ids": [],
+      "anchors": [
+        {
+          "rva": "0x0334f3f0",
+          "length_bytes": 40,
+          "file_offset": "0x0334f3f0",
+          "sha256": "7c89ca2517a058c0ef440df8dafdda39f2df96a2dce3e81f5e934fede038699a",
+          "observation": "检查启用标记；长度累计增加 4 并以 4 调用共同缓冲写入器。"
+        }
+      ],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-009",
+      "module": "DNF.exe",
+      "label": "包缓冲 8 字节追加封装",
+      "symbol_source": "analyst_label",
+      "kind": "function_entry",
+      "rva": "0x0334f420",
+      "function_start_rva": "0x0334f420",
+      "function_end_rva_exclusive": "0x0334f448",
+      "evidence_level": "static",
+      "packet_ids": [],
+      "anchors": [
+        {
+          "rva": "0x0334f420",
+          "length_bytes": 40,
+          "file_offset": "0x0334f420",
+          "sha256": "c50c718a82b4808579372bc0a2b594c7c8157a42b09954c531261de1bf2bf49e",
+          "observation": "检查启用标记；长度累计增加 8 并以 8 调用共同缓冲写入器。"
+        }
+      ],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-010",
+      "module": "ijl15.dll",
+      "label": "ijlErrorStr",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x0002b120",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 6,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-011",
+      "module": "ijl15.dll",
+      "label": "ijlFree",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x000291f0",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 3,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-012",
+      "module": "ijl15.dll",
+      "label": "ijlGetLibVersion",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x0002b110",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 1,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-013",
+      "module": "ijl15.dll",
+      "label": "ijlInit",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x00028a60",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 2,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-014",
+      "module": "ijl15.dll",
+      "label": "ijlRead",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x00029be0",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 4,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-015",
+      "module": "ijl15.dll",
+      "label": "ijlWrite",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x0002a700",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 5,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-016",
+      "module": "RS.dll",
+      "label": "ClearRSInfo",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x00001020",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 1,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-017",
+      "module": "RS.dll",
+      "label": "ClearRSInfo2",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x00001020",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 2,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-018",
+      "module": "RS.dll",
+      "label": "PutRSInfo",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x00001000",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 3,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    },
+    {
+      "id": "CF-019",
+      "module": "RS.dll",
+      "label": "PutRSInfo2",
+      "symbol_source": "pe_export",
+      "kind": "export_entry",
+      "rva": "0x00001000",
+      "function_start_rva": null,
+      "function_end_rva_exclusive": null,
+      "evidence_level": "export_only",
+      "ordinal": 4,
+      "forwarder": null,
+      "packet_ids": [],
+      "anchors": [],
+      "server_refs": [],
+      "review_url": null
+    }
+  ]
+}

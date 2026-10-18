@@ -615,8 +615,11 @@ func (s *Service) handleCurrentTournamentRewardCommand(
 		// `sendCurrentTournamentRewardSelectionAckLocked` 的门槛说明）。
 		session.tournamentRewardStateRequested = true
 		ack := buildTournamentRewardSelectStateBody(*state)
-		if err := s.sendGameUpperRawClass(session, a21CmdTournamentRewardSelectState, ack, 0); err != nil {
+		if err := s.sendGameUpperRawClass(session, a21CmdTournamentRewardSelectState, ack, s.currentTournamentRewardReplyClass()); err != nil {
 			return true, err
+		}
+		if s.options.currentClientVersion == "official-24.9" {
+			state.commandStateReady = true
 		}
 		s.armCurrentTournamentRewardAutoSelectTimerLocked(session, runtime)
 		s.logGameEvent(session, "game-dungeon-tournament-reward-select-state-sent",
@@ -800,7 +803,7 @@ func (s *Service) applyCurrentTournamentRewardSelectionLocked(
 	selectionComplete := state.isSelectionComplete()
 	if !selectionComplete {
 		stateBody := buildTournamentRewardSelectStateBody(*state)
-		if err := s.sendGameUpperRawClass(session, a21CmdTournamentRewardSelectState, stateBody, 0); err != nil {
+		if err := s.sendGameUpperRawClass(session, a21CmdTournamentRewardSelectState, stateBody, s.currentTournamentRewardReplyClass()); err != nil {
 			// 奖励已经落库，重发失败不能把这次交付变回"没发出去"：只记账，等客户端下一次
 			// 457 请求（`handleCurrentTournamentRewardCommand` 的空 body 分支）补发。
 			s.logGameEvent(session, "game-dungeon-tournament-reward-select-state-resend-deferred",
@@ -897,7 +900,14 @@ func (s *Service) sendCurrentTournamentRewardSelectionAckLocked(
 		return 0
 	}
 	answered := source.solicited() && s.dungeonTournamentRewardAck().answersSolicitedSelection()
+	if source == tournamentRewardSelectionSourceTimer &&
+		s.options.currentClientVersion == "official-24.9" &&
+		runtime.tournamentReward.commandStateReady &&
+		s.dungeonTournamentRewardAck().answersSolicitedSelection() {
+		answered = true
+	}
 	if !answered && source == tournamentRewardSelectionSourceTimer &&
+		s.options.currentClientVersion != "official-24.9" &&
 		s.dungeonTournamentRewardAck().answersTimerSelection() &&
 		session.tournamentRewardStateRequested {
 		// ②：3s 兜底自动选奖 + **显式** `REWARD_ACK=select+timer` + 客户端已打开翻牌界面
@@ -907,6 +917,7 @@ func (s *Service) sendCurrentTournamentRewardSelectionAckLocked(
 		answered = true
 	}
 	if !answered && source == tournamentRewardSelectionSourceTimer &&
+		s.options.currentClientVersion != "official-24.9" &&
 		dungeonTournamentRewardSolicitModeFromEnv().treatsStateRequestAsSolicitation() &&
 		s.dungeonTournamentRewardAck().answersSolicitedSelection() &&
 		session.tournamentRewardStateRequested {
@@ -920,7 +931,7 @@ func (s *Service) sendCurrentTournamentRewardSelectionAckLocked(
 		return 0
 	}
 	body := buildTournamentRewardSelectionBody(*runtime.tournamentReward)
-	if err := s.sendGameUpperRawClass(session, a21CmdTournamentRewardSelect, body, 0); err != nil {
+	if err := s.sendGameUpperRawClass(session, a21CmdTournamentRewardSelect, body, s.currentTournamentRewardReplyClass()); err != nil {
 		// 奖励已经落库 / 已回滚，重发失败不能把这次选奖变回"没发生"：只记账。
 		// 客户端下一次 2 字节选奖还会再拿到投影（solicited 路径幂等）。
 		s.logGameEvent(session, "game-dungeon-tournament-reward-selection-ack-deferred",
@@ -935,6 +946,18 @@ func (s *Service) sendCurrentTournamentRewardSelectionAckLocked(
 		return 0
 	}
 	return len(body)
+}
+
+// v112 c82cb803... registers 457/458 via the command registry (1fac980),
+// dispatched by 2523cf6/251e1e0 after consuming the result byte. The state
+// handler 1fa5420 initializes UI state 6; selection handler 1fa5460 reads the
+// two slot arrays. Class0 uses a different registry and cannot run these.
+// Older profile behavior and its explicit rollback switches remain intact.
+func (s *Service) currentTournamentRewardReplyClass() byte {
+	if s.options.currentClientVersion == "official-24.9" {
+		return 1
+	}
+	return 0
 }
 
 func (s *Service) logTournamentRewardSelectionBlocked(

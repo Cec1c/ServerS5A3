@@ -341,6 +341,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	case dnfenum.GameType(dnfenum.CmdPacketChangeCharacSlot):
 		return s.handleChangeCharacterSlot(session, body, false)
 	case dnfenum.GameType(dnfenum.CmdPacketChangeCharacName):
+		if s.options.currentClientVersion == "official-24.9" && !characterRenameLegacy() {
+			return s.handleCurrentCharacterRename(session, body)
+		}
 		// 选角界面「修改角色名」（class1/op135 ENUM_CMDPACKET_CHANGE_CHARAC_NAME）。
 		// 默认 = 具名判读档：解析 + 具名事件 + **零回包**（S2C 形态未取证，且厂商
 		// 参考实现也没有这条 handler，见 character_rename.go 与
@@ -356,6 +359,11 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 			return s.handleGameLegacyFallbackCommand(session, cmd, typ, body)
 		}
 		return s.handleGameChangeCharacName(session, cmd, typ, body)
+	case dnfenum.GameType(dnfenum.CmdPacketUseRenameCard):
+		if s.options.currentClientVersion == "official-24.9" && !characterRenameLegacy() {
+			return s.handleCurrentRenameCard(session, body)
+		}
+		return s.handleGameLegacyFallbackCommand(session, cmd, typ, body)
 	case dnfenum.GameType(currentCmdRepresentNameDuplicateCheck):
 		if s.options.currentClientVersion == "official-24.9" && len(body) == 0 {
 			return s.handleCurrentStoryDigestAccepted(session, dnfproto.DefaultChannelClassification, body)

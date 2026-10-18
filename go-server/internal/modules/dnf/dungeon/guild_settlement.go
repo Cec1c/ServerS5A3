@@ -16,6 +16,7 @@ type guildSettlementReceipt struct {
 	Version         int
 	Owner           r.GuildOwner
 	ExperienceGain  uint32
+	PotionBonus     uint32
 	HonorExpertGain uint32
 	SPGain, TPGain  int
 	LuckyStar       LuckyStarResult
@@ -29,12 +30,13 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 		return false, err
 	}
 	var receipt guildSettlementReceipt
-	if json.Unmarshal([]byte(record.Values["receipt"]), &receipt) != nil || receipt.Version != 1 || receipt.Owner != owner || receipt.ExperienceGain == 0 || receipt.SPGain < 0 || receipt.TPGain < 0 ||
+	if json.Unmarshal([]byte(record.Values["receipt"]), &receipt) != nil || receipt.Version != 1 || receipt.Owner != owner || receipt.ExperienceGain == 0 || receipt.PotionBonus > receipt.ExperienceGain || receipt.SPGain < 0 || receipt.TPGain < 0 ||
 		(receipt.GuildMileage.GuildID == 0 && receipt.GuildMileage.Amount != 0) ||
 		(receipt.GuildMileage.GuildID != 0 && receipt.GuildMileage.Amount != guild.OrdinaryDungeonMileage) {
 		return false, ErrSettlementStateInvalid
 	}
 	result.ExperienceGain, result.HonorExpertGain = receipt.ExperienceGain, receipt.HonorExpertGain
+	result.PotionBonus = receipt.PotionBonus
 	result.SPGain, result.TPGain = receipt.SPGain, receipt.TPGain
 	result.LuckyStar, result.GuildMileage, result.Replayed = receipt.LuckyStar, receipt.GuildMileage, true
 	return true, nil
@@ -43,7 +45,7 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 func saveGuildSettlementReceipt(ctx context.Context, settings r.SettingsRepository, cmd SettlementCommand, result SettlementResult, now time.Time) error {
 	owner := r.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}
 	value, err := json.Marshal(guildSettlementReceipt{Version: 1, Owner: owner,
-		ExperienceGain: result.ExperienceGain, HonorExpertGain: result.HonorExpertGain,
+		ExperienceGain: result.ExperienceGain, PotionBonus: result.PotionBonus, HonorExpertGain: result.HonorExpertGain,
 		SPGain: result.SPGain, TPGain: result.TPGain, LuckyStar: result.LuckyStar, GuildMileage: result.GuildMileage})
 	if err != nil {
 		return err
