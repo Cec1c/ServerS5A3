@@ -152,6 +152,23 @@ func (s *Service) rememberCurrentRenameRoster(session *gameSession, characters [
 	session.currentRenameRoster = append([]dnfrepo.CharacterRecord(nil), characters[:rosterCount(characters)]...)
 }
 
+// removeCurrentSelectorRosterCharacter applies the same compaction the current
+// client performs when op6 succeeds. SQL rows keep their original slots; only
+// the immutable row-to-character binding sent to this session is compacted.
+func (s *Service) removeCurrentSelectorRosterCharacter(session *gameSession, characterID string) {
+	if session == nil {
+		return
+	}
+	for index, row := range session.currentRenameRoster {
+		if row.CharacterID != characterID {
+			continue
+		}
+		copy(session.currentRenameRoster[index:], session.currentRenameRoster[index+1:])
+		session.currentRenameRoster = session.currentRenameRoster[:len(session.currentRenameRoster)-1]
+		return
+	}
+}
+
 // Check the canonical SQL slot and reject enter-game while its rename is
 // pending. A forged op4 must not bypass the selector modal and use the old name.
 func currentCharacterRenameSelectionAllowed(character dnfrepo.CharacterRecord) error {
