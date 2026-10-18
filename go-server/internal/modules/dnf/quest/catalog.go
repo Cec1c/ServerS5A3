@@ -431,7 +431,10 @@ func (c *Catalog) AcceptableAt(character CharacterEligibility, record dnfrepo.Qu
 	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	result := EligibilityResult{IDs: make([]int32, 0, 64)}
 	for _, definition := range c.ordered {
-		if !definitionAcceptable(definition, character, completed, active, false) {
+		if !c.definitionAcceptable(definition, character, completed, active, false) {
+			continue
+		}
+		if !c.activeFamilyAcceptable(definition, character, active) {
 			continue
 		}
 		result.IDs = append(result.IDs, int32(definition.ID))
@@ -480,7 +483,11 @@ func (c *Catalog) QuestListAt(character CharacterEligibility, record dnfrepo.Que
 	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	result := EligibilityResult{IDs: make([]int32, 0, 64)}
 	for _, definition := range c.ordered {
-		if !definitionAcceptable(definition, character, completed, active, true) {
+		if !c.definitionAcceptable(definition, character, completed, active, true) {
+			continue
+		}
+		if !c.activeFamilyAcceptable(definition, character, active) {
+			result.PreflightExcluded++
 			continue
 		}
 		if !c.clientListNodeAcceptable(definition, character, record, completed, active) {
@@ -534,10 +541,10 @@ func (c *Catalog) decideAcceptForDefinition(definition Definition, character Cha
 	if existing, known := questStateFor(record, definition.ID); known && isActiveQuestStatus(existing.Status) {
 		return AcceptIdempotent, nil
 	}
-	if !definitionAcceptable(definition, character, completed, active, false) {
+	if !c.definitionAcceptable(definition, character, completed, active, false) {
 		return AcceptRejected, ErrQuestNotAcceptable
 	}
-	if c.activeClassChangeConflict(definition, active) {
+	if !c.activeFamilyAcceptable(definition, character, active) {
 		return AcceptRejected, ErrQuestNotAcceptable
 	}
 	return AcceptNew, nil
@@ -1080,7 +1087,7 @@ func (c *Catalog) linkedSubQuestAcceptPlans(definition Definition, character Cha
 		// The child is neither completed nor active here (both sets were checked
 		// above), so the shared PVF/state rule alone decides; the parent's accept
 		// owner re-runs the full DecideAccept preflight before persisting.
-		if !definitionAcceptable(child, character, completed, active, false) {
+		if !c.definitionAcceptable(child, character, completed, active, false) {
 			continue
 		}
 		active[childID] = struct{}{}
@@ -1170,7 +1177,7 @@ func boundedTriggerChannel(value int64) uint32 {
 	return uint32(value)
 }
 
-func definitionAcceptable(definition Definition, character CharacterEligibility, completed, active map[int64]struct{}, includeActive bool) bool {
+func (c *Catalog) definitionAcceptable(definition Definition, character CharacterEligibility, completed, active map[int64]struct{}, includeActive bool) bool {
 	_, alreadyActive := active[definition.ID]
 	allowedEpicRoad := character.epicRoadEvent350Recognized && (character.epicRoadEvent350Enabled || alreadyActive) && (definition.ID == 5578 || definition.ID == 5579)
 	if definition.ExposedByNPC == 0 || (definition.IsEvent && !allowedEpicRoad) || definition.HasCreatureRequirement || definition.HasExpertRequirement {
@@ -1191,6 +1198,15 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 	// still be abandoned, and keep story/follow-up nodes that grant no class.
 	if !alreadyActive && character.GrowType != 0 && definition.JobChangeQuest == 1 &&
 		normalizeQuestTag(definition.RewardType) == "grow type" {
+		return false
+	}
+	// A completed successor proves the character already passed this branch,
+	// even when the older-generation branch never recorded that as a collision.
+	// This is the renewal-forest / legacy-transfer overlap: 3155 consumes any
+	// one of the level-15 forest variants, while the legacy 转职 quests (for
+	// example 12757) hang off 3155. Offering a forest node again after 3155 is
+	// complete produces two initial-transfer choices for the same character.
+	if !alreadyActive && c.initialClassChangeSuperseded(definition, completed) {
 		return false
 	}
 	if !definitionMatchesCharacter(definition, character) {
@@ -1295,12 +1311,42 @@ func awakeningRewardAcceptable(definition Definition, character CharacterEligibi
 	return profession.CheckAwakeningPrecondition(byte(character.GrowType), request) == nil
 }
 
-// activeClassChangeConflict rejects a second unsettled class-change quest only
-// when both definitions are class changes and their PVF collision declarations
-// name each other. Ordinary quests and item-reward branches remain independent.
-// Existing active quests return AcceptIdempotent before this check.
-func (c *Catalog) activeClassChangeConflict(definition Definition, active map[int64]struct{}) bool {
-	if _, isClassChange := classChangeRequest(definition); !isClassChange {
+// initialClassChangeSuperseded rejects an older initial-transfer branch when a
+// completed quest directly names it in [pre required quest]. PVF 3155 is the
+// common successor of every level-15 "守护森林的战斗" variant, so its completed
+// row proves that the character has already chosen one of those branches. The
+// rule is deliberately limited to [job change quest] 1 and does not alter the
+// visibility of ordinary prerequisites or active work.
+func (c *Catalog) initialClassChangeSuperseded(definition Definition, completed map[int64]struct{}) bool {
+	if definition.JobChangeQuest != 1 {
+		return false
+	}
+	for completedID := range completed {
+		if completedID == definition.ID {
+			continue
+		}
+		successor, known := c.byID[completedID]
+		if !known {
+			continue
+		}
+		for _, group := range successor.PreRequiredGroups {
+			for _, prerequisite := range group {
+				if prerequisite == definition.ID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// activeClassChangeConflict rejects a second unsettled initial-transfer task
+// for the same character job. [job change quest] 1 covers both the legacy grow
+// reward and the renewal forest's item-reward placeholder; the two generations
+// do not consistently cross-reference each other in [collision quest]. Existing
+// active quests return AcceptIdempotent before this check.
+func (c *Catalog) activeClassChangeConflict(definition Definition, character CharacterEligibility, active map[int64]struct{}) bool {
+	if definition.JobChangeQuest != 1 {
 		return false
 	}
 	for id := range active {
@@ -1311,15 +1357,25 @@ func (c *Catalog) activeClassChangeConflict(definition Definition, active map[in
 		if !known {
 			continue
 		}
-		if _, isClassChange := classChangeRequest(other); !isClassChange {
-			continue
-		}
-		if !mutualQuestCollision(definition, other) {
+		if other.JobChangeQuest != 1 || !definitionMatchesCharacter(other, character) {
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+// activeFamilyAcceptable is the shared list/accept preflight for same-job
+// initial-transfer alternatives. A candidate that is already active remains
+// available for completion or abandonment even if historical bad data left a
+// sibling active too. Linked subquest planning deliberately does not call this
+// helper; its necessary parent/child activation continues to use only the
+// per-definition PVF and character eligibility rule.
+func (c *Catalog) activeFamilyAcceptable(definition Definition, character CharacterEligibility, active map[int64]struct{}) bool {
+	if _, isActive := active[definition.ID]; isActive {
+		return true
+	}
+	return !c.activeClassChangeConflict(definition, character, active)
 }
 
 // mutualQuestCollision 判断两条任务是否在 PVF 的 [collision quest] 里互相点名。
