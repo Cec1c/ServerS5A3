@@ -1,3 +1,14 @@
+## 2026-10-18 — GitGud 上游唯一权威与单向源码镜像
+
+- 独立功能、修复、测试、文档和 CI 分支统一通过上游 MR 集成，冲突由同步 Agent 处理并验证；GitHub 只接收上游确切提交，不再建立同步合并提交或向 GitGud 反写。
+- 移除旧 GitHub 上游 PR/自动合并流程；Repository sync 使用仅属于 GitHub 镜像的 Deploy Key，保留引用移动检查、非强推和最终 SHA 读回。CI 文件在上游 MR 审查后同步，不执行抓取代码。
+- 补充单向快进、领先/分叉拒绝、并发引用变化和 CI 同步回归；更新 Agent 入口及迁移流程。源码镜像不构建、发布资源或部署游戏。
+
+## 2026-10-18 — Client Release 静态 Python 源码附件兼容
+
+- 客户端 Release ZIP 可附根级 scripts/ 内的 Python 源码，仅读取并校验归档，不解压或执行；其余路径与文件类型规则保持。
+- 补充归档正反例、路径/重复/链接/大小/数量/EXE/CRC及下载摘要回归，修复带源码证据的新客户端包被镜像拒绝的问题。镜像本身不改变玩家通道或部署服务端。
+
 ## 2026-10-18 — 黑龙大会122 APC入口与四轮推进
 
 - 122 的锦标赛 type 5..8 对手现在投影为真实 hostile AICharacter，保留真实 code、level、坐标和 normal/champion/super-champion/boss 类型；仅 tournament 投影携带 blocking，extended actors 挂载后才绑定 firstSequence。普通 type 0/3 仍走 MonsterSpawn，普通地图 APC 的 blocking 与地图缓存不变。
