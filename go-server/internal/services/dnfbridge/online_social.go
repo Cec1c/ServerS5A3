@@ -39,6 +39,8 @@ func (s *Service) handleOnlineSocialCommand(session *gameSession, typ uint16, bo
 	switch typ {
 	case currentPeerChatStateOpcode:
 		return true, s.handleCurrentPeerChat(session, typ, body)
+	case uint16(dnfenum.CmdPacketItemHyperlinkMessage):
+		return true, s.handleCurrentItemHyperlinkMessage(session, typ, body)
 	case currentFriendAddOpcode:
 		if s.options.currentClientVersion == "official-24.9" {
 			return true, s.handleCurrentOfficialCharacterFriendMutation(session, typ, body)

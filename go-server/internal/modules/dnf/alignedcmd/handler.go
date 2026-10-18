@@ -22,6 +22,7 @@ type Request struct {
 	Body                   []byte
 	AccountID              string
 	SelectedCharacterID    uint16
+	GuardianShield         GuardianShieldResolver
 	Repositories           dnfrepo.Group
 	EquipmentPlacement     EquipmentPlacementValidator
 	InventoryItemPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
@@ -948,8 +949,9 @@ type ItemSlotRefresh struct {
 type PostAction string
 
 const (
-	PostActionRefreshSelectedActorAppearance PostAction = "refresh_selected_actor_appearance"
-	PostActionRefreshSelectedItemContainers  PostAction = "refresh_selected_item_containers"
+	PostActionRefreshSelectedActorAppearance        PostAction = "refresh_selected_actor_appearance"
+	PostActionRefreshSelectedActorExpandedEquipment PostAction = "refresh_selected_actor_expanded_equipment"
+	PostActionRefreshSelectedItemContainers         PostAction = "refresh_selected_item_containers"
 	// 穿脱装备/时装（op19）专用的整容器重发动作。它与
 	// PostActionRefreshSelectedItemContainers 的旧口径逐字节等价（class0/op13
 	// list 0/1/2/7/38 五个整容器），但**只由穿脱路径发出**，因此 dnfbridge 可以

@@ -42,7 +42,7 @@ func (s *Service) sendUpperRoster(session *gameSession, characters []dnfrepo.Cha
 		return err
 	}
 	s.rememberCurrentRenameRoster(session, characters)
-	return nil
+	return s.sendCurrentDarkKnightComboPreload(session, context.Background(), characters, "角色表更新")
 }
 
 func (s *Service) sendCharacterList(session *gameSession, characters []dnfrepo.CharacterRecord) error {
@@ -90,7 +90,7 @@ func (s *Service) sendCurrentCharacterSelectRoster(session *gameSession, charact
 	}
 	noteEmptyRosterSlotProbe(session, body)
 	s.rememberCurrentRenameRoster(session, characters)
-	return nil
+	return s.sendCurrentDarkKnightComboPreload(session, context.Background(), characters, "角色选择列表")
 }
 
 func buildCharacterListBody(characters []dnfrepo.CharacterRecord) []byte {

@@ -33,7 +33,13 @@ func dungeonRuntimeContainsDeathOwnerObjectKey(runtime *runtimeDungeonState, obj
 }
 
 // currentDungeonRoomAnnouncedLiveHostile 的完整说明与开关见 dungeon_death_room_proof.go。
-func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) error {
+func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) (resultErr error) {
+	var huntProgressErr error
+	defer func() {
+		if resultErr == nil {
+			resultErr = huntProgressErr
+		}
+	}()
 	request, err := s.decodeCurrentDungeonMonsterDeath(body)
 	if err != nil {
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -615,6 +621,11 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		}
 	}
 	target, cleared, reportErr := runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+		if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
+			return err
+		}
+	}
 	if reportErr != nil {
 		// 阶段二（队伍级共享实例）：同一只怪被两个成员各自判定死亡时，后到的那次请求
 		// 落在**共享房间**里必然是 already_defeated。此时不能只记 blocked：
@@ -625,6 +636,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 			return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 		}
 		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+			if _, recorded := runtime.Room.DeathResponseBody(request.RuntimeObjectKey); !recorded {
+				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+			}
 			return s.persistCurrentDungeonRoomClearQuestLocked(session, runtime)
 		}
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -881,6 +895,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 				"error", huntErr)
 		}
 		s.checkCurrentDungeonQuestMonsterDrops(session, runtime, rewardMonster.Spawn.MonsterID)
+		// Keep ordinary drops, EXP and boss/story completion in their existing
+		// order even if quest persistence or its snapshot needs a retry.
+		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 	}
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
@@ -1064,6 +1081,9 @@ func (s *Service) replayCurrentDungeonMonsterDeathLocked(
 	runtime *runtimeDungeonState,
 	objectKey uint32,
 ) error {
+	if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, objectKey); err != nil {
+		return err
+	}
 	if body, ok := runtime.Room.DeathResponseBody(objectKey); ok {
 		return s.replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			session,

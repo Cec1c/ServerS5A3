@@ -81,8 +81,11 @@ func TestGuildSettlementMemoryLateSaveRollbackAndScopes(t *testing.T) {
 			}
 			// The original settlement API still cannot mutate guild settings.
 			if err := u.WithinCharacterSettlement(context.Background(), "77", func(tx r.Group) error {
-				if tx.Settings != nil {
-					t.Fatal("ordinary UoW widened")
+				if tx.Settings == nil {
+					return nil
+				}
+				if _, _, err := tx.Settings.Load(ctx, r.GuildRegistryScope); !errors.Is(err, r.ErrCharacterSettlementTransactionUnavailable) {
+					t.Fatalf("ordinary UoW exposed guild settings: %v", err)
 				}
 				return nil
 			}); err != nil {
