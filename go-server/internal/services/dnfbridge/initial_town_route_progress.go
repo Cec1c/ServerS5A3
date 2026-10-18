@@ -25,6 +25,8 @@ func (s *Service) armCurrentInitialTownRoute(session *gameSession, characterID u
 	session.initialTownQuestSnapshotsSent = false
 	session.initialTownSkillInfoPrepared = false
 	session.initialTownSkillInfoSent = false
+	session.initialTownGuardianShieldDeckSent = false
+	session.initialTownGuardianShieldAppearanceSent = false
 	session.initialTownSkillInfo = currentSceneSkillInfoProjection{}
 	session.initialTownLegacySceneReadyAccepted = false
 	session.loginActorGenerationRebuildArmed = false

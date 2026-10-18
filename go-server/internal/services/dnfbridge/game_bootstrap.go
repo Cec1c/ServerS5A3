@@ -410,8 +410,20 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 			return err
 		}
 	}
+
 	noteEmptyRosterSlotProbe(session, body)
 	s.rememberCurrentRenameRoster(session, session.currentRenameRosterPrepared)
+	if repos, ok := s.repositoryGroup(); ok && repos.Character != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		characters, err := s.listCharacters(ctx, repos, s.accountIDForSession(session))
+		if err == nil {
+			err = s.sendCurrentDarkKnightComboPreload(session, ctx, characters, "get_userinfo_roster")
+		}
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
 	// Current NoPack keeps the role-selector adventure name/level outside the
 	// mode2 roster body. Do not append op1340 here: the client has not yet
 	// acknowledged that the selector objects are ready, and the former

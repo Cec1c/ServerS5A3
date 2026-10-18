@@ -387,19 +387,7 @@ func (s *Service) sendCurrentProfessionFinishPostCommitSnapshots(session *gameSe
 	if err := s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID, characterBody, 0); err != nil {
 		return err
 	}
-	var skillCommands map[uint16][]byte
-	if repositories, ok := s.repositoryGroup(); ok {
-		skillCommands = s.loadSkillCommandProjection(context.Background(), repositories, result.PostCommitSkill.CharacterID)
-	}
-	skillBody, _, err := buildCurrentSceneSkillInfoBody(
-		result.PostCommitSkill,
-		result.PostCommitSkill.Layouts[dnfrepo.ActiveSkillTree(result.PostCommitSkill)],
-		skillCommands,
-	)
-	if err != nil {
-		return err
-	}
-	if err := s.sendGameUpperRawClass(session, currentSkillInfoMsgID, skillBody, 0); err != nil {
+	if err := s.sendCommittedDarkKnightSkillRefresh(session, result.PostCommitCharacter, result.PostCommitSkill, "profession_finish_after_committed_skills"); err != nil {
 		return err
 	}
 	if err := s.sendCurrentActiveQuestSnapshotFromCommittedQuest(
@@ -463,19 +451,7 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 		if err := s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID, characterBody, 0); err != nil {
 			return err
 		}
-		var skillCommands map[uint16][]byte
-		if repositories, ok := s.repositoryGroup(); ok {
-			skillCommands = s.loadSkillCommandProjection(context.Background(), repositories, result.PostCommitSkill.CharacterID)
-		}
-		skillBody, _, err := buildCurrentSceneSkillInfoBody(
-			result.PostCommitSkill,
-			result.PostCommitSkill.Layouts[dnfrepo.ActiveSkillTree(result.PostCommitSkill)],
-			skillCommands,
-		)
-		if err != nil {
-			return err
-		}
-		if err := s.sendGameUpperRawClass(session, currentSkillInfoMsgID, skillBody, 0); err != nil {
+		if err := s.sendCommittedDarkKnightSkillRefresh(session, result.PostCommitCharacter, result.PostCommitSkill, "quest_finish_after_committed_skills"); err != nil {
 			return err
 		}
 	} else {

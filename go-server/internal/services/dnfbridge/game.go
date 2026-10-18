@@ -67,24 +67,28 @@ type gameSession struct {
 	imageCommunicationNonce           [32]byte
 	imageCommunicationSceneGeneration uint64
 
-	endpointHandshakeMu              sync.Mutex
-	currentChannelResidentNoticeSent bool
-	gameEndpointSuccessSent          bool
-	connectionTownActorOwnerChannel  byte
-	events                           *gameSessionEvents
-	characterGeneration              uint64
-	raidProjection                   currentRaidProjectionOwner
-	selectedCharacterID              uint16
-	questManualClearIdentity         boundGameSessionCharacter
-	questManualClearReadyAt          time.Time
-	currentAccountFriendNames        map[string]struct{}
-	currentAccountFriendInfo         currentAccountFriendSentView
-	currentAdventureExpeditionView   currentAdventureExpeditionSentView
-	rosterRequested                  bool
-	currentRenameRoster              []dnfrepo.CharacterRecord
-	currentRenameRosterPrepared      []dnfrepo.CharacterRecord
-	channelReconnect                 bool
-	townActorOwnerChannel            byte
+	endpointHandshakeMu                     sync.Mutex
+	currentChannelResidentNoticeSent        bool
+	gameEndpointSuccessSent                 bool
+	connectionTownActorOwnerChannel         byte
+	events                                  *gameSessionEvents
+	characterGeneration                     uint64
+	raidProjection                          currentRaidProjectionOwner
+	selectedCharacterID                     uint16
+	questManualClearIdentity                boundGameSessionCharacter
+	questManualClearReadyAt                 time.Time
+	currentAccountFriendNames               map[string]struct{}
+	currentAccountFriendInfo                currentAccountFriendSentView
+	currentAdventureExpeditionView          currentAdventureExpeditionSentView
+	rosterRequested                         bool
+	currentRenameRoster                     []dnfrepo.CharacterRecord
+	currentRenameRosterPrepared             []dnfrepo.CharacterRecord
+	channelReconnect                        bool
+	townActorOwnerChannel                   byte
+	sceneBootstrapActorGeneration           uint64
+	darkKnightCombo                         darkKnightComboSessionState
+	initialTownGuardianShieldDeckSent       bool
+	initialTownGuardianShieldAppearanceSent bool
 	// loginWearReassertWindowOpenedAt / ...Consumed 界定"DNFBRIDGE_EQUIP_LOGIN_REASSERT_NOOP
 	// 兜底"可生效的登录引导窗口（开启=场景就绪 ack，关闭=一次性或超时）。
 	// 开关默认关闭时两者始终为零值，行为与历史一致。
