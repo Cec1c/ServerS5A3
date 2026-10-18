@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
+	"strconv"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -69,6 +70,27 @@ func (session *gameSession) clearCurrentSetQuestTriggerReplayForQuest(characterI
 			delete(session.questReplay.triggerNoop, key)
 		}
 	}
+	for key := range session.questReplay.linkedTriggerValue {
+		if key.characterID == characterID && key.questID == questID {
+			delete(session.questReplay.linkedTriggerValue, key)
+		}
+	}
+}
+
+func (session *gameSession) linkedTriggerAlreadySent(key currentSetQuestTriggerReplayKey, progress int64) bool {
+	session.questReplay.triggerMu.Lock()
+	defer session.questReplay.triggerMu.Unlock()
+	previous, sent := session.questReplay.linkedTriggerValue[key]
+	return sent && previous == progress
+}
+
+func (session *gameSession) markLinkedTriggerSent(key currentSetQuestTriggerReplayKey, progress int64) {
+	session.questReplay.triggerMu.Lock()
+	defer session.questReplay.triggerMu.Unlock()
+	if session.questReplay.linkedTriggerValue == nil {
+		session.questReplay.linkedTriggerValue = make(map[currentSetQuestTriggerReplayKey]int64)
+	}
+	session.questReplay.linkedTriggerValue[key] = progress
 }
 
 func (s *Service) sendCurrentSetQuestTriggerSuccess(
@@ -145,6 +167,22 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 				"quest_id", request.QuestID,
 				"reason", "quest_catalog_unavailable",
 				"error", catalogErr)
+			characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+			record, found, evidenceErr := repositories.Quest.Load(ctx, characterID)
+			if evidenceErr != nil {
+				s.logGameEvent(session, "game-upper-set-quest-trigger-linked-progress-blocked",
+					"quest_id", request.QuestID,
+					"reason", "linked_objective_evidence_load_failed",
+					"error", evidenceErr)
+				return nil
+			}
+			if found && currentSetTriggerHasLinkedObjectiveEvidence(record, request.QuestID) {
+				return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketSetQuestTrigger), 22)
+			}
+			s.logGameEvent(session, "game-upper-set-quest-trigger-linked-progress-skipped",
+				"quest_id", request.QuestID,
+				"reason", "no_persisted_linked_objective_evidence",
+				"fallback", "ordinary_set_trigger")
 		} else {
 			linked, linkedErr := s.applyCurrentTownLinkedProgress(ctx, session, owner, catalog, request)
 			if linkedErr != nil {
@@ -154,13 +192,19 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 					"error", linkedErr)
 				return nil
 			}
-			if linked.Applied {
+			if linked.Handled {
 				progress := linked.ParentProgress
 				if linked.ParentQuestID != int64(request.QuestID) {
 					progress = 0
 				}
+				// Reconcile first: a later child transition must remain eligible.
+				// Publish an unchanged corrective value once per session, avoiding
+				// the op33/op574 feedback loop on subsequent identical callbacks.
+				if !linked.Applied && session.linkedTriggerAlreadySent(replayKey, progress) {
+					return nil
+				}
 				result := dnfquest.PlanResult{
-					QuestID: int64(request.QuestID), Known: true, StateChanged: true,
+					QuestID: int64(request.QuestID), Known: true, StateChanged: linked.Applied,
 					Status: "active", TriggerType: request.TriggerType, ProgressValue: progress,
 				}
 				if err := s.sendCurrentSetQuestTriggerSuccess(
@@ -183,7 +227,9 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 					"parent_quest_id", linked.ParentQuestID,
 					"parent_progress", linked.ParentProgress,
 					"completed_quest_ids", linked.CompletedQuestIDs,
+					"applied", linked.Applied,
 					"packet_order", "op33_op574_op356")
+				session.markLinkedTriggerSent(replayKey, progress)
 				if progress == 0 {
 					session.suppressCurrentSetQuestTriggerReplay(replayKey)
 				}

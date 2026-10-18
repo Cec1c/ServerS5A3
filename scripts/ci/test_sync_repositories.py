@@ -22,7 +22,7 @@ class RepositorySyncErrorTests(unittest.TestCase):
     def test_cli_failure_does_not_print_provider_output(self):
         secret = "SYNTHETIC_SYNC_SECRET"
         failure = subprocess.CompletedProcess([], 128, stdout="", stderr=secret)
-        with patch("sys.argv", ["sync", "--github", "example-gh", "--gitgud", "example-gg"]), \
+        with patch("sys.argv", ["sync", "--github", "example-gh", "--upstream", "example-gg"]), \
              patch.dict(os.environ, {"GH_SYNC_TOKEN": ""}), \
              patch("sync_repositories.subprocess.run", return_value=failure), \
              patch("builtins.print") as output:
@@ -68,20 +68,26 @@ class RepositorySyncTests(unittest.TestCase):
         self.assertEqual(synchronize(str(self.gh), str(self.gg), apply=True)["direction"], "equal")
         self.assertEqual(self.head(self.gh), self.base)
 
-    def test_github_ahead_and_dry_run(self):
+    def test_github_ahead_never_writes_upstream(self):
         self.commit("source.txt", "github")
         self.run_git(self.work, "push", str(self.gh), "master")
-        result = synchronize(str(self.gh), str(self.gg))
-        self.assertEqual(result["direction"], "github-to-gitgud")
+        before = (self.head(self.gh), self.head(self.gg))
+        for apply in (False, True):
+            with self.assertRaisesRegex(SyncError, "submit its changes by MR"):
+                synchronize(str(self.gh), str(self.gg), apply=apply)
+        self.assertEqual((self.head(self.gh), self.head(self.gg)), before)
         self.assertEqual(self.head(self.gg), self.base)
-        synchronize(str(self.gh), str(self.gg), apply=True)
-        self.assertEqual(self.head(self.gh), self.head(self.gg))
 
     def test_gitgud_ahead(self):
         self.commit("source.txt", "gitgud")
         self.run_git(self.work, "push", str(self.gg), "master")
+        result = synchronize(str(self.gh), str(self.gg))
+        self.assertEqual(result["direction"], "upstream-to-github")
+        self.assertFalse(result["applied"])
+        self.assertEqual(self.head(self.gh), self.base)
         result = synchronize(str(self.gh), str(self.gg), apply=True)
-        self.assertEqual(result["direction"], "gitgud-to-github")
+        self.assertEqual(result["direction"], "upstream-to-github")
+        self.assertEqual(result["after"]["github"], result["after"]["upstream"])
         self.assertEqual(self.head(self.gh), self.head(self.gg))
 
     def test_divergence_never_writes(self):
@@ -95,19 +101,62 @@ class RepositorySyncTests(unittest.TestCase):
             synchronize(str(self.gh), str(self.gg), apply=True)
         self.assertEqual((self.head(self.gh), self.head(self.gg)), before)
 
-    def test_imported_workflow_is_blocked(self):
-        self.commit(".github/workflows/unreviewed.yml", "name: unreviewed")
+    def test_upstream_reviewed_workflow_is_mirrored(self):
+        self.commit(".github/workflows/reviewed.yml", "name: upstream reviewed")
         self.run_git(self.work, "push", str(self.gg), "master")
-        with self.assertRaisesRegex(SyncError, "CI definitions"):
+        synchronize(str(self.gh), str(self.gg), apply=True)
+        self.assertEqual(self.head(self.gh), self.head(self.gg))
+
+    def test_upstream_sync_code_is_mirrored_without_execution(self):
+        self.commit("scripts/ci/sync_repositories.py", "raise RuntimeError('must not execute fetched code')")
+        self.run_git(self.work, "push", str(self.gg), "master")
+        with patch("sync_repositories.git", wraps=git) as calls:
             synchronize(str(self.gh), str(self.gg), apply=True)
+        pushes = [c.args for c in calls.call_args_list if c.args[1] == "push"]
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(pushes[0][2], "github")
+        self.assertEqual(self.head(self.gh), self.head(self.gg))
+
+    def test_upstream_moves_before_push_stops_without_writing_github(self):
+        self.commit("source.txt", "gitgud")
+        self.run_git(self.work, "push", str(self.gg), "master")
+        moved = False
+
+        def changing_git(directory, *args, **kwargs):
+            nonlocal moved
+            if args[:3] == ("ls-remote", "--exit-code", "upstream") and not moved:
+                moved = True
+                self.commit("later.txt", "new upstream commit")
+                self.run_git(self.work, "push", str(self.gg), "master")
+            return git(directory, *args, **kwargs)
+
+        with patch("sync_repositories.git", side_effect=changing_git):
+            with self.assertRaisesRegex(SyncError, "changed before"):
+                synchronize(str(self.gh), str(self.gg), apply=True)
+        self.assertTrue(moved)
         self.assertEqual(self.head(self.gh), self.base)
 
-    def test_imported_sync_code_is_blocked(self):
-        self.commit("scripts/ci/sync_repositories.py", "unreviewed")
+    def test_intervening_divergent_github_write_is_not_overwritten(self):
+        self.commit("source.txt", "gitgud")
         self.run_git(self.work, "push", str(self.gg), "master")
-        with self.assertRaisesRegex(SyncError, "CI definitions"):
-            synchronize(str(self.gh), str(self.gg), apply=True)
-        self.assertEqual(self.head(self.gh), self.base)
+        upstream_tip = self.head(self.gg)
+        github_tip = None
+
+        def changing_git(directory, *args, **kwargs):
+            nonlocal github_tip
+            if args[:2] == ("push", "github"):
+                self.run_git(self.work, "reset", "--hard", self.base)
+                self.commit("github.txt", "intervening change")
+                self.run_git(self.work, "push", str(self.gh), "master")
+                github_tip = self.head(self.gh)
+            return git(directory, *args, **kwargs)
+
+        with patch("sync_repositories.git", side_effect=changing_git):
+            with self.assertRaisesRegex(SyncError, "git push failed"):
+                synchronize(str(self.gh), str(self.gg), apply=True)
+        self.assertIsNotNone(github_tip)
+        self.assertEqual(self.head(self.gh), github_tip)
+        self.assertEqual(self.head(self.gg), upstream_tip)
 
     def test_missing_branch_does_not_create_it(self):
         with self.assertRaises(SyncError):

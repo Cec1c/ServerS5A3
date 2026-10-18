@@ -18,6 +18,7 @@ type dungeonStoryProcDeathEvidence struct {
 	ActionPath      string
 	PassiveObjectID int64
 	BehaviorIndex   int
+	CinematicID     int64
 }
 
 type dungeonStoryProcDeathReceipt struct {
@@ -93,7 +94,13 @@ func (s *Service) currentDungeonStoryProcDeath(session *gameSession, runtime *ru
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	quests, err := s.loadQuestCatalog(ctx)
-	if err != nil || !currentDungeonConnectedClearMapQuestOwnsBaseMap(runtime, scene.Map.Map.ID, -1, quests) {
+	if err != nil {
+		return dungeonStoryProcDeathEvidence{}, false
+	}
+	if evidence, ok := s.currentDungeonCinematicAPCDestroy(ctx, session, runtime, scene, *actor, quests); ok {
+		return evidence, true
+	}
+	if !currentDungeonConnectedClearMapQuestOwnsBaseMap(runtime, scene.Map.Map.ID, -1, quests) {
 		return dungeonStoryProcDeathEvidence{}, false
 	}
 	questID := runtime.Dungeon.Mazes[runtime.MazeIndex].QuestConnection[1]

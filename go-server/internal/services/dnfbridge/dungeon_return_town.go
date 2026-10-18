@@ -963,6 +963,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
 	session.townSceneReadyCharacterID = 0
+	advanceImageCommunicationSceneLocked(session)
 	session.townActorOwnerChannel = currentSceneObjectContext
 	session.completedTownSceneTailOwner = nil
 	session.townMu.Unlock()

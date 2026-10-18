@@ -1509,6 +1509,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 			"reason", "dungeon_runtime_missing")
 		return nil
 	}
+	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+		return err
+	}
 	plan, err := s.planCurrentDungeonMove(runtime, request)
 	if err != nil {
 		currentScene, hasCurrentScene := runtime.Session.Scene()
