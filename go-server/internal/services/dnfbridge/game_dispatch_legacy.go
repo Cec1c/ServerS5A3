@@ -149,6 +149,9 @@ func (s *Service) handleGameCommand(session *gameSession, cmd byte, typ uint16, 
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)
 	}
+	if s.options.currentClientVersion == "official-24.9" && typ == uint16(dnfenum.CmdPacketSyncItemSpace) {
+		return s.handleCurrentItemSpaceSync(session, body)
+	}
 	if handled, err := currentGameplayModules.DispatchLegacy(s, session, typ, body); handled || err != nil {
 		return err
 	}
