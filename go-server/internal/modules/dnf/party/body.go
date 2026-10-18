@@ -92,11 +92,23 @@ func BuildSingleMemberRealtimeInfo(state alignedcmd.PartyState) []byte {
 	members := partyMembers(state)
 	var writer packetWriter
 	writer.writeByte(byte(len(members)))
-	for slot, member := range members {
+	usedSlots := make([]bool, 8)
+	nextFreeSlot := byte(0)
+	for _, member := range members {
+		slot := member.Slot
+		if int(slot) >= len(usedSlots) || usedSlots[slot] {
+			for int(nextFreeSlot) < len(usedSlots) && usedSlots[nextFreeSlot] {
+				nextFreeSlot++
+			}
+			slot = nextFreeSlot
+		}
+		if int(slot) < len(usedSlots) {
+			usedSlots[slot] = true
+		}
 		writer.writeUint16(member.UserID)
 		writer.writeByte(memberPercentByte(member.HPPercent))
 		writer.writeByte(0)
-		writer.writeByte(byte(slot))
+		writer.writeByte(slot)
 	}
 	return writer.bytes()
 }
