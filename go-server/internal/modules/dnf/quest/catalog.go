@@ -1344,7 +1344,9 @@ func definitionMatchesCharacter(definition Definition, character CharacterEligib
 	if job := strings.TrimSpace(definition.Job); job != "" && normalizeQuestTag(job) != "all" && !jobmap.MatchesQuestTag(job, character.Job) {
 		return false
 	}
-	if len(definition.TargetCharacterRules) != 0 && definition.JobChangeQuest >= 1 && definition.JobChangeQuest <= 3 {
+	// 普通支线同样使用职业、转职分支及觉醒阶段三元组。只对转职任务
+	// 检查会让帕拉丁同时接到精灵骑士、混沌魔灵的同名盾牌任务。
+	if len(definition.TargetCharacterRules) != 0 {
 		matched := false
 		firstGrowType := character.GrowType & 0x0f
 		awakeningStage := (character.GrowType >> 4) & 0x0f

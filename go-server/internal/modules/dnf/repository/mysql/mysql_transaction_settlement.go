@@ -95,6 +95,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		},
 		Character: &characterSettlementScopedCharacterRepository{characterID: characterID, base: base.Character},
 		Quest:     &characterSettlementScopedQuestRepository{characterID: characterID, base: base.Quest},
+		Settings:  &characterComboSettingsRepository{characterID: characterID, base: base.Settings},
 		Skill:     &characterSettlementScopedSkillRepository{characterID: characterID, base: base.Skill},
 		Inventory: &characterSettlementScopedInventoryRepository{characterID: characterID, base: base.Inventory},
 		Equipment: &characterSettlementScopedEquipmentRepository{characterID: characterID, base: base.Equipment},
