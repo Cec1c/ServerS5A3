@@ -430,6 +430,9 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_dungeon_mode1"); err != nil {
 		return err
 	}
+	if err := s.sendSelectedGuardianGemWornMedalRefresh(session, source+"_after_dungeon_mode1"); err != nil {
+		return err
+	}
 	session.selectedUserInfoRefreshSent = true
 
 	insertBody := s.buildCurrentInsertOverseerBodyForSession(ctx, session, buildCurrentInsertOverseerBody())
