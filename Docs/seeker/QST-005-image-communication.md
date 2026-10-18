@@ -4,7 +4,7 @@
 
 “神秘的魔刹石”需要通过米娅的远程通信菜单打开梅尔文对话。匹配资产确认了两个独立缺口：服务端只有 COMMAND475 枚举，没有处理器；V124 虽有对应原生读写函数，接收过滤位图却拒绝475。补服务端回包仍会被该客户端过滤，单独开放客户端也没有扣费和应答来源。
 
-服务端候选现已实现配置目录、收费owner、有限重放许可及legacy/upper桥接；真实PVF红例已转绿，并验证475→33→34任务链。源EXE与PVF保持；单字节客户端兼容候选已生成并通过原生离线验证，实际发布仍是服务端上线前的依赖。原反馈为未标记完成条目的前半段；同段后半的“危险的研究”不在本项范围。
+服务端候选现已实现配置目录、收费owner、有限重放许可及legacy/upper桥接；真实PVF红例已转绿，并验证475→33→34任务链。源EXE与PVF保持；保留V126累计修改的客户端兼容候选已生成并通过原生离线验证，实际发布仍是服务端上线前的依赖。原反馈为未标记完成条目的前半段；同段后半的“危险的研究”不在本项范围。
 
 ## 固定输入
 
@@ -128,13 +128,17 @@ Go代码变更按仓库检查入口执行领域、bridge、control全量测试�
 
 QST-005服务端候选已形成并通过规定自动检查，实际发布、部署与原生验收另行记录；不依赖QST-001/002/004修改。客户端475兼容候选已经生成并验证，待双端Release及实际玩家下载读回后部署本服务端候选。本项不等待载具再生取证，也不修改其他任务工作树。
 
-## 单字节客户端候选
+## 最终客户端兼容候选
 
-`deploy/client/image_communication_gate.py`复用现有PE定位工具，固定V124完整SHA和接收门指纹，输出新文件。全文件唯一变化为文件偏移111747899（RVA0x06a9233b）00→08，只新增475准入。候选SHA256为`4b3a7ec9d4c052be4b58ae955cd21167b3b34d9d7bfc29cab3b2e09f57f47d8e`，111796224字节。
+生成器 `deploy/client/image_communication_gate.py` 固定已发布V126完整SHA256 `c175ecc93cdabe43c55d7f2ecdf3b1d3c87c7a90ec58c79b88b6f648db046939` 和接收门指纹，输出新文件。仅新增475接收位，并重算PE checksum。V125五个接收位447/510/580/657/809，以及V126交易双锁显示补丁和新增节完整保持。
+
+候选SHA256：`9276e7a83312517ec1cb36b02a5a74bd4880235a46ce3d27f47f54f5df5d5ab6`，111800320字节。与V126实际仅两字节不同：offset111747899的00→08、checksum字段内offset393。checksum由独立pefile实现复核。
 
 ```text
-python deploy/client/image_communication_gate.py <V124-DNF.exe> <new-DNF.exe> --receipt <new-build.json>
-python scripts/verify_client_image_communication_475.py --exe <V124-DNF.exe> --candidate <new-DNF.exe> --receipt <native-result.json>
+python deploy/client/image_communication_gate.py <V126-DNF.exe> <new-DNF.exe> --receipt <new-build.json>
+python scripts/verify_client_image_communication_475.py --exe <V126-DNF.exe> --candidate <new-DNF.exe> --receipt <new-native.json>
 ```
 
-已对实际候选完整比对，原生接收门65536编号、接收36组、失败3组、发送9组和任务成员8组通过；源与候选文件前后摘要保持。原生UI/分配/网络边界采用显式桩，未执行游戏画面。生成器拒绝错误输入、原地写入和覆盖已有输出。发布时保留同一批准PVF及兼容资产，按仓库强制顺序先完成最终EXE双端Release和玩家通道读回，再上线依赖服务端。
+65536 opcode全矩阵仅475改变；36接收、3失败、9发送、8任务成员查询通过。输入篡改、截断和重复应用均被拒绝。V126交易状态/画面遮罩有限仿真继续通过；QST-007的13个原生代码/数据窗口摘要保持。仿真使用明确的界面、钱包和网络桩，不是完整游戏内验收。
+
+公开V124研究地址在V126相关窗口保持，原V124候选不发布。最终客户端先双Release、实际玩家通道及完整下载验哈，再部署本项服务端；已有发布版本不覆盖，发布号由实际Release状态确定。

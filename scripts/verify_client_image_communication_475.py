@@ -1,4 +1,4 @@
-"""Hash-matched V124 offline communication evidence; never writes an EXE.
+"""Hash-matched V126 offline communication evidence; never writes an EXE.
 
 Requires pefile and Unicorn 2.x. Executes the native receive gate, COMMAND475
 handler/u32 reader/UI wrapper, send decision path and quest membership lookup.
@@ -15,7 +15,7 @@ import pefile
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
-SHA256 = "eaa2485609fa9cc2c9ca99fadd743b5206a37b5517dd07d195eb35b3c0a29d50"
+SHA256 = "c175ecc93cdabe43c55d7f2ecdf3b1d3c87c7a90ec58c79b88b6f648db046939"
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--exe", type=Path, required=True)
 p.add_argument("--candidate", type=Path, help="optional generated EXE; prove its complete byte delta before native verification")
@@ -138,8 +138,13 @@ if args.candidate:
     candidate = args.candidate.read_bytes()
     offset = pe.get_offset_from_rva(byte_address - base)
     assert len(candidate) == len(data), "candidate size changed"
-    assert candidate[:offset] == data[:offset] and candidate[offset + 1:] == data[offset + 1:], "unexpected candidate byte change"
+    checksum_offset = pe.OPTIONAL_HEADER.get_field_absolute_offset("CheckSum")
+    restored = bytearray(candidate)
+    restored[checksum_offset:checksum_offset + 4] = data[checksum_offset:checksum_offset + 4]
+    assert restored[:offset] == data[:offset] and restored[offset + 1:] == data[offset + 1:], "unexpected candidate byte change"
     assert candidate[offset] == counterfactual, "candidate did not enable only 475"
+    candidate_pe = pefile.PE(data=candidate, fast_load=True)
+    assert candidate_pe.OPTIONAL_HEADER.CheckSum == candidate_pe.generate_checksum(), "invalid candidate PE checksum"
     candidate_sha256 = hashlib.sha256(candidate).hexdigest()
 changed = []
 for code in range(65536):
