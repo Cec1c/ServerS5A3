@@ -13,7 +13,7 @@
 | [QST-003](QST-003-seek-meet-trigger.md) | 危险研究条件初值与旧活动进度 | ed23e68 | 已部署；材料结算由006补齐 |
 | [QST-004](QST-004-northgate-randomized-objects.md) | 北门随机载具入口预检 | 211f53c | 入口/首次生成已部署；骑乘与交付待实测 |
 | [QST-005](QST-005-image-communication.md) | 远程通信收费、应答与NPC资格 | 1560f72 | 客户端及服务端已部署；正常流程待实测 |
-| [QST-006](QST-006-queen-linked-objectives.md) | 梅娅书信及危险研究多材料交付 | e199af2 | 已部署；正常流程待实测 |
+| [QST-006](QST-006-queen-linked-objectives.md) | 梅娅书信及危险研究多材料交付 | e199af2 | 原材料消费修复已部署；[无奖励完成后的书信恢复](QST-006-queen-letter-source.md)实现及专项通过，待部署 |
 | [QST-007](QST-007-cinematic-apc-death.md) | 单次剧情APC销毁确认 | f9d35b1 | 兼容修复已部署；原反馈过门待实测 |
 | [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口 | 复用004 | 入口已部署；[按Z不上机](QST-008-at5t-completion.md)继续研究 |
 | [QST-009](QST-009-story-digest-gate.md) | 等级领先主线导致提前播放结局 | 7df2705 | V128客户端已发布并完成实际下载核验；待实测 |
