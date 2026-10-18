@@ -12,6 +12,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/itemquality"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -339,7 +340,13 @@ func (w *mailboxBodyWriter) writeSummary(summary mailboxSummary, now time.Time) 
 		}
 		raw := mailboxAttachmentRaw(attachment)
 		w.u32(uint32(attachment.ItemID))
-		w.u8(1)
+		// 当前EXE在2043ea7把此字节作为物品创建封装参数，
+		// 不是“有附件”标志；附件存在由物品编号和金币判断。
+		creationSeal := byte(0)
+		if raw[0x0d] != 0 {
+			creationSeal = 1
+		}
+		w.u8(creationSeal)
 		w.u32(binary.LittleEndian.Uint32(raw[6:10]))
 		w.u16(binary.LittleEndian.Uint16(raw[0x0b:0x0d]))
 		w.u8(raw[0x0d])
@@ -416,29 +423,71 @@ func mailboxAttachmentRaw(attachment dnfrepo.MailAttachment) []byte {
 	}
 	binary.LittleEndian.PutUint16(raw[0:2], 0)
 	binary.LittleEndian.PutUint32(raw[2:6], uint32(attachment.ItemID))
-	binary.LittleEndian.PutUint32(raw[6:10], uint32(attachment.Count))
+	binary.LittleEndian.PutUint32(raw[6:10], mailboxAttachmentAmount(attachment))
 	// 0x0B..0x0D 是客户端显示的耐久。GM 面板发的装备附件没有 0x77 行、也没有实例
 	// 耐久（Extra 为空），客户端在邮箱里就把它显示成 0 耐久；这里按附件 Extra 的
 	// 耐久证据（dnfbridge 按运行时 PVF [durability] 补的）写进去。
 	if durability := mailboxAttachmentDurability(attachment); durability > 0 {
 		binary.LittleEndian.PutUint16(raw[0x0b:0x0d], durability)
 	}
-	// 系统模板附件尚无原始行时，封装来自已按PVF初始化的实例Extra；
-	// 有原始行的玩家附件保持原有封装，零值不覆盖已有字节。
-	for _, key := range []string{"seal_flag", "seal", "bind_flag", "bind"} {
-		value, err := strconv.ParseUint(strings.TrimSpace(attachment.Extra[key]), 10, 8)
-		if err == nil && value != 0 {
-			raw[0x0d] = byte(value)
-			break
-		}
-	}
-	if attachment.Bind && raw[0x0d] == 0 {
-		raw[0x0d] = 1
-	}
+	// 已解封的0必须覆盖旧行；绑定状态不能把已有解封实例重新画成封装。
+	raw[0x0d] = mailboxAttachmentSealFlag(attachment)
 	if !attachment.ExpireAt.IsZero() && attachment.ExpireAt.Unix() > 0 {
 		binary.LittleEndian.PutUint32(raw[0x38:0x3c], mailboxUnix(attachment.ExpireAt))
 	}
 	return raw
+}
+
+func mailboxAttachmentSealFlag(attachment dnfrepo.MailAttachment) byte {
+	extra := attachment.Extra
+	for _, key := range []string{"seal_flag", "seal"} {
+		if value, err := strconv.ParseUint(strings.TrimSpace(extra[key]), 10, 8); err == nil {
+			return byte(value)
+		}
+	}
+	for _, key := range []string{"seal_removed_by_first_equip", "trade_locked_by_first_equip"} {
+		if value := strings.TrimSpace(extra[key]); value != "" && value != "0" && !strings.EqualFold(value, "false") {
+			return 0
+		}
+	}
+	if extra["source"] == "equipment_emancipate" {
+		if value, err := strconv.ParseUint(strings.TrimSpace(extra["emancipate_seal_flag"]), 10, 8); err == nil {
+			return byte(value)
+		}
+	}
+	if len(attachment.RawEntry) == mailboxItemRawSize {
+		return attachment.RawEntry[0x0d]
+	}
+	// 仅旧附件缺少实例证据时，保留原有绑定字段回落。
+	for _, key := range []string{"bind_flag", "bind"} {
+		if value, err := strconv.ParseUint(strings.TrimSpace(extra[key]), 10, 8); err == nil && value != 0 {
+			return byte(value)
+		}
+	}
+	if attachment.Bind {
+		return 1
+	}
+	return 0
+}
+
+func mailboxAttachmentAmount(attachment dnfrepo.MailAttachment) uint32 {
+	// 邮件摘要与0x77行的同一字段都要保留普通装备品级；件数仍保存为1。
+	// 装扮、宠物沿用各自的字段语义，缺少已有品级证据时也不生成新值。
+	extra := attachment.Extra
+	kind := strings.TrimSpace(extra["item_kind"])
+	if mailboxAttachmentIsAvatar(attachment) || mailboxAttachmentRequiresClass26(attachment) ||
+		strings.EqualFold(kind, "avatar") || strings.EqualFold(kind, "pet") ||
+		strings.Contains(strings.ToLower(extra["equipment_type"]), "avatar") {
+		return uint32(attachment.Count)
+	}
+	if kind == "" && strings.EqualFold(strings.TrimSpace(extra["mailbox_pvf_kind"]), "equipment") {
+		extra = cloneStringMap(extra)
+		extra["item_kind"] = "equipment"
+	}
+	if seed := itemquality.FromStack(dnfrepo.ItemStack{ItemID: attachment.ItemID, Extra: extra, RawEntry: attachment.RawEntry}); seed != 0 {
+		return seed
+	}
+	return uint32(attachment.Count)
 }
 
 // mailboxAttachmentRequiresClass26 判断附件行是否要走当前客户端的 type-26 分支
