@@ -157,7 +157,15 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	var storyProcEvidence dungeonStoryProcDeathEvidence
 	storyProcDeath := false
 	if ownerIsSentinel {
-		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath {
+		if hasScene {
+			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
+			if storyProcDeath {
+				if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+					return s.replayCurrentDungeonStoryProcDeathLocked(session, runtime, request.RuntimeObjectKey)
+				}
+			}
+		}
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath {
 			if !roomProvenHostile {
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 					"dungeon_id", runtime.Dungeon.ID,
@@ -200,14 +208,6 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 						scene,
 						request.RuntimeObjectKey,
 					)
-				}
-			}
-		}
-		if hasScene && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget {
-			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
-			if storyProcDeath {
-				if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
-					return s.replayCurrentDungeonStoryProcDeathLocked(session, runtime, request.RuntimeObjectKey)
 				}
 			}
 		}
