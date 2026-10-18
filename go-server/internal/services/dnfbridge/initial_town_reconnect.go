@@ -88,6 +88,7 @@ func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) err
 	session.initialTownLegacySceneReadyAccepted = false
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
+	session.initialTownGuildStateProjectionSent = false
 	session.townActorOwnerChannel = ownerChannel
 
 	endpointPolicy := "proactive_class1_op1_context0_no_route_replay"

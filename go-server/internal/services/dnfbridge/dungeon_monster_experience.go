@@ -331,6 +331,7 @@ type currentDungeonMonsterExperienceCommitResult struct {
 	// GrowthContractBonus is the 成长契约 (premium type 84) +20% bonus
 	// experience added on top of Award.Gain at commit time.
 	GrowthContractBonus uint32
+	GuildBonus          uint32
 	// HonorExpertGain is the accepted part of this award earned after the
 	// DNF90 character-level cap.
 	HonorExpertGain uint32
@@ -432,6 +433,12 @@ func (s *Service) commitCurrentDungeonMonsterExperience(
 	// pure PVF/86JP monster award for logging and tests.
 	growthBonus := s.currentGrowthContractBonusExp(ctx, strings.TrimSpace(s.accountIDForSession(session)), result.Award.Gain)
 	result.GrowthContractBonus = growthBonus
+	guildBonus, err := s.currentGuildMonsterExperienceBonus(ctx, session, result.Award.Gain)
+	if err != nil {
+		return currentDungeonMonsterExperienceCommitResult{}, err
+	}
+	// Both bonuses use base EXP, and their sum must fit the native u32 award.
+	result.GuildBonus = min(guildBonus, math.MaxUint32-result.Award.Gain-growthBonus)
 	return s.commitCurrentDungeonExperience(ctx, session, runtime, tables, result)
 }
 
@@ -497,7 +504,7 @@ func (s *Service) commitCurrentDungeonExperience(
 		skill.Points.SyncedLevel != character.Level {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	totalGain := result.Award.Gain + result.GrowthContractBonus
+	totalGain := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus
 	honorExpertGain, err := currentHonorExpertExperienceGain(
 		tables,
 		character.Level,

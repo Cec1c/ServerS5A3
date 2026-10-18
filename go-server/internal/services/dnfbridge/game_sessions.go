@@ -19,7 +19,11 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	if s == nil || session == nil || charID == 0 {
 		return
 	}
+	guildClock := s.ensureGameplayTimeQueue()
+	var guildObservations []currentGuildPresenceObservation
+	defer func() { s.persistCurrentGuildPresence(guildObservations...) }()
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
+		s.closeCurrentGuildCreateSession(session)
 		s.closeCurrentExpertJobStoreSession(session, true)
 		s.detachOnlineItemTrade(session, "selected_character_changed")
 		s.detachRuntimePartySession(session, "selected_character_changed")
@@ -58,6 +62,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	}
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
 		if s.gameSessions[oldID] == session {
+			guildObservations = append(guildObservations, s.currentGuildPresenceObservationLocked(session, guildClock.Now()))
 			delete(s.gameSessions, oldID)
 		}
 	}
@@ -81,8 +86,12 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		}
 	}
 	s.gameSessions[charID] = session
+	if previous != session || characterChanged {
+		guildObservations = append(guildObservations, s.currentGuildPresenceObservationLocked(session, guildClock.Now()))
+	}
 	s.mu.Unlock()
 	if previous != nil && previous != session {
+		s.closeCurrentGuildCreateSession(previous)
 		s.rebindManagedRuntimePartySession(previous, session)
 	}
 	s.restoreCurrentRaidPresence(session)
@@ -125,6 +134,7 @@ func (s *Service) promoteResidentGameSession(session *gameSession, charID uint16
 	s.gameSessions[charID] = session
 	s.mu.Unlock()
 	if previous != nil && previous != session {
+		s.closeCurrentGuildCreateSession(previous)
 		s.rebindManagedRuntimePartySession(previous, session)
 	}
 }
@@ -164,6 +174,8 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	if s == nil || session == nil {
 		return
 	}
+	guildClock := s.ensureGameplayTimeQueue()
+	s.closeCurrentGuildCreateSession(session)
 	s.unregisterLiveGameSession(session)
 	s.mu.Lock()
 	canonical := session.selectedCharacterID != 0 && s.gameSessions[session.selectedCharacterID] == session
@@ -192,6 +204,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	s.stopAvatarAppearanceCoalesce(session, "game_session_unbound_or_disconnected")
 	s.lockCurrentCharacterBindingMutation(session, 0)
 	presenceChanged := false
+	guildObservation := s.currentGuildPresenceObservationLocked(session, guildClock.Now())
 	if session.selectedCharacterID != 0 && s.gameSessions[session.selectedCharacterID] == session {
 		delete(s.gameSessions, session.selectedCharacterID)
 		presenceChanged = true
@@ -202,6 +215,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	s.mu.Unlock()
 	if presenceChanged {
 		s.refreshCurrentAccountFriendPresence(session, "offline")
+		s.persistCurrentGuildPresence(guildObservation)
 	}
 }
 

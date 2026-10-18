@@ -140,6 +140,7 @@ func readPartyDungeonAllMemberUserState() (bool, string, bool) {
 }
 
 type options struct {
+	guildSoloCreate          bool
 	channelListen            string
 	gameListenHost           string
 	channelInfoFile          string
@@ -675,16 +676,9 @@ type options struct {
 	// 领取期与清扫期。证据与边界见 epic_piece_grant.go。
 	epicPieceGrant epicPieceGrantMode
 
-	// epicPiecePush 是 DNFBRIDGE_EPIC_PIECE_PUSH 的归一化取值
-	// （零值 = login_only = 只在选角引导位发全量快照，拾取/领取后**不再**补发
-	// class0/1149 的增量；`always` = 改动前的逐字节行为；`vendor_empty` = 引导位
-	// 只发厂商实测的 5 字节空表；`off` = 一个 1149 都不发）。
-	//
-	// 它只管下行线，不改账本与背包口径。默认取保守档的原因是现场那一条
-	// 「领取邮件附件（史诗碎片）→ 客户端 0xC0000005 @DNF.exe+0x23082D3」：
-	// 该路径上唯一零厂商先例的包就是那条增量 1149。**但取证结论是"无法证明 1149
-	// 是凶手"**（同一崩溃点在上线前已复现两次，且那两次会话里 1149 出现 0 次），
-	// 详见 epic_piece_push.go 文件头。
+	// epicPiecePush 控制史诗图鉴下行同步，不改变账本和背包语义。
+	// 生产加载默认always，选角全量初始化，领取/拾取/扣除成功后实时覆盖数量。
+	// options字面量零值仍是login_only，显式回退档也保持；原生契约见epic_piece_push.go。
 	epicPiecePush epicPiecePushMode
 
 	// 远程部署用的公网账号 API（启动器注册/登录 + 按来源 IP 绑定账号）。
@@ -758,6 +752,7 @@ type options struct {
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
 	opts := options{
+		guildSoloCreate: envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
 		channelListen:   envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),
 		gameListenHost:  strings.TrimSpace(os.Getenv("DNFBRIDGE_GAME_LISTEN_HOST")),
 		channelInfoFile: firstEnv([]string{"DNFBRIDGE_CHANNEL_INFO_PATH", "DNF_CHANNEL_INFO_FILE"}, defaultChannelInfoFile),
@@ -1160,9 +1155,8 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 	// 现场症状：GM 工具发碎片 → 邮件领取 → 碎片作为普通 [material] 出现在材料页。
 	// `off` 只回退这两条路径，不影响地面拾取。见 epic_piece_grant.go。
 	opts.epicPieceGrant = readEpicPieceGrantMode(envString(epicPieceGrantEnv, ""))
-	// 史诗图鉴账本**下行线**档位：**默认 login_only**（只在选角引导位发全量快照，
-	// 拾取/领取后不再补那条零厂商先例的增量 1149）；`always` 一个 env 恢复改动前的
-	// 逐字节行为；`vendor_empty` / `off` 供实机 A/B（见 epic_piece_push.go 文件头）。
+	// 史诗图鉴默认实时同步；保留显式login_only/vendor_empty/off回退。
+	// 当前EXE模式1覆盖绝对值并刷新UI，见epic_piece_push.go中的本机核对依据。
 	opts.epicPiecePush = readEpicPiecePushMode(envString(epicPiecePushEnv, ""))
 	// 史诗制作（自制史诗 NPC）的两个开关：**默认都是厂商/修正后形状**。
 	//   ACCOUNT_SCOPE=session（默认）—— 归属校验改用会话账号（与角色表同口径）；

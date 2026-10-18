@@ -1,6 +1,7 @@
 package dnfbridge
 
 var currentGameplayModules = mustGameplayModuleRegistry(
+	guildGameplayModule(),
 	npcShopGameplayModule(),
 	ceraShopGameplayModule(),
 	ceraPackageGameplayModule(),
@@ -26,6 +27,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	avatarSocketGameplayModule(),
 	avatarEmblemGameplayModule(),
 	itemGradeAdjustGameplayModule(),
+	equipmentTransferGameplayModule(),
 	equipmentEffectGameplayModule(),
 	auraSkinGameplayModule(),
 	carryGoldGameplayModule(),

@@ -31,7 +31,7 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode1WithEquipmentInCon
 	var w packetWriter
 	w.writeByte(1)
 	w.writeUint16(1)
-	w.writeByte(currentSceneObjectRoute)
+	w.writeByte(r.service.currentSceneActorRoute())
 	w.writeByte(ownerChannel)
 	// MCP/IDA sub_2008010：mode=1 每条记录先读 raw16，再读 u16 object key。
 	// 这里不再写旧 subtype1 的 level/exp/stat 字段；那些字节会让 actor 查找 key 错位。
@@ -78,7 +78,7 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode3InContext(characte
 	var w packetWriter
 	w.writeByte(3)
 	w.writeUint16(1)
-	w.writeByte(currentSceneObjectRoute)
+	w.writeByte(r.service.currentSceneActorRoute())
 	w.writeByte(ownerChannel)
 	w.writeUint32(adventureLevel) // sub_24A0970 adventure-group manage level
 	w.writeUint16(0)              // mode3 raw8 auxiliary u16

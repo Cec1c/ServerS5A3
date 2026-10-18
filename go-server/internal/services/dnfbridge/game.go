@@ -20,12 +20,15 @@ import (
 )
 
 type gameSession struct {
-	pendingTitleEnchantCharacterID uint16
-	pendingTitleEnchantRow         *currentItemListEntry
-	conn                           net.Conn
-	connID                         string
-	accountID                      string
-	clientPID                      uint32
+	guildBuffs                          guildBuffProjection
+	guild                               guildSessionState
+	initialTownGuildStateProjectionSent bool
+	pendingTitleEnchantCharacterID      uint16
+	pendingTitleEnchantRow              *currentItemListEntry
+	conn                                net.Conn
+	connID                              string
+	accountID                           string
+	clientPID                           uint32
 	// clientIP 只用于日志与排查（连接来源），**绝不参与账号判定** ——
 	// 见 repository_access.go 的 accountIDForSession 与 client_account_ip.go。
 	clientIP string
@@ -226,6 +229,8 @@ type gameSession struct {
 	initialTownSkillInfoSent             bool
 	initialTownSkillInfo                 currentSceneSkillInfoProjection
 	initialTownLegacySceneReadyAccepted  bool
+	// Snapshot of the monotonic town cursor when this selector route starts.
+	initialTownRouteTownGeneration uint64
 	// loginActorGenerationRebuildArmed 在登录路径的 legacy type1345 场景就绪 ack 上布防，
 	// loginActorGenerationRebuildSent 保证一次进场只重建一次 actor 世代。
 	// 触发面 = **ack 之后的第一条客户端游戏报文**（`handleGameStreamPacket` 在派发前取

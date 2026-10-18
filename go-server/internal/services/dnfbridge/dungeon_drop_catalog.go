@@ -11,6 +11,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
+	"longheng.io/server/internal/modules/dnf/inventory"
 	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
@@ -67,6 +68,7 @@ type dungeonDropItemDefinition struct {
 	Price                    int64
 	PriceFound               bool
 	ActionType               string
+	GuildMileageItem         *inventory.GuildMileageItemDefinition
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -325,6 +327,9 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		definition.SlotStart, definition.SlotEnd = dungeonDropStackableSlotRange(definition.StackableType)
 		if err := parseCurrentDamageFontDefinition(document, &definition); err != nil {
 			return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s damage font: %w", itemID, docPath, err)
+		}
+		if err := parseCurrentGuildMileageItem(document, &definition); err != nil {
+			return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s guild mileage: %w", itemID, docPath, err)
 		}
 	}
 	if row, found := c.giftBoxHistory[strings.ToLower(docPath)]; found {
