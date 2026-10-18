@@ -66,8 +66,13 @@ func TestCurrentQuestDropMatchMonsterIncludesTypeOneEnemyRewardItem(t *testing.T
 	if len(typeTwo) != 1 || typeTwo[0].ItemID != 10164862 {
 		t.Fatalf("type-2 enemy reward=%+v", typeTwo)
 	}
-	if got := currentQuestDropMatchEnemy(catalog, []int64{3233}, 32, 0, 3, 420); len(got) != 0 {
-		t.Fatalf("unattached type-3 enemy reward matched: %+v", got)
+	typeThree := currentQuestDropMatchEnemy(catalog, []int64{3233}, 32, 0, 3, 420)
+	if len(typeThree) != 1 || typeThree[0].ItemID != 10164864 {
+		t.Fatalf("type-3 enemy reward=%+v", typeThree)
+	}
+	typeOne := currentQuestDropMatchEnemy(catalog, []int64{3233}, 32, 0, 1, 420)
+	if len(typeOne) != 1 || typeOne[0].ItemID != 10164861 {
+		t.Fatalf("type-1 enemy reward changed: %+v", typeOne)
 	}
 }
 

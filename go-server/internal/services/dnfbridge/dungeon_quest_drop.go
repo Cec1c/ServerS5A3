@@ -108,7 +108,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 	if len(activeIDs) == 0 {
 		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
-	if enemyType == 2 {
+	if enemyType >= 2 {
 		sort.Slice(activeIDs, func(i, j int) bool { return activeIDs[i] < activeIDs[j] })
 	}
 	catalog, err := s.loadQuestCatalog(ctx)
@@ -152,7 +152,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 					continue
 				}
 				if catalogErr != nil || dropCatalog == nil {
-					if enemyType == 2 {
+					if enemyType >= 2 {
 						if catalogErr != nil {
 							return false, catalogErr
 						}
@@ -166,7 +166,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 				}
 				definition, resolveErr := dropCatalog.ResolveItem(candidate.ItemID)
 				if resolveErr != nil {
-					if enemyType == 2 {
+					if enemyType >= 2 {
 						return false, resolveErr
 					}
 					s.logGameEvent(session, "game-dungeon-quest-drop-skipped-resolve",
@@ -315,7 +315,8 @@ func currentQuestDropMatchEnemy(
 	enemyType int64,
 	enemyCode int64,
 ) []currentQuestDropCandidate {
-	if catalog == nil || enemyCode <= 0 || (enemyType != 1 && enemyType != 2) {
+	if catalog == nil || enemyCode <= 0 ||
+		(enemyType != 1 && enemyType != 2 && enemyType != currentDungeonQuestEnemyTypePassiveObject) {
 		return nil
 	}
 	var candidates []currentQuestDropCandidate

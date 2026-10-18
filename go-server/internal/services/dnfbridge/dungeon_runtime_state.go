@@ -39,6 +39,8 @@ type runtimeDungeonState struct {
 	huntMonsterReceipts          map[currentHuntMonsterReceiptKey]*currentRoomClearQuestReceipt
 	roomClearQuestReceipts       map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
 	questDropReceipts            map[currentDungeonQuestDropEventKey]currentDungeonQuestDropReceipt
+	passiveQuestDropReceipts     map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
+	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
 	entryCharacterLevel          int
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
