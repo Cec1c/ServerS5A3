@@ -79,6 +79,25 @@ func TestPlanHuntMonsterKillIgnoresScopeMismatch(t *testing.T) {
 	}
 }
 
+func TestHuntMonsterDistinctEventsAndNonconsecutiveReplay(t *testing.T) {
+	catalog := &Catalog{byID: map[int64]Definition{3687: {ID: 3687, Type: "[hunt monster]", IntData: []int64{72, -1, 56158, 3}}}}
+	record := dnfrepo.QuestRecord{CharacterID: "19", States: map[int64]dnfrepo.QuestState{3687: {Status: "active", ProgressValue: 3}}}
+	for i, key := range []string{"room1/actor1", "room1/actor2", "room1/actor1", "room2/actor1"} {
+		plan, err := catalog.PlanHuntMonsterKill(record, HuntMonsterKillInput{DungeonID: 72, MonsterCode: 56158, CompletionKey: key, CompletedAt: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []int64{2, 1, 1, 0}[i]
+		if got := plan.Record.States[3687].ProgressValue; got != want {
+			t.Fatalf("event %s progress=%d want=%d", key, got, want)
+		}
+		if i == 2 && (len(plan.ChangedFields) != 0 || !plan.Completions[0].Idempotent) {
+			t.Fatalf("replay=%+v", plan)
+		}
+		record = plan.Record
+	}
+}
+
 func TestOwnerApplyHuntMonsterKillPersistsAndVerifiesPendingReward(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
