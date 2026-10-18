@@ -91,6 +91,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
 			return handled, err
 		}
+		if handled, err := s.handleCurrentDimensionGateExtraTicketUse(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
 		}
