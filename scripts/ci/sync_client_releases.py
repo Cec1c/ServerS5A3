@@ -171,6 +171,32 @@ def provenance(body):
         raise SyncError("Malformed release provenance") from None
 
 
+def _git_failure_classification(stderr):
+    text = stderr.lower()
+    permission = (
+        b"permission", b"authentication failed", b"not authorized",
+        b"access denied", b"forbidden", b"returned error: 403",
+        b"resource not accessible by integration", b"protected tag",
+        b"branch protection",
+    )
+    non_fast_forward = (
+        b"non-fast-forward", b"fetch first", b"cannot lock ref",
+        b"stale info", b"tag already exists",
+    )
+    network = (
+        b"could not resolve host", b"temporary failure in name resolution",
+        b"failed to connect", b"connection timed out", b"connection reset",
+        b"network is unreachable", b"operation timed out",
+    )
+    if any(marker in text for marker in permission):
+        return "workflow-permission-or-auth"
+    if any(marker in text for marker in non_fast_forward):
+        return "non-fast-forward"
+    if any(marker in text for marker in network):
+        return "network"
+    return "unknown"
+
+
 class Repository:
     def __init__(self, key, provider, repository, token="", writable=False, host="gitgud.io"):
         self.key, self.provider, self.repository = key, provider, repository
@@ -325,15 +351,23 @@ class Repository:
             source.git = source.api("")["http_url_to_repo"]
         if self.git is None:
             self.git = self.api("")["http_url_to_repo"]
-        def git(*args, env=None):
+        def git(stage, *args, env=None):
             result = subprocess.run(["git", "-C", str(directory), *args], capture_output=True, env=env)
             if result.returncode:
-                raise SyncError("Tag transfer refused or failed; no branch was changed")
+                classification = _git_failure_classification(result.stderr)
+                raise SyncError(
+                    f"Tag transfer refused or failed (tag={tag}; stage={stage}; "
+                    f"exit={result.returncode}; classification={classification})"
+                )
             return result.stdout.decode().strip()
-        git("init", "--bare", "--quiet")
-        git("fetch", "--no-tags", "--quiet", source.git, f"refs/tags/{tag}:refs/sync/source")
-        if git("rev-parse", "refs/sync/source^{}") != commit:
-            raise SyncError("Source tag moved")
+        git("init", "init", "--bare", "--quiet")
+        git("fetch", "fetch", "--no-tags", "--quiet", source.git, f"refs/tags/{tag}:refs/sync/source")
+        observed = git("rev-parse", "rev-parse", "refs/sync/source^{}")
+        if observed != commit:
+            raise SyncError(
+                f"Tag transfer refused or failed (tag={tag}; stage=rev-parse; "
+                "exit=0; classification=source-tag-moved)"
+            )
         if not self.token:
             raise SyncError("Missing destination credential")
         host = urllib.parse.urlsplit(self.git).netloc
@@ -341,7 +375,7 @@ class Repository:
         auth = base64.b64encode((login + ":" + self.token).encode()).decode()
         env = {**os.environ, "GIT_TERMINAL_PROMPT":"0", "GIT_CONFIG_COUNT":"1", "GIT_CONFIG_KEY_0":f"http.https://{host}/.extraheader", "GIT_CONFIG_VALUE_0":"Authorization: Basic " + auth}
         options = ["-o", "ci.skip"] if self.provider == "gitlab" else []
-        git("push", "--quiet", *options, self.git, f"refs/sync/source:refs/tags/{tag}", env=env)
+        git("push", "push", "--quiet", *options, self.git, f"refs/sync/source:refs/tags/{tag}", env=env)
 
     def publish(self, item, cache, tags):
         if not self.writable:
