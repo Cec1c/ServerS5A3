@@ -72,3 +72,10 @@ Run deployment preflight without a database:
 - Do not commit GM UI, HTTP tool implementation, embedded startup wiring, tool configuration, or tool releases here.
 - Preserve local GM files and changes. Repository cleanup must not delete the user's local tool.
 - Shared gameplay/domain rules and server administration infrastructure may remain when used by the server; do not delete gameplay logic merely because GM also calls it.
+
+## 源码唯一权威与贡献
+
+- GitGud 上游 master 是唯一权威源；所有独立功能、修复、测试、文档和 CI 分支均通过 MR 进入上游，存在同项 MR 时更新原 MR。
+- 同步 Agent 自行妥善解决冲突，保留双方有效逻辑，验证后非强推更新；有用户授权时按评审要求合并，并读回上游最终 SHA。
+- GitHub 仅由 CI 单向快进镜像上游确切提交，不在 GitHub 开发或合并同步 PR，不反向推送 GitGud。GitGud fork 仅用于贡献分支；不能把仅推 fork 当作贡献完成。
+- 详见 Docs/REPOSITORY_SYNC.md。源码、Release、玩家通道、服务端累计部署和实机验收分别记录；私有累计源码不得直接上传公开上游。
