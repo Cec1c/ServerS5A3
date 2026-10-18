@@ -174,6 +174,16 @@ func ParseMap(id int64, mapPath string, doc *dnfpvf.Document) Map {
 			result.ScreenPosition = appendInts(result.ScreenPosition, section, &result.Diagnostics)
 		case "monster team":
 			result.MonsterTeam = appendInts(result.MonsterTeam, section, &result.Diagnostics)
+		case "monster follow type":
+			for _, token := range values(section) {
+				value := ""
+				if token.Kind == dnfpvf.TokenString || token.Kind == dnfpvf.TokenIdent {
+					value = token.Value
+				}
+				// Preserve unknown slots so a later follow declaration cannot
+				// move to a different monster index.
+				result.MonsterFollowType = append(result.MonsterFollowType, value)
+			}
 		case "pvp practice start area":
 			result.PVPPracticeStartArea = appendInts(result.PVPPracticeStartArea, section, &result.Diagnostics)
 		case "virtual movable area":

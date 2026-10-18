@@ -209,6 +209,7 @@ type Map struct {
 	DungeonStartArea       []int64     `json:"dungeon_start_area,omitempty"`
 	ScreenPosition         []int64     `json:"screen_position,omitempty"`
 	MonsterTeam            []int64     `json:"monster_team,omitempty"`
+	MonsterFollowType      []string    `json:"monster_follow_type,omitempty"`
 	PVPPracticeStartArea   []int64     `json:"pvp_practice_start_area,omitempty"`
 	VirtualMovableArea     []int64     `json:"virtual_movable_area,omitempty"`
 	OpeningBGM             []string    `json:"opening_bgm,omitempty"`
