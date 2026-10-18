@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestServerIgnoresLegacyGMSettingAndDoesNotExportToolEnvironment(t *testing.T) {
+func TestServerRequiresLegacyGMMigrationWithoutRewritingConfiguration(t *testing.T) {
 	data, err := json.Marshal(validTestInstance())
 	if err != nil {
 		t.Fatal(err)
@@ -30,6 +30,14 @@ func TestServerIgnoresLegacyGMSettingAndDoesNotExportToolEnvironment(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := validateInstance(cfg); err == nil || !strings.Contains(err.Error(), "independent DNF90GM") {
+		t.Fatalf("legacy GM setting must require explicit migration: %v", err)
+	}
+	if cfg.Server.LegacyGMListen != "127.0.0.1:28211" {
+		t.Fatal("decoding silently discarded the legacy GM setting")
+	}
+	// A migrated configuration can be generated without owning the external tool.
+	cfg.Server.LegacyGMListen = ""
 	if err := validateInstance(cfg); err != nil {
 		t.Fatal(err)
 	}

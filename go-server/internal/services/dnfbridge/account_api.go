@@ -16,6 +16,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
+	"longheng.io/server/internal/modules/dnf/signupbenefits"
 )
 
 // 远程部署用的账号 HTTP API。
@@ -140,6 +141,7 @@ func (s *Service) startAccountAPI(ctx context.Context) error {
 	mux.HandleFunc("/api/status", api.handleStatus)
 	mux.HandleFunc("/api/account/register", api.handleRegister)
 	mux.HandleFunc("/api/account/login", api.handleLogin)
+	mux.HandleFunc("/api/game/admin", api.handleGameAdmin)
 	// 客户端补丁"云端更新"只读端点（复用同一个 7002，不新开端口）。
 	// 前缀跟 /api/account/* 一致：GET /api/patch/manifest.json 与
 	// GET /api/patch/file?path=<相对路径>；实现见 account_api_patch.go
@@ -225,7 +227,20 @@ func (a *accountAPIServer) ensureSchema(ctx context.Context) error {
 	if _, err := a.db.ExecContext(ctx, statement); err != nil {
 		return fmt.Errorf("create account API table %s: %w", a.table, err)
 	}
-	return a.ensureLoginTokenSchema(ctx)
+	if err := a.ensureLoginTokenSchema(ctx); err != nil {
+		return err
+	}
+	benefits, err := signupbenefits.NewStore(a.db, a.table)
+	if err != nil {
+		return err
+	}
+	if err = benefits.EnsureSchema(ctx); err != nil {
+		return err
+	}
+	if a.service != nil {
+		a.service.signupBenefits = benefits
+	}
+	return nil
 }
 
 // loginTokenTable 保存启动器令牌的表名，跟随账号表名便于多实例隔离。
@@ -365,6 +380,12 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 	if _, err := tx.ExecContext(ctx, update, accountID, rowID); err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
 		return
+	}
+	if a.service.signupBenefits != nil {
+		if err := a.service.signupBenefits.CaptureSignup(ctx, tx, accountID); err != nil {
+			writeAccountAPIError(w, http.StatusInternalServerError, "创建账号福利记录失败")
+			return
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")

@@ -180,6 +180,71 @@ func TestOwnerApplyFinishSettlementConsumesSeekingMaterialsAndReplays(t *testing
 	}
 }
 
+func TestFinishDefinitionSeekingRulesReadsEveryMaterialPairAndIgnoresTrailingNPC(t *testing.T) {
+	definition := Definition{
+		ID: 3763, Path: "n_quest/four_material_seek_meet.qst", Type: "[seek n meet npc]",
+		IntData: []int64{3033, 200, 3034, 200, 3035, 200, 3036, 200, 303},
+	}
+	want := []RewardItemRule{
+		{ItemID: 3033, Count: 200},
+		{ItemID: 3034, Count: 200},
+		{ItemID: 3035, Count: 200},
+		{ItemID: 3036, Count: 200},
+	}
+	if got := finishDefinitionSeekingRules(definition); !reflect.DeepEqual(got, want) {
+		t.Fatalf("seek-and-meet material rules=%+v want=%+v", got, want)
+	}
+}
+
+func TestConsumeMultiMaterialSeekMeetRulesRejectsWithoutPartialConsumption(t *testing.T) {
+	definition := Definition{
+		ID: 3763, Path: "n_quest/four_material_seek_meet.qst", Type: "[seek n meet npc]",
+		IntData: []int64{3033, 200, 3034, 200, 3035, 200, 3036, 200, 303},
+	}
+	rules := finishDefinitionSeekingRules(definition)
+	record := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{
+		"0:10": {ItemID: 3033, Count: 200},
+		"0:11": {ItemID: 3034, Count: 200},
+		"0:12": {ItemID: 3035, Count: 200},
+		"0:13": {ItemID: 3036, Count: 199},
+	}}
+	account := dnfrepo.AccountInventoryRecord{AccountID: "acc", Slots: map[string]dnfrepo.ItemStack{}}
+	short := record.Slots["0:13"]
+	short.Count = 200
+	record.Slots["0:13"] = short
+	for index := range rules {
+		t.Run(fmt.Sprintf("missing-material-%d", index+1), func(t *testing.T) {
+			candidate := dnfrepo.CloneInventory(record)
+			key := fmt.Sprintf("0:%d", 10+index)
+			stack := candidate.Slots[key]
+			stack.Count = 199
+			candidate.Slots[key] = stack
+			before := dnfrepo.CloneInventory(candidate)
+			if _, err := consumeFinishRequiredItems(&candidate, &account, rules); !errors.Is(err, ErrFinishRequiredItemsMissing) {
+				t.Fatalf("missing material error=%v", err)
+			}
+			if !reflect.DeepEqual(candidate, before) {
+				t.Fatalf("missing material partially consumed inventory: got=%+v want=%+v", candidate, before)
+			}
+		})
+	}
+	consumed, err := consumeFinishRequiredItems(&record, &account, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(consumed) != 4 {
+		t.Fatalf("full four-material receipt=%+v", consumed)
+	}
+	for index, itemID := range []int64{3033, 3034, 3035, 3036} {
+		if consumed[index].ItemID != itemID || consumed[index].Delta != 200 || consumed[index].PostCount != 0 {
+			t.Fatalf("consumed[%d]=%+v want item=%d delta=200 post=0", index, consumed[index], itemID)
+		}
+	}
+	if len(record.Slots) != 0 {
+		t.Fatalf("full four-material inventory not emptied: %+v", record.Slots)
+	}
+}
+
 func TestOwnerApplyFinishSettlementConsumesAccountSharedSeekingMaterialsAndReplays(t *testing.T) {
 	ctx := context.Background()
 	repos := finishOwnerSeed(t, ctx)
@@ -550,13 +615,26 @@ func TestOwnerApplyFinishSettlementCompletesTerminalZeroTriggerLinkedSubQuest(t 
 	}); err != nil {
 		t.Fatal(err)
 	}
+	raw := make([]byte, 0x77)
+	binary.LittleEndian.PutUint16(raw[0:2], 40)
+	binary.LittleEndian.PutUint32(raw[2:6], 10164786)
+	binary.LittleEndian.PutUint32(raw[6:10], 1)
+	if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+		CharacterID: "19",
+		Slots:       map[string]dnfrepo.ItemStack{"0:40": {ItemID: 10164786, Count: 1, RawEntry: raw}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	parent := Definition{
 		ID: 3249, Path: "n_quest/alphraira_epic_26.qst", Type: "[quest clear]",
 		LevelMin: 1, LevelMax: 99, Difficulty: "N", RewardType: "[item]", RewardIntData: []int64{0, 0},
 		IntData: []int64{3609, 3610},
 	}
 	completedChild := Definition{ID: 3609, MainQuestID: 3249, Type: "[meet npc]"}
-	terminalChild := Definition{ID: 3610, MainQuestID: 3249, Type: "[seek n meet npc]"}
+	terminalChild := Definition{
+		ID: 3610, MainQuestID: 3249, Type: "[seek n meet npc]",
+		IntData: []int64{10164786, 1, 303},
+	}
 	catalog := &Catalog{
 		ordered: []Definition{parent, completedChild, terminalChild},
 		byID: map[int64]Definition{
@@ -591,12 +669,154 @@ func TestOwnerApplyFinishSettlementCompletesTerminalZeroTriggerLinkedSubQuest(t 
 		childState.Extra["auto_complete_reason"] != "quest_clear_parent_terminal_zero_trigger" {
 		t.Fatalf("terminal child state=%+v", childState)
 	}
+	if len(result.TerminalChildren) != 1 || len(result.TerminalChildren[0].ConsumedItems) != 1 {
+		t.Fatalf("terminal child settlement=%+v", result.TerminalChildren)
+	}
+	consumed := result.TerminalChildren[0].ConsumedItems[0]
+	if consumed.ItemID != 10164786 || consumed.Delta != 1 || consumed.PostCount != 0 {
+		t.Fatalf("terminal child consumed=%+v", consumed)
+	}
+	inventory, found, err := repos.Inventory.Load(ctx, "19")
+	if err != nil || !found {
+		t.Fatalf("load inventory found=%t err=%v", found, err)
+	}
+	if _, exists := inventory.Slots["0:40"]; exists {
+		t.Fatalf("terminal child material remained: %+v", inventory.Slots["0:40"])
+	}
 	persisted, found, err := repos.Quest.Load(ctx, "19")
 	if err != nil || !found {
 		t.Fatalf("load persisted quest found=%t err=%v", found, err)
 	}
 	if state := persisted.States[terminalChild.ID]; state.Status != "completed" || state.Extra["auto_completed_by_parent"] != "3249" {
 		t.Fatalf("persisted terminal child state=%+v", state)
+	}
+}
+
+func TestOwnerApplyFinishSettlementRejectsMissingTerminalMaterialAndRollsBack(t *testing.T) {
+	ctx := context.Background()
+	repos := finishOwnerSeed(t, ctx)
+	if err := repos.Quest.Save(ctx, dnfrepo.QuestRecord{
+		CharacterID: "19",
+		States: map[int64]dnfrepo.QuestState{
+			3249: {Status: "active", ProgressValue: 0},
+			3609: {Status: "completed", ProgressValue: 0},
+			3610: {Status: "active", ProgressValue: 0},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	parent := Definition{
+		ID: 3249, Path: "n_quest/alphraira_epic_26.qst", Type: "[quest clear]",
+		LevelMin: 1, LevelMax: 99, Difficulty: "N", RewardType: "[item]", RewardIntData: []int64{0, 0},
+		IntData: []int64{3609, 3610},
+	}
+	completedChild := Definition{ID: 3609, MainQuestID: 3249, Type: "[meet npc]"}
+	terminalChild := Definition{
+		ID: 3610, MainQuestID: 3249, Type: "[seek n meet npc]",
+		IntData: []int64{10164786, 1, 303},
+	}
+	catalog := &Catalog{
+		ordered: []Definition{parent, completedChild, terminalChild},
+		byID: map[int64]Definition{
+			parent.ID:         parent,
+			completedChild.ID: completedChild,
+			terminalChild.ID:  terminalChild,
+		},
+	}
+	owner, err := NewOwner(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = owner.ApplyFinishSettlement(ctx, catalog, FinishCommitInput{
+		AccountID: "acc", CharacterID: "19", QuestID: parent.ID, Multiplier: 1,
+		CommittedAt: time.Date(2026, 10, 18, 8, 1, 0, 0, time.UTC),
+		Progression: finishOwnerProgression(t),
+	})
+	if !errors.Is(err, ErrFinishRequiredItemsMissing) {
+		t.Fatalf("missing terminal material error=%v", err)
+	}
+	quests, found, err := repos.Quest.Load(ctx, "19")
+	if err != nil || !found {
+		t.Fatalf("load quest found=%t err=%v", found, err)
+	}
+	if parentState := quests.States[3249]; parentState.Status != "active" || parentState.ProgressValue != 0 || parentState.Extra[finishSettlementReceiptKey] != "" {
+		t.Fatalf("failed parent settlement changed parent=%+v", parentState)
+	}
+	if childState := quests.States[3610]; childState.Status != "active" || childState.ProgressValue != 0 ||
+		childState.Extra["reward_state"] != "" || childState.Extra[finishSettlementReceiptKey] != "" {
+		t.Fatalf("failed parent settlement changed material child=%+v", childState)
+	}
+	inventory, found, err := repos.Inventory.Load(ctx, "19")
+	if err != nil || !found || len(inventory.Slots) != 0 {
+		t.Fatalf("failed parent settlement changed inventory found=%t err=%v inventory=%+v", found, err, inventory)
+	}
+}
+
+func TestOwnerApplyFinishSettlementRollsBackTerminalMaterialOnLateFailure(t *testing.T) {
+	ctx := context.Background()
+	repos := finishOwnerSeed(t, ctx)
+	raw := make([]byte, 0x77)
+	binary.LittleEndian.PutUint16(raw[0:2], 40)
+	binary.LittleEndian.PutUint32(raw[2:6], 10164786)
+	binary.LittleEndian.PutUint32(raw[6:10], 1)
+	if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+		CharacterID: "19",
+		Slots:       map[string]dnfrepo.ItemStack{"0:40": {ItemID: 10164786, Count: 1, RawEntry: raw}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Quest.Save(ctx, dnfrepo.QuestRecord{
+		CharacterID: "19",
+		States: map[int64]dnfrepo.QuestState{
+			3249: {Status: "active", ProgressValue: 0},
+			3609: {Status: "completed", ProgressValue: 0},
+			3610: {Status: "active", ProgressValue: 0},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	parent := Definition{
+		ID: 3249, Path: "n_quest/alphraira_epic_26.qst", Type: "[quest clear]",
+		LevelMin: 1, LevelMax: 99, Difficulty: "N", RewardType: "[item]",
+		RewardItems: []RewardItemRule{{ItemID: 10403, Count: 1}},
+		IntData:     []int64{3609, 3610},
+	}
+	completedChild := Definition{ID: 3609, MainQuestID: 3249, Type: "[meet npc]"}
+	terminalChild := Definition{
+		ID: 3610, MainQuestID: 3249, Type: "[seek n meet npc]",
+		IntData: []int64{10164786, 1, 303},
+	}
+	catalog := &Catalog{
+		ordered: []Definition{parent, completedChild, terminalChild},
+		byID: map[int64]Definition{
+			parent.ID:         parent,
+			completedChild.ID: completedChild,
+			terminalChild.ID:  terminalChild,
+		},
+	}
+	owner, err := NewOwner(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("parent reward allocation rejected")
+	_, err = owner.ApplyFinishSettlement(ctx, catalog, FinishCommitInput{
+		AccountID: "acc", CharacterID: "19", QuestID: parent.ID, Multiplier: 1,
+		CommittedAt: time.Date(2026, 10, 18, 8, 2, 0, 0, time.UTC),
+		Progression: finishOwnerProgression(t), AllocateItem: finishOwnerAllocator(wantErr),
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("late failure error=%v want=%v", err, wantErr)
+	}
+	inventory, _, _ := repos.Inventory.Load(ctx, "19")
+	if got := inventory.Slots["0:40"].Count; got != 1 {
+		t.Fatalf("rollback lost terminal material: count=%d inventory=%+v", got, inventory.Slots)
+	}
+	quests, _, _ := repos.Quest.Load(ctx, "19")
+	if parentState := quests.States[3249]; parentState.Status != "active" || parentState.Extra[finishSettlementReceiptKey] != "" {
+		t.Fatalf("rollback changed parent=%+v", parentState)
+	}
+	if childState := quests.States[3610]; childState.Status != "active" || childState.Extra["reward_state"] != "" {
+		t.Fatalf("rollback changed material child=%+v", childState)
 	}
 }
 

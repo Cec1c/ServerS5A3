@@ -23,7 +23,7 @@ func linkedObjectiveBridgeCatalog(t *testing.T) *dnfquest.Catalog {
 		"n_quest/seekmeet.qst": "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[seek n meet npc]`\n[main quest]\n3249\n[int data]\n3037 1 309\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/parent2.qst":  "[grade]\n`[epic]`\n[type]\n`[quest clear]`\n[int data]\n3425 3426\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/hunt.qst":     "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[hunt enemy]`\n[main quest]\n3347\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
-		"n_quest/seeking.qst":  "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[seeking]`\n[main quest]\n3347\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
+		"n_quest/seeking.qst":  "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[meet npc]`\n[main quest]\n3347\n[int data]\n303\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 	}
 	index, err := dnfpvf.Build(context.Background(), source, dnfpvf.BuildOptions{Lists: []string{dnfquest.DefaultList}})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestCurrentLinkedObjectiveFinishArchivesWithoutExperienceAndSendsMinimalSna
 	}
 }
 
-func TestCurrentParentScalarArchivesTownLinkedChildAndSendsMinimalSnapshots(t *testing.T) {
+func TestCurrentParentScalarReflectsTerminalMaterialChildWithoutClaimingIt(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
 	ctx := context.Background()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: defaultAccountPrefix + "1", Level: 60}); err != nil {
@@ -109,7 +109,117 @@ func TestCurrentParentScalarArchivesTownLinkedChildAndSendsMinimalSnapshots(t *t
 		t.Fatalf("op33=%+v body=%x", packets[0].Header, packets[0].Body)
 	}
 	quests, _, _ := repositories.Quest.Load(ctx, "19")
-	if quests.States[3610].Status != "completed" || quests.States[3249].ProgressValue != 0 {
+	if quests.States[3610].Status != "active" || quests.States[3610].ProgressValue != 0 ||
+		quests.States[3610].Extra["reward_state"] != "" || quests.States[3249].ProgressValue != 0 {
 		t.Fatalf("quests=%+v", quests.States)
+	}
+}
+
+func TestCurrentParentScalarReconcilesUnresolvedChildWithoutPublishingZero(t *testing.T) {
+	tests := []struct {
+		name           string
+		parentProgress int64
+	}{
+		{name: "already-correct", parentProgress: 1},
+		{name: "legacy-parent-zero", parentProgress: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repositories := dnfrepomemory.NewMemoryGroup()
+			ctx := context.Background()
+			if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: defaultAccountPrefix + "1", Level: 60}); err != nil {
+				t.Fatal(err)
+			}
+			if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "19", States: map[int64]dnfrepo.QuestState{
+				3249: {Status: "active", ProgressValue: test.parentProgress},
+				3609: {Status: "completed", ProgressValue: 0},
+				3610: {Status: "active", ProgressValue: 1},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			connection := &bufferConn{}
+			service := &Service{
+				options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
+				repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+				questCatalog:       linkedObjectiveBridgeCatalog(t),
+			}
+			session := &gameSession{conn: connection, selectedCharacterID: 19, channel: channelcatalog.Channel{ID: 19}}
+			body := []byte{0x21, 0x00, 0xb1, 0x0c, 0x00, 0x00}
+			for attempt := 0; attempt < 2; attempt++ {
+				connection.write.Reset()
+				if err := service.handleCurrentSetQuestTrigger(session, body); err != nil {
+					t.Fatalf("attempt %d: %v", attempt+1, err)
+				}
+				if attempt == 1 {
+					if connection.write.Len() != 0 {
+						t.Fatalf("unchanged parent replay produced packets: %x", connection.write.Bytes())
+					}
+					continue
+				}
+				packets := splitAllFinishBridgePackets(t, connection.write.Bytes())
+				if got := finishBridgePacketIDs(packets); !reflect.DeepEqual(got, []string{"1/33", "0/574", "0/356"}) {
+					t.Fatalf("attempt %d packet order=%v", attempt+1, got)
+				}
+				quests, _, err := repositories.Quest.Load(ctx, "19")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if quests.States[3249].ProgressValue != 1 ||
+					quests.States[3610].Status != "active" ||
+					quests.States[3610].ProgressValue != 1 {
+					t.Fatalf("attempt %d state=%+v", attempt+1, quests.States)
+				}
+			}
+			quests, _, _ := repositories.Quest.Load(ctx, "19")
+			child := quests.States[3610]
+			child.ProgressValue = 0
+			quests.States[3610] = child
+			if err := repositories.Quest.Save(ctx, quests); err != nil {
+				t.Fatal(err)
+			}
+			connection.write.Reset()
+			if err := service.handleCurrentSetQuestTrigger(session, body); err != nil {
+				t.Fatal(err)
+			}
+			if connection.write.Len() == 0 {
+				t.Fatal("child completion was suppressed with stale parent replay")
+			}
+			quests, _, _ = repositories.Quest.Load(ctx, "19")
+			if quests.States[3249].ProgressValue != 0 {
+				t.Fatal("parent did not advance after child completed")
+			}
+		})
+	}
+}
+
+func TestCurrentParentScalarCatalogUnavailableFailsClosed(t *testing.T) {
+	repositories := dnfrepomemory.NewMemoryGroup()
+	ctx := context.Background()
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: defaultAccountPrefix + "1"}); err != nil {
+		t.Fatal(err)
+	}
+	record := dnfrepo.QuestRecord{CharacterID: "19", States: map[int64]dnfrepo.QuestState{
+		3249: {Status: "active", ProgressValue: 1},
+		3609: {Status: "completed", ProgressValue: 0},
+		3610: {Status: "active", ProgressValue: 1, Extra: map[string]string{"main_quest_id": "3249"}},
+	}}
+	if err := repositories.Quest.Save(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+	}
+	session := &gameSession{conn: &bufferConn{}, selectedCharacterID: 19, channel: channelcatalog.Channel{ID: 19}}
+	body := []byte{0x21, 0x00, 0xb1, 0x0c, 0x00, 0x00}
+	if err := service.handleCurrentSetQuestTrigger(session, body); err != nil {
+		t.Fatal(err)
+	}
+	stored, found, err := repositories.Quest.Load(ctx, "19")
+	if err != nil || !found {
+		t.Fatalf("load stored found=%t err=%v", found, err)
+	}
+	if !reflect.DeepEqual(stored, record) {
+		t.Fatalf("catalog unavailable fallback changed quest: got=%+v want=%+v", stored, record)
 	}
 }

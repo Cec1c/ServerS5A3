@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"encoding/binary"
-	"strings"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
@@ -200,9 +199,13 @@ func TestTournamentRoomMonstersProjectAllRounds(t *testing.T) {
 	if !ok {
 		t.Fatalf("fixture runtime rejected: %s", reason)
 	}
-	monsters, err := tournamentRoomMonsters(definition, runtime)
+	roomActors, err := tournamentRoomActors(definition, runtime)
 	if err != nil {
 		t.Fatal(err)
+	}
+	monsters := roomActors.Monsters
+	if len(roomActors.AICharacters) != 0 {
+		t.Fatalf("ordinary tournament projection unexpectedly contains APCs: %+v", roomActors.AICharacters)
 	}
 	if len(monsters) != tournamentRoundCount*definition.PartyLimit {
 		t.Fatalf("projected monsters=%d want=%d (all rounds, not just the current one)",
@@ -232,9 +235,9 @@ func TestTournamentRoomMonstersProjectAllRounds(t *testing.T) {
 	}
 }
 
-// `[apc]` 分支的第 4 轮 actorType=8 在 `MonsterSpawn` 上没有等价表达 ⇒ 必须硬失败，
-// 不能静默降级成普通怪（本批不实现 `[apc]`，见交付报告"未做"）。
-func TestTournamentRoomMonstersRejectUnexpressibleApcBoss(t *testing.T) {
+// `[apc]` 分支必须保留为真实 hostile AICharacter，尤其第 4 轮 actorType=8
+// 不能被降级成普通怪，也不能丢失 blocking。
+func TestTournamentRoomActorsProjectBlackDragonAPCBoss(t *testing.T) {
 	definition := tournamentFlowFixtureDefinition(12000)
 	definition.StartAreas = []worldmap.TournamentStartAreaInfo{
 		{PartyCount: 1, X: 360, Y: 270, Direction: 1},
@@ -248,9 +251,68 @@ func TestTournamentRoomMonstersRejectUnexpressibleApcBoss(t *testing.T) {
 	if !ok {
 		t.Fatalf("fixture runtime rejected: %s", reason)
 	}
-	if _, err := tournamentRoomMonsters(definition, runtime); err == nil ||
-		!strings.Contains(err.Error(), "unsupported actor type") {
-		t.Fatalf("apc final round error=%v want an explicit unsupported-actor-type hard failure", err)
+	roomActors, err := tournamentRoomActors(definition, runtime)
+	if err != nil {
+		t.Fatalf("project APC tournament: %v", err)
+	}
+	if len(roomActors.Monsters) != 0 || len(roomActors.AICharacters) != tournamentRoundCount*definition.PartyLimit {
+		t.Fatalf("APC projection monsters=%d AI=%d want=(0,%d)",
+			len(roomActors.Monsters), len(roomActors.AICharacters),
+			tournamentRoundCount*definition.PartyLimit)
+	}
+	for index, actor := range roomActors.AICharacters {
+		wantType := byte(5)
+		if index == len(roomActors.AICharacters)-1 {
+			wantType = 8
+		}
+		if actor.Faction != "[monster]" || !actor.Blocking ||
+			actor.Code != runtime.snapshot().PathActors[index].Code ||
+			actor.Level != int64(runtime.snapshot().PathActors[index].Level) {
+			t.Fatalf("APC actor %d=%+v", index, actor)
+		}
+		wantAIType := "[normal]"
+		if wantType == 8 {
+			wantAIType = "[boss]"
+		}
+		if actor.AIType != wantAIType {
+			t.Fatalf("APC actor %d AIType=%q want=%q", index, actor.AIType, wantAIType)
+		}
+	}
+}
+
+func TestTournamentRoomActorsPreserveEveryNativeAPCType(t *testing.T) {
+	definition := tournamentDefinition{
+		PartyLimit: 1,
+		StartAreas: []worldmap.TournamentStartAreaInfo{
+			{PartyCount: 1, X: 360, Y: 270, Direction: 1},
+			{PartyCount: 1, X: 760, Y: 270, Direction: 2},
+		},
+	}
+	runtime := &tournamentDungeonRuntime{
+		Definition: &definition,
+		PathActors: []tournamentPathActor{
+			{Code: 101, Level: 71, Type: 5},
+			{Code: 102, Level: 72, Type: 6},
+			{Code: 103, Level: 73, Type: 7},
+			{Code: 104, Level: 74, Type: 8},
+		},
+	}
+	roomActors, err := tournamentRoomActors(definition, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roomActors.Monsters) != 0 || len(roomActors.AICharacters) != 4 {
+		t.Fatalf("projection monsters=%d AI=%d want=(0,4)",
+			len(roomActors.Monsters), len(roomActors.AICharacters))
+	}
+	wantAITypes := []string{"[normal]", "[champion]", "[super champion]", "[boss]"}
+	for index, actor := range roomActors.AICharacters {
+		if actor.Code != int64(101+index) || actor.Level != int64(71+index) ||
+			actor.Position != (worldmap.Point{X: 760, Y: 270}) ||
+			actor.Direction != 2 || actor.Faction != "[monster]" ||
+			actor.AIType != wantAITypes[index] || !actor.Blocking {
+			t.Fatalf("native APC type %d projection=%+v", index+5, actor)
+		}
 	}
 }
 

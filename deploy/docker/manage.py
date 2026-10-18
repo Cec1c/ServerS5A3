@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import socket
@@ -58,6 +59,16 @@ def compose(*args):
     run("docker", "compose", "-p", PROJECT, "-f", RUNTIME / "compose.json", *args)
 
 
+def management_token(c):
+    # Validate before preparation touches assets, instance.json or Compose.
+    if c.get("gm_enabled", False) is not False:
+        raise ValueError("GM moved to https://github.com/Cec1c/DNF90GM; migrate it separately before regenerating this profile")
+    token = c.get("player_admin_secret", "")
+    if not isinstance(token, str) or (token and not re.fullmatch(r"[0-9a-f]{32,128}", token)):
+        raise ValueError("player_admin_secret must be a generated hex secret of at least 32 characters")
+    return token
+
+
 def check_network(config):
     subnet = ipaddress.ip_network(config["subnet"])
     private_ipv4(str(subnet.network_address))
@@ -97,6 +108,7 @@ def prepare(args):
             "body_codec": "plaintext", "client_body_codec": "plaintext",
             "default_group_login_only": True,
         }
+    management_token(config)
     private_ipv4(config["host_ip"])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((config["host_ip"], 0))
@@ -145,6 +157,7 @@ def prepare(args):
 
 
 def generate(c, catalog):
+    game_token = management_token(c)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
         directory.mkdir(parents=True, exist_ok=True)
@@ -226,6 +239,8 @@ create_databases = false
         "GOMEMLIMIT": c.get("go_memory_limit", "3500MiB"),
         "TZ": c.get("timezone", "Asia/Shanghai"),
     }
+    if game_token:
+        env["DNFBRIDGE_PLAYER_ADMIN_SECRET"] = game_token
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}
