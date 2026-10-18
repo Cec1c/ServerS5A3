@@ -1,3 +1,11 @@
+## 2026-10-19 — v139 主场景聊天 Enter 去重修复
+
+- 基于精确已发布v138，主场景普通Enter已识别却聊天窗瞬开即关，Shift+Enter保持显示；候选仅对主场景调用者跳过通用按键发布器的DI Enter重复回退，保留原生文字Return路径、其它调用者和其它按键，不写全局输入状态。
+- EXE输出SHA256 `5499a71294e388d3efc6690a9e6ddaf31673d74aff5befd3de3c8fa6c9bc8b92`，111812608字节不变；复用RX节24字节helper，保留448字节接收适配器，VirtualSize448→536/4096。17,432次真实发布器/按键谓词矩阵、ABI、精确范围、ImageHlp checksum与重复应用保护通过，UI叶子仍为fixture。
+- 用户已验收普通Enter、文字/装备链接发送、Shift+Enter与Esc；同一EXE已发布GitGud Releases并核验公开下载。其它界面/输入法未全量实机测试；未修改服务端、PVF或配套资源。详Docs/CLIENT_CHAT_ENTER_V139_20261019.md。
+
+
+
 ## 2026-10-18 — 山之泪 APC323 任务物品来源
 
 - 任务2949的敌人类别2按权威`AICharacter.Code`接通APC323死亡掉落10164883；普通怪继续只匹配类别1，类别3不在本项接入。
