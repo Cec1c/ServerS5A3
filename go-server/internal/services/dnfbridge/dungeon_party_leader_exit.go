@@ -235,6 +235,7 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 		removal := buildCurrentSceneOp9ActorRemovalBodyInContext(
 			leaderObjectKey,
 			currentSceneObjectContext,
+			s.currentSceneActorRoute(),
 		)
 		if err := s.sendGameUpperRawClass(
 			peer.Session,

@@ -1862,6 +1862,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		body := buildCurrentSceneOp9ActorRemovalBodyInContext(
 			objectKey,
 			receiverOwnerChannel,
+			s.currentSceneActorRoute(),
 		)
 		s.logPacketEvent("game-current-party-frame-op9-remove-send",
 			"conn_id", receiver.connID,
@@ -1898,6 +1899,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		projections,
 		leaderSlot,
 		s.options.currentClientVersion == "official-24.9",
+		s.currentSceneActorRoute(),
 	)
 	// The current party transport establishes the realtime roster and P2P
 	// endpoints before op9 binds the scene-side member table. Sending op9 first

@@ -15,7 +15,11 @@ func writeCurrentSceneObjectEntryTailWithCreature(writer *packetWriter, characte
 	writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer, character, hasCharacter, creature, "")
 }
 
-func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packetWriter, character dnfrepo.CharacterRecord, hasCharacter bool, creature currentEquippedCreatureSnapshot, adventureName string) {
+func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packetWriter, character dnfrepo.CharacterRecord, hasCharacter bool, creature currentEquippedCreatureSnapshot, adventureName string, guild ...currentSceneGuildProjection) {
+	var organization currentSceneGuildProjection
+	if len(guild) != 0 {
+		organization = guild[0]
+	}
 	job := byte(0)
 	grow := byte(0)
 	level := byte(0)
@@ -64,9 +68,9 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	nameTagItemID, nameTagExpireTime := currentSceneObjectNameTagState(character, hasCharacter)
 	writer.writeUint32(nameTagItemID)
 	writer.writeUint32(nameTagExpireTime)
-	writer.writeByte(0)   // sub_2003A20
-	writer.writeUint32(0) // sub_2003AD0
-	writer.writeByte(0)   // v116
+	writer.writeByte(0)                 // sub_2003A20
+	writer.writeUint32(organization.id) // native actor guild identifier
+	writer.writeByte(0)                 // v116
 	// Current EXE sub_20028B0 reads the equipped creature template ID here.
 	// A live trace proved that UINT32_MAX resolves to runtime type 8 and leaves
 	// the empty green overhead marker.  The C# no-equipped-creature path writes
@@ -87,17 +91,21 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	// starts directly with a GBK DSTR and then chaos point. An extra byte
 	// before the DSTR makes its length exceed the native 64-byte buffer;
 	// the reader consumes only the length, shifting disguise/EXP/visibility.
-	adventureNameBytes := rosterNameBytes(adventureName)
+	organizationName := adventureName
+	if organization.id != 0 {
+		organizationName = organization.name
+	}
+	adventureNameBytes := rosterNameBytes(organizationName)
 	organizationLevel := byte(0)
 	if len(adventureNameBytes) != 0 {
 		organizationLevel = 1
 	}
-	writer.writeByte(organizationLevel) // sub_2003C90
-	writer.writeUint32(0)               // v120
+	writer.writeByte(organizationLevel)   // sub_2003C90
+	writer.writeUint32(organization.mark) // native guild mark
 	writer.writeRawDstr(adventureNameBytes)
 	writer.writeUint32(0) // sub_2003D40 chaos point
 	// Latest v56 22BF580 reads DSTR, u32, then u16 (37E8350).
-	// No organization identifier is assigned by this display-only projection.
+	// Keep the matched client's trailing u16 even when projecting a guild.
 	// Omitting the u16 shifts 22C1650 onto profession/EXP and locks the menu
 	// as disguised; test1 type=3/EXP=36 reproduced this in the live cache.
 	writer.writeUint16(0)
