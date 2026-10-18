@@ -222,6 +222,8 @@ type gameSession struct {
 	// gameOptionNoticeSent guards the once-per-entry class0/0x00AD + 0x01C7
 	// account settings replay (game_option_settings.go).
 	gameOptionNoticeSent                 bool
+	selectedHotkeyNoticeCharacterID      uint16
+	selectedHotkeyNoticeGeneration       uint64
 	characterOptionNoticeSent            bool // per selected entry, independent of account replay
 	initialTownLocationNotificationsSent bool
 	initialTownQuestSnapshotsSent        bool
