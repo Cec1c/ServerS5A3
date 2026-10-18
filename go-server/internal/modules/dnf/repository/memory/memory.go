@@ -41,7 +41,7 @@ func NewMemoryGroup() repository.Group {
 		CharacterTrade:       &memoryCharacterTradeUnitOfWork{sharedMu: aggregateTxMu, character: characters, inventory: inventory, accountInventory: accountInventory},
 		CharacterPets:        &memoryCharacterPetUnitOfWork{sharedMu: aggregateTxMu, inventory: inventory, equipment: equipment, pets: pets},
 		AccountItems:         &memoryAccountCharacterItemUnitOfWork{sharedMu: aggregateTxMu, accountInventory: accountInventory, inventory: inventory},
-		CharacterAssets:      &memoryCharacterAssetUnitOfWork{sharedMu: aggregateTxMu, character: characters, inventory: inventory, equipment: equipment},
+		CharacterAssets:      &memoryCharacterAssetUnitOfWork{sharedMu: aggregateTxMu, character: characters, inventory: inventory, equipment: equipment, quests: quests},
 		MailboxAssets:        &memoryMailboxAssetUnitOfWork{sharedMu: aggregateTxMu, accountInventory: accountInventory, account: accounts, character: characters, inventory: inventory, mailbox: mailboxes},
 		AccountAssets:        &memoryAccountCharacterAssetUnitOfWork{sharedMu: aggregateTxMu, account: accounts, accountInventory: accountInventory, character: characters, inventory: inventory, equipment: equipment, mailbox: mailboxes},
 		RentalAssets:         &memoryRentalAssetUnitOfWork{sharedMu: aggregateTxMu, account: accounts, character: characters, inventory: inventory, equipment: equipment},

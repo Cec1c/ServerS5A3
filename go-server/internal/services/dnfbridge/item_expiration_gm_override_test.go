@@ -175,17 +175,20 @@ func p7bAssertSameExpirationOutcome(t *testing.T, marked, unmarked dnfrepo.ItemS
 // 1. 开关：与写入端同一口径、同一个环境变量名
 // ---------------------------------------------------------------------------
 
-func TestGMExpirationOverrideGateAcceptsOnlyExplicitOn(t *testing.T) {
-	for _, value := range []string{"", " ", "off", "true", "1", "yes", "0", "false", "enforce"} {
-		t.Setenv(currentGMExpirationOverrideEnv, value)
-		if currentGMExpirationOverrideEnabled() {
-			t.Fatalf("%q must not enable the server expiration override", value)
-		}
-	}
-	for _, value := range []string{"on", "ON", " on ", "On", "oN"} {
-		t.Setenv(currentGMExpirationOverrideEnv, value)
-		if !currentGMExpirationOverrideEnabled() {
-			t.Fatalf("%q must enable the server expiration override", value)
+// Consumer contract: only explicit on (case/whitespace insensitive) enables
+// imported expiration metadata. Writer behavior is tested in Cec1c/DNF90GM.
+func TestGMExpirationOverrideGateContract(t *testing.T) {
+	for _, tc := range []struct {
+		value   string
+		enabled bool
+	}{
+		{"", false}, {" ", false}, {"on", true}, {"ON", true}, {" on ", true},
+		{"On", true}, {"oN", true}, {"off", false}, {"true", false}, {"1", false},
+		{"yes", false}, {"0", false}, {"false", false}, {"enforce", false},
+	} {
+		t.Setenv(currentGMExpirationOverrideEnv, tc.value)
+		if got := currentGMExpirationOverrideEnabled(); got != tc.enabled {
+			t.Fatalf("gate(%q)=%t, want %t", tc.value, got, tc.enabled)
 		}
 	}
 }
@@ -193,15 +196,13 @@ func TestGMExpirationOverrideGateAcceptsOnlyExplicitOn(t *testing.T) {
 // ---------------------------------------------------------------------------
 // 2. 写入点 ↔ 消费点：同一个键、同一层
 // ---------------------------------------------------------------------------
-// TestGMExpirationOverrideMarkerContractIsServerOwned 守住**服务器侧**的标记契约：
-// 消费端读的来源值/开关名必须逐字稳定，并且邮件附件 Extra 必须原样落到背包堆栈 Extra。
-// 写入端（GM 工具）在本地独立维护，其常量由工具自己的测试守。
-func TestGMExpirationOverrideMarkerContractIsServerOwned(t *testing.T) {
-	if currentGMExpirationOverrideSource != "gm_override" {
-		t.Fatalf("marker source=%q, want gm_override", currentGMExpirationOverrideSource)
-	}
-	if currentGMExpirationOverrideEnv != "DNFBRIDGE_GM_MAIL_OPTIONS" {
-		t.Fatalf("marker env=%q, want DNFBRIDGE_GM_MAIL_OPTIONS", currentGMExpirationOverrideEnv)
+
+// The game retains the persisted mail metadata contract after the sender
+// implementation moves to its own repository. Native projection regressions
+// below exercise the complete consumer path without importing the GM binary.
+func TestGMExpirationOverridePersistedMailContract(t *testing.T) {
+	if currentGMExpirationOverrideSource != "gm_override" || currentGMExpirationOverrideEnv != "DNFBRIDGE_GM_MAIL_OPTIONS" {
+		t.Fatal("persisted GM mail contract changed")
 	}
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
