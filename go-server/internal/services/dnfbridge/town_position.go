@@ -382,6 +382,7 @@ func setCurrentTownPositionSceneLocked(session *gameSession, characterID uint16,
 		return
 	}
 	clearCurrentTownSelectorOriginLocked(session)
+	advanceImageCommunicationSceneLocked(session)
 	session.townPositionSnapshot = currentTownPositionSnapshot{
 		CharacterID: characterID,
 		TownID:      townID,
