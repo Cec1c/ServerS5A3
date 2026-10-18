@@ -313,6 +313,25 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 					"msg_id", currentSceneTransitionMsgID,
 					"tutorial_completed", false,
 					"reason", "tutorial_pending_first_scene_is_dungeon_not_town")
+				// Every tutorial character must select its own keyboard bank.
+				// A fresh normal role can follow Creator on the same connection.
+				if _, ok := characterJobByte(selectedCharacter); ok {
+					var optionErr error
+					if !session.gameOptionNoticeSent {
+						optionErr = s.sendAccountGameOptionNotices(session, "select_character_after_ack_tutorial_before_op15")
+						if optionErr == nil {
+							session.gameOptionNoticeSent = true
+						}
+					} else {
+						optionErr = s.sendSelectedCharacterHotkeyNotice(session, "select_character_after_ack_tutorial_before_op15")
+					}
+					if optionErr != nil {
+						s.logWarn("dnfbridge account game option replay deferred",
+							"conn_id", session.connID,
+							"char_id", charID,
+							"error", optionErr)
+					}
+				}
 				if err := s.sendEnterSelectDungeonState(session, "select_character_after_ack_15", false, false); err != nil {
 					return err
 				}
@@ -335,6 +354,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 				}
 			}
 		}
+	}
+	if err := s.sendCurrentAccountWallet(session, true); err != nil {
+		s.logGameEvent(session, "选角账号钱包显示刷新暂缓", "error", err)
 	}
 	if session.channelReconnect {
 		return s.sendCurrentChannelReconnectTownEntry(session)

@@ -362,6 +362,20 @@ type memoryCharacterAssetUnitOfWork struct {
 	character repository.CharacterRepository
 	inventory repository.InventoryRepository
 	equipment repository.EquipmentRepository
+	quests    repository.QuestReader
+}
+
+func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssetsAndQuest(ctx context.Context, characterID string, apply func(repository.CharacterRepository, repository.QuestReader) error) error {
+	if u == nil || u.quests == nil || apply == nil {
+		return repository.ErrCharacterAssetTransactionUnavailable
+	}
+	return u.WithinCharacterAssets(ctx, characterID, func(c repository.CharacterRepository, _ repository.InventoryRepository, _ repository.EquipmentRepository) error {
+		q, found, err := u.quests.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		return apply(c, &memoryQuestTransaction{characterID: strings.TrimSpace(characterID), record: repository.CloneQuest(q), exists: found})
+	})
 }
 
 type memoryRentalAssetUnitOfWork struct {

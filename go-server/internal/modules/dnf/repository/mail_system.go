@@ -20,7 +20,10 @@ type SystemMailDelivery struct {
 	Title                string
 	Body                 string
 	Source               string
+	RecipientName        string
+	CompletionKey        string
 	Attachments          []MailAttachment
+	Gold                 int64
 	CreatedAt            time.Time
 }
 
@@ -29,7 +32,7 @@ type SystemMailDelivery struct {
 // relevant asset owner; this helper owns no transaction itself.
 func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery SystemMailDelivery) (string, error) {
 	recipientID := strings.TrimSpace(delivery.RecipientCharacterID)
-	if repo == nil || recipientID == "" || strings.TrimSpace(delivery.Source) == "" || len(delivery.Attachments) == 0 {
+	if repo == nil || recipientID == "" || strings.TrimSpace(delivery.Source) == "" || (len(delivery.Attachments) == 0 && delivery.Gold == 0) || delivery.Gold < 0 || delivery.Gold > math.MaxInt32 {
 		return "", ErrSystemMailInvalid
 	}
 	attachments := cloneMailAttachments(delivery.Attachments)
@@ -62,9 +65,11 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 		SenderCharacterID:    "0",
 		SenderName:           "系统",
 		RecipientCharacterID: recipientID,
+		RecipientName:        strings.TrimSpace(delivery.RecipientName),
 		Title:                strings.TrimSpace(delivery.Title),
 		Body:                 strings.TrimSpace(delivery.Body),
 		Attachments:          attachments,
+		Gold:                 delivery.Gold,
 		CreatedAt:            now,
 		// A system overflow delivery must remain claimable until the player
 		// makes room. A zero expiry is the repository's durable non-expiring
@@ -74,6 +79,11 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 			"system_mail": "true",
 			"unlimited":   "true",
 		},
+	}
+	if delivery.CompletionKey != "" {
+		mail := record.Mails[mailID]
+		mail.Metadata["completion_key"] = delivery.CompletionKey
+		record.Mails[mailID] = mail
 	}
 	record.UpdatedAt = now
 	if err := SaveMailboxFields(ctx, repo, record, MailboxFieldMails); err != nil {

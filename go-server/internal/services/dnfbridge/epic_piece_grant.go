@@ -74,19 +74,9 @@ import (
 //	C. 存量清扫（登录期，本文件）。它同时是下面未接路径的**兜底**：任何还没接上的
 //	   路径把碎片写进了背包，下一次选角登录都会把它并入账本并从背包移除。
 //
-// 仍未直接接账本、目前只靠 C 兜底的路径（本批未做）：
-//
-//   - booster 礼盒选择产出（`booster_projection.go grantCurrentBoosterReward`）。
-//     真档里确实有两个礼盒能产出碎片：`stackable/10159001/10159817.stk` 与
-//     `stackable/10164001/10164880.stk` 的 `[booster select category]` 段里都列了
-//     `10300781 30/50 10300782 30/50 10300783 30/50`。它的发放是"在 AccountAssets
-//     事务里直接改 InventoryRecord"的纯内存函数，改道要动它的返回值链与 ACK 后的
-//     包序，属于另一条改动域，本批刻意不碰；
-//   - 点券礼包 `cera_package*`、魔盒 `magic_box_*` 的同类产出（未取证到碎片）。
-//
-// 若要继续接，步骤只有三步：在写背包之前问 `epicPieceCreditTarget(service, itemID)`，
-// 命中就用 `alignedEpicPieceCreditorForCommand` 的闭包入账，并在 ACK 之后补
-// `sendCurrentEpicPieceCredits`。多件附件/多行产出请按碎片 id 升序聚合，保证字节稳定。
+// 2026-10-17：booster随机/自选礼包产出也直接进入账号账本，使用扩展的
+// AccountAssets事务与开盒消耗、金币及其它奖励一起提交，ACK后发绝对数量。
+// 图鉴制作已有独立事务及全量刷新路径，本轮保持。
 const (
 	// epicPieceGrantEnv 是本文件两条新路径的开关。
 	epicPieceGrantEnv      = "DNFBRIDGE_EPIC_PIECE_GRANT"

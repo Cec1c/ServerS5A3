@@ -123,9 +123,8 @@ func TestRealScriptPVFCompletedFarewellMomentHidesItsSubQuestsAndKeepsTheSuccess
 
 // TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable replays the
 // live defect end to end with the real catalog: the Lv1~90 coupon completes
-// [epic] quests up to Lv90 - including the [quest clear] parent 3971 - and
-// closes their linked [sub] children. The resulting op21 list must still be
-// fully acceptable; unrelated hidden-parent rows remain filtered.
+// [epic] quests through the coupon cutoff, including parent 3971 and its linked
+// [sub] children. Unrelated hidden quest chains remain outside the sweep.
 func TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable(t *testing.T) {
 	catalog, _ := loadRealScriptPVFCatalogForClientList(t)
 	eligibility := farewellMomentEligibility()
@@ -163,17 +162,49 @@ func TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable(t *testin
 	if len(list.IDs) == 0 {
 		t.Fatal("the swept record must still have an acceptable-quest list")
 	}
-	// 12075..12078 belong to hidden parent 12074, outside the epic sweep.
-	// Pin the exact surviving exclusions rather than demanding that the coupon
-	// make every unrelated catalog row acceptable.
-	assertHiddenParentOutsideCouponSweep(t, catalog, record)
-	assertRealPVFPreflightExcludedIDs(t, catalog, eligibility, record, []int32{12075, 12076, 12077, 12078})
+	// Hidden parent 12074 is not a main-story sweep target. Its four children
+	// remain guarded by ancestor preflight; they are not dangling swept children.
+	wantExcluded := assertHiddenChainOutsideMainStorySweep(t, catalog, eligibility, record, list)
+	if list.PreflightExcluded != wantExcluded {
+		t.Fatalf("swept children still require preflight filtering: excluded=%d want unrelated=%d ids=%v", list.PreflightExcluded, wantExcluded, list.IDs)
+	}
 	for _, unwanted := range []int32{3971, 3972, 3973} {
 		if containsQuestID(list.IDs, unwanted) {
 			t.Fatalf("quest %d is still offered after the sweep: ids=%v", unwanted, list.IDs)
 		}
 	}
 	assertClientListSatisfiesAcceptPreflight(t, catalog, eligibility, record)
+}
+
+func assertHiddenChainOutsideMainStorySweep(t *testing.T, catalog *Catalog, eligibility CharacterEligibility, record dnfrepo.QuestRecord, list EligibilityResult) int {
+	t.Helper()
+	parent, found := catalog.Find(12074)
+	if !found || normalizeQuestTag(parent.Grade) != "hidden" || parent.LevelMin != 90 {
+		t.Fatalf("hidden parent 12074 missing or changed: found=%t grade=%q level=%d", found, parent.Grade, parent.LevelMin)
+	}
+	if _, touched := record.States[parent.ID]; touched {
+		t.Fatal("main-story coupon must not write the unrelated hidden parent")
+	}
+	if decision, err := catalog.DecideAccept(eligibility, record, parent.ID); decision != AcceptRejected || !errors.Is(err, ErrQuestNotAcceptable) {
+		t.Fatalf("hidden parent preflight decision=%v err=%v", decision, err)
+	}
+	children := []int64{12075, 12076, 12077, 12078}
+	for _, id := range children {
+		child, found := catalog.Find(id)
+		if !found || child.MainQuestID != parent.ID || normalizeQuestTag(child.Grade) != "sub" {
+			t.Fatalf("hidden child %d missing or changed: found=%t main=%d grade=%q", id, found, child.MainQuestID, child.Grade)
+		}
+		if _, touched := record.States[id]; touched {
+			t.Fatalf("main-story coupon must not write hidden child %d", id)
+		}
+		if decision, err := catalog.DecideAccept(eligibility, record, id); decision != AcceptNew || err != nil {
+			t.Fatalf("hidden child %d own preflight decision=%v err=%v", id, decision, err)
+		}
+		if containsQuestID(list.IDs, int32(id)) {
+			t.Fatalf("hidden child %d must stay filtered by its unavailable parent", id)
+		}
+	}
+	return len(children)
 }
 
 // TestRealScriptPVFClientListNeverOffersOutOfRangeOrOtherJobQuests pins the

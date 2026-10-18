@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/experiencebuff"
+	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/jobmap"
 	"longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -34,12 +35,16 @@ var (
 	ErrFinishExperienceBonusInvalid     = errors.New("dnf quest finish experience bonus is invalid")
 	ErrFinishProfessionUnavailable      = errors.New("dnf quest finish profession resources are unavailable")
 	ErrFinishRequiredItemsMissing       = errors.New("dnf quest finish required items are missing")
+	ErrFinishMaximumLevelInvalid        = errors.New("dnf quest finish maximum character level is invalid")
+	ErrFinishCharacterAboveMaximumLevel = errors.New("dnf quest finish character level exceeds the trusted maximum")
+	ErrFinishHonorTablesUnavailable     = errors.New("dnf quest finish honor tables are unavailable")
 )
 
 const (
 	finishRewardGranted          = "granted"
 	finishSettlementReceiptKey   = "settlement_receipt_v1"
 	finishSettlementReceiptLevel = 1
+	finishDefaultMaximumLevel    = 90
 )
 
 // FinishItemGrantRequest is a PVF-backed item delta which must be placed into
@@ -85,24 +90,38 @@ type FinishConsumedItem struct {
 	RawEntry  []byte `json:"raw_entry,omitempty"`
 }
 
+// FinishTerminalChildSettlement attributes the asset changes made for a
+// zero-progress child which the client folded into the parent's final finish.
+type FinishTerminalChildSettlement struct {
+	QuestID       int64                     `json:"quest_id"`
+	CompletionKey string                    `json:"completion_key"`
+	Source        string                    `json:"source"`
+	Items         []FinishCommittedItem     `json:"items,omitempty"`
+	ConsumedItems []FinishConsumedItem      `json:"consumed_items,omitempty"`
+	Currency      []FinishCommittedCurrency `json:"currency,omitempty"`
+}
+
 // 一个PVF奖励数量可对应多格独立装备。每格回执的Delta之和必须等于请求数量，
 // 分配器只修改事务副本；任何一格失败仍由任务结算事务整笔回滚。
 type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) ([]FinishCommittedItem, error)
 
 type FinishCommitInput struct {
-	AccountID              string
-	CharacterID            string
-	QuestID                int64
-	RewardSelectIndex      uint16
-	HasRewardSelect        bool
-	Multiplier             uint16
-	ExpectedCompletionKey  string
-	CommittedAt            time.Time
-	Progression            *progression.Tables
-	ExperienceBonusPercent int64
-	AllocateItem           FinishItemAllocator
-	ProfessionProfiles     *profession.Profiles
-	SkillCatalog           *dnfskill.Table
+	AccountID                     string
+	CharacterID                   string
+	QuestID                       int64
+	RewardSelectIndex             uint16
+	HasRewardSelect               bool
+	Multiplier                    uint16
+	MainQuestExperienceMultiplier int
+	ExpectedCompletionKey         string
+	CommittedAt                   time.Time
+	Progression                   *progression.Tables
+	MaximumCharacterLevel         int
+	LoadHonorTables               func(context.Context) (*dnfhonor.Tables, error)
+	ExperienceBonusPercent        int64
+	AllocateItem                  FinishItemAllocator
+	ProfessionProfiles            *profession.Profiles
+	SkillCatalog                  *dnfskill.Table
 }
 
 // FinishCommitResult is a detached post-commit snapshot. Every map, slice and
@@ -118,6 +137,7 @@ type FinishCommitResult struct {
 	BaseExperienceDelta        uint32
 	ExperienceBonusDelta       uint32
 	ExperienceDelta            uint32
+	HonorExpertGain            uint32
 	PreviousLevel              int
 	NewLevel                   int
 	PreviousExperience         uint32
@@ -132,6 +152,7 @@ type FinishCommitResult struct {
 	PostCommitInventory        dnfrepo.InventoryRecord
 	PostCommitAccountInventory dnfrepo.AccountInventoryRecord
 	PostCommitQuest            dnfrepo.QuestRecord
+	TerminalChildren           []FinishTerminalChildSettlement
 	Profession                 profession.Transition
 	ProfessionGrants           []profession.Grant
 	HasProfession              bool
@@ -147,34 +168,38 @@ type FinishCommitResult struct {
 }
 
 type finishSettlementReceipt struct {
-	Version              int                       `json:"version"`
-	CharacterID          string                    `json:"character_id"`
-	CompletionKey        string                    `json:"completion_key"`
-	Source               string                    `json:"source"`
-	QuestID              int64                     `json:"quest_id"`
-	BaseExperienceDelta  uint32                    `json:"base_experience_delta,omitempty"`
-	ExperienceBonusDelta uint32                    `json:"experience_bonus_delta,omitempty"`
-	ExperienceDelta      uint32                    `json:"experience_delta"`
-	PreviousLevel        int                       `json:"previous_level"`
-	NewLevel             int                       `json:"new_level"`
-	PreviousExperience   uint32                    `json:"previous_experience"`
-	NewExperience        uint32                    `json:"new_experience"`
-	SPDelta              int                       `json:"sp_delta"`
-	TPDelta              int                       `json:"tp_delta"`
-	PostSkillPoints      dnfrepo.SkillPointState   `json:"post_skill_points"`
-	Items                []FinishCommittedItem     `json:"items,omitempty"`
-	ConsumedItems        []FinishConsumedItem      `json:"consumed_items,omitempty"`
-	Currency             []FinishCommittedCurrency `json:"currency,omitempty"`
-	Profession           profession.Transition     `json:"profession,omitempty"`
-	ProfessionGrants     []profession.Grant        `json:"profession_grants,omitempty"`
-	HasProfession        bool                      `json:"has_profession,omitempty"`
-	ExpertJobType        byte                      `json:"expert_job_type,omitempty"`
-	HasExpertJob         bool                      `json:"has_expert_job,omitempty"`
-	HasSlotExpansion     bool                      `json:"has_slot_expansion,omitempty"`
-	SlotExpansionIndex   uint32                    `json:"slot_expansion_index,omitempty"`
-	SlotExpansionBit     byte                      `json:"slot_expansion_bit,omitempty"`
-	HasHellChallenge     bool                      `json:"has_hell_challenge,omitempty"`
-	HellChallengeValue   int64                     `json:"hell_challenge_value,omitempty"`
+	Version              int                             `json:"version"`
+	CharacterID          string                          `json:"character_id"`
+	CompletionKey        string                          `json:"completion_key"`
+	Source               string                          `json:"source"`
+	QuestID              int64                           `json:"quest_id"`
+	BaseExperienceDelta  uint32                          `json:"base_experience_delta,omitempty"`
+	ExperienceBonusDelta uint32                          `json:"experience_bonus_delta,omitempty"`
+	ExperienceDelta      uint32                          `json:"experience_delta"`
+	HonorExpertGain      uint32                          `json:"honor_expert_gain,omitempty"`
+	PostHonorLevel       *uint32                         `json:"post_honor_expert_level,omitempty"`
+	PostHonorProgress    *uint64                         `json:"post_honor_expert_progress_experience,omitempty"`
+	PreviousLevel        int                             `json:"previous_level"`
+	NewLevel             int                             `json:"new_level"`
+	PreviousExperience   uint32                          `json:"previous_experience"`
+	NewExperience        uint32                          `json:"new_experience"`
+	SPDelta              int                             `json:"sp_delta"`
+	TPDelta              int                             `json:"tp_delta"`
+	PostSkillPoints      dnfrepo.SkillPointState         `json:"post_skill_points"`
+	Items                []FinishCommittedItem           `json:"items,omitempty"`
+	ConsumedItems        []FinishConsumedItem            `json:"consumed_items,omitempty"`
+	Currency             []FinishCommittedCurrency       `json:"currency,omitempty"`
+	TerminalChildren     []FinishTerminalChildSettlement `json:"terminal_children,omitempty"`
+	Profession           profession.Transition           `json:"profession,omitempty"`
+	ProfessionGrants     []profession.Grant              `json:"profession_grants,omitempty"`
+	HasProfession        bool                            `json:"has_profession,omitempty"`
+	ExpertJobType        byte                            `json:"expert_job_type,omitempty"`
+	HasExpertJob         bool                            `json:"has_expert_job,omitempty"`
+	HasSlotExpansion     bool                            `json:"has_slot_expansion,omitempty"`
+	SlotExpansionIndex   uint32                          `json:"slot_expansion_index,omitempty"`
+	SlotExpansionBit     byte                            `json:"slot_expansion_bit,omitempty"`
+	HasHellChallenge     bool                            `json:"has_hell_challenge,omitempty"`
+	HellChallengeValue   int64                           `json:"hell_challenge_value,omitempty"`
 }
 
 // ApplyFinishSettlement validates the Phase-A pending marker and atomically
@@ -201,18 +226,26 @@ func (o *Owner) ApplyFinishSettlement(
 	if input.Multiplier != 1 {
 		return FinishCommitResult{}, fmt.Errorf("%w: multiplier=%d", ErrFinishQuestMultiplierUnsupported, input.Multiplier)
 	}
+	mainQuestExperienceMultiplier, err := normalizeMainQuestExperienceMultiplier(input.MainQuestExperienceMultiplier)
+	if err != nil {
+		return FinishCommitResult{}, err
+	}
 	if input.CommittedAt.IsZero() {
 		return FinishCommitResult{}, ErrFinishQuestCommitTimeRequired
 	}
 	if input.ExperienceBonusPercent < 0 {
 		return FinishCommitResult{}, fmt.Errorf("%w: percent=%d", ErrFinishExperienceBonusInvalid, input.ExperienceBonusPercent)
 	}
+	maximumLevel, err := normalizeFinishMaximumCharacterLevel(input.MaximumCharacterLevel)
+	if err != nil {
+		return FinishCommitResult{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	var candidate FinishCommitResult
-	err := o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
+	err = o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
 		if tx.AccountInventory == nil || tx.Character == nil || tx.Quest == nil || tx.Skill == nil || tx.Inventory == nil || tx.Equipment == nil {
 			return ErrFinishSettlementUnavailable
 		}
@@ -279,14 +312,17 @@ func (o *Owner) ApplyFinishSettlement(
 
 		now := input.CommittedAt.UTC()
 		questFields := []dnfrepo.QuestField{field}
+		var terminalChildren []finishTerminalChild
 		if isActiveQuestStatus(state.Status) {
-			if questClearTrigger, linkedFields, questClear := finishQuestClearTrigger(catalog, &quests, input.QuestID, now); questClear {
-				if questClearTrigger != 0 {
+			decision := planFinishQuestClear(catalog, &quests, input.QuestID, now)
+			if decision.clear {
+				if decision.trigger != 0 {
 					return ErrFinishQuestNotPending
 				}
-				for _, linkedField := range linkedFields {
+				for _, linkedField := range decision.changedFields {
 					questFields = mergeQuestChangedField(questFields, linkedField)
 				}
+				terminalChildren = decision.terminalChildren
 				if state.ProgressValue != 0 {
 					state.ProgressValue = 0
 					state.UpdatedAt = now
@@ -337,6 +373,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if !isActiveQuestStatus(state.Status) || state.ProgressValue != 0 || strings.TrimSpace(state.Extra["reward_state"]) != clearMapRewardPending {
 			return ErrFinishQuestNotPending
 		}
+		if character.Level > maximumLevel {
+			return fmt.Errorf("%w: level=%d maximum=%d", ErrFinishCharacterAboveMaximumLevel, character.Level, maximumLevel)
+		}
 
 		jobValue, err := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
 		if err != nil || !jobmap.Valid(int(jobValue)) || character.Level <= 0 {
@@ -352,6 +391,7 @@ func (o *Owner) ApplyFinishSettlement(
 		if !definitionKnown {
 			return ErrQuestDefinitionMissing
 		}
+		mainQuestExperience := isMainQuestExperienceDefinition(catalog, definition)
 		reward, err := catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
 		if err != nil {
 			return err
@@ -389,7 +429,18 @@ func (o *Owner) ApplyFinishSettlement(
 		potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
 		experienceDelta += potionBonus
 		experienceBonusDelta += potionBonus
-		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta)
+		if mainQuestExperience {
+			baseExperienceDelta, experienceBonusDelta, experienceDelta, err = applyMainQuestExperienceMultiplier(
+				baseExperienceDelta,
+				experienceBonusDelta,
+				experienceDelta,
+				mainQuestExperienceMultiplier,
+			)
+			if err != nil {
+				return err
+			}
+		}
+		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta, maximumLevel)
 		if err != nil {
 			return err
 		}
@@ -397,12 +448,42 @@ func (o *Owner) ApplyFinishSettlement(
 		if character.Stats == nil {
 			character.Stats = make(map[string]int64, 2)
 		}
+		honorExpertGain, postHonorLevel, postHonorProgress, err := settleFinishMaximumLevelHonor(
+			ctx,
+			input,
+			&character,
+			maximumLevel,
+			progressPlan.Experience.NewLevel,
+			experienceDelta,
+		)
+		if err != nil {
+			return err
+		}
+		terminalChildSettlements, terminalChildItems, terminalChildConsumed, terminalChildCurrency, err := settleFinishTerminalChildren(
+			catalog,
+			terminalChildren,
+			eligibility,
+			&character,
+			&inventory,
+			&accountInventory,
+			input.AllocateItem,
+			completionKey,
+			input.Progression,
+		)
+		if err != nil {
+			return err
+		}
 		requiredItems := finishRequiredItemRules(catalog, definition, eligibility)
 		consumedItems, err := consumeFinishRequiredItems(&inventory, &accountInventory, requiredItems)
 		if err != nil {
 			return err
 		}
+		consumedItems = append(terminalChildConsumed, consumedItems...)
 		currency, err := applyFinishRewardCurrency(&character, input.Progression, reward)
+		if err != nil {
+			return err
+		}
+		currency, err = coalesceFinishCurrency(append(terminalChildCurrency, currency...))
 		if err != nil {
 			return err
 		}
@@ -413,6 +494,13 @@ func (o *Owner) ApplyFinishSettlement(
 		})
 		if err != nil {
 			return err
+		}
+		items, err = coalesceFinishGrantedItems(append(terminalChildItems, items...))
+		if err != nil {
+			return err
+		}
+		if len(items) > math.MaxUint8 || len(consumedItems) > math.MaxUint8 {
+			return fmt.Errorf("%w: terminal child settlement exceeds finish ACK rows", ErrQuestRewardMalformed)
 		}
 		if err := progression.ApplyCharacterExperience(&character, &skill, progressPlan.Experience.NewLevel, progressPlan.Experience.NewExperience, progressPlan.SkillPoints.New, now); err != nil {
 			return err
@@ -456,8 +544,9 @@ func (o *Owner) ApplyFinishSettlement(
 			Version: finishSettlementReceiptLevel, CharacterID: input.CharacterID,
 			CompletionKey: completionKey, Source: source, QuestID: input.QuestID,
 			BaseExperienceDelta: baseExperienceDelta, ExperienceBonusDelta: experienceBonusDelta,
-			ExperienceDelta: experienceDelta,
-			PreviousLevel:   progressPlan.Experience.PreviousLevel, NewLevel: progressPlan.Experience.NewLevel,
+			ExperienceDelta: experienceDelta, HonorExpertGain: honorExpertGain,
+			PostHonorLevel: postHonorLevel, PostHonorProgress: postHonorProgress,
+			PreviousLevel: progressPlan.Experience.PreviousLevel, NewLevel: progressPlan.Experience.NewLevel,
 			PreviousExperience: progressPlan.Experience.PreviousExperience, NewExperience: progressPlan.Experience.NewExperience,
 			SPDelta:            skill.Points.RemainingSP - previousSkillPoints.RemainingSP,
 			TPDelta:            skill.Points.RemainingTP - previousSkillPoints.RemainingTP,
@@ -465,6 +554,7 @@ func (o *Owner) ApplyFinishSettlement(
 			Items:              cloneFinishItems(items),
 			ConsumedItems:      cloneFinishConsumedItems(consumedItems),
 			Currency:           append([]FinishCommittedCurrency(nil), currency...),
+			TerminalChildren:   cloneFinishTerminalChildren(terminalChildSettlements),
 			Profession:         reward.Profession,
 			ProfessionGrants:   cloneProfessionGrants(professionGrants),
 			HasProfession:      reward.HasProfession,
@@ -539,22 +629,41 @@ func (o *Owner) ApplyFinishSettlement(
 	return cloneFinishCommitResult(candidate), nil
 }
 
+type finishTerminalChild struct {
+	questID    int64
+	definition Definition
+	field      dnfrepo.QuestField
+	state      dnfrepo.QuestState
+}
+
+type finishQuestClearDecision struct {
+	trigger          int64
+	changedFields    []dnfrepo.QuestField
+	clear            bool
+	terminalChildren []finishTerminalChild
+}
+
 func finishQuestClearTrigger(catalog *Catalog, record *dnfrepo.QuestRecord, questID int64, completedAt time.Time) (int64, []dnfrepo.QuestField, bool) {
+	decision := planFinishQuestClear(catalog, record, questID, completedAt)
+	return decision.trigger, decision.changedFields, decision.clear
+}
+
+func planFinishQuestClear(catalog *Catalog, record *dnfrepo.QuestRecord, questID int64, completedAt time.Time) finishQuestClearDecision {
 	if catalog == nil || record == nil {
-		return 0, nil, false
+		return finishQuestClearDecision{}
 	}
 	definition, known := catalog.Find(questID)
 	if !known {
-		return 0, nil, false
+		return finishQuestClearDecision{}
 	}
 	tag := normalizeQuestTag(definition.Type)
 	if tag != "quest clear" && tag != "clear quest" {
-		return 0, nil, false
+		return finishQuestClearDecision{}
 	}
 	completed, _ := questStateSets(*record)
 	trigger := questClearParentTrigger(definition.IntData, completed)
 	if trigger == 0 {
-		return 0, nil, true
+		return finishQuestClearDecision{clear: true}
 	}
 
 	// The current client finishes the final linked subquest differently from
@@ -562,12 +671,7 @@ func finishQuestClearTrigger(catalog *Catalog, record *dnfrepo.QuestRecord, ques
 	// op33 for the parent and then op34 for the parent, without a child op34.
 	// Accept that terminal state only when every unresolved PVF child belongs to
 	// this parent and is durably active at exactly zero progress.
-	type terminalChild struct {
-		questID int64
-		field   dnfrepo.QuestField
-		state   dnfrepo.QuestState
-	}
-	children := make([]terminalChild, 0, len(definition.IntData))
+	children := make([]finishTerminalChild, 0, len(definition.IntData))
 	for _, childID := range definition.IntData {
 		if childID <= 0 {
 			continue
@@ -579,12 +683,14 @@ func finishQuestClearTrigger(catalog *Catalog, record *dnfrepo.QuestRecord, ques
 		childState, childField, stateKnown := mutableQuestState(record, childID)
 		if !childKnown || childDefinition.MainQuestID != questID || !stateKnown ||
 			!isActiveQuestStatus(childState.Status) || childState.ProgressValue != 0 {
-			return trigger, nil, true
+			return finishQuestClearDecision{trigger: trigger, clear: true}
 		}
-		children = append(children, terminalChild{questID: childID, field: childField, state: childState})
+		children = append(children, finishTerminalChild{
+			questID: childID, definition: childDefinition, field: childField, state: childState,
+		})
 	}
 	if len(children) == 0 {
-		return trigger, nil, true
+		return finishQuestClearDecision{trigger: trigger, clear: true}
 	}
 
 	changedFields := make([]dnfrepo.QuestField, 0, 2)
@@ -596,6 +702,7 @@ func finishQuestClearTrigger(catalog *Catalog, record *dnfrepo.QuestRecord, ques
 			child.state.Extra = make(map[string]string, 6)
 		}
 		child.state.Extra["reward_state"] = finishRewardGranted
+		child.state.Extra["settlement_source"] = terminalQuestSource(child.definition)
 		child.state.Extra["auto_completed"] = "true"
 		child.state.Extra["auto_complete_reason"] = "quest_clear_parent_terminal_zero_trigger"
 		child.state.Extra["auto_completed_by_parent"] = strconv.FormatInt(questID, 10)
@@ -605,11 +712,133 @@ func finishQuestClearTrigger(catalog *Catalog, record *dnfrepo.QuestRecord, ques
 		case dnfrepo.QuestFieldProgress:
 			record.Progress[child.questID] = child.state
 		default:
-			return trigger, nil, true
+			return finishQuestClearDecision{trigger: trigger, clear: true}
 		}
 		changedFields = mergeQuestChangedField(changedFields, child.field)
 	}
-	return 0, changedFields, true
+	return finishQuestClearDecision{changedFields: changedFields, clear: true, terminalChildren: children}
+}
+
+func settleFinishTerminalChildren(
+	catalog *Catalog,
+	children []finishTerminalChild,
+	eligibility CharacterEligibility,
+	character *dnfrepo.CharacterRecord,
+	inventory *dnfrepo.InventoryRecord,
+	accountInventory *dnfrepo.AccountInventoryRecord,
+	allocator FinishItemAllocator,
+	parentCompletionKey string,
+	tables *progression.Tables,
+) ([]FinishTerminalChildSettlement, []FinishCommittedItem, []FinishConsumedItem, []FinishCommittedCurrency, error) {
+	if len(children) == 0 {
+		return nil, nil, nil, nil, nil
+	}
+	settlements := make([]FinishTerminalChildSettlement, 0, len(children))
+	var items []FinishCommittedItem
+	var consumed []FinishConsumedItem
+	var currency []FinishCommittedCurrency
+	for _, child := range children {
+		reward, err := catalog.PlanFinishReward(eligibility, child.questID, 0, false)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if reward.RewardSelectionUsed || reward.HasProfession || reward.HasExpertJob || reward.HasSlotExpansion {
+			return nil, nil, nil, nil, fmt.Errorf(
+				"%w: terminal child quest=%d requires an explicit reward decision",
+				ErrQuestRewardUnsupported,
+				child.questID,
+			)
+		}
+		childConsumed, err := consumeFinishRequiredItems(
+			inventory,
+			accountInventory,
+			finishRequiredItemRules(catalog, child.definition, eligibility),
+		)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		childCurrency, err := applyFinishRewardCurrency(character, tables, reward)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		source := terminalQuestSource(child.definition)
+		childCompletionKey := terminalChildCompletionKey(parentCompletionKey, child.questID)
+		childItems, err := allocateFinishRewardItems(inventory, reward.Items, allocator, FinishItemGrantRequest{
+			QuestID: child.questID, CompletionKey: childCompletionKey, Source: source,
+		})
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		settlements = append(settlements, FinishTerminalChildSettlement{
+			QuestID:       child.questID,
+			CompletionKey: childCompletionKey,
+			Source:        source,
+			Items:         cloneFinishItems(childItems),
+			ConsumedItems: cloneFinishConsumedItems(childConsumed),
+			Currency:      append([]FinishCommittedCurrency(nil), childCurrency...),
+		})
+		items = append(items, childItems...)
+		consumed = append(consumed, childConsumed...)
+		currency = append(currency, childCurrency...)
+	}
+	return settlements, items, consumed, currency, nil
+}
+
+func terminalQuestSource(definition Definition) string {
+	return "quest_pvf:" + definition.Path
+}
+
+func terminalChildCompletionKey(parentCompletionKey string, childQuestID int64) string {
+	return parentCompletionKey + "/terminal-child/" + strconv.FormatInt(childQuestID, 10)
+}
+
+func coalesceFinishGrantedItems(items []FinishCommittedItem) ([]FinishCommittedItem, error) {
+	if len(items) < 2 {
+		return items, nil
+	}
+	indexBySlot := make(map[string]int, len(items))
+	out := make([]FinishCommittedItem, 0, len(items))
+	for _, item := range items {
+		if index, exists := indexBySlot[item.SlotKey]; exists {
+			previous := out[index]
+			// Only stackable additions can share a slot. The ACK quantity must
+			// contain every grant; the raw entry comes from the final addition.
+			if previous.ItemID != item.ItemID || previous.SlotIndex != item.SlotIndex ||
+				previous.Delta != int64(previous.CountOrSeed) || item.Delta != int64(item.CountOrSeed) ||
+				previous.Delta > math.MaxUint32-item.Delta {
+				return nil, fmt.Errorf("%w: incompatible reward grants in slot %s", ErrQuestRewardMalformed, item.SlotKey)
+			}
+			item.Delta += previous.Delta
+			item.CountOrSeed = uint32(item.Delta)
+			out[index] = item
+			continue
+		}
+		indexBySlot[item.SlotKey] = len(out)
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func coalesceFinishCurrency(currencies []FinishCommittedCurrency) ([]FinishCommittedCurrency, error) {
+	if len(currencies) < 2 {
+		return currencies, nil
+	}
+	indexByName := make(map[string]int, len(currencies))
+	out := make([]FinishCommittedCurrency, 0, len(currencies))
+	for _, currency := range currencies {
+		name := strings.ToLower(strings.TrimSpace(currency.Name))
+		if index, exists := indexByName[name]; exists {
+			if out[index].Delta > math.MaxInt64-currency.Delta {
+				return nil, fmt.Errorf("%w: currency %q delta overflow", ErrQuestRewardMalformed, currency.Name)
+			}
+			out[index].Delta += currency.Delta
+			out[index].PostValue = currency.PostValue
+			continue
+		}
+		indexByName[name] = len(out)
+		out = append(out, currency)
+	}
+	return out, nil
 }
 
 // syncActiveQuestClearParentProgress ports only the C# completion-transaction
@@ -701,9 +930,13 @@ func planFinishProgression(
 	character dnfrepo.CharacterRecord,
 	skill dnfrepo.SkillRecord,
 	gain uint32,
+	maxLevel int,
 ) (progression.ExperienceSkillPointPlan, error) {
 	if tables == nil || character.Level <= 0 || skill.Points.SyncedLevel != character.Level {
 		return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: level=%d synced=%d", ErrFinishProgressionUnproven, character.Level, skill.Points.SyncedLevel)
+	}
+	if maxLevel <= 0 || character.Level > maxLevel {
+		return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: level=%d maximum=%d", ErrFinishProgressionUnproven, character.Level, maxLevel)
 	}
 	experienceValue, exists := character.Stats["exp"]
 	if !exists || experienceValue < 0 || experienceValue > math.MaxUint32 {
@@ -717,7 +950,7 @@ func planFinishProgression(
 		PreviousLevel: character.Level, PreviousExperience: uint32(experienceValue), Gain: gain,
 		NewLevel: character.Level, NewExperience: uint32(newTotal),
 	}
-	for {
+	for result.NewLevel < maxLevel {
 		threshold, err := tables.ThresholdToNext(result.NewLevel)
 		if err != nil {
 			return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: level=%d: %v", ErrFinishProgressionUnproven, result.NewLevel, err)
@@ -736,6 +969,84 @@ func planFinishProgression(
 		return progression.ExperienceSkillPointPlan{}, err
 	}
 	return progression.ExperienceSkillPointPlan{Experience: result, SkillPoints: points}, nil
+}
+
+func normalizeFinishMaximumCharacterLevel(value int) (int, error) {
+	if value == 0 {
+		return finishDefaultMaximumLevel, nil
+	}
+	if value < 0 || value > math.MaxUint8 {
+		return 0, fmt.Errorf("%w: maximum=%d", ErrFinishMaximumLevelInvalid, value)
+	}
+	return value, nil
+}
+
+func settleFinishMaximumLevelHonor(
+	ctx context.Context,
+	input FinishCommitInput,
+	character *dnfrepo.CharacterRecord,
+	maximumLevel int,
+	plannedNewLevel int,
+	gainedExperience uint32,
+) (uint32, *uint32, *uint64, error) {
+	if character == nil || gainedExperience == 0 || plannedNewLevel < maximumLevel {
+		return 0, nil, nil, nil
+	}
+	var maximumLevelEntryExperience uint32
+	var err error
+	if maximumLevel > 1 {
+		maximumLevelEntryExperience, err = input.Progression.ThresholdToNext(maximumLevel - 1)
+		if err != nil {
+			return 0, nil, nil, fmt.Errorf("%w: maximum_level_entry=%d: %v", ErrFinishProgressionUnproven, maximumLevel, err)
+		}
+	}
+	previousExperience, exists := character.Stats["exp"]
+	if !exists || previousExperience < 0 || previousExperience > math.MaxUint32 {
+		return 0, nil, nil, fmt.Errorf("%w: exp=%d present=%t", ErrFinishProgressionUnproven, previousExperience, exists)
+	}
+	honorGain, err := dnfhonor.CalculateHonorExperienceGain(
+		character.Level,
+		uint32(previousExperience),
+		gainedExperience,
+		dnfhonor.CharacterExperienceCap{
+			MaxLevel:                maximumLevel,
+			MaxLevelEntryExperience: maximumLevelEntryExperience,
+		},
+	)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	if honorGain == 0 {
+		return 0, nil, nil, nil
+	}
+	if input.LoadHonorTables == nil {
+		return 0, nil, nil, ErrFinishHonorTablesUnavailable
+	}
+	honorTables, err := input.LoadHonorTables(ctx)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrFinishHonorTablesUnavailable, err)
+	}
+	if honorTables == nil {
+		return 0, nil, nil, ErrFinishHonorTablesUnavailable
+	}
+	current, err := dnfhonor.ExpertProgressFromStats(character.Stats)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrFinishProgressionUnproven, err)
+	}
+	next, err := honorTables.AdvanceExpert(current, uint64(honorGain))
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrFinishProgressionUnproven, err)
+	}
+	expertStats, err := dnfhonor.ExpertStats(next)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	for key, value := range expertStats {
+		character.Stats[key] = value
+	}
+	postLevel := next.Level
+	postProgress := next.CurrentLevelExperience
+	return honorGain, &postLevel, &postProgress, nil
 }
 
 func finishExperienceWithBonus(base uint32, percent int64) (uint32, uint32) {
@@ -850,10 +1161,9 @@ func finishRequiredItemRules(catalog *Catalog, definition Definition, character 
 func finishDefinitionSeekingRules(definition Definition) []RewardItemRule {
 	switch normalizeQuestTag(definition.Type) {
 	case "seek n meet npc":
-		if len(definition.IntData) < 2 {
-			return nil
-		}
-		return []RewardItemRule{{ItemID: definition.IntData[0], Count: definition.IntData[1]}}
+		// The final NPC identifier is unpaired when present. itemPairRulesFromInts
+		// reads every item/count pair and naturally ignores that trailing scalar.
+		return itemPairRulesFromInts(definition.IntData)
 	case "seeking":
 		return itemPairRulesFromInts(definition.IntData)
 	default:
@@ -1138,15 +1448,33 @@ func finishResultFromReceipt(
 			return FinishCommitResult{}, ErrFinishQuestSettlementStale
 		}
 	}
+	if err := validateFinishReceiptHonorExpert(receipt, character.Stats); err != nil {
+		return FinishCommitResult{}, err
+	}
+	finalItems := make(map[string]FinishCommittedItem, len(receipt.Items))
 	for _, item := range receipt.Items {
+		if item.SlotKey == "" || item.ItemID <= 0 || item.Delta <= 0 || item.PostCount < item.Delta ||
+			item.CountOrSeed == 0 || len(item.RawEntry) == 0 {
+			return FinishCommitResult{}, ErrFinishQuestSettlementCorrupt
+		}
+		finalItems[item.SlotKey] = item
+	}
+	for _, item := range finalItems {
 		stack, exists := inventory.Slots[item.SlotKey]
 		if !exists || stack.ItemID != item.ItemID || stack.Count != item.PostCount || !bytes.Equal(stack.RawEntry, item.RawEntry) {
 			return FinishCommitResult{}, ErrFinishQuestSettlementStale
 		}
 	}
+	finalConsumed := make(map[string]FinishConsumedItem, len(receipt.ConsumedItems))
 	for _, item := range receipt.ConsumedItems {
 		if item.SlotKey == "" || item.SlotIndex > math.MaxInt16 || item.ItemID <= 0 || item.Delta <= 0 || item.Delta > math.MaxUint32 || item.PostCount < 0 {
 			return FinishCommitResult{}, ErrFinishQuestSettlementCorrupt
+		}
+		finalConsumed[item.SlotKey] = item
+	}
+	for _, item := range finalConsumed {
+		if _, replacedByReward := finalItems[item.SlotKey]; replacedByReward {
+			continue
 		}
 		slots := inventory.Slots
 		if finishSlotIsAccountShared(item.SlotIndex) {
@@ -1163,20 +1491,49 @@ func finishResultFromReceipt(
 			return FinishCommitResult{}, ErrFinishQuestSettlementStale
 		}
 	}
+	finalCurrency := make(map[string]FinishCommittedCurrency, len(receipt.Currency))
 	for _, currency := range receipt.Currency {
 		if currency.Delta < 0 || currency.PostValue < 0 {
 			return FinishCommitResult{}, ErrFinishQuestSettlementCorrupt
 		}
-		switch strings.ToLower(strings.TrimSpace(currency.Name)) {
-		case "gold":
-			if character.Stats["gold"] != currency.PostValue {
-				return FinishCommitResult{}, ErrFinishQuestSettlementStale
-			}
-		default:
+		name := strings.ToLower(strings.TrimSpace(currency.Name))
+		if name != "gold" {
+			return FinishCommitResult{}, ErrFinishQuestSettlementCorrupt
+		}
+		finalCurrency[name] = currency
+	}
+	if currency, exists := finalCurrency["gold"]; exists && character.Stats["gold"] != currency.PostValue {
+		return FinishCommitResult{}, ErrFinishQuestSettlementStale
+	}
+	for _, child := range receipt.TerminalChildren {
+		if child.QuestID <= 0 || child.CompletionKey != terminalChildCompletionKey(receipt.CompletionKey, child.QuestID) ||
+			child.Source == "" {
 			return FinishCommitResult{}, ErrFinishQuestSettlementCorrupt
 		}
 	}
 	return finishResultFromCommitted(receipt, true, character, skill, inventory, accountInventory, quests), nil
+}
+
+func validateFinishReceiptHonorExpert(receipt finishSettlementReceipt, stats map[string]int64) error {
+	if receipt.PostHonorLevel == nil && receipt.PostHonorProgress == nil {
+		if receipt.HonorExpertGain != 0 {
+			return ErrFinishQuestSettlementCorrupt
+		}
+		// Receipts written before HonorExpert settlement have neither field.
+		return nil
+	}
+	if receipt.PostHonorLevel == nil || receipt.PostHonorProgress == nil {
+		return ErrFinishQuestSettlementCorrupt
+	}
+	current, err := dnfhonor.ExpertProgressFromStats(stats)
+	if err != nil {
+		return ErrFinishQuestSettlementStale
+	}
+	if current.Level != *receipt.PostHonorLevel ||
+		current.CurrentLevelExperience != *receipt.PostHonorProgress {
+		return ErrFinishQuestSettlementStale
+	}
+	return nil
 }
 
 func applyFinishRewardCurrency(
@@ -1224,13 +1581,14 @@ func finishResultFromCommitted(
 		CharacterID: receipt.CharacterID, CompletionKey: receipt.CompletionKey, Source: receipt.Source,
 		QuestID: receipt.QuestID, Replayed: replayed,
 		BaseExperienceDelta: receipt.BaseExperienceDelta, ExperienceBonusDelta: receipt.ExperienceBonusDelta,
-		ExperienceDelta: receipt.ExperienceDelta,
-		PreviousLevel:   receipt.PreviousLevel, NewLevel: receipt.NewLevel,
+		ExperienceDelta: receipt.ExperienceDelta, HonorExpertGain: receipt.HonorExpertGain,
+		PreviousLevel: receipt.PreviousLevel, NewLevel: receipt.NewLevel,
 		PreviousExperience: receipt.PreviousExperience, NewExperience: receipt.NewExperience,
 		SPDelta: receipt.SPDelta, TPDelta: receipt.TPDelta,
 		Items: cloneFinishItems(receipt.Items), ConsumedItems: cloneFinishConsumedItems(receipt.ConsumedItems),
-		Currency:   append([]FinishCommittedCurrency(nil), receipt.Currency...),
-		Profession: receipt.Profession, ProfessionGrants: cloneProfessionGrants(receipt.ProfessionGrants),
+		Currency:         append([]FinishCommittedCurrency(nil), receipt.Currency...),
+		TerminalChildren: cloneFinishTerminalChildren(receipt.TerminalChildren),
+		Profession:       receipt.Profession, ProfessionGrants: cloneProfessionGrants(receipt.ProfessionGrants),
 		HasProfession: receipt.HasProfession,
 		ExpertJobType: receipt.ExpertJobType, HasExpertJob: receipt.HasExpertJob,
 		HasSlotExpansion: receipt.HasSlotExpansion, SlotExpansionIndex: receipt.SlotExpansionIndex,
@@ -1309,10 +1667,25 @@ func cloneFinishConsumedItems(items []FinishConsumedItem) []FinishConsumedItem {
 	return out
 }
 
+func cloneFinishTerminalChildren(children []FinishTerminalChildSettlement) []FinishTerminalChildSettlement {
+	if len(children) == 0 {
+		return nil
+	}
+	out := make([]FinishTerminalChildSettlement, len(children))
+	for index, child := range children {
+		out[index] = child
+		out[index].Items = cloneFinishItems(child.Items)
+		out[index].ConsumedItems = cloneFinishConsumedItems(child.ConsumedItems)
+		out[index].Currency = append([]FinishCommittedCurrency(nil), child.Currency...)
+	}
+	return out
+}
+
 func cloneFinishCommitResult(result FinishCommitResult) FinishCommitResult {
 	result.Items = cloneFinishItems(result.Items)
 	result.ConsumedItems = cloneFinishConsumedItems(result.ConsumedItems)
 	result.Currency = append([]FinishCommittedCurrency(nil), result.Currency...)
+	result.TerminalChildren = cloneFinishTerminalChildren(result.TerminalChildren)
 	result.PostCommitCharacter = dnfrepo.CloneCharacter(result.PostCommitCharacter)
 	result.PostCommitSkill = dnfrepo.CloneSkill(result.PostCommitSkill)
 	result.PostCommitInventory = dnfrepo.CloneInventory(result.PostCommitInventory)

@@ -53,7 +53,7 @@ import (
 //	(c) 同血统 Go 分支（`90CN\90原神开源0.1.8\dnf90-source-oneclick-main`，
 //	    `internal\services\dnfbridge\epic_piece_balance.go:19-23`）：
 //	    `currentEpicPieceBalanceSyncOpcode = 0x047d`（=1149，注释给出当前 90CN 客户端
-//	    的注册点 `DNF.exe sub_1D56FF0`），body 同上，落 `epic_piece:<id>` 账号元数据，
+//	    的注册点 `DNF.exe sub_2008190`），body 同上，落 `epic_piece:<id>` 账号元数据，
 //	    拾取时"目的槽位"用 64（同档 `:21 currentEpicPiecePickupEffectSlot`）。
 //
 //	⇒ 三方一致：同一份 966 条目录 + 同一个 `u8 reset + u32 count + N×(u32,u32)`
@@ -304,7 +304,7 @@ const (
 	//     hex=007d0415000000… 0000000000`，事件名
 	//     `game-epic-book-snapshot-sent … wire_opcode=1149`（7/7 条）。
 	//   - 同血统 Go 分支 `epic_piece_balance.go:19`：`0x047d`，注释给出当前 90CN
-	//     客户端注册点 `DNF.exe sub_1D56FF0`；并注明 `0x047E` 是本客户端另一条
+	//     客户端注册点 `DNF.exe sub_2008190`；并注明 `0x047E` 是本客户端另一条
 	//     定长 5 字节通知，会静默丢弃史诗碎片行。
 	currentEpicPieceBalanceSyncOpcode uint16 = 0x047d
 	// currentEpicPieceBalanceMinBodySize 是 entries=0 的空表长度
@@ -323,12 +323,12 @@ const (
 
 // buildCurrentEpicPieceBalanceSyncBody 序列化史诗图鉴账本通知：
 // `u8 reset(=0 全量/清空后重建, =1 增量) + u32 行数 + 行数×(u32 碎片 id, u32 绝对数量)`，
-// 行按碎片 id 升序（与 0.1.8 `buildCurrentEpicPieceBalanceSyncBody` 逐字节一致，
-// 也让同一份账本的字节输出稳定、可做夹具）。
+// 行按碎片id升序。全量快照清表后可省略零余额；模式1必须保留零余额，
+// 否则跨界扣至0时客户端会继续显示旧值。现用0x2008190/0x149f450已核对支持0。
 func buildCurrentEpicPieceBalanceSyncBody(balances map[uint32]uint32, resetClient bool) ([]byte, error) {
 	ids := make([]uint32, 0, len(balances))
 	for pieceID, balance := range balances {
-		if pieceID != 0 && balance != 0 {
+		if pieceID != 0 && (balance != 0 || !resetClient) {
 			ids = append(ids, pieceID)
 		}
 	}

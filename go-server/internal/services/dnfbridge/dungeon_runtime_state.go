@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	roomClearQuestReceipts       map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
 	entryCharacterLevel          int
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
@@ -53,6 +54,7 @@ type runtimeDungeonState struct {
 	Request                      dungeoncmd.SelectDungeonRequest
 	Dungeon                      worldmap.Dungeon
 	MazeIndex                    int
+	storyExperience              currentDungeonStoryExperienceProfile
 	Character                    dnfrepo.CharacterRecord
 	// AccountID 是**建这个 runtime 的那条会话**的账号（accountIDForSession，在请求
 	// 边界冻结，与 currentEquipmentPlacementValidator.selectedAccountID 同一口径）。
@@ -481,6 +483,9 @@ func (s *Service) prepareDungeonRuntimePlanned(
 			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("%w: rift=%d got=%d designated=%v", errDungeonDifficultyInvalid, dungeon.ID, request.Difficulty, dungeon.Metadata.DesignatedDifficulties)
 		}
 	}
+	if err := s.validateCurrentRiftUnlock(ctx, session, dungeon); err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	}
 	if err := s.validateCurrentLukeNormalThroneEntry(ctx, session, dungeon); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
@@ -564,12 +569,19 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("choose dungeon maze: %w", err)
 	}
 	mazeIndex := mazeSelection.Index
+	storyExperience := s.captureCurrentDungeonStoryExperience(ctx, dungeon, mazeSelection, request.Difficulty, questRecord)
+	if partyPlan != nil && partyPlan.storyQuestID > 0 {
+		storyExperience = s.captureCurrentDungeonStoryExperience(ctx, dungeon,
+			dungeonMazeSelection{Index: mazeIndex, Reason: "active_quest_connection", QuestID: partyPlan.storyQuestID}, request.Difficulty, questRecord)
+	}
 	s.logGameEvent(session, "game-dungeon-maze-selected",
 		"dungeon_id", request.DungeonID,
 		"difficulty", request.Difficulty,
 		"maze_index", mazeIndex,
 		"selection_reason", mazeSelection.Reason,
 		"quest_id", mazeSelection.QuestID,
+		"story_experience_quest_id", storyExperience.QuestID,
+		"story_experience_rate_percent", storyExperience.RatePercent,
 		"quest_record_found", questRecordFound,
 		"body_source", "runtime_pvf_quest_connection_and_persisted_quest_state")
 	chooser := func(choice worldmap.DungeonMapChoice) (int64, error) {
@@ -722,21 +734,15 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("create dungeon monster owner: %w", err)
 	}
-	// 锦标赛：把赛制的 `firstSequence` 绑到本房间第一个怪物的 object key 上。
+	// 锦标赛：把赛制的 `firstSequence` 绑到本房间第一个已投影 actor 的 object key 上。
 	//
 	// 厂商在 START_MAP 提交时绑 `instanceRoom.FirstActorSequenceId`
 	// （DungeonMapHandler.cs:508-515 / :597-604），而 `DungeonInstance.cs:691` 的
 	// `sequenceId = FirstActorSequenceId + index` 说明"sequence = 公告出去的 actor id"。
-	// 本仓等价物就是 `newRuntimeDungeonRoom` 从 `firstDungeonMonsterObjectKey` 起
-	// 连续分配的 `ObjectKey`；op39 上报的 `RuntimeObjectKey` 正是同一个值。
+	// 普通怪和 extended AICharacter 都从 `firstDungeonMonsterObjectKey` 起连续分配
+	// `ObjectKey`；op39 上报的 `RuntimeObjectKey` 正是同一个值。APC-only 的 122
+	// 必须等 extended actors 挂载后再绑定，不能假定 `room.monsters[0]` 存在。
 	// 默认档 `tournamentRuntime == nil` ⇒ 这一整段不可达。
-	if tournamentRuntime != nil && len(room.monsters) != 0 {
-		if !tournamentRuntime.tryBindFirstActorSequence(uint16(room.monsters[0].ObjectKey)) {
-			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf(
-				"bind tournament actor sequence: first_object_key=%d path_actors=%d",
-				room.monsters[0].ObjectKey, len(tournamentRuntime.PathActors))
-		}
-	}
 	var aiCharacterCatalog *pvfDungeonAICharacterCatalog
 	if len(scene.AICharacters) != 0 {
 		aiCharacterCatalog, err = s.dungeonAICharacterCatalog()
@@ -764,6 +770,18 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	}
 	if err := room.AttachExtendedActors(extendedPlan); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("attach dungeon extended actor owner: %w", err)
+	}
+	if tournamentRuntime != nil {
+		firstObjectKey, err := tournamentFirstActorObjectKey(room.Snapshot(), tournamentRuntime.snapshot().PathActors)
+		if err != nil {
+			return nil, worldmap.DungeonRoomScene{}, err
+		}
+		if firstObjectKey == 0 ||
+			!tournamentRuntime.tryBindFirstActorSequence(uint16(firstObjectKey)) {
+			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf(
+				"bind tournament actor sequence: first_object_key=%d path_actors=%d",
+				firstObjectKey, len(tournamentRuntime.PathActors))
+		}
 	}
 	if _, err := s.configurePVFTutorialBasicActionRoom(dungeon, scene, room); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("configure tutorial basic-action room: %w", err)
@@ -795,7 +813,8 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		randomizedObjects:     randomizedObjects,
 		lukeSanctumMaze:       lukeSanctumMaze,
 		Request:               request, Dungeon: dungeon, MazeIndex: mazeIndex,
-		Character: character, AccountID: s.accountIDForSession(session),
+		storyExperience: storyExperience,
+		Character:       character, AccountID: s.accountIDForSession(session),
 		entryCharacterLevel: character.Level,
 		Session:             dungeonSession, Room: room, NextObjectKey: nextObjectKey,
 		BossCoordinate: bossCoordinate, BossSet: true,

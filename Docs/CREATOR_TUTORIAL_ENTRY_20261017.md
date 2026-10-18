@@ -1,0 +1,7 @@
+# 缔造者教程入口键位回放
+
+用户反馈!78的新建缔造者教程仍不能WASD。待教程角色通过sendUpperCSharpSelectInit直接发送教程op15及预览，跳过唯一调用sendAccountGameOptionNotices的初始城镇路线。因此R46已有Creator默认文本生成器未被本入口调用。
+
+本次在待教程job10分支、op15前调用现有选项回放。已保存角色完整配置保持优先；无记录才从真实clientonly/hotkeysystem_ver3.co生成CommonType/CreatorType文本。发送成功才设置gameOptionNoticeSent，PVF失败向调用方返回error但不阻断教程，发送失败可在下一入口尝试恢复。默认值不持久化，无客户端或PVF修改。
+
+真实PVF入口回归覆盖job10 type1/WASD/空格/454先于op15、普通job0不误发、重复入口不重发、PVF缺失不发包、454写失败恢复。原已保存配置及归属守卫继续验证。完整检查和部署身份详工作区R52交接，自动测试不代替实机教程验收。

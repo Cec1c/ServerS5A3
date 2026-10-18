@@ -55,6 +55,8 @@ func TestGameplayModuleRegistryRejectsDuplicateOwnership(t *testing.T) {
 
 func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	wantNames := []string{
+		"guild",
+		"auction",
 		"npc-shop",
 		"cera-shop",
 		"cera-package",
@@ -80,9 +82,11 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"avatar-socket",
 		"avatar-emblem",
 		"item-grade-adjust",
+		"equipment-transfer",
 		"equipment-effect",
 		"aura-skin-slot",
 		"carry-gold",
+		"image-communication",
 		"quest",
 		"dungeon-navigation",
 		"dungeon-combat-drop",

@@ -135,7 +135,8 @@ func TestOfficial249SavedOptionsUseNativeNoticeIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	packets := drainUpperPackets(t, conn)
-	if len(packets) != 2 || packets[0].msgID != 390 || !bytes.Equal(packets[0].body, option) || packets[1].msgID != 454 || !bytes.Equal(packets[1].body, buildAccountHotkeyNoticeBody(1, keys)) {
+	// The selected normal character controls the bank; stale account type must not override it.
+	if len(packets) != 2 || packets[0].msgID != 390 || !bytes.Equal(packets[0].body, option) || packets[1].msgID != 454 || !bytes.Equal(packets[1].body, buildAccountHotkeyNoticeBody(0, keys)) {
 		t.Fatalf("saved-option native notices=%+v", packets)
 	}
 }

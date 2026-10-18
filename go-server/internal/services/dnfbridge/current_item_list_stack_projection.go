@@ -134,7 +134,9 @@ func currentItemListStackAmount(listType byte, stack dnfrepo.ItemStack) uint32 {
 	if listType != currentPetInventoryListType && currentItemListStackIsAvatar(listType, stack) {
 		return currentAvatarRemainingSecondsAt(currentItemListStackExpire(stack), time.Now().UTC())
 	}
-	if listType == dnfrepo.MainInventoryListType || listType == 3 {
+	// 装备行的0x06在背包、穿戴栏、个人仓库和账号仓库均为品级种子，
+	// 不能在跨容器刷新时退回持久化件数1。
+	if listType == dnfrepo.MainInventoryListType || listType == 2 || listType == 3 || listType == 12 {
 		if seed := currentEquipmentQualitySeedFromStack(stack); seed != 0 {
 			return seed
 		}

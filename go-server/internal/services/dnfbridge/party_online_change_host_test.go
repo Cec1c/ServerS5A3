@@ -13,9 +13,9 @@ import (
 // 操作者报的"队长无法移交"走的就是这条路径：op121 由队长发出，body 一个字节是队伍框槽位。
 // 这里直接驱动 online handler（此前没有任何直接用例），钉住三件事：
 //   - 不是队长的人发这条请求 → 一个包都不发、队伍不动；
-//   - 队长发出 → 新队长成为权威队长，并在双方客户端的槽位 0（当前客户端只认 slot 0 当队长）；
+//   - 队长发出 → 新队长成为权威队长，但保留自己原来的固定槽位；
 //   - 两个会话都收到新快照。
-func TestHandleOnlineChangePartyHostTransfersLeadershipToSlotZero(t *testing.T) {
+func TestHandleOnlineChangePartyHostPreservesFixedSlots(t *testing.T) {
 	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}}
 	channel := channelcatalog.Channel{ID: 38, Type: 1, Name: "ch.38", Port: 10038}
 	leaderConn, memberConn := &bufferConn{}, &bufferConn{}
@@ -105,8 +105,12 @@ func TestHandleOnlineChangePartyHostTransfersLeadershipToSlotZero(t *testing.T) 
 		t.Fatalf("new leader client state = %+v, want char 1002 as leader", memberState)
 	}
 	members := runtimePartyMembers(memberState)
-	if len(members) != 2 || members[0].UserID != 1002 {
-		t.Fatalf("slot order after transfer = %+v, want the new leader in slot 0", members)
+	if len(members) != 2 || members[0].UserID != 1001 || members[0].Slot != 0 ||
+		members[1].UserID != 1002 || members[1].Slot != 1 {
+		t.Fatalf("slot order after transfer = %+v, want former leader at slot 0 and new leader at slot 1", members)
+	}
+	if leaderRow, ok := runtimePartyMemberBySlot(memberState, 1); !ok || leaderRow.UserID != 1002 {
+		t.Fatalf("leader row by fixed slot = %+v ok=%t, want char 1002 at slot 1", leaderRow, ok)
 	}
 	if leaderConn.write.Len() == 0 || memberConn.write.Len() == 0 {
 		t.Fatalf("both sessions must receive the fresh party snapshot: leader=%d member=%d",
@@ -151,7 +155,7 @@ func TestHandleOnlineChangePartyHostAcceptsOneBasedSlotIndex(t *testing.T) {
 		t.Fatalf("one-based slot index was not resolved to the second member: found=%t snapshot=%+v", found, snapshot)
 	}
 	members := runtimePartyMembers(runtimePartyStateSnapshot(member))
-	if len(members) != 2 || members[0].UserID != 1002 {
-		t.Fatalf("slot order after one-based transfer = %+v, want the new leader in slot 0", members)
+	if len(members) != 2 || members[0].UserID != 1001 || members[1].UserID != 1002 || members[1].Slot != 1 {
+		t.Fatalf("slot order after one-based transfer = %+v, want the new leader at its fixed slot 1", members)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
@@ -135,10 +136,243 @@ func TestOnlineItemTradeProjectsOfferAndAtomicallyCommitsOnBothReady(t *testing.
 	if got := secondInventory.Slots["0:3"]; got.ItemID != 10008073 || got.Count != 1 {
 		t.Fatalf("recipient item = %+v", got)
 	}
-	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), 0)
-	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), 1)
+	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), []byte{0, 0})
+	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), []byte{1, 0, 3, 0, 3, 0})
 	if service.currentOnlineItemTrade(1) != nil || service.currentOnlineItemTrade(5) != nil {
 		t.Fatal("completed trade remained registered")
+	}
+}
+
+type onlineItemTradeStageFailingConn struct {
+	*bufferConn
+	msgID          uint16
+	classification byte
+	err            error
+	failed         bool
+}
+
+func (c *onlineItemTradeStageFailingConn) Write(packet []byte) (int, error) {
+	if !c.failed && len(packet) >= 3 && packet[0] == c.classification && binary.LittleEndian.Uint16(packet[1:3]) == c.msgID {
+		c.failed = true
+		return 0, c.err
+	}
+	return c.bufferConn.Write(packet)
+}
+
+func TestOnlineItemTradeCommitNotifiesEveryRecipientWhenIndividualStageFails(t *testing.T) {
+	stages := []struct {
+		name   string
+		msgID  uint16
+		prefix []uint16
+	}{
+		{name: "completion", msgID: currentItemTradeFinishMsg},
+		{name: "gold", msgID: uint16(dnfenum.CmdPacketWalkoutPartyMember), prefix: []uint16{currentItemTradeFinishMsg}},
+		{name: "list", msgID: uint16(dnfenum.CmdPacketLeaveParty), prefix: []uint16{
+			currentItemTradeFinishMsg, uint16(dnfenum.CmdPacketWalkoutPartyMember),
+		}},
+	}
+	for _, recipient := range []string{"first", "second", "both"} {
+		for _, stage := range stages {
+			t.Run(recipient+"_"+stage.name, func(t *testing.T) {
+				ctx := context.Background()
+				repositories := dnfrepomemory.NewMemoryGroup()
+				for _, record := range []dnfrepo.CharacterRecord{
+					{CharacterID: "6", AccountID: "a", Stats: map[string]int64{"gold": 250_000}},
+					{CharacterID: "47", AccountID: "b", Stats: map[string]int64{"gold": 40_000}},
+				} {
+					if err := repositories.Character.Save(ctx, record); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+					CharacterID: "6",
+					Slots: map[string]dnfrepo.ItemStack{
+						"0:97": {ItemID: 10008073, Count: 1},
+					},
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "47", Slots: map[string]dnfrepo.ItemStack{}}); err != nil {
+					t.Fatal(err)
+				}
+				catalog, err := newPVFDungeonDropCatalog(bridgePVFSource{
+					"monster/monster.lst":            "",
+					"stackable/stackable.lst":        "10008073 `trade_consumable.stk`\n",
+					"equipment/equipment.lst":        "",
+					"stackable/trade_consumable.stk": "[stackable type] `[waste]`\n[stack limit] 99\n",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				service := &Service{
+					pvfItemCatalog:     catalog,
+					options:            options{gameUpperBodyCodec: gameUpperBodyCodecPlain},
+					onlinePlayers:      newOnlinePlayerManager(),
+					repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+				}
+				firstConn, secondConn := &bufferConn{}, &bufferConn{}
+				channel := channelcatalog.Channel{ID: 42, Name: "ch.42"}
+				first := &gameSession{conn: firstConn, channel: channel, selectedCharacterID: 6, accountID: "a"}
+				second := &gameSession{conn: secondConn, channel: channel, selectedCharacterID: 47, accountID: "b"}
+				service.bindGameSessionCharacter(first, 6)
+				service.bindGameSessionCharacter(second, 47)
+				service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 6, TownID: 38, AreaID: 0, Session: first})
+				service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 47, TownID: 38, AreaID: 0, Session: second})
+				service.beginOnlineItemTrade(first, second)
+
+				for _, request := range [][]byte{
+					buildOnlineItemTradeMoveRequest(0, 97, 0x12345678, 1, currentItemTradeListType, 0),
+					buildOnlineItemTradeMoveRequest(0, 0, 0, 100_000, currentItemTradeListType, 0),
+				} {
+					if handled, err := service.handleAlignedGameCommand(first, byte(dnfenum.GameCmdCommand), currentItemTradeMoveMsg, request); err != nil || !handled {
+						t.Fatalf("offer handled=%t err=%v", handled, err)
+					}
+				}
+				for _, participant := range []*gameSession{first, second} {
+					if err := service.handleOnlineItemTradeState(participant, currentItemTradeAddRequest); err != nil {
+						t.Fatalf("adding done char=%d err=%v", participant.selectedCharacterID, err)
+					}
+				}
+				if err := service.handleOnlineItemTradeState(first, currentItemTradeReady); err != nil {
+					t.Fatalf("first final confirmation err=%v", err)
+				}
+				firstConn.write.Reset()
+				secondConn.write.Reset()
+
+				failingSession, failingConn := first, firstConn
+				healthySession, healthyConn := second, secondConn
+				if recipient == "second" {
+					failingSession, failingConn, healthySession, healthyConn = second, secondConn, first, firstConn
+				}
+				injectedErr := errors.New("injected " + recipient + " " + stage.name + " write failure")
+				failingSession.conn = &onlineItemTradeStageFailingConn{
+					bufferConn: failingConn, msgID: stage.msgID, classification: 0, err: injectedErr,
+				}
+				var otherErr error
+				if recipient == "both" {
+					otherErr = errors.New("injected second recipient " + stage.name + " write failure")
+					healthySession.conn = &onlineItemTradeStageFailingConn{
+						bufferConn: healthyConn, msgID: stage.msgID, classification: 0, err: otherErr,
+					}
+				}
+				err = service.handleOnlineItemTradeState(second, currentItemTradeReady)
+				if !errors.Is(err, injectedErr) {
+					t.Fatalf("second final confirmation err=%v, want injected %s failure", err, stage.name)
+				}
+				if otherErr != nil && !errors.Is(err, otherErr) {
+					t.Fatalf("second recipient was skipped or its error was lost: %v", err)
+				}
+
+				failingMessages := onlineItemTradeCompletionMessageIDs(t, failingConn.write.Bytes())
+				if !equalMessageIDs(failingMessages, stage.prefix) {
+					t.Fatalf("failing recipient messages=%v, want prefix %v", failingMessages, stage.prefix)
+				}
+				healthyMessages := onlineItemTradeCompletionMessageIDs(t, healthyConn.write.Bytes())
+				wantHealthyPrefix := []uint16{
+					currentItemTradeFinishMsg,
+					uint16(dnfenum.CmdPacketWalkoutPartyMember),
+					uint16(dnfenum.CmdPacketLeaveParty),
+				}
+				if recipient == "both" {
+					if !equalMessageIDs(healthyMessages, stage.prefix) {
+						t.Fatalf("second failing recipient messages=%v, want prefix %v", healthyMessages, stage.prefix)
+					}
+				} else if len(healthyMessages) < len(wantHealthyPrefix) || !equalMessageIDs(healthyMessages[:len(wantHealthyPrefix)], wantHealthyPrefix) {
+					t.Fatalf("healthy recipient messages=%v, want prefix %v", healthyMessages, wantHealthyPrefix)
+				}
+				wantFinishBody := []byte{0, 0}
+				if healthySession.selectedCharacterID == 47 {
+					// Character 6 sends both an item and gold, so the healthy
+					// recipient receives the gold row followed by the item row.
+					wantFinishBody = []byte{2, 0, 0, 0, 0, 0, 3, 0, 3, 0}
+				}
+				if recipient != "both" || stage.name != "completion" {
+					assertOnlineItemTradeFinishPacket(t, healthyConn.write.Bytes(), wantFinishBody)
+				}
+
+				if service.currentOnlineItemTrade(6) != nil || service.currentOnlineItemTrade(47) != nil {
+					t.Fatal("completed trade remained registered after recipient notification failure")
+				}
+				assertOnlineItemTradeCommittedOnce(t, ctx, repositories)
+
+				firstConn.write.Reset()
+				secondConn.write.Reset()
+				for _, participant := range []*gameSession{first, second} {
+					if err := service.handleOnlineItemTradeState(participant, currentItemTradeReady); err != nil {
+						t.Fatalf("duplicate confirmation char=%d err=%v", participant.selectedCharacterID, err)
+					}
+				}
+				if messages := onlineItemTradeCompletionMessageIDs(t, firstConn.write.Bytes()); len(messages) != 0 {
+					t.Fatalf("first duplicate confirmation replayed completion messages=%v", messages)
+				}
+				if messages := onlineItemTradeCompletionMessageIDs(t, secondConn.write.Bytes()); len(messages) != 0 {
+					t.Fatalf("second duplicate confirmation replayed completion messages=%v", messages)
+				}
+				assertOnlineItemTradeCommittedOnce(t, ctx, repositories)
+			})
+		}
+	}
+}
+
+func onlineItemTradeCompletionMessageIDs(t *testing.T, data []byte) []uint16 {
+	t.Helper()
+	ids := make([]uint16, 0, 4)
+	for len(data) > 0 {
+		if len(data) < 13 {
+			t.Fatalf("truncated trade completion packet: %x", data)
+		}
+		length := int(binary.LittleEndian.Uint32(data[3:7]))
+		if length < 13 || length > len(data) {
+			t.Fatalf("invalid trade completion packet length=%d remaining=%d", length, len(data))
+		}
+		msgID := binary.LittleEndian.Uint16(data[1:3])
+		switch msgID {
+		case currentItemTradeFinishMsg, uint16(dnfenum.CmdPacketWalkoutPartyMember), uint16(dnfenum.CmdPacketLeaveParty):
+			ids = append(ids, msgID)
+		}
+		data = data[length:]
+	}
+	return ids
+}
+
+func equalMessageIDs(got, want []uint16) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func assertOnlineItemTradeCommittedOnce(t *testing.T, ctx context.Context, repositories dnfrepo.Group) {
+	t.Helper()
+	firstInventory, _, err := repositories.Inventory.Load(ctx, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondInventory, _, err := repositories.Inventory.Load(ctx, "47")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := firstInventory.Slots["0:97"]; present {
+		t.Fatalf("source inventory still contains traded item: %+v", firstInventory.Slots)
+	}
+	if got := secondInventory.Slots["0:3"]; got.ItemID != 10008073 || got.Count != 1 {
+		t.Fatalf("recipient item = %+v, want exactly one transferred item", got)
+	}
+	firstCharacter, _, err := repositories.Character.Load(ctx, "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCharacter, _, err := repositories.Character.Load(ctx, "47")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 137_000 {
+		t.Fatalf("gold after commit first=%d second=%d, want one settlement", firstCharacter.Stats["gold"], secondCharacter.Stats["gold"])
 	}
 }
 
@@ -266,11 +500,11 @@ func TestOnlineItemTradeProjectsAndAtomicallyCommitsGold(t *testing.T) {
 	}
 	firstCharacter, _, _ := repositories.Character.Load(ctx, "1")
 	secondCharacter, _, _ := repositories.Character.Load(ctx, "5")
-	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 140_000 {
+	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 137_000 {
 		t.Fatalf("gold after trade first=%d second=%d", firstCharacter.Stats["gold"], secondCharacter.Stats["gold"])
 	}
-	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), 0)
-	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), 0)
+	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), []byte{0, 0})
+	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), []byte{1, 0, 0, 0, 0, 0})
 }
 
 func buildOnlineItemTradeMoveRequest(sourceList byte, sourceSlot int16, itemID, count int32, destinationList byte, destinationSlot int16) []byte {
@@ -284,16 +518,13 @@ func buildOnlineItemTradeMoveRequest(sourceList byte, sourceSlot int16, itemID, 
 	return body
 }
 
-func assertOnlineItemTradeFinishPacket(t *testing.T, data []byte, wantCount uint16) {
+func assertOnlineItemTradeFinishPacket(t *testing.T, data []byte, wantBody []byte) {
 	t.Helper()
 	for len(data) > 0 {
 		packet, rest := splitGameServerUpperPacket(t, data)
 		if packet.Header.Classification == 0 && packet.Header.MsgID == currentItemTradeFinishMsg {
-			if len(packet.Body) < 2 || binary.LittleEndian.Uint16(packet.Body[:2]) != wantCount {
-				t.Fatalf("finish body = % X, want count %d", packet.Body, wantCount)
-			}
-			if wantCount == 1 && (len(packet.Body) != 6 || binary.LittleEndian.Uint16(packet.Body[2:4]) != 3 || binary.LittleEndian.Uint16(packet.Body[4:6]) != 3) {
-				t.Fatalf("finish transfer body = % X", packet.Body)
+			if !bytes.Equal(packet.Body, wantBody) {
+				t.Fatalf("finish body = % X, want % X", packet.Body, wantBody)
 			}
 			return
 		}

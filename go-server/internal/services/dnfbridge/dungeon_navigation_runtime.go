@@ -121,6 +121,7 @@ type runtimePartyDungeonEntryPlan struct {
 	randomizedObjects *currentDungeonRandomizedOwner
 	dungeonID         int64
 	mazeIndex         int
+	storyQuestID      int64
 	maps              map[worldmap.RoomCoordinate]int64
 	room              worldmap.RoomCoordinate
 	mapID             int64
@@ -325,6 +326,11 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	if prepared == nil {
+		if err := s.validateCurrentRiftPartyUnlock(ctx, session, partyStateAtRequest, int64(request.DungeonID)); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
+	}
 	var runtime *runtimeDungeonState
 	var scene worldmap.DungeonRoomScene
 	if prepared != nil {
@@ -839,6 +845,7 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		randomizedObjects: leaderRuntime.randomizedObjects,
 		dungeonID:         leaderRuntime.Dungeon.ID,
 		mazeIndex:         leaderRuntime.MazeIndex,
+		storyQuestID:      leaderRuntime.storyExperience.QuestID,
 		room:              leaderScene.Coordinate,
 		mapID:             leaderScene.Map.Map.ID,
 		boss:              leaderRuntime.BossCoordinate,
@@ -1021,14 +1028,17 @@ func runtimePartyMemberIndexForSession(session *gameSession) (byte, bool) {
 	return runtimePartyMemberIndex(session.selectedCharacterID, runtimePartyStateSnapshot(session))
 }
 
+// runtimePartyMemberIndex returns the normalized fixed slot, not the slice index.
+// runtimePartyMembers has already expanded legacy all-zero slots to 0..n-1.
+// A one-member roster keeps the existing (0, false) sentinel.
 func runtimePartyMemberIndex(characterID uint16, state alignedcmd.PartyState) (byte, bool) {
 	members := runtimePartyMembers(state)
 	if len(members) <= 1 {
 		return 0, false
 	}
-	for index, member := range members {
-		if member.UserID == characterID && index <= int(^uint8(0)) {
-			return byte(index), true
+	for _, member := range members {
+		if member.UserID == characterID {
+			return member.Slot, true
 		}
 	}
 	return 0, false
@@ -1204,11 +1214,20 @@ func (s *Service) sendSelectDungeonFailure(session *gameSession, reason byte) er
 	return s.sendGameUpperRaw(session, uint16(dnfenum.CmdPacketSelectDungeon), []byte{0, reason, 0})
 }
 
+func (s *Service) sendSelectDungeonFailureForError(session *gameSession, reason byte, err error) error {
+	if reason == currentSelectDungeonMissingPermissionReason && errors.Is(err, errDungeonMapQuestRequired) {
+		return s.sendCurrentRiftUnlockFailure(session, err)
+	}
+	return s.sendSelectDungeonFailure(session, reason)
+}
+
 // currentSelectDungeonEntryFailureReason 把一次进图前置失败映射成
 // `{u8 0}{u8 reason}{u8 context}` 里的 reason 字节，并给出给日志用的稳定类别串。
 // 未知失败按厂商 default（DungeonUnavailable）回 0x01 —— 静默丢弃才是缺陷。
 func currentSelectDungeonEntryFailureReason(err error) (byte, string) {
 	switch {
+	case errors.Is(err, errDungeonMapQuestRequired):
+		return currentSelectDungeonMissingPermissionReason, "entry_map_quest_required"
 	case errors.Is(err, dnfdungeon.ErrDayDungeonClosed):
 		return currentSelectDungeonUnavailableReason, "entry_day_dungeon_closed"
 	case errors.Is(err, dnfdungeon.ErrDailyEntryLimit):
@@ -1295,15 +1314,25 @@ func (s *Service) refuseDungeonSelectEntry(
 	if hellPartySelectRequested(request) && !s.hellPartyEntryGate().enforces() {
 		reply, suppressed = false, "hell_party_legacy_mode_keeps_pre_change_silence"
 	}
+	var unlockFailure *dungeonMapQuestRequiredError
+	unlockNotice := reason == currentSelectDungeonMissingPermissionReason && errors.As(err, &unlockFailure) && s.currentRiftEntryEnabled(unlockFailure.dungeonID)
+	wireReason := reason
+	if unlockNotice {
+		wireReason = currentSelectDungeonInvalidSelectionStateReason
+	}
 	fields := []any{
 		"char_id", sessionSelectedCharacterID(session),
 		"dungeon_id", request.DungeonID,
 		"difficulty", request.Difficulty,
 		"reason", siteReason,
 		"failure_class", class,
-		"failure_reason_byte", reason,
+		"failure_reason_byte", wireReason,
 		"reply_sent", reply,
 		"failure_body_source", "a21_dungeon_admission_reject_0_success_1_reason_2_context",
+	}
+	if unlockNotice {
+		fields = append(fields, "unlock_character_id", unlockFailure.characterID,
+			"unlock_quest_id", unlockFailure.questID, "unlock_text_notice", true)
 	}
 	fields = append(fields, extra...)
 	fields = append(fields, "error", err)
@@ -1314,7 +1343,7 @@ func (s *Service) refuseDungeonSelectEntry(
 	if !reply {
 		return nil
 	}
-	return s.sendSelectDungeonFailure(session, reason)
+	return s.sendSelectDungeonFailureForError(session, reason, err)
 }
 
 func sameSelectDungeonRequest(left, right dungeoncmd.SelectDungeonRequest) bool {
@@ -1505,6 +1534,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 			"next_y", request.NextY,
 			"reason", "dungeon_runtime_missing")
 		return nil
+	}
+	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+		return err
 	}
 	plan, err := s.planCurrentDungeonMove(runtime, request)
 	if err != nil {

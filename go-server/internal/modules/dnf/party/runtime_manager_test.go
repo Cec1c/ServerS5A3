@@ -24,7 +24,7 @@ func TestRuntimePartyManagerLeaderLeaveRebuildsFreshPartyGeneration(t *testing.T
 	if left.Retired.ID != created.Party.ID || left.Party.ID == created.Party.ID {
 		t.Fatalf("party generations old=%d retired=%d new=%d", created.Party.ID, left.Retired.ID, left.Party.ID)
 	}
-	if left.Party.Leader != 202 || len(left.Party.Members) != 1 || left.Party.Members[0].Slot != 0 {
+	if left.Party.Leader != 202 || len(left.Party.Members) != 1 || left.Party.Members[0].Slot != 1 {
 		t.Fatalf("rebuilt party = %+v", left.Party)
 	}
 	if _, found := manager.SnapshotByID(created.Party.ID); found {
@@ -35,9 +35,9 @@ func TestRuntimePartyManagerLeaderLeaveRebuildsFreshPartyGeneration(t *testing.T
 	}
 }
 
-// 移交队长会重建队伍代数（Retired 带出旧队），并且新队长必须落到 slot 0：
-// 当前客户端没有独立的队长字段，slot0 就是队长（与 A21 的 MoveToSlotZero 同一条规则）。
-func TestRuntimePartyManagerTransferLeaderPutsNewLeaderInSlotZero(t *testing.T) {
+// 移交队长会重建队伍代数（Retired 带出旧队），但新队长保留自己原来的固定槽位。
+// 队长身份由 Leader/IsLeader 与 op9 的队长行字段表达，不再靠把成员重排到 slot 0。
+func TestRuntimePartyManagerTransferLeaderPreservesFixedSlots(t *testing.T) {
 	manager := NewRuntimePartyManager()
 	created := manager.Create(testRuntimePartyMember(101, 1), alignedcmd.PartyState{MaxMembers: 4})
 	for _, userID := range []uint16{202, 303} {
@@ -46,26 +46,29 @@ func TestRuntimePartyManagerTransferLeaderPutsNewLeaderInSlotZero(t *testing.T) 
 		}
 	}
 	transferred := manager.TransferLeader(101, 1, 303, 1)
-	if !transferred.OK || !transferred.LeaderMoved || transferred.Retired == nil {
+	if !transferred.OK || !transferred.LeaderMoved || transferred.Retired != nil || transferred.Previous == nil {
 		t.Fatalf("transfer result = %+v", transferred)
 	}
 	if transferred.Party.Leader != 303 {
 		t.Fatalf("leader = %d, want 303", transferred.Party.Leader)
 	}
-	if transferred.Retired.ID != created.Party.ID || transferred.Party.ID == created.Party.ID {
+	if transferred.Previous.ID != created.Party.ID || transferred.Party.ID != created.Party.ID {
 		t.Fatalf("party generations old=%d retired=%d new=%d",
-			created.Party.ID, transferred.Retired.ID, transferred.Party.ID)
+			created.Party.ID, transferred.Previous.ID, transferred.Party.ID)
 	}
-	if got := runtimePartySlot(transferred.Party, 303); got != 0 {
-		t.Fatalf("new leader slot = %d, want slot 0 (%+v)", got, transferred.Party.Members)
+	if got := runtimePartySlot(transferred.Party, 303); got != 2 {
+		t.Fatalf("new leader slot = %d, want preserved slot 2 (%+v)", got, transferred.Party.Members)
+	}
+	if got := runtimePartySlot(transferred.Party, 101); got != 0 {
+		t.Fatalf("former leader slot = %d, want preserved slot 0 (%+v)", got, transferred.Party.Members)
 	}
 	for _, member := range transferred.Party.Members {
-		if member.UserID != 303 && member.Slot == 0 {
-			t.Fatalf("slot 0 still owned by %d: %+v", member.UserID, transferred.Party.Members)
+		if member.UserID != 101 && member.Slot == 0 {
+			t.Fatalf("slot 0 moved to %d: %+v", member.UserID, transferred.Party.Members)
 		}
 	}
-	if _, found := manager.SnapshotByID(created.Party.ID); found {
-		t.Fatal("retired party remained addressable")
+	if current, found := manager.SnapshotByID(created.Party.ID); !found || current.Leader != 303 {
+		t.Fatal("existing party ID did not resolve to new leader")
 	}
 	for _, userID := range []uint16{101, 202, 303} {
 		if current, found := manager.SnapshotByUser(userID, 1); !found || current.ID != transferred.Party.ID {

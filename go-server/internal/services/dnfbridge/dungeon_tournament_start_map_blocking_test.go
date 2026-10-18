@@ -59,11 +59,11 @@ func tournamentStartMapBlockingFixture(t *testing.T) (*runtimeDungeonState, worl
 	if !ok {
 		t.Fatalf("fixture tournament runtime rejected: %s", reason)
 	}
-	monsters, err := tournamentRoomMonsters(definition, tournament)
+	roomActors, err := tournamentRoomActors(definition, tournament)
 	if err != nil {
-		t.Fatalf("project tournament room monsters: %v", err)
+		t.Fatalf("project tournament room actors: %v", err)
 	}
-	if err := topology.ProjectTournamentRoomActors(*topology.Start, monsters); err != nil {
+	if err := topology.ProjectTournamentRoomActors(*topology.Start, roomActors); err != nil {
 		t.Fatal(err)
 	}
 	run, err := worldmap.NewDungeonRun(topology)

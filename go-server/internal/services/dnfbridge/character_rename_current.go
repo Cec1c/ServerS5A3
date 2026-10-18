@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -42,7 +43,12 @@ func (s *Service) handleCurrentCharacterRename(session *gameSession, body []byte
 	op := uint16(dnfenum.CmdPacketChangeCharacName)
 	fail := func(err error) error {
 		s.logGameEvent(session, "game-character-rename-rejected", "error", err)
-		return s.sendGameUpperFailure(session, op, 2)
+		code := byte(2)
+		if errors.Is(err, dnfrepo.ErrCharacterNameExists) {
+			// 当前EXE的op135用0x14提示重名；0x02会误报数据库问题。
+			code = 0x14
+		}
+		return s.sendGameUpperFailure(session, op, code)
 	}
 	request, err := decodeCharacterRenameRequest(body)
 	if err != nil {

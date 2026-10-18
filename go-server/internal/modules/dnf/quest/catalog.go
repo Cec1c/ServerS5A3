@@ -79,7 +79,7 @@ type FinishRewardPlan struct {
 	QuestID             int64
 	PVFPath             string
 	QuestLevel          int
-	Difficulty          rune
+	Difficulty          string
 	IgnoreLevel4Exp     bool
 	HasGoldReward       bool
 	GoldMultiple        int
@@ -628,13 +628,18 @@ func (c *Catalog) PlanFinishReward(character CharacterEligibility, questID int64
 		QuestID:         definition.ID,
 		PVFPath:         definition.Path,
 		QuestLevel:      definition.LevelMin,
-		Difficulty:      'G',
+		Difficulty:      "G",
 		IgnoreLevel4Exp: definition.IgnoreQuestLevel4Exp,
 		HasGoldReward:   definition.HasGoldReward,
 		GoldMultiple:    definition.GoldMultiple,
 	}
-	if difficulty := []rune(strings.TrimSpace(definition.Difficulty)); len(difficulty) == 1 {
-		plan.Difficulty = difficulty[0]
+	// `[difficulty]` is a string key: the runtime PVF declares both one-character
+	// ranks and the two-digit ranks `10`..`17`, so keep the whole trimmed token
+	// (upper-cased, since the data mixes `f`/`F`) instead of requiring a single
+	// rune. Dropping the two-digit ranks silently downgraded those main quests to
+	// the default `G` weight.
+	if difficulty := strings.ToUpper(strings.TrimSpace(definition.Difficulty)); difficulty != "" {
+		plan.Difficulty = difficulty
 	}
 	rewardType := normalizeQuestTag(definition.RewardType)
 	if rewardType == "" {
@@ -1093,15 +1098,14 @@ func seekAndMeetNPCInitialTrigger(values []int64) uint32 {
 	if len(values) < 3 {
 		return 1
 	}
-	itemCount := values[1]
-	if itemCount <= 0 {
-		itemCount = 1
-	}
 	meetNPCCount := int64(0)
-	if values[2] > 0 {
+	if values[len(values)-1] > 0 {
 		meetNPCCount = 1
 	}
-	return packTriggerChannels(itemCount, meetNPCCount, 0)
+	// The client evaluates all item/count pairs as one material predicate.
+	// Its satisfied branch sends one decrement per remaining low-channel
+	// unit; putting an item quantity here amplifies snapshot callbacks.
+	return packTriggerChannels(1, meetNPCCount, 0)
 }
 
 func questClearInitialTrigger(values []int64, completed map[int64]struct{}) uint32 {

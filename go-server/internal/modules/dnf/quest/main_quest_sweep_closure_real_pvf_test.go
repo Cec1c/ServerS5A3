@@ -238,11 +238,13 @@ func TestRealScriptPVFCouponSweepRepairsTheLiveDanglingFarewellMomentState(t *te
 	listBefore := catalog.QuestList(eligibility, live)
 	t.Logf("acceptable list before repair=%d after repair=%d (preflight-excluded %d -> %d)",
 		len(listBefore.IDs), len(list.IDs), listBefore.PreflightExcluded, list.PreflightExcluded)
-	// Only 3972/3973 leave the excluded set. The unrelated hidden-parent
-	// family remains outside both the sweep and the client list.
-	assertRealPVFPreflightExcludedIDs(t, catalog, eligibility, live, []int32{3972, 3973, 12075, 12076, 12077, 12078})
-	assertRealPVFPreflightExcludedIDs(t, catalog, eligibility, plan.Record, []int32{12075, 12076, 12077, 12078})
-	assertHiddenParentOutsideCouponSweep(t, catalog, plan.Record)
+	unrelated := assertHiddenChainOutsideMainStorySweep(t, catalog, eligibility, plan.Record, list)
+	if listBefore.PreflightExcluded != unrelated+2 {
+		t.Fatalf("dangling shape must add exactly two filtered [sub] rows: excluded=%d unrelated=%d", listBefore.PreflightExcluded, unrelated)
+	}
+	if list.PreflightExcluded != unrelated {
+		t.Fatalf("repair must leave only unrelated hidden children filtered: excluded=%d want=%d", list.PreflightExcluded, unrelated)
+	}
 	assertClientListSatisfiesAcceptPreflight(t, catalog, eligibility, plan.Record)
 }
 

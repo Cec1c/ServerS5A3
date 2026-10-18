@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import socket
@@ -58,6 +59,16 @@ def compose(*args):
     run("docker", "compose", "-p", PROJECT, "-f", RUNTIME / "compose.json", *args)
 
 
+def management_token(c):
+    # Validate before preparation touches assets, instance.json or Compose.
+    if c.get("gm_enabled", False) is not False:
+        raise ValueError("GM moved to https://github.com/Cec1c/DNF90GM; migrate it separately before regenerating this profile")
+    token = c.get("player_admin_secret", "")
+    if not isinstance(token, str) or (token and not re.fullmatch(r"[0-9a-f]{32,128}", token)):
+        raise ValueError("player_admin_secret must be a generated hex secret of at least 32 characters")
+    return token
+
+
 def check_network(config):
     subnet = ipaddress.ip_network(config["subnet"])
     private_ipv4(str(subnet.network_address))
@@ -97,6 +108,7 @@ def prepare(args):
             "body_codec": "plaintext", "client_body_codec": "plaintext",
             "default_group_login_only": True,
         }
+    management_token(config)
     private_ipv4(config["host_ip"])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((config["host_ip"], 0))
@@ -145,6 +157,16 @@ def prepare(args):
 
 
 def generate(c, catalog):
+    solo_create = c.get("guild_solo_create", False)
+    if type(solo_create) is not bool:
+        raise ValueError("guild_solo_create must be a boolean")
+    advertised_server = c.get("channel_advertise_server", 0)
+    if type(advertised_server) is not int or not 0 <= advertised_server < 250:
+        raise ValueError("channel_advertise_server must be an integer from 0 to 249")
+    multiplier = c.get("main_quest_exp_multiplier")
+    if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
+        raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
+    game_token = management_token(c)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
         directory.mkdir(parents=True, exist_ok=True)
@@ -209,11 +231,12 @@ create_databases = false
                                                    "dnf.repository.read_database": "dnf_local"}}]}
     write(server / "configs/servergroup/plan.json", json.dumps(plan, indent=2))
     env = {
+        "DNFBRIDGE_GUILD_SOLO_CREATE": str(solo_create).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
         "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",
         "DNFBRIDGE_CHANNEL_INFO_BODY_MODE": "latest", "DNFBRIDGE_CHANNEL_SERVER_INDEX": "1",
-        "DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": "0", "DNF_SCRIPT_VERSION": "59",
+        "DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": str(advertised_server), "DNF_SCRIPT_VERSION": "59",
         "DNFBRIDGE_CURRENT_CLIENT_VERSION": c.get("client_version", "official-24.9"),
         "DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY": str(c.get("default_group_login_only", True)).lower(),
         "DNFBRIDGE_GAME_UPPER_HEADER": "server16", "DNFBRIDGE_GAME_UPPER_BODY_CODEC": c["body_codec"],
@@ -226,6 +249,10 @@ create_databases = false
         "GOMEMLIMIT": c.get("go_memory_limit", "3500MiB"),
         "TZ": c.get("timezone", "Asia/Shanghai"),
     }
+    if game_token:
+        env["DNFBRIDGE_PLAYER_ADMIN_SECRET"] = game_token
+    if multiplier is not None:
+        env["DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"] = str(multiplier)
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}

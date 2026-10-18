@@ -285,8 +285,9 @@ func (m *RuntimePartyManager) leaveLocked(userID uint16, generation uint64, allo
 	}
 
 	// The current client cannot safely consume a same-id leader replacement.
-	// Retire the generation and rebuild surviving members under a new id with
-	// the successor in slot zero, matching the tested 86JP lifecycle.
+	// Retire the generation and rebuild surviving members under a new id. The
+	// successor keeps its fixed slot; leadership is carried by Leader/UserID and
+	// the roster's separate leader-row field, not by renumbering slot zero.
 	members := party.membersBySlot()
 	newLeader := members[0]
 	delete(m.parties, party.id)
@@ -338,9 +339,9 @@ func (m *RuntimePartyManager) Kick(byUser uint16, byGeneration uint64, targetUse
 	return result
 }
 
-// TransferLeader is implemented as a full replacement generation rather than
-// an in-place slot swap. The retired snapshot lets the bridge clear the old
-// client table before it publishes the new party, avoiding stale slot links.
+// TransferLeader changes authority within the existing party. Membership,
+// fixed slots and relay endpoints remain valid. Leave retains its separate
+// retirement behavior when the leader actually leaves the party.
 func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64, newLeader uint16, newLeaderGeneration uint64) RuntimePartyResult {
 	if m == nil || byUser == 0 || newLeader == 0 || byGeneration == 0 || newLeaderGeneration == 0 {
 		return runtimePartyFailure("invalid_leader_transfer")
@@ -358,21 +359,13 @@ func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64,
 	if next == nil || next.SessionGeneration != newLeaderGeneration {
 		return runtimePartyFailure("stale_target_session")
 	}
-	retired := snapshotRuntimeParty(party)
-	members := party.membersBySlot()
-	delete(m.parties, party.id)
-	for _, member := range members {
-		delete(m.byUser, member.UserID)
-	}
-	rebuilt := m.rebuildLocked(party, *next, members)
-	m.parties[rebuilt.id] = rebuilt
-	for _, member := range rebuilt.membersBySlot() {
-		m.byUser[member.UserID] = rebuilt.id
-	}
-	result := runtimePartySuccess(rebuilt, newLeader)
-	result.Previous = &retired
+	previous := snapshotRuntimeParty(party)
+	party.leader = next.UserID
+	party.settings.UserID = next.UserID
+	party.settings.IsLeader = true
+	result := runtimePartySuccess(party, newLeader)
+	result.Previous = &previous
 	result.LeaderMoved = true
-	result.Retired = &retired
 	return result
 }
 
@@ -454,9 +447,9 @@ func (m *RuntimePartyManager) RebindSession(userID uint16, priorGeneration uint6
 	return runtimePartySuccess(party, userID)
 }
 
-// Reposition moves a non-leader member between persistent party slots. The
-// wire command is issued by the leader; slot zero remains leader-owned because
-// the current EXE derives leadership from its first roster entry.
+// Reposition moves a non-leader member between persistent party slots. The wire
+// command is issued by the leader. Slot zero is an ordinary fixed slot here;
+// leadership stays with party.leader and must never be swapped away.
 func (m *RuntimePartyManager) Reposition(byUser uint16, byGeneration uint64, fromSlot uint8, toSlot uint8) RuntimePartyResult {
 	if m == nil || byUser == 0 || byGeneration == 0 || fromSlot >= currentRuntimePartyMaxMembers || toSlot >= currentRuntimePartyMaxMembers || fromSlot == toSlot {
 		return runtimePartyFailure("invalid_reposition")
@@ -470,8 +463,11 @@ func (m *RuntimePartyManager) Reposition(byUser uint16, byGeneration uint64, fro
 	if party.leader != byUser {
 		return runtimePartyFailure("not_leader")
 	}
-	if fromSlot == 0 || toSlot == 0 || party.members[fromSlot] == nil {
+	if party.members[fromSlot] == nil || party.members[fromSlot].UserID == party.leader {
 		return runtimePartyFailure("invalid_source_slot")
+	}
+	if destination := party.members[toSlot]; destination != nil && destination.UserID == party.leader {
+		return runtimePartyFailure("invalid_destination_slot")
 	}
 	party.members[fromSlot], party.members[toSlot] = party.members[toSlot], party.members[fromSlot]
 	if party.members[fromSlot] != nil {
@@ -502,9 +498,11 @@ func (m *RuntimePartyManager) rebuildLocked(source *runtimeParty, leader Runtime
 	rebuilt.settings.PartyID = int(rebuilt.id)
 	rebuilt.settings.UserID = leader.UserID
 	rebuilt.settings.IsLeader = true
-	_ = rebuilt.add(leader)
 	for _, member := range members {
-		if member.UserID != leader.UserID {
+		if member.UserID == leader.UserID {
+			member = leader
+		}
+		if !rebuilt.addAt(member, member.Slot) {
 			_ = rebuilt.add(member)
 		}
 	}
@@ -564,12 +562,22 @@ func (p *runtimeParty) add(member RuntimePartyMember) bool {
 		if p.members[slot] != nil {
 			continue
 		}
-		member.Slot = byte(slot)
-		member.State = normalizeRuntimePartyMember(member.State, member.UserID)
-		p.members[slot] = &member
-		return true
+		return p.addAt(member, byte(slot))
 	}
 	return false
+}
+
+// addAt preserves a member's fixed slot across rebuilds. Slot zero is valid;
+// callers that need a fresh slot use add instead.
+func (p *runtimeParty) addAt(member RuntimePartyMember, slot byte) bool {
+	if p == nil || !validRuntimePartyMember(member) || p.full() || p.member(member.UserID) != nil || int(slot) >= len(p.members) || p.members[slot] != nil {
+		return false
+	}
+	member.Slot = slot
+	member.State = normalizeRuntimePartyMember(member.State, member.UserID)
+	member.State.Slot = slot
+	p.members[slot] = &member
+	return true
 }
 
 func (p *runtimeParty) remove(userID uint16) bool {
@@ -609,7 +617,9 @@ func (s RuntimePartySnapshot) StateFor(userID uint16) alignedcmd.PartyState {
 	state.IsLeader = s.Leader == userID
 	state.Members = make([]alignedcmd.PartyMemberState, 0, len(s.Members))
 	for _, member := range s.Members {
-		state.Members = append(state.Members, normalizeRuntimePartyMember(member.State, member.UserID))
+		projected := normalizeRuntimePartyMember(member.State, member.UserID)
+		projected.Slot = member.Slot
+		state.Members = append(state.Members, projected)
 	}
 	return state
 }

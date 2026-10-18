@@ -105,10 +105,10 @@ func invWalkMailboxList(t *testing.T, body []byte, creatureFlags []bool) invWalk
 		tailStart := cursor.off
 		cursor.u32(t, "summary gold")
 		itemID := cursor.u32(t, "summary item id")
-		hasItem := cursor.u8(t, "summary has item")
+		creationSeal := cursor.u8(t, "summary item creation seal")
 		cursor.u32(t, "summary item count")
 		cursor.u16(t, "summary item durability")
-		cursor.u8(t, "summary item bind")
+		cursor.u8(t, "summary item seal")
 		cursor.u32(t, "summary item expiration")
 		cursor.u8(t, "summary item byte 0x12")
 		cursor.u8(t, "summary item byte 0x13")
@@ -117,11 +117,11 @@ func invWalkMailboxList(t *testing.T, body []byte, creatureFlags []bool) invWalk
 			cursor.u32(t, "type-26 detail dword")
 			cursor.u8(t, "type-26 detail flag")
 		}
-		cursor.need(t, mailboxItemRawSize, "summary 0x77 item row")
+		raw := cursor.need(t, mailboxItemRawSize, "summary 0x77 item row")
 		cursor.u32(t, "summary remaining seconds")
 		cursor.u32(t, "summary claim mail id")
 		cursor.u8(t, "summary mail type")
-		span := invSummarySpan{start: start, end: cursor.off, hasItem: hasItem == 1, width: cursor.off - start}
+		span := invSummarySpan{start: start, end: cursor.off, hasItem: itemID != 0, width: cursor.off - start}
 		tail := cursor.off - tailStart
 		wantTail := invMailboxSummaryTailWidth
 		if creatureFlags[index] {
@@ -134,11 +134,15 @@ func invWalkMailboxList(t *testing.T, body []byte, creatureFlags []bool) invWalk
 			t.Fatalf("summary[%d] width=%d, want head %d + name %d + tail %d",
 				index, span.width, invMailboxSummaryHeadWidth, cursor.nameLen, wantTail)
 		}
-		if hasItem == 1 && itemID == 0 {
-			t.Fatalf("summary[%d] claims an item row with item id 0", index)
+		wantCreationSeal := byte(0)
+		if raw[13] != 0 {
+			wantCreationSeal = 1
 		}
-		if hasItem == 0 && itemID != 0 {
-			t.Fatalf("summary[%d] has no item row but carries item id %d", index, itemID)
+		if binary.LittleEndian.Uint32(raw[2:6]) != itemID || creationSeal != wantCreationSeal {
+			t.Fatalf("summary[%d] item identity or creation seal disagrees with its item row", index)
+		}
+		if itemID == 0 && creationSeal != 0 {
+			t.Fatalf("summary[%d] has creation seal without an item", index)
 		}
 		result.summaries = append(result.summaries, span)
 	}

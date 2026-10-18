@@ -102,7 +102,7 @@ func TestMailboxAttachmentRowCarriesDurabilityEvidence(t *testing.T) {
 	// 下发行里 itemID(count) 之后紧跟的就是那个 u16 耐久字段。
 	needle := []byte{
 		0x29, 0x23, 0x00, 0x00, // itemID 9001
-		0x01,                   // attached flag
+		0x00,                   // 原生创建封装参数；无封装证据为0，附件由itemID识别。
 		0x01, 0x00, 0x00, 0x00, // count 1
 		0x39, 0x00, // durability 57
 	}

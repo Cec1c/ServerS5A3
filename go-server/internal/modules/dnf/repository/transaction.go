@@ -114,6 +114,16 @@ type CharacterAssetUnitOfWork interface {
 	WithinCharacterAssets(context.Context, string, func(CharacterRepository, InventoryRepository, EquipmentRepository) error) error
 }
 
+// CharacterAssetQuestUnitOfWork reads quest eligibility under the same asset
+// lock/transaction as a wallet mutation. It exposes no quest writes.
+type CharacterAssetQuestUnitOfWork interface {
+	WithinCharacterAssetsAndQuest(context.Context, string, func(CharacterRepository, QuestReader) error) error
+}
+
+type QuestReader interface {
+	Load(context.Context, string) (QuestRecord, bool, error)
+}
+
 // MailboxAssetUnitOfWork atomically moves wallet/inventory assets between one
 // character and one mailbox aggregate. The two owner IDs may differ for send
 // and are equal for attachment extraction.
@@ -203,4 +213,10 @@ func TransactionKeyError(ctx context.Context, expected string, actual string) er
 // the character receipt together. It never nests another asset transaction.
 type AccountCharacterMailboxAssetUnitOfWork interface {
 	WithinAccountCharacterMailboxAssets(context.Context, string, string, func(AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository, MailboxRepository) error) error
+}
+
+// AccountCharacterLedgerAssetUnitOfWork 将账号碎片账本与开盒消耗、金币、
+// 账号材料及奖励放进同一事务。实现须与拾取入账及图鉴制作共用账号锁。
+type AccountCharacterLedgerAssetUnitOfWork interface {
+	WithinAccountCharacterLedgerAssets(context.Context, string, string, func(AccountRepository, AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository) error) error
 }

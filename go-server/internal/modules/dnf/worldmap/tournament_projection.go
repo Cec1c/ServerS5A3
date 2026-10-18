@@ -2,7 +2,17 @@ package worldmap
 
 import "fmt"
 
-// ProjectTournamentRoomActors 用给定 actor 列表**替换**目标房间的 `[monster]` 列表。
+// TournamentRoomActors is the exact monster/APC split for one tournament map.
+// Monster candidates use the ordinary [monster] path; APC candidates retain
+// their native AICharacter type while carrying the real level and blocking
+// requirement from the tournament definition.
+type TournamentRoomActors struct {
+	Monsters     []MonsterSpawn
+	AICharacters []AICharacter
+}
+
+// ProjectTournamentRoomActors 用给定 actor 列表**替换**目标房间的普通怪物和
+// AICharacter 列表。
 //
 // 用途（唯一调用方：`dnfbridge/dungeon_tournament_entry.go`，且只在
 // `DNFBRIDGE_DUNGEON_TOURNAMENT` 显式打开时才调用）：
@@ -18,7 +28,7 @@ import "fmt"
 // Resolver 缓存与其它房间不受影响。
 func (t *DungeonTopology) ProjectTournamentRoomActors(
 	coordinate RoomCoordinate,
-	monsters []MonsterSpawn,
+	actors TournamentRoomActors,
 ) error {
 	if t == nil {
 		return ErrRunTopologyRequired
@@ -33,7 +43,8 @@ func (t *DungeonTopology) ProjectTournamentRoomActors(
 	}
 	projected := *room.Map
 	projected.Map = cloneMap(room.Map.Map)
-	projected.Map.Monsters = append([]MonsterSpawn(nil), monsters...)
+	projected.Map.Monsters = append([]MonsterSpawn(nil), actors.Monsters...)
+	projected.Map.AICharacters = cloneAICharacters(actors.AICharacters)
 	// 锦标赛的对手属于"敌方队伍"：`[monster team]` 段在这 5 张图里本就不存在，
 	// 这里把队伍表一并清掉，保证 monsterSpawnBlocksRoom 走"缺失即阻挡"的旧口径。
 	projected.Map.MonsterTeam = nil
