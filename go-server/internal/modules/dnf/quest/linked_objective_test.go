@@ -21,7 +21,7 @@ func linkedObjectiveTestCatalog(t *testing.T) *Catalog {
 		"n_quest/seekmeet.qst":   "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[seek n meet npc]`\n[main quest]\n3249\n[int data]\n3037 1 309\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/parent3347.qst": "[grade]\n`[epic]`\n[type]\n`[quest clear]`\n[int data]\n3425 3426\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/hunt.qst":       "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[hunt enemy]`\n[main quest]\n3347\n[int data]\n3 -1 13099 3 1\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
-		"n_quest/seeking.qst":    "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[seeking]`\n[main quest]\n3347\n[int data]\n3037 1\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
+		"n_quest/seeking.qst":    "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[meet npc]`\n[main quest]\n3347\n[int data]\n303\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/ordinary.qst":   "[grade]\n`[normal]`\n[type]\n`[hunt enemy]`\n[int data]\n3 -1 13099 3 1\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 	}
 	index, err := pvf.Build(context.Background(), source, pvf.BuildOptions{Lists: []string{DefaultList}})
@@ -61,6 +61,41 @@ func TestPlanLinkedObjectiveProgressCompletesNoRewardChildrenAndKeepsDungeonOwne
 	}
 	if !reflect.DeepEqual(finish.CompletedQuestIDs, []int64{3425}) || finish.ParentProgress != 0 || finish.Record.States[3347].ProgressValue != 0 {
 		t.Fatalf("finish plan=%+v", finish)
+	}
+}
+
+func TestMaterialLinkedObjectivesRequireTheOrdinaryFinishSettlement(t *testing.T) {
+	catalog := linkedObjectiveTestCatalog(t)
+	now := time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC)
+	record := dnfrepo.QuestRecord{CharacterID: "19", States: map[int64]dnfrepo.QuestState{
+		3249: {Status: "active", ProgressValue: 1},
+		3609: {Status: "completed", ProgressValue: 0},
+		3610: {Status: "active", ProgressValue: 0},
+	}}
+	if !catalog.IsLinkedObjective(3609) {
+		t.Fatal("pure dialogue child must retain the no-asset linked-objective path")
+	}
+	if catalog.IsLinkedObjective(3610) {
+		t.Fatal("material child must not use the quest-row-only linked-objective path")
+	}
+
+	town, err := catalog.PlanTownLinkedProgress(record, 3249, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !town.Handled || town.ParentProgress != 0 || len(town.CompletedQuestIDs) != 0 {
+		t.Fatalf("parent callback plan=%+v", town)
+	}
+	if got := town.Record.States[3610]; got.Status != "active" || got.ProgressValue != 0 || got.Extra["reward_state"] != "" {
+		t.Fatalf("parent callback claimed material child: %+v", got)
+	}
+
+	finish, err := catalog.PlanLinkedObjectiveFinish(town.Record, 3610, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finish.Handled || finish.Record.States[3610].Status != "active" {
+		t.Fatalf("direct material child used linked shortcut: %+v", finish)
 	}
 }
 

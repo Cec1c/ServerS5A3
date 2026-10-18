@@ -18,7 +18,7 @@ type LinkedObjectiveProgressPlan struct {
 
 func (c *Catalog) IsLinkedObjective(questID int64) bool {
 	definition, ok := c.Find(questID)
-	return ok && linkedObjectiveQuest(definition)
+	return ok && c.linkedObjectiveQuestWithoutAssetSettlement(definition)
 }
 
 // PlanTownLinkedProgress handles scalar callbacks for quest-clear parents and
@@ -56,7 +56,7 @@ func (c *Catalog) planLinkedObjectiveProgress(
 	}
 
 	parentID := requested.ID
-	requestedIsChild := linkedObjectiveQuest(requested)
+	requestedIsChild := c.linkedObjectiveQuestWithoutAssetSettlement(requested)
 	if requestedIsChild {
 		state, _, active := mutableQuestState(&plan.Record, requested.ID)
 		if !active || !isActiveQuestStatus(state.Status) || state.ProgressValue != 0 {
@@ -96,7 +96,8 @@ func (c *Catalog) planLinkedObjectiveProgress(
 		}
 		seen[childID] = struct{}{}
 		child, known := c.Find(childID)
-		if !known || child.MainQuestID != parentID || !linkedObjectiveQuest(child) || (townOnly && !townLinkedObjectiveQuest(child)) {
+		if !known || child.MainQuestID != parentID || !c.linkedObjectiveQuestWithoutAssetSettlement(child) ||
+			(townOnly && !c.townLinkedObjectiveQuestWithoutAssetSettlement(child)) {
 			continue
 		}
 		if _, done := completed[childID]; done {
@@ -185,4 +186,16 @@ func townLinkedObjectiveQuest(definition Definition) bool {
 	default:
 		return false
 	}
+}
+
+// A no-reward subquest can still require a material transaction. Only the
+// no-reward, no-material subset may use the quest-row-only linked-objective
+// shortcut; the remainder must pass through ApplyFinishSettlement.
+func (c *Catalog) linkedObjectiveQuestWithoutAssetSettlement(definition Definition) bool {
+	return linkedObjectiveQuest(definition) &&
+		len(finishRequiredItemRules(c, definition, CharacterEligibility{})) == 0
+}
+
+func (c *Catalog) townLinkedObjectiveQuestWithoutAssetSettlement(definition Definition) bool {
+	return c.linkedObjectiveQuestWithoutAssetSettlement(definition) && townLinkedObjectiveQuest(definition)
 }

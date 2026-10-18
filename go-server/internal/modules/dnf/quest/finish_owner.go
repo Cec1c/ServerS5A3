@@ -1032,10 +1032,9 @@ func finishRequiredItemRules(catalog *Catalog, definition Definition, character 
 func finishDefinitionSeekingRules(definition Definition) []RewardItemRule {
 	switch normalizeQuestTag(definition.Type) {
 	case "seek n meet npc":
-		if len(definition.IntData) < 2 {
-			return nil
-		}
-		return []RewardItemRule{{ItemID: definition.IntData[0], Count: definition.IntData[1]}}
+		// The final NPC identifier is unpaired when present. itemPairRulesFromInts
+		// reads every item/count pair and naturally ignores that trailing scalar.
+		return itemPairRulesFromInts(definition.IntData)
 	case "seeking":
 		return itemPairRulesFromInts(definition.IntData)
 	default:
