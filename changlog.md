@@ -1,3 +1,9 @@
+## 2026-10-19 — v139 主场景聊天 Enter 去重验收候选
+
+- 基于精确已发布v138，主场景普通Enter已识别却聊天窗瞬开即关，Shift+Enter保持显示；候选仅对主场景调用者跳过通用按键发布器的DI Enter重复回退，保留原生文字Return路径、其它调用者和其它按键，不写全局输入状态。
+- EXE输出SHA256 `5499a71294e388d3efc6690a9e6ddaf31673d74aff5befd3de3c8fa6c9bc8b92`，111812608字节不变；复用RX节24字节helper，保留448字节接收适配器，VirtualSize448→536/4096。17,432次真实发布器/按键谓词矩阵、ABI、精确范围、ImageHlp checksum与重复应用保护通过，UI叶子仍为fixture。
+- 预览验收后再上传GitGud Releases；未修改服务端、PVF或资源，完整聊天/IME与其它窗口回车仍需实机验收。详Docs/CLIENT_CHAT_ENTER_V139_20261019.md。
+
 ## 2026-10-18 — v138 队伍及双角色相关接收准入候选
 
 - 精确继承已发布v137：class0追加1388–1400、1402、1530；class1追加1457、1458、1465、1466、1554，保留1401/1403与全部旧门。输入SHA10478ee7b4d8273da2ca8dfae5f520e3b5ceedda7aa42ec4e6de014c0ea0941f，输出9363574786928ec58ab6f82be0d40847a814d6e4ef42753a1a54750134a09d9c。
