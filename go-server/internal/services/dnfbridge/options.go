@@ -66,6 +66,8 @@ const (
 	partyDungeonAllMemberUserStateEnv = "DNFBRIDGE_PARTY_DUNGEON_ALL_MEMBER_USER_STATE"
 	partyDungeonUserStateValueSelf    = "self"
 	partyDungeonUserStateValueAll     = "all"
+
+	mainQuestExperienceMultiplierEnv = "DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"
 )
 
 // partyDungeonOwnerMode 是 DNFBRIDGE_PARTY_DUNGEON_OWNER_MODE 的归一化取值。
@@ -225,6 +227,10 @@ type options struct {
 	// 读取点见 Service.questClearTicketScope，启动日志见 Service.Start 的
 	// "dnfbridge started" 行（quest_clear_ticket_scope 字段）。
 	questClearTicketActiveOnly bool
+	// mainQuestExperienceMultiplier 是服务端可信的主线交付经验倍率。
+	// 环境变量缺失、非整数或不在 1..100 时按 1；玩家 op34 包里的
+	// Multiplier 语义未证明，不能作为该值。
+	mainQuestExperienceMultiplier int
 
 	// equipMoveContainerRefreshFull 是 DNFBRIDGE_EQUIP_MOVE_CONTAINER_REFRESH 的
 	// 取反存储（默认 false = 穿脱装备/时装后**不再重发 5 个整容器**）。取反存放的
@@ -838,7 +844,8 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		// 与客户端确认框"自动完成 Lv89 为止的主线任务"一致；
 		// 置 0/false/off/no 时回退到只完成当前激活主线的旧口径
 		// （CouponClearScopeActiveOnly），不需要重新编译。
-		questClearTicketActiveOnly: !envBool("DNFBRIDGE_QUEST_CLEAR_TICKET_SWEEP", true),
+		questClearTicketActiveOnly:    !envBool("DNFBRIDGE_QUEST_CLEAR_TICKET_SWEEP", true),
+		mainQuestExperienceMultiplier: readMainQuestExperienceMultiplier(),
 
 		// 穿脱装备/时装（op19）的回包后刷新口径，见 equip_move_refresh.go。
 		// 默认 = 新口径（不再重发 5 个整容器 / 外观用 op2 mode0 当前场景对象自投影）；
@@ -1352,6 +1359,18 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func readMainQuestExperienceMultiplier() int {
+	raw := strings.TrimSpace(os.Getenv(mainQuestExperienceMultiplierEnv))
+	if raw == "" {
+		return 1
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 || value > 100 {
+		return 1
+	}
+	return value
 }
 
 func envIntAny(keys []string, fallback int) int {
