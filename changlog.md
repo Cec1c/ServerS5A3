@@ -1,3 +1,8 @@
+## 2026-10-18 — Client Release 标签传输诊断
+
+- 标签传输失败现报告目标标签、`init`/`fetch`/`rev-parse`/`push` 阶段、退出码及固定安全分类；源标签变化同格式报告，未知 stderr 不进入输出。
+- 保留源标签 SHA 校验、目标不覆盖、仅标签推送及 GitHub 新标签仅限 trusted CI `GITHUB_TOKEN`；补取回、权限分类和敏感 stderr 不泄漏回归。
+
 ## 2026-10-18 — 主线经验倍率实例配置
 
 - Docker 实例支持 `main_quest_exp_multiplier` 整数1..100，显式映射到主线经验环境项；省略不注入，沿用服务端默认1。
