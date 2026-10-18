@@ -42,7 +42,7 @@ var knownMapSections = stringSet(
 	"no revival timer limit", "ignore diehard", "disable rebirth", "preserve player corpse",
 	"cannot use resolution change zoom", "center fixed camera", "force draw pattern", "is revival",
 	"is moive end", "is movie end", "quest start map", "hide monster", "show dust",
-	"dungeon start area", "screen pos", "monster team", "pvp practice start area",
+	"dungeon start area", "screen pos", "monster team", "monster follow type", "pvp practice start area",
 	"virtual movable area", "town movable area", "pathgate object", "opening bgm",
 	"map loading image path", "basic action", "map dialog", "dust", "absolute start path",
 	"monster condition", "monster spawn pos", "blood monster", "blood phase time",

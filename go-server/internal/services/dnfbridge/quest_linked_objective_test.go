@@ -23,7 +23,7 @@ func linkedObjectiveBridgeCatalog(t *testing.T) *dnfquest.Catalog {
 		"n_quest/seekmeet.qst": "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[seek n meet npc]`\n[main quest]\n3249\n[int data]\n3037 1 309\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/parent2.qst":  "[grade]\n`[epic]`\n[type]\n`[quest clear]`\n[int data]\n3425 3426\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 		"n_quest/hunt.qst":     "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[hunt enemy]`\n[main quest]\n3347\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
-		"n_quest/seeking.qst":  "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[seeking]`\n[main quest]\n3347\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
+		"n_quest/seeking.qst":  "[grade]\n`[sub]`\n[attribute]\n`not give exp quest`\n[/attribute]\n[type]\n`[meet npc]`\n[main quest]\n3347\n[int data]\n303\n[reward type]\n`[item]`\n[reward int data]\n0 0\n",
 	}
 	index, err := dnfpvf.Build(context.Background(), source, dnfpvf.BuildOptions{Lists: []string{dnfquest.DefaultList}})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestCurrentLinkedObjectiveFinishArchivesWithoutExperienceAndSendsMinimalSna
 	}
 }
 
-func TestCurrentParentScalarArchivesTownLinkedChildAndSendsMinimalSnapshots(t *testing.T) {
+func TestCurrentParentScalarReflectsTerminalMaterialChildWithoutClaimingIt(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
 	ctx := context.Background()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: defaultAccountPrefix + "1", Level: 60}); err != nil {
@@ -109,7 +109,8 @@ func TestCurrentParentScalarArchivesTownLinkedChildAndSendsMinimalSnapshots(t *t
 		t.Fatalf("op33=%+v body=%x", packets[0].Header, packets[0].Body)
 	}
 	quests, _, _ := repositories.Quest.Load(ctx, "19")
-	if quests.States[3610].Status != "completed" || quests.States[3249].ProgressValue != 0 {
+	if quests.States[3610].Status != "active" || quests.States[3610].ProgressValue != 0 ||
+		quests.States[3610].Extra["reward_state"] != "" || quests.States[3249].ProgressValue != 0 {
 		t.Fatalf("quests=%+v", quests.States)
 	}
 }
