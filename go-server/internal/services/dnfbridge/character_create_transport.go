@@ -77,7 +77,7 @@ func (s *Service) handleGameCheckName(session *gameSession, body []byte) error {
 	}
 	if existing {
 		s.logGameEvent(session, "game-check-name-duplicated", "name", name)
-		return s.sendGameCheckName(session, 0x00)
+		return s.sendGameCheckName(session, checkNameCodeDuplicated)
 	}
 	s.logGameEvent(session, "game-check-name-available", "name", name)
 	return s.sendGameCheckName(session, 0x01)
@@ -125,8 +125,8 @@ func buildUpperCreateSuccessBody(record dnfrepo.CharacterRecord) []byte {
 
 func (s *Service) sendUpperProtectedCreateDecodeDeferred(session *gameSession) error {
 	// 当前 NoPack 未开启 create hook 时会发送动态保护态 msg5；未还原真实 job/name 前不能写库。
-	// 这里回非致命拒绝码，避免 0x14 被客户端显示成网络连接中断；真实创建由明文 hook/解码路径处理。
-	return s.sendUpperCreateError(session, createCodeDuplicated)
+	// 保留既有静默拒绝0；未能解析请求并不代表已核实重名，不能复用重名提示码。
+	return s.sendUpperCreateError(session, 0x00)
 }
 
 func (s *Service) sendGameCreateError(session *gameSession, code byte) error {
