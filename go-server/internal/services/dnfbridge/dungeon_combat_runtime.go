@@ -636,7 +636,11 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) (
 			return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 		}
 		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
-			if _, recorded := runtime.Room.DeathResponseBody(request.RuntimeObjectKey); !recorded {
+			// A single-session retry can still be the recovery request for a
+			// transaction or packet failure after the death commit. Only replay
+			// while no authoritative death body has been recorded; ordinary
+			// repeated op39 requests keep the historical silent behavior.
+			if _, responseRecorded := runtime.Room.DeathResponseBody(request.RuntimeObjectKey); !responseRecorded {
 				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 			}
 			return s.persistCurrentDungeonRoomClearQuestLocked(session, runtime)
@@ -657,6 +661,13 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) (
 	}
 	scene, _ = runtime.Session.Scene()
 	storyAIBossGate, storyAIBossGateActive := currentDungeonStoryAIBossDeathGate(runtime, scene)
+	if err := s.settleCurrentDungeonRewardEnemyQuestDropLocked(
+		session,
+		runtime,
+		request.RuntimeObjectKey,
+	); err != nil {
+		return err
+	}
 	rewardMonster := dropMonster
 	rewardMonsterCandidate := ordinaryDropCandidate
 	if !rewardMonsterCandidate {
@@ -1084,6 +1095,14 @@ func (s *Service) replayCurrentDungeonMonsterDeathLocked(
 	if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, objectKey); err != nil {
 		return err
 	}
+	if err := s.settleCurrentDungeonRewardEnemyQuestDropLocked(session, runtime, objectKey); err != nil {
+		s.logGameEvent(session, "game-dungeon-monster-death-reward-replay-deferred",
+			"dungeon_id", runtime.Dungeon.ID,
+			"maze_index", runtime.MazeIndex,
+			"object_key", objectKey,
+			"error", err)
+		return err
+	}
 	if body, ok := runtime.Room.DeathResponseBody(objectKey); ok {
 		return s.replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			session,
@@ -1135,6 +1154,14 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			sessionRoomCleared = cleared
 		case errors.Is(markErr, worldmap.ErrHostileAlreadyDefeated):
 			sessionSceneMarked = true
+			// APC quest-drop handling can fail after committing the actor death.
+			// Resume its final-room handling from the authoritative scene while
+			// preserving the ordinary-monster notification replay path.
+			if target, found := runtime.Room.DefeatedDeathTarget(objectKey); found && target.Reference.Kind == worldmap.HostileAICharacter {
+				if scene, ok := runtime.Session.Scene(); ok {
+					sessionRoomCleared = scene.Cleared
+				}
+			}
 		case errors.Is(markErr, worldmap.ErrHostileNotBound):
 			// 请求方这一侧没有这个 actor（非敌对 actor 不参与阻挡怪扫描）：只重放通知。
 		default:

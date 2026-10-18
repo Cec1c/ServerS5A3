@@ -2,8 +2,10 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +27,13 @@ type currentQuestDropCandidate struct {
 	MaxStack int64
 }
 
+type currentQuestDropGrantResult struct {
+	Resolved  bool
+	Granted   bool
+	Slots     []int16
+	Inventory dnfrepo.InventoryRecord
+}
+
 // checkCurrentDungeonQuestMonsterDrops implements the 86JP
 // QuestDropService.CheckMonsterDrop path: after a monster dies, every
 // active quest's PVF [monster reward item] table is checked for the
@@ -37,18 +46,44 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 	runtime *runtimeDungeonState,
 	monsterID int64,
 ) {
-	if s == nil || session == nil || session.selectedCharacterID == 0 || runtime == nil || monsterID <= 0 {
+	result, err := s.grantCurrentDungeonQuestEnemyDrops(
+		session,
+		runtime,
+		1,
+		monsterID,
+		uint32(time.Now().UnixNano()),
+	)
+	if err != nil {
+		s.logGameEvent(session, "game-dungeon-quest-drop-save-failed",
+			"monster_id", monsterID,
+			"error", err)
 		return
+	}
+	if !result.Granted {
+		return
+	}
+	if sendErr := s.sendCurrentDungeonQuestDropRefresh(session, result.Inventory, result.Slots, monsterID); sendErr != nil {
+		s.logGameEvent(session, "game-dungeon-quest-drop-refresh-failed",
+			"monster_id", monsterID,
+			"error", sendErr)
+	}
+}
+
+func (s *Service) grantCurrentDungeonQuestEnemyDrops(
+	session *gameSession,
+	runtime *runtimeDungeonState,
+	enemyType int64,
+	enemyCode int64,
+	rollSeed uint32,
+) (currentQuestDropGrantResult, error) {
+	if s == nil || session == nil || session.selectedCharacterID == 0 || runtime == nil || enemyCode <= 0 {
+		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	catalog, err := s.loadQuestCatalog(ctx)
-	if err != nil || catalog == nil {
-		return
-	}
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Quest == nil || repositories.CharacterItems == nil {
-		return
+		return currentQuestDropGrantResult{}, errDungeonQuestRepositoryUnavailable
 	}
 	questHelperActive := false
 	growthQuestDropPercent := int64(0)
@@ -63,25 +98,38 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
 	questRecord, found, err := repositories.Quest.Load(ctx, characterID)
-	if err != nil || !found {
-		return
+	if err != nil {
+		return currentQuestDropGrantResult{}, err
+	}
+	if !found {
+		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
 	activeIDs := currentQuestDropActiveIDs(questRecord)
 	if len(activeIDs) == 0 {
-		return
+		return currentQuestDropGrantResult{Resolved: true}, nil
+	}
+	if enemyType == 2 {
+		sort.Slice(activeIDs, func(i, j int) bool { return activeIDs[i] < activeIDs[j] })
+	}
+	catalog, err := s.loadQuestCatalog(ctx)
+	if err != nil {
+		return currentQuestDropGrantResult{}, err
+	}
+	if catalog == nil {
+		return currentQuestDropGrantResult{}, errors.New("dungeon quest catalog is unavailable")
 	}
 	dungeonID := int64(runtime.Dungeon.ID)
 	difficulty := int64(runtime.Request.Difficulty)
-	candidates := currentQuestDropMatchMonster(catalog, activeIDs, dungeonID, difficulty, monsterID)
+	candidates := currentQuestDropMatchEnemy(catalog, activeIDs, dungeonID, difficulty, enemyType, enemyCode)
 	if len(candidates) == 0 {
-		return
+		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
 	owner, err := dnfdungeon.NewOwner(repositories)
 	if err != nil {
-		return
+		return currentQuestDropGrantResult{}, err
 	}
 	dropCatalog, catalogErr := s.currentPVFItemCatalog()
-	rng := newCurrentDungeonDropLCG(uint32(time.Now().UnixNano()))
+	rng := newCurrentDungeonDropLCG(rollSeed)
 	var grantedSlots []int16
 	mutation, err := owner.MutateInventory(ctx, dnfdungeon.InventoryMutationCommand{
 		CharacterID: characterID,
@@ -104,6 +152,12 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 					continue
 				}
 				if catalogErr != nil || dropCatalog == nil {
+					if enemyType == 2 {
+						if catalogErr != nil {
+							return false, catalogErr
+						}
+						return false, errors.New("dungeon quest item catalog is unavailable")
+					}
 					s.logGameEvent(session, "game-dungeon-quest-drop-skipped-catalog",
 						"quest_id", candidate.QuestID,
 						"item_id", candidate.ItemID,
@@ -112,6 +166,9 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 				}
 				definition, resolveErr := dropCatalog.ResolveItem(candidate.ItemID)
 				if resolveErr != nil {
+					if enemyType == 2 {
+						return false, resolveErr
+					}
 					s.logGameEvent(session, "game-dungeon-quest-drop-skipped-resolve",
 						"quest_id", candidate.QuestID,
 						"item_id", candidate.ItemID,
@@ -120,12 +177,12 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 				}
 				slot, grantErr := currentQuestDropGrantStack(inventory, definition, uint32(dropCount))
 				if grantErr != nil {
-					s.logGameEvent(session, "game-dungeon-quest-drop-skipped-grant",
-						"quest_id", candidate.QuestID,
-						"item_id", candidate.ItemID,
-						"count", dropCount,
-						"error", grantErr)
-					continue
+					if enemyType == 1 {
+						s.logGameEvent(session, "game-dungeon-quest-drop-skipped-grant", "quest_id", candidate.QuestID, "item_id", candidate.ItemID, "count", dropCount, "error", grantErr)
+						continue
+					}
+					return false, fmt.Errorf("grant quest drop quest=%d item=%d count=%d: %w",
+						candidate.QuestID, candidate.ItemID, dropCount, grantErr)
 				}
 				key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
 				stack := inventory.Slots[key]
@@ -136,7 +193,8 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 				granted = true
 				s.logGameEvent(session, "game-dungeon-quest-drop-granted",
 					"quest_id", candidate.QuestID,
-					"monster_id", monsterID,
+					"enemy_type", enemyType,
+					"enemy_code", enemyCode,
 					"item_id", candidate.ItemID,
 					"count", dropCount,
 					"base_drop_rate", candidate.DropRate,
@@ -150,15 +208,22 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 		},
 	})
 	if err != nil {
-		s.logGameEvent(session, "game-dungeon-quest-drop-save-failed",
-			"monster_id", monsterID,
-			"error", err)
-		return
+		return currentQuestDropGrantResult{}, err
 	}
-	if !mutation.Changed {
-		return
-	}
-	inventory := mutation.Inventory
+	return currentQuestDropGrantResult{
+		Resolved:  true,
+		Granted:   mutation.Changed,
+		Slots:     append([]int16(nil), grantedSlots...),
+		Inventory: mutation.Inventory,
+	}, nil
+}
+
+func (s *Service) sendCurrentDungeonQuestDropRefresh(
+	session *gameSession,
+	inventory dnfrepo.InventoryRecord,
+	grantedSlots []int16,
+	enemyCode int64,
+) error {
 	updates := make([]currentItemListEntry, 0, len(grantedSlots))
 	for _, slot := range grantedSlots {
 		key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
@@ -167,20 +232,18 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 		}
 	}
 	if len(updates) == 0 {
-		return
+		return nil
 	}
 	sortCurrentItemListEntries(updates)
 	body := buildCurrentItemUpdateBody(dnfrepo.MainInventoryListType, updates)
 	if sendErr := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), body, 0); sendErr != nil {
-		s.logGameEvent(session, "game-dungeon-quest-drop-refresh-failed",
-			"monster_id", monsterID,
-			"error", sendErr)
-		return
+		return sendErr
 	}
 	s.logGameEvent(session, "game-dungeon-quest-drop-refresh-send",
-		"monster_id", monsterID,
+		"enemy_code", enemyCode,
 		"entries", len(updates),
 		"msg_id", uint16(dnfenum.CmdPacketWalkoutPartyMember))
+	return nil
 }
 
 // currentQuestHelperDropRate applies the original task-assistant behavior:
@@ -241,35 +304,51 @@ func currentQuestDropMatchMonster(
 	difficulty int64,
 	monsterID int64,
 ) []currentQuestDropCandidate {
+	return currentQuestDropMatchEnemy(catalog, activeIDs, dungeonID, difficulty, 1, monsterID)
+}
+
+func currentQuestDropMatchEnemy(
+	catalog *dnfquest.Catalog,
+	activeIDs []int64,
+	dungeonID int64,
+	difficulty int64,
+	enemyType int64,
+	enemyCode int64,
+) []currentQuestDropCandidate {
+	if catalog == nil || enemyCode <= 0 || (enemyType != 1 && enemyType != 2) {
+		return nil
+	}
 	var candidates []currentQuestDropCandidate
 	for _, questID := range activeIDs {
 		definition, found := catalog.Find(questID)
 		if !found {
 			continue
 		}
-		for _, entry := range definition.MonsterRewardItems {
-			if entry.MonsterCode != monsterID {
-				continue
+		if enemyType == 1 {
+			for _, entry := range definition.MonsterRewardItems {
+				if entry.MonsterCode != enemyCode {
+					continue
+				}
+				if entry.DungeonID != -1 && entry.DungeonID != dungeonID {
+					continue
+				}
+				if entry.Difficulty >= 0 && entry.Difficulty != difficulty {
+					continue
+				}
+				if entry.ItemID <= 0 || entry.ItemID > math.MaxUint32 || entry.Count <= 0 || entry.DropRate <= 0 {
+					continue
+				}
+				candidates = append(candidates, currentQuestDropCandidate{
+					QuestID:  questID,
+					ItemID:   uint32(entry.ItemID),
+					Count:    entry.Count,
+					DropRate: entry.DropRate,
+					MaxStack: entry.MaxStack,
+				})
 			}
-			if entry.DungeonID != -1 && entry.DungeonID != dungeonID {
-				continue
-			}
-			if entry.Difficulty >= 0 && entry.Difficulty != difficulty {
-				continue
-			}
-			if entry.ItemID <= 0 || entry.ItemID > math.MaxUint32 || entry.Count <= 0 || entry.DropRate <= 0 {
-				continue
-			}
-			candidates = append(candidates, currentQuestDropCandidate{
-				QuestID:  questID,
-				ItemID:   uint32(entry.ItemID),
-				Count:    entry.Count,
-				DropRate: entry.DropRate,
-				MaxStack: entry.MaxStack,
-			})
 		}
 		for _, entry := range definition.EnemyRewardItems {
-			if entry.EnemyType != 1 || entry.EnemyCode != monsterID {
+			if entry.EnemyType != enemyType || entry.EnemyCode != enemyCode {
 				continue
 			}
 			if entry.DungeonID != -1 && entry.DungeonID != dungeonID {
