@@ -2,6 +2,7 @@ package quest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -264,7 +265,7 @@ func TestRealScriptPVFQuest2635RepairsLegacySaturatedTrigger(t *testing.T) {
 	}
 }
 
-// TestRealScriptPVFQuest3146Definition records the first post-3145 main-line
+// TestRealScriptPVFQuest3146Definition records the 3145 -> 4873 -> 3146 main-line
 // quest from the runtime PVF.  It protects the generic C#-equivalent initial
 // trigger rules from silently treating this quest as an unsupported type.
 func TestRealScriptPVFQuest3146Definition(t *testing.T) {
@@ -292,9 +293,25 @@ func TestRealScriptPVFQuest3146Definition(t *testing.T) {
 		definition.Path, definition.Grade, definition.Type, definition.SubType, definition.IntData,
 		definition.HasDependGiveItem, definition.DependGiveItemData, definition.PreRequiredGroups,
 		definition.RewardType, definition.RewardItems)
-	plan, err := catalog.PlanAccept(CharacterEligibility{Level: 90, Job: 11, GrowType: 0}, dnfrepo.QuestRecord{States: map[int64]dnfrepo.QuestState{
+	// The pinned PVF places "再访林纳斯" (4873) between 3145 and 3146.
+	// Completing 3145 alone must not bypass that explicit prerequisite.
+	intermediate, ok := catalog.Find(4873)
+	if !ok || !reflect.DeepEqual(intermediate.PreRequiredGroups, [][]int64{{3145}}) ||
+		!reflect.DeepEqual(definition.PreRequiredGroups, [][]int64{{4873}}) {
+		t.Fatalf("3145 -> 4873 -> 3146 prerequisites: intermediate=%+v next=%v", intermediate, definition.PreRequiredGroups)
+	}
+	eligibility := CharacterEligibility{Level: 90, Job: 11, GrowType: 0}
+	record := dnfrepo.QuestRecord{States: map[int64]dnfrepo.QuestState{
 		3145: {Status: "completed"},
-	}}, 3146)
+	}}
+	if _, err := catalog.PlanAccept(eligibility, record, 3146); !errors.Is(err, ErrQuestNotAcceptable) {
+		t.Fatalf("3146 before completing 4873: %v, want ErrQuestNotAcceptable", err)
+	}
+	if _, err := catalog.PlanAccept(eligibility, record, 4873); err != nil {
+		t.Fatalf("4873 after completing 3145: %v", err)
+	}
+	record.States[4873] = dnfrepo.QuestState{Status: "completed"}
+	plan, err := catalog.PlanAccept(eligibility, record, 3146)
 	if err != nil {
 		t.Fatalf("quest 3146 PlanAccept error = %v", err)
 	}
@@ -427,10 +444,13 @@ func TestRealScriptPVFProfessionQuestRewardsAndBranchZeroChains(t *testing.T) {
 			}
 		}
 	}
-	if classRewards != 57 || firstAwakeningRewards != 115 || secondAwakeningRewards != 59 || firstAwakeningEmpty != 17 {
+	// Both n_quest/job and the renewed Elvengard family are list-backed:
+	// 72 definitions and 57 grow rewards each. ClassChangeFamiliesMatchSourceDocuments
+	// checks their identities independently of these aggregate catalog counts.
+	if classRewards != 114 || firstAwakeningRewards != 115 || secondAwakeningRewards != 59 || firstAwakeningEmpty != 17 {
 		t.Fatalf("profession reward counts class=%d first=%d second=%d first_empty=%d first_types=%v empty_details=%v", classRewards, firstAwakeningRewards, secondAwakeningRewards, firstAwakeningEmpty, firstAwakeningRewardTypes, firstAwakeningEmptyDetails)
 	}
-	if jobChangeQuestCounts[1] != 72 || jobChangeQuestCounts[2] != 286 || jobChangeQuestCounts[3] != 354 {
+	if jobChangeQuestCounts[1] != 144 || jobChangeQuestCounts[2] != 286 || jobChangeQuestCounts[3] != 354 {
 		t.Fatalf("job-change quest counts=%v", jobChangeQuestCounts)
 	}
 	t.Logf("job-change pre-required-answer IDs=%v", jobChangeAnswerIDs)
