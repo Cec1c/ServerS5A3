@@ -273,6 +273,8 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		"dungeon_id", runtime.Dungeon.ID,
 		"completion_key", runtime.clearMapCompletionKey,
 		"experience_gain", result.ExperienceGain,
+		"story_experience_quest_id", runtime.storyExperience.QuestID,
+		"story_experience_rate_percent", runtime.storyExperience.RatePercent,
 		"growth_contract_bonus", growthBonus,
 		"sp_gain", result.SPGain,
 		"tp_gain", result.TPGain,
@@ -422,6 +424,7 @@ func currentDungeonClearExperience(
 		runtime.Dungeon.Metadata.ExperienceIncreasingPoint.Value >= 0 {
 		weight = runtime.Dungeon.Metadata.ExperienceIncreasingPoint.Value
 	}
+	weight *= currentDungeonStoryExperienceMultiplier(runtime)
 	if math.IsNaN(weight) || math.IsInf(weight, 0) || weight <= 0 {
 		return 0, errCurrentDungeonSettlementPVFInvalid
 	}
@@ -609,6 +612,7 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		Experience:              gain,
 		ClearPotionBase:         potionBase,
 		RecommendedDungeonClear: currentDungeonIsRecommendedClear(runtime),
+		GuildOrdinaryClear:      currentDungeonEarnsGuildMileage(runtime),
 		LuckyStar:               luckyPolicy,
 		MonthlyAttendance:       s.currentMonthlyAttendanceEnabled(),
 		WeeklyAttendance:        weekly,
@@ -621,6 +625,9 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if result.GuildMileage.GuildID != 0 {
+		s.refreshCurrentDungeonGuildMileage(session, result.GuildMileage.GuildID)
+	}
 	if s.currentMonthlyAttendanceEnabled() {
 		// Experience/clear receipt is already committed. Mail delivery is
 		// retried from that durable account state if transport or mail fails.

@@ -3,10 +3,12 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -28,21 +30,26 @@ const (
 	currentItemTradeOfferAck   byte   = 2
 	currentItemTradeReady      byte   = 3
 	currentItemTradeAddRequest byte   = 5
-	currentItemTradeOfferFirst uint16 = 3
-	currentItemTradeOfferLast  uint16 = 11
+	// v134's trade-window close hook sends this explicit abort after the
+	// original close helper; old clients retain their existing state path.
+	currentItemTradeAbortRequest byte   = 6
+	currentItemTradeOfferFirst   uint16 = 3
+	currentItemTradeOfferLast    uint16 = 11
 )
 
 type onlineItemTradeOffer struct {
-	tradeSlot  uint16
-	sourceList byte
-	sourceSlot int16
-	count      int32
-	itemID     int64
-	stack      dnfrepo.ItemStack
+	tradeSlot      uint16
+	sourceList     byte
+	wireSourceList byte // original client endpoint, only distinct for crystal list36
+	sourceSlot     int16
+	count          int32
+	itemID         int64
+	stack          dnfrepo.ItemStack
 }
 
 type onlineItemTrade struct {
 	participants [2]uint16
+	accounts     map[uint16]string
 	offers       map[uint16]map[uint16]onlineItemTradeOffer
 	gold         map[uint16]int64
 	states       map[uint16]byte
@@ -83,6 +90,7 @@ func (s *Service) beginOnlineItemTrade(first, second *gameSession) {
 	}
 	trade := &onlineItemTrade{
 		participants: [2]uint16{firstID, secondID},
+		accounts:     map[uint16]string{firstID: strings.TrimSpace(first.accountID), secondID: strings.TrimSpace(second.accountID)},
 		offers: map[uint16]map[uint16]onlineItemTradeOffer{
 			firstID:  make(map[uint16]onlineItemTradeOffer),
 			secondID: make(map[uint16]onlineItemTradeOffer),
@@ -115,6 +123,14 @@ func (s *Service) handleOnlineItemTradeCommand(session *gameSession, typ uint16,
 	case currentItemTradeReadyMsg:
 		if len(body) != 1 {
 			return true, s.sendGameUpperFailure(session, typ, 1)
+		}
+		if body[0] == currentItemTradeAbortRequest {
+			current, online := s.onlineGameSession(session.selectedCharacterID)
+			if !online || current != session || strings.TrimSpace(trade.accounts[session.selectedCharacterID]) != strings.TrimSpace(session.accountID) {
+				return true, s.sendGameUpperFailure(session, typ, 1)
+			}
+			s.cancelOnlineItemTradeProjection(trade, "explicit_trade_window_closed", nil, true)
+			return true, s.sendGameUpperSuccess(session, typ, nil)
 		}
 		return true, s.handleOnlineItemTradeState(session, body[0])
 	default:
@@ -171,7 +187,7 @@ func (s *Service) addOnlineItemTradeGold(session *gameSession, request inventory
 	s.tradeMu.Lock()
 	trade := s.itemTrades[session.selectedCharacterID]
 	peerID, inTrade := trade.other(session.selectedCharacterID)
-	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady
+	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0
 	previousGold := int64(0)
 	if valid {
 		previousGold = trade.gold[session.selectedCharacterID]
@@ -190,10 +206,15 @@ func (s *Service) addOnlineItemTradeGold(session *gameSession, request inventory
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
+		s.cancelOnlineItemTradeWithProjection(trade, "gold_offer_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID: session.selectedCharacterID,
+			gold:        &previousGold,
+		})
 		return err
 	}
 	entry := currentGoldWalletItemListEntry(int64(request.MoveCount))
 	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, entry.data[:], 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "gold_offer_peer_delivery_failed")
 		return err
 	}
 	s.logGameEvent(session, "game-item-trade-gold-added",
@@ -206,7 +227,7 @@ func (s *Service) removeOnlineItemTradeGold(session *gameSession, request invent
 	trade := s.itemTrades[session.selectedCharacterID]
 	peerID, inTrade := trade.other(session.selectedCharacterID)
 	gold := int64(0)
-	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady {
+	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0 {
 		gold = trade.gold[session.selectedCharacterID]
 		if gold > 0 {
 			trade.gold[session.selectedCharacterID] = 0
@@ -217,18 +238,26 @@ func (s *Service) removeOnlineItemTradeGold(session *gameSession, request invent
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
+		s.cancelOnlineItemTradeWithProjection(trade, "gold_withdrawal_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID: session.selectedCharacterID,
+			gold:        &gold,
+		})
 		return err
 	}
 	peer, peerOnline := s.onlineGameSession(peerID)
 	if !peerOnline {
 		return nil
 	}
-	return s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(0), 0, true)
+	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(0), 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "gold_withdrawal_peer_delivery_failed")
+		return err
+	}
+	return nil
 }
 
 func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventory.MoveItemspaceRequest) error {
-	if request.MoveCount <= 0 || request.DestinationSlotIndex < 0 || request.SourceSlotIndex < 0 ||
-		(request.SourceListType != dnfrepo.MainInventoryListType && request.SourceListType != 1) {
+	sourceList, supported := onlineItemTradeStorageSourceList(request.SourceListType, request.SourceSlotIndex)
+	if request.MoveCount <= 0 || request.DestinationSlotIndex < 0 || request.SourceSlotIndex < 0 || !supported {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	repositories, ok := s.repositoryGroup()
@@ -237,15 +266,11 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
-	record, found, err := repositories.Inventory.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
-	if err != nil || !found {
-		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
-	}
-	sourceKey := fmt.Sprintf("%d:%d", request.SourceListType, request.SourceSlotIndex)
-	stack, found := record.Slots[sourceKey]
+	storageRequest := request
+	storageRequest.SourceListType = sourceList
+	stack, found, err := s.loadOnlineItemTradeOfferStack(ctx, repositories, session, storageRequest)
 	if !found || stack.ItemID <= 0 || stack.Count < int64(request.MoveCount) || stack.Bind ||
-		(!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) ||
-		dnfrepo.IsAccountSharedInventorySlot(request.SourceListType, request.SourceSlotIndex) {
+		err != nil || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	// The request's source-instance field is an opaque value read from the
@@ -253,7 +278,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	// stable across every equipment/stackable representation.  The repository
 	// slot and authoritative count above are sufficient to prevent item
 	// injection, so a projection mismatch must not reject a valid trade.
-	projectedSourceValue := currentItemListStackAmount(request.SourceListType, stack)
+	projectedSourceValue := currentItemListStackAmount(sourceList, stack)
 	if request.SourceInstanceValue != 0 && uint32(request.SourceInstanceValue) != projectedSourceValue {
 		s.logGameEvent(session, "game-item-trade-source-instance-projection-mismatch",
 			"char_id", session.selectedCharacterID,
@@ -266,7 +291,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	s.tradeMu.Lock()
 	trade := s.itemTrades[session.selectedCharacterID]
 	peerID, inTrade := trade.other(session.selectedCharacterID)
-	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady
+	valid := inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0
 	tradeSlot := uint16(0)
 	slotAvailable := false
 	if valid {
@@ -283,7 +308,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 			}
 		}
 		for _, existing := range trade.offers[session.selectedCharacterID] {
-			if existing.sourceList == request.SourceListType && existing.sourceSlot == request.SourceSlotIndex {
+			if existing.sourceList == sourceList && existing.sourceSlot == request.SourceSlotIndex {
 				valid = false
 				break
 			}
@@ -291,7 +316,7 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	}
 	valid = valid && slotAvailable
 	offer := onlineItemTradeOffer{
-		tradeSlot: tradeSlot, sourceList: request.SourceListType, sourceSlot: request.SourceSlotIndex,
+		tradeSlot: tradeSlot, sourceList: sourceList, wireSourceList: request.SourceListType, sourceSlot: request.SourceSlotIndex,
 		count: request.MoveCount, itemID: stack.ItemID, stack: cloneOnlineItemTradeStack(stack),
 	}
 	if valid {
@@ -312,16 +337,24 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	ackRequest := request
 	ackRequest.DestinationSlotIndex = int16(tradeSlot)
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(ackRequest)); err != nil {
+		// The ACK creates the local trade row. If it was not written, cancel
+		// must not ask the client to dereference that absent row while restoring
+		// the source slot. Previously acknowledged rows still need restoring.
+		s.cancelOnlineItemTradeWithProjection(trade, "item_offer_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID:  session.selectedCharacterID,
+			excludeOffer: &tradeSlot,
+		})
 		return err
 	}
 	offer.stack.Count = int64(offer.count)
 	entry := currentItemListEntryFromStack(offer.sourceList, int16(offer.tradeSlot), offer.stack)
 	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, entry.data[:], 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "item_offer_peer_delivery_failed")
 		return err
 	}
 	s.logGameEvent(session, "game-item-trade-offer-added",
 		"char_id", session.selectedCharacterID, "peer_char_id", peerID,
-		"source_list", offer.sourceList, "source_slot", offer.sourceSlot,
+		"source_list", offer.sourceList, "wire_source_list", request.SourceListType, "source_slot", offer.sourceSlot,
 		"trade_slot", offer.tradeSlot, "item_id", offer.itemID, "count", offer.count)
 	return nil
 }
@@ -333,24 +366,37 @@ func (s *Service) removeOnlineItemTradeOffer(session *gameSession, request inven
 	peerID, inTrade := trade.other(session.selectedCharacterID)
 	var offer onlineItemTradeOffer
 	var found bool
-	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] != currentItemTradeReady {
+	if inTrade && !trade.committing && trade.states[session.selectedCharacterID] == 0 {
 		offer, found = trade.offers[session.selectedCharacterID][tradeSlot]
+		destinationList, supported := onlineItemTradeStorageSourceList(request.DestinationListType, request.DestinationSlotIndex)
+		found = found && supported && destinationList == offer.sourceList
+		if request.DestinationListType == currentItemTradeCrystalWireList {
+			found = found && request.DestinationSlotIndex == offer.sourceSlot
+		}
 		if found {
 			delete(trade.offers[session.selectedCharacterID], tradeSlot)
 		}
 	}
 	s.tradeMu.Unlock()
-	if !found || request.DestinationListType != offer.sourceList {
+	if !found {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
 	if err := s.sendGameUpperSuccess(session, currentItemTradeMoveMsg, buildOnlineItemTradeMoveAck(request)); err != nil {
+		s.cancelOnlineItemTradeWithProjection(trade, "item_withdrawal_ack_write_failed", &onlineItemTradeCancelProjection{
+			characterID: session.selectedCharacterID,
+			addOffer:    &offer,
+		})
 		return err
 	}
 	peer, peerOnline := s.onlineGameSession(peerID)
 	if !peerOnline {
 		return nil
 	}
-	return s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(tradeSlot), 0, true)
+	if err := s.sendGameUpperRawClassCodec(peer, currentItemTradeChangeMsg, buildOnlineItemTradeRemovedEntry(tradeSlot), 0, true); err != nil {
+		s.cancelOnlineItemTrade(trade, "item_withdrawal_peer_delivery_failed")
+		return err
+	}
+	return nil
 }
 
 func buildOnlineItemTradeRemovedEntry(tradeSlot uint16) []byte {
@@ -399,13 +445,15 @@ func (s *Service) handleOnlineItemTradeState(session *gameSession, state byte) e
 	// Live current-EXE traffic distinguishes the two buttons even though the
 	// server-facing state table does not: "adding complete" submits 5 and must
 	// be projected to class0/op17 state 1; choosing Yes in resource 727 submits
-	// 3 and must be projected as state 3.  A second value 5 is retained only as
-	// a compatibility spelling of final consent for older clients.  Neither
-	// spelling may skip the shared state-1 confirmation boundary.
+	// 3 is the explicit final consent. Retrying the lock request must never
+	// become final consent on the current profile.
 	switch state {
 	case currentItemTradeAddRequest:
 		if trade.states[characterID] == 0 {
 			projectedState = currentItemTradeAddingDone
+		} else if s.options.currentClientVersion == "official-24.9" && trade.states[characterID] == currentItemTradeAddingDone {
+			s.tradeMu.Unlock()
+			return s.sendGameUpperSuccess(session, currentItemTradeReadyMsg, nil)
 		} else if trade.states[characterID] == currentItemTradeAddingDone &&
 			(peerState == currentItemTradeAddingDone || peerState == currentItemTradeReady) {
 			projectedState = currentItemTradeReady
@@ -425,7 +473,7 @@ func (s *Service) handleOnlineItemTradeState(session *gameSession, state byte) e
 			return s.sendGameUpperFailure(session, currentItemTradeReadyMsg, 1)
 		}
 	case 0:
-		if trade.states[characterID] == currentItemTradeReady {
+		if trade.states[characterID] == currentItemTradeReady || peerState == currentItemTradeReady {
 			s.tradeMu.Unlock()
 			return s.sendGameUpperFailure(session, currentItemTradeReadyMsg, 1)
 		}
@@ -448,6 +496,12 @@ func (s *Service) handleOnlineItemTradeState(session *gameSession, state byte) e
 		"both_ready", ready)
 
 	if err := s.sendGameUpperSuccess(session, currentItemTradeReadyMsg, nil); err != nil {
+		// Final consent reserved the trade before this write. No asset exchange
+		// has started, so release the reservation and notify both clients through
+		// the existing cancellation path instead of stranding a committing trade.
+		if ready {
+			s.cancelOnlineItemTrade(trade, "final_confirmation_ack_write_failed")
+		}
 		return err
 	}
 	// The current client moves itself to "waiting for the other participant's
@@ -482,6 +536,10 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 	firstID, secondID := trade.participants[0], trade.participants[1]
 	firstOffers, secondOffers := snapshotOnlineItemTradeOffers(trade, firstID), snapshotOnlineItemTradeOffers(trade, secondID)
 	firstGold, secondGold := snapshotOnlineItemTradeGold(trade, firstID), snapshotOnlineItemTradeGold(trade, secondID)
+	if !s.onlineWarehouseTradeOwnersReady(trade) {
+		s.cancelOnlineItemTrade(trade, "warehouse_trade_account_owner_changed")
+		return nil
+	}
 	repositories, ok := s.repositoryGroup()
 	if !ok {
 		s.cancelOnlineItemTrade(trade, "repository_unavailable")
@@ -508,8 +566,8 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	result, err := owner.Exchange(ctx,
-		itemtrade.Participant{CharacterID: strconv.Itoa(int(firstID)), Offers: itemTradeDomainOffers(firstOffers), Gold: firstGold},
-		itemtrade.Participant{CharacterID: strconv.Itoa(int(secondID)), Offers: itemTradeDomainOffers(secondOffers), Gold: secondGold},
+		itemtrade.Participant{CharacterID: strconv.Itoa(int(firstID)), AccountID: trade.accounts[firstID], Offers: itemTradeDomainOffers(firstOffers), Gold: firstGold},
+		itemtrade.Participant{CharacterID: strconv.Itoa(int(secondID)), AccountID: trade.accounts[secondID], Offers: itemTradeDomainOffers(secondOffers), Gold: secondGold},
 	)
 	if err != nil {
 		s.logInfo("dnfbridge item trade atomic commit rejected", "first_char_id", firstID, "second_char_id", secondID, "error", err)
@@ -517,28 +575,36 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 		return nil
 	}
 	s.clearOnlineItemTrade(trade)
+	var notificationErr error
 	for _, characterID := range []uint16{firstID, secondID} {
 		session, online := s.onlineGameSession(characterID)
 		if !online {
 			continue
 		}
-		body := buildOnlineItemTradeFinishBody(result.Received[strconv.Itoa(int(characterID))])
-		if err := s.sendGameUpperRawClassCodec(session, currentItemTradeFinishMsg, body, 0, true); err != nil {
-			return err
-		}
-		if character, changed := result.Characters[strconv.Itoa(int(characterID))]; changed {
-			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentGoldStateBody(character.Stats["gold"]), 0); err != nil {
-				return err
-			}
-		}
-		if err := s.sendSelectedCurrentContainerListsRefresh(session, "current_exe_item_trade_atomic_commit"); err != nil {
-			return err
+		if err := s.sendOnlineItemTradeCompletion(session, result, characterID); err != nil {
+			notificationErr = errors.Join(notificationErr, fmt.Errorf("notify item trade recipient %d: %w", characterID, err))
 		}
 	}
 	s.logInfo("dnfbridge item trade atomic commit completed", "first_char_id", firstID, "second_char_id", secondID,
 		"first_offer_count", len(firstOffers), "second_offer_count", len(secondOffers),
-		"first_gold", firstGold, "second_gold", secondGold)
-	return nil
+		"first_gold", firstGold, "second_gold", secondGold,
+		"first_received_gold_fee", result.GoldFees[strconv.Itoa(int(firstID))],
+		"second_received_gold_fee", result.GoldFees[strconv.Itoa(int(secondID))])
+	return notificationErr
+}
+
+func (s *Service) sendOnlineItemTradeCompletion(session *gameSession, result itemtrade.Result, characterID uint16) error {
+	key := strconv.Itoa(int(characterID))
+	body := buildOnlineItemTradeFinishBody(result.Received[key], result.ReceivedGold[key])
+	if err := s.sendGameUpperRawClassCodec(session, currentItemTradeFinishMsg, body, 0, true); err != nil {
+		return err
+	}
+	if character, changed := result.Characters[strconv.Itoa(int(characterID))]; changed {
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentGoldStateBody(character.Stats["gold"]), 0); err != nil {
+			return err
+		}
+	}
+	return s.sendSelectedCurrentContainerListsRefresh(session, "current_exe_item_trade_atomic_commit")
 }
 
 func snapshotOnlineItemTradeGold(trade *onlineItemTrade, characterID uint16) int64 {
@@ -579,13 +645,57 @@ func (s *Service) clearOnlineItemTrade(trade *onlineItemTrade) {
 }
 
 func (s *Service) cancelOnlineItemTrade(trade *onlineItemTrade, reason string) {
+	s.cancelOnlineItemTradeWithProjection(trade, reason, nil)
+}
+
+type onlineItemTradeCancelProjection struct {
+	characterID  uint16
+	addOffer     *onlineItemTradeOffer
+	excludeOffer *uint16
+	gold         *int64
+}
+
+func (s *Service) cancelOnlineItemTradeWithProjection(trade *onlineItemTrade, reason string, projection *onlineItemTradeCancelProjection) {
+	s.cancelOnlineItemTradeProjection(trade, reason, projection, false)
+}
+
+func (s *Service) cancelOnlineItemTradeProjection(trade *onlineItemTrade, reason string, projection *onlineItemTradeCancelProjection, pendingOnly bool) {
 	if trade == nil {
 		return
 	}
 	firstID, secondID := trade.participants[0], trade.participants[1]
+	s.tradeMu.Lock()
+	// The request and final confirmation race on the same mutex. Once commit
+	// has reserved the trade, only its own failure path may cancel it. A stale
+	// duplicate must not restore old rows into a newly opened trade window.
+	if s.itemTrades[firstID] != trade || s.itemTrades[secondID] != trade || (pendingOnly && trade.committing) {
+		s.tradeMu.Unlock()
+		return
+	}
 	firstOffers, secondOffers := snapshotOnlineItemTradeOffers(trade, firstID), snapshotOnlineItemTradeOffers(trade, secondID)
 	firstGold, secondGold := snapshotOnlineItemTradeGold(trade, firstID), snapshotOnlineItemTradeGold(trade, secondID)
-	s.clearOnlineItemTrade(trade)
+	if projection != nil {
+		switch projection.characterID {
+		case firstID:
+			firstOffers = appendCancelProjectionOffer(firstOffers, projection.addOffer)
+			firstOffers = excludeCancelProjectionOffer(firstOffers, projection.excludeOffer)
+			if projection.gold != nil {
+				firstGold = *projection.gold
+			}
+		case secondID:
+			secondOffers = appendCancelProjectionOffer(secondOffers, projection.addOffer)
+			secondOffers = excludeCancelProjectionOffer(secondOffers, projection.excludeOffer)
+			if projection.gold != nil {
+				secondGold = *projection.gold
+			}
+		}
+	}
+	for _, characterID := range trade.participants {
+		if s.itemTrades[characterID] == trade {
+			delete(s.itemTrades, characterID)
+		}
+	}
+	s.tradeMu.Unlock()
 	for _, row := range []struct {
 		characterID uint16
 		offers      []onlineItemTradeOffer
@@ -596,6 +706,33 @@ func (s *Service) cancelOnlineItemTrade(trade *onlineItemTrade, reason string) {
 		}
 	}
 	s.logInfo("dnfbridge item trade cancelled", "first_char_id", firstID, "second_char_id", secondID, "reason", reason)
+}
+
+func excludeCancelProjectionOffer(offers []onlineItemTradeOffer, slot *uint16) []onlineItemTradeOffer {
+	if slot == nil {
+		return offers
+	}
+	for index := range offers {
+		if offers[index].tradeSlot == *slot {
+			return append(offers[:index], offers[index+1:]...)
+		}
+	}
+	return offers
+}
+
+func appendCancelProjectionOffer(offers []onlineItemTradeOffer, offer *onlineItemTradeOffer) []onlineItemTradeOffer {
+	if offer == nil {
+		return offers
+	}
+	for index := range offers {
+		if offers[index].tradeSlot == offer.tradeSlot {
+			offers[index] = *offer
+			return offers
+		}
+	}
+	offers = append(offers, *offer)
+	sort.Slice(offers, func(i, j int) bool { return offers[i].tradeSlot < offers[j].tradeSlot })
+	return offers
 }
 
 func (s *Service) detachOnlineItemTrade(session *gameSession, reason string) {
@@ -641,15 +778,28 @@ func buildOnlineItemTradeCancelBody(offers []onlineItemTradeOffer, gold int64) [
 	}
 	for _, offer := range offers {
 		writer.writeUint16(offer.tradeSlot)
-		writer.writeByte(offer.sourceList)
+		writer.writeByte(onlineItemTradeOfferWireSourceList(offer))
 		writer.writeUint16(uint16(offer.sourceSlot))
 	}
 	return writer.bytes()
 }
 
-func buildOnlineItemTradeFinishBody(transfers []itemtrade.Transfer) []byte {
+func buildOnlineItemTradeFinishBody(transfers []itemtrade.Transfer, receivedGold int64) []byte {
 	var writer packetWriter
-	writer.writeUint16(uint16(len(transfers)))
+	count := len(transfers)
+	hasGold := receivedGold > 0
+	if hasGold {
+		count++
+	}
+	writer.writeUint16(uint16(count))
+	// op15 has already installed the peer's gross gold at trade slot 0.
+	// The native op18 result appends that real row, calculates its 3% fee,
+	// and adds the net to wallet slot 0. The authoritative wallet follows.
+	// No row may be sent for a participant who received no gold.
+	if hasGold {
+		writer.writeUint16(0)
+		writer.writeUint16(0)
+	}
 	for _, transfer := range transfers {
 		writer.writeUint16(transfer.TradeSlot)
 		writer.writeUint16(uint16(transfer.DestinationSlot))

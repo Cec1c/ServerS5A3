@@ -137,10 +137,6 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		return nil
 	}
 	releaseRaid()
-	areaInstance := townAreaInstanceForMapPath(area.MapPath, session.selectedCharacterID)
-	if raidInstance != 0 {
-		areaInstance = raidInstance
-	}
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Character == nil {
 		s.logTownSetUserAreaBlocked(session, request, "character_repository_unavailable")
@@ -156,6 +152,14 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	if !found || character.Stats == nil {
 		s.logTownSetUserAreaBlocked(session, request, "selected_character_location_missing")
 		return nil
+	}
+	areaInstance, err := s.currentTownAreaInstance(ctx, session, character, area.MapPath)
+	if err != nil {
+		s.logTownSetUserAreaBlocked(session, request, "guild_hall_requires_current_owned_membership")
+		return s.rejectCurrentGuildHallMove(session, request)
+	}
+	if raidInstance != 0 {
+		areaInstance = raidInstance
 	}
 	currentTown, ok := character.Stats["town_id"]
 	if !ok {

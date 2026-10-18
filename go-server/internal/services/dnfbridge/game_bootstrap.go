@@ -140,6 +140,9 @@ func (s *Service) handleCurrentGameEndpointRequest(session *gameSession, classif
 		"request_body_len", wireBodyLen,
 		"target_channel", session.channel.ID,
 		"reason", "current_exe_channelinfo_triggered_login_request")
+	if err := s.sendCurrentAuctionServicesOpen(session); err != nil {
+		return err
+	}
 	return nil
 }
 

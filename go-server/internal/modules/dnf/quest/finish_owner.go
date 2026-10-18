@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/experiencebuff"
+	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/jobmap"
 	"longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -34,12 +35,16 @@ var (
 	ErrFinishExperienceBonusInvalid     = errors.New("dnf quest finish experience bonus is invalid")
 	ErrFinishProfessionUnavailable      = errors.New("dnf quest finish profession resources are unavailable")
 	ErrFinishRequiredItemsMissing       = errors.New("dnf quest finish required items are missing")
+	ErrFinishMaximumLevelInvalid        = errors.New("dnf quest finish maximum character level is invalid")
+	ErrFinishCharacterAboveMaximumLevel = errors.New("dnf quest finish character level exceeds the trusted maximum")
+	ErrFinishHonorTablesUnavailable     = errors.New("dnf quest finish honor tables are unavailable")
 )
 
 const (
 	finishRewardGranted          = "granted"
 	finishSettlementReceiptKey   = "settlement_receipt_v1"
 	finishSettlementReceiptLevel = 1
+	finishDefaultMaximumLevel    = 90
 )
 
 // FinishItemGrantRequest is a PVF-backed item delta which must be placed into
@@ -101,19 +106,22 @@ type FinishTerminalChildSettlement struct {
 type FinishItemAllocator func(*dnfrepo.InventoryRecord, FinishItemGrantRequest) ([]FinishCommittedItem, error)
 
 type FinishCommitInput struct {
-	AccountID              string
-	CharacterID            string
-	QuestID                int64
-	RewardSelectIndex      uint16
-	HasRewardSelect        bool
-	Multiplier             uint16
-	ExpectedCompletionKey  string
-	CommittedAt            time.Time
-	Progression            *progression.Tables
-	ExperienceBonusPercent int64
-	AllocateItem           FinishItemAllocator
-	ProfessionProfiles     *profession.Profiles
-	SkillCatalog           *dnfskill.Table
+	AccountID                     string
+	CharacterID                   string
+	QuestID                       int64
+	RewardSelectIndex             uint16
+	HasRewardSelect               bool
+	Multiplier                    uint16
+	MainQuestExperienceMultiplier int
+	ExpectedCompletionKey         string
+	CommittedAt                   time.Time
+	Progression                   *progression.Tables
+	MaximumCharacterLevel         int
+	LoadHonorTables               func(context.Context) (*dnfhonor.Tables, error)
+	ExperienceBonusPercent        int64
+	AllocateItem                  FinishItemAllocator
+	ProfessionProfiles            *profession.Profiles
+	SkillCatalog                  *dnfskill.Table
 }
 
 // FinishCommitResult is a detached post-commit snapshot. Every map, slice and
@@ -129,6 +137,7 @@ type FinishCommitResult struct {
 	BaseExperienceDelta        uint32
 	ExperienceBonusDelta       uint32
 	ExperienceDelta            uint32
+	HonorExpertGain            uint32
 	PreviousLevel              int
 	NewLevel                   int
 	PreviousExperience         uint32
@@ -167,6 +176,9 @@ type finishSettlementReceipt struct {
 	BaseExperienceDelta  uint32                          `json:"base_experience_delta,omitempty"`
 	ExperienceBonusDelta uint32                          `json:"experience_bonus_delta,omitempty"`
 	ExperienceDelta      uint32                          `json:"experience_delta"`
+	HonorExpertGain      uint32                          `json:"honor_expert_gain,omitempty"`
+	PostHonorLevel       *uint32                         `json:"post_honor_expert_level,omitempty"`
+	PostHonorProgress    *uint64                         `json:"post_honor_expert_progress_experience,omitempty"`
 	PreviousLevel        int                             `json:"previous_level"`
 	NewLevel             int                             `json:"new_level"`
 	PreviousExperience   uint32                          `json:"previous_experience"`
@@ -214,18 +226,26 @@ func (o *Owner) ApplyFinishSettlement(
 	if input.Multiplier != 1 {
 		return FinishCommitResult{}, fmt.Errorf("%w: multiplier=%d", ErrFinishQuestMultiplierUnsupported, input.Multiplier)
 	}
+	mainQuestExperienceMultiplier, err := normalizeMainQuestExperienceMultiplier(input.MainQuestExperienceMultiplier)
+	if err != nil {
+		return FinishCommitResult{}, err
+	}
 	if input.CommittedAt.IsZero() {
 		return FinishCommitResult{}, ErrFinishQuestCommitTimeRequired
 	}
 	if input.ExperienceBonusPercent < 0 {
 		return FinishCommitResult{}, fmt.Errorf("%w: percent=%d", ErrFinishExperienceBonusInvalid, input.ExperienceBonusPercent)
 	}
+	maximumLevel, err := normalizeFinishMaximumCharacterLevel(input.MaximumCharacterLevel)
+	if err != nil {
+		return FinishCommitResult{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	var candidate FinishCommitResult
-	err := o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
+	err = o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
 		if tx.AccountInventory == nil || tx.Character == nil || tx.Quest == nil || tx.Skill == nil || tx.Inventory == nil || tx.Equipment == nil {
 			return ErrFinishSettlementUnavailable
 		}
@@ -353,6 +373,9 @@ func (o *Owner) ApplyFinishSettlement(
 		if !isActiveQuestStatus(state.Status) || state.ProgressValue != 0 || strings.TrimSpace(state.Extra["reward_state"]) != clearMapRewardPending {
 			return ErrFinishQuestNotPending
 		}
+		if character.Level > maximumLevel {
+			return fmt.Errorf("%w: level=%d maximum=%d", ErrFinishCharacterAboveMaximumLevel, character.Level, maximumLevel)
+		}
 
 		jobValue, err := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
 		if err != nil || !jobmap.Valid(int(jobValue)) || character.Level <= 0 {
@@ -368,6 +391,7 @@ func (o *Owner) ApplyFinishSettlement(
 		if !definitionKnown {
 			return ErrQuestDefinitionMissing
 		}
+		mainQuestExperience := isMainQuestExperienceDefinition(catalog, definition)
 		reward, err := catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
 		if err != nil {
 			return err
@@ -405,13 +429,35 @@ func (o *Owner) ApplyFinishSettlement(
 		potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
 		experienceDelta += potionBonus
 		experienceBonusDelta += potionBonus
-		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta)
+		if mainQuestExperience {
+			baseExperienceDelta, experienceBonusDelta, experienceDelta, err = applyMainQuestExperienceMultiplier(
+				baseExperienceDelta,
+				experienceBonusDelta,
+				experienceDelta,
+				mainQuestExperienceMultiplier,
+			)
+			if err != nil {
+				return err
+			}
+		}
+		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta, maximumLevel)
 		if err != nil {
 			return err
 		}
 
 		if character.Stats == nil {
 			character.Stats = make(map[string]int64, 2)
+		}
+		honorExpertGain, postHonorLevel, postHonorProgress, err := settleFinishMaximumLevelHonor(
+			ctx,
+			input,
+			&character,
+			maximumLevel,
+			progressPlan.Experience.NewLevel,
+			experienceDelta,
+		)
+		if err != nil {
+			return err
 		}
 		terminalChildSettlements, terminalChildItems, terminalChildConsumed, terminalChildCurrency, err := settleFinishTerminalChildren(
 			catalog,
@@ -498,8 +544,9 @@ func (o *Owner) ApplyFinishSettlement(
 			Version: finishSettlementReceiptLevel, CharacterID: input.CharacterID,
 			CompletionKey: completionKey, Source: source, QuestID: input.QuestID,
 			BaseExperienceDelta: baseExperienceDelta, ExperienceBonusDelta: experienceBonusDelta,
-			ExperienceDelta: experienceDelta,
-			PreviousLevel:   progressPlan.Experience.PreviousLevel, NewLevel: progressPlan.Experience.NewLevel,
+			ExperienceDelta: experienceDelta, HonorExpertGain: honorExpertGain,
+			PostHonorLevel: postHonorLevel, PostHonorProgress: postHonorProgress,
+			PreviousLevel: progressPlan.Experience.PreviousLevel, NewLevel: progressPlan.Experience.NewLevel,
 			PreviousExperience: progressPlan.Experience.PreviousExperience, NewExperience: progressPlan.Experience.NewExperience,
 			SPDelta:            skill.Points.RemainingSP - previousSkillPoints.RemainingSP,
 			TPDelta:            skill.Points.RemainingTP - previousSkillPoints.RemainingTP,
@@ -883,9 +930,13 @@ func planFinishProgression(
 	character dnfrepo.CharacterRecord,
 	skill dnfrepo.SkillRecord,
 	gain uint32,
+	maxLevel int,
 ) (progression.ExperienceSkillPointPlan, error) {
 	if tables == nil || character.Level <= 0 || skill.Points.SyncedLevel != character.Level {
 		return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: level=%d synced=%d", ErrFinishProgressionUnproven, character.Level, skill.Points.SyncedLevel)
+	}
+	if maxLevel <= 0 || character.Level > maxLevel {
+		return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: level=%d maximum=%d", ErrFinishProgressionUnproven, character.Level, maxLevel)
 	}
 	experienceValue, exists := character.Stats["exp"]
 	if !exists || experienceValue < 0 || experienceValue > math.MaxUint32 {
@@ -899,7 +950,7 @@ func planFinishProgression(
 		PreviousLevel: character.Level, PreviousExperience: uint32(experienceValue), Gain: gain,
 		NewLevel: character.Level, NewExperience: uint32(newTotal),
 	}
-	for {
+	for result.NewLevel < maxLevel {
 		threshold, err := tables.ThresholdToNext(result.NewLevel)
 		if err != nil {
 			return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: level=%d: %v", ErrFinishProgressionUnproven, result.NewLevel, err)
@@ -918,6 +969,84 @@ func planFinishProgression(
 		return progression.ExperienceSkillPointPlan{}, err
 	}
 	return progression.ExperienceSkillPointPlan{Experience: result, SkillPoints: points}, nil
+}
+
+func normalizeFinishMaximumCharacterLevel(value int) (int, error) {
+	if value == 0 {
+		return finishDefaultMaximumLevel, nil
+	}
+	if value < 0 || value > math.MaxUint8 {
+		return 0, fmt.Errorf("%w: maximum=%d", ErrFinishMaximumLevelInvalid, value)
+	}
+	return value, nil
+}
+
+func settleFinishMaximumLevelHonor(
+	ctx context.Context,
+	input FinishCommitInput,
+	character *dnfrepo.CharacterRecord,
+	maximumLevel int,
+	plannedNewLevel int,
+	gainedExperience uint32,
+) (uint32, *uint32, *uint64, error) {
+	if character == nil || gainedExperience == 0 || plannedNewLevel < maximumLevel {
+		return 0, nil, nil, nil
+	}
+	var maximumLevelEntryExperience uint32
+	var err error
+	if maximumLevel > 1 {
+		maximumLevelEntryExperience, err = input.Progression.ThresholdToNext(maximumLevel - 1)
+		if err != nil {
+			return 0, nil, nil, fmt.Errorf("%w: maximum_level_entry=%d: %v", ErrFinishProgressionUnproven, maximumLevel, err)
+		}
+	}
+	previousExperience, exists := character.Stats["exp"]
+	if !exists || previousExperience < 0 || previousExperience > math.MaxUint32 {
+		return 0, nil, nil, fmt.Errorf("%w: exp=%d present=%t", ErrFinishProgressionUnproven, previousExperience, exists)
+	}
+	honorGain, err := dnfhonor.CalculateHonorExperienceGain(
+		character.Level,
+		uint32(previousExperience),
+		gainedExperience,
+		dnfhonor.CharacterExperienceCap{
+			MaxLevel:                maximumLevel,
+			MaxLevelEntryExperience: maximumLevelEntryExperience,
+		},
+	)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	if honorGain == 0 {
+		return 0, nil, nil, nil
+	}
+	if input.LoadHonorTables == nil {
+		return 0, nil, nil, ErrFinishHonorTablesUnavailable
+	}
+	honorTables, err := input.LoadHonorTables(ctx)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrFinishHonorTablesUnavailable, err)
+	}
+	if honorTables == nil {
+		return 0, nil, nil, ErrFinishHonorTablesUnavailable
+	}
+	current, err := dnfhonor.ExpertProgressFromStats(character.Stats)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrFinishProgressionUnproven, err)
+	}
+	next, err := honorTables.AdvanceExpert(current, uint64(honorGain))
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrFinishProgressionUnproven, err)
+	}
+	expertStats, err := dnfhonor.ExpertStats(next)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	for key, value := range expertStats {
+		character.Stats[key] = value
+	}
+	postLevel := next.Level
+	postProgress := next.CurrentLevelExperience
+	return honorGain, &postLevel, &postProgress, nil
 }
 
 func finishExperienceWithBonus(base uint32, percent int64) (uint32, uint32) {
@@ -1319,6 +1448,9 @@ func finishResultFromReceipt(
 			return FinishCommitResult{}, ErrFinishQuestSettlementStale
 		}
 	}
+	if err := validateFinishReceiptHonorExpert(receipt, character.Stats); err != nil {
+		return FinishCommitResult{}, err
+	}
 	finalItems := make(map[string]FinishCommittedItem, len(receipt.Items))
 	for _, item := range receipt.Items {
 		if item.SlotKey == "" || item.ItemID <= 0 || item.Delta <= 0 || item.PostCount < item.Delta ||
@@ -1382,6 +1514,28 @@ func finishResultFromReceipt(
 	return finishResultFromCommitted(receipt, true, character, skill, inventory, accountInventory, quests), nil
 }
 
+func validateFinishReceiptHonorExpert(receipt finishSettlementReceipt, stats map[string]int64) error {
+	if receipt.PostHonorLevel == nil && receipt.PostHonorProgress == nil {
+		if receipt.HonorExpertGain != 0 {
+			return ErrFinishQuestSettlementCorrupt
+		}
+		// Receipts written before HonorExpert settlement have neither field.
+		return nil
+	}
+	if receipt.PostHonorLevel == nil || receipt.PostHonorProgress == nil {
+		return ErrFinishQuestSettlementCorrupt
+	}
+	current, err := dnfhonor.ExpertProgressFromStats(stats)
+	if err != nil {
+		return ErrFinishQuestSettlementStale
+	}
+	if current.Level != *receipt.PostHonorLevel ||
+		current.CurrentLevelExperience != *receipt.PostHonorProgress {
+		return ErrFinishQuestSettlementStale
+	}
+	return nil
+}
+
 func applyFinishRewardCurrency(
 	character *dnfrepo.CharacterRecord,
 	tables *progression.Tables,
@@ -1427,8 +1581,8 @@ func finishResultFromCommitted(
 		CharacterID: receipt.CharacterID, CompletionKey: receipt.CompletionKey, Source: receipt.Source,
 		QuestID: receipt.QuestID, Replayed: replayed,
 		BaseExperienceDelta: receipt.BaseExperienceDelta, ExperienceBonusDelta: receipt.ExperienceBonusDelta,
-		ExperienceDelta: receipt.ExperienceDelta,
-		PreviousLevel:   receipt.PreviousLevel, NewLevel: receipt.NewLevel,
+		ExperienceDelta: receipt.ExperienceDelta, HonorExpertGain: receipt.HonorExpertGain,
+		PreviousLevel: receipt.PreviousLevel, NewLevel: receipt.NewLevel,
 		PreviousExperience: receipt.PreviousExperience, NewExperience: receipt.NewExperience,
 		SPDelta: receipt.SPDelta, TPDelta: receipt.TPDelta,
 		Items: cloneFinishItems(receipt.Items), ConsumedItems: cloneFinishConsumedItems(receipt.ConsumedItems),

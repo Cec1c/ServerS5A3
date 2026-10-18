@@ -624,6 +624,7 @@ type StackableUseProvenanceResolution struct {
 	ItemID        int64
 	PVFPath       string
 	StackableType string
+	ActionType    string
 	Found         bool
 }
 
@@ -789,11 +790,14 @@ type PartyState struct {
 }
 
 // PartyMemberState 是已验证队伍包里能安全写出的队员槽位状态。
+// Slot 是 RuntimePartyMember.Slot 的投影：0 是合法槽位；多个成员同时为 0
+// 表示旧调用方没有提供固定槽位，bridge 会按输入顺序补成 0..n-1。
 type PartyMemberState struct {
 	UserID    uint16
 	UserState byte
 	HPPercent byte
 	MPPercent byte
+	Slot      byte
 }
 
 // Result 表示模块化分流后的处理结果。
@@ -850,7 +854,8 @@ type Result struct {
 	// class0/0x047D ledger notice after the ACK — exactly like a contract
 	// activation, and instead of an op14 row refresh. Empty for every command
 	// that grants no fragment.
-	EpicPieceCredits []MailboxEpicPieceCredit
+	EpicPieceCredits     []MailboxEpicPieceCredit
+	AccountWalletChanged bool
 	// UpgradeDestroyBonusMerge describes where the "equipment destroyed by a
 	// failed reinforcement/amplification" compensation item landed: which row
 	// received it, whether that row was an existing same-identity stack or a

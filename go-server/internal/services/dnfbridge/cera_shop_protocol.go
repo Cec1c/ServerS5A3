@@ -59,16 +59,19 @@ func buildCurrentCeraShopPurchaseFailureBody() []byte {
 }
 
 func buildCurrentCeraShopBalanceBody(cera int64) []byte {
-	if cera < 0 {
-		cera = 0
+	return buildCurrentCeraShopWalletBody(cera, 0, 0)
+}
+func buildCurrentCeraShopWalletBody(cera, token, happy int64) []byte {
+	var w packetWriter
+	w.writeByte(1)
+	for _, v := range []int64{cera, token, happy} {
+		if v < 0 {
+			v = 0
+		}
+		if v > math.MaxInt32 {
+			v = math.MaxInt32
+		}
+		w.writeInt32(int(v))
 	}
-	if cera > math.MaxInt32 {
-		cera = math.MaxInt32
-	}
-	var writer packetWriter
-	writer.writeByte(1)
-	writer.writeInt32(int(cera))
-	writer.writeUint32(0) // no token-Cera repository exists.
-	writer.writeUint32(0) // no happy-token-Cera repository exists.
-	return writer.bytes()
+	return w.bytes()
 }

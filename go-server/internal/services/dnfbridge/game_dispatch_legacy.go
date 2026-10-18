@@ -40,7 +40,10 @@ func (s *Service) handleLegacyGamePacket(session *gameSession, raw []byte) error
 			"raw_body_len", len(packet.Body),
 			"dispatch_body_len", len(body))
 	}
-	return s.handleGameCommand(session, packet.Header.Cmd, packet.Header.Type, body)
+	sequence := session.guild.purchaseSequence.observe(packet.Header.Sequence)
+	return s.handleGameCommandRequest(session, gameplayRequest{
+		Opcode: packet.Header.Type, Classification: packet.Header.Cmd, Body: body, Sequence: &sequence,
+	})
 }
 
 func normalizeLegacyGameBody(typ uint16, body []byte) []byte {
@@ -143,13 +146,24 @@ func runtimeCmdPacketKnown(cmd byte, typ uint16) bool {
 }
 
 func (s *Service) handleGameCommand(session *gameSession, cmd byte, typ uint16, body []byte) error {
+	return s.handleGameCommandRequest(session, gameplayRequest{Opcode: typ, Classification: cmd, Body: body})
+}
+
+func (s *Service) handleGameCommandRequest(session *gameSession, request gameplayRequest) error {
+	cmd, typ, body := request.Classification, request.Opcode, request.Body
 	if dnfenum.GameCmd(cmd) != dnfenum.GameCmdCommand {
 		return nil
 	}
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)
 	}
-	if handled, err := currentGameplayModules.DispatchLegacy(s, session, typ, body); handled || err != nil {
+	if s.options.currentClientVersion == "official-24.9" && typ == uint16(dnfenum.CmdPacketSyncItemSpace) {
+		return s.handleCurrentItemSpaceSync(session, body)
+	}
+	if handled, err := currentGameplayModules.dispatchLegacyRequest(s, session, request); handled || err != nil {
+		return err
+	}
+	if handled, err := s.handleCurrentLuckyStarItemRequest(session, request); handled || err != nil {
 		return err
 	}
 	if handled, err := s.handleCurrentUserChannel(session, typ, 1, body); handled || err != nil {

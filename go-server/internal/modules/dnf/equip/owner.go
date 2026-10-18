@@ -1439,6 +1439,8 @@ func removeSealOnFirstEquipmentUse(entry dnfrepo.EquipmentEntry, source dnfrepo.
 	}
 	entry.Extra["seal_removed_by_first_equip"] = "1"
 	entry.Extra["trade_locked_by_first_equip"] = "1"
+	// 封装已解除：穿戴后的实例重新绑定，防止脱下后绕过交易限制。
+	entry.Bind = true
 	return entry
 }
 

@@ -6,14 +6,16 @@
 
 | 编号 | 问题 | 公共提交/来源 | 最新交付状态 |
 | --- | --- | --- | --- |
+| [EXP-CAP](QUEST-MAX-LEVEL-EXPERIENCE.md) | 满级任务领奖突破90级与挑战者经验 | 5f8b842 / MR !122 | 上游已合并，完整回归及新旧真实PVF通过；待部署实测 |
+| [主线经验倍率](MAIN-QUEST-EXPERIENCE-RATE.md) | 正常主线经验调整为 3 倍 | 服务端配置及结算 | 已部署，倍率及真实PVF结算已核验；正常流程待实测 |
 | [QST-001](QST-001-terminal-child-rewards.md) | 末子任务材料与奖励结算 | 8879511 | 已部署；正常流程待实测 |
 | [QST-002](QST-002-strange-weapon.md) | 奇怪的兵器中途清房与父任务 | d983579 | 已部署；正常流程待实测 |
 | [QST-003](QST-003-seek-meet-trigger.md) | 危险研究条件初值与旧活动进度 | ed23e68 | 已部署；材料结算由006补齐 |
 | [QST-004](QST-004-northgate-randomized-objects.md) | 北门随机载具入口预检 | 211f53c | 入口/首次生成已部署；骑乘与交付待实测 |
 | [QST-005](QST-005-image-communication.md) | 远程通信收费、应答与NPC资格 | 1560f72 | 客户端及服务端已部署；正常流程待实测 |
-| [QST-006](QST-006-queen-linked-objectives.md) | 梅娅书信及危险研究多材料交付 | e199af2 | 已部署；正常流程待实测 |
+| [QST-006](QST-006-queen-linked-objectives.md) | 梅娅书信及危险研究多材料交付 | e199af2 | 原材料消费修复已部署；[无奖励完成后的书信恢复](QST-006-queen-letter-source.md)实现及专项通过，待部署 |
 | [QST-007](QST-007-cinematic-apc-death.md) | 单次剧情APC销毁确认 | f9d35b1 | 兼容修复已部署；原反馈过门待实测 |
-| [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口 | 复用004 | 入口已部署；完整骑乘交付待实测 |
+| [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口 | 复用004 | 入口已部署；[按Z不上机](QST-008-at5t-completion.md)继续研究 |
 | [QST-009](QST-009-story-digest-gate.md) | 等级领先主线导致提前播放结局 | 7df2705 | V128客户端已发布并完成实际下载核验；待实测 |
 | [QST-011](QST-011-randolph-story-permission.md) | 伦道夫剧情与难度保持 | 已有修复复核 | 真实场景/退出/重连与回包通过；UI待实测 |
 | [QST-012](QST-012-friendly-apc-deaths.md) | 友军跨房击杀与通知重放 | c474f6a | 已部署；正常友军击杀与过门待实测 |

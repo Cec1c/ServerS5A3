@@ -2,10 +2,12 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
@@ -64,6 +66,43 @@ func (s *Service) currentCharacterListLoginTransition(
 	owner, err := dnftown.NewOwner(repositories)
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", fmt.Errorf("character repository is unavailable for character-list login location: %w", err)
+	}
+
+	// Guild membership is an ownership boundary, independent of the optional
+	// level/quest login gates. A former member must not resume inside a hall.
+	guildHallMembershipLost := false
+	hallMapPath := loginLocation.MapPath
+	// Default login already selects Seria. Its saved return destination still
+	// needs the same ownership check before it can be bound to the exit door.
+	origins := []currentTownPositionSnapshot{session.townPrevVillageSnapshot, session.townSeriaRoomEntrySnapshot}
+	if origin, found := currentTownPrevVillageOriginLocked(session, characterID, character); found {
+		origins = append(origins, origin)
+	}
+	if origin, found := currentTownPrevVillageOriginFromPersistedStats(characterID, character); found {
+		origins = append(origins, origin)
+	}
+	for _, origin := range origins {
+		if path, found := s.currentTownPrevVillageOriginMapPath(origin); found && townMapPathLooksLikeGuildHall(path) {
+			hallMapPath = path
+			break
+		}
+	}
+	if townMapPathLooksLikeGuildHall(hallMapPath) {
+		_, scopeErr := s.currentTownAreaInstance(ctx, session, character, hallMapPath)
+		if errors.Is(scopeErr, dnfguild.ErrNotMember) {
+			guildHallMembershipLost = true
+			if townMapPathLooksLikeGuildHall(loginLocation.MapPath) {
+				fallbackLocation, fallbackErr := s.currentInitialTownSeriaLoginLocation()
+				if fallbackErr != nil {
+					return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", fallbackErr
+				}
+				fallbackLocation.PositionSource = "runtime_pvf_guild_membership_fallback"
+				loginLocation = fallbackLocation
+			}
+			s.logGameEvent(session, "game-login-guild-hall-redirected", "char_id", characterID)
+		} else if scopeErr != nil {
+			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", scopeErr
+		}
 	}
 
 	// 登录落点的区域门槛（默认关闭，见 initial_town_login_area_gates.go）：
@@ -167,7 +206,7 @@ func (s *Service) currentCharacterListLoginTransition(
 	// `CharacterSelectHandler.cs:425-436` 的写回天然是"同 town 幂等"。我们第三级回退把玩家换到
 	// 38/1 再把 38 写回 `dnf_characters.town_id` ⇒ **把真值毁掉**，而且第一级此后永远命中 38，
 	// 第二级再也轮不到（线上 `persisted=true` 那两条 + 之后 `persisted_town_id=38` 可以复现）。
-	keepPersistedLoginLocation := currentLoginFallbackKeepsTown() &&
+	keepPersistedLoginLocation := !guildHallMembershipLost && currentLoginFallbackKeepsTown() &&
 		currentTownLoginBranchIsForcedFallback(loginLocation.Branch)
 	// 本次**没有**覆盖的持久化落点（只在 preserve 档有值），只用于日志判读。
 	keptPersistedTownID, keptPersistedAreaID := int64(-1), int64(-1)
@@ -207,14 +246,14 @@ func (s *Service) currentCharacterListLoginTransition(
 			}
 			_, raidChannel := currentRaidLoginTownID(session)
 			if origin, found := currentTownPrevVillageOriginLocked(session, characterID, *current); found && !raidChannel {
-				if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredRaidTown(int64(origin.TownID)) {
+				if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredRaidTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
 					prevVillageOrigin = origin
 					prevVillageOriginSource = "character_list_login_previous_non_seria_location"
 				}
 			}
 			if !prevVillageOrigin.PositionValid && !raidChannel {
 				if origin, found := currentTownPrevVillageOriginFromPersistedStats(characterID, *current); found {
-					if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredRaidTown(int64(origin.TownID)) {
+					if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredRaidTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
 						prevVillageOrigin = origin
 						prevVillageOriginSource = "character_list_login_existing_persisted_prev_village"
 					}
@@ -223,7 +262,8 @@ func (s *Service) currentCharacterListLoginTransition(
 
 			values := loginLocationStats
 			changed := false
-			if !raidChannel && currentRegisteredRaidTown(current.Stats[currentTownPrevVillageTownStat]) {
+			staleGuildOrigin := guildHallMembershipLost && s.currentGuildHallArea(byte(current.Stats[currentTownPrevVillageTownStat]), byte(current.Stats[currentTownPrevVillageAreaStat]))
+			if (!raidChannel && currentRegisteredRaidTown(current.Stats[currentTownPrevVillageTownStat])) || staleGuildOrigin {
 				for _, key := range []string{currentTownPrevVillageTownStat, currentTownPrevVillageAreaStat, currentTownPrevVillagePosXStat, currentTownPrevVillagePosYStat, currentTownPrevVillageDirectionStat} {
 					if _, exists := current.Stats[key]; exists {
 						delete(current.Stats, key)
@@ -268,6 +308,14 @@ func (s *Service) currentCharacterListLoginTransition(
 		// Clear it only after the matching raid landing committed successfully.
 		session.townPrevVillageSnapshot = currentTownPositionSnapshot{}
 		session.townSeriaRoomEntrySnapshot = currentTownPositionSnapshot{}
+	}
+	if guildHallMembershipLost {
+		if s.currentGuildHallArea(session.townPrevVillageSnapshot.TownID, session.townPrevVillageSnapshot.AreaID) {
+			session.townPrevVillageSnapshot = currentTownPositionSnapshot{}
+		}
+		if s.currentGuildHallArea(session.townSeriaRoomEntrySnapshot.TownID, session.townSeriaRoomEntrySnapshot.AreaID) {
+			session.townSeriaRoomEntrySnapshot = currentTownPositionSnapshot{}
+		}
 	}
 
 	// 登录**直接**落在赛丽亚房间时，把"进门来源城镇"补绑成"上一次所在城镇"

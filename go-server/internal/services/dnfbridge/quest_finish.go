@@ -213,18 +213,21 @@ func (s *Service) handleCurrentFinishQuestTimed(
 	timing.markTxStart()
 	// 与本次会话的玩法时钟一致：每日任务的完成日键按这个时间落库。
 	result, err := owner.ApplyFinishSettlement(ctx, catalog, dnfquest.FinishCommitInput{
-		AccountID:              accountID,
-		CharacterID:            characterID,
-		QuestID:                int64(request.QuestID),
-		RewardSelectIndex:      request.RewardSelectIndex,
-		HasRewardSelect:        request.HasRewardSelect,
-		Multiplier:             request.Multiplier,
-		CommittedAt:            s.gameplayNow().UTC(),
-		Progression:            tables,
-		ExperienceBonusPercent: experienceBonusPercent,
-		AllocateItem:           allocator,
-		ProfessionProfiles:     professionProfiles,
-		SkillCatalog:           skillCatalog,
+		AccountID:                     accountID,
+		CharacterID:                   characterID,
+		QuestID:                       int64(request.QuestID),
+		RewardSelectIndex:             request.RewardSelectIndex,
+		HasRewardSelect:               request.HasRewardSelect,
+		Multiplier:                    request.Multiplier,
+		MainQuestExperienceMultiplier: s.options.mainQuestExperienceMultiplier,
+		MaximumCharacterLevel:         currentAdventureCharacterLevelCap,
+		LoadHonorTables:               s.loadHonorTable,
+		CommittedAt:                   s.gameplayNow().UTC(),
+		Progression:                   tables,
+		ExperienceBonusPercent:        experienceBonusPercent,
+		AllocateItem:                  allocator,
+		ProfessionProfiles:            professionProfiles,
+		SkillCatalog:                  skillCatalog,
 	})
 	timing.markTxDone()
 	if err != nil {
@@ -284,6 +287,7 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		"base_experience_delta", result.BaseExperienceDelta,
 		"experience_bonus", result.ExperienceBonusDelta,
 		"experience_delta", result.ExperienceDelta,
+		"honor_expert_gain", result.HonorExpertGain,
 		"level_before", result.PreviousLevel,
 		"level_after", result.NewLevel,
 		"sp_delta", result.SPDelta,
@@ -436,7 +440,7 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 			"slot_expansion_bit", result.SlotExpansionBit,
 			"ex_equip_slot_stat", result.PostCommitCharacter.Stats["ex_equip_slot_stat"])
 	}
-	if result.NewLevel != result.PreviousLevel || result.SPDelta != 0 || result.HasExpertJob {
+	if result.NewLevel != result.PreviousLevel || result.SPDelta != 0 || result.HasExpertJob || result.HonorExpertGain != 0 {
 		characterBody := buildCurrentFinishLoadingCharacterStateBody(
 			result.PostCommitCharacter,
 			result.PostCommitSkill.Points,
@@ -454,7 +458,7 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 		s.logGameEvent(session, "game-upper-finish-quest-character-skill-refresh-skipped",
 			"quest_id", result.QuestID,
 			"completion_key", result.CompletionKey,
-			"reason", "finish_ack_owns_exp_and_no_level_sp_or_expert_job_delta")
+			"reason", "finish_ack_owns_exp_and_no_level_sp_expert_job_or_honor_delta")
 	}
 	// Current YKCN90 EXE op574 (0x2014370), when count is zero, calls
 	// 0x1cb7e40 -> 0x1d506c0 to clear QuestManager+0xc4, the completed lookup.
@@ -807,6 +811,11 @@ func currentFinishQuestBusinessFailure(err error) bool {
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementStale) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementCorrupt) ||
 		errors.Is(err, dnfquest.ErrFinishQuestMultiplierUnsupported) ||
+		errors.Is(err, dnfquest.ErrFinishMainQuestExperienceMultiplierInvalid) ||
+		errors.Is(err, dnfquest.ErrFinishMainQuestExperienceOverflow) ||
+		errors.Is(err, dnfquest.ErrFinishMaximumLevelInvalid) ||
+		errors.Is(err, dnfquest.ErrFinishCharacterAboveMaximumLevel) ||
+		errors.Is(err, dnfquest.ErrFinishHonorTablesUnavailable) ||
 		errors.Is(err, dnfquest.ErrFinishProgressionUnproven) ||
 		errors.Is(err, dnfquest.ErrFinishRequiredItemsMissing) ||
 		errors.Is(err, dnfquest.ErrQuestDefinitionMissing) ||

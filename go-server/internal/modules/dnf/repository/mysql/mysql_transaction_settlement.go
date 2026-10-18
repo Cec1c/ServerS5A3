@@ -20,6 +20,18 @@ func (u *mysqlCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 	characterID string,
 	apply func(repository.Group) error,
 ) error {
+	return u.withinSettlement(ctx, characterID, nil, "", apply)
+}
+func (u *mysqlCharacterSettlementUnitOfWork) WithinGuildSettlement(ctx context.Context, owner repository.GuildOwner, completion string, apply func(repository.Group) error) error {
+	if _, err := repository.GuildOwners([]repository.GuildOwner{owner}); err != nil {
+		return err
+	}
+	if completion == "" {
+		return repository.ErrGuildTransaction
+	}
+	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildSettlementReceiptScope(owner, completion), apply)
+}
+func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Context, characterID string, owner *repository.GuildOwner, receiptScope string, apply func(repository.Group) error) error {
 	characterID = strings.TrimSpace(characterID)
 	if characterID == "" || apply == nil || u == nil {
 		return repository.ErrCharacterSettlementTransactionUnavailable
@@ -38,6 +50,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	txRouter := u.router
 	txRouter.db = sqlTransactionDB{tx: tx}
 	// Character settlement can also consume account-owned crystal/soul slots.
@@ -46,7 +59,29 @@ func (u *mysqlCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
+	if owner != nil {
+		table, err := txRouter.writeTable(mysqlSettingsTable, repository.GuildRegistryScope)
+		if err != nil {
+			return err
+		}
+		if _, err = txRouter.db.ExecContext(ctx, "INSERT INTO "+table+" (scope, updated_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE scope = VALUES(scope)", repository.GuildRegistryScope, txRouter.now()); err != nil {
+			return err
+		}
+	}
 	base := newMySQLGroupFromRouter(txRouter, false)
+	if owner != nil {
+		if _, _, err := base.Settings.Load(ctx, repository.GuildRegistryScope); err != nil {
+			return err
+		}
+		character, found, err := base.Character.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if !found || character.CharacterID != owner.CharacterID || character.AccountID != owner.AccountID {
+			return repository.ErrGuildTransaction
+		}
+	}
+
 	txGroup := repository.Group{
 		Account: &characterSettlementAccountRepository{
 			characterID: characterID,
@@ -65,13 +100,22 @@ func (u *mysqlCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 		Inventory: &characterSettlementScopedInventoryRepository{characterID: characterID, base: base.Inventory},
 		Equipment: &characterSettlementScopedEquipmentRepository{characterID: characterID, base: base.Equipment},
 	}
+	if owner != nil {
+		txGroup.Settings = repository.GuildSettlementSettings(base.Settings, receiptScope)
+	}
 	if err := apply(txGroup); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		if owner != nil {
+			return errors.Join(repository.ErrGuildCommitUnknown, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // characterSettlementAccountRepository scopes account metadata and currencies

@@ -6,6 +6,11 @@ var dungeonCoreSections = stringSet(
 	"dungeon type", "champion", "pathgate object", "worldmap pattern info", "worldmap info",
 	"difficulty", "difficulty level", "designate dungeon difficulty", "tutorial dungeon", "no fatigue",
 	"named monster", "recommended level", "limit party count", "special passive object item",
+	// [story mode] appears after [maze info] in real DGNs. Keeping it in this
+	// set routes it to the dungeon metadata parser instead of the active maze;
+	// ParseDungeon skips its descendants so its nested stat/quest blocks cannot
+	// leak into a nearby maze either.
+	"story mode",
 )
 
 var dungeonIntegerSections = stringSet(

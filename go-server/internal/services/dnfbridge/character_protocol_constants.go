@@ -30,9 +30,12 @@ const (
 	noPackRosterPostEquipBytes = 38
 	noPackRosterEntryTailBytes = noPackRosterPreJobBytes + 1 + 1 + noPackRosterPostGrowBytes + 1 + 4 + 4 + 1 + noPackRosterPostEquipBytes
 	rosterDefaultPageCount     = 1
-	createCodeDuplicated       = 0x00
-	createCodeSlotFull         = 0x04
-	createCodeServerError      = 0x14
+	// 当前EXE的创建op5和名称检查op692使用不同的重名错误码。
+	// op5的0x12读取提示683；op692的0x14读取提示33195。错误码0均不会弹窗。
+	createCodeDuplicated    = 0x12
+	checkNameCodeDuplicated = 0x14
+	createCodeSlotFull      = 0x04
+	createCodeServerError   = 0x14
 )
 
 func currentConnectionTownActorOwnerContext(session *gameSession) byte {

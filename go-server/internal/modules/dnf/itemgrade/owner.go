@@ -121,7 +121,9 @@ func (o *Owner) Adjust(ctx context.Context, cmd Command) (Result, error) {
 	// IsResettableEquipmentType(type) && (!HasExplicitEquipmentTypes ||
 	// _allowedEquipmentTypes.Contains(type))。
 	materialDefinition, definitionFound := o.itemDefinition(material.ItemID)
-	if definitionFound && materialDefinition.ResealMaterial {
+	// 目录暂不可用时也不能把标准黄金蜜蜡当作普通品级材料；主线已识别的
+	// 再封装材料同样不能走品级调整路径。
+	if material.ItemID == 14 || definitionFound && materialDefinition.ResealMaterial {
 		return Result{}, ErrMaterialTypeInvalid
 	}
 	if definitionFound && !AllowsTargetEquipmentType(materialDefinition, cmd.TargetEquipmentType) {
