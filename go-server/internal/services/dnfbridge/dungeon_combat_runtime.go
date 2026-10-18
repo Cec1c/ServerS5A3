@@ -196,7 +196,7 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) (
 			}
 		}
 	}
-	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath {
+	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath && !friendlyAPCDeath {
 		target, retirementErr := runtime.Room.RetireNonHostileAIActor(request.RuntimeObjectKey)
 		if retirementErr != nil {
 			if hasScene {

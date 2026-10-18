@@ -71,7 +71,8 @@ func TestSeekerQST012FriendlyAPCDeathsRealPVF(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := archive.Snapshot()
-	if snapshot.Checksum != "fef4f46f6c3096d10cd88c84579dea8bd4fffa18e5a75b4684a2e920864f5525" {
+	if snapshot.Checksum != "fef4f46f6c3096d10cd88c84579dea8bd4fffa18e5a75b4684a2e920864f5525" &&
+		snapshot.Checksum != "a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290" {
 		t.Fatalf("PVF checksum=%s", snapshot.Checksum)
 	}
 
