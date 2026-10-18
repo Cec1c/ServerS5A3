@@ -173,6 +173,8 @@ def provenance(body):
 
 def _git_failure_classification(stderr):
     text = stderr.lower()
+    if b"workflow" in text and (b"refusing to allow" in text or b"workflows permission" in text):
+        return "github-workflow-write-permission"
     permission = (
         b"permission", b"authentication failed", b"not authorized",
         b"access denied", b"forbidden", b"returned error: 403",
@@ -370,6 +372,22 @@ class Repository:
             )
         if not self.token:
             raise SyncError("Missing destination credential")
+        if self.provider == "github":
+            # A mirrored commit already exists in GitHub's object database.
+            # Creating its lightweight ref needs no Git pack/history transfer;
+            # the same trusted GITHUB_TOKEN policy above still applies.
+            target = self.api("/git/commits/" + commit, missing=True)
+            if target is not None:
+                if target.get("sha") != commit:
+                    raise SyncError("Destination commit identity differs")
+                kind = git("object-type", "cat-file", "-t", "refs/sync/source")
+                if kind == "commit":
+                    created = self.api("/git/refs", method="POST", body={"ref":"refs/tags/" + tag, "sha":commit})
+                    if created.get("ref") != "refs/tags/" + tag or created.get("object", {}).get("sha") != commit:
+                        raise SyncError("Created tag identity differs")
+                    if self.tag_commit(tag) != commit:
+                        raise SyncError("Created tag readback differs")
+                    return
         host = urllib.parse.urlsplit(self.git).netloc
         login = "x-access-token" if self.provider == "github" else "oauth2"
         auth = base64.b64encode((login + ":" + self.token).encode()).decode()

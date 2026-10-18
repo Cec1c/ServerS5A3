@@ -233,6 +233,35 @@ class ClientReleaseTests(unittest.TestCase):
         for value in ('raw-secret','Authorization','dXNlcjpwYXNz','user:password'):
             self.assertNotIn(value,message)
 
+    def test_trusted_ci_creates_existing_commit_ref_and_reads_back(self):
+        self.item['repo']=self.gl; self.gl.git='https://gitgud.io/owner/repo.git'
+        commit='a'*40; tag='refs/tags/client-v105'
+        def fake_run(argv,**kwargs):
+            out=commit if 'rev-parse' in argv else 'commit' if 'cat-file' in argv else ''
+            return SimpleNamespace(returncode=0,stdout=out.encode(),stderr=b'')
+        with patch.dict(sync.os.environ,{'GITHUB_ACTIONS':'true','GITHUB_TOKEN':'token'},clear=True), \
+             patch.object(self.gh,'tag_commit',side_effect=[None,commit]), \
+             patch.object(self.gh,'api',side_effect=[{'sha':commit},{'ref':tag,'object':{'sha':commit}}]) as api, \
+             patch.object(sync.subprocess,'run',side_effect=fake_run) as run:
+            self.gh.ensure_tag(self.item,'.')
+        self.assertEqual(api.call_args_list[-1].kwargs,{'method':'POST','body':{'ref':tag,'sha':commit}})
+        self.assertFalse(any('push' in c.args[0] for c in run.call_args_list))
+
+    def test_ref_api_refusal_does_not_fall_back_to_another_credential(self):
+        self.item['repo']=self.gl; self.gl.git='https://gitgud.io/owner/repo.git'
+        def fake_run(argv,**kwargs):
+            return SimpleNamespace(returncode=0,stdout=(('a'*40) if 'rev-parse' in argv else 'commit' if 'cat-file' in argv else '').encode(),stderr=b'')
+        with patch.dict(sync.os.environ,{'GITHUB_ACTIONS':'true','GITHUB_TOKEN':'token'},clear=True), \
+             patch.object(self.gh,'tag_commit',return_value=None), \
+             patch.object(self.gh,'api',side_effect=[{'sha':'a'*40},sync.SyncError('API POST failed with HTTP 403')]), \
+             patch.object(sync.subprocess,'run',side_effect=fake_run) as run:
+            with self.assertRaisesRegex(sync.SyncError,'HTTP 403'):
+                self.gh.ensure_tag(self.item,'.')
+        self.assertFalse(any('push' in c.args[0] for c in run.call_args_list))
+
+    def test_workflow_permission_has_specific_safe_classification(self):
+        self.assertEqual(sync._git_failure_classification(b'refusing to allow a GitHub App to create or update workflow private-file without workflows permission'), 'github-workflow-write-permission')
+
     def test_interrupted_draft_resumes_only_with_verified_assets(self):
         draft={'id':1,'tag_name':'client-v105','draft':True,'prerelease':False,'body':sync.MARKER+sync.json.dumps(sync.release_record(self.item))+' -->','assets':[{'name':'DNF-v105.zip','size':100,'digest':'sha256:'+'b'*64}]}
         with patch.object(self.gh,'tag_commit',return_value='a'*40),patch.object(self.gh,'list',return_value=[draft]):
