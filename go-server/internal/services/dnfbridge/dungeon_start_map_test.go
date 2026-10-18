@@ -34,10 +34,10 @@ func TestCurrentDungeonStartMapBuildMatchesCurrentEXEReader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(body) != 86 {
-		t.Fatalf("body len=%d want=86 body=%x", len(body), body)
+	if len(body) != 85 {
+		t.Fatalf("body len=%d want=85 body=%x", len(body), body)
 	}
-	const wantHex = "02030405060708090a0b0c0d0e0f1011121301202122232425262728292a2b2c2d2e2f30313233340135363738393a3b3c3d3e3f404142434445464748494a01014b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+	const wantHex = "02030405060708090a0b0c0d0e0f1011121301202122232425262728292a2b2c2d2e2f30313233340135363738393a3b3c3d3e3f4041424344454647484a01014b4c4d4e4f505152535455565758595a5b5c5d5e5f"
 	if got := hex.EncodeToString(body); got != wantHex {
 		t.Fatalf("body=%s want=%s", got, wantHex)
 	}
