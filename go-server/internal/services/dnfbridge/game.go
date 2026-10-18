@@ -28,6 +28,8 @@ type gameSession struct {
 	initialTownGuildStateProjectionSent bool
 	pendingTitleEnchantCharacterID      uint16
 	pendingTitleEnchantRow              *currentItemListEntry
+	pendingGuardianGemCharacterID       uint16
+	pendingGuardianGemRow               *currentItemListEntry
 	conn                                net.Conn
 	connID                              string
 	accountID                           string

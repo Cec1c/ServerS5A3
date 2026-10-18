@@ -438,7 +438,7 @@ func (s *Service) rebuildLoginActorGenerationAfterSceneCommit(session *gameSessi
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, trigger+"_after_actor_generation_rebuild"); err != nil {
 		return err
 	}
-	if err := s.sendSelectedGuardianGemWornMedalRefresh(session, trigger+"_after_actor_generation_rebuild"); err != nil {
+	if err := s.sendSelectedActorGuardianGemRowRefresh(session, trigger+"_after_actor_generation_rebuild"); err != nil {
 		return err
 	}
 	petErr := s.sendSelectedEquippedCreatureItemRefresh(session, trigger+"_after_actor_generation_rebuild")
