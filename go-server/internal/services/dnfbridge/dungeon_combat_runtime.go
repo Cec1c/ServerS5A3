@@ -532,6 +532,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 			return fmt.Errorf("cache dungeon room after special monster retirement: %w", err)
 		}
+		if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+			return err
+		}
 		scene, _ = runtime.Session.Scene()
 		s.awardCurrentPetRoomClearLocked(session, runtime, scene, "authoritative_special_monster_retirement")
 		s.logGameEvent(session, "game-dungeon-special-monster-retired",
@@ -602,6 +605,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 		// 单人/无队伍不进实例，行为与原来逐字节一致（重复 op39 仍然静默）。
 		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) && runtime.partyInstance != nil {
 			return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+		}
+		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+			return s.persistCurrentDungeonRoomClearQuestLocked(session, runtime)
 		}
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 			"dungeon_id", runtime.Dungeon.ID,
@@ -904,6 +910,9 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) e
 	if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 		return fmt.Errorf("cache dungeon room after actor death: %w", err)
 	}
+	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+		return err
+	}
 	if cleared || (storyAIBossGateActive && storyAIBossGate.Ready && scene.Cleared) {
 		if clearedScene, ok := runtime.Session.Scene(); ok {
 			s.awardCurrentPetRoomClearLocked(session, runtime, clearedScene, "authoritative_monster_room_clear")
@@ -1094,6 +1103,9 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 		}
 	}
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, body, currentSceneActorObjectKey(session.selectedCharacterID)), 0); err != nil {
+		return err
+	}
+	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-dungeon-monster-death-replayed",
