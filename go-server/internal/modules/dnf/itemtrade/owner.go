@@ -76,9 +76,11 @@ type Transfer struct {
 }
 
 type Result struct {
-	Inventories map[string]dnfrepo.InventoryRecord
-	Characters  map[string]dnfrepo.CharacterRecord
-	Received    map[string][]Transfer
+	Inventories  map[string]dnfrepo.InventoryRecord
+	Characters   map[string]dnfrepo.CharacterRecord
+	Received     map[string][]Transfer
+	ReceivedGold map[string]int64 // Gross amount, as displayed by the native trade result.
+	GoldFees     map[string]int64
 }
 
 type Owner struct {
@@ -145,6 +147,8 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 				loaded[participant.CharacterID] = record
 			}
 			loadedCharacters := make(map[string]dnfrepo.CharacterRecord, 2)
+			receivedGold := make(map[string]int64, 2)
+			goldFees := make(map[string]int64, 2)
 			if participants[0].Gold > 0 || participants[1].Gold > 0 {
 				for _, participant := range participants {
 					record, found, err := characters.Load(ctx, participant.CharacterID)
@@ -167,10 +171,14 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 						return fmt.Errorf("character %s balance=%d offer=%d: %w", participant.CharacterID, balance, participant.Gold, ErrGoldUnavailable)
 					}
 					balance -= participant.Gold
-					if recipient.Gold > math.MaxInt64-balance {
+					fee := receivedGoldFee(recipient.Gold)
+					incoming := recipient.Gold - fee
+					if incoming > math.MaxInt64-balance {
 						return fmt.Errorf("character %s balance=%d incoming=%d: %w", participant.CharacterID, balance, recipient.Gold, ErrGoldOverflow)
 					}
-					record.Stats["gold"] = balance + recipient.Gold
+					record.Stats["gold"] = balance + incoming
+					receivedGold[participant.CharacterID] = recipient.Gold
+					goldFees[participant.CharacterID] = fee
 					loadedCharacters[participant.CharacterID] = record
 				}
 			}
@@ -286,7 +294,7 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 				}
 				loadedCharacters[participant.CharacterID] = record
 			}
-			result = Result{Inventories: loaded, Characters: loadedCharacters, Received: received}
+			result = Result{Inventories: loaded, Characters: loadedCharacters, Received: received, ReceivedGold: receivedGold, GoldFees: goldFees}
 			return nil
 		},
 	)
@@ -294,6 +302,12 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 		return Result{}, err
 	}
 	return result, nil
+}
+
+// The current native result window charges the recipient floor(gross*3/100).
+// Split the calculation so even a repository-sized int64 cannot overflow.
+func receivedGoldFee(gross int64) int64 {
+	return gross/100*3 + gross%100*3/100
 }
 
 type stagedOffer struct {

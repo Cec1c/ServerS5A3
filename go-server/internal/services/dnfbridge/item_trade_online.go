@@ -30,8 +30,11 @@ const (
 	currentItemTradeOfferAck   byte   = 2
 	currentItemTradeReady      byte   = 3
 	currentItemTradeAddRequest byte   = 5
-	currentItemTradeOfferFirst uint16 = 3
-	currentItemTradeOfferLast  uint16 = 11
+	// v134's trade-window close hook sends this explicit abort after the
+	// original close helper; old clients retain their existing state path.
+	currentItemTradeAbortRequest byte   = 6
+	currentItemTradeOfferFirst   uint16 = 3
+	currentItemTradeOfferLast    uint16 = 11
 )
 
 type onlineItemTradeOffer struct {
@@ -120,6 +123,14 @@ func (s *Service) handleOnlineItemTradeCommand(session *gameSession, typ uint16,
 	case currentItemTradeReadyMsg:
 		if len(body) != 1 {
 			return true, s.sendGameUpperFailure(session, typ, 1)
+		}
+		if body[0] == currentItemTradeAbortRequest {
+			current, online := s.onlineGameSession(session.selectedCharacterID)
+			if !online || current != session || strings.TrimSpace(trade.accounts[session.selectedCharacterID]) != strings.TrimSpace(session.accountID) {
+				return true, s.sendGameUpperFailure(session, typ, 1)
+			}
+			s.cancelOnlineItemTradeProjection(trade, "explicit_trade_window_closed", nil, true)
+			return true, s.sendGameUpperSuccess(session, typ, nil)
 		}
 		return true, s.handleOnlineItemTradeState(session, body[0])
 	default:
@@ -576,12 +587,15 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 	}
 	s.logInfo("dnfbridge item trade atomic commit completed", "first_char_id", firstID, "second_char_id", secondID,
 		"first_offer_count", len(firstOffers), "second_offer_count", len(secondOffers),
-		"first_gold", firstGold, "second_gold", secondGold)
+		"first_gold", firstGold, "second_gold", secondGold,
+		"first_received_gold_fee", result.GoldFees[strconv.Itoa(int(firstID))],
+		"second_received_gold_fee", result.GoldFees[strconv.Itoa(int(secondID))])
 	return notificationErr
 }
 
 func (s *Service) sendOnlineItemTradeCompletion(session *gameSession, result itemtrade.Result, characterID uint16) error {
-	body := buildOnlineItemTradeFinishBody(result.Received[strconv.Itoa(int(characterID))])
+	key := strconv.Itoa(int(characterID))
+	body := buildOnlineItemTradeFinishBody(result.Received[key], result.ReceivedGold[key])
 	if err := s.sendGameUpperRawClassCodec(session, currentItemTradeFinishMsg, body, 0, true); err != nil {
 		return err
 	}
@@ -642,11 +656,22 @@ type onlineItemTradeCancelProjection struct {
 }
 
 func (s *Service) cancelOnlineItemTradeWithProjection(trade *onlineItemTrade, reason string, projection *onlineItemTradeCancelProjection) {
+	s.cancelOnlineItemTradeProjection(trade, reason, projection, false)
+}
+
+func (s *Service) cancelOnlineItemTradeProjection(trade *onlineItemTrade, reason string, projection *onlineItemTradeCancelProjection, pendingOnly bool) {
 	if trade == nil {
 		return
 	}
 	firstID, secondID := trade.participants[0], trade.participants[1]
 	s.tradeMu.Lock()
+	// The request and final confirmation race on the same mutex. Once commit
+	// has reserved the trade, only its own failure path may cancel it. A stale
+	// duplicate must not restore old rows into a newly opened trade window.
+	if s.itemTrades[firstID] != trade || s.itemTrades[secondID] != trade || (pendingOnly && trade.committing) {
+		s.tradeMu.Unlock()
+		return
+	}
 	firstOffers, secondOffers := snapshotOnlineItemTradeOffers(trade, firstID), snapshotOnlineItemTradeOffers(trade, secondID)
 	firstGold, secondGold := snapshotOnlineItemTradeGold(trade, firstID), snapshotOnlineItemTradeGold(trade, secondID)
 	if projection != nil {
@@ -759,9 +784,22 @@ func buildOnlineItemTradeCancelBody(offers []onlineItemTradeOffer, gold int64) [
 	return writer.bytes()
 }
 
-func buildOnlineItemTradeFinishBody(transfers []itemtrade.Transfer) []byte {
+func buildOnlineItemTradeFinishBody(transfers []itemtrade.Transfer, receivedGold int64) []byte {
 	var writer packetWriter
-	writer.writeUint16(uint16(len(transfers)))
+	count := len(transfers)
+	hasGold := receivedGold > 0
+	if hasGold {
+		count++
+	}
+	writer.writeUint16(uint16(count))
+	// op15 has already installed the peer's gross gold at trade slot 0.
+	// The native op18 result appends that real row, calculates its 3% fee,
+	// and adds the net to wallet slot 0. The authoritative wallet follows.
+	// No row may be sent for a participant who received no gold.
+	if hasGold {
+		writer.writeUint16(0)
+		writer.writeUint16(0)
+	}
 	for _, transfer := range transfers {
 		writer.writeUint16(transfer.TradeSlot)
 		writer.writeUint16(uint16(transfer.DestinationSlot))

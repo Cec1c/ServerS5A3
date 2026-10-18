@@ -103,10 +103,10 @@ func TestOwnerExchangeAtomicallyMovesGoldAndItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Exchange() error = %v", err)
 	}
-	if got := result.Characters["1"].Stats["gold"]; got != 160_000 {
+	if got := result.Characters["1"].Stats["gold"]; got != 159_700 {
 		t.Fatalf("first gold = %d", got)
 	}
-	if got := result.Characters["5"].Stats["gold"]; got != 130_000 {
+	if got := result.Characters["5"].Stats["gold"]; got != 127_000 {
 		t.Fatalf("second gold = %d", got)
 	}
 	if got := result.Inventories["1"].Slots["0:9"]; got.ItemID != 2002 || got.Count != 1 {

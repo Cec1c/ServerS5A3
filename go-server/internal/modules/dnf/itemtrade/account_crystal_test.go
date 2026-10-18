@@ -148,7 +148,10 @@ func TestAccountCrystalTradeMixedGoldAndCharacterItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[string]int64{"1": 950, "2": 1050} {
+	if result.ReceivedGold["1"] != 50 || result.ReceivedGold["2"] != 100 || result.GoldFees["1"] != 1 || result.GoldFees["2"] != 3 {
+		t.Fatalf("mixed trade gross/fee receipts: %+v", result)
+	}
+	for id, want := range map[string]int64{"1": 949, "2": 1047} {
 		c, _, _ := r.Character.Load(ctx, id)
 		if c.Stats["gold"] != want {
 			t.Fatalf("gold %s=%d want%d", id, c.Stats["gold"], want)

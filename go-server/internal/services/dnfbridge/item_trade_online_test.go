@@ -136,8 +136,8 @@ func TestOnlineItemTradeProjectsOfferAndAtomicallyCommitsOnBothReady(t *testing.
 	if got := secondInventory.Slots["0:3"]; got.ItemID != 10008073 || got.Count != 1 {
 		t.Fatalf("recipient item = %+v", got)
 	}
-	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), 0)
-	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), 1)
+	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), []byte{0, 0})
+	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), []byte{1, 0, 3, 0, 3, 0})
 	if service.currentOnlineItemTrade(1) != nil || service.currentOnlineItemTrade(5) != nil {
 		t.Fatal("completed trade remained registered")
 	}
@@ -280,12 +280,14 @@ func TestOnlineItemTradeCommitNotifiesEveryRecipientWhenIndividualStageFails(t *
 				} else if len(healthyMessages) < len(wantHealthyPrefix) || !equalMessageIDs(healthyMessages[:len(wantHealthyPrefix)], wantHealthyPrefix) {
 					t.Fatalf("healthy recipient messages=%v, want prefix %v", healthyMessages, wantHealthyPrefix)
 				}
-				wantFinishCount := uint16(0)
+				wantFinishBody := []byte{0, 0}
 				if healthySession.selectedCharacterID == 47 {
-					wantFinishCount = 1
+					// Character 6 sends both an item and gold, so the healthy
+					// recipient receives the gold row followed by the item row.
+					wantFinishBody = []byte{2, 0, 0, 0, 0, 0, 3, 0, 3, 0}
 				}
 				if recipient != "both" || stage.name != "completion" {
-					assertOnlineItemTradeFinishPacket(t, healthyConn.write.Bytes(), wantFinishCount)
+					assertOnlineItemTradeFinishPacket(t, healthyConn.write.Bytes(), wantFinishBody)
 				}
 
 				if service.currentOnlineItemTrade(6) != nil || service.currentOnlineItemTrade(47) != nil {
@@ -369,7 +371,7 @@ func assertOnlineItemTradeCommittedOnce(t *testing.T, ctx context.Context, repos
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 140_000 {
+	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 137_000 {
 		t.Fatalf("gold after commit first=%d second=%d, want one settlement", firstCharacter.Stats["gold"], secondCharacter.Stats["gold"])
 	}
 }
@@ -498,11 +500,11 @@ func TestOnlineItemTradeProjectsAndAtomicallyCommitsGold(t *testing.T) {
 	}
 	firstCharacter, _, _ := repositories.Character.Load(ctx, "1")
 	secondCharacter, _, _ := repositories.Character.Load(ctx, "5")
-	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 140_000 {
+	if firstCharacter.Stats["gold"] != 150_000 || secondCharacter.Stats["gold"] != 137_000 {
 		t.Fatalf("gold after trade first=%d second=%d", firstCharacter.Stats["gold"], secondCharacter.Stats["gold"])
 	}
-	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), 0)
-	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), 0)
+	assertOnlineItemTradeFinishPacket(t, firstConn.write.Bytes(), []byte{0, 0})
+	assertOnlineItemTradeFinishPacket(t, secondConn.write.Bytes(), []byte{1, 0, 0, 0, 0, 0})
 }
 
 func buildOnlineItemTradeMoveRequest(sourceList byte, sourceSlot int16, itemID, count int32, destinationList byte, destinationSlot int16) []byte {
@@ -516,16 +518,13 @@ func buildOnlineItemTradeMoveRequest(sourceList byte, sourceSlot int16, itemID, 
 	return body
 }
 
-func assertOnlineItemTradeFinishPacket(t *testing.T, data []byte, wantCount uint16) {
+func assertOnlineItemTradeFinishPacket(t *testing.T, data []byte, wantBody []byte) {
 	t.Helper()
 	for len(data) > 0 {
 		packet, rest := splitGameServerUpperPacket(t, data)
 		if packet.Header.Classification == 0 && packet.Header.MsgID == currentItemTradeFinishMsg {
-			if len(packet.Body) < 2 || binary.LittleEndian.Uint16(packet.Body[:2]) != wantCount {
-				t.Fatalf("finish body = % X, want count %d", packet.Body, wantCount)
-			}
-			if wantCount == 1 && (len(packet.Body) != 6 || binary.LittleEndian.Uint16(packet.Body[2:4]) != 3 || binary.LittleEndian.Uint16(packet.Body[4:6]) != 3) {
-				t.Fatalf("finish transfer body = % X", packet.Body)
+			if !bytes.Equal(packet.Body, wantBody) {
+				t.Fatalf("finish body = % X, want % X", packet.Body, wantBody)
 			}
 			return
 		}

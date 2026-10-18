@@ -147,7 +147,12 @@ func TestOnlineAccountCrystalTradeRealPVFSixFreeItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprintf("%x", sha256.Sum256(data)) != "ad7d05c70421278f7385729bcba3e81e37d99d0f3df85a87a9f0dc19c92504cb" {
+	// Keep the original fixture and the approved PVF paired with v133/v134.
+	// Each archive still has to satisfy all six actual item contracts below.
+	switch fmt.Sprintf("%x", sha256.Sum256(data)) {
+	case "ad7d05c70421278f7385729bcba3e81e37d99d0f3df85a87a9f0dc19c92504cb",
+		"a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290":
+	default:
 		t.Fatal("PVF hash mismatch")
 	}
 	archive, err := platformpvf.OpenBytes(data)
