@@ -2,7 +2,7 @@
 
 ## 状态
 
-服务端候选已完成；完整领域、bridge、control、list、vet、Windows构建和真实PVF专项通过。隔离数据库未配置，条件跳过不计SQL验证。部署和实机验收另行记录；无需修改EXE或PVF。
+服务端候选已完成；完整领域、bridge、control、list、vet、Windows构建和真实PVF专项通过。隔离数据库未配置，条件跳过不计SQL验证。公共修复c474f6a已接入累计部署，运行摘要与资源、频道核验通过；正常流程实机验收待用户执行，无需修改EXE或PVF。
 
 ## 范围
 
