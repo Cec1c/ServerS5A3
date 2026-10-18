@@ -467,6 +467,17 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	return tx.Commit()
 }
 
+func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssetsAndQuest(ctx context.Context, characterID string, apply func(repository.CharacterRepository, repository.QuestReader) error) error {
+	if u == nil || apply == nil {
+		return repository.ErrCharacterAssetTransactionUnavailable
+	}
+	// Reuse the scoped transaction router and FOR UPDATE reads already used by
+	// quest settlement; the callback only receives wallet and read-only quests.
+	return (&mysqlCharacterSettlementUnitOfWork{router: u.router}).WithinCharacterSettlement(ctx, characterID, func(tx repository.Group) error {
+		return apply(tx.Character, tx.Quest)
+	})
+}
+
 func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	ctx context.Context,
 	accountID string,

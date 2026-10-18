@@ -16,6 +16,10 @@ type SelectedRandomizedObject struct {
 	ObjectType  string
 	Team        string
 	MinimapIcon OptionalInt
+	// Preserve the PVF regeneration policy separately from the wire spawn mode.
+	// A value of 99 admits only the singleton neutral ridable shape below;
+	// freezing a selection does not authorize respawning a destroyed object.
+	Regenerate OptionalInt
 }
 
 // One immutable selection belongs to one prepared run. A follower validates
@@ -56,8 +60,14 @@ func FreezeRandomizedObjects(dungeon Dungeon, mazeIndex int, topology *DungeonTo
 		return nil, fmt.Errorf("randomized object groups exceed native count")
 	}
 	for group, script := range scripts {
-		if !script.SelectCount.Set || script.SelectCount.Value <= 0 || script.SelectCount.Value > int64(len(script.Objects)) || !script.Regenerate.Set || script.Regenerate.Value != 0 || len(script.UnknownSections) != 0 {
+		if !script.SelectCount.Set || script.SelectCount.Value <= 0 || script.SelectCount.Value > int64(len(script.Objects)) || !script.Regenerate.Set || (script.Regenerate.Value != 0 && script.Regenerate.Value != 99) || len(script.UnknownSections) != 0 {
 			return nil, fmt.Errorf("unsupported randomized object group %d", group)
+		}
+		// The matched PVF uses 99 for one neutral rideable object. Admit its
+		// initial selection only; the bridge must also verify the actual MOB
+		// explicitly declares [ridable object] before publishing a run owner.
+		if script.Regenerate.Value == 99 && (script.SelectCount.Value != 1 || len(script.Objects) != 1) {
+			return nil, fmt.Errorf("unsupported regenerating randomized object group %d", group)
 		}
 		if script.MinimapIcon.Set && (script.MinimapIcon.Value < 0 || script.MinimapIcon.Value > 255) {
 			return nil, fmt.Errorf("randomized minimap icon invalid")
@@ -69,6 +79,9 @@ func FreezeRandomizedObjects(dungeon Dungeon, mazeIndex int, topology *DungeonTo
 		for index, object := range script.Objects {
 			indices[index] = index
 			kind := strings.ToLower(strings.TrimSpace(object.ObjectType))
+			if script.Regenerate.Value == 99 && (object.Team != "neutral" || (kind != "" && kind != "ridable object")) {
+				return nil, fmt.Errorf("regenerating randomized object %d/%d requires a neutral ridable template", group, index)
+			}
 			if kind != "" && kind != "monster" && kind != "passive object" && kind != "ridable object" {
 				return nil, fmt.Errorf("unknown randomized object type %q", kind)
 			}
@@ -107,7 +120,7 @@ func FreezeRandomizedObjects(dungeon Dungeon, mazeIndex int, topology *DungeonTo
 		indices = indices[:int(script.SelectCount.Value)]
 		for _, index := range indices {
 			object := script.Objects[index]
-			plan.entries = append(plan.entries, SelectedRandomizedObject{Group: group, SourceIndex: index, Map: RoomCoordinate{X: object.MazeCoordinate.X, Y: object.MazeCoordinate.Y}, Position: *object.Position, ObjectID: object.ObjectIndex.Value, ObjectType: strings.ToLower(strings.TrimSpace(object.ObjectType)), Team: object.Team, MinimapIcon: script.MinimapIcon})
+			plan.entries = append(plan.entries, SelectedRandomizedObject{Group: group, SourceIndex: index, Map: RoomCoordinate{X: object.MazeCoordinate.X, Y: object.MazeCoordinate.Y}, Position: *object.Position, ObjectID: object.ObjectIndex.Value, ObjectType: strings.ToLower(strings.TrimSpace(object.ObjectType)), Team: object.Team, MinimapIcon: script.MinimapIcon, Regenerate: script.Regenerate})
 		}
 	}
 	return plan, nil
