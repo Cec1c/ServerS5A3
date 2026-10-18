@@ -76,6 +76,68 @@ type tournamentRoundAdvanceResult struct {
 	CurrentRound byte
 }
 
+// tournamentFirstActorObjectKey verifies that projected actors retain the
+// bracket's identity and order in a contiguous object-key space. In particular,
+// splitting mixed monster/APC paths must not silently change sequence ownership.
+func tournamentFirstActorObjectKey(snapshot runtimeDungeonRoomSnapshot, path []tournamentPathActor) (uint32, error) {
+	first := uint32(0)
+	index := 0
+	consider := func(objectKey uint32, code int64, actorType byte) error {
+		if index >= len(path) {
+			return fmt.Errorf("tournament room has extra actor %d", objectKey)
+		}
+		if index == 0 {
+			first = objectKey
+		}
+		if first == 0 || objectKey != first+uint32(index) || path[index].Code != code || path[index].Type != actorType {
+			return fmt.Errorf("tournament actor sequence mismatch at index %d: key=%d code=%d type=%d", index, objectKey, code, actorType)
+		}
+		index++
+		return nil
+	}
+	for _, monster := range snapshot.Monsters {
+		actorType := byte(0) // Tournament normal projection has no ordinary MAP rank.
+		if monster.Spawn.Rank != "" {
+			var err error
+			actorType, err = currentDungeonMonsterActorType(monster.Spawn)
+			if err != nil {
+				return 0, err
+			}
+		}
+		if err := consider(monster.ObjectKey, monster.Spawn.MonsterID, actorType); err != nil {
+			return 0, err
+		}
+	}
+	for _, actor := range snapshot.ExtendedActors {
+		if actor.HostileReference != nil {
+			if err := consider(actor.ObjectKey, int64(actor.Packet.Code), actor.Packet.Type); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if index == 0 || index != len(path) {
+		return 0, fmt.Errorf("tournament actor count %d differs from path %d", index, len(path))
+	}
+	return first, nil
+}
+
+func tournamentActorIsAnnounced(snapshot runtimeDungeonRoomSnapshot, objectKey uint32) bool {
+	if objectKey == 0 {
+		return false
+	}
+	for _, monster := range snapshot.Monsters {
+		if monster.ObjectKey == objectKey {
+			return monster.State == runtimeDungeonMonsterAnnounced
+		}
+	}
+	for _, actor := range snapshot.ExtendedActors {
+		if actor.ObjectKey == objectKey {
+			return actor.HostileReference != nil && actor.State == runtimeDungeonMonsterAnnounced
+		}
+	}
+	return false
+}
+
 // syncCurrentTournamentActorDeathsLocked 把"本房间已经权威死亡的 actor"喂给赛制状态机。
 //
 // 为什么不是"每来一次 op39 就喂一个 key"：
@@ -138,6 +200,30 @@ func (s *Service) syncCurrentTournamentActorDeathsLocked(
 			result.CurrentRound = transition.CurrentRound
 		}
 	}
+	for _, actor := range snapshot.ExtendedActors {
+		if actor.HostileReference == nil || actor.State != runtimeDungeonMonsterDefeated {
+			continue
+		}
+		transition := runtime.Tournament.tryApplyActorDeath(int(actor.ObjectKey))
+		switch {
+		case transition.tournamentCompleted():
+			result.Accepted = true
+			result.RoundCompleted = true
+			result.TournamentCompleted = true
+			result.CompletedRound = transition.CompletedRound
+			result.CurrentRound = transition.CurrentRound
+		case transition.roundCompleted():
+			result.Accepted = true
+			result.RoundCompleted = true
+			result.CompletedRound = transition.CompletedRound
+			result.CurrentRound = transition.CurrentRound
+		case transition.accepted():
+			result.Accepted = true
+			result.CurrentRound = transition.CurrentRound
+		case transition.Disposition == tournamentDeathDuplicate:
+			result.CurrentRound = transition.CurrentRound
+		}
+	}
 	if session != nil && result.Accepted {
 		s.logGameEvent(session, "game-dungeon-tournament-round-sync",
 			"char_id", session.selectedCharacterID,
@@ -158,6 +244,11 @@ func currentTournamentDefeatedActorCount(snapshot runtimeDungeonRoomSnapshot) in
 	count := 0
 	for _, monster := range snapshot.Monsters {
 		if monster.State == runtimeDungeonMonsterDefeated {
+			count++
+		}
+	}
+	for _, actor := range snapshot.ExtendedActors {
+		if actor.HostileReference != nil && actor.State == runtimeDungeonMonsterDefeated {
 			count++
 		}
 	}

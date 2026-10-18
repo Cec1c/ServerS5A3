@@ -1093,15 +1093,14 @@ func seekAndMeetNPCInitialTrigger(values []int64) uint32 {
 	if len(values) < 3 {
 		return 1
 	}
-	itemCount := values[1]
-	if itemCount <= 0 {
-		itemCount = 1
-	}
 	meetNPCCount := int64(0)
-	if values[2] > 0 {
+	if values[len(values)-1] > 0 {
 		meetNPCCount = 1
 	}
-	return packTriggerChannels(itemCount, meetNPCCount, 0)
+	// The client evaluates all item/count pairs as one material predicate.
+	// Its satisfied branch sends one decrement per remaining low-channel
+	// unit; putting an item quantity here amplifies snapshot callbacks.
+	return packTriggerChannels(1, meetNPCCount, 0)
 }
 
 func questClearInitialTrigger(values []int64, completed map[int64]struct{}) uint32 {
