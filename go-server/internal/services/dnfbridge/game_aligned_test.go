@@ -1216,14 +1216,11 @@ func TestHandleOnlineChangeHostPreservesFixedSlotsAndRebuildsAllMembers(t *testi
 			data = rest
 		}
 		if !reflect.DeepEqual(msgIDs, []uint16{
-			uint16(dnfenum.CmdPacketRecoverStamina),
-			0x000b,
 			0x0099,
 			uint16(dnfenum.CmdPacketRecoverStamina),
 		}) {
-			t.Fatalf("%s change-host packets=%v, want op9 old-table clear then vendor formation order "+
-				"(op11 phase-1 barrier before op153, then the fresh roster; no empty 0x0099 realtime list: "+
-				"it clears the whole client slot table)", name, msgIDs)
+			t.Fatalf("%s change-host packets=%v, want one authoritative op153 plus op9 roster "+
+				"without an old-table clear or op11 endpoint rehandshake", name, msgIDs)
 		}
 	}
 }

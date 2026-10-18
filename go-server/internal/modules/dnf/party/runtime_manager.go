@@ -339,11 +339,9 @@ func (m *RuntimePartyManager) Kick(byUser uint16, byGeneration uint64, targetUse
 	return result
 }
 
-// TransferLeader is implemented as a full replacement generation rather than
-// an in-place slot swap. The retired snapshot lets the bridge clear the old
-// client table before it publishes the new party, avoiding stale slot links.
-// Every member keeps the RuntimePartyMember.Slot it already owned; the new
-// leader can therefore remain at a non-zero slot.
+// TransferLeader changes authority within the existing party. Membership,
+// fixed slots and relay endpoints remain valid. Leave retains its separate
+// retirement behavior when the leader actually leaves the party.
 func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64, newLeader uint16, newLeaderGeneration uint64) RuntimePartyResult {
 	if m == nil || byUser == 0 || newLeader == 0 || byGeneration == 0 || newLeaderGeneration == 0 {
 		return runtimePartyFailure("invalid_leader_transfer")
@@ -361,21 +359,13 @@ func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64,
 	if next == nil || next.SessionGeneration != newLeaderGeneration {
 		return runtimePartyFailure("stale_target_session")
 	}
-	retired := snapshotRuntimeParty(party)
-	members := party.membersBySlot()
-	delete(m.parties, party.id)
-	for _, member := range members {
-		delete(m.byUser, member.UserID)
-	}
-	rebuilt := m.rebuildLocked(party, *next, members)
-	m.parties[rebuilt.id] = rebuilt
-	for _, member := range rebuilt.membersBySlot() {
-		m.byUser[member.UserID] = rebuilt.id
-	}
-	result := runtimePartySuccess(rebuilt, newLeader)
-	result.Previous = &retired
+	previous := snapshotRuntimeParty(party)
+	party.leader = next.UserID
+	party.settings.UserID = next.UserID
+	party.settings.IsLeader = true
+	result := runtimePartySuccess(party, newLeader)
+	result.Previous = &previous
 	result.LeaderMoved = true
-	result.Retired = &retired
 	return result
 }
 

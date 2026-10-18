@@ -480,37 +480,22 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 	manager := s.runtimePartyManagerForService()
 	snapshot, found := manager.SnapshotByUser(identity.character, identity.generation)
 	if !found {
-		// 幂等第一段：**已经不是队长的发出方**重发同一条 op121。
-		//
-		// 线上证据（2026-09-25 03:52，packet_log.txt 行 2653 与 2827）：客户端对**一次**
-		// 玩家操作连发两条 class1/op121（body 同为 `01`）。第一次已经把它从队伍里退役
-		// （manager 里按 byUser 查不到它了），于是第二次会走 bootstrap 重新建一份单人
-		// 队伍、再退役一代队伍记录 —— 客户端在两条"清档+重建"之间切换，操作者看到的
-		// 就是"1p 2p 位置前后互换、UI 上血量蓝量清空"、随后回城队伍表单向错乱。
-		//
-		// 判据只用两个会话自己记录过的字节（不猜任何客户端语义）：
-		//   - `lastPublishedPartyLeader`（本会话最近收到的权威队长）== 它现在要委任的人；
-		//   - `lastPublishedPartyID` 指向的那份队伍还在 manager 里。
-		// 命中 ⇒ 它已经把队长交出去了，把那份权威名单**重新完整下发一遍**（自愈），
-		// 绝不 bootstrap 新队伍、绝不退役新的一代。
-		if identity.session != nil && identity.session.lastPublishedPartyLeader != 0 &&
-			identity.session.lastPublishedPartyLeader != identity.character &&
-			identity.session.lastPublishedPartyID != 0 {
-			if live, liveFound := manager.SnapshotByID(uint16(identity.session.lastPublishedPartyID)); liveFound &&
-				live.Leader == identity.session.lastPublishedPartyLeader {
-				if _, stillManaged := manager.SnapshotByUser(identity.character, identity.generation); !stillManaged {
-					if err := s.republishChangeHostIdempotent(session, live, body[0], "sender_already_retired_by_the_first_request"); err != nil {
-						return err
-					}
-					return nil
-				}
-			}
-		}
 		snapshot, found = s.bootstrapManagedRuntimePartyForSession(session)
 	}
 	if !found {
 		return s.answerPartyCommandRejection(session, changeHostOpcode, "change_host", partyCommandFailureGeneric,
 			"char_id", identity.character, "selected_slot", body[0], "reason", "no_runtime_party")
+	}
+	// The client emits the same op121 twice for one click. If the live party has
+	// already published this sender as a non-leader under the requested party,
+	// the second packet is the repeat of an already committed transfer. Answering
+	// it with a failure or repainting the roster makes the just-updated window
+	// briefly show an error or refresh again.
+	if snapshot.Leader != identity.character && identity.session != nil &&
+		identity.session.lastPublishedPartyLeader == snapshot.Leader &&
+		identity.session.lastPublishedPartyID == int(snapshot.ID) &&
+		changeHostSlotSelectsLeader(snapshot, body[0]) {
+		return s.republishChangeHostIdempotent(session, snapshot, body[0], "sender_already_delegated_by_the_first_request")
 	}
 	if snapshot.Leader != identity.character {
 		return s.answerPartyCommandRejection(session, changeHostOpcode, "change_host", partyCommandFailureGeneric,
@@ -532,8 +517,7 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 		}
 	}
 	// 幂等（第二形态）：发出方**仍然是权威队长**，而这条请求解析出的目标就是队长本人
-	// （客户端界面上那一行还是它自己）。等价于"权威名单已经是对的，再画一遍"，
-	// 绝不退役一代新队伍；只重发 op153（真实 HP）+ op11 + 每成员一条 op9。
+	// （客户端界面上那一行还是它自己）。权威名单已经正确，重复请求不发窗口刷新。
 	if target.UserID == snapshot.Leader || target.UserID == identity.character {
 		if err := s.republishChangeHostIdempotent(session, snapshot, body[0], "sender_is_already_the_authoritative_leader"); err != nil {
 			return err
@@ -546,61 +530,52 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 			"available_slots", runtimePartySlotList(snapshot), "reason", "target_slot_not_found")
 	}
 	result := manager.TransferLeader(identity.character, identity.generation, target.UserID, target.SessionGeneration)
-	if !result.OK || result.Retired == nil {
+	if !result.OK || result.Previous == nil {
 		return s.answerPartyCommandRejection(session, changeHostOpcode, "change_host", partyCommandFailureGeneric,
 			"char_id", identity.character, "party_id", snapshot.ID, "selected_slot", body[0],
 			"target_char_id", target.UserID, "reason", "manager_transfer_failed")
 	}
 
-	// 86JP retires the old generation first。**但"清空旧档"这一步只能靠 op9 kind3
-	// 记录去做**（客户端队伍表按记录增删维护），不能再用"整份空快照"：
-	//
-	// 线上证据（2026-09-25 03:52 双开，频道 10，packet_log.txt）：操作者点了一次
-	// "委任队长"，客户端却发了**两条** class1/op121（行 2653、2827，body 都是 `01`），
-	// 服务端因此连做了两次 transfer（party 1→2、3→4），每个成员在两次之间各收到
-	// `game-current-party-frame-op9-remove-send`×2（kind3 清档，行 2722-2735）**以及**
-	// 一份 `msg_id=153 body_len=1`（`hex=…00`，即 `BuildEmptyRealtimeInfo` 的"空实时名单"）。
-	// 那条空 op153 会把收包方**整张队伍槽位表**（含血条/蓝条来源）清空，而清空之后
-	// 只能等下一次完整 op153 才恢复；客户端在两次清空之间重发 op121，操作者看到的
-	// 就是"1p/2p 位置前后互换、UI 上血量蓝量清空"。
-	//
-	// 所以清档只保留 kind3 记录（它是客户端队伍表真正的删除原语），op153 一律带
-	// **权威名单 + 真实 HP**（`runtimePartyRealtimeInfoBody`）。
-	// 这一步不依赖任何客户端证据之外的东西：`BuildEmptyRealtimeInfo` 的 1 字节体
-	// 本来就是"退出队伍后清空实时队员 UI"用的（party/body.go），不是"换队长"用的。
-	if err := s.sendChangeHostRetiredPartyClear(result.Retired); err != nil {
-		return err
-	}
+	// Host transfer keeps the party ID and all peer endpoints. No relay close,
+	// empty roster, actor removal or formation handshake is needed.
 	state := s.publishRuntimePartySnapshot(result.Party)
 	s.syncRuntimePartyUDPRelay(state)
-	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
+	if err := s.sendChangeHostRuntimePartySnapshots(state); err != nil {
 		return err
+	}
+	// Mark the former leader only after the committed projection was delivered.
+	// A write failure therefore remains retryable instead of being mistaken for a
+	// completed duplicate on the next op121.
+	if identity.session != nil {
+		identity.session.lastPublishedPartyLeader = target.UserID
+		identity.session.lastPublishedPartyID = int(result.Party.ID)
 	}
 	s.logGameEvent(session, "game-party-change-host-committed",
 		"source_char_id", identity.character,
 		"new_leader_id", target.UserID,
 		"selected_slot", body[0],
-		"old_party_id", result.Retired.ID,
+		"old_party_id", result.Previous.ID,
 		"new_party_id", result.Party.ID,
 		"member_count", len(result.Party.Members),
-		"wire_contract", "86jp_retire_old_party_generation_then_clear_and_fresh_realtime_endpoint_roster")
+		"wire_contract", "atomic_host_projection_without_clear_window_or_endpoint_rehandshake")
 	return nil
 }
 
+func changeHostSlotSelectsLeader(snapshot party.RuntimePartySnapshot, slot byte) bool {
+	member, found := runtimePartySnapshotMemberBySlot(snapshot, slot)
+	return found && member.UserID == snapshot.Leader
+}
+
 // republishChangeHostIdempotent 处理"同一条委任队长请求的重发"：
-// **不退役代数、不 bootstrap 新队伍**，只把当前权威名单重新完整下发一遍
-// （op153 带真实 HP + 每个成员一条 op9 + op11 端点），然后记一条可判读事件。
+// **不退役代数、不 bootstrap 新队伍，也不再重发窗口帧**。第一条请求已经提交并
+// 投影过同一份权威名单；再画一遍只会让队伍窗口在同一状态上刷新一次。
+// 重发仍留下可判读事件，便于现场区分客户端重发和服务端重复变更。
 func (s *Service) republishChangeHostIdempotent(
 	session *gameSession,
 	snapshot party.RuntimePartySnapshot,
 	selectedSlot byte,
 	reason string,
 ) error {
-	state := s.publishRuntimePartySnapshot(snapshot)
-	s.syncRuntimePartyUDPRelay(state)
-	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
-		return err
-	}
 	s.logGameEvent(session, "game-party-change-host-idempotent",
 		"source_char_id", selectedCharacterID(session),
 		"leader_char_id", snapshot.Leader,
@@ -608,39 +583,8 @@ func (s *Service) republishChangeHostIdempotent(
 		"party_id", snapshot.ID,
 		"member_count", len(snapshot.Members),
 		"reason", reason,
-		"wire_contract", "client_repeat_of_change_host_republishes_full_roster_instead_of_retiring_the_generation")
-	return nil
-}
-
-// sendChangeHostRetiredPartyClear 把"旧代队伍记录"从每个成员的客户端队伍表里删掉，
-// **只发 kind3 的 op9 删除记录**，不再发整份空快照。
-//
-// 为什么必须只发删除记录（现场证据，2026-09-25 03:52 双开，频道 10，packet_log.txt）：
-//   - 每个成员收到 2 条 `game-current-party-frame-op9-remove-send`（行 2722-2735），
-//     这正是客户端队伍表的删除原语：只删被点名的那条记录，槽位表其余部分不动；
-//   - 旧实现的 `sendRuntimePartySnapshot({})` 还会额外发出
-//     `msg_id=153 body_len=1 hex=…00`（行 2725/2733）——`BuildEmptyRealtimeInfo()` 是
-//     **"退出队伍后清空实时队员 UI"** 用的空名单，客户端会据此清空整张槽位表
-//     （血条/蓝量数据源）；清空后必须等下一份完整 op153 才恢复。两次 transfer 之间
-//     客户端重发 op121，于是就出现了"位置互换 + 血量蓝量清空"。
-//
-// 不重放 op11：刚建好的 UDP 对端再握手会把客户端打回 connecting（仓库既有结论，
-// 见 sendRuntimePartyRosterLocal 注释），端点表由新名单那一轮负责。
-// 旧代的 UDP 中继仍然要关掉（端点是按 partyID 注册的）。
-func (s *Service) sendChangeHostRetiredPartyClear(retired *party.RuntimePartySnapshot) error {
-	if retired == nil {
-		return nil
-	}
-	s.closeRuntimePartyUDPRelay(int(retired.ID))
-	for _, member := range retired.Members {
-		memberSession, online := s.onlineGameSession(member.UserID)
-		if !online || memberSession == nil {
-			continue
-		}
-		if _, err := s.sendCurrentPartyFrameProjection(memberSession, alignedcmd.PartyState{}, "runtime_party_change_host_retired_clear"); err != nil {
-			return err
-		}
-	}
+		"response_frames", 0,
+		"wire_contract", "client_repeat_of_an_already_committed_host_change_is_a_silent_noop")
 	return nil
 }
 
@@ -1164,10 +1108,26 @@ func (s *Service) sendRuntimePartySnapshotMode(
 	state alignedcmd.PartyState,
 	peerEndpointsAfterRoster partyPeerEndpointsAfterRosterMode,
 ) error {
-	if err := s.sendRuntimePartySnapshotLocal(session, state, peerEndpointsAfterRoster); err != nil {
+	if err := s.sendRuntimePartySnapshotLocal(session, state, true, peerEndpointsAfterRoster); err != nil {
 		return err
 	}
 	return s.broadcastCurrentPartyActorProjection(session, state, s.partyFormationOrder().areaPeerSource())
+}
+
+// sendRuntimePartyRosterRefresh is the same local roster plus area-peer
+// projection as sendRuntimePartySnapshotMode, but omits the formation-only
+// op11 endpoint handshake. It is reserved for mutations of an already formed
+// party (currently CHANGE_HOST), where replaying the handshake can reset a
+// healthy peer transport and adds a second client-side window update.
+func (s *Service) sendRuntimePartyRosterRefresh(
+	session *gameSession,
+	state alignedcmd.PartyState,
+	source string,
+) error {
+	if err := s.sendRuntimePartySnapshotLocal(session, state, false, partyPeerEndpointsAfterRosterOff); err != nil {
+		return err
+	}
+	return s.broadcastCurrentPartyActorProjection(session, state, source)
 }
 
 // sendFormationRealtimeInfo 发 formation 里的 op153（0x0099 实时表），并留下一条
@@ -1197,6 +1157,7 @@ func (s *Service) sendFormationRealtimeInfo(
 func (s *Service) sendRuntimePartySnapshotLocal(
 	session *gameSession,
 	state alignedcmd.PartyState,
+	sendPeerEndpoints bool,
 	peerEndpointsAfterRoster partyPeerEndpointsAfterRosterMode,
 ) error {
 	partyActive := state.PartyID > 0 && len(runtimePartyMembers(state)) > 0
@@ -1205,10 +1166,10 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 	// 之后把它"再应用一次"，并断言重建结果与它逐字节相同（见 party_peer_endpoints_after_roster.go）。
 	var bootstrapPeerEndpoints []byte
 	var beforeFrame func() error
-	if partyActive {
+	if partyActive && (sendPeerEndpoints || order.realtimeBeforeRoster()) {
 		beforeFrame = func() error {
 			// vendor / vendor_wire：op11 是 phase1 barrier，先于任何 op9（也先于 op153）。
-			if order.op11First() {
+			if sendPeerEndpoints && order.op11First() {
 				body, err := s.sendRuntimePartyPeerEndpointInfo(session, state, order)
 				if err != nil {
 					return err
@@ -1223,7 +1184,7 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 				}
 			}
 			// legacy：`op153 → op11 → op9`，逐字节回退档。
-			if !order.op11First() {
+			if sendPeerEndpoints && !order.op11First() {
 				body, err := s.sendRuntimePartyPeerEndpointInfo(session, state, order)
 				if err != nil {
 					return err
@@ -1257,6 +1218,9 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 	}
 	// M1（默认 off = 一个字节都不多发）：A21 在 roster 之后再补发一次同一份端点信息，
 	// 让绑定落在**最终**成员对象上而不是 roster 之前的临时对象上（D6）。
+	if !sendPeerEndpoints {
+		return nil
+	}
 	return s.sendRuntimePartyPeerEndpointsAfterRoster(session, state, bootstrapPeerEndpoints, peerEndpointsAfterRoster)
 }
 

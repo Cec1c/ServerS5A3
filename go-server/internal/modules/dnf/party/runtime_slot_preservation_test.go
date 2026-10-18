@@ -20,7 +20,7 @@ func TestRuntimePartyManagerTransferLeaderPreservesAssignedSlots(t *testing.T) {
 	}
 
 	transferred := manager.TransferLeader(101, 1, 303, 1)
-	if !transferred.OK || !transferred.LeaderMoved || transferred.Retired == nil {
+	if !transferred.OK || !transferred.LeaderMoved || transferred.Retired != nil || transferred.Party.ID != created.Party.ID {
 		t.Fatalf("transfer result = %+v", transferred)
 	}
 	if transferred.Party.Leader != 303 {

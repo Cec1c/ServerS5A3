@@ -64,10 +64,13 @@ func (s *Service) publishRuntimePartySnapshot(snapshot party.RuntimePartySnapsho
 			continue
 		}
 		storeRuntimePartyState(identity.session, snapshot.StateFor(member.UserID))
-		// 记下"本会话最近看到的权威队长/队伍号"，供 handleOnlineChangePartyHost 认
-		// 重发请求（客户端会把同一次委任操作发两遍；第二遍不能再退役一代队伍记录）。
-		identity.session.lastPublishedPartyLeader = snapshot.Leader
-		identity.session.lastPublishedPartyID = int(snapshot.ID)
+		// 记下队长会话的权威队伍号，供 handleOnlineChangePartyHost 认重发。
+		// 普通队员保持零值，避免一条本来就无权的 op121 被误认成委任重发。
+		// 成功的 transfer 会给退位队长单独写上"新队长 + 新队号"。
+		if snapshot.Leader == member.UserID {
+			identity.session.lastPublishedPartyLeader = snapshot.Leader
+			identity.session.lastPublishedPartyID = int(snapshot.ID)
+		}
 	}
 	return snapshot.StateFor(snapshot.Leader)
 }
@@ -591,5 +594,38 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	// （进图即 leaveTownPresenceForDungeon）⇒ 委任队长/成员变动后副本内的队伍框仍是旧数据。
 	// 这里对同一场副本里的成员再补一轮完整队伍帧（op153 + 每人一条 op9）。
 	s.sendDungeonPartyFrameRoster(state, "runtime_party_snapshot_dungeon_roster")
+	return nil
+}
+
+// sendChangeHostRuntimePartySnapshots publishes the committed host projection
+// without replaying the formation endpoint handshake or an old-generation
+// clear. The client already owns the peer transport; CHANGE_HOST changes which
+// fixed slot carries the crown. One authoritative realtime table plus its
+// scene roster contains every required HP, slot and leader value.
+func (s *Service) sendChangeHostRuntimePartySnapshots(state alignedcmd.PartyState) error {
+	if state.PartyID <= 0 || state.PartyID >= int(^uint16(0)) {
+		return nil
+	}
+	manager := s.runtimePartyManagerForService()
+	snapshot, found := manager.SnapshotByID(uint16(state.PartyID))
+	if !found {
+		return fmt.Errorf("runtime party %d is no longer current", state.PartyID)
+	}
+	for _, member := range snapshot.Members {
+		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		if !online || identity.generation != member.SessionGeneration {
+			continue
+		}
+		if err := s.sendRuntimePartyRosterRefresh(
+			identity.session,
+			snapshot.StateFor(member.UserID),
+			"managed_runtime_party_change_host_roster",
+		); err != nil {
+			return err
+		}
+	}
+	// Dungeon members have no town-area table. Keep the existing complete
+	// dungeon projection (op153 followed by every member's op9 record).
+	s.sendDungeonPartyFrameRoster(state, "managed_runtime_party_change_host_dungeon_roster")
 	return nil
 }

@@ -46,15 +46,15 @@ func TestRuntimePartyManagerTransferLeaderPreservesFixedSlots(t *testing.T) {
 		}
 	}
 	transferred := manager.TransferLeader(101, 1, 303, 1)
-	if !transferred.OK || !transferred.LeaderMoved || transferred.Retired == nil {
+	if !transferred.OK || !transferred.LeaderMoved || transferred.Retired != nil || transferred.Previous == nil {
 		t.Fatalf("transfer result = %+v", transferred)
 	}
 	if transferred.Party.Leader != 303 {
 		t.Fatalf("leader = %d, want 303", transferred.Party.Leader)
 	}
-	if transferred.Retired.ID != created.Party.ID || transferred.Party.ID == created.Party.ID {
+	if transferred.Previous.ID != created.Party.ID || transferred.Party.ID != created.Party.ID {
 		t.Fatalf("party generations old=%d retired=%d new=%d",
-			created.Party.ID, transferred.Retired.ID, transferred.Party.ID)
+			created.Party.ID, transferred.Previous.ID, transferred.Party.ID)
 	}
 	if got := runtimePartySlot(transferred.Party, 303); got != 2 {
 		t.Fatalf("new leader slot = %d, want preserved slot 2 (%+v)", got, transferred.Party.Members)
@@ -67,8 +67,8 @@ func TestRuntimePartyManagerTransferLeaderPreservesFixedSlots(t *testing.T) {
 			t.Fatalf("slot 0 moved to %d: %+v", member.UserID, transferred.Party.Members)
 		}
 	}
-	if _, found := manager.SnapshotByID(created.Party.ID); found {
-		t.Fatal("retired party remained addressable")
+	if current, found := manager.SnapshotByID(created.Party.ID); !found || current.Leader != 303 {
+		t.Fatal("existing party ID did not resolve to new leader")
 	}
 	for _, userID := range []uint16{101, 202, 303} {
 		if current, found := manager.SnapshotByUser(userID, 1); !found || current.ID != transferred.Party.ID {
