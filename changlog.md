@@ -3,6 +3,42 @@
 - 合入主线任务、通信、剧情APC及大会累计修复，保留公会事务、成员状态和经验药持久回执；共享源码自动合并后逐项核对。
 - 公会创建默认仍需邀请另一名在线未入会角色并获得同意；补充公告区服0的默认／显式关闭单人模式回归，未邀请或未同意不扣费、不建会，接受后仅扣一次并登记两名成员。
 
+## 2026-10-18 — 主线/剧情地下城经验 !38 最终主线同步与用户验收
+
+- 用户已验收主线/剧情地下城经验补修。本提交只把已验收 MR 同步当前 master `3478cbb`，保留双方变更记录以及 master 的觉醒/转职接取阶段检查与 MR 的剧情经验、两位数难度键逻辑；未夹带累计运行树。
+- 历史经验补发未执行。完整七项检查、真实 PVF 经验专项和隔离 BAT 预检回执见 R62 `experience38-validation`；离线验证不替代原生完整流程验收。
+
+## 2026-10-17 — 剧情地下城经验独立权重补修
+
+- 角色21321213在克拉赫后9级而后继3149要求11级；现场DGN9击杀和通关只应用全局1.3，遗漏真实story mode的额外100%。类型化解析176个剧情块，只对当前客户端、服务端选中且本角色active的epic任务及合法难度在入场冻结倍率，队员独立验证；普通/已完成任务不授予。
+- 剧情权重接入原击杀和通关计算及成长/药水/回执事务，保留原取整；DGN9真实通关3123→6247，成长624→1249。任务交付奖励、等级门和玩家历史数据不改。未知独立倍率块保留原始数据，不按普通倍率授权。
+- 旧公式overlay复现击杀/通关缺倍率；真实DGN3/6/9选图与生产入场冻结、完成后重入负例、成长同事务落库、越界/非epic/不同队友等专项验证。完整检查、部署与原生验收另记，不能据离线通过宣布低级主线完整验收。详Docs/STORY_EXPERIENCE_PVF_20261017.md。
+
+## 2026-10-17 — 主线任务经验 MR !38 同步与加成事务回归
+
+- 原经验 MR 同步已合并主线，完整保留 PVF 两位数难度键；当前真实资源对照 3481/3482=417127、3926/3927=1273766，单字符3149=6680。补齐精确数值断言，不修改经验表或接取等级。
+- 新增两位数经验与成长合约、经验药共同结算的生产事务回归：晚期技能保存失败整体回滚，恢复后可重试；加成过期后重放原回执，不重复经验、金币或物品。未修改master上的相同回归实际失败，候选通过。
+- 当前PVF经验专项23通过、0失败、0跳过；旧五项扩展真档失败在当前master与候选诊断完全一致，保持开放。R52累计源码和既有验证清单已含本经验修复，纠正原草稿“未部署”的历史时点；本轮没有新部署或原生验收，完整升级流程仍开放。详Docs/QUEST_EXPERIENCE_DIFFICULTY_20261017.md。
+
+## 2026-10-14 — DOC121 主代理复核：扩展真档既有失败对照
+
+- 子代理扩展 quest 包真实PVF测试有5项失败，不能记为全量通过。主代理以同一固定PVF分别对9de2ecb与f0adaff复跑这5项，均exit1，失败集合及逐项诊断行完全相同。此次经验键修复未引入这5项失败，仍保留为既有开放问题。
+  - `TestRealScriptPVFQuest3146Definition`
+  - `TestRealScriptPVFProfessionQuestRewardsAndBranchZeroChains`
+  - `TestRealScriptPVFMainStoryCouponSweepKeepsTheClientListAcceptable`
+  - `TestRealScriptPVFCouponSweepRepairsTheLiveDanglingFarewellMomentState`
+  - `TestRealScriptPVFJobChangeQuestBucketsMatchTheDumpedCounts`
+- 本候选保持Draft、未部署、未验收；通过范围仅为明确记录的核心检查及指定回归。对照仅补文档，未改生产代码或测试。
+
+## 2026-10-14 — 主线任务经验（DOC-121）两位数 [difficulty] 档位修复候选
+
+- 真档依据：`n_quest/questParameter.etc` 的 `[difficulty]` 同时声明单字符档（字母、`1`..`9`）与两位数档（`10`..`17`，如 `12`=600、`17`=734），因此难度是**字符串键**而非单 rune。真实 PVF 里 `n_quest` 下 8920 个带 `[difficulty]` 的**归档 .qst** 中有 378 个写两位数档（全为 `[epic]` 主线：安徒恩85、镜像贝希摩斯58-59、卢克87-88、时空裂缝88 等）；这 378 是归档资源数，当前 `quest.lst` catalog 实际只解析出 243 个多字符难度定义，不能把 378 全部当成当前可接任务。
+- 根因：`progression/quest_experience.go` 的 `difficultyWeight` 是 `map[rune]int`，parse 用 `utf8.DecodeRuneInString` 直接跳过长度大于 1 的键；`quest/catalog.go` 的 `PlanFinishReward` 也只在 `len([]rune(definition.Difficulty))==1` 时把 PVF 难度投影到 plan，否则保留默认 `G`(30)。这些主线因此静默退回 `G` 权重。
+- 旧失败/新通过（真实 PVF，同一只读探针）：任务 3481 `[difficulty] 10` 基线 `planDiff='G'` exp=251546，候选 `planDiff="10"` exp=417127（+65.8%）；任务 3926 `[difficulty] 17` 基线 `planDiff='G'` exp=756620，候选 `planDiff="17"` exp=1273766（+68.4%）。3149 `[difficulty] 1` 只作单字符对照锚点（两版均 exp=6680）；DOC-121 原文未指定具体任务，3149 不代表已确认的现场任务。
+- 修复：`difficultyWeight` 改为 `map[string]int`，parse 以整 token（大写归一，兼容数据里的大小写混用）为键；`QuestExperience`/`FinishRewardPlan.Difficulty` 改为 `string`，`PlanFinishReward` 直接投影大写后的整 token，仅当 PVF 未写时才回退 `G`。改动限于 quest 与 progression 两个包的难度键，不动等级门槛、罚则、经验表与金币表。
+- 回归：新增 `TestQuestExperienceUsesMultiCharacterDifficultyKey`（合成 `10`/`17` 键位）、`TestRealScriptPVFMainQuestTwoDigitDifficultyIsHonored`（真实 PVF 3149/3481/3482/3926/3927），生产链 `TestOwnerApplyFinishSettlementUsesFullTwoDigitDifficultyKey`（**合成结算夹具** base 200 与阈值 100/250，仅难度权重 708 取自真档 ⇒ 单次入账 341、持久角色 level 3/exp 341；同轮重试命中收据不重复发放；基线实测只有 206 停在等级 2）、`TestRealScriptPVFEveryQuestDifficultyKeyResolves`（真档全部 `[difficulty]` 键可查表，catalog 内两位数 243 个全部命中、未知键 0）、`TestRealScriptPVFQuestDifficultyKeysAcrossArchiveDirectory`（**全目录键审计**：`n_quest` 下 scanned=8920 / distinct=40 / multi-character=8 全部命中权重表 / unknown={R:19,0:1}）、`TestPlanFinishRewardFallsBackToGForMissingDifficulty`（缺难度段落仍 `G`）；并在既有 `TestRealScriptPVFQuestExperienceUsesVendorPermilleFormula` 增加 `10`/`17` 权重断言与 `difficulty=10` 用例。`./internal/modules/dnf/...`、`./internal/services/dnfbridge`、`./cmd/server/control` 全通过；gofmt/list/vet、Windows/Linux 构建与 GM 边界脚本通过。
+- 边界与不回归审计：①参考实现 C# `ComputeExp` 形参是 `char`；本修复按 PVF 自身定义的两位数键取整 token，若厂商运行时实为首字符语义需另证，未在无厂商源码/原生读数前下结论。②未知难度键不再静默退回 `G`（改为 `ErrQuestDifficulty`，fail-closed）：真档审计显示 `quest.lst` 覆盖范围内没有未知键（实测 resolved=2641 / multi-character=243 / unknown=0 / empty=450），把 `n_quest` 下全部归档 .qst 也算上只多出单字符 `R`(19)、`0`(1)（全目录审计随本提交落库：`TestRealScriptPVFQuestDifficultyKeysAcrossArchiveDirectory`，scanned=8920 / distinct=40 / multi-character=8），这两个在基线同样报错（基线只在单 rune 时投影难度），因此没有任务从"能结算"变成"不能结算"；R/0 不属于本轮范围、不修，只记录原行为不变；将来若引入表外多字符档位会在此处响亮失败而不是少给经验。③DOC-121 原文既没指定任务，也没限定"等级低于主线等级"的唯一来源；这 378 个归档（catalog 内 243 个）两位数难度任务只是**本轮发现的一类缺口**，不能宣称已解释整条升级/接取流程（等级门槛、前置、其它奖励档位不在本次结论内）。④相邻发现未修、非本项范围：真实 `[gold reward table]` 是 200 项平铺表，parse 却按 `value -1` 成对、步长 2 读取，`goldByLevel` 只有 100 项且等级错位（金币另案）。未部署、未改数据库/PVF/客户端。
+
 ## 2026-10-18 — 角色创建与改名重名提示
 
 - 名称检查op692与创建op5分别使用当前EXE对应的重名错误码；改名失败仅在名字已被占用时提示重名，其它失败保留原错误，失败后不消耗改名资格。

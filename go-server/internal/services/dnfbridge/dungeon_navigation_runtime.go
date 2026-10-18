@@ -121,6 +121,7 @@ type runtimePartyDungeonEntryPlan struct {
 	randomizedObjects *currentDungeonRandomizedOwner
 	dungeonID         int64
 	mazeIndex         int
+	storyQuestID      int64
 	maps              map[worldmap.RoomCoordinate]int64
 	room              worldmap.RoomCoordinate
 	mapID             int64
@@ -839,6 +840,7 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		randomizedObjects: leaderRuntime.randomizedObjects,
 		dungeonID:         leaderRuntime.Dungeon.ID,
 		mazeIndex:         leaderRuntime.MazeIndex,
+		storyQuestID:      leaderRuntime.storyExperience.QuestID,
 		room:              leaderScene.Coordinate,
 		mapID:             leaderScene.Map.Map.ID,
 		boss:              leaderRuntime.BossCoordinate,

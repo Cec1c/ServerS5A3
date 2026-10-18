@@ -16,6 +16,12 @@ func ParseDungeon(id int64, dungeonPath string, doc *dnfpvf.Document) Dungeon {
 	complexBlock := ""
 	for _, section := range sections {
 		key := sectionKey(section.Name)
+		// [story mode] is a metadata block even when it appears after a maze.
+		// Its children are consumed as a unit below; do not let them fall into
+		// parseDungeonExtension or the active maze.
+		if storyModeOwned(section.Scope) {
+			continue
+		}
 		if key == "maze info" {
 			result.Mazes = append(result.Mazes, Maze{Index: len(result.Mazes)})
 			currentMaze = len(result.Mazes) - 1
@@ -104,6 +110,171 @@ func parseDungeonRequiredItemFamily(result *Dungeon, key string, section RawSect
 	}
 }
 
+const storyModeSectionKey = "story mode"
+
+func storyModeOwned(scope []string) bool {
+	for _, name := range scope {
+		if sectionKey(name) == storyModeSectionKey {
+			return true
+		}
+	}
+	return false
+}
+
+func storyModeDirectChild(section RawSection, parent string) bool {
+	if len(section.Scope) == 0 {
+		return false
+	}
+	return sectionKey(section.Scope[len(section.Scope)-1]) == sectionKey(parent)
+}
+
+// parseDungeonStoryMode implements the typed subset of PvfLib
+// DungeonFile.cs:1584-1661. The flat section model exposes nested blocks through
+// Scope, so only direct [story mode] children are read here.
+func parseDungeonStoryMode(result *Dungeon, section RawSection, sections []RawSection) {
+	if result.Metadata.StoryMode != nil {
+		// A duplicate top-level block is ambiguous and must not grant a bonus.
+		result.Metadata.StoryMode.Malformed = true
+		return
+	}
+	mode := &DungeonStoryMode{}
+	result.Metadata.StoryMode = mode
+	if !section.Block {
+		mode.Malformed = true
+		return
+	}
+	var difficultySeen, ratesSeen, questsSeen bool
+	for _, child := range sections {
+		if !storyModeDirectChild(child, storyModeSectionKey) || isClosingSection(child.Name) {
+			continue
+		}
+		switch sectionKey(child.Name) {
+		case "difficulty size":
+			if difficultySeen {
+				mode.Malformed = true
+				continue
+			}
+			difficultySeen = true
+			values, ok := storyModeIntegers(child)
+			if !ok || len(values) != 1 || values[0] <= 0 {
+				mode.Malformed = true
+				continue
+			}
+			mode.DifficultySize = values[0]
+		case "increase exp rate":
+			if ratesSeen {
+				mode.Malformed = true
+				continue
+			}
+			ratesSeen = true
+			values, ok := storyModeIntegers(child)
+			if !ok {
+				mode.Malformed = true
+				continue
+			}
+			for _, value := range values {
+				if value < 0 {
+					mode.Malformed = true
+				}
+			}
+			mode.IncreaseExperienceRates = append([]int64(nil), values...)
+		case "quest list":
+			if questsSeen {
+				mode.Malformed = true
+				continue
+			}
+			questsSeen = true
+			parseStoryModeQuestList(mode, child)
+		}
+	}
+	if !difficultySeen || !ratesSeen || !questsSeen {
+		mode.Malformed = true
+	}
+	// The current real Script.pvf contains 176 [story mode] blocks; all declare
+	// difficulty size 1 with two integer increase-exp values. Preserve those
+	// declared values and validate only the observed shape from parsed integers;
+	// the bridge guard owns which index is eligible.
+	if mode.DifficultySize <= 0 || len(mode.IncreaseExperienceRates) != int(mode.DifficultySize)+1 {
+		mode.Malformed = true
+	}
+	preserveUnknownStoryModeSections(result, sections)
+}
+
+// preserveUnknownStoryModeSections keeps future/unknown story-mode children,
+// including [independent rate], in the dungeon's raw extension inventory.
+// They must not be interpreted as maze sections or approved quests, but their
+// data still remains available for diagnostics.
+func preserveUnknownStoryModeSections(result *Dungeon, sections []RawSection) {
+	for _, section := range sections {
+		if !storyModeOwned(section.Scope) || isClosingSection(section.Name) {
+			continue
+		}
+		switch sectionKey(section.Name) {
+		case "difficulty size", "increase exp rate", "quest list":
+			continue
+		}
+		result.UnknownSections = append(result.UnknownSections, cloneRawSection(section))
+		result.Extensions = append(result.Extensions, structureExtension(section))
+	}
+}
+
+func parseStoryModeQuestList(mode *DungeonStoryMode, section RawSection) {
+	values, ok := storyModeIntegers(section)
+	if !ok || len(values) == 0 {
+		mode.Malformed = true
+	}
+	seen := make(map[int64]struct{}, len(values))
+	for _, questID := range values {
+		if questID <= 0 {
+			mode.Malformed = true
+			continue
+		}
+		if _, duplicate := seen[questID]; duplicate {
+			mode.Malformed = true
+			continue
+		}
+		seen[questID] = struct{}{}
+		mode.QuestIDs = append(mode.QuestIDs, questID)
+	}
+}
+
+// storyModeIntegers removes brace sections (the real quest list contains
+// {7=...} markers) and requires every remaining token to be an integer.
+func storyModeIntegers(section RawSection) ([]int64, bool) {
+	depth := 0
+	out := make([]int64, 0, len(section.Tokens))
+	for _, token := range section.Tokens {
+		switch token.Kind {
+		case dnfpvf.TokenSymbol:
+			switch token.Value {
+			case "{":
+				depth++
+			case "}":
+				if depth == 0 {
+					return nil, false
+				}
+				depth--
+			default:
+				if depth == 0 {
+					return nil, false
+				}
+			}
+		case dnfpvf.TokenInt:
+			if depth == 0 {
+				out = append(out, token.Int)
+			}
+		default:
+			if depth == 0 {
+				return nil, false
+			}
+		}
+	}
+	if depth != 0 {
+		return nil, false
+	}
+	return out, true
+}
+
 func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSection) {
 	key := sectionKey(section.Name)
 	if isClosingSection(key) {
@@ -119,6 +290,9 @@ func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSec
 		}
 	}
 	switch key {
+	case storyModeSectionKey:
+		parseDungeonStoryMode(result, section, sections)
+		return
 	case resultCardSectionKey:
 		cards, ok := parseTournamentResultCards(directBlockSection(sections, section))
 		if !ok {
