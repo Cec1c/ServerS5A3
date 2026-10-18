@@ -42,7 +42,7 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 	}
 	var errs error
 	for _, peer := range peers {
-		body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(identity.character), currentSceneObjectContext, s.currentSceneActorRoute())
+		body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(identity.character), currentSceneObjectContext)
 		errs = errors.Join(errs, s.sendGameUpperRawClass(peer.Session, uint16(dnfenum.CmdPacketRecoverStamina), body, 0))
 	}
 	if len(runtimePartyMembers(next)) < 2 {
