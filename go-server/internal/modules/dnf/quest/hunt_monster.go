@@ -1,6 +1,7 @@
 package quest
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
@@ -110,6 +111,13 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 				PreviousTrigger: state.ProgressValue,
 				PVFPath:         definition.Path,
 			}
+			eventKey := fmt.Sprintf("hunt_monster_event_%x", sha256.Sum256([]byte(input.CompletionKey)))
+			if state.ProgressValue > 0 && state.Extra[eventKey] == "1" {
+				completion.CurrentTrigger = state.ProgressValue
+				completion.Idempotent = true
+				plan.Completions = append(plan.Completions, completion)
+				continue
+			}
 			if state.ProgressValue == 0 {
 				completion.CurrentTrigger = 0
 				completion.Completed = true
@@ -138,11 +146,18 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 				state.Extra = make(map[string]string, 8)
 			}
 			state.Extra["pvf_path"] = definition.Path
+			state.Extra[eventKey] = "1"
 			state.Extra["quest_type"] = definition.Type
 			state.Extra["last_hunt_monster_code"] = strconv.FormatInt(input.MonsterCode, 10)
 			state.Extra["last_hunt_monster_dungeon_id"] = strconv.FormatInt(input.DungeonID, 10)
 			state.Extra["last_hunt_monster_difficulty"] = strconv.FormatInt(input.Difficulty, 10)
 			if nextTrigger == 0 {
+				// Completed triggers cannot decrement again; retain only the final receipt.
+				for key := range state.Extra {
+					if strings.HasPrefix(key, "hunt_monster_event_") {
+						delete(state.Extra, key)
+					}
+				}
 				state.Extra["completion_kind"] = huntMonsterCompletionKind
 				state.Extra["completion_key"] = input.CompletionKey
 				state.Extra["completion_monster_code"] = strconv.FormatInt(input.MonsterCode, 10)
