@@ -22,7 +22,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 	targetID := binary.LittleEndian.Uint16(body[:2])
 	sourceID := selectedCharacterID(session)
 	if sourceID == 0 || targetID == 0 || targetID == sourceID ||
-		s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(sourceID, targetID) {
+		s.onlinePlayers == nil {
 		s.logGameEvent(session, "game-peer-userinfo-request-rejected",
 			"source_char_id", sourceID,
 			"target_char_id", targetID,
@@ -42,6 +42,27 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	dungeonPeer := s.sessionHasActiveDungeonRuntime(session) || s.sessionHasActiveDungeonRuntime(targetSession)
+	ownerContext := currentTownRemoteActorOwnerContext(session, targetID)
+	if dungeonPeer {
+		// Mode3 must use the receiver's retained native connection context. Scene
+		// owner zero selects the auxiliary map, whose dungeon appearance actors
+		// need not own initialized stat objects; the active actor table does.
+		ownerContext = currentConnectionTownActorOwnerContext(session)
+		if s.options.currentClientVersion != "official-24.9" || ownerContext == 0 ||
+			!s.currentDungeonPeerUserInfoAllowed(ctx, session, targetSession, sourceID, targetID) {
+			s.logGameEvent(session, "game-peer-userinfo-request-rejected",
+				"source_char_id", sourceID, "target_char_id", targetID,
+				"mode", body[2], "reason", "invalid_active_dungeon_peer_or_connection_context")
+			return true, nil
+		}
+	} else if !s.onlinePlayers.PeerInSameArea(sourceID, targetID) {
+		s.logGameEvent(session, "game-peer-userinfo-request-rejected",
+			"source_char_id", sourceID, "target_char_id", targetID,
+			"mode", body[2], "reason", "invalid_or_not_in_same_area")
+		return true, nil
+	}
+
 	loadedID, charName, character, found := s.characterForEnter(ctx, targetSession, targetID)
 	if !found || loadedID != targetID {
 		s.logGameEvent(session, "game-peer-userinfo-request-rejected",
@@ -106,7 +127,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		character,
 		true,
 		targetID,
-		currentTownRemoteActorOwnerContext(session, targetID),
+		ownerContext,
 	)
 	if buffSwapReapplyEnabled() {
 		buffBody := s.buildNativePeerBuffCarrier(ctx, targetSession, targetID, response)
@@ -124,6 +145,8 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		"msg_id", uint16(dnfenum.CmdPacketSetUDPIPPort),
 		"classification", 0,
 		"body_len", len(response),
+		"owner_context", ownerContext,
+		"dungeon_peer", dungeonPeer,
 		"identity_carrier_sent", identitySent,
 		"identity_carrier_body_len", len(identityBody),
 		"identity_carrier_switch", peerUserInfoIdentityCarrierMode(),
