@@ -142,6 +142,9 @@ func (s *Service) sendCurrentInitialTownActorRoutePacketsWithOptionsLocked(
 				"char_id", characterID,
 				"error", err)
 		}
+	} else if err := s.sendSelectedCharacterHotkeyNotice(session, "initial_town_before_actor_prerequisites"); err != nil {
+		s.logWarn("dnfbridge selected character hotkey replay deferred",
+			"conn_id", session.connID, "char_id", characterID, "error", err)
 	}
 	// Character options must replay for every new selection on this connection.
 	// Keep the accepted account-option gate unchanged (P55).
