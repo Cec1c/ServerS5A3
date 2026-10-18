@@ -14,6 +14,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfequip "longheng.io/server/internal/modules/dnf/equip"
+	dnfguardianshield "longheng.io/server/internal/modules/dnf/guardianshield"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -58,6 +59,33 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		cmd := NewMoveCommand(req, parsed)
 		if err != nil {
 			return blockedParsedResult(cmd.Operation, cmd.String(), err), nil
+		}
+		if dnfguardianshield.IsWireList(cmd.SourceListType) || dnfguardianshield.IsWireList(cmd.DestinationListType) {
+			if cmd.MoveCount != 0 || cmd.SourceInstanceValue < 0 || cmd.DestinationInstance != 0 || cmd.DestinationStack != 0 ||
+				(cmd.SourceListType == dnfguardianshield.WireListEquipped && cmd.SourceInstanceValue != 0) ||
+				(cmd.SourceListType == dnfguardianshield.WireListCatalog && cmd.SourceInstanceValue == 0) {
+				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, fmt.Errorf("invalid current guardian shield op19 scalar fields")), nil
+			}
+			if req.GuardianShield == nil {
+				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, fmt.Errorf("guardian shield PVF resolver is unavailable")), nil
+			}
+			owner, ownerErr := dnfguardianshield.NewOwner(req.Repositories, req.GuardianShield)
+			if ownerErr != nil {
+				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, ownerErr), nil
+			}
+			result, ownerErr := owner.Move(ctx, dnfguardianshield.MoveCommand{
+				CharacterID:          req.SelectedCharacterID,
+				AccountID:            req.AccountID,
+				SourceListType:       cmd.SourceListType,
+				SourceSlotIndex:      cmd.SourceSlotIndex,
+				SourceShieldItemID:   uint32(cmd.SourceInstanceValue),
+				DestinationListType:  cmd.DestinationListType,
+				DestinationSlotIndex: cmd.DestinationSlotIndex,
+			})
+			if ownerErr != nil {
+				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, ownerErr), nil
+			}
+			return ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result), nil
 		}
 		petEquipmentMove := isProvenPetEquipmentMove(cmd)
 		if petEquipmentMove {
@@ -167,6 +195,23 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			return ownerBlockedResult(cmd, err), nil
 		}
 		return ownerAppliedSortLockResult(req.Opcode, cmd, result), nil
+	case dnfenum.CmdPacketChangeDeckInfo:
+		deck, err := decodeCurrentGuardianShieldDeckRequest(req.Body)
+		if err != nil {
+			return rejectedGuardianShieldDeckResult(req.Opcode, err), nil
+		}
+		if req.GuardianShield == nil {
+			return rejectedGuardianShieldDeckResult(req.Opcode, fmt.Errorf("guardian shield PVF resolver is unavailable")), nil
+		}
+		owner, err := dnfguardianshield.NewOwner(req.Repositories, req.GuardianShield)
+		if err != nil {
+			return rejectedGuardianShieldDeckResult(req.Opcode, err), nil
+		}
+		result, err := owner.SaveDeck(ctx, req.SelectedCharacterID, req.AccountID, deck)
+		if err != nil {
+			return rejectedGuardianShieldDeckResult(req.Opcode, err), nil
+		}
+		return appliedGuardianShieldDeckResult(req.Opcode, result), nil
 	case dnfenum.CmdPacketSortItem:
 		parsed, err := DecodeSortItemRequest(req.Body)
 		cmd := NewSortCommand(req, parsed)

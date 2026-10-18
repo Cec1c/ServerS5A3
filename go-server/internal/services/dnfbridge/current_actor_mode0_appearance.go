@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	dnfguardianshield "longheng.io/server/internal/modules/dnf/guardianshield"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -70,12 +71,20 @@ func buildCurrentActorMode0AppearanceSummaryFromEquipment(record dnfrepo.Equipme
 		itemIDs[slot] = currentActorMode0AppearanceEmptyItem
 	}
 
+	extraRows := make([]dnfrepo.CharacterRosterEquipSummary, 0, 1)
 	for _, equipped := range record.Entries {
 		if equipped.ItemID <= 0 {
 			continue
 		}
 		appearanceSlot, ok := currentActorMode0AppearanceSlot(equipped)
-		if !ok || appearanceSlot >= currentActorMode0AppearanceSlotCount {
+
+		if !ok {
+			continue
+		}
+		if appearanceSlot >= currentActorMode0AppearanceSlotCount {
+			if appearanceSlot == uint64(dnfguardianshield.ActorSlot) && dnfguardianshield.IsMainProjectionEntry(equipped) {
+				extraRows = append(extraRows, dnfrepo.CharacterRosterEquipSummary{Slot: int64(appearanceSlot), ItemIDOrIcon: int64(currentActorAppearanceItemID(equipped))})
+			}
 			continue
 		}
 		if equipped.ItemID > int64(^uint32(0)) {
@@ -102,7 +111,7 @@ func buildCurrentActorMode0AppearanceSummaryFromEquipment(record dnfrepo.Equipme
 			OptionalIDOrExpire: int64(linkItemIDs[slot]),
 		}
 	}
-	return rows, nil
+	return append(rows, extraRows...), nil
 }
 
 // currentActorAppearanceItemID 是 mode0 外观表与名册摘要共用的"这一格该显示成

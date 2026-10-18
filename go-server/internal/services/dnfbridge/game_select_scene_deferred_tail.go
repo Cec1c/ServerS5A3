@@ -26,6 +26,10 @@ func resetCurrentDeferredSelectSceneTailProgress(session *gameSession) {
 	if session == nil {
 		return
 	}
+	session.sceneBootstrapActorGeneration++
+	if session.sceneBootstrapActorGeneration == 0 {
+		session.sceneBootstrapActorGeneration++
+	}
 	session.sceneBootstrapTailPacketIndex = 0
 	session.sceneBootstrapTailObjectMode1Pending = false
 	session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailPackets
@@ -46,6 +50,9 @@ func (s *Service) sendCurrentSelectSceneReadyBoundary(session *gameSession, sour
 	session.townMu.Lock()
 	legacyHUDReady := session.initialTownLegacySceneReadyAccepted
 	session.townMu.Unlock()
+	if err := s.sendSelectedDarkKnightComboAfterFinalTownSceneOnce(session, source+"_final_actor"); err != nil {
+		return err
+	}
 	if !legacyHUDReady {
 		return nil
 	}

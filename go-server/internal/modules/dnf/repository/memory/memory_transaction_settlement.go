@@ -140,6 +140,30 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 			exists:    accountExists,
 		}
 	}
+
+	var comboSettingsTx *memorySettlementSettingsTransaction
+	guildSettingsTx := map[string]*memorySettingsTransaction{}
+	settingsBefore := map[string]repository.SettingsRecord{}
+	settingsExisted := map[string]bool{}
+	if owner != nil {
+		if u.settings == nil {
+			return repository.ErrGuildTransaction
+		}
+		for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
+			record, found, err := u.settings.Load(ctx, scope)
+			if err != nil {
+				return err
+			}
+			settingsBefore[scope], settingsExisted[scope] = record, found
+			guildSettingsTx[scope] = &memorySettingsTransaction{scope: scope, record: repository.CloneSettings(record), exists: found}
+		}
+	} else if u.settings != nil {
+		comboSettingsTx = &memorySettlementSettingsTransaction{
+			characterID: characterID, base: u.settings,
+			records: make(map[string]repository.SettingsRecord), exists: make(map[string]bool),
+			original: make(map[string]repository.SettingsRecord), originalExists: make(map[string]bool), dirty: make(map[string]bool),
+		}
+	}
 	txGroup := repository.Group{
 		Account:          accountTx,
 		AccountInventory: accountInventoryTx,
@@ -149,19 +173,10 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		Equipment:        equipmentTx,
 		Skill:            skillTx,
 	}
-	settingsTx := map[string]*memorySettingsTransaction{}
-	settingsBefore := map[string]repository.SettingsRecord{}
-	settingsExisted := map[string]bool{}
 	if owner != nil {
-		for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
-			record, found, err := u.settings.Load(ctx, scope)
-			if err != nil {
-				return err
-			}
-			settingsBefore[scope], settingsExisted[scope] = record, found
-			settingsTx[scope] = &memorySettingsTransaction{scope: scope, record: repository.CloneSettings(record), exists: found}
-		}
-		txGroup.Settings = memorySettlementSettings(settingsTx)
+		txGroup.Settings = memorySettlementSettings(guildSettingsTx)
+	} else if comboSettingsTx != nil {
+		txGroup.Settings = comboSettingsTx
 	}
 	if err := apply(txGroup); err != nil {
 		return err
@@ -223,18 +238,24 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		}
 	}
 	// The shared aggregate mutex remains held until these durable records commit.
-	for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
-		tx := settingsTx[scope]
-		if tx == nil || !tx.dirty {
-			continue
+	if owner != nil {
+		for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
+			tx := guildSettingsTx[scope]
+			if tx == nil || !tx.dirty {
+				continue
+			}
+			undo = append(undo, func() error {
+				return restoreSettingsRecord(u.settings, scope, settingsBefore[scope], settingsExisted[scope], true)
+			})
+			if err := u.settings.Save(ctx, tx.record); err != nil {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 		}
-		undo = append(undo, func() error {
-			return restoreSettingsRecord(u.settings, scope, settingsBefore[scope], settingsExisted[scope], true)
-		})
-		if err := u.settings.Save(ctx, tx.record); err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
+	} else if comboSettingsTx != nil && comboSettingsTx.dirtyCount() > 0 {
+		if err := comboSettingsTx.commit(ctx); err != nil {
 			return err
 		}
 	}
