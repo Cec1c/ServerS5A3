@@ -31,7 +31,7 @@ func (s *Service) resolveSelectedCharacter(
 		if err != nil {
 			s.logGameEvent(session, "game-upper-select-character-list-failed", "slot", slot, "error", err)
 		} else if len(characters) > 0 {
-			if selected, selectedBy, ok := selectCharacterRecord(characters, parsed); ok {
+			if selected, selectedBy, ok := selectCharacterRecord(characters, session.currentRenameRoster, parsed); ok {
 				if repos.Equipment != nil {
 					s.attachEquipmentSummary(ctx, repos, &selected)
 				}
@@ -88,8 +88,34 @@ func (s *Service) resolveSelectedCharacter(
 
 func selectCharacterRecord(
 	characters []dnfrepo.CharacterRecord,
+	sentRoster []dnfrepo.CharacterRecord,
 	parsed selectCharacterRequest,
 ) (dnfrepo.CharacterRecord, string, bool) {
+	// The current two-byte selector addresses the row actually sent to this
+	// connection. Once that binding exists, an invalid or stale row must not
+	// fall back to a different SQL slot or numerically equal character ID.
+	if parsed.source == "legacy_slot_or_char_id" && len(sentRoster) > 0 {
+		if parsed.slot < 0 || parsed.slot >= len(sentRoster) {
+			return dnfrepo.CharacterRecord{}, "", false
+		}
+		row := sentRoster[parsed.slot]
+		for _, character := range characters {
+			if character.CharacterID == row.CharacterID &&
+				character.AccountID == row.AccountID &&
+				character.Slot == row.Slot {
+				return character, "roster_index", true
+			}
+		}
+		return dnfrepo.CharacterRecord{}, "", false
+	}
+	if selectRequestHasAuthoritativeCharID(parsed) {
+		for _, character := range characters {
+			if numericCharacterID(character) == int(parsed.charID) {
+				return character, "char_id", true
+			}
+		}
+		return dnfrepo.CharacterRecord{}, "", false
+	}
 	if parsed.slot >= 0 && parsed.slot < defaultCharacterSlots {
 		for _, character := range characters {
 			if character.Slot == parsed.slot {
@@ -97,7 +123,7 @@ func selectCharacterRecord(
 			}
 		}
 	}
-	if parsed.charID != 0 && selectRequestHasAuthoritativeCharID(parsed) {
+	if parsed.source == "legacy_slot_or_char_id" && parsed.charID != 0 {
 		for _, character := range characters {
 			if numericCharacterID(character) == int(parsed.charID) {
 				return character, "char_id", true
@@ -109,10 +135,10 @@ func selectCharacterRecord(
 
 func selectRequestHasAuthoritativeCharID(parsed selectCharacterRequest) bool {
 	switch parsed.source {
-	case "unknown", "opaque", "fallback", "nopack_key4_slot", "nopack_plain_slot":
-		return false
+	case "latest_type3", "legacy_char_id":
+		return parsed.charID != 0
 	default:
-		return true
+		return false
 	}
 }
 

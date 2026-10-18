@@ -23,12 +23,14 @@ var (
 )
 
 type Assets struct {
+	Account          *dnfrepo.AccountRecord
 	AccountInventory *dnfrepo.AccountInventoryRecord
 	Character        *dnfrepo.CharacterRecord
 	Inventory        *dnfrepo.InventoryRecord
 }
 
 type Changes struct {
+	Account          bool
 	AccountInventory bool
 	Character        bool
 	Inventory        bool
@@ -37,11 +39,12 @@ type Changes struct {
 type Projector func(*Assets) (Changes, error)
 
 type Command struct {
-	AccountID   string
-	CharacterID string
-	UpdatedAt   time.Time
-	GoldCost    int64
-	Project     Projector
+	AccountLedger bool
+	AccountID     string
+	CharacterID   string
+	UpdatedAt     time.Time
+	GoldCost      int64
+	Project       Projector
 }
 
 // Owner owns booster authorization and the atomic account-warehouse plus
@@ -87,7 +90,20 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		now = time.Now().UTC()
 	}
 
-	return o.assets.WithinAccountCharacterAssets(ctx, accountID, characterID, func(
+	within := func(apply func(dnfrepo.AccountRepository, dnfrepo.AccountInventoryRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
+		if command.AccountLedger {
+			ledger, ok := o.assets.(dnfrepo.AccountCharacterLedgerAssetUnitOfWork)
+			if !ok {
+				return ErrOwnerUnavailable
+			}
+			return ledger.WithinAccountCharacterLedgerAssets(ctx, accountID, characterID, apply)
+		}
+		return o.assets.WithinAccountCharacterAssets(ctx, accountID, characterID, func(a dnfrepo.AccountInventoryRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository) error {
+			return apply(nil, a, c, i, e)
+		})
+	}
+	return within(func(
+		ledger dnfrepo.AccountRepository,
 		accounts dnfrepo.AccountInventoryRepository,
 		characters dnfrepo.CharacterRepository,
 		inventories dnfrepo.InventoryRepository,
@@ -95,6 +111,21 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 	) error {
 		if accounts == nil || characters == nil || inventories == nil {
 			return ErrOwnerUnavailable
+		}
+		var account *dnfrepo.AccountRecord
+		if command.AccountLedger {
+			if ledger == nil {
+				return ErrOwnerUnavailable
+			}
+			record, found, err := ledger.Load(ctx, accountID)
+			if err != nil {
+				return err
+			}
+			if !found || record.AccountID != accountID {
+				return ErrOwnerUnavailable
+			}
+			record = dnfrepo.CloneAccount(record)
+			account = &record
 		}
 		character, found, err := characters.Load(ctx, characterID)
 		if err != nil {
@@ -135,12 +166,22 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		inventory = dnfrepo.CloneInventory(inventory)
 
 		changes, err := command.Project(&Assets{
+			Account:          account,
 			AccountInventory: &accountInventory,
 			Character:        &character,
 			Inventory:        &inventory,
 		})
 		if err != nil {
 			return err
+		}
+		if changes.Account {
+			if ledger == nil || account == nil {
+				return ErrOwnerUnavailable
+			}
+			account.UpdatedAt = now
+			if err := ledger.Save(ctx, *account); err != nil {
+				return err
+			}
 		}
 		if changes.Inventory {
 			inventory.UpdatedAt = now
@@ -162,4 +203,26 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		}
 		return nil
 	})
+}
+
+// CreditEpicPiece 仅改事务内的账号副本；开盒、其它奖励或保存失败会一起回滚。
+func CreditEpicPiece(assets *Assets, pieceID, count uint32, now time.Time) (uint32, error) {
+	if assets == nil || assets.Account == nil {
+		return 0, ErrOwnerUnavailable
+	}
+	if pieceID == 0 || count == 0 {
+		return 0, dnfrepo.ErrAccountEpicPieceIDRequired
+	}
+	account := assets.Account
+	key := dnfrepo.AccountEpicPieceMetadataKey(pieceID)
+	amount := uint64(dnfrepo.ParseAccountEpicPieceBalance(account.Metadata[key])) + uint64(count)
+	if amount > uint64(dnfrepo.AccountEpicPieceBalanceMax) {
+		amount = uint64(dnfrepo.AccountEpicPieceBalanceMax)
+	}
+	if account.Metadata == nil {
+		account.Metadata = map[string]string{}
+	}
+	account.Metadata[key] = dnfrepo.FormatAccountEpicPieceBalance(uint32(amount))
+	account.UpdatedAt = now.UTC()
+	return uint32(amount), nil
 }

@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"google.golang.org/protobuf/encoding/protowire"
+	darkcombo "longheng.io/server/internal/modules/dnf/darkknightcombo"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -17,6 +18,9 @@ const (
 )
 
 func buildCurrentSceneSkillTree(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
+	return buildCurrentSceneSkillTreeWithCombo(record, layout, commands, nil)
+}
+func buildCurrentSceneSkillTreeWithCombo(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte, roots map[uint16][]uint16) ([]byte, []int, error) {
 	slots := make([]int, 0, len(layout))
 	for slot, skillID := range layout {
 		state, ok := record.Skills[int64(skillID)]
@@ -55,7 +59,11 @@ func buildCurrentSceneSkillTree(record dnfrepo.SkillRecord, layout dnfrepo.Skill
 		// under character:<id>:skill_commands; without it every login drops the
 		// player's custom direction+attack command back to the PVF default
 		// (operator report "技能操作指令无法更改"). Absent field = PVF default.
-		if command := commands[skillID]; len(command) > 0 {
+		if children, isRoot := roots[skillID]; isRoot {
+			for _, child := range children {
+				skill = appendProtoVarint(skill, 4, uint64(child))
+			}
+		} else if command := commands[skillID]; len(command) > 0 {
 			skill = appendProtoBytes(skill, 4, command)
 		}
 		tree = appendProtoBytes(tree, 3, skill)
@@ -68,6 +76,9 @@ func buildCurrentSceneSkillTree(record dnfrepo.SkillRecord, layout dnfrepo.Skill
 }
 
 func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte) ([]byte, []int, error) {
+	return buildCurrentSceneSkillInfoBodyWithCombo(record, layout, commands, nil)
+}
+func buildCurrentSceneSkillInfoBodyWithCombo(record dnfrepo.SkillRecord, layout dnfrepo.SkillLayout, commands map[uint16][]byte, pages []darkcombo.Page) ([]byte, []int, error) {
 	active := dnfrepo.ActiveSkillTree(record)
 	var message []byte
 	message = appendProtoVarint(message, 1, currentSkillInfoMessageType)
@@ -79,7 +90,16 @@ func buildCurrentSceneSkillInfoBody(record dnfrepo.SkillRecord, layout dnfrepo.S
 			profile.Skills, profile.Points = record.Trees.Other.Skills, record.Trees.Other.Points
 			pageLayout = record.Layouts[index]
 		}
-		tree, slots, err := buildCurrentSceneSkillTree(profile, pageLayout, commands)
+
+		roots := make(map[uint16][]uint16)
+		for _, page := range pages {
+			if int(page.Index) == index {
+				for _, root := range page.Roots {
+					roots[root.SkillID] = root.Children
+				}
+			}
+		}
+		tree, slots, err := buildCurrentSceneSkillTreeWithCombo(profile, pageLayout, commands, roots)
 		if err != nil {
 			return nil, nil, err
 		}

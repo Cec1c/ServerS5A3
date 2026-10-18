@@ -22,6 +22,7 @@ func TestCurrentQuestDropMatchMonsterIncludesTypeOneEnemyRewardItem(t *testing.T
 			"420 1 32 -1 10164861 1 100 30\n" +
 			"421 1 32 2 10164861 2 50 30\n" +
 			"420 2 32 -1 10164862 1 100 30\n" +
+			"420 3 32 -1 10164864 1 100 30\n" +
 			"[/enemy reward item]\n",
 		"n_quest/monster_reward.qst": "[grade]\n" +
 			"`[normal]`\n" +
@@ -60,6 +61,18 @@ func TestCurrentQuestDropMatchMonsterIncludesTypeOneEnemyRewardItem(t *testing.T
 	}
 	if got := currentQuestDropMatchMonster(catalog, []int64{3233}, 31, 0, 420); len(got) != 0 {
 		t.Fatalf("enemy reward matched wrong dungeon: %+v", got)
+	}
+	typeTwo := currentQuestDropMatchEnemy(catalog, []int64{3233}, 32, 0, 2, 420)
+	if len(typeTwo) != 1 || typeTwo[0].ItemID != 10164862 {
+		t.Fatalf("type-2 enemy reward=%+v", typeTwo)
+	}
+	typeThree := currentQuestDropMatchEnemy(catalog, []int64{3233}, 32, 0, 3, 420)
+	if len(typeThree) != 1 || typeThree[0].ItemID != 10164864 {
+		t.Fatalf("type-3 enemy reward=%+v", typeThree)
+	}
+	typeOne := currentQuestDropMatchEnemy(catalog, []int64{3233}, 32, 0, 1, 420)
+	if len(typeOne) != 1 || typeOne[0].ItemID != 10164861 {
+		t.Fatalf("type-1 enemy reward changed: %+v", typeOne)
 	}
 }
 

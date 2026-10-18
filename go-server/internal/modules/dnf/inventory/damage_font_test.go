@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -13,6 +14,32 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
+
+func TestDamageFontRejectsGuildHongbaoActionWithoutMutation(t *testing.T) {
+	ctx := context.Background()
+	repos := dnfrepomemory.NewMemoryGroup()
+	saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77"})
+	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{
+		slotKey(listTypeMain, 76): {ItemID: 10160911, Count: 2},
+	}})
+	before := loadTestInventory(t, ctx, repos, "77")
+	character, _, _ := repos.Character.Load(ctx, "77")
+	owner, _ := NewOwner(repos)
+	called := false
+	_, err := owner.UnlockDamageFont(ctx, Command{
+		SelectedCharacterID: 77, SourceListType: listTypeMain, SourceSlotIndex: 76, ActionIndex: 162,
+	}, func(int64) (alignedcmd.DamageFontResolution, error) {
+		called = true
+		return alignedcmd.DamageFontResolution{Valid: true, ActionType: "[add damage font skin]", FontIndex: 2, ExpirationMode: alignedcmd.DamageFontExpirationUnlimited}, nil
+	}, time.Now())
+	if !errors.Is(err, ErrDamageFontDefinition) || called {
+		t.Fatalf("err=%v resolver called=%v", err, called)
+	}
+	after, _, _ := repos.Character.Load(ctx, "77")
+	if !reflect.DeepEqual(before, loadTestInventory(t, ctx, repos, "77")) || !reflect.DeepEqual(character, after) {
+		t.Fatal("hongbao action changed font or bag")
+	}
+}
 
 func TestDecodeDamageFontRequestsUseVerifiedWireWidths(t *testing.T) {
 	body := []byte{0x4c, 0x00, 0x00, 0, 0, 0, 0, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}

@@ -58,6 +58,7 @@ const alignedEvidenceMatrix20260705 = "outputs/csharp_go_protocol_reuse_matrix_2
 const alignUpgradeRoomEvidence = "现场 cmd=1 type=576 body=u16 seq+0x0B79（packet_log 2026-09-25 19:40:06/08）；86JP GameProtocolHandler.cs:391-394 与 A21 各分支均无 handler（只有 PacketTypes*.cs 枚举）；厂商 9.16 二进制日志无此族收发 ⇒ 无 S2C 回包证据"
 
 var alignedCommands = map[CmdPacket]AlignedCommand{
+	CmdPacketChangeDeckInfo:              aligned(CmdPacketChangeDeckInfo, AlignedDomainInventory, AlignedSupportDirect, "当前客户端657五个u32盾牌槽；580独立通知，主盾由19移动列表33/34管理"),
 	CmdPacketEpicBookMakeItem:            aligned(CmdPacketEpicBookMakeItem, AlignedDomainInventory, AlignedSupportDirect, "Pinned official v103/v105: 149d5c0 writes output u32; 1fde960 class1 status/error; account-piece+soul+product atomic owner. Client receive bit788 requires paired candidate."),
 	CmdPacketSetPartyInfo:                aligned(CmdPacketSetPartyInfo, AlignedDomainParty, AlignedSupportDirect, "创建/修改单人队伍信息"),
 	CmdPacketLeaveParty:                  aligned(CmdPacketLeaveParty, AlignedDomainParty, AlignedSupportDirect, "退出当前队伍"),
@@ -114,7 +115,7 @@ var alignedCommands = map[CmdPacket]AlignedCommand{
 	CmdPacketDisjointItem:            aligned(CmdPacketDisjointItem, AlignedDomainInventory, AlignedSupportDirect, "分解物品"),
 	CmdPacketUseStackable:            aligned(CmdPacketUseStackable, AlignedDomainInventory, AlignedSupportDirect, "使用消耗品"),
 	CmdPacketUseSharedEffectItem:     aligned(CmdPacketUseSharedEffectItem, AlignedDomainInventory, AlignedSupportDirect, "current EXE op251：共享特效道具（春节欢庆爆竹族）右键使用；现场 C2S body = u32 itemCode + u16 slot"),
-	CmdPacketUseStackableAction:      aligned(CmdPacketUseStackableAction, AlignedDomainInventory, AlignedSupportDirect, "current EXE op515: damage-font action 162 request and response verified"),
+	CmdPacketUseStackableAction:      aligned(CmdPacketUseStackableAction, AlignedDomainInventory, AlignedSupportDirect, "current EXE op515: matched-client damage-font action 164 and action ACK"),
 	CmdPacketSelectDamageFontSkin:    aligned(CmdPacketSelectDamageFontSkin, AlignedDomainInventory, AlignedSupportDirect, "current EXE op1288: u16 font index request; success and error-17 responses verified"),
 	CmdPacketUpgradeItem:             aligned(CmdPacketUpgradeItem, AlignedDomainInventory, AlignedSupportDirect, "装备强化"),
 	CmdPacketEnchantByBead:           aligned(CmdPacketEnchantByBead, AlignedDomainInventory, AlignedSupportDirect, "宝珠附魔"),

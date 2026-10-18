@@ -54,18 +54,23 @@ func (c *Catalog) PlanLegacySaturatedActiveTriggerRepair(record dnfrepo.QuestRec
 			tag := normalizeQuestTag(definition.Type)
 			raidInitial := isLegacyRaidInitialTrigger(state, definition)
 			clearInitial := isLegacyUntouchedConditionClearInitialTrigger(state, definition)
-			if tag != "hunt monster" && tag != "hunt enemy" && !raidInitial && !clearInitial {
+			seekTrigger, seekRepair := repairLegacySeekAndMeetTrigger(state, definition)
+			if tag != "hunt monster" && tag != "hunt enemy" && !raidInitial && !clearInitial && !seekRepair {
 				continue
 			}
 			expected := definitionInitialTrigger(definition, nil)
-			if !isLegacySaturatedMultiTargetTrigger(expected) && !clearInitial {
+			if !isLegacySaturatedMultiTargetTrigger(expected) && !clearInitial && !seekRepair {
 				continue
 			}
 			previous := state.ProgressValue
 			current := previous
 			repairKind := ""
 			expectedText := "0"
-			if clearInitial {
+			if seekRepair {
+				current = seekTrigger
+				repairKind = "pvf_seek_meet_material_count_to_predicate"
+				expectedText = strconv.FormatInt(current, 10)
+			} else if clearInitial {
 				current = int64(expected)
 				repairKind = "pvf_condition_clear_initial_default_one"
 				expectedText = strconv.FormatInt(current, 10)

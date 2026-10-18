@@ -165,8 +165,7 @@ func decodeInstance(path string) (instanceConfig, error) {
 		}
 		return instanceConfig{}, fmt.Errorf("invalid JSON in %s: %w", path, err)
 	}
-	// Retire the former embedded-tool setting without rewriting the local source file.
-	cfg.Server.LegacyGMListen = ""
+	// Preserve obsolete settings until validation can require an explicit GM migration.
 	return cfg, nil
 }
 
@@ -232,6 +231,9 @@ func validateInstance(cfg instanceConfig) error {
 	}
 	if err := validateLoopbackListenAddress("server.adminListen", cfg.Server.AdminListen); err != nil {
 		return err
+	}
+	if strings.TrimSpace(cfg.Server.LegacyGMListen) != "" {
+		return errorsf("server.gmListen has moved to the independent DNF90GM repository; migrate GM and remove this legacy setting")
 	}
 	if err := validateSafeValue("server.adminToken", cfg.Server.AdminToken); err != nil {
 		return err

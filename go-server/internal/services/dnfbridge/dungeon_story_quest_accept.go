@@ -13,8 +13,8 @@ var errStorySuccessorAcceptUnavailable = errors.New("dnf story successor quest a
 // storySuccessorAcceptOutcome 区分四种结局，调用者据此决定是否继续下一任务入场：
 //   - storySuccessorAcceptFailed：真实失败（仓储/上下文/持久化校验）。记录可能未变
 //     也可能已写入，但一律不退休旧 runtime、不进后继副本、不扣入场资产，并允许重试。
-//   - storySuccessorAcceptIneligible：PVF/角色状态本来就不可接取，记录未变；保持原有
-//     剧情链行为（不伪造可接取，也不因它挡住玩家）。
+//   - storySuccessorAcceptIneligible：PVF/角色状态本来就不可接取，记录未变；
+//     再次挑战保留当前副本和难度。
 //   - storySuccessorAcceptIdempotent：后继任务已经是进行中。
 //   - storySuccessorAcceptAccepted：本次真正接取。
 type storySuccessorAcceptOutcome int
@@ -30,9 +30,9 @@ const (
 // story-chain dungeon entry, using exactly the op31 accept preflight
 // (Catalog.DecideAccept over the persisted record plus the PVF level, job,
 // grow-type, prerequisite and collision rules). Nothing is invented: a successor
-// that is already active, already completed, or not yet eligible leaves the
-// persisted quest record untouched and reports false, so the entry keeps its
-// previous target.
+// that is already active reports an idempotent acceptance. Already completed
+// or ineligible successors leave the record untouched and preserve the current
+// dungeon as the retry target.
 //
 // Why the entry needs it: the settlement dialog's 开始下个任务 button is a
 // story-chain entry, and the current client waits for the server-driven entry
@@ -119,7 +119,7 @@ func (s *Service) acceptCurrentStorySuccessorQuest(session *gameSession, questID
 }
 
 // isStorySuccessorPreflightRefusal 只认 PVF/角色状态本身造成的拒绝：这类拒绝没有写入，
-// 也不会因为重试而改变，因此不阻塞剧情链的既有行为。仓储、上下文与持久化校验错误
+// 也不会因为重试而改变，因此再次挑战回到当前副本。仓储、上下文与持久化校验错误
 // 都不在此列，一律按真实失败处理。
 func isStorySuccessorPreflightRefusal(err error) bool {
 	switch {

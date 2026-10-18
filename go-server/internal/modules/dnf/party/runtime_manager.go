@@ -61,6 +61,16 @@ type runtimePartyInvite struct {
 	inviterGeneration uint64
 	partyID           uint16
 	mode              byte
+	request           RuntimePeerRequest
+}
+
+// RuntimePeerRequest fixes the join direction when the prompt is registered.
+// Mode 0 is shared by Invite and Join; accepting a Join prompt must not make
+// the existing leader join the requesting player's newly created lobby.
+type RuntimePeerRequest struct {
+	PartyID  uint16
+	JoinerID uint16
+	AnchorID uint16
 }
 
 const currentRuntimePartyMaxMembers = 4
@@ -285,8 +295,9 @@ func (m *RuntimePartyManager) leaveLocked(userID uint16, generation uint64, allo
 	}
 
 	// The current client cannot safely consume a same-id leader replacement.
-	// Retire the generation and rebuild surviving members under a new id with
-	// the successor in slot zero, matching the tested 86JP lifecycle.
+	// Retire the generation and rebuild surviving members under a new id. The
+	// successor keeps its fixed slot; leadership is carried by Leader/UserID and
+	// the roster's separate leader-row field, not by renumbering slot zero.
 	members := party.membersBySlot()
 	newLeader := members[0]
 	delete(m.parties, party.id)
@@ -338,9 +349,9 @@ func (m *RuntimePartyManager) Kick(byUser uint16, byGeneration uint64, targetUse
 	return result
 }
 
-// TransferLeader is implemented as a full replacement generation rather than
-// an in-place slot swap. The retired snapshot lets the bridge clear the old
-// client table before it publishes the new party, avoiding stale slot links.
+// TransferLeader changes authority within the existing party. Membership,
+// fixed slots and relay endpoints remain valid. Leave retains its separate
+// retirement behavior when the leader actually leaves the party.
 func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64, newLeader uint16, newLeaderGeneration uint64) RuntimePartyResult {
 	if m == nil || byUser == 0 || newLeader == 0 || byGeneration == 0 || newLeaderGeneration == 0 {
 		return runtimePartyFailure("invalid_leader_transfer")
@@ -358,21 +369,13 @@ func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64,
 	if next == nil || next.SessionGeneration != newLeaderGeneration {
 		return runtimePartyFailure("stale_target_session")
 	}
-	retired := snapshotRuntimeParty(party)
-	members := party.membersBySlot()
-	delete(m.parties, party.id)
-	for _, member := range members {
-		delete(m.byUser, member.UserID)
-	}
-	rebuilt := m.rebuildLocked(party, *next, members)
-	m.parties[rebuilt.id] = rebuilt
-	for _, member := range rebuilt.membersBySlot() {
-		m.byUser[member.UserID] = rebuilt.id
-	}
-	result := runtimePartySuccess(rebuilt, newLeader)
-	result.Previous = &retired
+	previous := snapshotRuntimeParty(party)
+	party.leader = next.UserID
+	party.settings.UserID = next.UserID
+	party.settings.IsLeader = true
+	result := runtimePartySuccess(party, newLeader)
+	result.Previous = &previous
 	result.LeaderMoved = true
-	result.Retired = &retired
 	return result
 }
 
@@ -382,22 +385,63 @@ func (m *RuntimePartyManager) RecordInvite(invitee uint16, inviteeGeneration uin
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.invites[invitee] = runtimePartyInvite{invitee: invitee, inviteeGeneration: inviteeGeneration, inviter: inviter, inviterGeneration: inviterGeneration, partyID: partyID, mode: mode}
+	m.invites[invitee] = runtimePartyInvite{invitee: invitee, inviteeGeneration: inviteeGeneration, inviter: inviter, inviterGeneration: inviterGeneration, partyID: partyID, mode: mode,
+		request: RuntimePeerRequest{PartyID: partyID, JoinerID: invitee, AnchorID: inviter}}
 	return true
 }
 
+// RecordOnlinePeerRequest resolves ordinary party requests from the two
+// authoritative memberships under the same lock. Forced invitations retain
+// their explicit direction through RecordInvite instead.
+func (m *RuntimePartyManager) RecordOnlinePeerRequest(recipient uint16, recipientGeneration uint64, requester uint16, requesterGeneration uint64, mode byte) (RuntimePeerRequest, bool) {
+	if m == nil || recipient == 0 || requester == 0 || recipient == requester || recipientGeneration == 0 || requesterGeneration == 0 {
+		return RuntimePeerRequest{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	request := RuntimePeerRequest{JoinerID: recipient, AnchorID: requester}
+	sourceParty, sourceMember := m.partyMemberLocked(requester)
+	targetParty, targetMember := m.partyMemberLocked(recipient)
+	if sourceMember != nil && sourceMember.SessionGeneration != requesterGeneration || targetMember != nil && targetMember.SessionGeneration != recipientGeneration {
+		return RuntimePeerRequest{}, false
+	}
+	if mode == 0 || mode == 12 {
+		if targetParty != nil && (sourceParty == nil || sourceParty.count() == 1) {
+			if targetParty.leader != recipient {
+				return RuntimePeerRequest{}, false
+			}
+			request.JoinerID, request.AnchorID = requester, recipient
+			request.PartyID = targetParty.id
+		} else if sourceParty != nil {
+			if sourceParty.leader != requester || targetParty != nil {
+				return RuntimePeerRequest{}, false
+			}
+			request.PartyID = sourceParty.id
+		}
+	} else if sourceParty != nil {
+		request.PartyID = sourceParty.id
+	}
+	m.invites[recipient] = runtimePartyInvite{invitee: recipient, inviteeGeneration: recipientGeneration, inviter: requester, inviterGeneration: requesterGeneration, partyID: request.PartyID, mode: mode, request: request}
+	return request, true
+}
+
 func (m *RuntimePartyManager) ConsumeInvite(invitee uint16, inviteeGeneration uint64, inviter uint16, inviterGeneration uint64, mode byte) (uint16, bool) {
+	request, ok := m.ConsumePeerRequest(invitee, inviteeGeneration, inviter, inviterGeneration, mode)
+	return request.PartyID, ok
+}
+
+func (m *RuntimePartyManager) ConsumePeerRequest(invitee uint16, inviteeGeneration uint64, inviter uint16, inviterGeneration uint64, mode byte) (RuntimePeerRequest, bool) {
 	if m == nil {
-		return 0, false
+		return RuntimePeerRequest{}, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	invite, ok := m.invites[invitee]
 	if !ok || invite.inviteeGeneration != inviteeGeneration || invite.inviter != inviter || invite.inviterGeneration != inviterGeneration || invite.mode != mode {
-		return 0, false
+		return RuntimePeerRequest{}, false
 	}
 	delete(m.invites, invitee)
-	return invite.partyID, true
+	return invite.request, true
 }
 
 func (m *RuntimePartyManager) UpdateSettings(userID uint16, generation uint64, settings alignedcmd.PartyState) RuntimePartyResult {
@@ -454,9 +498,9 @@ func (m *RuntimePartyManager) RebindSession(userID uint16, priorGeneration uint6
 	return runtimePartySuccess(party, userID)
 }
 
-// Reposition moves a non-leader member between persistent party slots. The
-// wire command is issued by the leader; slot zero remains leader-owned because
-// the current EXE derives leadership from its first roster entry.
+// Reposition moves a non-leader member between persistent party slots. The wire
+// command is issued by the leader. Slot zero is an ordinary fixed slot here;
+// leadership stays with party.leader and must never be swapped away.
 func (m *RuntimePartyManager) Reposition(byUser uint16, byGeneration uint64, fromSlot uint8, toSlot uint8) RuntimePartyResult {
 	if m == nil || byUser == 0 || byGeneration == 0 || fromSlot >= currentRuntimePartyMaxMembers || toSlot >= currentRuntimePartyMaxMembers || fromSlot == toSlot {
 		return runtimePartyFailure("invalid_reposition")
@@ -470,8 +514,11 @@ func (m *RuntimePartyManager) Reposition(byUser uint16, byGeneration uint64, fro
 	if party.leader != byUser {
 		return runtimePartyFailure("not_leader")
 	}
-	if fromSlot == 0 || toSlot == 0 || party.members[fromSlot] == nil {
+	if party.members[fromSlot] == nil || party.members[fromSlot].UserID == party.leader {
 		return runtimePartyFailure("invalid_source_slot")
+	}
+	if destination := party.members[toSlot]; destination != nil && destination.UserID == party.leader {
+		return runtimePartyFailure("invalid_destination_slot")
 	}
 	party.members[fromSlot], party.members[toSlot] = party.members[toSlot], party.members[fromSlot]
 	if party.members[fromSlot] != nil {
@@ -502,9 +549,11 @@ func (m *RuntimePartyManager) rebuildLocked(source *runtimeParty, leader Runtime
 	rebuilt.settings.PartyID = int(rebuilt.id)
 	rebuilt.settings.UserID = leader.UserID
 	rebuilt.settings.IsLeader = true
-	_ = rebuilt.add(leader)
 	for _, member := range members {
-		if member.UserID != leader.UserID {
+		if member.UserID == leader.UserID {
+			member = leader
+		}
+		if !rebuilt.addAt(member, member.Slot) {
 			_ = rebuilt.add(member)
 		}
 	}
@@ -564,12 +613,22 @@ func (p *runtimeParty) add(member RuntimePartyMember) bool {
 		if p.members[slot] != nil {
 			continue
 		}
-		member.Slot = byte(slot)
-		member.State = normalizeRuntimePartyMember(member.State, member.UserID)
-		p.members[slot] = &member
-		return true
+		return p.addAt(member, byte(slot))
 	}
 	return false
+}
+
+// addAt preserves a member's fixed slot across rebuilds. Slot zero is valid;
+// callers that need a fresh slot use add instead.
+func (p *runtimeParty) addAt(member RuntimePartyMember, slot byte) bool {
+	if p == nil || !validRuntimePartyMember(member) || p.full() || p.member(member.UserID) != nil || int(slot) >= len(p.members) || p.members[slot] != nil {
+		return false
+	}
+	member.Slot = slot
+	member.State = normalizeRuntimePartyMember(member.State, member.UserID)
+	member.State.Slot = slot
+	p.members[slot] = &member
+	return true
 }
 
 func (p *runtimeParty) remove(userID uint16) bool {
@@ -609,7 +668,9 @@ func (s RuntimePartySnapshot) StateFor(userID uint16) alignedcmd.PartyState {
 	state.IsLeader = s.Leader == userID
 	state.Members = make([]alignedcmd.PartyMemberState, 0, len(s.Members))
 	for _, member := range s.Members {
-		state.Members = append(state.Members, normalizeRuntimePartyMember(member.State, member.UserID))
+		projected := normalizeRuntimePartyMember(member.State, member.UserID)
+		projected.Slot = member.Slot
+		state.Members = append(state.Members, projected)
 	}
 	return state
 }

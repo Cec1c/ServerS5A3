@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	// R52/runtime verified native action for [add damage font skin].
 	damageFontActionIndex               uint32 = 164
 	damageFontSelectionErrorUnavailable byte   = 17
 	DamageFontSelectedStatKey                  = "damage_font_selected"

@@ -24,13 +24,18 @@ func dungeonCombatDropGameplayModule() gameplayModuleDefinition {
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
 			dropOpcode: upperDungeonDiscardGameplayHandler,
-			dieMonsterOpcode: defaultClassGameplayHandler(
-				"game-dungeon-monster-death-blocked",
-				"current_exe_op39_command_class_mismatch",
-				func(service *Service, session *gameSession, body []byte) error {
-					return service.handleDungeonMonsterDeath(session, body)
-				},
-			),
+			dieMonsterOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
+				if !requireDefaultGameplayClassification(
+					service,
+					session,
+					request,
+					"game-dungeon-monster-death-blocked",
+					"current_exe_op39_command_class_mismatch",
+				) {
+					return nil
+				}
+				return service.handleDungeonMonsterDeathRequest(session, request.Body, request.Sequence)
+			},
 			pickupOpcode: defaultClassGameplayHandler(
 				"game-dungeon-pickup-blocked",
 				"current_exe_op43_command_class_mismatch",

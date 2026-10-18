@@ -183,7 +183,7 @@ func resolveHellQuestRequirement(area worldmap.Area, areaResolved bool) hellQues
 
 // hellEligibilityMember 是参与逐槽位判定的一个 roster 槽位。
 type hellEligibilityMember struct {
-	// Slot 是客户端队伍框行号（稳定 slot 序，leader 恒在 slot 0）。
+	// Slot 是客户端队伍框的固定槽位；单人/无队伍回退仍为 0。
 	Slot uint16
 	// CharacterID 是该槽位的角色 id。
 	CharacterID uint16
@@ -226,8 +226,8 @@ type hellEligibilityEvaluation struct {
 // hellEligibilityRoster 取"这一支队伍此刻的稳定槽位序"。
 //
 // 取源与整个进图链同口径：权威 RuntimePartyManager（`runtimePartyStateForSession`，
-// 缺失时回退会话本地投影），槽位 = `runtimePartyMembers` 的下标（leader 恒在 slot 0，
-// 与 `runtimePartyMemberIndex`、队伍框行号、op153 的 slot 字节同源）。
+// 缺失时回退会话本地投影），槽位 = `runtimePartyMembers` 成员的固定 `Slot`
+// （与 `runtimePartyMemberIndex`、队伍框行号、op153 的 slot 字节同源）。
 // 单人/无队伍时厂商的 host slot 也是 0（`TryResolveDungeonHostSlot`：`currentParty == null`
 // 直接返回 `slotIndex = 0`），所以这里回落到"只有自己，slot 0"。
 func (s *Service) hellEligibilityRoster(session *gameSession) []hellEligibilityMember {
@@ -237,14 +237,16 @@ func (s *Service) hellEligibilityRoster(session *gameSession) []hellEligibilityM
 	state := s.runtimePartyStateForSession(session)
 	members := runtimePartyMembers(state)
 	roster := make([]hellEligibilityMember, 0, len(members))
-	for index, member := range members {
+	singleMember := len(members) <= 1
+	for _, member := range members {
 		if member.UserID == 0 {
 			continue
 		}
-		if index > int(^uint16(0)) {
-			break
+		slot := member.Slot
+		if singleMember {
+			slot = 0
 		}
-		roster = append(roster, hellEligibilityMember{Slot: uint16(index), CharacterID: member.UserID})
+		roster = append(roster, hellEligibilityMember{Slot: uint16(slot), CharacterID: member.UserID})
 	}
 	if len(roster) == 0 {
 		return []hellEligibilityMember{{Slot: 0, CharacterID: session.selectedCharacterID}}

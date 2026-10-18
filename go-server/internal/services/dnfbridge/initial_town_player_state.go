@@ -335,6 +335,13 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	// selected actor, its equipment model, and the full stat model all exist,
 	// while the typed op24 transition is still withheld. This is the accepted
 	// 2026-07-27 initialization boundary.
+
+	if _, err := s.sendSelectedGuardianShieldDeckInfo(session, source+"_guardian_deck"); err != nil {
+		return err
+	}
+	if _, err := s.sendSelectedGuardianShieldTownAppearanceRefreshOnce(session, source+"_guardian_appearance"); err != nil {
+		return err
+	}
 	if err := s.sendCurrentSceneSkillInfo(session, ctx, character, source+"_after_mode1_without_mode3_before_typed_op24"); err != nil {
 		return err
 	}
@@ -407,7 +414,7 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	}
 
 	partyState := runtimePartyStateSnapshot(session)
-	op9Body := buildCurrentSceneOp9ActorRemovalBodyInContext(objectKey, session.townActorOwnerChannel)
+	op9Body := buildCurrentSceneOp9ActorRemovalBodyInContext(objectKey, session.townActorOwnerChannel, s.currentSceneActorRoute())
 	op9Kind := currentSceneOp9ActorRemoveKind
 	bodySource := "current_exe_sub_1D64CA0_kind3_remove_party_manager_record"
 	if partyState.PartyID > 0 {

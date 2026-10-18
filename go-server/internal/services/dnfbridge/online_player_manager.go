@@ -684,7 +684,13 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 	// 目标区域能解析出地图路径时套用同一条判据，解析不到就按共享区域处理（与城镇过图一致）。
 	areaInstance := uint32(0)
 	if area, found := s.townArea(int64(townID), int64(areaID)); found {
-		areaInstance = townAreaInstanceForMapPath(area.MapPath, characterID)
+		var err error
+		areaInstance, err = s.currentTownAreaInstance(ctx, session, character, area.MapPath)
+		if err != nil {
+			s.logGameEvent(session, "game-dungeon-return-guild-hall-rejected", "source", source, "error", err)
+			s.retireCurrentGuildHallPresence(session)
+			return
+		}
 	}
 	raidBattle := ""
 	playerInfo := &onlinePlayerInfo{
@@ -894,6 +900,11 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 		if source, found := s.onlinePlayers.PlayerForCharacter(receiver.selectedCharacterID); found &&
 			s.currentAntonWaitingArea(source.TownID, source.AreaID) && s.currentAntonWaitingArea(actor.TownID, actor.AreaID) &&
 			(source.Instance != actor.Instance || source.RaidBattleInstance != actor.RaidBattleInstance) {
+			continue
+		}
+		if source, found := s.onlinePlayers.PlayerForCharacter(receiver.selectedCharacterID); found &&
+			s.currentGuildHallArea(source.TownID, source.AreaID) && s.currentGuildHallArea(actor.TownID, actor.AreaID) &&
+			(source.Instance == 0 || source.Instance != actor.Instance) {
 			continue
 		}
 		if s.onlinePlayers.PeerInSameArea(receiver.selectedCharacterID, member.UserID) {

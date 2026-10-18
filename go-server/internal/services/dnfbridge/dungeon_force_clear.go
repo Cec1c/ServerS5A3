@@ -37,6 +37,22 @@ func currentDungeonOwnerSentinelAnnouncedOrdinaryMonster(
 	if isPVFTutorialDungeon(runtime) || currentDungeonPathUsesTutorialNamespace(runtime.Dungeon.Path) {
 		return runtimeDungeonMonster{}, false
 	}
+	return currentDungeonAnnouncedOrdinaryMonsterTarget(runtime, scene, objectKey)
+}
+
+// currentDungeonAnnouncedOrdinaryMonsterTarget proves the exact target shape
+// shared by the owner-sentinel and friendly-APC death paths: the object key is
+// the room's announced ordinary monster, bound to the active scene, expected as
+// a hostile there, and not already defeated. It deliberately makes no tutorial
+// policy decision; each caller keeps its own tutorial ownership boundary.
+func currentDungeonAnnouncedOrdinaryMonsterTarget(
+	runtime *runtimeDungeonState,
+	scene worldmap.DungeonRoomScene,
+	objectKey uint32,
+) (runtimeDungeonMonster, bool) {
+	if runtime == nil || runtime.Room == nil || runtime.Session == nil || objectKey == 0 || scene.Cleared {
+		return runtimeDungeonMonster{}, false
+	}
 	room := runtime.Room.Snapshot()
 	if room.Coordinate != scene.Coordinate || room.MapID != scene.Map.Map.ID {
 		return runtimeDungeonMonster{}, false

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/signupbenefits"
 )
 
 var ErrChildCharacterMismatch = errors.New("character child record belongs to another character")
@@ -15,14 +16,17 @@ var ErrChildCharacterMismatch = errors.New("character child record belongs to an
 // Creation contains the complete durable state produced by new-character
 // defaults and PVF initialization before any write is attempted.
 type Creation struct {
-	Account   *dnfrepo.AccountRecord
-	Character dnfrepo.CharacterRecord
-	Inventory *dnfrepo.InventoryRecord
-	Equipment *dnfrepo.EquipmentRecord
-	Skill     *dnfrepo.SkillRecord
-	Quest     *dnfrepo.QuestRecord
-	Pet       *dnfrepo.PetRecord
-	Settings  []dnfrepo.SettingsRecord
+	// WelcomeCera is the entitlement captured at web registration. It is
+	// credited once with the account receipt in this creation transaction.
+	WelcomeCera int64
+	Account     *dnfrepo.AccountRecord
+	Character   dnfrepo.CharacterRecord
+	Inventory   *dnfrepo.InventoryRecord
+	Equipment   *dnfrepo.EquipmentRecord
+	Skill       *dnfrepo.SkillRecord
+	Quest       *dnfrepo.QuestRecord
+	Pet         *dnfrepo.PetRecord
+	Settings    []dnfrepo.SettingsRecord
 }
 
 // Creator persists one Creation through the repository transaction boundary.
@@ -83,6 +87,9 @@ func (c *Creator) Create(ctx context.Context, creation Creation) error {
 					existing.UpdatedAt = account.UpdatedAt
 				}
 				account = existing
+			}
+			if err := signupbenefits.WelcomeCera(&account, creation.WelcomeCera); err != nil {
+				return err
 			}
 			if err := tx.Account.Save(ctx, account); err != nil {
 				return fmt.Errorf("save account: %w", err)
