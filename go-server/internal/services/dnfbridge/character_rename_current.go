@@ -108,7 +108,6 @@ func (s *Service) handleCurrentCharacterRename(session *gameSession, body []byte
 	if err != nil {
 		return fail(err)
 	}
-	s.replaceCurrentSelectorRosterName(session, row.CharacterID, newName)
 	s.logGameEvent(session, "game-character-rename-committed", "character_id", row.CharacterID, "selector", selector, "slot", row.Slot)
 	return s.sendGameUpperSuccess(session, op, nil)
 }
@@ -167,18 +166,6 @@ func (s *Service) removeCurrentSelectorRosterCharacter(session *gameSession, cha
 		copy(session.currentRenameRoster[index:], session.currentRenameRoster[index+1:])
 		session.currentRenameRoster = session.currentRenameRoster[:len(session.currentRenameRoster)-1]
 		return
-	}
-}
-
-func (s *Service) replaceCurrentSelectorRosterName(session *gameSession, characterID, name string) {
-	if session == nil {
-		return
-	}
-	for index := range session.currentRenameRoster {
-		if session.currentRenameRoster[index].CharacterID == characterID {
-			session.currentRenameRoster[index].Name = name
-			return
-		}
 	}
 }
 
