@@ -33,7 +33,15 @@ func dungeonRuntimeContainsDeathOwnerObjectKey(runtime *runtimeDungeonState, obj
 }
 
 // currentDungeonRoomAnnouncedLiveHostile 的完整说明与开关见 dungeon_death_room_proof.go。
-func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) (resultErr error) {
+func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) error {
+	return s.handleDungeonMonsterDeathRequest(session, body, nil)
+}
+
+func (s *Service) handleDungeonMonsterDeathRequest(
+	session *gameSession,
+	body []byte,
+	sequence *uint64,
+) (resultErr error) {
 	var huntProgressErr error
 	defer func() {
 		if resultErr == nil {
@@ -75,28 +83,36 @@ func (s *Service) handleDungeonMonsterDeath(session *gameSession, body []byte) (
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
-	// map-owned 特殊被动对象（深渊柱子）的破坏事件：厂商在 DIE_MONSTER 里用
-	// `body[4:6] == 0xFFFF`（本仓解码器的 `OwnerObjectKey`）+ 目标 code 命中房间
-	// `[special passive object]` 列表来识别，并且**不回 op38**
-	// （`DungeonCombatHandler.cs:78-152`、`DungeonInstance.cs:378-404`）。
-	// 默认档（`DNFBRIDGE_MAP_OWNED_PASSIVE_OBJECT=legacy`）下这一行是空操作，
-	// 本函数的其余分支逐字节等于今天。见 dungeon_passive_object_drop.go。
-	//
-	// 这里**刻意只做"收下并 return"**：不补 op38、也不去动 op24 待回城状态——厂商那条
-	// 分支同样什么都不发（`DungeonCombatHandler.cs:117-152`），而默认档下这类 op39 本来
-	// 也只会走"形状不可证 ⇒ 记 blocked"这一条路（不 cancel 任何东西）。多做的每一件事
-	// 都会变成 opt-in 档里没有依据的行为差。
-	if hasScene && dungeonMapOwnedPassiveObjectModeFromEnv().registers() {
-		handled, passiveErr := s.handleCurrentDungeonMapOwnedPassiveObjectDeathLocked(
-			session,
-			runtime,
-			scene,
-			request,
-		)
-		if passiveErr != nil {
-			return passiveErr
+	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
+	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
+	if hasScene {
+		mapOwnedEnabled := dungeonMapOwnedPassiveObjectModeFromEnv().registers()
+		var questDropHandled bool
+		var questDropErr error
+		if sequence != nil {
+			questDropHandled, questDropErr = s.handleCurrentDungeonQuestPassiveDropDeathLocked(
+				session,
+				runtime,
+				scene,
+				request,
+				body,
+				*sequence,
+			)
 		}
-		if handled {
+		var mapOwnedHandled bool
+		var mapOwnedErr error
+		if mapOwnedEnabled {
+			mapOwnedHandled, mapOwnedErr = s.handleCurrentDungeonMapOwnedPassiveObjectDeathLocked(
+				session,
+				runtime,
+				scene,
+				request,
+			)
+		}
+		if questDropErr != nil || mapOwnedErr != nil {
+			return errors.Join(questDropErr, mapOwnedErr)
+		}
+		if questDropHandled || mapOwnedHandled {
 			return nil
 		}
 	}

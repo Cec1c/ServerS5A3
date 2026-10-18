@@ -36,6 +36,15 @@ func (s *guildPurchaseSequence) observe(wire uint16) uint64 {
 	return s.high
 }
 
+// currentHigh returns the connection-wide high watermark without advancing it.
+// New event owners use this to distinguish the packet being dispatched now from
+// an older, already-seen wire value.
+func (s *guildPurchaseSequence) currentHigh() (uint64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.high, s.initialized
+}
+
 func (s *guildPurchaseSequence) identity(serial uint64) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
