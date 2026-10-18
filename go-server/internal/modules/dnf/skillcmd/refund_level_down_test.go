@@ -273,7 +273,8 @@ func TestOwnerApplyBuyRefundStillRespectsPrerequisiteAndGrowTypeDirection(t *tes
 		if err != nil {
 			t.Fatalf("NewOwner() error = %v", err)
 		}
-		// grow_type 0 的角色不能持有只对二次觉醒方向开放的技能，降级同样被拒。
+		// grow_type 0 的角色不能持有只对二次觉醒方向开放的技能；PVF 的
+		// maximum-level 表在该方向为 0，降级同样被拒。
 		_, err = owner.ApplyBuy(ctx, levelDownBuyCommand(BuySkillEntry{SkillID: 46, RefundFlag: 1, LevelDelta: 1}))
 		if !errors.Is(err, ErrSkillGrowType) {
 			t.Fatalf("ApplyBuy() error = %v, want ErrSkillGrowType", err)

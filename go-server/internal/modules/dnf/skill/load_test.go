@@ -40,8 +40,8 @@ func TestLoadBuildsJobScopedSkillTable(t *testing.T) {
 	if !swordman.SupportsGrowType(2) || swordman.SupportsGrowType(9) || !swordman.IsTPSkill() || swordman.LevelCost(10) != 2 {
 		t.Fatalf("unexpected domain rules: %+v", swordman)
 	}
-	if swordman.SupportsCharacterGrowth(0x12) || !swordman.SupportsCharacterGrowth(0x22) {
-		t.Fatalf("second growtype fitness was not applied to packed grow_type: %+v", swordman)
+	if !swordman.SupportsCharacterGrowth(0x11) || swordman.SupportsCharacterGrowth(0x12) {
+		t.Fatalf("maximum-level table was not applied to packed grow_type: %+v", swordman)
 	}
 	if swordman.CoolTime != 2000 || swordman.MPCost != 12 || swordman.Scalars["power"] != 120 {
 		t.Fatalf("unexpected scalar fields: %+v", swordman)
@@ -100,6 +100,8 @@ func testIndex(t *testing.T) *dnfpvf.Index {
 1
 [maximum level]
 20
+[growtype maximum level]
+10 10 0 0 0 0
 [fixed level skill]
 1
 [interval level]
