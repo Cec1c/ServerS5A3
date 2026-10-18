@@ -11,7 +11,7 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// The pinned 369d072b PVF lists two distinct class-change families. Audit the
+// The pinned a56cacf9 PVF lists two distinct class-change families. Audit the
 // list entries and source sections before checking the parsed catalog, so a
 // parser/counting regression cannot justify changing the expected totals.
 func TestRealScriptPVFClassChangeFamiliesMatchSourceDocuments(t *testing.T) {
