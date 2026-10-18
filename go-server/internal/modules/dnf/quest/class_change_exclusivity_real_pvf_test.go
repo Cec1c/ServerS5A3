@@ -95,9 +95,12 @@ func TestRealPVFClassChangeQuestRefusedWhileSiblingActive(t *testing.T) {
 		t.Fatalf("branch quest 6933 decision=%v err=%v, want rejected while 6934 is unsettled", decision, err)
 	}
 
-	// 范围边界（不扩大）：奖励为 [item] 的同族分支主线不改变职业，// 既不在互斥交集里，也保持原有可接行为。
-	if decision, err := catalog.DecideAccept(eligibility, branch, 6930); err != nil || decision != AcceptNew {
-		t.Fatalf("the [item] branch 6930 must keep its previous acceptance: decision=%v err=%v", decision, err)
+	// 原断言把 [reward type] [item] 当作“非转职、可与 grow type 分支共存”的依据。
+	// a56 的 6930/6986 同样带 [job change quest] 1、同一基础职业和 3153 前置，
+	// 只是奖励为占位 item；奖励类型区分是否改职业，不能区分初始转职家族。
+	// 因此同职业 active 后仍应拒绝 6930，避免两代任务并存。
+	if decision, err := catalog.DecideAccept(eligibility, branch, 6930); decision != AcceptRejected || !errors.Is(err, ErrQuestNotAcceptable) {
+		t.Fatalf("the [item] branch 6930 must be refused while 6934 is active: decision=%v err=%v", decision, err)
 	}
 	// 范围边界（不扩大）：别的职业/家族的历史 active 行不能锁住本职业的转职任务。
 	foreign := level15BranchRecord(3151, 3152, 3153, level15BranchUnlockID)
