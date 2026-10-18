@@ -13,6 +13,7 @@ type LinkedObjectiveProgressPlan struct {
 	ParentProgress    int64
 	CompletedQuestIDs []int64
 	ChangedFields     []dnfrepo.QuestField
+	Handled           bool
 }
 
 func (c *Catalog) IsLinkedObjective(questID int64) bool {
@@ -20,9 +21,11 @@ func (c *Catalog) IsLinkedObjective(questID int64) bool {
 	return ok && linkedObjectiveQuest(definition)
 }
 
-// PlanTownLinkedProgress handles the scalar parent callback used by NPC,
-// inventory-presence and cinematic objectives. Combat and clear-map children
-// remain owned by their dungeon path until the client closes them with op34.
+// PlanTownLinkedProgress handles scalar callbacks for quest-clear parents and
+// their NPC, inventory-presence and cinematic children. A parent callback is
+// always reconciled from committed child states, while combat and clear-map
+// children remain owned by their dungeon path until the client closes them
+// with op34.
 func (c *Catalog) PlanTownLinkedProgress(record dnfrepo.QuestRecord, questID int64, completedAt time.Time) (LinkedObjectiveProgressPlan, error) {
 	return c.planLinkedObjectiveProgress(record, questID, completedAt, true, false)
 }
@@ -131,10 +134,23 @@ func (c *Catalog) planLinkedObjectiveProgress(
 	if requireRequestedChild && !requestedCompleted {
 		return LinkedObjectiveProgressPlan{Record: dnfrepo.CloneQuest(record)}, nil
 	}
-	if len(plan.CompletedQuestIDs) == 0 {
+	if requestedIsChild && len(plan.CompletedQuestIDs) == 0 {
 		return LinkedObjectiveProgressPlan{Record: dnfrepo.CloneQuest(record)}, nil
 	}
 
+	// The final child may be active at zero until the parent's op34 settles
+	// its materials and rewards. Count that durable terminal fact as ready,
+	// without archiving the child or claiming its reward here.
+	if townOnly && !requestedIsChild {
+		for _, childID := range parent.IntData {
+			child, known := c.Find(childID)
+			state, _, active := mutableQuestState(&plan.Record, childID)
+			if known && child.MainQuestID == parentID && active &&
+				isActiveQuestStatus(state.Status) && state.ProgressValue == 0 {
+				completed[childID] = struct{}{}
+			}
+		}
+	}
 	remaining := questClearParentTrigger(parent.IntData, completed)
 	if parentState.ProgressValue != remaining {
 		parentState.ProgressValue = remaining
@@ -149,6 +165,7 @@ func (c *Catalog) planLinkedObjectiveProgress(
 	}
 	plan.ParentQuestID = parentID
 	plan.ParentProgress = remaining
+	plan.Handled = true
 	plan.Record.UpdatedAt = completedAt
 	sort.Slice(plan.CompletedQuestIDs, func(i, j int) bool { return plan.CompletedQuestIDs[i] < plan.CompletedQuestIDs[j] })
 	return plan, nil

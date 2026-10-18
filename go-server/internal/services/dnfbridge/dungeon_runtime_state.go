@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	roomClearQuestReceipts       map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
 	entryCharacterLevel          int
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
