@@ -1019,6 +1019,10 @@ func mailboxClaimStackSlots(resolution alignedcmd.MailboxItemResolution) []int16
 }
 
 func mailboxAttachmentStack(attachment dnfrepo.MailAttachment, count int64, resolution alignedcmd.MailboxItemResolution) dnfrepo.ItemStack {
+	// 已有装备优先保留原始行中的实例值，新造装备默认值不能覆盖旧品级和耐久。
+	if resolution.Kind == "equipment" && resolution.TargetListType == 0 {
+		RestoreEquipmentAttachmentInstanceExtra(&attachment)
+	}
 	extra := cloneStringMap(attachment.Extra)
 	// These three keys are mailbox-envelope framing evidence captured when a
 	// player sends an item. They are not durable item state, so retaining them
