@@ -807,6 +807,7 @@ func buildCurrentFinishQuestSuccessBody(result dnfquest.FinishCommitResult) ([]b
 
 func currentFinishQuestBusinessFailure(err error) bool {
 	return errors.Is(err, dnfquest.ErrFinishQuestNotPending) ||
+		errors.Is(err, dnfquest.ErrFinishQuestionAnswerRequired) ||
 		errors.Is(err, dnfquest.ErrFinishQuestCompletionConflict) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementStale) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementCorrupt) ||

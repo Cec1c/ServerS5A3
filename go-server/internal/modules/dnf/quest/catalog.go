@@ -146,6 +146,7 @@ type Definition struct {
 	MainQuestID            int64
 	PreRequiredGroups      [][]int64
 	PreRequiredAnswers     []int64
+	QuestionOptionCount    int
 	CollisionQuests        []int64
 	Difficulty             string
 	IgnoreQuestLevel4Exp   bool
@@ -431,7 +432,7 @@ func (c *Catalog) AcceptableAt(character CharacterEligibility, record dnfrepo.Qu
 	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	result := EligibilityResult{IDs: make([]int32, 0, 64)}
 	for _, definition := range c.ordered {
-		if !definitionAcceptable(definition, character, completed, active, false) {
+		if !definitionAcceptable(c, definition, character, record, completed, active, false) {
 			continue
 		}
 		result.IDs = append(result.IDs, int32(definition.ID))
@@ -480,7 +481,7 @@ func (c *Catalog) QuestListAt(character CharacterEligibility, record dnfrepo.Que
 	completed, active := questStateSets(c.ProjectDailyQuestRollover(record, now))
 	result := EligibilityResult{IDs: make([]int32, 0, 64)}
 	for _, definition := range c.ordered {
-		if !definitionAcceptable(definition, character, completed, active, true) {
+		if !definitionAcceptable(c, definition, character, record, completed, active, true) {
 			continue
 		}
 		if !c.clientListNodeAcceptable(definition, character, record, completed, active) {
@@ -534,7 +535,7 @@ func (c *Catalog) decideAcceptForDefinition(definition Definition, character Cha
 	if existing, known := questStateFor(record, definition.ID); known && isActiveQuestStatus(existing.Status) {
 		return AcceptIdempotent, nil
 	}
-	if !definitionAcceptable(definition, character, completed, active, false) {
+	if !definitionAcceptable(c, definition, character, record, completed, active, false) {
 		return AcceptRejected, ErrQuestNotAcceptable
 	}
 	if c.activeClassChangeConflict(definition, active) {
@@ -608,7 +609,7 @@ func (c *Catalog) PlanAcceptAt(character CharacterEligibility, record dnfrepo.Qu
 		Path:            definition.Path,
 		Type:            definition.Type,
 		InitTrigger:     trigger,
-		LinkedSubQuests: c.linkedSubQuestAcceptPlans(definition, character, completed, active),
+		LinkedSubQuests: c.linkedSubQuestAcceptPlans(definition, character, record, completed, active),
 	}, nil
 }
 
@@ -849,6 +850,9 @@ func parseDefinition(entry dnfpvf.ListEntry, doc *dnfpvf.Document) Definition {
 	}
 	definition.PreRequiredGroups = sectionIntGroups(doc, "pre required quest")
 	definition.PreRequiredAnswers = flattenIntGroups(sectionIntGroups(doc, "pre required quest answer"))
+	if values := doc.Texts("question info"); len(values) > 2 {
+		definition.QuestionOptionCount = len(values) - 2
+	}
 	definition.CollisionQuests = flattenIntGroups(sectionIntGroups(doc, "collision quest"))
 	definition.MonsterRewardItems = parseMonsterRewardItems(doc)
 	definition.EnemyRewardItems = parseEnemyRewardItems(doc)
@@ -1047,7 +1051,7 @@ func definitionInitialTrigger(definition Definition, completed map[int64]struct{
 	return 1
 }
 
-func (c *Catalog) linkedSubQuestAcceptPlans(definition Definition, character CharacterEligibility, completed, active map[int64]struct{}) []AcceptLinkedSubQuestPlan {
+func (c *Catalog) linkedSubQuestAcceptPlans(definition Definition, character CharacterEligibility, record dnfrepo.QuestRecord, completed, active map[int64]struct{}) []AcceptLinkedSubQuestPlan {
 	if c == nil {
 		return nil
 	}
@@ -1080,7 +1084,7 @@ func (c *Catalog) linkedSubQuestAcceptPlans(definition Definition, character Cha
 		// The child is neither completed nor active here (both sets were checked
 		// above), so the shared PVF/state rule alone decides; the parent's accept
 		// owner re-runs the full DecideAccept preflight before persisting.
-		if !definitionAcceptable(child, character, completed, active, false) {
+		if !definitionAcceptable(c, child, character, record, completed, active, false) {
 			continue
 		}
 		active[childID] = struct{}{}
@@ -1170,7 +1174,7 @@ func boundedTriggerChannel(value int64) uint32 {
 	return uint32(value)
 }
 
-func definitionAcceptable(definition Definition, character CharacterEligibility, completed, active map[int64]struct{}, includeActive bool) bool {
+func definitionAcceptable(catalog *Catalog, definition Definition, character CharacterEligibility, record dnfrepo.QuestRecord, completed, active map[int64]struct{}, includeActive bool) bool {
 	_, alreadyActive := active[definition.ID]
 	allowedEpicRoad := character.epicRoadEvent350Recognized && (character.epicRoadEvent350Enabled || alreadyActive) && (definition.ID == 5578 || definition.ID == 5579)
 	if definition.ExposedByNPC == 0 || (definition.IsEvent && !allowedEpicRoad) || definition.HasCreatureRequirement || definition.HasExpertRequirement {
@@ -1226,10 +1230,10 @@ func definitionAcceptable(definition Definition, character CharacterEligibility,
 			return false
 		}
 	}
-	// Answer-dependent branches require a durable answer flag. QuestRecord does
-	// not yet expose such a typed field, so do not guess a branch from completion.
 	if len(definition.PreRequiredAnswers) > 0 {
-		return false
+		if !questionAnswerPrerequisiteSatisfied(catalog, record, definition.PreRequiredAnswers) {
+			return false
+		}
 	}
 	for _, collision := range definition.CollisionQuests {
 		if collision <= 0 {
