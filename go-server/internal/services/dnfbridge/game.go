@@ -350,6 +350,7 @@ type questReplayState struct {
 	giveUpAnswered     map[currentGiveUpQuestReplayKey]struct{}
 	triggerMu          sync.Mutex
 	triggerNoop        map[currentSetQuestTriggerReplayKey]struct{}
+	linkedTriggerValue map[currentSetQuestTriggerReplayKey]int64
 	finishMu           sync.Mutex
 	finishAnswered     map[currentFinishQuestReplayKey]struct{}
 }
