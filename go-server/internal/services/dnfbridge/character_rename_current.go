@@ -108,6 +108,7 @@ func (s *Service) handleCurrentCharacterRename(session *gameSession, body []byte
 	if err != nil {
 		return fail(err)
 	}
+	s.replaceCurrentSelectorRosterName(session, row.CharacterID, newName)
 	s.logGameEvent(session, "game-character-rename-committed", "character_id", row.CharacterID, "selector", selector, "slot", row.Slot)
 	return s.sendGameUpperSuccess(session, op, nil)
 }
@@ -150,6 +151,35 @@ func (s *Service) rememberCurrentRenameRoster(session *gameSession, characters [
 		return
 	}
 	session.currentRenameRoster = append([]dnfrepo.CharacterRecord(nil), characters[:rosterCount(characters)]...)
+}
+
+// removeCurrentSelectorRosterCharacter applies the same compaction the current
+// client performs when op6 succeeds. SQL rows keep their original slots; only
+// the immutable row-to-character binding sent to this session is compacted.
+func (s *Service) removeCurrentSelectorRosterCharacter(session *gameSession, characterID string) {
+	if session == nil {
+		return
+	}
+	for index, row := range session.currentRenameRoster {
+		if row.CharacterID != characterID {
+			continue
+		}
+		copy(session.currentRenameRoster[index:], session.currentRenameRoster[index+1:])
+		session.currentRenameRoster = session.currentRenameRoster[:len(session.currentRenameRoster)-1]
+		return
+	}
+}
+
+func (s *Service) replaceCurrentSelectorRosterName(session *gameSession, characterID, name string) {
+	if session == nil {
+		return
+	}
+	for index := range session.currentRenameRoster {
+		if session.currentRenameRoster[index].CharacterID == characterID {
+			session.currentRenameRoster[index].Name = name
+			return
+		}
+	}
 }
 
 // Check the canonical SQL slot and reject enter-game while its rename is
