@@ -227,8 +227,8 @@ func SkillsAtLearnableCap(table *Table, job byte, growType, characterLevel int, 
 }
 
 // SkillsWithUnavailableDirection reports the learned skills the character's
-// current grow_type direction cannot learn at all (PVF `[skill fitness
-// growtype]` / `[second growtype ...]` reject the direction).
+// current grow_type direction cannot learn at all. The maximum-level tables are
+// the PVF owner; `[skill fitness growtype]` is metadata and does not gate a job.
 //
 // 与 RepairLevelCaps 的 result.Unavailable 的区别：这里只看**方向**规则，
 // 不把"等级还不够"混进来。用途是把"持久化方向"和"持久化技能"之间的矛盾
@@ -249,7 +249,7 @@ func SkillsWithUnavailableDirection(table *Table, job byte, growType int, states
 		if !ok {
 			continue
 		}
-		if definition.SupportsCharacterGrowth(growType) && definition.MaxLevelForGrowType(growType) > 0 {
+		if definition.SupportsCharacterGrowth(growType) {
 			continue
 		}
 		out = append(out, skillID)
