@@ -183,6 +183,7 @@ func TestGameEndpointHandshakeUsesConnectedChannelExactlyOnce(t *testing.T) {
 	if want := upperSuccessBody(service.buildLoginSuccess(crack)); !bytes.Equal(success.Body, want) {
 		t.Fatalf("endpoint success body = %x, want %x", success.Body, want)
 	}
+	trailing = assertAuctionOpenAfterHandshake(t, service, trailing)
 	if len(trailing) != 0 {
 		t.Fatalf("endpoint request emitted trailing bytes: %x", trailing)
 	}
@@ -267,6 +268,7 @@ func TestSpecialChannelEndpointHandshakeKeepsRawTypeOnlyInSuccess(t *testing.T) 
 		packet.Header.Seq != 1 {
 		t.Fatalf("special endpoint success = %+v, want class1/op1 seq1", packet.Header)
 	}
+	trailing = assertAuctionOpenAfterHandshake(t, service, trailing)
 	if len(trailing) != 0 {
 		t.Fatalf("special endpoint emitted trailing bytes: %x", trailing)
 	}
@@ -452,6 +454,7 @@ func TestHandleGameConnUnboundRealChannelPublishesChannelInfoForLoginToken(t *te
 		success.Header.Seq != 1 {
 		t.Fatalf("unbound real channel endpoint success = %+v, want class1/op1 seq1", success.Header)
 	}
+	trailing = assertAuctionOpenAfterHandshake(t, service, trailing)
 	if len(trailing) != 0 {
 		t.Fatalf("unbound real channel handshake emitted extra wire bytes: %x", trailing)
 	}
@@ -755,6 +758,7 @@ func TestGameEndpointHandshakeAcceptsCurrentRequestSizes(t *testing.T) {
 				second.Header.Seq != 1 {
 				t.Fatalf("endpoint success packet = %+v", second.Header)
 			}
+			rest = assertAuctionOpenAfterHandshake(t, service, rest)
 			if len(rest) != 0 {
 				t.Fatalf("endpoint handshake emitted an extra packet: %x", rest)
 			}
@@ -768,4 +772,17 @@ func TestGameEndpointHandshakeAcceptsCurrentRequestSizes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// 保持原握手两个包逐字节断言，再核对普通拍卖与金币寄售的独立入口通知。
+func assertAuctionOpenAfterHandshake(t *testing.T, s *Service, wire []byte) []byte {
+	t.Helper()
+	for serviceType := byte(0); serviceType < 2; serviceType++ {
+		packet, rest := splitGameServerUpperPacketWithHeader(t, wire, s.gameUpperHeaderSize())
+		wire = rest
+		if packet.Header.Classification != 0 || packet.Header.MsgID != currentAuctionServiceNoticeMsgID || !bytes.Equal(packet.Body, buildAuctionServiceNotice(serviceType, 1)) {
+			t.Fatalf("握手后的拍卖服务%d通知错误：%+v body=%x", serviceType, packet.Header, packet.Body)
+		}
+	}
+	return wire
 }

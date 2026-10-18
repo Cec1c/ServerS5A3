@@ -934,6 +934,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	// 史诗碎片同理：它被记进**账号级**图鉴账本，没有任何物品行可刷，所以账本
 	// 增量包（class0/0x047D）由这里补发。失败也不能把已提交的领取变成客户端失败
 	// —— 账本已经落库，客户端下次登录会拿到全量快照。
+	if result.AccountWalletChanged {
+		if err := s.sendCurrentAccountWallet(session); err != nil {
+			return err
+		}
+	}
 	if err := s.sendCurrentEpicPieceCredits(
 		session,
 		result.EpicPieceCredits,

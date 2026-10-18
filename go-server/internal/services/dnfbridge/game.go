@@ -20,6 +20,9 @@ import (
 )
 
 type gameSession struct {
+	auctionLastSearchOpcode             uint16
+	auctionLastSearchBody               []byte
+	auctionServiceOpenMask              byte
 	guildBuffs                          guildBuffProjection
 	guild                               guildSessionState
 	initialTownGuildStateProjectionSent bool

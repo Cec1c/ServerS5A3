@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
@@ -65,6 +66,14 @@ type Service struct {
 	// 上玩。见 game_sessions.go 的 handoverRuntimePartyToLiveSession。
 	liveGameSessions          map[string]*gameSession
 	nextGameSessionGeneration uint64
+	auctionMaintenanceContext context.Context
+	auctionCategoryExtraOnce  sync.Once
+	auctionCategoryExpertJobs map[uint32][]byte
+	auctionCategoryExtractors map[uint32]bool
+	auctionCategoryExtraErr   error
+	auctionMu                 sync.Mutex
+	auctionItemEligibility    func(uint32) bool
+	auctionCategoryItem       func(uint16, uint32) bool
 	tradeMu                   sync.Mutex
 	itemTrades                map[uint16]*onlineItemTrade
 	expertJobStoreMu          sync.Mutex
@@ -405,6 +414,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.Join(err, closeErr)
 	}
 	s.startGameplayTimeQueue(runCtx)
+	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)
 	s.startCurrentLevelUpRewardClock(runCtx)

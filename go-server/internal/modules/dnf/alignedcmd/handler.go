@@ -853,7 +853,8 @@ type Result struct {
 	// class0/0x047D ledger notice after the ACK — exactly like a contract
 	// activation, and instead of an op14 row refresh. Empty for every command
 	// that grants no fragment.
-	EpicPieceCredits []MailboxEpicPieceCredit
+	EpicPieceCredits     []MailboxEpicPieceCredit
+	AccountWalletChanged bool
 	// UpgradeDestroyBonusMerge describes where the "equipment destroyed by a
 	// failed reinforcement/amplification" compensation item landed: which row
 	// received it, whether that row was an existing same-identity stack or a

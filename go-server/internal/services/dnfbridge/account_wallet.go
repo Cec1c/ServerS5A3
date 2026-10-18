@@ -34,3 +34,26 @@ func (s *Service) loadCurrentAccountCera(ctx context.Context, repositories dnfre
 	}
 	return currentAccountCera(account)
 }
+
+// 购买、领取及选角后均从同一账号钱包发送权威余额。
+func (s *Service) sendCurrentAccountWallet(session *gameSession, onlyWithTokens ...bool) error {
+	if s == nil || session == nil {
+		return nil
+	}
+	r, ok := s.repositoryGroup()
+	if !ok || r.Account == nil {
+		return nil
+	}
+	account, found, err := r.Account.Load(context.Background(), s.accountIDForSession(session))
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	w := dnfcerashop.WalletBalance(account)
+	if len(onlyWithTokens) > 0 && onlyWithTokens[0] && w.TokenCera == 0 && w.HappyTokenCera == 0 {
+		return nil
+	}
+	return s.sendGameUpperRawClass(session, currentCeraShopUpdateMsgID, buildCurrentCeraShopWalletBody(w.Cera, w.TokenCera, w.HappyTokenCera), 0)
+}
