@@ -1,3 +1,21 @@
+## 2026-10-18 — GitGud 上游唯一权威与单向源码镜像
+
+- 独立功能、修复、测试、文档和 CI 分支统一通过上游 MR 集成，冲突由同步 Agent 处理并验证；GitHub 只接收上游确切提交，不再建立同步合并提交或向 GitGud 反写。
+- 移除旧 GitHub 上游 PR/自动合并流程；Repository sync 使用仅属于 GitHub 镜像的 Deploy Key，保留引用移动检查、非强推和最终 SHA 读回。CI 文件在上游 MR 审查后同步，不执行抓取代码。
+- 补充单向快进、领先/分叉拒绝、并发引用变化和 CI 同步回归；更新 Agent 入口及迁移流程。源码镜像不构建、发布资源或部署游戏。
+
+## 2026-10-18 — Client Release 静态 Python 源码附件兼容
+
+- 客户端 Release ZIP 可附根级 scripts/ 内的 Python 源码，仅读取并校验归档，不解压或执行；其余路径与文件类型规则保持。
+- 补充归档正反例、路径/重复/链接/大小/数量/EXE/CRC及下载摘要回归，修复带源码证据的新客户端包被镜像拒绝的问题。镜像本身不改变玩家通道或部署服务端。
+
+## 2026-10-18 — 合并上游更新并保留独立 GM 与同步边界
+
+- 合入上游已合并的服务端更新，保留双方变更记录、客户端发布约束、私有管理 API 与注册福利事务；管理会员目录继续由游戏服务使用，不重新引入 GM 工具实现。
+- 控制器接受旧配置字段用于读取，但仍要求显式迁移独立 GM；拒绝时不改写配置，不把 GM 环境传入游戏进程。合并相关回归覆盖旧配置读取和迁移后的投影。
+- 审查上游 CI 只增加服务端边界检查，保留本方仅同步模式、手动 Verify 和独立 EXE Release 同步流程；源码合并不部署游戏或更改玩家资源。
+- 验证合并结果的领域／bridge／control／doctor、list／vet、Windows/Linux 构建、同步及 Docker 回归与双方服务端边界检查；真实数据库、PVF 和原生玩法验收不属于本次仓库合并。
+
 ## 2026-10-17 — 魂大会对手缺失排查与真实资源回归
 
 - 追加123/124名称、DGN/MAP、全候选池与出生点、386四轮路径和387大于u16地图编号的真实PVF回归；不按交叉文件名猜测副本身份。全资源枚举覆盖五种大会，124两只特殊怪物与动作文件存在。
@@ -603,6 +621,45 @@
 - 整理本地注册反馈、频道下载编码、GM 本地账号映射、翻牌后主线刷新/完成后接续、回城旧场景状态抑制、任务手册快照顺序与旧协议正常放弃。
 - 纳入幸运星结算/GM 钱包读写/购买余额刷新、金币罐原子发奖与结算拾取槽位修复，并保留最新上游 NPC 商店期限合并和购买数量更新。
 - 改动附领域/桥接/控制器/GM 回归及配套 PVF 专项，独立源码执行约定检查与 Windows 构建；客户端依赖、用户已验收项目及未完成边界见 `Docs/LOCAL_FIXES_20261013.md`。不包含升级券、GM 职业候选或客户端/PVF 二进制，不改运行环境或数据库。
+
+## 2026-10-16 — 同步客户端 Release 并约束 EXE 依赖上线
+
+- 独立同步客户端 Release：在上游 GitGud Release 与本方 GitHub Release 之间双向复制精确标签与 EXE ZIP，GitGud fork 仅参与源码贡献；保留来源、预览状态、EXE/附件完整摘要，同名冲突停止且不覆盖历史。
+- 增加默认只读计划、写前来源复核、目标实际下载读回及周期工作流；凭据按目标隔离，附件不执行、不构建服务端，源码分支与运行服务保持各自发布流程。 GitHub 新标签仅经可信 CI 的短期令牌创建，GitGud 标签推送跳过流水线，避免标签内历史构建被触发。
+- 明确服务端依赖 EXE 时须先 Release/镜像发布、再核验玩家实际更新源与配套 profile、最后部署服务端；未更新通道或摘要不一致阻止上线。
+
+## 2026-10-14 — 将 GM 源码迁往独立仓库
+
+- GM 页面、进程入口、扫描与批量福利任务及构建配置迁往 `Cec1c/DNF90GM`，该仓库可自行构建、测试和部署。
+- 游戏只保留私有管理协议与自身邮件/资产事务；注册和角色初始化提取为 `signupbenefits`，原表名、注册额度快照和入账回执保持兼容，不删除 GM 数据。
+- 服务端部署生成器不再创建 GM 服务；旧启用 GM 的 profile 在写入前拒绝并提示迁移，私有游戏管理密钥可以独立配置。
+- 增加仓库与可执行文件依赖边界检查，验证独立 GM、持久去重、初始化事务和服务端构建。代码迁移不重启线上服务。
+
+## 2026-10-14 — 独立部署 GM 与持久去重物品邮件
+
+- 将 Web GM 从游戏生命周期中拆出为独立进程/镜像，自行连接 MariaDB、读取校验后的 PVF、运行福利扫描；游戏只保留鉴权的私有运行时管理接口。
+- 按物品 ID 建立默认停用的邮件福利规则，预览/补发已有角色并可自动覆盖后续新角色。邮件与规则/角色创建身份回执在同一事务提交，跨进程并发、删除邮件及重启后不重复投递。账号初始点券与角色初始金币仍属于创建事务，零配置保持既有行为。
+- 独立 GM 读取在线状态失败时拒绝受保护的写操作；晶块行编码失败完整回滚。Docker 单独生成受保护配置并支持只更新 GM，首次迁移需协调游戏管理接口与端口移交。
+- 验证覆盖完整领域/桥接/control、GM/API、隔离 MariaDB 并发/晚失败回滚、真实 Linux GM 与无界面浏览器。发布环境/原生游戏验收单独记录；不附带私有玩家接入、资产、凭据或运行配置。
+
+## 2026-10-14 — 建立公开客户端函数与协议索引
+
+- 按完整模块 SHA256、架构和 RVA 建立版本化索引，首批覆盖死亡报文、金币携带上限、好友提示、报文写入封装及 DLL 导出导航；区分函数入口、内部片段和仅有导出信息的条目。
+- 附代码窗口摘要、离线核对方法、固定公共提交及回归入口，明确语义和验收边界。客户端文件、原始反编译、私人日志和环境资料保持本地忽略。
+- AGENTS.md 增加索引入口和维护规则。本次只补文档与索引数据，不改变协议、运行配置或部署。
+
+## 2026-10-13 — Allow automatic code synchronization without builds
+
+- Add an explicit upstream sync-only mode that skips source tests, database jobs and binary/image builds. Keep exact-commit, conflict, CI-review and concurrent-update guards, and identify untested synchronization in the PR and result.
+- Make the standalone verification workflow manual-only. Document disabling CI/CD on runnerless GitGud forks without changing the original project's CI or SSH synchronization. These workflows do not publish releases or deploy a server.
+- Real-Git regression coverage includes sync-only promotion and retained conflict/CI-review guards, alongside the existing mirror and concurrency checks.
+
+## 2026-10-13 — Validate and integrate original upstream updates
+
+- Separate upstream intake from bidirectional fork mirroring. A scheduled/manual workflow opens an upstream PR, validates its exact merge commit with read-only jobs, rechecks base/head/merge identities, and promotes only that tested commit using a non-force push. Conflicts, failed tests, CI changes and moving branches leave the update unmerged. Successful promotion explicitly dispatches fork synchronization; it does not deploy a server.
+- Keep privileged prepare/promotion code on the trusted base; do not pass mirror or deployment secrets to incoming-code jobs. Document repository variables, PR permission, protected-branch constraints, conflict handling and the limits of source-only CI.
+- Real-Git integration tests cover no-op, exact-commit promotion, merge conflicts, CI review, moved refs, racing pushes and branch divergence. All 19 synchronization tests and workflow static validation passed locally.
+- Validate the upstream integration with retained local extensions: default Go suite 9,208 passing test nodes and 849 explicit skips, 12 focused actual-PVF tests, isolated account/benefit transaction checks, scoped vet, Windows build, Linux Docker build and 65 launcher checks passed. Windows local-profile preflight remains blocked by its missing bundled channel asset; this does not validate or invalidate the independent remote profile. Proprietary client/PVF resources are unchanged and native gameplay acceptance remains separate.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 
