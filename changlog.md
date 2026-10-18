@@ -3,6 +3,12 @@
 - 合入主线任务、通信、剧情APC及大会累计修复，保留公会事务、成员状态和经验药持久回执；共享源码自动合并后逐项核对。
 - 公会创建默认仍需邀请另一名在线未入会角色并获得同意；补充公告区服0的默认／显式关闭单人模式回归，未邀请或未同意不扣费、不建会，接受后仅扣一次并登记两名成员。
 
+## 2026-10-18 — v129 开放169、182–189、195、334接收位
+
+- 从上游实际最新v128 Release重新下载并核对摘要，仅开放用户指定的11个编号；5个位图字节与PE checksum之外逐字节保持，继承v128现有补丁及配套资源清单。
+- 固定输入摘要/大小/节表、原生门与19处注册，两个入口/两镜像共262144次原生接收判断只新增指定11项；全文件范围、校验和及输入输出保护三项测试零跳过通过。
+- EXE以独立v129 Release发布并核对镜像；完整游戏UI待实机验收，玩家通道与服务端部署独立。详Docs/CLIENT_RECEIVERS_V129_20261018.md。
+
 ## 2026-10-18 — 主线经验倍率实例配置
 
 - Docker 实例支持 `main_quest_exp_multiplier` 整数1..100，显式映射到主线经验环境项；省略不注入，沿用服务端默认1。
@@ -33,7 +39,6 @@
 
 - 客户端 Release ZIP 可附根级 scripts/ 内的 Python 源码，仅读取并校验归档，不解压或执行；其余路径与文件类型规则保持。
 - 补充归档正反例、路径/重复/链接/大小/数量/EXE/CRC及下载摘要回归，修复带源码证据的新客户端包被镜像拒绝的问题。镜像本身不改变玩家通道或部署服务端。
-
 
 ## 2026-10-18 — 天界任务对象与清房回归
 
@@ -70,14 +75,10 @@
 
 ## 2026-10-18 — QST-002 中途清房推进与父子任务状态一致
 
-
-
-
 ## 2026-10-18 — 主线券真实资源回归区分隐藏父链
 
 - 修正两项主线券测试对全局过滤数的旧假设：隐藏父任务12074的四个子项应继续被客户端列表保护排除，不属于券扫除范围。显式核对父子身份、父项拒绝、子项自身可接、券未写入隐藏链及旧主线遗漏精确减少两项。
 - 相同失败已在修复前源码与同一真实PVF复现，修订后两项专项通过；不修改运行规则、玩家记录或发奖。
-
 
 ## 2026-10-18 — GitGud 上游唯一权威与单向源码镜像
 
@@ -96,8 +97,6 @@
 - seek n meet npc读取全部材料对，保留末尾NPC语义。补真实梅娅女王和危险研究材料链、缺料、回滚、重复/重连回归；纯对话快捷路径保持。
 - 公开方案见[QST-006](Docs/seeker/QST-006-queen-linked-objectives.md)。自动验证与原生任务验收分开记录。
 
-
-
 ## 2026-10-18 — 影像通信客户端候选接入最新累计基底
 
 - 475接收门补丁改以V126精确摘要为输入，保留V125职业接收位与V126交易双锁显示补丁，重算并独立核验PE checksum；未知基底仍拒绝。
@@ -108,7 +107,6 @@
 - 新增PVF通信目录与源NPC场景校验，接通legacy/upper空体COMMAND475；在角色资产事务内检查活动任务、扣费并保存固定大小回执，不代办任务完成。
 - 使用独立30秒会话/角色/场景/资格许可处理并发、回滚与发包失败重试；换角、重连、场景或任务变化结束原许可，余额变化用既有钱包通知恢复。
 - 真实PVF验证3734的475→33→34链、3741资格与拒绝边界；补充事务、重放、SQL锁/路由测试。新增固定V124输入的475接收门生成器，最终单字节候选经65536编号及原生读写矩阵验证；先发布客户端再部署服务端，原生画面待验收。见 `Docs/seeker/QST-005-image-communication.md`。
-
 
 ## 2026-10-18 — 根特北门随机载具入口候选
 
@@ -122,19 +120,12 @@
 - 旧活动记录仅在PVF来源和合法形状匹配时规整超量材料通道，保留NPC进度与完成记录；快照前持久化，失败维持原状态，重复读取幂等。
 - 初值红绿、旧记录边界、真实PVF接取/回调/重登/保存失败及城镇对照通过；完整领域、bridge、control、list/vet/Windows构建通过。四材料结算另项推进，正常流程卡图由用户继续实测。
 
-
 ## 2026-10-18 — QST-002 中途清房推进与父子任务状态一致
 
 - 当前迷宫绑定的无奖励clear-map子项，在匹配的中途房间权威清空后同事务归档并重算父进度；稳定回执覆盖死亡重放、通知失败、队员独立资格及离房重试，不触发最终副本奖励。
 - quest-clear 父任务 op33 不再因没有新归档的城镇子项而回退普通减一；领域层按已提交子项重算剩余数，未完成 clear-map 子项存在时父进度保持 1，历史父 0／子 1 会恢复到 1，且不补造子项完成。
 - 保留合法对话子项归档；全部子项达成active/0时父任务可交，物品仍由op34统一事务结算。相同父进度的重复回调保持静默，子项随后变化继续推进。保留普通任务原op33路径。任务目录不可用仅在持久化记录存在父任务类型或 `main_quest_id` 关系证据时失败关闭，普通记录继续原路径。
 - 真实 PVF 探针中 `parent-callback-must-not-finish-unresolved-child` 与 `target-credit-finishes-parent` 均通过，领域、bridge、control完整测试及list/vet/构建通过；末子奖励兼容、回调反馈循环与保存后回滚覆盖。真实PVF六怪死亡handler、父回调与结算三组通过；中途清房边界、队员资格及通知失败重试覆盖。
-
-
-
-
-
-
 
 ## 2026-10-18 — 父任务收尾结算末子任务物品
 
@@ -162,16 +153,19 @@
 ## 2026-10-17 — 已验收悲叹结算同步主线
 
 - 整合已验收主线与悲叹之塔候选，冲突处同时保留悲叹层数／奖励字段及通关经验药基础、加成与持久回执；不改变验收服和玩家数据。合并后的完整检查、真实PVF专项与BAT回执独立保存。
+
 ## 2026-10-17 — 公会认证区服0原生选择器
 
 - 截图下拉空、现场156/反复739而无741；在服公告区服0，v123原生枚举1..249且邀请范围排除0。只将两处扩为0..249，继续缓存可用性/资格门，不迁移公告或改双人认证政策。
 - 固定v123输入，三个指令字节和PE checksum局部候选；旧武器/公会等全部补丁和接收门保持。原生枚举/范围与741构造输入、全门/范围/覆盖保护及累计0区服双人认证/扣费回归分别验证，不冒充完整GUI验收。
 - 独立master不借入MR33全部公会实现；组合Go测试仅累计树。完整规定检查、preview与EXE仓库Release及用户验收见R48回执。详Docs/GUILD_ZERO_REGION_AUTH_20261017.md。
+
 ## 2026-10-17 — 大会结果页返回城镇独立结算门
 
 - test99/47真实121局两排奖励已落库，HKT14:50:11的op72 01 02却被普通settlementClearRewardSent挡住，之后菜单op42经大会门成功回城。大会不走普通result/card链，补其独立op72回城入口。
 - 仅official24.9大会，保留当前角色/Completed/终局/奖励态并要求所有启用排已成功选奖；按既有ACK和完成局冻结原点路线回城。悬停不占动作，写失败续发不重奖，不伪造普通结算位，不改翻牌事务。
 - 旧回归零回包；候选归属/未选完/动作边界、真实落金币后退出、legacy分派、ACK与op24失败续发通过。累计树真实PVF120..124完整四轮/两排/回城链见R45回执；原生UI待验收。详Docs/TOURNAMENT_RESULT_TOWN_20261017.md。
+
 ## 2026-10-17 — 入场只投影已保存的难度权限
 
 - 当前v124 NOTI5真实handler两次回放确认，旧入场state1预占首次普通通关state1，使通关没有递增提示；只对official24.9默认改0，保留本角色持久值及PVF上限，缺归属/仓储/读失败不覆盖缓存。
@@ -206,30 +200,37 @@
 - 合并主线绝望之塔结算时，同时保留塔层数、奖励物品和经验药加成；结算重放读取原有物品与药水份额，避免过期后的重试改变奖励或重复到账。
 - 补充药水与塔奖励共同结算、到期后重放及事务失败回滚回归；任务券行为保持。
 - 合并候选的领域、bridge、control 全量回归 5512 通过／706 条件跳过；真实 PVF 药品与一觉券专项、list、vet、服务端边界检查和 Windows 构建通过。本轮仅更新 MR，未部署；保留此前玩家验收记录。
+
 ## 2026-10-17 — 账号金库事务按实际变化槽位写入
 
 - 用户反馈账号金库存取延迟；现场52次金库操作未触发flag1等待，ACK中位77.8ms、最慢247.7ms。现有账号与角色事务每次整容器删除重插，在同一锁定读取和事务边界内改为比较已读取的原始快照，仅写实际变化的槽位及其extra；自动合并、拆分和删除不依赖客户端请求落点猜测。
 - 优化只启用于WithinAccountCharacterItems新建的MySQL仓储实例；未先成功加载的保存继续整容器路径，普通保存与其它事务不变。保留父表时间更新、同事务提交与失败回滚，未更改协议或玩家数据。候选尚待验证与部署，不以SQL减少代替实机延迟验收。
+
 ## 2026-10-17 — 黄金蜜蜡再封装事务候选
 
 - test99 02:06实际CMD81材料14被旧品级调整路径消耗并改变装备seed。新增独立蜜蜡事务，按当前PVF reseal.etc的等级、稀有度、次数权重计算费用，验证角色归属、封装资格、物品锁、期限、格子容量及材料；目标封装、次数与扣蜡同事务，保留品质、强化、耐久、附魔等原实例数据。
 - 当前EXE CMD81成功体沿用u16材料槽/u32余量/u16结果，封装选择结果1。参考Go实现提供权重公式，旧C#近似表和12字节ACK不适用。本项仍是候选，完整验证、发布与用户验收尚未完成。
+
 ## 2026-10-17 — 疑惑之村电梯通知254配套客户端
 
 - 用户反馈电梯一直下降无法进入下一房。固定v112消息过滤表未放行254，但当前EXE的NOTI处理器1fea260按两字节接收counter/state并更新1113电梯控制对象。配套候选v113只置254过滤位，111779840字节中仅一字节变化，保留此前客户端修复；未更改服务端定时器/清怪/移动规则。
 - 全65536编号实际x86过滤函数对比只新增254，实际接收处理器/字段setter离线执行覆盖12组状态与无控制对象场景。真实PVF电梯资源保护补充任务3352的76384图；客户端二进制不入服务端源码仓库。尚待完整验证、配套签名发布与用户实机验收。
+
 ## 2026-10-17 — 史诗制作目标切换1416配套客户端
 
 - 当前EXE已注册COMMAND1416目标切换处理器B210D0，真实日志角色47切换成功但v113过滤位未放行。配套v114仅新增1416接收位，保留v113电梯和之前塔修复。实际x86过滤/读包/赋值/刷新wrapper执行22场景，完整编号差异只有1416。
 - 本MR只含客户端证据、可复验脚本及日志，不改服务端业务或玩家资产，不把已切换应答缺失当首次选择无请求的完整根因；GUI依赖桩掉、原生显示待验收。源码主线legacy编号与当前部署official profile明确分开记录，客户端EXE独立发布不入库。
+
 ## 2026-10-17 — 角色更名卡事务与当前客户端协议候选（验证中）
 
 - 当前主线仅判读135、未处理509；按当前EXE真实builder/handler和选角双标志补齐候选。更名权与卡消耗同事务，新名/旧名保留与改名同事务；创建与改名共用数据库名字空间行锁，旧名保留跨账号生效。内存创建事务加入提交失败回滚，避免辅助存储失败留下半个角色。
 - 当前EXE及真实PVF为协议与物品规则依据，旧参考代码只作对照；离线native与回归不等于用户验收。候选尚未部署、发布或合并，验证结果后补。
+
 ## 2026-10-17 — 2017劳动节随机称号附魔候选
 
 - 拨云见日宝珠使用PVF auto enchant/random title enchant配置，旧普通宝珠路径要求怪物卡片而拒绝。新增真实配置加权结果，明确称号白名单、部位、锁定、期限及数量守卫；背包称号结果和宝珠扣除同事务，普通/随机附魔互斥并维护原始行缓存。
 - 当前v115原生指令证明配置/行号位于119字节行+0x61/+0x63；合成与原始行共用投影，角色重建后仅为已附魔称号补发完整list3/op14。EXE/PVF、玩家历史资产与GM不变。本候选仅支持脱下称号后使用，完整验证与部署回执后补，用户实机验收仍待。
+
 ## 2026-10-17 — 更正剧情暂停候选的原报障范围说明
 
 - 问题文档第150段已点名伦道夫任务、幽冥监狱、角色123及14:40时间。候选说明此前称“仅有副本名称与时间”有误，现区分已有任务名线索与缺失的现场连接/房间日志；不改变补丁、EXE、PVF、服务端或验收结论。
@@ -238,6 +239,7 @@
 
 - 当前v115发送COMMAND191，既有服务端返回class0/NOTI170，但接收门170位关闭。新增固定哈希的离线兼容生成工具，只将offset111747861由60改64；65536编号前后原生门执行131072次，允许数286→287，仅170改变。EXE与PVF不入库，服务端代码及BAT入口保持。
 - 复核当前写点、class0注册、四字节回调与管理器初始化链；实际来源集合构造/增删8步通过，标准分配释放使用桩。最终暂停函数保护VM离线未执行成功，原用户现场未绑定；伦道夫剧情卡死仍开放，候选待实机验收，不据此推进任务或标记已修复。详Docs/STORY_PAUSE_GATE_20261017.md。
+
 ## 2026-10-17 — 悲叹之塔专属结算与逐层进度候选
 
 - 接续完成局回城修复：悲叹通关现在把独立层进度、十槽PVF奖励、经验和回执接入原事务，满包/保存失败整体回滚，重放返回原奖励；下一层选本与入口守卫读取持久进度，第100层后按本机参考的悲叹循环回到第1层。绝望进度及奖励保持独立。奖励抽样采用本机2026-09-27参考GriefTowerRewards的每槽SHA-256/10000点策略，表与物品取自当前PVF，不把参考源码视为当前客户端证据。
@@ -249,36 +251,41 @@
 - 两次首层现场（5115，2026-10-16 06:20/06:23 UTC）均已提交通关、发送结果并接收46/123，随后42被普通翻牌链阻塞；这两局没有69/70/71握手。新增独立悲叹标记策略，在已持久化、结果统计完整且冻结计划的角色/完成键/来源一致时，允许42走既有完整城镇角色绑定与24路线。
 - 已开始普通卡牌请求的局继续保留原卡牌完成门，普通副本与绝望塔不借用本策略。写24失败保留原运行时与冻结路线，重试只发送未成功部分；不合成翻牌或发奖，不更改层进度、门票、EXE/PVF及玩家历史数据。悲叹下一层、专属奖励与完整流程仍开放。
 - 回归在旧代码复现结果已展示仍无法42回城；候选覆盖结果/统计/持久化/计划所有权守卫、重复请求及写失败重试。验证、部署及用户验收结果另记，离线测试不代表实机验收。
+
 ## 2026-10-17 — 礼盒绝对期限与历史实例兼容候选
 
 - 按问题文档第158段，将既有日期工具和来源兼容单独抽成可评审候选；只扩展已识别礼盒到2028-12-31 06:00 CST，永久/更晚日期、奖励和相对使用期保持。工具与后端共用类型/精确路径判据。
 - 独立来源清单记录精确旧日期，旧实例仅在来源已知且无GM/租用/相对/每日期限时续期；背包、个人仓库及账号金库沿用事务。原始行来源未知不猜续期。
 - 已保存PVF候选13218脚本/13246日期，当前两档哈希已重新核对；六份身份待核脚本保留开放，尚不宣称所有礼盒完成。本轮未切换服务器/PVF或手工迁移玩家数据，验证与发布结果另记。
+
 ## 2026-10-17 — 普通增幅原生金币报价候选
 
 - 现有普通增幅只读实例Extra费用而没有生产写入，新增当前专用PVF/原生计算器报价，沿用资产事务的金币预检、扣除和失败回滚。当前增幅表没有等级权重；原生独立对象清空两树、缺键跳过最终倍率，不借用强化表。
 - grade、kind、rarity及逐步float32权重取整按当前EXE；损坏费用表与缺失装备元数据拒绝，不退回零费用。便携增幅器免金币/普通材料、券路径、强化公式及既有476转换保持；空环境仅增加普通增幅，显式非空关闭值保持。
 - 真实PVF旧版失败和新候选回归、晚期事务失败/账号材料回滚及便携边界另记；完整验证、MR及部署尚待回执，未宣称原生验收或问题文档整段关闭。详Docs/NPC_AMPLIFY_GOLD_20261017.md。
+
 ## 2026-10-17 — 艾肯独立入场次数与原生周期通知候选
 
 - 按用户“入场次数”报障，将独立entry消耗与既有成功clear进度分开，entry/门票/房间疲劳同事务且每run随机nonce幂等；单人/组队按当前原生Order共享额度，试炼继续要求成功通关前置。历史仅以已有clear证明最低入场数，不编造中止历史、不手工迁移玩家数据。
 - 当前009 EXE实际656 reader/tuple/cache/聚合/UI证据明确独立周期模型，新增真实PVF全行快照在登录/选择/入场/通关同步；其gate仅单byte放行656，候选c8871a88…，全编号执行只新增该ID。B在已观察聚合/UI未用而发0；不声称官方服务器扣数时点已抓包证明。
 - master缺少原有cycle基础，本MR补齐必要解析/clear/事务与nonce接线，累计分支保留其余在服修复。旧入场计数0红例、新入场/clear/frame/放弃/重放/日切、共享并发与末次保存回滚另记；完整验证/发布尚待回执，实机未验收，不合并。装备升级继续延期。详Docs/ECHON_ENTRY_COUNT_20261017.md。
+
 ## 2026-10-17 — 附魔师批量制作宝珠候选
 
 - 最新段103多宝珠场景仍开放；旧单件附魔验收保留。当前EXE op238原生发送u32配方/u16次数/i16卡槽，服务端旧decoder和执行固定单次；现接通指定卡片堆的1..65535次独立判定、按尝试扣材料、按成功给宝珠与经验，整批沿用起始等级规则。
 - 卡片/材料/产物/经验同既有资产事务；不足或晚期提交失败回滚。专属发放在合并前核对升级属性，匹配部分堆按PVF上限分格，保留不同升级与锁定宝珠。原op238结果和权威刷新继续使用，不改客户端/PVF、普通副职业或op601。
 - 当前v120原生sender及ACK reader片段回放有明确夹具/UI边界；旧真实PVF batch3为0013拒绝，新回归覆盖批量、单件、数量/材料/账号/满包/升级身份与最终提交失败。全套检查、MR和部署状态以外部回执为准，实机待验收，不合并。详Docs/ENCHANTER_BEAD_BATCH_20261017.md。
+
 ## 2026-10-17 — 当前客户端公会成员菜单空对象候选
 
 - 在已发布V118配套EXE中核实成员菜单单次调用仍读取空场景角色+3ac；独立适配MR33参考，仅此调用转向局部空指针保护，正常读取、寄存器/栈/flags保持。
 - 工具绑定完整269a输入与16段布局、调用上下文；新增独立RX段，拒绝覆盖或未知输入。局部原生崩溃前后、等价读取、接收门/既有段/改动范围/校验和及输出保护验证另见Docs/GUILD_MEMBER_MENU_V118_20261017.md与本轮回执。
 - 服务端与PVF不改，不引入参考分支其他公会功能；公会创建验收保持，成员菜单实机验收仍开放，发布与下载验签单独记录。
+
 ## 2026-10-17 — 魔界裂缝门票显示与入场预检候选
 
 - 用户实际扣票2/4/6、选图始终2；当前EXE选图与预检真实算术执行证明是weight**(used+1)，PVFweight1使其恒2，旧native公式注释撤回。保持后端扣票与3次上限，配套精确v121客户端仅改两处算式为(used+1)**weight，既有公会/塔/接收门和PVF保持。
 - 原生旧红、新候选4项无skip通过，两处算术无hook并核栈/寄存器/FPU、精确字节范围、全65536编号双镜像接收门、输入/覆盖守卫。隔离值和原生片段执行不等于完整游戏验收，完整检查/MR/发布以外部回执为准，未擅自合并。详Docs/RIFT_TICKET_DISPLAY_20261017.md。
-
 
 ## 2026-10-17 — 公会候选同步上游与悲叹之塔积分边界
 
@@ -505,6 +512,7 @@
 - 增加搜索、加入／申请审批、成员与等级列表、账号公会索引及重登恢复；按匹配客户端修正 1450～1453 协议映射、成员行尾和审批失败回包，场景就绪后才下发登录公会状态。
 - Docker 可显式设置 `channel_advertise_server`，保留原默认 0；客户端认证区服选择需要 1～249。公告编号变更须同步登录入口的目录校验与频道历史，不能因此改写角色的社交区服编号。详见 `Docs/GUILD_FOUNDATION.md`。
 - 覆盖并发创建、身份／权限边界、保存失败回滚、重复请求、回包丢失及重登；一次性 MariaDB 验证跨仓储实例串行化与真实 SQL 失败回滚。自动化验证不代替两名玩家的原生邀请、创建和重登验收，公会金库／战斗等扩展不在本次实现内。
+
 ## 2026-10-17 — 罗杰生产MR同步已验收主线
 
 - !56/59/60/62已按用户验收合入master，MR58同步该基线并保留双方日志。NPC生产三份代码/测试文件与原2c04740完全一致，净差仍四文件；实机验收及用户合并继续待办。
@@ -525,6 +533,7 @@
 
 - test99在23:18反馈结果页操作无效。实际op72返回城镇/选图请求被普通卡牌链挡住；塔现在在精确角色/完成键、持久化、46/123结果统计及348发送成功后处理town/selector，保留冻结路线和写失败续发，拒绝retry与未知操作。普通副本和原op42路线保持。
 - 当前EXE原生重试状态/刷新定位完成；配套基于v111，仅塔348 kind1清理分支禁用retry，保存寄存器/flags并回原清理。用户追加的557跨界结果包放行配套同时完成，65536编号比较只有557改变。客户端不入服务端仓库；离线指令与服务端回归不算用户原生验收，557位开放不代表跨界事务已实现。细节见Docs/DESPAIR_RESULT_BUTTONS_20261016.md。
+
 ## 2026-10-16 — 绝望之塔专属奖励候选与同事务回执
 
 - 接续!59的空物品结果体，按参考塔5次/镜像层9次+合成器/100层5次+奖章规则冻结候选。读取当前PVF的itemdropinfo_clearreward类型权重/稀有度阈值/grade窗口及装备creation rate，普通与avatar独立池，不复用普通翻牌的minimum-level选择或白装回退。1252/3314真实元数据核验，数量规则来自参考代码而非物品名称。
@@ -613,7 +622,6 @@
 - 回归覆盖真实PVF全档商品/价格、普通库存保留、新格边界、旧档位计价、满级/余额不足和陈旧计划拒绝。原补丁基线db11236的独立纯服务端完整领域/桥接/控制器9622 PASS、883 SKIP、0 FAIL，真实PVF专项5 PASS；gofmt/list/vet、仓库边界和Windows/Linux编译通过，BAT配套预检明确跳过数据库和运行中端口。原生验证在已安装配套上通过个人换角色首次/连续升级与商城即时换档、账号144到240连续升级及新增格存取；新主线整合以本轮自动化检查为准，不扩大为所有库存操作已验收。
 - 合入主线7d820f631e53的594字节登录握手修复，保留双方新增记录；本次仅处理该记录冲突，11份金库业务源码及测试逐字节保持。
 
-
 ## 2026-10-15 — 保留已部署排序锁用例的金库容量前置
 
 - 合并MR26与已验收MR41时，旧cargo_move夹具未解锁目标槽10，核心回归被现有容量守卫正确拒绝。恢复已部署2f0d20b中同一测试的24格金库前置，不改产品守卫或锁标志断言；首轮失败记录保留。
@@ -648,6 +656,7 @@
 - 验证：见提交说明；本候选只动 profession/transition.go、profession/profile.go、quest/catalog.go 与两个测试文件。
 
 ## 2026-10-14 — 女圣职者 15 级主线/转职链路真档回归（DOC-123）
+
 ## 2026-10-15 — Check rental wallet send failure after committed purchase
 
 - Add a real-PVF/memory regression injecting zero-byte and seven-byte-prefix errors on the wallet op14 write after the successful op1000/op985 frames. The original connection error propagates; gold and lucky-star points remain committed exactly once, without a compensating failure ACK or automatic repeat purchase.
@@ -683,6 +692,7 @@
 - 局限：本项依据真档目录、前置与目标元组推导，未取得该玩家角色当时的 quest_states（现网只读快照中没有 job 14 角色），因此未复现该角色的具体存档状态；本条只声明当前主线（9de2ecb）上该链通过，DOC-123 仍待原生验收。DOC-124（已转职角色仍可接永远结算不了的转职任务）属另一候选，未包含在本次改动内。
 - 时间线：报告为 10.13 14:30；包含该判据的 D33 已知问题分支在 10.14 15:52(HKT) 才并回 master（5fc6807）。报告当时线上是否已含 2da7982 无法从本仓证明。
 - 验证（本树，改动仅测试文件头注释与本文档）：gofmt 无差异；`go list -buildvcs=false ./...` 211 包；AGENTS 指定的 vet 目标（cmd/server/control、cmd/server/dnf90、cmd/server/doctor、internal/app/dnf90、internal/services/dnfbridge）0 输出；核心 `./internal/modules/dnf/... ./internal/services/dnfbridge ./cmd/server/control` 79 个包 ok、0 失败、2 包无测试文件（dnfbridge 22.2s、control 6.1s，本机未设真实 PVF 环境变量故真档用例跳过）；Windows 构建 `go build -buildvcs=false -o ..\runtime\bin\DNF90Server.exe ./cmd/server/dnf90` 通过并产出二进制；固定真实 PVF（sha256 369d072b…）两根 `TestRealPVFAtPriestLevel15BranchReachesClassChange`、`TestRealPVFEveryJobLevel15BranchReachesClassChange` 全部通过。BAT 预检 `control.bat check --skip-database` 在本机需先把 Go 加入 PATH（否则报 DNF90Control.exe/Go 缺失，exit 10），加 PATH 后仍因源码包缺少 `deploy/assets/channel_info.etc` 失败（exit 1），故未计部署通过。
+
 ## 2026-10-15 — DOC075（原 P62）晶体契约跨角色串用：客户端准入位图复核与换角重放回归
 
 - 现场：同一账号角色 1 选了晶体契约属性后，其他角色也显示同一属性；重登/换角后选择还会“消失”。服务端把选择持久化在角色自身 Stats[premium_crystal_selection]（crystalcontract/owner.go），角色作用域本身正确，问题不在持久化。
@@ -752,6 +762,7 @@
 - 收敛注释与文档：character_option_words.go 头部压缩为字段表 + 复核结论；删除未被使用的 empty() / summary() 方法与两个未用常量；Docs/D33_SKILL_OPTION_WORDS_20261014.md 去掉重复叙述并补上复核结果与日志负担说明。
 - 仅新增只读复核脚本 scripts/verify_client_skill_option_words.py（capstone 目录与客户端路径全部参数化）；保存与回放字节、保存门禁、账号档闸门均未改。
 - 未部署、未推送；未改其它工作树 / 用户 DOCX / 原台账 / 生产资产，未改装备或任务领域。DOC-053 的时装右键掉线与重选后武器栏空白由用户确认已修（仅未涂色），本席不再排查；用户没有说明修复位于客户端还是服务端。
+
 ## 2026-10-14 — 技能选项（锁定 / CD 提示）字段取证与保存回放可观测性（装备席）
 
 - 按固定客户端 EXE（SHA256 bb42898c02fb43ad30537da776f648ce26ac37df2ff47912ca7174df43c80531）已证字段表记录每角色选项 blob 的编码：技能锁表 = word 128..191（树0）与 192..255（树1），每树 64 项，值 = 客户端技能槽号，空项 0xFFFF，写入 0x39A6BA0 / 读取 0x39A6C00，导出 0x2255AA0、恢复 0x2255880；CD 提示列表 = word 2..21（树0）与 22..41（树1），每树 20 项，导出 0x22555F0、恢复 0x2254FC0。攻击类型（物理/魔法）仍无字段或包证据，不实现，也不用其它字段代替。
@@ -760,6 +771,7 @@
 - 旧失败复现：临时把角色选项回放改回旧的一次性连接闸门后，返回选角、同角色重进与 A→B/B→A 三组均 390=-1（19 仍为 30），本轮新增端到端用例同样 RED；按 SHA256 校验还原后全部 GREEN（-run TestCharacterOption）。未跑全套重测试。
 - DOC-060 / DOC-114 / DOC-053 的三条症状未关闭：锁定与 CD 提示的数据载体在基线上已整帧存取并按每次选角回放（45 批漏 390 的连接闸门已由 31e2b51 修复），但原生 GUI 验收、攻击类型字段与冷连接时序仍开放。现场 A/B 步骤见 Docs/D33_SKILL_OPTION_WORDS_20261014.md。
 - 只在独立工作树 work/bugs-round2-equipment（基线 5fc6807）改动；未部署、未推送、未改其它工作树 / 用户 DOCX / 原台账 / 生产资产，也未改装备或任务领域。
+
 ## 2026-10-14 — Correct equipment-lock success ACK framing
 
 - Current-client class1 op267/268/269 expects a success byte before list/slot (unlock also carries remaining seconds). The itemlock owner responses omitted that byte, so main-list zero selected the failure branch and other lists shifted the location fields. Add the success prefix only to ACKs; preserve the class0/op252 location-only notification and existing persistence semantics.
@@ -777,6 +789,7 @@
 - 失败回包边界取证（回答「不回包会不会卡住」）：0x1faee80/0x1faeee0 的失败分支只把 error 字节读进栈上局部（[ebp+0xf]）后返回，该局部此后无任何读取；两个处理器没有全局/UI 写、没有 pending/超时标记；上行 713 分支（0x32d3767）写体前只调一次 UI helper 0x1a685c0(1,3,0xd)，与回包无回调关联。因此失败不回包不会让客户端停在等待状态，最坏只是没有错误提示；90CN 也没有已证 sort-lock 错误码枚举（A21 的 17/19/21/22 属 267/268/269 资产锁），保持 fail-closed，不臆造 `0 + error`。
 - 空槽判据按仓储契约收紧：ApplySortLock 由原先 `found && ItemID==0 && Count>0` 会放行的写法改为 `!found || ItemID <= 0`（与 CurrentInventoryItemProjects / item_stack_contract.go 同一口径）；新增用例钉住「无物品行（ItemID=0、Count>0）必须按空槽拒绝」与「永久装扮（ItemID>0、Count==0）必须允许并投影 0x60=1」。
 - 回归：./internal/modules/dnf/...、./internal/services/dnfbridge、./cmd/server/control 全包通过；gofmt/go vet 干净。未部署、未推送、未改用户 DOCX/原台账/生产资产。
+
 ## 2026-10-14 — DOC-067 物品栏位置锁定（位置锁持久化 / 整理跳过 / 行投影）
 
 - 当前客户端（DNF.exe SHA256 8bf1d39df74c6ca6fdbea30a95e055398aad9729305c7ea510ce01af2141e387）已证：C2S 713 = 置 1、714 = 置 0（不是 toggle），体 = u8 list + u16 slot；客户端收到 713/714 分别写 item+0x2aa=1/0，所以成功回包必须用同一 opcode 的 class1 `u8 1 + u8 list + u16 slot`；旧 C# 的 toggle 与 714/715 方向在本客户端会翻反，未照搬。
@@ -786,6 +799,7 @@
 - 新增 inventory/sort_lock_test.go 与 dnfbridge/sort_lock_row_projection_test.go：落库与回包形状、其他 Extra 键不被清、幂等不重写、非法 list/账号共享槽/空槽/长度不符不回包、跨账号拒绝、落库失败无半截状态、整理跳过、搬运规则矩阵、行字节显式 0/1。
 - 旧代码复现：把 handler/owner/aligned/行投影/account_cargo_sort 临时还原到 5fc6807 后，713 未登记无回包、整理搬走锁定物品、快捷槽与跨容器搬运保留锁、行字节保留脏值 1；按 SHA256 校验还原后以上用例全部 GREEN，`./internal/modules/dnf/...`、`./internal/services/dnfbridge`、`./cmd/server/control` 全包通过，gofmt/go vet 通过。
 - 未部署、未推送、未改用户 DOCX/原台账/生产资产；原生 GUI 验收与失败回包错误码仍开放。详见 Docs/D33_SORT_LOCK_20261014.md。
+
 ## 2026-10-14 — 锻造候选主代理完整验证
 
 - 源码4e8a429：核心9378通过节点、860跳过、零失败；固定真实PVF的160个指定回归根全部通过（719通过节点、2未选中包）；gofmt/list/vet及Windows/Linux构建通过。BAT预检因源码树缺少deploy/assets/channel_info.etc失败，未部署。
@@ -799,6 +813,7 @@
 - 438 失败回调 0x2483b60 逐码核对（本机读表，脚本/原始输出在 E:/90/_forging-scratch/forgeerr/）：先无条件 `push 0/0/0/4; call 0x12030a0` 复位锻造 UI，再读码；> 0xd6 走 default（文案键 0x67e + 码），≤ 0xd6 走 0x2483d38 字节索引表 → 0x2483d0c 的 11 槽跳转表。实测 4→槽1/0x67a、7→槽2/0x4e20、10→槽3/0x67c、13 与 95→槽4/0x676、17→槽5/0x8904、19→槽6/0x6a1a、22→槽7/0x67d、175→槽8/0x5338、214→槽9/0xa4f8、0/118→槽0 不显示、其余 203 码 → 槽10。本实现用的 7 个码**全部命中专用槽**。
 - 删除未证实的泛化断言（"未列出的码也会落到通用文案"）：0/118 根本不显示，且显示前还有闸门 0x35ca060 可跳过文案；能保证的只有复位 UI 无条件先执行。也不再称厂商同名 enum 为"当前客户端官方枚举"，改述为"厂商同族实现 + 本 EXE 专用槽实测覆盖"。
 - 验证：真档 `TestRealPVFForgingCommandAppliesOrdinaryPortableAndTicket`（含窗口边界放行与 1..85 超限 0+19）通过；合成档新增窗口回归（边界/超限/下界/未写 minimum level 失败关闭/无窗口放行）；core 套件 0 失败。未部署、未推送。
+
 ## 2026-10-14 — DOC-087/092 锻造（op438）域事务与桥接回包落地（forging 席，续 615ba52）
 
 - 桥接：438 在 `Registry.Route` 之前用 `forging_codec.go` 解包（**畸形帧也回失败体**，客户端因此必定走完"复位锻造 UI"的回调）；领域结果组 class1 438（成功/掷点失败 13 字节、校验/存储失败 `0+u8 error`），ACK 先于逐槽 op14 增量。新增 `forging_pvf.go`（`etc/upgrade_separate.etc` 表 + 材料三种身份 + 目标武器/品级/稀有度/耐久），`dnfenum/aligned.go` 登记 438。
@@ -816,6 +831,7 @@
 - 已证持久化落点：锻造等级 = 0x77 行 0x57 + Extra byte_57/value_57（GM 工具已有读写与真档测试；alignedcmd 已明确便携炉不属于 op50 强化族）。
 - **未落地（明确分界）**：域事务（材料消耗+等级写+回滚）、桥接 438 登记/handler/op14 刷新、便携炉消耗、券参数与目标白名单、失败体 `0 + u8 error` 错误码枚举；原生 GUI 验收（动画/窗口关闭/锻造器）待主代理。证据、公式与下一步清单见 Docs/D33_FORGING_20261014.md。
 - 验证：`go test -run TestCurrentForging ./internal/services/dnfbridge` 通过，gofmt 干净；固定 PVF 与失败资产未改动；未部署、未推送、未改用户 DOCX/原台账/生产资产。
+
 ## 2026-10-14 — Reconcile MR !4 with the merged gameplay fixes
 
 - Merge master 61036f9 into the independent D33 draft, retaining both histories and all existing changelog evidence. Normalize this changelog's line endings to avoid duplicating shared history during reconciliation.
@@ -877,6 +893,7 @@
 - P56 空白网页导航仍在客户端定位中，本次没有客户端 EXE 或资源改动；香港 2026-10-14 02:00 后再执行游戏操作。
 - 登记 2026-10-13 20:40 高优先级城镇跨角色卸武器反馈，关联 P33/P39/追加9；新增掌握技能武器触发条件；用户确认受影响角色重登后仍未装备，按持久化状态变化优先定位，尚未修复。
 - 草稿源码尚未合并、部署或发布客户端 Release。
+
 ## 2026-10-15 — 同级合成池缺失时按PVF概率重建来源模板
 
 - 仅在同级合法候选为空时，使用启动缓存中一致且合格的来源模板补齐同级分支，保留PVF原等级权重与单件权重。抽中同级重新生成同ID新装备，材料照扣，旧强化、附魔、耐久不继承；有正常同级池时继续从原池随机，不改粉装与圣物共池规则。
@@ -894,6 +911,7 @@
 - Use the same durable quality-seed precedence for inventory refreshes and login: dedicated metadata, equipment-only legacy aliases, then a matching complete current-client row. Sorting no longer replaces quality with the equipment stack count.
 - Keep legacy quality aliases out of the independent item-state field. Preserve persisted item instances and stackable quantities; do not generate replacement quality or change assets.
 - Regression coverage includes first/repeated sorting, bag/personal cargo, ordinary/top quality, legacy and raw-row sources, quantity isolation and invalid/foreign raw data. The new handler regression fails before the repair and passes afterward. Native in-game quality display remains pending acceptance.
+
 ## 2026-10-15 — 新生成魔法封印紫粉装备初始化交易封装
 
 - 装备目录缓存PVF的[rarity]和[random option]。保留原[attach type]=[sealing]规则；对品质2/3、[random option]>0且[attach type]=[free]的新装备补齐seal_flag=1，读取实际模板字段，不按名称或物品ID写名单。普通白蓝装、非魔封自由模板及其他绑定类型不套用此特例；不改产出池或抽取概率。
@@ -906,27 +924,32 @@
 - Build a separate ordinary-card equipment pool from list-backed PVF minimum level, rarity and positive creation rate. Legacy dictionary gaps no longer substitute crafting recipes for high-level equipment; monster and abyss policies remain unchanged.
 - Preserve existing rarity rolls and level windows, exclude cosmetic/special equipment, honor original/revised asset precedence and reject incomplete scans. Stream and warm the cached pool during startup to avoid a first-clear scan delay.
 - Regression coverage reproduces the former recipe fallback, checks high-level candidates, weights, level limits, special/disabled items and failed scans. Optional real-PVF sampling verifies varied equipment at low and high levels. Native card display/claim remains pending acceptance.
+
 ## 2026-10-14 — Preserve legendary souls in equipment disassembly
 
 - Read disassembly soul rows as counted PVF records, retaining the disabled chronicle row and its constant placeholder. Legendary equipment now uses its own rarity row instead of a truncated or shifted entry.
 - Reject malformed or partial soul tables before consuming equipment. Preserve the existing reward quantities, item transactions and account soul-warehouse projection; no asset or balance rewrite is required.
 - Regression coverage includes the real-PVF missing-soul failure, all rarity rows, malformed tables, source-item preservation on failure and committed warehouse rewards matching the acknowledgement. Native disassembly display remains pending acceptance.
+
 ## 2026-10-14 — Restore gold-cap upgrade purchases
 
 - Handle the current client's upgrade request using its verified 14-byte request and stage/result reply. Charge the advertised 5,000,000 gold once per stage, require level 60 and sequential stages, and stop at stage four.
 - Persist the debit and purchased stage in one character asset transaction. Reject foreign owners, malformed requests, insufficient funds and corrupt stages; a duplicate request repairs the client's stage and wallet without another charge.
 - Publish the saved stage during actor initialization, including zero on character changes. Existing reward, trade and auction policies are unchanged; this repair restores the purchase and the native client's cap selection.
 - Regression coverage includes both transports, concurrent duplicates, transaction rollback, native failure messages and login ordering. An opt-in disposable MySQL test checks reload and rollback across the wallet and supplementary stat tables. Native UI acceptance remains pending.
+
 ## 2026-10-14 — Consume profession crafting materials from their durable owners
 
 - Reuse the existing recipe material projector for profession crafting, including enchanter products and card-to-bead crafting. Shared crystals and souls are debited from the account warehouse; ordinary materials remain in the character bag. Historical character copies cannot substitute for account balances.
 - Persist warehouse changes in the same settlement transaction as materials, products, gold and profession experience. Preserve recipe requirements, success rates and the verified request/reply layouts; refresh the committed container balances after acknowledgement.
 - Matching-PVF regression reproduces the prior insufficient-material rejection and covers all eleven enchanter product recipes, batch quantities, bead metadata, wrong/locked/insufficient shared rows, foreign ownership and late transaction rollback. Existing equipment-recipe behavior is retained. Native crafting UI acceptance remains pending.
+
 ## 2026-10-14 — Charge lottery jar opening prices atomically
 
 - Read explicit lottery gold prices independently from NPC acquisition materials. Paid hero jars no longer require their exchange token a second time. Preserve explicit opening materials and the existing material-only legacy jar policy; reject malformed prices instead of treating them as free.
 - Settle gold, source jars and rewards in one account/character asset transaction. Inventory-only magic-box entrypoints reject paid jars; lottery and booster entrypoints refresh the committed wallet after success.
 - Regression coverage includes matching-PVF hero and legacy jars, complete reward references, both lottery reply layouts, duplicate confirmations, insufficient gold, full bags, foreign ownership and rollback after all writes. Disposable MySQL validation covers competing opens, durable reload and rollback on a late database error. Native opening animation and reward display remain pending acceptance.
+
 ## 2026-10-14 — Cover Grandine room transitions with passive drops
 
 - Add matching-PVF coverage for both ordinary Grandine routes, including the fifth-room exit. Before the passive-drop allocator fix, actors and drops shared identifiers and a later room was rejected for reusing an earlier drop key.
@@ -937,16 +960,19 @@
 - Accept repeated identical passive-item group definitions across maze declarations without multiplying rewards. Continue rejecting malformed or conflicting definitions.
 - Reserve planned actor identifiers before allocating passive drops, and retain the highest allocator position when committing a room transition. Preserve shared party allocation and prepared drops across transport retries.
 - Regression coverage includes conflicting definitions, solo/shared identifier allocation and matching-PVF traversal of both ordinary Gust Zone boss routes. Verify the existing start-map payload, distinct actor/drop identifiers, failed-write retry and exactly-once pickup. Native in-game traversal remains pending acceptance.
+
 ## 2026-10-14 — Avoid repeated friend online notifications after room loading
 
 - Keep the last successfully delivered adventure-friend projection for each selected character generation. Unchanged room-loading and presence refreshes no longer resend the native online-notification packet; changed rows and pending invitations still refresh normally.
 - New selections and connections bootstrap their lists again. Commit the projection only after successful information writes, before sending pending invitations, so a pending-list retry does not replay an online notification.
 - Regression coverage includes repeated finish-loading, offline/online changes, notes, character switching, reconnects, renamed/deleted rows and transport failures. Current-client disassembly confirms the repeated-notification branch; native UI acceptance remains pending.
+
 ## 2026-10-14 — Give adventure-shop purchases their PVF use periods
 
 - Resolve a product's relative PVF use period at purchase time before granting it. Adventure-shop potions now receive a durable expiration date instead of a zero deadline; use the same purchase clock for the grant and account settlement.
 - Preserve permanent items, reject unrepresentable deadlines before charging, and retain the existing account/inventory transaction. Existing instances are not assigned invented purchase dates or renewed by later purchases.
 - Regression coverage includes the matching-PVF seven-day potion, inventory refresh fields, relogin projection, separate purchase deadlines, insufficient points, full inventory, foreign ownership and late transaction rollback. Native tooltip and use acceptance remain pending.
+
 ## 2026-10-14 — Serialize dungeon lucky-star awards with account wallet changes
 
 - Settle each lucky-star award inside the existing rental account/character transaction instead of an unprotected account read/overwrite. Concurrent awards and wallet operations now share the account-row lock.
@@ -958,6 +984,7 @@
 - Remember when a completed run's lucky-star award has been resolved. Exact settlement retries no longer grant additional stars or resend gain notices, including after a best-effort notification write fails.
 - Resolve capped awards as well, so spending later cannot make an old clear grantable again. Repository failures remain retryable and a fresh dungeon run retains its own award.
 - Regression tests reproduce repeated grants before the change and cover duplicate requests, account-save failure, notice failure, caps and unsuitable levels. This does not change lucky-star purchase protocols or establish native UI acceptance.
+
 ## 2026-10-14 — Restore equipment-based catalyst crafting
 
 - Accept complete PVF equipment recipe predicates instead of rejecting every recipe without an explicit item-ID list. Check type, part, rarity, level range, one-item instances and sealing capability; incomplete recipes remain rejected. Sealed and previously unsealed resealable weapons follow the same PVF eligibility rule.
@@ -969,6 +996,7 @@
 - Scale each recipe's mandatory ingredient by the completed crafting-unit count, including carried contribution. Batch crafting can no longer produce many catalysts for one unit's fixed material cost; output multipliers remain independent.
 - Preserve the account/character asset transaction and committed balance refresh. Refuse insufficient stock and arithmetic overflow without consuming contribution materials, changing carry or granting products.
 - Regression coverage includes the matching-PVF dimensional catalyst, single/batch account and bag costs, carry, output multipliers and rollback. Native crafting animation acceptance remains separate.
+
 ## 2026-10-14 — 按 PVF 阵营识别怪物型友方 NPC 的击杀贡献
 
 - 友方协战贡献同时覆盖 AI 角色和原生怪物两种对象类型；怪物型贡献者必须是已宣告存活、绑定匹配地图行且被 PVF [monster team] 显式设为玩家阵营的对象。跨房跟随沿用本次副本来源房间的身份与阵营证据，不以 NPC、地图或技能 ID 放行。
@@ -1361,6 +1389,7 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Add an opt-in GitHub Actions synchronizer for one master branch, using only fast-forward pushes and an independently scoped GitGud Deploy Key. Stop on divergent history or imported changes to CI definitions.
 - Add a read-only verification workflow for Go checks, Linux/Windows builds and synchronization tests, including checks after token-driven synchronization.
 - Validate seven integration cases with temporary bare repositories: equality, dry run, both directions, divergence, CI-change rejection and missing branches. Remote workflow results are recorded separately after publication.
+
 ## 2026-10-12 — Player report classification and gunner GM labels
 
 - Classify72 source reports, close the five yellow acceptance records, preserve previous accepted groups and assign every remaining source record to an isolated lane. Record actual429 dispatch failures and the user-requested four-agent cap; resumed dispatch is not evidence of normal worker progress.
@@ -1386,7 +1415,6 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Preserve an already-owned first-phase expired-completed return receipt after the same Anton instance advances to the real second phase; retain exact run/account/channel/participant guards and town-only permission.
 - Reproduce both op42/op72 failures before the patch with the real PVF phase VM, then cover phase advance, foreign instance rejection and unchanged retry/reward gates. Keep native phase-return root cause and GUI acceptance open.
 - Complete final27 domain/bridge/control, scoped real-PVF, go list, scoped vet and Windows/Linux builds; preserve historical broader PVF failures and asset skip. Production stays r98 and QA09 retained.
-
 
 ## 2026-10-12 — Anton volcano native barrier state and adventure friend presence
 
@@ -1432,7 +1460,6 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Preserve historical source manifest; add current-source manifest and D33 validation/acceptance boundaries.
 - Validate domain/bridge/control, real-PVF cases, vet and Windows/Linux builds; retain prior failure evidence.
 
-
 ## 2026-10-11 — Luke D33 candidate review (Luke source/test only)
 
 - Review the Luke light/dark route owner, ordinary Mechanical Throne prerequisites, dual-boss clear gate and raid material filter against the real runtime Script.pvf.
@@ -1462,6 +1489,7 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Close original groups5/12 on direct user confirmation; preserve groups1/2/3 and additional3. Keep original4/9 untested and original11 unreproduced.
 - Prioritize Anton phase-two black-volcano barrier remaining at0%; separately track phase-one settlement return, squad board occupancy, adventure friend character selection and temporary-town/abyss admission.
 - Preserve r98 deployment and UI pause until2026-10-12 01:30 HK; source tests do not prove native physical barrier removal.
+
 ## 2026-10-15 — User-native acceptance and server-only conflict reconciliation
 
 - Record user acceptance of DOC045, DOC096, DOC100, DOC106, DOC118, DOC120, DOC127 and the GM experience behavior DOC135. DOC045 already exists in master. Reconcile MR21/25/27/30/34 for the accepted game changes only; preserve the independent GM repository boundary.
@@ -1473,7 +1501,6 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - User confirmed personal and account cargo, the last slot and the full-cargo notice all pass native acceptance; the earlier last-slot report was withdrawn after retesting.
 - Resolve the inventory Owner conflict by retaining both cargo settings and monster-card settings. Align the mixed-grade card move regression with MR41's incompatible-stack rejection and verify both stacks remain unchanged before moving to an empty slot.
 - MR42 was already accepted and merged. This integration does not include unrelated unaccepted candidates, embedded GM code, runtime configuration or player data. Validation and exact merged-tree evidence are recorded separately.
-
 
 ## 2026-10-15 - User acceptance of MR23
 
@@ -1495,6 +1522,7 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Serialize item-lock mutations through the existing character-item transaction. Login snapshots derive remaining time from the deadline; inventory, collectbox, limited-cube, NPC sale and dungeon discard protections share expiry semantics. No player records are migrated or manually edited.
 - Keep success-prefixed 267/268/269 responses. Pending requests do not send the class0 removal notice early. Expired pending locks cease blocking operations and disappear from login snapshots; native online countdown expiry remains to be accepted.
 - The old implementation fails the pending-state regression; targeted tests cover retries, cancel/restart, exact expiry, malformed deadlines, write failure and concurrent slots. Full validation is recorded separately; this candidate is not deployed or user-accepted.
+
 ## 2026-10-15 - DOC-067 / new doc 105 blue sort-lock instant icon refresh
 
 - Root cause is client-side and was re-verified offline from the shipped EXE: the inbound admission bitmap (`.rebuild` predicate 0x6E83610, bitmap VA 0x6E92300, one bit per opcode, no class dimension) has bit 0 for 713/714, and the receive entry 0x25239A0 evaluates it before the class switch; the false branch (0x2523F47) returns without dispatching. The class1/713 and class1/714 ACKs were therefore dropped before the client handlers 0x1FAEE80/0x1FAEEE0, so item+0x2aa stayed 0 and the blue lock icon only appeared after re-selecting the character (login op13 row byte 0x60). The same table also gates class0 notifications: 0x00FB (251, lock-list delta) is admitted, 0x00FC (252, unlock notice) is not; this report does not widen the client allowlist.
@@ -1502,16 +1530,17 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Validation: old-red/new-green after reverting only handler.go + sort_lock.go to HEAD (inventory 4 and dnfbridge 2 cases fail, then all pass; the two files were restored byte-identically, SHA256 545A8840.../9834395A...). gofmt on the changed files, go list, ./internal/modules/dnf/..., ./internal/services/dnfbridge, ./cmd/server/control, go vet and a server build all pass. Independent client-candidate check (E:/90/repair-round3-20261015/client-candidate/DNF.exe, sha256 6e61c361...): exactly two bitmap bytes differ from 1ac12645... (438 and 713/714); the real gate under unicorn over all 65536 opcodes changes only those three.
 - Not closed: native GUI acceptance of the instant icon; 252 NOTI remains gated by the client bitmap. No deployment, no PVF change, no player-data change, nothing pushed to a remote.
 
-
 ## 2026-10-15 - Expired unlock notification compatibility
 
 - v101 drops op252, while admitted class0/op251 applies each listed state through the same setter (0x1d46e70). Append a state-zero op251 delta after an expired unlock ACK and legacy op252 notice, preserving object identity and existing clients. The regression fails before this change.
 - Correct the op251 comment: it updates listed objects rather than replacing a separate cache. Native expiry UI remains pending acceptance.
+
 ## 2026-10-15 — DOC098 附魔门店材料事务
 
 - 按 test15 原生反馈与真实 PVF 配方的 `[input item]`，在门店附魔事务中复用既有材料消费器，消费请求方背包及账号共享固定槽材料；不足或锁定时连同卡片、手续费、经验和耐久回滚。A21 门店本身也未消费材料，不能作为本修复的权威依据。
 - 请求无材料槽位，支付方采用与卡片同侧的请求方；这一归属仍是基于现有协议形状的判断。保留现有失败码映射和成功 ACK，宝珠生成分支不变。
 - 仓库仅在槽内容确实变化时写回，空 map 与 nil 视为相同。新增自服务/访客内存事务和真实 PVF 回归；红绿原始输出与检查结果见独立 evidence/lane-a 目录，客户端结果窗口不属于本项验收。
+
 ## 2026-10-15 - Forging result reception root cause
 
 - Trace the actual v101 COMMAND438 allowlist rejection against a captured successful server result and current x86 UI callback. Preserve the server packet and transaction; prepare a separate minimal client candidate.
@@ -1523,6 +1552,7 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - Add an explicitly disabled-by-default `DNFBRIDGE_NATIVE_UPGRADE_COST=candidate` path. Require a ready, bound character town scene containing the conversion NPC; stale character generations, missing scenes and foreign NPCs reject without silently charging gold. This proves area membership, not interaction distance; exact-multiple client preflight versus displayed conversion rounding remains unresolved, so this is not deployment-ready.
 - Reject currency/shared/target/material/ticket aliases and exclude the reserved conversion slot from protection-ticket scanning. Portable upgrade consumables keep their existing no-gold/material substitution. Project only committed conversion rows and gold balances; quote failures return the existing invalid-material ACK and preserve the diagnostic cause.
 - Add authoritative-payment, shared-material late-failure rollback, wallet projection, real-PVF cost and NPC scene regressions. Independent review and targeted validation are in the external round4 evidence; full integrated validation is recorded separately. No deployment, production data edits, PVF changes or native acceptance are claimed.
+
 ## 2026-10-15 - 文档段104：组队未解锁的整队拒绝应答
 
 - 现场口径（用户文档第104段原文）：组队时队伍里某个队员没有解锁所选地图，返回城镇的选项直接消失、只能等倒计时退出。服务端那一半的缺陷是"整队进图在提交之前被拒绝时不回包"：队长按进图时 `prepareRuntimePartyDungeonEntry` 逐个成员做同一套前置校验，队员那条返回 `ErrEntryLevelTooLow` 后只写一条 `game-party-dungeon-entry-blocked` 就静默 `return nil`；队员自己按进图时更糟——它那条 op16 已经被回成功 ACK、并异步路由给队长执行，随后同样没有任何回包。两个客户端都停在"等进图"的等待窗口里，队员那边就是"返回城镇选项消失、只能等倒计时"。
@@ -1560,23 +1590,23 @@ The exact combined56 source passes go list, 8560 core tests with774 environment 
 - 本次提交的文件哈希（SHA256）：`party_entry_refusal_before_commit.go` `A8BA057FE6EFDA0388A10FB5540BAD6C9821E1A7C8A644C600BDE00FB62C5CA2`、`dungeon_navigation_runtime.go` `E6A674079B6258A7909C409586A29CE35F4138D582CBD7392274E7FA909D2933`、`game.go` `FC71C8DC19568C0C44C015D8FBF9B7B48E326A9416BA1FECA20355A84E05A317`、`doc104_party_entry_refusal_test.go` `6FD1F2860BC54A1BD9569286473C9F72A921685CCF6EBF5FCDF9A5C1A69E3F8B`、`party_dungeon_entry_barrier.go` `CCF127EBD9B29B21E1896A51CC149B55416FB92AE57EB517973F69D7CA161C9F`。（本文件里 `2026-10-15 - 文档段104复审：路由请求令牌 + 安全身份快照` 一节记录的 `B473B04F…`/`C857B317…`/`37587D21…` 是那一版（提交 `86a03bb`）的历史哈希，不是最终版；上一节 `5f…`/`56C360C4…`/`1D9FF4E1…` 同理是更早版本的历史哈希。）
 - 已验证：`gofmt -l`（改动文件无输出）、`go list -buildvcs=false ./...`、`go test ./internal/modules/dnf/...`、`go test ./internal/services/dnfbridge`（整包 PASS 21.096s）、`go test ./cmd/server/control`、`go vet`（5 包）、Windows 与 Linux `go build ./cmd/server/dnf90` 全部 exit 0。
 
-
 ## 2026-10-15 - Candidate quote support boundary
 
 - Reject level-linear equipment, cost discounts, custom upgrade modes and exclusive upgrade materials before deriving an ordinary reinforcement quote. These metadata paths are not implemented by the candidate; presence alone does not prove the previous numeric quote was incorrect. An error aborts the existing owner transaction instead of silently falling back to the old price.
 - Isolated red/green coverage includes empty sections, normalized names, nested grade metadata and real PVF items 10194/104000339; ordinary target 28309 keeps its verified four prices. Full integrated validation is recorded against the subsequent frozen commit. The candidate remains disabled by default and is not deployed.
-
 
 ## 2026-10-15 - Routed party request expiry before handler start
 
 - A leader task that expired or was rejected in the event queue never installed the handler's deferred refusal, leaving the follower with ACK only and a pending token. Atomically claim either handler start or cancellation before start; only the latter sends a token-bound refusal using a fresh bounded deadline. A running handler retains ownership and may commit after the dispatch wait expires.
 - Capture log identities using the existing locked session snapshot; do not read leader identity from another session loop. Clarify that an answer returning false at its deadline may still finish an already-started write, so false is not permission to retry.
 - Old-red/new-green tests cover real queue expiry, leader stopped before/after enqueue, and an already-started handler that passes the deadline then commits both runtimes without a refusal. Existing checks cover delayed writes, duplicate tokens and successful-handler cleanup. Independent review confirms claim mutual exclusion and lock ordering. Follower queue/socket failures remain delivery failures, not guaranteed recovery; native button behavior is still unaccepted. Integrated checks are recorded against the frozen commit.
+
 ## 2026-10-15 — Close a routed party peer after its refusal send fails
 
 - A routed member's refusal runs in that member's event callback. A send error was reduced to a log/false after consuming the request token, so it did not reach the member's socket read loop and its normal disconnect cleanup. Close only that peer connection inside the actual send-error branch, preserving the original error and the healthy leader's refusal. Do not retry a potentially partial frame or close on the caller's queue deadline/cancellation alone.
 - Six regression roots cover zero/partial writes, the leader's independent reply, healthy refusal, stale sequence/character, queued cancellation and started writes completing after the caller deadline. The same tests fail on cf3943f only at the four expected missing-close leaves and pass on the candidate. All DOC104 tests plus three isolated real-PVF backend replays pass together: 44 passing nodes, zero skips/failures. The send chain can also fail before a socket write; this follows the existing synchronous disconnect policy and is not a claim that every such TCP connection is itself broken.
 - Background fixtures only; no native button acceptance, deployment, push or merge. Existing v2 validation/package still describes cf3943f; new integrated validation follows separately.
+
 ## 2026-10-16 — 圣物转换271的Lv85与Lv90候选
 
 - 新问题62段：当前服务端没有271处理入口。新增严格19字节请求、按背包内实际转换书与目标装备ID/槽位取PVF的emancipate嵌套段；本批只支持ticket17与20。转换书need material是购买价，转换消耗只取源装备input；不扣购买用红玉髓。传承ticket18的保留上限、其它票种和勇者升级仍开放。
