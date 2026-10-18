@@ -3,6 +3,132 @@
 - 名称检查op692与创建op5分别使用当前EXE对应的重名错误码；改名失败仅在名字已被占用时提示重名，其它失败保留原错误，失败后不消耗改名资格。
 - 补回归覆盖同账号、其它账号及改名名字保留三种来源，并核对重名拒绝不改变角色记录或名字保留项；仅修改提示码与测试，不改变名字校验、旧名保留、卡片消耗和事务规则。
 
+## 2026-10-18 — GitGud 上游唯一权威与单向源码镜像
+
+- 独立功能、修复、测试、文档和 CI 分支统一通过上游 MR 集成，冲突由同步 Agent 处理并验证；GitHub 只接收上游确切提交，不再建立同步合并提交或向 GitGud 反写。
+- 移除旧 GitHub 上游 PR/自动合并流程；Repository sync 使用仅属于 GitHub 镜像的 Deploy Key，保留引用移动检查、非强推和最终 SHA 读回。CI 文件在上游 MR 审查后同步，不执行抓取代码。
+- 补充单向快进、领先/分叉拒绝、并发引用变化和 CI 同步回归；更新 Agent 入口及迁移流程。源码镜像不构建、发布资源或部署游戏。
+
+## 2026-10-18 — Client Release 静态 Python 源码附件兼容
+
+- 客户端 Release ZIP 可附根级 scripts/ 内的 Python 源码，仅读取并校验归档，不解压或执行；其余路径与文件类型规则保持。
+- 补充归档正反例、路径/重复/链接/大小/数量/EXE/CRC及下载摘要回归，修复带源码证据的新客户端包被镜像拒绝的问题。镜像本身不改变玩家通道或部署服务端。
+
+
+## 2026-10-18 — 天界任务对象与清房回归
+
+- 真实PVF定位南门机关师、防御战巴比伦及追击歼灭战尼贝尔；目标房覆盖空贡献、友军对象键和友军贡献三种死亡报告，确认op38、清房、南门过门与任务状态。
+- 领域、bridge、control完整测试、list、vet与构建通过，真档专项10个通过事件无跳过。本项仅新增验证；骑乘生命周期与白色对象原生画面继续调查，不计新增玩法修复。
+
+## 2026-10-18 — 主线场景及已有修复复核
+
+- 真实PVF核对八段主线场景，新增伦道夫剧情状态回包、进图/退出/重连难度保持，以及居民任务接取/父子列表与重复请求验证。
+- 觉醒疑惑之村两种电梯图按真实机关与死亡handler完成后，连续八房到Boss；记录已有修复及原生任务交付待验范围，没有新增生产行为。
+- 客户端提前结局由独立自动回顾候选处理；菜单画面未复现，完整对话/觉醒交付继续由用户实测。
+
+## 2026-10-18 — 黑龙大会122 APC入口与四轮推进
+
+- 122 的锦标赛 type 5..8 对手现在投影为真实 hostile AICharacter，保留真实 code、level、坐标和 normal/champion/super-champion/boss 类型；仅 tournament 投影携带 blocking，extended actors 挂载后才绑定 firstSequence。普通 type 0/3 仍走 MonsterSpawn，普通地图 APC 的 blocking 与地图缓存不变。
+- 既有 op39 权威死亡 handler 现在接受当前轮 extended APC 死亡并推进锦标赛轮次，前三轮保持房间阻挡，第四轮进入既有冠军、奖励冻结和 clear 提交链。未来轮在提交前拒绝；非法对象和重复请求不重复推进或结算。op144 仍为只读观察。
+- 固定真实 PVF 下五图 op16 矩阵、正确协议档的122四轮APC handler、未来轮/非法对象/重复请求、对象键与赛程顺序、投影clone隔离通过；完整领域/bridge/control、list/vet/Windows构建通过，真档专项171通过事件、无跳过。五图32项原生reader与奖励状态有限验证通过。未改环境配置、PVF、EXE或玩家数据，未部署；原生画面、战败、翻牌/超时、回城和任务状态仍待实机验收。
+
+## 2026-10-18 — 友军死亡通知重放与跟随怪跨房归属
+
+- 使用实际友军对象编号的重复死亡及通知写失败重试接入权威op38重放，保持原经验、掉落与任务事务；新增真实MAP同索引team0/follow跟随怪跨房owner证明。
+- 跟随字段按位置解析并独立复制，未知值不挪动后续索引；普通当前房owner和既有sentinel贡献规则保持。真实3188/3190/3197任务、跨房跟随、拒绝边界与资产/任务不重复专项通过，画面与正常返城留待实测。
+
+## 2026-10-18 — QST-009 自动回顾真实任务门槛候选
+
+- 固定V126+475输入，只将124自动调用转到保留原生段选择的副本；本次会播scene2/ending902要求3190完成，scene3/ending903要求3215完成，未满足时整次延期，不伪造观看或任务状态。
+- 356真实快照绑定当前角色；选角/返回选角成功及原生集合清理时失效，覆盖缺表、空表替换和同地址复用。新增独立RX/RW节并保持原作者新节、475、原自动函数和有效PE checksum。
+- 有限原生48项、生成器5项、服务端57项定点验证及475/交易原生回归通过；视频UI、完整选角/356解压、数据库和实机验收不在自动验证范围。候选未发布部署，见`Docs/seeker/QST-009-story-digest-gate.md`。
+
+## 2026-10-18 — 剧情 APC 销毁报告兼容
+
+- 对活动任务实际ONSTART→CMT中show0的敌对APC销毁，按精确对象与脚本来源接入已有权威死亡/op38和重放；保持战斗归属、友军和资产规则。
+- 匹配客户端原生写包/接收片段与真实PVF任务回归覆盖原因7、重复及发送失败恢复；脚本参数、来源和运行身份负例通过。原生行为本身不等op38，画面过门与后续任务留待实测。
+
+## 2026-10-18 — QST-002 中途清房推进与父子任务状态一致
+
+
+
+
+## 2026-10-18 — 主线券真实资源回归区分隐藏父链
+
+- 修正两项主线券测试对全局过滤数的旧假设：隐藏父任务12074的四个子项应继续被客户端列表保护排除，不属于券扫除范围。显式核对父子身份、父项拒绝、子项自身可接、券未写入隐藏链及旧主线遗漏精确减少两项。
+- 相同失败已在修复前源码与同一真实PVF复现，修订后两项专项通过；不修改运行规则、玩家记录或发奖。
+
+
+## 2026-10-18 — GitGud 上游唯一权威与单向源码镜像
+
+- 独立功能、修复、测试、文档和 CI 分支统一通过上游 MR 集成，冲突由同步 Agent 处理并验证；GitHub 只接收上游确切提交，不再建立同步合并提交或向 GitGud 反写。
+- 移除旧 GitHub 上游 PR/自动合并流程；Repository sync 使用仅属于 GitHub 镜像的 Deploy Key，保留引用移动检查、非强推和最终 SHA 读回。CI 文件在上游 MR 审查后同步，不执行抓取代码。
+- 补充单向快进、领先/分叉拒绝、并发引用变化和 CI 同步回归；更新 Agent 入口及迁移流程。源码镜像不构建、发布资源或部署游戏。
+
+## 2026-10-18 — Client Release 静态 Python 源码附件兼容
+
+- 客户端 Release ZIP 可附根级 scripts/ 内的 Python 源码，仅读取并校验归档，不解压或执行；其余路径与文件类型规则保持。
+- 补充归档正反例、路径/重复/链接/大小/数量/EXE/CRC及下载摘要回归，修复带源码证据的新客户端包被镜像拒绝的问题。镜像本身不改变玩家通道或部署服务端。
+
+## 2026-10-18 — QST-006 材料子任务进入权威结算
+
+- 无奖励但有交付材料的子任务不再仅写任务状态归档；直接子提交和父末子提交沿既有结算事务检查、扣除材料并保存幂等回执。
+- seek n meet npc读取全部材料对，保留末尾NPC语义。补真实梅娅女王和危险研究材料链、缺料、回滚、重复/重连回归；纯对话快捷路径保持。
+- 公开方案见[QST-006](Docs/seeker/QST-006-queen-linked-objectives.md)。自动验证与原生任务验收分开记录。
+
+
+
+## 2026-10-18 — 影像通信客户端候选接入最新累计基底
+
+- 475接收门补丁改以V126精确摘要为输入，保留V125职业接收位与V126交易双锁显示补丁，重算并独立核验PE checksum；未知基底仍拒绝。
+- 完整opcode差分、通信原生有限矩阵、交易状态/遮罩回归及剧情APC关键窗口保持通过；服务端实现不变，最终客户端发布后再上线依赖服务端。
+
+## 2026-10-18 — QST-005 远程通信收费候选
+
+- 新增PVF通信目录与源NPC场景校验，接通legacy/upper空体COMMAND475；在角色资产事务内检查活动任务、扣费并保存固定大小回执，不代办任务完成。
+- 使用独立30秒会话/角色/场景/资格许可处理并发、回滚与发包失败重试；换角、重连、场景或任务变化结束原许可，余额变化用既有钱包通知恢复。
+- 真实PVF验证3734的475→33→34链、3741资格与拒绝边界；补充事务、重放、SQL锁/路由测试。新增固定V124输入的475接收门生成器，最终单字节候选经65536编号及原生读写矩阵验证；先发布客户端再部署服务端，原生画面待验收。见 `Docs/seeker/QST-005-image-communication.md`。
+
+
+## 2026-10-18 — 根特北门随机载具入口候选
+
+- 主线完成或使用完成券后，北门普通迷宫的真实随机对象组含regenerate99，原预检仅支持0而拒绝入场。按完整单选单候选、中立、真实MOB明确ridable的形状增加首次生成准入；保留原值和来源摘要，其他非零策略继续拒绝，不硬编码副本或对象ID。
+- 沿用当前START_MAP五整数及缓存重访协议；组队冻结选择保持，不把再生值写成spawn mode。载具操作和销毁后再生是独立后续单元。本项不修改PVF、客户端或玩家任务状态。
+- 真实PVF入口/发包、载具房间往返和负对照及仓库完整检查结果见 `Docs/seeker/QST-004-northgate-randomized-objects.md`。候选未部署，原生操作与完整再生待用户清单验收。
+
+## 2026-10-18 — QST-003 材料会面任务的布尔进度
+
+- seek n meet材料通道由物品数量改为单个整体条件，NPC取末字段；匹配客户端20组原生离线矩阵确认全材料谓词与回调次数，消除200数量产生200次递减的错误初值。
+- 旧活动记录仅在PVF来源和合法形状匹配时规整超量材料通道，保留NPC进度与完成记录；快照前持久化，失败维持原状态，重复读取幂等。
+- 初值红绿、旧记录边界、真实PVF接取/回调/重登/保存失败及城镇对照通过；完整领域、bridge、control、list/vet/Windows构建通过。四材料结算另项推进，正常流程卡图由用户继续实测。
+
+
+## 2026-10-18 — QST-002 中途清房推进与父子任务状态一致
+
+- 当前迷宫绑定的无奖励clear-map子项，在匹配的中途房间权威清空后同事务归档并重算父进度；稳定回执覆盖死亡重放、通知失败、队员独立资格及离房重试，不触发最终副本奖励。
+- quest-clear 父任务 op33 不再因没有新归档的城镇子项而回退普通减一；领域层按已提交子项重算剩余数，未完成 clear-map 子项存在时父进度保持 1，历史父 0／子 1 会恢复到 1，且不补造子项完成。
+- 保留合法对话子项归档；全部子项达成active/0时父任务可交，物品仍由op34统一事务结算。相同父进度的重复回调保持静默，子项随后变化继续推进。保留普通任务原op33路径。任务目录不可用仅在持久化记录存在父任务类型或 `main_quest_id` 关系证据时失败关闭，普通记录继续原路径。
+- 真实 PVF 探针中 `parent-callback-must-not-finish-unresolved-child` 与 `target-credit-finishes-parent` 均通过，领域、bridge、control完整测试及list/vet/构建通过；末子奖励兼容、回调反馈循环与保存后回滚覆盖。真实PVF六怪死亡handler、父回调与结算三组通过；中途清房边界、队员资格及通知失败重试覆盖。
+
+
+
+
+
+
+
+## 2026-10-18 — 父任务收尾结算末子任务物品
+
+- 父任务零进度末子任务收尾时，复用现有 PVF 交任务材料扣除、金币和物品分配逻辑，在同一角色结算事务中提交父子任务状态、库存、返回结果及父任务持久回执；重复父任务请求只返回原回执。
+- 子任务资产变化按任务号和独立 completion key 归属，普通无奖励末子任务仍可直接完成；已独立完成的子任务不重复发奖，物品不足、分配失败和保存失败继续由既有事务整体回滚。复杂职业或显式选奖子任务不在隐式父收尾中猜测选择。
+- 专项覆盖真实 PVF Definition驱动的三扣四奖、净增一个与重放、同格奖励完整回包、跨父拒绝、物品不足、分配失败及最后提交失败回滚；完整领域／bridge／control、list／vet和Windows构建通过。数据库条件用例未配置独立库而跳过，正常流程游戏内验收待完成；无需EXE或PVF变化。
+
+## 2026-10-18 — 合并上游更新并保留独立 GM 与同步边界
+
+- 合入上游已合并的服务端更新，保留双方变更记录、客户端发布约束、私有管理 API 与注册福利事务；管理会员目录继续由游戏服务使用，不重新引入 GM 工具实现。
+- 控制器接受旧配置字段用于读取，但仍要求显式迁移独立 GM；拒绝时不改写配置，不把 GM 环境传入游戏进程。合并相关回归覆盖旧配置读取和迁移后的投影。
+- 审查上游 CI 只增加服务端边界检查，保留本方仅同步模式、手动 Verify 和独立 EXE Release 同步流程；源码合并不部署游戏或更改玩家资源。
+- 验证合并结果的领域／bridge／control／doctor、list／vet、Windows/Linux 构建、同步及 Docker 回归与双方服务端边界检查；真实数据库、PVF 和原生玩法验收不属于本次仓库合并。
+
 ## 2026-10-17 — 魂大会对手缺失排查与真实资源回归
 
 - 追加123/124名称、DGN/MAP、全候选池与出生点、386四轮路径和387大于u16地图编号的真实PVF回归；不按交叉文件名猜测副本身份。全资源枚举覆盖五种大会，124两只特殊怪物与动作文件存在。
@@ -608,6 +734,45 @@
 - 整理本地注册反馈、频道下载编码、GM 本地账号映射、翻牌后主线刷新/完成后接续、回城旧场景状态抑制、任务手册快照顺序与旧协议正常放弃。
 - 纳入幸运星结算/GM 钱包读写/购买余额刷新、金币罐原子发奖与结算拾取槽位修复，并保留最新上游 NPC 商店期限合并和购买数量更新。
 - 改动附领域/桥接/控制器/GM 回归及配套 PVF 专项，独立源码执行约定检查与 Windows 构建；客户端依赖、用户已验收项目及未完成边界见 `Docs/LOCAL_FIXES_20261013.md`。不包含升级券、GM 职业候选或客户端/PVF 二进制，不改运行环境或数据库。
+
+## 2026-10-16 — 同步客户端 Release 并约束 EXE 依赖上线
+
+- 独立同步客户端 Release：在上游 GitGud Release 与本方 GitHub Release 之间双向复制精确标签与 EXE ZIP，GitGud fork 仅参与源码贡献；保留来源、预览状态、EXE/附件完整摘要，同名冲突停止且不覆盖历史。
+- 增加默认只读计划、写前来源复核、目标实际下载读回及周期工作流；凭据按目标隔离，附件不执行、不构建服务端，源码分支与运行服务保持各自发布流程。 GitHub 新标签仅经可信 CI 的短期令牌创建，GitGud 标签推送跳过流水线，避免标签内历史构建被触发。
+- 明确服务端依赖 EXE 时须先 Release/镜像发布、再核验玩家实际更新源与配套 profile、最后部署服务端；未更新通道或摘要不一致阻止上线。
+
+## 2026-10-14 — 将 GM 源码迁往独立仓库
+
+- GM 页面、进程入口、扫描与批量福利任务及构建配置迁往 `Cec1c/DNF90GM`，该仓库可自行构建、测试和部署。
+- 游戏只保留私有管理协议与自身邮件/资产事务；注册和角色初始化提取为 `signupbenefits`，原表名、注册额度快照和入账回执保持兼容，不删除 GM 数据。
+- 服务端部署生成器不再创建 GM 服务；旧启用 GM 的 profile 在写入前拒绝并提示迁移，私有游戏管理密钥可以独立配置。
+- 增加仓库与可执行文件依赖边界检查，验证独立 GM、持久去重、初始化事务和服务端构建。代码迁移不重启线上服务。
+
+## 2026-10-14 — 独立部署 GM 与持久去重物品邮件
+
+- 将 Web GM 从游戏生命周期中拆出为独立进程/镜像，自行连接 MariaDB、读取校验后的 PVF、运行福利扫描；游戏只保留鉴权的私有运行时管理接口。
+- 按物品 ID 建立默认停用的邮件福利规则，预览/补发已有角色并可自动覆盖后续新角色。邮件与规则/角色创建身份回执在同一事务提交，跨进程并发、删除邮件及重启后不重复投递。账号初始点券与角色初始金币仍属于创建事务，零配置保持既有行为。
+- 独立 GM 读取在线状态失败时拒绝受保护的写操作；晶块行编码失败完整回滚。Docker 单独生成受保护配置并支持只更新 GM，首次迁移需协调游戏管理接口与端口移交。
+- 验证覆盖完整领域/桥接/control、GM/API、隔离 MariaDB 并发/晚失败回滚、真实 Linux GM 与无界面浏览器。发布环境/原生游戏验收单独记录；不附带私有玩家接入、资产、凭据或运行配置。
+
+## 2026-10-14 — 建立公开客户端函数与协议索引
+
+- 按完整模块 SHA256、架构和 RVA 建立版本化索引，首批覆盖死亡报文、金币携带上限、好友提示、报文写入封装及 DLL 导出导航；区分函数入口、内部片段和仅有导出信息的条目。
+- 附代码窗口摘要、离线核对方法、固定公共提交及回归入口，明确语义和验收边界。客户端文件、原始反编译、私人日志和环境资料保持本地忽略。
+- AGENTS.md 增加索引入口和维护规则。本次只补文档与索引数据，不改变协议、运行配置或部署。
+
+## 2026-10-13 — Allow automatic code synchronization without builds
+
+- Add an explicit upstream sync-only mode that skips source tests, database jobs and binary/image builds. Keep exact-commit, conflict, CI-review and concurrent-update guards, and identify untested synchronization in the PR and result.
+- Make the standalone verification workflow manual-only. Document disabling CI/CD on runnerless GitGud forks without changing the original project's CI or SSH synchronization. These workflows do not publish releases or deploy a server.
+- Real-Git regression coverage includes sync-only promotion and retained conflict/CI-review guards, alongside the existing mirror and concurrency checks.
+
+## 2026-10-13 — Validate and integrate original upstream updates
+
+- Separate upstream intake from bidirectional fork mirroring. A scheduled/manual workflow opens an upstream PR, validates its exact merge commit with read-only jobs, rechecks base/head/merge identities, and promotes only that tested commit using a non-force push. Conflicts, failed tests, CI changes and moving branches leave the update unmerged. Successful promotion explicitly dispatches fork synchronization; it does not deploy a server.
+- Keep privileged prepare/promotion code on the trusted base; do not pass mirror or deployment secrets to incoming-code jobs. Document repository variables, PR permission, protected-branch constraints, conflict handling and the limits of source-only CI.
+- Real-Git integration tests cover no-op, exact-commit promotion, merge conflicts, CI review, moved refs, racing pushes and branch divergence. All 19 synchronization tests and workflow static validation passed locally.
+- Validate the upstream integration with retained local extensions: default Go suite 9,208 passing test nodes and 849 explicit skips, 12 focused actual-PVF tests, isolated account/benefit transaction checks, scoped vet, Windows build, Linux Docker build and 65 launcher checks passed. Windows local-profile preflight remains blocked by its missing bundled channel asset; this does not validate or invalidate the independent remote profile. Proprietary client/PVF resources are unchanged and native gameplay acceptance remains separate.
 
 ## 2026-10-13 — Count merged NPC purchases by this purchase's quantity
 

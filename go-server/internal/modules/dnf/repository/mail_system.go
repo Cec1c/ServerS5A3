@@ -21,6 +21,7 @@ type SystemMailDelivery struct {
 	Body                 string
 	Source               string
 	Attachments          []MailAttachment
+	Gold                 int64
 	CreatedAt            time.Time
 }
 
@@ -29,7 +30,7 @@ type SystemMailDelivery struct {
 // relevant asset owner; this helper owns no transaction itself.
 func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery SystemMailDelivery) (string, error) {
 	recipientID := strings.TrimSpace(delivery.RecipientCharacterID)
-	if repo == nil || recipientID == "" || strings.TrimSpace(delivery.Source) == "" || len(delivery.Attachments) == 0 {
+	if repo == nil || recipientID == "" || strings.TrimSpace(delivery.Source) == "" || (len(delivery.Attachments) == 0 && delivery.Gold == 0) || delivery.Gold < 0 || delivery.Gold > math.MaxInt32 {
 		return "", ErrSystemMailInvalid
 	}
 	attachments := cloneMailAttachments(delivery.Attachments)
@@ -65,6 +66,7 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 		Title:                strings.TrimSpace(delivery.Title),
 		Body:                 strings.TrimSpace(delivery.Body),
 		Attachments:          attachments,
+		Gold:                 delivery.Gold,
 		CreatedAt:            now,
 		// A system overflow delivery must remain claimable until the player
 		// makes room. A zero expiry is the repository's durable non-expiring

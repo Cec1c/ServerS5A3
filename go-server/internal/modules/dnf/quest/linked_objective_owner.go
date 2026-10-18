@@ -17,6 +17,7 @@ type LinkedObjectiveCommitResult struct {
 	ChangedFields     []dnfrepo.QuestField
 	PostCommitQuest   dnfrepo.QuestRecord
 	Applied           bool
+	Handled           bool
 }
 
 func (o *Owner) ApplyTownLinkedProgress(ctx context.Context, catalog *Catalog, characterID string, questID int64, completedAt time.Time) (LinkedObjectiveCommitResult, error) {
@@ -66,17 +67,20 @@ func (o *Owner) applyLinkedObjectiveProgress(
 		if err != nil {
 			return err
 		}
+		if plan.Handled {
+			result.ParentQuestID = plan.ParentQuestID
+			result.ParentProgress = plan.ParentProgress
+			result.CompletedQuestIDs = append([]int64(nil), plan.CompletedQuestIDs...)
+			result.ChangedFields = append([]dnfrepo.QuestField(nil), plan.ChangedFields...)
+			result.PostCommitQuest = dnfrepo.CloneQuest(plan.Record)
+			result.Handled = true
+		}
 		if len(plan.ChangedFields) == 0 {
 			return nil
 		}
 		if err := dnfrepo.SaveQuestFields(ctx, tx.Quest, plan.Record, plan.ChangedFields...); err != nil {
 			return err
 		}
-		result.ParentQuestID = plan.ParentQuestID
-		result.ParentProgress = plan.ParentProgress
-		result.CompletedQuestIDs = append([]int64(nil), plan.CompletedQuestIDs...)
-		result.ChangedFields = append([]dnfrepo.QuestField(nil), plan.ChangedFields...)
-		result.PostCommitQuest = dnfrepo.CloneQuest(plan.Record)
 		result.Applied = true
 		return nil
 	})
