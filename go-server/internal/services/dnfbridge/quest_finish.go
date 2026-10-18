@@ -213,18 +213,19 @@ func (s *Service) handleCurrentFinishQuestTimed(
 	timing.markTxStart()
 	// 与本次会话的玩法时钟一致：每日任务的完成日键按这个时间落库。
 	result, err := owner.ApplyFinishSettlement(ctx, catalog, dnfquest.FinishCommitInput{
-		AccountID:              accountID,
-		CharacterID:            characterID,
-		QuestID:                int64(request.QuestID),
-		RewardSelectIndex:      request.RewardSelectIndex,
-		HasRewardSelect:        request.HasRewardSelect,
-		Multiplier:             request.Multiplier,
-		CommittedAt:            s.gameplayNow().UTC(),
-		Progression:            tables,
-		ExperienceBonusPercent: experienceBonusPercent,
-		AllocateItem:           allocator,
-		ProfessionProfiles:     professionProfiles,
-		SkillCatalog:           skillCatalog,
+		AccountID:                     accountID,
+		CharacterID:                   characterID,
+		QuestID:                       int64(request.QuestID),
+		RewardSelectIndex:             request.RewardSelectIndex,
+		HasRewardSelect:               request.HasRewardSelect,
+		Multiplier:                    request.Multiplier,
+		MainQuestExperienceMultiplier: s.options.mainQuestExperienceMultiplier,
+		CommittedAt:                   s.gameplayNow().UTC(),
+		Progression:                   tables,
+		ExperienceBonusPercent:        experienceBonusPercent,
+		AllocateItem:                  allocator,
+		ProfessionProfiles:            professionProfiles,
+		SkillCatalog:                  skillCatalog,
 	})
 	timing.markTxDone()
 	if err != nil {
@@ -831,6 +832,8 @@ func currentFinishQuestBusinessFailure(err error) bool {
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementStale) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementCorrupt) ||
 		errors.Is(err, dnfquest.ErrFinishQuestMultiplierUnsupported) ||
+		errors.Is(err, dnfquest.ErrFinishMainQuestExperienceMultiplierInvalid) ||
+		errors.Is(err, dnfquest.ErrFinishMainQuestExperienceOverflow) ||
 		errors.Is(err, dnfquest.ErrFinishProgressionUnproven) ||
 		errors.Is(err, dnfquest.ErrFinishRequiredItemsMissing) ||
 		errors.Is(err, dnfquest.ErrQuestDefinitionMissing) ||
