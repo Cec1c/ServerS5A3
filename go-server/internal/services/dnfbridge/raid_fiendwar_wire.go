@@ -10,9 +10,8 @@ import (
 	"time"
 )
 
-// 此映射保留原分支的 1483..1491 契约。v143 (1ea94c7d...) 的 class0
-// 接收门禁会拒绝全部九包；不能据原参考 EXE 的短摘要宣称当前兼容。
-// 配套证据和待办见 Docs/FIENDWAR_STAGE_20261019.md。
+// v143 的 b90cc0 注册本组回调，真实分发通过既有分类适配器允许九包。
+// v144 将1483空回调接到模型重置和活动战况恢复；其余行宽保持原生契约。
 const (
 	currentFiendWarInit        uint16 = 1483
 	currentFiendWarStateNotice uint16 = 1484

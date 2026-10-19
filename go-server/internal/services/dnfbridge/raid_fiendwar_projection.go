@@ -6,7 +6,7 @@ import (
 )
 
 // 调用方持有当前会话 raidProjection.mu；发送失败后要求重连，禁止重放半帧。
-func (s *Service) sendCurrentFiendWarProjectionLocked(p *gameSession, state runtimeRaidState, announce bool) error {
+func (s *Service) sendCurrentFiendWarProjectionLocked(p *gameSession, state runtimeRaidState, announce, resubscribe bool) error {
 	b := state.Battle
 	if b == nil || b.FiendWar == nil || !s.currentRaidAuthenticated(p) || b.MemberAccounts[p.selectedCharacterID] != s.accountIDForSession(p) || b.ChannelID != p.channel.ID || b.ChannelType != p.channel.Type {
 		return fmt.Errorf("超时空战况投影归属不符")
@@ -21,7 +21,8 @@ func (s *Service) sendCurrentFiendWarProjectionLocked(p *gameSession, state runt
 	state = latest
 	b = state.Battle
 	id := currentRaidProjectionIdentity{InstanceID: b.InstanceID, Phase: 0, CharID: p.selectedCharacterID, Generation: p.characterGeneration}
-	fresh := !p.raidProjection.initialized || p.raidProjection.identity != id
+	first := !p.raidProjection.initialized || p.raidProjection.identity != id
+	fresh := first || resubscribe
 	if fresh {
 		p.fiendWarProjection = currentFiendWarProjection{}
 	}
@@ -30,10 +31,13 @@ func (s *Service) sendCurrentFiendWarProjectionLocked(p *gameSession, state runt
 	if err != nil {
 		return err
 	}
-	if fresh || announce {
+	if fresh && !b.TimedOut && !b.PhaseCompleted {
+		// v144's init consumer clears old nodes and restores active board mode.
+		// Restore the complete board before resuming deltas; replaying state2
+		// would replay the opening movie on a same-instance subscription.
 		initial := []currentFiendWarWire{{currentFiendWarInit, nil}}
-		if !b.TimedOut {
-			initial = append([]currentFiendWarWire{{587, []byte{2, 0}}, {currentFiendWarStateNotice, []byte{2, 0}}}, initial...)
+		if announce && first {
+			initial = append(initial, currentFiendWarWire{587, []byte{2, 0}}, currentFiendWarWire{currentFiendWarStateNotice, []byte{2, 0}})
 		}
 		packets = append(initial, packets...)
 	}

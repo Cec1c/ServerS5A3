@@ -411,7 +411,7 @@ func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtime
 	if b.FiendWar != nil {
 		session.raidProjection.mu.Lock()
 		defer session.raidProjection.mu.Unlock()
-		return s.sendCurrentFiendWarProjectionLocked(session, state, true)
+		return s.sendCurrentFiendWarProjectionLocked(session, state, true, false)
 	}
 	session.raidProjection.mu.Lock()
 	defer session.raidProjection.mu.Unlock()

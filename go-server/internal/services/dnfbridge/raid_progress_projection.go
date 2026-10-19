@@ -147,7 +147,7 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 	o := &session.raidProjection
 	b := state.Battle
 	if b != nil && b.FiendWar != nil {
-		return s.sendCurrentFiendWarProjectionLocked(session, state, false)
+		return s.sendCurrentFiendWarProjectionLocked(session, state, initial, resubscribe)
 	}
 	identity := currentRaidProjectionIdentity{InstanceID: b.InstanceID, Phase: b.Phase, CharID: session.selectedCharacterID, Generation: session.characterGeneration}
 	if b.ChannelID != session.channel.ID || b.ChannelType != session.channel.Type {
