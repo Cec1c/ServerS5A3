@@ -34,6 +34,13 @@ func TestRealPVFPrivateCharacterAllProfessions(t *testing.T) {
 	if err := s.preloadCharacterStatTable(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// 模拟Service.Start：静态资源在创建请求的3秒事务计时前完成预热。
+	if err := s.preloadSkillCatalog(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.preloadProfessionProfiles(ctx); err != nil {
+		t.Fatal(err)
+	}
 	text, err := archive.ReadText("etc/pvpparameter.etc")
 	if err != nil {
 		t.Fatal(err)

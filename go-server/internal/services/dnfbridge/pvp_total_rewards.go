@@ -14,7 +14,15 @@ import (
 )
 
 func (s *Service) grantCurrentPVPTotalTargets(ctx context.Context, repos repo.Group, catalog *dnfpvp.Catalog, session *gameSession) (dnfpvp.TotalRewards, error) {
-	place := func(record repo.InventoryRecord, id, count int64, now time.Time) (repo.InventoryRecord, error) {
+	result, err := dnfpvp.GrantTotalTargets(ctx, repos, catalog, session.accountID, strconv.Itoa(int(session.selectedCharacterID)), s.gameplayNow(), s.currentPVPTaskItemPlacement(ctx, repos))
+	if err == nil && (len(result.Granted) > 0 || len(result.Pending) > 0) {
+		s.logGameEvent(session, "game-pvp-total-target-rewards", "granted", result.Granted, "pending_inventory_space", result.Pending)
+	}
+	return result, err
+}
+
+func (s *Service) currentPVPTaskItemPlacement(ctx context.Context, repos repo.Group) dnfpvp.TotalRewardPlacement {
+	return func(record repo.InventoryRecord, id, count int64, now time.Time) (repo.InventoryRecord, error) {
 		items, err := s.currentPVFItemCatalog()
 		if err != nil {
 			return repo.InventoryRecord{}, err
@@ -45,9 +53,18 @@ func (s *Service) grantCurrentPVPTotalTargets(ctx context.Context, repos repo.Gr
 		}
 		return result, err
 	}
-	result, err := dnfpvp.GrantTotalTargets(ctx, repos, catalog, session.accountID, strconv.Itoa(int(session.selectedCharacterID)), s.gameplayNow(), place)
+}
+
+func (s *Service) grantCurrentPVPDailyItems(session *gameSession, catalog *dnfpvp.Catalog) (dnfpvp.DailyRewards, error) {
+	repos, ok := s.repositoryGroup()
+	if !ok {
+		return dnfpvp.DailyRewards{}, fmt.Errorf("每日奖励仓储不可用")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	result, err := dnfpvp.GrantDailyItems(ctx, repos, catalog, session.accountID, strconv.Itoa(int(session.selectedCharacterID)), s.gameplayNow(), s.currentPVPTaskItemPlacement(ctx, repos))
 	if err == nil && (len(result.Granted) > 0 || len(result.Pending) > 0) {
-		s.logGameEvent(session, "game-pvp-total-target-rewards", "granted", result.Granted, "pending_inventory_space", result.Pending)
+		s.logGameEvent(session, "决斗每日物品奖励", "已发任务", result.Granted, "背包满待发任务", result.Pending)
 	}
 	return result, err
 }

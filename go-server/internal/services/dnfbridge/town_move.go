@@ -371,6 +371,11 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	); err != nil {
 		return rollbackLocation(err)
 	}
+	if request.TownID == 10 && request.AreaID == 4 {
+		if err := s.sendCurrentPVPDojoSkillsBeforeTransition(ctx, session, character); err != nil {
+			return rollbackLocation(err)
+		}
+	}
 	if err := s.sendGameUpperRawClass(session, currentSceneTransitionMsgID, response, 0); err != nil {
 		return rollbackLocation(err)
 	}

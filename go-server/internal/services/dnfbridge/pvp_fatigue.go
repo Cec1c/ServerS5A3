@@ -460,9 +460,15 @@ func (s *Service) settleCurrentPVPArcadeReward(session *gameSession, room *curre
 	if err := s.sendGameUpperRawClass(session, 14, buildCurrentGoldStateBody(result.Character.Stats["gold"]), 0); err != nil {
 		return err
 	}
-	if err := s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID,
-		buildCurrentFinishLoadingCharacterStateBody(result.Character, result.Skill.Points), 0); err != nil {
-		return err
+	var stateErr error
+	if isPVPChannel(session.channel) {
+		stateErr = s.sendCurrentFinishLoadingCharacterStateSnapshot(session, "街机奖励后按PK频道刷新技能点")
+	} else {
+		stateErr = s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID,
+			buildCurrentFinishLoadingCharacterStateBody(result.Character, result.Skill.Points), 0)
+	}
+	if stateErr != nil {
+		return stateErr
 	}
 	return s.sendGameUpperRawClass(session, 1272,
 		buildCurrentPVPFatigueRewardBody(true, result.Reward.Experience, result.Reward.Gold), 1)

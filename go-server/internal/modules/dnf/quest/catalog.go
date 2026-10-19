@@ -76,6 +76,7 @@ type EnemyRewardItemEntry struct {
 }
 
 type FinishRewardPlan struct {
+	TPBonus             int
 	QuestID             int64
 	PVFPath             string
 	QuestLevel          int
@@ -128,6 +129,7 @@ type Definition struct {
 	CheckCount             []int64
 	ConditionData          []int64
 	DependGiveItemData     []int64
+	SubReward              []int64
 	HasDependGiveItem      bool
 	CantGiveUp             bool
 	LevelMin               int
@@ -650,6 +652,17 @@ func (c *Catalog) PlanFinishReward(character CharacterEligibility, questID int64
 		plan.Difficulty = difficulty
 	}
 	rewardType := normalizeQuestTag(definition.RewardType)
+	if rewardType == "tp" {
+		bonus, valid := pvpTrainingTPReward(definition)
+		if !valid {
+			return FinishRewardPlan{}, fmt.Errorf("%w: quest=%d TP配置尚未核对", ErrQuestRewardUnsupported, questID)
+		}
+		if hasRewardSelect {
+			return FinishRewardPlan{}, ErrQuestRewardSelectionInvalid
+		}
+		plan.TPBonus = bonus
+		return plan, nil
+	}
 	if rewardType == "" {
 		if !emptyRewardDataValid(definition.RewardIntData) {
 			return FinishRewardPlan{}, fmt.Errorf("%w: quest=%d empty reward type has data=%v", ErrQuestRewardMalformed, questID, definition.RewardIntData)
@@ -814,6 +827,7 @@ func parseDefinition(entry dnfpvf.ListEntry, doc *dnfpvf.Document) Definition {
 	definition.IntData = append([]int64(nil), doc.Ints("int data")...)
 	definition.CheckCount = append([]int64(nil), doc.Ints("check count")...)
 	definition.ConditionData = append([]int64(nil), doc.Ints("condition data")...)
+	definition.SubReward = append([]int64(nil), doc.Ints("sub reward")...)
 	if _, ok := doc.Section("depend give item"); ok {
 		definition.HasDependGiveItem = true
 		definition.DependGiveItemData = append([]int64(nil), doc.Ints("depend give item")...)
@@ -1020,6 +1034,13 @@ func rewardRuleMatches(rule RewardItemRule, character CharacterEligibility) bool
 func definitionInitialTrigger(definition Definition, completed map[int64]struct{}) uint32 {
 	tag := normalizeQuestTag(definition.Type)
 	switch tag {
+	case "custom multi condition":
+		// 风铃训练的前三项分别占用现有 op33 的三个9位条件通道；
+		// 第四项选择修炼阶段，不属于计数，不能作为第四个目标。
+		if trigger, valid := pvpTrainingInitialTrigger(definition); valid {
+			return trigger
+		}
+		return 1
 	case "pvp quest":
 		if isPVPWinDefinition(definition) {
 			return boundedTriggerChannel(definition.IntData[0])
@@ -1566,6 +1587,7 @@ func cloneDefinition(definition Definition) Definition {
 	definition.CheckCount = append([]int64(nil), definition.CheckCount...)
 	definition.ConditionData = append([]int64(nil), definition.ConditionData...)
 	definition.DependGiveItemData = append([]int64(nil), definition.DependGiveItemData...)
+	definition.SubReward = append([]int64(nil), definition.SubReward...)
 	definition.PreRequiredGroups = append([][]int64(nil), definition.PreRequiredGroups...)
 	for index := range definition.PreRequiredGroups {
 		definition.PreRequiredGroups[index] = append([]int64(nil), definition.PreRequiredGroups[index]...)

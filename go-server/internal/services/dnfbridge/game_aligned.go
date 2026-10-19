@@ -155,6 +155,37 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			skillCatalog, initialSkillLevels, skillPointBaseline = s.skillOwnerRules(context.Background(), repos, session.selectedCharacterID)
 		}
 	}
+
+	if typ == uint16(dnfenum.CmdPacketChangeSkillslot) || typ == uint16(dnfenum.CmdPacketBuySkill) || typ == uint16(dnfenum.CmdPacketSkillInit) || typ == uint16(dnfenum.CmdPacketChangeAnotherSkillTree) {
+		dojo, dojoErr := s.currentPVPDojoSkillsActive(session)
+		if dojoErr != nil {
+			return true, dojoErr
+		}
+		if dojo || isPVPChannel(session.channel) {
+			s.pvpMu.Lock()
+			inRoom := session.pvpRoom != nil
+			s.pvpMu.Unlock()
+			// 房内也允许调整技能位置：28只交换独立布局，学习/重置仍受限。
+			if inRoom && typ != uint16(dnfenum.CmdPacketChangeSkillslot) {
+				return true, s.sendGameUpperFailure(session, typ, 1)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			_, dojoErr = skillcmd.PreparePVPSkills(ctx, repos, accountID, fmt.Sprint(session.selectedCharacterID))
+			cancel()
+			if dojoErr != nil {
+				return true, dojoErr
+			}
+			if len(body) == 0 {
+				return true, s.sendGameUpperFailure(session, typ, 1)
+			}
+			// 原生训练页把请求页直接编码在首字节；正式PK切页260须按持久化活动页校验。
+			if dojo && typ != uint16(dnfenum.CmdPacketChangeAnotherSkillTree) {
+				repos = skillcmd.PVPRepositories(repos, accountID, fmt.Sprint(session.selectedCharacterID), body[0])
+			} else {
+				repos = skillcmd.PVPRepositories(repos, accountID, fmt.Sprint(session.selectedCharacterID))
+			}
+		}
+	}
 	petHatchResolver, petCatalogErr := s.alignedPetHatchResolverForCommand(dnfenum.CmdPacket(typ))
 	if petCatalogErr != nil {
 		s.logPacketEvent("game-aligned-pet-hatch-resolver-unavailable",
@@ -1301,6 +1332,17 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshSelectedActorSkills:
+		if active, err := s.currentPVPDojoSkillsActive(session); err != nil {
+			return err
+		} else if active {
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			defer cancel()
+			_, _, c, found := s.selectedCharacterForEnter(ctx, session)
+			if !found {
+				return fmt.Errorf("道场角色不存在")
+			}
+			return s.sendCurrentPVPDojoSkillWindow(ctx, session, c)
+		}
 		s.logPacketEvent("game-aligned-command-post-action-send",
 			"conn_id", session.connID,
 			"operation", operation,

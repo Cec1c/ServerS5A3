@@ -255,7 +255,11 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 			}
 		}
 	} else if comboSettingsTx != nil && comboSettingsTx.dirtyCount() > 0 {
+		undo = append(undo, comboSettingsTx.rollback)
 		if err := comboSettingsTx.commit(ctx); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}

@@ -8,6 +8,7 @@ import (
 
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
 
 type currentPVPTotalTeam struct {
@@ -114,12 +115,9 @@ func (s *Service) loadCurrentPVPTotalTeam(ctx context.Context, session *gameSess
 		return nil, fmt.Errorf("selected character outside total-match roster")
 	}
 	for i, c := range snapshot.Characters {
-		skills, found, err := repos.Skill.Load(ctx, c.CharacterID)
+		skills, err := skillcmd.PreparePVPSkills(ctx, repos, session.accountID, c.CharacterID)
 		if err != nil {
 			return nil, err
-		}
-		if !found {
-			return nil, fmt.Errorf("total-match character %s skills missing", c.CharacterID)
 		}
 		active := byte(dnfrepo.ActiveSkillTree(skills))
 		skillBody, err := buildCurrentPVPTotalSkills(skills, active)

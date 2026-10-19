@@ -73,6 +73,9 @@ func TestRealPVFPVPTimeoutDispatch(t *testing.T) {
 			for seat := range players {
 				players[seat] = &gameSession{conn: &bufferConn{}, selectedCharacterID: uint16(16 + seat*30),
 					channel: s.catalog.Channels()[1], pvpRoom: room}
+				// 此处验证56/47的原生分派，没有账号或资产仓储；使用非排位房间。
+				// 手动及排位结算另由带完整仓储的daily/result专项验证。
+				players[seat].channel.Type = 8
 				room.members[seat] = &currentPVPMember{session: players[seat], characterID: players[seat].selectedCharacterID}
 			}
 			dispatch := func(player *gameSession, body []byte) {

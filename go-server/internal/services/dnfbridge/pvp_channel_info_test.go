@@ -148,13 +148,9 @@ func TestPVPChannelUsesResidentNoticeAndDedicatedLoginEnvironment(t *testing.T) 
 	if endpoint.Header.MsgID != uint16(dnfenum.UpperMsgGameEndpoint) || len(endpoint.Body) < 4 || endpoint.Body[3] != pvp.Type {
 		t.Fatalf("pvp endpoint = %+v body=%x trailing=%x", endpoint.Header, endpoint.Body, trailing)
 	}
-	// 共存拍卖模块时，握手成功后允许且仅允许其普通入口通知。
+	// 共存拍卖模块时逐个核对普通拍卖和金币寄售通知，决斗端点自身保持原格式。
 	if len(trailing) > 0 {
-		notice, rest := splitGameServerUpperPacketWithHeader(t, trailing, service.gameUpperHeaderSize())
-		if notice.Header.Classification != 0 || notice.Header.MsgID != 183 || !bytes.Equal(notice.Body, []byte{0, 1}) {
-			t.Fatalf("决斗握手后的未知通知=%+v body=%x", notice.Header, notice.Body)
-		}
-		trailing = rest
+		trailing = assertAuctionOpenAfterHandshake(t, service, trailing)
 	}
 	if len(trailing) != 0 {
 		t.Fatalf("pvp endpoint trailing bytes=%x", trailing)

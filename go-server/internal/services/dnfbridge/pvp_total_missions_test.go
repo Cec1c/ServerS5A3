@@ -25,7 +25,7 @@ func TestPVPTotalMissionsBeforeTeamRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _, _ := repos.Character.Load(ctx, "29")
-	p := &gameSession{conn: &bufferConn{}, accountID: "pvp-29", selectedCharacterID: 29,
+	p := &gameSession{pvpClientGameType: 7, conn: &bufferConn{}, accountID: "pvp-29", selectedCharacterID: 29,
 		channel: channelcatalog.Channel{ID: 75, Type: 8, Group: "pvp"}}
 	var first []byte
 	for attempt := 0; attempt < 2; attempt++ {

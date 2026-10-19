@@ -440,19 +440,25 @@ func (s *Service) sendCurrentFinishQuestPostCommitSnapshots(session *gameSession
 			"slot_expansion_bit", result.SlotExpansionBit,
 			"ex_equip_slot_stat", result.PostCommitCharacter.Stats["ex_equip_slot_stat"])
 	}
-	if result.NewLevel != result.PreviousLevel || result.SPDelta != 0 || result.HasExpertJob || result.HonorExpertGain != 0 {
-		characterBody := buildCurrentFinishLoadingCharacterStateBody(
-			result.PostCommitCharacter,
-			result.PostCommitSkill.Points,
-		)
-		if len(characterBody) != currentFinishLoadingCharacterStateBodySize {
-			return errCurrentFinishQuestAckShape
-		}
-		if err := s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID, characterBody, 0); err != nil {
+	if result.NewLevel != result.PreviousLevel || result.SPDelta != 0 || result.TPDelta != 0 || result.HasExpertJob || result.HonorExpertGain != 0 {
+		dojo, err := s.sendCurrentPVPDojoQuestSkillRefresh(session, result.PostCommitCharacter)
+		if err != nil {
 			return err
 		}
-		if err := s.sendCommittedDarkKnightSkillRefresh(session, result.PostCommitCharacter, result.PostCommitSkill, "quest_finish_after_committed_skills"); err != nil {
-			return err
+		if !dojo {
+			characterBody := buildCurrentFinishLoadingCharacterStateBody(
+				result.PostCommitCharacter,
+				result.PostCommitSkill.Points,
+			)
+			if len(characterBody) != currentFinishLoadingCharacterStateBodySize {
+				return errCurrentFinishQuestAckShape
+			}
+			if err := s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID, characterBody, 0); err != nil {
+				return err
+			}
+			if err := s.sendCommittedDarkKnightSkillRefresh(session, result.PostCommitCharacter, result.PostCommitSkill, "quest_finish_after_committed_skills"); err != nil {
+				return err
+			}
 		}
 	} else {
 		s.logGameEvent(session, "game-upper-finish-quest-character-skill-refresh-skipped",

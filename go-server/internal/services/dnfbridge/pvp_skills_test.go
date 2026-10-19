@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
 
 func TestPVPPeerSkillTreesAndMode1Placement(t *testing.T) {
@@ -70,6 +71,18 @@ func TestPVPPeerSkillTreesAndMode1Placement(t *testing.T) {
 	record.Trees.Active = 1
 	record.Skills, record.Trees.Other.Skills = record.Trees.Other.Skills, record.Skills
 	if err := repos.Skill.Save(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	if skills, err := s.currentPVPPeerSkills(context.Background(), character); err != nil || skills[0] != 0 {
+		t.Fatalf("刷图切页改变了PK活动页: %x %v", skills, err)
+	}
+	pk, err := skillcmd.PreparePVPSkills(context.Background(), repos, character.AccountID, character.CharacterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pk.Trees.Active = 1
+	pk.Skills, pk.Trees.Other.Skills = pk.Trees.Other.Skills, pk.Skills
+	if err := skillcmd.PVPRepositories(repos, character.AccountID, character.CharacterID).CharacterSkills.WithinCharacterSkill(context.Background(), character.CharacterID, func(store dnfrepo.SkillRepository) error { return store.Save(context.Background(), pk) }); err != nil {
 		t.Fatal(err)
 	}
 	if skills, err := s.currentPVPPeerSkills(context.Background(), character); err != nil || skills[0] != 1 {

@@ -108,7 +108,7 @@ func (s *Service) sendCurrentPVPDailyState(session *gameSession) error {
 	if session == nil || session.conn == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
-	if isCurrentPVPTotalChannel(session.channel) {
+	if currentPVPMatchingGameType(session) == 7 {
 		return s.sendCurrentPVPTotalProgress(session)
 	}
 	state, err := s.prepareCurrentPVPDaily(session)
@@ -119,6 +119,11 @@ func (s *Service) sendCurrentPVPDailyState(session *gameSession) error {
 	if err != nil {
 		return err
 	}
+	rewards, err := s.grantCurrentPVPDailyItems(session, catalog)
+	if err != nil {
+		return err
+	}
+	state.Character = rewards.Character
 	body, err := buildCurrentPVPCertification(state, catalog)
 	if err != nil {
 		return err
@@ -126,8 +131,7 @@ func (s *Service) sendCurrentPVPDailyState(session *gameSession) error {
 	if err = s.sendGameUpperRawClass(session, 48, body, 0); err != nil {
 		return err
 	}
-	if err = s.sendGameUpperRawClass(session, 14, buildCurrentItemUpdateBody(0,
-		[]currentItemListEntry{currentPVPEmblemWalletEntry(statU32(state.Character, dnfpvp.EmblemsKey, 0))}), 0); err != nil {
+	if err = s.sendCurrentPVPTotalRewards(session, dnfpvp.TotalRewards{Character: state.Character, Items: rewards.Items}); err != nil {
 		return err
 	}
 	// Current op108 does not activate event 2207, so each row is exactly
@@ -311,11 +315,8 @@ func (s *Service) publishCurrentPVPResults(room *currentPVPRoom) error {
 }
 
 func (s *Service) handleCurrentPVPMissionReport(session *gameSession, opcode uint16, body []byte) error {
-	// The newly visible pose card can emit op377. Its u16 ID/u8 pose report
-	// must not fall into the generic unsupported-command dialog. Completion
-	// remains pending until the PVF pose-group semantics are established.
 	if opcode == 377 {
-		return nil
+		return s.observeCurrentPVPWinPose(session, body)
 	}
 	if session == nil || len(body) < 1 || body[0] == 0 || body[0] > 3 || len(body) != 1+2*int(body[0]) {
 		return nil

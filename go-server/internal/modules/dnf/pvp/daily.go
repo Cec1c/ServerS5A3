@@ -45,7 +45,7 @@ type Mission struct {
 }
 
 type Catalog struct {
-	Pools [3][]Mission
+	Pools [4][]Mission
 	// Normal target cards are independent of the three daily pool indexes.
 	Normal           []Mission
 	ExperienceBounds []uint32
@@ -106,7 +106,7 @@ func loadCatalog(source pvf.Source, totalMatch bool) (*Catalog, error) {
 		if len(values) < 3 || len(values)%2 != 1 || values[0] < 0 || values[0] > 3 {
 			return nil, fmt.Errorf("invalid PVF daily mission pool")
 		}
-		if values[0] == 3 {
+		if values[0] == 3 && totalMatch {
 			continue
 		}
 		tier := int(values[0])
@@ -143,11 +143,17 @@ func loadCatalog(source pvf.Source, totalMatch bool) (*Catalog, error) {
 			if m.Emblems < 0 || m.Emblems > math.MaxInt32 {
 				return nil, fmt.Errorf("invalid mission %d emblem reward", id)
 			}
+			if reward := d.Ints("reward item"); len(reward) != 0 {
+				if len(reward) != 2 || reward[0] <= 0 || reward[0] > math.MaxInt32 || reward[1] <= 0 || reward[1] > math.MaxInt32 {
+					return nil, fmt.Errorf("invalid mission %d item reward", id)
+				}
+				m.RewardItemID, m.RewardItemCount = reward[0], reward[1]
+			}
 			c.Pools[tier] = append(c.Pools[tier], m)
 		}
 	}
 	for tier, pool := range c.Pools {
-		if len(pool) == 0 {
+		if len(pool) == 0 && tier < 3 {
 			return nil, fmt.Errorf("missing PVF daily mission tier %d", tier)
 		}
 	}
@@ -290,12 +296,22 @@ func (c *Catalog) snapshot(character repo.CharacterRecord, now time.Time) (Snaps
 	if err != nil {
 		return Snapshot{}, false, err
 	}
+	queued, err := c.queueDailyItems(stats)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
 	day := premium.ServiceDayID(now)
 	fresh := stats["pvp_daily_day"] != day
+	changed := fresh || paid || queued
 	out := Snapshot{Character: character, Day: day, EmblemsGranted: granted}
 	for tier, pool := range c.Pools {
+		if len(pool) == 0 {
+			continue
+		}
+		// 第四档旧版未下发；当天补齐时保留前三档的任务和进度。
+		poolFresh := fresh || (tier == 3 && stats[dailyKey(tier, "id")] == 0)
 		var chosen *Mission
-		if !fresh {
+		if !poolFresh {
 			for i := range pool {
 				if int64(pool[i].ID) == stats[dailyKey(tier, "id")] {
 					chosen = &pool[i]
@@ -332,6 +348,13 @@ func (c *Catalog) snapshot(character repo.CharacterRecord, now time.Time) (Snaps
 			stats[dailyKey(tier, "id")] = int64(chosen.ID)
 			stats[dailyKey(tier, "progress")] = 0
 			stats[dailyKey(tier, "paid")] = 0
+			stats[dailyKey(tier, "queued")] = 0
+			stats[dailyKey(tier, "streak")] = 0
+			stats[dailyKey(tier, "pose_mask")] = 0
+			for i := 0; i < 4; i++ {
+				delete(stats, dailyKey(tier, fmt.Sprintf("pose_receipt_%d", i)))
+			}
+			changed = true
 		}
 		progress := stats[dailyKey(tier, "progress")]
 		if progress < 0 || progress > int64(chosen.Target) {
@@ -344,7 +367,7 @@ func (c *Catalog) snapshot(character repo.CharacterRecord, now time.Time) (Snaps
 		return Snapshot{}, false, err
 	}
 	stats["pvp_daily_day"] = day
-	return out, fresh || paid, nil
+	return out, changed, nil
 }
 
 func normalKey(id uint16) string { return "pvp_normal_" + strconv.Itoa(int(id)) + "_progress" }
@@ -385,6 +408,9 @@ func (c *Catalog) grantDailyEmblems(stats map[string]int64) (int64, bool, error)
 	var granted int64
 	changed := false
 	for tier, pool := range c.Pools {
+		if len(pool) == 0 {
+			continue
+		}
 		id, progress, paid := stats[dailyKey(tier, "id")], stats[dailyKey(tier, "progress")], stats[dailyKey(tier, "paid")]
 		if id == 0 && progress == 0 && paid == 0 {
 			continue
@@ -401,7 +427,8 @@ func (c *Catalog) grantDailyEmblems(stats map[string]int64) (int64, bool, error)
 			if progress < 0 || progress > int64(mission.Target) || (paid == 1 && progress != int64(mission.Target)) {
 				return 0, false, fmt.Errorf("invalid PVP reward progress")
 			}
-			if paid == 1 || progress != int64(mission.Target) {
+			// 物品奖励须由对应模式的资产事务结算，不能当作零印章已发奖。
+			if mission.RewardItemID > 0 || paid == 1 || progress != int64(mission.Target) {
 				break
 			}
 			balance := stats[EmblemsKey]
@@ -526,8 +553,11 @@ func update(ctx context.Context, repos repo.Group, catalog *Catalog, accountID, 
 									advance = match.Reports[m.ID]
 								case "remains hp", "remain hp":
 									advance = match.Won && !match.Draw && match.Reports[m.ID]
-									// Streak-group and pose tuple semantics are not yet proven;
-									// retain their PVF cards without granting speculative progress.
+								case "winning streak":
+									advance, err = advanceDailyStreak(stats, tier, m, match.Won && !match.Draw)
+									if err != nil {
+										return err
+									}
 								}
 								if advance {
 									row.Progress++
@@ -538,6 +568,10 @@ func update(ctx context.Context, repos repo.Group, catalog *Catalog, accountID, 
 							}
 						}
 					}
+				}
+				stats["pvp_result_ranked_win"] = 0
+				if !match.Manual && match.Won && !match.Draw {
+					stats["pvp_result_ranked_win"] = 1
 				}
 				for i := 0; i < 4; i++ {
 					stats[fmt.Sprintf("pvp_match_receipt_%d", i)] = int64(binary.LittleEndian.Uint64(digest[i*8:]))

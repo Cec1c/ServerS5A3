@@ -25,7 +25,7 @@ func pvpDailyTestCatalog() *dnfpvp.Catalog {
 		c.RatingRules.GradePoints = append(c.RatingRules.GradePoints, [2]int64{0, 1000})
 	}
 	for i, id := range []uint16{113, 118, 131} {
-		c.Pools[i] = []dnfpvp.Mission{{ID: id, Tier: i, Weight: 10, RankMax: 30, Target: 3, Condition: []string{"hereafter join", "first aerial attack", "winning streak"}[i]}}
+		c.Pools[i] = []dnfpvp.Mission{{ID: id, Tier: i, Weight: 10, RankMax: 30, Target: 3, Parameter: 3, Condition: []string{"hereafter join", "first aerial attack", "winning streak"}[i]}}
 	}
 	return c
 }
@@ -233,7 +233,7 @@ func TestRealScriptPVFDailyMissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Pools[0]) != 3 || len(c.Pools[1]) != 11 || len(c.Pools[2]) != 3 || c.ExperienceBounds[1] != 12000 {
+	if len(c.Pools[0]) != 3 || len(c.Pools[1]) != 11 || len(c.Pools[2]) != 3 || len(c.Pools[3]) != 1 || c.Pools[3][0].ID != 134 || c.ExperienceBounds[1] != 12000 {
 		t.Fatalf("runtime PVF catalog=%+v", c)
 	}
 	categories := map[string]int{}
@@ -255,7 +255,7 @@ func TestRealScriptPVFDailyMissions(t *testing.T) {
 		_, wire := splitCurrentGameServerUpperPacketAuto(t, session.conn.(*bufferConn).write.Bytes())
 		_, wire = splitCurrentGameServerUpperPacketAuto(t, wire)
 		list, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
-		if list.Header.MsgID != 323 || len(rest) != 0 || len(list.Body) != 751 || list.Body[0] != 75 {
+		if list.Header.MsgID != 323 || len(rest) != 0 || len(list.Body) != 761 || list.Body[0] != 76 {
 			t.Fatalf("native target list: id=%d bytes=%d count=%d", list.Header.MsgID, len(list.Body), list.Body[0])
 		}
 		rows := map[uint16]dnfpvp.Row{}
@@ -263,11 +263,14 @@ func TestRealScriptPVFDailyMissions(t *testing.T) {
 			id := binary.LittleEndian.Uint16(list.Body[offset:])
 			rows[id] = dnfpvp.Row{ID: id, Progress: binary.LittleEndian.Uint32(list.Body[offset+2:]), Target: binary.LittleEndian.Uint32(list.Body[offset+6:])}
 		}
+		if rows[134] != (dnfpvp.Row{ID: 134, Target: 3}) || c.Pools[3][0].RewardItemID != 10092947 || c.Pools[3][0].RewardItemCount != 100 {
+			t.Fatal("原生第四卡或真实物品奖励缺失")
+		}
 		if rows[499].Target != 100 || rows[500].Target != 333 || rows[545].Target != 2 || rows[565].Target != 1 || rows[604].Target != math.MaxUint32 || rows[566].ID != 0 || rows[800].ID != 0 {
 			t.Fatalf("native target filtering/sentinels=%v", rows)
 		}
 	}
-	t.Logf("PVF normal definitions=%d categories=%v; swordman native op323=75 rows/751 bytes", len(c.Normal), categories)
+	t.Logf("PVF normal definitions=%d categories=%v; swordman native op323=76 rows/761 bytes", len(c.Normal), categories)
 }
 
 func TestPVPMissionWireRejectsTruncationAndDuplicates(t *testing.T) {

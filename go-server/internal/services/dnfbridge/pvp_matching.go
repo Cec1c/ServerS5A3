@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -85,7 +86,7 @@ func (s *Service) handleCurrentPVPMatching(session *gameSession, opcode uint16, 
 		return nil
 	}
 	request, err := parseCurrentPVPMatchingRequest(body)
-	if err != nil || request.gameType != currentPVPMatchingGameType(session) {
+	if err != nil || !currentPVPMatchingGameTypeAllowed(session, request.gameType) {
 		return s.sendGameUpperFailure(session, opcode, 1)
 	}
 	s.pvpMu.Lock()
@@ -116,8 +117,15 @@ func (s *Service) handleCurrentPVPMatching(session *gameSession, opcode uint16, 
 	if !s.boundGameSessionCharacterCurrent(identity) || !s.currentPVPMatchingAvailable(session) {
 		return s.sendGameUpperFailure(session, opcode, 1)
 	}
+	previousMode := currentPVPMatchingGameType(session)
+	atomic.StoreUint32(&session.pvpClientGameType, uint32(request.gameType))
 	if err := s.sendGameUpperSuccess(session, 520, []byte{1, byte(request.gameType), 0, request.option}); err != nil {
 		return err
+	}
+	if previousMode != request.gameType {
+		if err := s.sendCurrentPVPDailyState(session); err != nil {
+			return err
+		}
 	}
 	for i := 0; i < len(s.pvpMatching); {
 		queued := s.pvpMatching[i]
@@ -392,9 +400,14 @@ func (s *Service) closeCurrentPVPMatchingLocked(room *currentPVPRoom, disconnect
 	}
 }
 
+// 现用客户端在75频道实际发送gameType=0；频道能力不能替代本次模式选择。
 func currentPVPMatchingGameType(session *gameSession) uint16 {
-	if isCurrentPVPTotalChannel(session.channel) {
-		return 7
+	if session == nil {
+		return 0
 	}
-	return 0
+	return uint16(atomic.LoadUint32(&session.pvpClientGameType))
+}
+
+func currentPVPMatchingGameTypeAllowed(session *gameSession, gameType uint16) bool {
+	return gameType == 0 || gameType == 7 && session != nil && isCurrentPVPTotalChannel(session.channel)
 }

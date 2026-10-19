@@ -30,7 +30,11 @@ func dailyTestSource() textSource {
 		"etc/matchingmode.etc":    "[initial rating point]\n1000\n[pvp initial rating point]\n0\n[warm up games]\n10\n[warm up default weight]\n120\n[warm up weight]\n0 100\n[/warm up weight]\n[rating]\n2000 8 1700 10 1500 14 1400 16 1100 20 700 22 0 24\n[/rating]\n[streak win]\n8 180 6 140 4 120\n[/streak win]\n[streak lose]\n6 200 4 140 2 120\n[/streak lose]\n[addtional weight]\n2000 0 -1 1700 0 0 800 0 0 500 0 1 0 0 2\n[addtional weight]\n[first after warm up bonus]\n40\n[/first after warm up bonus]\n",
 	}
 	for i, condition := range []string{"hereafter join", "first aerial attack", "winning streak"} {
-		s[fmt.Sprintf("pvp_mission/daily/%c.msn", 'a'+i)] = fmt.Sprintf("[grade] `[daily]` %d\n[rank range] 0 30\n[condition] `[%s]` `[all]` 3 1\n[/condition]\n[reward victory emblem] 40\n[/reward victory emblem]\n", i, condition)
+		parameter := 1
+		if condition == "winning streak" {
+			parameter = 3
+		}
+		s[fmt.Sprintf("pvp_mission/daily/%c.msn", 'a'+i)] = fmt.Sprintf("[grade] `[daily]` %d\n[rank range] 0 30\n[condition] `[%s]` `[all]` 3 %d\n[/condition]\n[reward victory emblem] 40\n[/reward victory emblem]\n", i, condition, parameter)
 	}
 	return s
 }

@@ -8,6 +8,10 @@ func pvpGameplayModule() gameplayModuleDefinition {
 			return nil
 		}
 		switch q.Opcode {
+		case 1266:
+			return s.handleCurrentPVPDojoSkillMode(session, q.Body)
+		case 1267:
+			return s.handleCurrentPVPTrainingReward(session, q.Body)
 		case 870:
 			return s.handleCheckPVPPrivateCharacter(session, q.Body)
 		case 195:
@@ -68,7 +72,7 @@ func pvpGameplayModule() gameplayModuleDefinition {
 		return nil
 	}
 	handlers := map[uint16]gameplayHandler{}
-	for _, op := range []uint16{870, 195, 50, 51, 52, 53, 54, 55, 56, 57, 59, 375, 1271, 1272, 1285, 520, 521, 570, 298, 299, 376, 377, 876, 877, 874, 871, 872, 873} {
+	for _, op := range []uint16{1266, 1267, 870, 195, 50, 51, 52, 53, 54, 55, 56, 57, 59, 375, 1271, 1272, 1285, 520, 521, 570, 298, 299, 376, 377, 876, 877, 874, 871, 872, 873} {
 		handlers[op] = h
 	}
 	legacy := map[uint16]gameplayHandler{}
@@ -78,5 +82,9 @@ func pvpGameplayModule() gameplayModuleDefinition {
 			return h(s, p, q)
 		}
 	}
-	return gameplayModuleDefinition{Name: "pvp", LegacyHandlers: legacy, UpperHandlers: handlers}
+	return gameplayModuleDefinition{Name: "pvp", LegacyHandlers: legacy, UpperHandlers: handlers,
+		LegacyNormalizers: map[uint16]gameplayLegacyNormalizer{
+			1266: func(body []byte) []byte { return stripLegacyTransportTrailer(body, 1) },
+			377:  func(body []byte) []byte { return stripLegacyTransportTrailer(body, 3) },
+		}}
 }

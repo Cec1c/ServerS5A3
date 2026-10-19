@@ -15,6 +15,7 @@ import (
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
 
@@ -42,7 +43,7 @@ func TestRealPVFTotalTargetRewardsAndNativeInventorySync(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := &gameSession{conn: &bufferConn{}, accountID: "total-reward-fixture", selectedCharacterID: 1, channel: channelcatalog.Channel{ID: 75, Type: 8, Group: "pvp"}}
+	p := &gameSession{pvpClientGameType: 7, conn: &bufferConn{}, accountID: "total-reward-fixture", selectedCharacterID: 1, channel: channelcatalog.Channel{ID: 75, Type: 8, Group: "pvp"}}
 	for attempt := 0; attempt < 2; attempt++ {
 		if err := s.sendCurrentPVPDailyState(p); err != nil {
 			t.Fatal(err)
@@ -141,7 +142,7 @@ func TestRealPVFTotalUnconfiguredProfessionsAreRejected(t *testing.T) {
 			t.Fatalf("当前PVF已开放 %v，须补充该职业端到端验收", p)
 		}
 		rows := []repo.CharacterRecord{{CharacterID: "1", AccountID: "a", Slot: 0, Job: fmt.Sprint(p[0]), Level: 85, Stats: map[string]int64{"grow_type": int64(p[1])}}}
- rows=append(rows,repo.CharacterRecord{CharacterID:"2",AccountID:"a",Slot:1,Job:"0",Level:85,Stats:map[string]int64{"grow_type":1}},repo.CharacterRecord{CharacterID:"3",AccountID:"a",Slot:2,Job:"1",Level:85,Stats:map[string]int64{"grow_type":1}})
+		rows = append(rows, repo.CharacterRecord{CharacterID: "2", AccountID: "a", Slot: 1, Job: "0", Level: 85, Stats: map[string]int64{"grow_type": 1}}, repo.CharacterRecord{CharacterID: "3", AccountID: "a", Slot: 2, Job: "1", Level: 85, Stats: map[string]int64{"grow_type": 1}})
 		if _, err := dnfpvp.ResolveTotalTeam("a", "测试队伍", [3]byte{0, 1, 2}, rows, a); err == nil {
 			t.Fatalf("未配置职业被允许组队: %v", p)
 		}
@@ -171,6 +172,13 @@ func testRealPVFTotalTeamActorsAndCatalog(t *testing.T, professions [][2]byte) {
 	if err := s.preloadCharacterStatTable(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// 模拟Service.Start：静态资源在创建请求的3秒事务计时前完成预热。
+	if err := s.preloadSkillCatalog(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.preloadProfessionProfiles(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := repos.Account.Save(ctx, repo.AccountRecord{AccountID: "dnf:1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -192,6 +200,7 @@ func testRealPVFTotalTeamActorsAndCatalog(t *testing.T, professions [][2]byte) {
 	n, _ := strconv.Atoi(ids[0])
 	session.selectedCharacterID = uint16(n)
 	session.channel = channelcatalog.Channel{ID: 75, Type: 8, Group: "pvp"}
+	session.pvpClientGameType = 7
 	session.conn.(*bufferConn).write.Reset()
 	if err := s.sendCurrentPVPDailyState(session); err != nil {
 		t.Fatal(err)
@@ -379,8 +388,24 @@ func testRealPVFTotalTeamActorsAndCatalog(t *testing.T, professions [][2]byte) {
 			}
 		}
 	}
-	// A real missing skill record must reject the whole actor snapshot.
+	// 普通页不能覆盖已保存的PK页；无效PK页必须拒绝整个阵容快照。
 	if err := repos.Skill.Save(ctx, repo.SkillRecord{CharacterID: ids[2], Skills: map[int64]repo.SkillState{800: {Level: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.loadCurrentPVPTotalTeam(ctx, session); err != nil {
+		t.Fatal("普通技能页影响了独立PK阵容", err)
+	}
+	character, found, err := repos.Character.Load(ctx, ids[2])
+	if err != nil || !found {
+		t.Fatal("测试角色不存在", err)
+	}
+	view := skillcmd.PVPRepositories(repos, character.AccountID, character.CharacterID)
+	profile, found, err := view.Skill.Load(ctx, character.CharacterID)
+	if err != nil || !found {
+		t.Fatal("测试PK页不存在", err)
+	}
+	profile.Skills = map[int64]repo.SkillState{800: {Level: 1}}
+	if err := view.CharacterSkills.WithinCharacterSkill(ctx, character.CharacterID, func(store repo.SkillRepository) error { return store.Save(ctx, profile) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.loadCurrentPVPTotalTeam(ctx, session); err == nil {

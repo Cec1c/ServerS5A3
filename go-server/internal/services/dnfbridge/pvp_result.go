@@ -24,6 +24,7 @@ type currentPVPMatch struct {
 	settled           [currentPVPRoomSeatCount]*dnfpvp.Snapshot
 	resultStage       [currentPVPRoomSeatCount]byte
 	missionReports    [currentPVPRoomSeatCount]map[uint16]bool
+	poseReports       [currentPVPRoomSeatCount]map[uint16]byte
 	questPublished    bool
 }
 

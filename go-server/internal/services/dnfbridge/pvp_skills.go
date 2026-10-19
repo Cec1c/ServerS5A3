@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
 
 func (s *Service) currentPVPPeerSkills(ctx context.Context, character dnfrepo.CharacterRecord) ([]byte, error) {
@@ -13,12 +14,9 @@ func (s *Service) currentPVPPeerSkills(ctx context.Context, character dnfrepo.Ch
 	if !ok || repos.Skill == nil {
 		return nil, fmt.Errorf("PVP skill repository unavailable")
 	}
-	record, found, err := repos.Skill.Load(ctx, character.CharacterID)
+	record, err := skillcmd.PreparePVPSkills(ctx, repos, character.AccountID, character.CharacterID)
 	if err != nil {
 		return nil, err
-	}
-	if !found {
-		return nil, fmt.Errorf("PVP character %s has no skill record", character.CharacterID)
 	}
 	active := byte(dnfrepo.ActiveSkillTree(record))
 	return buildCurrentPVPPeerSkills(record, active)

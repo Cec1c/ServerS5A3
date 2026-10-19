@@ -32,8 +32,16 @@ func (s *Service) currentChannelReconnectTownTransition(
 	if session != nil && (session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType) {
 		return s.currentRaidEntranceTownTransition(session, characterID, character)
 	}
-	if character.Stats["town_id"] == 19 || character.Stats["town_id"] == 32 {
-		location, err := s.currentInitialTownSeriaLoginLocation()
+	if character.Stats["town_id"] == 10 {
+		location, err := s.currentPVPExitLoginLocation(characterID, character)
+		if err != nil {
+			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err
+		}
+		return currentReconnectLocationProjection(characterID, character, location)
+	}
+	// 超时空及其它专用城镇退出时，优先恢复入场前的有效普通落点。
+	if currentRegisteredChannelTown(character.Stats["town_id"]) {
+		location, err := s.currentRaidExitLoginLocation(characterID, character)
 		if err != nil {
 			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err
 		}
