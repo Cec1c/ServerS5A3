@@ -23,6 +23,7 @@ MAX_ASSET = 512 * 1024 * 1024
 MARKER = "<!-- client-release-sync:v1 "
 TAG = re.compile(r"client-[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip\Z", re.I)
+SPLIT_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip)\.([0-9]{3})\Z", re.I)
 
 
 class SyncError(RuntimeError):
@@ -114,11 +115,12 @@ def download(url, cache, expected=None, fresh=False, missing=False):
             time.sleep(2 * (attempt + 1))
 
 
-def inspect_zip(path):
+def inspect_zip(path, *, with_pvf=False):
     try:
         with zipfile.ZipFile(path) as z:
             names = set()
             exe = None
+            pvf = None
             total = 0
             for entry in z.infolist():
                 raw_name = entry.orig_filename
@@ -143,6 +145,14 @@ def inspect_zip(path):
                         for block in iter(lambda: stream.read(1024 * 1024), b""):
                             h.update(block)
                     exe = {"sha256": h.hexdigest(), "length": entry.file_size}
+                elif with_pvf and raw_name == "client/Script.pvf":
+                    if entry.file_size == 0:
+                        raise SyncError("Empty client PVF")
+                    h = hashlib.sha256()
+                    with z.open(entry) as stream:
+                        for block in iter(lambda: stream.read(1024 * 1024), b""):
+                            h.update(block)
+                    pvf = {"sha256": h.hexdigest(), "length": entry.file_size}
                 elif not (leaf.endswith((".txt", ".md", ".json")) or
                           (len(parts) == 2 and parts[0] == "evidence" and leaf.endswith(".log")) or
                           (len(parts) > 1 and parts[0] == "scripts" and leaf.endswith(".py"))):
@@ -154,9 +164,69 @@ def inspect_zip(path):
                             pass
             if exe is None:
                 raise SyncError("Client ZIP has no DNF.exe")
+            if with_pvf:
+                if pvf is None:
+                    raise SyncError("Split client ZIP has no PVF")
+                return {"exe": exe, "pvf": pvf}
             return exe
     except (zipfile.BadZipFile, EOFError):
         raise SyncError("Invalid client ZIP") from None
+
+
+def split_metadata(name, recorded):
+    match = SPLIT_NAME.fullmatch(name)
+    meta = recorded.get("split_archive") if isinstance(recorded, dict) else None
+    if not match or not isinstance(meta, dict) or set(meta) != {"count", "index", "length", "sha256"}:
+        raise SyncError("Invalid split archive provenance")
+    if any(type(meta[k]) is not int for k in ("count", "index", "length")):
+        raise SyncError("Invalid split archive dimensions")
+    if not (2 <= meta["count"] <= 16 and 1 <= meta["index"] <= meta["count"] and
+            int(match[2]) == meta["index"] and 0 < meta["length"] <= MAX_ASSET):
+        raise SyncError("Invalid split archive dimensions")
+    if (not isinstance(meta["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", meta["sha256"]) or
+            type(recorded.get("length")) is not int or not 0 < recorded["length"] <= meta["length"] or
+            not isinstance(recorded.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", recorded["sha256"])):
+        raise SyncError("Invalid split archive digest or size")
+    return match[1], meta
+
+
+def inspect_split_archives(assets, cache):
+    groups = {}
+    executables = [a["exe"] for a in assets.values() if "exe" in a]
+    for name, asset in assets.items():
+        if "split_archive" in asset:
+            base, meta = split_metadata(name, asset)
+            groups.setdefault(base, []).append((meta["index"], asset))
+    for parts in groups.values():
+        parts.sort(key=lambda part: part[0])
+        expected = parts[0][1]["split_archive"]
+        if [i for i, _ in parts] != list(range(1, expected["count"] + 1)):
+            raise SyncError("Incomplete split archive")
+        for _, asset in parts:
+            if any(asset["split_archive"][k] != expected[k] for k in ("count", "length", "sha256")):
+                raise SyncError("Conflicting split archive provenance")
+        if sum(a["length"] for _, a in parts) != expected["length"]:
+            raise SyncError("Split archive length mismatch")
+        Path(cache).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="split-", dir=cache) as directory:
+            combined = Path(directory) / "client.zip"
+            with combined.open("wb") as out:
+                for _, asset in parts:
+                    count, h = 0, hashlib.sha256()
+                    with Path(asset["path"]).open("rb") as stream:
+                        for block in iter(lambda: stream.read(1024 * 1024), b""):
+                            count += len(block)
+                            if count > asset["length"]:
+                                raise SyncError("Split part changed during verification")
+                            h.update(block)
+                            out.write(block)
+                    if count != asset["length"] or h.hexdigest() != asset["sha256"]:
+                        raise SyncError("Split part changed during verification")
+            if digest(combined) != expected["sha256"]:
+                raise SyncError("Combined split archive digest mismatch")
+            executables.append(inspect_zip(combined, with_pvf=True)["exe"])
+    if groups and any(exe != executables[0] for exe in executables):
+        raise SyncError("Split and standalone executable identities differ")
 
 
 def provenance(body):
@@ -311,7 +381,8 @@ class Repository:
             url = a["url"]
             p = safe_url(url)
             name = urllib.parse.unquote(p.path.rsplit("/", 1)[-1])
-            if not NAME.fullmatch(name):
+            is_split = SPLIT_NAME.fullmatch(name) is not None
+            if not NAME.fullmatch(name) and not is_split:
                 raise SyncError("Unexpected client asset name")
             if self.provider == "github":
                 allowed = p.netloc == "github.com" and p.path.startswith(f"/{self.repository}/releases/download/{tag}/")
@@ -324,16 +395,22 @@ class Repository:
             expected = record["assets"].get(name, {}).get("sha256") if record else None
             if record and expected is None:
                 raise SyncError("Asset missing from release provenance")
+            metadata = split_metadata(name, record["assets"].get(name) if record else None)[1] if is_split else None
             path = download(url, cache, expected, fresh)
-            assets[name] = {"sha256": digest(path), "length": path.stat().st_size, "exe": inspect_zip(path), "path": str(path), "url": url}
+            assets[name] = {"sha256": digest(path), "length": path.stat().st_size, "path": str(path), "url": url}
+            if is_split:
+                assets[name]["split_archive"] = metadata
+            else:
+                assets[name]["exe"] = inspect_zip(path)
             if record:
-                observed = {k:v for k,v in assets[name].items() if k in ("sha256", "length", "exe")}
+                observed = {k:v for k,v in assets[name].items() if k in ("sha256", "length", "exe", "split_archive")}
                 if observed != record["assets"][name]:
                     raise SyncError("Release asset differs from provenance")
         if record and set(assets) != set(record["assets"]):
             raise SyncError("Incomplete release asset set")
         if not assets:
             raise SyncError("Client release has no assets")
+        inspect_split_archives(assets, cache)
         preview = (row.get("prerelease", False) or "preview" in body.lower() or "预览" in body) if record is None else record.get("preview")
         if not isinstance(preview, bool):
             raise SyncError("Invalid preview provenance")
@@ -442,7 +519,7 @@ class Repository:
 
 
 def release_record(item):
-    return {"format":1, "tag":item["tag"], "commit":item["commit"], "source":item["source"], "preview":item.get("preview",False), "assets":{n:{k:v for k,v in a.items() if k in ("sha256", "length", "exe")} for n,a in sorted(item["assets"].items())}}
+    return {"format":1, "tag":item["tag"], "commit":item["commit"], "source":item["source"], "preview":item.get("preview",False), "assets":{n:{k:v for k,v in a.items() if k in ("sha256", "length", "exe", "split_archive")} for n,a in sorted(item["assets"].items())}}
 
 
 def content_identity(item):
