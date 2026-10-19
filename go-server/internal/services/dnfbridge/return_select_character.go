@@ -59,6 +59,7 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	}
 	s.closeCurrentGuildCreateSession(session)
 	guildClock := s.ensureGameplayTimeQueue()
+	s.closeCurrentPVPSession(session)
 	s.closeCurrentExpertJobStoreSession(session, true)
 	s.retireCurrentLukeSessionRun(session)
 	s.detachRuntimePartySession(session, "return_select_character")

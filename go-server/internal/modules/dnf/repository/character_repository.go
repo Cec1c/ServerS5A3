@@ -44,6 +44,11 @@ type CharacterSlotSwapper interface {
 	SwapCharacterSlots(context.Context, string, int, int) error
 }
 
+// CharacterDeletedProfessionReader 供决斗专用角色检查删除冷却，缺少能力时拒绝创建。
+type CharacterDeletedProfessionReader interface {
+	LastDeletedProfession(context.Context, string, byte, byte) (CharacterRecord, bool, error)
+}
+
 // CharacterRecord 是 DNF 角色仓储记录。
 type CharacterRecord struct {
 	CharacterID string            `json:"character_id"`
@@ -69,8 +74,9 @@ type CharacterLocation struct {
 
 // CharacterRoster 保存最新 EXE 角色列表 class0/op2 已确认的头部和单角色入口字段。
 type CharacterRoster struct {
-	Header CharacterRosterHeader `json:"header,omitempty"`
-	Entry  CharacterRosterEntry  `json:"entry,omitempty"`
+	PVPEntryQuestCompleted bool                  `json:"-"`
+	Header                 CharacterRosterHeader `json:"header,omitempty"`
+	Entry                  CharacterRosterEntry  `json:"entry,omitempty"`
 }
 
 // CharacterRosterHeader 对应 sub_200BEA0 mode=2 在角色入口前读取的字段。

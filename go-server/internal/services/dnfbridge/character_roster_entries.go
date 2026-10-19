@@ -1,6 +1,9 @@
 package dnfbridge
 
-import dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+import (
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+)
 
 func writeNoPackRosterEntryFromStats(writer *packetWriter, index int, character dnfrepo.CharacterRecord) {
 	job := rosterByteValue(int64(numericCharacterStat(character.Job)), 0)
@@ -57,16 +60,27 @@ func writeNoPackRosterEntry(writer *packetWriter, index int, character dnfrepo.C
 	// The later character-id/empty-summary experiment left the selector black
 	// with the current source-built upper-body-bypass DLL.
 	writeNoPackRosterEquipSummary(writer, characterEquipSummary(character))
-	writeNoPackRosterNormalPostEquip(writer)
+	writeNoPackRosterNormalPostEquip(writer, character.Roster.PVPEntryQuestCompleted, dnfpvp.IsPrivateCharacter(character))
 }
 
-func writeNoPackRosterNormalPostEquip(writer *packetWriter) {
+func writeNoPackRosterNormalPostEquip(writer *packetWriter, pvp ...bool) {
 	writer.writeZero(24)
 	writer.writeByte(3)
 	writer.writeByte(0)
 	writer.writeByte(0)
 	writer.writeByte(4)
-	writer.writeZero(10)
+	writer.writeZero(6)
+	if len(pvp) > 1 && pvp[1] {
+		writer.writeByte(1)
+	} else {
+		writer.writeByte(0)
+	}
+	writer.writeZero(2)
+	if len(pvp) > 0 && pvp[0] {
+		writer.writeByte(1)
+	} else {
+		writer.writeByte(0)
+	}
 }
 
 func writeNoPackRosterEntryLatest(writer *packetWriter, index int, character dnfrepo.CharacterRecord) {

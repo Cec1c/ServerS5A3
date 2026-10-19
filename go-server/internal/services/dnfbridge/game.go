@@ -20,6 +20,7 @@ import (
 )
 
 type gameSession struct {
+	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
@@ -34,6 +35,8 @@ type gameSession struct {
 	connID                              string
 	accountID                           string
 	clientPID                           uint32
+	pvpPrivateCreate                    *currentPVPPrivateIntent
+	pvpRoom                             *currentPVPRoom // 由 Service.pvpMu 保护。
 	// clientIP 只用于日志与排查（连接来源），**绝不参与账号判定** ——
 	// 见 repository_access.go 的 accountIDForSession 与 client_account_ip.go。
 	clientIP string

@@ -54,6 +54,12 @@ func parseCurrentTownSetUserPositionRequest(body []byte) (currentTownSetUserPosi
 }
 
 func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) error {
+	s.pvpMu.Lock()
+	inPVPRoom := session != nil && session.pvpRoom != nil
+	s.pvpMu.Unlock()
+	if inPVPRoom {
+		return nil
+	}
 	if session == nil {
 		return nil
 	}

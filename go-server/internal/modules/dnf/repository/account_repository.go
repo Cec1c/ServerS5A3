@@ -151,3 +151,7 @@ func SaveAccountMetadataEntry(
 func AccountKey(record AccountRecord) string {
 	return strings.TrimSpace(record.AccountID)
 }
+
+type PVPTotalTeamNameFinder interface {
+	FindAccountIDByPVPTotalTeamName(context.Context, string) (string, bool, error)
+}

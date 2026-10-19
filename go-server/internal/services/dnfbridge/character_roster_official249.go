@@ -35,7 +35,15 @@ func writeOfficial249RosterEntryWithPermission(writer *packetWriter, index int, 
 	writer.writeByte(0)
 	writer.writeByte(0)
 	writer.writeByte(4)
-	writer.writeZero(10)
+	writer.writeZero(9)
+	// 022BFC10 consumes this pre-raid byte; bit 0 is the native PVP
+	// entrance flag. listCharacters derives it from persisted quest 2670,
+	// independently of the later Windbell training/arcade requirements.
+	if character.Roster.PVPEntryQuestCompleted {
+		writer.writeByte(1)
+	} else {
+		writer.writeByte(0)
+	}
 	// Current 022BEA20 reads four final u8 flags into selector +449/+44A/
 	// +44B/+44D. 036D37CD tests +449 for Anton type 23 and +44A for Luke
 	// type 32. 036D38C2 tests +44D for Fiend War type 45; this is the

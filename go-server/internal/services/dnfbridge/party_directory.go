@@ -105,6 +105,12 @@ func runtimePartyDirectorySessionReady(session *gameSession) bool {
 }
 
 func (s *Service) handleRuntimePartyDirectoryRefresh(session *gameSession, body []byte) (bool, error) {
+	if session != nil && isPVPChannel(session.channel) {
+		if len(body) != 1 || body[0] > 1 {
+			return true, nil
+		}
+		return true, s.sendCurrentPVPDirectory(session)
+	}
 	if len(body) != 1 || !runtimePartyDirectorySessionReady(session) {
 		return false, nil
 	}

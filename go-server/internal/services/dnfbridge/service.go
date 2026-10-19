@@ -30,6 +30,7 @@ import (
 	dnfpet "longheng.io/server/internal/modules/dnf/pet"
 	dnfprofession "longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/signupbenefits"
@@ -74,6 +75,15 @@ type Service struct {
 	auctionMu                 sync.Mutex
 	auctionItemEligibility    func(uint32) bool
 	auctionCategoryItem       func(uint16, uint32) bool
+	pvpMu                     sync.Mutex
+	pvpRooms                  map[uint16]*currentPVPRoom
+	pvpMatching               []*currentPVPMatchingRequest // protected by pvpMu
+	nextPVPMatchingToken      uint32
+	pvpSubscribers            map[*gameSession]int
+	pvpMapOrder               []int64                 // protected by pvpMu
+	pvpDailyCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpTotalCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpFatigueRules           *currentPVPFatigueRules // protected by initialEquipmentMu
 	tradeMu                   sync.Mutex
 	itemTrades                map[uint16]*onlineItemTrade
 	expertJobStoreMu          sync.Mutex

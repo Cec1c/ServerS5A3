@@ -26,14 +26,23 @@ func currentRaidLoginTownID(session *gameSession) (int64, bool) {
 func (s *Service) currentCharacterListLoginLocationForSession(session *gameSession, characterID uint16, character dnfrepo.CharacterRecord) (currentTownLoginLocation, int64, string, string, error) {
 	townID, raidChannel := currentRaidLoginTownID(session)
 	if !raidChannel {
-		if currentLoginLeavingRaidTown(session, character) {
-			location, err := s.currentInitialTownSeriaLoginLocation()
+		if currentLoginLeavingChannelTown(session, character) && character.Stats["town_id"] == 10 {
+			location, err := s.currentPVPExitLoginLocation(characterID, character)
+			return location, character.Stats["town_id"], "", "", err
+		}
+		if currentLoginLeavingChannelTown(session, character) {
+			location, err := s.currentRaidExitLoginLocation(characterID, character)
 			if err != nil {
 				return currentTownLoginLocation{}, character.Stats["town_id"], "", "", err
 			}
 			location.Branch = "ordinary_channel_after_raid"
+			reason := "raid_town_not_valid_for_ordinary_channel"
+			if character.Stats["town_id"] == 10 {
+				location.Branch = "普通频道退出决斗场"
+				reason = "决斗城镇不可作为普通频道落点"
+			}
 			location.Source = "ordinary_channel_runtime_pvf_seria_room"
-			return location, character.Stats["town_id"], "raid_town_not_valid_for_ordinary_channel", "", nil
+			return location, character.Stats["town_id"], reason, "", nil
 		}
 		return s.currentCharacterListLoginLocation(characterID, character)
 	}
@@ -50,19 +59,19 @@ func (s *Service) currentCharacterListLoginLocationForSession(session *gameSessi
 	return location, persistedTownID, "", "", nil
 }
 
-func currentLoginLeavingRaidTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
+func currentLoginLeavingChannelTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
 	if session == nil {
 		return false
 	}
-	if _, raidChannel := currentRaidLoginTownID(session); raidChannel {
+	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isPVPChannel(session.channel) {
 		return false
 	}
-	return currentRegisteredRaidTown(character.Stats["town_id"])
+	return currentRegisteredChannelTown(character.Stats["town_id"])
 }
 
-func currentRegisteredRaidTown(townID int64) bool {
-	// Same registered towns as the Anton and Luke channel landing above.
-	return townID == 19 || townID == 32
+func currentRegisteredChannelTown(townID int64) bool {
+	// 专用城镇不能作为普通频道落点或覆盖普通城镇的返城原位。
+	return townID == 10 || townID == 19 || townID == 32
 }
 
 func (s *Service) currentSessionSelectAckTownID(session *gameSession, character dnfrepo.CharacterRecord, characterID uint16, slot int) (uint8, string, error) {
@@ -78,4 +87,9 @@ func (s *Service) currentSessionSelectAckTownID(session *gameSession, character 
 		return 0, source, fmt.Errorf("current select ACK town outside u8")
 	}
 	return townID, source, nil
+}
+
+// 保留上游既有入口供其它普通登录调用；专用城镇判定统一收口。
+func currentLoginLeavingRaidTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
+	return currentLoginLeavingChannelTown(session, character)
 }
