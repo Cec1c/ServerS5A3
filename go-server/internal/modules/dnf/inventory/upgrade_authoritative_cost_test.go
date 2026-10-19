@@ -171,7 +171,7 @@ func TestUpgradeQuoteFailureReturnsOnlyErrorACK(t *testing.T) {
 	binary.LittleEndian.PutUint16(body[10:12], 0xffff)
 	got, err := NewHandler().Handle(ctx, alignedcmd.Request{
 		Opcode: 80, Body: body, AccountID: "acc", SelectedCharacterID: 77, Repositories: repos,
-		UpgradePolicyResolver: func(mode string, level int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, level int) (alignedcmd.UpgradePolicyResolution, error) {
 			return alignedcmd.UpgradePolicyResolution{SuccessWeight: 100000, MaterialItemID: 3242, MaterialCount: 10}, nil
 		},
 		UpgradeCostResolver: func(string, int64, int, bool, uint16) (alignedcmd.UpgradeCostResolution, error) {
