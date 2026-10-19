@@ -142,7 +142,7 @@ func runPortableUpgradeRequest(t *testing.T, fixture portableUpgradeCase) (align
 			Repositories:                 repos,
 			UpgradeTicketResolver:        upgradeTicketResolverForPortable(fixture.consumable),
 			UpgradeProtectTicketResolver: protectTicketResolver(liveProtectTicketResolutions()),
-			UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+			UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 				return alignedcmd.UpgradePolicyResolution{
 					SuccessWeight:      fixture.successWeight,
 					PenaltyType:        fixture.penaltyType,
@@ -321,7 +321,7 @@ func TestHandlerUpgradePortableConsumableLegacyReproducesTheLiveErrors(t *testin
 				SelectedCharacterID:   77,
 				Repositories:          repos,
 				UpgradeTicketResolver: upgradeTicketResolverForPortable(portableAmplifyConsumable()),
-				UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+				UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 					return alignedcmd.UpgradePolicyResolution{
 						SuccessWeight: 50000, PenaltyType: 3, MaterialItemID: 3242, MaterialCount: 11,
 					}, nil
@@ -476,7 +476,7 @@ func TestHandlerUpgradePortableConsumableAppliesTheThirdParameter(t *testing.T) 
 		SelectedCharacterID:   77,
 		Repositories:          repos,
 		UpgradeTicketResolver: upgradeTicketResolverForPortable(consumable),
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			return alignedcmd.UpgradePolicyResolution{SuccessWeight: 13000, PenaltyType: 3, MaterialItemID: 3242, MaterialCount: 11}, nil
 		},
 	})

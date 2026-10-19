@@ -49,6 +49,8 @@ func currentGuardianGemWriteTarget(
 	equipment *dnfrepo.EquipmentRecord,
 	target currentGuardianGemTargetLocation,
 	request currentGuardianGemUseRequest,
+	selected currentGuardianGemDefinition,
+	catalog *pvfDungeonDropCatalog,
 ) error {
 	if inventory == nil || equipment == nil {
 		return errCurrentGuardianGemInventoryMissing
@@ -58,6 +60,9 @@ func currentGuardianGemWriteTarget(
 		item, ok := inventory.Slots[target.Key]
 		if !ok {
 			return errCurrentGuardianGemTargetMissing
+		}
+		if err := currentGuardianGemValidateAttribute(item.RawEntry, request.SocketIndex, selected, catalog); err != nil {
+			return err
 		}
 		if err := currentGuardianGemWriteRawSocket(item.RawEntry, request.SocketIndex, request.GuardianGemItemID); err != nil {
 			return err
@@ -70,6 +75,9 @@ func currentGuardianGemWriteTarget(
 		if !ok {
 			return errCurrentGuardianGemTargetMissing
 		}
+		if err := currentGuardianGemValidateAttribute(item.RawEntry, request.SocketIndex, selected, catalog); err != nil {
+			return err
+		}
 		if err := currentGuardianGemWriteRawSocket(item.RawEntry, request.SocketIndex, request.GuardianGemItemID); err != nil {
 			return err
 		}
@@ -81,6 +89,9 @@ func currentGuardianGemWriteTarget(
 		if !ok {
 			return errCurrentGuardianGemTargetMissing
 		}
+		if err := currentGuardianGemValidateAttribute(item.RawEntry, request.SocketIndex, selected, catalog); err != nil {
+			return err
+		}
 		if err := currentGuardianGemWriteRawSocket(item.RawEntry, request.SocketIndex, request.GuardianGemItemID); err != nil {
 			return err
 		}
@@ -91,6 +102,46 @@ func currentGuardianGemWriteTarget(
 		equipment.Entries[target.Key] = item
 	default:
 		return errCurrentGuardianGemTargetMissing
+	}
+	return nil
+}
+
+// currentGuardianGemValidateAttribute enforces the rule printed by every
+// active-PVF [flag gem]: "相同属性无法重复装备". The destination socket is
+// excluded because op829 explicitly replaces an occupied socket.
+func currentGuardianGemValidateAttribute(
+	raw []byte,
+	socketIndex byte,
+	selected currentGuardianGemDefinition,
+	catalog *pvfDungeonDropCatalog,
+) error {
+	if len(raw) != currentItemListEntryWireSize {
+		return fmt.Errorf("%w: raw_len=%d", errCurrentGuardianGemTargetRawMissing, len(raw))
+	}
+	for socket := 0; socket < currentGuardianGemSocketCount; socket++ {
+		if socket == int(socketIndex) {
+			continue
+		}
+		offset := currentGuardianGemRawSocketOffset + socket*currentGuardianGemRawSocketWidth
+		value := binary.LittleEndian.Uint16(raw[offset : offset+currentGuardianGemRawSocketWidth])
+		if value == 0 {
+			continue
+		}
+		existingItemID := currentGuardianGemItemIDBase + uint32(value)
+		existing, err := resolveCurrentGuardianGem(catalog, existingItemID)
+		if err != nil {
+			return fmt.Errorf("resolve guardian gem socket=%d item=%d: %w", socket, existingItemID, err)
+		}
+		if existing.EnchantFamily == selected.EnchantFamily {
+			return fmt.Errorf(
+				"%w: socket=%d existing_item=%d requested_item=%d attribute=%q",
+				errCurrentGuardianGemDuplicateAttribute,
+				socket,
+				existingItemID,
+				selected.ItemID,
+				selected.EnchantFamily,
+			)
+		}
 	}
 	return nil
 }

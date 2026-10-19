@@ -4,16 +4,22 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	"longheng.io/server/internal/modules/dnf/progression"
 )
 
 const (
 	mainQuestExperienceMultiplierMin = 1
 	mainQuestExperienceMultiplierMax = 100
+	mainQuestExperiencePercentMin    = 0
+	mainQuestExperiencePercentMax    = 100
 )
 
 var (
-	ErrFinishMainQuestExperienceMultiplierInvalid = errors.New("dnf quest finish main quest experience multiplier is invalid")
-	ErrFinishMainQuestExperienceOverflow          = errors.New("dnf quest finish main quest experience overflows uint32")
+	ErrFinishMainQuestExperienceMultiplierInvalid   = errors.New("dnf quest finish main quest experience multiplier is invalid")
+	ErrFinishMainQuestExperienceOverflow            = errors.New("dnf quest finish main quest experience overflows uint32")
+	ErrFinishMainQuestExperiencePercentInvalid      = errors.New("dnf quest finish main quest experience percent is invalid")
+	ErrFinishMainQuestExperiencePercentLevelInvalid = errors.New("dnf quest finish main quest experience level is invalid")
 )
 
 func normalizeMainQuestExperienceMultiplier(value int) (int, error) {
@@ -24,6 +30,23 @@ func normalizeMainQuestExperienceMultiplier(value int) (int, error) {
 		return 0, fmt.Errorf("%w: multiplier=%d", ErrFinishMainQuestExperienceMultiplierInvalid, value)
 	}
 	return value, nil
+}
+
+func normalizeMainQuestExperiencePercent(value int) (int, error) {
+	if value < mainQuestExperiencePercentMin || value > mainQuestExperiencePercentMax {
+		return 0, fmt.Errorf("%w: percent=%d", ErrFinishMainQuestExperiencePercentInvalid, value)
+	}
+	return value, nil
+}
+
+// isPercentMainQuestExperienceDefinition selects only ordinary standalone epic
+// main quests. Job changes and the level-ignore exceptions retain the legacy
+// reward path, as do epic children.
+func isPercentMainQuestExperienceDefinition(definition Definition) bool {
+	return normalizeQuestTag(definition.Grade) == "epic" &&
+		definition.MainQuestID <= 0 &&
+		definition.JobChangeQuest == 0 &&
+		!definition.IgnoreQuestLevel4Exp
 }
 
 func isMainQuestExperienceDefinition(catalog *Catalog, definition Definition) bool {
@@ -75,4 +98,32 @@ func applyMainQuestExperienceMultiplier(
 		return 0, 0, 0, err
 	}
 	return base, bonus, total, nil
+}
+
+func finishMainQuestExperiencePercent(
+	tables *progression.Tables,
+	definition Definition,
+	percent int,
+) (uint32, error) {
+	if !definition.HasLevel || definition.LevelMin <= 0 || definition.LevelMax < definition.LevelMin {
+		return 0, fmt.Errorf(
+			"%w: quest=%d has_level=%t min=%d max=%d",
+			ErrFinishMainQuestExperiencePercentLevelInvalid,
+			definition.ID,
+			definition.HasLevel,
+			definition.LevelMin,
+			definition.LevelMax,
+		)
+	}
+	value, err := tables.MainQuestExperiencePercent(definition.LevelMin, percent)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"%w: quest=%d level=%d: %v",
+			ErrFinishMainQuestExperiencePercentLevelInvalid,
+			definition.ID,
+			definition.LevelMin,
+			err,
+		)
+	}
+	return value, nil
 }
