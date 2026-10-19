@@ -43,6 +43,7 @@ type runtimeDungeonState struct {
 	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
 	entryCharacterLevel          int
+	petGrowthEntryPending        bool // follower runtime installed before the group commits
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
 	settlementLuckyStarStateSent bool
 	raidDeadlineReturn           *currentRaidDeadlineReturn
@@ -890,6 +891,10 @@ func (s *Service) prepareDungeonRuntimePlanned(
 }
 
 func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDungeonState) error {
+	return s.commitDungeonRuntimeWithPetClock(session, runtime, true)
+}
+
+func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime *runtimeDungeonState, startPetClock bool) error {
 	if session == nil || runtime == nil || runtime.Session == nil {
 		return errDungeonWorldMapUnavailable
 	}
@@ -907,9 +912,23 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		}
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
+	petClockCommitted := false
+	defer func() {
+		session.dungeon.mu.Unlock()
+		if petClockCommitted {
+			s.flushCurrentPetGrowthClockTransitions(session, "dungeon_runtime_committed")
+		}
+	}()
 	if runtime.epicEntry != nil || s.currentEpicEntryEnabled(runtime.Dungeon.ID) {
-		return s.commitCurrentEpicEntryLocked(session, runtime)
+		if err := s.commitCurrentEpicEntryLocked(session, runtime); err != nil {
+			return err
+		}
+		runtime.petGrowthEntryPending = !startPetClock
+		if startPetClock {
+			s.queueCurrentPetGrowthDungeonEntryClock(session, runtime)
+			petClockCommitted = true
+		}
+		return nil
 	}
 	if session.dungeon.runtime != nil && session.dungeon.runtime.Session != nil {
 		snapshot := session.dungeon.runtime.Session.Snapshot().Run
@@ -951,6 +970,11 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	if scene, ok := runtime.Session.Scene(); ok {
 		s.adoptPartyDungeonInstance(session, runtime, scene)
 		attachCurrentSemesterPartyMember(session, runtime)
+	}
+	runtime.petGrowthEntryPending = !startPetClock
+	if startPetClock {
+		s.queueCurrentPetGrowthDungeonEntryClock(session, runtime)
+		petClockCommitted = true
 	}
 	return nil
 }

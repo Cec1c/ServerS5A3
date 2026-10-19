@@ -169,17 +169,19 @@ func (s *Service) sendSelectedCreatureStateTableWithRefresh(session *gameSession
 	session.selectedCreatureStateTableSent = true
 	mode := currentPetGrowthClockTown
 	session.dungeon.mu.Lock()
-	if runtime := session.dungeon.runtime; runtime != nil && runtime.Session != nil {
+	if runtime := session.dungeon.runtime; runtime != nil && runtime.Session != nil && !runtime.petGrowthEntryPending {
 		mode = currentPetGrowthClockDungeon
 	}
+	clockErr := queueCurrentPetGrowthClockTransition(session, mode, s.gameplayNow(), source+"_after_op105")
 	session.dungeon.mu.Unlock()
-	if err := s.switchCurrentPetGrowthClock(session, mode, s.gameplayNow(), source+"_after_op105"); err != nil {
+	if clockErr != nil {
 		s.logGameEvent(session, "game-pet-growth-clock-start-deferred",
 			"char_id", session.selectedCharacterID,
 			"mode", mode.String(),
 			"source", source,
-			"error", err)
+			"error", clockErr)
 	}
+	s.flushCurrentPetGrowthClockTransitions(session, source+"_after_op105")
 	return nil
 }
 
