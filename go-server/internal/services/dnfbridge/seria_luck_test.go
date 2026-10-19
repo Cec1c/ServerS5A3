@@ -94,6 +94,53 @@ func TestSeriaLuckCatalogPreservesOtherEvents(t *testing.T) {
 	}
 }
 
+func TestSeriaLuckCatalogCoexistsWithPCRoomAndLegacy(t *testing.T) {
+	for _, native := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "pcroom"}[native], func(t *testing.T) {
+			ids := currentSpendTimeJoustCatalogGoldenRewards
+			before, err := buildCurrentActivityEventInfoBodyWithOnlinePanel(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, native)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, native, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(after, withSeriaLuckCatalogFixture(t, before)) {
+				t.Fatal("combined catalog changed existing rows instead of appending Seria luck")
+			}
+
+			// Exercise the production caller as well as the catalog serialization.
+			s, session, conn, catalog, _ := onlinePanelFixture(t)
+			wantOwner, wantState := uint16(currentSpendTimeEventID), currentSpendTimeProgressMsgID
+			if native {
+				wantOwner, wantState = 228, 561
+			} else {
+				catalog.nativePCRoom = nil
+			}
+			if _, err := s.sendCurrentSpendTimeProtocolState(session, catalog, 0, 0, true); err != nil {
+				t.Fatal(err)
+			}
+			packet, rest := splitGameServerUpperPacketWithHeader(t, conn.write.Bytes(), proto.GameServerUpperHeaderSize16)
+			if packet.Header.MsgID != 108 {
+				t.Fatalf("first packet=%d", packet.Header.MsgID)
+			}
+			body, err := zlibDecompress(packet.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			shape := parseCurrentSpendTimeEventInfoBody(t, body)
+			if !shape.hasEvent(wantOwner) || !shape.hasEvent(currentSeriaLuckEventID) {
+				t.Fatal("production catalog lost online rewards or Seria luck")
+			}
+			state, tail := splitGameServerUpperPacket(t, rest)
+			if state.Header.MsgID != wantState || len(tail) != 0 {
+				t.Fatalf("online owner state=%d, want=%d, trailing=%d", state.Header.MsgID, wantState, len(tail))
+			}
+		})
+	}
+}
+
 func TestInitialSeriaLuckRestoresAccountProgressAfterSceneAndOnlyOnce(t *testing.T) {
 	for _, tc := range []struct {
 		raw  string
