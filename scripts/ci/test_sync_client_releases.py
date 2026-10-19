@@ -72,6 +72,61 @@ class ClientReleaseTests(unittest.TestCase):
             self.assertEqual(list(Path(d).iterdir()),[p])
             self.assertFalse(marker.exists())
 
+    def test_root_evidence_log_is_read_only_archive_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'client.zip'
+            log='evidence/v138-independent-gate-test.log'
+            with zipfile.ZipFile(p,'w') as z:
+                z.writestr('DNF.exe',b'MZtest')
+                z.writestr(log,'static test evidence\n')
+            self.assertEqual(sync.inspect_zip(p),{'sha256':sync.hashlib.sha256(b'MZtest').hexdigest(),'length':6})
+            self.assertEqual(list(Path(d).iterdir()),[p])
+
+    def test_evidence_log_allowance_is_limited_to_direct_children(self):
+        for name in ['failure.log','logs/failure.log','client/evidence/failure.log',
+                     'Evidence/failure.log','evidence/nested/failure.log',
+                     'evidence/../failure.log','evidence/./failure.log',
+                     'evidence/failure.log.exe','evidence/failure.log.py',
+                     'evidence/failure.log.bat','evidence/failure.log.ps1']:
+            with self.subTest(name=name),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'client.zip'
+                with zipfile.ZipFile(p,'w') as z:
+                    z.writestr('DNF.exe',b'MZtest')
+                    z.writestr(name,b'pass')
+                with self.assertRaises(sync.SyncError):
+                    sync.inspect_zip(p)
+
+    def test_evidence_logs_keep_duplicate_and_non_file_guards(self):
+        for kind in ['duplicate','symlink','directory']:
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'client.zip'
+                with zipfile.ZipFile(p,'w') as z:
+                    z.writestr('DNF.exe',b'MZtest')
+                    if kind=='duplicate':
+                        z.writestr('evidence/a.log',b'one')
+                        z.writestr('evidence/A.log',b'two')
+                    elif kind=='symlink':
+                        entry=zipfile.ZipInfo('evidence/link.log')
+                        entry.create_system=3
+                        entry.external_attr=0o120777<<16
+                        z.writestr(entry,b'../outside')
+                    else:
+                        z.writestr('evidence/',b'')
+                with self.assertRaises(sync.SyncError):
+                    sync.inspect_zip(p)
+
+    def test_evidence_log_crc_is_still_checked(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'client.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                z.writestr('DNF.exe',b'MZtest')
+                z.writestr('evidence/failure.log',b'original evidence')
+            tampered=p.read_bytes().replace(b'original evidence',b'modified evidence')
+            self.assertNotEqual(tampered,p.read_bytes())
+            p.write_bytes(tampered)
+            with self.assertRaisesRegex(sync.SyncError,'Invalid client ZIP'):
+                sync.inspect_zip(p)
+
     def test_python_member_allowance_does_not_extend_to_other_paths_or_types(self):
         for name in ['patch.py','other/patch.py','client/scripts/patch.py','Scripts/patch.py',
                      'scripts/patch.pyc','scripts/patch.py.exe','scripts/patch.sh',
