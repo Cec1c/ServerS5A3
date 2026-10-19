@@ -715,6 +715,12 @@ type MailboxItemResolution struct {
 	// 是 dnfbridge 用同一条已测的投影算出来的创建期 Extra，只在附件缺该键时合并。
 	ExpireAt     time.Time
 	DefaultExtra map[string]string
+	// UsablePeriodDays is the relative period declared by the item template.
+	// Mail claims resolve it from the original attachment/mail, never claim time.
+	UsablePeriodDays int64
+	// OriginalExpiry reads only the attachment's existing instance evidence.
+	// It does not use the current time or generate a new grant deadline.
+	OriginalExpiry func(dnfrepo.MailAttachment) time.Time
 	// EpicPieceID 非零表示这件附件是**史诗碎片**（`etc/epicpieceinfo.etc`
 	// `[piece list]` 的成员）：它必须进账号级史诗图鉴账本，**不写任何背包行**。
 	// 只有 dnfbridge 同时提供了 Request.EpicPieceCreditor 时才允许置位；为零

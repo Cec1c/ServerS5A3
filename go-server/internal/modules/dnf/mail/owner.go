@@ -578,6 +578,14 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				if resolveErr != nil {
 					return fmt.Errorf("%w: attachment item=%d resolve=%v", ErrMailboxAssetMismatch, attachment.ItemID, resolveErr)
 				}
+				grantAnchor := candidate.mail.CreatedAt
+				if !MailCreationAnchorsAttachment(candidate.mail) {
+					grantAnchor = time.Time{}
+				}
+				attachment, resolveErr = mailboxAttachmentWithOriginalExpiry(attachment, resolution, grantAnchor)
+				if resolveErr != nil {
+					return resolveErr
+				}
 				// 史诗碎片：不进背包、不占格，也没有可刷新的槽位。它改记**账号级**
 				// 史诗图鉴账本（跨角色共享），由桥接层在 ACK 之后补发 0x047D 增量。
 				// 只有桥接层同时注入了入账闭包时才走这条路：否则（含开关回退档）
@@ -1129,6 +1137,16 @@ func mailboxAttachmentStack(attachment dnfrepo.MailAttachment, count int64, reso
 		if _, exists := extra[key]; !exists {
 			extra[key] = value
 		}
+	}
+	if resolution.UsablePeriodDays > 0 && !attachment.ExpireAt.IsZero() {
+		if extra == nil {
+			extra = make(map[string]string, 2)
+		}
+		// The resolver's default describes a new grant. A claim transfers an
+		// existing instance, so its durable fields and projected row must agree.
+		expires := strconv.FormatInt(attachment.ExpireAt.Unix(), 10)
+		extra["expire_time"] = expires
+		extra["expire_unix"] = expires
 	}
 	stack := dnfrepo.ItemStack{
 		ItemID:   attachment.ItemID,
