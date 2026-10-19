@@ -33,8 +33,11 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			break
 		}
 	}
-	clearReturnOrigin := !currentRegisteredRaidTown(projected.Stats["town_id"]) && current.Stats[currentRaidReturnOriginMarker] == 1
-	if unchanged && !clearReturnOrigin {
+	clearChannelTownOrigin := currentRegisteredChannelTown(current.Stats[currentTownPrevVillageTownStat]) &&
+		!currentRegisteredChannelTown(projected.Stats["town_id"])
+	clearReturnOrigin := !currentRegisteredChannelTown(projected.Stats["town_id"]) &&
+		(current.Stats[currentRaidReturnOriginMarker] == 1 || current.Stats[currentPVPReturnOriginMarker] == 1)
+	if unchanged && !clearChannelTownOrigin && !clearReturnOrigin {
 		return current, nil
 	}
 	if repositories.CharacterSettlement == nil {
@@ -59,8 +62,18 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 				return err
 			}
 		}
-		if !currentRegisteredRaidTown(projected.Stats["town_id"]) && currentClearRaidReturnOrigin(character.Stats) {
-			changed = true
+		if projected.Stats["town_id"] == 10 && character.Stats["town_id"] != 10 {
+			if err := s.currentSavePVPReturnOrigin(characterID, &character); err != nil {
+				return err
+			}
+		}
+		if !currentRegisteredChannelTown(projected.Stats["town_id"]) {
+			if currentClearPVPReturnOrigin(character.Stats) {
+				changed = true
+			}
+			if currentClearRaidReturnOrigin(character.Stats) {
+				changed = true
+			}
 		}
 		for _, key := range []string{"town_id", "area_id", "pos_x", "pos_y", "direction", "area_state"} {
 			value, exists := projected.Stats[key]
@@ -70,6 +83,16 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			if old, exists := character.Stats[key]; !exists || old != value {
 				character.Stats[key] = value
 				changed = true
+			}
+		}
+		// 旧版本可能已保存决斗场为赛丽亚房间出口，随普通落点一起原子清除。
+		if currentRegisteredChannelTown(character.Stats[currentTownPrevVillageTownStat]) &&
+			!currentRegisteredChannelTown(projected.Stats["town_id"]) {
+			for _, key := range []string{currentTownPrevVillageTownStat, currentTownPrevVillageAreaStat, currentTownPrevVillagePosXStat, currentTownPrevVillagePosYStat, currentTownPrevVillageDirectionStat} {
+				if _, exists := character.Stats[key]; exists {
+					delete(character.Stats, key)
+					changed = true
+				}
 			}
 		}
 		if changed {

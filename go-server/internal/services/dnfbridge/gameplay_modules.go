@@ -3,6 +3,7 @@ package dnfbridge
 var currentGameplayModules = mustGameplayModuleRegistry(
 	guildGameplayModule(),
 	auctionGameplayModule(),
+	pvpGameplayModule(),
 	npcShopGameplayModule(),
 	ceraShopGameplayModule(),
 	ceraPackageGameplayModule(),

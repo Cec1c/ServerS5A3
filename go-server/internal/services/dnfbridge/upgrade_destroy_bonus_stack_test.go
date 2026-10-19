@@ -123,7 +123,7 @@ func TestRealPVFUpgradeDestroyBonusIdentityMatchesLiveItems(t *testing.T) {
 		}
 		resolved := false
 		for level := 0; level <= 31; level++ {
-			policy, err := resolver(testCase.mode, level)
+			policy, err := resolver(testCase.mode, 28309, level)
 			if err != nil {
 				t.Fatalf("resolve %s level %d: %v", testCase.mode, level, err)
 			}

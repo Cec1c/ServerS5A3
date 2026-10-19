@@ -17,6 +17,9 @@ func (s *Service) currentInitialTownTransition(
 	if isCurrentFiendWarChannel(session) {
 		return s.currentRaidEntranceTownTransition(session, characterID, character)
 	}
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
 	return s.currentPersistedTownTransition(ctx, session, characterID, character, "selected_character_persisted_location_read_only")
 }
 
@@ -26,10 +29,21 @@ func (s *Service) currentChannelReconnectTownTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
 	if session != nil && (session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType || session.channel.Type == 42) {
 		return s.currentRaidEntranceTownTransition(session, characterID, character)
 	}
-	if currentRegisteredRaidTown(character.Stats["town_id"]) {
+	if character.Stats["town_id"] == 10 {
+		location, err := s.currentPVPExitLoginLocation(characterID, character)
+		if err != nil {
+			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err
+		}
+		return currentReconnectLocationProjection(characterID, character, location)
+	}
+	// 超时空及其它专用城镇退出时，优先恢复入场前的有效普通落点。
+	if currentRegisteredChannelTown(character.Stats["town_id"]) {
 		location, err := s.currentRaidExitLoginLocation(characterID, character)
 		if err != nil {
 			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err

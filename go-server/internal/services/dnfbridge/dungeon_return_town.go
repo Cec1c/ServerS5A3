@@ -621,6 +621,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 
 	session.dungeon.mu.Lock()
 	leaderExitInstance := (*dungeonPartyInstance)(nil)
+	petClockRetired := false
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_committed")
@@ -631,9 +632,16 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		leaderExitInstance = runtime.partyInstance
 		session.dungeon.runtime = nil
 		s.releasePartyDungeonInstance(runtime, characterID, "completed_town_route")
+		if err := queueCurrentPetGrowthClockTransition(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_after_completed_town_route"); err != nil {
+			s.logGameEvent(session, "game-pet-growth-clock-transition-rejected", "source", source+"_after_completed_town_route", "error", err)
+		}
+		petClockRetired = true
 	}
 	detached := session.dungeon.runtime != runtime
 	session.dungeon.mu.Unlock()
+	if petClockRetired {
+		s.flushCurrentPetGrowthClockTransitions(session, source+"_after_completed_town_route")
+	}
 	if detached {
 		session.townMu.Lock()
 		armCurrentCompletedTownSceneTailOwnerLocked(session, characterID)
@@ -655,13 +663,6 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 			if err := s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_single_party_town_restore"); err != nil {
 				return err
 			}
-		}
-		if err := s.switchCurrentPetGrowthClock(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_after_completed_town_route"); err != nil {
-			s.logGameEvent(session, "game-pet-growth-clock-start-deferred",
-				"char_id", characterID,
-				"mode", currentPetGrowthClockTown.String(),
-				"source", source,
-				"error", err)
 		}
 	}
 
@@ -785,19 +786,15 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			s.queueCurrentRaidDungeonProgress(state)
 		}
 	}
-	if err := s.switchCurrentPetGrowthClock(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_confirmed_town_scene"); err != nil {
-		s.logGameEvent(session, "game-pet-growth-clock-start-deferred",
-			"char_id", session.selectedCharacterID,
-			"mode", currentPetGrowthClockTown.String(),
-			"source", source,
-			"error", err)
-	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_scene_transition_committed")
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "town_scene_transition_committed")
 	// 队长退出副本（回城）提交：先留下共享实例指针，release 会把它置空。
 	leaderExitInstance := runtime.partyInstance
 	leaderExitCharacterID := session.selectedCharacterID
 	session.dungeon.runtime = nil
+	if err := queueCurrentPetGrowthClockTransition(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_confirmed_town_scene"); err != nil {
+		s.logGameEvent(session, "game-pet-growth-clock-transition-rejected", "source", source+"_confirmed_town_scene", "error", err)
+	}
 	s.releasePartyDungeonInstance(runtime, session.selectedCharacterID, "back_to_village_committed")
 	resetDungeonReturnSceneGates(session)
 	session.returnTownFinishLoadingAckOnly = true
@@ -805,6 +802,7 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 	townID := runtime.townReturnTransition.TownID
 	areaID := runtime.townReturnTransition.AreaID
 	session.dungeon.mu.Unlock()
+	s.flushCurrentPetGrowthClockTransitions(session, source+"_confirmed_town_scene")
 	// 锁外执行（要读实例注册表 / 可能要发帧，不能持有 session.dungeon.mu）。
 	// 现场这一条 source 就是操作者报障的那次中途放弃（packet_log.txt:96604，
 	// `run_status=abandoned`）。

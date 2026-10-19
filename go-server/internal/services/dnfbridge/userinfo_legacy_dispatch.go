@@ -57,6 +57,7 @@ func csharpLegacyUserInfoInitPackets() []csharpSelectInitPacket {
 }
 
 type csharpLegacyUserInfoReader struct {
+	peerSkills      []byte
 	ctx             context.Context
 	repo            dnfrepo.LegacyUserInfoRepository
 	characterID     string

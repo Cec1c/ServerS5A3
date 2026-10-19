@@ -49,6 +49,7 @@ func currentPVFItemDefinitionWithUsablePeriodAt(
 	}
 	expireUnix := nowUnix + definition.UsablePeriodDays*int64((24*time.Hour)/time.Second)
 	definition.ExpirationDate = time.Unix(expireUnix, 0).UTC()
+	definition.ExpirationFromUsablePeriod = true
 	return definition, nil
 }
 

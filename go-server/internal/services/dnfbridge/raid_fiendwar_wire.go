@@ -10,7 +10,9 @@ import (
 	"time"
 )
 
-// 当前 EXE b90cc0 登记 1483..1491，参考版对应 1452..1460。
+// 此映射保留原分支的 1483..1491 契约。v143 (1ea94c7d...) 的 class0
+// 接收门禁会拒绝全部九包；不能据原参考 EXE 的短摘要宣称当前兼容。
+// 配套证据和待办见 Docs/FIENDWAR_STAGE_20261019.md。
 const (
 	currentFiendWarInit        uint16 = 1483
 	currentFiendWarStateNotice uint16 = 1484

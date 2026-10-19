@@ -28,7 +28,7 @@ func currentClearRaidReturnOrigin(stats map[string]int64) bool {
 
 // 只保存已提交且经PVF验证的普通落点；跨特殊频道不会覆盖首次进场原位。
 func (s *Service) currentSaveRaidReturnOrigin(characterID uint16, character *dnfrepo.CharacterRecord) error {
-	if character == nil || currentRegisteredRaidTown(character.Stats["town_id"]) || character.Stats["town_id"] == 10 || character.Stats["town_id"] == 48 {
+	if character == nil || currentRegisteredChannelTown(character.Stats["town_id"]) || character.Stats["town_id"] == 48 {
 		return nil
 	}
 	if _, found, reason := s.currentPersistedTownLoginLocation(characterID, *character); !found {
@@ -53,7 +53,7 @@ func (s *Service) currentRaidReturnOriginLocation(characterID uint16, character 
 		}
 		projected.Stats[field] = value
 	}
-	if currentRegisteredRaidTown(projected.Stats["town_id"]) || projected.Stats["town_id"] == 10 || projected.Stats["town_id"] == 48 {
+	if currentRegisteredChannelTown(projected.Stats["town_id"]) || projected.Stats["town_id"] == 48 {
 		return currentTownLoginLocation{}, false, fmt.Errorf("团本返城原位不是普通城镇")
 	}
 	location, found, reason := s.currentPersistedTownLoginLocation(characterID, projected)
@@ -66,6 +66,11 @@ func (s *Service) currentRaidReturnOriginLocation(characterID uint16, character 
 
 func (s *Service) currentRaidExitLoginLocation(characterID uint16, character dnfrepo.CharacterRecord) (currentTownLoginLocation, error) {
 	location, found, err := s.currentRaidReturnOriginLocation(characterID, character)
+	if err != nil || found {
+		return location, err
+	}
+	// 决斗直接转入团本时，继续保留此前普通城镇的有效来源。
+	location, found, err = s.currentPVPReturnOriginLocation(characterID, character)
 	if err != nil || found {
 		return location, err
 	}

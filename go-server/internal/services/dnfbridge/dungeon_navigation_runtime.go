@@ -66,6 +66,9 @@ func dungeonEntryRequiredItemReasonFixed() bool {
 }
 
 func (s *Service) handleDungeonSelectUpper(session *gameSession, body []byte) error {
+	if session != nil && isPVPChannel(session.channel) {
+		return nil
+	}
 	return s.handleDungeonSelectUpperPlanned(session, body, nil, true)
 }
 
@@ -444,6 +447,14 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 				"reason", "dungeon_runtime_commit_failed",
 				"error", err)
 			return nil
+		}
+	}
+	// Followers are installed before the leader can still reject admission.
+	// Start their dungeon clocks only after the entire group has committed.
+	s.activateCurrentPetGrowthDungeonClock(session, runtime)
+	for _, member := range preparedFollowers {
+		if member != nil && member.committed {
+			s.activateCurrentPetGrowthDungeonClock(member.session, member.runtime)
 		}
 	}
 	resetDungeonEntrySceneGates(session)
@@ -998,7 +1009,7 @@ func (s *Service) commitRuntimePartyPreparedFollowers(prepared []*runtimePartyPr
 			s.rollbackRuntimePartyPreparedFollowers(committed)
 			return errors.New("prepared party member runtime is incomplete")
 		}
-		if err := s.commitDungeonRuntime(member.session, member.runtime); err != nil {
+		if err := s.commitDungeonRuntimeWithPetClock(member.session, member.runtime, false); err != nil {
 			s.rollbackRuntimePartyPreparedFollowers(committed)
 			return fmt.Errorf("commit party member %d runtime: %w", member.session.selectedCharacterID, err)
 		}
@@ -1014,11 +1025,21 @@ func (s *Service) rollbackRuntimePartyPreparedFollowers(prepared []*runtimeParty
 			continue
 		}
 		member.session.dungeon.mu.Lock()
+		petClockRolledBack := false
 		if member.session.dungeon.runtime == member.runtime {
 			member.session.dungeon.runtime = nil
 			s.releasePartyDungeonInstance(member.runtime, member.session.selectedCharacterID, "party_entry_rollback")
+			if dungeonRuntimeOwnsCharacter(member.runtime, member.session.selectedCharacterID) {
+				if err := queueCurrentPetGrowthClockTransition(member.session, currentPetGrowthClockTown, s.gameplayNow(), "party_entry_rollback"); err != nil {
+					s.logGameEvent(member.session, "game-pet-growth-clock-transition-rejected", "source", "party_entry_rollback", "error", err)
+				}
+				petClockRolledBack = true
+			}
 		}
 		member.session.dungeon.mu.Unlock()
+		if petClockRolledBack {
+			s.flushCurrentPetGrowthClockTransitions(member.session, "party_entry_rollback")
+		}
 		member.committed = false
 	}
 }

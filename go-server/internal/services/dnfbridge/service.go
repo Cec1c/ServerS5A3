@@ -30,6 +30,7 @@ import (
 	dnfpet "longheng.io/server/internal/modules/dnf/pet"
 	dnfprofession "longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -76,6 +77,15 @@ type Service struct {
 	auctionMu                 sync.Mutex
 	auctionItemEligibility    func(uint32) bool
 	auctionCategoryItem       func(uint16, uint32) bool
+	pvpMu                     sync.Mutex
+	pvpRooms                  map[uint16]*currentPVPRoom
+	pvpMatching               []*currentPVPMatchingRequest // protected by pvpMu
+	nextPVPMatchingToken      uint32
+	pvpSubscribers            map[*gameSession]int
+	pvpMapOrder               []int64                 // protected by pvpMu
+	pvpDailyCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpTotalCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpFatigueRules           *currentPVPFatigueRules // protected by initialEquipmentMu
 	tradeMu                   sync.Mutex
 	itemTrades                map[uint16]*onlineItemTrade
 	expertJobStoreMu          sync.Mutex
@@ -631,6 +641,8 @@ func (s *Service) Start(ctx context.Context) error {
 		"joust_event_catalog_includes_2365", s.currentSpendTimeCatalogIncludesJoustEvent(),
 		"story_digest_enabled", s.storyDigestEnabled(),
 		"quest_clear_ticket_scope", string(s.questClearTicketScope()),
+		"main_quest_exp_percent", s.options.mainQuestExperiencePercent,
+		"main_quest_exp_multiplier", s.options.mainQuestExperienceMultiplier,
 		// op34（完成任务）在**结算上下文超时/取消**时也必须回包：默认 on = 修复档
 		// （回与业务失败完全相同的失败体 `00 16`）；字面量 `legacy` = 逐字节回到
 		// 2026-09-27 的静默 `return nil`（那 4 次「点了没反应、每次空等 ≥3 秒」）。

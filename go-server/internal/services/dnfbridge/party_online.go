@@ -32,6 +32,9 @@ const (
 )
 
 func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
+	if session != nil && isPVPChannel(session.channel) && isOnlinePartyCommand(typ) {
+		return true, s.sendPartyCommandFailure(session, typ, 19)
+	}
 	// The old connection can still deliver a buffered party command after a
 	// reconnect has made a replacement session authoritative for the same
 	// character. Never let that stale packet invite, join, leave, kick, or

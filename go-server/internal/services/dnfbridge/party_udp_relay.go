@@ -31,6 +31,7 @@ type currentPartyUDPRelayBinding struct {
 }
 
 type currentPartyUDPRelayLegKey struct {
+	pvp     bool // 决斗房间与普通队伍使用不同命名空间。
 	partyID uint16
 	ownerID uint16
 	peerID  uint16
@@ -565,11 +566,18 @@ func (r *currentPartyUDPRelay) alive() bool {
 // It returns false without publishing a partial relay topology when a member
 // is stale/offline or the configured UDP range cannot satisfy the room.
 func (r *currentPartyUDPRelay) Sync(partyID uint16, bindings []currentPartyUDPRelayBinding) bool {
+	return r.syncGroup(false, partyID, bindings)
+}
+func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []currentPartyUDPRelayBinding) bool {
 	if r == nil || !r.enabled {
 		return false
 	}
 	bindings = currentPartyUDPRelayBindings(bindings)
-	if partyID == 0 || len(bindings) < 2 || len(bindings) > currentPartyUDPRelayMaxMembers {
+	limit := currentPartyUDPRelayMaxMembers
+	if pvp {
+		limit = 8
+	}
+	if partyID == 0 || len(bindings) < 2 || len(bindings) > limit {
 		return false
 	}
 
@@ -579,7 +587,7 @@ func (r *currentPartyUDPRelay) Sync(partyID uint16, bindings []currentPartyUDPRe
 			if owner.characterID == peer.characterID {
 				continue
 			}
-			wanted[currentPartyUDPRelayLegKey{partyID: partyID, ownerID: owner.characterID, peerID: peer.characterID}] = owner
+			wanted[currentPartyUDPRelayLegKey{pvp: pvp, partyID: partyID, ownerID: owner.characterID, peerID: peer.characterID}] = owner
 		}
 	}
 
@@ -622,7 +630,7 @@ func (r *currentPartyUDPRelay) Sync(partyID uint16, bindings []currentPartyUDPRe
 
 	toClose := make([]*currentPartyUDPRelayLeg, 0)
 	for key, existing := range r.legs {
-		if key.partyID != partyID {
+		if key.partyID != partyID || key.pvp != pvp {
 			continue
 		}
 		if binding, wanted := wanted[key]; !wanted || existing.binding != binding {
@@ -763,7 +771,7 @@ func (r *currentPartyUDPRelay) releaseLegLocked(leg *currentPartyUDPRelayLeg) {
 func (r *currentPartyUDPRelay) removePartyLocked(partyID uint16) []*currentPartyUDPRelayLeg {
 	legs := make([]*currentPartyUDPRelayLeg, 0)
 	for key, leg := range r.legs {
-		if key.partyID != partyID {
+		if key.partyID != partyID || key.pvp {
 			continue
 		}
 		delete(r.legs, key)
@@ -826,6 +834,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 
 		r.mu.Lock()
 		opposite := r.legs[currentPartyUDPRelayLegKey{
+			pvp:     leg.key.pvp,
 			partyID: leg.key.partyID,
 			ownerID: leg.key.peerID,
 			peerID:  leg.key.ownerID,
