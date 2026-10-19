@@ -133,11 +133,13 @@ func (s *Service) handleCurrentGameEndpointRequest(session *gameSession, classif
 		return nil
 	}
 	if pending := session.coldChannelLanding; pending != nil && pending.waiting && (!session.accountFromToken || s.accountIDForSession(session) != pending.account) {
+		s.restoreCurrentGameChannelHandoff(session)
 		return fmt.Errorf("频道更正期间登录账号发生变化")
 	}
 
 	mode, bodyLen, sent, err := s.sendGameInitial(session)
 	if err != nil {
+		s.restoreCurrentGameChannelHandoff(session)
 		return err
 	}
 	if !sent {
@@ -151,13 +153,17 @@ func (s *Service) handleCurrentGameEndpointRequest(session *gameSession, classif
 		"target_channel", session.channel.ID,
 		"reason", "current_exe_channelinfo_triggered_login_request")
 	if err := s.sendCurrentAuctionServicesOpen(session); err != nil {
+		s.restoreCurrentGameChannelHandoff(session)
 		return err
 	}
 	if pending := session.coldChannelLanding; pending != nil && pending.waiting {
 		pending.waiting = false
 		s.logGameEvent(session, "特殊频道重登普通握手完成", "来源频道", pending.original.ID, "目标频道", session.channel.ID)
 		if session.rosterRequested {
-			return s.sendUpperGetUserInfoBootstrap(session)
+			if err := s.sendUpperGetUserInfoBootstrap(session); err != nil {
+				s.restoreCurrentGameChannelHandoff(session)
+				return err
+			}
 		}
 	}
 	return nil

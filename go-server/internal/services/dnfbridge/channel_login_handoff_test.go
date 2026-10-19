@@ -189,6 +189,72 @@ func TestEmpireSameChannelReturnUsesCarriedOrdinarySource(t *testing.T) {
 	assertFirstChannelLoginSuccess(t, s, next, ordinary)
 }
 
+func TestChannelHandoffRestoresAfterColdRedirectWriteFailure(t *testing.T) {
+	s, p := firstLoginChannelFixture(t, 187)
+	ordinary, _ := s.catalog.Channel(21)
+	key, _ := currentChannelHandoffKey(p)
+	s.channelHandoffs = map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff{
+		key: {source: p.channel, ordinary: ordinary, expiresAt: s.gameplayNow().Add(time.Minute)},
+	}
+	p.conn = &firstChannelFailedWriteConn{}
+	if err := s.handleCurrentGameEndpointRequest(p, 1, currentObservedChannelReconnectDisplayProbeSize); err == nil {
+		t.Fatal("合成短写没有中止频道更正")
+	}
+	if p.coldChannelLanding == nil {
+		t.Fatal("失败前没有进入频道更正")
+	}
+	entry := s.takeCurrentAuthenticatedChannelHandoff(p)
+	if entry == nil || entry.ordinary.ID != ordinary.ID {
+		t.Fatalf("失败后没有恢复原普通来源：%+v", entry)
+	}
+	if s.takeCurrentAuthenticatedChannelHandoff(p) != nil {
+		t.Fatal("恢复后的交接仍可重复消费")
+	}
+}
+
+func TestChannelHandoffRestoresWhenCorrectedLoginWriteFails(t *testing.T) {
+	s, p := firstLoginChannelFixture(t, 187)
+	ordinary, _ := s.catalog.Channel(21)
+	key, _ := currentChannelHandoffKey(p)
+	s.channelHandoffs = map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff{
+		key: {source: p.channel, ordinary: ordinary, expiresAt: s.gameplayNow().Add(time.Minute)},
+	}
+	if err := s.handleCurrentGameEndpointRequest(p, 1, currentObservedChannelReconnectDisplayProbeSize); err != nil {
+		t.Fatal(err)
+	}
+	if p.coldChannelLanding == nil || p.channel.ID != ordinary.ID {
+		t.Fatalf("首次LOGIN没有进入更正后的普通频道：%+v", p.channel)
+	}
+	p.conn = &firstChannelFailedWriteConn{}
+	if err := s.handleCurrentGameEndpointRequest(p, 1, currentObservedChannelReconnectDisplayProbeSize); err == nil {
+		t.Fatal("更正后的LOGIN写失败没有返回错误")
+	}
+	entry := s.takeCurrentAuthenticatedChannelHandoff(p)
+	if entry == nil || entry.ordinary.ID != ordinary.ID {
+		t.Fatalf("新LOGIN失败后没有恢复原普通来源：%+v", entry)
+	}
+}
+
+func TestChannelHandoffRestoresAfterExplicitTargetLoginFailure(t *testing.T) {
+	s, p := firstLoginChannelFixture(t, 187)
+	ordinary, _ := s.catalog.Channel(21)
+	key, _ := currentChannelHandoffKey(p)
+	s.channelHandoffs = map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff{
+		key: {source: ordinary, ordinary: ordinary, expiresAt: s.gameplayNow().Add(time.Minute)},
+	}
+	p.conn = &firstChannelFailedWriteConn{}
+	if err := s.handleCurrentGameEndpointRequest(p, 1, currentObservedChannelReconnectDisplayProbeSize); err == nil {
+		t.Fatal("显式目标LOGIN写失败没有返回错误")
+	}
+	if p.coldChannelLanding != nil || p.channel.ID != 187 {
+		t.Fatalf("显式目标被误改成冷登录回落：%+v", p.channel)
+	}
+	entry := s.takeCurrentAuthenticatedChannelHandoff(p)
+	if entry == nil || entry.source.ID != ordinary.ID || entry.ordinary.ID != ordinary.ID {
+		t.Fatalf("显式目标失败后没有恢复原交接：%+v", entry)
+	}
+}
+
 func TestChannelHandoffIsAuthenticatedExpiringSingleUseAndIsolated(t *testing.T) {
 	s, p := firstLoginChannelFixture(t, 21)
 	p.selectedCharacterID = 29

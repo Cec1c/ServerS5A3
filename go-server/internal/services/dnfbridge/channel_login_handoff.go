@@ -82,6 +82,30 @@ func (s *Service) takeCurrentAuthenticatedChannelHandoff(p *gameSession) *curren
 	return entry
 }
 
+// 交接在目标解析或应答写出失败时放回，供同账号、同启动令牌的快速重连重试。
+// 若期间已登记新的 EXIT，以新交接为准，不能用旧记录覆盖。
+func (s *Service) restoreCurrentAuthenticatedChannelHandoff(p *gameSession, entry *currentAuthenticatedChannelHandoff) {
+	key, valid := currentChannelHandoffKey(p)
+	if s == nil || !valid || entry == nil || !s.gameplayNow().Before(entry.expiresAt) {
+		return
+	}
+	s.channelHandoffMu.Lock()
+	defer s.channelHandoffMu.Unlock()
+	if s.channelHandoffs == nil {
+		s.channelHandoffs = make(map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff)
+	}
+	if _, replaced := s.channelHandoffs[key]; !replaced {
+		s.channelHandoffs[key] = entry
+	}
+}
+
+func (s *Service) restoreCurrentGameChannelHandoff(p *gameSession) {
+	if s == nil || p == nil {
+		return
+	}
+	s.restoreCurrentAuthenticatedChannelHandoff(p, p.channelExitHandoff)
+}
+
 func (s *Service) currentOrdinaryChannelFromCatalog(candidate channelcatalog.Channel) (channelcatalog.Channel, bool) {
 	catalog := s.currentCatalog()
 	if catalog == nil {
@@ -129,7 +153,10 @@ func (s *Service) redirectCurrentSpecialBeforeFirstLoginSuccess(p *gameSession) 
 		p.endpointHandshakeMu.Unlock()
 		return false, nil
 	}
-	p.channelExitHandoff = s.takeCurrentAuthenticatedChannelHandoff(p)
+	if ticket := s.takeCurrentAuthenticatedChannelHandoff(p); ticket != nil {
+		p.channelExitHandoff = ticket
+	}
+	handoff := p.channelExitHandoff
 	sameEmpireReturn := p.channelExitHandoff != nil && p.channel.Type == currentTagTournamentChannelType &&
 		p.channelExitHandoff.source.ServerID == p.channel.ServerID && p.channelExitHandoff.source.ID == p.channel.ID && p.channelExitHandoff.source.Type == p.channel.Type
 	if isPVPChannel(p.channel) || !currentColdSpecialChannel(p.channel) || p.channelExitHandoff != nil && !sameEmpireReturn ||
@@ -139,6 +166,7 @@ func (s *Service) redirectCurrentSpecialBeforeFirstLoginSuccess(p *gameSession) 
 	}
 	target, err := s.currentColdOrdinaryChannelForSession(p)
 	if err != nil {
+		s.restoreCurrentAuthenticatedChannelHandoff(p, handoff)
 		p.endpointHandshakeMu.Unlock()
 		return true, err
 	}
@@ -150,6 +178,7 @@ func (s *Service) redirectCurrentSpecialBeforeFirstLoginSuccess(p *gameSession) 
 	p.connectionTownActorOwnerChannel, p.townActorOwnerChannel = byte(target.ID), byte(target.ID)
 	p.endpointHandshakeMu.Unlock()
 	if err := s.sendCurrentChannelResidentNotice(p, s.gameplayNow()); err != nil {
+		s.restoreCurrentAuthenticatedChannelHandoff(p, handoff)
 		if p.conn != nil {
 			_ = p.conn.Close()
 		}
