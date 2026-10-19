@@ -22,7 +22,12 @@ func benefitCatalog() ContentCatalog {
 }
 
 func TestGuildBenefitPurchaseRenewalExpiryAndPermanent(t *testing.T) {
+	forEachPurchaseReceiptTimeZone(t, testGuildBenefitPurchaseRenewalExpiryAndPermanent)
+}
+
+func testGuildBenefitPurchaseRenewalExpiryAndPermanent(t *testing.T, loc *time.Location) {
 	repos, q, now := memberExpansionFixture(t)
+	now = now.In(loc)
 	ctx := context.Background()
 	for _, kind := range []byte{1, 3} {
 		firstID := uint32(3)
@@ -39,7 +44,7 @@ func TestGuildBenefitPurchaseRenewalExpiryAndPermanent(t *testing.T) {
 				t.Fatalf("renewal=%+v %v", got, err)
 			}
 			replayed, err := PurchaseBenefit(ctx, repos.Guild, q, benefitCatalog(), now.Add(time.Hour))
-			if err != nil || replayed != got {
+			if err != nil || !equalBenefitPurchaseReceipt(replayed, got) {
 				t.Fatal("replay extended duration", err)
 			}
 		}

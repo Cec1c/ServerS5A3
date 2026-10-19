@@ -33,10 +33,15 @@ func contractPurchaseFixture(t *testing.T) (r.Group, CargoPurchase, time.Time) {
 }
 
 func TestGuildContractPurchaseTiersRenewalAndThirtyDays(t *testing.T) {
+	forEachPurchaseReceiptTimeZone(t, testGuildContractPurchaseTiersRenewalAndThirtyDays)
+}
+
+func testGuildContractPurchaseTiersRenewalAndThirtyDays(t *testing.T, loc *time.Location) {
 	ctx := context.Background()
 	for i, tier := range []int{300, 500, 700, 1000} {
 		t.Run(fmt.Sprint(tier), func(t *testing.T) {
 			repos, q, now := contractPurchaseFixture(t)
+			now = now.In(loc)
 			reg, _ := Load(ctx, repos.Settings)
 			reg.Guilds[1].MemberLimit = tier
 			if err := Save(ctx, repos.Settings, reg, now); err != nil {
@@ -55,13 +60,14 @@ func TestGuildContractPurchaseTiersRenewalAndThirtyDays(t *testing.T) {
 		})
 	}
 	repos, q, now := contractPurchaseFixture(t)
+	now = now.In(loc)
 	for i := 1; i <= 30; i++ {
 		q.RequestID = fmt.Sprintf("%064x", i)
 		got, err := PurchaseBenefit(ctx, repos.Guild, q, contractCatalog(), now)
 		if err != nil || !got.Benefit.ExpiresAt.Equal(now.Add(time.Duration(i)*24*time.Hour)) {
 			t.Fatal(i, got, err)
 		}
-		if replay, err := PurchaseBenefit(ctx, repos.Guild, q, contractCatalog(), now.Add(time.Hour)); err != nil || replay != got {
+		if replay, err := PurchaseBenefit(ctx, repos.Guild, q, contractCatalog(), now.Add(time.Hour)); err != nil || !equalBenefitPurchaseReceipt(replay, got) {
 			t.Fatal("replay renewed", replay, err)
 		}
 	}
