@@ -222,7 +222,7 @@ func TestKnownTerminalQuestReplaySkipsPreDispatchLoggingOnlyForExactRequest(t *t
 		t.Fatal("malformed op31 echo was incorrectly suppressed")
 	}
 
-	triggerRequest := dnfquest.SetTriggerRequest{QuestID: 4728, TriggerType: 16}
+	triggerRequest := dnfquest.SetTriggerRequest{QuestID: 4728, TriggerType: 16, Answer: 0, HasAnswer: true}
 	session.suppressCurrentSetQuestTriggerReplay(newCurrentSetQuestTriggerReplayKey(session.selectedCharacterID, triggerRequest))
 	triggerBody := []byte{0x21, 0x00, 0x78, 0x12, 0x10, 0x00}
 	if !shouldSuppressKnownQuestReplayBeforeGameUpperLog(session, uint16(dnfenum.CmdPacketSetQuestTrigger), dnfproto.DefaultChannelClassification, triggerBody) {

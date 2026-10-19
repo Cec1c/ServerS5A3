@@ -332,7 +332,8 @@ type UpgradeTicketResolver func(materialItemID int64, targetItemID int64) (Upgra
 // for one normal NPC upgrade attempt (non-ticket scene).
 type UpgradePolicyResolution struct {
 	SuccessWeight      int // out of 100000
-	PenaltyType        int // 0=no change, 1=downgrade, 3=destroy
+	PenaltyType        int // 0/1=no change, 2=subtract PenaltyValue, 3=destroy
+	PenaltyValue       int
 	MaterialItemID     int
 	MaterialCount      int
 	DestroyBonusItemID int
@@ -409,9 +410,9 @@ func (id StackGrantIdentity) Extra() map[string]string {
 }
 
 // UpgradePolicyResolver resolves the PVF upgrade table row for the given mode
-// and current upgrade level. A nil resolver means guaranteed success (backward
-// compatible with pre-PVF-table behavior).
-type UpgradePolicyResolver func(mode string, currentLevel int) (UpgradePolicyResolution, error)
+// and current upgrade level of the owned target template. Equipment rarity is
+// resolved from PVF using targetItemID, never inventory metadata or packet text.
+type UpgradePolicyResolver func(mode string, targetItemID int64, currentLevel int) (UpgradePolicyResolution, error)
 
 // UpgradeProtectTicketResolution is the runtime-PVF identity of one inventory
 // template asked about during the op50 destroy branch.

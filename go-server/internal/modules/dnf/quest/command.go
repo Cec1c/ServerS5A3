@@ -18,6 +18,8 @@ type Command struct {
 	QuestID             uint16
 	TriggerType         byte
 	IsIncrement         bool
+	Answer              byte
+	HasAnswer           bool
 	RewardSelectIndex   uint16
 	HasRewardSelect     bool
 	Multiplier          uint16
@@ -44,6 +46,8 @@ func NewTriggerCommand(req alignedcmd.Request, parsed SetTriggerRequest) Command
 		QuestID:             parsed.QuestID,
 		TriggerType:         parsed.TriggerType,
 		IsIncrement:         parsed.IsIncrement,
+		Answer:              parsed.Answer,
+		HasAnswer:           parsed.HasAnswer,
 		NeedsOwner:          "quest owner + progress idempotency + notify order",
 	}
 }
@@ -66,6 +70,9 @@ func (c Command) String() string {
 	base := fmt.Sprintf("account=%q char=%d quest=%d", c.AccountID, c.SelectedCharacterID, c.QuestID)
 	switch c.Operation {
 	case "set_quest_trigger":
+		if c.HasAnswer {
+			return fmt.Sprintf("%s triggerType=%d answer=%d needs=%s", base, c.TriggerType, c.Answer, c.NeedsOwner)
+		}
 		return fmt.Sprintf("%s triggerType=%d increment=%t needs=%s", base, c.TriggerType, c.IsIncrement, c.NeedsOwner)
 	case "finish_quest":
 		return fmt.Sprintf("%s rewardSelect=%d hasReward=%t multiplier=%d needs=%s", base, c.RewardSelectIndex, c.HasRewardSelect, c.Multiplier, c.NeedsOwner)

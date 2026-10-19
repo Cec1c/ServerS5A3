@@ -441,11 +441,17 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
+		cmd.UpgradePolicyRequired = true
+		policyLevel, levelErr := upgradeLevelOfSlot(req.Repositories, ctx, cmd)
+		cmd.UpgradePolicyCurrentLevel = policyLevel
 		if req.UpgradePolicyResolver == nil {
 			cmd.UpgradePolicyError = "upgrade policy resolver missing"
-		} else if policy, policyErr := req.UpgradePolicyResolver(cmd.Mode, int(upgradeLevelOfSlot(req.Repositories, ctx, cmd))); policyErr == nil {
+		} else if levelErr != nil {
+			cmd.UpgradePolicyError = levelErr.Error()
+		} else if policy, policyErr := req.UpgradePolicyResolver(cmd.Mode, int64(cmd.TargetItemTemplateID), int(policyLevel)); policyErr == nil {
 			cmd.UpgradeSuccessWeight = policy.SuccessWeight
 			cmd.UpgradePenaltyType = policy.PenaltyType
+			cmd.UpgradePenaltyValue = policy.PenaltyValue
 			cmd.UpgradeMaterialItemID = policy.MaterialItemID
 			cmd.UpgradeMaterialCount = policy.MaterialCount
 			cmd.UpgradeDestroyBonusItemID = policy.DestroyBonusItemID
@@ -691,22 +697,26 @@ func ownerAppliedInvestAmplifyOptionResult(opcode uint16, cmd Command, result Am
 
 // upgradeLevelOfSlot reads the current upgrade level of the target equipment
 // from the inventory record so the policy resolver can look up the correct
-// PVF table row before the atomic transaction begins.
-func upgradeLevelOfSlot(repos dnfrepo.Group, ctx context.Context, cmd Command) byte {
+// PVF table row before the atomic transaction begins. The owner rechecks the
+// quoted level inside the transaction before spending any assets.
+func upgradeLevelOfSlot(repos dnfrepo.Group, ctx context.Context, cmd Command) (byte, error) {
 	if repos.Inventory == nil || cmd.SelectedCharacterID == 0 {
-		return 0
+		return 0, ErrInventoryNotFound
 	}
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	record, found, err := repos.Inventory.Load(ctx, characterID)
-	if err != nil || !found || record.Slots == nil {
-		return 0
+	if err != nil {
+		return 0, err
+	}
+	if !found || record.Slots == nil {
+		return 0, ErrInventoryNotFound
 	}
 	key := slotKey(listTypeMain, cmd.TargetSlotIndex)
 	stack, ok := record.Slots[key]
 	if !ok || stack.ItemID != int64(cmd.TargetItemTemplateID) {
-		return 0
+		return 0, fmt.Errorf("upgrade policy target slot or template changed")
 	}
-	return upgradeLevelOf(stack)
+	return upgradeLevelOf(stack), nil
 }
 
 func upgradeMaterialSlotIsAccountShared(cmd Command) bool {
