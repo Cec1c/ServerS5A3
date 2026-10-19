@@ -57,7 +57,7 @@ func TestReadEpicPiecePushModePinsEverySwitchValue(t *testing.T) {
 		value string
 		want  epicPiecePushMode
 	}{
-		{"", epicPiecePushLoginOnly},
+		{"", epicPiecePushAlways},
 		{"login_only", epicPiecePushLoginOnly},
 		{"LOGIN_ONLY", epicPiecePushLoginOnly},
 		{"  login_only  ", epicPiecePushLoginOnly},
@@ -95,7 +95,7 @@ func TestReadEpicPiecePushModePinsEverySwitchValue(t *testing.T) {
 		update          bool
 	}{
 		{epicPiecePushLoginOnly, true, false, false, false},
-		{epicPiecePushAlways, true, false, false, true},
+		{epicPiecePushAlways, true, false, true, true},
 		{epicPiecePushVendorEmpty, true, true, true, false},
 		{epicPiecePushOff, false, false, false, false},
 	} {
@@ -212,7 +212,7 @@ func TestEpicPiecePushVendorEmptySendsTheVendorTableEvenWithAnEmptyLedger(t *tes
 			},
 		},
 		{mode: epicPiecePushLoginOnly, wantFrames: nil},
-		{mode: epicPiecePushAlways, wantFrames: nil},
+		{mode: epicPiecePushAlways, wantFrames: []string{epicPiecePushTestFrame(currentEpicPieceBalanceSyncOpcode, 0, epicPiecePushTestVendorEmptyBodyHex)}},
 		{mode: epicPiecePushOff, wantFrames: nil},
 	} {
 		service, repositories := prepareEpicPiecePushModeService(t, test.mode)

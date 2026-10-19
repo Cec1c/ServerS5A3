@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -12,6 +13,7 @@ import (
 const (
 	currentAreaChatMessageType  byte = 3
 	currentAreaChatNotifyOpcode      = uint16(12)
+	currentAreaChatMessageLimit      = 512
 )
 
 // Current NOTI12 / 2035370 resolves the sender from the scene actor registry.
@@ -30,7 +32,7 @@ func buildCurrentAreaChatNoticeBody(channelID byte, senderID uint16, message []b
 func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, request currentPeerChatRequest) error {
 	sourceID := selectedCharacterID(session)
 	if session == nil || sourceID == 0 || request.MessageType != currentAreaChatMessageType ||
-		len(request.Message) == 0 || len(request.Message) > 512 {
+		len(request.Message) == 0 || len(request.Message) > currentAreaChatMessageLimit {
 		s.logGameEvent(session, "game-area-chat-request-rejected", "message_type", request.MessageType,
 			"message_len", len(request.Message), "reason", "selected_normal_chat_required")
 		return s.sendGameUpperFailure(session, typ, 1)
@@ -50,18 +52,11 @@ func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, reques
 	}
 	// Always echo the authoritative sender name/message to its own information
 	// panel, including private rooms where the shared-area roster is empty.
-	recipients := map[uint16]*gameSession{sourceID: session}
-	if s.onlinePlayers != nil {
-		if source, ok := s.onlinePlayers.PlayerForCharacter(sourceID); ok {
-			for _, peer := range s.onlinePlayers.GetAreaScopePlayers(source.TownID, source.AreaID, source.ChannelID, source.Instance, source.RaidBattleInstance) {
-				if s.onlinePlayers.PeerInSameArea(sourceID, peer.CharacterID) && peer.Session != nil {
-					recipients[peer.CharacterID] = peer.Session
-				}
-			}
-		}
-	}
-	for id, recipient := range recipients {
-		if selectedCharacterID(recipient) != id {
+	recipients := []*gameSession{session}
+	recipients = append(recipients, s.currentAreaChatPeerSessions(session, sourceID)...)
+	for _, recipient := range recipients {
+		id := selectedCharacterID(recipient)
+		if id == 0 {
 			continue
 		}
 		channel, _ := currentSessionOwnerChannelField(recipient)
@@ -77,4 +72,39 @@ func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, reques
 		"message_type", request.MessageType, "message_len", len(request.Message), "recipients", len(recipients),
 		"body_source", "current_exe_cmd17_noti12_type_sender_channel_two_dstr")
 	return nil
+}
+
+// currentAreaChatPeerSessions returns only current, canonically bound sessions
+// in the source's exact town/area/channel/instance bucket. Self is handled by
+// callers separately, so a stale socket can never be selected by character ID.
+func (s *Service) currentAreaChatPeerSessions(source *gameSession, sourceID uint16) []*gameSession {
+	if s == nil || s.onlinePlayers == nil || source == nil || sourceID == 0 {
+		return nil
+	}
+	info, found := s.onlinePlayers.PlayerForCharacter(sourceID)
+	if !found || info.Session != source {
+		return nil
+	}
+	seen := make(map[uint16]struct{})
+	peers := make([]*gameSession, 0, 4)
+	for _, peer := range s.onlinePlayers.GetAreaScopePlayers(
+		info.TownID, info.AreaID, info.ChannelID, info.Instance, info.RaidBattleInstance,
+	) {
+		if peer.CharacterID == sourceID || peer.Session == nil || !s.onlinePlayers.PeerInSameArea(sourceID, peer.CharacterID) {
+			continue
+		}
+		identity, bound := s.onlineGameSessionCharacterSnapshot(peer.CharacterID)
+		if !bound || identity.session != peer.Session || !s.boundGameSessionCharacterCurrent(identity) {
+			continue
+		}
+		if _, duplicate := seen[peer.CharacterID]; duplicate {
+			continue
+		}
+		seen[peer.CharacterID] = struct{}{}
+		peers = append(peers, peer.Session)
+	}
+	sort.Slice(peers, func(i, j int) bool {
+		return selectedCharacterID(peers[i]) < selectedCharacterID(peers[j])
+	})
+	return peers
 }

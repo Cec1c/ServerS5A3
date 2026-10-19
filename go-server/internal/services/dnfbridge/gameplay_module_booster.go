@@ -144,6 +144,9 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 			return err
 		}
 	}
+	if err := s.sendCurrentEpicPieceCredits(session, result.EpicPieceCredits, "use_booster_item"); err != nil {
+		return err
+	}
 	s.logGameEvent(session, "game-current-booster-committed",
 		"source_slot", result.SourceSlot,
 		"source_item", result.SourceItemID,
@@ -193,16 +196,26 @@ func (s *Service) commitCurrentBooster(
 	if err != nil {
 		return currentBoosterCommitResult{}, err
 	}
+	// 只认现用PVF图鉴目录，普通材料保持原奖励投影。
+	pieceRewards := make(map[uint32]struct{})
+	if s.epicPieceGrantEnabled() {
+		for itemID := range rewardAmounts {
+			if _, ok := epicPieceCreditTarget(s, itemID); ok {
+				pieceRewards[itemID] = struct{}{}
+			}
+		}
+	}
 	now := time.Now().UTC()
 	result := currentBoosterCommitResult{
 		SourceItemID: definition.Source.ItemID,
 		SourceSlot:   request.SourceSlot,
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
-		GoldCost:    definition.LotteryGoldCost,
-		AccountID:   accountID,
-		CharacterID: characterID,
-		UpdatedAt:   now,
+		AccountLedger: len(pieceRewards) > 0,
+		GoldCost:      definition.LotteryGoldCost,
+		AccountID:     accountID,
+		CharacterID:   characterID,
+		UpdatedAt:     now,
 		Project: func(assets *dnfbooster.Assets) (dnfbooster.Changes, error) {
 			inventory := assets.Inventory
 			account := assets.AccountInventory
@@ -280,6 +293,15 @@ func (s *Service) commitCurrentBooster(
 			changedRewardKeys := make(map[string]struct{})
 			accountDirty := false
 			for _, reward := range rewards {
+				if _, piece := pieceRewards[reward.Definition.ItemID]; piece {
+					balance, err := dnfbooster.CreditEpicPiece(assets, reward.Definition.ItemID, reward.Count, now)
+					if err != nil {
+						return dnfbooster.Changes{}, err
+					}
+					result.EpicPieceCredits = append(result.EpicPieceCredits, alignedcmd.MailboxEpicPieceCredit{PieceID: reward.Definition.ItemID, Count: int64(reward.Count), Balance: balance})
+					result.Rewards = append(result.Rewards, currentBoosterGrantedReward{ItemID: reward.Definition.ItemID, Count: reward.Count})
+					continue
+				}
 				keys, sharedChanged, grantErr := grantCurrentBoosterRewardByOwner(inventory, account, catalog.source, reward)
 				if grantErr != nil {
 					return dnfbooster.Changes{}, grantErr
@@ -339,7 +361,7 @@ func (s *Service) commitCurrentBooster(
 				result.ChangedLists = append(result.ChangedLists, listType)
 			}
 			sort.Slice(result.ChangedLists, func(i, j int) bool { return result.ChangedLists[i] < result.ChangedLists[j] })
-			return dnfbooster.Changes{AccountInventory: accountDirty, Character: characterDirty, Inventory: true}, nil
+			return dnfbooster.Changes{Account: len(result.EpicPieceCredits) > 0, AccountInventory: accountDirty, Character: characterDirty, Inventory: true}, nil
 		},
 	})
 	if err != nil {

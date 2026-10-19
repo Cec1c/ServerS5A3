@@ -187,9 +187,80 @@ class ClientReleaseTests(unittest.TestCase):
             return SimpleNamespace(returncode=0,stdout=('a'*40).encode() if 'rev-parse' in argv else b'')
         with patch.object(self.gl,'tag_commit',return_value=None),patch.object(sync.subprocess,'run',side_effect=fake_run) as run:
             self.gl.ensure_tag(self.item,'.')
-        pushes=[c.args[0] for c in run.call_args_list if 'push' in c.args[0]]
+        commands=[c.args[0] for c in run.call_args_list]
+        stages=[next(stage for stage in ('init','fetch','rev-parse','push') if stage in command) for command in commands]
+        self.assertEqual(stages,['init','fetch','rev-parse','push'])
+        pushes=[command for command in commands if 'push' in command]
         self.assertEqual(len(pushes),1)
         self.assertEqual(pushes[0][-4:],['-o','ci.skip',self.gl.git,'refs/sync/source:refs/tags/client-v105'])
+        self.assertFalse(any(argument in ('-f','--force','--mirror') for argument in pushes[0]))
+
+    def test_tag_fetch_failure_reports_stage_exit_and_safe_classification(self):
+        self.gl.git='https://gitgud.io/owner/repo.git'
+        self.item['repo']=self.gh
+        def fake_run(argv,**kwargs):
+            if 'fetch' in argv:
+                return SimpleNamespace(returncode=128,stdout=b'',stderr=b'fatal: unable to access remote: Could not resolve host: gitgud.io')
+            return SimpleNamespace(returncode=0,stdout=b'',stderr=b'')
+        with patch.object(self.gl,'tag_commit',return_value=None),patch.object(sync.subprocess,'run',side_effect=fake_run):
+            with self.assertRaisesRegex(sync.SyncError,r'tag=client-v105; stage=fetch; exit=128; classification=network'):
+                self.gl.ensure_tag(self.item,'.')
+
+    def test_tag_push_permission_failure_is_classified(self):
+        self.gl.git='https://gitgud.io/owner/repo.git'
+        self.item['repo']=self.gh
+        def fake_run(argv,**kwargs):
+            if 'push' in argv:
+                return SimpleNamespace(returncode=128,stdout=b'',stderr=b'remote: Permission to owner/repo.git denied to bot')
+            return SimpleNamespace(returncode=0,stdout=('a'*40).encode() if 'rev-parse' in argv else b'',stderr=b'')
+        with patch.object(self.gl,'tag_commit',return_value=None),patch.object(sync.subprocess,'run',side_effect=fake_run):
+            with self.assertRaisesRegex(sync.SyncError,r'tag=client-v105; stage=push; exit=128; classification=workflow-permission-or-auth'):
+                self.gl.ensure_tag(self.item,'.')
+
+    def test_unknown_tag_stderr_never_leaks_sensitive_values(self):
+        self.gl.git='https://gitgud.io/owner/repo.git'
+        self.item['repo']=self.gh
+        sensitive=b'raw-secret Authorization: Basic dXNlcjpwYXNz https://user:password@example.test/repo'
+        def fake_run(argv,**kwargs):
+            if 'push' in argv:
+                return SimpleNamespace(returncode=42,stdout=b'',stderr=b'unclassified failure: '+sensitive)
+            return SimpleNamespace(returncode=0,stdout=('a'*40).encode() if 'rev-parse' in argv else b'',stderr=b'')
+        with patch.object(self.gl,'tag_commit',return_value=None),patch.object(sync.subprocess,'run',side_effect=fake_run):
+            with self.assertRaises(sync.SyncError) as raised:
+                self.gl.ensure_tag(self.item,'.')
+        message=str(raised.exception)
+        self.assertIn('tag=client-v105; stage=push; exit=42; classification=unknown',message)
+        for value in ('raw-secret','Authorization','dXNlcjpwYXNz','user:password'):
+            self.assertNotIn(value,message)
+
+    def test_trusted_ci_creates_existing_commit_ref_and_reads_back(self):
+        self.item['repo']=self.gl; self.gl.git='https://gitgud.io/owner/repo.git'
+        commit='a'*40; tag='refs/tags/client-v105'
+        def fake_run(argv,**kwargs):
+            out=commit if 'rev-parse' in argv else 'commit' if 'cat-file' in argv else ''
+            return SimpleNamespace(returncode=0,stdout=out.encode(),stderr=b'')
+        with patch.dict(sync.os.environ,{'GITHUB_ACTIONS':'true','GITHUB_TOKEN':'token'},clear=True), \
+             patch.object(self.gh,'tag_commit',side_effect=[None,commit]), \
+             patch.object(self.gh,'api',side_effect=[{'sha':commit},{'ref':tag,'object':{'sha':commit}}]) as api, \
+             patch.object(sync.subprocess,'run',side_effect=fake_run) as run:
+            self.gh.ensure_tag(self.item,'.')
+        self.assertEqual(api.call_args_list[-1].kwargs,{'method':'POST','body':{'ref':tag,'sha':commit}})
+        self.assertFalse(any('push' in c.args[0] for c in run.call_args_list))
+
+    def test_ref_api_refusal_does_not_fall_back_to_another_credential(self):
+        self.item['repo']=self.gl; self.gl.git='https://gitgud.io/owner/repo.git'
+        def fake_run(argv,**kwargs):
+            return SimpleNamespace(returncode=0,stdout=(('a'*40) if 'rev-parse' in argv else 'commit' if 'cat-file' in argv else '').encode(),stderr=b'')
+        with patch.dict(sync.os.environ,{'GITHUB_ACTIONS':'true','GITHUB_TOKEN':'token'},clear=True), \
+             patch.object(self.gh,'tag_commit',return_value=None), \
+             patch.object(self.gh,'api',side_effect=[{'sha':'a'*40},sync.SyncError('API POST failed with HTTP 403')]), \
+             patch.object(sync.subprocess,'run',side_effect=fake_run) as run:
+            with self.assertRaisesRegex(sync.SyncError,'HTTP 403'):
+                self.gh.ensure_tag(self.item,'.')
+        self.assertFalse(any('push' in c.args[0] for c in run.call_args_list))
+
+    def test_workflow_permission_has_specific_safe_classification(self):
+        self.assertEqual(sync._git_failure_classification(b'refusing to allow a GitHub App to create or update workflow private-file without workflows permission'), 'github-workflow-write-permission')
 
     def test_interrupted_draft_resumes_only_with_verified_assets(self):
         draft={'id':1,'tag_name':'client-v105','draft':True,'prerelease':False,'body':sync.MARKER+sync.json.dumps(sync.release_record(self.item))+' -->','assets':[{'name':'DNF-v105.zip','size':100,'digest':'sha256:'+'b'*64}]}

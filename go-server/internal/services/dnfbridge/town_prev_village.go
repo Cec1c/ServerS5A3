@@ -2,10 +2,12 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
 
+	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -314,6 +316,23 @@ func (s *Service) handleCurrentPrevVillage(session *gameSession, requestBody []b
 	if !found {
 		s.logCurrentPrevVillageBlocked(session, origin, "prev_village_target_area_missing_from_runtime_pvf")
 		return nil
+	}
+	if _, scopeErr := s.currentTownAreaInstance(ctx, session, character, targetArea.MapPath); scopeErr != nil {
+		if !errors.Is(scopeErr, dnfguild.ErrNotMember) {
+			return scopeErr
+		}
+		// Membership may have changed after login/entering Seria. Resolve its
+		// real outer door before any location write or scene packet is sent.
+		door, doorFound, doorResolveReason = s.currentSeriaRoomOuterDoorLocation(int64(currentTownID), int64(currentAreaID))
+		if !doorFound {
+			return scopeErr
+		}
+		origin = currentTownSeriaRoomDoorLanding(characterID, door, origin.MovementCode)
+		targetArea, found = s.townArea(int64(origin.TownID), int64(origin.AreaID))
+		if !found || townMapPathLooksLikeGuildHall(targetArea.MapPath) {
+			return scopeErr
+		}
+		landingSource = "seria_room_outer_door_after_guild_membership_loss"
 	}
 	areaState, ok := character.Stats["area_state"]
 	if !ok || areaState < 0 || areaState > int64(^byte(0)) {

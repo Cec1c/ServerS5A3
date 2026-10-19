@@ -1,6 +1,10 @@
 package dnfbridge
 
-import dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+import (
+	"bytes"
+
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+)
 
 const currentOfficialWhisperNotifyOpcode = uint16(65)
 
@@ -28,7 +32,7 @@ func buildCurrentOfficialWhisperBody(channel byte, sender, peer string, message 
 
 func (s *Service) sendCurrentOfficialWhisper(sourceSession, targetSession *gameSession, opcode uint16,
 	request currentPeerChatRequest, source, target dnfrepo.CharacterRecord) error {
-	if !isCurrentPrivateWhisperType(request.MessageType) {
+	if !isCurrentPrivateWhisperType(request.MessageType) || len(request.Message) > 255 || bytes.IndexByte(request.Message, 0) >= 0 {
 		return s.sendGameUpperFailure(sourceSession, opcode, 1)
 	}
 	if err := s.sendGameUpperSuccess(sourceSession, opcode, nil); err != nil {

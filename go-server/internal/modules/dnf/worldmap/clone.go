@@ -50,6 +50,7 @@ func cloneMap(in Map) Map {
 	in.DungeonStartArea = append([]int64(nil), in.DungeonStartArea...)
 	in.ScreenPosition = append([]int64(nil), in.ScreenPosition...)
 	in.MonsterTeam = append([]int64(nil), in.MonsterTeam...)
+	in.MonsterFollowType = append([]string(nil), in.MonsterFollowType...)
 	in.PVPPracticeStartArea = append([]int64(nil), in.PVPPracticeStartArea...)
 	in.VirtualMovableArea = append([]int64(nil), in.VirtualMovableArea...)
 	in.OpeningBGM = append([]string(nil), in.OpeningBGM...)
@@ -82,6 +83,12 @@ func cloneArea(in Area) Area {
 
 func cloneDungeon(in Dungeon) Dungeon {
 	in.Metadata.CutsceneImage.Params = append([]int64(nil), in.Metadata.CutsceneImage.Params...)
+	if in.Metadata.StoryMode != nil {
+		storyMode := *in.Metadata.StoryMode
+		storyMode.IncreaseExperienceRates = append([]int64(nil), storyMode.IncreaseExperienceRates...)
+		storyMode.QuestIDs = append([]int64(nil), storyMode.QuestIDs...)
+		in.Metadata.StoryMode = &storyMode
+	}
 	in.Metadata.Champion = append([]int64(nil), in.Metadata.Champion...)
 	in.Metadata.PathgateObjects = append([]int64(nil), in.Metadata.PathgateObjects...)
 	in.Metadata.WorldMapPatternInfo = cloneSections(in.Metadata.WorldMapPatternInfo)

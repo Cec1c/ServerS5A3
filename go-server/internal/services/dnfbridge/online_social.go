@@ -39,6 +39,8 @@ func (s *Service) handleOnlineSocialCommand(session *gameSession, typ uint16, bo
 	switch typ {
 	case currentPeerChatStateOpcode:
 		return true, s.handleCurrentPeerChat(session, typ, body)
+	case uint16(dnfenum.CmdPacketItemHyperlinkMessage):
+		return true, s.handleCurrentItemHyperlinkMessage(session, typ, body)
 	case currentFriendAddOpcode:
 		if s.options.currentClientVersion == "official-24.9" {
 			return true, s.handleCurrentOfficialCharacterFriendMutation(session, typ, body)
@@ -60,7 +62,13 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 	request, err := decodeCurrentPeerChatRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-peer-chat-request-rejected", "body_len", len(body), "error", err)
+		if len(body) > 0 && body[0] == currentGuildChatType {
+			return s.sendGameUpperFailure(session, typ, 1)
+		}
 		return nil
+	}
+	if request.MessageType == currentGuildChatType {
+		return s.handleCurrentGuildChat(session, typ, request)
 	}
 	if len(request.TargetName) == 0 {
 		if request.MessageType == currentRaidChatType || request.MessageType == currentRaidLeaderChatType {

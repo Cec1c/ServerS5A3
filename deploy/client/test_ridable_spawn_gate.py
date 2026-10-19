@@ -1,5 +1,6 @@
 """Artifact-backed checks of the single-bit candidate and native gate."""
 import os
+import hashlib
 from pathlib import Path
 import struct
 import unittest
@@ -15,7 +16,7 @@ class RidableGate(unittest.TestCase):
     def setUpClass(cls):
         source = os.environ.get("DNF_RIDABLE_CLIENT_FIXTURE")
         if not source:
-            raise unittest.SkipTest("set DNF_RIDABLE_CLIENT_FIXTURE to the pinned V128 artifact")
+            raise unittest.SkipTest("set DNF_RIDABLE_CLIENT_FIXTURE to a pinned V128 or v141 artifact")
         cls.before = Path(source).read_bytes()
         cls.after, cls.receipt = patch.build(cls.before)
 
@@ -30,6 +31,18 @@ class RidableGate(unittest.TestCase):
         restored[offset] = self.before[offset]
         restored[check:check+4] = self.before[check:check+4]
         self.assertEqual(restored, self.before)
+
+    def test_fixture_profile_receipt_and_layout(self):
+        expected = {
+            "ea2f763927c8c993cc9f5cf41eb85ea37d5a50760ca310706497e5419bbc5912": ("v128", 111808512, 23),
+            "26abf551753c2745c2e5b349fb24336422a189187ff847c995e0df9a68871079": ("v141", 111812608, 24),
+        }
+        digest = hashlib.sha256(self.before).hexdigest()
+        name, size, sections = expected[digest]
+        self.assertEqual(self.receipt["source_sha256"], digest)
+        self.assertEqual(self.receipt["source_profile"], name)
+        self.assertEqual(self.receipt["size"], size)
+        self.assertEqual(pefile.PE(data=self.before, fast_load=True).FILE_HEADER.NumberOfSections, sections)
 
     def test_wrong_hash_truncation_and_reapplication_are_rejected(self):
         bad = bytearray(self.before); bad[-1] ^= 1

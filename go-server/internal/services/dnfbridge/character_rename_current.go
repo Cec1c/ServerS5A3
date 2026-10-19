@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -42,7 +43,12 @@ func (s *Service) handleCurrentCharacterRename(session *gameSession, body []byte
 	op := uint16(dnfenum.CmdPacketChangeCharacName)
 	fail := func(err error) error {
 		s.logGameEvent(session, "game-character-rename-rejected", "error", err)
-		return s.sendGameUpperFailure(session, op, 2)
+		code := byte(2)
+		if errors.Is(err, dnfrepo.ErrCharacterNameExists) {
+			// 当前EXE的op135用0x14提示重名；0x02会误报数据库问题。
+			code = 0x14
+		}
+		return s.sendGameUpperFailure(session, op, code)
 	}
 	request, err := decodeCharacterRenameRequest(body)
 	if err != nil {
@@ -144,6 +150,23 @@ func (s *Service) rememberCurrentRenameRoster(session *gameSession, characters [
 		return
 	}
 	session.currentRenameRoster = append([]dnfrepo.CharacterRecord(nil), characters[:rosterCount(characters)]...)
+}
+
+// removeCurrentSelectorRosterCharacter applies the same compaction the current
+// client performs when op6 succeeds. SQL rows keep their original slots; only
+// the immutable row-to-character binding sent to this session is compacted.
+func (s *Service) removeCurrentSelectorRosterCharacter(session *gameSession, characterID string) {
+	if session == nil {
+		return
+	}
+	for index, row := range session.currentRenameRoster {
+		if row.CharacterID != characterID {
+			continue
+		}
+		copy(session.currentRenameRoster[index:], session.currentRenameRoster[index+1:])
+		session.currentRenameRoster = session.currentRenameRoster[:len(session.currentRenameRoster)-1]
+		return
+	}
 }
 
 // Check the canonical SQL slot and reject enter-game while its rename is

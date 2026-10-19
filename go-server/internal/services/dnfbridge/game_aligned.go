@@ -88,6 +88,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	}
 	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
+		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -520,6 +523,17 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		}
 		forgingWire = &decoded
 	}
+
+	var guardianShieldResolver alignedcmd.GuardianShieldResolver
+	var guardianShieldResolverErr error
+	if typ == uint16(dnfenum.CmdPacketChangeDeckInfo) || (typ == uint16(dnfenum.CmdPacketMoveItemspace) && currentMoveTouchesGuardianShieldSpace(body)) {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		guardianShieldResolver, guardianShieldResolverErr = s.newCurrentGuardianShieldResolver(ctx)
+		cancel()
+		if guardianShieldResolverErr != nil {
+			s.logGameEvent(session, "game-guardian-shield-resolver-unavailable", "原因", guardianShieldResolverErr)
+		}
+	}
 	session.party.mu.Lock()
 	result, ok, err := gameAlignedRegistry.Route(context.Background(), alignedcmd.Request{
 		Command:                      cmd,
@@ -529,6 +543,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		AccountID:                    accountID,
 		SelectedCharacterID:          session.selectedCharacterID,
 		Repositories:                 repos,
+		GuardianShield:               guardianShieldResolver,
 		EquipmentPlacement:           equipmentPlacement,
 		InventoryItemPlacement:       s.currentInventoryMovePlacement,
 		InventoryCargoInsert:         s.currentInventoryCargoInsert,
@@ -931,6 +946,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	// 史诗碎片同理：它被记进**账号级**图鉴账本，没有任何物品行可刷，所以账本
 	// 增量包（class0/0x047D）由这里补发。失败也不能把已提交的领取变成客户端失败
 	// —— 账本已经落库，客户端下次登录会拿到全量快照。
+	if result.AccountWalletChanged {
+		if err := s.sendCurrentAccountWallet(session); err != nil {
+			return err
+		}
+	}
 	if err := s.sendCurrentEpicPieceCredits(
 		session,
 		result.EpicPieceCredits,
@@ -951,6 +971,7 @@ func alignedPostActionTouchesCombatPower(action alignedcmd.PostAction) bool {
 	case alignedcmd.PostActionRefreshSelectedItemContainers,
 		alignedcmd.PostActionRefreshSelectedWearContainers,
 		alignedcmd.PostActionRefreshSelectedActorAppearance,
+		alignedcmd.PostActionRefreshSelectedActorExpandedEquipment,
 		alignedcmd.PostActionRefreshSelectedEquipmentSlots,
 		alignedcmd.PostActionRefreshSelectedCreatureState:
 		return true
@@ -1149,6 +1170,18 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 			"body_source", source,
 			"sequence", "durable_account_owner_then_class1_ack_then_current_exe_op13_list12")
 		return s.sendCurrentSceneItemList(session, uint16(dnfenum.CmdPacketLeaveParty), body)
+	case alignedcmd.PostActionRefreshSelectedActorExpandedEquipment:
+		if !currentTownSelfActorAppearanceReady(session) {
+			return fmt.Errorf("%w: 盾牌外观刷新等待当前角色场景就绪", errAlignedPostCommitProjectionDeferred)
+		}
+		source := "aligned_" + operation + "_after_ack"
+		if err := s.sendSelectedActorExpandedEquipmentRefresh(session, source+"_op342"); err != nil {
+			return fmt.Errorf("%w: 盾牌扩展装备刷新失败: %v", errAlignedPostCommitProjectionDeferred, err)
+		}
+		if err := s.sendSelectedActorUserStateRefresh(session, source+"_op357_after_op342"); err != nil {
+			return fmt.Errorf("%w: 盾牌角色重绘失败: %v", errAlignedPostCommitProjectionDeferred, err)
+		}
+		return nil
 	case alignedcmd.PostActionRefreshSelectedActorAppearance:
 		// 这个 post action 只允许作用在**已定型的本地 actor 代际**上：mode0 自投影会把
 		// 对象重挂到当前 ctx，若此时 actor 还没被 op24/op29 定型（或 owner 上下文已经

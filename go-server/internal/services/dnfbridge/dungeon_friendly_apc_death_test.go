@@ -14,7 +14,20 @@ import (
 
 func prepareFriendlyAPCDeathTest(t *testing.T) (*Service, *gameSession, *bufferConn, uint32, uint32) {
 	t.Helper()
+	return prepareFriendlyAPCDeathTestProfile(t, false)
+}
+
+func prepareFriendlyAPCDeathTestWithTutorial(t *testing.T) (*Service, *gameSession, *bufferConn, uint32, uint32) {
+	t.Helper()
+	return prepareFriendlyAPCDeathTestProfile(t, true)
+}
+
+func prepareFriendlyAPCDeathTestProfile(t *testing.T, tutorial bool) (*Service, *gameSession, *bufferConn, uint32, uint32) {
+	t.Helper()
 	source := bridgeDungeonPVF(false)
+	if tutorial {
+		source["dungeon/test.dgn"] += "[tutorial dungeon]\n1\n"
+	}
 	source["map/dungeon/test/start.map"] += "[ai character]\n4002 30 20 0 `[character]` `[normal]` 0 0\n"
 	source[defaultDungeonAICharacterList] = "4002 `Test/Friend.aic`\n"
 	source["AICharacter/Test/Friend.aic"] = "[minimum info]\n`Friend APC` 1 2 3 4 25\n"
@@ -135,6 +148,149 @@ func TestOfficialFriendlyAPCSentinelDeathAndReplay(t *testing.T) {
 			}
 			if bytes.Count([]byte(log()), []byte("kind=game-dungeon-monster-death-accepted ")) != 1 {
 				t.Fatal("death settled more than once")
+			}
+		})
+	}
+}
+
+func TestOfficialFriendlyAPCDeathInPVFTutorial(t *testing.T) {
+	tests := []struct {
+		name string
+		body func(*testing.T, uint32, uint32) []byte
+	}{
+		{
+			name: "apc-only",
+			body: func(t *testing.T, target, apc uint32) []byte {
+				return friendlyAPCDeathBody(t, target, apc, false)
+			},
+		},
+		{
+			name: "apc-and-player",
+			body: func(t *testing.T, target, apc uint32) []byte {
+				return friendlyAPCDeathBody(t, target, apc, true)
+			},
+		},
+		{
+			name: "player-last-kill",
+			body: func(t *testing.T, target, apc uint32) []byte {
+				body := friendlyAPCDeathBody(t, target, apc, true)
+				binary.LittleEndian.PutUint16(body[4:], 99)
+				return body
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s, session, conn, target, apc := prepareFriendlyAPCDeathTestWithTutorial(t)
+			runtime := session.dungeon.runtime
+			if !isPVFTutorialDungeon(runtime) {
+				t.Fatal("fixture did not carry the PVF [tutorial dungeon] metadata")
+			}
+			if err := s.handleDungeonMonsterDeath(session, test.body(t, target, apc)); err != nil {
+				t.Fatal(err)
+			}
+			if state := runtime.Room.Snapshot().Monsters[0].State; state != runtimeDungeonMonsterDefeated {
+				t.Fatalf("tutorial death state=%s want defeated", state)
+			}
+			packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			if packet.Header.MsgID != 38 || binary.LittleEndian.Uint16(packet.Body) != uint16(target) || len(rest) != 0 {
+				t.Fatalf("missing tutorial op38: header=%+v body=%x rest=%x", packet.Header, packet.Body, rest)
+			}
+			scene, _ := runtime.Session.Scene()
+			if !scene.Cleared {
+				t.Fatal("last tutorial hostile did not clear the room")
+			}
+			if !runtime.Room.ContainsAnnouncedNonHostileAICharacterObjectKey(apc) {
+				t.Fatal("tutorial killer APC was retired")
+			}
+		})
+	}
+}
+
+func TestOfficialFriendlyAPCDeathInPVFTutorialReplay(t *testing.T) {
+	s, session, conn, target, apc := prepareFriendlyAPCDeathTestWithTutorial(t)
+	log := newRecordedPacketLog(t, s)
+	t.Cleanup(func() { _ = s.packetLog.Close() })
+	body := friendlyAPCDeathBody(t, target, apc, false)
+	if err := s.handleDungeonMonsterDeath(session, body); err != nil {
+		t.Fatal(err)
+	}
+	packet, _ := splitGameServerUpperPacket(t, conn.write.Bytes())
+	first := append([]byte(nil), packet.Body...)
+	conn.write.Reset()
+	if err := s.handleDungeonMonsterDeath(session, body); err != nil {
+		t.Fatal(err)
+	}
+	packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+	if packet.Header.MsgID != 38 || !bytes.Equal(first, packet.Body) || len(rest) != 0 {
+		t.Fatal("tutorial replay changed the authoritative death notification")
+	}
+	if bytes.Count([]byte(log()), []byte("kind=game-dungeon-monster-death-accepted ")) != 1 {
+		t.Fatal("tutorial death settled more than once")
+	}
+}
+
+func TestOfficialFriendlyAPCDeathInPVFTutorialRejectsUnproven(t *testing.T) {
+	for _, name := range []string{
+		"unknown-contributor",
+		"player-only-entry",
+		"wrong-kind",
+		"hostile-apc",
+		"planned-apc",
+		"retired-apc",
+		"unknown-target",
+		"apc-target",
+		"planned-target",
+		"room-mismatch",
+		"cross-room-apc",
+		"stale-room-target",
+		"tutorial-namespace-without-flag",
+	} {
+		t.Run(name, func(t *testing.T) {
+			tutorial := name != "tutorial-namespace-without-flag"
+			s, session, conn, target, apc := prepareFriendlyAPCDeathTestProfile(t, tutorial)
+			runtime := session.dungeon.runtime
+			body := friendlyAPCDeathBody(t, target, apc, false)
+			switch name {
+			case "unknown-contributor":
+				binary.LittleEndian.PutUint16(body[33:], 60000)
+			case "player-only-entry":
+				binary.LittleEndian.PutUint16(body[33:], 99)
+			case "wrong-kind":
+				binary.LittleEndian.PutUint16(body[31:], 0x110)
+			case "hostile-apc":
+				runtime.Room.extendedActors[0].HostileReference = &worldmap.HostileReference{Kind: worldmap.HostileAICharacter}
+			case "planned-apc":
+				runtime.Room.extendedActors[0].State = runtimeDungeonMonsterPlanned
+			case "retired-apc":
+				runtime.Room.extendedActors[0].State = runtimeDungeonMonsterDefeated
+			case "unknown-target":
+				binary.LittleEndian.PutUint32(body, 60000)
+			case "apc-target":
+				binary.LittleEndian.PutUint32(body, apc)
+			case "planned-target":
+				runtime.Room.monsters[0].State = runtimeDungeonMonsterPlanned
+			case "room-mismatch":
+				runtime.Room.mapID++
+			case "cross-room-apc":
+				actor := runtime.Room.extendedActors[0]
+				runtime.Room.extendedActors = nil
+				runtime.Room.extendedByObjectKey = map[uint32]int{}
+				old := dungeonDeathOwnerTestRoom(nil, []runtimeDungeonExtendedActor{actor})
+				runtime.Rooms[runtimeDungeonRoomKey{X: 1, Y: 0, MapID: 101}] = &runtimeDungeonRoomVisit{Room: old}
+			case "stale-room-target":
+				old := dungeonDeathOwnerTestRoom([]runtimeDungeonMonster{{ObjectKey: 1000, State: runtimeDungeonMonsterAnnounced}}, nil)
+				runtime.Rooms[runtimeDungeonRoomKey{X: 1, Y: 0, MapID: 101}] = &runtimeDungeonRoomVisit{Room: old}
+				binary.LittleEndian.PutUint32(body, 1000)
+			case "tutorial-namespace-without-flag":
+				runtime.Dungeon.Path = "dungeon/tutorial/test.dgn"
+			}
+			before := runtime.Room.Snapshot().Monsters[0].State
+			if err := s.handleDungeonMonsterDeath(session, body); err != nil {
+				t.Fatal(err)
+			}
+			if runtime.Room.Snapshot().Monsters[0].State != before || conn.write.Len() != 0 {
+				t.Fatal("unproven tutorial death changed state or sent an acknowledgement")
 			}
 		})
 	}

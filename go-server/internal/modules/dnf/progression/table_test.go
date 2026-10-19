@@ -120,20 +120,20 @@ func TestQuestExperienceUsesPVFDifficultyAndPenalty(t *testing.T) {
 		name        string
 		playerLevel int
 		questLevel  int
-		difficulty  rune
+		difficulty  string
 		grade       string
 		ignore      bool
 		want        uint32
 		oldValue    uint32
 	}{
 		// base 100、weight 100（N）⇒ 100*1100/1000 = 110（旧：100）。
-		{name: "same level", playerLevel: 1, questLevel: 1, difficulty: 'N', want: 110, oldValue: 100},
+		{name: "same level", playerLevel: 1, questLevel: 1, difficulty: "N", want: 110, oldValue: 100},
 		// 等级差 7 ⇒ green 80%：110*80/100 = 88（旧：100*100/10000*80 = 80）。
-		{name: "green penalty", playerLevel: 8, questLevel: 1, difficulty: 'N', want: 88, oldValue: 80},
+		{name: "green penalty", playerLevel: 8, questLevel: 1, difficulty: "N", want: 88, oldValue: 80},
 		// 等级差 12 ⇒ grey 30%：100*1200/1000 = 120；120*30/100 = 36（旧：60）。
-		{name: "grey penalty", playerLevel: 13, questLevel: 1, difficulty: 'E', want: 36, oldValue: 60},
+		{name: "grey penalty", playerLevel: 13, questLevel: 1, difficulty: "E", want: 36, oldValue: 60},
 		// ignore level 时查玩家行（base 500）、罚则 100：500*1200/1000 = 600（旧：1000）。
-		{name: "ignore level uses player row", playerLevel: 5, questLevel: 1, difficulty: 'E', ignore: true, want: 600, oldValue: 1000},
+		{name: "ignore level uses player row", playerLevel: 5, questLevel: 1, difficulty: "E", ignore: true, want: 600, oldValue: 1000},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -146,8 +146,40 @@ func TestQuestExperienceUsesPVFDifficultyAndPenalty(t *testing.T) {
 			}
 		})
 	}
-	if _, err := tables.QuestExperience(1, 1, 'X', "", false); !errors.Is(err, ErrQuestDifficulty) {
+	if _, err := tables.QuestExperience(1, 1, "X", "", false); !errors.Is(err, ErrQuestDifficulty) {
 		t.Fatalf("unknown difficulty error = %v", err)
+	}
+}
+
+// DOC-121 补证：`[difficulty]` 的两位数档位 `10`..`17` 必须按整 token 命中权重表。
+// 旧实现按单 rune 建表，`10`..`17` 从未进入表；任务侧也把两位数难度静默退回
+// 默认 `G`(30)，378 个真实主线因此少给约 40% 经验。
+func TestQuestExperienceUsesMultiCharacterDifficultyKey(t *testing.T) {
+	source := progressionTestSource()
+	source[QuestParameterPath] = "[difficulty]\n`G` 30\n`10` 708\n`17` 734\n[/difficulty]\n" +
+		"[exp reward table]\n1000 -1\n2000 -1\n" +
+		"[green level penalty]\n80\n[grey level penalty]\n30\n"
+	tables, err := Load(context.Background(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tables.quest.difficultyWeight["10"]; got != 708 {
+		t.Fatalf("difficulty `10` weight = %d, want 708", got)
+	}
+	if got := tables.quest.difficultyWeight["17"]; got != 734 {
+		t.Fatalf("difficulty `17` weight = %d, want 734", got)
+	}
+	// base 1000（等级 1）、weight 708、等级差 0 ⇒ 1000*1708/1000 = 1708。
+	got, err := tables.QuestExperience(1, 1, "10", "[epic]", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1708 {
+		t.Fatalf("QuestExperience(difficulty=10) = %d, want 1708 (pre-fix G reading 1030)", got)
+	}
+	// 小写单字符同样归一：`g` 读 `G`(30) ⇒ 1000*1030/1000 = 1030。
+	if lower, err := tables.QuestExperience(1, 1, "g", "", false); err != nil || lower != 1030 {
+		t.Fatalf("QuestExperience(difficulty=g) = %d err=%v, want 1030", lower, err)
 	}
 }
 
@@ -164,7 +196,7 @@ func TestQuestExperienceMatchesVendorPermilleAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := tables.QuestExperience(1, 1, '1', "[epic]", false)
+	got, err := tables.QuestExperience(1, 1, "1", "[epic]", false)
 	if err != nil {
 		t.Fatal(err)
 	}

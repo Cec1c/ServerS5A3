@@ -73,6 +73,7 @@ func resolveCurrentStackableUseProvenance(catalog *pvfDungeonDropCatalog, itemID
 	resolution.ItemID = itemID
 	resolution.PVFPath = definition.PVFPath
 	resolution.StackableType = stackableType
+	resolution.ActionType = definition.ActionType
 	resolution.Found = true
 	return resolution, nil
 }

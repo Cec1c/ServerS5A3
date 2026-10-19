@@ -175,3 +175,126 @@ func TestRealPVFFriendlyAPCAganzoDeathsClearRoom(t *testing.T) {
 	}
 	t.Logf("next room=%s map=%d", after.Coordinate, after.Map.Map.ID)
 }
+
+// The reported 2026-10-18 23:02 run is dungeon 7118's start map 91206:
+// object 403 and 402 were ordinary hostiles, the only extended actor was the
+// story APC 55418, and the client wrote owner=0xffff with one contribution.
+// This test rebuilds that exact room from the matching PVF and proves the
+// tutorial metadata path accepts the APC kill without broadening the sentinel.
+func TestRealPVFFriendlyAPC7118TutorialDeathsClearStartRoom(t *testing.T) {
+	pvfPath := os.Getenv("DNF_WORLDMAP_REAL_PVF_SMOKE")
+	if pvfPath == "" {
+		t.Skip("matching real PVF required")
+	}
+	ctx := context.Background()
+	archive, err := platformpvf.Open(pvfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := archive.Snapshot().Checksum; got != "a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290" {
+		t.Fatalf("PVF checksum=%s", got)
+	}
+	table, err := worldmap.LoadSource(ctx, archive, worldmap.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := worldmap.NewResolver(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	monsters, err := newPVFDungeonMonsterCatalog(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aiCharacters, err := newPVFDungeonAICharacterCatalog(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
+		CharacterID: "177",
+		AccountID:   "account-1",
+		Name:        "tutorial-hero",
+		Job:         "11",
+		Level:       1,
+		Stats:       map[string]int64{"fatigue": 156, "exp": 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+		CharacterID: "177",
+		Slots:       map[string]dnfrepo.ItemStack{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		options:                 options{accountID: "account-1", currentClientVersion: "official-24.9", gameUpperBodyCodec: gameUpperBodyCodecPlain},
+		worldMapTable:           table,
+		worldMapResolver:        resolver,
+		dungeonMonsterTable:     monsters,
+		dungeonAICharacterTable: aiCharacters,
+		dungeonChoice:           func(int) (int, error) { return 0, nil },
+		dungeonSeed:             func() (uint32, error) { return 1, nil },
+		repositoryProvider:      func() (dnfrepo.Group, bool) { return repositories, true },
+	}
+	conn := &bufferConn{}
+	session := &gameSession{conn: conn, connID: "real-pvf-7118-tutorial-apc", selectedCharacterID: 177}
+	runtime, _, err := service.prepareDungeonRuntime(
+		ctx,
+		session,
+		dungeoncmd.SelectDungeonRequest{DungeonID: 7118, Difficulty: 0},
+	)
+	if err != nil {
+		t.Fatalf("prepare real tutorial 7118: %v", err)
+	}
+	session.dungeon.runtime = runtime
+	if runtime.Dungeon.ID != 7118 || !isPVFTutorialDungeon(runtime) {
+		t.Fatalf("dungeon=%d tutorial=%t", runtime.Dungeon.ID, isPVFTutorialDungeon(runtime))
+	}
+	scene, _ := runtime.Session.Scene()
+	if scene.Map.Map.ID != 91206 {
+		t.Fatalf("start map=%d want 91206", scene.Map.Map.ID)
+	}
+	if _, err := runtime.Room.AnnounceAllActors(runtime.Session); err != nil {
+		t.Fatal(err)
+	}
+	room := runtime.Room.Snapshot()
+	if len(room.Monsters) != 2 || len(room.ExtendedActors) != 1 ||
+		room.ExtendedActors[0].AICharacter == nil || room.ExtendedActors[0].AICharacter.Code != 55418 {
+		t.Fatalf("unexpected 7118 start room: %+v", room)
+	}
+	apc := room.ExtendedActors[0].ObjectKey
+	if apc != 404 || room.Monsters[0].ObjectKey != 402 || room.Monsters[1].ObjectKey != 403 {
+		t.Fatalf("object keys apc=%d monsters=%d,%d", apc, room.Monsters[0].ObjectKey, room.Monsters[1].ObjectKey)
+	}
+	for index, monster := range room.Monsters {
+		body := friendlyAPCDeathBody(t, monster.ObjectKey, apc, index == 0)
+		conn.write.Reset()
+		if err := service.handleDungeonMonsterDeath(session, body); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := runtime.Room.DefeatedDeathTarget(monster.ObjectKey); !ok {
+			t.Fatalf("tutorial APC kill %d rejected", monster.ObjectKey)
+		}
+		packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+		if packet.Header.MsgID != 38 || binary.LittleEndian.Uint16(packet.Body) != uint16(monster.ObjectKey) || len(rest) != 0 {
+			t.Fatalf("missing tutorial op38 for %d: header=%+v body=%x rest=%x", monster.ObjectKey, packet.Header, packet.Body, rest)
+		}
+	}
+	scene, _ = runtime.Session.Scene()
+	if !scene.Cleared {
+		t.Fatal("7118 start room did not clear")
+	}
+	conn.write.Reset()
+	if err := service.handleDungeonMonsterDeath(session, friendlyAPCDeathBody(t, room.Monsters[0].ObjectKey, apc, false)); err != nil {
+		t.Fatal(err)
+	}
+	packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+	if packet.Header.MsgID != 38 || binary.LittleEndian.Uint16(packet.Body) != uint16(room.Monsters[0].ObjectKey) || len(rest) != 0 {
+		t.Fatal("tutorial duplicate did not replay the authoritative death")
+	}
+	if !runtime.Room.ContainsAnnouncedNonHostileAICharacterObjectKey(apc) {
+		t.Fatal("tutorial APC was retired by the monster deaths")
+	}
+	t.Logf("dungeon=%d map=%d apc=%d cleared=%t", runtime.Dungeon.ID, scene.Map.Map.ID, apc, scene.Cleared)
+}

@@ -3,12 +3,46 @@ package dnfbridge
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
+
+func currentSetTriggerHasLinkedObjectiveEvidence(record dnfrepo.QuestRecord, questID uint16) bool {
+	id := int64(questID)
+	state, found := record.States[id]
+	if !found {
+		state, found = record.Progress[id]
+	}
+	if found {
+		switch normalizeCurrentQuestType(state.Extra["quest_type"]) {
+		case "quest clear", "clear quest":
+			return true
+		}
+		if strings.TrimSpace(state.Extra["main_quest_id"]) != "" {
+			return true
+		}
+	}
+	for _, states := range []map[int64]dnfrepo.QuestState{record.States, record.Progress} {
+		for _, child := range states {
+			if strings.TrimSpace(child.Extra["main_quest_id"]) == strconv.FormatUint(uint64(questID), 10) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeCurrentQuestType(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimPrefix(value, "[")
+	value = strings.TrimSuffix(value, "]")
+	value = strings.ReplaceAll(value, "_", " ")
+	return strings.Join(strings.Fields(value), " ")
+}
 
 func (s *Service) sendCurrentLinkedObjectiveSnapshots(
 	session *gameSession,

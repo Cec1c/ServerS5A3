@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -12,6 +13,46 @@ import (
 )
 
 var errDungeonHuntEnemyCompletionUnavailable = errors.New("dnf dungeon hunt-enemy completion owner is unavailable")
+
+type currentHuntMonsterReceiptKey struct {
+	Room      *runtimeDungeonRoom
+	ObjectKey uint32
+}
+
+func currentHuntMonsterHasActiveQuests(record dnfrepo.QuestRecord) bool {
+	for _, states := range []map[int64]dnfrepo.QuestState{record.States, record.Progress} {
+		for _, state := range states {
+			switch strings.ToLower(strings.TrimSpace(state.Status)) {
+			case "active", "accepted", "inprogress", "progress":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Called under the recipient's dungeon lock, after an authoritative death.
+func (s *Service) persistCurrentDungeonHuntMonsterDeathLocked(session *gameSession, runtime *runtimeDungeonState, objectKey uint32) error {
+	target, ok := runtime.Room.DefeatedDeathTarget(objectKey)
+	if !ok {
+		return nil
+	}
+	monster, ok := runtime.Room.MonsterByReference(target.Reference, runtimeDungeonMonsterDefeated)
+	if !ok {
+		return nil
+	}
+	scene, ok := runtime.Session.Scene()
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	err := s.persistCurrentDungeonHuntMonsterKillPhaseA(ctx, session, runtime, scene, monster, objectKey)
+	if errors.Is(err, errDungeonHuntEnemyCompletionUnavailable) {
+		return nil
+	}
+	return err
+}
 
 // persistCurrentDungeonHuntEnemyKillPhaseA mirrors 86JP's kill-trigger domain
 // path for [hunt enemy]. It only updates the quest trigger/pending marker. Item
@@ -59,6 +100,22 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	key := currentHuntMonsterReceiptKey{Room: runtime.Room, ObjectKey: objectKey}
+	if runtime.huntMonsterReceipts == nil {
+		runtime.huntMonsterReceipts = make(map[currentHuntMonsterReceiptKey]*currentRoomClearQuestReceipt)
+	}
+	receipt := runtime.huntMonsterReceipts[key]
+	if receipt != nil && receipt.Sent {
+		return nil
+	}
+	if receipt == nil {
+		now := s.gameplayNow().UTC()
+		receipt = &currentRoomClearQuestReceipt{
+			Key: fmt.Sprintf("hunt_monster/%d/%d/%d/%d/%d/%d/%d/%d/%d", session.selectedCharacterID, runtime.Dungeon.ID, runtime.MazeIndex, runtime.startedAt.UnixNano(), scene.Coordinate.X, scene.Coordinate.Y, scene.Map.Map.ID, objectKey, now.UnixNano()),
+			At:  now,
+		}
+		runtime.huntMonsterReceipts[key] = receipt
+	}
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Character == nil || repositories.Quest == nil {
 		return errDungeonHuntEnemyCompletionUnavailable
@@ -69,9 +126,10 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 	} else if !found {
 		return dnfquest.ErrCharacterNotFound
 	}
-	if _, found, err := repositories.Quest.Load(ctx, characterID); err != nil {
+	if record, found, err := repositories.Quest.Load(ctx, characterID); err != nil {
 		return err
-	} else if !found {
+	} else if !found || !currentHuntMonsterHasActiveQuests(record) {
+		receipt.Sent = true
 		return nil
 	}
 	catalog, err := s.loadQuestCatalog(ctx)
@@ -82,18 +140,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 	if err != nil {
 		return fmt.Errorf("create hunt-monster quest owner: %w", err)
 	}
-	completedAt := s.gameplayNow().UTC()
-	completionKey := fmt.Sprintf(
-		"op39:char:%d:dungeon:%d:maze:%d:map:%d:seed:%d:monster:%d:object:%d:completed_at_unix_nano:%d",
-		session.selectedCharacterID,
-		runtime.Dungeon.ID,
-		runtime.MazeIndex,
-		scene.Map.Map.ID,
-		runtime.Seed,
-		monster.Spawn.MonsterID,
-		objectKey,
-		completedAt.UnixNano(),
-	)
+	completedAt, completionKey := receipt.At, receipt.Key
 	result, err := owner.ApplyHuntMonsterKill(ctx, catalog, characterID, dnfquest.HuntMonsterKillInput{
 		DungeonID:     runtime.Dungeon.ID,
 		Difficulty:    int64(runtime.Request.Difficulty),
@@ -105,6 +152,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		return fmt.Errorf("persist hunt-monster quest phase A: %w", err)
 	}
 	if len(result.ChangedFields) == 0 && len(result.Completions) == 0 {
+		receipt.Sent = true
 		return nil
 	}
 	record, found, err := repositories.Quest.Load(ctx, characterID)
@@ -135,7 +183,11 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		"snapshot_msg_id", currentActiveQuestSnapshotMsgID,
 		"snapshot_body_len", len(body),
 		"source", "runtime_monster_op39")
-	return s.sendGameUpperRawClass(session, currentActiveQuestSnapshotMsgID, body, 0)
+	if err := s.sendGameUpperRawClass(session, currentActiveQuestSnapshotMsgID, body, 0); err != nil {
+		return err
+	}
+	receipt.Sent = true
+	return nil
 }
 
 func (s *Service) persistCurrentDungeonHuntEnemyTargetPhaseA(

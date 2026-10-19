@@ -486,6 +486,67 @@ func (r *runtimeDungeonRoom) MonsterByReference(
 	return runtimeDungeonMonster{}, false
 }
 
+// runtimeDungeonRewardEnemy is the authoritative enemy type/code supplied to
+// quest [enemy reward item] matching. AICharacter.Code is the business identity;
+// Packet.Code is only a client-projection mirror.
+type runtimeDungeonRewardEnemy struct {
+	EnemyType int64
+	EnemyCode int64
+}
+
+// RewardEnemyByReference resolves the quest-drop identity behind a room-owned
+// hostile reference. Ordinary monsters stay type 1. Hostile AI characters stay
+// type 2 and are resolved only through their runtime AICharacter record.
+func (r *runtimeDungeonRoom) RewardEnemyByReference(
+	reference worldmap.HostileReference,
+	allowedStates ...runtimeDungeonMonsterState,
+) (runtimeDungeonRewardEnemy, bool) {
+	if r == nil || reference.Index < 0 {
+		return runtimeDungeonRewardEnemy{}, false
+	}
+	allowed := make(map[runtimeDungeonMonsterState]struct{}, len(allowedStates))
+	for _, state := range allowedStates {
+		allowed[state] = struct{}{}
+	}
+	stateAllowed := func(state runtimeDungeonMonsterState) bool {
+		if len(allowed) == 0 {
+			return true
+		}
+		_, ok := allowed[state]
+		return ok
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	switch reference.Kind {
+	case worldmap.HostileMonster:
+		for _, monster := range r.monsters {
+			if monster.Reference == reference && stateAllowed(monster.State) {
+				return runtimeDungeonRewardEnemy{
+					EnemyType: 1,
+					EnemyCode: monster.Spawn.MonsterID,
+				}, true
+			}
+		}
+	case worldmap.HostileAICharacter:
+		for _, actor := range r.extendedActors {
+			if actor.Kind != runtimeDungeonActorAICharacter ||
+				actor.HostileReference == nil ||
+				*actor.HostileReference != reference ||
+				!stateAllowed(actor.State) {
+				continue
+			}
+			if actor.AICharacter == nil || actor.AICharacter.Code <= 0 {
+				return runtimeDungeonRewardEnemy{}, false
+			}
+			return runtimeDungeonRewardEnemy{
+				EnemyType: 2,
+				EnemyCode: actor.AICharacter.Code,
+			}, true
+		}
+	}
+	return runtimeDungeonRewardEnemy{}, false
+}
+
 type runtimeDungeonDeathTarget struct {
 	ObjectKey    uint32
 	Reference    worldmap.HostileReference

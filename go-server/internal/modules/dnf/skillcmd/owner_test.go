@@ -608,7 +608,7 @@ func TestBuildInitialSkillLayoutKeepsRealPVFGrantWithoutSkillDefinition(t *testi
 	}
 }
 
-func TestOwnerApplyBuyEnforcesPVFSecondGrowTypeAgainstPackedGrowth(t *testing.T) {
+func TestOwnerApplyBuyEnforcesPVFSecondGrowtypeMaximumLevelAgainstPackedGrowtype(t *testing.T) {
 	ctx := context.Background()
 	repos := seededSkillOwnerRepositories(t, ctx)
 	character, _, _ := repos.Character.Load(ctx, "31")
@@ -789,6 +789,10 @@ func secondAwakeningSkillCatalog(t *testing.T) *dnfskill.Table {
 1
 [maximum level]
 20
+[growtype maximum level]
+0 20 20 20 20 20
+[second growtype maximum level]
+0 20 0 0 0 0 0 0 0 0 0 0
 [skill fitness growtype]
 0
 [/skill fitness growtype]

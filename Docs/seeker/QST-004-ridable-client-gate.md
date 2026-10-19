@@ -1,22 +1,24 @@
 # QST-004：296原生生成通知准入候选
 
-固定输入V128 SHA256为`ea2f763927c8c993cc9f5cf41eb85ea37d5a50760ca310706497e5419bbc5912`。其NOTI296有完整20字节reader和共享START_MAP对象队列，但接收位关闭。此候选仅开放该操作号并重新计算PE checksum。
+生成器显式支持两份固定输入：V128 SHA256 `ea2f763927c8c993cc9f5cf41eb85ea37d5a50760ca310706497e5419bbc5912`（111808512字节、23节），以及当前v141 SHA256 `26abf551753c2745c2e5b349fb24336422a189187ff847c995e0df9a68871079`（111812608字节、24节）。回执记录实际输入摘要及版本，未知输入、布局不符和重复应用均拒绝。
 
-输出SHA256为`07aa4a463682c095858f1afe74d54d45ea8bd71d37d761dfcb4b4ad8733aafc8`，111808512字节。只改变offset393的checksum字节及offset111747877的接收位。输入文件保持原样；错误摘要、截断和重复应用拒绝。
+v141的原门禁入口`0x0376E6C0`仍跳转到`0x06E83610`；该处27字节、位图引用`0x06E92300`、296注册项及完整`0xE1`字节reader与V128逐字节相同。两份输入均未放行296，316/317也关闭，475已放行。NOTI296有完整20字节reader和共享START_MAP对象队列；此候选仅开放该操作号并重新计算PE checksum，保留v141全部已验收累计字节。
+
+V128历史输出SHA256为`07aa4a463682c095858f1afe74d54d45ea8bd71d37d761dfcb4b4ad8733aafc8`，111808512字节。只改变offset393的checksum字节及offset111747877的接收位；加入v141来源后保留该输出。v141输出及实际字节差量由同一生成器回执记录，长度保持111812608字节。输入文件保持原样。
 
 ## 生成与验证
 
 依赖Python、pefile、Unicorn。使用完整摘要匹配的实际EXE：
 
 ```text
-python deploy/client/ridable_spawn_gate.py <V128-DNF.exe> <new-DNF.exe> --receipt <new-build.json>
-# 为当前shell设置 DNF_RIDABLE_CLIENT_FIXTURE=<V128-DNF.exe>
+python deploy/client/ridable_spawn_gate.py <pinned-DNF.exe> <new-DNF.exe> --receipt <new-build.json>
+# 分别为两份固定输入设置 DNF_RIDABLE_CLIENT_FIXTURE=<pinned-DNF.exe> 并运行
 python -m unittest discover -s deploy/client -p test_ridable_spawn_gate.py -v
 ```
 
-3项测试通过：完整原内容保持和独立checksum复核、输入负例、65536操作号原生准入前后对照。只有296变化，316/317仍不准入，475及原有补丁保持。
+每个输入运行4项检查：完整原内容保持和独立checksum复核、来源版本/摘要/布局回执、输入负例、65536操作号原生准入前后对照。只有296变化，316/317仍不准入，475及原有补丁保持。原生门禁回放只执行门禁指令及位图读取，不执行渲染或完整载具生命周期。
 
-在候选上追加35项有限原生测试通过，包括316发送、296读取/消费、Monster定义键、host切换，以及实际Go builder导出的三条20字节包。包体依次为五个u32：坐标X/Y、Monster定义编号、阵营、创建类型；61235使用类型0。仅当前名册host指向本地成员时入队，非host不生成。native reader消耗20字节且目标创建参数与Go来源一致。外部渲染、分配及非相关UI使用明确桩。
+V128历史候选另有35项有限原生测试，包括316发送、296读取/消费、Monster定义键、host切换，以及实际Go builder导出的三条20字节包。包体依次为五个u32：坐标X/Y、Monster定义编号、阵营、创建类型；61235使用类型0。仅当前名册host指向本地成员时入队，非host不生成。native reader消耗20字节且目标创建参数与Go来源一致。外部渲染、分配及非相关UI使用明确桩。该历史结果不视为v141完整报文分发、载具联调或实机验收。
 
 ## 交付状态与验收目标
 

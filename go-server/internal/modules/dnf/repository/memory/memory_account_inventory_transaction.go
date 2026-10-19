@@ -101,6 +101,25 @@ func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 	characterID string,
 	apply func(repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error,
 ) error {
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, false, func(_ repository.AccountRepository, a repository.AccountInventoryRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository) error {
+		if apply == nil {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+		return apply(a, c, i, e)
+	})
+}
+
+func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterLedgerAssets(ctx context.Context, accountID, characterID string, apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error) error {
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, true, apply)
+}
+
+func (u *memoryAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	includeLedger bool,
+	apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error,
+) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
 	if accountID == "" || characterID == "" || apply == nil || u == nil ||
@@ -121,6 +140,25 @@ func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 	lock.Lock()
 	defer lock.Unlock()
 
+	// 锁序与图鉴制作一致：聚合锁→账号锁；原路径不额外加载账号。
+	var ledgerTx *memoryAccountTransaction
+	var ledgerRecord repository.AccountRecord
+	if includeLedger {
+		if u.account == nil {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+		u.account.nameMu.Lock()
+		defer u.account.nameMu.Unlock()
+		record, found, err := u.account.MemoryStore.Load(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		if !found || record.AccountID != accountID {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+		ledgerRecord = record
+		ledgerTx = &memoryAccountTransaction{accountID: accountID, record: repository.CloneAccount(record), exists: true}
+	}
 	accountRecord, accountExists, err := u.accountInventory.Load(ctx, accountID)
 	if err != nil {
 		return err
@@ -158,11 +196,29 @@ func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 		record:      repository.CloneEquipment(equipmentRecord),
 		exists:      equipmentExists,
 	}
-	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx); err != nil {
+	if err := apply(ledgerTx, accountTx, characterTx, inventoryTx, equipmentTx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+
+	if includeLedger {
+		// 所有预映像均已取得；错误、取消或底层保存抛出panic都恢复整个开盒事务。
+		return commitMemoryLedgerAssets(ctx,
+			memoryLedgerWrite{dirty: accountTx.dirty, save: func() error { return u.accountInventory.Save(ctx, accountTx.record) }, restore: func() error {
+				return restoreAccountInventoryRecord(u.accountInventory, accountID, accountRecord, accountExists)
+			}},
+			memoryLedgerWrite{dirty: characterTx.dirty, save: func() error { return u.character.Save(ctx, characterTx.record) }, restore: func() error {
+				return restoreCharacterRecord(u.character, characterID, characterRecord, characterExists, true)
+			}},
+			memoryLedgerWrite{dirty: inventoryTx.dirty, save: func() error { return u.inventory.Save(ctx, inventoryTx.record) }, restore: func() error {
+				return restoreInventoryRecordIfDirty(u.inventory, characterID, inventoryRecord, inventoryExists, true)
+			}},
+			memoryLedgerWrite{dirty: equipmentTx.dirty, save: func() error { return u.equipment.Save(ctx, equipmentTx.record) }, restore: func() error {
+				return restoreEquipmentRecordIfDirty(u.equipment, characterID, equipmentRecord, equipmentExists, true)
+			}},
+			memoryLedgerWrite{dirty: ledgerTx.dirty, save: func() error { return u.account.MemoryStore.Save(ctx, ledgerTx.record) }, restore: func() error { return u.account.MemoryStore.Save(context.Background(), ledgerRecord) }})
 	}
 
 	if accountTx.dirty {
@@ -248,4 +304,38 @@ func restoreAccountInventoryRecordIfDirty(repo repository.AccountInventoryReposi
 		return nil
 	}
 	return restoreAccountInventoryRecord(repo, accountID, record, existed)
+}
+
+type memoryLedgerWrite struct {
+	dirty         bool
+	save, restore func() error
+}
+
+func commitMemoryLedgerAssets(ctx context.Context, writes ...memoryLedgerWrite) (err error) {
+	attempted := make([]memoryLedgerWrite, 0, len(writes))
+	committed := false
+	defer func() {
+		if !committed {
+			for n := len(attempted) - 1; n >= 0; n-- {
+				err = errors.Join(err, restoreRaidRewardAttempt(attempted[n].restore))
+			}
+		}
+	}()
+	for _, w := range writes {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		if !w.dirty {
+			continue
+		}
+		attempted = append(attempted, w)
+		if err = w.save(); err != nil {
+			return err
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }

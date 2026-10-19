@@ -20,12 +20,18 @@ import (
 )
 
 type gameSession struct {
-	pendingTitleEnchantCharacterID uint16
-	pendingTitleEnchantRow         *currentItemListEntry
-	conn                           net.Conn
-	connID                         string
-	accountID                      string
-	clientPID                      uint32
+	auctionLastSearchOpcode             uint16
+	auctionLastSearchBody               []byte
+	auctionServiceOpenMask              byte
+	guildBuffs                          guildBuffProjection
+	guild                               guildSessionState
+	initialTownGuildStateProjectionSent bool
+	pendingTitleEnchantCharacterID      uint16
+	pendingTitleEnchantRow              *currentItemListEntry
+	conn                                net.Conn
+	connID                              string
+	accountID                           string
+	clientPID                           uint32
 	// clientIP 只用于日志与排查（连接来源），**绝不参与账号判定** ——
 	// 见 repository_access.go 的 accountIDForSession 与 client_account_ip.go。
 	clientIP string
@@ -61,24 +67,28 @@ type gameSession struct {
 	imageCommunicationNonce           [32]byte
 	imageCommunicationSceneGeneration uint64
 
-	endpointHandshakeMu              sync.Mutex
-	currentChannelResidentNoticeSent bool
-	gameEndpointSuccessSent          bool
-	connectionTownActorOwnerChannel  byte
-	events                           *gameSessionEvents
-	characterGeneration              uint64
-	raidProjection                   currentRaidProjectionOwner
-	selectedCharacterID              uint16
-	questManualClearIdentity         boundGameSessionCharacter
-	questManualClearReadyAt          time.Time
-	currentAccountFriendNames        map[string]struct{}
-	currentAccountFriendInfo         currentAccountFriendSentView
-	currentAdventureExpeditionView   currentAdventureExpeditionSentView
-	rosterRequested                  bool
-	currentRenameRoster              []dnfrepo.CharacterRecord
-	currentRenameRosterPrepared      []dnfrepo.CharacterRecord
-	channelReconnect                 bool
-	townActorOwnerChannel            byte
+	endpointHandshakeMu                     sync.Mutex
+	currentChannelResidentNoticeSent        bool
+	gameEndpointSuccessSent                 bool
+	connectionTownActorOwnerChannel         byte
+	events                                  *gameSessionEvents
+	characterGeneration                     uint64
+	raidProjection                          currentRaidProjectionOwner
+	selectedCharacterID                     uint16
+	questManualClearIdentity                boundGameSessionCharacter
+	questManualClearReadyAt                 time.Time
+	currentAccountFriendNames               map[string]struct{}
+	currentAccountFriendInfo                currentAccountFriendSentView
+	currentAdventureExpeditionView          currentAdventureExpeditionSentView
+	rosterRequested                         bool
+	currentRenameRoster                     []dnfrepo.CharacterRecord
+	currentRenameRosterPrepared             []dnfrepo.CharacterRecord
+	channelReconnect                        bool
+	townActorOwnerChannel                   byte
+	sceneBootstrapActorGeneration           uint64
+	darkKnightCombo                         darkKnightComboSessionState
+	initialTownGuardianShieldDeckSent       bool
+	initialTownGuardianShieldAppearanceSent bool
 	// loginWearReassertWindowOpenedAt / ...Consumed 界定"DNFBRIDGE_EQUIP_LOGIN_REASSERT_NOOP
 	// 兜底"可生效的登录引导窗口（开启=场景就绪 ack，关闭=一次性或超时）。
 	// 开关默认关闭时两者始终为零值，行为与历史一致。
@@ -219,6 +229,8 @@ type gameSession struct {
 	// gameOptionNoticeSent guards the once-per-entry class0/0x00AD + 0x01C7
 	// account settings replay (game_option_settings.go).
 	gameOptionNoticeSent                 bool
+	selectedHotkeyNoticeCharacterID      uint16
+	selectedHotkeyNoticeGeneration       uint64
 	characterOptionNoticeSent            bool // per selected entry, independent of account replay
 	initialTownLocationNotificationsSent bool
 	initialTownQuestSnapshotsSent        bool
@@ -226,6 +238,8 @@ type gameSession struct {
 	initialTownSkillInfoSent             bool
 	initialTownSkillInfo                 currentSceneSkillInfoProjection
 	initialTownLegacySceneReadyAccepted  bool
+	// Snapshot of the monotonic town cursor when this selector route starts.
+	initialTownRouteTownGeneration uint64
 	// loginActorGenerationRebuildArmed 在登录路径的 legacy type1345 场景就绪 ack 上布防，
 	// loginActorGenerationRebuildSent 保证一次进场只重建一次 actor 世代。
 	// 触发面 = **ack 之后的第一条客户端游戏报文**（`handleGameStreamPacket` 在派发前取
@@ -350,6 +364,7 @@ type questReplayState struct {
 	giveUpAnswered     map[currentGiveUpQuestReplayKey]struct{}
 	triggerMu          sync.Mutex
 	triggerNoop        map[currentSetQuestTriggerReplayKey]struct{}
+	linkedTriggerValue map[currentSetQuestTriggerReplayKey]int64
 	finishMu           sync.Mutex
 	finishAnswered     map[currentFinishQuestReplayKey]struct{}
 }

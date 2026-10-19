@@ -126,11 +126,12 @@ type currentBoosterDefinition struct {
 }
 
 type currentBoosterCommitResult struct {
-	GoldAmount      uint32
-	GoldAfter       uint32
-	SourceItemID    uint32
-	SourceSlot      int16
-	SourceRemaining uint32
+	EpicPieceCredits []alignedcmd.MailboxEpicPieceCredit
+	GoldAmount       uint32
+	GoldAfter        uint32
+	SourceItemID     uint32
+	SourceSlot       int16
+	SourceRemaining  uint32
 	// The last box may be replaced by its reward in the same inventory slot.
 	// Native op14 must remove the old object before creating the new template.
 	SourceSlotReused bool

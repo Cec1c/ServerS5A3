@@ -1,4 +1,4 @@
-"""Build the pinned V128 client candidate admitting native NOTI296.
+"""Build a pinned V128 or v141 client candidate admitting native NOTI296.
 
 The source stays unchanged. Only the receive bit and PE checksum may change.
 The server must provide the validated 20-byte packet and lifecycle ownership.
@@ -13,17 +13,27 @@ import pefile
 from story_pause_gate import file_offset, pe_layout
 
 SOURCE_SHA256 = "ea2f763927c8c993cc9f5cf41eb85ea37d5a50760ca310706497e5419bbc5912"
+V141_SOURCE_SHA256 = "26abf551753c2745c2e5b349fb24336422a189187ff847c995e0df9a68871079"
+SOURCE_PROFILES = {
+    SOURCE_SHA256: ("v128", 111808512, 23),
+    V141_SOURCE_SHA256: ("v141", 111812608, 24),
+}
 GATE_VA = 0x06E83610
 BITMAP_VA = 0x06E92300
 OPCODE = 296
 
 
 def build(data):
-    if hashlib.sha256(data).hexdigest() != SOURCE_SHA256:
-        raise ValueError("input is not the pinned V128 client")
+    source_sha256 = hashlib.sha256(data).hexdigest()
+    profile = SOURCE_PROFILES.get(source_sha256)
+    if profile is None:
+        raise ValueError("input is not a pinned V128 or v141 client")
     base, _, sections = pe_layout(data)
     if base != 0x00400000:
         raise ValueError("unexpected image base")
+    source_profile, expected_size, expected_sections = profile
+    if len(data) != expected_size or len(sections) != expected_sections:
+        raise ValueError("pinned client layout mismatch")
     gate = file_offset(sections, GATE_VA, 27)
     fingerprint = bytes.fromhex("0fb74424043dc205000077100fa305") + struct.pack("<I", BITMAP_VA)
     if data[gate:gate + len(fingerprint)] != fingerprint:
@@ -52,7 +62,8 @@ def build(data):
     changes = [{"offset": i, "before": a, "after": b}
                for i, (a, b) in enumerate(zip(data, output)) if a != b]
     return output, {
-        "source_sha256": SOURCE_SHA256,
+        "source_sha256": source_sha256,
+        "source_profile": source_profile,
         "candidate_sha256": hashlib.sha256(output).hexdigest(),
         "size": len(output), "checksum": checksum,
         "changes": changes, "changed_admissions": admissions,
