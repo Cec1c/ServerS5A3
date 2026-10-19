@@ -73,11 +73,14 @@ type dungeonDropItemDefinition struct {
 	ExpirationDate           time.Time
 	GiftBoxExpirationHistory []uint32
 	UsablePeriodDays         int64
-	DailyDeleteItem          bool
-	Price                    int64
-	PriceFound               bool
-	ActionType               string
-	GuildMileageItem         *inventory.GuildMileageItemDefinition
+	// ExpirationFromUsablePeriod distinguishes a resolved per-instance deadline
+	// from an absolute date declared in PVF. It is set only by grant resolution.
+	ExpirationFromUsablePeriod bool
+	DailyDeleteItem            bool
+	Price                      int64
+	PriceFound                 bool
+	ActionType                 string
+	GuildMileageItem           *inventory.GuildMileageItemDefinition
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
