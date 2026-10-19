@@ -15,7 +15,7 @@
 | [QST-005](QST-005-image-communication.md) | 远程通信收费、应答与NPC资格 | 1560f72 | 客户端及服务端已部署；正常流程待实测 |
 | [QST-006](QST-006-queen-linked-objectives.md) | 梅娅书信及危险研究多材料交付 | e199af2 | 原材料消费修复已部署；[书信来源恢复](QST-006-queen-letter-source.md)753ebb0 / MR !124已合并并部署，完整检查及新旧PVF通过；待实测 |
 | [QST-007](QST-007-cinematic-apc-death.md) | 单次剧情APC销毁确认 | f9d35b1 | 兼容修复已部署；原反馈过门待实测 |
-| [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口 | 复用004 | 入口已部署；[按Z不上机](QST-008-at5t-completion.md)继续研究 |
+| [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口 | 复用004 | 入口已部署；[按Z不上机](QST-008-at5t-completion.md)继续研究，[只读采样工具](QST-008-at5t-sampler.md)用于定位现场状态 |
 | [QST-009](QST-009-story-digest-gate.md) | 等级领先主线导致提前播放结局 | 7df2705 | V128客户端已发布并完成实际下载核验；待实测 |
 | [QST-011](QST-011-randolph-story-permission.md) | 伦道夫剧情与难度保持 | 已有修复复核 | 真实场景/退出/重连与回包通过；UI待实测 |
 | [QST-012](QST-012-friendly-apc-deaths.md) | 友军跨房击杀与通知重放 | c474f6a | 已部署；正常友军击杀与过门待实测 |
