@@ -138,6 +138,9 @@ type Service struct {
 	initialEquipmentArchive *platformpvf.Archive
 	initialEquipmentByJob   map[byte][]initialEquipmentEntry
 	initialEquipmentLoadErr error
+	// dungeonRuleSource lets focused tests provide the exact approved PVF texts
+	// they exercise. Production leaves it nil and uses initialEquipmentArchive.
+	dungeonRuleSource       initialEquipmentTextSource
 	weeklyCatalogMu         sync.Mutex
 	weeklyCatalog           *onlineevent.WeeklyCatalog
 	monthlyCatalogMu        sync.Mutex
