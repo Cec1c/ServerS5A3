@@ -82,7 +82,7 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			conn := &bufferConn{}
 			session := &gameSession{conn: conn, connID: "r4-offline-jonathan", accountID: account, channel: channelcatalog.Channel{ID: 38}, selectedCharacterID: 77, townSceneReadyCharacterID: 77, townPositionSnapshot: currentTownPositionSnapshot{CharacterID: 77, TownID: byte(townID), AreaID: byte(areaID), PositionValid: true}}
 			s := &Service{options: options{accountID: account, gameUpperBodyCodec: gameUpperBodyCodecPlain, currentClientVersion: "official-24.9", pvfPath: path}, initialEquipmentArchive: archive, townCatalog: towns, gameSessions: map[uint16]*gameSession{77: session}, repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }}
-			policy, err := s.alignedUpgradePolicyResolver()("reinforce", 0)
+			policy, err := s.alignedUpgradePolicyResolver()("reinforce", 28309, 0)
 			if err != nil {
 				t.Fatal(err)
 			}

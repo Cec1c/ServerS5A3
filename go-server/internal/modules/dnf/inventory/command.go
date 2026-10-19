@@ -68,8 +68,13 @@ type Command struct {
 	// Upgrade policy fields (populated by dnfbridge from PVF table).
 	// SuccessWeight is out of 100000; >= 100000 means guaranteed success.
 	UpgradeSuccessWeight int
-	// PenaltyType: 0=fail no change, 1=downgrade, 3=destroy.
-	UpgradePenaltyType int
+	// PenaltyType: 0/1=no change, 2=subtract PenaltyValue, 3=destroy.
+	UpgradePenaltyType  int
+	UpgradePenaltyValue int
+	// Handler quotes are bound to the exact level observed before entering the
+	// asset transaction; a changed level must be retried without spending assets.
+	UpgradePolicyRequired     bool
+	UpgradePolicyCurrentLevel byte
 	// MaterialItemID/Count are the runtime-PVF upgrade table requirement.
 	UpgradeMaterialItemID  int
 	UpgradeMaterialCount   int
