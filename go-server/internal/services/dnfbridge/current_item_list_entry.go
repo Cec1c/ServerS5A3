@@ -65,10 +65,21 @@ func sortCurrentEquipmentUpdateEntries(entries []currentEquipmentUpdateEntry) {
 }
 
 func currentItemListBindFlag(bind bool, extra map[string]string) byte {
-	// Relic conversion binds the output to the character but preserves the
-	// source's seal byte, including an authoritative zero. Bind alone cannot
-	// represent these two independent states. Other item projections retain
-	// their existing fallback behavior.
+	// 封装和绑定是不同状态。明确的封装值（包括0）及成功穿戴的解封
+	// 证据优先，不能在穿戴流程清掉seal_flag后又由Bind=true重新显示封装。
+	for _, key := range []string{"seal_flag", "seal"} {
+		if raw, found := extra[key]; found {
+			if value, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 8); err == nil {
+				return byte(value)
+			}
+		}
+	}
+	for _, key := range []string{"seal_removed_by_first_equip", "trade_locked_by_first_equip"} {
+		if value := strings.TrimSpace(extra[key]); value != "" && value != "0" && !strings.EqualFold(value, "false") {
+			return 0
+		}
+	}
+	// 旧圣物转换记录可能只有专用封装字段；当前明确封装状态及穿戴解封证据优先。
 	if extra["source"] == "equipment_emancipate" {
 		if value, err := strconv.ParseUint(extra["emancipate_seal_flag"], 10, 8); err == nil {
 			return byte(value)

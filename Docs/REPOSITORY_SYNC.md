@@ -18,7 +18,7 @@ CI 与同步脚本的变更同样在上游 MR 审查，合并后正常镜像。�
 - 变量 GITGUD_UPSTREAM_REPOSITORY：唯一上游的公开 HTTPS Git URL，例如 https://gitgud.io/OWNER/PROJECT.git；未设置时禁用镜像。
 - 在目标 GitHub 仓库创建专用、允许写入的 Deploy Key。私钥存入仓库 secret SOURCE_MIRROR_SSH_KEY，已核实的 github.com 主机密钥存入 SOURCE_MIRROR_KNOWN_HOSTS。该身份只写本 GitHub 镜像，不使用个人长期访问令牌或 GitGud 写入凭据。
 - Actions 默认 token 仅 contents: read。主干保护需允许专用镜像身份按项目规则快进；不要在 GitHub 主干直接开发或合并 PR。
-- Repository sync 在 master push、手动触发及每15分钟计划运行。调度可能延迟。GitHub Deploy Key 推送可能产生一次后续检查；相同SHA无写入，不会持续产生新提交。
+- Repository sync 每小时第7分钟计划运行（`7 * * * *`），保留手动触发；调度可能延迟。镜像推送不再触发额外检查，相同SHA无写入。
 - 旧 Upstream updates 工作流及其合并脚本已移除。迁移完成后停用旧工作流，移除旧 GITGUD_SYNC_REPOSITORY、UPSTREAM_SYNC_ONLY 变量和 GitGud fork 同步 secrets，避免双向写入重新启用。
 
 | 主干关系 | 动作 |

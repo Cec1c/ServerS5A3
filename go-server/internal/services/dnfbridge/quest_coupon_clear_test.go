@@ -252,18 +252,20 @@ func TestCurrentQuestClearCouponNoopKeepsTheCouponWhenNothingCanBeCleared(t *tes
 }
 
 // TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem 覆盖两条
-// fail-closed 边界：非任务券 action 162 必须继续走原路由；非完成券道具
+// fail-closed 边界：历史 action 162 与当前伤害字体 action 164 继续走原路由；非完成券道具
 // 落在该格时零写入，并按原生形状返回失败。
 func TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem(t *testing.T) {
 	ctx := context.Background()
 	service, session, repositories := newQuestClearCouponTestService(t, 1)
 
-	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 162))
-	if err != nil || handled {
-		t.Fatalf("foreign action 162 must fall through: handled=%t err=%v", handled, err)
-	}
-	if len(session.conn.(*bufferConn).write.Bytes()) != 0 {
-		t.Fatal("foreign action index produced a packet")
+	for _, action := range []uint32{162, 164} {
+		handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, action))
+		if err != nil || handled {
+			t.Fatalf("foreign action %d must fall through: handled=%t err=%v", action, handled, err)
+		}
+		if len(session.conn.(*bufferConn).write.Bytes()) != 0 {
+			t.Fatal("foreign action index produced a packet")
+		}
 	}
 
 	inventory, _, err := repositories.Inventory.Load(ctx, "17")
@@ -277,7 +279,7 @@ func TestCurrentQuestClearCouponRejectsForeignActionIndexAndForeignItem(t *testi
 		t.Fatal(err)
 	}
 
-	handled, err = service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 169))
+	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(testQuestClearCouponSlot, 169))
 	if err != nil || !handled {
 		t.Fatalf("foreign item must be claimed then rejected: handled=%t err=%v", handled, err)
 	}

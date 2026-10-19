@@ -18,6 +18,7 @@ type dungeonStoryProcDeathEvidence struct {
 	ActionPath      string
 	PassiveObjectID int64
 	BehaviorIndex   int
+	CinematicID     int64
 }
 
 type dungeonStoryProcDeathReceipt struct {
@@ -39,7 +40,7 @@ func (s *Service) currentDungeonStoryProcDeath(session *gameSession, runtime *ru
 		return dungeonStoryProcDeathEvidence{}, false
 	}
 	if request.OwnerObjectKey != ^uint16(0) || request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat ||
-		request.CombatEntryCount != 0 || len(request.OpaqueTail) != 0 {
+		len(request.CombatEntries) != int(request.CombatEntryCount)*dungeoncmd.Official249DieMonsterEntrySize || len(request.OpaqueTail) != 0 {
 		return dungeonStoryProcDeathEvidence{}, false
 	}
 	if isPVFTutorialDungeon(runtime) || currentDungeonPathUsesTutorialNamespace(runtime.Dungeon.Path) || request.RuntimeObjectKey == 0 || request.RuntimeObjectKey > uint32(^uint16(0)) {
@@ -93,7 +94,18 @@ func (s *Service) currentDungeonStoryProcDeath(session *gameSession, runtime *ru
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	quests, err := s.loadQuestCatalog(ctx)
-	if err != nil || !currentDungeonConnectedClearMapQuestOwnsBaseMap(runtime, scene.Map.Map.ID, -1, quests) {
+	if err != nil {
+		return dungeonStoryProcDeathEvidence{}, false
+	}
+	// Keep the cinematic allowance's original empty-contribution boundary.
+	// Passive-triggered self-kills may retain the native combat history, but
+	// none of those opaque values participates in the script or reward proof.
+	if request.CombatEntryCount == 0 {
+		if evidence, ok := s.currentDungeonCinematicAPCDestroy(ctx, session, runtime, scene, *actor, quests); ok {
+			return evidence, true
+		}
+	}
+	if !currentDungeonConnectedClearMapQuestOwnsBaseMap(runtime, scene.Map.Map.ID, -1, quests) {
 		return dungeonStoryProcDeathEvidence{}, false
 	}
 	questID := runtime.Dungeon.Mazes[runtime.MazeIndex].QuestConnection[1]

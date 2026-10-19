@@ -11,6 +11,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
+	"longheng.io/server/internal/modules/dnf/inventory"
 	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
@@ -45,6 +46,15 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
+	CeraOnly, TokenCeraOnly  bool
+	AuctionUsableJobs        []string
+	AuctionRecipeOutputID    uint32
+	AuctionRecipeOutput      *dungeonDropItemDefinition
+	AuctionExpertJobs        []byte
+	AuctionExtractor         bool
+	Name                     string
+	AuctionRuleFound         bool
+	AuctionAllowed           bool
 	ItemID                   uint32
 	Kind                     dungeonDropItemKind
 	PVFPath                  string
@@ -67,6 +77,7 @@ type dungeonDropItemDefinition struct {
 	Price                    int64
 	PriceFound               bool
 	ActionType               string
+	GuildMileageItem         *inventory.GuildMileageItemDefinition
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -272,12 +283,26 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s: %w", itemID, docPath, err)
 	}
 	definition := dungeonDropItemDefinition{ItemID: itemID, Kind: reference.kind, PVFPath: docPath}
+	definition.AuctionUsableJobs = document.Texts("usable job")
+	if output := document.Ints("output item"); len(output) >= 2 && output[0] > 0 && output[0] <= math.MaxUint32 && output[1] > 0 {
+		definition.AuctionRecipeOutputID = uint32(output[0])
+	}
+	_, definition.CeraOnly = document.Section("buy only cash")
+	_, definition.TokenCeraOnly = document.Section("buy only cera point")
 	definition.AttachType, _ = document.Text("attach type")
 	definition.ImpossibleContents = document.Texts("impossible contents")
 	if price, found := document.Int("price"); found && price >= 0 {
 		definition.Price = price
 		definition.PriceFound = true
 	}
+	if n, ok := document.Text("name"); ok {
+		definition.Name = n
+	}
+	if n, ok := document.Int("available auction"); ok {
+		definition.AuctionRuleFound = true
+		definition.AuctionAllowed = n != 0
+	}
+
 	expirationDate, err := parseCurrentPVFExpirationDate(document)
 	if err != nil {
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s expiration date: %w", itemID, docPath, err)
@@ -325,6 +350,9 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		definition.SlotStart, definition.SlotEnd = dungeonDropStackableSlotRange(definition.StackableType)
 		if err := parseCurrentDamageFontDefinition(document, &definition); err != nil {
 			return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s damage font: %w", itemID, docPath, err)
+		}
+		if err := parseCurrentGuildMileageItem(document, &definition); err != nil {
+			return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s guild mileage: %w", itemID, docPath, err)
 		}
 	}
 	if row, found := c.giftBoxHistory[strings.ToLower(docPath)]; found {

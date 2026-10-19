@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
@@ -41,6 +42,10 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	guildCreateMu sync.Mutex
+	// Serializes warehouse ACKs and snapshots; never acquire while holding an
+	// actor reservation. A snapshot must not overtake its transfer's ACK.
+	guildCargoMu     sync.Mutex
 	levelUpRewards   levelUpRewardRuntime
 	activityControls *onlineevent.Controls
 	logger           *slog.Logger
@@ -61,6 +66,14 @@ type Service struct {
 	// 上玩。见 game_sessions.go 的 handoverRuntimePartyToLiveSession。
 	liveGameSessions          map[string]*gameSession
 	nextGameSessionGeneration uint64
+	auctionMaintenanceContext context.Context
+	auctionCategoryExtraOnce  sync.Once
+	auctionCategoryExpertJobs map[uint32][]byte
+	auctionCategoryExtractors map[uint32]bool
+	auctionCategoryExtraErr   error
+	auctionMu                 sync.Mutex
+	auctionItemEligibility    func(uint32) bool
+	auctionCategoryItem       func(uint16, uint32) bool
 	tradeMu                   sync.Mutex
 	itemTrades                map[uint16]*onlineItemTrade
 	expertJobStoreMu          sync.Mutex
@@ -204,6 +217,10 @@ type Service struct {
 	combatPowerCatalogErr    error
 	townCatalogMu            sync.RWMutex
 	townCatalog              *dnftown.Table
+
+	imageCommunicationMu        sync.Mutex
+	imageCommunicationResources *currentImageCommunicationResources
+
 	// seriaRoomDoors 缓存"赛丽亚房间外门口"的 PVF 解析结果（键 = 房间的城镇/区域），
 	// 见 town_seria_room_door.go：每次 op1425 都要用，但 PVF 文档只需读一次。
 	seriaRoomDoorMu sync.Mutex
@@ -286,6 +303,9 @@ func (s *Service) Name() string {
 func (s *Service) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := s.validateCurrentSceneActorRoute(); err != nil {
+		return err
 	}
 	if err := s.validateDprotoConfiguration(); err != nil {
 		return err
@@ -394,6 +414,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.Join(err, closeErr)
 	}
 	s.startGameplayTimeQueue(runCtx)
+	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)
 	s.startCurrentLevelUpRewardClock(runCtx)

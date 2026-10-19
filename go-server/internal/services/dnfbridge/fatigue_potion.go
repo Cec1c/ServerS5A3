@@ -6,6 +6,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnffatigue "longheng.io/server/internal/modules/dnf/fatigue"
+	dnfinventory "longheng.io/server/internal/modules/dnf/inventory"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	"strconv"
 	"strings"
@@ -29,16 +30,20 @@ func fatiguePotionDefinition(itemID int64, path string, document *dnfpvf.Documen
 	return definition, true
 }
 
-// op515's proved 19-byte action envelope names an inventory slot. Dispatch
-// this family by the actual persisted item/PVF action, rather than trusting
-// an opaque action index or an amount supplied by the client.
+// The matched EXE maps [add fatigue] to action 58. Both that action and
+// the persisted item's runtime-PVF definition must agree before any debit.
+const currentFatiguePotionAction uint32 = 58
+
 func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byte) (bool, error) {
-	if session == nil || session.selectedCharacterID == 0 || len(body) != currentQuestClearCouponBodySize || body[2] != 0 {
+	if session == nil || len(body) < 11 || binary.LittleEndian.Uint32(body[7:11]) != currentFatiguePotionAction {
 		return false, nil
 	}
 	slot := int16(binary.LittleEndian.Uint16(body))
-	if slot < 0 {
-		return false, nil
+	reject := func() (bool, error) {
+		return true, s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), dnfinventory.BuildStackableActionFailure(slot, body[2], byte(currentFatiguePotionAction), 1), 1)
+	}
+	if session.selectedCharacterID == 0 || len(body) != currentQuestClearCouponBodySize || body[2] != 0 || slot < 0 || binary.LittleEndian.Uint32(body[3:7]) != 0 || binary.LittleEndian.Uint32(body[11:15]) != 0 || binary.LittleEndian.Uint32(body[15:19]) != 0 {
+		return reject()
 	}
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Inventory == nil || repos.Account == nil {
@@ -88,7 +93,7 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 	inDungeon := session.dungeon.runtime != nil
 	session.dungeon.mu.Unlock()
 	if inDungeon {
-		return true, s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUseStackableAction), 1)
+		return reject()
 	}
 	account, found, err := repos.Account.Load(ctx, s.accountIDForSession(session))
 	if err != nil {
@@ -100,10 +105,10 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 	result, err := dnffatigue.RestorePotion(ctx, repos, account, characterID, slot, definition, s.gameplayNow())
 	if err != nil {
 		s.logGameEvent(session, "game-fatigue-potion-rejected", "char_id", session.selectedCharacterID, "item_id", stack.ItemID, "action_index", binary.LittleEndian.Uint32(body[7:11]), "error", err)
-		return true, s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUseStackableAction), 1)
+		return reject()
 	}
 	s.logGameEvent(session, "game-fatigue-potion-used", "char_id", session.selectedCharacterID, "item_id", stack.ItemID, "points", definition.Points, "daily_limit", definition.DailyLimit, "cooltime_ms", definition.CoolTimeMS, "remaining_fatigue", result.Character.Stats["fatigue"])
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), buildCurrentQuestClearCouponAck(slot, result.Remaining), 1); err != nil {
+	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), dnfinventory.BuildStackableActionAck(slot, 0, currentFatiguePotionAction), 1); err != nil {
 		return true, err
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "fatigue_potion_after_ack", []alignedcmd.ItemSlotRefresh{{ListType: 0, SlotIndex: slot}}); err != nil {

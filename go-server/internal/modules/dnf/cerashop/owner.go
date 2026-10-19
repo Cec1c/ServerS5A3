@@ -46,18 +46,23 @@ type CheckoutAssets struct {
 type CheckoutProjector func(*CheckoutAssets) (CheckoutChanges, error)
 
 type CheckoutCommand struct {
-	AccountID     string
-	CharacterID   string
-	SettingsScope string
-	Cost          int64
-	UpdatedAt     time.Time
-	IncludeSkills bool
-	Project       CheckoutProjector
+	PayPolicy PayPolicy
+	// 受PVF限制的金额先预留，余款再按PayPolicy扣除，支持混合购物车。
+	CeraOnlyCost, TokenOnlyCost int64
+	AccountID                   string
+	CharacterID                 string
+	SettingsScope               string
+	Cost                        int64
+	UpdatedAt                   time.Time
+	IncludeSkills               bool
+	Project                     CheckoutProjector
 }
 
 type CheckoutResult struct {
-	CeraBefore int64
-	CeraAfter  int64
+	WalletBefore, WalletAfter Wallet
+	Payment                   WalletPayment
+	CeraBefore                int64
+	CeraAfter                 int64
 }
 
 type Owner struct {
@@ -181,12 +186,26 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 			equipmentRecord = dnfrepo.CloneEquipment(equipmentRecord)
 			settingsRecord = dnfrepo.CloneSettings(settingsRecord)
 
-			ceraBefore := Balance(account)
-			if ceraBefore < command.Cost {
-				return fmt.Errorf("%w: balance=%d cost=%d", ErrCeraInsufficient, ceraBefore, command.Cost)
+			walletBefore := WalletBalance(account)
+			if command.CeraOnlyCost < 0 || command.TokenOnlyCost < 0 || command.CeraOnlyCost > command.Cost || command.TokenOnlyCost > command.Cost-command.CeraOnlyCost {
+				return ErrOwnerUnavailable
 			}
-			ceraAfter := ceraBefore - command.Cost
-			SetBalance(&account, ceraAfter)
+			var payment WalletPayment
+			for _, charge := range []struct {
+				cost   int64
+				policy PayPolicy
+			}{{command.CeraOnlyCost, PayPolicyCeraOnly}, {command.TokenOnlyCost, PayPolicyTokenCeraOnly}, {command.Cost - command.CeraOnlyCost - command.TokenOnlyCost, command.PayPolicy}} {
+				part, e := PlanWalletPayment(WalletBalance(account), charge.cost, charge.policy)
+				if e != nil {
+					return fmt.Errorf("%w: %w", ErrCeraInsufficient, e)
+				}
+				ApplyWalletPayment(&account, part)
+				payment.FromCera += part.FromCera
+				payment.FromTokenCera += part.FromTokenCera
+				payment.FromHappyTokenCera += part.FromHappyTokenCera
+			}
+			walletAfter := WalletBalance(account)
+			ceraBefore, ceraAfter := walletBefore.Cera, walletAfter.Cera
 
 			assets := &CheckoutAssets{
 				Account:        &account,
@@ -240,7 +259,7 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 					return err
 				}
 			}
-			result = CheckoutResult{CeraBefore: ceraBefore, CeraAfter: ceraAfter}
+			result = CheckoutResult{CeraBefore: ceraBefore, CeraAfter: ceraAfter, WalletBefore: walletBefore, WalletAfter: walletAfter, Payment: payment}
 			return nil
 		},
 	)

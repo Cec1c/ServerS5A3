@@ -1128,7 +1128,19 @@ func prepareStoryChainCompletedSettlementRuntime(t *testing.T) (*Service, *runti
 }
 
 func TestDungeonCardExitStoryNextQuestEntersNextDungeon(t *testing.T) {
-	service, runtime, session, connection, _ := prepareStoryChainCompletedSettlementRuntime(t)
+	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, "99")
+	if err != nil || !found {
+		t.Fatalf("character found=%t err=%v", found, err)
+	}
+	character.Job = "0"
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{CharacterID: "99", States: map[int64]dnfrepo.QuestState{3148: {Status: "completed"}}}); err != nil {
+		t.Fatal(err)
+	}
 	runtime.settlementPlayResultReceived = true
 	runtime.settlementStatisticReceived = true
 	markCurrentDungeonCardRewardCommittedForTest(runtime)
@@ -1236,7 +1248,7 @@ func TestDungeonCardExitStoryNextQuestStartsSuccessorOnItsQuestMaze(t *testing.T
 // TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance is the
 // negative control for the same path: an eligible-successor check that fails must
 // leave the quest record untouched (no faked acceptable list, no skipped
-// prerequisite), and the entry keeps its previous target.
+// prerequisite), and the entry repeats the current dungeon.
 func TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance(t *testing.T) {
 	service, runtime, session, connection, repositories := prepareStoryChainCompletedSettlementRuntime(t)
 	ctx := context.Background()
@@ -1257,12 +1269,12 @@ func TestDungeonCardExitStoryNextQuestDoesNotInventSuccessorAcceptance(t *testin
 		t.Fatal(err)
 	}
 	newRuntime := session.dungeon.runtime
-	if newRuntime == nil || newRuntime.Dungeon.ID != 800 {
-		t.Fatalf("story next-quest runtime=%+v, want the chain's successor dungeon", newRuntime)
+	if newRuntime == nil || newRuntime.Dungeon.ID != 700 {
+		t.Fatalf("ineligible next-quest runtime=%+v, want current dungeon", newRuntime)
 	}
 	maze := newRuntime.Dungeon.Mazes[newRuntime.MazeIndex]
-	if len(maze.QuestConnection) != 0 {
-		t.Fatalf("an ineligible successor must not select a quest maze: maze=%d connection=%v",
+	if len(maze.QuestConnection) >= 2 && maze.QuestConnection[1] == 3149 {
+		t.Fatalf("an ineligible successor must not select its quest maze: maze=%d connection=%v",
 			newRuntime.MazeIndex, maze.QuestConnection)
 	}
 	if record, found, err := repositories.Quest.Load(ctx, "99"); err != nil {

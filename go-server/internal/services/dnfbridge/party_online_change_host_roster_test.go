@@ -5,6 +5,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/party"
 )
 
@@ -75,11 +76,20 @@ func writeFrames(t *testing.T, session *gameSession) []upperFrame {
 	return frames
 }
 
+func drainFrameBytes(t *testing.T, session *gameSession) []byte {
+	t.Helper()
+	conn := session.conn.(*bufferConn)
+	data := append([]byte(nil), conn.write.Bytes()...)
+	conn.write.Reset()
+	return data
+}
+
 type changeHostFrames struct {
 	realtime   int
 	realtimeBP []byte
 	records    [][]byte
 	removals   int
+	endpoints  int
 }
 
 func collectChangeHostFrames(t *testing.T, session *gameSession) changeHostFrames {
@@ -90,6 +100,8 @@ func collectChangeHostFrames(t *testing.T, session *gameSession) changeHostFrame
 		case 0x0099:
 			collected.realtime++
 			collected.realtimeBP = frame.body
+		case 0x000b:
+			collected.endpoints++
 		case 0x0009:
 			if len(frame.body) > 9 && frame.body[9] == currentSceneOp9ActorRemoveKind {
 				collected.removals++
@@ -105,7 +117,8 @@ func collectChangeHostFrames(t *testing.T, session *gameSession) changeHostFrame
 
 // assertChangeHostRoster 断言一次"委任队长"之后，某个成员客户端收到的完整队伍表：
 //   - **恰好一份** op153，且是带真实 HP 的完整名单（不是 1 字节的空实时名单）；
-//   - 每个成员各一条 op9 kind0（自己的 + 队友的），两条的队伍槽位表都指向新队长 0 号位。
+//   - 每个成员各一条 op9 kind0（自己的 + 队友的），两条都保留固定槽位，
+//     队长行字段指向新队长原来的槽位（这里是 1）。
 func assertChangeHostRoster(t *testing.T, name string, session *gameSession, newLeaderID uint16) {
 	t.Helper()
 	collected := collectChangeHostFrames(t, session)
@@ -135,17 +148,23 @@ func assertChangeHostRoster(t *testing.T, name string, session *gameSession, new
 	if len(collected.records) != 2 {
 		t.Fatalf("%s: op9 kind0 record count=%d want 2 (own + peer) bodies=% X", name, len(collected.records), collected.records)
 	}
+	if collected.removals != 0 {
+		t.Fatalf("%s: change-host sent %d old-generation removal frames; the committed roster must replace the table without a clear window", name, collected.removals)
+	}
+	if collected.endpoints != 0 {
+		t.Fatalf("%s: change-host replayed %d op11 endpoint handshakes on an already formed party", name, collected.endpoints)
+	}
 	describes := map[uint16]bool{}
 	for _, record := range collected.records {
 		rows, leaderSlot := parseOp9PartyFrame(t, record, true)
 		if len(rows) != 2 {
 			t.Fatalf("%s: op9 rows=%d want 2 body=% X", name, len(rows), record)
 		}
-		if rows[0].uid != newLeaderID || rows[0].slot != 0 {
-			t.Fatalf("%s: op9 slot0=%+v want the new leader %d body=% X", name, rows[0], newLeaderID, record)
+		if rows[0].slot != 0 || rows[0].uid != 1001 || rows[1].slot != 1 || rows[1].uid != newLeaderID {
+			t.Fatalf("%s: op9 fixed slots=%+v want former leader 1001 at 0 and new leader %d at 1 body=% X", name, rows, newLeaderID, record)
 		}
-		if leaderSlot != 0 {
-			t.Fatalf("%s: op9 leader slot byte=%d want 0 body=% X", name, leaderSlot, record)
+		if leaderSlot != 1 || rows[leaderSlot].uid != newLeaderID {
+			t.Fatalf("%s: op9 leader slot byte=%d uid=%d want fixed slot 1 for new leader %d body=% X", name, leaderSlot, rows[leaderSlot].uid, newLeaderID, record)
 		}
 		actorKey := uint16(record[4]) | uint16(record[5])<<8
 		if actorKey != 1001 && actorKey != 1002 {
@@ -176,9 +195,8 @@ func TestChangePartyHostRebuildsFullRosterForEveryMember(t *testing.T) {
 	assertChangeHostRoster(t, "new-leader", member, 1002)
 }
 
-// 委任队长**不能**再发"整份空快照"（唯一会让客户端清空整张队伍槽位表的包：
-// `msg_id=153 body_len=1`）。清档只允许走 op9 kind3 删除记录。
-func TestChangePartyHostNeverSendsEmptyPartySnapshot(t *testing.T) {
+// 委任队长必须直接替换到权威名单：既不能发空的 op153，也不能先清空旧代窗口。
+func TestChangePartyHostUsesOneCommittedRosterWithoutClearWindow(t *testing.T) {
 	service, leader, member, _, _ := changeHostFixture(t, 10, 10)
 	if err := service.sendManagedRuntimePartySnapshots(runtimePartyStateSnapshot(leader)); err != nil {
 		t.Fatalf("initial snapshots: %v", err)
@@ -195,8 +213,11 @@ func TestChangePartyHostNeverSendsEmptyPartySnapshot(t *testing.T) {
 			t.Fatalf("%s: change-host realtime frames=%d body=% X, want one full table and never the 1-byte empty list",
 				name, collected.realtime, collected.realtimeBP)
 		}
-		if collected.removals == 0 {
-			t.Fatalf("%s: change-host cleared the old table with 0 op9 kind3 records", name)
+		if collected.removals != 0 {
+			t.Fatalf("%s: change-host cleared the old table with %d op9 kind3 records", name, collected.removals)
+		}
+		if collected.endpoints != 0 {
+			t.Fatalf("%s: change-host replayed %d op11 endpoint handshakes", name, collected.endpoints)
 		}
 	}
 }
@@ -237,9 +258,57 @@ func TestChangePartyHostRepeatForCurrentLeaderIsIdempotent(t *testing.T) {
 	if after.ID != firstTransfer.ID {
 		t.Fatalf("repeat retired the generation again: party %d -> %d", firstTransfer.ID, after.ID)
 	}
+	// 第一条请求已经投影过这份权威名单。同一次操作的客户端重发不得再刷一遍窗口。
+	for name, session := range map[string]*gameSession{"former-leader": leader, "new-leader": member} {
+		if frames := writeFrames(t, session); len(frames) != 0 {
+			t.Fatalf("%s: duplicate change-host request emitted %d frames, want zero: %+v", name, len(frames), frames)
+		}
+	}
 	// 队伍代数没有翻新 ⇒ 客户端不会再被"清档 + 重建"刷一次（位置互换/血量清空的来源）。
 	if live, liveFound := manager.SnapshotByUser(1001, leaderGeneration); !liveFound || live.ID != firstTransfer.ID {
 		t.Fatalf("former leader left the live party after the repeat: found=%t snapshot=%+v", liveFound, live)
+	}
+}
+
+// The reported Esc item is named "leave party". Cover the exact post-change-
+// host shape with the native LEAVE_PARTY opcode: the former leader must leave
+// the manager, while the new leader keeps the surviving party and receives the
+// removal projection. This proves the party cleanup if the client sends op13;
+// it deliberately does not reinterpret GIVEUP_GAME/BACK_2_VILLAGE as a leave.
+func TestDelegatedFormerLeaderOp13RemovesMembership(t *testing.T) {
+	service, formerLeader, newLeader, _, newLeaderGeneration := changeHostFixture(t, 10, 10)
+	if err := service.handleOnlineChangePartyHost(formerLeader, []byte{1}); err != nil {
+		t.Fatalf("change party host: %v", err)
+	}
+	writeFrames(t, formerLeader)
+	writeFrames(t, newLeader)
+
+	handled, err := service.handleAlignedGameCommand(
+		formerLeader,
+		byte(dnfenum.GameCmdCommand),
+		uint16(dnfenum.CmdPacketLeaveParty),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("former leader leave party: %v", err)
+	}
+	if !handled {
+		t.Fatal("post-change-host LEAVE_PARTY was not handled")
+	}
+	manager := service.runtimePartyManagerForService()
+	if snapshot, found := manager.SnapshotByUser(1001, 0); found {
+		t.Fatalf("former leader stayed in the authoritative party: %+v", snapshot)
+	}
+	if snapshot, found := manager.SnapshotByUser(1002, newLeaderGeneration); !found || snapshot.Leader != 1002 {
+		t.Fatalf("new leader lost the surviving party: found=%t snapshot=%+v", found, snapshot)
+	}
+
+	ack, _ := splitGameServerUpperPacket(t, drainFrameBytes(t, formerLeader))
+	if ack.Header.MsgID != uint16(dnfenum.CmdPacketLeaveParty) || !bytesEqualByte(ack.Body, 1) {
+		t.Fatalf("former leader leave ack = msg %d body=% X", ack.Header.MsgID, ack.Body)
+	}
+	if frames := drainFrameBytes(t, newLeader); len(frames) == 0 {
+		t.Fatal("new leader received no membership-removal projection")
 	}
 }
 

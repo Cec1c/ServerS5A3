@@ -24,6 +24,7 @@ const (
 	currentTownPostTransitionFinishStateSent
 	currentTownPostTransitionFinishCompletionSent
 	currentTownPostTransitionSkillSent
+	currentTownPostTransitionGuildBuffsSent
 	currentTownPostTransitionComplete
 )
 
@@ -51,6 +52,8 @@ func (s *Service) armCurrentTownPostTransitionPlayerState(session *gameSession, 
 	session.currentFinishLoadingCompletionSent = false
 	session.postFinishLoadingPlayerStateSent = false
 	session.initialTownSkillInfoSent = false
+	session.initialTownGuardianShieldDeckSent = false
+	session.initialTownGuardianShieldAppearanceSent = false
 
 	s.logGameEvent(session, "game-town-post-transition-player-state-armed",
 		"source", source,
@@ -204,6 +207,13 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		session.currentFinishLoadingCompletionSent = true
 		session.townPostTransition.stage = currentTownPostTransitionFinishCompletionSent
 	}
+
+	if _, err := s.sendSelectedGuardianShieldDeckInfo(session, source+"_guardian_deck"); err != nil {
+		return err
+	}
+	if _, err := s.sendSelectedGuardianShieldTownAppearanceRefreshOnce(session, source+"_guardian_appearance"); err != nil {
+		return err
+	}
 	if session.townPostTransition.stage < currentTownPostTransitionSkillSent {
 		prepared := session.initialTownSkillInfoPrepared &&
 			session.initialTownSkillInfo.characterID == strconv.Itoa(int(characterID)) &&
@@ -240,6 +250,12 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		session.initialTownSkillInfoSent = true
 		session.initialTownSkillInfo = currentSceneSkillInfoProjection{}
 		session.townPostTransition.stage = currentTownPostTransitionSkillSent
+	}
+	if session.townPostTransition.stage < currentTownPostTransitionGuildBuffsSent {
+		if err := s.restoreCurrentGuildBuffProjection(session); err != nil {
+			return err
+		}
+		session.townPostTransition.stage = currentTownPostTransitionGuildBuffsSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionComplete {
 		placementBody := buildCurrentSceneActorPlacementBody()

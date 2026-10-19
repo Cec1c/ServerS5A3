@@ -75,6 +75,9 @@ func (s Skill) Key() Key {
 	return Key{Job: s.Job, ID: s.ID}
 }
 
+// SupportsGrowType reports whether the raw [skill fitness growtype] metadata
+// contains growType. The array is grouping/adaptation metadata; it is not the
+// career gate. Use SupportsCharacterGrowth for learnability.
 func (s Skill) SupportsGrowType(growType int) bool {
 	if len(s.GrowTypes) == 0 {
 		return true
@@ -87,24 +90,18 @@ func (s Skill) SupportsGrowType(growType int) bool {
 	return false
 }
 
-// SupportsCharacterGrowth applies both PVF fitness dimensions to the packed
-// character grow_type byte. Low four bits select the class branch and high
-// four bits select the cumulative awakening stage.
+// SupportsCharacterGrowth reports whether the PVF maximum-level owner enables
+// the packed character grow_type. Low four bits select the class branch and
+// high four bits select the awakening stage.
+//
+// [skill fitness growtype] and [skill fitness second growtype] are metadata,
+// not indexed career gates. The shipped PVF proves the distinction: 燃烧之血
+// has fitness=[1] while [growtype maximum level]=0 0 0 1 0 1, and the current
+// client plus A21 BuySkillService expose it for Berserker grow_type=3. The
+// maximum-level tables (including their zero slots and second-awakening
+// fallback) are the same source used when the client draws the skill page.
 func (s Skill) SupportsCharacterGrowth(growType int) bool {
-	first := growType & 0x0f
-	awakening := (growType >> 4) & 0x0f
-	if !s.SupportsGrowType(first) {
-		return false
-	}
-	if len(s.SecondGrowTypes) == 0 {
-		return true
-	}
-	for _, minimumStage := range s.SecondGrowTypes {
-		if minimumStage >= 0 && awakening >= minimumStage {
-			return true
-		}
-	}
-	return false
+	return s.MaxLevelForGrowType(growType) > 0
 }
 
 // MaxLevelForGrowType returns the PVF learnable cap for one packed grow_type

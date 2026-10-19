@@ -22,6 +22,7 @@ type Request struct {
 	Body                   []byte
 	AccountID              string
 	SelectedCharacterID    uint16
+	GuardianShield         GuardianShieldResolver
 	Repositories           dnfrepo.Group
 	EquipmentPlacement     EquipmentPlacementValidator
 	InventoryItemPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
@@ -623,6 +624,7 @@ type StackableUseProvenanceResolution struct {
 	ItemID        int64
 	PVFPath       string
 	StackableType string
+	ActionType    string
 	Found         bool
 }
 
@@ -788,11 +790,14 @@ type PartyState struct {
 }
 
 // PartyMemberState 是已验证队伍包里能安全写出的队员槽位状态。
+// Slot 是 RuntimePartyMember.Slot 的投影：0 是合法槽位；多个成员同时为 0
+// 表示旧调用方没有提供固定槽位，bridge 会按输入顺序补成 0..n-1。
 type PartyMemberState struct {
 	UserID    uint16
 	UserState byte
 	HPPercent byte
 	MPPercent byte
+	Slot      byte
 }
 
 // Result 表示模块化分流后的处理结果。
@@ -849,7 +854,8 @@ type Result struct {
 	// class0/0x047D ledger notice after the ACK — exactly like a contract
 	// activation, and instead of an op14 row refresh. Empty for every command
 	// that grants no fragment.
-	EpicPieceCredits []MailboxEpicPieceCredit
+	EpicPieceCredits     []MailboxEpicPieceCredit
+	AccountWalletChanged bool
 	// UpgradeDestroyBonusMerge describes where the "equipment destroyed by a
 	// failed reinforcement/amplification" compensation item landed: which row
 	// received it, whether that row was an existing same-identity stack or a
@@ -943,8 +949,9 @@ type ItemSlotRefresh struct {
 type PostAction string
 
 const (
-	PostActionRefreshSelectedActorAppearance PostAction = "refresh_selected_actor_appearance"
-	PostActionRefreshSelectedItemContainers  PostAction = "refresh_selected_item_containers"
+	PostActionRefreshSelectedActorAppearance        PostAction = "refresh_selected_actor_appearance"
+	PostActionRefreshSelectedActorExpandedEquipment PostAction = "refresh_selected_actor_expanded_equipment"
+	PostActionRefreshSelectedItemContainers         PostAction = "refresh_selected_item_containers"
 	// 穿脱装备/时装（op19）专用的整容器重发动作。它与
 	// PostActionRefreshSelectedItemContainers 的旧口径逐字节等价（class0/op13
 	// list 0/1/2/7/38 五个整容器），但**只由穿脱路径发出**，因此 dnfbridge 可以

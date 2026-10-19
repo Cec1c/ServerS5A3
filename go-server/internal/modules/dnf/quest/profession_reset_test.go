@@ -306,16 +306,17 @@ func mustJobChangeQuest(t *testing.T, catalog *Catalog, questID int64) int {
 }
 
 // TestRealScriptPVFJobChangeQuestBucketsMatchTheDumpedCounts 把"第一职业 / 一次觉醒 /
-// 二次觉醒"三档在真档里的规模钉住（与 catalog_real_pvf_test.go:433 的 72/286/354 同一
-// 份 PVF 的独立复算），确保上面的用例不是在一个空集合上空转。
+// 二次觉醒"三档在真档里的规模钉住。第一职业包含旧 job 与新版 Elvengard 两组，
+// 各 72 条；来源/ID/奖励由 TestRealScriptPVFClassChangeFamiliesMatchSourceDocuments
+// 独立核对，确保重置用例覆盖两组而非在空集合上空转。
 func TestRealScriptPVFJobChangeQuestBucketsMatchTheDumpedCounts(t *testing.T) {
 	catalog := p6RealPVFCatalog(t)
 	counts := map[int]int{}
 	for _, definition := range catalog.ordered {
 		counts[definition.JobChangeQuest]++
 	}
-	if counts[1] != 72 || counts[2] != 286 || counts[3] != 354 || counts[20] == 0 {
-		t.Fatalf("real PVF job-change buckets = %v, want 1:72 2:286 3:354 20:>0", counts)
+	if counts[1] != 144 || counts[2] != 286 || counts[3] != 354 || counts[20] == 0 {
+		t.Fatalf("real PVF job-change buckets = %v, want 1:144 2:286 3:354 20:>0", counts)
 	}
 	t.Logf("real PVF job-change buckets=%v", counts)
 }

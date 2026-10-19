@@ -349,11 +349,11 @@ func (s *Service) prepareTournamentDungeonRun(
 	if !ok {
 		return nil, fmt.Errorf("tournament runtime rejected: %s", failureReason)
 	}
-	monsters, err := tournamentRoomMonsters(definition, runtime)
+	roomActors, err := tournamentRoomActors(definition, runtime)
 	if err != nil {
 		return nil, err
 	}
-	if err := topology.ProjectTournamentRoomActors(start, monsters); err != nil {
+	if err := topology.ProjectTournamentRoomActors(start, roomActors); err != nil {
 		return nil, fmt.Errorf("project tournament round actors: %w", err)
 	}
 	return runtime, nil
@@ -377,7 +377,7 @@ func (s *Service) tournamentAPCLevelResolver() tournamentApcLevelResolver {
 	}
 }
 
-// tournamentRoomMonsters 把**全部 4 轮**的对手翻成本仓的 `MonsterSpawn`。
+// tournamentRoomActors 把**全部 4 轮**的对手投影到对应的 actor 空间。
 //
 // ⚠️ 本批修正（有厂商 file:line 依据）：C 批第一版只投影"当轮对手"
 // （`roundIndex := currentRound-1` 取 partyCount 个）。那是**错的**：
@@ -399,19 +399,18 @@ func (s *Service) tournamentAPCLevelResolver() tournamentApcLevelResolver {
 // 自己的 PVF 消费；本仓必须给出 `MonsterSpawn.Position`，因此用 PVF 已声明的出生点，
 // **不发明坐标**。第 2 个出生点缺失时（定义层已硬失败 ≥2）退回第一个。
 //
-// 第 4 轮的 `Type` 升格必须在 `MonsterSpawn` 上可表达：厂商 `actorType = 3`
-// （怪物 Boss）用 `Rank = "[boss]"` 表达（`dungeon_start_map.go:341-349`
-// `currentDungeonMonsterActorType` 正是这么读的）；`actorType = 8`（APC Boss）
-// 在 `MonsterSpawn` 上没有等价表达 ⇒ **硬失败**，不静默降级成普通怪
-// （`[apc]` 分支本批不实现，见交付报告"未做"第 4 条）。
-func tournamentRoomMonsters(
+// 普通怪物 `actorType 0/3` 继续用 `MonsterSpawn`，第 4 轮 `3` 用
+// `Rank = "[boss]"` 表达。`[apc]` 的 `actorType 5..8` 保留为 hostile
+// `AICharacter`，真实 level/坐标/type 进入 same start map；`Blocking` 只在本次
+// tournament projection 中置位，由 extended actor 规划转成 START_MAP blocking=1。
+func tournamentRoomActors(
 	definition tournamentDefinition,
 	runtime *tournamentDungeonRuntime,
-) ([]worldmap.MonsterSpawn, error) {
+) (worldmap.TournamentRoomActors, error) {
 	snapshot := runtime.snapshot()
 	partyCount := definition.PartyLimit
 	if partyCount <= 0 {
-		return nil, fmt.Errorf("tournament party limit %d is invalid", partyCount)
+		return worldmap.TournamentRoomActors{}, fmt.Errorf("tournament party limit %d is invalid", partyCount)
 	}
 	var opponent *worldmap.TournamentStartAreaInfo
 	var fallback *worldmap.TournamentStartAreaInfo
@@ -435,28 +434,60 @@ func tournamentRoomMonsters(
 		position = worldmap.Point3{X: opponent.X, Y: opponent.Y}
 	case fallback != nil:
 		position = worldmap.Point3{X: fallback.X, Y: fallback.Y}
+	default:
+		position = worldmap.Point3{}
 	}
-	actors := make([]worldmap.MonsterSpawn, 0, len(snapshot.PathActors))
+	direction := int64(0)
+	switch {
+	case opponent != nil:
+		direction = opponent.Direction
+	case fallback != nil:
+		direction = fallback.Direction
+	}
+	actors := worldmap.TournamentRoomActors{
+		Monsters:     make([]worldmap.MonsterSpawn, 0, len(snapshot.PathActors)),
+		AICharacters: make([]worldmap.AICharacter, 0, len(snapshot.PathActors)),
+	}
 	for index, actor := range snapshot.PathActors {
-		spawn := worldmap.MonsterSpawn{
-			MonsterID: actor.Code,
-			Level:     int64(actor.Level),
-			Position:  position,
-		}
 		switch actor.Type {
 		case 0:
+			actors.Monsters = append(actors.Monsters, worldmap.MonsterSpawn{
+				MonsterID: actor.Code,
+				Level:     int64(actor.Level),
+				Position:  position,
+			})
 		case 3:
-			spawn.Rank = "[boss]"
-		case 8:
-			return nil, fmt.Errorf(
-				"tournament path actor %d needs the extended AICharacter owner for actor type 8 (not implemented)",
-				index,
-			)
+			actors.Monsters = append(actors.Monsters, worldmap.MonsterSpawn{
+				MonsterID: actor.Code,
+				Level:     int64(actor.Level),
+				Position:  position,
+				Rank:      "[boss]",
+			})
+		case 5, 6, 7, 8:
+			aiType := ""
+			switch actor.Type {
+			case 5:
+				aiType = "[normal]"
+			case 6:
+				aiType = "[champion]"
+			case 7:
+				aiType = "[super champion]"
+			case 8:
+				aiType = "[boss]"
+			}
+			actors.AICharacters = append(actors.AICharacters, worldmap.AICharacter{
+				Code:      actor.Code,
+				Level:     int64(actor.Level),
+				Position:  worldmap.Point{X: position.X, Y: position.Y},
+				Direction: direction,
+				Faction:   "[monster]",
+				AIType:    aiType,
+				Blocking:  true,
+			})
 		default:
-			return nil, fmt.Errorf(
+			return worldmap.TournamentRoomActors{}, fmt.Errorf(
 				"tournament path actor %d has an unsupported actor type %d", index, actor.Type)
 		}
-		actors = append(actors, spawn)
 	}
 	return actors, nil
 }

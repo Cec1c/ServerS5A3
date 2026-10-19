@@ -26,6 +26,10 @@ func resetCurrentDeferredSelectSceneTailProgress(session *gameSession) {
 	if session == nil {
 		return
 	}
+	session.sceneBootstrapActorGeneration++
+	if session.sceneBootstrapActorGeneration == 0 {
+		session.sceneBootstrapActorGeneration++
+	}
 	session.sceneBootstrapTailPacketIndex = 0
 	session.sceneBootstrapTailObjectMode1Pending = false
 	session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailPackets
@@ -46,13 +50,21 @@ func (s *Service) sendCurrentSelectSceneReadyBoundary(session *gameSession, sour
 	session.townMu.Lock()
 	legacyHUDReady := session.initialTownLegacySceneReadyAccepted
 	session.townMu.Unlock()
+	if err := s.sendSelectedDarkKnightComboAfterFinalTownSceneOnce(session, source+"_final_actor"); err != nil {
+		return err
+	}
 	if !legacyHUDReady {
 		return nil
 	}
 	if err := s.sendInitialTownAdventureOverheadRefresh(session, source+"_adventure_overhead_hud"); err != nil {
 		return err
 	}
-	return s.sendInitialTownCombatPowerAffixes(session, source+"_combat_power_hud")
+	if err := s.sendInitialTownCombatPowerAffixes(session, source+"_combat_power_hud"); err != nil {
+		return err
+	}
+	session.townMu.Lock()
+	defer session.townMu.Unlock()
+	return s.sendCurrentInitialTownGuildStateProjectionLocked(session, source+"_guild_hud")
 }
 
 // sendInitialTownAdventureOverheadRefresh replays the authoritative account

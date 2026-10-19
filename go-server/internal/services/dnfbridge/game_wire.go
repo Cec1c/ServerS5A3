@@ -541,7 +541,11 @@ func (s *Service) sendGameUpperSuccess(session *gameSession, msgID uint16, body 
 }
 
 func (s *Service) sendGameUpperFailure(session *gameSession, msgID uint16, code byte) error {
-	return s.sendGameUpperRaw(session, msgID, []byte{0, code})
+	body := []byte{0, code}
+	if currentAuctionFailureNeedsPayFeature(msgID, code) {
+		body = append(body, currentAuctionPayTypeGold)
+	}
+	return s.sendGameUpperRaw(session, msgID, body)
 }
 
 func upperSuccessBody(body []byte) []byte {

@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -110,6 +111,26 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 		record = dnfrepo.QuestRecord{CharacterID: strconv.Itoa(int(session.selectedCharacterID))}
 	} else {
 		record = s.reconcileLegacySaturatedActiveQuestTriggers(ctx, session, repositories.Quest, record)
+		recoveredRecord, recovered, recoveryErr := s.recoverCurrentQueenLetterForSnapshot(ctx, session, record)
+		if recoveryErr != nil {
+			s.logGameEvent(session, "game-upper-current-active-quest-queen-letter-recovery-skipped",
+				"char_id", session.selectedCharacterID,
+				"source", source,
+				"reason", "source_recovery_failed",
+				"error", recoveryErr)
+			if errors.Is(recoveryErr, errCurrentQueenLetterRecoveryInventorySend) {
+				cancel()
+				return recoveryErr
+			}
+		} else {
+			record = recoveredRecord
+			if recovered {
+				s.logGameEvent(session, "game-upper-current-active-quest-queen-letter-recovery-applied",
+					"char_id", session.selectedCharacterID,
+					"source", source,
+					"sequence", "op14_recovery_row_then_op574_active_snapshot")
+			}
+		}
 	}
 	cancel()
 	body := buildCurrentActiveQuestSnapshotBody(record, found)

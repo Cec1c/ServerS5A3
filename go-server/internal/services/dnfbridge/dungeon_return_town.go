@@ -817,6 +817,11 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			"reason", "automatic_deadline_not_explicit_leader_leave")
 	} else {
 		s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
+		if committedStatus == worldmap.DungeonRunAbandoned && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) {
+			if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
+				s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
+			}
+		}
 	}
 	// 离开副本世界就把本会话的"选图页上下文"作废。通关回城那条路早在 `:513` 就
 	// 调过 `clearCurrentDungeonSelectContext`，**只有这条中途放弃的提交点漏了**：
@@ -958,6 +963,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
 	session.townSceneReadyCharacterID = 0
+	advanceImageCommunicationSceneLocked(session)
 	session.townActorOwnerChannel = currentSceneObjectContext
 	session.completedTownSceneTailOwner = nil
 	session.townMu.Unlock()

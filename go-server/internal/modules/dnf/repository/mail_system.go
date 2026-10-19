@@ -20,6 +20,8 @@ type SystemMailDelivery struct {
 	Title                string
 	Body                 string
 	Source               string
+	RecipientName        string
+	CompletionKey        string
 	Attachments          []MailAttachment
 	Gold                 int64
 	CreatedAt            time.Time
@@ -63,6 +65,7 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 		SenderCharacterID:    "0",
 		SenderName:           "系统",
 		RecipientCharacterID: recipientID,
+		RecipientName:        strings.TrimSpace(delivery.RecipientName),
 		Title:                strings.TrimSpace(delivery.Title),
 		Body:                 strings.TrimSpace(delivery.Body),
 		Attachments:          attachments,
@@ -76,6 +79,11 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 			"system_mail": "true",
 			"unlimited":   "true",
 		},
+	}
+	if delivery.CompletionKey != "" {
+		mail := record.Mails[mailID]
+		mail.Metadata["completion_key"] = delivery.CompletionKey
+		record.Mails[mailID] = mail
 	}
 	record.UpdatedAt = now
 	if err := SaveMailboxFields(ctx, repo, record, MailboxFieldMails); err != nil {

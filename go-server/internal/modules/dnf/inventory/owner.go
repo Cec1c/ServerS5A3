@@ -124,6 +124,7 @@ type Owner struct {
 	rentalAssets  dnfrepo.RentalAssetUnitOfWork
 	pets          dnfrepo.PetRepository
 	petItems      dnfrepo.CharacterPetUnitOfWork
+	guild         dnfrepo.GuildUnitOfWork
 	// equipment 只在宠物事务里被赋值：宝珠要打在**穿戴中**的宠物上时
 	// （目标坐标 list 3 槽 26）需要读/写装备行的附魔字段。
 	equipment         dnfrepo.EquipmentRepository
@@ -359,6 +360,7 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		rentalAssets:  repos.RentalAssets,
 		pets:          repos.Pet,
 		petItems:      repos.CharacterPets,
+		guild:         repos.Guild,
 	}, nil
 }
 

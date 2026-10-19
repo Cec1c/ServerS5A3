@@ -238,12 +238,14 @@ func TestRealScriptPVFCouponSweepRepairsTheLiveDanglingFarewellMomentState(t *te
 	listBefore := catalog.QuestList(eligibility, live)
 	t.Logf("acceptable list before repair=%d after repair=%d (preflight-excluded %d -> %d)",
 		len(listBefore.IDs), len(list.IDs), listBefore.PreflightExcluded, list.PreflightExcluded)
-	if listBefore.PreflightExcluded != 2 {
-		t.Fatalf("the dangling live shape must exclude exactly the two [sub] rows: %d", listBefore.PreflightExcluded)
+	unrelated := assertHiddenChainOutsideMainStorySweep(t, catalog, eligibility, plan.Record, list)
+	if listBefore.PreflightExcluded != unrelated+2 {
+		t.Fatalf("dangling shape must add exactly two filtered [sub] rows: excluded=%d unrelated=%d", listBefore.PreflightExcluded, unrelated)
 	}
-	if list.PreflightExcluded != 0 {
-		t.Fatalf("after the repair nothing may be excluded by the preflight: %d", list.PreflightExcluded)
+	if list.PreflightExcluded != unrelated {
+		t.Fatalf("repair must leave only unrelated hidden children filtered: excluded=%d want=%d", list.PreflightExcluded, unrelated)
 	}
+	assertClientListSatisfiesAcceptPreflight(t, catalog, eligibility, plan.Record)
 }
 
 // TestRealScriptPVFCouponCutoffIsTheCopyCeilingAndCoversTheManualSweep pins 决策 2
