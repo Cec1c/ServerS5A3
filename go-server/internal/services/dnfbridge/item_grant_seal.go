@@ -8,16 +8,14 @@ import (
 
 // currentNewPVFEquipmentSealFlag 只用于创建新装备实例，参照86的
 // InventoryCreateService.ApplyEquipmentDefaults，按PVF的[attach type]初始化封装。
-// 90的魔封紫/粉模板使用[free]，需结合[rarity]和[random option]初始化新实例；
-// 普通自由交易白蓝装、非魔封模板及其他绑定类型不套用此特例。
+// [free] 模板保持自由交易，不因品质或随机属性配置生成封装状态。
 // 库存投影、穿脱和交易不调用它，已使用的装备不能按模板重新封装。
 // 宠物本体的同号字段属于宠物类型，由专属创建流程管理。
 func currentNewPVFEquipmentSealFlag(definition dungeonDropItemDefinition) byte {
 	if definition.Kind != dungeonDropItemEquipment || currentPVFItemTargetContainer(definition).PetBody {
 		return 0
 	}
-	attachType := normalizeMagicBoxPVFType(definition.AttachType)
-	if attachType == "sealing" || attachType == "free" && definition.RandomOption > 0 && (definition.Rarity == 2 || definition.Rarity == 3) {
+	if normalizeMagicBoxPVFType(definition.AttachType) == "sealing" {
 		return 1
 	}
 	return 0

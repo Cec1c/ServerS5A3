@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"os"
 	"strconv"
 	"testing"
@@ -78,6 +79,18 @@ func TestPCRoomWireStateAndStrictNativeRequest(t *testing.T) {
 		if _, _, err := parseCurrentPCRoomTimePointRequest(raw); err == nil {
 			t.Fatalf("invalid request accepted: %x", raw)
 		}
+	}
+}
+
+func TestCurrentSpendTimeCatalogDoesNotMaskCachedPCRoomFailure(t *testing.T) {
+	want := errors.New("corrupt pcroom catalog")
+	s := &Service{
+		spendTimeCatalogState:   &currentSpendTimeRuntimeCatalog{definition: oe.Definition{ID: "2347"}},
+		spendTimeCatalogLoadErr: want,
+	}
+	catalog, available, err := s.currentSpendTimeRuntimeCatalogIfAvailable(context.Background())
+	if catalog != nil || !available || !errors.Is(err, want) {
+		t.Fatalf("cached failure catalog=%+v available=%v err=%v", catalog, available, err)
 	}
 }
 
@@ -202,5 +215,21 @@ func TestOnlinePanelRealPVFSelectsActualFourPlusFourEdition(t *testing.T) {
 	}
 	if c.cumulative == nil || c.cumulative.Stages[3].RequiredDays != 25 {
 		t.Fatal("legacy cutover definition was changed")
+	}
+	items, err := s.currentPVFItemCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, oe.ChinaCalendar)
+	rewards := append(append([]oe.AttendancePVFItemReward{}, c.nativePCRoom.Daily[:]...), c.nativePCRoom.Period[:]...)
+	for _, reward := range rewards {
+		definition, err := items.ResolveItem(uint32(reward.ItemID))
+		if err != nil {
+			t.Fatalf("reward item %d: %v", reward.ItemID, err)
+		}
+		definition, err = currentPVFItemDefinitionForGrantAt(definition, now)
+		if err != nil || definition.Kind != dungeonDropItemStackable || (!definition.ExpirationDate.IsZero() && !definition.ExpirationDate.After(now)) {
+			t.Fatalf("reward item %d is not deliverable: %+v err=%v", reward.ItemID, definition, err)
+		}
 	}
 }

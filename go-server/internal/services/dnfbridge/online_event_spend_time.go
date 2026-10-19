@@ -261,11 +261,11 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 
 	s.spendTimeCatalogMu.Lock()
 	defer s.spendTimeCatalogMu.Unlock()
-	if s.spendTimeCatalogState != nil {
-		return s.spendTimeCatalogState, true, nil
-	}
 	if s.spendTimeCatalogLoadErr != nil {
 		return nil, true, s.spendTimeCatalogLoadErr
+	}
+	if s.spendTimeCatalogState != nil {
+		return s.spendTimeCatalogState, true, nil
 	}
 
 	s.initialEquipmentMu.Lock()
@@ -274,26 +274,28 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 	if archive == nil {
 		return nil, false, nil
 	}
+	var state *currentSpendTimeRuntimeCatalog
 	rawCatalog, err := dnfonlineevent.LoadAttendancePVFCatalog(ctx, archive)
 	if err == nil {
-		s.spendTimeCatalogState, err = buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
+		state, err = buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
 	}
 	if err == nil {
 		// 缺少这套独立资源的旧版PVF继续使用2347；存在但损坏的配置不能静默降级。
 		if _, exists := archive.FindFile(dnfonlineevent.PCRoomTimePointPVFPath); exists {
-			s.spendTimeCatalogState.nativePCRoom, err = dnfonlineevent.LoadPCRoomTimePointCatalog(ctx, archive)
+			state.nativePCRoom, err = dnfonlineevent.LoadPCRoomTimePointCatalog(ctx, archive)
 		}
 	}
 	s.spendTimeCatalogLoadErr = err
 	if err != nil {
 		return nil, true, err
 	}
+	s.spendTimeCatalogState = state
 	s.logPacketEvent("dnf-spend-time-catalog-loaded",
 		"event_id", currentSpendTimeEventID,
-		"reward_count", len(s.spendTimeCatalogState.rewardItemIDs),
-		"total_stage_seconds", s.spendTimeCatalogState.totalStageSeconds,
+		"reward_count", len(state.rewardItemIDs),
+		"total_stage_seconds", state.totalStageSeconds,
 		"source", dnfonlineevent.AttendanceEventPVFPath)
-	return s.spendTimeCatalogState, true, nil
+	return state, true, nil
 }
 
 func (s *Service) currentSpendTimeOwner() (*dnfonlineevent.Owner, error) {
