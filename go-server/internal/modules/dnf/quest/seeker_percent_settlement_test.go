@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,11 +40,15 @@ func TestSeekerPercentRealResourceSettlement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var texts finishProgressionSource
+		var texts map[string]string
 		if err := json.Unmarshal(body, &texts); err != nil {
 			t.Fatal(err)
 		}
-		source = texts
+		folded := seekerPercentResourceTexts{}
+		for path, body := range texts {
+			folded[strings.ToLower(path)] = body
+		}
+		source = folded
 	} else {
 		t.Skip("set SEEKER_PERCENT_SETTLEMENT_PVF or SEEKER_PERCENT_SOURCE_JSON")
 	}
@@ -269,7 +275,52 @@ func TestSeekerPercentRealResourceSettlement(t *testing.T) {
 			t.Logf("level=%d->90 reward=42444667 honorGain=%d", level, result.HonorExpertGain)
 		}
 	})
-	t.Run("route_model_88_89", func(t *testing.T) { seekerPercentRouteModel(t, catalog, tables) })
+	t.Run("maximum_counter_continues_honor_and_replays", func(t *testing.T) {
+		honorTables, err := dnfhonor.LoadTables(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, percent := range []int{0, 15} {
+			repos, owner, input := newFixture(t, 3974, 90)
+			character, _, _ := repos.Character.Load(ctx, "19")
+			character.Stats["exp"] = math.MaxUint32 - 17
+			if err := repos.Character.Save(ctx, character); err != nil {
+				t.Fatal(err)
+			}
+			input.MainQuestExperiencePercent = percent
+			input.LoadHonorTables = func(context.Context) (*dnfhonor.Tables, error) { return honorTables, nil }
+			result, err := owner.ApplyFinishSettlement(ctx, catalog, input)
+			if err != nil || result.NewLevel != 90 || result.NewExperience != math.MaxUint32 || result.HonorExpertGain != result.ExperienceDelta || result.ExperienceDelta <= 17 {
+				t.Fatalf("percent=%d saturation=%+v err=%v", percent, result, err)
+			}
+			replay, err := owner.ApplyFinishSettlement(ctx, catalog, input)
+			if err != nil || !replay.Replayed || replay.HonorExpertGain != result.HonorExpertGain || replay.NewExperience != math.MaxUint32 {
+				t.Fatalf("saturation replay=%+v err=%v", replay, err)
+			}
+			final, _, _ := repos.Character.Load(ctx, "19")
+			expected, err := honorTables.AdvanceExpert(dnfhonor.ExpertProgress{}, uint64(result.HonorExpertGain))
+			if err != nil || final.Stats[dnfhonor.ExpertLevelStatKey] != int64(expected.Level) || final.Stats[dnfhonor.ExpertProgressExperienceStatKey] != int64(expected.CurrentLevelExperience) {
+				t.Fatalf("saturation persisted honor=%+v expected=%+v err=%v", final.Stats, expected, err)
+			}
+		}
+	})
+	t.Run("route_model_88_89", func(t *testing.T) {
+		honorTables, err := dnfhonor.LoadTables(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seekerPercentRouteModel(t, catalog, tables, honorTables)
+	})
+}
+
+type seekerPercentResourceTexts map[string]string
+
+func (s seekerPercentResourceTexts) ReadText(path string) (string, error) {
+	text, ok := s[strings.ToLower(path)]
+	if !ok {
+		return "", fmt.Errorf("missing resource %s", path)
+	}
+	return text, nil
 }
 
 func seekerPercentCount(record dnfrepo.InventoryRecord, id int64) int64 {
@@ -302,7 +353,7 @@ func seekerPercentAllocator(record *dnfrepo.InventoryRecord, request FinishItemG
 
 // Use the production accept planner for PVF prerequisite/collision routing.
 // Completion itself is assumed, so counts describe a quest route, not playtime.
-func seekerPercentRouteModel(t *testing.T, catalog *Catalog, tables *progression.Tables) {
+func seekerPercentRouteModel(t *testing.T, catalog *Catalog, tables *progression.Tables, honorTables *dnfhonor.Tables) {
 	t.Helper()
 	for faction := int64(3870); faction <= 3874; faction++ {
 		var reference map[int][]int64
@@ -349,5 +400,37 @@ func seekerPercentRouteModel(t *testing.T, catalog *Catalog, tables *progression
 			}
 			t.Logf("faction=%d level=%d route_count=%d reward_each=%d reward_sum=%d ids=%v", faction, level, len(reference[level]), reward, uint64(reward)*uint64(len(reference[level])), reference[level])
 		}
+		entry, _ := tables.ThresholdToNext(87)
+		character := dnfrepo.CharacterRecord{CharacterID: "route", Level: 88, Stats: map[string]int64{"exp": int64(entry)}}
+		skill := dnfrepo.SkillRecord{CharacterID: "route", Points: dnfrepo.SkillPointState{SyncedLevel: 88}}
+		input := finishOwnerInput(tables, nil)
+		input.LoadHonorTables = func(context.Context) (*dnfhonor.Tables, error) { return honorTables, nil }
+		var honorSum uint64
+		for step, id := range append(append([]int64{}, reference[88]...), reference[89]...) {
+			gain, err := finishMainQuestExperiencePercent(tables, catalog.byID[id], 15)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := planFinishProgression(tables, character, skill, gain, 90)
+			if err != nil {
+				t.Fatalf("route faction=%d step=%d quest=%d level=%d exp=%d gain=%d: %v", faction, step+1, id, character.Level, character.Stats["exp"], gain, err)
+			}
+			honorGain, _, _, err := settleFinishMaximumLevelHonor(context.Background(), input, &character, 90, plan.Experience.NewLevel, gain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			honorSum += uint64(honorGain)
+			if err := progression.ApplyCharacterExperience(&character, &skill, plan.Experience.NewLevel, plan.Experience.NewExperience, plan.SkillPoints.New, input.CommittedAt); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if character.Level != 90 || character.Stats["exp"] != math.MaxUint32 || honorSum != 2638701222 {
+			t.Fatalf("route progression=%+v honorSum=%d", character, honorSum)
+		}
+		expected, err := honorTables.AdvanceExpert(dnfhonor.ExpertProgress{}, honorSum)
+		if err != nil || character.Stats[dnfhonor.ExpertLevelStatKey] != int64(expected.Level) || character.Stats[dnfhonor.ExpertProgressExperienceStatKey] != int64(expected.CurrentLevelExperience) {
+			t.Fatalf("route honor differs expected=%+v actual=%+v err=%v", expected, character.Stats, err)
+		}
+		t.Logf("faction=%d full 80-award progression PASS; level=90 ordinaryCounter=%d honorGain=%d", faction, character.Stats["exp"], honorSum)
 	}
 }

@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | [EXP-CAP](QUEST-MAX-LEVEL-EXPERIENCE.md) | 满级任务领奖突破90级与挑战者经验 | 5f8b842 / MR !122 | 上游已合并并部署，完整回归及新旧真实PVF通过；待实测 |
 | [主线经验倍率](MAIN-QUEST-EXPERIENCE-RATE.md) | 正常主线经验调整为 3 倍 | 服务端配置及结算 | 已部署，倍率及真实PVF结算已核验；正常流程待实测 |
-| [主线百分比经验](MAIN-QUEST-PERCENT-EXPERIENCE.md) | 普通主线最终经验按任务等级升级所需经验的15%发放 | 独立实现候选 | 最终百分比、完整领域/bridge/control、race、双平台、Docker与真实PVF通过；待源码集成和部署后实测 |
+| [主线百分比经验](MAIN-QUEST-PERCENT-EXPERIENCE.md) | 普通主线最终经验按任务等级升级所需经验的15%发放 | 独立实现候选 | 最终百分比、完整领域/bridge/control、race、双平台、Docker与真实PVF通过；含满级长期领奖上限修订，待源码集成和部署后实测 |
 | [QST-001](QST-001-terminal-child-rewards.md) | 末子任务材料与奖励结算 | 8879511 | 已部署；正常流程待实测 |
 | [QST-002](QST-002-strange-weapon.md) | 奇怪的兵器中途清房与父任务 | d983579 | 已部署；正常流程待实测 |
 | [QST-003](QST-003-seek-meet-trigger.md) | 危险研究条件初值与旧活动进度 | ed23e68 | 已部署；材料结算由006补齐 |

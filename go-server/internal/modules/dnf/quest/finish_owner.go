@@ -974,7 +974,12 @@ func planFinishProgression(
 	}
 	newTotal := uint64(experienceValue) + uint64(gain)
 	if newTotal > math.MaxUint32 {
-		return progression.ExperienceSkillPointPlan{}, progression.ErrExperienceOutOfRange
+		if character.Level < maxLevel {
+			return progression.ExperienceSkillPointPlan{}, progression.ErrExperienceOutOfRange
+		}
+		// At the level cap the ordinary counter can saturate. Honor settlement
+		// still receives the full reward, so later quests remain claimable.
+		newTotal = math.MaxUint32
 	}
 	result := progression.ExperienceResult{
 		PreviousLevel: character.Level, PreviousExperience: uint32(experienceValue), Gain: gain,

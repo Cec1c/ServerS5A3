@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -360,6 +361,39 @@ func TestMainQuestExperiencePercentParentChildConsumesAndReplaysAssets(t *testin
 	inventory, found, err := repositories.Inventory.Load(ctx, "19")
 	if err != nil || !found || inventory.Slots["0:8"].Count != 1 || inventory.Slots["0:65"].Count != 1 {
 		t.Fatalf("parent-child inventory=%+v found=%t err=%v", inventory, found, err)
+	}
+}
+
+func TestMainQuestExperiencePercentAtCounterLimitStillGrantsHonorOnce(t *testing.T) {
+	ctx := context.Background()
+	tables := mainQuestPercentProgression(t, 90)
+	repositories := finishHonorSeed(t, ctx, 90, math.MaxUint32-10, 0, 0)
+	owner, err := NewOwner(repositories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := finishOwnerInput(tables, finishOwnerAllocator(nil))
+	input.MainQuestExperiencePercent = 15
+	input.LoadHonorTables = func(context.Context) (*dnfhonor.Tables, error) { return finishHonorTables(t), nil }
+	catalog := mainQuestExperienceTestCatalog(mainQuestPercentDefinition(3145, 89))
+	first, err := owner.ApplyFinishSettlement(ctx, catalog, input)
+	if err != nil || first.ExperienceDelta != 42444667 || first.NewExperience != math.MaxUint32 || first.NewLevel != 90 || first.HonorExpertGain != 42444667 {
+		t.Fatalf("counter limit: result=%+v err=%v", first, err)
+	}
+	before, _, _ := repositories.Character.Load(ctx, "19")
+	input.MainQuestExperiencePercent = 20
+	replay, err := owner.ApplyFinishSettlement(ctx, catalog, input)
+	if err != nil || !replay.Replayed || replay.HonorExpertGain != first.HonorExpertGain {
+		t.Fatalf("counter replay=%+v err=%v", replay, err)
+	}
+	after, _, _ := repositories.Character.Load(ctx, "19")
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("replay changed capped character")
+	}
+	below := dnfrepo.CharacterRecord{Level: 89, Stats: map[string]int64{"exp": math.MaxUint32 - 1}}
+	skill := dnfrepo.SkillRecord{Points: dnfrepo.SkillPointState{SyncedLevel: 89}}
+	if _, err := planFinishProgression(tables, below, skill, 2, 90); !errors.Is(err, progression.ErrExperienceOutOfRange) {
+		t.Fatalf("below-cap overflow changed: %v", err)
 	}
 }
 
