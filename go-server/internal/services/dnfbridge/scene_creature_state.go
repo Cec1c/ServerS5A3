@@ -441,5 +441,8 @@ func (s *Service) sendSelectedActorMode1AppearanceRefresh(session *gameSession, 
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, operation+"_after_equipment_mode1"); err != nil {
 		return err
 	}
+	if err := s.sendSelectedActorGuardianGemRowRefresh(session, operation+"_after_equipment_mode1"); err != nil {
+		return err
+	}
 	return s.sendBuffSwapReapply(session, operation+"_after_equipment_mode1")
 }
