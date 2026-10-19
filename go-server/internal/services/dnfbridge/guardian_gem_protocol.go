@@ -39,6 +39,7 @@ var (
 	errCurrentGuardianGemTargetRawMissing   = errors.New("guardian gem target medal has no current 0x77 raw entry")
 	errCurrentGuardianGemItemIDRange        = errors.New("guardian gem item id cannot be represented by the current raw socket field")
 	errCurrentGuardianGemSourceSlotRange    = errors.New("guardian gem source slot is outside the current list-38 guardian-gem page")
+	errCurrentGuardianGemDuplicateAttribute = errors.New("guardian gem attribute is already equipped on the target medal")
 )
 
 type currentGuardianGemTargetContainer byte

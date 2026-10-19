@@ -29,6 +29,8 @@ type gameSession struct {
 	initialTownGuildStateProjectionSent bool
 	pendingTitleEnchantCharacterID      uint16
 	pendingTitleEnchantRow              *currentItemListEntry
+	pendingGuardianGemCharacterID       uint16
+	pendingGuardianGemRow               *currentItemListEntry
 	conn                                net.Conn
 	connID                              string
 	accountID                           string
@@ -384,7 +386,7 @@ type lotteryState struct {
 
 // petGrowthClockState 持有宠物饱食度时钟的会话状态。
 // mu 守护时钟模式、锚点、代数与定时器名的全部读写（含 timequeue 回调），
-// 停止/切换时的结算与归零时机保持不变。
+// pending保留尚未成功结算的模式边界，重试不覆盖原时间点。
 type petGrowthClockState struct {
 	mu          sync.Mutex
 	mode        currentPetGrowthClockMode
@@ -392,6 +394,7 @@ type petGrowthClockState struct {
 	anchor      time.Time
 	generation  uint64
 	timerName   string
+	pending     []currentPetGrowthClockTransition
 }
 
 // townPostTransitionState 持有城镇入场后过渡流程的会话状态。

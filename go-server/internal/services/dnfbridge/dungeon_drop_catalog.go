@@ -63,7 +63,6 @@ type dungeonDropItemDefinition struct {
 	EquipmentType            string
 	Grade                    int64
 	Rarity                   int64
-	RandomOption             int64
 	StackableType            string
 	EquipmentEffectID        uint16
 	StackLimit               int64
@@ -73,11 +72,14 @@ type dungeonDropItemDefinition struct {
 	ExpirationDate           time.Time
 	GiftBoxExpirationHistory []uint32
 	UsablePeriodDays         int64
-	DailyDeleteItem          bool
-	Price                    int64
-	PriceFound               bool
-	ActionType               string
-	GuildMileageItem         *inventory.GuildMileageItemDefinition
+	// ExpirationFromUsablePeriod distinguishes a resolved per-instance deadline
+	// from an absolute date declared in PVF. It is set only by grant resolution.
+	ExpirationFromUsablePeriod bool
+	DailyDeleteItem            bool
+	Price                      int64
+	PriceFound                 bool
+	ActionType                 string
+	GuildMileageItem           *inventory.GuildMileageItemDefinition
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -320,7 +322,6 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		definition.EquipmentType, _ = document.Text("equipment type")
 		definition.Grade, _ = document.Int("grade")
 		definition.Rarity, _ = document.Int("rarity")
-		definition.RandomOption, _ = document.Int("random option")
 		for _, name := range []string{"durability", "maximum durability", "max durability"} {
 			value, found := document.Int(name)
 			if !found || value <= 0 {

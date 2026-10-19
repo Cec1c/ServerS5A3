@@ -13,13 +13,13 @@ import (
 // 固定翻牌候选核对真实装备定义和实际发放状态，不声明当前副本的抽取概率。
 func TestRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t *testing.T) {
 	catalog := realPackageSealCatalog(t)
-	testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t, catalog, 10016)
+	testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t, catalog, 10016, 1)
 }
 
-func testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t *testing.T, catalog *pvfDungeonDropCatalog, itemID uint32) {
+func testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t *testing.T, catalog *pvfDungeonDropCatalog, itemID uint32, wantSeal byte) {
 	t.Helper()
 	definition, err := catalog.ResolveItem(itemID)
-	if err != nil || currentNewPVFEquipmentSealFlag(definition) != 1 {
+	if err != nil || currentNewPVFEquipmentSealFlag(definition) != wantSeal {
 		t.Fatalf("真实封装装备定义不可用：definition=%+v err=%v", definition, err)
 	}
 	catalog.clearCardEquipmentLoaded = true
@@ -99,7 +99,7 @@ func testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t *testing.T, cat
 				if mode == 2 {
 					claimPackageSealOverflow(t, service, repositories, session, result.OverflowMailID)
 				}
-				assertPackageSealInventoryAndWire(t, service, repositories, session, itemID, 1, mode%2)
+				assertPackageSealInventoryAndWire(t, service, repositories, session, itemID, wantSeal, mode%2)
 				inventory, _, _ := repositories.Inventory.Load(ctx, "19")
 				count := 0
 				for _, stack := range inventory.Slots {

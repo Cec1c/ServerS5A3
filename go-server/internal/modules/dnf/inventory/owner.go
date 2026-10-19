@@ -1430,6 +1430,10 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 	oldLevel := upgradeLevelOf(target)
 	result.OldLevel = oldLevel
 	result.NewLevel = oldLevel
+	if cmd.UpgradePolicyRequired && (cmd.UpgradePolicyError != "" || oldLevel != cmd.UpgradePolicyCurrentLevel) {
+		result.ErrorCode = upgradeErrorInvalidMaterial
+		return result, nil
+	}
 	if oldLevel > upgradeMaximumCurrentLevelBeforeReject {
 		result.ErrorCode = upgradeErrorMaxLevel
 		return result, nil
@@ -1597,7 +1601,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 
 	// RNG: determine success or failure based on PVF success weight.
 	successWeight := cmd.UpgradeSuccessWeight
-	if successWeight <= 0 {
+	if successWeight <= 0 && !cmd.UpgradePolicyRequired {
 		successWeight = currentUpgradeSuccessBase // backward compat: guaranteed success
 	}
 	// 十万分比**乘算**加成（厂商 `CalculateFinalSuccessWeight` 的 multiplier 分支）：
@@ -1689,15 +1693,13 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 					result.DestroyBonusCount = int32(cmd.UpgradeDestroyBonusCount)
 				}
 			}
-		case 1: // downgrade
+		case 2: // subtract the PVF penalty value, clamped at zero
 			resultCode = upgradeResultCodeDowngrade
-			if oldLevel > 0 {
-				newLevel = oldLevel - 1
-			}
+			newLevel = byte(max(0, int(oldLevel)-max(0, cmd.UpgradePenaltyValue)))
 			target = cloneStack(target)
 			setUpgradeLevel(&target, newLevel)
 			items[targetKey] = target
-		default: // 0: fail, no change
+		default: // 0/1: fail, no change
 			resultCode = upgradeResultCodeFailNoChange
 		}
 	}

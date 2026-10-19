@@ -135,6 +135,12 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 		PreferQuickSlot: policy.PreferQuickSlots,
 		AllowQuickSlots: policy.AllowQuickSlots,
 	}
+	if definition.Kind == dungeonDropItemStackable && !definition.DailyDeleteItem {
+		resolution.UsablePeriodDays = definition.UsablePeriodDays
+		if resolution.UsablePeriodDays > 0 {
+			resolution.OriginalExpiry = currentMailboxOriginalAttachmentExpiry
+		}
+	}
 	// 附件行本身可能没有实例到期时间（GM 面板发的邮件就是这样）。当前客户端把
 	// "到期时间为 0"渲染成"已超过使用期限"，所以这里按运行时 PVF 先算好创建期
 	// 到期投影，领取时由 mail 模块补进堆栈（附件已经带了到期时间时不覆盖）。
