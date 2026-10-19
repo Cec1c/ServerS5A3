@@ -37,7 +37,7 @@ func parseCollectionGroups(doc *dnfpvf.Document) []CollectionGroup {
 				continue
 			}
 			id := firstInt(sectionTokens(doc, section))
-			if id < 0 || id >= ContentTypeCount {
+			if id < 0 || id >= CollectionTypeCount {
 				continue
 			}
 			groups = append(groups, CollectionGroup{ID: byte(id)})
@@ -72,8 +72,8 @@ func (c RuntimeConfig) CollectionGroupFor(job, branch byte) (byte, bool) {
 	return 0, false
 }
 
-func (c RuntimeConfig) CollectionCounts(rows []dnfrepo.CharacterRecord, levelCap int) [ContentTypeCount]uint16 {
-	var result [ContentTypeCount]uint16
+func (c RuntimeConfig) CollectionCounts(rows []dnfrepo.CharacterRecord, levelCap int) [CollectionTypeCount]uint16 {
+	var result [CollectionTypeCount]uint16
 	for _, row := range rows {
 		if row.Name == "" {
 			continue

@@ -180,6 +180,23 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 		}
+		// 仅新完成的第100层计一次；位于既有结算回执重放检查之后，
+		// 与经验、物品及楼层进度同事务提交，任一步失败均不保存计数。
+		for _, tower := range []struct {
+			floor int
+			key   string
+		}{{cmd.DespairClearedFloor, adventuregroup.DespairHundredClearStatKey}, {cmd.GriefClearedFloor, adventuregroup.GriefHundredClearStatKey}} {
+			if tower.floor != 100 {
+				continue
+			}
+			count := character.Stats[tower.key]
+			if count < 0 {
+				return ErrSettlementStateInvalid
+			}
+			if count < math.MaxUint32 {
+				character.Stats[tower.key] = count + 1
+			}
+		}
 		potionBonus := experiencebuff.Bonus(character, experiencebuff.Clear, cmd.ClearPotionBase, now)
 		potionBonus = min(potionBonus, math.MaxUint32-cmd.Experience)
 		gain := cmd.Experience + potionBonus
@@ -237,7 +254,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			if count < 0 {
 				return ErrSettlementStateInvalid
 			}
-			if count < math.MaxUint16 {
+			if count < math.MaxUint32 {
 				character.Stats[adventuregroup.RecommendedDungeonClearStatKey] = count + 1
 			}
 		}
