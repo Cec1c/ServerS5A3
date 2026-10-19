@@ -130,6 +130,11 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 				b.Dungeons[i].State = 2
 			}
 			b.ProgressVersion++
+			if b.FiendWar != nil {
+				if err := s.freezeCurrentFiendWarRetryLocked(*state, now); err != nil {
+					errors = append(errors, fmt.Errorf("fiendwar timeout refund entitlement: %w", err))
+				}
+			}
 			states = append(states, cloneRuntimeRaidState(*state))
 			continue
 		}
@@ -145,6 +150,9 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 			if next.Failed {
 				b.FiendWarEndedAt = now
 				b.TimedOut = true
+				if err := s.freezeCurrentFiendWarRetryLocked(*state, now); err != nil {
+					errors = append(errors, fmt.Errorf("fiendwar failure refund entitlement: %w", err))
+				}
 			}
 			states = append(states, cloneRuntimeRaidState(*state))
 			continue
