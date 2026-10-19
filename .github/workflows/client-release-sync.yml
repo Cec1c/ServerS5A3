@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: '13,43 * * * *'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '仅同步指定客户端标签；留空检查全部版本'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -30,16 +35,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          CLIENT_RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_PROJECT: ${{ vars.GITGUD_CLIENT_RELEASE_PROJECT }}
           GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_CLIENT_RELEASE_TOKEN }}
         run: |
           set -eu
           test -n "$RELEASE_PROJECT"
           test -n "$GITGUD_RELEASE_TOKEN"
+          set --
+          if [ -n "$CLIENT_RELEASE_TAG" ]; then set -- --tag "$CLIENT_RELEASE_TAG"; fi
           python3 scripts/ci/sync_client_releases.py \
             --github "$GITHUB_REPOSITORY" --gitgud-project "$RELEASE_PROJECT" \
             --cache "$RUNNER_TEMP/client-releases" \
-            --receipt "$RUNNER_TEMP/client-release-sync.json" --apply
+            --receipt "$RUNNER_TEMP/client-release-sync.json" --apply "$@"
       - name: Keep synchronization receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -367,7 +367,7 @@ func runRateBuffUpgrade(t *testing.T, fixture rateBuffUpgradeCase) (alignedcmd.R
 		AccountID:           "acc",
 		SelectedCharacterID: 77,
 		Repositories:        repos,
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			return alignedcmd.UpgradePolicyResolution{
 				SuccessWeight: fixture.baseWeight, PenaltyType: 3,
 			}, nil

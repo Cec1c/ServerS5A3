@@ -67,7 +67,9 @@ const (
 	partyDungeonUserStateValueSelf    = "self"
 	partyDungeonUserStateValueAll     = "all"
 
-	mainQuestExperienceMultiplierEnv = "DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"
+	mainQuestExperienceMultiplierEnv  = "DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"
+	mainQuestExperiencePercentEnv     = "DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"
+	mainQuestExperiencePercentInvalid = -1
 )
 
 // partyDungeonOwnerMode 是 DNFBRIDGE_PARTY_DUNGEON_OWNER_MODE 的归一化取值。
@@ -232,6 +234,11 @@ type options struct {
 	// 环境变量缺失、非整数或不在 1..100 时按 1；玩家 op34 包里的
 	// Multiplier 语义未证明，不能作为该值。
 	mainQuestExperienceMultiplier int
+	// mainQuestExperiencePercent is the trusted final percentage for ordinary
+	// standalone epic main quests. Zero keeps the previous reward path; an
+	// explicitly invalid environment value is stored as -1 so settlement rejects
+	// it through the existing op34 business-failure reply.
+	mainQuestExperiencePercent int
 
 	// equipMoveContainerRefreshFull 是 DNFBRIDGE_EQUIP_MOVE_CONTAINER_REFRESH 的
 	// 取反存储（默认 false = 穿脱装备/时装后**不再重发 5 个整容器**）。取反存放的
@@ -841,6 +848,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		// （CouponClearScopeActiveOnly），不需要重新编译。
 		questClearTicketActiveOnly:    !envBool("DNFBRIDGE_QUEST_CLEAR_TICKET_SWEEP", true),
 		mainQuestExperienceMultiplier: readMainQuestExperienceMultiplier(),
+		mainQuestExperiencePercent:    readMainQuestExperiencePercent(),
 
 		// 穿脱装备/时装（op19）的回包后刷新口径，见 equip_move_refresh.go。
 		// 默认 = 新口径（不再重发 5 个整容器 / 外观用 op2 mode0 当前场景对象自投影）；
@@ -1363,6 +1371,18 @@ func readMainQuestExperienceMultiplier() int {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 1 || value > 100 {
 		return 1
+	}
+	return value
+}
+
+func readMainQuestExperiencePercent() int {
+	raw := strings.TrimSpace(os.Getenv(mainQuestExperiencePercentEnv))
+	if raw == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 || value > 100 {
+		return mainQuestExperiencePercentInvalid
 	}
 	return value
 }
