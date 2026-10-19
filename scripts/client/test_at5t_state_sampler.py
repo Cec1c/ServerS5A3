@@ -255,8 +255,8 @@ def build_state_memory(
     memory.add(hardware_rows, 4 * 24)
     memory.u32(hardware_rows + 0 * 24, 1)
     memory.u32(hardware_rows + 1 * 24, 4)
-    memory.u8(hardware_rows + 1 * 24 + 0x12, 1)
-    memory.u8(hardware_rows + 1 * 24 + 0x13, 1)
+    memory.u8(hardware_rows + 1 * 24 + 0x0C, 1)
+    memory.u8(hardware_rows + 1 * 24 + 0x0D, 1)
     memory.u32(hardware_rows + 2 * 24, 3)
     memory.u32(private_input + 0x38, hardware_rows)
     memory.u32(private_input + 0x3C, hardware_rows + 4 * 24)
@@ -295,6 +295,17 @@ def iter_dict_keys(value: object):
 
 
 class StateParserTests(unittest.TestCase):
+    def test_hardware_row_consumed_by_native_poll(self) -> None:
+        # The native descriptor/vehicle path accepts this logical4 row as pressed.
+        row = bytes.fromhex("040000006400000010270000010100000000000000000000")
+        memory, _, expected = build_state_memory()
+        input_address = expected["private_input"]
+        rows = sampler.read_u32_raw(memory, input_address + 0x38)
+        memory.write(rows, row)
+        memory.u32(input_address + 0x3C, rows + len(row))
+        result = sampler.sample_input(sampler.ReadContext(memory), input_address, expected["descriptor"])
+        self.assertEqual(result["logical4"], [{"row_index": 0, "down": 1, "fresh": 1}])
+
     def test_invalid_scene_ranges_remain_errors_on_repeat(self) -> None:
         for end in (0x41000006, 0x40FFFFFC):
             memory = SparseMemory()

@@ -904,8 +904,8 @@ def sample_input(
                 result["logical4"].append(
                     {
                         "row_index": index,
-                        "down": row[0x12],
-                        "fresh": row[0x13],
+                        "down": row[0x0C],
+                        "fresh": row[0x0D],
                     }
                 )
     return result

@@ -45,12 +45,13 @@ python scripts/client/at5t_state_sampler.py `
 - 单字段读取失败输出 `null` 并在 `errors` 中保留字段、地址（密钥链地址除外）、大小和错误；载具及 input 枚举同样保留边界、截断和行读取失败。
 - 保护动作使用十六进制偏移 `manager + 0x24 + (handle >> 16) * 4` 与 `bank + 0x2114 + (handle & 0xFFFF) * 4`。字段、manager、bank、key 各读取两次完整快照；任一值变化或第二份快照不完整时 `stable=false`。
 - 保护动作只输出 `handle`、密文、`action`、`stable` 和 `integrity`。key manager、bank、key 及其地址不进入 JSONL；integrity 不符时写 `protection.integrity / checksum_mismatch`。
+- 硬件缓存行步长24字节，logical编号在 `+0x00`，down/fresh分别为 `+0x0C/+0x0D` 的字节。原生输入窗口产生state1的同一行经采样器读取，按下状态一致。
 
 采样是固定间隔状态快照，不证明两条记录之间发生过的函数调用顺序。上机步骤仍由测试者完成。
 
 ## 验证结果
 
-Seeker复核补充：无效场景范围每次保留错误，部分场景读取失败时仍保留已经找到的载具并在下一次重试；描述符注册只有完整读取且未匹配时才记录 `false`，读取不完整记录 `null`。20秒采样从身份核验结束后开始，每条记录包含 `read_duration_ms`。新增回归后的26项测试通过，45组原生动作fixture及4项独立检查通过。
+Seeker复核补充：无效场景范围每次保留错误，部分场景读取失败时仍保留已经找到的载具并在下一次重试；描述符注册只有完整读取且未匹配时才记录 `false`，读取不完整记录 `null`。20秒采样从身份核验结束后开始，每条记录包含 `read_duration_ms`。新增回归后的27项测试通过，45组原生动作fixture及4项独立检查通过。原生输入状态与采样器另做6项字段对照，覆盖角色、载具owner、descriptor、state1、注册和down/fresh。
 
 `scripts/client/at5t_collect.py` 提供交互入口：明确输入目标PID，倒计时5秒后采集20秒，结果保存到工具旁的 `reports/`。带命令行参数时沿用原入口。打包为独立诊断程序，当前支持V135/V141；玩家客户端后续版本需要核对字段后加入。
 
