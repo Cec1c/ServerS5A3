@@ -148,11 +148,13 @@ func (shape currentSpendTimeCatalogShape) hasEvent(eventID uint16) bool {
 
 func parseCurrentSpendTimeEventInfoBody(t *testing.T, body []byte) currentSpendTimeCatalogShape {
 	t.Helper()
+	// 活动行数不受单个在线活动的10件奖励上限约束；当前公开全组合含12项。
+	const maxCatalogRows = 12
 	reader := &currentSpendTimeCatalogReader{body: body}
 	shape := currentSpendTimeCatalogShape{baseCount: reader.uint16Value(t)}
-	if shape.baseCount == 0 || int(shape.baseCount) > currentSpendTimeMaxRewardItems {
+	if shape.baseCount == 0 || int(shape.baseCount) > maxCatalogRows {
 		t.Fatalf("op108 base_catalog_count=%d is outside 1..%d",
-			shape.baseCount, currentSpendTimeMaxRewardItems)
+			shape.baseCount, maxCatalogRows)
 	}
 	for index := 0; index < int(shape.baseCount); index++ {
 		start := reader.offset
@@ -178,9 +180,9 @@ func parseCurrentSpendTimeEventInfoBody(t *testing.T, body []byte) currentSpendT
 		shape.baseRows = append(shape.baseRows, row)
 	}
 	shape.activeCount = reader.byteValue(t)
-	if shape.activeCount == 0 || int(shape.activeCount) > currentSpendTimeMaxRewardItems {
+	if shape.activeCount == 0 || int(shape.activeCount) > maxCatalogRows {
 		t.Fatalf("op108 active_count=%d is outside 1..%d",
-			shape.activeCount, currentSpendTimeMaxRewardItems)
+			shape.activeCount, maxCatalogRows)
 	}
 	for index := 0; index < int(shape.activeCount); index++ {
 		var row currentSpendTimeCatalogActiveRow
@@ -386,8 +388,8 @@ func TestCurrentSpendTimeJoustCatalogSwitchFollowsJoustEventSwitchAndNewEnv(t *t
 }
 
 // TestSendCurrentSpendTimeProtocolStateJoustCatalogOffDrops2365FromOp108Only 在真实
-// 发包路径上对照两档：off 档 op108 保留 2347 和安徒恩入口 181，且后面的 op1206 与 on 档逐字节相同；
-// on 档 op108 与 golden 逐字节相同。
+// 发包路径上对照两档：off 档保留2347、181和2037，op1206与on档相同；
+// on档的原有行与golden相同，公共181/2037行由独立夹具追加。
 func TestSendCurrentSpendTimeProtocolStateJoustCatalogOffDrops2365FromOp108Only(t *testing.T) {
 	golden := mustCurrentSpendTimeJoustCatalogGolden(t)
 	catalog := &currentSpendTimeRuntimeCatalog{
@@ -414,9 +416,10 @@ func TestSendCurrentSpendTimeProtocolStateJoustCatalogOffDrops2365FromOp108Only(
 		t.Fatalf("decompress off-catalog op108: %v", err)
 	}
 	offShape := parseCurrentSpendTimeEventInfoBody(t, offBody)
-	if offShape.baseCount != 2 || offShape.activeCount != 2 ||
-		len(offShape.baseRows) != 2 || len(offShape.activeRows) != 2 ||
+	if offShape.baseCount != 3 || offShape.activeCount != 3 ||
+		len(offShape.baseRows) != 3 || len(offShape.activeRows) != 3 ||
 		!offShape.hasEvent(181) ||
+		!offShape.hasEvent(currentSeriaLuckEventID) ||
 		offShape.hasEvent(uint16(currentJoustEventID)) {
 		t.Fatalf("off-catalog wire counts base=%d/%d active=%d/%d rows=%+v/%+v",
 			offShape.baseCount, len(offShape.baseRows),
@@ -450,7 +453,7 @@ func TestSendCurrentSpendTimeProtocolStateJoustCatalogOffDrops2365FromOp108Only(
 	if err != nil {
 		t.Fatalf("decompress on-catalog op108: %v", err)
 	}
-	wantOn := withAntonChannelCatalogFixture(t, golden)
+	wantOn := withSeriaLuckCatalogFixture(t, withAntonChannelCatalogFixture(t, golden))
 	if !bytes.Equal(onBody, wantOn) {
 		t.Fatalf("on-catalog op108 body=%x want golden plus Anton=%x", onBody, wantOn)
 	}
