@@ -138,6 +138,9 @@ type Service struct {
 	initialEquipmentArchive *platformpvf.Archive
 	initialEquipmentByJob   map[byte][]initialEquipmentEntry
 	initialEquipmentLoadErr error
+	// dungeonRuleSource lets focused tests provide the exact approved PVF texts
+	// they exercise. Production leaves it nil and uses initialEquipmentArchive.
+	dungeonRuleSource       initialEquipmentTextSource
 	weeklyCatalogMu         sync.Mutex
 	weeklyCatalog           *onlineevent.WeeklyCatalog
 	monthlyCatalogMu        sync.Mutex
@@ -626,6 +629,8 @@ func (s *Service) Start(ctx context.Context) error {
 		"joust_event_catalog_includes_2365", s.currentSpendTimeCatalogIncludesJoustEvent(),
 		"story_digest_enabled", s.storyDigestEnabled(),
 		"quest_clear_ticket_scope", string(s.questClearTicketScope()),
+		"main_quest_exp_percent", s.options.mainQuestExperiencePercent,
+		"main_quest_exp_multiplier", s.options.mainQuestExperienceMultiplier,
 		// op34（完成任务）在**结算上下文超时/取消**时也必须回包：默认 on = 修复档
 		// （回与业务失败完全相同的失败体 `00 16`）；字面量 `legacy` = 逐字节回到
 		// 2026-09-27 的静默 `return nil`（那 4 次「点了没反应、每次空等 ≥3 秒」）。

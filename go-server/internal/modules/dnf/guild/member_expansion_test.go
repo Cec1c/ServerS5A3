@@ -38,7 +38,12 @@ func memberExpansionFixture(t *testing.T) (r.Group, CargoPurchase, time.Time) {
 }
 
 func TestGuildMemberExpansionTiersAndHistoricalLimits(t *testing.T) {
+	forEachPurchaseReceiptTimeZone(t, testGuildMemberExpansionTiersAndHistoricalLimits)
+}
+
+func testGuildMemberExpansionTiersAndHistoricalLimits(t *testing.T, loc *time.Location) {
 	repos, q, now := memberExpansionFixture(t)
+	now = now.In(loc)
 	ctx := context.Background()
 	for i, want := range []uint32{500, 700, 1000} {
 		q.ContentID, q.RequestID = uint32(16+i), fmt.Sprintf("%064x", i+1)
@@ -47,7 +52,7 @@ func TestGuildMemberExpansionTiersAndHistoricalLimits(t *testing.T) {
 			t.Fatalf("expansion=%+v %v", got, err)
 		}
 		replayed, err := PurchaseMemberExpansion(ctx, repos.Guild, q, memberExpansionCatalog(), now.Add(time.Hour))
-		if err != nil || replayed != got {
+		if err != nil || !equalCargoPurchaseReceipt(replayed, got) {
 			t.Fatal("replay", replayed, err)
 		}
 	}

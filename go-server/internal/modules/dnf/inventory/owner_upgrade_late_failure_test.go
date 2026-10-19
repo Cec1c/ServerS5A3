@@ -226,7 +226,7 @@ func runUpgradeLateFailureRequest(t *testing.T, repos dnfrepo.Group, materialSlo
 		AccountID:           upgradeLateFailureAccountID,
 		SelectedCharacterID: 77,
 		Repositories:        repos,
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			if mode != "reinforce" || currentLevel != 0 {
 				t.Fatalf("policy args mode=%s level=%d, want reinforce/0", mode, currentLevel)
 			}

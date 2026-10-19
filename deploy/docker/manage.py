@@ -166,6 +166,9 @@ def generate(c, catalog):
     multiplier = c.get("main_quest_exp_multiplier")
     if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
         raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
+    percent = c.get("main_quest_exp_percent")
+    if "main_quest_exp_percent" in c and (type(percent) is not int or not 0 <= percent <= 100):
+        raise ValueError("main_quest_exp_percent must be an integer from 0 to 100")
     game_token = management_token(c)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
@@ -253,6 +256,8 @@ create_databases = false
         env["DNFBRIDGE_PLAYER_ADMIN_SECRET"] = game_token
     if multiplier is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"] = str(multiplier)
+    if percent is not None:
+        env["DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"] = str(percent)
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}
