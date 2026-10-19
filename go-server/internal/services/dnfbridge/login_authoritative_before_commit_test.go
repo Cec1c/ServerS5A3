@@ -17,6 +17,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	dnfenum "longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
 
 // 本文件钉的是第四轮修法：**登录路径提交前的权威载体顺序**。
@@ -29,9 +30,11 @@ import (
 
 // loginAuthoritativeDriveOptions 是驱动登录路由的参数。
 type loginAuthoritativeDriveOptions struct {
-	tier              string // DNFBRIDGE_LOGIN_AUTHORITATIVE_BEFORE_COMMIT
-	roundsTwoThreeOff bool   // 第 2/3 轮的开关一起写回退字面量
-	throughSceneAck   bool   // 是否继续走"type1345 ack + 客户端第一条报文"
+	tier              string                  // DNFBRIDGE_LOGIN_AUTHORITATIVE_BEFORE_COMMIT
+	roundsTwoThreeOff bool                    // 第 2/3 轮的开关一起写回退字面量
+	throughSceneAck   bool                    // 是否继续走"type1345 ack + 客户端第一条报文"
+	pvpChannel        bool                    // 无双入口的800会检查角色已穿戴槽位。
+	channelOverride   *channelcatalog.Channel // 核对现用不同频道的真实入口顺序。
 }
 
 // loginAuthoritativeDrive 把登录路由真正推到 typed op24（可选继续到 ack 与客户端首包），
@@ -51,6 +54,12 @@ func loginAuthoritativeDrive(t *testing.T, options loginAuthoritativeDriveOption
 	t.Setenv(skillSwitchInventoryModeEnv, skillSwitchInventoryBeforeTransitionTier)
 
 	service, session, repositories := newTownMoveTest(t)
+	if options.pvpChannel || options.channelOverride != nil && isPVPChannel(*options.channelOverride) {
+		// PK独立技能由角色结算事务初始化，角色读端与事务必须使用同一仓储。
+		// 通用城镇夹具替换了Character读端，其旧事务仍指向空的内存Character。
+		repositories = dnfrepomemory.NewMemoryGroup()
+		service.repositoryProvider = func() (dnfrepo.Group, bool) { return repositories, true }
+	}
 	// 线上每一个 class0 载体的头都是 16 字节（`packet_log.txt` 每条 SEND 的 `header_size=16`），
 	// 夹具按同一个口径写包，顺序断言才是在比"线上那条流"。
 	service.options.gameUpperHeader = gameUpperHeaderServer16
@@ -84,6 +93,12 @@ func loginAuthoritativeDrive(t *testing.T, options loginAuthoritativeDriveOption
 	session.townSceneReadyCharacterID = 6
 	// 账号口径与夹具里角色 6 的 AccountID 对齐（晶体契约/冒险团都按它读）。
 	session.accountID = defaultAccountPrefix + "10011"
+	if options.pvpChannel {
+		session.channel = channelcatalog.Channel{ID: 75, Type: 8, Group: "pvp"}
+	}
+	if options.channelOverride != nil {
+		session.channel = *options.channelOverride
+	}
 	// 线上 owner_channel=10（本次登录 conn game-000021），`currentTownActorOwnerContext`
 	// 在默认档（不启用 client-channel 对齐）读的就是这个已提交的 town owner。
 	session.townActorOwnerChannel = 10

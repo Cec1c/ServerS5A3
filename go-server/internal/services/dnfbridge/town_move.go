@@ -45,6 +45,12 @@ func parseCurrentTownSetUserAreaRequest(body []byte) (currentTownSetUserAreaRequ
 }
 
 func (s *Service) handleTownSetUserArea(session *gameSession, body []byte) error {
+	s.pvpMu.Lock()
+	inPVPRoom := session != nil && session.pvpRoom != nil
+	s.pvpMu.Unlock()
+	if inPVPRoom {
+		return nil
+	}
 	return s.handleTownSetUserAreaWithQuestNotice(session, body, true)
 }
 
@@ -96,6 +102,9 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		return nil
 	}
 
+	if isPVPChannel(session.channel) && request.TownID != 10 {
+		return nil
+	}
 	// 操作者清单第 36 条（赛丽亚房间右边门应弹选择地图）的默认关闭实验档。
 	// 开关关闭时这里只做一次环境变量比较就返回：不读库、不记日志、不发字节，
 	// 逐字节等于改动前。判据与取证见 town_seria_right_door_select.go。
@@ -247,8 +256,10 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	character.Stats["pos_y"] = int64(request.PositionY)
 	character.Stats["direction"] = int64(request.Direction)
 	character.UpdatedAt = time.Now().UTC()
-	if err := dnfrepo.SaveCharacterFields(ctx, repositories.Character, character, dnfrepo.CharacterFieldStats); err != nil {
-		return err
+	if !isPVPChannel(session.channel) {
+		if err := dnfrepo.SaveCharacterFields(ctx, repositories.Character, character, dnfrepo.CharacterFieldStats); err != nil {
+			return err
+		}
 	}
 
 	selfRow := currentSceneTransitionRow{
@@ -291,6 +302,9 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		return err
 	}
 	rollbackLocation := func(writeErr error) error {
+		if isPVPChannel(session.channel) {
+			return writeErr
+		}
 		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		rollbackErr := dnfrepo.SaveCharacterFields(rollbackCtx, repositories.Character, previous, dnfrepo.CharacterFieldStats)
 		rollbackCancel()
@@ -356,6 +370,11 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		"current_exe_op36_after_op23_before_op24_seed_completed_quest_scene_state",
 	); err != nil {
 		return rollbackLocation(err)
+	}
+	if request.TownID == 10 && request.AreaID == 4 {
+		if err := s.sendCurrentPVPDojoSkillsBeforeTransition(ctx, session, character); err != nil {
+			return rollbackLocation(err)
+		}
 	}
 	if err := s.sendGameUpperRawClass(session, currentSceneTransitionMsgID, response, 0); err != nil {
 		return rollbackLocation(err)

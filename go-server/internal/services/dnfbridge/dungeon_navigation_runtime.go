@@ -66,6 +66,9 @@ func dungeonEntryRequiredItemReasonFixed() bool {
 }
 
 func (s *Service) handleDungeonSelectUpper(session *gameSession, body []byte) error {
+	if session != nil && isPVPChannel(session.channel) {
+		return nil
+	}
 	return s.handleDungeonSelectUpperPlanned(session, body, nil, true)
 }
 

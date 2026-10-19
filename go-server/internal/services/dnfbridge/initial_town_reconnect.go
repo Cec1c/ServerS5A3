@@ -76,6 +76,7 @@ func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) err
 	)
 
 	session.townMu.Lock()
+	s.restoreCurrentReconnectSeriaOriginLocked(ctx, session, characterID, character, mapPath)
 	resetCurrentTownPostTransitionPlayerState(session)
 	session.initialTownRouteCharacterID = characterID
 	session.initialTownRouteStage = currentInitialTownRouteArmed

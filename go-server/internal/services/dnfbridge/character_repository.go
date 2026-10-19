@@ -26,6 +26,22 @@ func (s *Service) listCharacters(ctx context.Context, repos dnfrepo.Group, accou
 	})
 	for idx := range records {
 		s.attachEquipmentSummary(ctx, repos, &records[idx])
+		if repos.Quest != nil {
+			q, ok, err := repos.Quest.Load(ctx, records[idx].CharacterID)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				state, present := q.States[2670]
+				if !present {
+					state = q.Progress[2670]
+				}
+				switch state.Status {
+				case "done", "cleared", "completed":
+					records[idx].Roster.PVPEntryQuestCompleted = true
+				}
+			}
+		}
 	}
 	return records, nil
 }

@@ -57,6 +57,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	wantNames := []string{
 		"guild",
 		"auction",
+		"pvp",
 		"npc-shop",
 		"cera-shop",
 		"cera-package",

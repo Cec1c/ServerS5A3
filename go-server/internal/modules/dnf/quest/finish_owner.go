@@ -537,6 +537,11 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 		character.UpdatedAt = now
 		skill.Points = progressPlan.SkillPoints.New
+		if reward.TPBonus > 0 {
+			if err := applyPVPTrainingTPReward(&character, &skill, inventory, definition, reward.TPBonus); err != nil {
+				return err
+			}
+		}
 		if reward.HasProfession {
 			character.Stats["grow_type"] = int64(reward.Profession.NewGrowType)
 			skill, err = input.ProfessionProfiles.ApplySkillTransition(
@@ -633,6 +638,9 @@ func (o *Owner) ApplyFinishSettlement(
 		skillFields := []dnfrepo.SkillField{dnfrepo.SkillFieldPoints}
 		if reward.HasProfession {
 			skillFields = append(skillFields, dnfrepo.SkillFieldSkills, dnfrepo.SkillFieldLayouts, dnfrepo.SkillFieldCooldowns, dnfrepo.SkillFieldTrees)
+		}
+		if reward.TPBonus > 0 && skill.Trees.Expanded {
+			skillFields = append(skillFields, dnfrepo.SkillFieldTrees)
 		}
 		if err := dnfrepo.SaveSkillFields(ctx, tx.Skill, skill, skillFields...); err != nil {
 			return err

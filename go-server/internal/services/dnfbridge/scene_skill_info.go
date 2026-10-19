@@ -59,6 +59,11 @@ func (s *Service) buildCurrentSceneSkillInfoProjection(
 		s.logGameEvent(session, "game-main-skill-info-deferred", "source", source, "reason", "skill_repository_missing")
 		return currentSceneSkillInfoProjection{}, false, nil
 	}
+	var channelErr error
+	repos, channelErr = s.currentChannelSkillRepositories(ctx, session, character, repos)
+	if channelErr != nil {
+		return currentSceneSkillInfoProjection{}, false, channelErr
+	}
 	job, ok := characterJobByte(character)
 	if !ok {
 		return currentSceneSkillInfoProjection{}, false, fmt.Errorf("current scene skill info has invalid job %q", character.Job)

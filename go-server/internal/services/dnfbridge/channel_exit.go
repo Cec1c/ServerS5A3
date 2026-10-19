@@ -20,6 +20,9 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 			currentChannelExitRequestBodySize,
 		)
 	}
+	if err := s.captureCurrentOrdinaryChannelExitPosition(session); err != nil {
+		return err
+	}
 	if err := s.sendGameUpperRawClassNoCodec(
 		session,
 		uint16(dnfenum.CmdPacketExit),

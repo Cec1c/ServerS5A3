@@ -103,6 +103,11 @@ func (s *Service) sendCurrentFinishLoadingCharacterStateSnapshot(session *gameSe
 	}
 	points := dnfrepo.SkillPointState{}
 	if repositories, ok := s.repositoryGroup(); ok && repositories.Skill != nil {
+		var channelErr error
+		repositories, channelErr = s.currentChannelSkillRepositories(ctx, session, character, repositories)
+		if channelErr != nil {
+			return channelErr
+		}
 		skill, found, err := repositories.Skill.Load(ctx, character.CharacterID)
 		if err != nil {
 			return fmt.Errorf("load finish-loading skill points for character %s: %w", character.CharacterID, err)
