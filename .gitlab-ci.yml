@@ -82,6 +82,12 @@ core-tests:
   - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
   - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
   - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+channel-u8-tests:
+  stage: test
+  image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
+  cache: []
+  script:
+  - python -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
 sast:
   stage: test
 include:
