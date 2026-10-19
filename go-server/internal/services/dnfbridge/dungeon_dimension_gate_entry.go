@@ -131,7 +131,9 @@ func (s *Service) validateCurrentDimensionGateDailyCount(character dnfrepo.Chara
 // 日计数与同批入场资产（门票、入场房间疲劳）放进同一个角色事务提交；调用方
 // `consumeCurrentDailyCountEntry` 负责槽位刷新与疲劳房间标记。
 //
-// 客户端次数 UI 仍待核验。当前 EXE 的 812 不是次数通知；此处不发包。
+// v141 的 812 已确认读取基础已用、额外可用及每周隐藏领主计数。
+// 接收门仍关闭，且每周状态尚未实现；此处继续不发包，见
+// Docs/DIMENSION_COUNT_NATIVE_V141_20261019.md。
 func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
 	if runtime == nil || !s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon) {
 		return dnfrepo.CharacterRecord{}, nil, nil
