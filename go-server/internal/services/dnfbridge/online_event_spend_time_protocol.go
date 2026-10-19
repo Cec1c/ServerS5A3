@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"longheng.io/server/internal/modules/dnf/onlineevent"
+	"longheng.io/server/internal/modules/dnf/packageitem"
 )
 
 const (
@@ -209,6 +210,16 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 
 // 原生四加四奖励面板使用228；保留其它活动及历史2347目录的字节。
 func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, false)
+}
+
+// Preserve the legacy catalog and append Seria luck only when requested.
+func buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, false, includeSeriaLuck)
+}
+
+// Compose native online rewards and Seria luck without replacing other catalog rows.
+func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck bool) ([]byte, error) {
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -282,6 +293,10 @@ func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, to
 		activeCount++
 	}
 	if includeOrdinary {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeSeriaLuck {
 		baseCatalogCount++
 		activeCount++
 	}
@@ -391,6 +406,13 @@ func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, to
 		writer.writeRawDstr(nil)
 		writer.writeByte(0)
 	}
+	if includeSeriaLuck {
+		writer.writeUint16(currentSeriaLuckEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
 	writer.writeByte(activeCount) // active_count
 	if includeSpendTime && nativeOnlinePanel {
 		writer.writeUint16(currentPCRoomTimePointEventID)
@@ -461,6 +483,13 @@ func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, to
 	if includeOrdinary {
 		writer.writeUint16(331)
 		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeSeriaLuck {
+		writer.writeUint16(currentSeriaLuckEventID)
+		writer.writeUint32(uint32(packageitem.SeriaLuckValueMax))
+		for i := 1; i < currentSpendTimeDescriptorParamCount; i++ {
 			writer.writeUint32(0)
 		}
 	}
