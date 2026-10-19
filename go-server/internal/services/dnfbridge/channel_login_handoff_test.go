@@ -70,7 +70,7 @@ func assertFirstChannelLoginSuccess(t *testing.T, s *Service, p *gameSession, ch
 }
 
 func TestFirstSpecialLoginCorrectsBeforeAnySuccess(t *testing.T) {
-	for _, id := range []int{187, 23, 181, 184} {
+	for _, id := range []int{187, 23, 181} {
 		t.Run(strconv.Itoa(id), func(t *testing.T) {
 			s, p := firstLoginChannelFixture(t, id)
 			if err := s.handleCurrentGameEndpointRequest(p, 1, currentObservedChannelReconnectDisplayProbeSize); err != nil {
@@ -105,6 +105,21 @@ func TestFirstSpecialLoginCorrectsBeforeAnySuccess(t *testing.T) {
 				t.Fatal("真实GET_USERINFO未恢复普通选角")
 			}
 		})
+	}
+}
+
+func TestDirectFiendWarLoginDoesNotColdRedirect(t *testing.T) {
+	s, p := firstLoginChannelFixture(t, 184)
+	if err := s.handleCurrentGameEndpointRequest(p, 1, currentObservedChannelReconnectDisplayProbeSize); err != nil {
+		t.Fatal(err)
+	}
+	if p.channel.ID != 184 || p.channel.Type != 42 || p.coldChannelLanding != nil || p.channelExitHandoff != nil {
+		t.Fatalf("direct FiendWar LOGIN was treated as stale special channel: %+v cold=%+v handoff=%+v", p.channel, p.coldChannelLanding, p.channelExitHandoff)
+	}
+	assertFirstChannelLoginSuccess(t, s, p, p.channel)
+	p.rosterRequested = true
+	if changed, err := s.redirectCurrentColdSpecialChannel(p, 0); changed || err != nil {
+		t.Fatalf("direct FiendWar roster request was redirected: changed=%t err=%v", changed, err)
 	}
 }
 
@@ -327,9 +342,9 @@ func (*firstChannelFailedWriteConn) Write([]byte) (int, error) { return 0, io.Er
 func TestFirstLoginPreservesActiveRaidReconnectAndRejectsInvalidSeat(t *testing.T) {
 	for _, invalid := range []string{"有效", "过期", "其他账号", "其他实例", "其他频道", "失败", "结束"} {
 		t.Run(invalid, func(t *testing.T) {
-			s, p := firstLoginChannelFixture(t, 184)
+			s, p := firstLoginChannelFixture(t, 181)
 			now := s.gameplayNow()
-			state := &runtimeRaidState{RaidKey: 1, Started: true, Members: []runtimeRaidMemberState{{CharID: 29}}, Battle: &runtimeRaidBattle{InstanceID: "test", ChannelID: 184, ChannelType: 42, MemberAccounts: map[uint16]string{29: p.accountID}}}
+			state := &runtimeRaidState{RaidKey: 1, Started: true, Members: []runtimeRaidMemberState{{CharID: 29}}, Battle: &runtimeRaidBattle{InstanceID: "test", ChannelID: 181, ChannelType: 32, MemberAccounts: map[uint16]string{29: p.accountID}}}
 			seat := currentRaidDisconnectSeat{Raid: state, RaidKey: 1, CharacterID: 29, AccountID: p.accountID, InstanceID: "test", DisconnectedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
 			switch invalid {
 			case "过期":
@@ -351,7 +366,7 @@ func TestFirstLoginPreservesActiveRaidReconnectAndRejectsInvalidSeat(t *testing.
 				t.Fatal(err)
 			}
 			if invalid == "有效" {
-				if p.channel.ID != 184 || p.coldChannelLanding != nil {
+				if p.channel.ID != 181 || p.coldChannelLanding != nil {
 					t.Fatal("有效团本断线席位被普通回落覆盖")
 				}
 				assertFirstChannelLoginSuccess(t, s, p, p.channel)

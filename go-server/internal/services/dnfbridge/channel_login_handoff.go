@@ -157,6 +157,10 @@ func (s *Service) redirectCurrentSpecialBeforeFirstLoginSuccess(p *gameSession) 
 		p.channelExitHandoff = ticket
 	}
 	handoff := p.channelExitHandoff
+	if currentDirectFiendWarChannel(p.channel) {
+		p.endpointHandshakeMu.Unlock()
+		return false, nil
+	}
 	sameEmpireReturn := p.channelExitHandoff != nil && p.channel.Type == currentTagTournamentChannelType &&
 		p.channelExitHandoff.source.ServerID == p.channel.ServerID && p.channelExitHandoff.source.ID == p.channel.ID && p.channelExitHandoff.source.Type == p.channel.Type
 	if isPVPChannel(p.channel) || !currentColdSpecialChannel(p.channel) || p.channelExitHandoff != nil && !sameEmpireReturn ||

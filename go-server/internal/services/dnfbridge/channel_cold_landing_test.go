@@ -34,7 +34,6 @@ func TestColdSpecialLoginRehandshakesOrdinaryBeforeRosterAndSelection(t *testing
 		{ID: 187, Type: 39, Group: "tagtournament", Port: 10187},
 		{ID: 23, Type: 23, Group: "anton_raid", Port: 10023},
 		{ID: 181, Type: 32, Group: "luke_raid", Port: 10181},
-		{ID: 184, Type: 42, Group: "fiendwar", Port: 10184},
 	} {
 		t.Run(channel.Group, func(t *testing.T) {
 			s, p := coldChannelLandingFixture(t, channel)
@@ -126,9 +125,9 @@ func TestManualSpecialChannelSwitchKeepsSelectedTarget(t *testing.T) {
 func TestColdRaidLoginPreservesOnlyExactUnexpiredActiveSeat(t *testing.T) {
 	for _, bad := range []string{"有效", "第一阶段休整", "过期", "其他账号", "其他实例", "其他频道", "已失败", "已通关", "未开团", "选择其他角色"} {
 		t.Run(bad, func(t *testing.T) {
-			s, p := coldChannelLandingFixture(t, channelcatalog.Channel{ID: 184, Type: 42, Group: "fiendwar", Port: 10184})
+			s, p := coldChannelLandingFixture(t, channelcatalog.Channel{ID: 181, Type: 32, Group: "luke_raid", Port: 10181})
 			now := s.gameplayNow()
-			state := &runtimeRaidState{RaidKey: 1, Started: true, Members: []runtimeRaidMemberState{{CharID: 29}}, Battle: &runtimeRaidBattle{InstanceID: "1234", ChannelID: 184, ChannelType: 42, MemberAccounts: map[uint16]string{29: p.accountID}}}
+			state := &runtimeRaidState{RaidKey: 1, Started: true, Members: []runtimeRaidMemberState{{CharID: 29}}, Battle: &runtimeRaidBattle{InstanceID: "1234", ChannelID: 181, ChannelType: 32, MemberAccounts: map[uint16]string{29: p.accountID}}}
 			s.raids = map[uint32]*runtimeRaidState{1: state}
 			seat := currentRaidDisconnectSeat{Raid: state, RaidKey: 1, CharacterID: 29, AccountID: p.accountID, InstanceID: "1234", DisconnectedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
 			id := uint16(29)

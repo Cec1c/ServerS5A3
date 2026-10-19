@@ -22,6 +22,14 @@ func currentColdSpecialChannel(channel channelcatalog.Channel) bool {
 		channel.Type == dnfenum.RaidChannelType || channel.Type == dnfenum.HiddenRaidType || channel.Type == 42
 }
 
+// 超时空是可直接进入的专用团队频道。内部目录保持 type42，现用客户端登录/下载
+// 投影为45；不能用“无EXIT交接”把它判成应回普通城镇的特殊频道。
+func currentDirectFiendWarChannel(channel channelcatalog.Channel) bool {
+	group := strings.TrimSpace(channel.Group)
+	group = strings.Trim(group, "[]`")
+	return channel.Type == 42 && strings.EqualFold(strings.TrimSpace(group), "fiendwar")
+}
+
 // 进行中团本只有本账号、同频道、同实例且仍在宽限期内的真实保留席位可恢复。
 // 角色列表尚未选角时允许该账号的保留席位；选角前再核对具体角色。
 func (s *Service) currentColdRaidSeatAvailable(p *gameSession, characterID uint16, now time.Time) bool {
@@ -65,7 +73,7 @@ func (s *Service) currentColdOrdinaryChannel() (channelcatalog.Channel, error) {
 func (s *Service) redirectCurrentColdSpecialChannel(p *gameSession, characterID uint16) (bool, error) {
 	// 真实连接由startGameSessionEvents先初始化为世代1；第一次绑定角色后才大于1。
 	// 决斗客户端已自行返回普通频道，保留已验路径，不追加二次握手。
-	if s == nil || p == nil || s.options.currentClientVersion != "official-24.9" || !p.rosterRequested || p.characterGeneration > 1 || p.selectedCharacterID != 0 || isPVPChannel(p.channel) {
+	if s == nil || p == nil || s.options.currentClientVersion != "official-24.9" || !p.rosterRequested || p.characterGeneration > 1 || p.selectedCharacterID != 0 || isPVPChannel(p.channel) || currentDirectFiendWarChannel(p.channel) {
 		return false, nil
 	}
 	if p.coldChannelLanding != nil {
