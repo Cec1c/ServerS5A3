@@ -3,6 +3,8 @@ package dnfbridge
 import (
 	"context"
 	"errors"
+	"longheng.io/server/internal/modules/dnf/progression"
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	"strconv"
 	"time"
 
@@ -49,14 +51,55 @@ func (s *Service) createCharacter(session *gameSession, req createCharacterReque
 	}
 	slot := nextCharacterSlot(existing)
 	now := time.Now().UTC()
+	level := newCharacterInitialLevel
+	stats := defaultCreatedCharacterStatsFromRequest(req)
+	grow, private := currentPrivateCreationGrow(req.options)
+	if !private && session.pvpPrivateCreate != nil && time.Now().Before(session.pvpPrivateCreate.expires) && session.pvpPrivateCreate.job == req.job && session.pvpPrivateCreate.grow == 0 && len(req.options) == 8 {
+		zero := true
+		for _, b := range req.options {
+			zero = zero && b == 0
+		}
+		grow, private = 0, zero
+	}
+	session.pvpPrivateCreate = nil
+	if private {
+		plan, err := s.loadPVPPrivateCreation(req.job, grow)
+		if err != nil {
+			return s.sendCreateFailure(session, upper, createCodeServerError)
+		}
+		if _, err := plan.Check(ctx, repos.Character, accountID, now); err != nil {
+			var rejection dnfpvp.PrivateCreateError
+			if errors.As(err, &rejection) {
+				return s.sendCreateFailure(session, upper, byte(rejection))
+			}
+			return s.sendCreateFailure(session, upper, createCodeServerError)
+		}
+		s.initialEquipmentMu.Lock()
+		archive, err := s.initialEquipmentArchiveLocked()
+		s.initialEquipmentMu.Unlock()
+		if err != nil {
+			return s.sendCreateFailure(session, upper, createCodeServerError)
+		}
+		levels, err := progression.Load(ctx, archive)
+		if err != nil {
+			return s.sendCreateFailure(session, upper, createCodeServerError)
+		}
+		exp, err := levels.ThresholdToNext(plan.Level - 1)
+		if err != nil {
+			return s.sendCreateFailure(session, upper, createCodeServerError)
+		}
+		level = plan.Level
+		stats[dnfpvp.PrivateCharacterKey], stats["grow_type"] = 1, int64(grow)
+		stats["exp"], stats["tutorial_completed"] = int64(exp), 1
+	}
 	record := dnfrepo.CharacterRecord{
 		CharacterID: strconv.Itoa(characterID),
 		AccountID:   accountID,
 		Slot:        slot,
 		Name:        name,
 		Job:         strconv.Itoa(int(req.job)),
-		Level:       newCharacterInitialLevel,
-		Stats:       defaultCreatedCharacterStatsFromRequest(req),
+		Level:       level,
+		Stats:       stats,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -83,4 +126,16 @@ func (s *Service) createCharacter(session *gameSession, req createCharacterReque
 		"name", name,
 		"option_len", len(req.options))
 	return nil
+}
+
+func currentPrivateCreationGrow(options []byte) (byte, bool) {
+	if len(options) != 8 || options[6] < 1 || options[6] > 5 || options[7] != 0 {
+		return 0, false
+	}
+	for _, b := range options[:6] {
+		if b != 0 {
+			return 0, false
+		}
+	}
+	return options[6], true
 }

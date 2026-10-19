@@ -14,6 +14,9 @@ func (s *Service) currentInitialTownTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
 	return s.currentPersistedTownTransition(ctx, session, characterID, character, "selected_character_persisted_location_read_only")
 }
 
@@ -23,6 +26,9 @@ func (s *Service) currentChannelReconnectTownTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
 	if session != nil && (session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType) {
 		return s.currentRaidEntranceTownTransition(session, characterID, character)
 	}

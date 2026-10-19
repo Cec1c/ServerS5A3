@@ -51,6 +51,9 @@ func (s *Service) currentCharacterListLoginTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
 	if characterID == 0 || character.Stats == nil {
 		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", fmt.Errorf("selected character login location is unavailable")
 	}

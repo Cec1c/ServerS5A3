@@ -1020,6 +1020,11 @@ func rewardRuleMatches(rule RewardItemRule, character CharacterEligibility) bool
 func definitionInitialTrigger(definition Definition, completed map[int64]struct{}) uint32 {
 	tag := normalizeQuestTag(definition.Type)
 	switch tag {
+	case "pvp quest":
+		if isPVPWinDefinition(definition) {
+			return boundedTriggerChannel(definition.IntData[0])
+		}
+		return 1
 	case "seek n meet npc":
 		return seekAndMeetNPCInitialTrigger(definition.IntData)
 	case "quest clear", "clear quest":
