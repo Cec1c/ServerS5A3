@@ -114,6 +114,7 @@ type FinishCommitInput struct {
 	HasRewardSelect               bool
 	Multiplier                    uint16
 	MainQuestExperienceMultiplier int
+	MainQuestExperiencePercent    int
 	ExpectedCompletionKey         string
 	CommittedAt                   time.Time
 	Progression                   *progression.Tables
@@ -228,6 +229,10 @@ func (o *Owner) ApplyFinishSettlement(
 		return FinishCommitResult{}, fmt.Errorf("%w: multiplier=%d", ErrFinishQuestMultiplierUnsupported, input.Multiplier)
 	}
 	mainQuestExperienceMultiplier, err := normalizeMainQuestExperienceMultiplier(input.MainQuestExperienceMultiplier)
+	if err != nil {
+		return FinishCommitResult{}, err
+	}
+	mainQuestExperiencePercent, err := normalizeMainQuestExperiencePercent(input.MainQuestExperiencePercent)
 	if err != nil {
 		return FinishCommitResult{}, err
 	}
@@ -399,6 +404,8 @@ func (o *Owner) ApplyFinishSettlement(
 		growType := int(growTypeValue)
 		eligibility := CharacterEligibility{Level: character.Level, Job: int(jobValue), GrowType: growType}
 		mainQuestExperience := isMainQuestExperienceDefinition(catalog, definition)
+		percentageMainQuestExperience := mainQuestExperiencePercent > 0 &&
+			isPercentMainQuestExperienceDefinition(definition)
 		reward, err := catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
 		if err != nil {
 			return err
@@ -419,7 +426,21 @@ func (o *Owner) ApplyFinishSettlement(
 		// **一分经验都不给**（PVF 明确写了不给经验），但任务本身照常归档。
 		// 现场报障链上的 3609/3610（梅娅女王子任务）就是这一档。
 		var baseExperienceDelta uint32
-		if !definition.NoExperience {
+		var experienceDelta uint32
+		var experienceBonusDelta uint32
+		if percentageMainQuestExperience {
+			if !definition.NoExperience {
+				baseExperienceDelta, err = finishMainQuestExperiencePercent(
+					input.Progression,
+					definition,
+					mainQuestExperiencePercent,
+				)
+				if err != nil {
+					return err
+				}
+			}
+			experienceDelta = baseExperienceDelta
+		} else if !definition.NoExperience {
 			baseExperienceDelta, err = input.Progression.QuestExperience(
 				character.Level,
 				reward.QuestLevel,
@@ -431,20 +452,22 @@ func (o *Owner) ApplyFinishSettlement(
 				return err
 			}
 		}
-		experienceDelta, experienceBonusDelta := finishExperienceWithBonus(baseExperienceDelta, input.ExperienceBonusPercent)
-		potionBonus := experiencebuff.Bonus(character, experiencebuff.Quest, baseExperienceDelta, now)
-		potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
-		experienceDelta += potionBonus
-		experienceBonusDelta += potionBonus
-		if mainQuestExperience {
-			baseExperienceDelta, experienceBonusDelta, experienceDelta, err = applyMainQuestExperienceMultiplier(
-				baseExperienceDelta,
-				experienceBonusDelta,
-				experienceDelta,
-				mainQuestExperienceMultiplier,
-			)
-			if err != nil {
-				return err
+		if !percentageMainQuestExperience {
+			experienceDelta, experienceBonusDelta = finishExperienceWithBonus(baseExperienceDelta, input.ExperienceBonusPercent)
+			potionBonus := experiencebuff.Bonus(character, experiencebuff.Quest, baseExperienceDelta, now)
+			potionBonus = min(potionBonus, math.MaxUint32-experienceDelta)
+			experienceDelta += potionBonus
+			experienceBonusDelta += potionBonus
+			if mainQuestExperience {
+				baseExperienceDelta, experienceBonusDelta, experienceDelta, err = applyMainQuestExperienceMultiplier(
+					baseExperienceDelta,
+					experienceBonusDelta,
+					experienceDelta,
+					mainQuestExperienceMultiplier,
+				)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		progressPlan, err := planFinishProgression(input.Progression, character, skill, experienceDelta, maximumLevel)
@@ -951,7 +974,12 @@ func planFinishProgression(
 	}
 	newTotal := uint64(experienceValue) + uint64(gain)
 	if newTotal > math.MaxUint32 {
-		return progression.ExperienceSkillPointPlan{}, progression.ErrExperienceOutOfRange
+		if character.Level < maxLevel {
+			return progression.ExperienceSkillPointPlan{}, progression.ErrExperienceOutOfRange
+		}
+		// At the level cap the ordinary counter can saturate. Honor settlement
+		// still receives the full reward, so later quests remain claimable.
+		newTotal = math.MaxUint32
 	}
 	result := progression.ExperienceResult{
 		PreviousLevel: character.Level, PreviousExperience: uint32(experienceValue), Gain: gain,
