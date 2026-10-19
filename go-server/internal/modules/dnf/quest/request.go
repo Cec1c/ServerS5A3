@@ -24,6 +24,8 @@ type SetTriggerRequest struct {
 	QuestID     uint16
 	TriggerType byte
 	IsIncrement bool
+	Answer      byte
+	HasAnswer   bool
 }
 
 // FinishQuestRequest 描述完成任务请求。
@@ -50,10 +52,17 @@ func DecodeSetTriggerRequest(body []byte) (SetTriggerRequest, error) {
 	if len(qBody) < 3 {
 		return SetTriggerRequest{}, fmt.Errorf("body too short after echo strip: got %d want >= 3", len(qBody))
 	}
+	answer := byte(0)
+	hasAnswer := len(qBody) >= 4
+	if hasAnswer {
+		answer = qBody[3]
+	}
 	return SetTriggerRequest{
 		QuestID:     binary.LittleEndian.Uint16(qBody),
 		TriggerType: qBody[2],
-		IsIncrement: len(qBody) >= 4 && qBody[3] != 0,
+		IsIncrement: hasAnswer && answer != 0,
+		Answer:      answer,
+		HasAnswer:   hasAnswer,
 	}, nil
 }
 
@@ -87,6 +96,9 @@ func (r QuestIDRequest) String() string {
 }
 
 func (r SetTriggerRequest) String() string {
+	if r.HasAnswer {
+		return fmt.Sprintf("quest=%d triggerType=%d answer=%d", r.QuestID, r.TriggerType, r.Answer)
+	}
 	return fmt.Sprintf("quest=%d triggerType=%d increment=%t", r.QuestID, r.TriggerType, r.IsIncrement)
 }
 

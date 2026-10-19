@@ -33,7 +33,12 @@ func cargoPurchaseFixture(t *testing.T) (r.Group, CargoPurchase, time.Time) {
 }
 
 func TestGuildCargoPurchaseActualExpansionAndDurableReplay(t *testing.T) {
+	forEachPurchaseReceiptTimeZone(t, testGuildCargoPurchaseActualExpansionAndDurableReplay)
+}
+
+func testGuildCargoPurchaseActualExpansionAndDurableReplay(t *testing.T, loc *time.Location) {
 	repos, req, now := cargoPurchaseFixture(t)
+	now = now.In(loc)
 	ctx := context.Background()
 	first, err := PurchaseCargo(ctx, repos.Guild, req, cargoPurchaseCatalog(), now)
 	if err != nil || first.Before != 8 || first.After != 24 || first.Price != 10000 {
@@ -48,7 +53,7 @@ func TestGuildCargoPurchaseActualExpansionAndDurableReplay(t *testing.T) {
 	}
 	before, _, _ := repos.Settings.Load(ctx, RegistryScope)
 	replayed, err := PurchaseCargo(ctx, repos.Guild, req, cargoPurchaseCatalog(), now.Add(time.Hour))
-	if err != nil || replayed != first {
+	if err != nil || !equalCargoPurchaseReceipt(replayed, first) {
 		t.Fatalf("replay=%+v %v", replayed, err)
 	}
 	after, _, _ := repos.Settings.Load(ctx, RegistryScope)

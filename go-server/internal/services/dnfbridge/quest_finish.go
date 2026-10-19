@@ -220,6 +220,7 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		HasRewardSelect:               request.HasRewardSelect,
 		Multiplier:                    request.Multiplier,
 		MainQuestExperienceMultiplier: s.options.mainQuestExperienceMultiplier,
+		MainQuestExperiencePercent:    s.options.mainQuestExperiencePercent,
 		MaximumCharacterLevel:         currentAdventureCharacterLevelCap,
 		LoadHonorTables:               s.loadHonorTable,
 		CommittedAt:                   s.gameplayNow().UTC(),
@@ -807,12 +808,15 @@ func buildCurrentFinishQuestSuccessBody(result dnfquest.FinishCommitResult) ([]b
 
 func currentFinishQuestBusinessFailure(err error) bool {
 	return errors.Is(err, dnfquest.ErrFinishQuestNotPending) ||
+		errors.Is(err, dnfquest.ErrFinishQuestionAnswerRequired) ||
 		errors.Is(err, dnfquest.ErrFinishQuestCompletionConflict) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementStale) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementCorrupt) ||
 		errors.Is(err, dnfquest.ErrFinishQuestMultiplierUnsupported) ||
 		errors.Is(err, dnfquest.ErrFinishMainQuestExperienceMultiplierInvalid) ||
 		errors.Is(err, dnfquest.ErrFinishMainQuestExperienceOverflow) ||
+		errors.Is(err, dnfquest.ErrFinishMainQuestExperiencePercentInvalid) ||
+		errors.Is(err, dnfquest.ErrFinishMainQuestExperiencePercentLevelInvalid) ||
 		errors.Is(err, dnfquest.ErrFinishMaximumLevelInvalid) ||
 		errors.Is(err, dnfquest.ErrFinishCharacterAboveMaximumLevel) ||
 		errors.Is(err, dnfquest.ErrFinishHonorTablesUnavailable) ||

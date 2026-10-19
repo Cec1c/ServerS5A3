@@ -181,13 +181,13 @@ func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession,
 	runtime.commitDungeonNextObjectKeyLocked(nextKey + uint32(len(batch)))
 	registration := runtime.registerCurrentDungeonMapOwnedPassiveObjects(scene)
 	registration.Rows = append(registration.Rows, rows...)
-	// Current EXE RVA 194833E..19483A8 reads u8, THREE u32, u16, u8,
-	// u16, u16, u8: 21 bytes. This is not the older C# 19-byte layout.
+	// v141 VA 0x1ffbec0..0x1ffbf77 reads a 20-byte extra row;
+	// the following fog byte is read once, outside the loop.
 	registration.VendorWidth = false
 	if runtime.passiveItemDropsPlanned == nil {
 		runtime.passiveItemDropsPlanned = make(map[runtimeDungeonRoomKey]bool)
 	}
 	runtime.passiveItemDropsPlanned[room] = true
-	s.logGameEvent(session, "game-dungeon-pvf-passive-item-drops", "source", source, "map_id", scene.Map.Map.ID, "owner_actor", actor, "rows", len(rows), "row_bytes", 21)
+	s.logGameEvent(session, "game-dungeon-pvf-passive-item-drops", "source", source, "map_id", scene.Map.Map.ID, "owner_actor", actor, "rows", len(rows), "row_bytes", 20)
 	return nil
 }

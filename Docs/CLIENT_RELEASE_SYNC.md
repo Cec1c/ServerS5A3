@@ -25,6 +25,8 @@ GitHub 使用短期 `GITHUB_TOKEN`。工作流在手动运行、发布 Release �
 python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project UPSTREAM_RELEASE_PROJECT_ID --cache runtime/client-release-cache --receipt runtime/client-release-sync.json
 ```
 
+手动运行 `Client Release sync` 时可填写 `tag`，只验证和同步该版本；留空及定时触发仍检查全部版本。指定标签继续执行原有归档、来源、摘要及双端读回校验。
+
 默认只检查和生成计划；正式执行增加 `--apply`。`--tag` 可限制版本，`--write-to github` 或 `--write-to gitgud` 可限制本次方向。默认核对两个仓库，向缺少对应发行的一方复制；没有第三个 Release 仓库。
 
 ## 一致性与失败处理
