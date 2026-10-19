@@ -493,7 +493,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// weekday removal. Keep op1206 directly after every updated catalog.
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithEpicRoad(
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithSeriaLuck(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			s.currentSpendTimeCatalogIncludesJoustEvent(),
@@ -507,6 +507,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			includeWeekly,
 			s.currentOrdinaryAttendanceEnabled(),
 			s.currentEpicRoadActivityAvailable(),
+			true, // 幸运值结算始终启用，同步其原生图标入口。
 		)
 		if err != nil {
 			return false, err

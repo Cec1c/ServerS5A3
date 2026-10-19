@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"longheng.io/server/internal/modules/dnf/onlineevent"
+	"longheng.io/server/internal/modules/dnf/packageitem"
 )
 
 const (
@@ -204,6 +205,11 @@ func buildCurrentActivityEventInfoBodyWithOrdinary(rewardItemIDs []uint32, total
 }
 
 func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, false)
+}
+
+// 幸运值是既有开盒规则的显示入口，单独追加原生2037行，不改写其它活动参数。
+func buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, includeSeriaLuck bool) ([]byte, error) {
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -277,6 +283,10 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		activeCount++
 	}
 	if includeOrdinary {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeSeriaLuck {
 		baseCatalogCount++
 		activeCount++
 	}
@@ -384,6 +394,13 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		writer.writeRawDstr(nil)
 		writer.writeByte(0)
 	}
+	if includeSeriaLuck {
+		writer.writeUint16(currentSeriaLuckEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
 	writer.writeByte(activeCount) // active_count
 	if includeSpendTime {
 		writer.writeUint16(uint16(currentSpendTimeEventID))
@@ -449,6 +466,13 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 	if includeOrdinary {
 		writer.writeUint16(331)
 		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeSeriaLuck {
+		writer.writeUint16(currentSeriaLuckEventID)
+		writer.writeUint32(uint32(packageitem.SeriaLuckValueMax))
+		for i := 1; i < currentSpendTimeDescriptorParamCount; i++ {
 			writer.writeUint32(0)
 		}
 	}
