@@ -766,6 +766,23 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 			hasNextStory = false
 		}
 	}
+	nextLukeDungeonID, hasNextLukeDungeon, lukeErr := s.resolveCurrentLukeNormalNextDungeon(runtime)
+	if lukeErr != nil {
+		session.dungeon.mu.Lock()
+		if session.dungeon.runtime == runtime {
+			runtime.settlementCardExitAckSent = false
+		}
+		session.dungeon.mu.Unlock()
+		s.logGameEvent(session, "game-dungeon-card-luke-next-retry-armed",
+			"char_id", characterID,
+			"dungeon_id", dungeonID,
+			"source", source,
+			"reason", "Luke sequence lookup failed before retire and entry",
+			"entry_assets_consumed", false,
+			"runtime_retired", false,
+			"error", lukeErr)
+		return nil
+	}
 	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)
 	if ownerErr != nil {
 		return ownerErr
@@ -811,6 +828,12 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 		// still come from the finished run.
 		enterDungeonID = nextDungeonID
 		enterReason = "pvf_quest_chain_next_dungeon"
+	} else if hasNextLukeDungeon {
+		// Ordinary Luke sequence 42 explicitly enables next-dungeon auto entry.
+		// The target was resolved before retirement, so a malformed sequence or
+		// missing world-map definition never detaches the completed run.
+		enterDungeonID = int64(nextLukeDungeonID)
+		enterReason = "pvf_luke_normal_sequence_next_dungeon"
 	}
 	request.DungeonID = uint32(enterDungeonID)
 	s.logGameEvent(session, "game-dungeon-card-exit-retry-enter",
@@ -819,6 +842,8 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 		"enter_dungeon_id", enterDungeonID,
 		"next_quest_id", nextQuestID,
 		"has_next_story", hasNextStory,
+		"next_luke_dungeon_id", nextLukeDungeonID,
+		"has_next_luke_dungeon", hasNextLukeDungeon,
 		"difficulty", request.Difficulty,
 		"entry_option", request.EntryOption,
 		"selection_mode", request.SelectionMode,
