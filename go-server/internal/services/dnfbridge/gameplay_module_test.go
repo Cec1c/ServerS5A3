@@ -104,6 +104,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"collectbox",
 		"chronicle-refine",
 		"web-viewer",
+		"fiendwar",
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
 		t.Fatalf("module names=%v want=%v", currentGameplayModules.names, wantNames)

@@ -44,13 +44,23 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 		}
 		seen[member.CharID] = true
 	}
+	leader, online := s.onlineGameSession(state.LeaderID)
+	if !online {
+		return false, errCurrentRaidMembersOutsideWaitingArea
+	}
+	waitingScope, err := s.prepareCurrentRaidWaitingBattleScope(leader, *state, b)
+	if err != nil {
+		return false, fmt.Errorf("%w：%v", errCurrentRaidMembersOutsideWaitingArea, err)
+	}
+	if err := s.onlinePlayers.requireRaidStartWaitingArea(waitingScope, b.InstanceID); err != nil {
+		return false, err
+	}
 	enter := now.Add(time.Duration(b.Configuration.StartDelaySeconds) * time.Second)
 	deadline := enter.Add(time.Duration(b.Configuration.PhaseLimitSeconds[1]) * time.Second)
 	if deadline.Unix() > math.MaxUint32 || deadline.Unix() <= 0 {
 		return false, fmt.Errorf("Anton next phase native deadline invalid")
 	}
 	var next *raid.AntonProgression
-	var err error
 	if b.Mode == 2 {
 		var luke *raid.LukeProgression
 		luke, err = (&raid.LukeProgression{AntonProgression: b.Anton}).NextPhase(enter)

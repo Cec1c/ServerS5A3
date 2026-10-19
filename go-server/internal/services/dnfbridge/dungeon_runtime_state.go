@@ -50,6 +50,7 @@ type runtimeDungeonState struct {
 	semesterRun                  *currentSemesterRun
 	epicEntry                    *currentEpicEntry
 	raidEntry                    *currentRaidDungeonEntry
+	fiendWarRetreatKeepsParty    bool
 	antonMapReturnOwner          *currentAntonMapReturnOwner
 	antonHatcheryTransfer        *currentAntonHatcheryTransfer
 	deathStateSent               bool
@@ -566,6 +567,9 @@ func (s *Service) prepareDungeonRuntimePlanned(
 			}
 			return dungeonMazeSelection{Index: partyPlan.mazeIndex, Reason: "ordinary_party_leader_frozen_selection"}, nil
 		}
+		if isCurrentFiendWarChannel(session) {
+			return s.selectCurrentFiendWarMaze(session, dungeon)
+		}
 		return selectDungeonMaze(dungeon.Mazes, request.Difficulty, questRecord, s.chooseDungeonIndex)
 	}
 	mazeSelection, lukeSanctumMaze, err := s.selectCurrentLukeSanctumMaze(session, dungeon, chooseMaze, partyPlan != nil)
@@ -974,6 +978,25 @@ func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sess
 	accountID := strings.TrimSpace(s.accountIDForSession(sessions...))
 	if stored := strings.TrimSpace(character.AccountID); stored != "" && accountID != "" && stored != accountID {
 		return dnfrepo.CharacterRecord{}, fmt.Errorf("%w: selected=%s stored=%s", errDungeonAccountMismatch, accountID, stored)
+	}
+	for _, p := range sessions {
+		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
+			p.townMu.Lock()
+			pos := p.townPositionSnapshot
+			p.townMu.Unlock()
+			if pos.CharacterID == characterID {
+				if character.Stats == nil {
+					character.Stats = map[string]int64{}
+				}
+				character.Stats["town_id"], character.Stats["area_id"] = int64(pos.TownID), int64(pos.AreaID)
+				if pos.PositionValid {
+					character.Stats["pos_x"], character.Stats["pos_y"] = int64(pos.PositionX), int64(pos.PositionY)
+					character.Stats["direction"] = int64(pos.MovementCode)
+					character.Stats["area_state"] = 0
+				}
+			}
+			break
+		}
 	}
 	return character, nil
 }

@@ -12,11 +12,19 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/raid"
+	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 )
 
 // The online raid owns these values. Notifications are projections of this
 // instance, never substitutes for an admission transaction or a cleared map.
 type runtimeRaidBattle struct {
+	FiendWar             *fiendwar.FiendWarBattle
+	FiendWarConfig       *fiendwar.FiendWarConfig
+	FiendWarEndedAt      time.Time
+	FiendWarMaps         map[string]map[int64]bool
+	FiendWarEncounters   map[int]currentFiendWarEncounter
+	FiendWarRetreatRuns  map[string]bool
+	FiendWarClearCounts  map[uint16]uint32
 	LukeMemberRoutes     map[uint16]currentLukeMemberRoute
 	LukeSanctumMazeGroup *currentLukeSanctumMazeGroup
 	InstanceID           string
@@ -66,6 +74,27 @@ func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {
 		return nil
 	}
 	v := *b
+	v.FiendWar = b.FiendWar.Clone()
+	v.FiendWarMaps = map[string]map[int64]bool{}
+	for run, rows := range b.FiendWarMaps {
+		v.FiendWarMaps[run] = map[int64]bool{}
+		for id, done := range rows {
+			v.FiendWarMaps[run][id] = done
+		}
+	}
+	v.FiendWarEncounters = map[int]currentFiendWarEncounter{}
+	v.FiendWarRetreatRuns = map[string]bool{}
+	for run, retreat := range b.FiendWarRetreatRuns {
+		v.FiendWarRetreatRuns[run] = retreat
+	}
+	for area, e := range b.FiendWarEncounters {
+		e.Participants = append([]uint16(nil), e.Participants...)
+		v.FiendWarEncounters[area] = e
+	}
+	v.FiendWarClearCounts = make(map[uint16]uint32, len(b.FiendWarClearCounts))
+	for id, n := range b.FiendWarClearCounts {
+		v.FiendWarClearCounts[id] = n
+	}
 	v.LukeMemberRoutes = make(map[uint16]currentLukeMemberRoute, len(b.LukeMemberRoutes))
 	for id, route := range b.LukeMemberRoutes {
 		v.LukeMemberRoutes[id] = route
@@ -163,6 +192,9 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 	}
 	if !s.currentRaidAuthenticated(session) {
 		return nil, fmt.Errorf("raid battle authenticated owner unavailable")
+	}
+	if isCurrentFiendWarChannel(session) {
+		return s.prepareCurrentFiendWarBattle(session, state)
 	}
 	path := ""
 	switch session.channel.Type {
@@ -376,6 +408,11 @@ func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtime
 	if b.MemberAccounts[session.selectedCharacterID] != s.accountIDForSession(session) {
 		return fmt.Errorf("raid battle frozen account mismatch")
 	}
+	if b.FiendWar != nil {
+		session.raidProjection.mu.Lock()
+		defer session.raidProjection.mu.Unlock()
+		return s.sendCurrentFiendWarProjectionLocked(session, state, true)
+	}
 	session.raidProjection.mu.Lock()
 	defer session.raidProjection.mu.Unlock()
 	if session.raidProjection.failed {
@@ -446,7 +483,7 @@ func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtime
 
 func (s *Service) currentRaidDungeonSelectionAllowed(session *gameSession, dungeonID uint32) bool {
 	if s.options.currentClientVersion != "official-24.9" || session == nil ||
-		(session.channel.Type != dnfenum.RaidChannelType && session.channel.Type != dnfenum.HiddenRaidType) {
+		(session.channel.Type != dnfenum.RaidChannelType && session.channel.Type != dnfenum.HiddenRaidType && !isCurrentFiendWarChannel(session)) {
 		return true
 	}
 	if !s.currentRaidAuthenticated(session) {
@@ -465,6 +502,9 @@ func (s *Service) currentRaidDungeonSelectionAllowed(session *gameSession, dunge
 		return false
 	}
 	if b.PhaseCompleted || b.TimedOut || now.Before(b.EnterAfter) || !now.Before(b.Deadline) {
+		return false
+	}
+	if b.FiendWar != nil && !currentFiendWarSelectionAllowed(b, session.selectedCharacterID, int(dungeonID)) {
 		return false
 	}
 	if !s.currentLukeRouteAllowedLocked(b, session.selectedCharacterID, dungeonID) {

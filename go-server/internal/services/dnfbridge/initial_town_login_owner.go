@@ -51,6 +51,13 @@ func (s *Service) currentCharacterListLoginTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if isCurrentFiendWarChannel(session) {
+		projected, town, area, row, path, err := s.currentRaidEntranceTownTransition(session, characterID, character)
+		if err == nil {
+			projected, err = s.commitCurrentReconnectLocation(ctx, characterID, projected)
+		}
+		return projected, town, area, row, path, err
+	}
 	if characterID == 0 || character.Stats == nil {
 		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", fmt.Errorf("selected character login location is unavailable")
 	}
@@ -270,6 +277,9 @@ func (s *Service) currentCharacterListLoginTransition(
 						changed = true
 					}
 				}
+			}
+			if leavingRaidTown && currentClearRaidReturnOrigin(current.Stats) {
+				changed = true
 			}
 			if keepPersistedLoginLocation {
 				// preserve 档：**一个字都不写**这六个键，持久化真值（玩家真实位置）原样留在库里。

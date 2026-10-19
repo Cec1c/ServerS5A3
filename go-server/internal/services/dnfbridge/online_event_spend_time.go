@@ -480,6 +480,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		return false, nil
 	}
 	var eventInfoTransport []byte
+	fiendWarAvailable := false
 	dayDungeonEvent := s.currentDayDungeonEvent()
 	includeFirstProcessDescriptor = includeFirstProcessDescriptor || dayDungeonEvent != session.activityCatalogDayEvent
 	if includeFirstProcessDescriptor {
@@ -493,7 +494,8 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// weekday removal. Keep op1206 directly after every updated catalog.
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithEpicRoad(
+		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithFiendWar(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			s.currentSpendTimeCatalogIncludesJoustEvent(),
@@ -507,6 +509,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			includeWeekly,
 			s.currentOrdinaryAttendanceEnabled(),
 			s.currentEpicRoadActivityAvailable(),
+			fiendWarAvailable,
 		)
 		if err != nil {
 			return false, err
@@ -532,6 +535,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			return false, err
 		}
 		descriptorSent = true
+		s.logGameEvent(session, "超时空频道开放状态下发", "event_id", currentFiendWarChannelEventID, "available", fiendWarAvailable)
 		session.activityCatalogDayEvent = dayDungeonEvent
 		if dayDungeonEvent != 0 {
 			s.logGameEvent(session, "game-day-dungeon-catalog-sent", "event_id", dayDungeonEvent, "char_id", session.selectedCharacterID, "reset", "06:00_UTC+8", "reason", "full_catalog_replaces_previous_weekday")

@@ -24,10 +24,14 @@ func currentRaidLoginTownID(session *gameSession) (int64, bool) {
 }
 
 func (s *Service) currentCharacterListLoginLocationForSession(session *gameSession, characterID uint16, character dnfrepo.CharacterRecord) (currentTownLoginLocation, int64, string, string, error) {
+	if isCurrentFiendWarChannel(session) {
+		loc, err := s.currentFiendWarLoginLocation(session, characterID)
+		return loc, character.Stats["town_id"], "", "", err
+	}
 	townID, raidChannel := currentRaidLoginTownID(session)
 	if !raidChannel {
 		if currentLoginLeavingRaidTown(session, character) {
-			location, err := s.currentInitialTownSeriaLoginLocation()
+			location, err := s.currentRaidExitLoginLocation(characterID, character)
 			if err != nil {
 				return currentTownLoginLocation{}, character.Stats["town_id"], "", "", err
 			}
@@ -54,7 +58,7 @@ func currentLoginLeavingRaidTown(session *gameSession, character dnfrepo.Charact
 	if session == nil {
 		return false
 	}
-	if _, raidChannel := currentRaidLoginTownID(session); raidChannel {
+	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) {
 		return false
 	}
 	return currentRegisteredRaidTown(character.Stats["town_id"])
@@ -62,11 +66,11 @@ func currentLoginLeavingRaidTown(session *gameSession, character dnfrepo.Charact
 
 func currentRegisteredRaidTown(townID int64) bool {
 	// Same registered towns as the Anton and Luke channel landing above.
-	return townID == 19 || townID == 32
+	return townID == 19 || townID == 32 || townID == 98
 }
 
 func (s *Service) currentSessionSelectAckTownID(session *gameSession, character dnfrepo.CharacterRecord, characterID uint16, slot int) (uint8, string, error) {
-	if _, raidChannel := currentRaidLoginTownID(session); raidChannel {
+	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) {
 		location, _, _, _, err := s.currentCharacterListLoginLocationForSession(session, characterID, character)
 		if err != nil {
 			return 0, "", err

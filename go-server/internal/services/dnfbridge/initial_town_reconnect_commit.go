@@ -33,7 +33,8 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			break
 		}
 	}
-	if unchanged {
+	clearReturnOrigin := !currentRegisteredRaidTown(projected.Stats["town_id"]) && current.Stats[currentRaidReturnOriginMarker] == 1
+	if unchanged && !clearReturnOrigin {
 		return current, nil
 	}
 	if repositories.CharacterSettlement == nil {
@@ -53,6 +54,14 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			character.Stats = make(map[string]int64)
 		}
 		changed := false
+		if projected.Stats["town_id"] == 98 && character.Stats["town_id"] != 98 {
+			if err := s.currentSaveRaidReturnOrigin(characterID, &character); err != nil {
+				return err
+			}
+		}
+		if !currentRegisteredRaidTown(projected.Stats["town_id"]) && currentClearRaidReturnOrigin(character.Stats) {
+			changed = true
+		}
 		for _, key := range []string{"town_id", "area_id", "pos_x", "pos_y", "direction", "area_state"} {
 			value, exists := projected.Stats[key]
 			if !exists {

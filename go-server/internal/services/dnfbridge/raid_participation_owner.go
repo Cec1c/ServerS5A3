@@ -84,6 +84,11 @@ func (s *Service) releaseCurrentRaidParticipation(r *runtimeDungeonState, charac
 	s.raidMu.Lock()
 	e := r.raidEntry
 	state := s.raids[e.RaidKey]
+	if state != nil && state.Battle != nil && state.Battle.InstanceID == e.InstanceID {
+		if old, exists := state.Battle.Participation[characterID]; !exists || old.Runtime == r && old.RunID == e.RunID {
+			s.releaseCurrentFiendWarEncounterLocked(state.Battle, r, characterID)
+		}
+	}
 	changed := false
 	if state != nil && state.Battle != nil && state.Battle.InstanceID == e.InstanceID {
 		if old, ok := state.Battle.Participation[characterID]; ok && old.Runtime == r && old.RunID == e.RunID && old.Phase == e.Phase && old.Attempt == e.Attempt {
@@ -114,6 +119,7 @@ func (s *Service) releaseCurrentRaidParticipationSession(session *gameSession) {
 	changed := false
 	if state != nil && state.Battle != nil {
 		if entry, ok := state.Battle.Participation[session.selectedCharacterID]; ok && entry.Session == session {
+			s.releaseCurrentFiendWarEncounterLocked(state.Battle, entry.Runtime, session.selectedCharacterID)
 			delete(state.Battle.Participation, session.selectedCharacterID)
 			state.Battle.ProgressVersion++
 			changed = true
@@ -139,7 +145,7 @@ func currentRaidParticipationPositions(b *runtimeRaidBattle, members []runtimeRa
 	}
 	liveGroups := map[uint16]byte{}
 	for _, member := range members {
-		if member.CharID == 0 || member.GroupIndex > runtimeRaidMaxGroups {
+		if member.CharID == 0 || member.GroupIndex > currentRaidGroupMaximum(runtimeRaidState{RouteOrRaidType: b.Mode - 1}) {
 			return nil, fmt.Errorf("participation live squad owner invalid")
 		}
 		if _, duplicate := liveGroups[member.CharID]; duplicate {

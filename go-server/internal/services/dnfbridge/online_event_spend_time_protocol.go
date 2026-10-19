@@ -23,6 +23,8 @@ const (
 	// Actual current 0133101A and 0141784C check this activity before
 	// admitting/displaying the Luke channel selector.
 	currentLukeChannelEventID uint16 = 282
+	// 现用客户端01330F8D缺少此活动时提示“使用日期不准确”。
+	currentFiendWarChannelEventID uint16 = 2449
 	// Actual 01A55120 checks 2426 before selecting the original mode chooser
 	// (window 127 / RaidSelectSingleModeWindow.xui), instead of window 123.
 	currentAntonModeSelectionEventID uint16 = 2426
@@ -204,6 +206,11 @@ func buildCurrentActivityEventInfoBodyWithOrdinary(rewardItemIDs []uint32, total
 }
 
 func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithFiendWar(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, false)
+}
+
+// 超时空沿用通用活动行，仅声明入口开放，不改变角色资格或消耗次数。
+func buildCurrentActivityEventInfoBodyWithFiendWar(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, includeFiendWar bool) ([]byte, error) {
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -260,6 +267,10 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		activeCount++
 	}
 	if includeLuke {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeFiendWar {
 		baseCatalogCount++
 		activeCount++
 	}
@@ -338,6 +349,13 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 	}
 	if includeLuke {
 		writer.writeUint16(currentLukeChannelEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
+	if includeFiendWar {
+		writer.writeUint16(currentFiendWarChannelEventID)
 		writer.writeUint32(currentSpendTimeBaseCatalogValue)
 		writer.writeRawDstr(nil)
 		writer.writeRawDstr(nil)
@@ -423,6 +441,12 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 	}
 	if includeLuke {
 		writer.writeUint16(currentLukeChannelEventID)
+		for index := 0; index < currentSpendTimeDescriptorParamCount; index++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeFiendWar {
+		writer.writeUint16(currentFiendWarChannelEventID)
 		for index := 0; index < currentSpendTimeDescriptorParamCount; index++ {
 			writer.writeUint32(0)
 		}

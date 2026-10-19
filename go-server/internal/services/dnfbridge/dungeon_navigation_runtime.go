@@ -370,6 +370,7 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 		session.dungeon.mu.Unlock()
 		if !committed {
 			s.cancelUncommittedLukeEntry(runtime)
+			s.cancelUncommittedCurrentFiendWarEntry(runtime)
 		}
 	}()
 	if err := freezeCurrentDungeonTownReturnOrigin(session, runtime); err != nil {
@@ -794,6 +795,7 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 	}
 	s.leaveTownPresenceForDungeon(session)
 	s.recordCurrentLukeScene(session, runtime, "enter")
+	s.recordCurrentFiendWarMap(session, runtime)
 	return nil
 }
 
@@ -1466,6 +1468,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 			return fmt.Errorf("send dungeon room slot table after room transition: %w", err)
 		}
 		s.recordCurrentLukeScene(session, session.dungeon.runtime, "map")
+		s.recordCurrentFiendWarMap(session, session.dungeon.runtime)
 	}
 	return nil
 }

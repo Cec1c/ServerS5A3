@@ -315,6 +315,14 @@ func (s *Service) prepareCurrentDungeonTownTransitionForSession(
 	session *gameSession,
 	characterID uint16,
 ) (currentDungeonTownTransition, error) {
+	if isCurrentFiendWarChannel(session) {
+		session.dungeon.mu.Lock()
+		r := session.dungeon.runtime
+		session.dungeon.mu.Unlock()
+		if r != nil && r.raidEntry != nil {
+			return s.prepareCurrentFiendWarReturn(session, r)
+		}
+	}
 	transition, err := s.prepareCurrentDungeonTownTransition(ctx, characterID, session)
 	if err != nil {
 		return currentDungeonTownTransition{}, err
@@ -748,6 +756,10 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			return err
 		}
 	}
+	if err := s.commitCurrentFiendWarReturnLocked(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
 	committedStatus := snapshot.Run.Status
 	if snapshot.Run.Status == worldmap.DungeonRunActive {
 		// Current EXE's op42 sender sets actor+0x8BE; the general item-use
@@ -807,6 +819,8 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 	//     逐字节相同（dungeon_party_leader_exit.go 的解散）。
 	if committedStatus == worldmap.DungeonRunCompleted {
 		s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
+	} else if runtime.fiendWarRetreatKeepsParty {
+		s.logGameEvent(session, "超时空整队撤退已保留临时队伍", "source", source)
 	} else if deadlineOwner != nil {
 		// An automatic phase deadline is not a player-requested leader leave.
 		// Keep the still-authoritative party/relay; every admitted occupant

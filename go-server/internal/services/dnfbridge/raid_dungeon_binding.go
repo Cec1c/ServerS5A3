@@ -23,7 +23,8 @@ type currentRaidDungeonEntry struct {
 	RunID        string
 	Participants []uint16
 	// This admitted mode stays with the map after global raid progress changes.
-	teamMode bool
+	fiendWarOrigin currentTownPositionSnapshot
+	teamMode       bool
 }
 
 // Team raids do not create floor items or gold. Keep this rule on the frozen
@@ -34,7 +35,7 @@ func currentTeamRaidGroundDropsDisabled(runtime *runtimeDungeonState) bool {
 
 func (s *Service) currentRaidDungeonBindingRequired(session *gameSession) bool {
 	return s.options.currentClientVersion == "official-24.9" && session != nil &&
-		(session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType)
+		(session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType || isCurrentFiendWarChannel(session))
 }
 
 // Prepared raid entries remain raid-owned even if the current channel changed
@@ -72,6 +73,15 @@ func (s *Service) prepareCurrentRaidDungeonEntry(session *gameSession, runtime *
 func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runtime *runtimeDungeonState, followers []*runtimePartyPreparedDungeonEntry) error {
 	if !s.currentRaidDungeonEntryBindingRequired(session, runtime) {
 		return nil
+	}
+	var fiendOrigin currentTownPositionSnapshot
+	if isCurrentFiendWarChannel(session) {
+		session.townMu.Lock()
+		fiendOrigin = session.townSelectorOriginSnapshot
+		if !session.townSelectorOriginBound {
+			fiendOrigin = session.townPositionSnapshot
+		}
+		session.townMu.Unlock()
 	}
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
@@ -111,7 +121,7 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 		}
 		id := peer.selectedCharacterID
 		index := runtimeRaidMemberIndex(*state, id)
-		if seen[id] || index < 0 || state.Members[index].GroupIndex != state.Members[memberIndex].GroupIndex ||
+		if seen[id] || index < 0 || (b.FiendWar == nil && state.Members[index].GroupIndex != state.Members[memberIndex].GroupIndex) ||
 			peer.channel.ID != session.channel.ID || peer.channel.Type != session.channel.Type ||
 			b.MemberAccounts[id] == "" || b.MemberAccounts[id] != s.accountIDForSession(peer) ||
 			r.AccountID != b.MemberAccounts[id] || !dungeonRuntimeOwnsCharacter(r, id) || r.Dungeon.ID != runtime.Dungeon.ID {
@@ -175,10 +185,26 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 		}
 		b.Anton = next.AntonProgression
 	}
+
+	if b.FiendWar != nil {
+		a, ok := b.FiendWar.AreaForDungeon(int(runtime.Dungeon.ID))
+		if !ok || fiendOrigin.CharacterID != session.selectedCharacterID || !fiendOrigin.PositionValid || int(fiendOrigin.TownID) != b.FiendWar.Config.WaitingTown || int(fiendOrigin.AreaID) != a.Index {
+			return fmt.Errorf("超时空遭遇战缺少目标区域的真实客户端坐标")
+		}
+		entry.fiendWarOrigin = fiendOrigin
+	}
+	if b.FiendWar != nil {
+		if err := reserveCurrentFiendWarDungeon(b, session.selectedCharacterID, runtime, entry, now); err != nil {
+			return err
+		}
+	}
 	entry.teamMode = !b.Single
 	for _, target := range targets {
 		copy := entry
 		copy.Participants = append([]uint16(nil), entry.Participants...)
+		if b.FiendWar != nil {
+			copy.fiendWarOrigin.CharacterID = target.session.selectedCharacterID
+		}
 		target.runtime.raidEntry = &copy
 		if b.Mode == 1 && !b.Single {
 			freezeCurrentAntonMapReturnOwner(target.session, target.runtime)
@@ -224,13 +250,18 @@ func (s *Service) validateCurrentRaidDungeonEntry(session *gameSession, runtime 
 	seen := map[uint16]bool{}
 	for _, id := range entry.Participants {
 		index := runtimeRaidMemberIndex(*state, id)
-		if seen[id] || index < 0 || state.Members[index].GroupIndex != state.Members[memberIndex].GroupIndex || b.MemberAccounts[id] == "" {
+		if seen[id] || index < 0 || (b.FiendWar == nil && state.Members[index].GroupIndex != state.Members[memberIndex].GroupIndex) || b.MemberAccounts[id] == "" {
 			return fmt.Errorf("raid entry frozen participant group changed")
 		}
 		seen[id] = true
 	}
 	if !seen[session.selectedCharacterID] || (b.Single && len(entry.Participants) != 1) {
 		return fmt.Errorf("raid entry does not contain its runtime owner")
+	}
+	if b.FiendWar != nil {
+		if err := validateCurrentFiendWarDungeon(b, session.selectedCharacterID, runtime); err != nil {
+			return err
+		}
 	}
 	if !s.currentLukeRouteAllowedLocked(b, session.selectedCharacterID, uint32(runtime.Dungeon.ID)) {
 		return fmt.Errorf("Luke committed member belongs to the other route")

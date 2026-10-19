@@ -20,6 +20,8 @@ import (
 )
 
 type gameSession struct {
+	fiendWarPendingMove                 *currentFiendWarMovePlan // 由 townMu / 当前会话事件循环保护。
+	fiendWarProjection                  currentFiendWarProjection
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
