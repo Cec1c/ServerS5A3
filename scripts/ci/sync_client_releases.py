@@ -144,10 +144,11 @@ def inspect_zip(path):
                             h.update(block)
                     exe = {"sha256": h.hexdigest(), "length": entry.file_size}
                 elif not (leaf.endswith((".txt", ".md", ".json")) or
+                          (len(parts) == 2 and parts[0] == "evidence" and leaf.endswith(".log")) or
                           (len(parts) > 1 and parts[0] == "scripts" and leaf.endswith(".py"))):
                     raise SyncError("Unexpected client ZIP member")
                 else:
-                    # Source evidence is read for ZIP integrity only, never extracted or executed.
+                    # Static evidence is read for ZIP integrity only, never extracted or executed.
                     with z.open(entry) as stream:
                         while stream.read(1024 * 1024):
                             pass

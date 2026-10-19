@@ -1,3 +1,10 @@
+## 2026-10-19 — 客户端发行允许根级静态日志证据
+
+- v138 的 Release ZIP 带有 `evidence/v138-independent-gate-test.log`；全局预检在扫描既有发行时以 `Unexpected client ZIP member` 停止，导致后续客户端版本无法进入镜像计划。
+- `inspect_zip()` 现仅额外接受根级 `evidence/` 目录直接包含的 `.log` 静态证据，与文档证据一样只读取归档流并校验 CRC，不提取或执行；根目录、其他目录、`evidence/` 子目录、扩展伪装、重复、符号链接、目录及损坏 CRC 仍拒绝。
+- 新增精确接受 v138 路径及上述拒绝边界回归；全部 `scripts/ci/test_*.py` 共 46 项通过。
+
+
 ## 2026-10-20 — 超时空无EXIT直登频道兼容
 
 - type42 `[fiendwar]` 是可直接登录的专用团队频道；首次LOGIN和角色列表阶段不再因缺少EXIT交接改回普通频道。内部目录与路由保持42，现用客户端目录/LOGIN继续投影45。
