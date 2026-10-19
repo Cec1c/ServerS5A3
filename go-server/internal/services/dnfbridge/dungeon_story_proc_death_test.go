@@ -131,12 +131,21 @@ func prepareStoryProcDeathTest(t *testing.T) (*Service, *gameSession, *bufferCon
 }
 
 func TestStoryProcDeathStrictRuntimeGuards(t *testing.T) {
+	for name, body := range map[string]func(uint32) []byte{
+		"without_contributions":  storyProcDeathBody,
+		"with_two_contributions": storyProcDeathContributionBody,
+	} {
+		t.Run(name, func(t *testing.T) { testStoryProcDeathStrictRuntimeGuards(t, body) })
+	}
+}
+
+func testStoryProcDeathStrictRuntimeGuards(t *testing.T, deathBody func(uint32) []byte) {
 	for _, name := range []string{"valid", "other client", "other character", "other map", "other room", "unbound", "wrong reference", "planned", "ordinary kind", "friendly faction", "wrong AI metadata", "wrong packet code", "no active quest", "wrong quest map", "no proc", "missing proc", "nonzero proc", "fixed layout", "combat contribution", "opaque tail", "zero key", "unrecorded defeated"} {
 		t.Run(name, func(t *testing.T) {
 			s, session, _, repos, source, key := prepareStoryProcDeathTest(t)
 			rt := session.dungeon.runtime
 			scene, _ := rt.Session.Scene()
-			req, err := s.decodeCurrentDungeonMonsterDeath(storyProcDeathBody(key))
+			req, err := s.decodeCurrentDungeonMonsterDeath(deathBody(key))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -198,6 +207,15 @@ func TestStoryProcDeathStrictRuntimeGuards(t *testing.T) {
 }
 
 func TestStoryProcDeathWriteRetryAndDuplicateDoNotGrantAssets(t *testing.T) {
+	for name, body := range map[string]func(uint32) []byte{
+		"without_contributions":  storyProcDeathBody,
+		"with_two_contributions": storyProcDeathContributionBody,
+	} {
+		t.Run(name, func(t *testing.T) { testStoryProcDeathWriteRetryAndDuplicate(t, body) })
+	}
+}
+
+func testStoryProcDeathWriteRetryAndDuplicate(t *testing.T, deathBody func(uint32) []byte) {
 	for _, failAt := range []int{0, 1, 3, 4} {
 		t.Run(string(rune('0'+failAt)), func(t *testing.T) {
 			s, session, conn, repos, _, key := prepareStoryProcDeathTest(t)
@@ -214,7 +232,7 @@ func TestStoryProcDeathWriteRetryAndDuplicateDoNotGrantAssets(t *testing.T) {
 			if failAt > 0 {
 				session.conn = &failNthDungeonWriteConn{failAt: failAt, err: injected}
 			}
-			err = s.handleDungeonMonsterDeath(session, storyProcDeathBody(key))
+			err = s.handleDungeonMonsterDeath(session, deathBody(key))
 			if failAt == 0 && err != nil {
 				t.Fatal(err)
 			}
@@ -224,7 +242,7 @@ func TestStoryProcDeathWriteRetryAndDuplicateDoNotGrantAssets(t *testing.T) {
 			session.conn = conn
 			for attempt := 0; attempt < 2; attempt++ {
 				conn.write.Reset()
-				if err := s.handleDungeonMonsterDeath(session, storyProcDeathBody(key)); err != nil {
+				if err := s.handleDungeonMonsterDeath(session, deathBody(key)); err != nil {
 					t.Fatal(err)
 				}
 				keys := storyAIBossDeathNotificationKeys(t, conn.write.Bytes())

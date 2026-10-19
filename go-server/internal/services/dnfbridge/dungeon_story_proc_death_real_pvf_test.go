@@ -16,6 +16,15 @@ import (
 // The op39 is an explicit compatibility replay, not a captured player packet.
 // The quest, maze, actors and proc action all come from the matching real PVF.
 func TestRealPVFQuest3213ScriptedHostileAPCDeath(t *testing.T) {
+	t.Run("without_contributions", func(t *testing.T) {
+		testRealPVFQuest3213ScriptedHostileAPCDeath(t, storyProcDeathBody)
+	})
+	t.Run("with_two_contributions", func(t *testing.T) {
+		testRealPVFQuest3213ScriptedHostileAPCDeath(t, storyProcDeathContributionBody)
+	})
+}
+
+func testRealPVFQuest3213ScriptedHostileAPCDeath(t *testing.T, deathBody func(uint32) []byte) {
 	source, table, resolver := loadRealStoryPVF(t)
 	ctx := context.Background()
 	index, err := dnfpvf.Build(ctx, source, dnfpvf.BuildOptions{Lists: []string{dnfquest.DefaultList}})
@@ -105,7 +114,7 @@ func TestRealPVFQuest3213ScriptedHostileAPCDeath(t *testing.T) {
 	}
 	conn.write.Reset()
 	currentScene, _ := rt.Session.Scene()
-	request, decodeErr := svc.decodeCurrentDungeonMonsterDeath(storyProcDeathBody(aganzo.ObjectKey))
+	request, decodeErr := svc.decodeCurrentDungeonMonsterDeath(deathBody(aganzo.ObjectKey))
 	if decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
@@ -116,7 +125,7 @@ func TestRealPVFQuest3213ScriptedHostileAPCDeath(t *testing.T) {
 	parsed, parsedOK := parseDungeonStoryProcDeath(doc)
 	proof, proofOK := svc.currentDungeonStoryProcDeath(session, rt, currentScene, request)
 	t.Logf("runtime status=%s scene cleared=%t boss=%t blockers=%v expected=%v path=%q read=%v parse=%v parsed=%+v/%t proof=%+v/%t decode=%v", rt.Session.Snapshot().Run.Status, currentScene.Cleared, currentScene.Boss, currentScene.BlockingHostiles, currentScene.ExpectedHostiles, actionPath, readErr, parseErr, parsed, parsedOK, proof, proofOK, decodeErr)
-	if err := svc.handleDungeonMonsterDeath(session, storyProcDeathBody(aganzo.ObjectKey)); err != nil {
+	if err := svc.handleDungeonMonsterDeath(session, deathBody(aganzo.ObjectKey)); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := rt.Room.DefeatedDeathTarget(aganzo.ObjectKey); !ok {
@@ -144,5 +153,19 @@ func storyProcDeathBody(objectKey uint32) []byte {
 	body := make([]byte, dungeoncmd.Official249DieMonsterBaseSize)
 	binary.LittleEndian.PutUint32(body, objectKey)
 	binary.LittleEndian.PutUint16(body[4:], ^uint16(0))
+	return body
+}
+
+// The observed report has owner=ffff and two contributions. Their values are
+// opaque to the scripted-death proof and must not award damage or assets.
+func storyProcDeathContributionBody(objectKey uint32) []byte {
+	body := append(storyProcDeathBody(objectKey), make([]byte, 2*dungeoncmd.Official249DieMonsterEntrySize)...)
+	body[30] = 2
+	for i := 0; i < 2; i++ {
+		entry := body[31+i*dungeoncmd.Official249DieMonsterEntrySize:]
+		binary.LittleEndian.PutUint16(entry, 0x111)
+		binary.LittleEndian.PutUint16(entry[2:], uint16(objectKey))
+		binary.LittleEndian.PutUint64(entry[4:], uint64(i+1))
+	}
 	return body
 }

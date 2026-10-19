@@ -385,8 +385,9 @@ func TestHandlerBuySkillRejectsUnprovenTreeWithFailureACK(t *testing.T) {
 	}
 }
 
-// 实测（2026-09-24）：圣职者 grow_type=0 点"学习"圣洁之光（PVF grow=[1]）时服务端
-// 原来只记 preflight 失败、一个包都不回，客户端技能界面因此卡死到只能强关。
+// 实测（2026-09-24）：圣职者 grow_type=0 点"学习"圣洁之光时，PVF 当前方向的
+// maximum-level 槽为 0；服务端原来只记 preflight 失败、一个包都不回，客户端
+// 技能界面因此卡死到只能强关。
 // 失败必须回当前客户端的 [0x00, code]（A21 BuySkillAckBuilder 同形），且不落库。
 func TestHandlerBuySkillReturnsFailureACKForGrowTypeRejection(t *testing.T) {
 	ctx := context.Background()
