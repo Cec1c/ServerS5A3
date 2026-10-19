@@ -30,7 +30,7 @@ jobs:
           ref: master
           persist-credentials: false
       - name: Validate release synchronization
-        run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client_releases.py' -v
+        run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client*.py' -v
       - name: Synchronize client EXE releases with GitGud
         env:
           GH_TOKEN: ${{ github.token }}

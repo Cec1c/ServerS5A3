@@ -255,8 +255,8 @@ func TestSendCurrentSpendTimeProtocolStateKeepsProtectedDescriptorAndProgressAdj
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDescriptor = withAntonChannelCatalogFixture(t, wantDescriptor)
-	if len(plainDescriptor) != 249 || !bytes.Equal(plainDescriptor, wantDescriptor) {
+	wantDescriptor = withSeriaLuckCatalogFixture(t, withAntonChannelCatalogFixture(t, wantDescriptor))
+	if len(plainDescriptor) != 314 || !bytes.Equal(plainDescriptor, wantDescriptor) {
 		t.Fatalf("op108 plain=%x want=%x", plainDescriptor, wantDescriptor)
 	}
 	progress, rest := splitGameServerUpperPacket(t, rest)
