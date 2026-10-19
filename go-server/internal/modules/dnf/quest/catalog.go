@@ -118,18 +118,22 @@ type Definition struct {
 	// 首尾裁剪与 `%%` -> `%` 还原）。同一次实测里三段的存在率分别是
 	// 2589 / 2993 / 2636，**缺段即空串**；GM 面板据此显示「PVF 未提供」，
 	// 绝不允许在这里合成文案。
-	DependMessage          string
-	ConditionMessage       string
-	SolveMessage           string
-	Grade                  string
-	Type                   string
-	SubType                int
-	IntData                []int64
-	CheckCount             []int64
-	ConditionData          []int64
-	DependGiveItemData     []int64
-	HasDependGiveItem      bool
-	CantGiveUp             bool
+	DependMessage      string
+	ConditionMessage   string
+	SolveMessage       string
+	Grade              string
+	Type               string
+	SubType            int
+	IntData            []int64
+	CheckCount         []int64
+	ConditionData      []int64
+	DependGiveItemData []int64
+	HasDependGiveItem  bool
+	CantGiveUp         bool
+	// HasLevel records an explicit [level] with one or two integer tokens.
+	// Legacy LevelMin/LevelMax defaults remain unchanged; percentage rewards
+	// require this evidence as well as a valid range.
+	HasLevel               bool
 	LevelMin               int
 	LevelMax               int
 	Job                    string
@@ -823,6 +827,14 @@ func parseDefinition(entry dnfpvf.ListEntry, doc *dnfpvf.Document) Definition {
 	definition.TargetCharacter = strings.Join(doc.Texts("target character"), " ")
 	if tokens, ok := doc.Section("target character"); ok {
 		definition.TargetCharacterRules = parseTargetCharacterRules(tokens)
+	}
+	if tokens, present := doc.Section("level"); present && len(tokens) >= 1 && len(tokens) <= 2 {
+		definition.HasLevel = true
+		for _, token := range tokens {
+			if token.Kind != dnfpvf.TokenInt {
+				definition.HasLevel = false
+			}
+		}
 	}
 	if levels := doc.Ints("level"); len(levels) > 0 {
 		definition.LevelMin = boundedInt(levels[0])
