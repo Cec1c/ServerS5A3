@@ -131,6 +131,26 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 					"sequence", "op14_recovery_row_then_op574_active_snapshot")
 			}
 		}
+		recoveredRecord, recovered, recoveryErr = s.recoverCurrentBoxSourceForSnapshot(ctx, session, record)
+		if recoveryErr != nil {
+			s.logGameEvent(session, "game-upper-current-active-quest-box-source-recovery-skipped",
+				"char_id", session.selectedCharacterID,
+				"source", source,
+				"reason", "source_recovery_failed",
+				"error", recoveryErr)
+			if errors.Is(recoveryErr, errCurrentBoxSourceRecoveryInventorySend) {
+				cancel()
+				return recoveryErr
+			}
+		} else {
+			record = recoveredRecord
+			if recovered {
+				s.logGameEvent(session, "game-upper-current-active-quest-box-source-recovery-applied",
+					"char_id", session.selectedCharacterID,
+					"source", source,
+					"sequence", "op14_recovery_row_then_op574_active_snapshot")
+			}
+		}
 	}
 	cancel()
 	body := buildCurrentActiveQuestSnapshotBody(record, found)
