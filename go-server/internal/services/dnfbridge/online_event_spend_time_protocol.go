@@ -204,6 +204,11 @@ func buildCurrentActivityEventInfoBodyWithOrdinary(rewardItemIDs []uint32, total
 }
 
 func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, false)
+}
+
+// 原生四加四奖励面板使用228；保留其它活动及历史2347目录的字节。
+func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel bool) ([]byte, error) {
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -282,7 +287,9 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 	}
 	var writer packetWriter
 	writer.writeUint16(baseCatalogCount) // base_catalog_count
-	if includeSpendTime {
+	if includeSpendTime && nativeOnlinePanel {
+		writeCurrentPCRoomTimePointActivityBase(&writer)
+	} else if includeSpendTime {
 		writer.writeUint16(uint16(currentSpendTimeEventID))
 		writer.writeUint32(currentSpendTimeBaseCatalogValue)
 		writer.writeRawDstr(nil) // generic title; the fixed event UI owns visible text
@@ -385,7 +392,12 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		writer.writeByte(0)
 	}
 	writer.writeByte(activeCount) // active_count
-	if includeSpendTime {
+	if includeSpendTime && nativeOnlinePanel {
+		writer.writeUint16(currentPCRoomTimePointEventID)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	} else if includeSpendTime {
 		writer.writeUint16(uint16(currentSpendTimeEventID))
 		for _, value := range params {
 			writer.writeUint32(value)

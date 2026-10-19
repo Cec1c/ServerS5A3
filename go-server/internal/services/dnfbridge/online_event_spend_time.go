@@ -145,12 +145,10 @@ func (s *Service) currentSpendTimeCatalogIncludesTownNpcEvent() bool {
 	return townNpcEventCatalogEnabled()
 }
 
-// currentSpendTimeRuntimeCatalog is the current-EXE bridge projection of the
-// raw, protocol-independent attendance PVF catalog. Event 2347 is the only
-// activated descriptor: its four ordinary rewards use cumulative thresholds
-// 1800/3600/7200/10800 seconds. The cumulative activity is the explicitly
-// approved account service-day completion design, without new wire guesses.
+// 复用2347的账户在线时钟和历史账本。存在已核实的PCRoom资源时投影228
+// 原生四加四面板；无该资源的旧配套继续使用2347的小进度条。
 type currentSpendTimeRuntimeCatalog struct {
+	nativePCRoom      *dnfonlineevent.PCRoomTimePointCatalog
 	cumulative        *dnfonlineevent.CumulativeDefinition
 	definition        dnfonlineevent.Definition
 	rewardItemIDs     []uint32
@@ -263,11 +261,11 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 
 	s.spendTimeCatalogMu.Lock()
 	defer s.spendTimeCatalogMu.Unlock()
-	if s.spendTimeCatalogState != nil {
-		return s.spendTimeCatalogState, true, nil
-	}
 	if s.spendTimeCatalogLoadErr != nil {
 		return nil, true, s.spendTimeCatalogLoadErr
+	}
+	if s.spendTimeCatalogState != nil {
+		return s.spendTimeCatalogState, true, nil
 	}
 
 	s.initialEquipmentMu.Lock()
@@ -276,20 +274,28 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 	if archive == nil {
 		return nil, false, nil
 	}
+	var state *currentSpendTimeRuntimeCatalog
 	rawCatalog, err := dnfonlineevent.LoadAttendancePVFCatalog(ctx, archive)
 	if err == nil {
-		s.spendTimeCatalogState, err = buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
+		state, err = buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
+	}
+	if err == nil {
+		// 缺少这套独立资源的旧版PVF继续使用2347；存在但损坏的配置不能静默降级。
+		if _, exists := archive.FindFile(dnfonlineevent.PCRoomTimePointPVFPath); exists {
+			state.nativePCRoom, err = dnfonlineevent.LoadPCRoomTimePointCatalog(ctx, archive)
+		}
 	}
 	s.spendTimeCatalogLoadErr = err
 	if err != nil {
 		return nil, true, err
 	}
+	s.spendTimeCatalogState = state
 	s.logPacketEvent("dnf-spend-time-catalog-loaded",
 		"event_id", currentSpendTimeEventID,
-		"reward_count", len(s.spendTimeCatalogState.rewardItemIDs),
-		"total_stage_seconds", s.spendTimeCatalogState.totalStageSeconds,
+		"reward_count", len(state.rewardItemIDs),
+		"total_stage_seconds", state.totalStageSeconds,
 		"source", dnfonlineevent.AttendanceEventPVFPath)
-	return s.spendTimeCatalogState, true, nil
+	return state, true, nil
 }
 
 func (s *Service) currentSpendTimeOwner() (*dnfonlineevent.Owner, error) {
@@ -300,12 +306,8 @@ func (s *Service) currentSpendTimeOwner() (*dnfonlineevent.Owner, error) {
 	return dnfonlineevent.NewOwner(repositories)
 }
 
-// sendCurrentSpendTimeInitialStateOnce publishes the proved activity
-// descriptor immediately followed by authoritative progress, then starts the
-// server-owned clock. The 2347 native widget consumes this pair as one
-// initialization transaction: no unrelated class-0 packet may appear between
-// op108 and op1206. Inventory rows produced by automatic threshold awards are
-// emitted only after the op108 -> op1206 pair and the separate joust snapshot.
+// 先发送活动目录和所属状态，再启动服务端时钟。原生228使用561，旧2347
+// 使用1206；其它活动快照及旧自动发奖的库存更新均在该状态之后发送。
 func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 	session *gameSession,
 	source string,
@@ -405,9 +407,7 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		sendDescriptor,
 	)
 	if sendDescriptor {
-		// Commit immediately after the op108 write, even when the following
-		// op1206 progress or a later joust snapshot write failed.
-		// Preserve initial-traffic deduplication after that successful write.
+		// 目录写入成功即记录去重，所属状态或后续活动快照失败可另行重试。
 		s.finishCurrentSpendTimeEventInfo(session, descriptorSent)
 	}
 	if sendErr != nil {
@@ -448,10 +448,15 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		session.spendTime.catalog = nil
 		return err
 	}
+	displayEventID, stateMessageID := currentSpendTimeEventID, currentSpendTimeProgressMsgID
+	if catalog.nativePCRoom != nil {
+		displayEventID, stateMessageID = uint32(currentPCRoomTimePointEventID), currentPCRoomTimePointStateID
+	}
 	s.logGameEvent(session, "game-spend-time-initial-state-sent",
 		"source", source,
 		"char_id", characterID,
-		"event_id", currentSpendTimeEventID,
+		"event_id", displayEventID,
+		"state_msg_id", stateMessageID,
 		"online_seconds", snapshot.OnlineSeconds,
 		"completed_stages", completedStages,
 		"reward_item_updates", len(rewardItems),
@@ -465,7 +470,7 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		"town_npc_event_catalog_includes_2395", s.currentSpendTimeCatalogIncludesTownNpcEvent(),
 		"anton_channel_event_id", currentAntonChannelEventID,
 		"anton_channel_event_in_first_descriptor", true,
-		"sequence", "class0_op108_descriptor_then_class0_op1206_progress_then_class0_op1240_joust_opening_state_then_class0_op1241_joust_roster_then_class0_op1242_joust_pool_then_atomic_reward_op14_before_typed_op24")
+		"sequence", "活动目录后立即发送所属活动状态，再发送其它活动快照和已提交库存更新")
 	return nil
 }
 
@@ -488,12 +493,10 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// 单独从本目录就能把竞技大赛判成全天开放并自动开窗。
 		// 2395（红尾乔纳森的可见性闸门）默认**不发**，只有
 		// DNFBRIDGE_TOWN_NPC_EVENT_CATALOG 显式打开才追加两行。
-		// The original full reader replaces the native catalog and releases the
-		// old map. Whole-dispatch replay covers extended 2347, its route and
-		// weekday removal. Keep op1206 directly after every updated catalog.
+		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithEpicRoad(
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithOnlinePanel(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			s.currentSpendTimeCatalogIncludesJoustEvent(),
@@ -507,6 +510,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			includeWeekly,
 			s.currentOrdinaryAttendanceEnabled(),
 			s.currentEpicRoadActivityAvailable(),
+			catalog.nativePCRoom != nil,
 		)
 		if err != nil {
 			return false, err
@@ -537,11 +541,12 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			s.logGameEvent(session, "game-day-dungeon-catalog-sent", "event_id", dayDungeonEvent, "char_id", session.selectedCharacterID, "reset", "06:00_UTC+8", "reason", "full_catalog_replaces_previous_weekday")
 		}
 	}
-	// Keep the native cumulative-online-reward initialization atomic. The current
-	// client binds the 2347 HUD/hover controls while consuming op1206; injecting
-	// the unrelated joust bootstrap between op108 and op1206 leaves the progress
-	// bar present but its ItemReward hover page unbound.
-	if s.currentSpendTimeEventEnabled() {
+	// 两套在线活动的UI及协议不同，不能用旧1206替代原生展开面板的561。
+	if s.currentSpendTimeEventEnabled() && catalog.nativePCRoom != nil {
+		if err := s.sendCurrentPCRoomTimePoint(session, catalog, 0, -1); err != nil {
+			return descriptorSent, err
+		}
+	} else if s.currentSpendTimeEventEnabled() {
 		if err := s.sendGameUpperRawClass(session, currentSpendTimeProgressMsgID, progressBody, 0); err != nil {
 			return descriptorSent, err
 		}
@@ -649,6 +654,10 @@ func (s *Service) claimCurrentSpendTimeUnlockedStages(
 	}
 	itemCatalog, err := s.currentPVFItemCatalog()
 	if err != nil {
+		return snapshot, nil, err
+	}
+	if catalog.nativePCRoom != nil {
+		_, err := s.settleCurrentPCRoomTimePoint(ctx, accountID, characterID, catalog, claimedAt, 0, -1, nil)
 		return snapshot, nil, err
 	}
 	items := make([]dnfonlineevent.CommittedItem, 0, currentSpendTimeStageCount)
@@ -850,6 +859,10 @@ func (s *Service) runCurrentSpendTimeTick(session *gameSession, generation uint6
 			"char_id", session.spendTime.characterID,
 			"generation", generation,
 			"error", err)
+	} else if settlement.changed && session.spendTime.catalog.nativePCRoom != nil {
+		if sendErr := s.sendCurrentPCRoomTimePoint(session, session.spendTime.catalog, 0, -1); sendErr != nil {
+			s.logGameEvent(session, "原生在线奖励状态重试", "error", sendErr)
+		}
 	} else if settlement.changed && spendTimeProgressShouldSend(session.connID, session.spendTime.characterID, session.spendTime.onlineSeconds, session.spendTime.completedStages) {
 		body, buildErr := buildCurrentSpendTimeProgressBody(
 			session.spendTime.onlineSeconds,

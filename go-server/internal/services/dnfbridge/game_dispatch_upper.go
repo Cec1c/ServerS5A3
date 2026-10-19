@@ -155,6 +155,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	if handled, err := s.handleCurrentWeeklyAttendanceClaim(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentPCRoomTimePoint(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
+		return err
+	}
 	if handled, err := s.handleCurrentMonthlyAttendanceClaim(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
 		return err
 	}
