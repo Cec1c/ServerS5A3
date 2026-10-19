@@ -26,6 +26,7 @@ var (
 	ErrFinishSettlementUnavailable      = errors.New("dnf quest finish settlement is unavailable")
 	ErrFinishQuestNotPending            = errors.New("dnf quest is not pending a finish reward")
 	ErrFinishQuestCompletionConflict    = errors.New("dnf quest finish completion key conflicts with persisted state")
+	ErrFinishQuestionAnswerRequired     = errors.New("dnf question quest requires a persisted answer")
 	ErrFinishQuestSettlementStale       = errors.New("dnf quest finish replay receipt is stale")
 	ErrFinishQuestSettlementCorrupt     = errors.New("dnf quest finish settlement receipt is corrupt")
 	ErrFinishQuestMultiplierUnsupported = errors.New("dnf quest finish multiplier is unsupported")
@@ -282,6 +283,16 @@ func (o *Owner) ApplyFinishSettlement(
 		if !known {
 			return ErrFinishQuestNotPending
 		}
+		definition, definitionKnown := catalog.Find(input.QuestID)
+		if !definitionKnown {
+			return ErrQuestDefinitionMissing
+		}
+		if isActiveQuestStatus(state.Status) && normalizeQuestTag(definition.Type) == "question" {
+			answer, ok := questionAnswerFromState(state)
+			if !ok || int(answer) >= definition.QuestionOptionCount {
+				return ErrFinishQuestionAnswerRequired
+			}
+		}
 
 		skill, found, err := tx.Skill.Load(ctx, input.CharacterID)
 		if err != nil {
@@ -387,10 +398,6 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 		growType := int(growTypeValue)
 		eligibility := CharacterEligibility{Level: character.Level, Job: int(jobValue), GrowType: growType}
-		definition, definitionKnown := catalog.Find(input.QuestID)
-		if !definitionKnown {
-			return ErrQuestDefinitionMissing
-		}
 		mainQuestExperience := isMainQuestExperienceDefinition(catalog, definition)
 		reward, err := catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
 		if err != nil {
