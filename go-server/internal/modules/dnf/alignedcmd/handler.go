@@ -855,6 +855,8 @@ type Result struct {
 	// EXE class0 premium-activated notice; op898 for the crystal contract) after
 	// the ACK. Empty for every command that grants no contract.
 	PremiumContractActivations []PremiumContractActivation
+	// 仅投影已经提交的账号幸运值；不参与扣道具或奖励结算。
+	SeriaLuck *SeriaLuckProjection
 	// EpicPieceCredits lists the account-level epic-piece ledger increments this
 	// command already committed. Fragments own no inventory row and are never
 	// mailed, so the bridge must announce each increment itself through the
@@ -905,6 +907,11 @@ type Result struct {
 	//
 	// Empty = previous behavior: every UpperResponse body is sent verbatim.
 	AuthoritativeListRefreshes []byte
+}
+
+type SeriaLuckProjection struct {
+	Before int64
+	After  int64
 }
 
 type StackableConsumption struct {

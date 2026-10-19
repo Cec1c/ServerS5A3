@@ -206,6 +206,12 @@ func ownerAppliedMagicBoxResult(opcode uint16, operation string, result MagicBox
 			alignedcmd.PostActionRefreshSelectedItemContainers,
 		},
 	}
+	if result.BoxItemID == currentSeriaLuckItemID {
+		out.SeriaLuck = &alignedcmd.SeriaLuckProjection{
+			Before: result.SeriaLuckBefore,
+			After:  result.SeriaLuckAfter,
+		}
+	}
 	if result.OverflowMailID != "" {
 		// The durable system mail is already committed. Send the exact current
 		// client alarm only after the normal box ACK and item refresh complete.

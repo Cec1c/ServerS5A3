@@ -964,6 +964,12 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 				"error", err)
 		}
 	}
+	if result.SeriaLuck != nil {
+		if err := s.sendCurrentSeriaLuckGauge(session, result.SeriaLuck.Before, result.SeriaLuck.After, "aligned_"+result.Operation+"_after_ack"); err != nil {
+			// 奖励和回包已经完成，显示失败留待下次登录恢复。
+			s.logGameEvent(session, "赛丽亚幸运值开盒同步暂缓", "error", err)
+		}
+	}
 	// 契约奖励在发放事务里已被直接叠加成账号时长（不占格、不进邮件），没有物品行
 	// 可刷，所以激活通知由这里补发；失败也不能把已提交的发放变成客户端失败。
 	if err := s.sendAlignedPremiumContractActivations(session, result.Operation, result.PremiumContractActivations); err != nil {
