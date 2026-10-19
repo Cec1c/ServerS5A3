@@ -31,6 +31,20 @@ func TestOnlinePanelCatalogPreservesOtherActivitiesAndLegacyShape(t *testing.T) 
 	if !b.hasEvent(228) || b.hasEvent(2347) || b.hasEvent(2348) || a.baseCount != b.baseCount || a.activeCount != b.activeCount {
 		t.Fatalf("native shape=%+v", b)
 	}
+	row := b.baseRows[0]
+	if row.eventID != 228 || !row.hasExtended || row.route != currentSpendTimeEventRoute {
+		t.Fatalf("native online activity has no visible click route: %+v", row)
+	}
+	reader := &currentSpendTimeCatalogReader{body: row.raw}
+	reader.take(t, 6)
+	reader.dstr(t)
+	reader.dstr(t)
+	if reader.byteValue(t) != 1 || reader.byteValue(t) != 0 || reader.byteValue(t) != 4 || len(reader.dstr(t)) == 0 {
+		t.Fatal("native online activity has no regular title/tag")
+	}
+	if row.raw[len(row.raw)-1] != 1 {
+		t.Fatal("native online activity is hidden from list")
+	}
 	for _, row := range a.baseRows {
 		if row.eventID == 2347 {
 			continue
@@ -231,5 +245,41 @@ func TestOnlinePanelRealPVFSelectsActualFourPlusFourEdition(t *testing.T) {
 		if err != nil || definition.Kind != dungeonDropItemStackable || (!definition.ExpirationDate.IsZero() && !definition.ExpirationDate.After(now)) {
 			t.Fatalf("reward item %d is not deliverable: %+v err=%v", reward.ItemID, definition, err)
 		}
+	}
+}
+
+func TestPCRoomClockBoundaryCountsFinishedDayBeforeReset(t *testing.T) {
+	s, session, conn, c, g := onlinePanelFixture(t)
+	c.definition.Boundary = &oe.DailyBoundary{Hour: 6}
+	account, _, err := g.Account.Load(context.Background(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.Metadata = map[string]string{}
+	if err := g.Account.Save(context.Background(), account); err != nil {
+		t.Fatal(err)
+	}
+	queue := s.gameplayTimers.(*fakeCurrentDungeonDeathTimerQueue)
+	queue.now = time.Date(2026, 10, 20, 3, 0, 0, 0, oe.ChinaCalendar)
+	if err := s.sendCurrentSpendTimeInitialStateOnce(session, "boundary_test"); err != nil {
+		t.Fatal(err)
+	}
+	conn.write.Reset()
+	queue.now = queue.now.Add(3 * time.Hour)
+	s.runCurrentSpendTimeTick(session, session.spendTime.generation)
+	state, _ := splitGameServerUpperPacket(t, conn.write.Bytes())
+	if state.Header.MsgID != 561 || binary.LittleEndian.Uint32(state.Body) != 0 || binary.LittleEndian.Uint32(state.Body[4:]) != 1 || state.Body[8] != 0 {
+		t.Fatalf("06:00 boundary lost completed day or daily reset: %+v", state)
+	}
+	conn.write.Reset()
+	queue.now = queue.now.Add(time.Second)
+	s.runCurrentSpendTimeTick(session, session.spendTime.generation)
+	state, _ = splitGameServerUpperPacket(t, conn.write.Bytes())
+	if state.Header.MsgID != 561 || binary.LittleEndian.Uint32(state.Body) != 1 || binary.LittleEndian.Uint32(state.Body[4:]) != 1 {
+		t.Fatalf("completed day counted twice after boundary: %+v", state)
+	}
+	mailbox, _, err := g.Mailbox.Load(context.Background(), "1")
+	if err != nil || len(mailbox.Mails) != 0 {
+		t.Fatalf("manual rewards auto-delivered at boundary: %+v err=%v", mailbox, err)
 	}
 }

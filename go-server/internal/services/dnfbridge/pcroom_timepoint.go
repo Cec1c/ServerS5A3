@@ -15,6 +15,26 @@ const currentPCRoomTimePointEventID uint16 = 228
 const currentPCRoomTimePointStateID uint16 = 561
 const currentPCRoomTimePointRequestID uint16 = 632
 
+// v146 binds event 228 to native window 39 at the common activity click site.
+// The route remains a known client key; other events keep their own windows.
+func writeCurrentPCRoomTimePointActivityBase(writer *packetWriter) {
+	writer.writeUint16(currentPCRoomTimePointEventID)
+	writer.writeUint32(currentSpendTimeBaseCatalogValue)
+	writer.writeRawDstr(nil)
+	writer.writeRawDstr(nil)
+	writer.writeByte(1)
+	writer.writeByte(0)
+	writer.writeByte(4)
+	writeClientNameDstr(writer, "累计在线奖励")
+	writer.writeRawDstr(nil)
+	writeClientNameDstr(writer, "在线达到每日阶段后领取奖励，累计达标天数另有奖励。")
+	writer.writeUint32(0)
+	writer.writeUint32(0)
+	writer.writeAsciiDstr(currentSpendTimeEventRoute)
+	writer.writeRawDstr(nil)
+	writer.writeByte(1)
+}
+
 // 原生状态读取器消费17字节。PVF每日仅一轮，偏移9的零基轮次保持0。
 func buildCurrentPCRoomTimePointBody(s dnfonlineevent.PCRoomTimePointSnapshot) []byte {
 	b := make([]byte, 17)

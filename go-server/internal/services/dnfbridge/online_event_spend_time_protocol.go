@@ -288,11 +288,7 @@ func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, to
 	var writer packetWriter
 	writer.writeUint16(baseCatalogCount) // base_catalog_count
 	if includeSpendTime && nativeOnlinePanel {
-		writer.writeUint16(currentPCRoomTimePointEventID)
-		writer.writeUint32(currentSpendTimeBaseCatalogValue)
-		writer.writeRawDstr(nil)
-		writer.writeRawDstr(nil)
-		writer.writeByte(0)
+		writeCurrentPCRoomTimePointActivityBase(&writer)
 	} else if includeSpendTime {
 		writer.writeUint16(uint16(currentSpendTimeEventID))
 		writer.writeUint32(currentSpendTimeBaseCatalogValue)

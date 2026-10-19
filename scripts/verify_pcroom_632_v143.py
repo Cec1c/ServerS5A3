@@ -14,6 +14,7 @@ from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
 from unicorn.x86_const import *
 
 SHA256 = '1ea94c7db46996cffa940ef50551fd912808f854656487c5664b388098cf7d88'
+V146_SHA256 = 'e74ea0b98810921f80e4636388d4e8b17c18565266d97e0e3d514e55ad36eb8c'
 CASES = (
     (0x1e80c25, '00ff', True),
     (0x1eb4077, '01ff', True), (0x1eb40e7, '02ff', True),
@@ -32,7 +33,8 @@ def main():
     if a.receipt.exists() or a.exe.resolve() == a.receipt.resolve():
         p.error('new distinct receipt required')
     raw = a.exe.read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == SHA256
+    module_sha256 = hashlib.sha256(raw).hexdigest()
+    assert module_sha256 in (SHA256, V146_SHA256)
     pe = pefile.PE(data=raw, fast_load=True)
     base = pe.OPTIONAL_HEADER.ImageBase
     assert base == 0x400000
@@ -89,14 +91,14 @@ def main():
         assert state['body'].hex() == expected and r(packet + 0x2bcc2c) == 2
         rows.append(dict(rva=hex(start - base), opcode=632, body_hex=expected,
                          native_byte_count=2, valid_for_four_period_rewards=admitted))
-    receipt = dict(passed=True, module_sha256=SHA256, cases=rows,
+    receipt = dict(passed=True, module_sha256=module_sha256, cases=rows,
                    native_executed=['request-construction fragments', 'packet singleton getter', 'byte writer and count'],
                    fixtures=['header initialization', 'stream write sink', 'flush sink'],
                    full_dispatch=False, button_visibility=False, ui_rendered=False,
                    networking=False, gameplay_accepted=False)
     with a.receipt.open('x', encoding='utf-8') as stream:
         json.dump(receipt, stream, indent=2)
-    print(json.dumps(dict(passed=True, cases=len(rows), module_sha256=SHA256)))
+    print(json.dumps(dict(passed=True, cases=len(rows), module_sha256=module_sha256)))
 
 
 if __name__ == '__main__':
