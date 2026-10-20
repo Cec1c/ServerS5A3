@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	dnfdrops "longheng.io/server/internal/modules/dnf/drop"
+	"longheng.io/server/internal/modules/dnf/onlineevent"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -172,10 +173,17 @@ func currentDungeonDropDifficultyRate(index int) float64 {
 }
 
 func currentDungeonDropRarity(rng *currentDungeonDropLCG, rules *dnfdrops.MonsterRules) int64 {
+	return currentDungeonDropRarityWithMarble(rng, rules, false)
+}
+
+func currentDungeonDropRarityWithMarble(rng *currentDungeonDropLCG, rules *dnfdrops.MonsterRules, uniqueBuff bool) int64 {
 	if rng == nil || rules == nil {
 		return 0
 	}
 	thresholds := rules.RawTables().RarityDecision[0]
+	if uniqueBuff {
+		thresholds = onlineevent.MarbleEquipmentRarityThresholds(thresholds)
+	}
 	roll := int64(rng.Next(1000000)) + 1
 	for rarity, threshold := range thresholds {
 		if roll <= threshold {

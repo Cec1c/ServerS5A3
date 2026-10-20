@@ -220,6 +220,11 @@ func buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs []uint32, tota
 
 // Compose native online rewards and Seria luck without replacing other catalog rows.
 func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, false)
+}
+
+// 大富翁只追加145行，保留每日在线和幸运值等既有目录。
+func buildCurrentActivityEventInfoBodyWithMarble(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeMarble bool) ([]byte, error) {
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -297,6 +302,10 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		activeCount++
 	}
 	if includeSeriaLuck {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeMarble {
 		baseCatalogCount++
 		activeCount++
 	}
@@ -413,6 +422,13 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		writer.writeRawDstr(nil)
 		writer.writeByte(0)
 	}
+	if includeMarble {
+		writer.writeUint16(currentAttendanceMarbleEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
 	writer.writeByte(activeCount) // active_count
 	if includeSpendTime && nativeOnlinePanel {
 		writer.writeUint16(currentPCRoomTimePointEventID)
@@ -490,6 +506,12 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		writer.writeUint16(currentSeriaLuckEventID)
 		writer.writeUint32(uint32(packageitem.SeriaLuckValueMax))
 		for i := 1; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeMarble {
+		writer.writeUint16(currentAttendanceMarbleEventID)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
 			writer.writeUint32(0)
 		}
 	}

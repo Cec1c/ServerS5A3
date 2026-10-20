@@ -496,7 +496,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithMarble(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			s.currentSpendTimeCatalogIncludesJoustEvent(),
@@ -512,6 +512,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			s.currentEpicRoadActivityAvailable(),
 			catalog.nativePCRoom != nil,
 			true, // Keep the native Seria luck entry alongside online rewards.
+			s.currentAttendanceMarbleAvailable(),
 		)
 		if err != nil {
 			return false, err
