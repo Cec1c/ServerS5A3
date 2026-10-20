@@ -94,6 +94,11 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(dnfrepo.MainInventoryListType, result.Updates), 0); err != nil {
 		return err
 	}
+	if len(result.GuildMedalUpdates) > 0 {
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(currentGuildMedalInventoryListType, result.GuildMedalUpdates), 0); err != nil {
+			return err
+		}
+	}
 	s.logGameEvent(session, "game-npc-shop-buy-committed", "item_id", result.ItemID, "count", result.Count, "slot", result.Slot, "gold_after", result.GoldAfter, "incremental_entries", len(result.Updates), "ack_body", "current_exe_sub_1D27590", "item_update_body", "current_exe_class0_op14_raw77")
 	return nil
 }
