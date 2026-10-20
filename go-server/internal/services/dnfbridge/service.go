@@ -966,6 +966,9 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	s.mu.Lock()
 	logger := s.packetLog
 	s.mu.Unlock()
+	if logger == nil {
+		s.logDungeonSettlementDiagnostic(kind, args...)
+	}
 	logger.Event(kind, args...)
 }
 

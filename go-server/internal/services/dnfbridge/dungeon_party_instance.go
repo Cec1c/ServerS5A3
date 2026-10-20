@@ -540,8 +540,24 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession,
 			return err
 		}
 		s.awardCurrentPetRoomClearLocked(peer, runtime, scene, "authoritative_peer_room_clear")
-		if err := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey); err != nil {
-			return err
+		completionErr := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey)
+		if runtime.bossDieCheckAccepted && !runtime.settlementEntrySent {
+			// A transient member-session write can fail after the final room and
+			// boss-die completion state were committed but before bodyless op31
+			// reached the client. The ordinary entry now returns early because
+			// bossDieCheckAccepted is set, so retry through that same settlement
+			// owner once. Identity, persistence, tournament and reward barriers
+			// remain owned by completeCurrentDungeonBossDieCheckLocked.
+			resumeErr := s.completeCurrentDungeonBossDieCheckLocked(
+				peer,
+				runtime,
+				"authoritative_party_death_dispatch_resume_partial_settlement",
+			)
+			if resumeErr != nil {
+				return errors.Join(completionErr, resumeErr)
+			}
+		} else if completionErr != nil {
+			return completionErr
 		}
 		if err := s.completePVFTutorialBosslessFinalRoomAfterDeathLocked(peer, runtime, scene); err != nil {
 			return err

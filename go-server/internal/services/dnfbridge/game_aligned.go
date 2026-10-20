@@ -677,6 +677,28 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	if !result.Handled {
 		return false, nil
 	}
+	// Keep the equipment decision visible when raw packet logging is disabled.
+	// Only typed move fields and the domain outcome are logged; no packet body
+	// or authentication fields are copied into the application log.
+	if typ == uint16(dnfenum.CmdPacketMoveItemspace) {
+		if move, decodeErr := inventory.DecodeMoveItemspaceRequest(body); decodeErr == nil &&
+			(move.SourceListType == currentSocketListEquipment || move.DestinationListType == currentSocketListEquipment) {
+			tail := byte(0)
+			if len(body) > 26 {
+				tail = body[26]
+			}
+			s.logInfo("dnfbridge equipment move outcome",
+				"conn_id", session.connID, "char_id", session.selectedCharacterID,
+				"src_list", move.SourceListType, "src_slot", move.SourceSlotIndex,
+				"src_instance", move.SourceInstanceValue,
+				"dst_list", move.DestinationListType, "dst_slot", move.DestinationSlotIndex,
+				"dst_instance", move.DestinationInstanceValue,
+				"tail", tail, "claim_decision", wornSlotClaimOccurrence,
+				"scene_round", session.equipLoginWearReassertRound,
+				"login_window", loginWearWindowOpen, "player_request", playerRequestFlagged,
+				"operation", result.Operation, "reason", result.Reason)
+		}
+	}
 	switch decision.Action {
 	case alignedcmd.ActionPendingModule:
 		if result.ResponseAllowed && len(result.UpperResponses) > 0 {
