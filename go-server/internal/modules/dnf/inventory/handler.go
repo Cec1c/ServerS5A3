@@ -85,7 +85,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			if ownerErr != nil {
 				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, ownerErr), nil
 			}
-			return ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result), nil
+			response := ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result)
+			response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed || result.MainChanged}
+			return response, nil
 		}
 		petEquipmentMove := isProvenPetEquipmentMove(cmd)
 		if petEquipmentMove {
@@ -120,7 +122,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			if err != nil {
 				return ownerBlockedResult(cmd, err), nil
 			}
-			return ownerAppliedPetEquipmentMoveResult(req.Opcode, cmd, result), nil
+			response := ownerAppliedPetEquipmentMoveResult(req.Opcode, cmd, result)
+			response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed}
+			return response, nil
 		}
 		if (cmd.SourceListType == listTypePet || cmd.DestinationListType == listTypePet) &&
 			!(cmd.SourceListType == listTypePet && cmd.DestinationListType == listTypePet) {
@@ -176,7 +180,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err != nil {
 			return ownerRejectedMoveResult(req.Opcode, cmd, err), nil
 		}
-		return ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+		response := ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result)
+		response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed}
+		return response, nil
 	case dnfenum.CmdPacketRequestItemSortLock, dnfenum.CmdPacketRequestItemSortUnlock:
 		// DOC-067 位置锁：713=置1、714=置0（不是 toggle）。请求体 u8 list + u16 slot；
 		// 成功回同一 opcode 的 class1 `1 + list + slot`，失败不回包（错误码枚举未证，不臆造）。
@@ -1503,10 +1509,11 @@ func ownerAppliedEquipmentMoveResult(opcode uint16, cmd Command, result dnfequip
 		)
 	}
 	return alignedcmd.Result{
-		Handled:         true,
-		ResponseAllowed: true,
-		Operation:       cmd.Operation,
-		Reason:          reason,
+		EquipmentMoveFact: &alignedcmd.EquipmentMoveFact{Changed: result.Changed, WornClaimNoop: result.Mode == "noop" && !result.Changed && result.NoopGate == dnfequip.WornSlotReassertGate},
+		Handled:           true,
+		ResponseAllowed:   true,
+		Operation:         cmd.Operation,
+		Reason:            reason,
 		UpperResponses: []alignedcmd.UpperResponse{
 			class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 		},

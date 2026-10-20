@@ -140,6 +140,7 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 			"reason", "retry_tier_disabled_by_switch")
 		return 0
 	}
+	s.prepareCurrentWornClaimReceiptOwner(session)
 	epoch := wornSlotClaimEpochID(session)
 	if session.equipWornSlotClaimEpoch != epoch || session.equipWornSlotClaimCounts == nil {
 		session.equipWornSlotClaimEpoch = epoch
@@ -201,7 +202,7 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 	identicalLoginRepeat := false
 	if occurrence > 1 {
 		if statement, ok := loginWearReassertStatementOf(body); ok {
-			identicalLoginRepeat = session.loginWearReassertSlotRepeatAbsorbable(slot, statement)
+			identicalLoginRepeat = session.loginWearReassertSlotRepeatAbsorbable(slot, statement) || s.currentWornClaimReceiptMatches(session, slot, statement)
 		}
 	}
 	switch {
