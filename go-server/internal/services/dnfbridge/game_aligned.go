@@ -589,6 +589,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		RandomOptionResolver:         randomOptionResolver,
 		UpgradeTicketResolver:        upgradeTicketResolver,
 		UpgradePolicyResolver:        upgradePolicyResolver,
+		GuildMedalUpgradeResolver:    s.currentGuildMedalUpgradeResolver(),
 		UpgradeCostResolver:          s.candidateUpgradeCostResolver(session),
 		UpgradeProtectTicketResolver: upgradeProtectTicketResolver,
 		UpgradeRateBuffResolver:      upgradeRateBuffResolver,
