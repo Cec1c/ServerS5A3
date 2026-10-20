@@ -31,8 +31,8 @@ func TestIndependent506FrozenEntryCoversEveryParticipant(t *testing.T) {
 	if single.leaderRuntime.raidEntry == nil || single.leaderRuntime.raidEntry.teamMode {
 		t.Fatal("single raid carried the team mode fact")
 	}
-	if currentTeamRaidGroundDropsDisabled(single.leaderRuntime) {
-		t.Fatal("single raid is covered by the ban")
+	if !currentTeamRaidGroundDropsDisabled(single.leaderRuntime) {
+		t.Fatal("single Anton lost its independent ground drop ban")
 	}
 }
 

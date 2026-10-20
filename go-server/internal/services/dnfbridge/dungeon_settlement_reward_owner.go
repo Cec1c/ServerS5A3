@@ -200,7 +200,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		Drops:     drops,
 		CardSlots: cardSlots,
 		Tail: currentDungeonClearRewardTail{
-			ShowResult:      true,
+			ShowResult:      !currentSingleAntonUsesRaidRewards(runtime),
 			MonsterTotalExp: runtime.settlementMonsterExperienceTotal,
 		},
 	}
@@ -293,7 +293,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		"op35_clear_black_diamond_bonus", blackDiamondBonus,
 		"op35_monster_base_exp", runtime.settlementMonsterExperienceTotal,
 		"op35_monster_growth_contract_bonus", runtime.settlementMonsterGrowthContractBonus,
-		"op35_show_result", true,
+		"op35_show_result", !currentSingleAntonUsesRaidRewards(runtime),
 		"op35_free_card_pairs", len(cardSlots[0]),
 		"op35_champion_experience", runtime.settlementChampionExperience,
 		"op35_super_champion_experience", runtime.settlementSuperChampionExperience,

@@ -958,6 +958,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 			"reason", result.Reason)
 		return nil
 	}
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_invite_accept")
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return err
 	}
@@ -993,6 +994,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				"slot_zero_char_id", slotZeroCharID)
 		}
 	}
+	s.refreshTownPartyActorsAfterJoin(state, "party_invite_accept")
 	return nil
 }
 
@@ -1044,6 +1046,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 			"reason", result.Reason)
 		return s.sendPartyCommandFailure(session, typ, entryIntoPartyFailureFull)
 	}
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_entry_into_party")
 	if err := s.sendGameUpperRawClassCodec(session, typ, party.BuildEntryIntoPartyAck(parsed.TargetID, uint32(session.selectedCharacterID)), dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
 	}
@@ -1073,6 +1076,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 		"slot_zero_char_id", slotZeroCharID,
 		"member_count", len(state.Members),
 		"wire_contract", "op705_entry_into_party_packet_sender_is_the_anchor_unproven_direction")
+	s.refreshTownPartyActorsAfterJoin(state, "party_entry_into_party")
 	return nil
 }
 

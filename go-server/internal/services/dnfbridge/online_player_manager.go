@@ -934,6 +934,29 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 	return nil
 }
 
+// refreshTownPartyActorsAfterJoin restores the ordinary town actor in both
+// directions after a party membership change. sendTownRemotePartyActors keeps
+// the existing same-area, channel, raid-scope and guild-hall guards; a same-area
+// peer is already present and is deliberately not duplicated.
+func (s *Service) refreshTownPartyActorsAfterJoin(state alignedcmd.PartyState, source string) {
+	if s == nil || s.onlinePlayers == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
+		return
+	}
+	for _, member := range runtimePartyMembers(state) {
+		receiver, ok := s.onlineGameSession(member.UserID)
+		if !ok || receiver == nil || s.sessionHasActiveDungeonRuntime(receiver) {
+			continue
+		}
+		if err := s.sendTownRemotePartyActors(receiver, state); err != nil {
+			s.logGameEvent(receiver, "game-town-party-actor-after-join-failed",
+				"source", source,
+				"party_id", state.PartyID,
+				"char_id", receiver.selectedCharacterID,
+				"error", err)
+		}
+	}
+}
+
 // broadcastTownPlayerLeave sends NOTI 0x0006 (u16 userId) to remaining
 // players so they remove the departed player's town actor.
 func (s *Service) broadcastTownPlayerLeave(characterID uint16, others []onlinePlayerInfo) {

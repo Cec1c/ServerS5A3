@@ -651,11 +651,19 @@ func applyCurrentTownPositionSnapshotToTransition(
 	); err != nil {
 		return currentDungeonTownTransition{}, err
 	}
+	direction := snapshot.MovementCode
+	if direction == 0 {
+		// Current-client direction values are non-zero. A zero here is an
+		// origin without an op35 direction (notably persisted fallback), so
+		// preserve its existing persisted-direction behavior.
+		direction = transition.Direction
+	}
+	transition.Direction = direction
 	row := currentSceneTransitionRow{
 		ObjectOrResourceKey: transition.ActorObjectKey,
 		Value1:              snapshot.PositionX,
 		Value2:              snapshot.PositionY,
-		Value3:              transition.Direction,
+		Value3:              direction,
 		Value4:              transition.AreaState,
 	}
 	body, err := buildCurrentSceneTransitionBody(

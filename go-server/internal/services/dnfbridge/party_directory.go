@@ -157,12 +157,14 @@ func (s *Service) handleRuntimePartyDirectoryJoin(session *gameSession, body []b
 			"reason", result.Reason)
 		return true, s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0)
 	}
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_directory_join")
 	if err := s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0); err != nil {
 		return true, err
 	}
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return true, err
 	}
+	s.refreshTownPartyActorsAfterJoin(state, "party_directory_join")
 	s.logGameEvent(session, "game-party-directory-join-complete",
 		"type", currentPartyDirectoryJoin,
 		"party_id", partyID,

@@ -28,7 +28,7 @@ func currentDungeonCardLayoutValues(state ...*dungeonCardState) [dungeonCardWire
 }
 
 func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
-	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) || currentSingleAntonUsesRaidRewards(runtime) {
 		return nil
 	}
 	if !runtime.settlementClearRewardSent || runtime.settlementPhase < currentDungeonSettlementPhaseResultShown {
@@ -64,7 +64,7 @@ func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, 
 }
 
 func (s *Service) sendCurrentDungeonCardLayoutLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
-	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) || currentSingleAntonUsesRaidRewards(runtime) {
 		return nil
 	}
 	if !runtime.settlementCardScrollStateSent || runtime.settlementPhase < currentDungeonSettlementPhaseCardScrollStarted {
