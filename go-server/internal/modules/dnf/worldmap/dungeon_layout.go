@@ -105,6 +105,9 @@ func dungeonLayoutPoolCandidates(
 		if pool, ok := resolver.raidStartResourcePool(dungeonID, mazeIndex, room); ok {
 			return pool, MapFileStart, nil
 		}
+		if pool, ok := resolver.towerStartResourcePool(dungeonID, mazeIndex, room); ok {
+			return pool, MapFileStart, nil
+		}
 	}
 	for _, fallbackType := range dungeonLayoutFallbackPoolFileTypes(fileType, room) {
 		fallbackRequest := MapPoolRequest{DungeonID: dungeonID, MazeIndex: mazeIndex, FileType: fallbackType}

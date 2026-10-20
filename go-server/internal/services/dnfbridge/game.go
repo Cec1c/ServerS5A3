@@ -20,6 +20,8 @@ import (
 )
 
 type gameSession struct {
+	fiendWarPendingMove                 *currentFiendWarMovePlan // 由 townMu / 当前会话事件循环保护。
+	fiendWarProjection                  currentFiendWarProjection
 	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
@@ -49,6 +51,9 @@ type gameSession struct {
 	loginTokenSeen bool
 	// loginPacketSeen 表示客户端已经交过 class1/op1 登录包：此后账号不会再变。
 	loginPacketSeen bool
+	// 只在令牌已验证后设置，用于关联同一登录会话的明确换线交接，不作为账号认证。
+	loginChannelFlowKey [32]byte
+	channelExitHandoff  *currentAuthenticatedChannelHandoff
 	// sharedAccountFallbackReason 记录"为什么会落到共享兜底账号"，
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
@@ -56,6 +61,7 @@ type gameSession struct {
 	sharedAccountWarnOnce sync.Once
 	channel               channelcatalog.Channel
 	residentChannel       channelcatalog.Channel
+	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
 	packetSeq             uint64
 	sequence              uint32
 	upperSeq              uint16
@@ -64,8 +70,9 @@ type gameSession struct {
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
-	wireMu sync.Mutex
-	dproto dproto.Session
+	wireMu            sync.Mutex
+	dproto            dproto.Session
+	channelSceneBatch *currentChannelSceneBatch // 仅普通换线；wireMu保护。
 
 	// Image-communication identity is guarded by townMu. Scene resets advance
 	// its generation; the nonce belongs only to this connection.
@@ -180,6 +187,19 @@ type gameSession struct {
 	// 这两个迁移；它们会开事务并读整份背包，不能每次重建主背包都跑。
 	itemListMigrationsDone        bool
 	enterSelectDungeonContextSent bool
+	// partyDungeonEntryRoutedPendingCharacter 记录"这名角色的 op16 已经被回 ACK、正在等
+	// 队长那条整队进图流程给出结果"（0 = 没有在等）。文档段 104：那条流程在提交之前被
+	// 拒绝时，必须把本挂起态解掉并补一条既有形状的拒绝包，否则队员客户端只看到倒计时。
+	// 只在 session.dungeon.mu 下读写，见 party_entry_refusal_before_commit.go。
+	partyDungeonEntryRoutedPendingCharacter uint16
+	// partyDungeonEntryRoutedPendingGeneration 是写入挂起态时的会话 generation（取自
+	// boundGameSessionCharacterSnapshot，在 s.mu 下读；换角会让 generation 前进一步）。
+	// partyDungeonEntryRoutedPendingSeq 是每次绑定都递增的请求序号：队长那条流程只应答
+	// "自己那次请求"（角色号 + generation + seq 三者都匹配），因此同角色连续两次按进图时，
+	// 旧那条流程的拒绝不会吞掉新那条请求的挂起态。三者都只在 session.dungeon.mu 下读写，
+	// 见 party_entry_refusal_before_commit.go。
+	partyDungeonEntryRoutedPendingGeneration uint64
+	partyDungeonEntryRoutedPendingSeq        uint64
 	// hellBlocked 是「深渊派对准入逐槽位判定」的会话缓存：只在
 	// `DNFBRIDGE_HELL_BLOCKED_SLOTS=on` 档有内容，blocked 槽位随下一条 class0/op27
 	// 进本选择页下发（`List0`）。默认档恒为零值 ⇒ 下发体逐字节等于今天。

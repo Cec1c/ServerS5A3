@@ -113,6 +113,9 @@ type partyDungeonDoorArrivalKey struct {
 // 读改写与其它实例内共享状态同锁序（session.dungeon.mu → instance.mu）。
 // 见 dungeon_party_card_flip_projection.go。
 type dungeonPartyInstance struct {
+	ridableTerminals          *currentDungeonRidableTerminalOwner
+	ridableSelectionSignature [32]byte
+
 	semesterRun            *currentSemesterRun
 	mu                     sync.Mutex
 	id                     uint64
@@ -260,6 +263,10 @@ func (s *Service) adoptPartyDungeonInstance(
 		if runtime.Session != nil {
 			instance.scenes[characterID] = runtime.Session
 		}
+		if runtime.randomizedObjects != nil {
+			instance.ridableTerminals = runtime.randomizedObjects.ridableTerminals
+			instance.ridableSelectionSignature = runtime.randomizedObjects.entrySignature
+		}
 		instance.rooms[runtimeDungeonRoomKeyFromScene(scene)] = partyDungeonSharedRoom{Room: runtime.Room, Scene: scene}
 		registry.byKey[key] = instance
 		created = true
@@ -334,6 +341,9 @@ func (runtime *runtimeDungeonState) adoptPartyDungeonInstance(instance *dungeonP
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 	runtime.partyInstance = instance
+	if runtime.randomizedObjects != nil && runtime.randomizedObjects.entrySignature == instance.ridableSelectionSignature {
+		runtime.randomizedObjects.ridableTerminals = instance.ridableTerminals
+	}
 	if shared, ok := instance.rooms[runtimeDungeonRoomKeyFromScene(scene)]; ok && shared.Room != nil {
 		shared.Room.adoptAnnouncedSessionsFrom(runtime.Room)
 		runtime.Room = shared.Room

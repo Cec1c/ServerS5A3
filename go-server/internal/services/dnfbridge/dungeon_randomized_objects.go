@@ -15,19 +15,24 @@ type currentDungeonRandomizedEntry struct {
 	Source    worldmap.SelectedRandomizedObject
 	SpawnMode uint32
 	Faction   uint32
+	// Only the actual MOB document can classify a frozen row as ridable.
+	Ridable bool
 }
 
 type currentDungeonRandomizedOwner struct {
 	Plan           *worldmap.RandomizedObjectPlan
 	Entries        []currentDungeonRandomizedEntry
 	entrySignature [32]byte
+	// Immutable selection clones for the same run share terminal state, while
+	// their source rows and plans remain independently cloned and signed.
+	ridableTerminals *currentDungeonRidableTerminalOwner
 }
 
 func (o *currentDungeonRandomizedOwner) clone() *currentDungeonRandomizedOwner {
 	if o == nil {
 		return nil
 	}
-	return &currentDungeonRandomizedOwner{Plan: o.Plan.Clone(), Entries: append([]currentDungeonRandomizedEntry(nil), o.Entries...), entrySignature: o.entrySignature}
+	return &currentDungeonRandomizedOwner{Plan: o.Plan.Clone(), Entries: append([]currentDungeonRandomizedEntry(nil), o.Entries...), entrySignature: o.entrySignature, ridableTerminals: o.ridableTerminals}
 }
 
 func (o *currentDungeonRandomizedOwner) validate(dungeon worldmap.Dungeon, mazeIndex int) error {
@@ -149,6 +154,10 @@ func (s *Service) prepareCurrentDungeonRandomizedOwner(dungeon worldmap.Dungeon,
 		} else if !hasMonster {
 			return nil, fmt.Errorf("randomized monster template %d absent", entry.ObjectID)
 		}
+		value.Ridable = !isPassive && strings.Trim(strings.ToLower(monsterKind), "[] \t\r\n") == "ridable object"
+		if currentDungeonRidableTerminalEligible(value) && owner.ridableTerminals == nil {
+			owner.ridableTerminals = &currentDungeonRidableTerminalOwner{}
+		}
 		roomCounts[entry.Map]++
 		if roomCounts[entry.Map] > 255 {
 			return nil, fmt.Errorf("randomized room objects exceed native count")
@@ -188,7 +197,7 @@ func (o *currentDungeonRandomizedOwner) roomGroups(room worldmap.RoomCoordinate)
 	}
 	var entries []currentDungeonStartMapRidableEntry
 	for _, entry := range o.Entries {
-		if entry.Source.Map != room {
+		if entry.Source.Map != room || o.ridableTerminals.retired(entry) {
 			continue
 		}
 		entries = append(entries, currentDungeonStartMapRidableEntry{PositionX: uint32(entry.Source.Position.X), PositionY: uint32(entry.Source.Position.Y), ObjectCode: uint32(entry.Source.ObjectID), Faction: entry.Faction, State: entry.SpawnMode})

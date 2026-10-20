@@ -134,7 +134,9 @@ func TestAntonWaitingBattleRebindAndLeaveCleanup(t *testing.T) {
 			s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 30, TownID: 19, AreaID: 2, ChannelID: 23, Instance: key})
 			switch action {
 			case "start_scope":
-				s.onlinePlayers.bindAntonWaitingBattleInstance(key, "frozen-battle")
+				peer := &gameSession{channel: session.channel, selectedCharacterID: 30, accountID: "dnf:30"}
+				s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 30, AccountID: peer.accountID, Session: peer, TownID: 19, AreaID: 2, ChannelID: 23, Instance: key})
+				s.onlinePlayers.bindRaidWaitingBattleInstance(waitingBattleScopeForTest(key, "frozen-battle", 23, 19, 2, session, peer))
 				s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 31, TownID: 19, AreaID: 2, ChannelID: 23, Instance: key, RaidBattleInstance: "other-battle"})
 				p, _ := s.onlinePlayers.PlayerForCharacter(29)
 				if p.RaidBattleInstance != "frozen-battle" || !s.onlinePlayers.PeerInSameArea(29, 30) || s.onlinePlayers.PeerInSameArea(29, 31) {

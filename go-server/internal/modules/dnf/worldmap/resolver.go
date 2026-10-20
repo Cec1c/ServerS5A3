@@ -290,6 +290,7 @@ func buildMazeMapIndex(
 			if _, layered := index.layeredMaps[mapPos]; layered {
 				continue
 			}
+			ref.fileType = classifyMapPoolType(mapValue)
 			index.byPool[ref.fileType] = appendUniqueIndexedMap(index.byPool[ref.fileType], ref)
 			continue
 		}
@@ -1038,6 +1039,32 @@ func ParseMapFileCoordinate(mapPath string) (int64, int64, bool) {
 		return 0, 0, false
 	}
 	return x, y, true
+}
+
+// Pool maps have no coordinate binding. Prefer their explicit resource role;
+// filenames remain the fallback for absent or unrecognized declarations.
+// Coordinate and specification selection keep their existing precedence.
+func classifyMapPoolType(mapValue Map) MapFileType {
+	filenameType := ClassifyMapFileType(mapValue.Path)
+	value := strings.TrimSpace(mapValue.Type)
+	value = strings.TrimSpace(strings.Trim(value, "`"))
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = value[1 : len(value)-1]
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "normal":
+		// MAP [normal] describes room content, while s*.map identifies an
+		// entry role (for example real s101..s103 and s6801). Keep that
+		// established role so ordinary start pools do not disappear.
+		if filenameType == MapFileStart {
+			return MapFileStart
+		}
+		return MapFileNormal
+	case "start", "boss", "named", "end", "hidden", "quest", "default":
+		return specificationFileType(value)
+	default:
+		return filenameType
+	}
 }
 
 func ClassifyMapFileType(mapPath string) MapFileType {

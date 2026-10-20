@@ -303,12 +303,27 @@ type UpgradeTicketResolution struct {
 	// **乘算**加成（厂商 `SuccessRateBonusWeight`：`weight * (100000+bonus)/100000`，
 	// 即 30000 = 基础成功率 ×1.3）。唯一写在真档里的例子是「成功之兆强化器 / 增幅器」
 	// （`[new portable upgrade] 0 14 30000`）。0 = PVF 没写第 3 个参数 = 不加成。
-	PortableSuccessBonus int
+	PortableSuccessBonus       int
+	MaterialUsableItemLevelSet bool
+	// MaterialUsableItemLevelMin/Max 是材料槽那一件耗材的 `[check usable itemlevel]` 窗口
+	// （目标装备的 `[minimum level]` 必须落在其中）。-1 = 该段缺席 = 不限目标等级。
+	// 厂商 `ItemUpgradeConsumableResolver.FromPortable` 把这个窗口原样装进
+	// `ItemUpgradeConsumableConfig.Restriction.ItemLevelMin/ItemLevelMax`（默认 -1），
+	// `InventoryItemUpgradeService.ValidateRestrictions` 再用它判目标（回 ErrorRestriction 19）。
+	MaterialUsableItemLevelMin int
+	MaterialUsableItemLevelMax int
+	// TargetMinimumLevel 是**目标装备** PVF 的 `[minimum level]`
+	// （Tool/PvfLib/Models/EquipmentFile.cs:36/154，-1 = 该装备 PVF 没写这一段 = 未知）。
+	// 厂商在 portable 档用它做等级窗口判定
+	// （`EquipmentLevel = targetMetadata.MinimumLevel`，InventoryItemUpgradeService.cs:388/401
+	// -> `AllowsItemLevel(context.EquipmentLevel)`，:486），不是 `[grade]`、也不是角色等级。
+	TargetMinimumLevel int
 }
 
 // UpgradePortableConsumable 是"这次 op50 用的是哪一件便携强化/增幅消耗品"的
-// 领域层事实（由 dnfbridge 的运行时 PVF 解析器给出）。它只描述消耗品本身，
-// 不描述目标装备；判定与消耗都在 inventory/owner.go 的 Upgrade 里完成。
+// 领域层事实（由 dnfbridge 的运行时 PVF 解析器给出）。它主要描述消耗品本身，另带一个
+// 必须由目标装备侧提供的判据（UsableItemLevelMin/Max 与 TargetMinimumLevel）；
+// 判定与消耗都在 inventory/owner.go 的 Upgrade 里完成。
 type UpgradePortableConsumable struct {
 	// ItemID 是消耗品的模板 id（材料槽那一行必须逐字等于它）。
 	ItemID int64
@@ -320,7 +335,15 @@ type UpgradePortableConsumable struct {
 	// SuccessBonus 是十万分比的乘算加成（0 = 无）。
 	SuccessBonus int
 	// PVFPath 是解析出来的 stackable 路径（只用于日志取证）。
-	PVFPath string
+	PVFPath            string
+	UsableItemLevelSet bool
+	// UsableItemLevelMin/Max 是这一件消耗品 `[check usable itemlevel]` 声明的目标装备等级
+	// 窗口（真档一次性增幅器 10164868 = `1 90`）。-1 = 该段缺席 = 不限（保持原行为）。
+	UsableItemLevelMin int
+	UsableItemLevelMax int
+	// TargetMinimumLevel 是**目标装备** PVF 的 `[minimum level]`，即厂商
+	// `AllowsItemLevel(context.EquipmentLevel)` 的入参（不是 `[grade]`）。-1 = 未知/没写。
+	TargetMinimumLevel int
 }
 
 // UpgradeTicketResolver resolves the material and target templates through
@@ -1002,6 +1025,7 @@ const (
 	// Damage-font ownership is a character-stat projection consumed by NOTI
 	// 1239. It follows the class1 op515 ACK and source-slot refresh.
 	PostActionRefreshSelectedDamageFontState PostAction = "refresh_selected_damage_font_state"
+	PostActionDamageFontExpiredNotice        PostAction = "damage_font_expired_notice"
 	// Party-frame state is carried inside the current NoPack class0/op9 kind0
 	// actor record. The bridge rebuilds that record from the selected actor and
 	// live party slots before op153/op7 update the visible frame.

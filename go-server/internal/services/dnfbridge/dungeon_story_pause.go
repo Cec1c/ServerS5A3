@@ -62,6 +62,17 @@ func (s *Service) handleCurrentDungeonStoryPause(session *gameSession, body []by
 	}
 
 	actorObjectKey := currentSceneActorObjectKey(session.selectedCharacterID)
+	// Capture the installed room under the same dungeon lock as the response.
+	// A later select/map transition must not be joined to this exchange by time.
+	var mapID int64
+	var roomX, roomY int64
+	roomPresent := runtime.Room != nil
+	if roomPresent {
+		runtime.Room.mu.RLock()
+		mapID = runtime.Room.mapID
+		roomX, roomY = runtime.Room.coordinate.X, runtime.Room.coordinate.Y
+		runtime.Room.mu.RUnlock()
+	}
 	response := make([]byte, currentDungeonStoryPauseResponseSize)
 	binary.LittleEndian.PutUint16(response[0:2], actorObjectKey)
 	response[2] = stateFlag
@@ -79,11 +90,18 @@ func (s *Service) handleCurrentDungeonStoryPause(session *gameSession, body []by
 		"response_msg_id", currentDungeonStoryPauseMsgID,
 		"classification", 0,
 		"char_id", session.selectedCharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"maze_index", runtime.MazeIndex,
+		"difficulty", runtime.Request.Difficulty,
+		"room_present", roomPresent,
+		"map_id", mapID,
+		"room_x", roomX,
+		"room_y", roomY,
 		"actor_object_key", actorObjectKey,
 		"state_flag", stateFlag,
 		"request_type", requestType,
 		"body_len", len(response),
-		"body_source", "current_exe_sub_1D3A650_u16_actor_u8_state_u8_type")
+		"body_source", "current_exe_1FEB5E0_u16_source_key_u8_state_u8_type")
 	if stateFlag != 1 || requestType != 1 || !isPVFTutorialDungeon(runtime) ||
 		runtime.tutorialInitialUserStateSent {
 		return nil

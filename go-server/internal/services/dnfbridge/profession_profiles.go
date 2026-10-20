@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	dnfprofession "longheng.io/server/internal/modules/dnf/profession"
@@ -50,7 +51,12 @@ func (s *Service) currentProfessionResources(ctx context.Context) (*dnfprofessio
 	}
 	profiles, err := dnfprofession.LoadProfiles(ctx, archive, catalog)
 	if err != nil {
-		s.professionProfilesErr = err
+		// A request's expired/canceled context says nothing about the PVF.
+		// Keep immutable resource failures cached, but let a fresh request
+		// retry after a transient load interruption on this same Service.
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			s.professionProfilesErr = err
+		}
 		return nil, nil, err
 	}
 	s.professionProfiles = profiles

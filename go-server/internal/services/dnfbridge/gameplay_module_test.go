@@ -90,6 +90,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"image-communication",
 		"quest",
 		"dungeon-navigation",
+		"dungeon-ridable",
 		"dungeon-combat-drop",
 		"dungeon-death-revive",
 		"dungeon-settlement-card",
@@ -105,6 +106,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"collectbox",
 		"chronicle-refine",
 		"web-viewer",
+		"fiendwar",
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
 		t.Fatalf("module names=%v want=%v", currentGameplayModules.names, wantNames)

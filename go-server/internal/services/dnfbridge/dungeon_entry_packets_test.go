@@ -324,8 +324,22 @@ func TestPartyDungeonEntryRejectsEveryMemberBeforeCommitWhenFollowerLevelIsTooLo
 	if leader.dungeon.runtime != nil || follower.dungeon.runtime != nil {
 		t.Fatalf("party entry partially committed leader_runtime=%p follower_runtime=%p", leader.dungeon.runtime, follower.dungeon.runtime)
 	}
-	if leaderConn.write.Len() != 0 || followerConn.write.Len() != 0 {
-		t.Fatalf("blocked party entry wrote leader=%x follower=%x", leaderConn.write.Bytes(), followerConn.write.Bytes())
+	// 文档段 104：这条"提交前拒绝"必须回包给发起者（队长）——改动前这里是静默（两个连接
+	// 都是 0 字节），现场症状正是"返回城镇选项消失、只能等倒计时"。reason 由既有映射给出，
+	// 仍然是等级不足档 14。
+	packet, rest := splitGameServerUpperPacket(t, leaderConn.write.Bytes())
+	if packet.Header.Classification != dnfproto.DefaultChannelClassification ||
+		packet.Header.MsgID != uint16(dnfenum.CmdPacketSelectDungeon) ||
+		!bytes.Equal(packet.Body, []byte{0, currentSelectDungeonEntryLevelTooLowReason, 0}) {
+		t.Fatalf("blocked party entry leader frame header=%+v body=% x want op16 refusal {00 %02x 00}",
+			packet.Header, packet.Body, currentSelectDungeonEntryLevelTooLowReason)
+	}
+	if len(rest) != 0 {
+		t.Fatalf("blocked party entry wrote trailing bytes to the leader: %x", rest)
+	}
+	// 没按过进图的队员一包都不发：挂起态只补"自己那条 op16 已被回 ACK"的成员。
+	if followerConn.write.Len() != 0 {
+		t.Fatalf("blocked party entry wrote the idle follower=%x", followerConn.write.Bytes())
 	}
 	if service.onlinePlayers.SessionForCharacter(99) != leader || service.onlinePlayers.SessionForCharacter(100) != follower {
 		t.Fatal("blocked party entry removed a town presence")

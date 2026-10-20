@@ -162,6 +162,7 @@ type currentExpertJobStoreUseResult struct {
 	TargetSlot     int16
 	Materials      []currentExpertJobExtractionMaterial
 	Qualifications []byte
+	ItemRefreshes  []alignedcmd.ItemSlotRefresh
 }
 
 func parseCurrentExpertJobStoreCreateRequest(body []byte) (currentExpertJobStoreCreateRequest, error) {
@@ -1177,12 +1178,27 @@ func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, 
 func (s *Service) handleCurrentExpertJobStoreEnchant(session *gameSession, opcode uint16, body []byte) error {
 	request, err := parseCurrentExpertJobStoreEnchantRequest(body)
 	if err != nil {
+		s.logGameEvent(session, "game-expert-job-store-enchant-blocked",
+			"msg_id", opcode, "requester_id", sessionSelectedCharacterID(session),
+			"reason", "invalid_request", "body_len", len(body), "error", err)
 		return s.sendGameUpperFailure(session, opcode, 19)
 	}
 	s.expertJobStoreOpMu.Lock()
 	store, ok := s.currentExpertJobEnteredStore(session, request.OwnerID, currentExpertJobEnchantStoreKind)
+	menuSelf := false
+	if !ok {
+		ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
+		store, err = s.resolveCurrentExpertJobMenuEnchantStore(ctx, session, request.OwnerID)
+		cancel()
+		ok = err == nil
+		menuSelf = ok
+	}
 	if !ok {
 		s.expertJobStoreOpMu.Unlock()
+		s.logGameEvent(session, "game-expert-job-store-enchant-blocked",
+			"msg_id", opcode, "requester_id", sessionSelectedCharacterID(session),
+			"reason", "entered_store_context_invalid", "owner_id", request.OwnerID,
+			"in_dungeon", currentExpertJobSessionInDungeon(session))
 		return s.sendGameUpperFailure(session, opcode, 19)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -1208,10 +1224,15 @@ func (s *Service) handleCurrentExpertJobStoreEnchant(session *gameSession, opcod
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentExpertJobStoreError(err))
 	}
+	if menuSelf {
+		s.logGameEvent(session, "game-expert-job-menu-enchant-committed",
+			"msg_id", opcode, "requester_id", sessionSelectedCharacterID(session),
+			"owner_id", request.OwnerID, "success", result.Success)
+	}
 	if err := s.sendGameUpperRawClass(session, opcode, buildCurrentExpertJobStoreEnchantSuccessBody(result), dnfproto.DefaultChannelClassification); err != nil {
 		return err
 	}
-	if err := s.sendSelectedCurrentContainerListsRefresh(session, "expert_job_store_enchant_after_ack"); err != nil {
+	if err := s.refreshCurrentExpertJobEnchantItems(session, result); err != nil {
 		return err
 	}
 	if store.OwnerSession != nil && store.OwnerSession != session {
@@ -1284,6 +1305,7 @@ func (s *Service) commitCurrentExpertJobStoreEnchant(ctx context.Context, sessio
 		}
 		// The requester supplies the card and recipe materials. Consume both
 		// within the same owner transaction, including fixed account slots.
+		refreshes := currentExpertJobEnchantRefreshSlots(request, requesterInventory, plan.Recipe.Materials)
 		if _, consumeErr := s.consumeCurrentRecipeMaterials(&dnfexpertjob.Assets{
 			Character: requesterCharacter, Inventory: requesterInventory, AccountInventory: warehouse,
 		}, plan.Recipe.Materials, 0); consumeErr != nil {
@@ -1311,6 +1333,7 @@ func (s *Service) commitCurrentExpertJobStoreEnchant(ctx context.Context, sessio
 		ownerCharacter.Stats["expert_job_exp"] = plan.FinalExperience
 		ownerCharacter.Stats[currentExpertJobMachineEnduranceStat] = endurance - plan.EnduranceReduction
 		result = currentExpertJobStoreUseResult{RequesterGold: requesterGold, OwnerGold: ownerGold, Endurance: endurance - plan.EnduranceReduction, Experience: plan.FinalExperience, LevelChanged: plan.LevelChanged, Success: plan.Success, TargetList: request.TargetList, TargetSlot: request.TargetSlot, Qualifications: config.Qualifications(plan.FinalExperience)}
+		result.ItemRefreshes = refreshes
 		return nil
 	})
 	return result, err

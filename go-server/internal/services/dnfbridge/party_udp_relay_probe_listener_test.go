@@ -435,6 +435,10 @@ func TestFanOutUnlearnedDatagramHitsEveryKnownCandidate(t *testing.T) {
 		t.Fatalf("send B first datagram: %v", err)
 	}
 	waitRelayLog(t, recorder, "party UDP relay fanout candidate used", 3*time.Second)
+	// Each candidate is counted before its own log, but the first candidate's
+	// log does not mean the fan-out loop has reached the second candidate yet.
+	waitRelayLog(t, recorder, "kind memo_stale", 3*time.Second)
+	waitRelayLog(t, recorder, "kind advertised_port", 3*time.Second)
 	stats := relayLegStatsFor(t, relay, 101, 202)
 	if stats.StaleMemoDatagrams != 1 {
 		t.Fatalf("stale memo candidate must be written exactly once per datagram: %+v", stats)

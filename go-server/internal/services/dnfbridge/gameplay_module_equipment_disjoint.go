@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -54,6 +55,10 @@ func (s *Service) handleCurrentDisjointItem(session *gameSession, body []byte) e
 		s.logGameEvent(session, "game-disjoint-item-rejected", "body_len", len(body), "reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketDisjointItem), currentDisjointFailureCode(err))
 	}
+	if !s.currentDisjointEntryAllowed(session, request.Context) {
+		s.logGameEvent(session, "game-disjoint-item-rejected", "slot", request.SourceSlot, "context", request.Context, "reason", "delilah context requires the selected character's completed dungeon")
+		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketDisjointItem), currentDisjointFailureInvalid)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	catalog, err := s.currentPVFItemCatalog()
@@ -61,6 +66,11 @@ func (s *Service) handleCurrentDisjointItem(session *gameSession, body []byte) e
 		err = s.commitCurrentDisjointItem(ctx, session, catalog, request)
 	}
 	if err != nil {
+		if errors.Is(err, errCurrentDisjointCommittedReply) {
+			// Assets have already committed. A transport failure must not be
+			// followed by a business rejection that invites an unsafe retry.
+			return err
+		}
 		s.logGameEvent(session, "game-disjoint-item-rejected", "slot", request.SourceSlot, "reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketDisjointItem), currentDisjointFailureCode(err))
 	}
@@ -96,6 +106,10 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 			"body_len", len(body), "slot", currentDisjointErrorSlot(err), "reason", businessLogDiagnostic(err))
 		return s.sendGameUpperFailure(session, opcode, currentDisjointFailureCode(err))
 	}
+	if !s.currentDisjointEntryAllowed(session, batch.Context) {
+		s.logGameEvent(session, "game-disjoint-item-batch-rejected", "count", len(batch.Slots), "slots", batch.SlotListText(), "tool_slot", batch.ToolSlot, "context", batch.Context, "reason", "delilah context requires the selected character's completed dungeon")
+		return s.sendGameUpperFailure(session, opcode, currentDisjointFailureInvalid)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	catalog, err := s.currentPVFItemCatalog()
@@ -105,7 +119,7 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 	}
 	var result currentDisjointBatchResult
 	if err == nil {
-		result, err = s.commitCurrentDisjointBatch(ctx, session, catalog, batch.Slots, currentEquipmentDisjointResolver(config))
+		result, err = s.commitCurrentDisjointBatch(ctx, session, catalog, batch.Slots, batch.Context, currentEquipmentDisjointResolver(config))
 	}
 	if err != nil {
 		s.logGameEvent(session, "game-disjoint-item-batch-rejected",
@@ -183,10 +197,16 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 		refreshRows = entryCount
 		refreshLists = strconv.Itoa(int(dnfrepo.MainInventoryListType))
 	}
+	if result.GoldChanged {
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentGoldStateBody(result.GoldAfter), 0); err != nil {
+			return err
+		}
+	}
 	s.logGameEvent(session, "game-disjoint-item-batch-committed",
 		"count", len(result.Items), "slots", batch.SlotListText(),
 		"reward_rows", rewardRows, "units", units,
 		"tool_slot", batch.ToolSlot, "context", batch.Context,
+		"fee", currentDelilahDisjointFee(batch.Context, len(result.Items)),
 		"ack_shape", shape, "ack_count", ackCount,
 		"refresh_shape", refreshShape,
 		"refresh_rows", refreshRows, "refresh_lists", refreshLists)
@@ -288,13 +308,18 @@ func (s *Service) commitCurrentDisjointItem(ctx context.Context, session *gameSe
 	if err != nil {
 		return err
 	}
-	result, err := s.commitCurrentDisjoint(ctx, session, catalog, request.SourceSlot, 0, currentEquipmentDisjointResolver(config))
+	result, err := s.commitCurrentDisjoint(ctx, session, catalog, request.SourceSlot, 0, request.Context, currentEquipmentDisjointResolver(config))
 	if err != nil {
 		return err
 	}
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketDisjointItem), buildCurrentDisjointItemSuccessBody(request, result.Rewards), dnfproto.DefaultChannelClassification); err != nil {
-		return err
+		return errors.Join(errCurrentDisjointCommittedReply, err)
 	}
-	s.logGameEvent(session, "game-disjoint-item-committed", "slot", request.SourceSlot, "tool_slot", request.ToolSlot, "reward_rows", len(result.Rewards), "popup", "current_exe_op26")
+	if result.GoldChanged {
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentGoldStateBody(result.GoldAfter), 0); err != nil {
+			return errors.Join(errCurrentDisjointCommittedReply, err)
+		}
+	}
+	s.logGameEvent(session, "game-disjoint-item-committed", "slot", request.SourceSlot, "tool_slot", request.ToolSlot, "context", request.Context, "fee", currentDelilahDisjointFee(request.Context, 1), "reward_rows", len(result.Rewards), "popup", "current_exe_op26")
 	return nil
 }

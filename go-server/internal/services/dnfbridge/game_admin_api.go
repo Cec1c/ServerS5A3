@@ -3,10 +3,12 @@ package dnfbridge
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
 	"longheng.io/server/internal/modules/dnf/adminapi"
+	"longheng.io/server/internal/modules/dnf/onlineevent"
 )
 
 // Only runtime-owned facts and operations belong here. GM pages, credentials,
@@ -102,7 +104,7 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 			snapshot, err = s.activityControls.Save(r.Context(), req.Revision, req.Changes)
 			if err != nil {
 				out.OK = false
-				out.Error = "activity revision or update invalid"
+				out.Error = activitySaveErrorPrompt(err)
 				break
 			}
 			s.logInfo("game-admin-activities-saved", "revision", snapshot.Revision)
@@ -123,4 +125,24 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// Storage failures remain generic even when they wrap an operator sentinel.
+func activitySaveErrorPrompt(err error) string {
+	switch {
+	case errors.Is(err, onlineevent.ErrControlPersist):
+		return "保存活动设置失败，请稍后重试或查看服务端日志"
+	case errors.Is(err, onlineevent.ErrControlRevisionStale):
+		return "活动设置已更新，请刷新后重试"
+	case errors.Is(err, onlineevent.ErrControlSelectionInvalid):
+		return "请选择要修改的活动后重试"
+	case errors.Is(err, onlineevent.ErrControlUnsupported):
+		return "所选活动当前服务端不支持，请刷新后重试"
+	case errors.Is(err, onlineevent.ErrControlDuplicate):
+		return "同一活动重复提交，请刷新后重试"
+	case errors.Is(err, onlineevent.ErrControlRevisionExhausted):
+		return "活动设置版本号已用尽，无法继续保存，请联系管理员检查服务端配置"
+	default:
+		return "保存活动设置失败，请稍后重试或查看服务端日志"
+	}
 }

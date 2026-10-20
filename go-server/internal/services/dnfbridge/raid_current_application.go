@@ -79,7 +79,7 @@ func (s *Service) handleCurrentRaidApplication(session *gameSession, op uint16, 
 	s.raidMu.Lock()
 	target := s.runtimeRaidByMemberLocked(leader.character)
 	route, supported := currentRaidRouteForChannel(int(session.channel.Type))
-	if target == nil || !target.CurrentLayout || target.LeaderID != leader.character || target.Started || target.CurrentUIFlags[0] != 0 || !supported || target.RouteOrRaidType != route || byte(target.RaidKey>>16) != req.TargetChannel || len(target.Members) >= raid.MaxAttackPartyMembers || s.runtimeRaidByMemberLocked(applicant.character) != nil || !s.boundGameSessionCharacterCurrent(applicant) || !s.boundGameSessionCharacterCurrent(leader) {
+	if target == nil || !target.CurrentLayout || target.LeaderID != leader.character || target.Started || target.CurrentUIFlags[0] != 0 || !supported || target.RouteOrRaidType != route || byte(target.RaidKey>>16) != req.TargetChannel || len(target.Members) >= currentRaidMemberMaximum(*target) || s.runtimeRaidByMemberLocked(applicant.character) != nil || !s.boundGameSessionCharacterCurrent(applicant) || !s.boundGameSessionCharacterCurrent(leader) {
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}
@@ -119,7 +119,7 @@ func (s *Service) handleCurrentRaidApproval(session *gameSession, op uint16, req
 	pending, found := s.currentRaidApplications[req.TargetID]
 	state := s.raids[pending.raidKey]
 	applicant := pending.applicant.session
-	if !bound || !found || pending.leader != leader || !pending.expires.After(time.Now()) || state == nil || !state.CurrentLayout || state.LeaderID != leader.character || state.Started || state.CurrentUIFlags[0] != 0 || len(state.Members) >= raid.MaxAttackPartyMembers || applicant == nil || applicant.channel.ID != session.channel.ID || applicant.channel.Type != session.channel.Type || s.runtimeRaidByMemberLocked(req.TargetID) != nil || !s.boundGameSessionCharacterCurrent(pending.applicant) || !s.boundGameSessionCharacterCurrent(pending.leader) || !s.currentRaidAuthenticated(applicant) {
+	if !bound || !found || pending.leader != leader || !pending.expires.After(time.Now()) || state == nil || !state.CurrentLayout || state.LeaderID != leader.character || state.Started || state.CurrentUIFlags[0] != 0 || len(state.Members) >= currentRaidMemberMaximum(*state) || applicant == nil || applicant.channel.ID != session.channel.ID || applicant.channel.Type != session.channel.Type || s.runtimeRaidByMemberLocked(req.TargetID) != nil || !s.boundGameSessionCharacterCurrent(pending.applicant) || !s.boundGameSessionCharacterCurrent(pending.leader) || !s.currentRaidAuthenticated(applicant) {
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}

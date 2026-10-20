@@ -6,11 +6,13 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
+var currentRaidReturnLocationFields = [...]string{"town_id", "area_id", "pos_x", "pos_y", "direction", "area_state"}
+
 const currentRaidReturnOriginMarker = "raid_return_origin_v1"
 
 func currentClearRaidReturnOrigin(stats map[string]int64) bool {
 	changed := false
-	for _, field := range currentPVPReturnLocationFields {
+	for _, field := range currentRaidReturnLocationFields {
 		key := "raid_return_" + field
 		if _, exists := stats[key]; exists {
 			delete(stats, key)
@@ -26,13 +28,13 @@ func currentClearRaidReturnOrigin(stats map[string]int64) bool {
 
 // 只保存已提交且经PVF验证的普通落点；跨特殊频道不会覆盖首次进场原位。
 func (s *Service) currentSaveRaidReturnOrigin(characterID uint16, character *dnfrepo.CharacterRecord) error {
-	if character == nil || currentRegisteredChannelTown(character.Stats["town_id"]) {
+	if character == nil || currentRegisteredChannelTown(character.Stats["town_id"]) || character.Stats["town_id"] == 48 {
 		return nil
 	}
 	if _, found, reason := s.currentPersistedTownLoginLocation(characterID, *character); !found {
 		return fmt.Errorf("团本入场原位不可用：%s", reason)
 	}
-	for _, field := range currentPVPReturnLocationFields {
+	for _, field := range currentRaidReturnLocationFields {
 		character.Stats["raid_return_"+field] = character.Stats[field]
 	}
 	character.Stats[currentRaidReturnOriginMarker] = 1
@@ -44,14 +46,14 @@ func (s *Service) currentRaidReturnOriginLocation(characterID uint16, character 
 		return currentTownLoginLocation{}, false, nil
 	}
 	projected := dnfrepo.CloneCharacter(character)
-	for _, field := range currentPVPReturnLocationFields {
+	for _, field := range currentRaidReturnLocationFields {
 		value, exists := character.Stats["raid_return_"+field]
 		if !exists {
 			return currentTownLoginLocation{}, false, fmt.Errorf("团本返城原位缺少字段%s", field)
 		}
 		projected.Stats[field] = value
 	}
-	if currentRegisteredChannelTown(projected.Stats["town_id"]) {
+	if currentRegisteredChannelTown(projected.Stats["town_id"]) || projected.Stats["town_id"] == 48 {
 		return currentTownLoginLocation{}, false, fmt.Errorf("团本返城原位不是普通城镇")
 	}
 	location, found, reason := s.currentPersistedTownLoginLocation(characterID, projected)

@@ -154,6 +154,7 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 			s.broadcastTownPlayerMove(mover, others)
 		}
 	}
+	s.queueCurrentFiendWarEncounter(session)
 	return nil
 }
 
@@ -430,6 +431,21 @@ func bindCurrentTownSelectorOrigin(session *gameSession) (currentTownPositionSna
 func freezeCurrentDungeonTownReturnOrigin(session *gameSession, runtime *runtimeDungeonState) error {
 	if session == nil || runtime == nil || runtime.Session == nil {
 		return fmt.Errorf("%w: runtime owner missing", errCurrentDungeonTownReturnOriginUnavailable)
+	}
+	if e := runtime.raidEntry; e != nil && e.ChannelType == 42 {
+		origin := e.fiendWarOrigin
+		if origin.CharacterID != session.selectedCharacterID || !origin.PositionValid {
+			return fmt.Errorf("超时空副本返回坐标归属无效")
+		}
+		runtime.townReturnOrigin = origin
+		if runtime.Character.Stats == nil {
+			runtime.Character.Stats = map[string]int64{}
+		}
+		runtime.Character.Stats["town_id"], runtime.Character.Stats["area_id"] = int64(origin.TownID), int64(origin.AreaID)
+		runtime.Character.Stats["pos_x"], runtime.Character.Stats["pos_y"] = int64(origin.PositionX), int64(origin.PositionY)
+		runtime.Character.Stats["direction"] = int64(origin.MovementCode)
+		runtime.Character.Stats["area_state"] = 0
+		return nil
 	}
 	if isPVFTutorialDungeon(runtime) {
 		runtime.townReturnOrigin = currentTownPositionSnapshot{}

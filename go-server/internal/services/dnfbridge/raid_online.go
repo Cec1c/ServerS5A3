@@ -369,7 +369,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 	}
 	// Reuse the verified container refresh only after a successful group commit.
 	// log/off emit exactly the established success sequence without this refresh.
-	if s.raidStartEntryCostMode() == raidStartEntryCostGuardEnforce {
+	if isCurrentFiendWarChannel(session) || s.raidStartEntryCostMode() == raidStartEntryCostGuardEnforce {
 		for _, member := range state.Members {
 			peer, found := s.onlineGameSession(member.CharID)
 			if member.CharID == sourceID {
@@ -563,7 +563,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(sourceID)
-	if state == nil || state.LeaderID != sourceID || len(state.Members) == 0 || len(state.Members) > raid.MaxAttackPartyMembers {
+	if state == nil || state.LeaderID != sourceID || len(state.Members) == 0 || len(state.Members) > currentRaidMemberMaximum(*state) {
 		return runtimeRaidState{}, false, nil
 	}
 	if state.Started {
@@ -587,7 +587,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	}
 	seen := make(map[uint16]bool, len(state.Members))
 	for _, member := range state.Members {
-		if member.CharID == 0 || seen[member.CharID] || member.GroupIndex > runtimeRaidMaxGroups {
+		if member.CharID == 0 || seen[member.CharID] || member.GroupIndex > currentRaidGroupMaximum(*state) {
 			return runtimeRaidState{}, false, nil
 		}
 		// A retained offline seat is not a paid admission. Bind/restore or
@@ -601,14 +601,27 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	if err != nil {
 		return runtimeRaidState{}, false, err
 	}
-	allowed, err := s.guardRaidStartEntryCost(session, cloneRuntimeRaidState(*state))
+	waitingScope, err := s.prepareCurrentRaidWaitingBattleScope(session, *state, battle)
+	if err != nil {
+		return runtimeRaidState{}, false, err
+	}
+	if err := s.onlinePlayers.requireRaidStartWaitingArea(waitingScope, ""); err != nil {
+		return runtimeRaidState{}, false, err
+	}
+	allowed := false
+	if battle != nil && battle.FiendWar != nil {
+		err = s.consumeCurrentFiendWarEntry(session, *state, battle)
+		allowed = err == nil
+	} else {
+		allowed, err = s.guardRaidStartEntryCost(session, cloneRuntimeRaidState(*state))
+	}
 	if err != nil || !allowed {
 		return runtimeRaidState{}, false, err
 	}
 	state.Started = true
 	state.Battle = battle
 	if battle != nil {
-		s.onlinePlayers.bindAntonWaitingBattleInstance(state.RaidKey, battle.InstanceID)
+		s.onlinePlayers.bindRaidWaitingBattleInstance(waitingScope)
 	}
 	return cloneRuntimeRaidState(*state), true, nil
 }
@@ -629,7 +642,7 @@ func (s *Service) rejoinRuntimeRaid(raidKey uint32, sourceID uint16) (runtimeRai
 		if state.CurrentLayout {
 			return runtimeRaidState{}, false
 		}
-		if len(state.Members) >= raid.MaxAttackPartyMembers {
+		if len(state.Members) >= currentRaidMemberMaximum(*state) {
 			return runtimeRaidState{}, false
 		}
 		state.Members = append(state.Members, s.newRuntimeRaidMemberLocked(sourceID, runtimeRaidDefaultGroup, nextRuntimeRaidSlot(*state, runtimeRaidDefaultGroup)))
@@ -656,7 +669,7 @@ func (s *Service) changeRuntimeRaidMemberState(sourceID uint16, userState byte) 
 }
 
 func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, targetGroup byte) (runtimeRaidState, bool, bool) {
-	if targetGroup == 0 || targetGroup > runtimeRaidMaxGroups {
+	if targetGroup == 0 || targetGroup > 8 {
 		return runtimeRaidState{}, false, false
 	}
 	s.raidMu.Lock()
@@ -668,6 +681,20 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	index := runtimeRaidMemberIndex(*state, memberID)
 	if index < 0 {
 		return runtimeRaidState{}, false, false
+	}
+	if targetGroup > currentRaidGroupMaximum(*state) {
+		return runtimeRaidState{}, false, false
+	}
+	if state.RouteOrRaidType == 2 && state.Started {
+		return runtimeRaidState{}, false, false
+	}
+	if state.RouteOrRaidType == 2 {
+		for i := range state.Members {
+			if state.Members[i].CharID != memberID && state.Members[i].GroupIndex == targetGroup {
+				state.Members[i].GroupIndex = 0
+				state.Members[i].SlotOrder = 0
+			}
+		}
 	}
 	groupChanged := state.Members[index].GroupIndex != targetGroup
 	state.Members[index].GroupIndex = targetGroup
@@ -852,6 +879,14 @@ func (s *Service) removeRuntimeRaidMemberLocked(charID uint16) (*runtimeRaidStat
 	}
 	if !removed {
 		return state, false, false
+	}
+	if b := state.Battle; b != nil && b.FiendWar != nil {
+		f := b.FiendWar.Clone()
+		delete(f.MemberAreas, charID)
+		delete(f.RecoveryUntil, charID)
+		delete(f.GroupAreas, b.MemberGroups[charID])
+		b.FiendWar = f
+		b.ProgressVersion++
 	}
 	state.Members = next
 	if len(state.Members) == 0 {
@@ -1173,7 +1208,7 @@ func runtimeRaidHasOversizedGroup(state runtimeRaidState) bool {
 			group = runtimeRaidDefaultGroup
 		}
 		counts[group]++
-		if counts[group] > runtimeRaidGroupSize {
+		if counts[group] > currentRaidGroupCapacity(state) {
 			return true
 		}
 	}

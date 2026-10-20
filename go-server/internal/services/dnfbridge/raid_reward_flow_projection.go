@@ -81,7 +81,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 	}
 	if !f.FinishedAt.IsZero() {
-		if !f.Single && f.Phase == 0 {
+		if f.Mode != 3 && !f.Single && f.Phase == 0 {
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{5, 0}}, currentAntonRewardPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, uint32(f.BreakUntil.Unix()), currentRaidNativeDuration(f.Mode, f.BreakUntil, f.Configuration.PhaseBreakSeconds, time.Now()))})
 		} else {
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
@@ -141,7 +141,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	if len(packets) == 0 {
 		return nil
 	}
-	if !f.FinishedAt.IsZero() && !f.Single && f.Phase == 0 {
+	if !f.FinishedAt.IsZero() && f.Mode != 3 && !f.Single && f.Phase == 0 {
 		remaining := int64(time.Until(f.BreakUntil).Seconds())
 		if remaining < 0 {
 			remaining = 0

@@ -91,6 +91,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
 			return handled, err
 		}
+		if handled, err := s.handleCurrentDimensionGateExtraTicketUse(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -1328,6 +1331,8 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		return s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0)
 	case alignedcmd.PostActionRefreshSelectedDamageFontState:
 		return s.sendSelectedDamageFontState(session, "aligned_"+operation+"_after_ack_and_item_refresh")
+	case alignedcmd.PostActionDamageFontExpiredNotice:
+		return s.sendDamageFontExpiredNotice(session)
 	case alignedcmd.PostActionRefreshSelectedPartyFrame:
 		state, err := s.ensureManagedRuntimePartyForSession(session)
 		if err != nil {
