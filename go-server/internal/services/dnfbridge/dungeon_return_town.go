@@ -48,6 +48,13 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		return nil
 	}
 	selectedCharacterID := session.selectedCharacterID
+	session.dungeon.mu.Lock()
+	completedOrdinary := currentOrdinaryCompletedTownExitOwner(session, session.dungeon.runtime)
+	session.dungeon.mu.Unlock()
+	if completedOrdinary {
+		// 通关结算界面与42共用奖励屏障及完整城镇重建。
+		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
+	}
 
 	if _, err := s.persistCurrentActiveTutorialExit(
 		session,
