@@ -108,6 +108,12 @@ func TestReviewHatcheryEntryR129PostStartMapWireContract(t *testing.T) {
 					if len(packet.Body) < 22 || packet.Body[0] != byte(scene.Coordinate.X) || packet.Body[1] != byte(scene.Coordinate.Y) || binary.LittleEndian.Uint32(packet.Body[14:18]) != uint32(scene.Map.Map.ID) {
 						t.Fatalf("op29 body=%x, want committed room=%s map=%d", packet.Body, scene.Coordinate, scene.Map.Map.ID)
 					}
+					// These real start maps have only MAP-owned passive object
+					// 19117; no monster/extra/ridable rows belong in op29. Check
+					// all count boundaries, not just its map-id prefix.
+					if len(packet.Body) != 23 || !bytes.Equal(packet.Body[18:22], []byte{0, 0, 0, 0}) {
+						t.Fatalf("hatchery op29 has unexpected actor/extra/fog/ridable rows: %x", packet.Body)
+					}
 				case uint16(dnfenum.CmdPacketSetUDPIPPort):
 					if startIndex >= 0 && firstPostStartMode1 < 0 && len(packet.Body) > currentMode1CreateCountOffset && packet.Body[0] == 1 {
 						firstPostStartMode1 = index

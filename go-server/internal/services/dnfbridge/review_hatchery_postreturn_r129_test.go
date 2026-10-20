@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -11,8 +12,21 @@ import (
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
+func expectedHatcheryPostReturnR129Origin(characterID uint16) currentTownPositionSnapshot {
+	return currentTownPositionSnapshot{
+		CharacterID:   characterID,
+		TownID:        38,
+		AreaID:        1,
+		PositionX:     450,
+		PositionY:     234,
+		MovementCode:  6,
+		PositionValid: true,
+	}
+}
+
 func prepareHatcheryPostReturnR129(
 	t *testing.T,
+	dungeonID uint32,
 ) (*Service, *gameSession, *runtimeDungeonState, byte, dnftown.Area) {
 	t.Helper()
 	const (
@@ -21,9 +35,9 @@ func prepareHatcheryPostReturnR129(
 		originArea  = byte(1)
 	)
 
-	s, session, old, target := actualAntonHatchWarpOwnerFor(t, 222)
-	if target != 222 {
-		t.Fatalf("actual fixture opened %d, want 222", target)
+	s, session, old, target := actualAntonHatchWarpOwnerFor(t, dungeonID)
+	if target != dungeonID {
+		t.Fatalf("actual fixture opened %d, want %d", target, dungeonID)
 	}
 
 	archive := s.initialEquipmentArchive
@@ -110,20 +124,24 @@ func prepareHatcheryPostReturnR129(
 	if err := freezeCurrentDungeonTownReturnOrigin(session, old); err != nil {
 		t.Fatalf("freeze real town return origin: %v", err)
 	}
+	expectedOrigin := expectedHatcheryPostReturnR129Origin(characterID)
+	if old.townReturnOrigin != expectedOrigin {
+		t.Fatalf("frozen town return origin=%+v, want %+v", old.townReturnOrigin, expectedOrigin)
+	}
 
 	s.onlinePlayers = newOnlinePlayerManager()
 	if err := s.handleDungeonSelectUpper(session, encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{
-		DungeonID:  222,
+		DungeonID:  dungeonID,
 		Difficulty: 2,
 	})); err != nil {
 		t.Fatal(err)
 	}
 	hatchery := session.dungeon.runtime
-	if hatchery == nil || hatchery == old || hatchery.Dungeon.ID != 222 || hatchery.antonHatcheryTransfer == nil {
-		t.Fatalf("actual 218 -> 222 transfer failed: old=%p current=%p", old, hatchery)
+	if hatchery == nil || hatchery == old || hatchery.Dungeon.ID != int64(dungeonID) || hatchery.antonHatcheryTransfer == nil {
+		t.Fatalf("actual 218 -> %d transfer failed: old=%p current=%p", dungeonID, old, hatchery)
 	}
-	if hatchery.townReturnOrigin.TownID != originTown || hatchery.townReturnOrigin.AreaID != originArea {
-		t.Fatalf("transfer changed real town origin: %+v", hatchery.townReturnOrigin)
+	if hatchery.townReturnOrigin != expectedOrigin {
+		t.Fatalf("transfer changed real town origin: got=%+v want=%+v", hatchery.townReturnOrigin, expectedOrigin)
 	}
 
 	reviewCompleteActualHatchery(t, s, session, hatchery)
@@ -134,21 +152,36 @@ func prepareHatcheryPostReturnR129(
 	if err := s.handleDungeonEplpCommand(session, []byte{1, 2}); err != nil {
 		t.Fatalf("completed hatchery return: %v", err)
 	}
+	if hatchery.townReturnOrigin != expectedOrigin {
+		t.Fatalf("completed return changed frozen town origin: got=%+v want=%+v", hatchery.townReturnOrigin, expectedOrigin)
+	}
 
 	assertHatcheryReturnDetachedForR129(t, session, hatchery)
 	return s, session, hatchery, originTown, destination
 }
 
-// This audit starts with the actual Anton 218 -> 222 transfer and the real
-// dungeon's boss room. It then consumes the completed-map exit and exercises
-// the town-side packets which follow it: op35, legacy scene-ready, op36, and a
-// second op35. It does not repeat the op22/op23/op24 return-direction oracle.
+// This audit parameterizes the actual Anton 218 -> 221..224 transfer and each
+// real dungeon's boss room. It then consumes the completed-map exit and
+// exercises the town-side packets which follow it: op35, legacy scene-ready,
+// op36, and a second op35. It does not repeat the op22/op23/op24
+// return-direction oracle. This is domain/wire lifecycle coverage, not native
+// camera or background acceptance.
 func TestReviewHatcheryPostReturnR129Lifecycle(t *testing.T) {
+	for _, dungeonID := range []uint32{221, 222, 223, 224} {
+		dungeonID := dungeonID
+		t.Run(fmt.Sprint(dungeonID), func(t *testing.T) {
+			reviewHatcheryPostReturnR129Lifecycle(t, dungeonID)
+		})
+	}
+}
+
+func reviewHatcheryPostReturnR129Lifecycle(t *testing.T, dungeonID uint32) {
+	t.Helper()
 	const (
 		characterID = uint16(99)
 		originArea  = byte(1)
 	)
-	s, session, hatchery, originTown, destination := prepareHatcheryPostReturnR129(t)
+	s, session, hatchery, originTown, destination := prepareHatcheryPostReturnR129(t, dungeonID)
 	presence, found := s.onlinePlayers.PlayerForCharacter(characterID)
 	if !found || presence.Session != session || presence.TownID != originTown || presence.AreaID != originArea {
 		t.Fatalf("post-return town actor=%+v found=%t", presence, found)
@@ -172,7 +205,7 @@ func TestReviewHatcheryPostReturnR129Lifecycle(t *testing.T) {
 	// Legacy type1345 is the native scene-ready boundary. It must complete the
 	// deferred tail without resurrecting the detached dungeon runtime.
 	session.conn.(*bufferConn).write.Reset()
-	if err := s.handleLegacyGamePacket(session, buildLegacyTownSceneReadyAckPacket()); err != nil {
+	if err := s.handleGameStreamPacket(session, loginActorGenerationLegacyStream(buildLegacyTownSceneReadyAckPacket())); err != nil {
 		t.Fatalf("post-return scene-ready: %v", err)
 	}
 	if !session.initialTownLegacySceneReadyAccepted || !session.sceneBootstrapTailSent || session.sceneBootstrapTailDeferred {
@@ -182,6 +215,18 @@ func TestReviewHatcheryPostReturnR129Lifecycle(t *testing.T) {
 			session.sceneBootstrapTailDeferred)
 	}
 	assertHatcheryReturnDetachedForR129(t, session, hatchery)
+
+	// The stream dispatcher owns the next-packet login replay hook. Calling
+	// only the individual town handlers misses a second actor creation here.
+	session.conn.(*bufferConn).write.Reset()
+	if err := s.handleGameStreamPacket(session, loginActorGenerationLegacyStream(loginActorGenerationClientPacket())); err != nil {
+		t.Fatalf("first client packet after completed hatchery scene-ready: %v", err)
+	}
+	for _, packet := range splitAllCurrentGameServerUpperPackets(t, session.conn.(*bufferConn).write.Bytes()) {
+		if packet.Header.Classification == 0 && packet.Header.MsgID == 2 && len(packet.Body) > 0 && (packet.Body[0] == 0 || packet.Body[0] == 1) {
+			t.Fatalf("completed hatchery replayed cold-login actor mode%d", packet.Body[0])
+		}
+	}
 
 	// A normal same-town area transition after scene-ready must move the actor
 	// and persisted location while leaving no dungeon owner behind.
@@ -244,6 +289,9 @@ func TestReviewHatcheryPostReturnR129Lifecycle(t *testing.T) {
 	if !found || presence.Session != session || presence.TownID != originTown || presence.AreaID != byte(destination.ID) ||
 		presence.PositionX != 610 || presence.PositionY != 260 {
 		t.Fatalf("post-return op36/op35 actor=%+v found=%t", presence, found)
+	}
+	if hatchery.townReturnOrigin != expectedHatcheryPostReturnR129Origin(characterID) {
+		t.Fatalf("post-return movement changed frozen direction/origin: %+v", hatchery.townReturnOrigin)
 	}
 }
 

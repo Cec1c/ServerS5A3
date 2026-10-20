@@ -531,7 +531,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		session.townMu.Unlock()
 		clearCurrentDungeonSelectContext(session)
 		clearCurrentTownSelectorOrigin(session)
-		s.armCurrentInitialTownRoute(session, session.selectedCharacterID)
+		s.armCurrentTownActorRoute(session, session.selectedCharacterID, true)
 		session.sceneBootstrapTailDeferred = true
 	}
 
@@ -983,6 +983,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.townMu.Lock()
 	resetCurrentTownPostTransitionPlayerState(session)
 	session.initialTownRouteCharacterID = 0
+	session.initialTownRouteCompletedReturn = false
 	session.initialTownRouteStage = currentInitialTownRouteIdle
 	session.initialTownLocationNotificationsSent = false
 	session.initialTownQuestSnapshotsSent = false
