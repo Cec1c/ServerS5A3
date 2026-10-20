@@ -85,6 +85,10 @@ func (s *Service) handleDungeonCharacterStatistic(session *gameSession, body []b
 // clear journal uses that route without the ordinary op69/70/71 card handshake;
 // its rewards remain owned by the raid phase/card flow.
 func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) error {
+	return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketGiveupGame))
+}
+
+func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body []byte, requestMsgID uint16) error {
 	if session == nil {
 		return nil
 	}
@@ -132,6 +136,10 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 			"reason", "active_dungeon_runtime_owner_missing")
 		return nil
 	}
+	if requestMsgID == uint16(dnfenum.CmdPacketEplpCommand) && !s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return nil
+	}
 	snapshot := runtime.Session.Snapshot()
 	// 锦标赛终止态的出本门（本批接线）。厂商 `DungeonClearPresentationPolicy`
 	// 对 Tournament 关掉普通结算投影（`CompletesAtClearCommit`，`DungeonEventEnvelope.cs:15-25`），
@@ -161,7 +169,8 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 			"reason", "dungeon_run_not_active_or_completed")
 		return nil
 	}
-	if runtime.townReturnPending && snapshot.Run.Status != worldmap.DungeonRunCompleted {
+	if runtime.townReturnPending && snapshot.Run.Status != worldmap.DungeonRunCompleted &&
+		(requestMsgID != uint16(dnfenum.CmdPacketEplpCommand) || runtime.townReturnRequestMsgID != requestMsgID || runtime.townReturnOp24Sent) {
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-giveup-game-replay",
 			"char_id", session.selectedCharacterID,
@@ -191,7 +200,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 			s.logGameEvent(session, "game-dungeon-tournament-result-exit-accepted",
 				"char_id", session.selectedCharacterID,
 				"dungeon_id", runtime.Dungeon.ID,
-				"request_msg_id", uint16(dnfenum.CmdPacketGiveupGame),
+				"request_msg_id", requestMsgID,
 				"run_status", snapshot.Run.Status,
 				"completed_rounds", currentTournamentCompletedRounds(runtime),
 				"champion", runtime.Tournament != nil && runtime.Tournament.isChampion(),
@@ -201,7 +210,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 				session,
 				runtime,
 				transition,
-				uint16(dnfenum.CmdPacketGiveupGame),
+				requestMsgID,
 				source,
 			)
 		}
@@ -213,7 +222,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 				"completion_key", runtime.clearMapCompletionKey,
 				"source", "current_exe_completed_floor_op46_op123_op42_without_ordinary_cards")
 			return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
-				uint16(dnfenum.CmdPacketGiveupGame), "current_exe_completed_despair_floor_op42_return_to_town")
+				requestMsgID, "current_exe_completed_despair_floor_op42_return_to_town")
 		}
 		if currentGriefCompletedResultExitReady(runtime, session.selectedCharacterID) {
 			runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
@@ -223,7 +232,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 				"completion_key", runtime.clearMapCompletionKey,
 				"source", "current_exe_grief_op46_op123_op42_without_ordinary_cards")
 			return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
-				uint16(dnfenum.CmdPacketGiveupGame), "current_exe_completed_grief_floor_op42_return_to_town")
+				requestMsgID, "current_exe_completed_grief_floor_op42_return_to_town")
 		}
 		if !completedTutorial && !completedRaid && runtime.settlementCardLayoutSent &&
 			!runtime.settlementCardSideSelectionSent[dungeonCardSideFree] {
@@ -237,7 +246,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 				s.logGameEvent(session, "game-dungeon-giveup-game-completed-auto-flip-blocked",
 					"char_id", session.selectedCharacterID,
 					"dungeon_id", runtime.Dungeon.ID,
-					"request_msg_id", uint16(dnfenum.CmdPacketGiveupGame),
+					"request_msg_id", requestMsgID,
 					"error", err)
 			}
 		}
@@ -246,7 +255,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 				s.logGameEvent(session, "game-dungeon-giveup-game-completed-exit-reward-retry-blocked",
 					"char_id", session.selectedCharacterID,
 					"dungeon_id", runtime.Dungeon.ID,
-					"request_msg_id", uint16(dnfenum.CmdPacketGiveupGame),
+					"request_msg_id", requestMsgID,
 					"error", err)
 			}
 		}
@@ -256,7 +265,7 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 			s.logGameEvent(session, "game-dungeon-giveup-game-completed-exit-deferred-before-card-reward",
 				"char_id", session.selectedCharacterID,
 				"dungeon_id", runtime.Dungeon.ID,
-				"request_msg_id", uint16(dnfenum.CmdPacketGiveupGame),
+				"request_msg_id", requestMsgID,
 				"layout_sent", runtime.settlementCardLayoutSent,
 				"selection_sent", runtime.settlementCardSelectionSent,
 				"reward_committed", runtime.settlementCardRewardCommitted,
@@ -271,15 +280,25 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 			session,
 			runtime,
 			transition,
-			uint16(dnfenum.CmdPacketGiveupGame),
+			requestMsgID,
 			source,
 		)
+	}
+	if requestMsgID == uint16(dnfenum.CmdPacketEplpCommand) {
+		source = currentRaidTableReturnSource
+		if !runtime.townReturnAckSent {
+			if err := s.sendGameUpperRawClass(session, requestMsgID, buildCurrentDungeonOp72SuccessBody(1, 2), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.townReturnAckSent = true
+		}
 	}
 	err = s.sendCurrentDungeonReturnToTownLocked(
 		session,
 		runtime,
 		transition,
-		uint16(dnfenum.CmdPacketGiveupGame),
+		requestMsgID,
 		source,
 	)
 	session.dungeon.mu.Unlock()

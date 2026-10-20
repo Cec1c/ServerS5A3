@@ -185,6 +185,7 @@ type runtimeDungeonState struct {
 	tutorialInitialUserStateSent         bool
 	townReturnPending                    bool
 	townReturnOp24Sent                   bool
+	townReturnAckSent                    bool // active table72 ACK receipt; reset with the pending return
 	townReturnRequestMsgID               uint16
 	townReturnSource                     string
 	townReturnOrigin                     currentTownPositionSnapshot
