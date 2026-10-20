@@ -37,6 +37,7 @@ func TestRealPVFEquipmentRecipeUpgradeTransactions(t *testing.T) {
 	normal, admitted, committed := 0, 0, 0
 	rejected := map[string]int{}
 	lukeArmor := map[int64]bool{}
+	heblon := map[int64]bool{}
 	for _, entry := range entries {
 		if entry.MaintainAbility != "normal" {
 			continue
@@ -122,10 +123,13 @@ func TestRealPVFEquipmentRecipeUpgradeTransactions(t *testing.T) {
 			if entry.ItemID >= 10159624 && entry.ItemID <= 10159648 {
 				lukeArmor[entry.ItemID] = true
 			}
+			if entry.ItemID >= 10304471 && entry.ItemID <= 10304473 {
+				heblon[entry.ItemID] = true
+			}
 		})
 	}
 	t.Logf("coverage=%+v normal=%d admitted=%d committed=%d luke90Barmor=%d rejected=%v", coverage, normal, admitted, committed, len(lukeArmor), rejected)
-	if normal != 287 || admitted != 90 || committed != 90 || len(lukeArmor) != 25 {
+	if normal != 287 || admitted != 93 || committed != 93 || len(lukeArmor) != 25 || len(heblon) != 3 {
 		t.Fatalf("coverage changed normal=%d admitted=%d committed=%d", normal, admitted, committed)
 	}
 	for id := int64(10159634); id <= 10159638; id++ {
