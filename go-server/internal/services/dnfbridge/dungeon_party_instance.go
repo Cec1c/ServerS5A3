@@ -511,6 +511,12 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 // 最后一两只怪往往是队长打死的，队员那边只是被广播标记了清怪状态 ⇒ 队员永远结算不了。
 // 这里异步投递（同步会跨会话互等：广播方持有自己的 dungeon.mu，队友的回调又要它的锁）。
 func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession, instanceID uint64, objectKey uint32) {
+	s.dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer, instanceID, objectKey, nil)
+}
+
+// accept, when present, revalidates a scoped completion proof under the peer's
+// dungeon lock. Ordinary hostile-death callers retain their existing path.
+func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameSession, instanceID uint64, objectKey uint32, accept func(*runtimeDungeonState, worldmap.DungeonRoomScene) bool) {
 	if s == nil || peer == nil || instanceID == 0 {
 		return
 	}
@@ -526,12 +532,23 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession,
 		if !ok || !scene.Cleared {
 			return nil
 		}
+		if accept != nil && !accept(runtime, scene) {
+			return nil
+		}
 		if err := s.persistCurrentDungeonRoomClearQuestLocked(peer, runtime); err != nil {
 			return err
 		}
 		s.awardCurrentPetRoomClearLocked(peer, runtime, scene, "authoritative_peer_room_clear")
-		if err := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey); err != nil {
-			return err
+		completionErr := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey)
+		if accept != nil && runtime.bossDieCheckAccepted && !runtime.settlementEntrySent {
+			// Public master lacks the cumulative R133 retry. Resume only the
+			// validated Luke passive-object dispatch through its existing owner;
+			// nil-accept ordinary callers keep their original failure behavior.
+			if err := s.completeCurrentDungeonBossDieCheckLocked(peer, runtime, "validated_luke_destroy_dispatch_resume_partial_settlement"); err != nil {
+				return errors.Join(completionErr, err)
+			}
+		} else if completionErr != nil {
+			return completionErr
 		}
 		if err := s.completePVFTutorialBosslessFinalRoomAfterDeathLocked(peer, runtime, scene); err != nil {
 			return err
