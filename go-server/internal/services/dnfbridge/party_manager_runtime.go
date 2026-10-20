@@ -538,6 +538,9 @@ func (s *Service) replaceManagedRuntimeParty(state alignedcmd.PartyState) (align
 	if !created.OK {
 		return alignedcmd.PartyState{}, false
 	}
+	if err := s.reconcileManagedPriorPartyLeave(created.PriorLeave, leaderID); err != nil {
+		return alignedcmd.PartyState{}, false
+	}
 	snapshot := created.Party
 	for _, cached := range members {
 		if cached.UserID == leaderID {
@@ -554,6 +557,9 @@ func (s *Service) replaceManagedRuntimeParty(state alignedcmd.PartyState) (align
 		member.State = cached
 		joined := manager.Join(snapshot.ID, member)
 		if !joined.OK {
+			return alignedcmd.PartyState{}, false
+		}
+		if err := s.reconcileManagedPriorPartyLeave(joined.PriorLeave, cached.UserID); err != nil {
 			return alignedcmd.PartyState{}, false
 		}
 		snapshot = joined.Party
