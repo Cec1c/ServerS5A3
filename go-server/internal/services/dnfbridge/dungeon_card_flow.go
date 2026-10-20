@@ -136,8 +136,13 @@ func (s *Service) handleDungeonCardSelectRightState(session *gameSession, body [
 		return nil
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
-	return s.sendCurrentDungeonCardLayoutLocked(session, session.dungeon.runtime, "current_exe_op70_request")
+	runtime := session.dungeon.runtime
+	err := s.sendCurrentDungeonCardLayoutLocked(session, runtime, "current_exe_op70_request")
+	session.dungeon.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.resumeCurrentDungeonCardTownReturn(session, runtime)
 }
 
 func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) error {
@@ -153,7 +158,6 @@ func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) err
 		return nil
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
 	runtime := session.dungeon.runtime
 	if runtime == nil || !runtime.settlementCardLayoutSent ||
 		runtime.settlementPhase < currentDungeonSettlementPhaseCardsRevealed {
@@ -163,6 +167,7 @@ func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) err
 			"request_value_b", request.ValueB,
 			"request_value_count", request.ValueCount,
 			"reason", "card_layout_not_committed_after_op70")
+		session.dungeon.mu.Unlock()
 		return nil
 	}
 	side, ok := currentDungeonCardRequestSide(request.ValueA)
@@ -172,15 +177,21 @@ func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) err
 			"request_value_a", request.ValueA,
 			"request_value_b", request.ValueB,
 			"reason", "current_exe_op71_row_or_member_index_invalid")
+		session.dungeon.mu.Unlock()
 		return nil
 	}
-	return s.selectCurrentDungeonCardLocked(
+	err = s.selectCurrentDungeonCardLocked(
 		session,
 		runtime,
 		side,
 		request.ValueB,
 		"current_exe_op71_select_request",
 	)
+	session.dungeon.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.resumeCurrentDungeonCardTownReturn(session, runtime)
 }
 
 // currentDungeonSelectedCardSlots 组装 op71 的 8 槽表。
@@ -618,22 +629,27 @@ func (s *Service) armCurrentDungeonCardAutoFlipLocked(
 			characterGeneration,
 			func() error {
 				session.dungeon.mu.Lock()
-				defer session.dungeon.mu.Unlock()
 				current := session.dungeon.runtime
 				if current != runtime ||
 					runtime.settlementCardAutoFlipGeneration != generation ||
 					!runtime.settlementCardLayoutSent ||
 					runtime.settlementCardSideSelectionKnown[dungeonCardSideFree] {
+					session.dungeon.mu.Unlock()
 					return nil
 				}
 				runtime.settlementCardAutoFlipTimerName = ""
-				return s.selectCurrentDungeonCardLocked(
+				err := s.selectCurrentDungeonCardLocked(
 					session,
 					runtime,
 					dungeonCardSideFree,
 					currentDungeonAutomaticCardIndex(session, runtime),
 					"timequeue_auto_flip_free_row",
 				)
+				session.dungeon.mu.Unlock()
+				if err != nil {
+					return err
+				}
+				return s.resumeCurrentDungeonCardTownReturn(session, runtime)
 			},
 		)
 		if postErr != nil && !isClosedGameSessionEventError(postErr) {

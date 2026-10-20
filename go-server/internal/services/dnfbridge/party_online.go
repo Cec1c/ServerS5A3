@@ -114,6 +114,9 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 		return nil
 	}
 	sourceID := selectedCharacterID(session)
+	if handled, err := s.rejectCurrentFiendWarActivePartyRequest(session, typ, parsed); handled || err != nil {
+		return err
+	}
 	// 频道隔离（彻底隔离口径）：目标在别的频道时**必须明确失败**——不回包会让客户端
 	// "点了没反应"，静默丢弃更是无法复测；这里回通用失败包并记明 reason。
 	// 只对"目标在线且频道不同"生效；目标离线/异区域仍走下面的既有静默路径。
@@ -871,6 +874,9 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				parsed.Mode,
 			)
 		}
+	}
+	if handled, err := s.acknowledgeCurrentFiendWarPartyAccept(session, targetIdentity.session, typ, parsed, inviteConsumed); handled || err != nil {
+		return err
 	}
 	if !inviteConsumed {
 		s.logGameEvent(session, "game-peer-response-without-pending-request",

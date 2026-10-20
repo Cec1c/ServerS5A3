@@ -692,8 +692,13 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 	index := dungeonIndex.mazes[request.MazeIndex]
 	key := coordinateKey{x: request.X, y: request.Y}
 	expectedType := expectedMapFileType(maze, key)
+	if candidates, handled, err := r.fiendWarDeclaredRoom(dungeon, maze, index, key); handled {
+		return candidates, ResolutionMapSpecification, err
+	}
 
-	// 起始/首领房的两条真源之间的优先级。
+	// 以下是普通起始/首领房的两条真源之间的优先级。
+	// 上面的 FiendWar 4953/4978 显式房间校验同时适用于两档，不属于缺门回退；
+	// 其修复前后影响面需单独比较，不能从下述两档审计推出。
 	//
 	// **修复档只吃一种形状**：改动前那条文件名启发式要发的房间地图
 	// **整段没有** `[pathgate recognize range]`（= 这个房间里一扇可用门都没声明），
@@ -708,9 +713,10 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 	//	  显式声明 = 42101 `KohlePowerStation/42101.map`（`0 0 130 140 0 0 0 0`）
 	//
 	// 客户端靠这张表的矩形才能走进下一间房：发了没有该段的图，清完房间门就不开
-	// （操作者「7 格蓝迪 克雷没有修复」）。其余每一间**逐字节保持改动前口径**，
+	// （操作者「7 格蓝迪 克雷没有修复」）。此处两档之间其余房间保持相同口径，
 	// 由真档全量审计 `TestRealPVFStartMapPrecedenceKeepsEveryResolvableRoomResolvable`
-	// 钉住（改动前后没有任何房间从可解析变成不可解析，且只有"缺门声明"这一种形状换图）。
+	// 钉住（两档比较没有可解析房间退化，档位差异仅为"缺门声明"形状；
+	// 两档共同执行的 FiendWar 规则不在该比较的差异集合中）。
 	if !r.options.preemptsSpecification() {
 		if candidates, ok := r.doorBearingSpecificationRoom(index, maze, key, expectedType); ok {
 			return candidates, ResolutionMapSpecification, nil
