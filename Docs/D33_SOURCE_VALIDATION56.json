@@ -1,0 +1,123 @@
+{
+  "baseline_commit": "58145b08bf614177995cd37475e35fc230d179bb",
+  "source_files": 3433,
+  "changed_go_files": 55,
+  "candidate_manifest_sha256": "c136e823f17fced02a2b2f1c8fe2770c304bb4194627be2c8f18bec3991d0814",
+  "summary": {
+    "list": {
+      "exit": 0
+    },
+    "core": {
+      "pass": 8560,
+      "fail": 0,
+      "skip": 774
+    },
+    "real-pvf": {
+      "pass": 396,
+      "fail": 0,
+      "skip": 1
+    },
+    "vet": {
+      "exit": 0
+    },
+    "windows": {
+      "exit": 0
+    },
+    "linux": {
+      "exit": 0
+    }
+  },
+  "all_selected_commands_exit_zero": true,
+  "whole_real_PVF_passed": false,
+  "separate_asset_skip": "TestRealPVFAntonOpenMapRetryCommitsFreshOwnedEntry requires separate actual single-Anton PVF",
+  "prior_failed_candidates_preserved": [
+    "combined46:10 core failures",
+    "log47: nested provider error disclosure counterexample"
+  ],
+  "log48_independent_joint": {
+    "pass": 210,
+    "fail": 0,
+    "skip": 0
+  },
+  "control50_independent_exact_files": 8,
+  "binaries": [
+    {
+      "path": "dist/linux-amd64/DNF90Control",
+      "bytes": 10874196,
+      "sha256": "31dc9105eecbb7d577ac0f3a17bf076a3e39471360ea7e9b7f0ea294789326eb"
+    },
+    {
+      "path": "dist/linux-amd64/DNF90Doctor",
+      "bytes": 26740175,
+      "sha256": "556bf33541b53e043ddfdd95850e1d6dc28569883ade10f09310d3a52038b36e"
+    },
+    {
+      "path": "dist/linux-amd64/DNF90Server",
+      "bytes": 56451516,
+      "sha256": "4444babcc7829c4cdda8327ab8617262336b453a6ec3f936f31f47a26c85116a"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Control.exe",
+      "bytes": 11394048,
+      "sha256": "e49bff7ee15d4ffc003b066de275ccf7519d37940ae8e20cdd1930bf2a6a541c"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Doctor.exe",
+      "bytes": 27247104,
+      "sha256": "c662ed38cb92918a4742daed0103fb24eba75fcc5fd7ddaec6606eafdf50bb11"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Server.exe",
+      "bytes": 57192448,
+      "sha256": "4d09a58ca5d4cadb66098c5c297c1f68e6374468f155c90bd7078cf58b9ca1b9"
+    }
+  ],
+  "daily_deployment": "r98 retained",
+  "GUI_acceptance": false,
+  "remote_CI": "164529 and source31e2 pipeline164570 failed before scripts: stuck_pending_no_matching_runners; no remote CI pass",
+  "remote_CI_observed103_104": {
+    "source_commit": "31e2b51b605a4b070869e27ab88279302181d486",
+    "checked_UTC": "2026-10-11T23:05:15.484936+00:00",
+    "pipeline_id": 164570,
+    "pipeline_url": "https://gitgud.io/16ww/servers5a3/-/pipelines/164570",
+    "status": "failed",
+    "build_job_ids": [570646, 570645],
+    "build_failure_reason": "stuck_pending_no_matching_runners",
+    "build_runner_and_started_at_null": true,
+    "all_four_job_trace_bytes": 0,
+    "core_tests_and_SAST": "skipped",
+    "project_shared_and_group_runners_enabled": true,
+    "visible_instance_runner": "paused/offline/stale",
+    "remote_CI_passed": false
+  },
+  "format_derivation60": {
+    "files": [
+      {
+        "path": "internal/services/dnfbridge/skill_options_review44_test.go",
+        "before_sha256": "fd53d1caf479f3c814a7a310672ae34dc301fce240cd14fe5a7b62f5ba58d3b0",
+        "after_sha256": "1313cdd430c50ff57ca4bc586b3cdf9186f1cc73d1caa934b91d70e6bdd38e4e",
+        "gofmt_canonical_output": true,
+        "test_only": true
+      },
+      {
+        "path": "internal/services/dnfbridge/character_option_entry_failure_regression48_test.go",
+        "before_sha256": "daeeba9fda413fb469e697f2ddb443f7d420e4eea37f9f1d2e951efd9ef024c6",
+        "after_sha256": "651f16a0e4bf5890e99a7b652deaad9fb753802582e0acf3c9c4967bf77457a6",
+        "gofmt_canonical_output": true,
+        "test_only": true
+      }
+    ],
+    "production_changed": false,
+    "failed390_regression": {
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    "official512_guard_regression": {
+      "pass": 7,
+      "fail": 0,
+      "skip": 0
+    },
+    "original_full56_matrix_preserved": true
+  }
+}

@@ -1,0 +1,9 @@
+# 当前v112大会翻牌应答
+
+问题：用户通关黄龙/青龙后聊天栏物品已到账，但翻牌不播放；原现场只有bodyless457请求，3秒timer落两排奖励，selection_reply_body_len=0。
+
+证据：固定EXE c82cb80374edcbbd8497f20f5517d89439bcb37499954a35294ef3e77d16ab1a，PE映射使用image base及section RVA换算。1fac980取得COMMAND表后注册457 handler1fa5420、458 handler1fa5460；2523cf6读取result，251e1e0经2524210查COMMAND表；NOTI走251e340/25244a0另一表。1fa5420调用243f200切UI状态6并消费8字节，1fa5460按两排count读取slots，再调用243fab0刷新卡面。成功标志由外层分发器消费，原9字节457与7字节458体保持。
+
+旧历史RST均发生class0发送，不能据此证明当前class1命令路径同样不安全。此次仅official-24.9改分类，同时只在该run收到457并成功发出class1状态后给timer发458。success write只证明字节交付连接，不证明客户端绘制完成；实机复测仍需关注断线与动画。未知profile与state回退档保持，旧危险开关不能绕过当前profile的run就绪门。
+
+奖励事务、权重和每排只交付一次沿用原实现。timer后迟到点击只投影已提交选择，不二次发奖；本批不补发历史奖励，不修改EXE/PVF。源码候选供MR审阅，原生验收待办。

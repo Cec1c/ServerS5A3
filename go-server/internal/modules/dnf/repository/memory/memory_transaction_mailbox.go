@@ -1,0 +1,204 @@
+package memory
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"longheng.io/server/internal/modules/dnf/repository"
+	"strings"
+	"sync"
+)
+
+type memoryMailboxAssetUnitOfWork struct {
+	mu               sync.Mutex
+	sharedMu         *sync.Mutex
+	account          repository.AccountRepository
+	accountInventory repository.AccountInventoryRepository
+	character        repository.CharacterRepository
+	inventory        repository.InventoryRepository
+	mailbox          repository.MailboxRepository
+}
+
+func (u *memoryMailboxAssetUnitOfWork) WithinMailboxAssets(
+	ctx context.Context,
+	assetCharacterID string,
+	mailboxCharacterID string,
+	apply func(repository.CharacterRepository, repository.InventoryRepository, repository.MailboxRepository) error,
+) (err error) {
+	assetCharacterID = strings.TrimSpace(assetCharacterID)
+	mailboxCharacterID = strings.TrimSpace(mailboxCharacterID)
+	if assetCharacterID == "" || mailboxCharacterID == "" || apply == nil || u == nil ||
+		u.character == nil || u.inventory == nil || u.mailbox == nil {
+		return repository.ErrMailboxAssetTransactionUnavailable
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	lock := &u.mu
+	if u.sharedMu != nil {
+		lock = u.sharedMu
+	}
+	lock.Lock()
+	defer lock.Unlock()
+
+	character, characterExists, err := u.character.Load(ctx, assetCharacterID)
+	if err != nil {
+		return err
+	}
+	inventory, inventoryExists, err := u.inventory.Load(ctx, assetCharacterID)
+	if err != nil {
+		return err
+	}
+	mailbox, mailboxExists, err := u.mailbox.Load(ctx, mailboxCharacterID)
+	if err != nil {
+		return err
+	}
+
+	characterTx := &memoryCharacterTransaction{
+		characterID: assetCharacterID,
+		record:      repository.CloneCharacter(character),
+		exists:      characterExists,
+	}
+	inventoryTx := &memoryInventoryTransaction{
+		characterID: assetCharacterID,
+		record:      repository.CloneInventory(inventory),
+		exists:      inventoryExists,
+	}
+	mailboxTx := &memoryMailboxTransaction{
+		characterID: mailboxCharacterID,
+		record:      repository.CloneMailbox(mailbox),
+		exists:      mailboxExists,
+	}
+	if err := apply(characterTx, inventoryTx, mailboxTx); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	characterAttempted, inventoryAttempted, mailboxAttempted := false, false, false
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		err = errors.Join(err,
+			restoreMailboxAssetAttempt(func() error {
+				return restoreMailboxRecordIfDirty(u.mailbox, mailboxCharacterID, mailbox, mailboxExists, mailboxAttempted)
+			}),
+			restoreMailboxAssetAttempt(func() error {
+				return restoreInventoryRecordIfDirty(u.inventory, assetCharacterID, inventory, inventoryExists, inventoryAttempted)
+			}),
+			restoreMailboxAssetAttempt(func() error {
+				return restoreCharacterRecord(u.character, assetCharacterID, character, characterExists, characterAttempted)
+			}),
+		)
+	}()
+	if characterTx.dirty {
+		characterAttempted = true
+		if err = u.character.Save(ctx, characterTx.record); err != nil {
+			return err
+		}
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if inventoryTx.dirty {
+		inventoryAttempted = true
+		if err = u.inventory.Save(ctx, inventoryTx.record); err != nil {
+			return err
+		}
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if mailboxTx.dirty {
+		mailboxAttempted = true
+		if err = u.mailbox.Save(ctx, mailboxTx.record); err != nil {
+			return err
+		}
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	committed = true
+
+	return nil
+}
+
+// A restoration panic must not prevent remaining attempted aggregates from
+// being restored. The original physical Save panic still propagates.
+func restoreMailboxAssetAttempt(restore func() error) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("mailbox asset aggregate restore panicked: %v", p)
+		}
+	}()
+	return restore()
+}
+
+type memoryMailboxTransaction struct {
+	characterID string
+	record      repository.MailboxRecord
+	exists      bool
+	dirty       bool
+}
+
+func (tx *memoryMailboxTransaction) Load(ctx context.Context, characterID string) (repository.MailboxRecord, bool, error) {
+	if err := repository.TransactionKeyError(ctx, tx.characterID, characterID); err != nil {
+		return repository.MailboxRecord{}, false, err
+	}
+	return repository.CloneMailbox(tx.record), tx.exists, nil
+}
+
+func (tx *memoryMailboxTransaction) Save(ctx context.Context, record repository.MailboxRecord) error {
+	if err := repository.TransactionKeyError(ctx, tx.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	tx.record = repository.CloneMailbox(record)
+	tx.exists = true
+	tx.dirty = true
+	return nil
+}
+
+func (tx *memoryMailboxTransaction) SaveFields(ctx context.Context, record repository.MailboxRecord, fields ...repository.MailboxField) error {
+	if err := repository.TransactionKeyError(ctx, tx.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	tx.record = repository.CloneMailbox(record)
+	tx.exists = true
+	tx.dirty = true
+	return nil
+}
+
+func restoreMailboxRecordIfDirty(
+	repo repository.MailboxRepository,
+	characterID string,
+	record repository.MailboxRecord,
+	existed bool,
+	dirty bool,
+) error {
+	if !dirty {
+		return nil
+	}
+	if existed {
+		return repo.Save(context.Background(), record)
+	}
+	deleter, ok := repo.(interface {
+		Delete(context.Context, string) error
+	})
+	if !ok {
+		return errors.New("mailbox rollback cannot remove newly created record")
+	}
+	return deleter.Delete(context.Background(), characterID)
+}

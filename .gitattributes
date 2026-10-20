@@ -1,0 +1,10 @@
+# Keep frozen source bytes unchanged; normalize build entrypoints only.
+* -text
+/build.bat text eol=crlf
+/build.sh text eol=lf
+/.gitlab-ci.yml text eol=lf
+/README.md text eol=lf
+/changlog.md text eol=lf
+/Docs/*.md text eol=lf
+/deploy/windows/*.bat text eol=crlf
+*.go linguist-language=Go

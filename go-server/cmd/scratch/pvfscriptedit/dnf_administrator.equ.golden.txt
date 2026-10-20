@@ -1,0 +1,43 @@
+
+[name]
+`DNF运营商` 
+[grade]
+1 
+[rarity]
+2 
+[usable job]
+`[all]` 
+[/usable job]
+
+[attach type]
+`[trade]` 
+[minimum level]
+1 
+[icon]
+`Item/Title/title.img` 46 
+[equipment type]
+`[title name]` 1 
+[move wav]
+`NAME_TOUCH` 
+[weight]
+1 
+[dictionary text]
+`` 
+[custom animation]
+`TitleAnimation/dnf_administrator.ani` 
+[/custom animation]
+
+[room list move speed rate]
+1.00 
+[physical attack]
+999999999 
+[magical attack]
+999999999 
+[separate attack]
+999999999 
+[physical defense]
+999999999 
+[magical defense]
+999999999 
+[HP MAX]
+999999999 

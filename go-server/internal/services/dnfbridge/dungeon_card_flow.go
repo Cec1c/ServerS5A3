@@ -1,0 +1,894 @@
+package dnfbridge
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"time"
+
+	"longheng.io/server/internal/modules/dnf/dnfenum"
+)
+
+const (
+	currentDungeonCardResponseClass byte = 1
+	currentDungeonCardAutoFlipDelay      = 4 * time.Second
+)
+
+func currentDungeonCardLayoutValues(state ...*dungeonCardState) [dungeonCardWireSlotCount]uint16 {
+	values := [dungeonCardWireSlotCount]uint16{0x0001, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff}
+	if len(state) == 0 || state[0] == nil {
+		return values
+	}
+	state[0].mu.Lock()
+	defer state[0].mu.Unlock()
+	if bundle := state[0].plan.Sides[dungeonCardSidePaid]; bundle.Gold > 0 || len(bundle.Items) > 0 {
+		values[dungeonCardSlotsPerSide] = 0x0001
+	}
+	return values
+}
+
+func (s *Service) sendCurrentDungeonCardScrollStateLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
+		return nil
+	}
+	if !runtime.settlementClearRewardSent || runtime.settlementPhase < currentDungeonSettlementPhaseResultShown {
+		s.logGameEvent(session, "game-dungeon-card-scroll-state-blocked",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID,
+			"source", source,
+			"settlement_phase", runtime.settlementPhase.String(),
+			"reason", "result_phase_not_committed")
+		return nil
+	}
+	replay := runtime.settlementCardScrollStateSent
+	if err := s.sendGameUpperRawClass(
+		session,
+		uint16(dnfenum.CmdPacketScoreScrollState),
+		buildCurrentDungeonOp69SuccessBody(),
+		currentDungeonCardResponseClass,
+	); err != nil {
+		return err
+	}
+	runtime.settlementCardScrollStateSent = true
+	runtime.advanceSettlementPhase(currentDungeonSettlementPhaseCardScrollStarted)
+	s.logGameEvent(session, "game-dungeon-card-scroll-state-ack-sent",
+		"char_id", session.selectedCharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"source", source,
+		"replay", replay,
+		"op69_body_len", len(buildCurrentDungeonOp69SuccessBody()),
+		"classification", currentDungeonCardResponseClass,
+		"next_stage", "await_current_exe_c2s_op70",
+		"body_source", "current_exe_op69_proved_reader")
+	return nil
+}
+
+func (s *Service) sendCurrentDungeonCardLayoutLocked(session *gameSession, runtime *runtimeDungeonState, source string) error {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime || currentDungeonUsesDedicatedTowerResult(runtime) {
+		return nil
+	}
+	if !runtime.settlementCardScrollStateSent || runtime.settlementPhase < currentDungeonSettlementPhaseCardScrollStarted {
+		s.logGameEvent(session, "game-dungeon-card-layout-blocked",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID,
+			"source", source,
+			"settlement_phase", runtime.settlementPhase.String(),
+			"reason", "op69_scroll_state_not_acknowledged")
+		return nil
+	}
+	if runtime.settlementCardRewardState == nil {
+		if err := s.freezeCurrentDungeonCardRewardStateLocked(session, runtime); err != nil {
+			return err
+		}
+	}
+	replay := runtime.settlementCardLayoutSent
+	body := buildCurrentDungeonOp70EightValueSuccessBody(currentDungeonCardLayoutValues(runtime.settlementCardRewardState))
+	if err := s.sendGameUpperRawClass(
+		session,
+		uint16(dnfenum.CmdPacketCardSelectRightState),
+		body,
+		currentDungeonCardResponseClass,
+	); err != nil {
+		return err
+	}
+	runtime.settlementCardRightStateSent = true
+	runtime.settlementCardLayoutSent = true
+	runtime.advanceSettlementPhase(currentDungeonSettlementPhaseCardsRevealed)
+	if !replay {
+		s.armCurrentDungeonCardAutoFlipLocked(session, runtime)
+	}
+	s.logGameEvent(session, "game-dungeon-card-layout-sent",
+		"char_id", session.selectedCharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"source", source,
+		"replay", replay,
+		"op70_body_len", len(body),
+		"classification", currentDungeonCardResponseClass,
+		"next_stage", "await_current_exe_c2s_op71",
+		"body_source", "current_exe_op70_proved_reader")
+	return nil
+}
+
+func (s *Service) handleDungeonScoreScrollState(session *gameSession, body []byte) error {
+	// The semantic request is bodyless, but the legacy game transport can pad the
+	// body (like op71/op72). A padded body carries no extra meaning, so proceed
+	// and only note the padding instead of rejecting the whole request.
+	if len(body) != 0 {
+		s.logGameEvent(session, "game-dungeon-card-layout-request-padding",
+			"body_len", len(body),
+			"reason", "current_exe_op69_semantic_request_bodyless_legacy_padding_ignored")
+	}
+	if session == nil {
+		return nil
+	}
+	session.dungeon.mu.Lock()
+	defer session.dungeon.mu.Unlock()
+	return s.sendCurrentDungeonCardScrollStateLocked(session, session.dungeon.runtime, "current_exe_op69_request")
+}
+
+func (s *Service) handleDungeonCardSelectRightState(session *gameSession, body []byte) error {
+	if len(body) != 0 {
+		s.logGameEvent(session, "game-dungeon-card-layout-request-padding",
+			"body_len", len(body),
+			"reason", "current_exe_op70_semantic_request_bodyless_legacy_padding_ignored")
+	}
+	if session == nil {
+		return nil
+	}
+	session.dungeon.mu.Lock()
+	defer session.dungeon.mu.Unlock()
+	return s.sendCurrentDungeonCardLayoutLocked(session, session.dungeon.runtime, "current_exe_op70_request")
+}
+
+func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) error {
+	request, err := decodeCurrentDungeonOp71Request(body)
+	if err != nil {
+		s.logGameEvent(session, "game-dungeon-card-select-blocked",
+			"body_len", len(body),
+			"reason", "current_exe_op71_request_shape_mismatch",
+			"error", err)
+		return nil
+	}
+	if session == nil {
+		return nil
+	}
+	session.dungeon.mu.Lock()
+	defer session.dungeon.mu.Unlock()
+	runtime := session.dungeon.runtime
+	if runtime == nil || !runtime.settlementCardLayoutSent ||
+		runtime.settlementPhase < currentDungeonSettlementPhaseCardsRevealed {
+		s.logGameEvent(session, "game-dungeon-card-select-blocked",
+			"char_id", session.selectedCharacterID,
+			"request_value_a", request.ValueA,
+			"request_value_b", request.ValueB,
+			"request_value_count", request.ValueCount,
+			"reason", "card_layout_not_committed_after_op70")
+		return nil
+	}
+	side, ok := currentDungeonCardRequestSide(request.ValueA)
+	if !ok || request.ValueB >= dungeonCardSlotsPerSide {
+		s.logGameEvent(session, "game-dungeon-card-select-blocked",
+			"char_id", session.selectedCharacterID,
+			"request_value_a", request.ValueA,
+			"request_value_b", request.ValueB,
+			"reason", "current_exe_op71_row_or_member_index_invalid")
+		return nil
+	}
+	return s.selectCurrentDungeonCardLocked(
+		session,
+		runtime,
+		side,
+		request.ValueB,
+		"current_exe_op71_select_request",
+	)
+}
+
+// currentDungeonSelectedCardSlots 组装 op71 的 8 槽表。
+//
+// 线语义（厂商 `CardRewardCoordinator.cs:1073-1142` 已证）：**下标 = 牌位**（本仓就是
+// `request.ValueB`，见 `handleDungeonSelectCard`），**值 = 翻牌人的队伍槽位**，
+// `0xff` = 没人翻。`flipPartySlot` 因此是本会话在队伍名册里的下标（修复档），
+// 回退档恒 0（= 改动前那个恒 0 值）。见 dungeon_party_card_flip_row_model.go。
+func currentDungeonSelectedCardSlots(
+	runtime *runtimeDungeonState,
+	flipPartySlot byte,
+) ([dungeonCardWireSlotCount]currentDungeonOp71Slot, int) {
+	var slots [dungeonCardWireSlotCount]currentDungeonOp71Slot
+	for index := range slots {
+		slots[index] = currentDungeonOp71Slot{StateA: 0xff, StateB: 0xff}
+	}
+	if runtime == nil || runtime.settlementCardRewardState == nil {
+		return slots, 0
+	}
+	runtime.settlementCardRewardState.mu.Lock()
+	plan := cloneDungeonCardRewardPlan(runtime.settlementCardRewardState.plan)
+	runtime.settlementCardRewardState.mu.Unlock()
+
+	rewardTupleCount := 0
+	for side := dungeonCardSide(0); side < dungeonCardSideCount; side++ {
+		if !runtime.settlementCardSideSelectionKnown[side] {
+			continue
+		}
+		memberIndex := runtime.settlementCardSideMember[side]
+		if memberIndex >= dungeonCardSlotsPerSide {
+			continue
+		}
+		wireIndex := int(memberIndex)
+		slot := slots[wireIndex]
+		if side == dungeonCardSideFree {
+			slot.StateA = flipPartySlot
+		} else {
+			slot.StateB = flipPartySlot
+		}
+		slots[wireIndex] = slot
+	}
+	// 奖励块：每个牌位只有一个（厂商 `BuildCardInfoAck` 同一个块里先金币后道具），
+	// 规则 = 付费行优先、付费行还没翻时用免费行自己的内容（修复档）。
+	// 改动前**只**给付费行挂内容 ⇒ 已翻开的免费行那张牌在客户端是空牌面（蓝色 X）。
+	// 见 dungeon_party_card_free_row_reward.go。
+	for wireIndex := 0; wireIndex < dungeonCardSlotsPerSide; wireIndex++ {
+		rewards := currentDungeonCardSlotRewardTuples(runtime, plan, wireIndex)
+		if len(rewards) == 0 {
+			continue
+		}
+		slot := slots[wireIndex]
+		slot.Rewards = rewards
+		slots[wireIndex] = slot
+		rewardTupleCount += len(rewards)
+	}
+	// 队友已经翻开的行并进本次投影（账本为空 ⇒ 逐字段等于改动前，单人/回退档都不变）。
+	// 见 dungeon_party_card_flip_projection.go。
+	return overlayCurrentDungeonPartyCardFlipSlots(slots, runtime.partyInstance), rewardTupleCount
+}
+
+func currentDungeonCardRequestSide(value byte) (dungeonCardSide, bool) {
+	switch value {
+	case 0:
+		return dungeonCardSideFree, true
+	case 1, 2:
+		return dungeonCardSidePaid, true
+	default:
+		return 0, false
+	}
+}
+
+func currentDungeonOp71RewardTuplesFromCardBundle(bundle dungeonCardRewardBundle) []currentDungeonOp71RewardTuple {
+	displayItems := currentDungeonCardDisplayItems(bundle)
+	tuples := make([]currentDungeonOp71RewardTuple, 0, 1+len(displayItems))
+	if bundle.Gold > 0 {
+		tuples = append(tuples, currentDungeonOp71RewardTuple{ValueA: 0, ValueB: uint32(bundle.Gold)})
+	}
+	for _, item := range displayItems {
+		if item.ItemID <= 0 || item.Count <= 0 {
+			continue
+		}
+		count := item.Count
+		if count > math.MaxUint32 {
+			count = math.MaxUint32
+		}
+		tuples = append(tuples, currentDungeonOp71RewardTuple{
+			ValueA: uint32(item.ItemID),
+			ValueB: uint32(count),
+		})
+	}
+	return tuples
+}
+
+func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) error {
+	request, err := decodeCurrentDungeonOp72Request(body)
+	if err != nil {
+		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
+			"body_len", len(body),
+			"reason", "current_exe_op72_request_shape_mismatch",
+			"error", err)
+		return nil
+	}
+	if session == nil {
+		return nil
+	}
+
+	// Current-EXE EPLP writers prove {u8 state, u8 option} semantics, and live
+	// plaintext clicks on the patched client pinned the option indices: hover
+	// sends {2, index}; clicks send {1, 0} for 再次挑战, {1, 1} for
+	// 选择其它地下城, and {1, 2} for 返回城镇 (the sub_32BF720
+	// settlement-countdown expiry also sends {1,2}). Only {1,2} owns the
+	// completed-dungeon town route. After their exact ACK echo, {1,0} is
+	// answered by a server-driven same-dungeon re-entry (the client waits for
+	// the entry sequence instead of sending op16) and {1,1} by the current
+	// op15/op27 selector push (the client waits instead of sending op15).
+	// None of those actions may cross the op69 -> op70 -> op71 card/reward
+	// barriers. The throttled {2,x} focus notification is ACK-only and must not consume
+	// the one-shot exit gate, or the following real click would lose its ACK.
+	isFocusNotification := request.ValueA == 2
+	shouldReturnToTown := request.ValueA == 1 && request.ValueB == 2
+	shouldRetrySameDungeon := request.ValueA == 1 && request.ValueB == 0
+	shouldOpenOtherSelector := request.ValueA == 1 && request.ValueB == 1
+	retryPartyState := runtimePartyStateSnapshot(session)
+	retryRequesterIsLeader := retryPartyState.PartyID <= 0 || len(runtimePartyMembers(retryPartyState)) < 2 || retryPartyState.UserID == session.selectedCharacterID
+
+	session.dungeon.mu.Lock()
+	runtime := session.dungeon.runtime
+
+	if s.options.currentClientVersion == "official-24.9" && runtime != nil && runtime.Tournament != nil {
+		// Tournament rewards use their own durable selection flow and never
+		// emit the ordinary result/card chain. Accept only the proved town
+		// click after every enabled reward row has successfully committed.
+		if !currentDungeonTournamentResultExitReady(runtime, session.selectedCharacterID) ||
+			!runtime.tournamentReward.isSelectionComplete() ||
+			(!shouldReturnToTown && !(isFocusNotification && request.ValueB <= 2)) {
+			s.logGameEvent(session, "game-dungeon-tournament-result-action-blocked", "char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID, "request_value_a", request.ValueA, "request_value_b", request.ValueB,
+				"reason", "owned_completed_selection_or_town_action_required")
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if isFocusNotification || !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand),
+				buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+		}
+		if isFocusNotification {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		runtime.settlementCardExitAckSent = true
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		s.logGameEvent(session, "game-dungeon-tournament-result-town-accepted", "char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand))
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
+			uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tournament_return_to_town")
+	}
+	if runtime == nil || !runtime.settlementClearRewardSent {
+		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
+			"char_id", session.selectedCharacterID,
+			"request_value_a", request.ValueA,
+			"request_value_b", request.ValueB,
+			"reason", "settlement_clear_reward_not_sent")
+		session.dungeon.mu.Unlock()
+		return nil
+	}
+	if isFocusNotification {
+		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
+		s.logGameEvent(session, "game-dungeon-card-focus-ack-sent",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID,
+			"request_value_a", request.ValueA,
+			"request_value_b", request.ValueB,
+			"classification", currentDungeonCardResponseClass)
+		session.dungeon.mu.Unlock()
+		return nil
+	}
+	if currentDungeonUsesDedicatedTowerResult(runtime) {
+		// Tower rewards have their own durable receipt and result window. They
+		// never enter the ordinary op69/70/71 card handshake.
+		resultSent := runtime.settlementDespairResultSent
+		if runtime.Dungeon.Metadata.IntegerValues["tower of grief"] == 1 {
+			resultSent = runtime.settlementGriefResultSent
+		}
+		if !completedDungeonSettlementExitReady(runtime, session.selectedCharacterID) || !resultSent ||
+			(!shouldReturnToTown && !shouldOpenOtherSelector) {
+			s.logGameEvent(session, "game-dungeon-despair-result-action-blocked", "char_id", session.selectedCharacterID,
+				"request_value_a", request.ValueA, "request_value_b", request.ValueB, "reason", "result_not_ready_or_action_not_allowed")
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if shouldOpenOtherSelector && !retryRequesterIsLeader {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+			runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		}
+		session.dungeon.mu.Unlock()
+		if shouldOpenOtherSelector {
+			return s.selectOtherDungeonForCompletedParty(session, runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tower_return_to_town")
+	}
+	if shouldReturnToTown && s.currentRaidCompletedMapTownReturnReady(session, runtime) {
+		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
+		runtime.settlementCardExitAckSent = true
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		s.logGameEvent(session, "game-raid-completed-map-exit-accepted", "char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand), "source", "owned_raid_clear_without_ordinary_card_handshake")
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_owned_raid_map_return_to_town")
+	}
+	if (shouldRetrySameDungeon || shouldOpenOtherSelector) && s.currentRaidCompletedMapExitReady(session, runtime) {
+		// Re-entry still goes through the frozen raid selection/entry owner. A
+		// closed dungeon must not detach this completed return owner on retry.
+		if !retryRequesterIsLeader || (shouldRetrySameDungeon && !s.currentRaidDungeonSelectionAllowed(session, uint32(runtime.Dungeon.ID))) {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if runtime.settlementCardExitAckSent {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
+		runtime.settlementCardExitAckSent = true
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		if shouldRetrySameDungeon {
+			return s.retryCurrentCompletedDungeon(session, runtime, "current_exe_op72_owned_raid_map_retry")
+		}
+		return s.selectOtherDungeonForCompletedParty(session, runtime)
+	}
+	if runtime.settlementCardLayoutSent &&
+		!runtime.settlementCardSideSelectionSent[dungeonCardSideFree] {
+		if err := s.selectCurrentDungeonCardLocked(
+			session,
+			runtime,
+			dungeonCardSideFree,
+			currentDungeonAutomaticCardIndex(session, runtime),
+			"current_exe_op72_auto_flip_free_row_before_action",
+		); err != nil {
+			s.logGameEvent(session, "game-dungeon-card-exit-auto-flip-blocked",
+				"char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID,
+				"request_value_a", request.ValueA,
+				"request_value_b", request.ValueB,
+				"error", err)
+		}
+	}
+	if runtime.settlementCardSelectionSent && !runtime.settlementCardRewardCommitted {
+		if err := s.commitCurrentDungeonCardRewardLocked(session, runtime, "current_exe_op72_reward_retry_before_exit"); err != nil {
+			s.logGameEvent(session, "game-dungeon-card-exit-reward-retry-blocked",
+				"char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID,
+				"request_value_a", request.ValueA,
+				"request_value_b", request.ValueB,
+				"error", err)
+		}
+	}
+	if !runtime.settlementCardLayoutSent || !runtime.settlementCardSelectionSent ||
+		!runtime.settlementCardRewardCommitted ||
+		runtime.settlementPhase < currentDungeonSettlementPhaseRewardCommitted {
+		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID,
+			"request_value_a", request.ValueA,
+			"request_value_b", request.ValueB,
+			"layout_sent", runtime.settlementCardLayoutSent,
+			"selection_sent", runtime.settlementCardSelectionSent,
+			"reward_committed", runtime.settlementCardRewardCommitted,
+			"settlement_phase", runtime.settlementPhase.String(),
+			"reason", "op72_cannot_cross_unfinished_card_or_reward_phase")
+		session.dungeon.mu.Unlock()
+		return nil
+	}
+
+	runtimeForReturn := runtime
+	if runtime.settlementCardExitAckSent {
+		s.logGameEvent(session, "game-dungeon-card-exit-replay",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID,
+			"request_value_a", request.ValueA,
+			"request_value_b", request.ValueB,
+			"reason", "exit_ack_already_sent")
+		session.dungeon.mu.Unlock()
+		if shouldReturnToTown {
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			transition, transitionErr := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+			cancel()
+			if transitionErr != nil {
+				s.logGameEvent(session, "game-dungeon-card-exit-return-blocked",
+					"char_id", session.selectedCharacterID,
+					"request_value_a", request.ValueA,
+					"request_value_b", request.ValueB,
+					"reason", "persisted_town_transition_unavailable",
+					"error", transitionErr)
+				return nil
+			}
+			return s.sendCurrentCompletedDungeonReturnToTown(
+				session,
+				runtimeForReturn,
+				transition,
+				uint16(dnfenum.CmdPacketEplpCommand),
+				"current_exe_op72_card_exit_replay_return_to_town",
+			)
+		}
+		return nil
+	}
+	response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
+	// A {2,x} focus notification is answered but must not consume the one-shot
+	// exit gate; the following real click still needs its own ACK.
+	if !isFocusNotification {
+		runtime.settlementCardExitAckSent = true
+		if shouldReturnToTown || shouldRetrySameDungeon || shouldOpenOtherSelector {
+			runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		}
+	}
+	s.logGameEvent(session, "game-dungeon-card-exit-ack-sent",
+		"char_id", session.selectedCharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"request_value_a", request.ValueA,
+		"request_value_b", request.ValueB,
+		"focus_notification", isFocusNotification,
+		"response_body_len", len(response),
+		"classification", currentDungeonCardResponseClass,
+		"body_source", "current_exe_op72_proved_reader")
+	session.dungeon.mu.Unlock()
+
+	if shouldReturnToTown {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, transitionErr := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if transitionErr != nil {
+			s.logGameEvent(session, "game-dungeon-card-exit-return-blocked",
+				"char_id", session.selectedCharacterID,
+				"request_value_a", request.ValueA,
+				"request_value_b", request.ValueB,
+				"reason", "persisted_town_transition_unavailable",
+				"error", transitionErr)
+			return nil
+		}
+		return s.sendCurrentCompletedDungeonReturnToTown(
+			session,
+			runtimeForReturn,
+			transition,
+			uint16(dnfenum.CmdPacketEplpCommand),
+			"current_exe_op72_card_exit_return_to_town",
+		)
+	}
+	if shouldRetrySameDungeon {
+		return s.retryCurrentCompletedDungeon(session, runtimeForReturn, "current_exe_op72_completed_retry_same_dungeon")
+	}
+	if shouldOpenOtherSelector {
+		return s.selectOtherDungeonForCompletedParty(session, runtimeForReturn)
+	}
+	return nil
+}
+
+func (s *Service) armCurrentDungeonCardAutoFlipLocked(
+	session *gameSession,
+	runtime *runtimeDungeonState,
+) {
+	if s == nil || session == nil || runtime == nil ||
+		session.dungeon.runtime != runtime ||
+		!runtime.settlementCardLayoutSent ||
+		runtime.settlementCardSideSelectionKnown[dungeonCardSideFree] {
+		return
+	}
+	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "replace_auto_flip_timer")
+	queue := s.ensureGameplayTimeQueue()
+	if queue == nil {
+		return
+	}
+	runtime.settlementCardAutoFlipGeneration++
+	generation := runtime.settlementCardAutoFlipGeneration
+	timerName := fmt.Sprintf(
+		"dnf-dungeon-card-auto-flip:%s:run:%d",
+		session.connID,
+		runtime.lifecycleToken,
+	)
+	characterID, characterGeneration, err := gameSessionCharacterEventIdentity(
+		session,
+		session.selectedCharacterID,
+	)
+	if err != nil {
+		return
+	}
+	runtime.settlementCardAutoFlipTimerName = timerName
+	if err := queue.ScheduleAfter(timerName, currentDungeonCardAutoFlipDelay, func(time.Time) {
+		postErr := s.postGameSessionCharacterEvent(
+			session,
+			"dungeon-card-auto-flip",
+			characterID,
+			characterGeneration,
+			func() error {
+				session.dungeon.mu.Lock()
+				defer session.dungeon.mu.Unlock()
+				current := session.dungeon.runtime
+				if current != runtime ||
+					runtime.settlementCardAutoFlipGeneration != generation ||
+					!runtime.settlementCardLayoutSent ||
+					runtime.settlementCardSideSelectionKnown[dungeonCardSideFree] {
+					return nil
+				}
+				runtime.settlementCardAutoFlipTimerName = ""
+				return s.selectCurrentDungeonCardLocked(
+					session,
+					runtime,
+					dungeonCardSideFree,
+					currentDungeonAutomaticCardIndex(session, runtime),
+					"timequeue_auto_flip_free_row",
+				)
+			},
+		)
+		if postErr != nil && !isClosedGameSessionEventError(postErr) {
+			s.logPacketEvent("game-dungeon-card-auto-flip-submit-failed",
+				"conn_id", session.connID,
+				"char_id", characterID,
+				"error", postErr)
+		}
+	}); err != nil {
+		runtime.settlementCardAutoFlipTimerName = ""
+		s.logGameEvent(session, "game-dungeon-card-auto-flip-schedule-failed",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", runtime.Dungeon.ID,
+			"error", err)
+	}
+}
+
+func (s *Service) cancelCurrentDungeonCardAutoFlipLocked(
+	session *gameSession,
+	runtime *runtimeDungeonState,
+	source string,
+) {
+	if runtime == nil {
+		return
+	}
+	timerName := runtime.settlementCardAutoFlipTimerName
+	runtime.settlementCardAutoFlipTimerName = ""
+	runtime.settlementCardAutoFlipGeneration++
+	if timerName == "" || s == nil {
+		return
+	}
+	cancelled := false
+	if queue := s.ensureGameplayTimeQueue(); queue != nil {
+		cancelled = queue.Cancel(timerName)
+	}
+	s.logGameEvent(session, "game-dungeon-card-auto-flip-cancelled",
+		"char_id", runtime.Character.CharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"source", source,
+		"cancelled", cancelled)
+}
+
+// retryCurrentCompletedDungeon answers the settlement dialog's 再次挑战
+// request ({state=1, option=0}). Live plaintext evidence shows the client
+// waits for a server-driven re-entry after the ACK instead of sending op16,
+// so the owner retires the completed run and reuses the standard op16 entry
+// flow with the client's own proven request (same dungeon, difficulty, and
+// entry options) cloned from the retired runtime.
+func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *runtimeDungeonState, source string) error {
+	if session == nil || session.selectedCharacterID == 0 || runtime == nil || runtime.Session == nil {
+		return nil
+	}
+	// Refuse a nonleader before submitting to any peer event queue. Otherwise
+	// simultaneous retries can create leader->peer and peer->leader waits.
+	partyState := runtimePartyStateSnapshot(session)
+	if partyState.PartyID > 0 && len(runtimePartyMembers(partyState)) >= 2 && partyState.UserID != session.selectedCharacterID {
+		return nil
+	}
+	characterID := session.selectedCharacterID
+	session.dungeon.mu.Lock()
+	ready := s.currentCompletedDungeonActionReady(session, runtime)
+	session.dungeon.mu.Unlock()
+	if !ready {
+		s.logGameEvent(session, "game-dungeon-card-exit-retry-blocked",
+			"char_id", characterID,
+			"reason", "completed_settlement_exit_not_ready",
+			"source", source)
+		return nil
+	}
+	if runtime.raidEntry != nil && !s.currentRaidDungeonSelectionAllowed(session, uint32(runtime.Dungeon.ID)) {
+		return nil
+	}
+	request := runtime.Request
+	dungeonID := runtime.Dungeon.ID
+	nextDungeonID, nextQuestID, hasNextStory := s.resolveNextStoryQuestDungeon(runtime)
+	if runtime.raidEntry == nil && hasNextStory && nextDungeonID != dungeonID && nextQuestID > 0 {
+		// 开始下个任务 = start the next quest: enter its dungeon only after the
+		// successor quest is active. The successor dungeon's quest maze is bound
+		// to that quest's active maze connection, so entering without the accept
+		// would land on the dungeon's non-quest maze and the chain would stall
+		// (real Script.pvf dungeon 6 猛毒雷鸣废墟 maze 1 = [0 3147 -1]).
+		// An ineligible successor leaves this action as a same-dungeon retry.
+		outcome, acceptErr := s.acceptCurrentStorySuccessorQuest(session, nextQuestID)
+		if outcome == storySuccessorAcceptFailed {
+			// 真实存储/上下文失败：不退休旧 runtime、不进无任务迷宫、不扣入场资产。
+			// 退回本次一次性退出门，玩家再点一次即可重试（接取本身是幂等的）。
+			session.dungeon.mu.Lock()
+			if session.dungeon.runtime == runtime {
+				runtime.settlementCardExitAckSent = false
+			}
+			session.dungeon.mu.Unlock()
+			s.logGameEvent(session, "game-dungeon-card-story-successor-retry-armed",
+				"char_id", characterID,
+				"dungeon_id", dungeonID,
+				"next_dungeon_id", nextDungeonID,
+				"next_quest_id", nextQuestID,
+				"source", source,
+				"reason", "successor_accept_failed_before_retire_and_entry",
+				"entry_assets_consumed", false,
+				"runtime_retired", false,
+				"error", acceptErr)
+			return nil
+		}
+		if outcome == storySuccessorAcceptAccepted || outcome == storySuccessorAcceptIdempotent {
+			// 客户端必须看到进行中的后继任务，否则只剩 DB active。两个结局都要发：
+			// 接取真实写入后报错时记录已经是 active，重试会变成幂等，只有 Accepted 补发
+			// 就会漏掉投影。用 checked 版本，记录读不出来同样视为失败。
+			if err := s.sendCurrentActiveQuestSnapshotChecked(session, "current_exe_op72_story_next_quest_after_accept"); err != nil {
+				// 投影没发出去就不能带着「DB 有任务、客户端没有」继续退休/入场：
+				// 退回一次性退出门，重试时接取幂等并补发同一投影。
+				session.dungeon.mu.Lock()
+				if session.dungeon.runtime == runtime {
+					runtime.settlementCardExitAckSent = false
+				}
+				session.dungeon.mu.Unlock()
+				s.logGameEvent(session, "game-dungeon-card-story-successor-snapshot-failed-retry-armed",
+					"char_id", characterID,
+					"dungeon_id", dungeonID,
+					"next_quest_id", nextQuestID,
+					"source", source,
+					"reason", "successor_active_quest_projection_failed_before_retire_and_entry",
+					"runtime_retired", false,
+					"error", err)
+				return nil
+			}
+		} else {
+			// A quest connection identifies a possible next dungeon; successful
+			// acceptance authorizes entering it. Keep the current quest's dungeon
+			// while its objectives, hand-in or successor eligibility are pending.
+			hasNextStory = false
+		}
+	}
+	nextLukeDungeonID, hasNextLukeDungeon, lukeErr := s.resolveCurrentLukeNormalNextDungeon(runtime)
+	if lukeErr != nil {
+		session.dungeon.mu.Lock()
+		if session.dungeon.runtime == runtime {
+			runtime.settlementCardExitAckSent = false
+		}
+		session.dungeon.mu.Unlock()
+		s.logGameEvent(session, "game-dungeon-card-luke-next-retry-armed",
+			"char_id", characterID,
+			"dungeon_id", dungeonID,
+			"source", source,
+			"reason", "Luke sequence lookup failed before retire and entry",
+			"entry_assets_consumed", false,
+			"runtime_retired", false,
+			"error", lukeErr)
+		return nil
+	}
+	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)
+	if ownerErr != nil {
+		return ownerErr
+	}
+	defer s.restoreCurrentRaidRetryReturnOwners(session, owners)
+	retired, err := s.retireCompletedPartyForRetry(session, runtime, owners)
+	if err != nil {
+		s.logGameEvent(session, "game-dungeon-card-exit-retry-blocked",
+			"char_id", characterID,
+			"dungeon_id", dungeonID,
+			"reason", "completed_runtime_retire_failed",
+			"source", source,
+			"error", err)
+		return nil
+	}
+	if !retired {
+		s.logGameEvent(session, "game-dungeon-card-exit-retry-blocked",
+			"char_id", characterID,
+			"dungeon_id", dungeonID,
+			"reason", "completed_runtime_retire_declined",
+			"source", source)
+		return nil
+	}
+	// The ordinary-dungeon entry flow freezes the new run's town-return origin
+	// from the bound selector origin. Re-bind it from the retirement-restored
+	// town snapshot, or ordinary re-entry is rejected with
+	// ordinary_dungeon_town_return_origin_unavailable (live proof).
+	origin, originBound := bindCurrentTownSelectorOrigin(session)
+	if !originBound {
+		s.logGameEvent(session, "game-dungeon-card-exit-retry-blocked",
+			"char_id", characterID,
+			"dungeon_id", dungeonID,
+			"reason", "town_selector_origin_unavailable",
+			"source", source)
+		return nil
+	}
+	enterDungeonID := dungeonID
+	enterReason := "retired_runtime_cloned_op16_request"
+	if hasNextStory && nextDungeonID != dungeonID {
+		// Story context (the dialog's 开始下个任务): the completed maze is
+		// quest-connected, so the client's own chain leads to the next quest's
+		// dungeon instead of a same-dungeon retry. Difficulty/entry options
+		// still come from the finished run.
+		enterDungeonID = nextDungeonID
+		enterReason = "pvf_quest_chain_next_dungeon"
+	} else if hasNextLukeDungeon {
+		// Ordinary Luke sequence 42 explicitly enables next-dungeon auto entry.
+		// The target was resolved before retirement, so a malformed sequence or
+		// missing world-map definition never detaches the completed run.
+		enterDungeonID = int64(nextLukeDungeonID)
+		enterReason = "pvf_luke_normal_sequence_next_dungeon"
+	}
+	request.DungeonID = uint32(enterDungeonID)
+	s.logGameEvent(session, "game-dungeon-card-exit-retry-enter",
+		"char_id", characterID,
+		"dungeon_id", dungeonID,
+		"enter_dungeon_id", enterDungeonID,
+		"next_quest_id", nextQuestID,
+		"has_next_story", hasNextStory,
+		"next_luke_dungeon_id", nextLukeDungeonID,
+		"has_next_luke_dungeon", hasNextLukeDungeon,
+		"difficulty", request.Difficulty,
+		"entry_option", request.EntryOption,
+		"selection_mode", request.SelectionMode,
+		"town_id", origin.TownID,
+		"area_id", origin.AreaID,
+		"source", source,
+		"body_source", enterReason)
+	return s.handleDungeonSelectUpper(session, encodeCurrentDungeonSelectRequest(request))
+}
+
+// resolveNextStoryQuestDungeon resolves the story chain's next dungeon after a
+// quest-connected completed run: the completed maze's active quest connection
+// identifies the finished story quest, the PVF quest catalog's prerequisite
+// chain identifies its successor, and the next dungeon is the one whose maze
+// carries the successor's active quest connection. It returns false for
+// ordinary (non quest-connected) runs and for chain ends whose successor has
+// no dungeon, leaving those to the same-dungeon retry owner.
+func (s *Service) resolveNextStoryQuestDungeon(runtime *runtimeDungeonState) (int64, int64, bool) {
+	if s == nil || runtime == nil || runtime.MazeIndex < 0 || runtime.MazeIndex >= len(runtime.Dungeon.Mazes) {
+		return 0, 0, false
+	}
+	connection := runtime.Dungeon.Mazes[runtime.MazeIndex].QuestConnection
+	if len(connection) < 2 || connection[0] != 0 {
+		return 0, 0, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	catalog, err := s.loadQuestCatalog(ctx)
+	cancel()
+	if err != nil || catalog == nil {
+		return 0, 0, false
+	}
+	table, _, err := s.dungeonWorldMap()
+	if err != nil || table == nil {
+		return 0, 0, false
+	}
+	currentQuestID := connection[1]
+	for _, successor := range catalog.Successors(currentQuestID) {
+		for _, dungeon := range table.Dungeons() {
+			for _, maze := range dungeon.Mazes {
+				candidate := maze.QuestConnection
+				if len(candidate) >= 2 && candidate[0] == 0 && candidate[1] == successor.ID {
+					return dungeon.ID, successor.ID, true
+				}
+			}
+		}
+	}
+	return 0, 0, false
+}

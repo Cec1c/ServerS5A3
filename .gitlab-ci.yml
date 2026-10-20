@@ -1,0 +1,88 @@
+# Filter ordinary branch pushes by build inputs; preserve explicit pipeline entrypoints.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "push"'
+      when: always
+    - if: '$CI_COMMIT_TAG'
+      when: always
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BEFORE_SHA == "0000000000000000000000000000000000000000"'
+      when: always
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - 'go-server/**/*'
+        - '.gitlab-ci.yml'
+        - '.gitlab/**/*'
+        - 'build.sh'
+        - 'build.bat'
+        - 'deploy/**/*'
+        - '.gitattributes'
+        - '.gitignore'
+        - 'go.mod'
+        - 'go.sum'
+        - 'go.work'
+        - 'go.work.sum'
+        - 'scripts/**/*'
+        - 'ci/**/*'
+        - '*.sh'
+        - '*.bat'
+        - '*.cmd'
+        - '*.ps1'
+        - '*.py'
+        - 'Makefile*'
+        - 'Dockerfile*'
+        - '.semgrepignore'
+        - '.semgrep.yml'
+        - '.semgrep.yaml'
+      when: always
+    - when: never
+
+# You can override the included template(s) by including variable overrides
+# SAST customization: https://docs.gitlab.com/user/application_security/sast/#available-cicd-variables
+# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure/
+# Dependency Scanning customization: https://docs.gitlab.com/user/application_security/dependency_scanning/dependency_scanning_sbom/#customizing-analyzer-behavior
+# Container Scanning customization: https://docs.gitlab.com/user/application_security/container_scanning/#customizing-analyzer-behavior
+# Note that environment variables can be set in several places
+# See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
+stages:
+- build
+- test
+variables:
+  GOTOOLCHAIN: local
+  CGO_ENABLED: "0"
+  GOPATH: "$CI_PROJECT_DIR/.cache/go"
+default:
+  image: golang:1.26.5
+  cache:
+    key:
+      files:
+      - go-server/go.sum
+    paths:
+    - .cache/go/pkg/mod/
+build:
+  stage: build
+  parallel:
+    matrix:
+    - TARGET_OS: [linux, windows]
+      TARGET_ARCH: [amd64]
+  script:
+  - sh scripts/check-server-boundary.sh
+  - sh build.sh "$TARGET_OS" "$TARGET_ARCH"
+  artifacts:
+    name: "dnf90-$TARGET_OS-$TARGET_ARCH-$CI_COMMIT_SHORT_SHA"
+    paths:
+    - dist/
+    expire_in: 7 days
+core-tests:
+  stage: test
+  script:
+  - sh scripts/check-server-boundary.sh
+  - cd go-server
+  - go list -buildvcs=false -mod=readonly ./...
+  - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
+  - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
+  - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
+  - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+sast:
+  stage: test
+include:
+- template: Security/SAST.gitlab-ci.yml

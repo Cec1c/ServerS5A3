@@ -1,0 +1,110 @@
+{
+  "baseline_repository_commit": "8a914f3555381bc141e09528e902f3635a3c170e",
+  "source_files": 3435,
+  "source_files_changed": {
+    "cmd/server/control/model.go": "2f14e4842378f4425305cb96efcb3685086c8957504a19166d49bdbe53102847",
+    "cmd/server/control/instance.go": "35eec9428831a8129d3dc6cd90e7f144888da73d174b901277cf06ead86b0462",
+    "cmd/server/control/config.go": "ffd19ecda731346fddbb05b31c8b3cd022cffc8a62d070811dcfc00a2a532bc5",
+    "cmd/server/doctor/main.go": "9a4ef5cec7ff86e35a1e60e53425b6d9792abebd55d5ce2d5d7c2c64649f2a1b",
+    "cmd/server/control/gm_environment_regression_test.go": "13939be7c4df3ba0a0107d1f236b4773b1be8072f0ae84b3567b22efd57923a8",
+    "cmd/server/doctor/gm_doctor_preflight_regression_test.go": "6645fc17e6759100370e2f536c7d325824cd049f6c8b511db1987ae0d0933a5c"
+  },
+  "production_independent_review": "161-v04 SOURCE_OFFLINE_GREEN",
+  "permanent_tests_independent_review": "181 APPROVED_PERMANENT_TESTS_SOURCE_OFFLINE",
+  "full_snapshot173": [
+    {
+      "label": "list",
+      "exit": 0,
+      "seconds": 2.69
+    },
+    {
+      "label": "core",
+      "exit": 0,
+      "seconds": 52.73,
+      "tests": {
+        "pass": 9042,
+        "fail": 0,
+        "skip": 791
+      }
+    },
+    {
+      "label": "real-pvf",
+      "exit": 0,
+      "seconds": 256.61,
+      "tests": {
+        "pass": 396,
+        "fail": 0,
+        "skip": 1
+      }
+    },
+    {
+      "label": "vet",
+      "exit": 0,
+      "seconds": 6.67
+    },
+    {
+      "label": "windows",
+      "exit": 0,
+      "seconds": 4.42
+    },
+    {
+      "label": "linux",
+      "exit": 0,
+      "seconds": 4.44
+    }
+  ],
+  "final_changed_packages181": {
+    "pass": 136,
+    "fail": 0,
+    "skip": 0
+  },
+  "final_vet183": 0,
+  "actual_PVF_scope_passed": true,
+  "whole_actual_PVF_passed": false,
+  "actual_PVF_skip": "TestRealPVFAntonOpenMapRetryCommitsFreshOwnedEntry needs a separate actual asset",
+  "binaries": [
+    {
+      "path": "dist/linux-amd64/DNF90Control",
+      "bytes": 10878196,
+      "sha256": "921b4d979271e21ae623f19f5a595516cc9d58f66191c0b3aeb7d1fd1bf11998"
+    },
+    {
+      "path": "dist/linux-amd64/DNF90Doctor",
+      "bytes": 26745294,
+      "sha256": "e6f0bde9d1ce0094c59dc447643ae2ecf696ea7058963e20c4f92cffc3bbce76"
+    },
+    {
+      "path": "dist/linux-amd64/DNF90Server",
+      "bytes": 56451516,
+      "sha256": "4444babcc7829c4cdda8327ab8617262336b453a6ec3f936f31f47a26c85116a"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Control.exe",
+      "bytes": 11397632,
+      "sha256": "e75af38d8dd59e1f9136ff7c0b2f5da9ddff6e4912294fd70195ed5431d9624c"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Doctor.exe",
+      "bytes": 27250688,
+      "sha256": "6fe80b8ac873e334005e0bc949496eacb73422543fe789b4fefa5301617e3b78"
+    },
+    {
+      "path": "dist/windows-amd64/DNF90Server.exe",
+      "bytes": 57192448,
+      "sha256": "4d09a58ca5d4cadb66098c5c297c1f68e6374468f155c90bd7078cf58b9ca1b9"
+    }
+  ],
+  "final_test_changes_rebuilt_production": false,
+  "deployment_preflight190": {
+    "ordinary_skip_database_exit": 1,
+    "reason": "existing isolated QA occupies its endpoints",
+    "ordinary_preflight_passed": false,
+    "assets_config_skip_database_skip_ports_exit": 0,
+    "no_service_database_or_client_start": true
+  },
+  "running_QA_source_commit": "31e2b51b605a4b070869e27ab88279302181d486",
+  "runtime_GM_enabled": false,
+  "GUI_acceptance": false,
+  "remote_CI_passed": false,
+  "daily_r98_changed": false
+}
