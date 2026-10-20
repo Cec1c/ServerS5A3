@@ -65,7 +65,7 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	if markScreen {
 		o.rewardScreenIdentity, o.rewardScreenSent = identity, true
 	}
-	if latest.Battle.Mode == 2 && latest.Battle.Phase == 0 && !latest.Battle.Single {
+	if latest.Battle.Mode == 1 || latest.Battle.Mode == 2 && latest.Battle.Phase == 0 && !latest.Battle.Single {
 		// Share successful manual party displays with the flow projection.
 		// Gold masks must not replace the party display signature.
 		for _, packet := range packets {

@@ -126,9 +126,11 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		packets = filtered
 	}
 	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
-	if lukePartyOnly && o.rewardScreenSent && o.rewardScreenIdentity == identity {
-		// Luke phase one has no squad screen. Updating party cards or entering
-		// standby must not re-enter state 4 and restart its current animation.
+	partyScreen := lukePartyOnly || b.Mode == 1 && f.SquadShownAt.IsZero()
+	if partyScreen && o.rewardScreenSent && o.rewardScreenIdentity == identity {
+		// Updating Anton's party cards must not restart the current screen.
+		// Its later squad display is a separate transition and remains enabled.
+		// Luke phase one retains its existing party-only/standby behavior.
 		filtered := packets[:0]
 		for _, packet := range packets {
 			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
@@ -174,7 +176,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		return err
 	}
-	if lukePartyOnly {
+	if partyScreen {
 		for _, packet := range packets {
 			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
 				o.rewardScreenIdentity, o.rewardScreenSent = identity, true
