@@ -55,6 +55,7 @@ func TestGameplayModuleRegistryRejectsDuplicateOwnership(t *testing.T) {
 
 func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	wantNames := []string{
+		"aiken-upgrade",
 		"guild",
 		"auction",
 		"pvp",
