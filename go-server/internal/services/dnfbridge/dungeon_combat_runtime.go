@@ -68,6 +68,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	var raidBarrierProjections []runtimeRaidState
+	var passivePeerCompletion func()
+	defer func() {
+		if passivePeerCompletion != nil {
+			passivePeerCompletion()
+		}
+	}()
 	defer func() {
 		for _, state := range raidBarrierProjections {
 			s.queueCurrentRaidDungeonProgress(state)
@@ -222,6 +228,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 					scene,
 					request.RuntimeObjectKey,
 				)
+				if handled {
+					passivePeerCompletion = s.currentLukeDestroyObjectPeerCompletion(session, runtime, scene, request.RuntimeObjectKey)
+				}
 				if clearErr != nil {
 					return clearErr
 				}
