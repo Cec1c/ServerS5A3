@@ -35,6 +35,19 @@ type EnchanterCardExperienceRule struct {
 	MaximumExperienceGain int
 }
 
+// cardSuccessRate follows the native [monstercard exp] layout: five
+// ordinary rarity rates, followed by the legendary (rarity 6) rate. Rarity 5
+// has no probability column and must not alias the legendary column.
+func (r EnchanterCardExperienceRule) cardSuccessRate(qualification int) (int, bool) {
+	if qualification >= 0 && qualification < len(r.SuccessRates) {
+		return r.SuccessRates[qualification], true
+	}
+	if qualification == 6 {
+		return r.ExtraRate, true
+	}
+	return 0, false
+}
+
 type EnchanterConfig struct {
 	Recipes                    *Config
 	MaximumStoreCharge         int64
@@ -129,13 +142,14 @@ func (c *Catalog) PlanEnchanterBead(experience, recipeID, cardID int64, rng Rand
 	bead, beadOK := config.BeadByCard[cardID]
 	level := config.Recipes.Level(experience)
 	rule, ruleOK := config.CardExperienceByLevel[level]
+	successRate, rateOK := rule.cardSuccessRate(recipe.Qualification)
 	if !recipeOK || !cardOK || !beadOK || !ruleOK || recipe.Qualification != card.Qualification ||
-		level < recipe.RequiredLevel || recipe.Qualification < 0 || recipe.Qualification >= len(rule.SuccessRates) {
+		level < recipe.RequiredLevel || !rateOK {
 		return EnchanterBeadPlan{}, ErrRecipeUnavailable
 	}
 	random := randomSource(RandomFunc(rng))
 	plan := EnchanterBeadPlan{Recipe: recipe, Card: card, BeadItemID: bead}
-	plan.Success = random.Intn(100) < rule.SuccessRates[recipe.Qualification]
+	plan.Success = random.Intn(100) < successRate
 	if plan.Success {
 		gain := rule.MinimumExperienceGain
 		if rule.MaximumExperienceGain > gain {
@@ -166,8 +180,9 @@ func (c *Catalog) PlanEnchanterStore(experience, recipeID, cardID, endurance int
 	card, cardOK := config.Cards[cardID]
 	level := config.Recipes.Level(experience)
 	rule, ruleOK := config.CardExperienceByLevel[level]
+	successRate, rateOK := rule.cardSuccessRate(recipe.Qualification)
 	if !recipeOK || !cardOK || !ruleOK || recipe.Qualification != card.Qualification || level < recipe.RequiredLevel ||
-		recipe.Qualification < 0 || recipe.Qualification >= len(rule.SuccessRates) {
+		!rateOK {
 		return EnchanterStorePlan{}, ErrRecipeUnavailable
 	}
 	reduction := int64(0)
@@ -179,7 +194,7 @@ func (c *Catalog) PlanEnchanterStore(experience, recipeID, cardID, endurance int
 	}
 	random := randomSource(RandomFunc(rng))
 	plan := EnchanterStorePlan{Recipe: recipe, EnduranceReduction: reduction}
-	plan.Success = random.Intn(100) < rule.SuccessRates[recipe.Qualification]
+	plan.Success = random.Intn(100) < successRate
 	if plan.Success {
 		gain := rule.MinimumExperienceGain
 		if rule.MaximumExperienceGain > gain {
