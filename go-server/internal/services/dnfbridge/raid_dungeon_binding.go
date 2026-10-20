@@ -226,6 +226,12 @@ func (s *Service) validateCurrentRaidDungeonEntry(session *gameSession, runtime 
 	}
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
+	return s.validateCurrentRaidDungeonEntryLocked(session, runtime)
+}
+
+// Caller holds raidMu and has already required an authenticated, nonnil entry.
+// Sharing this body keeps admission and table-return validation in one snapshot.
+func (s *Service) validateCurrentRaidDungeonEntryLocked(session *gameSession, runtime *runtimeDungeonState) error {
 	state := s.runtimeRaidByMemberLocked(session.selectedCharacterID)
 	entry := runtime.raidEntry
 	if state == nil || !state.Started || state.Battle == nil || state.RaidKey != entry.RaidKey {

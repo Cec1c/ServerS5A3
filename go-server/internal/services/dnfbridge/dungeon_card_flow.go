@@ -320,6 +320,12 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 
+	// v150 Anton battle-table bt_stanfby_move also emits 72/{1,2} during
+	// an active run (018774EF). It owns an explicit give-up, not settlement.
+	if len(body) == 2 && shouldReturnToTown && s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return s.handleCurrentDungeonTownExitRequest(session, nil, uint16(dnfenum.CmdPacketEplpCommand))
+	}
 	if s.options.currentClientVersion == "official-24.9" && runtime != nil && runtime.Tournament != nil {
 		// Tournament rewards use their own durable selection flow and never
 		// emit the ordinary result/card chain. Accept only the proved town
