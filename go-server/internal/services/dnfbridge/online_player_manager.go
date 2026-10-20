@@ -895,6 +895,9 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 		if actor.ChannelID != receiverChannelID {
 			continue
 		}
+		if s.townPrivateRoomPeerProjectionBlocked(receiver, actor) {
+			continue
+		}
 		// A party actor fallback must not recreate another raid's actor inside
 		// the same physical waiting map after the ordinary roster was isolated.
 		if source, found := s.onlinePlayers.PlayerForCharacter(receiver.selectedCharacterID); found &&
@@ -932,6 +935,24 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 		}
 	}
 	return nil
+}
+
+// NOTI23 carries town/area but no private-instance key. Recreating a party
+// actor in the same physical Seria map would therefore put another owner's
+// actor inside the receiver's room. Keep the party roster and remote actors
+// in different physical areas; only this ambiguous private-room projection
+// is blocked, including stale shared presence left before a room rebind.
+func (s *Service) townPrivateRoomPeerProjectionBlocked(receiver *gameSession, actor onlinePlayerInfo) bool {
+	if s == nil || s.onlinePlayers == nil || receiver == nil ||
+		receiver.selectedCharacterID == 0 || actor.CharacterID == receiver.selectedCharacterID {
+		return false
+	}
+	local, found := s.onlinePlayers.PlayerForCharacter(receiver.selectedCharacterID)
+	if !found || local.Session != receiver || local.TownID != actor.TownID || local.AreaID != actor.AreaID {
+		return false
+	}
+	area, found := s.townArea(int64(local.TownID), int64(local.AreaID))
+	return found && townMapPathLooksLikeSeria(area.MapPath)
 }
 
 // broadcastTownPlayerLeave sends NOTI 0x0006 (u16 userId) to remaining

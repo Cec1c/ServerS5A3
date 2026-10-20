@@ -255,9 +255,10 @@ func TestRealPVFStartRoomMapPrecedenceForGrandineAndKohle(t *testing.T) {
 }
 
 // TestRealPVFStartMapPrecedenceKeepsEveryResolvableRoomResolvable 是全档影响面审计：
-// 逐 dungeon/maze/房间比较两档。**硬断言**只有一条 —— 回退档能解析出来的房间，
-// 默认档也必须解析出来（修复不得把任何一个原本可进的房间变成
-// ErrMapUnresolved/ErrMapAmbiguous）；差异逐条 t.Logf 出来供父代理核对影响面。
+// 完整逐 dungeon/maze/房间比较两档：默认档不得使回退档可解析房间退化，
+// 两档换图必须满足缺门形状。FiendWar 4953/4978 显式房间规则同时作用于两档，
+// 因而本测试不能检测其相对于修复前源码的变化；另用前后全枚举对照审计。
+// 不跳过这两个副本，也不放宽本测试的缺门断言。
 func TestRealPVFStartMapPrecedenceKeepsEveryResolvableRoomResolvable(t *testing.T) {
 	pvfPath := os.Getenv("DNF_WORLDMAP_REAL_PVF_SMOKE")
 	if pvfPath == "" {
