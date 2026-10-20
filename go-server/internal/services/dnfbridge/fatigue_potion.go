@@ -107,12 +107,28 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 		s.logGameEvent(session, "game-fatigue-potion-rejected", "char_id", session.selectedCharacterID, "item_id", stack.ItemID, "action_index", binary.LittleEndian.Uint32(body[7:11]), "error", err)
 		return reject()
 	}
+	// Quantities come from the committed owner result, never the preflight count.
+	var calls fatiguePotionCallProgress
+	committedCharacter, committedChannel := session.selectedCharacterID, session.channel.ID
+	defer func() {
+		s.logFatiguePotionCommitted(committedCharacter, committedChannel, slot, definition.ItemID, currentFatiguePotionAction, result.Remaining, calls)
+	}()
 	s.logGameEvent(session, "game-fatigue-potion-used", "char_id", session.selectedCharacterID, "item_id", stack.ItemID, "points", definition.Points, "daily_limit", definition.DailyLimit, "cooltime_ms", definition.CoolTimeMS, "remaining_fatigue", result.Character.Stats["fatigue"])
+	calls.stage = fatiguePotionACKCallFailed
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), dnfinventory.BuildStackableActionAck(slot, 0, currentFatiguePotionAction), 1); err != nil {
 		return true, err
 	}
+	calls.ackOK = true
+	calls.stage = fatiguePotionInventoryRefreshCallFailed
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "fatigue_potion_after_ack", []alignedcmd.ItemSlotRefresh{{ListType: 0, SlotIndex: slot}}); err != nil {
 		return true, err
 	}
-	return true, s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(result.Character, true), 0)
+	calls.inventoryOK = true
+	calls.stage = fatiguePotionFatigueCallFailed
+	err = s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(result.Character, true), 0)
+	if err == nil {
+		calls.fatigueOK = true
+		calls.stage = fatiguePotionFatigueCallReturnedOK
+	}
+	return true, err
 }
