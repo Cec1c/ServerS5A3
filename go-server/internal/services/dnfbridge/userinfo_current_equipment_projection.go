@@ -168,7 +168,7 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 			lateRawC:            currentMode1EquipmentExtraHex(equipped.Extra, currentMode1EquipmentRawBlockMaxLen, "mode1_raw_c_hex", "mode1_state_171_raw_hex"),
 			lateRawD:            currentMode1EquipmentExtraHex(equipped.Extra, currentMode1EquipmentRawBlockMaxLen, "mode1_raw_d_hex", "mode1_state_175_179_raw_hex"),
 			state183:            sceneInventoryExtraByte(equipped.Extra, "mode1_state_183", "state_183"),
-			lateRawE:            currentMode1EquipmentExtraHex(equipped.Extra, currentMode1EquipmentRawBlockMaxLen, "mode1_raw_e_hex", "mode1_state_188_192_raw_hex"),
+			lateRawE:            currentMode1EquipmentCustomStateFromItem(equipped.Extra, entry),
 			update:              entry,
 		})
 	}
@@ -227,4 +227,22 @@ func currentMode1EquipmentAvatarRawBlocks(extra map[string]string, entry current
 		rawB = append([]byte(nil), entry.avatarColorData...)
 	}
 	return rawA, rawB
+}
+
+// currentMode1EquipmentCustomStateFromItem projects the same five-byte state as
+// NOTI13/14 row[0x72:0x77]. v150 0x202A935 reads the final raw block;
+// 0x24359AE copies its first four bytes to state+BC and its fifth to state+C0.
+// Explicit historical mode1 overrides retain precedence; untouched zero state
+// keeps the existing empty-block representation. This does not grant an upgrade.
+func currentMode1EquipmentCustomStateFromItem(extra map[string]string, entry currentItemListEntry) []byte {
+	if explicit := currentMode1EquipmentExtraHex(extra, currentMode1EquipmentRawBlockMaxLen, "mode1_raw_e_hex", "mode1_state_188_192_raw_hex"); len(explicit) != 0 {
+		return explicit
+	}
+	tail := entry.data[0x72:0x77]
+	for _, value := range tail {
+		if value != 0 {
+			return append([]byte(nil), tail...)
+		}
+	}
+	return nil
 }
