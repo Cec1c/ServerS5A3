@@ -845,6 +845,10 @@ type Result struct {
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16
+	// A committed wear move without actor appearance refresh still relocates
+	// registered Buff items. Reproject only after the move ACK and item rows;
+	// appearance-bearing moves already restore Buff at their actor boundary.
+	RefreshSelectedBuffRegistration bool
 	// 消耗凭证仅由成功返回的库存事务提供，bridge 在回包前关联本局拾取记录。
 	StackableConsumption *StackableConsumption
 	// MailboxAlarmRecipientID asks the bridge to deliver the exact class0/0x63

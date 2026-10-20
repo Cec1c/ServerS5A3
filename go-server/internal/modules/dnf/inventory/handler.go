@@ -1528,7 +1528,8 @@ func ownerAppliedEquipmentMoveResult(opcode uint16, cmd Command, result dnfequip
 		UpperResponses: []alignedcmd.UpperResponse{
 			class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 		},
-		PostActions: postActions,
+		PostActions:                     postActions,
+		RefreshSelectedBuffRegistration: result.Changed && !appearanceRefresh,
 	}
 }
 
