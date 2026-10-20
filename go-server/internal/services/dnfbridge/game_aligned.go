@@ -633,6 +633,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	if err != nil || !ok {
 		return ok, err
 	}
+	if typ == uint16(dnfenum.CmdPacketMoveItemspace) {
+		s.noteCurrentWornClaimResult(session, body, result.EquipmentMoveFact, playerRequestFlagged)
+	}
 	// op438：class1 438 回包体由桥接层按领域结果组装（协议形状只在这一层）。
 	// 成功/掷点失败回 13 字节体，校验类拒绝回 0 + u8 error；两条都要发，
 	// 客户端才会走完"结束锻造 UI"的回调。改动行的逐槽 op14 增量由
