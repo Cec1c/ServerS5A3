@@ -1,3 +1,8 @@
+## 2026-10-21 — op40 六字节零尾兼容
+
+- current upper 死亡声明额外接受恰好六字节且尾u16为零，与已证原生分支及既有legacy裁剪对齐；非零尾和短长包保持拒绝。
+- active/角色归属/计时器/复活事务守卫保持，不增加公开基底没有的completed复活能力。公开内存fixture完整入口及环境矩阵回归见[零尾兼容](Docs/DEATH_ZERO_TAIL_COMPAT.md)，迟到死亡与实机界面仍开放。
+
 ## 2026-10-20 — 项目首页与 Agent 构建部署说明
 
 - 重写 README，以项目主视觉、Release 配套资源和可复制的 Agent 部署任务组织首页，明确 GitGud 上游与 GitHub 镜像关系。
