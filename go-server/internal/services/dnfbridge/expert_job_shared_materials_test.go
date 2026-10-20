@@ -91,7 +91,25 @@ func TestRealPVFExpertCompoundUsesAccountWarehouse(t *testing.T) {
 			if gotCharacter.Stats["gold"] != 100000-recipe.GoldCost*2 || gotCharacter.Stats["expert_job_exp"] < 1195 {
 				t.Fatal("wrong crafting fee or experience")
 			}
-			equipmentRecipeCompoundTestRefresh(t, rest, wantRefresh)
+			// The inventory projection precedes the post-commit profession
+			// refresh when this random recipe actually grants experience.
+			tail := rest
+			for range currentSelectedItemListTypes {
+				_, tail = splitGameServerUpperPacketWithHeader(t, tail, 16)
+			}
+			equipmentRecipeCompoundTestRefresh(t, rest[:len(rest)-len(tail)], wantRefresh)
+			if gotCharacter.Stats["expert_job_exp"] > 1195 {
+				info, actorBytes := splitGameServerUpperPacket(t, tail)
+				actor, trailing := splitGameServerUpperPacket(t, actorBytes)
+				if info.Header.MsgID != currentExpertJobInfoNotification || info.Header.Classification != 0 ||
+					len(info.Body) < 8 || string(info.Body[len(info.Body)-8:len(info.Body)-4]) != "EJXP" ||
+					binary.LittleEndian.Uint32(info.Body[len(info.Body)-4:]) != uint32(gotCharacter.Stats["expert_job_exp"]) ||
+					actor.Header.MsgID != 2 || actor.Header.Classification != 0 || len(actor.Body) == 0 || actor.Body[0] != 0 || len(trailing) != 0 {
+					t.Fatal("committed experience refresh is missing, stale, or out of order")
+				}
+			} else if len(tail) != 0 {
+				t.Fatal("zero-gain compound unexpectedly refreshed profession")
+			}
 			t.Logf("recipe%d batch2 output%d committed with shared warehouse and refresh", id, recipe.Output.ItemID)
 		})
 	}

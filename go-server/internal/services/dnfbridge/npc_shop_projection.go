@@ -81,7 +81,7 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 			if gold < totalCost {
 				return dnfnpcshop.Changes{}, fmt.Errorf("%w: need=%d have=%d", errCurrentNPCShopGoldInsufficient, totalCost, gold)
 			}
-			slots, grantErr := grantCurrentCeraShopProductAt(inventory, pricing.Definition, request.Count, s.gameplayNow())
+			slots, grantErr := s.grantCurrentNPCShopProduct(inventory, pricing.Definition, request.Count)
 			if grantErr != nil {
 				return dnfnpcshop.Changes{}, grantErr
 			}
@@ -89,7 +89,8 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 				return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d changed_slots=%d", errCurrentNPCShopProductUnavailable, request.ItemID, len(slots))
 			}
 			slot := int16(slots[0])
-			key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
+			productList := currentNPCShopProductList(pricing.Definition)
+			key := currentCeraShopInventorySlotKey(productList, slot)
 			stack, found := inventory.Slots[key]
 			if !found || stack.ItemID != int64(request.ItemID) || stack.Count <= 0 {
 				return dnfnpcshop.Changes{}, errCurrentNPCShopProductUnavailable
@@ -100,21 +101,28 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 			stack.Extra["last_grant_source"] = "npc_shop"
 			stack.Extra["last_npc_shop_context"] = strconv.FormatUint(uint64(request.ShopContext), 10)
 			stack.Extra["last_npc_shop_actor_context"] = strconv.FormatUint(uint64(request.ActorContext), 10)
-			itemEntry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, slot, stack)
+			itemEntry := currentItemListEntryFromStack(productList, slot, stack)
 			stack.RawEntry = append([]byte(nil), itemEntry.data[:]...)
 			inventory.Slots[key] = stack
 			goldAfter := gold - totalCost
 			character.Stats["gold"] = goldAfter
-			updates := []currentItemListEntry{currentGoldWalletItemListEntry(goldAfter), itemEntry}
+			updates := []currentItemListEntry{currentGoldWalletItemListEntry(goldAfter)}
+			var medalUpdates []currentItemListEntry
+			if productList == currentGuildMedalInventoryListType {
+				medalUpdates = []currentItemListEntry{itemEntry}
+			} else {
+				updates = append(updates, itemEntry)
+			}
 			sortCurrentItemListEntries(updates)
 			result = currentNPCShopBuyResult{
-				GoldAfter: goldAfter,
-				SPAfter:   character.Stats["sp"],
-				Item:      currentNPCShopBuyAckEntry(itemEntry, pricing.Definition, request.Count),
-				Updates:   updates,
-				Slot:      slot,
-				ItemID:    request.ItemID,
-				Count:     request.Count,
+				GoldAfter:         goldAfter,
+				SPAfter:           character.Stats["sp"],
+				Item:              currentNPCShopBuyAckEntry(itemEntry, pricing.Definition, request.Count),
+				Updates:           updates,
+				GuildMedalUpdates: medalUpdates,
+				Slot:              slot,
+				ItemID:            request.ItemID,
+				Count:             request.Count,
 			}
 			return dnfnpcshop.Changes{Character: true, Inventory: true}, nil
 		},
@@ -253,7 +261,7 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 					}
 				}
 			} else {
-				slots, grantErr := grantCurrentCeraShopProductAt(inventory, pricing.Definition, request.Count, s.gameplayNow())
+				slots, grantErr := s.grantCurrentNPCShopProduct(inventory, pricing.Definition, request.Count)
 				if grantErr != nil {
 					return dnfnpcshop.Changes{}, grantErr
 				}
@@ -263,8 +271,9 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 				grantSlots = append(grantSlots, int16(slots[0]))
 			}
 			var itemEntry currentItemListEntry
+			productList := currentNPCShopProductList(pricing.Definition)
 			for index, slot := range grantSlots {
-				key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
+				key := currentCeraShopInventorySlotKey(productList, slot)
 				stack, found := account.Slots[key]
 				if !found {
 					stack, found = inventory.Slots[key]
@@ -278,7 +287,7 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 				stack.Extra["last_grant_source"] = "npc_shop"
 				stack.Extra["last_npc_shop_context"] = strconv.FormatUint(uint64(request.ShopContext), 10)
 				stack.Extra["last_npc_shop_actor_context"] = strconv.FormatUint(uint64(request.ActorContext), 10)
-				entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, slot, stack)
+				entry := currentItemListEntryFromStack(productList, slot, stack)
 				stack.RawEntry = append([]byte(nil), entry.data[:]...)
 				if _, isAccount := account.Slots[key]; isAccount {
 					account.Slots[key] = stack
@@ -289,7 +298,11 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 				if index == 0 {
 					itemEntry = entry
 				}
-				updates = append(updates, entry)
+				if productList == currentGuildMedalInventoryListType {
+					result.GuildMedalUpdates = append(result.GuildMedalUpdates, entry)
+				} else {
+					updates = append(updates, entry)
+				}
 			}
 			updates = append(updates, currentGoldWalletItemListEntry(gold))
 			sortCurrentItemListEntries(updates)
@@ -427,4 +440,34 @@ func currentNPCShopMutationError(err error) error {
 	default:
 		return err
 	}
+}
+
+// NPC purchases use the same PVF medal/gem pages as other grants. Keep the
+// existing main-bag path for all other products and account-shared materials.
+func currentNPCShopProductList(definition dungeonDropItemDefinition) byte {
+	container := currentPVFItemTargetContainer(definition)
+	if container.GuildMedal || container.GuardianGem {
+		return currentGuildMedalInventoryListType
+	}
+	return dnfrepo.MainInventoryListType
+}
+
+func (s *Service) grantCurrentNPCShopProduct(inventory *dnfrepo.InventoryRecord, definition dungeonDropItemDefinition, count uint32) ([]uint16, error) {
+	container := currentPVFItemTargetContainer(definition)
+	if !container.GuildMedal && !container.GuardianGem {
+		return grantCurrentCeraShopProductAt(inventory, definition, count, s.gameplayNow())
+	}
+	// Preserve the existing NPC grant expiration policy when selecting list38.
+	if !definition.DailyDeleteItem && !definition.ExpirationDate.IsZero() {
+		definition.ExpirationDate = currentPVFRenewedRetiredExpirationDate(definition.ExpirationDate, s.gameplayNow())
+	}
+	slots, err := grantCurrentGuildMedalPageItem(inventory, definition, container, count)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]uint16, len(slots))
+	for i, slot := range slots {
+		result[i] = uint16(slot)
+	}
+	return result, nil
 }
