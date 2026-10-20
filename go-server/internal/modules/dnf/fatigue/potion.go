@@ -71,18 +71,14 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 		if character.Stats[dayKey] != day {
 			character.Stats[dayKey] = day
 			character.Stats[countKey] = 0
-			character.Stats[lastKey] = 0
 		}
-		// Long maintained cooldowns are daily potion allowances. They refresh
-		// with fatigue at 06:00, rather than stretching into the following day.
+		// Only the explicit PVF daily limit resets at 06:00. Cooldowns retain
+		// elapsed-time semantics across service days, including 22-hour potions.
 		limit := definition.DailyLimit
-		if limit <= 0 && definition.CoolTimeMS >= 22*3600*1000 {
-			limit = 1
-		}
 		if limit > 0 && character.Stats[countKey] >= limit {
 			return fmt.Errorf("fatigue potion daily limit reached")
 		}
-		if definition.CoolTimeMS > 0 && definition.CoolTimeMS < 22*3600*1000 && character.Stats[lastKey] > 0 && now.UnixMilli()-character.Stats[lastKey] < definition.CoolTimeMS {
+		if definition.CoolTimeMS > 0 && character.Stats[lastKey] > 0 && now.UnixMilli()-character.Stats[lastKey] < definition.CoolTimeMS {
 			return fmt.Errorf("fatigue potion cooldown")
 		}
 		character.Stats["fatigue"] += definition.Points

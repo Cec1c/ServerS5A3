@@ -33,8 +33,10 @@ func Refresh(character *dnfrepo.CharacterRecord, account dnfrepo.AccountRecord, 
 	originalRemaining := remaining
 	if !known || (dayKnown && oldDay != day) {
 		remaining = limit
+		// Potion daily allowances reset here; last-use timestamps must survive
+		// the refill so elapsed-time cooldowns cannot be bypassed at 06:00.
 		for key := range stats {
-			if strings.HasPrefix(key, "fatigue_potion_used_") || strings.HasPrefix(key, "fatigue_potion_time_") {
+			if strings.HasPrefix(key, "fatigue_potion_used_") {
 				stats[key] = 0
 			}
 			if strings.HasPrefix(key, "fatigue_potion_day_") {
