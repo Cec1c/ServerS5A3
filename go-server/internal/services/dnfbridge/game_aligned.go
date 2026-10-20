@@ -921,6 +921,7 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 		return err
 	}
 	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
+	postActionsDeferred := false
 	for _, action := range result.PostActions {
 		if alignedPostActionTouchesCombatPower(action) {
 			refreshCombatPowerAffixes = true
@@ -933,8 +934,14 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 					"post_action", action,
 					"char_id", session.selectedCharacterID,
 					"error", err)
+				postActionsDeferred = true
 				break
 			}
+			return err
+		}
+	}
+	if result.RefreshSelectedBuffRegistration && !postActionsDeferred {
+		if err := s.sendBuffSwapReapply(session, "aligned_"+result.Operation+"_after_committed_wear_without_actor_refresh"); err != nil {
 			return err
 		}
 	}
