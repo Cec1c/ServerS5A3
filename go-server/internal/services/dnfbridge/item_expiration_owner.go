@@ -88,6 +88,9 @@ func (s *Service) projectCurrentPVFItemExpirations(
 				return stack, true, true
 			}
 		}
+		if currentPVFRelativeGrantExpired(stack, definition, now) {
+			return stack, true, true
+		}
 		patched, changed := normalizeCurrentPVFItemStack(stack, definition, now)
 		return patched, changed, false
 	}
