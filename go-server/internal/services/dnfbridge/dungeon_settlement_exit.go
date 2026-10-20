@@ -235,8 +235,11 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 				requestMsgID, "current_exe_completed_grief_floor_op42_return_to_town")
 		}
 		if currentOrdinaryCompletedTownExitOwner(session, runtime) {
-			// 只在结果与统计就绪后保留本局退出请求，等待真实牌面续办。
-			runtime.settlementTownReturnRequestMsgID = requestMsgID
+			// 与已启动的回城路线一致：首个合法请求拥有后续确认。
+			// 42/132交错重放不能覆盖仍在等待真实牌面的42确认责任。
+			if runtime.settlementTownReturnRequestMsgID == 0 {
+				runtime.settlementTownReturnRequestMsgID = requestMsgID
+			}
 		}
 		if !completedTutorial && !completedRaid && runtime.settlementCardLayoutSent &&
 			!runtime.settlementCardSideSelectionSent[dungeonCardSideFree] {

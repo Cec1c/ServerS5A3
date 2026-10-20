@@ -513,6 +513,14 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	}
 	firstAttempt := !runtime.townReturnPending
 	if firstAttempt {
+		// A deferred ordinary-card request already owns the return intent.
+		// Keep that owner even if a later op72 town click finishes a failed
+		// free-reward transaction; otherwise the original op42 loses its ACK.
+		if currentOrdinaryCompletedTownExitOwner(session, runtime) &&
+			(runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) ||
+				runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketBack2Village)) {
+			requestMsgID = runtime.settlementTownReturnRequestMsgID
+		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_started")
 		runtime.townReturnPending = true
 		runtime.townReturnRequestMsgID = requestMsgID
