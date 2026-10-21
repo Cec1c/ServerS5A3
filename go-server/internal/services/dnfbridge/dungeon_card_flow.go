@@ -371,12 +371,16 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 	// Mode 2. Retry, other-selector, other Luke sanctums and Anton remain on the
 	// existing ordinary/card boundary below.
 	if runtime != nil && shouldReturnToTown && s.currentLukeSpreadSanctumCompletedMapTownReturnReady(session, runtime) {
-		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
-		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
-			session.dungeon.mu.Unlock()
-			return err
+		// A failed town preparation/write retains this runtime. Retry the route,
+		// but do not acknowledge the already accepted result action again.
+		if !runtime.settlementCardExitAckSent {
+			response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
 		}
-		runtime.settlementCardExitAckSent = true
 		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
 		session.dungeon.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
