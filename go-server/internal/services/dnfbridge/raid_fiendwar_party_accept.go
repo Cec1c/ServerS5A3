@@ -6,9 +6,9 @@ import (
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
-// Encounter participants are selected before dungeon entry, not by a new town
-// invitation during combat. Return the native mode-bearing failure rather than
-// silently dropping it at PeerInSameArea; this path never registers an invite.
+// A combat request can repeat an encounter party already committed by entry.
+// Restore that exact ready party without restarting the peer handshake. Other
+// requests still need an encounter admission/transfer owner, not a town join.
 func (s *Service) rejectCurrentFiendWarActivePartyRequest(p *gameSession, typ uint16, request party.RequestPeerRequest) (bool, error) {
 	if s.options.currentClientVersion != "official-24.9" || !isCurrentFiendWarChannel(p) || (request.Mode != 0 && request.Mode != 12) || request.TargetID == 0 || request.TargetID == p.selectedCharacterID {
 		return false, nil
@@ -18,6 +18,18 @@ func (s *Service) rejectCurrentFiendWarActivePartyRequest(p *gameSession, typ ui
 	p.dungeon.mu.Unlock()
 	if !active {
 		return false, nil
+	}
+	if target, online := s.onlineGameSession(request.TargetID); online {
+		if snapshot, valid := s.currentFiendWarReadyEncounterParty(p, target); valid {
+			if err := s.sendGameUpperRawClassCodec(p, typ, party.BuildRequestPeerAck(), dnfproto.DefaultChannelClassification, true); err != nil {
+				return true, err
+			}
+			s.sendDungeonPartyFrameRoster(snapshot.StateFor(p.selectedCharacterID), "fiendwar_existing_encounter_request")
+			s.logGameEvent(p, "game-fiendwar-existing-party-request-ack", "type", typ,
+				"char_id", p.selectedCharacterID, "target_id", request.TargetID, "mode", request.Mode,
+				"party_id", snapshot.ID, "membership_mutation", "none", "peer_handshake", "not_replayed")
+			return true, nil
+		}
 	}
 	// v150 COMMAND10: 2523cf6/2523d4e consume success/error; 1fc2c05
 	// consumes mode even on failure. Generic [0,error] would truncate this reader.
@@ -35,6 +47,46 @@ func (s *Service) rejectCurrentFiendWarActivePartyRequest(p *gameSession, typ ui
 		"failure_code", partyCommandFailureGeneric, "existing_roster_refreshed", refreshed,
 		"reason", "encounter_membership_is_frozen_before_dungeon_entry")
 	return true, nil
+}
+
+// The request restores only members already admitted to one encounter and
+// projected into the same ready scene. A run key alone is not admission proof;
+// revalidate each member against its runtime, reservation and current session.
+func (s *Service) currentFiendWarReadyEncounterParty(p, target *gameSession) (party.RuntimePartySnapshot, bool) {
+	snapshot, valid := s.currentFiendWarExistingEncounterParty(p, target)
+	if !valid {
+		return party.RuntimePartySnapshot{}, false
+	}
+	var first dungeonPartyRunKey
+	for i, member := range snapshot.Members {
+		peer, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		if !online || peer.generation != member.SessionGeneration {
+			return party.RuntimePartySnapshot{}, false
+		}
+		key, ready := s.currentDungeonPartyRunKey(peer.session)
+		if !ready || key.PartyID != snapshot.ID || (i > 0 && key != first) {
+			return party.RuntimePartySnapshot{}, false
+		}
+		if peer.session != p {
+			if _, valid := s.currentFiendWarExistingEncounterParty(p, peer.session); !valid {
+				return party.RuntimePartySnapshot{}, false
+			}
+		}
+		peer.session.dungeon.mu.Lock()
+		r := peer.session.dungeon.runtime
+		valid := r != nil && r.Session != nil && peer.session.postStartMapPlayerStateSent
+		if valid {
+			scene, exists := r.Session.Scene()
+			actual, found := dungeonPartyRunKeyFrom(peer.session, r, scene)
+			valid = exists && found && actual == key
+		}
+		peer.session.dungeon.mu.Unlock()
+		if !valid || !s.boundGameSessionCharacterCurrent(peer) {
+			return party.RuntimePartySnapshot{}, false
+		}
+		first = key
+	}
+	return snapshot, true
 }
 
 // An encounter can replace a town lobby before its invite response arrives.

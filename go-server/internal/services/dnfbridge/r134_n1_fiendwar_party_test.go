@@ -301,7 +301,7 @@ func TestR134N1RealPVFLateAcceptAfterEncounter(t *testing.T) {
 			t.Fatal("runtime/assets changed", err)
 		}
 	}
-	t.Run("active_request_has_native_failure_feedback", func(t *testing.T) {
+	t.Run("active_existing_encounter_request_has_success_feedback", func(t *testing.T) {
 		for _, peer := range p {
 			r134N1Reset(peer)
 		}
@@ -310,12 +310,12 @@ func TestR134N1RealPVFLateAcceptAfterEncounter(t *testing.T) {
 		r134N1Send(t, s, p[1], dnfenum.CmdPacketRequestPeer, body)
 		replied := false
 		for _, packet := range splitAllGameServerUpperPackets(t, p[1].conn.(*partyDungeonSyncConn).frames()) {
-			if packet.Header.MsgID == 10 && packet.Header.Classification == 1 && bytes.Equal(packet.Body, []byte{0, 3, 0}) {
+			if packet.Header.MsgID == 10 && packet.Header.Classification == 1 && bytes.Equal(packet.Body, []byte{1}) {
 				replied = true
 			}
 		}
 		if !replied {
-			t.Fatal("active dungeon invitation silently dropped; require bounded native error+mode feedback, no join")
+			t.Fatal("already committed ready encounter request must restore its existing party, no new join")
 		}
 		if !reflect.DeepEqual(beforeParty, s.runtimePartyStateForSession(p[0])) || !reflect.DeepEqual(beforeBattle, cloneRuntimeRaidBattle(b)) {
 			t.Fatal("active request altered party/battle")
