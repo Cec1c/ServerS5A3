@@ -160,14 +160,14 @@ func prepareHatcheryPostReturnR129(
 	return s, session, hatchery, originTown, destination
 }
 
-// This audit parameterizes the actual Anton 218 -> 221..224 transfer and each
+// This audit parameterizes the actual Anton 218 -> 222/223/224 transfer and each
 // real dungeon's boss room. It then consumes the completed-map exit and
 // exercises the town-side packets which follow it: op35, legacy scene-ready,
 // op36, and a second op35. It does not repeat the op22/op23/op24
 // return-direction oracle. This is domain/wire lifecycle coverage, not native
 // camera or background acceptance.
 func TestReviewHatcheryPostReturnR129Lifecycle(t *testing.T) {
-	for _, dungeonID := range []uint32{221, 222, 223, 224} {
+	for _, dungeonID := range reviewAntonHatcheryPolicyIDs {
 		dungeonID := dungeonID
 		t.Run(fmt.Sprint(dungeonID), func(t *testing.T) {
 			reviewHatcheryPostReturnR129Lifecycle(t, dungeonID)

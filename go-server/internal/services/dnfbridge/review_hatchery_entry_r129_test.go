@@ -22,12 +22,11 @@ func TestReviewHatcheryEntryR129PostStartMapWireContract(t *testing.T) {
 		coordinate worldmap.RoomCoordinate
 		mapID      int64
 	}{
-		221: {coordinate: worldmap.RoomCoordinate{X: 3, Y: 0}, mapID: 19103},
 		222: {coordinate: worldmap.RoomCoordinate{X: 3, Y: 4}, mapID: 19119},
 		223: {coordinate: worldmap.RoomCoordinate{X: 0, Y: 4}, mapID: 19116},
 		224: {coordinate: worldmap.RoomCoordinate{X: 0, Y: 0}, mapID: 19100},
 	}
-	for _, dungeonID := range []uint32{221, 222, 223, 224} {
+	for _, dungeonID := range reviewAntonHatcheryPolicyIDs {
 		dungeonID := dungeonID
 		t.Run(fmt.Sprint(dungeonID), func(t *testing.T) {
 			s, session, old, target := actualAntonHatchWarpOwnerFor(t, dungeonID)
