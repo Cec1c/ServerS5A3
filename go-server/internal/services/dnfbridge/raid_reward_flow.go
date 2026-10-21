@@ -35,6 +35,7 @@ type currentAntonRewardFlow struct {
 	Squad              map[uint16]*currentAntonRewardCard
 	Weekly             raid.WeeklyClearCommand
 	AutoSelectAt       time.Time
+	PartyShownAt       time.Time
 	PartyCommittedAt   time.Time
 	SquadShownAt       time.Time
 	FinishedAt         time.Time
@@ -100,6 +101,42 @@ func currentAntonMovieWindow(f *currentAntonRewardFlow) time.Duration {
 		movie = max(movie, seconds)
 	}
 	return time.Duration(movie) * time.Second
+}
+
+// The phase-clear timestamp starts the server clock, but the native client
+// sends 659 only after its result movie. Automatic party selection must leave
+// a full movie window after the card list was actually delivered. If no client
+// reached the card screen, the base deadline still opens that screen and one
+// movie window is left before the unattended fallback commits it.
+func currentAntonPartySelectAt(f *currentAntonRewardFlow, movie time.Duration) time.Time {
+	if f == nil {
+		return time.Time{}
+	}
+	at := f.AutoSelectAt
+	if f.PartyShownAt.IsZero() {
+		if !at.IsZero() {
+			at = at.Add(movie)
+		}
+		return at
+	}
+	if shown := f.PartyShownAt.Add(movie); shown.After(at) {
+		at = shown
+	}
+	return at
+}
+
+// Called under raidMu after a party card list was successfully sent. The first
+// actual delivery is the only show anchor; later projections must not extend
+// the selection window indefinitely.
+func (s *Service) markCurrentAntonPartyShownLocked(instance string, phase byte, at time.Time) {
+	if at.IsZero() {
+		return
+	}
+	f := s.antonRewardFlows[currentAntonFlowKey(instance, phase)]
+	if f == nil || f.Mode != 1 || f.Phase != 0 || f.Single || !f.PartyShownAt.IsZero() {
+		return
+	}
+	f.PartyShownAt = at
 }
 
 // Called under raidMu exclusively at a genuine completed-run boundary (or an
@@ -314,9 +351,15 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			}
 			for _, owner := range owners {
 				s.raidMu.Lock()
-				if kind == 1 && now.Before(f.AutoSelectAt) {
-					s.raidMu.Unlock()
-					continue
+				if kind == 1 {
+					selectAt := f.AutoSelectAt
+					if f.Mode == 1 && f.Phase == 0 && !f.Single {
+						selectAt = currentAntonPartySelectAt(f, movie)
+					}
+					if now.Before(selectAt) {
+						s.raidMu.Unlock()
+						continue
+					}
 				}
 				if kind == 3 {
 					allParty := true

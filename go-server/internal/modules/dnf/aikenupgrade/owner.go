@@ -175,7 +175,16 @@ func (o *Owner) Upgrade(ctx context.Context, c Command) (Result, error) {
 		if err != nil {
 			return err
 		}
-		if state[4] >= 3 || !r.Options[state[0]] || !r.Options[state[1]] {
+		// A newly issued custom-ability item has an all-zero five-byte state:
+		// grade D with both option slots unset. Grade progression is independent
+		// of whether the player has selected either option yet.
+		if state[4] >= 3 {
+			return ErrInvalid
+		}
+		if state[0] != 0 && !r.Options[state[0]] {
+			return ErrInvalid
+		}
+		if state[1] != 0 && !r.Options[state[1]] {
 			return ErrInvalid
 		}
 		next := state[4] + 1
@@ -338,7 +347,16 @@ func (o *Owner) ChangeOption(ctx context.Context, c OptionCommand) (Result, erro
 			return ErrInvalid
 		}
 		state, err := r.State(s)
-		if err != nil || state[4] > 3 || !r.Options[state[0]] || !r.Options[state[1]] {
+		if err != nil || state[4] > 3 {
+			return ErrInvalid
+		}
+		// Zero means the slot has not been selected yet. A non-zero value must
+		// still be one of the PVF option indices; preserving the zero slot lets
+		// the first op1340 selection initialize a live dungeon-issued item.
+		if state[0] != 0 && !r.Options[state[0]] {
+			return ErrInvalid
+		}
+		if state[1] != 0 && !r.Options[state[1]] {
 			return ErrInvalid
 		}
 		if !r.Options[c.Option] || state[c.Position] == c.Option {

@@ -1,5 +1,15 @@
 # 艾肯 individual custom 升级
 
+## 新发放掉落实例的零状态
+
+只读现场快照中的四件真实艾肯模板 100120561、100220536、100352922、100390016 的 119B 行均满足 `raw[0x72:0x77] == 0`，来源为 `dungeon_pvf_drop_pickup`。因此全零五字节是当前发放路径的真实初始载体：D 档、两个 option 槽未选，而不是缺载体。
+
+原 1342 owner 在扣料前要求两个 option 都属于 PVF option 集合，原 1340 owner 也要求两个槽已合法；这会先于材料检查拒绝新发放装备。现 1342 只以 grade 和升档材料为业务门槛，升档时保持 option 字节不变；1340 允许槽值 0 表示未选，非零值仍必须是 PVF option，另一槽相同 option 仍拒绝。
+
+回归使用真实 PVF 模板 100120561（`warriors dungeon`、`custom ability count 2`）及真实材料 10161536（D→C 11）和 10161533/34/35（option 13 D 档 23、option 1 D 档 28）贯通 1340 两次选槽、1342 升档与 NOTI14/ACK。测试代码不复制账号数据；现场证据仍保留在源码树外的 `H:/codex-work/20261021/r167/owned-items.tsv`。
+
+未实现 1341；未证明首次选槽与 `[disjoint]` 表的历史计费差异，当前 1340 继续使用客户端证据指向的 `[info]` 选项目标档材料。未运行 Go、未部署，主线程串行验证前不得宣称实机通过。
+
 op1342 原先没有实际资产 owner。当前候选新增独立事务入口：请求只含主背包槽 u16；以角色仓储当前 grade 决定下一档，保留两个 option，消耗真实 individualcustominfo 表的目标档材料10161536×11/18/34。D/C/B/A=0/1/2/3，A档及无效 grade/option 拒绝。当前资源模型为确定性同option升grade，不添加金币、随机率或普通强化buff；这不是对历史原服隐藏规则的绝对证明。变化的升级价目、未知升级字段或不支持的option参数结构拒绝。
 
 账号/角色、唯一槽端点、Count=1、真实 equipment 的 warriors dungeon/count2、锁定、到期状态均在专用owner事务内核对。容器从当前PVF placement和repository扩容记录取得；包括合法快捷格与每页基础32格+0/8/16/24，不另写固定拒绝范围。锁定复用IsLockedAt，期限复用既有expired策略，使用gameplayNow；未来有效期限不因非永久被拒。材料按合法槽排序，跳过锁定/过期栈，缺料不保存任何部分扣量。

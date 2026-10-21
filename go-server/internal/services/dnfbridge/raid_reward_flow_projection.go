@@ -170,6 +170,14 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			return err
 		}
 	}
+	for _, packet := range packets {
+		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+			s.raidMu.Lock()
+			s.markCurrentAntonPartyShownLocked(b.InstanceID, b.Phase, time.Now())
+			s.raidMu.Unlock()
+			break
+		}
+	}
 	if err := s.sendSelectedCurrentContainerListsRefresh(session, "raid_owned_reward_flow_after_commit"); err != nil {
 		o.failed = true
 		if session.conn != nil {

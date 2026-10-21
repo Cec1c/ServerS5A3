@@ -86,6 +86,11 @@ func phase0RewardFlowWithGroups(t *testing.T, groups []byte) (*raidStartGuardFix
 			t.Fatal(n, changed, err)
 		}
 	}
+	// Existing capacity/reward cases model the native 659 show one movie after
+	// completion. The dedicated r167 timing regression clears this marker.
+	if flow := f.state.Battle.RewardFlow[0]; flow != nil {
+		flow.PartyShownAt = flow.CompletedAt.Add(currentAntonMovieWindow(flow))
+	}
 	return f, sessions, start.Add(8 * time.Second)
 }
 

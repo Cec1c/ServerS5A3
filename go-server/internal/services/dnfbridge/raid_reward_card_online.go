@@ -62,6 +62,14 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 			return err
 		}
 	}
+	for _, packet := range packets {
+		if packet.class == 0 && packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+			s.raidMu.Lock()
+			s.markCurrentAntonPartyShownLocked(latest.Battle.InstanceID, latest.Battle.Phase, time.Now())
+			s.raidMu.Unlock()
+			break
+		}
+	}
 	if markScreen {
 		o.rewardScreenIdentity, o.rewardScreenSent = identity, true
 	}

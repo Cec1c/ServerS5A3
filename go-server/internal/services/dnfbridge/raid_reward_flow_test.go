@@ -58,6 +58,11 @@ func firstAntonFlowFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, 
 	if f.state.Battle.RewardFlow[0] == nil {
 		t.Fatal("accepted true completion did not freeze reward flow")
 	}
+	// Existing reward-flow cases model the native 659 show at one movie after
+	// the completion clock. The r167 show/selection regression clears this
+	// marker when it specifically tests a late or absent natural 659.
+	rewardFlow := f.state.Battle.RewardFlow[0]
+	rewardFlow.PartyShownAt = rewardFlow.CompletedAt.Add(currentAntonMovieWindow(rewardFlow))
 	return f, session, start.Add(8 * time.Second)
 }
 
