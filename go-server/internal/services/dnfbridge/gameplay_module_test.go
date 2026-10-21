@@ -91,6 +91,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"image-communication",
 		"quest",
 		"dungeon-navigation",
+		"dungeon-ridable",
 		"dungeon-combat-drop",
 		"dungeon-death-revive",
 		"dungeon-settlement-card",

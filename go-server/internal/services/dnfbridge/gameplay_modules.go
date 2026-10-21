@@ -37,6 +37,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	imageCommunicationGameplayModule(),
 	questGameplayModule(),
 	dungeonNavigationGameplayModule(),
+	dungeonRidableGameplayModule(),
 	dungeonCombatDropGameplayModule(),
 	dungeonDeathReviveGameplayModule(),
 	dungeonSettlementCardGameplayModule(),
