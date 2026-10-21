@@ -10,53 +10,12 @@ import (
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
-// 本文件是操作者缺陷「**深渊派对掉落了 lv80 的史诗碎片，这边应该没有 lv80 的才对，
-// 应该是 85-90**」的修复，**同时**回答操作者追加的问题
-// 「**现在深渊会掉落 lv80 的碎片，那会不会掉落 lv80 的史诗呢**」。
-//
-// ── 两条路径的等级约束（真档实测，见 `_dist/abyss-round3.md` §4）──────────────
-//
-//	碎片路径（`dungeon_hell_party_epic_fragment.go`）：
-//	    候选 = `etc/epicpieceinfo.etc [piece list]` 的**全部 966 件**，
-//	    抽法是 `pieces[rng.Next(len(pieces))]`（均匀、**完全不看等级**）。
-//	    每件碎片的等级 = 它的 `[equipment recipe info]` 成品装备（`[piece list]` 的
-//	    左列 itemID）在 `equipment/<path>.equ` 里的 `[minimum level]`。
-//	    真档实测（live Script.pvf, sha256 afa00e75…）：
-//	      `[minimum level]` 直方图 = 65:67 70:200 75:195 **80:256** **85:138** **90:110**
-//	    ⇒ 966 件里有 **256 件是 lv80**（26.5%）—— 这就是操作者看到的那一件。
-//	    **这条路径既没有副本等级约束，也没有物品等级约束**（把 65/70/75 的碎片也一起发了）。
-//
-//	史诗装备路径（`dungeon_hell_party_reward_pool.go` 的 `.equ` 池）：
-//	    等级区间 = 厂商 `EquipmentDropLevelRule`（`[min(minLv,basis), basis+7]` **grade 闭区间**），
-//	    副本 310 的 `[minimum required level]=87` / `[basis level]=90` ⇒ `[87,97]`。
-//	    真档实测该区间六个 rarity 桶的候选装备 `[minimum level]`：
-//	      rarity=4（史诗）248 件 = `85:138 90:110`（grade `91:138 96:110`）
-//	      rarity=3 429 件 = `85:313 90:116`、rarity=2 135 件 = `85:67 90:68`
-//	      rarity=1 68 件 = `90:68`、rarity=0 68 件 = `90:68`、rarity=5 0 件
-//	    ⇒ **一个候选的 `[minimum level]` 都不低于 85**：这份 PVF 里史诗装备的 grade 只有
-//	    91/96 两档（= lv85 / lv90），区间下界 87 把 grade 86（= lv80 史诗）挡在门外。
-//	    但那**不是**全局保证，只是"副本 310 的 `[minimum required level]` 恰好是 87"：
-//	    换一个 `[minimum required level] <= 86` 的副本，同一个函数就会放进 lv80 史诗。
-//	    本文件因此给**两条路径**都加上同一条**按物品等级的显式地板**。
-//
-// ── 开关（house idiom：默认 = 修复，消费点自读 env，`options.go` 未动）────────
-//
-// DNFBRIDGE_ABYSS_ITEM_LEVEL_FLOOR / DNFBRIDGE_ABYSS_ITEM_LEVEL_CEILING
-//
-//	未设置 / 空 / 任意整数 = 生效档（默认 85 / 90，操作者口径「应该是 85-90」）。
-//	字面量 `legacy`（任一个即可）= **两处都回到今天**：碎片回调全 966 件均匀抽、
-//	    装备池不加等级过滤（逐字节等于本改动前）。
-//	非法取值（`80x`、负数、空串以外的怪值）按默认档处理，并把原始取值写进
-//	    `item_level_floor_switch=` / `item_level_ceiling_switch=`，拼错不会被静默吞掉。
-//
-// 两条路径的语义差异（**刻意**，必须读）：
-//
-//	碎片：**fail-closed** —— 只接受"等级已知且在 [floor,ceiling] 内"的碎片。
-//	    真档 966/966 都能解析出等级，所以线上没有一件碎片因此丢失；
-//	    等级解析不出来的碎片**不发**（宁可少发也不发一件等级不明的）。
-//	装备：**fail-open** —— 等级字段缺失（0 = 未知）的候选**不过滤**，只有"等级已知
-//	    且低于地板"才剔除。理由是这条池子还有 fixture/降级口径在同一函数上跑，
-//	    而真档该区间 948/948 候选都有等级（实测 `levels<=80=0`）⇒ 线上零行为差。
+// 默认85/90是高级深渊的既定物品等级策略，不能推广成所有副本的全局门槛。
+// 未显式配置且两个副本等级均为正、均低于85时，碎片成品与装备共用既有
+// hellPartyRewardGradeRangeForLevels 的grade闭区间；读取真实.equ grade，
+// 不从使用等级猜grade。不完整副本等级不启用低级适配。
+// 显式整数、非法配置的默认回落及legacy保持原语义。高级装备的历史未知
+// minimum level兼容行为保持；新增低级分支只接受已知物品等级/grade。
 const (
 	abyssItemLevelFloorEnv   = "DNFBRIDGE_ABYSS_ITEM_LEVEL_FLOOR"
 	abyssItemLevelCeilingEnv = "DNFBRIDGE_ABYSS_ITEM_LEVEL_CEILING"
@@ -74,9 +33,11 @@ const (
 
 // abyssItemLevelBand 是生效中的物品等级带（`Active=false` ⇒ 逐字节等于今天）。
 type abyssItemLevelBand struct {
-	Floor   int64
-	Ceiling int64
-	Active  bool
+	Floor              int64
+	Ceiling            int64
+	Active             bool
+	DefaultConfig      bool  // 仅两个原始配置均为空；不能用日志哨兵"-"代替。
+	GradeMin, GradeMax int64 // 非零表示低级图使用真实成品grade过滤。
 	// FloorSwitch / CeilingSwitch 是操作者写的原始取值（未设置 = `-`）。
 	FloorSwitch   string
 	CeilingSwitch string
@@ -89,6 +50,7 @@ func readAbyssItemLevelBand(floorValue, ceilingValue string) abyssItemLevelBand 
 		Floor:         abyssItemLevelFloorDefault,
 		Ceiling:       abyssItemLevelCeilingDefault,
 		Active:        true,
+		DefaultConfig: strings.TrimSpace(floorValue) == "" && strings.TrimSpace(ceilingValue) == "",
 		FloorSwitch:   abyssSwitchText(floorValue),
 		CeilingSwitch: abyssSwitchText(ceilingValue),
 	}
@@ -136,6 +98,22 @@ func abyssItemLevelBandFromEnv() abyssItemLevelBand {
 	return readAbyssItemLevelBand(os.Getenv(abyssItemLevelFloorEnv), os.Getenv(abyssItemLevelCeilingEnv))
 }
 
+// forDungeon only adapts the unconfigured default. Explicit operator bands
+// remain authoritative; missing metadata never broadens the candidate set.
+func (band abyssItemLevelBand) forDungeon(minimum, basis int64) abyssItemLevelBand {
+	if !band.Active || !band.DefaultConfig ||
+		minimum <= 0 || basis <= 0 || minimum >= abyssItemLevelFloorDefault || basis >= abyssItemLevelFloorDefault {
+		return band
+	}
+	lo, hi, ok := hellPartyRewardGradeRangeForLevels(minimum, basis)
+	if !ok {
+		return band
+	}
+	band.Floor, band.Ceiling = 1, hellPartyRewardPoolGradeCeiling
+	band.GradeMin, band.GradeMax = lo, hi
+	return band
+}
+
 // admits 报告"等级已知的这个数值在不在生效带内"（回退档下恒 true）。
 func (band abyssItemLevelBand) admits(level int64) bool {
 	if !band.Active {
@@ -152,10 +130,13 @@ func (band abyssItemLevelBand) permitsFragmentLevel(level int64) bool {
 	return level > 0 && band.admits(level)
 }
 
-// permitsEquipmentLevel 是**装备池**的判据（fail-open：等级未知 ⇒ 放行；见文件头）。
+// permitsEquipmentLevel 保留高级兼容策略；低级适配不接受未知等级。
 func (band abyssItemLevelBand) permitsEquipmentLevel(level int64) bool {
 	if !band.Active {
 		return true
+	}
+	if band.GradeMin > 0 {
+		return level > 0 && band.admits(level)
 	}
 	return level <= 0 || band.admits(level)
 }
@@ -165,6 +146,9 @@ func (band abyssItemLevelBand) String() string {
 	if !band.Active {
 		return abyssItemLevelLegacyValue
 	}
+	if band.GradeMin > 0 {
+		return fmt.Sprintf("dungeon_grade:%d-%d", band.GradeMin, band.GradeMax)
+	}
 	return fmt.Sprintf("%d-%d", band.Floor, band.Ceiling)
 }
 
@@ -173,6 +157,7 @@ func (band abyssItemLevelBand) String() string {
 // currentAbyssEpicPieceLevelIndex 是"碎片 itemID → 成品装备 `[minimum level]`"。
 type currentAbyssEpicPieceLevelIndex struct {
 	levels map[uint32]int64
+	grades map[uint32]int64
 	// Resolved / Unresolved 是台账（进事件，让"等级读不出来多少件"一眼可见）。
 	Resolved   int
 	Unresolved int
@@ -234,7 +219,7 @@ func loadCurrentAbyssEpicPieceLevelIndex(
 		}
 		paths[entry.ID] = clean
 	}
-	index := &currentAbyssEpicPieceLevelIndex{levels: make(map[uint32]int64, catalog.count())}
+	index := &currentAbyssEpicPieceLevelIndex{levels: make(map[uint32]int64, catalog.count()), grades: make(map[uint32]int64, catalog.count())}
 	for _, piece := range catalog.pieces {
 		output, found := catalog.outputFor(piece)
 		if !found || output == 0 {
@@ -262,6 +247,11 @@ func loadCurrentAbyssEpicPieceLevelIndex(
 			continue
 		}
 		index.levels[piece] = level
+		grade, gradeOK := parsed.Int("grade")
+		rarity, rarityOK := parsed.Int("rarity")
+		if gradeOK && grade > 0 && grade <= hellPartyRewardPoolGradeCeiling && rarityOK && rarity == 4 {
+			index.grades[piece] = grade
+		}
 		index.Resolved++
 	}
 	if index.Resolved == 0 {
@@ -332,7 +322,13 @@ func currentAbyssEpicPieceLevelCandidates(
 		if !found {
 			continue
 		}
-		if band.admits(level) {
+		if band.GradeMin > 0 {
+			grade, known := index.grades[piece]
+			if !known || grade < band.GradeMin || grade > band.GradeMax {
+				continue
+			}
+		}
+		if band.permitsFragmentLevel(level) {
 			filtered = append(filtered, piece)
 		}
 	}

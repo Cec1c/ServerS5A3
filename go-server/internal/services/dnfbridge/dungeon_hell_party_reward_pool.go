@@ -352,20 +352,16 @@ func hellPartyRewardPoolKey(grade, rarity int64) int64 {
 	return grade*hellPartyRewardPoolKeyScale + rarity
 }
 
-// candidates 逐行对应厂商 `CollectWeightedFromPool`：`grade ∈ [gradeMin, gradeMax]`
-// **闭区间**，逐个 grade 取对应 rarity 桶并按 grade 升序拼接（顺序与厂商一致）。
-//
-// **本仓新增的一道闸门**（`dungeon_abyss_item_level_floor.go`，操作者缺陷「深渊掉落了
-// lv80 的史诗碎片」）：候选还必须通过按**物品等级**（`.equ [minimum level]`）的显式地板
-// `DNFBRIDGE_ABYSS_ITEM_LEVEL_FLOOR`（默认 85）。回退档（`legacy`）下这一行是空操作，
-// 候选与顺序逐字节等于本改动前。真档副本 310 的波段 [87,97] 上 948/948 候选都 ≥ 85
-// ⇒ 线上**零行为差**；它挡住的是"换个 `[minimum required level] <= 86` 的副本就会放进
-// lv80 史诗"这一类（同一份 PVF 里史诗 grade 只有 91/96 = lv85/lv90）。
+// candidates保留无副本上下文的显式物品等级策略。实际奖励选择器和稀有度
+// 计数使用candidatesWithBand，传入按当前副本等级限定的策略。
 func (pool *hellPartyRewardEquipmentPool) candidates(gradeMin, gradeMax, rarity int64) []dungeonDropWeightedItem {
+	return pool.candidatesWithBand(gradeMin, gradeMax, rarity, abyssItemLevelBandFromEnv())
+}
+
+func (pool *hellPartyRewardEquipmentPool) candidatesWithBand(gradeMin, gradeMax, rarity int64, band abyssItemLevelBand) []dungeonDropWeightedItem {
 	if pool == nil || gradeMax < gradeMin {
 		return nil
 	}
-	band := abyssItemLevelBandFromEnv()
 	result := make([]dungeonDropWeightedItem, 0, 64)
 	for grade := gradeMin; grade <= gradeMax; grade++ {
 		for _, item := range pool.Buckets[hellPartyRewardPoolKey(grade, rarity)] {
@@ -382,13 +378,18 @@ func (pool *hellPartyRewardEquipmentPool) candidates(gradeMin, gradeMax, rarity 
 // `rarity_candidates=`，让"rarity 4 到底有没有候选"在日志里一眼可见）。
 func (pool *hellPartyRewardEquipmentPool) rarityCandidateCounts(
 	gradeMin, gradeMax int64,
+	bands ...abyssItemLevelBand,
 ) [hellPartyRewardRarityBuckets]int {
 	var counts [hellPartyRewardRarityBuckets]int
+	band := abyssItemLevelBandFromEnv()
+	if len(bands) > 0 {
+		band = bands[0]
+	}
 	if pool == nil {
 		return counts
 	}
 	for rarity := int64(0); rarity <= hellPartyRewardRarityMax; rarity++ {
-		counts[hellPartyRewardRarityIndex(rarity)] = len(pool.candidates(gradeMin, gradeMax, rarity))
+		counts[hellPartyRewardRarityIndex(rarity)] = len(pool.candidatesWithBand(gradeMin, gradeMax, rarity, band))
 	}
 	return counts
 }
@@ -613,9 +614,10 @@ func (pool *hellPartyRewardEquipmentPool) selectEquipment(
 		)
 	}
 	selection.GradeMin, selection.GradeMax = gradeMin, gradeMax
-	candidates := pool.candidates(gradeMin, gradeMax, rarity)
+	band := abyssItemLevelBandFromEnv().forDungeon(dungeonMinimumLevel, dungeonBasisLevel)
+	candidates := pool.candidatesWithBand(gradeMin, gradeMax, rarity, band)
 	if len(candidates) == 0 && rarity > 0 && allowCommonFallback {
-		candidates = pool.candidates(gradeMin, gradeMax, 0)
+		candidates = pool.candidatesWithBand(gradeMin, gradeMax, 0, band)
 		selection.FallbackUsed = true
 		selection.Rarity = 0
 	}
@@ -906,6 +908,7 @@ func (pool *hellPartyRewardEquipmentPool) selectEquipmentWithinRarities(
 		)
 	}
 	selection.GradeMin, selection.GradeMax = gradeMin, gradeMax
+	band := abyssItemLevelBandFromEnv().forDungeon(dungeonMinimumLevel, dungeonBasisLevel)
 	buckets := append([]int64(nil), allowed...)
 	sort.Slice(buckets, func(left, right int) bool { return buckets[left] < buckets[right] })
 	if len(buckets) == 0 {
@@ -920,7 +923,7 @@ func (pool *hellPartyRewardEquipmentPool) selectEquipmentWithinRarities(
 		total := int64(0)
 		candidateCount := 0
 		for _, rarity := range rarities {
-			bucket := pool.candidates(gradeMin, gradeMax, rarity)
+			bucket := pool.candidatesWithBand(gradeMin, gradeMax, rarity, band)
 			if len(bucket) == 0 {
 				continue
 			}
