@@ -95,7 +95,7 @@ func TestFatigueSixAMResetsPotionLimitsAndAuctionIsNotBlackDiamond(t *testing.T)
 		t.Fatal("auction coupon incorrectly activated black diamond")
 	}
 	fatigue.Refresh(&c, account, after)
-	if c.Stats["fatigue"] != 156 || c.Stats["fatigue_potion_used_123"] != 0 || c.Stats["fatigue_potion_time_123"] != 0 || c.Stats["fatigue_potion_day_123"] != premium.ServiceDayID(after) {
+	if c.Stats["fatigue"] != 156 || c.Stats["fatigue_potion_used_123"] != 0 || c.Stats["fatigue_potion_time_123"] != before.UnixMilli() || c.Stats["fatigue_potion_day_123"] != premium.ServiceDayID(after) {
 		t.Fatalf("six AM refill=%v", c.Stats)
 	}
 }
