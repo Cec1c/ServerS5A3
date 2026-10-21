@@ -181,7 +181,16 @@ func buildCurrentIncreaseStatusResultBody() []byte {
 }
 
 func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, source string) error {
-	if session == nil || session.postFinishLoadingPlayerStateSent {
+	if session == nil {
+		return nil
+	}
+	if session.postFinishLoadingPlayerStateSent {
+		// A dungeon room move keeps the actor-initialization gate set and only
+		// re-arms the op37/op30 state. Record that the finish request was
+		// observed, with placement_sent=false, before returning. The real
+		// finish_loading_placement event remains owned by the successful send
+		// path and has its own per-room limit.
+		s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_observed")
 		return nil
 	}
 	initialTownFinalized := currentInitialTownPlayerStateFinalized(session)
@@ -269,13 +278,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		session.deferredDungeonUserStateObjectKey = 0
 	}
 	session.postFinishLoadingPlayerStateSent = true
-	session.dungeon.mu.Lock()
-	if r := session.dungeon.runtime; r != nil && r.Session != nil {
-		if scene, ok := r.Session.Scene(); ok {
-			s.logFiendWarSceneDiagnostic(session, r, scene, "finish_loading_placement", 0, 0)
-		}
-	}
-	session.dungeon.mu.Unlock()
+	s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_placement")
 	return nil
 }
 

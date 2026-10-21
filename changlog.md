@@ -1,3 +1,14 @@
+## 2026-10-21 — R168 超时空诊断按运行身份识别
+
+- 以频道和raidEntry身份识别超时空，覆盖设施与首领地图；换房提前返回只记录finish_loading_observed和placement_sent=false，实际成功发送仍单独记录，均按场景限频。
+- 四图正例与独立状态负例已补；不改变移动或组队业务，尚待串行验证。全部修复完成后统一部署。详见Docs/FIENDWAR_SCENE_DIAGNOSTIC_R168.md。
+
+## 2026-10-21 — BUFF强化1428仅修入站归属（R168）
+
+- `official-24.9` 且 `DNFBRIDGE_BUFF_SWAP_REAPPLY=on` 时，op1428由Buff强化loadout解析，不再进入native 1426/1368 owner。撤销候选对op19边界投影和登记哨兵应答的1428重启，避免未证下行扩大。
+- 角色1006既有无实例记录不迁移、不删除，不按模板猜造物理实例；op19不补发1428。非official profile保留历史1428/1369路径。回归先落binding-bearing loadout行，再验证穿脱、投影和哨兵均为0字节。
+- 主线程新增5项及相关122叶回归通过，0失败/跳过；已并入本地累计候选，未部署，完整验证另记。此项只防止新增错误归属，历史无实例登记和全部GUI问题仍开放；详见[Docs/BUFF_BINDING_MIGRATION_R167.md](Docs/BUFF_BINDING_MIGRATION_R167.md)。
+
 ## 2026-10-21 — D09 安徒恩phase0自动选牌绑定实际牌面
 
 - 原自动 party 选择只按 CompletedAt+2*MovieEndSeconds 截止；自然 659 在结果电影后才下发牌面，晚到时会在展示前提交。现记录首次成功 party 600 的 PartyShownAt，自动选择至少等待一个真实电影窗；没有牌面下发时在 AutoSelectAt 后有界回退。

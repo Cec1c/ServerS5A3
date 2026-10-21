@@ -25,6 +25,19 @@ func buffSwapReapplyEnabled() bool {
 	}
 }
 
+// currentClientLoadoutOwnsBuffSwap1428 reports whether op1428 is the current
+// client's Buff-enhancement loadout stream. DNFBRIDGE_BUFF_SWAP_REAPPLY owns the
+// native 1426/1368 producer; it must not consume the separate 1428 loadout
+// record and persist it as a positional native binding. Other profiles retain
+// the historical 1428/1369 native path.
+//
+// This predicate is deliberately limited to the inbound ownership decision.
+// Under native reapply the late-boundary projection and sentinel answer remain
+// suppressed until the current client's 1428 downlink semantics are proved.
+func (s *Service) currentClientLoadoutOwnsBuffSwap1428() bool {
+	return s != nil && strings.TrimSpace(s.options.currentClientVersion) == "official-24.9"
+}
+
 // With the existing switch enabled,1426 belongs to the proven current BUFF
 // producer. Invalid lengths and fields are consumed/rejected;
 // they cannot complete an FPS loading gate or create registration state.
