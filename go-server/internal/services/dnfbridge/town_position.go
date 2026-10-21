@@ -90,6 +90,11 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 		runtime.actorPositionValid = true
 		// 队伍级共享实例：把本次坐标记进实例位置表。
 		runtime.recordPartyDungeonActorPosition()
+		if runtime.Session != nil {
+			if scene, ok := runtime.Session.Scene(); ok {
+				s.logFiendWarSceneDiagnostic(session, runtime, scene, "client_position", request.PositionX, request.PositionY)
+			}
+		}
 	}
 	session.dungeon.mu.Unlock()
 	if runtime != nil {

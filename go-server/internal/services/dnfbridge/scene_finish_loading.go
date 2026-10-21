@@ -269,6 +269,13 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		session.deferredDungeonUserStateObjectKey = 0
 	}
 	session.postFinishLoadingPlayerStateSent = true
+	session.dungeon.mu.Lock()
+	if r := session.dungeon.runtime; r != nil && r.Session != nil {
+		if scene, ok := r.Session.Scene(); ok {
+			s.logFiendWarSceneDiagnostic(session, r, scene, "finish_loading_placement", 0, 0)
+		}
+	}
+	session.dungeon.mu.Unlock()
 	return nil
 }
 

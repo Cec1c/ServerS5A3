@@ -570,6 +570,7 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	}
 
 	session.postStartMapPlayerStateSent = true
+	s.logFiendWarSceneDiagnostic(session, runtime, scene, "post_start_placement", 0, 0)
 	session.sceneBootstrapTailDeferred = false
 	session.sceneBootstrapTailSent = true
 	minimumPacketCount := currentSceneOverseerPageCount + 13

@@ -7,7 +7,8 @@ func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 	case "game-dungeon-party-peer-actor-delivered",
 		"game-party-dungeon-peer-actor-landing-resend",
 		"game-dungeon-party-peer-actor-resend",
-		"game-raid-volcano-barrier-symbols-sent":
+		"game-raid-volcano-barrier-symbols-sent",
+		"game-fiendwar-party-admission":
 	default:
 		return
 	}
@@ -15,6 +16,19 @@ func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)
 		if !ok {
+			continue
+		}
+		if kind == "game-fiendwar-party-admission" {
+			switch key {
+			case "phase", "char_id", "peer_char_id", "mode", "reason", "party_id", "peer_party_id", "party_members", "peer_party_members",
+				"raid_key", "peer_raid_key", "raid_instance_id", "peer_raid_instance_id",
+				"run_id", "peer_run_id", "participants", "peer_participants",
+				"scene_key", "peer_scene_key", "run_key", "peer_run_key",
+				"post_start", "peer_post_start", "finish", "peer_finish",
+				"post_finish", "peer_post_finish", "ready", "peer_ready",
+				"party_instance_id", "peer_party_instance_id", "had_invite":
+				args = append(args, key, fields[i+1])
+			}
 			continue
 		}
 		switch key {

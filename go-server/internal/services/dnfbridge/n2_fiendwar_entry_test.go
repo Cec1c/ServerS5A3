@@ -1,14 +1,17 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,6 +65,9 @@ func TestN2FiendWarFullEntry(t *testing.T) {
 		t.Run(fmt.Sprint(area), func(t *testing.T) {
 			f, ps := actualCurrentFiendWar(t, 1)
 			s, p := f.service, ps[0]
+			var sceneLogs bytes.Buffer
+			s.logger = slog.New(slog.NewJSONHandler(&sceneLogs, nil))
+			s.packetLog = nil // evidence must survive production packet logging being off
 			ctx := context.Background()
 			b := f.state.Battle
 			f.state.Started = true
@@ -164,6 +170,19 @@ func TestN2FiendWarFullEntry(t *testing.T) {
 			}
 			if !r.actorPositionValid || r.actorPositionX != x || r.actorPositionY != y {
 				t.Fatal("valid in-dungeon position report rejected")
+			}
+			for i := 0; i < 10; i++ {
+				if err := s.handleTownSetUserPosition(p, move); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, stage := range []string{"post_start_placement", "finish_loading_placement", "client_position"} {
+				if !strings.Contains(sceneLogs.String(), `"stage":"`+stage+`"`) {
+					t.Fatalf("missing %s evidence: %s", stage, sceneLogs.String())
+				}
+			}
+			if got := strings.Count(sceneLogs.String(), `"kind":"game-fiendwar-scene-diagnostic"`); got != 4 {
+				t.Fatalf("scene events=%d want4", got)
 			}
 			if !p.postStartMapPlayerStateSent || !p.currentFinishLoadingStateSent {
 				t.Fatal("scene ready missing")

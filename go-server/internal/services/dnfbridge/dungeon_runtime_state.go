@@ -205,6 +205,7 @@ type runtimeDungeonState struct {
 	actorPositionY                       uint16
 	actorDirection                       byte
 	actorPositionValid                   bool
+	fiendWarSceneDiagnostic              fiendWarSceneDiagnosticState
 	settlementDungeonPermissionSent      bool
 	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState

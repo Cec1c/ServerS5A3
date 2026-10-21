@@ -10,43 +10,56 @@ import (
 // Restore that exact ready party without restarting the peer handshake. Other
 // requests still need an encounter admission/transfer owner, not a town join.
 func (s *Service) rejectCurrentFiendWarActivePartyRequest(p *gameSession, typ uint16, request party.RequestPeerRequest) (bool, error) {
+	diagnostic := s.fiendWarPartyAdmissionDiagnosticEligible(p, request.Mode, request.TargetID)
+	handled, err, reason := s.rejectCurrentFiendWarActivePartyRequestDecision(p, typ, request)
+	if diagnostic {
+		target, _ := s.onlineGameSession(request.TargetID)
+		s.logFiendWarPartyAdmission("request", p, request.TargetID, target, request.Mode, reason)
+	}
+	return handled, err
+}
+
+func (s *Service) rejectCurrentFiendWarActivePartyRequestDecision(p *gameSession, typ uint16, request party.RequestPeerRequest) (bool, error, string) {
 	if s.options.currentClientVersion != "official-24.9" || !isCurrentFiendWarChannel(p) || (request.Mode != 0 && request.Mode != 12) || request.TargetID == 0 || request.TargetID == p.selectedCharacterID {
-		return false, nil
+		return false, nil, "fiendwar_request_scope_mismatch"
 	}
 	p.dungeon.mu.Lock()
 	active := p.dungeon.runtime != nil
 	p.dungeon.mu.Unlock()
 	if !active {
-		return false, nil
+		return false, nil, "sender_not_in_dungeon"
 	}
 	if target, online := s.onlineGameSession(request.TargetID); online {
 		if snapshot, valid := s.currentFiendWarReadyEncounterParty(p, target); valid {
 			if err := s.sendGameUpperRawClassCodec(p, typ, party.BuildRequestPeerAck(), dnfproto.DefaultChannelClassification, true); err != nil {
-				return true, err
+				return true, err, "existing_party_ack_write_failed"
 			}
 			s.sendDungeonPartyFrameRoster(snapshot.StateFor(p.selectedCharacterID), "fiendwar_existing_encounter_request")
 			s.logGameEvent(p, "game-fiendwar-existing-party-request-ack", "type", typ,
 				"char_id", p.selectedCharacterID, "target_id", request.TargetID, "mode", request.Mode,
 				"party_id", snapshot.ID, "membership_mutation", "none", "peer_handshake", "not_replayed")
-			return true, nil
+			return true, nil, "existing_shared_party_restored"
 		}
 	}
 	// v150 COMMAND10: 2523cf6/2523d4e consume success/error; 1fc2c05
 	// consumes mode even on failure. Generic [0,error] would truncate this reader.
 	if err := s.sendGameUpperRawClassCodec(p, typ, []byte{0, partyCommandFailureGeneric, request.Mode}, dnfproto.DefaultChannelClassification, true); err != nil {
-		return true, err
+		return true, err, "rejection_ack_write_failed"
 	}
 	refreshed := false
+	reason := "peer_offline"
 	if target, online := s.onlineGameSession(request.TargetID); online {
+		reason = "no_shared_encounter_party"
 		if snapshot, valid := s.currentFiendWarExistingEncounterParty(p, target); valid {
 			refreshed = s.sendDungeonPartyFrameRoster(snapshot.StateFor(p.selectedCharacterID), "fiendwar_active_party_request_rejected") > 0
+			reason = "shared_party_not_ready_or_scene_mismatch"
 		}
 	}
 	s.logGameEvent(p, "game-fiendwar-active-party-request-rejected", "type", typ,
 		"char_id", p.selectedCharacterID, "target_id", request.TargetID, "mode", request.Mode,
 		"failure_code", partyCommandFailureGeneric, "existing_roster_refreshed", refreshed,
 		"reason", "encounter_membership_is_frozen_before_dungeon_entry")
-	return true, nil
+	return true, nil, reason
 }
 
 // The request restores only members already admitted to one encounter and
@@ -94,15 +107,24 @@ func (s *Service) currentFiendWarReadyEncounterParty(p, target *gameSession) (pa
 // may acknowledge the already committed encounter membership, but cannot use
 // the expired invitation to join, move, or rebuild any party.
 func (s *Service) acknowledgeCurrentFiendWarPartyAccept(p, target *gameSession, typ uint16, response party.ResponsePeerRequest, hadInvite bool) (bool, error) {
+	diagnostic := s.fiendWarPartyAdmissionDiagnosticEligible(p, response.Mode, response.TargetID)
+	handled, err, reason := s.acknowledgeCurrentFiendWarPartyAcceptDecision(p, target, typ, response, hadInvite)
+	if diagnostic {
+		s.logFiendWarPartyAdmission("accept", p, response.TargetID, target, response.Mode, reason, "had_invite", hadInvite)
+	}
+	return handled, err
+}
+
+func (s *Service) acknowledgeCurrentFiendWarPartyAcceptDecision(p, target *gameSession, typ uint16, response party.ResponsePeerRequest, hadInvite bool) (bool, error, string) {
 	if (response.Mode != 0 && response.Mode != 12) || response.Value != 0 {
-		return false, nil
+		return false, nil, "not_party_accept_response"
 	}
 	snapshot, ok := s.currentFiendWarExistingEncounterParty(p, target)
 	if !ok {
-		return false, nil
+		return false, nil, "no_existing_shared_encounter_party"
 	}
 	if err := s.sendGameUpperSuccess(p, typ, party.BuildResponsePeerAckPayload(response.TargetID, response.Mode)); err != nil {
-		return true, err
+		return true, err, "accept_ack_write_failed"
 	}
 	// The native class0/op11 is a formation handshake, not a refresh. Neither
 	// that packet nor an op8 acceptance notice should restart an existing link.
@@ -112,7 +134,7 @@ func (s *Service) acknowledgeCurrentFiendWarPartyAccept(p, target *gameSession, 
 		"type", typ, "char_id", p.selectedCharacterID, "target_id", response.TargetID,
 		"party_id", snapshot.ID, "had_pending_invite", hadInvite,
 		"membership_mutation", "none", "peer_handshake", "not_replayed")
-	return true, nil
+	return true, nil, "existing_shared_party_restored"
 }
 
 func (s *Service) currentFiendWarExistingEncounterParty(p, target *gameSession) (party.RuntimePartySnapshot, bool) {

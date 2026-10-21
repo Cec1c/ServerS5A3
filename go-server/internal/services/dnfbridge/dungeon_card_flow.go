@@ -364,6 +364,30 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
 			uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tournament_return_to_town")
 	}
+	// The completed Luke spread-sanctum result page is owned by its accepted
+	// raid clear journal. The ordinary op34/35 chain may be absent after a
+	// reconnect; requiring it here leaves op72 返回城镇 inert until the menu
+	// op132 path is used. This branch is limited to that one Phase-1 map and
+	// Mode 2. Retry, other-selector, other Luke sanctums and Anton remain on the
+	// existing ordinary/card boundary below.
+	if runtime != nil && shouldReturnToTown && s.currentLukeSpreadSanctumCompletedMapTownReturnReady(session, runtime) {
+		response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
+		runtime.settlementCardExitAckSent = true
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		s.logGameEvent(session, "game-raid-completed-map-exit-accepted", "char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand), "source", "owned_luke_spread_sanctum_clear_without_ordinary_settlement_reward")
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_owned_raid_map_return_to_town")
+	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
 		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
 			"char_id", session.selectedCharacterID,
