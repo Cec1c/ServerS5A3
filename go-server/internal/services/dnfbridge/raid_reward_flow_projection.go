@@ -83,9 +83,10 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	if !f.FinishedAt.IsZero() {
 		if f.Mode != 3 && !f.Single && f.Phase == 0 {
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{5, 0}}, currentAntonRewardPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, uint32(f.BreakUntil.Unix()), currentRaidNativeDuration(f.Mode, f.BreakUntil, f.Configuration.PhaseBreakSeconds, time.Now()))})
-		} else {
-			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		}
+		// Final/single completion keeps the committed reward screen above.
+		// Re-entering state4 after NOTI600 restarts that same screen when the
+		// first projection arrives after the display window has already ended.
 	}
 	// Compare the complete authoritative projection before removing an already
 	// delivered card list. Otherwise the filtered second send has a different

@@ -207,15 +207,27 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 			if b.Phase >= byte(len(b.Configuration.PhaseLimitSeconds)) || b.Deadline.Unix() < 0 || b.Deadline.Unix() > math.MaxUint32 {
 				return fmt.Errorf("raid reconnect phase clock unavailable")
 			}
-			seconds := int64(math.Ceil(time.Until(b.Deadline).Seconds()))
+			clockEnd := b.Deadline
+			configured := b.Configuration.PhaseLimitSeconds[b.Phase] + b.Configuration.StartDelaySeconds
+			remainingKind := byte(0)
+			// A retained subscriber already has the finished reward projection's
+			// signature. Rejoin must restore its current break clock here, not
+			// overwrite it with the completed phase's old combat deadline and
+			// rely on an identical reward projection to send the break again.
+			if b.PhaseCompleted && !b.Single && b.Phase == 0 {
+				if flow := b.RewardFlow[0]; flow != nil && flow.InstanceID == b.InstanceID && flow.Phase == b.Phase && flow.Mode == b.Mode && !flow.FinishedAt.IsZero() && !flow.BreakUntil.IsZero() {
+					clockEnd, configured, remainingKind = flow.BreakUntil, flow.Configuration.PhaseBreakSeconds, 1
+				}
+			}
+			seconds := int64(math.Ceil(time.Until(clockEnd).Seconds()))
 			if seconds < 0 {
 				seconds = 0
 			}
-			end, duration := uint32(b.Deadline.Unix()), currentRaidNativeDuration(b.Mode, b.Deadline, b.Configuration.PhaseLimitSeconds[b.Phase]+b.Configuration.StartDelaySeconds, time.Now())
+			end, duration := uint32(clockEnd.Unix()), currentRaidNativeDuration(b.Mode, clockEnd, configured, time.Now())
 			if b.TimedOut {
 				end, duration, seconds = 0, 0, 0
 			}
-			packets = append(packets, currentRaidProjectionPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, end, duration)}, currentRaidProjectionPacket{opcode: 597, body: raid.BuildRemainingTimeBody(0, uint32(seconds))})
+			packets = append(packets, currentRaidProjectionPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, end, duration)}, currentRaidProjectionPacket{opcode: 597, body: raid.BuildRemainingTimeBody(remainingKind, uint32(seconds))})
 		}
 	}
 	if singleHP != nil {
