@@ -1,3 +1,10 @@
+## 2026-10-21 — 斗气改造机 op1340 属性选项变更
+
+- 按 v151 class1 sender 实现 4 字节 `u16槽/u8位置/u8 option` 专用入口；class0 同号冒险团路由保持未接入。
+- 解析真实 individualcustominfo `[info]` 的 option×grade 材料表；装备与材料在同一 owner 事务内校验、原子保存，锁/逾期料跳过，部分不足全回滚。
+- 只改目标 option 字节，保留grade及其他实例状态并同步RawEntry/tail/mode1载体；成功后先NOTI14再专用ACK，输出失败不重提事务。
+- H盘真实PVF焦点组、既有Aiken套件、完整dnfbridge包与目标vet通过；未启动GUI、未部署。op1341仍只保留未决矩阵，不实现未知映射。证据见[Docs/AIKEN_UPGRADE.md](Docs/AIKEN_UPGRADE.md)。
+
 ## 2026-10-21 — 并发UDP测试先取得端口段租约
 
 - R137测试夹具原先先探测64个池端口、最后检查租约；并发测试可在原持有者关闭/重绑期间短暂抢占首端口，导致误报探针泄漏。改为先取得池外租约，再探测池；失败路径释放租约，成功路径保持到清理。

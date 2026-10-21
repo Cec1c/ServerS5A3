@@ -20,18 +20,32 @@ var ErrMaterials = errors.New("aiken upgrade materials insufficient")
 type Rules struct {
 	Material       int64
 	Costs          [4]int64
+	OptionCosts    map[byte][4]MaterialCost
 	Options        map[byte]bool
 	Validate       func(repo.ItemStack) error
 	State          func(repo.ItemStack) ([5]byte, error)
 	SourcePolicy   func(repo.ItemStack) (itemplacement.SlotPolicy, error)
 	MaterialPolicy itemplacement.SlotPolicy
+	CostPolicy     func(int64) (itemplacement.SlotPolicy, error)
 	Expired        func(repo.ItemStack, time.Time) bool
 	SetCount       func(repo.ItemStack, int64) (repo.ItemStack, error)
 	SetState       func(repo.ItemStack, int16, [5]byte) (repo.ItemStack, error)
+	SetOption      func(repo.ItemStack, int16, byte, byte) (repo.ItemStack, error)
+}
+type MaterialCost struct {
+	ItemID int64
+	Count  int64
 }
 type Command struct {
 	AccountID, CharacterID string
 	Slot                   int16
+	Rules                  Rules
+	Now                    time.Time
+}
+type OptionCommand struct {
+	AccountID, CharacterID string
+	Slot                   int16
+	Position, Option       byte
 	Rules                  Rules
 	Now                    time.Time
 }
@@ -230,6 +244,182 @@ func (o *Owner) Upgrade(ctx context.Context, c Command) (Result, error) {
 			return err
 		}
 		result = Result{Before: before, After: next, Changed: changed}
+		return nil
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
+
+// ChangeOption applies the current EXE's one-position option request. The
+// selected option's cost is taken from individualcustominfo [info] for the
+// source item's current grade; both the equipment and every consumed material
+// row are written in one account/character asset transaction.
+func (o *Owner) ChangeOption(ctx context.Context, c OptionCommand) (Result, error) {
+	var result Result
+	r := c.Rules
+	if o == nil || o.assets == nil || strings.TrimSpace(c.AccountID) == "" || strings.TrimSpace(c.CharacterID) == "" || c.Position > 1 || r.Validate == nil || r.State == nil || r.SetOption == nil || r.SourcePolicy == nil || r.CostPolicy == nil || r.Expired == nil || r.SetCount == nil {
+		return result, ErrInvalid
+	}
+	if c.Now.IsZero() {
+		c.Now = time.Now()
+	}
+	err := o.assets.WithinAccountCharacterAssets(ctx, c.AccountID, c.CharacterID, func(accounts repo.AccountInventoryRepository, chars repo.CharacterRepository, invs repo.InventoryRepository, equips repo.EquipmentRepository) error {
+		ch, ok, err := chars.Load(ctx, c.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !ok || ch.CharacterID != c.CharacterID || ch.AccountID != c.AccountID {
+			return ErrInvalid
+		}
+		inv, ok, err := invs.Load(ctx, c.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !ok || inv.CharacterID != c.CharacterID {
+			return ErrInvalid
+		}
+		worn, _, err := equips.Load(ctx, c.CharacterID)
+		if err != nil {
+			return err
+		}
+		account, _, err := accounts.Load(ctx, c.AccountID)
+		if err != nil {
+			return err
+		}
+		inv = repo.CloneInventory(inv)
+		if err := repo.BindInventoryContainerState(ctx, o.settings, &inv); err != nil {
+			return err
+		}
+		key := fmt.Sprintf("0:%d", c.Slot)
+		s, ok := inv.Slots[key]
+		if !ok || s.Count != 1 || itemlock.IsLockedAt(s, c.Now) || r.Expired(s, c.Now) {
+			return ErrInvalid
+		}
+		identity := strings.TrimSpace(s.Extra["native_buff_instance"])
+		duplicate := func(other repo.ItemStack) bool {
+			return identity != "" && strings.TrimSpace(other.Extra["native_buff_instance"]) == identity
+		}
+		endpoints := map[int64]int{}
+		for k := range inv.Slots {
+			if l, n, ok := endpoint(k); ok && l == 0 {
+				endpoints[n]++
+			}
+		}
+		if endpoints[int64(c.Slot)] != 1 {
+			return ErrInvalid
+		}
+		for k, x := range inv.Slots {
+			if k != key && duplicate(x) {
+				return ErrInvalid
+			}
+		}
+		for _, x := range inv.Warehouse {
+			if duplicate(x) {
+				return ErrInvalid
+			}
+		}
+		for _, x := range account.Slots {
+			if duplicate(x) {
+				return ErrInvalid
+			}
+		}
+		for _, x := range worn.Entries {
+			if duplicate(repo.ItemStack{Extra: x.Extra}) {
+				return ErrInvalid
+			}
+		}
+		if err := r.Validate(s); err != nil {
+			return err
+		}
+		policy, err := r.SourcePolicy(s)
+		if err != nil || !policy.ForInventory(&inv).Contains(0, c.Slot) {
+			return ErrInvalid
+		}
+		state, err := r.State(s)
+		if err != nil || state[4] > 3 || !r.Options[state[0]] || !r.Options[state[1]] {
+			return ErrInvalid
+		}
+		if !r.Options[c.Option] || state[c.Position] == c.Option {
+			return ErrInvalid
+		}
+		other := state[1-c.Position]
+		if other == c.Option {
+			return ErrInvalid
+		}
+		byGrade, ok := r.OptionCosts[c.Option]
+		if !ok {
+			return ErrInvalid
+		}
+		cost := byGrade[state[4]]
+		if cost.ItemID <= 0 || cost.Count <= 0 {
+			return ErrInvalid
+		}
+		materialPolicy, err := r.CostPolicy(cost.ItemID)
+		if err != nil {
+			return ErrInvalid
+		}
+		slots := []int{}
+		seen := map[int]bool{}
+		for k, x := range inv.Slots {
+			var l, n int
+			if _, e := fmt.Sscanf(k, "%d:%d", &l, &n); e != nil || l != 0 || n < 0 || n > 32767 || !materialPolicy.ForInventory(&inv).Contains(0, int16(n)) || x.ItemID != cost.ItemID {
+				continue
+			}
+			if k != fmt.Sprintf("0:%d", n) || seen[n] {
+				return ErrInvalid
+			}
+			seen[n] = true
+			if x.Count > 0 && !itemlock.IsLockedAt(x, c.Now) && !r.Expired(x, c.Now) {
+				slots = append(slots, n)
+			}
+		}
+		sort.Ints(slots)
+		remaining := cost.Count
+		changed := map[int16]repo.ItemStack{}
+		for _, n := range slots {
+			if remaining == 0 {
+				break
+			}
+			if endpoints[int64(n)] != 1 {
+				return ErrInvalid
+			}
+			k := fmt.Sprintf("0:%d", n)
+			x := clone(inv.Slots[k])
+			take := x.Count
+			if take > remaining {
+				take = remaining
+			}
+			remaining -= take
+			x.Count -= take
+			if x.Count == 0 {
+				delete(inv.Slots, k)
+				changed[int16(n)] = repo.ItemStack{}
+			} else {
+				x, err = r.SetCount(x, x.Count)
+				if err != nil {
+					return err
+				}
+				inv.Slots[k] = x
+				changed[int16(n)] = x
+			}
+		}
+		if remaining != 0 {
+			return ErrMaterials
+		}
+		before := state[c.Position]
+		s, err = r.SetOption(s, c.Slot, c.Position, c.Option)
+		if err != nil {
+			return err
+		}
+		inv.Slots[key] = s
+		changed[c.Slot] = s
+		inv.UpdatedAt = c.Now
+		if err := repo.SaveInventoryFields(ctx, invs, inv, repo.InventoryFieldSlots); err != nil {
+			return err
+		}
+		result = Result{Before: before, After: c.Option, Changed: changed}
 		return nil
 	})
 	if err != nil {
