@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/itemexpiration"
@@ -142,6 +143,17 @@ func (s *Service) projectCurrentPVFItemExpirations(
 					assets.Equipment.Entries[key] = patched
 					summary.Equipment++
 				}
+				continue
+			}
+			if currentPVFRelativeGrantExpired(dnfrepo.ItemStack{
+				ItemID: entry.ItemID, ExpireAt: entry.ExpireAt, Extra: entry.Extra,
+			}, definition, now) {
+				actorSlot, valid := currentEXEActorEquipmentSlot(entry)
+				if key != strconv.Itoa(int(entry.SlotIndex)) || !valid || actorSlot < 12 || actorSlot > 25 {
+					return summary, fmt.Errorf("relative expiry invalid worn key %q slot %d", key, entry.SlotIndex)
+				}
+				delete(assets.Equipment.Entries, key)
+				summary.Equipment++
 				continue
 			}
 			if patched, changed := normalizeCurrentPVFEquipmentEntry(entry, definition, now); changed {

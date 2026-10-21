@@ -20,7 +20,8 @@ import (
 )
 
 type gameSession struct {
-	fiendWarPendingMove                 *currentFiendWarMovePlan // 由 townMu / 当前会话事件循环保护。
+	pendingItemExpiryProjection         *currentItemExpiryProjection // selected-character event loop only
+	fiendWarPendingMove                 *currentFiendWarMovePlan     // 由 townMu / 当前会话事件循环保护。
 	fiendWarProjection                  currentFiendWarProjection
 	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
