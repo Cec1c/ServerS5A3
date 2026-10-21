@@ -36,7 +36,7 @@
 **`Script.pvf` 和对应版本的 `DNF.exe` 都放在 Release 附件中。** 打开 [GitHub Releases](https://github.com/Cec1c/ServerS5A3/releases) 或 [GitGud 上游 Releases](https://gitgud.io/16ww/servers5a3/-/releases)，按同一版本的说明下载配套文件。分卷附件按该版本说明下载齐全后解压。
 
 > [!IMPORTANT]
-> 客户端 EXE、PVF、频道表及相关 dstr/NPK 资源按所选 Release 配套使用。玩家客户端、游戏服务和 GM 使用的 PVF 需要一致。
+> 客户端 EXE、PVF及相关 dstr/NPK 资源按所选 Release 配套使用。频道目录按[外部频道表部署说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)显式选择，并与仓库118频道清单核对，不默认采用PVF内置目录。玩家客户端、游戏服务和 GM 使用的 PVF 需要一致。
 
 ## 项目里有什么
 
