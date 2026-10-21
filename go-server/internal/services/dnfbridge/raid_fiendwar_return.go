@@ -22,6 +22,9 @@ func (s *Service) releaseCurrentFiendWarEncounterLocked(b *runtimeRaidBattle, r 
 	if !ok || e.RunID != r.raidEntry.RunID {
 		return
 	}
+	if e.Reservation != nil {
+		return // The entry owner's deferred cancellation restores this reservation.
+	}
 	if leaver != 0 {
 		if b.RunDepartures == nil {
 			b.RunDepartures = map[string]map[uint16]bool{}
@@ -39,6 +42,16 @@ func (s *Service) releaseCurrentFiendWarEncounterLocked(b *runtimeRaidBattle, r 
 	next := b.FiendWar.Clone()
 	if err := next.Abandon(int(r.Dungeon.ID), time.Now()); err != nil {
 		return
+	}
+	// A real boss retreat may eject the other room via PVF. Preserve that
+	// exact run's party during its ensuing town transition, as for op42.
+	for area, encounter := range b.FiendWarEncounters {
+		if encounter.RunID != e.RunID && b.FiendWar.Areas[area].Group != 0 && next.Areas[area].Group == 0 {
+			if b.FiendWarRetreatRuns == nil {
+				b.FiendWarRetreatRuns = map[string]bool{}
+			}
+			b.FiendWarRetreatRuns[encounter.RunID] = true
+		}
 	}
 	b.FiendWar = next
 	delete(b.FiendWarEncounters, a.Index)

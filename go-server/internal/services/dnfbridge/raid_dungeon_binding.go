@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/party"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/raid"
@@ -26,6 +27,7 @@ type currentRaidDungeonEntry struct {
 	fiendWarOrigin  currentTownPositionSnapshot
 	teamMode        bool
 	singleAntonMode bool
+	fiendWarParty   *party.RuntimePartySnapshot
 }
 
 // Team raids and single Anton do not create floor items or gold. Keep this rule on the frozen
@@ -188,6 +190,19 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 	}
 
 	if b.FiendWar != nil {
+		// The eight raid numbers are permanent seats, not the temporary combat
+		// party. Freeze that party's identity separately for encounter cleanup.
+		if entry.fiendWarParty == nil {
+			if snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(session.selectedCharacterID, session.characterGeneration); found {
+				ids := make([]uint16, 0, len(snapshot.Members))
+				for _, member := range snapshot.Members {
+					ids = append(ids, member.UserID)
+				}
+				if sameRaidParticipants(ids, entry.Participants) {
+					entry.fiendWarParty = &snapshot
+				}
+			}
+		}
 		a, ok := b.FiendWar.AreaForDungeon(int(runtime.Dungeon.ID))
 		if !ok || fiendOrigin.CharacterID != session.selectedCharacterID || !fiendOrigin.PositionValid || int(fiendOrigin.TownID) != b.FiendWar.Config.WaitingTown || int(fiendOrigin.AreaID) != a.Index {
 			return fmt.Errorf("超时空遭遇战缺少目标区域的真实客户端坐标")

@@ -573,6 +573,7 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 		}
 	}
 	// 到这里队长自己的 runtime 也提交成功了：这一队真的进图，这次路由请求的挂起态到此结清
+	s.commitCurrentFiendWarReservation(runtime)
 	// （只结清"还是这个令牌"的那一条；队员自己的 runtime 提交只是这条流程的中间点，见
 	// party_entry_refusal_before_commit.go）。
 	s.discardPartyDungeonEntryRoutedRequest(routed)

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"encoding/binary"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"time"
 )
@@ -12,6 +13,7 @@ type currentFiendWarEncounter struct {
 	RunID        string
 	Dungeon      int
 	Participants []uint16
+	Reservation  *fiendwar.EntryReservation
 }
 
 func currentFiendWarSelectionAllowed(b *runtimeRaidBattle, id uint16, dungeon int) bool {
@@ -44,14 +46,13 @@ func reserveCurrentFiendWarDungeon(b *runtimeRaidBattle, id uint16, r *runtimeDu
 			return fmt.Errorf("超时空同场成员区域不符")
 		}
 	}
-	next := f.Clone()
 	group := b.MemberGroups[id]
-	next.GroupAreas[group] = a.Index
-	if err := next.Enter(group, int(r.Dungeon.ID), now); err != nil {
+	next, reservation, err := f.ReserveEntry(group, int(r.Dungeon.ID), now)
+	if err != nil {
 		return err
 	}
 	b.FiendWar = next
-	b.FiendWarEncounters[a.Index] = currentFiendWarEncounter{e.RunID, int(r.Dungeon.ID), append([]uint16(nil), e.Participants...)}
+	b.FiendWarEncounters[a.Index] = currentFiendWarEncounter{RunID: e.RunID, Dungeon: int(r.Dungeon.ID), Participants: append([]uint16(nil), e.Participants...), Reservation: reservation}
 	b.ProgressVersion++
 	syncCurrentFiendWarDungeons(b)
 	return nil
@@ -195,6 +196,50 @@ func (s *Service) cancelUncommittedCurrentFiendWarEntry(r *runtimeDungeonState) 
 	defer s.raidMu.Unlock()
 	state := s.raids[r.raidEntry.RaidKey]
 	if state != nil && state.Battle != nil && state.Battle.InstanceID == r.raidEntry.InstanceID {
-		s.releaseCurrentFiendWarEncounterLocked(state.Battle, r, 0)
+		b := state.Battle
+		if b.FiendWar == nil {
+			return
+		}
+		a, ok := b.FiendWar.AreaForDungeon(int(r.Dungeon.ID))
+		if !ok {
+			return
+		}
+		e, ok := b.FiendWarEncounters[a.Index]
+		if !ok || e.RunID != r.raidEntry.RunID || e.Reservation == nil {
+			return
+		}
+		next, err := b.FiendWar.CancelEntry(e.Reservation)
+		if err != nil {
+			s.logPacketEvent("game-fiendwar-entry-rollback-conflict", "instance_id", state.Battle.InstanceID, "run_id", e.RunID, "dungeon_id", e.Dungeon)
+			return
+		}
+		b.FiendWar = next
+		delete(b.FiendWarEncounters, a.Index)
+		b.ProgressVersion++
+		syncCurrentFiendWarDungeons(b)
+	}
+}
+
+// Only the successful group entry boundary retires the rollback journal.
+// Prepared followers may still be detached if the leader fails to commit.
+func (s *Service) commitCurrentFiendWarReservation(r *runtimeDungeonState) {
+	if r == nil || r.raidEntry == nil || r.raidEntry.ChannelType != 42 {
+		return
+	}
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	state := s.raids[r.raidEntry.RaidKey]
+	if state == nil || state.Battle == nil || state.Battle.InstanceID != r.raidEntry.InstanceID || state.Battle.FiendWar == nil {
+		return
+	}
+	b := state.Battle
+	a, ok := b.FiendWar.AreaForDungeon(int(r.Dungeon.ID))
+	if !ok {
+		return
+	}
+	e, ok := b.FiendWarEncounters[a.Index]
+	if ok && e.RunID == r.raidEntry.RunID && e.Reservation != nil {
+		e.Reservation = nil
+		b.FiendWarEncounters[a.Index] = e
 	}
 }

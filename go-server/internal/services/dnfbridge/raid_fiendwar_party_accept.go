@@ -35,10 +35,26 @@ func (s *Service) rejectCurrentFiendWarActivePartyRequestDecision(p *gameSession
 				return true, err, "existing_party_ack_write_failed"
 			}
 			s.sendDungeonPartyFrameRoster(snapshot.StateFor(p.selectedCharacterID), "fiendwar_existing_encounter_request")
+			// The roster restores op153/op9 but does not recreate a peer actor that
+			// the client dropped. Reuse the normal per-binding projection after the
+			// same-run/all-ready checks above. Its claims make a repeated recovery
+			// idempotent, while a failed direction releases only that claim so the
+			// next request can finish it. Do not replay op11/op8 or touch membership.
+			projection := "restored_or_already_projected"
+			reason := "existing_shared_party_restored"
+			if err := s.projectDungeonPartyPeerActors(p, "fiendwar_existing_encounter_request"); err != nil {
+				projection = "write_failed"
+				reason = "existing_party_peer_actor_write_failed"
+				s.logGameEvent(p, "game-fiendwar-existing-party-peer-actor-failed",
+					"type", typ, "char_id", p.selectedCharacterID, "target_id", request.TargetID,
+					"party_id", snapshot.ID, "source", "fiendwar_existing_encounter_request",
+					"error", err)
+			}
 			s.logGameEvent(p, "game-fiendwar-existing-party-request-ack", "type", typ,
 				"char_id", p.selectedCharacterID, "target_id", request.TargetID, "mode", request.Mode,
-				"party_id", snapshot.ID, "membership_mutation", "none", "peer_handshake", "not_replayed")
-			return true, nil, "existing_shared_party_restored"
+				"party_id", snapshot.ID, "membership_mutation", "none", "peer_handshake", "not_replayed",
+				"peer_actor_projection", projection)
+			return true, nil, reason
 		}
 	}
 	// v150 COMMAND10: 2523cf6/2523d4e consume success/error; 1fc2c05

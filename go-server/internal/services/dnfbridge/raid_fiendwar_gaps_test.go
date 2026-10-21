@@ -232,7 +232,10 @@ func TestRealPVFCurrentFiendWarPartyRetreatKeepsOtherEncounter(t *testing.T) {
 		t.Fatal(err)
 	}
 	party := s.runtimePartyStateForSession(peers[1])
-	if len(runtimePartyMembers(party)) != 2 {
-		t.Fatal("整队撤退被普通队长放弃逻辑解散")
+	if party.PartyID != 0 {
+		t.Fatal("超时空临时队伍在确认回城后未解除")
+	}
+	if other := s.runtimePartyStateForSession(peers[2]); len(runtimePartyMembers(other)) != 2 {
+		t.Fatal("临时队伍清理误伤另一区域")
 	}
 }

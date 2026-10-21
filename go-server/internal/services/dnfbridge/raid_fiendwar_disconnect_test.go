@@ -32,6 +32,7 @@ func TestRealPVFCurrentFiendWarOneDisconnectKeepsTheOtherParticipant(t *testing.
 		t.Fatal(err)
 	}
 	run := r0.raidEntry.RunID
+	f.service.commitCurrentFiendWarReservation(r0)
 	b.Participation = map[uint16]currentRaidParticipation{19: {RunID: run, Runtime: r0, Session: p[0]}, 20: {RunID: run, Runtime: r1, Session: p[1]}}
 	// A stale detach of another runtime cannot retire the adopted owner's run.
 	stale := *r0

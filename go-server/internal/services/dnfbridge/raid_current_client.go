@@ -222,7 +222,7 @@ func currentRuntimeRaidMetadata(state runtimeRaidState) raid.CurrentMetadata {
 				status, argument = 4, 1
 			} else if b.PhaseCompleted {
 				status, argument = 3, 0
-				if b.Phase <= 1 && b.RewardFlow[b.Phase] != nil && !b.RewardFlow[b.Phase].FinishedAt.IsZero() {
+				if b.Phase <= 1 && currentRaidRewardFlowSettlementCompleted(b.RewardFlow[b.Phase]) {
 					status = 4
 					if !b.Single && b.Phase == 0 {
 						status = 5

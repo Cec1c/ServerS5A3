@@ -117,6 +117,16 @@ func (s *Service) tryCurrentFiendWarEncounter(p *gameSession) error {
 	if !ok {
 		return fmt.Errorf("超时空遭遇战队伍创建失败")
 	}
+	temporary, found := s.runtimePartyManagerForService().SnapshotByID(uint16(managed.PartyID))
+	if !found {
+		return fmt.Errorf("超时空遭遇战临时队伍已更换")
+	}
+	entered := false
+	defer func() {
+		if !entered {
+			s.retireCurrentFiendWarPartySnapshot(p, temporary, "entry_not_committed")
+		}
+	}()
 	if err := s.sendManagedRuntimePartySnapshots(managed); err != nil {
 		return err
 	}
@@ -124,7 +134,7 @@ func (s *Service) tryCurrentFiendWarEncounter(p *gameSession) error {
 	binary.LittleEndian.PutUint32(body, uint32(a.Dungeon))
 	err = s.handleDungeonSelectUpperPlanned(p, body, nil, true, nil)
 	p.dungeon.mu.Lock()
-	entered := p.dungeon.runtime != nil && p.dungeon.runtime.raidEntry != nil && p.dungeon.runtime.raidEntry.InstanceID == b.InstanceID
+	entered = p.dungeon.runtime != nil && p.dungeon.runtime.raidEntry != nil && p.dungeon.runtime.raidEntry.InstanceID == b.InstanceID
 	p.dungeon.mu.Unlock()
 	if entered {
 		p.townMu.Lock()
