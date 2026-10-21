@@ -30,6 +30,61 @@ class SyncError(RuntimeError):
     pass
 
 
+def require_no_tag_workflow(document):
+    """Conservatively audit historical YAML before a deploy-key tag push."""
+    try:
+        import yaml
+    except ImportError:
+        raise SyncError("Install scripts/ci/requirements-release-sync.txt for SSH tag audit") from None
+
+    class UniqueLoader(yaml.BaseLoader):
+        def construct_mapping(self, node, deep=False):
+            result = {}
+            for key_node, value_node in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                if not isinstance(key, str) or key == "<<" or key in result:
+                    raise SyncError("Ambiguous historical workflow mapping")
+                result[key] = self.construct_object(value_node, deep=deep)
+            return result
+
+    try:
+        data = yaml.load(document, Loader=UniqueLoader)
+    except (yaml.YAMLError, RecursionError):
+        raise SyncError("Invalid historical workflow YAML") from None
+    events = data.get("on") if isinstance(data, dict) else None
+    if isinstance(events, str):
+        events = {events: None}
+    elif isinstance(events, list) and all(isinstance(x, str) for x in events):
+        events = dict.fromkeys(events)
+    if not isinstance(events, dict) or not events:
+        raise SyncError("Historical workflow trigger cannot be verified")
+    for event, config in events.items():
+        if event in ("workflow_dispatch", "workflow_call", "schedule", "release"):
+            continue
+        # Explicit branch-only push filters exclude tag pushes in Actions.
+        if (event == "push" and isinstance(config, dict) and
+                set(config) <= {"branches", "paths", "paths-ignore"} and
+                isinstance(config.get("branches"), list) and config["branches"] and
+                all(isinstance(x, str) and x for x in config["branches"])):
+            continue
+        raise SyncError("Historical workflow may run on tag creation; SSH tag transfer refused")
+
+
+def audit_tag_workflows(git):
+    listing = git("workflow-list", "ls-tree", "-r", "-z", "--long", "refs/sync/source", "--", ".github/workflows")
+    entries = [row for row in listing.split("\0") if row]
+    if len(entries) > 64:
+        raise SyncError("Historical workflow tree exceeds audit limit")
+    for row in entries:
+        metadata, path = row.split("\t", 1)
+        if not path.lower().endswith((".yml", ".yaml")):
+            continue
+        mode, kind, oid, size = metadata.split()
+        if mode not in ("100644", "100755") or kind != "blob" or not size.isdigit() or int(size) > 256 * 1024:
+            raise SyncError("Historical workflow is not a bounded regular file")
+        require_no_tag_workflow(git("workflow-read", "cat-file", "blob", oid))
+
+
 def digest(path):
     h = hashlib.sha256()
     with Path(path).open("rb") as f:
@@ -274,6 +329,7 @@ class Repository:
     def __init__(self, key, provider, repository, token="", writable=False, host="gitgud.io"):
         self.key, self.provider, self.repository = key, provider, repository
         self.token, self.writable, self.host = token, writable, host
+        self.github_tag_ssh = False
         if provider == "github":
             self.base = f"https://api.github.com/repos/{repository}"
             self.git = f"https://github.com/{repository}.git"
@@ -317,6 +373,8 @@ class Repository:
         if self.provider == "github" and existing is None:
             if os.environ.get("GITHUB_ACTIONS") != "true" or not self.token or self.token != os.environ.get("GITHUB_TOKEN"):
                 raise SyncError("Create new GitHub tags through trusted CI using GITHUB_TOKEN to avoid historical build workflows")
+            if self.github_tag_ssh and (os.environ.get("GITHUB_REPOSITORY") != self.repository or not os.environ.get("GIT_SSH_COMMAND")):
+                raise SyncError("SSH tag transfer requires this CI repository and its dedicated mirror identity")
 
     def prepare(self, item, cache=None, publishing=False):
         commit = self.tag_commit(item["tag"])
@@ -450,6 +508,14 @@ class Repository:
             )
         if not self.token:
             raise SyncError("Missing destination credential")
+        if self.provider == "github" and self.github_tag_ssh:
+            audit_tag_workflows(git)
+            # Preserve the fetched tag object; never push a branch or force a ref.
+            git("push", "push", "--quiet", f"git@github.com:{self.repository}.git", f"refs/sync/source:refs/tags/{tag}",
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+            if self.tag_commit(tag) != commit:
+                raise SyncError("Created tag readback differs")
+            return
         if self.provider == "github":
             # A mirrored commit already exists in GitHub's object database.
             # Creating its lightweight ref needs no Git pack/history transfer;
@@ -569,6 +635,7 @@ def main():
     p.add_argument("--receipt",type=Path,required=True)
     p.add_argument("--apply",action="store_true")
     p.add_argument("--local-auth",action="store_true")
+    p.add_argument("--github-tag-ssh",action="store_true",help="Use the CI mirror SSH identity after auditing historical tag workflows")
     p.add_argument("--tag",action="append",default=[])
     p.add_argument("--write-to",choices=("github","gitgud"),action="append",default=[])
     args=p.parse_args()
@@ -578,6 +645,7 @@ def main():
         gh=gh or local_token(["gh","auth","token"])
         gl=gl or local_token(["glab","config","get","token","--host","gitgud.io"])
     repos=[Repository("gitgud","gitlab",args.gitgud_project,gl,True),Repository("github","github",args.github,gh,True)]
+    repos[1].github_tag_ssh = args.github_tag_ssh
     if args.write_to:
         for repo in repos:
             repo.writable = repo.writable and repo.key in args.write_to
