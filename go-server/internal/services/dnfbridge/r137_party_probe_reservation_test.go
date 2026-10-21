@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -38,6 +39,11 @@ func r137FreeRange(t *testing.T) int {
 			for _, c := range sockets {
 				c.Close()
 			}
+			// Windows can return from closesocket before a just-released UDP
+			// endpoint can be rebound. These probes are fixture sockets only.
+			if runtime.GOOS == "windows" {
+				time.Sleep(20 * time.Millisecond)
+			}
 			return start
 		}
 		for _, c := range sockets {
@@ -47,6 +53,24 @@ func r137FreeRange(t *testing.T) int {
 	}
 	t.Fatal("no complete 65-port fixture range available")
 	return 0
+}
+
+// Check eventual release with a bounded deadline: an actually leaked socket
+// still fails. Windows may reject immediate rebind after a successful Close.
+func r137AssertPortReleased(t *testing.T, port int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		if err == nil {
+			socket.Close()
+			return
+		}
+		if runtime.GOOS != "windows" || time.Now().After(deadline) {
+			t.Fatalf("closed socket port %d remains unavailable: %v", port, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func r137NewRelay(t *testing.T, start int, ports []int, on bool, via int) *currentPartyUDPRelay {
@@ -232,11 +256,7 @@ func TestR137ProbeReservationLifecycle(t *testing.T) {
 	if r.Sync(77, members[:2]) {
 		t.Fatal("closed relay accepted sync")
 	}
-	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start})
-	if err != nil {
-		t.Fatal("relay close leaked probe socket", err)
-	}
-	socket.Close()
+	r137AssertPortReleased(t, start)
 }
 
 // 31 complete two-person topologies consume 62 of 63 directed ports. Neither
@@ -280,11 +300,7 @@ func TestR137ProbeReservationAtomicExhaustion(t *testing.T) {
 			t.Fatal("partial new party advertised")
 		}
 		// Rollback closes its tentative final socket, not just its map entry.
-		spare, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start + 63})
-		if err != nil {
-			t.Fatal("tentative socket leaked", err)
-		}
-		spare.Close()
+		r137AssertPortReleased(t, start+63)
 	}
 	if len(r.probeListenerPorts()) != 1 {
 		t.Fatal("exhaustion stole probe")
