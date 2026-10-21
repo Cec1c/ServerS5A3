@@ -64,6 +64,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"cera-package",
 		"premium-service",
 		"experience-item",
+		"level-up-ticket",
 		"inventory",
 		"skill",
 		"equipment-disjoint",

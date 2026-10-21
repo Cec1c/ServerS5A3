@@ -88,6 +88,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	}
 	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
+		if handled, err := s.handleCurrentRidingPotionUse(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
 			return handled, err
 		}
