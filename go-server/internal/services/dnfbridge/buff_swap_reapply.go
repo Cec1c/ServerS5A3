@@ -113,7 +113,7 @@ func nativeBuffSwapSnapshotBody(state buffswap.State) []byte {
 }
 
 func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error {
-	return s.sendBuffSwapReapplyOwned(session, source, false)
+	return s.sendBuffSwapReapplyOwned(session, source, false, false)
 }
 
 // Equipment movement does not create a native registration. When this owner
@@ -121,10 +121,24 @@ func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error
 // Explicitly cleared or unresolved stored registrations still publish their
 // empty snapshot, as do login and character-switch boundaries.
 func (s *Service) sendBuffSwapReapplyAfterCommittedWear(session *gameSession, source string) error {
-	return s.sendBuffSwapReapplyOwned(session, source, s.currentClientLoadoutOwnsBuffSwap1428())
+	return s.sendBuffSwapReapplyOwned(session, source, s.currentClientLoadoutOwnsBuffSwap1428(), false)
 }
 
-func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered bool) error {
+// Non-appearance equipment commits do not rebuild the actor. Replaying an
+// identical registered projection still makes 1368/1369 reset the native Buff
+// manager, so an unrelated wear would visibly disturb the registration. Only
+// suppress this path when the resolved wire state is byte-identical; a moved
+// registered instance changes its list/index and is still sent. Actor
+// appearance rebuilds keep the unconditional committed-wear replay.
+func (s *Service) sendBuffSwapReapplyAfterNonAppearanceWear(session *gameSession, source string) error {
+	current := s.currentClientLoadoutOwnsBuffSwap1428()
+	return s.sendBuffSwapReapplyOwned(session, source, current, current)
+}
+
+// Every 1368/1369 producer, including explicit registration and clear, passes
+// through this function. The replay cache is therefore updated by direct sends
+// as well; only a successful socket write is recorded.
+func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered, skipUnchanged bool) error {
 	if !buffSwapReapplyEnabled() || s == nil || session == nil {
 		return nil
 	}
@@ -159,9 +173,14 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 			if state.WireProfile == buffswap.CurrentWireProfile {
 				snapshotID = currentBuffSwapSnapshotID
 			}
+			if skipUnchanged && s.buffReplayUnchanged(session, identity, snapshotID, body) {
+				s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "unchanged_projection_after_unrelated_wear", "msg_id", snapshotID)
+				return nil
+			}
 			if err := s.sendGameUpperRawClass(session, snapshotID, body, 0); err != nil {
 				return err
 			}
+			s.rememberBuffReplay(session, identity, snapshotID, body)
 			s.logGameEvent(session, "game-buff-swap-native-reapply-sent", "source", source, "skill", state.Skill, "rows", len(state.Slots), "omitted", omitted, "msg_id", snapshotID, "classification", 0, "body_len", len(body))
 		}
 	}

@@ -3,7 +3,7 @@
 // op835（守护珠合成）与 op864（勋章合成）的发送器交给 writer 的 body 都是
 // 37 字节：前 13 字节是发送函数未赋值的原生前缀区，业务字段从 +0x0D 开始。
 // 本解析器只按固定 v151 发送器的直接指令证据核对长度、件数范围和空位标记；
-// 前缀内容保持不透明，四个材料标识也不在这里解释成背包槽位或物品 ID。
+// 前缀内容保持不透明。四个材料标识由 material_refs.go 解释为 list38 槽位。
 package guildcompound
 
 import (
@@ -44,8 +44,8 @@ type Request struct {
 	// Grade 是 body +0x11 的 u32 当前档位。
 	Grade uint32
 	// MaterialRefs 保留 body +0x15 起的四个 u32 原始材料引用。窗口写入者
-	// 保存容器索引（并非模板 ID）；与实际背包槽位的映射仍需 owner 验证，
-	// 因此这里不把字段命名为 slot 或 itemID。
+	// 保存 list38 容器索引（并非模板 ID）。v152 op14 接收器以行首 u16 slot
+	// 直接索引同一向量，故该值与 list38 槽位恒等；严格解析见 material_refs.go。
 	MaterialRefs [MaterialRefCount]uint32
 }
 

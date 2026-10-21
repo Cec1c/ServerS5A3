@@ -348,6 +348,7 @@ type gameSession struct {
 	avatarAppearanceTimer          string
 	avatarAppearanceTimerSerial    uint64
 	avatarAppearanceNeedsBuffClear bool
+	buffReplayDedupe               buffReplayDedupeState
 	petGrowth                      petGrowthClockState
 	spendTime                      currentSpendTimeClockState
 	// Owned by the serialized session event loop; full catalogs omit yesterday's flag.
