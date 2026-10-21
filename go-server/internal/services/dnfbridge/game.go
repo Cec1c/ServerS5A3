@@ -333,7 +333,7 @@ type gameSession struct {
 	dungeonPartyRunMu    sync.Mutex
 	dungeonPartyRun      dungeonPartyRunKey
 	dungeonPartyRunValid bool
-	dungeonPeerProjected map[uint16]bool
+	dungeonPeerProjected map[uint16]boundGameSessionCharacter
 	// dungeonOwnerOverrideLogged 是 DNFBRIDGE_PARTY_DUNGEON_OWNER_MODE=channel 时
 	// "owner 覆盖"单次日志的去重集合（键 = 队友 actor object_key）。与 dungeonPartyRun
 	// 共用 dungeonPartyRunMu，换场时一起清空；默认 zero 时始终为空。

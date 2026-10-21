@@ -970,6 +970,7 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	s.mu.Unlock()
 	if logger == nil {
 		s.logDungeonSettlementDiagnostic(kind, args...)
+		s.logRaidPeerDiagnostic(kind, args...)
 	}
 	logger.Event(kind, args...)
 }

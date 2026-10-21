@@ -125,6 +125,10 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 	if !dungeonPartyPeerActorLandingResendEnabled() {
 		return 0
 	}
+	identity, current := s.boundGameSessionCharacterSnapshot(session)
+	if !current {
+		return 0
+	}
 	// 判据只用"本会话有一条**有效**的副本运行键"（`recordDungeonPartyRunKey` 的唯一写入点
 	// 就在副本落位处，回城/解散都会被 `dungeon_party_run_key_town_reset.go` 作废），
 	// 再叠加"对端与我是同一条键" + "对端 finish-loading 收尾三面旗"。这三条比
@@ -158,7 +162,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 		case !peerSceneStable:
 			decision, reason = "deferred",
 				"peer_scene_rebuild_is_still_running_its_own_finish_loading_resend_owns_that_window"
-		case !s.claimDungeonPeerActorResend(peer, ownKey):
+		case !s.claimDungeonPeerActorResend(peer, ownKey, identity):
 			decision, reason = "skip",
 				"the_peer_already_consumed_its_one_resend_for_this_room_and_run"
 		}
@@ -169,7 +173,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 				session,
 				source+"_peer_actor_landing_resend",
 			); err != nil {
-				s.releaseDungeonPeerActorResend(peer, ownKey)
+				s.releaseDungeonPeerActorResend(peer, ownKey, identity)
 				decision, reason, delivered = "failed", "peer_actor_landing_resend_send_failed", false
 				s.logGameEvent(session, "game-party-dungeon-peer-actor-landing-resend-failed",
 					"source", source,

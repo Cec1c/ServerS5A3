@@ -29,7 +29,7 @@ func dungeonRunKeyFixture(t *testing.T, channelID byte) (*Service, *gameSession,
 	for _, session := range []*gameSession{leader, follower} {
 		session.dungeonPartyRun = key
 		session.dungeonPartyRunValid = true
-		session.dungeonPeerProjected = make(map[uint16]bool, 2)
+		session.dungeonPeerProjected = make(map[uint16]boundGameSessionCharacter, 2)
 	}
 	return service, leader, follower, state
 }
@@ -47,7 +47,7 @@ func TestDungeonPartyPeerProjectionRequiresSameRun(t *testing.T) {
 		t.Fatalf("projection wrote packets before the peer landed: leader=%d follower=%d",
 			leader.conn.(*bufferConn).write.Len(), follower.conn.(*bufferConn).write.Len())
 	}
-	if leader.dungeonPeerProjected[1002] {
+	if _, projected := leader.dungeonPeerProjected[1002]; projected {
 		t.Fatal("peer projection was claimed before the peer run key existed")
 	}
 

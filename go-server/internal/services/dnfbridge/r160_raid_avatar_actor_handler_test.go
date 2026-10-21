@@ -380,10 +380,10 @@ func TestR160LegalEntryProjectionAndPeerActorLifecycle(t *testing.T) {
 	until := time.Now().Add(createWriteTimeout)
 	for time.Now().Before(until) {
 		owners[0].dungeonPartyRunMu.Lock()
-		left := owners[0].dungeonPeerProjected[20]
+		_, left := owners[0].dungeonPeerProjected[20]
 		owners[0].dungeonPartyRunMu.Unlock()
 		owners[1].dungeonPartyRunMu.Lock()
-		right := owners[1].dungeonPeerProjected[19]
+		_, right := owners[1].dungeonPeerProjected[19]
 		owners[1].dungeonPartyRunMu.Unlock()
 		if left && right {
 			break
