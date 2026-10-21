@@ -238,6 +238,12 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 			"error", err)
 		return nil
 	}
+	if routed != nil && !s.routedPartyDungeonEntrySourceCurrent(routed) {
+		// Only retire this exact old pending request. A newer request or a
+		// replacement character identity must remain owned by its own flow.
+		s.discardPartyDungeonEntryRoutedRequest(routed)
+		return nil
+	}
 	// 文档段 104 的兜底出口：这条流程一旦是"队员路由过来的那次请求"（routed != nil），返回时
 	// 如果期间没有任何出口精确应答过它，就补一条既有形状的拒绝包（厂商 default
 	// DungeonUnavailable）。精确出口会先把令牌取走，所以这里只在"流程从头到尾没有回答这次请求"

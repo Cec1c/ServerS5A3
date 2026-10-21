@@ -83,10 +83,11 @@ import (
 // 由 `bindPartyDungeonEntryRoutedPending` 在队员自己的事件循环上创建，只用来回答它自己
 // 那一次请求：队长那条流程拿到的令牌若已被更新的请求覆盖（seq 变了），就一包不发。
 type partyDungeonEntryRoutedRequest struct {
-	session     *gameSession
-	characterID uint16
-	generation  uint64
-	seq         uint64
+	session        *gameSession
+	characterID    uint16
+	generation     uint64
+	seq            uint64
+	sourceRunToken uint64
 }
 
 // bindPartyDungeonEntryRoutedPending 记下"这名角色的 op16 已经被回 ACK、正在等队长那条
@@ -103,15 +104,36 @@ func (s *Service) bindPartyDungeonEntryRoutedPending(session *gameSession) *part
 	session.dungeon.mu.Lock()
 	session.partyDungeonEntryRoutedPendingSeq++
 	seq := session.partyDungeonEntryRoutedPendingSeq
+	runToken := session.dungeon.runToken
 	session.partyDungeonEntryRoutedPendingCharacter = identity.character
 	session.partyDungeonEntryRoutedPendingGeneration = identity.generation
 	session.dungeon.mu.Unlock()
 	return &partyDungeonEntryRoutedRequest{
-		session:     session,
-		characterID: identity.character,
-		generation:  identity.generation,
-		seq:         seq,
+		session:        session,
+		characterID:    identity.character,
+		generation:     identity.generation,
+		seq:            seq,
+		sourceRunToken: runToken,
 	}
+}
+
+// routedPartyDungeonEntrySourceCurrent checks the queued request before any
+// selector, ACK replay, or admission work. A completed group transfer advances
+// the follower run token even when another leader request caused the commit.
+// Do not consume a current request here: its own flow still owes a result.
+func (s *Service) routedPartyDungeonEntrySourceCurrent(token *partyDungeonEntryRoutedRequest) bool {
+	if s == nil || token == nil || token.session == nil || !s.boundGameSessionCharacterCurrent(boundGameSessionCharacter{
+		session: token.session, character: token.characterID, generation: token.generation,
+	}) {
+		return false
+	}
+	peer := token.session
+	peer.dungeon.mu.Lock()
+	defer peer.dungeon.mu.Unlock()
+	return peer.partyDungeonEntryRoutedPendingCharacter == token.characterID &&
+		peer.partyDungeonEntryRoutedPendingGeneration == token.generation &&
+		peer.partyDungeonEntryRoutedPendingSeq == token.seq &&
+		peer.dungeon.runToken == token.sourceRunToken
 }
 
 // clearPartyDungeonEntryRoutedPending 清掉这条会话的挂起态（幂等，仅测试/收尾用）。
