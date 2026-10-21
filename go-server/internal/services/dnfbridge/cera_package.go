@@ -14,6 +14,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/premium"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -61,11 +62,12 @@ type currentCeraPackageReward struct {
 }
 
 type currentCeraPackageCommitResult struct {
-	ChangedListTypes []byte
-	RewardRows       int
-	RewardUnits      uint64
-	OverflowMailID   string
-	OverflowItems    int
+	ContractActivations []alignedcmd.PremiumContractActivation
+	ChangedListTypes    []byte
+	RewardRows          int
+	RewardUnits         uint64
+	OverflowMailID      string
+	OverflowItems       int
 	// GrantSlots 是本次 op518 在发放事务里**真正写过的 (list, slot)**：源格（list 0）与每个
 	// 奖励落点（装扮 list 1、宠物 list 7、主背包 list 0；走邮件的溢出奖励不在这里）。
 	// delta 档用它替代"逐个 ChangedListType 整容器回放"，见 item_grant_notice.go。
@@ -356,6 +358,9 @@ func (s *Service) handleCurrentCeraPackageOpen(session *gameSession, body []byte
 			return err
 		}
 	}
+	if err := s.sendAlignedPremiumContractActivations(session, "open_cera_package", result.ContractActivations); err != nil {
+		return err
+	}
 	if result.OverflowMailID != "" {
 		if err := s.sendMailboxAlarmToOnlineRecipient(session.selectedCharacterID); err != nil {
 			// The package, its directly placed rewards, and the overflow mail
@@ -446,8 +451,28 @@ func (s *Service) commitCurrentCeraPackage(
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
 	accountID := strings.TrimSpace(s.accountIDForSession(session))
 	now := time.Now().UTC()
+	contracts := s.currentPremiumRewardContracts()
+	hasContracts := false
+	for _, reward := range definition.Rewards {
+		if _, ok := contracts[int64(reward.Definition.ItemID)]; ok {
+			hasContracts = true
+		}
+	}
+	within := func(apply func(dnfrepo.AccountRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.MailboxRepository) error) error {
+		if hasContracts {
+			tx, ok := repositories.MailboxAssets.(dnfrepo.AccountTradeMailboxUnitOfWork)
+			if !ok || accountID == "" {
+				return errCurrentCeraPackageOwnerUnavailable
+			}
+			return tx.WithinAccountTradeMailbox(ctx, accountID, []string{characterID}, characterID, apply)
+		}
+		return repositories.MailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, m dnfrepo.MailboxRepository) error {
+			return apply(nil, c, i, m)
+		})
+	}
 	var result currentCeraPackageCommitResult
-	err = repositories.MailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(
+	err = within(func(
+		accounts dnfrepo.AccountRepository,
 		characters dnfrepo.CharacterRepository,
 		inventories dnfrepo.InventoryRepository,
 		mailboxes dnfrepo.MailboxRepository,
@@ -458,6 +483,20 @@ func (s *Service) commitCurrentCeraPackage(
 		}
 		if !found || character.CharacterID != characterID || accountID == "" || strings.TrimSpace(character.AccountID) != accountID {
 			return errCurrentCeraPackageOwnerUnavailable
+		}
+		var account dnfrepo.AccountRecord
+		if hasContracts {
+			if accounts == nil {
+				return errCurrentCeraPackageOwnerUnavailable
+			}
+			account, found, err = accounts.Load(ctx, accountID)
+			if err != nil {
+				return err
+			}
+			if !found || account.AccountID != accountID {
+				return errCurrentCeraPackageOwnerUnavailable
+			}
+			account = dnfrepo.CloneAccount(account)
 		}
 		inventory, found, err := inventories.Load(ctx, characterID)
 		if err != nil {
@@ -503,6 +542,14 @@ func (s *Service) commitCurrentCeraPackage(
 			grantDefinition, expirationErr := currentPVFItemDefinitionForNestedRewardGrantAt(reward.Definition, sourceStack, now)
 			if expirationErr != nil {
 				return fmt.Errorf("%w: reward item=%d expiration: %v", errCurrentCeraPackagePVFInvalid, reward.Definition.ItemID, expirationErr)
+			}
+			if contract, ok := contracts[int64(reward.Definition.ItemID)]; ok {
+				activation, err := premium.ActivateContractGrant(&account, contract, int64(reward.Count), now)
+				if err != nil {
+					return err
+				}
+				result.ContractActivations = append(result.ContractActivations, alignedcmd.PremiumContractActivation{ItemID: activation.ItemID, PremiumType: activation.PremiumType, Units: activation.Units, ExpireAt: activation.ExpireAt})
+				continue
 			}
 			if reward.Avatar {
 				option, selected := options[reward.Definition.ItemID]
@@ -616,6 +663,12 @@ func (s *Service) commitCurrentCeraPackage(
 		if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
 			return err
 		}
+		if len(result.ContractActivations) > 0 {
+			account.UpdatedAt = now
+			if err := accounts.Save(ctx, account); err != nil {
+				return err
+			}
+		}
 		if len(overflow) > 0 {
 			mailID, mailErr := dnfrepo.AppendSystemMail(ctx, mailboxes, dnfrepo.SystemMailDelivery{
 				RecipientCharacterID: characterID,
@@ -638,12 +691,13 @@ func (s *Service) commitCurrentCeraPackage(
 		}
 		sort.Slice(listTypes, func(left, right int) bool { return listTypes[left] < listTypes[right] })
 		result = currentCeraPackageCommitResult{
-			ChangedListTypes: listTypes,
-			RewardRows:       len(definition.Rewards),
-			RewardUnits:      rewardUnits,
-			OverflowMailID:   result.OverflowMailID,
-			OverflowItems:    result.OverflowItems,
-			GrantSlots:       grantSlotRefreshes,
+			ContractActivations: result.ContractActivations,
+			ChangedListTypes:    listTypes,
+			RewardRows:          len(definition.Rewards),
+			RewardUnits:         rewardUnits,
+			OverflowMailID:      result.OverflowMailID,
+			OverflowItems:       result.OverflowItems,
+			GrantSlots:          grantSlotRefreshes,
 		}
 		return nil
 	})
