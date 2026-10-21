@@ -31,7 +31,7 @@ func TestR158RaidClearNoticeIsAnOwnedEdge(t *testing.T) {
 		{"late_member_same_clear", old, map[uint16]currentRaidParticipationPosition{19: position("a", true), 20: position("a", true)}, false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			packets := currentRaidParticipationProjection(tc.before, tc.next, tc.fresh)
+			packets, _ := currentRaidParticipationProjection(tc.before, tc.next, tc.fresh, nil)
 			count := 0
 			for _, p := range packets {
 				if p.opcode == 584 && p.body[5] == 4 {
@@ -48,6 +48,58 @@ func TestR158RaidClearNoticeIsAnOwnedEdge(t *testing.T) {
 				t.Fatal("suppressed occupancy rebuild together with notification")
 			}
 		})
+	}
+}
+
+// The occupancy row is transient, but the accepted clear event is not. A
+// member leaving and re-entering the same run must rebuild its silent 584 row
+// without repeating the native 32049 announcement.
+func TestR158RaidClearEventSurvivesOccupancyDeparture(t *testing.T) {
+	position := func(run string, cleared bool) currentRaidParticipationPosition {
+		return currentRaidParticipationPosition{DungeonID: 5056, GroupIndex: 1, RunID: run, Cleared: cleared}
+	}
+	notices := func(packets []currentRaidProjectionPacket) int {
+		count := 0
+		for _, packet := range packets {
+			if packet.opcode == 584 && packet.body[5] == 4 {
+				count++
+			}
+		}
+		return count
+	}
+
+	var known map[currentRaidClearEvent]struct{}
+	var packets []currentRaidProjectionPacket
+	packets, known = currentRaidParticipationProjection(
+		map[uint16]currentRaidParticipationPosition{19: position("spread-run", false)},
+		map[uint16]currentRaidParticipationPosition{19: position("spread-run", true)}, false, known)
+	if got := notices(packets); got != 1 {
+		t.Fatalf("first accepted clear notices=%d want=1", got)
+	}
+
+	packets, known = currentRaidParticipationProjection(
+		map[uint16]currentRaidParticipationPosition{19: position("spread-run", true)}, nil, false, known)
+	if got := notices(packets); got != 0 {
+		t.Fatalf("departure replayed clear notices=%d", got)
+	}
+
+	packets, known = currentRaidParticipationProjection(
+		nil, map[uint16]currentRaidParticipationPosition{19: position("spread-run", true)}, false, known)
+	if got := notices(packets); got != 0 {
+		t.Fatalf("same-run re-entry replayed clear notices=%d", got)
+	}
+
+	packets, known = currentRaidParticipationProjection(
+		map[uint16]currentRaidParticipationPosition{19: position("spread-run", true)},
+		map[uint16]currentRaidParticipationPosition{19: position("spread-next-run", true)}, false, known)
+	if got := notices(packets); got != 1 {
+		t.Fatalf("new accepted run notices=%d want=1", got)
+	}
+
+	packets, _ = currentRaidParticipationProjection(
+		nil, map[uint16]currentRaidParticipationPosition{19: position("spread-next-run", true)}, true, nil)
+	if got := notices(packets); got != 0 {
+		t.Fatalf("fresh subscriber replayed history notices=%d", got)
 	}
 }
 

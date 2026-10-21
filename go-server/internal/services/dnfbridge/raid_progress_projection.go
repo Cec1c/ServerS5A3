@@ -68,6 +68,7 @@ type currentRaidProjectionOwner struct {
 	rewardDisplayIdentity  currentRaidProjectionIdentity
 	rewardDisplaySignature [32]byte
 	participation          map[uint16]currentRaidParticipationPosition
+	clearEvents            map[currentRaidClearEvent]struct{}
 }
 
 type currentRaidProjectionPacket struct {
@@ -255,7 +256,12 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 	if err != nil {
 		return err
 	}
-	packets = append(packets, currentRaidParticipationProjection(o.participation, nextParticipation, fresh)...)
+	previousClearEvents := o.clearEvents
+	if !o.initialized || o.identity != identity {
+		previousClearEvents = nil
+	}
+	participationPackets, clearEvents := currentRaidParticipationProjection(o.participation, nextParticipation, fresh, previousClearEvents)
+	packets = append(packets, participationPackets...)
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, 0, true); err != nil {
 			o.failed = true
@@ -270,7 +276,7 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 			cursor = packet.symbolCursor
 		}
 	}
-	o.participation = nextParticipation
+	o.participation, o.clearEvents = nextParticipation, clearEvents
 	o.identity, o.version, o.symbolCursor, o.timers, o.initialized = identity, b.ProgressVersion, cursor, nextTimers, true
 	if fresh {
 		o.startTransitionSent = initial || resubscribe

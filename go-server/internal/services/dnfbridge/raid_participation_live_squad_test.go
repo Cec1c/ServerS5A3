@@ -18,7 +18,7 @@ func TestRaidParticipation584SeparatesLiveSquadsAndRunOwners(t *testing.T) {
 		{"unassigned_is_individual", map[uint16]currentRaidParticipationPosition{99: {DungeonID: 210, RunID: "a"}, 100: {DungeonID: 210, RunID: "a"}}, [][]uint16{{99}, {100}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			packets := currentRaidParticipationProjection(nil, tc.positions, false)
+			packets, _ := currentRaidParticipationProjection(nil, tc.positions, false, nil)
 			if len(packets) != 2*len(tc.rows) {
 				t.Fatal("expected remove then append for each native vector row", len(packets))
 			}
@@ -31,10 +31,10 @@ func TestRaidParticipation584SeparatesLiveSquadsAndRunOwners(t *testing.T) {
 					t.Fatalf("row%d=%x", i, p.body)
 				}
 			}
-			if p := currentRaidParticipationProjection(tc.positions, tc.positions, false); len(p) != 0 {
+			if p, _ := currentRaidParticipationProjection(tc.positions, tc.positions, false, nil); len(p) != 0 {
 				t.Fatal("equal snapshot replayed")
 			}
-			fresh := currentRaidParticipationProjection(tc.positions, tc.positions, true)
+			fresh, _ := currentRaidParticipationProjection(tc.positions, tc.positions, true, nil)
 			if len(fresh) != 3*len(tc.rows) {
 				t.Fatal("fresh subscriber did not rebuild remove/remove/add", len(fresh))
 			}
@@ -52,7 +52,7 @@ func TestRaidParticipation584SeparatesLiveSquadsAndRunOwners(t *testing.T) {
 				position.Cleared = true
 				cleared[id] = position
 			}
-			completed := currentRaidParticipationProjection(cleared, cleared, true)
+			completed, _ := currentRaidParticipationProjection(cleared, cleared, true, nil)
 			// Native op4 is a clear announcement, not stored row state.
 			// Restore all squad rows silently without replaying past clears.
 			if len(completed) != 3*len(tc.rows) {
@@ -80,7 +80,7 @@ func TestRaidParticipationUsesLiveRosterNotRewardSquad(t *testing.T) {
 	if !reflect.DeepEqual(b.MemberGroups, map[uint16]byte{99: 1, 100: 1}) || len(b.Participation) != 2 {
 		t.Fatal("UI altered reward or participation owners")
 	}
-	packets := currentRaidParticipationProjection(nil, positions, false)
+	packets, _ := currentRaidParticipationProjection(nil, positions, false, nil)
 	if len(packets) != 2 || binary.LittleEndian.Uint16(packets[1].body[7:]) != 99 {
 		t.Fatal("departed owner projected")
 	}

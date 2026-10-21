@@ -90,8 +90,8 @@ func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, 
 }
 
 // Historical8a7 noti1369 and currentbb428/82e noti1368 both consume
-// skill:u16,count:u8,5-byte rows. Current1368 VA998890 resets the manager,
-// then delegates rows to9985F0 ->9983F0(send=false). Current1367 consumes
+// skill:u16,count:u8,5-byte rows. The previously cited VA998890 is only
+// a flag getter in v151, not a verified packet-handler entry. Current1367 consumes
 // rows only and must not receive this skill-prefixed snapshot.
 func nativeBuffSwapSnapshotBody(state buffswap.State) []byte {
 	body := make([]byte, 3+5*buffswap.SlotCount)
@@ -113,6 +113,18 @@ func nativeBuffSwapSnapshotBody(state buffswap.State) []byte {
 }
 
 func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error {
+	return s.sendBuffSwapReapplyOwned(session, source, false)
+}
+
+// Equipment movement does not create a native registration. When this owner
+// has never been stored, leave the separate current-client loadout alone.
+// Explicitly cleared or unresolved stored registrations still publish their
+// empty snapshot, as do login and character-switch boundaries.
+func (s *Service) sendBuffSwapReapplyAfterCommittedWear(session *gameSession, source string) error {
+	return s.sendBuffSwapReapplyOwned(session, source, s.currentClientLoadoutOwnsBuffSwap1428())
+}
+
+func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered bool) error {
 	if !buffSwapReapplyEnabled() || s == nil || session == nil {
 		return nil
 	}
@@ -132,6 +144,10 @@ func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error
 	characterID := strconv.Itoa(int(identity.character))
 	projection, err := buffswap.LoadResolvedOwned(ctx, repos, characterID, identity.accountID)
 	if err == nil {
+		if skipUnregistered && !projection.Found {
+			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "current_native_registration_absent")
+			return nil
+		}
 		state, omitted := currentBuffOwnedWireState(projection), projection.Omitted
 		if !s.buffOwnedSendIdentityCurrent(identity) {
 			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "stale_owner_generation")

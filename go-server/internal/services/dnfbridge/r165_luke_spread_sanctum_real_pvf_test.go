@@ -10,11 +10,9 @@ import (
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
-// prepareR165LukeSpreadSanctumRealResultFixture enters the real 5056 map and
-// produces an accepted clear through the actual bridge reducer. The 5054 prior
-// entry is resource-VM history setup. Room completion/boss barriers are explicit
-// test fixtures; target entry, clear reducer and op72 use production handlers.
-func prepareR165LukeSpreadSanctumRealResultFixture(t *testing.T) (*raidStartGuardFixture, *gameSession) {
+// prepareR165LukeSpreadSanctumRealEntryFixture enters the real 5056 map without
+// synthesizing a clear. The 5054 prior entry is resource-VM history setup.
+func prepareR165LukeSpreadSanctumRealEntryFixture(t *testing.T) (*raidStartGuardFixture, *gameSession) {
 	t.Helper()
 	f, p, _ := normalLukeFixture(t)
 	s := f.service
@@ -95,6 +93,17 @@ func prepareR165LukeSpreadSanctumRealResultFixture(t *testing.T) (*raidStartGuar
 	if r.Session == nil || r.Session.Snapshot().Run.Status != worldmap.DungeonRunActive {
 		t.Fatal("real 5056 entry did not produce an active run")
 	}
+	return f, p
+}
+
+// prepareR165LukeSpreadSanctumRealResultFixture produces an accepted clear
+// through the actual bridge reducer. Room completion and boss barriers are
+// explicit test fixtures; target entry, clear reducer and op72 use production
+// handlers.
+func prepareR165LukeSpreadSanctumRealResultFixture(t *testing.T) (*raidStartGuardFixture, *gameSession) {
+	t.Helper()
+	f, p := prepareR165LukeSpreadSanctumRealEntryFixture(t)
+	s, r := f.service, p.dungeon.runtime
 	if err := r.Session.CompleteCurrentRoom(); err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +120,62 @@ func prepareR165LukeSpreadSanctumRealResultFixture(t *testing.T) (*raidStartGuar
 		t.Fatal("real 5056 result page unexpectedly has the ordinary op35 reward marker")
 	}
 	return f, p
+}
+
+// The reported repeat was tied to 5056. Use the real Luke resource and the
+// actual accepted-clear reducer, then make the cleared member's occupancy row
+// disappear and return. The native 584/op4 event must remain a single edge.
+func TestRealPVFLukeSpreadSanctumClearNoticeDoesNotReplayAfterReentry(t *testing.T) {
+	f, p := prepareR165LukeSpreadSanctumRealEntryFixture(t)
+	s, r := f.service, p.dungeon.runtime
+	p.postStartMapPlayerStateSent = true
+	s.recordCurrentRaidParticipation(p, r)
+	b := f.state.Battle
+	entry, occupied := b.Participation[p.selectedCharacterID]
+	if !occupied || entry.RunID == "" {
+		t.Fatal("real 5056 entry did not establish participation")
+	}
+	collect := func() int {
+		t.Helper()
+		f.conn.write.Reset()
+		if err := s.sendCurrentRaidProgressProjection(p, cloneRuntimeRaidState(*f.state), false, false); err != nil {
+			t.Fatal(err)
+		}
+		stream := f.conn.write.Bytes()
+		count := 0
+		for len(stream) > 0 {
+			packet, rest := splitGameServerUpperPacket(t, stream)
+			stream = rest
+			if packet.Header.MsgID == 584 && len(packet.Body) > 5 && packet.Body[5] == 4 {
+				count++
+			}
+		}
+		return count
+	}
+	if got := collect(); got != 0 {
+		t.Fatalf("entry announced historical clear %d times", got)
+	}
+	if err := r.Session.CompleteCurrentRoom(); err != nil {
+		t.Fatal(err)
+	}
+	r.bossDieCheckAccepted, r.bossDieCheckResponseSent, r.settlementEntrySent = true, true, true
+	if _, changed, err := s.reduceCurrentRaidDungeonClearLocked(p, r, time.Now()); err != nil || !changed {
+		t.Fatalf("real 5056 accepted clear changed=%t err=%v", changed, err)
+	}
+	if got := collect(); got != 1 {
+		t.Fatalf("first accepted 5056 clear notices=%d want=1", got)
+	}
+
+	delete(b.Participation, p.selectedCharacterID)
+	b.ProgressVersion++
+	if got := collect(); got != 0 {
+		t.Fatalf("5056 clear replayed on departure %d times", got)
+	}
+	b.Participation[p.selectedCharacterID] = entry
+	b.ProgressVersion++
+	if got := collect(); got != 0 {
+		t.Fatalf("same 5056 accepted clear replayed after re-entry %d times", got)
+	}
 }
 
 // The old result-page gate failed on the missing ordinary settlement flag. The

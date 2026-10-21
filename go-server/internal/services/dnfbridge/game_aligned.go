@@ -973,7 +973,7 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 		}
 	}
 	if result.RefreshSelectedBuffRegistration && !postActionsDeferred {
-		if err := s.sendBuffSwapReapply(session, "aligned_"+result.Operation+"_after_committed_wear_without_actor_refresh"); err != nil {
+		if err := s.sendBuffSwapReapplyAfterCommittedWear(session, "aligned_"+result.Operation+"_after_committed_wear_without_actor_refresh"); err != nil {
 			return err
 		}
 	}
