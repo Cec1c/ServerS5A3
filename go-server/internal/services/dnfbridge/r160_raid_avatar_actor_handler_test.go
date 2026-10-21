@@ -364,6 +364,30 @@ func r160MakeSolo(t *testing.T, f *raidStartGuardFixture, owners ...*gameSession
 	}
 }
 
+// Participation commits before its asynchronous 584 fan-out. Inspect the wire
+// only after every recipient has consumed the committed projection version.
+func r160WaitRaidProjection(t *testing.T, f *raidStartGuardFixture, owners []*gameSession) {
+	t.Helper()
+	f.service.raidMu.Lock()
+	version := f.state.Battle.ProgressVersion
+	f.service.raidMu.Unlock()
+	until := time.Now().Add(createWriteTimeout)
+	for time.Now().Before(until) {
+		done := true
+		for _, owner := range owners {
+			owner.raidProjection.mu.Lock()
+			caughtUp := owner.raidProjection.version >= version && !owner.raidProjection.failed
+			owner.raidProjection.mu.Unlock()
+			done = done && caughtUp
+		}
+		if done {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("raid projection did not reach committed version %d for every recipient", version)
+}
+
 func TestR160LegalEntryProjectionAndPeerActorLifecycle(t *testing.T) {
 	f, owners, conns := r160AntonLegalFixture(t)
 	for _, conn := range conns {
@@ -415,6 +439,7 @@ func TestR160LegalEntryProjectionAndPeerActorLifecycle(t *testing.T) {
 		actorEvidence = append(actorEvidence, evidence)
 	}
 
+	r160WaitRaidProjection(t, f, owners)
 	occupancyEvidence := make(map[uint16]map[uint32][]uint16)
 	activeParticipation := make(map[uint16]bool)
 	for i, conn := range conns {

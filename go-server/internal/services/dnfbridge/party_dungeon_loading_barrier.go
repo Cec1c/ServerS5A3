@@ -206,13 +206,27 @@ func (s *Service) ensurePartyDungeonLoadingCycleLocked(session *gameSession, par
 	changed := known && previous != owner
 	if current == nil || changed || (current.Released && time.Since(current.released) >= partyDungeonLoadingBarrierRegroupWindow) {
 		next := 1
+		ready := make(map[uint16]bool)
 		if current != nil {
 			next = current.Cycle + 1
 			if current.Timer != nil {
 				current.Timer.Stop()
 			}
+			// A peer can commit its replacement while another member's op37 is
+			// already waiting. That unchanged member will not send op37 again.
+			// Preserve only pending arrivals owned by the exact same scene;
+			// released cycles and replaced owners must load afresh.
+			if !current.Released {
+				for _, id := range members {
+					previousOwner, existed := current.owners[id]
+					nextOwner, present := owners[id]
+					if existed && present && nextOwner.runtime != nil && previousOwner == nextOwner && current.Ready[id] {
+						ready[id] = true
+					}
+				}
+			}
 		}
-		current = &partyDungeonLoadingCycle{PartyID: partyID, Cycle: next, Ready: make(map[uint16]bool), owners: owners}
+		current = &partyDungeonLoadingCycle{PartyID: partyID, Cycle: next, Ready: ready, owners: owners}
 		cycles[partyID] = current
 	}
 	if current.owners == nil {
