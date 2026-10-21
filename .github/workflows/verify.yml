@@ -19,7 +19,9 @@ jobs:
           go-version-file: go-server/go.mod
           cache-dependency-path: go-server/go.sum
       - name: Synchronization integration tests
-        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
+        run: |
+          python3 -m pip install -r scripts/ci/requirements-release-sync.txt
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
       - name: Docker deployment boundary checks
         run: python3 -m unittest discover -s deploy/docker -p 'test_*.py' -v
       - name: Server/GM source boundary
