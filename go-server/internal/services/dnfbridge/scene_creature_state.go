@@ -15,22 +15,37 @@ import (
 
 const currentCreatureStateTableMsgID uint16 = 105
 
-// sendSelectedCreatureInitialStateAfterMode1 refreshes the existing slot-26
-// object's durable item state, then installs the repository-backed creature
-// table and equipped creature's growth state as soon as mode1 has created it.
+// sendSelectedCreatureInitialStateAfterMode1 installs pet metadata before the
+// existing slot-26 item notification. The current client resolves that item's
+// serial in the op105 map while updating the pet panel; a missing record leaves
+// its level unset and the PVF tooltip DefaultText ("null") unchanged.
 func (s *Service) sendSelectedCreatureInitialStateAfterMode1(session *gameSession, source string) error {
 	if err := s.sendSelectedEquippedEquipmentEffectRuneRefresh(session, source+"_equipment_effect_rune"); err != nil {
+		return err
+	}
+	return s.sendSelectedCreatureInitialProjection(session, source)
+}
+
+func (s *Service) sendSelectedCreatureInitialProjection(session *gameSession, source string) (err error) {
+	// An op105 write alone does not complete the UI projection. If the item or
+	// growth write fails, the scene-ready fallback must be allowed to retry.
+	defer func() {
+		if err != nil && session != nil {
+			session.selectedCreatureStateTableSent = false
+		}
+	}()
+	if err := s.sendSelectedCreatureStateTable(session, source+"_state_table"); err != nil {
 		return err
 	}
 	if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_equipped_item"); err != nil {
 		return err
 	}
-	if err := s.sendSelectedCreatureStateTable(session, source+"_state_table"); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	equippedCreature, err := s.currentEquippedCreatureForCharacterWithError(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+	cancel()
+	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	equippedCreature := s.currentEquippedCreatureForCharacter(ctx, strconv.Itoa(int(session.selectedCharacterID)))
-	cancel()
 	if !equippedCreature.valid() {
 		return nil
 	}
@@ -58,20 +73,7 @@ func (s *Service) sendSelectedCreatureSceneReadyProjection(session *gameSession,
 			"reason", "op105_and_op102_already_published_after_mode1_no_post_op24_actor_rebuild")
 		return nil
 	}
-	if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_equipped_item_fallback"); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	equippedCreature := s.currentEquippedCreatureForCharacter(ctx, strconv.Itoa(int(session.selectedCharacterID)))
-	cancel()
-	if err := s.sendSelectedCreatureStateTable(session, source+"_state_table_fallback"); err != nil {
-		return err
-	}
-	if !equippedCreature.valid() {
-		return nil
-	}
-	return s.sendSelectedEquippedCreatureGrowthState(session, equippedCreature, source+"_growth_fallback")
+	return s.sendSelectedCreatureInitialProjection(session, source+"_fallback")
 }
 
 // sendSelectedCreatureStateAfterMoveAck resolves pet state only after the
