@@ -147,8 +147,9 @@ func (shape currentSpendTimeCatalogShape) hasEvent(eventID uint16) bool {
 
 func parseCurrentSpendTimeEventInfoBody(t *testing.T, body []byte) currentSpendTimeCatalogShape {
 	t.Helper()
-	// 活动行数不受单个在线活动的10件奖励上限约束；当前公开全组合含12项。
-	const maxCatalogRows = 12
+	// Test-reader bound: public 13 rows plus FiendWar and five cumulative town
+	// activities. This is not a server or native receive admission limit.
+	const maxCatalogRows = 19
 	reader := &currentSpendTimeCatalogReader{body: body}
 	shape := currentSpendTimeCatalogShape{baseCount: reader.uint16Value(t)}
 	if shape.baseCount == 0 || int(shape.baseCount) > maxCatalogRows {

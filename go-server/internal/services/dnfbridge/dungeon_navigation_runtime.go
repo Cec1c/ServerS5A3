@@ -931,6 +931,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 			return err
 		}
 	}
+	if err := s.activateAttendanceMarbleAfterEntry(session, runtime); err != nil {
+		return err
+	}
 	s.leaveTownPresenceForDungeon(session)
 	s.recordCurrentLukeScene(session, runtime, "enter")
 	s.recordCurrentFiendWarMap(session, runtime)

@@ -54,5 +54,6 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	collectboxGameplayModule(),
 	chronicleRefineGameplayModule(),
 	webViewerGameplayModule(),
+	attendanceMarbleGameplayModule(),
 	fiendWarGameplayModule(),
 )

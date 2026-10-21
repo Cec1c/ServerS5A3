@@ -238,6 +238,15 @@ func buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs []uint32, tota
 }
 
 func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, townActivities, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, false)
+}
+
+func buildCurrentActivityEventInfoBodyWithMarble(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeMarble bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil, false, nativeOnlinePanel, includeSeriaLuck, includeMarble)
+}
+
+// Keep the cumulative town and FiendWar rows while adding the verified marble row.
+func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, includeMarble bool) ([]byte, error) {
 	if err := validateCurrentImageTownActivityIDs(townActivities); err != nil {
 		return nil, err
 	}
@@ -322,6 +331,10 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		activeCount++
 	}
 	if includeSeriaLuck {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeMarble {
 		baseCatalogCount++
 		activeCount++
 	}
@@ -457,6 +470,13 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		writer.writeRawDstr(nil)
 		writer.writeByte(0)
 	}
+	if includeMarble {
+		writer.writeUint16(currentAttendanceMarbleEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
 	writer.writeByte(activeCount) // active_count
 	if includeSpendTime && nativeOnlinePanel {
 		writer.writeUint16(currentPCRoomTimePointEventID)
@@ -546,6 +566,12 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		writer.writeUint16(currentSeriaLuckEventID)
 		writer.writeUint32(uint32(packageitem.SeriaLuckValueMax))
 		for i := 1; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeMarble {
+		writer.writeUint16(currentAttendanceMarbleEventID)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
 			writer.writeUint32(0)
 		}
 	}

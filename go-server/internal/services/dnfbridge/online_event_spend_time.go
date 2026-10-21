@@ -530,7 +530,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		}
 		townActivities := s.logCurrentImageTownActivitySkips(townArchive, enabledTownActivities, session, "current_spend_time_op108_catalog")
 		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			s.currentSpendTimeCatalogIncludesJoustEvent(),
@@ -548,6 +548,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			fiendWarAvailable,
 			catalog.nativePCRoom != nil,
 			true, // Preserve the committed Seria luck display owner.
+			s.currentAttendanceMarbleAvailable(),
 		)
 		if err != nil {
 			return false, err
