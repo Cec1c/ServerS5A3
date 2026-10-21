@@ -17,6 +17,11 @@ type currentDailyDeleteSlot struct {
 	slot int16
 }
 
+// currentDailyDeleteAvatarRefreshList marks a committed avatar removal that
+// must rebuild list 1 instead of clearing a normal container slot. A sentinel
+// list value keeps the two-field literal shape used by existing callers.
+const currentDailyDeleteAvatarRefreshList byte = 0xff
+
 // Capture actual removed keys inside the owner transaction. No clear packet is
 // emitted if projection or persistence fails; live containers use op14 instead
 // of replacing their complete object managers with a login snapshot.
@@ -34,10 +39,17 @@ func (s *Service) reconcileCurrentDailyDeleteWithRemoved(ctx context.Context, re
 		AccountID: accountID, CharacterID: characterID, UpdatedAt: now,
 		Project: func(assets *itemexpiration.Assets) (itemexpiration.Summary, error) {
 			worn := make(map[string]int16)
+			avatars := make(map[string]int16)
 			if assets.Equipment != nil {
 				for key, entry := range assets.Equipment.Entries {
 					if actorSlot, valid := currentEXEActorEquipmentSlot(entry); valid && actorSlot >= 12 && actorSlot <= 26 {
 						worn[key] = int16(actorSlot)
+					}
+					definition, resolveErr := s.currentPVFDefinitionForItem(catalog, sceneInventoryUint32FromInt64(entry.ItemID))
+					if resolveErr == nil {
+						if avatarSlot, matched := currentPVFRelativeAvatarEquipmentExpiry(definition, entry, now); matched {
+							avatars[key] = avatarSlot
+						}
 					}
 				}
 			}
@@ -63,6 +75,12 @@ func (s *Service) reconcileCurrentDailyDeleteWithRemoved(ctx context.Context, re
 					continue
 				}
 				removed = append(removed, currentDailyDeleteSlot{list: 3, slot: slot})
+			}
+			for key, slot := range avatars {
+				if _, exists := assets.Equipment.Entries[key]; exists {
+					continue
+				}
+				removed = append(removed, currentDailyDeleteSlot{list: currentDailyDeleteAvatarRefreshList, slot: slot})
 			}
 			for i, container := range containers {
 				for _, key := range keys[i] {
@@ -93,6 +111,10 @@ func (s *Service) reconcileCurrentDailyDeleteWithRemoved(ctx context.Context, re
 
 func (s *Service) sendCurrentDailyDeleteClearedSlots(session *gameSession, removed []currentDailyDeleteSlot) error {
 	for start := 0; start < len(removed); {
+		if removed[start].list == currentDailyDeleteAvatarRefreshList {
+			start++
+			continue
+		}
 		list := removed[start].list
 		end := start
 		var entries []currentItemListEntry

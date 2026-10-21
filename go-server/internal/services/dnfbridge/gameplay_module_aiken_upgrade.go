@@ -22,6 +22,7 @@ func aikenUpgradeGameplayModule() gameplayModuleDefinition {
 		Name:           "aiken-upgrade",
 		LegacyHandlers: map[uint16]gameplayHandler{upgradeOpcode: handler},
 		UpperHandlers: map[uint16]gameplayHandler{
+			1341:          defaultClassGameplayHandler("aiken-set-class-rejected", "current_exe_op1341_requires_class1", func(s *Service, g *gameSession, b []byte) error { return s.handleCurrentAikenSet(g, b) }),
 			optionOpcode:  defaultClassGameplayHandler("aiken-option-class-rejected", "current_exe_op1340_requires_class1", func(s *Service, g *gameSession, b []byte) error { return s.handleCurrentAikenOption(g, b) }),
 			upgradeOpcode: defaultClassGameplayHandler("aiken-upgrade-rejected", "class mismatch", func(s *Service, g *gameSession, b []byte) error { return s.handleCurrentAikenUpgrade(g, b) }),
 		},

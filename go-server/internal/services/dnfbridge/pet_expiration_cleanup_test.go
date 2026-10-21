@@ -41,7 +41,7 @@ func TestR176RealPVFHatchedPetExpiration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Snapshot().Checksum != "25675fba8711216b72800e5ff034df61209b37e7c22d3e4c3b3ad7b1906fc348" {
+	if !knownRepairPVFChecksum(a.Snapshot().Checksum) {
 		t.Fatal("PVF identity")
 	}
 	catalog, err := newPVFDungeonDropCatalog(a)

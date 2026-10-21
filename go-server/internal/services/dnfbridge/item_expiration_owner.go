@@ -150,6 +150,14 @@ func (s *Service) projectCurrentPVFItemExpirations(
 				}
 				continue
 			}
+			if avatarSlot, matched := currentPVFRelativeAvatarEquipmentExpiry(definition, entry, now); matched {
+				if key != strconv.Itoa(int(entry.SlotIndex)) || entry.SlotIndex != avatarSlot {
+					return summary, fmt.Errorf("item expiry invalid avatar key %q slot %d", key, entry.SlotIndex)
+				}
+				delete(assets.Equipment.Entries, key)
+				summary.Equipment++
+				continue
+			}
 			stack := dnfrepo.ItemStack{ItemID: entry.ItemID, ExpireAt: entry.ExpireAt, Extra: entry.Extra}
 			if currentPVFRelativeGrantExpired(stack, definition, now) ||
 				(currentPVFDailyEquipmentGrantRecorded(stack, definition) && !stack.ExpireAt.After(now)) {

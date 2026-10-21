@@ -93,11 +93,12 @@ func (s *Service) nextCurrentRelativeItemExpiration(session *gameSession, now ti
 }
 
 type currentItemExpiryProjection struct {
-	characterID uint16
-	generation  uint64
-	slots       []currentDailyDeleteSlot
-	wornRedraw  bool
-	petRefresh  bool
+	characterID  uint16
+	generation   uint64
+	slots        []currentDailyDeleteSlot
+	wornRedraw   bool
+	petRefresh   bool
+	avatarRedraw bool
 }
 
 func (s *Service) mergeCurrentExpiryProjection(session *gameSession, characterID uint16, generation uint64, removed []currentDailyDeleteSlot) {
@@ -118,6 +119,10 @@ func (s *Service) mergeCurrentExpiryProjection(session *gameSession, characterID
 		seen[slot] = true
 	}
 	for _, slot := range removed {
+		if slot.list == currentDailyDeleteAvatarRefreshList {
+			p.avatarRedraw = true
+			continue
+		}
 		if !seen[slot] {
 			p.slots = append(p.slots, slot)
 			seen[slot] = true
@@ -185,7 +190,21 @@ func (s *Service) sendCurrentExpiryProjection(session *gameSession) error {
 			return err
 		}
 	}
-	if p.wornRedraw {
+	if p.avatarRedraw {
+		if !currentTownSelfActorAppearanceReady(session) {
+			return fmt.Errorf("relative avatar expiry redraw actor not ready")
+		}
+		if err := s.sendCurrentContainerListTypesWithRefresh(session, "relative_avatar_expiration", true, []byte{currentAvatarInventoryListType}); err != nil {
+			return err
+		}
+		if err := s.sendAlignedPostAction(session, alignedcmd.Result{Operation: "relative_avatar_expiration"}, alignedcmd.PostActionRefreshSelectedActorAppearance); err != nil {
+			return err
+		}
+		if err := s.sendSelectedCurrentCombatPowerAffixes(session, "relative_avatar_expiration_after_commit"); err != nil {
+			return err
+		}
+	}
+	if p.wornRedraw && !p.avatarRedraw {
 		if !currentTownSelfActorAppearanceReady(session) {
 			return fmt.Errorf("relative expiry redraw actor not ready")
 		}

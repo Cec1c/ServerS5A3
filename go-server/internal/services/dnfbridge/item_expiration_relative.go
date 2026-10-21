@@ -12,7 +12,7 @@ import (
 // event dates, GM overrides, rentals and missing/conflicting provenance retain
 // their existing owners. Projection alone never deletes an item.
 func currentPVFRelativeGrantExpired(stack dnfrepo.ItemStack, definition dungeonDropItemDefinition, now time.Time) bool {
-	if definition.UsablePeriodDays <= 0 || !definition.ExpirationDate.IsZero() ||
+	if definition.UsablePeriodDays <= 0 || definition.UsableExpiredItem || !definition.ExpirationDate.IsZero() ||
 		stack.Extra["expiration_source"] != "runtime_pvf_usable_period_grant" ||
 		stack.ExpireAt.IsZero() || now.IsZero() || stack.ExpireAt.After(now) {
 		return false

@@ -24,7 +24,7 @@ func dailyEquipmentFixture(t *testing.T) (*loginWearAnchorFixture, *fakeCurrentD
 	if e != nil {
 		t.Fatal(e)
 	}
-	if a.Snapshot().Checksum != "25675fba8711216b72800e5ff034df61209b37e7c22d3e4c3b3ad7b1906fc348" {
+	if !knownRepairPVFChecksum(a.Snapshot().Checksum) {
 		t.Fatal("PVF identity")
 	}
 	cat, e := newPVFDungeonDropCatalog(a)

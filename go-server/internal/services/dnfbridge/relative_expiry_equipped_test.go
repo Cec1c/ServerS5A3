@@ -26,7 +26,7 @@ func relativeTrialExpiryFixture(t *testing.T) (*Service, dnfrepo.Group, *fakeCur
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Snapshot().Checksum != "25675fba8711216b72800e5ff034df61209b37e7c22d3e4c3b3ad7b1906fc348" {
+	if !knownRepairPVFChecksum(a.Snapshot().Checksum) {
 		t.Fatal("wrong PVF")
 	}
 	catalog, err := newPVFDungeonDropCatalog(a)
