@@ -33,6 +33,14 @@ func (s *Service) reconcileCurrentDailyDeleteWithRemoved(ctx context.Context, re
 	summary, err := owner.Reconcile(ctx, itemexpiration.Command{
 		AccountID: accountID, CharacterID: characterID, UpdatedAt: now,
 		Project: func(assets *itemexpiration.Assets) (itemexpiration.Summary, error) {
+			worn := make(map[string]int16)
+			if assets.Equipment != nil {
+				for key, entry := range assets.Equipment.Entries {
+					if actorSlot, valid := currentEXEActorEquipmentSlot(entry); valid && actorSlot >= 12 && actorSlot <= 25 {
+						worn[key] = int16(actorSlot)
+					}
+				}
+			}
 			containers := make([]map[string]dnfrepo.ItemStack, 0, 3)
 			if assets.Inventory != nil {
 				containers = append(containers, assets.Inventory.Slots, assets.Inventory.Warehouse)
@@ -49,6 +57,12 @@ func (s *Service) reconcileCurrentDailyDeleteWithRemoved(ctx context.Context, re
 			result, err := s.projectCurrentPVFItemExpirations(catalog, assets, now)
 			if err != nil {
 				return result, err
+			}
+			for key, slot := range worn {
+				if _, exists := assets.Equipment.Entries[key]; exists {
+					continue
+				}
+				removed = append(removed, currentDailyDeleteSlot{list: 3, slot: slot})
 			}
 			for i, container := range containers {
 				for _, key := range keys[i] {
@@ -101,6 +115,7 @@ func (s *Service) stopCurrentDailyDeleteClock(session *gameSession) {
 		return
 	}
 	s.ensureGameplayTimeQueue().Cancel("daily-delete:" + session.connID)
+	session.pendingItemExpiryProjection = nil
 }
 
 func (s *Service) armCurrentDailyDeleteClock(session *gameSession) {
@@ -108,7 +123,15 @@ func (s *Service) armCurrentDailyDeleteClock(session *gameSession) {
 		return
 	}
 	now := s.gameplayNow()
-	s.scheduleCurrentDailyDeleteClock(session, itemexpiration.NextDailyDeleteAt(now).Sub(now))
+	deadline := itemexpiration.NextDailyDeleteAt(now)
+	if next, err := s.nextCurrentRelativeItemExpiration(session, now); err != nil {
+		if retry := now.Add(time.Minute); retry.Before(deadline) {
+			deadline = retry
+		}
+	} else if !next.IsZero() && next.Before(deadline) {
+		deadline = next
+	}
+	s.scheduleCurrentDailyDeleteClock(session, deadline.Sub(now))
 }
 
 func (s *Service) scheduleCurrentDailyDeleteClock(session *gameSession, delay time.Duration) {
@@ -141,11 +164,16 @@ func (s *Service) scheduleCurrentDailyDeleteClock(session *gameSession, delay ti
 				s.scheduleCurrentDailyDeleteClock(session, time.Minute)
 				return err
 			}
-			s.armCurrentDailyDeleteClock(session)
+			s.mergeCurrentExpiryProjection(session, characterID, generation, removed)
 			if len(removed) > 0 {
 				s.logGameEvent(session, "game-daily-delete-committed", "inventory", summary.DeletedInventory, "warehouse", summary.DeletedWarehouse, "account", summary.DeletedAccount)
 			}
-			return s.sendCurrentDailyDeleteClearedSlots(session, removed)
+			if err := s.sendCurrentExpiryProjection(session); err != nil {
+				s.scheduleCurrentDailyDeleteClock(session, time.Minute)
+				return err
+			}
+			s.armCurrentDailyDeleteClock(session)
+			return nil
 		})
 		if err != nil {
 			s.logGameEvent(session, "game-daily-delete-deferred", "error", err)
