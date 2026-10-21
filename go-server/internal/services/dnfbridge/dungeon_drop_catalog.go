@@ -313,9 +313,12 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s expiration date: %w", itemID, docPath, err)
 	}
 	definition.ExpirationDate = expirationDate
-	if reference.kind == dungeonDropItemStackable {
-		flag, found := document.Int("daily delete item")
-		definition.DailyDeleteItem = found && flag == 1
+	flag, found := document.Int("daily delete item")
+	definition.DailyDeleteItem = found && flag == 1
+	// Do not choose precedence for an equipment template with conflicting clocks.
+	if reference.kind == dungeonDropItemEquipment {
+		period, _ := document.Int("usable period")
+		definition.DailyDeleteItem = definition.DailyDeleteItem && expirationDate.IsZero() && period <= 0
 	}
 	if usablePeriod, found := document.Int("usable period"); found && usablePeriod > 0 {
 		definition.UsablePeriodDays = usablePeriod

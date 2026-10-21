@@ -79,7 +79,7 @@ func (s *Service) projectCurrentPVFItemExpirations(
 			patched, changed := cleanupCurrentPVFWrongExpirationProjection(stack)
 			return patched, changed, false
 		}
-		if definition.DailyDeleteItem {
+		if definition.DailyDeleteItem && (definition.Kind != dungeonDropItemEquipment || currentPVFDailyEquipmentGrantRecorded(stack, definition)) {
 			_, _, expired, err := itemexpiration.ReconcileDailyDelete(stack, now)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("resolve daily delete %s: %w", scope, err))
@@ -145,12 +145,12 @@ func (s *Service) projectCurrentPVFItemExpirations(
 				}
 				continue
 			}
-			if currentPVFRelativeGrantExpired(dnfrepo.ItemStack{
-				ItemID: entry.ItemID, ExpireAt: entry.ExpireAt, Extra: entry.Extra,
-			}, definition, now) {
+			stack := dnfrepo.ItemStack{ItemID: entry.ItemID, ExpireAt: entry.ExpireAt, Extra: entry.Extra}
+			if currentPVFRelativeGrantExpired(stack, definition, now) ||
+				(currentPVFDailyEquipmentGrantRecorded(stack, definition) && !stack.ExpireAt.After(now)) {
 				actorSlot, valid := currentEXEActorEquipmentSlot(entry)
 				if key != strconv.Itoa(int(entry.SlotIndex)) || !valid || actorSlot < 12 || actorSlot > 25 {
-					return summary, fmt.Errorf("relative expiry invalid worn key %q slot %d", key, entry.SlotIndex)
+					return summary, fmt.Errorf("item expiry invalid worn key %q slot %d", key, entry.SlotIndex)
 				}
 				delete(assets.Equipment.Entries, key)
 				summary.Equipment++
