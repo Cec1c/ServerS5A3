@@ -103,8 +103,8 @@ func currentAntonMovieWindow(f *currentAntonRewardFlow) time.Duration {
 	return time.Duration(movie) * time.Second
 }
 
-// The phase-clear timestamp starts the server clock, but the native client
-// sends 659 only after its result movie. Automatic party selection must leave
+// The phase-clear timestamp starts the server clock, but a client 659 need
+// not arrive at that instant. Automatic party selection must leave
 // a full movie window after the card list was actually delivered. If no client
 // reached the card screen, the base deadline still opens that screen and one
 // movie window is left before the unattended fallback commits it.

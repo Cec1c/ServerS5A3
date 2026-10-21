@@ -127,11 +127,12 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		packets = filtered
 	}
 	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
-	partyScreen := lukePartyOnly || b.Mode == 1 && f.SquadShownAt.IsZero()
-	if partyScreen && o.rewardScreenSent && o.rewardScreenIdentity == identity {
-		// Updating Anton's party cards must not restart the current screen.
-		// Its later squad display is a separate transition and remains enabled.
-		// Luke phase one retains its existing party-only/standby behavior.
+	trackedScreen := lukePartyOnly || b.Mode == 1 && (f.SquadShownAt.IsZero() || b.Phase == 0 && !f.Single)
+	if trackedScreen && o.rewardScreenSent && o.rewardScreenIdentity == identity {
+		// Normal Anton phase zero keeps the same open panel for kind3. Its
+		// native consumer updates that panel; another state4 has unrelated
+		// reset side effects. A fresh connection still needs state4 first.
+		// Final/single Anton and Luke retain their existing behavior.
 		filtered := packets[:0]
 		for _, packet := range packets {
 			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
@@ -185,7 +186,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		return err
 	}
-	if partyScreen {
+	if trackedScreen {
 		for _, packet := range packets {
 			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
 				o.rewardScreenIdentity, o.rewardScreenSent = identity, true

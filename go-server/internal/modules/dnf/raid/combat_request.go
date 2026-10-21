@@ -5,9 +5,10 @@ import (
 	"fmt"
 )
 
-// Current v92's complete 018FBED0/018FBF20 write exactly one byte.
-// 1 requests dismissal; 0 reports the natural end of the movie. Both end
-// the local animation. Authorization and result-flow state belong to bridge.
+// The current 018FBED0/018FBF20 senders write exactly one boolean byte.
+// Both are state-gated and the zero sender also has an input-gated caller;
+// zero alone does not prove an automatic movie-end callback. Authorization
+// and result-flow state belong to bridge.
 type MovieSkipRequest struct{ Requested bool }
 
 func DecodeMovieSkipRequest(body []byte) (MovieSkipRequest, error) {

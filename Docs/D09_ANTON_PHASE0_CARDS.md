@@ -1,5 +1,13 @@
 # D09 安徒恩阻截 phase0 双牌时序
 
+## R182 当前证据与修正
+
+普通安徒恩phase0的小队牌和kind3沿用同一已打开面板，不为kind3再发送587 state4。v151 `202FCC8..202FCF4` 在面板`+420 != 0`时调用`192EEA0`更新；`32B6575..32B658B`确认重复state4跳过首次打开函数，但其外层仍有其他状态重置和容器清理。重连新会话仍须先发送state4，随后才发已提交kind3。
+
+真实PVF回归`TestR182AntonPhase0SquadRetainsOpenScreenAndRestoresNewConnection`在修改前观察到kind3前多出一条state4，失败于预期0/实际1。修改只覆盖普通安徒恩phase0，保留灭杀、单人和卢克行为。验证结果由本轮回执记录；完整原生动画、手动翻牌仍需实机验收。
+
+下文历史“自然659”的名称不作为原生触发原因的证明。实际`18FBF20`按`this+3FD`发送零值，其caller `23FB410`还有输入检查；`18FBED0`按参数与`this+3FC`决定发送1并清两个标志。协议零值不能唯一证明自然电影结束。kind3分支页签5使用的真实资源是`REWARD_BOX_GLITTER`，不能把页签5命名为团队页。历史结论与上述冲突时以上述实际字节为准。
+
 ## r167 当前结论
 
 正常安徒恩 phase0 有两段展示：party 牌与 squad/team 牌。旧实现把 party 自动选择截止固定在 CompletedAt + 2*MovieEndSeconds；CompletedAt 是服务端清关时刻，实际牌面却要等客户端结果电影结束后发送自然 659 才下发。现场晚到时会出现“自动先提交、牌面后显示”，首轮因此可能直接看到已发奖结果。
