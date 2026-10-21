@@ -342,13 +342,14 @@ type gameSession struct {
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.
-	equipmentProjectionMu       sync.Mutex
-	avatarAppearanceMu          sync.Mutex
-	avatarAppearanceLastAt      time.Time
-	avatarAppearanceTimer       string
-	avatarAppearanceTimerSerial uint64
-	petGrowth                   petGrowthClockState
-	spendTime                   currentSpendTimeClockState
+	equipmentProjectionMu          sync.Mutex
+	avatarAppearanceMu             sync.Mutex
+	avatarAppearanceLastAt         time.Time
+	avatarAppearanceTimer          string
+	avatarAppearanceTimerSerial    uint64
+	avatarAppearanceNeedsBuffClear bool
+	petGrowth                      petGrowthClockState
+	spendTime                      currentSpendTimeClockState
 	// Owned by the serialized session event loop; full catalogs omit yesterday's flag.
 	activityCatalogDayEvent uint16
 	weeklyAttendance        currentWeeklyAttendanceProjection

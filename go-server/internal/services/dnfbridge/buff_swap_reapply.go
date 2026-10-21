@@ -90,8 +90,8 @@ func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, 
 }
 
 // Historical8a7 noti1369 and currentbb428/82e noti1368 both consume
-// skill:u16,count:u8,5-byte rows. The previously cited VA998890 is only
-// a flag getter in v151, not a verified packet-handler entry. Current1367 consumes
+// skill:u16,count:u8,5-byte rows. Fixed v151 registers VA998890 for1368 at
+// VA43A2732; it reads the skill then calls9985F0. Current1367 consumes
 // rows only and must not receive this skill-prefixed snapshot.
 func nativeBuffSwapSnapshotBody(state buffswap.State) []byte {
 	body := make([]byte, 3+5*buffswap.SlotCount)
