@@ -56,6 +56,7 @@ func TestGameplayModuleRegistryRejectsDuplicateOwnership(t *testing.T) {
 func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	wantNames := []string{
 		"aiken-upgrade",
+		"guild-compound",
 		"guild",
 		"auction",
 		"pvp",
@@ -131,6 +132,8 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	legacyOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
+		uint16(dnfenum.CmdPacketCompoundFlag):                   "guild-compound",
 		uint16(dnfenum.CmdPacketAttendanceMarbleEventInfo):      "attendance-marble",
 		uint16(dnfenum.CmdPacketAttendanceMarbleEventDice):      "attendance-marble",
 		uint16(dnfenum.CmdPacketAttendanceMarbleDoubleExit):     "attendance-marble",
