@@ -9,6 +9,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	ceraPackageGameplayModule(),
 	premiumGameplayModule(),
 	experienceItemGameplayModule(),
+	levelUpTicketGameplayModule(),
 	inventoryGameplayModule(),
 	skillGameplayModule(),
 	equipmentDisjointGameplayModule(),
