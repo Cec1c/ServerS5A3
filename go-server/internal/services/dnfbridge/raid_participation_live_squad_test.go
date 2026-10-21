@@ -53,14 +53,14 @@ func TestRaidParticipation584SeparatesLiveSquadsAndRunOwners(t *testing.T) {
 				cleared[id] = position
 			}
 			completed := currentRaidParticipationProjection(cleared, cleared, true)
-			if len(completed) != 4*len(tc.rows) {
-				t.Fatal("cleared fresh subscriber missing mark", len(completed))
+			// Native op4 is a clear announcement, not stored row state.
+			// Restore all squad rows silently without replaying past clears.
+			if len(completed) != 3*len(tc.rows) {
+				t.Fatal("cleared fresh subscriber must silently restore rows", len(completed))
 			}
 			for i, p := range completed {
 				op := byte(0)
-				if i >= 3*len(tc.rows) {
-					op = 4
-				} else if i >= 2*len(tc.rows) {
+				if i >= 2*len(tc.rows) {
 					op = 2
 				}
 				if p.opcode != 584 || !bytes.Equal(p.body, currentRaidParticipationBody(210, op, tc.rows[i%len(tc.rows)])) {

@@ -262,6 +262,27 @@ func currentRaidParticipationProjection(previous, next map[uint16]currentRaidPar
 	appendGroups(group(previous, false), 0)
 	appendGroups(group(next, false), 0)
 	appendGroups(group(next, false), 2)
-	appendGroups(group(next, true), 4)
+	// v150 01FF4940 op4 displays dstr32049 (a squad cleared this dungeon).
+	// It is an event, not a persistent row mark: rebuilding occupancy must
+	// not announce other squads' old clears or replay history on resubscribe.
+	if !fresh {
+		newClears := map[uint16]currentRaidParticipationPosition{}
+		for id, entry := range next {
+			if !entry.Cleared {
+				continue
+			}
+			known := false
+			for oldID, old := range previous {
+				if old.Cleared && old.DungeonID == entry.DungeonID && old.RunID == entry.RunID && (entry.RunID != "" || oldID == id) {
+					known = true
+					break
+				}
+			}
+			if !known {
+				newClears[id] = entry
+			}
+		}
+		appendGroups(group(newClears, true), 4)
+	}
 	return packets
 }
