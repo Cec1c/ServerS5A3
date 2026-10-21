@@ -33,23 +33,39 @@ be new; neither the installed client nor the input is overwritten.
 python -B patch_volcano_apply.py --input <v152.exe> --output <candidate.exe> --receipt <patch.json>
 python -B verify_volcano_apply.py --baseline <v152.exe> --candidate <candidate.exe> --output <native.json> --python-deps <optional-dependency-directory>
 python -B check_pe_contract.py --baseline <v152.exe> --candidate <candidate.exe> --output <pe.json> --python-deps <optional-dependency-directory>
+python -B verify_symbol_lifecycle.py --baseline <v152.exe> --candidate <candidate.exe> --input <lifecycle-bodies.json> --output <lifecycle.json> --python-deps <optional-dependency-directory>
 ```
 
 The48-case executable comparison covers present/absent manager, empty or
 missing111,0,1,2 and unsigned-1 values, both old latch values and matching/
 nonmatching maps. It executes the original getter and iterators, map comparison,
 argument load and eligible-monster loop through both27FD7E0/27F6450 calls.
-World lookup/list/classification and the final setters are explicit stubs:
-these tests prove arguments, not actual monster memory, rendering or damage.
+World lookup/list/classification and protected backing allocation are fixtures.
+Both final setters execute the actual image code: the protected flag at A08/A0C
+is independently read through native37DF710, and the plain flag at A18 is checked.
+The mismatch path preserves a nonboolean sentinel so an unintended zero write
+cannot pass. Native protected-value integrity failure flags must remain clear.
+These checks prove fixture monster memory, not live rendering or damage.
 Registers except intended ECX, flags, stack and controller/global state are
 checked. The separate PE verifier independently checks checksum, section bounds,
 original-byte edit limits and receiver-chain preservation. Rebuilding must
 produce the same bytes.
 
+For the lifecycle check, set `DNFBRIDGE_REAL_PVF_SMOKE` to the current PVF and
+`DNF90_R190_NATIVE_DIR` to an external output directory, then run bridge test
+`TestRealPVFR190BarrierSubscriberLifecycle`. It exports the actual 583 bodies
+for open restoration, same-instance resubscription, a new raid's phase0, and
+the next phase1. Raid/phase changes use explicit domain fixtures, not public
+leave/start commands. The test also rejects an obsolete instance's callback.
+The native verifier executes the real 583 reader, vector clear/insert/update,
+lookup, and patched argument load against those bodies. Packet IO and absent
+scene/UI lookups are stubs; storage is preallocated fixture memory. The old
+symbol111 is removed on the new phase0 and restored closed on the next phase1.
+
 The constructor-initialization experiment was rejected because changing AC
 could suppress the first later111 UI edge. It is not this candidate.
 
-Remaining acceptance: live map/controller lifetime, authoritative symbol reset
-between raids, repeated entry, barrier break/recharge, native frame timing and
+Remaining acceptance: live map/controller lifetime, public leave/new-raid flow,
+repeated entry, barrier break/recharge, native frame timing and
 both players' actual damage. This patch does not repair teammate actor models,
 raid portraits, guild synthesis, Aiken transactions or reward UI by itself.

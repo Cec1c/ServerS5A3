@@ -26,7 +26,7 @@ def case(data,rows,present,latch,match):
             if page not in mapped:u.mem_map(page,4096);mapped.add(page)
         u.mem_write(va,blob)
     opt,sections=pe.headers(data)
-    for va,size in [(0x1872709,0x4a),(0x1872470,0xb8),(0x1a57b40,0x9e),(0x224e5f0,0x1b),(0xa8f6c0,0x1b),(0x3a2d530,0x4d)]:
+    for va,size in [(0x1872709,0x4a),(0x1872470,0xb8),(0x1a57b40,0x9e),(0x224e5f0,0x1b),(0xa8f6c0,0x1b),(0x3a2d530,0x4d),(0x27fd7e0,0x20),(0x27f6450,0x10),(0x37def30,0x70),(0x37df710,0x69),(0x4d41de0,0x400)]:
         off=pe.offset(sections,va,size);put(va,data[off:off+size])
     if len(data)>patch.SIZE:put(0x400000+patch.SIZE,data[patch.SIZE:patch.SIZE+receipt['helper_size']])
     obj,glob,proxy,entries,stack=0x100000,0x110000,0x120000,0x130000,0x201000
@@ -41,8 +41,8 @@ def case(data,rows,present,latch,match):
     put(vector+0x16c,struct.pack('<I',219))
     put(mapdata+0x5c,struct.pack('<I',219 if match else 218))
     put(0x3625320,b'\xb8'+struct.pack('<I',mapdata)+b'\xc3')
-    # Actual native monster loop; world/list/classification functions provide
-    # one eligible monster. The final two setters capture arguments only.
+    # World/list/classification supply one eligible monster. Both final setters
+    # and protected-value decoding execute actual EXE bytes on fixture storage.
     monster,vt=entries+0x500,0x140000
     put(vt,bytes(4096));put(monster,struct.pack('<I',vt))
     def returns(va,value,pop=0):put(va,b'\xb8'+struct.pack('<I',value)+(b'\xc2'+struct.pack('<H',pop) if pop else b'\xc3'))
@@ -53,7 +53,17 @@ def case(data,rows,present,latch,match):
     returns(0x1e35ef0,monster)
     returns(0x150000,1,4);returns(0x150010,1);returns(0x150020,0)
     for off,fn in [(0x3c,0x150000),(0x990,0x150010),(0x994,0x150020)]:put(vt+off,struct.pack('<I',fn))
-    put(0x27fd7e0,b'\xc2\x04\x00');put(0x27f6450,b'\xc2\x04\x00')
+    protected_manager,protected_page,decoded,stop=0x160000,0x170000,0x180000,0x190000
+    for addr,size in [(protected_manager,4096),(protected_page,0x3000),(decoded,4096),(stop,4096)]:put(addr,bytes(size))
+    put(0x57f8a18,struct.pack('<I',protected_manager))
+    put(0x57f8a78,struct.pack('<I',0))
+    put(protected_manager+0x24,struct.pack('<I',protected_page))
+    # A valid protected byte with handle 1, key 0, and sentinel value 0x7e.
+    # A map mismatch must leave it unchanged, rather than accidentally passing
+    # because the desired boolean equals zero-initialized fixture memory.
+    put(monster+0xa08,struct.pack('<I',1))
+    put(monster+0xa0c,b'\x7e');put(monster+0xa18,b'\x7e')
+    put(protected_page+0x2118,struct.pack('<I',0x7e0000))
     regs=[UC_X86_REG_EAX,UC_X86_REG_EBX,UC_X86_REG_ECX,UC_X86_REG_EDX,UC_X86_REG_ESI,UC_X86_REG_EDI,UC_X86_REG_EBP,UC_X86_REG_ESP]
     for r,v in zip(regs,[0x101,obj,0x303,0x404,0x505,mapdata,stack+100,stack]):u.reg_write(r,v)
     u.reg_write(UC_X86_REG_EFLAGS,0x246)
@@ -77,6 +87,16 @@ def case(data,rows,present,latch,match):
         assert arg==[seen[1][1][2]]
         assert setters==[(0x27fd7e0,arg[0]),(0x27f6450,arg[0])]
     else:assert seen==[] and arg==[] and setters==[]
+    expected=arg[0] if match else 0x7e
+    assert u.mem_read(monster+0xa18,1)[0]==expected
+    # Independently decode through the real protected getter. Its consistency
+    # branch must succeed; both native integrity failure flags stay untouched.
+    put(stack,struct.pack('<III',stop,monster+0xa0c,decoded))
+    u.reg_write(UC_X86_REG_ESP,stack);u.reg_write(UC_X86_REG_ECX,monster+0xa08)
+    u.emu_start(0x37df710,stop,count=1000)
+    assert u.reg_read(UC_X86_REG_EIP)==stop
+    assert u.mem_read(decoded,1)[0]==expected
+    assert bytes(u.mem_read(0x57f8a1c,8))==bytes(8)
     return arg
 
 results=[]
@@ -93,6 +113,6 @@ _,sec=pe.headers(base)
 for va,size in [(0x187a3a0,0x121),(0x1877e20,0x5e0),(0x1a5bc10,0x176)]:
     off=pe.offset(sec,va,size);assert base[off:off+size]==candidate[off:off+size]
 result=dict(passed=True,cases=results,baseline_sha256=pe.sha(base),candidate_sha256=pe.sha(candidate),
-    scope='Native map-match, symbol getter/iterator and eligible-monster loop to both setters. World/list/classification and final setters are fixture stubs. Register/flags/stack/controller preservation; no live GUI or actual monster memory/damage claim.')
+    scope='Native map-match, symbol getter/iterator, eligible-monster loop, both actual setters and protected getter. Fixture monster memory has both expected flags; world/list/classification and protected backing allocation are fixtures. Register/flags/stack/controller preservation; no live GUI or actual damage claim.')
 args.output.write_text(json.dumps(result,indent=2),'utf8')
 print(json.dumps(dict(passed=True,cases=len(results),candidate_sha256=pe.sha(candidate))))
