@@ -748,6 +748,11 @@ type MailboxItemResolution struct {
 	// OriginalExpiry reads only the attachment's existing instance evidence.
 	// It does not use the current time or generate a new grant deadline.
 	OriginalExpiry func(dnfrepo.MailAttachment) time.Time
+	// ProjectAttachment resolves evidence that belongs to one durable
+	// attachment rather than to the item template. The second argument is the
+	// trusted mail creation anchor, or the zero time when the caller cannot
+	// establish one. Existing instance evidence must win over any projection.
+	ProjectAttachment MailboxAttachmentProjector
 	// EpicPieceID 非零表示这件附件是**史诗碎片**（`etc/epicpieceinfo.etc`
 	// `[piece list]` 的成员）：它必须进账号级史诗图鉴账本，**不写任何背包行**。
 	// 只有 dnfbridge 同时提供了 Request.EpicPieceCreditor 时才允许置位；为零
@@ -760,6 +765,18 @@ type MailboxItemResolution struct {
 	// 原来的入包路径，逐字节不变。
 	AccountWarehouseSlot int16
 }
+
+// MailboxAttachmentProjection is per-attachment evidence derived from a
+// trusted anchor. Zero ExpireAt means the resolver has no projection; an empty
+// Extra map means it contributes no instance keys.
+type MailboxAttachmentProjection struct {
+	ExpireAt time.Time
+	Extra    map[string]string
+}
+
+// MailboxAttachmentProjector receives the attachment and the mail creation
+// anchor. It must not substitute claim time for a missing anchor.
+type MailboxAttachmentProjector func(dnfrepo.MailAttachment, time.Time) (MailboxAttachmentProjection, error)
 
 // MailboxItemResolver resolves each durable attachment template through the
 // active runtime PVF. A nil resolver makes attachment sends fail closed.
