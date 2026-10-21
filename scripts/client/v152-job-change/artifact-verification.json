@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "official_zip_verified": true,
+  "official_inner_exe_verified": true,
+  "rebuild_identical": true,
+  "invalid_inputs_rejected": 3,
+  "windows_checksum": 111866804,
+  "exe_sha256": "44aecee7c48bc1c89582ef1cd95694950569951caeef3b22ec3478c917b8ce7e"
+}

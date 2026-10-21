@@ -1,0 +1,51 @@
+{
+  "input_sha256": "2def3cc35c1ee00a9c697fe81d1f31259860468d042d6d477cd3b4be08f0e6eb",
+  "output_sha256": "44aecee7c48bc1c89582ef1cd95694950569951caeef3b22ec3478c917b8ce7e",
+  "input_size": 111845376,
+  "output_size": 111849472,
+  "call_va": "0x2523a13",
+  "helper_va": "0x6eaa000",
+  "section_va": "0x6eaa000",
+  "helper_bytes": 74,
+  "fallback": "0x6ea9000",
+  "class0": [
+    1150
+  ],
+  "class1": [
+    502,
+    785
+  ],
+  "original_ranges": [
+    [
+      310,
+      312
+    ],
+    [
+      332,
+      336
+    ],
+    [
+      384,
+      388
+    ],
+    [
+      392,
+      396
+    ],
+    [
+      1832,
+      1872
+    ],
+    [
+      34748948,
+      34748952
+    ]
+  ],
+  "appended_range": [
+    111845376,
+    111849472
+  ],
+  "published": false,
+  "deployed": false,
+  "full_gui": false
+}
