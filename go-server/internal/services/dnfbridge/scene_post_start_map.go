@@ -225,12 +225,19 @@ func (s *Service) sendCurrentPreDungeonContextPlayerState(session *gameSession, 
 		return err
 	}
 
+	if err := s.prepareCurrentSnakeDungeonSkillInfo(session, ctx, character, hasCharacter, source); err != nil {
+		return err
+	}
 	session.preDungeonContextPlayerStateSent = true
+	packetCount := 2
+	if session.snakeDungeonSkillInfo != nil {
+		packetCount++
+	}
 	s.logGameEvent(session, "game-upper-pre-dungeon-context-player-state-finished",
 		"source", source,
 		"char_id", charID,
 		"object_key", objectKey,
-		"packet_count", 2,
+		"packet_count", packetCount,
 		"next_stage", "op27_page_enter_actor_vtable_0x254_existing_runtime_recompute_gate")
 	return nil
 }

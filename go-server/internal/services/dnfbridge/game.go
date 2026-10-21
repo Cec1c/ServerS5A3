@@ -233,6 +233,7 @@ type gameSession struct {
 	selectPreviewActorOwnerChannel       byte
 	selectPreviewActorRemoved            bool
 	preDungeonContextPlayerStateSent     bool
+	snakeDungeonSkillInfo                *currentSnakeDungeonSkillInfo
 	postStartMapPlayerStateSent          bool
 	// dungeonPartySlotTableSentOnStartMap 记录"本次 start-map（op29）提交里，class0/op9
 	// kind0 槽位表已经发过一条"（厂商形状的房间槽位表，见 dungeon_party_room_slot_table.go）。
