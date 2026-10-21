@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// Probe all 64 pool ports plus an out-of-pool lease socket in disjoint 128-port
+// Acquire an out-of-pool lease before probing 64 pool ports in disjoint 128-port
 // blocks below the usual dynamic port range. Hold the lease until test cleanup
-// so another copy of these tests cannot choose the same block after the pool
-// probes close. An unrelated process ignoring this lease can still contend;
+// so another copy cannot briefly bind this block while its owner is testing
+// close/rebind. Probing the pool before the lease would itself cause contention.
+// An unrelated process ignoring this lease can still contend;
 // bind failures are fixture failures, never evidence of a product defect.
 // No test sends traffic beyond loopback.
 func r137FreeRange(t *testing.T) int {
@@ -20,18 +21,21 @@ func r137FreeRange(t *testing.T) int {
 		first := testCurrentPartyUDPClient(t, "127.0.0.1")
 		start := 20000 + (first.LocalAddr().(*net.UDPAddr).Port%128)*128
 		first.Close()
+		lease, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start + 64})
+		if err != nil {
+			continue
+		}
 		var sockets []*net.UDPConn
-		for port := start; port < start+65; port++ {
+		for port := start; port < start+64; port++ {
 			c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 			if err != nil {
 				break
 			}
 			sockets = append(sockets, c)
 		}
-		if len(sockets) == 65 {
-			lease := sockets[64]
+		if len(sockets) == 64 {
 			t.Cleanup(func() { lease.Close() })
-			for _, c := range sockets[:64] {
+			for _, c := range sockets {
 				c.Close()
 			}
 			return start
@@ -39,6 +43,7 @@ func r137FreeRange(t *testing.T) int {
 		for _, c := range sockets {
 			c.Close()
 		}
+		lease.Close()
 	}
 	t.Fatal("no complete 65-port fixture range available")
 	return 0
