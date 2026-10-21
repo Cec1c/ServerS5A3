@@ -352,6 +352,9 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 		selected := live.Battle.RewardCards[command.Phase][session.selectedCharacterID]
 		if selected != nil && selected.Plan.Fingerprint == command.Fingerprint && selected.Card == command.Card {
 			selected.Committed = true
+			if flow := live.Battle.RewardFlow[command.Phase]; flow != nil {
+				markCurrentAntonPartyCommittedLocked(flow, time.Now())
+			}
 		}
 	}
 	s.raidMu.Unlock()

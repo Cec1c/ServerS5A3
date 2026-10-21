@@ -77,6 +77,17 @@ func TestRealPVFAntonAutomaticPartyAndSquadKeepOwnedRecipientsAfterLobbyRemoval(
 		t.Fatal("offline earned grants failed", states, errs)
 	}
 	for _, id := range []string{"19", "20"} {
+		if antonGrantedItemCount(t, f, id, 10304529) != 30 || antonGrantedItemCount(t, f, id, 10093974) != 0 {
+			t.Fatal("actual phase0 party reward missing before its display window", id)
+		}
+	}
+	if len(flow.Squad) != 0 || !flow.SquadShownAt.IsZero() {
+		t.Fatal("automatic party cards were replaced by squad before one movie window")
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	for _, id := range []string{"19", "20"} {
 		if antonGrantedItemCount(t, f, id, 10304529) != 30 || antonGrantedItemCount(t, f, id, 10093974) != 19 {
 			t.Fatal("actual phase0 party/squad missing", id)
 		}
@@ -84,7 +95,7 @@ func TestRealPVFAntonAutomaticPartyAndSquadKeepOwnedRecipientsAfterLobbyRemoval(
 	if flow.Party[19].Card == flow.Party[20].Card || flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() {
 		t.Fatal("card ownership/squad presentation window incorrect")
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), func(int64) (int64, error) { t.Fatal("cached reward rerolled"); return 0, nil }); len(errs) != 0 || flow.FinishedAt.IsZero() || !flow.BreakUntil.Equal(flow.FinishedAt.Add(600*time.Second)) {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(40*time.Second), func(int64) (int64, error) { t.Fatal("cached reward rerolled"); return 0, nil }); len(errs) != 0 || flow.FinishedAt.IsZero() || !flow.BreakUntil.Equal(flow.FinishedAt.Add(600*time.Second)) {
 		t.Fatal("phase finish/break timing incorrect", errs)
 	}
 	for _, id := range []string{"19", "20"} {
@@ -129,6 +140,9 @@ func TestRealPVFAntonNextPhaseRequiresRewardsThenLeaderStartNoNewTicket(t *testi
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(40*time.Second), zeroAntonRoll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
 	before, _, _ := f.repos.Inventory.Load(context.Background(), "19")
 	state, ok, err := f.service.startRuntimeRaidWithEntryCost(session)
 	if !ok || err != nil || state.Battle.Phase != 1 || state.Battle.PhaseCompleted || len(state.Battle.MemberClears) != 0 || len(state.Battle.ClearedRuns) != 8 || len(f.service.raidWeeklyIntents) != 0 {
@@ -169,6 +183,10 @@ func TestRealPVFAntonBreakClockStartsActualSecondPhaseOnce(t *testing.T) {
 		t.Fatal(errs)
 	}
 	_, errs = f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll)
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	_, errs = f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(40*time.Second), zeroAntonRoll)
 	if len(errs) != 0 {
 		t.Fatal(errs)
 	}
@@ -253,6 +271,9 @@ func TestRealPVFAntonFlowSnapshotsDoNotShareEarnedPlans(t *testing.T) {
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
 	copy := cloneRuntimeRaidState(*f.state)
 	copy.Battle.RewardFlow[0].Recipients[0].AccountID = "foreign"
 	copy.Battle.RewardFlow[0].Party[19].Committed = false
@@ -272,6 +293,9 @@ func TestRealPVFAntonFlowRareSquadUsesActualUnopenedBoosterAndCurrentNestedDispl
 		return 0, nil
 	}
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, roll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), roll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	for _, id := range []string{"19", "20"} {
@@ -294,6 +318,9 @@ func TestRealPVFAntonFlowRareSquadUsesActualUnopenedBoosterAndCurrentNestedDispl
 	writeAntonNativeCardFixture(t, "go-anton-squad-rare-first.bin", body)
 	copyFlow := cloneCurrentAntonRewardFlow(flow)
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(40*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	if copyFlow.FinishedAt == flow.FinishedAt || !copyFlow.FinishedAt.IsZero() {
@@ -340,6 +367,9 @@ func TestRealPVFAntonNextPhaseRejectsForeignAndUnfinishedOwners(t *testing.T) {
 		t.Fatal(errs)
 	}
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(40*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	base := cloneRuntimeRaidState(*f.state)
@@ -391,6 +421,9 @@ func TestRealPVFAntonFlowPartialProjectionClosesAndNewOwnedConnectionRestoresWit
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, zeroAntonRoll); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	state := cloneRuntimeRaidState(*f.state)

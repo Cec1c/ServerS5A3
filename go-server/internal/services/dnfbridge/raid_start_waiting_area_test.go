@@ -183,6 +183,9 @@ func TestRealPVFRaidNextPhaseWaitsForEveryMemberManualAndClock(t *testing.T) {
 			if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
 				t.Fatal(errs)
 			}
+			if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(40*time.Second), zeroAntonRoll); len(errs) != 0 {
+				t.Fatal(errs)
+			}
 			b := f.state.Battle
 			enterRaidStartWaitingFixture(t, f, b.InstanceID)
 			peer, _ := f.service.onlinePlayers.PlayerForCharacter(20)

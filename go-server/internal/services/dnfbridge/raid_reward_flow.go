@@ -35,6 +35,7 @@ type currentAntonRewardFlow struct {
 	Squad              map[uint16]*currentAntonRewardCard
 	Weekly             raid.WeeklyClearCommand
 	AutoSelectAt       time.Time
+	PartyCommittedAt   time.Time
 	SquadShownAt       time.Time
 	FinishedAt         time.Time
 	BreakUntil         time.Time
@@ -73,6 +74,32 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 
 func currentAntonFlowKey(instance string, phase byte) string {
 	return instance + ":" + strconv.Itoa(int(phase))
+}
+
+// Normal Anton phase zero has two display stages. Automatic selection must
+// leave the committed party cards visible for one native movie window before
+// the squad list replaces them. Manual party selections preserve their own
+// completion time, so a fully manual group is not delayed a second time.
+func markCurrentAntonPartyCommittedLocked(f *currentAntonRewardFlow, now time.Time) bool {
+	if f == nil || !f.PartyCommittedAt.IsZero() {
+		return f != nil && !f.PartyCommittedAt.IsZero()
+	}
+	for _, owner := range f.Recipients {
+		card := f.Party[owner.CharacterID]
+		if card == nil || !card.Committed {
+			return false
+		}
+	}
+	f.PartyCommittedAt = now
+	return true
+}
+
+func currentAntonMovieWindow(f *currentAntonRewardFlow) time.Duration {
+	var movie uint32
+	for _, seconds := range f.Configuration.MovieEndSeconds {
+		movie = max(movie, seconds)
+	}
+	return time.Duration(movie) * time.Second
 }
 
 // Called under raidMu exclusively at a genuine completed-run boundary (or an
@@ -264,6 +291,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			continue
 		}
 		owners := append([]currentAntonRewardRecipient(nil), f.Recipients...)
+		movie := currentAntonMovieWindow(f)
 		s.raidMu.Unlock()
 		if f.FiendWarRetryCount > 0 {
 			if err := s.advanceCurrentFiendWarRetryFlow(f, catalog, repos, now); err != nil {
@@ -275,6 +303,14 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		for _, kind := range []byte{1, 3} {
 			if kind == 3 && !f.squadRequired() {
 				continue
+			}
+			if kind == 3 {
+				s.raidMu.Lock()
+				if markCurrentAntonPartyCommittedLocked(f, now) && f.Mode == 1 && !f.Single && f.Phase == 0 && now.Before(f.PartyCommittedAt.Add(movie)) {
+					s.raidMu.Unlock()
+					continue
+				}
+				s.raidMu.Unlock()
 			}
 			for _, owner := range owners {
 				s.raidMu.Lock()
@@ -341,11 +377,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			f.SquadShownAt = now
 		}
 		// Keep the full squad display available for one actual movie window.
-		var movie uint32
-		for _, seconds := range f.Configuration.MovieEndSeconds {
-			movie = max(movie, seconds)
-		}
-		if all && !now.Before(f.SquadShownAt.Add(time.Duration(movie)*time.Second)) {
+		if all && !now.Before(f.SquadShownAt.Add(movie)) {
 			f.FinishedAt = now
 			if f.Mode != 3 && !f.Single && f.Phase == 0 {
 				f.BreakUntil = now.Add(time.Duration(f.Configuration.PhaseBreakSeconds) * time.Second)
