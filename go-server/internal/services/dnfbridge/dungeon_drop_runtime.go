@@ -421,7 +421,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 					}
 				} else {
 					rarity := currentDungeonDropRarity(rng, rules)
-					itemID, selected, err = dropCatalog.SelectGenericEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
+					itemID, selected, err = dropCatalog.selectOrdinaryMonsterEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
 					if err != nil {
 						return nil, err
 					}
