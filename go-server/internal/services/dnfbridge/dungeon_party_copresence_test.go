@@ -150,6 +150,19 @@ func TestDungeonPartyRunKeyIdentity(t *testing.T) {
 	if otherKey, _ := dungeonPartyRunKeyFrom(leader, otherSeed, scene); otherKey == key {
 		t.Fatal("a different dungeon seed must not share the run key")
 	}
+	raidA := *runtime
+	raidA.raidEntry = &currentRaidDungeonEntry{RaidKey: 0x170001, InstanceID: "raid-instance-a", RunID: "raid-run-a"}
+	raidAKey, _ := dungeonPartyRunKeyFrom(leader, &raidA, scene)
+	raidB := raidA
+	raidB.raidEntry = &currentRaidDungeonEntry{RaidKey: 0x170001, InstanceID: "raid-instance-a", RunID: "raid-run-b"}
+	if raidBKey, _ := dungeonPartyRunKeyFrom(leader, &raidB, scene); raidBKey == raidAKey {
+		t.Fatal("different raid runs with identical map/room/seed must not share a run key")
+	}
+	raidCOwner := raidA
+	raidCOwner.raidEntry = &currentRaidDungeonEntry{RaidKey: 0x170002, InstanceID: "raid-instance-b", RunID: "raid-run-a"}
+	if raidCKey, _ := dungeonPartyRunKeyFrom(leader, &raidCOwner, scene); raidCKey == raidAKey {
+		t.Fatal("different raid instances must not share a run key")
+	}
 
 	storeRuntimePartyState(leader, alignedcmd.PartyState{
 		PartyID:    1,
