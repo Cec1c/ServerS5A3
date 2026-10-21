@@ -36,7 +36,7 @@ func (s *Service) reconcileCurrentDailyDeleteWithRemoved(ctx context.Context, re
 			worn := make(map[string]int16)
 			if assets.Equipment != nil {
 				for key, entry := range assets.Equipment.Entries {
-					if actorSlot, valid := currentEXEActorEquipmentSlot(entry); valid && actorSlot >= 12 && actorSlot <= 25 {
+					if actorSlot, valid := currentEXEActorEquipmentSlot(entry); valid && actorSlot >= 12 && actorSlot <= 26 {
 						worn[key] = int16(actorSlot)
 					}
 				}

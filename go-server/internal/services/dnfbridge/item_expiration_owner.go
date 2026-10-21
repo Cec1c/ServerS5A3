@@ -71,6 +71,11 @@ func (s *Service) projectCurrentPVFItemExpirations(
 	if assets == nil {
 		return summary, itemexpiration.ErrProjectorRequired
 	}
+	var petErr error
+	summary, petErr = s.removeExpiredPetState(catalog, assets, now)
+	if petErr != nil {
+		return summary, petErr
+	}
 	var errs []error
 	normalizeStack := func(scope string, stack dnfrepo.ItemStack) (dnfrepo.ItemStack, bool, bool) {
 		definition, resolveErr := s.currentPVFDefinitionForItem(catalog, sceneInventoryUint32FromInt64(stack.ItemID))

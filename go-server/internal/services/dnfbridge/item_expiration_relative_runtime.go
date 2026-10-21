@@ -59,6 +59,9 @@ func (s *Service) nextCurrentRelativeItemExpiration(session *gameSession, now ti
 			}
 		}
 		def, e := s.currentPVFDefinitionForItem(catalog, sceneInventoryUint32FromInt64(stack.ItemID))
+		if e == nil && stack.Extra["hatched_from_item_id"] != "" {
+			def, e = s.currentPetExpirationDefinition(catalog, stack)
+		}
 		if e != nil {
 			return e
 		}
@@ -94,6 +97,7 @@ type currentItemExpiryProjection struct {
 	generation  uint64
 	slots       []currentDailyDeleteSlot
 	wornRedraw  bool
+	petRefresh  bool
 }
 
 func (s *Service) mergeCurrentExpiryProjection(session *gameSession, characterID uint16, generation uint64, removed []currentDailyDeleteSlot) {
@@ -121,6 +125,9 @@ func (s *Service) mergeCurrentExpiryProjection(session *gameSession, characterID
 		if slot.list == 3 {
 			p.wornRedraw = true
 		}
+		if slot.list == 7 || (slot.list == 3 && slot.slot == 26) {
+			p.petRefresh = true
+		}
 	}
 	sort.Slice(p.slots, func(i, j int) bool {
 		if p.slots[i].list != p.slots[j].list {
@@ -142,16 +149,33 @@ func (s *Service) sendCurrentExpiryProjection(session *gameSession) error {
 		return nil
 	}
 	var regular []alignedcmd.ItemSlotRefresh
+	var pets []alignedcmd.ItemSlotRefresh
 	var worn []int16
+	petWorn := false
 	for _, slot := range p.slots {
-		if slot.list == 3 {
+		if slot.list == 3 && slot.slot == 26 {
+			petWorn = true
+		} else if slot.list == 3 {
 			worn = append(worn, slot.slot)
+		} else if slot.list == 7 {
+			pets = append(pets, alignedcmd.ItemSlotRefresh{ListType: slot.list, SlotIndex: slot.slot})
 		} else {
 			regular = append(regular, alignedcmd.ItemSlotRefresh{ListType: slot.list, SlotIndex: slot.slot})
 		}
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "relative_expiration", regular); err != nil {
 		return err
+	}
+	if err := s.sendSelectedPetMoveSlotRefreshes(session, "relative_expiration", pets); err != nil {
+		return err
+	}
+	if petWorn {
+		if !currentTownSelfActorAppearanceReady(session) {
+			return fmt.Errorf("pet expiry worn actor not ready")
+		}
+		if err := s.sendCurrentExpiredPetWornSlot(session); err != nil {
+			return err
+		}
 	}
 	if len(worn) > 0 {
 		if !currentTownSelfActorAppearanceReady(session) {
@@ -170,6 +194,14 @@ func (s *Service) sendCurrentExpiryProjection(session *gameSession) error {
 			return err
 		}
 		if err := s.sendSelectedCurrentCombatPowerAffixes(session, "relative_expiration_after_commit"); err != nil {
+			return err
+		}
+	}
+	if p.petRefresh {
+		if ready, _ := s.currentSceneActorReadyForState(session); !ready {
+			return fmt.Errorf("pet expiry actor not ready")
+		}
+		if err := s.sendSelectedCreatureStateTableWithRefresh(session, "relative_expiration", true); err != nil {
 			return err
 		}
 	}
