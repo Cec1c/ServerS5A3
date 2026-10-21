@@ -16,12 +16,17 @@
 | --- | --- |
 | `GITGUD_CLIENT_RELEASE_PROJECT` | 获准发布 EXE 的上游 GitGud 数字项目 ID；为空时禁用。不要填写源码 fork ID。 |
 | `GITGUD_CLIENT_RELEASE_TOKEN` | 仅属于上述项目的 project access token，具有 API 与新标签/附件发布权限 |
+| `SOURCE_MIRROR_SSH_KEY` / `SOURCE_MIRROR_KNOWN_HOSTS` | 复用源码镜像已有的本 GitHub 仓库专用写入身份及固定主机密钥，仅用于经过历史工作流审计的新标签 |
 
 GitHub 使用短期 `GITHUB_TOKEN`。工作流在手动运行、发布 Release 和每小时两次定时检查时执行；调度可能延迟。任务串行执行，从可信的 `master` 读取同步实现，不执行 Release 附件或来源仓库代码。GitGud 的授权限于此次客户端 Release 流程；源码贡献仍走 PR/MR。
 
 本机可使用 `--local-auth` 从已登录的 `gh` / `glab` 获取凭据，仅在内存中使用；CI 使用环境变量 `GH_TOKEN` / `GITGUD_RELEASE_TOKEN`。不要把 token 写入参数、日志或仓库。
 
-新建 GitHub 标签须通过可信 Actions 的短期 `GITHUB_TOKEN`，避免旧标签内的历史工作流被个人凭据再次触发；本机仍可检查计划及处理已有标签。GitGud 标签推送使用 `ci.skip`，不触发服务端流水线。
+新建 GitHub 标签须在可信 Actions 中执行。历史提交的工作流与当前主干不同，可能使短期 `GITHUB_TOKEN` 创建标签返回403；正式工作流显式启用 `--github-tag-ssh`，复用已有镜像SSH身份创建标签，Release与附件仍用短期令牌。
+
+SSH写入前只读审计标签内的全部工作流：允许手动、定时、Release及明确限定分支的push触发；拒绝create、标签push、无过滤push、workflow_run及无法识别的配置。重复YAML键、合并键、符号链接与过大工作流同样拒绝。审计只解析YAML，不执行历史代码；依赖固定在 `scripts/ci/requirements-release-sync.txt`。推送只创建精确标签、保持注解标签对象，不写源码分支、不强推，之后读回提交。SSH临时文件在任务结束时删除。
+
+未启用该选项时仍使用原短期令牌路径；API拒绝不会自动切换其他凭据。本机仍可检查计划及处理已有标签。GitGud标签推送使用 `ci.skip`，不触发服务端流水线。
 
 ```text
 python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project UPSTREAM_RELEASE_PROJECT_ID --cache runtime/client-release-cache --receipt runtime/client-release-sync.json
@@ -55,5 +60,6 @@ python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project U
 运行同步回归：
 
 ```text
+python -m pip install -r scripts/ci/requirements-release-sync.txt
 python -m unittest discover -s scripts/ci -p "test_*.py" -v
 ```
