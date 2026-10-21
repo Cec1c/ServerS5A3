@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: master
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'master' }}
           persist-credentials: false
       - name: Install historical workflow audit dependency
         run: python3 -m pip install -r scripts/ci/requirements-release-sync.txt

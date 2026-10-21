@@ -20,6 +20,7 @@ import urllib.request
 import zipfile
 
 MAX_ASSET = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 32
 MARKER = "<!-- client-release-sync:v1 "
 TAG = re.compile(r"client-[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip\Z", re.I)
@@ -186,7 +187,7 @@ def inspect_zip(path, *, with_pvf=False):
                     raise SyncError("Duplicate or non-file ZIP member")
                 names.add(entry.filename.casefold())
                 total += entry.file_size
-                if total > MAX_ASSET or len(names) > 20:
+                if total > MAX_ASSET or len(names) > MAX_ARCHIVE_MEMBERS:
                     raise SyncError("Client ZIP exceeds extraction limit")
                 leaf = parts[-1].lower()
                 if leaf == "dnf.exe":

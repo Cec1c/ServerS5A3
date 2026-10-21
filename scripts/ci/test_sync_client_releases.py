@@ -44,6 +44,20 @@ class ClientReleaseTests(unittest.TestCase):
             with self.assertRaises(sync.SyncError):
                 sync.plan({'github':[self.item],'gitgud':[changed]},[self.gh,self.gl])
 
+    def test_cumulative_patch_evidence_keeps_bounded_member_count(self):
+        for count in (21, 32, 33):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as d:
+                p = Path(d) / 'client.zip'
+                with zipfile.ZipFile(p, 'w') as z:
+                    z.writestr('DNF.exe', b'MZtest')
+                    for i in range(count - 1):
+                        z.writestr(f'evidence/check-{i}.json', '{}')
+                if count <= 32:
+                    self.assertEqual(sync.inspect_zip(p)['length'], 6)
+                else:
+                    with self.assertRaisesRegex(sync.SyncError, 'extraction limit'):
+                        sync.inspect_zip(p)
+
     def test_zip_hashes_actual_executable(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'client.zip'
@@ -163,7 +177,7 @@ class ClientReleaseTests(unittest.TestCase):
                     if kind!='missing-exe':z.writestr('DNF.exe',b'bad' if kind=='invalid-exe' else b'MZtest')
                     if kind=='multiple-exe':z.writestr('client/DNF.exe',b'MZtest')
                     if kind=='count':
-                        for i in range(19):z.writestr(f'scripts/a{i}.py',b'pass')
+                        for i in range(sync.MAX_ARCHIVE_MEMBERS - 1):z.writestr(f'scripts/a{i}.py',b'pass')
                 with patch.object(sync,'MAX_ASSET',9 if kind=='size' else sync.MAX_ASSET):
                     with self.assertRaises(sync.SyncError):sync.inspect_zip(p)
 
