@@ -306,7 +306,11 @@ func TestR137ProbeReservationAtomicExhaustion(t *testing.T) {
 		t.Fatal("exhaustion stole probe")
 	}
 	r.CloseParty(530)
-	if !r.Sync(900, r137Bindings(2000, 2001)) {
+	if runtime.GOOS == "windows" {
+		waitRelayCondition(t, time.Second, "pool recovers after Windows UDP close", func() bool {
+			return r.Sync(900, r137Bindings(2000, 2001))
+		})
+	} else if !r.Sync(900, r137Bindings(2000, 2001)) {
 		t.Fatal("pool did not recover after party close")
 	}
 	r137AssertPool(t, r, 62)
