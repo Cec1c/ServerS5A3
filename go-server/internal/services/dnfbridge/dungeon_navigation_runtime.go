@@ -184,6 +184,30 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	fanoutParty bool,
 	routed *partyDungeonEntryRoutedRequest,
 ) error {
+	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, routed, false)
+}
+
+// The automatic FiendWar admission calls back into the normal selector after
+// replacing the combat party. That exact call bypasses only the admission
+// interception; every dungeon, raid, asset and scene gate still runs.
+func (s *Service) handleDungeonSelectUpperPlannedAdmitted(
+	session *gameSession,
+	body []byte,
+	prepared *runtimePartyPreparedDungeonEntry,
+	fanoutParty bool,
+	routed *partyDungeonEntryRoutedRequest,
+) error {
+	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, routed, true)
+}
+
+func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
+	session *gameSession,
+	body []byte,
+	prepared *runtimePartyPreparedDungeonEntry,
+	fanoutParty bool,
+	routed *partyDungeonEntryRoutedRequest,
+	admitted bool,
+) error {
 	// barrier 放行后的重入：这条队员记录在第一次调用里已经把 …→op28 全部发完
 	// （`op28Staged`），这里只补 op28 之后的尾段。见 party_dungeon_entry_barrier.go。
 	if prepared != nil && prepared.op28Staged {
@@ -254,6 +278,11 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	// 选图那次 op16 可能落在同角色的另一条连接上（辅助/替换 socket），
 	// 那条连接永远收不到 publish，只读缓存就会在队伍成立的情况下退化成单人。
 	// 见 party_manager_runtime.go 的 runtimePartyStateForSession。
+	if !admitted && prepared == nil && routed == nil {
+		if handled, err := s.interceptCurrentFiendWarNormalSelection(session, uint32(request.DungeonID)); handled {
+			return err
+		}
+	}
 	partyStateAtRequest := s.runtimePartyStateForSession(session)
 	partyMemberIndex, partyMemberIndexed := runtimePartyMemberIndex(session.selectedCharacterID, partyStateAtRequest)
 	s.logGameEvent(session, "game-dungeon-select-request-decoded",
@@ -1017,7 +1046,8 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			continue
 		}
 		// 频道隔离（彻底隔离口径）：整队进副本要求**同频道同区域**，跨频道队友一律不带。
-		if !inRunTransfer && (s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(leader.selectedCharacterID, member.UserID)) {
+		if !inRunTransfer && (s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(leader.selectedCharacterID, member.UserID)) &&
+			!s.currentFiendWarAdmissionAllowsPeer(leader, member.UserID, state.PartyID, int64(request.DungeonID)) {
 			return nil, fmt.Errorf("party member %d is not present in the leader town channel/area", member.UserID)
 		}
 		follower, ok := s.onlineGameSession(member.UserID)

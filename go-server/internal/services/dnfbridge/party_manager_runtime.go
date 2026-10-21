@@ -220,6 +220,9 @@ func (s *Service) logRuntimePartyMembershipMiss(
 }
 
 func (s *Service) createOrJoinManagedRuntimeParty(joiner, anchor *gameSession) (alignedcmd.PartyState, party.RuntimePartyResult, bool) {
+	if s.currentFiendWarAutomaticPartyOnly(joiner) || s.currentFiendWarAutomaticPartyOnly(anchor) {
+		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "fiendwar_automatic_encounter_party_only"}, false
+	}
 	joinerIdentity, joinerOK := s.boundGameSessionCharacterSnapshot(joiner)
 	anchorIdentity, anchorOK := s.boundGameSessionCharacterSnapshot(anchor)
 	if !joinerOK || !anchorOK || joinerIdentity.character == anchorIdentity.character {

@@ -20,14 +20,8 @@ func (s *Service) rejectCurrentFiendWarActivePartyRequest(p *gameSession, typ ui
 }
 
 func (s *Service) rejectCurrentFiendWarActivePartyRequestDecision(p *gameSession, typ uint16, request party.RequestPeerRequest) (bool, error, string) {
-	if s.options.currentClientVersion != "official-24.9" || !isCurrentFiendWarChannel(p) || (request.Mode != 0 && request.Mode != 12) || request.TargetID == 0 || request.TargetID == p.selectedCharacterID {
+	if !s.currentFiendWarAutomaticPartyOnly(p) || (request.Mode != 0 && request.Mode != 12) {
 		return false, nil, "fiendwar_request_scope_mismatch"
-	}
-	p.dungeon.mu.Lock()
-	active := p.dungeon.runtime != nil
-	p.dungeon.mu.Unlock()
-	if !active {
-		return false, nil, "sender_not_in_dungeon"
 	}
 	if target, online := s.onlineGameSession(request.TargetID); online {
 		if snapshot, valid := s.currentFiendWarReadyEncounterParty(p, target); valid {

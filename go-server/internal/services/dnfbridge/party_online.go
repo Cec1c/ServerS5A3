@@ -51,6 +51,9 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 			return true, nil
 		}
 	}
+	if handled, err := s.rejectCurrentFiendWarManualPartyCommand(session, typ); handled || err != nil {
+		return handled, err
+	}
 	switch dnfenum.CmdPacket(typ) {
 	case dnfenum.CmdPacketLeaveParty:
 		// Always consume a leave request.  The client can send it after a peer
@@ -88,7 +91,8 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 
 func isOnlinePartyCommand(typ uint16) bool {
 	switch dnfenum.CmdPacket(typ) {
-	case dnfenum.CmdPacketLeaveParty,
+	case dnfenum.CmdPacketSetPartyInfo,
+		dnfenum.CmdPacketLeaveParty,
 		dnfenum.CmdPacketWalkoutPartyMember,
 		dnfenum.CmdPacketChangeHost,
 		dnfenum.CmdPacketChangePartyMemberPosition,
@@ -848,6 +852,13 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 		"value", parsed.Value)
 	if !isForwardedPeerRequestMode(parsed.Mode) {
 		return nil
+	}
+	if s.currentFiendWarAutomaticPartyOnly(session) && (parsed.Mode == 0 || parsed.Mode == 12) {
+		target, _ := s.onlineGameSession(parsed.TargetID)
+		if handled, err := s.acknowledgeCurrentFiendWarPartyAccept(session, target, typ, parsed, false); handled || err != nil {
+			return err
+		}
+		return s.sendPartyCommandFailure(session, typ, partyCommandFailureGeneric)
 	}
 	acceptorIdentity, acceptorBound := s.boundGameSessionCharacterSnapshot(session)
 	targetIdentity, targetBound := s.onlineGameSessionCharacterSnapshot(parsed.TargetID)

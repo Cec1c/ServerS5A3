@@ -18,28 +18,29 @@ import (
 // The online raid owns these values. Notifications are projections of this
 // instance, never substitutes for an admission transaction or a cleared map.
 type runtimeRaidBattle struct {
-	FiendWar             *fiendwar.FiendWarBattle
-	FiendWarConfig       *fiendwar.FiendWarConfig
-	FiendWarEndedAt      time.Time
-	FiendWarMaps         map[string]map[int64]bool
-	FiendWarEncounters   map[int]currentFiendWarEncounter
-	FiendWarRetreatRuns  map[string]bool
-	FiendWarClearCounts  map[uint16]uint32
-	LukeMemberRoutes     map[uint16]currentLukeMemberRoute
-	LukeSanctumMazeGroup *currentLukeSanctumMazeGroup
-	InstanceID           string
-	Mode                 byte
-	ChannelID            int
-	ChannelType          byte
-	Single               bool
-	Phase                byte
-	StartedAt            time.Time
-	EnterAfter           time.Time
-	Deadline             time.Time
-	Configuration        raid.BattleConfiguration
-	Dungeons             []raid.DungeonState
-	SingleSequence       []uint32
-	SingleIndex          int
+	FiendWar               *fiendwar.FiendWarBattle
+	FiendWarConfig         *fiendwar.FiendWarConfig
+	FiendWarEndedAt        time.Time
+	FiendWarMaps           map[string]map[int64]bool
+	FiendWarEncounters     map[int]currentFiendWarEncounter
+	FiendWarRetreatRuns    map[string]bool
+	FiendWarClearCounts    map[uint16]uint32
+	FiendWarAdmissionClaim currentFiendWarAdmissionClaim
+	LukeMemberRoutes       map[uint16]currentLukeMemberRoute
+	LukeSanctumMazeGroup   *currentLukeSanctumMazeGroup
+	InstanceID             string
+	Mode                   byte
+	ChannelID              int
+	ChannelType            byte
+	Single                 bool
+	Phase                  byte
+	StartedAt              time.Time
+	EnterAfter             time.Time
+	Deadline               time.Time
+	Configuration          raid.BattleConfiguration
+	Dungeons               []raid.DungeonState
+	SingleSequence         []uint32
+	SingleIndex            int
 	// Frozen from the single catalog and symbol table before admission cost.
 	SingleHPSymbols map[uint32]uint32
 	// Shared literal/symbol/timer executor; Mode 2 must carry an actual Luke
@@ -91,6 +92,8 @@ func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {
 		e.Participants = append([]uint16(nil), e.Participants...)
 		v.FiendWarEncounters[area] = e
 	}
+	v.FiendWarAdmissionClaim.Participants = append([]uint16(nil), b.FiendWarAdmissionClaim.Participants...)
+	v.FiendWarAdmissionClaim.Members = append([]currentFiendWarAdmissionMember(nil), b.FiendWarAdmissionClaim.Members...)
 	v.FiendWarClearCounts = make(map[uint16]uint32, len(b.FiendWarClearCounts))
 	for id, n := range b.FiendWarClearCounts {
 		v.FiendWarClearCounts[id] = n

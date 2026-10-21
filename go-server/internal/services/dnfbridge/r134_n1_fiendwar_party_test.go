@@ -103,8 +103,18 @@ func r134N1Invite(t *testing.T, f *raidStartGuardFixture, peers []*gameSession) 
 	body := make([]byte, 13)
 	binary.LittleEndian.PutUint16(body, peers[1].selectedCharacterID)
 	r134N1Send(t, f.service, peers[0], dnfenum.CmdPacketRequestPeer, body)
-	if countUpperFramesByMsgID(peers[1].conn.(*partyDungeonSyncConn).frames(), 7) != 1 {
-		t.Fatal("invite not forwarded", f.logText(t))
+	if countUpperFramesByMsgID(peers[1].conn.(*partyDungeonSyncConn).frames(), 7) != 0 {
+		t.Fatal("FiendWar manual invite forwarded", f.logText(t))
+	}
+	packets := splitAllGameServerUpperPackets(t, peers[0].conn.(*partyDungeonSyncConn).frames())
+	found := false
+	for _, packet := range packets {
+		if packet.Header.MsgID == 10 && packet.Header.Classification == 1 && bytes.Equal(packet.Body, []byte{0, 3, 0}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("manual invitation lacks mode-bearing failure")
 	}
 }
 
@@ -114,20 +124,21 @@ func TestR134N1RealPVFWaitingPartyHandler(t *testing.T) {
 	r134N1Send(t, f.service, p[1], dnfenum.CmdPacketResponsePeer, buildResponsePeerBody(p[0].selectedCharacterID, 0, 0))
 	for i, peer := range p {
 		state := f.service.runtimePartyStateForSession(peer)
-		if len(runtimePartyMembers(state)) != 2 || state.UserID != p[0].selectedCharacterID {
-			t.Fatalf("party failed: %+v", state)
+		if state.PartyID != 0 {
+			t.Fatalf("manual request created party: %+v", state)
 		}
 		if f.state.Battle.MemberGroups[peer.selectedCharacterID] != byte(i+1) {
 			t.Fatal("frozen attack group changed")
 		}
 	}
-	t.Logf("channel=244 type=42 waiting=%d/%d: upper op10->op11 forms 2-member party; frozen single-member groups retained", f.state.Battle.FiendWar.Config.WaitingTown, f.state.Battle.FiendWar.Config.WaitingArea)
+	t.Logf("channel=244 type=42 waiting=%d/%d: manual formation rejected; personal raid seats retained", f.state.Battle.FiendWar.Config.WaitingTown, f.state.Battle.FiendWar.Config.WaitingArea)
 }
 
 func TestR134N1RealPVFLateAcceptAfterEncounter(t *testing.T) {
 	f, p := r134N1Fixture(t)
 	s, b := f.service, f.state.Battle
-	// An existing lobby fixes the invite's target identity before movement.
+	// Model a lobby left by an older server version. New manual invites fail,
+	// and encounter admission replaces this obsolete projection automatically.
 	old, ok := s.replaceManagedRuntimeParty(runtimeRaidGroupPartyState(*f.state, f.state.Members[:1]))
 	if !ok {
 		t.Fatal("initial lobby")
@@ -285,6 +296,9 @@ func TestR134N1RealPVFLateAcceptAfterEncounter(t *testing.T) {
 			r134N1Send(t, s, p[1], dnfenum.CmdPacketResponsePeer, buildResponsePeerBody(p[0].selectedCharacterID, mode, value))
 			for _, peer := range p {
 				for _, packet := range splitAllGameServerUpperPackets(t, peer.conn.(*partyDungeonSyncConn).frames()) {
+					if packet.Header.MsgID == 11 && packet.Header.Classification == 1 && bytes.Equal(packet.Body, []byte{0, partyCommandFailureGeneric}) {
+						continue
+					}
 					if packet.Header.MsgID == 11 || packet.Header.MsgID == 8 || packet.Header.MsgID == 9 || packet.Header.MsgID == 153 {
 						t.Fatalf("invalid owner produced party packet %d/%d", packet.Header.Classification, packet.Header.MsgID)
 					}

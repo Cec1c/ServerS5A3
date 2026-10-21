@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
-	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,8 +27,8 @@ func TestR158FiendWarTwoMemberVisibilitySequence(t *testing.T) {
 			r134N1Invite(t, f, peers)
 			r134N1Send(t, s, peers[1], dnfenum.CmdPacketResponsePeer, buildResponsePeerBody(peers[0].selectedCharacterID, 0, 0))
 			for _, p := range peers {
-				if len(runtimePartyMembers(s.runtimePartyStateForSession(p))) != 2 {
-					t.Fatal("legal party not committed")
+				if s.runtimePartyStateForSession(p).PartyID != 0 {
+					t.Fatal("manual FiendWar party was created before encounter")
 				}
 			}
 			b.FiendWar.Symbols[b.FiendWar.Config.Symbols["top boss state"]] = 1
@@ -39,7 +38,9 @@ func TestR158FiendWarTwoMemberVisibilitySequence(t *testing.T) {
 				r134N1Presence(t, f, p, area)
 			}
 			id := b.FiendWar.Config.Areas[area].Dungeon
-			r134N1Send(t, s, peers[0], dnfenum.CmdPacketSelectDungeon, encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: uint32(id)}))
+			if err := s.tryCurrentFiendWarEncounter(peers[0]); err != nil {
+				t.Fatal(err)
+			}
 			for _, p := range peers {
 				if p.dungeon.runtime == nil {
 					t.Fatal("entry missing", f.logText(t))

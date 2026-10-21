@@ -57,6 +57,9 @@ func (s *Service) prepareCurrentFiendWarMove(p *gameSession, q currentTownSetUse
 		return nil, fmt.Errorf("超时空移动的战场或角色归属已失效")
 	}
 	group := b.MemberGroups[p.selectedCharacterID]
+	if b.FiendWarAdmissionClaim.contains(p.selectedCharacterID) {
+		return nil, errCurrentFiendWarAdmissionBusy
+	}
 	from := b.FiendWar.MemberArea(p.selectedCharacterID, group)
 	preview := b.FiendWar.Clone()
 	if err := preview.MoveMember(p.selectedCharacterID, group, int(q.AreaID), time.Now()); err != nil {
@@ -75,6 +78,9 @@ func (s *Service) applyCurrentFiendWarMove(plan *currentFiendWarMovePlan) error 
 		return fmt.Errorf("超时空移动提交时战场已更换")
 	}
 	b := state.Battle
+	if b.FiendWarAdmissionClaim.contains(plan.character) {
+		return errCurrentFiendWarAdmissionBusy
+	}
 	group := b.MemberGroups[plan.character]
 	if b.FiendWar.MemberArea(plan.character, group) != plan.from {
 		return fmt.Errorf("超时空移动原区域已变化")
