@@ -55,7 +55,7 @@ func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, 
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 			defer cancel()
 			if current {
-				err = buffswap.ApplyCurrent(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), c)
+				err = buffswap.ApplyCurrentWithWornResolver(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), c, currentEXEActorEquipmentSlot)
 			} else {
 				err = buffswap.Apply(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), c)
 			}
@@ -119,7 +119,7 @@ func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error
 	characterID := strconv.Itoa(int(identity.character))
 	projection, err := buffswap.LoadResolvedOwned(ctx, repos, characterID, identity.accountID)
 	if err == nil {
-		state, omitted := projection.State, projection.Omitted
+		state, omitted := currentBuffOwnedWireState(projection), projection.Omitted
 		if !s.buffOwnedSendIdentityCurrent(identity) {
 			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "stale_owner_generation")
 			return nil

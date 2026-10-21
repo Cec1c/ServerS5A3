@@ -28,6 +28,7 @@ func r139PrepareSlot(t *testing.T, f *loginWearAnchorFixture, slot byte, item in
 	eq.Entries[strconv.Itoa(int(slot))] = repo.EquipmentEntry{SlotIndex: int16(slot), ItemID: item, RawEntry: loginWearAnchorRawEntry(int16(slot), item, 203004656, 48), Extra: map[string]string{
 		"item_kind": "equipment", "pvf_path": def.PVFPath, "equipment_type": def.EquipmentType,
 		"equipped_slot": strconv.Itoa(int(slot)), "equipment_slot": strconv.Itoa(int(slot)), "durability": "48", "max_durability": "48", "quality_seed": "203004656",
+		"current_exe_runtime_move": "1", "current_exe_equipment_type": strconv.Itoa(int(slot)),
 	}}
 	if err = f.group.Equipment.Save(ctx, eq); err != nil {
 		t.Fatal(err)

@@ -68,6 +68,10 @@ func p94Fixture(t *testing.T) *loginWearAnchorFixture {
 	e.Extra["pvf_path"] = def.PVFPath
 	e.Extra["equipment_type"] = def.EquipmentType
 	e.Extra["p94_instance_note"] = "registered-A"
+	// This fixture represents a current runtime pants row at actor slot16,
+	// not an untouched legacy slot16 (which projects as actor17).
+	e.Extra["current_exe_runtime_move"] = "1"
+	e.Extra["current_exe_equipment_type"] = "16"
 	eq.Entries["16"] = e
 	if err := f.group.Equipment.Save(ctx, eq); err != nil {
 		t.Fatal(err)

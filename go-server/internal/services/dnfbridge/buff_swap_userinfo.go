@@ -117,6 +117,11 @@ func (r *csharpLegacyUserInfoReader) nativeBuffSwapUserInfoRows() (buffswap.Stat
 				continue
 			}
 			equipmentType, known := r.currentMode1EquipmentType(equipped)
+			if state.WireProfile == buffswap.CurrentWireProfile {
+				// The same instance is serialized at its actor slot; the stored
+				// legacy PVF key must not make a valid registered row disappear.
+				b.Index = binary.LittleEndian.Uint16(entry.data[:2])
+			}
 			rawBlocks = currentMode1EquipmentReadsRawBlocks(equipped.Extra, equipmentType, known)
 		case item.HasCurrentStack:
 			entry = currentItemListEntryFromStack(b.List, int16(b.Index), item.CurrentStack)
