@@ -38,7 +38,7 @@ cd ServerS5A3
 | Linux 服务器 | IP、SSH 端口、用户名、密码或密钥，以及可用的管理权限 |
 | 使用范围 | 自己玩、局域网朋友一起玩，还是通过公网连接 |
 | Windows 客户端 | 客户端完整目录，包含 `DNF.exe`、`Script.pvf` 及对应的 dstr/NPK 等资源 |
-| 配套频道表 | 从当前 PVF 提取，或提供已选定的外部 `channel_info.etc` |
+| 配套频道表 | 按[外部频道表部署说明](CHANNEL_TABLE_DEPLOYMENT.md)选择完整ETC，与仓库118频道CSV核对；不默认从PVF提取 |
 | 已有数据 | 告诉它这是全新安装，还是要保留已有账号、角色和配置 |
 | 配套工具 | 要一个基础登录器，还是接入 PurpleMagic 的登录器、更新和 GM |
 | 域名 | 公网 HTTPS 网关使用的域名；有的话一并提供 |
@@ -66,7 +66,7 @@ cd ServerS5A3
 ```text
 请帮我部署这个 ServerS5A3 / DNF90 项目。
 
-先阅读 AGENTS.md、README.md、Docs/BUILD_AND_DEPLOY.md 和 changlog.md。
+先阅读 AGENTS.md、README.md、Docs/BUILD_AND_DEPLOY.md、Docs/CHANNEL_TABLE_DEPLOYMENT.md 和 changlog.md。
 
 我的环境：
 - 服务器：[IP 或 SSH 别名]
@@ -79,6 +79,7 @@ cd ServerS5A3
 - 登录器与 GM：[基础登录器 / PurpleMagic / 自己指定的工具]
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
+频道表显式选择已批准的完整外部ETC，与仓库118频道CSV逐项核对；不要默认提取PVF内置表替代它。
 按当前源码支持的方式构建，生成独立运行配置，准备数据库和资源。
 有旧数据时先备份并验证，再部署本次服务。
 
@@ -142,12 +143,12 @@ go build -buildvcs=false -mod=readonly -trimpath -o ../dist/DNF90Server ./cmd/se
 
 ```sh
 sh deploy/docker/manage.sh build
-sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --host-ip 192.168.1.50
+sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --channel-info "go-server/internal/services/dnfbridge/testdata/channel_info.etc" --host-ip 192.168.1.50
 ```
 
-`prepare` 会生成独立数据库密码和管理令牌，保存 PVF，提取频道表，并生成 Compose、环境文件和服务端配置。成功时会输出真实频道数量和 `instance.json` 路径。
+`prepare` 会生成独立数据库密码和管理令牌，保存PVF和明确选定的外部频道表，并生成Compose、环境文件和服务端配置。本方案应输出118条频道，清单摘要及部署后验收见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)。
 
-如果采用已经确认配套的外部频道表，在启动前明确指定：
+若用户指定其他已经确认配套的外部表，在启动前记录与参考目录的差异并明确指定：
 
 ```sh
 sh deploy/docker/manage.sh prepare --channel-info "/srv/dnf-assets/channel_info.etc"
