@@ -129,6 +129,7 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 	if err == nil {
 		calls.fatigueOK = true
 		calls.stage = fatiguePotionFatigueCallReturnedOK
+		err = s.sendCurrentFatiguePotionUsage(ctx, session, result.Character, inventory, "fatigue_potion_after_use")
 	}
 	return true, err
 }

@@ -1,14 +1,17 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"log/slog"
 	"longheng.io/server/internal/modules/dnf/fatigue"
 	"longheng.io/server/internal/modules/dnf/premium"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	memory "longheng.io/server/internal/modules/dnf/repository/memory"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,7 +65,17 @@ func TestOnlineFatigueAndPotionAllowanceRefreshPreciselyAtSixAM(t *testing.T) {
 	repos.Account.Save(ctx, account)
 	c := repo.CharacterRecord{CharacterID: "99", AccountID: account.AccountID, Stats: map[string]int64{"fatigue": 0, "fatigue_limit": 188, fatigue.DayKey: premium.ServiceDayID(queue.Now()), "fatigue_potion_used_123": 1, "fatigue_potion_day_123": premium.ServiceDayID(queue.Now())}}
 	repos.Character.Save(ctx, c)
-	s := &Service{options: options{accountID: account.AccountID, gameUpperBodyCodec: gameUpperBodyCodecPlain}, gameplayTimers: queue, repositoryProvider: func() (repo.Group, bool) { return repos, true }}
+	catalog, err := newPVFDungeonDropCatalog(dungeonDropCatalogTestSource{
+		"monster/monster.lst":     "",
+		"equipment/equipment.lst": "",
+		"stackable/stackable.lst": "123 `test/123.stk`\n",
+		"stackable/test/123.stk":  "[action type]\n`[add fatigue]` 50\n[/action type]\n[total usable count]\n3\n[cool time]\n1000\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	s := &Service{logger: slog.New(slog.NewTextHandler(&logs, nil)), options: options{accountID: account.AccountID, gameUpperBodyCodec: gameUpperBodyCodecPlain}, pvfItemCatalog: catalog, gameplayTimers: queue, repositoryProvider: func() (repo.Group, bool) { return repos, true }}
 	conn := &bufferConn{}
 	session := &gameSession{connID: "six-AM-test", conn: conn, selectedCharacterID: 99, characterGeneration: 2}
 	s.armCurrentFatigueDailyRefresh(session)
@@ -72,13 +85,23 @@ func TestOnlineFatigueAndPotionAllowanceRefreshPreciselyAtSixAM(t *testing.T) {
 	}
 	queue.now = queue.now.Add(time.Second)
 	task.callback(queue.Now())
+	if strings.Contains(logs.String(), "game-character-fatigue-daily-refresh-deferred") {
+		t.Fatalf("refresh callback deferred: %s", logs.String())
+	}
 	loaded, _, _ := repos.Character.Load(ctx, "99")
 	if loaded.Stats["fatigue"] != 188 || loaded.Stats["fatigue_potion_used_123"] != 0 {
 		t.Fatalf("online refresh=%v", loaded.Stats)
 	}
+	if conn.write.Len() == 0 {
+		t.Fatalf("refresh produced no packet; logs=%s", logs.String())
+	}
 	packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
-	if len(rest) != 0 || packet.Header.MsgID != currentFatigueMsgID || binary.LittleEndian.Uint16(packet.Body[2:]) != 188 || binary.LittleEndian.Uint16(packet.Body) != 0 {
+	if packet.Header.MsgID != currentFatigueMsgID || binary.LittleEndian.Uint16(packet.Body[2:]) != 188 || binary.LittleEndian.Uint16(packet.Body) != 0 {
 		t.Fatalf("online fatigue UI=%x", packet.Body)
+	}
+	usage, rest := splitGameServerUpperPacket(t, rest)
+	if len(rest) != 0 || usage.Header.MsgID != currentFatiguePotionUsageMsgID || usage.Header.Classification != 0 || string(usage.Body) != string([]byte{1, 123, 0, 0, 0, 0, 0}) {
+		t.Fatalf("online potion usage UI header=%+v body=%x rest=%d", usage.Header, usage.Body, len(rest))
 	}
 	if queue.task(t, 1).delay != 24*time.Hour {
 		t.Fatal("next six-AM refresh not scheduled")
