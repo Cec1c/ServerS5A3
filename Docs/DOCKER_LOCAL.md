@@ -5,6 +5,18 @@ database. Windows runs only the game client and local launcher. It requires
 Docker Compose v2, Python 3.10+ (with Tk for the launcher), approximately 4 GiB
 for the server, and matching client/PVF/channel assets supplied separately.
 
+> [!IMPORTANT]
+> Select the complete external channel table on the first `prepare` call with `--channel-info`. Use the [118-channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md) to verify the actual loaded table; preserve it when updating the PVF.
+
+## Activity settings before startup
+
+> [!WARNING]
+> As of 2026-10-22, the horse-racing activity can cause client crashes. Keep **2365 (joust / horse-racing betting)** disabled until a fix and a separate reopening notice. The current source and Docker template still default to enabled.
+
+After `prepare`, set `joust_event_enabled` to `false` in `runtime/docker/instance.json` before the first `up`. For existing databases, also save activity 2365 as disabled through the game management interface: persisted activity settings override the environment. Restart the game service, then verify `enabled=false`, `effectiveEnabled=false`, `pendingRestart=false`, and startup logs `joust_event_enabled=false` / `joust_event_catalog_includes_2365=false`.
+
+The [activity table and closing procedure](BUILD_AND_DEPLOY.md#当前活动开关与赛马关闭方法) list all eight managed activities, their source defaults, and the distinction between saved and active settings.
+
 ## Prepare and start
 
 From the repository root on Windows:
@@ -12,6 +24,11 @@ From the repository root on Windows:
 ```bat
 DOCKER.bat build
 DOCKER.bat prepare --pvf "D:\your-client\client\Script.pvf" --channel-info "go-server\internal\services\dnfbridge\testdata\channel_info.etc" --client-dir "D:\your-client\client" --host-ip 192.168.1.50
+```
+
+Set `joust_event_enabled` to `false` in the generated `runtime/docker/instance.json`, then start:
+
+```bat
 DOCKER.bat up
 LOCAL_CLIENT.bat
 ```
