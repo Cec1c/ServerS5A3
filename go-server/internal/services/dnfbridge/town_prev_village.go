@@ -27,7 +27,13 @@ func townMapPathLooksLikeSeria(mapPath string) bool {
 	normalizedPath := strings.ToLower(strings.ReplaceAll(mapPath, "\\", "/"))
 	// These current-PVF raid maps import Common/(R)Gate_Seria.map. Their
 	// filenames omit "seria", but they still require per-character privacy.
-	for _, room := range []string{"town/battleship/gate_battleship.map", "town/jelva_raid/gate_jelva.map"} {
+	for _, room := range []string{
+		"town/battleship/gate_battleship.map",
+		"town/jelva_raid/gate_jelva.map",
+		// Town98/0 resolves to this logical path. Both (R)/(F) resources
+		// import Common/(R)/(F)Gate_Seria.map in the current PVF.
+		"gcontents/180621_fiendwar/town/gate_fiend.map",
+	} {
 		if normalizedPath == room || normalizedPath == "map/"+room {
 			return true
 		}

@@ -153,10 +153,20 @@ func parseCurrentCrystalContractCubes(document *dnfpvf.Document, catalog *curren
 }
 
 // alignedPremiumContractResolverForCommand keeps PVF loading request-driven.
-// Only use-stackable can carry a premiumlist_new.etc contract item; the
+// Use-stackable and mailbox claims can carry premiumlist_new.etc contract items; the
 // resolver maps item id to (premium type, duration) from the runtime-PVF
 // [item]/[term] entries and reports zero for non-contract items.
 func (s *Service) alignedPremiumContractResolverForCommand(opcode dnfenum.CmdPacket) (alignedcmd.PremiumContractResolver, error) {
+	if opcode == dnfenum.CmdPacketMailboxExtractItem {
+		contracts := s.currentPremiumRewardContracts()
+		if len(contracts) == 0 {
+			return nil, nil
+		}
+		return func(itemID int64) (alignedcmd.PremiumContractResolution, error) {
+			contract := contracts[itemID]
+			return alignedcmd.PremiumContractResolution{ItemID: contract.ItemID, PremiumType: contract.PremiumType, DurationSeconds: contract.DurationSeconds}, nil
+		}, nil
+	}
 	if opcode != dnfenum.CmdPacketUseStackable {
 		return nil, nil
 	}

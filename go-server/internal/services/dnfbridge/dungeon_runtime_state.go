@@ -36,6 +36,9 @@ var (
 )
 
 type runtimeDungeonState struct {
+	ridableReportLastSequence    uint64
+	ridableReportChannelID       int
+	ridableReportChannelType     byte
 	huntMonsterReceipts          map[currentHuntMonsterReceiptKey]*currentRoomClearQuestReceipt
 	roomClearQuestReceipts       map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
 	questDropReceipts            map[currentDungeonQuestDropEventKey]currentDungeonQuestDropReceipt
@@ -157,6 +160,7 @@ type runtimeDungeonState struct {
 	settlementCardAutoFlipGeneration     uint64
 	settlementCardAutoFlipTimerName      string
 	settlementCardExitAckSent            bool
+	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
 	settlementMonsterExperienceTotal     uint32
 	settlementMonsterGrowthContractBonus uint32
@@ -963,6 +967,8 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
+	runtime.ridableReportChannelID = session.channel.ID
+	runtime.ridableReportChannelType = session.channel.Type
 	session.dungeon.runtime = runtime
 	// 阶段二：同一队伍的成员进图时解析到同一个实例键（队伍+副本+迷宫+房间+地图+种子）
 	// 就接入同一个共享实例；单人/无队伍/房间对不上时返回 nil，per-session 路径不变。

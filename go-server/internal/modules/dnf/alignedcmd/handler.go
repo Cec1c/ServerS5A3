@@ -809,13 +809,19 @@ type PartyMemberState struct {
 
 // Result 表示模块化分流后的处理结果。
 // ResponseAllowed=false 表示证据不足或被阻断，bridge 不能伪造成功 ACK。
+// EquipmentMoveFact is emitted only after an op19 owner succeeds.
+type EquipmentMoveFact struct {
+	Changed       bool
+	WornClaimNoop bool
+}
 type Result struct {
-	Decision        Decision
-	Handled         bool
-	ResponseAllowed bool
-	Operation       string
-	Reason          string
-	UpperResponses  []UpperResponse
+	EquipmentMoveFact *EquipmentMoveFact
+	Decision          Decision
+	Handled           bool
+	ResponseAllowed   bool
+	Operation         string
+	Reason            string
+	UpperResponses    []UpperResponse
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16

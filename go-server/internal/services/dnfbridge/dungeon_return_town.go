@@ -48,6 +48,13 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		return nil
 	}
 	selectedCharacterID := session.selectedCharacterID
+	session.dungeon.mu.Lock()
+	completedOrdinary := currentOrdinaryCompletedTownExitOwner(session, session.dungeon.runtime)
+	session.dungeon.mu.Unlock()
+	if completedOrdinary {
+		// 通关结算界面与42共用奖励屏障及完整城镇重建。
+		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
+	}
 
 	if _, err := s.persistCurrentActiveTutorialExit(
 		session,
@@ -506,6 +513,14 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	}
 	firstAttempt := !runtime.townReturnPending
 	if firstAttempt {
+		// A deferred ordinary-card request already owns the return intent.
+		// Keep that owner even if a later op72 town click finishes a failed
+		// free-reward transaction; otherwise the original op42 loses its ACK.
+		if currentOrdinaryCompletedTownExitOwner(session, runtime) &&
+			(runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) ||
+				runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketBack2Village)) {
+			requestMsgID = runtime.settlementTownReturnRequestMsgID
+		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_started")
 		runtime.townReturnPending = true
 		runtime.townReturnRequestMsgID = requestMsgID
@@ -522,7 +537,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		session.townMu.Unlock()
 		clearCurrentDungeonSelectContext(session)
 		clearCurrentTownSelectorOrigin(session)
-		s.armCurrentInitialTownRoute(session, session.selectedCharacterID)
+		s.armCurrentTownActorRoute(session, session.selectedCharacterID, true)
 		session.sceneBootstrapTailDeferred = true
 	}
 
@@ -951,6 +966,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.townMu.Lock()
 	resetCurrentTownPostTransitionPlayerState(session)
 	session.initialTownRouteCharacterID = 0
+	session.initialTownRouteCompletedReturn = false
 	session.initialTownRouteStage = currentInitialTownRouteIdle
 	session.initialTownLocationNotificationsSent = false
 	session.initialTownQuestSnapshotsSent = false

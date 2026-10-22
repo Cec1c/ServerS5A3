@@ -487,6 +487,21 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 	var eventInfoTransport []byte
 	dayDungeonEvent := s.currentDayDungeonEvent()
 	includeFirstProcessDescriptor = includeFirstProcessDescriptor || dayDungeonEvent != session.activityCatalogDayEvent
+	joustEventEnabled := s.joustEventEnabled()
+	includeJoust := s.currentSpendTimeCatalogIncludesJoustEvent()
+	joustCatalogAvailable := false
+	if joustEventEnabled || (includeFirstProcessDescriptor && includeJoust) {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		_, joustCatalogAvailable = s.currentJoustCatalogForPublishing(
+			ctx,
+			session,
+			"op108_catalog_op1240_op1243",
+		)
+		cancel()
+	}
+	if includeJoust && !joustCatalogAvailable {
+		includeJoust = false
+	}
 	if includeFirstProcessDescriptor {
 		// 2365 的两行跟随 DNFBRIDGE_JOUST_EVENT_ENABLED（可被
 		// DNFBRIDGE_JOUST_EVENT_CATALOG 覆盖）。此前它们是无条件的，客户端因此
@@ -499,7 +514,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
-			s.currentSpendTimeCatalogIncludesJoustEvent(),
+			includeJoust,
 			s.currentSpendTimeCatalogIncludesTownNpcEvent(),
 			true,
 			s.currentAntonModeSelectionAvailable(session),
@@ -558,11 +573,13 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 	// support pool. Repeat the opening snapshot for
 	// later character selections in the same client process so a failed or
 	// reconnected session can recover even though op108 is process-lifetime only.
-	if err := s.sendCurrentJoustOpeningState(session); err != nil {
-		return descriptorSent, err
-	}
-	if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
-		return descriptorSent, err
+	if joustCatalogAvailable {
+		if err := s.sendCurrentJoustOpeningState(session); err != nil {
+			return descriptorSent, err
+		}
+		if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
+			return descriptorSent, err
+		}
 	}
 	if err := s.armCurrentDayDungeonCatalogRefresh(session); err != nil {
 		return descriptorSent, err
