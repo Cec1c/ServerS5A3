@@ -69,6 +69,9 @@ func (s *Service) reduceCurrentRaidDungeonClearLocked(session *gameSession, runt
 	if !seen[session.selectedCharacterID] {
 		return runtimeRaidState{}, false, fmt.Errorf("raid clear reporter was not in this dungeon")
 	}
+	if b.FiendWar != nil {
+		return s.reduceCurrentFiendWarClearLocked(state, session, runtime, now)
+	}
 	if b.Single {
 		if e.Attempt != 1 || len(e.Participants) != 1 || b.SingleIndex < 0 || b.SingleIndex >= len(b.SingleSequence) || b.SingleSequence[b.SingleIndex] != dungeonID {
 			return runtimeRaidState{}, false, fmt.Errorf("single raid clear sequence mismatch")

@@ -236,7 +236,7 @@ func (s *Service) freezeCurrentAntonPartyCard(session *gameSession, captured run
 			return currentAntonRewardCard{}, raid.RewardCommand{}, raid.ErrRewardIneligible
 		}
 	}
-	if member.GroupIndex < 1 || member.GroupIndex > runtimeRaidMaxGroups {
+	if member.GroupIndex < 1 || member.GroupIndex > currentRaidGroupMaximum(*live) {
 		return currentAntonRewardCard{}, raid.RewardCommand{}, raid.ErrRewardIneligible
 	}
 	clears := currentAntonPhaseClearCount(b, member.CharID)

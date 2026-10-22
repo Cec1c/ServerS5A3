@@ -28,7 +28,7 @@ func prepareCurrentRaidFinalWeeklyCommand(state runtimeRaidState) (raid.WeeklyCl
 	if !state.Started || b == nil || !b.PhaseCompleted || b.TimedOut || b.PhaseCompletedAt.IsZero() ||
 		b.PhaseCompletedAt.Before(b.EnterAfter) || !b.PhaseCompletedAt.Before(b.Deadline) ||
 		b.Configuration.WeeklyClearLimit < 1 || b.Configuration.WeeklyClearLimit > 255 ||
-		b.Mode < 1 || b.Mode > 2 || len(b.ClearedRuns) == 0 || len(b.ClearedRuns) > 4096 {
+		b.Mode < 1 || b.Mode > 3 || len(b.ClearedRuns) == 0 || len(b.ClearedRuns) > 4096 {
 		return raid.WeeklyClearCommand{}, fmt.Errorf("raid weekly caller has no authoritative final clear")
 	}
 	instance, err := hex.DecodeString(b.InstanceID)
@@ -36,7 +36,15 @@ func prepareCurrentRaidFinalWeeklyCommand(state runtimeRaidState) (raid.WeeklyCl
 		return raid.WeeklyClearCommand{}, raid.ErrWeeklyClearState
 	}
 	minimum := uint32(1)
-	if b.Single {
+	if b.Mode == 3 {
+		if b.Single || b.Phase != 0 || b.FiendWar == nil || !b.FiendWar.Complete || b.FiendWarConfig == nil || b.Configuration.WeeklyClearLimit != int(b.FiendWarConfig.WeeklyClearLimit) || b.AntonRewards == nil || len(b.AntonRewards.Phases) != 1 {
+			return raid.WeeklyClearCommand{}, fmt.Errorf("超时空周通关尚无完整终局依据")
+		}
+		minimum = b.AntonRewards.Phases[0].MinimumClears
+		if minimum == 0 {
+			return raid.WeeklyClearCommand{}, raid.ErrWeeklyClearState
+		}
+	} else if b.Single {
 		if b.Phase != 0 || len(b.SingleSequence) == 0 || b.SingleIndex != len(b.SingleSequence) || len(b.MemberAccounts) != 1 {
 			return raid.WeeklyClearCommand{}, fmt.Errorf("single raid weekly sequence incomplete")
 		}
