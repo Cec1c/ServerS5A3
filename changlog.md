@@ -1,3 +1,9 @@
+## 2026-10-23 — 团本奖励readiness v4独立客户端源码候选
+
+- 基于公开master `49d50d3c8f09c30c19a1da573652c71030069900`，在`scripts/client/raid-team-ready-v4/`集中七个Python支持文件及README；移除机器路径和相邻私有工具目录的导入依赖，使用正常安装的Capstone/Unicorn或环境PYTHONPATH。没有服务端、PVF、配置或客户端二进制变更入库。
+- 固定输入SHA256 `9327087d147576314dd95c6c0b0a638b1525bca48734658fe4f9b97dc33f82ea`，目标输出 `0762198fdc0c56a35305325c52ef876a05cc75c8fa849bb6a816deebba352bff`。共享native mode0/1/2资格与完整kind3门控，保留Luke原生无团队skip，并在587 state0/state2与manager退出清理旧资格。
+- 独立公开目录离线复建输出摘要一致，95项有界检查通过；README区分外部5组合证据、计时/容器/UI夹具与真实函数执行，团队初始化入口计数不冒充完整渲染。源码候选未发布、部署或GUI验收，不调整服务端奖励期限或资产事务。
+
 ## 2026-10-23 — R195 已验收 BUFF 独立公开合并候选
 
 - 从公开`c76814b`独立整理BUFF范围，没有整体合并私有累计`232a7a1`；Aiken、公会、raid、Luke、GM和超时空纯白落点均不进入本候选。
