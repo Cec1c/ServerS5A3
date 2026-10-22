@@ -72,6 +72,9 @@ type dungeonDropItemDefinition struct {
 	ExpirationDate           time.Time
 	GiftBoxExpirationHistory []uint32
 	UsablePeriodDays         int64
+	// Presence is retained conservatively: its native post-expiry semantics
+	// must be resolved before a generic relative-period owner may delete it.
+	UsableExpiredItem bool
 	// ExpirationFromUsablePeriod distinguishes a resolved per-instance deadline
 	// from an absolute date declared in PVF. It is set only by grant resolution.
 	ExpirationFromUsablePeriod bool
@@ -310,6 +313,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s expiration date: %w", itemID, docPath, err)
 	}
 	definition.ExpirationDate = expirationDate
+	_, definition.UsableExpiredItem = document.Section("usable expired item")
 	if reference.kind == dungeonDropItemStackable {
 		flag, found := document.Int("daily delete item")
 		definition.DailyDeleteItem = found && flag == 1
