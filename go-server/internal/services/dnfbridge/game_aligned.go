@@ -1059,6 +1059,25 @@ func alignedPostActionTouchesCombatPower(action alignedcmd.PostAction) bool {
 func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.Result, action alignedcmd.PostAction) error {
 	operation := result.Operation
 	switch action {
+	case alignedcmd.PostActionRefreshGuildMedalContainer:
+		s.logPacketEvent("game-aligned-command-post-action-send",
+			"conn_id", session.connID,
+			"operation", operation,
+			"post_action", action,
+			"char_id", session.selectedCharacterID,
+			"msg_id", uint16(dnfenum.CmdPacketLeaveParty),
+			"classification", 0,
+			"list_types", []byte{currentGuildMedalInventoryListType},
+			"sequence", "durable_list38_move_then_ack_then_list38_only_snapshot")
+		if err := s.sendCurrentContainerListTypesWithRefresh(
+			session,
+			"aligned_"+operation+"_after_ack",
+			true,
+			[]byte{currentGuildMedalInventoryListType},
+		); err != nil {
+			return fmt.Errorf("%w: refresh guild medal container: %v", errAlignedPostCommitProjectionDeferred, err)
+		}
+		return nil
 	case alignedcmd.PostActionRefreshSelectedItemContainers:
 		// delta 档（DNFBRIDGE_ITEM_GRANT_NOTICE 的默认档）：本次开盒真正写过的
 		// (list, slot) 已经在 `sendAlignedUpperResponses` 里发成 class0/msg14 逐槽增量

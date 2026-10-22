@@ -20,12 +20,11 @@ func guildCompoundGameplayModule() gameplayModuleDefinition {
 		uint16(dnfenum.CmdPacketCompoundGem):  guildcompound.CompoundGem,
 		uint16(dnfenum.CmdPacketCompoundFlag): guildcompound.CompoundFlag,
 	} {
-		module.LegacyHandlers[opcode] = func(s *Service, g *gameSession, r gameplayRequest) error {
-			return s.handleCurrentGuildCompound(g, opcode, kind, r.Body)
-		}
-		module.UpperHandlers[opcode] = defaultClassGameplayHandler("guild-compound-class-rejected", "class mismatch", func(s *Service, g *gameSession, body []byte) error {
+		handler := defaultClassGameplayHandler("guild-compound-class-rejected", "class mismatch", func(s *Service, g *gameSession, body []byte) error {
 			return s.handleCurrentGuildCompound(g, opcode, kind, body)
 		})
+		module.LegacyHandlers[opcode] = handler
+		module.UpperHandlers[opcode] = handler
 		module.LegacyNormalizers[opcode] = func(body []byte) []byte { return stripLegacyTransportTrailer(body, guildcompound.RequestBodyLen) }
 	}
 	return module
@@ -41,7 +40,17 @@ func (s *Service) handleCurrentGuildCompound(g *gameSession, opcode uint16, kind
 			code = 95
 		}
 		s.logGameEvent(g, "guild-compound-rejected", "kind", kind.String(), "error", err)
-		return s.sendGameUpperRawClass(g, opcode, []byte{0, code}, 1)
+		if sendErr := s.sendGameUpperRawClass(g, opcode, []byte{0, code}, 1); sendErr != nil {
+			return sendErr
+		}
+		// A client can remove the selected rows optimistically before the
+		// result arrives. A rejected or rolled-back request therefore also
+		// needs the authoritative list38 snapshot, otherwise the untouched
+		// materials remain hidden until the player reopens the window.
+		if refreshErr := s.sendCurrentGuardianGemList38Refresh(g, "guild_compound_rejected"); refreshErr != nil {
+			s.logGameEvent(g, "guild-compound-rejected-refresh-failed", "kind", kind.String(), "error", refreshErr)
+		}
+		return nil
 	}
 	request, err := guildcompound.DecodeRequest(body)
 	if err != nil {
@@ -88,8 +97,9 @@ func (s *Service) handleCurrentGuildCompound(g *gameSession, opcode uint16, kind
 	if !result.Success {
 		ack = []byte{0, 1}
 	}
-	// Both native result callbacks consume status/error only. Clear the pending
-	// selection before rebuilding list38, including a committed failed roll.
+	// Both native result callbacks consume status/error only. A legal request now
+	// always commits one output; rebuild list38 so the consumed rows and the new
+	// instance are both visible to the current client.
 	if err := s.sendGameUpperRawClass(g, opcode, ack, 1); err != nil {
 		return err
 	}

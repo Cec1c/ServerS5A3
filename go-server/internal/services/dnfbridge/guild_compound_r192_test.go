@@ -37,73 +37,52 @@ func TestRealPVFGuildR192CatalogAndTransactions(t *testing.T) {
 			if err != nil || len(pool) == 0 {
 				t.Fatalf("%s grade%d pool %v: %v", kind, grade, pool, err)
 			}
-			for _, success := range []bool{true, false} {
-				group := memory.NewMemoryGroup()
-				ctx := context.Background()
-				if err := group.Character.Save(ctx, repo.CharacterRecord{CharacterID: "19", AccountID: "account-1"}); err != nil {
-					t.Fatal(err)
-				}
-				inv := repo.InventoryRecord{CharacterID: "19", Slots: map[string]repo.ItemStack{}}
-				request := guildcompound.Request{Count: 4, Grade: grade}
-				for i := range request.MaterialRefs {
-					slot, err := currentGuildCompoundGrant(catalog, &inv, pool[0])
-					if err != nil {
-						t.Fatal(err)
-					}
-					request.MaterialRefs[i] = uint32(slot)
-				}
-				if err := group.Inventory.Save(ctx, inv); err != nil {
-					t.Fatal(err)
-				}
-				localRules := rules
-				localRules.Roll = func(upper uint32) uint32 {
-					if success {
-						return 0
-					}
-					return upper - 1
-				}
-				// Four grade-0 medals have a 100% rate. Use two to exercise failure.
-				if !success && recipe.SuccessRateFor(4) == 10000 {
-					request.Count = 2
-					request.MaterialRefs[2] = 0xffffffff
-					request.MaterialRefs[3] = 0xffffffff
-				}
-				owner, err := guildcompound.NewOwner(group)
+			group := memory.NewMemoryGroup()
+			ctx := context.Background()
+			if err := group.Character.Save(ctx, repo.CharacterRecord{CharacterID: "19", AccountID: "account-1"}); err != nil {
+				t.Fatal(err)
+			}
+			inv := repo.InventoryRecord{CharacterID: "19", Slots: map[string]repo.ItemStack{}}
+			request := guildcompound.Request{Count: 4, Grade: grade}
+			for i := range request.MaterialRefs {
+				slot, err := currentGuildCompoundGrant(catalog, &inv, pool[0])
 				if err != nil {
 					t.Fatal(err)
 				}
-				result, err := owner.Apply(ctx, guildcompound.Command{AccountID: "account-1", CharacterID: "19", Kind: kind, Request: request, Rules: localRules, Now: now})
-				if err != nil {
-					t.Fatalf("%s grade%d success%v: %v", kind, grade, success, err)
-				}
-				if result.Success != success {
-					t.Fatalf("%s grade%d: %+v", kind, grade, result)
-				}
-				saved, _, err := group.Inventory.Load(ctx, "19")
-				if err != nil {
-					t.Fatal(err)
-				}
-				var remaining int64
-				for _, stack := range saved.Slots {
-					remaining += stack.Count
-				}
-				want := int64(4 - request.Count)
-				if success {
-					want++
-				}
-				if remaining != want {
-					t.Fatalf("%s grade%d count=%d want%d", kind, grade, remaining, want)
-				}
-				if success {
-					next, _ := rules.Catalog.Ladder(kind).NextRarity(grade)
-					definition, err := rules.Resolve(result.ResultItem)
-					if err != nil || definition.Rarity != next {
-						t.Fatalf("result=%+v definition=%+v err=%v", result, definition, err)
-					}
-					if kind == guildcompound.CompoundGem && result.ResultItem != pool[0]+1 {
-						t.Fatalf("same-id gem did not upgrade same attribute: %+v", result)
-					}
-				}
+				request.MaterialRefs[i] = uint32(slot)
+			}
+			if err := group.Inventory.Save(ctx, inv); err != nil {
+				t.Fatal(err)
+			}
+			owner, err := guildcompound.NewOwner(group)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := owner.Apply(ctx, guildcompound.Command{AccountID: "account-1", CharacterID: "19", Kind: kind, Request: request, Rules: rules, Now: now})
+			if err != nil {
+				t.Fatalf("%s grade%d: %v", kind, grade, err)
+			}
+			if !result.Success || result.ResultItem == 0 {
+				t.Fatalf("%s grade%d did not produce: %+v", kind, grade, result)
+			}
+			saved, _, err := group.Inventory.Load(ctx, "19")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var remaining int64
+			for _, stack := range saved.Slots {
+				remaining += stack.Count
+			}
+			if remaining != 1 {
+				t.Fatalf("%s grade%d count=%d want 1", kind, grade, remaining)
+			}
+			next, _ := rules.Catalog.Ladder(kind).NextRarity(grade)
+			definition, err := rules.Resolve(result.ResultItem)
+			if err != nil || definition.Rarity != next {
+				t.Fatalf("result=%+v definition=%+v err=%v", result, definition, err)
+			}
+			if kind == guildcompound.CompoundGem && result.ResultItem != pool[0]+1 {
+				t.Fatalf("same-id gem did not upgrade same attribute: %+v", result)
 			}
 		}
 	}
@@ -163,8 +142,7 @@ func guildR192Body(count, slot uint32) []byte {
 func TestGuildR192DispatchCommitsAndRefreshesList38(t *testing.T) {
 	for _, transport := range []string{"upper", "legacy", "stream", "trailer"} {
 		t.Run(transport, func(t *testing.T) {
-			// This synthetic catalog makes the success branch deterministic. Production
-			// odds come from the unchanged PVF table and are tested separately.
+			// Four identical gems must produce the same-attribute next tier.
 			s, g, repositories := guildR192Fixture(t, "2500")
 			body := guildR192Body(4, 49)
 			var err error
@@ -213,6 +191,10 @@ func TestGuildR192DispatchCommitsAndRefreshesList38(t *testing.T) {
 			// 13-byte splitter retains its three reserved bytes in Body.
 			if ack.Header.MsgID != 835 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, []byte{1}) || refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 || len(refresh.Body) != 6+currentItemListEntryWireSize || refresh.Body[3] != 38 || binary.LittleEndian.Uint16(refresh.Body[4:6]) != 1 || len(rest) != 0 {
 				t.Fatalf("unexpected ack/refresh: %+v %+v rest=%x", ack, refresh, rest)
+			}
+			row := refresh.Body[6 : 6+currentItemListEntryWireSize]
+			if int16(binary.LittleEndian.Uint16(row[0:2])) != 49 || binary.LittleEndian.Uint32(row[2:6]) != 90001 || binary.LittleEndian.Uint32(row[6:10]) != 1 {
+				t.Fatalf("list38 result row slot=%d item=%d count=%d", binary.LittleEndian.Uint16(row[0:2]), binary.LittleEndian.Uint32(row[2:6]), binary.LittleEndian.Uint32(row[6:10]))
 			}
 		})
 	}
@@ -271,8 +253,12 @@ func TestGuildR192MedalRouteUsesOwnPage(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	packets := splitItemGrantNoticeStream(t, s, g.conn.(*bufferConn).write.Bytes())
-	if len(packets) != 2 || packets[0].msgID != 864 || !bytes.Equal(packets[0].body, []byte{1}) || packets[1].body[0] != 38 {
+	if len(packets) != 2 || packets[0].msgID != 864 || !bytes.Equal(packets[0].body, []byte{1}) || len(packets[1].body) != 3+2*currentItemListEntryWireSize || packets[1].body[0] != 38 {
 		t.Fatalf("packets=%+v", packets)
+	}
+	row := packets[1].body[3 : 3+currentItemListEntryWireSize]
+	if int16(binary.LittleEndian.Uint16(row[0:2])) != 0 || int64(binary.LittleEndian.Uint32(row[2:6])) != after.Slots["38:0"].ItemID || binary.LittleEndian.Uint32(row[6:10]) != 1 {
+		t.Fatalf("list38 medal row slot=%d item=%d count=%d", binary.LittleEndian.Uint16(row[0:2]), binary.LittleEndian.Uint32(row[2:6]), binary.LittleEndian.Uint32(row[6:10]))
 	}
 }
 

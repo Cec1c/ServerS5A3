@@ -15,7 +15,7 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// 本文件实现公会守护珠/勋章合成的资产事务。成功率和配方只由 catalog 决定；
+// 本文件实现公会守护珠/勋章合成的资产事务。合法输入必有产物，配方由 catalog 决定；
 // 物品定义、候选池、原始行编码、发放落位和期限规则由 bridge 通过 Rules 注入。
 // 域层不引用 bridge。
 
@@ -56,15 +56,14 @@ type Command struct {
 }
 
 // Result 是已提交的合成结果。Changed 是变更后的槽快照；Count 为 0 的项表示
-// 该槽已被消耗并删除。失败合成也返回已扣除材料的 Changed。
+// 该槽已被消耗并删除。合法输入总会得到一件下一品级产物；返回 error 时没有
+// 提交任何扣料或产物。
 type Result struct {
-	Success     bool
-	Roll        uint32
-	SuccessRate uint32
-	ResultItem  uint32
-	NextRarity  uint32
-	ResultSlot  int16
-	Changed     map[int16]repo.ItemStack
+	Success    bool
+	ResultItem uint32
+	NextRarity uint32
+	ResultSlot int16
+	Changed    map[int16]repo.ItemStack
 }
 
 // Owner 只提交角色背包的 Slots 字段。
@@ -84,8 +83,9 @@ func NewOwner(group repo.Group) (*Owner, error) {
 	return nil, errOwnerUnavailable
 }
 
-// Apply 在一笔事务内校验角色归属和全部材料，扣除每一条引用，掷骰并保存产物。
-// 掷骰失败仍提交扣料；Grant、UpdateStack 或 Save 失败时返回空 Result 并回滚。
+// Apply 在一笔事务内校验角色归属和全部材料，扣除每一条引用并保存产物。
+// 合法输入不再掷成功/失败骰；Grant、UpdateStack、候选选择或 Save 失败时返回
+// 空 Result 并回滚，无效请求也不会消耗材料。
 func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 	if o == nil || (o.characterAssets == nil && o.accountAssets == nil) {
 		return Result{}, errOwnerUnavailable
@@ -126,12 +126,6 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 		return Result{}, fmt.Errorf("%w: kind=%s grade=%d has no next grade",
 			ErrInvalid, cmd.Kind, cmd.Request.Grade)
 	}
-	successRate := recipe.SuccessRateFor(count)
-	if successRate == 0 {
-		return Result{}, fmt.Errorf("%w: kind=%s grade=%d has zero success rate",
-			ErrInvalid, cmd.Kind, cmd.Request.Grade)
-	}
-
 	candidates, err := cmd.Rules.Candidates(cmd.Kind, nextRarity)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: candidates kind=%s grade=%d: %v",
@@ -181,7 +175,7 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 			inventory.Slots = make(map[string]repo.ItemStack)
 		}
 
-		pending, err := applyInventory(ctx, cmd, now, family, nextRarity, successRate, pool, poolSet, &inventory)
+		pending, err := applyInventory(ctx, cmd, now, family, nextRarity, pool, poolSet, &inventory)
 		if err != nil {
 			return err
 		}
@@ -219,7 +213,6 @@ func applyInventory(
 	now time.Time,
 	family MaterialFamily,
 	nextRarity uint32,
-	successRate uint32,
 	pool []uint32,
 	poolSet map[uint32]struct{},
 	inventory *repo.InventoryRecord,
@@ -262,20 +255,10 @@ func applyInventory(
 	}
 
 	pending := Result{
-		NextRarity:  nextRarity,
-		SuccessRate: successRate,
-		ResultSlot:  -1,
-		Changed:     changed,
-	}
-	roll, err := rollBelow(cmd.Rules.Roll, CompoundRateDenominator)
-	if err != nil {
-		return Result{}, err
-	}
-	pending.Roll = roll
-	pending.Success = roll < successRate
-	if !pending.Success {
-		// 用户确认的旧规则：失败也扣料，扣料已写入 changed 并随事务提交。
-		return pending, nil
+		Success:    true,
+		NextRarity: nextRarity,
+		ResultSlot: -1,
+		Changed:    changed,
 	}
 
 	resultItem := specialItem

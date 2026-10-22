@@ -202,18 +202,17 @@ func (f *ownerTestFixture) inventory(t *testing.T) repo.InventoryRecord {
 	return record
 }
 
-func TestOwnerFourSameIDGemUpgradeOnlyAfterSuccess(t *testing.T) {
-	t.Run("success upgrades", func(t *testing.T) {
+func TestOwnerFourSameIDGemAlwaysUpgrades(t *testing.T) {
+	t.Run("four same id upgrades", func(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 			"38:49": {ItemID: 90002, Count: 10, RawEntry: []byte{10}},
-		}, func(rules *ownerTestRules) { rules.rolls = []uint32{0, 1} })
+		})
 
 		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 4, 49, 49, 49, 49))
 		if err != nil {
 			t.Fatalf("Apply: %v", err)
 		}
-		if !result.Success || result.Roll != 0 || result.SuccessRate != 3000 ||
-			result.ResultItem != 90003 || result.NextRarity != 3 || result.ResultSlot != 50 {
+		if !result.Success || result.ResultItem != 90003 || result.NextRarity != 3 || result.ResultSlot != 50 {
 			t.Fatalf("result = %+v", result)
 		}
 		inventory := f.inventory(t)
@@ -228,23 +227,25 @@ func TestOwnerFourSameIDGemUpgradeOnlyAfterSuccess(t *testing.T) {
 		}
 	})
 
-	t.Run("failure still consumes", func(t *testing.T) {
+	t.Run("two distinct ids select a next-tier candidate", func(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
-			"38:49": {ItemID: 90002, Count: 10, RawEntry: []byte{10}},
-		}, func(rules *ownerTestRules) { rules.rolls = []uint32{3000} })
+			"38:49": {ItemID: 90002, Count: 2, RawEntry: []byte{2}},
+			"38:50": {ItemID: 90002, Count: 2, RawEntry: []byte{2}},
+		}, func(rules *ownerTestRules) { rules.rolls = []uint32{1} })
 
-		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 4, 49, 49, 49, 49))
+		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 2, 49, 50))
 		if err != nil {
 			t.Fatalf("Apply: %v", err)
 		}
-		if result.Success || result.Roll != 3000 || result.ResultSlot != -1 || result.ResultItem != 0 {
+		if !result.Success || result.ResultItem != 90013 || result.NextRarity != 3 {
 			t.Fatalf("result = %+v", result)
 		}
-		if got := f.inventory(t).Slots["38:49"]; got.Count != 6 || !reflect.DeepEqual(got.RawEntry, []byte{6}) {
-			t.Fatalf("failed roll did not persist consumption: %+v", got)
+		inventory := f.inventory(t)
+		if inventory.Slots["38:49"].Count != 1 || inventory.Slots["38:50"].Count != 1 {
+			t.Fatalf("materials were not consumed once each: %+v", inventory.Slots)
 		}
-		if len(f.rules.grantCalls) != 0 {
-			t.Fatalf("failed roll granted %v", f.rules.grantCalls)
+		if got := inventory.Slots["38:51"]; got.ItemID != 90013 || got.Count != 1 {
+			t.Fatalf("result stack = %+v", got)
 		}
 	})
 }
@@ -253,7 +254,6 @@ func TestOwnerFourSameIDGemRejectsMissingSuccessorBeforeConsumption(t *testing.T
 	f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 		"38:49": {ItemID: 90002, Count: 10},
 	}, func(rules *ownerTestRules) {
-		rules.rolls = []uint32{0}
 		rules.pools[ownerTestPoolKey{kind: CompoundGem, rarity: 3}] = []uint32{90013}
 	})
 
@@ -325,7 +325,6 @@ func TestOwnerMaterialLockAndExpiryBoundaries(t *testing.T) {
 	tests := []struct {
 		name    string
 		mutate  func(*repo.ItemStack, *ownerTestRules)
-		rolls   []uint32
 		wantErr bool
 	}{
 		{
@@ -354,7 +353,6 @@ func TestOwnerMaterialLockAndExpiryBoundaries(t *testing.T) {
 			mutate: func(stack *repo.ItemStack, _ *ownerTestRules) {
 				stack.Extra = map[string]string{"equipment_lock_state": "pending_unlock", "equipment_unlock_at": strconv.FormatInt(ownerTestNow.Unix(), 10)}
 			},
-			rolls: []uint32{3000},
 		},
 		{
 			name: "callback expiry",
@@ -369,7 +367,6 @@ func TestOwnerMaterialLockAndExpiryBoundaries(t *testing.T) {
 			mutate: func(stack *repo.ItemStack, _ *ownerTestRules) {
 				stack.ExpireAt = ownerTestNow.Add(time.Nanosecond)
 			},
-			rolls: []uint32{3000},
 		},
 	}
 
@@ -377,9 +374,7 @@ func TestOwnerMaterialLockAndExpiryBoundaries(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stack := repo.ItemStack{ItemID: 90002, Count: 10, RawEntry: []byte{10}}
 			test.mutate(&stack, nil)
-			f := newOwnerTestFixture(t, map[string]repo.ItemStack{"38:49": stack}, func(rules *ownerTestRules) {
-				rules.rolls = test.rolls
-			})
+			f := newOwnerTestFixture(t, map[string]repo.ItemStack{"38:49": stack})
 			result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 4, 49, 49, 49, 49))
 			if test.wantErr {
 				if !errors.Is(err, ErrInvalid) {
@@ -393,8 +388,8 @@ func TestOwnerMaterialLockAndExpiryBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}
-			if result.Success {
-				t.Fatalf("result = %+v, want failed roll", result)
+			if !result.Success || result.ResultItem == 0 {
+				t.Fatalf("result = %+v, want produced item", result)
 			}
 			got := f.inventory(t).Slots["38:49"]
 			if got.Count != 6 || !reflect.DeepEqual(got.RawEntry, []byte{6}) {
@@ -412,7 +407,6 @@ func TestOwnerGrantMustAddExactlyOneAndMedalResultIsCountOne(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 			"38:49": {ItemID: 90002, Count: 10},
 		}, func(rules *ownerTestRules) {
-			rules.rolls = []uint32{0, 1}
 			rules.grantDelta = 1
 		})
 		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 4, 49, 49, 49, 49))
@@ -428,7 +422,7 @@ func TestOwnerGrantMustAddExactlyOneAndMedalResultIsCountOne(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 			"38:0": {ItemID: 100380017, Count: 1},
 			"38:1": {ItemID: 100380018, Count: 1},
-		}, func(rules *ownerTestRules) { rules.rolls = []uint32{0, 1} })
+		}, func(rules *ownerTestRules) { rules.rolls = []uint32{1} })
 		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundFlag, 0, 2, 0, 1))
 		if err != nil {
 			t.Fatalf("Apply: %v", err)
@@ -446,7 +440,7 @@ func TestOwnerGrantMustAddExactlyOneAndMedalResultIsCountOne(t *testing.T) {
 			"38:0": {ItemID: 100380017, Count: 1},
 			"38:1": {ItemID: 100380018, Count: 1},
 		}, func(rules *ownerTestRules) {
-			rules.rolls = []uint32{0, 1}
+			rules.rolls = []uint32{1}
 			rules.grantDelta = 1
 		})
 		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundFlag, 0, 2, 0, 1))
@@ -488,7 +482,6 @@ func TestOwnerGrantNoSpaceSaveFailureOwnershipAndRollRange(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 			"38:49": {ItemID: 90002, Count: 10},
 		}, func(rules *ownerTestRules) {
-			rules.rolls = []uint32{0, 1}
 			rules.grantErr = ErrNoSpace
 		})
 		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 4, 49, 49, 49, 49))
@@ -503,7 +496,7 @@ func TestOwnerGrantNoSpaceSaveFailureOwnershipAndRollRange(t *testing.T) {
 	t.Run("save failure", func(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 			"38:49": {ItemID: 90002, Count: 10},
-		}, func(rules *ownerTestRules) { rules.rolls = []uint32{0, 1} })
+		})
 		f.owner = &Owner{characterAssets: ownerTestFailingSaveAssets{
 			characters: f.repos.Character,
 			inventory:  f.repos.Inventory,
@@ -526,23 +519,10 @@ func TestOwnerGrantNoSpaceSaveFailureOwnershipAndRollRange(t *testing.T) {
 		}
 	})
 
-	t.Run("success roll out of range", func(t *testing.T) {
-		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
-			"38:49": {ItemID: 90002, Count: 10},
-		}, func(rules *ownerTestRules) { rules.rolls = []uint32{10000} })
-		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 4, 49, 49, 49, 49))
-		if !errors.Is(err, ErrInvalid) || !reflect.DeepEqual(result, Result{}) {
-			t.Fatalf("result=%+v err=%v, want empty ErrInvalid", result, err)
-		}
-		if got := f.inventory(t).Slots["38:49"]; got.Count != 10 {
-			t.Fatalf("material count = %d, want 10", got.Count)
-		}
-	})
-
 	t.Run("selection roll out of range", func(t *testing.T) {
 		f := newOwnerTestFixture(t, map[string]repo.ItemStack{
 			"38:49": {ItemID: 90002, Count: 10},
-		}, func(rules *ownerTestRules) { rules.rolls = []uint32{0, 2} })
+		}, func(rules *ownerTestRules) { rules.rolls = []uint32{2} })
 		result, err := f.owner.Apply(f.ctx, f.command("acct", "77", CompoundGem, 2, 2, 49, 49))
 		if !errors.Is(err, ErrInvalid) || !reflect.DeepEqual(result, Result{}) {
 			t.Fatalf("result=%+v err=%v, want empty ErrInvalid", result, err)

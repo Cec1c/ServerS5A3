@@ -20,14 +20,15 @@ var (
 	ErrCompoundCatalogInvalid     = errors.New("guild compound catalog is malformed")
 )
 
-// 2026-10-22 用户确认的运营规则：
-//   - 成功率 = min(count * PVF 第三列, 10000)，失败同样消耗材料。
-//   - 守护珠恰好放入 4 颗同 ID 且掷骰成功时，升为同族下一品级；其余成功输入从
-//     下一品级中随机产出。
+// 2026-10-22 用户最新确认的运营规则：
+//   - 合法输入必定产出一件物品；PVF 第三列的历史概率不再作为失败依据。
+//   - 守护珠恰好放入 4 颗同 ID 时，升为同族下一品级；其余合法输入从下一品级
+//     中随机产出。
 //   - 勋章从下一品级中随机产出。
 //   - 输入材料必须同品级且与请求品级一致，产出使用下一档，不允许混档输入。
 //
-// 本文件只负责配方、件数和概率。扣料及产物选择由合成事务层执行。
+// 本文件只负责配方和件数。第三列仍按原表读取，供旧数据核对；事务层不再用它
+// 决定成败。扣料及产物选择由合成事务层执行。
 
 // CompoundKind 区分守护珠和勋章两条配方阶梯。
 type CompoundKind byte
@@ -47,7 +48,7 @@ func (k CompoundKind) String() string {
 // CompoundMinMaterialCount 是公会合成允许的最少投入件数。
 const CompoundMinMaterialCount uint32 = 2
 
-// CompoundRecipe 是 PVF 中一行 grade、最大件数和每件概率。
+// CompoundRecipe 是 PVF 中一行 grade、最大件数和历史每件概率。
 type CompoundRecipe struct {
 	// Rarity 是输入物品所在品级，对应 PVF 每行第一列。
 	Rarity uint32
@@ -72,7 +73,9 @@ func (r CompoundRecipe) AcceptsMaterialCount(count uint32) bool {
 		count <= r.MaxMaterialCount
 }
 
-// SuccessRateFor 返回 count 件材料对应的万分率，最高为 10000。
+// SuccessRateFor 返回旧 PVF 表第三列派生的万分率，最高为 10000。
+// 当前合成事务不再调用它决定成败；合法输入必定产出。保留它是为了继续核对
+// 原表值和历史配置，不要把它重新接回失败判定。
 func (r CompoundRecipe) SuccessRateFor(count uint32) uint32 {
 	if !r.AcceptsMaterialCount(count) {
 		return 0
