@@ -47,7 +47,7 @@ func aikenR142Archive(t *testing.T) *platformpvf.Archive {
 			aikenR142PVF.err = err
 			return
 		}
-		if fmt.Sprintf("%x", sha256.Sum256(data)) != "25675fba8711216b72800e5ff034df61209b37e7c22d3e4c3b3ad7b1906fc348" {
+		if !knownRepairPVFChecksum(fmt.Sprintf("%x", sha256.Sum256(data))) {
 			aikenR142PVF.err = errors.New("unexpected PVF digest")
 			return
 		}

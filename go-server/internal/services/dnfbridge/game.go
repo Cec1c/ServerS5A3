@@ -20,6 +20,7 @@ import (
 )
 
 type gameSession struct {
+	pendingItemExpiryProjection         *currentItemExpiryProjection // selected-character event loop only
 	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte

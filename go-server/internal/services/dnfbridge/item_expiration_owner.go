@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/itemexpiration"
@@ -70,6 +71,11 @@ func (s *Service) projectCurrentPVFItemExpirations(
 	if assets == nil {
 		return summary, itemexpiration.ErrProjectorRequired
 	}
+	var petErr error
+	summary, petErr = s.removeExpiredPetState(catalog, assets, now)
+	if petErr != nil {
+		return summary, petErr
+	}
 	var errs []error
 	normalizeStack := func(scope string, stack dnfrepo.ItemStack) (dnfrepo.ItemStack, bool, bool) {
 		definition, resolveErr := s.currentPVFDefinitionForItem(catalog, sceneInventoryUint32FromInt64(stack.ItemID))
@@ -87,6 +93,9 @@ func (s *Service) projectCurrentPVFItemExpirations(
 			if expired {
 				return stack, true, true
 			}
+		}
+		if currentPVFRelativeGrantExpired(stack, definition, now) {
+			return stack, true, true
 		}
 		patched, changed := normalizeCurrentPVFItemStack(stack, definition, now)
 		return patched, changed, false
@@ -139,6 +148,25 @@ func (s *Service) projectCurrentPVFItemExpirations(
 					assets.Equipment.Entries[key] = patched
 					summary.Equipment++
 				}
+				continue
+			}
+			if avatarSlot, matched := currentPVFRelativeAvatarEquipmentExpiry(definition, entry, now); matched {
+				if key != strconv.Itoa(int(entry.SlotIndex)) || entry.SlotIndex != avatarSlot {
+					return summary, fmt.Errorf("item expiry invalid avatar key %q slot %d", key, entry.SlotIndex)
+				}
+				delete(assets.Equipment.Entries, key)
+				summary.Equipment++
+				continue
+			}
+			if currentPVFRelativeGrantExpired(dnfrepo.ItemStack{
+				ItemID: entry.ItemID, ExpireAt: entry.ExpireAt, Extra: entry.Extra,
+			}, definition, now) {
+				actorSlot, valid := currentEXEActorEquipmentSlot(entry)
+				if key != strconv.Itoa(int(entry.SlotIndex)) || !valid || actorSlot < 12 || actorSlot > 25 {
+					return summary, fmt.Errorf("relative expiry invalid worn key %q slot %d", key, entry.SlotIndex)
+				}
+				delete(assets.Equipment.Entries, key)
+				summary.Equipment++
 				continue
 			}
 			if patched, changed := normalizeCurrentPVFEquipmentEntry(entry, definition, now); changed {
