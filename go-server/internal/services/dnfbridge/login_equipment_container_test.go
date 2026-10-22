@@ -101,6 +101,7 @@ func newLoginEquipmentTestSession(connection *bufferConn, characterID uint16) *g
 	return &gameSession{
 		conn:                connection,
 		connID:              "login-equipment",
+		accountID:           defaultAccountPrefix + "10011",
 		channel:             channelcatalog.Channel{ID: 252},
 		selectedCharacterID: characterID,
 	}
@@ -270,7 +271,7 @@ func TestLoginEquipmentContainerEmitsEmptyContainerWhenEquipmentRecordAbsent(t *
 	ctx := context.Background()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
 		CharacterID: "91",
-		AccountID:   defaultAccountPrefix + "1",
+		AccountID:   defaultAccountPrefix + "10011",
 		Stats:       map[string]int64{"gold": 1},
 	}); err != nil {
 		t.Fatal(err)

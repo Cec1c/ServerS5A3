@@ -137,6 +137,16 @@ func currentAikenRules(c *pvfDungeonDropCatalog) (aiken.Rules, error) {
 	if groups != 3 || len(groupOptions) != len(options) {
 		return r, aiken.ErrInvalid
 	}
+	r.CostPolicy = func(itemID int64) (itemplacement.SlotPolicy, error) {
+		if itemID <= 0 || itemID > math.MaxUint32 {
+			return itemplacement.SlotPolicy{}, aiken.ErrInvalid
+		}
+		item, e := c.ResolveItem(uint32(itemID))
+		if e != nil || item.Kind != dungeonDropItemStackable || normalizeDungeonDropStackableType(item.StackableType) != "[material]" {
+			return itemplacement.SlotPolicy{}, aiken.ErrInvalid
+		}
+		return currentPVFItemPlacementPolicy(item), nil
+	}
 	list, e := aikenDoc(c.source, "etc/customability/individualcustomability.lst")
 	if e != nil {
 		return r, e

@@ -17,7 +17,12 @@ import (
 var ErrInvalid = errors.New("aiken upgrade rejected")
 var ErrMaterials = errors.New("aiken upgrade materials insufficient")
 
+type MaterialCost struct {
+	ItemID, Count int64
+}
+
 type Rules struct {
+	CostPolicy     func(int64) (itemplacement.SlotPolicy, error)
 	Material       int64
 	Costs          [4]int64
 	Options        map[byte]bool
