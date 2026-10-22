@@ -226,6 +226,9 @@ func (s *Service) sendCurrentSelectInventoryBootstrap(session *gameSession, sour
 	); err != nil {
 		return err
 	}
+	if err := s.sendCurrentAikenSetSnapshot(ctx, session); err != nil {
+		return err
+	}
 	session.selectedItemListRefreshSent = true
 	session.selectedItemListBootstrapCharacterID = session.selectedCharacterID
 	s.armCurrentDailyDeleteClock(session)

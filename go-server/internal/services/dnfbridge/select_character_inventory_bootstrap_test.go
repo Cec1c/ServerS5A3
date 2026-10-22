@@ -108,7 +108,7 @@ func TestCurrentSelectInventoryBootstrapCarriesRealItemsForAllSixLists(t *testin
 	repositories := dnfrepomemory.NewMemoryGroup()
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "77",
-		AccountID:   defaultAccountPrefix + "1",
+		AccountID:   defaultAccountPrefix + "77",
 		Stats:       map[string]int64{"gold": 456789},
 	}); err != nil {
 		t.Fatal(err)
