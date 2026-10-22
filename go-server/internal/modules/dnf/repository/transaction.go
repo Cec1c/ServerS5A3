@@ -145,6 +145,13 @@ type AccountCharacterAssetUnitOfWork interface {
 	WithinAccountCharacterAssets(context.Context, string, string, func(AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository) error) error
 }
 
+// AccountCharacterPetAssetUnitOfWork includes durable creatures in the same
+// transaction as the account and character item containers. Expiration must
+// not remove a creature's inventory row while leaving its durable state alive.
+type AccountCharacterPetAssetUnitOfWork interface {
+	WithinAccountCharacterPetAssets(context.Context, string, string, func(AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository, PetRepository) error) error
+}
+
 // RentalAssetUnitOfWork supplies one transaction for the account-scoped
 // rental-point wallet, the selected character's gold wallet, and both item
 // aggregates. Implementations must scope every repository to the two supplied
