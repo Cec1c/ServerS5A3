@@ -1279,6 +1279,10 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 			class0Response(msgItemListRefresh, refreshBody),
 		},
 		AuthoritativeListRefreshes: authoritativeListRefreshes,
+		// Even an unchanged sort replaces the native bag objects through op13.
+		// Rebind existing Buff items only after the bridge sends that replacing
+		// list successfully; the stored skill and physical instance stay intact.
+		RefreshSelectedBuffRegistration: result.ListType == listTypeMain,
 	}
 }
 
@@ -1517,7 +1521,8 @@ func ownerAppliedEquipmentMoveResult(opcode uint16, cmd Command, result dnfequip
 		UpperResponses: []alignedcmd.UpperResponse{
 			class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 		},
-		PostActions: postActions,
+		PostActions:                     postActions,
+		RefreshSelectedBuffRegistration: result.Changed && !appearanceRefresh,
 	}
 }
 

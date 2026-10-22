@@ -189,7 +189,48 @@ func Apply(ctx context.Context, repos repo.Group, characterID, accountID string,
 // ApplyCurrent records wire provenance in the same transaction as registration.
 // This survives skill-only selection, item removal and later cold Load/Resolve.
 func ApplyCurrent(ctx context.Context, repos repo.Group, characterID, accountID string, c Command) error {
+	return ApplyCurrentWithWornResolver(ctx, repos, characterID, accountID, c, nil)
+}
+
+// WornSlotResolver is a pure client projection rule. Resolve the wire slot
+// against the locked owner snapshot before allocating a physical identity.
+// Persistent bindings continue to store repository positions, never wire aliases.
+type WornSlotResolver func(repo.EquipmentEntry) (uint64, bool)
+
+func ApplyCurrentWithWornResolver(ctx context.Context, repos repo.Group, characterID, accountID string, c Command, resolve WornSlotResolver) error {
 	return repo.WithinBuffOwnedSnapshot(ctx, repos, characterID, accountID, func(tx repo.Group) error {
+		if c.List == 3 && resolve != nil {
+			if !c.validCurrent() || tx.Equipment == nil {
+				return ErrInvalid
+			}
+			worn, found, err := tx.Equipment.Load(ctx, characterID)
+			if err != nil {
+				return err
+			}
+			if !found || worn.CharacterID != characterID {
+				return ErrInvalid
+			}
+			matches := 0
+			var storage uint16
+			for key, entry := range worn.Entries {
+				if entry.ItemID <= 0 {
+					continue
+				}
+				index, ok := resolve(entry)
+				if !ok || index != uint64(c.Index) {
+					continue
+				}
+				if entry.SlotIndex < 0 || entry.SlotIndex >= SlotCount || key != strconv.Itoa(int(entry.SlotIndex)) {
+					return ErrInvalid
+				}
+				matches++
+				storage = uint16(entry.SlotIndex)
+			}
+			if matches != 1 {
+				return ErrInvalid
+			}
+			c.Index = storage
+		}
 		return applyRegistration(ctx, tx, characterID, accountID, c, CurrentWireProfile)
 	})
 }
@@ -240,9 +281,12 @@ func applyRegistration(ctx context.Context, repos repo.Group, characterID, accou
 	return repos.Settings.Save(ctx, repo.SettingsRecord{Scope: Scope(characterID), Values: map[string]string{"state": string(raw), "source": source}, UpdatedAt: time.Now().UTC()})
 }
 
-// Resolve uses the registered position when it still holds that item. After
-// wearing/removing/moving it, follow a unique matching item in native lists0..3 (plus current-profile7).
-// Missing or ambiguous bindings stay persisted but are omitted from projection.
+// Resolve follows the registered physical instance in native lists0..3 (plus
+// current-profile7). Legacy bindings without an instance are resolved only
+// when their template is unique. A stored coordinate is not enough to select
+// one of two same-template instances: doing so would make an old registration
+// jump to the wrong physical item. Missing or ambiguous bindings stay
+// persisted but are omitted from projection.
 func Resolve(ctx context.Context, repos repo.Group, characterID string, state State) (State, int, error) {
 	for _, b := range state.Slots {
 		if b.SourceKind == SourceLegacyUID || b.LegacyItemUID != 0 {
@@ -266,6 +310,10 @@ func Resolve(ctx context.Context, repos repo.Group, characterID string, state St
 		return State{}, 0, err
 	}
 	out := State{WireProfile: state.WireProfile, Skill: state.Skill, Slots: make(map[byte]Binding)}
+	byTemplate := make(map[int64][]location)
+	for loc, itemID := range all {
+		byTemplate[itemID] = append(byTemplate[itemID], loc)
+	}
 	for slot, b := range state.Slots {
 		if b.Instance != "" {
 			matches := 0
@@ -282,20 +330,14 @@ func Resolve(ctx context.Context, repos repo.Group, characterID string, state St
 			}
 			continue
 		}
-		if all[location{b.List, b.Index}] == b.ItemID {
-			out.Slots[slot] = b
-			continue
-		}
-		var candidate location
-		matches := 0
-		for loc, id := range all {
-			if id == b.ItemID {
-				candidate = loc
-				matches++
-			}
-		}
-		if matches == 1 {
+		candidates := byTemplate[b.ItemID]
+		if len(candidates) == 1 {
+			candidate := candidates[0]
 			b.List, b.Index = candidate.list, candidate.index
+			if b.Instance == "" && identities[candidate] != "" {
+				b.Instance = identities[candidate]
+				b.SourceKind = SourceCurrentInstance
+			}
 			out.Slots[slot] = b
 		}
 	}

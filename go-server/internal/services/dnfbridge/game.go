@@ -21,7 +21,7 @@ import (
 
 type gameSession struct {
 	pendingItemExpiryProjection         *currentItemExpiryProjection // selected-character event loop only
-	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
+	pvpClientGameType                   uint32                       // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
@@ -323,13 +323,15 @@ type gameSession struct {
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.
-	equipmentProjectionMu       sync.Mutex
-	avatarAppearanceMu          sync.Mutex
-	avatarAppearanceLastAt      time.Time
-	avatarAppearanceTimer       string
-	avatarAppearanceTimerSerial uint64
-	petGrowth                   petGrowthClockState
-	spendTime                   currentSpendTimeClockState
+	equipmentProjectionMu          sync.Mutex
+	avatarAppearanceMu             sync.Mutex
+	avatarAppearanceLastAt         time.Time
+	avatarAppearanceTimer          string
+	avatarAppearanceTimerSerial    uint64
+	avatarAppearanceNeedsBuffClear bool
+	buffReplayDedupe               buffReplayDedupeState
+	petGrowth                      petGrowthClockState
+	spendTime                      currentSpendTimeClockState
 	// Owned by the serialized session event loop; full catalogs omit yesterday's flag.
 	activityCatalogDayEvent uint16
 	weeklyAttendance        currentWeeklyAttendanceProjection
