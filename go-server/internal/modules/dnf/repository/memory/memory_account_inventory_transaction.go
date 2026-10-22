@@ -23,6 +23,7 @@ type memoryAccountCharacterAssetUnitOfWork struct {
 	character        repository.CharacterRepository
 	inventory        repository.InventoryRepository
 	equipment        repository.EquipmentRepository
+	pet              repository.PetRepository
 	mailbox          repository.MailboxRepository
 }
 
