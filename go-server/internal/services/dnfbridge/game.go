@@ -109,8 +109,11 @@ type gameSession struct {
 	//   也就是说：换角色/重登（新 conn）与每次场景就绪 ack（新一轮）都会把它重置，
 	//   所以"连续换角色时第 2 个角色的第 1 条"永远算第 1 条（不会把 09-28 那条老症状带回来）。
 	// 只有本会话的 op19 读路径读写它。
-	equipWornSlotClaimEpoch  string
-	equipWornSlotClaimCounts map[int16]int
+	equipWornClaimReceiptOwner      uint16
+	equipWornClaimReceiptGeneration uint64
+	equipWornClaimReceipts          map[int16]currentWornClaimReceipt
+	equipWornSlotClaimEpoch         string
+	equipWornSlotClaimCounts        map[int16]int
 	// equipWornSlotClaimOccurrence 是**本条** op19 的序号（由 game_aligned.go 记一次后暂存），
 	// 供桥侧吸收判定（equip_login_wear_family_window.go）与域侧请求字段共用。
 	// 0 = 本条不是那一族形状 / 未计数 / 开关写 all。
@@ -245,6 +248,9 @@ type gameSession struct {
 	initialTownLegacySceneReadyAccepted  bool
 	// Snapshot of the monotonic town cursor when this selector route starts.
 	initialTownRouteTownGeneration uint64
+	// Completed returns share the town packet builder, but their actor was
+	// already reconstructed and must not enter the cold-login replay hook.
+	initialTownRouteCompletedReturn bool
 	// loginActorGenerationRebuildArmed 在登录路径的 legacy type1345 场景就绪 ack 上布防，
 	// loginActorGenerationRebuildSent 保证一次进场只重建一次 actor 世代。
 	// 触发面 = **ack 之后的第一条客户端游戏报文**（`handleGameStreamPacket` 在派发前取

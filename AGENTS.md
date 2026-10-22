@@ -3,6 +3,7 @@
 ## Start Here
 
 - Read `changlog.md` before changing code, deployment scripts, generated configuration, or runtime behavior.
+- 部署前先读 [外部频道表选择与验收](Docs/CHANNEL_TABLE_DEPLOYMENT.md)，按仓库118频道CSV核对已批准的完整外部表，首次prepare就显式传入 `--channel-info`。不要默认提取PVF内置表作为部署目录；升级PVF时保留现有外部表。CSV仅供核对，运行输入必须是完整ETC，并读回实际进程路径、摘要、端口及客户端目录。
 - Keep `go-server` source-only. Runtime configuration, binaries, logs, PVF, database state, and PID files belong under `runtime`.
 - Edit `runtime/config/instance.json` or `deploy/templates/instance.example.json`; do not hand-edit generated files under `runtime/configs`.
 - Windows deployment entrypoints must stay BAT-only. Do not add PowerShell scripts or PowerShell calls.
@@ -13,6 +14,7 @@
 
 ## Seeker 研究与执行工作流
 
+- 论坛反馈按 [BUG持续流水线](Docs/seeker/ISSUES_API_WORKFLOW.md) 先查重、判断合理性/功能BUG和复现信息，再按影响校正优先级；选中批次分派当前账号并回复日期流水线，修复验证后按授权上传合并MR，在原反馈回写分支、MR、合并SHA及验收状态。
 - 用户指定当前会话为 Seeker 或调用 Seeker 工作流时，按 [Seeker 工作流](Docs/SEEKER_WORKFLOW.md) 推进：Astra 取证、解释成因、在 `Docs/seeker/` 留可公开方案；DeepSeek Flash 执行明确的小任务；Astra 验收关键结果。
 - 方案写清目标、必要文件、解决思路、测试与验收条件，简洁直接。明确告诉执行者：允许失败，返回已尝试方法、失败证据和下一步所需信息。
 - 默认一次一个 DeepSeek Flash 执行子代理，`max`、最小上下文、不嵌套；复杂问题由 Seeker 处理，或交用户指定的同模型 Helper。当前任务的委派授权随交接记录保存，其他会话仍按用户当次指令启用。

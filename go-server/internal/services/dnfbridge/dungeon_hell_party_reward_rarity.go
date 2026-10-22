@@ -414,5 +414,5 @@ func (request hellPartyRewardRequest) hellPartyRewardRarityCandidateCounts(
 	if !ok {
 		return counts, false
 	}
-	return pool.rarityCandidateCounts(gradeMin, gradeMax), true
+	return pool.rarityCandidateCounts(gradeMin, gradeMax, abyssItemLevelBandFromEnv().forDungeon(request.DungeonMinimumLevel, request.DungeonBasisLevel)), true
 }

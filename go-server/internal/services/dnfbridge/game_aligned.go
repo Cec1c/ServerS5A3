@@ -88,6 +88,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	}
 	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
+		if handled, err := s.handleCurrentRidingPotionUse(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -629,6 +632,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	if err != nil || !ok {
 		return ok, err
 	}
+	if typ == uint16(dnfenum.CmdPacketMoveItemspace) {
+		s.noteCurrentWornClaimResult(session, body, result.EquipmentMoveFact, playerRequestFlagged)
+	}
 	// op438：class1 438 回包体由桥接层按领域结果组装（协议形状只在这一层）。
 	// 成功/掷点失败回 13 字节体，校验类拒绝回 0 + u8 error；两条都要发，
 	// 客户端才会走完"结束锻造 UI"的回调。改动行的逐槽 op14 增量由
@@ -673,6 +679,28 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	decision := result.Decision
 	if !result.Handled {
 		return false, nil
+	}
+	// Keep the equipment decision visible when raw packet logging is disabled.
+	// Only typed move fields and the domain outcome are logged; no packet body
+	// or authentication fields are copied into the application log.
+	if typ == uint16(dnfenum.CmdPacketMoveItemspace) {
+		if move, decodeErr := inventory.DecodeMoveItemspaceRequest(body); decodeErr == nil &&
+			(move.SourceListType == currentSocketListEquipment || move.DestinationListType == currentSocketListEquipment) {
+			tail := byte(0)
+			if len(body) > 26 {
+				tail = body[26]
+			}
+			s.logInfo("dnfbridge equipment move outcome",
+				"conn_id", session.connID, "char_id", session.selectedCharacterID,
+				"src_list", move.SourceListType, "src_slot", move.SourceSlotIndex,
+				"src_instance", move.SourceInstanceValue,
+				"dst_list", move.DestinationListType, "dst_slot", move.DestinationSlotIndex,
+				"dst_instance", move.DestinationInstanceValue,
+				"tail", tail, "claim_decision", wornSlotClaimOccurrence,
+				"scene_round", session.equipLoginWearReassertRound,
+				"login_window", loginWearWindowOpen, "player_request", playerRequestFlagged,
+				"operation", result.Operation, "reason", result.Reason)
+		}
 	}
 	switch decision.Action {
 	case alignedcmd.ActionPendingModule:
