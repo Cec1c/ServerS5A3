@@ -20,24 +20,25 @@ type currentAntonRewardRecipient struct {
 // Pending grants survive lobby removal. They remain in-process intents; asset
 // receipts and completed weekly counts are persisted by their domain owners.
 type currentAntonRewardFlow struct {
-	InstanceID    string
-	RaidKey       uint32
-	Phase         byte
-	Mode          byte
-	Single        bool
-	CompletedAt   time.Time
-	Configuration raid.AntonFlowConfiguration
-	Rewards       raid.AntonPhaseRewards
-	Rank          byte
-	Recipients    []currentAntonRewardRecipient
-	Party         map[uint16]*currentAntonRewardCard
-	Squad         map[uint16]*currentAntonRewardCard
-	Weekly        raid.WeeklyClearCommand
-	AutoSelectAt  time.Time
-	SquadShownAt  time.Time
-	FinishedAt    time.Time
-	BreakUntil    time.Time
-	NextAttempt   time.Time
+	FiendWarRetryCount uint32
+	InstanceID         string
+	RaidKey            uint32
+	Phase              byte
+	Mode               byte
+	Single             bool
+	CompletedAt        time.Time
+	Configuration      raid.AntonFlowConfiguration
+	Rewards            raid.AntonPhaseRewards
+	Rank               byte
+	Recipients         []currentAntonRewardRecipient
+	Party              map[uint16]*currentAntonRewardCard
+	Squad              map[uint16]*currentAntonRewardCard
+	Weekly             raid.WeeklyClearCommand
+	AutoSelectAt       time.Time
+	SquadShownAt       time.Time
+	FinishedAt         time.Time
+	BreakUntil         time.Time
+	NextAttempt        time.Time
 }
 
 func (f *currentAntonRewardFlow) squadRequired() bool {
@@ -78,6 +79,9 @@ func currentAntonFlowKey(instance string, phase byte) string {
 // idempotent clock retry). A client movie/card request never creates eligibility.
 func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) error {
 	b := state.Battle
+	if b != nil && b.FiendWar != nil {
+		return s.freezeCurrentFiendWarRewardFlowLocked(state)
+	}
 	if b == nil || (b.Mode != 1 && b.Mode != 2) || !b.PhaseCompleted || b.AntonFlowConfig.PhaseBreakSeconds == 0 {
 		return nil
 	}
@@ -149,7 +153,7 @@ func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) err
 }
 
 func (s *Service) currentAntonFlowWeeklyCommittedLocked(f *currentAntonRewardFlow) bool {
-	if !f.Single && f.Phase == 0 {
+	if !f.Single && f.Phase == 0 && (f.Mode != 3 || f.FiendWarRetryCount > 0) {
 		return true
 	}
 	intent := s.raidWeeklyIntents[f.InstanceID]
@@ -254,6 +258,12 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		}
 		owners := append([]currentAntonRewardRecipient(nil), f.Recipients...)
 		s.raidMu.Unlock()
+		if f.FiendWarRetryCount > 0 {
+			if err := s.advanceCurrentFiendWarRetryFlow(f, catalog, repos, now); err != nil {
+				errors = append(errors, err)
+			}
+			continue
+		}
 		failed := false
 		for _, kind := range []byte{1, 3} {
 			if kind == 3 && !f.squadRequired() {
@@ -330,7 +340,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		}
 		if all && !now.Before(f.SquadShownAt.Add(time.Duration(movie)*time.Second)) {
 			f.FinishedAt = now
-			if !f.Single && f.Phase == 0 {
+			if f.Mode != 3 && !f.Single && f.Phase == 0 {
 				f.BreakUntil = now.Add(time.Duration(f.Configuration.PhaseBreakSeconds) * time.Second)
 			}
 		}

@@ -64,7 +64,7 @@ func currentRaidNameValid(raw []byte) bool {
 }
 
 func currentRaidFlagsSupported(flags [3]byte) bool {
-	// The real SingleModeWindow sends argument0 (B4=1) for BUTTON_ONE
+	// For Anton/Luke, SingleModeWindow sends argument0 (B4=1) for BUTTON_ONE
 	// and argument1 (B4=0) for BUTTON_TWO. B4's native getter selects
 	// the single-raid dungeon path; B6 selects a separate phase vector.
 	return flags[0] <= 1 && flags[1] == 0 && flags[2] == 0
@@ -76,6 +76,8 @@ func currentRaidRouteForChannel(channelType int) (byte, bool) {
 		return 0, true
 	case dnfenum.HiddenRaidType:
 		return 1, true
+	case 42:
+		return 2, true
 	default:
 		return 0, false
 	}
@@ -110,6 +112,12 @@ func (s *Service) handleCurrentCreateRaid(session *gameSession, op uint16, body 
 		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "route_mismatch")
 		return s.sendRaidCommandFailure(session, op)
 	}
+	if route == 2 {
+		// 现用EXE 01A55120在超时空直接以参数0打开123创建窗口；
+		// 01DF1605因此生成100。超时空没有单人模式，已校验的
+		// 000/100均登记并投影为普通模式，后续邀请、改名与入场共用它。
+		req.UIFlags[0] = 0
+	}
 	state, err := s.createCurrentRuntimeRaid(session, req)
 	if err != nil {
 		s.logGameEvent(session, "game-current-raid-create-rejected", "op", op, "reason", "runtime_create_rejected")
@@ -138,6 +146,12 @@ func (s *Service) createCurrentRuntimeRaid(session *gameSession, req raid.Curren
 		return runtimeRaidState{}, fmt.Errorf("character already owns raid membership")
 	}
 	members := s.initialRuntimeRaidMembersLocked(session, sourceID)
+	if req.Route == 2 {
+		for i := range members {
+			members[i].GroupIndex = byte(i + 1)
+			members[i].SlotOrder = 0
+		}
+	}
 	if req.UIFlags[0] != 0 && len(members) != 1 {
 		return runtimeRaidState{}, fmt.Errorf("single raid has existing party members")
 	}
@@ -151,9 +165,13 @@ func (s *Service) handleCurrentModifyRaid(session *gameSession, op uint16, body 
 	if err != nil || !currentRaidNameValid(req.NameBytes) || !currentRaidFlagsSupported([3]byte{req.UIFlags[0], req.UIFlags[1], 0}) || !s.currentRaidAuthenticated(session) {
 		return s.sendRaidCommandFailure(session, op)
 	}
+	if req.Route == 2 {
+		// 与创建入口保持同一普通超时空模式，不能重新引入单人标志。
+		req.UIFlags[0] = 0
+	}
 	s.raidMu.Lock()
 	state := s.runtimeRaidByMemberLocked(selectedCharacterID(session))
-	if state == nil || !state.CurrentLayout || state.LeaderID != selectedCharacterID(session) || state.Started || state.RouteOrRaidType != req.Route || (req.UIFlags[0] != 0 && len(state.Members) != 1) {
+	if state == nil || !state.CurrentLayout || state.LeaderID != selectedCharacterID(session) || state.Started || state.RouteOrRaidType != req.Route || (state.RouteOrRaidType == 2 && req.UIFlags != [2]byte{}) || (req.UIFlags[0] != 0 && len(state.Members) != 1) {
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}

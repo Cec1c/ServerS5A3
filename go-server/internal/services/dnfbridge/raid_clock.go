@@ -40,10 +40,15 @@ func (s *Service) scheduleCurrentRaidClock(ctx context.Context) error {
 			s.logWarn("raid clock deferred", "error", err)
 		}
 		for _, state := range states {
+			if state.RouteOrRaidType == 2 && state.Battle == nil {
+				s.queueCurrentFiendWarLobbyReset(state)
+				continue
+			}
 			s.queueCurrentRaidDungeonProgress(state)
 		}
 		// Retry only exact timed-out active owners; scene confirmation owns retirement.
 		s.queueCurrentRaidDeadlineReturns(queue.Now())
+		s.queueCurrentFiendWarMaintenance()
 		if ctx == nil || ctx.Err() == nil {
 			if err := s.scheduleCurrentRaidClock(ctx); err != nil {
 				s.logWarn("reschedule raid clock failed", "error", err)
@@ -65,6 +70,12 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 			continue
 		}
 		b := state.Battle
+		if b.PhaseCompleted && b.FiendWar != nil {
+			if err := s.freezeCurrentFiendWarRewardFlowLocked(*state); err != nil {
+				errors = append(errors, err)
+			}
+			continue
+		}
 		if b.PhaseCompleted {
 			if !b.Single && b.Phase == 0 && b.RewardFlow[0] != nil && !b.RewardFlow[0].BreakUntil.IsZero() && !now.Before(b.RewardFlow[0].BreakUntil) {
 				started, err := s.beginCurrentAntonNextPhaseLocked(state, now)
@@ -83,6 +94,15 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 				if err := s.freezeCurrentRaidFinalWeeklyIntentLocked(*state); err != nil {
 					errors = append(errors, fmt.Errorf("raid %d final weekly entitlement: %w", state.RaidKey, err))
 				}
+			}
+			continue
+		}
+		if b.FiendWar != nil && b.TimedOut {
+			if err := s.freezeCurrentFiendWarRetryLocked(*state, now); err != nil {
+				errors = append(errors, err)
+			}
+			if s.resetCurrentFiendWarFailureLocked(state, now) {
+				states = append(states, cloneRuntimeRaidState(*state))
 			}
 			continue
 		}
@@ -109,6 +129,30 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 				b.Dungeons[i].State = 2
 			}
 			b.ProgressVersion++
+			if b.FiendWar != nil {
+				if err := s.freezeCurrentFiendWarRetryLocked(*state, now); err != nil {
+					errors = append(errors, fmt.Errorf("fiendwar timeout refund entitlement: %w", err))
+				}
+			}
+			states = append(states, cloneRuntimeRaidState(*state))
+			continue
+		}
+		if b.FiendWar != nil {
+			next := b.FiendWar.Clone()
+			if err := next.Tick(now); err != nil {
+				errors = append(errors, err)
+				continue
+			}
+			b.FiendWar = next
+			syncCurrentFiendWarDungeons(b)
+			b.ProgressVersion++
+			if next.Failed {
+				b.FiendWarEndedAt = now
+				b.TimedOut = true
+				if err := s.freezeCurrentFiendWarRetryLocked(*state, now); err != nil {
+					errors = append(errors, fmt.Errorf("fiendwar failure refund entitlement: %w", err))
+				}
+			}
 			states = append(states, cloneRuntimeRaidState(*state))
 			continue
 		}

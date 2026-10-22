@@ -24,6 +24,8 @@ const (
 	// Actual current 0133101A and 0141784C check this activity before
 	// admitting/displaying the Luke channel selector.
 	currentLukeChannelEventID uint16 = 282
+	// 现用客户端01330F8D缺少此活动时提示“使用日期不准确”。
+	currentFiendWarChannelEventID uint16 = 2449
 	// Actual 01A55120 checks 2426 before selecting the original mode chooser
 	// (window 127 / RaidSelectSingleModeWindow.xui), instead of window 123.
 	currentAntonModeSelectionEventID uint16 = 2426
@@ -220,6 +222,14 @@ func buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs []uint32, tota
 
 // Compose native online rewards and Seria luck without replacing other catalog rows.
 func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, false)
+}
+
+func buildCurrentActivityEventInfoBodyWithFiendWar(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, includeFiendWar bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, false, false, includeFiendWar)
+}
+
+func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeFiendWar bool) ([]byte, error) {
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -276,6 +286,10 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 		activeCount++
 	}
 	if includeLuke {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeFiendWar {
 		baseCatalogCount++
 		activeCount++
 	}
@@ -360,6 +374,13 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 	}
 	if includeLuke {
 		writer.writeUint16(currentLukeChannelEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
+	if includeFiendWar {
+		writer.writeUint16(currentFiendWarChannelEventID)
 		writer.writeUint32(currentSpendTimeBaseCatalogValue)
 		writer.writeRawDstr(nil)
 		writer.writeRawDstr(nil)
@@ -457,6 +478,12 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint
 	}
 	if includeLuke {
 		writer.writeUint16(currentLukeChannelEventID)
+		for index := 0; index < currentSpendTimeDescriptorParamCount; index++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeFiendWar {
+		writer.writeUint16(currentFiendWarChannelEventID)
 		for index := 0; index < currentSpendTimeDescriptorParamCount; index++ {
 			writer.writeUint32(0)
 		}

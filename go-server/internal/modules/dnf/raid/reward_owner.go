@@ -69,17 +69,29 @@ func NewRewardOwner(group repo.Group) (*RewardOwner, error) {
 // Each character has one receipt per instance/phase/kind, independent of card;
 // changing the card or outcome cannot obtain a second reward of that kind.
 func (o *RewardOwner) Grant(ctx context.Context, cmd RewardCommand) (RewardResult, error) {
+	return o.grant(ctx, cmd, false)
+}
+
+// RefundFiendWarEntry returns only a server-frozen failed-attempt ticket. Its
+// receipt is separate from every clear reward and never creates eligibility.
+func (o *RewardOwner) RefundFiendWarEntry(ctx context.Context, cmd RewardCommand) (RewardResult, error) {
+	if cmd.Mode != 3 || cmd.Phase != 0 || cmd.Kind != 4 || cmd.Card != 0 || cmd.MinimumClears != 0 || cmd.OwnedClears != 0 {
+		return RewardResult{}, ErrRewardReceipt
+	}
+	return o.grant(ctx, cmd, true)
+}
+func (o *RewardOwner) grant(ctx context.Context, cmd RewardCommand, refund bool) (RewardResult, error) {
 	if o == nil || o.assets == nil {
 		return RewardResult{}, ErrRewardOwnerUnavailable
 	}
 	instance, err := hex.DecodeString(cmd.InstanceID)
-	if err != nil || len(instance) != 16 || (cmd.Mode != 1 && cmd.Mode != 2) || cmd.Phase > 1 || cmd.Kind < 1 || cmd.Kind > 3 || cmd.Card > 19 ||
+	if err != nil || len(instance) != 16 || (cmd.Mode != 1 && cmd.Mode != 2 && cmd.Mode != 3) || cmd.Mode == 3 && (cmd.Phase != 0 || cmd.Card > 7) || cmd.Phase > 1 || cmd.Kind < 1 || cmd.Kind > 3 && !refund || cmd.Card > 19 ||
 		strings.TrimSpace(cmd.AccountID) == "" || strings.TrimSpace(cmd.CharacterID) == "" ||
 		cmd.AccountID != strings.TrimSpace(cmd.AccountID) || cmd.CharacterID != strings.TrimSpace(cmd.CharacterID) ||
 		cmd.Fingerprint == [32]byte{} || cmd.CompletedAt.IsZero() || cmd.CompletedAt.Unix() <= 0 || cmd.Project == nil {
 		return RewardResult{}, ErrRewardReceipt
 	}
-	if cmd.MinimumClears == 0 && !(cmd.Mode == 2 && cmd.Phase == 0) || cmd.OwnedClears < cmd.MinimumClears {
+	if !refund && (cmd.MinimumClears == 0 && !(cmd.Mode == 2 && cmd.Phase == 0) || cmd.OwnedClears < cmd.MinimumClears) {
 		return RewardResult{}, ErrRewardIneligible
 	}
 	if ctx == nil {
