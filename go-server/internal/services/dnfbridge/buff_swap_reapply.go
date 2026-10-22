@@ -13,6 +13,7 @@ import (
 const buffSwapReapplyEnv = "DNFBRIDGE_BUFF_SWAP_REAPPLY"
 const nativeBuffSwapSnapshotID uint16 = 1369
 const currentBuffSwapSnapshotID uint16 = 1368
+const currentBuffSwapRowsID uint16 = 1367
 const currentBuffSwapRegistrationID uint16 = 1426
 
 // Default off preserves all legacy registration and packet behavior.
@@ -177,11 +178,22 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 				s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "unchanged_projection_after_unrelated_wear", "msg_id", snapshotID)
 				return nil
 			}
-			if err := s.sendGameUpperRawClass(session, snapshotID, body, 0); err != nil {
+			wireID, wireBody := snapshotID, body
+			// v153 registers 1367 directly to 9985F0. It resolves current item
+			// objects and replaces registration rows without 1368's 997210
+			// manager reset. Rebuilds must refresh these pointers even if their
+			// list/index bytes did not change. Explicit registration and login
+			// keep the full snapshot, as does a skill not yet sent to this owner.
+			if skipUnregistered && snapshotID == currentBuffSwapSnapshotID && s.buffReplaySkillCurrent(session, identity, state.Skill) {
+				wireID, wireBody = currentBuffSwapRowsID, body[2:]
+			}
+			if err := s.sendGameUpperRawClass(session, wireID, wireBody, 0); err != nil {
 				return err
 			}
+			// Cache the canonical logical state after either successful wire
+			// form. A failed row update must remain eligible for retry.
 			s.rememberBuffReplay(session, identity, snapshotID, body)
-			s.logGameEvent(session, "game-buff-swap-native-reapply-sent", "source", source, "skill", state.Skill, "rows", len(state.Slots), "omitted", omitted, "msg_id", snapshotID, "classification", 0, "body_len", len(body))
+			s.logGameEvent(session, "game-buff-swap-native-reapply-sent", "source", source, "skill", state.Skill, "rows", len(state.Slots), "omitted", omitted, "msg_id", wireID, "classification", 0, "body_len", len(wireBody))
 		}
 	}
 	if err != nil {

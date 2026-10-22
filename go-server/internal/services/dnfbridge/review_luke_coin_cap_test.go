@@ -1,9 +1,12 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
+	"longheng.io/server/internal/modules/dnf/raid"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"sync"
@@ -14,7 +17,11 @@ import (
 func reviewActualLukeCoinFixtureForDungeon(t *testing.T, withPeer bool, dungeonID uint32) (*raidStartGuardFixture, *gameSession, *runtimeDungeonState, *gameSession, time.Time) {
 	t.Helper()
 	f, s, phaseAt := normalLukeFixture(t)
-	if dungeonID == 5311 {
+	if dungeonID == 5311 || dungeonID == 5063 || dungeonID == 5066 {
+		peer := f.session()
+		peer.selectedCharacterID, peer.accountID = 20, "account-20"
+		peer.channel, peer.loginPacketSeen, peer.accountFromToken = s.channel, true, true
+		f.service.bindGameSessionCharacter(peer, 20)
 		for _, id := range []uint32{5054, 5055, 5056} {
 			for n := 0; n < 3; n++ {
 				clearOwnedLuke(t, f, s, id, phaseAt)
@@ -28,10 +35,54 @@ func reviewActualLukeCoinFixtureForDungeon(t *testing.T, withPeer bool, dungeonI
 		if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(65*time.Second), zeroAntonRoll); len(errs) != 0 {
 			t.Fatal(errs)
 		}
+		// R190 next-phase admission requires every authenticated member in
+		// this exact battle's waiting area. The old coin fixture omitted it.
+		enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
 		if _, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil); len(errs) != 0 || f.state.Battle.Phase != 1 {
 			t.Fatal("phase-two fixture failed", errs)
 		}
 		s.dungeon.runtime = nil
+		if dungeonID == 5063 || dungeonID == 5066 {
+			progress := &raid.LukeProgression{AntonProgression: f.state.Battle.Anton}
+			open := func() bool {
+				for _, d := range progress.Dungeons() {
+					if d.ID == dungeonID {
+						return d.State == 0
+					}
+				}
+				return false
+			}
+			for _, prior := range []uint32{5311, 5313, 5057, 5058, 5059, 5060, 5064, 5065} {
+				if open() {
+					break
+				}
+				run := fmt.Sprintf("r195-history-%d", prior)
+				var err error
+				progress, _, err = progress.EnterDungeon(run, prior, progress.Epoch(), time.Now())
+				if err != nil {
+					t.Fatal("prior enter", prior, err)
+				}
+				progress, _, err = progress.ClearDungeon(run, prior, progress.Epoch(), time.Now())
+				if err != nil {
+					t.Fatal("prior clear", prior, err)
+				}
+			}
+			if !open() {
+				var err error
+				progress, _, err = progress.EnterDungeon("r195-history-throne", 5061, progress.Epoch(), time.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				progress, err = progress.EnterMap(55845, time.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !open() {
+				t.Fatal("real graph did not open energy map", dungeonID)
+			}
+			f.state.Battle.Anton, f.state.Battle.Dungeons = progress.AntonProgression, progress.Dungeons()
+		}
 	}
 	a := f.service.initialEquipmentArchive
 	table, e := worldmap.LoadSource(context.Background(), a, worldmap.Options{})
@@ -191,6 +242,9 @@ func reviewActualLukeCoinFixtureForDungeon(t *testing.T, withPeer bool, dungeonI
 
 func TestReviewActualLukeBirthEntryRejectsNinthCoinBeforeRevive(t *testing.T) {
 	f, s, r, _, _ := reviewActualLukeCoinFixture(t, false)
+	var logs bytes.Buffer
+	f.service.packetLog = nil
+	f.service.logger = slog.New(slog.NewJSONHandler(&logs, nil))
 	f.service.gameplayTimers = newFakeCurrentDungeonDeathTimerQueue()
 	r.lifecycleToken = 1
 	body := make([]byte, 2)
@@ -212,6 +266,10 @@ func TestReviewActualLukeBirthEntryRejectsNinthCoinBeforeRevive(t *testing.T) {
 		if n == 8 && !r.deathReturnWaiting {
 			t.Fatal("actual Luke birth coin limit8 allowed ninth revive")
 		}
+	}
+	event := r195DiagnosticEvent(t, &logs, "game-luke-coin-validation")
+	if event["reason"] != "map_coin_limit_reached" || event["map_coin_used"] != float64(8) || event["map_coin_limit"] != float64(8) || event["run_id"] != r.raidEntry.RunID {
+		t.Fatalf("missing actual map rejection reason: %v", event)
 	}
 }
 
@@ -334,6 +392,9 @@ func reviewActualLukeCoinFixture(t *testing.T, withPeer bool) (*raidStartGuardFi
 }
 func TestReviewActualLukePhaseTwoSharedCoinLimitSurvivesReentry(t *testing.T) {
 	f, s, r, _, _ := reviewActualLukeCoinFixtureForDungeon(t, false, 5311)
+	var logs bytes.Buffer
+	f.service.packetLog = nil
+	f.service.logger = slog.New(slog.NewJSONHandler(&logs, nil))
 	f.service.gameplayTimers = newFakeCurrentDungeonDeathTimerQueue()
 	r.lifecycleToken = 1
 	for n := 0; n < 21; n++ {
@@ -410,6 +471,10 @@ func TestReviewActualLukePhaseTwoSharedCoinLimitSurvivesReentry(t *testing.T) {
 	}
 	if !r.deathReturnWaiting || b.PhaseCoins[1] != 20 || reviewLukeCoinBalance(t, f, s) != 10 {
 		t.Fatal("fresh run reset phase quota")
+	}
+	event := r195DiagnosticEvent(t, &logs, "game-luke-coin-validation")
+	if event["reason"] != "phase_coin_limit_reached" || event["phase_coin_used"] != float64(20) || event["phase_coin_limit"] != float64(20) || event["run_id"] != r.raidEntry.RunID || event["phase"] != float64(1) {
+		t.Fatalf("missing actual phase rejection reason: %v", event)
 	}
 }
 

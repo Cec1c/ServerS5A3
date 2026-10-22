@@ -82,6 +82,11 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		return handled, err
 	}
 	if typ == uint16(dnfenum.CmdPacketUseStackable) {
+		if cmd == byte(dnfenum.GameCmdCommand) {
+			if handled, err := s.handleCurrentPetFeed(session, body); handled || err != nil {
+				return handled, err
+			}
+		}
 		if handled, err := s.handleCurrentExpertJobRecipeLearning(session, body); handled || err != nil {
 			return handled, err
 		}

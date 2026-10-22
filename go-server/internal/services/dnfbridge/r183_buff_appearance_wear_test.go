@@ -186,7 +186,7 @@ func TestR183VisibleWeaponWearPreservesSeparateBuffLoadout(t *testing.T) {
 						switch packet.Header.MsgID {
 						case 2:
 							actor++
-						case currentBuffSwapSnapshotID, nativeBuffSwapSnapshotID:
+						case currentBuffSwapSnapshotID, currentBuffSwapRowsID, nativeBuffSwapSnapshotID:
 							native++
 						case currentSkillSwitchInventoryOpcode:
 							t.Fatal("wear enabled unproved loadout downlink")

@@ -320,8 +320,8 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 
-	// v150 Anton battle-table bt_stanfby_move also emits 72/{1,2} during
-	// an active run (018774EF). It owns an explicit give-up, not settlement.
+	// v153 Anton bt_stanfby_move (018774EF) and Luke bt_standby_move
+	// (0110DC13) emit 72/{1,2} during an active run as an explicit give-up.
 	if len(body) == 2 && shouldReturnToTown && s.currentRaidTableActiveReturnReady(session, runtime) {
 		session.dungeon.mu.Unlock()
 		return s.handleCurrentDungeonTownExitRequest(session, nil, uint16(dnfenum.CmdPacketEplpCommand))
@@ -393,11 +393,23 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_owned_raid_map_return_to_town")
 	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
-		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
+		fields := []any{
 			"char_id", session.selectedCharacterID,
 			"request_value_a", request.ValueA,
 			"request_value_b", request.ValueB,
-			"reason", "settlement_clear_reward_not_sent")
+			"has_runtime", runtime != nil,
+			"reason", "settlement_clear_reward_not_sent",
+		}
+		if runtime != nil {
+			fields = append(fields, "dungeon_id", runtime.Dungeon.ID, "town_return_pending", runtime.townReturnPending)
+			if runtime.Session != nil {
+				fields = append(fields, "run_status", runtime.Session.Snapshot().Run.Status)
+			}
+			if runtime.raidEntry != nil {
+				fields = append(fields, "run_id", runtime.raidEntry.RunID, "instance_id", runtime.raidEntry.InstanceID, "entry_phase", runtime.raidEntry.Phase, "entry_attempt", runtime.raidEntry.Attempt)
+			}
+		}
+		s.logGameEvent(session, "game-dungeon-card-exit-blocked", fields...)
 		session.dungeon.mu.Unlock()
 		return nil
 	}

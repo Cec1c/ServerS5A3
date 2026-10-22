@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"bytes"
+	"encoding/binary"
 	"sync"
 )
 
@@ -16,6 +17,22 @@ type buffReplayDedupeState struct {
 	accountID  string
 	msgID      uint16
 	body       []byte
+}
+
+// The current client's row-only 1367 consumer preserves selected skills. Use
+// it only after this owner successfully received a full state with that skill;
+// login, a changed skill and a new character generation still require 1368.
+func (s *Service) buffReplaySkillCurrent(session *gameSession, identity buffOwnedSendIdentity, skill uint16) bool {
+	if session == nil {
+		return false
+	}
+	state := &session.buffReplayDedupe
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.valid && state.character == identity.character &&
+		state.generation == identity.generation && state.accountID == identity.accountID &&
+		state.msgID == currentBuffSwapSnapshotID && len(state.body) >= 3 &&
+		binary.LittleEndian.Uint16(state.body) == skill
 }
 
 // buffReplayUnchanged compares against the last snapshot successfully written

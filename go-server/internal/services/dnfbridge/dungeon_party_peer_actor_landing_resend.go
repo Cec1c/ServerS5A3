@@ -201,6 +201,13 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 			"run_key_map_id", ownKey.MapID,
 			"run_key_seed", ownKey.Seed,
 			"peer_scene_stable", peerSceneStable,
+			"peer_finish_state_sent", peer.currentFinishLoadingStateSent,
+			"peer_finish_completion_sent", peer.currentFinishLoadingCompletionSent,
+			"peer_post_finish_sent", peer.postFinishLoadingPlayerStateSent,
+			"peer_run_key_ready", peerReady,
+			"peer_run_key_party_id", peerKey.PartyID,
+			"peer_run_key_map_id", peerKey.MapID,
+			"peer_run_key_seed", peerKey.Seed,
 			"peer_finish_loading_tail", peer.currentFinishLoadingStateSent &&
 				peer.currentFinishLoadingCompletionSent &&
 				peer.postFinishLoadingPlayerStateSent,

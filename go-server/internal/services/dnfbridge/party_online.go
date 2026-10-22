@@ -1888,6 +1888,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		}
 	}
 	op9Fields := []any{
+		"body_digest", currentProjectionBodyDigest(body),
 		"conn_id", receiver.connID,
 		"source", source,
 		"receiver_char_id", receiverIdentity.character,

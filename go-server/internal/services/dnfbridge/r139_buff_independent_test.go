@@ -67,17 +67,17 @@ func r139AssertWire(t *testing.T, f *loginWearAnchorFixture, slot, list byte, in
 		if p.Header.Classification == 0 && p.Header.MsgID == 2 {
 			actorCount++
 		}
-		if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+		if p.Header.Classification == 0 && p.Header.MsgID == 1367 {
 			buffCount++
 			buffAt = seq
 			body := p.Body
-			if len(body) == 171 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
+			if len(body) == 169 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
 				body = body[3:]
 			}
-			if len(body) != 168 {
+			if len(body) != 166 || body[0] != 33 {
 				t.Fatal("bad snapshot size")
 			}
-			row := body[3+int(slot)*5 : 8+int(slot)*5]
+			row := body[1+int(slot)*5 : 6+int(slot)*5]
 			if !bytes.Equal(row, []byte{1, slot, list, byte(index), byte(index >> 8)}) {
 				t.Fatalf("wrong instance projection %x", row)
 			}
@@ -212,7 +212,7 @@ func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
 		name string
 		kind byte
 		msg  uint16
-	}{{"ack", 1, 19}, {"item_row", 0, 14}, {"buff", 0, 1368}} {
+	}{{"ack", 1, 19}, {"item_row", 0, 14}, {"buff", 0, 1367}} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := p94Fixture(t)
 			instance := p94Register(t, f)
@@ -227,7 +227,7 @@ func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
 			for len(wire) > 0 {
 				p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 				wire = rest
-				if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+				if p.Header.Classification == 0 && (p.Header.MsgID == 1368 || p.Header.MsgID == 1367) {
 					t.Fatal("snapshot jumped failed ACK/row or retry duplicated failed snapshot")
 				}
 			}

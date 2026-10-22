@@ -5,6 +5,9 @@ package dnfbridge
 func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 	switch kind {
 	case "game-dungeon-party-peer-actor-delivered",
+		"game-dungeon-party-peer-actor-send",
+		"game-current-party-frame-op9-send",
+		"game-current-party-frame-op9-remove-send",
 		"game-party-dungeon-peer-actor-landing-resend",
 		"game-dungeon-party-peer-actor-resend",
 		"game-raid-volcano-barrier-symbols-sent",
@@ -33,6 +36,12 @@ func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 		}
 		switch key {
 		case "conn_id", "channel_id", "char_id", "peer_char_id", "receiver_char_id", "actor_char_id",
+			"mode0_digest", "mode1_digest", "body_digest", "mode0_object_key", "mode1_object_key",
+			"mode0_route", "mode0_owner", "mode1_owner", "mode0_body_len", "mode1_body_len",
+			"appearance_rows", "appearance_empty_rows", "appearance_link_rows", "mode1_create_rows",
+			"peer_finish_state_sent", "peer_finish_completion_sent", "peer_post_finish_sent", "peer_run_key_ready",
+			"peer_run_key_party_id", "peer_run_key_map_id", "peer_run_key_seed",
+			"object_key", "owner_channel", "party_id", "slot_count", "party_leader_slot", "slot_zero_char_id", "leader_char_id",
 			"actor_generation", "receiver_generation", "source", "decision", "delivered", "peer_scene_stable",
 			"instance_id", "phase", "projection_version", "projection_fresh",
 			"symbol_cursor_before", "symbol_cursor_after", "zero_write_index", "break_write_index",

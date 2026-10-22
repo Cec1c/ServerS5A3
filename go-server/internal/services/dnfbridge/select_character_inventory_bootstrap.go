@@ -56,6 +56,13 @@ func (s *Service) sendCurrentSelectInventoryBootstrap(session *gameSession, sour
 	s.cleanupSelectedExpiredRentalEquipment(session, source)
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
+	// Persist previously uninitialized dungeon Aiken options before any container
+	// or mode1 projection. This is idempotent and preserves purchased upgrades.
+	if repaired, err := s.repairCurrentAikenInitialOptions(ctx, session); err != nil {
+		s.logWarn("dnfbridge aiken initial option repair failed", "char_id", session.selectedCharacterID, "error", err)
+	} else if repaired > 0 {
+		s.logGameEvent(session, "game-aiken-initial-options-repaired", "rows", repaired)
+	}
 
 	// 存量史诗碎片清扫（在**构包之前**，所以不需要任何 op14 刷新）。
 	//

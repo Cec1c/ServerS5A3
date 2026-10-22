@@ -49,6 +49,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		for _, recipient := range f.Recipients {
 			card := f.Squad[recipient.CharacterID]
 			if card == nil || !card.Committed {
+				s.logCurrentRaidRewardWire(session, currentAntonRewardPacket{opcode: 600}, b.InstanceID, b.Mode, b.Phase, false, "squad_card_uncommitted")
 				return raid.ErrRewardReceipt
 			}
 			cards = append(cards, raid.RewardDisplayCard{CharacterID: recipient.CharacterID, CardType: 1, Items: currentAntonPartyDisplayItems(card.Plan)})
@@ -62,8 +63,9 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		if owner != nil {
 			var cards []raid.RewardDisplayCard
+			visible := s.currentRaidPartyRewardDisplayMembers(session, state)
 			for _, recipient := range f.Recipients {
-				if recipient.Group != owner.Group {
+				if !visible[recipient.CharacterID] {
 					continue
 				}
 				card := raid.RewardDisplayCard{CharacterID: recipient.CharacterID, CardType: byte(len(cards) + 1)}
@@ -164,12 +166,14 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	}
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, packet.class, true); err != nil {
+			s.logCurrentRaidRewardWire(session, packet, b.InstanceID, b.Mode, b.Phase, false, "send_failed")
 			o.failed = true
 			if session.conn != nil {
 				_ = session.conn.Close()
 			}
 			return err
 		}
+		s.logCurrentRaidRewardWire(session, packet, b.InstanceID, b.Mode, b.Phase, true, "")
 	}
 	for _, packet := range packets {
 		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {

@@ -35,6 +35,7 @@ func firstAntonFlowFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, 
 	peer.selectedCharacterID, peer.accountID, peer.loginPacketSeen, peer.accountFromToken = 20, "account-20", true, true
 	f.service.bindGameSessionCharacter(session, 19)
 	f.service.bindGameSessionCharacter(peer, 20)
+	r195RewardParty(t, f.service, 19, 20)
 	for i := range f.state.Members {
 		f.state.Members[i].GroupIndex = 1
 	}

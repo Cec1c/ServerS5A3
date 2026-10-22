@@ -530,6 +530,7 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	// 发送处日志同时给出档位与**两个实际 owner 值**（op2 的 body[4] 与 op9 的 body[7]），
 	// 线上一眼判档位；`owner_channel`/`owner_mode` 是 op2 的实际值与档位。
 	peerActorFields = append(peerActorFields, ownerPlan.ownerFields()...)
+	peerActorFields = append(peerActorFields, currentPeerActorWireDiagnostic(mode0Body, mode1Body)...)
 	s.logGameEvent(receiver, "game-dungeon-party-peer-actor-send", peerActorFields...)
 	// 判读事件：这条投影到底带没带队友的时装（克隆装扮链接字段）。操作者的
 	// 「队长看不到队员时装、队员看得到队长时装」两个方向都靠这一条事件判定，见

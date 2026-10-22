@@ -475,14 +475,15 @@ func (s *Service) completeCurrentDungeonReviveLocked(
 }
 
 type currentDungeonReviveCoinConsumeResult struct {
-	Consumed      bool
-	FreeRevive    bool
-	SlotKey       string
-	Slot          int16
-	ItemID        int64
-	CountAfter    int64
-	HasItemUpdate bool
-	ItemUpdate    currentItemListEntry
+	Consumed           bool
+	FreeRevive         bool
+	SlotKey            string
+	Slot               int16
+	ItemID             int64
+	CountAfter         int64
+	HasItemUpdate      bool
+	ItemUpdate         currentItemListEntry
+	RaidCoinProjection *runtimeRaidState
 }
 
 // A completed ordinary run cancels its death-return timer when entering
@@ -615,6 +616,9 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 		source = "current_exe_op41_private_server_free_revive"
 	}
 	raidLifeProjections := s.completeCurrentDungeonReviveLocked(session, runtime, source)
+	if consume.RaidCoinProjection != nil {
+		raidLifeProjections = append(raidLifeProjections, *consume.RaidCoinProjection)
+	}
 	session.dungeon.mu.Unlock()
 	for _, state := range raidLifeProjections {
 		s.queueCurrentRaidDungeonProgress(state)

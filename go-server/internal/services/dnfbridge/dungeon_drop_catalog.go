@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	aiken "longheng.io/server/internal/modules/dnf/aikenupgrade"
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
 	"longheng.io/server/internal/modules/dnf/inventory"
@@ -46,6 +47,10 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
+	// Static rules are shared; rolled instance state is copied only into a ground
+	// drop or new grant, never back into itemCache.
+	AikenInitial             *aiken.InitialCatalog
+	AikenInitialState        [5]byte
 	CeraOnly, TokenCeraOnly  bool
 	AuctionUsableJobs        []string
 	AuctionRecipeOutputID    uint32
@@ -126,6 +131,7 @@ type dungeonDropWeightedItem struct {
 // not decide how often a monster drops, allocate a scene slot, or mutate the
 // player's inventory. Those are separate runtime/asset transactions.
 type pvfDungeonDropCatalog struct {
+	aikenInitial      *aiken.InitialCatalog
 	despairPoolLoaded bool
 	despairPools      [2]map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
 	despairPoolErr    error
@@ -329,6 +335,18 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 	}
 	if reference.kind == dungeonDropItemEquipment {
 		definition.SlotStart, definition.SlotEnd = 9, 64
+		if aikenString(document, "custom ability type", "warriors dungeon") {
+			if !aikenInt(document, "custom ability count", 2) {
+				return dungeonDropItemDefinition{}, aiken.ErrInvalid
+			}
+			if c.aikenInitial == nil {
+				c.aikenInitial, err = aiken.NewInitialCatalog(c.source)
+				if err != nil {
+					return dungeonDropItemDefinition{}, err
+				}
+			}
+			definition.AikenInitial = c.aikenInitial
+		}
 		definition.EquipmentType, _ = document.Text("equipment type")
 		definition.Grade, _ = document.Int("grade")
 		definition.Rarity, _ = document.Int("rarity")

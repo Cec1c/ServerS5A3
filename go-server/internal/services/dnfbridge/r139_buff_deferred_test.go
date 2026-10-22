@@ -34,7 +34,7 @@ type r139ContainerFailureConn struct {
 func (c *r139ContainerFailureConn) Write(p []byte) (int, error) {
 	if len(p) >= 3 && p[0] == 0 {
 		msg := binary.LittleEndian.Uint16(p[1:3])
-		if msg == 1368 {
+		if msg == 1368 || msg == 1367 {
 			c.buffAttempts++
 		}
 		if msg == 13 {
@@ -89,7 +89,7 @@ func TestR139BuffSnapshotWriteFailureCommitsOnlyOnce(t *testing.T) {
 	g := f.group
 	g.CharacterItems = r139CountTransactions{g.CharacterItems, &attempts, &commits}
 	f.service.repositoryProvider = func() (repo.Group, bool) { return g, true }
-	conn := &r139FailMessageConn{kind: 0, msg: 1368}
+	conn := &r139FailMessageConn{kind: 0, msg: 1367}
 	f.session.conn = conn
 	err := f.service.handleGameCommand(f.session, 1, 19, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 	if err == nil || !strings.Contains(err.Error(), "r139 injected message write failure") || !conn.hit || attempts != 1 || commits != 1 {

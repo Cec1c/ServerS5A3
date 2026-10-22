@@ -178,6 +178,15 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 		return err
 	}
 	packets := []currentRaidProjectionPacket{{opcode: 585, body: mapBody}}
+	if b.Mode == 2 && !b.Single {
+		coinBody, err := currentLukePhaseCoinBody(b)
+		if err != nil {
+			return err
+		}
+		// Absolute snapshot on initial phase, reconnect and every committed
+		// progress update. No client-side zero/reset guesses survive a restore.
+		packets = append(packets, currentRaidProjectionPacket{opcode: 775, body: coinBody})
+	}
 	cursor := o.symbolCursor
 	previousTimers := o.timers
 	if fresh {

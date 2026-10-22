@@ -40,6 +40,11 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	if f := latest.Battle.RewardFlow[latest.Battle.Phase]; f != nil && !f.SquadShownAt.IsZero() {
 		// A delayed click/movie packet must not reopen party masks over the
 		// already committed squad/break screen. Preserve only its command ACK.
+		for _, packet := range packets {
+			if packet.class != 1 {
+				s.logCurrentRaidRewardWire(session, packet, latest.Battle.InstanceID, latest.Battle.Mode, latest.Battle.Phase, false, "squad_shown_at_filtered")
+			}
+		}
 		filtered := packets[:0]
 		for _, packet := range packets {
 			if packet.class == 1 {
@@ -55,12 +60,14 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	}
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, packet.class, true); err != nil {
+			s.logCurrentRaidRewardWire(session, packet, latest.Battle.InstanceID, latest.Battle.Mode, latest.Battle.Phase, false, "send_failed")
 			o.failed = true
 			if session.conn != nil {
 				_ = session.conn.Close()
 			}
 			return err
 		}
+		s.logCurrentRaidRewardWire(session, packet, latest.Battle.InstanceID, latest.Battle.Mode, latest.Battle.Phase, true, "")
 	}
 	for _, packet := range packets {
 		if packet.class == 0 && packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
@@ -171,8 +178,9 @@ func (s *Service) handleCurrentAntonMovieCompletion(session *gameSession, op uin
 		}
 	}
 	var cards []raid.RewardDisplayCard
+	visible := s.currentRaidPartyRewardDisplayMembers(session, state)
 	for _, peer := range peers {
-		if peer.GroupIndex == member.GroupIndex && currentAntonPhaseClearCount(state.Battle, peer.CharID) >= state.Battle.AntonRewards.Phases[state.Battle.Phase].MinimumClears {
+		if visible[peer.CharID] && currentAntonPhaseClearCount(state.Battle, peer.CharID) >= state.Battle.AntonRewards.Phases[state.Battle.Phase].MinimumClears {
 			card := raid.RewardDisplayCard{CharacterID: peer.CharID, CardType: byte(len(cards) + 1)}
 			if selected := state.Battle.RewardCards[state.Battle.Phase][peer.CharID]; selected != nil && selected.Committed {
 				card.CardType = selected.Card
@@ -378,16 +386,17 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 	if err := s.sendSelectedCurrentContainerListsRefresh(session, "raid_party_card_after_commit"); err != nil {
 		return err
 	}
-	s.queueCurrentAntonPartyCardReveal(session, state, card, display)
+	s.queueCurrentAntonPartyCardReveal(session, state, display)
 	s.logGameEvent(session, "game-raid-party-card-committed", "raid_key", state.RaidKey, "phase", command.Phase, "card", card.Card, "replayed", result.Replayed, "at", time.Now().Unix())
 	return nil
 }
 
 // Other recipients are queued independently of the caller's input loop, so
 // simultaneous selections in two sessions cannot wait on each other.
-func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state runtimeRaidState, card currentAntonRewardCard, body []byte) {
+func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state runtimeRaidState, body []byte) {
+	senderID := sender.selectedCharacterID
 	for _, member := range state.Members {
-		if member.CharID == sender.selectedCharacterID || member.GroupIndex != card.Group {
+		if member.CharID == senderID {
 			continue
 		}
 		peer, found := s.onlineGameSession(member.CharID)
@@ -401,6 +410,13 @@ func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state ru
 			defer cancel()
 			err := s.callGameSession(ctx, peer, "raid-owned-party-card-reveal", func() error {
 				if peer.characterGeneration != generation || peer.selectedCharacterID != id || !currentAntonResultDelivered(peer, state) {
+					return nil
+				}
+				latest, err := s.latestCurrentRaidProjectionState(peer, state)
+				if err != nil {
+					return err
+				}
+				if !s.currentRaidPartyRewardDisplayMembers(peer, latest)[senderID] {
 					return nil
 				}
 				return s.sendCurrentAntonRewardPackets(peer, state, []currentAntonRewardPacket{{opcode: 600, body: projection}}, false)

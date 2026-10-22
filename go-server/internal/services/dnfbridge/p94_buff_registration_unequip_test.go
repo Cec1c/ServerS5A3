@@ -134,13 +134,23 @@ func p94Wire(t *testing.T, wire []byte, wantList byte, wantIndex uint16, present
 		if p.Header.Classification == 0 && p.Header.MsgID == 2 {
 			modeAt = seq
 		}
-		if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+		if p.Header.Classification == 0 && (p.Header.MsgID == 1368 || p.Header.MsgID == 1367) {
 			snapshots++
 			buffAt = seq
 			// Raw class0 writes retain the fixture's server16 padding under the ordinary13 reader.
 			body := p.Body
-			if len(body) == 171 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
+			size := 168
+			if p.Header.MsgID == 1367 {
+				size = 166
+			}
+			if len(body) == size+3 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
 				body = body[3:]
+			}
+			if p.Header.MsgID == 1367 {
+				if len(body) != 166 || body[0] != 33 {
+					t.Fatalf("invalid current row update %x", body)
+				}
+				body = append([]byte{38, 0}, body...)
 			}
 			if len(body) != 168 || binary.LittleEndian.Uint16(body) != 38 || body[2] != 33 {
 				t.Fatalf("invalid current snapshot %x", body)

@@ -19,7 +19,7 @@ func r191DrainBuffSnapshots(t *testing.T, conn *bufferConn) int {
 	t.Helper()
 	count := 0
 	for _, packet := range drainUpperPackets(t, conn) {
-		if packet.msgID == currentBuffSwapSnapshotID || packet.msgID == nativeBuffSwapSnapshotID {
+		if packet.msgID == currentBuffSwapSnapshotID || packet.msgID == currentBuffSwapRowsID || packet.msgID == nativeBuffSwapSnapshotID {
 			count++
 		}
 	}

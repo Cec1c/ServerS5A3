@@ -226,7 +226,7 @@ func currentSceneAppearanceSlotComponent(slot int) string {
 // 偏移依据 userinfo_current_modes.go:22-56 的写入顺序（mode/owner/raw16/objectKey/
 // exp/statBlob/extraEquipSlotState 之后就是 sub_1D77560 的创建行计数）。
 func currentUserInfoMode1CreateRowCountForLog(body []byte) (int, bool) {
-	if len(body) < 23 || body[0] != 1 {
+	if len(body) < 31 || body[0] != 1 {
 		return 0, false
 	}
 	statLen := int(binary.LittleEndian.Uint32(body[27:31]))
