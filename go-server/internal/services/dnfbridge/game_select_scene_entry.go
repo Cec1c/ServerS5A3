@@ -279,6 +279,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 		if packet.kind == "select_ack" {
+			if err := s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack"); err != nil {
+				return err
+			}
 			if err := s.sendCurrentEpicWishSnapshot(session, "select_character_after_ack"); err != nil {
 				return err
 			}

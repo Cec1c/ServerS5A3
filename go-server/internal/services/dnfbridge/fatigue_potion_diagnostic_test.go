@@ -251,8 +251,15 @@ func TestFatiguePotionDiagnosticCommitted(t *testing.T) {
 				t.Fatal("inventory deletion/item ID changed")
 			}
 			fp, rest := splitGameServerUpperPacket(t, rest)
-			if fp.Header.MsgID != currentFatigueMsgID || len(rest) != 0 || f.conn.writes != 3 {
+			if fp.Header.MsgID != currentFatigueMsgID {
 				t.Fatal("fatigue response/order or write count changed")
+			}
+			usage, rest := splitGameServerUpperPacket(t, rest)
+			if usage.Header.MsgID != currentFatiguePotionUsageMsgID || usage.Header.Classification != 0 || len(rest) != 0 || f.conn.writes != 4 {
+				t.Fatal("fatigue usage response/order or write count changed")
+			}
+			if want := []byte{1, 0x21, 0xaa, 0x98, 0x00, 1, 0}; !bytes.Equal(usage.Body, want) {
+				t.Fatalf("fatigue usage body=%x want=%x", usage.Body, want)
 			}
 			f.assertCommitted(t, count, [3]string{"returned_ok", "returned_ok", "returned_ok"})
 		})
@@ -270,7 +277,7 @@ func TestFatiguePotionDiagnosticCommitted(t *testing.T) {
 func TestFatiguePotionDiagnosticWriteFailures(t *testing.T) {
 	a := fatigueDiagnosticArchive(t)
 	for _, count := range []int64{1, 4} {
-		for stage := 1; stage <= 3; stage++ {
+		for stage := 1; stage <= 4; stage++ {
 			t.Run(fmt.Sprintf("count%d_write%d", count, stage), func(t *testing.T) {
 				f := newFatigueDiagnosticFixture(t, a, count)
 				f.conn.failAt = stage
@@ -279,10 +286,12 @@ func TestFatiguePotionDiagnosticWriteFailures(t *testing.T) {
 					t.Fatalf("write failure return/stop changed: handled=%t err=%v writes=%d", handled, err, f.conn.writes)
 				}
 				want := [3]string{"not_attempted", "not_attempted", "not_attempted"}
-				for i := 0; i < stage-1; i++ {
+				for i := 0; i < stage-1 && i < len(want); i++ {
 					want[i] = "returned_ok"
 				}
-				want[stage-1] = "failed"
+				if stage <= len(want) {
+					want[stage-1] = "failed"
+				}
 				f.assertCommitted(t, count, want)
 			})
 		}
@@ -327,12 +336,12 @@ func TestFatiguePotionDiagnosticInventoryRefreshCallFailure(t *testing.T) {
 
 func TestFatiguePotionDiagnosticShortWrite(t *testing.T) {
 	a := fatigueDiagnosticArchive(t)
-	for stage := 1; stage <= 3; stage++ {
+	for stage := 1; stage <= 4; stage++ {
 		t.Run(fmt.Sprint(stage), func(t *testing.T) {
 			f := newFatigueDiagnosticFixture(t, a, 4)
 			f.conn.shortAt = stage
 			handled, err := f.use()
-			if !handled || err != nil || f.conn.writes != 3 {
+			if !handled || err != nil || f.conn.writes != 4 {
 				t.Fatalf("existing short-write return/continuation changed: %t %v writes%d", handled, err, f.conn.writes)
 			}
 			want := [3]string{"returned_ok", "returned_ok", "returned_ok"}
@@ -344,14 +353,14 @@ func TestFatiguePotionDiagnosticShortWrite(t *testing.T) {
 
 func TestFatiguePotionDiagnosticSuppressed(t *testing.T) {
 	a := fatigueDiagnosticArchive(t)
-	for _, spec := range []string{"1:515", "0:14", fmt.Sprintf("0:%d", currentFatigueMsgID)} {
+	for _, spec := range []string{"1:515", "0:14", fmt.Sprintf("0:%d", currentFatigueMsgID), fmt.Sprintf("0:%d", currentFatiguePotionUsageMsgID)} {
 		t.Run(spec, func(t *testing.T) {
 			t.Setenv(upperSendFilterEnv, spec)
 			resetUpperSendFilterCache()
 			t.Cleanup(resetUpperSendFilterCache)
 			f := newFatigueDiagnosticFixture(t, a, 4)
 			handled, err := f.use()
-			if !handled || err != nil || f.conn.writes != 2 {
+			if !handled || err != nil || f.conn.writes != 3 {
 				t.Fatalf("suppression return changed: %t %v writes%d", handled, err, f.conn.writes)
 			}
 			want := [3]string{"returned_ok", "returned_ok", "returned_ok"}
