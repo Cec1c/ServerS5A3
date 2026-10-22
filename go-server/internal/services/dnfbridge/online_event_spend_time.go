@@ -485,6 +485,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		return false, nil
 	}
 	var eventInfoTransport []byte
+	fiendWarAvailable := false
 	dayDungeonEvent := s.currentDayDungeonEvent()
 	includeFirstProcessDescriptor = includeFirstProcessDescriptor || dayDungeonEvent != session.activityCatalogDayEvent
 	joustEventEnabled := s.joustEventEnabled()
@@ -511,7 +512,8 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(
+		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			includeJoust,
@@ -527,6 +529,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			s.currentEpicRoadActivityAvailable(),
 			catalog.nativePCRoom != nil,
 			true, // Keep the native Seria luck entry alongside online rewards.
+			fiendWarAvailable,
 		)
 		if err != nil {
 			return false, err
@@ -552,6 +555,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			return false, err
 		}
 		descriptorSent = true
+		s.logGameEvent(session, "超时空频道开放状态下发", "event_id", currentFiendWarChannelEventID, "available", fiendWarAvailable)
 		session.activityCatalogDayEvent = dayDungeonEvent
 		if dayDungeonEvent != 0 {
 			s.logGameEvent(session, "game-day-dungeon-catalog-sent", "event_id", dayDungeonEvent, "char_id", session.selectedCharacterID, "reset", "06:00_UTC+8", "reason", "full_catalog_replaces_previous_weekday")

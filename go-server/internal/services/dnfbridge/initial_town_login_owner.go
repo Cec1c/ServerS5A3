@@ -51,6 +51,13 @@ func (s *Service) currentCharacterListLoginTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if isCurrentFiendWarChannel(session) {
+		projected, town, area, row, path, err := s.currentRaidEntranceTownTransition(session, characterID, character)
+		if err == nil {
+			projected, err = s.commitCurrentReconnectLocation(ctx, characterID, projected)
+		}
+		return projected, town, area, row, path, err
+	}
 	if session != nil && isPVPChannel(session.channel) {
 		projected, town, area, row, path, err := s.currentPVPTownTransition(session, characterID, character)
 		if err != nil {

@@ -33,6 +33,9 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 	if !runtime.bossDieCheckAccepted || snapshot.Run.Status != worldmap.DungeonRunCompleted {
 		return nil
 	}
+	if allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, nil); !allowed || err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()

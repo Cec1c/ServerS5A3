@@ -322,6 +322,14 @@ func (s *Service) prepareCurrentDungeonTownTransitionForSession(
 	session *gameSession,
 	characterID uint16,
 ) (currentDungeonTownTransition, error) {
+	if isCurrentFiendWarChannel(session) {
+		session.dungeon.mu.Lock()
+		r := session.dungeon.runtime
+		session.dungeon.mu.Unlock()
+		if r != nil && r.raidEntry != nil {
+			return s.prepareCurrentFiendWarReturn(session, r)
+		}
+	}
 	transition, err := s.prepareCurrentDungeonTownTransition(ctx, characterID, session)
 	if err != nil {
 		return currentDungeonTownTransition{}, err
@@ -656,7 +664,9 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// 锁外执行（要读实例注册表 / 可能要发帧，不能持有 session.dungeon.mu）。
 		// 本函数（`:493` 的闸门）只在 run_status=completed 时才会走到 ⇒ 这里就是
 		// **通关回城**这条路径，不走 dungeon_party_leader_exit.go 的解散。
-		s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, characterID, "completed_town_route")
+		if !s.retireCurrentFiendWarEncounterParty(session, runtime) {
+			s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, characterID, "completed_town_route")
+		}
 		// 通关回城**不走 SET_USER_AREA**，而待决回城那条提交点（:761-767）已经为这件事
 		// 收过口：没有这一步，本会话永远不会满足 `currentPartyTownReturnSceneReady`
 		// （party_town_return.go:92），"最后一个成员到位后重建同屏"永远是 no-op，
@@ -764,6 +774,10 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			return err
 		}
 	}
+	if err := s.commitCurrentFiendWarReturnLocked(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
 	committedStatus := snapshot.Run.Status
 	if snapshot.Run.Status == worldmap.DungeonRunActive {
 		// Current EXE's op42 sender sets actor+0x8BE; the general item-use
@@ -818,8 +832,12 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 	//   - deadline owner：自动阶段超时，保留普通队伍，只退自己的 run；
 	//   - 其余（`abandoned` / 其它非 completed 状态）：**中途放弃**，行为与上一轮
 	//     逐字节相同（dungeon_party_leader_exit.go 的解散）。
-	if committedStatus == worldmap.DungeonRunCompleted {
+	if s.retireCurrentFiendWarEncounterParty(session, runtime) {
+		// Only the frozen temporary encounter party is retired.
+	} else if committedStatus == worldmap.DungeonRunCompleted {
 		s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
+	} else if runtime.fiendWarRetreatKeepsParty {
+		s.logGameEvent(session, "超时空整队撤退已保留临时队伍", "source", source)
 	} else if deadlineOwner != nil {
 		// An automatic phase deadline is not a player-requested leader leave.
 		// Keep the still-authoritative party/relay; every admitted occupant

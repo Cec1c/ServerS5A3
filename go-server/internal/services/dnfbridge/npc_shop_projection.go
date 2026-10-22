@@ -37,6 +37,9 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 		return currentNPCShopBuyResult{}, err
 	}
 	request.Count = count
+	if err := rejectCurrentFiendWarMerchantPurchase(shop, request); err != nil {
+		return currentNPCShopBuyResult{}, err
+	}
 	if pricing.Definition.DailyDeleteItem {
 		pricing.Definition, err = currentPVFItemDefinitionForGrantAt(pricing.Definition, s.gameplayNow())
 		if err != nil {

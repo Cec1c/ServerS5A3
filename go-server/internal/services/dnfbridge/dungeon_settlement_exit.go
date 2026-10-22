@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -303,6 +304,11 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 		requestMsgID,
 		source,
 	)
+	if err == nil {
+		if retreatErr := s.beginCurrentFiendWarPartyRetreatLocked(session, runtime, time.Now()); retreatErr != nil {
+			s.logGameEvent(session, "超时空整队撤退未提交", "error", retreatErr)
+		}
+	}
 	session.dungeon.mu.Unlock()
 	return err
 }

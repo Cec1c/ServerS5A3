@@ -531,7 +531,13 @@ func (s *Service) buildLoginSuccess(channel channelcatalog.Channel) []byte {
 	var writer packetWriter
 	writer.writeByte(1)
 	writer.writeByte(1)
-	writer.writeByte(channel.Type)
+	channelType := channel.Type
+	if s.options.currentClientVersion == "official-24.9" && channelType == 42 && strings.EqualFold(strings.Trim(channel.Group, "[] \t"), "fiendwar") {
+		// 当前原生登录应答把此字节写入CNGameCore::setChannelType。
+		// 与下载目录一样投影为45，否则创建次数及团队列表会退回普通分支。
+		channelType = 45
+	}
+	writer.writeByte(channelType)
 	writer.writeByte(1)
 	writer.writeUint32(s.options.gameOuterToken)
 	writer.writeAsciiDstr(s.options.serverIP)

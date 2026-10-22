@@ -58,8 +58,10 @@ func loadConfiguredRaidRewards(source dnfpvf.Source, path string, family byte) (
 	if fiend {
 		phaseCount = 1
 	}
-	if _, err := LoadBattleConfiguration(source, path); err != nil {
-		return AntonRewardConfiguration{}, err
+	if !fiend {
+		if _, err := LoadBattleConfiguration(source, path); err != nil {
+			return AntonRewardConfiguration{}, err
+		}
 	}
 	text, err := source.ReadText(path)
 	if err != nil {
