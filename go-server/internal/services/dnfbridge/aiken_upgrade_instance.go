@@ -67,6 +67,11 @@ func currentAikenSetState(s repo.ItemStack, slot int16, state [5]byte) (repo.Ite
 	if err != nil || !bytes.Equal(old[:4], state[:4]) || old[4] >= 3 || state[4] != old[4]+1 {
 		return repo.ItemStack{}, aiken.ErrInvalid
 	}
+	return currentAikenWriteState(s, slot, state)
+}
+
+// Synchronize the complete carrier after the caller validates its operation.
+func currentAikenWriteState(s repo.ItemStack, slot int16, state [5]byte) (repo.ItemStack, error) {
 	s = repo.CloneInventory(repo.InventoryRecord{Slots: map[string]repo.ItemStack{"x": s}}).Slots["x"]
 	if s.Extra == nil {
 		s.Extra = map[string]string{}
@@ -76,12 +81,12 @@ func currentAikenSetState(s repo.ItemStack, slot int16, state [5]byte) (repo.Ite
 	// existing quality seed instead of interpreting raw+06 as stack quantity.
 	s.Extra["item_kind"] = "equipment"
 	if len(s.RawEntry) == 119 {
-		s.RawEntry[0x76] = state[4]
+		copy(s.RawEntry[0x72:0x77], state[:])
 	}
 	for _, k := range aikenRawAliases {
 		if strings.TrimSpace(s.Extra[k]) != "" {
 			b, _ := aikenExtraBytes(s.Extra[k])
-			b[0x76] = state[4]
+			copy(b[0x72:0x77], state[:])
 			s.Extra[k] = hex.EncodeToString(b)
 			if len(s.RawEntry) == 0 {
 				s.RawEntry = append([]byte(nil), b...)
