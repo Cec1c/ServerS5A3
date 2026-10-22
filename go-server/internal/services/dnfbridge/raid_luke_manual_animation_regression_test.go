@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"testing"
 	"time"
 )
@@ -41,20 +42,23 @@ func TestRealPVFLukeManualFlipFinishDoesNotRestartAnimation(t *testing.T) {
 	if err := f.service.sendCurrentAntonRewardFlowProjection(session, state); err != nil {
 		t.Fatal(err)
 	}
-	sawBreak := false
+	sawBreak, sawCompletion := false, false
 	for stream := f.conn.write.Bytes(); len(stream) > 0; {
 		p, rest := splitGameServerUpperPacket(t, stream)
 		if p.Header.MsgID == 587 && len(p.Body) == 2 && p.Body[0] == 4 {
 			t.Fatal("finish restarted already delivered reward screen")
 		}
 		if p.Header.MsgID == 600 {
-			t.Fatal("finish replayed manually delivered cards")
+			if p.Header.Classification != 0 || !bytes.Equal(p.Body, []byte{3, 0}) || sawCompletion || sawBreak {
+				t.Fatal("finish replayed cards or sent duplicate/late completion", p.Body)
+			}
+			sawCompletion = true
 		}
 		sawBreak = sawBreak || p.Header.MsgID == 587 && len(p.Body) == 2 && p.Body[0] == 5
 		stream = rest
 	}
-	if !sawBreak {
-		t.Fatal("finish omitted standby transition")
+	if !sawBreak || !sawCompletion {
+		t.Fatal("finish omitted completion or standby transition", sawCompletion, sawBreak)
 	}
 	f.conn.write.Reset()
 	if err := f.service.sendCurrentAntonRewardFlowProjection(session, state); err != nil || f.conn.write.Len() != 0 {

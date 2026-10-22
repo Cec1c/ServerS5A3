@@ -44,6 +44,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 	}
 	var packets []currentAntonRewardPacket
+	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
 	if !f.SquadShownAt.IsZero() && f.squadRequired() {
 		var cards []raid.RewardDisplayCard
 		for _, recipient := range f.Recipients {
@@ -80,6 +81,26 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 				return err
 			}
 			packets = append(packets, currentAntonRewardPacket{opcode: 600, body: body})
+			if lukePartyOnly && len(f.Recipients) > 0 {
+				committed := true
+				for _, recipient := range f.Recipients {
+					card := f.Party[recipient.CharacterID]
+					if card == nil || !card.Committed {
+						committed = false
+						break
+					}
+				}
+				if committed {
+					// The native no-team decision runs on category2 delivery,
+					// after the local party reward has populated category0.
+					// This is a UI completion notice, not a squad grant.
+					emptyTeam, err := raid.BuildRewardListBody(3, nil)
+					if err != nil {
+						return err
+					}
+					packets = append(packets, currentAntonRewardPacket{opcode: 600, body: emptyTeam})
+				}
+			}
 		}
 	}
 	if !f.FinishedAt.IsZero() {
@@ -113,10 +134,24 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	// distinct deliveries. Finishing the display must not replay the same
 	// list just because its break/timer packets changed the full signature.
 	var displaySignature [32]byte
+	var displayBodies [][]byte
 	for _, packet := range packets {
 		if packet.opcode == 600 {
-			displaySignature = sha256.Sum256(packet.body)
+			displayBodies = append(displayBodies, packet.body)
 		}
+	}
+	if len(displayBodies) == 1 {
+		// Manual party sends share this single-body cache contract.
+		displaySignature = sha256.Sum256(displayBodies[0])
+	} else if len(displayBodies) > 1 {
+		displayHash := sha256.New()
+		for _, body := range displayBodies {
+			// Frame each body so the signature includes both kind1 data and
+			// the following empty kind3, not just the final constant 03 00.
+			fmt.Fprintf(displayHash, "%d:", len(body))
+			displayHash.Write(body)
+		}
+		copy(displaySignature[:], displayHash.Sum(nil))
 	}
 	if displaySignature != [32]byte{} && o.rewardDisplayIdentity == identity && o.rewardDisplaySignature == displaySignature {
 		filtered := packets[:0]
@@ -127,8 +162,19 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			filtered = append(filtered, packet)
 		}
 		packets = filtered
+	} else if lukePartyOnly && len(displayBodies) == 2 && o.rewardDisplayIdentity == identity && o.rewardDisplaySignature == sha256.Sum256(displayBodies[0]) {
+		// A successful manual/earlier party projection already delivered
+		// this exact kind1. Append only its missing completion notice; never
+		// replay the flip. A new connection must receive both in order.
+		filtered := packets[:0]
+		for _, packet := range packets {
+			if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 || packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
+				continue
+			}
+			filtered = append(filtered, packet)
+		}
+		packets = filtered
 	}
-	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
 	trackedScreen := lukePartyOnly || b.Mode == 1 && (f.SquadShownAt.IsZero() || b.Phase == 0 && !f.Single)
 	if trackedScreen && o.rewardScreenSent && o.rewardScreenIdentity == identity {
 		// Normal Anton phase zero keeps the same open panel for kind3. Its
