@@ -1,6 +1,7 @@
 package dnfbridge
 
 var currentGameplayModules = mustGameplayModuleRegistry(
+	aikenUpgradeGameplayModule(),
 	guildGameplayModule(),
 	auctionGameplayModule(),
 	pvpGameplayModule(),
