@@ -4,10 +4,65 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
+	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
+
+type rentalGuideOwnerTestSource map[string]string
+
+func (s rentalGuideOwnerTestSource) ReadText(path string) (string, error) {
+	return s[path], nil
+}
+
+func rentalGuideOwnerTestCatalog(t *testing.T, questType string) *dnfquest.Catalog {
+	t.Helper()
+	index, err := dnfpvf.Build(context.Background(), rentalGuideOwnerTestSource{
+		dnfquest.DefaultList: "8581 `common/chn_system_10_starpoint_guide.qst`\n",
+		"n_quest/common/chn_system_10_starpoint_guide.qst": "[grade]\n`[system]`\n" +
+			"[type]\n`" + questType + "`\n" +
+			"[sub type]\n0\n" +
+			"[int data]\n1 0 1\n" +
+			"[level]\n10 99\n" +
+			"[job]\n`[all]`\n" +
+			"[grow type]\n-1\n" +
+			"[reward type]\n`[item]`\n" +
+			"[reward int data]\n0 0\n" +
+			"[gold multiple]\n10\n",
+	}, dnfpvf.BuildOptions{Lists: []string{dnfquest.DefaultList}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := dnfquest.Load(context.Background(), index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog
+}
+
+func seedRentalGuideOwnerQuest(t *testing.T, ctx context.Context, repositories dnfrepo.Group) {
+	t.Helper()
+	if err := repositories.Quest.Save(ctx, dnfrepo.QuestRecord{
+		CharacterID: "77",
+		States: map[int64]dnfrepo.QuestState{
+			dnfquest.RentalGuideQuestID: {
+				Status:        "active",
+				ProgressValue: 1,
+				Extra: map[string]string{
+					"keep":       "metadata",
+					"pvf_path":   "n_quest/common/chn_system_10_starpoint_guide.qst",
+					"quest_type": "[custom quest]",
+				},
+			},
+			2901: {Status: "active", ProgressValue: 7},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestOwnerChargeCommitsPointsAndGold(t *testing.T) {
 	ctx := context.Background()
@@ -118,6 +173,142 @@ func TestOwnerRentRollsBackProjectionAndRejectsCrossAccount(t *testing.T) {
 	})
 	if !errors.Is(err, ErrOwnerMismatch) || called {
 		t.Fatalf("cross-account Rent error=%v called=%t", err, called)
+	}
+}
+
+func TestOwnerRentAdvancesRentalGuideWithAssetsAtomically(t *testing.T) {
+	ctx := context.Background()
+	repositories := dnfrepomemory.NewMemoryGroup()
+	seedRentalOwner(t, ctx, repositories)
+	seedRentalGuideOwnerQuest(t, ctx, repositories)
+	owner, err := NewOwner(repositories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedAt := time.Unix(1_700_000_000, 0).UTC()
+	result, err := owner.Rent(ctx, RentCommand{
+		AccountID:    "dnf:1",
+		CharacterID:  "77",
+		PointCost:    3,
+		UpdatedAt:    updatedAt,
+		QuestCatalog: rentalGuideOwnerTestCatalog(t, "[custom quest]"),
+		Project: func(assets *Assets) (Changes, error) {
+			assets.Inventory.Slots["0:9"] = dnfrepo.ItemStack{ItemID: 416000000, Count: 1}
+			return Changes{Inventory: true}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Rent error = %v", err)
+	}
+	if result.Points != 2 || !result.QuestAdvanced {
+		t.Fatalf("Rent result = %+v", result)
+	}
+	account, _, _ := repositories.Account.Load(ctx, "dnf:1")
+	inventory, _, _ := repositories.Inventory.Load(ctx, "77")
+	quests, _, _ := repositories.Quest.Load(ctx, "77")
+	guide := quests.States[dnfquest.RentalGuideQuestID]
+	if account.Metadata[PointMetadataKey] != "2" ||
+		inventory.Slots["0:9"].ItemID != 416000000 ||
+		guide.Status != "active" ||
+		guide.ProgressValue != 0 ||
+		!guide.UpdatedAt.Equal(updatedAt) ||
+		guide.Extra["keep"] != "metadata" ||
+		quests.States[2901].ProgressValue != 7 {
+		t.Fatalf("atomic rental state account=%+v inventory=%+v quests=%+v", account, inventory, quests)
+	}
+}
+
+func TestOwnerRentRejectionsLeaveRentalGuideAndAssetsUnchanged(t *testing.T) {
+	t.Run("insufficient points", func(t *testing.T) {
+		ctx := context.Background()
+		repositories := dnfrepomemory.NewMemoryGroup()
+		seedRentalOwner(t, ctx, repositories)
+		seedRentalGuideOwnerQuest(t, ctx, repositories)
+		owner, _ := NewOwner(repositories)
+		_, err := owner.Rent(ctx, RentCommand{
+			AccountID:    "dnf:1",
+			CharacterID:  "77",
+			PointCost:    6,
+			QuestCatalog: rentalGuideOwnerTestCatalog(t, "[custom quest]"),
+			Project: func(*Assets) (Changes, error) {
+				t.Fatal("projector ran after point rejection")
+				return Changes{}, nil
+			},
+		})
+		if !errors.Is(err, ErrPointsInsufficient) {
+			t.Fatalf("Rent error = %v", err)
+		}
+		assertRentalGuideRejectedState(t, ctx, repositories)
+	})
+
+	t.Run("projection failure", func(t *testing.T) {
+		ctx := context.Background()
+		repositories := dnfrepomemory.NewMemoryGroup()
+		seedRentalOwner(t, ctx, repositories)
+		seedRentalGuideOwnerQuest(t, ctx, repositories)
+		owner, _ := NewOwner(repositories)
+		wantErr := errors.New("reject guide rental projection")
+		_, err := owner.Rent(ctx, RentCommand{
+			AccountID:    "dnf:1",
+			CharacterID:  "77",
+			PointCost:    3,
+			QuestCatalog: rentalGuideOwnerTestCatalog(t, "[custom quest]"),
+			Project: func(assets *Assets) (Changes, error) {
+				assets.Inventory.Slots["0:9"] = dnfrepo.ItemStack{ItemID: 416000000, Count: 1}
+				return Changes{Inventory: true}, wantErr
+			},
+		})
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("Rent error = %v", err)
+		}
+		assertRentalGuideRejectedState(t, ctx, repositories)
+	})
+}
+
+func TestOwnerRentDoesNotAdvanceGuideAgainAtZero(t *testing.T) {
+	ctx := context.Background()
+	repositories := dnfrepomemory.NewMemoryGroup()
+	seedRentalOwner(t, ctx, repositories)
+	seedRentalGuideOwnerQuest(t, ctx, repositories)
+	owner, _ := NewOwner(repositories)
+	catalog := rentalGuideOwnerTestCatalog(t, "[custom quest]")
+	project := func(assets *Assets) (Changes, error) {
+		assets.Inventory.Slots["0:9"] = dnfrepo.ItemStack{ItemID: 416000000, Count: 1}
+		return Changes{Inventory: true}, nil
+	}
+	first, err := owner.Rent(ctx, RentCommand{
+		AccountID: "dnf:1", CharacterID: "77", PointCost: 1,
+		QuestCatalog: catalog, Project: project,
+	})
+	if err != nil || !first.QuestAdvanced {
+		t.Fatalf("first Rent result=%+v error=%v", first, err)
+	}
+	second, err := owner.Rent(ctx, RentCommand{
+		AccountID: "dnf:1", CharacterID: "77", PointCost: 1,
+		QuestCatalog: catalog, Project: project,
+	})
+	if err != nil || second.QuestAdvanced {
+		t.Fatalf("replayed Rent result=%+v error=%v", second, err)
+	}
+	quests, _, _ := repositories.Quest.Load(ctx, "77")
+	if got := quests.States[dnfquest.RentalGuideQuestID]; got.Status != "active" || got.ProgressValue != 0 {
+		t.Fatalf("replayed guide state = %+v", got)
+	}
+}
+
+func assertRentalGuideRejectedState(t *testing.T, ctx context.Context, repositories dnfrepo.Group) {
+	t.Helper()
+	account, _, _ := repositories.Account.Load(ctx, "dnf:1")
+	inventory, _, _ := repositories.Inventory.Load(ctx, "77")
+	quests, _, _ := repositories.Quest.Load(ctx, "77")
+	guide := quests.States[dnfquest.RentalGuideQuestID]
+	if account.Metadata[PointMetadataKey] != "5" ||
+		len(inventory.Slots) != 0 ||
+		guide.Status != "active" ||
+		guide.ProgressValue != 1 ||
+		guide.Extra["keep"] != "metadata" ||
+		quests.States[2901].ProgressValue != 7 {
+		t.Fatalf("rejected rental changed state account=%+v inventory=%+v quests=%+v", account, inventory, quests)
 	}
 }
 
