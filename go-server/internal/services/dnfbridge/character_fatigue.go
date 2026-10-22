@@ -90,7 +90,10 @@ func (s *Service) armCurrentFatigueDailyRefresh(session *gameSession) {
 			}
 			session.dungeon.mu.Unlock()
 			s.armCurrentFatigueDailyRefresh(session)
-			return s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0)
+			if err := s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0); err != nil {
+				return err
+			}
+			return s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, character, "six_am_refresh_after_fatigue")
 		}); err != nil {
 			s.logGameEvent(session, "game-character-fatigue-daily-refresh-deferred", "error", err)
 		}
