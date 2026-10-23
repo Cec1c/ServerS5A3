@@ -302,6 +302,7 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 		notifiedPremiumActivations++
 	}
 	if crystalPremiumActivated {
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		// Current sub_1D61460 records premium type 97, but the crystal panel is
 		// rebuilt by the raw class0/op898 handler sub_1E7FAD0. Without this
 		// immediate follow-up a purchase made after scene bootstrap remains

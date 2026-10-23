@@ -640,6 +640,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_committed")
+		s.cancelCurrentCrystalContractTimerLocked(session, runtime, "completed_town_actor_route_committed")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_town_actor_route_committed")
 		// 通关回城：先留下共享实例指针，release 会把它置空；队伍处置见
 		// dungeon_party_completion_return.go（默认档：**保留队伍**，队员由自己的
@@ -728,6 +729,7 @@ func (s *Service) cancelCurrentDungeonReturnAfterDungeonEvidenceLocked(
 	source := runtime.townReturnSource
 	transition := runtime.townReturnTransition
 	resetCurrentDungeonReturnAttempt(runtime)
+	s.requestCurrentCrystalContractTimerRefresh(session)
 	session.confirmedDungeonReturnStatePending = false
 	s.logGameEvent(session, "game-dungeon-back-to-village-cancelled",
 		"char_id", session.selectedCharacterID,
@@ -804,6 +806,7 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 		}
 	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_scene_transition_committed")
+	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "town_scene_transition_committed")
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "town_scene_transition_committed")
 	// 队长退出副本（回城）提交：先留下共享实例指针，release 会把它置空。
 	leaderExitInstance := runtime.partyInstance

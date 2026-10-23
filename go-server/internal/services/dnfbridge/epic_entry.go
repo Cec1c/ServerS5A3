@@ -165,6 +165,7 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 	// These retirement/projection operations cannot reject the paid admission.
 	if old != nil {
 		s.cancelCurrentDungeonDeathReturnLocked(session, old, "epic_runtime_replaced_after_admission")
+		s.cancelCurrentCrystalContractTimerLocked(session, old, "epic_runtime_replaced_after_admission")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, old, "epic_runtime_replaced_after_admission")
 		s.releasePartyDungeonInstance(old, entry.characterID, "epic_runtime_replaced_after_admission")
 	}

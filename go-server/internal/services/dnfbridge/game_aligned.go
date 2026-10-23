@@ -1377,6 +1377,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshCrystalContractState:
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		return s.sendCurrentCrystalContractState(session, "aligned_"+operation+"_after_type97_activation")
 	case alignedcmd.PostActionRefreshFatigueState:
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
