@@ -132,6 +132,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 
 	legacyOwners := map[uint16]string{
 		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
+		uint16(dnfenum.CmdPacketCompoundFlag):                   "guild-compound",
 		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",
@@ -196,6 +197,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 
 	upperOwners := map[uint16]string{
 		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
+		uint16(dnfenum.CmdPacketCompoundFlag):                   "guild-compound",
 		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
@@ -245,6 +247,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 
 	normalizerOwners := map[uint16]string{
 		uint16(dnfenum.CmdPacketCompoundGem):            "guild-compound",
+		uint16(dnfenum.CmdPacketCompoundFlag):           "guild-compound",
 		uint16(dnfenum.CmdPacketShopPurchaseCount):      "npc-shop",
 		uint16(dnfenum.CmdPacketMoveItemspace):          "inventory",
 		uint16(dnfenum.CmdPacketChangeSkillslot):        "skill",

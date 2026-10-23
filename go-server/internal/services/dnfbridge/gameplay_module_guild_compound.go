@@ -10,7 +10,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/guildcompound"
 )
 
-// buildCurrentGuildCompoundSuccessAck builds the class1 result body for op835. The current client first reads the success byte and, on success,
+// buildCurrentGuildCompoundSuccessAck builds the class1 result body for op835 and op864. The current client first reads the success byte and, on success,
 // reads one little-endian u32 product item ID before building the result-window
 // item. That item has already been committed and granted by guildcompound.Owner;
 // this value is only the native result-window reference and must never trigger
@@ -22,7 +22,6 @@ func buildCurrentGuildCompoundSuccessAck(itemID uint32) []byte {
 	return ack
 }
 
-// Only the accepted guardian-gem entry is exposed; medal synthesis remains separate.
 func guildCompoundGameplayModule() gameplayModuleDefinition {
 	module := gameplayModuleDefinition{
 		Name:              "guild-compound",
@@ -31,7 +30,8 @@ func guildCompoundGameplayModule() gameplayModuleDefinition {
 		LegacyNormalizers: map[uint16]gameplayLegacyNormalizer{},
 	}
 	for opcode, kind := range map[uint16]guildcompound.CompoundKind{
-		uint16(dnfenum.CmdPacketCompoundGem): guildcompound.CompoundGem,
+		uint16(dnfenum.CmdPacketCompoundGem):  guildcompound.CompoundGem,
+		uint16(dnfenum.CmdPacketCompoundFlag): guildcompound.CompoundFlag,
 	} {
 		handler := defaultClassGameplayHandler("guild-compound-class-rejected", "class mismatch", func(s *Service, g *gameSession, body []byte) error {
 			return s.handleCurrentGuildCompound(g, opcode, kind, body)

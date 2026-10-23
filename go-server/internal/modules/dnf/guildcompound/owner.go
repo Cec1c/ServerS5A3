@@ -56,7 +56,7 @@ type Command struct {
 }
 
 // Result 是已提交的合成结果。Changed 是变更后的槽快照；Count 为 0 的项表示
-// 该槽已被消耗并删除。合法输入总会得到一件下一品级产物；返回 error 时没有
+// 该槽已被消耗并删除。合法输入总会得到一件规则指定品级的产物；返回 error 时没有
 // 提交任何扣料或产物。
 type Result struct {
 	Success    bool
@@ -110,21 +110,10 @@ func (o *Owner) Apply(ctx context.Context, cmd Command) (Result, error) {
 		return Result{}, err
 	}
 
-	ladder := cmd.Rules.Catalog.Ladder(cmd.Kind)
-	recipe, found := ladder.Recipe(cmd.Request.Grade)
-	if !found || !recipe.Compoundable() {
-		return Result{}, fmt.Errorf("%w: kind=%s grade=%d has no compoundable recipe",
-			ErrInvalid, cmd.Kind, cmd.Request.Grade)
-	}
-	count := cmd.Request.Count
-	if !recipe.AcceptsMaterialCount(count) {
-		return Result{}, fmt.Errorf("%w: kind=%s grade=%d count=%d outside 2..%d",
-			ErrInvalid, cmd.Kind, cmd.Request.Grade, count, recipe.MaxMaterialCount)
-	}
-	nextRarity, hasNext := ladder.NextRarity(cmd.Request.Grade)
-	if !hasNext {
-		return Result{}, fmt.Errorf("%w: kind=%s grade=%d has no next grade",
-			ErrInvalid, cmd.Kind, cmd.Request.Grade)
+	nextRarity, allowed := cmd.Rules.Catalog.ResultRarity(cmd.Kind, cmd.Request.Grade, cmd.Request.Count)
+	if !allowed {
+		return Result{}, fmt.Errorf("%w: kind=%s grade=%d count=%d has no compound result",
+			ErrInvalid, cmd.Kind, cmd.Request.Grade, cmd.Request.Count)
 	}
 	candidates, err := cmd.Rules.Candidates(cmd.Kind, nextRarity)
 	if err != nil {
