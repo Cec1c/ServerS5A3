@@ -91,6 +91,15 @@ func currentAikenChangedEntries(result aiken.Result) []currentItemListEntry {
 	entries := make([]currentItemListEntry, 0, len(slots))
 	for _, n := range slots {
 		stack := result.Changed[int16(n)]
+		if stack.ItemID == 0 && n > 0 {
+			// Current-client op14 deletes an existing item only for the empty
+			// sentinel. Projecting a zero stack as an item can leave its old
+			// quantity available to the next exchange ACK's increment.
+			var entry currentItemListEntry
+			patchEmptySlotRow(&entry, int16(n))
+			entries = append(entries, entry)
+			continue
+		}
 		if stack.ItemID == 0 {
 			stack = repo.ItemStack{}
 		}
