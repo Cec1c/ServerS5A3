@@ -523,6 +523,11 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
+	// FiendWar movement is session-owned and deliberately not persisted. The
+	// fatigue refresh reloads the stored character, so restore its confirmed
+	// battlefield position before follower return-origin preflight compares it.
+	// This only changes the local runtime copy; fatigue and admission stay live.
+	applyCurrentFiendWarCharacterPosition(&character, session, session.selectedCharacterID)
 	if err := s.validateDungeonEntryWithTournament(ctx, character, dungeon, session); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
@@ -1011,24 +1016,32 @@ func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sess
 	}
 	for _, p := range sessions {
 		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
-			p.townMu.Lock()
-			pos := p.townPositionSnapshot
-			p.townMu.Unlock()
-			if pos.CharacterID == characterID {
-				if character.Stats == nil {
-					character.Stats = map[string]int64{}
-				}
-				character.Stats["town_id"], character.Stats["area_id"] = int64(pos.TownID), int64(pos.AreaID)
-				if pos.PositionValid {
-					character.Stats["pos_x"], character.Stats["pos_y"] = int64(pos.PositionX), int64(pos.PositionY)
-					character.Stats["direction"] = int64(pos.MovementCode)
-					character.Stats["area_state"] = 0
-				}
-			}
+			applyCurrentFiendWarCharacterPosition(&character, p, characterID)
 			break
 		}
 	}
 	return character, nil
+}
+
+func applyCurrentFiendWarCharacterPosition(character *dnfrepo.CharacterRecord, session *gameSession, characterID uint16) {
+	if character == nil || characterID == 0 || !isCurrentFiendWarChannel(session) || session.selectedCharacterID != characterID {
+		return
+	}
+	session.townMu.Lock()
+	pos := session.townPositionSnapshot
+	session.townMu.Unlock()
+	if pos.CharacterID != characterID {
+		return
+	}
+	if character.Stats == nil {
+		character.Stats = map[string]int64{}
+	}
+	character.Stats["town_id"], character.Stats["area_id"] = int64(pos.TownID), int64(pos.AreaID)
+	if pos.PositionValid {
+		character.Stats["pos_x"], character.Stats["pos_y"] = int64(pos.PositionX), int64(pos.PositionY)
+		character.Stats["direction"] = int64(pos.MovementCode)
+		character.Stats["area_state"] = 0
+	}
 }
 
 func (s *Service) dungeonQuestRecord(ctx context.Context, characterID uint16) (dnfrepo.QuestRecord, bool, error) {
