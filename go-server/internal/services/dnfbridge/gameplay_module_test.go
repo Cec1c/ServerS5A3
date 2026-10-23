@@ -66,6 +66,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"premium-service",
 		"experience-item",
 		"level-up-ticket",
+		"profession-change",
 		"inventory",
 		"skill",
 		"equipment-disjoint",
@@ -131,6 +132,8 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	legacyOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketUseRightOfChangeGrowType):       "profession-change",
+		uint16(dnfenum.CmdPacketReGrowupChange):                 "profession-change",
 		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
 		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
@@ -195,6 +198,8 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	upperOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketUseRightOfChangeGrowType):       "profession-change",
+		uint16(dnfenum.CmdPacketReGrowupChange):                 "profession-change",
 		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
 		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",

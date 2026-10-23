@@ -12,6 +12,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	premiumGameplayModule(),
 	experienceItemGameplayModule(),
 	levelUpTicketGameplayModule(),
+	professionChangeGameplayModule(),
 	inventoryGameplayModule(),
 	skillGameplayModule(),
 	equipmentDisjointGameplayModule(),
