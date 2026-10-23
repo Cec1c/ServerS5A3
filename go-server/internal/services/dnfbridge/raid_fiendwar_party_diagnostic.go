@@ -79,11 +79,12 @@ func (s *Service) fiendWarPartyAdmissionSessionFields(session *gameSession, char
 	var partyInstanceID uint64
 	runtimePresent, scenePresent := false, false
 	var postStart, finish, postFinish bool
+	finishGates := session.finishLoadingGateSnapshot()
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	postStart = session.postStartMapPlayerStateSent
-	finish = session.currentFinishLoadingCompletionSent
-	postFinish = session.postFinishLoadingPlayerStateSent
+	finish = finishGates.Completion
+	postFinish = finishGates.PostFinish
 	if runtime != nil {
 		runtimePresent = true
 		if runtime.Session != nil {

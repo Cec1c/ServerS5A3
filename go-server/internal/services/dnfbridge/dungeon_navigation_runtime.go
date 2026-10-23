@@ -1882,8 +1882,8 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	// FINISH_LOADING's main class0 state and op30 completion are room-scoped.
 	// Keep the player/equipment/skill initialization gates intact: an ordinary
 	// room move only needs the next room's loading completion, not a new actor.
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
+	session.setFinishLoadingGateState(false)
+	session.setFinishLoadingGateCompletion(false)
 	s.logGameEvent(session, "game-dungeon-move-committed",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,

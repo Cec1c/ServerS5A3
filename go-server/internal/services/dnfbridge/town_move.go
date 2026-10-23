@@ -408,9 +408,7 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	session.initialTownRouteStage = currentInitialTownRouteIdle
 	session.initialTownLocationNotificationsSent = false
 	session.initialTownQuestSnapshotsSent = false
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.initialTownLegacySceneReadyAccepted = false
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false

@@ -131,9 +131,7 @@ func (s *Service) refreshCurrentTownQuestGateScene(session *gameSession, result 
 	}
 	// 与原生城镇过图相同，允许当前地图重新加载后的 finish-loading 收尾。
 	// 不重置选角引导、地理归属和任务 ACK 的幂等状态。
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	return nil
 }
 

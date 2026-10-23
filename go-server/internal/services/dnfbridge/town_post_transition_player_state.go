@@ -48,9 +48,7 @@ func (s *Service) armCurrentTownPostTransitionPlayerState(session *gameSession, 
 
 	// These gates belong to the actor generation invalidated by op24. The
 	// staged chain below owns their one replacement for the new generation.
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.initialTownSkillInfoSent = false
 	session.initialTownGuardianShieldDeckSent = false
 	session.initialTownGuardianShieldAppearanceSent = false
@@ -194,7 +192,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		); err != nil {
 			return err
 		}
-		session.currentFinishLoadingStateSent = true
+		session.setFinishLoadingGateState(true)
 		session.townPostTransition.stage = currentTownPostTransitionFinishStateSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionFinishCompletionSent {
@@ -204,7 +202,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		); err != nil {
 			return err
 		}
-		session.currentFinishLoadingCompletionSent = true
+		session.setFinishLoadingGateCompletion(true)
 		session.townPostTransition.stage = currentTownPostTransitionFinishCompletionSent
 	}
 
@@ -267,7 +265,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		); err != nil {
 			return err
 		}
-		session.postFinishLoadingPlayerStateSent = true
+		session.setFinishLoadingGatePostFinish(true)
 		session.townPostTransition.stage = currentTownPostTransitionComplete
 	}
 	s.logGameEvent(session, "game-town-post-transition-player-state-sent",
