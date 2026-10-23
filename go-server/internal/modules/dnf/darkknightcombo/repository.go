@@ -30,6 +30,11 @@ func LoadPages(ctx context.Context, repo dnfrepo.SettingsRepository, characterID
 	if err != nil || !found {
 		return nil, found, err
 	}
+	return DecodeSettingsRecord(record)
+}
+
+// DecodeSettingsRecord只解码调用方冻结的存档，不再次读取或改写仓储。
+func DecodeSettingsRecord(record dnfrepo.SettingsRecord) ([]Page, bool, error) {
 	if record.Values[settingsFormatKey] != settingsFormatValue {
 		return nil, false, fmt.Errorf("unsupported dark knight combo settings format")
 	}

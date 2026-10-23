@@ -231,7 +231,7 @@ func isBootstrapEntrance(channel Channel) bool {
 // 调用者，所以这个错一直没暴露；本轮把它接进 game 会话落点后才必须修对）。
 // 现在改成"按数据集黑名单排除"，既修对真实数据，也保持既有单测夹具语义。
 var nonResidentChannelTypes = map[uint8]bool{
-	22: true, 23: true, 24: true, 32: true, 36: true, 40: true, 42: true, 45: true,
+	22: true, 23: true, 24: true, 32: true, 36: true, 39: true, 40: true, 42: true, 45: true,
 }
 
 func isResidentChannel(channel Channel) bool {

@@ -57,7 +57,8 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			character.Stats = make(map[string]int64)
 		}
 		changed := false
-		if projected.Stats["town_id"] == 98 && character.Stats["town_id"] != 98 {
+		// 帝国复用已验证的普通来源；不以专用城镇覆盖既有返城凭据。
+		if target := projected.Stats["town_id"]; (target == 48 || target == 98) && character.Stats["town_id"] != target {
 			if err := s.currentSaveRaidReturnOrigin(characterID, &character); err != nil {
 				return err
 			}

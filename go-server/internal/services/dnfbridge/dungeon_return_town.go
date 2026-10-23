@@ -56,6 +56,13 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
 	}
 
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		if err := s.closeCurrentTagTournamentForReturn(session); err != nil {
+			s.logGameEvent(session, "帝国竞技场返回休息室等待结算重试", "error", err)
+			return nil
+		}
+	}
+
 	if _, err := s.persistCurrentActiveTutorialExit(
 		session,
 		selectedCharacterID,
@@ -168,6 +175,9 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 	}
 	defer session.dungeon.mu.Unlock()
 	if runtime.townReturnPending {
+		if b := session.tagTournamentBattle; b != nil && !b.returnRosterSent && runtime.townReturnOp24Sent {
+			return s.queueCurrentTagTournamentReturnRoster(session, runtime)
+		}
 		session.confirmedDungeonReturnStatePending = false
 		resetCurrentDungeonReturnAttempt(runtime)
 		s.logGameEvent(session, "game-dungeon-back-to-village-retry",
@@ -475,8 +485,14 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 			return err
 		}
 		runtime.townReturnOp24Sent = true
+		if b := session.tagTournamentBattle; b != nil && b.prepared != nil && b.prepared.runtime == runtime {
+			b.returnRosterSent = false
+		}
 		session.confirmedDungeonReturnStatePending = true
 		markBackToVillageEnterSelectPending(session)
+	}
+	if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+		return err
 	}
 	s.logGameEvent(session, "game-dungeon-back-to-village-pending",
 		"char_id", session.selectedCharacterID,
@@ -639,6 +655,10 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	petClockRetired := false
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
+		if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_committed")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_town_actor_route_committed")
 		// 通关回城：先留下共享实例指针，release 会把它置空；队伍处置见
@@ -646,6 +666,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// completed_town_route 回城，最后一个成员到位后重建城镇同屏）。
 		leaderExitInstance = runtime.partyInstance
 		session.dungeon.runtime = nil
+		s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
 		s.releasePartyDungeonInstance(runtime, characterID, "completed_town_route")
 		if err := queueCurrentPetGrowthClockTransition(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_after_completed_town_route"); err != nil {
 			s.logGameEvent(session, "game-pet-growth-clock-transition-rejected", "source", source+"_after_completed_town_route", "error", err)
@@ -809,6 +830,7 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 	leaderExitInstance := runtime.partyInstance
 	leaderExitCharacterID := session.selectedCharacterID
 	session.dungeon.runtime = nil
+	s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
 	if err := queueCurrentPetGrowthClockTransition(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_confirmed_town_scene"); err != nil {
 		s.logGameEvent(session, "game-pet-growth-clock-transition-rejected", "source", source+"_confirmed_town_scene", "error", err)
 	}

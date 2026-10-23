@@ -17,6 +17,9 @@ func (s *Service) currentInitialTownTransition(
 	if isCurrentFiendWarChannel(session) {
 		return s.currentRaidEntranceTownTransition(session, characterID, character)
 	}
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.currentTagTournamentTownTransition(characterID, character)
+	}
 	if session != nil && isPVPChannel(session.channel) {
 		return s.currentPVPTownTransition(session, characterID, character)
 	}
@@ -29,6 +32,9 @@ func (s *Service) currentChannelReconnectTownTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.currentTagTournamentTownTransition(characterID, character)
+	}
 	if session != nil && isPVPChannel(session.channel) {
 		return s.currentPVPTownTransition(session, characterID, character)
 	}

@@ -81,6 +81,9 @@ var errGameplayTimeQueueUnavailable = errors.New("gameplay time queue is unavail
 // Nonzero extra fields are not interpreted here. Neither accepted shape supplies
 // an actor identity; the selected runtime owner supplies the op32 scene key.
 func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) error {
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		return s.sendGameUpperFailure(session, 40, 1)
+	}
 	var partyDeathRuntime *runtimeDungeonState
 	var raidLifeProjections []runtimeRaidState
 	defer func() {
@@ -491,6 +494,9 @@ type currentDungeonReviveCoinConsumeResult struct {
 // stack (item id 1) when available, cancels the death timer, and ACKs with
 // class1/op41 success plus the extra success flag byte.
 func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error {
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		return s.sendGameUpperFailure(session, 41, 1)
+	}
 	if session == nil {
 		return nil
 	}

@@ -714,6 +714,11 @@ func sameDungeonRoomPVFScene(expected, cached DungeonRoomScene) bool {
 	return reflect.DeepEqual(expected, cached)
 }
 
+// NewDungeonRoomScene只读投影已解析的真实房间，供独立玩法在扣费前预检全部actor。
+func NewDungeonRoomScene(room DungeonRoom) (DungeonRoomScene, error) {
+	return dungeonRoomScene(room)
+}
+
 func dungeonRoomScene(room DungeonRoom) (DungeonRoomScene, error) {
 	if room.Map == nil {
 		return DungeonRoomScene{}, ErrRoomMapUnresolved

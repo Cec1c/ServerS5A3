@@ -93,6 +93,10 @@ func (s *Service) handleDungeonBossDieCheckLocked(
 			"reason", "active_dungeon_runtime_character_owner_mismatch")
 		return nil
 	}
+	// 帝国Boss只推进比赛回合，不进入普通翻牌结算。
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if runtime.bossDieCheckAccepted {
 		acceptedRequest := runtime.bossDieCheckRelatedActorObjectKey == request.RelatedActorObjectKey &&
 			runtime.bossDieCheckTargetObjectKey == request.TargetObjectKey

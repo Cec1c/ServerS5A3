@@ -91,6 +91,9 @@ type gameSession struct {
 	currentAdventureExpeditionView          currentAdventureExpeditionSentView
 	rosterRequested                         bool
 	currentRenameRoster                     []dnfrepo.CharacterRecord
+	tagTournamentLobbyDay                   int64
+	tagTournamentBattle                     *currentTagTournamentBattle // 当前会话事件循环独占；Tag不改登录角色身份。
+	tagTournamentReturnRoster               *currentTagTournamentBattle // 真实城镇请求确认后恢复，不能紧随24销毁战斗对象。
 	currentRenameRosterPrepared             []dnfrepo.CharacterRecord
 	channelReconnect                        bool
 	townActorOwnerChannel                   byte

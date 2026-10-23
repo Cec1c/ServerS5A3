@@ -92,6 +92,14 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 // handleCurrentDungeonTownExitRequest 复用完成局退场和奖励事务，保留请求编号。
 // 系统菜单132仅由普通完成局转入；其它副本保留各自的退出流程。
 func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body []byte, requestMsgID uint16) error {
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		if len(body) != 0 {
+			return nil
+		}
+		if err := s.closeCurrentTagTournamentForReturn(session); err != nil {
+			return err
+		}
+	}
 	if session == nil {
 		return nil
 	}
@@ -169,6 +177,10 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 		return nil
 	}
 	if runtime.townReturnPending && snapshot.Run.Status != worldmap.DungeonRunCompleted {
+		if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-giveup-game-replay",
 			"char_id", session.selectedCharacterID,

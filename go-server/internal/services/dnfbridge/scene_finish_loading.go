@@ -33,7 +33,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	followupsNeeded := !session.currentFinishLoadingCompletionSent ||
 		!session.postFinishLoadingPlayerStateSent
 	if !stateNeeded && !followupsNeeded {
-		return nil
+		return s.sendCurrentTagTournamentInitialRoleAfterLoading(session)
 	}
 
 	if stateNeeded {
@@ -51,6 +51,9 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		session.currentFinishLoadingCompletionSent = true
 	}
 	if err := s.sendCurrentPostFinishLoadingPlayerState(session, source+"_after_finish_loading_state"); err != nil {
+		return err
+	}
+	if err := s.sendCurrentTagTournamentInitialRoleAfterLoading(session); err != nil {
 		return err
 	}
 	// finish-loading 全部发完 = 收包方客户端真正进入本房间场景。这时把队友 actor 补发一次，

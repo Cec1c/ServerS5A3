@@ -24,6 +24,10 @@ func currentRaidLoginTownID(session *gameSession) (int64, bool) {
 }
 
 func (s *Service) currentCharacterListLoginLocationForSession(session *gameSession, characterID uint16, character dnfrepo.CharacterRecord) (currentTownLoginLocation, int64, string, string, error) {
+	if s.isCurrentTagTournamentChannel(session) {
+		location, err := s.currentTagTournamentLoginLocation(character)
+		return location, character.Stats["town_id"], "", "", err
+	}
 	if isCurrentFiendWarChannel(session) {
 		loc, err := s.currentFiendWarLoginLocation(session, characterID)
 		return loc, character.Stats["town_id"], "", "", err
@@ -67,7 +71,7 @@ func currentLoginLeavingChannelTown(session *gameSession, character dnfrepo.Char
 	if session == nil {
 		return false
 	}
-	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) || isPVPChannel(session.channel) {
+	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) || isPVPChannel(session.channel) || session.channel.Type == currentTagTournamentChannelType {
 		return false
 	}
 	return currentRegisteredChannelTown(character.Stats["town_id"])
@@ -79,11 +83,11 @@ func currentRegisteredRaidTown(townID int64) bool {
 }
 
 func currentRegisteredChannelTown(townID int64) bool {
-	return townID == 10 || currentRegisteredRaidTown(townID)
+	return townID == 10 || townID == 48 || currentRegisteredRaidTown(townID)
 }
 
 func (s *Service) currentSessionSelectAckTownID(session *gameSession, character dnfrepo.CharacterRecord, characterID uint16, slot int) (uint8, string, error) {
-	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) {
+	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) || s.isCurrentTagTournamentChannel(session) {
 		location, _, _, _, err := s.currentCharacterListLoginLocationForSession(session, characterID, character)
 		if err != nil {
 			return 0, "", err

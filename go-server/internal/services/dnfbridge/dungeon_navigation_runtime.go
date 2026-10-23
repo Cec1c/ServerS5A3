@@ -218,6 +218,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 		fiendWarSelectionDiagnostic.requestDungeon = uint32(request.DungeonID)
 		fiendWarSelectionDiagnostic.setReason("op16_decoded")
 	}
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.handleCurrentTagTournamentDungeon(session, request)
+	}
 	request.DungeonID = s.resolveCurrentSingleAntonSelector(session, request.DungeonID)
 	request.DungeonID, err = s.resolveCurrentDespairSelection(session, request.DungeonID)
 	if err != nil {
@@ -1419,6 +1422,9 @@ func sameSelectDungeonRequest(left, right dungeoncmd.SelectDungeonRequest) bool 
 }
 
 func (s *Service) handleDungeonMoveMap(session *gameSession, body []byte) error {
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.handleCurrentTagTournamentMove(session, body)
+	}
 	return s.handleDungeonMoveMapPlanned(session, body, nil, true)
 }
 

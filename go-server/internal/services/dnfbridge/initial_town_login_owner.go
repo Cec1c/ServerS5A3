@@ -58,6 +58,14 @@ func (s *Service) currentCharacterListLoginTransition(
 		}
 		return projected, town, area, row, path, err
 	}
+	if s.isCurrentTagTournamentChannel(session) {
+		projected, town, area, row, path, err := s.currentTagTournamentTownTransition(characterID, character)
+		if err != nil {
+			return projected, town, area, row, path, err
+		}
+		projected, err = s.commitCurrentReconnectLocation(ctx, characterID, projected)
+		return projected, town, area, row, path, err
+	}
 	if session != nil && isPVPChannel(session.channel) {
 		projected, town, area, row, path, err := s.currentPVPTownTransition(session, characterID, character)
 		if err != nil {

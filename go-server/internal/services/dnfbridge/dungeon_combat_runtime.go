@@ -83,6 +83,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		return s.handleCurrentTagTournamentMonsterDeathLocked(session, runtime, request)
+	}
 	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
 	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
 	if hasScene {
@@ -1070,6 +1073,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"monster_experience_gain", monsterExperience.Award.Gain,
 		"monster_experience_state_sent", len(monsterExperienceBody) != 0,
 		"response", "current_exe_op38_actor_death_notification")
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if runtime.bossDieCheckPending &&
 		uint32(runtime.bossDieCheckPendingRequest.TargetObjectKey) == request.RuntimeObjectKey {
 		pendingRequest := runtime.bossDieCheckPendingRequest
@@ -1222,6 +1228,9 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 		"session_room_cleared", sessionRoomCleared,
 		"reason", reason,
 		"source", "current_exe_op38_actor_death_notification")
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if sessionRoomCleared && runtime.Session != nil {
 		// 队友自己的房间清空了：在他自己的会话里跑最终房间完成（与"被接受的 op39"同一条链）。
 		if scene, ok := runtime.Session.Scene(); ok {

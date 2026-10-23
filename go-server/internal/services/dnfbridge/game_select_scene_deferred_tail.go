@@ -19,6 +19,7 @@ const (
 	currentDeferredSelectSceneTailMailbox
 	currentDeferredSelectSceneTailDamageFont
 	currentDeferredSelectSceneTailRepresentName
+	currentDeferredSelectSceneTailTagTournament
 	currentDeferredSelectSceneTailSeriaLuck
 	currentDeferredSelectSceneTailComplete
 )
@@ -421,6 +422,12 @@ func (s *Service) sendDeferredSelectSceneTail(session *gameSession, source strin
 	// interrupt the role selector or any earlier actor/state initialization.
 	if session.sceneBootstrapTailPostStage == currentDeferredSelectSceneTailRepresentName {
 		if err := s.sendRepresentAccountNameRegistrationAfterScene(session, source+"_after_scene_init_complete"); err != nil {
+			return err
+		}
+		session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailTagTournament
+	}
+	if session.sceneBootstrapTailPostStage == currentDeferredSelectSceneTailTagTournament {
+		if err := s.sendCurrentTagTournamentLobby(session); err != nil {
 			return err
 		}
 		session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailSeriaLuck
