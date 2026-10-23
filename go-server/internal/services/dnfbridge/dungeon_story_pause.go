@@ -104,14 +104,15 @@ func (s *Service) handleCurrentDungeonStoryPause(session *gameSession, body []by
 	// （persistCurrentActiveTutorialExit，op42 / op132 共用），它会持久化
 	// tutorial_completed=1 并把角色送回出生城镇。
 	// 普通（非教程）owned dungeon 的 op3 流程完全不受影响。
-	if !session.postStartMapPlayerStateSent || !session.currentFinishLoadingStateSent {
+	finishGates := session.finishLoadingGateSnapshot()
+	if !session.postStartMapPlayerStateSent || !finishGates.State {
 		s.logGameEvent(session, "game-dungeon-tutorial-user-state-deferred",
 			"char_id", session.selectedCharacterID,
 			"dungeon_id", runtime.Dungeon.ID,
 			"state_flag", stateFlag,
 			"request_type", requestType,
 			"post_start_map_state_sent", session.postStartMapPlayerStateSent,
-			"finish_loading_state_sent", session.currentFinishLoadingStateSent,
+			"finish_loading_state_sent", finishGates.State,
 			"reason", "tutorial_story_resume_arrived_before_scene_ready")
 		return nil
 	}

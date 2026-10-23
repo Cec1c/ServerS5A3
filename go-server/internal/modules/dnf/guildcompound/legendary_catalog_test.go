@@ -16,6 +16,9 @@ func TestLegendaryMedalResultRarityIsNarrow(t *testing.T) {
 				if kind == CompoundFlag && grade == 6 && count == 2 {
 					want, ok = 6, true
 				}
+				if kind == CompoundGem && grade == 3 && count == 2 {
+					want, ok = 3, true
+				}
 				got, allowed := c.ResultRarity(kind, grade, count)
 				if allowed != ok || allowed && got != want {
 					t.Fatalf("kind=%v grade=%d count=%d got=%d/%t want=%d/%t", kind, grade, count, got, allowed, want, ok)
