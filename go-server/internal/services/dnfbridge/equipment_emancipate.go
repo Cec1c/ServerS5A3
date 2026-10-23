@@ -86,12 +86,12 @@ type currentEquipmentEmancipateRule struct {
 }
 
 // Parse the nested block, not global [input]/[output] tags from another feature.
-// Ticket 17/20 resource text explicitly discards reinforcement, amplification,
+// Ticket 8..17/20 resource text explicitly discards reinforcement, amplification,
 // forging, purification and enchantment. Heritage/capped tickets and growth
 // are separate rules and remain rejected here, without consuming anything.
 func parseCurrentEquipmentEmancipateRule(ticket, source *dnfpvf.Document) (currentEquipmentEmancipateRule, error) {
 	typ, err := currentEmancipateInteger(ticket, "emancipate ticket")
-	if err != nil || (typ != 17 && typ != 20) {
+	if err != nil || ((typ < 8 || typ > 17) && typ != 20) {
 		return currentEquipmentEmancipateRule{}, errCurrentEquipmentEmancipate
 	}
 	for _, name := range []string{"emancipate grade max", "emancipate amplify max", "emancipate genuineGrade max", "equipment level emancipate"} {
@@ -227,7 +227,7 @@ func (s *Service) commitCurrentEquipmentEmancipate(ctx context.Context, g *gameS
 		if err != nil {
 			return dnfexpertjob.Changes{}, err
 		}
-		// The two supported books say the output cannot be traded. Bind governs
+		// The supported magic-seal books say the output cannot be traded. Bind governs
 		// server trade admission; seal state is separate and survives conversion.
 		seal := currentItemListEntryFromStack(0, r.TargetSlot, target).data[0x0d]
 		converted.Bind = true
