@@ -56,6 +56,9 @@ func r134N1Fixture(t *testing.T) (*raidStartGuardFixture, []*gameSession) {
 	for _, p := range peers {
 		p.channel.ID, p.channel.Group = 244, "fiendwar"
 		p.residentChannel = p.channel
+		// This fixture bypasses login; commit the same town owner fields that
+		// login normally establishes before an authenticated town-area move.
+		p.connectionTownActorOwnerChannel, p.townActorOwnerChannel = 244, 244
 		p.connID = fmt.Sprintf("r134-n1-%d", p.selectedCharacterID)
 		p.conn = &partyDungeonSyncConn{charID: p.selectedCharacterID}
 		id := fmt.Sprint(p.selectedCharacterID)
