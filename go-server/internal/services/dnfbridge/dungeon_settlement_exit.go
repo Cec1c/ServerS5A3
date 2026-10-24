@@ -139,7 +139,16 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			"reason", "active_dungeon_runtime_owner_missing")
 		return nil
 	}
+	if requestMsgID == uint16(dnfenum.CmdPacketEplpCommand) && !s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return nil
+	}
 	snapshot := runtime.Session.Snapshot()
+	if s.currentLukeClosedEnergyExitReady(session, runtime) {
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, requestMsgID, "current_exe_closed_luke_energy_system_return")
+	}
 	// 锦标赛终止态的出本门（本批接线）。厂商 `DungeonClearPresentationPolicy`
 	// 对 Tournament 关掉普通结算投影（`CompletesAtClearCommit`，`DungeonEventEnvelope.cs:15-25`），
 	// 客户端**不会**走 op46/op123 那套普通结算握手，所以"完成局的 op42"在锦标赛里
@@ -168,7 +177,8 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			"reason", "dungeon_run_not_active_or_completed")
 		return nil
 	}
-	if runtime.townReturnPending && snapshot.Run.Status != worldmap.DungeonRunCompleted {
+	if runtime.townReturnPending && snapshot.Run.Status != worldmap.DungeonRunCompleted &&
+		(requestMsgID != uint16(dnfenum.CmdPacketEplpCommand) || runtime.townReturnRequestMsgID != requestMsgID || runtime.townReturnOp24Sent) {
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-giveup-game-replay",
 			"char_id", session.selectedCharacterID,
@@ -296,6 +306,16 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			requestMsgID,
 			source,
 		)
+	}
+	if requestMsgID == uint16(dnfenum.CmdPacketEplpCommand) {
+		source = currentRaidTableReturnSource
+		if !runtime.townReturnAckSent {
+			if err := s.sendGameUpperRawClass(session, requestMsgID, buildCurrentDungeonOp72SuccessBody(1, 2), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.townReturnAckSent = true
+		}
 	}
 	err = s.sendCurrentDungeonReturnToTownLocked(
 		session,

@@ -201,6 +201,15 @@ func (s *Service) sendEnterSelectDungeonState(
 		s.logGameEvent(session, "game-upper-enter-select-dungeon-duplicate-skipped", "source", source, "request_driven", false)
 		return nil
 	}
+	if !transport && requestDriven {
+		if err := s.restoreCurrentRaidSelectorProjection(session, source); err != nil {
+			s.logGameEvent(session, "game-raid-selector-self-projection-restore-failed",
+				"source", source,
+				"char_id", selectedCharacterID(session),
+				"error", err)
+			return err
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()

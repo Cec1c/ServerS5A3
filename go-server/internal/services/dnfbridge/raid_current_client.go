@@ -191,7 +191,16 @@ func (s *Service) handleCurrentModifyRaid(session *gameSession, op uint16, body 
 func currentRuntimeRaidMembers(state runtimeRaidState) []raid.CurrentMemberRecord {
 	core := runtimeRaidMemberRefresh(state).Members
 	members := make([]raid.CurrentMemberRecord, len(core))
+	solo := make(map[uint16]bool, len(state.Members))
+	for _, member := range state.Members {
+		solo[member.CharID] = member.OrdinaryPartySolo
+	}
 	for i, record := range core {
+		// NOTI591's GroupIndex selects PartyIndex/party_icon.img. Frame 0 is
+		// the native "单人" chip, not the raid's single-player mode flag.
+		if solo[record.CharKey] {
+			record.GroupIndex, record.SlotOrder = 0, 0
+		}
 		// The current native member reader stores this byte at record+0x38.
 		record.Field56 = currentRaidMemberPhaseClearCount(state, record.CharKey)
 		// Specialized trailing fields still have no authoritative owner.
@@ -222,7 +231,7 @@ func currentRuntimeRaidMetadata(state runtimeRaidState) raid.CurrentMetadata {
 				status, argument = 4, 1
 			} else if b.PhaseCompleted {
 				status, argument = 3, 0
-				if b.Phase <= 1 && b.RewardFlow[b.Phase] != nil && !b.RewardFlow[b.Phase].FinishedAt.IsZero() {
+				if b.Phase <= 1 && currentRaidRewardFlowSettlementCompleted(b.RewardFlow[b.Phase]) {
 					status = 4
 					if !b.Single && b.Phase == 0 {
 						status = 5
