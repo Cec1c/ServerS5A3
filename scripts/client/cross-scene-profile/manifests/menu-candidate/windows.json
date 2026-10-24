@@ -1,0 +1,38 @@
+{
+  "baseSha256": "a751cccfe3fb9f7a3730393fdfb32d0546222b55a5a254fc4f2416f6869fbdf6",
+  "patches": [
+    {
+      "name": "open",
+      "site": "0x1df5d7d",
+      "expected": "e8ae79b700",
+      "replacement": "e87ea20c05",
+      "candidateAddress": "0x6ec0000",
+      "code": "ff742404e827d7aafb83c40485c075160fb6433f500fb64b3e51ff74240ce8bda5b9fa83c40cc3",
+      "codeSha256": "78638a4360b60057680a4389a5cd02b8425d8dcbd4049a21149aad28081509bd"
+    },
+    {
+      "name": "build",
+      "site": "0x35454cb",
+      "expected": "e8608242ff",
+      "replacement": "e870ab9703",
+      "candidateAddress": "0x6ec0040",
+      "code": "ff742404e8e7d6aafb83c40485c07518ffb534ffffffffb530ffffffff74240ce87ba5b9fa83c40cc3",
+      "codeSha256": "84d145c0b40083eb889cf9992118438f4399016e38c30f60e02e706148779e05"
+    },
+    {
+      "name": "click",
+      "site": "0x353adec",
+      "expected": "e83f2943ff",
+      "replacement": "e88f529803",
+      "candidateAddress": "0x6ec0080",
+      "code": "ff742404e8a7d6aafb83c40485c07518ffb5b4fdffffffb5b8fdffffff74240ce83ba5b9fa83c40cc3",
+      "codeSha256": "7d3777eff81cd411e2aa6637fb1d6a29026f89cf0e7a20594c0a74841c3586a6"
+    }
+  ],
+  "artifactOnly": true,
+  "exeGenerated": false,
+  "deployed": false,
+  "guiAccepted": false,
+  "cave": "Addresses are isolated emulator locations only. Real PE section placement and overlap verification remain required.",
+  "limitation": "Fixes only three raid/common-menu active-lookup misses. Does not bypass server authorization, populate clothing, prove whole UI behavior, or cover the separate party-widget lookup at 0x353AC18."
+}

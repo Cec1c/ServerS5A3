@@ -4,6 +4,13 @@
 - 精确V166候选只改发送器两字节与checksum；原生发送器RED/GREEN、非法输入和状态限制验证通过。
 - 服务端回归覆盖三种品级、区服边界、状态刷新及资产保持；配套客户端须先正式发布到玩家通道。
 
+## 2026-10-24 — 已验收客户端源码独立拆分
+
+- 从权威上游 `f5820b41a6457f29a4c864c2f15e4a48fa351871` 新建独立分支，只提取已验收客户端源码：!231 `6f2186ffa3918c2ee336371a9965142b5ee0e4aa` 的 `scripts/client/cross-scene-profile/**`、`quiet-profile-refresh/**`；!213 `3f02196eea3be7ea414ec380ab30c98f9422b666` 的 `raid-team-ready-v4/**`、`raid-team-direct-v5/**`、`luke-phase2-retry/**`。
+- 本次共 41 个源码文件；排除 `ordinary-party-hud/**`、`raid-local-face-self-cache/**`、`party-reward-row/**`，未带入旧累计未验收文字。
+- 依赖边界：各目录本地模块完整；`raid-team-direct-v5` 复用相邻的 `raid-team-ready-v4`，该目录也已包含。验证环境另需 Python、Capstone 5.0.7 和 Unicorn 2.1.4，未发现缺少已提取源码目录的导入。
+- 41 个提取文件的源提交 blob、工作区 blob 及索引 blob 全部一致；未运行原生或 GUI 重测，未提交、推送或部署。
+
 ## 2026-10-24 — Seeker 自主调查优先
 
 - 可识别的功能及异常现象即可开始定位，先补齐对象、触发链并利用现有工具复现；以狂战士二觉闪退说明释放者和队友视角的调查。
