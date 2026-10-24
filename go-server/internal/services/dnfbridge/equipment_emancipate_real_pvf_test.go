@@ -30,7 +30,8 @@ func TestRealPVFEquipmentEmancipateOwnedConversion(t *testing.T) {
 	for _, tc := range []struct {
 		book, source, output uint32
 		typ                  int64
-	}{{10164871, 100050700, 100050762, 20}, {10149529, 100050285, 100050653, 17}} {
+		piece                int64
+	}{{10164871, 100050700, 100050762, 20, 10164869}, {10149529, 100050285, 100050653, 17, 10149518}, {10149523, 100080172, 100080461, 11, 10149512}} {
 		t.Run(fmt.Sprint(tc.typ), func(t *testing.T) {
 			_, bookDoc, err := items.currentEmancipateDocument(tc.book)
 			if err != nil {
@@ -44,10 +45,7 @@ func TestRealPVFEquipmentEmancipateOwnedConversion(t *testing.T) {
 			if err != nil || rule.OutputID != tc.output || rule.TicketType != tc.typ {
 				t.Fatalf("rule=%+v err=%v", rule, err)
 			}
-			piece := int64(10164869)
-			if tc.typ == 17 {
-				piece = 10149518
-			}
+			piece := tc.piece
 			want := map[int64]int64{piece: 10, 10099773: 12, 10100116: 24, 10100115: 36}
 			got := map[int64]int64{}
 			for _, m := range rule.Materials {

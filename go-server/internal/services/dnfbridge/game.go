@@ -228,9 +228,14 @@ type gameSession struct {
 	// pendingPostStartMapPlacement 是"落位包已经该发、但被全队读条屏障压住"的记录；
 	// pendingPostStartMapMu 保护它（屏障放行发生在另一个会话的 goroutine 上）。
 	// 见 party_dungeon_loading_barrier.go。
-	pendingPostStartMapMu              sync.Mutex
-	pendingPostStartMapPlacement       *pendingPostStartMapPlacement
-	deferredDungeonUserStateObjectKey  uint16
+	pendingPostStartMapMu             sync.Mutex
+	pendingPostStartMapPlacement      *pendingPostStartMapPlacement
+	deferredDungeonUserStateObjectKey uint16
+	// finishLoadingMu 保护下面三个 finish-loading 门闩。写点全部在所属会话的
+	// 事件循环上；读点有两类——同一循环的本地判断，以及读条放行时跨 loop 读
+	// 对端是否已完成场景重建（dungeon_party_peer_actor_landing_resend.go）。
+	// 锁只在赋值/读取那几行内持有，不包网络、仓储或其它锁。
+	finishLoadingMu                    sync.Mutex
 	currentFinishLoadingStateSent      bool
 	currentFinishLoadingCompletionSent bool
 	postFinishLoadingPlayerStateSent   bool
@@ -725,4 +730,67 @@ func isQuietGameReadError(err error) bool {
 	return errors.Is(err, io.EOF) ||
 		errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, syscall.ECONNRESET)
+}
+
+// finishLoadingGates is a consistent snapshot of the three finish-loading
+// gates. The fields are read and written only through the helpers below: the
+// only cross-loop access is "has this peer finished its scene rebuild", read by
+// another member's release event.
+type finishLoadingGates struct {
+	State      bool
+	Completion bool
+	PostFinish bool
+}
+
+func (s *gameSession) finishLoadingGateSnapshot() finishLoadingGates {
+	if s == nil {
+		return finishLoadingGates{}
+	}
+	s.finishLoadingMu.Lock()
+	defer s.finishLoadingMu.Unlock()
+	return finishLoadingGates{
+		State:      s.currentFinishLoadingStateSent,
+		Completion: s.currentFinishLoadingCompletionSent,
+		PostFinish: s.postFinishLoadingPlayerStateSent,
+	}
+}
+
+func (s *gameSession) setFinishLoadingGateState(value bool) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.currentFinishLoadingStateSent = value
+	s.finishLoadingMu.Unlock()
+}
+
+func (s *gameSession) setFinishLoadingGateCompletion(value bool) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.currentFinishLoadingCompletionSent = value
+	s.finishLoadingMu.Unlock()
+}
+
+func (s *gameSession) setFinishLoadingGatePostFinish(value bool) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.postFinishLoadingPlayerStateSent = value
+	s.finishLoadingMu.Unlock()
+}
+
+// setFinishLoadingGates replaces the whole triplet in one critical section.
+// Used by the scene resets so a reader can never observe a half-reset scene.
+func (s *gameSession) setFinishLoadingGates(gates finishLoadingGates) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.currentFinishLoadingStateSent = gates.State
+	s.currentFinishLoadingCompletionSent = gates.Completion
+	s.postFinishLoadingPlayerStateSent = gates.PostFinish
+	s.finishLoadingMu.Unlock()
 }

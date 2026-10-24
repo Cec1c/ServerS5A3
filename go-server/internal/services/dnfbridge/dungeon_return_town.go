@@ -968,9 +968,7 @@ func resetDungeonReturnSceneGates(session *gameSession) {
 	session.selectPreviewActorRemoved = false
 	session.preDungeonContextPlayerStateSent = false
 	session.deferredDungeonUserStateObjectKey = 0
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
 }
 
@@ -1018,8 +1016,6 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.preDungeonContextPlayerStateSent = false
 	session.postStartMapPlayerStateSent = false
 	session.deferredDungeonUserStateObjectKey = 0
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
 }

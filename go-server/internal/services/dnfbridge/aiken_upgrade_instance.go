@@ -70,7 +70,19 @@ func currentAikenSetState(s repo.ItemStack, slot int16, state [5]byte) (repo.Ite
 	return currentAikenWriteState(s, slot, state)
 }
 
-// Synchronize the complete carrier after the caller validates its operation.
+func currentAikenSetOption(s repo.ItemStack, slot int16, position, option byte) (repo.ItemStack, error) {
+	old, err := currentAikenState(s)
+	if err != nil || position > 1 || old[position] == option {
+		return repo.ItemStack{}, aiken.ErrInvalid
+	}
+	old[position] = option
+	return currentAikenWriteState(s, slot, old)
+}
+
+// Write the complete five-byte carrier consistently to RawEntry and every
+// supplied alias. The caller owns the meaning of the bytes; this helper only
+// preserves all four non-target fields and canonicalizes the known equipment
+// kind so NOTI14/cold projection retain item quality.
 func currentAikenWriteState(s repo.ItemStack, slot int16, state [5]byte) (repo.ItemStack, error) {
 	s = repo.CloneInventory(repo.InventoryRecord{Slots: map[string]repo.ItemStack{"x": s}}).Slots["x"]
 	if s.Extra == nil {

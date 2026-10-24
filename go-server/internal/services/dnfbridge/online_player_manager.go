@@ -476,6 +476,18 @@ func (s *Service) sendTownRemoteActorState(
 	actor onlinePlayerInfo,
 	source string,
 ) error {
+	return s.sendTownRemoteActorStateWithPartyFrame(target, actor, source, true)
+}
+
+// FiendWar admission restores actors before its first endpoint/roster sequence.
+// That caller must not publish a peer party frame before op11 seeds endpoints.
+// Ordinary town projections retain their existing party-frame policy.
+func (s *Service) sendTownRemoteActorStateWithPartyFrame(
+	target *gameSession,
+	actor onlinePlayerInfo,
+	source string,
+	partyFrame bool,
+) error {
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
 	}
@@ -616,6 +628,9 @@ func (s *Service) sendTownRemoteActorState(
 	// 这条"再声明一次队伍"的 op9 本身就是触发客户端退队的那一下（换成权威内容仍然退队）
 	// ⇒ 该情形下跳过它。见 town_copresence_party_state.go 的
 	// `DNFBRIDGE_TOWN_COPRESENCE_SKIP_SAME_PARTY_FRAME`（official-24.9 城镇默认开，其他档默认 off）。
+	if !partyFrame {
+		return nil
+	}
 	if s.shouldSkipTownCopresencePartyFrame(target, actor.Session) {
 		s.logPacketEvent("game-town-copresence-party-frame-skipped",
 			"conn_id", target.connID,
