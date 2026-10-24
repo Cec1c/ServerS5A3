@@ -63,6 +63,7 @@ type runtimeDungeonState struct {
 	deathStateSent               bool
 	riftLoot                     *currentRiftLootDefinition
 	fatigueRooms                 map[worldmap.RoomCoordinate]bool
+	fatigueStartDebited          bool
 	Request                      dungeoncmd.SelectDungeonRequest
 	Dungeon                      worldmap.Dungeon
 	MazeIndex                    int
@@ -1070,6 +1071,10 @@ func (s *Service) dungeonQuestRecord(ctx context.Context, characterID uint16) (d
 func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Dungeon, session *gameSession) error {
 	partyCount := currentDungeonPartyCount(session)
 	fatigue, fatigueKnown := dnfdungeon.CharacterStat(character.Stats, "fatigue", "fp", "疲劳")
+	fatigueCost, _, err := currentDungeonStartFatigueRule(dungeon)
+	if err != nil {
+		return err
+	}
 	return dnfdungeon.ValidateEntry(dnfdungeon.EntryPolicy{
 		CharacterLevel:      character.Level,
 		MinimumLevel:        dungeon.Metadata.MinimumRequiredLevel.Value,
@@ -1081,6 +1086,7 @@ func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Du
 		EnterWithoutFatigue: dungeon.Metadata.Flags["enter without fatigue"],
 		Fatigue:             fatigue,
 		FatigueKnown:        fatigueKnown,
+		FatigueCost:         fatigueCost,
 	})
 }
 
