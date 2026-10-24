@@ -60,6 +60,7 @@ type Registry struct {
 
 type Guild struct {
 	RankingActivity    *RankingActivity      `json:"ranking_activity,omitempty"`
+	Guardians          *GuardianState        `json:"guardians,omitempty"`
 	Essence            EssenceBalance        `json:"essence,omitempty"`
 	Dungeon            *DungeonProgress      `json:"dungeon,omitempty"`
 	ID                 uint32                `json:"id"`
@@ -659,6 +660,9 @@ func validateRegistry(r Registry) error {
 			return ErrInvalidRegistry
 		}
 		if err := ValidateCargo(g.Cargo); err != nil {
+			return err
+		}
+		if err := g.Guardians.Validate(); err != nil {
 			return err
 		}
 		name := strings.ToLower(strings.TrimSpace(g.Name))

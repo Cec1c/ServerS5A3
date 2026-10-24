@@ -27,8 +27,7 @@ func (s *Service) currentGuildEssenceCatalog() (*guild.EssenceCatalog, error) {
 	return c, nil
 }
 
-// Exact native constructor defaults, plus the two committed balances. No
-// season, owned guardian, level or active guardian is invented by income.
+// Constructor defaults for an empty guild, plus the two committed balances.
 func buildCurrentGuildEssenceSnapshot(balance guild.EssenceBalance) []byte {
 	body := make([]byte, 0x895)
 	body[1] = 0xff
@@ -37,6 +36,31 @@ func buildCurrentGuildEssenceSnapshot(balance guild.EssenceBalance) []byte {
 	binary.LittleEndian.PutUint32(body[0x17:], balance.AP)
 	binary.LittleEndian.PutUint32(body[0x1b:], balance.GP)
 	return body
+}
+
+// Income and reconnect project existing ownership rather than clearing it.
+// This does not assign initial level/skills or acquire/select a guardian.
+func buildCurrentGuildGuardianSnapshot(g *guild.Guild) ([]byte, error) {
+	if g == nil {
+		return buildCurrentGuildEssenceSnapshot(guild.EssenceBalance{}), nil
+	}
+	if err := g.Guardians.Validate(); err != nil {
+		return nil, err
+	}
+	body := buildCurrentGuildEssenceSnapshot(g.Essence)
+	if g.Guardians == nil {
+		return body, nil
+	}
+	binary.LittleEndian.PutUint32(body[0x44:], g.Guardians.ActiveID)
+	for i, row := range g.Guardians.Owned {
+		at := 0x7f8 + 18*i
+		binary.LittleEndian.PutUint32(body[at:], row.ID)
+		body[at+4] = row.Level
+		copy(body[at+5:at+10], row.Skills[:])
+		binary.LittleEndian.PutUint32(body[at+10:], row.APProgress)
+		binary.LittleEndian.PutUint32(body[at+14:], row.GPProgress)
+	}
+	return body, nil
 }
 
 func buildCurrentGuildEssenceNotice(ap uint32) []byte {
@@ -59,11 +83,12 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	if err != nil {
 		return err
 	}
-	var balance guild.EssenceBalance
-	if g, _, found := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))}); found {
-		balance = g.Essence
+	g, _, _ := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
+	body, err := buildCurrentGuildGuardianSnapshot(g)
+	if err != nil {
+		return err
 	}
-	return s.sendGameUpperRawClass(session, 1297, buildCurrentGuildEssenceSnapshot(balance), 0)
+	return s.sendGameUpperRawClass(session, 1297, body, 0)
 }
 
 // Caller has the login town lock. Asset reservation protects the canonical
