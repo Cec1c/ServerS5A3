@@ -144,6 +144,17 @@ func TestR195PrestartSelectorPreservesOrdinaryAndStartedWire(t *testing.T) {
 					case "timed_out":
 						state.Battle.TimedOut = true
 					}
+					// This control describes an established connection that already
+					// received raid metadata. Missing metadata/new connections are
+					// covered by the real-resource selector-restore tests; this small
+					// prestart fixture intentionally has no phase resource clock.
+					session.raidProjection.mu.Lock()
+					session.raidProjection.metadataReady = true
+					session.raidProjection.metadataReadyIdentity = currentRaidProjectionIdentity{
+						InstanceID: state.Battle.InstanceID, Phase: state.Battle.Phase,
+						CharID: session.selectedCharacterID, Generation: session.characterGeneration,
+					}
+					session.raidProjection.mu.Unlock()
 					r195DispatchSelector(t, s, session, legacy)
 					stream := session.conn.(*bufferConn).write.Bytes()
 					if legacy {

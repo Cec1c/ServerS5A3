@@ -50,8 +50,9 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 	selectedCharacterID := session.selectedCharacterID
 	session.dungeon.mu.Lock()
 	completedOrdinary := currentOrdinaryCompletedTownExitOwner(session, session.dungeon.runtime)
+	closedLukeEnergy := s.currentLukeClosedEnergyExitReady(session, session.dungeon.runtime)
 	session.dungeon.mu.Unlock()
-	if completedOrdinary {
+	if completedOrdinary || closedLukeEnergy {
 		// 通关结算界面与42共用奖励屏障及完整城镇重建。
 		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
 	}
@@ -710,6 +711,7 @@ func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 	runtime.townReturnPending = false
 	runtime.townReturnOp24Sent = false
 	runtime.townReturnRequestMsgID = 0
+	runtime.townReturnAckSent = false
 	runtime.townReturnSource = ""
 	runtime.townReturnTransition = currentDungeonTownTransition{}
 }
@@ -758,6 +760,10 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			session,
 			source+"_resume_confirmed_return",
 		)
+	}
+	if runtime.townReturnSource == currentRaidTableReturnSource && !s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return fmt.Errorf("raid table return owner changed before town confirmation")
 	}
 	snapshot := runtime.Session.Snapshot()
 	deadlineOwner := runtime.raidDeadlineReturn
@@ -851,7 +857,7 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			"reason", "automatic_deadline_not_explicit_leader_leave")
 	} else {
 		s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
-		if committedStatus == worldmap.DungeonRunAbandoned && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) {
+		if committedStatus == worldmap.DungeonRunAbandoned && (runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnSource == currentRaidTableReturnSource) {
 			if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 				s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
 			}
