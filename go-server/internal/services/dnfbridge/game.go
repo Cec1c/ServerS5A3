@@ -334,7 +334,11 @@ type gameSession struct {
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.
-	equipmentProjectionMu          sync.Mutex
+	equipmentProjectionMu sync.Mutex
+	// Serializes the final cross-scene profile write with appearance invalidation.
+	// No repository work is performed while this mutex is held.
+	crossSceneAppearanceMu         sync.Mutex
+	crossSceneAppearanceRevision   uint64
 	avatarAppearanceMu             sync.Mutex
 	avatarAppearanceLastAt         time.Time
 	avatarAppearanceTimer          string
