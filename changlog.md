@@ -1,3 +1,8 @@
+## 2026-10-25 — 固定 V166 副本离队关联清理候选
+
+- 新增固定 V166 的 op9 kind3-to-FFFF 同伴离队实验构建器与验证器：只清除退场记录的关联，保留其他成员的 active actor，并在随后的本人 kind0 仅补回空 actor+0x4C8 绑定。
+- 51 bounded cases 通过，由原始 13 项和补充 38 项组成，覆盖 kind3/kind0 slots 1-7、同 key 空绑定、现有绑定保留以及 route/owner/FFFF 负例。该结果是 bounded native harness 验证，record、actor、model、lookup 等仍使用受控合成夹具，不覆盖完整 op9 handler、UDP、渲染、GUI 或真实游戏流程，也不构成安装、发布或用户验收。
+
 ## 2026-10-24 — Seeker 自主调查优先
 
 - 可识别的功能及异常现象即可开始定位，先补齐对象、触发链并利用现有工具复现；以狂战士二觉闪退说明释放者和队友视角的调查。
