@@ -15,6 +15,7 @@ INPUT_SHA256 = "4474c31236f2f38de1c772f0ac7f1f267d5d52b9dbed33c4925c1df91353cc62
 LEGACY_BUILDER_SHA256 = "a4accee30ca97fa8269bf1afd544d7290d9e9efa50c038a9a24287f90cf4fd99"
 REFERENCE_SHA256 = "3c78eaa81e5efd5eef397d8af55c27abc1922a75cb7b30a9ecd5557574e5029f"
 PACKAGED_SHA256 = "78c48cc5ed4b8227d40a0d078109d71f7a6cc3d0059184def76c932293855a7c"
+SECTION_TABLE_SHA256 = "5d578230dbaca080e06b6e545725669e61d932364119a38c1806c46b1195cbc2"
 HELPER_SIZE = 993
 
 
@@ -22,6 +23,9 @@ def build(data):
     pe.require(pe.sha(Path(pe.__file__).read_bytes()) == LEGACY_BUILDER_SHA256,
                "reviewed historical PE writer changed")
     pe.INPUT_SHA256 = INPUT_SHA256
+    # Published v168 extended .r195rx VirtualSize from 0x121 to 0x33f for
+    # the guild receiver. Keep that exact table, including its expanded span.
+    pe.SECTION_TABLE_SHA256 = SECTION_TABLE_SHA256
     pe.REFERENCE_HELPER_SIZE = HELPER_SIZE
     pe.REFERENCE_HELPER_SHA256 = REFERENCE_SHA256
     pe.emit = emit
