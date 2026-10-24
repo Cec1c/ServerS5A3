@@ -55,7 +55,7 @@ RECEIPT = dict(
         "physical row compaction is not implemented; original slot coordinates remain",
         "no-party policy is self-only when cached self is available",
         "unknown/mismatching context preserves original behavior",
-        "not yet suitable for release",
+        "release, player-channel delivery and human acceptance are recorded separately",
     ],
 )
 BASE = NEW = OLD_PE = NEW_PE = None

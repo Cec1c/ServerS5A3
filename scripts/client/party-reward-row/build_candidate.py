@@ -430,7 +430,7 @@ def build(data):
             "physical row compaction is not implemented; original slot coordinates remain",
             "no-party policy is self-only when cached self is available",
             "unknown/mismatching context preserves original behavior",
-            "not yet suitable for release",
+            "release, player-channel delivery and human acceptance are recorded separately",
         ],
         proofScope="fixed image construction, byte whitelist and read-back only; no native execution",
     )
