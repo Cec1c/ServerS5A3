@@ -46,8 +46,8 @@ func testRealPVFFatiguePotionRemainingCountLifecycle(t *testing.T, itemID uint32
 		t.Fatal(err)
 	}
 	definition, ok := fatiguePotionDefinition(int64(itemID), item.PVFPath, doc)
-	if !ok || definition.DailyLimit != 3 || definition.Points != points {
-		t.Fatalf("unexpected item416 definition: %+v", definition)
+	if !ok || definition.DailyLimit != 3 || definition.Points != points || (itemID == 416 && definition.Group != "") {
+		t.Fatalf("unexpected item%d definition: %+v", itemID, definition)
 	}
 	ctx := context.Background()
 	repos := memory.NewMemoryGroup()
