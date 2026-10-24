@@ -715,12 +715,15 @@ func (s *Service) broadcastRuntimeRaidRefresh(state runtimeRaidState) error {
 	if err != nil {
 		return err
 	}
+	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancelProfiles()
+	profiles := newCurrentCrossSceneProfileBatch(s, profileCtx)
 	for _, member := range state.Members {
 		session, ok := s.onlineGameSession(member.CharID)
 		if !ok {
 			continue
 		}
-		if err := s.sendCurrentRuntimeRaidProfiles(session, state); err != nil {
+		if err := s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, profiles); err != nil {
 			return err
 		}
 		if err := s.sendGameUpperRawClassCodec(session, raid.RaidMemberRefreshMsgID, body, 0, true); err != nil {
