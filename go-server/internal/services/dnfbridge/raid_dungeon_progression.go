@@ -128,6 +128,7 @@ func (s *Service) reduceCurrentRaidDungeonClearLocked(session *gameSession, runt
 		var next *raid.AntonProgression
 		var replay bool
 		if b.Mode == 2 {
+			recordCurrentLukeClosedEnergyReturn(b, session, runtime)
 			var luke *raid.LukeProgression
 			luke, replay, err = (&raid.LukeProgression{AntonProgression: ticked}).ClearDungeon(e.RunID, dungeonID, e.Attempt, now)
 			if err == nil {

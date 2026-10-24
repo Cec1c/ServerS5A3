@@ -294,6 +294,7 @@ func (s *Service) sendSelectedActorMode0AppearanceRefreshGuarded(session *gameSe
 }
 
 func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSession, operation string, sequence string, current func() bool, committedWear bool) (bool, error) {
+	invalidateCurrentCrossSceneAppearance(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	// 穿脱装备/换时装的关键路径：这一段是**纯读**（durable 写入已在 ACK 之前完成），
@@ -337,12 +338,18 @@ func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSe
 		return false, err
 	}
 	if committedWear {
-		return true, s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode0")
+		err = s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode0")
+	} else {
+		err = s.sendBuffSwapReapply(session, operation+"_after_equipment_mode0")
 	}
-	return true, s.sendBuffSwapReapply(session, operation+"_after_equipment_mode0")
+	if err == nil {
+		s.broadcastCurrentCrossSceneAppearance(session)
+	}
+	return true, err
 }
 
 func (s *Service) sendSelectedActorAppearanceRefresh(session *gameSession, operation string, sequence string) error {
+	invalidateCurrentCrossSceneAppearance(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, charName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
@@ -394,7 +401,11 @@ func (s *Service) sendSelectedActorAppearanceRefresh(session *gameSession, opera
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), mode1Body, 0); err != nil {
 		return err
 	}
-	return s.sendBuffSwapReapply(session, operation+"_after_equipment_mode0_mode1")
+	if err := s.sendBuffSwapReapply(session, operation+"_after_equipment_mode0_mode1"); err != nil {
+		return err
+	}
+	s.broadcastCurrentCrossSceneAppearance(session)
+	return nil
 }
 
 // sendSelectedActorMode1AppearanceRefresh remains available for protocol paths
@@ -405,6 +416,7 @@ func (s *Service) sendSelectedActorMode1AppearanceRefresh(session *gameSession, 
 }
 
 func (s *Service) sendSelectedActorMode1AppearanceWithBuffPolicy(session *gameSession, operation string, sequence string, committedWear bool) error {
+	invalidateCurrentCrossSceneAppearance(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
@@ -456,7 +468,13 @@ func (s *Service) sendSelectedActorMode1AppearanceWithBuffPolicy(session *gameSe
 		return err
 	}
 	if committedWear {
-		return s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode1")
+		err = s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode1")
+	} else {
+		err = s.sendBuffSwapReapply(session, operation+"_after_equipment_mode1")
 	}
-	return s.sendBuffSwapReapply(session, operation+"_after_equipment_mode1")
+	if err != nil {
+		return err
+	}
+	s.broadcastCurrentCrossSceneAppearance(session)
+	return nil
 }
