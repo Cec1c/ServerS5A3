@@ -162,6 +162,9 @@ class UpdateTests(unittest.TestCase):
                                    'sourceArchiveSha256': update.digest(archive)}}
             up.package(self.source, snapshot, {'go-server/main.go'})
             manifest = json.loads((up.stage / 'game-source-manifest.json').read_text())
+            bundle = up.stage / 'game-source.bundle'
+            self.assertEqual(update.digest(bundle), manifest['sourceGitBundleSha256'])
+            self.assertEqual(update.git(self.source, 'bundle', 'list-heads', str(bundle)).split()[0], manifest['sourceCommit'])
             if value is None: self.assertNotIn('mainQuestExpMultiplier', manifest)
             else: self.assertEqual(manifest['mainQuestExpMultiplier'], value)
 

@@ -407,6 +407,8 @@ def main():
     assert re.fullmatch(r'[0-9a-f]{40}', src['sourceCommit'])
     assert sha(s / 'DNF90Server') == src['serverSha256']
     assert sha(s / 'game-source.tar.gz') == src['sourceArchiveSha256']
+    if args.mode != 'rollback':
+        assert sha(s / 'game-source.bundle') == src['sourceGitBundleSha256'], 'source Git bundle differs'
     def authority_check():
         proof = checked_authority_proof((s / 'authority-current.json').read_bytes(),
             args.authority_proof_sha256, args.authority_nonce, args.run_id, args.mode, src,
@@ -557,6 +559,9 @@ def main():
             receipt['onlyApprovedEnvironmentChange'] = config_changed
             receipt['gmContainerUnchanged'] = 'gm' in container_names
             atomic(r / 'runtime/active-game-baseline.json', json.dumps(receipt, indent=2).encode())
+            receipt['sourceGitBundleSha256'] = src['sourceGitBundleSha256']
+            if 'sourceRecovery' in src: receipt['sourceRecovery'] = src['sourceRecovery']
+            receipt['authoritativePull'] = read(s / 'authority-deploy.json')
             write(s / 'game-deployment.json', receipt)
         except BaseException:
             restore_game_configs(r, backup, atomic)

@@ -37,6 +37,8 @@
 
 回执记录原 active sourceCommit、归档摘要、新根提交、逐件核验数量与 `gitAncestryRecovered=false`。新 manifest 的 baseCommit 仍指向实际旧 active，新增 sourceRecovery 说明来源；不预先改写线上身份来绕过部署检查。
 
+每次新包同时保存 `game-source.bundle`，本地先执行 `git bundle verify`，远端按 manifest 的 `sourceGitBundleSha256` 校验后保留在同一 run。后续可从 bundle 恢复实际累计提交与其完整祖先，不依赖某个临时工作树继续存在。bundle 含私有累计源码，只作为私有部署证据保存。
+
 大会模式可随已审查的源码更新一同变更：私有更新 profile 显式设置 `dungeon_tournament` 为 `off` 或 `vendor`，省略时保持实例现值。该值固定进本次 manifest，由 worker 更新实例源配置的同名字段并调用生成器，映射到 `DNFBRIDGE_DUNGEON_TOURNAMENT`。不接受其他值或任意环境变量覆盖；相同源码但请求不同配置会拒绝，不能把配置更新误报为 no-op 成功。启用前须核对匹配客户端、PVF 及玩法支持边界。
 
 主线任务经验倍率使用独立窄配置项 `main_quest_exp_multiplier`，只接受整数 `1..100`；省略时保持实例现值，未配置时服务端默认 `1`。该值冻结为 manifest 的 `mainQuestExpMultiplier`，由实例生成器映射到 `DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER`。控制器、worker 和生成器都拒绝布尔、字符串、浮点与越界值；相同源码但源配置值不同会拒绝，须随经过审查的源码更新执行。不要传通用环境变量覆盖。

@@ -375,10 +375,16 @@ class Update:
         if digest(archive_path) != snapshot["active"]["sourceArchiveSha256"]: raise ValueError("Base source archive mismatch")
         files = write_archive(source, archive_path, old_manifest["files"], changed, self.stage / "game-source.tar.gz")
         shutil.copy2(source / "dist/linux-amd64/DNF90Server", self.stage / "DNF90Server")
+        bundle = self.stage / "game-source.bundle"
+        subprocess.run(["git", "bundle", "create", str(bundle), "HEAD"], cwd=source, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "bundle", "verify", str(bundle)], cwd=source, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         manifest = {"sourceCommit": git(source, "rev-parse", "HEAD"), "baseCommit": snapshot["active"]["sourceCommit"],
                     "upstream": authority["after"], "authorityInvocation": authority["nonce"],
                     "publicGuildCommit": old_manifest.get("publicGuildCommit"),
                     "publicFixCommits": old_manifest.get("publicFixCommits", []), "sourceArchiveSha256": digest(self.stage / "game-source.tar.gz"),
+                    "sourceGitBundleSha256": digest(bundle),
                     "serverSha256": digest(self.stage / "DNF90Server"), "files": files, "changedFiles": sorted(changed),
                     "build": ["build.bat", "linux", "amd64"], "GOFLAGS": "-tags=timetzdata"}
         if self.recovery: manifest["sourceRecovery"] = self.recovery
@@ -447,7 +453,7 @@ class Update:
         self.require_authority("upload")
         self.ssh(["mkdir", "-p", str(PurePosixPath(self.remote_stage).parent)])
         self.ssh(["mkdir", "-m", "700", self.remote_stage])
-        for name in ["DNF90Server", "game-source.tar.gz", "game-source-manifest.json", "runtime-before.json", "compatibility-readback.json"]:
+        for name in ["DNF90Server", "game-source.tar.gz", "game-source.bundle", "game-source-manifest.json", "runtime-before.json", "compatibility-readback.json"]:
             print("Upload:", name, flush=True)
             subprocess.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                             str(self.stage / name), self.profile["ssh_alias"] + ":" + self.remote_stage + "/" + name], check=True)
