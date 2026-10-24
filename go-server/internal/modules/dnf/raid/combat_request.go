@@ -5,16 +5,17 @@ import (
 	"fmt"
 )
 
-// Current v92's complete 018FBED0/018FBF20 write exactly one byte.
-// 1 requests dismissal; 0 reports the natural end of the movie. Both end
-// the local animation. Authorization and result-flow state belong to bridge.
-type MovieSkipRequest struct{ Requested bool }
+// Fixed v157 023FB4B3 -> 018FBF20 sends zero for a skip input while the
+// movie is active. 023FAC8C -> 018FBED0(true) sends one on close completion
+// and disarms the sender. Only one confirms completion; bridge owns identity
+// and the native prompt response to zero.
+type MovieSkipRequest struct{ Completed bool }
 
 func DecodeMovieSkipRequest(body []byte) (MovieSkipRequest, error) {
 	if len(body) != 1 || body[0] > 1 {
 		return MovieSkipRequest{}, fmt.Errorf("raid movie completion must be one boolean byte")
 	}
-	return MovieSkipRequest{Requested: body[0] == 1}, nil
+	return MovieSkipRequest{Completed: body[0] == 1}, nil
 }
 
 // 00F19600 writes party1, gold0 and, only with its PC-room flag, PC2.

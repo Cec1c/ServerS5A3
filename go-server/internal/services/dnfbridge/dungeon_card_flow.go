@@ -320,6 +320,12 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 
+	// v153 Anton bt_stanfby_move (018774EF) and Luke bt_standby_move
+	// (0110DC13) emit 72/{1,2} during an active run as an explicit give-up.
+	if len(body) == 2 && shouldReturnToTown && s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return s.handleCurrentDungeonTownExitRequest(session, nil, uint16(dnfenum.CmdPacketEplpCommand))
+	}
 	if s.options.currentClientVersion == "official-24.9" && runtime != nil && runtime.Tournament != nil {
 		// Tournament rewards use their own durable selection flow and never
 		// emit the ordinary result/card chain. Accept only the proved town
@@ -357,6 +363,55 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 			"dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand))
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
 			uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tournament_return_to_town")
+	}
+	if runtime != nil && (shouldReturnToTown || shouldOpenOtherSelector && retryRequesterIsLeader) && s.currentLukeClosedEnergyExitReady(session, runtime) {
+		if !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+		}
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		if shouldOpenOtherSelector {
+			return s.selectOtherDungeonForCompletedParty(session, runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_closed_luke_energy_return")
+	}
+	// The completed Luke spread-sanctum result page is owned by its accepted
+	// raid clear journal. The ordinary op34/35 chain may be absent after a
+	// reconnect; requiring it here leaves op72 返回城镇 inert until the menu
+	// op132 path is used. This branch is limited to that one Phase-1 map and
+	// Mode 2. Retry, other-selector, other Luke sanctums and Anton remain on the
+	// existing ordinary/card boundary below.
+	if runtime != nil && shouldReturnToTown && s.currentLukeSpreadSanctumCompletedMapTownReturnReady(session, runtime) {
+		// A failed town preparation/write retains this runtime. Retry the route,
+		// but do not acknowledge the already accepted result action again.
+		if !runtime.settlementCardExitAckSent {
+			response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+		}
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		s.logGameEvent(session, "game-raid-completed-map-exit-accepted", "char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand), "source", "owned_luke_spread_sanctum_clear_without_ordinary_settlement_reward")
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_owned_raid_map_return_to_town")
 	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
 		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
