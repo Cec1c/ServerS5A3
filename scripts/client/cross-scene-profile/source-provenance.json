@@ -1,0 +1,70 @@
+{
+  "formalVerifierRoot": "resume",
+  "formalBuildLogic": {
+    "relative": "remaining-source-20261024/scripts/client/cross-scene-profile/build_candidate.py",
+    "sha256": "c94689c31d6dd1f3c7a641dc34487a91a9c0a67390a523a024e93cfe55a3c32b",
+    "runtimeDependency": false
+  },
+  "selectedFinalV2": [
+    {
+      "relative": "verify-cross-scene-menu-candidate-v2.py",
+      "sha256": "e23a66659aa98271dc72ad1310ed073767d71918d0d1da3d00dd02e92cc4d5ee",
+      "draft": "menu_v2.py"
+    },
+    {
+      "relative": "verify-cross-scene-gates-v2.py",
+      "sha256": "4c69258c57f01624073f2625316ba14dda66f32407deb39f3c9834492f6fae43",
+      "draft": "gates_v2.py"
+    },
+    {
+      "relative": "verify-cross-scene-detail-candidate-v2.py",
+      "sha256": "a93ca5029daebfa9bf6f819eb9bc266af3d3d6336554c02e5749552f03618472",
+      "draft": "detail_v2.py"
+    },
+    {
+      "relative": "verify-aux-cache-v158-v2.py",
+      "sha256": "c037857ff32f667262fe506d465365b1bc26bfcfb145f52f8e4db77491030c01",
+      "draft": "aux_cache.py"
+    }
+  ],
+  "remainingVerifierSources": [
+    {
+      "relative": "verify-cross-scene-portrait-candidate.py",
+      "sha256": "10bee319af35b9b73ff65ae410230f2fc6482c368a64594eb497c373ca775eac",
+      "draft": "portrait.py"
+    },
+    {
+      "relative": "verify-mode8-aux-route-candidate.py",
+      "sha256": "9a73d106a5b3572b2f6964460408a066488aa43365747de9d261122041fb1153",
+      "draft": "mode8.py"
+    },
+    {
+      "relative": "verify-mode0-appearance-data.py",
+      "sha256": "7becae0e5855ed79c4506fb4dc610ebd7d105db6f6e450888d243f13860c376d",
+      "draft": "mode0.py"
+    },
+    {
+      "relative": "verify-cross-scene-request-context.py",
+      "sha256": "fc88bd2d157146e48a27bd12e5bbfa061b91be25f9506ad0cafa92c4d1f04190",
+      "draft": "request_context.py"
+    },
+    {
+      "relative": "verify-cross-scene-portrait-reset.py",
+      "sha256": "f041ab2a8fe3891f0f279f97128bcd29cb6fd5943208ad9367e3706ebaeb1cf4",
+      "draft": "portrait_reset.py"
+    },
+    {
+      "relative": "verify-cross-scene-aux-release.py",
+      "sha256": "96482841307b2aa460ee36a78d2f0b3c5a66805239bf850a2d3df765469e5065",
+      "draft": "aux_release.py"
+    }
+  ],
+  "excludedOldEntrypoints": [
+    "verify-cross-scene-menu-candidate.py",
+    "verify-cross-scene-detail-candidate.py",
+    "verify-cross-scene-gates-v158.py",
+    "verify-aux-cache-v158.py"
+  ],
+  "exeIncluded": false,
+  "simulationExecutedWhileCreatingDraft": false
+}
