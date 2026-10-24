@@ -24,6 +24,12 @@ type GuildUnitOfWork interface {
 	WithinGuild(context.Context, []GuildOwner, func(Group) error) error
 }
 
+// GuildTravelUnitOfWork commits a guild use and the locations of one ordinary
+// party (at most four characters). Other guild operations retain two owners.
+type GuildTravelUnitOfWork interface {
+	WithinGuildTravel(context.Context, []GuildOwner, func(Group) error) error
+}
+
 // GuildInventoryUnitOfWork adds only the actor's inventory to the guild lock
 // boundary. Creation and member-management transactions retain their original
 // scope. Lock order is registry, owned character, owned inventory.
@@ -72,7 +78,15 @@ func (r *guildInventory) SaveFields(ctx context.Context, record InventoryRecord,
 }
 
 func GuildOwners(owners []GuildOwner) ([]GuildOwner, error) {
-	if len(owners) < 1 || len(owners) > 2 {
+	return guildOwners(owners, 2)
+}
+
+func GuildTravelOwners(owners []GuildOwner) ([]GuildOwner, error) {
+	return guildOwners(owners, 4)
+}
+
+func guildOwners(owners []GuildOwner, limit int) ([]GuildOwner, error) {
+	if len(owners) < 1 || len(owners) > limit {
 		return nil, ErrGuildTransaction
 	}
 	ordered := append([]GuildOwner(nil), owners...)
