@@ -32,6 +32,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	GuildRanking        *guild.RankingPartyClear
 	GuildDungeon        *GuildDungeonClear
 	DespairClearedFloor int
 	DespairRewards      *DespairRewards
@@ -57,6 +58,7 @@ type SettlementCommand struct {
 }
 
 type SettlementResult struct {
+	GuildRanking      guild.RankingClearResult
 	GuildDungeon      guild.DungeonClearResult
 	GuildDungeonItems []GuildDungeonGrantedItem
 	GuildMileage      guild.DungeonMileageResult
@@ -104,12 +106,13 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 	}
 	wantHash := sha256.Sum256([]byte(cmd.CompletionKey))
 	now := updatedAtOrNow(cmd.UpdatedAt)
+	useGuildSettlement := cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil || cmd.GuildRanking != nil
 
 	var result SettlementResult
 	within := func(apply func(dnfrepo.Group) error) error {
 		return o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, apply)
 	}
-	if cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil {
+	if useGuildSettlement {
 		uow, ok := o.settlements.(dnfrepo.GuildSettlementUnitOfWork)
 		if !ok {
 			return SettlementResult{}, ErrOwnerUnavailable
@@ -144,7 +147,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character = dnfrepo.CloneCharacter(character)
 		skill = dnfrepo.CloneSkill(skill)
 		inventory = dnfrepo.CloneInventory(inventory)
-		if cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil {
+		if useGuildSettlement {
 			result = SettlementResult{Character: character, Skill: skill, Inventory: inventory}
 			found, err := readGuildSettlementReceipt(ctx, tx.Settings, cmd, &result)
 			if err != nil || found {
@@ -179,7 +182,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				ExperienceGain: receiptGain, PotionBonus: uint32(character.Stats[settlementReceiptPrefix+"potion_bonus"]), SPGain: receiptSP, Replayed: true,
 			}
 			// A pre-upgrade settlement is not a new clear: migrate its receipt without a retroactive award.
-			if cmd.GuildOrdinaryClear {
+			if useGuildSettlement {
 				return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 			}
 			return nil
@@ -403,9 +406,15 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 			result.GuildMileage = mileage
-			return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 		}
-		if cmd.GuildDungeon != nil {
+		if cmd.GuildRanking != nil {
+			ranking, err := guild.ApplyRankingPartyClear(ctx, tx.Settings, dnfrepo.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}, *cmd.GuildRanking, now)
+			if err != nil {
+				return err
+			}
+			result.GuildRanking = ranking
+		}
+		if useGuildSettlement {
 			return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 		}
 		return nil

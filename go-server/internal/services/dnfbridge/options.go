@@ -142,6 +142,7 @@ func readPartyDungeonAllMemberUserState() (bool, string, bool) {
 }
 
 type options struct {
+	guildRankingEnabled      bool
 	guildSoloCreate          bool
 	channelListen            string
 	gameListenHost           string
@@ -759,11 +760,12 @@ type options struct {
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
 	opts := options{
-		guildSoloCreate: envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
-		channelListen:   envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),
-		gameListenHost:  strings.TrimSpace(os.Getenv("DNFBRIDGE_GAME_LISTEN_HOST")),
-		channelInfoFile: firstEnv([]string{"DNFBRIDGE_CHANNEL_INFO_PATH", "DNF_CHANNEL_INFO_FILE"}, defaultChannelInfoFile),
-		channelServerID: envIntAny([]string{"DNFBRIDGE_CHANNEL_SERVER_INDEX", "DNF_CHANNEL_SOURCE_SERVER_INDEX"}, 1),
+		guildRankingEnabled: envBool("DNFBRIDGE_GUILD_RANKING_ENABLED", false),
+		guildSoloCreate:     envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
+		channelListen:       envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),
+		gameListenHost:      strings.TrimSpace(os.Getenv("DNFBRIDGE_GAME_LISTEN_HOST")),
+		channelInfoFile:     firstEnv([]string{"DNFBRIDGE_CHANNEL_INFO_PATH", "DNF_CHANNEL_INFO_FILE"}, defaultChannelInfoFile),
+		channelServerID:     envIntAny([]string{"DNFBRIDGE_CHANNEL_SERVER_INDEX", "DNF_CHANNEL_SOURCE_SERVER_INDEX"}, 1),
 		channelAdvertiseID: envIntAny(
 			[]string{"DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX", "DFO_CHANNEL_SERVER_INDEX"},
 			-1,
