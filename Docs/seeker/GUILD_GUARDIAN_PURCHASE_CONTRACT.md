@@ -21,6 +21,8 @@ V166 完整点击入口 `00EE9630` 中，组件 `+140/+148` 分别对应选择/�
 
 同时需要 `DNFBRIDGE_GUILD_ESSENCE_ENABLED=true` 和有效的 `DNFBRIDGE_GUILD_GUARDIAN_POLICY`。后者为完整 JSON 对象，字段如下：
 
+Docker实例源配置分别使用布尔 `guild_essence_enabled` 和对象 `guild_guardian_policy`，生成器校验完整字段后映射至上述环境变量。省略策略时保留关闭状态，显式 `first_select=false` 原样保留。
+
 | 字段 | 必填值与语义 |
 | --- | --- |
 | `first_purchase` | `free_once`：公会首次免费一只；`paid`：首次也按 PVF 收费 |

@@ -39,6 +39,27 @@ class DeploymentBoundaries(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "guild_ranking_enabled"):
                     manage.generate({"guild_ranking_enabled": value}, {})
                 self.assertEqual(list(Path(directory).iterdir()), [])
+    def test_guardian_policy_is_explicit_and_preserves_false(self):
+        policy = {"first_purchase": "free_once", "initial_level": 1, "initial_skills": [1]*5, "first_select": False}
+        for config in (self.gm_config(), self.gm_config() | {"guild_essence_enabled": True, "guild_guardian_policy": policy}):
+            with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(config, {"ports": [10006]})
+                env = dict(line.split("=",1) for line in (Path(directory)/"server.env").read_text().splitlines())
+                self.assertEqual(env["DNFBRIDGE_GUILD_ESSENCE_ENABLED"], str(config.get("guild_essence_enabled",False)).lower())
+                raw = env["DNFBRIDGE_GUILD_GUARDIAN_POLICY"]
+                self.assertEqual(json.loads(raw) if raw else None, config.get("guild_guardian_policy"))
+        bad = [None, {}, "{}", policy | {"first_purchase":"unknown"}, policy | {"initial_level":True}, policy | {"initial_level":0}, policy | {"initial_skills":[6]*5}, policy | {"initial_skills":[1]*4}, policy | {"first_select":1}, policy | {"extra":True}]
+        for value in bad:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage,"RUNTIME",Path(directory)):
+                with self.assertRaisesRegex(ValueError,"guild_guardian_policy"):
+                    manage.generate({"guild_guardian_policy":value},{})
+                self.assertEqual(list(Path(directory).iterdir()),[])
+        for value in (None,0,1,"true"):
+            with self.subTest(enabled=value), tempfile.TemporaryDirectory() as directory, patch.object(manage,"RUNTIME",Path(directory)):
+                with self.assertRaisesRegex(ValueError,"guild_essence_enabled"):
+                    manage.generate({"guild_essence_enabled":value},{})
+                self.assertEqual(list(Path(directory).iterdir()),[])
+
     def gm_config(self):
         return {"host_ip":"192.168.1.50", "server_ip":"10.254.90.2", "database_ip":"10.254.90.3", "subnet":"10.254.90.0/24", "database_password":"abc", "root_password":"def", "admin_token":"ab"*24, "body_codec":"plaintext", "client_body_codec":"plaintext", "joust_event_enabled":True}
 
