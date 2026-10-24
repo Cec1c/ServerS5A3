@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"encoding/binary"
 	"strconv"
 
@@ -108,6 +109,15 @@ func (s *Service) grantCurrentGuildEssenceLogin(session *gameSession) error {
 		return err
 	}
 	defer release()
+	return s.grantCurrentGuildEssenceLoginReserved(ctx, session, identity)
+}
+
+// The caller owns both the town lock and this identity's asset reservation.
+// In particular op339 must not recursively reserve the same character.
+func (s *Service) grantCurrentGuildEssenceLoginReserved(ctx context.Context, session *gameSession, identity boundGameSessionCharacter) error {
+	if identity.session != session || !s.boundGameSessionCharacterCurrent(identity) {
+		return guild.ErrCharacterNotFound
+	}
 	repos, ok := s.repositoryGroup()
 	if !ok {
 		return guild.ErrRepositoryUnavailable
@@ -121,6 +131,42 @@ func (s *Service) grantCurrentGuildEssenceLogin(session *gameSession) error {
 		return err
 	}
 	return s.projectCurrentGuildEssenceIncome(session, result, false)
+}
+
+// Optional login income must not return a storage/projection failure to the
+// scene-ready owner: the game packet loop closes the connection on that error.
+// Keep one generation-bound retry for the next native guild-window refresh.
+func (s *Service) projectOptionalGuildEssenceLoginLocked(session *gameSession) {
+	identity, _ := s.boundGameSessionCharacterSnapshot(session)
+	if err := s.grantCurrentGuildEssenceLogin(session); err != nil {
+		session.guildEssenceLoginRetry = identity
+		s.logGameEvent(session, "game-guild-essence-login-deferred", "error", err)
+		return
+	}
+	session.guildEssenceLoginRetry = boundGameSessionCharacter{}
+}
+
+func (s *Service) refreshOptionalGuildEssenceLocked(ctx context.Context, session *gameSession, identity boundGameSessionCharacter) {
+	if !s.options.guildEssenceEnabled {
+		return
+	}
+	if session.guildEssenceLoginRetry == identity {
+		if err := s.grantCurrentGuildEssenceLoginReserved(ctx, session, identity); err != nil {
+			s.logGameEvent(session, "game-guild-essence-login-retry-deferred", "error", err)
+			return
+		}
+		session.guildEssenceLoginRetry = boundGameSessionCharacter{}
+		return
+	}
+	// Selection/reconnect invalidates another generation's pending login.
+	session.guildEssenceLoginRetry = boundGameSessionCharacter{}
+	s.projectOptionalGuildEssenceSnapshot(session)
+}
+
+func (s *Service) projectOptionalGuildEssenceSnapshot(session *gameSession) {
+	if err := s.writeCurrentGuildEssenceSnapshot(session); err != nil {
+		s.logGameEvent(session, "game-guild-essence-projection-deferred", "error", err)
+	}
 }
 
 func (s *Service) projectCurrentGuildEssenceIncome(session *gameSession, income guild.EssenceIncome, replayed bool) error {
