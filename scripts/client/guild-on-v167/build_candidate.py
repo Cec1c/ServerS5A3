@@ -23,7 +23,7 @@ def require(value, message):
 
 def merged_ranges(ranges):
     result = []
-    for lo, hi in sorted(ranges):
+    for lo, hi in sorted(ranges, key=lambda pair: (pair[0], pair[1])):
         if result and lo <= result[-1][1]:
             result[-1][1] = max(result[-1][1], hi)
         else:
