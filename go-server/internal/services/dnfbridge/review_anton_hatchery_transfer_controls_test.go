@@ -94,9 +94,11 @@ func TestReviewActualAntonHatcheryTransferCommitKeepsReturnOrigin(t *testing.T) 
 
 func TestReviewActualAntonHatcheryTransferWrongCornerRejects(t *testing.T) {
 	s, p, o, target := actualAntonHatchWarpOwner(t)
-	wrong := uint32(221)
+	// Keep the enabled-corner safety control separate from the disabled-221
+	// policy regression in r180_hatchery_policy_test.go.
+	wrong := uint32(223)
 	if wrong == target {
-		wrong = 222
+		wrong = 224
 	}
 	_, _, err := s.prepareDungeonRuntime(context.Background(), p, dungeoncmd.SelectDungeonRequest{DungeonID: wrong, Difficulty: 2})
 	if err == nil || p.dungeon.runtime != o {

@@ -290,6 +290,10 @@ func (s *Service) sendSelectedActorMode0AppearanceRefresh(session *gameSession, 
 // guard rejects changes already visible at this point; it does not atomically
 // serialize character binding with the subsequent socket write.
 func (s *Service) sendSelectedActorMode0AppearanceRefreshGuarded(session *gameSession, operation string, sequence string, current func() bool) (bool, error) {
+	return s.sendSelectedActorMode0AppearanceWithBuffPolicy(session, operation, sequence, current, false)
+}
+
+func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSession, operation string, sequence string, current func() bool, committedWear bool) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	// 穿脱装备/换时装的关键路径：这一段是**纯读**（durable 写入已在 ACK 之前完成），
@@ -331,6 +335,9 @@ func (s *Service) sendSelectedActorMode0AppearanceRefreshGuarded(session *gameSe
 		"sequence", sequence)
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), mode0Body, 0); err != nil {
 		return false, err
+	}
+	if committedWear {
+		return true, s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode0")
 	}
 	return true, s.sendBuffSwapReapply(session, operation+"_after_equipment_mode0")
 }
@@ -394,6 +401,10 @@ func (s *Service) sendSelectedActorAppearanceRefresh(session *gameSession, opera
 // that explicitly own a standalone current-EXE mode1. This helper remains for
 // flows which explicitly require a full actor rebind.
 func (s *Service) sendSelectedActorMode1AppearanceRefresh(session *gameSession, operation string, sequence string) error {
+	return s.sendSelectedActorMode1AppearanceWithBuffPolicy(session, operation, sequence, false)
+}
+
+func (s *Service) sendSelectedActorMode1AppearanceWithBuffPolicy(session *gameSession, operation string, sequence string, committedWear bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
@@ -443,6 +454,9 @@ func (s *Service) sendSelectedActorMode1AppearanceRefresh(session *gameSession, 
 	}
 	if err := s.sendSelectedActorGuardianGemRowRefresh(session, operation+"_after_equipment_mode1"); err != nil {
 		return err
+	}
+	if committedWear {
+		return s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode1")
 	}
 	return s.sendBuffSwapReapply(session, operation+"_after_equipment_mode1")
 }

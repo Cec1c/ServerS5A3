@@ -64,8 +64,16 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	}
 	if markScreen {
 		o.rewardScreenIdentity, o.rewardScreenSent = identity, true
+		for _, packet := range packets {
+			if packet.class == 0 && packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+				s.raidMu.Lock()
+				s.markCurrentRaidPartySelectionShownLocked(identity.InstanceID, identity.Phase, identity.CharID, time.Now())
+				s.raidMu.Unlock()
+				break
+			}
+		}
 	}
-	if latest.Battle.Mode == 2 && latest.Battle.Phase == 0 && !latest.Battle.Single {
+	if latest.Battle.Mode == 1 || latest.Battle.Mode == 3 || latest.Battle.Mode == 2 && latest.Battle.Phase == 0 && !latest.Battle.Single {
 		// Share successful manual party displays with the flow projection.
 		// Gold masks must not replace the party display signature.
 		for _, packet := range packets {
@@ -236,7 +244,7 @@ func (s *Service) freezeCurrentAntonPartyCard(session *gameSession, captured run
 			return currentAntonRewardCard{}, raid.RewardCommand{}, raid.ErrRewardIneligible
 		}
 	}
-	if member.GroupIndex < 1 || member.GroupIndex > runtimeRaidMaxGroups {
+	if member.GroupIndex < 1 || member.GroupIndex > currentRaidGroupMaximum(*live) {
 		return currentAntonRewardCard{}, raid.RewardCommand{}, raid.ErrRewardIneligible
 	}
 	clears := currentAntonPhaseClearCount(b, member.CharID)

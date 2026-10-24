@@ -15,6 +15,10 @@ func reviewActualLukeCoinFixtureForDungeon(t *testing.T, withPeer bool, dungeonI
 	t.Helper()
 	f, s, phaseAt := normalLukeFixture(t)
 	if dungeonID == 5311 {
+		peer := f.session()
+		peer.selectedCharacterID, peer.accountID = 20, "account-20"
+		peer.channel, peer.loginPacketSeen, peer.accountFromToken = s.channel, true, true
+		f.service.bindGameSessionCharacter(peer, 20)
 		for _, id := range []uint32{5054, 5055, 5056} {
 			for n := 0; n < 3; n++ {
 				clearOwnedLuke(t, f, s, id, phaseAt)

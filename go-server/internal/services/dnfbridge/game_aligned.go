@@ -82,6 +82,11 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		return handled, err
 	}
 	if typ == uint16(dnfenum.CmdPacketUseStackable) {
+		if cmd == byte(dnfenum.GameCmdCommand) {
+			if handled, err := s.handleCurrentPetFeed(session, body); handled || err != nil {
+				return handled, err
+			}
+		}
 		if handled, err := s.handleCurrentExpertJobRecipeLearning(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -894,6 +899,7 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	}
 	authoritativeLists := currentAuthoritativeListRefreshSet(result.AuthoritativeListRefreshes)
 	handledLists := make(map[byte]bool, len(authoritativeLists))
+	sortedMainBagReplaced := false
 	for _, response := range result.UpperResponses {
 		if listType, ok := currentAuthoritativeListRefreshListType(response, authoritativeLists); ok {
 			handledLists[listType] = true
@@ -924,6 +930,9 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			if err := s.sendGameUpperRawClassCodec(session, response.MsgID, body, response.Classification, response.AllowCodec); err != nil {
 				return err
 			}
+			if result.Operation == "sort_item" && listType == 0 {
+				sortedMainBagReplaced = true
+			}
 			continue
 		}
 		wireBody, err := currentSkillSlotResponseBody(response)
@@ -949,6 +958,7 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 		return err
 	}
 	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
+	postActionsDeferred := false
 	for _, action := range result.PostActions {
 		if alignedPostActionTouchesCombatPower(action) {
 			refreshCombatPowerAffixes = true
@@ -961,9 +971,25 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 					"post_action", action,
 					"char_id", session.selectedCharacterID,
 					"error", err)
+				postActionsDeferred = true
 				break
 			}
 			return err
+		}
+	}
+	if result.RefreshSelectedBuffRegistration && !postActionsDeferred {
+		if result.Operation == "sort_item" {
+			// A replacing op13 invalidates object bindings even when the
+			// sorted list/index bytes match the cached Buff projection.
+			if sortedMainBagReplaced {
+				if err := s.sendBuffSwapReapplyAfterCommittedWear(session, "aligned_sort_item_after_main_bag_replacement"); err != nil {
+					return err
+				}
+			}
+		} else {
+			if err := s.sendBuffSwapReapplyAfterNonAppearanceWear(session, "aligned_"+result.Operation+"_after_committed_wear_without_actor_refresh"); err != nil {
+				return err
+			}
 		}
 	}
 	if refreshCombatPowerAffixes {
@@ -1248,6 +1274,9 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshSelectedActorAppearance:
+		// Appearance is also requested by login reassertions, pets and expiry.
+		// Only a committed equipment move may preserve an absent BUFF owner.
+		committedWear := result.EquipmentMoveFact != nil && result.EquipmentMoveFact.Changed
 		// 这个 post action 只允许作用在**已定型的本地 actor 代际**上：mode0 自投影会把
 		// 对象重挂到当前 ctx，若此时 actor 还没被 op24/op29 定型（或 owner 上下文已经
 		// 换成别的频道），包会落到错的代际上 —— 宁可延后，让下一次场景引导收敛。
@@ -1267,7 +1296,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		// 这条合并只属于 mode1 回退档：mode0 档一次穿脱就是一个小包（≈468 B /
 		// 客户端 4 ms），延迟合并只会让"点一下立刻看到"落空。见 equip_move_refresh.go。
 		if !s.equipAppearanceRefreshUsesMode0() {
-			if s.shouldCoalesceAvatarAppearance(session) && s.scheduleTrailingAvatarAppearance(session, operation) {
+			if s.shouldCoalesceAvatarAppearance(session) && s.scheduleTrailingAvatarAppearance(session, operation, committedWear) {
 				s.logPacketEvent("game-avatar-appearance-coalesced",
 					"conn_id", session.connID,
 					"operation", operation,
@@ -1275,10 +1304,11 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 					"reason", "avatar_wear_burst_within_coalesce_window")
 				return nil
 			}
-			if err := s.sendSelectedActorMode1AppearanceRefresh(
+			if err := s.sendSelectedActorMode1AppearanceWithBuffPolicy(
 				session,
 				operation,
 				"durable_owner_then_class1_ack_then_repository_backed_native_owner_mode1_rollback",
+				committedWear,
 			); err != nil {
 				s.logWarn("dnfbridge deferred selected actor mode1 appearance",
 					"conn_id", session.connID,
@@ -1309,7 +1339,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		// "每次穿脱都同步发一个 mode0"。mode1 回退档不受影响（它有自己那段合并）。
 		if s.avatarAppearanceBurstCoalesceEnabled() &&
 			s.shouldCoalesceAvatarAppearance(session) &&
-			s.scheduleTrailingAvatarAppearance(session, operation) {
+			s.scheduleTrailingAvatarAppearance(session, operation, committedWear) {
 			s.logPacketEvent("game-avatar-appearance-coalesced",
 				"conn_id", session.connID,
 				"operation", operation,
@@ -1319,10 +1349,12 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 				"reason", "avatar_wear_burst_within_coalesce_window_leading_then_trailing")
 			return nil
 		}
-		if err := s.sendSelectedActorMode0AppearanceRefresh(
+		if _, err := s.sendSelectedActorMode0AppearanceWithBuffPolicy(
 			session,
 			operation,
 			"durable_owner_then_class1_ack_then_repository_backed_native_owner_mode0",
+			nil,
+			committedWear,
 		); err != nil {
 			s.logWarn("dnfbridge deferred selected actor mode0 appearance",
 				"conn_id", session.connID,

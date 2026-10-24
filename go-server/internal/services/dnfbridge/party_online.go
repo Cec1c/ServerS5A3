@@ -51,6 +51,9 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 			return true, nil
 		}
 	}
+	if handled, err := s.rejectCurrentFiendWarManualPartyCommand(session, typ); handled || err != nil {
+		return handled, err
+	}
 	switch dnfenum.CmdPacket(typ) {
 	case dnfenum.CmdPacketLeaveParty:
 		// Always consume a leave request.  The client can send it after a peer
@@ -114,6 +117,9 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 		return nil
 	}
 	sourceID := selectedCharacterID(session)
+	if handled, err := s.rejectCurrentFiendWarActivePartyRequest(session, typ, parsed); handled || err != nil {
+		return err
+	}
 	// 频道隔离（彻底隔离口径）：目标在别的频道时**必须明确失败**——不回包会让客户端
 	// "点了没反应"，静默丢弃更是无法复测；这里回通用失败包并记明 reason。
 	// 只对"目标在线且频道不同"生效；目标离线/异区域仍走下面的既有静默路径。
@@ -846,6 +852,13 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 	if !isForwardedPeerRequestMode(parsed.Mode) {
 		return nil
 	}
+	if s.currentFiendWarAutomaticPartyOnly(session) && (parsed.Mode == 0 || parsed.Mode == 12) {
+		target, _ := s.onlineGameSession(parsed.TargetID)
+		if handled, err := s.acknowledgeCurrentFiendWarPartyAccept(session, target, typ, parsed, false); handled || err != nil {
+			return err
+		}
+		return s.sendPartyCommandFailure(session, typ, partyCommandFailureGeneric)
+	}
 	acceptorIdentity, acceptorBound := s.boundGameSessionCharacterSnapshot(session)
 	targetIdentity, targetBound := s.onlineGameSessionCharacterSnapshot(parsed.TargetID)
 	// 频道隔离（彻底隔离口径）：接受跨频道邀请同样必须明确失败，并且**不消费**邀请记录
@@ -871,6 +884,9 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				parsed.Mode,
 			)
 		}
+	}
+	if handled, err := s.acknowledgeCurrentFiendWarPartyAccept(session, targetIdentity.session, typ, parsed, inviteConsumed); handled || err != nil {
+		return err
 	}
 	if !inviteConsumed {
 		s.logGameEvent(session, "game-peer-response-without-pending-request",

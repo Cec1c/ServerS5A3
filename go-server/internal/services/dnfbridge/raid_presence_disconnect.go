@@ -64,6 +64,11 @@ func (s *Service) noteCurrentRaidDisconnect(identity boundGameSessionCharacter) 
 	if snapshot.Battle != nil {
 		seconds = snapshot.Battle.Configuration.DisconnectWaitSeconds
 	}
+	if seconds == 0 && snapshot.RouteOrRaidType == 2 {
+		if c, err := s.loadCurrentFiendWarConfig(); err == nil {
+			seconds = uint32(c.DisconnectMemberWaitSeconds)
+		}
+	}
 	if seconds == 0 {
 		s.initialEquipmentMu.Lock()
 		archive, err := s.initialEquipmentArchiveLocked()
@@ -171,6 +176,12 @@ func (s *Service) restoreCurrentRaidPresence(session *gameSession) {
 		return
 	}
 	delete(s.currentRaidDisconnects, identity.character)
+	if b := state.Battle; b != nil && b.FiendWar != nil {
+		next := b.FiendWar.Clone()
+		next.MemberAreas[identity.character] = next.Config.WaitingArea
+		b.FiendWar = next
+		b.ProgressVersion++
+	}
 	state.Members[runtimeRaidMemberIndex(*state, identity.character)].UserState = 1
 	s.mu.Unlock()
 	copy := cloneRuntimeRaidState(*state)

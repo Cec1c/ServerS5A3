@@ -190,10 +190,23 @@ func (f *publicFatigueFixture) use(t *testing.T, wantSuccess bool) []byte {
 		t.Fatal("op14 missing", update.Header)
 	}
 	points, rest := splitGameServerUpperPacket(t, rest)
-	if points.Header.MsgID != currentFatigueMsgID || points.Header.Classification != 0 || len(rest) != 0 {
+	if points.Header.MsgID != currentFatigueMsgID || points.Header.Classification != 0 {
 		t.Fatal("fatigue projection/order", points.Header, len(rest))
 	}
+	if f.def.DailyLimit <= 0 {
+		if len(rest) != 0 {
+			t.Fatalf("uncapped potion unexpectedly projected usage: %d bytes", len(rest))
+		}
+		return update.Body
+	}
+	usage, rest := splitGameServerUpperPacket(t, rest)
+	itemID := uint32(f.def.ItemID)
 	c, _ := f.snapshot(t)
+	wantUsed := byte(c.Stats["fatigue_potion_used_"+f.def.UsageGroup()])
+	wantUsage := []byte{1, byte(itemID), byte(itemID >> 8), byte(itemID >> 16), byte(itemID >> 24), wantUsed, 0}
+	if usage.Header.MsgID != currentFatiguePotionUsageMsgID || usage.Header.Classification != 0 || len(rest) != 0 || !bytes.Equal(usage.Body, wantUsage) {
+		t.Fatalf("fatigue usage projection/order: %+v body=%x trailing=%d", usage.Header, usage.Body, len(rest))
+	}
 	if len(points.Body) != 10 || int64(binary.LittleEndian.Uint16(points.Body)) != c.Stats["fatigue_used"] || int64(binary.LittleEndian.Uint16(points.Body[2:])) != c.Stats["fatigue_limit"] || int64(binary.LittleEndian.Uint16(points.Body[6:])) != c.Stats["fatigue_display_update"] {
 		t.Fatalf("fatigue notification does not match committed snapshot: %x", points.Body)
 	}

@@ -32,6 +32,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
+	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/signupbenefits"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
@@ -47,6 +48,7 @@ type Service struct {
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
+	fiendWarConfig   *fiendwar.FiendWarConfig // 由 initialEquipmentMu 保护，与固定PVF归档同寿命。
 	levelUpRewards   levelUpRewardRuntime
 	activityControls *onlineevent.Controls
 	logger           *slog.Logger
@@ -887,6 +889,9 @@ func (s *Service) loadChannelAssets() (*channelcatalog.Catalog, []byte, error) {
 }
 
 func (s *Service) buildChannelScript(raw []byte) ([]byte, error) {
+	if s.options.currentClientVersion == "official-24.9" {
+		return channelinfo.BuildOfficial249OnlineScript(raw, s.channelServerID(), s.channelAdvertiseID(), dnfenum.BootstrapChannelID)
+	}
 	return channelinfo.Build90CNOnlineScript(
 		raw,
 		s.channelServerID(),

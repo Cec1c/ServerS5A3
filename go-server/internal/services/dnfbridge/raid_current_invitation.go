@@ -104,7 +104,7 @@ func (s *Service) handleCurrentRaidPeerCheck(session *gameSession, op uint16, bo
 }
 func (s *Service) currentRaidInvitationOpenLocked(state *runtimeRaidState, inviter, recipient boundGameSessionCharacter) bool {
 	route, supported := currentRaidRouteForChannel(int(inviter.session.channel.Type))
-	return state != nil && state.CurrentLayout && state.LeaderID == inviter.character && !state.Started && state.CurrentUIFlags[0] == 0 && supported && state.RouteOrRaidType == route && byte(state.RaidKey>>16) == byte(inviter.session.channel.ID) && len(state.Members) < raid.MaxAttackPartyMembers && s.runtimeRaidByMemberLocked(recipient.character) == nil && s.currentRaidInvitationPeers(inviter, recipient)
+	return state != nil && state.CurrentLayout && state.LeaderID == inviter.character && !state.Started && state.CurrentUIFlags[0] == 0 && supported && state.RouteOrRaidType == route && byte(state.RaidKey>>16) == byte(inviter.session.channel.ID) && len(state.Members) < currentRaidMemberMaximum(*state) && s.runtimeRaidByMemberLocked(recipient.character) == nil && s.currentRaidInvitationPeers(inviter, recipient)
 }
 func (s *Service) handleCurrentRaidInvitation(session *gameSession, op uint16, req party.RequestPeerRequest) error {
 	if !s.currentRaidAuthenticated(session) || req.Value2 != 0 {

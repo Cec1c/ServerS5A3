@@ -77,7 +77,7 @@ func (s *Service) completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(
 			"vendor_source", "vendor_TournamentDungeonApplicationService.cs:275-317_TryCreateClearIntent")
 		return nil
 	}
-	if err := runtime.Session.Complete(); err != nil {
+	if allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, runtime.Session.Complete); !allowed || err != nil {
 		return err
 	}
 	runtime.ordinaryFinalRoomClearAccepted = true

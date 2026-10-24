@@ -12,7 +12,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	var selectedQuests dnfrepo.QuestRecord
 	hasSelectedQuests := false
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 
 	charID, charName, selectedCharacter, hasSelectedCharacter, slot := s.resolveSelectedCharacter(ctx, session, request)
@@ -279,6 +279,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 		if packet.kind == "select_ack" {
+			if err := s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack"); err != nil {
+				return err
+			}
 			if err := s.sendCurrentEpicWishSnapshot(session, "select_character_after_ack"); err != nil {
 				return err
 			}

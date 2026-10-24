@@ -146,6 +146,9 @@ func currentRaidOrderedSymbolProjection(state *raid.AntonProgression, cursor uin
 func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, state runtimeRaidState, initial, resubscribe bool) error {
 	o := &session.raidProjection
 	b := state.Battle
+	if b != nil && b.FiendWar != nil {
+		return s.sendCurrentFiendWarProjectionLocked(session, state, initial, resubscribe)
+	}
 	identity := currentRaidProjectionIdentity{InstanceID: b.InstanceID, Phase: b.Phase, CharID: session.selectedCharacterID, Generation: session.characterGeneration}
 	if b.ChannelID != session.channel.ID || b.ChannelType != session.channel.Type {
 		return fmt.Errorf("raid projection frozen channel mismatch")
@@ -174,6 +177,14 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 		return err
 	}
 	packets := []currentRaidProjectionPacket{{opcode: 585, body: mapBody}}
+	if b.Mode == 2 && !b.Single {
+		coinBody, err := currentLukePhaseCoinBody(b)
+		if err != nil {
+			return err
+		}
+		// Absolute snapshot on initial phase, reconnect and committed progress.
+		packets = append(packets, currentRaidProjectionPacket{opcode: 775, body: coinBody})
+	}
 	cursor := o.symbolCursor
 	previousTimers := o.timers
 	if fresh {

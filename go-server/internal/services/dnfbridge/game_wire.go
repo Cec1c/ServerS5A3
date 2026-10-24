@@ -327,6 +327,9 @@ func (s *Service) sendCurrentSceneItemList(session *gameSession, msgID uint16, b
 	if err != nil {
 		return err
 	}
+	if msgID == 13 || msgID == 14 {
+		defer s.rearmCurrentRelativeExpirationAfterItems(session, body)
+	}
 	runtimeName := upperRuntimeCmdPacketName(msgID, 0)
 	runtimeKnown := upperRuntimeCmdPacketKnown(msgID, 0)
 	s.logPacketEvent("game-upper-send-meta",
@@ -458,6 +461,11 @@ func (s *Service) sendGameUpperRawClassNoCodec(session *gameSession, msgID uint1
 }
 
 func (s *Service) sendGameUpperRawClassCodec(session *gameSession, msgID uint16, body []byte, classification byte, allowCodec bool) error {
+	if classification == 0 && (msgID == 13 || msgID == 14) {
+		// A grant remains committed even when its projection write fails.
+		// Rearm from repositories outside wireMu on either outcome.
+		defer s.rearmCurrentRelativeExpirationAfterItems(session, body)
+	}
 	return s.withGameWire(session, func() error {
 		sequence := session.upperSeq
 		headerSize := s.gameUpperHeaderSize()
