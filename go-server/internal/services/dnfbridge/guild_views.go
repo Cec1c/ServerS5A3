@@ -79,6 +79,9 @@ func (s *Service) writeCurrentGuildManagementProjection(session *gameSession, g 
 		if err := s.sendGameUpperRawClass(session, currentGuildMembershipNotificationMsgID, buildCurrentGuildMembershipNotificationBody(g), 0); err != nil {
 			return err
 		}
+		if err := s.writeCurrentGuildDungeonSnapshot(session); err != nil {
+			return err
+		}
 	}
 	return s.writeCurrentGuildBuffProjection(session, g, false)
 }

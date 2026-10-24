@@ -36,6 +36,8 @@ var (
 )
 
 type runtimeDungeonState struct {
+	guildDungeonClear            *dnfdungeon.GuildDungeonClear
+	settlementGuildDungeonSent   bool
 	ridableReportLastSequence    uint64
 	ridableReportChannelID       int
 	ridableReportChannelType     byte
