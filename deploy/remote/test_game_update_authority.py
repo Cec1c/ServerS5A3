@@ -40,5 +40,19 @@ class AuthorityProofTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'hash mismatch'):
             worker.checked_authority_proof(b'{}', '0' * 64, 'c' * 64, 'run', 'deploy', self.manifest, self.now)
 
+    def test_emergency_binds_mr_evidence_and_observed_master_without_claiming_contains(self):
+        emergency = dict(selectedMR=226, selectedMergeCommit='963eabb6b125b09fba4312f650a81d90a96cc96a',
+                         candidateCommit='b' * 40, baseCommit='d' * 40, evidenceSha256='e' * 64)
+        self.manifest.update(integrationMode='emergency-selected-mr', emergency=emergency,
+                             baseCommit='d' * 40, observedUpstream='f' * 40)
+        self.proof.update(containsMaster=False, after='f' * 40, integrationMode='emergency-selected-mr',
+                          selectedMR=226, selectedMergeCommit=emergency['selectedMergeCommit'],
+                          emergencyEvidenceSha256='e' * 64)
+        self.assertFalse(self.check()['containsMaster'])
+        for key, value in [('containsMaster', True), ('emergencyEvidenceSha256', 'x' * 64),
+                           ('selectedMR', 227), ('after', 'a' * 40)]:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.check(dict(self.proof, **{key: value}))
+
 
 if __name__ == '__main__': unittest.main()

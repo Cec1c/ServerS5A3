@@ -60,6 +60,21 @@ class AuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'does not contain'):
             self.check(self.gate())
 
+    def test_emergency_still_pulls_and_reports_partial_integration(self):
+        selected = self.git(self.authority, 'rev-parse', 'HEAD')
+        latest = self.advance('two')
+        emergency = dict(candidateCommit=selected, selectedMergeCommit=selected,
+                         selectedMR=226, evidenceSha256='e' * 64)
+        gate = update.AuthorityGate(self.root / 'checkout', self.audit, 'test-run', emergency)
+        receipt = self.check(gate)
+        self.assertEqual(receipt['after'], latest)
+        self.assertFalse(receipt['containsMaster'])
+        self.assertEqual(receipt['integrationMode'], 'emergency-selected-mr')
+        self.assertEqual(receipt['selectedMergeCommit'], selected)
+        emergency['candidateCommit'] = latest
+        with self.assertRaisesRegex(ValueError, 'Emergency candidate'):
+            self.check(gate, 'package')
+
     def test_remote_moves_during_validation_even_if_candidate_updates(self):
         gate = self.gate()
         self.check(gate)

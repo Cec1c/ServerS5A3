@@ -14,7 +14,7 @@
 
 ## Agent 执行顺序
 
-**每次新部署强制当场拉取权威主干。** 控制器在本次 run 的独立干净目录执行 `git pull --ff-only --no-rebase https://gitgud.io/16ww/servers5a3.git master`，核对远端 master 读回，并验证该提交是候选的祖先。没有跳过参数，也不读取历史回执授权部署。共享脏工作树保持原状。
+**每次新部署强制当场拉取权威主干。** 控制器在本次 run 的独立干净目录执行 `git pull --ff-only --no-rebase https://gitgud.io/16ww/servers5a3.git master`，核对远端 master 读回；常规部署要求该提交是候选的祖先，不读取历史回执授权部署。共享脏工作树保持原状。Windows 的独立拉取目录设置仓库级 `core.longpaths=true`，不修改全局 Git 配置。
 
 首次验证前、打包前、上传前及远端 prepare/generate/deploy 各阶段都重新 pull。每次保存来源、分支、执行时间、拉取前后 SHA、候选 SHA 与本次随机运行标识。拉取失败、分叉、缺少主干或验证期间主干变化，均停止当前 run；集成并重新验证后使用新 run ID。源码 manifest 的 upstream 来自本次成功拉取，不再继承旧部署清单。
 
@@ -38,6 +38,14 @@
 回执记录原 active sourceCommit、归档摘要、新根提交、逐件核验数量与 `gitAncestryRecovered=false`。新 manifest 的 baseCommit 仍指向实际旧 active，新增 sourceRecovery 说明来源；不预先改写线上身份来绕过部署检查。
 
 每次新包同时保存 `game-source.bundle`，本地先执行 `git bundle verify`，远端按 manifest 的 `sourceGitBundleSha256` 校验后保留在同一 run。后续可从 bundle 恢复实际累计提交与其完整祖先，不依赖某个临时工作树继续存在。bundle 含私有累计源码，只作为私有部署证据保存。
+
+### 明确授权的紧急定点恢复
+
+用户明确要求先恢复服务、其余上游更新后续集成时，仍执行本次各阶段的真实 pull。当前 `--emergency-evidence` 仅支持已合并 MR !226 的六文件恢复：绑定原 active、源码归档摘要、新恢复根、候选提交、六文件前后摘要及全部源码字节，并核对选取的合并提交确实位于当场拉取的 master 中。普通部署的完整主干检查保持。
+
+复用验证必须同时核对原验证目录的全部源码、完整验证结果和日志摘要。Linux 发布产物另验完整摘要、平台及 `timetzdata`；缺少时只补必要发布构建。此模式禁止改动运行配置，备份、回退、实际程序和玩家签名／频道检查全部保留。
+
+回执明确记录 `containsMaster=false`、选取 MR 与当场观测的 `observedUpstream`；`upstream` 保留原累计清单的来源记录，不把观察到的新主干冒充已完整集成。失败 run 保留，切换中断先读回实际 active，再决定下一步。分机部署备份游戏机实际配置、数据库和旧镜像，同时留存已验证的网关快照，不要求游戏机存在网关的本地 state 文件。
 
 大会模式可随已审查的源码更新一同变更：私有更新 profile 显式设置 `dungeon_tournament` 为 `off` 或 `vendor`，省略时保持实例现值。该值固定进本次 manifest，由 worker 更新实例源配置的同名字段并调用生成器，映射到 `DNFBRIDGE_DUNGEON_TOURNAMENT`。不接受其他值或任意环境变量覆盖；相同源码但请求不同配置会拒绝，不能把配置更新误报为 no-op 成功。启用前须核对匹配客户端、PVF 及玩法支持边界。
 

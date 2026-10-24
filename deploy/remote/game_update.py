@@ -245,6 +245,44 @@ def checked_edge_evidence(raw, expected_sha256, now):
     return value
 
 
+def backup_game_context(root, hub, backup, config_hashes, edge_evidence=None):
+    import shutil
+    paths = [root / rel for rel in config_hashes]
+    if not edge_evidence:
+        paths.append(hub / 'state.json')
+    for path in paths:
+        target = backup / path.relative_to(root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    if edge_evidence:
+        shutil.copy2(edge_evidence, backup / 'edge-snapshot.json')
+
+
+def checked_emergency_scope(src, old):
+    if src.get('integrationMode') != 'emergency-selected-mr':
+        return
+    e = src['emergency']
+    if any(key in src for key in ('dungeonTournament', 'mainQuestExpMultiplier', 'mainQuestExpPercent')):
+        raise ValueError('Emergency cannot change runtime settings')
+    if e['baseArchiveSha256'] != old['active']['sourceArchiveSha256']:
+        raise ValueError('Emergency active archive changed')
+    required = {'Docs/CHARACTER_SELECTION_TIMEOUT.md', 'changlog.md'} | {
+        'go-server/internal/services/dnfbridge/' + name for name in
+        ('game_select_scene_entry.go', 'game_select_state.go', 'character_rename_current.go', 'character_select_deadline_test.go')}
+    changes = e['changes']
+    if len(changes) != 6 or {x['path'] for x in changes} != required or set(src['changedFiles']) != required:
+        raise ValueError('Emergency requires the exact MR226 paths')
+    expected = dict(old['sourceManifest']['files'])
+    for entry in changes:
+        if expected.get(entry['path']) != entry['beforeSha256']:
+            raise ValueError('Emergency before bytes differ')
+        expected[entry['path']] = entry['afterSha256']
+    if expected != src['files']:
+        raise ValueError('Unreviewed emergency bytes')
+    if src['upstream'] != old['sourceManifest']['upstream']:
+        raise ValueError('Emergency must not claim full integration')
+
+
 def checked_authority_proof(raw, expected_digest, nonce, run_id, phase, manifest, now):
     import hashlib, json, datetime
     if not expected_digest or hashlib.sha256(raw).hexdigest() != expected_digest:
@@ -254,6 +292,17 @@ def checked_authority_proof(raw, expected_digest, nonce, run_id, phase, manifest
                 'repository': 'https://gitgud.io/16ww/servers5a3.git', 'branch': 'master',
                 'passed': True, 'containsMaster': True, 'after': manifest['upstream'],
                 'candidate': manifest['sourceCommit']}
+    if manifest.get('integrationMode') == 'emergency-selected-mr':
+        emergency = manifest['emergency']
+        if (emergency.get('selectedMR') != 226 or
+            emergency.get('selectedMergeCommit') != '963eabb6b125b09fba4312f650a81d90a96cc96a' or
+            emergency.get('candidateCommit') != manifest['sourceCommit'] or
+            emergency.get('baseCommit') != manifest['baseCommit']):
+            raise ValueError('Emergency MR/source binding differs')
+        expected.update(containsMaster=False, after=manifest['observedUpstream'],
+                        integrationMode='emergency-selected-mr', selectedMR=226,
+                        selectedMergeCommit=emergency['selectedMergeCommit'],
+                        emergencyEvidenceSha256=emergency['evidenceSha256'])
     if not nonce or manifest.get('authorityInvocation') != nonce or any(proof.get(k) != v for k, v in expected.items()):
         raise ValueError('Authoritative pull proof belongs to another run, phase or candidate')
     age = (now - datetime.datetime.fromisoformat(proof['checkedAt'])).total_seconds()
@@ -416,6 +465,7 @@ def main():
         write(s / ('authority-' + args.mode + '.json'), proof)
     def validate_before():
         authority_check()
+        checked_emergency_scope(src, old)
         assert read(r / 'runtime/active-game-baseline.json') == old['active'], 'active baseline moved'
         for rel, digest in old['configHashes'].items(): assert sha(r / rel) == digest, 'configuration changed: ' + rel
         assert digest_json(publication()) == old['publishedSha256'], 'player publication changed'
@@ -493,8 +543,9 @@ def main():
         write(s / 'sessions-before-deploy.json', counts); print('Current session counts:', json.dumps(counts), flush=True)
         backup = r / 'runtime/backups' / ('game-update-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
         backup.mkdir()
-        for path in [r / rel for rel in old['configHashes']] + [h / 'state.json']:
-            target = backup / path.relative_to(r); target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(path, target)
+        # In split topology the Hub lives on the edge host and is not mutated here.
+        # Keep its verified snapshot; never require a fictitious local Hub state file.
+        backup_game_context(r, h, backup, old['configHashes'], args.edge_evidence)
         started = time.time()
         backup_output = run('python3', str(r / 'deploy/remote/backup.py'), '--runtime-dir', str(r / 'runtime'), '--container', args.project + '-db-1', '--no-retention')
         match = re.fullmatch(r'Database backup: (database-\d{8}T\d{6}Z\.sql\.gz)', backup_output)
@@ -558,10 +609,14 @@ def main():
             receipt['serverEnvironmentPreserved'] = not config_changed
             receipt['onlyApprovedEnvironmentChange'] = config_changed
             receipt['gmContainerUnchanged'] = 'gm' in container_names
-            atomic(r / 'runtime/active-game-baseline.json', json.dumps(receipt, indent=2).encode())
             receipt['sourceGitBundleSha256'] = src['sourceGitBundleSha256']
             if 'sourceRecovery' in src: receipt['sourceRecovery'] = src['sourceRecovery']
             receipt['authoritativePull'] = read(s / 'authority-deploy.json')
+            if src.get('integrationMode') == 'emergency-selected-mr':
+                receipt['integrationMode'] = src['integrationMode']
+                receipt['observedUpstream'] = src['observedUpstream']
+                receipt['emergency'] = src['emergency']
+            atomic(r / 'runtime/active-game-baseline.json', json.dumps(receipt, indent=2).encode())
             write(s / 'game-deployment.json', receipt)
         except BaseException:
             restore_game_configs(r, backup, atomic)
