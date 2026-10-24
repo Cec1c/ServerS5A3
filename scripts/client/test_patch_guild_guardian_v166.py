@@ -10,16 +10,24 @@ from test_patch_fatigue_count_v164 import native, windows_image
 
 
 class GuardianV166Tests(unittest.TestCase):
+    input_variable = 'DNF_GUARDIAN_V166_CLIENT'
+    expected_input = patch.INPUT_SHA256
+    expected_output = '26d915c59ba8554d20073f953410e4720cd0e9d83c1c49f2d83d2fbfc071ac42'
+
     @classmethod
     def setUpClass(cls):
-        path = os.environ.get('DNF_GUARDIAN_V166_CLIENT')
+        path = os.environ.get(cls.input_variable)
         if not path:
             raise unittest.SkipTest('exact V166 image required')
         cls.source = Path(path)
         cls.before = cls.source.read_bytes()
+        if patch.pe.sha(cls.before) != cls.expected_input:
+            raise ValueError('test input does not match its profile')
         cls.after, cls.receipt = patch.build(cls.before)
 
     def test_only_declared_ranges_and_checksum(self):
+        if self.expected_output is not None:
+            self.assertEqual(self.receipt['outputSha256'], self.expected_output)
         cursor = 0
         for lo, hi in self.receipt['changedRanges']:
             self.assertEqual(self.before[cursor:lo], self.after[cursor:lo])
@@ -63,6 +71,19 @@ class GuardianV166Tests(unittest.TestCase):
             patch.write_candidate(self.source,dst)
             self.assertEqual(patch.pe.sha(dst.read_bytes()),self.receipt['outputSha256'])
             windows_image(dst)
+
+
+class GuardianCumulativeV166Tests(GuardianV166Tests):
+    input_variable = 'DNF_GUARDIAN_CUMULATIVE_V166_CLIENT'
+    expected_input = patch.CUMULATIVE_SHA256
+    expected_output = None
+
+    def test_preserves_existing_guild_and_teleport_wrappers(self):
+        _, sections = patch.pe.headers(self.before)
+        start = patch.pe.offset(sections, 0x6EAD000, 0x33F)
+        self.assertEqual(self.before[start:start+0x33F], self.after[start:start+0x33F])
+        self.assertEqual(self.receipt['helperVA'], '0x6ead400')
+        self.assertEqual(self.receipt['fallbackVA'], '0x6ead300')
 
 
 if __name__=='__main__':
