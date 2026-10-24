@@ -136,7 +136,7 @@ func (s *Service) freezeCurrentGuildDungeonGroup(ctx context.Context, session *g
 		return err
 	}
 	for i, entry := range entries {
-		runtimes[i].guildDungeonClear = &dungeon.GuildDungeonClear{Entry: entry, Catalog: catalog}
+		runtimes[i].guildDungeonClear = &dungeon.GuildDungeonClear{Entry: entry, Catalog: catalog, PartySize: len(entries)}
 	}
 	return nil
 }

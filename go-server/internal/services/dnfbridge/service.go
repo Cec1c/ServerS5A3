@@ -50,6 +50,7 @@ type Service struct {
 	guildRankingRules     *dnfguild.RankingRules
 	guildDungeonCatalogMu sync.Mutex
 	guildDungeonCatalog   *dnfguild.DungeonCatalog
+	guildEssenceCatalog   *dnfguild.EssenceCatalog // guarded by guildDungeonCatalogMu
 	guildCreateMu         sync.Mutex
 	guildTeleportMu       sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an

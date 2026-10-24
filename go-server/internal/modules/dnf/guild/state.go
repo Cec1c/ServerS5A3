@@ -60,6 +60,7 @@ type Registry struct {
 
 type Guild struct {
 	RankingActivity    *RankingActivity      `json:"ranking_activity,omitempty"`
+	Essence            EssenceBalance        `json:"essence,omitempty"`
 	Dungeon            *DungeonProgress      `json:"dungeon,omitempty"`
 	ID                 uint32                `json:"id"`
 	Name               string                `json:"name"`
