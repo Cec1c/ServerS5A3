@@ -7,9 +7,9 @@ import (
 	"sort"
 )
 
-// V164 class-0 NOTI741 -> VA 013A4990. This is unrelated to class-1
-// CMD741 RequestGuildCreatePermit. No live sender is connected until lifecycle
-// metadata, cycle ownership and clear/reward transactions are resolved.
+// V164/V166 class-0 NOTI741 -> VA 013A4990. This is unrelated to class-1
+// CMD741 RequestGuildCreatePermit. The lifecycle sender projects persisted
+// clear-count units and an absolute cycle end; unknown merchant fields stay 0.
 const currentGuildDungeonSnapshotNotification uint16 = 741
 
 // Field1 and Field3 deliberately remain wire names: their complete lifecycle

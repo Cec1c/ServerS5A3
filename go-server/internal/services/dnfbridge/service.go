@@ -22,6 +22,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dproto"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
+	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	dnfjoust "longheng.io/server/internal/modules/dnf/joust"
 	dnfmail "longheng.io/server/internal/modules/dnf/mail"
@@ -44,7 +45,9 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
-	guildCreateMu sync.Mutex
+	guildDungeonCatalogMu sync.Mutex
+	guildDungeonCatalog   *dnfguild.DungeonCatalog
+	guildCreateMu         sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex

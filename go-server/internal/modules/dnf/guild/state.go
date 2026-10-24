@@ -44,6 +44,7 @@ var (
 )
 
 type Registry struct {
+	DungeonPolicy    *DungeonPolicy                    `json:"dungeon_policy,omitempty"`
 	Version          int                               `json:"version"`
 	NextID           uint32                            `json:"next_id"`
 	Guilds           map[uint32]*Guild                 `json:"guilds,omitempty"`
@@ -55,6 +56,7 @@ type Registry struct {
 }
 
 type Guild struct {
+	Dungeon            *DungeonProgress      `json:"dungeon,omitempty"`
 	ID                 uint32                `json:"id"`
 	Name               string                `json:"name"`
 	MasterCharacterID  string                `json:"master_character_id"`

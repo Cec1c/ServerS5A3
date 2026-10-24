@@ -24,7 +24,8 @@ type DungeonUnlockRules struct {
 }
 
 // ParseDungeonUnlockRules projects only the unlock fields from an extracted
-// Etc/Guild/GuildDungeon catalog. Rewards and lifecycle policy remain separate.
+// Etc/Guild/GuildDungeon catalog. DungeonCatalog and DungeonPolicy own rewards
+// and lifecycle policy respectively.
 func ParseDungeonUnlockRules(text string) (*DungeonUnlockRules, error) {
 	doc, err := dnfpvf.Parse("guild-dungeon-unlock.etc", text)
 	if err != nil {
@@ -150,7 +151,7 @@ func (r *DungeonUnlockRules) PurificationRatio(id, count uint32) (uint32, error)
 // Allows requires each predecessor to reach its own conquest threshold, as in
 // V164 VA 013A0610. A known rule without predecessors is open at zero clears.
 // Missing catalogs/IDs stay closed; membership, cycle and map entry are callers'
-// responsibilities. No production sender/entry owner is connected yet.
+// responsibilities, implemented by PrepareDungeonEntries and ApplyDungeonClear.
 func (r *DungeonUnlockRules) Allows(id uint32, counts map[uint32]uint32) (bool, error) {
 	if r == nil {
 		return false, nil

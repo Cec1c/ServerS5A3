@@ -32,6 +32,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	GuildDungeon        *GuildDungeonClear
 	DespairClearedFloor int
 	DespairRewards      *DespairRewards
 	GriefClearedFloor   int
@@ -56,19 +57,21 @@ type SettlementCommand struct {
 }
 
 type SettlementResult struct {
-	GuildMileage    guild.DungeonMileageResult
-	Character       dnfrepo.CharacterRecord
-	Skill           dnfrepo.SkillRecord
-	Inventory       dnfrepo.InventoryRecord
-	ExperienceGain  uint32
-	PotionBonus     uint32
-	HonorExpertGain uint32
-	SPGain          int
-	TPGain          int
-	Replayed        bool
-	LuckyStar       LuckyStarResult
-	DespairItems    []DespairGrantedItem
-	GriefItems      []GriefGrantedItem
+	GuildDungeon      guild.DungeonClearResult
+	GuildDungeonItems []GuildDungeonGrantedItem
+	GuildMileage      guild.DungeonMileageResult
+	Character         dnfrepo.CharacterRecord
+	Skill             dnfrepo.SkillRecord
+	Inventory         dnfrepo.InventoryRecord
+	ExperienceGain    uint32
+	PotionBonus       uint32
+	HonorExpertGain   uint32
+	SPGain            int
+	TPGain            int
+	Replayed          bool
+	LuckyStar         LuckyStarResult
+	DespairItems      []DespairGrantedItem
+	GriefItems        []GriefGrantedItem
 }
 
 // CommitSettlement atomically advances experience and the SP/TP ledger and
@@ -91,6 +94,14 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	ctx = contextOrBackground(ctx)
+	if cmd.GuildDungeon != nil {
+		entry := cmd.GuildDungeon.Entry
+		if cmd.GuildOrdinaryClear || cmd.DespairRewards != nil || cmd.GriefRewards != nil ||
+			entry.Owner.AccountID != cmd.AccountID || entry.Owner.CharacterID != cmd.CharacterID ||
+			entry.GuildID == 0 || cmd.GuildDungeon.Catalog == nil || cmd.CompletionKey != entry.CompletionKey() {
+			return SettlementResult{}, ErrSettlementStateInvalid
+		}
+	}
 	wantHash := sha256.Sum256([]byte(cmd.CompletionKey))
 	now := updatedAtOrNow(cmd.UpdatedAt)
 
@@ -98,7 +109,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 	within := func(apply func(dnfrepo.Group) error) error {
 		return o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, apply)
 	}
-	if cmd.GuildOrdinaryClear {
+	if cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil {
 		uow, ok := o.settlements.(dnfrepo.GuildSettlementUnitOfWork)
 		if !ok {
 			return SettlementResult{}, ErrOwnerUnavailable
@@ -133,7 +144,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character = dnfrepo.CloneCharacter(character)
 		skill = dnfrepo.CloneSkill(skill)
 		inventory = dnfrepo.CloneInventory(inventory)
-		if cmd.GuildOrdinaryClear {
+		if cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil {
 			result = SettlementResult{Character: character, Skill: skill, Inventory: inventory}
 			found, err := readGuildSettlementReceipt(ctx, tx.Settings, cmd, &result)
 			if err != nil || found {
@@ -141,6 +152,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		if settlementReceiptMatches(character.Stats, wantHash) {
+			if cmd.GuildDungeon != nil {
+				return ErrSettlementStateInvalid
+			}
 			griefItems, err := readGriefRewardReceipt(character.Stats, cmd.GriefClearedFloor, cmd.GriefRewards != nil)
 			if err != nil {
 				return err
@@ -270,6 +284,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		if err != nil {
 			return err
 		}
+		guildClear, guildItems, err := commitGuildDungeonClear(ctx, o.settings, tx, &character, &inventory, cmd.GuildDungeon, now)
+		if err != nil {
+			return err
+		}
 		writeSettlementReceipt(
 			character.Stats,
 			wantHash,
@@ -368,6 +386,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		result = SettlementResult{
+			GuildDungeon: guildClear, GuildDungeonItems: guildItems,
 			DespairItems: despairItems,
 			GriefItems:   griefItems,
 			LuckyStar:    lucky,
@@ -384,6 +403,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 			result.GuildMileage = mileage
+			return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
+		}
+		if cmd.GuildDungeon != nil {
 			return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 		}
 		return nil

@@ -197,6 +197,13 @@ func (s *Service) sendEnterSelectDungeonState(
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
+	// Guild hall selectors need the current cycle even after another member
+	// unlocked a branch while this character stayed online.
+	if hasCharacter && character.Stats["town_id"] == 8 && !transport {
+		if err := s.writeCurrentGuildDungeonSnapshot(session); err != nil {
+			return err
+		}
+	}
 
 	contextReady := false
 	contextReadyReason := "legacy_or_proactive_path"
