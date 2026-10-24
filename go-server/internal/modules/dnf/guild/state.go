@@ -53,6 +53,7 @@ type Registry struct {
 	BenefitPurchases map[string]BenefitPurchaseReceipt `json:"benefit_purchases,omitempty"`
 	ContractClaims   map[string]ContractClaimReceipt   `json:"contract_claims,omitempty"`
 	Departures       map[string]Departure              `json:"departures,omitempty"`
+	Teleports        map[string]TeleportReceipt        `json:"teleports,omitempty"`
 }
 
 type Guild struct {
@@ -622,6 +623,9 @@ func SortedApplications(guild *Guild) []Application {
 // Reject corrupt/unknown state rather than silently discarding members or
 // changing IDs. This registry is new and has no legacy version to migrate.
 func validateRegistry(r Registry) error {
+	if err := validateTeleports(r); err != nil {
+		return err
+	}
 	if err := validateDepartures(r); err != nil {
 		return err
 	}

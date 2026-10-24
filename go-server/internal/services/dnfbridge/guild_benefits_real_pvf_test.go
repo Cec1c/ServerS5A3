@@ -42,6 +42,20 @@ func TestGuildBenefitRealPVF(t *testing.T) {
 	if v := c.Contents[1]; v.Type != 5 || v.Value != 169 || v.Price != 36000 || v.Days != -1 || v.Gold {
 		t.Fatal("unexpected permanent benefit", v)
 	}
+	for i, want := range []struct {
+		value int32
+		item  uint32
+		price uint32
+	}{
+		{value: 10, item: 10153534, price: 300},
+		{value: 100, item: 10153535, price: 2850},
+		{value: 1000, item: 10153536, price: 27000},
+	} {
+		v := c.Contents[uint32(13+i)]
+		if v.Type != 7 || v.Value != want.value || v.Days != 9999 || v.Mode != 1 || v.ItemID != want.item || v.Price != want.price || v.Gold {
+			t.Fatal("unexpected teleport benefit", v)
+		}
+	}
 	text, err := source.ReadText("etc/variousbufflist.etc")
 	if err != nil {
 		t.Fatal(err)
