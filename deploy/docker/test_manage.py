@@ -28,6 +28,17 @@ class DeploymentBoundaries(unittest.TestCase):
                 with patch.object(manage, "RUNTIME", Path(directory)), self.assertRaisesRegex(ValueError, "channel_advertise_server"):
                     manage.generate({"channel_advertise_server": value}, {})
                 self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_guild_ranking_requires_explicit_boolean(self):
+        for value in (False, True):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_ranking_enabled": value}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_RANKING_ENABLED=" + str(value).lower(), (Path(directory) / "server.env").read_text())
+        for value in (None, "true", "false", 0, 1):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_ranking_enabled"):
+                    manage.generate({"guild_ranking_enabled": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
     def gm_config(self):
         return {"host_ip":"192.168.1.50", "server_ip":"10.254.90.2", "database_ip":"10.254.90.3", "subnet":"10.254.90.0/24", "database_password":"abc", "root_password":"def", "admin_token":"ab"*24, "body_codec":"plaintext", "client_body_codec":"plaintext", "joust_event_enabled":True}
 

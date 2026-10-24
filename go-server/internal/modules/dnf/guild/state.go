@@ -44,6 +44,7 @@ var (
 )
 
 type Registry struct {
+	Ranking          *RankingState                     `json:"ranking,omitempty"`
 	DungeonPolicy    *DungeonPolicy                    `json:"dungeon_policy,omitempty"`
 	Version          int                               `json:"version"`
 	NextID           uint32                            `json:"next_id"`
@@ -58,6 +59,7 @@ type Registry struct {
 }
 
 type Guild struct {
+	RankingActivity    *RankingActivity      `json:"ranking_activity,omitempty"`
 	Dungeon            *DungeonProgress      `json:"dungeon,omitempty"`
 	ID                 uint32                `json:"id"`
 	Name               string                `json:"name"`
@@ -115,7 +117,8 @@ type Member struct {
 	// process loss retains the last durable observation, not an invented crash
 	// time. The bridge encodes elapsed seconds for offline rows and projects
 	// online status separately from the current canonical session/channel.
-	LastOnlineAt time.Time `json:"last_online_at,omitempty"`
+	LastOnlineAt    time.Time        `json:"last_online_at,omitempty"`
+	RankingPresence *RankingPresence `json:"ranking_presence,omitempty"`
 }
 
 type Application struct {

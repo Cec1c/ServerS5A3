@@ -609,7 +609,12 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	if runtime.guildDungeonClear != nil {
 		completionKey = runtime.guildDungeonClear.Entry.CompletionKey()
 	}
+	rankingClear, err := s.currentGuildRankingClear(session, runtime)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		GuildRanking:            rankingClear,
 		GuildDungeon:            runtime.guildDungeonClear,
 		DespairClearedFloor:     despairFloor,
 		GriefClearedFloor:       griefFloor,
