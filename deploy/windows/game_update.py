@@ -21,16 +21,20 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKER = ROOT / "deploy/remote/game_update.py"
 SSH_OPTIONS = ["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]
 AUTHORITATIVE_URL = "https://gitgud.io/16ww/servers5a3.git"
+EMERGENCY_MR226_PATHS = {"Docs/CHARACTER_SELECTION_TIMEOUT.md", "changlog.md"} | {
+    "go-server/internal/services/dnfbridge/" + name for name in
+    ("game_select_scene_entry.go", "game_select_state.go", "character_rename_current.go", "character_select_deadline_test.go")}
 
 
 class AuthorityGate:
     """A live pull per checkpoint. Saved receipts are output, never authorization input."""
-    def __init__(self, checkout, audit, run_id):
+    def __init__(self, checkout, audit, run_id, emergency=None):
         self.checkout, self.audit, self.run_id = checkout, audit, run_id
         self.nonce = secrets.token_hex(32)
         self.baseline = None
         self.receipt = None
         self.count = 0
+        self.emergency = emergency
 
     def check(self, source, phase):
         if source.resolve() == self.checkout.resolve():
@@ -43,7 +47,7 @@ class AuthorityGate:
                    "startedAt": datetime.now(timezone.utc).isoformat(), "passed": False}
         try:
             if not self.checkout.exists():
-                subprocess.run(["git", "clone", "--no-tags", "--single-branch", "--branch", "master",
+                subprocess.run(["git", "-c", "core.longpaths=true", "clone", "-c", "core.longpaths=true", "--no-tags", "--single-branch", "--branch", "master",
                                 AUTHORITATIVE_URL, str(self.checkout)], check=True,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if git(self.checkout, "status", "--porcelain"):
@@ -63,16 +67,27 @@ class AuthorityGate:
             subprocess.run(["git", "fetch", "--no-tags", str(self.checkout), "master"], cwd=source,
                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             receipt["candidate"] = git(source, "rev-parse", "HEAD")
-            if subprocess.run(["git", "merge-base", "--is-ancestor", receipt["after"], receipt["candidate"]],
-                              cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode:
+            contains = subprocess.run(["git", "merge-base", "--is-ancestor", receipt["after"], receipt["candidate"]],
+                                      cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0
+            if self.emergency:
+                e = self.emergency
+                if receipt["candidate"] != e["candidateCommit"] or contains:
+                    raise ValueError("Emergency candidate differs or already contains master")
+                subprocess.run(["git", "merge-base", "--is-ancestor", e["selectedMergeCommit"], receipt["after"]],
+                               cwd=source, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                receipt.update(integrationMode="emergency-selected-mr", selectedMR=e["selectedMR"],
+                               selectedMergeCommit=e["selectedMergeCommit"], emergencyEvidenceSha256=e["evidenceSha256"])
+            elif not contains:
                 raise ValueError("Deployment candidate does not contain current authoritative master: " + receipt["after"])
-            receipt["containsMaster"] = True
+            receipt["containsMaster"] = contains
             self.baseline = receipt["after"]
             receipt["passed"] = True
             self.receipt = receipt
             return receipt
         except Exception as error:
             receipt["failure"] = str(error)
+            if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+                receipt["stderr"] = error.stderr.decode("utf-8", errors="replace")
             raise
         finally:
             receipt["checkedAt"] = datetime.now(timezone.utc).isoformat()
@@ -253,6 +268,7 @@ class Update:
         self.authority = None
         self.recovery = None
         self.source = None
+        self.emergency = None
 
     def checkpoint(self, phase):
         self.authority.check(self.source, phase)
@@ -332,6 +348,42 @@ class Update:
         return receipt
 
     def validate(self, source):
+        if self.emergency:
+            import shutil
+            e = self.emergency
+            for entry in e["evidenceFiles"]:
+                if digest(Path(entry["path"])) != entry["sha256"]:
+                    raise ValueError("Emergency validation evidence changed: " + entry["path"])
+            results = json.loads(Path(e["validationResults"]).read_text(encoding="utf-8-sig"))
+            required = {"list", "domain", "bridge", "control", "vet", "windows", "linux"}
+            if {x["stage"] for x in results} != required or any(x["exitCode"] != 0 for x in results):
+                raise ValueError("Emergency requires the complete successful existing validation")
+            evidence_paths = {str(Path(x["path"]).resolve()) for x in e["evidenceFiles"]}
+            if str(Path(e["validationResults"]).resolve()) not in evidence_paths:
+                raise ValueError("Validation results are not pinned")
+            if any(str(Path(x["log"]).resolve()) not in evidence_paths for x in results):
+                raise ValueError("Validation logs are not pinned")
+            if source_state(source)["files"] != e["files"]:
+                raise ValueError("Emergency validated source changed")
+            validated = Path(e["validatedSource"])
+            if any(digest(validated / rel) != sha for rel, sha in e["files"].items()):
+                raise ValueError("Emergency source differs from previously validated bytes")
+            artifact = e["linuxArtifact"]
+            path = Path(artifact["path"])
+            if digest(path) != artifact["sha256"] or path.read_bytes()[:4] != b"\x7fELF":
+                raise ValueError("Emergency Linux artifact differs")
+            info = subprocess.check_output(["go", "version", "-m", str(path)], cwd=source / "go-server", text=True)
+            if any(value not in info for value in ["-tags=timetzdata", "GOOS=linux", "GOARCH=amd64"]):
+                raise ValueError("Emergency Linux artifact lacks release build settings")
+            target = source / "dist/linux-amd64/DNF90Server"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            save(self.stage / "validation.json", {"passed": True, "sourceCommit": e["candidateCommit"],
+                 "reusedValidation": True, "validatedFiles": len(e["files"]), "results": results,
+                 "emergencyEvidenceSha256": e["evidenceSha256"], "linuxArtifact": artifact,
+                 "buildInfo": info, "databaseDSNConfigured": False})
+            print("PASS: identical validated source and timetzdata Linux artifact; existing tests reused", flush=True)
+            return
         env = os.environ.copy(); env.pop("DNFBRIDGE_PLAYER_TEST_DSN", None)
         env.pop("GOOS", None); env.pop("GOARCH", None); env.pop("GOFLAGS", None)
         env.pop("DNFBRIDGE_REAL_PVF_SMOKE", None)
@@ -388,6 +440,17 @@ class Update:
                     "serverSha256": digest(self.stage / "DNF90Server"), "files": files, "changedFiles": sorted(changed),
                     "build": ["build.bat", "linux", "amd64"], "GOFLAGS": "-tags=timetzdata"}
         if self.recovery: manifest["sourceRecovery"] = self.recovery
+        if self.emergency:
+            e = self.emergency
+            if manifest["serverSha256"] != e["linuxArtifact"]["sha256"]:
+                raise ValueError("Emergency release artifact changed during packaging")
+            manifest["upstream"] = old_manifest["upstream"]
+            manifest["observedUpstream"] = authority["after"]
+            manifest["integrationMode"] = "emergency-selected-mr"
+            manifest["emergency"] = {key: e[key] for key in ["baseCommit", "baseArchiveSha256", "candidateCommit",
+                "selectedMR", "selectedMergeCommit", "evidenceSha256", "changes"]}
+            manifest["build"] = e["linuxArtifact"]["command"]
+            manifest["publicFixCommits"] = list(dict.fromkeys(manifest["publicFixCommits"] + [e["selectedSourceCommit"]]))
         if "dungeon_tournament" in self.profile:
             manifest["dungeonTournament"] = self.profile["dungeon_tournament"]
         if "main_quest_exp_multiplier" in self.profile:
@@ -396,14 +459,39 @@ class Update:
             manifest["mainQuestExpPercent"] = self.profile["main_quest_exp_percent"]
         save(self.stage / "game-source-manifest.json", manifest)
 
-    def deploy(self, source, allowed, recovered_base=None):
+    def deploy(self, source, allowed, recovered_base=None, emergency_evidence=None):
         pinned = source_state(source)
         snapshot = json.loads(self.worker("snapshot").stdout)
         self.stage.mkdir(parents=True, exist_ok=False)
         save(self.stage / "runtime-before.json", snapshot)
         self.source = source
         self.pinned = pinned
-        self.authority = AuthorityGate(self.stage / "authoritative-master", self.stage, self.run_id)
+        if emergency_evidence:
+            e = json.loads(emergency_evidence.read_text(encoding="utf-8-sig"))
+            if (e.get("authorization") != "urgent-service-recovery" or e.get("selectedMR") != 226 or
+                e.get("selectedMergeCommit") != "963eabb6b125b09fba4312f650a81d90a96cc96a" or
+                e.get("candidateCommit") != pinned["head"] or e.get("files") != pinned["files"] or
+                e.get("baseCommit") != snapshot["active"]["sourceCommit"] or
+                e.get("baseArchiveSha256") != snapshot["active"]["sourceArchiveSha256"] or
+                not recovered_base or e.get("recoveredBase") != recovered_base):
+                raise ValueError("Emergency authorization/source/active binding differs")
+            changes = e["changes"]
+            if len(changes) != 6 or {x["path"] for x in changes} != EMERGENCY_MR226_PATHS or set(allowed) != EMERGENCY_MR226_PATHS:
+                raise ValueError("Emergency requires the exact reviewed six files")
+            expected = dict(snapshot["sourceManifest"]["files"])
+            for x in changes:
+                if expected.get(x["path"]) != x["beforeSha256"]:
+                    raise ValueError("Emergency before bytes differ")
+                expected[x["path"]] = x["afterSha256"]
+            if expected != pinned["files"]:
+                raise ValueError("Emergency includes unreviewed source changes")
+            for key in ("dungeon_tournament", "main_quest_exp_multiplier", "main_quest_exp_percent"):
+                if key in self.profile:
+                    raise ValueError("Emergency is source-only; omit runtime configuration changes")
+            e["evidenceSha256"] = digest(emergency_evidence)
+            self.emergency = e
+            save(self.stage / "emergency-evidence.json", e)
+        self.authority = AuthorityGate(self.stage / "authoritative-master", self.stage, self.run_id, self.emergency)
         self.checkpoint("start")
         base = snapshot["active"]["sourceCommit"]
         if recovered_base:
@@ -507,6 +595,7 @@ def main():
     parser.add_argument("--source", type=Path)
     parser.add_argument("--changed-files", type=Path, help="JSON array of reviewed repository-relative paths")
     parser.add_argument("--recovered-base", help="New root commit matching every deployed manifest byte; never the lost SHA")
+    parser.add_argument("--emergency-evidence", type=Path, help="Explicitly authorized MR226 recovery with exact source/validation hashes")
     parser.add_argument("--run-id")
     parser.add_argument("--apply", action="store_true", help="Apply a backup cleanup plan")
     args = parser.parse_args()
@@ -515,7 +604,7 @@ def main():
     update = Update(json.loads(args.profile.read_text(encoding="utf-8-sig")), run_id)
     if args.command == "deploy":
         if not args.source or not args.changed_files: parser.error("deploy requires --source and --changed-files")
-        update.deploy(args.source.resolve(), json.loads(args.changed_files.read_text(encoding="utf-8-sig")), args.recovered_base)
+        update.deploy(args.source.resolve(), json.loads(args.changed_files.read_text(encoding="utf-8-sig")), args.recovered_base, args.emergency_evidence)
     elif args.command == "cleanup": update.cleanup(args.apply)
     elif args.command == "rollback":
         update.worker("rollback", capture=False)
