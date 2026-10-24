@@ -4,6 +4,12 @@
 - 投影只读取真实父子定义和已提交状态，材料扣除及奖励仍由正式完成事务处理；保留独立奖励、未完成前置、缺目录及主记录优先级。
 - 增加同会话剧情回调、重连、原生请求正文、重复完成及投影不写玩家资产的回归；普通活动任务不触发额外目录加载。
 
+## 2026-10-24 — Restore second-awakening completion coupons
+
+- Dispatch validated op515/action121 through the existing authenticated session and atomic character settlement. Respect PVF class/place restrictions and supported ordinary-class awakening transitions.
+- Consume once with character, skill and quest persistence; preserve Question gates, rollback behavior and post-commit packet ordering. Add domain, transport, real-resource and disposable-SQL coverage; no schema or client changes.
+- Native acceptance covers ordinary-class success, one-item consumption, repeated-use refusal, skill use and full relogin on an integration build; external self-awakening remains unverified. See Docs/SECOND_AWAKENING_COUPON.md.
+
 ## 2026-10-24 — 剧情全章节门槛接入最新累计客户端
 
 - 将已合并的17段任务完整收尾门槛适配到固定V165输入，保留现有PE映像修复、资料查看及疲劳药次数接收；任务终点表与门槛逻辑保持。
