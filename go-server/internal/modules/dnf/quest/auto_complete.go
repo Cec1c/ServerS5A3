@@ -32,6 +32,8 @@ type AutoCompleteMainInput struct {
 }
 
 type AutoCompleteMainPlan struct {
+	BlockedQuestionIDs    []int64
+	DamagedQuestionIDs    []int64
 	Record                dnfrepo.QuestRecord
 	EligibleQuestIDs      []int64
 	ChangedQuestIDs       []int64
@@ -42,6 +44,9 @@ type AutoCompleteMainPlan struct {
 }
 
 type AutoCompleteMainResult struct {
+	BlockedQuestionIDs    []int64
+	DamagedQuestionIDs    []int64
+	PostCommitCharacter   dnfrepo.CharacterRecord
 	CharacterID           string
 	CutoffLevel           int
 	EligibleQuestIDs      []int64
@@ -103,7 +108,15 @@ func (c *Catalog) PlanAutoCompleteMainQuests(
 	if isCompletedQuestStatus(state.Status) {
 		return plan, nil
 	}
-	if !isActiveQuestStatus(state.Status) {
+	if !isActiveQuestStatus(state.Status) || !storySweepOrdinary(definition) {
+		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
+	}
+	completed, active, damaged := c.storySweepEvidence(plan.Record)
+	plan.DamagedQuestionIDs = damaged
+	if _, blocked := c.storySweepProtectedParents(character, completed)[definition.ID]; blocked {
+		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
+	}
+	if !c.storySweepDependencies(definition, plan.Record, completed, active) {
 		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
 	}
 	plan.ActiveCompletedCount = 1
@@ -147,6 +160,7 @@ func (o *Owner) ApplyAutoCompleteMain(
 	}
 
 	var plan AutoCompleteMainPlan
+	var committedCharacter dnfrepo.CharacterRecord
 	err := o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
 		character, found, err := tx.Character.Load(ctx, input.CharacterID)
 		if err != nil {
@@ -172,6 +186,7 @@ func (o *Owner) ApplyAutoCompleteMain(
 			return err
 		}
 		plan.Record.CharacterID = input.CharacterID
+		committedCharacter = dnfrepo.CloneCharacter(character)
 		if len(plan.ChangedFields) == 0 {
 			return nil
 		}
@@ -195,6 +210,9 @@ func (o *Owner) ApplyAutoCompleteMain(
 		}
 	}
 	return AutoCompleteMainResult{
+		BlockedQuestionIDs:    append([]int64(nil), plan.BlockedQuestionIDs...),
+		DamagedQuestionIDs:    append([]int64(nil), plan.DamagedQuestionIDs...),
+		PostCommitCharacter:   committedCharacter,
 		CharacterID:           input.CharacterID,
 		CutoffLevel:           input.CutoffLevel,
 		EligibleQuestIDs:      append([]int64(nil), plan.EligibleQuestIDs...),

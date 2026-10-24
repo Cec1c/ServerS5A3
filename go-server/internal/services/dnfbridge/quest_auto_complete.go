@@ -186,7 +186,9 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 			"target_source", targetSource,
 			"cutoff_level", cutoffLevel,
 			"clear_scope", string(s.questClearTicketScope()),
-			"reason", "no_main_story_quest_at_or_below_cutoff_remains_incomplete",
+			"reason", "no_safely_completable_main_story_quest",
+			"blocked_question_ids", int64ListText(result.BlockedQuestionIDs),
+			"damaged_question_ids", int64ListText(result.DamagedQuestionIDs),
 			"quest_mutation", "none",
 			"msg_id", uint16(dnfenum.CmdPacketClearQuestTicket),
 			"classification", dnfproto.DefaultChannelClassification,
@@ -219,6 +221,8 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 		"changed_linked_sub_count", len(result.ChangedLinkedSubIDs),
 		"changed_linked_sub_ids", int64ListText(result.ChangedLinkedSubIDs),
 		"active_completed_count", result.ActiveCompletedCount,
+		"blocked_question_ids", int64ListText(result.BlockedQuestionIDs),
+		"damaged_question_ids", int64ListText(result.DamagedQuestionIDs),
 		"highest_completed_quest", result.HighestCompletedQuest,
 		"idempotent", result.Idempotent,
 		"reward_granted", false,
@@ -235,21 +239,6 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 	); err != nil {
 		return err
 	}
-	if err := s.sendCurrentClearQuestListFromCommittedQuest(
-		session,
-		result.PostCommitQuest,
-		"current_exe_op1429_after_atomic_no_reward_main_quest_completion",
-	); err != nil {
-		return err
-	}
-	if err := s.sendCurrentActiveQuestSnapshotForSession(
-		session,
-		"current_exe_op1429_after_completed_quest_bitmap",
-	); err != nil {
-		return err
-	}
-	return s.sendCurrentAcceptableQuestListOnlyForSession(
-		session,
-		"current_exe_op1429_after_active_quest_snapshot",
-	)
+	return s.sendCommittedStorySweepSnapshots(session, result.PostCommitCharacter, result.PostCommitQuest,
+		append(append([]int64(nil), result.ChangedQuestIDs...), result.ChangedLinkedSubIDs...), "quest_manual")
 }

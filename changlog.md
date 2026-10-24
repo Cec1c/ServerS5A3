@@ -1,3 +1,9 @@
+## 2026-10-24 — Preserve story choices and ticket continuation
+
+- Share predecessor, mutually exclusive route and explicit Question checks across level-up tickets and quest manuals. Preserve damaged historical choices instead of inventing an answer.
+- Persist versioned continuation authorization in the existing character transaction; resume after normal Question completion without another coupon or duplicate rewards. Preserve map gates and committed-state packet projection.
+- Add domain, bridge, resource and disposable-SQL regression coverage. No schema or client changes; see Docs/LEVEL_UP_TICKET_STORY_CHOICES.md for acceptance and rollback boundaries.
+
 ## 2026-10-24 — 材料末子任务的父任务交付投影
 
 - 剧情子步骤完成、末子材料条件就绪时，活动快照将 quest-clear 父任务投影为可交付，覆盖即时通知及重登刷新，修复客户端完成入口被父进度阻断的情况。
