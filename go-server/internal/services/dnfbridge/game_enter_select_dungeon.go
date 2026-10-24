@@ -164,6 +164,14 @@ func (s *Service) sendEnterSelectDungeonState(
 			return err
 		}
 	}
+	// Fixed v157's upper op15 failure consumes success and reason bytes and
+	// releases its pending request flag. Legacy scene framing is separate.
+	if !transport {
+		if allowed, reason := s.currentRaidSelectorOpenAdmission(session); !allowed {
+			s.logGameEvent(session, "game-raid-selector-open-rejected", "source", source, "reason", reason)
+			return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEnterSelectDungeon), []byte{0, 0}, 1)
+		}
+	}
 	if !transport && requestDriven {
 		if err := s.commitPendingDungeonReturnBeforeTownEnterSelect(session, source); err != nil {
 			return err
@@ -396,6 +404,10 @@ func (s *Service) prepareRuntimePartyFollowerEnterSelect(
 	source string,
 ) (bool, error) {
 	if follower == nil || follower.selectedCharacterID == 0 {
+		return false, nil
+	}
+	if allowed, reason := s.currentRaidSelectorOpenAdmission(follower); !allowed {
+		s.logGameEvent(follower, "game-raid-selector-follower-rejected", "source", source, "reason", reason)
 		return false, nil
 	}
 	if follower.enterSelectDungeonContextSent && follower.enterSelectDungeonSent {
