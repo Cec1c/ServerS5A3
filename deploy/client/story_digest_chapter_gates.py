@@ -1,4 +1,4 @@
-"""Extend V158 automatic story gates to all verified chapter endpoints.
+"""Extend pinned V158/V165 story gates to all verified chapter endpoints.
 
 Builds an independent fixed-input EXE. Reuses the existing character-owned
 snapshot state and lifecycle invalidation; preserves the original playback.
@@ -12,6 +12,8 @@ import pefile
 import story_digest_gate as original
 
 SOURCE_SHA256 = 'a751cccfe3fb9f7a3730393fdfb32d0546222b55a5a254fc4f2416f6869fbdf6'
+SUPPORTED_SOURCES = frozenset((SOURCE_SHA256,
+    'a2f67ad258e78c37d9824e22620748634d9f0eff5adaccabe861a86f7defaddc'))
 CATALOG = Path(__file__).with_name('story_digest_chapters.json')
 CLONE = 0x06E9F000
 OLD_GATE = CLONE + 0x280
@@ -114,8 +116,9 @@ def make_code(code_va, catalog):
 
 
 def build(data, catalog_path=CATALOG):
-    if sha256(data) != SOURCE_SHA256:
-        raise ValueError('expected exact upstream V158 input')
+    source_sha256 = sha256(data)
+    if source_sha256 not in SUPPORTED_SOURCES:
+        raise ValueError('expected exact published V158 or V165 input')
     catalog = load_catalog(catalog_path)
     pe = pefile.PE(data=data, fast_load=True)
     if pe.FILE_HEADER.Machine != 0x14c or pe.OPTIONAL_HEADER.ImageBase != 0x400000:
@@ -170,7 +173,7 @@ def build(data, catalog_path=CATALOG):
         restore[offset:offset + change['length']] = bytes.fromhex(change['before'])
     if bytes(restore) != data or not pefile.PE(data=candidate, fast_load=True).verify_checksum():
         raise ValueError('preservation/checksum verification failed')
-    return candidate, dict(source_sha256=SOURCE_SHA256, candidate_sha256=sha256(candidate),
+    return candidate, dict(source_sha256=source_sha256, candidate_sha256=sha256(candidate),
                            source_size=len(data), size=len(candidate), entries=entries,
                            changes=changes, appended_sha256=sha256(candidate[len(data):]),
                            catalog_sha256=sha256(Path(catalog_path).read_bytes()),

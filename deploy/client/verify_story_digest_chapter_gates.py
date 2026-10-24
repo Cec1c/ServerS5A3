@@ -59,7 +59,8 @@ def audit_resources(tables, quests, pvf, catalog):
 
 
 def verify(source, candidate, receipt, segments, catalog):
-    assert patch.sha256(source) == patch.SOURCE_SHA256
+    assert patch.sha256(source) in patch.SUPPORTED_SOURCES
+    assert patch.sha256(source) == receipt['source_sha256']
     assert patch.sha256(candidate) == receipt['candidate_sha256']
     assert patch.sha256(patch.CATALOG.read_bytes()) == receipt['catalog_sha256']
     src = old.Native(source, dict(state=patch.STATE), segments)
