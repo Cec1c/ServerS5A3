@@ -17,6 +17,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	equipmentDisjointGameplayModule(),
 	avatarDisjointGameplayModule(),
 	avatarCompoundGameplayModule(),
+	absoluteAvatarGameplayModule(),
 	emblemCompoundGameplayModule(),
 	expertJobGameplayModule(),
 	equipmentRecipeCompoundGameplayModule(),

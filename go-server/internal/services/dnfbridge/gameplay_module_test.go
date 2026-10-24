@@ -71,6 +71,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"equipment-disjoint",
 		"avatar-disjoint",
 		"avatar-compound",
+		"avatar-absolute",
 		"emblem-compound",
 		"expert-job",
 		"equipment-recipe-compound",
@@ -144,6 +145,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketDisjointItem):                   "equipment-disjoint",
 		uint16(dnfenum.CmdPacketDisjointAvatar):                 "avatar-disjoint",
 		uint16(dnfenum.CmdPacketCompoundAvatar):                 "avatar-compound",
+		uint16(dnfenum.CmdPacketBindPlus):                       "avatar-absolute",
 		uint16(dnfenum.CmdPacketCompoundEmblem):                 "emblem-compound",
 		uint16(dnfenum.CmdPacketUseBoosterItem):                 "booster-item",
 		uint16(dnfenum.CmdPacketUseLotteryItem):                 "booster-item",
@@ -237,6 +239,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketJoustBetting):                   "joust",
 		uint16(dnfenum.CmdPacketJoustMatchHistory):              "joust",
 		uint16(dnfenum.CmdPacketCompoundAvatar):                 "avatar-compound",
+		uint16(dnfenum.CmdPacketBindPlus):                       "avatar-absolute",
 		uint16(dnfenum.CmdPacketWebViewerInfo):                  "web-viewer",
 	}
 	for opcode, want := range upperOwners {
