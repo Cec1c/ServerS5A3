@@ -243,6 +243,7 @@ type gameSession struct {
 	postFinishLoadingPlayerStateSent   bool
 	returnTownFinishLoadingAckOnly     bool
 	confirmedDungeonReturnStatePending bool
+	selectorReturnPresence             *currentSelectorReturnPresence // guarded by dungeon.mu
 	initialTownRouteCharacterID        uint16
 	initialTownRouteStage              currentInitialTownRouteStage
 	initialTownActorSceneSnapshotSent  bool
