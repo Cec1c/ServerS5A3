@@ -48,6 +48,7 @@ type Service struct {
 	guildDungeonCatalogMu sync.Mutex
 	guildDungeonCatalog   *dnfguild.DungeonCatalog
 	guildCreateMu         sync.Mutex
+	guildTeleportMu       sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
@@ -966,6 +967,7 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	s.mu.Unlock()
 	if logger == nil {
 		s.logDungeonSettlementDiagnostic(kind, args...)
+		s.logCrossSceneProfileDiagnostic(kind, args...)
 	}
 	logger.Event(kind, args...)
 }

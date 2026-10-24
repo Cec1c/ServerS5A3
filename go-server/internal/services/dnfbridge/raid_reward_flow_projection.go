@@ -44,12 +44,15 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 	}
 	var packets []currentAntonRewardPacket
+	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
+	lukeFinal := b.Mode == 2 && b.Phase == 1 && !f.Single
 	fiendWar := b.Mode == 3
 	if !f.SquadShownAt.IsZero() && f.squadRequired() {
 		var cards []raid.RewardDisplayCard
 		for _, recipient := range f.Recipients {
 			card := f.Squad[recipient.CharacterID]
 			if card == nil || !card.Committed {
+				s.logCurrentRaidRewardWire(session, currentAntonRewardPacket{opcode: 600}, b.InstanceID, b.Mode, b.Phase, false, "squad_card_uncommitted")
 				return raid.ErrRewardReceipt
 			}
 			cards = append(cards, raid.RewardDisplayCard{CharacterID: recipient.CharacterID, CardType: 1, Items: currentAntonPartyDisplayItems(card.Plan)})
@@ -59,14 +62,22 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			return err
 		}
 		packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
-		if fiendWar && owner != nil {
-			// Fiend War can commit both pools in one advance.
+		if (fiendWar || lukeFinal) && owner != nil {
+			// Fiend War and final Luke can commit both pools in one advance.
 			// Native kind3 populates category2 only; it cannot reveal the
 			// committed party items in category0. Restore both displays from
 			// their committed plans, without repeating either asset grant.
+			var visible map[uint16]bool
+			if lukeFinal {
+				visible = s.currentRaidPartyRewardDisplayMembers(session, state)
+			}
 			var partyCards []raid.RewardDisplayCard
 			for _, recipient := range f.Recipients {
-				if recipient.Group != owner.Group {
+				if lukeFinal {
+					if !visible[recipient.CharacterID] {
+						continue
+					}
+				} else if recipient.Group != owner.Group {
 					continue
 				}
 				card := f.Party[recipient.CharacterID]
@@ -86,8 +97,16 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		if owner != nil {
 			var cards []raid.RewardDisplayCard
+			var visible map[uint16]bool
+			if lukePartyOnly {
+				visible = s.currentRaidPartyRewardDisplayMembers(session, state)
+			}
 			for _, recipient := range f.Recipients {
-				if recipient.Group != owner.Group {
+				if lukePartyOnly {
+					if !visible[recipient.CharacterID] {
+						continue
+					}
+				} else if recipient.Group != owner.Group {
 					continue
 				}
 				card := raid.RewardDisplayCard{CharacterID: recipient.CharacterID, CardType: byte(len(cards) + 1)}
@@ -102,14 +121,31 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 				return err
 			}
 			packets = append(packets, currentAntonRewardPacket{opcode: 600, body: body})
+			if lukePartyOnly && currentLukeLocalPartyDisplayCommitted(f, owner.CharacterID, visible) {
+				// The native no-team decision belongs to this displayed party.
+				// Another raid group choosing its own cards must not hold this
+				// page until the unattended grant deadline. Phase progression
+				// still requires every frozen recipient's committed reward.
+				// The native no-team decision runs on category2 delivery,
+				// after the local party reward has populated category0.
+				// This is a UI completion notice, not a squad grant.
+				emptyTeam, err := raid.BuildRewardListBody(3, nil)
+				if err != nil {
+					return err
+				}
+				packets = append(packets, currentAntonRewardPacket{opcode: 600, body: emptyTeam})
+			}
 		}
 	}
 	if !f.FinishedAt.IsZero() {
 		if f.Mode != 3 && !f.Single && f.Phase == 0 {
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{5, 0}}, currentAntonRewardPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, uint32(f.BreakUntil.Unix()), currentRaidNativeDuration(f.Mode, f.BreakUntil, f.Configuration.PhaseBreakSeconds, time.Now()))})
-		} else {
+		} else if !lukeFinal {
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		}
+		// Final Luke completion keeps the committed reward screen above.
+		// Re-entering state4 after NOTI600 restarts that same screen when the
+		// first projection arrives after the display window has already ended.
 	}
 	// Compare the complete authoritative projection before removing an already
 	// delivered card list. Otherwise the filtered second send has a different
@@ -162,7 +198,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			filtered = append(filtered, packet)
 		}
 		packets = filtered
-	} else if fiendWar && len(displayBodies) == 2 && o.rewardDisplayIdentity == identity && o.rewardDisplaySignature == sha256.Sum256(displayBodies[0]) {
+	} else if (lukePartyOnly || lukeFinal || fiendWar) && len(displayBodies) == 2 && o.rewardDisplayIdentity == identity && o.rewardDisplaySignature == sha256.Sum256(displayBodies[0]) {
 		// A successful manual/earlier party projection already delivered
 		// this exact kind1. Append only its missing team list; never
 		// replay the flip. A new connection must receive both in order.
@@ -175,12 +211,13 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		packets = filtered
 	}
-	lukePartyOnly := b.Mode == 2 && b.Phase == 0 && !f.Single
-	trackedScreen := lukePartyOnly || fiendWar || b.Mode == 1 && (f.SquadShownAt.IsZero() || b.Phase == 0 && !f.Single)
+	trackedScreen := lukePartyOnly || lukeFinal || fiendWar || b.Mode == 1 && (f.SquadShownAt.IsZero() || b.Phase == 0 && !f.Single)
 	if trackedScreen && o.rewardScreenSent && o.rewardScreenIdentity == identity {
-		// Normal Anton phase zero updates its existing panel with kind3.
-		// Only a new connection needs state4 first. Final/single Anton and
-		// Luke phase one retain their existing transition behavior.
+		// Normal Anton phase zero keeps the same open panel for kind3. Its
+		// native consumer updates that panel; another state4 has unrelated
+		// reset side effects. A fresh connection still needs state4 first.
+		// Normal Luke also keeps its current panel when either pool arrives.
+		// Final/single Anton and single Luke retain their existing behavior.
 		filtered := packets[:0]
 		for _, packet := range packets {
 			if packet.opcode == 587 && len(packet.body) == 2 && packet.body[0] == 4 && packet.body[1] == 0 {
@@ -212,21 +249,23 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	}
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, packet.class, true); err != nil {
+			s.logCurrentRaidRewardWire(session, packet, b.InstanceID, b.Mode, b.Phase, false, "send_failed")
 			o.failed = true
 			if session.conn != nil {
 				_ = session.conn.Close()
 			}
 			return err
 		}
+		s.logCurrentRaidRewardWire(session, packet, b.InstanceID, b.Mode, b.Phase, true, "")
 	}
-	if owner != nil && f.SquadShownAt.IsZero() {
-		for _, packet := range packets {
-			if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
-				s.raidMu.Lock()
+	for _, packet := range packets {
+		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+			s.raidMu.Lock()
+			if owner != nil && f.SquadShownAt.IsZero() {
 				s.markCurrentRaidPartySelectionShownLocked(b.InstanceID, b.Phase, owner.CharacterID, time.Now())
-				s.raidMu.Unlock()
-				break
 			}
+			s.raidMu.Unlock()
+			break
 		}
 	}
 	if err := s.sendSelectedCurrentContainerListsRefresh(session, "raid_owned_reward_flow_after_commit"); err != nil {

@@ -22,7 +22,7 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 		return false, nil
 	}
 	f := b.RewardFlow[0]
-	if f == nil || f.InstanceID != b.InstanceID || f.Phase != 0 || f.FinishedAt.IsZero() || f.BreakUntil.IsZero() || now.Before(f.FinishedAt) {
+	if f == nil || f.InstanceID != b.InstanceID || f.Phase != 0 || !currentRaidRewardFlowSettlementReady(f, now) {
 		return false, nil
 	}
 	if len(f.Recipients) == 0 || !f.CompletedAt.Equal(b.PhaseCompletedAt) {

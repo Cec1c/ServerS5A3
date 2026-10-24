@@ -597,6 +597,7 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	// （进图即 leaveTownPresenceForDungeon）⇒ 委任队长/成员变动后副本内的队伍框仍是旧数据。
 	// 这里对同一场副本里的成员再补一轮完整队伍帧（op153 + 每人一条 op9）。
 	s.sendDungeonPartyFrameRoster(state, "runtime_party_snapshot_dungeon_roster")
+	s.sendCurrentPartyCrossSceneProfiles(snapshot)
 	return nil
 }
 

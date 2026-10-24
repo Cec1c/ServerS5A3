@@ -53,6 +53,8 @@ type Registry struct {
 	MemberExpansions map[string]CargoPurchaseReceipt   `json:"member_expansions,omitempty"`
 	BenefitPurchases map[string]BenefitPurchaseReceipt `json:"benefit_purchases,omitempty"`
 	ContractClaims   map[string]ContractClaimReceipt   `json:"contract_claims,omitempty"`
+	Departures       map[string]Departure              `json:"departures,omitempty"`
+	Teleports        map[string]TeleportReceipt        `json:"teleports,omitempty"`
 }
 
 type Guild struct {
@@ -334,6 +336,9 @@ func (r *Registry) GuildByName(name string) (*Guild, bool) {
 }
 
 func (r *Registry) Create(character dnfrepo.CharacterRecord, name string, now time.Time) (*Guild, error) {
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}, now); err != nil {
+		return nil, err
+	}
 	group, err := CharacterServerGroup(character)
 	if err != nil {
 		return nil, err
@@ -425,6 +430,9 @@ func (r *Registry) Search(query string, page, pageSize int) []*Guild {
 }
 
 func (r *Registry) Apply(guildID uint32, character dnfrepo.CharacterRecord, message string, now time.Time) error {
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}, now); err != nil {
+		return err
+	}
 	group, err := CharacterServerGroup(character)
 	if err != nil {
 		return err
@@ -461,6 +469,9 @@ func (r *Registry) Apply(guildID uint32, character dnfrepo.CharacterRecord, mess
 }
 
 func (r *Registry) JoinDirect(guildID uint32, character dnfrepo.CharacterRecord, now time.Time) (Member, error) {
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}, now); err != nil {
+		return Member{}, err
+	}
 	group, err := CharacterServerGroup(character)
 	if err != nil {
 		return Member{}, err
@@ -526,6 +537,9 @@ func (r *Registry) DecideApplication(guildID uint32, actorID, characterID string
 		delete(guild.Applications, characterID)
 		guild.UpdatedAt = now
 		return Member{}, nil
+	}
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: application.AccountID, CharacterID: application.CharacterID}, now); err != nil {
+		return Member{}, err
 	}
 	if len(guild.Members) >= guild.MemberLimit {
 		return Member{}, ErrMemberLimit
@@ -611,6 +625,12 @@ func SortedApplications(guild *Guild) []Application {
 // Reject corrupt/unknown state rather than silently discarding members or
 // changing IDs. This registry is new and has no legacy version to migrate.
 func validateRegistry(r Registry) error {
+	if err := validateTeleports(r); err != nil {
+		return err
+	}
+	if err := validateDepartures(r); err != nil {
+		return err
+	}
 	if err := validateBenefits(r); err != nil {
 		return err
 	}

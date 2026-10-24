@@ -58,6 +58,7 @@ type runtimeDungeonState struct {
 	raidEntry                    *currentRaidDungeonEntry
 	fiendWarRetreatKeepsParty    bool
 	antonMapReturnOwner          *currentAntonMapReturnOwner
+	lukeClosedEnergyReturn       *currentLukeClosedEnergyReturnOwner
 	antonHatcheryTransfer        *currentAntonHatcheryTransfer
 	deathStateSent               bool
 	riftLoot                     *currentRiftLootDefinition
@@ -163,6 +164,7 @@ type runtimeDungeonState struct {
 	settlementCardAutoFlipGeneration     uint64
 	settlementCardAutoFlipTimerName      string
 	settlementCardExitAckSent            bool
+	townReturnAckSent                    bool
 	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
 	settlementMonsterExperienceTotal     uint32

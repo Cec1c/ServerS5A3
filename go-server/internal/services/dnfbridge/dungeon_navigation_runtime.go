@@ -506,6 +506,7 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 	for _, member := range preparedFollowers {
 		if member != nil && member.committed {
 			s.activateCurrentPetGrowthDungeonClock(member.session, member.runtime)
+			clearCurrentSelectorReturnAfterCommittedPartyEntry(member.session, member.runtime)
 		}
 	}
 	resetDungeonEntrySceneGates(session)

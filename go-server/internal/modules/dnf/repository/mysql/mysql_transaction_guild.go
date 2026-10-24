@@ -9,15 +9,22 @@ import (
 type mysqlGuildUnitOfWork struct{ router mysqlRouter }
 
 func (u *mysqlGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, apply)
+	return u.withinGuild(ctx, owners, false, false, apply)
+}
+
+func (u *mysqlGuildUnitOfWork) WithinGuildTravel(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, true, apply)
 }
 
 func (u *mysqlGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, apply)
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, apply)
 }
 
-func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory bool, apply func(repository.Group) error) error {
+func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel bool, apply func(repository.Group) error) error {
 	ordered, err := repository.GuildOwners(owners)
+	if travel {
+		ordered, err = repository.GuildTravelOwners(owners)
+	}
 	if err != nil {
 		return err
 	}

@@ -49,7 +49,7 @@ func (s *Service) retireCompletedPartyForAction(leader *gameSession, runtime *ru
 		old := peer.dungeon.runtime
 		valid := peerState.PartyID == state.PartyID && peerState.UserID == state.UserID &&
 			old != nil && old.partyInstance == runtime.partyInstance &&
-			s.currentCompletedDungeonActionReady(peer, old) && (!requireOpenRaidMap || old.raidEntry == nil || s.currentRaidDungeonSelectionAllowed(peer, uint32(old.Dungeon.ID)))
+			s.currentCompletedDungeonTownActionReady(peer, old, requireOpenRaidMap) && (!requireOpenRaidMap || old.raidEntry == nil || s.currentRaidDungeonSelectionAllowed(peer, uint32(old.Dungeon.ID)))
 		if owner := currentRaidRetryOwnerForSession(owners, peer); len(owners) > 0 && (owner == nil || owner.runtime != old) {
 			valid = false
 		}
