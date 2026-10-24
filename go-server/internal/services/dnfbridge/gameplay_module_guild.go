@@ -15,6 +15,7 @@ func guildGameplayModule() gameplayModuleDefinition {
 		uint16(dnfenum.CmdPacketSetSubGuildMaster):          (*Service).handleCurrentGuildMemberGrade,
 		uint16(dnfenum.CmdPacketChangeGuildGradeName):       (*Service).handleCurrentGuildGradeName,
 		uint16(dnfenum.CmdPacketChangeGuildGrade):           (*Service).handleCurrentGuildGradePermissions,
+		uint16(dnfenum.CmdPacketSetGuildRecommandChannel):   (*Service).handleCurrentGuildRecommendedChannel,
 		uint16(dnfenum.CmdPacketModifyGuildPromoteMsg):      (*Service).handleCurrentGuildSettings,
 		uint16(dnfenum.CmdPacketNotifyMessageToGuild):       (*Service).handleCurrentGuildNotice,
 		uint16(dnfenum.CmdPacketWriteGuildMemberMemo):       (*Service).handleCurrentGuildMemberMemo,
