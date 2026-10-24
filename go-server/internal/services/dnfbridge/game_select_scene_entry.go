@@ -111,6 +111,13 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 	}
+	questNotifyIDs, questNotifyErr := s.loadCurrentQuestNotifySelection(ctx, strconv.Itoa(int(charID)), selectedQuests, hasSelectedQuests)
+	if questNotifyErr != nil {
+		s.logGameEvent(session, "game-quest-notify-restore-failed", "char_id", charID, "原因", questNotifyErr)
+		// Restore does not emit op506. A read failure only uses this login's
+		// original zero slots and never writes back an empty preference.
+		questNotifyIDs = nil
+	}
 
 	s.logPacketEvent("game-upper-select-character-csharp-init-send",
 		"conn_id", session.connID,
@@ -164,6 +171,11 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			// slot or saved outdoor/previous-village town. Keep the later PVF
 			// location transaction and tutorial/scene ordering unchanged.
 			body = buildCurrentSelectCharacterAckBody(selectedCharacter, hasSelectedCharacter, selectedQuests, hasSelectedQuests, charID, ackTownID, accountCera, premiumEntries)
+			var questNotifyProjectionErr error
+			body, questNotifyProjectionErr = projectCurrentSelectAckQuestNotify(body, questNotifyIDs)
+			if questNotifyProjectionErr != nil {
+				return questNotifyProjectionErr
+			}
 			fixedQuestRows, overflowQuestRows, questRowsOK := currentSelectAckQuestRowCounts(body)
 			ackCharacterID, ackCharacterIDOK := currentSelectAckCharacterID(body)
 			ackInitialTownID, ackInitialTownIDOK := currentSelectAckInitialTownIDFromBody(body)
@@ -192,6 +204,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 				"intermediate_state1", ackIntermediateState[1],
 				"intermediate_state2", ackIntermediateState[2],
 				"intermediate_state3", ackIntermediateState[3],
+				"quest_notify_ids", questNotifyIDs,
 				"tutorial_ignored_flag", tutorialFlag,
 				"tutorial_count", tutorialCount,
 				"tutorial_state_ok", tutorialStateOK,
@@ -202,7 +215,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 				"fatigue_used", fatigue.used,
 				"fatigue_limit", fatigue.limit,
 				"body_len", len(body),
-				"body_source", "current_exe_sub_1D01C50_sub_1A0C3E0_4u32_character_quest_town_typed")
+				"body_source", "current_exe_cd3_select_ack_4u32_quest_notify_typed")
 		case "select_scene_userinfo":
 			body = s.buildCSharpSelectedUserInfoBody(ctx, session, legacyRepo, packet.occurrence, selectedCharacter, hasSelectedCharacter, charID, charName)
 			s.logPacketEvent("game-upper-select-character-scene-userinfo-send",

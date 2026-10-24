@@ -45,6 +45,7 @@ type runtimeDungeonState struct {
 	passiveQuestDropReceipts     map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
 	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
+	missionInformerRetirements   map[uint32]dungeonMissionInformerRetirement
 	entryCharacterLevel          int
 	petGrowthEntryPending        bool // follower runtime installed before the group commits
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
