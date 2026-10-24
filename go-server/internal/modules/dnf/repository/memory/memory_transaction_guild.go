@@ -15,15 +15,22 @@ type memoryGuildUnitOfWork struct {
 }
 
 func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, apply)
+	return u.withinGuild(ctx, owners, false, false, apply)
+}
+
+func (u *memoryGuildUnitOfWork) WithinGuildTravel(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, true, apply)
 }
 
 func (u *memoryGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, apply)
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, apply)
 }
 
-func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory bool, apply func(repository.Group) error) (result error) {
+func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel bool, apply func(repository.Group) error) (result error) {
 	ordered, err := repository.GuildOwners(owners)
+	if travel {
+		ordered, err = repository.GuildTravelOwners(owners)
+	}
 	if err != nil {
 		return err
 	}
