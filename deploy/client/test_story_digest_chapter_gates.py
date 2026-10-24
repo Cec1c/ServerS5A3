@@ -1,4 +1,4 @@
-"""Pinned V158 artifact and independent preservation checks.
+"""Pinned V158/V165 artifact and independent preservation checks.
 
 Set STORY_CHAPTER_SOURCE and STORY_CHAPTER_CANDIDATE to binary fixtures.
 """
@@ -19,7 +19,7 @@ class ChapterArtifactTests(unittest.TestCase):
     def setUpClass(cls):
         source, candidate = os.getenv('STORY_CHAPTER_SOURCE'), os.getenv('STORY_CHAPTER_CANDIDATE')
         if not source or not candidate:
-            raise unittest.SkipTest('matched V158 fixtures not configured')
+            raise unittest.SkipTest('matched pinned client fixtures not configured')
         cls.source_path, cls.candidate_path = Path(source), Path(candidate)
         cls.source, cls.candidate = cls.source_path.read_bytes(), cls.candidate_path.read_bytes()
         cls.receipt = json.loads(cls.candidate_path.with_name('build-receipt.json').read_text())
@@ -86,7 +86,8 @@ class ChapterArtifactTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
             self.assertEqual(output.read_bytes(), b'keep-exe')
             self.assertEqual(receipt.read_bytes(), b'keep-receipt')
-        self.assertEqual(patch.sha256(self.source_path.read_bytes()), patch.SOURCE_SHA256)
+        self.assertEqual(patch.sha256(self.source_path.read_bytes()), self.receipt['source_sha256'])
+        self.assertIn(self.receipt['source_sha256'], patch.SUPPORTED_SOURCES)
 
 
 if __name__ == '__main__':
