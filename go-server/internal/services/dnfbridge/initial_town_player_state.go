@@ -116,6 +116,11 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentCarryGoldStage(session, character); err != nil {
 		return err
 	}
+	// 选角ACK的type58只恢复总契约图标；黄金卡牌专属牌面读取903明细中的
+	// 每项绝对期限和当前角色当日次数。空状态同样发送，清除上一角色的残留。
+	if err := s.sendCurrentPremiumServiceState(session, "选角城镇初始化_恢复魔王契约明细"); err != nil {
+		return err
+	}
 	// Current NoPack dispatches op898 only through the class0 notification
 	// table. Publish the durable crystal selection after all six native
 	// inventory managers exist, but before op1340/full mode1/op24 can expose

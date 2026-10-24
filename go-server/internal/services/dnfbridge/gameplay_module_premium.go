@@ -222,6 +222,14 @@ func (s *Service) sendCurrentPremiumServiceState(session *gameSession, source st
 	}
 	now := time.Now().UTC()
 	body := buildCurrentPremiumServiceDataBody(account, character, now)
+	return s.sendCurrentPremiumServiceBody(session, body, source)
+}
+
+// 原生903/action1替换完整绝对状态，可用于登录恢复和冻结结算重试；不消耗次数。
+func (s *Service) sendCurrentPremiumServiceBody(session *gameSession, body []byte, source string) error {
+	if len(body) != 3+currentPremiumServiceBlobSize || body[0] != 1 || body[1] != 1 || body[2] != 0 {
+		return fmt.Errorf("魔王契约状态正文无效：长度=%d", len(body))
+	}
 	s.logGameEvent(session, "game-premium-service-state-send",
 		"source", source,
 		"msg_id", uint16(dnfenum.CmdPacketPremiumService),

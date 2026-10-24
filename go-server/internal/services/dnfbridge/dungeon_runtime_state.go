@@ -140,6 +140,7 @@ type runtimeDungeonState struct {
 	settlementResultPlan                 *currentDungeonSettlementPacketPlan
 	settlementResultNoticeSent           bool
 	settlementCharacterStateSent         bool
+	settlementPremiumServiceSent         bool
 	settlementClearRewardSent            bool
 	settlementDespairResultSent          bool
 	settlementDespairItemsSent           bool
@@ -163,6 +164,7 @@ type runtimeDungeonState struct {
 	settlementCardExitAckSent            bool
 	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
+	settlementPaidCardGrant              *dungeonCardAssetGrantResult
 	settlementMonsterExperienceTotal     uint32
 	settlementMonsterGrowthContractBonus uint32
 	settlementChampionExperience         uint32
