@@ -463,6 +463,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			"maze_index", runtime.MazeIndex)
 	}
 	if prepared == nil {
+		if err := s.commitCurrentGuildDungeonEntryFatigue(ctx, session, runtime, scene, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
 		if err := s.consumeCurrentHellPartyGroupEntry(ctx, session, runtime, preparedFollowers); err != nil {
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}

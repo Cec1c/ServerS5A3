@@ -72,8 +72,7 @@ func currentGuildDungeon(runtime *runtimeDungeonState) bool {
 	}
 	// Catalog IDs are checked as well as the source flag so an incomplete
 	// metadata projection cannot route a known exclusive map as ordinary.
-	switch runtime.Dungeon.ID {
-	case 8500, 8504, 8507, 8505, 8503, 8508:
+	if currentGuildDungeonEntryID(runtime.Dungeon.ID) {
 		return true
 	}
 	for _, section := range runtime.Dungeon.SourceSections {
