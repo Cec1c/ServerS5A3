@@ -82,6 +82,7 @@ func (s *Service) writeCurrentGuildManagementProjection(session *gameSession, g 
 		if err := s.writeCurrentGuildDungeonSnapshot(session); err != nil {
 			return err
 		}
+		s.projectOptionalGuildEssenceSnapshot(session)
 	}
 	return s.writeCurrentGuildBuffProjection(session, g, false)
 }
@@ -130,6 +131,9 @@ func (s *Service) sendCurrentInitialTownGuildStateProjectionLocked(session *game
 	if err = s.writeCurrentGuildManagementState(session, g); err != nil {
 		return err
 	}
+	// Native 1297 looks up the current guild object. Establish membership
+	// before projecting the newly committed login income and its notice.
+	s.projectOptionalGuildEssenceLoginLocked(session)
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	if err = s.sendCurrentGuildAccountProjection(ctx, session); err != nil {

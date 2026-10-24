@@ -11,10 +11,11 @@ import (
 // Item definitions are resolved before entering the transaction; quantities
 // come exclusively from the frozen PVF catalog under the registry lock.
 type GuildDungeonClear struct {
-	Entry   guild.DungeonEntry
-	Catalog *guild.DungeonCatalog
-	Items   map[uint32]CardItemReward
-	Project StackProjector
+	PartySize int // Frozen with the admitted same-guild participants (1..4).
+	Entry     guild.DungeonEntry
+	Catalog   *guild.DungeonCatalog
+	Items     map[uint32]CardItemReward
+	Project   StackProjector
 }
 
 type GuildDungeonGrantedItem struct {

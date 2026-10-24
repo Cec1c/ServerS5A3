@@ -58,6 +58,11 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 	}
 	g := newGroup()
 	fixture, cmd := guildSettlementFixture(t)
+	cmd.GuildEssence, err = guild.ParseEssenceCatalog("[daily max ap]\n5000\n[ap reward]\n10 15 15 30 0\n[/ap reward]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.GuildEssenceRevalidate = func() bool { return true }
 	account, _, _ := fixture.Account.Load(ctx, cmd.AccountID)
 	character, _, _ := fixture.Character.Load(ctx, cmd.CharacterID)
 	skill, _, _ := fixture.Skill.Load(ctx, cmd.CharacterID)
@@ -133,7 +138,7 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 		}
 	}
 	reg, err = guild.Load(ctx, newGroup().Settings)
-	if err != nil || reg.Guilds[1].Mileage != 20 {
+	if err != nil || reg.Guilds[1].Mileage != 20 || reg.Guilds[1].Essence.AP != 30 {
 		t.Fatalf("concurrent mileage=%v err=%v", reg.Guilds[1], err)
 	}
 	if ranking && (reg.Guilds[1].RankingActivity == nil || reg.Guilds[1].RankingActivity.PartyClear != 10) {
@@ -148,7 +153,7 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 	o, _ = NewOwner(newGroup())
 	replayed, err := o.CommitSettlement(ctx, cmd)
 	reg, _ = guild.Load(ctx, newGroup().Settings)
-	if err != nil || !replayed.Replayed || reg.Guilds[1].Mileage != 30 {
+	if err != nil || !replayed.Replayed || reg.Guilds[1].Mileage != 30 || reg.Guilds[1].Essence.AP != 45 {
 		t.Fatalf("restart old replay=%+v err=%v", replayed, err)
 	}
 	if history := reg.Guilds[1].MileageHistory; len(history) != 3 || history[0].Kind != guild.MileageHistoryDungeon || history[0].Amount != 10 {
@@ -189,5 +194,15 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 		if err != nil || loaded.Ranking.View(1, cmd.UpdatedAt)[0].Score != 15 {
 			t.Fatal("SQL ranking snapshot lost", err)
 		}
+	}
+	// Login has its own character-day idempotency, shared with clear income.
+	for range 2 {
+		if _, err := guild.GrantEssenceLogin(ctx, newGroup().Guild, r.GuildOwner{AccountID: cmd.AccountID, CharacterID: "1"}, cmd.GuildEssence, cmd.UpdatedAt, func() bool { return true }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err = guild.Load(ctx, newGroup().Settings)
+	if err != nil || reg.Guilds[1].Essence.AP != 55 || reg.Guilds[1].Essence.GP != 0 {
+		t.Fatal("login restart", err)
 	}
 }

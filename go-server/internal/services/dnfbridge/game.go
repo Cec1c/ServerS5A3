@@ -32,6 +32,7 @@ type gameSession struct {
 	guildBuffs                          guildBuffProjection
 	guild                               guildSessionState
 	initialTownGuildStateProjectionSent bool
+	guildEssenceLoginRetry              boundGameSessionCharacter // protected by townMu; exact failed login generation
 	pendingTitleEnchantCharacterID      uint16
 	pendingTitleEnchantRow              *currentItemListEntry
 	pendingGuardianGemCharacterID       uint16

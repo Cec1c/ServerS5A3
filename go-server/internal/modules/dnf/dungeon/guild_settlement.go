@@ -14,6 +14,7 @@ import (
 // Receipts also record zero for nonmembers; joining later cannot claim that run.
 type guildSettlementReceipt struct {
 	GuildRanking      guild.RankingClearResult
+	GuildEssence      guild.EssenceIncome
 	GuildDungeon      guild.DungeonClearResult
 	GuildDungeonItems []GuildDungeonGrantedItem
 	Version           int
@@ -39,6 +40,10 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 		return false, ErrSettlementStateInvalid
 	}
 	result.ExperienceGain, result.HonorExpertGain = receipt.ExperienceGain, receipt.HonorExpertGain
+	if (receipt.GuildEssence.GuildID == 0 && receipt.GuildEssence.AP != 0) || receipt.GuildEssence.AP > 0x7fffffff {
+		return false, ErrSettlementStateInvalid
+	}
+	result.GuildEssence = receipt.GuildEssence
 	if cmd.GuildDungeon != nil {
 		e := cmd.GuildDungeon.Entry
 		if receipt.GuildDungeon.GuildID != e.GuildID || receipt.GuildDungeon.DungeonID != e.DungeonID || receipt.GuildDungeon.CycleKey != e.Cycle.Key || receipt.GuildDungeon.Units > e.Cycle.Units {
@@ -71,6 +76,7 @@ func saveGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 	owner := r.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}
 	value, err := json.Marshal(guildSettlementReceipt{Version: 1, Owner: owner,
 		GuildRanking: result.GuildRanking,
+		GuildEssence: result.GuildEssence,
 		GuildDungeon: result.GuildDungeon, GuildDungeonItems: result.GuildDungeonItems,
 		ExperienceGain: result.ExperienceGain, PotionBonus: result.PotionBonus, HonorExpertGain: result.HonorExpertGain,
 		SPGain: result.SPGain, TPGain: result.TPGain, LuckyStar: result.LuckyStar, GuildMileage: result.GuildMileage})
