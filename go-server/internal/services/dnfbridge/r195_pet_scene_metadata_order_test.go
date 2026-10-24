@@ -294,13 +294,12 @@ func TestR195PetSceneMetadataOrderProjectionWriteFailureRetries(t *testing.T) {
 			wantErr := errors.New("injected pet projection write failure")
 			conn := &failNthDungeonWriteConn{err: wantErr}
 			conn.failWhen = func(data []byte) bool {
-				packet, rest := splitCurrentGameServerUpperPacketAuto(t, data)
+				if tc.msgID == uint16(dnfenum.CmdPacketWalkoutPartyMember) {
+					return r195TownPetSlot26Write(data)
+				}
+				packet, rest := splitLongHengGameServerUpperPacket(t, data)
 				if packet.Header.Classification != 0 || packet.Header.MsgID != tc.msgID || len(rest) != 0 {
 					return false
-				}
-				if tc.msgID == uint16(dnfenum.CmdPacketWalkoutPartyMember) {
-					return len(packet.Body) >= 5 && packet.Body[0] == 3 &&
-						binary.LittleEndian.Uint16(packet.Body[3:5]) == 26
 				}
 				return true
 			}
@@ -351,15 +350,43 @@ type r195FailFirstSlot26Conn struct {
 
 func (connection *r195FailFirstSlot26Conn) Write(data []byte) (int, error) {
 	connection.attempt++
-	const bodyOffset = dnfproto.GameServerUpperHeaderSize16
-	if !connection.failed && len(data) >= bodyOffset+5 &&
-		data[0] == 0 && binary.LittleEndian.Uint16(data[1:3]) == 14 &&
-		data[bodyOffset] == 3 &&
-		binary.LittleEndian.Uint16(data[bodyOffset+3:bodyOffset+5]) == 26 {
+	if !connection.failed && r195TownPetSlot26Write(data) {
 		connection.failed = true
 		return 0, connection.err
 	}
 	return connection.bufferConn.Write(data)
+}
+
+const (
+	r195TownPetRefreshSlot   uint16 = 26
+	r195TownPetRefreshItemID uint32 = 400990168
+	r195TownPetRefreshSerial uint32 = 2
+)
+
+func r195TownPetSlot26Body(body []byte) bool {
+	// Fixed16 body: list3, count1, then one 0x77-byte entry. The entry starts
+	// at body+3, so slot is +3..5, item ID is +5..9 and its instance is +9..13.
+	return len(body) == 3+currentItemListEntryWireSize &&
+		body[0] == currentSocketListEquipment &&
+		binary.LittleEndian.Uint16(body[1:3]) == 1 &&
+		binary.LittleEndian.Uint16(body[3:5]) == r195TownPetRefreshSlot &&
+		binary.LittleEndian.Uint32(body[5:9]) == r195TownPetRefreshItemID &&
+		binary.LittleEndian.Uint32(body[9:13]) == r195TownPetRefreshSerial
+}
+
+func r195TownPetSlot26Write(data []byte) bool {
+	const headerSize = dnfproto.GameServerUpperHeaderSize16
+	// The town fixture uses the 16-byte current header. Its sequence at 11..13
+	// can be non-zero, so the auto splitter must not treat this packet as the
+	// 13-byte legacy header and prepend the three zero header-tail bytes to it.
+	if len(data) != headerSize+3+currentItemListEntryWireSize ||
+		data[0] != 0 ||
+		binary.LittleEndian.Uint16(data[1:3]) != uint16(dnfenum.CmdPacketWalkoutPartyMember) ||
+		binary.LittleEndian.Uint32(data[3:7]) != uint32(len(data)) ||
+		data[13] != 0 || data[14] != 0 || data[15] != 0 {
+		return false
+	}
+	return r195TownPetSlot26Body(data[headerSize:])
 }
 
 func r195SameStrings(left, right []string) bool {
@@ -378,23 +405,7 @@ func r195TownPacketSignatures(t *testing.T, data []byte) []string {
 	t.Helper()
 	signatures := make([]string, 0, 8)
 	for len(data) != 0 {
-		var packet dnfproto.ChannelPacket
-		var rest []byte
-		parsedCurrentHeader := false
-		if len(data) >= dnfproto.GameServerUpperHeaderSize16 && data[0] == 0 {
-			switch binary.LittleEndian.Uint16(data[1:3]) {
-			case uint16(dnfenum.CmdPacketSetUDPIPPort), 1371:
-				packet, rest = splitGameServerUpperPacketWithHeader(
-					t,
-					data,
-					dnfproto.GameServerUpperHeaderSize16,
-				)
-				parsedCurrentHeader = true
-			}
-		}
-		if !parsedCurrentHeader {
-			packet, rest = splitCurrentGameServerUpperPacketAuto(t, data)
-		}
+		packet, rest := splitLongHengGameServerUpperPacket(t, data)
 		switch packet.Header.MsgID {
 		case uint16(dnfenum.CmdPacketSetUDPIPPort), 1371:
 			if len(packet.Body) == 0 {
@@ -411,8 +422,7 @@ func r195TownPacketSignatures(t *testing.T, data []byte) []string {
 		case currentCreatureStateTableMsgID:
 			signatures = append(signatures, "op105")
 		case uint16(dnfenum.CmdPacketWalkoutPartyMember):
-			if len(packet.Body) <= 5 || packet.Body[0] != 3 ||
-				binary.LittleEndian.Uint16(packet.Body[3:5]) != 26 {
+			if !r195TownPetSlot26Body(packet.Body) {
 				t.Fatalf("unexpected town op14 body=%x", packet.Body)
 			}
 			signatures = append(signatures, "slot26")
@@ -555,8 +565,7 @@ func r195ScanPetScenePackets(t *testing.T, raw []byte) r195PetSceneScan {
 			})
 			continue
 		}
-		if packet.Header.MsgID == 14 && len(packet.Body) > 5 &&
-			packet.Body[0] == 3 && binary.LittleEndian.Uint16(packet.Body[3:5]) == 26 {
+		if packet.Header.MsgID == 14 && r195TownPetSlot26Body(packet.Body) {
 			scan.slot26 = append(scan.slot26, r195PetScenePacket{index: index, packet: packet})
 		}
 	}
