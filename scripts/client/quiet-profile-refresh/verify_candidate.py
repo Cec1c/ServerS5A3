@@ -5,7 +5,7 @@ from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
 from unicorn.x86_const import *
 import build_candidate
 
-BASE_SHA = '04d0725f099bb94cc06ac305f14430e781c8f5c768ee149aef698d06d76c34ad'
+BASE_SHA = 'b9fec733823dc95e1d6fd24c139f47b00a2fbcff57f913612cdfa34101d83902'
 ENTRY, SITE, RESUME, CLEANUP, HELPER = 0x22c2390,0x22c2539,0x22c253e,0x22c25b8,0x6ec3000
 MODE3_RETURN, MODE8_RETURN = 0x22c461e,0x22c8acd
 
@@ -114,6 +114,31 @@ def run(image_read, helper, patch, caller, parent, count, same, visible, repeats
     assert len(frees)==repeats*(2 if count else 1)
     return dict(patched=patch,caller=hex(caller),parent=hex(parent),count=count,same=same,visible=visible,repeats=repeats,uiCalls=len(created),fullyParsed=True,allocationCleanup=True,stackAndSavedRegisters=True)
 
+def probe_image(path):
+    import ctypes, os
+    require = build_candidate.require
+    require(os.name == "nt", "Windows is required for native image validation")
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, w.LPVOID, w.DWORD, w.DWORD, w.HANDLE]
+    kernel.CreateFileW.restype = w.HANDLE
+    kernel.CreateFileMappingW.argtypes = [w.HANDLE, w.LPVOID, w.DWORD, w.DWORD, w.DWORD, w.LPCWSTR]
+    kernel.CreateFileMappingW.restype = w.HANDLE
+    kernel.CloseHandle.argtypes, kernel.CloseHandle.restype = [w.HANDLE], w.BOOL
+    handle = kernel.CreateFileW(str(Path(path).resolve()), 0x80000000, 7, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        # PAGE_READONLY | SEC_IMAGE_NO_EXECUTE: validates image, no entrypoint execution.
+        mapping = kernel.CreateFileMappingW(handle, None, 0x11000002, 0, 0, None)
+        error = 0 if mapping else ctypes.get_last_error()
+        if mapping:
+            kernel.CloseHandle(mapping)
+        return dict(mappingSucceeded=bool(mapping), win32Error=error, executed=False)
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def main():
     assert __debug__,'optimization disables validation'
     import unicorn
@@ -125,6 +150,8 @@ def main():
     assert candidate==expected,'candidate does not match the complete pinned build'
     helper=candidate_read(HELPER,receipt['helper']['size'])
     assert helper==build_candidate.build_helper()
+    windowsBefore=probe_image(a.baseline);windowsAfter=probe_image(a.candidate)
+    assert windowsBefore["mappingSucceeded"] and windowsAfter["mappingSucceeded"]
     results=[]
     for patched in (False,True):
         for caller,parent in ((MODE3_RETURN,MODE8_RETURN),(MODE3_RETURN,0x22c88dd),(0x22c4971,MODE8_RETURN),(0x22c4971,0)):
@@ -133,6 +160,6 @@ def main():
                     results.append(run(read,helper,patched,caller,parent,count,same,visible))
     results.append(run(read,helper,True,MODE3_RETURN,MODE8_RETURN,3,False,False,1000))
     out=Path(a.output);assert not out.exists();out.mkdir(parents=True)
-    report=dict(passed=True,baselineSha256=BASE_SHA,candidateSha256=hashlib.sha256(candidate).hexdigest(),fullCandidateReconstruction=True,helperSha256=hashlib.sha256(helper).hexdigest(),cases=results,caseCount=len(results),scope='Actual full details consumer 22c2390 through cleanup/return. Packet reads, allocator/reserve/free, actor getters, local stat and UI manager are fixtures. Repeated cleanup is scoped to temporary descriptor allocations. No full mode3, GPU, real game heap or crash-free live claim.',guiAccepted=False,processMemoryRead=False)
+    report=dict(passed=True,windowsBefore=windowsBefore,windowsAfter=windowsAfter,baselineSha256=BASE_SHA,candidateSha256=hashlib.sha256(candidate).hexdigest(),fullCandidateReconstruction=True,helperSha256=hashlib.sha256(helper).hexdigest(),cases=results,caseCount=len(results),scope='Actual full details consumer 22c2390 through cleanup/return. Packet reads, allocator/reserve/free, actor getters, local stat and UI manager are fixtures. Repeated cleanup is scoped to temporary descriptor allocations. No full mode3, GPU, real game heap or crash-free live claim.',guiAccepted=False,processMemoryRead=False)
     (out/'proof.json').write_text(json.dumps(report,indent=2),encoding='utf8');print(json.dumps({k:v for k,v in report.items() if k!='cases'}))
 if __name__=='__main__':main()

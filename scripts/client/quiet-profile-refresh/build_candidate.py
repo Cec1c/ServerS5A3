@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build the fixed v162 quiet-mode8 profile-popup client candidate.
+"""Build the fixed v163 quiet-mode8 profile-popup client candidate.
 
-Standard library only. The builder reads the exact v162 image, redirects the
+Standard library only. The builder reads the exact v163 image, redirects the
 five-byte site at 0x22c2539 to one helper in a new RX section, and checks every
 byte outside the reviewed whitelist. It does not launch the game, run native
 code, contact a server, publish a release, or read credentials.
@@ -21,9 +21,9 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-BASE_SHA256 = "04d0725f099bb94cc06ac305f14430e781c8f5c768ee149aef698d06d76c34ad"
+BASE_SHA256 = "b9fec733823dc95e1d6fd24c139f47b00a2fbcff57f913612cdfa34101d83902"
 INPUT_SIZE = 111_894_528
-EXPECTED_OUTPUT_SHA256 = "d3d46a344c56f45f4104945b0fb804ccb426b3f9bd124743e8d536d4d093ce59"
+EXPECTED_OUTPUT_SHA256 = "2d56c7086c3fd9bc029d932571504b7f89147e47f1d563684f74b9e467f4f8a2"
 
 OUTPUT_NAME = "DNF-prquiet-experiment.exe"
 RECEIPT_NAME = "build-receipt.json"
@@ -109,6 +109,13 @@ class PE:
         require(all(left[1] <= right[0]
                     for left, right in zip(raw_ranges, raw_ranges[1:])),
                 "section raw ranges overlap")
+
+    def require_contiguous(self):
+        expected = align(u32(self.data, self.opt + 60), self.sa)
+        for section in self.sections:
+            require(section["rva"] == expected, "PE section gap or overlap")
+            expected = align(section["rva"] + max(section["virtual_size"], section["raw_size"]), self.sa)
+        require(expected == u32(self.data, self.opt + 56), "PE SizeOfImage mismatch")
 
     def offset(self, va, size=1):
         require(size > 0, "empty VA window")
@@ -239,23 +246,24 @@ def build_helper():
 def build(data):
     """Return (candidate_bytes, receipt); performs no file I/O or execution."""
     require(__debug__, "optimized Python is unsupported")
-    require(len(data) == INPUT_SIZE, "fixed v162 input size mismatch")
+    require(len(data) == INPUT_SIZE, "fixed v163 input size mismatch")
     require(sha256_hex(data) == BASE_SHA256,
-            "fixed v162 input SHA-256 mismatch")
+            "fixed v163 input SHA-256 mismatch")
 
     pe = PE(data)
+    pe.require_contiguous()
     require(pe.base == 0x400000, "unexpected image base")
     require(pe.sa == 0x1000 and pe.fa == 0x1000,
             "unexpected PE alignment")
-    require(pe.count == 44, "fixed v162 must contain 44 sections")
+    require(pe.count == 44, "fixed v163 must contain 44 sections")
     require(pe.sections[-1]["name"] == ".rrow",
-            "fixed v162 last section is not .rrow")
+            "fixed v163 last section is not .rrow")
     require(pe.sections[-1]["rva"] == SECTION_VA - pe.base - pe.sa,
-            "fixed v162 .rrow placement changed")
+            "fixed v163 .rrow placement changed")
     require(pe.sections[-1]["raw"] + pe.sections[-1]["raw_size"] == INPUT_SIZE,
-            "fixed v162 .rrow does not end at EOF")
+            "fixed v163 .rrow does not end at EOF")
     require(u32(data, pe.opt + 56) == SECTION_VA - pe.base,
-            "fixed v162 SizeOfImage does not end at the new section VA")
+            "fixed v163 SizeOfImage does not end at the new section VA")
     require(not u16(data, pe.opt + 70) & 0x40,
             "dynamic base needs relocation handling")
     require(data[pe.opt + 128:pe.opt + 136] == bytes(8),
@@ -353,6 +361,7 @@ def build(data):
             "original bytes changed after the final allowed range")
 
     final = PE(out)
+    final.require_contiguous()
     require(final.count == pe.count + 1, "output section count mismatch")
     section = final.sections[-1]
     require(section["name"] == ".prquiet", "output section name mismatch")
@@ -394,7 +403,7 @@ def build(data):
         expectedOutputPinned=(EXPECTED_OUTPUT_SHA256 is not None),
         generationStatus=("pinned-reproduction" if EXPECTED_OUTPUT_SHA256
                           else "first-generation-unpinned"),
-        directFromV162=True,
+        directFromV163=True,
         hook=dict(
             site=hex(HOOK_VA),
             fileOffset=hook_offset,
@@ -462,7 +471,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--client-exe", type=Path, required=True,
-        help="exact v162 EXE; SHA-256 04d0725f... is required")
+        help="exact v163 EXE; SHA-256 b9fec733... is required")
     parser.add_argument(
         "--output-dir", type=Path, required=True,
         help="new destination directory under an existing parent")
@@ -471,9 +480,9 @@ def main(argv=None):
     source = args.client_exe.resolve(strict=True)
     require(source.is_file(), "client EXE is not a file")
     require(source.stat().st_size == INPUT_SIZE,
-            "fixed v162 input size mismatch")
+            "fixed v163 input size mismatch")
     require(file_sha256(source) == BASE_SHA256,
-            "fixed v162 input SHA-256 mismatch")
+            "fixed v163 input SHA-256 mismatch")
 
     require(not os.path.lexists(args.output_dir),
             "output directory already exists")

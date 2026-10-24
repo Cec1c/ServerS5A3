@@ -23,8 +23,8 @@ This is a client/server candidate, pending deployment and human acceptance.
 
 | File | SHA-256 | Bytes |
 |---|---|---:|
-| v162 input | `04d0725f099bb94cc06ac305f14430e781c8f5c768ee149aef698d06d76c34ad` | 111894528 |
-| Candidate | `d3d46a344c56f45f4104945b0fb804ccb426b3f9bd124743e8d536d4d093ce59` | 111898624 |
+| v163 input | `b9fec733823dc95e1d6fd24c139f47b00a2fbcff57f913612cdfa34101d83902` | 111894528 |
+| Candidate | `2d56c7086c3fd9bc029d932571504b7f89147e47f1d563684f74b9e467f4f8a2` | 111898624 |
 
 The standard-library builder changes one five-byte jump, the necessary PE header
 fields, and a new `.prquiet` RX section. Its 50-byte helper starts at `06EC3000`.
@@ -33,8 +33,8 @@ hash, and disk readback. It refuses an existing output directory or incorrect
 input and does not execute or install the image.
 
 ```text
-python -B build_candidate.py --client-exe <v162.exe> --output-dir <new-build-dir>
-python -B verify_candidate.py --baseline <v162.exe> --candidate <new-build-dir>/DNF-prquiet-experiment.exe --output <new-proof-dir>
+python -B build_candidate.py --client-exe <v163.exe> --output-dir <new-build-dir>
+python -B verify_candidate.py --baseline <v163.exe> --candidate <new-build-dir>/DNF-prquiet-experiment.exe --output <new-proof-dir>
 ```
 
 Use Python 3.11+ with `requirements-validation.txt` for verification. Optimization
@@ -49,3 +49,5 @@ are fixtures. This proves the scoped consumer and cleanup, not full mode3 object
 lifetime, real resources/GPU, or absence of crashes in the game. Live verification
 must include both clients, repeated selector entry, manual cross-scene inspection,
 outfit changes and character/party transitions. No game process memory is read.
+
+The fixed v163 input retains MR235’s PE virtual gap repair. Input and output must have contiguous virtual section coverage. Verification requires Windows and validates both files using SEC_IMAGE_NO_EXECUTE; no game entrypoint or process is executed. This is in addition to the native consumer simulation.
