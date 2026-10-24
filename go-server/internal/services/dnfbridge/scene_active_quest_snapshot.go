@@ -41,6 +41,9 @@ func (s *Service) sendCurrentActiveQuestSnapshotFromCommittedQuest(
 	if record.CharacterID != characterID {
 		return fmt.Errorf("committed active quest snapshot owner mismatch: selected=%s record=%q", characterID, record.CharacterID)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	record = s.projectCurrentActiveQuestSnapshot(ctx, session, record, source)
+	cancel()
 	body := buildCurrentActiveQuestSnapshotBody(record, true)
 	rows := currentSelectAckQuestRows(record, true)
 	s.logGameEvent(session, "game-upper-current-active-quest-snapshot-send",
@@ -172,6 +175,7 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 			}
 		}
 	}
+	record = s.projectCurrentActiveQuestSnapshot(ctx, session, record, source)
 	cancel()
 	body := buildCurrentActiveQuestSnapshotBody(record, found)
 	rows := currentSelectAckQuestRows(record, found)
