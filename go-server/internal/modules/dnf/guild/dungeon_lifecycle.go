@@ -11,10 +11,11 @@ import (
 	r "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// DungeonPolicy is server operating policy, not a calendar decoded from PVF.
-// A missing policy means monthly at UTC day 1, one unit per successful member.
+// DungeonPolicy permits an explicit operating override. The default matches
+// native dstr 48453: monthly day 1 at 06:00, in the service's UTC+8 calendar.
 type DungeonPolicy struct {
 	ResetDay            int    `json:"reset_day"`
+	ResetHour           int    `json:"reset_hour"`
 	UTCOffsetMinutes    int    `json:"utc_offset_minutes"`
 	ClearUnitsPerMember uint32 `json:"clear_units_per_member"`
 }
@@ -42,16 +43,16 @@ type DungeonClearResult struct {
 }
 
 func (p *DungeonPolicy) Cycle(now time.Time) (DungeonCycle, error) {
-	policy := DungeonPolicy{ResetDay: 1, ClearUnitsPerMember: 1}
+	policy := DungeonPolicy{ResetDay: 1, ResetHour: 6, UTCOffsetMinutes: 480, ClearUnitsPerMember: 1}
 	if p != nil {
 		policy = *p
 	}
-	if policy.ResetDay < 1 || policy.ResetDay > 28 || policy.UTCOffsetMinutes < -720 || policy.UTCOffsetMinutes > 840 || policy.ClearUnitsPerMember < 1 || policy.ClearUnitsPerMember > 4 {
+	if policy.ResetDay < 1 || policy.ResetDay > 28 || policy.ResetHour < 0 || policy.ResetHour > 23 || policy.UTCOffsetMinutes < -720 || policy.UTCOffsetMinutes > 840 || policy.ClearUnitsPerMember < 1 || policy.ClearUnitsPerMember > 4 {
 		return DungeonCycle{}, ErrInvalidRegistry
 	}
 	loc := time.FixedZone("guild-dungeon-policy", policy.UTCOffsetMinutes*60)
 	local := now.In(loc)
-	start := time.Date(local.Year(), local.Month(), policy.ResetDay, 0, 0, 0, 0, loc)
+	start := time.Date(local.Year(), local.Month(), policy.ResetDay, policy.ResetHour, 0, 0, 0, loc)
 	if now.Before(start) {
 		start = start.AddDate(0, -1, 0)
 	}
@@ -59,6 +60,8 @@ func (p *DungeonPolicy) Cycle(now time.Time) (DungeonCycle, error) {
 	if start.Unix() < 1 || end.Unix() > math.MaxUint32 {
 		return DungeonCycle{}, ErrInvalidRegistry
 	}
+	// StartUnix includes the reset hour. Existing explicit midnight policies
+	// retain exactly their former v1 keys and active progress.
 	return DungeonCycle{Key: fmt.Sprintf("v1:%d:%d:%d:%d", start.Unix(), policy.ResetDay, policy.UTCOffsetMinutes, policy.ClearUnitsPerMember), StartUnix: uint32(start.Unix()), EndUnix: uint32(end.Unix()), Units: policy.ClearUnitsPerMember}, nil
 }
 
