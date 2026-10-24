@@ -4,6 +4,7 @@ package alignedcmd
 
 import (
 	"context"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -16,6 +17,8 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
+	ItemUsageResolver      ItemUsageResolver
+	ItemUsageNow           time.Time
 	Command                byte
 	CommandKnown           bool
 	Opcode                 uint16
@@ -635,6 +638,9 @@ type StackableUseProvenanceResolution struct {
 // An error means "no runtime-PVF answer", never "reject the item".
 type StackableUseProvenanceResolver func(itemID int64) (StackableUseProvenanceResolution, error)
 
+// ItemUsageResolver reads explicit daily/weekly use limits from the active PVF.
+type ItemUsageResolver func(itemID int64) (*itemusage.Definition, error)
+
 // DamageFontExpirationMode describes the expiration contract carried by a
 // runtime-PVF [add damage font skin] item.
 type DamageFontExpirationMode byte
@@ -815,6 +821,7 @@ type EquipmentMoveFact struct {
 	WornClaimNoop bool
 }
 type Result struct {
+	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
 	EquipmentMoveFact *EquipmentMoveFact
 	Decision          Decision
 	Handled           bool
