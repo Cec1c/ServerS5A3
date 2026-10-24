@@ -45,6 +45,7 @@ var (
 
 type Registry struct {
 	Ranking          *RankingState                     `json:"ranking,omitempty"`
+	GuardianReceipts map[string]GuardianReceipt        `json:"guardian_receipts,omitempty"`
 	DungeonPolicy    *DungeonPolicy                    `json:"dungeon_policy,omitempty"`
 	Version          int                               `json:"version"`
 	NextID           uint32                            `json:"next_id"`
@@ -634,6 +635,9 @@ func validateRegistry(r Registry) error {
 		return err
 	}
 	if err := validateDepartures(r); err != nil {
+		return err
+	}
+	if err := validateGuardianReceipts(r); err != nil {
 		return err
 	}
 	if err := validateBenefits(r); err != nil {

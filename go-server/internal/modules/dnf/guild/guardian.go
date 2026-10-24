@@ -68,8 +68,8 @@ const (
 )
 
 // GuardianCatalog is deliberately limited to the two matched guardian IDs.
-// It contains purchase costs only: the PVF does not declare initial level or
-// skills. No runtime handler can construct an initial Guardian from this type.
+// It contains purchase costs only: acquisition level and skills come from an
+// independently configured GuardianPolicy.
 type GuardianCatalog struct {
 	costs map[uint32]EssenceBalance
 }
@@ -149,9 +149,8 @@ func ParseGuardianCatalog(text string) (*GuardianCatalog, error) {
 	return c, nil
 }
 
-// PurchaseCost is a read-only policy calculation, not authorization to charge
-// or summon. A future owner must recheck membership, permission, session, NPC/
-// scene and this state inside one transaction before writing an acquisition.
+// PurchaseCost is read-only. ApplyGuardian rechecks membership, permission,
+// session, interaction and this state inside the acquisition transaction.
 // An already owned ID is not a purchase; action7 is the native selection path.
 func (c *GuardianCatalog) PurchaseCost(policy GuardianFirstPurchasePolicy, state *GuardianState, id uint32) (EssenceBalance, error) {
 	if policy != GuardianFreeOnce && policy != GuardianPaid {
