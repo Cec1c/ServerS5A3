@@ -376,6 +376,8 @@ def verify(input_path: Path, candidate_path: Path) -> dict:
 
     # The unchanged V176 kind0 wrapper must not replace a non-null town binding.
     kind0_case = FullClear(artifact, TOWN, patched=False)
+    kind0_case.w(SELF + 0x2C, 1104)
+    kind0_case.w(SELF + 0x30, 1020)
     for slot, key in ((0, 1104), (1, 1020)):
         kind0_case.run_kind0_callsite(slot=slot, key=key, patched=True)
     require(kind0_case.local() == TOWN, "kind0 replaced a non-null town association")
