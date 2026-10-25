@@ -7,7 +7,7 @@ import (
 )
 
 // GuildSettlementUnitOfWork adds the registry and one durable completion
-// receipt to the existing character settlement. Lock order is registry first,
+// receipt and the owned mailbox to the existing character settlement. Lock order is registry first,
 // then the owned character and its assets; no nested transaction is allowed.
 type GuildSettlementUnitOfWork interface {
 	WithinGuildSettlement(context.Context, GuildOwner, string, func(Group) error) error

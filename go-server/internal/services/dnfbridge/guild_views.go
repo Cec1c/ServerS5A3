@@ -134,6 +134,7 @@ func (s *Service) sendCurrentInitialTownGuildStateProjectionLocked(session *game
 	// Native 1297 looks up the current guild object. Establish membership
 	// before projecting the newly committed login income and its notice.
 	s.projectOptionalGuildEssenceLoginLocked(session)
+	s.grantOptionalGuildContributionAttendanceLocked(session)
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	if err = s.sendCurrentGuildAccountProjection(ctx, session); err != nil {

@@ -48,7 +48,7 @@ func NewMemoryGroup() repository.Group {
 		CeraShopAssets:       &memoryCeraShopAssetUnitOfWork{sharedMu: aggregateTxMu, account: accounts, character: characters, inventory: inventory, equipment: equipment, settings: settings, pet: pets, skills: skills},
 		CharacterSkills:      &memoryCharacterSkillUnitOfWork{sharedMu: aggregateTxMu, skills: skills},
 		CharacterProgression: &memoryCharacterProgressionUnitOfWork{sharedMu: aggregateTxMu, character: characters, skills: skills},
-		CharacterSettlement:  &memoryCharacterSettlementUnitOfWork{sharedMu: aggregateTxMu, settings: settings, account: accounts, accountInventory: accountInventory, character: characters, quests: quests, inventory: inventory, equipment: equipment, skills: skills},
+		CharacterSettlement:  &memoryCharacterSettlementUnitOfWork{sharedMu: aggregateTxMu, settings: settings, account: accounts, accountInventory: accountInventory, character: characters, quests: quests, inventory: inventory, equipment: equipment, skills: skills, mailbox: mailboxes},
 		SemesterClear:        &memorySemesterClearUnitOfWork{sharedMu: aggregateTxMu, character: characters, quest: quests, settings: settings},
 		Guild:                &memoryGuildUnitOfWork{sharedMu: aggregateTxMu, character: characters, settings: settings, inventory: inventory},
 	}
