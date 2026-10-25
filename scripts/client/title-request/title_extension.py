@@ -9,21 +9,16 @@ CONTINUE = 0x25FA994
 PUSH_MARKER = 0x374EA10
 TITLE_DEST_SLOT = 13
 
-TITLE_RETURNS = (
-    0x12A3474,
-    0x12AB194,
-    0x12ACB2B,
-    0x12ACB78,
-    0x12AF918,
-)
+# The saved return is AFTER the five-byte CALL, not the CALL instruction VA.
+TITLE_RETURNS = (0x12A3479, 0x12AB199, 0x12ACB30, 0x12ACB7D, 0x12AF91D)
 
 # Parent returns are read through the producer's saved EBP. These identify the
 # title control-event callers; all other producer paths retain marker 0.
 PARENT_RETURNS = {
-    0x12A3474: (0x12AEF1B, 0x12AF00E, 0x12AB1CD),
-    0x12AB194: (0x12AE884,),
-    0x12ACB2B: (0x12AE59F,),
-    0x12ACB78: (0x12AE59F,),
+    0x12A3479: (0x12AEF1B, 0x12AF00E, 0x12AB1CD),
+    0x12AB199: (0x12AE884,),
+    0x12ACB30: (0x12AE59F,),
+    0x12ACB7D: (0x12AE59F,),
 }
 
 
@@ -91,15 +86,15 @@ def fallback_redirect(extension_va):
 def title_extension(va):
     """Build the title-only extension for direct composition by another builder."""
     c = Code(va)
-    c.cmp_ret(0x12A3474)
+    c.cmp_ret(0x12A3479)
     c.je("check_3474")
-    c.cmp_ret(0x12AB194)
+    c.cmp_ret(0x12AB199)
     c.je("check_ab")
-    c.cmp_ret(0x12ACB2B)
+    c.cmp_ret(0x12ACB30)
     c.je("check_ac")
-    c.cmp_ret(0x12ACB78)
+    c.cmp_ret(0x12ACB7D)
     c.je("check_ac")
-    c.cmp_ret(0x12AF918)
+    c.cmp_ret(0x12AF91D)
     c.je("args")
     c.jmp("fallback")
 
@@ -108,7 +103,7 @@ def title_extension(va):
     c.je("fallback")
     c.raw("a803")
     c.jne("fallback")
-    for parent in PARENT_RETURNS[0x12A3474]:
+    for parent in PARENT_RETURNS[0x12A3479]:
         c.cmp_saved_return(parent)
         c.je("args")
     c.jmp("fallback")
@@ -118,7 +113,7 @@ def title_extension(va):
     c.je("fallback")
     c.raw("a803")
     c.jne("fallback")
-    c.cmp_saved_return(PARENT_RETURNS[0x12AB194][0])
+    c.cmp_saved_return(PARENT_RETURNS[0x12AB199][0])
     c.jne("fallback")
     c.jmp("args")
 
@@ -127,7 +122,7 @@ def title_extension(va):
     c.je("fallback")
     c.raw("a803")
     c.jne("fallback")
-    c.cmp_saved_return(PARENT_RETURNS[0x12ACB2B][0])
+    c.cmp_saved_return(PARENT_RETURNS[0x12ACB30][0])
     c.jne("fallback")
 
     c.label("args")

@@ -1,4 +1,4 @@
-"""Read-only proof for the title OP19 producer call sites in fixed v170."""
+"""Read-only proof for title OP19 call sites in exact v170 or published v173."""
 import argparse
 import json
 import struct
@@ -131,10 +131,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
+    parser.add_argument("--published-v173", action="store_true")
     args = parser.parse_args()
     image_path = args.image
     available = available_memory()
-    image = Image(image_path, INPUT_SHA256, INPUT_SIZE)
+    expected_sha = INPUT_SHA256
+    expected_size = INPUT_SIZE
+    if args.published_v173:
+        from repair_published import INPUT_SHA, INPUT_SIZE as V173_SIZE
+        expected_sha, expected_size = INPUT_SHA, V173_SIZE
+    image = Image(image_path, expected_sha, expected_size)
     evidence = args.evidence_dir
     evidence.mkdir(parents=True, exist_ok=True)
     windows = {
@@ -186,7 +192,8 @@ def main():
                 ),
                 "parentReturns": [f"{x:#x}" for x in details["parent_returns"]],
                 "origin": details["origin"],
-                "directCallerInCurrentWhitelist": address in CURRENT_WHITELIST,
+                "return_va": f"{address + 5:#x}",
+                "directCallerInCurrentWhitelist": address + 5 in CURRENT_WHITELIST,
             }
             for address, details in TITLE_CALLS.items()
         ],
