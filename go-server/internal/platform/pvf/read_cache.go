@@ -9,4 +9,8 @@ func (a *Archive) ReleaseReadCaches() {
 	}
 	a.texts.Clear()
 	a.chunks.Clear()
+	if cache := a.readBudget.Load(); cache != nil {
+		cache.texts.clear()
+		cache.chunks.clear()
+	}
 }

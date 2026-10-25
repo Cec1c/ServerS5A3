@@ -13,11 +13,23 @@ import (
 var ErrSourceRequired = errors.New("dnf worldmap source is required")
 
 func LoadSource(ctx context.Context, source dnfpvf.Source, options Options) (*Table, error) {
+	return loadSourceWithCache(ctx, source, options, nil)
+}
+
+func loadSourceWithCache(ctx context.Context, source dnfpvf.Source, options Options, cacheOptions *MapCacheOptions) (*Table, error) {
 	if source == nil {
 		return nil, ErrSourceRequired
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	var builder *streamingMapBuilder
+	if cacheOptions != nil {
+		var err error
+		builder, err = newStreamingMapBuilder(source, *cacheOptions)
+		if err != nil {
+			return nil, err
+		}
 	}
 	table := &Table{
 		mapByID: make(map[int64]int), mapByPath: make(map[string]int),
@@ -56,6 +68,9 @@ func LoadSource(ctx context.Context, source dnfpvf.Source, options Options) (*Ta
 				return nil, fmt.Errorf("load dnf worldmap map %q: %w", docPath, err)
 			}
 			addMapToTable(table, parsed)
+			if builder != nil {
+				builder.observe(table, len(table.maps)-1)
+			}
 		}
 	}
 	if !options.SkipDungeons {
@@ -144,6 +159,11 @@ func LoadSource(ctx context.Context, source dnfpvf.Source, options Options) (*Ta
 				return nil, err
 			}
 			addAreaToTable(table, ParseArea(entry.ID, docPath, doc))
+		}
+	}
+	if builder != nil {
+		if err := builder.finish(ctx, table); err != nil {
+			return nil, err
 		}
 	}
 	return table, nil

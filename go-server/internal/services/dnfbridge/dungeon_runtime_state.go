@@ -287,7 +287,12 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 			mapOptions.SupplementalDungeonIDs = append(mapOptions.SupplementalDungeonIDs, available.SupplementalDungeonIDs...)
 		}
 	}
-	table, err := worldmap.LoadSource(ctx, archive, mapOptions)
+	var table *worldmap.Table
+	if s.options.lowMemory {
+		table, err = worldmap.LoadSourceCached(ctx, archive, mapOptions, worldmap.DefaultMapCacheOptions())
+	} else {
+		table, err = worldmap.LoadSource(ctx, archive, mapOptions)
+	}
 	if err != nil {
 		return fmt.Errorf("preload dungeon worldmap table: %w", err)
 	}
@@ -335,7 +340,7 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	s.logPacketEvent("dnf-dungeon-clear-card-equipment-pool",
 		clearCardEquipmentPoolWarmUpFields(monsterTable)...)
 
-	if s.options.mapDefinitionCache {
+	if s.options.mapDefinitionCache && !s.options.lowMemory {
 		if err := table.EnableMapCache(archive, worldmap.DefaultMapCacheOptions()); err != nil {
 			return fmt.Errorf("准备地图按需缓存失败: %w", err)
 		}

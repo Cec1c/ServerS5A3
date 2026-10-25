@@ -462,6 +462,13 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 	case "0", "false", "off":
 		values["DNFBRIDGE_MAP_CACHE"] = "false"
 	}
+	// 低内存模式为显式选择，不继承未经校验的DNFBRIDGE值。
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("DNF90_LOW_MEMORY"))); raw {
+	case "1", "true", "on":
+		values["DNFBRIDGE_LOW_MEMORY"] = "true"
+	case "0", "false", "off":
+		values["DNFBRIDGE_LOW_MEMORY"] = "false"
+	}
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }
 

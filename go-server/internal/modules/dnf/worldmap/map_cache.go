@@ -100,7 +100,12 @@ func (t *Table) EnableMapCache(source dnfpvf.Source, options MapCacheOptions) er
 }
 
 func mapRoutingMetadata(m Map) Map {
-	return Map{ID: m.ID, Path: strings.Clone(m.Path), Name: strings.Clone(m.Name), DungeonID: m.DungeonID, DungeonIDs: append([]int64(nil), m.DungeonIDs...), DungeonStartArea: append([]int64(nil), m.DungeonStartArea...), Type: strings.Clone(m.Type), Greed: strings.Clone(m.Greed), Flags: m.Flags, PathgateRecognizeRange: m.PathgateRecognizeRange}
+	ref := Map{ID: m.ID, Path: strings.Clone(m.Path), Name: strings.Clone(m.Name), DungeonID: m.DungeonID, DungeonIDs: append([]int64(nil), m.DungeonIDs...), DungeonStartArea: append([]int64(nil), m.DungeonStartArea...), Type: strings.Clone(m.Type), Greed: strings.Clone(m.Greed), Flags: m.Flags, PathgateRecognizeRange: m.PathgateRecognizeRange}
+	if strings.TrimSpace(m.BasicAction) != "" {
+		ref.BasicAction = strings.Clone(m.BasicAction)
+		ref.Monsters = append([]MonsterSpawn(nil), m.Monsters...)
+	}
+	return ref
 }
 
 func (t *Table) MapCacheSnapshot() MapCacheSnapshot {
