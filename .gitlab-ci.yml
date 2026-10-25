@@ -92,6 +92,13 @@ channel-u8-tests:
   cache: []
   script:
   - python -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
+# Semgrep's OCaml Eio io_uring backend fails to initialize on constrained runners.
+# Use its supported POSIX backend; keep the analyzer, rules and failure policy.
+semgrep-sast:
+  variables:
+    EIO_BACKEND: posix
+  dependencies: []
+  cache: []
 sast:
   stage: test
 include:
