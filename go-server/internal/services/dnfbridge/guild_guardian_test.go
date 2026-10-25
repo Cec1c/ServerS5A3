@@ -141,6 +141,24 @@ func TestGuildGuardianProductionPurchaseSelectAndReconnect(t *testing.T) {
 					if got := guildReply(t, p, 1350); !bytes.Equal(got, []byte{1}) {
 						t.Fatalf("%s ACK %x", name, got)
 					}
+					var order []uint16
+					for wire := conn.write.Bytes(); len(wire) > 0; {
+						packet, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
+						wire = rest
+						if packet.Header.MsgID == 1350 || packet.Header.MsgID == 1297 {
+							wantClass := byte(0)
+							if packet.Header.MsgID == 1350 {
+								wantClass = 1
+							}
+							if packet.Header.Classification != wantClass {
+								t.Fatalf("%s opcode %d class %d", name, packet.Header.MsgID, packet.Header.Classification)
+							}
+							order = append(order, packet.Header.MsgID)
+						}
+					}
+					if !reflect.DeepEqual(order, []uint16{1350, 1297}) {
+						t.Fatalf("%s guardian ACK/state order %v", name, order)
+					}
 					body := guildReply(t, p, 1297)
 					exportEssenceBody(t, prefix+"-"+name+"-1297", body)
 					exportEssenceBody(t, prefix+"-"+name+"-1350", guildReply(t, p, 1350))
@@ -333,6 +351,14 @@ func TestGuildGuardianProductionRejections(t *testing.T) {
 			}
 			if got := guildReply(t, p, 1350); !bytes.Equal(got, []byte{0, want}) {
 				t.Fatalf("got %x want 00%02x", got, want)
+			}
+			exportEssenceBody(t, "rejected-"+mode+"-1350", guildReply(t, p, 1350))
+			for wire := p.conn.(*bufferConn).write.Bytes(); len(wire) > 0; {
+				packet, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
+				wire = rest
+				if packet.Header.MsgID == 1297 || (packet.Header.MsgID == 1350 && packet.Header.Classification != 1) {
+					t.Fatalf("failed guardian operation emitted opcode %d class %d", packet.Header.MsgID, packet.Header.Classification)
+				}
 			}
 			after, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)
 			if mode != "guild_replaced" && !reflect.DeepEqual(before, after) {
