@@ -12,8 +12,9 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--input',type=Path,required=True);p.add_argument('--receipt',type=Path,required=True)
 p.add_argument('--candidate',type=Path)
 a=p.parse_args();data=a.input.read_bytes()
-source_sha='9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060'
-require(len(data)==111915008 and hashlib.sha256(data).hexdigest()==source_sha,'exact v173 required')
+from repair_published import PUBLISHED_PROFILES
+source_sha=hashlib.sha256(data).hexdigest()
+require(PUBLISHED_PROFILES.get(source_sha)==len(data),'exact published V173 or V174 required')
 artifact=Artifact(data,data,dict(base='0x6ec5000',helpers=[dict(size=0x200),dict(size=0x100)]))
 im=artifact.original
 old,kind0=helpers.emit(0x6ec5000)
