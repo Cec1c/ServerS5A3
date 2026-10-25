@@ -163,6 +163,11 @@
 - 精确V166候选只改发送器两字节与checksum；原生发送器RED/GREEN、非法输入和状态限制验证通过。
 - 服务端回归覆盖三种品级、区服边界、状态刷新及资产保持；配套客户端须先正式发布到玩家通道。
 
+## 2026-10-25 — 固定 V166 副本离队关联清理候选
+
+- 新增固定 V166 的 op9 kind3-to-FFFF 同伴离队实验构建器与验证器：只清除退场记录的关联，保留其他成员的 active actor，并在随后的本人 kind0 仅补回空 actor+0x4C8 绑定。
+- 51 bounded cases 通过，由原始 13 项和补充 38 项组成，覆盖 kind3/kind0 slots 1-7、同 key 空绑定、现有绑定保留以及 route/owner/FFFF 负例。该结果是 bounded native harness 验证，record、actor、model、lookup 等仍使用受控合成夹具，不覆盖完整 op9 handler、UDP、渲染、GUI 或真实游戏流程，也不构成安装、发布或用户验收。
+
 ## 2026-10-24 — 已验收客户端源码独立拆分
 
 - 从权威上游 `f5820b41a6457f29a4c864c2f15e4a48fa351871` 新建独立分支，只提取已验收客户端源码：!231 `6f2186ffa3918c2ee336371a9965142b5ee0e4aa` 的 `scripts/client/cross-scene-profile/**`、`quiet-profile-refresh/**`；!213 `3f02196eea3be7ea414ec380ab30c98f9422b666` 的 `raid-team-ready-v4/**`、`raid-team-direct-v5/**`、`luke-phase2-retry/**`。
