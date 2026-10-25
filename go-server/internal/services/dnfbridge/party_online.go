@@ -1985,7 +1985,9 @@ func (s *Service) broadcastCurrentPartyActorProjection(actor *gameSession, state
 		// 与城镇同屏投影同一口径：观察方与该 actor 已在同一支队伍时，这条"再声明一次队伍"的
 		// op9 是多余的，而且现场实测会让队员客户端自己 op13 退队（见
 		// town_copresence_party_state.go 的 DNFBRIDGE_TOWN_COPRESENCE_SKIP_SAME_PARTY_FRAME）。
-		if s.shouldSkipTownCopresencePartyFrame(peer.Session, actor) {
+		// An explicit removal must not resolve the retained singleton lobby:
+		// that lookup would republish the party projection we just cleared.
+		if state.PartyID > 0 && s.shouldSkipTownCopresencePartyFrame(peer.Session, actor) {
 			s.logPacketEvent("game-party-actor-projection-party-frame-skipped",
 				"conn_id", peer.Session.connID,
 				"source", source+"_to_area_peer",
