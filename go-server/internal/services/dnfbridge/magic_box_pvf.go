@@ -477,7 +477,7 @@ func resolveCurrentMagicBoxRewardItem(catalog *pvfDungeonDropCatalog, source dnf
 	container := currentPVFItemTargetContainer(definition)
 	item.SlotStart = container.SlotStart
 	item.SlotEnd = container.SlotEnd
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	item.AllowQuickSlots = policy.AllowQuickSlots
 	item.PreferQuickSlots = policy.PreferQuickSlots
 	if container.ListType != dnfrepo.MainInventoryListType {
