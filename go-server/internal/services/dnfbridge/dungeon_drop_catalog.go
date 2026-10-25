@@ -98,6 +98,10 @@ type dungeonDropItemDefinition struct {
 	DamageFontExpirationMode  alignedcmd.DamageFontExpirationMode
 	DamageFontPeriodDays      int64
 	DamageFontFixedExpiration time.Time
+	// NeedMaterials is the raw PVF `[need material]` integer vector. It is
+	// interpreted by the consuming feature (the dimension extra-entry ticket
+	// service takes the first positive id/count pair).
+	NeedMaterials []int64
 }
 
 type dungeonDropItemReference struct {
@@ -355,6 +359,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		}
 	} else {
 		definition.StackableType, _ = document.Text("stackable type")
+		definition.NeedMaterials = append([]int64(nil), document.Ints("need material")...)
 		// 品级调整箱族的能力白名单：`[usable equip type]` 里的部位表。
 		// 现场（2026-09-25）耳环报障的判据就是它——见
 		// modules/dnf/itemgrade.AllowsTargetEquipmentType。

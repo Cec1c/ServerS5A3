@@ -491,6 +491,8 @@ func parseMazeSection(maze *Maze, section RawSection) {
 		return
 	}
 	switch key {
+	case "hidden boss maze":
+		maze.HiddenBoss = true
 	case "size":
 		parsed, valid := ints(section)
 		if !valid || len(parsed) < 2 {
