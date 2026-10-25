@@ -35,7 +35,7 @@ BASE   0x6EC5000
 
 ## 便携验证
 
-需要 `requirements-validation.txt` 中的 `unicorn==2.1.4` 和 `capstone==5.0.7`：
+需要 `Docs/dungeon-peer-retire-requirements-validation.txt` 中的 `unicorn==2.1.4` 和 `capstone==5.0.7`：
 
 ```text
 python scripts/client/dungeon-peer-retire/repair_v176_context.py \
@@ -49,14 +49,14 @@ python scripts/client/dungeon-peer-retire/verify_context.py \
   --receipt <new-verification-receipt.json>
 ```
 
-`verify_context.py` 先强制输入 V176 摘要，再调用当前树内的 `repair_v176_context.build()` 生成期望候选并要求实际候选逐字节相同。被运行时，它执行真实 V176 kind3 调用、setter/slot 清理、本地队伍 getter 和离职 predicate。本次提交没有运行该便携脚本。
+`verify_context.py` 先强制输入 V176 摘要，再调用当前树内的 `repair_v176_context.build()` 生成期望候选并要求实际候选逐字节相同。它执行真实 V176 kind3 调用、setter/slot 清理、本地队伍 getter 和退队判定。v177-v3 组合回执已实际执行该 portable 验证器。
 
 离线矩阵覆盖五种初始关联、本人槽 0/1、旧/新 helper 和 town-before-dungeon/self-last 顺序。负向守卫覆盖 town scene、其他 scene、错频道、错 route 和不可表示频道；另验重复 kind0 不清已有 town association。
 
-HUD retirement 代码复用同一组五种初始关联、槽 0/1 和旧/新 helper，共 20 case。被运行时，脚本会执行真实 V176 `2207E90` 的 16 控件隐藏循环，以及真实 `296E5E0` 本地记录 getter和 `224C418` 本地队伍 layout redraw gate。
+HUD retirement 复用同一组五种初始关联、槽 0/1 和旧/新 helper，共 20 case。v177-v3 actual run 执行了真实 V176 `2207E90` 的 16 控件隐藏循环，以及真实 `296E5E0` 本地记录 getter和 `224C418` 本地队伍 layout redraw gate。
 
-- 主控另行提供的 bounded HUD 回执在当前固定 V176/候选上记录：真实 dungeon-only 清理且初始关联为 Town/TownPeer 的 4 个 case 仍发起 layout 绘制。
-- 同一 bounded 回执对新 town+dungeon 序列记录 0 个 layout 绘制，且 20 个 HUD case 的本地模型都保留。该回执尚未由便携脚本独立复现。
+- v177-v3 native 回执在当前固定 V176/候选上记录：真实 dungeon-only 清理且初始关联为 Town/TownPeer 的 4 个 case 仍发起 layout 绘制。
+- 同一回执对新 town+dungeon 序列记录 0 个 layout 绘制，且 20 个 HUD case 的本地模型都保留。
 
 角色查找、scene/channel getter、peer manager reset、virtual hide leaf、layout 绘制末端、GPU rendering 和游戏画面是夹具。验证停在进入 network reset 边；reset 主体、完整 dispatcher、真实 UI/GPU 和游戏内验收不在该脚本范围。
 
@@ -64,9 +64,8 @@ HUD retirement 代码复用同一组五种初始关联、槽 0/1 和旧/新 help
 
 - 服务端定向回归当前为 20 pass / 0 fail / 0 skip，覆盖单人留图、队长/队员退出、重连方向、记录顺序和写入失败。
 - 开发阶段 V176 组合窗口矩阵为 20 case / 5 guard：候选 helper 的 10 个 case 均保留本地模型，旧 helper 的 10 个 case 均不保留。
-- 主控另提供 HUD bounded harness 回执 20 case：旧 dungeon-only 路径的 Town/TownPeer 4 case 仍重绘，新 town+dungeon 序列 0 case 重绘；两次均隐藏 16 个控件并保留本地模型。virtual hide、layout 末端、scene 和 GPU 是夹具。
-- 便携 `verify_context.py` 已加入本树，尚未执行；上述 HUD 结果尚未由便携工具独立复现。核心原生矩阵只证明 setter/cleanup/getter 和离职分支，network reset 主体没有执行。
-- 尚无完整 UI dispatcher、network reset、HUD 重绘/GPU 或游戏画面证据，不能把源码候选称为 UI 已验收。
+- v177-v3 portable actual run：20 context + 20 HUD + 5 guard 全部通过；5 个上下文 guard 也使用两个 occupied slots。旧 dungeon-only 路径的 Town/TownPeer 4 case 仍重绘，新 town+dungeon 序列 0 case 重绘；两次均隐藏 16 个控件并保留本地模型。virtual hide、layout 末端、scene 和 GPU 是夹具。
+- 实际 native 覆盖的是 setter/cleanup/getter、退队分支以及 `2207E90`/`296E5E0`/`224C418` bounded HUD gates；**network reset 主体没有执行**，完整 network dispatcher、真实 HUD/GPU 和游戏画面仍未覆盖，不能称为 UI 已验收。
 
 正式发布必须同时包含配套客户端和依赖本 helper 的服务端；只更新任一端会分别造成旧 UI 残留或本地模型被误删。发布、部署和用户验收分别记录。
 

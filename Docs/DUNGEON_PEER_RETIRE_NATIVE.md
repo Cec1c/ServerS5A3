@@ -22,7 +22,7 @@ memory and requires byte equality before executing any native window.
 The builder uses the Python standard library:
 
 ~~~text
-python build_candidate.py --input <v166.exe> --output <new-output.exe>
+python scripts/client/dungeon-peer-retire/build_candidate.py --input <v166.exe> --output <new-output.exe>
 ~~~
 
 It appends one aligned .prsafe read/execute section, redirects the two exact
@@ -31,10 +31,10 @@ and verifies that all bytes outside the declared edit ranges remain unchanged.
 
 ## Verify
 
-Python 3.10 or newer with the exact versions in requirements-validation.txt:
+Python 3.10 or newer with the exact versions in Docs/dungeon-peer-retire-requirements-validation.txt:
 
 ~~~text
-python verify_candidate.py \
+python scripts/client/dungeon-peer-retire/verify_candidate.py \
   --input <v166.exe> \
   --candidate <candidate.exe> \
   --receipt <new-directory>/verification.json
