@@ -15,26 +15,39 @@ import (
 
 const currentCreatureStateTableMsgID uint16 = 105
 
-// sendSelectedCreatureInitialStateAfterMode1 refreshes the existing slot-26
-// object's durable item state, then installs the repository-backed creature
-// table and equipped creature's growth state as soon as mode1 has created it.
-func (s *Service) sendSelectedCreatureInitialStateAfterMode1(session *gameSession, source string) error {
-	if err := s.sendSelectedEquippedEquipmentEffectRuneRefresh(session, source+"_equipment_effect_rune"); err != nil {
+func (s *Service) sendSelectedCreatureInitialProjection(session *gameSession, source string) (err error) {
+	// An op105 write alone does not complete the UI projection. If the item or
+	// growth write fails, the scene-ready fallback must be allowed to retry.
+	defer func() {
+		if err != nil && session != nil {
+			session.selectedCreatureStateTableSent = false
+		}
+	}()
+	if err := s.sendSelectedCreatureStateTable(session, source+"_state_table"); err != nil {
 		return err
 	}
 	if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_equipped_item"); err != nil {
 		return err
 	}
-	if err := s.sendSelectedCreatureStateTable(session, source+"_state_table"); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	equippedCreature, err := s.currentEquippedCreatureForCharacterWithError(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+	cancel()
+	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	equippedCreature := s.currentEquippedCreatureForCharacter(ctx, strconv.Itoa(int(session.selectedCharacterID)))
-	cancel()
 	if !equippedCreature.valid() {
 		return nil
 	}
 	return s.sendSelectedEquippedCreatureGrowthState(session, equippedCreature, source+"_equipped_growth")
+}
+
+// sendSelectedCreatureInitialStateAfterMode1 installs pet metadata before the
+// slot-26 notification resolves its serial in the native op105 table.
+func (s *Service) sendSelectedCreatureInitialStateAfterMode1(session *gameSession, source string) error {
+	if err := s.sendSelectedEquippedEquipmentEffectRuneRefresh(session, source+"_equipment_effect_rune"); err != nil {
+		return err
+	}
+	return s.sendSelectedCreatureInitialProjection(session, source)
 }
 
 // sendSelectedCreatureSceneReadyProjection is the deferred-tail fallback for a
@@ -58,20 +71,7 @@ func (s *Service) sendSelectedCreatureSceneReadyProjection(session *gameSession,
 			"reason", "op105_and_op102_already_published_after_mode1_no_post_op24_actor_rebuild")
 		return nil
 	}
-	if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_equipped_item_fallback"); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	equippedCreature := s.currentEquippedCreatureForCharacter(ctx, strconv.Itoa(int(session.selectedCharacterID)))
-	cancel()
-	if err := s.sendSelectedCreatureStateTable(session, source+"_state_table_fallback"); err != nil {
-		return err
-	}
-	if !equippedCreature.valid() {
-		return nil
-	}
-	return s.sendSelectedEquippedCreatureGrowthState(session, equippedCreature, source+"_growth_fallback")
+	return s.sendSelectedCreatureInitialProjection(session, source+"_fallback")
 }
 
 // sendSelectedCreatureStateAfterMoveAck resolves pet state only after the
@@ -416,6 +416,12 @@ func (s *Service) sendSelectedActorMode1AppearanceRefresh(session *gameSession, 
 }
 
 func (s *Service) sendSelectedActorMode1AppearanceWithBuffPolicy(session *gameSession, operation string, sequence string, committedWear bool) error {
+	return s.sendSelectedActorMode1AppearanceWithPostState(session, operation, sequence, committedWear, true)
+}
+
+// Town transitions own a resumable metadata/item/growth suffix. They defer
+// the creature notification until that cursor has committed the new op105.
+func (s *Service) sendSelectedActorMode1AppearanceWithPostState(session *gameSession, operation string, sequence string, committedWear, refreshCreature bool) error {
 	invalidateCurrentCrossSceneAppearance(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -452,13 +458,19 @@ func (s *Service) sendSelectedActorMode1AppearanceWithBuffPolicy(session *gameSe
 	}
 	// Full mode1 recreates the equipped creature object; its dynamic enchant
 	// state belongs to the subsequent same-instance, pet-only item refresh.
-	creature, err := s.currentEquippedCreatureForCharacterWithError(ctx, strconv.Itoa(int(charID)))
-	if err != nil {
-		return err
-	}
-	if creature.valid() {
-		if err := s.sendSelectedEquippedCreatureItemRefresh(session, operation+"_after_equipment_mode1"); err != nil {
-			return err
+	var err error
+	if refreshCreature {
+		creature, loadErr := s.currentEquippedCreatureForCharacterWithError(ctx, strconv.Itoa(int(charID)))
+		if loadErr != nil {
+			return loadErr
+		}
+		if creature.valid() {
+			if err := s.sendSelectedCreatureStateTableWithRefresh(session, operation+"_after_equipment_mode1_metadata", true); err != nil {
+				return err
+			}
+			if err := s.sendSelectedEquippedCreatureItemRefresh(session, operation+"_after_equipment_mode1"); err != nil {
+				return err
+			}
 		}
 	}
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, operation+"_after_equipment_mode1"); err != nil {
