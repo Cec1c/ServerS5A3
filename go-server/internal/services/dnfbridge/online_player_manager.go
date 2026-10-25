@@ -588,6 +588,11 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	if target.selectedCharacterID != targetCharacterID || actor.Session.selectedCharacterID != charID {
 		return fmt.Errorf("remote town actor selection changed during construction: actor=%d receiver=%d", charID, targetCharacterID)
 	}
+	if partyFrame {
+		if err := projectCurrentTownPartyHPIntoMode0(mode0Body, s.currentTownPartyRealtimeBody(target, actor.Session), charID); err != nil {
+			return fmt.Errorf("initialize remote town actor party HP: %w", err)
+		}
+	}
 	s.logCurrentPeerActorAppearanceEvent(target, actor.Session, source, mode0Body, mode1Body, subtype0Body)
 	if err := s.sendGameUpperRawClass(
 		target,
@@ -630,6 +635,9 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	// `DNFBRIDGE_TOWN_COPRESENCE_SKIP_SAME_PARTY_FRAME`（official-24.9 城镇默认开，其他档默认 off）。
 	if !partyFrame {
 		return nil
+	}
+	if err := s.sendCurrentTownPartyHPAfterActor(target, actor.Session); err != nil {
+		return fmt.Errorf("send remote town actor party HP: %w", err)
 	}
 	if s.shouldSkipTownCopresencePartyFrame(target, actor.Session) {
 		s.logPacketEvent("game-town-copresence-party-frame-skipped",
