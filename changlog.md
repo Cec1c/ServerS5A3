@@ -1,6 +1,7 @@
 ## 2026-10-26 — !223 奖励弹窗测试时钟
 
 - 仅测试同步：time import、tagRewardPopupAdvanceClock helper，以及首次挑战和免费重入两次 challenge 后的时钟推进；保留原生产校验。
+- 同一测试时钟覆盖 tag_tournament_completion_test.go 的初次挑战与回城重入终局，避免五次快回合被截成 elapsed=0。
 - 本项未运行 Go，不声称测试通过；未改动生产或私有路径。
 
 ## 2026-10-23 — 帝国竞技场普通/困难模式与回城修补
