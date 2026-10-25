@@ -1,4 +1,4 @@
-"""Repair the five title CALL/return comparisons in the published V173 image."""
+"""Repair five title CALL/return comparisons in exact published V173/V174 images."""
 import argparse
 import json
 import struct
@@ -9,13 +9,17 @@ from title_extension import OP19UI, OLD_VIRTUAL_SIZE, TITLE_RETURNS, title_exten
 
 INPUT_SHA = '9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060'
 INPUT_SIZE = 111915008
+PUBLISHED_PROFILES = {
+    INPUT_SHA: INPUT_SIZE,
+    '27c2241aae6d7b8c6b043a2bbe9e2eccfdb18d6969912055694195b972fcad67': 111919104,
+}
 
 
 def build(data):
     available_memory()
     image = Image.from_bytes(data)
-    if image.sha256 != INPUT_SHA or len(data) != INPUT_SIZE:
-        raise ValueError('exact published V173 required')
+    if PUBLISHED_PROFILES.get(image.sha256) != len(data):
+        raise ValueError('exact published V173 or V174 required')
     va = OP19UI + OLD_VIRTUAL_SIZE
     corrected = title_extension(va)
     previous = corrected
@@ -39,7 +43,7 @@ def build(data):
     if len(out)!=len(data) or any(i not in allowed for i in differences):
         raise ValueError('unreviewed image change')
     result = bytes(out)
-    return result, dict(inputSha256=INPUT_SHA, outputSha256=sha256(result), length=len(result),
+    return result, dict(inputSha256=image.sha256, outputSha256=sha256(result), length=len(result),
                        changedOffsets=differences, preservedOtherBytes=True,
                        correctedReturns=[hex(x) for x in TITLE_RETURNS], gameAcceptance=False)
 

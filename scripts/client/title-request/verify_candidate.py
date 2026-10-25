@@ -154,12 +154,17 @@ def main():
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence", type=Path)
-    parser.add_argument("--published-v173", action="store_true")
+    profile = parser.add_mutually_exclusive_group()
+    profile.add_argument("--published-v173", action="store_true")
+    profile.add_argument("--published-v174", action="store_true")
     args = parser.parse_args()
     available = available_memory()
-    baseline = Image(args.baseline,
-        '9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060' if args.published_v173 else INPUT_SHA256,
-        111915008 if args.published_v173 else INPUT_SIZE)
+    baseline_sha, baseline_size = INPUT_SHA256, INPUT_SIZE
+    if args.published_v173:
+        baseline_sha, baseline_size = '9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060', 111915008
+    elif args.published_v174:
+        baseline_sha, baseline_size = '27c2241aae6d7b8c6b043a2bbe9e2eccfdb18d6969912055694195b972fcad67', 111919104
+    baseline = Image(args.baseline, baseline_sha, baseline_size)
     candidate = Image(args.candidate)
     cases = []
 
