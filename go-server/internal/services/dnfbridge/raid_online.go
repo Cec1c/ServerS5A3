@@ -13,6 +13,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/party"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	"longheng.io/server/internal/modules/dnf/raid"
 )
@@ -64,6 +65,7 @@ type runtimePartyRaidExitProjection struct {
 	next     alignedcmd.PartyState
 	retired  bool
 	changed  bool
+	expected party.RuntimePartySnapshot
 }
 
 func (s *Service) leaveRuntimePartyForRaidExit(session *gameSession) (runtimePartyRaidExitProjection, error) {
@@ -119,7 +121,28 @@ func (s *Service) leaveRuntimePartyForRaidExit(session *gameSession) (runtimePar
 		next:     next,
 		retired:  result.Retired != nil,
 		changed:  true,
+		expected: result.Party,
 	}, nil
+}
+
+func (s *Service) currentRaidExitPartyReceiver(projection runtimePartyRaidExitProjection, id uint16) (*gameSession, bool) {
+	current, found := s.runtimePartyManagerForService().SnapshotByID(projection.expected.ID)
+	if !found || current.Leader != projection.expected.Leader || len(current.Members) != len(projection.expected.Members) {
+		return nil, false
+	}
+	for i, want := range projection.expected.Members {
+		got := current.Members[i]
+		if got.UserID != want.UserID || got.SessionGeneration != want.SessionGeneration || got.Slot != want.Slot {
+			return nil, false
+		}
+	}
+	for _, member := range current.Members {
+		if member.UserID == id {
+			identity, ok := s.onlineGameSessionCharacterSnapshot(id)
+			return identity.session, ok && identity.generation == member.SessionGeneration && s.boundGameSessionCharacterCurrent(identity)
+		}
+	}
+	return nil, false
 }
 
 // broadcastRuntimePartyRaidExit publishes the committed party transition to
@@ -136,7 +159,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 			if member.UserID == removedID {
 				continue
 			}
-			peer, online := s.onlineGameSession(member.UserID)
+			peer, online := s.currentRaidExitPartyReceiver(projection, member.UserID)
 			if !online || peer == skip {
 				continue
 			}
@@ -147,7 +170,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 		if projection.next.PartyID > 0 {
 			s.syncRuntimePartyUDPRelay(projection.next)
 			for _, member := range runtimePartyMembers(projection.next) {
-				peer, online := s.onlineGameSession(member.UserID)
+				peer, online := s.currentRaidExitPartyReceiver(projection, member.UserID)
 				if !online || peer == skip {
 					continue
 				}
@@ -171,7 +194,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 			if member.UserID == removedID {
 				continue
 			}
-			peer, online := s.onlineGameSession(member.UserID)
+			peer, online := s.currentRaidExitPartyReceiver(projection, member.UserID)
 			if !online || peer == skip {
 				continue
 			}
@@ -425,6 +448,14 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 		return s.sendRaidCommandFailure(session, typ)
 	}
 	var errs []error
+	var partyExit runtimePartyRaidExitProjection
+	if s.options.currentClientVersion == "official-24.9" {
+		var partyErr error
+		partyExit, partyErr = s.leaveRuntimePartyForRaidExit(session)
+		if partyErr != nil {
+			errs = append(errs, partyErr)
+		}
+	}
 	// In the current ACK665 reader the flag means forced removal (B6C7),
 	// not an empty directory object. Its ordinary branch still executes
 	// 01A64B80 and clears both the own-raid key and cached object pointer.
@@ -438,10 +469,6 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 			errs = append(errs, err)
 		}
 	} else {
-		partyExit, partyErr := s.leaveRuntimePartyForRaidExit(session)
-		if partyErr != nil {
-			errs = append(errs, partyErr)
-		}
 		if partyExit.changed {
 			if err := s.sendRuntimePartyMemberRemoved(session, sourceID, alignedcmd.PartyState{}); err != nil {
 				errs = append(errs, err)

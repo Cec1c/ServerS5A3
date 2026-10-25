@@ -467,3 +467,31 @@ func TestP33DisconnectExpiryQueues584RemovalAndPreservesReward(t *testing.T) {
 		t.Fatal("disconnect expiry did not publish a 584 op0 removal")
 	}
 }
+
+func TestP33CommittedExitDoesNotOverwriteSurvivorReplacement(t *testing.T) {
+	for _, replaceParty := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new-session", true: "new-party"}[replaceParty], func(t *testing.T) {
+			s, leader, member, leaderConn, _, _ := prepareApprovedCurrentRaid(t)
+			p33RaidParty(t, s, leader, member)
+			projection, err := s.leaveRuntimePartyForRaidExit(member)
+			if err != nil || !projection.changed {
+				t.Fatalf("departure: %+v %v", projection, err)
+			}
+			identity, _ := s.boundGameSessionCharacterSnapshot(leader)
+			if replaceParty {
+				created := s.runtimePartyManagerForService().Create(party.RuntimePartyMember{UserID: identity.character, SessionGeneration: identity.generation}, alignedcmd.PartyState{MaxMembers: 4})
+				s.publishRuntimePartySnapshot(created.Party)
+			} else {
+				advanceGameSessionCharacterGeneration(leader)
+			}
+			before := runtimePartyStateSnapshot(leader)
+			leaderConn.write.Reset()
+			if err := s.broadcastRuntimePartyRaidExit(projection, member.selectedCharacterID, member); err != nil {
+				t.Fatal(err)
+			}
+			if leaderConn.write.Len() != 0 || !reflect.DeepEqual(before, runtimePartyStateSnapshot(leader)) {
+				t.Fatal("old departure overwrote or notified a replaced survivor")
+			}
+		})
+	}
+}
