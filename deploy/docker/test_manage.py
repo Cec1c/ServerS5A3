@@ -74,6 +74,17 @@ class DeploymentBoundaries(unittest.TestCase):
                     manage.generate({"guild_contribution_policy": value}, {})
                 self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_guild_hongbao_explicit_mapping(self):
+        for value in (False, True):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_hongbao_enabled": value}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_HONGBAO_ENABLED=" + str(value).lower() + "\n", (Path(directory) / "server.env").read_text())
+        for value in (None, 1, "true", []):
+            with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_hongbao_enabled"):
+                    manage.generate({"guild_hongbao_enabled": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_gm_is_disabled_by_default(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
             manage.generate(self.gm_config(), {"ports": [10006]})
