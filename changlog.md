@@ -1,3 +1,8 @@
+## 2026-10-25 — 任务手册两条入口的账号与角色绑定
+
+- 旧1429及当前1427预检/1454提交共同核对账号、角色代际和资产预约；事务中复核等级、职业与成长阶段，并在同一事务校验写入和返回提交快照。提交完成后先释放预约再刷新界面，过期会话不修改任务或发送旧角色结果。补充两入口等待后换代拒绝、预约释放及事务校验回滚测试。
+- 独立候选验证另行记录，尚待游戏验收。
+
 ## 2026-10-24 — Preserve story choices and ticket continuation
 
 - Share predecessor, mutually exclusive route and explicit Question checks across level-up tickets and quest manuals. Preserve damaged historical choices instead of inventing an answer.

@@ -59,6 +59,7 @@ func TestOwnerAutoCompleteMainClosesSelectedActiveEpicAndItsLinkedSubQuestsWitho
 	}
 	completedAt := time.Date(2026, 7, 22, 7, 30, 0, 0, time.UTC)
 	result, err := owner.ApplyAutoCompleteMain(ctx, catalog, AutoCompleteMainInput{
+		AccountID:     "dnf:1",
 		CharacterID:   "17",
 		Eligibility:   CharacterEligibility{Level: 90, Job: 2, GrowType: 0},
 		CutoffLevel:   89,
@@ -121,6 +122,7 @@ func TestOwnerAutoCompleteMainClosesSelectedActiveEpicAndItsLinkedSubQuestsWitho
 	}
 
 	replayed, err := owner.ApplyAutoCompleteMain(ctx, catalog, AutoCompleteMainInput{
+		AccountID:     "dnf:1",
 		CharacterID:   "17",
 		Eligibility:   CharacterEligibility{Level: 90, Job: 2, GrowType: 0},
 		CutoffLevel:   89,

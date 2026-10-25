@@ -17,3 +17,8 @@ Tests cover alternative answers, predecessor and mutual-exclusion gates, histori
 The operator has reported successful native level-up-ticket acceptance on the private integration build. This is user-observed acceptance, not an independently recorded proof of every Question/manual variant or the newest upstream base. No private welfare features, player records, credentials, server configuration or resources are included.
 
 Rollback must preserve committed character progress and authorization fields. An older server does not interpret the continuation authorization; do not erase it or roll back the full database over subsequent player activity.
+
+
+## 2026-10-25 补充
+
+旧1429及当前1427预检/1454提交共同核对账号、角色代际和资产预约；事务中复核等级、职业与成长阶段，并在同一事务校验写入和返回提交快照。提交完成后先释放预约再刷新界面，过期会话不修改任务或发送旧角色结果。补充两入口等待后换代拒绝、预约释放及事务校验回滚测试。

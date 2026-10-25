@@ -52,6 +52,7 @@ func TestCurrentAutoCompleteMainQuestLegacyRouteCommitsNoRewardAndSendsExactRead
 		channel:             channelcatalog.Channel{ID: 19},
 		selectedCharacterID: 17,
 	}
+	bindAutoCompleteMainTestSession(service, session)
 	if err := service.handleGameCommand(
 		session,
 		byte(dnfenum.GameCmdCommand),
@@ -175,6 +176,7 @@ func TestCurrentAutoCompleteMainQuestNonzeroSelectorCompletesOnlyExactQuest(t *t
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
 	}
 	session := &gameSession{conn: connection, selectedCharacterID: 17}
+	bindAutoCompleteMainTestSession(service, session)
 	if err := service.handleCurrentAutoCompleteMainQuest(session, []byte{100, 0, 0, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +214,7 @@ func TestCurrentAutoCompleteMainQuestZeroSelectorCompletesAllEligibleMainQuests(
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
 	}
 	session := &gameSession{conn: connection, selectedCharacterID: 17}
+	bindAutoCompleteMainTestSession(service, session)
 	if err := service.handleCurrentAutoCompleteMainQuest(session, []byte{0, 0, 0, 0}); err != nil {
 		t.Fatal(err)
 	}
