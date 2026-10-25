@@ -115,21 +115,22 @@ func cleanDungeonMonsterPath(value string) string {
 
 func parseDungeonMonsterDefinition(id int64, docPath string, document *dnfpvf.Document) dnfmonster.Monster {
 	definition := dnfmonster.Monster{
-		ID:      id,
-		Path:    docPath,
-		Name:    dungeonMonsterText(document, "name", "display name"),
-		Kind:    dungeonMonsterText(document, "monster type", "type", "kind"),
-		Rank:    dungeonMonsterText(document, "rank", "monster rank", "grade"),
-		Level:   dungeonMonsterInt(document, "level", "monster level"),
-		HP:      dungeonMonsterInt(document, "hp", "hit point", "max hp"),
-		Attack:  dungeonMonsterInt(document, "attack", "physical attack"),
-		Defense: dungeonMonsterInt(document, "defense", "physical defense"),
-		Move:    dungeonMonsterNumber(document, "move speed", "movement speed"),
-		Speed:   dungeonMonsterNumber(document, "attack speed"),
-		Exp:     dungeonMonsterInt(document, "exp", "experience"),
-		AI:      dungeonMonsterText(document, "ai", "ai pattern"),
-		Icon:    dungeonMonsterText(document, "icon", "icon path"),
-		Scalars: dungeonMonsterScalars(document),
+		ID:                  id,
+		Path:                docPath,
+		Name:                dungeonMonsterText(document, "name", "display name"),
+		Kind:                dungeonMonsterText(document, "monster type", "type", "kind"),
+		Rank:                dungeonMonsterText(document, "rank", "monster rank", "grade"),
+		Level:               dungeonMonsterInt(document, "level", "monster level"),
+		HP:                  dungeonMonsterInt(document, "hp", "hit point", "max hp"),
+		Attack:              dungeonMonsterInt(document, "attack", "physical attack"),
+		Defense:             dungeonMonsterInt(document, "defense", "physical defense"),
+		Move:                dungeonMonsterNumber(document, "move speed", "movement speed"),
+		Speed:               dungeonMonsterNumber(document, "attack speed"),
+		Exp:                 dungeonMonsterInt(document, "exp", "experience"),
+		AI:                  dungeonMonsterText(document, "ai", "ai pattern"),
+		Icon:                dungeonMonsterText(document, "icon", "icon path"),
+		DimensionHiddenBoss: dungeonMonsterInt(document, "dimension hidden boss") == 1,
+		Scalars:             dungeonMonsterScalars(document),
 	}
 	if definition.Name == "" {
 		definition.Name = definition.Path

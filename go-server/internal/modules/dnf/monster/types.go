@@ -16,22 +16,24 @@ type Options struct {
 }
 
 type Monster struct {
-	ID       int64              `json:"id"`
-	Path     string             `json:"path"`
-	Name     string             `json:"name"`
-	Kind     string             `json:"kind,omitempty"`
-	Rank     string             `json:"rank,omitempty"`
-	Level    int64              `json:"level,omitempty"`
-	HP       int64              `json:"hp,omitempty"`
-	Attack   int64              `json:"attack,omitempty"`
-	Defense  int64              `json:"defense,omitempty"`
-	Move     float64            `json:"move,omitempty"`
-	Speed    float64            `json:"speed,omitempty"`
-	Exp      int64              `json:"exp,omitempty"`
-	AI       string             `json:"ai,omitempty"`
-	Icon     string             `json:"icon,omitempty"`
-	Scalars  map[string]float64 `json:"scalars,omitempty"`
-	Sections []string           `json:"sections,omitempty"`
+	ID      int64   `json:"id"`
+	Path    string  `json:"path"`
+	Name    string  `json:"name"`
+	Kind    string  `json:"kind,omitempty"`
+	Rank    string  `json:"rank,omitempty"`
+	Level   int64   `json:"level,omitempty"`
+	HP      int64   `json:"hp,omitempty"`
+	Attack  int64   `json:"attack,omitempty"`
+	Defense int64   `json:"defense,omitempty"`
+	Move    float64 `json:"move,omitempty"`
+	Speed   float64 `json:"speed,omitempty"`
+	Exp     int64   `json:"exp,omitempty"`
+	AI      string  `json:"ai,omitempty"`
+	Icon    string  `json:"icon,omitempty"`
+	// DimensionHiddenBoss is the typed [dimension hidden boss] 0/1 marker.
+	DimensionHiddenBoss bool               `json:"dimension_hidden_boss,omitempty"`
+	Scalars             map[string]float64 `json:"scalars,omitempty"`
+	Sections            []string           `json:"sections,omitempty"`
 }
 
 type Table struct {
