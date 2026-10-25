@@ -1,4 +1,4 @@
-"""Retire a local party record while retaining its actor, exact V173/V174."""
+"""Retire a local party record while retaining its actor, exact V173/V174/V175."""
 import argparse
 import json
 import struct
@@ -12,13 +12,14 @@ INPUT_SIZE = 111915008
 PUBLISHED_PROFILES = {
     INPUT_SHA: INPUT_SIZE,
     '27c2241aae6d7b8c6b043a2bbe9e2eccfdb18d6969912055694195b972fcad67': 111919104,
+    'c97fec768b7178ae89446a65de5aa980a1532724e3a1bde49e5273fe5aff0db6': 111919104,
 }
 BASE = 0x6EC5000
 
 
 def build(data):
     input_sha = sha(data)
-    require(PUBLISHED_PROFILES.get(input_sha) == len(data), 'exact published V173 or V174 required')
+    require(PUBLISHED_PROFILES.get(input_sha) == len(data), 'exact published V173, V174 or V175 required')
     pe = PE(data)
     previous, kind0 = helpers.emit(BASE)
     corrected, unchanged = helpers.emit(BASE, preserve_local=True)
