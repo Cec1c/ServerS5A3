@@ -1881,6 +1881,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	applied.ItemUsageChanged = result.ItemUsageChanged
 	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
 		result.PreviousCount-result.RemainingCount == 1 {
 		applied.StackableConsumption = &alignedcmd.StackableConsumption{

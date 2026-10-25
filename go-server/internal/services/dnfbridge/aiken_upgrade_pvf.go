@@ -137,6 +137,11 @@ func currentAikenRules(c *pvfDungeonDropCatalog) (aiken.Rules, error) {
 	if groups != 3 || len(groupOptions) != len(options) {
 		return r, aiken.ErrInvalid
 	}
+	optionCosts, e := currentAikenOptionCosts(d, options)
+	if e != nil {
+		return r, e
+	}
+	r.OptionCosts = optionCosts
 	r.CostPolicy = func(itemID int64) (itemplacement.SlotPolicy, error) {
 		if itemID <= 0 || itemID > math.MaxUint32 {
 			return itemplacement.SlotPolicy{}, aiken.ErrInvalid
@@ -234,6 +239,7 @@ func currentAikenRules(c *pvfDungeonDropCatalog) (aiken.Rules, error) {
 	r.Options = options
 	r.State = currentAikenState
 	r.SetState = currentAikenSetState
+	r.SetOption = currentAikenSetOption
 	r.Validate = func(s repo.ItemStack) error {
 		if s.ItemID <= 0 || s.ItemID > math.MaxUint32 {
 			return aiken.ErrInvalid
@@ -253,4 +259,81 @@ func currentAikenRules(c *pvfDungeonDropCatalog) (aiken.Rules, error) {
 		return e
 	}
 	return r, nil
+}
+
+func currentAikenOptionCosts(d *pvf.Document, options map[byte]bool) (map[byte][4]aiken.MaterialCost, error) {
+	costs := map[byte][4]aiken.MaterialCost{}
+	var e error
+	empty := func(i int) bool {
+		if i >= len(d.Sections) || d.Sections[i].Start != d.Sections[i].End {
+			e = aiken.ErrInvalid
+			return false
+		}
+		return true
+	}
+	for i := 0; i < len(d.Sections); {
+		if d.Sections[i].Name != "info" {
+			i++
+			continue
+		}
+		if !empty(i) {
+			return nil, e
+		}
+		i++
+		if i >= len(d.Sections) || d.Sections[i].Name != "index" {
+			return nil, aiken.ErrInvalid
+		}
+		v := d.Tokens[d.Sections[i].Start:d.Sections[i].End]
+		if len(v) != 1 || v[0].Kind != pvf.TokenInt || v[0].Int < 1 || v[0].Int > 255 {
+			return nil, aiken.ErrInvalid
+		}
+		option := byte(v[0].Int)
+		if !options[option] {
+			return nil, aiken.ErrInvalid
+		}
+		if _, exists := costs[option]; exists {
+			return nil, aiken.ErrInvalid
+		}
+		i++
+		var grades [4]bool
+		var row [4]aiken.MaterialCost
+		for n := 0; n < 4; n++ {
+			if i+4 >= len(d.Sections) || d.Sections[i].Name != "material" || !empty(i) {
+				return nil, aiken.ErrInvalid
+			}
+			if d.Sections[i+1].Name != "grade" {
+				return nil, aiken.ErrInvalid
+			}
+			g := d.Tokens[d.Sections[i+1].Start:d.Sections[i+1].End]
+			if len(g) != 1 || g[0].Kind != pvf.TokenString {
+				return nil, aiken.ErrInvalid
+			}
+			grade, ok := aikenGrade(g[0].Value)
+			if !ok || grades[grade] {
+				return nil, aiken.ErrInvalid
+			}
+			grades[grade] = true
+			if d.Sections[i+2].Name != "list" {
+				return nil, aiken.ErrInvalid
+			}
+			items := d.Tokens[d.Sections[i+2].Start:d.Sections[i+2].End]
+			if len(items) != 2 || items[0].Kind != pvf.TokenInt || items[1].Kind != pvf.TokenInt || items[0].Int <= 0 || items[0].Int > math.MaxUint32 || items[1].Int <= 0 || items[1].Int > math.MaxUint32 {
+				return nil, aiken.ErrInvalid
+			}
+			if d.Sections[i+3].Name != "/list" || d.Sections[i+4].Name != "/material" || !empty(i+3) || !empty(i+4) {
+				return nil, aiken.ErrInvalid
+			}
+			row[grade] = aiken.MaterialCost{ItemID: items[0].Int, Count: items[1].Int}
+			i += 5
+		}
+		if !grades[0] || !grades[1] || !grades[2] || !grades[3] || i >= len(d.Sections) || d.Sections[i].Name != "/info" || !empty(i) {
+			return nil, aiken.ErrInvalid
+		}
+		costs[option] = row
+		i++
+	}
+	if e != nil || len(costs) != len(options) {
+		return nil, aiken.ErrInvalid
+	}
+	return costs, nil
 }

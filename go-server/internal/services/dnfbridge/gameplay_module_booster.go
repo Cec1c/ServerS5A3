@@ -150,6 +150,11 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 	if err := s.sendAlignedPremiumContractActivations(session, "use_booster_item", result.ContractActivations); err != nil {
 		return err
 	}
+	if definition.ItemUsage != nil {
+		if err := s.sendCurrentItemUsageForSession(session, "use_booster_item"); err != nil {
+			return err
+		}
+	}
 	s.logGameEvent(session, "game-current-booster-committed",
 		"source_slot", result.SourceSlot,
 		"source_item", result.SourceItemID,
@@ -219,12 +224,13 @@ func (s *Service) commitCurrentBooster(
 			}
 		}
 	}
-	now := time.Now().UTC()
+	now := s.gameplayNow()
 	result := currentBoosterCommitResult{
 		SourceItemID: definition.Source.ItemID,
 		SourceSlot:   request.SourceSlot,
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
+		ItemUsage:     definition.ItemUsage,
 		AccountLedger: len(pieceRewards) > 0 || len(contractRewards) > 0,
 		GoldCost:      definition.LotteryGoldCost,
 		AccountID:     accountID,

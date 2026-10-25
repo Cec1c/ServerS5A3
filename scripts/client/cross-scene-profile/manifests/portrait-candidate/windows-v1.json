@@ -1,0 +1,28 @@
+{
+  "baseSha256": "a751cccfe3fb9f7a3730393fdfb32d0546222b55a5a254fc4f2416f6869fbdf6",
+  "patches": [
+    {
+      "name": "portrait-only-registration-guard",
+      "site": "0x2965dbe",
+      "candidateAddress": "0x6ec0200",
+      "expected": "8b96f4040000",
+      "replacement": "e93da4550490",
+      "code": "817d040975960275150fb7462050e81dd5aafb83c4043bc60f85b25baafb8b96f4040000e99b5baafb",
+      "codeSha256": "9e2d02a94d56d6d851f4208ac65388087a178873f1d9016f6c0cab5baf143d81"
+    },
+    {
+      "name": "aux-portrait-draw",
+      "site": "0x25136ab",
+      "candidateAddress": "0x6ec0240",
+      "expected": "8b8ed4030000",
+      "replacement": "e990cb9a0490",
+      "code": "8b86d4030000506a006a01ff75e0ff75dcff75e8ff75e48bcf8b07ff5004e9743465fb",
+      "codeSha256": "3a3a697912b449f6186d0463c2c45f40be1277c76791570b00ea12be0060f3b6"
+    }
+  ],
+  "scope": "Aux MemberFace invokes the existing portrait virtual method with lazy build allowed. Only lazy builds called by 29674E0 require active-actor pointer equality before 2971210 scene registration. Other builder callers, self/remote exclusions and active MemberFace remain unchanged.",
+  "limitation": "Needs actual full appearance cache population, model allocation/destruction and full UI verification. Emulator addresses have no PE allocation guarantee. No clothing data is fabricated.",
+  "exeGenerated": false,
+  "deployed": false,
+  "guiAccepted": false
+}

@@ -66,14 +66,14 @@ build:
       TARGET_ARCH: [amd64]
   script:
   - sh scripts/check-server-boundary.sh
+  - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
   - sh build.sh "$TARGET_OS" "$TARGET_ARCH"
-  artifacts:
-    name: "dnf90-$TARGET_OS-$TARGET_ARCH-$CI_COMMIT_SHORT_SHA"
-    paths:
-    - dist/
-    expire_in: 7 days
+  # Pre-generate the unchanged dist/ ZIP and send a fixed-length multipart body.
+  # Runner's chunked streaming uploader repeatedly hit proxy HTTP 524 after builds.
+  - go run scripts/ci/artifacts/upload.go
 core-tests:
   stage: test
+  dependencies: []
   script:
   - sh scripts/check-server-boundary.sh
   - cd go-server
@@ -84,6 +84,7 @@ core-tests:
   - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
 channel-u8-tests:
   stage: test
+  dependencies: []
   image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
   cache: []
   script:

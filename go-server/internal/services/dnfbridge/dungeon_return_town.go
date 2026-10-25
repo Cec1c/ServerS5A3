@@ -51,8 +51,9 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 	selectedCharacterID := session.selectedCharacterID
 	session.dungeon.mu.Lock()
 	completedOrdinary := currentOrdinaryCompletedTownExitOwner(session, session.dungeon.runtime)
+	closedLukeEnergy := s.currentLukeClosedEnergyExitReady(session, session.dungeon.runtime)
 	session.dungeon.mu.Unlock()
-	if completedOrdinary {
+	if completedOrdinary || closedLukeEnergy {
 		// 通关结算界面与42共用奖励屏障及完整城镇重建。
 		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
 	}
@@ -145,6 +146,7 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		resetDungeonReturnSceneGates(session)
 		session.returnTownFinishLoadingAckOnly = true
 		session.confirmedDungeonReturnStatePending = true
+		session.selectorReturnPresence = s.captureCurrentSelectorReturnPresence(session, transition)
 		markBackToVillageEnterSelectPending(session)
 		s.logGameEvent(session, "game-dungeon-select-back-to-village-committed",
 			"char_id", session.selectedCharacterID,
@@ -477,6 +479,7 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 		}
 		runtime.townReturnOp24Sent = true
 		session.confirmedDungeonReturnStatePending = true
+		session.selectorReturnPresence = nil
 		markBackToVillageEnterSelectPending(session)
 	}
 	s.logGameEvent(session, "game-dungeon-back-to-village-pending",
@@ -709,6 +712,7 @@ func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 	runtime.townReturnPending = false
 	runtime.townReturnOp24Sent = false
 	runtime.townReturnRequestMsgID = 0
+	runtime.townReturnAckSent = false
 	runtime.townReturnSource = ""
 	runtime.townReturnTransition = currentDungeonTownTransition{}
 }
@@ -765,6 +769,10 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 			session,
 			source+"_resume_confirmed_return",
 		)
+	}
+	if runtime.townReturnSource == currentRaidTableReturnSource && !s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return fmt.Errorf("raid table return owner changed before town confirmation")
 	}
 	snapshot := runtime.Session.Snapshot()
 	deadlineOwner := runtime.raidDeadlineReturn
@@ -839,6 +847,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	resetDungeonReturnSceneGates(session)
 	session.returnTownFinishLoadingAckOnly = true
 	session.confirmedDungeonReturnStatePending = true
+	session.selectorReturnPresence = nil
 	townID := runtime.townReturnTransition.TownID
 	areaID := runtime.townReturnTransition.AreaID
 	session.dungeon.mu.Unlock()
@@ -878,7 +887,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 			"reason", "automatic_deadline_not_explicit_leader_leave")
 	} else {
 		s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
-		if committedStatus == worldmap.DungeonRunAbandoned && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) {
+		if committedStatus == worldmap.DungeonRunAbandoned && (runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnSource == currentRaidTableReturnSource) {
 			if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 				s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
 			}
@@ -923,9 +932,36 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 	}
 	session.dungeon.mu.Lock()
 	pending := session.confirmedDungeonReturnStatePending
+	selectorReturn := session.selectorReturnPresence
+	entryInstalled := session.dungeon.runtime != nil
 	session.dungeon.mu.Unlock()
-	if !pending {
+	if !pending && selectorReturn == nil {
 		return nil
+	}
+	// A different member can provisionally install our new run before the
+	// leader commits. Keep the old return retryable if that entry rolls back.
+	if selectorReturn != nil && entryInstalled {
+		return nil
+	}
+	if selectorReturn != nil && !s.currentSelectorReturnPresenceOwner(session, selectorReturn) {
+		session.dungeon.mu.Lock()
+		if session.selectorReturnPresence == selectorReturn {
+			session.selectorReturnPresence = nil
+			session.confirmedDungeonReturnStatePending = false
+		}
+		session.dungeon.mu.Unlock()
+		return nil
+	}
+	if !pending {
+		if !s.restoreCurrentSelectorReturnPresence(session, selectorReturn, source) {
+			return nil
+		}
+		session.dungeon.mu.Lock()
+		if session.selectorReturnPresence == selectorReturn {
+			session.selectorReturnPresence = nil
+		}
+		session.dungeon.mu.Unlock()
+		return s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_selector_presence_retry")
 	}
 
 	characterID := session.selectedCharacterID
@@ -977,6 +1013,16 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 		session.confirmedDungeonReturnStatePending = false
 	}
 	session.dungeon.mu.Unlock()
+	if selectorReturn != nil {
+		if !s.restoreCurrentSelectorReturnPresence(session, selectorReturn, source) {
+			return nil
+		}
+		session.dungeon.mu.Lock()
+		if session.selectorReturnPresence == selectorReturn {
+			session.selectorReturnPresence = nil
+		}
+		session.dungeon.mu.Unlock()
+	}
 	s.logGameEvent(session, "game-dungeon-back-to-village-player-state-rebuilt",
 		"source", source,
 		"char_id", characterID,
@@ -998,9 +1044,7 @@ func resetDungeonReturnSceneGates(session *gameSession) {
 	session.selectPreviewActorRemoved = false
 	session.preDungeonContextPlayerStateSent = false
 	session.deferredDungeonUserStateObjectKey = 0
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
 }
 
@@ -1014,6 +1058,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	}
 	session.dungeon.mu.Lock()
 	session.confirmedDungeonReturnStatePending = false
+	session.selectorReturnPresence = nil
 	session.dungeon.mu.Unlock()
 	session.townMu.Lock()
 	resetCurrentTownPostTransitionPlayerState(session)
@@ -1052,8 +1097,6 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.preDungeonContextPlayerStateSent = false
 	session.postStartMapPlayerStateSent = false
 	session.deferredDungeonUserStateObjectKey = 0
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
 }
