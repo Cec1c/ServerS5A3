@@ -81,7 +81,17 @@ func TestRealPVFLukeConsumableDispatchAcrossConfirmedReturnAndReentry(t *testing
 	if err := runtime.Session.CompleteCurrentRoom(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.handleDungeonBackToVillage(session, nil); err != nil {
+	// This synthetic room has no ordinary result/card settlement. Exercise the
+	// confirmed transport boundary, as in the completed-return transport test;
+	// the public 132 owner correctly waits for those independent barriers.
+	transition, err := service.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.dungeon.mu.Lock()
+	err = service.sendCurrentDungeonReturnToTownLocked(session, runtime, transition, uint16(dnfenum.CmdPacketBack2Village), "consumable_completed_transport_regression")
+	session.dungeon.mu.Unlock()
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := service.commitPendingDungeonReturnForSceneRequest(session, "consumable_transition_test"); err != nil {
