@@ -52,6 +52,7 @@ func TestCurrentAutoCompleteMainQuestLegacyRouteCommitsNoRewardAndSendsExactRead
 		channel:             channelcatalog.Channel{ID: 19},
 		selectedCharacterID: 17,
 	}
+	bindAutoCompleteMainTestSession(service, session)
 	if err := service.handleGameCommand(
 		session,
 		byte(dnfenum.GameCmdCommand),
@@ -99,6 +100,10 @@ func TestCurrentAutoCompleteMainQuestLegacyRouteCommitsNoRewardAndSendsExactRead
 		t.Fatalf("cutoff/committed body=%x", response.Body)
 	}
 
+	active, rest := splitGameServerUpperPacket(t, rest)
+	if active.Header.MsgID != currentActiveQuestSnapshotMsgID || active.Header.Classification != 0 {
+		t.Fatalf("active must precede completed: %+v", active.Header)
+	}
 	if len(rest) < 16 || rest[0] != 0 || binary.LittleEndian.Uint16(rest[1:3]) != currentClearQuestListMsgID {
 		t.Fatalf("completed-quest snapshot header=%x", rest[:minInt(len(rest), 16)])
 	}
@@ -113,11 +118,7 @@ func TestCurrentAutoCompleteMainQuestLegacyRouteCommitsNoRewardAndSendsExactRead
 	if clearBody[4+100] != 1 || clearBody[4+101] != 0 || clearBody[4+102] != 0 || clearBody[4+103] != 0 {
 		t.Fatalf("completed-quest flags 100=%d 101=%d 102=%d 103=%d", clearBody[4+100], clearBody[4+101], clearBody[4+102], clearBody[4+103])
 	}
-	active, acceptableWire := splitGameServerUpperPacket(t, rest[clearPacketLength:])
-	if active.Header.MsgID != currentActiveQuestSnapshotMsgID || active.Header.Classification != 0 {
-		t.Fatalf("active snapshot header=%+v body=%x", active.Header, active.Body)
-	}
-	acceptable, trailing := splitGameServerUpperPacket(t, acceptableWire)
+	acceptable, trailing := splitGameServerUpperPacket(t, rest[clearPacketLength:])
 	if acceptable.Header.MsgID != currentAcceptableQuestListMsgID || acceptable.Header.Classification != 0 || len(trailing) != 0 {
 		t.Fatalf("acceptable snapshot header=%+v trailing=%x", acceptable.Header, trailing)
 	}
@@ -175,6 +176,7 @@ func TestCurrentAutoCompleteMainQuestNonzeroSelectorCompletesOnlyExactQuest(t *t
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
 	}
 	session := &gameSession{conn: connection, selectedCharacterID: 17}
+	bindAutoCompleteMainTestSession(service, session)
 	if err := service.handleCurrentAutoCompleteMainQuest(session, []byte{100, 0, 0, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +214,7 @@ func TestCurrentAutoCompleteMainQuestZeroSelectorCompletesAllEligibleMainQuests(
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
 	}
 	session := &gameSession{conn: connection, selectedCharacterID: 17}
+	bindAutoCompleteMainTestSession(service, session)
 	if err := service.handleCurrentAutoCompleteMainQuest(session, []byte{0, 0, 0, 0}); err != nil {
 		t.Fatal(err)
 	}

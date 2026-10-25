@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -61,7 +62,7 @@ func buildCurrentAutoCompleteMainQuestResponse(
 }
 
 func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body []byte) error {
-	if session == nil || session.selectedCharacterID == 0 {
+	if session == nil || !session.loginPacketSeen || strings.TrimSpace(session.accountID) == "" {
 		return nil
 	}
 	if len(body) != currentAutoCompleteMainQuestRequestSize {
@@ -74,6 +75,16 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if !bound || identity.generation == 0 {
+		return nil
+	}
+	accountID := strings.TrimSpace(session.accountID)
+	reservation, err := s.reserveCurrentCharacterAssets(ctx, identity, accountID)
+	if err != nil {
+		return nil
+	}
+	defer s.releaseCurrentCharacterAssets(reservation)
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.CharacterSettlement == nil {
 		s.logGameEvent(session, "game-auto-complete-main-quest-blocked",
@@ -81,8 +92,9 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 			"reason", "character_settlement_transaction_unavailable")
 		return nil
 	}
-	_, _, character, found := s.selectedCharacterForEnter(ctx, session)
-	if !found || character.Level <= 1 {
+	characterID := strconv.Itoa(int(identity.character))
+	_, _, character, found := s.characterForEnter(ctx, session, identity.character)
+	if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) != accountID || character.Level <= 1 {
 		s.logGameEvent(session, "game-auto-complete-main-quest-blocked",
 			"request_selector", requestSelector,
 			"character_found", found,
@@ -114,16 +126,13 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 	if err != nil {
 		return err
 	}
-	characterID := character.CharacterID
-	if characterID == "" {
-		characterID = strconv.Itoa(int(session.selectedCharacterID))
-	}
 	targetQuestID := int64(requestSelector)
 	targetSource := "current_exe_nonzero_per_entry_selector"
 	if requestSelector == 0 {
 		targetSource = "zero_selector_requires_exactly_one_eligible_active_epic"
 	}
 	result, err := owner.ApplyAutoCompleteMain(ctx, catalog, dnfquest.AutoCompleteMainInput{
+		AccountID:   accountID,
 		CharacterID: characterID,
 		Eligibility: dnfquest.CharacterEligibility{
 			Level:    character.Level,
@@ -134,7 +143,14 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 		TargetQuestID: targetQuestID,
 		Scope:         s.questClearTicketScope(),
 		CompletedAt:   time.Now().UTC(),
+		Revalidate:    func() bool { return s.boundGameSessionCharacterCurrent(identity) },
 	})
+	// Binding writers may be waiting while holding scene locks. Finish the
+	// committed mutation before projection takes those locks or performs I/O.
+	s.releaseCurrentCharacterAssets(reservation)
+	if !s.boundGameSessionCharacterCurrent(identity) {
+		return nil
+	}
 	if err != nil {
 		if errors.Is(err, dnfquest.ErrAutoCompleteTargetAmbiguous) ||
 			errors.Is(err, dnfquest.ErrAutoCompleteTargetInvalid) {
@@ -186,7 +202,9 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 			"target_source", targetSource,
 			"cutoff_level", cutoffLevel,
 			"clear_scope", string(s.questClearTicketScope()),
-			"reason", "no_main_story_quest_at_or_below_cutoff_remains_incomplete",
+			"reason", "no_safely_completable_main_story_quest",
+			"blocked_question_ids", int64ListText(result.BlockedQuestionIDs),
+			"damaged_question_ids", int64ListText(result.DamagedQuestionIDs),
 			"quest_mutation", "none",
 			"msg_id", uint16(dnfenum.CmdPacketClearQuestTicket),
 			"classification", dnfproto.DefaultChannelClassification,
@@ -219,6 +237,8 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 		"changed_linked_sub_count", len(result.ChangedLinkedSubIDs),
 		"changed_linked_sub_ids", int64ListText(result.ChangedLinkedSubIDs),
 		"active_completed_count", result.ActiveCompletedCount,
+		"blocked_question_ids", int64ListText(result.BlockedQuestionIDs),
+		"damaged_question_ids", int64ListText(result.DamagedQuestionIDs),
 		"highest_completed_quest", result.HighestCompletedQuest,
 		"idempotent", result.Idempotent,
 		"reward_granted", false,
@@ -235,21 +255,6 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 	); err != nil {
 		return err
 	}
-	if err := s.sendCurrentClearQuestListFromCommittedQuest(
-		session,
-		result.PostCommitQuest,
-		"current_exe_op1429_after_atomic_no_reward_main_quest_completion",
-	); err != nil {
-		return err
-	}
-	if err := s.sendCurrentActiveQuestSnapshotForSession(
-		session,
-		"current_exe_op1429_after_completed_quest_bitmap",
-	); err != nil {
-		return err
-	}
-	return s.sendCurrentAcceptableQuestListOnlyForSession(
-		session,
-		"current_exe_op1429_after_active_quest_snapshot",
-	)
+	return s.sendCommittedStorySweepSnapshots(session, result.PostCommitCharacter, result.PostCommitQuest,
+		append(append([]int64(nil), result.ChangedQuestIDs...), result.ChangedLinkedSubIDs...), "quest_manual")
 }

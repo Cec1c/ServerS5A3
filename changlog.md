@@ -1,3 +1,7 @@
+## 2026-10-26 — UDP候选扇出回归等待完整统计
+
+- 两候选扇出用例等待陈旧备忘与自报端口各自完成计数并产生日志后再取快照，修正首个候选日志抢先唤醒造成的偶发失败；保留每项恰好一次、候选日志与两端实际数据报断言，不修改生产中继逻辑。
+
 ## 2026-10-26 — 守护神精气投入和技能培养
 
 - 接通原生1350的AP/GP投入及五技能逐级升级，读取真实成长费用、校验星级解锁与建设权限；余额、成长和永久回执同事务保存，成功后1297刷新。
@@ -18,6 +22,17 @@
 - 接通两类商人的真实 PVF 商品购买和逐级升级；精气、背包/等级及永久回执同事务提交，固定每日到期时间，失败回包解除等待，重试不重复扣费或发放。
 - 持久等级投影到 778/1297 与同会刷新；匹配 V174 客户端恢复升级两项接收门控并初始化发送前缀，保留原累计功能。
 - 覆盖 20 间真实商店、132 种商品和 137 次购买，协议、原生发送/消费、并发及隔离 SQL 回滚；方案与发布依赖见 Docs/seeker/GUILD_WAR_MERCHANTS.md。
+
+## 2026-10-25 — 任务手册两条入口的账号与角色绑定
+
+- 旧1429及当前1427预检/1454提交共同核对账号、角色代际和资产预约；事务中复核等级、职业与成长阶段，并在同一事务校验写入和返回提交快照。提交完成后先释放预约再刷新界面，过期会话不修改任务或发送旧角色结果。补充两入口等待后换代拒绝、预约释放及事务校验回滚测试。
+- 独立候选验证另行记录，尚待游戏验收。
+
+## 2026-10-24 — Preserve story choices and ticket continuation
+
+- Share predecessor, mutually exclusive route and explicit Question checks across level-up tickets and quest manuals. Preserve damaged historical choices instead of inventing an answer.
+- Persist versioned continuation authorization in the existing character transaction; resume after normal Question completion without another coupon or duplicate rewards. Preserve map gates and committed-state packet projection.
+- Add domain, bridge, resource and disposable-SQL regression coverage. No schema or client changes; see Docs/LEVEL_UP_TICKET_STORY_CHOICES.md for acceptance and rollback boundaries.
 
 ## 2026-10-25 — Semgrep受限Runner原生运行兼容
 
