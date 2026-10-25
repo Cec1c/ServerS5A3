@@ -437,9 +437,7 @@ func (s *Service) handleCurrentPrevVillage(session *gameSession, requestBody []b
 	session.initialTownRouteStage = currentInitialTownRouteIdle
 	session.initialTownLocationNotificationsSent = false
 	session.initialTownQuestSnapshotsSent = false
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.initialTownLegacySceneReadyAccepted = false
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false

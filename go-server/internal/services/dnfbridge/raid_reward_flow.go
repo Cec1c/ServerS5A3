@@ -35,6 +35,7 @@ type currentAntonRewardFlow struct {
 	Squad              map[uint16]*currentAntonRewardCard
 	Weekly             raid.WeeklyClearCommand
 	AutoSelectAt       time.Time
+	PartySelectAfter   map[uint16]time.Time
 	SquadShownAt       time.Time
 	FinishedAt         time.Time
 	BreakUntil         time.Time
@@ -68,7 +69,38 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 		return out
 	}
 	v.Party, v.Squad = clone(f.Party), clone(f.Squad)
+	if f.PartySelectAfter != nil {
+		v.PartySelectAfter = make(map[uint16]time.Time, len(f.PartySelectAfter))
+		for id, at := range f.PartySelectAfter {
+			v.PartySelectAfter[id] = at
+		}
+	}
 	return &v
+}
+
+// A displayed final Luke/FiendWar party page can close locally without sending
+// 660. Give each owner a bounded choice window after their actual display, while
+// retaining the original unattended deadline for absent or still-loading peers.
+// Twenty seconds is server policy, not a claimed MOVIE END TIME field meaning.
+const currentRaidDisplayedPartyChoiceWindow = 20 * time.Second
+
+func (s *Service) markCurrentRaidPartySelectionShownLocked(instance string, phase byte, character uint16, at time.Time) {
+	f := s.antonRewardFlows[currentAntonFlowKey(instance, phase)]
+	if f == nil || at.IsZero() || !(f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single) {
+		return
+	}
+	for _, owner := range f.Recipients {
+		if owner.CharacterID != character {
+			continue
+		}
+		if f.PartySelectAfter == nil {
+			f.PartySelectAfter = make(map[uint16]time.Time)
+		}
+		if _, exists := f.PartySelectAfter[character]; !exists {
+			f.PartySelectAfter[character] = at.Add(currentRaidDisplayedPartyChoiceWindow)
+		}
+		return
+	}
 }
 
 func currentAntonFlowKey(instance string, phase byte) string {
@@ -271,7 +303,11 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			}
 			for _, owner := range owners {
 				s.raidMu.Lock()
-				if kind == 1 && now.Before(f.AutoSelectAt) {
+				selectAt := f.AutoSelectAt
+				if (f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single) && !f.PartySelectAfter[owner.CharacterID].IsZero() {
+					selectAt = f.PartySelectAfter[owner.CharacterID]
+				}
+				if kind == 1 && now.Before(selectAt) {
 					s.raidMu.Unlock()
 					continue
 				}
@@ -338,7 +374,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		for _, seconds := range f.Configuration.MovieEndSeconds {
 			movie = max(movie, seconds)
 		}
-		if all && !now.Before(f.SquadShownAt.Add(time.Duration(movie)*time.Second)) {
+		if all && (currentLukePhase0PartyOnlyRewardSettled(f) || !now.Before(f.SquadShownAt.Add(time.Duration(movie)*time.Second))) {
 			f.FinishedAt = now
 			if f.Mode != 3 && !f.Single && f.Phase == 0 {
 				f.BreakUntil = now.Add(time.Duration(f.Configuration.PhaseBreakSeconds) * time.Second)

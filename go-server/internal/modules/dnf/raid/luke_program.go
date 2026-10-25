@@ -423,6 +423,28 @@ func (s *LukeProgression) HasEnteredRun(run string, id uint32) bool {
 	return s != nil && run != "" && id != 0 && s.enteredRuns[run] == id
 }
 
+// RetireClosedEnergyRun releases an obsolete locally completed energy scene
+// without crediting a global clear or evaluating give-up/map-state triggers.
+// The bridge owns proof of local completion and final participant departure.
+func (s *LukeProgression) RetireClosedEnergyRun(run string, id uint32, epoch uint64) (*LukeProgression, error) {
+	if s == nil || !s.IsLuke() || s.Phase() != 1 || s.Epoch() != epoch || run == "" || (id != 5063 && id != 5066) {
+		return nil, fmt.Errorf("Luke energy retirement identity unavailable")
+	}
+	if s.abandonedRuns[run] == id {
+		return s.Clone(), nil
+	}
+	if !s.HasEnteredRun(run, id) {
+		return nil, fmt.Errorf("Luke energy retirement has no owned entry")
+	}
+	n := s.Clone()
+	delete(n.enteredRuns, run)
+	if n.abandonedRuns == nil {
+		n.abandonedRuns = map[string]uint32{}
+	}
+	n.abandonedRuns[run] = id
+	return n, nil
+}
+
 // The bridge must supply only maps from its authenticated, committed runtime.
 // The compiler accepts only the two explicit ON ENTER MAP directives, avoiding
 // a client-supplied symbol mutation API.

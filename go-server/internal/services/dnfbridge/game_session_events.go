@@ -87,6 +87,12 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 			if !ok || task.run == nil {
 				return eventloop.Result{Err: errInvalidGameSessionEvent}
 			}
+			if session.loginRevoked.Load() && task.source != "game-session-shutdown" {
+				if task.async {
+					return eventloop.Result{}
+				}
+				return eventloop.Result{Err: errLoginReplaced}
+			}
 			if task.async {
 				if !events.active.Load() {
 					return eventloop.Result{}
@@ -156,6 +162,9 @@ func (s *Service) callGameSession(
 	if session == nil {
 		return errInvalidGameSessionEvent
 	}
+	if session.loginRevoked.Load() && source != "game-session-shutdown" {
+		return errLoginReplaced
+	}
 	if session.events == nil || session.events.loop == nil {
 		return run()
 	}
@@ -193,6 +202,9 @@ func (s *Service) postGameSessionCharacterEvent(
 	}
 	if session == nil {
 		return errInvalidGameSessionEvent
+	}
+	if session.loginRevoked.Load() && source != "game-session-shutdown" {
+		return errLoginReplaced
 	}
 	if session.events == nil || session.events.loop == nil {
 		return run()
@@ -248,6 +260,25 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 	stopErr := s.stopGameSessionEvents(ctx, session)
 	if !cleanupCompleted.Load() && stopErr == nil {
 		cleanupErr = errors.Join(cleanupErr, cleanup())
+	}
+	if stopErr == nil && cleanupCompleted.Load() {
+		s.accountLogins.finished(session)
+	}
+	if stopErr != nil && s.accountLogins.tracked(session) {
+		// An in-flight transaction may outlive the transport's bounded wait.
+		// Complete logout after the owner stops, then admit the new launch.
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			if err := s.stopGameSessionEvents(context.Background(), session); err != nil {
+				return
+			}
+			if !cleanupCompleted.Load() {
+				_ = cleanup()
+			}
+			s.accountLogins.finished(session)
+			s.logInfo("dnfbridge deferred session cleanup completed", "conn_id", session.connID)
+		}()
 	}
 	if cleanupErr != nil || stopErr != nil {
 		s.logGameEvent(session, "game-session-events-shutdown-failed",

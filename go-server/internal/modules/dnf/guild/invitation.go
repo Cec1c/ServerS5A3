@@ -35,8 +35,8 @@ func (r *Registry) CheckInvitation(guildID uint32, inviter dnfrepo.GuildOwner, t
 }
 
 // AcceptInvitation requires verified live consent and both owners locked by
-// the caller. It deliberately does not model departure cooldowns or a fee:
-// neither is established by the invitation wire contract alone.
+// the caller. JoinDirect enforces the character's persisted departure deadline;
+// the invitation itself does not introduce a fee or a different admission path.
 func (r *Registry) AcceptInvitation(guildID uint32, inviter dnfrepo.GuildOwner, target dnfrepo.CharacterRecord, now time.Time) (*Guild, error) {
 	g, err := r.CheckInvitation(guildID, inviter, target)
 	if err != nil {

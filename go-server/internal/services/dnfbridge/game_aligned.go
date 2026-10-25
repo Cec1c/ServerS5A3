@@ -608,6 +608,8 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		// op44/op251 的可用性判据改读运行时 PVF（为零 = 回到库存元数据判据，
 		// 解析器装载失败时这里就是 nil 并已记事件）。见 stackable_use_provenance_pvf.go。
 		StackableUseProvenanceResolver: s.alignedStackableUseProvenanceResolverForCommand(dnfenum.CmdPacket(typ)),
+		ItemUsageResolver:              s.alignedItemUsageResolverForCommand(dnfenum.CmdPacket(typ)),
+		ItemUsageNow:                   s.gameplayNow(),
 		DamageFontResolver:             damageFontResolver,
 		DamageFontNow:                  s.gameplayNow(),
 		RepairCostResolver:             repairCostResolver,
@@ -956,6 +958,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
+	}
+	if result.ItemUsageChanged {
+		if err := s.sendCurrentItemUsageForSession(session, "aligned_"+result.Operation); err != nil {
+			return err
+		}
 	}
 	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
 	postActionsDeferred := false

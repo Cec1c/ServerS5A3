@@ -24,8 +24,9 @@ var (
 //   - 合法输入必定产出一件物品；PVF 第三列的历史概率不再作为失败依据。
 //   - 守护珠恰好放入 4 颗同 ID 时，升为同族下一品级；其余合法输入从下一品级
 //     中随机产出。
-//   - 勋章从下一品级中随机产出。
-//   - 输入材料必须同品级且与请求品级一致，产出使用下一档，不允许混档输入。
+//   - 勋章从下一品级中随机产出；2026-10-23 确认两件传说勋章随机产出一件传说勋章。
+//   - 2026-10-23 确认恰好两颗神器守护珠随机产出一颗神器守护珠。
+//   - 输入材料必须同品级且与请求品级一致；除上述两个顶档特例外产出使用下一档。
 //
 // 本文件只负责配方和件数。第三列仍按原表读取，供旧数据核对；事务层不再用它
 // 决定成败。扣料及产物选择由合成事务层执行。
@@ -141,6 +142,31 @@ func (c CompoundCatalog) Ladder(kind CompoundKind) CompoundLadder {
 		return c.flag
 	}
 	return c.gem
+}
+
+// ResultRarity resolves the operation's output grade without changing the raw
+// PVF recipe or NextRarity's upward-only contract. Only the verified terminal
+// rows for artifact gems (grade 3) and legendary medals (grade 6), both max 2 /
+// rate 0, support a two-to-one same-grade result. Other terminal rows stay closed.
+func (c CompoundCatalog) ResultRarity(kind CompoundKind, rarity, count uint32) (uint32, bool) {
+	if kind != CompoundGem && kind != CompoundFlag {
+		return 0, false
+	}
+	ladder := c.Ladder(kind)
+	recipe, found := ladder.Recipe(rarity)
+	if !found {
+		return 0, false
+	}
+	verifiedTopGrade := kind == CompoundFlag && rarity == 6 || kind == CompoundGem && rarity == 3
+	if verifiedTopGrade && count == 2 &&
+		recipe.MaxMaterialCount == 2 && recipe.RatePerMaterial == 0 &&
+		len(ladder.rows) > 0 && ladder.rows[len(ladder.rows)-1].Rarity == rarity {
+		return rarity, true
+	}
+	if !recipe.AcceptsMaterialCount(count) {
+		return 0, false
+	}
+	return ladder.NextRarity(rarity)
 }
 
 // LoadCompoundCatalog 从 etc/guilddungeoncompound.etc 读取两条配方阶梯。

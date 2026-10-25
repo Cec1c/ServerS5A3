@@ -426,11 +426,12 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), mode1Body, 0); err != nil {
 		return err
 	}
-	// Full mode1 recreates the selected actor's equipped creature. Its dynamic
-	// enchant card is applied only by the existing same-template slot26 op14
-	// path, so restore that durable state after creation in this lifecycle too.
+	// Full mode1 recreates the equipped creature. Publish metadata for this
+	// generation before slot26 resolves its serial; the previous scene's sent
+	// flag cannot suppress the table needed by the new notification.
 	if repositories, ok := s.repositoryGroup(); ok && repositories.Equipment != nil {
-		if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_after_dungeon_mode1"); err != nil {
+		session.selectedCreatureStateTableSent = false
+		if err := s.sendSelectedCreatureInitialProjection(session, source+"_after_dungeon_mode1"); err != nil {
 			return err
 		}
 	}
