@@ -44,6 +44,8 @@ var (
 )
 
 type Registry struct {
+	Ranking          *RankingState                     `json:"ranking,omitempty"`
+	GuardianReceipts map[string]GuardianReceipt        `json:"guardian_receipts,omitempty"`
 	DungeonPolicy    *DungeonPolicy                    `json:"dungeon_policy,omitempty"`
 	Version          int                               `json:"version"`
 	NextID           uint32                            `json:"next_id"`
@@ -58,6 +60,9 @@ type Registry struct {
 }
 
 type Guild struct {
+	RankingActivity    *RankingActivity      `json:"ranking_activity,omitempty"`
+	Guardians          *GuardianState        `json:"guardians,omitempty"`
+	Essence            EssenceBalance        `json:"essence,omitempty"`
 	Dungeon            *DungeonProgress      `json:"dungeon,omitempty"`
 	ID                 uint32                `json:"id"`
 	Name               string                `json:"name"`
@@ -115,7 +120,8 @@ type Member struct {
 	// process loss retains the last durable observation, not an invented crash
 	// time. The bridge encodes elapsed seconds for offline rows and projects
 	// online status separately from the current canonical session/channel.
-	LastOnlineAt time.Time `json:"last_online_at,omitempty"`
+	LastOnlineAt    time.Time        `json:"last_online_at,omitempty"`
+	RankingPresence *RankingPresence `json:"ranking_presence,omitempty"`
 }
 
 type Application struct {
@@ -631,6 +637,9 @@ func validateRegistry(r Registry) error {
 	if err := validateDepartures(r); err != nil {
 		return err
 	}
+	if err := validateGuardianReceipts(r); err != nil {
+		return err
+	}
 	if err := validateBenefits(r); err != nil {
 		return err
 	}
@@ -655,6 +664,9 @@ func validateRegistry(r Registry) error {
 			return ErrInvalidRegistry
 		}
 		if err := ValidateCargo(g.Cargo); err != nil {
+			return err
+		}
+		if err := g.Guardians.Validate(); err != nil {
 			return err
 		}
 		name := strings.ToLower(strings.TrimSpace(g.Name))

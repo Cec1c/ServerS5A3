@@ -4,6 +4,7 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildRankingOpcode:                           (*Service).handleCurrentGuildRanking,
 		currentGuildHongbaoListOpcode:                       (*Service).handleCurrentGuildHongbaoList,
 		currentGuildHongbaoPointsOpcode:                     (*Service).handleCurrentGuildHongbaoPoints,
 		currentGuildMarkOpcode:                              (*Service).handleCurrentGuildMark,
@@ -85,6 +86,8 @@ func guildGameplayModule() gameplayModuleDefinition {
 		upper[opcode] = defaultClassGameplayHandler("game-guild-class-rejected", "command_class_mismatch", run)
 	}
 	upper[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
+	upper[currentGuildGuardianOpcode] = (*Service).handleCurrentGuildGuardian
+	legacy[currentGuildGuardianOpcode] = (*Service).handleCurrentGuildGuardian
 	for _, op := range []uint16{247, 248, 249} {
 		upper[op] = (*Service).handleCurrentGuildCargoTransfer
 		legacy[op] = (*Service).handleCurrentGuildCargoTransfer

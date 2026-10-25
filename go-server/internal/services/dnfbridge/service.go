@@ -45,8 +45,12 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	guildRankingMu        sync.Mutex
+	guildRankingCatalogMu sync.Mutex
+	guildRankingRules     *dnfguild.RankingRules
 	guildDungeonCatalogMu sync.Mutex
 	guildDungeonCatalog   *dnfguild.DungeonCatalog
+	guildEssenceCatalog   *dnfguild.EssenceCatalog // guarded by guildDungeonCatalogMu
 	guildCreateMu         sync.Mutex
 	guildTeleportMu       sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
@@ -434,6 +438,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.Join(err, closeErr)
 	}
 	s.startGameplayTimeQueue(runCtx)
+	s.startCurrentGuildRankingSampler(runCtx)
 	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)

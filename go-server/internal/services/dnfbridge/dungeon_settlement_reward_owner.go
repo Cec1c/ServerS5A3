@@ -12,6 +12,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 	"longheng.io/server/internal/modules/dnf/experiencebuff"
+	"longheng.io/server/internal/modules/dnf/guild"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -609,7 +610,31 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	if runtime.guildDungeonClear != nil {
 		completionKey = runtime.guildDungeonClear.Entry.CompletionKey()
 	}
+	rankingClear, err := s.currentGuildRankingClear(session, runtime)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	var essence *guild.EssenceCatalog
+	var essenceCurrent func() bool
+	if s.options.guildEssenceEnabled && (runtime.guildDungeonClear != nil || currentDungeonIsRecommendedClear(runtime)) {
+		identity, bound := s.boundGameSessionCharacterSnapshot(session)
+		if !bound {
+			return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
+		}
+		release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{identity})
+		if err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+		defer release()
+		essence, err = s.currentGuildEssenceCatalog()
+		if err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+		essenceCurrent = func() bool { return s.boundGameSessionCharacterCurrent(identity) }
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		GuildEssence: essence, GuildEssenceRevalidate: essenceCurrent,
+		GuildRanking:            rankingClear,
 		GuildDungeon:            runtime.guildDungeonClear,
 		DespairClearedFloor:     despairFloor,
 		GriefClearedFloor:       griefFloor,
@@ -635,6 +660,11 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if essence != nil {
+		if err := s.projectCurrentGuildEssenceIncome(session, result.GuildEssence, result.Replayed); err != nil {
+			s.logGameEvent(session, "game-guild-essence-projection-deferred", "error", err)
+		}
+	}
 	if result.GuildMileage.GuildID != 0 {
 		s.refreshCurrentDungeonGuildMileage(session, result.GuildMileage.GuildID)
 	}
