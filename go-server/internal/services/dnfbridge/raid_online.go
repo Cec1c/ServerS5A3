@@ -98,9 +98,9 @@ func (s *Service) leaveRuntimePartyForRaidExit(session *gameSession) (runtimePar
 			"reason", "session_party_id_does_not_match_current_manager_generation")
 		return runtimePartyRaidExitProjection{}, nil
 	}
-	result := manager.Leave(identity.character, identity.generation)
+	result := manager.LeaveExpected(identity.character, identity.generation, before.ID)
 	if !result.OK {
-		if result.Reason == "stale_session" || result.Reason == "not_in_party" {
+		if result.Reason == "stale_session" || result.Reason == "not_in_party" || result.Reason == "stale_party" {
 			return runtimePartyRaidExitProjection{}, nil
 		}
 		return runtimePartyRaidExitProjection{}, fmt.Errorf("leave runtime party on raid exit: %s", result.Reason)
@@ -432,16 +432,23 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 	if err := s.sendGameUpperRawClassCodec(session, typ, raid.BuildLeaveRaidResultBody(forcedExit), dnfproto.DefaultChannelClassification, true); err != nil {
 		errs = append(errs, err)
 	}
-	partyExit, partyErr := s.leaveRuntimePartyForRaidExit(session)
-	if partyErr != nil {
-		errs = append(errs, partyErr)
-	}
-	if partyExit.changed {
+	if s.options.currentClientVersion != "official-24.9" {
+		storeRuntimePartyState(session, alignedcmd.PartyState{})
 		if err := s.sendRuntimePartyMemberRemoved(session, sourceID, alignedcmd.PartyState{}); err != nil {
 			errs = append(errs, err)
 		}
-		if err := s.broadcastRuntimePartyRaidExit(partyExit, sourceID, session); err != nil {
-			errs = append(errs, err)
+	} else {
+		partyExit, partyErr := s.leaveRuntimePartyForRaidExit(session)
+		if partyErr != nil {
+			errs = append(errs, partyErr)
+		}
+		if partyExit.changed {
+			if err := s.sendRuntimePartyMemberRemoved(session, sourceID, alignedcmd.PartyState{}); err != nil {
+				errs = append(errs, err)
+			}
+			if err := s.broadcastRuntimePartyRaidExit(partyExit, sourceID, session); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	if wasAntonWaiting {

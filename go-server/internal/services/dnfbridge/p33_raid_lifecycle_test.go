@@ -252,7 +252,7 @@ func TestP33Op665SyncsMatchingPartyContinuesAfterNotifyFailureAndPreservesReward
 	}
 
 	s.raidMu.Lock()
-	live := s.raids[raid.RaidKey]
+	live = s.raids[raid.RaidKey]
 	if live == nil || live.Battle == nil {
 		s.raidMu.Unlock()
 		t.Fatal("P33 raid disappeared after member leave")
