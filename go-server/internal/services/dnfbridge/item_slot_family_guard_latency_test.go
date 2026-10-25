@@ -34,7 +34,8 @@ func TestItemSlotFamilyGuardAvoidsSilentDiagnosticRead(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(itemSlotFamilyGuardEnv, tc.mode)
-			s, session, _, _, _, repos := newItemSlotFamilyGuardFixture(t)
+			s, session, _, logger, _, repos := newItemSlotFamilyGuardFixture(t)
+			t.Cleanup(func() { _ = logger.Close() })
 			if !tc.logging {
 				s.packetLog = nil
 			}
