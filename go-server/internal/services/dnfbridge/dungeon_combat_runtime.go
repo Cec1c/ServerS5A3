@@ -729,6 +729,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			deathDrops, err = s.planCurrentRiftBossDrops(session, runtime, scene)
 		} else {
 			deathDrops, err = s.planPartyDungeonMonsterDrops(session, runtime, rewardMonster, playerObjectKey)
+			if err == nil && s.currentEpicRoadLootEnabled(runtime.Dungeon.ID) && bossActorDeath && scene.Boss {
+				var epicDrops []currentDungeonDeathDropWire
+				epicDrops, err = s.planCurrentRiftBossDrops(session, runtime, scene)
+				deathDrops = append(deathDrops, epicDrops...)
+			}
 		}
 		if err != nil {
 			reason := "runtime_pvf_csharp_formula_drop_plan_failed_zero_drop_fallback"

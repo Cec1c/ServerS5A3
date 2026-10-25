@@ -464,6 +464,16 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		// rank probability.
 		for attempt := 0; attempt < fixedDropAttempts; attempt++ {
 			for _, entry := range dimensionPool {
+				if amount, specified := currentDimensionMaterialAmount(dimensionTier, monsterType, entry.ItemID); specified {
+					if attempt == 0 && amount > 0 {
+						if _, err := dropCatalog.ResolveItem(entry.ItemID); err != nil {
+							return nil, err
+						}
+						selectedDrops = append(selectedDrops, plannedDrop{itemID: entry.ItemID, amount: amount})
+						selectedSpecialDimensionItems = append(selectedSpecialDimensionItems, entry.ItemID)
+					}
+					continue
+				}
 				if err := appendSelected(entry.ItemID); err != nil {
 					return nil, err
 				}
