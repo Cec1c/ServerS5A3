@@ -32,6 +32,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	GuildContribution      *GuildContributionClear
 	GuildRanking           *guild.RankingPartyClear
 	GuildEssence           *guild.EssenceCatalog
 	GuildEssenceRevalidate func() bool
@@ -60,6 +61,7 @@ type SettlementCommand struct {
 }
 
 type SettlementResult struct {
+	GuildContribution guild.ContributionIncome
 	GuildRanking      guild.RankingClearResult
 	GuildEssence      guild.EssenceIncome
 	GuildDungeon      guild.DungeonClearResult
@@ -112,7 +114,15 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 	}
 	wantHash := sha256.Sum256([]byte(cmd.CompletionKey))
 	now := updatedAtOrNow(cmd.UpdatedAt)
-	useGuildSettlement := cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil || cmd.GuildRanking != nil || cmd.GuildEssence != nil
+	if c := cmd.GuildContribution; c != nil {
+		if c.Contract == nil || c.Revalidate == nil || c.Activity.CompletionKey != cmd.CompletionKey ||
+			(c.Activity.Event == guild.ContributionPartyClear && !cmd.GuildOrdinaryClear) ||
+			(c.Activity.Event == guild.ContributionGuildClear && cmd.GuildDungeon == nil) ||
+			(c.Activity.Event != guild.ContributionPartyClear && c.Activity.Event != guild.ContributionGuildClear) {
+			return SettlementResult{}, ErrSettlementStateInvalid
+		}
+	}
+	useGuildSettlement := cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil || cmd.GuildRanking != nil || cmd.GuildEssence != nil || cmd.GuildContribution != nil
 
 	var result SettlementResult
 	within := func(apply func(dnfrepo.Group) error) error {
@@ -128,6 +138,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 	}
 	err := within(func(tx dnfrepo.Group) error {
+		if cmd.GuildContribution != nil && !cmd.GuildContribution.Revalidate() {
+			return ErrSettlementStateInvalid
+		}
 		if cmd.GuildEssence != nil && !cmd.GuildEssenceRevalidate() {
 			return ErrSettlementStateInvalid
 		}
@@ -367,6 +380,13 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 		}
+		var contribution guild.ContributionIncome
+		if c := cmd.GuildContribution; c != nil {
+			contribution, err = guild.ApplyContribution(ctx, tx, &character, &inventory, c.Contract, c.Activity, now)
+			if err != nil {
+				return err
+			}
+		}
 		character.UpdatedAt = now
 		skill.Points = planned.SkillPoints.New
 		skill.UpdatedAt = now
@@ -412,8 +432,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		result = SettlementResult{
-			GuildEssence: essence,
-			GuildDungeon: guildClear, GuildDungeonItems: guildItems,
+			GuildContribution: contribution,
+			GuildEssence:      essence,
+			GuildDungeon:      guildClear, GuildDungeonItems: guildItems,
 			DespairItems: despairItems,
 			GriefItems:   griefItems,
 			LuckyStar:    lucky,
@@ -444,6 +465,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		if cmd.GuildEssence != nil && !cmd.GuildEssenceRevalidate() {
+			return ErrSettlementStateInvalid
+		}
+		if cmd.GuildContribution != nil && !cmd.GuildContribution.Revalidate() {
 			return ErrSettlementStateInvalid
 		}
 		return nil

@@ -616,7 +616,12 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	}
 	var essence *guild.EssenceCatalog
 	var essenceCurrent func() bool
-	if s.options.guildEssenceEnabled && (runtime.guildDungeonClear != nil || currentDungeonIsRecommendedClear(runtime)) {
+	contribution, err := s.currentGuildContributionClear(session, runtime, completionKey)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	wantEssence := s.options.guildEssenceEnabled && (runtime.guildDungeonClear != nil || currentDungeonIsRecommendedClear(runtime))
+	if wantEssence || contribution != nil {
 		identity, bound := s.boundGameSessionCharacterSnapshot(session)
 		if !bound {
 			return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
@@ -626,14 +631,17 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 			return currentDungeonSettlementCommitResult{}, err
 		}
 		defer release()
-		essence, err = s.currentGuildEssenceCatalog()
-		if err != nil {
-			return currentDungeonSettlementCommitResult{}, err
+		if wantEssence {
+			essence, err = s.currentGuildEssenceCatalog()
+			if err != nil {
+				return currentDungeonSettlementCommitResult{}, err
+			}
 		}
 		essenceCurrent = func() bool { return s.boundGameSessionCharacterCurrent(identity) }
 	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
-		GuildEssence: essence, GuildEssenceRevalidate: essenceCurrent,
+		GuildContribution: contribution,
+		GuildEssence:      essence, GuildEssenceRevalidate: essenceCurrent,
 		GuildRanking:            rankingClear,
 		GuildDungeon:            runtime.guildDungeonClear,
 		DespairClearedFloor:     despairFloor,
@@ -660,6 +668,11 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if contribution != nil {
+		if err := s.projectCurrentGuildContribution(session, result.GuildContribution); err != nil {
+			s.logGameEvent(session, "game-guild-contribution-clear-projection-deferred", "error", err)
+		}
+	}
 	if essence != nil {
 		if err := s.projectCurrentGuildEssenceIncome(session, result.GuildEssence, result.Replayed); err != nil {
 			s.logGameEvent(session, "game-guild-essence-projection-deferred", "error", err)

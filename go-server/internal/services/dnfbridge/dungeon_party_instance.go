@@ -114,6 +114,7 @@ type partyDungeonDoorArrivalKey struct {
 // 见 dungeon_party_card_flip_projection.go。
 type dungeonPartyInstance struct {
 	guildRankingRun           *currentGuildRankingRun
+	guildContributionRun      *currentGuildContributionRun
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 
