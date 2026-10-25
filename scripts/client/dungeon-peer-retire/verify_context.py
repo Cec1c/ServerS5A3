@@ -41,6 +41,8 @@ class FullClear(Harness):
         self.scene = scene
         self.channel = channel
         super().__init__(artifact)
+        for address in (0x2526B50, 0x2964680):
+            self.put(address, b"\xcc")
         self.namespace_owner = channel
         self.put(0x296E590, artifact.original.read(0x296E590, 0x42))
         self.put(0x201782A, artifact.original.read(0x201782A, 0x49))
