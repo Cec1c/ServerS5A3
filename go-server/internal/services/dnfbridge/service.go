@@ -52,6 +52,7 @@ type Service struct {
 	guildDungeonCatalog      *dnfguild.DungeonCatalog
 	guildEssenceCatalog      *dnfguild.EssenceCatalog      // guarded by guildDungeonCatalogMu
 	guildContributionCatalog *dnfguild.ContributionCatalog // guarded by guildDungeonCatalogMu
+	guildHongbaoCatalog      *dnfguild.HongbaoCatalog      // guarded by guildDungeonCatalogMu
 	guildCreateMu            sync.Mutex
 	guildTeleportMu          sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
@@ -440,6 +441,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.startGameplayTimeQueue(runCtx)
 	s.startCurrentGuildRankingSampler(runCtx)
+	s.startCurrentGuildHongbaoSettlement(runCtx)
 	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)

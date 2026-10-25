@@ -8,6 +8,7 @@ func guildGameplayModule() gameplayModuleDefinition {
 		currentGuildRankingOpcode:                           (*Service).handleCurrentGuildRanking,
 		currentGuildHongbaoListOpcode:                       (*Service).handleCurrentGuildHongbaoList,
 		currentGuildHongbaoPointsOpcode:                     (*Service).handleCurrentGuildHongbaoPoints,
+		currentGuildHongbaoHistoryOpcode:                    (*Service).handleCurrentGuildHongbaoHistory,
 		currentGuildMarkOpcode:                              (*Service).handleCurrentGuildMark,
 		currentGuildAuraOpcode:                              (*Service).handleCurrentGuildAura,
 		currentGuildCargoOpcode:                             (*Service).handleCurrentGuildCargo,
@@ -64,7 +65,7 @@ func guildGameplayModule() gameplayModuleDefinition {
 				return s.sendVendorGuildMemberListState(session, "guild_unselected")
 			}
 			if _, err := s.currentGuildOwnedSelectedCharacter(session); err != nil {
-				if opcode == currentGuildHongbaoListOpcode || opcode == currentGuildHongbaoPointsOpcode {
+				if opcode == currentGuildHongbaoListOpcode || opcode == currentGuildHongbaoPointsOpcode || opcode == currentGuildHongbaoHistoryOpcode {
 					return s.sendCurrentGuildHongbaoFailure(session, opcode)
 				}
 				if opcode == currentGuildCargoOpcode || opcode == currentGuildCargoHistoryOpcode {
@@ -88,6 +89,10 @@ func guildGameplayModule() gameplayModuleDefinition {
 	}
 	upper[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
 	upper[currentGuildGuardianOpcode] = (*Service).handleCurrentGuildGuardian
+	upper[currentGuildHongbaoIssueOpcode] = (*Service).handleCurrentGuildHongbaoIssue
+	legacy[currentGuildHongbaoIssueOpcode] = (*Service).handleCurrentGuildHongbaoIssue
+	upper[currentGuildHongbaoClaimOpcode] = (*Service).handleCurrentGuildHongbaoClaim
+	legacy[currentGuildHongbaoClaimOpcode] = (*Service).handleCurrentGuildHongbaoClaim
 	legacy[currentGuildGuardianOpcode] = (*Service).handleCurrentGuildGuardian
 	for _, op := range []uint16{247, 248, 249} {
 		upper[op] = (*Service).handleCurrentGuildCargoTransfer

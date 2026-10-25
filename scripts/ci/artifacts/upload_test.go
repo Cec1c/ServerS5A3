@@ -18,6 +18,73 @@ import (
 
 func noPause(context.Context, time.Duration) error { return nil }
 
+func TestArtifactNameIdentifiesEveryMatrixComponent(t *testing.T) {
+	for _, goos := range []string{"linux", "windows"} {
+		for _, part := range []string{"server", "control", "doctor"} {
+			got, err := artifactName(goos, "amd64", "1234abcd", part)
+			if err != nil || got != "dnf90-"+goos+"-amd64-"+part+"-1234abcd.zip" {
+				t.Fatal(got, err)
+			}
+		}
+	}
+	if _, err := artifactName("linux", "amd64", "1234abcd", "../server"); err == nil {
+		t.Fatal("accepted component path")
+	}
+	if got, err := artifactName("linux", "amd64", "1234abcd", ""); err != nil || got != "dnf90-linux-amd64-1234abcd.zip" {
+		t.Fatal("legacy name", got, err)
+	}
+}
+
+func TestTransportFailureDoesNotExposeRawError(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{nil, "none"}, {context.DeadlineExceeded, "timeout"}, {io.EOF, "eof"},
+		{io.ErrUnexpectedEOF, "unexpected_eof"},
+		{errors.New("secret endpoint: connection reset by peer"), "connection_reset_by_peer"},
+		{errors.New("secret endpoint: malformed HTTP response"), "malformed_http_response"},
+		{errors.New("secret-token"), "other"},
+	} {
+		if got := transportFailure(tc.err); got != tc.want {
+			t.Fatalf("got %q want %q", got, tc.want)
+		}
+	}
+}
+
+func TestCountedBodyReportsBytesRead(t *testing.T) {
+	body := &countedBody{reader: strings.NewReader("diagnostic fixture")}
+	b, err := io.ReadAll(body)
+	if err != nil || string(b) != "diagnostic fixture" || body.read.Load() != int64(len(b)) {
+		t.Fatalf("read=%d bytes=%d error=%v", body.read.Load(), len(b), err)
+	}
+}
+
+func TestArtifactClientUsesHTTP1WhenServerOffersHTTP2(t *testing.T) {
+	f, _ := archiveFixture(t)
+	protocol := 0
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol = r.ProtoMajor
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+	client := artifactClient()
+	transport := client.Transport.(*http.Transport)
+	// Preserve the client's ALPN list, as a real proxy does. Replacing the whole
+	// TLS config would hide inherited h2 negotiation from DefaultTransport.Clone.
+	transport.TLSClientConfig.RootCAs = srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+	defer transport.CloseIdleConnections()
+	if err := upload(context.Background(), client, srv.URL, "fixture-token", "build.zip", f, noPause); err != nil {
+		t.Fatal(err)
+	}
+	if protocol != 1 {
+		t.Fatalf("artifact upload negotiated HTTP/%d, want HTTP/1", protocol)
+	}
+}
+
 func archiveFixture(t *testing.T) (*os.File, []byte) {
 	t.Helper()
 	root := t.TempDir()

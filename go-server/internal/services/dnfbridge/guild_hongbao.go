@@ -13,6 +13,9 @@ const currentGuildHongbaoListOpcode uint16 = 1300
 const currentGuildHongbaoPointsOpcode uint16 = 1301
 
 func (s *Service) handleCurrentGuildHongbaoList(session *gameSession, body []byte) error {
+	if s.options.guildHongbaoEnabled {
+		return s.handleCurrentGuildHongbaoLiveQuery(session, currentGuildHongbaoListOpcode, body)
+	}
 	return s.handleCurrentGuildHongbaoQuery(session, currentGuildHongbaoListOpcode, body)
 }
 
@@ -21,7 +24,10 @@ func (s *Service) handleCurrentGuildHongbaoPoints(session *gameSession, body []b
 }
 
 func (s *Service) sendCurrentGuildHongbaoFailure(session *gameSession, op uint16) error {
-	// Both callbacks consume an additional u32 after the normal failure header.
+	if op == currentGuildHongbaoIssueOpcode || op == currentGuildHongbaoClaimOpcode {
+		return s.sendGameUpperFailure(session, op, 34)
+	}
+	// Query callbacks consume an additional u32 after the normal failure header.
 	return s.sendGameUpperRawClass(session, op, []byte{0, 34, 34, 0, 0, 0}, 1)
 }
 
