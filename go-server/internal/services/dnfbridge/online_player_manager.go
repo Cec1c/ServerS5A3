@@ -491,6 +491,18 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
 	}
+	// A presence row can still refer to an auxiliary transport after the
+	// character directory has selected its resident connection. Build the actor
+	// and its HP update from that same current identity, before sending mode0.
+	var actorIdentity boundGameSessionCharacter
+	if partyFrame && s.options.currentClientVersion == "official-24.9" {
+		var current bool
+		actorIdentity, current = s.onlineGameSessionCharacterSnapshot(actor.CharacterID)
+		if !current || actorIdentity.session == nil || !s.boundGameSessionCharacterCurrent(actorIdentity) {
+			return fmt.Errorf("remote town actor has no current session: actor=%d", actor.CharacterID)
+		}
+		actor.Session = actorIdentity.session
+	}
 	targetCharacterID := target.selectedCharacterID
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -587,6 +599,9 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	)
 	if target.selectedCharacterID != targetCharacterID || actor.Session.selectedCharacterID != charID {
 		return fmt.Errorf("remote town actor selection changed during construction: actor=%d receiver=%d", charID, targetCharacterID)
+	}
+	if actorIdentity.session != nil && !s.boundGameSessionCharacterCurrent(actorIdentity) {
+		return fmt.Errorf("remote town actor session changed during construction: actor=%d", charID)
 	}
 	if partyFrame {
 		if err := projectCurrentTownPartyHPIntoMode0(mode0Body, s.currentTownPartyRealtimeBody(target, actor.Session), charID); err != nil {

@@ -39,3 +39,16 @@ func TestP05AuxiliaryPresenceUsesCanonicalActorProjection(t *testing.T) {
 		}
 	}
 }
+
+func TestP05MissingCanonicalActorDoesNotSendPartialRebuild(t *testing.T) {
+	f := newTownPartyActorHPFixture(t, true)
+	f.service.mu.Lock()
+	delete(f.service.gameSessions, f.actor.selectedCharacterID)
+	f.service.mu.Unlock()
+	if err := f.service.sendTownRemoteActorState(f.target, f.actorInfo, "p05-missing-current"); err == nil {
+		t.Fatal("missing current actor session accepted")
+	}
+	if frames := p05Frames(t, f.service, f.target); len(frames) != 0 {
+		t.Fatalf("missing current actor emitted partial rebuild: %v", frameIDs(frames))
+	}
+}
