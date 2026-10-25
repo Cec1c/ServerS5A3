@@ -8,18 +8,33 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
+	"sync/atomic"
 	"time"
 )
+
+type countedBody struct {
+	reader io.Reader
+	read   atomic.Int64
+}
+
+func (r *countedBody) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.read.Add(int64(n))
+	return n, err
+}
 
 func archiveDist(root string, dst io.Writer) error {
 	w := zip.NewWriter(dst)
@@ -83,6 +98,45 @@ func endpoint(api, job string) (string, error) {
 	return u.String(), nil
 }
 
+func artifactClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Keep fixed-length artifacts on HTTP/1.1: the affected upload route accepts
+	// the HTTP/2 request body but times out before returning an artifact receipt.
+	transport.Protocols = new(http.Protocols)
+	transport.Protocols.SetHTTP1(true)
+	// Clone initializes DefaultTransport's HTTP/2 support and copies its ALPN
+	// list. Protocols alone does not remove the inherited "h2" advertisement.
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	transport.ForceAttemptHTTP2 = false
+	return &http.Client{Transport: transport, Timeout: 150 * time.Second}
+}
+
+// Classify transport failures without logging endpoints, headers or raw errors.
+func transportFailure(err error) string {
+	if err == nil {
+		return "none"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, io.EOF) {
+		return "eof"
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return "unexpected_eof"
+	}
+	s := strings.ToLower(err.Error())
+	for _, kind := range []string{"connection reset by peer", "broken pipe", "malformed http response", "http: server gave http response to https client", "tls:", "timeout", "connection refused"} {
+		if strings.Contains(s, kind) {
+			return strings.ReplaceAll(kind, " ", "_")
+		}
+	}
+	return "other"
+}
+
 func upload(ctx context.Context, client *http.Client, target, token, name string, archive *os.File, pause func(context.Context, time.Duration) error) error {
 	if token == "" {
 		return errors.New("CI_JOB_TOKEN is required")
@@ -107,8 +161,20 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 	boundedClient := *client
 	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	for attempt := 1; attempt <= 3; attempt++ {
-		body := io.MultiReader(bytes.NewReader(head), io.NewSectionReader(archive, 0, stat.Size()), bytes.NewReader(tail))
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
+		body := &countedBody{reader: io.MultiReader(bytes.NewReader(head), io.NewSectionReader(archive, 0, stat.Size()), bytes.NewReader(tail))}
+		var wroteRequest atomic.Bool
+		var wroteAfter atomic.Int64
+		var alpn atomic.Value
+		alpn.Store("none")
+		started := time.Now()
+		trace := &httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) {
+				wroteRequest.Store(info.Err == nil)
+				wroteAfter.Store(time.Since(started).Milliseconds())
+			},
+			TLSHandshakeDone: func(state tls.ConnectionState, _ error) { alpn.Store(state.NegotiatedProtocol) },
+		}
+		req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodPost, target, body)
 		if err != nil {
 			return errors.New("cannot create artifact upload request")
 		}
@@ -117,12 +183,16 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 		req.Header.Set("JOB-TOKEN", token)
 		resp, sendErr := boundedClient.Do(req)
 		code := 0
+		protocol := "none"
 		if resp != nil {
 			code = resp.StatusCode
+			protocol = resp.Proto
 			// Never log response bodies or raw transport errors: they may contain secrets.
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 			_ = resp.Body.Close()
 		}
+		fmt.Printf("Artifact transfer: attempt=%d elapsed=%.3fs request_read=%d/%d wrote_request=%t wrote_after_ms=%d alpn=%q protocol=%s HTTP=%d failure=%s\n",
+			attempt, time.Since(started).Seconds(), body.read.Load(), contentLength, wroteRequest.Load(), wroteAfter.Load(), alpn.Load(), protocol, code, transportFailure(sendErr))
 		if sendErr == nil && code == http.StatusCreated {
 			fmt.Printf("Artifact upload completed: HTTP 201, %d archive bytes\n", stat.Size())
 			return nil
@@ -139,14 +209,28 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 	return errors.New("artifact upload exhausted retries")
 }
 
+func artifactName(goos, arch, commit, component string) (string, error) {
+	if component != "" && component != "server" && component != "control" && component != "doctor" {
+		return "", errors.New("invalid artifact component")
+	}
+	if component != "" {
+		component = "-" + component
+	}
+	name := "dnf90-" + goos + "-" + arch + component + "-" + commit + ".zip"
+	if !regexp.MustCompile(`^dnf90-(linux|windows)-amd64(-(server|control|doctor))?-[a-f0-9]{7,40}\.zip$`).MatchString(name) {
+		return "", errors.New("invalid artifact target or commit identity")
+	}
+	return name, nil
+}
+
 func run() error {
 	target, err := endpoint(os.Getenv("CI_API_V4_URL"), os.Getenv("CI_JOB_ID"))
 	if err != nil {
 		return err
 	}
-	name := "dnf90-" + os.Getenv("TARGET_OS") + "-" + os.Getenv("TARGET_ARCH") + "-" + os.Getenv("CI_COMMIT_SHORT_SHA") + ".zip"
-	if !regexp.MustCompile(`^dnf90-(linux|windows)-amd64-[a-f0-9]{7,40}\.zip$`).MatchString(name) {
-		return errors.New("invalid artifact target or commit identity")
+	name, err := artifactName(os.Getenv("TARGET_OS"), os.Getenv("TARGET_ARCH"), os.Getenv("CI_COMMIT_SHORT_SHA"), os.Getenv("TARGET_COMPONENT"))
+	if err != nil {
+		return err
 	}
 	f, err := os.CreateTemp("", "dnf90-ci-artifacts-*.zip")
 	if err != nil {
@@ -175,7 +259,7 @@ func run() error {
 			return nil
 		}
 	}
-	return upload(ctx, &http.Client{Timeout: 150 * time.Second}, target, os.Getenv("CI_JOB_TOKEN"), name, f, pause)
+	return upload(ctx, artifactClient(), target, os.Getenv("CI_JOB_TOKEN"), name, f, pause)
 }
 
 func main() {
