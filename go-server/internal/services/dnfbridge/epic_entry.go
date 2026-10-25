@@ -16,17 +16,80 @@ import (
 )
 
 type currentEpicEntry struct {
-	characterID  uint16
-	generation   uint64
-	rawAccountID string
-	command      dnfdungeon.EpicEntryCommand
+	characterID       uint16
+	generation        uint64
+	rawAccountID      string
+	command           dnfdungeon.EpicEntryCommand
+	accountDailyLimit int64
 }
 
 func (s *Service) currentEpicEntryEnabled(id int64) bool {
 	_, ok := dnfdungeon.EpicEntryTicketCount(id)
-	return s != nil && s.options.currentClientVersion == "official-24.9" && ok
+	return s != nil && s.options.currentClientVersion == "official-24.9" && (ok || id == dnfdungeon.SilentForestDungeonID)
+}
+
+func (s *Service) currentEpicEntryAlternatives(ctx context.Context, dungeonID int64) ([][]dnfdungeon.EntryItemRequirement, error) {
+	catalog, err := s.currentEpicCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var alternatives [][]dnfdungeon.EntryItemRequirement
+	for _, row := range catalog.EntryAlternatives[dungeonID] {
+		var items []dnfdungeon.EntryItemRequirement
+		for _, item := range row {
+			items = append(items, dnfdungeon.EntryItemRequirement{ItemID: item.ItemID, Count: item.Count, ConsumeOnEntry: true})
+		}
+		alternatives = append(alternatives, items)
+	}
+	if len(alternatives) == 0 {
+		return nil, dnfdungeon.ErrEntryItemConsumeInvalid
+	}
+	return alternatives, nil
+}
+
+func (s *Service) validateCurrentEpicEntryItems(ctx context.Context, character dnfrepo.CharacterRecord, dungeon worldmap.Dungeon, session *gameSession) error {
+	if dungeon.ID == dnfdungeon.SilentForestDungeonID {
+		return s.validateCurrentSilentForestEntry(ctx, character, dungeon, session)
+	}
+	if err := validateCurrentEpicEntryContract(dungeon); err != nil {
+		return err
+	}
+	alternatives, err := s.currentEpicEntryAlternatives(ctx, dungeon.ID)
+	if err != nil {
+		return err
+	}
+	repos, ok := s.repositoryGroup()
+	if !ok || repos.Inventory == nil {
+		return dnfdungeon.ErrOwnerUnavailable
+	}
+	bag, found, err := repos.Inventory.Load(ctx, character.CharacterID)
+	if err != nil {
+		return err
+	}
+	if !found || bag.CharacterID != character.CharacterID {
+		return dnfdungeon.ErrEntryItemConsumeInsufficient
+	}
+	if _, err = dnfdungeon.EpicEntryItems(bag, alternatives, s.gameplayNow()); err != nil {
+		return err
+	}
+	// Retain the established Epic Road FP1 admission policy; the DGN start-only
+	// fatigue tag is not part of this ticket-priority change.
+	fatigue, known := dnfdungeon.CharacterStat(character.Stats, "fatigue", "fp", "疲劳")
+	return dnfdungeon.ValidateEntry(dnfdungeon.EntryPolicy{
+		CharacterLevel: character.Level, MinimumLevel: dungeon.Metadata.MinimumRequiredLevel.Value,
+		MinimumLevelSet: dungeon.Metadata.MinimumRequiredLevel.Set, PartyCount: currentDungeonPartyCount(session),
+		PartyLimit: dungeon.Metadata.LimitPartyCount.Value, PartyLimitSet: dungeon.Metadata.LimitPartyCount.Set,
+		NoFatigue: dungeon.Metadata.NoFatigue, EnterWithoutFatigue: dungeon.Metadata.Flags["enter without fatigue"],
+		Fatigue: fatigue, FatigueKnown: known,
+	})
 }
 func validateCurrentEpicEntryContract(d worldmap.Dungeon) error {
+	if d.ID == dnfdungeon.SilentForestDungeonID {
+		if !d.Metadata.MinimumRequiredLevel.Set || d.Metadata.MinimumRequiredLevel.Value != 17 || !d.Metadata.NoFatigue || len(d.Metadata.RequiredItems) != 0 {
+			return fmt.Errorf("%w: silent forest PVF entry contract", dnfdungeon.ErrEntryItemConsumeInvalid)
+		}
+		return nil
+	}
 	count, ok := dnfdungeon.EpicEntryTicketCount(d.ID)
 	if !ok || !d.Metadata.MinimumRequiredLevel.Set || d.Metadata.MinimumRequiredLevel.Value != 85 || d.Metadata.NoFatigue || len(d.Metadata.RequiredItems) != 1 {
 		return fmt.Errorf("%w: epic PVF entry contract", dnfdungeon.ErrEntryItemConsumeInvalid)
@@ -44,6 +107,19 @@ func (s *Service) freezeCurrentEpicEntry(session *gameSession, runtime *runtimeD
 	if err := validateCurrentEpicEntryContract(runtime.Dungeon); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	var alternatives [][]dnfdungeon.EntryItemRequirement
+	var accountDailyLimit int64
+	var err error
+	if runtime.Dungeon.ID == dnfdungeon.SilentForestDungeonID {
+		accountDailyLimit, err = s.currentSilentForestEntryLimit()
+	} else {
+		alternatives, err = s.currentEpicEntryAlternatives(ctx, runtime.Dungeon.ID)
+	}
+	if err != nil {
+		return err
+	}
 	nonce, err := cryptorand.Int(cryptorand.Reader, big.NewInt(math.MaxInt64))
 	if err != nil {
 		return err
@@ -52,7 +128,7 @@ func (s *Service) freezeCurrentEpicEntry(session *gameSession, runtime *runtimeD
 		return dnfdungeon.ErrEntryItemConsumeInvalid
 	}
 	var campaign *onlineevent.EpicCampaign
-	if s.currentEpicBenefitsEnabled() {
+	if s.currentEpicBenefitsEnabled() && runtime.Dungeon.ID != dnfdungeon.SilentForestDungeonID {
 		c, e := s.currentEpicCampaignForEntry(session, runtime)
 		if e != nil {
 			return e
@@ -64,7 +140,8 @@ func (s *Service) freezeCurrentEpicEntry(session *gameSession, runtime *runtimeD
 	if strconv.Itoa(int(session.selectedCharacterID)) != runtime.Character.CharacterID || runtime.Character.AccountID != runtime.AccountID || s.gameSessions[session.selectedCharacterID] != session {
 		return errDungeonAccountMismatch
 	}
-	runtime.epicEntry = &currentEpicEntry{characterID: session.selectedCharacterID, generation: session.characterGeneration, rawAccountID: strings.TrimSpace(session.accountID), command: dnfdungeon.EpicEntryCommand{CharacterID: runtime.Character.CharacterID, AccountID: runtime.AccountID, DungeonID: runtime.Dungeon.ID, ExpectedSequence: runtime.Character.Stats[dnfdungeon.EpicEntrySequenceKey], Nonce: nonce.Int64(), Campaign: campaign}}
+	runtime.epicEntry = &currentEpicEntry{characterID: session.selectedCharacterID, generation: session.characterGeneration, rawAccountID: strings.TrimSpace(session.accountID), command: dnfdungeon.EpicEntryCommand{CharacterID: runtime.Character.CharacterID, AccountID: runtime.AccountID, DungeonID: runtime.Dungeon.ID, ExpectedSequence: runtime.Character.Stats[dnfdungeon.EpicEntrySequenceKey], Nonce: nonce.Int64(), Campaign: campaign, Alternatives: alternatives}}
+	runtime.epicEntry.accountDailyLimit = accountDailyLimit
 	return nil
 }
 
@@ -140,7 +217,11 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		if err = cmd.Validate(); err != nil {
 			return err
 		}
-		result, err = owner.ConsumeEpicEntry(ctx, cmd)
+		if cmd.DungeonID == dnfdungeon.SilentForestDungeonID {
+			result, err = owner.ConsumeSilentForestEntry(ctx, cmd, entry.accountDailyLimit)
+		} else {
+			result, err = owner.ConsumeEpicEntry(ctx, cmd)
+		}
 		if err != nil {
 			return err
 		}
@@ -150,6 +231,8 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		old = session.dungeon.runtime
 		session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
 		runtime.lifecycleToken = session.dungeon.runToken
+		runtime.ridableReportChannelID = session.channel.ID
+		runtime.ridableReportChannelType = session.channel.Type
 		runtime.Character = result.Character
 		if runtime.fatigueRooms == nil {
 			runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)
@@ -169,6 +252,7 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		s.releasePartyDungeonInstance(old, entry.characterID, "epic_runtime_replaced_after_admission")
 	}
 	s.adoptPartyDungeonInstance(session, runtime, scene)
+	attachCurrentSemesterPartyMember(session, runtime)
 	var refreshes []alignedcmd.ItemSlotRefresh
 	for _, c := range result.Consumed {
 		for _, slot := range c.Slots {
