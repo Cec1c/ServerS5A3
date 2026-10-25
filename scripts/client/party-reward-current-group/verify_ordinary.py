@@ -5,7 +5,7 @@ restore only the three original vtable entries in synthetic memory. All native
 function windows and candidate helpers execute bytes from the supplied images.
 """
 from pathlib import Path
-import argparse,hashlib,json,struct,sys
+import argparse,hashlib,importlib.util,json,struct,sys
 sys.dont_write_bytecode=True
 if not __debug__:raise RuntimeError('assertions required')
 
@@ -21,7 +21,8 @@ def main():
     import verify_direct_input as direct
     import verify_completion as completion
     import verify_callback as callback
-    import build_candidate as builder
+    spec=importlib.util.spec_from_file_location('current_group_builder',Path(__file__).with_name('build_candidate.py'))
+    builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
     receipt=json.loads((args.build_dir/'build-receipt.json').read_text(encoding='utf8'))
     candidate=args.build_dir/'DNF-v169-p33-route2-group.exe'
     base=args.input_exe.read_bytes();new=candidate.read_bytes()
