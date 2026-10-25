@@ -52,13 +52,22 @@ func TestCurrentUIPlayerMarkerScope(t *testing.T) {
 // through the actual bridge/owner entry and commit three rapid cycles, without
 // manually resolving a quiet queue. Unmarked traffic is covered by old tests.
 func TestCurrentUIPlayerQuickArmorCyclesCommitWithoutQuietOrMirror(t *testing.T) {
+	testCurrentUIPlayerQuickEquipmentCycles(t, 16, loginWearAnchorArmorItemID16)
+}
+
+func TestCurrentUIPlayerQuickTitleCyclesCommitWithoutOtherEquipment(t *testing.T) {
+	testCurrentUIPlayerQuickEquipmentCycles(t, 13, 400330094)
+}
+
+func testCurrentUIPlayerQuickEquipmentCycles(t *testing.T, slot int16, itemID int64) {
+	t.Helper()
 	setDefaultTier(t)
 	t.Setenv(op19PlayerFlagEnv, "")
 	t.Setenv(op19PlayerFlagQuietEnv, "")
 	t.Setenv(wornSlotClaimRetryTierEnv, "")
 	t.Setenv(mirrorReequipEchoSwitchEnv, "")
 	t.Setenv(mirrorReequipEchoWindowEnv, "")
-	f := newLoginWearAnchorFixture(t, "1", 1, map[int16]int64{16: loginWearAnchorArmorItemID16})
+	f := newLoginWearAnchorFixture(t, "1", 1, map[int16]int64{slot: itemID})
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
 		t.Skip("set DNFBRIDGE_REAL_PVF_SMOKE for real current UI owner quick-cycle regression")
@@ -74,18 +83,33 @@ func TestCurrentUIPlayerQuickArmorCyclesCommitWithoutQuietOrMirror(t *testing.T)
 	f.service.initialEquipmentArchive = archive
 	f.service.pvfItemCatalog = catalog
 	f.service.options.currentClientVersion = "official-24.9"
+	definition, err := catalog.ResolveItem(uint32(itemID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worn, found, err := f.group.Equipment.Load(context.Background(), "1")
+	if err != nil || !found {
+		t.Fatal(found, err)
+	}
+	entry := worn.Entries[strconv.Itoa(int(slot))]
+	entry.Extra["pvf_path"] = definition.PVFPath
+	entry.Extra["equipment_type"] = definition.EquipmentType
+	worn.Entries[strconv.Itoa(int(slot))] = entry
+	if err := f.group.Equipment.Save(context.Background(), worn); err != nil {
+		t.Fatal(err)
+	}
 	var logs bytes.Buffer
 	f.service.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	f.session.equipLoginWearWindowOpenedAt = f.service.gameplayNow().Add(-9 * time.Second)
 	defer f.service.stopAvatarAppearanceCoalesce(f.session, "test-complete")
-	remove := flaggedBody(t, loginWearBridgeBody(0, 15, 0, currentSocketListEquipment, 16, int32(loginWearAnchorArmorItemID16)), op19CurrentUIPlayerFlag)
-	putBack := flaggedBody(t, loginWearBridgeBody(0, 15, int32(loginWearAnchorArmorItemID16), currentSocketListEquipment, 16, 0), op19CurrentUIPlayerFlag)
+	remove := flaggedBody(t, loginWearBridgeBody(0, 15, 0, currentSocketListEquipment, slot, int32(itemID)), op19CurrentUIPlayerFlag)
+	putBack := flaggedBody(t, loginWearBridgeBody(0, 15, int32(itemID), currentSocketListEquipment, slot, 0), op19CurrentUIPlayerFlag)
 	for cycle := 0; cycle < 3; cycle++ {
 		for _, step := range []struct {
 			body []byte
 			worn int64
 			bag  int
-		}{{remove, 0, 1}, {putBack, loginWearAnchorArmorItemID16, 0}} {
+		}{{remove, 0, 1}, {putBack, itemID, 0}} {
 			handled, err := f.service.handleAlignedGameCommand(f.session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketMoveItemspace), step.body)
 			if err != nil || !handled {
 				t.Fatalf("cycle %d handled=%t err=%v", cycle, handled, err)
@@ -93,7 +117,7 @@ func TestCurrentUIPlayerQuickArmorCyclesCommitWithoutQuietOrMirror(t *testing.T)
 			if f.session.hasOp19QuietPending() {
 				t.Fatal("reliably identified current UI actions must commit immediately")
 			}
-			if got := f.wornItemID(t, 16); got != step.worn {
+			if got := f.wornItemID(t, slot); got != step.worn {
 				t.Fatalf("cycle %d worn=%d want=%d logs=%s", cycle, got, step.worn, logs.String())
 			}
 			record, ok, err := f.group.Inventory.Load(context.Background(), "1")
@@ -102,7 +126,7 @@ func TestCurrentUIPlayerQuickArmorCyclesCommitWithoutQuietOrMirror(t *testing.T)
 			}
 			count := 0
 			for _, item := range record.Slots {
-				if item.ItemID == loginWearAnchorArmorItemID16 {
+				if item.ItemID == itemID {
 					count++
 				}
 			}

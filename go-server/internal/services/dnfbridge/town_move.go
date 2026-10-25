@@ -507,7 +507,7 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 	// lose its own leader/member binding. Replay only the authoritative op9
 	// roster after the new-area actors have been installed. The op11 endpoint
 	// exchange belongs to party formation and must not be repeated here.
-	partyStateAfterTownMove := runtimePartyStateSnapshot(session)
+	partyStateAfterTownMove := s.townCopresenceActorPartyState(session)
 	if partyStateAfterTownMove.PartyID > 0 {
 		if err := s.sendTownRemotePartyActors(session, partyStateAfterTownMove); err != nil {
 			return err
@@ -524,7 +524,7 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 				!containsRuntimePartyMember(runtimePartyMembers(partyStateAfterTownMove), newAreaOthers[i].CharacterID) {
 				continue
 			}
-			peerState := runtimePartyStateSnapshot(peer)
+			peerState := s.townCopresenceActorPartyState(peer)
 			if peerState.PartyID != partyStateAfterTownMove.PartyID {
 				continue
 			}
