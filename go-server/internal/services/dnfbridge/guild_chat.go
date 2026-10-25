@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"longheng.io/server/internal/modules/dnf/guild"
 )
 
 const currentGuildChatType byte = 6
@@ -96,6 +97,10 @@ func (s *Service) handleCurrentGuildChat(session *gameSession, op uint16, reques
 		}
 		recipients = append(recipients, identity.session)
 	}
+	income, contributionErr := s.grantCurrentGuildContributionReserved(ctx, session, source, guild.ContributionChat)
+	if contributionErr != nil {
+		s.logGameEvent(session, "game-guild-contribution-chat-deferred", "error", contributionErr)
+	}
 	if err := s.sendGameUpperSuccess(session, op, nil); err != nil {
 		return err
 	}
@@ -111,5 +116,10 @@ func (s *Service) handleCurrentGuildChat(session *gameSession, op uint16, reques
 	}
 	s.logGameEvent(session, "game-guild-chat-forwarded", "guild_id", current.ID,
 		"source_char_id", source.character, "message_len", len(request.Message), "recipients", len(recipients))
+	if contributionErr == nil {
+		if err := s.projectCurrentGuildContribution(session, income); err != nil {
+			s.logGameEvent(session, "game-guild-contribution-chat-projection-deferred", "error", err)
+		}
+	}
 	return nil
 }

@@ -57,6 +57,11 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			character.Stats = make(map[string]int64)
 		}
 		changed := false
+		if projected.Stats["town_id"] == 98 && character.Stats["town_id"] != 98 {
+			if err := s.currentSaveRaidReturnOrigin(characterID, &character); err != nil {
+				return err
+			}
+		}
 		if projected.Stats["town_id"] == 10 && character.Stats["town_id"] != 10 {
 			if err := s.currentSavePVPReturnOrigin(characterID, &character); err != nil {
 				return err

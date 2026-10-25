@@ -29,9 +29,9 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	if session == nil {
 		return nil
 	}
-	stateNeeded := !session.currentFinishLoadingStateSent
-	followupsNeeded := !session.currentFinishLoadingCompletionSent ||
-		!session.postFinishLoadingPlayerStateSent
+	gates := session.finishLoadingGateSnapshot()
+	stateNeeded := !gates.State
+	followupsNeeded := !gates.Completion || !gates.PostFinish
 	if !stateNeeded && !followupsNeeded {
 		return nil
 	}
@@ -42,13 +42,13 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		}
 		// Commit this gate as soon as the state packet is on the wire. A later
 		// op30/post-state failure must not replay the absolute op37 snapshot.
-		session.currentFinishLoadingStateSent = true
+		session.setFinishLoadingGateState(true)
 	}
-	if !session.currentFinishLoadingCompletionSent {
+	if !gates.Completion {
 		if err := s.sendCurrentIncreaseStatusResult(session, source); err != nil {
 			return err
 		}
-		session.currentFinishLoadingCompletionSent = true
+		session.setFinishLoadingGateCompletion(true)
 	}
 	if err := s.sendCurrentPostFinishLoadingPlayerState(session, source+"_after_finish_loading_state"); err != nil {
 		return err
@@ -181,7 +181,11 @@ func buildCurrentIncreaseStatusResultBody() []byte {
 }
 
 func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, source string) error {
-	if session == nil || session.postFinishLoadingPlayerStateSent {
+	if session == nil {
+		return nil
+	}
+	if session.finishLoadingGateSnapshot().PostFinish {
+
 		return nil
 	}
 	initialTownFinalized := currentInitialTownPlayerStateFinalized(session)
@@ -207,13 +211,13 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRequestBlacklist), placementBody, 0); err != nil {
 			return err
 		}
-		session.postFinishLoadingPlayerStateSent = true
+		session.setFinishLoadingGatePostFinish(true)
 		return nil
 	}
 	s.logGameEvent(session, "game-main-post-finish-loading-player-state-send",
 		"source", source,
 		"char_id", session.selectedCharacterID,
-		"sequence", "op19_final_actor_skills_op120_current_hpmp_then_deferred_tutorial_op3",
+		"sequence", "技能页按入图准备状态同步、op120、待决教程op3",
 		"state_source", "pre_op27_mode0_and_post_op29_mode1_already_initialized_the_local_actor")
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -226,7 +230,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 			"reason", "selected_character_record_missing")
 		return nil
 	}
-	if err := s.sendCurrentSceneSkillInfo(session, ctx, character, source+"_final_actor_skills"); err != nil {
+	if err := s.sendCurrentFinishLoadingSkillInfo(session, ctx, character, source+"_final_actor_skills"); err != nil {
 		return err
 	}
 	// mode3 is the full personal-information/equipment snapshot and is not part
@@ -268,7 +272,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		}
 		session.deferredDungeonUserStateObjectKey = 0
 	}
-	session.postFinishLoadingPlayerStateSent = true
+	session.setFinishLoadingGatePostFinish(true)
 	return nil
 }
 

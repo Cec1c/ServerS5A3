@@ -11,6 +11,31 @@ import (
 )
 
 func (s *Service) updateCurrentCharacterFatigue(ctx context.Context, session *gameSession, debit bool) (dnfrepo.CharacterRecord, error) {
+	var applyDebit func(*dnfrepo.CharacterRecord) error
+	if debit {
+		applyDebit = func(character *dnfrepo.CharacterRecord) error {
+			dnffatigue.Debit(character)
+			return nil
+		}
+	}
+	return s.updateCurrentCharacterFatigueWithDebit(ctx, session, applyDebit)
+}
+
+func (s *Service) updateCurrentCharacterFatigueAmount(ctx context.Context, session *gameSession, debitAmount int64) (dnfrepo.CharacterRecord, error) {
+	var applyDebit func(*dnfrepo.CharacterRecord) error
+	if debitAmount > 0 {
+		applyDebit = func(character *dnfrepo.CharacterRecord) error {
+			return debitCurrentDungeonFatigueAmount(character, debitAmount)
+		}
+	}
+	return s.updateCurrentCharacterFatigueWithDebit(ctx, session, applyDebit)
+}
+
+func (s *Service) updateCurrentCharacterFatigueWithDebit(
+	ctx context.Context,
+	session *gameSession,
+	applyDebit func(*dnfrepo.CharacterRecord) error,
+) (dnfrepo.CharacterRecord, error) {
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Character == nil {
 		return dnfrepo.CharacterRecord{}, fmt.Errorf("fatigue character repository unavailable")
@@ -38,8 +63,10 @@ func (s *Service) updateCurrentCharacterFatigue(ctx context.Context, session *ga
 		}
 		character = dnfrepo.CloneCharacter(character)
 		changed := dnffatigue.Refresh(&character, account, s.gameplayNow())
-		if debit {
-			dnffatigue.Debit(&character)
+		if applyDebit != nil {
+			if err := applyDebit(&character); err != nil {
+				return err
+			}
 			changed = true
 		}
 		if changed {
@@ -90,7 +117,10 @@ func (s *Service) armCurrentFatigueDailyRefresh(session *gameSession) {
 			}
 			session.dungeon.mu.Unlock()
 			s.armCurrentFatigueDailyRefresh(session)
-			return s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0)
+			if err := s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0); err != nil {
+				return err
+			}
+			return s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, character, "six_am_refresh_after_fatigue")
 		}); err != nil {
 			s.logGameEvent(session, "game-character-fatigue-daily-refresh-deferred", "error", err)
 		}
@@ -103,6 +133,13 @@ func (s *Service) armCurrentFatigueDailyRefresh(session *gameSession) {
 // Coordinates own fatigue: revisits and layered maps in the same room do not
 // charge again. Each member owns a separate balance in the shared instance.
 func (s *Service) debitDungeonRoomFatigue(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene) error {
+	fatigueCost, startOnly, err := currentDungeonStartFatigueRule(runtime.Dungeon)
+	if err != nil {
+		return err
+	}
+	if startOnly && runtime.fatigueStartDebited {
+		return nil
+	}
 	if runtime.fatigueRooms == nil {
 		runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)
 	}
@@ -115,12 +152,27 @@ func (s *Service) debitDungeonRoomFatigue(session *gameSession, runtime *runtime
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	character, err := s.updateCurrentCharacterFatigue(ctx, session, true)
+	var character dnfrepo.CharacterRecord
+	if startOnly {
+		character, err = s.updateCurrentCharacterFatigueAmount(ctx, session, fatigueCost)
+	} else {
+		character, err = s.updateCurrentCharacterFatigue(ctx, session, true)
+	}
 	if err != nil {
 		return fmt.Errorf("debit room fatigue: %w", err)
 	}
 	runtime.Character = character
 	runtime.fatigueRooms[scene.Coordinate] = true
-	s.logGameEvent(session, "game-dungeon-fatigue-room-debited", "char_id", session.selectedCharacterID, "room", scene.Coordinate.String(), "remaining", character.Stats["fatigue"], "limit", character.Stats["fatigue_limit"])
+	if startOnly {
+		runtime.fatigueStartDebited = true
+	}
+	s.logGameEvent(session, "game-dungeon-fatigue-room-debited",
+		"char_id", session.selectedCharacterID,
+		"dungeon_id", runtime.Dungeon.ID,
+		"room", scene.Coordinate.String(),
+		"cost", fatigueCost,
+		"start_only", startOnly,
+		"remaining", character.Stats["fatigue"],
+		"limit", character.Stats["fatigue_limit"])
 	return nil
 }
