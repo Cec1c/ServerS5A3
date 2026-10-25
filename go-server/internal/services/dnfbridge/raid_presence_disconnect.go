@@ -195,6 +195,7 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 		return
 	}
 	changed := map[uint32]runtimeRaidState{}
+	expiredParticipation := map[uint32]bool{}
 	s.raidMu.Lock()
 	for id, seat := range s.currentRaidDisconnects {
 		state := s.raids[seat.RaidKey]
@@ -224,6 +225,10 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 		// The immutable Battle/reward journal still owns accepted clears/assets.
 		// Only the retained directory seat expires.
 		departedLeader := state.LeaderID == id
+		hadParticipation := false
+		if state.Battle != nil {
+			_, hadParticipation = state.Battle.Participation[id]
+		}
 		_, removed, disbanded := s.removeRuntimeRaidMemberLocked(id)
 		if disbanded && state.Battle != nil {
 			// Accepted battle and uncommitted reward/weekly intents outlive
@@ -248,6 +253,9 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 				}
 			}
 			changed[state.RaidKey] = cloneRuntimeRaidState(*state)
+			if hadParticipation {
+				expiredParticipation[state.RaidKey] = true
+			}
 		}
 	}
 	// One final roster per aggregate: expiring two seats in the same sweep
@@ -262,6 +270,9 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 	s.raidMu.Unlock()
 	for _, state := range changed {
 		s.publishCurrentRaidPresence(state, 0)
+		if expiredParticipation[state.RaidKey] {
+			s.queueCurrentRaidDungeonProgress(state)
+		}
 	}
 }
 func (s *Service) publishCurrentRaidPresence(state runtimeRaidState, excluded uint16) {
