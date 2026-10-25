@@ -44,6 +44,7 @@ var (
 )
 
 type Registry struct {
+	Hongbao          *HongbaoState                     `json:"hongbao,omitempty"`
 	Ranking          *RankingState                     `json:"ranking,omitempty"`
 	GuardianReceipts map[string]GuardianReceipt        `json:"guardian_receipts,omitempty"`
 	DungeonPolicy    *DungeonPolicy                    `json:"dungeon_policy,omitempty"`
@@ -631,6 +632,9 @@ func SortedApplications(guild *Guild) []Application {
 // Reject corrupt/unknown state rather than silently discarding members or
 // changing IDs. This registry is new and has no legacy version to migrate.
 func validateRegistry(r Registry) error {
+	if err := validateHongbao(r.Hongbao); err != nil {
+		return err
+	}
 	if err := validateTeleports(r); err != nil {
 		return err
 	}
