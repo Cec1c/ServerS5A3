@@ -39,21 +39,30 @@ def main():
         profile_cases.append(profile_verify.case(pe.read,'lookup',True,False,key,owner,route,scene,True,helper_address=h['address'],helper_bytes=pe.read(h['address'],h['size'])))
     title=build.module('title_verify',build.ROOT/'title-request/verify_candidate.py')
     image=title.Image.from_bytes(candidate);title_cases=[]
-    for ret,parents in title.TITLE_PAREMS.items():
+
+    def check_title(name,ret,parent,slot=13,count=1,want=0,call_site=None):
+        marker=title.run_case(image,ret,parent,slot,count,call_site=call_site)
+        if marker!=want:raise ValueError(f'{name}: title marker {marker}, expected {want}')
+        title_cases.append(dict(name=name,returnAddress=ret,parent=parent,slot=slot,count=count,
+                                marker=marker,expectedMarker=want,actualCall=call_site))
+
+    for call_site,parents in title.TITLE_CALL_PARENTS.items():
+        # The native CALL supplies its five-byte successor as the saved return.
+        # Passing call_site also exercises the real producer frame prologue.
+        ret=call_site+5
         for parent in parents:
             for slot,count in ((13,1),(12,1),(13,2)):
-                row=title.run_case(image,ret,parent,slot,count)
                 want=2 if slot==13 and count==1 else 0
-                if row!=want:raise ValueError('title request marker mismatch')
-                title_cases.append(dict(returnAddress=ret,parent=parent,slot=slot,count=count,marker=row))
-        if ret!=0x12AF918:
-            if title.run_case(image,ret,0xA5A50000)!=0:raise ValueError('wrong title parent accepted')
+                check_title(f'title-{ret:#x}-parent-{parent:#x}-slot-{slot}-count-{count}',
+                            ret,parent,slot,count,want,call_site)
+        if call_site!=0x12AF918:
+            check_title(f'title-{ret:#x}-wrong-parent',ret,0xA5A50000,call_site=call_site)
     for ret in title.SIMPLE_EXISTING:
-        if title.run_case(image,ret,0xA5A50000)!=2:raise ValueError('ordinary manual wear changed')
-    if title.run_case(image,title.UNKNOWN_CALLER,0xA5A50000)!=0:raise ValueError('automatic reassert widened')
+        check_title(f'existing-simple-{ret:#x}',ret,0xA5A50000,want=2)
+    check_title('unknown-return',title.UNKNOWN_CALLER,0xA5A50000)
     report=dict(passed=True,outputSha256=build.SHA(candidate),fullReconstruction=True,windowsImageMapping=mapped,
                 skillCases=results,profileCases=profile_cases,titleCases=title_cases,
-                scope='Actual emitted helpers and fixed native serializer/vector reader; selected actor/UI/allocator leaves are bounded fixtures. GUI acceptance remains separate.',guiAccepted=False)
+                scope='Actual emitted helpers and fixed native serializer/vector reader; title paths execute actual CALL/prologue before the marker gate, with packet-body construction skipped and constructor/continuation ABI stubs. Selected actor/UI/allocator leaves are bounded fixtures. GUI acceptance remains separate.',guiAccepted=False)
     a.output.write_text(json.dumps(report,indent=2),encoding='utf8')
     print(json.dumps(dict(passed=True,sha256=report['outputSha256'],skillCases=len(results),profileCases=len(profile_cases),titleCases=len(title_cases))))
 
