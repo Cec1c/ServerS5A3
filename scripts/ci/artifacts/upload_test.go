@@ -18,6 +18,23 @@ import (
 
 func noPause(context.Context, time.Duration) error { return nil }
 
+func TestArtifactNameIdentifiesEveryMatrixComponent(t *testing.T) {
+	for _, goos := range []string{"linux", "windows"} {
+		for _, part := range []string{"server", "control", "doctor"} {
+			got, err := artifactName(goos, "amd64", "1234abcd", part)
+			if err != nil || got != "dnf90-"+goos+"-amd64-"+part+"-1234abcd.zip" {
+				t.Fatal(got, err)
+			}
+		}
+	}
+	if _, err := artifactName("linux", "amd64", "1234abcd", "../server"); err == nil {
+		t.Fatal("accepted component path")
+	}
+	if got, err := artifactName("linux", "amd64", "1234abcd", ""); err != nil || got != "dnf90-linux-amd64-1234abcd.zip" {
+		t.Fatal("legacy name", got, err)
+	}
+}
+
 func TestTransportFailureDoesNotExposeRawError(t *testing.T) {
 	for _, tc := range []struct {
 		err  error

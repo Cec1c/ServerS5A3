@@ -106,6 +106,9 @@ func artifactClient() *http.Client {
 	transport.Protocols.SetHTTP1(true)
 	// Clone initializes DefaultTransport's HTTP/2 support and copies its ALPN
 	// list. Protocols alone does not remove the inherited "h2" advertisement.
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
 	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	transport.ForceAttemptHTTP2 = false
 	return &http.Client{Transport: transport, Timeout: 150 * time.Second}
@@ -206,14 +209,28 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 	return errors.New("artifact upload exhausted retries")
 }
 
+func artifactName(goos, arch, commit, component string) (string, error) {
+	if component != "" && component != "server" && component != "control" && component != "doctor" {
+		return "", errors.New("invalid artifact component")
+	}
+	if component != "" {
+		component = "-" + component
+	}
+	name := "dnf90-" + goos + "-" + arch + component + "-" + commit + ".zip"
+	if !regexp.MustCompile(`^dnf90-(linux|windows)-amd64(-(server|control|doctor))?-[a-f0-9]{7,40}\.zip$`).MatchString(name) {
+		return "", errors.New("invalid artifact target or commit identity")
+	}
+	return name, nil
+}
+
 func run() error {
 	target, err := endpoint(os.Getenv("CI_API_V4_URL"), os.Getenv("CI_JOB_ID"))
 	if err != nil {
 		return err
 	}
-	name := "dnf90-" + os.Getenv("TARGET_OS") + "-" + os.Getenv("TARGET_ARCH") + "-" + os.Getenv("CI_COMMIT_SHORT_SHA") + ".zip"
-	if !regexp.MustCompile(`^dnf90-(linux|windows)-amd64-[a-f0-9]{7,40}\.zip$`).MatchString(name) {
-		return errors.New("invalid artifact target or commit identity")
+	name, err := artifactName(os.Getenv("TARGET_OS"), os.Getenv("TARGET_ARCH"), os.Getenv("CI_COMMIT_SHORT_SHA"), os.Getenv("TARGET_COMPONENT"))
+	if err != nil {
+		return err
 	}
 	f, err := os.CreateTemp("", "dnf90-ci-artifacts-*.zip")
 	if err != nil {
