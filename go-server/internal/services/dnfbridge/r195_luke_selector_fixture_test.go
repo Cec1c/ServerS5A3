@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -10,11 +11,8 @@ import (
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
-// lukeSelectorPartyOnlySettlementFixture reuses the published real-PVF Luke
-// phases and reward flow. Master commits the actual party cards at AutoSelectAt
-// and retains the following configured movie window before it stamps FinishedAt.
-// Advancing both real boundaries keeps this fixture independent of the private
-// cumulative party-only settlement changes.
+// Luke phase zero settles its party-only rewards at AutoSelectAt. The later
+// movie tick must not extend the break or grant the settled rewards again.
 func lukeSelectorPartyOnlySettlementFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, *gameSession) {
 	t.Helper()
 	f, leader, at := normalLukeFixture(t)
@@ -49,13 +47,18 @@ func lukeSelectorPartyOnlySettlementFixture(t *testing.T) (*raidStartGuardFixtur
 	if movie == 0 {
 		t.Fatal("real Luke reward movie window missing")
 	}
-	settledAt := flow.AutoSelectAt.Add(time.Duration(movie) * time.Second)
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(settledAt, zeroAntonRoll); len(errs) != 0 {
+	settledAt := flow.AutoSelectAt
+	wantBreakUntil := settledAt.Add(time.Duration(flow.Configuration.PhaseBreakSeconds) * time.Second)
+	if !flow.FinishedAt.Equal(settledAt) || !flow.BreakUntil.Equal(wantBreakUntil) || len(flow.Squad) != 0 {
+		t.Fatal("real Luke party-only rewards did not settle")
+	}
+	before := lukeSelectorWaitingInventories(t, f)
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(settledAt.Add(time.Duration(movie)*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
-	wantBreakUntil := settledAt.Add(time.Duration(flow.Configuration.PhaseBreakSeconds) * time.Second)
-	if !flow.FinishedAt.Equal(settledAt) || !flow.BreakUntil.Equal(wantBreakUntil) {
-		t.Fatal("real Luke party-only rewards did not settle")
+	if !flow.FinishedAt.Equal(settledAt) || !flow.BreakUntil.Equal(wantBreakUntil) || len(flow.Squad) != 0 ||
+		!reflect.DeepEqual(before, lukeSelectorWaitingInventories(t, f)) {
+		t.Fatal("late reward tick changed settled timers or assets")
 	}
 	for _, owner := range flow.Recipients {
 		card := flow.Party[owner.CharacterID]
@@ -69,10 +72,8 @@ func lukeSelectorPartyOnlySettlementFixture(t *testing.T) (*raidStartGuardFixtur
 // An independently cleared raid group can retire its completed run into the
 // selector. Its town presence was removed on dungeon entry. Returning with
 // op132 then confirming with op35 must not require an extra op36 area crossing.
-// The public selector repair restores the waiting-area records. A deployment
-// that gates phase two on the online start path must additionally use the
-// existing cumulative strict gate; these tests verify only its master presence
-// primitives and do not claim that the public start entry contains that gate.
+// The selector repair restores waiting-area records only after confirmation.
+// The phase-two entry consumes the same current-session presence authority.
 func lukeSelectorReturnWaitingFixture(t *testing.T, deferReturn ...bool) (*raidStartGuardFixture, *gameSession, *gameSession) {
 	t.Helper()
 	f, leader, peer := lukeSelectorPartyOnlySettlementFixture(t)
@@ -160,8 +161,8 @@ func lukeSelectorWaitingInventories(t *testing.T, f *raidStartGuardFixture) map[
 // lukeSelectorWaitingPresenceError exercises the production waiting-area
 // authority exactly as a strict phase gate would: freeze the current raid
 // scope under raidMu, then require every member's committed town presence.
-// It deliberately does not enter startRuntimeRaidWithEntryCost, which lacks
-// that cumulative phase-two guard in the public baseline.
+// This helper isolates presence rejection; the phase-two tests also exercise
+// the manual start and automatic clock entries.
 func lukeSelectorWaitingPresenceError(t *testing.T, f *raidStartGuardFixture) error {
 	t.Helper()
 	s := f.service

@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"errors"
 	"io"
 	"net"
 	"reflect"
@@ -36,6 +37,9 @@ func TestRealPVFLukeSelectorReturnLeaderFanoutRestoresWaitingMembers(t *testing.
 	if err := lukeSelectorWaitingPresenceError(t, f); err == nil {
 		t.Fatal("waiting presence gate admitted an unconfirmed follower")
 	}
+	if _, ok, err := s.startRuntimeRaidWithEntryCost(leader); ok || !errors.Is(err, errCurrentRaidMembersOutsideWaitingArea) {
+		t.Fatal("phase-two start admitted an unconfirmed follower", ok, err)
+	}
 	if err := s.sendFinishLoadingStatus(peer, make([]byte, 8)); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +61,9 @@ func TestRealPVFLukeSelectorReturnWithoutAreaCrossingRestoresWaitingMembers(t *t
 	for _, member := range []*gameSession{leader, peer} {
 		if err := lukeSelectorWaitingPresenceError(t, f); err == nil {
 			t.Fatal("waiting presence gate admitted before every return confirmed")
+		}
+		if _, ok, err := s.startRuntimeRaidWithEntryCost(leader); ok || !errors.Is(err, errCurrentRaidMembersOutsideWaitingArea) {
+			t.Fatal("phase-two start admitted before every return confirmed", ok, err)
 		}
 		if err := s.handleTownSetUserPosition(member, buildTownPositionRequest(580, 243, 5, 100)); err != nil {
 			t.Fatal(err)

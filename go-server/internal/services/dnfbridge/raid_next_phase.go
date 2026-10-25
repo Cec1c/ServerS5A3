@@ -44,6 +44,23 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 		}
 		seen[member.CharID] = true
 	}
+	// Luke's accepted two-phase flow resumes only after every current member
+	// has confirmed return to this battle's waiting area. Scene registration
+	// is restored by the selector-return path; online identity alone is not
+	// proof that the client has left its previous dungeon/selector.
+	if b.Mode == 2 {
+		leader, online := s.onlineGameSession(state.LeaderID)
+		if !online {
+			return false, errCurrentRaidMembersOutsideWaitingArea
+		}
+		waitingScope, err := s.prepareCurrentRaidWaitingBattleScope(leader, *state, b)
+		if err != nil {
+			return false, fmt.Errorf("%w: %v", errCurrentRaidMembersOutsideWaitingArea, err)
+		}
+		if err := s.onlinePlayers.requireRaidStartWaitingArea(waitingScope, b.InstanceID); err != nil {
+			return false, err
+		}
+	}
 	enter := now.Add(time.Duration(b.Configuration.StartDelaySeconds) * time.Second)
 	deadline := enter.Add(time.Duration(b.Configuration.PhaseLimitSeconds[1]) * time.Second)
 	if deadline.Unix() > math.MaxUint32 || deadline.Unix() <= 0 {
