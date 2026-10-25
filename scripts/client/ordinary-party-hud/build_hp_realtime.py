@@ -1,4 +1,4 @@
-"""Build the current-town P153 auxiliary-actor fix from exact published v173."""
+"""Build the town P153 auxiliary-actor fix from exact published V173/V174."""
 import argparse
 import hashlib
 import json
@@ -10,11 +10,16 @@ from hp_realtime_lookup import BASE, emit
 
 INPUT_SHA = '9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060'
 INPUT_SIZE = 111915008
+PUBLISHED_PROFILES = {
+    INPUT_SHA: INPUT_SIZE,
+    '27c2241aae6d7b8c6b043a2bbe9e2eccfdb18d6969912055694195b972fcad67': 111919104,
+}
 SITE = 0x203323d
 
 
 def build(data):
-    require(len(data) == INPUT_SIZE and hashlib.sha256(data).hexdigest() == INPUT_SHA, 'exact published v173 required')
+    input_sha = hashlib.sha256(data).hexdigest()
+    require(PUBLISHED_PROFILES.get(input_sha) == len(data), 'exact published V173 or V174 required')
     pe = PE(data)
     require(pe.read(SITE, 5) == b'\xe8'+struct.pack('<i', 0x296d730-SITE-5), 'P153 lookup call differs')
     reviewed = helper()
@@ -29,7 +34,7 @@ def build(data):
     ranges = ((call_at, call_at+5), (helper_at, helper_at+len(code)), (checksum_at, checksum_at+4))
     differences = [i for i,(a,b) in enumerate(zip(data,out)) if a != b]
     require(all(any(lo <= i < hi for lo,hi in ranges) for i in differences), 'unapproved byte delta')
-    return bytes(out), dict(inputSha256=INPUT_SHA, outputSha256=hashlib.sha256(out).hexdigest(),
+    return bytes(out), dict(inputSha256=input_sha, outputSha256=hashlib.sha256(out).hexdigest(),
         length=len(out), changedOffsets=differences, helperVA=hex(BASE), helperSize=len(code),
         scope='P153 active lookup first; current ordinary-town party HUD cache fallback only', gameAcceptance=False)
 

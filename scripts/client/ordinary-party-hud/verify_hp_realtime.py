@@ -10,8 +10,9 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--input',type=Path,required=True);p.add_argument('--receipt',type=Path,required=True)
 p.add_argument('--candidate',type=Path)
 a=p.parse_args();data=a.input.read_bytes()
-expected='9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060'
-assert len(data)==111915008 and hashlib.sha256(data).hexdigest()==expected
+from build_hp_realtime import PUBLISHED_PROFILES
+expected=hashlib.sha256(data).hexdigest()
+assert PUBLISHED_PROFILES.get(expected)==len(data)
 pe=PE(data)
 im=SimpleNamespace(data=data,sha256=expected,bytes_at=pe.read,
  size_of_image=struct.unpack_from('<I',data,pe.opt+56)[0],
