@@ -81,7 +81,7 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 		if !found || !townMapPathLooksLikeGuildHall(area.MapPath) {
 			return guild.MerchantUpgradeReceipt{}, guild.ErrMerchantInteraction
 		}
-		scene, err := loadGuildMerchantNPC(items.source, area.MapPath, npc)
+		_, err := loadGuildMerchantNPC(items.source, area.MapPath, npc)
 		if err != nil {
 			return guild.MerchantUpgradeReceipt{}, err
 		}
@@ -101,8 +101,8 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 				return !inDungeon
 			},
 			CanInteract: func(actor r.CharacterRecord, _ *guild.Guild, _ bool) bool {
-				dx, dy := int(p.PositionX)-scene.x, int(p.PositionY)-scene.y
-				return actor.Stats["town_id"] == int64(p.TownID) && actor.Stats["area_id"] == int64(p.AreaID) && dx >= -scene.dx && dx <= scene.dx && dy >= -scene.dy && dy <= scene.dy
+				// Mouse-opened windows do not use the keyboard nearby-NPC range.
+				return actor.Stats["town_id"] == int64(p.TownID) && actor.Stats["area_id"] == int64(p.AreaID)
 			},
 		}, catalog, s.gameplayNow())
 	}()

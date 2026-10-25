@@ -242,7 +242,7 @@ func (u guardianBeforeTransaction) WithinGuild(ctx context.Context, owners []r.G
 }
 
 func TestGuildGuardianProductionRejections(t *testing.T) {
-	for _, mode := range []string{"disabled", "missing_policy", "bad_policy", "insufficient_ap", "insufficient_gp", "account", "nonmember", "deputy_bit16", "wrong_town", "wrong_area", "wrong_map", "stale_position", "not_ready", "range_x", "range_y", "persistent_area", "dungeon", "bad_id", "unsupported_action", "trailing", "nonzero_tail", "missing_sequence", "reused_sequence", "session_replaced", "guild_replaced"} {
+	for _, mode := range []string{"disabled", "missing_policy", "bad_policy", "insufficient_ap", "insufficient_gp", "account", "nonmember", "deputy_bit16", "wrong_town", "wrong_area", "wrong_map", "stale_position", "not_ready", "persistent_area", "dungeon", "bad_id", "unsupported_action", "trailing", "nonzero_tail", "missing_sequence", "reused_sequence", "session_replaced", "guild_replaced"} {
 		t.Run(mode, func(t *testing.T) {
 			s, p, repos := guildGuardianFixture(t)
 			ctx := context.Background()
@@ -294,10 +294,6 @@ func TestGuildGuardianProductionRejections(t *testing.T) {
 				p.townPositionSnapshot.CharacterID = 30
 			case "not_ready":
 				p.townSceneReadyCharacterID = 0
-			case "range_x":
-				p.townPositionSnapshot.PositionX = 471
-			case "range_y":
-				p.townPositionSnapshot.PositionY = 424
 			case "persistent_area":
 				a, _, _ := repos.Character.Load(ctx, "29")
 				a.Stats["area_id"] = 0
@@ -375,24 +371,29 @@ func TestGuildGuardianProductionRejections(t *testing.T) {
 	}
 }
 
-func TestGuildGuardianMatchedNPCDistanceBoundaries(t *testing.T) {
+func TestGuildGuardianMatchedInteractionNPC(t *testing.T) {
 	scene, err := loadGuildGuardianScene(guardianBridgeSource(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []uint32{1, 2} {
-		for _, active := range []bool{false, true} {
-			g := &guild.Guild{}
-			npc := scene.first[id]
-			if active {
-				g.Guardians = &guild.GuardianState{EverAcquired: true, ActiveID: id, Owned: []guild.Guardian{{ID: id, Level: 1}}}
-				npc = scene.active[id][0]
+		if !scene.hasInteractionNPC(&guild.Guild{}, id) {
+			t.Fatal("missing first NPC", id)
+		}
+		for level := uint8(1); level <= 50; level++ {
+			g := &guild.Guild{Guardians: &guild.GuardianState{EverAcquired: true, ActiveID: id, Owned: []guild.Guardian{{ID: id, Level: level}}}}
+			if !scene.hasInteractionNPC(g, id) {
+				t.Fatal("missing active NPC", id, level)
 			}
-			for _, delta := range [][3]int{{npc.dx, npc.dy, 1}, {-npc.dx, -npc.dy, 1}, {npc.dx + 1, 0, 0}, {0, npc.dy + 1, 0}} {
-				if got := scene.near(g, id, uint16(npc.x+delta[0]), uint16(npc.y+delta[1])); got != (delta[2] == 1) {
-					t.Fatal(id, active, delta, got)
-				}
-			}
+		}
+	}
+	if scene.hasInteractionNPC(&guild.Guild{}, 3) {
+		t.Fatal("unknown first NPC")
+	}
+	for _, level := range []uint8{0, 51} {
+		g := &guild.Guild{Guardians: &guild.GuardianState{ActiveID: 1, Owned: []guild.Guardian{{ID: 1, Level: level}}}}
+		if scene.hasInteractionNPC(g, 1) {
+			t.Fatal("invalid active NPC level", level)
 		}
 	}
 	for _, kind := range []string{"role", "missing", "wrong_id"} {

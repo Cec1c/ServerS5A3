@@ -103,7 +103,7 @@ func TestGuildMerchantPurchaseProductionAndReplay(t *testing.T) {
 }
 
 func TestGuildMerchantPurchaseProductionFailureACKAndRollback(t *testing.T) {
-	for _, kind := range []string{"short", "item", "npc", "level", "quantity", "far", "not-ready", "balance", "full"} {
+	for _, kind := range []string{"short", "item", "npc", "level", "quantity", "wrong-area", "not-ready", "balance", "full"} {
 		t.Run(kind, func(t *testing.T) {
 			s, p, repos := merchantPurchaseFixture(t)
 			ctx := context.Background()
@@ -120,8 +120,8 @@ func TestGuildMerchantPurchaseProductionFailureACKAndRollback(t *testing.T) {
 				binary.LittleEndian.PutUint32(body[12:], 422)
 			case "quantity":
 				binary.LittleEndian.PutUint32(body[4:], 1001)
-			case "far":
-				p.townPositionSnapshot.PositionX = 1
+			case "wrong-area":
+				p.townPositionSnapshot.AreaID = 7
 			case "not-ready":
 				p.townSceneReadyCharacterID = 0
 			case "balance":
@@ -218,10 +218,8 @@ func TestGuildMerchantRealExtractedCatalogAndPurchases(t *testing.T) {
 	seq := uint16(100)
 	for id := uint32(201); id <= 220; id++ {
 		shop := catalog.Shops[id]
-		p.townPositionSnapshot.PositionX = 1005
-		if shop.Index == 1 {
-			p.townPositionSnapshot.PositionX = 900
-		}
+		// Mouse-opened windows at the captured position are valid for both NPCs.
+		p.townPositionSnapshot.PositionX, p.townPositionSnapshot.PositionY = 1100, 271
 		reg, _ := guild.Load(ctx, repos.Settings)
 		reg.Guilds[1].Merchants = &guild.MerchantState{Levels: [2]uint8{shop.Level, shop.Level}}
 		reg.Guilds[1].Essence.AP = 1000000
@@ -254,9 +252,24 @@ func TestGuildMerchantRealExtractedCatalogAndPurchases(t *testing.T) {
 				}
 			}
 		}
+		if shop.Level == 1 {
+			before, _ := guild.Load(ctx, repos.Settings)
+			seq++
+			for repeat := 0; repeat < 2; repeat++ {
+				p.conn.(*bufferConn).write.Reset()
+				sendMerchantRequest(t, s, p, 840, merchantUpgradeBody(shop.BaseNPCID, 1, 2, 0), seq)
+				if got := guildReply(t, p, 840); !bytes.Equal(got, []byte{1}) {
+					t.Fatalf("real mouse upgrade %d: %x", shop.BaseNPCID, got)
+				}
+			}
+			after, err := guild.Load(ctx, repos.Settings)
+			if err != nil || after.Guilds[1].Merchants.Levels[shop.Index] != 2 || before.Guilds[1].Essence.AP-after.Guilds[1].Essence.AP != 1000 {
+				t.Fatal("real upgrade debit/state", err)
+			}
+		}
 	}
 	if len(seen) != 132 {
 		t.Fatalf("unique products %d", len(seen))
 	}
-	t.Logf("20 real shops, %d unique products, %d purchases, daily deadline %s", len(seen), seq-100, itemexpiration.NextDailyDeleteAt(s.gameplayNow()).Format(time.RFC3339))
+	t.Logf("20 real shops, %d unique products, %d purchases, daily deadline %s", len(seen), seq-102, itemexpiration.NextDailyDeleteAt(s.gameplayNow()).Format(time.RFC3339))
 }
