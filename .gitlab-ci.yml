@@ -1,19 +1,105 @@
+# Filter ordinary branch pushes by build inputs; preserve explicit pipeline entrypoints.
 workflow:
   rules:
-    - when: always
-stages: [test]
-semgrep-runtime-probe:
-  stage: test
-  image: registry.gitlab.com/security-products/semgrep:6
-  timeout: 20m
-  cache: []
+    - if: '$CI_PIPELINE_SOURCE != "push"'
+      when: always
+    - if: '$CI_COMMIT_TAG'
+      when: always
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BEFORE_SHA == "0000000000000000000000000000000000000000"'
+      when: always
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - 'go-server/**/*'
+        - '.gitlab-ci.yml'
+        - '.gitlab/**/*'
+        - 'build.sh'
+        - 'build.bat'
+        - 'deploy/**/*'
+        - '.gitattributes'
+        - '.gitignore'
+        - 'go.mod'
+        - 'go.sum'
+        - 'go.work'
+        - 'go.work.sum'
+        - 'scripts/**/*'
+        - 'ci/**/*'
+        - '*.sh'
+        - '*.bat'
+        - '*.cmd'
+        - '*.ps1'
+        - '*.py'
+        - 'Makefile*'
+        - 'Dockerfile*'
+        - '.semgrepignore'
+        - '.semgrep.yml'
+        - '.semgrep.yaml'
+      when: always
+    - when: never
+
+# You can override the included template(s) by including variable overrides
+# SAST customization: https://docs.gitlab.com/user/application_security/sast/#available-cicd-variables
+# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure/
+# Dependency Scanning customization: https://docs.gitlab.com/user/application_security/dependency_scanning/dependency_scanning_sbom/#customizing-analyzer-behavior
+# Container Scanning customization: https://docs.gitlab.com/user/application_security/container_scanning/#customizing-analyzer-behavior
+# Note that environment variables can be set in several places
+# See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
+stages:
+- build
+- test
+variables:
+  GOTOOLCHAIN: local
+  CGO_ENABLED: "0"
+  GOPATH: "$CI_PROJECT_DIR/.cache/go"
+default:
+  image: golang:1.26.5
+  cache:
+    key:
+      files:
+      - go-server/go.sum
+    paths:
+    - .cache/go/pkg/mod/
+build:
+  stage: build
   dependencies: []
+  parallel:
+    matrix:
+    - TARGET_OS: [linux, windows]
+      TARGET_ARCH: [amd64]
+      TARGET_COMPONENT: [server, control, doctor]
+  script:
+  - sh scripts/check-server-boundary.sh
+  - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
+  - sh scripts/ci/test_build_components.sh
+  - sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
+  # Keep the same three programs and dist/ paths in separate downloadable jobs.
+  # A combined 50MB ZIP exceeds the proxy deadline on the regular runner route.
+  - go run scripts/ci/artifacts/upload.go
+core-tests:
+  stage: test
+  dependencies: []
+  script:
+  - sh scripts/check-server-boundary.sh
+  - cd go-server
+  - go list -buildvcs=false -mod=readonly ./...
+  - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
+  - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
+  - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
+  - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+channel-u8-tests:
+  stage: test
+  dependencies: []
+  image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
+  cache: []
+  script:
+  - python -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
+# Semgrep's OCaml Eio io_uring backend fails to initialize on constrained runners.
+# Use its supported POSIX backend; keep the analyzer, rules and failure policy.
+semgrep-sast:
   variables:
     EIO_BACKEND: posix
-  script:
-    - /analyzer run
-    - python3 -c "import json; r=json.load(open('gl-sast-report.json')); assert r['scan']['status']=='success'; print('SAST scan success; vulnerabilities',len(r['vulnerabilities']))"
-  artifacts:
-    when: always
-    paths: [gl-sast-report.json]
-    expire_in: 7 days
+  dependencies: []
+  cache: []
+sast:
+  stage: test
+include:
+- template: Security/SAST.gitlab-ci.yml
