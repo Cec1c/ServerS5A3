@@ -1,4 +1,4 @@
-"""Repair five title CALL/return comparisons in exact published V173/V174 images."""
+"""Repair five title CALL/return comparisons in exact published V173/V174/V175 images."""
 import argparse
 import json
 import struct
@@ -12,6 +12,7 @@ INPUT_SIZE = 111915008
 PUBLISHED_PROFILES = {
     INPUT_SHA: INPUT_SIZE,
     '27c2241aae6d7b8c6b043a2bbe9e2eccfdb18d6969912055694195b972fcad67': 111919104,
+    'c97fec768b7178ae89446a65de5aa980a1532724e3a1bde49e5273fe5aff0db6': 111919104,
 }
 
 
@@ -19,7 +20,7 @@ def build(data):
     available_memory()
     image = Image.from_bytes(data)
     if PUBLISHED_PROFILES.get(image.sha256) != len(data):
-        raise ValueError('exact published V173 or V174 required')
+        raise ValueError('exact published V173, V174 or V175 required')
     va = OP19UI + OLD_VIRTUAL_SIZE
     corrected = title_extension(va)
     previous = corrected
