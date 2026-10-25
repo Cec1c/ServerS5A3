@@ -132,14 +132,20 @@ func tagPlayChallenge(t *testing.T, s *Service, p *gameSession, mode tagtourname
 	tagPlayAdvanceClock(t, s, p)
 }
 
-// A synthetic five-round challenge can finish in less than one wall-clock
-// millisecond. Advance a shared battle/owner clock instead of depending on CPU
-// speed or weakening the production record's strictly positive elapsed time.
+// Pace synthetic rounds by a millisecond so completed runs have positive elapsed
+// time. Keep the shared battle/owner clock at wall time: after the battle is
+// released, the weekly-claim handler creates a new owner using time.Now.
 func tagPlayAdvanceClock(t *testing.T, s *Service, p *gameSession) {
 	t.Helper()
 	b := p.tagTournamentBattle
 	now := time.Now()
-	b.now = func() time.Time { now = now.Add(time.Millisecond); return now }
+	b.now = func() time.Time {
+		if wait := time.Until(now.Add(time.Millisecond)); wait > 0 {
+			time.Sleep(wait)
+		}
+		now = time.Now()
+		return now
+	}
 	g, ok := s.repositoryGroup()
 	if !ok {
 		t.Fatal("missing fixture repositories")
