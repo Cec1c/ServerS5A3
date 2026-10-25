@@ -49,6 +49,13 @@ func buildCurrentGuildGuardianSnapshot(g *guild.Guild) ([]byte, error) {
 		return nil, err
 	}
 	body := buildCurrentGuildEssenceSnapshot(g.Essence)
+	for index := uint8(0); index < 2; index++ {
+		level, err := guild.MerchantLevel(g, index)
+		if err != nil {
+			return nil, err
+		}
+		binary.LittleEndian.PutUint16(body[0x876+2*int(index):], uint16(level))
+	}
 	if g.Guardians == nil {
 		return body, nil
 	}
