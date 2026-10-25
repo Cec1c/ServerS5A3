@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestDungeonMemberExitRemovesActivePeerBeforeSurvivorRoster(t *testing.T) {
+func TestDungeonMemberExitRetiresNetworkRosterBeforeActivePeer(t *testing.T) {
 	f := newLeaderExitFixture(t)
 	f.service.options.currentClientVersion = "official-24.9"
 	before, _ := f.service.runtimePartyManagerForService().SnapshotByUser(99, 0)
@@ -15,7 +15,7 @@ func TestDungeonMemberExitRemovesActivePeerBeforeSurvivorRoster(t *testing.T) {
 	if err := f.service.leaveRuntimePartyOnMemberGiveup(f.member, f.instance); err != nil {
 		t.Fatal(err)
 	}
-	seen, roster := -1, -1
+	seen, roster, realtime := -1, -1, -1
 	for index, frame := range splitUpperFrames(t, f.leaderConn.write.Bytes()) {
 		if frame.msgID == currentTownUserLeaveMsgID {
 			if seen >= 0 || !bytes.Equal(frame.body, []byte{0, 0, 0, 100, 0}) {
@@ -23,12 +23,15 @@ func TestDungeonMemberExitRemovesActivePeerBeforeSurvivorRoster(t *testing.T) {
 			}
 			seen = index
 		}
-		if frame.msgID == 153 {
+		if frame.msgID == 9 && len(frame.body) > 10 {
 			roster = index
 		}
+		if frame.msgID == 153 {
+			realtime = index
+		}
 	}
-	if seen < 0 || roster <= seen {
-		t.Fatalf("missing active removal before survivor roster: remove=%d roster=%d", seen, roster)
+	if roster < 0 || seen <= roster || realtime <= seen {
+		t.Fatalf("need roster then actor removal then realtime: roster=%d remove=%d realtime=%d", roster, seen, realtime)
 	}
 	for _, frame := range splitUpperFrames(t, f.memberConn.write.Bytes()) {
 		if frame.msgID == currentTownUserLeaveMsgID {
@@ -64,17 +67,24 @@ func TestDungeonLeaderExitRemovesActiveLeaderForRemainingPeer(t *testing.T) {
 	f := newLeaderExitFixture(t)
 	f.service.options.currentClientVersion = "official-24.9"
 	f.service.disbandRuntimePartyOnDungeonLeaderExit(f.leader, f.instance, 99, "active_actor_test")
-	seen := 0
-	for _, frame := range splitUpperFrames(t, f.memberConn.write.Bytes()) {
+	seen, localRetired, activeRemoved := 0, -1, -1
+	for index, frame := range splitUpperFrames(t, f.memberConn.write.Bytes()) {
+		if frame.msgID == 9 && len(frame.body) == 10 && bytes.Equal(frame.body[4:6], []byte{100, 0}) {
+			localRetired = index
+		}
 		if frame.msgID == currentTownUserLeaveMsgID {
 			if !bytes.Equal(frame.body, []byte{0, 0, 0, 99, 0}) {
 				t.Fatalf("wrong departing key: %x", frame.body)
 			}
 			seen++
+			activeRemoved = index
 		}
 	}
 	if seen != 1 {
 		t.Fatalf("remaining peer active actor removals=%d", seen)
+	}
+	if localRetired < 0 || activeRemoved <= localRetired {
+		t.Fatalf("leader actor erased before local roster retirement: local=%d active=%d", localRetired, activeRemoved)
 	}
 	if f.member.dungeon.runtime != f.memberRuntime {
 		t.Fatal("remaining peer pulled out of dungeon")
