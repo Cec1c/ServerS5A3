@@ -32,6 +32,7 @@ func reviewActualLukeCoinFixtureForDungeon(t *testing.T, withPeer bool, dungeonI
 		if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(65*time.Second), zeroAntonRoll); len(errs) != 0 {
 			t.Fatal(errs)
 		}
+		enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
 		if _, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil); len(errs) != 0 || f.state.Battle.Phase != 1 {
 			t.Fatal("phase-two fixture failed", errs)
 		}

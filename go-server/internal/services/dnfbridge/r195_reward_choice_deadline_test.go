@@ -10,9 +10,9 @@ import (
 )
 
 func TestR195RealDisplayedFinalCardsDoNotWaitUnattendedDeadline(t *testing.T) {
-	for _, mode := range []string{"fiendwar"} {
+	for _, mode := range []string{"luke_phase1", "fiendwar"} {
 		t.Run(mode, func(t *testing.T) {
-			f, sessions := r195PublicFiendRewardFixture(t, mode)
+			f, sessions := r195MovieStageFixture(t, mode)
 			flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
 			flow.AutoSelectAt = time.Now().Add(2 * time.Minute)
 			var last time.Time
@@ -67,9 +67,9 @@ func TestR195RealDisplayedFinalCardsDoNotWaitUnattendedDeadline(t *testing.T) {
 }
 
 func TestR195RealChoiceWindowIsPerRecipientAndPreservesManualCards(t *testing.T) {
-	for _, mode := range []string{"fiendwar"} {
+	for _, mode := range []string{"luke_phase1", "fiendwar"} {
 		t.Run(mode, func(t *testing.T) {
-			f, sessions := r195PublicFiendRewardFixture(t, mode)
+			f, sessions := r195MovieStageFixture(t, mode)
 			flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
 			flow.AutoSelectAt = time.Now().Add(2 * time.Minute)
 			f.conn = sessions[0].conn.(*bufferConn)
@@ -104,7 +104,7 @@ func TestR195ChoiceDeadlineScopeAndClone(t *testing.T) {
 				t.Fatal("foreign owner acquired a choice deadline")
 			}
 			s.markCurrentRaidPartySelectionShownLocked("choice", phase, 19, at)
-			want := mode == 3
+			want := mode == 3 || mode == 2 && phase == 1
 			if (len(flow.PartySelectAfter) != 0) != want {
 				t.Fatalf("mode%d phase%d deadline scope changed", mode, phase)
 			}
@@ -130,7 +130,7 @@ func r195AdvanceRewardFlow(t *testing.T, service *Service, at time.Time) {
 // The unattended deadline is a fallback for owners that never displayed, so an
 // earlier fallback must not shorten a late display.
 func TestR195DisplayedPartyWindowSurvivesEarlierUnattendedDeadline(t *testing.T) {
-	for _, mode := range []string{"fiendwar"} {
+	for _, mode := range []string{"luke_phase1", "fiendwar"} {
 		for _, tc := range []struct {
 			name   string
 			offset time.Duration
@@ -139,7 +139,7 @@ func TestR195DisplayedPartyWindowSurvivesEarlierUnattendedDeadline(t *testing.T)
 			{"unattended_deadline_already_passed", -2 * time.Minute},
 		} {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
-				f, sessions := r195PublicFiendRewardFixture(t, mode)
+				f, sessions := r195MovieStageFixture(t, mode)
 				flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
 				session := sessions[0]
 				f.conn = session.conn.(*bufferConn)
@@ -170,7 +170,7 @@ func TestR195DisplayedPartyWindowSurvivesEarlierUnattendedDeadline(t *testing.T)
 // kind1 actually reached its socket gets the short deadline, the peer keeps the
 // unattended fallback.
 func TestR195ChoiceDeadlineSendFailureDoesNotAnchorPeer(t *testing.T) {
-	f, sessions := r195PublicFiendRewardFixture(t, "fiendwar")
+	f, sessions := r195MovieStageFixture(t, "fiendwar")
 	flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
 	flow.AutoSelectAt = time.Now().Add(time.Hour)
 	failed, healthy := sessions[0], sessions[1]
@@ -206,7 +206,7 @@ func TestR195ChoiceDeadlineSendFailureDoesNotAnchorPeer(t *testing.T) {
 }
 
 func TestR195DuplicateCardAcksDoNotExtendChoiceWindow(t *testing.T) {
-	f, sessions := r195PublicFiendRewardFixture(t, "fiendwar")
+	f, sessions := r195MovieStageFixture(t, "fiendwar")
 	flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
 	flow.AutoSelectAt = time.Now().Add(time.Hour)
 	session := sessions[0]

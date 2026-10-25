@@ -407,6 +407,13 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			return nil
 		}
 	}
+	if prepared == nil && runtime.guildDungeonClear == nil {
+		if err := s.freezeCurrentGuildDungeonGroup(ctx, session, runtime, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
+	} else if err := validatePreparedGuildDungeon(runtime); err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
 	if err := s.prepareCurrentRaidDungeonEntry(session, runtime, prepared, preparedFollowers); err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
@@ -456,6 +463,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			"maze_index", runtime.MazeIndex)
 	}
 	if prepared == nil {
+		if err := s.commitCurrentGuildDungeonEntryFatigue(ctx, session, runtime, scene, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
 		if err := s.consumeCurrentHellPartyGroupEntry(ctx, session, runtime, preparedFollowers); err != nil {
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
@@ -499,6 +509,7 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 	for _, member := range preparedFollowers {
 		if member != nil && member.committed {
 			s.activateCurrentPetGrowthDungeonClock(member.session, member.runtime)
+			clearCurrentSelectorReturnAfterCommittedPartyEntry(member.session, member.runtime)
 		}
 	}
 	resetDungeonEntrySceneGates(session)
@@ -981,6 +992,9 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			"room", followerScene.Coordinate.String(),
 			"map_id", followerScene.Map.Map.ID,
 			"seed", followerRuntime.Seed)
+	}
+	if err := s.freezeCurrentGuildDungeonGroup(ctx, leader, leaderRuntime, prepared); err != nil {
+		return nil, err
 	}
 	for _, member := range prepared {
 		if inRunTransfer {
