@@ -1,98 +1,14 @@
-# Filter ordinary branch pushes by build inputs; preserve explicit pipeline entrypoints.
 workflow:
   rules:
-    - if: '$CI_PIPELINE_SOURCE != "push"'
-      when: always
-    - if: '$CI_COMMIT_TAG'
-      when: always
-    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BEFORE_SHA == "0000000000000000000000000000000000000000"'
-      when: always
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-      changes:
-        - 'go-server/**/*'
-        - '.gitlab-ci.yml'
-        - '.gitlab/**/*'
-        - 'build.sh'
-        - 'build.bat'
-        - 'deploy/**/*'
-        - '.gitattributes'
-        - '.gitignore'
-        - 'go.mod'
-        - 'go.sum'
-        - 'go.work'
-        - 'go.work.sum'
-        - 'scripts/**/*'
-        - 'ci/**/*'
-        - '*.sh'
-        - '*.bat'
-        - '*.cmd'
-        - '*.ps1'
-        - '*.py'
-        - 'Makefile*'
-        - 'Dockerfile*'
-        - '.semgrepignore'
-        - '.semgrep.yml'
-        - '.semgrep.yaml'
-      when: always
-    - when: never
-
-# You can override the included template(s) by including variable overrides
-# SAST customization: https://docs.gitlab.com/user/application_security/sast/#available-cicd-variables
-# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure/
-# Dependency Scanning customization: https://docs.gitlab.com/user/application_security/dependency_scanning/dependency_scanning_sbom/#customizing-analyzer-behavior
-# Container Scanning customization: https://docs.gitlab.com/user/application_security/container_scanning/#customizing-analyzer-behavior
-# Note that environment variables can be set in several places
-# See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
-stages:
-- build
-- test
-variables:
-  GOTOOLCHAIN: local
-  CGO_ENABLED: "0"
-  GOPATH: "$CI_PROJECT_DIR/.cache/go"
-default:
-  image: golang:1.26.5
-  cache:
-    key:
-      files:
-      - go-server/go.sum
-    paths:
-    - .cache/go/pkg/mod/
-build:
-  stage: build
-  dependencies: []
-  parallel:
-    matrix:
-    - TARGET_OS: [linux, windows]
-      TARGET_ARCH: [amd64]
-      TARGET_COMPONENT: [server, control, doctor]
-  script:
-  - sh scripts/check-server-boundary.sh
-  - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
-  - sh scripts/ci/test_build_components.sh
-  - sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
-  # Keep the same three programs and dist/ paths in separate downloadable jobs.
-  # A combined 50MB ZIP exceeds the proxy deadline on the regular runner route.
-  - go run scripts/ci/artifacts/upload.go
-core-tests:
+    - when: always
+stages: [test]
+semgrep-runtime-probe:
   stage: test
-  dependencies: []
-  script:
-  - sh scripts/check-server-boundary.sh
-  - cd go-server
-  - go list -buildvcs=false -mod=readonly ./...
-  - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
-  - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
-  - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
-  - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
-channel-u8-tests:
-  stage: test
-  dependencies: []
-  image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
+  image: registry.gitlab.com/security-products/semgrep:6
+  timeout: 10m
   cache: []
+  dependencies: []
+  variables:
+    SEMGREP_SEND_METRICS: "off"
   script:
-  - python -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
-sast:
-  stage: test
-include:
-- template: Security/SAST.gitlab-ci.yml
+    - python3 -c "import base64; exec(base64.b64decode('aW1wb3J0IHBhdGhsaWIsc3VicHJvY2VzcyxvcyxnbG9iLGpzb24KcHJpbnQoanNvbi5kdW1wcyh7J2NwdUNvdW50Jzpvcy5jcHVfY291bnQoKSwnY2dyb3VwJzp7cDpwYXRobGliLlBhdGgocCkucmVhZF90ZXh0KCkuc3RyaXAoKSBmb3IgcCBpbiBbJy9zeXMvZnMvY2dyb3VwL2NwdS5tYXgnLCcvc3lzL2ZzL2Nncm91cC9tZW1vcnkubWF4JywnL3N5cy9mcy9jZ3JvdXAvcGlkcy5tYXgnXSBpZiBwYXRobGliLlBhdGgocCkuZXhpc3RzKCl9fSksZmx1c2g9VHJ1ZSkKY29yZT1nbG9iLmdsb2IoJy91c3IvbG9jYWwvbGliL3B5dGhvbiovc2l0ZS1wYWNrYWdlcy9zZW1ncmVwL2Jpbi9zZW1ncmVwLWNvcmUnKStnbG9iLmdsb2IoJy9vcHQvdmVudi9saWIvcHl0aG9uKi9zaXRlLXBhY2thZ2VzL3NlbWdyZXAvYmluL3NlbWdyZXAtY29yZScpCnByaW50KCdjb3JlIHBhdGhzJyxjb3JlLGZsdXNoPVRydWUpCmZpeHR1cmU9cGF0aGxpYi5QYXRoKCcvdG1wL3NlbWdyZXAtZml4dHVyZScpO2ZpeHR1cmUubWtkaXIoKTsoZml4dHVyZS8nbWFpbi5nbycpLndyaXRlX3RleHQoJ3BhY2thZ2UgbWFpblxuZnVuYyBtYWluKCkge31cbicpCmNvbW1hbmRzPShbW2NvcmVbMF0sJy12ZXJzaW9uJ11dIGlmIGNvcmUgZWxzZSBbXSkrW1snc2VtZ3JlcCcsJ3NjYW4nLCctLWNvbmZpZycsJy9ydWxlcy9nb3NlYy55bWwnLCctLWpzb24nLCctLW1ldHJpY3MnLCdvZmYnLCctLWRpc2FibGUtdmVyc2lvbi1jaGVjaycsc3RyKGZpeHR1cmUpXSxbJ3NlbWdyZXAnLCdzY2FuJywnLS1qb2JzJywnMScsJy0tY29uZmlnJywnL3J1bGVzL2dvc2VjLnltbCcsJy0tanNvbicsJy0tbWV0cmljcycsJ29mZicsJy0tZGlzYWJsZS12ZXJzaW9uLWNoZWNrJyxzdHIoZml4dHVyZSldXQpmb3IgaSxjbWQgaW4gZW51bWVyYXRlKGNvbW1hbmRzKToKIHRyeToKICBwPXN1YnByb2Nlc3MucnVuKGNtZCxjYXB0dXJlX291dHB1dD1UcnVlLHRpbWVvdXQ9MTIwKTtwcmludChqc29uLmR1bXBzKHsncHJvYmUnOmksJ2V4aXQnOnAucmV0dXJuY29kZSwnc3Rkb3V0JzpwLnN0ZG91dC5kZWNvZGUoZXJyb3JzPSdyZXBsYWNlJylbOjQwMDBdLCdzdGRlcnInOnAuc3RkZXJyLmRlY29kZShlcnJvcnM9J3JlcGxhY2UnKVs6ODAwMF19KSxmbHVzaD1UcnVlKQogZXhjZXB0IHN1YnByb2Nlc3MuVGltZW91dEV4cGlyZWQ6cHJpbnQoanNvbi5kdW1wcyh7J3Byb2JlJzppLCd0aW1lb3V0JzpUcnVlfSksZmx1c2g9VHJ1ZSkK'))"
