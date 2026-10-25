@@ -140,7 +140,6 @@ func TestTagReturnCommitReleasesOldRunAndAllowsPaidReentry(t *testing.T) {
 				t.Fatal(err)
 			}
 			tagPlayChallenge(t, s, p, mode)
-			tagRewardPopupAdvanceClock(t, s, p)
 			old := p.tagTournamentBattle
 			for range old.plan.Encounters {
 				tagPlayMoveNext(t, s, p)
@@ -170,7 +169,7 @@ func TestTagReturnCommitReleasesOldRunAndAllowsPaidReentry(t *testing.T) {
 			if p.tagTournamentBattle == nil || p.tagTournamentBattle == old || !p.tagTournamentBattle.prepared.entered {
 				t.Fatal("回城后未创建下一场")
 			}
-			tagRewardPopupAdvanceClock(t, s, p)
+			tagPlayAdvanceClock(t, s, p)
 			for range p.tagTournamentBattle.plan.Encounters {
 				tagPlayMoveNext(t, s, p)
 				tagPlayKillBoss(t, s, p)

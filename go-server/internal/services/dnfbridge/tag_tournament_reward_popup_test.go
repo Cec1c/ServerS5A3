@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-	"time"
 
 	"longheng.io/server/internal/modules/dnf/tagtournament"
 )
@@ -15,7 +14,6 @@ func TestTagPreviouslyRewardedRoundsSkipPopupAndStillComplete(t *testing.T) {
 		for _, priorRounds := range []int{2, 99} {
 			t.Run(fmt.Sprintf("模式%d/已领%d", mode, priorRounds), func(t *testing.T) {
 				s, p := tagResultActionFixture(t, mode, false)
-				tagRewardPopupAdvanceClock(t, s, p)
 				g, _ := s.repositoryGroup()
 				old := p.tagTournamentBattle
 				request := old.prepared.runtime.Request
@@ -41,7 +39,7 @@ func TestTagPreviouslyRewardedRoundsSkipPopupAndStillComplete(t *testing.T) {
 				if err := s.handleDungeonSelectUpper(p, encodeCurrentDungeonSelectRequest(request)); err != nil || p.tagTournamentBattle == nil {
 					t.Fatal("当日免费重入失败", err)
 				}
-				tagRewardPopupAdvanceClock(t, s, p)
+				tagPlayAdvanceClock(t, s, p)
 				b := p.tagTournamentBattle
 				for stage := range b.plan.Encounters {
 					tagPlayMoveNext(t, s, p)
@@ -71,25 +69,6 @@ func TestTagPreviouslyRewardedRoundsSkipPopupAndStillComplete(t *testing.T) {
 			})
 		}
 	}
-}
-
-// A synthetic five-round challenge can finish in less than one wall-clock
-// millisecond. Advance a shared battle/owner clock instead of depending on CPU
-// speed or weakening the production record's strictly positive elapsed time.
-func tagRewardPopupAdvanceClock(t *testing.T, s *Service, p *gameSession) {
-	t.Helper()
-	b := p.tagTournamentBattle
-	now := time.Now()
-	b.now = func() time.Time { now = now.Add(time.Millisecond); return now }
-	g, ok := s.repositoryGroup()
-	if !ok {
-		t.Fatal("missing fixture repositories")
-	}
-	owner, err := tagtournament.NewOwnerWithClock(s.tagTournamentCatalog, g, b.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.owner = owner
 }
 
 func TestTagRewardPopupWriteRetrySurvivesRepeatedZeroGrantSettlement(t *testing.T) {

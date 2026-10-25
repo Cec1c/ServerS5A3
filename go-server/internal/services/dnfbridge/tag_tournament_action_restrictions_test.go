@@ -17,7 +17,6 @@ func TestTagActionItemsCannotBypassMatchRestrictionOnEitherTransport(t *testing.
 			t.Run(transport+stage, func(t *testing.T) {
 				s, p, g := tagPlayFixture(t)
 				tagPlayChallenge(t, s, p, tagtournament.Normal)
-				tagRewardPopupAdvanceClock(t, s, p)
 				if stage != "准备" {
 					tagPlayMoveNext(t, s, p)
 				}

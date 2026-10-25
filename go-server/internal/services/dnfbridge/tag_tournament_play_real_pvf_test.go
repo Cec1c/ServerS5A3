@@ -66,6 +66,7 @@ func TestRealTagPlayActualEntryAndWholeDailyRun(t *testing.T) {
 			if err := s.handleDungeonSelectUpper(p, encodeCurrentDungeonSelectRequest(request)); err != nil || p.tagTournamentBattle == nil || !p.tagTournamentBattle.prepared.entered {
 				t.Fatal("真实PVF已付费重入没有恢复完整挑战", err)
 			}
+			tagPlayAdvanceClock(t, s, p)
 			for round := range p.tagTournamentBattle.plan.Encounters {
 				tagPlayMoveNext(t, s, p)
 				if round == 0 {

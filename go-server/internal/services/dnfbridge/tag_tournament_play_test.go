@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	repo "longheng.io/server/internal/modules/dnf/repository"
@@ -128,6 +129,26 @@ func tagPlayChallenge(t *testing.T, s *Service, p *gameSession, mode tagtourname
 	if p.dungeon.runtime != b.prepared.runtime || !b.prepared.entered {
 		t.Fatal("真实op16未绑定帝国地图")
 	}
+	tagPlayAdvanceClock(t, s, p)
+}
+
+// A synthetic five-round challenge can finish in less than one wall-clock
+// millisecond. Advance a shared battle/owner clock instead of depending on CPU
+// speed or weakening the production record's strictly positive elapsed time.
+func tagPlayAdvanceClock(t *testing.T, s *Service, p *gameSession) {
+	t.Helper()
+	b := p.tagTournamentBattle
+	now := time.Now()
+	b.now = func() time.Time { now = now.Add(time.Millisecond); return now }
+	g, ok := s.repositoryGroup()
+	if !ok {
+		t.Fatal("missing fixture repositories")
+	}
+	owner, err := tagtournament.NewOwnerWithClock(s.tagTournamentCatalog, g, b.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.owner = owner
 }
 
 func tagPlayMoveNext(t *testing.T, s *Service, p *gameSession) {
