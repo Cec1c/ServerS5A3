@@ -93,7 +93,7 @@ func CalculateRankingPeriod(reg Registry, facts map[string]RankingMemberFacts, r
 		return nil, err
 	}
 	for _, fact := range facts {
-		if fact.Online {
+		if fact.Online && fact.Character.Stats["delete_flag"] == 0 {
 			period.Online = append(period.Online, fact.Owner)
 		}
 	}
