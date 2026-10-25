@@ -10,7 +10,7 @@ func ceraShopGameplayModule() gameplayModuleDefinition {
 			// Current-client evidence proves op64 can arrive on the legacy
 			// decoder with the same current cart body as the upper transport.
 			purchaseOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
-				return service.handleCurrentCeraShopPurchase(session, request.Body)
+				return service.handleCurrentCeraShopPurchase(session, request.Body, request.Sequence)
 			},
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
@@ -18,7 +18,7 @@ func ceraShopGameplayModule() gameplayModuleDefinition {
 				if !requireDefaultGameplayClassification(service, session, request, "game-cera-shop-purchase-blocked", "current_exe_op64_command_class_mismatch") {
 					return nil
 				}
-				return service.handleCurrentCeraShopPurchase(session, request.Body)
+				return service.handleCurrentCeraShopPurchase(session, request.Body, request.Sequence)
 			},
 		},
 	}

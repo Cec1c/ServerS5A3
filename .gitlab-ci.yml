@@ -60,16 +60,19 @@ default:
     - .cache/go/pkg/mod/
 build:
   stage: build
+  dependencies: []
   parallel:
     matrix:
     - TARGET_OS: [linux, windows]
       TARGET_ARCH: [amd64]
+      TARGET_COMPONENT: [server, control, doctor]
   script:
   - sh scripts/check-server-boundary.sh
   - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
-  - sh build.sh "$TARGET_OS" "$TARGET_ARCH"
-  # Pre-generate the unchanged dist/ ZIP and send a fixed-length multipart body.
-  # Runner's chunked streaming uploader repeatedly hit proxy HTTP 524 after builds.
+  - sh scripts/ci/test_build_components.sh
+  - sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
+  # Keep the same three programs and dist/ paths in separate downloadable jobs.
+  # A combined 50MB ZIP exceeds the proxy deadline on the regular runner route.
   - go run scripts/ci/artifacts/upload.go
 core-tests:
   stage: test
