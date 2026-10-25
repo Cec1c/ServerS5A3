@@ -25,7 +25,6 @@ INPUT_GATE = 0x06EC2340
 PASS = 0x06EC2380
 GROUP_HELPER = 0x06EC2180
 SECTION_RVA = 0x06EC2000
-NEW_VIRTUAL_SIZE = 0x500
 
 
 def require(condition, message):
@@ -305,9 +304,7 @@ def build(source):
     require(len(pred) <= DRAW - PRED, "predicate overlaps draw wrapper")
     require(PRED + len(pred) <= GROUP_HELPER, "predicate overlaps group helper")
     require(GROUP_HELPER + len(helper) <= DRAW, "group helper overlaps draw wrapper")
-    require(len(helper) <= NEW_VIRTUAL_SIZE - 0x400, "group helper exceeds section budget")
-    require(next((s["rva"] for s in pe.sections if s["rva"] > row["rva"]), 1 << 32) >=
-            row["rva"] + NEW_VIRTUAL_SIZE, "expanded section overlaps following section")
+    require(GROUP_HELPER + len(helper) <= PRED + row["virtual_size"], "group helper exceeds mapped section")
     require(set(pe.read(GROUP_HELPER, 0x180)) == {0}, "group helper destination is not zero-filled")
 
     out = bytearray(source)
@@ -320,7 +317,6 @@ def build(source):
     old_pred_end = pred_off + 339
     if len(pred) < 339:
         out[pred_off+len(pred):old_pred_end] = bytes(339 - len(pred))
-    struct.pack_into("<I", out, row["header"] + 8, NEW_VIRTUAL_SIZE)
     checksum_off = pe.opt + 64
     struct.pack_into("<I", out, checksum_off, pe_checksum(out, checksum_off))
     require(u32(out, checksum_off) == pe_checksum(out, checksum_off), "checksum failed")
@@ -329,7 +325,6 @@ def build(source):
     allowed = sorted([
         (pred_off, pred_off + max(339, len(pred))),
         (helper_off, helper_off + len(helper)),
-        (row["header"] + 8, row["header"] + 12),
         (checksum_off, checksum_off + 4),
     ])
     cursor = 0
