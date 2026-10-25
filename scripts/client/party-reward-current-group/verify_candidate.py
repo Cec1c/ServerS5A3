@@ -235,7 +235,7 @@ class Machine:
 
 def checked_code(pe, receipt, key, va, expected_va):
     entry = receipt[key]
-    require(entry["va"] == expected_va, f"{key} receipt VA changed")
+    require(int(entry["va"], 16) == va == int(expected_va, 16), f"{key} receipt VA changed")
     raw = pe.read(va, entry["size"])
     require(raw.hex() == entry["bytes"], f"{key} candidate bytes differ from receipt")
     require(hashlib.sha256(raw).hexdigest() == entry["sha256"], f"{key} candidate hash differs from receipt")

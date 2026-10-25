@@ -15,11 +15,15 @@ Behavior:
 Commands, when the main controller takes the serial shared lock:
 
 ```powershell
-python -B candidate-route2/build_candidate.py `
+python -B scripts/client/party-reward-current-group/build_candidate.py `
   --input-exe <fixed-v169.exe> `
   --output-dir <new-build-dir>
 
-python -B candidate-route2/verify_candidate.py `
+python -B scripts/client/party-reward-current-group/verify_candidate.py `
+  --build-dir <new-build-dir>
+
+python -B scripts/client/party-reward-current-group/verify_ordinary.py `
+  --input-exe <fixed-v169.exe> `
   --build-dir <new-build-dir>
 ```
 
@@ -32,6 +36,9 @@ Limits: synthetic objects only; no game, packet reader, GUI, resource/GPU or
 final reward request. A structurally malformed vector falls back to the old
 party gate; pointer-page validity is not proven by a userspace read.
 
-`build-v1/` and `build-v2/` are preserved pre-directive local exploration
-outputs. They were not accepted, are stale relative to the corrected
-malformed-vector fallback source and must not be published or deployed.
+The ordinary verifier reuses the existing 620-case native consumer matrix from
+`../party-reward-row`. It executes this candidate with a missing raid manager
+to exercise the original party gate, render, direct input, completion and
+callback paths. Negative controls restore the original vtable entries only in
+the synthetic test memory. Install the pinned validation dependency from
+`requirements-validation.txt` before running the verifiers.
