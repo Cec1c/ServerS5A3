@@ -15,6 +15,7 @@ func TestTagPreviouslyRewardedRoundsSkipPopupAndStillComplete(t *testing.T) {
 		for _, priorRounds := range []int{2, 99} {
 			t.Run(fmt.Sprintf("模式%d/已领%d", mode, priorRounds), func(t *testing.T) {
 				s, p := tagResultActionFixture(t, mode, false)
+				tagRewardPopupAdvanceClock(t, s, p)
 				g, _ := s.repositoryGroup()
 				old := p.tagTournamentBattle
 				request := old.prepared.runtime.Request
@@ -40,6 +41,7 @@ func TestTagPreviouslyRewardedRoundsSkipPopupAndStillComplete(t *testing.T) {
 				if err := s.handleDungeonSelectUpper(p, encodeCurrentDungeonSelectRequest(request)); err != nil || p.tagTournamentBattle == nil {
 					t.Fatal("当日免费重入失败", err)
 				}
+				tagRewardPopupAdvanceClock(t, s, p)
 				b := p.tagTournamentBattle
 				for stage := range b.plan.Encounters {
 					tagPlayMoveNext(t, s, p)
