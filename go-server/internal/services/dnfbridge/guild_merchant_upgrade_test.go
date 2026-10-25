@@ -118,7 +118,7 @@ func TestGuildMerchantUpgradeProductionAndReplay(t *testing.T) {
 }
 
 func TestGuildMerchantUpgradeRejectsWithoutMutation(t *testing.T) {
-	for _, kind := range []string{"short", "npc", "skip", "far", "not-ready", "wrong-town", "deleted", "no-purchase", "no-upgrade", "stale-session", "balance"} {
+	for _, kind := range []string{"short", "npc", "skip", "wrong-area", "not-ready", "wrong-town", "deleted", "no-purchase", "no-upgrade", "stale-session", "balance"} {
 		t.Run(kind, func(t *testing.T) {
 			s, p, repos, _ := guildMerchantFixture(t)
 			body := merchantUpgradeBody(390, 1, 2, 0xa5)
@@ -131,8 +131,8 @@ func TestGuildMerchantUpgradeRejectsWithoutMutation(t *testing.T) {
 				binary.LittleEndian.PutUint32(body[13:], 1500)
 			case "skip":
 				binary.LittleEndian.PutUint32(body[21:], 3)
-			case "far":
-				p.townPositionSnapshot.PositionX = 500
+			case "wrong-area":
+				p.townPositionSnapshot.AreaID = 7
 			case "not-ready":
 				p.townSceneReadyCharacterID = 0
 			case "wrong-town":

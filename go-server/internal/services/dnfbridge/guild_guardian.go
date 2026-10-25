@@ -108,7 +108,7 @@ func (s *Service) handleCurrentGuildGuardian(session *gameSession, request gamep
 				}
 				// A committed first purchase replaces the initial NPC. A receipt
 				// recovery in the same hall reads state without reapplying it.
-				return replay || scene.near(g, id, p.PositionX, p.PositionY)
+				return replay || scene.hasInteractionNPC(g, id)
 			},
 		}, catalog, s.gameplayNow())
 	}()

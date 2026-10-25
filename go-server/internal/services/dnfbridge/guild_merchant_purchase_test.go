@@ -103,7 +103,7 @@ func TestGuildMerchantPurchaseProductionAndReplay(t *testing.T) {
 }
 
 func TestGuildMerchantPurchaseProductionFailureACKAndRollback(t *testing.T) {
-	for _, kind := range []string{"short", "item", "npc", "level", "quantity", "far", "not-ready", "balance", "full"} {
+	for _, kind := range []string{"short", "item", "npc", "level", "quantity", "wrong-area", "not-ready", "balance", "full"} {
 		t.Run(kind, func(t *testing.T) {
 			s, p, repos := merchantPurchaseFixture(t)
 			ctx := context.Background()
@@ -120,8 +120,8 @@ func TestGuildMerchantPurchaseProductionFailureACKAndRollback(t *testing.T) {
 				binary.LittleEndian.PutUint32(body[12:], 422)
 			case "quantity":
 				binary.LittleEndian.PutUint32(body[4:], 1001)
-			case "far":
-				p.townPositionSnapshot.PositionX = 1
+			case "wrong-area":
+				p.townPositionSnapshot.AreaID = 7
 			case "not-ready":
 				p.townSceneReadyCharacterID = 0
 			case "balance":
