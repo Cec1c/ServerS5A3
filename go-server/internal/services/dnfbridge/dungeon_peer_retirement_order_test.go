@@ -61,7 +61,7 @@ func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
 						t.Fatal("retirement rebuilt an actor or restarted its connection")
 					}
 					if frame.msgID == 9 && len(frame.body) > 10 {
-						rows, _ := parseOp9PartyFrame(t, frame.body, true)
+						rows := parseRetirementCurrentRows(t, frame.body)
 						if len(rows) != count-1 {
 							t.Fatalf("remaining rows=%+v", rows)
 						}
@@ -115,6 +115,49 @@ func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Current owner0 records carry the actor +55 byte and extended inline member
+// identity. The legacy parser deliberately does not consume these fields.
+func parseRetirementCurrentRows(t *testing.T, body []byte) []op9PartyRow {
+	t.Helper()
+	if len(body) < 31 || body[9] != 0 {
+		t.Fatalf("invalid current roster: %x", body)
+	}
+	offset := 16 + int(binary.LittleEndian.Uint32(body[12:16])) + 14
+	if offset >= len(body) {
+		t.Fatal("truncated current actor")
+	}
+	count := int(body[offset])
+	offset++
+	rows := make([]op9PartyRow, 0, count)
+	for i := 0; i < count; i++ {
+		if offset+8 > len(body) {
+			t.Fatal("truncated current row")
+		}
+		row := op9PartyRow{slot: body[offset], uid: binary.LittleEndian.Uint16(body[offset+1:])}
+		offset += 8
+		for j := 0; j < 2; j++ {
+			if offset+4 > len(body) {
+				t.Fatal("truncated current identity length")
+			}
+			n := int(binary.LittleEndian.Uint32(body[offset:]))
+			offset += 4
+			if n > len(body)-offset {
+				t.Fatal("truncated current identity")
+			}
+			offset += n
+		}
+		if offset+4 > len(body) {
+			t.Fatal("truncated current identity tail")
+		}
+		offset += 4
+		rows = append(rows, row)
+	}
+	if offset+4 != len(body) {
+		t.Fatalf("current roster tail offset=%d len=%d", offset, len(body))
+	}
+	return rows
 }
 
 func TestDungeonPeerRetirementWriteFailurePreservesRemovalIdentity(t *testing.T) {
