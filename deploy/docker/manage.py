@@ -163,6 +163,22 @@ def generate(c, catalog):
     guild_ranking = c.get("guild_ranking_enabled", False)
     if type(guild_ranking) is not bool:
         raise ValueError("guild_ranking_enabled must be a boolean")
+    guild_essence = c.get("guild_essence_enabled", False)
+    if type(guild_essence) is not bool:
+        raise ValueError("guild_essence_enabled must be a boolean")
+    guardian_policy = c.get("guild_guardian_policy")
+    if "guild_guardian_policy" in c:
+        fields = {"first_purchase", "initial_level", "initial_skills", "first_select"}
+        if type(guardian_policy) is not dict or set(guardian_policy) != fields:
+            raise ValueError("guild_guardian_policy requires all four policy fields")
+        skills = guardian_policy["initial_skills"]
+        if (guardian_policy["first_purchase"] not in ("free_once", "paid")
+                or type(guardian_policy["initial_level"]) is not int
+                or not 1 <= guardian_policy["initial_level"] <= 50
+                or type(skills) is not list or len(skills) != 5
+                or any(type(v) is not int or not 0 <= v <= 5 for v in skills)
+                or type(guardian_policy["first_select"]) is not bool):
+            raise ValueError("guild_guardian_policy contains invalid policy values")
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
@@ -239,6 +255,8 @@ create_databases = false
     env = {
         "DNFBRIDGE_GUILD_SOLO_CREATE": str(solo_create).lower(),
         "DNFBRIDGE_GUILD_RANKING_ENABLED": str(guild_ranking).lower(),
+        "DNFBRIDGE_GUILD_ESSENCE_ENABLED": str(guild_essence).lower(),
+        "DNFBRIDGE_GUILD_GUARDIAN_POLICY": json.dumps(guardian_policy, separators=(",", ":")) if guardian_policy is not None else "",
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
         "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",
