@@ -11,7 +11,7 @@ import (
 
 var ErrSystemMailInvalid = errors.New("system mailbox delivery is invalid")
 
-// SystemMailDelivery is a server-owned, non-expiring mail created by a
+// SystemMailDelivery is a server-owned mail created by a
 // committed gameplay transaction. It deliberately has no player sender or
 // postage; callers must supply transaction-scoped MailboxRepository instances
 // so reward consumption and the durable mail commit together.
@@ -25,9 +25,11 @@ type SystemMailDelivery struct {
 	Attachments          []MailAttachment
 	Gold                 int64
 	CreatedAt            time.Time
+	// ExpireAt is optional; zero preserves the ordinary unlimited system mail.
+	ExpireAt time.Time
 }
 
-// AppendSystemMail appends one non-expiring system mail to a character's
+// AppendSystemMail appends one system mail to a character's
 // mailbox. It is safe to call only through the transaction supplied by the
 // relevant asset owner; this helper owns no transaction itself.
 func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery SystemMailDelivery) (string, error) {
@@ -60,6 +62,10 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	expires := delivery.ExpireAt.UTC()
+	if !expires.IsZero() && !expires.After(now) {
+		return "", ErrSystemMailInvalid
+	}
 	record.Mails[mailID] = MailRecord{
 		MailID:               mailID,
 		SenderCharacterID:    "0",
@@ -71,14 +77,15 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 		Attachments:          attachments,
 		Gold:                 delivery.Gold,
 		CreatedAt:            now,
-		// A system overflow delivery must remain claimable until the player
-		// makes room. A zero expiry is the repository's durable non-expiring
-		// representation and is projected as such by the mailbox owner.
+		ExpireAt:             expires,
 		Metadata: map[string]string{
 			"source":      strings.TrimSpace(delivery.Source),
 			"system_mail": "true",
 			"unlimited":   "true",
 		},
+	}
+	if !expires.IsZero() {
+		delete(record.Mails[mailID].Metadata, "unlimited")
 	}
 	if delivery.CompletionKey != "" {
 		mail := record.Mails[mailID]

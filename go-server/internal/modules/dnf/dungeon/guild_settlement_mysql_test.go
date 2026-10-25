@@ -16,14 +16,18 @@ import (
 )
 
 func TestGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T) {
-	testGuildSettlementMySQLAtomicConcurrentAndRestart(t, false)
+	testGuildSettlementMySQLAtomicConcurrentAndRestart(t, false, false)
 }
 
 func TestGuildRankingMySQLAtomicConcurrentAndRestart(t *testing.T) {
-	testGuildSettlementMySQLAtomicConcurrentAndRestart(t, true)
+	testGuildSettlementMySQLAtomicConcurrentAndRestart(t, true, false)
 }
 
-func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bool) {
+func TestGuildContributionMySQLAtomicMailConcurrentAndRestart(t *testing.T) {
+	testGuildSettlementMySQLAtomicConcurrentAndRestart(t, false, true)
+}
+
+func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking, contribution bool) {
 	dsn := os.Getenv("DNFBRIDGE_PLAYER_TEST_DSN")
 	if dsn == "" {
 		t.Skip("disposable MySQL DSN not configured")
@@ -67,6 +71,12 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 	character, _, _ := fixture.Character.Load(ctx, cmd.CharacterID)
 	skill, _, _ := fixture.Skill.Load(ctx, cmd.CharacterID)
 	inv, _, _ := fixture.Inventory.Load(ctx, cmd.CharacterID)
+	if contribution {
+		inv.Slots = map[string]r.ItemStack{}
+		for i := 177; i <= 232; i++ {
+			inv.Slots[fmt.Sprint("0:", i)] = r.ItemStack{ItemID: int64(1000 + i), Count: 1}
+		}
+	}
 	if err := g.Account.Save(ctx, account); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +103,10 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 		t.Fatal(err)
 	}
 	cmd.CharacterID = "1"
+	if contribution {
+		contributionMatureMembership(t, g, cmd.UpdatedAt)
+		cmd.GuildContribution = &GuildContributionClear{Contract: contributionSettlementContract(t, g), Activity: guild.ContributionActivity{Event: guild.ContributionPartyClear, CompletionKey: cmd.CompletionKey, PartyMembers: []r.GuildOwner{{AccountID: cmd.AccountID, CharacterID: "1"}, {AccountID: cmd.AccountID, CharacterID: "2"}}, FrozenGuilds: map[string]guild.ContributionMembership{"1": {GuildID: 1, JoinedAt: cmd.UpdatedAt.Add(-48 * time.Hour)}, "2": {GuildID: 1, JoinedAt: cmd.UpdatedAt.Add(-48 * time.Hour)}}}, Revalidate: func() bool { return true }}
+	}
 	if ranking {
 		cmd.GuildRanking = &guild.RankingPartyClear{DungeonID: 247, StartedAt: cmd.UpdatedAt,
 			Members: []r.GuildOwner{{AccountID: cmd.AccountID, CharacterID: "1"}, {AccountID: cmd.AccountID, CharacterID: "2"}},
@@ -121,6 +135,12 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 	if !reflect.DeepEqual(beforeC, afterC) || !reflect.DeepEqual(beforeS, afterS) || !reflect.DeepEqual(beforeG, afterG) {
 		t.Fatal("SQL failure retained partial award")
 	}
+	if contribution {
+		box, _, err := fresh.Mailbox.Load(ctx, "1")
+		if err != nil || len(box.Mails) != 0 {
+			t.Fatal("SQL failure retained mail", err)
+		}
+	}
 	if _, found, err := fresh.Settings.Load(ctx, r.GuildSettlementReceiptScope(r.GuildOwner{AccountID: cmd.AccountID, CharacterID: "1"}, cmd.CompletionKey)); err != nil || found {
 		t.Fatal("failed receipt remained")
 	}
@@ -147,6 +167,11 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 	o, _ = NewOwner(newGroup())
 	second := cmd
 	second.CompletionKey = "another-clear"
+	if contribution {
+		c := *second.GuildContribution
+		c.Activity.CompletionKey = second.CompletionKey
+		second.GuildContribution = &c
+	}
 	if _, err := o.CommitSettlement(ctx, second); err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +183,22 @@ func testGuildSettlementMySQLAtomicConcurrentAndRestart(t *testing.T, ranking bo
 	}
 	if history := reg.Guilds[1].MileageHistory; len(history) != 3 || history[0].Kind != guild.MileageHistoryDungeon || history[0].Amount != 10 {
 		t.Fatalf("SQL dungeon history/replay=%+v", history)
+	}
+	if contribution {
+		for id, want := range map[string]int{"1": 2, "2": 1} {
+			box, _, err := newGroup().Mailbox.Load(ctx, id)
+			if err != nil || len(box.Mails) != want || reg.Guilds[1].Members[id].ContributionPoints != uint32(want) {
+				t.Fatal("mail/contribution replay mismatch", id, box, err)
+			}
+			for _, m := range box.Mails {
+				if len(m.Attachments) != 1 || m.Attachments[0].ItemID != guild.ContributionCoinID || m.Attachments[0].Count != 1 || m.ExpireAt.Sub(m.CreatedAt) != 15*24*time.Hour {
+					t.Fatal(m)
+				}
+			}
+		}
+		if replayed.GuildContribution.Points != 1 || !replayed.GuildContribution.Replayed {
+			t.Fatal(replayed.GuildContribution)
+		}
 	}
 	if ranking {
 		if reg.Guilds[1].RankingActivity.PartyClear != 15 || replayed.GuildRanking.Points != 5 {
