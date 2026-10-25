@@ -143,6 +143,11 @@ func TestProfessionChangeTrialReturnAndReentryRealPVF(t *testing.T) {
 			if err != nil || !found {
 				t.Fatalf("读取正式角色失败：found=%t error=%v", found, err)
 			}
+			// The ordinary selector now projects account-wide admission counts.
+			// Seed the authenticated account as a real login does.
+			if err := repositories.Account.Save(ctx, repo.AccountRecord{AccountID: character.AccountID}); err != nil {
+				t.Fatal("保存正式账号夹具失败", err)
+			}
 			character.Stats[inventory.ProfessionChangeCountKey] = 1
 			character.Stats["gold"] = tc.gold
 			character.Stats["town_id"], character.Stats["area_id"] = 38, 1
