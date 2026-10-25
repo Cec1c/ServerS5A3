@@ -78,7 +78,7 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 	return &v
 }
 
-// A displayed FiendWar party page can close locally without sending
+// A displayed final Luke/FiendWar party page can close locally without sending
 // 660. Give each owner a bounded choice window after their actual display, while
 // retaining the original unattended deadline for absent or still-loading peers.
 // Twenty seconds is server policy, not a claimed MOVIE END TIME field meaning.
@@ -86,7 +86,7 @@ const currentRaidDisplayedPartyChoiceWindow = 20 * time.Second
 
 func (s *Service) markCurrentRaidPartySelectionShownLocked(instance string, phase byte, character uint16, at time.Time) {
 	f := s.antonRewardFlows[currentAntonFlowKey(instance, phase)]
-	if f == nil || at.IsZero() || f.Mode != 3 {
+	if f == nil || at.IsZero() || !(f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single) {
 		return
 	}
 	for _, owner := range f.Recipients {
@@ -304,7 +304,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			for _, owner := range owners {
 				s.raidMu.Lock()
 				selectAt := f.AutoSelectAt
-				if f.Mode == 3 && !f.PartySelectAfter[owner.CharacterID].IsZero() {
+				if (f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single) && !f.PartySelectAfter[owner.CharacterID].IsZero() {
 					selectAt = f.PartySelectAfter[owner.CharacterID]
 				}
 				if kind == 1 && now.Before(selectAt) {
@@ -374,7 +374,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		for _, seconds := range f.Configuration.MovieEndSeconds {
 			movie = max(movie, seconds)
 		}
-		if all && !now.Before(f.SquadShownAt.Add(time.Duration(movie)*time.Second)) {
+		if all && (currentLukePhase0PartyOnlyRewardSettled(f) || !now.Before(f.SquadShownAt.Add(time.Duration(movie)*time.Second))) {
 			f.FinishedAt = now
 			if f.Mode != 3 && !f.Single && f.Phase == 0 {
 				f.BreakUntil = now.Add(time.Duration(f.Configuration.PhaseBreakSeconds) * time.Second)

@@ -15,6 +15,7 @@ func (r *Registry) ObserveMemberOnline(owner dnfrepo.GuildOwner, at time.Time) b
 		return false
 	}
 	member.LastOnlineAt = at
+	member.observeRankingPresence(at)
 	g.Members[owner.CharacterID] = member
 	return true
 }

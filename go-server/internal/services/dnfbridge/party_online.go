@@ -314,6 +314,27 @@ func (s *Service) handleOnlineLeaveParty(session *gameSession, typ uint16) error
 			nextState, result, removed = repairedState, repairedResult, true
 		}
 	}
+	// Keep the existing leave ACK/ordinary-party packet order. The raid list
+	// is a separate projection and must also learn that this member is solo.
+	// Use the manager's pre-mutation membership rather than a stale session
+	// cache when deciding which remaining singleton needs the same refresh.
+	previous := alignedcmd.PartyState{}
+	if result.Previous != nil {
+		previous = result.Previous.StateFor(identity.character)
+	}
+	defer func() {
+		if s.options.currentClientVersion != "official-24.9" || !s.boundGameSessionCharacterCurrent(identity) {
+			return
+		}
+		// Only the idempotent retry path must force a resend when no marker
+		// changed. Removed members also pass through the ordinary-party removal
+		// helpers, which refresh only an actual change and avoid duplicate 591s.
+		s.refreshCurrentRaidSoloForPartyMembers(
+			runtimePartySoloMemberIDs(previous, alignedcmd.PartyState{}, identity.character),
+			"ordinary_party_leave",
+			!removed,
+		)
+	}()
 	if !removed {
 		// 走到这里只剩两种可能：①（repair 档）管理器里确实已经没有这个角色了，
 		// 客户端还留着一份投影残留；②`legacy` 回退档下代际漂移的情形。
@@ -974,6 +995,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 			"reason", result.Reason)
 		return nil
 	}
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_invite_accept")
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return err
 	}
@@ -1060,6 +1082,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 			"reason", result.Reason)
 		return s.sendPartyCommandFailure(session, typ, entryIntoPartyFailureFull)
 	}
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_entry_into_party")
 	if err := s.sendGameUpperRawClassCodec(session, typ, party.BuildEntryIntoPartyAck(parsed.TargetID, uint32(session.selectedCharacterID)), dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
 	}
@@ -1128,6 +1151,30 @@ func (s *Service) sendPartyCommandFailure(session *gameSession, typ uint16, code
 }
 
 func (s *Service) sendRuntimePartySnapshot(session *gameSession, state alignedcmd.PartyState) error {
+	// A leader transfer can retire the old party without going through
+	// broadcastRuntimePartyMemberRemoved. Its survivors receive an empty party
+	// snapshot here. Reconcile that current character's raid presentation after
+	// the party packet so a remaining singleton does not keep the old group icon.
+	if state.PartyID <= 0 {
+		if identity, current := s.boundGameSessionCharacterSnapshot(session); current {
+			if manager := s.runtimePartyManagerForService(); manager != nil {
+				if currentParty, found := manager.SnapshotByUser(identity.character, 0); found && len(currentParty.Members) < 2 {
+					ids := []uint16{identity.character}
+					if raid, inRaid := s.runtimeRaidForMember(identity.character); inRaid && raid.CurrentLayout && raid.RouteOrRaidType <= 1 {
+						ids = ids[:0]
+						for _, member := range raid.Members {
+							ids = append(ids, member.CharID)
+						}
+					}
+					defer s.refreshCurrentRaidSoloForPartyMembers(
+						ids,
+						"ordinary_party_projection_cleared",
+						false,
+					)
+				}
+			}
+		}
+	}
 	return s.sendRuntimePartySnapshotMode(session, state, s.partyPeerEndpointsAfterRoster())
 }
 
@@ -1540,6 +1587,15 @@ func canonicalRuntimePartyStateForRealtimeInfo(state alignedcmd.PartyState) alig
 }
 
 func (s *Service) broadcastRuntimePartyMemberRemoved(previousState, nextState alignedcmd.PartyState, removedID uint16, skip *gameSession) error {
+	// Any ordinary-party removal can leave the departing member or a survivor
+	// in a singleton lobby while both remain in the raid. Refresh after the
+	// party packets; explicit leave still owns an idempotent resend on a command
+	// retry, while this deferred refresh only publishes an actual marker change.
+	defer s.refreshCurrentRaidSoloForPartyMembers(
+		runtimePartySoloMemberIDs(previousState, nextState),
+		"ordinary_party_membership_removed",
+		false,
+	)
 	members := runtimePartyMembers(nextState)
 	if nextState.PartyID <= 0 {
 		members = runtimePartyMembers(previousState)

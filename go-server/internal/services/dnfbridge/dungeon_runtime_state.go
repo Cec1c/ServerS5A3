@@ -36,6 +36,8 @@ var (
 )
 
 type runtimeDungeonState struct {
+	guildDungeonClear            *dnfdungeon.GuildDungeonClear
+	settlementGuildDungeonSent   bool
 	ridableReportLastSequence    uint64
 	ridableReportChannelID       int
 	ridableReportChannelType     byte
@@ -56,10 +58,12 @@ type runtimeDungeonState struct {
 	raidEntry                    *currentRaidDungeonEntry
 	fiendWarRetreatKeepsParty    bool
 	antonMapReturnOwner          *currentAntonMapReturnOwner
+	lukeClosedEnergyReturn       *currentLukeClosedEnergyReturnOwner
 	antonHatcheryTransfer        *currentAntonHatcheryTransfer
 	deathStateSent               bool
 	riftLoot                     *currentRiftLootDefinition
 	fatigueRooms                 map[worldmap.RoomCoordinate]bool
+	fatigueStartDebited          bool
 	Request                      dungeoncmd.SelectDungeonRequest
 	Dungeon                      worldmap.Dungeon
 	MazeIndex                    int
@@ -161,6 +165,7 @@ type runtimeDungeonState struct {
 	settlementCardAutoFlipGeneration     uint64
 	settlementCardAutoFlipTimerName      string
 	settlementCardExitAckSent            bool
+	townReturnAckSent                    bool
 	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
 	settlementMonsterExperienceTotal     uint32
@@ -1066,6 +1071,10 @@ func (s *Service) dungeonQuestRecord(ctx context.Context, characterID uint16) (d
 func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Dungeon, session *gameSession) error {
 	partyCount := currentDungeonPartyCount(session)
 	fatigue, fatigueKnown := dnfdungeon.CharacterStat(character.Stats, "fatigue", "fp", "疲劳")
+	fatigueCost, _, err := currentDungeonStartFatigueRule(dungeon)
+	if err != nil {
+		return err
+	}
 	return dnfdungeon.ValidateEntry(dnfdungeon.EntryPolicy{
 		CharacterLevel:      character.Level,
 		MinimumLevel:        dungeon.Metadata.MinimumRequiredLevel.Value,
@@ -1077,6 +1086,7 @@ func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Du
 		EnterWithoutFatigue: dungeon.Metadata.Flags["enter without fatigue"],
 		Fatigue:             fatigue,
 		FatigueKnown:        fatigueKnown,
+		FatigueCost:         fatigueCost,
 	})
 }
 

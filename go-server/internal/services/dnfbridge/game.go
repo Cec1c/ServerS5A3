@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,6 +32,8 @@ type gameSession struct {
 	guildBuffs                          guildBuffProjection
 	guild                               guildSessionState
 	initialTownGuildStateProjectionSent bool
+	guildEssenceLoginRetry              boundGameSessionCharacter // protected by townMu; exact failed login generation
+	guildContributionLoginRetry         boundGameSessionCharacter // protected by townMu; same completed-login event
 	pendingTitleEnchantCharacterID      uint16
 	pendingTitleEnchantRow              *currentItemListEntry
 	pendingGuardianGemCharacterID       uint16
@@ -49,6 +52,7 @@ type gameSession struct {
 	accountFromPID bool
 	// accountFromToken 表示账号来自启动器登录令牌，这是唯一权威来源。
 	accountFromToken bool
+	loginRevoked     atomic.Bool // A successful replacement fences all subsequent work.
 	// loginTokenSeen 表示登录包里确实读到了 32 位十六进制令牌（无论是否解析出账号）。
 	loginTokenSeen bool
 	// loginPacketSeen 表示客户端已经交过 class1/op1 登录包：此后账号不会再变。
@@ -241,6 +245,7 @@ type gameSession struct {
 	postFinishLoadingPlayerStateSent   bool
 	returnTownFinishLoadingAckOnly     bool
 	confirmedDungeonReturnStatePending bool
+	selectorReturnPresence             *currentSelectorReturnPresence // guarded by dungeon.mu
 	initialTownRouteCharacterID        uint16
 	initialTownRouteStage              currentInitialTownRouteStage
 	initialTownActorSceneSnapshotSent  bool
@@ -331,7 +336,11 @@ type gameSession struct {
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.
-	equipmentProjectionMu          sync.Mutex
+	equipmentProjectionMu sync.Mutex
+	// Serializes the final cross-scene profile write with appearance invalidation.
+	// No repository work is performed while this mutex is held.
+	crossSceneAppearanceMu         sync.Mutex
+	crossSceneAppearanceRevision   uint64
 	avatarAppearanceMu             sync.Mutex
 	avatarAppearanceLastAt         time.Time
 	avatarAppearanceTimer          string

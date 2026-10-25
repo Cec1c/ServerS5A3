@@ -193,6 +193,8 @@ func buildCurrentFatiguePotionUsageBodies(
 	return bodies, true
 }
 
+// Existing fatigue/login/timer entrypoints now project all durable item-use
+// counters together so a fatigue refresh cannot erase weekly box counts.
 func (s *Service) sendCurrentFatiguePotionUsage(
 	_ context.Context,
 	session *gameSession,
@@ -200,7 +202,7 @@ func (s *Service) sendCurrentFatiguePotionUsage(
 	inventory dnfrepo.InventoryRecord,
 	source string,
 ) error {
-	if !hasCurrentFatiguePotionUsageHistory(character) {
+	if !hasCurrentItemUsageHistory(character) {
 		return nil
 	}
 	catalog, err := s.currentPVFItemCatalog()
@@ -208,12 +210,12 @@ func (s *Service) sendCurrentFatiguePotionUsage(
 		s.logGameEvent(session, "game-fatigue-potion-usage-projection-deferred", "source", source, "error", err)
 		return nil
 	}
-	bodies, ok := buildCurrentFatiguePotionUsageBodies(character, inventory, s.gameplayNow(), catalog, catalog.source)
+	bodies, ok := buildCurrentItemUsageBodies(character, inventory, s.gameplayNow(), catalog, catalog.source)
 	if !ok {
 		s.logGameEvent(session, "game-fatigue-potion-usage-projection-skipped",
 			"char_id", character.CharacterID,
 			"source", source,
-			"reason", "no_current_fatigue_potion_daily_definition")
+			"reason", "no_current_item_usage_definition")
 		return nil
 	}
 	for _, body := range bodies {
@@ -224,6 +226,7 @@ func (s *Service) sendCurrentFatiguePotionUsage(
 			"char_id", character.CharacterID,
 			"source", source,
 			"daily_count", body[0],
+			"weekly_count", body[1+int(body[0])*5],
 			"body_len", len(body))
 	}
 	return nil
@@ -235,7 +238,7 @@ func (s *Service) sendCurrentFatiguePotionUsageForCharacter(
 	character dnfrepo.CharacterRecord,
 	source string,
 ) error {
-	if !hasCurrentFatiguePotionUsageHistory(character) {
+	if !hasCurrentItemUsageHistory(character) {
 		return nil
 	}
 	repos, ok := s.repositoryGroup()

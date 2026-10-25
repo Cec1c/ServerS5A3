@@ -43,5 +43,10 @@ func (s *Service) handleCurrentGuildRefresh(session *gameSession, request gamepl
 		return nil
 	}
 	s.logGameEvent(session, "game-guild-refresh", "guild_id", g.ID, "members", len(g.Members))
-	return s.sendGameUpperRawClass(session, 70, buildCurrentGuildManagementBody(g, len(s.currentGuildOnlineChannels(g, session)), s.gameplayNow(), member.Grade), 0)
+	if err := s.sendGameUpperRawClass(session, 70, buildCurrentGuildManagementBody(g, len(s.currentGuildOnlineChannels(g, session)), s.gameplayNow(), member.Grade), 0); err != nil {
+		return err
+	}
+	s.refreshOptionalGuildEssenceLocked(ctx, session, source)
+	s.retryOptionalGuildContributionAttendanceLocked(ctx, session, source)
+	return nil
 }

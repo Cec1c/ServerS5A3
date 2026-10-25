@@ -20,6 +20,7 @@ const (
 	currentTownPostTransitionMode0Sent
 	currentTownPostTransitionMode1Sent
 	currentTownPostTransitionCreatureTableSent
+	currentTownPostTransitionCreatureItemSent
 	currentTownPostTransitionCreatureGrowthSent
 	currentTownPostTransitionFinishStateSent
 	currentTownPostTransitionFinishCompletionSent
@@ -146,10 +147,12 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		session.townPostTransition.stage = currentTownPostTransitionMode0Sent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionMode1Sent {
-		if err := s.sendSelectedActorMode1AppearanceRefresh(
+		if err := s.sendSelectedActorMode1AppearanceWithPostState(
 			session,
 			"town_post_transition",
 			source+"_mode1_native_owner",
+			false,
+			false,
 		); err != nil {
 			return err
 		}
@@ -163,6 +166,12 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 			return err
 		}
 		session.townPostTransition.stage = currentTownPostTransitionCreatureTableSent
+	}
+	if session.townPostTransition.stage < currentTownPostTransitionCreatureItemSent {
+		if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_slot26_after_op105"); err != nil {
+			return err
+		}
+		session.townPostTransition.stage = currentTownPostTransitionCreatureItemSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionCreatureGrowthSent {
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
