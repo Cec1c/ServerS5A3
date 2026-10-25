@@ -11,6 +11,8 @@ func TestDungeonLastRemoteDepartureClearsHUDKeepsSurvivorInstance(t *testing.T) 
 		t.Run(fmt.Sprint(departing), func(t *testing.T) {
 			f := newLeaderExitFixture(t)
 			f.service.options.currentClientVersion = "official-24.9"
+			f.leader.channel.ID, f.member.channel.ID = 11, 11
+			f.leader.townActorOwnerChannel, f.member.townActorOwnerChannel = 0, 0
 			manager := f.service.runtimePartyManagerForService()
 			before, _ := manager.SnapshotByUser(99, 0)
 			round69AlignInstancePartyID(t, f, before.ID)
@@ -30,6 +32,7 @@ func TestDungeonLastRemoteDepartureClearsHUDKeepsSurvivorInstance(t *testing.T) 
 			}
 			frames := splitUpperFrames(t, survivor.conn.(*bufferConn).write.Bytes())
 			var keys []uint16
+			var owners []byte
 			removed, hp := false, false
 			for _, frame := range frames {
 				switch frame.msgID {
@@ -40,8 +43,9 @@ func TestDungeonLastRemoteDepartureClearsHUDKeepsSurvivorInstance(t *testing.T) 
 						t.Fatal("survivor HUD redeclared or record retired after actor")
 					}
 					keys = append(keys, binary.LittleEndian.Uint16(frame.body[4:6]))
+					owners = append(owners, frame.body[7])
 				case currentTownUserLeaveMsgID:
-					if len(keys) != 2 || binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != departing {
+					if len(keys) != 4 || binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != departing {
 						t.Fatal("wrong active actor removal")
 					}
 					removed = true
@@ -52,8 +56,11 @@ func TestDungeonLastRemoteDepartureClearsHUDKeepsSurvivorInstance(t *testing.T) 
 					hp = true
 				}
 			}
-			if len(keys) != 2 || keys[0] != departing || keys[1] != survivor.selectedCharacterID || !removed || !hp {
+			if len(keys) != 4 || keys[0] != departing || keys[1] != survivor.selectedCharacterID || keys[2] != departing || keys[3] != survivor.selectedCharacterID || !removed || !hp {
 				t.Fatalf("incomplete retirement keys=%v remove=%v hp=%v", keys, removed, hp)
+			}
+			if string(owners) != string([]byte{11, 11, 0, 0}) {
+				t.Fatalf("retired contexts=%v; want current town then dungeon", owners)
 			}
 			if survivor.dungeon.runtime != retained || retained.partyInstance != f.instance {
 				t.Fatal("survivor instance changed")

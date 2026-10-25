@@ -108,6 +108,9 @@ func TestPartyMemberGiveupKeepsLeaderRuntimeAndRetiresOldClientRecords(t *testin
 					if len(frame.body) != 10 || frame.body[9] != 3 || actorRemoved {
 						t.Fatal("survivor HUD redeclared or record retired after actor removal")
 					}
+					if frame.body[7] != 0 {
+						continue // Current-town records are additionally retired first.
+					}
 					retired = append(retired, binary.LittleEndian.Uint16(frame.body[4:6]))
 				case currentTownUserLeaveMsgID:
 					if len(retired) != 2 || len(frame.body) < 2 || binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != 100 {

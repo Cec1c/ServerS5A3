@@ -119,6 +119,10 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 			// identity. Requires the client local-actor-preserving kind3 helper:
 			// deleting the local party record must not destroy its living model.
 			retired := []alignedcmd.PartyMemberState{{UserID: departingID}, member}
+			if err := s.clearDungeonSurvivorTownPartyRecords(receiver, retired, "member_giveup_single_survivor"); err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
 			if err := s.clearDisbandedDungeonPartyRecords(receiver, retired, 0, false, "member_giveup_single_survivor"); err != nil {
 				errs = errors.Join(errs, err)
 				continue
