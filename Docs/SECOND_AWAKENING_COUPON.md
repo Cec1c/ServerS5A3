@@ -21,3 +21,8 @@ Regression tests cover request shape, source identity, ownership, level/stage/pr
 Native acceptance of the same coupon implementation on a private integration build: two ordinary-class fixtures completed second awakening and retained it after full relogin; a live ordinary-class role used item10164039, consumed one, used a second-awakening skill in a dungeon, received the first-awakening-only rejection on reuse without consumption, and retained awakening after a full relogin. Local low-level refusal was also observed. This does not establish every class/item variant or native acceptance of unrelated changes in the latest upstream base. No player identifiers, resources, credentials or private integration features are included.
 
 No schema migration. A code rollback must preserve committed character progress; do not restore an old full database over later gameplay.
+
+
+## 2026-10-25 补充
+
+二次觉醒券提交后从同一次提交先发送活动任务快照，再发送已完成表和可接列表，避免空活动列表清空客户端完成缓存。补充真实PVF下的报文顺序与重复使用零变更回归。

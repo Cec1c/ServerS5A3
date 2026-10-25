@@ -229,10 +229,12 @@ func (s *Service) handleCurrentSecondAwakeningCoupon(p *gameSession, r currentQu
 	if err = s.sendCurrentAwakeningCouponSnapshots(ctx, p, result); err != nil {
 		return true, err
 	}
-	if err = s.sendCurrentClearQuestListFromCommittedQuest(p, result.Quests, "second_awakening_coupon"); err != nil {
+	// The native empty active list clears the completed-quest cache. Project
+	// both from this commit, with the completed table following the active list.
+	if err = s.sendCurrentActiveQuestSnapshotFromCommittedQuest(p, result.Quests, "second_awakening_coupon"); err != nil {
 		return true, err
 	}
-	if err = s.sendCurrentActiveQuestSnapshotForSession(p, "second_awakening_coupon"); err != nil {
+	if err = s.sendCurrentClearQuestListFromCommittedQuest(p, result.Quests, "second_awakening_coupon"); err != nil {
 		return true, err
 	}
 	return true, s.sendCurrentAcceptableQuestListOnlyForSession(p, "second_awakening_coupon")
