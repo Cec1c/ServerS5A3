@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"testing"
 )
@@ -205,12 +206,16 @@ func TestAppendedEpicRoadBossDeathPickupAndReplay(t *testing.T) {
 
 func TestAppendedEpicRoadActualPoolsAndRate(t *testing.T) {
 	s, _, _, _, _ := prepareAuditActual6063Owner(t)
-	for _, id := range []int64{6063, 6064, 6065} {
+	for tier, id := range []int64{6063, 6064, 6065} {
 		d, err := s.prepareCurrentEpicRoadLoot(id)
 		if err != nil {
 			t.Fatal(id, err)
 		}
-		if len(d.Equipment) < 200 || d.EpicRate != 0.5 || d.FragmentCount != 0 || d.MultiEpicCount {
+		wantRate := [...]float64{0.10, 0.15, 0.20}[tier]
+		if tickets, ok := dnfdungeon.EpicEntryTicketCount(id); !ok || tickets != [...]int64{30, 45, 60}[tier] {
+			t.Fatal("probability tier does not match paid entry", id, tickets)
+		}
+		if len(d.Equipment) < 200 || d.EpicRate != wantRate || d.FragmentCount != 0 || d.MultiEpicCount {
 			t.Fatal(id, "incorrect policy", len(d.Equipment), d.EpicRate)
 		}
 		allowed := map[uint32]bool{}
@@ -231,8 +236,9 @@ func TestAppendedEpicRoadActualPoolsAndRate(t *testing.T) {
 				hits++
 			}
 		}
-		if hits < 4700 || hits > 5300 {
-			t.Fatal(id, "unexpected 50% sample", hits)
+		wantHits := int(wantRate * 10000)
+		if hits < wantHits-150 || hits > wantHits+150 {
+			t.Fatal(id, "unexpected tier probability sample", hits, wantRate)
 		}
 		t.Logf("dungeon %d exact pool %d, actual rate %.2f, sample %d/10000", id, len(d.Equipment), d.EpicRate, hits)
 	}

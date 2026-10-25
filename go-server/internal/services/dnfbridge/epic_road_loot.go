@@ -12,7 +12,7 @@ func (s *Service) currentEpicRoadLootEnabled(id int64) bool {
 }
 
 // These event bosses are ordinary actors, so they never reach the abyss-wave
-// reward path. Their own particularhellparty pool and probability are frozen
+// reward path. Their own particularhellparty pool and approved probability are frozen
 // before admission; dungeon 316's multi-epic policy and fragment guarantee do
 // not apply to the event's three separately declared pools.
 func (s *Service) prepareCurrentEpicRoadLoot(id int64) (*currentRiftLootDefinition, error) {
@@ -30,6 +30,19 @@ func (s *Service) prepareCurrentEpicRoadLoot(id int64) (*currentRiftLootDefiniti
 	definition, err := parseCurrentParticularHellLoot(text, id)
 	if err != nil {
 		return nil, err
+	}
+	// Paid Epic Road tiers have distinct encounter probabilities. The shared
+	// inferno-weapon rate belongs to the particular-hell configuration; it
+	// must not make all three ticket prices award epics at the same 50% rate.
+	switch id {
+	case 6063: // 30 invitations
+		definition.EpicRate = 0.10
+	case 6064: // 45 invitations
+		definition.EpicRate = 0.15
+	case 6065: // 60 invitations
+		definition.EpicRate = 0.20
+	default:
+		return nil, fmt.Errorf("unsupported epic road probability dungeon %d", id)
 	}
 	drops, err := monsters.DropCatalog()
 	if err != nil {
