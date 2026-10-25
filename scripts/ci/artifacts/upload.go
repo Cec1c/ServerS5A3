@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -105,6 +107,29 @@ func artifactClient() *http.Client {
 	return &http.Client{Transport: transport, Timeout: 150 * time.Second}
 }
 
+// Classify transport failures without logging endpoints, headers or raw errors.
+func transportFailure(err error) string {
+	if err == nil {
+		return "none"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, io.EOF) {
+		return "eof"
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return "unexpected_eof"
+	}
+	s := strings.ToLower(err.Error())
+	for _, kind := range []string{"connection reset by peer", "broken pipe", "malformed http response", "http: server gave http response to https client", "tls:", "timeout", "connection refused"} {
+		if strings.Contains(s, kind) {
+			return strings.ReplaceAll(kind, " ", "_")
+		}
+	}
+	return "other"
+}
+
 func upload(ctx context.Context, client *http.Client, target, token, name string, archive *os.File, pause func(context.Context, time.Duration) error) error {
 	if token == "" {
 		return errors.New("CI_JOB_TOKEN is required")
@@ -131,7 +156,17 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 	for attempt := 1; attempt <= 3; attempt++ {
 		body := &countedBody{reader: io.MultiReader(bytes.NewReader(head), io.NewSectionReader(archive, 0, stat.Size()), bytes.NewReader(tail))}
 		var wroteRequest atomic.Bool
-		trace := &httptrace.ClientTrace{WroteRequest: func(info httptrace.WroteRequestInfo) { wroteRequest.Store(info.Err == nil) }}
+		var wroteAfter atomic.Int64
+		var alpn atomic.Value
+		alpn.Store("none")
+		started := time.Now()
+		trace := &httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) {
+				wroteRequest.Store(info.Err == nil)
+				wroteAfter.Store(time.Since(started).Milliseconds())
+			},
+			TLSHandshakeDone: func(state tls.ConnectionState, _ error) { alpn.Store(state.NegotiatedProtocol) },
+		}
 		req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodPost, target, body)
 		if err != nil {
 			return errors.New("cannot create artifact upload request")
@@ -139,7 +174,6 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 		req.ContentLength = contentLength
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		req.Header.Set("JOB-TOKEN", token)
-		started := time.Now()
 		resp, sendErr := boundedClient.Do(req)
 		code := 0
 		protocol := "none"
@@ -150,8 +184,8 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 			_ = resp.Body.Close()
 		}
-		fmt.Printf("Artifact transfer: attempt=%d elapsed=%.3fs request_read=%d/%d wrote_request=%t protocol=%s HTTP=%d\n",
-			attempt, time.Since(started).Seconds(), body.read.Load(), contentLength, wroteRequest.Load(), protocol, code)
+		fmt.Printf("Artifact transfer: attempt=%d elapsed=%.3fs request_read=%d/%d wrote_request=%t wrote_after_ms=%d alpn=%q protocol=%s HTTP=%d failure=%s\n",
+			attempt, time.Since(started).Seconds(), body.read.Load(), contentLength, wroteRequest.Load(), wroteAfter.Load(), alpn.Load(), protocol, code, transportFailure(sendErr))
 		if sendErr == nil && code == http.StatusCreated {
 			fmt.Printf("Artifact upload completed: HTTP 201, %d archive bytes\n", stat.Size())
 			return nil

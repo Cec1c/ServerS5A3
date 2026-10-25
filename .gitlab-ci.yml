@@ -46,6 +46,16 @@ workflow:
 stages:
 - build
 - test
+artifact-upload-probe:
+  stage: .pre
+  cache: []
+  variables:
+    TARGET_OS: linux
+    TARGET_ARCH: amd64
+  script:
+  - mkdir -p dist
+  - head -c 1048576 /dev/urandom > dist/upload-probe.bin
+  - go run scripts/ci/artifacts/upload.go
 variables:
   GOTOOLCHAIN: local
   CGO_ENABLED: "0"
