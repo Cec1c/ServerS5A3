@@ -26,6 +26,29 @@ func TestCountedBodyReportsBytesRead(t *testing.T) {
 	}
 }
 
+func TestArtifactClientUsesHTTP1WhenServerOffersHTTP2(t *testing.T) {
+	f, _ := archiveFixture(t)
+	protocol := 0
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol = r.ProtoMajor
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+	client := artifactClient()
+	transport := client.Transport.(*http.Transport)
+	transport.TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	defer transport.CloseIdleConnections()
+	if err := upload(context.Background(), client, srv.URL, "fixture-token", "build.zip", f, noPause); err != nil {
+		t.Fatal(err)
+	}
+	if protocol != 1 {
+		t.Fatalf("artifact upload negotiated HTTP/%d, want HTTP/1", protocol)
+	}
+}
+
 func archiveFixture(t *testing.T) (*os.File, []byte) {
 	t.Helper()
 	root := t.TempDir()

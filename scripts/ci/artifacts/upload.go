@@ -96,6 +96,15 @@ func endpoint(api, job string) (string, error) {
 	return u.String(), nil
 }
 
+func artifactClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Keep fixed-length artifacts on HTTP/1.1: the affected upload route accepts
+	// the HTTP/2 request body but times out before returning an artifact receipt.
+	transport.Protocols = new(http.Protocols)
+	transport.Protocols.SetHTTP1(true)
+	return &http.Client{Transport: transport, Timeout: 150 * time.Second}
+}
+
 func upload(ctx context.Context, client *http.Client, target, token, name string, archive *os.File, pause func(context.Context, time.Duration) error) error {
 	if token == "" {
 		return errors.New("CI_JOB_TOKEN is required")
@@ -195,7 +204,7 @@ func run() error {
 			return nil
 		}
 	}
-	return upload(ctx, &http.Client{Timeout: 150 * time.Second}, target, os.Getenv("CI_JOB_TOKEN"), name, f, pause)
+	return upload(ctx, artifactClient(), target, os.Getenv("CI_JOB_TOKEN"), name, f, pause)
 }
 
 func main() {
