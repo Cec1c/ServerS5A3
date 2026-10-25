@@ -14,12 +14,25 @@ import (
 	"io/fs"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync/atomic"
 	"time"
 )
+
+type countedBody struct {
+	reader io.Reader
+	read   atomic.Int64
+}
+
+func (r *countedBody) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.read.Add(int64(n))
+	return n, err
+}
 
 func archiveDist(root string, dst io.Writer) error {
 	w := zip.NewWriter(dst)
@@ -107,22 +120,29 @@ func upload(ctx context.Context, client *http.Client, target, token, name string
 	boundedClient := *client
 	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	for attempt := 1; attempt <= 3; attempt++ {
-		body := io.MultiReader(bytes.NewReader(head), io.NewSectionReader(archive, 0, stat.Size()), bytes.NewReader(tail))
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
+		body := &countedBody{reader: io.MultiReader(bytes.NewReader(head), io.NewSectionReader(archive, 0, stat.Size()), bytes.NewReader(tail))}
+		var wroteRequest atomic.Bool
+		trace := &httptrace.ClientTrace{WroteRequest: func(info httptrace.WroteRequestInfo) { wroteRequest.Store(info.Err == nil) }}
+		req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodPost, target, body)
 		if err != nil {
 			return errors.New("cannot create artifact upload request")
 		}
 		req.ContentLength = contentLength
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		req.Header.Set("JOB-TOKEN", token)
+		started := time.Now()
 		resp, sendErr := boundedClient.Do(req)
 		code := 0
+		protocol := "none"
 		if resp != nil {
 			code = resp.StatusCode
+			protocol = resp.Proto
 			// Never log response bodies or raw transport errors: they may contain secrets.
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 			_ = resp.Body.Close()
 		}
+		fmt.Printf("Artifact transfer: attempt=%d elapsed=%.3fs request_read=%d/%d wrote_request=%t protocol=%s HTTP=%d\n",
+			attempt, time.Since(started).Seconds(), body.read.Load(), contentLength, wroteRequest.Load(), protocol, code)
 		if sendErr == nil && code == http.StatusCreated {
 			fmt.Printf("Artifact upload completed: HTTP 201, %d archive bytes\n", stat.Size())
 			return nil

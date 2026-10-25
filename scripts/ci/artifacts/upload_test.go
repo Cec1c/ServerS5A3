@@ -18,6 +18,14 @@ import (
 
 func noPause(context.Context, time.Duration) error { return nil }
 
+func TestCountedBodyReportsBytesRead(t *testing.T) {
+	body := &countedBody{reader: strings.NewReader("diagnostic fixture")}
+	b, err := io.ReadAll(body)
+	if err != nil || string(b) != "diagnostic fixture" || body.read.Load() != int64(len(b)) {
+		t.Fatalf("read=%d bytes=%d error=%v", body.read.Load(), len(b), err)
+	}
+}
+
 func archiveFixture(t *testing.T) (*os.File, []byte) {
 	t.Helper()
 	root := t.TempDir()
