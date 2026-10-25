@@ -22,13 +22,48 @@ func (s *Service) sendCurrentTownPartyHPAfterActor(target, actor *gameSession) e
 // particular, do not interpret the party subsystem's default percentage as
 // measured HP or change its established town roster serialization here.
 func (s *Service) currentTownPartyRealtimeBody(target, actor *gameSession) []byte {
-	if s == nil || s.options.currentClientVersion != "official-24.9" ||
-		target == nil || actor == nil || target == actor ||
-		target.selectedCharacterID == actor.selectedCharacterID ||
-		s.sessionHasActiveDungeonRuntime(target) || s.sessionHasActiveDungeonRuntime(actor) ||
-		isCurrentFiendWarChannel(target) || isCurrentFiendWarChannel(actor) {
+	if !s.currentTownPartyHPProjectionEligible(target, actor) ||
+		s.sessionHasActiveDungeonRuntime(target) || s.sessionHasActiveDungeonRuntime(actor) {
 		return nil
 	}
+	return s.currentTownPartyRealtimeBodyOutsideDungeon(target, actor)
+}
+
+func (s *Service) currentTownPartyHPProjectionEligible(target, actor *gameSession) bool {
+	return s != nil && s.options.currentClientVersion == "official-24.9" &&
+		target != nil && actor != nil && target != actor &&
+		target.selectedCharacterID != actor.selectedCharacterID &&
+		!isCurrentFiendWarChannel(target) && !isCurrentFiendWarChannel(actor)
+}
+
+// Called with the receiver's wire held. Dungeon handlers can hold dungeon.mu
+// while waiting for that wire, so never wait for either dungeon lock here.
+// A busy snapshot asks the caller to release appearance AND wire and retry
+// within its original deadline. No dungeon lock survives the snapshot.
+func (s *Service) tryCurrentTownPartyRealtimeBodyOnWire(target, actor *gameSession) ([]byte, bool) {
+	if !s.currentTownPartyHPProjectionEligible(target, actor) {
+		return nil, true
+	}
+	if !target.dungeon.mu.TryLock() {
+		return nil, false
+	}
+	if !actor.dungeon.mu.TryLock() {
+		target.dungeon.mu.Unlock()
+		return nil, false
+	}
+	active := (target.dungeon.runtime != nil && target.dungeon.runtime.Session != nil) ||
+		(actor.dungeon.runtime != nil && actor.dungeon.runtime.Session != nil)
+	actor.dungeon.mu.Unlock()
+	target.dungeon.mu.Unlock()
+	if active {
+		return nil, true
+	}
+	return s.currentTownPartyRealtimeBodyOutsideDungeon(target, actor), true
+}
+
+// Both callers establish the existing no-active-dungeon condition first.
+// The wire caller also keeps all later HP writes behind this projection.
+func (s *Service) currentTownPartyRealtimeBodyOutsideDungeon(target, actor *gameSession) []byte {
 	channel := currentTownPresenceChannelID(target)
 	if channel == 0 || channel != currentTownPresenceChannelID(actor) {
 		return nil
@@ -64,6 +99,10 @@ func (s *Service) currentTownPartyRealtimeBody(target, actor *gameSession) []byt
 // batch template may also serve a viewer outside this ordinary town party.
 func (s *Service) currentTownPartyProfileWithHP(target, actor *gameSession, body []byte) ([]byte, error) {
 	realtime := s.currentTownPartyRealtimeBody(target, actor)
+	return projectCurrentTownPartyHPIntoProfile(body, realtime, selectedCharacterID(actor))
+}
+
+func projectCurrentTownPartyHPIntoProfile(body, realtime []byte, actorID uint16) ([]byte, error) {
 	if len(realtime) == 0 {
 		return body, nil
 	}
@@ -72,7 +111,7 @@ func (s *Service) currentTownPartyProfileWithHP(target, actor *gameSession, body
 	}
 	projected := append([]byte(nil), body...)
 	projected[0] = currentCrossSceneMode0Subtype
-	if err := projectCurrentTownPartyHPIntoMode0(projected, realtime, selectedCharacterID(actor)); err != nil {
+	if err := projectCurrentTownPartyHPIntoMode0(projected, realtime, actorID); err != nil {
 		return nil, err
 	}
 	projected[0] = currentCrossSceneMode8Subtype
