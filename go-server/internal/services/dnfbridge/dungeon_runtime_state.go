@@ -899,6 +899,12 @@ func (s *Service) prepareDungeonRuntimePlanned(
 			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare time rift loot before admission: %w", err)
 		}
 	}
+	if s.currentEpicRoadLootEnabled(runtime.Dungeon.ID) {
+		runtime.riftLoot, err = s.prepareCurrentEpicRoadLoot(runtime.Dungeon.ID)
+		if err != nil {
+			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare epic road boss loot before admission: %w", err)
+		}
+	}
 	if err := s.freezeCurrentEpicEntry(session, runtime); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}

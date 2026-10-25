@@ -37,6 +37,28 @@ type currentDungeonDimensionDropEntry struct {
 	ItemID uint32
 }
 
+// Operator-specified quantities for the current three-tier dimension dungeon
+// table. PVF still determines membership, tier and available material IDs. The
+// count is per defeated elite/boss, not per map equipment roll or fixed attempt.
+func currentDimensionMaterialAmount(tier int, monsterType byte, itemID uint32) (uint32, bool) {
+	if tier < 0 || tier > 2 || monsterType < 1 || monsterType > 3 {
+		return 0, false
+	}
+	switch itemID {
+	case 3311:
+		if monsterType == 3 {
+			return 28, true
+		}
+		return 7, true
+	case 10303569:
+		if monsterType == 3 {
+			return [3]uint32{0, 16, 28}[tier], true
+		}
+		return [3]uint32{0, 4, 5}[tier], true
+	}
+	return 0, false
+}
+
 type currentDungeonDimensionLevelThreshold struct {
 	Tier         int
 	MinimumLevel int
