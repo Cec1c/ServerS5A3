@@ -12,39 +12,11 @@ import (
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
-// currentCharacterListLoginTransition 决定"角色列表登录"这条入口把角色放进哪个城镇区域。
-//
-// 三级落点：
-//  1. **该城镇有赛丽亚房间** → 落在该城镇自己的赛丽亚房间锚点（房间由运行时 PVF 该城镇的
-//     `[area]` 地图路径判定，见 town_seria_room.go；落点取该房间的 `[gate]`，没有 gate 时取
-//     该 area 声明的默认落点）。这就是操作者原话"去了城镇 A 就落在城镇 A 的赛丽亚房间"。
-//  2. **该城镇没有赛丽亚房间**（运行时 PVF 实测 39~46 都没有，只有 38 有）→ 沿用角色记录里
-//     持久化的精确落点（town/area/pos/direction/area_state，过运行时 PVF 校验），
-//     fallback_reason=persisted_position。
-//     **这一级默认关闭**：操作者 2026-09-26 报障「选择角色重新进入游戏会在上次下线的地方出现」，
-//     而更早的定稿条目是「重新登陆固定刷新在艾尔文防线的赛利亚房间」（已完成）。两者冲突时
-//     以"登录必须落在赛丽亚房间"为准：默认跳过第 2 级，直接走第 3 级（38/1 的赛丽亚房间）。
-//     需要恢复"留在上次所在城镇"的旧观感时，显式设 DNFBRIDGE_LOGIN_PERSISTED_TOWN=keep
-//     （见 currentLoginPersistedTownKeep），此时第 2 级的落点、日志字段与写回字节与门控前逐字节相同。
-//  3. 持久化信息缺失/非法（或该城镇连持久化区域都不存在），或第 2 级被门控跳过
-//     → 回落既有的 38/1 赛丽亚房间 gate，fallback_reason 给出具体原因。
-//
-// 另有一个**默认关闭**的线上 A/B 开关：DNFBRIDGE_LOGIN_SERIA_FALLBACK=elvengard-seria
-// 时无条件走第三级（强制 38/1，连第 1 级也跳过），用于对比"永远回赛丽亚房间"的旧观感。
-//
-// 每条分支都会在 game-character-list-login-town-location 里打全
-// branch / town_id / area_id / location_source / position_source / fallback_reason，
-// 便于线上判读。op1425/op36 的私房实例化那条第三路径只记录判定结果
-// （private_room_instantiation），不在这里实现。
-//
-// 三级落点解析完之后、写回之前，还有一个**默认关闭**的区域门槛门控
-// DNFBRIDGE_LOGIN_AREA_GATES（relaxed 默认 / log 只记录 / strict 重定向到 38/1）：
-// 运行时 PVF 的区域可以声明 `[need level]` / `[need quest]`，落在不满足门槛的城镇区域上
-// 是 op36 会拒绝、登录却放行的口径不一致。详见 initial_town_login_area_gates.go。
-//
-// prev-village 原点的绑定语义保持不变：origin 仍然是"落点之外的、可持久化的非赛丽亚位置"
-// （pre-write 的持久化房间），op1425 仍然只在当前区域是赛丽亚房间时才被接受
-// （town_prev_village.go）。
+// currentCharacterListLoginTransition统一处理选角色、普通换线及特殊频道返回。
+// 普通入口在当前城镇自己的房间或该城镇PVF房门指向的共用房间出生；来源城镇、
+// 区域随位置一起写回，进房的世界城镇通知和出房门沿用该来源，不用共用地图号代替。
+// 特殊频道仍使用自己的场景。缺失历史来源不猜测城镇，兼容回落单独记录。
+// 调用方持有townMu；角色位置、房门来源和返回标记在既有角色资产事务内更新。
 func (s *Service) currentCharacterListLoginTransition(
 	ctx context.Context,
 	session *gameSession,
@@ -56,6 +28,14 @@ func (s *Service) currentCharacterListLoginTransition(
 		if err == nil {
 			projected, err = s.commitCurrentReconnectLocation(ctx, characterID, projected)
 		}
+		return projected, town, area, row, path, err
+	}
+	if s.isCurrentTagTournamentChannel(session) {
+		projected, town, area, row, path, err := s.currentTagTournamentTownTransition(characterID, character)
+		if err != nil {
+			return projected, town, area, row, path, err
+		}
+		projected, err = s.commitCurrentReconnectLocation(ctx, characterID, projected)
 		return projected, town, area, row, path, err
 	}
 	if session != nil && isPVPChannel(session.channel) {
@@ -260,14 +240,23 @@ func (s *Service) currentCharacterListLoginTransition(
 				return false, fmt.Errorf("selected character login location is unavailable")
 			}
 			_, raidChannel := currentRaidLoginTownID(session)
-			if origin, found := currentTownPrevVillageOriginLocked(session, characterID, *current); found && !raidChannel {
+			if raidChannel {
+				if err := s.currentSaveRaidReturnOrigin(characterID, current); err != nil {
+					return false, err
+				}
+			}
+			ordinary, err := s.currentOrdinaryLoginOriginCharacter(session, characterID, *current)
+			if err != nil {
+				return false, err
+			}
+			if origin, found := currentTownPrevVillageOriginLocked(session, characterID, ordinary); found && !raidChannel {
 				if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredChannelTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
 					prevVillageOrigin = origin
 					prevVillageOriginSource = "character_list_login_previous_non_seria_location"
 				}
 			}
 			if !prevVillageOrigin.PositionValid && !raidChannel {
-				if origin, found := currentTownPrevVillageOriginFromPersistedStats(characterID, *current); found {
+				if origin, found := currentTownPrevVillageOriginFromPersistedStats(characterID, ordinary); found {
 					if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredChannelTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
 						prevVillageOrigin = origin
 						prevVillageOriginSource = "character_list_login_existing_persisted_prev_village"
@@ -460,6 +449,13 @@ func (s *Service) currentCharacterListLoginLocation(
 			return location, persistedTownID, "", "", nil
 		} else {
 			seriaRoomReason = reason
+		}
+	}
+	// 城镇文档没有独立房间，不表示应换到防线：普通城镇的街道地图
+	// 会声明通往共用房间的门。先按当前区域查门，来源城镇继续持久保存。
+	if !currentLoginPersistedTownKeep() {
+		if location, found := s.currentTownLinkedSeriaLoginLocation(characterID, character); found {
+			return location, persistedTownID, "", "", nil
 		}
 	}
 

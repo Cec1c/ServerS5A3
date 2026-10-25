@@ -57,7 +57,8 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			character.Stats = make(map[string]int64)
 		}
 		changed := false
-		if projected.Stats["town_id"] == 98 && character.Stats["town_id"] != 98 {
+		// 非决斗专用频道保存普通来源，跨特殊频道不覆盖首次来源。
+		if targetTown := projected.Stats["town_id"]; targetTown != 10 && currentRegisteredChannelTown(targetTown) && character.Stats["town_id"] != targetTown {
 			if err := s.currentSaveRaidReturnOrigin(characterID, &character); err != nil {
 				return err
 			}
