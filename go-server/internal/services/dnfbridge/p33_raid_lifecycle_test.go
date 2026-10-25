@@ -96,7 +96,7 @@ func p33RaidBattleWithFrozenFlow(t *testing.T, service *Service, raidKey uint32,
 			leaderID: {RunID: "p33-accepted-run", DungeonID: 210, Phase: 0},
 			memberID: {RunID: "p33-accepted-run", DungeonID: 210, Phase: 0},
 		},
-		RewardFlow: make([]*currentAntonRewardFlow, 2),
+		RewardFlow: [2]*currentAntonRewardFlow{},
 	}
 	live.Battle.RewardFlow[0] = flow
 	if service.antonRewardFlows == nil {
