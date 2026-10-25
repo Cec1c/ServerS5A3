@@ -160,7 +160,7 @@ func TestCrossSceneProfileRechecksMembershipAfterWireWait(t *testing.T) {
 
 func TestCrossSceneProfileWireMatchesExistingCodecAndRestoresDeadline(t *testing.T) {
 	f := newCurrentCrossSceneProfileBatchFixture(t)
-	body := []byte{8, 0, 0}
+	body := currentCrossSceneProfileTransportBodies(t, f)[0]
 	f.reset()
 	seq := f.target.upperSeq
 	if err := f.service.sendGameUpperRawClass(f.target, 2, body, 0); err != nil {
