@@ -1,3 +1,8 @@
+## 2026-10-26 — !219晶体契约-1真实MySQL回归
+
+- 新增显式mysql_integration测试：在可丢弃MySQL服务器上创建唯一临时库，保存premium_crystal_selection=-1，再关闭写入连接池、重新sql.Open并创建全新repository重读，确认保留-1且不回落黑色索引0；写入/部分保存连接池创建后均有defer Close覆盖Fatal路径，显式Close仍作断言，临时库DROP在EnsureMySQLSchema前注册，部分建表失败也会清理。
+- 同一测试对无关gold走CharacterFieldStats部分保存，再次关闭连接池并重新打开后以新repository重读；DSN缺失时失败而非环境skip，解析错误不写含密码的DSN。仅测试源和日志，不改生产。
+
 ## 2026-10-23 — 晶体契约取消选择与副本定时消耗修复
 
 - MySQL角色属性保存为晶体契约保留合法未选择值-1，避免取消后重读变为黑色晶块；技能页已有-1语义及其它属性的负数保护保持。新增全部六类选择与未选择的仓储保存/重读，以及保有黑白晶块时取消、重新登录和库存不变回归。
