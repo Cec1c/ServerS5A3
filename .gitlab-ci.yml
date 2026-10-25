@@ -5,10 +5,15 @@ stages: [test]
 semgrep-runtime-probe:
   stage: test
   image: registry.gitlab.com/security-products/semgrep:6
-  timeout: 10m
+  timeout: 20m
   cache: []
   dependencies: []
   variables:
-    SEMGREP_SEND_METRICS: "off"
+    EIO_BACKEND: posix
   script:
-    - python3 -c "import base64; exec(base64.b64decode('aW1wb3J0IHBhdGhsaWIsc3VicHJvY2Vzcyxvcyxqc29uCmZpeHR1cmU9cGF0aGxpYi5QYXRoKCcvdG1wL3NlbWdyZXAtZml4dHVyZScpO2ZpeHR1cmUubWtkaXIoKTsoZml4dHVyZS8nbWFpbi5nbycpLndyaXRlX3RleHQoJ3BhY2thZ2UgbWFpblxuZnVuYyBtYWluKCkge31cbicpCmZvciBiYWNrZW5kIGluIFsnYXV0bycsJ3Bvc2l4J106CiBlbnY9ZGljdChvcy5lbnZpcm9uLFNFTUdSRVBfU0VORF9NRVRSSUNTPSdvZmYnLFNFTUdSRVBfRU5BQkxFX1ZFUlNJT05fQ0hFQ0s9JzAnKQogaWYgYmFja2VuZD09J3Bvc2l4JzplbnZbJ0VJT19CQUNLRU5EJ109J3Bvc2l4JwogcD1zdWJwcm9jZXNzLnJ1bihbJ3NlbWdyZXAnLCdzY2FuJywnLS1kZWJ1ZycsJy0tam9icycsJzEnLCctLWNvbmZpZycsJy9ydWxlcy9nb3NlYy55bWwnLCctLWpzb24nLCctLW1ldHJpY3MnLCdvZmYnLCctLWRpc2FibGUtdmVyc2lvbi1jaGVjaycsc3RyKGZpeHR1cmUpXSxlbnY9ZW52LGNhcHR1cmVfb3V0cHV0PVRydWUsdGltZW91dD0xMjApCiBsaW5lcz1bbGluZSBmb3IgbGluZSBpbiBwLnN0ZGVyci5kZWNvZGUoZXJyb3JzPSdyZXBsYWNlJykuc3BsaXRsaW5lcygpIGlmIGFueSh3IGluIGxpbmUubG93ZXIoKSBmb3IgdyBpbiBbJ2Vycm9yJywnZXhjZXB0aW9uJywnZGVuaWVkJywnZmFpbGVkJywnbm90IHBlcm1pdHRlZCcsJ2lvX3VyaW5nJywnYmFja3RyYWNlJywndW5peCcsJ2V4aXRlZCddKSBhbmQgbm90IGFueSh3IGluIGxpbmUubG93ZXIoKSBmb3IgdyBpbiBbJ3Rva2VuJywncHJveHknLCdjcmVkZW50aWFsJ10pXQogcHJpbnQoanNvbi5kdW1wcyh7J2JhY2tlbmQnOmJhY2tlbmQsJ2V4aXQnOnAucmV0dXJuY29kZSwnc3Rkb3V0UHJlZml4JzpwLnN0ZG91dC5kZWNvZGUoZXJyb3JzPSdyZXBsYWNlJylbOjYwMF0sJ2Vycm9ycyc6bGluZXNbLTQ1Ol19KSxmbHVzaD1UcnVlKQo='))"
+    - /analyzer run
+    - python3 -c "import json; r=json.load(open('gl-sast-report.json')); assert r['scan']['status']=='success'; print('SAST scan success; vulnerabilities',len(r['vulnerabilities']))"
+  artifacts:
+    when: always
+    paths: [gl-sast-report.json]
+    expire_in: 7 days
