@@ -21,6 +21,7 @@ import (
 )
 
 type gameSession struct {
+	peerProfileSubscription             currentPeerProfileSubscription        // protected by Service.mu
 	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
 	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
 	pvpClientGameType                   uint32                                // 本次客户端选择的匹配类型，原子读取与更新。

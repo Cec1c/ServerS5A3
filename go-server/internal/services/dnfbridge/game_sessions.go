@@ -74,6 +74,9 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	}
 	previous := s.gameSessions[charID]
 	characterChanged := session.selectedCharacterID != charID
+	if characterChanged || previous != session {
+		s.clearCurrentPeerProfileReferencesLocked(session)
+	}
 	if characterChanged || session.characterGeneration == 0 ||
 		(previous != nil && previous != session && session.characterGeneration == previous.characterGeneration) {
 		s.allocateGameSessionCharacterGenerationLocked(session, previous)
@@ -92,6 +95,9 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		}
 	}
 	s.gameSessions[charID] = session
+	if previous != nil && previous != session {
+		s.clearCurrentPeerProfileReferencesLocked(previous)
+	}
 	if previous != session || characterChanged {
 		guildObservations = append(guildObservations, s.currentGuildPresenceObservationLocked(session, guildClock.Now()))
 	}
@@ -212,6 +218,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	s.stopCurrentSpendTimeClock(session, "game_session_unbound_or_disconnected")
 	s.stopAvatarAppearanceCoalesce(session, "game_session_unbound_or_disconnected")
 	s.lockCurrentCharacterBindingMutation(session, 0)
+	s.clearCurrentPeerProfileReferencesLocked(session)
 	presenceChanged := false
 	guildObservation := s.currentGuildPresenceObservationLocked(session, guildClock.Now())
 	if session.selectedCharacterID != 0 && s.gameSessions[session.selectedCharacterID] == session {
