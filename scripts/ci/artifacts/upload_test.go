@@ -18,6 +18,23 @@ import (
 
 func noPause(context.Context, time.Duration) error { return nil }
 
+func TestTransportFailureDoesNotExposeRawError(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{nil, "none"}, {context.DeadlineExceeded, "timeout"}, {io.EOF, "eof"},
+		{io.ErrUnexpectedEOF, "unexpected_eof"},
+		{errors.New("secret endpoint: connection reset by peer"), "connection_reset_by_peer"},
+		{errors.New("secret endpoint: malformed HTTP response"), "malformed_http_response"},
+		{errors.New("secret-token"), "other"},
+	} {
+		if got := transportFailure(tc.err); got != tc.want {
+			t.Fatalf("got %q want %q", got, tc.want)
+		}
+	}
+}
+
 func TestCountedBodyReportsBytesRead(t *testing.T) {
 	body := &countedBody{reader: strings.NewReader("diagnostic fixture")}
 	b, err := io.ReadAll(body)
@@ -39,7 +56,9 @@ func TestArtifactClientUsesHTTP1WhenServerOffersHTTP2(t *testing.T) {
 	defer srv.Close()
 	client := artifactClient()
 	transport := client.Transport.(*http.Transport)
-	transport.TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	// Preserve the client's ALPN list, as a real proxy does. Replacing the whole
+	// TLS config would hide inherited h2 negotiation from DefaultTransport.Clone.
+	transport.TLSClientConfig.RootCAs = srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
 	defer transport.CloseIdleConnections()
 	if err := upload(context.Background(), client, srv.URL, "fixture-token", "build.zip", f, noPause); err != nil {
 		t.Fatal(err)

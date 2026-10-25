@@ -104,6 +104,10 @@ func artifactClient() *http.Client {
 	// the HTTP/2 request body but times out before returning an artifact receipt.
 	transport.Protocols = new(http.Protocols)
 	transport.Protocols.SetHTTP1(true)
+	// Clone initializes DefaultTransport's HTTP/2 support and copies its ALPN
+	// list. Protocols alone does not remove the inherited "h2" advertisement.
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	transport.ForceAttemptHTTP2 = false
 	return &http.Client{Transport: transport, Timeout: 150 * time.Second}
 }
 
