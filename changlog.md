@@ -1,3 +1,8 @@
+## 2026-10-26 — !219晶体交易真实PVF 94a254适配
+
+- 真实PVF白名单在既有ad7d、a56摘要之外加入当前94a254摘要，仍拒绝其它输入；保留原交易提交和3033×2005 wire回归。
+- 交易开始前逐项核对3033、3034、3035、3036、3037、3262的固定槽位354..359、cubepiece路径、中文名、material/free分类及无stack limit语义。仅测试适配，生产逻辑、掉落规则与资源均不变。
+
 ## 2026-10-26 — !219晶体契约-1真实MySQL回归
 
 - 新增显式mysql_integration测试：在可丢弃MySQL服务器上创建唯一临时库，保存premium_crystal_selection=-1，再关闭写入连接池、重新sql.Open并创建全新repository重读，确认保留-1且不回落黑色索引0；写入/部分保存连接池创建后均有defer Close覆盖Fatal路径，显式Close仍作断言，临时库DROP在EnsureMySQLSchema前注册，部分建表失败也会清理。
