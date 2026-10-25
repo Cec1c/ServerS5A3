@@ -59,6 +59,26 @@ func (s *Service) currentTownPartyRealtimeBody(target, actor *gameSession) []byt
 	return runtimePartyRealtimeInfoBody(state)
 }
 
+// Mode8 contains a mode0/mode3 pair with the same first-record offsets as
+// mode0. Project the receiver's current town HP onto a delivery copy: the
+// batch template may also serve a viewer outside this ordinary town party.
+func (s *Service) currentTownPartyProfileWithHP(target, actor *gameSession, body []byte) ([]byte, error) {
+	realtime := s.currentTownPartyRealtimeBody(target, actor)
+	if len(realtime) == 0 {
+		return body, nil
+	}
+	if len(body) < 3 || body[0] != currentCrossSceneMode8Subtype {
+		return nil, fmt.Errorf("town party profile is not mode8")
+	}
+	projected := append([]byte(nil), body...)
+	projected[0] = currentCrossSceneMode0Subtype
+	if err := projectCurrentTownPartyHPIntoMode0(projected, realtime, selectedCharacterID(actor)); err != nil {
+		return nil, err
+	}
+	projected[0] = currentCrossSceneMode8Subtype
+	return projected, nil
+}
+
 // Initialize only this actor's mode0 HP byte from the exact existing op153
 // presentation value. The native mode0 reader otherwise clears descriptor+31C
 // before the later op153 restores it, on both creation and refresh paths.

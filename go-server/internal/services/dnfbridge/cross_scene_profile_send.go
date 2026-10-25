@@ -50,6 +50,10 @@ func (s *Service) sendCurrentCrossScenePeerProfile(ctx context.Context, viewer, 
 	if err != nil {
 		return err
 	}
+	priming, err = s.currentTownPartyProfileWithHP(viewer, actor, priming)
+	if err != nil {
+		return err
+	}
 	// Repository reads may yield to a disconnect, character switch or leave.
 	// Revalidate both frozen socket identities and the authoritative relationship.
 	if !s.boundGameSessionCharacterCurrent(viewerBound) || !s.boundGameSessionCharacterCurrent(actorBound) ||

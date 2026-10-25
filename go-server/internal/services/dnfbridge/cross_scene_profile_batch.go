@@ -159,7 +159,11 @@ func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner b
 		}
 		b.bodies[key] = body
 	}
-	delivered, err := s.sendCurrentCrossSceneProfileFrame(b.ctx, viewer, actor, body.data, func() bool {
+	deliveryBody, err := s.currentTownPartyProfileWithHP(viewer, actor, body.data)
+	if err != nil {
+		return err
+	}
+	delivered, err := s.sendCurrentCrossSceneProfileFrame(b.ctx, viewer, actor, deliveryBody, func() bool {
 		return body.revision == actor.crossSceneAppearanceRevision &&
 			v.current(s) && a.current(s) && b.route == s.currentSceneActorRoute() &&
 			owner == currentConnectionTownActorOwnerContext(viewer) &&
