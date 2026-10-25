@@ -21,6 +21,8 @@ import (
 )
 
 type gameSession struct {
+	professionChangeMu                  sync.Mutex
+	professionChangePending             *currentProfessionChangePending
 	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
 	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
 	pvpClientGameType                   uint32                                // 本次客户端选择的匹配类型，原子读取与更新。
@@ -222,6 +224,9 @@ type gameSession struct {
 	preDungeonContextPlayerStateSent     bool
 	snakeDungeonSkillInfo                *currentSnakeDungeonSkillInfo
 	postStartMapPlayerStateSent          bool
+	// 成功写出主背包容器的角色。场景门重置不销毁客户端的全局主背包；
+	// 7142转职窗口在体验期间保留其中的物品指针，不能随入图重新创建。
+	selectedMainInventoryCharacterID uint16
 	// dungeonPartySlotTableSentOnStartMap 记录"本次 start-map（op29）提交里，class0/op9
 	// kind0 槽位表已经发过一条"（厂商形状的房间槽位表，见 dungeon_party_room_slot_table.go）。
 	// 进图那一次提交里既有的 `…_post_start_map` 名册帧据此让位
@@ -425,14 +430,15 @@ type petGrowthClockState struct {
 }
 
 // townPostTransitionState 持有城镇入场后过渡流程的会话状态。
-// mu 守护过渡代数、角色、属主频道、阶段与来源标记，arm/推进/归零时机保持不变。
+// mu 守护过渡代数、角色、属主频道、阶段、投影策略与来源标记。
 type townPostTransitionState struct {
-	mu           sync.Mutex
-	generation   uint64
-	characterID  uint16
-	ownerChannel byte
-	stage        currentTownPostTransitionStage
-	source       string
+	mu                  sync.Mutex
+	generation          uint64
+	characterID         uint16
+	ownerChannel        byte
+	stage               currentTownPostTransitionStage
+	omitSceneActivation bool
+	source              string
 }
 
 // dungeonSessionState 持有单个地下城运行周期的会话状态。
