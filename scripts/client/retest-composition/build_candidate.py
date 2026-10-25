@@ -42,6 +42,8 @@ def main():
     receipt_path = args.receipt.resolve()
     work = args.work_dir.resolve()
     require(source != output and source != receipt_path and output != receipt_path, 'paths must be distinct')
+    require(all(path != work and work not in path.parents for path in (source, output, receipt_path)),
+            'input, output and receipt must be outside the new work directory')
     require(not output.exists() and not receipt_path.exists() and not work.exists(), 'output already exists')
     baseline = source.read_bytes()
     require(len(baseline) == SIZE and sha(baseline) == BASE_SHA256, 'input is not exact published V175')
@@ -58,7 +60,7 @@ def main():
         input_args = [str(source)] if name == 'receivers' else ['--input', str(source)]
         result = subprocess.run([sys.executable, '-B', str(script), *input_args,
                                  '--output', str(variant), '--receipt', str(evidence)],
-                                env=env, capture_output=True)
+                                env=env, capture_output=True, timeout=180)
         (work / (name + '.log')).write_bytes(result.stdout + result.stderr)
         require(result.returncode == 0, name + ' builder failed; retained log has details')
         value = variant.read_bytes()
