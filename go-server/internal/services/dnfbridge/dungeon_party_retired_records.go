@@ -26,7 +26,24 @@ func (s *Service) clearDisbandedDungeonPartyRecords(receiver *gameSession, membe
 		return nil
 	}
 	seen := make(map[uint16]bool, len(members))
+	// A receiver can be bound to any projected member's dungeon record. The
+	// native self-slot setter clears that backpointer even when it belongs to
+	// another record. Retiring self first can therefore hide the local departure
+	// from every subsequent NOTI9 handler and leave network peers alive. Clear
+	// the other records first, so the bound record observes its local transition
+	// before the receiver's own record is retired. Do not reorder the snapshot.
+	ordered := make([]alignedcmd.PartyMemberState, 0, len(members))
 	for _, member := range members {
+		if member.UserID != identity.character {
+			ordered = append(ordered, member)
+		}
+	}
+	for _, member := range members {
+		if member.UserID == identity.character {
+			ordered = append(ordered, member)
+		}
+	}
+	for _, member := range ordered {
 		key := member.UserID
 		if key == 0 || seen[key] || (key == leaderID && peerRemovalAlreadySent) {
 			continue
