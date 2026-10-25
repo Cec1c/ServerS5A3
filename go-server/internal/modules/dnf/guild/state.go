@@ -44,17 +44,30 @@ var (
 )
 
 type Registry struct {
-	Version          int                               `json:"version"`
-	NextID           uint32                            `json:"next_id"`
-	Guilds           map[uint32]*Guild                 `json:"guilds,omitempty"`
-	Creations        map[string]CreationReceipt        `json:"creations,omitempty"`
-	CargoPurchases   map[string]CargoPurchaseReceipt   `json:"cargo_purchases,omitempty"`
-	MemberExpansions map[string]CargoPurchaseReceipt   `json:"member_expansions,omitempty"`
-	BenefitPurchases map[string]BenefitPurchaseReceipt `json:"benefit_purchases,omitempty"`
-	ContractClaims   map[string]ContractClaimReceipt   `json:"contract_claims,omitempty"`
+	Hongbao                  *HongbaoState                      `json:"hongbao,omitempty"`
+	Ranking                  *RankingState                      `json:"ranking,omitempty"`
+	GuardianReceipts         map[string]GuardianReceipt         `json:"guardian_receipts,omitempty"`
+	MerchantUpgradeReceipts  map[string]MerchantUpgradeReceipt  `json:"merchant_upgrade_receipts,omitempty"`
+	MerchantPurchaseReceipts map[string]MerchantPurchaseReceipt `json:"merchant_purchase_receipts,omitempty"`
+	DungeonPolicy            *DungeonPolicy                     `json:"dungeon_policy,omitempty"`
+	Version                  int                                `json:"version"`
+	NextID                   uint32                             `json:"next_id"`
+	Guilds                   map[uint32]*Guild                  `json:"guilds,omitempty"`
+	Creations                map[string]CreationReceipt         `json:"creations,omitempty"`
+	CargoPurchases           map[string]CargoPurchaseReceipt    `json:"cargo_purchases,omitempty"`
+	MemberExpansions         map[string]CargoPurchaseReceipt    `json:"member_expansions,omitempty"`
+	BenefitPurchases         map[string]BenefitPurchaseReceipt  `json:"benefit_purchases,omitempty"`
+	ContractClaims           map[string]ContractClaimReceipt    `json:"contract_claims,omitempty"`
+	Departures               map[string]Departure               `json:"departures,omitempty"`
+	Teleports                map[string]TeleportReceipt         `json:"teleports,omitempty"`
 }
 
 type Guild struct {
+	RankingActivity    *RankingActivity      `json:"ranking_activity,omitempty"`
+	Guardians          *GuardianState        `json:"guardians,omitempty"`
+	Merchants          *MerchantState        `json:"merchants,omitempty"`
+	Essence            EssenceBalance        `json:"essence,omitempty"`
+	Dungeon            *DungeonProgress      `json:"dungeon,omitempty"`
 	ID                 uint32                `json:"id"`
 	Name               string                `json:"name"`
 	MasterCharacterID  string                `json:"master_character_id"`
@@ -111,7 +124,8 @@ type Member struct {
 	// process loss retains the last durable observation, not an invented crash
 	// time. The bridge encodes elapsed seconds for offline rows and projects
 	// online status separately from the current canonical session/channel.
-	LastOnlineAt time.Time `json:"last_online_at,omitempty"`
+	LastOnlineAt    time.Time        `json:"last_online_at,omitempty"`
+	RankingPresence *RankingPresence `json:"ranking_presence,omitempty"`
 }
 
 type Application struct {
@@ -332,6 +346,9 @@ func (r *Registry) GuildByName(name string) (*Guild, bool) {
 }
 
 func (r *Registry) Create(character dnfrepo.CharacterRecord, name string, now time.Time) (*Guild, error) {
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}, now); err != nil {
+		return nil, err
+	}
 	group, err := CharacterServerGroup(character)
 	if err != nil {
 		return nil, err
@@ -423,6 +440,9 @@ func (r *Registry) Search(query string, page, pageSize int) []*Guild {
 }
 
 func (r *Registry) Apply(guildID uint32, character dnfrepo.CharacterRecord, message string, now time.Time) error {
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}, now); err != nil {
+		return err
+	}
 	group, err := CharacterServerGroup(character)
 	if err != nil {
 		return err
@@ -459,6 +479,9 @@ func (r *Registry) Apply(guildID uint32, character dnfrepo.CharacterRecord, mess
 }
 
 func (r *Registry) JoinDirect(guildID uint32, character dnfrepo.CharacterRecord, now time.Time) (Member, error) {
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}, now); err != nil {
+		return Member{}, err
+	}
 	group, err := CharacterServerGroup(character)
 	if err != nil {
 		return Member{}, err
@@ -524,6 +547,9 @@ func (r *Registry) DecideApplication(guildID uint32, actorID, characterID string
 		delete(guild.Applications, characterID)
 		guild.UpdatedAt = now
 		return Member{}, nil
+	}
+	if err := r.checkDeparture(dnfrepo.GuildOwner{AccountID: application.AccountID, CharacterID: application.CharacterID}, now); err != nil {
+		return Member{}, err
 	}
 	if len(guild.Members) >= guild.MemberLimit {
 		return Member{}, ErrMemberLimit
@@ -609,6 +635,24 @@ func SortedApplications(guild *Guild) []Application {
 // Reject corrupt/unknown state rather than silently discarding members or
 // changing IDs. This registry is new and has no legacy version to migrate.
 func validateRegistry(r Registry) error {
+	if err := validateHongbao(r.Hongbao); err != nil {
+		return err
+	}
+	if err := validateTeleports(r); err != nil {
+		return err
+	}
+	if err := validateDepartures(r); err != nil {
+		return err
+	}
+	if err := validateGuardianReceipts(r); err != nil {
+		return err
+	}
+	if err := validateMerchantUpgradeReceipts(r); err != nil {
+		return err
+	}
+	if err := validateMerchantPurchaseReceipts(r); err != nil {
+		return err
+	}
 	if err := validateBenefits(r); err != nil {
 		return err
 	}
@@ -633,6 +677,12 @@ func validateRegistry(r Registry) error {
 			return ErrInvalidRegistry
 		}
 		if err := ValidateCargo(g.Cargo); err != nil {
+			return err
+		}
+		if err := g.Guardians.Validate(); err != nil {
+			return err
+		}
+		if err := g.Merchants.Validate(); err != nil {
 			return err
 		}
 		name := strings.ToLower(strings.TrimSpace(g.Name))

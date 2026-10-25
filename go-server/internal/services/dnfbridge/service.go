@@ -22,6 +22,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dproto"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
+	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	dnfjoust "longheng.io/server/internal/modules/dnf/joust"
 	dnfmail "longheng.io/server/internal/modules/dnf/mail"
@@ -45,10 +46,20 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
-	tagTournamentCatalog     *tagtournament.Catalog                                                      // 由initialEquipmentMu保护。
-	tagTournamentSentRosters map[currentTagTournamentRosterCacheKey]currentTagTournamentRosterCacheEntry // 由mu保护。
-	tagTournamentLoadErr     error
-	guildCreateMu            sync.Mutex
+	tagTournamentCatalog         *tagtournament.Catalog                                                      // 由initialEquipmentMu保护。
+	tagTournamentSentRosters     map[currentTagTournamentRosterCacheKey]currentTagTournamentRosterCacheEntry // 由mu保护。
+	tagTournamentLoadErr         error
+	guildRankingMu               sync.Mutex
+	guildRankingCatalogMu        sync.Mutex
+	guildRankingRules            *dnfguild.RankingRules
+	guildDungeonCatalogMu        sync.Mutex
+	guildDungeonCatalog          *dnfguild.DungeonCatalog
+	guildEssenceCatalog          *dnfguild.EssenceCatalog          // guarded by guildDungeonCatalogMu
+	guildContributionCatalog     *dnfguild.ContributionCatalog     // guarded by guildDungeonCatalogMu
+	guildHongbaoCatalog          *dnfguild.HongbaoCatalog          // guarded by guildDungeonCatalogMu
+	guildMerchantPurchaseCatalog *dnfguild.MerchantPurchaseCatalog // guarded by guildDungeonCatalogMu
+	guildCreateMu                sync.Mutex
+	guildTeleportMu              sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
@@ -139,6 +150,7 @@ type Service struct {
 	packetID             uint64
 	clientAccounts       clientAccountRegistry
 	// loginTokens 保存启动器登录签发的令牌到账号的映射（见 account_login_token.go）。
+	accountLogins     accountLoginSessions
 	loginTokens       accountLoginTokenStore
 	localLoginMu      sync.Mutex
 	localLoginEpoch   uint64
@@ -433,6 +445,8 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.Join(err, closeErr)
 	}
 	s.startGameplayTimeQueue(runCtx)
+	s.startCurrentGuildRankingSampler(runCtx)
+	s.startCurrentGuildHongbaoSettlement(runCtx)
 	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)
@@ -967,6 +981,7 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	s.mu.Unlock()
 	if logger == nil {
 		s.logDungeonSettlementDiagnostic(kind, args...)
+		s.logCrossSceneProfileDiagnostic(kind, args...)
 	}
 	logger.Event(kind, args...)
 }

@@ -73,10 +73,11 @@ func (s *Service) handleCurrentDungeonRidableReport(session *gameSession, reques
 
 func (s *Service) applyCurrentDungeonRidableReportLocked(session *gameSession, identity boundGameSessionCharacter, accountID string, request gameplayRequest, report currentDungeonRidableRequest) error {
 	r := session.dungeon.runtime
+	finishGates := session.finishLoadingGateSnapshot()
 	if r == nil || r.Session == nil || r.Room == nil || r.townReturnPending || !dungeonRuntimeOwnsCharacter(r, identity.character) ||
 		r.lifecycleToken == 0 || r.lifecycleToken != session.dungeon.runToken || r.AccountID != accountID ||
 		r.ridableReportChannelID != session.channel.ID || r.ridableReportChannelType != session.channel.Type ||
-		!session.currentFinishLoadingStateSent || !session.currentFinishLoadingCompletionSent || !s.boundGameSessionCharacterCurrent(identity) {
+		!finishGates.State || !finishGates.Completion || !s.boundGameSessionCharacterCurrent(identity) {
 		return fmt.Errorf("current_committed_runtime_required")
 	}
 	scene, hasScene := r.Session.Scene()

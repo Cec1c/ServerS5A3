@@ -4,6 +4,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	aikenUpgradeGameplayModule(),
 	guildCompoundGameplayModule(),
 	guildGameplayModule(),
+	guildPartyTeleportGameplayModule(),
 	auctionGameplayModule(),
 	pvpGameplayModule(),
 	npcShopGameplayModule(),

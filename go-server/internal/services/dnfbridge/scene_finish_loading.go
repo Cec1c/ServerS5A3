@@ -29,9 +29,9 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	if session == nil {
 		return nil
 	}
-	stateNeeded := !session.currentFinishLoadingStateSent
-	followupsNeeded := !session.currentFinishLoadingCompletionSent ||
-		!session.postFinishLoadingPlayerStateSent
+	gates := session.finishLoadingGateSnapshot()
+	stateNeeded := !gates.State
+	followupsNeeded := !gates.Completion || !gates.PostFinish
 	if !stateNeeded && !followupsNeeded {
 		return s.sendCurrentTagTournamentInitialRoleAfterLoading(session)
 	}
@@ -42,13 +42,13 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		}
 		// Commit this gate as soon as the state packet is on the wire. A later
 		// op30/post-state failure must not replay the absolute op37 snapshot.
-		session.currentFinishLoadingStateSent = true
+		session.setFinishLoadingGateState(true)
 	}
-	if !session.currentFinishLoadingCompletionSent {
+	if !gates.Completion {
 		if err := s.sendCurrentIncreaseStatusResult(session, source); err != nil {
 			return err
 		}
-		session.currentFinishLoadingCompletionSent = true
+		session.setFinishLoadingGateCompletion(true)
 	}
 	if err := s.sendCurrentPostFinishLoadingPlayerState(session, source+"_after_finish_loading_state"); err != nil {
 		return err
@@ -184,7 +184,11 @@ func buildCurrentIncreaseStatusResultBody() []byte {
 }
 
 func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, source string) error {
-	if session == nil || session.postFinishLoadingPlayerStateSent {
+	if session == nil {
+		return nil
+	}
+	if session.finishLoadingGateSnapshot().PostFinish {
+
 		return nil
 	}
 	initialTownFinalized := currentInitialTownPlayerStateFinalized(session)
@@ -210,7 +214,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRequestBlacklist), placementBody, 0); err != nil {
 			return err
 		}
-		session.postFinishLoadingPlayerStateSent = true
+		session.setFinishLoadingGatePostFinish(true)
 		return nil
 	}
 	s.logGameEvent(session, "game-main-post-finish-loading-player-state-send",
@@ -271,7 +275,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		}
 		session.deferredDungeonUserStateObjectKey = 0
 	}
-	session.postFinishLoadingPlayerStateSent = true
+	session.setFinishLoadingGatePostFinish(true)
 	return nil
 }
 

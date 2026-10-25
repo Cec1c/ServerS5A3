@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"math"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
@@ -113,6 +114,7 @@ type currentBoosterGrantedReward struct {
 }
 
 type currentBoosterDefinition struct {
+	ItemUsage         *itemusage.Definition
 	GoldMinimumLevel  int64
 	Source            dungeonDropItemDefinition
 	StackableType     string

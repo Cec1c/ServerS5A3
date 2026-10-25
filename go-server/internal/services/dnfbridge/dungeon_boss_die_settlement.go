@@ -36,6 +36,12 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 	if allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, nil); !allowed || err != nil {
 		return err
 	}
+	if err := s.freezeCurrentGuildRankingRun(session, runtime); err != nil {
+		return err
+	}
+	if err := s.freezeCurrentGuildContributionRun(session, runtime); err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()

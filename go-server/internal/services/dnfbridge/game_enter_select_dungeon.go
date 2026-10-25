@@ -169,6 +169,14 @@ func (s *Service) sendEnterSelectDungeonState(
 			return err
 		}
 	}
+	// Fixed v157's upper op15 failure consumes success and reason bytes and
+	// releases its pending request flag. Legacy scene framing is separate.
+	if !transport {
+		if allowed, reason := s.currentRaidSelectorOpenAdmission(session); !allowed {
+			s.logGameEvent(session, "game-raid-selector-open-rejected", "source", source, "reason", reason)
+			return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEnterSelectDungeon), []byte{0, 0}, 1)
+		}
+	}
 	if !transport && requestDriven {
 		if err := s.commitPendingDungeonReturnBeforeTownEnterSelect(session, source); err != nil {
 			return err
@@ -198,10 +206,26 @@ func (s *Service) sendEnterSelectDungeonState(
 		s.logGameEvent(session, "game-upper-enter-select-dungeon-duplicate-skipped", "source", source, "request_driven", false)
 		return nil
 	}
+	if !transport && requestDriven {
+		if err := s.restoreCurrentRaidSelectorProjection(session, source); err != nil {
+			s.logGameEvent(session, "game-raid-selector-self-projection-restore-failed",
+				"source", source,
+				"char_id", selectedCharacterID(session),
+				"error", err)
+			return err
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
+	// Guild hall selectors need the current cycle even after another member
+	// unlocked a branch while this character stayed online.
+	if hasCharacter && character.Stats["town_id"] == 8 && !transport {
+		if err := s.writeCurrentGuildDungeonSnapshot(session); err != nil {
+			return err
+		}
+	}
 
 	contextReady := false
 	contextReadyReason := "legacy_or_proactive_path"
@@ -407,6 +431,10 @@ func (s *Service) prepareRuntimePartyFollowerEnterSelect(
 	source string,
 ) (bool, error) {
 	if follower == nil || follower.selectedCharacterID == 0 {
+		return false, nil
+	}
+	if allowed, reason := s.currentRaidSelectorOpenAdmission(follower); !allowed {
+		s.logGameEvent(follower, "game-raid-selector-follower-rejected", "source", source, "reason", reason)
 		return false, nil
 	}
 	if follower.enterSelectDungeonContextSent && follower.enterSelectDungeonSent {

@@ -58,6 +58,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"aiken-upgrade",
 		"guild-compound",
 		"guild",
+		"guild-party-teleport",
 		"auction",
 		"pvp",
 		"npc-shop",
@@ -132,8 +133,10 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	legacyOwners := map[uint16]string{
-		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
-		uint16(dnfenum.CmdPacketCompoundFlag):                   "guild-compound",
+		434:                                   "guild-party-teleport",
+		435:                                   "guild-party-teleport",
+		uint16(dnfenum.CmdPacketCompoundGem):  "guild-compound",
+		uint16(dnfenum.CmdPacketCompoundFlag): "guild-compound",
 		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
 		uint16(dnfenum.CmdPacketCompoundItem):                   "equipment-recipe-compound",
 		uint16(dnfenum.CmdPacketGenCeraticket):                  "web-viewer",

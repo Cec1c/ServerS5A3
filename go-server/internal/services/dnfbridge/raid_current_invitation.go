@@ -186,7 +186,12 @@ func (s *Service) handleCurrentRaidInvitationAcceptance(session *gameSession, op
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}
-	state.Members = append(state.Members, runtimeRaidMemberState{CharID: row.CharKey, Name: row.Name, Level: uint32(row.Level), Job: row.Job, GrowType: row.Grow, UserState: 1, HPPercent: 100, MPPercent: 100})
+	placedMember, placed := appendRuntimeRaidMemberWithLegalGroup(state, runtimeRaidMemberState{CharID: row.CharKey, Name: row.Name, Level: uint32(row.Level), Job: row.Job, GrowType: row.Grow, UserState: 1, HPPercent: 100, MPPercent: 100})
+	if !placed {
+		s.mu.Unlock()
+		s.raidMu.Unlock()
+		return s.sendRaidCommandFailure(session, op)
+	}
 	delete(s.currentRaidInvitations, recipient.character)
 	s.mu.Unlock()
 	snapshot := cloneRuntimeRaidState(*state)
@@ -200,7 +205,7 @@ func (s *Service) handleCurrentRaidInvitationAcceptance(session *gameSession, op
 	if err := s.broadcastRuntimeRaidRefresh(snapshot); err != nil {
 		return err
 	}
-	s.logGameEvent(session, "game-current-raid-invitation-accepted", "raid_key", snapshot.RaidKey, "inviter", inviter.character, "recipient", recipient.character, "member_count", len(snapshot.Members))
+	s.logGameEvent(session, "game-current-raid-invitation-accepted", "raid_key", snapshot.RaidKey, "inviter", inviter.character, "recipient", recipient.character, "member_count", len(snapshot.Members), "group_index", placedMember.GroupIndex, "slot_order", placedMember.SlotOrder)
 	return nil
 }
 

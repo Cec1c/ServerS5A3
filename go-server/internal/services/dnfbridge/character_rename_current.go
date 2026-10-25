@@ -191,5 +191,15 @@ func (s *Service) currentRenameSelectionStillCurrent(ctx context.Context, sessio
 		return false
 	}
 	current, found, err := repos.Character.Load(ctx, selected.CharacterID)
-	return err == nil && found && current.AccountID == selected.AccountID && current.Slot == selected.Slot && current.Name == selected.Name && !currentCharacterRenamePending(current)
+	if err != nil {
+		reason := "repository_read_failed"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = "snapshot_deadline_exceeded"
+		} else if errors.Is(err, context.Canceled) {
+			reason = "snapshot_canceled"
+		}
+		s.logWarn("dnfbridge character selection revalidation failed", "character_id", selected.CharacterID, "reason", reason)
+		return false
+	}
+	return found && current.AccountID == selected.AccountID && current.Slot == selected.Slot && current.Name == selected.Name && !currentCharacterRenamePending(current)
 }

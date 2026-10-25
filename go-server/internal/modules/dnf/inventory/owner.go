@@ -295,15 +295,16 @@ type EnchantResult struct {
 
 // UseStackableResult describes a typed stackable-use result once that owner is implemented.
 type UseStackableResult struct {
-	CharacterID    string
-	AccountID      string
-	ListType       byte
-	SlotIndex      int16
-	InstanceValue  int32
-	ItemID         int64
-	RemainingCount int64
-	PreviousCount  int64
-	Changed        bool
+	ItemUsageChanged bool
+	CharacterID      string
+	AccountID        string
+	ListType         byte
+	SlotIndex        int16
+	InstanceValue    int32
+	ItemID           int64
+	RemainingCount   int64
+	PreviousCount    int64
+	Changed          bool
 	// UnlimitedUse 为真表示这次命中的是 `[unlimited waste]` 族：PVF 明确"使用后不会
 	// 被消耗"，所以只回成功 ACK、**不扣源道具数量**（见 use_limited_waste.go）。
 	// 零值 false = 既有行为（扣 1 件）。
@@ -2398,12 +2399,19 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	if !o.inItemTransaction {
+		if cmd.ItemUsageResolver != nil {
+			definition, err := cmd.ItemUsageResolver(int64(cmd.ItemTemplateID))
+			if err != nil {
+				return UseStackableResult{}, err
+			}
+			cmd.UseItemUsage = definition
+		}
 		var result UseStackableResult
 		wrap := o.withinInventoryTransaction
 		// 经验 / 成功率 buff 药水要同时改"背包（扣药水）"与"角色（记 buff）"，
 		// 所以这一族走角色资产事务：药水被扣掉与 buff 被记上要么一起成立、
 		// 要么一起不成立。其它消耗品保持既有事务口径（逐字节不变）。
-		if cmd.UseExperienceBuff != nil || (cmd.UseUpgradeBuff != nil && o.assets != nil) {
+		if cmd.UseItemUsage != nil || cmd.UseExperienceBuff != nil || (cmd.UseUpgradeBuff != nil && o.assets != nil) {
 			wrap = o.withinCharacterAssetTransaction
 		}
 		err := wrap(ctx, characterID, func(txOwner *Owner) error {
@@ -2449,6 +2457,9 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 			cmd.SourceSlotIndex,
 			stack.ItemID,
 		)
+	}
+	if err := o.recordItemUse(ctx, cmd, characterID, stack.ItemID); err != nil {
+		return UseStackableResult{}, err
 	}
 	if cmd.UseExperienceBuff != nil {
 		if err := o.recordExperiencePotion(ctx, cmd, characterID, stack); err != nil {
@@ -2527,6 +2538,7 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 		RemainingCount:          remaining,
 		PreviousCount:           previousCount,
 		Changed:                 !skipSourceConsumption,
+		ItemUsageChanged:        cmd.UseItemUsage != nil,
 		UnlimitedUse:            skipSourceConsumption,
 		PVFPath:                 pvfPath,
 		StackableType:           stackableType,
