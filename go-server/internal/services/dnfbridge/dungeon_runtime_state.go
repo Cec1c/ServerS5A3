@@ -335,6 +335,11 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	s.logPacketEvent("dnf-dungeon-clear-card-equipment-pool",
 		clearCardEquipmentPoolWarmUpFields(monsterTable)...)
 
+	if s.options.mapDefinitionCache {
+		if err := table.EnableMapCache(archive, worldmap.DefaultMapCacheOptions()); err != nil {
+			return fmt.Errorf("准备地图按需缓存失败: %w", err)
+		}
+	}
 	s.worldMapMu.Lock()
 	s.worldMapTable = table
 	s.worldMapResolver = resolver
@@ -541,8 +546,10 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	// 扣减失败（持仓不足 / 事务失败）⇒ 明确拒绝入场（错误冒到
 	// `refuseDungeonSelectEntryValidation` 的既有拒绝回包），**绝不静默放行**。
 	// 默认档 / 未声明 `[required item]` 的 DGN ⇒ 一行都不执行、不读背包、不写库。
-	if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
-		return nil, worldmap.DungeonRoomScene{}, err
+	if !s.options.mapDefinitionCache {
+		if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
+			return nil, worldmap.DungeonRoomScene{}, err
+		}
 	}
 	questRecord, questRecordFound, err := s.dungeonQuestRecord(ctx, session.selectedCharacterID)
 	if err != nil {
@@ -633,8 +640,11 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	// 深渊请求标志按档位取字节：默认读 body[7]（厂商 Flag1），回退档读 body[5:7]。
 	// 线上 245/245 次真实 op16 的 body[5:7] 恒为 00 00，所以回退档等于"永远不是深渊"。
 	hellRequest := dungeonHellRequestOption(request)
-	hellRoom, hellRoomSet := s.resolveDungeonHellRoomForEntry(
+	hellRoom, hellRoomSet, hellRoomErr := s.resolveDungeonHellRoomForEntryRead(
 		hellMode, hellRequest, dungeon, mazeIndex, table)
+	if hellRoomErr != nil {
+		return nil, worldmap.DungeonRoomScene{}, hellRoomErr
+	}
 	topology, err := worldmap.BuildDungeonLayout(resolver, dungeon.ID, mazeIndex, chooser)
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("build dungeon layout: %w", err)
@@ -904,6 +914,12 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	}
 	if err := s.freezeCurrentSemesterRun(session, runtime); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
+	}
+	// 按需地图和运行时准备成功后再消费原有票据；未启用保持原消费位置。
+	if s.options.mapDefinitionCache {
+		if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
+			return nil, worldmap.DungeonRoomScene{}, err
+		}
 	}
 	return runtime, scene, nil
 }

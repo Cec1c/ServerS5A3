@@ -455,6 +455,13 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 	case "collection", "entry":
 		values["DNFBRIDGE_EQUIPMENT_SAVE_SCOPE"] = scope
 	}
+	// 仅显式白名单控制器选项可开启地图缓存，原始DNFBRIDGE继承值仍清理。
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("DNF90_MAP_CACHE"))); raw {
+	case "1", "true", "on":
+		values["DNFBRIDGE_MAP_CACHE"] = "true"
+	case "0", "false", "off":
+		values["DNFBRIDGE_MAP_CACHE"] = "false"
+	}
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }
 
