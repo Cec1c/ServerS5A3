@@ -11,6 +11,12 @@ import (
 // manager. Supply that cache before any roster lookup, using real repository
 // properties and the authorized directory object's advertised namespace.
 func (s *Service) sendCurrentRuntimeRaidProfiles(session *gameSession, state runtimeRaidState) error {
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	return s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, newCurrentCrossSceneProfileBatch(s, ctx))
+}
+
+func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch) error {
 	if !s.currentRaidInfoVisible(session, state) {
 		return nil
 	}
@@ -48,5 +54,9 @@ func (s *Service) sendCurrentRuntimeRaidProfiles(session *gameSession, state run
 		return err
 	}
 	s.logGameEvent(session, "game-current-raid-profiles-sent", "raid_key", state.RaidKey, "profile_count", len(rows), "member_count", len(state.Members))
-	return s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true)
+	if err := s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true); err != nil {
+		return err
+	}
+	s.sendCurrentRaidCrossSceneProfiles(batch, session, state)
+	return nil
 }

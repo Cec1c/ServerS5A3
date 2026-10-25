@@ -275,32 +275,6 @@ func (a *accountAPIServer) ensureLoginTokenSchema(ctx context.Context) error {
 	return nil
 }
 
-// issueLoginToken 为一次成功登录签发令牌并落库。
-func (a *accountAPIServer) issueLoginToken(ctx context.Context, account string, accountID string, ip string) (string, error) {
-	token, err := newLoginToken()
-	if err != nil {
-		return "", fmt.Errorf("generate login token: %w", err)
-	}
-	table := a.loginTokenTable()
-	now := time.Now()
-	expiresAt := now.Add(loginTokenTTL)
-	insert := fmt.Sprintf(
-		"INSERT INTO %s (token, account, account_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-		table)
-	if _, err := a.db.ExecContext(ctx, insert, token, account, accountID, now, expiresAt); err != nil {
-		return "", fmt.Errorf("store login token: %w", err)
-	}
-	// 顺手清理过期令牌，避免表无限增长。
-	cleanup := fmt.Sprintf("DELETE FROM %s WHERE expires_at < ?", table)
-	if _, err := a.db.ExecContext(ctx, cleanup, now); err != nil && a.service != nil {
-		a.service.logWarn("dnfbridge login token cleanup failed", "error", err)
-	}
-	if a.service != nil {
-		a.service.loginTokens.remember(token, accountID, expiresAt)
-	}
-	return token, nil
-}
-
 func (a *accountAPIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeAccountAPIError(w, http.StatusMethodNotAllowed, "只支持 GET")
@@ -437,36 +411,22 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.service.options.accountAPILoginToken {
+		a.handleLoginReplacement(ctx, w, request, accountID, storedHash, ip)
+		return
+	}
+
 	update := fmt.Sprintf("UPDATE %s SET last_login_at = ?, last_login_ip = ? WHERE account = ?", a.table)
 	if _, err := a.db.ExecContext(ctx, update, time.Now(), ip, request.Account); err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "登录失败")
 		return
 	}
 
-	// 曾经这里还会把调用方来源 IP 绑到账号，供游戏连接按 IP 认账号。
-	// 2026-09-25 现场取证后那条通道已删除（见 client_account_ip.go）：
-	// 玩家的启动器 HTTP 登录出口与游戏客户端 TCP 来源 IP 不是同一个地址。
-	// 现在登录只做两件事：记录 last_login_at/last_login_ip 作为审计事实，
-	// 并签发下面这条启动器令牌 —— 令牌是游戏连接上唯一权威的账号来源。
-
-	// 签发本次登录的令牌。启动器把它交给客户端，服务端就能在游戏连接上精确认账号。
-	// 签发失败不阻断登录（但该会话随后会落到共享兜底账号并写 WARN）；
-	// DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN=0 时整体关闭令牌，便于即时回退。
-	token := ""
-	if a.service.options.accountAPILoginToken {
-		issued, err := a.issueLoginToken(ctx, request.Account, accountID, ip)
-		if err != nil {
-			a.service.logWarn("dnfbridge login token issue failed",
-				"account_id", accountID, "client_ip", ip, "error", err)
-		} else {
-			token = issued
-		}
-	}
+	// Explicit token-disabled mode retains its existing login response.
 
 	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{
 		OK:        true,
 		AccountID: accountID,
-		Token:     token,
 		Message:   "登录成功",
 	})
 }

@@ -4,6 +4,7 @@ package inventory
 
 import (
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"strings"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 
 // Command 是 inventory handler 交给后续 inventory/equipment/wallet owner 的最小命令计划。
 type Command struct {
+	ItemUsageResolver       alignedcmd.ItemUsageResolver
+	ItemUsageNow            time.Time
+	UseItemUsage            *itemusage.Definition
 	ItemPlacement           func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
 	QuickEquipmentPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
 	CargoInsert             func(dnfrepo.ItemStack, byte) error
@@ -220,6 +224,8 @@ func NewUseStackableCommand(req alignedcmd.Request, parsed UseStackableRequest) 
 	cmd.ItemTemplateID = parsed.ItemCode
 	cmd.ReservedValue = parsed.Reserved
 	cmd.StackableUseProvenanceResolver = req.StackableUseProvenanceResolver
+	cmd.ItemUsageResolver = req.ItemUsageResolver
+	cmd.ItemUsageNow = req.ItemUsageNow
 	return cmd
 }
 
@@ -232,6 +238,8 @@ func NewUseSharedEffectItemCommand(req alignedcmd.Request, parsed UseSharedEffec
 	cmd.SourceSlotIndex = parsed.SlotIndex
 	cmd.ItemTemplateID = parsed.ItemCode
 	cmd.StackableUseProvenanceResolver = req.StackableUseProvenanceResolver
+	cmd.ItemUsageResolver = req.ItemUsageResolver
+	cmd.ItemUsageNow = req.ItemUsageNow
 	return cmd
 }
 

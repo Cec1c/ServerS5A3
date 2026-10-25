@@ -102,6 +102,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	}
 	if owner != nil {
 		txGroup.Settings = repository.GuildSettlementSettings(base.Settings, receiptScope)
+		txGroup.Mailbox = &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}
 	}
 	if err := apply(txGroup); err != nil {
 		return errors.Join(err, tx.Rollback())

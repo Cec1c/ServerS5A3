@@ -205,6 +205,10 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 			s.retireCurrentFiendWarPartySnapshot(p, temporary, "entry_not_committed")
 		}
 	}()
+	if err := s.prepareCurrentFiendWarFormationActors(p, temporary, int64(a.Dungeon)); err != nil {
+		diagnostic.setReason("party_actor_prepare_failed")
+		return err
+	}
 	if err := s.sendManagedRuntimePartySnapshots(managed); err != nil {
 		diagnostic.setReason("party_snapshot_send_failed")
 		return err

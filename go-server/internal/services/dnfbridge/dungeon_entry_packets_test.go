@@ -1089,21 +1089,34 @@ func TestHandleDungeonSelectUpperCommitsStartMapBeforePostPlayerState(t *testing
 		dungeonSeed:         func() (uint32, error) { return 1, nil },
 		repositoryProvider:  func() (dnfrepo.Group, bool) { return repositories, true },
 	}
-	// 2026-09-28：登录/选角容器引导多了第七个容器（list 3 已穿戴，见
-	// login_equipment_container.go），它排在 post-start-map 收尾的容器段里、
-	// 在完整 mode1 之前 ⇒ 这次收尾的"最后一次写"下标顺延 1（22 → 23）。
-	// 用例要钉的语义没变：**收尾阶段最后一次写失败 ⇒ 该阶段的 committed 标记不许置位**。
-	failIndex := 22 + len(currentSelectInventoryBootstrapListTypes) - len(currentSelectInventoryBootstrapListTypesRollback)
-	connection := &failNthDungeonWriteConn{failAt: failIndex, err: errors.New("unexpected twenty-third write")}
+	// Match the final placement packet itself: preceding inventory, pet and
+	// character notifications may change without changing this commit boundary.
+	localObjectKey := currentSceneActorObjectKey(99)
+	wantUserState := []byte{1, byte(localObjectKey), byte(localObjectKey >> 8), currentDungeonPlayerUserState}
+	connection := &failNthDungeonWriteConn{err: errors.New("final placement write failed")}
+	connection.failWhen = func(data []byte) bool {
+		packet, rest := splitGameServerUpperPacket(t, data)
+		return packet.Header.Classification == 0 &&
+			packet.Header.MsgID == uint16(dnfenum.CmdPacketNotifyUserState) &&
+			bytes.Equal(packet.Body, wantUserState) && len(rest) == 0
+	}
 	session := &gameSession{conn: connection, selectedCharacterID: 99}
 	bindDungeonSelectorOriginForTestAt(t, service, session, 38, 1, 450, 234)
 	body := make([]byte, 21)
 	binary.LittleEndian.PutUint32(body[0:4], 700)
-	if err := service.handleDungeonSelectUpper(session, body); err == nil || !strings.Contains(err.Error(), "unexpected twenty-third write") {
+	if err := service.handleDungeonSelectUpper(session, body); err == nil || !strings.Contains(err.Error(), "final placement write failed") {
 		t.Fatalf("handler error=%v, want post-op29 placement failure", err)
 	}
-	if connection.writes != failIndex {
-		t.Fatalf("write calls=%d", connection.writes)
+	if len(connection.failed) == 0 {
+		t.Fatal("fixture did not retain the injected final-write frame")
+	}
+	failedPacket, failedRest := splitGameServerUpperPacket(t, connection.failed)
+	if failedPacket.Header.Classification != 0 ||
+		failedPacket.Header.MsgID != uint16(dnfenum.CmdPacketNotifyUserState) ||
+		!bytes.Equal(failedPacket.Body, wantUserState) ||
+		len(failedRest) != 0 {
+		t.Fatalf("injected final-write frame=%+v body=%x rest=%x, want final op3 body=%x",
+			failedPacket.Header, failedPacket.Body, failedRest, wantUserState)
 	}
 	if session.dungeon.runtime == nil {
 		t.Fatal("runtime reservation missing after select-dungeon ACK")
@@ -1283,6 +1296,13 @@ func assertCurrentPostStartMapPlayerState(t *testing.T, session *gameSession, re
 			mode  byte
 		}{uint16(dnfenum.CmdPacketSetUDPIPPort), 1},
 	)
+	// Full dungeon mode1 republishes the selected-creature table for the new
+	// actor generation. These shared fixtures have no equipped pet, but the
+	// empty table is still a required write and must be exactly one zero count.
+	want = append(want, struct {
+		msgID uint16
+		mode  byte
+	}{currentCreatureStateTableMsgID, 0xff})
 	// The pre-op27 mode0 descriptor plus post-op29 mode1 local actor binding
 	// establish the wrapper. Mode3 is deliberately absent: a fresh live trace
 	// proved it opens the personal-information panel and still emits no op43.
@@ -1356,6 +1376,11 @@ func assertCurrentPostStartMapPlayerState(t *testing.T, session *gameSession, re
 			binary.LittleEndian.Uint16(packet.Body[13:15]) != localObjectKey) {
 			t.Fatalf("post-op29 msg2 mode3 local owner/runtime finalizer body=%x", packet.Body)
 		}
+		if expected.msgID == currentCreatureStateTableMsgID {
+			if !bytes.Equal(packet.Body, []byte{0}) {
+				t.Fatalf("post-op29 empty pet op105 body=%x want exactly 00", packet.Body)
+			}
+		}
 		if expected.msgID == currentClearQuestListMsgID {
 			plain, err := zlibDecompress(packet.Body)
 			if err != nil || len(plain) != 30004 || binary.LittleEndian.Uint32(plain[:4]) != 30000 {
@@ -1378,8 +1403,8 @@ func assertCurrentPostStartMapPlayerState(t *testing.T, session *gameSession, re
 		}
 		rest = next
 	}
-	if session.preDungeonContextPlayerStateSent != expectPreLifecycle || !session.selectedUserInfoRefreshSent || session.selectedUserInfoMode3Sent || !session.selectedItemListRefreshSent {
-		t.Fatalf("post-op29 flags pre=%v placed=%v mode1=%v mode3=%v item_lists=%v", session.preDungeonContextPlayerStateSent, session.postStartMapPlayerStateSent, session.selectedUserInfoRefreshSent, session.selectedUserInfoMode3Sent, session.selectedItemListRefreshSent)
+	if session.preDungeonContextPlayerStateSent != expectPreLifecycle || !session.selectedUserInfoRefreshSent || session.selectedUserInfoMode3Sent || !session.selectedItemListRefreshSent || !session.selectedCreatureStateTableSent {
+		t.Fatalf("post-op29 flags pre=%v placed=%v mode1=%v mode3=%v item_lists=%v creature_table=%v", session.preDungeonContextPlayerStateSent, session.postStartMapPlayerStateSent, session.selectedUserInfoRefreshSent, session.selectedUserInfoMode3Sent, session.selectedItemListRefreshSent, session.selectedCreatureStateTableSent)
 	}
 	return rest
 }
@@ -1455,14 +1480,17 @@ func TestCurrentPostStartMapSuppressesTutorialUserState(t *testing.T) {
 
 type failNthDungeonWriteConn struct {
 	bufferConn
-	writes int
-	failAt int
-	err    error
+	writes   int
+	failAt   int
+	err      error
+	failed   []byte
+	failWhen func([]byte) bool
 }
 
 func (connection *failNthDungeonWriteConn) Write(data []byte) (int, error) {
 	connection.writes++
-	if connection.writes == connection.failAt {
+	if connection.writes == connection.failAt || (connection.failWhen != nil && connection.failWhen(data)) {
+		connection.failed = append([]byte(nil), data...)
 		return 0, connection.err
 	}
 	return connection.bufferConn.Write(data)

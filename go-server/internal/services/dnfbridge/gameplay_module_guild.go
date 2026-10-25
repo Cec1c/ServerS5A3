@@ -4,6 +4,8 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildRankingBoardOpcode:                      (*Service).handleCurrentGuildRankingBoard,
+		currentGuildRankingOpcode:                           (*Service).handleCurrentGuildRanking,
 		currentGuildHongbaoListOpcode:                       (*Service).handleCurrentGuildHongbaoList,
 		currentGuildHongbaoPointsOpcode:                     (*Service).handleCurrentGuildHongbaoPoints,
 		currentGuildMarkOpcode:                              (*Service).handleCurrentGuildMark,
@@ -13,8 +15,11 @@ func guildGameplayModule() gameplayModuleDefinition {
 		currentGuildInviteOpcode:                            (*Service).handleCurrentGuildInvitation,
 		currentGuildInviteReplyOpcode:                       (*Service).handleCurrentGuildInvitationReply,
 		uint16(dnfenum.CmdPacketSetSubGuildMaster):          (*Service).handleCurrentGuildMemberGrade,
+		uint16(dnfenum.CmdPacketReqGuildSecede):             (*Service).handleCurrentGuildSecede,
+		uint16(dnfenum.CmdPacketBreakGuild):                 (*Service).handleCurrentGuildDisband,
 		uint16(dnfenum.CmdPacketChangeGuildGradeName):       (*Service).handleCurrentGuildGradeName,
 		uint16(dnfenum.CmdPacketChangeGuildGrade):           (*Service).handleCurrentGuildGradePermissions,
+		uint16(dnfenum.CmdPacketSetGuildRecommandChannel):   (*Service).handleCurrentGuildRecommendedChannel,
 		uint16(dnfenum.CmdPacketModifyGuildPromoteMsg):      (*Service).handleCurrentGuildSettings,
 		uint16(dnfenum.CmdPacketNotifyMessageToGuild):       (*Service).handleCurrentGuildNotice,
 		uint16(dnfenum.CmdPacketWriteGuildMemberMemo):       (*Service).handleCurrentGuildMemberMemo,
@@ -82,6 +87,8 @@ func guildGameplayModule() gameplayModuleDefinition {
 		upper[opcode] = defaultClassGameplayHandler("game-guild-class-rejected", "command_class_mismatch", run)
 	}
 	upper[currentGuildPurchaseOpcode] = (*Service).handleCurrentGuildPurchase
+	upper[currentGuildGuardianOpcode] = (*Service).handleCurrentGuildGuardian
+	legacy[currentGuildGuardianOpcode] = (*Service).handleCurrentGuildGuardian
 	for _, op := range []uint16{247, 248, 249} {
 		upper[op] = (*Service).handleCurrentGuildCargoTransfer
 		legacy[op] = (*Service).handleCurrentGuildCargoTransfer
