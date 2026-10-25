@@ -85,7 +85,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			if ownerErr != nil {
 				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, ownerErr), nil
 			}
-			return ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result), nil
+			response := ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result)
+			response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed || result.MainChanged}
+			return response, nil
 		}
 		petEquipmentMove := isProvenPetEquipmentMove(cmd)
 		if petEquipmentMove {
@@ -120,7 +122,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			if err != nil {
 				return ownerBlockedResult(cmd, err), nil
 			}
-			return ownerAppliedPetEquipmentMoveResult(req.Opcode, cmd, result), nil
+			response := ownerAppliedPetEquipmentMoveResult(req.Opcode, cmd, result)
+			response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed}
+			return response, nil
 		}
 		if (cmd.SourceListType == listTypePet || cmd.DestinationListType == listTypePet) &&
 			!(cmd.SourceListType == listTypePet && cmd.DestinationListType == listTypePet) {
@@ -176,7 +180,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err != nil {
 			return ownerRejectedMoveResult(req.Opcode, cmd, err), nil
 		}
-		return ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+		response := ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result)
+		response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed}
+		return response, nil
 	case dnfenum.CmdPacketRequestItemSortLock, dnfenum.CmdPacketRequestItemSortUnlock:
 		// DOC-067 位置锁：713=置1、714=置0（不是 toggle）。请求体 u8 list + u16 slot；
 		// 成功回同一 opcode 的 class1 `1 + list + slot`，失败不回包（错误码枚举未证，不臆造）。
@@ -441,11 +447,17 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err != nil {
 			return ownerBlockedResult(cmd, err), nil
 		}
+		cmd.UpgradePolicyRequired = true
+		policyLevel, levelErr := upgradeLevelOfSlot(req.Repositories, ctx, cmd)
+		cmd.UpgradePolicyCurrentLevel = policyLevel
 		if req.UpgradePolicyResolver == nil {
 			cmd.UpgradePolicyError = "upgrade policy resolver missing"
-		} else if policy, policyErr := req.UpgradePolicyResolver(cmd.Mode, int(upgradeLevelOfSlot(req.Repositories, ctx, cmd))); policyErr == nil {
+		} else if levelErr != nil {
+			cmd.UpgradePolicyError = levelErr.Error()
+		} else if policy, policyErr := req.UpgradePolicyResolver(cmd.Mode, int64(cmd.TargetItemTemplateID), int(policyLevel)); policyErr == nil {
 			cmd.UpgradeSuccessWeight = policy.SuccessWeight
 			cmd.UpgradePenaltyType = policy.PenaltyType
+			cmd.UpgradePenaltyValue = policy.PenaltyValue
 			cmd.UpgradeMaterialItemID = policy.MaterialItemID
 			cmd.UpgradeMaterialCount = policy.MaterialCount
 			cmd.UpgradeDestroyBonusItemID = policy.DestroyBonusItemID
@@ -691,22 +703,26 @@ func ownerAppliedInvestAmplifyOptionResult(opcode uint16, cmd Command, result Am
 
 // upgradeLevelOfSlot reads the current upgrade level of the target equipment
 // from the inventory record so the policy resolver can look up the correct
-// PVF table row before the atomic transaction begins.
-func upgradeLevelOfSlot(repos dnfrepo.Group, ctx context.Context, cmd Command) byte {
+// PVF table row before the atomic transaction begins. The owner rechecks the
+// quoted level inside the transaction before spending any assets.
+func upgradeLevelOfSlot(repos dnfrepo.Group, ctx context.Context, cmd Command) (byte, error) {
 	if repos.Inventory == nil || cmd.SelectedCharacterID == 0 {
-		return 0
+		return 0, ErrInventoryNotFound
 	}
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	record, found, err := repos.Inventory.Load(ctx, characterID)
-	if err != nil || !found || record.Slots == nil {
-		return 0
+	if err != nil {
+		return 0, err
+	}
+	if !found || record.Slots == nil {
+		return 0, ErrInventoryNotFound
 	}
 	key := slotKey(listTypeMain, cmd.TargetSlotIndex)
 	stack, ok := record.Slots[key]
 	if !ok || stack.ItemID != int64(cmd.TargetItemTemplateID) {
-		return 0
+		return 0, fmt.Errorf("upgrade policy target slot or template changed")
 	}
-	return upgradeLevelOf(stack)
+	return upgradeLevelOf(stack), nil
 }
 
 func upgradeMaterialSlotIsAccountShared(cmd Command) bool {
@@ -1263,6 +1279,10 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 			class0Response(msgItemListRefresh, refreshBody),
 		},
 		AuthoritativeListRefreshes: authoritativeListRefreshes,
+		// Even an unchanged sort replaces the native bag objects through op13.
+		// Rebind existing Buff items only after the bridge sends that replacing
+		// list successfully; the stored skill and physical instance stay intact.
+		RefreshSelectedBuffRegistration: result.ListType == listTypeMain,
 	}
 }
 
@@ -1493,14 +1513,16 @@ func ownerAppliedEquipmentMoveResult(opcode uint16, cmd Command, result dnfequip
 		)
 	}
 	return alignedcmd.Result{
-		Handled:         true,
-		ResponseAllowed: true,
-		Operation:       cmd.Operation,
-		Reason:          reason,
+		EquipmentMoveFact: &alignedcmd.EquipmentMoveFact{Changed: result.Changed, WornClaimNoop: result.Mode == "noop" && !result.Changed && result.NoopGate == dnfequip.WornSlotReassertGate},
+		Handled:           true,
+		ResponseAllowed:   true,
+		Operation:         cmd.Operation,
+		Reason:            reason,
 		UpperResponses: []alignedcmd.UpperResponse{
 			class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 		},
-		PostActions: postActions,
+		PostActions:                     postActions,
+		RefreshSelectedBuffRegistration: result.Changed && !appearanceRefresh,
 	}
 }
 
@@ -1859,6 +1881,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	applied.ItemUsageChanged = result.ItemUsageChanged
 	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
 		result.PreviousCount-result.RemainingCount == 1 {
 		applied.StackableConsumption = &alignedcmd.StackableConsumption{

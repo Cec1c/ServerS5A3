@@ -123,7 +123,7 @@ func TestRealPVFGustZoneBossRoutesAndPassiveDrops(t *testing.T) {
 				}
 				if sc.Boss {
 					packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
-					if packet.Header.MsgID != currentDungeonStartNotification || len(rest) != 0 || len(packet.Body) != 128 || binary.LittleEndian.Uint32(packet.Body[14:18]) != 33753 || packet.Body[40] != 4 {
+					if packet.Header.MsgID != currentDungeonStartNotification || len(rest) != 0 || len(packet.Body) != 124 || binary.LittleEndian.Uint32(packet.Body[14:18]) != 33753 || packet.Body[40] != 4 {
 						t.Fatalf("boss START_MAP header=%+v bytes=%d rest=%d", packet.Header, len(packet.Body), len(rest))
 					}
 					rows, _ := currentDungeonPassiveObjectDropEntries(rt, sc)
@@ -142,7 +142,7 @@ func TestRealPVFGustZoneBossRoutesAndPassiveDrops(t *testing.T) {
 							t.Fatalf("passive drop key %d collides with another scene object", row.GlobalSequence)
 						}
 						seen[row.GlobalSequence] = true
-						offset := 41 + rowIndex*21
+						offset := 41 + rowIndex*20
 						if binary.LittleEndian.Uint32(packet.Body[offset+1:offset+5]) != row.GlobalSequence || binary.LittleEndian.Uint32(packet.Body[offset+5:offset+9]) != row.ItemID {
 							t.Fatal("passive reward wire identity differs from owner")
 						}

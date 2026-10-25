@@ -476,6 +476,18 @@ func (s *Service) sendTownRemoteActorState(
 	actor onlinePlayerInfo,
 	source string,
 ) error {
+	return s.sendTownRemoteActorStateWithPartyFrame(target, actor, source, true)
+}
+
+// FiendWar admission restores actors before its first endpoint/roster sequence.
+// That caller must not publish a peer party frame before op11 seeds endpoints.
+// Ordinary town projections retain their existing party-frame policy.
+func (s *Service) sendTownRemoteActorStateWithPartyFrame(
+	target *gameSession,
+	actor onlinePlayerInfo,
+	source string,
+	partyFrame bool,
+) error {
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
 	}
@@ -616,6 +628,9 @@ func (s *Service) sendTownRemoteActorState(
 	// 这条"再声明一次队伍"的 op9 本身就是触发客户端退队的那一下（换成权威内容仍然退队）
 	// ⇒ 该情形下跳过它。见 town_copresence_party_state.go 的
 	// `DNFBRIDGE_TOWN_COPRESENCE_SKIP_SAME_PARTY_FRAME`（official-24.9 城镇默认开，其他档默认 off）。
+	if !partyFrame {
+		return nil
+	}
 	if s.shouldSkipTownCopresencePartyFrame(target, actor.Session) {
 		s.logPacketEvent("game-town-copresence-party-frame-skipped",
 			"conn_id", target.connID,
@@ -654,9 +669,10 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 	townID byte,
 	areaID byte,
 	source string,
-) {
+	expected ...*currentSelectorReturnPresence,
+) bool {
 	if s == nil || s.onlinePlayers == nil || session == nil || session.selectedCharacterID == 0 {
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -671,7 +687,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 			"area_id", areaID,
 			"source", source,
 			"reason", "character_unavailable")
-		return
+		return false
 	}
 	session.townMu.Lock()
 	position := session.townPositionSnapshot
@@ -689,7 +705,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 		if err != nil {
 			s.logGameEvent(session, "game-dungeon-return-guild-hall-rejected", "source", source, "error", err)
 			s.retireCurrentGuildHallPresence(session)
-			return
+			return false
 		}
 	}
 	raidBattle := ""
@@ -740,7 +756,16 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 	}
 	raidInstance, raidBattle, admitted, releaseRaid := s.lockCurrentAntonWaitingAreaScope(session, townID, areaID)
 	if !admitted {
-		return
+		return false
+	}
+	if len(expected) > 0 {
+		owner := expected[0]
+		if owner == nil || owner.raidKey != raidInstance || owner.battleID != raidBattle ||
+			owner.channelID != session.channel.ID || owner.identity.character != characterID ||
+			!s.boundGameSessionCharacterCurrent(owner.identity) {
+			releaseRaid()
+			return false
+		}
 	}
 	if raidInstance != 0 {
 		playerInfo.Instance = raidInstance
@@ -788,6 +813,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 		"same_area_peers", len(newOthers),
 		"party_id", partyStateAfter.PartyID,
 		"source", source)
+	return true
 }
 
 // broadcastTownPlayerEnter sends each remote actor's current typed mode0,
@@ -895,6 +921,9 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 		if actor.ChannelID != receiverChannelID {
 			continue
 		}
+		if s.townPrivateRoomPeerProjectionBlocked(receiver, actor) {
+			continue
+		}
 		// A party actor fallback must not recreate another raid's actor inside
 		// the same physical waiting map after the ordinary roster was isolated.
 		if source, found := s.onlinePlayers.PlayerForCharacter(receiver.selectedCharacterID); found &&
@@ -932,6 +961,24 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 		}
 	}
 	return nil
+}
+
+// NOTI23 carries town/area but no private-instance key. Recreating a party
+// actor in the same physical Seria map would therefore put another owner's
+// actor inside the receiver's room. Keep the party roster and remote actors
+// in different physical areas; only this ambiguous private-room projection
+// is blocked, including stale shared presence left before a room rebind.
+func (s *Service) townPrivateRoomPeerProjectionBlocked(receiver *gameSession, actor onlinePlayerInfo) bool {
+	if s == nil || s.onlinePlayers == nil || receiver == nil ||
+		receiver.selectedCharacterID == 0 || actor.CharacterID == receiver.selectedCharacterID {
+		return false
+	}
+	local, found := s.onlinePlayers.PlayerForCharacter(receiver.selectedCharacterID)
+	if !found || local.Session != receiver || local.TownID != actor.TownID || local.AreaID != actor.AreaID {
+		return false
+	}
+	area, found := s.townArea(int64(local.TownID), int64(local.AreaID))
+	return found && townMapPathLooksLikeSeria(area.MapPath)
 }
 
 // broadcastTownPlayerLeave sends NOTI 0x0006 (u16 userId) to remaining

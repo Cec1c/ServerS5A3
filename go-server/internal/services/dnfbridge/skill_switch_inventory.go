@@ -376,7 +376,7 @@ func (s *Service) handleSkillSwitchInventoryCommand(session *gameSession, typ ui
 	if typ != currentSkillSwitchInventoryOpcode {
 		return false, nil
 	}
-	if buffSwapReapplyEnabled() {
+	if buffSwapReapplyEnabled() && !s.currentClientLoadoutOwnsBuffSwap1428() {
 		return s.handleNativeBuffSwapRegistration(session, body)
 	}
 	mode := s.skillSwitchInventoryMode()

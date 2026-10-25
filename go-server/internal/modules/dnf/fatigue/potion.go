@@ -15,6 +15,25 @@ type PotionDefinition struct {
 	MinimumLevel                           int64
 	PVFPath, Group                         string
 }
+
+// PotionUsageItemKeyPrefix identifies item-to-group restore markers. The
+// existing fatigue_potion_used_<group> value remains the only usage counter.
+const PotionUsageItemKeyPrefix = "fatigue_potion_item_"
+
+// PotionUsageItemKey is a durable item-to-group mapping marker. The existing
+// fatigue_potion_used_<group> value remains the only usage counter.
+func PotionUsageItemKey(itemID int64) string {
+	return PotionUsageItemKeyPrefix + strconv.FormatInt(itemID, 10)
+}
+
+func (definition PotionDefinition) UsageGroup() string {
+	group := definition.Group
+	if group == "" {
+		group = strconv.FormatInt(definition.ItemID, 10)
+	}
+	return group
+}
+
 type PotionResult struct {
 	Remaining int64
 	Character dnfrepo.CharacterRecord
@@ -62,27 +81,20 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 		if character.Stats["fatigue"] >= character.Stats["fatigue_limit"] {
 			return fmt.Errorf("fatigue is already full")
 		}
-		group := definition.Group
-		if group == "" {
-			group = strconv.FormatInt(definition.ItemID, 10)
-		}
+		group := definition.UsageGroup()
 		dayKey, countKey, lastKey := "fatigue_potion_day_"+group, "fatigue_potion_used_"+group, "fatigue_potion_time_"+group
 		day := premium.ServiceDayID(now)
 		if character.Stats[dayKey] != day {
 			character.Stats[dayKey] = day
 			character.Stats[countKey] = 0
-			character.Stats[lastKey] = 0
 		}
-		// Long maintained cooldowns are daily potion allowances. They refresh
-		// with fatigue at 06:00, rather than stretching into the following day.
+		// Only the explicit PVF daily limit resets at 06:00. Cooldowns retain
+		// elapsed-time semantics across service days, including 22-hour potions.
 		limit := definition.DailyLimit
-		if limit <= 0 && definition.CoolTimeMS >= 22*3600*1000 {
-			limit = 1
-		}
 		if limit > 0 && character.Stats[countKey] >= limit {
 			return fmt.Errorf("fatigue potion daily limit reached")
 		}
-		if definition.CoolTimeMS > 0 && definition.CoolTimeMS < 22*3600*1000 && character.Stats[lastKey] > 0 && now.UnixMilli()-character.Stats[lastKey] < definition.CoolTimeMS {
+		if definition.CoolTimeMS > 0 && character.Stats[lastKey] > 0 && now.UnixMilli()-character.Stats[lastKey] < definition.CoolTimeMS {
 			return fmt.Errorf("fatigue potion cooldown")
 		}
 		character.Stats["fatigue"] += definition.Points
@@ -92,6 +104,7 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 		character.Stats["fatigue_used"] = character.Stats["fatigue_limit"] - character.Stats["fatigue"]
 		character.Stats["fatigue_display_update"] = character.Stats["fatigue_used"]
 		character.Stats[countKey]++
+		character.Stats[PotionUsageItemKey(definition.ItemID)] = 1
 		character.Stats[lastKey] = now.UnixMilli()
 		stack.Count--
 		if stack.Count == 0 {

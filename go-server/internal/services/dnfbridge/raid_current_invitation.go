@@ -104,7 +104,7 @@ func (s *Service) handleCurrentRaidPeerCheck(session *gameSession, op uint16, bo
 }
 func (s *Service) currentRaidInvitationOpenLocked(state *runtimeRaidState, inviter, recipient boundGameSessionCharacter) bool {
 	route, supported := currentRaidRouteForChannel(int(inviter.session.channel.Type))
-	return state != nil && state.CurrentLayout && state.LeaderID == inviter.character && !state.Started && state.CurrentUIFlags[0] == 0 && supported && state.RouteOrRaidType == route && byte(state.RaidKey>>16) == byte(inviter.session.channel.ID) && len(state.Members) < raid.MaxAttackPartyMembers && s.runtimeRaidByMemberLocked(recipient.character) == nil && s.currentRaidInvitationPeers(inviter, recipient)
+	return state != nil && state.CurrentLayout && state.LeaderID == inviter.character && !state.Started && state.CurrentUIFlags[0] == 0 && supported && state.RouteOrRaidType == route && byte(state.RaidKey>>16) == byte(inviter.session.channel.ID) && len(state.Members) < currentRaidMemberMaximum(*state) && s.runtimeRaidByMemberLocked(recipient.character) == nil && s.currentRaidInvitationPeers(inviter, recipient)
 }
 func (s *Service) handleCurrentRaidInvitation(session *gameSession, op uint16, req party.RequestPeerRequest) error {
 	if !s.currentRaidAuthenticated(session) || req.Value2 != 0 {
@@ -186,7 +186,12 @@ func (s *Service) handleCurrentRaidInvitationAcceptance(session *gameSession, op
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}
-	state.Members = append(state.Members, runtimeRaidMemberState{CharID: row.CharKey, Name: row.Name, Level: uint32(row.Level), Job: row.Job, GrowType: row.Grow, UserState: 1, HPPercent: 100, MPPercent: 100})
+	placedMember, placed := appendRuntimeRaidMemberWithLegalGroup(state, runtimeRaidMemberState{CharID: row.CharKey, Name: row.Name, Level: uint32(row.Level), Job: row.Job, GrowType: row.Grow, UserState: 1, HPPercent: 100, MPPercent: 100})
+	if !placed {
+		s.mu.Unlock()
+		s.raidMu.Unlock()
+		return s.sendRaidCommandFailure(session, op)
+	}
 	delete(s.currentRaidInvitations, recipient.character)
 	s.mu.Unlock()
 	snapshot := cloneRuntimeRaidState(*state)
@@ -200,7 +205,7 @@ func (s *Service) handleCurrentRaidInvitationAcceptance(session *gameSession, op
 	if err := s.broadcastRuntimeRaidRefresh(snapshot); err != nil {
 		return err
 	}
-	s.logGameEvent(session, "game-current-raid-invitation-accepted", "raid_key", snapshot.RaidKey, "inviter", inviter.character, "recipient", recipient.character, "member_count", len(snapshot.Members))
+	s.logGameEvent(session, "game-current-raid-invitation-accepted", "raid_key", snapshot.RaidKey, "inviter", inviter.character, "recipient", recipient.character, "member_count", len(snapshot.Members), "group_index", placedMember.GroupIndex, "slot_order", placedMember.SlotOrder)
 	return nil
 }
 

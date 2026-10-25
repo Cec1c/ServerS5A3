@@ -161,7 +161,7 @@ func TestTownNpcEventCatalogOnWithoutJoustKeepsCountsConsistent(t *testing.T) {
 }
 
 // TestSendCurrentSpendTimeProtocolStateTownNpcCatalogAddsOnly2395OnTheWire 是**接线**
-// 断言（不是纯函数断言）：真实发包路径上，默认档的 op108 体是既有 golden 加安徒恩 181、
+// 断言（不是纯函数断言）：真实发包路径上，默认档是既有golden加公共181和2037、
 // 不含 2395；打开档多出 2395 一对行，而 2347/2365 两行与紧随其后的 op1206 逐字节不变。
 func TestSendCurrentSpendTimeProtocolStateTownNpcCatalogAddsOnly2395OnTheWire(t *testing.T) {
 	golden := mustCurrentSpendTimeJoustCatalogGolden(t)
@@ -192,7 +192,7 @@ func TestSendCurrentSpendTimeProtocolStateTownNpcCatalogAddsOnly2395OnTheWire(t 
 	if err != nil {
 		t.Fatalf("decompress off-catalog op108: %v", err)
 	}
-	wantOffBody := withAntonChannelCatalogFixture(t, golden)
+	wantOffBody := withSeriaLuckCatalogFixture(t, withAntonChannelCatalogFixture(t, golden))
 	if !bytes.Equal(offBody, wantOffBody) {
 		t.Fatalf("off-catalog op108 body=%x want golden plus Anton=%x", offBody, wantOffBody)
 	}
@@ -221,9 +221,9 @@ func TestSendCurrentSpendTimeProtocolStateTownNpcCatalogAddsOnly2395OnTheWire(t 
 		t.Fatalf("decompress on-catalog op108: %v", err)
 	}
 	onShape := parseCurrentSpendTimeEventInfoBody(t, onBody)
-	if onShape.baseCount != 4 || onShape.activeCount != 4 ||
-		len(onShape.baseRows) != 4 || len(onShape.activeRows) != 4 {
-		t.Fatalf("on-catalog wire counts base=%d/%d active=%d/%d want 4/4 and 4/4",
+	if onShape.baseCount != 5 || onShape.activeCount != 5 ||
+		len(onShape.baseRows) != 5 || len(onShape.activeRows) != 5 {
+		t.Fatalf("on-catalog wire counts base=%d/%d active=%d/%d want 5/5 and 5/5",
 			onShape.baseCount, len(onShape.baseRows), onShape.activeCount, len(onShape.activeRows))
 	}
 	if !bytes.Equal(onShape.baseRows[2].raw, mustHexBytes(t, currentTownNpcEventBaseRowHex)) ||
@@ -249,7 +249,7 @@ func TestSendCurrentSpendTimeProtocolStateTownNpcCatalogAddsOnly2395OnTheWire(t 
 	wantOnBody = append(wantOnBody,
 		golden[currentSpendTimeJoustCatalogGolden2347Active:currentSpendTimeJoustCatalogGoldenLen]...) // 2347 + 2365 active
 	wantOnBody = append(wantOnBody, mustHexBytes(t, currentTownNpcEventActiveRowHex)...)
-	wantOnBody = withAntonChannelCatalogFixture(t, wantOnBody)
+	wantOnBody = withSeriaLuckCatalogFixture(t, withAntonChannelCatalogFixture(t, wantOnBody))
 	if !bytes.Equal(onBody, wantOnBody) {
 		t.Fatalf("on-catalog op108 body=%x want %x", onBody, wantOnBody)
 	}

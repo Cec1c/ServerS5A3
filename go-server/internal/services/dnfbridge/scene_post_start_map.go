@@ -225,12 +225,19 @@ func (s *Service) sendCurrentPreDungeonContextPlayerState(session *gameSession, 
 		return err
 	}
 
+	if err := s.prepareCurrentSnakeDungeonSkillInfo(session, ctx, character, hasCharacter, source); err != nil {
+		return err
+	}
 	session.preDungeonContextPlayerStateSent = true
+	packetCount := 2
+	if session.snakeDungeonSkillInfo != nil {
+		packetCount++
+	}
 	s.logGameEvent(session, "game-upper-pre-dungeon-context-player-state-finished",
 		"source", source,
 		"char_id", charID,
 		"object_key", objectKey,
-		"packet_count", 2,
+		"packet_count", packetCount,
 		"next_stage", "op27_page_enter_actor_vtable_0x254_existing_runtime_recompute_gate")
 	return nil
 }
@@ -419,15 +426,19 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), mode1Body, 0); err != nil {
 		return err
 	}
-	// Full mode1 recreates the selected actor's equipped creature. Its dynamic
-	// enchant card is applied only by the existing same-template slot26 op14
-	// path, so restore that durable state after creation in this lifecycle too.
+	// Full mode1 recreates the equipped creature. Publish metadata for this
+	// generation before slot26 resolves its serial; the previous scene's sent
+	// flag cannot suppress the table needed by the new notification.
 	if repositories, ok := s.repositoryGroup(); ok && repositories.Equipment != nil {
-		if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_after_dungeon_mode1"); err != nil {
+		session.selectedCreatureStateTableSent = false
+		if err := s.sendSelectedCreatureInitialProjection(session, source+"_after_dungeon_mode1"); err != nil {
 			return err
 		}
 	}
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_dungeon_mode1"); err != nil {
+		return err
+	}
+	if err := s.sendSelectedActorGuardianGemRowRefresh(session, source+"_after_dungeon_mode1"); err != nil {
 		return err
 	}
 	session.selectedUserInfoRefreshSent = true

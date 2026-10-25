@@ -4,6 +4,7 @@ package inventory
 
 import (
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"strings"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 
 // Command 是 inventory handler 交给后续 inventory/equipment/wallet owner 的最小命令计划。
 type Command struct {
+	ItemUsageResolver      alignedcmd.ItemUsageResolver
+	ItemUsageNow           time.Time
+	UseItemUsage           *itemusage.Definition
 	ItemPlacement          func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
 	CargoInsert            func(dnfrepo.ItemStack, byte) error
 	Operation              string
@@ -68,8 +72,13 @@ type Command struct {
 	// Upgrade policy fields (populated by dnfbridge from PVF table).
 	// SuccessWeight is out of 100000; >= 100000 means guaranteed success.
 	UpgradeSuccessWeight int
-	// PenaltyType: 0=fail no change, 1=downgrade, 3=destroy.
-	UpgradePenaltyType int
+	// PenaltyType: 0/1=no change, 2=subtract PenaltyValue, 3=destroy.
+	UpgradePenaltyType  int
+	UpgradePenaltyValue int
+	// Handler quotes are bound to the exact level observed before entering the
+	// asset transaction; a changed level must be retried without spending assets.
+	UpgradePolicyRequired     bool
+	UpgradePolicyCurrentLevel byte
 	// MaterialItemID/Count are the runtime-PVF upgrade table requirement.
 	UpgradeMaterialItemID  int
 	UpgradeMaterialCount   int
@@ -212,6 +221,8 @@ func NewUseStackableCommand(req alignedcmd.Request, parsed UseStackableRequest) 
 	cmd.ItemTemplateID = parsed.ItemCode
 	cmd.ReservedValue = parsed.Reserved
 	cmd.StackableUseProvenanceResolver = req.StackableUseProvenanceResolver
+	cmd.ItemUsageResolver = req.ItemUsageResolver
+	cmd.ItemUsageNow = req.ItemUsageNow
 	return cmd
 }
 
@@ -224,6 +235,8 @@ func NewUseSharedEffectItemCommand(req alignedcmd.Request, parsed UseSharedEffec
 	cmd.SourceSlotIndex = parsed.SlotIndex
 	cmd.ItemTemplateID = parsed.ItemCode
 	cmd.StackableUseProvenanceResolver = req.StackableUseProvenanceResolver
+	cmd.ItemUsageResolver = req.ItemUsageResolver
+	cmd.ItemUsageNow = req.ItemUsageNow
 	return cmd
 }
 

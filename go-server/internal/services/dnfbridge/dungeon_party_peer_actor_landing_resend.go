@@ -108,9 +108,8 @@ func peerSceneStableForPeerActorLandingResend(session *gameSession) bool {
 	if session == nil {
 		return false
 	}
-	return session.currentFinishLoadingStateSent &&
-		session.currentFinishLoadingCompletionSent &&
-		session.postFinishLoadingPlayerStateSent
+	gates := session.finishLoadingGateSnapshot()
+	return gates.State && gates.Completion && gates.PostFinish
 }
 
 // resendDungeonPartyPeerActorToAlreadyLandedMembers 由**刚落位**的那一方调用：
@@ -149,7 +148,8 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 			continue
 		}
 		peerKey, peerReady := s.currentDungeonPartyRunKey(peer)
-		peerSceneStable := peerSceneStableForPeerActorLandingResend(peer)
+		peerGates := peer.finishLoadingGateSnapshot()
+		peerSceneStable := peerGates.State && peerGates.Completion && peerGates.PostFinish
 		decision, reason := "resent",
 			"the_already_landed_member_finished_its_scene_rebuild_so_the_projection_is_pushed_again_after_it"
 		switch {
@@ -197,9 +197,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 			"run_key_map_id", ownKey.MapID,
 			"run_key_seed", ownKey.Seed,
 			"peer_scene_stable", peerSceneStable,
-			"peer_finish_loading_tail", peer.currentFinishLoadingStateSent &&
-				peer.currentFinishLoadingCompletionSent &&
-				peer.postFinishLoadingPlayerStateSent,
+			"peer_finish_loading_tail", peerGates.State && peerGates.Completion && peerGates.PostFinish,
 			"decision", decision,
 			"delivered", delivered,
 			"reason", reason,

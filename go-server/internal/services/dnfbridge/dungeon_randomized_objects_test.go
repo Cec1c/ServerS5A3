@@ -51,7 +51,9 @@ func actualAntonRandomizedBridgeFixture(t *testing.T) (*Service, worldmap.Dungeo
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{initialEquipmentArchive: a, dungeonMonsterTable: monsters, dungeonChoice: func(int) (int, error) { return 0, nil }}
+	// Retain this already parsed immutable table for callers that need the same
+	// actual-PVF resolver. Re-parsing the whole world map only duplicates memory.
+	s := &Service{initialEquipmentArchive: a, worldMapTable: table, worldMapResolver: resolver, dungeonMonsterTable: monsters, dungeonChoice: func(int) (int, error) { return 0, nil }}
 	scene, _ := session.Scene()
 	room, next, err := newRuntimeDungeonRoom(scene, monsters, firstDungeonMonsterObjectKey)
 	if err != nil {

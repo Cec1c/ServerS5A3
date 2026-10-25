@@ -135,6 +135,7 @@ func TestCatalogInitialClassChangeBranchSupersededByCompletedSuccessor(t *testin
 	linked := catalog.linkedSubQuestAcceptPlans(
 		parent,
 		character,
+		dnfrepo.QuestRecord{},
 		map[int64]struct{}{3153: {}},
 		map[int64]struct{}{6986: {}},
 	)

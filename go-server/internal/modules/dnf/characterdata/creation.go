@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/signupbenefits"
 )
@@ -27,6 +28,7 @@ type Creation struct {
 	Quest       *dnfrepo.QuestRecord
 	Pet         *dnfrepo.PetRecord
 	Settings    []dnfrepo.SettingsRecord
+	PVPPrivate  *dnfpvp.PrivateCreation
 }
 
 // Creator persists one Creation through the repository transaction boundary.
@@ -97,6 +99,13 @@ func (c *Creator) Create(ctx context.Context, creation Creation) error {
 		}
 		if tx.Character == nil {
 			return repositoryError("character")
+		}
+		if creation.PVPPrivate != nil {
+			rating, err := creation.PVPPrivate.Check(ctx, tx.Character, creation.Character.AccountID, creation.Character.CreatedAt)
+			if err != nil {
+				return err
+			}
+			creation.Character.Stats[dnfpvp.RankPointKey] = rating
 		}
 		if err := dnfrepo.CreateCharacter(ctx, tx.Character, creation.Character); err != nil {
 			return fmt.Errorf("create character: %w", err)

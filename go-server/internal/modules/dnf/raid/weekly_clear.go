@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	repo "longheng.io/server/internal/modules/dnf/repository"
@@ -13,6 +14,26 @@ import (
 
 var ErrWeeklyClearLimit = errors.New("raid weekly clear limit reached")
 var ErrWeeklyClearState = errors.New("raid weekly clear state unavailable or inconsistent")
+
+// RecordedLifetimeClears按永久的逐实例终局回执计数，不把每周用量当历史累计。
+// 周重置保留这些回执；奖励领取、单个地下城和失败返票均不产生该标记。
+func RecordedLifetimeClears(character repo.CharacterRecord, mode byte) int64 {
+	if mode < 1 || mode > 3 || character.Stats["delete_flag"] != 0 {
+		return 0
+	}
+	prefix := fmt.Sprintf("raid_clear_v1_%d_", mode)
+	var count int64
+	for key, stamp := range character.Stats {
+		if stamp <= 0 || !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		instance, err := hex.DecodeString(strings.TrimPrefix(key, prefix))
+		if err == nil && len(instance) == 16 {
+			count++
+		}
+	}
+	return count
+}
 
 // WeeklyPolicy is explicit deployment policy. Neither packet1442 nor the PVF
 // WEEKLY CLEAR COUNT field establishes a weekday; callers must supply it.

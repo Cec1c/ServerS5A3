@@ -21,7 +21,8 @@ type currentSetQuestTriggerReplayKey struct {
 	characterID uint16
 	questID     uint16
 	triggerType byte
-	increment   bool
+	answer      byte
+	hasAnswer   bool
 }
 
 func newCurrentSetQuestTriggerReplayKey(characterID uint16, request dnfquest.SetTriggerRequest) currentSetQuestTriggerReplayKey {
@@ -29,7 +30,8 @@ func newCurrentSetQuestTriggerReplayKey(characterID uint16, request dnfquest.Set
 		characterID: characterID,
 		questID:     request.QuestID,
 		triggerType: request.TriggerType,
-		increment:   request.IsIncrement,
+		answer:      request.Answer,
+		hasAnswer:   request.HasAnswer,
 	}
 }
 
@@ -160,8 +162,53 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 	if handled, err := s.echoCurrentRaidQuestTrigger(ctx, session, owner, request); handled || err != nil {
 		return err
 	}
+	catalog, catalogErr := s.loadQuestCatalog(ctx)
+	if catalogErr != nil {
+		s.logGameEvent(session, "game-upper-set-quest-trigger-catalog-unavailable",
+			"quest_id", request.QuestID,
+			"reason", "ordinary_trigger_fallback",
+			"error", catalogErr)
+	}
+	if catalog != nil {
+		if _, question := catalog.QuestionOptionCount(int64(request.QuestID)); question {
+			command := dnfquest.NewTriggerCommand(alignedcmd.Request{
+				AccountID:           s.accountIDForSession(session),
+				SelectedCharacterID: session.selectedCharacterID,
+			}, request)
+			result, err := owner.ApplyQuestionAnswer(ctx, catalog, command)
+			if err != nil {
+				s.logGameEvent(session, "game-upper-question-answer-blocked",
+					"quest_id", request.QuestID,
+					"trigger_type", request.TriggerType,
+					"answer", request.Answer,
+					"has_answer", request.HasAnswer,
+					"reason", "question_answer_rejected",
+					"error", err)
+				return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketSetQuestTrigger), 22)
+			}
+			if err := s.sendCurrentSetQuestTriggerSuccess(
+				session,
+				request,
+				result,
+				"current_exe_op33_question_answer_persisted",
+			); err != nil {
+				return err
+			}
+			if result.StateChanged {
+				if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op33_question_answer_after_ack"); err != nil {
+					return err
+				}
+			}
+			session.suppressCurrentSetQuestTriggerReplay(replayKey)
+			s.logGameEvent(session, "game-upper-question-answer-committed",
+				"quest_id", request.QuestID,
+				"answer", request.Answer,
+				"state_changed", result.StateChanged,
+				"progress", result.ProgressValue)
+			return nil
+		}
+	}
 	if request.TriggerType == 0 && !request.IsIncrement {
-		catalog, catalogErr := s.loadQuestCatalog(ctx)
 		if catalogErr != nil {
 			s.logGameEvent(session, "game-upper-set-quest-trigger-linked-progress-skipped",
 				"quest_id", request.QuestID,
@@ -258,6 +305,24 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 			"progress", result.ProgressValue,
 			"reason", "quest_trigger_result_not_acknowledgeable")
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketSetQuestTrigger), 22)
+	}
+	if result.EchoOnly {
+		if err := s.sendCurrentSetQuestTriggerSuccess(
+			session,
+			request,
+			result,
+			"authoritative_rental_guide_echo_without_client_progress",
+		); err != nil {
+			return err
+		}
+		session.suppressCurrentSetQuestTriggerReplay(replayKey)
+		s.logGameEvent(session, "game-upper-rental-guide-trigger-echoed",
+			"quest_id", request.QuestID,
+			"client_trigger_type", request.TriggerType,
+			"client_increment", request.IsIncrement,
+			"committed_progress", result.ProgressValue,
+			"reason", "successful_rental_is_the_only_progress_authority")
+		return nil
 	}
 	if !result.StateChanged {
 		// Clear-map persistence can reach terminal zero before the current EXE

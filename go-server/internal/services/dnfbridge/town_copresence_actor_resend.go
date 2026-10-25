@@ -322,6 +322,17 @@ func (s *Service) publishTownPresenceInArea(
 			return
 		}
 	}
+	if isPVPChannel(session.channel) && townID == 10 && areaID == 0 {
+		areaInstance = uint32(characterID)
+	}
+	if isPVPChannel(session.channel) {
+		if err := s.sendCurrentPVPDailyState(session); err != nil {
+			s.logGameEvent(session, "决斗战绩初始化失败", "error", err)
+		}
+		if err := s.sendCurrentPVPDirectory(session); err != nil {
+			s.logGameEvent(session, "决斗房间目录发送失败", "error", err)
+		}
+	}
 	raidBattle := ""
 	playerInfo := &onlinePlayerInfo{
 		CharacterID:        characterID,

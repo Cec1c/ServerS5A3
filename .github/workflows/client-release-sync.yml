@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: '13,43 * * * *'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '仅同步指定客户端标签；留空检查全部版本'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -24,22 +29,43 @@ jobs:
         with:
           ref: master
           persist-credentials: false
+      - name: Install historical workflow audit dependency
+        run: python3 -m pip install -r scripts/ci/requirements-release-sync.txt
       - name: Validate release synchronization
-        run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client_releases.py' -v
+        run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client*.py' -v
+      - name: Prepare existing GitHub mirror identity for audited tags
+        env:
+          SYNC_KEY: ${{ secrets.SOURCE_MIRROR_SSH_KEY }}
+          SYNC_HOSTS: ${{ secrets.SOURCE_MIRROR_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          test -n "$SYNC_KEY"
+          test -n "$SYNC_HOSTS"
+          install -d -m 700 "$RUNNER_TEMP/client-release-ssh"
+          printf '%s\n' "$SYNC_KEY" > "$RUNNER_TEMP/client-release-ssh/key"
+          printf '%s\n' "$SYNC_HOSTS" > "$RUNNER_TEMP/client-release-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/client-release-ssh/key"
+          echo "GIT_SSH_COMMAND=ssh -i $RUNNER_TEMP/client-release-ssh/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/client-release-ssh/known_hosts" >> "$GITHUB_ENV"
       - name: Synchronize client EXE releases with GitGud
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          CLIENT_RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_PROJECT: ${{ vars.GITGUD_CLIENT_RELEASE_PROJECT }}
           GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_CLIENT_RELEASE_TOKEN }}
         run: |
           set -eu
           test -n "$RELEASE_PROJECT"
           test -n "$GITGUD_RELEASE_TOKEN"
+          set --
+          if [ -n "$CLIENT_RELEASE_TAG" ]; then set -- --tag "$CLIENT_RELEASE_TAG"; fi
           python3 scripts/ci/sync_client_releases.py \
             --github "$GITHUB_REPOSITORY" --gitgud-project "$RELEASE_PROJECT" \
             --cache "$RUNNER_TEMP/client-releases" \
-            --receipt "$RUNNER_TEMP/client-release-sync.json" --apply
+            --receipt "$RUNNER_TEMP/client-release-sync.json" --github-tag-ssh --apply "$@"
+      - name: Remove temporary mirror identity
+        if: always()
+        run: rm -f "$RUNNER_TEMP/client-release-ssh/key"
       - name: Keep synchronization receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

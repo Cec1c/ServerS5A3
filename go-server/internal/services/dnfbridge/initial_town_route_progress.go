@@ -7,6 +7,10 @@ import (
 )
 
 func (s *Service) armCurrentInitialTownRoute(session *gameSession, characterID uint16) {
+	s.armCurrentTownActorRoute(session, characterID, false)
+}
+
+func (s *Service) armCurrentTownActorRoute(session *gameSession, characterID uint16, completedReturn bool) {
 	if session == nil || characterID == 0 {
 		return
 	}
@@ -19,6 +23,7 @@ func (s *Service) armCurrentInitialTownRoute(session *gameSession, characterID u
 	session.initialTownRouteTownGeneration = session.townPostTransition.generation
 	session.townPostTransition.mu.Unlock()
 	session.initialTownRouteCharacterID = characterID
+	session.initialTownRouteCompletedReturn = completedReturn
 	session.initialTownRouteStage = currentInitialTownRouteArmed
 	session.initialTownActorSceneSnapshotSent = false
 	session.initialTownLocationNotificationsSent = false

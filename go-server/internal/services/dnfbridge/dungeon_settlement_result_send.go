@@ -153,6 +153,9 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 			return err
 		}
 	}
+	if err := s.sendCurrentGuildDungeonSettlement(session, runtime, plan); err != nil {
+		return err
+	}
 	runtime.advanceSettlementPhase(currentDungeonSettlementPhaseResultShown)
 	// Publish the receipted wallet without a second durable award.
 	s.sendSuitableDungeonLuckyStarState(session, runtime)
