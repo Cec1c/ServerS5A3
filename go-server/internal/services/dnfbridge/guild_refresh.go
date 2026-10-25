@@ -47,5 +47,6 @@ func (s *Service) handleCurrentGuildRefresh(session *gameSession, request gamepl
 		return err
 	}
 	s.refreshOptionalGuildEssenceLocked(ctx, session, source)
+	s.retryOptionalGuildContributionAttendanceLocked(ctx, session, source)
 	return nil
 }
