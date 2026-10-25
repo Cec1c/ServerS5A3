@@ -18,7 +18,7 @@ func (s *Service) rebuildRuntimePartyTownCoPresenceAfterReturn(session *gameSess
 	if s == nil || session == nil || session.selectedCharacterID == 0 || s.onlinePlayers == nil {
 		return nil
 	}
-	state := runtimePartyStateSnapshot(session)
+	state := s.townCopresenceActorPartyState(session)
 	members := runtimePartyMembers(state)
 	// A one-member party also needs realtime actor state on the dungeon-to-town
 	// transition too. Its peer loop is empty, but the existing roster rebuild
@@ -33,7 +33,7 @@ func (s *Service) rebuildRuntimePartyTownCoPresenceAfterReturn(session *gameSess
 		if !online || memberSession == nil || !currentPartyTownReturnSceneReady(memberSession) {
 			return nil
 		}
-		memberState := runtimePartyStateSnapshot(memberSession)
+		memberState := s.townCopresenceActorPartyState(memberSession)
 		if memberState.PartyID != state.PartyID || memberState.UserID != state.UserID ||
 			len(runtimePartyMembers(memberState)) != len(members) {
 			return nil

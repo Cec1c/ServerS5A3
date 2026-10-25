@@ -778,7 +778,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 		s.broadcastTownPlayerAreaChange(playerInfo, oldOthers, partyStateBefore)
 	}
 	s.broadcastTownPlayerEnter(playerInfo, newOthers)
-	partyStateAfter := runtimePartyStateSnapshot(session)
+	partyStateAfter := s.townCopresenceActorPartyState(session)
 	if partyStateAfter.PartyID > 0 {
 		if err := s.sendTownRemotePartyActors(session, partyStateAfter); err != nil {
 			s.logGameEvent(session, "game-dungeon-return-copresence-roster-failed",
@@ -799,7 +799,8 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 			if peer == nil {
 				continue
 			}
-			if err := s.sendRuntimePartyRosterLocal(peer, runtimePartyStateSnapshot(peer), source+"_dungeon_return_peer_roster_rebind"); err != nil {
+			peerState := s.townCopresenceActorPartyState(peer)
+			if err := s.sendRuntimePartyRosterLocal(peer, peerState, source+"_dungeon_return_peer_roster_rebind"); err != nil {
 				continue
 			}
 		}
@@ -1011,6 +1012,13 @@ func (s *Service) broadcastTownPlayerAreaChange(
 ) {
 	if s == nil || mover == nil || len(oldOthers) == 0 {
 		return
+	}
+	// The caller snapshot can be empty or stale on replacement sockets. Resolve the
+	// mover's party from the same central state used by town actor projections so
+	// a current same-party cross-area move never falls into the destructive op6
+	// branch, while a genuinely stale/old party still does.
+	if mover.Session != nil {
+		state = s.townCopresenceActorPartyState(mover.Session)
 	}
 	partyMembers := make(map[uint16]struct{}, len(runtimePartyMembers(state)))
 	if state.PartyID > 0 {
