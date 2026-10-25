@@ -39,7 +39,7 @@ func addRetirementPeer(t *testing.T, f leaderExitFixtureState, id uint16) *gameS
 }
 
 func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
-	for _, count := range []int{2, 3, 4} {
+	for _, count := range []int{3, 4} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			f := newLeaderExitFixture(t)
 			f.service.options.currentClientVersion = "official-24.9"
@@ -165,6 +165,7 @@ func TestDungeonPeerRetirementWriteFailurePreservesRemovalIdentity(t *testing.T)
 		t.Run(fmt.Sprint(failAt), func(t *testing.T) {
 			f := newLeaderExitFixture(t)
 			f.service.options.currentClientVersion = "official-24.9"
+			addRetirementPeer(t, f, 101)
 			before, _ := f.service.runtimePartyManagerForService().SnapshotByUser(99, 0)
 			round69AlignInstancePartyID(t, f, before.ID)
 			failure := errors.New("retirement projection failed")

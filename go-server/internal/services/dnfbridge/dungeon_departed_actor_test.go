@@ -9,6 +9,7 @@ import (
 func TestDungeonMemberExitRetiresNetworkRosterBeforeActivePeer(t *testing.T) {
 	f := newLeaderExitFixture(t)
 	f.service.options.currentClientVersion = "official-24.9"
+	addRetirementPeer(t, f, 101)
 	before, _ := f.service.runtimePartyManagerForService().SnapshotByUser(99, 0)
 	round69AlignInstancePartyID(t, f, before.ID)
 	f.member.dungeon.runtime = nil

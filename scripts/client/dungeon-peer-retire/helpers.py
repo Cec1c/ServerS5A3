@@ -69,7 +69,7 @@ class Code:
         return bytes(self.buf)
 
 
-def emit(base=BASE):
+def emit(base=BASE, preserve_local=False):
     remove_base, kind0_base = base, base + 0x200
     # thiscall(record,slot,FFFF), replacing only the kind3 handler call.
     c = Code(remove_base)
@@ -85,7 +85,21 @@ def emit(base=BASE):
     c.raw("8b449e2c 3dffff0000")
     c.je("original")
     c.raw("0fb74e04 3bc1")            # P+4 is the kind3 target key
-    c.je("original")
+    if preserve_local:
+        c.jne("preserve_member")
+        # Retiring the local party record must not destroy the local actor's
+        # drawable. The local player may still be fighting in this instance.
+        # Compare the actual local actor, not a packet slot or leader bit.
+        c.raw("8b0d58376a05 85c9")
+        c.je("original")
+        c.call(0x296DD80)
+        c.raw("85c0")
+        c.je("original")
+        c.raw("0fb74020 0fb74e04 3bc1")
+        c.jne("original")
+        c.label("preserve_member")
+    else:
+        c.je("original")
 
     # A different member appears in the retiring record's roster. Clear only
     # its record slot/association, never its shared active actor.

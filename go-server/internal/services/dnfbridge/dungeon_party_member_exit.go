@@ -91,10 +91,11 @@ func (s *Service) sendMemberGiveupSurvivorRoster(state alignedcmd.PartyState, in
 
 func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.PartyState, instance *dungeonPartyInstance, departingID uint16) error {
 	var errs error
+	members := runtimePartyMembers(state)
 	// The return caller holds its own dungeon lock. Never acquire a peer's
 	// session lock: simultaneous returns would acquire these in opposite order.
 	peers := dungeonPartyInstanceMemberSessions(instance, 0)
-	for _, member := range runtimePartyMembers(state) {
+	for _, member := range members {
 		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !ok {
 			continue
@@ -109,6 +110,24 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 		}
 		if !active {
 			errs = errors.Join(errs, s.sendRuntimePartyMemberRemoved(receiver, 0, state))
+			continue
+		}
+		if departingID != 0 && len(members) == 1 {
+			// The server keeps this player's active instance and fixed slot, but
+			// a one-player dungeon has no remote party HUD/network membership.
+			// Retire both old records, self last, before NOTI6 erases the peer
+			// identity. Requires the client local-actor-preserving kind3 helper:
+			// deleting the local party record must not destroy its living model.
+			retired := []alignedcmd.PartyMemberState{{UserID: departingID}, member}
+			if err := s.clearDisbandedDungeonPartyRecords(receiver, retired, 0, false, "member_giveup_single_survivor"); err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			if err := s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_single_survivor"); err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			errs = errors.Join(errs, s.sendGameUpperRawClassCodec(receiver, 0x0099, runtimePartyRealtimeInfoBody(alignedcmd.PartyState{}), 0, true))
 			continue
 		}
 		if departingID != 0 {
