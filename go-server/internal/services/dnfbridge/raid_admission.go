@@ -13,6 +13,13 @@ func (s *Service) currentRaidAdmissionRule(session *gameSession) (raid.Admission
 	if s == nil || session == nil {
 		return raid.AdmissionRule{}, fmt.Errorf("raid admission context unavailable")
 	}
+	if isCurrentFiendWarChannel(session) {
+		c, err := s.loadCurrentFiendWarConfig()
+		if err != nil {
+			return raid.AdmissionRule{}, err
+		}
+		return raid.AdmissionRule{ItemID: c.EntryCost.ItemID, Count: int64(c.EntryCost.Count), WaitingTown: byte(c.Battle.WaitingTown), WaitingArea: byte(c.Battle.WaitingArea), MinimumMembers: c.StartMinimumMembers, SoloMinimumMembers: c.StartMinimumMembers, MaximumMembers: c.MemberMax}, nil
+	}
 	path := ""
 	switch session.channel.Type {
 	case dnfenum.RaidChannelType:
@@ -134,5 +141,11 @@ func (s *Service) sendCurrentRuntimeRaidEntryCost(session *gameSession, state ru
 	if !s.currentRaidAdmissionVisible(session, state) {
 		return nil
 	}
-	return s.sendRuntimeRaidEntryCostStatuses(session, state, statuses, rule)
+	if err := s.sendRuntimeRaidEntryCostStatuses(session, state, statuses, rule); err != nil {
+		return err
+	}
+	if state.Started && isCurrentFiendWarChannel(session) {
+		return s.sendCurrentRaidDailyAvailability(session, "团本开战扣票提交后")
+	}
+	return nil
 }

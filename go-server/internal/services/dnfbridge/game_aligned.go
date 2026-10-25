@@ -82,12 +82,20 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		return handled, err
 	}
 	if typ == uint16(dnfenum.CmdPacketUseStackable) {
+		if cmd == byte(dnfenum.GameCmdCommand) {
+			if handled, err := s.handleCurrentPetFeed(session, body); handled || err != nil {
+				return handled, err
+			}
+		}
 		if handled, err := s.handleCurrentExpertJobRecipeLearning(session, body); handled || err != nil {
 			return handled, err
 		}
 	}
 	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
+		if handled, err := s.handleCurrentRidingPotionUse(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -156,6 +164,37 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			skillCatalog, initialSkillLevels, skillPointBaseline = s.skillResetOwnerRules(context.Background(), repos, session.selectedCharacterID)
 		} else {
 			skillCatalog, initialSkillLevels, skillPointBaseline = s.skillOwnerRules(context.Background(), repos, session.selectedCharacterID)
+		}
+	}
+
+	if typ == uint16(dnfenum.CmdPacketChangeSkillslot) || typ == uint16(dnfenum.CmdPacketBuySkill) || typ == uint16(dnfenum.CmdPacketSkillInit) || typ == uint16(dnfenum.CmdPacketChangeAnotherSkillTree) {
+		dojo, dojoErr := s.currentPVPDojoSkillsActive(session)
+		if dojoErr != nil {
+			return true, dojoErr
+		}
+		if dojo || isPVPChannel(session.channel) {
+			s.pvpMu.Lock()
+			inRoom := session.pvpRoom != nil
+			s.pvpMu.Unlock()
+			// 房内也允许调整技能位置：28只交换独立布局，学习/重置仍受限。
+			if inRoom && typ != uint16(dnfenum.CmdPacketChangeSkillslot) {
+				return true, s.sendGameUpperFailure(session, typ, 1)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			_, dojoErr = skillcmd.PreparePVPSkills(ctx, repos, accountID, fmt.Sprint(session.selectedCharacterID))
+			cancel()
+			if dojoErr != nil {
+				return true, dojoErr
+			}
+			if len(body) == 0 {
+				return true, s.sendGameUpperFailure(session, typ, 1)
+			}
+			// 原生训练页把请求页直接编码在首字节；正式PK切页260须按持久化活动页校验。
+			if dojo && typ != uint16(dnfenum.CmdPacketChangeAnotherSkillTree) {
+				repos = skillcmd.PVPRepositories(repos, accountID, fmt.Sprint(session.selectedCharacterID), body[0])
+			} else {
+				repos = skillcmd.PVPRepositories(repos, accountID, fmt.Sprint(session.selectedCharacterID))
+			}
 		}
 	}
 	petHatchResolver, petCatalogErr := s.alignedPetHatchResolverForCommand(dnfenum.CmdPacket(typ))
@@ -572,6 +611,8 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		// op44/op251 的可用性判据改读运行时 PVF（为零 = 回到库存元数据判据，
 		// 解析器装载失败时这里就是 nil 并已记事件）。见 stackable_use_provenance_pvf.go。
 		StackableUseProvenanceResolver: s.alignedStackableUseProvenanceResolverForCommand(dnfenum.CmdPacket(typ)),
+		ItemUsageResolver:              s.alignedItemUsageResolverForCommand(dnfenum.CmdPacket(typ)),
+		ItemUsageNow:                   s.gameplayNow(),
 		DamageFontResolver:             damageFontResolver,
 		DamageFontNow:                  s.gameplayNow(),
 		RepairCostResolver:             repairCostResolver,
@@ -600,6 +641,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	session.party.mu.Unlock()
 	if err != nil || !ok {
 		return ok, err
+	}
+	if typ == uint16(dnfenum.CmdPacketMoveItemspace) {
+		s.noteCurrentWornClaimResult(session, body, result.EquipmentMoveFact, playerRequestFlagged)
 	}
 	// op438：class1 438 回包体由桥接层按领域结果组装（协议形状只在这一层）。
 	// 成功/掷点失败回 13 字节体，校验类拒绝回 0 + u8 error；两条都要发，
@@ -645,6 +689,28 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	decision := result.Decision
 	if !result.Handled {
 		return false, nil
+	}
+	// Keep the equipment decision visible when raw packet logging is disabled.
+	// Only typed move fields and the domain outcome are logged; no packet body
+	// or authentication fields are copied into the application log.
+	if typ == uint16(dnfenum.CmdPacketMoveItemspace) {
+		if move, decodeErr := inventory.DecodeMoveItemspaceRequest(body); decodeErr == nil &&
+			(move.SourceListType == currentSocketListEquipment || move.DestinationListType == currentSocketListEquipment) {
+			tail := byte(0)
+			if len(body) > 26 {
+				tail = body[26]
+			}
+			s.logInfo("dnfbridge equipment move outcome",
+				"conn_id", session.connID, "char_id", session.selectedCharacterID,
+				"src_list", move.SourceListType, "src_slot", move.SourceSlotIndex,
+				"src_instance", move.SourceInstanceValue,
+				"dst_list", move.DestinationListType, "dst_slot", move.DestinationSlotIndex,
+				"dst_instance", move.DestinationInstanceValue,
+				"tail", tail, "claim_decision", wornSlotClaimOccurrence,
+				"scene_round", session.equipLoginWearReassertRound,
+				"login_window", loginWearWindowOpen, "player_request", playerRequestFlagged,
+				"operation", result.Operation, "reason", result.Reason)
+		}
 	}
 	switch decision.Action {
 	case alignedcmd.ActionPendingModule:
@@ -838,6 +904,7 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	}
 	authoritativeLists := currentAuthoritativeListRefreshSet(result.AuthoritativeListRefreshes)
 	handledLists := make(map[byte]bool, len(authoritativeLists))
+	sortedMainBagReplaced := false
 	for _, response := range result.UpperResponses {
 		if listType, ok := currentAuthoritativeListRefreshListType(response, authoritativeLists); ok {
 			handledLists[listType] = true
@@ -868,6 +935,9 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			if err := s.sendGameUpperRawClassCodec(session, response.MsgID, body, response.Classification, response.AllowCodec); err != nil {
 				return err
 			}
+			if result.Operation == "sort_item" && listType == 0 {
+				sortedMainBagReplaced = true
+			}
 			continue
 		}
 		wireBody, err := currentSkillSlotResponseBody(response)
@@ -892,7 +962,13 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
 	}
+	if result.ItemUsageChanged {
+		if err := s.sendCurrentItemUsageForSession(session, "aligned_"+result.Operation); err != nil {
+			return err
+		}
+	}
 	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
+	postActionsDeferred := false
 	for _, action := range result.PostActions {
 		if alignedPostActionTouchesCombatPower(action) {
 			refreshCombatPowerAffixes = true
@@ -905,9 +981,25 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 					"post_action", action,
 					"char_id", session.selectedCharacterID,
 					"error", err)
+				postActionsDeferred = true
 				break
 			}
 			return err
+		}
+	}
+	if result.RefreshSelectedBuffRegistration && !postActionsDeferred {
+		if result.Operation == "sort_item" {
+			// A replacing op13 invalidates object bindings even when the
+			// sorted list/index bytes match the cached Buff projection.
+			if sortedMainBagReplaced {
+				if err := s.sendBuffSwapReapplyAfterCommittedWear(session, "aligned_sort_item_after_main_bag_replacement"); err != nil {
+					return err
+				}
+			}
+		} else {
+			if err := s.sendBuffSwapReapplyAfterNonAppearanceWear(session, "aligned_"+result.Operation+"_after_committed_wear_without_actor_refresh"); err != nil {
+				return err
+			}
 		}
 	}
 	if refreshCombatPowerAffixes {
@@ -934,6 +1026,12 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 				"recipient_character_id", result.MailboxAlarmRecipientID,
 				"operation", result.Operation,
 				"error", err)
+		}
+	}
+	if result.SeriaLuck != nil {
+		if err := s.sendCurrentSeriaLuckGauge(session, result.SeriaLuck.Before, result.SeriaLuck.After, "aligned_"+result.Operation+"_after_ack"); err != nil {
+			// 奖励和回包已经完成，显示失败留待下次登录恢复。
+			s.logGameEvent(session, "赛丽亚幸运值开盒同步暂缓", "error", err)
 		}
 	}
 	// 契约奖励在发放事务里已被直接叠加成账号时长（不占格、不进邮件），没有物品行
@@ -1186,6 +1284,9 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshSelectedActorAppearance:
+		// Appearance is also requested by login reassertions, pets and expiry.
+		// Only a committed equipment move may preserve an absent BUFF owner.
+		committedWear := result.EquipmentMoveFact != nil && result.EquipmentMoveFact.Changed
 		// 这个 post action 只允许作用在**已定型的本地 actor 代际**上：mode0 自投影会把
 		// 对象重挂到当前 ctx，若此时 actor 还没被 op24/op29 定型（或 owner 上下文已经
 		// 换成别的频道），包会落到错的代际上 —— 宁可延后，让下一次场景引导收敛。
@@ -1205,7 +1306,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		// 这条合并只属于 mode1 回退档：mode0 档一次穿脱就是一个小包（≈468 B /
 		// 客户端 4 ms），延迟合并只会让"点一下立刻看到"落空。见 equip_move_refresh.go。
 		if !s.equipAppearanceRefreshUsesMode0() {
-			if s.shouldCoalesceAvatarAppearance(session) && s.scheduleTrailingAvatarAppearance(session, operation) {
+			if s.shouldCoalesceAvatarAppearance(session) && s.scheduleTrailingAvatarAppearance(session, operation, committedWear) {
 				s.logPacketEvent("game-avatar-appearance-coalesced",
 					"conn_id", session.connID,
 					"operation", operation,
@@ -1213,10 +1314,11 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 					"reason", "avatar_wear_burst_within_coalesce_window")
 				return nil
 			}
-			if err := s.sendSelectedActorMode1AppearanceRefresh(
+			if err := s.sendSelectedActorMode1AppearanceWithBuffPolicy(
 				session,
 				operation,
 				"durable_owner_then_class1_ack_then_repository_backed_native_owner_mode1_rollback",
+				committedWear,
 			); err != nil {
 				s.logWarn("dnfbridge deferred selected actor mode1 appearance",
 					"conn_id", session.connID,
@@ -1247,7 +1349,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		// "每次穿脱都同步发一个 mode0"。mode1 回退档不受影响（它有自己那段合并）。
 		if s.avatarAppearanceBurstCoalesceEnabled() &&
 			s.shouldCoalesceAvatarAppearance(session) &&
-			s.scheduleTrailingAvatarAppearance(session, operation) {
+			s.scheduleTrailingAvatarAppearance(session, operation, committedWear) {
 			s.logPacketEvent("game-avatar-appearance-coalesced",
 				"conn_id", session.connID,
 				"operation", operation,
@@ -1257,10 +1359,12 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 				"reason", "avatar_wear_burst_within_coalesce_window_leading_then_trailing")
 			return nil
 		}
-		if err := s.sendSelectedActorMode0AppearanceRefresh(
+		if _, err := s.sendSelectedActorMode0AppearanceWithBuffPolicy(
 			session,
 			operation,
 			"durable_owner_then_class1_ack_then_repository_backed_native_owner_mode0",
+			nil,
+			committedWear,
 		); err != nil {
 			s.logWarn("dnfbridge deferred selected actor mode0 appearance",
 				"conn_id", session.connID,
@@ -1304,6 +1408,17 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshSelectedActorSkills:
+		if active, err := s.currentPVPDojoSkillsActive(session); err != nil {
+			return err
+		} else if active {
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			defer cancel()
+			_, _, c, found := s.selectedCharacterForEnter(ctx, session)
+			if !found {
+				return fmt.Errorf("道场角色不存在")
+			}
+			return s.sendCurrentPVPDojoSkillWindow(ctx, session, c)
+		}
 		s.logPacketEvent("game-aligned-command-post-action-send",
 			"conn_id", session.connID,
 			"operation", operation,

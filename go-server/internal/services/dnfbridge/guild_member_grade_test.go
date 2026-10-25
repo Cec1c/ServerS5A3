@@ -66,7 +66,7 @@ func TestGuildMemberGradeNativeFlow(t *testing.T) {
 }
 
 func TestGuildMemberGradeRejectsInvalidIdentityAndTarget(t *testing.T) {
-	for _, mode := range []string{"short", "trailing", "encoding", "region_zero", "region_250", "region_mismatch", "unknown_name", "self", "master", "foreign", "ordinary", "revoked", "stale_target", "stale_name", "stale_region", "wrong_account", "target_master_grade", "invalid_grade", "save_failure", "class_zero"} {
+	for _, mode := range []string{"short", "trailing", "encoding", "mismatched_region_zero", "role_region_zero_member_mismatch", "member_region_zero_role_mismatch", "region_250", "region_255", "region_mismatch", "unknown_name", "self", "master", "foreign", "ordinary", "revoked", "stale_target", "stale_name", "stale_region", "wrong_account", "target_master_grade", "invalid_grade", "save_failure", "class_zero"} {
 		t.Run(mode, func(t *testing.T) {
 			s, peers, repos := guildMemberGradeFixture(t)
 			ctx := context.Background()
@@ -79,10 +79,24 @@ func TestGuildMemberGradeRejectsInvalidIdentityAndTarget(t *testing.T) {
 				body = append(body, 0)
 			case "encoding":
 				body = []byte{1, 1, 0, 0, 0, 0x81, 2}
-			case "region_zero":
+			case "mismatched_region_zero":
 				body[0] = 0
+			case "role_region_zero_member_mismatch":
+				body[0] = 0
+				c, _, _ := repos.Character.Load(ctx, "2")
+				c.Stats["server_group_id"] = 0
+				if err := repos.Character.Save(ctx, c); err != nil {
+					t.Fatal(err)
+				}
+			case "member_region_zero_role_mismatch":
+				body[0] = 0
+				m := r.Guilds[1].Members["2"]
+				m.ServerGroup = 0
+				r.Guilds[1].Members["2"] = m
 			case "region_250":
 				body[0] = 250
+			case "region_255":
+				body[0] = 255
 			case "region_mismatch":
 				body[0] = 2
 			case "unknown_name":

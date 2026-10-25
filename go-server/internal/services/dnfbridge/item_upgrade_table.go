@@ -27,7 +27,7 @@ const (
 type currentUpgradeTableRow struct {
 	TargetLevel    int
 	FailureWeight  int // out of 100000
-	PenaltyType    int // 0=no change, 1=downgrade, 3=destroy
+	PenaltyType    int // 0/1=no change, 2=subtract PenaltyValue, 3=destroy
 	PenaltyValue   int
 	MaterialItemID int
 	MaterialCount  int
@@ -382,8 +382,28 @@ func currentUpgradeRarityName(rarity int) string {
 // alignedUpgradePolicyResolver returns a closure that resolves the PVF upgrade
 // table row for a given mode and current level, providing success weight and
 // penalty type to the inventory owner's RNG path.
-func (s *Service) alignedUpgradePolicyResolver() func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
-	return func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+func (s *Service) alignedUpgradePolicyResolver() func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+	return func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		if (mode != "reinforce" && mode != "amplify") || targetItemID <= 0 || targetItemID > math.MaxUint32 || currentLevel < 0 {
+			return alignedcmd.UpgradePolicyResolution{}, fmt.Errorf("invalid upgrade policy target or mode")
+		}
+		catalog, err := s.currentPVFItemCatalog()
+		if err != nil {
+			return alignedcmd.UpgradePolicyResolution{}, err
+		}
+		definition, err := catalog.ResolveItem(uint32(targetItemID))
+		if err != nil || definition.Kind != dungeonDropItemEquipment {
+			return alignedcmd.UpgradePolicyResolution{}, fmt.Errorf("upgrade policy target is not resolved equipment: %d: %v", targetItemID, err)
+		}
+		doc, err := parseDungeonCardPVFDocument(catalog.source, definition.PVFPath)
+		if err != nil {
+			return alignedcmd.UpgradePolicyResolution{}, err
+		}
+		values, present := doc.Section("rarity")
+		if !present || len(values) != 1 || values[0].Kind != dnfpvf.TokenInt || values[0].Int < 0 || values[0].Int > 6 {
+			return alignedcmd.UpgradePolicyResolution{}, fmt.Errorf("upgrade equipment rarity must be one supported integer")
+		}
+		rarity := int(values[0].Int)
 		table, err := s.currentUpgradeTableForMode(mode)
 		if err != nil {
 			s.logPacketEvent("dnf-upgrade-policy-resolve-failed",
@@ -394,27 +414,17 @@ func (s *Service) alignedUpgradePolicyResolver() func(mode string, currentLevel 
 		}
 		targetLevel := currentLevel + 1
 		row, ok := table.RowForLevel(targetLevel)
-		if !ok {
-			// Beyond table range: guaranteed success (no penalty data).
-			s.logPacketEvent("dnf-upgrade-policy-resolved",
-				"mode", mode,
-				"current_level", currentLevel,
-				"target_level", targetLevel,
-				"table_rows", len(table.Rows),
-				"material_item_id", 0,
-				"material_count", 0,
-				"reason", "beyond_table_range")
-			return alignedcmd.UpgradePolicyResolution{SuccessWeight: currentUpgradeSuccessBase}, nil
+		if !ok || row.FailureWeight < 0 || row.FailureWeight > currentUpgradeSuccessBase || row.PenaltyType < 0 || row.PenaltyType > 3 || row.PenaltyValue < 0 || row.MaterialItemID <= 0 || row.MaterialCount <= 0 {
+			return alignedcmd.UpgradePolicyResolution{}, fmt.Errorf("upgrade table row unavailable or invalid: mode=%s target=%d", mode, targetLevel)
 		}
 		penaltyType := row.PenaltyType
-		// Override to destroy if current level >= destroy threshold for rarity.
-		// Rarity is not available here; use the table's default destroy level (common=0).
-		if destroyLv := table.DestroyLevel(0); destroyLv >= 0 && currentLevel >= destroyLv && penaltyType < 3 {
+		if destroyLv := table.DestroyLevel(rarity); destroyLv >= 0 && currentLevel >= destroyLv && penaltyType < 3 {
 			penaltyType = 3
 		}
 		resolution := alignedcmd.UpgradePolicyResolution{
 			SuccessWeight:  row.SuccessWeight(),
 			PenaltyType:    penaltyType,
+			PenaltyValue:   row.PenaltyValue,
 			MaterialItemID: row.MaterialItemID,
 			MaterialCount:  row.MaterialCount,
 			NoticeLevel:    table.NoticeLevel,
@@ -434,10 +444,13 @@ func (s *Service) alignedUpgradePolicyResolver() func(mode string, currentLevel 
 		s.logPacketEvent("dnf-upgrade-policy-resolved",
 			"mode", mode,
 			"current_level", currentLevel,
+			"target_item_id", targetItemID,
+			"rarity", rarity,
 			"target_level", targetLevel,
 			"table_rows", len(table.Rows),
 			"success_weight", resolution.SuccessWeight,
 			"penalty_type", resolution.PenaltyType,
+			"penalty_value", resolution.PenaltyValue,
 			"material_item_id", resolution.MaterialItemID,
 			"material_count", resolution.MaterialCount,
 			"destroy_bonus_item_id", resolution.DestroyBonusItemID,

@@ -249,6 +249,17 @@ func (s *Service) reconcileCurrentMailAttachmentExpirations(
 					reportCurrentGMExpirationOverrideInvalid("missing_deadline", attachment.ItemID, attachment.Extra, attachment.ExpireAt)
 				}
 				expiration := definition.ExpirationDate
+				if definition.UsablePeriodDays > 0 && !definition.DailyDeleteItem {
+					// Match grant resolution: a declared relative period owns its
+					// instance date even when the document also has an event date.
+					expiration = time.Time{}
+				}
+				if expiration.IsZero() && definition.UsablePeriodDays > 0 && !definition.DailyDeleteItem &&
+					!currentMailboxOriginalAttachmentExpiry(*attachment).IsZero() {
+					// A relative template cannot replace an existing instance's
+					// deadline before the claim owner has transferred that instance.
+					continue
+				}
 				if expiration.IsZero() {
 					// 相对 [usable period]：这份 PVF 没有绝对 [expiration date]，
 					// 直接看 ExpirationDate 会判成"永久"而漏到 0。整批"完成类型"券
@@ -261,7 +272,7 @@ func (s *Service) reconcileCurrentMailAttachmentExpirations(
 					// 锚点是邮件自己的 CreatedAt（= 该附件所属实例的发放时刻），不是 now，
 					// 否则每次登录都会把期限往后推（"静默续期"）；缺 CreatedAt 的旧邮件
 					// 保持原样，绝不凭空造时间。
-					if mail.CreatedAt.IsZero() {
+					if mail.CreatedAt.IsZero() || !dnfmail.MailCreationAnchorsAttachment(mail) {
 						continue
 					}
 					granted, grantErr := currentPVFItemDefinitionForGrantAt(definition, mail.CreatedAt.UTC())

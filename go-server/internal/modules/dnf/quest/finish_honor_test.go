@@ -324,7 +324,7 @@ func TestOwnerApplyFinishSettlementCapRejectsExistingIllegalLevel(t *testing.T) 
 	}
 }
 
-func TestOwnerApplyFinishSettlementCapKeepsUint32OverflowRejection(t *testing.T) {
+func TestOwnerApplyFinishSettlementBelowCapKeepsUint32OverflowRejection(t *testing.T) {
 	ctx := context.Background()
 	repos := finishHonorSeed(t, ctx, 2, math.MaxUint32-1, 0, 90)
 	owner, err := NewOwner(repos)
@@ -335,7 +335,7 @@ func TestOwnerApplyFinishSettlementCapKeepsUint32OverflowRejection(t *testing.T)
 		t.Fatal("honor tables loaded after experience overflow")
 		return nil, nil
 	})
-	input.MaximumCharacterLevel = 2
+	input.MaximumCharacterLevel = 3
 
 	_, err = owner.ApplyFinishSettlement(ctx, finishOwnerCatalog(), input)
 	if !errors.Is(err, progression.ErrExperienceOutOfRange) {

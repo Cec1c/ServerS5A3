@@ -2059,6 +2059,9 @@ func TestHandlerUpgradeReturnsOp50AckAndSlotUpdate(t *testing.T) {
 		AccountID:           "acc",
 		SelectedCharacterID: 77,
 		Repositories:        repos,
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+			return alignedcmd.UpgradePolicyResolution{SuccessWeight: 100000, MaterialItemID: 5000, MaterialCount: 1}, nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
@@ -2119,7 +2122,7 @@ func TestHandlerUpgradeUsesPolicyAccountSharedMaterial(t *testing.T) {
 		AccountID:           "acc",
 		SelectedCharacterID: 77,
 		Repositories:        repos,
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			if mode != "reinforce" || currentLevel != 0 {
 				t.Fatalf("policy args mode=%s level=%d", mode, currentLevel)
 			}
@@ -2184,7 +2187,7 @@ func TestHandlerUpgradeUsesPolicyAccountSharedMaterialWhenClientSendsSharedSlot(
 		AccountID:           "acc",
 		SelectedCharacterID: 77,
 		Repositories:        repos,
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			if mode != "reinforce" || currentLevel != 0 {
 				t.Fatalf("policy args mode=%s level=%d", mode, currentLevel)
 			}
@@ -2255,7 +2258,7 @@ func TestHandlerUpgradeSkipsTicketResolverForAccountSharedMaterialSlot(t *testin
 			ticketCalled = true
 			return alignedcmd.UpgradeTicketResolution{}, nil
 		},
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			policyCalled = true
 			if mode != "reinforce" || currentLevel != 0 {
 				t.Fatalf("policy args mode=%s level=%d", mode, currentLevel)
@@ -2319,7 +2322,7 @@ func TestHandlerUpgradeLogsPolicyResolverError(t *testing.T) {
 		AccountID:           "acc",
 		SelectedCharacterID: 77,
 		Repositories:        repos,
-		UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+		UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 			return alignedcmd.UpgradePolicyResolution{}, errors.New("upgrade table smoke failure")
 		},
 	})

@@ -178,6 +178,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	if handled, err := s.handleCurrentWeeklyAttendanceClaim(session, typ, 1, body); handled || err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentPCRoomTimePoint(session, typ, 1, body); handled || err != nil {
+		return err
+	}
 	if handled, err := s.handleCurrentMonthlyAttendanceClaim(session, typ, 1, body); handled || err != nil {
 		return err
 	}

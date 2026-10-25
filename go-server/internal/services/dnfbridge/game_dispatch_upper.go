@@ -155,6 +155,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	if handled, err := s.handleCurrentWeeklyAttendanceClaim(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentPCRoomTimePoint(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
+		return err
+	}
 	if handled, err := s.handleCurrentMonthlyAttendanceClaim(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled || err != nil {
 		return err
 	}
@@ -184,6 +187,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 		// "落到共享账号"的 WARN 判读（见 accountIDForSession）。
 		session.loginPacketSeen = true
 		s.bindGameSessionAccountFromLoginToken(session, packet.Header.Classification, packet.Body)
+		if session.loginRevoked.Load() {
+			return errLoginReplaced
+		}
 		return s.handleCurrentGameEndpointRequest(session, packet.Header.Classification, wireBodyLen)
 	case dnfenum.UpperMsgCharacterRoster:
 		if packet.Header.Classification == dnfproto.DefaultChannelClassification &&

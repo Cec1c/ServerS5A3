@@ -100,6 +100,9 @@ type PVFCatalog struct {
 	evolutionLoaded bool
 	evolutionIndex  petEvolutionIndex
 	evolutionErr    error
+	feedOnce        sync.Once
+	feedPaths       map[int64]string
+	feedErr         error
 }
 
 // NewPVFCatalog loads only the authoritative indexes needed for the first pet

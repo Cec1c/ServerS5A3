@@ -1,0 +1,13 @@
+{
+  "ssh_alias": "your-approved-server",
+  "remote_root": "/srv/servers5a3",
+  "compose_project": "servers5a3-remote",
+  "runtime_base_image": "sha256:REPLACE_WITH_APPROVED_64_HEX_IMAGE_ID",
+  "player_profile": "{root}/runtime/launcher-input/profile.json",
+  "probe_command": [
+    "approved-headless-channel-probe",
+    "{root}/runtime/launcher-input/profile.json", "--channel-only"
+  ],
+  "pvf_file": "{root}/runtime/assets/Script.pvf",
+  "real_pvf_commands": []
+}

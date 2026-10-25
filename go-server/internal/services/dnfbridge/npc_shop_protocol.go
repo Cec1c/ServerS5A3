@@ -43,16 +43,17 @@ type currentNPCShopSellRequest struct {
 }
 
 type currentNPCShopBuyResult struct {
-	GoldAfter        int64
-	SPAfter          int64
-	CoinAfter        int64
-	Item             currentItemListEntry
-	Updates          []currentItemListEntry
-	Slot             int16
-	ItemID           uint32
-	Count            uint32
-	CostItemID       uint32
-	CostItemNewCount int64
+	GuildMedalUpdates []currentItemListEntry
+	GoldAfter         int64
+	SPAfter           int64
+	CoinAfter         int64
+	Item              currentItemListEntry
+	Updates           []currentItemListEntry
+	Slot              int16
+	ItemID            uint32
+	Count             uint32
+	CostItemID        uint32
+	CostItemNewCount  int64
 }
 
 type currentNPCShopSellResult struct {

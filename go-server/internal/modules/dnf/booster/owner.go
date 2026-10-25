@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ type Changes struct {
 type Projector func(*Assets) (Changes, error)
 
 type Command struct {
+	ItemUsage     *itemusage.Definition
 	AccountLedger bool
 	AccountID     string
 	CharacterID   string
@@ -173,6 +175,12 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		})
 		if err != nil {
 			return err
+		}
+		if command.ItemUsage != nil {
+			if err := itemusage.Consume(&character, *command.ItemUsage, now); err != nil {
+				return err
+			}
+			changes.Character = true
 		}
 		if changes.Account {
 			if ledger == nil || account == nil {

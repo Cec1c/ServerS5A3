@@ -36,10 +36,16 @@ func (s *Service) currentOrdinaryCatalog(ctx context.Context) (*onlineevent.Ordi
 	if archive == nil {
 		return nil, onlineevent.ErrOwnerUnavailable
 	}
-	for _, path := range []string{"ui/event/attendancedailyevent/main.xui", "ui/event/attendancedailyevent/slot.xui"} {
-		if _, err := archive.ReadText(path); err != nil {
-			return nil, err
-		}
+	mainUI, err := archive.ReadText("ui/event/attendancedailyevent/main.xui")
+	if err != nil {
+		return nil, err
+	}
+	slotUI, err := archive.ReadText(ordinaryAttendanceSlotPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOrdinaryAttendanceUI(mainUI, slotUI); err != nil {
+		return nil, err
 	}
 	return onlineevent.LoadOrdinaryCatalog(ctx, archive)
 }

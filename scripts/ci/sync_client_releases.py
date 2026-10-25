@@ -20,13 +20,70 @@ import urllib.request
 import zipfile
 
 MAX_ASSET = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 32
 MARKER = "<!-- client-release-sync:v1 "
 TAG = re.compile(r"client-[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip\Z", re.I)
+SPLIT_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip)\.([0-9]{3})\Z", re.I)
 
 
 class SyncError(RuntimeError):
     pass
+
+
+def require_no_tag_workflow(document):
+    """Conservatively audit historical YAML before a deploy-key tag push."""
+    try:
+        import yaml
+    except ImportError:
+        raise SyncError("Install scripts/ci/requirements-release-sync.txt for SSH tag audit") from None
+
+    class UniqueLoader(yaml.BaseLoader):
+        def construct_mapping(self, node, deep=False):
+            result = {}
+            for key_node, value_node in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                if not isinstance(key, str) or key == "<<" or key in result:
+                    raise SyncError("Ambiguous historical workflow mapping")
+                result[key] = self.construct_object(value_node, deep=deep)
+            return result
+
+    try:
+        data = yaml.load(document, Loader=UniqueLoader)
+    except (yaml.YAMLError, RecursionError):
+        raise SyncError("Invalid historical workflow YAML") from None
+    events = data.get("on") if isinstance(data, dict) else None
+    if isinstance(events, str):
+        events = {events: None}
+    elif isinstance(events, list) and all(isinstance(x, str) for x in events):
+        events = dict.fromkeys(events)
+    if not isinstance(events, dict) or not events:
+        raise SyncError("Historical workflow trigger cannot be verified")
+    for event, config in events.items():
+        if event in ("workflow_dispatch", "workflow_call", "schedule", "release"):
+            continue
+        # Explicit branch-only push filters exclude tag pushes in Actions.
+        if (event == "push" and isinstance(config, dict) and
+                set(config) <= {"branches", "paths", "paths-ignore"} and
+                isinstance(config.get("branches"), list) and config["branches"] and
+                all(isinstance(x, str) and x for x in config["branches"])):
+            continue
+        raise SyncError("Historical workflow may run on tag creation; SSH tag transfer refused")
+
+
+def audit_tag_workflows(git):
+    listing = git("workflow-list", "ls-tree", "-r", "-z", "--long", "refs/sync/source", "--", ".github/workflows")
+    entries = [row for row in listing.split("\0") if row]
+    if len(entries) > 64:
+        raise SyncError("Historical workflow tree exceeds audit limit")
+    for row in entries:
+        metadata, path = row.split("\t", 1)
+        if not path.lower().endswith((".yml", ".yaml")):
+            continue
+        mode, kind, oid, size = metadata.split()
+        if mode not in ("100644", "100755") or kind != "blob" or not size.isdigit() or int(size) > 256 * 1024:
+            raise SyncError("Historical workflow is not a bounded regular file")
+        require_no_tag_workflow(git("workflow-read", "cat-file", "blob", oid))
 
 
 def digest(path):
@@ -114,11 +171,12 @@ def download(url, cache, expected=None, fresh=False, missing=False):
             time.sleep(2 * (attempt + 1))
 
 
-def inspect_zip(path):
+def inspect_zip(path, *, with_pvf=False):
     try:
         with zipfile.ZipFile(path) as z:
             names = set()
             exe = None
+            pvf = None
             total = 0
             for entry in z.infolist():
                 raw_name = entry.orig_filename
@@ -129,8 +187,10 @@ def inspect_zip(path):
                     raise SyncError("Duplicate or non-file ZIP member")
                 names.add(entry.filename.casefold())
                 total += entry.file_size
-                if total > MAX_ASSET or len(names) > 20:
-                    raise SyncError("Client ZIP exceeds extraction limit")
+                if total > MAX_ASSET:
+                    raise SyncError(f"Client ZIP exceeds extraction limit: uncompressed bytes {total} > {MAX_ASSET}")
+                if len(names) > MAX_ARCHIVE_MEMBERS:
+                    raise SyncError(f"Client ZIP exceeds extraction limit: member count {len(names)} > {MAX_ARCHIVE_MEMBERS}")
                 leaf = parts[-1].lower()
                 if leaf == "dnf.exe":
                     if exe is not None:
@@ -143,19 +203,88 @@ def inspect_zip(path):
                         for block in iter(lambda: stream.read(1024 * 1024), b""):
                             h.update(block)
                     exe = {"sha256": h.hexdigest(), "length": entry.file_size}
+                elif with_pvf and raw_name == "client/Script.pvf":
+                    if entry.file_size == 0:
+                        raise SyncError("Empty client PVF")
+                    h = hashlib.sha256()
+                    with z.open(entry) as stream:
+                        for block in iter(lambda: stream.read(1024 * 1024), b""):
+                            h.update(block)
+                    pvf = {"sha256": h.hexdigest(), "length": entry.file_size}
                 elif not (leaf.endswith((".txt", ".md", ".json")) or
+                          (len(parts) == 2 and parts[0] == "evidence" and leaf.endswith(".log")) or
                           (len(parts) > 1 and parts[0] == "scripts" and leaf.endswith(".py"))):
                     raise SyncError("Unexpected client ZIP member")
                 else:
-                    # Source evidence is read for ZIP integrity only, never extracted or executed.
+                    # Static evidence is read for ZIP integrity only, never extracted or executed.
                     with z.open(entry) as stream:
                         while stream.read(1024 * 1024):
                             pass
             if exe is None:
                 raise SyncError("Client ZIP has no DNF.exe")
+            if with_pvf:
+                if pvf is None:
+                    raise SyncError("Split client ZIP has no PVF")
+                return {"exe": exe, "pvf": pvf}
             return exe
     except (zipfile.BadZipFile, EOFError):
         raise SyncError("Invalid client ZIP") from None
+
+
+def split_metadata(name, recorded):
+    match = SPLIT_NAME.fullmatch(name)
+    meta = recorded.get("split_archive") if isinstance(recorded, dict) else None
+    if not match or not isinstance(meta, dict) or set(meta) != {"count", "index", "length", "sha256"}:
+        raise SyncError("Invalid split archive provenance")
+    if any(type(meta[k]) is not int for k in ("count", "index", "length")):
+        raise SyncError("Invalid split archive dimensions")
+    if not (2 <= meta["count"] <= 16 and 1 <= meta["index"] <= meta["count"] and
+            int(match[2]) == meta["index"] and 0 < meta["length"] <= MAX_ASSET):
+        raise SyncError("Invalid split archive dimensions")
+    if (not isinstance(meta["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", meta["sha256"]) or
+            type(recorded.get("length")) is not int or not 0 < recorded["length"] <= meta["length"] or
+            not isinstance(recorded.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", recorded["sha256"])):
+        raise SyncError("Invalid split archive digest or size")
+    return match[1], meta
+
+
+def inspect_split_archives(assets, cache):
+    groups = {}
+    executables = [a["exe"] for a in assets.values() if "exe" in a]
+    for name, asset in assets.items():
+        if "split_archive" in asset:
+            base, meta = split_metadata(name, asset)
+            groups.setdefault(base, []).append((meta["index"], asset))
+    for parts in groups.values():
+        parts.sort(key=lambda part: part[0])
+        expected = parts[0][1]["split_archive"]
+        if [i for i, _ in parts] != list(range(1, expected["count"] + 1)):
+            raise SyncError("Incomplete split archive")
+        for _, asset in parts:
+            if any(asset["split_archive"][k] != expected[k] for k in ("count", "length", "sha256")):
+                raise SyncError("Conflicting split archive provenance")
+        if sum(a["length"] for _, a in parts) != expected["length"]:
+            raise SyncError("Split archive length mismatch")
+        Path(cache).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="split-", dir=cache) as directory:
+            combined = Path(directory) / "client.zip"
+            with combined.open("wb") as out:
+                for _, asset in parts:
+                    count, h = 0, hashlib.sha256()
+                    with Path(asset["path"]).open("rb") as stream:
+                        for block in iter(lambda: stream.read(1024 * 1024), b""):
+                            count += len(block)
+                            if count > asset["length"]:
+                                raise SyncError("Split part changed during verification")
+                            h.update(block)
+                            out.write(block)
+                    if count != asset["length"] or h.hexdigest() != asset["sha256"]:
+                        raise SyncError("Split part changed during verification")
+            if digest(combined) != expected["sha256"]:
+                raise SyncError("Combined split archive digest mismatch")
+            executables.append(inspect_zip(combined, with_pvf=True)["exe"])
+    if groups and any(exe != executables[0] for exe in executables):
+        raise SyncError("Split and standalone executable identities differ")
 
 
 def provenance(body):
@@ -203,6 +332,7 @@ class Repository:
     def __init__(self, key, provider, repository, token="", writable=False, host="gitgud.io"):
         self.key, self.provider, self.repository = key, provider, repository
         self.token, self.writable, self.host = token, writable, host
+        self.github_tag_ssh = False
         if provider == "github":
             self.base = f"https://api.github.com/repos/{repository}"
             self.git = f"https://github.com/{repository}.git"
@@ -246,6 +376,8 @@ class Repository:
         if self.provider == "github" and existing is None:
             if os.environ.get("GITHUB_ACTIONS") != "true" or not self.token or self.token != os.environ.get("GITHUB_TOKEN"):
                 raise SyncError("Create new GitHub tags through trusted CI using GITHUB_TOKEN to avoid historical build workflows")
+            if self.github_tag_ssh and (os.environ.get("GITHUB_REPOSITORY") != self.repository or not os.environ.get("GIT_SSH_COMMAND")):
+                raise SyncError("SSH tag transfer requires this CI repository and its dedicated mirror identity")
 
     def prepare(self, item, cache=None, publishing=False):
         commit = self.tag_commit(item["tag"])
@@ -310,7 +442,8 @@ class Repository:
             url = a["url"]
             p = safe_url(url)
             name = urllib.parse.unquote(p.path.rsplit("/", 1)[-1])
-            if not NAME.fullmatch(name):
+            is_split = SPLIT_NAME.fullmatch(name) is not None
+            if not NAME.fullmatch(name) and not is_split:
                 raise SyncError("Unexpected client asset name")
             if self.provider == "github":
                 allowed = p.netloc == "github.com" and p.path.startswith(f"/{self.repository}/releases/download/{tag}/")
@@ -323,16 +456,22 @@ class Repository:
             expected = record["assets"].get(name, {}).get("sha256") if record else None
             if record and expected is None:
                 raise SyncError("Asset missing from release provenance")
+            metadata = split_metadata(name, record["assets"].get(name) if record else None)[1] if is_split else None
             path = download(url, cache, expected, fresh)
-            assets[name] = {"sha256": digest(path), "length": path.stat().st_size, "exe": inspect_zip(path), "path": str(path), "url": url}
+            assets[name] = {"sha256": digest(path), "length": path.stat().st_size, "path": str(path), "url": url}
+            if is_split:
+                assets[name]["split_archive"] = metadata
+            else:
+                assets[name]["exe"] = inspect_zip(path)
             if record:
-                observed = {k:v for k,v in assets[name].items() if k in ("sha256", "length", "exe")}
+                observed = {k:v for k,v in assets[name].items() if k in ("sha256", "length", "exe", "split_archive")}
                 if observed != record["assets"][name]:
                     raise SyncError("Release asset differs from provenance")
         if record and set(assets) != set(record["assets"]):
             raise SyncError("Incomplete release asset set")
         if not assets:
             raise SyncError("Client release has no assets")
+        inspect_split_archives(assets, cache)
         preview = (row.get("prerelease", False) or "preview" in body.lower() or "预览" in body) if record is None else record.get("preview")
         if not isinstance(preview, bool):
             raise SyncError("Invalid preview provenance")
@@ -372,6 +511,14 @@ class Repository:
             )
         if not self.token:
             raise SyncError("Missing destination credential")
+        if self.provider == "github" and self.github_tag_ssh:
+            audit_tag_workflows(git)
+            # Preserve the fetched tag object; never push a branch or force a ref.
+            git("push", "push", "--quiet", f"git@github.com:{self.repository}.git", f"refs/sync/source:refs/tags/{tag}",
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+            if self.tag_commit(tag) != commit:
+                raise SyncError("Created tag readback differs")
+            return
         if self.provider == "github":
             # A mirrored commit already exists in GitHub's object database.
             # Creating its lightweight ref needs no Git pack/history transfer;
@@ -441,7 +588,7 @@ class Repository:
 
 
 def release_record(item):
-    return {"format":1, "tag":item["tag"], "commit":item["commit"], "source":item["source"], "preview":item.get("preview",False), "assets":{n:{k:v for k,v in a.items() if k in ("sha256", "length", "exe")} for n,a in sorted(item["assets"].items())}}
+    return {"format":1, "tag":item["tag"], "commit":item["commit"], "source":item["source"], "preview":item.get("preview",False), "assets":{n:{k:v for k,v in a.items() if k in ("sha256", "length", "exe", "split_archive")} for n,a in sorted(item["assets"].items())}}
 
 
 def content_identity(item):
@@ -491,6 +638,7 @@ def main():
     p.add_argument("--receipt",type=Path,required=True)
     p.add_argument("--apply",action="store_true")
     p.add_argument("--local-auth",action="store_true")
+    p.add_argument("--github-tag-ssh",action="store_true",help="Use the CI mirror SSH identity after auditing historical tag workflows")
     p.add_argument("--tag",action="append",default=[])
     p.add_argument("--write-to",choices=("github","gitgud"),action="append",default=[])
     args=p.parse_args()
@@ -500,6 +648,7 @@ def main():
         gh=gh or local_token(["gh","auth","token"])
         gl=gl or local_token(["glab","config","get","token","--host","gitgud.io"])
     repos=[Repository("gitgud","gitlab",args.gitgud_project,gl,True),Repository("github","github",args.github,gh,True)]
+    repos[1].github_tag_ssh = args.github_tag_ssh
     if args.write_to:
         for repo in repos:
             repo.writable = repo.writable and repo.key in args.write_to

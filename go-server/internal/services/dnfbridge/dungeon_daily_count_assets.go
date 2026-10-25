@@ -31,6 +31,8 @@ type currentDailyCountEntryAssets struct {
 	project          dnfdungeon.EntryItemProjector
 	inTransaction    func(character *dnfrepo.CharacterRecord) error
 	debitRoomFatigue bool
+	fatigueCost      int64
+	fatigueStartOnly bool
 }
 
 // currentDailyCountEntryEnabled 报告该副本的每日次数是否走"与入场资产同事务"的新路径。
@@ -68,6 +70,10 @@ func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon wor
 	if !roomFatiguePending || currentDungeonUsesNoFatigue(dungeon) {
 		return assets, nil
 	}
+	fatigueCost, fatigueStartOnly, err := currentDungeonStartFatigueRule(dungeon)
+	if err != nil {
+		return currentDailyCountEntryAssets{}, err
+	}
 	account := dnfrepo.AccountRecord{}
 	if repos, ok := s.repositoryGroup(); ok && repos.Account != nil {
 		loaded, _, err := repos.Account.Load(context.Background(), s.accountIDForSession(session))
@@ -78,12 +84,24 @@ func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon wor
 	}
 	now := s.gameplayNow()
 	assets.debitRoomFatigue = true
+	assets.fatigueCost = fatigueCost
+	assets.fatigueStartOnly = fatigueStartOnly
 	assets.inTransaction = func(character *dnfrepo.CharacterRecord) error {
 		dnffatigue.Refresh(character, account, now)
+		if fatigueStartOnly {
+			return debitCurrentDungeonFatigueAmount(character, fatigueCost)
+		}
 		dnffatigue.Debit(character)
 		return nil
 	}
 	return assets, nil
+}
+
+func currentDailyCountFatiguePending(runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, hasScene bool) bool {
+	if runtime == nil || !hasScene || runtime.fatigueStartDebited {
+		return false
+	}
+	return runtime.fatigueRooms == nil || !runtime.fatigueRooms[scene.Coordinate]
 }
 
 // consumeCurrentDailyCountEntry 是这两类入场的唯一提交点：次数 + 门票 + 入场房间疲劳。
@@ -99,10 +117,7 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 	if !enabled {
 		return nil
 	}
-	roomFatiguePending := hasScene
-	if roomFatiguePending && runtime.fatigueRooms != nil && runtime.fatigueRooms[scene.Coordinate] {
-		roomFatiguePending = false
-	}
+	roomFatiguePending := currentDailyCountFatiguePending(runtime, scene, hasScene)
 	assets, err := s.currentDailyCountEntryAssets(session, runtime.Dungeon, roomFatiguePending)
 	if err != nil {
 		return err
@@ -129,10 +144,15 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 			runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)
 		}
 		runtime.fatigueRooms[scene.Coordinate] = true
+		if assets.fatigueStartOnly {
+			runtime.fatigueStartDebited = true
+		}
 		s.logGameEvent(session, "game-dungeon-fatigue-room-debited",
 			"char_id", session.selectedCharacterID,
 			"dungeon_id", runtime.Dungeon.ID,
 			"room", scene.Coordinate.String(),
+			"cost", assets.fatigueCost,
+			"start_only", assets.fatigueStartOnly,
 			"remaining", character.Stats["fatigue"],
 			"limit", character.Stats["fatigue_limit"],
 			"commit", "with_daily_count")

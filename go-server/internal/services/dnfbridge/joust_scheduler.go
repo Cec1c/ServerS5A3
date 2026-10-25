@@ -63,7 +63,13 @@ func (service *Service) handleCurrentJoustBoundary(now time.Time) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*createWriteTimeout)
 	defer cancel()
-
+	if _, available := service.currentJoustCatalogForPublishing(
+		ctx,
+		nil,
+		"scheduler_boundary",
+	); !available {
+		return
+	}
 	if timeline.Phase == dnfjoust.PhaseSettled {
 		accounts := make(map[string]struct{})
 		for _, session := range sessions {
@@ -109,6 +115,13 @@ func (service *Service) pushCurrentJoustBoundarySnapshot(
 		// 直接调用（测试/内嵌复现）也必须走同一个门禁，保证"开关关=零下发"
 		// 对每个入口都成立。
 		service.logCurrentJoustEventDisabled(session, "op1240_op1243_boundary_push")
+		return nil
+	}
+	if _, available := service.currentJoustCatalogForPublishing(
+		ctx,
+		session,
+		"op1240_op1243_boundary_push",
+	); !available {
 		return nil
 	}
 	// A state transition is the native animation trigger. In particular, the

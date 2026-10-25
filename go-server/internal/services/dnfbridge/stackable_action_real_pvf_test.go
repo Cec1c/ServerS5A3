@@ -85,7 +85,7 @@ func TestFatiguePotionNativeActionRealPVF(t *testing.T) {
 						p, next := splitCurrentGameServerUpperPacketAuto(t, rest)
 						ops, rest = append(ops, p.Header.MsgID), next
 					}
-					if !reflect.DeepEqual(ops, []uint16{14, currentFatigueMsgID}) {
+					if !reflect.DeepEqual(ops, []uint16{14, currentFatigueMsgID, currentFatiguePotionUsageMsgID}) {
 						t.Fatalf("refresh order=%v", ops)
 					}
 					inv, _, _ = repos.Inventory.Load(ctx, "29")
