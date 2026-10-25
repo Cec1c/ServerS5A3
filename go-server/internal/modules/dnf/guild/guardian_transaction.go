@@ -62,6 +62,8 @@ type GuardianRequest struct {
 	GuildID            uint32
 	RequestID          string
 	Action, GuardianID uint32
+	Observed, Value    uint32
+	Growth             *GuardianGrowthCatalog
 	Policy             GuardianPolicy
 	Revalidate         func() bool
 	// Called inside the registry/character UOW. Replays only recover a receipt;
@@ -70,6 +72,8 @@ type GuardianRequest struct {
 }
 
 type GuardianReceipt struct {
+	Observed      uint32                      `json:"observed,omitempty"`
+	Value         uint32                      `json:"value,omitempty"`
 	Owner         r.GuildOwner                `json:"owner"`
 	GuildID       uint32                      `json:"guild_id"`
 	Action        uint32                      `json:"action"`
@@ -92,11 +96,29 @@ func validateGuardianReceipts(reg Registry) error {
 		}
 		switch receipt.Action {
 		case GuardianPurchase:
+			if receipt.Observed != 0 || receipt.Value != 0 {
+				return ErrInvalidRegistry
+			}
 			if receipt.FirstPurchase != GuardianFreeOnce && receipt.FirstPurchase != GuardianPaid {
 				return ErrInvalidRegistry
 			}
 		case GuardianSelect:
-			if receipt.FirstPurchase != "" || receipt.Cost != (EssenceBalance{}) || receipt.ActiveID != receipt.Guardian.ID {
+			if receipt.Observed != 0 || receipt.Value != 0 || receipt.FirstPurchase != "" || receipt.Cost != (EssenceBalance{}) || receipt.ActiveID != receipt.Guardian.ID {
+				return ErrInvalidRegistry
+			}
+		case GuardianInvestAP, GuardianInvestGP:
+			if receipt.FirstPurchase != "" || receipt.Value == 0 || receipt.Value > 0x7fffffff {
+				return ErrInvalidRegistry
+			}
+			want := EssenceBalance{AP: receipt.Value}
+			if receipt.Action == GuardianInvestGP {
+				want = EssenceBalance{GP: receipt.Value}
+			}
+			if receipt.Cost != want {
+				return ErrInvalidRegistry
+			}
+		case 2, 3, 4, 5, 6:
+			if receipt.FirstPurchase != "" || receipt.Observed < 1 || receipt.Observed >= 5 || receipt.Value != receipt.Observed+1 || uint32(receipt.Guardian.Skills[receipt.Action-2]) != receipt.Value || receipt.Cost.AP == 0 {
 				return ErrInvalidRegistry
 			}
 		default:
@@ -117,7 +139,10 @@ func ApplyGuardian(ctx context.Context, uow r.GuildUnitOfWork, q GuardianRequest
 	if !validPurchaseID(q.RequestID) || q.GuildID == 0 {
 		return result, ErrPurchaseIdentity
 	}
-	if q.Action != GuardianPurchase && q.Action != GuardianSelect || q.GuardianID < 1 || q.GuardianID > 2 || now.IsZero() {
+	if q.Action > GuardianPurchase || q.GuardianID < 1 || q.GuardianID > 2 || now.IsZero() {
+		return result, ErrGuardianInteraction
+	}
+	if q.Action >= GuardianSelect && (q.Observed != 0 || q.Value != 0) {
 		return result, ErrGuardianInteraction
 	}
 	if err := q.Policy.Validate(); err != nil {
@@ -134,7 +159,7 @@ func ApplyGuardian(ctx context.Context, uow r.GuildUnitOfWork, q GuardianRequest
 		if err != nil {
 			return err
 		}
-		if !found || actor.CharacterID != q.Owner.CharacterID || actor.AccountID != q.Owner.AccountID {
+		if !found || actor.CharacterID != q.Owner.CharacterID || actor.AccountID != q.Owner.AccountID || actor.Stats["delete_flag"] != 0 {
 			return ErrCharacterNotFound
 		}
 		reg, err := Load(ctx, tx.Settings)
@@ -145,11 +170,11 @@ func ApplyGuardian(ctx context.Context, uow r.GuildUnitOfWork, q GuardianRequest
 		if !found || g.ID != q.GuildID {
 			return ErrNotMember
 		}
-		if g.MasterCharacterID != q.Owner.CharacterID || member.Grade != DefaultMasterGrade {
+		if (q.Action <= GuardianSkillLast && GradePermissionsFor(g, member.Grade)&GuardianGrowthPermission == 0) || (q.Action >= GuardianSelect && (g.MasterCharacterID != q.Owner.CharacterID || member.Grade != DefaultMasterGrade)) {
 			return ErrPermissionDenied
 		}
 		old, replay := reg.GuardianReceipts[key]
-		if replay && (old.Owner != q.Owner || old.GuildID != q.GuildID || old.Action != q.Action || old.Guardian.ID != q.GuardianID) {
+		if replay && (old.Owner != q.Owner || old.GuildID != q.GuildID || old.Action != q.Action || old.Guardian.ID != q.GuardianID || old.Observed != q.Observed || old.Value != q.Value) {
 			return ErrPurchaseIdentity
 		}
 		if !q.CanInteract(actor, g, replay) {
@@ -193,6 +218,22 @@ func ApplyGuardian(ctx context.Context, uow r.GuildUnitOfWork, q GuardianRequest
 			state.EverAcquired = true
 			state.Owned = append(state.Owned, row)
 			fee = q.Policy.FirstPurchase
+		} else if q.Action <= GuardianSkillLast {
+			row, cost, err = q.Growth.growth(row, q.Action, q.Observed, q.Value)
+			if err != nil {
+				return err
+			}
+			if g.Essence.AP < cost.AP || g.Essence.GP < cost.GP {
+				return ErrGuardianEssence
+			}
+			g.Essence.AP -= cost.AP
+			g.Essence.GP -= cost.GP
+			for i := range state.Owned {
+				if state.Owned[i].ID == row.ID {
+					state.Owned[i] = row
+					break
+				}
+			}
 		} else {
 			if row.ID == 0 {
 				return ErrGuardianNotOwned
@@ -200,7 +241,7 @@ func ApplyGuardian(ctx context.Context, uow r.GuildUnitOfWork, q GuardianRequest
 			state.ActiveID = row.ID
 		}
 		g.UpdatedAt = now
-		result = GuardianReceipt{Owner: q.Owner, GuildID: g.ID, Action: q.Action, Guardian: row, Cost: cost, BalanceAfter: g.Essence, ActiveID: state.ActiveID, FirstPurchase: fee, At: now}
+		result = GuardianReceipt{Observed: q.Observed, Value: q.Value, Owner: q.Owner, GuildID: g.ID, Action: q.Action, Guardian: row, Cost: cost, BalanceAfter: g.Essence, ActiveID: state.ActiveID, FirstPurchase: fee, At: now}
 		if reg.GuardianReceipts == nil {
 			reg.GuardianReceipts = make(map[string]GuardianReceipt)
 		}

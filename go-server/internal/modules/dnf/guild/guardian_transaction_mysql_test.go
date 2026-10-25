@@ -117,4 +117,5 @@ func TestGuardianTransactionMySQLRollbackConcurrencyAndReconnect(t *testing.T) {
 			}
 		})
 	}
+	t.Run("growth", func(t *testing.T) { guardianGrowthTransactions(t, newGroup()) })
 }
