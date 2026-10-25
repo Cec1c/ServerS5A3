@@ -13,6 +13,7 @@ from patch_at5t_input_priority import Code
 
 INPUT_SHA256 = '9886866b28aef3ab6f97789fca9ba09b359b499735e7a80b3ca0ac6d08041060'
 INPUT_SIZE = 111915008
+HONGBAO_SHA256 = '3f835ec79827f5ddb62506ca8b248ff802f84623ad25fc923224dbcf950066cb'
 FRAME_SITE, COMPARE_SITE, SCENE_SITE = 0x1077461, 0x107758F, 0x1077652
 FINGERPRINTS = (
     (FRAME_SITE, bytes.fromhex('81ec080f0000')),
@@ -54,8 +55,9 @@ def helper(base):
 
 
 def build(data):
-    if len(data) != INPUT_SIZE or pe.sha(data) != INPUT_SHA256:
-        raise ValueError('exact official V173 input SHA256/length required')
+    input_sha = pe.sha(data)
+    if len(data) != INPUT_SIZE or input_sha not in (INPUT_SHA256, HONGBAO_SHA256):
+        raise ValueError('exact official V173 or verified V173 hongbao input required')
     opt, sections = pe.headers(data)
     coff = opt-24
     count = struct.unpack_from('<H', data, coff+6)[0]
@@ -104,7 +106,7 @@ def build(data):
         assert data[cursor:lo]==out[cursor:lo]
         cursor=hi
     assert data[cursor:]==out[cursor:len(data)]
-    receipt=dict(inputSha256=INPUT_SHA256,outputSha256=pe.sha(out),size=len(out),
+    receipt=dict(inputSha256=input_sha,outputSha256=pe.sha(out),size=len(out),
         changedRanges=changes,newSectionVA=hex(pe.IMAGE_BASE+image_size),helperLength=len(code),
         labels={k:hex(v) for k,v in labels.items()},numericRanges=NUMERIC_RANGES,
         receiverModelAndUIKept=True,sceneEntryKept=True,receiveGatesKept=True)
@@ -118,7 +120,7 @@ def write_candidate(source,destination):
     out,receipt=build(source.read_bytes())
     destination.parent.mkdir(parents=True,exist_ok=True)
     with destination.open('xb') as stream:stream.write(out)
-    if pe.sha(destination.read_bytes())!=receipt['outputSha256'] or pe.sha(source.read_bytes())!=INPUT_SHA256:
+    if pe.sha(destination.read_bytes())!=receipt['outputSha256'] or pe.sha(source.read_bytes())!=receipt['inputSha256']:
         raise RuntimeError('file readback mismatch')
     return receipt
 
