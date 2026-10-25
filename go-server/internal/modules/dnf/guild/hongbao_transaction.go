@@ -235,7 +235,8 @@ func (o *HongbaoOwner) Purchase(ctx context.Context, q HongbaoPurchaseRequest, n
 		if err != nil {
 			return err
 		}
-		expires := now.Add(10 * 24 * time.Hour)
+		// Inventory and the native item row persist expiration in Unix seconds.
+		expires := time.Unix(now.Add(10*24*time.Hour).Unix(), 0).UTC()
 		before := r.CloneInventory(tx.inventory)
 		slot, err := o.contract.GrantItem(ctx, tx.repos, &tx.actor, &tx.inventory, p, expires)
 		if err != nil {
