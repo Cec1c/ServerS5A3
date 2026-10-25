@@ -32,7 +32,10 @@ func equipmentDisjointGameplayModule() gameplayModuleDefinition {
 		},
 		LegacyNormalizers: map[uint16]gameplayLegacyNormalizer{
 			opcode: func(body []byte) []byte {
-				if len(body) == currentDisjointItemRequestSize+4 || len(body) == currentDisjointItemRequestSize+8 {
+				// Current op26 sends all nine semantic bytes without a checksum
+				// trailer. The last four carry the NPC identity, including Delilah.
+				// Only the historical 13-byte form has an additional trailer.
+				if len(body) == currentDisjointItemRequestSize+8 {
 					return append([]byte(nil), body[:len(body)-4]...)
 				}
 				return body
