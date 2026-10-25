@@ -69,7 +69,9 @@ class Code:
         return bytes(self.buf)
 
 
-def emit(base=BASE, preserve_local=False):
+def emit(base=BASE, preserve_local=False, preserve_dungeon_town=False):
+    if preserve_dungeon_town and not preserve_local:
+        raise ValueError("town retirement requires local model preservation")
     remove_base, kind0_base = base, base + 0x200
     # thiscall(record,slot,FFFF), replacing only the kind3 handler call.
     c = Code(remove_base)
@@ -77,7 +79,30 @@ def emit(base=BASE, preserve_local=False):
     c.raw("837e7001")                 # route must be 1
     c.jne("original")
     c.raw("837e7400")                 # owner must be 0
-    c.jne("original")
+    if preserve_dungeon_town:
+        c.je("context_ok")
+        # A surviving ordinary-dungeon actor can still be associated with
+        # the pre-entry town record. Only its current route/channel may use
+        # the non-destructive cleanup; unrelated contexts retain native code.
+        c.call(0x1FA2790)
+        c.raw("8bc8")
+        c.call(0x2526B50)
+        c.raw("83f803")
+        c.jne("original")
+        c.raw("8b0d58376a05 85c9")
+        c.je("original")
+        c.call(0x296DD80)
+        c.raw("85c0")
+        c.je("original")
+        c.raw("8bc8")
+        c.call(0x2964680)
+        c.raw("0fb6c0 85c0")
+        c.je("original")
+        c.raw("394674")
+        c.jne("original")
+        c.label("context_ok")
+    else:
+        c.jne("original")
     c.raw("817d0cffff0000")           # outgoing key must be FFFF
     c.jne("original")
     c.raw("8b5d08 83fb07")

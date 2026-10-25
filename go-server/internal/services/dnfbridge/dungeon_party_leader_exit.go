@@ -279,6 +279,12 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 				break
 			}
 		}
+		if peerRemovalAlreadySent {
+			if err := s.clearDungeonSurvivorTownPartyRecords(memberSession, members, source); err != nil {
+				s.logGameEvent(memberSession, "game-party-dungeon-retired-town-record-clear-failed", "source", source, "error", err)
+				continue
+			}
+		}
 		if err := s.clearDisbandedDungeonPartyRecords(memberSession, members, leaderID, peerRemovalAlreadySent, source); err != nil {
 			s.logGameEvent(memberSession, "game-party-dungeon-retired-record-clear-failed", "source", source, "party_id", state.PartyID, "error", err)
 			continue
