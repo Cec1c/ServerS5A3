@@ -90,7 +90,7 @@ var opaqueDungeonSections = stringSet(
 )
 
 var knownMazeSections = stringSet(
-	"maze info", "size", "greed", "map specification", "start map", "boss map", "hit count",
+	"maze info", "hidden boss maze", "size", "greed", "map specification", "start map", "boss map", "hit count",
 	"seal door appear rate", "seal door map index", "seal door pos", "quest connection",
 	"randomized object creation", "clear condition", "boss map specification",
 	"layered map specification", "select", "regenerate", "object", "map", "index", "pos",

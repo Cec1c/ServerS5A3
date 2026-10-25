@@ -27,8 +27,7 @@ import (
 //
 // 额度用尽即拒绝入场；计数与**同一轮入场的其他资产**（门票、入场房间疲劳）必须在同一个
 // `WithinCharacterAssets` 事务里提交，否则拒绝分支会留下已经扣掉的疲劳或门票。
-// 本仓这里只做持久计数与准入判据，不发包；当前 EXE 的 812 不是次数通知。
-// 计数 UI 保持待验，见 Docs/D33_DAILY_COUNT_ENTRY_20261014.md 的反汇编纠正。
+// 领域只持久化额度与准入判据；bridge按当前812契约投影独立的基础/追加/周计数。
 const (
 	dimensionGateDayKey   = "dimension_gate_daily_entry_day"
 	dimensionGateUsedKey  = "dimension_gate_daily_entry_used"
@@ -75,6 +74,8 @@ type DimensionGateEntryCommand struct {
 	// ExtraLimit is the verified daily ticket grant cap; zero disables grants.
 	// Limit remains the initial allowance, never the maximum including tickets.
 	ExtraLimit int64
+	// Hidden is an optional frozen server maze plan, committed with admissions.
+	Hidden *DimensionHiddenAdmission
 	// Requirements / FreePasses / Project 与本仓既有每日次数命令同义：DGN 声明的
 	// `ConsumeOnEntry` 门票在同一事务里扣除，失败则整轮拒绝且不写任何字节。
 	Requirements []EntryItemRequirement
@@ -87,9 +88,10 @@ type DimensionGateEntryCommand struct {
 }
 
 type DimensionGateEntryResult struct {
-	Character dnfrepo.CharacterRecord
-	Used      int64
-	Consumed  []EntryItemConsumedStack
+	Character        dnfrepo.CharacterRecord
+	Used             int64
+	Consumed         []EntryItemConsumedStack
+	HiddenHighReward bool
 }
 
 // ConsumeDimensionGateEntry 在单次角色资产事务里提交共享日计数与同批入场资产。
@@ -137,6 +139,10 @@ func (o *Owner) ConsumeDimensionGateEntry(ctx context.Context, cmd DimensionGate
 				return err
 			}
 		}
+		highReward, err := applyDimensionHiddenAdmission(&character, cmd.UpdatedAt, cmd.Hidden)
+		if err != nil {
+			return err
+		}
 		if len(consumed) > 0 {
 			inventory.UpdatedAt = cmd.UpdatedAt
 			if err := dnfrepo.SaveInventoryFields(ctx, bags, inventory, dnfrepo.InventoryFieldSlots); err != nil {
@@ -154,6 +160,7 @@ func (o *Owner) ConsumeDimensionGateEntry(ctx context.Context, cmd DimensionGate
 			return err
 		}
 		result.Character, result.Used, result.Consumed = character, used+1, consumed
+		result.HiddenHighReward = highReward
 		return nil
 	})
 	if err != nil {

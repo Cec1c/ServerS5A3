@@ -276,6 +276,9 @@ func (s *Service) sendEnterSelectDungeonState(
 		if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
 			return err
 		}
+		if err := s.sendCurrentDimensionCount(session, character); err != nil {
+			return err
+		}
 	}
 	session.enterSelectDungeonSent = true
 	if requestDriven {

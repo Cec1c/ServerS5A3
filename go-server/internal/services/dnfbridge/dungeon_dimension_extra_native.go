@@ -251,5 +251,8 @@ func (s *Service) handleCurrentDimensionGateExtraTicketUse(session *gameSession,
 	for _, material := range result.MaterialSlots {
 		refreshes = append(refreshes, alignedcmd.ItemSlotRefresh{ListType: dnfrepo.MainInventoryListType, SlotIndex: material.Slot})
 	}
-	return true, s.sendSelectedIncrementalItemSlotRefreshes(session, "dimension_gate_extra_ticket_after_ack", refreshes)
+	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "dimension_gate_extra_ticket_after_ack", refreshes); err != nil {
+		return true, err
+	}
+	return true, s.sendCurrentDimensionCount(session, result.Character)
 }

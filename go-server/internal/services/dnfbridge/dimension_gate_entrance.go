@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -223,19 +224,19 @@ func (s *Service) sendCurrentDimensionGateEntranceInfo(session *gameSession, sou
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
-	// The current EXE registers dimension entry state at class0/812,
-	// handler 0x01049E00: u32/u32/u8 (9 bytes). Legacy 806/8 is a
-	// different feature. Do not emit or renumber the default-only legacy
-	// state until the shared durable counters and final byte are verified.
+	// Current EXE 812 is a distinct nine-byte, durable counter projection.
+	// The legacy default-only 806 body never enters this profile.
 	if s.options.currentClientVersion == "official-24.9" {
-		s.logGameEvent(session, "game-dimension-gate-entrance-info-skipped",
-			"char_id", session.selectedCharacterID,
-			"source", source,
-			"msg_id", currentDimensionGateEntranceMsgID,
-			"reason", "current_client_requires_verified_812_and_shared_persisted_counts",
-			"native_msg_id", 812,
-			"native_body_len", 9)
-		return nil
+		if s.initialEquipmentArchive == nil || !currentDimensionGateEntranceEnabled() {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		defer cancel()
+		character, err := s.dungeonCharacter(ctx, session.selectedCharacterID, session)
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentDimensionCount(session, character)
 	}
 	if !currentDimensionGateEntranceEnabled() {
 		s.logGameEvent(session, "game-dimension-gate-entrance-info-skipped",
