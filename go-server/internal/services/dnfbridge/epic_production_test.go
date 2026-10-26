@@ -146,11 +146,11 @@ func TestValidateCurrentEpicProductionTargetRequiresPVFListAndAbility(t *testing
 func TestStartCurrentEpicProductionPersistsAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	repositories := dnfrepomemory.NewMemoryGroup()
-	character := dnfrepo.CharacterRecord{CharacterID: "2", AccountID: "account-1", Stats: map[string]int64{}}
+	character := dnfrepo.CharacterRecord{CharacterID: "2", AccountID: "account-1", Level: 90, Stats: map[string]int64{}}
 	if err := repositories.Character.Save(ctx, character); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := startCurrentEpicProduction(ctx, repositories.Character, "account-1", "2", 116010124)
+	changed, err := startCurrentEpicProduction(ctx, repositories.Character, "account-1", "2", 116010124, 1)
 	if err != nil || !changed {
 		t.Fatalf("first start changed=%t err=%v", changed, err)
 	}
@@ -158,11 +158,11 @@ func TestStartCurrentEpicProductionPersistsAndIsIdempotent(t *testing.T) {
 	if err != nil || !found || saved.Stats[currentEpicProductionTargetStat] != 116010124 {
 		t.Fatalf("saved=%+v found=%t err=%v", saved.Stats, found, err)
 	}
-	changed, err = startCurrentEpicProduction(ctx, repositories.Character, "account-1", "2", 116010124)
+	changed, err = startCurrentEpicProduction(ctx, repositories.Character, "account-1", "2", 116010124, 1)
 	if err != nil || changed {
 		t.Fatalf("idempotent retry changed=%t err=%v", changed, err)
 	}
-	if _, err := startCurrentEpicProduction(ctx, repositories.Character, "account-1", "2", 116020124); !errors.Is(err, errCurrentEpicProductionAlreadyActive) {
+	if _, err := startCurrentEpicProduction(ctx, repositories.Character, "account-1", "2", 116020124, 1); !errors.Is(err, errCurrentEpicProductionAlreadyActive) {
 		t.Fatalf("different active target err=%v", err)
 	}
 }
@@ -306,6 +306,16 @@ func TestDecodeAndParseCurrentEpicProductionAbility(t *testing.T) {
 }
 
 func TestCommitCurrentEpicProductionAbilityConsumesRecipeAndPersistsRawTail(t *testing.T) {
+	source := dungeonDropCatalogTestSource{
+		"monster/monster.lst":          "",
+		dungeonDropStackableList:       "",
+		dungeonDropEquipmentList:       "116010124 `ability_weapon.equ`\n",
+		"equipment/ability_weapon.equ": "[equipment type] `[weapon]`\n[durability] 50\n[custom ability type] `epic production`\n",
+	}
+	items, err := newPVFDungeonDropCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	repositories := dnfrepomemory.NewMemoryGroup()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
@@ -345,7 +355,7 @@ func TestCommitCurrentEpicProductionAbilityConsumesRecipeAndPersistsRawTail(t *t
 		},
 	}
 	request := currentEpicProductionAbilityRequest{Slot: 26, Category: 0, Option: 4}
-	result, err := service.commitCurrentEpicProductionAbility(ctx, session, recipe, request, time.Now().UTC())
+	result, err := service.commitCurrentEpicProductionAbility(ctx, session, source, items, recipe, request, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +375,7 @@ func TestCommitCurrentEpicProductionAbilityConsumesRecipeAndPersistsRawTail(t *t
 		t.Fatalf("unique soul=%+v", account.Slots)
 	}
 
-	replay, err := service.commitCurrentEpicProductionAbility(ctx, session, recipe, request, time.Now().UTC())
+	replay, err := service.commitCurrentEpicProductionAbility(ctx, session, source, items, recipe, request, time.Now().UTC())
 	if err != nil || replay.Applied || len(replay.Updates) != 0 {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
@@ -390,7 +400,7 @@ func TestCommitCurrentEpicProductionAbilityConsumesRecipeAndPersistsRawTail(t *t
 		},
 	}
 	secondRequest := currentEpicProductionAbilityRequest{Slot: 26, Category: 1, Option: 20}
-	secondResult, err := service.commitCurrentEpicProductionAbility(ctx, session, secondRecipe, secondRequest, time.Now().UTC())
+	secondResult, err := service.commitCurrentEpicProductionAbility(ctx, session, source, items, secondRecipe, secondRequest, time.Now().UTC())
 	if err != nil || !secondResult.Applied {
 		t.Fatalf("independent category assignment result=%+v err=%v", secondResult, err)
 	}
@@ -404,7 +414,7 @@ func TestCommitCurrentEpicProductionAbilityConsumesRecipeAndPersistsRawTail(t *t
 	recipe.Option = 3
 	recipe.Materials[0].Count = 999
 	request.Option = 3
-	if _, err := service.commitCurrentEpicProductionAbility(ctx, session, recipe, request, time.Now().UTC()); !errors.Is(err, errCurrentEpicProductionMaterial) {
+	if _, err := service.commitCurrentEpicProductionAbility(ctx, session, source, items, recipe, request, time.Now().UTC()); !errors.Is(err, errCurrentEpicProductionMaterial) {
 		t.Fatalf("insufficient ability material err=%v", err)
 	}
 	inventory, _, _ = repositories.Inventory.Load(ctx, "2")
@@ -785,6 +795,7 @@ func TestCurrentEpicProductionRealPVF(t *testing.T) {
 		CharacterID: "2",
 		AccountID:   "account-1",
 		Job:         "15",
+		Level:       int(catalog.levelLimit),
 		Stats:       map[string]int64{},
 	}); err != nil {
 		t.Fatal(err)

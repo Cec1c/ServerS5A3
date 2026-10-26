@@ -32,7 +32,7 @@ package dnfbridge
 //
 //   - **只补发队友，绝不重发本地自身**：`actor != receiver` 才发（复用
 //     `sendDungeonPartyPeerActorState` 的既有约束）；
-//   - **幂等**：同一 (收包会话, 副本实例) 只补一次，换场/换实例后重新允许；
+//   - **幂等**：同一收包会话、完整运行键、队友绑定代次只补一次；
 //   - 换房间（op45）也会把 finish-loading 门闩复位（`currentFinishLoadingStateSent=false`），
 //     所以每次过图都会在新房间重新补一轮 —— 这正是"队员卡在等待队员到达"需要的那一轮。
 
@@ -54,17 +54,15 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 	if !ready {
 		return
 	}
-	// 幂等键 = (收包会话, 副本实例号)。换房间不改 party id，但 runKey 里的 room 会变，
-	// 所以幂等键带上房间坐标：同房间只补一次，进入新房间允许再补一次。
-	if !s.claimDungeonPeerActorResend(session, runKey) {
-		return
-	}
+	// Each peer connection owns its resend. A late/reconnected peer must not
+	// inherit a different peer's already-consumed room marker.
 	resent := make([]uint16, 0, len(members))
 	for _, member := range members {
 		if member.UserID == 0 || member.UserID == session.selectedCharacterID {
 			continue
 		}
-		peer, online := s.onlineGameSession(member.UserID)
+		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		peer := identity.session
 		if !online || peer == nil || peer == session {
 			continue
 		}
@@ -72,12 +70,15 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 		if !peerReady || peerKey != runKey {
 			continue
 		}
+		if !s.claimDungeonPeerActorResend(session, runKey, identity) {
+			continue
+		}
 		if err := s.sendDungeonPartyPeerActorState(
 			session,
 			peer,
 			source+"_peer_actor_resend",
 		); err != nil {
-			s.releaseDungeonPeerActorResend(session, runKey)
+			s.releaseDungeonPeerActorResend(session, runKey, identity)
 			s.logGameEvent(session, "game-dungeon-party-peer-actor-resend-failed",
 				"source", source,
 				"char_id", session.selectedCharacterID,
@@ -88,14 +89,6 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 		resent = append(resent, member.UserID)
 	}
 	if len(resent) == 0 {
-		if dungeonPartyPeerActorLandingResendEnabled() {
-			// 一个都没补（对端还没有运行键）⇒ **退还名额**。名额在循环之前就被占掉，
-			// 不退的话这名收包方在本房间里再也不会被补发 —— 现场指纹就是
-			// `char_id=1`（先落位的那一方）的 resend 全日志 0 条。
-			// 退还之后，"后落位一方落地"那条路（dungeon_party_peer_actor_landing_resend.go）
-			// 才有名额把队友 actor 再推给它一次。
-			s.releaseDungeonPeerActorResend(session, runKey)
-		}
 		return
 	}
 	// 队友 actor 重新建出来之后，紧接着把**已上报坐标**补一次，避免新 actor 停在默认点
@@ -113,12 +106,12 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 		"reason", "peer actor projection landed before the receiving client finished its scene rebuild")
 }
 
-// claimDungeonPeerActorResend 返回 true = 这次调用占用了补发名额（同一 conn+房间只补一次）。
-func (s *Service) claimDungeonPeerActorResend(session *gameSession, key dungeonPartyRunKey) bool {
-	if session == nil {
+// claimDungeonPeerActorResend reserves one resend for this run and peer binding.
+func (s *Service) claimDungeonPeerActorResend(session *gameSession, key dungeonPartyRunKey, peer boundGameSessionCharacter) bool {
+	if session == nil || !s.boundGameSessionCharacterCurrent(peer) {
 		return false
 	}
-	marker := dungeonPeerActorResendKey{RoomX: key.RoomX, RoomY: key.RoomY, MapID: key.MapID, InstanceID: key.PartyID}
+	marker := dungeonPeerActorResendKey{Run: key, Peer: peer}
 	session.dungeonPartyRunMu.Lock()
 	defer session.dungeonPartyRunMu.Unlock()
 	if session.dungeonPeerActorResent == nil {
@@ -127,26 +120,31 @@ func (s *Service) claimDungeonPeerActorResend(session *gameSession, key dungeonP
 	if session.dungeonPeerActorResent[marker] {
 		return false
 	}
+	// Retire old socket references rather than retaining every reconnect for
+	// the lifetime of a long raid room. A late old failure cannot erase marker.
+	for prior := range session.dungeonPeerActorResent {
+		if prior.Peer.character == peer.character && prior.Peer != peer {
+			delete(session.dungeonPeerActorResent, prior)
+		}
+	}
 	session.dungeonPeerActorResent[marker] = true
 	return true
 }
 
-func (s *Service) releaseDungeonPeerActorResend(session *gameSession, key dungeonPartyRunKey) {
+func (s *Service) releaseDungeonPeerActorResend(session *gameSession, key dungeonPartyRunKey, peer boundGameSessionCharacter) {
 	if session == nil {
 		return
 	}
-	marker := dungeonPeerActorResendKey{RoomX: key.RoomX, RoomY: key.RoomY, MapID: key.MapID, InstanceID: key.PartyID}
+	marker := dungeonPeerActorResendKey{Run: key, Peer: peer}
 	session.dungeonPartyRunMu.Lock()
 	delete(session.dungeonPeerActorResent, marker)
 	session.dungeonPartyRunMu.Unlock()
 }
 
-// dungeonPeerActorResendKey 是补发的幂等键：同一房间只补一次，进入新房间重新允许。
+// A character ID alone cannot distinguish a reconnected peer's new actor.
 type dungeonPeerActorResendKey struct {
-	RoomX      int64
-	RoomY      int64
-	MapID      int64
-	InstanceID uint16
+	Run  dungeonPartyRunKey
+	Peer boundGameSessionCharacter
 }
 
 // sessionHasActiveDungeonRuntime 报告本会话当前是否持有一份活跃的副本运行时。

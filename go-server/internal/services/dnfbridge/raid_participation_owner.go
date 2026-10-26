@@ -38,6 +38,8 @@ type currentRaidClearEvent struct {
 func currentRaidParticipationClearEvent(id uint16, position currentRaidParticipationPosition) currentRaidClearEvent {
 	event := currentRaidClearEvent{DungeonID: position.DungeonID, RunID: position.RunID}
 	if event.RunID == "" {
+		// Legacy snapshots without a frozen run identity can only be scoped to
+		// their participant. Production raid entries always have a run ID.
 		event.CharacterID = id
 	}
 	return event
@@ -223,6 +225,9 @@ func currentRaidParticipationProjection(previous, next map[uint16]currentRaidPar
 	for event := range notified {
 		clearEvents[event] = struct{}{}
 	}
+	// Older callers and restored subscriber state may not yet have a clear
+	// ledger. Treat clear rows already present in the prior snapshot as known;
+	// only a false-to-true transition in this projection may announce.
 	for id, entry := range previous {
 		if entry.Cleared {
 			clearEvents[currentRaidParticipationClearEvent(id, entry)] = struct{}{}
@@ -291,6 +296,9 @@ func currentRaidParticipationProjection(previous, next map[uint16]currentRaidPar
 	appendGroups(group(previous, false), 0)
 	appendGroups(group(next, false), 0)
 	appendGroups(group(next, false), 2)
+	// v150 01FF4940 op4 displays dstr32049 (a squad cleared this dungeon).
+	// It is an event, not a persistent row mark: rebuilding occupancy must
+	// not announce other squads' old clears or replay history on resubscribe.
 	if !fresh {
 		newClears := map[uint16]currentRaidParticipationPosition{}
 		for id, entry := range next {

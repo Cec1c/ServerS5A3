@@ -130,6 +130,7 @@ type FinishCommitInput struct {
 // raw row is cloned before it crosses the domain boundary. It contains no
 // opcode or packet fields and is shared by town op34 and dungeon settlement.
 type FinishCommitResult struct {
+	ResumedStoryQuestIDs       []int64
 	CharacterID                string
 	CompletionKey              string
 	Source                     string
@@ -170,6 +171,7 @@ type FinishCommitResult struct {
 }
 
 type finishSettlementReceipt struct {
+	ResumedStoryQuestIDs []int64                         `json:"resumed_story_quest_ids,omitempty"`
 	Version              int                             `json:"version"`
 	CharacterID          string                          `json:"character_id"`
 	CompletionKey        string                          `json:"completion_key"`
@@ -632,6 +634,27 @@ func (o *Owner) ApplyFinishSettlement(
 			questFields = mergeQuestChangedField(questFields, parentField)
 		}
 
+		resumed, resumeChanged, err := catalog.ResumeLevelUpTicketStory(&character, quests, input.QuestID, now)
+		if err != nil {
+			return err
+		}
+		if resumeChanged {
+			quests = resumed.Record
+			for _, f := range resumed.ChangedFields {
+				questFields = mergeQuestChangedField(questFields, f)
+			}
+			receipt.ResumedStoryQuestIDs = append(append([]int64(nil), resumed.ChangedQuestIDs...), resumed.ChangedLinkedSubIDs...)
+			encoded, err := json.Marshal(receipt)
+			if err != nil {
+				return err
+			}
+			state.Extra[finishSettlementReceiptKey] = string(encoded)
+			if field == dnfrepo.QuestFieldStates {
+				quests.States[input.QuestID] = state
+			} else {
+				quests.Progress[input.QuestID] = state
+			}
+		}
 		if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, character, dnfrepo.CharacterFieldBase, dnfrepo.CharacterFieldStats); err != nil {
 			return err
 		}
@@ -1007,6 +1030,10 @@ func planFinishProgression(
 		result.NewLevel++
 	}
 	result.LevelsGained = result.NewLevel - result.PreviousLevel
+	result, err := tables.LimitCharacterExperienceAtCap(result, maxLevel)
+	if err != nil {
+		return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: experience cap: %v", ErrFinishProgressionUnproven, err)
+	}
 	points, err := tables.AdvanceSkillPoints(skill.Points, result.NewLevel)
 	if err != nil {
 		return progression.ExperienceSkillPointPlan{}, err
@@ -1621,7 +1648,8 @@ func finishResultFromCommitted(
 	quests dnfrepo.QuestRecord,
 ) FinishCommitResult {
 	return FinishCommitResult{
-		CharacterID: receipt.CharacterID, CompletionKey: receipt.CompletionKey, Source: receipt.Source,
+		ResumedStoryQuestIDs: append([]int64(nil), receipt.ResumedStoryQuestIDs...),
+		CharacterID:          receipt.CharacterID, CompletionKey: receipt.CompletionKey, Source: receipt.Source,
 		QuestID: receipt.QuestID, Replayed: replayed,
 		BaseExperienceDelta: receipt.BaseExperienceDelta, ExperienceBonusDelta: receipt.ExperienceBonusDelta,
 		ExperienceDelta: receipt.ExperienceDelta, HonorExpertGain: receipt.HonorExpertGain,
@@ -1725,6 +1753,7 @@ func cloneFinishTerminalChildren(children []FinishTerminalChildSettlement) []Fin
 }
 
 func cloneFinishCommitResult(result FinishCommitResult) FinishCommitResult {
+	result.ResumedStoryQuestIDs = append([]int64(nil), result.ResumedStoryQuestIDs...)
 	result.Items = cloneFinishItems(result.Items)
 	result.ConsumedItems = cloneFinishConsumedItems(result.ConsumedItems)
 	result.Currency = append([]FinishCommittedCurrency(nil), result.Currency...)

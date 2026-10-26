@@ -382,6 +382,16 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		result, err := owner.UnlockDamageFont(ctx, cmd, req.DamageFontResolver, req.DamageFontNow)
 		if err != nil {
+			if errors.Is(err, ErrDamageFontExpired) {
+				return alignedcmd.Result{
+					Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+					Reason: "damage-font definition has expired; failure ACK without asset mutation",
+					UpperResponses: []alignedcmd.UpperResponse{
+						class1Response(req.Opcode, BuildStackableActionFailure(cmd.SourceSlotIndex, cmd.SourceListType, byte(damageFontActionIndex), 1)),
+					},
+					PostActions: []alignedcmd.PostAction{alignedcmd.PostActionDamageFontExpiredNotice},
+				}, nil
+			}
 			return ownerBlockedResult(cmd, err), nil
 		}
 		return ownerAppliedDamageFontUnlockResult(req.Opcode, cmd, result), nil
@@ -409,6 +419,11 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		return ownerAppliedDamageFontSelectionResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketUpgradeItem:
+		// v150's separate flag sender writes u8 mode, u8 list38. Keep the
+		// ordinary decoder/owner unchanged for every other request.
+		if len(req.Body) >= 2 && req.Body[1] == 38 {
+			return handleGuildMedalUpgrade(ctx, req), nil
+		}
 		parsed, err := DecodeUpgradeItemRequest(req.Body)
 		cmd := NewUpgradeCommand(req, parsed)
 		if err != nil {
@@ -829,11 +844,14 @@ func upgradePortableReasonSuffix(result UpgradeResult) string {
 	if portable == nil {
 		return ""
 	}
-	return fmt.Sprintf(" portable=consumed item=%d mode=%s level_window=%d..%d success_bonus=%d material_slot=%d pvf_path=%s",
+	return fmt.Sprintf(" portable=consumed item=%d mode=%s level_window=%d..%d usable_itemlevel=%d..%d target_minimum_level=%d success_bonus=%d material_slot=%d pvf_path=%s",
 		portable.ItemID,
 		portable.Mode,
 		portable.LevelMin,
 		portable.LevelMax,
+		portable.UsableItemLevelMin,
+		portable.UsableItemLevelMax,
+		portable.TargetMinimumLevel,
 		result.UpgradeSuccessBonus,
 		result.MaterialSlotIndex,
 		portable.PVFPath)
@@ -1667,9 +1685,16 @@ func noopGateSuffix(result dnfequip.MoveResult) string {
 func buildSortRefreshBody(ctx context.Context, settings dnfrepo.SettingsRepository, result SortResult) ([]byte, bool) {
 	switch result.ListType {
 	case listTypeMain, listTypePersonalCargo, listTypeAvatar:
-		state, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
-		if err != nil || !found {
-			state = dnfrepo.CharacterContainerState{}
+		state := dnfrepo.CharacterContainerState{}
+		if result.ContainerStateLoaded {
+			if result.ContainerState != nil {
+				state = *result.ContainerState
+			}
+		} else {
+			loaded, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
+			if err == nil && found {
+				state = loaded
+			}
 		}
 		return buildCommonItemListRefreshBodyWithState(result.ListType, result.Refresh, state), true
 	case listTypePet:

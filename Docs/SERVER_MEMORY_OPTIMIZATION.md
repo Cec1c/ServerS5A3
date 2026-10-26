@@ -14,7 +14,7 @@ PVF文件表中重复名称/目录按字符串偏移共享，地图原始Token�
 
 | 控制器参数 | 游戏程序参数 | 取值与未设置时行为 |
 | --- | --- | --- |
-| `DNF90_MYSQL_INSERT_BATCH` | `DNFBRIDGE_MYSQL_INSERT_BATCH` | 1至1000，示例200；未设置保持原逐行默认1 |
+| `DNF90_MYSQL_INSERT_BATCH` | `DNFBRIDGE_MYSQL_INSERT_BATCH` | 1至1000；控制器未设置时使用实例配置，旧实例缺省200；直接启动游戏程序仍按其自身默认值 |
 | `DNF90_INVENTORY_SAVE_SCOPE` | `DNFBRIDGE_INVENTORY_SAVE_SCOPE` | `collection`或`slot`；未设置保持原完整容器保存 |
 | `DNF90_EQUIPMENT_SAVE_SCOPE` | `DNFBRIDGE_EQUIPMENT_SAVE_SCOPE` | `collection`或`entry`；未设置保持原完整容器保存 |
 

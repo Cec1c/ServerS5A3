@@ -139,12 +139,18 @@ func TestRealPVFJonathanAtomicPaymentCandidate(t *testing.T) {
 	}
 }
 
+// 段106 修复后：只有**空值**是默认启用档（且只钉已核的 476 材料转换），其余历史值
+// （off / vendor / 1 …）保持修复前接线（nil），candidate 仍是显式整链档。
 func TestNativeUpgradeCostCandidateIsExplicitOptIn(t *testing.T) {
 	service := &Service{}
-	for _, value := range []string{"off", "vendor", "1"} {
+	t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", "")
+	if service.candidateUpgradeCostResolver(nil) == nil {
+		t.Fatal("empty value must install the verified NPC conversion resolver")
+	}
+	for _, value := range []string{"off", "vendor", "1", "disable", "unknown-value"} {
 		t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", value)
 		if service.candidateUpgradeCostResolver(nil) != nil {
-			t.Fatalf("unexpected enabled %q", value)
+			t.Fatalf("env %q: non-empty non-candidate values must keep the pre-fix wiring", value)
 		}
 	}
 	t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", "candidate")

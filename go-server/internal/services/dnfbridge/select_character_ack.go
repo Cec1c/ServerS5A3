@@ -87,9 +87,9 @@ func buildCurrentSelectCharacterAckBody(character dnfrepo.CharacterRecord, hasCh
 		writer.writeUint32(rows[idx].triggerValue)
 	}
 
-	// Current sub_1A0C3E0 always consumes four u32 values after the overflow
-	// quest rows and before the initial town ID. Fresh characters have no
-	// persisted owner for these states, so their real initialized values are 0.
+	// cd3 EXE 1FB2200 -> 1CB2A00 consumes four task-tracking IDs here, sharing
+	// manager +0x24C with the op506 writer 1F00A50. The selection producer
+	// projects the character's persisted active IDs into these fixed slots.
 	for idx := 0; idx < currentSelectAckStateU32Count; idx++ {
 		writer.writeUint32(0)
 	}

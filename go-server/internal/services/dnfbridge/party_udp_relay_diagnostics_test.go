@@ -50,6 +50,8 @@ func formatRelayLogValue(value any) string {
 	switch typed := value.(type) {
 	case string:
 		return typed
+	case error:
+		return typed.Error()
 	case uint16:
 		return itoaRelayLog(int(typed))
 	case uint64:
@@ -94,7 +96,7 @@ func relayDiagnosticsFixture(t *testing.T, recorder *relayLogRecorder) (*current
 		{characterID: 202, generation: 1, address: [4]byte{127, 0, 0, 1}},
 	}
 	if !relay.Sync(77, bindings) {
-		t.Fatal("relay did not create a complete two-member room")
+		t.Fatalf("relay did not create a complete two-member room: bindIP=127.0.0.1 range=%d-%d\n%s", portStart, portStart+11, recorder.joined())
 	}
 	_, portAB, okAB := relay.Endpoint(77, 101, 202)
 	_, portBA, okBA := relay.Endpoint(77, 202, 101)

@@ -20,30 +20,29 @@ import (
 // 2365 的两行此前无条件下发，客户端能只凭这个目录把该活动判成全天开放。
 //
 // 三条判据：
-//  1. 开关 on（默认/legacy）⇒ op108 与改动前逐字节相同（golden hex）；
+//  1. 开关 on（默认/legacy）⇒ op108 与 2347 可见入口修复后的当前基准逐字节相同（golden hex）；
 //  2. 开关 off          ⇒ 目录里没有 2365，且 base_catalog_count/active_count 与
 //     实际行数自洽（逐字段解析回读，不是 grep 字节）；2347 两行逐字节不变；
 //  3. 新 env DNFBRIDGE_JOUST_EVENT_CATALOG 的 off/on 两档覆盖上面两种行为。
 
-// currentSpendTimeJoustCatalogGoldenHex 是加开关之前
+// currentSpendTimeJoustCatalogGoldenHex 是 2347 可见入口与马战默认开启时的当前固定报文
 // buildCurrentSpendTimeEventInfoBody(
 //
 //	[]uint32{490006574, 490006575, 490006576, 490006577}, 10800)
 //
-// 的 184 字节原文（在 2365 跟随开关这一改动落地前抓取）。它同时是 on 档的 golden，
-// 也是 off 档里 2347 两行的比对基准。
-const currentSpendTimeJoustCatalogGoldenHex = "02002b090100000000000000000000000100000000000000000000000000000000000000000000140000007370656e642074696d65206576656e742f302f3000000000003d0901000000000000000000000000022b092ee8341d2fe8341d30e8341d31e8341dffffffffffffffffffffffffffffffffffffffffffffffff04000000302a00003d09000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+// 的 246 字节原文。它同时是 on 档的 golden，也是 off 档里 2347 两行的比对基准。
+const currentSpendTimeJoustCatalogGoldenHex = "02002b090100000000000000000000000100040c000000c0dbbcc6d4dacfdfbdb1c0f80000000032000000c0dbbcc6d4dacfdfcab1bce4b4efb5bdb6d4d3a6bdd7b6ced2aac7f3baf3a3acbfc9c1ecc8a1b8c3bdd7b6cebdb1c0f8a1a30000000000000000140000007370656e642074696d65206576656e742f302f3000000000013d0901000000000000000000000000022b092ee8341d2fe8341d30e8341d31e8341dffffffffffffffffffffffffffffffffffffffffffffffff04000000302a00003d09000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 
 // golden body 里各段的绝对偏移（与 online_event_spend_time_protocol.go 的写序一一
 // 对应：u16 base_catalog_count / 2347 base row / 2365 base row / u8 active_count /
 // 2347 active row / 2365 active row）。
 const (
-	currentSpendTimeJoustCatalogGoldenLen            = 184
-	currentSpendTimeJoustCatalogOffLen               = 119
+	currentSpendTimeJoustCatalogGoldenLen            = 246
+	currentSpendTimeJoustCatalogOffLen               = 181
 	currentSpendTimeJoustCatalogGolden2347BaseStart  = 2
-	currentSpendTimeJoustCatalogGoldenJoustBaseStart = 68
-	currentSpendTimeJoustCatalogGolden2347Active     = 84
-	currentSpendTimeJoustCatalogGoldenJoustActive    = 134
+	currentSpendTimeJoustCatalogGoldenJoustBaseStart = 130
+	currentSpendTimeJoustCatalogGolden2347Active     = 146
+	currentSpendTimeJoustCatalogGoldenJoustActive    = 196
 )
 
 var currentSpendTimeJoustCatalogGoldenRewards = []uint32{490006574, 490006575, 490006576, 490006577}
@@ -148,8 +147,9 @@ func (shape currentSpendTimeCatalogShape) hasEvent(eventID uint16) bool {
 
 func parseCurrentSpendTimeEventInfoBody(t *testing.T, body []byte) currentSpendTimeCatalogShape {
 	t.Helper()
-	// 活动行数不受单个在线活动的10件奖励上限约束；当前公开全组合加超时空含13项。
-	const maxCatalogRows = 13
+	// Test-reader bound: public 13 rows plus FiendWar and five cumulative town
+	// activities. This is not a server or native receive admission limit.
+	const maxCatalogRows = 19
 	reader := &currentSpendTimeCatalogReader{body: body}
 	shape := currentSpendTimeCatalogShape{baseCount: reader.uint16Value(t)}
 	if shape.baseCount == 0 || int(shape.baseCount) > maxCatalogRows {

@@ -43,6 +43,7 @@ type CommitPlan struct {
 	// record with EXP but has its own domain progression, such as HonorExpert.
 	ExpectedCharacterStats map[string]int64
 	NextCharacterStats     map[string]int64
+	maximumLevelCap        *maximumLevelExperienceCap
 }
 
 // CommitPlanFromExperienceSkillPoints maps the existing pure planner result
@@ -53,8 +54,9 @@ func CommitPlanFromExperienceSkillPoints(
 	planned ExperienceSkillPointPlan,
 ) CommitPlan {
 	return CommitPlan{
-		CharacterID: characterID,
-		AccountID:   accountID,
+		CharacterID:     characterID,
+		AccountID:       accountID,
+		maximumLevelCap: planned.Experience.maximumLevelCap,
 		Expected: CommitState{
 			Level:       planned.Experience.PreviousLevel,
 			Experience:  planned.Experience.PreviousExperience,
@@ -147,15 +149,20 @@ func Commit(
 		result.Previous = current
 		result.Current = current
 		if commitStatesEqual(current, plan.Next) {
-			if !characterStatsMatch(character.Stats, plan.NextCharacterStats) {
+			if characterStatsMatch(character.Stats, plan.NextCharacterStats) {
+				result.Idempotent = true
+				return nil
+			}
+			// At the playable cap the EXP/SP/TP state can stay unchanged while
+			// a new award advances HonorExpert. Only an identical progression
+			// version may continue to the expected-stat precondition below.
+			if !commitStatesEqual(plan.Expected, plan.Next) {
 				return fmt.Errorf(
 					"%w: character=%s progression reached next state without matching level stats",
 					ErrCommitStateInvalid,
 					plan.CharacterID,
 				)
 			}
-			result.Idempotent = true
-			return nil
 		}
 		if !commitStatesEqual(current, plan.Expected) {
 			return fmt.Errorf(
@@ -217,7 +224,7 @@ func validateCommitPlan(plan CommitPlan) error {
 	if plan.Next.Level < plan.Expected.Level {
 		return fmt.Errorf("%w: level regressed %d -> %d", ErrCommitPlanInvalid, plan.Expected.Level, plan.Next.Level)
 	}
-	if plan.Next.Experience < plan.Expected.Experience {
+	if plan.Next.Experience < plan.Expected.Experience && !plan.maximumLevelCap.permitsNormalization(plan.Expected, plan.Next) {
 		return fmt.Errorf("%w: cumulative experience regressed %d -> %d", ErrCommitPlanInvalid, plan.Expected.Experience, plan.Next.Experience)
 	}
 	if plan.Next.SkillPoints.TotalSP < plan.Expected.SkillPoints.TotalSP ||
@@ -233,6 +240,13 @@ func validateCommitPlan(plan CommitPlan) error {
 	for key := range plan.ExpectedCharacterStats {
 		if _, found := plan.NextCharacterStats[key]; !found {
 			return fmt.Errorf("%w: expected character stat %q has no next value", ErrCommitPlanInvalid, key)
+		}
+	}
+	if commitStatesEqual(plan.Expected, plan.Next) {
+		for key := range plan.NextCharacterStats {
+			if _, protected := plan.ExpectedCharacterStats[key]; !protected {
+				return fmt.Errorf("%w: unchanged progression requires a version for character stat %q", ErrCommitPlanInvalid, key)
+			}
 		}
 	}
 	expectedSpentSP := plan.Expected.SkillPoints.TotalSP - plan.Expected.SkillPoints.RemainingSP

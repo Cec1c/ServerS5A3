@@ -67,6 +67,51 @@ func currentQuestManualFixture(t *testing.T) (*Service, *gameSession, dnfrepo.Gr
 	return s, session, repos
 }
 
+func TestCurrentQuestManualReleasesReservationBeforeProjection(t *testing.T) {
+	s, session, _ := currentQuestManualFixture(t)
+	dispatchCurrentQuestManual(t, s, session, false, 1, 1427, []byte{0, 0, 0, 0})
+	written := false
+	session.conn = &autoCompleteObserveWriteConn{bufferConn: &bufferConn{}, first: func() {
+		s.mu.Lock()
+		remaining := len(s.characterAssetReservations)
+		s.mu.Unlock()
+		if remaining != 0 {
+			t.Fatal("manual reservation held during projection")
+		}
+		written = true
+	}}
+	dispatchCurrentQuestManual(t, s, session, false, 1, 1454, nil)
+	if !written {
+		t.Fatal("committed manual completion was not projected")
+	}
+}
+
+func TestCurrentQuestManualRevalidatesAfterTransactionWait(t *testing.T) {
+	s, session, repos := currentQuestManualFixture(t)
+	dispatchCurrentQuestManual(t, s, session, false, 1, 1427, []byte{0, 0, 0, 0})
+	session.conn.(*bufferConn).write.Reset()
+	before, _, err := repos.Quest.Load(context.Background(), "17")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := false
+	repos.CharacterSettlement = autoCompleteReplaceSettlement{CharacterSettlementUnitOfWork: repos.CharacterSettlement, before: func() {
+		s.mu.Lock()
+		s.gameSessions[17] = &gameSession{selectedCharacterID: 17, characterGeneration: session.characterGeneration + 1}
+		s.mu.Unlock()
+		replaced = true
+	}}
+	s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
+	dispatchCurrentQuestManual(t, s, session, false, 1, 1454, nil)
+	after, _, err := repos.Quest.Load(context.Background(), "17")
+	if !replaced || err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("manual transaction used a stale binding", err)
+	}
+	if session.conn.(*bufferConn).write.Len() != 0 || len(s.characterAssetReservations) != 0 {
+		t.Fatal("stale manual projection or reservation leak")
+	}
+}
+
 func dispatchCurrentQuestManual(t *testing.T, s *Service, session *gameSession, upper bool, class byte, opcode uint16, body []byte) {
 	t.Helper()
 	var err error

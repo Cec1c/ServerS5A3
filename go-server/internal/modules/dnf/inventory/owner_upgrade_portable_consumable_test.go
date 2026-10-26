@@ -58,13 +58,17 @@ func upgradeTicketResolverForPortable(portable *alignedcmd.UpgradePortableConsum
 	return func(materialItemID int64, targetItemID int64) (alignedcmd.UpgradeTicketResolution, error) {
 		if portable != nil && materialItemID == portable.ItemID {
 			return alignedcmd.UpgradeTicketResolution{
-				Scene:                "portable",
-				PortableMode:         portable.Mode,
-				PortableLevelMin:     portable.LevelMin,
-				PortableLevelMax:     portable.LevelMax,
-				PortableSuccessBonus: portable.SuccessBonus,
-				TicketPVFPath:        portable.PVFPath,
-				TargetKind:           "equipment",
+				Scene:                      "portable",
+				PortableMode:               portable.Mode,
+				PortableLevelMin:           portable.LevelMin,
+				PortableLevelMax:           portable.LevelMax,
+				PortableSuccessBonus:       portable.SuccessBonus,
+				TicketPVFPath:              portable.PVFPath,
+				MaterialUsableItemLevelSet: portable.UsableItemLevelSet,
+				MaterialUsableItemLevelMin: portable.UsableItemLevelMin,
+				MaterialUsableItemLevelMax: portable.UsableItemLevelMax,
+				TargetMinimumLevel:         portable.TargetMinimumLevel,
+				TargetKind:                 "equipment",
 			}, nil
 		}
 		return alignedcmd.UpgradeTicketResolution{}, nil
