@@ -142,6 +142,7 @@ func readPartyDungeonAllMemberUserState() (bool, string, bool) {
 }
 
 type options struct {
+	mapDefinitionCache       bool
 	guildRankingEnabled      bool
 	guildSoloCreate          bool
 	channelListen            string
@@ -765,6 +766,7 @@ type options struct {
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
 	opts := options{
+		mapDefinitionCache:  envBool("DNFBRIDGE_MAP_CACHE", false),
 		guildRankingEnabled: envBool("DNFBRIDGE_GUILD_RANKING_ENABLED", false),
 		guildSoloCreate:     envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
 		channelListen:       envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),

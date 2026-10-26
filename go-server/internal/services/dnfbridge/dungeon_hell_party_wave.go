@@ -240,7 +240,10 @@ func (s *Service) resolveDungeonHellPartyWaves(
 	if table == nil {
 		return nil, errDungeonWorldMapUnavailable
 	}
-	mapValue, found := table.FindMap(hellRoomMapID)
+	mapValue, found, readErr := table.FindMapWithError(hellRoomMapID)
+	if readErr != nil {
+		return nil, readErr
+	}
 	if !found {
 		return nil, fmt.Errorf("%w: map=%d", errDungeonHellPartyMapUnresolved, hellRoomMapID)
 	}
