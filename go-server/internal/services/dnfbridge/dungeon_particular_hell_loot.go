@@ -192,6 +192,10 @@ func (s *Service) planCurrentRiftBossDrops(session *gameSession, runtime *runtim
 	var wires []currentDungeonDeathDropWire
 	for _, recipient := range partyDungeonDropRecipients(runtime, session.selectedCharacterID, currentSceneActorObjectKey(session.selectedCharacterID)) {
 		selected := definition.selectItems(rng)
+		// 此入口已由权威领主死亡触发；裂缝专用史诗奖励也保留耗疲劳领主的碳结晶体。
+		if currentDungeonCarbonCrystalEligible(runtime, definition.DropCatalog) {
+			selected = append(selected, hellPartyRewardItem{ItemID: currentDungeonCarbonCrystalItemID, Amount: 1})
+		}
 		memberWires, err := s.registerHellPartyRewardDrops(runtime, scene, hellPartyRewardRequest{dropCatalog: definition.DropCatalog, dungeonMonsterCatalog: definition.MonsterCatalog, rng: rng}, selected, recipient.ActorKey, recipient.CharacterID)
 		visit.DropRNG = rng.Seed()
 		if err != nil {
