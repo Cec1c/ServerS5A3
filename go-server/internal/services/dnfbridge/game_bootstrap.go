@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"math/bits"
 	"strconv"
@@ -94,9 +95,15 @@ func (s *Service) sendGameConnectionBootstrap(session *gameSession, now time.Tim
 // CHANNELINFO handshake. The class0/op1 notice makes the client send this
 // class1/op1 request and arm its watchdog; the first class1/op1 success clears
 // that watchdog. Later endpoint probes must remain write-silent.
+// 已认证的特殊频道冷登录必须在这第一次成功之前完成频道更正。
 func (s *Service) handleCurrentGameEndpointRequest(session *gameSession, classification byte, wireBodyLen int) error {
 	if session == nil {
 		return errResidentChannelUnavailable
+	}
+	if classification == dnfproto.DefaultChannelClassification && isCurrentChannelReconnectDisplayProbeBodyLen(wireBodyLen) {
+		if redirected, err := s.redirectCurrentSpecialBeforeFirstLoginSuccess(session); redirected || err != nil {
+			return err
+		}
 	}
 	session.endpointHandshakeMu.Lock()
 	defer session.endpointHandshakeMu.Unlock()
@@ -125,9 +132,14 @@ func (s *Service) handleCurrentGameEndpointRequest(session *gameSession, classif
 			"reason", "single_class1_op1_already_sent_after_client_request")
 		return nil
 	}
+	if pending := session.coldChannelLanding; pending != nil && pending.waiting && (!session.accountFromToken || s.accountIDForSession(session) != pending.account) {
+		s.restoreCurrentGameChannelHandoff(session)
+		return fmt.Errorf("频道更正期间登录账号发生变化")
+	}
 
 	mode, bodyLen, sent, err := s.sendGameInitial(session)
 	if err != nil {
+		s.restoreCurrentGameChannelHandoff(session)
 		return err
 	}
 	if !sent {
@@ -141,7 +153,18 @@ func (s *Service) handleCurrentGameEndpointRequest(session *gameSession, classif
 		"target_channel", session.channel.ID,
 		"reason", "current_exe_channelinfo_triggered_login_request")
 	if err := s.sendCurrentAuctionServicesOpen(session); err != nil {
+		s.restoreCurrentGameChannelHandoff(session)
 		return err
+	}
+	if pending := session.coldChannelLanding; pending != nil && pending.waiting {
+		pending.waiting = false
+		s.logGameEvent(session, "特殊频道重登普通握手完成", "来源频道", pending.original.ID, "目标频道", session.channel.ID)
+		if session.rosterRequested {
+			if err := s.sendUpperGetUserInfoBootstrap(session); err != nil {
+				s.restoreCurrentGameChannelHandoff(session)
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -295,6 +318,9 @@ func (s *Service) sendUpperGetUserInfoBootstrap(session *gameSession) error {
 	// both upper and legacy op8 converge, so the following upper op4 is not
 	// mistaken for a fresh channel-reconnect selection.
 	session.rosterRequested = true
+	if redirected, err := s.redirectCurrentColdSpecialChannel(session, 0); redirected || err != nil {
+		return err
+	}
 	session.representAccountNamePending = false
 	if err := s.prepareGetUserInfoPassiveAccountState(session); err != nil {
 		return err
@@ -374,6 +400,9 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapFixed16(session *gameSessio
 }
 
 func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSession, envelope string) error {
+	if session != nil && session.coldChannelLanding != nil && session.coldChannelLanding.waiting {
+		return nil
+	}
 	body := s.buildUpperGetUserInfoRosterBody(session)
 	s.logPacketEvent("game-upper-get-userinfo-bootstrap-send",
 		"conn_id", session.connID,
