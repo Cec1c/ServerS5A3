@@ -15,7 +15,7 @@ func (s *Service) sendSelectCharacterState(session *gameSession, body []byte) er
 			"body_len", len(body))
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	charID, _, selectedCharacter, hasCharacter, slot := s.resolveSelectedCharacter(ctx, session, body)
 	if s.options.currentClientVersion == "official-24.9" && hasCharacter && currentCharacterRenamePending(selectedCharacter) {

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"fmt"
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	"time"
 
 	dnfcharacterdata "longheng.io/server/internal/modules/dnf/characterdata"
@@ -88,6 +89,11 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 		Equipment: equipment,
 		Skill:     &skill,
 		Settings:  settings,
+	}
+	if dnfpvp.IsPrivateCharacter(record) {
+		if err := s.initializePVPPrivateCreation(ctx, &creation); err != nil {
+			return err
+		}
 	}
 	if err := dnfcharacterdata.NewCreator(repos).Create(ctx, creation); err != nil {
 		return fmt.Errorf("persist new character initialization: %w", err)

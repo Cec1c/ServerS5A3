@@ -47,7 +47,7 @@ func (s *Service) currentAntonFinalWeeklyCommittedLocked(state runtimeRaidState)
 // The raid projection mutex serializes the result and phase transition with
 // starts/rejoins; no repository or transport runs while raidMu is held.
 func (s *Service) sendCurrentAntonTerminalResult(session *gameSession, captured runtimeRaidState) error {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || captured.Battle == nil || (captured.Battle.Mode != 1 && captured.Battle.Mode != 2) || (!captured.Battle.PhaseCompleted && !captured.Battle.TimedOut) {
+	if s == nil || s.options.currentClientVersion != "official-24.9" || captured.Battle == nil || (captured.Battle.Mode != 1 && captured.Battle.Mode != 2 && captured.Battle.FiendWar == nil) || (!captured.Battle.PhaseCompleted && !captured.Battle.TimedOut) {
 		return nil
 	}
 	if !s.currentRaidAuthenticated(session) {
@@ -85,12 +85,20 @@ func (s *Service) sendCurrentAntonTerminalResult(session *gameSession, captured 
 			return nil
 		}
 	}
-	if !result.Failed && option == 0 {
+	if b.FiendWar == nil && !result.Failed && option == 0 {
 		if err := s.applyCurrentAntonPrerequisiteQuestResult(session, state); err != nil {
 			return err
 		}
 	}
 	packets := []currentRaidProjectionPacket{{opcode: 601, body: result.Body}}
+	if b.FiendWar != nil {
+		if result.Failed {
+			// 现用1484状态6立即读取601提交的结果类型，必须排在601之后。
+			packets = append(packets, currentRaidProjectionPacket{opcode: currentFiendWarStateNotice, body: []byte{6, 0}})
+		} else {
+			packets = append([]currentRaidProjectionPacket{{opcode: currentFiendWarStateNotice, body: []byte{3, 0}}}, packets...)
+		}
+	}
 	if !result.Failed {
 		// NOTI587's second field is stateArgument. In battle state2 it
 		// selects the phase animation; successful result state3 uses zero.
@@ -114,13 +122,13 @@ func (s *Service) sendCurrentAntonTerminalResult(session *gameSession, captured 
 // A successful DB batch releases all frozen members' final result, including
 // an observer who lacked reward eligibility. Never publish on a failed batch.
 func (s *Service) queueCurrentAntonResultsAfterWeeklyCommit(command raid.WeeklyClearCommand) {
-	if command.Mode != 1 && command.Mode != 2 {
+	if command.Mode != 1 && command.Mode != 2 && command.Mode != 3 {
 		return
 	}
 	s.raidMu.Lock()
 	var states []runtimeRaidState
 	for _, state := range s.raids {
-		if state != nil && state.Battle != nil && state.Battle.InstanceID == command.InstanceID && (state.Battle.Single || state.Battle.Phase == 1) && s.currentAntonFinalWeeklyCommittedLocked(*state) {
+		if state != nil && state.Battle != nil && state.Battle.InstanceID == command.InstanceID && (state.Battle.Single || state.Battle.Phase == 1 || state.Battle.FiendWar != nil) && s.currentAntonFinalWeeklyCommittedLocked(*state) {
 			states = append(states, cloneRuntimeRaidState(*state))
 		}
 	}

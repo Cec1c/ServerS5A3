@@ -60,20 +60,23 @@ default:
     - .cache/go/pkg/mod/
 build:
   stage: build
+  dependencies: []
   parallel:
     matrix:
     - TARGET_OS: [linux, windows]
       TARGET_ARCH: [amd64]
+      TARGET_COMPONENT: [server, control, doctor]
   script:
   - sh scripts/check-server-boundary.sh
-  - sh build.sh "$TARGET_OS" "$TARGET_ARCH"
-  artifacts:
-    name: "dnf90-$TARGET_OS-$TARGET_ARCH-$CI_COMMIT_SHORT_SHA"
-    paths:
-    - dist/
-    expire_in: 7 days
+  - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
+  - sh scripts/ci/test_build_components.sh
+  - sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
+  # Keep the same three programs and dist/ paths in separate downloadable jobs.
+  # A combined 50MB ZIP exceeds the proxy deadline on the regular runner route.
+  - go run scripts/ci/artifacts/upload.go
 core-tests:
   stage: test
+  dependencies: []
   script:
   - sh scripts/check-server-boundary.sh
   - cd go-server
@@ -82,6 +85,20 @@ core-tests:
   - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
   - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
   - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+channel-u8-tests:
+  stage: test
+  dependencies: []
+  image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
+  cache: []
+  script:
+  - python -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
+# Semgrep's OCaml Eio io_uring backend fails to initialize on constrained runners.
+# Use its supported POSIX backend; keep the analyzer, rules and failure policy.
+semgrep-sast:
+  variables:
+    EIO_BACKEND: posix
+  dependencies: []
+  cache: []
 sast:
   stage: test
 include:

@@ -12,7 +12,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	var selectedQuests dnfrepo.QuestRecord
 	hasSelectedQuests := false
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 
 	charID, charName, selectedCharacter, hasSelectedCharacter, slot := s.resolveSelectedCharacter(ctx, session, request)
@@ -44,6 +44,11 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 	// 才不会在进场景途中把会话打断。缺失时才写、失败只告警，见
 	// account_record_bootstrap.go。
 	s.ensureAccountRecordsForSelection(ctx, session, accountRecordBootstrapSelectSource)
+	if isPVPChannel(session.channel) {
+		if _, err := s.prepareCurrentPVPDaily(session); err != nil {
+			return err
+		}
+	}
 	// 成功选角后记录该账号最后选中的角色（account_last_online_character.go）：
 	// 好友离线时用它恢复"上次在线角色"。只认真实在线 owner，失败不打断选角。
 	s.rememberLastOnlineCharacter(ctx, session, charID)
@@ -274,6 +279,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 		if packet.kind == "select_ack" {
+			if err := s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack"); err != nil {
+				return err
+			}
 			if err := s.sendCurrentEpicWishSnapshot(session, "select_character_after_ack"); err != nil {
 				return err
 			}

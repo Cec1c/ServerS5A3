@@ -16,6 +16,8 @@ const (
 	maxMailboxMessageBytes   = 512
 	maxMailboxAttachments    = 10
 	maxMailboxBatch          = 100
+	// 多附件“全部接受”发送附件领取编号；4096行的12字节ACK仍小于64KiB。
+	maxMailboxExtractBatch = 4096
 )
 
 // SendAttachment is the exact 12-byte attachment row written by current
@@ -55,8 +57,7 @@ func (r SendRequest) String() string {
 	)
 }
 
-// ExtractRequest is the exact current op95 request: u32 count followed by
-// count u32 mail IDs.
+// ExtractRequest 是当前op95：u32数量及对应u32领取编号；多附件时每件有独立编号。
 type ExtractRequest struct {
 	MailIDs []uint32
 	RawLen  int
@@ -190,7 +191,7 @@ func decodeSendRequest(opcode dnfenum.CmdPacket, body []byte) (SendRequest, erro
 }
 
 func decodeExtractRequest(body []byte) (ExtractRequest, error) {
-	ids, cursor, err := decodeMailIDList(body)
+	ids, cursor, err := decodeMailIDListLimit(body, maxMailboxExtractBatch)
 	if err != nil {
 		return ExtractRequest{}, err
 	}
@@ -259,13 +260,17 @@ func decodeRecipientCharacterListRequest(body []byte) (recipientCharacterListReq
 }
 
 func decodeMailIDList(body []byte) ([]uint32, mailboxCursor, error) {
+	return decodeMailIDListLimit(body, maxMailboxBatch)
+}
+
+func decodeMailIDListLimit(body []byte, limit uint32) ([]uint32, mailboxCursor, error) {
 	cursor := mailboxCursor{body: body}
 	count, err := cursor.u32()
 	if err != nil {
 		return nil, cursor, fmt.Errorf("mail id count: %w", err)
 	}
-	if count == 0 || count > maxMailboxBatch {
-		return nil, cursor, fmt.Errorf("mail id count %d is outside 1..%d", count, maxMailboxBatch)
+	if count == 0 || count > limit {
+		return nil, cursor, fmt.Errorf("mail id count %d is outside 1..%d", count, limit)
 	}
 	if uint64(cursor.remaining()) < uint64(count)*4 {
 		return nil, cursor, fmt.Errorf("mail id list is truncated")

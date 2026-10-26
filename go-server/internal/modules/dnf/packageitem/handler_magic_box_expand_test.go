@@ -296,6 +296,10 @@ func TestOwnerApplyMagicBoxExpandSeriaLuckDoublePersistsPerAccount(t *testing.T)
 	if !result.Success || !result.SeriaLuckDoubleTriggered || result.SeriaLuckBefore != 7 || result.SeriaLuckAfter != 1 {
 		t.Fatalf("result = %+v", result)
 	}
+	projection := ownerAppliedMagicBoxResult(uint16(dnfenum.CmdPacketUseRandomboxItemExpand), "测试连开幸运值投影", result).SeriaLuck
+	if projection == nil || projection.Before != 7 || projection.After != 1 {
+		t.Fatalf("连开事务结果未传递到幸运值显示：%+v", projection)
+	}
 	if len(result.DoubleRewards) != 1 || result.DoubleRewards[0].ItemID != 2600014 || result.DoubleRewards[0].Count != 2 {
 		t.Fatalf("double rewards = %+v", result.DoubleRewards)
 	}

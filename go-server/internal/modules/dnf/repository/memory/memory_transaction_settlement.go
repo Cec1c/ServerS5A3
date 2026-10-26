@@ -21,6 +21,7 @@ type memoryCharacterSettlementUnitOfWork struct {
 	equipment        repository.EquipmentRepository
 	skills           repository.SkillRepository
 	settings         repository.SettingsRepository
+	mailbox          repository.MailboxRepository
 }
 
 func (u *memoryCharacterSettlementUnitOfWork) WithinCharacterSettlement(
@@ -141,6 +142,16 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		}
 	}
 
+	var mailbox repository.MailboxRecord
+	var mailboxExists bool
+	var mailboxTx *memoryMailboxTransaction
+	if owner != nil && u.mailbox != nil {
+		mailbox, mailboxExists, err = u.mailbox.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		mailboxTx = &memoryMailboxTransaction{characterID: characterID, record: repository.CloneMailbox(mailbox), exists: mailboxExists}
+	}
 	var comboSettingsTx *memorySettlementSettingsTransaction
 	guildSettingsTx := map[string]*memorySettingsTransaction{}
 	settingsBefore := map[string]repository.SettingsRecord{}
@@ -175,6 +186,9 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 	}
 	if owner != nil {
 		txGroup.Settings = memorySettlementSettings(guildSettingsTx)
+		if mailboxTx != nil {
+			txGroup.Mailbox = mailboxTx
+		}
 	} else if comboSettingsTx != nil {
 		txGroup.Settings = comboSettingsTx
 	}
@@ -219,6 +233,14 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 			return restoreAccountInventoryRecordIfDirty(u.accountInventory, accountID, accountInventory, accountInventoryExists, u.accountInventory != nil)
 		}},
 	}
+	if mailboxTx != nil {
+		writes = append(writes, struct {
+			dirty         bool
+			save, restore func() error
+		}{mailboxTx.dirty, func() error { return u.mailbox.Save(ctx, mailboxTx.record) }, func() error {
+			return restoreMailboxRecordIfDirty(u.mailbox, characterID, mailbox, mailboxExists, true)
+		}})
+	}
 	if accountTx != nil {
 		writes = append(writes, struct {
 			dirty         bool
@@ -255,7 +277,11 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 			}
 		}
 	} else if comboSettingsTx != nil && comboSettingsTx.dirtyCount() > 0 {
+		undo = append(undo, comboSettingsTx.rollback)
 		if err := comboSettingsTx.commit(ctx); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}

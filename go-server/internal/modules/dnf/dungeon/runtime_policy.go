@@ -46,6 +46,9 @@ type EntryPolicy struct {
 	EnterWithoutFatigue bool
 	Fatigue             int64
 	FatigueKnown        bool
+	// FatigueCost is the amount consumed when admission commits. Zero keeps the
+	// historical one-point cost.
+	FatigueCost int64
 
 	// RequiredItems 是 `[required item]` 的结构化内容。为空表示该 DGN 没有声明
 	// 准入道具（绝大多数副本），既有行为完全不变。
@@ -80,8 +83,12 @@ func ValidateEntry(policy EntryPolicy) error {
 	if !policy.FatigueKnown {
 		return ErrEntryFatigueUnknown
 	}
-	if policy.Fatigue <= 0 {
-		return fmt.Errorf("%w: fatigue=%d", ErrEntryFatigueExhausted, policy.Fatigue)
+	fatigueCost := policy.FatigueCost
+	if fatigueCost <= 0 {
+		fatigueCost = 1
+	}
+	if policy.Fatigue < fatigueCost {
+		return fmt.Errorf("%w: fatigue=%d required=%d", ErrEntryFatigueExhausted, policy.Fatigue, fatigueCost)
 	}
 	return nil
 }

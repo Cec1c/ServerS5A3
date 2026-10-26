@@ -66,6 +66,9 @@ func dungeonEntryRequiredItemReasonFixed() bool {
 }
 
 func (s *Service) handleDungeonSelectUpper(session *gameSession, body []byte) error {
+	if session != nil && isPVPChannel(session.channel) {
+		return nil
+	}
 	return s.handleDungeonSelectUpperPlanned(session, body, nil, true)
 }
 
@@ -150,6 +153,31 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	prepared *runtimePartyPreparedDungeonEntry,
 	fanoutParty bool,
 ) error {
+	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, false)
+}
+
+// A claimed automatic encounter bypasses only its own admission interception.
+// Keep the public ordinary-party selector contract and all scene/asset gates.
+func (s *Service) handleDungeonSelectUpperPlannedAdmitted(session *gameSession, body []byte, prepared *runtimePartyPreparedDungeonEntry, fanoutParty bool) error {
+	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, true)
+}
+
+func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSession, body []byte, prepared *runtimePartyPreparedDungeonEntry, fanoutParty, admitted bool) error {
+	var fiendWarSelectionDiagnostic *currentFiendWarAdmissionDiagnostic
+	if !admitted && prepared == nil && isCurrentFiendWarChannel(session) {
+		diagnostic := newCurrentFiendWarAdmissionDiagnostic(session, 0)
+		if state, ok := s.runtimeRaidForMember(session.selectedCharacterID); ok {
+			diagnostic.captureRaid(state)
+		}
+		diagnostic.reason = "op16_received"
+		fiendWarSelectionDiagnostic = &diagnostic
+		defer func() {
+			if diagnostic.reason == "" {
+				diagnostic.setReason("op16_unclassified")
+			}
+			s.logCurrentFiendWarAdmissionDiagnostic(diagnostic)
+		}()
+	}
 	// barrier 放行后的重入：这条队员记录在第一次调用里已经把 …→op28 全部发完
 	// （`op28Staged`），这里只补 op28 之后的尾段。见 party_dungeon_entry_barrier.go。
 	if prepared != nil && prepared.op28Staged {
@@ -166,6 +194,9 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 		)
 	}
 	if len(body) != dungeoncmd.SelectDungeonRequestSize {
+		if fiendWarSelectionDiagnostic != nil {
+			fiendWarSelectionDiagnostic.setReason("op16_body_size_mismatch")
+		}
 		s.logGameEvent(session, "game-dungeon-select-blocked",
 			"body_len", len(body),
 			"expected_body_len", dungeoncmd.SelectDungeonRequestSize,
@@ -174,11 +205,18 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	}
 	request, err := dungeoncmd.DecodeSelectDungeonRequest(body)
 	if err != nil {
+		if fiendWarSelectionDiagnostic != nil {
+			fiendWarSelectionDiagnostic.setReason("op16_decode_failed")
+		}
 		s.logGameEvent(session, "game-dungeon-select-blocked",
 			"body_len", len(body),
 			"reason", "current_exe_op16_request_malformed",
 			"error", err)
 		return nil
+	}
+	if fiendWarSelectionDiagnostic != nil {
+		fiendWarSelectionDiagnostic.requestDungeon = uint32(request.DungeonID)
+		fiendWarSelectionDiagnostic.setReason("op16_decoded")
 	}
 	request.DungeonID = s.resolveCurrentSingleAntonSelector(session, request.DungeonID)
 	request.DungeonID, err = s.resolveCurrentDespairSelection(session, request.DungeonID)
@@ -189,7 +227,10 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	if err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
-	if !s.currentRaidDungeonSelectionAllowed(session, uint32(request.DungeonID)) {
+	if !s.currentPreparedDungeonSelectionAllowed(session, uint32(request.DungeonID), prepared) {
+		if fiendWarSelectionDiagnostic != nil {
+			fiendWarSelectionDiagnostic.setReason("pre_admission_selection_rejected")
+		}
 		s.logGameEvent(session, "game-raid-dungeon-selection-rejected", "dungeon_id", request.DungeonID)
 		return s.sendGameUpperRawClass(session, uint16(dnfenum.GameTypeSelectDungeon), []byte{0, currentSelectDungeonInvalidSelectionStateReason, 0}, 1)
 	}
@@ -198,6 +239,11 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	// 那条连接永远收不到 publish，只读缓存就会在队伍成立的情况下退化成单人。
 	// 见 party_manager_runtime.go 的 runtimePartyStateForSession。
 	partyStateAtRequest := s.runtimePartyStateForSession(session)
+	if !admitted && prepared == nil {
+		if handled, err := s.interceptCurrentFiendWarNormalSelectionWithDiagnostic(session, uint32(request.DungeonID), fiendWarSelectionDiagnostic); handled {
+			return err
+		}
+	}
 	partyMemberIndex, partyMemberIndexed := runtimePartyMemberIndex(session.selectedCharacterID, partyStateAtRequest)
 	s.logGameEvent(session, "game-dungeon-select-request-decoded",
 		"body_len", len(body),
@@ -361,6 +407,13 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 			return nil
 		}
 	}
+	if prepared == nil && runtime.guildDungeonClear == nil {
+		if err := s.freezeCurrentGuildDungeonGroup(ctx, session, runtime, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
+	} else if err := validatePreparedGuildDungeon(runtime); err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
 	if err := s.prepareCurrentRaidDungeonEntry(session, runtime, prepared, preparedFollowers); err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
@@ -370,6 +423,7 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 		session.dungeon.mu.Unlock()
 		if !committed {
 			s.cancelUncommittedLukeEntry(runtime)
+			s.cancelUncommittedCurrentFiendWarEntry(runtime)
 		}
 	}()
 	if err := freezeCurrentDungeonTownReturnOrigin(session, runtime); err != nil {
@@ -409,6 +463,9 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 			"maze_index", runtime.MazeIndex)
 	}
 	if prepared == nil {
+		if err := s.commitCurrentGuildDungeonEntryFatigue(ctx, session, runtime, scene, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
 		if err := s.consumeCurrentHellPartyGroupEntry(ctx, session, runtime, preparedFollowers); err != nil {
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
@@ -445,12 +502,14 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 			return nil
 		}
 	}
+	s.commitCurrentFiendWarReservation(runtime)
 	// Followers are installed before the leader can still reject admission.
 	// Start their dungeon clocks only after the entire group has committed.
 	s.activateCurrentPetGrowthDungeonClock(session, runtime)
 	for _, member := range preparedFollowers {
 		if member != nil && member.committed {
 			s.activateCurrentPetGrowthDungeonClock(member.session, member.runtime)
+			clearCurrentSelectorReturnAfterCommittedPartyEntry(member.session, member.runtime)
 		}
 	}
 	resetDungeonEntrySceneGates(session)
@@ -802,6 +861,7 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 	}
 	s.leaveTownPresenceForDungeon(session)
 	s.recordCurrentLukeScene(session, runtime, "enter")
+	s.recordCurrentFiendWarMap(session, runtime)
 	return nil
 }
 
@@ -881,7 +941,8 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			continue
 		}
 		// 频道隔离（彻底隔离口径）：整队进副本要求**同频道同区域**，跨频道队友一律不带。
-		if !inRunTransfer && (s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(leader.selectedCharacterID, member.UserID)) {
+		if !inRunTransfer && (s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(leader.selectedCharacterID, member.UserID)) &&
+			!s.currentFiendWarAdmissionAllowsPeer(leader, member.UserID, state.PartyID, int64(request.DungeonID)) {
 			return nil, fmt.Errorf("party member %d is not present in the leader town channel/area", member.UserID)
 		}
 		follower, ok := s.onlineGameSession(member.UserID)
@@ -931,6 +992,9 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			"room", followerScene.Coordinate.String(),
 			"map_id", followerScene.Map.Map.ID,
 			"seed", followerRuntime.Seed)
+	}
+	if err := s.freezeCurrentGuildDungeonGroup(ctx, leader, leaderRuntime, prepared); err != nil {
+		return nil, err
 	}
 	for _, member := range prepared {
 		if inRunTransfer {
@@ -1484,6 +1548,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 			return fmt.Errorf("send dungeon room slot table after room transition: %w", err)
 		}
 		s.recordCurrentLukeScene(session, session.dungeon.runtime, "map")
+		s.recordCurrentFiendWarMap(session, session.dungeon.runtime)
 	}
 	return nil
 }
@@ -1831,8 +1896,8 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	// FINISH_LOADING's main class0 state and op30 completion are room-scoped.
 	// Keep the player/equipment/skill initialization gates intact: an ordinary
 	// room move only needs the next room's loading completion, not a new actor.
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
+	session.setFinishLoadingGateState(false)
+	session.setFinishLoadingGateCompletion(false)
 	s.logGameEvent(session, "game-dungeon-move-committed",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,

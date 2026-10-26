@@ -691,6 +691,9 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 	index := dungeonIndex.mazes[request.MazeIndex]
 	key := coordinateKey{x: request.X, y: request.Y}
 	expectedType := expectedMapFileType(maze, key)
+	if candidates, handled, err := r.fiendWarDeclaredRoom(dungeon, maze, index, key); handled {
+		return candidates, ResolutionMapSpecification, err
+	}
 
 	// 起始/首领房的两条真源之间的优先级。
 	//

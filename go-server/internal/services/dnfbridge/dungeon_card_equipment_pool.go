@@ -11,11 +11,17 @@ import (
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
-// Ordinary cards use the equipment definitions' minimum level, rarity and
-// creation rate. The legacy ItemDictionary can stop before current dungeon
-// levels and its rarity aliases need not equal the item's actual rarity.
-// Keep this pool separate from monster and abyss selection policies.
+// Cards and ordinary monster equipment share read-only, naturally generated
+// definitions. Reward gates stay with their callers; abyss and independent
+// drops retain their own selection policies.
 func (c *pvfDungeonDropCatalog) selectClearCardEquipment(rng *currentDungeonDropLCG, level int, down, up, rarity int64) (uint32, bool, error) {
+	return c.selectGeneratedEquipment(rng, level, down, up, rarity)
+}
+
+// The legacy ItemDictionary can stop before current dungeon levels and its
+// rarity aliases need not equal the item's actual rarity. Use indexed .equ
+// minimum levels, rarities and creation weights for natural equipment.
+func (c *pvfDungeonDropCatalog) selectGeneratedEquipment(rng *currentDungeonDropLCG, level int, down, up, rarity int64) (uint32, bool, error) {
 	if c == nil || c.source == nil || rng == nil {
 		return 0, false, errDungeonDropSourceRequired
 	}

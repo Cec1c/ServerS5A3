@@ -22,6 +22,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dproto"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
+	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	dnfjoust "longheng.io/server/internal/modules/dnf/joust"
 	dnfmail "longheng.io/server/internal/modules/dnf/mail"
@@ -30,7 +31,9 @@ import (
 	dnfpet "longheng.io/server/internal/modules/dnf/pet"
 	dnfprofession "longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
+	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/signupbenefits"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
@@ -42,10 +45,21 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
-	guildCreateMu sync.Mutex
+	guildRankingMu               sync.Mutex
+	guildRankingCatalogMu        sync.Mutex
+	guildRankingRules            *dnfguild.RankingRules
+	guildDungeonCatalogMu        sync.Mutex
+	guildDungeonCatalog          *dnfguild.DungeonCatalog
+	guildEssenceCatalog          *dnfguild.EssenceCatalog          // guarded by guildDungeonCatalogMu
+	guildContributionCatalog     *dnfguild.ContributionCatalog     // guarded by guildDungeonCatalogMu
+	guildHongbaoCatalog          *dnfguild.HongbaoCatalog          // guarded by guildDungeonCatalogMu
+	guildMerchantPurchaseCatalog *dnfguild.MerchantPurchaseCatalog // guarded by guildDungeonCatalogMu
+	guildCreateMu                sync.Mutex
+	guildTeleportMu              sync.Mutex
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
+	fiendWarConfig   *fiendwar.FiendWarConfig // 由 initialEquipmentMu 保护，与固定PVF归档同寿命。
 	levelUpRewards   levelUpRewardRuntime
 	activityControls *onlineevent.Controls
 	logger           *slog.Logger
@@ -74,6 +88,15 @@ type Service struct {
 	auctionMu                 sync.Mutex
 	auctionItemEligibility    func(uint32) bool
 	auctionCategoryItem       func(uint16, uint32) bool
+	pvpMu                     sync.Mutex
+	pvpRooms                  map[uint16]*currentPVPRoom
+	pvpMatching               []*currentPVPMatchingRequest // protected by pvpMu
+	nextPVPMatchingToken      uint32
+	pvpSubscribers            map[*gameSession]int
+	pvpMapOrder               []int64                 // protected by pvpMu
+	pvpDailyCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpTotalCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpFatigueRules           *currentPVPFatigueRules // protected by initialEquipmentMu
 	tradeMu                   sync.Mutex
 	itemTrades                map[uint16]*onlineItemTrade
 	expertJobStoreMu          sync.Mutex
@@ -123,6 +146,7 @@ type Service struct {
 	packetID             uint64
 	clientAccounts       clientAccountRegistry
 	// loginTokens 保存启动器登录签发的令牌到账号的映射（见 account_login_token.go）。
+	accountLogins     accountLoginSessions
 	loginTokens       accountLoginTokenStore
 	localLoginMu      sync.Mutex
 	localLoginEpoch   uint64
@@ -417,6 +441,8 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.Join(err, closeErr)
 	}
 	s.startGameplayTimeQueue(runCtx)
+	s.startCurrentGuildRankingSampler(runCtx)
+	s.startCurrentGuildHongbaoSettlement(runCtx)
 	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)
@@ -876,6 +902,9 @@ func (s *Service) loadChannelAssets() (*channelcatalog.Catalog, []byte, error) {
 }
 
 func (s *Service) buildChannelScript(raw []byte) ([]byte, error) {
+	if s.options.currentClientVersion == "official-24.9" {
+		return channelinfo.BuildOfficial249OnlineScript(raw, s.channelServerID(), s.channelAdvertiseID(), dnfenum.BootstrapChannelID)
+	}
 	return channelinfo.Build90CNOnlineScript(
 		raw,
 		s.channelServerID(),
@@ -945,6 +974,10 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	s.mu.Lock()
 	logger := s.packetLog
 	s.mu.Unlock()
+	if logger == nil {
+		s.logDungeonSettlementDiagnostic(kind, args...)
+		s.logCrossSceneProfileDiagnostic(kind, args...)
+	}
 	logger.Event(kind, args...)
 }
 

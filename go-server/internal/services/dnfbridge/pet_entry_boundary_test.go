@@ -205,6 +205,13 @@ func TestPetEntryBoundaryPartyRollbackRestoresTownClock(t *testing.T) {
 	if session.petGrowth.mode != currentPetGrowthClockDungeon {
 		t.Fatalf("precondition: pet clock = %s, want %s", session.petGrowth.mode, currentPetGrowthClockDungeon)
 	}
+	// This fixture has no pet PVF. Keep the rollback at the entry boundary so
+	// a real-clock delta cannot turn this mode-only test into elapsed settlement.
+	queue := newFakeCurrentDungeonDeathTimerQueue()
+	session.petGrowth.mu.Lock()
+	queue.now = session.petGrowth.anchor
+	session.petGrowth.mu.Unlock()
+	service.gameplayTimers = queue
 	service.rollbackRuntimePartyPreparedFollowers([]*runtimePartyPreparedDungeonEntry{
 		{session: session, runtime: runtime, committed: true},
 	})

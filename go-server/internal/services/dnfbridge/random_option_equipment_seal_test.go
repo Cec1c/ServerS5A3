@@ -30,9 +30,9 @@ func TestRandomOptionEquipmentNewSealUsesPVF(t *testing.T) {
 		rarity, randomOption int
 		want                 byte
 	}{
-		{"魔封紫装", "free", 2, 1, 1},
-		{"魔封粉装", "free", 3, 1, 1},
-		{"读取其他正配置值", "FREE", 2, 2, 1},
+		{"魔封紫装自由交易", "free", 2, 1, 0},
+		{"魔封粉装自由交易", "free", 3, 1, 0},
+		{"正魔封配置不覆盖自由交易", "FREE", 2, 2, 0},
 		{"普通封装紫装", "sealing", 2, 0, 1},
 		{"普通封装粉装", "sealing", 3, 0, 1},
 		{"普通封装传说", "sealing", 6, 0, 1},
@@ -68,6 +68,12 @@ func TestRandomOptionEquipmentNewSealUsesPVF(t *testing.T) {
 			if stack.Count != 1 || binary.LittleEndian.Uint32(entry.data[6:10]) != seed || binary.LittleEndian.Uint16(entry.data[11:13]) != 50 || entry.data[10] != 0 {
 				t.Fatal("封装修复改变了数量、品质、耐久或强化")
 			}
+			if normalizeMagicBoxPVFType(tc.attach) == "free" {
+				expectedBind, allowSealed, eligible := currentAuctionRegistrationPolicyForDefinition(definition, stack)
+				if !eligible || expectedBind || allowSealed {
+					t.Fatal("自由交易模板的新实例应能直接上架拍卖行")
+				}
+			}
 		})
 	}
 }
@@ -78,8 +84,8 @@ func TestRandomOptionEquipmentRewardResolversKeepSeal(t *testing.T) {
 		rarity, randomOption int
 		want                 bool
 	}{
-		{"魔封紫装", "free", 2, 1, true},
-		{"魔封粉装", "free", 3, 1, true},
+		{"魔封紫装自由交易", "free", 2, 1, false},
+		{"魔封粉装自由交易", "free", 3, 1, false},
 		{"普通自由紫装", "free", 2, 0, false},
 		{"不可交易模板", "trade", 2, 1, false},
 	} {
@@ -116,7 +122,7 @@ func TestRandomOptionSealPreservesExistingInstancesAndMailBoundaries(t *testing.
 		attachment dnfrepo.MailAttachment
 		wantChange bool
 	}{
-		{"新系统模板", dnfrepo.MailRecord{Metadata: map[string]string{"system_mail": "true"}}, dnfrepo.MailAttachment{}, true},
+		{"新系统自由交易模板", dnfrepo.MailRecord{Metadata: map[string]string{"system_mail": "true"}}, dnfrepo.MailAttachment{}, false},
 		{"旧解封标记", dnfrepo.MailRecord{Metadata: map[string]string{"system_mail": "true"}}, dnfrepo.MailAttachment{Extra: map[string]string{"seal_flag": "0"}}, false},
 		{"已有原始行", dnfrepo.MailRecord{Metadata: map[string]string{"system_mail": "true"}}, dnfrepo.MailAttachment{RawEntry: make([]byte, currentItemListEntryWireSize)}, false},
 		{"首次穿戴已解封", dnfrepo.MailRecord{Metadata: map[string]string{"system_mail": "true"}}, dnfrepo.MailAttachment{Extra: map[string]string{"seal_removed_by_first_equip": "1"}}, false},
@@ -140,7 +146,7 @@ func TestRandomOptionSealPreservesExistingInstancesAndMailBoundaries(t *testing.
 	}
 }
 
-func TestRealPVFRandomOptionCardSealSurvivesEveryGrantAndOverflow(t *testing.T) {
+func TestRealPVFRandomOptionCardRemainsFreeThroughGrantAndOverflow(t *testing.T) {
 	catalog := realPackageSealCatalog(t)
 	const itemID = uint32(100130169)
 	definition, err := catalog.ResolveItem(itemID)
@@ -163,5 +169,5 @@ func TestRealPVFRandomOptionCardSealSurvivesEveryGrantAndOverflow(t *testing.T) 
 			t.Fatalf("现场白蓝装被强制封装：物品%d 错误%v", plainID, err)
 		}
 	}
-	testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t, catalog, itemID)
+	testRealPVFCardEquipmentSealSurvivesEveryGrantAndOverflow(t, catalog, itemID, 0)
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
+	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
+	"longheng.io/server/internal/modules/dnf/raid"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -160,6 +162,12 @@ func (s *Service) currentAccountAdventureGroupInfoState(
 		return accountAdventureGroupState{}, fmt.Errorf("load adventure-group runtime account: %w", loadErr)
 	}
 	if found {
+		total, err := dnfpvp.ReadTotalProgress(account)
+		if err != nil {
+			return accountAdventureGroupState{}, fmt.Errorf("读取冒险团决斗累计胜场：%w", err)
+		}
+		// 三角色总力战使用账号战绩，领域结算不增加三个角色的个人胜场。
+		state.Projection.AddContentCount(adventuregroup.ContentTypePVPWin, total.Stats[dnfpvp.WinsKey])
 		state.Projection.CollectionSelections = adventuregroup.CollectionSelections(account)
 		runtime, parseErr := adventuregroup.ParseRuntimeState(account, s.adventureGroupTable.Runtime(), s.gameplayNow())
 		if parseErr != nil {
@@ -176,6 +184,15 @@ func (s *Service) currentAccountAdventureGroupInfoState(
 
 func (s *Service) projectCurrentAdventureActivity(days uint32, characters []dnfrepo.CharacterRecord) adventuregroup.Projection {
 	projection := adventuregroup.ProjectActivity(days, characters)
+	for _, character := range characters {
+		if character.Stats["delete_flag"] != 0 {
+			continue
+		}
+		projection.AddContentCount(adventuregroup.ContentTypePVPWin, character.Stats[dnfpvp.WinsKey])
+		for mode, kind := range [...]int{adventuregroup.ContentTypeAnton, adventuregroup.ContentTypeLuke, adventuregroup.ContentTypeFiendWar} {
+			projection.AddContentCount(kind, raid.RecordedLifetimeClears(character, byte(mode+1)))
+		}
+	}
 	group := s.channelServerID()
 	if group > 0 && group <= 255 {
 		projection.CollectionSourceServerGroup = byte(group)

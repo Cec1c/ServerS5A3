@@ -1,0 +1,1972 @@
+{
+  "schema": 1,
+  "pvf_sha256": "94a2549598816198115340f84c0be2d31603ddeea58f70f27afe6f73b25e3df7",
+  "tables": {
+    "etc/storydigest/digest.etc": "1ba3d6399dd4ff52c86438b6051747bd9d5eb9eec4552bc36eb544712e9f89f7",
+    "etc/storydigest/scene.etc": "66dcc255d4d42a7f60d28700d00bc3cd65b02c63491c9328db6f4150c23f8dff",
+    "n_quest/connectquestlist.etc": "533fc29a30063e371b295885c9173d72c813290f5cbbdab499802b6181935c0f",
+    "n_quest/quest.lst": "616328d3d194c23a51da6671413f2e2427c92e0c9c0d3bcd5b9ec4a847b22312"
+  },
+  "chapters": [
+    {
+      "scene": 1,
+      "name": "格兰之森",
+      "any_completed": [
+        3155
+      ],
+      "successors": [
+        3156
+      ],
+      "proof": [
+        {
+          "id": 3155,
+          "name": "赛丽亚的决心",
+          "path": "n_quest/quest_renewal/epic_quest/elvengard/elvengard_epic_11.qst",
+          "export_sha256": "b4d0cefb4a4820f9d1b9d90863506165ba3e4a63d8f8a826687fcc2c99769b29",
+          "pre_required_quest": [
+            [
+              3154
+            ],
+            [
+              6930
+            ],
+            [
+              6931
+            ],
+            [
+              6932
+            ],
+            [
+              6933
+            ],
+            [
+              6934
+            ],
+            [
+              6935
+            ],
+            [
+              6936
+            ],
+            [
+              6937
+            ],
+            [
+              6938
+            ],
+            [
+              6939
+            ],
+            [
+              6940
+            ],
+            [
+              6941
+            ],
+            [
+              6942
+            ],
+            [
+              6943
+            ],
+            [
+              6944
+            ],
+            [
+              6945
+            ],
+            [
+              6946
+            ],
+            [
+              6947
+            ],
+            [
+              6948
+            ],
+            [
+              6949
+            ],
+            [
+              6950
+            ],
+            [
+              6951
+            ],
+            [
+              6952
+            ],
+            [
+              6953
+            ],
+            [
+              6954
+            ],
+            [
+              6955
+            ],
+            [
+              6956
+            ],
+            [
+              6957
+            ],
+            [
+              6958
+            ],
+            [
+              6959
+            ],
+            [
+              6960
+            ],
+            [
+              6961
+            ],
+            [
+              6962
+            ],
+            [
+              6963
+            ],
+            [
+              6964
+            ],
+            [
+              6965
+            ],
+            [
+              6966
+            ],
+            [
+              6967
+            ],
+            [
+              6968
+            ],
+            [
+              6969
+            ],
+            [
+              6970
+            ],
+            [
+              6971
+            ],
+            [
+              6972
+            ],
+            [
+              6973
+            ],
+            [
+              6974
+            ],
+            [
+              6975
+            ],
+            [
+              6976
+            ],
+            [
+              6977
+            ],
+            [
+              6978
+            ],
+            [
+              6979
+            ],
+            [
+              6980
+            ],
+            [
+              6981
+            ],
+            [
+              6982
+            ],
+            [
+              6983
+            ],
+            [
+              6984
+            ],
+            [
+              6985
+            ],
+            [
+              6986
+            ],
+            [
+              6987
+            ],
+            [
+              6988
+            ],
+            [
+              6989
+            ],
+            [
+              6990
+            ],
+            [
+              6991
+            ],
+            [
+              6992
+            ],
+            [
+              6993
+            ],
+            [
+              6994
+            ],
+            [
+              6995
+            ],
+            [
+              6996
+            ],
+            [
+              6997
+            ],
+            [
+              6998
+            ],
+            [
+              6999
+            ],
+            [
+              7000
+            ],
+            [
+              7001
+            ],
+            [
+              7002
+            ]
+          ]
+        },
+        {
+          "id": 3156,
+          "name": "朝着新的冒险",
+          "path": "n_quest/quest_renewal/epic_quest/elvengard/elvengard_epic_12.qst",
+          "export_sha256": "936214c0546be726336d63ccfa06e880a71cb1462b823213bdc9b3800a0df089",
+          "pre_required_quest": [
+            [
+              3155
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 2,
+      "name": "天空之城",
+      "any_completed": [
+        3193
+      ],
+      "successors": [
+        3194
+      ],
+      "proof": [
+        {
+          "id": 3193,
+          "name": "莎兰的建议",
+          "path": "n_quest/quest_renewal/epic_quest/handonmyre/handonmyre_epic_36.qst",
+          "export_sha256": "f7c0e7787f61570062a3f7aff38359bb69dedf05014cde000d527c20434bbe70",
+          "pre_required_quest": [
+            [
+              3192
+            ]
+          ]
+        },
+        {
+          "id": 3194,
+          "name": "告别和另一段冒险",
+          "path": "n_quest/quest_renewal/epic_quest/behimos/behimos_epic_01.qst",
+          "export_sha256": "06e871ffc7ccaffb054f9cd4850b5ecb03a682811c99afba00b1d8a8849b8193",
+          "pre_required_quest": [
+            [
+              3193
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 3,
+      "name": "天帷巨兽",
+      "any_completed": [
+        3223
+      ],
+      "successors": [
+        3224
+      ],
+      "proof": [
+        {
+          "id": 3223,
+          "name": "商人的情报",
+          "path": "n_quest/quest_renewal/epic_quest/behimos/behimos_epic_30.qst",
+          "export_sha256": "a09bb56cf0244cb634c6338e77daec778dcb9642b9ee40979c6f6bc69c4f938f",
+          "pre_required_quest": [
+            [
+              3222
+            ]
+          ]
+        },
+        {
+          "id": 3224,
+          "name": "宣战",
+          "path": "n_quest/quest_renewal/epic_quest/alphraira/alphraira_epic_01.qst",
+          "export_sha256": "7de8ad4a7b45b7bfe3df1ff8f47e002b483b0ad3d103eb67786dfad8dcba4188",
+          "pre_required_quest": [
+            [
+              3223
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 4,
+      "name": "阿法利亚",
+      "any_completed": [
+        3253
+      ],
+      "successors": [
+        3254
+      ],
+      "proof": [
+        {
+          "id": 3253,
+          "name": "邪恶的暗流",
+          "path": "n_quest/quest_renewal/epic_quest/alphraira/alphraira_epic_30.qst",
+          "export_sha256": "40d27d05b6950071f8a4f0064a3d74dcf37cf7b9313e11ecfc6372b02140da44",
+          "pre_required_quest": [
+            [
+              3252
+            ]
+          ]
+        },
+        {
+          "id": 3254,
+          "name": "被带走的俩人",
+          "path": "n_quest/quest_renewal/epic_quest/underpoot/underpoot_epic_01.qst",
+          "export_sha256": "3ebcc8894b30ab631ceedc983dea80fccaf5ce44d764faa9305938b02c975301",
+          "pre_required_quest": [
+            [
+              3253
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 5,
+      "name": "诺伊佩拉",
+      "any_completed": [
+        3280
+      ],
+      "successors": [
+        3281
+      ],
+      "proof": [
+        {
+          "id": 3280,
+          "name": "两国和解",
+          "path": "n_quest/quest_renewal/epic_quest/underpoot/underpoot_epic_27.qst",
+          "export_sha256": "9eb040923e88fc1f87a066a49a36f2626e65fc6645ed98416e3dec0b898b47ca",
+          "pre_required_quest": [
+            [
+              3279
+            ]
+          ]
+        },
+        {
+          "id": 3281,
+          "name": "歌兰蒂斯的召唤",
+          "path": "n_quest/quest_renewal/epic_quest/stormpass/stormpass_epic_01.qst",
+          "export_sha256": "373a1d11a8bda6f79be1940f85c41c974eedaa53217e308946b319c84a8fd1c8",
+          "pre_required_quest": [
+            [
+              3280
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 6,
+      "name": "万年雪山",
+      "any_completed": [
+        3329
+      ],
+      "successors": [
+        3330
+      ],
+      "proof": [
+        {
+          "id": 3329,
+          "name": "博肯的问候",
+          "path": "n_quest/quest_renewal/epic_quest/stormpass/stormpass_epic_31.qst",
+          "export_sha256": "67043e0f3e5f3819af63c1627b2c1b44e8869a337cefdf3a237cc625950edca8",
+          "pre_required_quest": [
+            [
+              3328
+            ]
+          ]
+        },
+        {
+          "id": 3330,
+          "name": "重逢与新的相遇",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_01.qst",
+          "export_sha256": "d6acfea6f08347a3b16c2702d15f0e38a3395933950f1f082e05ed2f63320c0b",
+          "pre_required_quest": [
+            [
+              3329
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 7,
+      "name": "诺斯玛尔",
+      "any_completed": [
+        3357,
+        3358,
+        3359,
+        3360,
+        3361,
+        3362,
+        3363,
+        3364,
+        3365,
+        3366,
+        3367,
+        3368,
+        3369,
+        3370,
+        3371,
+        3372,
+        3373,
+        3374,
+        3375,
+        3376,
+        3377,
+        3378,
+        3379,
+        3380,
+        3381,
+        3382,
+        3383,
+        3384,
+        3385,
+        3386,
+        3387,
+        3388,
+        3389,
+        3390,
+        3391,
+        3392,
+        3393,
+        3394,
+        3395,
+        3396,
+        3397,
+        3398,
+        3399,
+        3400,
+        3401,
+        3402,
+        3403,
+        3404,
+        3405,
+        3406,
+        3407,
+        3408,
+        3409,
+        3410,
+        3411,
+        3412,
+        3413,
+        3414,
+        3415,
+        3416,
+        3417,
+        3418,
+        3419,
+        3420,
+        3421,
+        3422,
+        3423,
+        3424,
+        6875,
+        6876,
+        6877,
+        6878,
+        6879
+      ],
+      "successors": [
+        3427
+      ],
+      "proof": [
+        {
+          "id": 3357,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atswordman_00.qst",
+          "export_sha256": "37ad3941abe5c286d8e8bd2842392899682244eb9aa3488ccbdeedacba6b36f0",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3358,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atswordman_01.qst",
+          "export_sha256": "021910e74f7b4bfc865732729717bdbf0462a7e0cbc0eca69882495e3fcc3bba",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3359,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atswordman_02.qst",
+          "export_sha256": "49698bbf92317a4bb0d2de9ae9ee9daf45ed886af85141e23807f0db54a1eaf5",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3360,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atswordman_03.qst",
+          "export_sha256": "56366bd8bab4b7320cab21b936048956cea64883ffb3d171c4279da69afc2339",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3361,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atswordman_04.qst",
+          "export_sha256": "0e8158194fe562d3b75e387c090bdd6cf6287e5696e464faa391f5baf5393be0",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3362,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_fighter_00.qst",
+          "export_sha256": "26b691e4caddb22e44d8ce9a4d84a6b569d36e03a5e50fafff028d2cc48ff9fc",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3363,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_fighter_01.qst",
+          "export_sha256": "30e5c4bbbfa129ba174d9ed72eac826a142a599b413e66a684352f6dc87aee30",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3364,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_fighter_02.qst",
+          "export_sha256": "85bdc268b2288c9db2e91960e6208fbd71ff2c43f3866dabfe83c560faee009a",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3365,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_fighter_03.qst",
+          "export_sha256": "ff41b8ead9a498de4e5232b1a71e0bcb740ba2e02c87b9931afc506d059c49a7",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3366,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_fighter_04.qst",
+          "export_sha256": "aed624c16399ccbb36cc71aa5d5c304a48743f12908027ad30c0ab75322dbbd2",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3367,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_swordman_00.qst",
+          "export_sha256": "6b0fd6639be46ec16aeaebf16cec7a41d1716ef431052764be88084054f6ad4c",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3368,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_swordman_01.qst",
+          "export_sha256": "4011e06b38d532bc384cec24de829e8a1f8e900f20e1e4354ea6d3444e4b4773",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3369,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_swordman_02.qst",
+          "export_sha256": "c67b4291a139717e2acf2e4497808d9e844ebf65f6d3d4e3084cd148a566febb",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3370,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_swordman_03.qst",
+          "export_sha256": "7a9e6286eef9a418dd46ebc75e2e8cec441cf603e987cc6693abfb318e5297b8",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3371,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_swordman_04.qst",
+          "export_sha256": "0f82d08a6b3d55d2fb75f488e45cd9b980f9cbafd2ebdbdda45c2e494d07bd0e",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3372,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atfighter_00.qst",
+          "export_sha256": "78b117f5e10b1a7a24050f25e2ac322fd426467386669e7cf73c56585f9df3ac",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3373,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atfighter_01.qst",
+          "export_sha256": "751873052afcff9af17a0046bc1a5b4a946b53e5af43f8470570e4bb3358012e",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3374,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atfighter_02.qst",
+          "export_sha256": "44497613d8b14c22190ca331b98084cf06355fcb8982c8e8d9c54ee258af4f2c",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3375,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atfighter_03.qst",
+          "export_sha256": "8f7e414c45b6475c74506958090622fa7697eadb9ca4f62609fa1db7e64dff83",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3376,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atfighter_04.qst",
+          "export_sha256": "261abd5e828d67ed19a214ba7e943e297cf64dfbab7ad26f83a8ecaa03cbfeff",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3377,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunner_00.qst",
+          "export_sha256": "e6acd6f616fa280fccebbbc71cae70ed95f6d9c17d80fe9fc11bf8a6b412db03",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3378,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunner_01.qst",
+          "export_sha256": "5acb00a4f31fedc5d0f77f8bc066433b3cd51957b6cea556298efcfa1a57a22a",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3379,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunner_02.qst",
+          "export_sha256": "6806080b037bc925510b246fe7d46fd61cb870c57658e7fdd9df7895e0b5a083",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3380,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunner_03.qst",
+          "export_sha256": "7de49de1f539350540807d5fa44733f59159c64168d3a9294675a512176311d7",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3381,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunner_04.qst",
+          "export_sha256": "22aeede1d6c4cf6a00304938c62fe1a5bee009b6c4025b29cb4ec10148f905b3",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3382,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atgunner_00.qst",
+          "export_sha256": "eb6b756c88129ede96b096015e55f71949ac069cdf494e783fb974e97967f7ff",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3383,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atgunner_01.qst",
+          "export_sha256": "c40bdb4b38a60fe53e8cf9b7e7baef92ef536c1f6a55e764b0c56da8797b101d",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3384,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atgunner_02.qst",
+          "export_sha256": "bc73ae2ee3e16bba675b2988f9d7190d970ccbf54806e28ca625a31c25ec0382",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3385,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atgunner_03.qst",
+          "export_sha256": "36f92f53b26158ff4d4b70137f511d5baa2c553978f53eee8f87b2b35d51ee64",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3386,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atgunner_04.qst",
+          "export_sha256": "bf711a3ec50729661ce4035d74fbcd8503f08163b8150e3d480749471e6957ed",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3387,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_mage_00.qst",
+          "export_sha256": "c081f60a4584b7dbfcff6d41e857043e7ef57f22632ff8bf7c681542ef296cdd",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3388,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_mage_01.qst",
+          "export_sha256": "2d9ec024e5d2d61dd954381c92059f2611e4a649c433137ad9e1a2b67226e677",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3389,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_mage_02.qst",
+          "export_sha256": "11a93f706bf218eebc7677112d6ac2e3c1c33ecf92c606d79f54ffbe2b2e20e8",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3390,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_mage_03.qst",
+          "export_sha256": "a03ffce41378a7eba10f046370301ed778f48a7f2d3962a24c05d9bb331f68ed",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3391,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_mage_04.qst",
+          "export_sha256": "8a089ed6afc32f053299100b09c47b068643d89483e6b6b33979fce82756236e",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3392,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atmage_00.qst",
+          "export_sha256": "fc030a3fcbfc966719d706d3bc797a3188810179564410d86f7210cc98eab81c",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3393,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atmage_01.qst",
+          "export_sha256": "492f05099f6c55f7cb42fc97a268b251cedf4e05ce8a70763d4624a24d722910",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3394,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atmage_02.qst",
+          "export_sha256": "be6c7b54b6ee0be74f57aa9efa2ce8358ae30a9c91180e8dc83427662efc55ad",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3395,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atmage_03.qst",
+          "export_sha256": "759e09f2efa21f964e523c5b921a65e788767e3937c74e49b213af2a886e5a42",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3396,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atmage_04.qst",
+          "export_sha256": "2ecd0ee1e0dd02702838b87b45a323d2c4427e513c429031d75e05c1514e9a5d",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3397,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atmage_05.qst",
+          "export_sha256": "8a1fd6d5affe1f0beb0a41836d2f85a165bec7aa08bdb78aa742f331661ccdb4",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3398,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_priest_00.qst",
+          "export_sha256": "81b750a1b59c5876cde69c59541de07441f9990b4a10f141d980602ffa59905a",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3399,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_priest_01.qst",
+          "export_sha256": "822ac6ce74bcd7d48084d9c708bed21a10700d7e04dac468b8d76340debf6284",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3400,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_priest_02.qst",
+          "export_sha256": "5651e99f685e7650e396b0539e95bb0a1d9fd27f985a828c17a210b31fc8fbf3",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3401,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_priest_03.qst",
+          "export_sha256": "7226eeaf83941d7136af73d294cebff99c9adcd73a0476c0d2cb0328e5b306c0",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3402,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_priest_04.qst",
+          "export_sha256": "23b0dd2631a833841851b7257311bf777fb244469257885838a2d24ecd4c27c0",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3403,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atpriest_00.qst",
+          "export_sha256": "703b2ff01cc640cdeeab35614321545c792c40cb344f9bad6d4daf252e1ab8f1",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3404,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atpriest_01.qst",
+          "export_sha256": "3382e1bb993e4d6051788e55342b77217fbe9d74cdf34399be492ba9dd34ac61",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3405,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atpriest_02.qst",
+          "export_sha256": "5daee802503d67905ea9e73555d635730f177165e0a9b5797ba98dd7f3815ab2",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3406,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atpriest_03.qst",
+          "export_sha256": "f2d6497f695ce924a08497d5489e31014ee2626506d117f6527ea647052a33e5",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3407,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_atpriest_04.qst",
+          "export_sha256": "b6f57039eebd1357ec146977ce13a51fad7655d324f3036886ba3564cfd8a917",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3408,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_thief_00.qst",
+          "export_sha256": "307da17a44eba61b7191b6b9d3343167c4534ae087983f7665e2dcff3d8a5368",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3409,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_thief_01.qst",
+          "export_sha256": "b4fd6f51c64f3dcbfa6ea4c32ad085351ce21af06563e1c716fc01618e510e4c",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3410,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_thief_02.qst",
+          "export_sha256": "ab1d9e06113224e3ef78eea8e2e75225a2361d37cd2f5ffdb33891fee3d002bb",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3411,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_thief_03.qst",
+          "export_sha256": "07b5ba7b4fd0208612dc5802fd2c2e97b544e495753528ea5cd900c908a58813",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3412,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_thief_04.qst",
+          "export_sha256": "08e290c982bddf7c40aff1fe1b0f8a1a22b7f92620fce237572bcb6b5d50d8ee",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3413,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_knight_00.qst",
+          "export_sha256": "ce48596d2b50de7602f76f5f954ac3aea640ecb9c8a99b4ee267f2d641d32104",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3414,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_knight_01.qst",
+          "export_sha256": "58b1d5430b61f2d8327c3fdbe80b5aace1321456356c1cae96c1ac710fb4a9db",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3415,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_knight_02.qst",
+          "export_sha256": "8e18c98618d536408a363ef751905376c28295427146b2f4d560bb78ea6e8de7",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3416,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_knight_03.qst",
+          "export_sha256": "a64636769f69acedd399d58b8a964c745611da67ccdcbe4c5efa1e6e470c96ea",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3417,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_knight_04.qst",
+          "export_sha256": "98e8aa9a013facf506c39f6742b0c1d7e099f2538009c91b172dbca30ed82dc5",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3418,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_lancer_00.qst",
+          "export_sha256": "918aacb070048c708fbb12ac2c584b02d0e1914f600702f5b915fba4632bda12",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3419,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_lancer_01.qst",
+          "export_sha256": "a0d8d4d5d1973a902685a0332d908adf990f505bd90177e7394e60193941e00a",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3420,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_lancer_02.qst",
+          "export_sha256": "a6f06519cd0c3377346a7bb6ac9bd1feddb3c49c783a5129ba2dbbf62c49f7f8",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3421,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_lancer_03.qst",
+          "export_sha256": "ee0351b16e80f77fd31ced1617963e472c2b651776c6724c39fefb0543ab5edc",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3422,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_lancer_04.qst",
+          "export_sha256": "3f362ef6c71d58722de8ece8e6547b9ea719e2326f23ca86c12cb778216105b1",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3423,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_darkknight_00.qst",
+          "export_sha256": "9bf5c097f300e40c2f1682c81d02da4fc471ada7042f4b033cb93dd912abd56f",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3424,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_creator_00.qst",
+          "export_sha256": "db3870c4e2cfbc6d25cb7bef3ff3c26c0d5006f6668bd9319f35d7a25e3285b7",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 6875,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunblader_00.qst",
+          "export_sha256": "61cb8cfdf888e846973f8bf188ec01c2396e8f766fe2d716f520f90487df9261",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 6876,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunblader_01.qst",
+          "export_sha256": "7a70cfb5a9278a8bff01ac8618e9c6090de7e3076ee2371687069f5c8575fbb2",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 6877,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunblader_02.qst",
+          "export_sha256": "d78c34b26efdfba4d8d911f6395a1ba331c68d74011c3d010d34fef99ccc83db",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 6878,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunblader_03.qst",
+          "export_sha256": "39ef395c83a543e773b73060b8fc86d451ac760ff9d633a6b87b78a87cb4999a",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 6879,
+          "name": "依然存在的不祥之感",
+          "path": "n_quest/quest_renewal/epic_quest/northmyre/northmyre_epic_28_gunblader_04.qst",
+          "export_sha256": "54b62e91f40450d2dc01c1901bd197e70760509fedf22d4c3af2ba9e2f2c8724",
+          "pre_required_quest": [
+            [
+              3356
+            ]
+          ]
+        },
+        {
+          "id": 3427,
+          "name": "回归阿拉德",
+          "path": "n_quest/quest_renewal/epic_quest/mirrorsilvercrown/mirrorsilvercrown_epic_01.qst",
+          "export_sha256": "cf92e0f99b6244f41f9e2ed858073fff7876d01b43b79742c25421e656be2831",
+          "pre_required_quest": [
+            [
+              3357
+            ],
+            [
+              3358
+            ],
+            [
+              3359
+            ],
+            [
+              3360
+            ],
+            [
+              3361
+            ],
+            [
+              3362
+            ],
+            [
+              3363
+            ],
+            [
+              3364
+            ],
+            [
+              3365
+            ],
+            [
+              3366
+            ],
+            [
+              3367
+            ],
+            [
+              3368
+            ],
+            [
+              3369
+            ],
+            [
+              3370
+            ],
+            [
+              3371
+            ],
+            [
+              3372
+            ],
+            [
+              3373
+            ],
+            [
+              3374
+            ],
+            [
+              3375
+            ],
+            [
+              3376
+            ],
+            [
+              3377
+            ],
+            [
+              3378
+            ],
+            [
+              3379
+            ],
+            [
+              3380
+            ],
+            [
+              3381
+            ],
+            [
+              3382
+            ],
+            [
+              3383
+            ],
+            [
+              3384
+            ],
+            [
+              3385
+            ],
+            [
+              3386
+            ],
+            [
+              3387
+            ],
+            [
+              3388
+            ],
+            [
+              3389
+            ],
+            [
+              3390
+            ],
+            [
+              3391
+            ],
+            [
+              3392
+            ],
+            [
+              3393
+            ],
+            [
+              3394
+            ],
+            [
+              3395
+            ],
+            [
+              3396
+            ],
+            [
+              3397
+            ],
+            [
+              3398
+            ],
+            [
+              3399
+            ],
+            [
+              3400
+            ],
+            [
+              3401
+            ],
+            [
+              3402
+            ],
+            [
+              3403
+            ],
+            [
+              3404
+            ],
+            [
+              3405
+            ],
+            [
+              3406
+            ],
+            [
+              3407
+            ],
+            [
+              3408
+            ],
+            [
+              3409
+            ],
+            [
+              3410
+            ],
+            [
+              3411
+            ],
+            [
+              3412
+            ],
+            [
+              3413
+            ],
+            [
+              3414
+            ],
+            [
+              3415
+            ],
+            [
+              3416
+            ],
+            [
+              3417
+            ],
+            [
+              3418
+            ],
+            [
+              3419
+            ],
+            [
+              3420
+            ],
+            [
+              3421
+            ],
+            [
+              3422
+            ],
+            [
+              3423
+            ],
+            [
+              3424
+            ],
+            [
+              6875
+            ],
+            [
+              6876
+            ],
+            [
+              6877
+            ],
+            [
+              6878
+            ],
+            [
+              6879
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 8,
+      "name": "镜像亚诺法森林",
+      "any_completed": [
+        3446
+      ],
+      "successors": [
+        3447
+      ],
+      "proof": [
+        {
+          "id": 3446,
+          "name": "为了救活普莱斯",
+          "path": "n_quest/quest_renewal/epic_quest/mirrorsilvercrown/mirrorsilvercrown_epic_20.qst",
+          "export_sha256": "4a5240f41208b323d6ba57bc444125ed8ba961cda558681b524a3350c110e496",
+          "pre_required_quest": [
+            [
+              3445
+            ]
+          ]
+        },
+        {
+          "id": 3447,
+          "name": "伟大的意志",
+          "path": "n_quest/quest_renewal/epic_quest/mirrormelt/mirrormelt_epic_01.qst",
+          "export_sha256": "916d4d0fb135ac088db1597c36f40da3560b918ac79215e514af55b364ee6964",
+          "pre_required_quest": [
+            [
+              3446
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 9,
+      "name": "镜像赫顿玛尔废墟",
+      "any_completed": [
+        3471
+      ],
+      "successors": [
+        3478
+      ],
+      "proof": [
+        {
+          "id": 3471,
+          "name": "下一个目的地",
+          "path": "n_quest/quest_renewal/epic_quest/mirrormelt/mirrormelt_epic_25.qst",
+          "export_sha256": "3ab466b313632df551d243ec5deaa736e33885723c18c4fee05d384a7671acbc",
+          "pre_required_quest": [
+            [
+              3470
+            ]
+          ]
+        },
+        {
+          "id": 3478,
+          "name": "准备离开",
+          "path": "n_quest/quest_renewal/epic_quest/mirrorbehimos/mirrorbehimos_epic_01.qst",
+          "export_sha256": "e9cd10cb033c94cc3675992a71d21e5e918ff5e11817775ed6cbb65c2bdcaa82",
+          "pre_required_quest": [
+            [
+              3471
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 10,
+      "name": "镜像天帷巨兽",
+      "any_completed": [
+        3509
+      ],
+      "successors": [
+        3512
+      ],
+      "proof": [
+        {
+          "id": 3509,
+          "name": "返回赫顿玛尔",
+          "path": "n_quest/quest_renewal/epic_quest/mirrorbehimos/mirrorbehimos_epic_29.qst",
+          "export_sha256": "3f8c87129245b48d1260198ff761a5f2cef636b06e6ca4e06d4b86efeac81840",
+          "pre_required_quest": [
+            [
+              3508
+            ]
+          ]
+        },
+        {
+          "id": 3512,
+          "name": "洛巴赫的委托",
+          "path": "n_quest/quest_renewal/epic_quest/antber/antber_epic_01.qst",
+          "export_sha256": "585a26e65a637bcc0518bd1fe4f3d270c8b3a7b99b774e76a70d2711e0efd667",
+          "pre_required_quest": [
+            [
+              3509
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 11,
+      "name": "安特贝鲁峡谷",
+      "any_completed": [
+        3554
+      ],
+      "successors": [
+        3570
+      ],
+      "proof": [
+        {
+          "id": 3554,
+          "name": "马琳的问候",
+          "path": "n_quest/quest_renewal/epic_quest/antber/antber_epic_43.qst",
+          "export_sha256": "ad2472b68c025cdb7671041fdc4fbc944a51bad509cae0bb7049fbf45990d3a8",
+          "pre_required_quest": [
+            [
+              3553
+            ]
+          ]
+        },
+        {
+          "id": 3570,
+          "name": "悬空的海港",
+          "path": "n_quest/quest_renewal/epic_quest/lufthafen/lufthafen_epic_01.qst",
+          "export_sha256": "4d891d8d47b85123ea6521db695c1da351a29d639e1a45e3f6b28f6de6415a1f",
+          "pre_required_quest": [
+            [
+              3554
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 12,
+      "name": "海上列车",
+      "any_completed": [
+        3605
+      ],
+      "successors": [
+        3615
+      ],
+      "proof": [
+        {
+          "id": 3605,
+          "name": "吉赛尔的行踪",
+          "path": "n_quest/quest_renewal/epic_quest/lufthafen/lufthafen_epic_30.qst",
+          "export_sha256": "63f103339e4cda0fd50aca47b398526d244f88e0d637549b97419a11f5040511",
+          "pre_required_quest": [
+            [
+              3604
+            ]
+          ]
+        },
+        {
+          "id": 3615,
+          "name": "斯卡迪女王",
+          "path": "n_quest/quest_renewal/epic_quest/shonan/shonan_epic_01.qst",
+          "export_sha256": "5f60cc313761880b411cee2381b0156bcb8b9fe02a5a494ebdcb7dcba5f5c00a",
+          "pre_required_quest": [
+            [
+              3605
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 13,
+      "name": "时空之门",
+      "any_completed": [
+        3679
+      ],
+      "successors": [
+        3696
+      ],
+      "proof": [
+        {
+          "id": 3679,
+          "name": "以后的事",
+          "path": "n_quest/quest_renewal/epic_quest/shonan/shonan_epic_65.qst",
+          "export_sha256": "a38fd6e5bafa6d286de66fd51545b84b5b8bd53c53dbe56c52c55d346e517eef",
+          "pre_required_quest": [
+            [
+              3678
+            ]
+          ]
+        },
+        {
+          "id": 3696,
+          "name": "艾丽丝的挽留",
+          "path": "n_quest/quest_renewal/epic_quest/slough/slough_epic_01.qst",
+          "export_sha256": "02775977cd2ca4e3eb79cec45f76ee1dd1409ee9751e1b1db812ae8d4f43e4af",
+          "pre_required_quest": [
+            [
+              3679
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 14,
+      "name": "能源中心",
+      "any_completed": [
+        3757
+      ],
+      "successors": [
+        3768
+      ],
+      "proof": [
+        {
+          "id": 3757,
+          "name": "七神之鞘翅的自尊心",
+          "path": "n_quest/quest_renewal/epic_quest/slough/slough_epic_36.qst",
+          "export_sha256": "e1d564efc3a985665f3c559fdafffa6616158d280c0cbacc34a1259ca991a16d",
+          "pre_required_quest": [
+            [
+              3756
+            ]
+          ]
+        },
+        {
+          "id": 3768,
+          "name": "逃亡的安徒恩",
+          "path": "n_quest/quest_renewal/epic_quest/anton/anton_epic_01.qst",
+          "export_sha256": "c4e828ef62453c42d40f926ae4d29dfb5e2816410533dea92e4c1bb3d255ad69",
+          "pre_required_quest": [
+            [
+              3757
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 15,
+      "name": "苍穹贵族号",
+      "any_completed": [
+        3779
+      ],
+      "successors": [
+        3830
+      ],
+      "proof": [
+        {
+          "id": 3779,
+          "name": "胜利之后",
+          "path": "n_quest/quest_renewal/epic_quest/anton/anton_epic_12.qst",
+          "export_sha256": "cda8cf2bd0990c8ed43c46012c55319912476916589a41c7ea9488f63c4d84e6",
+          "pre_required_quest": [
+            [
+              3778
+            ]
+          ]
+        },
+        {
+          "id": 3830,
+          "name": "为了前往寂静城",
+          "path": "n_quest/quest_renewal/epic_quest/zelba/zelba_epic_01.qst",
+          "export_sha256": "bd1360ac36f6daefba49d269a0150029f978972cffa872a71993ddae67e0f13a",
+          "pre_required_quest": [
+            [
+              3779
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 16,
+      "name": "寂静城",
+      "any_completed": [
+        3883
+      ],
+      "successors": [
+        3923,
+        3924,
+        3925
+      ],
+      "proof": [
+        {
+          "id": 3883,
+          "name": "使徒卢克的威胁还在继续",
+          "path": "n_quest/quest_renewal/epic_quest/zelba/zelba_epic_41.qst",
+          "export_sha256": "0e77cea1744eee6160134e18bbf143958f06a91ce53c7f854cd2acd76d882e7a",
+          "pre_required_quest": [
+            [
+              3882
+            ]
+          ]
+        },
+        {
+          "id": 3923,
+          "name": "黑暗中的使徒卢克",
+          "path": "n_quest/quest_renewal/epic_quest/devildom/luke_f/luke_f_epic_01_01.qst",
+          "export_sha256": "499d1c255e4414dbfe5278a85aa56c3483f6780404f0137158fc430828c63d69",
+          "pre_required_quest": [
+            [
+              3883,
+              3870
+            ]
+          ]
+        },
+        {
+          "id": 3924,
+          "name": "黑暗中的使徒卢克",
+          "path": "n_quest/quest_renewal/epic_quest/devildom/luke_f/luke_f_epic_01_02.qst",
+          "export_sha256": "b46422f19fa208ccb245f9721b8c01214fcff8a9f3aac309176c94eacd91ec41",
+          "pre_required_quest": [
+            [
+              3883,
+              3871
+            ],
+            [
+              3883,
+              3872
+            ]
+          ]
+        },
+        {
+          "id": 3925,
+          "name": "黑暗中的使徒卢克",
+          "path": "n_quest/quest_renewal/epic_quest/devildom/luke_f/luke_f_epic_01_03.qst",
+          "export_sha256": "09e1d8d7b2e98952c2e1ccc85b3875f2b44fdd1fdf403b38abaf679caa57d36e",
+          "pre_required_quest": [
+            [
+              3883,
+              3873
+            ],
+            [
+              3883,
+              3874
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "scene": 17,
+      "name": "卢克实验室",
+      "any_completed": [
+        3945
+      ],
+      "successors": [
+        3946
+      ],
+      "proof": [
+        {
+          "id": 3945,
+          "name": "终于抵达魔界",
+          "path": "n_quest/quest_renewal/epic_quest/devildom/timebeast/timebeast_epic_01.qst",
+          "export_sha256": "126fda171160119b5d1a9ecbcc4a50da58bce5ddff02f5ffe016a98107ddcf8c",
+          "pre_required_quest": [
+            [
+              3944
+            ]
+          ]
+        },
+        {
+          "id": 3946,
+          "name": "杂乱的开始",
+          "path": "n_quest/quest_renewal/epic_quest/devildom/timebeast/timebeast_epic_02.qst",
+          "export_sha256": "150277c5117bb5209e5bc5aaa931bfdd261849ad1ed06eee5d88e10ec3212b4d",
+          "pre_required_quest": [
+            [
+              3945
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "endings": {
+    "900": [],
+    "901": [
+      1
+    ],
+    "902": [
+      2
+    ],
+    "903": [
+      3
+    ],
+    "904": [
+      4
+    ],
+    "905": [
+      5
+    ],
+    "906": [
+      6
+    ],
+    "907": [
+      7
+    ],
+    "910": [
+      10
+    ],
+    "911": [
+      11
+    ],
+    "912": [
+      12
+    ],
+    "913": [
+      13
+    ],
+    "915": [
+      15
+    ],
+    "916": [
+      16,
+      17
+    ],
+    "917": [
+      16,
+      17
+    ]
+  },
+  "shared_ending_reason": "916 and 917 both reference Video/movie/cinematic_11.avi; require both chains to finish before this shared ending."
+}

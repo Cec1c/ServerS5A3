@@ -535,7 +535,7 @@ func TestMailboxExtractClaimsGoldAndItemAtomicallyThenRejectsRepeat(t *testing.T
 	if err != nil {
 		t.Fatalf("duplicate Handle error = %v", err)
 	}
-	assertOneMailboxResponse(t, duplicate, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 0x04})
+	assertOneMailboxResponse(t, duplicate, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 21})
 	character, _, _ = repos.Character.Load(ctx, "77")
 	inventory, _, _ = repos.Inventory.Load(ctx, "77")
 	if character.Stats["gold"] != 60 || inventory.Slots["0:3"].Count != 2 {
@@ -627,7 +627,7 @@ func TestMailboxExtractKeepsAttachmentsWhenTheirPVFTabIsFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertOneMailboxResponse(t, got, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 0x06})
+	assertOneMailboxResponse(t, got, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 0x04})
 	box, _, _ := repos.Mailbox.Load(ctx, "77")
 	if box.Mails["1"].Claimed || len(box.Mails["1"].Attachments) != 1 {
 		t.Fatalf("full-tab rejection must retain the attachment: %+v", box.Mails["1"])
@@ -678,9 +678,10 @@ func TestMailboxExtractBatchFillsQuickSlotsAndItemTabBeforeLeavingFullMail(t *te
 	// 本次领取的 1..8 全部领完即结清（claimed_letter.go 默认档），补发的 0x61 页里
 	// 只剩没领到的那封满信（mail 9）—— 旧断言钉的是"已领取的信留作空收据留在页里"，
 	// 现改为钉住"页面里剩下的就是还能领的那一封"。
-	if len(got.UpperResponses) != 2 {
-		t.Fatalf("response count = %d, want op95 ACK plus class0/0x61 snapshot", len(got.UpperResponses))
+	if len(got.UpperResponses) != 3 {
+		t.Fatalf("response count = %d, want op95 ACK, class0/0x61 snapshot and full-inventory popup", len(got.UpperResponses))
 	}
+	assertMailboxResponse(t, got.UpperResponses[2], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, []byte{0, 4})
 	assertMailboxResponse(t, got.UpperResponses[0], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, currentExtractAck(1, 2, 3, 4, 5, 6, 7, 8))
 	page := got.UpperResponses[1]
 	if page.MsgID != mailboxListNotificationMessageID || page.Classification != 0 {
@@ -888,7 +889,7 @@ func TestMailboxConcurrentExtractCommitsExactlyOnce(t *testing.T) {
 		switch {
 		case bytes.Equal(body, currentExtractAck(123)):
 			successes++
-		case bytes.Equal(body, []byte{0x00, 0x04}):
+		case bytes.Equal(body, []byte{0x00, 21}):
 			alreadyClaimed++
 		default:
 			t.Fatalf("unexpected concurrent extract body: % X", body)
@@ -923,7 +924,7 @@ func TestMailboxExtractRejectsMissingMailID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertOneMailboxResponse(t, got, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 0x03})
+	assertOneMailboxResponse(t, got, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 21})
 	if len(got.PostActions) != 0 {
 		t.Fatalf("post actions = %v, want none on rejection", got.PostActions)
 	}

@@ -14,6 +14,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	shop "longheng.io/server/internal/modules/dnf/cerashop"
 	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
+	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -52,9 +53,10 @@ const (
 )
 
 type Owner struct {
-	repos        dnfrepo.Group
-	itemResolver alignedcmd.MailboxItemResolver
-	now          func() time.Time
+	premiumResolver alignedcmd.PremiumContractResolver
+	repos           dnfrepo.Group
+	itemResolver    alignedcmd.MailboxItemResolver
+	now             func() time.Time
 	// epicPieceCreditor 非 nil 时，解析结果标了 EpicPieceID 的附件改记账号级
 	// 史诗图鉴账本、不写背包。为 nil 时一切照旧（碎片当普通 [material] 入包）。
 	epicPieceCreditor alignedcmd.MailboxEpicPieceCreditor
@@ -83,12 +85,15 @@ type SendResult struct {
 }
 
 type ClaimResult struct {
-	WalletChanged     bool
-	MailIDs           []uint32
-	Gold              int64
-	ItemCount         int
-	InventoryOK       bool
-	ItemSlotRefreshes []alignedcmd.ItemSlotRefresh
+	ContractActivations []alignedcmd.PremiumContractActivation
+	InventoryFull       bool
+	ClaimObjects        []mailboxClaimObject
+	WalletChanged       bool
+	MailIDs             []uint32
+	Gold                int64
+	ItemCount           int
+	InventoryOK         bool
+	ItemSlotRefreshes   []alignedcmd.ItemSlotRefresh
 	// EpicPieces 是本次领取已经计入账号级史诗图鉴账本的碎片增量（含入账后的
 	// 绝对值）。这些行**没有**背包槽位，所以不在 ItemSlotRefreshes 里：桥接层
 	// 必须按 EpicPieces 补发 class0/0x047D 账本通知。
@@ -126,6 +131,17 @@ func (o Owner) WithWarehouseCreditor(creditor alignedcmd.MailboxWarehouseCredito
 	return o
 }
 
+// 已误投邮件的PVF契约直接叠加账号时长，和领取状态一起提交，不占背包格。
+func (o Owner) WithPremiumContractResolver(resolver alignedcmd.PremiumContractResolver) Owner {
+	o.premiumResolver = resolver
+	return o
+}
+
+type mailboxContractCredit struct {
+	contract premium.InventoryContract
+	count    int64
+}
+
 // mailboxWarehouseCreditItem 是一个固定格里已经聚合好的待入账晶块。
 type mailboxWarehouseCreditItem struct {
 	itemID uint32
@@ -142,6 +158,10 @@ func (o Owner) Open(ctx context.Context, characterID string) (OpenResult, error)
 		return OpenResult{}, ErrMailboxRepoMissing
 	}
 	record, _, err := o.loadOrCreateMailbox(ctx, characterID)
+	if err != nil {
+		return OpenResult{}, err
+	}
+	record, err = o.prepareClaimIDsForOpen(ctx, record)
 	if err != nil {
 		return OpenResult{}, err
 	}
@@ -392,16 +412,41 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 	if !found {
 		return ClaimResult{}, ErrMailboxMailNotFound
 	}
+	// 邮箱开着时也可能收到新奖励；先为新增信分配编号，保留已展示附件的编号。
+	if mailboxHasStoredClaimIDs(record) {
+		record, err = o.prepareClaimIDsForOpen(ctx, record)
+		if err != nil {
+			return ClaimResult{}, err
+		}
+	}
 	hasAttachments, hasVouchers := false, false
-	for _, id := range req.MailIDs {
-		mail, ok := record.Mails[strconv.FormatUint(uint64(id), 10)]
-		if !ok || mail.Claimed {
+	contracts := make(map[int64]premium.InventoryContract)
+	preselected, err := selectMailboxClaims(record, req.MailIDs)
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	for _, selection := range preselected {
+		mail := selection.mail
+		if mail.Claimed {
 			continue
 		}
 		for _, item := range mail.Attachments {
 			if shop.IsVoucher(item.ItemID) {
 				hasVouchers = true
 			} else {
+				if o.premiumResolver != nil {
+					contract, e := o.premiumResolver(item.ItemID)
+					if e != nil {
+						return ClaimResult{}, e
+					}
+					if contract.PremiumType != 0 || contract.DurationSeconds != 0 {
+						if contract.ItemID != item.ItemID || contract.PremiumType <= 0 || contract.DurationSeconds <= 0 {
+							return ClaimResult{}, ErrMailboxAssetMismatch
+						}
+						contracts[item.ItemID] = premium.InventoryContract{ItemID: item.ItemID, PremiumType: contract.PremiumType, DurationSeconds: contract.DurationSeconds}
+						continue
+					}
+				}
 				hasAttachments = true
 			}
 		}
@@ -413,7 +458,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 	var accounts dnfrepo.AccountRepository
 	var accountID string
 	within := o.repos.MailboxAssets.WithinMailboxAssets
-	if hasVouchers {
+	if hasVouchers || len(contracts) > 0 {
 		tx, ok := o.repos.MailboxAssets.(dnfrepo.AccountTradeMailboxUnitOfWork)
 		if !ok || o.repos.Character == nil {
 			return ClaimResult{}, ErrMailboxAssetsUOW
@@ -445,22 +490,37 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 		if !mailboxFound {
 			return ErrMailboxMailNotFound
 		}
+		if mailboxHasStoredClaimIDs(mailbox) {
+			if _, err := ensureMailboxClaimIDs(&mailbox); err != nil {
+				return err
+			}
+		}
 		now := o.clock()
+		if len(contracts) > 0 {
+			if accounts == nil {
+				return ErrMailboxAssetsUOW
+			}
+			character, found, err := characters.Load(ctx, characterID)
+			if err != nil {
+				return err
+			}
+			if !found || character.AccountID != accountID {
+				return ErrMailboxCharacterMissing
+			}
+		}
 		type claimCandidate struct {
-			id   uint32
-			key  string
-			mail dnfrepo.MailRecord
+			mailboxClaimSelection
 			// settled 为真表示这封信在本次请求之前就已经是"已领取"：它不再发货，
 			// 只按 claimed_letter.go 的档位结清（默认档移出收件箱）。
 			settled bool
 		}
 		selected := make([]claimCandidate, 0, len(req.MailIDs))
-		for _, id := range req.MailIDs {
-			key := strconv.FormatUint(uint64(id), 10)
-			mail, ok := mailbox.Mails[key]
-			if !ok {
-				return ErrMailboxMailNotFound
-			}
+		selections, err := selectMailboxClaims(mailbox, req.MailIDs)
+		if err != nil {
+			return err
+		}
+		for _, selection := range selections {
+			mail := selection.mail
 			if mail.Deleted {
 				// 默认档已经把这张空收据结清过（客户端双击 / 重复 op95 / 并发重放）。
 				// 答复与改动前保持一致（0x04），不许变成"邮件不存在"。
@@ -476,7 +536,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				}
 				// 已经领取过的信不再发一次货（附件在旧实现里就已经转出，只剩投影
 				// 没清 —— 与 clearUnclaimableMailboxAssets 同口径），本次只把它结清。
-				selected = append(selected, claimCandidate{id: id, key: key, mail: mail, settled: true})
+				selected = append(selected, claimCandidate{mailboxClaimSelection: selection, settled: true})
 				continue
 			}
 			if mailExpired(mail, now) {
@@ -485,7 +545,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			if mail.Gold < 0 {
 				return ErrMailboxInvalidRequest
 			}
-			selected = append(selected, claimCandidate{id: id, key: key, mail: mail})
+			selected = append(selected, claimCandidate{mailboxClaimSelection: selection})
 		}
 		if len(selected) == 0 {
 			return ErrMailboxAlreadyClaimed
@@ -517,13 +577,12 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			}
 		}
 
-		// Select-all requests contain the current page's mail IDs in order. Each
-		// letter remains an atomic asset transfer, but a full tab on one letter
-		// must not roll back mail that already fit into the quick slots or its
-		// real item tab earlier in the same request.
+		// 每个领取对象单独规划；同封多附件使用持久化编号，旧未投影邮件兼容整信领取。
+		// 一个分页满格不回滚本批已放得下的对象，未接受对象仍留在原信中。
 		accepted := make([]claimCandidate, 0, len(selected))
 		var totalGold int64
 		acceptedVouchers := shop.VoucherCounts{}
+		var acceptedContracts []mailboxContractCredit
 		inventoryChanged := false
 		inventoryFull := false
 		// acceptedPieces 是"已接受但还没入账"的碎片，按碎片 id 聚合。
@@ -548,6 +607,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			candidateRefreshes := make([]alignedcmd.ItemSlotRefresh, 0, len(candidate.mail.Attachments))
 			candidateItemCount := 0
 			candidateVouchers := shop.VoucherCounts{}
+			var candidateContracts []mailboxContractCredit
 			candidateInventoryChanged := false
 			candidatePieces := make(map[uint32]int64)
 			candidateWarehouse := make(map[int16]mailboxWarehouseCreditItem)
@@ -568,6 +628,11 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 						return shop.ErrWalletOverflow
 					}
 					*target += attachment.Count
+					candidateItemCount++
+					continue
+				}
+				if contract, ok := contracts[attachment.ItemID]; ok {
+					candidateContracts = append(candidateContracts, mailboxContractCredit{contract: contract, count: attachment.Count})
 					candidateItemCount++
 					continue
 				}
@@ -665,6 +730,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				return shop.ErrWalletOverflow
 			}
 			acceptedVouchers = acceptedVouchers.Add(candidateVouchers)
+			acceptedContracts = append(acceptedContracts, candidateContracts...)
 			inventory = candidateInventory
 			inventoryChanged = inventoryChanged || candidateInventoryChanged
 			for pieceID, count := range candidatePieces {
@@ -700,8 +766,9 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			}
 			return ErrMailboxAlreadyClaimed
 		}
+		result.InventoryFull = inventoryFull
 		result.Gold = totalGold
-		if !acceptedVouchers.IsZero() {
+		if !acceptedVouchers.IsZero() || len(acceptedContracts) > 0 {
 			account, found, e := accounts.Load(ctx, accountID)
 			if e != nil {
 				return e
@@ -709,14 +776,22 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			if !found || account.AccountID != accountID {
 				return ErrMailboxCharacterMissing
 			}
+			account = dnfrepo.CloneAccount(account)
 			if _, e = shop.CreditVoucherCounts(&account, acceptedVouchers); e != nil {
 				return e
+			}
+			for _, credit := range acceptedContracts {
+				activation, err := premium.ActivateContractGrant(&account, credit.contract, credit.count, now)
+				if err != nil {
+					return err
+				}
+				result.ContractActivations = append(result.ContractActivations, alignedcmd.PremiumContractActivation{ItemID: activation.ItemID, PremiumType: activation.PremiumType, Units: activation.Units, ExpireAt: activation.ExpireAt})
 			}
 			account.UpdatedAt = now
 			if e = accounts.Save(ctx, account); e != nil {
 				return e
 			}
-			result.WalletChanged = true
+			result.WalletChanged = !acceptedVouchers.IsZero()
 		}
 
 		if totalGold > 0 {
@@ -821,13 +896,18 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 		}
 
 		for _, candidate := range accepted {
-			mail := candidate.mail
+			parentID, err := mailboxWireID(candidate.mail.MailID)
+			if err != nil {
+				return err
+			}
+			result.ClaimObjects = append(result.ClaimObjects, mailboxClaimObject{MailID: parentID, ClaimID: candidate.id})
+			mail := mailbox.Mails[candidate.key]
 			// Attachments and gold have already been committed to the recipient's
 			// character/inventory in this same unit of work. Do not retain a second
 			// claimable projection on the mail itself.
-			mail.Gold = 0
-			mail.Attachments = nil
-			mail.Claimed = true
+			if err := settleMailboxClaim(&mail, candidate.mailboxClaimSelection); err != nil {
+				return err
+			}
 			mail.Read = true
 			// 领完就是完：这封信已经没有可领取的东西了，从收件箱移除。
 			//
@@ -841,7 +921,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			//
 			// 收藏（mailbox_saved）的信除外：玩家点过收藏就是要留着这封信。
 			// 客户端随后补发的那条 op134 由 ChangeState 的幂等分支接住（不是错误）。
-			if o.finishesClaimedLetters() && !mailboxMailSaved(mail) {
+			if mail.Claimed && o.finishesClaimedLetters() && !mailboxMailSaved(mail) {
 				mail.Deleted = true
 			}
 			mailbox.Mails[candidate.key] = mail

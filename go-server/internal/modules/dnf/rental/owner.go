@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -28,8 +29,9 @@ var (
 )
 
 type WalletResult struct {
-	Points uint32
-	Gold   int64
+	Points        uint32
+	Gold          int64
+	QuestAdvanced bool
 }
 
 type Assets struct {
@@ -55,11 +57,12 @@ type ChargeCommand struct {
 }
 
 type RentCommand struct {
-	AccountID   string
-	CharacterID string
-	PointCost   uint32
-	UpdatedAt   time.Time
-	Project     Projector
+	AccountID    string
+	CharacterID  string
+	PointCost    uint32
+	UpdatedAt    time.Time
+	Project      Projector
+	QuestCatalog *dnfquest.Catalog
 }
 
 type CleanupCommand struct {
@@ -73,14 +76,18 @@ type CleanupCommand struct {
 // atomic account, character, inventory, and equipment commit. PVF validation
 // and current-client raw-row projection remain in the bridge.
 type Owner struct {
-	assets dnfrepo.RentalAssetUnitOfWork
+	assets      dnfrepo.RentalAssetUnitOfWork
+	settlements dnfrepo.CharacterSettlementUnitOfWork
 }
 
 func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 	if repositories.RentalAssets == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{assets: repositories.RentalAssets}, nil
+	return &Owner{
+		assets:      repositories.RentalAssets,
+		settlements: repositories.CharacterSettlement,
+	}, nil
 }
 
 func (o *Owner) Charge(ctx context.Context, command ChargeCommand) (WalletResult, error) {
@@ -143,6 +150,9 @@ func (o *Owner) Rent(ctx context.Context, command RentCommand) (WalletResult, er
 	if command.Project == nil {
 		return WalletResult{}, ErrProjectorRequired
 	}
+	if command.QuestCatalog != nil {
+		return o.rentWithQuestSettlement(ctx, command)
+	}
 	var result WalletResult
 	err := o.withinOwners(ctx, command.AccountID, command.CharacterID, func(
 		accounts dnfrepo.AccountRepository,
@@ -152,51 +162,154 @@ func (o *Owner) Rent(ctx context.Context, command RentCommand) (WalletResult, er
 		account dnfrepo.AccountRecord,
 		character dnfrepo.CharacterRecord,
 	) error {
-		points, err := Points(account)
+		wallet, err := applyRentalMutation(
+			ctx,
+			command,
+			accounts,
+			inventories,
+			equipmentRepo,
+			account,
+			character,
+		)
 		if err != nil {
 			return err
 		}
-		if points < command.PointCost {
-			return ErrPointsInsufficient
-		}
-		inventory, equipment, err := loadRentalItems(ctx, inventories, equipmentRepo, command.CharacterID)
-		if err != nil {
-			return err
-		}
-		changes, err := command.Project(&Assets{
-			Character: &character,
-			Inventory: &inventory,
-			Equipment: &equipment,
-		})
-		if err != nil {
-			return err
-		}
-		points -= command.PointCost
-		SetPoints(&account, points)
-		now := normalizedTime(command.UpdatedAt)
-		account.UpdatedAt = now
-		if err := accounts.Save(ctx, account); err != nil {
-			return err
-		}
-		if changes.Inventory {
-			inventory.UpdatedAt = now
-			if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
-				return err
-			}
-		}
-		if changes.Equipment {
-			equipment.UpdatedAt = now
-			if err := dnfrepo.SaveEquipmentFields(ctx, equipmentRepo, equipment, dnfrepo.EquipmentFieldEntries); err != nil {
-				return err
-			}
-		}
-		result = WalletResult{Points: points, Gold: character.Stats["gold"]}
+		result = wallet
 		return nil
 	})
 	if err != nil {
 		return WalletResult{}, err
 	}
 	return result, nil
+}
+
+func applyRentalMutation(
+	ctx context.Context,
+	command RentCommand,
+	accounts dnfrepo.AccountRepository,
+	inventories dnfrepo.InventoryRepository,
+	equipmentRepo dnfrepo.EquipmentRepository,
+	account dnfrepo.AccountRecord,
+	character dnfrepo.CharacterRecord,
+) (WalletResult, error) {
+	points, err := Points(account)
+	if err != nil {
+		return WalletResult{}, err
+	}
+	if points < command.PointCost {
+		return WalletResult{}, ErrPointsInsufficient
+	}
+	inventory, equipment, err := loadRentalItems(ctx, inventories, equipmentRepo, command.CharacterID)
+	if err != nil {
+		return WalletResult{}, err
+	}
+	changes, err := command.Project(&Assets{
+		Character: &character,
+		Inventory: &inventory,
+		Equipment: &equipment,
+	})
+	if err != nil {
+		return WalletResult{}, err
+	}
+	points -= command.PointCost
+	SetPoints(&account, points)
+	now := normalizedTime(command.UpdatedAt)
+	account.UpdatedAt = now
+	if err := accounts.Save(ctx, account); err != nil {
+		return WalletResult{}, err
+	}
+	if changes.Inventory {
+		inventory.UpdatedAt = now
+		if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
+			return WalletResult{}, err
+		}
+	}
+	if changes.Equipment {
+		equipment.UpdatedAt = now
+		if err := dnfrepo.SaveEquipmentFields(ctx, equipmentRepo, equipment, dnfrepo.EquipmentFieldEntries); err != nil {
+			return WalletResult{}, err
+		}
+	}
+	return WalletResult{Points: points, Gold: character.Stats["gold"]}, nil
+}
+
+func (o *Owner) rentWithQuestSettlement(ctx context.Context, command RentCommand) (WalletResult, error) {
+	if o == nil || o.settlements == nil {
+		return WalletResult{}, ErrOwnerUnavailable
+	}
+	accountID, characterID, err := rentalOwnerKeys(command.AccountID, command.CharacterID)
+	if err != nil {
+		return WalletResult{}, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var result WalletResult
+	err = o.settlements.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
+		if tx.Account == nil || tx.Character == nil || tx.Quest == nil ||
+			tx.Inventory == nil || tx.Equipment == nil {
+			return ErrOwnerUnavailable
+		}
+		account, accountFound, err := tx.Account.Load(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		character, characterFound, err := tx.Character.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if !accountFound || !characterFound {
+			return ErrStateMissing
+		}
+		if strings.TrimSpace(account.AccountID) != accountID ||
+			strings.TrimSpace(character.CharacterID) != characterID ||
+			strings.TrimSpace(character.AccountID) != accountID {
+			return ErrOwnerMismatch
+		}
+		account = dnfrepo.CloneAccount(account)
+		character = dnfrepo.CloneCharacter(character)
+		wallet, err := applyRentalMutation(
+			ctx,
+			command,
+			tx.Account,
+			tx.Inventory,
+			tx.Equipment,
+			account,
+			character,
+		)
+		if err != nil {
+			return err
+		}
+		advanced, err := dnfquest.AdvanceRentalGuideQuest(
+			ctx,
+			tx.Quest,
+			characterID,
+			command.QuestCatalog,
+			normalizedTime(command.UpdatedAt),
+		)
+		if err != nil {
+			return err
+		}
+		wallet.QuestAdvanced = advanced
+		result = wallet
+		return nil
+	})
+	if err != nil {
+		return WalletResult{}, err
+	}
+	return result, nil
+}
+
+func rentalOwnerKeys(accountID, characterID string) (string, string, error) {
+	accountID = strings.TrimSpace(accountID)
+	characterID = strings.TrimSpace(characterID)
+	if accountID == "" {
+		return "", "", ErrAccountRequired
+	}
+	if characterID == "" {
+		return "", "", ErrCharacterRequired
+	}
+	return accountID, characterID, nil
 }
 
 func (o *Owner) Cleanup(ctx context.Context, command CleanupCommand) error {

@@ -38,7 +38,10 @@ type PlanResult struct {
 	// StateChanged is true only after ApplySetTrigger has durably updated the
 	// active quest state. A valid replay at the already-persisted state is not
 	// a new client-success boundary.
-	StateChanged      bool
+	StateChanged bool
+	// EchoOnly marks an authoritative persisted value that may be returned to
+	// the client once without treating the client trigger as progress.
+	EchoOnly          bool
 	Status            string
 	TriggerType       byte
 	ProgressValue     int64
@@ -437,6 +440,14 @@ func (o *Owner) ApplySetTrigger(ctx context.Context, cmd Command) (PlanResult, e
 	record = dnfrepo.CloneQuest(record)
 	state, field, known := mutableQuestState(&record, int64(cmd.QuestID))
 	if !known {
+		return result, nil
+	}
+	if isRentalGuideQuestState(state) {
+		// A successful equipment rental is the only authority that advances
+		// this guide. Echo the committed remaining count without mutating it.
+		result.ProgressValue = state.ProgressValue
+		result.TriggerType = state.TriggerType
+		result.EchoOnly = true
 		return result, nil
 	}
 	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" {

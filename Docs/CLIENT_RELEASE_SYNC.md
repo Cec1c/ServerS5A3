@@ -4,7 +4,9 @@
 
 同步仅处理 `client-*` 标签及包含 `DNF.exe` 的原始 ZIP（可附说明与摘要），保留精确标签提交、附件、预览状态、来源说明和完整 SHA256。工作流不构建服务端，不复制服务端产物，不修改任何源码分支，也不切换玩家更新源或部署服务。
 
-归档允许 `.txt`、`.md`、`.json` 说明，以及根级 `scripts/` 目录内（含子目录）的 `.py` 源码证据。源码仅按归档成员读取并校验 CRC，不解压、导入或执行；其他目录的 Python 文件和其他可执行类型仍拒绝。所有成员仍经过路径、大小、数量、重复与符号链接检查，且必须包含唯一的有效 `DNF.exe`，保留 ZIP 和 EXE 的完整摘要核验。
+同时支持带来源记录的 `.zip.001` 等分卷。每卷必须声明完整归档的摘要、大小、总卷数和本卷序号；下载逐卷验哈后，按连续序号重组并检查完整 ZIP。分卷配套包必须含唯一有效 EXE 和 `client/Script.pvf`，EXE 与同一发行的独立包一致。最多16卷、完整归档及解压总量均不超过512MiB；缺卷、重复、序号冲突、摘要不符或越界均停止。原样镜像分卷及其来源记录，PVF仅作静态归档验证，不安装到玩家或服务端。
+
+归档允许 `.txt`、`.md`、`.json` 说明，根级 `scripts/` 目录内（含子目录）的 `.py` 源码证据，以及根级 `evidence/` 目录直接包含的 `.log` 静态证据。根目录或其他目录的 `.log`、`evidence/` 子目录中的 `.log` 仍拒绝。这些成员仅按归档流读取并校验 CRC，不提取、导入或执行；其他目录的 Python 文件和其他可执行类型仍拒绝。归档最多32个文件，用于容纳累计补丁的静态证据；超限错误区分文件数量与解压总字节数。所有成员仍经过路径、大小、数量、重复与符号链接检查，且必须包含唯一的有效 `DNF.exe`，保留 ZIP 和 EXE 的完整摘要核验。
 
 ## 配置
 
@@ -14,12 +16,17 @@
 | --- | --- |
 | `GITGUD_CLIENT_RELEASE_PROJECT` | 获准发布 EXE 的上游 GitGud 数字项目 ID；为空时禁用。不要填写源码 fork ID。 |
 | `GITGUD_CLIENT_RELEASE_TOKEN` | 仅属于上述项目的 project access token，具有 API 与新标签/附件发布权限 |
+| `SOURCE_MIRROR_SSH_KEY` / `SOURCE_MIRROR_KNOWN_HOSTS` | 复用源码镜像已有的本 GitHub 仓库专用写入身份及固定主机密钥，仅用于经过历史工作流审计的新标签 |
 
 GitHub 使用短期 `GITHUB_TOKEN`。工作流在手动运行、发布 Release 和每小时两次定时检查时执行；调度可能延迟。任务串行执行，从可信的 `master` 读取同步实现，不执行 Release 附件或来源仓库代码。GitGud 的授权限于此次客户端 Release 流程；源码贡献仍走 PR/MR。
 
 本机可使用 `--local-auth` 从已登录的 `gh` / `glab` 获取凭据，仅在内存中使用；CI 使用环境变量 `GH_TOKEN` / `GITGUD_RELEASE_TOKEN`。不要把 token 写入参数、日志或仓库。
 
-新建 GitHub 标签须通过可信 Actions 的短期 `GITHUB_TOKEN`，避免旧标签内的历史工作流被个人凭据再次触发；本机仍可检查计划及处理已有标签。GitGud 标签推送使用 `ci.skip`，不触发服务端流水线。
+新建 GitHub 标签须在可信 Actions 中执行。历史提交的工作流与当前主干不同，可能使短期 `GITHUB_TOKEN` 创建标签返回403；正式工作流显式启用 `--github-tag-ssh`，复用已有镜像SSH身份创建标签，Release与附件仍用短期令牌。
+
+SSH写入前只读审计标签内的全部工作流：允许手动、定时、Release及明确限定分支的push触发；拒绝create、标签push、无过滤push、workflow_run及无法识别的配置。重复YAML键、合并键、符号链接与过大工作流同样拒绝。审计只解析YAML，不执行历史代码；依赖固定在 `scripts/ci/requirements-release-sync.txt`。推送只创建精确标签、保持注解标签对象，不写源码分支、不强推，之后读回提交。SSH临时文件在任务结束时删除。
+
+未启用该选项时仍使用原短期令牌路径；API拒绝不会自动切换其他凭据。本机仍可检查计划及处理已有标签。GitGud标签推送使用 `ci.skip`，不触发服务端流水线。
 
 ```text
 python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project UPSTREAM_RELEASE_PROJECT_ID --cache runtime/client-release-cache --receipt runtime/client-release-sync.json
@@ -53,5 +60,6 @@ python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project U
 运行同步回归：
 
 ```text
+python -m pip install -r scripts/ci/requirements-release-sync.txt
 python -m unittest discover -s scripts/ci -p "test_*.py" -v
 ```

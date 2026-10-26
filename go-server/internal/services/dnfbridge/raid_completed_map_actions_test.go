@@ -213,6 +213,26 @@ func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t
 				oldPeer.raidEntry.RunID = "foreign"
 			}
 			closedDuringRetire := false
+			// The ordinary entry fixture publishes its shared instance before we
+			// supply raid identity. Production freezes raid identity before commit;
+			// republish both members under that final key before testing recovery.
+			for _, session := range []*gameSession{leader, peer} {
+				s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "test_freeze_raid_identity")
+			}
+			for _, session := range []*gameSession{leader, peer} {
+				runtime := session.dungeon.runtime
+				scene, ok := runtime.Session.Scene()
+				if !ok || s.adoptPartyDungeonInstance(session, runtime, scene) == nil {
+					t.Fatal("completed raid fixture failed to publish shared instance")
+				}
+				key, valid := dungeonPartyRunKeyFrom(session, runtime, scene)
+				if !valid || runtime.partyInstance.key != key {
+					t.Fatal("completed raid fixture has stale shared instance identity")
+				}
+			}
+			if oldLeader.partyInstance != oldPeer.partyInstance {
+				t.Fatal("completed raid fixture members do not share an instance")
+			}
 			originalProvider := s.repositoryProvider
 			if fault == "close_during_peer_retire" {
 				s.repositoryProvider = func() (dnfrepo.Group, bool) {

@@ -90,6 +90,13 @@ func buildCurrentAdventureInfoBodyWithState(
 		raw[currentAdventureInfoLoginDaysOffset:currentAdventureInfoLoginDaysOffset+4],
 		projection.ConsecutiveLoginDays,
 	)
+	for kind, offset := range [...]int{
+		currentAdventureInfoRecommendedOffset, currentAdventureInfoPVPWinOffset,
+		currentAdventureInfoDespairOffset, currentAdventureInfoGriefOffset,
+		currentAdventureInfoAntonOffset, currentAdventureInfoLukeOffset, currentAdventureInfoFiendWarOffset,
+	} {
+		binary.LittleEndian.PutUint32(raw[offset:offset+4], projection.ContentCounts[kind])
+	}
 	characterCount := len(characters)
 	if characterCount > currentAdventureInfoRosterCount {
 		characterCount = currentAdventureInfoRosterCount

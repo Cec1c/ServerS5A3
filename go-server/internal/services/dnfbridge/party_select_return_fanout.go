@@ -103,7 +103,8 @@ func (s *Service) fanOutDungeonSelectReturnToPartyMembers(session *gameSession, 
 	}
 	state := runtimePartyStateSnapshot(session)
 	members := runtimePartyMembers(state)
-	if state.PartyID <= 0 || len(members) < 2 {
+	leaderOwner, leaderBound := s.boundGameSessionCharacterSnapshot(session)
+	if state.PartyID <= 0 || len(members) < 2 || state.UserID != session.selectedCharacterID || !leaderBound {
 		// 单人 / 没有活队伍：与改动前逐字节相同。
 		return 0
 	}
@@ -147,6 +148,14 @@ func (s *Service) fanOutDungeonSelectReturnToPartyMembers(session *gameSession, 
 		}
 		delivered := false
 		if decision == "fan_out" {
+			memberOwner, bound := s.boundGameSessionCharacterSnapshot(peer)
+			if !bound || memberOwner.character != peerCharacterID {
+				continue
+			}
+			peer.townMu.Lock()
+			origin := peer.townSelectorOriginSnapshot
+			peer.townMu.Unlock()
+			owner := partySelectReturnOwner{leader: leaderOwner, member: memberOwner, partyID: state.PartyID, origin: origin}
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 			transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, peer, peerCharacterID)
 			cancel()
@@ -157,16 +166,18 @@ func (s *Service) fanOutDungeonSelectReturnToPartyMembers(session *gameSession, 
 					"leader_char_id", state.UserID,
 					"member_char_id", member.UserID,
 					"error", err)
-			} else if err := s.sendDungeonSelectReturnToMember(peer, transition, source); err != nil {
+			} else if sent, err := s.sendDungeonSelectReturnToMember(peer, transition, source, owner); err != nil {
 				decision, reason = "failed", "member_select_town_return_send_failed"
 				s.logGameEvent(session, "game-party-dungeon-select-return-fanout-failed",
 					"source", source,
 					"leader_char_id", state.UserID,
 					"member_char_id", member.UserID,
 					"error", err)
-			} else {
+			} else if sent {
 				delivered = true
 				fannedOut++
+			} else {
+				decision, reason = "skip", "member_select_return_owner_changed_during_prepare"
 			}
 		}
 		// 这一行是"下一次实测一眼可判"的那一条。
@@ -187,6 +198,33 @@ func (s *Service) fanOutDungeonSelectReturnToPartyMembers(session *gameSession, 
 	return fannedOut
 }
 
+type partySelectReturnOwner struct {
+	leader, member boundGameSessionCharacter
+	partyID        int
+	origin         currentTownPositionSnapshot
+}
+
+// Transition preparation performs repository reads. Recheck both bindings,
+// party membership and the exact selector origin before writing the return.
+func (s *Service) currentPartySelectReturnOwner(owner partySelectReturnOwner) bool {
+	if !s.boundGameSessionCharacterCurrent(owner.leader) || !s.boundGameSessionCharacterCurrent(owner.member) {
+		return false
+	}
+	for _, session := range []*gameSession{owner.leader.session, owner.member.session} {
+		state := runtimePartyStateSnapshot(session)
+		if state.PartyID != owner.partyID || state.UserID != owner.leader.character {
+			return false
+		}
+	}
+	member := owner.member.session
+	if ready, _ := currentDungeonSelectTownReturnReady(member); !ready {
+		return false
+	}
+	member.townMu.Lock()
+	defer member.townMu.Unlock()
+	return member.townSelectorOriginBound && member.townSelectorOriginSnapshot == owner.origin
+}
+
 // sendDungeonSelectReturnToMember 在一名队员自己的会话上走完"选择页回城"那一条已证路径：
 // 同一条 op24 + 同一串收尾。与 `dungeon_return_town.go:96-150` 的队长分支**同形**，
 // 只是执行者是另一名会话。
@@ -194,16 +232,17 @@ func (s *Service) sendDungeonSelectReturnToMember(
 	member *gameSession,
 	transition currentDungeonTownTransition,
 	source string,
-) error {
+	owner partySelectReturnOwner,
+) (bool, error) {
 	if s == nil || member == nil {
-		return nil
+		return false, nil
 	}
 	member.dungeon.mu.Lock()
 	runtime := member.dungeon.runtime
-	if runtime != nil && runtime.Session != nil {
+	if runtime != nil || !s.currentPartySelectReturnOwner(owner) {
 		// 二次确认：上锁之后这名队员已经不在选图页了（例如它自己刚发过 op132）⇒ 谁也不抢谁。
 		member.dungeon.mu.Unlock()
-		return nil
+		return false, nil
 	}
 	s.logGameEvent(member, "game-dungeon-select-back-to-village-op24-send",
 		"char_id", member.selectedCharacterID,
@@ -223,12 +262,13 @@ func (s *Service) sendDungeonSelectReturnToMember(
 		"body_source", "current_exe_sub_1D901D0_typed")
 	if err := s.sendGameUpperRawClass(member, currentSceneTransitionMsgID, transition.Body, 0); err != nil {
 		member.dungeon.mu.Unlock()
-		return err
+		return false, err
 	}
 	clearCurrentDungeonSelectContext(member)
 	resetDungeonReturnSceneGates(member)
 	member.returnTownFinishLoadingAckOnly = true
 	member.confirmedDungeonReturnStatePending = true
+	member.selectorReturnPresence = s.captureCurrentSelectorReturnPresence(member, transition)
 	markBackToVillageEnterSelectPending(member)
 	s.logGameEvent(member, "game-dungeon-select-back-to-village-committed",
 		"char_id", member.selectedCharacterID,
@@ -239,5 +279,5 @@ func (s *Service) sendDungeonSelectReturnToMember(
 		"reason", "leader_left_the_dungeon_select_page_and_the_party_member_is_returned_with_it")
 	member.dungeon.mu.Unlock()
 	clearCurrentTownSelectorOrigin(member)
-	return nil
+	return true, nil
 }

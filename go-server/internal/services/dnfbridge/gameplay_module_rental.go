@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 )
 
 func rentalGameplayModule() gameplayModuleDefinition {
@@ -67,6 +68,15 @@ func (s *Service) handleCurrentRentEquipment(session *gameSession, body []byte) 
 	if err != nil {
 		s.logGameEvent(session, "game-upper-rental-equipment-request-blocked", "item_id", request.ItemID, "reason", err)
 		return s.sendCurrentRentalFailureAck(session, rentOpcode, "rent_pvf_catalog_unavailable", "item_id", request.ItemID, "detail", err)
+	}
+	questCatalog, err := s.loadQuestCatalog(ctx)
+	if err != nil {
+		s.logGameEvent(session, "game-upper-rental-equipment-request-blocked",
+			"item_id", request.ItemID,
+			"reason", "rent_quest_catalog_unavailable",
+			"detail", err)
+		return s.sendCurrentRentalFailureAck(session, rentOpcode, "rent_quest_catalog_unavailable",
+			"item_id", request.ItemID, "detail", err)
 	}
 	jobValue := numericCharacterStat(character.Job)
 	if jobValue < 0 || jobValue > math.MaxUint16 {
@@ -137,7 +147,7 @@ func (s *Service) handleCurrentRentEquipment(session *gameSession, body []byte) 
 		s.logGameEvent(session, "game-upper-rental-equipment-request-blocked", "item_id", request.ItemID, "reason", err)
 		return s.sendCurrentRentalFailureAck(session, rentOpcode, "rent_asset_owner_unavailable", "item_id", request.ItemID, "detail", err)
 	}
-	result, err := rentCurrentEquipment(ctx, owner, s.accountIDForSession(session), characterID, request.ItemID, pointCost, definition, now)
+	result, err := rentCurrentEquipment(ctx, owner, s.accountIDForSession(session), characterID, request.ItemID, pointCost, definition, now, questCatalog)
 	if err != nil {
 		resultCode := uint32(1)
 		if errors.Is(err, errCurrentRentalInventoryFull) {
@@ -162,6 +172,11 @@ func (s *Service) handleCurrentRentEquipment(session *gameSession, body []byte) 
 		}
 		return s.sendCurrentRentEquipmentResult(session, resultCode)
 	}
+	if result.QuestAdvanced {
+		// A pre-rental trigger may already have echoed the old remaining count.
+		// The committed rental opens a new authoritative replay boundary.
+		session.clearCurrentSetQuestTriggerReplayForQuest(session.selectedCharacterID, uint16(dnfquest.RentalGuideQuestID))
+	}
 	if err := s.sendCurrentRentEquipmentResult(session, 0); err != nil {
 		return err
 	}
@@ -170,6 +185,11 @@ func (s *Service) handleCurrentRentEquipment(session *gameSession, body []byte) 
 	}
 	if err := s.sendSelectedCurrentRentalInventoryItemUpdate(session, repositories.Inventory, characterID, request.ItemID, result); err != nil {
 		return err
+	}
+	if result.QuestAdvanced {
+		if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_exe_op999_after_atomic_rental_guide_progress"); err != nil {
+			return err
+		}
 	}
 	s.logGameEvent(session, "game-upper-rental-equipment-applied",
 		"character_id", characterID,
@@ -182,6 +202,7 @@ func (s *Service) handleCurrentRentEquipment(session *gameSession, body []byte) 
 		"slot", result.Slot,
 		"equipped", result.Equipped,
 		"expire_unix", result.ExpireAt.Unix(),
+		"quest_advanced", result.QuestAdvanced,
 		"pvf_path", definition.PVFPath,
 		"durability", definition.Durability)
 	return nil

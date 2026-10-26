@@ -299,6 +299,11 @@ func (s *AntonProgression) ClearDungeon(runID string, dungeonID uint32, expected
 }
 
 func (s *AntonProgression) setDungeon(id uint32, state byte, events *[]antonEvent) {
+	// Operator policy: the first Anton hatchery stays closed, including delayed
+	// reopen directives. Keep its PVF row so all native state projections agree.
+	if !s.program.luke && id == 221 {
+		state = 2
+	}
 	previous := s.dungeons[id]
 	if previous == state {
 		return
@@ -427,12 +432,19 @@ func (s *AntonProgression) evaluate(now time.Time, events []antonEvent) error {
 					s.timers = map[AntonTimerKey]AntonTimer{}
 					s.reserved = map[uint32]antonReservedState{}
 				case "OPEN RANDOM HATCHERY":
-					ids := append([]uint32(nil), s.program.hatcheries...)
-					for i := len(ids) - 1; i > 0; i-- {
-						j := s.nextRandom(i + 1)
-						ids[i], ids[j] = ids[j], ids[i]
+					// The operator explicitly fixes the open set to hatcheries 2/3/4.
+					// Infection remains random within that set; hatchery 1 cannot
+					// become an infected target or a selectable dungeon.
+					ids := []uint32{222, 223, 224}
+					if s.program.luke || s.program.hatcheryOpen != len(ids) {
+						return fmt.Errorf("fixed Anton hatchery policy requires three open hatcheries")
 					}
-					ids = ids[:s.program.hatcheryOpen]
+					for _, id := range ids {
+						if _, exists := s.dungeons[id]; !exists {
+							return fmt.Errorf("fixed Anton hatchery %d unavailable", id)
+						}
+					}
+					s.setDungeon(221, 2, &events)
 					s.infection = ids[s.nextRandom(len(ids))]
 					s.setSymbol("IS EXIST INFECTION DUNGEON", 1, &events)
 					s.setSymbol("INFECTION DUNGEON INDEX", s.infection, &events)

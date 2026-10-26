@@ -40,6 +40,8 @@ type currentGuildCreateInvitation struct {
 type guildSessionState struct {
 	mu                    sync.Mutex
 	purchaseSequence      guildPurchaseSequence
+	teleport              *currentGuildTeleport
+	teleportLast          *currentGuildTeleport
 	pendingName           string
 	nameChecked           bool
 	promotion             string
