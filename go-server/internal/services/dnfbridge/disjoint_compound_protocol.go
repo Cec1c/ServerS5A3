@@ -285,8 +285,10 @@ type currentDisjointRewardSlot struct {
 }
 
 type currentDisjointResult struct {
-	Rewards []currentDisjointRewardSlot
-	Updates []currentItemListEntry
+	Rewards     []currentDisjointRewardSlot
+	Updates     []currentItemListEntry
+	GoldAfter   int64
+	GoldChanged bool
 }
 
 // currentDisjointBatchItem 是批量分解里单件的产物行（逐件回包与日志用）。
@@ -297,7 +299,9 @@ type currentDisjointBatchItem struct {
 
 // currentDisjointBatchResult 是一次批量分解的逐件产物，顺序 = 请求里的槽位顺序。
 type currentDisjointBatchResult struct {
-	Items []currentDisjointBatchItem
+	Items       []currentDisjointBatchItem
+	GoldAfter   int64
+	GoldChanged bool
 }
 
 // currentDisjointSlotError 把"哪一件不合法"钉进错误里，使整批拒绝能报出 offending

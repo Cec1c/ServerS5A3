@@ -257,6 +257,7 @@ func TestRealPVFRaidMemberPhaseAdvanceClearInfoWireProfilesClock(t *testing.T) {
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
+	enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
 	state, ok, err := f.service.startRuntimeRaidWithEntryCost(session)
 	if !ok || err != nil || state.Battle.Phase != 1 || len(state.Battle.MemberClears) != 0 {
 		t.Fatal("legitimate phase advance", ok, err)

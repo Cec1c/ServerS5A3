@@ -486,10 +486,34 @@ type currentDungeonReviveCoinConsumeResult struct {
 	RaidCoinProjection *runtimeRaidState
 }
 
+// A completed ordinary run cancels its death-return timer when entering
+// settlement; that does not revive an actor whose death was already accepted.
+// Keep op40 admission active-only. Only op41 may use this retained death proof,
+// in the same committed run, before a town transition, without changing any
+// result/card/reward gate. Dedicated raid/tower/tournament rules stay separate.
+func currentDungeonReviveRuntimeOwner(runtime *runtimeDungeonState, session *gameSession) (uint16, string) {
+	characterID, reason := currentDungeonDeathRuntimeOwner(runtime, session)
+	if reason == "" {
+		if !runtime.deathReturnWaiting {
+			return 0, "death_timer_not_waiting"
+		}
+		return characterID, ""
+	}
+	if reason != "dungeon_run_not_active" || runtime.raidEntry != nil || runtime.Tournament != nil ||
+		isPVFTutorialDungeon(runtime) || currentDungeonUsesDedicatedTowerResult(runtime) ||
+		runtime.townReturnPending || !runtime.deathStateSent ||
+		runtime.lifecycleToken == 0 || runtime.lifecycleToken != session.dungeon.runToken ||
+		!completedDungeonSettlementEntryReady(runtime, session.selectedCharacterID) ||
+		!currentDungeonSettlementCompletionReady(runtime, worldmap.DungeonRunCompleted) {
+		return 0, reason
+	}
+	return session.selectedCharacterID, ""
+}
+
 // handleDungeonUseCoin accepts current-EXE op41 (body = target actor object
-// key u16) while the death-return timer is armed. It consumes one revive coin
-// stack (item id 1) when available, cancels the death timer, and ACKs with
-// class1/op41 success plus the extra success flag byte.
+// key u16) for an active waiting death or a proven death retained by ordinary
+// settlement. It consumes one revive coin stack (item id 1) when available,
+// cancels the death timer, and ACKs with class1/op41 plus its success flag.
 func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error {
 	if session == nil {
 		return nil
@@ -506,7 +530,7 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	characterID := session.selectedCharacterID
-	ownerID, readyReason := currentDungeonDeathRuntimeOwner(runtime, session)
+	ownerID, readyReason := currentDungeonReviveRuntimeOwner(runtime, session)
 	waiting := runtime != nil && runtime.deathReturnWaiting
 	runToken := uint64(0)
 	generation := uint64(0)
@@ -519,18 +543,14 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 	expectedObjectKey := currentSceneActorObjectKey(characterID)
 	session.dungeon.mu.Unlock()
 
-	if readyReason != "" || !waiting {
-		reason := readyReason
-		if reason == "" {
-			reason = "death_timer_not_waiting"
-		}
+	if readyReason != "" {
 		s.logGameEvent(session, "game-dungeon-use-coin-blocked",
 			"char_id", characterID,
 			"target_object_key", targetObjectKey,
 			"expected_object_key", expectedObjectKey,
 			"run_token", runToken,
 			"death_timer_waiting", waiting,
-			"reason", reason)
+			"reason", readyReason)
 		return nil
 	}
 	if targetObjectKey != expectedObjectKey || targetObjectKey != currentSceneActorObjectKey(ownerID) {
@@ -547,7 +567,7 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 	defer cancel()
 
 	session.dungeon.mu.Lock()
-	if session.dungeon.runtime != runtime || runtime == nil || !runtime.deathReturnWaiting ||
+	if session.dungeon.runtime != runtime || runtime == nil ||
 		runtime.deathReturnGeneration != generation || runtime.lifecycleToken != runToken {
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-use-coin-blocked",
@@ -558,7 +578,7 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 			"reason", "death_timer_state_changed_before_commit")
 		return nil
 	}
-	if _, reason := currentDungeonDeathRuntimeOwner(runtime, session); reason != "" {
+	if _, reason := currentDungeonReviveRuntimeOwner(runtime, session); reason != "" {
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-use-coin-blocked",
 			"char_id", characterID,
