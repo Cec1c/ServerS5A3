@@ -25,10 +25,26 @@ func r139PrepareSlot(t *testing.T, f *loginWearAnchorFixture, slot byte, item in
 	if err != nil {
 		t.Fatal(err)
 	}
-	eq.Entries[strconv.Itoa(int(slot))] = repo.EquipmentEntry{SlotIndex: int16(slot), ItemID: item, RawEntry: r139PublicRawEntry(int16(slot), item, 203004656, 48), Extra: map[string]string{
-		"item_kind": "equipment", "pvf_path": def.PVFPath, "equipment_type": def.EquipmentType,
-		"equipped_slot": strconv.Itoa(int(slot)), "equipment_slot": strconv.Itoa(int(slot)), "durability": "48", "max_durability": "48", "quality_seed": "203004656",
-	}}
+	key := strconv.Itoa(int(slot))
+	extra := eq.Entries[key].Extra
+	if extra == nil {
+		extra = map[string]string{}
+	}
+	extra["item_kind"] = "equipment"
+	extra["pvf_path"] = def.PVFPath
+	extra["equipment_type"] = def.EquipmentType
+	extra["equipped_slot"] = strconv.Itoa(int(slot))
+	extra["equipment_slot"] = strconv.Itoa(int(slot))
+	extra["durability"] = "48"
+	extra["max_durability"] = "48"
+	extra["quality_seed"] = "203004656"
+	if slot == p94Slot {
+		// Preserve the current runtime pants-row identity used by the unified
+		// P94 fixture; replacing Extra projects slot16 as legacy actor17.
+		extra["current_exe_runtime_move"] = "1"
+		extra["current_exe_equipment_type"] = strconv.Itoa(int(slot))
+	}
+	eq.Entries[key] = repo.EquipmentEntry{SlotIndex: int16(slot), ItemID: item, RawEntry: r139PublicRawEntry(int16(slot), item, 203004656, 48), Extra: extra}
 	if err = f.group.Equipment.Save(ctx, eq); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +65,11 @@ func r139Register(t *testing.T, f *loginWearAnchorFixture, slot byte) string {
 	return state.Slots[slot].Instance
 }
 
-func r139AssertWire(t *testing.T, f *loginWearAnchorFixture, slot, list byte, index uint16, modeCount int) {
+func r139IsBuffWireID(msg uint16) bool {
+	return msg == currentBuffSwapRowsID || msg == currentBuffSwapSnapshotID
+}
+
+func r139AssertWire(t *testing.T, f *loginWearAnchorFixture, slot, list byte, index uint16, modeCount int, wantBuffID uint16) {
 	t.Helper()
 	wire := append([]byte(nil), f.buffer.write.Bytes()...)
 	ackAt, rowAt, buffAt := -1, -1, -1
@@ -66,17 +86,13 @@ func r139AssertWire(t *testing.T, f *loginWearAnchorFixture, slot, list byte, in
 		if p.Header.Classification == 0 && p.Header.MsgID == 2 {
 			actorCount++
 		}
-		if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+		if p.Header.Classification == 0 && r139IsBuffWireID(p.Header.MsgID) {
 			buffCount++
 			buffAt = seq
-			body := p.Body
-			if len(body) == 171 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
-				body = body[3:]
+			if p.Header.MsgID != wantBuffID {
+				t.Fatalf("unexpected Buff wire msg=%d want=%d", p.Header.MsgID, wantBuffID)
 			}
-			if len(body) != 168 {
-				t.Fatal("bad snapshot size")
-			}
-			row := body[3+int(slot)*5 : 8+int(slot)*5]
+			row := r195SortBuffRegistrationRow(t, p, slot)
 			if !bytes.Equal(row, []byte{1, slot, list, byte(index), byte(index >> 8)}) {
 				t.Fatalf("wrong instance projection %x", row)
 			}
@@ -105,8 +121,9 @@ func TestR139BuffDefaultSlotAndOrder(t *testing.T) {
 		slot   byte
 		item   int64
 		actors int
+		buffID uint16
 	}{
-		{"visible_weapon12", 12, 101040493, 1}, {"nonvisible_pants16", 16, 100120544, 0}, {"nonvisible_waist18", 18, 100220519, 0},
+		{"visible_weapon12", 12, 101040493, 1, currentBuffSwapSnapshotID}, {"nonvisible_pants16", 16, 100120544, 0, currentBuffSwapRowsID}, {"nonvisible_waist18", 18, 100220519, 0, currentBuffSwapRowsID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := p94Fixture(t)
@@ -114,10 +131,10 @@ func TestR139BuffDefaultSlotAndOrder(t *testing.T) {
 			_, _, before, legacy := p94Snapshot(t, f)
 			p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, int16(tc.slot), int32(tc.item)), op19CurrentUIPlayerFlag))
 			r139AssertOwner(t, f, tc.slot, instance, 0, 15)
-			r139AssertWire(t, f, tc.slot, 0, 15, tc.actors)
+			r139AssertWire(t, f, tc.slot, 0, 15, tc.actors, tc.buffID)
 			p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, int32(tc.item), 3, int16(tc.slot), 0), op19CurrentUIPlayerFlag))
 			r139AssertOwner(t, f, tc.slot, instance, 3, uint16(tc.slot))
-			r139AssertWire(t, f, tc.slot, 3, uint16(tc.slot), tc.actors)
+			r139AssertWire(t, f, tc.slot, 3, uint16(tc.slot), tc.actors, tc.buffID)
 			_, _, after, old := p94Snapshot(t, f)
 			if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(legacy, old) {
 				t.Fatal("move mutated registration owner")
@@ -155,7 +172,7 @@ func TestR139BuffSameTemplateReregisterFollowsNewInstance(t *testing.T) {
 	}
 	p94Move(t, f, body) // A worn again; the newly registered B must follow into the bag.
 	r139AssertOwner(t, f, 16, bID, 0, 15)
-	r139AssertWire(t, f, 16, 0, 15, 0)
+	r139AssertWire(t, f, 16, 0, 15, 0, currentBuffSwapRowsID)
 	p94Move(t, f, loginWearBridgeBody(0, 15, int32(p94Item), 0, 17, 0))
 	r139AssertOwner(t, f, 16, bID, 0, 17)
 	p94Cold(t, f, 0, 17, true)
@@ -211,7 +228,7 @@ func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
 		name string
 		kind byte
 		msg  uint16
-	}{{"ack", 1, 19}, {"item_row", 0, 14}, {"buff", 0, 1368}} {
+	}{{"ack", 1, 19}, {"item_row", 0, 14}, {"buff_rows", 0, currentBuffSwapRowsID}} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := p94Fixture(t)
 			instance := p94Register(t, f)
@@ -226,7 +243,7 @@ func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
 			for len(wire) > 0 {
 				p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 				wire = rest
-				if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+				if p.Header.Classification == 0 && r139IsBuffWireID(p.Header.MsgID) {
 					t.Fatal("snapshot jumped failed ACK/row or retry duplicated failed snapshot")
 				}
 			}
@@ -239,6 +256,19 @@ func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
 			p94Wire(t, f.buffer.write.Bytes(), 0, 15, true, false)
 		})
 	}
+	t.Run("buff_snapshot_registration", func(t *testing.T) {
+		f := p94Fixture(t)
+		conn := &r139FailMessageConn{kind: 0, msg: currentBuffSwapSnapshotID}
+		f.session.conn = conn
+		err := f.service.handleGameCommand(f.session, 1, 1426, reviewCurrentBuffCommand(38, p94Slot, 3, uint16(p94Slot)))
+		if err == nil || !conn.hit {
+			t.Fatalf("1368 registration write failure not reached: hit=%v err=%v", conn.hit, err)
+		}
+		state, found, loadErr := buffswap.Load(context.Background(), f.group, "1", "dnf:10011")
+		if loadErr != nil || !found || state.Slots[p94Slot].Instance == "" {
+			t.Fatalf("1368 registration failure rolled back committed owner: found=%v err=%v", found, loadErr)
+		}
+	})
 }
 
 func TestR139BuffEmptyMoveAndFeatureOff(t *testing.T) {
@@ -255,7 +285,7 @@ func TestR139BuffEmptyMoveAndFeatureOff(t *testing.T) {
 		for len(wire) > 0 {
 			p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 			wire = rest
-			if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+			if p.Header.Classification == 0 && r139IsBuffWireID(p.Header.MsgID) {
 				t.Fatal("noop refreshed Buff")
 			}
 		}
@@ -270,7 +300,7 @@ func TestR139BuffEmptyMoveAndFeatureOff(t *testing.T) {
 		for len(wire) > 0 {
 			p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 			wire = rest
-			if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+			if p.Header.Classification == 0 && r139IsBuffWireID(p.Header.MsgID) {
 				t.Fatal("disabled replay sent snapshot")
 			}
 		}
