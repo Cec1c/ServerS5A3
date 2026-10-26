@@ -15,6 +15,12 @@ import (
 )
 
 func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
+	testRealPVFFatiguePotionRemainingCountLifecycle(t, 416, 50)
+}
+func TestRealPVFFatiguePotionOnePointRemainingCountLifecycle(t *testing.T) {
+	testRealPVFFatiguePotionRemainingCountLifecycle(t, 2683254, 1)
+}
+func testRealPVFFatiguePotionRemainingCountLifecycle(t *testing.T, itemID uint32, points int64) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
 		t.Skip("requires real PVF")
@@ -27,7 +33,7 @@ func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := catalog.ResolveItem(416)
+	item, err := catalog.ResolveItem(itemID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,9 +45,9 @@ func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := fatiguePotionDefinition(416, item.PVFPath, doc)
-	if !ok || definition.DailyLimit != 3 || definition.Points != 50 || definition.Group != "" {
-		t.Fatalf("unexpected item416 definition: %+v", definition)
+	definition, ok := fatiguePotionDefinition(int64(itemID), item.PVFPath, doc)
+	if !ok || definition.DailyLimit != 3 || definition.Points != points || (itemID == 416 && definition.Group != "") {
+		t.Fatalf("unexpected item%d definition: %+v", itemID, definition)
 	}
 	ctx := context.Background()
 	repos := memory.NewMemoryGroup()
@@ -55,7 +61,7 @@ func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
 		repos.Account.Save(ctx, account),
 		repos.Character.Save(ctx, character),
 		repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "17", Slots: map[string]dnfrepo.ItemStack{
-			"0:87": {ItemID: 416, Count: 4, RawEntry: make([]byte, currentItemListEntryWireSize), Extra: map[string]string{"item_kind": "stackable", "pvf_path": item.PVFPath}},
+			"0:87": {ItemID: int64(itemID), Count: 4, RawEntry: make([]byte, currentItemListEntryWireSize), Extra: map[string]string{"item_kind": "stackable", "pvf_path": item.PVFPath}},
 		}}),
 	} {
 		if saveErr != nil {
@@ -68,7 +74,7 @@ func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
 	checkUsage := func(data []byte, want byte) {
 		t.Helper()
 		packet, rest := splitGameServerUpperPacket(t, data)
-		if packet.Header.MsgID != 541 || packet.Header.Classification != 0 || len(rest) != 0 || len(packet.Body) != 7 || packet.Body[0] != 1 || binary.LittleEndian.Uint32(packet.Body[1:5]) != 416 || packet.Body[5] != want || packet.Body[6] != 0 {
+		if packet.Header.MsgID != 541 || packet.Header.Classification != 0 || len(rest) != 0 || len(packet.Body) != 7 || packet.Body[0] != 1 || binary.LittleEndian.Uint32(packet.Body[1:5]) != itemID || packet.Body[5] != want || packet.Body[6] != 0 {
 			t.Fatalf("usage header=%+v body=%x trailing=%d want used=%d", packet.Header, packet.Body, len(rest), want)
 		}
 	}
@@ -99,7 +105,7 @@ func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
 		t.Fatalf("fourth use not rejected: %+v body=%x rest=%d", rejected.Header, rejected.Body, len(rest))
 	}
 	stored, _, err := repos.Character.Load(ctx, "17")
-	if err != nil || stored.Stats["fatigue_potion_used_416"] != 3 {
+	if err != nil || stored.Stats["fatigue_potion_used_"+definition.UsageGroup()] != 3 {
 		t.Fatalf("durable count=%v err=%v", stored.Stats, err)
 	}
 	bag, _, err := repos.Inventory.Load(ctx, "17")
@@ -125,5 +131,5 @@ func TestRealPVFFatiguePotion416RemainingCountLifecycle(t *testing.T) {
 		t.Fatalf("reset op=%d", fatigue.Header.MsgID)
 	}
 	checkUsage(data, 0)
-	t.Log("real item416: three uses -> used1/2/3, fourth rejected without debit, reload3, six-AM reset0")
+	t.Logf("real item%d: three uses -> used1/2/3, fourth rejected without debit, reload3, six-AM reset0", itemID)
 }

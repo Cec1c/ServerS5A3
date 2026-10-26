@@ -471,6 +471,12 @@ func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtime
 			return err
 		}
 	}
+	// The 585 above is already the full map for this identity. Seed the delta
+	// owner so the progress projection below does not publish it a second time
+	// in the same round and re-trigger the native state-3 prompt.
+	if err := session.raidProjection.recordCurrentRaidMapProjection(identity, mapBody); err != nil {
+		return err
+	}
 	if b.Anton != nil || (b.Single && b.Mode == 1) {
 		if err := s.sendCurrentRaidProgressProjectionLocked(session, state, b.ProgressVersion == 0, false); err != nil {
 			return err

@@ -177,11 +177,20 @@ func parseCurrentCeraShopPurchaseRequest(body []byte) (currentCeraShopPurchaseRe
 	return request, nil
 }
 
-func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byte) error {
+func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byte, sequences ...*uint64) error {
 	request, err := parseCurrentCeraShopPurchaseRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-cera-shop-purchase-rejected", "body_len", len(body), "body_hex", currentCeraSelectionBodyHex(body), "reason", err)
 		return s.sendCurrentCeraShopPurchaseFailure(session)
+	}
+	for _, item := range request.Items {
+		if isCurrentGuildHongbaoCommodity(item.CommodityID) {
+			var sequence *uint64
+			if len(sequences) > 0 {
+				sequence = sequences[0]
+			}
+			return s.handleCurrentGuildHongbaoPurchase(session, request, body, sequence)
+		}
 	}
 	if request.PaymentMode != currentCeraShopPaymentModeCera && request.PaymentMode != currentCeraShopPaymentModeAvatarCoupon {
 		s.logGameEvent(session, "game-cera-shop-purchase-rejected",
@@ -302,6 +311,7 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 		notifiedPremiumActivations++
 	}
 	if crystalPremiumActivated {
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		// Current sub_1D61460 records premium type 97, but the crystal panel is
 		// rebuilt by the raw class0/op898 handler sub_1E7FAD0. Without this
 		// immediate follow-up a purchase made after scene bootstrap remains

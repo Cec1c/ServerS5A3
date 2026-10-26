@@ -97,7 +97,21 @@ func TestCurrentRaidBattleRealPVFAdmissionAndNativeProjection(t *testing.T) {
 				if name == "normal_minimum" {
 					f.state.CurrentUIFlags[0], f.state.TailFlag = 0, 0
 				}
+				f.service.onlinePlayers = newOnlinePlayerManager()
+				f.service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 19, AccountID: session.accountID, Session: session, TownID: rule.WaitingTown, AreaID: rule.WaitingArea, ChannelID: session.channel.ID, Instance: f.state.RaidKey})
+				ordinaryArea := byte(1)
+				if route == 1 {
+					ordinaryArea = 2
+				}
+				f.service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 31, TownID: rule.WaitingTown, AreaID: ordinaryArea, ChannelID: session.channel.ID, Instance: f.state.RaidKey})
 				state, ok, err := f.service.startRuntimeRaidWithEntryCost(session)
+				if ok && state.Battle != nil {
+					leader, found := f.service.onlinePlayers.PlayerForCharacter(19)
+					ordinary, _ := f.service.onlinePlayers.PlayerForCharacter(31)
+					if !found || leader.RaidBattleInstance != state.Battle.InstanceID || ordinary.RaidBattleInstance != "" {
+						t.Fatal("实际开团未限定本场等待区成员", leader, ordinary)
+					}
+				}
 				if name == "ready" {
 					sequence, sequenceErr := raid.LoadSingleRaidSequence(archive, route, 0)
 					if sequenceErr != nil {

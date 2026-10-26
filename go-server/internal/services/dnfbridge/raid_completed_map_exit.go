@@ -1,23 +1,29 @@
 package dnfbridge
 
+import "longheng.io/server/internal/modules/dnf/worldmap"
+
 // Raid map rewards belong to the raid phase/card owner. The current client
 // returns from a completed raid map directly through op72 or op42 without
 // sending the ordinary op69/70/71 card handshake. Require the accepted clear
 // journal rather than manufacturing ordinary cards or their asset grants.
 // Caller holds the reporting session's dungeon mutex.
 func (s *Service) currentRaidCompletedMapExitReady(session *gameSession, runtime *runtimeDungeonState) bool {
-	return s.currentRaidCompletedMapExitReceiptReady(session, runtime, false)
+	return s.currentRaidCompletedMapExitReceiptReady(session, runtime, false, true, 0)
 }
 
 // Only town return may use a timer-invalidated terminal run receipt.
 func (s *Service) currentRaidCompletedMapTownReturnReady(session *gameSession, runtime *runtimeDungeonState) bool {
-	return s.currentRaidCompletedMapExitReceiptReady(session, runtime, true)
+	return s.currentRaidCompletedMapExitReceiptReady(session, runtime, true, true, 0)
 }
 
-func (s *Service) currentRaidCompletedMapExitReceiptReady(session *gameSession, runtime *runtimeDungeonState, allowExpired bool) bool {
+// requiredMode zero preserves the existing all-raid requirement. A nonzero
+// mode narrows a caller to one raid family; the Luke spread-sanctum result
+// page uses this to avoid changing Anton or any other raid map.
+func (s *Service) currentRaidCompletedMapExitReceiptReady(session *gameSession, runtime *runtimeDungeonState, allowExpired, requireOrdinarySettlement bool, requiredMode byte) bool {
 	if s.options.currentClientVersion != "official-24.9" || !s.currentRaidAuthenticated(session) ||
 		runtime == nil || runtime.raidEntry == nil || session.dungeon.runtime != runtime ||
-		!completedDungeonSettlementResultReady(runtime, session.selectedCharacterID) ||
+		runtime.Session == nil || runtime.Session.Snapshot().Run.Status != worldmap.DungeonRunCompleted ||
+		requireOrdinarySettlement && !completedDungeonSettlementResultReady(runtime, session.selectedCharacterID) ||
 		runtime.Dungeon.ID <= 0 || runtime.Dungeon.ID > int64(^uint32(0)) {
 		return false
 	}
@@ -29,6 +35,9 @@ func (s *Service) currentRaidCompletedMapExitReceiptReady(session *gameSession, 
 		return false
 	}
 	b := state.Battle
+	if requiredMode != 0 && b.Mode != requiredMode {
+		return false
+	}
 	if b.InstanceID != e.InstanceID || e.RunID == "" || b.ChannelID != e.ChannelID ||
 		b.ChannelType != e.ChannelType || session.channel.ID != e.ChannelID || session.channel.Type != e.ChannelType ||
 		b.MemberAccounts[session.selectedCharacterID] == "" || b.MemberAccounts[session.selectedCharacterID] != runtime.AccountID ||

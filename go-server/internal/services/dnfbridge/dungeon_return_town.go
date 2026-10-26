@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -50,8 +51,9 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 	selectedCharacterID := session.selectedCharacterID
 	session.dungeon.mu.Lock()
 	completedOrdinary := currentOrdinaryCompletedTownExitOwner(session, session.dungeon.runtime)
+	closedLukeEnergy := s.currentLukeClosedEnergyExitReady(session, session.dungeon.runtime)
 	session.dungeon.mu.Unlock()
-	if completedOrdinary {
+	if completedOrdinary || closedLukeEnergy {
 		// 通关结算界面与42共用奖励屏障及完整城镇重建。
 		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
 	}
@@ -144,6 +146,7 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		resetDungeonReturnSceneGates(session)
 		session.returnTownFinishLoadingAckOnly = true
 		session.confirmedDungeonReturnStatePending = true
+		session.selectorReturnPresence = s.captureCurrentSelectorReturnPresence(session, transition)
 		markBackToVillageEnterSelectPending(session)
 		s.logGameEvent(session, "game-dungeon-select-back-to-village-committed",
 			"char_id", session.selectedCharacterID,
@@ -476,6 +479,7 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 		}
 		runtime.townReturnOp24Sent = true
 		session.confirmedDungeonReturnStatePending = true
+		session.selectorReturnPresence = nil
 		markBackToVillageEnterSelectPending(session)
 	}
 	s.logGameEvent(session, "game-dungeon-back-to-village-pending",
@@ -535,6 +539,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		runtime.townReturnSource = source
 		runtime.townReturnTransition = cloneCurrentDungeonTownTransition(transition)
 	}
+	routeOutputCommitted := runtime.townReturnOp24Sent
 	transition = cloneCurrentDungeonTownTransition(runtime.townReturnTransition)
 	session.dungeon.mu.Unlock()
 
@@ -625,7 +630,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	// task manual, and this second repository/PVF pair refreshes visible NPC
 	// task markers after the town transition has been committed by the route.
 	// This is a state snapshot only; it never accepts or completes a quest.
-	if questSnapshotsSeeded {
+	if questSnapshotsSeeded && !routeOutputCommitted {
 		if err := s.sendCurrentAcceptableQuestListForSession(
 			session,
 			source+"_post_op24_actor_ready_refresh",
@@ -639,7 +644,12 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	petClockRetired := false
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
+		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_committed")
+		s.cancelCurrentCrystalContractTimerLocked(session, runtime, "completed_town_actor_route_committed")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_town_actor_route_committed")
 		// 通关回城：先留下共享实例指针，release 会把它置空；队伍处置见
 		// dungeon_party_completion_return.go（默认档：**保留队伍**，队员由自己的
@@ -708,8 +718,26 @@ func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 	runtime.townReturnPending = false
 	runtime.townReturnOp24Sent = false
 	runtime.townReturnRequestMsgID = 0
+	runtime.townReturnAckSent = false
 	runtime.townReturnSource = ""
 	runtime.townReturnTransition = currentDungeonTownTransition{}
+}
+
+// acknowledgeCurrentDungeonGiveupReturnLocked holds dungeon.mu. The saved
+// request owns this ACK: completed routes call after all actor/op24 output;
+// active routes call after positive town evidence. A failed write retains the
+// owner and a retry sends only the unfinished acknowledgement.
+func (s *Service) acknowledgeCurrentDungeonGiveupReturnLocked(session *gameSession, runtime *runtimeDungeonState) error {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime ||
+		!runtime.townReturnPending || !runtime.townReturnOp24Sent ||
+		runtime.townReturnRequestMsgID != uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnAckSent {
+		return nil
+	}
+	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketGiveupGame), nil); err != nil {
+		return err
+	}
+	runtime.townReturnAckSent = true
+	return nil
 }
 
 // cancelCurrentDungeonReturnAfterDungeonEvidenceLocked cancels an unconfirmed
@@ -728,6 +756,7 @@ func (s *Service) cancelCurrentDungeonReturnAfterDungeonEvidenceLocked(
 	source := runtime.townReturnSource
 	transition := runtime.townReturnTransition
 	resetCurrentDungeonReturnAttempt(runtime)
+	s.requestCurrentCrystalContractTimerRefresh(session)
 	session.confirmedDungeonReturnStatePending = false
 	s.logGameEvent(session, "game-dungeon-back-to-village-cancelled",
 		"char_id", session.selectedCharacterID,
@@ -745,17 +774,29 @@ func (s *Service) cancelCurrentDungeonReturnAfterDungeonEvidenceLocked(
 // positive scene evidence exists, op39/op45 must continue to use the retained
 // runtime so real deaths and room state are not lost.
 func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession, source string) error {
+	return s.commitPendingDungeonReturnForExpectedSceneRequest(session, source, nil)
+}
+
+func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gameSession, source string, expectedRuntime *runtimeDungeonState) error {
 	if session == nil {
 		return nil
 	}
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
+	if expectedRuntime != nil && runtime != expectedRuntime {
+		session.dungeon.mu.Unlock()
+		return fmt.Errorf("回城确认所属副本已改变")
+	}
 	if runtime == nil || runtime.Session == nil || !runtime.townReturnPending {
 		session.dungeon.mu.Unlock()
 		return s.ensureCurrentConfirmedDungeonReturnPlayerState(
 			session,
 			source+"_resume_confirmed_return",
 		)
+	}
+	if runtime.townReturnSource == currentRaidTableReturnSource && !s.currentRaidTableActiveReturnReady(session, runtime) {
+		session.dungeon.mu.Unlock()
+		return fmt.Errorf("raid table return owner changed before town confirmation")
 	}
 	snapshot := runtime.Session.Snapshot()
 	deadlineOwner := runtime.raidDeadlineReturn
@@ -779,18 +820,27 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 		return err
 	}
 	committedStatus := snapshot.Run.Status
+	returnCharacterID := session.selectedCharacterID
+	returnOwnerChannel := currentConnectionTownActorOwnerContext(session)
+	// 仅规范单人体验的已确认42/op24返回省略op30；请求形状、账号、角色及
+	// 原实例在同一副本锁内冻结，普通副本、完成回城和其它体验形状保持原链。
+	omitSceneActivation := snapshot.Run.Status == worldmap.DungeonRunActive &&
+		snapshot.Run.DungeonID == 7142 && runtime.Dungeon.ID == 7142 &&
+		runtime.Request.DungeonID == 7142 && runtime.Request.Difficulty == 0 &&
+		runtime.Request.EntryOption == 0 && runtime.Request.SelectionMode == 0 &&
+		runtime.Request.RuntimeState == 1 && runtime.Request.RuntimeToken == 0xffff &&
+		runtime.Request.Reserved == 0 && runtime.Request.PartyState == 0 && runtime.Request.LeaderObjectKey == 0 &&
+		runtime.Request.SpecialMode == 0 && len(runtime.Request.OpaqueTail) == 0 && runtime.partyInstance == nil &&
+		runtime.Character.CharacterID == strconv.Itoa(int(returnCharacterID)) && runtime.AccountID == s.accountIDForSession(session) &&
+		runtime.townReturnOp24Sent && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) &&
+		runtime.townReturnTransition.ActorObjectKey == returnCharacterID
 	if snapshot.Run.Status == worldmap.DungeonRunActive {
-		// Current EXE's op42 sender sets actor+0x8BE; the general item-use
-		// path refuses to send op44 while it is set. Class-1 op42 callback
-		// RVA 18F4FB0 clears it through 22906D0 and reads no extra body.
-		// A typed op24 alone leaves this native wait flag armed across maps.
-		// Acknowledge only after positive town evidence, before retiring the
-		// owner, so a failed write keeps the pending return available to retry.
-		if runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) && runtime.townReturnOp24Sent {
-			if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketGiveupGame), nil); err != nil {
-				session.dungeon.mu.Unlock()
-				return err
-			}
+		// The matched v141 sender arms actor+0x8EE; the item-use gate reads
+		// it and command42 callback VA 0x1FA5400 clears it through 0x2961A90.
+		// Active give-up still waits for positive town evidence before ACK.
+		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
 		}
 		if err := runtime.Session.Abandon(); err != nil {
 			session.dungeon.mu.Unlock()
@@ -804,6 +854,7 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 		}
 	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_scene_transition_committed")
+	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "town_scene_transition_committed")
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "town_scene_transition_committed")
 	// 队长退出副本（回城）提交：先留下共享实例指针，release 会把它置空。
 	leaderExitInstance := runtime.partyInstance
@@ -816,9 +867,17 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 	resetDungeonReturnSceneGates(session)
 	session.returnTownFinishLoadingAckOnly = true
 	session.confirmedDungeonReturnStatePending = true
+	session.selectorReturnPresence = nil
 	townID := runtime.townReturnTransition.TownID
 	areaID := runtime.townReturnTransition.AreaID
 	session.dungeon.mu.Unlock()
+	if omitSceneActivation {
+		// 无可失败步骤地先保存本代策略，之后任何核对或写入失败都可沿游标重试。
+		// 显式使用连接频道；此刻townActorOwnerChannel可能仍属于副本owner0。
+		s.armCurrentTownPostTransitionPlayerStateWithProfile(
+			session, source+"_arm_profession_trial_return_generation", returnCharacterID, returnOwnerChannel, true,
+		)
+	}
 	s.flushCurrentPetGrowthClockTransitions(session, source+"_confirmed_town_scene")
 	// 锁外执行（要读实例注册表 / 可能要发帧，不能持有 session.dungeon.mu）。
 	// 现场这一条 source 就是操作者报障的那次中途放弃（packet_log.txt:96604，
@@ -848,7 +907,7 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 			"reason", "automatic_deadline_not_explicit_leader_leave")
 	} else {
 		s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
-		if committedStatus == worldmap.DungeonRunAbandoned && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) {
+		if committedStatus == worldmap.DungeonRunAbandoned && (runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnSource == currentRaidTableReturnSource) {
 			if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 				s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
 			}
@@ -893,9 +952,36 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 	}
 	session.dungeon.mu.Lock()
 	pending := session.confirmedDungeonReturnStatePending
+	selectorReturn := session.selectorReturnPresence
+	entryInstalled := session.dungeon.runtime != nil
 	session.dungeon.mu.Unlock()
-	if !pending {
+	if !pending && selectorReturn == nil {
 		return nil
+	}
+	// A different member can provisionally install our new run before the
+	// leader commits. Keep the old return retryable if that entry rolls back.
+	if selectorReturn != nil && entryInstalled {
+		return nil
+	}
+	if selectorReturn != nil && !s.currentSelectorReturnPresenceOwner(session, selectorReturn) {
+		session.dungeon.mu.Lock()
+		if session.selectorReturnPresence == selectorReturn {
+			session.selectorReturnPresence = nil
+			session.confirmedDungeonReturnStatePending = false
+		}
+		session.dungeon.mu.Unlock()
+		return nil
+	}
+	if !pending {
+		if !s.restoreCurrentSelectorReturnPresence(session, selectorReturn, source) {
+			return nil
+		}
+		session.dungeon.mu.Lock()
+		if session.selectorReturnPresence == selectorReturn {
+			session.selectorReturnPresence = nil
+		}
+		session.dungeon.mu.Unlock()
+		return s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_selector_presence_retry")
 	}
 
 	characterID := session.selectedCharacterID
@@ -947,11 +1033,21 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 		session.confirmedDungeonReturnStatePending = false
 	}
 	session.dungeon.mu.Unlock()
+	if selectorReturn != nil {
+		if !s.restoreCurrentSelectorReturnPresence(session, selectorReturn, source) {
+			return nil
+		}
+		session.dungeon.mu.Lock()
+		if session.selectorReturnPresence == selectorReturn {
+			session.selectorReturnPresence = nil
+		}
+		session.dungeon.mu.Unlock()
+	}
 	s.logGameEvent(session, "game-dungeon-back-to-village-player-state-rebuilt",
 		"source", source,
 		"char_id", characterID,
 		"owner_context", ownerChannel,
-		"sequence", "mode0_mode1_op105_optional_op102_op37_op30_op19_op120")
+		"sequence", currentTownPostTransitionPlayerStateSequence(currentTownReturnOmitsSceneActivation(session)))
 	// op35 can consume the return without the later op15 scene finalizer.
 	// Actor reconstruction replaces the native party/HUD owner, so restore
 	// the roster after all members have completed their own return generation.
@@ -976,8 +1072,13 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	if session == nil {
 		return
 	}
+	if session.selectedCharacterID == 0 {
+		// 返回选角结束原角色的对象归属；不能凭旧角色的写出记录跳过新登录。
+		session.selectedMainInventoryCharacterID = 0
+	}
 	session.dungeon.mu.Lock()
 	session.confirmedDungeonReturnStatePending = false
+	session.selectorReturnPresence = nil
 	session.dungeon.mu.Unlock()
 	session.townMu.Lock()
 	resetCurrentTownPostTransitionPlayerState(session)

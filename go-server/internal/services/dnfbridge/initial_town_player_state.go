@@ -116,6 +116,10 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentCarryGoldStage(session, character); err != nil {
 		return err
 	}
+	// 转职次数随当前角色恢复；重登或切换角色不能继承上个角色的免费次数。
+	if err := s.sendCurrentProfessionChangeInfo(session, character); err != nil {
+		return err
+	}
 	// Current NoPack dispatches op898 only through the class0 notification
 	// table. Publish the durable crystal selection after all six native
 	// inventory managers exist, but before op1340/full mode1/op24 can expose
