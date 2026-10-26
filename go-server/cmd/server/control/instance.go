@@ -257,6 +257,9 @@ func validateInstance(cfg instanceConfig) error {
 	if cfg.Database.Port < 1 || cfg.Database.Port > 65535 {
 		return errorsf("database.port must be between 1 and 65535")
 	}
+	if cfg.Database.InsertBatchRows < 0 || cfg.Database.InsertBatchRows > 1000 {
+		return errorsf("database.insertBatchRows must be between 0 and 1000 (0 uses 200)")
+	}
 	if !sqlIdentifierPattern.MatchString(cfg.Database.Name) {
 		return errorsf("database.name must be a safe SQL identifier")
 	}
