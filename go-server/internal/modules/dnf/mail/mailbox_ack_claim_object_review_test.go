@@ -54,6 +54,15 @@ func TestMailboxClaimACKMatchesSentSummaryObjectAndPreservesOwner(t *testing.T) 
 			if claim != 123 {
 				t.Fatal("preclaim summary claim object", claim)
 			}
+			if name == "multiple_attachments" {
+				// 原生逐附件领取：全部接受须携带每一个摘要中的独立领取编号。
+				stored, _, _ := repos.Mailbox.Load(ctx, "77")
+				ids, _, e := mailboxStoredClaimIDs(stored.Mails["123"])
+				if e != nil {
+					t.Fatal(e)
+				}
+				req.Body = currentMailIDList(ids...)
+			}
 			result, err := h.Handle(ctx, req)
 			if err != nil {
 				t.Fatal(err)
@@ -76,7 +85,11 @@ func TestMailboxClaimACKMatchesSentSummaryObjectAndPreservesOwner(t *testing.T) 
 				}
 				return
 			}
-			if len(ack) != 17 || ack[0] != 1 || binary.LittleEndian.Uint32(ack[1:5]) != 1 || binary.LittleEndian.Uint32(ack[5:9]) != 123 || binary.LittleEndian.Uint32(ack[9:13]) != claim || binary.LittleEndian.Uint32(ack[13:17]) != 0 {
+			wantCount := uint32(1)
+			if name == "multiple_attachments" {
+				wantCount = 2
+			}
+			if len(ack) != 5+int(wantCount)*12 || ack[0] != 1 || binary.LittleEndian.Uint32(ack[1:5]) != wantCount || binary.LittleEndian.Uint32(ack[5:9]) != 123 || binary.LittleEndian.Uint32(ack[9:13]) != claim || binary.LittleEndian.Uint32(ack[13:17]) != 0 {
 				t.Fatalf("committed ACK does not match sent current-native summary object: summary=%d ack=%x", claim, ack)
 			}
 			if owner.Stats["gold"] != 60 || counts[1001] != 2 || !box.Mails["123"].Claimed || !box.Mails["123"].Deleted {

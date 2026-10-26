@@ -89,6 +89,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if hasScene {
+		if handled, err := s.handleCurrentMissionInformerRetirementLocked(session, runtime, scene, request); handled || err != nil {
+			return err
+		}
+	}
 	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
 	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
 	if hasScene {
@@ -645,7 +650,24 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			bossActorSource = clearConditionSource
 		}
 	}
-	target, cleared, reportErr := runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+	var target runtimeDungeonDeathTarget
+	var cleared bool
+	var reportErr error
+	// A room-owned boss object is not proof that the shared mechanism permits
+	// its death. Also gate a defeated target before any replay side effects.
+	fiendWarBossTarget, _, _ := currentDungeonRuntimeObjectBossActor(runtime, request.RuntimeObjectKey,
+		runtimeDungeonMonsterAnnounced, runtimeDungeonMonsterDefeated)
+	if bossActorDeath || fiendWarBossTarget {
+		allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, func() error {
+			target, cleared, reportErr = runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+			return nil
+		})
+		if !allowed || err != nil {
+			return err
+		}
+	} else {
+		target, cleared, reportErr = runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+	}
 	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
 		if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
 			return err
@@ -937,7 +959,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
-		forcedDefeated, forcedVisual, forcedCleared, forceErr := s.forceCurrentDungeonRemainingHostilesForCombatEndLocked(
+		forcedDefeated, forcedVisual, forcedCleared, forceErr := s.forceCurrentDungeonCombatEndWithFiendWarGuardLocked(
 			session,
 			runtime,
 			request.RuntimeObjectKey,
@@ -1179,10 +1201,12 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			sessionRoomCleared = cleared
 		case errors.Is(markErr, worldmap.ErrHostileAlreadyDefeated):
 			sessionSceneMarked = true
-			// APC quest-drop handling can fail after committing the actor death.
-			// Resume its final-room handling from the authoritative scene while
-			// preserving the ordinary-monster notification replay path.
-			if target, found := runtime.Room.DefeatedDeathTarget(objectKey); found && target.Reference.Kind == worldmap.HostileAICharacter {
+			// Preserve APC quest-drop recovery. For an ordinary shared death,
+			// resume only a personal completion that has already been accepted;
+			// replaying a failed op38 alone must not start a new settlement.
+			if target, found := runtime.Room.DefeatedDeathTarget(objectKey); found &&
+				(target.Reference.Kind == worldmap.HostileAICharacter ||
+					runtime.partyInstance != nil && runtime.bossDieCheckAccepted && !runtime.settlementEntrySent) {
 				if scene, ok := runtime.Session.Scene(); ok {
 					sessionRoomCleared = scene.Cleared
 				}
@@ -1221,6 +1245,15 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			}
 			if err := s.completePVFTutorialBosslessFinalRoomAfterDeathLocked(session, runtime, scene); err != nil {
 				return err
+			}
+			// The completion flag may precede a failed op115/op31 write. Re-enter
+			// the same idempotent owner; its identity and persistence gates still
+			// apply and no reward is granted by this handshake.
+			if runtime.bossDieCheckAccepted && !runtime.settlementEntrySent {
+				if err := s.completeCurrentDungeonBossDieCheckLocked(session, runtime,
+					"authoritative_party_death_replay_resume_partial_settlement"); err != nil {
+					return err
+				}
 			}
 			s.logGameEvent(session, "game-dungeon-party-instance-final-room-completed",
 				"dungeon_id", runtime.Dungeon.ID,

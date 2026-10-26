@@ -18,6 +18,7 @@ var (
 // bodies makes a retry resume after the last successful write without reading
 // newer repository state into an older settlement.
 type currentDungeonSettlementPacketPlan struct {
+	GuildDungeonItemSlots []alignedcmd.ItemSlotRefresh
 	CharacterID           uint16
 	CompletionKey         string
 	Source                string

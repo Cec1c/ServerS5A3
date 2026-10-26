@@ -56,6 +56,9 @@ func (s *Service) rebuildRuntimePartyTownCoPresenceAfterReturn(session *gameSess
 			if actor.ChannelID != receiverChannelID {
 				continue
 			}
+			if s.townPrivateRoomPeerProjectionBlocked(receiver, actor) {
+				continue
+			}
 			if s.onlinePlayers.PeerInSameArea(receiver.selectedCharacterID, member.UserID) {
 				continue
 			}

@@ -17,6 +17,9 @@ func (s *Service) completeValidatedDungeonBossDieCheckLocked(
 	targetIsOrdinaryMonster bool,
 	targetObjectKey uint32,
 ) error {
+	if allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, nil); !allowed || err != nil {
+		return err
+	}
 	completionSource := "cleared_ordinary_runtime_boss_room"
 	if tutorialScene {
 		completionSource = "cleared_tutorial_boss_room"
@@ -46,7 +49,7 @@ func (s *Service) completeValidatedDungeonBossDieCheckLocked(
 			runtimeDungeonMonsterDefeated,
 		)
 		if !tutorialScene && targetIsBossActor && !storyAIBossGateActive {
-			forcedDefeated, forcedVisual, forcedCleared, forceErr := s.forceCurrentDungeonRemainingHostilesForCombatEndLocked(
+			forcedDefeated, forcedVisual, forcedCleared, forceErr := s.forceCurrentDungeonCombatEndWithFiendWarGuardLocked(
 				session,
 				runtime,
 				targetObjectKey,
@@ -205,7 +208,7 @@ bossRoomClearReady:
 			return nil
 		}
 	}
-	if err := runtime.Session.CompleteCurrentRoom(); err != nil {
+	if allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, runtime.Session.CompleteCurrentRoom); !allowed || err != nil {
 		return err
 	}
 	runtime.bossDieCheckAccepted = true

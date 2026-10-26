@@ -1,0 +1,29 @@
+{
+  "pvfSha256": "94a2549598816198115340f84c0be2d31603ddeea58f70f27afe6f73b25e3df7",
+  "path": "etc/raid/luke/luke.etc",
+  "index": 905111,
+  "textSha256": "981baeaa6697d1b97d3cfc61ca118fd3c2151f1bf03ad630e609b578ac3f5097",
+  "phaseMaps": {
+    "0": [
+      5054,
+      5055,
+      5056
+    ],
+    "1": [
+      5311,
+      5313,
+      5061,
+      5062,
+      5057,
+      5058,
+      5059,
+      5060,
+      5063,
+      5064,
+      5065,
+      5066
+    ]
+  },
+  "phase1MatchesCandidate": true,
+  "mode": "read-only sparse extraction; no live asset changes"
+}

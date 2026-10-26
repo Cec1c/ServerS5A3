@@ -113,6 +113,11 @@ type partyDungeonDoorArrivalKey struct {
 // 读改写与其它实例内共享状态同锁序（session.dungeon.mu → instance.mu）。
 // 见 dungeon_party_card_flip_projection.go。
 type dungeonPartyInstance struct {
+	guildRankingRun           *currentGuildRankingRun
+	guildContributionRun      *currentGuildContributionRun
+	ridableTerminals          *currentDungeonRidableTerminalOwner
+	ridableSelectionSignature [32]byte
+
 	semesterRun            *currentSemesterRun
 	mu                     sync.Mutex
 	id                     uint64
@@ -260,6 +265,10 @@ func (s *Service) adoptPartyDungeonInstance(
 		if runtime.Session != nil {
 			instance.scenes[characterID] = runtime.Session
 		}
+		if runtime.randomizedObjects != nil {
+			instance.ridableTerminals = runtime.randomizedObjects.ridableTerminals
+			instance.ridableSelectionSignature = runtime.randomizedObjects.entrySignature
+		}
 		instance.rooms[runtimeDungeonRoomKeyFromScene(scene)] = partyDungeonSharedRoom{Room: runtime.Room, Scene: scene}
 		registry.byKey[key] = instance
 		created = true
@@ -334,6 +343,9 @@ func (runtime *runtimeDungeonState) adoptPartyDungeonInstance(instance *dungeonP
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 	runtime.partyInstance = instance
+	if runtime.randomizedObjects != nil && runtime.randomizedObjects.entrySignature == instance.ridableSelectionSignature {
+		runtime.randomizedObjects.ridableTerminals = instance.ridableTerminals
+	}
 	if shared, ok := instance.rooms[runtimeDungeonRoomKeyFromScene(scene)]; ok && shared.Room != nil {
 		shared.Room.adoptAnnouncedSessionsFrom(runtime.Room)
 		runtime.Room = shared.Room
@@ -540,12 +552,20 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameS
 		}
 		s.awardCurrentPetRoomClearLocked(peer, runtime, scene, "authoritative_peer_room_clear")
 		completionErr := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey)
-		if accept != nil && runtime.bossDieCheckAccepted && !runtime.settlementEntrySent {
-			// Public master lacks the cumulative R133 retry. Resume only the
-			// validated Luke passive-object dispatch through its existing owner;
-			// nil-accept ordinary callers keep their original failure behavior.
-			if err := s.completeCurrentDungeonBossDieCheckLocked(peer, runtime, "validated_luke_destroy_dispatch_resume_partial_settlement"); err != nil {
-				return errors.Join(completionErr, err)
+		if runtime.bossDieCheckAccepted && !runtime.settlementEntrySent {
+			// A transient member-session write can fail after the final room and
+			// boss-die completion state were committed but before bodyless op31
+			// reached the client. The ordinary entry now returns early because
+			// bossDieCheckAccepted is set, so retry through that same settlement
+			// owner once. Identity, persistence, tournament and reward barriers
+			// remain owned by completeCurrentDungeonBossDieCheckLocked.
+			resumeErr := s.completeCurrentDungeonBossDieCheckLocked(
+				peer,
+				runtime,
+				"authoritative_party_death_dispatch_resume_partial_settlement",
+			)
+			if resumeErr != nil {
+				return errors.Join(completionErr, resumeErr)
 			}
 		} else if completionErr != nil {
 			return completionErr

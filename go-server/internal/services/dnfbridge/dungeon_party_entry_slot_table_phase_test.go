@@ -61,9 +61,8 @@ func dungeonEntryPhaseScenarioRun(
 	setup dungeonEntryPhaseScenario,
 ) ([]partyDungeonSyncStep, string) {
 	t.Helper()
-	// 放行派发改同步：否则断言会与放行 goroutine 竞态（口径与
+	// 等待整批放行完成后采样；批内成员仍在各自队列并行执行。
 	t.Setenv(partySelectorPreserveActorEnv, "off") // these scenarios audit the legacy conversion switch
-	// TestPartyDungeonSharedLoadingBarrierReleasesBothMembersAfterTheLastOp37 相同）。
 	restoreDispatch := partyDungeonLoadingBarrierDispatch
 	partyDungeonLoadingBarrierDispatch = func(run func()) { run() }
 	defer func() { partyDungeonLoadingBarrierDispatch = restoreDispatch }()
@@ -156,11 +155,12 @@ func dungeonEntryLastStepIndex(steps []partyDungeonSyncStep, charID uint16, msgI
 	return found
 }
 
-// dungeonEntryCharLocalIndex 把全局包序下标换算成"该角色自己的第几个包"。
+// dungeonEntryCharLocalIndex returns the index in the receiver-owned stream;
+// independent peer projections are compared separately at the end of the keys.
 func dungeonEntryCharLocalIndex(steps []partyDungeonSyncStep, charID uint16, globalIndex int) int {
 	local := 0
 	for index := 0; index < globalIndex && index < len(steps); index++ {
-		if steps[index].CharID == charID {
+		if steps[index].CharID == charID && !dungeonEntryPeerProjection(steps[index], charID) {
 			local++
 		}
 	}
@@ -176,17 +176,63 @@ type dungeonEntryFrameKey struct {
 
 func dungeonEntryFrameKeys(steps []partyDungeonSyncStep, charID uint16) []dungeonEntryFrameKey {
 	keys := make([]dungeonEntryFrameKey, 0, len(steps))
+	peers := make([]dungeonEntryFrameKey, 0)
 	for _, step := range steps {
 		if step.CharID != charID {
 			continue
 		}
-		keys = append(keys, dungeonEntryFrameKey{
+		key := dungeonEntryFrameKey{
 			class: step.Classification,
 			msgID: step.MsgID,
 			body:  string(step.Body),
-		})
+		}
+		if dungeonEntryPeerProjection(step, charID) {
+			peers = append(peers, key)
+		} else {
+			keys = append(keys, key)
+		}
 	}
-	return keys
+	return append(keys, peers...)
+}
+
+// The accepted parallel release lets the other member's actor broadcast land
+// on either side of this receiver's op37/op30. Compare both streams byte for
+// byte and in their original order, without assuming a cross-member schedule.
+// No packet is dropped or sorted within either stream. Only the fixture's
+// explicit peer mode0/mode1/op9 records qualify; unknown shapes stay strict.
+// Receiver phase anchors are still checked against the unmodified wire trace.
+func dungeonEntryPeerProjection(step partyDungeonSyncStep, charID uint16) bool {
+	peerID := uint16(0)
+	switch charID {
+	case 99:
+		peerID = 100
+	case 100:
+		peerID = 99
+	default:
+		return false
+	}
+	if step.Classification != 0 {
+		return false
+	}
+	body := step.Body
+	keyOffset := -1
+	switch step.MsgID {
+	case uint16(dnfenum.CmdPacketSetUDPIPPort):
+		if len(body) >= 3 && binary.LittleEndian.Uint16(body[1:3]) == 1 {
+			switch body[0] {
+			case 0:
+				keyOffset = 5 + 0x47
+			case 1:
+				keyOffset = 5 + 16
+			}
+		}
+	case uint16(dnfenum.CmdPacketRecoverStamina):
+		if len(body) >= 12 && body[9] == currentSceneOp9ActorDisplayKind {
+			keyOffset = 4
+		}
+	}
+	return keyOffset >= 0 && len(body) >= keyOffset+2 &&
+		binary.LittleEndian.Uint16(body[keyOffset:keyOffset+2]) == currentSceneActorObjectKey(peerID)
 }
 
 // dungeonEntryRelayEndpointBodyMsgID 是唯一"body 按进程变化"的入场帧：op11（队友端点

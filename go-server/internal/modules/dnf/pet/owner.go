@@ -210,6 +210,13 @@ func (o *Owner) Hatch(ctx context.Context, cmd HatchCommand) (HatchResult, error
 			"creature_key":              petKey,
 			"hatched_from_item_id":      strconv.FormatInt(egg.ItemID, 10),
 		}
+		// Hatching changes the template, not the lifetime of the granted
+		// instance. Preserve only expiry provenance, never arbitrary egg state.
+		for _, key := range []string{"expiration_source", "usable_period_days", "expire_time", "expire_unix", "daily_delete_at", "gm_expire_days"} {
+			if value, ok := egg.Extra[key]; ok {
+				extra[key] = value
+			}
+		}
 		if definition.EggPVFPath != "" {
 			extra["hatch_egg_pvf_path"] = definition.EggPVFPath
 		}

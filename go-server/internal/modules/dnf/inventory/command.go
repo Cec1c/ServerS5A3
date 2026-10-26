@@ -4,6 +4,7 @@ package inventory
 
 import (
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"strings"
 	"time"
 
@@ -15,52 +16,56 @@ import (
 
 // Command 是 inventory handler 交给后续 inventory/equipment/wallet owner 的最小命令计划。
 type Command struct {
-	ItemPlacement          func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
-	CargoInsert            func(dnfrepo.ItemStack, byte) error
-	Operation              string
-	AccountID              string
-	SelectedCharacterID    uint16
-	SourceListType         byte
-	SourceSlotIndex        int16
-	SourceInstanceValue    int32
-	ReservedValue          uint32
-	MoveCount              int32
-	DestinationListType    byte
-	DestinationSlotIndex   int16
-	DestinationInstance    int32
-	DestinationStack       int32
-	ActorIndex             int32
-	TrailingState0         byte
-	TrailingState1         byte
-	EntryCount             int
-	DeleteEntries          []DeleteEntry
-	Count                  int32
-	ItemTemplateID         int32
-	RepairSlot             int16
-	AutoRepair             bool
-	QuickRepair            bool
-	TargetSlotIndex        int16
-	TargetItemTemplateID   int32
-	MaterialSlotIndex      int16
-	MaterialItemTemplateID int32
-	OptionalTicketSlot     int16
-	Mode                   string
-	TargetItemName         string
-	AmplifyAction          byte
-	SelectedAmplifyOption  byte
-	RandomOptionIndex      byte
-	InventoryManagerState  uint16
-	BeadListType           byte
-	BeadSlotIndex          int16
-	TargetListType         byte
-	ItemSpace              byte
-	DisjointItemSlotIndex  int16
-	ContextValue           int32
-	ActionIndex            uint32
-	DamageFontIndex        uint16
-	Category               byte
-	Condition              byte
-	NeedsOwner             string
+	ItemUsageResolver       alignedcmd.ItemUsageResolver
+	ItemUsageNow            time.Time
+	UseItemUsage            *itemusage.Definition
+	ItemPlacement           func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	QuickEquipmentPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
+	CargoInsert             func(dnfrepo.ItemStack, byte) error
+	Operation               string
+	AccountID               string
+	SelectedCharacterID     uint16
+	SourceListType          byte
+	SourceSlotIndex         int16
+	SourceInstanceValue     int32
+	ReservedValue           uint32
+	MoveCount               int32
+	DestinationListType     byte
+	DestinationSlotIndex    int16
+	DestinationInstance     int32
+	DestinationStack        int32
+	ActorIndex              int32
+	TrailingState0          byte
+	TrailingState1          byte
+	EntryCount              int
+	DeleteEntries           []DeleteEntry
+	Count                   int32
+	ItemTemplateID          int32
+	RepairSlot              int16
+	AutoRepair              bool
+	QuickRepair             bool
+	TargetSlotIndex         int16
+	TargetItemTemplateID    int32
+	MaterialSlotIndex       int16
+	MaterialItemTemplateID  int32
+	OptionalTicketSlot      int16
+	Mode                    string
+	TargetItemName          string
+	AmplifyAction           byte
+	SelectedAmplifyOption   byte
+	RandomOptionIndex       byte
+	InventoryManagerState   uint16
+	BeadListType            byte
+	BeadSlotIndex           int16
+	TargetListType          byte
+	ItemSpace               byte
+	DisjointItemSlotIndex   int16
+	ContextValue            int32
+	ActionIndex             uint32
+	DamageFontIndex         uint16
+	Category                byte
+	Condition               byte
+	NeedsOwner              string
 	// SortLock / SortLockRequested 承接 op713/714 的位置锁意图（DOC-067）：
 	// SortLock 由 opcode 决定（713=锁、714=解锁），不是 toggle。
 	SortLock          bool
@@ -143,6 +148,8 @@ func NewDeleteCommand(req alignedcmd.Request, parsed DeleteRequest) Command {
 func NewMoveCommand(req alignedcmd.Request, parsed MoveItemspaceRequest) Command {
 	cmd := baseCommand(req, "move_itemspace", "inventory/equipment/cargo owner + mutation id + backpack/USERINFO/NOTI order")
 	cmd.CargoInsert = req.InventoryCargoInsert
+	// 快捷装备互斥必须覆盖同背包；不改变下面普通分页守卫的原开关语义。
+	cmd.QuickEquipmentPlacement = req.InventoryItemPlacement
 	cmd.SourceListType = parsed.SourceListType
 	cmd.SourceSlotIndex = parsed.SourceSlotIndex
 	cmd.SourceInstanceValue = parsed.SourceInstanceValue
@@ -217,6 +224,8 @@ func NewUseStackableCommand(req alignedcmd.Request, parsed UseStackableRequest) 
 	cmd.ItemTemplateID = parsed.ItemCode
 	cmd.ReservedValue = parsed.Reserved
 	cmd.StackableUseProvenanceResolver = req.StackableUseProvenanceResolver
+	cmd.ItemUsageResolver = req.ItemUsageResolver
+	cmd.ItemUsageNow = req.ItemUsageNow
 	return cmd
 }
 
@@ -229,6 +238,8 @@ func NewUseSharedEffectItemCommand(req alignedcmd.Request, parsed UseSharedEffec
 	cmd.SourceSlotIndex = parsed.SlotIndex
 	cmd.ItemTemplateID = parsed.ItemCode
 	cmd.StackableUseProvenanceResolver = req.StackableUseProvenanceResolver
+	cmd.ItemUsageResolver = req.ItemUsageResolver
+	cmd.ItemUsageNow = req.ItemUsageNow
 	return cmd
 }
 

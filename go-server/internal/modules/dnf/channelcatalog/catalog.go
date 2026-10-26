@@ -212,6 +212,7 @@ func filterChannels(channels []Channel, accept func(Channel) bool) []Channel {
 func isRaid(channel Channel) bool {
 	return channel.Type == dnfenum.RaidChannelType ||
 		channel.Type == dnfenum.HiddenRaidType ||
+		((channel.Type == 42 || channel.Type == 45) && normalizeGroup(channel.Group) == "fiendwar") ||
 		normalizeGroup(channel.Group) == dnfenum.GroupRaid
 }
 
@@ -221,7 +222,7 @@ func isBootstrapEntrance(channel Channel) bool {
 
 // nonResidentChannelTypes 是**本数据集**（`data/dnf/channel_info.etc`）里已确认
 // 的"特殊区域/玩法"频道 type：22 远古地下城与亡者峡谷、23 安徒恩 raid、24 决斗场、
-// 32 卢克、36 交易-拍卖行、40 异次元裂缝、42 魔兽（见该文件自身注释与线上实测）。
+// 32 卢克、36 交易-拍卖行、39 帝国竞技场、40 异次元裂缝、42 魔兽（见该文件自身注释与线上实测）。
 // 普通城镇频道（10..20、205 等）用 type 11。
 //
 // 2026-09-26 修正：旧判据用通用枚举（`dnfenum.DeathTowerChannelType=11`、
@@ -230,7 +231,7 @@ func isBootstrapEntrance(channel Channel) bool {
 // 调用者，所以这个错一直没暴露；本轮把它接进 game 会话落点后才必须修对）。
 // 现在改成"按数据集黑名单排除"，既修对真实数据，也保持既有单测夹具语义。
 var nonResidentChannelTypes = map[uint8]bool{
-	22: true, 23: true, 24: true, 32: true, 36: true, 40: true, 42: true,
+	22: true, 23: true, 24: true, 32: true, 36: true, 39: true, 40: true, 42: true, 45: true,
 }
 
 func isResidentChannel(channel Channel) bool {

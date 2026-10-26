@@ -17,6 +17,7 @@ func currentPVFItemPlacementPolicy(definition dungeonDropItemDefinition) dnfplac
 	}
 	if definition.Kind == dungeonDropItemEquipment {
 		policy.AllowQuickSlots = container.SlotStart == currentPVFMainEquipmentSlotStart && container.SlotEnd == currentPVFMainEquipmentSlotEnd
+		policy.SingleQuickEquipment = normalizeDungeonDropStackableType(definition.EquipmentType) == "[charm]"
 		return policy
 	}
 	if definition.Kind != dungeonDropItemStackable ||

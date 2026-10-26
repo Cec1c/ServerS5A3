@@ -144,13 +144,22 @@ func TestConfirmedActiveTutorialExitPersistsBeforeImmediateCharacterSwitch(t *te
 	}
 }
 
-func TestHandleDungeonBackToVillagePreservesCompletedFinalStatus(t *testing.T) {
+func TestPendingDungeonTownTransportPreservesCompletedFinalStatus(t *testing.T) {
 	service, session, runtime := newBackToVillageRuntime(t)
 	if err := runtime.Session.CompleteCurrentRoom(); err != nil {
 		t.Fatalf("complete final room: %v", err)
 	}
-	if err := service.handleDungeonBackToVillage(session, nil); err != nil {
-		t.Fatalf("handle completed op132: %v", err)
+	// 保留底层待决传输的完成态断言；普通完成局132入口现在先过结果/奖励屏障，
+	// 并使用完整城镇重建，由TestCardTownExitWaitsForLayoutAndReturns覆盖。
+	transition, err := service.prepareCurrentDungeonTownTransitionForSession(context.Background(), session, session.selectedCharacterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.dungeon.mu.Lock()
+	err = service.sendCurrentDungeonReturnToTownLocked(session, runtime, transition, uint16(dnfenum.CmdPacketBack2Village), "completed_pending_transport_regression")
+	session.dungeon.mu.Unlock()
+	if err != nil {
+		t.Fatalf("send completed pending transport: %v", err)
 	}
 
 	response, rest := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())

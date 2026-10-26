@@ -62,13 +62,16 @@ func TestR151PublicOrdinaryDispatcherKeepsBaselineFailureBehavior(t *testing.T) 
 	if e := s.handleDungeonMonsterDeath(leader, b); e != nil {
 		t.Fatal(e)
 	}
-	if fail.failures != 1 || !pr.bossDieCheckAccepted || pr.settlementEntrySent {
-		t.Fatal("ordinary baseline first failure behavior changed")
+	if fail.failures != 2 || !pr.bossDieCheckAccepted || pr.settlementEntrySent {
+		t.Fatal("ordinary upstream retry did not preserve the failed entry state")
 	}
 	s.dispatchPartyDungeonPeerFinalRoomCompletion(p, pr.partyInstance.id, key)
-	if fail.failures != 1 || pr.settlementEntrySent {
-		t.Fatal("nil-accept ordinary caller unexpectedly gained Luke retry")
+	s.dispatchPartyDungeonPeerFinalRoomCompletion(p, pr.partyInstance.id, key)
+	if fail.failures != 2 || !pr.settlementEntrySent ||
+		r151PublicCountMsg(splitUpperFrames(t, fail.write.Bytes()), 31) != 1 {
+		t.Fatal("ordinary upstream retry did not recover exactly one personal entry")
 	}
+	r151NoReward(t, p)
 }
 
 func TestR151LukeCompletionBoundaries(t *testing.T) {
