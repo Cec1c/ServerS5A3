@@ -49,11 +49,12 @@ type SettlementCommand struct {
 	// ClearPotionBase is the clear EXP before rank, contracts and other bonuses.
 	ClearPotionBase         uint32
 	RecommendedDungeonClear bool
-	// GuildOrdinaryClear is set only by the server after ordinary-mode and entry-level checks.
+	// Authoritative ordinary clear eligibility; independent of potion/tower rewards.
 	GuildOrdinaryClear    bool
 	LuckyStar             *LuckyStarPolicy
 	MonthlyAttendance     bool
 	WeeklyAttendance      *WeeklyClearContract
+	AttendanceMarble      *onlineevent.MarbleCatalog
 	AdventureRuntime      *adventuregroup.RuntimeConfig
 	HonorExpertTables     *honor.Tables
 	MaximumCharacterLevel int
@@ -324,6 +325,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character.Stats[settlementReceiptPrefix+"potion_bonus"] = int64(potionBonus)
 		// This is inside the accepted completion's existing receipt/UOW. A
 		// replay returned above and cannot increment an account-day twice.
+		if cmd.RecommendedDungeonClear {
+			if err := onlineevent.RecordMarbleClear(&character, cmd.AttendanceMarble, now); err != nil {
+				return err
+			}
+		}
 		if cmd.MonthlyAttendance && cmd.RecommendedDungeonClear {
 			if tx.Account == nil {
 				return ErrSettlementStateInvalid
@@ -552,6 +558,10 @@ func PlanSettlementProgressionAtCap(
 		result.NewLevel++
 	}
 	result.LevelsGained = result.NewLevel - result.PreviousLevel
+	result, err := tables.LimitCharacterExperienceAtCap(result, maximumLevel)
+	if err != nil {
+		return progression.ExperienceSkillPointPlan{}, err
+	}
 	advance, err := tables.AdvanceSkillPoints(points, result.NewLevel)
 	if err != nil {
 		return progression.ExperienceSkillPointPlan{}, err

@@ -233,6 +233,9 @@ type Map struct {
 	TournamentEnemyCandidates     []TournamentEnemyInfo     `json:"tournament_enemy_candidates,omitempty"`
 	TournamentStartAreas          []TournamentStartAreaInfo `json:"tournament_start_areas,omitempty"`
 	TournamentDefinitionMalformed bool                      `json:"tournament_definition_malformed,omitempty"`
+	// Runtime-only order of the projected tournament path, including APCs.
+	// It is not parsed from a map script or sent as an ordinary START_MAP row.
+	TournamentActorOrder []HostileReference `json:"-"`
 
 	SourceSections  []RawSection       `json:"source_sections,omitempty"`
 	OpaqueSections  []RawSection       `json:"opaque_sections,omitempty"`

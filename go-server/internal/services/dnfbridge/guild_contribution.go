@@ -56,7 +56,7 @@ func (s *Service) currentGuildContributionContract() (*guild.ContributionContrac
 }
 
 // The caller owns this character's asset reservation. Chat already reserves
-// all recipients in canonical order; it must not reserve the sender again.
+// its sender; it must not reserve the same character again.
 func (s *Service) grantCurrentGuildContributionReserved(ctx context.Context, session *gameSession, identity boundGameSessionCharacter, event guild.ContributionEvent) (guild.ContributionIncome, error) {
 	if !s.guildContributionEnabled() {
 		return guild.ContributionIncome{}, nil

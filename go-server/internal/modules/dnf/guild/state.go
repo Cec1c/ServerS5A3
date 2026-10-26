@@ -44,6 +44,7 @@ var (
 )
 
 type Registry struct {
+	PlacementReceipts        map[string]PlacementReceipt        `json:"placement_receipts,omitempty"`
 	Hongbao                  *HongbaoState                      `json:"hongbao,omitempty"`
 	Ranking                  *RankingState                      `json:"ranking,omitempty"`
 	GuardianReceipts         map[string]GuardianReceipt         `json:"guardian_receipts,omitempty"`
@@ -63,6 +64,7 @@ type Registry struct {
 }
 
 type Guild struct {
+	Placements         *PlacementState       `json:"placements,omitempty"`
 	RankingActivity    *RankingActivity      `json:"ranking_activity,omitempty"`
 	Guardians          *GuardianState        `json:"guardians,omitempty"`
 	Merchants          *MerchantState        `json:"merchants,omitempty"`
@@ -653,6 +655,9 @@ func validateRegistry(r Registry) error {
 	if err := validateMerchantPurchaseReceipts(r); err != nil {
 		return err
 	}
+	if err := validatePlacementReceipts(r); err != nil {
+		return err
+	}
 	if err := validateBenefits(r); err != nil {
 		return err
 	}
@@ -683,6 +688,9 @@ func validateRegistry(r Registry) error {
 			return err
 		}
 		if err := g.Merchants.Validate(); err != nil {
+			return err
+		}
+		if err := g.Placements.Validate(); err != nil {
 			return err
 		}
 		name := strings.ToLower(strings.TrimSpace(g.Name))

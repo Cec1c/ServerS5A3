@@ -86,6 +86,14 @@ const (
 	currentUpgradePortableMaximumLevel = 31
 )
 
+// currentUpgradeUsableItemLevelSection 是耗材的 `[check usable itemlevel]` 段名。
+// 真档一次性增幅器 10164868 = `1 90`；同族 1阶..5阶强化器是五段窗口。
+// 段名与解析口径和锻造路径（forging_pvf.go）相同，但这一族是**便携强化/增幅消耗品**：
+// 厂商 `ItemUpgradeConsumableResolver.FromPortable` 把它装进
+// `ItemUpgradeConsumableConfig.Restriction.ItemLevelMin/Max`，见
+// resolvePortableUsableItemLevel 的取证。
+const currentUpgradeUsableItemLevelSection = "check usable itemlevel"
+
 // resolvePortableUpgradeConsumable 读一个 stackable 的 `[action type]`，判断它是不是
 // 便携强化/增幅消耗品。
 //
@@ -123,4 +131,54 @@ func resolvePortableUpgradeConsumable(document *dnfpvf.Document) (string, int, i
 		bonus = int(params[2])
 	}
 	return mode, levelMin, levelMax, bonus, true
+}
+
+// resolvePortableUsableItemLevel 读一件耗材的 `[check usable itemlevel]` 窗口。
+// 返回 (min, max, ok)：ok == false = 这一段缺席（厂商默认 ItemLevelMin/Max = -1 = 不限）。
+//
+// 厂商取证（Server/DfoServer/Game/ItemUpgrade/ItemUpgradeModels.cs，FromPortable）：
+//
+//	Scene = ItemUpgradeScene.Portable,
+//	Restriction = new ItemUpgradeRestriction
+//	{
+//	    SlotRestriction = 0,
+//	    ItemLevelMin = stackable.CheckUsableItemLevelMin,
+//	    ItemLevelMax = stackable.CheckUsableItemLevelMax,
+//	},
+//
+// CheckUsableItemLevelMin/Max 就是 PvfLib 对 `[check usable itemlevel]` 的解析
+// （Tool/PvfLib/Models/StackableItemFile.cs:252-254 默认 -1；:409 段名逐字相等）。
+// 判定发生在 InventoryItemUpgradeService.ValidateRestrictions：
+//
+//	var restriction = context.Restriction ?? new ItemUpgradeRestriction();
+//	if (!restriction.AllowsRarity(context.EquipmentRarity)) return false;
+//	if (!restriction.AllowsItemLevel(context.EquipmentLevel)) return false;  // 回 19
+//
+// 入参 context.EquipmentLevel 是**目标装备 PVF 的 `[minimum level]`**
+// （InventoryItemUpgradeService.cs:388/401 `EquipmentLevel = targetMetadata.MinimumLevel`；
+// Tool/PvfLib/Models/EquipmentFile.cs:36/154 `[minimum level]` 映射 MinimumLevel，默认 -1），
+// 不是 `[grade]`（同一个 context 里 EquipmentGrade 是另一个字段）。
+func resolvePortableUsableItemLevel(document *dnfpvf.Document) (int, int, bool) {
+	if document == nil {
+		return -1, -1, false
+	}
+	window := document.Ints(currentUpgradeUsableItemLevelSection)
+	tokens, present := document.Section(currentUpgradeUsableItemLevelSection)
+	if !present {
+		return -1, -1, false
+	}
+	if len(tokens) < 1 || len(tokens) > 2 || len(window) != len(tokens) {
+		return -2, -2, true
+	}
+	for _, token := range tokens {
+		if token.Kind != dnfpvf.TokenInt || token.Int < -1 || token.Int > 2147483647 {
+			return -2, -2, true
+		}
+	}
+	min := int(window[0])
+	max := -1
+	if len(window) > 1 {
+		max = int(window[1])
+	}
+	return min, max, true
 }

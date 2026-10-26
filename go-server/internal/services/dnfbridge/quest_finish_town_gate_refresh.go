@@ -72,7 +72,16 @@ func (s *Service) refreshCurrentTownQuestGateScene(session *gameSession, result 
 		return nil
 	}
 	parsed, found := reader(area)
-	if !found || !currentTownMapExitUsesQuest(parsed, result.QuestID) {
+	if !found {
+		return nil
+	}
+	usesGate := currentTownMapExitUsesQuest(parsed, result.QuestID)
+	for _, id := range result.ResumedStoryQuestIDs {
+		if currentTownGateQuestCompleted(result.PostCommitQuest, id) && currentTownMapExitUsesQuest(parsed, id) {
+			usesGate = true
+		}
+	}
+	if !usesGate {
 		return nil
 	}
 	// 地图读取期间可能切换选角或场景；只允许刷新原来的归属和坐标。

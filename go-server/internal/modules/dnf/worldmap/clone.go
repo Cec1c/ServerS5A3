@@ -56,6 +56,7 @@ func cloneMap(in Map) Map {
 	in.OpeningBGM = append([]string(nil), in.OpeningBGM...)
 	in.AbsoluteStartPath = append([]string(nil), in.AbsoluteStartPath...)
 	in.TournamentEnemyCandidates = append([]TournamentEnemyInfo(nil), in.TournamentEnemyCandidates...)
+	in.TournamentActorOrder = append([]HostileReference(nil), in.TournamentActorOrder...)
 	in.TournamentStartAreas = append([]TournamentStartAreaInfo(nil), in.TournamentStartAreas...)
 	in.SourceSections = cloneSections(in.SourceSections)
 	for index, packed := range in.compactSourceTokens {

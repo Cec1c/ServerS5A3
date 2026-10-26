@@ -112,6 +112,7 @@ func (s *Service) broadcastCurrentCrossSceneAppearance(actor *gameSession) {
 	sort.Ints(ordered)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	defer s.broadcastCurrentInspectedProfile(ctx, actor)
 	batch := newCurrentCrossSceneProfileBatch(s, ctx)
 	for _, id := range ordered {
 		if !s.boundGameSessionCharacterCurrent(identity) {

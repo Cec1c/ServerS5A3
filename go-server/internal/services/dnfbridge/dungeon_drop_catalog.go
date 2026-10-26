@@ -98,6 +98,9 @@ type dungeonDropItemDefinition struct {
 	DamageFontExpirationMode  alignedcmd.DamageFontExpirationMode
 	DamageFontPeriodDays      int64
 	DamageFontFixedExpiration time.Time
+	// NeedMaterials is the raw PVF `[need material]` integer vector. The
+	// consuming feature selects its canonical positive id/count pair.
+	NeedMaterials []int64
 }
 
 type dungeonDropItemReference struct {
@@ -318,9 +321,12 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 	}
 	definition.ExpirationDate = expirationDate
 	_, definition.UsableExpiredItem = document.Section("usable expired item")
-	if reference.kind == dungeonDropItemStackable {
-		flag, found := document.Int("daily delete item")
-		definition.DailyDeleteItem = found && flag == 1
+	flag, found := document.Int("daily delete item")
+	definition.DailyDeleteItem = found && flag == 1
+	// Do not choose precedence for an equipment template with conflicting clocks.
+	if reference.kind == dungeonDropItemEquipment {
+		period, _ := document.Int("usable period")
+		definition.DailyDeleteItem = definition.DailyDeleteItem && expirationDate.IsZero() && period <= 0
 	}
 	if usablePeriod, found := document.Int("usable period"); found && usablePeriod > 0 {
 		definition.UsablePeriodDays = usablePeriod
@@ -355,6 +361,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		}
 	} else {
 		definition.StackableType, _ = document.Text("stackable type")
+		definition.NeedMaterials = append([]int64(nil), document.Ints("need material")...)
 		// 品级调整箱族的能力白名单：`[usable equip type]` 里的部位表。
 		// 现场（2026-09-25）耳环报障的判据就是它——见
 		// modules/dnf/itemgrade.AllowsTargetEquipmentType。

@@ -113,6 +113,8 @@ func (s *Service) prepareCurrentDungeonRandomizedOwner(dungeon worldmap.Dungeon,
 		}
 		passivePath, hasPassive := passives[entry.ObjectID]
 		var monsterKind string
+		// Ordinary ridable templates can have regenerate=0 and no passive-name
+		// collision. Classify every resolved MOB before freezing terminal state.
 		if hasMonster {
 			text, err := archive.ReadText(monster.Path)
 			if err != nil {

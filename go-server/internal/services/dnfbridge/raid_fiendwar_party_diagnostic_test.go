@@ -69,7 +69,7 @@ func TestFiendWarPartyAdmissionDiagnosticSurvivesDisabledPacketLog(t *testing.T)
 	peer.dungeon.mu.Unlock()
 
 	selfKey := dungeonPartyRunKey{
-		PartyID:   11,
+		PartyID: 11, RaidKey: 7, RaidInstanceID: "inst-7", RaidRunID: "run-7",
 		DungeonID: 310, MazeIndex: 0, RoomX: 1, RoomY: 2, MapID: 36751, Seed: 9,
 	}
 	peerKey := selfKey

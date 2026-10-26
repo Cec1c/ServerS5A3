@@ -69,6 +69,14 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 		}
 		s.logCurrentRaidRewardWire(session, packet, latest.Battle.InstanceID, latest.Battle.Mode, latest.Battle.Phase, true, "")
 	}
+	for _, packet := range packets {
+		if packet.class == 0 && packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+			s.raidMu.Lock()
+			s.markCurrentAntonPartyShownLocked(latest.Battle.InstanceID, latest.Battle.Phase, time.Now())
+			s.raidMu.Unlock()
+			break
+		}
+	}
 	if markScreen {
 		o.rewardScreenIdentity, o.rewardScreenSent = identity, true
 		// Only this connection's successfully opened party screen anchors its
@@ -204,13 +212,14 @@ func (s *Service) handleCurrentAntonMovieCompletion(session *gameSession, op uin
 	}
 	var cards []raid.RewardDisplayCard
 	lukeFinal := state.Battle.Mode == 2 && state.Battle.Phase == 1 && !state.Battle.Single
+	currentGroupDisplay := lukeFinal || state.Battle.Mode == 3
 	var visible map[uint16]bool
-	if lukeFinal {
+	if currentGroupDisplay {
 		visible = s.currentRaidPartyRewardDisplayMembers(session, state)
 	}
 	for _, peer := range peers {
 		include := peer.GroupIndex == member.GroupIndex
-		if lukeFinal {
+		if currentGroupDisplay {
 			include = visible[peer.CharID]
 		}
 		if include && currentAntonPhaseClearCount(state.Battle, peer.CharID) >= state.Battle.AntonRewards.Phases[state.Battle.Phase].MinimumClears {
@@ -401,6 +410,9 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 		selected := live.Battle.RewardCards[command.Phase][session.selectedCharacterID]
 		if selected != nil && selected.Plan.Fingerprint == command.Fingerprint && selected.Card == command.Card {
 			selected.Committed = true
+			if flow := live.Battle.RewardFlow[command.Phase]; flow != nil {
+				markCurrentAntonPartyCommittedLocked(flow, time.Now())
+			}
 		}
 	}
 	s.raidMu.Unlock()
@@ -429,11 +441,12 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state runtimeRaidState, card currentAntonRewardCard, body []byte) {
 	senderID := sender.selectedCharacterID
 	lukeFinal := state.Battle != nil && state.Battle.Mode == 2 && state.Battle.Phase == 1 && !state.Battle.Single
+	currentGroupDisplay := lukeFinal || state.Battle != nil && state.Battle.Mode == 3
 	for _, member := range state.Members {
 		if member.CharID == senderID {
 			continue
 		}
-		if !lukeFinal && member.GroupIndex != card.Group {
+		if !currentGroupDisplay && member.GroupIndex != card.Group {
 			continue
 		}
 		peer, found := s.onlineGameSession(member.CharID)
@@ -449,7 +462,7 @@ func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state ru
 				if peer.characterGeneration != generation || peer.selectedCharacterID != id || !currentAntonResultDelivered(peer, state) {
 					return nil
 				}
-				if lukeFinal {
+				if currentGroupDisplay {
 					latest, err := s.latestCurrentRaidProjectionState(peer, state)
 					if err != nil {
 						return err
@@ -460,7 +473,10 @@ func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state ru
 					if err := s.sendCurrentAntonRewardPackets(peer, state, []currentAntonRewardPacket{{opcode: 600, body: projection}}, false); err != nil {
 						return err
 					}
-					return s.sendCurrentLukeLocalPartyCompletion(peer, latest)
+					if lukeFinal {
+						return s.sendCurrentLukeLocalPartyCompletion(peer, latest)
+					}
+					return nil
 				}
 				return s.sendCurrentAntonRewardPackets(peer, state, []currentAntonRewardPacket{{opcode: 600, body: projection}}, false)
 			})

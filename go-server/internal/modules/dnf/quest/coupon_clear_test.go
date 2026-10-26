@@ -61,13 +61,13 @@ func TestPlanCouponMainQuestClearSweepManufacturesOnlyNoRewardMainStoryRows(t *t
 	}
 	got := append([]int64(nil), plan.ChangedQuestIDs...)
 	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
-	// 100/106 是激活主线；101（[level] 30、[pre required quest] 100）角色从没接过，
-	// 也在整段主线的口径里；105 是 [pre required quest answer] 分支任务——真档里
-	// 这类任务的兄弟分支同样落在整段主线里（例如 4845 的前置组需要 4843），
-	// 所以扫描口径不把它排除，否则会在链上留洞。
-	// 102（[level] 90）超出 89 上限；103 是支线；104 职业不符；150 是 [sub]。
-	if want := []int64{100, 101, 105, 106}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("sweep changed quests=%v want=%v", got, want)
+	// Missing or malformed question-answer prerequisites are a barrier, not
+	// permission to complete every sibling. Independent 100/101/106 still clear.
+	if want := []int64{100, 101, 106}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("changed=%v want=%v", got, want)
+	}
+	if _, exists := plan.Record.States[105]; exists {
+		t.Fatal("unanswered branch was manufactured")
 	}
 	for _, questID := range got {
 		state := plan.Record.States[questID]

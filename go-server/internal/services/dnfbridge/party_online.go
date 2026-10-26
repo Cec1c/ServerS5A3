@@ -91,7 +91,8 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 
 func isOnlinePartyCommand(typ uint16) bool {
 	switch dnfenum.CmdPacket(typ) {
-	case dnfenum.CmdPacketLeaveParty,
+	case dnfenum.CmdPacketSetPartyInfo,
+		dnfenum.CmdPacketLeaveParty,
 		dnfenum.CmdPacketWalkoutPartyMember,
 		dnfenum.CmdPacketChangeHost,
 		dnfenum.CmdPacketChangePartyMemberPosition,
@@ -1031,6 +1032,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				"slot_zero_char_id", slotZeroCharID)
 		}
 	}
+	s.refreshTownPartyActorsAfterJoin(state, "party_invite_accept")
 	return nil
 }
 
@@ -1112,6 +1114,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 		"slot_zero_char_id", slotZeroCharID,
 		"member_count", len(state.Members),
 		"wire_contract", "op705_entry_into_party_packet_sender_is_the_anchor_unproven_direction")
+	s.refreshTownPartyActorsAfterJoin(state, "party_entry_into_party")
 	return nil
 }
 
@@ -1985,7 +1988,9 @@ func (s *Service) broadcastCurrentPartyActorProjection(actor *gameSession, state
 		// 与城镇同屏投影同一口径：观察方与该 actor 已在同一支队伍时，这条"再声明一次队伍"的
 		// op9 是多余的，而且现场实测会让队员客户端自己 op13 退队（见
 		// town_copresence_party_state.go 的 DNFBRIDGE_TOWN_COPRESENCE_SKIP_SAME_PARTY_FRAME）。
-		if s.shouldSkipTownCopresencePartyFrame(peer.Session, actor) {
+		// An explicit removal must not resolve the retained singleton lobby:
+		// that lookup would republish the party projection we just cleared.
+		if state.PartyID > 0 && s.shouldSkipTownCopresencePartyFrame(peer.Session, actor) {
 			s.logPacketEvent("game-party-actor-projection-party-frame-skipped",
 				"conn_id", peer.Session.connID,
 				"source", source+"_to_area_peer",
