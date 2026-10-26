@@ -91,7 +91,8 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 
 func isOnlinePartyCommand(typ uint16) bool {
 	switch dnfenum.CmdPacket(typ) {
-	case dnfenum.CmdPacketLeaveParty,
+	case dnfenum.CmdPacketSetPartyInfo,
+		dnfenum.CmdPacketLeaveParty,
 		dnfenum.CmdPacketWalkoutPartyMember,
 		dnfenum.CmdPacketChangeHost,
 		dnfenum.CmdPacketChangePartyMemberPosition,
@@ -1031,6 +1032,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				"slot_zero_char_id", slotZeroCharID)
 		}
 	}
+	s.refreshTownPartyActorsAfterJoin(state, "party_invite_accept")
 	return nil
 }
 
@@ -1112,6 +1114,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 		"slot_zero_char_id", slotZeroCharID,
 		"member_count", len(state.Members),
 		"wire_contract", "op705_entry_into_party_packet_sender_is_the_anchor_unproven_direction")
+	s.refreshTownPartyActorsAfterJoin(state, "party_entry_into_party")
 	return nil
 }
 

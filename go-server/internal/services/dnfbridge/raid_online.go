@@ -1120,6 +1120,7 @@ func (s *Service) removeRuntimeRaidMemberLocked(charID uint16) (*runtimeRaidStat
 		delete(f.RecoveryUntil, charID)
 		delete(f.GroupAreas, b.MemberGroups[charID])
 		b.FiendWar = f
+		b.ProgressVersion++
 	}
 	state.Members = next
 	if len(state.Members) == 0 {

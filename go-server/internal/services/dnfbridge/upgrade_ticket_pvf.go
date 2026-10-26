@@ -49,7 +49,7 @@ func resolveCurrentUpgradeTicketMetadata(catalog *pvfDungeonDropCatalog, source 
 	if catalog == nil || source == nil {
 		return alignedcmd.UpgradeTicketResolution{}, errDungeonDropSourceRequired
 	}
-	resolution := alignedcmd.UpgradeTicketResolution{}
+	resolution := alignedcmd.UpgradeTicketResolution{TargetMinimumLevel: -1}
 	if materialItemID <= 0 || materialItemID > int64(^uint32(0)) || targetItemID <= 0 || targetItemID > int64(^uint32(0)) {
 		return resolution, nil
 	}
@@ -100,6 +100,12 @@ func resolveCurrentUpgradeTicketMetadata(catalog *pvfDungeonDropCatalog, source 
 		resolution.PortableLevelMax = levelMax
 		resolution.PortableSuccessBonus = bonus
 		resolution.TicketPVFPath = materialDefinition.PVFPath
+		// 同一件耗材的 `[check usable itemlevel]` 窗口（目标装备的 `[minimum level]` 必须落在
+		// 其中；厂商 FromPortable 装进 Restriction.ItemLevelMin/Max）。段缺席则 -1/-1 = 不限。
+		usableMin, usableMax, present := resolvePortableUsableItemLevel(materialDocument)
+		resolution.MaterialUsableItemLevelSet = present
+		resolution.MaterialUsableItemLevelMin = usableMin
+		resolution.MaterialUsableItemLevelMax = usableMax
 	}
 	if resolution.TicketMode == "" && resolution.PortableMode == "" {
 		return resolution, nil
@@ -119,6 +125,13 @@ func resolveCurrentUpgradeTicketMetadata(catalog *pvfDungeonDropCatalog, source 
 	targetDocument, err := parseDungeonCardPVFDocument(source, targetDefinition.PVFPath)
 	if err != nil {
 		return alignedcmd.UpgradeTicketResolution{}, fmt.Errorf("parse upgrade ticket target item=%d path=%s: %w", targetItemID, targetDefinition.PVFPath, err)
+	}
+	// 目标装备的 `[minimum level]`：耗材的 `[check usable itemlevel]` 窗口比的就是它
+	// （厂商 EquipmentLevel = targetMetadata.MinimumLevel，InventoryItemUpgradeService.cs:388/401
+	// -> AllowsItemLevel(context.EquipmentLevel)，:486；EquipmentFile.cs:154 读同一段）。
+	resolution.TargetMinimumLevel = -1
+	if minimum, found := targetDocument.Int("minimum level"); found {
+		resolution.TargetMinimumLevel = int(minimum)
 	}
 	for _, value := range targetDocument.Texts("impossible contents") {
 		normalized := strings.ToLower(strings.Trim(value, "` []"))

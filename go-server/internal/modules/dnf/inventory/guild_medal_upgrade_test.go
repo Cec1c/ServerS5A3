@@ -30,7 +30,7 @@ func TestGuildMedalUpgradeAtomicHandler(t *testing.T) {
 			}})
 			before, _, _ := repos.Inventory.Load(ctx, "77")
 			beforeChar, _, _ := repos.Character.Load(ctx, "77")
-			policy := alignedcmd.GuildMedalUpgradePolicy{MaterialID: 10154439, MaterialCount: 18, SuccessWeight: 100000, PenaltyType: 1}
+			policy := alignedcmd.GuildMedalUpgradePolicy{MaterialID: 10154439, MaterialCount: 18, MaterialSlotStart: 121, MaterialSlotEnd: 176, SuccessWeight: 100000, PenaltyType: 1}
 			wantLevel, wantCode := byte(6), byte(upgradeResultCodeSuccess)
 			if name == "fail_no_change" {
 				policy.SuccessWeight = 0

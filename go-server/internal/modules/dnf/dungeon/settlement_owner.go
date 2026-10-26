@@ -49,7 +49,7 @@ type SettlementCommand struct {
 	// ClearPotionBase is the clear EXP before rank, contracts and other bonuses.
 	ClearPotionBase         uint32
 	RecommendedDungeonClear bool
-	// GuildOrdinaryClear is set only by the server after ordinary-mode and entry-level checks.
+	// Authoritative ordinary clear eligibility; independent of potion/tower rewards.
 	GuildOrdinaryClear    bool
 	LuckyStar             *LuckyStarPolicy
 	MonthlyAttendance     bool
@@ -558,6 +558,10 @@ func PlanSettlementProgressionAtCap(
 		result.NewLevel++
 	}
 	result.LevelsGained = result.NewLevel - result.PreviousLevel
+	result, err := tables.LimitCharacterExperienceAtCap(result, maximumLevel)
+	if err != nil {
+		return progression.ExperienceSkillPointPlan{}, err
+	}
 	advance, err := tables.AdvanceSkillPoints(points, result.NewLevel)
 	if err != nil {
 		return progression.ExperienceSkillPointPlan{}, err

@@ -8,7 +8,8 @@ import (
 // Require the conversion NPC to belong to the character's ready town scene.
 // This proves scene membership, not an interaction radius; no distance is
 // invented without current-client evidence. A rejection never changes payment
-// to gold silently. The whole payment candidate remains explicitly opt-in.
+// to gold silently. Default Jonathan conversion and the opt-in native quote
+// candidate share this authorization check.
 func (s *Service) validateUpgradeNPCScene(identity boundGameSessionCharacter, npcID uint16) error {
 	if !s.boundGameSessionCharacterCurrent(identity) {
 		return fmt.Errorf("upgrade NPC scene unavailable")

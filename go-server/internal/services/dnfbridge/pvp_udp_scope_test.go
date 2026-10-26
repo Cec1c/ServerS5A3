@@ -3,7 +3,10 @@ package dnfbridge
 import "testing"
 
 func TestPVPRelayEightSeatsAndOrdinaryPartyUseSeparateNamespaces(t *testing.T) {
-	r, err := newCurrentPartyUDPRelay(true, "127.0.0.1", testCurrentPartyUDPRelayPortStart(t), 80, nil)
+	// Two two-person groups plus eight PVP seats need 60 directed ports.
+	// Reserve a verified 64-port block instead of assuming the 80 ports after
+	// one ephemeral socket are free (or even below port 65536).
+	r, err := newCurrentPartyUDPRelay(true, "127.0.0.1", r137FreeRange(t), 64, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
