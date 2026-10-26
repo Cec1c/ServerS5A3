@@ -220,14 +220,13 @@ func (c *guildChatPausedConn) Write(data []byte) (int, error) {
 	return c.bufferConn.Write(data)
 }
 
-func TestGuildChatPinsRecipientsUntilDeliveryAndReleasesBindings(t *testing.T) {
+func TestGuildChatPinsOnlyDeliveringRecipientUntilWriteCompletes(t *testing.T) {
 	s, peers, _ := guildHallFixture(t)
 	paused := &guildChatPausedConn{entered: make(chan struct{}), resume: make(chan struct{})}
-	peers[29].conn = paused
+	peers[30].conn = paused
 	var release sync.Once
 	unpause := func() { release.Do(func() { close(paused.resume) }) }
 	defer unpause()
-	oldPeer := peers[30]
 	done := make(chan error, 1)
 	go func() { done <- s.handleCurrentPeerChat(peers[29], 17, guildChatRequest(29, "before replacement")) }()
 	select {
@@ -257,7 +256,7 @@ func TestGuildChatPinsRecipientsUntilDeliveryAndReleasesBindings(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("recipient binding reservation leaked")
 	}
-	if oldPeer.conn.(*bufferConn).write.Len() == 0 || replacement.conn.(*bufferConn).write.Len() != 0 {
+	if paused.bufferConn.write.Len() == 0 || replacement.conn.(*bufferConn).write.Len() != 0 {
 		t.Fatal("snapshot message reached replacement session")
 	}
 	if err := s.handleCurrentPeerChat(peers[29], 17, guildChatRequest(29, "after replacement")); err != nil {
