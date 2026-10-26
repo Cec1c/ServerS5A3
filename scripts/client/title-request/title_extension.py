@@ -21,6 +21,19 @@ PARENT_RETURNS = {
     0x12ACB7D: (0x12AE59F,),
 }
 
+# Current-image claim entry: the CALL at 0x24A2889 lives in the window
+# control-event handler 0x24A1F80 and is reached only through vtable
+# 0x49BD6E0 + 0x28, so it has no fixed parent return. It is gated by the saved
+# return, destination slot 13, count 1 and its own 4th argument.
+CLAIM_CALL_SITE = 0x24A2889
+CLAIM_RETURN = 0x24A288E
+CLAIM_4TH_ARG = 0
+
+# The five legacy entries keep their existing path. Only the claim entry gets
+# the extra 4th-argument check, because four of the five legacy callers pass 2
+# there and would otherwise be downgraded to marker 0.
+TITLE_RETURNS_WITH_CLAIM = TITLE_RETURNS + (CLAIM_RETURN,)
+
 
 class Code:
     def __init__(self, va):
@@ -96,7 +109,14 @@ def title_extension(va):
     c.je("check_ac")
     c.cmp_ret(0x12AF91D)
     c.je("args")
+    c.cmp_ret(CLAIM_RETURN)
+    c.je("claim")
     c.jmp("fallback")
+
+    c.label("claim")
+    c.cmp_arg(0x14, CLAIM_4TH_ARG)
+    c.jne("fallback")
+    c.jmp("args")
 
     c.label("check_3474")
     c.raw("8b450085c0")
