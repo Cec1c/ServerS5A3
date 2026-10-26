@@ -54,6 +54,7 @@ type SettlementCommand struct {
 	LuckyStar             *LuckyStarPolicy
 	MonthlyAttendance     bool
 	WeeklyAttendance      *WeeklyClearContract
+	AttendanceMarble      *onlineevent.MarbleCatalog
 	AdventureRuntime      *adventuregroup.RuntimeConfig
 	HonorExpertTables     *honor.Tables
 	MaximumCharacterLevel int
@@ -324,6 +325,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character.Stats[settlementReceiptPrefix+"potion_bonus"] = int64(potionBonus)
 		// This is inside the accepted completion's existing receipt/UOW. A
 		// replay returned above and cannot increment an account-day twice.
+		if cmd.RecommendedDungeonClear {
+			if err := onlineevent.RecordMarbleClear(&character, cmd.AttendanceMarble, now); err != nil {
+				return err
+			}
+		}
 		if cmd.MonthlyAttendance && cmd.RecommendedDungeonClear {
 			if tx.Account == nil {
 				return ErrSettlementStateInvalid

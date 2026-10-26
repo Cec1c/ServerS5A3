@@ -513,7 +513,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
 		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			includeJoust,
@@ -530,6 +530,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			catalog.nativePCRoom != nil,
 			true, // Keep the native Seria luck entry alongside online rewards.
 			fiendWarAvailable,
+			s.currentAttendanceMarbleAvailable(),
 		)
 		if err != nil {
 			return false, err
