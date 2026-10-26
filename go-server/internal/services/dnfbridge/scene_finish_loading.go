@@ -31,7 +31,8 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	}
 	gates := session.finishLoadingGateSnapshot()
 	stateNeeded := !gates.State
-	followupsNeeded := !gates.Completion || !gates.PostFinish
+	completionNeeded := !gates.Completion && !currentTownReturnOmitsSceneActivation(session)
+	followupsNeeded := completionNeeded || !gates.PostFinish
 	if !stateNeeded && !followupsNeeded {
 		return nil
 	}
@@ -44,7 +45,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		// op30/post-state failure must not replay the absolute op37 snapshot.
 		session.setFinishLoadingGateState(true)
 	}
-	if !gates.Completion {
+	if completionNeeded {
 		if err := s.sendCurrentIncreaseStatusResult(session, source); err != nil {
 			return err
 		}
@@ -157,6 +158,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterStateSnapshot(session *gameSe
 }
 
 func (s *Service) sendCurrentIncreaseStatusResult(session *gameSession, source string) error {
+	// duration=0仍会激活原生场景对象，不能视为只有倒计时UI的空操作。
 	body := buildCurrentIncreaseStatusResultBody()
 	if len(body) != currentIncreaseStatusResultBodySize {
 		return fmt.Errorf("current increase-status result body length %d, want %d", len(body), currentIncreaseStatusResultBodySize)
@@ -168,8 +170,8 @@ func (s *Service) sendCurrentIncreaseStatusResult(session *gameSession, source s
 		"body_len", len(body),
 		"duration", 0,
 		"selector", 0,
-		"actor_effect", "none",
-		"body_source", "current_exe_op30_increase_status_timer_ui_not_actor_commit")
+		"actor_effect", "scene_object_activation",
+		"body_source", "current_exe_op30_timer_and_scene_object_activation")
 	return s.sendGameUpperRawClass(session, currentIncreaseStatusResultMsgID, body, 0)
 }
 

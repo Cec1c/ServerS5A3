@@ -83,6 +83,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if hasScene {
+		if handled, err := s.handleCurrentMissionInformerRetirementLocked(session, runtime, scene, request); handled || err != nil {
+			return err
+		}
+	}
 	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
 	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
 	if hasScene {

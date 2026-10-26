@@ -9,6 +9,7 @@ import (
 var currentRaidReturnLocationFields = [...]string{"town_id", "area_id", "pos_x", "pos_y", "direction", "area_state"}
 
 const currentRaidReturnOriginMarker = "raid_return_origin_v1"
+const currentFiendWarReturnOriginMarker = "fiendwar_return_origin_v1"
 
 func currentClearRaidReturnOrigin(stats map[string]int64) bool {
 	changed := false
@@ -19,16 +20,18 @@ func currentClearRaidReturnOrigin(stats map[string]int64) bool {
 			changed = true
 		}
 	}
-	if _, exists := stats[currentRaidReturnOriginMarker]; exists {
-		delete(stats, currentRaidReturnOriginMarker)
-		changed = true
+	for _, marker := range []string{currentRaidReturnOriginMarker, currentFiendWarReturnOriginMarker} {
+		if _, exists := stats[marker]; exists {
+			delete(stats, marker)
+			changed = true
+		}
 	}
 	return changed
 }
 
 // 只保存已提交且经PVF验证的普通落点；跨特殊频道不会覆盖首次进场原位。
 func (s *Service) currentSaveRaidReturnOrigin(characterID uint16, character *dnfrepo.CharacterRecord) error {
-	if character == nil || currentRegisteredChannelTown(character.Stats["town_id"]) {
+	if character == nil || s.currentDedicatedChannelTown(character.Stats["town_id"]) {
 		return nil
 	}
 	if _, found, reason := s.currentPersistedTownLoginLocation(characterID, *character); !found {
@@ -53,7 +56,7 @@ func (s *Service) currentRaidReturnOriginLocation(characterID uint16, character 
 		}
 		projected.Stats[field] = value
 	}
-	if currentRegisteredChannelTown(projected.Stats["town_id"]) {
+	if s.currentDedicatedChannelTown(projected.Stats["town_id"]) {
 		return currentTownLoginLocation{}, false, fmt.Errorf("团本返城原位不是普通城镇")
 	}
 	location, found, reason := s.currentPersistedTownLoginLocation(characterID, projected)
