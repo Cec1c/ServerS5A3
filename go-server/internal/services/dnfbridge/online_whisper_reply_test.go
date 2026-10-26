@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-func currentIncomingWhisperReplyBody(target uint16, channel byte) []byte {
+func currentIncomingWhisperReplyBody(target uint16, group byte) []byte {
 	var w packetWriter
 	w.writeByte(0x28)
 	w.writeUint16(target)
 	w.writeUint32(0)
 	w.writeRawDstr([]byte("reply!"))
 	w.writeRawDstr([]byte("pouut"))
-	w.writeByte(channel)
+	w.writeByte(group)
 	return w.bytes()
 }
 
@@ -38,7 +38,7 @@ func TestIncomingWhisperWindowReplyNativeShape(t *testing.T) {
 		}
 		for _, malformed := range [][]byte{body[:len(body)-1], append(append([]byte(nil), body...), 0)} {
 			if _, err := decodeCurrentPeerChatRequest(malformed); err == nil {
-				t.Fatal("malformed channel trailer accepted")
+				t.Fatal("malformed group trailer accepted")
 			}
 		}
 		binary.LittleEndian.PutUint32(body[3:7], 1)
@@ -48,25 +48,25 @@ func TestIncomingWhisperWindowReplyNativeShape(t *testing.T) {
 	}
 }
 
-func TestOfficialIncomingWhisperReplyAuthenticatesPeerAndChannel(t *testing.T) {
+func TestOfficialIncomingWhisperReplyAuthenticatesPeerAndGroup(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		uid       uint16
-		channel   byte
+		group     byte
 		wrongName bool
 		want      bool
 	}{
-		{"name_resolved", 0, 42, false, true},
-		{"uid_and_name", 1, 42, false, true},
-		{"stale_channel", 0, 43, false, false},
-		{"wrong_uid", 99, 42, false, false},
-		{"wrong_name", 1, 42, true, false},
+		{"name_resolved", 0, 0, false, true},
+		{"uid_and_name", 1, 0, false, true},
+		{"wrong_group", 0, 43, false, false},
+		{"wrong_uid", 99, 0, false, false},
+		{"wrong_name", 1, 0, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, originalSender, replySender, senderConn, replyConn := newCurrentSocialPeerTest(t)
 			s.options.currentClientVersion = "official-24.9"
 			_ = originalSender
-			body := currentIncomingWhisperReplyBody(tc.uid, tc.channel)
+			body := currentIncomingWhisperReplyBody(tc.uid, tc.group)
 			if tc.wrongName {
 				body[len(body)-2] = 'x'
 			}
@@ -88,12 +88,30 @@ func TestOfficialIncomingWhisperReplyAuthenticatesPeerAndChannel(t *testing.T) {
 				t.Fatal("reply ACK invalid")
 			}
 			echo, rest := splitGameServerUpperPacket(t, rest)
-			if echo.Header.MsgID != 65 || !bytes.Equal(echo.Body, buildCurrentOfficialWhisperBody(42, "来来来", "pouut", []byte("reply!"))) || len(rest) != 0 {
+			if echo.Header.MsgID != 65 || !bytes.Equal(echo.Body, buildCurrentOfficialWhisperBody(0, "来来来", "pouut", []byte("reply!"))) || len(rest) != 0 {
 				t.Fatal("reply echo invalid")
 			}
-			if !bytes.Equal(incoming.Body, buildCurrentOfficialWhisperBody(42, "来来来", "来来来", []byte("reply!"))) {
+			if !bytes.Equal(incoming.Body, buildCurrentOfficialWhisperBody(0, "来来来", "来来来", []byte("reply!"))) {
 				t.Fatal("real sender/receiver projection changed")
 			}
 		})
+	}
+}
+
+func TestLegacyIncomingWhisperReplyRetainsChannelContract(t *testing.T) {
+	for _, trailer := range []byte{0, 42, 43} {
+		s, _, replySender, senderConn, replyConn := newCurrentSocialPeerTest(t)
+		s.options.currentClientVersion = "legacy"
+		if err := s.handleCurrentPeerChat(replySender, 17, currentIncomingWhisperReplyBody(1, trailer)); err != nil {
+			t.Fatal(err)
+		}
+		ack, _ := splitGameServerUpperPacket(t, replyConn.write.Bytes())
+		if trailer == 42 {
+			if !bytes.Equal(ack.Body, []byte{1}) || senderConn.write.Len() == 0 {
+				t.Fatal("legacy channel reply rejected")
+			}
+		} else if !bytes.Equal(ack.Body, []byte{0, 1}) || senderConn.write.Len() != 0 {
+			t.Fatal("legacy mismatched channel delivered")
+		}
 	}
 }

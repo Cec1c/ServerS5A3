@@ -121,11 +121,9 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 	if !online || selectedCharacterID(targetSession) != request.TargetID {
 		return s.sendGameUpperFailure(session, typ, 1)
 	}
-	// The incoming-window producer 348F60E uses type 0x28 when its stored
-	// peer channel differs from the local actor field. It writes that channel
-	// as the final u8. Resolve the real peer by name/ID, then require its
-	// current owner channel; never use this byte to guess another recipient.
-	if request.MessageType == 0x28 {
+	// Preserve the existing reply contract for profiles outside the verified
+	// official client. Their NOTI118 route still carries an owner channel.
+	if s.options.currentClientVersion != "official-24.9" && request.MessageType == 0x28 {
 		channel, channelOK := currentSessionOwnerChannelField(targetSession)
 		if !privateWhisper || !request.HasTrailingValue || !channelOK || request.TrailingValue != channel {
 			s.logGameEvent(session, "game-peer-chat-request-rejected", "message_type", request.MessageType,
@@ -154,6 +152,17 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 		return nil
 	}
 	if s.options.currentClientVersion == "official-24.9" {
+		// V179 348F607 reads actor+3AC (character server group), and 348F6F7
+		// writes the conversation's same group, not an owner-channel byte.
+		// Typed-name 201BFD8/201C05D uses the local character group. This
+		// repository only resolves its own group; never alias foreign names.
+		sourceGroup, targetGroup := source.Stats["server_group_id"], target.Stats["server_group_id"]
+		if !privateWhisper || !request.HasTrailingValue || sourceGroup < 0 || sourceGroup >= 250 ||
+			targetGroup != sourceGroup || int64(request.TrailingValue) != targetGroup {
+			s.logGameEvent(session, "game-peer-chat-request-rejected", "message_type", request.MessageType,
+				"reason", "whisper_character_group_mismatch")
+			return s.sendGameUpperFailure(session, typ, 1)
+		}
 		return s.sendCurrentOfficialWhisper(session, targetSession, typ, request, source, target)
 	}
 	if err := s.sendGameUpperSuccess(session, typ, nil); err != nil {
@@ -295,7 +304,8 @@ func decodeCurrentPeerChatRequest(body []byte) (currentPeerChatRequest, error) {
 		return currentPeerChatRequest{}, errCurrentSocialBodyInvalid
 	}
 	// Current producers append exactly one u8 after the second DSTR
-	// (0x201C05D / 0x348F6F7 / 0x2A04DB0). Its meaning remains opaque.
+	// (0x201C05D / 0x348F6F7 / 0x2A04DB0). For private whispers it is the
+	// character server group; other variants retain their separate routes.
 	if next == len(body)-1 {
 		request.TrailingValue = body[next]
 		request.HasTrailingValue = true
