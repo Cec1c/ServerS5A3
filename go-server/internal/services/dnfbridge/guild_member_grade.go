@@ -25,7 +25,7 @@ func currentGuildMemberGradeError(err error) byte {
 
 func (s *Service) handleCurrentGuildMemberGrade(session *gameSession, body []byte) error {
 	op := uint16(dnfenum.CmdPacketSetSubGuildMaster)
-	if len(body) < 7 || body[0] == 0 || body[0] >= 250 {
+	if len(body) < 7 || body[0] >= 250 {
 		return s.sendGameUpperFailure(session, op, 3)
 	}
 	name, valid := parseCurrentGuildText(body[1:len(body)-1], rosterNameMaxBytes)

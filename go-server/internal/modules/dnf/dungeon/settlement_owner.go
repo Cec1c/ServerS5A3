@@ -32,15 +32,20 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
-	DespairClearedFloor int
-	DespairRewards      *DespairRewards
-	GriefClearedFloor   int
-	GriefRewards        *GriefRewards
-	AccountID           string
-	CharacterID         string
-	CompletionKey       string
-	Tables              *progression.Tables
-	Experience          uint32
+	GuildContribution      *GuildContributionClear
+	GuildRanking           *guild.RankingPartyClear
+	GuildEssence           *guild.EssenceCatalog
+	GuildEssenceRevalidate func() bool
+	GuildDungeon           *GuildDungeonClear
+	DespairClearedFloor    int
+	DespairRewards         *DespairRewards
+	GriefClearedFloor      int
+	GriefRewards           *GriefRewards
+	AccountID              string
+	CharacterID            string
+	CompletionKey          string
+	Tables                 *progression.Tables
+	Experience             uint32
 	// ClearPotionBase is the clear EXP before rank, contracts and other bonuses.
 	ClearPotionBase         uint32
 	RecommendedDungeonClear bool
@@ -57,19 +62,24 @@ type SettlementCommand struct {
 }
 
 type SettlementResult struct {
-	GuildMileage    guild.DungeonMileageResult
-	Character       dnfrepo.CharacterRecord
-	Skill           dnfrepo.SkillRecord
-	Inventory       dnfrepo.InventoryRecord
-	ExperienceGain  uint32
-	PotionBonus     uint32
-	HonorExpertGain uint32
-	SPGain          int
-	TPGain          int
-	Replayed        bool
-	LuckyStar       LuckyStarResult
-	DespairItems    []DespairGrantedItem
-	GriefItems      []GriefGrantedItem
+	GuildContribution guild.ContributionIncome
+	GuildRanking      guild.RankingClearResult
+	GuildEssence      guild.EssenceIncome
+	GuildDungeon      guild.DungeonClearResult
+	GuildDungeonItems []GuildDungeonGrantedItem
+	GuildMileage      guild.DungeonMileageResult
+	Character         dnfrepo.CharacterRecord
+	Skill             dnfrepo.SkillRecord
+	Inventory         dnfrepo.InventoryRecord
+	ExperienceGain    uint32
+	PotionBonus       uint32
+	HonorExpertGain   uint32
+	SPGain            int
+	TPGain            int
+	Replayed          bool
+	LuckyStar         LuckyStarResult
+	DespairItems      []DespairGrantedItem
+	GriefItems        []GriefGrantedItem
 }
 
 // CommitSettlement atomically advances experience and the SP/TP ledger and
@@ -92,14 +102,34 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		return SettlementResult{}, ErrSettlementStateInvalid
 	}
 	ctx = contextOrBackground(ctx)
+	if cmd.GuildEssence != nil && (cmd.GuildEssenceRevalidate == nil || (!cmd.RecommendedDungeonClear && cmd.GuildDungeon == nil) || (cmd.GuildDungeon != nil && (cmd.GuildDungeon.PartySize < 1 || cmd.GuildDungeon.PartySize > 4))) {
+		return SettlementResult{}, ErrSettlementStateInvalid
+	}
+	if cmd.GuildDungeon != nil {
+		entry := cmd.GuildDungeon.Entry
+		if cmd.GuildOrdinaryClear || cmd.DespairRewards != nil || cmd.GriefRewards != nil ||
+			entry.Owner.AccountID != cmd.AccountID || entry.Owner.CharacterID != cmd.CharacterID ||
+			entry.GuildID == 0 || cmd.GuildDungeon.Catalog == nil || cmd.CompletionKey != entry.CompletionKey() {
+			return SettlementResult{}, ErrSettlementStateInvalid
+		}
+	}
 	wantHash := sha256.Sum256([]byte(cmd.CompletionKey))
 	now := updatedAtOrNow(cmd.UpdatedAt)
+	if c := cmd.GuildContribution; c != nil {
+		if c.Contract == nil || c.Revalidate == nil || c.Activity.CompletionKey != cmd.CompletionKey ||
+			(c.Activity.Event == guild.ContributionPartyClear && !cmd.GuildOrdinaryClear) ||
+			(c.Activity.Event == guild.ContributionGuildClear && cmd.GuildDungeon == nil) ||
+			(c.Activity.Event != guild.ContributionPartyClear && c.Activity.Event != guild.ContributionGuildClear) {
+			return SettlementResult{}, ErrSettlementStateInvalid
+		}
+	}
+	useGuildSettlement := cmd.GuildOrdinaryClear || cmd.GuildDungeon != nil || cmd.GuildRanking != nil || cmd.GuildEssence != nil || cmd.GuildContribution != nil
 
 	var result SettlementResult
 	within := func(apply func(dnfrepo.Group) error) error {
 		return o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, apply)
 	}
-	if cmd.GuildOrdinaryClear {
+	if useGuildSettlement {
 		uow, ok := o.settlements.(dnfrepo.GuildSettlementUnitOfWork)
 		if !ok {
 			return SettlementResult{}, ErrOwnerUnavailable
@@ -109,6 +139,12 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 	}
 	err := within(func(tx dnfrepo.Group) error {
+		if cmd.GuildContribution != nil && !cmd.GuildContribution.Revalidate() {
+			return ErrSettlementStateInvalid
+		}
+		if cmd.GuildEssence != nil && !cmd.GuildEssenceRevalidate() {
+			return ErrSettlementStateInvalid
+		}
 		character, found, err := tx.Character.Load(ctx, cmd.CharacterID)
 		if err != nil {
 			return err
@@ -134,7 +170,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character = dnfrepo.CloneCharacter(character)
 		skill = dnfrepo.CloneSkill(skill)
 		inventory = dnfrepo.CloneInventory(inventory)
-		if cmd.GuildOrdinaryClear {
+		if useGuildSettlement {
 			result = SettlementResult{Character: character, Skill: skill, Inventory: inventory}
 			found, err := readGuildSettlementReceipt(ctx, tx.Settings, cmd, &result)
 			if err != nil || found {
@@ -142,6 +178,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		if settlementReceiptMatches(character.Stats, wantHash) {
+			if cmd.GuildDungeon != nil {
+				return ErrSettlementStateInvalid
+			}
 			griefItems, err := readGriefRewardReceipt(character.Stats, cmd.GriefClearedFloor, cmd.GriefRewards != nil)
 			if err != nil {
 				return err
@@ -166,7 +205,7 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				ExperienceGain: receiptGain, PotionBonus: uint32(character.Stats[settlementReceiptPrefix+"potion_bonus"]), SPGain: receiptSP, Replayed: true,
 			}
 			// A pre-upgrade settlement is not a new clear: migrate its receipt without a retroactive award.
-			if cmd.GuildOrdinaryClear {
+			if useGuildSettlement {
 				return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
 			}
 			return nil
@@ -271,6 +310,10 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		if err != nil {
 			return err
 		}
+		guildClear, guildItems, err := commitGuildDungeonClear(ctx, o.settings, tx, &character, &inventory, cmd.GuildDungeon, now)
+		if err != nil {
+			return err
+		}
 		writeSettlementReceipt(
 			character.Stats,
 			wantHash,
@@ -329,6 +372,27 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				}
 			}
 		}
+		var essence guild.EssenceIncome
+		if cmd.GuildEssence != nil {
+			event := guild.EssenceRecommendedClear
+			if cmd.GuildDungeon != nil {
+				event = guild.EssenceGuildClear
+				if cmd.GuildDungeon.PartySize > 1 {
+					event = guild.EssencePartyGuildClear
+				}
+			}
+			essence, err = guild.ApplyEssenceIncome(ctx, tx.Settings, &character, cmd.GuildEssence, event, now)
+			if err != nil {
+				return err
+			}
+		}
+		var contribution guild.ContributionIncome
+		if c := cmd.GuildContribution; c != nil {
+			contribution, err = guild.ApplyContribution(ctx, tx, &character, &inventory, c.Contract, c.Activity, now)
+			if err != nil {
+				return err
+			}
+		}
 		character.UpdatedAt = now
 		skill.Points = planned.SkillPoints.New
 		skill.UpdatedAt = now
@@ -374,6 +438,9 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			}
 		}
 		result = SettlementResult{
+			GuildContribution: contribution,
+			GuildEssence:      essence,
+			GuildDungeon:      guildClear, GuildDungeonItems: guildItems,
 			DespairItems: despairItems,
 			GriefItems:   griefItems,
 			LuckyStar:    lucky,
@@ -390,7 +457,24 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return err
 			}
 			result.GuildMileage = mileage
-			return saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now)
+		}
+		if cmd.GuildRanking != nil {
+			ranking, err := guild.ApplyRankingPartyClear(ctx, tx.Settings, dnfrepo.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}, *cmd.GuildRanking, now)
+			if err != nil {
+				return err
+			}
+			result.GuildRanking = ranking
+		}
+		if useGuildSettlement {
+			if err := saveGuildSettlementReceipt(ctx, tx.Settings, cmd, result, now); err != nil {
+				return err
+			}
+		}
+		if cmd.GuildEssence != nil && !cmd.GuildEssenceRevalidate() {
+			return ErrSettlementStateInvalid
+		}
+		if cmd.GuildContribution != nil && !cmd.GuildContribution.Revalidate() {
+			return ErrSettlementStateInvalid
 		}
 		return nil
 	})

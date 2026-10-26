@@ -306,6 +306,24 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 			"reason", "quest_trigger_result_not_acknowledgeable")
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketSetQuestTrigger), 22)
 	}
+	if result.EchoOnly {
+		if err := s.sendCurrentSetQuestTriggerSuccess(
+			session,
+			request,
+			result,
+			"authoritative_rental_guide_echo_without_client_progress",
+		); err != nil {
+			return err
+		}
+		session.suppressCurrentSetQuestTriggerReplay(replayKey)
+		s.logGameEvent(session, "game-upper-rental-guide-trigger-echoed",
+			"quest_id", request.QuestID,
+			"client_trigger_type", request.TriggerType,
+			"client_increment", request.IsIncrement,
+			"committed_progress", result.ProgressValue,
+			"reason", "successful_rental_is_the_only_progress_authority")
+		return nil
+	}
 	if !result.StateChanged {
 		// Clear-map persistence can reach terminal zero before the current EXE
 		// emits its first op33. Acknowledge that first request once so the

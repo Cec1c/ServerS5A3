@@ -14,6 +14,16 @@ import (
 // authoritative; only the advertised server ID and proved online type
 // projection may differ from the raw in-game catalog.
 func Build90CNOnlineScript(data []byte, sourceServerID, advertiseServerID, bootstrapChannelID int) ([]byte, error) {
+	return buildOnlineScript(data, sourceServerID, advertiseServerID, bootstrapChannelID, false)
+}
+
+// BuildOfficial249OnlineScript 仅在现用24.9目录边界把旧超时空配置类型42投影为原生45。
+// 原始目录与团本内部路由保持42，旧90CN配套仍使用原构造器。
+func BuildOfficial249OnlineScript(data []byte, sourceServerID, advertiseServerID, bootstrapChannelID int) ([]byte, error) {
+	return buildOnlineScript(data, sourceServerID, advertiseServerID, bootstrapChannelID, true)
+}
+
+func buildOnlineScript(data []byte, sourceServerID, advertiseServerID, bootstrapChannelID int, official249 bool) ([]byte, error) {
 	if sourceServerID <= 0 || advertiseServerID < 0 || bootstrapChannelID <= 0 {
 		return nil, errors.New("channel script source, advertisement, and bootstrap IDs are invalid")
 	}
@@ -88,6 +98,10 @@ func Build90CNOnlineScript(data []byte, sourceServerID, advertiseServerID, boots
 				id, _ := strconv.Atoi(record[0])
 				channelType, _ := strconv.Atoi(record[2])
 				record[2] = strconv.Itoa(OnlineTypeFor90CN(id, channelType))
+				if official249 && channelType == 42 && areaKey(record[3]) == "fiendwar" {
+					// 固定现用EXE的01A549C0: route2 -> 45；42不会进入超时空入口。
+					record[2] = "45"
+				}
 				if id == bootstrapChannelID {
 					bootstrapFound = true
 				}

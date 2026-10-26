@@ -51,7 +51,7 @@ func TestRaidParticipationOnlyCommittedSelectedActorAndMatchingDetach(t *testing
 func TestRaidParticipationNative584LayoutRefreshClearAndRemoval(t *testing.T) {
 	previous := map[uint16]currentRaidParticipationPosition{99: {DungeonID: 210}}
 	next := map[uint16]currentRaidParticipationPosition{99: {DungeonID: 218, Cleared: true, GroupIndex: 1}, 100: {DungeonID: 218, GroupIndex: 1}}
-	packets := currentRaidParticipationProjection(previous, next, false)
+	packets, _ := currentRaidParticipationProjection(previous, next, false, nil)
 	want := [][]byte{{1, 210, 0, 0, 0, 0, 1, 99, 0}, {1, 218, 0, 0, 0, 0, 2, 99, 0, 100, 0}, {1, 218, 0, 0, 0, 2, 2, 99, 0, 100, 0}, {1, 218, 0, 0, 0, 4, 1, 99, 0}}
 	if len(packets) != len(want) {
 		t.Fatal("native frame count", len(packets))
@@ -61,10 +61,10 @@ func TestRaidParticipationNative584LayoutRefreshClearAndRemoval(t *testing.T) {
 			t.Fatalf("native 584 frame%d=%x want%x", i, packet.body, want[i])
 		}
 	}
-	if p := currentRaidParticipationProjection(next, next, false); len(p) != 0 {
+	if p, _ := currentRaidParticipationProjection(next, next, false, nil); len(p) != 0 {
 		t.Fatal("unchanged occupancy replayed clear effect")
 	}
-	if p := currentRaidParticipationProjection(next, nil, false); len(p) != 1 || p[0].body[5] != 0 {
+	if p, _ := currentRaidParticipationProjection(next, nil, false, nil); len(p) != 1 || p[0].body[5] != 0 {
 		t.Fatal("departed occupancy not removed")
 	}
 }

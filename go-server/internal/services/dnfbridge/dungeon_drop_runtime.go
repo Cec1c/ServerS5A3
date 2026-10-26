@@ -421,7 +421,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 					}
 				} else {
 					rarity := currentDungeonDropRarityWithMarble(rng, rules, runtime.attendanceMarbleBuffs&1 != 0)
-					itemID, selected, err = dropCatalog.SelectGenericEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
+					itemID, selected, err = dropCatalog.selectOrdinaryMonsterEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
 					if err != nil {
 						return nil, err
 					}
@@ -652,6 +652,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		if err != nil {
 			return nil, err
 		}
+		freezeCurrentAikenInitialDrop(&definition, itemState)
 		qualitySeed := uint32(0)
 		if definition.Kind == dungeonDropItemEquipment {
 			qualitySeed = binary.LittleEndian.Uint32(itemState.data[6:10])

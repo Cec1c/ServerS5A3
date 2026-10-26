@@ -25,6 +25,24 @@ type currentRaidParticipationPosition struct {
 	RunID      string
 }
 
+// A clear announcement belongs to one accepted run, not to the transient
+// occupancy row that happened to be present when it completed. Keeping this
+// key after that row leaves prevents the same accepted clear from becoming a
+// new event again when the member later re-enters the run.
+type currentRaidClearEvent struct {
+	DungeonID   uint32
+	RunID       string
+	CharacterID uint16
+}
+
+func currentRaidParticipationClearEvent(id uint16, position currentRaidParticipationPosition) currentRaidClearEvent {
+	event := currentRaidClearEvent{DungeonID: position.DungeonID, RunID: position.RunID}
+	if event.RunID == "" {
+		event.CharacterID = id
+	}
+	return event
+}
+
 // Capture only this actor's successful entry tail, after actual op29 and the
 // post-start state. Prepared party peers do not become occupied UI positions.
 func (s *Service) recordCurrentRaidParticipation(session *gameSession, r *runtimeDungeonState) {
@@ -84,9 +102,15 @@ func (s *Service) releaseCurrentRaidParticipation(r *runtimeDungeonState, charac
 	s.raidMu.Lock()
 	e := r.raidEntry
 	state := s.raids[e.RaidKey]
+	if state != nil && state.Battle != nil && state.Battle.InstanceID == e.InstanceID {
+		if old, exists := state.Battle.Participation[characterID]; !exists || old.Runtime == r && old.RunID == e.RunID {
+			s.releaseCurrentFiendWarEncounterLocked(state.Battle, r, characterID)
+		}
+	}
 	changed := false
 	if state != nil && state.Battle != nil && state.Battle.InstanceID == e.InstanceID {
 		if old, ok := state.Battle.Participation[characterID]; ok && old.Runtime == r && old.RunID == e.RunID && old.Phase == e.Phase && old.Attempt == e.Attempt {
+			releaseCurrentLukeClosedEnergyRunLocked(state.Battle, r, characterID)
 			delete(state.Battle.Participation, characterID)
 			state.Battle.ProgressVersion++
 			changed = true
@@ -114,6 +138,8 @@ func (s *Service) releaseCurrentRaidParticipationSession(session *gameSession) {
 	changed := false
 	if state != nil && state.Battle != nil {
 		if entry, ok := state.Battle.Participation[session.selectedCharacterID]; ok && entry.Session == session {
+			releaseCurrentLukeClosedEnergyRunLocked(state.Battle, entry.Runtime, session.selectedCharacterID)
+			s.releaseCurrentFiendWarEncounterLocked(state.Battle, entry.Runtime, session.selectedCharacterID)
 			delete(state.Battle.Participation, session.selectedCharacterID)
 			state.Battle.ProgressVersion++
 			changed = true
@@ -139,7 +165,7 @@ func currentRaidParticipationPositions(b *runtimeRaidBattle, members []runtimeRa
 	}
 	liveGroups := map[uint16]byte{}
 	for _, member := range members {
-		if member.CharID == 0 || member.GroupIndex > runtimeRaidMaxGroups {
+		if member.CharID == 0 || member.GroupIndex > currentRaidGroupMaximum(runtimeRaidState{RouteOrRaidType: b.Mode - 1}) {
 			return nil, fmt.Errorf("participation live squad owner invalid")
 		}
 		if _, duplicate := liveGroups[member.CharID]; duplicate {
@@ -192,7 +218,16 @@ func currentRaidParticipationBody(target uint32, operation byte, ids []uint16) [
 	return body
 }
 
-func currentRaidParticipationProjection(previous, next map[uint16]currentRaidParticipationPosition, fresh bool) []currentRaidProjectionPacket {
+func currentRaidParticipationProjection(previous, next map[uint16]currentRaidParticipationPosition, fresh bool, notified map[currentRaidClearEvent]struct{}) ([]currentRaidProjectionPacket, map[currentRaidClearEvent]struct{}) {
+	clearEvents := make(map[currentRaidClearEvent]struct{}, len(notified)+len(next))
+	for event := range notified {
+		clearEvents[event] = struct{}{}
+	}
+	for id, entry := range previous {
+		if entry.Cleared {
+			clearEvents[currentRaidParticipationClearEvent(id, entry)] = struct{}{}
+		}
+	}
 	equal := len(previous) == len(next)
 	if equal {
 		for id, entry := range next {
@@ -203,7 +238,7 @@ func currentRaidParticipationProjection(previous, next map[uint16]currentRaidPar
 		}
 	}
 	if equal && !fresh {
-		return nil
+		return nil, clearEvents
 	}
 	// Native 1A64E80 appends one squad row per vector. A dungeon may have
 	// multiple admitted runs; the reward-frozen MemberGroups is not live UI.
@@ -256,6 +291,23 @@ func currentRaidParticipationProjection(previous, next map[uint16]currentRaidPar
 	appendGroups(group(previous, false), 0)
 	appendGroups(group(next, false), 0)
 	appendGroups(group(next, false), 2)
-	appendGroups(group(next, true), 4)
-	return packets
+	if !fresh {
+		newClears := map[uint16]currentRaidParticipationPosition{}
+		for id, entry := range next {
+			if !entry.Cleared {
+				continue
+			}
+			event := currentRaidParticipationClearEvent(id, entry)
+			if _, known := clearEvents[event]; !known {
+				newClears[id] = entry
+			}
+		}
+		appendGroups(group(newClears, true), 4)
+	}
+	for id, entry := range next {
+		if entry.Cleared {
+			clearEvents[currentRaidParticipationClearEvent(id, entry)] = struct{}{}
+		}
+	}
+	return packets, clearEvents
 }

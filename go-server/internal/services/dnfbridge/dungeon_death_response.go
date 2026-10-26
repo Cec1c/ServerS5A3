@@ -138,5 +138,12 @@ func currentDungeonDeathDropItemState(
 		entry.setUint16(0x0B, definition.Durability)
 	}
 	entry.setByte(0x0D, currentNewPVFEquipmentSealFlag(definition))
+	if definition.AikenInitial != nil {
+		state, err := currentAikenInitialDropState(definition)
+		if err != nil {
+			return currentItemListEntry{}, err
+		}
+		copy(entry.data[0x72:0x77], state[:])
+	}
 	return entry, nil
 }

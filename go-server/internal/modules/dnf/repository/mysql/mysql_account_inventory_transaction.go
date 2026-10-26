@@ -75,7 +75,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 	characterID string,
 	apply func(repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error,
 ) error {
-	return u.withinAccountCharacterAssets(ctx, accountID, characterID, false, func(_ repository.AccountRepository, a repository.AccountInventoryRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository) error {
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, false, func(_ repository.AccountRepository, a repository.AccountInventoryRepository, c repository.CharacterRepository, i repository.InventoryRepository, e repository.EquipmentRepository, _ repository.PetRepository) error {
 		if apply == nil {
 			return repository.ErrAccountCharacterAssetTransactionUnavailable
 		}
@@ -84,7 +84,26 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterAssets(
 }
 
 func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterLedgerAssets(ctx context.Context, accountID, characterID string, apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error) error {
-	return u.withinAccountCharacterAssets(ctx, accountID, characterID, true, apply)
+	if apply == nil {
+		return repository.ErrAccountCharacterAssetTransactionUnavailable
+	}
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, true, func(a repository.AccountRepository, accountInventory repository.AccountInventoryRepository, character repository.CharacterRepository, inventory repository.InventoryRepository, equipment repository.EquipmentRepository, _ repository.PetRepository) error {
+		return apply(a, accountInventory, character, inventory, equipment)
+	})
+}
+
+func (u *mysqlAccountCharacterAssetUnitOfWork) WithinAccountCharacterPetAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	apply func(repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.PetRepository) error,
+) error {
+	if apply == nil {
+		return repository.ErrAccountCharacterAssetTransactionUnavailable
+	}
+	return u.withinAccountCharacterAssets(ctx, accountID, characterID, false, func(_ repository.AccountRepository, accountInventory repository.AccountInventoryRepository, character repository.CharacterRepository, inventory repository.InventoryRepository, equipment repository.EquipmentRepository, pets repository.PetRepository) error {
+		return apply(accountInventory, character, inventory, equipment, pets)
+	})
 }
 
 func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
@@ -92,7 +111,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	accountID string,
 	characterID string,
 	includeLedger bool,
-	apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error,
+	apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.PetRepository) error,
 ) error {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
@@ -141,7 +160,8 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: txGroup.Character}
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}
-	if err := apply(ledger, accounts, characters, inventories, equipment); err != nil {
+	pets := &characterPetScopedPetRepository{characterID: characterID, base: txGroup.Pet}
+	if err := apply(ledger, accounts, characters, inventories, equipment, pets); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err := ctx.Err(); err != nil {
