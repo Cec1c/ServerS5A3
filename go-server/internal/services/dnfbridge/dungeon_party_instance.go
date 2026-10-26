@@ -873,6 +873,9 @@ func (s *Service) prepareRuntimeDungeonTargetRoom(
 	if _, err := s.configurePVFTutorialBasicActionRoom(runtime.Dungeon, target, targetRoom); err != nil {
 		return nil, 0, fmt.Errorf("%s tutorial basic-action room: %w", errPrefix, err)
 	}
+	if err := s.prepareCurrentGuildPracticeTargetRoom(runtime, targetRoom, target); err != nil {
+		return nil, 0, fmt.Errorf("%s guild practice room: %w", errPrefix, err)
+	}
 	runtime.registerPartyDungeonSharedRoom(target, targetRoom, extendedPlan.NextObjectKey)
 	return targetRoom, extendedPlan.NextObjectKey, nil
 }
