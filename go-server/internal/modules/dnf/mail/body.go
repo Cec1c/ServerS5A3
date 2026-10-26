@@ -226,6 +226,23 @@ func buildMailboxListNotification(mails []dnfrepo.MailRecord, notLoaded int, now
 	return encodeMailboxListPacket(summaries, mails, notLoaded, now, false)
 }
 
+// buildMailboxListNotificationWithTypeResolver applies the runtime-PVF item
+// type to a send-only copy of the mailbox before framing 0x61. The older
+// builder remains the compatibility entry point for domain fixtures and
+// callers that have no item catalog; protocol handlers use this one.
+func buildMailboxListNotificationWithTypeResolver(
+	mails []dnfrepo.MailRecord,
+	notLoaded int,
+	now time.Time,
+	resolver alignedcmd.MailboxItemResolver,
+) ([]byte, error) {
+	normalized, err := normalizeMailboxAttachmentTypesForWire(mails, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return buildMailboxListNotification(normalized, notLoaded, now)
+}
+
 // 原生0x2043c72明确支持续包：首包清空，后续包追加。同封超过255件也不截断。
 func buildMailboxListNotifications(mails []dnfrepo.MailRecord, notLoaded int, now time.Time) ([][]byte, error) {
 	summaries, err := projectMailboxSummaries(mails)
@@ -271,6 +288,81 @@ func buildMailboxListNotifications(mails []dnfrepo.MailRecord, notLoaded int, no
 		start = end
 	}
 	return packets, nil
+}
+
+// buildMailboxListNotificationsWithTypeResolver is the protocol-facing list
+// builder. It must be used for the op96 open, op95 post-claim, and op134
+// post-delete refreshes so attachment row widths come from the same runtime PVF
+// type that the client parses.
+func buildMailboxListNotificationsWithTypeResolver(
+	mails []dnfrepo.MailRecord,
+	notLoaded int,
+	now time.Time,
+	resolver alignedcmd.MailboxItemResolver,
+) ([][]byte, error) {
+	normalized, err := normalizeMailboxAttachmentTypesForWire(mails, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return buildMailboxListNotifications(normalized, notLoaded, now)
+}
+
+// normalizeMailboxAttachmentTypesForWire returns deep copies for the wire
+// projection. It never repairs or rewrites the durable mailbox. When a
+// resolver is present, its Kind and EquipmentType replace mutable historical
+// Extra values; a resolver failure aborts the list instead of emitting a row
+// whose variable-width branch disagrees with the client.
+func normalizeMailboxAttachmentTypesForWire(
+	mails []dnfrepo.MailRecord,
+	resolver alignedcmd.MailboxItemResolver,
+) ([]dnfrepo.MailRecord, error) {
+	if resolver == nil || len(mails) == 0 {
+		return mails, nil
+	}
+	typeResolution := make(map[uint32]alignedcmd.MailboxItemResolution, len(mails))
+	typeResolutionErr := make(map[uint32]error)
+	out := make([]dnfrepo.MailRecord, len(mails))
+	for index, mail := range mails {
+		out[index] = cloneMailboxMail(mail)
+		for attachmentIndex := range out[index].Attachments {
+			attachment := &out[index].Attachments[attachmentIndex]
+			if attachment.ItemID <= 0 || attachment.ItemID > int64(^uint32(0)) {
+				return nil, fmt.Errorf("%w: attachment item=%d outside wire range", ErrMailboxInvalidRequest, attachment.ItemID)
+			}
+			itemID := uint32(attachment.ItemID)
+			resolution, resolved := typeResolution[itemID]
+			if !resolved {
+				var resolveErr error
+				resolution, resolveErr = resolver(itemID)
+				if resolveErr != nil {
+					typeResolutionErr[itemID] = resolveErr
+				} else {
+					typeResolution[itemID] = resolution
+				}
+				resolved = true
+			}
+			if resolveErr := typeResolutionErr[itemID]; resolveErr != nil {
+				return nil, fmt.Errorf("mailbox attachment item=%d runtime PVF type: %w", itemID, resolveErr)
+			}
+			kind := strings.TrimSpace(resolution.Kind)
+			typeToken := normalizeMailboxAttachmentTypeToken(resolution.EquipmentType)
+			if kind == "" && typeToken == "" {
+				continue
+			}
+			if attachment.Extra == nil {
+				attachment.Extra = make(map[string]string, 2)
+			}
+			if kind != "" {
+				attachment.Extra["mailbox_pvf_kind"] = kind
+			}
+			attachment.Extra["mailbox_equipment_type"] = typeToken
+		}
+	}
+	return out, nil
+}
+
+func normalizeMailboxAttachmentTypeToken(value string) string {
+	return strings.ToLower(strings.Trim(strings.TrimSpace(value), "[]` \t\r\n"))
 }
 
 func encodeMailboxListPacket(summaries []mailboxSummary, mails []dnfrepo.MailRecord, notLoaded int, now time.Time, appendPage bool) ([]byte, error) {

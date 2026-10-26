@@ -99,6 +99,8 @@ type DungeonMapIndexSnapshot struct {
 // `[pathgate recognize range]` 段（真档 42001/42101 有 `0 0 130 140 0 0 0 0`），
 // 客户端因此拿不到该房间可用门的触发矩形，清房后门不开。
 //
+// 普通首房的另一种已验证形状是北门：显式目录对应当前DGN且出口吻合，
+// 旧目录候选出口均不吻合，见declaredStartDirectoryRoom。两种守卫共用原回退档。
 // 默认档 = 显式声明优先（修复档）；`ownership` = 改动前口径（一键回退）。
 type StartMapPrecedence string
 
@@ -697,7 +699,7 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 
 	// 起始/首领房的两条真源之间的优先级。
 	//
-	// **修复档只吃一种形状**：改动前那条文件名启发式要发的房间地图
+	// 缺门声明守卫：改动前那条文件名启发式要发的房间地图
 	// **整段没有** `[pathgate recognize range]`（= 这个房间里一扇可用门都没声明），
 	// 而 PVF 为同一房间**显式声明**的地图里恰好有一张声明了该段。
 	// 真档证据（`DNF_WORLDMAP_REAL_PVF_SMOKE`）：
@@ -710,11 +712,14 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 	//	  显式声明 = 42101 `KohlePowerStation/42101.map`（`0 0 130 140 0 0 0 0`）
 	//
 	// 客户端靠这张表的矩形才能走进下一间房：发了没有该段的图，清完房间门就不开
-	// （操作者「7 格蓝迪 克雷没有修复」）。其余每一间**逐字节保持改动前口径**，
+	// （操作者「7 格蓝迪 克雷没有修复」）。另有已验证的跨目录普通起点守卫，
 	// 由真档全量审计 `TestRealPVFStartMapPrecedenceKeepsEveryResolvableRoomResolvable`
-	// 钉住（改动前后没有任何房间从可解析变成不可解析，且只有"缺门声明"这一种形状换图）。
+	// 钉住缺门形状和北门跨目录起点之外不发生意外换图，且不降低原有可解析性。
 	if !r.options.preemptsSpecification() {
 		if candidates, ok := r.doorBearingSpecificationRoom(index, maze, key, expectedType); ok {
+			return candidates, ResolutionMapSpecification, nil
+		}
+		if candidates, ok := r.declaredStartDirectoryRoom(dungeon, index, maze, key, expectedType); ok {
 			return candidates, ResolutionMapSpecification, nil
 		}
 	}
@@ -806,7 +811,8 @@ func (r *Resolver) mazeIndex(dungeonID int64, mazeIndex int) (mazeMapIndex, erro
 	return dungeonIndex.mazes[mazeIndex], nil
 }
 
-// doorBearingSpecificationRoom 是修复档的**唯一**覆盖判据：
+// doorBearingSpecificationRoom 是缺门声明形状的覆盖判据；跨目录起点另见
+// declaredStartDirectoryRoom。这里的可选字段存在性不用于解释所有地图的门。
 // 「改动前那条文件名启发式要发的房间地图一张都没声明 `[pathgate recognize range]`
 // （= 玩家在这个房间里没有任何可走通的门），而 PVF 为同一房间显式声明的地图里
 // 恰好有一张声明了该段」⇒ 用显式声明的那张。
@@ -995,11 +1001,11 @@ func startBossCoordinateFallbackFileTypes(fileType MapFileType, start bool, boss
 	if fileType != MapFileBoss || !start || !boss {
 		return nil
 	}
-	// The production training-room PVF marks its only coordinate as both
-	// start and boss while the only coordinate-owned map is explicitly named
-	// start. Exact boss/specification matches have already won before this
-	// narrow compatibility fallback.
-	return []MapFileType{MapFileStart}
+	// 修炼场和转职体验把同一坐标同时标为起点、首领。转职体验7142
+	// 的76032地图有明确的[dungeon]归属和(0,0)坐标，文件名却不被
+	// 识别为start/boss。保留已有start优先级，再接受同坐标normal资源；
+	// 显式规格和精确boss匹配仍在本回退之前，不借用其它坐标的房图。
+	return []MapFileType{MapFileStart, MapFileNormal}
 }
 
 func mazeQuestConnected(maze Maze) bool {

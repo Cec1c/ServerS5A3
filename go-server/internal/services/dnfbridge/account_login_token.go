@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"strings"
@@ -307,6 +308,7 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 	previous := strings.TrimSpace(session.accountID)
 	session.accountID = accountID
 	session.accountFromToken = true
+	session.loginChannelFlowKey = sha256.Sum256([]byte(token))
 	session.sharedAccountFallbackReason = ""
 	s.mu.Unlock()
 	if session.clientPID != 0 {

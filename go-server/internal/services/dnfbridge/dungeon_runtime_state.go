@@ -47,6 +47,7 @@ type runtimeDungeonState struct {
 	passiveQuestDropReceipts     map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
 	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
+	missionInformerRetirements   map[uint32]dungeonMissionInformerRetirement
 	entryCharacterLevel          int
 	petGrowthEntryPending        bool // follower runtime installed before the group commits
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
@@ -199,6 +200,10 @@ type runtimeDungeonState struct {
 	townReturnSource                     string
 	townReturnOrigin                     currentTownPositionSnapshot
 	townReturnTransition                 currentDungeonTownTransition
+	crystalContractTimerActive           bool
+	crystalContractTimerGeneration       uint64
+	crystalContractTimerName             string
+	crystalContractTimerDueAt            time.Time
 	lifecycleToken                       uint64
 	deathReturnWaiting                   bool
 	deathReturnGeneration                uint64
@@ -250,6 +255,11 @@ type runtimeDungeonState struct {
 	tournamentRewardAutoSelectGeneration uint64
 	tournamentRewardAutoSelectTimerName  string
 	tournamentRewardAutoSelectDueAt      time.Time
+
+	// 大富翁Buff仅绑定本次地下城，换房保留。
+	attendanceMarbleBuffs                  byte
+	attendanceMarbleBuffsLoaded            bool
+	settlementMonsterAttendanceMarbleBonus uint32
 }
 
 func dungeonRuntimeOwnsCharacter(runtime *runtimeDungeonState, characterID uint16) bool {
@@ -954,6 +964,7 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 			return fmt.Errorf("%w: dungeon=%d maze=%d", errDungeonAlreadyActive, snapshot.DungeonID, snapshot.MazeIndex)
 		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
+		s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		// 被替换掉的旧运行时必须先脱离队伍实例，否则它的成员名额会一直挂着。
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
