@@ -111,7 +111,7 @@ func TestRealPVFNearestSeriaSpawnKeepsCityAndDoor(t *testing.T) {
 					if err == nil {
 						c, err = s.commitCurrentReconnectLocation(ctx, 29, c)
 					}
-					if err != nil || !currentRegisteredChannelTown(int64(town)) {
+					if err != nil || !s.currentDedicatedChannelTown(int64(town)) {
 						t.Fatalf("特殊频道入场失败：town=%d %v", town, err)
 					}
 				}
