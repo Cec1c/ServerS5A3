@@ -193,6 +193,7 @@ func resolveSourceReference(listPath, reference string) string {
 }
 
 func addMapToTable(table *Table, parsed Map) {
+	compactMapSourceTokens(&parsed)
 	pos := len(table.maps)
 	table.maps = append(table.maps, parsed)
 	if _, exists := table.mapByID[parsed.ID]; !exists {
