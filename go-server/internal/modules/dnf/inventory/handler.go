@@ -409,6 +409,11 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		return ownerAppliedDamageFontSelectionResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketUpgradeItem:
+		// v150's separate flag sender writes u8 mode, u8 list38. Keep the
+		// ordinary decoder/owner unchanged for every other request.
+		if len(req.Body) >= 2 && req.Body[1] == 38 {
+			return handleGuildMedalUpgrade(ctx, req), nil
+		}
 		parsed, err := DecodeUpgradeItemRequest(req.Body)
 		cmd := NewUpgradeCommand(req, parsed)
 		if err != nil {
