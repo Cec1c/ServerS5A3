@@ -202,12 +202,13 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		Drops:     drops,
 		CardSlots: cardSlots,
 		Tail: currentDungeonClearRewardTail{
-			ShowResult:      true,
-			MonsterTotalExp: runtime.settlementMonsterExperienceTotal,
+			PaidCardDoubleEvent: false,
+			MonsterTotalExp:     runtime.settlementMonsterExperienceTotal,
 		},
 	}
 	if runtime.settlementCardRewardState != nil {
 		runtime.settlementCardRewardState.mu.Lock()
+		reward.PaidCardCost = uint32(runtime.settlementCardRewardState.plan.Sides[dungeonCardSidePaid].Cost)
 		bonus := cloneDungeonCardRewardBundle(runtime.settlementCardRewardState.plan.BlackDiamondBonus)
 		runtime.settlementCardRewardState.mu.Unlock()
 		if bonus.Gold > 0 || len(bonus.Items) > 0 {
@@ -232,6 +233,11 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	)
 	if err != nil {
 		return err
+	}
+	if state := runtime.settlementCardRewardState; state != nil {
+		state.mu.Lock()
+		plan.PremiumServiceBody = append([]byte(nil), state.premiumServiceBody...)
+		state.mu.Unlock()
 	}
 	if len(permissionBody) != 0 {
 		plan.DungeonPermissionBody = append([]byte(nil), permissionBody...)
