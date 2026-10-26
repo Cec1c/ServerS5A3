@@ -9,10 +9,11 @@ import (
 )
 
 type currentGuildPlacementProjection struct {
-	mu       sync.Mutex
-	identity boundGameSessionCharacter
-	guildID  uint32
-	rows     map[uint32]guild.Placement
+	mu             sync.Mutex
+	frozenPractice boundGameSessionCharacter
+	identity       boundGameSessionCharacter
+	guildID        uint32
+	rows           map[uint32]guild.Placement
 }
 
 // A full 191 initializes a reconnected client's placement table. Subsequent

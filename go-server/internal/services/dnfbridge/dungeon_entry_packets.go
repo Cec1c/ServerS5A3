@@ -170,7 +170,11 @@ func buildCurrentDungeonEntryPacketsForModes(
 	if runtime == nil || runtime.Room == nil || runtime.Session == nil {
 		return currentDungeonEntryPackets{}, errDungeonWorldMapUnavailable
 	}
-	if err := validateCurrentDungeonEntryRequestForModes(runtime.Request, mode, selectionMode); err != nil {
+	if currentFriendlyGuildPractice(runtime) {
+		if err := validateCurrentGuildPracticeEntryRequest(runtime); err != nil {
+			return currentDungeonEntryPackets{}, err
+		}
+	} else if err := validateCurrentDungeonEntryRequestForModes(runtime.Request, mode, selectionMode); err != nil {
 		return currentDungeonEntryPackets{}, err
 	}
 	if runtime.Dungeon.ID <= 0 || runtime.Dungeon.ID > int64(^uint32(0)) {
