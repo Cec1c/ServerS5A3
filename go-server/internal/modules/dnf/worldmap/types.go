@@ -162,6 +162,10 @@ type MapFlags struct {
 }
 
 type Map struct {
+	// 仅目录内部使用；公开查询仍返回完整且独立的 SourceSections。
+	compactSourceTokens map[int][]compactMapToken
+	compactSourceTexts  []string
+
 	ID   int64  `json:"id"`
 	Path string `json:"path"`
 	Name string `json:"name,omitempty"`

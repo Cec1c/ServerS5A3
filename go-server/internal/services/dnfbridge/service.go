@@ -400,6 +400,7 @@ func (s *Service) Start(ctx context.Context) error {
 			return errors.Join(err, closeErr)
 		}
 	}
+	s.releaseStartupPVFReadCaches()
 	gamePorts := s.gameListenPorts(catalog)
 	if len(gamePorts) == 0 {
 		cancel()
