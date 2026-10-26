@@ -23,6 +23,45 @@ func TestR195RealLukeTableActiveReturn(t *testing.T) {
 			if !s.currentRaidTableActiveReturnReady(p, r) {
 				t.Fatal("real active Luke fixture has no accepted participation")
 			}
+			if dungeonID == 5311 {
+				// Participation recording queues the same owned projection on a
+				// goroutine for every online member. The battle projection holds
+				// this mutex through every write and publishes version at the end,
+				// so a later queued pass either waits here or sees the fence and
+				// emits no second batch. Both members share this fixture's conn.
+				s.raidMu.Lock()
+				projection := cloneRuntimeRaidState(*f.state)
+				s.raidMu.Unlock()
+				ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+				for _, member := range projection.Members {
+					owner, online := s.onlineGameSession(member.CharID)
+					if !online {
+						continue
+					}
+					projectionErr := s.callGameSession(ctx, owner, "r195-luke-stale-participation-barrier", func() error {
+						if err := s.sendCurrentRaidBattleState(owner, projection); err != nil {
+							return err
+						}
+						if err := s.sendCurrentAntonTerminalResult(owner, projection); err != nil {
+							return err
+						}
+						return s.sendCurrentAntonRewardFlowProjection(owner, projection)
+					})
+					if projectionErr != nil {
+						cancel()
+						t.Fatal(projectionErr)
+					}
+					owner.raidProjection.mu.Lock()
+					projected := owner.raidProjection.version >= projection.Battle.ProgressVersion && !owner.raidProjection.failed
+					owner.raidProjection.mu.Unlock()
+					if !projected {
+						cancel()
+						t.Fatal("participation projection did not reach committed version")
+					}
+				}
+				cancel()
+				f.conn.write.Reset()
+			}
 			before, _, err := f.repos.Inventory.Load(context.Background(), "19")
 			if err != nil {
 				t.Fatal(err)

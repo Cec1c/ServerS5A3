@@ -305,6 +305,50 @@ func TestR139BuffEmptyMoveAndFeatureOff(t *testing.T) {
 	})
 }
 
+func TestR139BuffVisibleLoginReassertUsesOnlyExistingBoundary(t *testing.T) {
+	f := p94Fixture(t)
+	instance := r139PrepareSlot(t, f, 12, 101040493)
+	f.service.openEquipLoginWearWindow(f.session, "r139_visible_login")
+	bi, be, bn, bo := p94Snapshot(t, f)
+	for repeat := 0; repeat < 3; repeat++ {
+		p94Move(t, f, loginWearBridgeBody(0, 15, 0, 3, 12, 101040493))
+		ai, ae, an, ao := p94Snapshot(t, f)
+		if !reflect.DeepEqual(bi, ai) || !reflect.DeepEqual(be, ae) || !reflect.DeepEqual(bn, an) || !reflect.DeepEqual(bo, ao) {
+			t.Fatal("login weapon reassert changed persistent state")
+		}
+		r139AssertOwner(t, f, 12, instance, 3, 12)
+		acks, rows1367, snapshots1368, actorRefreshes := 0, 0, 0, 0
+		ackAt, actorAt, seq := -1, -1, 0
+		wire := f.buffer.write.Bytes()
+		for len(wire) > 0 {
+			p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
+			wire = rest
+			if p.Header.Classification == 1 && p.Header.MsgID == 19 {
+				acks++
+				ackAt = seq
+			}
+			switch {
+			case p.Header.Classification == 0 && p.Header.MsgID == currentBuffSwapRowsID:
+				rows1367++
+			case p.Header.Classification == 0 && p.Header.MsgID == currentBuffSwapSnapshotID:
+				snapshots1368++
+			case p.Header.Classification == 0 && p.Header.MsgID == 2:
+				actorRefreshes++
+				actorAt = seq
+			}
+			seq++
+		}
+		// Login keeps one full snapshot at its existing actor refresh boundary.
+		if acks != 1 || rows1367 != 0 || snapshots1368 != 1 || actorRefreshes != 1 {
+			t.Fatalf("login noop ack/refresh boundary drift: acks=%d actors=%d rows1367=%d snapshots1368=%d", acks, actorRefreshes, rows1367, snapshots1368)
+		}
+		if ackAt < 0 || actorAt < ackAt {
+			t.Fatalf("login noopACK/order missing: ack=%d actor=%d", ackAt, actorAt)
+		}
+		t.Logf("unmarked repeat=%d persisted unchanged; actors=%d buff1367=%d buff1368=%d", repeat+1, actorRefreshes, rows1367, snapshots1368)
+	}
+}
+
 // Same public fixture wire fields, parameterized for real catalog slots.
 func r139PublicRawEntry(slot int16, item int64, seed uint32, durability uint16) []byte {
 	raw := make([]byte, currentItemListEntryWireSize)

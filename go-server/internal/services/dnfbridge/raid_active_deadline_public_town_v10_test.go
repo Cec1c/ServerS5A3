@@ -48,13 +48,25 @@ func (c *deadlineAuditV10Conn) failTyped24(v bool) { c.mu.Lock(); defer c.mu.Unl
 // Lobby membership, persisted characters/materials and their town position are explicit
 // in-memory fixtures. Battle admission/config/charge are ONLY normal public666; phase,
 // epoch, RunID and accepted clear state are never directly assigned by this test.
+type deadlineAuditV10CharacterSetup func(index int, id uint16, character repo.CharacterRecord) repo.CharacterRecord
+
 func deadlineAuditV10Admit(t *testing.T, a *platformpvf.Archive, solo bool) (*raidStartGuardFixture, []*gameSession, []*deadlineAuditV10Conn, *fakeCurrentDungeonDeathTimerQueue) {
+	return deadlineAuditV10AdmitConfigured(t, a, solo, 0, nil)
+}
+
+// deadlineAuditV10AdmitConfigured keeps the existing fixture callers unchanged
+// while allowing a focused regression to provide a legal member count and
+// authoritative character identities before the public 666 admission runs.
+func deadlineAuditV10AdmitConfigured(t *testing.T, a *platformpvf.Archive, solo bool, requestedMembers int, setup deadlineAuditV10CharacterSetup) (*raidStartGuardFixture, []*gameSession, []*deadlineAuditV10Conn, *fakeCurrentDungeonDeathTimerQueue) {
 	t.Helper()
 	rule, err := raid.LoadAdmissionRule(a, "etc/raid/anton.etc")
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := rule.MinimumMembers
+	if requestedMembers > 0 {
+		n = requestedMembers
+	}
 	if solo {
 		n = 1
 	}
@@ -125,6 +137,9 @@ func deadlineAuditV10Admit(t *testing.T, a *platformpvf.Archive, solo bool) (*ra
 		f.state.Members = append(f.state.Members, runtimeRaidMemberState{CharID: id, GroupIndex: group, SlotOrder: slot})
 		// Same persisted town fixture used by the actual public sanctum regression.
 		ch := repo.CharacterRecord{CharacterID: strconv.Itoa(int(id)), AccountID: account, Level: 90, Stats: map[string]int64{"fatigue": 156, "town_id": 50, "area_id": 0, "pos_x": 580, "pos_y": 243, "direction": 0, "area_state": 0}}
+		if setup != nil {
+			ch = setup(i, id, ch)
+		}
 		if err = f.repos.Character.Save(ctx, ch); err != nil {
 			t.Fatal(err)
 		}

@@ -834,6 +834,7 @@ func (b *FiendWarBattle) BossReport(dungeon, kind, value int, now time.Time) err
 					b.resetBossPattern()
 				}
 			}
+			b.BossWindowDone = [2]bool{}
 		}
 	default:
 		return fmt.Errorf("unknown fiendwar boss operation")

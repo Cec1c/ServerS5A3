@@ -164,6 +164,7 @@ func (s *Service) handleRuntimePartyDirectoryJoin(session *gameSession, body []b
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return true, err
 	}
+	s.refreshTownPartyActorsAfterJoin(state, "party_directory_join")
 	s.logGameEvent(session, "game-party-directory-join-complete",
 		"type", currentPartyDirectoryJoin,
 		"party_id", partyID,

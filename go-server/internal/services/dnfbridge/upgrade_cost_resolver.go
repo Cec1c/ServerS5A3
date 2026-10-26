@@ -121,7 +121,8 @@ func (s *Service) alignedNativeUpgradeCostResolver() alignedcmd.UpgradeCostResol
 	}
 }
 
-// Default installs the ordinary amplification gold quote. Portable consumables bypass quotation in the owner.
+// Default installs the verified NPC reinforcement conversion and ordinary
+// amplification gold quote. Portable consumables bypass quotation in the owner.
 // "candidate" additionally enables ordinary reinforcement gold quotation;
 // other nonempty values retain the existing explicit opt-out behavior.
 func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.UpgradeCostResolver {
@@ -142,12 +143,14 @@ func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.
 			return quote, nil
 		}
 	case "":
+		identity, _ := s.boundGameSessionCharacterSnapshot(session)
+		conversion := s.alignedUpgradeNPCConversionCostResolver(identity)
 		base := s.alignedNativeUpgradeCostResolver()
 		return func(mode string, itemID int64, level int, present bool, npcID uint16) (alignedcmd.UpgradeCostResolution, error) {
 			if mode == "amplify" {
 				return base(mode, itemID, level, present, npcID)
 			}
-			return alignedcmd.UpgradeCostResolution{}, nil
+			return conversion(mode, itemID, level, present, npcID)
 		}
 	}
 	return nil

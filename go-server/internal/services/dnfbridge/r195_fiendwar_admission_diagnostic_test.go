@@ -99,7 +99,7 @@ func TestR195FiendWarAdmissionDiagnosticCapturesRealOp16PreAdmissionReject(t *te
 	f.state.Battle.PhaseCompleted = true
 	request := dungeoncmd.SelectDungeonRequest{DungeonID: 4953}
 	if err := f.service.handleDungeonSelectUpperPlannedForAdmission(
-		peers[0], encodeCurrentDungeonSelectRequest(request), nil, true, false,
+		peers[0], encodeCurrentDungeonSelectRequest(request), nil, true, nil, false,
 	); err != nil {
 		t.Fatal(err)
 	}

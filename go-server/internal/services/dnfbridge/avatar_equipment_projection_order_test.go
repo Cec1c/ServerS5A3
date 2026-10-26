@@ -250,6 +250,11 @@ func newEquipmentTailOrderFixture(t *testing.T) (*loginWearBridgeFixture, *equip
 	f.service.initialEquipmentArchive = archive
 	f.service.pvfItemCatalog = catalog
 	f.service.options.currentClientVersion = "official-24.9"
+	// Cold real-PVF validation can outlast the production 200ms burst window.
+	// These tests require a queued callback; separate the burst window from
+	// the deadline so RunDue still takes the real tail without wall-clock waits.
+	f.service.options.avatarAppearanceCoalesceWindowMillis = 30000
+	f.service.options.avatarAppearanceTrailingMillis = 20
 	f.session.op19QuietResolving = true
 	ctx := context.Background()
 	equipment := dnfrepo.EquipmentRecord{CharacterID: "19", Entries: map[string]dnfrepo.EquipmentEntry{}}

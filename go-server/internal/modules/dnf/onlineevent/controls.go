@@ -2,6 +2,7 @@ package onlineevent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -13,13 +14,44 @@ import (
 
 const ControlsScope = "server:online-activity-controls:v1"
 
+// Save failures are classified so the private management bridge can answer with
+// an actionable prompt for known cases and a generic prompt for storage faults,
+// never echoing database or connection detail.
+var (
+	ErrControlRevisionStale     = errors.New("activity control revision stale")
+	ErrControlSelectionInvalid  = errors.New("activity control selection invalid")
+	ErrControlUnsupported       = errors.New("activity control not supported")
+	ErrControlDuplicate         = errors.New("activity control duplicated")
+	ErrControlRevisionExhausted = errors.New("activity control revision exhausted")
+	ErrControlPersist           = errors.New("activity control persist failed")
+)
+
+// controlError keeps the operator-facing message of this module while exposing
+// a classified identity through errors.Is; cause stays inspectable by callers.
+type controlError struct {
+	kind  error
+	text  string
+	cause error
+}
+
+func (e *controlError) Error() string { return e.text }
+
+func (e *controlError) Unwrap() []error {
+	if e.cause == nil {
+		return []error{e.kind}
+	}
+	return []error{e.kind, e.cause}
+}
+
 // ControlDefinition lists implemented activities; it never creates PVF events.
 type ControlDefinition struct {
-	ID             uint16 `json:"id"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	Source         string `json:"source"`
-	DefaultEnabled bool   `json:"defaultEnabled"`
+	ID               uint16 `json:"id"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	Source           string `json:"source"`
+	DefaultEnabled   bool   `json:"defaultEnabled"`
+	Group            string `json:"group,omitempty"`
+	AvailabilityOnly bool   `json:"availabilityOnly,omitempty"`
 }
 
 type ControlRow struct {
@@ -136,13 +168,13 @@ func (c *Controls) Save(ctx context.Context, revision uint64, changes []ControlC
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if revision != c.revision {
-		return ControlSnapshot{}, fmt.Errorf("活动设置已更新，请刷新后重试")
+		return ControlSnapshot{}, &controlError{kind: ErrControlRevisionStale, text: "活动设置已更新，请刷新后重试"}
 	}
 	if len(changes) == 0 || len(changes) > len(c.definitions) {
-		return ControlSnapshot{}, fmt.Errorf("请选择受支持的活动")
+		return ControlSnapshot{}, &controlError{kind: ErrControlSelectionInvalid, text: "请选择受支持的活动"}
 	}
 	if c.revision == math.MaxUint64 {
-		return ControlSnapshot{}, fmt.Errorf("activity revision exhausted")
+		return ControlSnapshot{}, &controlError{kind: ErrControlRevisionExhausted, text: "activity revision exhausted"}
 	}
 	next := make(map[uint16]bool, len(c.configured))
 	for id, value := range c.configured {
@@ -155,10 +187,10 @@ func (c *Controls) Save(ctx context.Context, revision uint64, changes []ControlC
 	}
 	for _, change := range changes {
 		if _, supported := next[change.ID]; !supported {
-			return ControlSnapshot{}, fmt.Errorf("不支持开启活动 %d", change.ID)
+			return ControlSnapshot{}, &controlError{kind: ErrControlUnsupported, text: fmt.Sprintf("不支持开启活动 %d", change.ID)}
 		}
 		if seen[change.ID] {
-			return ControlSnapshot{}, fmt.Errorf("活动 %d 重复", change.ID)
+			return ControlSnapshot{}, &controlError{kind: ErrControlDuplicate, text: fmt.Sprintf("活动 %d 重复", change.ID)}
 		}
 		seen[change.ID] = true
 		overrides[change.ID] = true
@@ -171,7 +203,7 @@ func (c *Controls) Save(ctx context.Context, revision uint64, changes []ControlC
 		}
 	}
 	if err := c.store.Save(ctx, repository.SettingsRecord{Scope: ControlsScope, Values: values, UpdatedAt: time.Now()}); err != nil {
-		return ControlSnapshot{}, fmt.Errorf("保存活动设置失败: %w", err)
+		return ControlSnapshot{}, &controlError{kind: ErrControlPersist, text: fmt.Sprintf("保存活动设置失败: %v", err), cause: err}
 	}
 	c.configured = next
 	c.configuredOverrides = overrides

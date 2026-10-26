@@ -237,7 +237,7 @@ func TestSendCurrentSpendTimeProtocolStateTownNpcCatalogAddsOnly2395OnTheWire(t 
 	// 先独立展开 2395，再通过独立 fixture 加入两档都存在的 181；其余字节来自既有 golden。
 	wantOnBody := make([]byte, 0, len(golden)+len(mustHexBytes(t, currentTownNpcEventBaseRowHex))+
 		len(mustHexBytes(t, currentTownNpcEventActiveRowHex)))
-	// golden 里 2347 active 行的起点（84）比 2365 base 行末尾多一个字节：那个字节就是
+	// golden 里 2347 active 行的起点（146）比 2365 base 行末尾多一个字节：那个字节就是
 	// 旧的 active_count(=2)。逐字节展开时必须把它换成新值 3，不能照抄。
 	wantOnBody = append(wantOnBody, 3, 0)
 	wantOnBody = append(wantOnBody,

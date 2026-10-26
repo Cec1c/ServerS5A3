@@ -10,6 +10,7 @@ import (
 func TestR182AntonPhase0SquadRetainsOpenScreenAndRestoresNewConnection(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
+	flow.PartyShownAt = time.Time{}
 	if err := f.service.sendCurrentAntonTerminalResult(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}

@@ -139,7 +139,7 @@ func TestReview452TeamRaidMonsterGroundDrops(t *testing.T) {
 		t.Run(fmt.Sprintf("%s/single=%t/%s", tc.kind, tc.single, tc.drift), func(t *testing.T) {
 			f := review452GroundRun(t, tc.kind, tc.single, false)
 			monster := review452PositiveMonsterRules(t, f.service, f.runtime)
-			forbidden := tc.kind != "ordinary" && !tc.single
+			forbidden := tc.kind == "anton" || tc.kind == "luke" && !tc.single
 			if tc.drift == "phase" {
 				f.battle.Phase++
 				f.battle.PhaseCompleted = true
@@ -199,7 +199,7 @@ func TestReview452TeamRaidOtherGroundProducers(t *testing.T) {
 					r := f.runtime
 					scene, _ := r.Session.Scene()
 					beforeKey := r.NextObjectKey
-					forbidden := kind != "ordinary" && !single
+					forbidden := kind == "anton" || kind == "luke" && !single
 					switch producer {
 					case "pvf_passive_item":
 						doc, err := dnfpvf.Parse("review452.dgn", "[special passive object item]\n0 -1 1 3227 10000\n")
@@ -303,9 +303,16 @@ func TestReview452TeamRaidDiscardPreservesInventory(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if kind != "ordinary" && !single {
-					if !reflect.DeepEqual(before, after) || review452GroundCount(f.runtime) != 0 || f.runtime.NextObjectKey != key || f.session.conn.(*bufferConn).write.Len() != 0 {
+				if kind == "anton" || kind == "luke" && !single {
+					if !reflect.DeepEqual(before, after) || review452GroundCount(f.runtime) != 0 || f.runtime.NextObjectKey != key {
 						t.Fatal("team discard consumed or published an inventory item")
+					}
+					// A rejected discard restores the authoritative inventory UI;
+					// it must not publish a ground actor.
+					for _, p := range splitAllCurrentGameServerUpperPackets(t, f.session.conn.(*bufferConn).write.Bytes()) {
+						if p.Header.MsgID != 13 {
+							t.Fatalf("unexpected discard rejection packet %d", p.Header.MsgID)
+						}
 					}
 				} else if after.Slots["0:121"].Count != 3 || review452GroundCount(f.runtime) != 1 {
 					t.Fatal("ordinary/single discard positive control failed")

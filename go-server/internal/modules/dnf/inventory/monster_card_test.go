@@ -350,7 +350,7 @@ func TestMonsterCardMoveAndSortPreserveDifferentGrades(t *testing.T) {
 	if canStack(cardTestStack(100, 3, 0), cardTestStack(100, 2, 1), 1) {
 		t.Fatal("手工搬运仍可合并不同级")
 	}
-	// MR41 rejects an incompatible same-item destination; preserve both grades on rejection.
+	// MR41 rejects an incompatible same-item destination; MR42 must preserve both grades on rejection.
 	moved, e := o.Move(context.Background(), Command{Operation: "move_itemspace", AccountID: "acc", SelectedCharacterID: 77, SourceListType: 0, SourceSlotIndex: 233, DestinationListType: 0, DestinationSlotIndex: 234, MoveCount: 3})
 	if !errors.Is(e, ErrMoveCannotStack) || moved.Changed {
 		t.Fatal(moved, e)

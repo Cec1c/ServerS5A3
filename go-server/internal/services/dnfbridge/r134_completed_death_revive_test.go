@@ -252,7 +252,7 @@ func TestR134CompletedReviveRequiresRetainedDeathOwner(t *testing.T) {
 				failure := &completedReturnAckOp24FailureConn{bufferConn: conn, t: t, err: writeErr, failOnce: true}
 				session.conn = failure
 				err = s.handleGameUpper(session, buildCurrentDungeonClientUpperForPhaseTest(t, uint16(dnfenum.CmdPacketBack2Village), nil))
-				if !errors.Is(err, writeErr) || failure.failedOp24Attempts != 1 || !r.townReturnPending || session.dungeon.runtime != r {
+				if !errors.Is(err, writeErr) || failure.failedOp24Attempts != 1 || !r.townReturnPending || r.townReturnOp24Sent || session.dungeon.runtime != r {
 					t.Fatalf("op132 must retain pending town return after a failed op24: err=%v attempts=%d pending=%v", err, failure.failedOp24Attempts, r.townReturnPending)
 				}
 				session.conn = conn
