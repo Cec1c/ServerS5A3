@@ -204,7 +204,6 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		CardSlots: cardSlots,
 		Tail: currentDungeonClearRewardTail{
 			PaidCardDoubleEvent: false,
-			ShowResult:          true,
 			MonsterTotalExp:     saturatingCurrentDungeonUint32Add(runtime.settlementMonsterExperienceTotal, runtime.settlementMonsterAttendanceMarbleBonus),
 		},
 	}
