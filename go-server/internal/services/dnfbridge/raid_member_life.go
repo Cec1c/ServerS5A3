@@ -56,7 +56,7 @@ func (s *Service) recordCurrentRaidCharacterLifeLocked(session *gameSession, run
 		return update, fmt.Errorf("raid life instance unavailable")
 	}
 	b := state.Battle
-	if b.Mode != 1 && b.Mode != 2 {
+	if b.Mode != 1 && b.Mode != 2 && b.FiendWar == nil {
 		return update, nil
 	}
 	if b.Anton != nil && now.Before(b.Anton.LastTime()) {

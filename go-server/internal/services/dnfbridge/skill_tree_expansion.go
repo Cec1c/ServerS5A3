@@ -34,6 +34,13 @@ func (r *csharpLegacyUserInfoReader) skillTreeWireIndex(character dnfrepo.Charac
 	if !ok || repos.Skill == nil {
 		return 0xff
 	}
+	if r.session != nil && isPVPChannel(r.session.channel) {
+		record, err := skillcmd.PreparePVPSkills(r.ctx, repos, character.AccountID, character.CharacterID)
+		if err != nil {
+			return 0xff
+		}
+		return dnfrepo.SkillTreeWireIndex(record)
+	}
 	record, found, err := repos.Skill.Load(r.ctx, character.CharacterID)
 	if err != nil || !found {
 		return 0xff

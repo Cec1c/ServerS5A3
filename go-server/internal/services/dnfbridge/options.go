@@ -67,7 +67,9 @@ const (
 	partyDungeonUserStateValueSelf    = "self"
 	partyDungeonUserStateValueAll     = "all"
 
-	mainQuestExperienceMultiplierEnv = "DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"
+	mainQuestExperienceMultiplierEnv  = "DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"
+	mainQuestExperiencePercentEnv     = "DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"
+	mainQuestExperiencePercentInvalid = -1
 )
 
 // partyDungeonOwnerMode 是 DNFBRIDGE_PARTY_DUNGEON_OWNER_MODE 的归一化取值。
@@ -140,6 +142,7 @@ func readPartyDungeonAllMemberUserState() (bool, string, bool) {
 }
 
 type options struct {
+	guildRankingEnabled      bool
 	guildSoloCreate          bool
 	channelListen            string
 	gameListenHost           string
@@ -181,6 +184,11 @@ type options struct {
 	// （测试与探针里的 Service 字面量）继续与加开关前的行为逐字节一致，开关
 	// 只有一个变量。读取与抑制点见 Service.joustEventEnabled。
 	joustEventDisabled bool
+	// Requires the matching 1297/1284 client receive chain before enabling.
+	guildEssenceEnabled     bool
+	guildGuardianPolicy     string
+	guildContributionPolicy string
+	guildHongbaoEnabled     bool
 
 	// joustEventCatalogMode 是 DNFBRIDGE_JOUST_EVENT_CATALOG 的归一化取值，只决定
 	// op108 在线活动目录里马战（竞技大赛）事件 2365 的那两行要不要下发：
@@ -232,6 +240,11 @@ type options struct {
 	// 环境变量缺失、非整数或不在 1..100 时按 1；玩家 op34 包里的
 	// Multiplier 语义未证明，不能作为该值。
 	mainQuestExperienceMultiplier int
+	// mainQuestExperiencePercent is the trusted final percentage for ordinary
+	// standalone epic main quests. Zero keeps the previous reward path; an
+	// explicitly invalid environment value is stored as -1 so settlement rejects
+	// it through the existing op34 business-failure reply.
+	mainQuestExperiencePercent int
 
 	// equipMoveContainerRefreshFull 是 DNFBRIDGE_EQUIP_MOVE_CONTAINER_REFRESH 的
 	// 取反存储（默认 false = 穿脱装备/时装后**不再重发 5 个整容器**）。取反存放的
@@ -752,11 +765,12 @@ type options struct {
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
 	opts := options{
-		guildSoloCreate: envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
-		channelListen:   envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),
-		gameListenHost:  strings.TrimSpace(os.Getenv("DNFBRIDGE_GAME_LISTEN_HOST")),
-		channelInfoFile: firstEnv([]string{"DNFBRIDGE_CHANNEL_INFO_PATH", "DNF_CHANNEL_INFO_FILE"}, defaultChannelInfoFile),
-		channelServerID: envIntAny([]string{"DNFBRIDGE_CHANNEL_SERVER_INDEX", "DNF_CHANNEL_SOURCE_SERVER_INDEX"}, 1),
+		guildRankingEnabled: envBool("DNFBRIDGE_GUILD_RANKING_ENABLED", false),
+		guildSoloCreate:     envBool("DNFBRIDGE_GUILD_SOLO_CREATE", false),
+		channelListen:       envString("DNFBRIDGE_CHANNEL_LISTEN", defaultChannelListen),
+		gameListenHost:      strings.TrimSpace(os.Getenv("DNFBRIDGE_GAME_LISTEN_HOST")),
+		channelInfoFile:     firstEnv([]string{"DNFBRIDGE_CHANNEL_INFO_PATH", "DNF_CHANNEL_INFO_FILE"}, defaultChannelInfoFile),
+		channelServerID:     envIntAny([]string{"DNFBRIDGE_CHANNEL_SERVER_INDEX", "DNF_CHANNEL_SOURCE_SERVER_INDEX"}, 1),
 		channelAdvertiseID: envIntAny(
 			[]string{"DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX", "DFO_CHANNEL_SERVER_INDEX"},
 			-1,
@@ -823,7 +837,11 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		collectboxMutation: collectboxMutationValue(envString(collectboxMutationEnv, collectboxMutationReference)),
 		// 单变量实验开关：置 0/false/off/no 时不推送 op1240/op1241/op1242/op1243，
 		// 用来复现/排除"马战事件把客户端切进受限（赛事）状态"的怀疑。
-		joustEventDisabled: !envBool("DNFBRIDGE_JOUST_EVENT_ENABLED", true),
+		joustEventDisabled:      !envBool("DNFBRIDGE_JOUST_EVENT_ENABLED", true),
+		guildEssenceEnabled:     envBool("DNFBRIDGE_GUILD_ESSENCE_ENABLED", false),
+		guildGuardianPolicy:     envString("DNFBRIDGE_GUILD_GUARDIAN_POLICY", ""),
+		guildContributionPolicy: envString("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY", ""),
+		guildHongbaoEnabled:     envBool("DNFBRIDGE_GUILD_HONGBAO_ENABLED", false),
 		// 单变量实验开关：置 0/false/off/no 时不再下发 op1378（选角 ack 之后的
 		// story digest last-level 通知），也不再接受客户端"开始播放"上报去推进/
 		// 持久化 story_digest_last_level，用来复现/排除"剧情回顾子系统的下发与
@@ -841,6 +859,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		// （CouponClearScopeActiveOnly），不需要重新编译。
 		questClearTicketActiveOnly:    !envBool("DNFBRIDGE_QUEST_CLEAR_TICKET_SWEEP", true),
 		mainQuestExperienceMultiplier: readMainQuestExperienceMultiplier(),
+		mainQuestExperiencePercent:    readMainQuestExperiencePercent(),
 
 		// 穿脱装备/时装（op19）的回包后刷新口径，见 equip_move_refresh.go。
 		// 默认 = 新口径（不再重发 5 个整容器 / 外观用 op2 mode0 当前场景对象自投影）；
@@ -1363,6 +1382,18 @@ func readMainQuestExperienceMultiplier() int {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 1 || value > 100 {
 		return 1
+	}
+	return value
+}
+
+func readMainQuestExperiencePercent() int {
+	raw := strings.TrimSpace(os.Getenv(mainQuestExperiencePercentEnv))
+	if raw == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 || value > 100 {
+		return mainQuestExperiencePercentInvalid
 	}
 	return value
 }

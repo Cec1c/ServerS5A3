@@ -2,8 +2,6 @@ package buffswap
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
@@ -64,19 +62,15 @@ func registerInstance(ctx context.Context, repos repo.Group, characterID string,
 		return "", fmt.Errorf("buff instance ambiguous")
 	}
 	if instance == "" {
-		for {
-			var raw [16]byte
-			if _, err := rand.Read(raw[:]); err != nil {
-				return "", err
+		inUse := make(map[string]bool, len(identities))
+		for _, value := range identities {
+			if value != "" {
+				inUse[value] = true
 			}
-			instance = hex.EncodeToString(raw[:])
-			collision := false
-			for _, v := range identities {
-				collision = collision || v == instance
-			}
-			if !collision {
-				break
-			}
+		}
+		instance, err = allocateInstanceID(inUse)
+		if err != nil {
+			return "", err
 		}
 	}
 	if list == 3 {

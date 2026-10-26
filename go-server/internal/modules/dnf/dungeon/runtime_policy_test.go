@@ -53,6 +53,14 @@ func TestValidateEntry(t *testing.T) {
 			wantErr: ErrEntryFatigueExhausted,
 		},
 		{
+			name: "fatigue below fixed start cost",
+			mutate: func(policy *EntryPolicy) {
+				policy.Fatigue = 7
+				policy.FatigueCost = 8
+			},
+			wantErr: ErrEntryFatigueExhausted,
+		},
+		{
 			name: "PVF no fatigue",
 			mutate: func(policy *EntryPolicy) {
 				policy.FatigueKnown = false

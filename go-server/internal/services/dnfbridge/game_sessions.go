@@ -29,6 +29,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	defer func() { s.persistCurrentGuildPresence(guildObservations...) }()
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
 		s.closeCurrentGuildCreateSession(session)
+		s.closeCurrentPVPSession(session)
 		s.closeCurrentExpertJobStoreSession(session, true)
 		s.detachOnlineItemTrade(session, "selected_character_changed")
 		s.detachRuntimePartySession(session, "selected_character_changed")
@@ -97,6 +98,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	s.mu.Unlock()
 	if previous != nil && previous != session {
 		s.closeCurrentGuildCreateSession(previous)
+		s.closeCurrentPVPSession(previous)
 		s.rebindManagedRuntimePartySession(previous, session)
 	}
 	s.restoreCurrentRaidPresence(session)
@@ -140,6 +142,7 @@ func (s *Service) promoteResidentGameSession(session *gameSession, charID uint16
 	s.mu.Unlock()
 	if previous != nil && previous != session {
 		s.closeCurrentGuildCreateSession(previous)
+		s.closeCurrentPVPSession(previous)
 		s.rebindManagedRuntimePartySession(previous, session)
 	}
 }
@@ -176,6 +179,7 @@ func (s *Service) rebindManagedRuntimePartySession(previous *gameSession, replac
 }
 
 func (s *Service) unbindGameSession(session *gameSession) {
+	s.closeCurrentPVPSession(session)
 	if s == nil || session == nil {
 		return
 	}

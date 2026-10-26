@@ -4,18 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"testing"
+	"time"
+
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"longheng.io/server/internal/modules/dnf/raid"
 	"longheng.io/server/internal/modules/dnf/worldmap"
-	"testing"
-	"time"
 )
 
 func actualAntonHatchWarpOwner(t *testing.T) (*Service, *gameSession, *runtimeDungeonState, uint32) {
 	return actualAntonHatchWarpOwnerFor(t, 0)
 }
 
-func actualAntonHatchWarpOwnerFor(t *testing.T, wanted uint32) (*Service, *gameSession, *runtimeDungeonState, uint32) {
+// actualAntonHatcheryEnergyOwnerForCorner builds the real 218 energy owner in
+// the corner that produces the requested hatchery. It deliberately does not
+// require that hatchery to be open, so the disabled-221 entry control starts
+// from the same actual source scene as the accepted 222/223/224 cases.
+func actualAntonHatcheryEnergyOwnerForCorner(t *testing.T, corner uint32) (*Service, *gameSession, *runtimeDungeonState, *raid.AntonProgression) {
 	t.Helper()
 	source, dgn, topology, _, _ := actualAntonRandomizedBridgeFixture(t)
 	program, err := raid.LoadAntonProgram(source.initialEquipmentArchive)
@@ -32,33 +37,10 @@ func actualAntonHatchWarpOwnerFor(t *testing.T, wanted uint32) (*Service, *gameS
 	if err != nil {
 		t.Fatal(err)
 	}
-	var target uint32
-	for seed := uint64(12345); seed < 12473; seed++ {
-		if seed != 12345 {
-			progress, err = program.BeginPhase(1, base, seed)
-			if err != nil {
-				t.Fatal(err)
-			}
-			progress, err = progress.Tick(now)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		for _, d := range progress.Dungeons() {
-			if d.ID >= 221 && d.ID <= 224 && d.State == 0 && (wanted == 0 || wanted == d.ID) {
-				target = d.ID
-				break
-			}
-		}
-		if target != 0 {
-			break
-		}
+	coord, ok := reviewAntonHatcheryCorners[corner]
+	if !ok {
+		t.Fatalf("unknown Anton hatchery corner %d", corner)
 	}
-	if target == 0 {
-		t.Fatal("actual hatchery not opened")
-	}
-	coords := map[uint32]worldmap.RoomCoordinate{221: {X: 3, Y: 0}, 222: {X: 3, Y: 4}, 223: {X: 0, Y: 4}, 224: {X: 0, Y: 0}}
-	coord := coords[target]
 	topology.Start = &coord
 	run, err := worldmap.NewDungeonRun(topology)
 	if err != nil {
@@ -79,15 +61,8 @@ func actualAntonHatchWarpOwnerFor(t *testing.T, wanted uint32) (*Service, *gameS
 	s, session, r, b := raidLifeRuntimeFixture(t)
 	s.initialEquipmentArchive = source.initialEquipmentArchive
 	s.dungeonMonsterTable = source.dungeonMonsterTable
-	table, err := worldmap.LoadSource(context.Background(), source.initialEquipmentArchive, worldmap.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.worldMapTable = table
-	s.worldMapResolver, err = worldmap.NewResolver(table)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s.worldMapTable = source.worldMapTable
+	s.worldMapResolver = source.worldMapResolver
 	repos, _ := s.repositoryGroup()
 	char, _, err := repos.Character.Load(context.Background(), "99")
 	if err != nil {
@@ -111,14 +86,30 @@ func actualAntonHatchWarpOwnerFor(t *testing.T, wanted uint32) (*Service, *gameS
 	b.Dungeons = progress.Dungeons()
 	b.EnterAfter = base
 	b.Deadline = now.Add(time.Hour)
-	if !s.currentRaidDungeonSelectionAllowed(session, target) {
-		t.Fatal("current battle rejects actual open hatchery")
-	}
-	return s, session, r, target
+	return s, session, r, progress
 }
 
-func TestReviewActualAntonHatcheryWarpAllFourCurrentCorners(t *testing.T) {
-	for _, wanted := range []uint32{221, 222, 223, 224} {
+func actualAntonHatchWarpOwnerFor(t *testing.T, wanted uint32) (*Service, *gameSession, *runtimeDungeonState, uint32) {
+	t.Helper()
+	if wanted == 0 {
+		wanted = 222
+	}
+	if wanted != 222 && wanted != 223 && wanted != 224 {
+		t.Fatalf("hatchery %d is outside the fixed open set 222/223/224", wanted)
+	}
+	s, session, r, progress := actualAntonHatcheryEnergyOwnerForCorner(t, wanted)
+	states := reviewAntonHatcheryStates(progress)
+	if state, found := states[wanted]; !found || state != 0 {
+		t.Fatalf("actual Anton policy left hatchery %d state=%d found=%t, want open", wanted, state, found)
+	}
+	if !s.currentRaidDungeonSelectionAllowed(session, wanted) {
+		t.Fatalf("current battle rejects actual open hatchery %d", wanted)
+	}
+	return s, session, r, wanted
+}
+
+func TestReviewActualAntonHatcheryWarpOpenHatcheries234CurrentCorners(t *testing.T) {
+	for _, wanted := range reviewAntonHatcheryPolicyIDs {
 		t.Run(fmt.Sprint(wanted), func(t *testing.T) {
 			s, session, old, target := actualAntonHatchWarpOwnerFor(t, wanted)
 			body := encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: target, Difficulty: 2})
@@ -131,6 +122,7 @@ func TestReviewActualAntonHatcheryWarpAllFourCurrentCorners(t *testing.T) {
 		})
 	}
 }
+
 func TestReviewActualAntonHatcheryWarpPrepareKeepsLegalActiveOwner(t *testing.T) {
 	s, session, _, target := actualAntonHatchWarpOwner(t)
 	_, _, err := s.prepareDungeonRuntime(context.Background(), session, dungeoncmd.SelectDungeonRequest{DungeonID: target, Difficulty: 2})
@@ -141,6 +133,7 @@ func TestReviewActualAntonHatcheryWarpPrepareKeepsLegalActiveOwner(t *testing.T)
 		t.Fatal(err)
 	}
 }
+
 func TestReviewActualAntonHatcheryWarpPublicSelectCommitsTarget(t *testing.T) {
 	s, session, old, target := actualAntonHatchWarpOwner(t)
 	body := encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: target, Difficulty: 2})

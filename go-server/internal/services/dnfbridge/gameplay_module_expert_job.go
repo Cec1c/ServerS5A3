@@ -47,11 +47,12 @@ type currentExpertJobExtractionMaterial struct {
 }
 
 type currentExpertJobExtractionResult struct {
-	JobType      byte
-	TargetList   byte
-	TargetSlot   int16
-	Materials    []currentExpertJobExtractionMaterial
-	LevelChanged bool
+	JobType        byte
+	TargetList     byte
+	TargetSlot     int16
+	Materials      []currentExpertJobExtractionMaterial
+	LevelChanged   bool
+	ExperienceGain int64
 }
 
 func expertJobGameplayModule() gameplayModuleDefinition {
@@ -189,7 +190,10 @@ func (s *Service) handleCurrentExpertJobCompound(session *gameSession, body []by
 	if err := s.sendSelectedCurrentContainerListsRefresh(session, "expert_job_compound_after_ack"); err != nil {
 		return err
 	}
-	if result.Plan.LevelChanged {
+	// The client cache also needs ordinary progress between level changes.
+	// Reload only after the owner transaction commits; failed or zero-gain
+	// attempts must not publish new experience.
+	if result.Plan.ExperienceGain != 0 || result.Plan.LevelChanged {
 		if err := s.sendCurrentExpertJobInfoFromRepository(session, result.JobType, true); err != nil {
 			return err
 		}
@@ -218,7 +222,7 @@ func (s *Service) handleCurrentExpertJobExtraction(session *gameSession, body []
 	if err := s.sendSelectedCurrentContainerListsRefresh(session, "expert_job_extraction_after_ack"); err != nil {
 		return err
 	}
-	if result.LevelChanged {
+	if result.ExperienceGain != 0 || result.LevelChanged {
 		if err := s.sendCurrentExpertJobInfoFromRepository(session, result.JobType, true); err != nil {
 			return err
 		}
@@ -370,6 +374,7 @@ func (s *Service) commitCurrentExpertJobExtraction(ctx context.Context, session 
 		result.TargetList = request.TargetList
 		result.TargetSlot = request.TargetSlot
 		result.LevelChanged = plan.LevelChanged
+		result.ExperienceGain = plan.ExperienceGain
 		sort.Slice(result.Materials, func(i, j int) bool { return result.Materials[i].Slot < result.Materials[j].Slot })
 		return dnfexpertjob.Changes{Character: plan.ExperienceGain != 0, Inventory: true, AccountInventory: true}, nil
 	}})

@@ -15,6 +15,7 @@ func TestGuildPresenceObservationOwnershipAndOrdering(t *testing.T) {
 	}
 	want := before
 	want.LastOnlineAt = at
+	want.observeRankingPresence(at)
 	if !reflect.DeepEqual(want, g.Members[owner.CharacterID]) {
 		t.Fatal("changed unrelated member fields")
 	}

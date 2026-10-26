@@ -4,6 +4,7 @@ package alignedcmd
 
 import (
 	"context"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -16,6 +17,8 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
+	ItemUsageResolver      ItemUsageResolver
+	ItemUsageNow           time.Time
 	Command                byte
 	CommandKnown           bool
 	Opcode                 uint16
@@ -332,7 +335,8 @@ type UpgradeTicketResolver func(materialItemID int64, targetItemID int64) (Upgra
 // for one normal NPC upgrade attempt (non-ticket scene).
 type UpgradePolicyResolution struct {
 	SuccessWeight      int // out of 100000
-	PenaltyType        int // 0=no change, 1=downgrade, 3=destroy
+	PenaltyType        int // 0/1=no change, 2=subtract PenaltyValue, 3=destroy
+	PenaltyValue       int
 	MaterialItemID     int
 	MaterialCount      int
 	DestroyBonusItemID int
@@ -409,9 +413,9 @@ func (id StackGrantIdentity) Extra() map[string]string {
 }
 
 // UpgradePolicyResolver resolves the PVF upgrade table row for the given mode
-// and current upgrade level. A nil resolver means guaranteed success (backward
-// compatible with pre-PVF-table behavior).
-type UpgradePolicyResolver func(mode string, currentLevel int) (UpgradePolicyResolution, error)
+// and current upgrade level of the owned target template. Equipment rarity is
+// resolved from PVF using targetItemID, never inventory metadata or packet text.
+type UpgradePolicyResolver func(mode string, targetItemID int64, currentLevel int) (UpgradePolicyResolution, error)
 
 // UpgradeProtectTicketResolution is the runtime-PVF identity of one inventory
 // template asked about during the op50 destroy branch.
@@ -634,6 +638,9 @@ type StackableUseProvenanceResolution struct {
 // An error means "no runtime-PVF answer", never "reject the item".
 type StackableUseProvenanceResolver func(itemID int64) (StackableUseProvenanceResolution, error)
 
+// ItemUsageResolver reads explicit daily/weekly use limits from the active PVF.
+type ItemUsageResolver func(itemID int64) (*itemusage.Definition, error)
+
 // DamageFontExpirationMode describes the expiration contract carried by a
 // runtime-PVF [add damage font skin] item.
 type DamageFontExpirationMode byte
@@ -715,6 +722,12 @@ type MailboxItemResolution struct {
 	// 是 dnfbridge 用同一条已测的投影算出来的创建期 Extra，只在附件缺该键时合并。
 	ExpireAt     time.Time
 	DefaultExtra map[string]string
+	// UsablePeriodDays is the relative period declared by the item template.
+	// Mail claims resolve it from the original attachment/mail, never claim time.
+	UsablePeriodDays int64
+	// OriginalExpiry reads only the attachment's existing instance evidence.
+	// It does not use the current time or generate a new grant deadline.
+	OriginalExpiry func(dnfrepo.MailAttachment) time.Time
 	// EpicPieceID 非零表示这件附件是**史诗碎片**（`etc/epicpieceinfo.etc`
 	// `[piece list]` 的成员）：它必须进账号级史诗图鉴账本，**不写任何背包行**。
 	// 只有 dnfbridge 同时提供了 Request.EpicPieceCreditor 时才允许置位；为零
@@ -802,16 +815,27 @@ type PartyMemberState struct {
 
 // Result 表示模块化分流后的处理结果。
 // ResponseAllowed=false 表示证据不足或被阻断，bridge 不能伪造成功 ACK。
+// EquipmentMoveFact is emitted only after an op19 owner succeeds.
+type EquipmentMoveFact struct {
+	Changed       bool
+	WornClaimNoop bool
+}
 type Result struct {
-	Decision        Decision
-	Handled         bool
-	ResponseAllowed bool
-	Operation       string
-	Reason          string
-	UpperResponses  []UpperResponse
+	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
+	EquipmentMoveFact *EquipmentMoveFact
+	Decision          Decision
+	Handled           bool
+	ResponseAllowed   bool
+	Operation         string
+	Reason            string
+	UpperResponses    []UpperResponse
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16
+	// A committed wear move without an actor appearance refresh can still
+	// relocate registered Buff items. Reproject only after the move ACK and
+	// item rows; appearance-bearing moves own their Buff replay boundary.
+	RefreshSelectedBuffRegistration bool
 	// 消耗凭证仅由成功返回的库存事务提供，bridge 在回包前关联本局拾取记录。
 	StackableConsumption *StackableConsumption
 	// MailboxAlarmRecipientID asks the bridge to deliver the exact class0/0x63
@@ -848,6 +872,8 @@ type Result struct {
 	// EXE class0 premium-activated notice; op898 for the crystal contract) after
 	// the ACK. Empty for every command that grants no contract.
 	PremiumContractActivations []PremiumContractActivation
+	// 仅投影已经提交的账号幸运值；不参与扣道具或奖励结算。
+	SeriaLuck *SeriaLuckProjection
 	// EpicPieceCredits lists the account-level epic-piece ledger increments this
 	// command already committed. Fragments own no inventory row and are never
 	// mailed, so the bridge must announce each increment itself through the
@@ -898,6 +924,11 @@ type Result struct {
 	//
 	// Empty = previous behavior: every UpperResponse body is sent verbatim.
 	AuthoritativeListRefreshes []byte
+}
+
+type SeriaLuckProjection struct {
+	Before int64
+	After  int64
 }
 
 type StackableConsumption struct {

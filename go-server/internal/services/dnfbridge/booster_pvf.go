@@ -56,6 +56,10 @@ func resolveCurrentBoosterDefinition(
 	}
 	stackableType := normalizeDungeonDropStackableType(magicBoxDocumentText(document, "stackable type"))
 	definition := currentBoosterDefinition{Source: sourceDefinition, StackableType: stackableType}
+	definition.ItemUsage, err = resolveCurrentItemUsageDefinition(catalog, int64(sourceItemID))
+	if err != nil {
+		return currentBoosterDefinition{}, err
+	}
 	definition.LotteryGoldCost, _, err = currentLotteryOpeningGold(document)
 	if err != nil {
 		return currentBoosterDefinition{}, err
@@ -469,7 +473,7 @@ func resolveCurrentBoosterRewards(
 			Definition: definition,
 			Count:      count,
 			Option:     options[itemID],
-			Seal:       attachType == "sealing" || currentNewPVFEquipmentSealFlag(definition) != 0,
+			Seal:       attachType == "sealing",
 			Placement:  placement,
 		})
 	}

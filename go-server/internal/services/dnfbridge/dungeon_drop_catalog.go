@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	aiken "longheng.io/server/internal/modules/dnf/aikenupgrade"
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfequipmentcompound "longheng.io/server/internal/modules/dnf/equipmentcompound"
 	"longheng.io/server/internal/modules/dnf/inventory"
@@ -46,6 +47,8 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
+	AikenInitial             *aiken.InitialCatalog
+	AikenInitialState        [5]byte
 	CeraOnly, TokenCeraOnly  bool
 	AuctionUsableJobs        []string
 	AuctionRecipeOutputID    uint32
@@ -63,7 +66,6 @@ type dungeonDropItemDefinition struct {
 	EquipmentType            string
 	Grade                    int64
 	Rarity                   int64
-	RandomOption             int64
 	StackableType            string
 	EquipmentEffectID        uint16
 	StackLimit               int64
@@ -73,11 +75,17 @@ type dungeonDropItemDefinition struct {
 	ExpirationDate           time.Time
 	GiftBoxExpirationHistory []uint32
 	UsablePeriodDays         int64
-	DailyDeleteItem          bool
-	Price                    int64
-	PriceFound               bool
-	ActionType               string
-	GuildMileageItem         *inventory.GuildMileageItemDefinition
+	// Presence is retained conservatively: its native post-expiry semantics
+	// must be resolved before a generic relative-period owner may delete it.
+	UsableExpiredItem bool
+	// ExpirationFromUsablePeriod distinguishes a resolved per-instance deadline
+	// from an absolute date declared in PVF. It is set only by grant resolution.
+	ExpirationFromUsablePeriod bool
+	DailyDeleteItem            bool
+	Price                      int64
+	PriceFound                 bool
+	ActionType                 string
+	GuildMileageItem           *inventory.GuildMileageItemDefinition
 	// UsableEquipTypes is the stackable's PVF [usable equip type] whitelist
 	// (品级调整箱按武器/防具/首饰/特殊装备分箱就靠它；缺段/空表 = 不限部位).
 	UsableEquipTypes []string
@@ -118,6 +126,7 @@ type dungeonDropWeightedItem struct {
 // not decide how often a monster drops, allocate a scene slot, or mutate the
 // player's inventory. Those are separate runtime/asset transactions.
 type pvfDungeonDropCatalog struct {
+	aikenInitial      *aiken.InitialCatalog
 	despairPoolLoaded bool
 	despairPools      [2]map[dungeonDropGradeRarityKey][]dungeonDropWeightedItem
 	despairPoolErr    error
@@ -308,6 +317,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		return dungeonDropItemDefinition{}, fmt.Errorf("parse drop item=%d path=%s expiration date: %w", itemID, docPath, err)
 	}
 	definition.ExpirationDate = expirationDate
+	_, definition.UsableExpiredItem = document.Section("usable expired item")
 	if reference.kind == dungeonDropItemStackable {
 		flag, found := document.Int("daily delete item")
 		definition.DailyDeleteItem = found && flag == 1
@@ -317,10 +327,21 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 	}
 	if reference.kind == dungeonDropItemEquipment {
 		definition.SlotStart, definition.SlotEnd = 9, 64
+		if aikenString(document, "custom ability type", "warriors dungeon") {
+			if !aikenInt(document, "custom ability count", 2) {
+				return dungeonDropItemDefinition{}, aiken.ErrInvalid
+			}
+			if c.aikenInitial == nil {
+				c.aikenInitial, err = aiken.NewInitialCatalog(c.source)
+				if err != nil {
+					return dungeonDropItemDefinition{}, err
+				}
+			}
+			definition.AikenInitial = c.aikenInitial
+		}
 		definition.EquipmentType, _ = document.Text("equipment type")
 		definition.Grade, _ = document.Int("grade")
 		definition.Rarity, _ = document.Int("rarity")
-		definition.RandomOption, _ = document.Int("random option")
 		for _, name := range []string{"durability", "maximum durability", "max durability"} {
 			value, found := document.Int(name)
 			if !found || value <= 0 {

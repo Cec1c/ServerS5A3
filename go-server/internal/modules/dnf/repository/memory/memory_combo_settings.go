@@ -19,7 +19,7 @@ type memorySettlementSettingsTransaction struct {
 }
 
 func (tx *memorySettlementSettingsTransaction) Load(ctx context.Context, scope string) (repository.SettingsRecord, bool, error) {
-	if tx == nil || tx.base == nil || scope != "character:"+tx.characterID+":dark_knight_combo" {
+	if tx == nil || tx.base == nil || !repository.CharacterSkillSettingsScope(tx.characterID, scope) {
 		return repository.SettingsRecord{}, false, repository.ErrCharacterSettlementTransactionUnavailable
 	}
 	if record, cached := tx.records[scope]; cached || tx.exists[scope] {
@@ -41,7 +41,7 @@ func (tx *memorySettlementSettingsTransaction) Save(ctx context.Context, record 
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
 	scope := repository.SettingsKey(record)
-	if scope != "character:"+tx.characterID+":dark_knight_combo" {
+	if !repository.CharacterSkillSettingsScope(tx.characterID, scope) {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
 	if _, captured := tx.original[scope]; !captured {

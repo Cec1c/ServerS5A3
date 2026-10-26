@@ -30,7 +30,11 @@ func TestPetColdLoginRecoversEnchantFromMatchingDurablePet(t *testing.T) {
 	if err := service.sendSelectedCreatureInitialStateAfterMode1(session, "cold_login_test"); err != nil {
 		t.Fatal(err)
 	}
-	packet, _ := splitLongHengGameServerUpperPacket(t, conn.write.Bytes())
+	state, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+	if state.Header.MsgID != currentCreatureStateTableMsgID {
+		t.Fatal("pet metadata must precede the enchant's item notification")
+	}
+	packet, _ := splitLongHengGameServerUpperPacket(t, rest)
 	assertEquippedCreatureItemRefreshPacket(t, packet, 400990167, 37, 10008713, 2)
 	after, _, err := repos.Equipment.Load(ctx, "19")
 	if err != nil || !reflect.DeepEqual(worn, after) {

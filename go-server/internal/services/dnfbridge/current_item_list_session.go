@@ -171,6 +171,30 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 					"char_id", session.selectedCharacterID,
 					"err", err)
 			} else if found && character.Stats != nil {
+				if balance, exists := character.Stats["finish_loading_currency_slot2_total"]; exists {
+					projected, conflict := false, false
+					for i, entry := range entries {
+						if binary.LittleEndian.Uint16(entry.data[:2]) == 2 {
+							if binary.LittleEndian.Uint32(entry.data[2:6]) == 2 {
+								entries[i] = currentPVPEmblemWalletEntry(uint32(max(int64(0), min(balance, int64(1<<32-1)))))
+								projected = true
+							} else {
+								conflict = true
+							}
+							break
+						}
+					}
+					if !projected && !conflict {
+						entries = append(entries, currentPVPEmblemWalletEntry(uint32(max(int64(0), min(balance, int64(1<<32-1))))))
+						sortCurrentItemListEntries(entries)
+						projected = true
+					}
+					if projected {
+						known = true
+						source += "+决斗徽章钱包"
+					}
+				}
+
 				if gold, hasGold := character.Stats["gold"]; hasGold {
 					walletProjected := false
 					walletSlotConflict := false

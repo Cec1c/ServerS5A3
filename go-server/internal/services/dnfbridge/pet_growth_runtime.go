@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -70,35 +71,19 @@ func (s *Service) switchCurrentPetGrowthClock(
 	if now.IsZero() {
 		now = s.gameplayNow()
 	}
-	session.petGrowth.mu.Lock()
-	defer session.petGrowth.mu.Unlock()
-	if session.petGrowth.mode == mode && session.petGrowth.characterID == session.selectedCharacterID && !session.petGrowth.anchor.IsZero() {
-		return nil
-	}
-	if session.petGrowth.mode != currentPetGrowthClockStopped && !session.petGrowth.anchor.IsZero() {
-		if err := s.settleCurrentPetGrowthClockLocked(session, now, source+"_before_mode_switch"); err != nil {
-			return err
-		}
-	}
-	previous := session.petGrowth.mode
-	session.petGrowth.mode = mode
-	session.petGrowth.characterID = session.selectedCharacterID
-	session.petGrowth.anchor = now
-	session.petGrowth.generation++
-	if err := s.armCurrentPetGrowthTickLocked(session); err != nil {
-		session.petGrowth.mode = currentPetGrowthClockStopped
-		session.petGrowth.characterID = 0
-		session.petGrowth.anchor = time.Time{}
+	if err := queueCurrentPetGrowthClockTransition(session, mode, now, source); err != nil {
 		return err
 	}
-	s.logGameEvent(session, "game-pet-growth-clock-switched",
-		"char_id", session.petGrowth.characterID,
-		"previous_mode", previous.String(),
-		"mode", mode.String(),
-		"source", source,
-		"anchor_unix_ms", now.UnixMilli(),
-		"timing_source", "current_exe_60s_decay_360s_recovery_and_attach_detach_state")
-	return nil
+	session.petGrowth.mu.Lock()
+	defer session.petGrowth.mu.Unlock()
+	if len(session.petGrowth.pending) == 0 {
+		if session.petGrowth.timerName == "" {
+			return s.armCurrentPetGrowthTickLocked(session)
+		}
+		return nil
+	}
+	err := s.applyCurrentPetGrowthTransitionsLocked(session)
+	return errors.Join(err, s.armCurrentPetGrowthTickLocked(session))
 }
 
 func (s *Service) settleCurrentPetGrowthClock(session *gameSession, now time.Time, source string) error {
@@ -117,6 +102,13 @@ func (s *Service) settleCurrentPetGrowthClock(session *gameSession, now time.Tim
 }
 
 func (s *Service) settleCurrentPetGrowthClockLocked(session *gameSession, now time.Time, source string) error {
+	if err := s.applyCurrentPetGrowthTransitionsLocked(session); err != nil {
+		return err
+	}
+	return s.applyCurrentPetGrowthElapsedLocked(session, now, source)
+}
+
+func (s *Service) applyCurrentPetGrowthElapsedLocked(session *gameSession, now time.Time, source string) error {
 	if session.petGrowth.mode == currentPetGrowthClockStopped || session.petGrowth.characterID == 0 || session.petGrowth.anchor.IsZero() {
 		return nil
 	}
@@ -182,7 +174,7 @@ func (s *Service) armCurrentPetGrowthTickLocked(session *gameSession) error {
 		return errGameplayTimeQueueUnavailable
 	}
 	delay := currentPetGrowthDungeonTick
-	if session.petGrowth.mode == currentPetGrowthClockTown {
+	if session.petGrowth.mode == currentPetGrowthClockTown && len(session.petGrowth.pending) == 0 {
 		delay = currentPetGrowthTownTick
 	}
 	timerName := fmt.Sprintf("dnf-pet-growth:%s", session.connID)
@@ -191,8 +183,7 @@ func (s *Service) armCurrentPetGrowthTickLocked(session *gameSession) error {
 	if err != nil {
 		return err
 	}
-	session.petGrowth.timerName = timerName
-	return queue.ScheduleAfter(timerName, delay, func(time.Time) {
+	err = queue.ScheduleAfter(timerName, delay, func(time.Time) {
 		err := s.postGameSessionCharacterEvent(
 			session,
 			"pet-growth-timequeue-tick",
@@ -212,6 +203,12 @@ func (s *Service) armCurrentPetGrowthTickLocked(session *gameSession) error {
 				"error", err)
 		}
 	})
+	if err != nil {
+		session.petGrowth.timerName = ""
+		return err
+	}
+	session.petGrowth.timerName = timerName
+	return nil
 }
 
 func (s *Service) runCurrentPetGrowthTick(session *gameSession, generation uint64) {
@@ -283,6 +280,7 @@ func (s *Service) stopCurrentPetGrowthClock(session *gameSession, source string)
 	session.petGrowth.characterID = 0
 	session.petGrowth.anchor = time.Time{}
 	session.petGrowth.timerName = ""
+	session.petGrowth.pending = nil
 	session.petGrowth.mu.Unlock()
 	if timerName != "" {
 		if queue := s.ensureGameplayTimeQueue(); queue != nil {

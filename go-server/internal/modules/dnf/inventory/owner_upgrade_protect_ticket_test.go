@@ -633,7 +633,7 @@ func TestHandlerUpgradeProtectTicketSendsDowngradeAckAndTicketRefresh(t *testing
 			SelectedCharacterID:          77,
 			Repositories:                 repos,
 			UpgradeProtectTicketResolver: protectTicketResolver(liveProtectTicketResolutions()),
-			UpgradePolicyResolver: func(mode string, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
+			UpgradePolicyResolver: func(mode string, targetItemID int64, currentLevel int) (alignedcmd.UpgradePolicyResolution, error) {
 				return alignedcmd.UpgradePolicyResolution{
 					SuccessWeight:      1, // 把成功概率压到 1e-5，重试到失败为止
 					PenaltyType:        3,

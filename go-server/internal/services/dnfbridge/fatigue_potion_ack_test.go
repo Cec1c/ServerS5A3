@@ -83,8 +83,16 @@ func TestRealPVFFatiguePotionAckPreservesRequestAction(t *testing.T) {
 				t.Fatalf("missing authoritative slot refresh: %+v", refresh.Header)
 			}
 			fatigue, rest := splitGameServerUpperPacket(t, rest)
-			if fatigue.Header.MsgID != currentFatigueMsgID || fatigue.Header.Classification != 0 || len(rest) != 0 {
+			if fatigue.Header.MsgID != currentFatigueMsgID || fatigue.Header.Classification != 0 {
 				t.Fatalf("fatigue projection/order: %+v trailing=%d", fatigue.Header, len(rest))
+			}
+			usage, rest := splitGameServerUpperPacket(t, rest)
+			if usage.Header.MsgID != currentFatiguePotionUsageMsgID || usage.Header.Classification != 0 || len(rest) != 0 {
+				t.Fatalf("usage projection/order: %+v trailing=%d", usage.Header, len(rest))
+			}
+			usageItemID := uint32(itemID)
+			if want := []byte{1, byte(usageItemID), byte(usageItemID >> 8), byte(usageItemID >> 16), byte(usageItemID >> 24), 1, 0}; !bytes.Equal(usage.Body, want) {
+				t.Fatalf("usage body=%x want=%x", usage.Body, want)
 			}
 			stored, _, err := repos.Character.Load(ctx, "17")
 			if err != nil || stored.Stats["fatigue"] != definition.Points {

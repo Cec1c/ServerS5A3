@@ -12,6 +12,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 	"longheng.io/server/internal/modules/dnf/experiencebuff"
+	"longheng.io/server/internal/modules/dnf/guild"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -37,17 +38,18 @@ type currentDungeonSettlementRewardResources struct {
 }
 
 type currentDungeonSettlementCommitResult struct {
-	DespairItems    []dnfdungeon.DespairGrantedItem
-	GriefItems      []dnfdungeon.GriefGrantedItem
-	Character       dnfrepo.CharacterRecord
-	Skill           dnfrepo.SkillRecord
-	Inventory       dnfrepo.InventoryRecord
-	ExperienceGain  uint32
-	PotionBonus     uint32
-	HonorExpertGain uint32
-	SPGain          int
-	TPGain          int
-	Replayed        bool
+	GuildDungeonItems []dnfdungeon.GuildDungeonGrantedItem
+	DespairItems      []dnfdungeon.DespairGrantedItem
+	GriefItems        []dnfdungeon.GriefGrantedItem
+	Character         dnfrepo.CharacterRecord
+	Skill             dnfrepo.SkillRecord
+	Inventory         dnfrepo.InventoryRecord
+	ExperienceGain    uint32
+	PotionBonus       uint32
+	HonorExpertGain   uint32
+	SPGain            int
+	TPGain            int
+	Replayed          bool
 }
 
 // produceCurrentDungeonSettlementPlanLocked is the missing owner between the
@@ -234,6 +236,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if len(permissionBody) != 0 {
 		plan.DungeonPermissionBody = append([]byte(nil), permissionBody...)
 	}
+	plan.GuildDungeonItemSlots = guildDungeonRefreshSlots(result.GuildDungeonItems)
 	if currentDungeonIsDespairTower(runtime) {
 		floor, err := currentDespairFloor(runtime.Dungeon)
 		if err != nil {
@@ -600,14 +603,54 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 			return currentDungeonSettlementCommitResult{}, err
 		}
 	}
+	if err := s.freezeCurrentGuildDungeonRewards(runtime); err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	completionKey := runtime.clearMapCompletionKey
+	if runtime.guildDungeonClear != nil {
+		completionKey = runtime.guildDungeonClear.Entry.CompletionKey()
+	}
+	rankingClear, err := s.currentGuildRankingClear(session, runtime)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	var essence *guild.EssenceCatalog
+	var essenceCurrent func() bool
+	contribution, err := s.currentGuildContributionClear(session, runtime, completionKey)
+	if err != nil {
+		return currentDungeonSettlementCommitResult{}, err
+	}
+	wantEssence := s.options.guildEssenceEnabled && (runtime.guildDungeonClear != nil || currentDungeonIsRecommendedClear(runtime))
+	if wantEssence || contribution != nil {
+		identity, bound := s.boundGameSessionCharacterSnapshot(session)
+		if !bound {
+			return currentDungeonSettlementCommitResult{}, errCurrentDungeonSettlementStateInvalid
+		}
+		release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{identity})
+		if err != nil {
+			return currentDungeonSettlementCommitResult{}, err
+		}
+		defer release()
+		if wantEssence {
+			essence, err = s.currentGuildEssenceCatalog()
+			if err != nil {
+				return currentDungeonSettlementCommitResult{}, err
+			}
+		}
+		essenceCurrent = func() bool { return s.boundGameSessionCharacterCurrent(identity) }
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		GuildContribution: contribution,
+		GuildEssence:      essence, GuildEssenceRevalidate: essenceCurrent,
+		GuildRanking:            rankingClear,
+		GuildDungeon:            runtime.guildDungeonClear,
 		DespairClearedFloor:     despairFloor,
 		GriefClearedFloor:       griefFloor,
 		GriefRewards:            runtime.settlementGriefRewards,
 		DespairRewards:          runtime.settlementDespairRewards,
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
-		CompletionKey:           runtime.clearMapCompletionKey,
+		CompletionKey:           completionKey,
 		Tables:                  tables,
 		Experience:              gain,
 		ClearPotionBase:         potionBase,
@@ -625,6 +668,16 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if contribution != nil {
+		if err := s.projectCurrentGuildContribution(session, result.GuildContribution); err != nil {
+			s.logGameEvent(session, "game-guild-contribution-clear-projection-deferred", "error", err)
+		}
+	}
+	if essence != nil {
+		if err := s.projectCurrentGuildEssenceIncome(session, result.GuildEssence, result.Replayed); err != nil {
+			s.logGameEvent(session, "game-guild-essence-projection-deferred", "error", err)
+		}
+	}
 	if result.GuildMileage.GuildID != 0 {
 		s.refreshCurrentDungeonGuildMileage(session, result.GuildMileage.GuildID)
 	}
@@ -641,17 +694,18 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		}
 	}
 	return currentDungeonSettlementCommitResult{
-		DespairItems:    result.DespairItems,
-		GriefItems:      result.GriefItems,
-		Character:       result.Character,
-		Skill:           result.Skill,
-		Inventory:       result.Inventory,
-		ExperienceGain:  result.ExperienceGain,
-		PotionBonus:     result.PotionBonus,
-		HonorExpertGain: result.HonorExpertGain,
-		SPGain:          result.SPGain,
-		TPGain:          result.TPGain,
-		Replayed:        result.Replayed,
+		GuildDungeonItems: result.GuildDungeonItems,
+		DespairItems:      result.DespairItems,
+		GriefItems:        result.GriefItems,
+		Character:         result.Character,
+		Skill:             result.Skill,
+		Inventory:         result.Inventory,
+		ExperienceGain:    result.ExperienceGain,
+		PotionBonus:       result.PotionBonus,
+		HonorExpertGain:   result.HonorExpertGain,
+		SPGain:            result.SPGain,
+		TPGain:            result.TPGain,
+		Replayed:          result.Replayed,
 	}, nil
 }
 

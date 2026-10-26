@@ -8,6 +8,7 @@
 | --- | --- | --- | --- |
 | [EXP-CAP](QUEST-MAX-LEVEL-EXPERIENCE.md) | 满级任务领奖突破90级与挑战者经验 | 5f8b842 / MR !122 | 上游已合并并部署，完整回归及新旧真实PVF通过；待实测 |
 | [主线经验倍率](MAIN-QUEST-EXPERIENCE-RATE.md) | 正常主线经验调整为 3 倍 | 服务端配置及结算 | 已部署，倍率及真实PVF结算已核验；正常流程待实测 |
+| [主线百分比经验](MAIN-QUEST-PERCENT-EXPERIENCE.md) | 普通主线最终经验按任务等级升级所需经验的15%发放 | 独立实现候选 | 最终百分比、完整领域/bridge/control、race、双平台、Docker与真实PVF通过；含满级长期领奖上限修订，待源码集成和部署后实测 |
 | [QST-001](QST-001-terminal-child-rewards.md) | 末子任务材料与奖励结算 | 8879511 | 已部署；正常流程待实测 |
 | [QST-002](QST-002-strange-weapon.md) | 奇怪的兵器中途清房与父任务 | d983579 | 已部署；正常流程待实测 |
 | [QST-003](QST-003-seek-meet-trigger.md) | 危险研究条件初值与旧活动进度 | ed23e68 | 已部署；材料结算由006补齐 |
@@ -15,7 +16,7 @@
 | [QST-005](QST-005-image-communication.md) | 远程通信收费、应答与NPC资格 | 1560f72 | 客户端及服务端已部署；正常流程待实测 |
 | [QST-006](QST-006-queen-linked-objectives.md) | 梅娅书信及危险研究多材料交付 | e199af2 | 原材料消费修复已部署；[书信来源恢复](QST-006-queen-letter-source.md)753ebb0 / MR !124已合并并部署，完整检查及新旧PVF通过；待实测 |
 | [QST-007](QST-007-cinematic-apc-death.md) | 单次剧情APC销毁确认 | f9d35b1 | 兼容修复已部署；原反馈过门待实测 |
-| [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口 | 复用004 | 入口已部署；[按Z不上机](QST-008-at5t-completion.md)继续研究，[只读采样工具](QST-008-at5t-sampler.md)用于定位现场状态 |
+| [QST-008](QST-008-at5t-entry.md) | 回收AT-5T步行者入口及按键上机 | 入口复用004；[输入优先级](AT5T-INPUT-PRIORITY.md)独立客户端候选 | 上机输入修复原生回归通过，源码MR交付；EXE发布、部署与骑乘/交付实测另行安排 |
 | [QST-009](QST-009-story-digest-gate.md) | 等级领先主线导致提前播放结局 | 7df2705 | V128客户端已发布并完成实际下载核验；待实测 |
 | [QST-011](QST-011-randolph-story-permission.md) | 伦道夫剧情与难度保持 | 已有修复复核 | 真实场景/退出/重连与回包通过；UI待实测 |
 | [QST-012](QST-012-friendly-apc-deaths.md) | 友军跨房击杀与通知重放 | c474f6a | 已部署；正常友军击杀与过门待实测 |
@@ -31,6 +32,7 @@
 | [QST-025](QST-025-aganzo-completion.md) | 寻找阿甘左剧情死亡与结算 | a95485d / MR !147 | 上游验证已合并；当前完整PVF七房、55普通怪及最终剧情死亡、结算、交付通过；香料触发待实测 |
 | [QST-026](QST-026-question-answers.md) | 问答选择与后续阵营资格 | f4ee5bc / MR !145 | 上游已合并并部署；完整/race/双平台及当前PVF五分支通过，待实测 |
 | [QST-027](QST-027-luke-next-dungeon.md) | 普通卢克下一地下城仍返回同图 | 22dc346 / MR !149 | 上游已合并；原失败、可选标记/王座边界、完整/race/双平台及当前PVF六图通过，待合批部署 |
+| [QST-028](QST-028-nonora-medicine-source.md) | 诺诺拉交付缺少治疗剂10164764 | 独立修复候选 | 原失败转通过，完整PVF恢复/交付、完整领域/bridge/control、race及双平台通过；待合批部署，副本前半段待实测 |
 
 原始反馈、玩家资料、运行环境、部署回执和用户实测结果在本机私有记录中维护。公开方案不包含这些资料。
 
