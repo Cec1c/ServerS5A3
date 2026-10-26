@@ -12,7 +12,9 @@ import (
 func TestPVPDojoPoseReportRequiresSettledWinnerAndAssignedCard(t *testing.T) {
 	s := pvpRoomTestService(t)
 	r, _ := s.repositoryGroup()
-	now := s.gameplayNow()
+	// Keep successful-match fixtures within one service day, including when tests run at the 06:00 reset.
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	s.gameplayTimers = &processGameplayTimeQueue{now: func() time.Time { return now }}
 	room := &currentPVPRoom{id: 1, battleMode: 2, matchingToken: 1, started: true, seatState: [8]byte{1, 2}, match: &currentPVPMatch{winner: 0, resultSent: true, settlementPending: true, startedAt: now.Add(-time.Minute), completedAt: now}}
 	s.pvpDailyCatalog.Pools[2] = []pvp.Mission{{ID: 133, Tier: 2, Weight: 10, RankMax: 30, Condition: "win pose", Target: 1, Parameter: 3, Emblems: 100}}
 	for seat, id := range []uint16{29, 30} {
@@ -54,7 +56,9 @@ func TestPVPDojoPoseReportRequiresSettledWinnerAndAssignedCard(t *testing.T) {
 func TestPVPPoseThreeKindsAcrossCommittedWinsPaysOnce(t *testing.T) {
 	s := pvpRoomTestService(t)
 	s.pvpDailyCatalog.Pools[2] = []pvp.Mission{{ID: 133, Tier: 2, Weight: 10, RankMax: 30, Condition: "win pose", Target: 1, Parameter: 3, Emblems: 100}}
-	now := s.gameplayNow()
+	// Keep successful-match fixtures within one service day, including when tests run at the 06:00 reset.
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	s.gameplayTimers = &processGameplayTimeQueue{now: func() time.Time { return now }}
 	room := &currentPVPRoom{id: 1, battleMode: 2, matchingToken: 1, started: true, seatState: [8]byte{1, 2}}
 	for seat, id := range []uint16{29, 30} {
 		g := &gameSession{conn: &bufferConn{}, accountID: "pvp-" + strconv.Itoa(int(id)), selectedCharacterID: id, channel: s.catalog.Channels()[1], pvpRoom: room}
