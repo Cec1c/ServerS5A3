@@ -24,19 +24,22 @@ type Summary struct {
 	Warehouse        int
 	Account          int
 	Equipment        int
+	Pets             int
 	DeletedInventory int
 	DeletedWarehouse int
 	DeletedAccount   int
 }
 
 func (summary Summary) Total() int {
-	return summary.Inventory + summary.Warehouse + summary.Account + summary.Equipment
+	return summary.Inventory + summary.Warehouse + summary.Account + summary.Equipment + summary.Pets
 }
 
 type Assets struct {
 	Inventory        *dnfrepo.InventoryRecord
 	AccountInventory *dnfrepo.AccountInventoryRecord
 	Equipment        *dnfrepo.EquipmentRecord
+	Pets             *dnfrepo.PetRecord
+	PetsAvailable    bool
 }
 
 type Projector func(*Assets) (Summary, error)
@@ -89,15 +92,29 @@ func (o *Owner) Reconcile(ctx context.Context, command Command) (Summary, error)
 	}
 
 	var result Summary
-	err := o.assets.WithinAccountCharacterAssets(ctx, accountID, characterID, func(
+	apply := func(
 		accountInventories dnfrepo.AccountInventoryRepository,
 		characters dnfrepo.CharacterRepository,
 		inventories dnfrepo.InventoryRepository,
 		equipmentRepo dnfrepo.EquipmentRepository,
+		pets dnfrepo.PetRepository,
 	) error {
 		assets, err := loadAssets(ctx, accountID, characterID, accountInventories, characters, inventories, equipmentRepo)
 		if err != nil {
 			return err
+		}
+		// Load only after character/account ownership has been established,
+		// using the same transaction as every other container.
+		if pets != nil {
+			assets.PetsAvailable = true
+			record, found, err := pets.Load(ctx, characterID)
+			if err != nil {
+				return fmt.Errorf("load item expiration pets: %w", err)
+			}
+			if found {
+				record = dnfrepo.ClonePet(record)
+				assets.Pets = &record
+			}
 		}
 		result, err = command.Project(&assets)
 		if err != nil {
@@ -128,8 +145,22 @@ func (o *Owner) Reconcile(ctx context.Context, command Command) (Summary, error)
 				return fmt.Errorf("save item expiration equipment: %w", err)
 			}
 		}
+		if assets.Pets != nil && result.Pets > 0 {
+			assets.Pets.UpdatedAt = now
+			if err := dnfrepo.SavePetFields(ctx, pets, *assets.Pets, dnfrepo.PetFieldEntries, dnfrepo.PetFieldEquipped); err != nil {
+				return fmt.Errorf("save item expiration pets: %w", err)
+			}
+		}
 		return nil
-	})
+	}
+	var err error
+	if withPets, ok := o.assets.(dnfrepo.AccountCharacterPetAssetUnitOfWork); ok {
+		err = withPets.WithinAccountCharacterPetAssets(ctx, accountID, characterID, apply)
+	} else {
+		err = o.assets.WithinAccountCharacterAssets(ctx, accountID, characterID, func(a dnfrepo.AccountInventoryRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository) error {
+			return apply(a, c, i, e, nil)
+		})
+	}
 	return result, err
 }
 

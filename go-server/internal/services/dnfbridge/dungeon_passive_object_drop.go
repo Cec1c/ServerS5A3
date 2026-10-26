@@ -774,6 +774,9 @@ func (runtime *runtimeDungeonState) registerCurrentDungeonPassiveObjectDrop(
 		MapOwnedPassiveObject: true,
 		MapOwnedPassiveIndex:  objectIndex,
 	}
+	if err := initializeCurrentAikenPassiveDrop(drop); err != nil {
+		return nil, 0, err
+	}
 	if err := owner.registerBatch([]*runtimeDungeonDrop{drop}, sceneSlot+1); err != nil {
 		return nil, 0, err
 	}

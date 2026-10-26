@@ -61,7 +61,7 @@ func (s *Service) handleCurrentGuildPurchase(session *gameSession, request gamep
 	}
 	contentID := binary.LittleEndian.Uint32(request.Body)
 	content, found := catalog.Contents[contentID]
-	if !found || (content.Type != 4 && content.Type != 6 && content.Type != 1 && content.Type != 3 && content.Type != 5 && content.Type != 21) {
+	if !found || (content.Type != 4 && content.Type != 6 && content.Type != 1 && content.Type != 3 && content.Type != 5 && content.Type != 7 && content.Type != 21) {
 		s.logGameEvent(session, "game-guild-content-unavailable", "content_id", contentID)
 		// The native 761 callback has no case for generic error 34: it silently
 		// closes the confirmation. Error 14 is its visible purchase-failed path.

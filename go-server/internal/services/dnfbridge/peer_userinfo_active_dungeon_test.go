@@ -218,7 +218,7 @@ func TestPeerUserInfoActiveDungeonOwnerUsesConnectionContextAcrossDungeonActorPl
 	}
 }
 
-func TestPeerUserInfoActiveDungeonRejectsNonExactPeer(t *testing.T) {
+func TestPeerUserInfoActiveDungeonRoutesCrossSceneMembersAndRejectsForeignPeers(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(t *testing.T, fixture *peerUserInfoActiveDungeonFixture)
@@ -298,7 +298,14 @@ func TestPeerUserInfoActiveDungeonRejectsNonExactPeer(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newPeerUserInfoActiveDungeonFixture(t)
 			test.mutate(t, fixture)
-			assertPeerUserInfoActiveDungeonRejected(t, fixture, fixture.source)
+			switch test.name {
+			case "different_seed", "different_dungeon", "different_room", "different_party", "not_party_member", "invalid_run_key":
+				// The central party still contains both characters. Local party
+				// cache/run differences must select the auxiliary profile path.
+				assertPeerUserInfoCrossSceneProfile(t, fixture)
+			default:
+				assertPeerUserInfoActiveDungeonRejected(t, fixture, fixture.source)
+			}
 		})
 	}
 }
@@ -321,8 +328,11 @@ func TestPeerUserInfoActiveDungeonRejectsStaleSourceSession(t *testing.T) {
 
 func TestPeerUserInfoActiveDungeonDoesNotWidenTownWithStaleRunKey(t *testing.T) {
 	fixture := newPeerUserInfoActiveDungeonFixture(t)
-	// Keep the party and run keys intact, but end the active dungeon runtime.
-	// This is the stale-key shape a returning town session can briefly hold.
+	// Keep the local party/run caches but leave the central party. Neither
+	// stale cache grants cross-scene permission to a returning town session.
+	if result := fixture.service.runtimePartyManagerForService().LeaveCurrent(1002); !result.OK {
+		t.Fatal(result.Reason)
+	}
 	for _, session := range []*gameSession{fixture.source, fixture.target} {
 		session.dungeon.mu.Lock()
 		session.dungeon.runtime = nil
@@ -386,7 +396,7 @@ func TestPeerUserInfoActiveDungeonRejectsUnknownContextAndLegacyProfile(t *testi
 	}
 }
 
-func TestPeerUserInfoActiveDungeonStaleTownPresenceCannotBypassRunGate(t *testing.T) {
+func TestPeerUserInfoActiveDungeonStaleTownPresenceCannotBypassMembershipGate(t *testing.T) {
 	fixture := newPeerUserInfoActiveDungeonFixture(t)
 	fixture.service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 1001, TownID: 1, AreaID: 2, Session: fixture.source})
 	fixture.service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 1002, TownID: 1, AreaID: 2, Session: fixture.target})
@@ -394,6 +404,9 @@ func TestPeerUserInfoActiveDungeonStaleTownPresenceCannotBypassRunGate(t *testin
 		t.Fatal("fixture must retain same-area entries")
 	}
 	mutatePeerUserInfoActiveDungeonRunKey(t, fixture.target, func(key *dungeonPartyRunKey) { key.RoomY++ })
+	if result := fixture.service.runtimePartyManagerForService().LeaveCurrent(1002); !result.OK {
+		t.Fatal(result.Reason)
+	}
 	assertPeerUserInfoActiveDungeonRejected(t, fixture, fixture.source)
 }
 

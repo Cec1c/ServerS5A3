@@ -76,9 +76,10 @@ const (
 
 var errGameplayTimeQueueUnavailable = errors.New("gameplay time queue is unavailable")
 
-// handleDungeonDieCharacter accepts only the normal current-EXE writer shape:
-// two u16 actor coordinates. The request does not identify the actor; the
-// selected runtime owner supplies the real scene object key used by op32.
+// handleDungeonDieCharacter accepts two u16 actor coordinates, optionally
+// followed by a zero u16 emitted by the current EXE's non-15h sender branch.
+// Nonzero extra fields are not interpreted here. Neither accepted shape supplies
+// an actor identity; the selected runtime owner supplies the op32 scene key.
 func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) error {
 	var partyDeathRuntime *runtimeDungeonState
 	var raidLifeProjections []runtimeRaidState
@@ -95,11 +96,14 @@ func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) e
 	if session == nil {
 		return nil
 	}
-	if len(body) != currentDungeonDieCharacterBodySize {
+	if len(body) != currentDungeonDieCharacterBodySize &&
+		(len(body) != currentDungeonDieCharacterBodySize+2 ||
+			binary.LittleEndian.Uint16(body[currentDungeonDieCharacterBodySize:]) != 0) {
 		s.logGameEvent(session, "game-dungeon-character-death-blocked",
 			"body_len", len(body),
 			"expected_body_len", currentDungeonDieCharacterBodySize,
-			"reason", "current_exe_normal_op40_two_u16_coordinates_boundary_mismatch")
+			"optional_zero_tail_body_len", currentDungeonDieCharacterBodySize+2,
+			"reason", "current_exe_op40_coordinates_or_zero_tail_shape_mismatch")
 		return nil
 	}
 
@@ -471,20 +475,45 @@ func (s *Service) completeCurrentDungeonReviveLocked(
 }
 
 type currentDungeonReviveCoinConsumeResult struct {
-	Consumed      bool
-	FreeRevive    bool
-	SlotKey       string
-	Slot          int16
-	ItemID        int64
-	CountAfter    int64
-	HasItemUpdate bool
-	ItemUpdate    currentItemListEntry
+	Consumed           bool
+	FreeRevive         bool
+	SlotKey            string
+	Slot               int16
+	ItemID             int64
+	CountAfter         int64
+	HasItemUpdate      bool
+	ItemUpdate         currentItemListEntry
+	RaidCoinProjection *runtimeRaidState
+}
+
+// A completed ordinary run cancels its death-return timer when entering
+// settlement; that does not revive an actor whose death was already accepted.
+// Keep op40 admission active-only. Only op41 may use this retained death proof,
+// in the same committed run, before a town transition, without changing any
+// result/card/reward gate. Dedicated raid/tower/tournament rules stay separate.
+func currentDungeonReviveRuntimeOwner(runtime *runtimeDungeonState, session *gameSession) (uint16, string) {
+	characterID, reason := currentDungeonDeathRuntimeOwner(runtime, session)
+	if reason == "" {
+		if !runtime.deathReturnWaiting {
+			return 0, "death_timer_not_waiting"
+		}
+		return characterID, ""
+	}
+	if reason != "dungeon_run_not_active" || runtime.raidEntry != nil || runtime.Tournament != nil ||
+		isPVFTutorialDungeon(runtime) || currentDungeonUsesDedicatedTowerResult(runtime) ||
+		runtime.townReturnPending || !runtime.deathStateSent ||
+		runtime.lifecycleToken == 0 || runtime.lifecycleToken != session.dungeon.runToken ||
+		!completedDungeonSettlementEntryReady(runtime, session.selectedCharacterID) ||
+		!currentDungeonSettlementCompletionReady(runtime, worldmap.DungeonRunCompleted) {
+		return 0, reason
+	}
+	return session.selectedCharacterID, ""
 }
 
 // handleDungeonUseCoin accepts current-EXE op41 (body = target actor object
-// key u16) while the death-return timer is armed. It consumes one revive coin
-// stack (item id 1) when available, cancels the death timer, and ACKs with
-// class1/op41 success plus the extra success flag byte.
+// key u16) for an active waiting death or a proven death retained by ordinary
+// settlement. It consumes one revive coin stack (item id 1) when available,
+// cancels the death timer, and ACKs with class1/op41 plus its success flag.
 func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error {
 	if session == nil {
 		return nil
@@ -501,7 +530,7 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	characterID := session.selectedCharacterID
-	ownerID, readyReason := currentDungeonDeathRuntimeOwner(runtime, session)
+	ownerID, readyReason := currentDungeonReviveRuntimeOwner(runtime, session)
 	waiting := runtime != nil && runtime.deathReturnWaiting
 	runToken := uint64(0)
 	generation := uint64(0)
@@ -514,18 +543,14 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 	expectedObjectKey := currentSceneActorObjectKey(characterID)
 	session.dungeon.mu.Unlock()
 
-	if readyReason != "" || !waiting {
-		reason := readyReason
-		if reason == "" {
-			reason = "death_timer_not_waiting"
-		}
+	if readyReason != "" {
 		s.logGameEvent(session, "game-dungeon-use-coin-blocked",
 			"char_id", characterID,
 			"target_object_key", targetObjectKey,
 			"expected_object_key", expectedObjectKey,
 			"run_token", runToken,
 			"death_timer_waiting", waiting,
-			"reason", reason)
+			"reason", readyReason)
 		return nil
 	}
 	if targetObjectKey != expectedObjectKey || targetObjectKey != currentSceneActorObjectKey(ownerID) {
@@ -542,7 +567,7 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 	defer cancel()
 
 	session.dungeon.mu.Lock()
-	if session.dungeon.runtime != runtime || runtime == nil || !runtime.deathReturnWaiting ||
+	if session.dungeon.runtime != runtime || runtime == nil ||
 		runtime.deathReturnGeneration != generation || runtime.lifecycleToken != runToken {
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-use-coin-blocked",
@@ -553,7 +578,7 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 			"reason", "death_timer_state_changed_before_commit")
 		return nil
 	}
-	if _, reason := currentDungeonDeathRuntimeOwner(runtime, session); reason != "" {
+	if _, reason := currentDungeonReviveRuntimeOwner(runtime, session); reason != "" {
 		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-use-coin-blocked",
 			"char_id", characterID,
@@ -591,6 +616,9 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 		source = "current_exe_op41_private_server_free_revive"
 	}
 	raidLifeProjections := s.completeCurrentDungeonReviveLocked(session, runtime, source)
+	if consume.RaidCoinProjection != nil {
+		raidLifeProjections = append(raidLifeProjections, *consume.RaidCoinProjection)
+	}
 	session.dungeon.mu.Unlock()
 	for _, state := range raidLifeProjections {
 		s.queueCurrentRaidDungeonProgress(state)

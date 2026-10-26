@@ -312,6 +312,9 @@ func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSec
 		}
 		result.Metadata.TournamentClearExperiences = append(result.Metadata.TournamentClearExperiences, experiences...)
 		return
+	case DungeonUseFatigueOnlyStartKey:
+		parseDungeonStartFatigueCost(result, section, sections)
+		return
 	}
 	if section.Block {
 		result.OpaqueSections = append(result.OpaqueSections, cloneRawSection(section))
@@ -423,6 +426,28 @@ func parseDungeonMetadata(result *Dungeon, section RawSection, sections []RawSec
 	case "limit party count":
 		setOptionalInt(&result.Metadata.LimitPartyCount, section, &result.Diagnostics)
 	}
+}
+
+// parseDungeonStartFatigueCost preserves both observed forms of this metadata:
+// a modern block with an integer cost and the legacy bare presence marker.
+func parseDungeonStartFatigueCost(result *Dungeon, section RawSection, sections []RawSection) {
+	merged := directBlockSection(sections, section)
+	parsed, valid := ints(merged)
+	if valid && len(parsed) == 1 {
+		if result.Metadata.IntegerValues == nil {
+			result.Metadata.IntegerValues = make(map[string]int64)
+		}
+		result.Metadata.IntegerValues[DungeonUseFatigueOnlyStartKey] = parsed[0]
+		return
+	}
+	if !section.Block && len(merged.Tokens) == 0 {
+		if result.Metadata.Flags == nil {
+			result.Metadata.Flags = make(map[string]bool)
+		}
+		result.Metadata.Flags[DungeonUseFatigueOnlyStartKey] = true
+		return
+	}
+	result.Diagnostics = append(result.Diagnostics, diagnostic(section, "expected one integer start dungeon fatigue cost"))
 }
 
 const (

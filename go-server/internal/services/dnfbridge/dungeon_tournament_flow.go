@@ -1246,7 +1246,7 @@ func currentTournamentRewardBundle(
 			"tournament item reward PVF definition mismatch: card_item=%d resolved_item=%d",
 			reward.ItemID, definition.ItemID)
 	}
-	policy := currentPVFItemPlacementPolicy(*definition)
+	policy := currentPVFItemPlacementPolicy(*definition).ForGrant()
 	return dungeonCardRewardBundle{
 		Items: []dungeonCardItemReward{{
 			ItemID:           reward.ItemID,

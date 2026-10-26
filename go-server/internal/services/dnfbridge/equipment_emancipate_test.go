@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,45 @@ func TestEquipmentEmancipateCommitsOwnedAssetsAndCurrentResponse(t *testing.T) {
 	}
 }
 
+func TestEquipmentEmancipateMagicSealLevelBooks(t *testing.T) {
+	for _, typ := range []int{8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20} {
+		t.Run(fmt.Sprint(typ), func(t *testing.T) {
+			s, session, conn, repos := emancipationFixture(t)
+			source := emancipationFixtureSource()
+			source["stackable/ticket.stk"] = strings.ReplaceAll(source["stackable/ticket.stk"], "[emancipate ticket] 20", fmt.Sprintf("[emancipate ticket] %d", typ))
+			source["equipment/source.equ"] = strings.ReplaceAll(source["equipment/source.equ"], "[emancipate type] 20", fmt.Sprintf("[emancipate type] %d", typ))
+			var err error
+			s.pvfItemCatalog, err = newPVFDungeonDropCatalog(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.handleCurrentEquipmentEmancipate(session, emancipationBody()); err != nil {
+				t.Fatal(err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			if ack.Header.MsgID != 271 || len(ack.Body) < 3 || ack.Body[1] != 1 || ack.Body[2] != 3 {
+				t.Fatalf("type %d conversion rejected: ack=%x", typ, ack.Body)
+			}
+			cleared, rest := splitGameServerUpperPacket(t, rest)
+			updated, rest := splitGameServerUpperPacket(t, rest)
+			if cleared.Header.MsgID != 14 || updated.Header.MsgID != 14 || len(rest) != 0 {
+				t.Fatal("replacement projection sequence")
+			}
+			inv, _, _ := repos.Inventory.Load(context.Background(), "2")
+			account, _, _ := repos.AccountInventory.Load(context.Background(), "account-1")
+			out := inv.Slots["0:30"]
+			entry := currentItemListEntryFromStack(0, 30, out)
+			if out.ItemID != 4000 || !out.Bind || entry.data[0x0a] != 0 || entry.data[0x13] != 0 || entry.data[0x57] != 0 || binary.LittleEndian.Uint32(entry.data[0x0e:]) != 0 || inv.Slots["0:69"].Count != 1 || inv.Slots["0:121"].Count != 10 || account.Slots["0:362"].Count != 12 {
+				t.Fatal("conversion output, attributes or recipe consumption mismatch")
+			}
+			r, _ := parseCurrentEquipmentEmancipateRequest(emancipationBody())
+			if _, err := s.commitCurrentEquipmentEmancipate(context.Background(), session, r); err == nil {
+				t.Fatal("replayed old target accepted")
+			}
+		})
+	}
+}
+
 func TestEquipmentEmancipateFailuresRollBackBothOwners(t *testing.T) {
 	for _, name := range []string{"book_missing", "book_locked", "target_locked", "target_expired", "materials_short", "account_short", "account_missing", "account_locked", "bad_hint", "wrong_owner", "unsupported_book", "source_type", "output_missing", "foreign_input", "ambiguous_block"} {
 		t.Run(name, func(t *testing.T) {
@@ -181,6 +221,57 @@ func TestEquipmentEmancipateFailuresRollBackBothOwners(t *testing.T) {
 			afterC, _, _ := g.Character.Load(ctx, "2")
 			if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(beforeA, afterA) || !reflect.DeepEqual(beforeC, afterC) {
 				t.Fatal("failed conversion mutated assets")
+			}
+		})
+	}
+}
+
+func TestEquipmentEmancipateLowLevelRulesRejectWithoutConsumption(t *testing.T) {
+	for _, name := range []string{"different_level", "piece_short", "soul_short", "grade_cap", "amplify_cap", "genuine_grade_cap", "level_growth", "below_range", "heritage", "unmapped_19", "above_range"} {
+		t.Run(name, func(t *testing.T) {
+			s, session, _, repos := emancipationFixture(t)
+			ctx := context.Background()
+			source := emancipationFixtureSource()
+			source["stackable/ticket.stk"] = strings.ReplaceAll(source["stackable/ticket.stk"], "[emancipate ticket] 20", "[emancipate ticket] 11")
+			source["equipment/source.equ"] = strings.ReplaceAll(source["equipment/source.equ"], "[emancipate type] 20", "[emancipate type] 11")
+			inv, _, _ := repos.Inventory.Load(ctx, "2")
+			account, _, _ := repos.AccountInventory.Load(ctx, "account-1")
+			switch name {
+			case "different_level":
+				source["equipment/source.equ"] = strings.ReplaceAll(source["equipment/source.equ"], "[emancipate type] 11", "[emancipate type] 12")
+			case "piece_short":
+				row := inv.Slots["0:121"]
+				row.Count = 9
+				inv.Slots["0:121"] = row
+			case "soul_short":
+				account.Slots["0:362"] = dnfrepo.ItemStack{ItemID: 10099773, Count: 11}
+			case "grade_cap", "amplify_cap", "genuine_grade_cap", "level_growth":
+				tag := map[string]string{"grade_cap": "emancipate grade max", "amplify_cap": "emancipate amplify max", "genuine_grade_cap": "emancipate genuineGrade max", "level_growth": "equipment level emancipate"}[name]
+				source["stackable/ticket.stk"] += "[" + tag + "] 1\n"
+			default:
+				typ := map[string]int{"below_range": 7, "heritage": 18, "unmapped_19": 19, "above_range": 21}[name]
+				source["stackable/ticket.stk"] = strings.ReplaceAll(source["stackable/ticket.stk"], "[emancipate ticket] 11", fmt.Sprintf("[emancipate ticket] %d", typ))
+				source["equipment/source.equ"] = strings.ReplaceAll(source["equipment/source.equ"], "[emancipate type] 11", fmt.Sprintf("[emancipate type] %d", typ))
+			}
+			if err := repos.Inventory.Save(ctx, inv); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.AccountInventory.Save(ctx, account); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			s.pvfItemCatalog, err = newPVFDungeonDropCatalog(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := parseCurrentEquipmentEmancipateRequest(emancipationBody())
+			if _, err := s.commitCurrentEquipmentEmancipate(ctx, session, request); err == nil {
+				t.Fatal("invalid low-level conversion accepted")
+			}
+			after, _, _ := repos.Inventory.Load(ctx, "2")
+			afterAccount, _, _ := repos.AccountInventory.Load(ctx, "account-1")
+			if !reflect.DeepEqual(inv, after) || !reflect.DeepEqual(account, afterAccount) {
+				t.Fatal("rejected conversion changed assets")
 			}
 		})
 	}

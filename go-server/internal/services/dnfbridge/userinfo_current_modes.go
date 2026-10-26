@@ -133,6 +133,8 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *pack
 	// 技能页：off 档与原实现逐字节相同（0xff + 两个 0x00）；on 档见 peer_skill_page.go。
 	if len(r.peerSkills) != 0 {
 		w.writeBytes(r.peerSkills)
+	} else if r.ctx != nil && r.ctx.Value(nativePeerProfileSkillsKey{}) == r.characterID {
+		writePeerSkillPageBlock(w, peerSkillPageSelectedResourceGroup, r.loadPeerSkillPageSkills(r.characterID))
 	} else if buffSwapReapplyEnabled() && r.ctx != nil && r.ctx.Value(nativePeerBuffInspectKey{}) == r.characterID {
 		r.writeNativePeerBuffSkillPage(w)
 	} else if peerSkillPageEnabled() {

@@ -85,7 +85,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			if ownerErr != nil {
 				return ownerRejectedGuardianShieldMoveResult(req.Opcode, cmd, ownerErr), nil
 			}
-			return ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result), nil
+			response := ownerAppliedGuardianShieldMoveResult(req.Opcode, cmd, result)
+			response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed || result.MainChanged}
+			return response, nil
 		}
 		petEquipmentMove := isProvenPetEquipmentMove(cmd)
 		if petEquipmentMove {
@@ -120,7 +122,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 			if err != nil {
 				return ownerBlockedResult(cmd, err), nil
 			}
-			return ownerAppliedPetEquipmentMoveResult(req.Opcode, cmd, result), nil
+			response := ownerAppliedPetEquipmentMoveResult(req.Opcode, cmd, result)
+			response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed}
+			return response, nil
 		}
 		if (cmd.SourceListType == listTypePet || cmd.DestinationListType == listTypePet) &&
 			!(cmd.SourceListType == listTypePet && cmd.DestinationListType == listTypePet) {
@@ -176,7 +180,9 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		if err != nil {
 			return ownerRejectedMoveResult(req.Opcode, cmd, err), nil
 		}
-		return ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result), nil
+		response := ownerAppliedMoveResult(ctx, req.Repositories.Settings, req.Opcode, cmd, result)
+		response.EquipmentMoveFact = &alignedcmd.EquipmentMoveFact{Changed: result.Changed}
+		return response, nil
 	case dnfenum.CmdPacketRequestItemSortLock, dnfenum.CmdPacketRequestItemSortUnlock:
 		// DOC-067 位置锁：713=置1、714=置0（不是 toggle）。请求体 u8 list + u16 slot；
 		// 成功回同一 opcode 的 class1 `1 + list + slot`，失败不回包（错误码枚举未证，不臆造）。
@@ -403,6 +409,11 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		return ownerAppliedDamageFontSelectionResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketUpgradeItem:
+		// v150's separate flag sender writes u8 mode, u8 list38. Keep the
+		// ordinary decoder/owner unchanged for every other request.
+		if len(req.Body) >= 2 && req.Body[1] == 38 {
+			return handleGuildMedalUpgrade(ctx, req), nil
+		}
 		parsed, err := DecodeUpgradeItemRequest(req.Body)
 		cmd := NewUpgradeCommand(req, parsed)
 		if err != nil {
@@ -1273,6 +1284,10 @@ func ownerAppliedSortResult(ctx context.Context, settings dnfrepo.SettingsReposi
 			class0Response(msgItemListRefresh, refreshBody),
 		},
 		AuthoritativeListRefreshes: authoritativeListRefreshes,
+		// Even an unchanged sort replaces the native bag objects through op13.
+		// Rebind existing Buff items only after the bridge sends that replacing
+		// list successfully; the stored skill and physical instance stay intact.
+		RefreshSelectedBuffRegistration: result.ListType == listTypeMain,
 	}
 }
 
@@ -1503,10 +1518,11 @@ func ownerAppliedEquipmentMoveResult(opcode uint16, cmd Command, result dnfequip
 		)
 	}
 	return alignedcmd.Result{
-		Handled:         true,
-		ResponseAllowed: true,
-		Operation:       cmd.Operation,
-		Reason:          reason,
+		EquipmentMoveFact: &alignedcmd.EquipmentMoveFact{Changed: result.Changed, WornClaimNoop: result.Mode == "noop" && !result.Changed && result.NoopGate == dnfequip.WornSlotReassertGate},
+		Handled:           true,
+		ResponseAllowed:   true,
+		Operation:         cmd.Operation,
+		Reason:            reason,
 		UpperResponses: []alignedcmd.UpperResponse{
 			class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 		},
@@ -1656,9 +1672,16 @@ func noopGateSuffix(result dnfequip.MoveResult) string {
 func buildSortRefreshBody(ctx context.Context, settings dnfrepo.SettingsRepository, result SortResult) ([]byte, bool) {
 	switch result.ListType {
 	case listTypeMain, listTypePersonalCargo, listTypeAvatar:
-		state, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
-		if err != nil || !found {
-			state = dnfrepo.CharacterContainerState{}
+		state := dnfrepo.CharacterContainerState{}
+		if result.ContainerStateLoaded {
+			if result.ContainerState != nil {
+				state = *result.ContainerState
+			}
+		} else {
+			loaded, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
+			if err == nil && found {
+				state = loaded
+			}
 		}
 		return buildCommonItemListRefreshBodyWithState(result.ListType, result.Refresh, state), true
 	case listTypePet:
@@ -1870,6 +1893,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	applied.ItemUsageChanged = result.ItemUsageChanged
 	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
 		result.PreviousCount-result.RemainingCount == 1 {
 		applied.StackableConsumption = &alignedcmd.StackableConsumption{

@@ -207,15 +207,19 @@ func (packet currentDungeonStartMap) Build() ([]byte, error) {
 	for _, group := range packet.RidableGroups {
 		writer.writeByte(byte(len(group)))
 		for _, entry := range group {
-			writer.writeUint32(entry.PositionX)
-			writer.writeUint32(entry.PositionY)
-			writer.writeUint32(entry.ObjectCode)
-			writer.writeUint32(entry.Faction)
-			writer.writeUint32(entry.State)
+			writeCurrentDungeonStartMapRidableEntry(&writer, entry)
 		}
 	}
 	writer.writeByte(packet.PartyMemberIndex)
 	return writer.bytes(), nil
+}
+
+func writeCurrentDungeonStartMapRidableEntry(writer *packetWriter, entry currentDungeonStartMapRidableEntry) {
+	writer.writeUint32(entry.PositionX)
+	writer.writeUint32(entry.PositionY)
+	writer.writeUint32(entry.ObjectCode)
+	writer.writeUint32(entry.Faction)
+	writer.writeUint32(entry.State)
 }
 
 // currentDungeonCachedStartMap is the exact mode0 branch consumed by the

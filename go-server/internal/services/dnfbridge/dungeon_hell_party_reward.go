@@ -736,6 +736,7 @@ func (s *Service) registerHellPartyRewardDrops(
 		if err != nil {
 			return nil, err
 		}
+		freezeCurrentAikenInitialDrop(&definition, itemState)
 		qualitySeed := uint32(0)
 		if definition.Kind == dungeonDropItemEquipment {
 			qualitySeed = binary.LittleEndian.Uint32(itemState.data[6:10])

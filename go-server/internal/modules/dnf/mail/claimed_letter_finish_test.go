@@ -266,7 +266,7 @@ func TestMailboxClaimedLetterKeepModeRestoresLegacyBehaviour(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertOneMailboxResponse(t, legacyResult, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 0x04})
+	assertOneMailboxResponse(t, legacyResult, dnfenum.CmdPacketMailboxExtractItem, []byte{0x00, 21})
 }
 
 // 删除一封信必须把它的可领取资产一起从聚合里清掉：`MailboxFieldMails` 在 MySQL 侧是

@@ -210,16 +210,17 @@ func (s *Service) sendCompletedTutorialReentryExit(session *gameSession, source 
 			"reason", "live_current_exe_op24_return_failed_and_suppressed_next_room_op45")
 		return nil
 	}
-	if !session.postStartMapPlayerStateSent || !session.currentFinishLoadingStateSent ||
-		!session.currentFinishLoadingCompletionSent ||
-		!session.postFinishLoadingPlayerStateSent {
+	finishGates := session.finishLoadingGateSnapshot()
+	if !session.postStartMapPlayerStateSent || !finishGates.State ||
+		!finishGates.Completion ||
+		!finishGates.PostFinish {
 		s.logGameEvent(session, "game-dungeon-tutorial-reentry-exit-deferred",
 			"char_id", session.selectedCharacterID,
 			"dungeon_id", runtime.Dungeon.ID,
 			"post_start_map_state_sent", session.postStartMapPlayerStateSent,
-			"finish_loading_state_sent", session.currentFinishLoadingStateSent,
-			"finish_loading_completion_sent", session.currentFinishLoadingCompletionSent,
-			"post_finish_loading_state_sent", session.postFinishLoadingPlayerStateSent,
+			"finish_loading_state_sent", finishGates.State,
+			"finish_loading_completion_sent", finishGates.Completion,
+			"post_finish_loading_state_sent", finishGates.PostFinish,
 			"reason", "selected_actor_and_page_not_fully_bound")
 		return nil
 	}

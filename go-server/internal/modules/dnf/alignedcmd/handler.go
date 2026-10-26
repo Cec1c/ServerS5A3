@@ -4,6 +4,7 @@ package alignedcmd
 
 import (
 	"context"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -16,6 +17,8 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
+	ItemUsageResolver      ItemUsageResolver
+	ItemUsageNow           time.Time
 	Command                byte
 	CommandKnown           bool
 	Opcode                 uint16
@@ -36,6 +39,9 @@ type Request struct {
 	UpgradeTicketResolver  UpgradeTicketResolver
 	UpgradePolicyResolver  UpgradePolicyResolver
 	UpgradeCostResolver    UpgradeCostResolver
+
+	// GuildMedalUpgradeResolver resolves only the current list38 flag sender.
+	GuildMedalUpgradeResolver GuildMedalUpgradeResolver
 	// ForgingResolver 让 op438（锻造 / 别升级 separate upgrade）拿到这一次
 	// 材料/目标在**运行时 PVF** 里的事实：etc/upgrade_separate.etc 的等级表与
 	// 材料表、目标的武器/品级/稀有度/耐久、材料槽那一件是不是便携式锻造炉或
@@ -635,6 +641,9 @@ type StackableUseProvenanceResolution struct {
 // An error means "no runtime-PVF answer", never "reject the item".
 type StackableUseProvenanceResolver func(itemID int64) (StackableUseProvenanceResolution, error)
 
+// ItemUsageResolver reads explicit daily/weekly use limits from the active PVF.
+type ItemUsageResolver func(itemID int64) (*itemusage.Definition, error)
+
 // DamageFontExpirationMode describes the expiration contract carried by a
 // runtime-PVF [add damage font skin] item.
 type DamageFontExpirationMode byte
@@ -809,18 +818,26 @@ type PartyMemberState struct {
 
 // Result 表示模块化分流后的处理结果。
 // ResponseAllowed=false 表示证据不足或被阻断，bridge 不能伪造成功 ACK。
+// EquipmentMoveFact is emitted only after an op19 owner succeeds.
+type EquipmentMoveFact struct {
+	Changed       bool
+	WornClaimNoop bool
+}
 type Result struct {
-	Decision        Decision
-	Handled         bool
-	ResponseAllowed bool
-	Operation       string
-	Reason          string
-	UpperResponses  []UpperResponse
+	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
+	EquipmentMoveFact *EquipmentMoveFact
+	Decision          Decision
+	Handled           bool
+	ResponseAllowed   bool
+	Operation         string
+	Reason            string
+	UpperResponses    []UpperResponse
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16
-	// Committed non-appearance wear moves still relocate Buff registrations.
-	// The bridge restores them after the ACK; visible moves use their actor boundary.
+	// A committed wear move without an actor appearance refresh can still
+	// relocate registered Buff items. Reproject only after the move ACK and
+	// item rows; appearance-bearing moves own their Buff replay boundary.
 	RefreshSelectedBuffRegistration bool
 	// 消耗凭证仅由成功返回的库存事务提供，bridge 在回包前关联本局拾取记录。
 	StackableConsumption *StackableConsumption

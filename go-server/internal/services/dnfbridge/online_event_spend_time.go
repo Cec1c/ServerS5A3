@@ -485,8 +485,24 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		return false, nil
 	}
 	var eventInfoTransport []byte
+	fiendWarAvailable := false
 	dayDungeonEvent := s.currentDayDungeonEvent()
 	includeFirstProcessDescriptor = includeFirstProcessDescriptor || dayDungeonEvent != session.activityCatalogDayEvent
+	joustEventEnabled := s.joustEventEnabled()
+	includeJoust := s.currentSpendTimeCatalogIncludesJoustEvent()
+	joustCatalogAvailable := false
+	if joustEventEnabled || (includeFirstProcessDescriptor && includeJoust) {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		_, joustCatalogAvailable = s.currentJoustCatalogForPublishing(
+			ctx,
+			session,
+			"op108_catalog_op1240_op1243",
+		)
+		cancel()
+	}
+	if includeJoust && !joustCatalogAvailable {
+		includeJoust = false
+	}
 	if includeFirstProcessDescriptor {
 		// 2365 的两行跟随 DNFBRIDGE_JOUST_EVENT_ENABLED（可被
 		// DNFBRIDGE_JOUST_EVENT_CATALOG 覆盖）。此前它们是无条件的，客户端因此
@@ -496,10 +512,11 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(
+		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
-			s.currentSpendTimeCatalogIncludesJoustEvent(),
+			includeJoust,
 			s.currentSpendTimeCatalogIncludesTownNpcEvent(),
 			true,
 			s.currentAntonModeSelectionAvailable(session),
@@ -512,6 +529,8 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			s.currentEpicRoadActivityAvailable(),
 			catalog.nativePCRoom != nil,
 			true, // Keep the native Seria luck entry alongside online rewards.
+			fiendWarAvailable,
+			s.currentAttendanceMarbleAvailable(),
 		)
 		if err != nil {
 			return false, err
@@ -537,6 +556,7 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			return false, err
 		}
 		descriptorSent = true
+		s.logGameEvent(session, "超时空频道开放状态下发", "event_id", currentFiendWarChannelEventID, "available", fiendWarAvailable)
 		session.activityCatalogDayEvent = dayDungeonEvent
 		if dayDungeonEvent != 0 {
 			s.logGameEvent(session, "game-day-dungeon-catalog-sent", "event_id", dayDungeonEvent, "char_id", session.selectedCharacterID, "reset", "06:00_UTC+8", "reason", "full_catalog_replaces_previous_weekday")
@@ -558,11 +578,13 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 	// support pool. Repeat the opening snapshot for
 	// later character selections in the same client process so a failed or
 	// reconnected session can recover even though op108 is process-lifetime only.
-	if err := s.sendCurrentJoustOpeningState(session); err != nil {
-		return descriptorSent, err
-	}
-	if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
-		return descriptorSent, err
+	if joustCatalogAvailable {
+		if err := s.sendCurrentJoustOpeningState(session); err != nil {
+			return descriptorSent, err
+		}
+		if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
+			return descriptorSent, err
+		}
 	}
 	if err := s.armCurrentDayDungeonCatalogRefresh(session); err != nil {
 		return descriptorSent, err

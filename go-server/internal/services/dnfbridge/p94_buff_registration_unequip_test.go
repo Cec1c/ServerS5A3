@@ -6,18 +6,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"reflect"
 	"testing"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/buffswap"
-	"longheng.io/server/internal/modules/dnf/channelcatalog"
-	protocol "longheng.io/server/internal/modules/dnf/protocol"
 	repo "longheng.io/server/internal/modules/dnf/repository"
-	memory "longheng.io/server/internal/modules/dnf/repository/memory"
 	"longheng.io/server/internal/modules/dnf/skillswitch"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
@@ -25,12 +20,9 @@ import (
 const p94Item int64 = 100120544
 const p94Slot byte = 16
 
-func p94Fixture(t *testing.T) *p94OwnedFixture {
+func p94Fixture(t *testing.T) *loginWearAnchorFixture {
 	t.Helper()
-	t.Setenv("DNFBRIDGE_EQUIP_LOGIN_REASSERT_NOOP", "1")
-	for _, key := range []string{loginWearReassertAnchorEnv, loginWearReassertPerSlotEnv, loginWearReassertRepeatEnv, loginWearReassertWindowModeEnv, loginWearReassertWindowMillisEnv, equipLoginWearReassertNoopRefreshEnv} {
-		t.Setenv(key, "")
-	}
+	setDefaultTier(t)
 	t.Setenv(buffSwapReapplyEnv, "on")
 	t.Setenv(op19PlayerFlagEnv, "")
 	t.Setenv(op19PlayerFlagQuietEnv, "")
@@ -42,7 +34,7 @@ func p94Fixture(t *testing.T) *p94OwnedFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Snapshot().Checksum != "25675fba8711216b72800e5ff034df61209b37e7c22d3e4c3b3ad7b1906fc348" {
+	if !knownRepairPVFChecksum(a.Snapshot().Checksum) {
 		t.Fatal("PVF mismatch")
 	}
 	items, err := newPVFDungeonDropCatalog(a)
@@ -53,7 +45,7 @@ func p94Fixture(t *testing.T) *p94OwnedFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := p94NewOwnedFixture(t)
+	f := newLoginWearAnchorFixture(t, "1", 1, map[int16]int64{int16(p94Slot): p94Item})
 	f.service.initialEquipmentArchive = a
 	f.service.pvfItemCatalog = items
 	f.service.options.currentClientVersion = "official-24.9"
@@ -76,6 +68,10 @@ func p94Fixture(t *testing.T) *p94OwnedFixture {
 	e.Extra["pvf_path"] = def.PVFPath
 	e.Extra["equipment_type"] = def.EquipmentType
 	e.Extra["p94_instance_note"] = "registered-A"
+	// This fixture represents a current runtime pants row at actor slot16,
+	// not an untouched legacy slot16 (which projects as actor17).
+	e.Extra["current_exe_runtime_move"] = "1"
+	e.Extra["current_exe_equipment_type"] = "16"
 	eq.Entries["16"] = e
 	if err := f.group.Equipment.Save(ctx, eq); err != nil {
 		t.Fatal(err)
@@ -101,7 +97,7 @@ func p94Fixture(t *testing.T) *p94OwnedFixture {
 	return f
 }
 
-func p94Snapshot(t *testing.T, f *p94OwnedFixture) (repo.InventoryRecord, repo.EquipmentRecord, repo.SettingsRecord, repo.SettingsRecord) {
+func p94Snapshot(t *testing.T, f *loginWearAnchorFixture) (repo.InventoryRecord, repo.EquipmentRecord, repo.SettingsRecord, repo.SettingsRecord) {
 	t.Helper()
 	ctx := context.Background()
 	i, _, e := f.group.Inventory.Load(ctx, "1")
@@ -130,7 +126,7 @@ func p94Wire(t *testing.T, wire []byte, wantList byte, wantIndex uint16, present
 	modeAt, buffAt := -1, -1
 	seq := 0
 	for len(wire) > 0 {
-		p, rest := p94SplitPacket(t, wire)
+		p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 		wire = rest
 		if p.Header.Classification == 1 && p.Header.MsgID == 19 {
 			acks++
@@ -138,13 +134,23 @@ func p94Wire(t *testing.T, wire []byte, wantList byte, wantIndex uint16, present
 		if p.Header.Classification == 0 && p.Header.MsgID == 2 {
 			modeAt = seq
 		}
-		if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
+		if p.Header.Classification == 0 && (p.Header.MsgID == 1368 || p.Header.MsgID == 1367) {
 			snapshots++
 			buffAt = seq
 			// Raw class0 writes retain the fixture's server16 padding under the ordinary13 reader.
 			body := p.Body
-			if len(body) == 171 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
+			size := 168
+			if p.Header.MsgID == 1367 {
+				size = 166
+			}
+			if len(body) == size+3 && bytes.Equal(body[:3], []byte{0, 0, 0}) {
 				body = body[3:]
+			}
+			if p.Header.MsgID == 1367 {
+				if len(body) != 166 || body[0] != 33 {
+					t.Fatalf("invalid current row update %x", body)
+				}
+				body = append([]byte{38, 0}, body...)
 			}
 			if len(body) != 168 || binary.LittleEndian.Uint16(body) != 38 || body[2] != 33 {
 				t.Fatalf("invalid current snapshot %x", body)
@@ -168,10 +174,10 @@ func p94Wire(t *testing.T, wire []byte, wantList byte, wantIndex uint16, present
 	}
 }
 
-func p94Register(t *testing.T, f *p94OwnedFixture) string {
+func p94Register(t *testing.T, f *loginWearAnchorFixture) string {
 	t.Helper()
 	f.buffer.write.Reset()
-	if err := f.service.handleGameCommand(f.session, 1, 1426, p94RegistrationCommand(38, p94Slot, 3, uint16(p94Slot))); err != nil {
+	if err := f.service.handleGameCommand(f.session, 1, 1426, reviewCurrentBuffCommand(38, p94Slot, 3, uint16(p94Slot))); err != nil {
 		t.Fatal(err)
 	}
 	p94Wire(t, f.buffer.write.Bytes(), 3, uint16(p94Slot), true, false)
@@ -182,7 +188,7 @@ func p94Register(t *testing.T, f *p94OwnedFixture) string {
 	return state.Slots[p94Slot].Instance
 }
 
-func p94Move(t *testing.T, f *p94OwnedFixture, body []byte) {
+func p94Move(t *testing.T, f *loginWearAnchorFixture, body []byte) {
 	t.Helper()
 	f.buffer.write.Reset()
 	if err := f.service.handleGameCommand(f.session, 1, 19, body); err != nil {
@@ -193,7 +199,7 @@ func p94Move(t *testing.T, f *p94OwnedFixture, body []byte) {
 	}
 }
 
-func p94AssertResolved(t *testing.T, f *p94OwnedFixture, instance string, list byte, index uint16, present bool) {
+func p94AssertResolved(t *testing.T, f *loginWearAnchorFixture, instance string, list byte, index uint16, present bool) {
 	t.Helper()
 	p, err := buffswap.LoadResolvedOwned(context.Background(), f.group, "1", "dnf:10011")
 	if err != nil {
@@ -208,9 +214,9 @@ func p94AssertResolved(t *testing.T, f *p94OwnedFixture, instance string, list b
 	}
 }
 
-func p94Cold(t *testing.T, f *p94OwnedFixture, list byte, index uint16, present bool) {
+func p94Cold(t *testing.T, f *loginWearAnchorFixture, list byte, index uint16, present bool) {
 	t.Helper()
-	conn := &p94Conn{}
+	conn := &bufferConn{}
 	cold := &Service{options: f.service.options, initialEquipmentArchive: f.service.initialEquipmentArchive, pvfItemCatalog: f.service.pvfItemCatalog, skillCatalog: f.service.skillCatalog, repositoryProvider: func() (repo.Group, bool) { return f.group, true }}
 	session := &gameSession{conn: conn, connID: "p94-cold", accountID: "dnf:10011", selectedCharacterID: 1, postFinishLoadingPlayerStateSent: true, itemListMigrationsDone: true}
 	if err := cold.sendCurrentFinishLoadingCharacterState(session, "p94_cold"); err != nil {
@@ -223,7 +229,7 @@ func TestP94BuffRegistrationExplicitUnequipCurrentPVF(t *testing.T) {
 	f := p94Fixture(t)
 	instance := p94Register(t, f)
 	_, _, before, legacy := p94Snapshot(t, f)
-	remove := p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag)
+	remove := flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag)
 	if !f.service.op19CurrentUIPlayerRequest(remove) {
 		t.Fatal("not explicit current UI unequip")
 	}
@@ -239,7 +245,7 @@ func TestP94BuffRegistrationExplicitUnequipCurrentPVF(t *testing.T) {
 	p94Wire(t, f.buffer.write.Bytes(), 0, 15, true, true)
 	p94Cold(t, f, 0, 15, true)
 	// The reverse explicit action must retain the same registered physical instance.
-	p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, int32(p94Item), 3, int16(p94Slot), 0), op19CurrentUIPlayerFlag))
+	p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, int32(p94Item), 3, int16(p94Slot), 0), op19CurrentUIPlayerFlag))
 	inv, eq, after, old = p94Snapshot(t, f)
 	if eq.Entries["16"].Extra["native_buff_instance"] != instance || inv.Slots["0:15"].ItemID != 0 {
 		t.Fatal("re-equip lost instance")
@@ -291,7 +297,7 @@ func TestP94BuffRegistrationUnequipSaveFailureRollback(t *testing.T) {
 	wrapped := f.group
 	wrapped.CharacterItems = p94FailItems{f.group.CharacterItems, &calls, &inventoryCalls}
 	f.service.repositoryProvider = func() (repo.Group, bool) { return wrapped, true }
-	p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag))
+	p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag))
 	ai, ae, an, ao := p94Snapshot(t, f)
 	if calls != 1 || inventoryCalls != 1 {
 		t.Fatalf("save failure not reached inventory=%d equipment=%d", inventoryCalls, calls)
@@ -330,7 +336,7 @@ func TestP94BuffRegistrationSameTemplateMoveAndDeletion(t *testing.T) {
 	if err := f.group.Inventory.Save(ctx, inv); err != nil {
 		t.Fatal(err)
 	}
-	p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, int32(p94Item), 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag))
+	p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, int32(p94Item), 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag))
 	inv, eq, after, old := p94Snapshot(t, f)
 	if eq.Entries["16"].Extra["p94_instance_note"] != "different-B" || inv.Slots["0:15"].Extra["native_buff_instance"] != instance {
 		t.Fatal("same-template swap did not move registered A")
@@ -338,7 +344,7 @@ func TestP94BuffRegistrationSameTemplateMoveAndDeletion(t *testing.T) {
 	p94AssertResolved(t, f, instance, 0, 15, true)
 	p94Wire(t, f.buffer.write.Bytes(), 0, 15, true, true)
 	p94Cold(t, f, 0, 15, true)
-	p94Move(t, f, p94MoveBody(0, 15, int32(p94Item), 0, 17, 0))
+	p94Move(t, f, loginWearBridgeBody(0, 15, int32(p94Item), 0, 17, 0))
 	inv, _, after, old = p94Snapshot(t, f)
 	if inv.Slots["0:17"].Extra["native_buff_instance"] != instance || inv.Slots["0:15"].ItemID != 0 {
 		t.Fatal("normal inventory move did not preserve A")
@@ -375,13 +381,13 @@ func TestP94BuffRegistrationAppearanceBoundaryNoDuplicate(t *testing.T) {
 	// Force the existing appearance route for this same legitimate item as a
 	// controlled comparison; it already owns the Buff replay after mode0.
 	f.service.options.equipAppearanceSlotGateOff = true
-	p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag))
+	p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item)), op19CurrentUIPlayerFlag))
 	p94AssertResolved(t, f, instance, 0, 15, true)
 	p94Wire(t, f.buffer.write.Bytes(), 0, 15, true, true)
 	mode := 0
 	wire := f.buffer.write.Bytes()
 	for len(wire) > 0 {
-		p, rest := p94SplitPacket(t, wire)
+		p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 		wire = rest
 		if p.Header.Classification == 0 && p.Header.MsgID == 2 {
 			mode++
@@ -392,15 +398,13 @@ func TestP94BuffRegistrationAppearanceBoundaryNoDuplicate(t *testing.T) {
 	}
 }
 
-func TestP94BuffRegistrationFirstUnmarkedLoginReassert(t *testing.T) {
+func TestP94BuffRegistrationUnmarkedLoginReassert(t *testing.T) {
 	f := p94Fixture(t)
 	instance := p94Register(t, f)
 	f.service.openEquipLoginWearWindow(f.session, "p94_unmarked")
 	bi, be, bn, bo := p94Snapshot(t, f)
-	body := p94MoveBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item))
-	// Fixed public master predates MR180; repeated unmarked owner mutation is
-	// retained as separate compatibility evidence, not repaired in this patch.
-	for repeat := 0; repeat < 1; repeat++ {
+	body := loginWearBridgeBody(0, 15, 0, 3, int16(p94Slot), int32(p94Item))
+	for repeat := 0; repeat < 3; repeat++ {
 		p94Move(t, f, body)
 		ai, ae, an, ao := p94Snapshot(t, f)
 		if !reflect.DeepEqual(bi, ai) || !reflect.DeepEqual(be, ae) || !reflect.DeepEqual(bn, an) || !reflect.DeepEqual(bo, ao) {
@@ -409,109 +413,11 @@ func TestP94BuffRegistrationFirstUnmarkedLoginReassert(t *testing.T) {
 		p94AssertResolved(t, f, instance, 3, uint16(p94Slot), true)
 		wire := f.buffer.write.Bytes()
 		for len(wire) > 0 {
-			p, rest := p94SplitPacket(t, wire)
+			p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 			wire = rest
 			if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
 				t.Fatal("new committed-move refresh leaked into noop")
 			}
 		}
 	}
-}
-
-// This file owns its repository fixture, requests, buffer and packet reader.
-// It requires only production code from fixed public master and the real PVF.
-type p94OwnedFixture struct {
-	group   repo.Group
-	service *Service
-	session *gameSession
-	buffer  *p94Conn
-}
-type p94Conn struct{ write bytes.Buffer }
-type p94Addr string
-
-func (a p94Addr) Network() string                   { return "p94-test" }
-func (a p94Addr) String() string                    { return string(a) }
-func (c *p94Conn) Read([]byte) (int, error)         { return 0, io.EOF }
-func (c *p94Conn) Write(b []byte) (int, error)      { return c.write.Write(b) }
-func (c *p94Conn) Close() error                     { return nil }
-func (c *p94Conn) LocalAddr() net.Addr              { return p94Addr("local") }
-func (c *p94Conn) RemoteAddr() net.Addr             { return p94Addr("remote") }
-func (c *p94Conn) SetDeadline(time.Time) error      { return nil }
-func (c *p94Conn) SetReadDeadline(time.Time) error  { return nil }
-func (c *p94Conn) SetWriteDeadline(time.Time) error { return nil }
-
-func p94NewOwnedFixture(t *testing.T) *p94OwnedFixture {
-	t.Helper()
-	ctx := context.Background()
-	g := memory.NewMemoryGroup()
-	if err := g.Account.Save(ctx, repo.AccountRecord{AccountID: "dnf:10011"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "1", AccountID: "dnf:10011", Name: "P94Fixture", Job: "0", Level: 90, Stats: map[string]int64{"grow_type": 33}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := g.Inventory.Save(ctx, repo.InventoryRecord{CharacterID: "1", Slots: map[string]repo.ItemStack{}}); err != nil {
-		t.Fatal(err)
-	}
-	raw := make([]byte, currentItemListEntryWireSize)
-	binary.LittleEndian.PutUint16(raw, uint16(p94Slot))
-	binary.LittleEndian.PutUint32(raw[2:], uint32(p94Item))
-	binary.LittleEndian.PutUint32(raw[6:], 203004656)
-	raw[10] = 13
-	binary.LittleEndian.PutUint16(raw[11:], 48)
-	binary.LittleEndian.PutUint32(raw[14:], uint32(p94Item))
-	entry := repo.EquipmentEntry{SlotIndex: int16(p94Slot), ItemID: p94Item, RawEntry: raw, Extra: map[string]string{"item_kind": "equipment", "equipment_slot": "16", "equipped_slot": "16", "durability": "48", "max_durability": "48", "quality_seed": "203004656"}}
-	if err := g.Equipment.Save(ctx, repo.EquipmentRecord{CharacterID: "1", Entries: map[string]repo.EquipmentEntry{"16": entry}}); err != nil {
-		t.Fatal(err)
-	}
-	conn := &p94Conn{}
-	svc := &Service{options: options{accountID: "dnf:10011", gameUpperHeader: gameUpperHeaderServer16, gameUpperBodyCodec: gameUpperBodyCodecPlain}, repositoryProvider: func() (repo.Group, bool) { return g, true }}
-	session := &gameSession{conn: conn, connID: "p94-owned", accountID: "dnf:10011", channel: channelcatalog.Channel{ID: 252}, selectedCharacterID: 1, initialTownRouteCharacterID: 1, initialTownRouteStage: currentInitialTownRoutePlayerStateSent, townSceneReadyCharacterID: 1, connectionTownActorOwnerChannel: 1, townActorOwnerChannel: 1}
-	return &p94OwnedFixture{g, svc, session, conn}
-}
-func p94MoveBody(sl byte, si int16, sv int32, dl byte, di int16, dv int32) []byte {
-	b := make([]byte, 28)
-	b[0] = sl
-	binary.LittleEndian.PutUint16(b[1:], uint16(si))
-	binary.LittleEndian.PutUint32(b[3:], uint32(sv))
-	binary.LittleEndian.PutUint32(b[7:], 1)
-	b[11] = dl
-	binary.LittleEndian.PutUint16(b[12:], uint16(di))
-	binary.LittleEndian.PutUint32(b[14:], uint32(dv))
-	binary.LittleEndian.PutUint32(b[22:], ^uint32(0))
-	return b
-}
-func p94FlaggedBody(t *testing.T, b []byte, marker byte) []byte {
-	t.Helper()
-	if len(b) != 28 {
-		t.Fatal("op19 length")
-	}
-	out := append([]byte(nil), b...)
-	out[26] = marker
-	return out
-}
-func p94RegistrationCommand(skill uint16, slot, list byte, index uint16) []byte {
-	b := []byte{0, 0, slot, list, 0, 0}
-	binary.LittleEndian.PutUint16(b, skill)
-	binary.LittleEndian.PutUint16(b[4:], index)
-	return b
-}
-func p94SplitPacket(t *testing.T, b []byte) (protocol.ChannelPacket, []byte) {
-	t.Helper()
-	if len(b) < 13 {
-		t.Fatalf("short packet %x", b)
-	}
-	total := int(binary.LittleEndian.Uint32(b[3:7]))
-	head := 13
-	id := binary.LittleEndian.Uint16(b[1:3])
-	if len(b) >= 16 && b[0] == 0 && bytes.Equal(b[11:16], make([]byte, 5)) {
-		switch id {
-		case 13, 14, currentTownActorSceneSnapshotMsgID, currentTownUserPositionNotificationMsgID, currentTownUserAreaNotificationMsgID, currentTownWorldTownContextNotificationMsgID, currentCarryGoldStageMsgID:
-			head = 16
-		}
-	}
-	if total < head || total > len(b) {
-		t.Fatalf("invalid packet len %d/%d", total, len(b))
-	}
-	return protocol.ChannelPacket{Header: protocol.ChannelHeader{Classification: b[0], MsgID: id, Length: uint32(total)}, Body: append([]byte(nil), b[head:total]...)}, b[total:]
 }
