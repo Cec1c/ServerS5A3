@@ -18,6 +18,38 @@ func (s *Service) sendCurrentTownPartyHPAfterActor(target, actor *gameSession) e
 	return s.sendGameUpperRawClassCodec(target, 0x0099, body, 0, true)
 }
 
+// A receiver can finish rebuilding its town scene while every party peer is
+// in another area. Same-area actor replay then has no rows and cannot restore
+// the party HP projection. Refresh only the existing authoritative party HP:
+// this does not create an actor, redeclare a party or restart peer links.
+func (s *Service) sendCurrentTownPartyHPAfterCrossAreaLoading(target *gameSession) error {
+	if s == nil || s.onlinePlayers == nil || target == nil || target.selectedCharacterID == 0 {
+		return nil
+	}
+	manager := s.runtimePartyManagerForService()
+	snapshot, found := manager.SnapshotByUser(target.selectedCharacterID, 0)
+	if !found {
+		return nil
+	}
+	for _, member := range runtimePartyMembers(snapshot.StateFor(target.selectedCharacterID)) {
+		if member.UserID == target.selectedCharacterID ||
+			s.onlinePlayers.PeerInSameArea(target.selectedCharacterID, member.UserID) {
+			continue
+		}
+		identity, current := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		if !current || identity.session == nil {
+			continue
+		}
+		body := s.currentTownPartyRealtimeBody(target, identity.session)
+		if len(body) == 0 {
+			continue
+		}
+		// The body contains the full current table, including explicit zero HP.
+		return s.sendGameUpperRawClassCodec(target, 0x0099, body, 0, true)
+	}
+	return nil
+}
+
 // Capture the existing town HUD projection, not a new combat-HP source. In
 // particular, do not interpret the party subsystem's default percentage as
 // measured HP or change its established town roster serialization here.

@@ -236,3 +236,37 @@ func p05CrossAreaHPFor(rows []realtimeInfoRow, id uint16) (byte, bool) {
 	}
 	return 0, false
 }
+
+func TestP05TownCrossAreaPostTransitionPartyHP(t *testing.T) {
+	fixture := newTownPartyActorHPFixture(t, true)
+	p05CrossAreaPrepareSharedTown(t, fixture)
+	p05CrossAreaMoveTown(t, fixture.service, fixture.target, 38, 2, 900, 250, 5)
+	_ = p05Frames(t, fixture.service, fixture.actor)
+	if err := fixture.service.sendCurrentTownPostTransitionPlayerState(fixture.target, "p05_cross_area_post_transition"); err != nil {
+		t.Fatal(err)
+	}
+	frames := p05Frames(t, fixture.service, fixture.target)
+	p05CrossAreaRequirePartyHP(t, frames, 29, 17, 100)
+	p05CrossAreaRequireNoLeave(t, frames, 29, 17)
+	for _, frame := range frames {
+		if frame.msgID == 9 || frame.msgID == 11 {
+			t.Fatalf("cross-area HP repair redeclared party or restarted peer link: %v", townPartyActorHPFrameIDs(frames))
+		}
+	}
+}
+
+// A stale session cache is deliberately retained after central membership is
+// removed. Finishing a scene must not resurrect that retired party in the HUD.
+func TestP05TownCrossAreaFinishAfterPeerLeaves(t *testing.T) {
+	fixture := newTownPartyActorHPFixture(t, true)
+	p05CrossAreaPrepareSharedTown(t, fixture)
+	p05CrossAreaMoveTown(t, fixture.service, fixture.target, 38, 2, 900, 250, 5)
+	_ = p05Frames(t, fixture.service, fixture.actor)
+	fixture.service.runtimePartyManagerForService().LeaveCurrent(17)
+	frames := p05CrossAreaFinishTownLoading(t, fixture.service, fixture.target)
+	for _, frame := range frames {
+		if frame.msgID == 153 || frame.msgID == 9 || frame.msgID == 11 {
+			t.Fatalf("scene finish revived retired party: %v", townPartyActorHPFrameIDs(frames))
+		}
+	}
+}
