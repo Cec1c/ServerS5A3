@@ -222,7 +222,7 @@ func (s *Service) currentCharacterListLoginTransition(
 	}
 	prevVillageOrigin := currentTownPositionSnapshot{}
 	prevVillageOriginSource := ""
-	leavingChannelTown := currentLoginLeavingChannelTown(session, character)
+	leavingChannelTown := s.currentLoginLeavingChannelTown(session, character)
 	// 本次落点要写入/（preserve 档）本应由本次落点覆盖的六个键。
 	loginLocationStats := map[string]int64{
 		"town_id":    int64(loginLocation.TownID),
@@ -239,10 +239,15 @@ func (s *Service) currentCharacterListLoginTransition(
 			if current == nil || current.Stats == nil {
 				return false, fmt.Errorf("selected character login location is unavailable")
 			}
+			changed := false
 			_, raidChannel := currentRaidLoginTownID(session)
 			if raidChannel {
 				if err := s.currentSaveRaidReturnOrigin(characterID, current); err != nil {
 					return false, err
+				}
+				if current.Stats["town_id"] == 98 && current.Stats[currentFiendWarReturnOriginMarker] != 1 {
+					current.Stats[currentFiendWarReturnOriginMarker] = 1
+					changed = true
 				}
 			}
 			ordinary, err := s.currentOrdinaryLoginOriginCharacter(session, characterID, *current)
@@ -250,14 +255,14 @@ func (s *Service) currentCharacterListLoginTransition(
 				return false, err
 			}
 			if origin, found := currentTownPrevVillageOriginLocked(session, characterID, ordinary); found && !raidChannel {
-				if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredChannelTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
+				if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !s.currentDedicatedChannelTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
 					prevVillageOrigin = origin
 					prevVillageOriginSource = "character_list_login_previous_non_seria_location"
 				}
 			}
 			if !prevVillageOrigin.PositionValid && !raidChannel {
 				if origin, found := currentTownPrevVillageOriginFromPersistedStats(characterID, ordinary); found {
-					if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !currentRegisteredChannelTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
+					if _, persistable := s.currentTownPrevVillageOriginIsPersistable(origin); persistable && !s.currentDedicatedChannelTown(int64(origin.TownID)) && (!guildHallMembershipLost || !s.currentGuildHallArea(origin.TownID, origin.AreaID)) {
 						prevVillageOrigin = origin
 						prevVillageOriginSource = "character_list_login_existing_persisted_prev_village"
 					}
@@ -265,9 +270,8 @@ func (s *Service) currentCharacterListLoginTransition(
 			}
 
 			values := loginLocationStats
-			changed := false
 			staleGuildOrigin := guildHallMembershipLost && s.currentGuildHallArea(byte(current.Stats[currentTownPrevVillageTownStat]), byte(current.Stats[currentTownPrevVillageAreaStat]))
-			if (!raidChannel && currentRegisteredChannelTown(current.Stats[currentTownPrevVillageTownStat])) || staleGuildOrigin {
+			if (!raidChannel && s.currentDedicatedChannelTown(current.Stats[currentTownPrevVillageTownStat])) || staleGuildOrigin {
 				for _, key := range []string{currentTownPrevVillageTownStat, currentTownPrevVillageAreaStat, currentTownPrevVillagePosXStat, currentTownPrevVillagePosYStat, currentTownPrevVillageDirectionStat} {
 					if _, exists := current.Stats[key]; exists {
 						delete(current.Stats, key)
@@ -275,7 +279,7 @@ func (s *Service) currentCharacterListLoginTransition(
 					}
 				}
 			}
-			if !currentRegisteredChannelTown(int64(loginLocation.TownID)) {
+			if !s.currentDedicatedChannelTown(int64(loginLocation.TownID)) {
 				if currentClearPVPReturnOrigin(current.Stats) {
 					changed = true
 				}

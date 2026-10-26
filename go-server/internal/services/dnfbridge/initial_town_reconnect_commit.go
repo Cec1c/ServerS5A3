@@ -33,10 +33,10 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			break
 		}
 	}
-	clearChannelTownOrigin := currentRegisteredChannelTown(current.Stats[currentTownPrevVillageTownStat]) &&
-		!currentRegisteredChannelTown(projected.Stats["town_id"])
-	clearReturnOrigin := !currentRegisteredChannelTown(projected.Stats["town_id"]) &&
-		(current.Stats[currentRaidReturnOriginMarker] == 1 || current.Stats[currentPVPReturnOriginMarker] == 1)
+	clearChannelTownOrigin := s.currentDedicatedChannelTown(current.Stats[currentTownPrevVillageTownStat]) &&
+		!s.currentDedicatedChannelTown(projected.Stats["town_id"])
+	clearReturnOrigin := !s.currentDedicatedChannelTown(projected.Stats["town_id"]) &&
+		(current.Stats[currentRaidReturnOriginMarker] == 1 || current.Stats[currentPVPReturnOriginMarker] == 1 || current.Stats[currentFiendWarReturnOriginMarker] == 1)
 	if unchanged && !clearChannelTownOrigin && !clearReturnOrigin {
 		return current, nil
 	}
@@ -58,17 +58,21 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 		}
 		changed := false
 		// 非决斗专用频道保存普通来源，跨特殊频道不覆盖首次来源。
-		if targetTown := projected.Stats["town_id"]; targetTown != 10 && currentRegisteredChannelTown(targetTown) && character.Stats["town_id"] != targetTown {
+		if targetTown := projected.Stats["town_id"]; targetTown != 10 && s.currentDedicatedChannelTown(targetTown) && character.Stats["town_id"] != targetTown {
 			if err := s.currentSaveRaidReturnOrigin(characterID, &character); err != nil {
 				return err
 			}
+		}
+		if (projected.Stats["town_id"] == 98 || character.Stats["town_id"] == 98 && s.currentDedicatedChannelTown(projected.Stats["town_id"])) && character.Stats[currentFiendWarReturnOriginMarker] != 1 {
+			character.Stats[currentFiendWarReturnOriginMarker] = 1
+			changed = true
 		}
 		if projected.Stats["town_id"] == 10 && character.Stats["town_id"] != 10 {
 			if err := s.currentSavePVPReturnOrigin(characterID, &character); err != nil {
 				return err
 			}
 		}
-		if !currentRegisteredChannelTown(projected.Stats["town_id"]) {
+		if !s.currentDedicatedChannelTown(projected.Stats["town_id"]) {
 			if currentClearPVPReturnOrigin(character.Stats) {
 				changed = true
 			}
@@ -87,8 +91,8 @@ func (s *Service) commitCurrentReconnectLocation(ctx context.Context, characterI
 			}
 		}
 		// 旧版本可能已保存决斗场为赛丽亚房间出口，随普通落点一起原子清除。
-		if currentRegisteredChannelTown(character.Stats[currentTownPrevVillageTownStat]) &&
-			!currentRegisteredChannelTown(projected.Stats["town_id"]) {
+		if s.currentDedicatedChannelTown(character.Stats[currentTownPrevVillageTownStat]) &&
+			!s.currentDedicatedChannelTown(projected.Stats["town_id"]) {
 			for _, key := range []string{currentTownPrevVillageTownStat, currentTownPrevVillageAreaStat, currentTownPrevVillagePosXStat, currentTownPrevVillagePosYStat, currentTownPrevVillageDirectionStat} {
 				if _, exists := character.Stats[key]; exists {
 					delete(character.Stats, key)

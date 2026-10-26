@@ -35,3 +35,15 @@ func (s *Service) currentTagTournamentTownTransition(id uint16, c repo.Character
 	}
 	return currentReconnectLocationProjection(id, c, location)
 }
+
+// 城镇48只在当前配套与真实帝国地图匹配时属于专用频道；不改变其他资源中的普通城镇48。
+func (s *Service) currentDedicatedChannelTown(townID int64) bool {
+	if currentRegisteredChannelTown(townID) {
+		return true
+	}
+	if townID != 48 || s == nil || s.options.currentClientVersion != "official-24.9" {
+		return false
+	}
+	area, found := s.townGateArea(townID)
+	return found && strings.EqualFold(strings.ReplaceAll(area.MapPath, "\\", "/"), "Town/CollosseumofEmpire/CollosseumofEmpire.map")
+}

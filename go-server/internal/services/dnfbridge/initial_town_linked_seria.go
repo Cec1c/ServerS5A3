@@ -10,7 +10,7 @@ func (s *Service) currentTownLinkedSeriaLoginLocation(characterID uint16, charac
 		return currentTownLoginLocation{}, false
 	}
 	townID, areaID := character.Stats["town_id"], character.Stats["area_id"]
-	if currentRegisteredChannelTown(townID) {
+	if s.currentDedicatedChannelTown(townID) {
 		return currentTownLoginLocation{}, false
 	}
 	areas, found := s.townAreas(townID)
@@ -30,7 +30,7 @@ func (s *Service) currentTownLinkedSeriaLoginLocation(characterID uint16, charac
 			continue
 		}
 		for _, door := range currentSeriaRoomDoorTriggersInMapOrder(parsed) {
-			if door.TargetTownID < 0 || door.TargetTownID > 255 || currentRegisteredChannelTown(door.TargetTownID) {
+			if door.TargetTownID < 0 || door.TargetTownID > 255 || s.currentDedicatedChannelTown(door.TargetTownID) {
 				continue
 			}
 			location, found, _ := s.currentTownSeriaRoomLoginLocation(door.TargetTownID)
