@@ -44,7 +44,7 @@ func (s *Service) sendCurrentTownPartyHPAfterCrossAreaLoading(target *gameSessio
 		if len(body) == 0 {
 			continue
 		}
-		// The body contains the full current table, including explicit zero HP.
+		// Use the existing full town table without substituting HP values here.
 		return s.sendGameUpperRawClassCodec(target, 0x0099, body, 0, true)
 	}
 	return nil
