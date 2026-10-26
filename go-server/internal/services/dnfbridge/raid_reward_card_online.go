@@ -69,6 +69,14 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 		}
 		s.logCurrentRaidRewardWire(session, packet, latest.Battle.InstanceID, latest.Battle.Mode, latest.Battle.Phase, true, "")
 	}
+	for _, packet := range packets {
+		if packet.class == 0 && packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+			s.raidMu.Lock()
+			s.markCurrentAntonPartyShownLocked(latest.Battle.InstanceID, latest.Battle.Phase, time.Now())
+			s.raidMu.Unlock()
+			break
+		}
+	}
 	if markScreen {
 		o.rewardScreenIdentity, o.rewardScreenSent = identity, true
 		// Only this connection's successfully opened party screen anchors its
@@ -402,6 +410,9 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 		selected := live.Battle.RewardCards[command.Phase][session.selectedCharacterID]
 		if selected != nil && selected.Plan.Fingerprint == command.Fingerprint && selected.Card == command.Card {
 			selected.Committed = true
+			if flow := live.Battle.RewardFlow[command.Phase]; flow != nil {
+				markCurrentAntonPartyCommittedLocked(flow, time.Now())
+			}
 		}
 	}
 	s.raidMu.Unlock()

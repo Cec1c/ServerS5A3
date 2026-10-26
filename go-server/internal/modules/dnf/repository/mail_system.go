@@ -11,7 +11,11 @@ import (
 
 var ErrSystemMailInvalid = errors.New("system mailbox delivery is invalid")
 
-// SystemMailDelivery is a server-owned mail created by a
+// SystemMailCreationAnchor records the server-owned delivery producer. Old
+// envelopes without this evidence must not acquire a new item lifetime.
+const SystemMailCreationAnchor = "system_mail_created_at_v1"
+
+// SystemMailDelivery is a server-owned, non-expiring mail created by a
 // committed gameplay transaction. It deliberately has no player sender or
 // postage; callers must supply transaction-scoped MailboxRepository instances
 // so reward consumption and the durable mail commit together.
@@ -79,9 +83,10 @@ func AppendSystemMail(ctx context.Context, repo MailboxRepository, delivery Syst
 		CreatedAt:            now,
 		ExpireAt:             expires,
 		Metadata: map[string]string{
-			"source":      strings.TrimSpace(delivery.Source),
-			"system_mail": "true",
-			"unlimited":   "true",
+			"attachment_grant_anchor": SystemMailCreationAnchor,
+			"source":                  strings.TrimSpace(delivery.Source),
+			"system_mail":             "true",
+			"unlimited":               "true",
 		},
 	}
 	if !expires.IsZero() {

@@ -275,7 +275,9 @@ func installCurrentDungeonMonsterExperienceTestPVF(source bridgePVFSource) {
 	source["character/character.lst"] = "0 `test.chr`\n"
 	source["character/test.chr"] = "[initial value]\n[HP MAX] 100\n[MP MAX] 100\n[physical attack] 10\n" +
 		"[growtype 1]\n[HP MAX] 1\n[MP MAX] 1\n[physical attack] 1\n"
-	source[progression.ExperienceTablePath] = strings.TrimSpace(strings.Repeat("1000 ", 20))
+	// The at-cap award fixture also uses this table; prove its 90-level entry
+	// instead of relying on an already-maxed character never reading row 89.
+	source[progression.ExperienceTablePath] = strings.TrimSpace(strings.Repeat("1000 ", 90))
 	source[progression.SkillPointTablePath] = "[sp table]\n20 20\n[/sp table]\n[tp table]\n50 1\n[/tp table]\n"
 	source[progression.QuestParameterPath] = "[difficulty]\n`N` 100\n[/difficulty]\n" +
 		"[exp reward table]\n100 -1\n200 -1\n300 -1\n400 -1\n500 -1\n" +

@@ -647,6 +647,20 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				if !MailCreationAnchorsAttachment(candidate.mail) {
 					grantAnchor = time.Time{}
 				}
+				if resolution.ProjectAttachment != nil {
+					projectionAnchor := grantAnchor
+					if !mailCreationProvesNewAttachment(candidate.mail) {
+						projectionAnchor = time.Time{}
+					}
+					projection, projectErr := resolution.ProjectAttachment(attachment, projectionAnchor)
+					if projectErr != nil {
+						return fmt.Errorf("%w: attachment item=%d projection=%v", ErrMailboxAssetMismatch, attachment.ItemID, projectErr)
+					}
+					attachment, resolveErr = mailboxAttachmentWithClaimProjection(attachment, projection)
+					if resolveErr != nil {
+						return resolveErr
+					}
+				}
 				attachment, resolveErr = mailboxAttachmentWithOriginalExpiry(attachment, resolution, grantAnchor)
 				if resolveErr != nil {
 					return resolveErr

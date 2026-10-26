@@ -1,17 +1,15 @@
 # op40 严格零尾兼容
 
-当前 upper 死亡声明接受两种形状：两个 u16 坐标（4B），或坐标后恰好追加一个零 u16（6B）。非零扩展、短包、长包均拒绝。legacy 原有严格零尾裁剪保持；所有 active、角色归属、lifecycle 与回城守卫保持。
+当前 upper 入口接受 `x:u16,y:u16` 或恰好追加 `zero:u16` 的六字节请求；非零尾、短包、长包仍拒绝。所有 active、所选角色归属、lifecycle 与 town-return 守卫保持，completed 的首次/迟到死亡仍拒绝。legacy 原有零尾裁剪保持。
 
-精确 v150 SHA256 `f781c423eaad8ccdb0327a864d525f0ee0436663399eb809a09aa08bf390e61b` 的 `2771A62` sender 在非15h分支 `2771B02` 追加零，`2771F95` 经真实 u16 writer 写入；另一路 `2D70011` 只写两个坐标。非零扩展可能携带相关对象，不能当填充丢弃。证据来自有界离线原始指令执行；模式/对象/坐标来源为夹具，未验证真实客户端调度、socket 或 GUI。
+原生依据为精确 v150 EXE SHA256 `f781c423eaad8ccdb0327a864d525f0ee0436663399eb809a09aa08bf390e61b`：`2771A62` 构造 op40，非 15h 分支 `2771B02` 追加零，`2771F95` 经真实 u16 writer 写出；另一路 `2D70011` 只有两个坐标。非零扩展可能来自相关对象，不将它解释成无用填充。原始指令验证的模式查询/对象/坐标来源是夹具，未运行 GUI/真实发送；不能据此确定现场模式。
 
-公开 master 基底没有已接受死亡跨 completed 状态后继续复活的能力。此次只改 op40 包形状，不移入该额外能力；测试明确保留 completed/op40 与 completed/op41 拒绝。active 重复死亡保持既有 rearm/重发通知行为，只有一个活计时器，旧回调失效；不是新增通知幂等或死亡代次证明。
+完整 handler 回归使用内存 repository、合成普通副本与 fake timer，无私有 PVF、EXE、数据库或绝对路径依赖。新增测试覆盖两种合法形状、长度/非零尾/class、owner/completed、重复死亡计时器代次、复活扣币、保存失败及恢复。current/legacy 两入口分别在 `DNFBRIDGE_PARTY_DEATH_RETURN_ROOM_TRANSITION` 空值/keep/legacy 下验证准入与十秒回城冻结原点，测试自行设置并恢复环境。无并行全局环境写入。
 
-完整入口测试使用公开仓库已有内存 repository、合成普通副本和 fake timer，无私有资源、绝对路径、外部数据库依赖。current/legacy 两入口都覆盖环境 `DNFBRIDGE_PARTY_DEATH_RETURN_ROOM_TRANSITION` 空值/keep/legacy，使用 `t.Setenv` 自动恢复。
-
-从 `go-server` 运行：
+在 `go-server` 使用任意可用 Go 命令运行：
 
 ```text
-go test -buildvcs=false -count=1 -timeout=180s -run '^Test(R148Death|CurrentDungeon(DieCharacter|Death|UseCoin)|LegacyDungeonDieCharacter)' ./internal/services/dnfbridge
+go test -buildvcs=false -count=1 -timeout=180s -run '^Test(R148Death|R146Death|R134Completed|CurrentDungeon(DieCharacter|Death|UseCoin)|LegacyDungeonDieCharacter)' ./internal/services/dnfbridge
 ```
 
-测试覆盖4B/6zero、非法包/class、owner、完成态、复活扣币、保存失败及恢复、计时器代次与冻结城镇原点。P126迟到死亡、active复活后旧声明与新死亡区分、史诗未拾提示和客户端界面仍未解决。
+重复 op40 保持既有 rearm/重复通知语义，只有一个活计时器，旧 callback 失效；不是新通知去重或 nonce 幂等方案。已复活后在 active 内到达的相同 op40 仍不能区分新死亡与旧声明，本次没有建立新的生命证明。完成后保留的既有死亡 owner 可复活的 R134 规则不变。本项不修复 P126 迟到死亡，不证明史诗未拾提示或客户端界面恢复。
