@@ -7,6 +7,10 @@ import (
 
 type nativePeerBuffInspectKey struct{}
 
+// Inspection needs all learned levels, including weapon masteries. The
+// separate Buff carrier still serializes only its selected registration.
+type nativePeerProfileSkillsKey struct{}
+
 // Only the selected Buff skill is needed to render its learned base level.
 // Do not include the target's other learned skills or account metadata.
 func (r *csharpLegacyUserInfoReader) writeNativePeerBuffSkillPage(w *packetWriter) {

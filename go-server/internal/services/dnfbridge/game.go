@@ -21,6 +21,7 @@ import (
 )
 
 type gameSession struct {
+	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending
 	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
