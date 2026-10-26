@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -20,6 +21,9 @@ import (
 )
 
 type gameSession struct {
+	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
+	professionChangeMu                  sync.Mutex
+	professionChangePending             *currentProfessionChangePending
 	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
 	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
 	pvpClientGameType                   uint32                                // 本次客户端选择的匹配类型，原子读取与更新。
@@ -31,6 +35,8 @@ type gameSession struct {
 	guildBuffs                          guildBuffProjection
 	guild                               guildSessionState
 	initialTownGuildStateProjectionSent bool
+	guildEssenceLoginRetry              boundGameSessionCharacter // protected by townMu; exact failed login generation
+	guildContributionLoginRetry         boundGameSessionCharacter // protected by townMu; same completed-login event
 	pendingTitleEnchantCharacterID      uint16
 	pendingTitleEnchantRow              *currentItemListEntry
 	pendingGuardianGemCharacterID       uint16
@@ -49,10 +55,14 @@ type gameSession struct {
 	accountFromPID bool
 	// accountFromToken 表示账号来自启动器登录令牌，这是唯一权威来源。
 	accountFromToken bool
+	loginRevoked     atomic.Bool // A successful replacement fences all subsequent work.
 	// loginTokenSeen 表示登录包里确实读到了 32 位十六进制令牌（无论是否解析出账号）。
 	loginTokenSeen bool
 	// loginPacketSeen 表示客户端已经交过 class1/op1 登录包：此后账号不会再变。
 	loginPacketSeen bool
+	// 只在令牌已验证后设置，用于关联同一登录会话的明确换线交接，不作为账号认证。
+	loginChannelFlowKey [32]byte
+	channelExitHandoff  *currentAuthenticatedChannelHandoff
 	// sharedAccountFallbackReason 记录"为什么会落到共享兜底账号"，
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
@@ -60,6 +70,7 @@ type gameSession struct {
 	sharedAccountWarnOnce sync.Once
 	channel               channelcatalog.Channel
 	residentChannel       channelcatalog.Channel
+	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
 	packetSeq             uint64
 	sequence              uint32
 	upperSeq              uint16
@@ -68,8 +79,9 @@ type gameSession struct {
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
-	wireMu sync.Mutex
-	dproto dproto.Session
+	wireMu            sync.Mutex
+	dproto            dproto.Session
+	channelSceneBatch *currentChannelSceneBatch // 仅普通换线；wireMu保护。
 
 	// Image-communication identity is guarded by townMu. Scene resets advance
 	// its generation; the nonce belongs only to this connection.
@@ -218,6 +230,9 @@ type gameSession struct {
 	preDungeonContextPlayerStateSent     bool
 	snakeDungeonSkillInfo                *currentSnakeDungeonSkillInfo
 	postStartMapPlayerStateSent          bool
+	// 成功写出主背包容器的角色。场景门重置不销毁客户端的全局主背包；
+	// 7142转职窗口在体验期间保留其中的物品指针，不能随入图重新创建。
+	selectedMainInventoryCharacterID uint16
 	// dungeonPartySlotTableSentOnStartMap 记录"本次 start-map（op29）提交里，class0/op9
 	// kind0 槽位表已经发过一条"（厂商形状的房间槽位表，见 dungeon_party_room_slot_table.go）。
 	// 进图那一次提交里既有的 `…_post_start_map` 名册帧据此让位
@@ -241,6 +256,7 @@ type gameSession struct {
 	postFinishLoadingPlayerStateSent   bool
 	returnTownFinishLoadingAckOnly     bool
 	confirmedDungeonReturnStatePending bool
+	selectorReturnPresence             *currentSelectorReturnPresence // guarded by dungeon.mu
 	initialTownRouteCharacterID        uint16
 	initialTownRouteStage              currentInitialTownRouteStage
 	initialTownActorSceneSnapshotSent  bool
@@ -331,7 +347,11 @@ type gameSession struct {
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.
-	equipmentProjectionMu          sync.Mutex
+	equipmentProjectionMu sync.Mutex
+	// Serializes the final cross-scene profile write with appearance invalidation.
+	// No repository work is performed while this mutex is held.
+	crossSceneAppearanceMu         sync.Mutex
+	crossSceneAppearanceRevision   uint64
 	avatarAppearanceMu             sync.Mutex
 	avatarAppearanceLastAt         time.Time
 	avatarAppearanceTimer          string
@@ -416,14 +436,15 @@ type petGrowthClockState struct {
 }
 
 // townPostTransitionState 持有城镇入场后过渡流程的会话状态。
-// mu 守护过渡代数、角色、属主频道、阶段与来源标记，arm/推进/归零时机保持不变。
+// mu 守护过渡代数、角色、属主频道、阶段、投影策略与来源标记。
 type townPostTransitionState struct {
-	mu           sync.Mutex
-	generation   uint64
-	characterID  uint16
-	ownerChannel byte
-	stage        currentTownPostTransitionStage
-	source       string
+	mu                  sync.Mutex
+	generation          uint64
+	characterID         uint16
+	ownerChannel        byte
+	stage               currentTownPostTransitionStage
+	omitSceneActivation bool
+	source              string
 }
 
 // dungeonSessionState 持有单个地下城运行周期的会话状态。

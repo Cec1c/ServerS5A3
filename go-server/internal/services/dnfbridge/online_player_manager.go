@@ -669,9 +669,10 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 	townID byte,
 	areaID byte,
 	source string,
-) {
+	expected ...*currentSelectorReturnPresence,
+) bool {
 	if s == nil || s.onlinePlayers == nil || session == nil || session.selectedCharacterID == 0 {
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -686,7 +687,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 			"area_id", areaID,
 			"source", source,
 			"reason", "character_unavailable")
-		return
+		return false
 	}
 	session.townMu.Lock()
 	position := session.townPositionSnapshot
@@ -704,7 +705,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 		if err != nil {
 			s.logGameEvent(session, "game-dungeon-return-guild-hall-rejected", "source", source, "error", err)
 			s.retireCurrentGuildHallPresence(session)
-			return
+			return false
 		}
 	}
 	raidBattle := ""
@@ -755,7 +756,16 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 	}
 	raidInstance, raidBattle, admitted, releaseRaid := s.lockCurrentAntonWaitingAreaScope(session, townID, areaID)
 	if !admitted {
-		return
+		return false
+	}
+	if len(expected) > 0 {
+		owner := expected[0]
+		if owner == nil || owner.raidKey != raidInstance || owner.battleID != raidBattle ||
+			owner.channelID != session.channel.ID || owner.identity.character != characterID ||
+			!s.boundGameSessionCharacterCurrent(owner.identity) {
+			releaseRaid()
+			return false
+		}
 	}
 	if raidInstance != 0 {
 		playerInfo.Instance = raidInstance
@@ -803,6 +813,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 		"same_area_peers", len(newOthers),
 		"party_id", partyStateAfter.PartyID,
 		"source", source)
+	return true
 }
 
 // broadcastTownPlayerEnter sends each remote actor's current typed mode0,

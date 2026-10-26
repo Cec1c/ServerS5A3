@@ -462,8 +462,9 @@ func characterStatMirrorValue(record repository.CharacterRecord, key string, fal
 	if !ok {
 		return fallback
 	}
-	// 技能页的-1有明确协议语义，不能被通用无符号夹取变回已解锁的0。
-	if key == "skill_tree_index" && value == -1 {
+	// 技能页未解锁和晶体契约未选择均用-1，不能被通用夹取变为0。
+	// 晶体选择的0是黑色晶块；取消和后续普通属性保存都必须保留-1。
+	if value == -1 && (key == "skill_tree_index" || key == mysqlCharacterCrystalSelectionStatColumn) {
 		return -1
 	}
 

@@ -1,5 +1,9 @@
 package worldmap
 
+// DungeonUseFatigueOnlyStartKey is the DGN declaration whose integer payload
+// charges fatigue once when a dungeon run starts instead of once per room.
+const DungeonUseFatigueOnlyStartKey = "use fatigue only start dungeon"
+
 var dungeonCoreSections = stringSet(
 	"name", "explain", "cutscene image", "minimap image", "entering title",
 	"minimum required level", "basis level", "experience increasing point", "background pos",
@@ -36,7 +40,7 @@ var dungeonFlagSections = stringSet(
 	"powerwar dungeon", "risk dungeon", "ancient dungeon", "event dungeon",
 	"crack of dimension dungeon", "disable exit", "individual map movement",
 	"open door even enemy", "move map even enemy", "enter without fatigue",
-	"use fatigue only start dungeon", "special dungeon", "kronos dungeon", "sao dungeon",
+	DungeonUseFatigueOnlyStartKey, "special dungeon", "kronos dungeon", "sao dungeon",
 	"no check enter boss room", "no giveup panalty", "boss mark disable", "enable apc stackable",
 	"movable even boss die", "ignore clear effect and sound", "dont kill mob when boss die",
 	"remove dungeon score and rank", "no revival timer limit", "multi start point",

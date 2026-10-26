@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/guild"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -57,6 +58,14 @@ func (s *Service) handleTownSetUserArea(session *gameSession, body []byte) error
 // 原生 op36 请求需要任务提示；药剂、单人传送和团本内部移动由各自流程负责反馈，
 // 复用移动逻辑时关闭此提示，避免给其他命令额外发送 op36 失败包。
 func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, body []byte, notifyQuestFailure bool) error {
+	return s.handleTownSetUserAreaWithCommit(session, body, notifyQuestFailure, nil)
+}
+
+func (s *Service) handleTownSetUserAreaAfterGuildTeleport(session *gameSession, body []byte, destination guild.TeleportLocation) error {
+	return s.handleTownSetUserAreaWithCommit(session, body, false, &destination)
+}
+
+func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []byte, notifyQuestFailure bool, committed *guild.TeleportLocation) error {
 	if session == nil {
 		return nil
 	}
@@ -168,6 +177,10 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		s.logTownSetUserAreaBlocked(session, request, "selected_character_location_missing")
 		return nil
 	}
+	if committed != nil && guild.CharacterTeleportLocation(character) != *committed {
+		// A later scene change already won; never replay an old committed trip.
+		return nil
+	}
 	areaInstance, err := s.currentTownAreaInstance(ctx, session, character, area.MapPath)
 	if err != nil {
 		s.logTownSetUserAreaBlocked(session, request, "guild_hall_requires_current_owned_membership")
@@ -267,7 +280,7 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	character.Stats["pos_y"] = int64(request.PositionY)
 	character.Stats["direction"] = int64(request.Direction)
 	character.UpdatedAt = time.Now().UTC()
-	if !isPVPChannel(session.channel) && !isCurrentFiendWarChannel(session) {
+	if committed == nil && !isPVPChannel(session.channel) && !isCurrentFiendWarChannel(session) {
 		if err := dnfrepo.SaveCharacterFields(ctx, repositories.Character, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
 		}
@@ -313,7 +326,7 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		return err
 	}
 	rollbackLocation := func(writeErr error) error {
-		if isPVPChannel(session.channel) || isCurrentFiendWarChannel(session) {
+		if committed != nil || isPVPChannel(session.channel) || isCurrentFiendWarChannel(session) {
 			return writeErr
 		}
 		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), createWriteTimeout)

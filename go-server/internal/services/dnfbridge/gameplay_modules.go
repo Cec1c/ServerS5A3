@@ -4,6 +4,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	aikenUpgradeGameplayModule(),
 	guildCompoundGameplayModule(),
 	guildGameplayModule(),
+	guildPartyTeleportGameplayModule(),
 	auctionGameplayModule(),
 	pvpGameplayModule(),
 	npcShopGameplayModule(),
@@ -12,6 +13,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	premiumGameplayModule(),
 	experienceItemGameplayModule(),
 	levelUpTicketGameplayModule(),
+	professionChangeGameplayModule(),
 	inventoryGameplayModule(),
 	skillGameplayModule(),
 	equipmentDisjointGameplayModule(),
@@ -55,5 +57,6 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	collectboxGameplayModule(),
 	chronicleRefineGameplayModule(),
 	webViewerGameplayModule(),
+	attendanceMarbleGameplayModule(),
 	fiendWarGameplayModule(),
 )

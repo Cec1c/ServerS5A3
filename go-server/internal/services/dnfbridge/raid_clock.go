@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -79,7 +80,7 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 		if b.PhaseCompleted {
 			if !b.Single && b.Phase == 0 && b.RewardFlow[0] != nil && !b.RewardFlow[0].BreakUntil.IsZero() && !now.Before(b.RewardFlow[0].BreakUntil) {
 				started, err := s.beginCurrentAntonNextPhaseLocked(state, now)
-				if err != nil {
+				if err != nil && !stderrors.Is(err, errCurrentRaidMembersOutsideWaitingArea) {
 					errors = append(errors, err)
 				}
 				if started {

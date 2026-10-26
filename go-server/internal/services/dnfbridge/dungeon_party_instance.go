@@ -113,6 +113,8 @@ type partyDungeonDoorArrivalKey struct {
 // 读改写与其它实例内共享状态同锁序（session.dungeon.mu → instance.mu）。
 // 见 dungeon_party_card_flip_projection.go。
 type dungeonPartyInstance struct {
+	guildRankingRun           *currentGuildRankingRun
+	guildContributionRun      *currentGuildContributionRun
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 

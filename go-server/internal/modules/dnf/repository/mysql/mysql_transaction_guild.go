@@ -9,15 +9,35 @@ import (
 type mysqlGuildUnitOfWork struct{ router mysqlRouter }
 
 func (u *mysqlGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, apply)
+	return u.withinGuild(ctx, owners, false, false, "", apply)
+}
+
+func (u *mysqlGuildUnitOfWork) WithinGuildTravel(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, true, "", apply)
+}
+
+func (u *mysqlGuildUnitOfWork) WithinGuildDungeonEntry(ctx context.Context, owners []repository.GuildOwner, receiptScope string, apply func(repository.Group) error) error {
+	if !repository.ValidGuildDungeonEntryReceiptScope(receiptScope) {
+		return repository.ErrGuildTransaction
+	}
+	return u.withinGuild(ctx, owners, false, false, receiptScope, apply)
 }
 
 func (u *mysqlGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, apply)
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, "", apply)
 }
 
-func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory bool, apply func(repository.Group) error) error {
-	ordered, err := repository.GuildOwners(owners)
+func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel bool, receiptScope string, apply func(repository.Group) error) error {
+	var ordered []repository.GuildOwner
+	var err error
+	switch {
+	case receiptScope != "":
+		ordered, err = repository.GuildDungeonEntryOwners(owners)
+	case travel:
+		ordered, err = repository.GuildTravelOwners(owners)
+	default:
+		ordered, err = repository.GuildOwners(owners)
+	}
 	if err != nil {
 		return err
 	}
@@ -58,8 +78,16 @@ func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposit
 	if withInventory {
 		group = repository.GuildInventoryScopedGroup(newMySQLGroupFromRouter(router, false), ordered[0])
 	}
+	if receiptScope != "" {
+		group.Settings = repository.GuildDungeonEntrySettings(newMySQLGroupFromRouter(router, false).Settings, receiptScope)
+	}
 	if _, _, err = group.Settings.Load(ctx, repository.GuildRegistryScope); err != nil {
 		return err
+	}
+	if receiptScope != "" {
+		if _, _, err = group.Settings.Load(ctx, receiptScope); err != nil {
+			return err
+		}
 	}
 	for _, owner := range ordered {
 		if _, _, err = group.Character.Load(ctx, owner.CharacterID); err != nil {

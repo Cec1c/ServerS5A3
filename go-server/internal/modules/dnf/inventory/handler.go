@@ -1667,9 +1667,16 @@ func noopGateSuffix(result dnfequip.MoveResult) string {
 func buildSortRefreshBody(ctx context.Context, settings dnfrepo.SettingsRepository, result SortResult) ([]byte, bool) {
 	switch result.ListType {
 	case listTypeMain, listTypePersonalCargo, listTypeAvatar:
-		state, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
-		if err != nil || !found {
-			state = dnfrepo.CharacterContainerState{}
+		state := dnfrepo.CharacterContainerState{}
+		if result.ContainerStateLoaded {
+			if result.ContainerState != nil {
+				state = *result.ContainerState
+			}
+		} else {
+			loaded, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
+			if err == nil && found {
+				state = loaded
+			}
 		}
 		return buildCommonItemListRefreshBodyWithState(result.ListType, result.Refresh, state), true
 	case listTypePet:
@@ -1881,6 +1888,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	applied.ItemUsageChanged = result.ItemUsageChanged
 	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
 		result.PreviousCount-result.RemainingCount == 1 {
 		applied.StackableConsumption = &alignedcmd.StackableConsumption{

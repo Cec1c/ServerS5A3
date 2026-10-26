@@ -327,6 +327,17 @@ func (s *Service) applyItemSlotFamilyGuard(
 	if s == nil || session == nil {
 		return false, nil
 	}
+	// Log mode has no gameplay effect. With no packet-event sink, loading the
+	// entire inventory here only duplicates the owner's transactional read.
+	// Enforce mode still performs its check regardless of logging state.
+	if mode == itemSlotFamilyGuardLog {
+		s.mu.Lock()
+		logging := s.packetLog != nil
+		s.mu.Unlock()
+		if !logging {
+			return false, nil
+		}
+	}
 	request, err := dnfinventory.DecodeMoveItemspaceRequest(body)
 	if err != nil {
 		return false, nil
