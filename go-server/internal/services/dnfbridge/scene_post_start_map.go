@@ -578,6 +578,9 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	}
 
 	session.postStartMapPlayerStateSent = true
+	if err := s.armCurrentCrystalContractTimer(session, runtime); err != nil {
+		s.logGameEvent(session, "晶体契约-进图排程失败", "error", err)
+	}
 	session.sceneBootstrapTailDeferred = false
 	session.sceneBootstrapTailSent = true
 	minimumPacketCount := currentSceneOverseerPageCount + 13
