@@ -147,12 +147,25 @@ func TestRealPVFRaidWaitingAreaOwnershipAndFiendWarStart(t *testing.T) {
 func TestRealPVFFiendWarStartOutsideWaitingAreaOnlySendsFailure(t *testing.T) {
 	f, peers := raidStartWaitingFixture(t, 2)
 	f.service.onlinePlayers.LeaveArea(peers[1].selectedCharacterID)
+	before := cloneRuntimeRaidState(*f.state)
+	bags := raidWaitingInventories(t, f)
+	for _, peer := range peers {
+		peer.conn.(*bufferConn).write.Reset()
+	}
 	if err := f.service.handleOnlineStartRaid(peers[0], 666, nil); err != nil {
 		t.Fatal(err)
 	}
-	packet, rest := splitGameServerUpperPacket(t, f.conn.write.Bytes())
+	packet, rest := splitGameServerUpperPacket(t, peers[0].conn.(*bufferConn).write.Bytes())
 	if packet.Header.MsgID != 666 || packet.Header.Classification != 1 || len(packet.Body) == 0 || packet.Body[0] != 0 || len(rest) != 0 || f.state.Started || f.state.Battle != nil {
 		t.Fatal("站位拒绝后发送了开始/战况/扣费刷新包")
+	}
+	for _, peer := range peers[1:] {
+		if peer.conn.(*bufferConn).write.Len() != 0 {
+			t.Fatal("站位拒绝向队员发送了状态包", peer.selectedCharacterID)
+		}
+	}
+	if !reflect.DeepEqual(before, *f.state) || !reflect.DeepEqual(bags, raidWaitingInventories(t, f)) {
+		t.Fatal("站位拒绝后改动了战斗或门票")
 	}
 }
 

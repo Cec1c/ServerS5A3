@@ -229,8 +229,15 @@ func TestRealPVFSingleAntonHPStaleAuthorityAndPartialWrite(t *testing.T) {
 				f.state.Members = nil
 			case "generation":
 				replacement := f.session()
+				replacement.conn = &bufferConn{}
 				replacement.loginPacketSeen, replacement.accountFromToken = true, true
 				f.service.bindGameSessionCharacter(replacement, 19)
+				// Binding alone preserves the resident owner until the scene
+				// transition promotes the replacement connection.
+				f.service.promoteResidentGameSession(replacement, 19)
+				if _, current := f.service.boundGameSessionCharacterSnapshot(replacement); !current || replacement.characterGeneration == session.characterGeneration {
+					t.Fatal("replacement connection did not acquire a new authoritative generation")
+				}
 			case "partial":
 				partial = &antonPartialWriteConn{Conn: session.conn}
 				session.conn = partial
