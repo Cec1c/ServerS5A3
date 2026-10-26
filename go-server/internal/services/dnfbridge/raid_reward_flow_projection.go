@@ -67,17 +67,10 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			// Native kind3 populates category2 only; it cannot reveal the
 			// committed party items in category0. Restore both displays from
 			// their committed plans, without repeating either asset grant.
-			var visible map[uint16]bool
-			if lukeFinal {
-				visible = s.currentRaidPartyRewardDisplayMembers(session, state)
-			}
+			visible := s.currentRaidPartyRewardDisplayMembers(session, state)
 			var partyCards []raid.RewardDisplayCard
 			for _, recipient := range f.Recipients {
-				if lukeFinal {
-					if !visible[recipient.CharacterID] {
-						continue
-					}
-				} else if recipient.Group != owner.Group {
+				if !visible[recipient.CharacterID] {
 					continue
 				}
 				card := f.Party[recipient.CharacterID]
@@ -98,11 +91,11 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		if owner != nil {
 			var cards []raid.RewardDisplayCard
 			var visible map[uint16]bool
-			if lukePartyOnly {
+			if lukePartyOnly || fiendWar {
 				visible = s.currentRaidPartyRewardDisplayMembers(session, state)
 			}
 			for _, recipient := range f.Recipients {
-				if lukePartyOnly {
+				if lukePartyOnly || fiendWar {
 					if !visible[recipient.CharacterID] {
 						continue
 					}
