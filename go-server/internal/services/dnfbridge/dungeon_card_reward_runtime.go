@@ -76,6 +76,10 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if err != nil {
 		return err
 	}
+	dimensionCatalog, err = currentRuntimeDimensionDrops(dimensionCatalog, runtime)
+	if err != nil {
+		return err
+	}
 	_, dimensionChronicleActive := currentDungeonDimensionTier(dimensionCatalog, runtime.Dungeon.ID, runtime.Character.Level)
 	dimensionChronicleActive = dimensionChronicleActive && len(dimensionCatalog.ChronicleByCareer) > 0
 	now := s.gameplayNow().UTC()

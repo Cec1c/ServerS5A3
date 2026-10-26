@@ -26,6 +26,10 @@ type currentRiftLootDefinition struct {
 // PVF scopes separate item pools with [dungeon]/[index]/[item list]. Never
 // borrow another dungeon's pool or synthesize an equipment/piece identifier.
 func parseCurrentRiftLoot(text string) (currentRiftLootDefinition, error) {
+	return parseCurrentParticularHellLoot(text, currentRiftDungeonID)
+}
+
+func parseCurrentParticularHellLoot(text string, dungeonID int64) (currentRiftLootDefinition, error) {
 	doc, err := dnfpvf.Parse("etc/particularhellparty.etc", text)
 	if err != nil {
 		return currentRiftLootDefinition{}, err
@@ -48,7 +52,7 @@ func parseCurrentRiftLoot(text string) (currentRiftLootDefinition, error) {
 				}
 			}
 		case "item list":
-			if index != currentRiftDungeonID {
+			if index != dungeonID {
 				continue
 			}
 			for _, token := range dungeonPVFSectionTokens(doc, section) {
@@ -64,7 +68,7 @@ func parseCurrentRiftLoot(text string) (currentRiftLootDefinition, error) {
 		}
 	}
 	if len(definition.Equipment) == 0 {
-		return definition, fmt.Errorf("rift dungeon 316 equipment pool missing")
+		return definition, fmt.Errorf("particular hell dungeon %d equipment pool missing", dungeonID)
 	}
 	return definition, nil
 }

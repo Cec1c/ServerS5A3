@@ -46,6 +46,10 @@ func (s *Service) planPartyDungeonMonsterDrops(session *gameSession, runtime *ru
 	if err != nil {
 		return nil, err
 	}
+	dimension, err = currentRuntimeDimensionDrops(dimension, runtime)
+	if err != nil {
+		return nil, err
+	}
 	_, dimensionMatched := currentDungeonDimensionTier(dimension, runtime.Dungeon.ID, runtime.Character.Level)
 	var all []currentDungeonDeathDropWire
 	for _, recipient := range recipients {
