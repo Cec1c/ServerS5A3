@@ -17,13 +17,14 @@ var errR195CacheEntryCommit = errors.New("r195 cache entry commit injection")
 // Delegate to the actual memory unit of work and actual domain callback. Only
 // fail after its transaction-local inventory has been updated, before commit.
 type r195CacheEntryCommitGate struct {
-	base       dnfrepo.CharacterItemUnitOfWork
-	table      *worldmap.Table
-	fail       bool
-	calls      int
-	staged     int
-	injections int
-	lastErr    error
+	base         dnfrepo.CharacterItemUnitOfWork
+	table        *worldmap.Table
+	fail         bool
+	calls        int
+	staged       int
+	injections   int
+	refreshNoops int
+	lastErr      error
 }
 
 func (g *r195CacheEntryCommitGate) WithinCharacterItems(ctx context.Context, characterID string, apply func(dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
@@ -35,15 +36,26 @@ func (g *r195CacheEntryCommitGate) WithinCharacterItems(ctx context.Context, cha
 			return fmt.Errorf("entry transaction ran before successful cached map preparation: %+v", snap)
 		}
 		before, found, err := inventories.Load(ctx, characterID)
-		if err != nil || !found || before.Slots["0:0"].Count != 2 {
+		if err != nil || !found || before.Slots["0:0"].ItemID != 4726 || (before.Slots["0:0"].Count != 2 && before.Slots["0:0"].Count != 1) {
 			return fmt.Errorf("unexpected pre-consume inventory: found=%t count=%d err=%v", found, before.Slots["0:0"].Count, err)
 		}
+		before = dnfrepo.CloneInventory(before)
 		if err := apply(inventories, equipment); err != nil {
 			return err
 		}
 		after, found, err := inventories.Load(ctx, characterID)
 		if err != nil || !found || after.Slots["0:0"].ItemID != 4726 || after.Slots["0:0"].Count != 1 {
 			return fmt.Errorf("real consume callback did not stage exactly one ticket: found=%t stack=%+v err=%v", found, after.Slots["0:0"], err)
+		}
+		// The successful ticket refresh also runs MigrateReviveCoinWallet via
+		// CharacterItems. This fixture has no legacy coins, so that callback
+		// must leave the whole inventory unchanged after the two consume attempts.
+		if before.Slots["0:0"].Count == 1 {
+			if g.fail || g.staged != 2 || g.injections != 1 || !reflect.DeepEqual(before, after) {
+				return fmt.Errorf("post-consume refresh was not an inventory no-op: before=%+v after=%+v", before, after)
+			}
+			g.refreshNoops++
+			return nil
 		}
 		g.staged++
 		if g.fail {
@@ -114,7 +126,7 @@ func TestR195CachePreparedMapTicketTransactionFailurePreservesAssetsAndRetry(t *
 	if err := s.handleDungeonSelectUpper(session, body); err != nil {
 		t.Fatal(err)
 	}
-	if gate.calls != 1 || gate.staged != 1 || gate.injections != 1 || !errors.Is(gate.lastErr, errR195CacheEntryCommit) {
+	if gate.calls != 1 || gate.staged != 1 || gate.injections != 1 || gate.refreshNoops != 0 || !errors.Is(gate.lastErr, errR195CacheEntryCommit) {
 		t.Fatalf("late transaction fault not reached: calls=%d staged=%d injections=%d err=%v", gate.calls, gate.staged, gate.injections, gate.lastErr)
 	}
 	// Reuse the exact refusal/scene-progress contract, including no trailing start
@@ -149,8 +161,8 @@ func TestR195CachePreparedMapTicketTransactionFailurePreservesAssetsAndRetry(t *
 	if err := s.handleDungeonSelectUpper(session, body); err != nil {
 		t.Fatal(err)
 	}
-	if gate.calls != 2 || gate.staged != 2 || gate.injections != 1 || gate.lastErr != nil {
-		t.Fatalf("retry did not commit once: calls=%d staged=%d injections=%d err=%v", gate.calls, gate.staged, gate.injections, gate.lastErr)
+	if gate.calls != 3 || gate.staged != 2 || gate.injections != 1 || gate.refreshNoops != 1 || gate.lastErr != nil {
+		t.Fatalf("retry did not commit once with one unchanged wallet refresh: calls=%d staged=%d injections=%d refreshNoops=%d err=%v", gate.calls, gate.staged, gate.injections, gate.refreshNoops, gate.lastErr)
 	}
 	afterInventory, found, err = repos.Inventory.Load(ctx, "99")
 	if err != nil || !found || afterInventory.Slots["0:0"].Count != 1 {
