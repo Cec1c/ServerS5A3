@@ -49,6 +49,12 @@ func buildCurrentGuildGuardianSnapshot(g *guild.Guild) ([]byte, error) {
 		return nil, err
 	}
 	body := buildCurrentGuildEssenceSnapshot(g.Essence)
+	if err := g.Placements.Validate(); err != nil {
+		return nil, err
+	}
+	for i, cost := range currentGuildPlacementCosts(g) {
+		binary.LittleEndian.PutUint32(body[0x852+4*i:], cost)
+	}
 	for index := uint8(0); index < 2; index++ {
 		level, err := guild.MerchantLevel(g, index)
 		if err != nil {
@@ -81,6 +87,9 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	if !s.options.guildEssenceEnabled {
 		return nil
 	}
+	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	session.guild.placement.mu.Lock()
+	defer session.guild.placement.mu.Unlock()
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Settings == nil {
 		return guild.ErrRepositoryUnavailable
@@ -95,6 +104,25 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	body, err := buildCurrentGuildGuardianSnapshot(g)
 	if err != nil {
 		return err
+	}
+	if bound && !s.boundGameSessionCharacterCurrent(identity) {
+		return guild.ErrCharacterNotFound
+	}
+	if bound {
+		p := &session.guild.placement
+		// Initialize the guardian/merchant scene before 191 copies its tail.
+		// Incremental 777 packets run first so maintenance-only changes do not
+		// trigger a second full-base rebuild in 1297.
+		initial := g == nil || p.identity != identity || p.guildID != g.ID || p.rows == nil
+		if initial {
+			if err = s.sendGameUpperRawClass(session, 1297, body, 0); err != nil {
+				return err
+			}
+			return s.writeCurrentGuildPlacementProjectionLocked(session, g, identity)
+		}
+		if err = s.writeCurrentGuildPlacementProjectionLocked(session, g, identity); err != nil {
+			return err
+		}
 	}
 	return s.sendGameUpperRawClass(session, 1297, body, 0)
 }

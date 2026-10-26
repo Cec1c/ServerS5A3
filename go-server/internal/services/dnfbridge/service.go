@@ -54,6 +54,7 @@ type Service struct {
 	guildContributionCatalog     *dnfguild.ContributionCatalog     // guarded by guildDungeonCatalogMu
 	guildHongbaoCatalog          *dnfguild.HongbaoCatalog          // guarded by guildDungeonCatalogMu
 	guildMerchantPurchaseCatalog *dnfguild.MerchantPurchaseCatalog // guarded by guildDungeonCatalogMu
+	guildPlacementCatalog        *guildPlacementCatalog            // guarded by guildDungeonCatalogMu
 	guildCreateMu                sync.Mutex
 	guildTeleportMu              sync.Mutex
 	channelHandoffMu             sync.Mutex
