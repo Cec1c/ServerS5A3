@@ -1,8 +1,10 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/premium"
 	doc "longheng.io/server/internal/modules/dnf/pvf"
@@ -78,10 +80,14 @@ func TestRealPVFCurrentBlackDiamondVendingAllOutcomes(t *testing.T) {
 				binary.LittleEndian.PutUint32(request, machine.id)
 				binary.LittleEndian.PutUint32(request[4:], 1)
 				binary.LittleEndian.PutUint16(request[8:], 121)
-				must(service.handleCurrentVendingMachine(session, request))
+				sendMerchantRequest(t, service, session, 215, request, uint16(index+1))
 				packets := splitAllGameServerUpperPackets(t, conn.write.Bytes())
-				if len(packets) < 1 || packets[0].Header.MsgID != 215 || len(packets[0].Body) != 25 || packets[0].Body[0] != 1 {
+				if len(packets) < 1 || packets[0].Header.MsgID != 215 || len(packets[0].Body) != 145 || packets[0].Body[0] != 1 {
 					t.Fatalf("vending outcome failed: packets=%+v", packets)
+				}
+				ack := packets[0].Body
+				if binary.LittleEndian.Uint16(ack[23:]) != 1 || ack[25] != 0 || binary.LittleEndian.Uint32(ack[28:]) != uint32(row.ID) {
+					t.Fatalf("native settlement item missing: %x", ack)
 				}
 				inventory, found, err := repos.Inventory.Load(ctx, "77")
 				must(err)
@@ -89,9 +95,19 @@ func TestRealPVFCurrentBlackDiamondVendingAllOutcomes(t *testing.T) {
 					t.Fatal("coin debit not committed")
 				}
 				var count int64
+				kind := "stackable"
 				for _, stack := range inventory.Slots {
 					if stack.ItemID == row.ID {
 						count += stack.Count
+						kind = stack.Extra["item_kind"]
+					}
+				}
+				if count > 0 {
+					slot := int16(binary.LittleEndian.Uint16(ack[26:]))
+					stack := inventory.Slots["0:"+strconv.Itoa(int(slot))]
+					entry := currentItemListEntryFromStack(0, slot, stack)
+					if !bytes.Equal(ack[26:], entry.data[:]) {
+						t.Fatalf("settlement row differs from committed inventory: %x want %x", ack[26:], entry.data)
 					}
 				}
 				if contract, automatic := contracts[row.ID]; automatic {
@@ -122,7 +138,11 @@ func TestRealPVFCurrentBlackDiamondVendingAllOutcomes(t *testing.T) {
 				}
 				if dir := os.Getenv("DNF_VENDING_NATIVE_EXPORT"); dir != "" {
 					must(os.MkdirAll(dir, 0755))
-					must(os.WriteFile(filepath.Join(dir, fmt.Sprintf("machine%d-%d-%d.bin", machine.id, machine.coin, index)), packets[0].Body, 0644))
+					stem := filepath.Join(dir, fmt.Sprintf("machine%d-%d-%d", machine.id, machine.coin, index))
+					must(os.WriteFile(stem+".bin", packets[0].Body, 0644))
+					meta, err := json.Marshal(map[string]any{"kind": kind, "itemID": row.ID, "count": row.Count})
+					must(err)
+					must(os.WriteFile(stem+".json", meta, 0644))
 				}
 			})
 		}

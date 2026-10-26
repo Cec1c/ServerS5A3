@@ -42,4 +42,15 @@ func TestVendingRequiresBlackDiamondAndRollsBackCoinWhenRewardCannotFit(t *testi
 	if result.CoinRemaining != 1 || result.RewardSlot != 11 || inventory.Slots["0:11"].ItemID != 7463 || inventory.Slots["0:11"].Count != 4 {
 		t.Fatalf("incorrect reward commit: %+v %+v", result, inventory)
 	}
+	if result.RewardStack.ItemID != 7463 || result.RewardStack.Count != 4 {
+		t.Fatalf("missing committed settlement row: %+v", result)
+	}
+	second, e := Use(ctx, repos, cmd)
+	if e != nil {
+		t.Fatal(e)
+	}
+	inventory, _, _ = repos.Inventory.Load(ctx, "99")
+	if second.CoinRemaining != 0 || second.RewardSlot != 11 || second.RewardStack.Count != 8 || len(inventory.Slots) != 1 || inventory.Slots["0:11"].Count != 8 || result.RewardStack.Count != 4 {
+		t.Fatalf("second settlement must carry total, preserve first snapshot and remove last coin: first=%+v second=%+v inventory=%+v", result, second, inventory)
+	}
 }
