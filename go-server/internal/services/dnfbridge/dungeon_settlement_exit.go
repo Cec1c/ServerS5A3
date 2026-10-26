@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -88,6 +89,8 @@ func (s *Service) handleDungeonGiveupGame(session *gameSession, body []byte) err
 	return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketGiveupGame))
 }
 
+// handleCurrentDungeonTownExitRequest 复用完成局退场和奖励事务，保留请求编号。
+// 系统菜单132仅由普通完成局转入；其它副本保留各自的退出流程。
 func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body []byte, requestMsgID uint16) error {
 	if session == nil {
 		return nil
@@ -141,6 +144,11 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 		return nil
 	}
 	snapshot := runtime.Session.Snapshot()
+	if s.currentLukeClosedEnergyExitReady(session, runtime) {
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, requestMsgID, "current_exe_closed_luke_energy_system_return")
+	}
 	// 锦标赛终止态的出本门（本批接线）。厂商 `DungeonClearPresentationPolicy`
 	// 对 Tournament 关掉普通结算投影（`CompletesAtClearCommit`，`DungeonEventEnvelope.cs:15-25`），
 	// 客户端**不会**走 op46/op123 那套普通结算握手，所以"完成局的 op42"在锦标赛里
@@ -184,6 +192,9 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 	source := "current_exe_bodyless_op42_active_run_giveup"
 	if snapshot.Run.Status == worldmap.DungeonRunCompleted {
 		source = "current_exe_op31_completed_tutorial_or_settlement_timed_op42"
+		if requestMsgID == uint16(dnfenum.CmdPacketBack2Village) {
+			source = "current_exe_completed_op132_system_return_after_settlement"
+		}
 		completedTutorial := isPVFTutorialDungeon(runtime)
 		completedRaid := s.currentRaidCompletedMapTownReturnReady(session, runtime)
 		completedDespair := currentDespairCompletedResultExitReady(runtime, session.selectedCharacterID)
@@ -234,13 +245,20 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
 				requestMsgID, "current_exe_completed_grief_floor_op42_return_to_town")
 		}
+		if currentOrdinaryCompletedTownExitOwner(session, runtime) {
+			// 与已启动的回城路线一致：首个合法请求拥有后续确认。
+			// 42/132交错重放不能覆盖仍在等待真实牌面的42确认责任。
+			if runtime.settlementTownReturnRequestMsgID == 0 {
+				runtime.settlementTownReturnRequestMsgID = requestMsgID
+			}
+		}
 		if !completedTutorial && !completedRaid && runtime.settlementCardLayoutSent &&
 			!runtime.settlementCardSideSelectionSent[dungeonCardSideFree] {
 			if err := s.selectCurrentDungeonCardLocked(
 				session,
 				runtime,
 				dungeonCardSideFree,
-				0,
+				currentDungeonAutomaticCardIndex(session, runtime),
 				"current_exe_completed_op42_auto_flip_free_row_before_exit",
 			); err != nil {
 				s.logGameEvent(session, "game-dungeon-giveup-game-completed-auto-flip-blocked",
@@ -271,6 +289,11 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 				"reward_committed", runtime.settlementCardRewardCommitted,
 				"settlement_phase", runtime.settlementPhase.String(),
 				"reason", "current_exe_card_request_chain_not_finished")
+			if runtime.settlementTownReturnRequestMsgID != 0 {
+				s.logGameEvent(session, "翻牌期间回城请求已保留",
+					"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+					"request_msg_id", requestMsgID, "settlement_phase", runtime.settlementPhase.String())
+			}
 			session.dungeon.mu.Unlock()
 			return nil
 		}
@@ -301,6 +324,11 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 		requestMsgID,
 		source,
 	)
+	if err == nil {
+		if retreatErr := s.beginCurrentFiendWarPartyRetreatLocked(session, runtime, time.Now()); retreatErr != nil {
+			s.logGameEvent(session, "超时空整队撤退未提交", "error", retreatErr)
+		}
+	}
 	session.dungeon.mu.Unlock()
 	return err
 }

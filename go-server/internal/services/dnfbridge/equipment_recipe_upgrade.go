@@ -50,16 +50,28 @@ func currentEquipmentRecipeUpgradeDocument(entry equipmentRecipeEntry, source dn
 			return nil, errCurrentEquipmentRecipeCompoundUnsupported
 		}
 	}
+	shopPrice, err := currentHeblonOwnedUpgradeShopPrice(entry, document)
+	if err != nil {
+		return nil, err
+	}
 	plain := entry
 	plain.MaintainAbility, plain.MinimumItemmakingField = "", ""
 	plain.MaintainSocketStat, plain.MinimumItemmakingFound = false, false
 	plain.MinimumItemmakingLevel = 0
+	if shopPrice {
+		// Only the validated owned Heblon drawing treats this field as its
+		// purchase-domain price. The catalog and generic compound stay intact.
+		plain.ExtraMaterials = nil
+	}
 	if reason := currentEquipmentRecipeCompoundRejectReason(plain, nil); reason != "" {
 		return nil, fmt.Errorf("%w: %s", errCurrentEquipmentRecipeCompoundUnsupported, reason)
 	}
 	filtered := *document
 	filtered.Sections = make([]dnfpvf.Section, 0, len(document.Sections))
 	for _, section := range document.Sections {
+		if shopPrice && strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(section.Name), "/"), "need material") {
+			continue
+		}
 		switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(section.Name)), "/") {
 		case "maintain ability", "maintain socket stat", "minimum itemmaking level":
 			continue

@@ -23,11 +23,13 @@ var (
 type Assets struct {
 	AccountInventory *dnfrepo.AccountInventoryRecord
 	Inventory        *dnfrepo.InventoryRecord
+	Character        *dnfrepo.CharacterRecord
 }
 
 type Changes struct {
 	AccountInventory bool
 	Inventory        bool
+	CharacterStats   bool
 }
 
 type Projector func(*Assets) (Changes, error)
@@ -110,6 +112,7 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		if strings.TrimSpace(character.AccountID) != accountID {
 			return fmt.Errorf("%w: account=%s character=%s operation=%s", ErrAccountMismatch, accountID, characterID, operation)
 		}
+		character = dnfrepo.CloneCharacter(character)
 		inventory, found, err := inventories.Load(ctx, characterID)
 		if err != nil {
 			return err
@@ -134,9 +137,16 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		changes, err := command.Project(&Assets{
 			AccountInventory: &accountInventory,
 			Inventory:        &inventory,
+			Character:        &character,
 		})
 		if err != nil {
 			return err
+		}
+		if changes.CharacterStats {
+			character.UpdatedAt = now
+			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+				return err
+			}
 		}
 		if changes.Inventory {
 			inventory.UpdatedAt = now

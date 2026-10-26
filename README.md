@@ -10,9 +10,19 @@
 
 在 Linux 上运行游戏服务与存档，让 Windows 玩家通过登录器进入阿拉德。
 
-[构建与部署](Docs/BUILD_AND_DEPLOY.md) ｜ [PVF 与配套 EXE](https://github.com/Cec1c/ServerS5A3/releases) ｜ [登录器与 GM](https://github.com/Cec1c/PurpleMagic) ｜ [GitGud 上游](https://gitgud.io/16ww/servers5a3)
+[构建与部署](Docs/BUILD_AND_DEPLOY.md) ｜ [频道表必读](Docs/CHANNEL_TABLE_DEPLOYMENT.md) ｜ [活动开关](Docs/BUILD_AND_DEPLOY.md#当前活动开关与赛马关闭方法) ｜ [PVF 与配套 EXE](https://github.com/Cec1c/ServerS5A3/releases) ｜ [登录器与 GM](https://github.com/Cec1c/PurpleMagic)
 
 </div>
+
+> [!IMPORTANT]
+> **先选对频道表，再启动服务。** 首次 `prepare` 必须显式传入 `--channel-info`，使用[完整的 118 频道外部 ETC](go-server/internal/services/dnfbridge/testdata/channel_info.etc)，并按[频道表部署说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾出现能解析、却无法完成登录的情况；更新 PVF 时保留已选外部表，部署后核对实际加载路径、摘要和频道目录。
+
+## 当前活动开放说明
+
+> [!WARNING]
+> **截至 2026-10-22，赛马活动可能导致客户端闪退，应保持关闭，修复后另行通知。** 对应开关是 **2365「竞技大赛（马战竞猜）」**。当前源码及 Docker 模板仍默认开启，新部署要主动关闭；已有服还需核对持久化活动设置及重启后的生效值。操作见[活动开关与关闭方法](Docs/BUILD_AND_DEPLOY.md#当前活动开关与赛马关闭方法)。
+
+当前源码默认开启史诗之路、累计在线奖励、普通签到、每周签到和每日签到；新学期累计奖励、红尾乔纳森默认关闭。已有实例的环境变量和已保存设置可以覆盖默认值，完整清单与生效检查见上述说明。
 
 ## 推荐安装方法
 
@@ -27,6 +37,7 @@
 帮我在指定的 Linux 服务器部署一套 DNF90。
 服务器连接信息和 Windows 客户端目录由我提供。
 先确认机器、现有服务和客户端配套，再完成构建、配置、备份与部署。
+首次准备时显式选择118频道外部表，关闭2365赛马活动并核对实际生效状态。
 给我一个能注册、登录、选频道并启动游戏的基础登录器，
 最后留下启动、停止、备份、更新和回退方法。
 ```
@@ -35,8 +46,7 @@
 
 **`Script.pvf` 和对应版本的 `DNF.exe` 都放在 Release 附件中。** 打开 [GitHub Releases](https://github.com/Cec1c/ServerS5A3/releases) 或 [GitGud 上游 Releases](https://gitgud.io/16ww/servers5a3/-/releases)，按同一版本的说明下载配套文件。分卷附件按该版本说明下载齐全后解压。
 
-> [!IMPORTANT]
-> 客户端 EXE、PVF、频道表及相关 dstr/NPK 资源按所选 Release 配套使用。玩家客户端、游戏服务和 GM 使用的 PVF 需要一致。
+客户端 EXE、PVF 及相关 dstr/NPK 资源按所选 Release 配套使用。玩家客户端、游戏服务和 GM 使用的 PVF 需要一致；频道表按首页上方的部署要求单独核对。
 
 ## 项目里有什么
 

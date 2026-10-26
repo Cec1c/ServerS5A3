@@ -66,6 +66,7 @@ func TestCurrentAntonTwoMemberReleaseAdmission(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			enterRaidStartWaitingFixture(t, f, "")
 			state, ok, err := f.service.startRuntimeRaidWithEntryCost(session)
 			if ok != tc.allow || f.state.Started != tc.allow {
 				t.Fatal("wrong admission", ok, err, f.state.Started)

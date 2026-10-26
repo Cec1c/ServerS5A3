@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/guild"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -57,6 +58,14 @@ func (s *Service) handleTownSetUserArea(session *gameSession, body []byte) error
 // 原生 op36 请求需要任务提示；药剂、单人传送和团本内部移动由各自流程负责反馈，
 // 复用移动逻辑时关闭此提示，避免给其他命令额外发送 op36 失败包。
 func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, body []byte, notifyQuestFailure bool) error {
+	return s.handleTownSetUserAreaWithCommit(session, body, notifyQuestFailure, nil)
+}
+
+func (s *Service) handleTownSetUserAreaAfterGuildTeleport(session *gameSession, body []byte, destination guild.TeleportLocation) error {
+	return s.handleTownSetUserAreaWithCommit(session, body, false, &destination)
+}
+
+func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []byte, notifyQuestFailure bool, committed *guild.TeleportLocation) error {
 	if session == nil {
 		return nil
 	}
@@ -72,6 +81,12 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		s.logTownSetUserAreaBlocked(session, request, "selected_character_missing")
 		return nil
 	}
+	fplan, err := s.prepareCurrentFiendWarMove(session, request)
+	if err != nil {
+		s.logTownSetUserAreaBlocked(session, request, "超时空区域移动被拒绝")
+		return nil
+	}
+	defer s.cancelCurrentFiendWarMove(fplan)
 	session.dungeon.mu.Lock()
 	pendingDungeonReturn := session.dungeon.runtime != nil &&
 		session.dungeon.runtime.Session != nil &&
@@ -162,6 +177,10 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		s.logTownSetUserAreaBlocked(session, request, "selected_character_location_missing")
 		return nil
 	}
+	if committed != nil && guild.CharacterTeleportLocation(character) != *committed {
+		// A later scene change already won; never replay an old committed trip.
+		return nil
+	}
 	areaInstance, err := s.currentTownAreaInstance(ctx, session, character, area.MapPath)
 	if err != nil {
 		s.logTownSetUserAreaBlocked(session, request, "guild_hall_requires_current_owned_membership")
@@ -169,6 +188,11 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	}
 	if raidInstance != 0 {
 		areaInstance = raidInstance
+	}
+	if isCurrentFiendWarChannel(session) {
+		character = dnfrepo.CloneCharacter(character)
+		character.Stats["town_id"] = int64(session.townPositionSnapshot.TownID)
+		character.Stats["area_id"] = int64(session.townPositionSnapshot.AreaID)
 	}
 	currentTown, ok := character.Stats["town_id"]
 	if !ok {
@@ -256,7 +280,7 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	character.Stats["pos_y"] = int64(request.PositionY)
 	character.Stats["direction"] = int64(request.Direction)
 	character.UpdatedAt = time.Now().UTC()
-	if !isPVPChannel(session.channel) {
+	if committed == nil && !isPVPChannel(session.channel) && !isCurrentFiendWarChannel(session) {
 		if err := dnfrepo.SaveCharacterFields(ctx, repositories.Character, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
 		}
@@ -302,7 +326,7 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		return err
 	}
 	rollbackLocation := func(writeErr error) error {
-		if isPVPChannel(session.channel) {
+		if committed != nil || isPVPChannel(session.channel) || isCurrentFiendWarChannel(session) {
 			return writeErr
 		}
 		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -350,6 +374,9 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		"op24_body_len", len(response),
 		"sequence", "op22_user_position_then_op23_user_area_then_optional_op356_completed_quest_state_then_op24_area_users",
 		"body_source", "current_exe_op22_sub_1D83990_op23_sub_1D89590_op356_sub_1D58470_op24_sub_1D901D0")
+	if err := s.applyCurrentFiendWarMove(fplan); err != nil {
+		return rollbackLocation(err)
+	}
 	if err := s.sendCurrentTownLocationNotifications(
 		session,
 		session.selectedCharacterID,
@@ -394,9 +421,7 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 	session.initialTownRouteStage = currentInitialTownRouteIdle
 	session.initialTownLocationNotificationsSent = false
 	session.initialTownQuestSnapshotsSent = false
-	session.currentFinishLoadingStateSent = false
-	session.currentFinishLoadingCompletionSent = false
-	session.postFinishLoadingPlayerStateSent = false
+	session.setFinishLoadingGates(finishLoadingGates{})
 	session.initialTownLegacySceneReadyAccepted = false
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
@@ -547,6 +572,20 @@ func (s *Service) handleTownSetUserAreaWithQuestNotice(session *gameSession, bod
 		if err := s.sendCurrentAcceptableQuestListForSession(session, "current_exe_op36_after_dungeon_return_committed"); err != nil {
 			return err
 		}
+	}
+	if fplan != nil {
+		fplan.confirmed = true
+		if fplan.instance != "" {
+			copy := *fplan
+			session.fiendWarPendingMove = &copy
+			// Preserve the destination already committed through op24; automatic
+			// encounter admission must not wait for a new movement in that room.
+			session.townPositionSnapshot.PositionX = uint16(request.PositionX)
+			session.townPositionSnapshot.PositionY = uint16(request.PositionY)
+			session.townPositionSnapshot.MovementCode = request.Direction
+			session.townPositionSnapshot.PositionValid = true
+		}
+		s.queueCurrentFiendWarEncounterFrom(session, currentFiendWarAdmissionPhaseTownArea)
 	}
 	finishCurrentCompletedTownSceneTailAfterAreaCommitLocked(session, completedTailOwner)
 	return nil

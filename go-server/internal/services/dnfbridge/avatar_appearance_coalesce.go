@@ -83,7 +83,7 @@ func (s *Service) avatarAppearanceTrailingDelay() time.Duration {
 // scheduleTrailingAvatarAppearance 排一次尾随外观刷新；同名定时器覆盖前一次，
 // 所以一次连点只会在末尾发一帧。定时器队列不可用时返回 false，调用方回退成同步发送，
 // 绝不出现"完全不刷新"的回退。
-func (s *Service) scheduleTrailingAvatarAppearance(session *gameSession, operation string) bool {
+func (s *Service) scheduleTrailingAvatarAppearance(session *gameSession, operation string, committedWear bool) bool {
 	if s == nil || session == nil || session.connID == "" {
 		return false
 	}
@@ -97,6 +97,8 @@ func (s *Service) scheduleTrailingAvatarAppearance(session *gameSession, operati
 	}
 	name := fmt.Sprintf("avatar-appearance-trailing-%s", session.connID)
 	session.avatarAppearanceMu.Lock()
+	// A later wear must not erase a queued login/general appearance clear.
+	session.avatarAppearanceNeedsBuffClear = session.avatarAppearanceNeedsBuffClear || !committedWear
 	session.avatarAppearanceTimerSerial++
 	serial := session.avatarAppearanceTimerSerial
 	session.avatarAppearanceTimer = name
@@ -114,6 +116,8 @@ func (s *Service) scheduleTrailingAvatarAppearance(session *gameSession, operati
 			return
 		}
 		session.avatarAppearanceTimer = ""
+		preserveAbsentBuff := !session.avatarAppearanceNeedsBuffClear
+		session.avatarAppearanceNeedsBuffClear = false
 		session.avatarAppearanceMu.Unlock()
 		if !s.boundGameSessionCharacterCurrent(identity) || !currentTownSelfActorAppearanceReady(session) {
 			s.logWarn("dnfbridge coalesced avatar appearance refresh deferred",
@@ -122,12 +126,12 @@ func (s *Service) scheduleTrailingAvatarAppearance(session *gameSession, operati
 				"char_id", session.selectedCharacterID)
 			return
 		}
-		sent, err := s.sendSelectedActorMode0AppearanceRefreshGuarded(session, operation, "coalesced_avatar_wear_burst_trailing", func() bool {
+		sent, err := s.sendSelectedActorMode0AppearanceWithBuffPolicy(session, operation, "coalesced_avatar_wear_burst_trailing", func() bool {
 			session.avatarAppearanceMu.Lock()
 			current := session.avatarAppearanceTimerSerial == serial
 			session.avatarAppearanceMu.Unlock()
 			return current && s.boundGameSessionCharacterCurrent(identity) && currentTownSelfActorAppearanceReady(session)
-		})
+		}, preserveAbsentBuff)
 		if err != nil {
 			s.logWarn("dnfbridge coalesced avatar appearance refresh deferred",
 				"conn_id", session.connID,
@@ -158,6 +162,7 @@ func (s *Service) stopAvatarAppearanceCoalesce(session *gameSession, reason stri
 	name := session.avatarAppearanceTimer
 	session.avatarAppearanceTimerSerial++
 	session.avatarAppearanceTimer = ""
+	session.avatarAppearanceNeedsBuffClear = false
 	session.avatarAppearanceLastAt = time.Time{}
 	session.avatarAppearanceMu.Unlock()
 	if name == "" {

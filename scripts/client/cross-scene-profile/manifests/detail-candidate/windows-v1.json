@@ -1,0 +1,14 @@
+{
+  "baseSha256": "a751cccfe3fb9f7a3730393fdfb32d0546222b55a5a254fc4f2416f6869fbdf6",
+  "site": "0x22c42ed",
+  "expected": "e80eacffff",
+  "replacement": "e80ebebf04",
+  "candidateAddress": "0x6ec0100",
+  "code": "ff742404e827d6aafb83c40485c075250fb6051aa56805500fb60d19a5680551ff74240ce8b7a4b9fa83c40c85c07505e9cbed3ffbc3",
+  "codeSha256": "b2e3131bf310a55c99a7370ccfc92e9ec089852b1ddb0e448e708aabdcb1730a",
+  "scope": "Only mode3 local-context actor selection. Active first, exact existing aux second; neither retains original 22BEF00 behavior. Does not modify mode0/mode6 scene construction.",
+  "limitation": "No server authorization or cache priming included. Full mode3 stat parsing, UI, cache lifetime and PE placement remain unverified.",
+  "exeGenerated": false,
+  "deployed": false,
+  "guiAccepted": false
+}

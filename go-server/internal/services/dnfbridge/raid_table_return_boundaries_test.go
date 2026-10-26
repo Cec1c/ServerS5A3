@@ -132,7 +132,7 @@ func TestRealPVFRaidTableReturnBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cases := []string{"no_raid", "wrong_account", "wrong_channel", "wrong_run", "cross_phase", "cross_attempt", "wrong_instance", "foreign_participant", "old_generation", "replaced_socket", "missing_placement", "cleared_journal", "unsupported_luke", "focus", "retry", "selector", "unknown", "short", "extra"}
+	cases := []string{"no_raid", "wrong_account", "wrong_channel", "wrong_run", "cross_phase", "cross_attempt", "wrong_instance", "foreign_participant", "old_generation", "replaced_socket", "missing_placement", "cleared_journal", "inconsistent_luke_mode", "focus", "retry", "selector", "unknown", "short", "extra"}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
 			c.reset()
@@ -192,7 +192,7 @@ func TestRealPVFRaidTableReturnBoundaries(t *testing.T) {
 				}
 				b.ClearedRuns[e.RunID] = currentRaidClearedRun{}
 				undo = func() { delete(b.ClearedRuns, e.RunID) }
-			case "unsupported_luke":
+			case "inconsistent_luke_mode":
 				old := b.Mode
 				b.Mode = 2
 				undo = func() { b.Mode = old }

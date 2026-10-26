@@ -219,7 +219,7 @@ func TestCurrentRentalAssetsCommitPointsGoldAndPVFEquipmentAtomically(t *testing
 		t.Fatal(err)
 	}
 	definition := dungeonDropItemDefinition{ItemID: 416000000, Kind: dungeonDropItemEquipment, PVFPath: "equipment/rental.equ", SlotStart: 9, SlotEnd: 64, Durability: 45}
-	rentResult, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 3, definition, now)
+	rentResult, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 3, definition, now, nil)
 	if err != nil {
 		t.Fatalf("rent equipment: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestCurrentRentalAssetsCommitPointsGoldAndPVFEquipmentAtomically(t *testing
 		t.Fatalf("charge result = %+v", chargeResult)
 	}
 	rerentAt := now.Add(2 * time.Minute)
-	rerentResult, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 3, definition, rerentAt)
+	rerentResult, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 3, definition, rerentAt, nil)
 	if err != nil {
 		t.Fatalf("refresh existing rental: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestCurrentRentalAssetsCommitPointsGoldAndPVFEquipmentAtomically(t *testing
 	if len(inventory.Slots) != 1 || !inventory.Slots["0:9"].ExpireAt.Equal(rerentResult.ExpireAt) {
 		t.Fatalf("rerent inventory = %+v", inventory.Slots)
 	}
-	if _, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 2, definition, rerentAt.Add(time.Minute)); !errors.Is(err, errCurrentRentalPoints) {
+	if _, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 2, definition, rerentAt.Add(time.Minute), nil); !errors.Is(err, errCurrentRentalPoints) {
 		t.Fatalf("insufficient point error = %v", err)
 	}
 	if _, err := purchaseCurrentRentalPoints(ctx, owner, "account-1", "19", 9, 400, 100000, rerentAt.Add(2*time.Minute)); !errors.Is(err, errCurrentRentalGold) {
@@ -301,7 +301,7 @@ func TestCurrentRentalDoesNotConvertPermanentSameItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := dungeonDropItemDefinition{ItemID: 416000000, Kind: dungeonDropItemEquipment, PVFPath: "equipment/rental.equ", SlotStart: 9, SlotEnd: 64, Durability: 45}
-	result, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 3, definition, now)
+	result, err := rentCurrentEquipment(ctx, owner, "account-1", "19", 416000000, 3, definition, now, nil)
 	if err != nil {
 		t.Fatalf("rent alongside permanent item: %v", err)
 	}

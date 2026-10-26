@@ -136,8 +136,13 @@ func (s *Service) handleDungeonCardSelectRightState(session *gameSession, body [
 		return nil
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
-	return s.sendCurrentDungeonCardLayoutLocked(session, session.dungeon.runtime, "current_exe_op70_request")
+	runtime := session.dungeon.runtime
+	err := s.sendCurrentDungeonCardLayoutLocked(session, runtime, "current_exe_op70_request")
+	session.dungeon.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.resumeCurrentDungeonCardTownReturn(session, runtime)
 }
 
 func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) error {
@@ -153,7 +158,6 @@ func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) err
 		return nil
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
 	runtime := session.dungeon.runtime
 	if runtime == nil || !runtime.settlementCardLayoutSent ||
 		runtime.settlementPhase < currentDungeonSettlementPhaseCardsRevealed {
@@ -163,6 +167,7 @@ func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) err
 			"request_value_b", request.ValueB,
 			"request_value_count", request.ValueCount,
 			"reason", "card_layout_not_committed_after_op70")
+		session.dungeon.mu.Unlock()
 		return nil
 	}
 	side, ok := currentDungeonCardRequestSide(request.ValueA)
@@ -172,15 +177,21 @@ func (s *Service) handleDungeonSelectCard(session *gameSession, body []byte) err
 			"request_value_a", request.ValueA,
 			"request_value_b", request.ValueB,
 			"reason", "current_exe_op71_row_or_member_index_invalid")
+		session.dungeon.mu.Unlock()
 		return nil
 	}
-	return s.selectCurrentDungeonCardLocked(
+	err = s.selectCurrentDungeonCardLocked(
 		session,
 		runtime,
 		side,
 		request.ValueB,
 		"current_exe_op71_select_request",
 	)
+	session.dungeon.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.resumeCurrentDungeonCardTownReturn(session, runtime)
 }
 
 // currentDungeonSelectedCardSlots 组装 op71 的 8 槽表。
@@ -309,8 +320,8 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 
-	// v150 Anton battle-table bt_stanfby_move also emits 72/{1,2} during
-	// an active run (018774EF). It owns an explicit give-up, not settlement.
+	// v153 Anton bt_stanfby_move (018774EF) and Luke bt_standby_move
+	// (0110DC13) emit 72/{1,2} during an active run as an explicit give-up.
 	if len(body) == 2 && shouldReturnToTown && s.currentRaidTableActiveReturnReady(session, runtime) {
 		session.dungeon.mu.Unlock()
 		return s.handleCurrentDungeonTownExitRequest(session, nil, uint16(dnfenum.CmdPacketEplpCommand))
@@ -352,6 +363,55 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 			"dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand))
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
 			uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tournament_return_to_town")
+	}
+	if runtime != nil && (shouldReturnToTown || shouldOpenOtherSelector && retryRequesterIsLeader) && s.currentLukeClosedEnergyExitReady(session, runtime) {
+		if !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+		}
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		if shouldOpenOtherSelector {
+			return s.selectOtherDungeonForCompletedParty(session, runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_closed_luke_energy_return")
+	}
+	// The completed Luke spread-sanctum result page is owned by its accepted
+	// raid clear journal. The ordinary op34/35 chain may be absent after a
+	// reconnect; requiring it here leaves op72 返回城镇 inert until the menu
+	// op132 path is used. This branch is limited to that one Phase-1 map and
+	// Mode 2. Retry, other-selector, other Luke sanctums and Anton remain on the
+	// existing ordinary/card boundary below.
+	if runtime != nil && shouldReturnToTown && s.currentLukeSpreadSanctumCompletedMapTownReturnReady(session, runtime) {
+		// A failed town preparation/write retains this runtime. Retry the route,
+		// but do not acknowledge the already accepted result action again.
+		if !runtime.settlementCardExitAckSent {
+			response := buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB)
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), response, currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+		}
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		s.logGameEvent(session, "game-raid-completed-map-exit-accepted", "char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand), "source", "owned_luke_spread_sanctum_clear_without_ordinary_settlement_reward")
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_owned_raid_map_return_to_town")
 	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
 		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
@@ -624,22 +684,27 @@ func (s *Service) armCurrentDungeonCardAutoFlipLocked(
 			characterGeneration,
 			func() error {
 				session.dungeon.mu.Lock()
-				defer session.dungeon.mu.Unlock()
 				current := session.dungeon.runtime
 				if current != runtime ||
 					runtime.settlementCardAutoFlipGeneration != generation ||
 					!runtime.settlementCardLayoutSent ||
 					runtime.settlementCardSideSelectionKnown[dungeonCardSideFree] {
+					session.dungeon.mu.Unlock()
 					return nil
 				}
 				runtime.settlementCardAutoFlipTimerName = ""
-				return s.selectCurrentDungeonCardLocked(
+				err := s.selectCurrentDungeonCardLocked(
 					session,
 					runtime,
 					dungeonCardSideFree,
 					currentDungeonAutomaticCardIndex(session, runtime),
 					"timequeue_auto_flip_free_row",
 				)
+				session.dungeon.mu.Unlock()
+				if err != nil {
+					return err
+				}
+				return s.resumeCurrentDungeonCardTownReturn(session, runtime)
 			},
 		)
 		if postErr != nil && !isClosedGameSessionEventError(postErr) {

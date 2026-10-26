@@ -173,7 +173,10 @@ func TestOnlineCrystalNative36RealPVFSixItemsAndSceneQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprintf("%x", sha256.Sum256(data)) != "a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290" {
+	switch fmt.Sprintf("%x", sha256.Sum256(data)) {
+	case "a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290",
+		"94a2549598816198115340f84c0be2d31603ddeea58f70f27afe6f73b25e3df7":
+	default:
 		t.Fatal("current PVF hash mismatch")
 	}
 	archive, err := platformpvf.OpenBytes(data)
@@ -184,6 +187,7 @@ func TestOnlineCrystalNative36RealPVFSixItemsAndSceneQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertCurrentCrystalTradePVFItems(t, catalog)
 	for index, item := range []int64{3033, 3034, 3035, 3036, 3037, 3262} {
 		t.Run(strconv.FormatInt(item, 10), func(t *testing.T) {
 			slot := int16(354 + index)
