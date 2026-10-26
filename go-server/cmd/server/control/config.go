@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+const defaultInstanceMySQLInsertBatchRows = 200
+
 func generateRuntimeConfigs(paths projectPaths, cfg instanceConfig) error {
 	if err := paths.ensureDirectories(); err != nil {
 		return err
@@ -442,6 +444,12 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		values["DNFBRIDGE_PARTY_UDP_RELAY_SEED_FORWARD"] = "on"
 		values["DNFBRIDGE_PARTY_UDP_RELAY_PROBE_PORTS"] = fmt.Sprintf("2311,2312,%d", relayPortStart)
 	}
+	insertBatchRows := cfg.Database.InsertBatchRows
+	if insertBatchRows == 0 {
+		// Existing instance files need no migration to enable batched saves.
+		insertBatchRows = defaultInstanceMySQLInsertBatchRows
+	}
+	values["DNFBRIDGE_MYSQL_INSERT_BATCH"] = strconv.Itoa(insertBatchRows)
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }
 
