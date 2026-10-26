@@ -38,12 +38,10 @@ func r139PrepareSlot(t *testing.T, f *loginWearAnchorFixture, slot byte, item in
 	extra["durability"] = "48"
 	extra["max_durability"] = "48"
 	extra["quality_seed"] = "203004656"
-	if slot == p94Slot {
-		// Preserve the current runtime pants-row identity used by the unified
-		// P94 fixture; replacing Extra projects slot16 as legacy actor17.
-		extra["current_exe_runtime_move"] = "1"
-		extra["current_exe_equipment_type"] = strconv.Itoa(int(slot))
-	}
+	// Every named slot is a current runtime row. Legacy persistent slot numbers
+	// map differently, including pants and waist, and cannot seed this fixture.
+	extra["current_exe_runtime_move"] = "1"
+	extra["current_exe_equipment_type"] = strconv.Itoa(int(slot))
 	eq.Entries[key] = repo.EquipmentEntry{SlotIndex: int16(slot), ItemID: item, RawEntry: r139PublicRawEntry(int16(slot), item, 203004656, 48), Extra: extra}
 	if err = f.group.Equipment.Save(ctx, eq); err != nil {
 		t.Fatal(err)
@@ -123,7 +121,7 @@ func TestR139BuffDefaultSlotAndOrder(t *testing.T) {
 		actors int
 		buffID uint16
 	}{
-		{"visible_weapon12", 12, 101040493, 1, currentBuffSwapSnapshotID}, {"nonvisible_pants16", 16, 100120544, 0, currentBuffSwapRowsID}, {"nonvisible_waist18", 18, 100220519, 0, currentBuffSwapRowsID},
+		{"visible_weapon12", 12, 101040493, 1, currentBuffSwapRowsID}, {"nonvisible_pants16", 16, 100120544, 0, currentBuffSwapRowsID}, {"nonvisible_waist18", 18, 100220519, 0, currentBuffSwapRowsID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := p94Fixture(t)
