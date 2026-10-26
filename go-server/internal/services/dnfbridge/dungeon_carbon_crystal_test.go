@@ -260,3 +260,36 @@ func TestCarbonCrystalRiftBossKeepsOriginalRewards(t *testing.T) {
 		}
 	}
 }
+
+func TestCarbonCrystalEpicEntryModeExcluded(t *testing.T) {
+	s, r, _ := prepareCarbonCrystalTest(t)
+	// Epic Road 6063/6064/6065 are ticket-entry modes. Their runtime does not
+	// debit room fatigue, despite DGN lacking [no fatigue], and their boss path
+	// invokes both ordinary and Epic Road loot planning. Exclude both paths.
+	r.epicEntry = &currentEpicEntry{}
+	m := r.Room.Snapshot().Monsters[0]
+	wires, err := s.planCurrentDungeonMonsterDrops(r, m, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(carbonCrystalTestWires(wires)); got != 0 {
+		t.Fatalf("票券免疲劳模式普通路径产出碳结晶体%d个", got)
+	}
+
+	drops, err := s.dungeonMonsterTable.DropCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.riftLoot = &currentRiftLootDefinition{DropCatalog: drops, MonsterCatalog: s.dungeonMonsterTable, Pieces: []uint32{3227}, Equipment: []uint32{9001}, FragmentCount: 2, EpicRate: 0}
+	scene, _ := r.Session.Scene()
+	wires, err = s.planCurrentRiftBossDrops(&gameSession{selectedCharacterID: 99}, r, scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(carbonCrystalTestWires(wires)); got != 0 {
+		t.Fatalf("票券免疲劳模式专项路径产出碳结晶体%d个", got)
+	}
+	if len(wires) != 2 {
+		t.Fatalf("票券免疲劳模式原裂缝奖励改变：%d", len(wires))
+	}
+}
