@@ -66,16 +66,16 @@ func TestGuildChatOfflineReconnectDropsOldAndDeliversNew(t *testing.T) {
 	requireGuildChatNotice(t, old, 0)
 
 	replacement := &gameSession{
-		conn:                           &bufferConn{},
-		connID:                         "guild-chat-reconnect-30",
-		accountID:                      old.accountID,
-		selectedCharacterID:            old.selectedCharacterID,
-		characterGeneration:            old.characterGeneration + 1,
-		channel:                        old.channel,
-		residentChannel:                old.residentChannel,
+		conn:                            &bufferConn{},
+		connID:                          "guild-chat-reconnect-30",
+		accountID:                       old.accountID,
+		selectedCharacterID:             old.selectedCharacterID,
+		characterGeneration:             old.characterGeneration + 1,
+		channel:                         old.channel,
+		residentChannel:                 old.residentChannel,
 		connectionTownActorOwnerChannel: old.connectionTownActorOwnerChannel,
-		townActorOwnerChannel:          old.townActorOwnerChannel,
-		townPositionSnapshot:           old.townPositionSnapshot,
+		townActorOwnerChannel:           old.townActorOwnerChannel,
+		townPositionSnapshot:            old.townPositionSnapshot,
 	}
 	startGuildChatReconnectEvents(t, s, replacement)
 	s.promoteResidentGameSession(replacement, old.selectedCharacterID)
