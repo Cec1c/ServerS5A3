@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func TestControllerMySQLBatchIsExplicitAndKeepsInheritedOverridesScrubbed(t *testing.T) {
+func TestControllerMySQLBatchKeepsDefaultAndInheritedOverridesScrubbed(t *testing.T) {
 	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "999")
 	t.Setenv("DNFBRIDGE_INVENTORY_SAVE_SCOPE", "slot")
 	t.Setenv("DNFBRIDGE_EQUIPMENT_SAVE_SCOPE", "entry")
 	for _, tc := range []struct{ raw, want string }{
-		{"", ""}, {"0", ""}, {"-1", ""}, {"bad", ""}, {"1001", ""},
+		{"", "200"}, {"0", "200"}, {"-1", "200"}, {"bad", "200"}, {"1001", "200"},
 		{"1", "1"}, {"200", "200"}, {" 200 ", "200"}, {"1000", "1000"},
 	} {
 		t.Run(tc.raw, func(t *testing.T) {
