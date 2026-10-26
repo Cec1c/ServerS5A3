@@ -331,8 +331,9 @@ type currentDungeonMonsterExperienceCommitResult struct {
 	Idempotent bool
 	// GrowthContractBonus is the 成长契约 (premium type 84) +20% bonus
 	// experience added on top of Award.Gain at commit time.
-	GrowthContractBonus uint32
-	GuildBonus          uint32
+	GrowthContractBonus   uint32
+	GuildBonus            uint32
+	AttendanceMarbleBonus uint32
 	// HonorExpertGain is the accepted part of this award earned after the
 	// DNF90 character-level cap.
 	HonorExpertGain uint32
@@ -358,6 +359,7 @@ func recordCurrentDungeonMonsterExperience(
 		runtime.settlementMonsterGrowthContractBonus,
 		result.GrowthContractBonus,
 	)
+	runtime.settlementMonsterAttendanceMarbleBonus = saturatingCurrentDungeonUint32Add(runtime.settlementMonsterAttendanceMarbleBonus, result.AttendanceMarbleBonus)
 	actorType, err := currentDungeonMonsterActorType(monster.Spawn)
 	if err != nil {
 		actorType = result.Award.MonsterType
@@ -440,6 +442,8 @@ func (s *Service) commitCurrentDungeonMonsterExperience(
 	}
 	// Both bonuses use base EXP, and their sum must fit the native u32 award.
 	result.GuildBonus = min(guildBonus, math.MaxUint32-result.Award.Gain-growthBonus)
+	marbleBonus := currentAttendanceMarbleMonsterExperienceBonus(runtime.attendanceMarbleBuffs, result.Award.Gain)
+	result.AttendanceMarbleBonus = min(marbleBonus, math.MaxUint32-result.Award.Gain-result.GrowthContractBonus-result.GuildBonus)
 	return s.commitCurrentDungeonExperience(ctx, session, runtime, tables, result)
 }
 
@@ -505,7 +509,7 @@ func (s *Service) commitCurrentDungeonExperience(
 		skill.Points.SyncedLevel != character.Level {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	totalGain := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus
+	totalGain := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus + result.AttendanceMarbleBonus
 	honorExpertGain, err := currentHonorExpertExperienceGain(
 		tables,
 		character.Level,

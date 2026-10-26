@@ -40,7 +40,7 @@ func (s *Service) currentPVPReturnOriginLocation(characterID uint16, character d
 		}
 		projected.Stats[field] = value
 	}
-	if currentRegisteredChannelTown(projected.Stats["town_id"]) {
+	if s.currentDedicatedChannelTown(projected.Stats["town_id"]) {
 		return currentTownLoginLocation{}, false, fmt.Errorf("决斗返城原位不是普通城镇")
 	}
 	location, found, reason := s.currentPersistedTownLoginLocation(characterID, projected)
@@ -67,7 +67,7 @@ func (s *Service) currentPVPExitLoginLocation(characterID uint16, character dnfr
 }
 
 func (s *Service) currentSavePVPReturnOrigin(characterID uint16, character *dnfrepo.CharacterRecord) error {
-	if character == nil || currentRegisteredChannelTown(character.Stats["town_id"]) {
+	if character == nil || s.currentDedicatedChannelTown(character.Stats["town_id"]) {
 		return nil
 	}
 	if _, found, reason := s.currentPersistedTownLoginLocation(characterID, *character); !found {
@@ -94,7 +94,7 @@ func (s *Service) captureCurrentOrdinaryChannelExitPosition(session *gameSession
 	session.townMu.Lock()
 	snapshot, ready := session.townPositionSnapshot, session.townSceneReadyCharacterID
 	session.townMu.Unlock()
-	if ready != session.selectedCharacterID || snapshot.CharacterID != ready || !snapshot.PositionValid || currentRegisteredChannelTown(int64(snapshot.TownID)) {
+	if ready != session.selectedCharacterID || snapshot.CharacterID != ready || !snapshot.PositionValid || s.currentDedicatedChannelTown(int64(snapshot.TownID)) {
 		return nil
 	}
 	repos, ok := s.repositoryGroup()

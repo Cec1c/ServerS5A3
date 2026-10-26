@@ -385,7 +385,7 @@ func TestVendorOp11RelayLegShapeCarriesRelayEndpointWithoutSelfRow(t *testing.T)
 	if got := uint16(body[11])<<8 | uint16(body[12]); got != port {
 		t.Fatalf("relay op11 port = %d want %d (network order)", got, port)
 	}
-	if body[11] == byte(port) && body[12] == byte(port>>8) && port > 0xff {
+	if byte(port) != byte(port>>8) && body[11] == byte(port) && body[12] == byte(port>>8) && port > 0xff {
 		t.Fatalf("relay op11 port bytes = % X look little endian, want network order", body[11:13])
 	}
 }
