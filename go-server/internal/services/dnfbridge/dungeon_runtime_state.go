@@ -196,7 +196,6 @@ type runtimeDungeonState struct {
 	townReturnPending                    bool
 	townReturnOp24Sent                   bool
 	townReturnRequestMsgID               uint16
-	townReturnAckSent                    bool
 	townReturnSource                     string
 	townReturnOrigin                     currentTownPositionSnapshot
 	townReturnTransition                 currentDungeonTownTransition
