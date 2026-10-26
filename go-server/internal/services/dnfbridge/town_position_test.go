@@ -251,7 +251,7 @@ func TestSelectorPageBackToVillageUsesLatestCurrentOp35Snapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	packet, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
-	want := []byte{7, 3, 1, 0, 99, 0, 0x80, 0x02, 0xf0, 0x00, 5, 3, 1}
+	want := []byte{7, 3, 1, 0, 99, 0, 0x80, 0x02, 0xf0, 0x00, 6, 3, 1}
 	if packet.Header.MsgID != currentSceneTransitionMsgID ||
 		packet.Header.Classification != 0 || !bytes.Equal(packet.Body, want) || len(rest) != 0 {
 		t.Fatalf("selector op132 header=%+v body=%x rest=%x want=%x", packet.Header, packet.Body, rest, want)

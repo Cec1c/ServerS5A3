@@ -1,0 +1,9 @@
+# 超时空已预留队员继续入场
+
+固定基底1b40e6aa11c29aca72802bf68532652c638ff3d1。真实PVF两图4953/4978：合法等待区邀请与接受后组队入场，先预留遭遇战，PVF入场事件将boss状态从1推进；队员内部op28调用原新选图门槛失败。队员runtime已提交但没有op29/pending placement，其op37被场景门槛拒绝，队长等待全员读条。
+
+修复只影响FiendWar内部prepared续办：session一致、committed、runtime仍为当前对象、目标dungeon一致、冻结raidEntry存在，再调用原validateCurrentRaidDungeonEntry。该验证保留认证/账号/角色、频道、instance/phase/attempt、run、完整冻结成员、当前遭遇战及期限门槛。不修改新选图、不新增玩家奖励或实例、不动出生坐标/ready/投影补发/D05私房隔离。
+
+验证：TestR158FiendWarTwoMemberVisibilitySequence，显式DNFBRIDGE_REAL_PVF_SMOKE为当前Script.pvf；缺资源Skip。两图分别交换队员/队长op37到达顺序，完整handler实际输出中，两方最终120后都有对方mode0、mode1、op9。四个内部handler拒绝控制：new_client_selection、wrong_session、replaced_encounter、expired_battle。拒绝只有原class1/op16失败包，runtime不替换。
+
+测试依赖本基底已有r134N1Fixture/Invite/Send和实际raid测试helpers；不是独立公开master移植。真实PVF与协议入口，账号/角色/战场启动及区域到达为内存夹具；不代表网络客户端已加载。原始R158运行回执及SHA、红绿、现场窄日志位于交付runtime/scene-evidence。现场日志未记录actor/scene包，无法把两人复现等同13:19现场；单人左上、安徒恩模型生命周期仍开放。不无条件补发120或放开移动。

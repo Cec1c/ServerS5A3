@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -12,30 +11,6 @@ import (
 	"testing"
 	"time"
 )
-
-func parsePhase0CardOwners(t *testing.T, body []byte) []uint16 {
-	t.Helper()
-	if len(body) < 2 {
-		t.Fatalf("card list header=%x", body)
-	}
-	pos, count := 2, int(body[1])
-	owners := make([]uint16, 0, count)
-	for i := 0; i < count; i++ {
-		if pos+4 > len(body) {
-			t.Fatalf("truncated card row %d: %x", i, body)
-		}
-		owners = append(owners, binary.LittleEndian.Uint16(body[pos:pos+2]))
-		items := int(body[pos+3])
-		pos += 4 + items*8
-		if pos > len(body) {
-			t.Fatalf("truncated card items row %d: %x", i, body)
-		}
-	}
-	if pos != len(body) {
-		t.Fatalf("card list trailing bytes: parsed=%d body=%x", pos, body)
-	}
-	return owners
-}
 
 func r195WantOwners(owners []uint16, want ...uint16) bool {
 	if len(owners) != len(want) {

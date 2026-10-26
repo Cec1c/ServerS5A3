@@ -605,7 +605,7 @@ func TestOwnerCommitSettlementAccumulatesMaximumLevelAdventureExperienceOnce(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Character.Level != 5 || result.Character.Stats["exp"] != 925 ||
+	if result.Character.Level != 5 || result.Character.Stats["exp"] != 900 ||
 		result.HonorExpertGain != 25 ||
 		result.Character.Stats[dnfhonor.ExpertLevelStatKey] != 1 ||
 		result.Character.Stats[dnfhonor.ExpertProgressExperienceStatKey] != 15 {

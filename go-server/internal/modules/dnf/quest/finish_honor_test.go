@@ -30,7 +30,7 @@ func TestOwnerApplyFinishSettlementCapAdvancesHonorExpertOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.NewLevel != 2 || result.PreviousLevel != 2 || result.NewExperience != 360 ||
+	if result.NewLevel != 2 || result.PreviousLevel != 2 || result.NewExperience != 100 ||
 		result.SPDelta != 0 || result.TPDelta != 0 || result.HonorExpertGain != 110 {
 		t.Fatalf("capped settlement=%+v", result)
 	}
@@ -41,7 +41,7 @@ func TestOwnerApplyFinishSettlementCapAdvancesHonorExpertOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if character.Level != 2 || character.Stats["exp"] != 360 ||
+	if character.Level != 2 || character.Stats["exp"] != 100 ||
 		character.Stats[dnfhonor.ExpertLevelStatKey] != 1 ||
 		character.Stats[dnfhonor.ExpertProgressExperienceStatKey] != 100 {
 		t.Fatalf("persisted character=%+v", character)
@@ -73,7 +73,7 @@ func TestOwnerApplyFinishSettlementHonorExpertOnlyCountsCapOverflow(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.PreviousLevel != 1 || result.NewLevel != 2 || result.NewExperience != 200 ||
+	if result.PreviousLevel != 1 || result.NewLevel != 2 || result.NewExperience != 100 ||
 		result.SPDelta != 30 || result.TPDelta != 0 || result.HonorExpertGain != 100 {
 		t.Fatalf("threshold-crossing settlement=%+v", result)
 	}
@@ -222,7 +222,7 @@ func TestOwnerApplyFinishSettlementHonorReplayAndLegacyReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if character.Stats["exp"] != 360 ||
+	if character.Stats["exp"] != 100 ||
 		character.Stats[dnfhonor.ExpertLevelStatKey] != 1 ||
 		character.Stats[dnfhonor.ExpertProgressExperienceStatKey] != 100 {
 		t.Fatalf("replay duplicated progression=%+v", character.Stats)

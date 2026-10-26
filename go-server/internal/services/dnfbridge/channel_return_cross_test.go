@@ -10,6 +10,22 @@ import (
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
+func assertCombinedOrdinaryReturnPreservesPersistedOrigin(t *testing.T, character dnfrepo.CharacterRecord, origin currentReconnectLocation) {
+	t.Helper()
+	stats := character.Stats
+	if got := currentReconnectLocationSnapshot(character); got != origin {
+		t.Fatalf("ordinary return did not restore the persisted origin: got=%+v want=%+v stats=%v", got, origin, stats)
+	}
+	if stats[currentTownPrevVillageTownStat] != origin.townID || stats[currentTownPrevVillageAreaStat] != origin.areaID || stats[currentTownPrevVillagePosXStat] != origin.positionX || stats[currentTownPrevVillagePosYStat] != origin.positionY || stats[currentTownPrevVillageDirectionStat] != origin.direction {
+		t.Fatalf("ordinary door source lost: stats=%v origin=%+v", stats, origin)
+	}
+	for _, marker := range []string{currentPVPReturnOriginMarker, currentRaidReturnOriginMarker, currentFiendWarReturnOriginMarker} {
+		if stats[marker] != 0 {
+			t.Fatalf("return left stale dedicated-channel marker %s: %v", marker, stats)
+		}
+	}
+}
+
 // Crossing one dedicated channel through another must retain the original
 // ordinary position; neither dedicated town is a valid replacement origin.
 func TestPVPFiendWarCrossChannelReturnKeepsOrdinaryOrigin(t *testing.T) {
@@ -54,12 +70,11 @@ func TestPVPFiendWarCrossChannelReturnKeepsOrdinaryOrigin(t *testing.T) {
 				}
 			}
 			stored, _, err := repos.Character.Load(ctx, "29")
-			if err != nil || currentReconnectLocationSnapshot(c) != origin || currentReconnectLocationSnapshot(stored) != origin {
-				t.Fatalf("lost persisted ordinary origin: %+v %v", c.Stats, err)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if c.Stats[currentPVPReturnOriginMarker] != 0 || c.Stats[currentRaidReturnOriginMarker] != 0 {
-				t.Fatal("return left a stale dedicated-channel origin")
-			}
+			assertCombinedOrdinaryReturnPreservesPersistedOrigin(t, c, origin)
+			assertCombinedOrdinaryReturnPreservesPersistedOrigin(t, stored, origin)
 			if c.Stats["gold"] != before.Stats["gold"] {
 				t.Fatal("channel return changed assets")
 			}

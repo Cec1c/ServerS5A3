@@ -50,11 +50,16 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 		npc                          uint16
 		stones, wantStones, wantGold int64
 		reject                       bool
+		converts                     bool
 	}{
-		{"legacy_default_control", "", 476, 5, 5, 100000, false},
-		{"candidate_jonathan", "candidate", 476, 5, 4, 100000, false},
-		{"candidate_ordinary", "candidate", 1, 5, 5, 15025, false},
-		{"candidate_missing_stone", "candidate", 476, 0, 0, 100000, true},
+		// 段106 修复后默认档（空值）已按 PVF 声明扣精炼的时空石；旧行为只在显式关断档复现。
+		{"legacy_kill_switch_control", "off", 476, 5, 5, 100000, false, false},
+		{"default_jonathan_conversion", "", 476, 5, 4, 100000, false, true},
+		{"candidate_jonathan", "candidate", 476, 5, 4, 100000, false, true},
+		{"candidate_ordinary", "candidate", 1, 5, 5, 15025, false, false},
+		{"default_ordinary_unchanged", "", 1, 5, 5, 100000, false, false},
+		{"candidate_missing_stone", "candidate", 476, 0, 0, 100000, true, false},
+		{"default_missing_stone", "", 476, 0, 0, 100000, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", tc.flag)
@@ -173,7 +178,7 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			if len(targetRow) != 119 || binary.LittleEndian.Uint32(targetRow[2:6]) != 28309 {
 				t.Fatal("target projection identity absent/wrong")
 			}
-			if tc.flag == "candidate" && tc.npc == 476 {
+			if tc.converts {
 				stoneRow := updates[135]
 				if len(stoneRow) != 119 || binary.LittleEndian.Uint32(stoneRow[2:6]) != 10158964 {
 					t.Fatal("conversion material projection absent/wrong")

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfonlineevent "longheng.io/server/internal/modules/dnf/onlineevent"
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -285,8 +287,12 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 			state.nativePCRoom, err = dnfonlineevent.LoadPCRoomTimePointCatalog(ctx, archive)
 		}
 	}
-	s.spendTimeCatalogLoadErr = err
 	if err != nil {
+		// An interrupted session load is not an immutable PVF failure.
+		// Let a fresh session retry while retaining real resource errors.
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			s.spendTimeCatalogLoadErr = err
+		}
 		return nil, true, err
 	}
 	s.spendTimeCatalogState = state
@@ -512,8 +518,34 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
+		// Optional image town-NPC rows are resolved independently. The operator
+		// policy is read first: with every optional switch off there is nothing
+		// to validate and the resource archive is not read at all. When any
+		// switch is on, a missing, unreadable or mismatched entry is skipped
+		// with a structured diagnostic; it must never abort this catalog.
+		// Aborting here previously dropped the whole op108 directory and, with
+		// it, the op1206 pair that owns the existing 2347/签到 HUD.
+		var enabledTownActivities []uint16
+		for _, activity := range currentImageTownActivities() {
+			if s.options.currentClientVersion == "official-24.9" && s.activityControls != nil && s.activityControls.Enabled(activity.id) {
+				enabledTownActivities = append(enabledTownActivities, activity.id)
+			}
+		}
+		var townArchive dnfpvf.Source
+		if len(enabledTownActivities) > 0 {
+			s.initialEquipmentMu.Lock()
+			archive, loadErr := s.initialEquipmentArchiveLocked()
+			s.initialEquipmentMu.Unlock()
+			if loadErr == nil {
+				townArchive = archive
+			}
+			// loadErr != nil leaves townArchive nil: the archive itself is
+			// unusable, so every enabled optional entry is reported as
+			// skipped and the legacy catalog is kept.
+		}
+		townActivities := s.logCurrentImageTownActivitySkips(townArchive, enabledTownActivities, session, "current_spend_time_op108_catalog")
 		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble(
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
 			includeJoust,
@@ -527,9 +559,10 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			includeWeekly,
 			s.currentOrdinaryAttendanceEnabled(),
 			s.currentEpicRoadActivityAvailable(),
+			townActivities,
+			fiendWarAvailable,
 			catalog.nativePCRoom != nil,
 			true, // Keep the native Seria luck entry alongside online rewards.
-			fiendWarAvailable,
 			s.currentAttendanceMarbleAvailable(),
 		)
 		if err != nil {

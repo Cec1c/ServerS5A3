@@ -981,6 +981,61 @@ func (s *Service) townPrivateRoomPeerProjectionBlocked(receiver *gameSession, ac
 	return found && townMapPathLooksLikeSeria(area.MapPath)
 }
 
+// refreshTownPartyActorsAfterJoin restores the ordinary town actor in both
+// directions after a party membership change. sendTownRemotePartyActors keeps
+// the existing same-area, channel, raid-scope and guild-hall guards; a same-area
+// peer is already present and is deliberately not duplicated.
+func (s *Service) refreshTownPartyActorsAfterJoin(state alignedcmd.PartyState, source string) {
+	if s == nil || s.onlinePlayers == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
+		return
+	}
+	dungeonReceivers := make([]*gameSession, 0, len(runtimePartyMembers(state)))
+	for _, member := range runtimePartyMembers(state) {
+		receiver, ok := s.onlineGameSession(member.UserID)
+		if !ok || receiver == nil {
+			continue
+		}
+		// A party can be accepted after both members already entered the same
+		// dungeon. The roster snapshot makes skills visible, but without the
+		// existing peer projection the client has no mode0/mode1 actor to pair
+		// with that roster. Reuse the same run-key and idempotency gates used by
+		// dungeon landing; town actor projection remains the non-dungeon branch.
+		if s.sessionHasActiveDungeonRuntime(receiver) {
+			dungeonReceivers = append(dungeonReceivers, receiver)
+			continue
+		}
+		if err := s.sendTownRemotePartyActors(receiver, state); err != nil {
+			s.logGameEvent(receiver, "game-town-party-actor-after-join-failed",
+				"source", source,
+				"party_id", state.PartyID,
+				"char_id", receiver.selectedCharacterID,
+				"error", err)
+		}
+	}
+	// Materialize every participating active-dungeon key before the first
+	// directional projection. Otherwise the first receiver can observe peers
+	// whose post-join key has not been recorded yet, making delivery dependent
+	// on member order and on a later repeated join.
+	for _, receiver := range dungeonReceivers {
+		if !s.recordCurrentDungeonPartyRunKey(receiver) {
+			s.logGameEvent(receiver, "game-dungeon-party-run-key-after-join-failed",
+				"source", source,
+				"party_id", state.PartyID,
+				"char_id", receiver.selectedCharacterID,
+				"reason", "active_dungeon_run_or_scene_unavailable")
+		}
+	}
+	for _, receiver := range dungeonReceivers {
+		if err := s.projectDungeonPartyPeerActors(receiver, source+"_dungeon_peer_actor"); err != nil {
+			s.logGameEvent(receiver, "game-dungeon-party-actor-after-join-failed",
+				"source", source,
+				"party_id", state.PartyID,
+				"char_id", receiver.selectedCharacterID,
+				"error", err)
+		}
+	}
+}
+
 // broadcastTownPlayerLeave sends NOTI 0x0006 (u16 userId) to remaining
 // players so they remove the departed player's town actor.
 func (s *Service) broadcastTownPlayerLeave(characterID uint16, others []onlinePlayerInfo) {

@@ -67,7 +67,7 @@ func TestP144FlagUpgradeRealPolicy(t *testing.T) {
 func p144FlagUpgradeBody() []byte {
 	b := []byte{0, 38, 0, 0}
 	b = binary.LittleEndian.AppendUint32(b, 100380051)
-	b = binary.LittleEndian.AppendUint16(b, 121)
+	b = binary.LittleEndian.AppendUint16(b, 177)
 	b = binary.LittleEndian.AppendUint16(b, 0xffff)
 	b = binary.LittleEndian.AppendUint32(b, 4)
 	b = append(b, []byte("test")...)
@@ -108,19 +108,19 @@ func TestP144FlagUpgradeNativeHandler(t *testing.T) {
 			medal.RawEntry[0x57] = 7
 			medal.Extra["p144_identity"] = "retained"
 			inv.Slots["38:0"] = medal
-			inv.Slots["0:121"] = dnfrepo.ItemStack{ItemID: 10154439, Count: 18}
-			inv.Slots["0:122"] = dnfrepo.ItemStack{ItemID: 10154439, Count: 999}
+			inv.Slots["0:177"] = dnfrepo.ItemStack{ItemID: 10154439, Count: 18}
+			inv.Slots["0:178"] = dnfrepo.ItemStack{ItemID: 10154439, Count: 999}
 			inv.Slots["0:9"] = dnfrepo.ItemStack{ItemID: 28309, Count: 1}
 			body := p144FlagUpgradeBody()
 			switch name {
 			case "missing_material":
-				v := inv.Slots["0:121"]
+				v := inv.Slots["0:177"]
 				v.Count = 17
-				inv.Slots["0:121"] = v
+				inv.Slots["0:177"] = v
 			case "wrong_material":
-				v := inv.Slots["0:121"]
+				v := inv.Slots["0:177"]
 				v.ItemID = 3037
-				inv.Slots["0:121"] = v
+				inv.Slots["0:177"] = v
 			case "wrong_template":
 				binary.LittleEndian.PutUint32(body[4:8], 28309)
 			case "gem_page":
@@ -132,16 +132,16 @@ func TestP144FlagUpgradeNativeHandler(t *testing.T) {
 				medal.ExpireAt = time.Now().Add(-time.Hour)
 				inv.Slots["38:0"] = medal
 			case "expired_material":
-				v := inv.Slots["0:121"]
+				v := inv.Slots["0:177"]
 				v.ExpireAt = time.Now().Add(-time.Hour)
-				inv.Slots["0:121"] = v
+				inv.Slots["0:177"] = v
 			case "raw_identity":
 				binary.LittleEndian.PutUint32(medal.RawEntry[2:6], 28309)
 				inv.Slots["38:0"] = medal
 			case "amplify":
 				body[0] = 1
 			case "ticket":
-				binary.LittleEndian.PutUint16(body[10:12], 122)
+				binary.LittleEndian.PutUint16(body[10:12], 178)
 			case "npc_trailer":
 				binary.LittleEndian.PutUint16(body[len(body)-4:], 383)
 			case "truncated":
@@ -194,10 +194,10 @@ func TestP144FlagUpgradeNativeHandler(t *testing.T) {
 			if got.ItemID != medal.ItemID || got.Count != 1 || got.RawEntry[10]&31 != 1 || got.RawEntry[0x57] != 7 || got.Extra["p144_identity"] != "retained" || binary.LittleEndian.Uint16(got.RawEntry[11:13]) != 0 {
 				t.Fatalf("medal row identity/level/durability changed incorrectly: %+v", got)
 			}
-			if _, ok := after.Slots["0:121"]; ok {
+			if _, ok := after.Slots["0:177"]; ok {
 				t.Fatal("exact 18 certificate cost was not consumed")
 			}
-			if !reflect.DeepEqual(after.Slots["0:122"], before.Slots["0:122"]) || !reflect.DeepEqual(after.Slots["0:9"], before.Slots["0:9"]) {
+			if !reflect.DeepEqual(after.Slots["0:178"], before.Slots["0:178"]) || !reflect.DeepEqual(after.Slots["0:9"], before.Slots["0:9"]) {
 				t.Fatal("unrelated rows changed")
 			}
 			if !reflect.DeepEqual(beforeChar, afterChar) {

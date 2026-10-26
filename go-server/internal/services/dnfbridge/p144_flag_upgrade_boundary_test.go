@@ -42,7 +42,7 @@ func TestP144FlagUpgradeSupportedLevelBoundary(t *testing.T) {
 			medal := inv.Slots["38:0"]
 			medal.RawEntry[10] = level
 			inv.Slots["38:0"] = medal
-			inv.Slots["0:121"] = dnfrepo.ItemStack{ItemID: 10154439, Count: 10000}
+			inv.Slots["0:177"] = dnfrepo.ItemStack{ItemID: 10154439, Count: 10000}
 			repos := mustCurrentNPCShopRepositories(t, 0, inv.Slots)
 			s := currentNPCShopTestService(repos, shop, items)
 			s.initialEquipmentArchive = a
@@ -60,7 +60,7 @@ func TestP144FlagUpgradeSupportedLevelBoundary(t *testing.T) {
 			}
 			if level == 9 {
 				ack := got.UpperResponses[0].Body
-				if ack[0] != 1 || ack[11] != 9 || !((ack[12] == 0 && ack[13] == 10) || (ack[12] == 2 && ack[13] == 6)) || after.Slots["0:121"].Count != 9817 {
+				if ack[0] != 1 || ack[11] != 9 || !((ack[12] == 0 && ack[13] == 10) || (ack[12] == 2 && ack[13] == 6)) || after.Slots["0:177"].Count != 9817 {
 					t.Fatalf("+9 boundary failed: ack=%x reason=%s", ack, got.Reason)
 				}
 			} else if len(got.UpperResponses) != 1 || got.UpperResponses[0].Body[0] != 0 || !reflect.DeepEqual(before, after) {

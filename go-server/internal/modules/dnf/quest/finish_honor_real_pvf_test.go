@@ -109,6 +109,9 @@ func TestRealPVFQuestFinishLevelCapAndHonor(t *testing.T) {
 	if result.NewLevel != 90 || got.Level != 90 || gotSkill.Points != skill.Points || result.SPDelta != 0 || result.TPDelta != 0 {
 		t.Fatalf("max-level quest settlement escaped cap90: level=%d SP=%d TP=%d", got.Level, result.SPDelta, result.TPDelta)
 	}
+	if result.NewExperience != threshold89 || got.Stats["exp"] != int64(threshold89) || replay.NewExperience != threshold89 {
+		t.Fatalf("max-level character EXP crossed the entry threshold: result=%d persisted=%d replay=%d want=%d", result.NewExperience, got.Stats["exp"], replay.NewExperience, threshold89)
+	}
 	if result.ExperienceDelta != 995256 || result.HonorExpertGain != result.ExperienceDelta ||
 		got.Stats[dnfhonor.ExpertLevelStatKey] != int64(expectedHonor.Level) ||
 		got.Stats[dnfhonor.ExpertProgressExperienceStatKey] != int64(expectedHonor.CurrentLevelExperience) ||

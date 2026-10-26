@@ -43,13 +43,16 @@ import (
 // dungeonPartyRunKey 是"同一场副本"的判据。字段全部来自运行中的副本运行时与场景，
 // 不使用任何会被后续过图改写的会话状态。
 type dungeonPartyRunKey struct {
-	PartyID   uint16
-	DungeonID int64
-	MazeIndex int
-	RoomX     int64
-	RoomY     int64
-	MapID     int64
-	Seed      uint32
+	PartyID        uint16
+	RaidKey        uint32
+	RaidInstanceID string
+	RaidRunID      string
+	DungeonID      int64
+	MazeIndex      int
+	RoomX          int64
+	RoomY          int64
+	MapID          int64
+	Seed           uint32
 }
 
 func dungeonPartyRunKeyFrom(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene) (dungeonPartyRunKey, bool) {
@@ -60,7 +63,7 @@ func dungeonPartyRunKeyFrom(session *gameSession, runtime *runtimeDungeonState, 
 	if state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
 		return dungeonPartyRunKey{}, false
 	}
-	return dungeonPartyRunKey{
+	key := dungeonPartyRunKey{
 		PartyID:   uint16(state.PartyID),
 		DungeonID: runtime.Dungeon.ID,
 		MazeIndex: runtime.MazeIndex,
@@ -68,7 +71,13 @@ func dungeonPartyRunKeyFrom(session *gameSession, runtime *runtimeDungeonState, 
 		RoomY:     scene.Coordinate.Y,
 		MapID:     scene.Map.Map.ID,
 		Seed:      runtime.Seed,
-	}, true
+	}
+	if entry := runtime.raidEntry; entry != nil {
+		key.RaidKey = entry.RaidKey
+		key.RaidInstanceID = entry.InstanceID
+		key.RaidRunID = entry.RunID
+	}
+	return key, true
 }
 
 // recordDungeonPartyRunKey 在当前会话落位完成时记录"我在哪一场"。换场时清空
@@ -108,7 +117,7 @@ func (s *Service) recordDungeonPartyRunKey(session *gameSession, runtime *runtim
 	session.dungeonPartyRun = key
 	session.dungeonPartyRunValid = true
 	if session.dungeonPeerProjected == nil {
-		session.dungeonPeerProjected = make(map[uint16]bool, 4)
+		session.dungeonPeerProjected = make(map[uint16]boundGameSessionCharacter, 4)
 	}
 	session.dungeonPartyRunMu.Unlock()
 	if generationReset && !dropped.empty() {
@@ -117,6 +126,9 @@ func (s *Service) recordDungeonPartyRunKey(session *gameSession, runtime *runtim
 			"char_id", session.selectedCharacterID,
 			"conn_id", session.connID,
 			"new_party_id", key.PartyID,
+			"new_raid_key", key.RaidKey,
+			"new_raid_instance_id", key.RaidInstanceID,
+			"new_raid_run_id", key.RaidRunID,
 			"new_dungeon_id", key.DungeonID,
 			"new_seed", key.Seed,
 			"previous_run_key_valid", previousKeyValid,
@@ -128,6 +140,34 @@ func (s *Service) recordDungeonPartyRunKey(session *gameSession, runtime *runtim
 			"switch", dungeonPartyPeerProjectionGenerationEnv,
 			"mode", dungeonPartyPeerProjectionGenerationMode())
 	}
+}
+
+// recordCurrentDungeonPartyRunKey materializes the current run key after a
+// party is accepted inside an already-entered dungeon. A solo entry did not
+// have a party run key, so projection would otherwise fail its same-run gate.
+func (s *Service) recordCurrentDungeonPartyRunKey(session *gameSession) bool {
+	if s == nil || session == nil {
+		return false
+	}
+	session.dungeon.mu.Lock()
+	runtime := session.dungeon.runtime
+	if runtime == nil || runtime.Session == nil {
+		session.dungeon.mu.Unlock()
+		return false
+	}
+	scene, ok := runtime.Session.Scene()
+	var raidEntry *currentRaidDungeonEntry
+	if runtime.raidEntry != nil {
+		copyEntry := *runtime.raidEntry
+		raidEntry = &copyEntry
+	}
+	snapshot := runtimeDungeonState{Dungeon: runtime.Dungeon, MazeIndex: runtime.MazeIndex, Seed: runtime.Seed, raidEntry: raidEntry}
+	session.dungeon.mu.Unlock()
+	if !ok {
+		return false
+	}
+	s.recordDungeonPartyRunKey(session, &snapshot, scene)
+	return true
 }
 
 // dungeonPeerOwnerPlan 是一次"副本内发给**其他**队员"的 owner 计划。两个字段可以不同
@@ -278,31 +318,33 @@ func (s *Service) currentDungeonPartyRunKey(session *gameSession) (dungeonPartyR
 	return session.dungeonPartyRun, true
 }
 
-// claimDungeonPeerProjection 标记"给这个队友画过了"，返回是否是本次新占用的。
+// claimDungeonPeerProjection tracks the peer binding, not only its character ID.
 // 发送失败时用 releaseDungeonPeerProjection 回滚，保证下一轮还能补发。
-func (s *Service) claimDungeonPeerProjection(session *gameSession, peerID uint16) bool {
-	if session == nil || peerID == 0 {
+func (s *Service) claimDungeonPeerProjection(session *gameSession, peer boundGameSessionCharacter) bool {
+	if session == nil || !s.boundGameSessionCharacterCurrent(peer) {
 		return false
 	}
 	session.dungeonPartyRunMu.Lock()
 	defer session.dungeonPartyRunMu.Unlock()
 	if session.dungeonPeerProjected == nil {
-		session.dungeonPeerProjected = make(map[uint16]bool, 4)
+		session.dungeonPeerProjected = make(map[uint16]boundGameSessionCharacter, 4)
 	}
-	if session.dungeonPeerProjected[peerID] {
+	if session.dungeonPeerProjected[peer.character] == peer {
 		return false
 	}
-	session.dungeonPeerProjected[peerID] = true
+	session.dungeonPeerProjected[peer.character] = peer
 	return true
 }
 
-func (s *Service) releaseDungeonPeerProjection(session *gameSession, peerID uint16) {
-	if session == nil || peerID == 0 {
+func (s *Service) releaseDungeonPeerProjection(session *gameSession, peer boundGameSessionCharacter) {
+	if session == nil || peer.character == 0 {
 		return
 	}
 	session.dungeonPartyRunMu.Lock()
 	defer session.dungeonPartyRunMu.Unlock()
-	delete(session.dungeonPeerProjected, peerID)
+	if session.dungeonPeerProjected[peer.character] == peer {
+		delete(session.dungeonPeerProjected, peer.character)
+	}
 }
 
 // projectDungeonPartyPeerActors 双向各投影一次：把队友画给本人，也把本人画给队友。
@@ -310,6 +352,10 @@ func (s *Service) releaseDungeonPeerProjection(session *gameSession, peerID uint
 // 会在这一次调用里把两个方向都补齐（先做的不标记，避免漏发）。
 func (s *Service) projectDungeonPartyPeerActors(session *gameSession, source string) error {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
+		return nil
+	}
+	self, current := s.boundGameSessionCharacterSnapshot(session)
+	if !current {
 		return nil
 	}
 	state := runtimePartyStateSnapshot(session)
@@ -325,7 +371,8 @@ func (s *Service) projectDungeonPartyPeerActors(session *gameSession, source str
 		if member.UserID == 0 || member.UserID == session.selectedCharacterID {
 			continue
 		}
-		peer, online := s.onlineGameSession(member.UserID)
+		peerIdentity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		peer := peerIdentity.session
 		if !online || peer == nil || peer == session {
 			continue
 		}
@@ -333,23 +380,23 @@ func (s *Service) projectDungeonPartyPeerActors(session *gameSession, source str
 		if !peerReady || peerKey != ownKey {
 			continue
 		}
-		if s.claimDungeonPeerProjection(session, member.UserID) {
+		if s.claimDungeonPeerProjection(session, peerIdentity) {
 			if err := s.sendDungeonPartyPeerActorState(
 				session,
 				peer,
 				source+"_peer_actor_to_self",
 			); err != nil {
-				s.releaseDungeonPeerProjection(session, member.UserID)
+				s.releaseDungeonPeerProjection(session, peerIdentity)
 				return err
 			}
 		}
-		if s.claimDungeonPeerProjection(peer, session.selectedCharacterID) {
+		if s.claimDungeonPeerProjection(peer, self) {
 			if err := s.sendDungeonPartyPeerActorState(
 				peer,
 				session,
 				source+"_self_actor_to_peer",
 			); err != nil {
-				s.releaseDungeonPeerProjection(peer, session.selectedCharacterID)
+				s.releaseDungeonPeerProjection(peer, self)
 				return err
 			}
 		}
@@ -520,6 +567,10 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	); err != nil {
 		return fmt.Errorf("send dungeon peer actor op9: %w", err)
 	}
+	s.logGameEvent(receiver, "game-dungeon-party-peer-actor-delivered",
+		"source", source, "receiver_char_id", receiver.selectedCharacterID,
+		"actor_char_id", charID, "actor_generation", actor.characterGeneration,
+		"receiver_generation", receiver.characterGeneration)
 	// 到此为止：客户端拿到"队友 actor 的外观 + 属性 + 队伍记录"，对象会被建出来
 	// （trace 实证：`local-actor-create object_key=5`，随后 op9 走完 before/after）。
 	// **不再往下发落位包**：op120（`buildCurrentSceneActorPlacementBody` 的 body 只有
