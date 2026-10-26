@@ -1,19 +1,12 @@
 package dnfbridge
 
-import (
-	"fmt"
-	"net"
-	"testing"
-)
-
-const testPVPUDPRelayScopePortCount = 80
+import "testing"
 
 func TestPVPRelayEightSeatsAndOrdinaryPartyUseSeparateNamespaces(t *testing.T) {
-	portStart := testPVPUDPRelayScopePortStart(t)
-	t.Logf("relay fixture bindIP=127.0.0.1 range=%d-%d", portStart, portStart+testPVPUDPRelayScopePortCount-1)
-	r, err := newCurrentPartyUDPRelay(true, "127.0.0.1", portStart, testPVPUDPRelayScopePortCount, func(message string, args ...any) {
-		t.Logf("%s %v", message, args)
-	})
+	// Two two-person groups plus eight PVP seats need 60 directed ports.
+	// Reserve a verified 64-port block instead of assuming the 80 ports after
+	// one ephemeral socket are free (or even below port 65536).
+	r, err := newCurrentPartyUDPRelay(true, "127.0.0.1", r137FreeRange(t), 64, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,44 +77,4 @@ func TestPVPRelayEightSeatsAndOrdinaryPartyUseSeparateNamespaces(t *testing.T) {
 	if remaining != 2 {
 		t.Fatal("决斗退出泄漏中继腿", remaining)
 	}
-}
-
-func testPVPUDPRelayScopePortStart(t *testing.T) int {
-	t.Helper()
-	var lastErr error
-	lastRange := "not allocated"
-	for attempt := 0; attempt < 20; attempt++ {
-		lastRange = "not allocated"
-		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		port := listener.LocalAddr().(*net.UDPAddr).Port
-		lastRange = fmt.Sprintf("%d-%d", port, port+testPVPUDPRelayScopePortCount-1)
-		if port+testPVPUDPRelayScopePortCount-1 > 65535 {
-			_ = listener.Close()
-			lastErr = fmt.Errorf("eighty-port range starting at %d exceeds 65535", port)
-			continue
-		}
-		// Hold the whole eighty-port range together, as in the relay fixture probe.
-		listeners := []*net.UDPConn{listener}
-		for offset := 1; offset < testPVPUDPRelayScopePortCount; offset++ {
-			next, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port + offset})
-			if err != nil {
-				lastErr = err
-				break
-			}
-			listeners = append(listeners, next)
-		}
-		for _, held := range listeners {
-			_ = held.Close()
-		}
-		if len(listeners) == testPVPUDPRelayScopePortCount {
-			// The relay binds after these closes; a TOCTOU window still remains.
-			return port
-		}
-	}
-	t.Fatalf("could not allocate a usable eighty-port UDP test range after 20 attempts: bindIP=127.0.0.1 range=%s error=%v", lastRange, lastErr)
-	return 0
 }
