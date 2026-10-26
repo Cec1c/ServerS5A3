@@ -216,9 +216,12 @@ func TestR134RetryRefusalReturnRealPVF(t *testing.T) {
 				if transitions != 1 {
 					t.Errorf("return must emit one typed op24: got=%d", transitions)
 				}
+				// All three ordinary completed routes now retire through the
+				// same successful settlement exit. A later town position packet
+				// must not be needed to release the completed owner.
 				if exit.cmd == uint16(dnfenum.CmdPacketBack2Village) {
-					if session.dungeon.runtime != runtime || !runtime.townReturnPending || !runtime.townReturnOp24Sent {
-						t.Error("op132 must retain the sent transition until positive town evidence")
+					if session.dungeon.runtime != nil || !runtime.townReturnOp24Sent {
+						t.Error("completed op132 did not retire after its successful town route")
 					}
 					dispatch(uint16(dnfenum.CmdPacketSetUserPosition), buildTownPositionRequest(450, 234, 5, 100))
 				}

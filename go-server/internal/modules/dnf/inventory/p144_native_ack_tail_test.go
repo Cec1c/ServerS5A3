@@ -27,7 +27,7 @@ func TestP144NativeAckCommonTail(t *testing.T) {
 	binary.LittleEndian.PutUint32(body[16:20], 0xffffffff)
 	got, err := NewHandler().Handle(ctx, alignedcmd.Request{Opcode: 80, Body: body, AccountID: "acc", SelectedCharacterID: 77, Repositories: repos,
 		GuildMedalUpgradeResolver: func(int64, byte) (alignedcmd.GuildMedalUpgradePolicy, error) {
-			return alignedcmd.GuildMedalUpgradePolicy{MaterialID: 10154439, MaterialCount: 18, SuccessWeight: 100000, PenaltyType: 1}, nil
+			return alignedcmd.GuildMedalUpgradePolicy{MaterialID: 10154439, MaterialCount: 18, MaterialSlotStart: 121, MaterialSlotEnd: 176, SuccessWeight: 100000, PenaltyType: 1}, nil
 		}})
 	if err != nil {
 		t.Fatal(err)

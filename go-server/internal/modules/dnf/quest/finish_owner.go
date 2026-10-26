@@ -1030,6 +1030,10 @@ func planFinishProgression(
 		result.NewLevel++
 	}
 	result.LevelsGained = result.NewLevel - result.PreviousLevel
+	result, err := tables.LimitCharacterExperienceAtCap(result, maxLevel)
+	if err != nil {
+		return progression.ExperienceSkillPointPlan{}, fmt.Errorf("%w: experience cap: %v", ErrFinishProgressionUnproven, err)
+	}
 	points, err := tables.AdvanceSkillPoints(skill.Points, result.NewLevel)
 	if err != nil {
 		return progression.ExperienceSkillPointPlan{}, err

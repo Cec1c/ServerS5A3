@@ -168,7 +168,6 @@ type runtimeDungeonState struct {
 	settlementCardAutoFlipGeneration     uint64
 	settlementCardAutoFlipTimerName      string
 	settlementCardExitAckSent            bool
-	townReturnAckSent                    bool
 	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
 	settlementPaidCardGrant              *dungeonCardAssetGrantResult
@@ -200,6 +199,7 @@ type runtimeDungeonState struct {
 	townReturnPending                    bool
 	townReturnOp24Sent                   bool
 	townReturnRequestMsgID               uint16
+	townReturnAckSent                    bool
 	townReturnSource                     string
 	townReturnOrigin                     currentTownPositionSnapshot
 	townReturnTransition                 currentDungeonTownTransition
@@ -217,6 +217,7 @@ type runtimeDungeonState struct {
 	actorPositionY                       uint16
 	actorDirection                       byte
 	actorPositionValid                   bool
+	fiendWarSceneDiagnostic              fiendWarSceneDiagnosticState
 	settlementDungeonPermissionSent      bool
 	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState

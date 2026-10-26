@@ -12,7 +12,7 @@ func (s *Service) initializeActivityControls(ctx context.Context) error {
 	if !available || repos.Settings == nil {
 		return nil
 	}
-	controls, err := onlineevent.NewControls(ctx, repos.Settings, []onlineevent.ControlDefinition{
+	definitions := []onlineevent.ControlDefinition{
 		{ID: 145, Name: "大富翁骰子（幸运热舞派对）", Description: "角色基础2次，推荐地下城4/8/12次各加2次；28格及圈数奖励读取现用PVF，奖励邮件发放，06点重置每日次数。", Source: "event/attendancemarble.evt / 原生活动145、查询629、掷骰630", DefaultEnabled: true},
 		{ID: 216, Name: "新学期累计奖励（需兼容客户端）", Description: "默认关闭；需独立审核客户端654/689许可后启用。角色通关6062按中国06时活动日累计，8、16、24天领取邮件；每日表为空，不发日奖。", Source: "实际新学期216及event53模型 / 累计689、状态654", DefaultEnabled: false},
 		{ID: 350, Name: "史诗之路：超越征程", Description: "开放当前湍流NPC及任务；祥瑞溪谷仍要求等级17和完成5579，三个高级地下城等级85且按实际PVF扣邀请函。", Source: "实际npc3135/event350及2018_epciroad2资源", DefaultEnabled: true},
@@ -22,7 +22,9 @@ func (s *Service) initializeActivityControls(ctx context.Context) error {
 		{ID: 2370, Name: "每日签到得好礼", Description: "每日通关2次推荐地下城完成签到，账号共享进度，累计7、14、21天可领取额外奖励；每日06:00重置。", Source: "当前PVF chn_DailyAttendanceAnytimeEvent.evt / 原生事件2370", DefaultEnabled: true},
 		{ID: 2365, Name: "竞技大赛（马战竞猜）", Description: "开启原生竞猜界面、赛事状态及下注流程。", Source: "当前PVF马战活动表 / 原生事件2365", DefaultEnabled: s.joustEventEnabled()},
 		{ID: 2395, Name: "红尾乔纳森", Description: "开启中央公园地铁中心NPC红尾乔纳森的可见性。", Source: "npc/476_jonathan.npc [open visible event]2395", DefaultEnabled: s.currentSpendTimeCatalogIncludesTownNpcEvent()},
-	})
+	}
+	definitions = append(definitions, currentImageTownActivityDefinitions()...)
+	controls, err := onlineevent.NewControls(ctx, repos.Settings, definitions)
 	if err != nil {
 		return fmt.Errorf("initialize activity controls: %w", err)
 	}
