@@ -80,7 +80,9 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 		return s.handleCurrentAreaChat(session, typ, request)
 	}
 	sourceID := selectedCharacterID(session)
-	if request.HasTrailingValue && !isCurrentPrivateWhisperType(request.MessageType) {
+	mainWhisper := s.options.currentClientVersion == "official-24.9" && request.MessageType == 1
+	verifiedWhisper := mainWhisper || isCurrentPrivateWhisperType(request.MessageType)
+	if request.HasTrailingValue && !verifiedWhisper {
 		// Group/party variants need their own authenticated recipient owner.
 		// Never project their private text to a guessed town or single peer.
 		s.logGameEvent(session, "game-peer-chat-request-rejected", "message_type", request.MessageType,
@@ -95,7 +97,10 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 	}
 	// Current EXE 0x201BFF7 writes ID zero and a target name. Resolve the
 	// repository identity before selecting an online recipient.
-	if isCurrentPrivateWhisperType(request.MessageType) && request.TargetID == 0 && request.HasTrailingValue {
+	// Main-input 2A0C02B uses FFFF when the named character has no local
+	// scene actor. The detached whisper window uses zero instead.
+	if request.HasTrailingValue && ((isCurrentPrivateWhisperType(request.MessageType) && request.TargetID == 0) ||
+		(mainWhisper && request.TargetID == 0xffff)) {
 		name, decodeErr := decodeCharacterName(request.TargetName)
 		if decodeErr != nil {
 			return s.sendGameUpperFailure(session, typ, 1)
@@ -107,7 +112,7 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 		}
 		request.TargetID = uint16(value)
 	}
-	privateWhisper := isCurrentPrivateWhisperType(request.MessageType) && request.Unknown == 0
+	privateWhisper := verifiedWhisper && request.Unknown == 0
 	if request.TargetID == 0 || request.TargetID == sourceID ||
 		(!privateWhisper && !s.currentSocialPeerAvailable(sourceID, request.TargetID)) {
 		s.logGameEvent(session, "game-peer-chat-request-rejected",
@@ -162,6 +167,9 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 			s.logGameEvent(session, "game-peer-chat-request-rejected", "message_type", request.MessageType,
 				"reason", "whisper_character_group_mismatch")
 			return s.sendGameUpperFailure(session, typ, 1)
+		}
+		if mainWhisper {
+			return s.sendCurrentMainWhisper(session, targetSession, typ, request, source)
 		}
 		return s.sendCurrentOfficialWhisper(session, targetSession, typ, request, source, target)
 	}
