@@ -146,7 +146,7 @@ func loadGuildGuardianScene(source pvf.Source) (*guildGuardianScene, error) {
 	return scene, nil
 }
 
-func (s *guildGuardianScene) near(g *guild.Guild, target uint32, x, y uint16) bool {
+func (s *guildGuardianScene) hasInteractionNPC(g *guild.Guild, target uint32) bool {
 	var npc guildGuardianNPC
 	if g.Guardians == nil || g.Guardians.ActiveID == 0 {
 		npc = s.first[target]
@@ -158,8 +158,7 @@ func (s *guildGuardianScene) near(g *guild.Guild, target uint32, x, y uint16) bo
 			}
 		}
 	}
-	// V166 02879DCC..02879EA1: |deltaX| <= 40+addX and
-	// |deltaY| <= 40+addY, inclusive, not a circular radius.
-	dx, dy := int(x)-npc.x, int(y)-npc.y
-	return npc.id != 0 && dx >= -npc.dx && dx <= npc.dx && dy >= -npc.dy && dy <= npc.dy
+	// V176 mouse hit-testing opens the NPC menu without the keyboard
+	// nearby-NPC finder. The hall and current NPC still have to exist.
+	return npc.id != 0
 }

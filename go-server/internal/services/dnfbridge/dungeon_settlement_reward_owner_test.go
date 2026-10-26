@@ -17,7 +17,19 @@ import (
 )
 
 func TestCurrentDungeonSettlementProducerCommitsProgressionAndFreezesRealPickupReceiptOnce(t *testing.T) {
+	testCurrentDungeonSettlementProducerReplay(t, false)
+}
+
+func TestSingleAntonSettlementHidesOrdinaryResultAndKeepsDurableProgression(t *testing.T) {
+	testCurrentDungeonSettlementProducerReplay(t, true)
+}
+
+func testCurrentDungeonSettlementProducerReplay(t *testing.T, singleAnton bool) {
+	t.Helper()
 	service, runtime, session, _, _ := prepareCompletedSettlementRuntime(t)
+	if singleAnton {
+		runtime.raidEntry = &currentRaidDungeonEntry{singleAntonMode: true}
+	}
 	repositories, ok := service.repositoryGroup()
 	if !ok {
 		t.Fatal("repository group unavailable")
@@ -74,7 +86,7 @@ func TestCurrentDungeonSettlementProducerCommitsProgressionAndFreezesRealPickupR
 		t.Fatal("settlement plan was not frozen")
 	}
 	assertCurrentDungeonSettlementProducerPlayResultBody(t, runtime.settlementResultPlan.PlayResultBody)
-	assertCurrentDungeonSettlementProducerRewardBody(t, runtime.settlementResultPlan.ClearRewardBody)
+	assertCurrentDungeonSettlementProducerRewardBody(t, runtime.settlementResultPlan.ClearRewardBody, !singleAnton)
 	committed, found, err := repositories.Character.Load(context.Background(), "99")
 	if err != nil || !found {
 		t.Fatalf("load committed character found=%t err=%v", found, err)
@@ -125,7 +137,7 @@ func assertCurrentDungeonSettlementProducerPlayResultBody(t *testing.T, body []b
 	}
 }
 
-func assertCurrentDungeonSettlementProducerRewardBody(t *testing.T, body []byte) {
+func assertCurrentDungeonSettlementProducerRewardBody(t *testing.T, body []byte, showResult bool) {
 	t.Helper()
 	reader := settlementProtocolReader{body: body}
 	if got := reader.u32(); got != 200 {
@@ -184,7 +196,8 @@ func assertCurrentDungeonSettlementProducerRewardBody(t *testing.T, body []byte)
 	if reader.u32() != 0 {
 		t.Fatal("unknown op35 pre-tail value is nonzero")
 	}
-	if reader.u32() != 0 || reader.u8() != 1 || reader.u8() != 0 ||
+	// 普通结算不得启用春节黄金翻牌双倍活动；该标志并非窗口显示开关。
+	if reader.u32() != 0 || reader.u8() != 0 || reader.u8() != 0 ||
 		reader.u32() != 0 || reader.u32() != 0 || reader.u32() != 0 || reader.u32() != 0 ||
 		reader.offset != len(body) {
 		t.Fatalf("op35 current reader tail/boundary mismatch offset=%d len=%d", reader.offset, len(body))

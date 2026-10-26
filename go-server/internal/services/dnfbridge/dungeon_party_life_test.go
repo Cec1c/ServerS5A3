@@ -95,12 +95,16 @@ func TestPartyDeadStateReplayedAfterRoomActorRebuild(t *testing.T) {
 func TestRepeatedDungeonRunWithRetainedKeyReleasesAppearanceResend(t *testing.T) {
 	service, leader, follower := peerProjectionEntryFixture(t)
 	first := enterDungeonRun(t, service, []*gameSession{leader, follower}, 7)
-	if !service.claimDungeonPeerActorResend(follower, first) || service.claimDungeonPeerActorResend(follower, first) {
+	peer, ok := service.boundGameSessionCharacterSnapshot(leader)
+	if !ok {
+		t.Fatal("leader not bound")
+	}
+	if !service.claimDungeonPeerActorResend(follower, first, peer) || service.claimDungeonPeerActorResend(follower, first, peer) {
 		t.Fatal("first-run resend deduplication failed")
 	}
 	// The follower still has a valid previous run key when the new op29 arrives.
 	second := enterDungeonRun(t, service, []*gameSession{leader, follower}, 8)
-	if !service.claimDungeonPeerActorResend(follower, second) || service.claimDungeonPeerActorResend(follower, second) {
+	if !service.claimDungeonPeerActorResend(follower, second, peer) || service.claimDungeonPeerActorResend(follower, second, peer) {
 		t.Fatal("new run reused the previous run's appearance resend marker")
 	}
 }

@@ -215,7 +215,7 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 	}
 	body := make([]byte, dungeoncmd.SelectDungeonRequestSize)
 	binary.LittleEndian.PutUint32(body, uint32(a.Dungeon))
-	err = s.handleDungeonSelectUpperPlannedAdmitted(p, body, nil, true)
+	err = s.handleDungeonSelectUpperPlannedAdmitted(p, body, nil, true, nil)
 	p.dungeon.mu.Lock()
 	entered = p.dungeon.runtime != nil && p.dungeon.runtime.raidEntry != nil && p.dungeon.runtime.raidEntry.InstanceID == b.InstanceID
 	p.dungeon.mu.Unlock()

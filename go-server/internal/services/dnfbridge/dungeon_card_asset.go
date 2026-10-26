@@ -17,6 +17,7 @@ var (
 )
 
 type dungeonCardAssetGrantResult struct {
+	Cost           int64
 	GoldBefore     int64
 	GoldAfter      int64
 	ItemSlots      []int16
@@ -63,6 +64,7 @@ func grantDungeonCardRewardBundle(
 	result, err := owner.GrantCardReward(ctx, dnfdungeon.CardRewardCommand{
 		CharacterID: characterID,
 		MainSlots:   mainSlotCount,
+		Cost:        bundle.Cost,
 		Bundle: dnfdungeon.CardRewardBundle{
 			Gold:  bundle.Gold,
 			Items: items,
@@ -86,6 +88,7 @@ func grantDungeonCardRewardBundle(
 		return dungeonCardAssetGrantResult{}, err
 	}
 	return dungeonCardAssetGrantResult{
+		Cost:           bundle.Cost,
 		GoldBefore:     result.GoldBefore,
 		GoldAfter:      result.GoldAfter,
 		ItemSlots:      result.ItemSlots,

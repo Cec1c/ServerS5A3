@@ -170,6 +170,9 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 			if err != nil {
 				return err
 			}
+			if allocate {
+				placement = placement.ForGrant()
+			}
 			placement = placement.ForInventory(&inv)
 			if !req.Source.Cargo && !placement.Contains(req.Source.List, int16(req.Source.Slot)) {
 				return ErrGuildCargoRequest
@@ -225,6 +228,15 @@ func (o *Owner) transferGuildCargo(ctx context.Context, req GuildCargoRequest, r
 		}
 		if err = rules.Validate(r.CloneCharacter(character), req, cloneStack(source), cloneStack(dest)); err != nil {
 			return err
+		}
+		if rules.Placement != nil && !req.Destination.Cargo {
+			resolve := func(stack r.ItemStack) (itemplacement.SlotPolicy, error) {
+				return rules.Placement(r.CloneCharacter(character), cloneStack(stack))
+			}
+			// 跨公会仓库的来源不在角色快捷栏。
+			if err := validateQuickEquipmentPlacement(inv.Slots, source, false, req.Destination.List, int16(req.Destination.Slot), resolve); err != nil {
+				return err
+			}
 		}
 		if swap {
 			putGuildCargoStack(&inv, g.Cargo, req.Source, dest)

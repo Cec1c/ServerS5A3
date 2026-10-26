@@ -20,7 +20,7 @@ func (s *Service) restoreCurrentReconnectSeriaOriginLocked(ctx context.Context, 
 		return
 	}
 	origin, found := currentTownPrevVillageOriginFromPersistedStats(characterID, character)
-	if !found || currentRegisteredChannelTown(int64(origin.TownID)) {
+	if !found || s.currentDedicatedChannelTown(int64(origin.TownID)) {
 		return
 	}
 	originMap, persistable := s.currentTownPrevVillageOriginIsPersistable(origin)

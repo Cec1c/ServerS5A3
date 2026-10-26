@@ -27,7 +27,7 @@ func TestRealPVFGuildR192CatalogAndTransactions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []guildcompound.CompoundKind{guildcompound.CompoundGem} {
+	for _, kind := range []guildcompound.CompoundKind{guildcompound.CompoundGem, guildcompound.CompoundFlag} {
 		for _, grade := range rules.Catalog.Ladder(kind).Rarities() {
 			recipe, _ := rules.Catalog.Ladder(kind).Recipe(grade)
 			if !recipe.Compoundable() {
@@ -221,6 +221,46 @@ func TestGuildR192WriteFailureKeepsOneCommittedResult(t *testing.T) {
 	}
 	if len(inv.Slots) != 1 || inv.Slots["38:49"].ItemID != 90001 || inv.Slots["38:49"].Count != 1 {
 		t.Fatalf("commit lost or duplicated: %+v", inv.Slots)
+	}
+}
+
+func TestGuildR192MedalRouteUsesOwnPage(t *testing.T) {
+	s, g, repositories := guildR192Fixture(t, "2500")
+	inv, _, err := repositories.Inventory.Load(context.Background(), "19")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := guildR192Body(4, 0)
+	for i := 0; i < 4; i++ {
+		slot, err := currentGuildCompoundGrant(s.pvfItemCatalog, &inv, 100380009)
+		if err != nil {
+			t.Fatal(err)
+		}
+		binary.LittleEndian.PutUint32(body[21+i*4:], uint32(slot))
+	}
+	if err := repositories.Inventory.Save(context.Background(), inv); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleGameCommand(g, 1, 864, body); err != nil {
+		t.Fatal(err)
+	}
+	after, _, err := repositories.Inventory.Load(context.Background(), "19")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Slots["38:49"].Count != 4 || after.Slots["38:0"].Count != 1 || len(after.Slots) != 2 {
+		t.Fatalf("medal result: %+v", after.Slots)
+	}
+	result, err := currentGuildCompoundDefinition(s.pvfItemCatalog, uint32(after.Slots["38:0"].ItemID))
+	if err != nil || result.Rarity != 1 || result.Family != guildcompound.MaterialFamilyGuildMedal {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	packets := splitItemGrantNoticeStream(t, s, g.conn.(*bufferConn).write.Bytes())
+	wantAck := make([]byte, 5)
+	wantAck[0] = 1
+	binary.LittleEndian.PutUint32(wantAck[1:], uint32(after.Slots["38:0"].ItemID))
+	if len(packets) != 2 || packets[0].msgID != 864 || !bytes.Equal(packets[0].body, wantAck) || packets[1].body[0] != 38 {
+		t.Fatalf("packets=%+v wantAck=%x", packets, wantAck)
 	}
 }
 

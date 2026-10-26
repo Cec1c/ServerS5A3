@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
+	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 type currentRaidDailyRule struct {
@@ -15,8 +16,8 @@ type currentRaidDailyRule struct {
 	Now   time.Time
 }
 
-// 三行协议分别读取各模式既有日账本；不能用超时空次数或固定零填其他模式。
-// 本入口仅投影，不新增安图恩/卢克开团扣次规则。
+// 与既有超时空日账本使用同一服务日格式。安图恩/卢克各自独立记账，
+// 不能用超时空次数或固定零填它们的客户端行。
 func (s *Service) currentRaidDailyRule(mode byte) (*currentRaidDailyRule, error) {
 	path, scope := "", ""
 	switch mode {
@@ -52,7 +53,7 @@ func (s *Service) currentRaidDailyRule(mode byte) (*currentRaidDailyRule, error)
 // Native1303固定读三行，每行mode/used/limit/保留字段。1a58080只比较used与limit；
 // 第四字段保留已见样本的0，不赋予服务端资格含义。旧15字节包仍只供旧档。
 func (s *Service) sendCurrentNativeRaidDailyAvailability(p *gameSession, source string) error {
-	if !isCurrentFiendWarChannel(p) || !s.currentRaidAuthenticated(p) {
+	if !s.currentRaidAuthenticated(p) {
 		return nil
 	}
 	identity, ok := s.boundGameSessionCharacterSnapshot(p)
@@ -97,4 +98,12 @@ func (s *Service) sendCurrentNativeRaidDailyAvailability(p *gameSession, source 
 	}
 	s.logGameEvent(p, "团本每日入场次数已同步", "source", source, "body_len", len(body))
 	return nil
+}
+
+func reserveCurrentRaidDaily(record repo.SettingsRecord, accounts []string, rule *currentRaidDailyRule) (repo.SettingsRecord, error) {
+	next, err := fiendwar.ReserveFiendWarDailyEntries(record, accounts, rule.Limit, rule.Now)
+	if err == nil {
+		next.Scope = rule.Scope
+	}
+	return next, err
 }

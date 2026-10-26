@@ -557,7 +557,7 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 		if err != nil {
 			return dnfplacement.SlotPolicy{}, err
 		}
-		return currentPVFItemPlacementPolicy(definition), nil
+		return currentPVFItemPlacementPolicy(definition).ForGrant(), nil
 	})
 	if err != nil {
 		s.cancelOnlineItemTrade(trade, "transaction_owner_unavailable")

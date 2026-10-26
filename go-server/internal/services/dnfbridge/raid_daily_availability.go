@@ -21,8 +21,8 @@ import (
 // 即每行 5 字节：mode(u8) used(u8) limit(u8) field4(u8) field5(u8)。
 // 这只是旧厂商样本，不能作为 official-24.9 的协议依据。公开 v84 EXE 的
 // class0/1303 handler 0x01A5AE80 每行仅读 4 字节，共 12 字节。上述 15 字节
-// 在该 handler 中会错位成 mode=1/0/0。当前尚无可信的持久次数及第四字段来源，
-// official-24.9 跳过旧包；仅超时空频道投影真实账本的三行12字节快照。
+// 在该 handler 中会错位成 mode=1/0/0。现用档改由raid_daily_owner发布持久日账本的
+// 三行12字节快照；第四字段沿用已见0，不作为资格依据。旧包只保留给旧档。
 // 其他旧档保留厂商样本行为，`DNFBRIDGE_RAID_DAILY_AVAILABILITY=off` 可回退。
 const (
 	currentRaidDailyAvailabilityMsgID = uint16(1303)
@@ -71,17 +71,10 @@ func (s *Service) sendCurrentRaidDailyAvailability(session *gameSession, source 
 		return nil
 	}
 	if s.options.currentClientVersion == "official-24.9" {
-		if isCurrentFiendWarChannel(session) && currentRaidDailyAvailabilityEnabled() {
-			return s.sendCurrentNativeRaidDailyAvailability(session, source)
+		if !currentRaidDailyAvailabilityEnabled() {
+			return nil
 		}
-		s.logGameEvent(session, "game-raid-daily-availability-skipped",
-			"char_id", session.selectedCharacterID,
-			"source", source,
-			"msg_id", currentRaidDailyAvailabilityMsgID,
-			"reason", "current_client_requires_verified_12_byte_rows_and_persisted_counts",
-			"legacy_body_len", 15,
-			"native_body_len", 12)
-		return nil
+		return s.sendCurrentNativeRaidDailyAvailability(session, source)
 	}
 	if !currentRaidDailyAvailabilityEnabled() {
 		s.logGameEvent(session, "game-raid-daily-availability-skipped",

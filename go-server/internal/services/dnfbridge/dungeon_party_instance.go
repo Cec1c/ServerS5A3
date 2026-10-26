@@ -118,14 +118,17 @@ type dungeonPartyInstance struct {
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 
-	semesterRun            *currentSemesterRun
-	mu                     sync.Mutex
-	id                     uint64
-	key                    dungeonPartyRunKey
-	createdAt              time.Time
-	lastSeenAt             time.Time
-	members                map[uint16]time.Time
-	sessions               map[uint16]*gameSession
+	semesterRun *currentSemesterRun
+	mu          sync.Mutex
+	id          uint64
+	key         dungeonPartyRunKey
+	createdAt   time.Time
+	lastSeenAt  time.Time
+	members     map[uint16]time.Time
+	sessions    map[uint16]*gameSession
+	// Exact runtime attachment owns membership retirement. Character IDs can
+	// already belong to a replacement socket/run when old cleanup arrives.
+	memberRuntimes         map[uint16]*runtimeDungeonState
 	scenes                 map[uint16]*worldmap.DungeonSession
 	positions              map[uint16]partyDungeonActorPosition
 	doorArrivals           map[partyDungeonDoorArrivalKey]map[uint16]partyDungeonDoorArrival
@@ -249,18 +252,19 @@ func (s *Service) adoptPartyDungeonInstance(
 	if instance == nil {
 		registry.nextID++
 		instance = &dungeonPartyInstance{
-			id:            registry.nextID,
-			key:           key,
-			createdAt:     now,
-			lastSeenAt:    now,
-			members:       map[uint16]time.Time{characterID: now},
-			sessions:      map[uint16]*gameSession{characterID: session},
-			scenes:        map[uint16]*worldmap.DungeonSession{},
-			room:          runtime.Room,
-			dropOwner:     runtime.DropOwner,
-			nextObjectKey: runtime.NextObjectKey,
-			rooms:         map[runtimeDungeonRoomKey]partyDungeonSharedRoom{},
-			scene:         scene,
+			id:             registry.nextID,
+			key:            key,
+			createdAt:      now,
+			lastSeenAt:     now,
+			members:        map[uint16]time.Time{characterID: now},
+			sessions:       map[uint16]*gameSession{characterID: session},
+			memberRuntimes: map[uint16]*runtimeDungeonState{characterID: runtime},
+			scenes:         map[uint16]*worldmap.DungeonSession{},
+			room:           runtime.Room,
+			dropOwner:      runtime.DropOwner,
+			nextObjectKey:  runtime.NextObjectKey,
+			rooms:          map[runtimeDungeonRoomKey]partyDungeonSharedRoom{},
+			scene:          scene,
 		}
 		if runtime.Session != nil {
 			instance.scenes[characterID] = runtime.Session
@@ -272,20 +276,28 @@ func (s *Service) adoptPartyDungeonInstance(
 		instance.rooms[runtimeDungeonRoomKeyFromScene(scene)] = partyDungeonSharedRoom{Room: runtime.Room, Scene: scene}
 		registry.byKey[key] = instance
 		created = true
-	} else if instance.acceptsRuntimeLocked(runtime, scene) {
-		instance.members[characterID] = now
-		instance.lastSeenAt = now
-		if instance.sessions == nil {
-			instance.sessions = make(map[uint16]*gameSession, 4)
+	} else {
+		instance.mu.Lock()
+		if instance.acceptsRuntimeLocked(runtime, scene) {
+			instance.members[characterID] = now
+			instance.lastSeenAt = now
+			if instance.sessions == nil {
+				instance.sessions = make(map[uint16]*gameSession, 4)
+			}
+			if instance.scenes == nil {
+				instance.scenes = make(map[uint16]*worldmap.DungeonSession, 4)
+			}
+			instance.sessions[characterID] = session
+			if instance.memberRuntimes == nil {
+				instance.memberRuntimes = make(map[uint16]*runtimeDungeonState, 4)
+			}
+			instance.memberRuntimes[characterID] = runtime
+			if runtime.Session != nil {
+				instance.scenes[characterID] = runtime.Session
+			}
+			joined = true
 		}
-		if instance.scenes == nil {
-			instance.scenes = make(map[uint16]*worldmap.DungeonSession, 4)
-		}
-		instance.sessions[characterID] = session
-		if runtime.Session != nil {
-			instance.scenes[characterID] = runtime.Session
-		}
-		joined = true
+		instance.mu.Unlock()
 	}
 	registry.mu.Unlock()
 
@@ -523,6 +535,12 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 // 最后一两只怪往往是队长打死的，队员那边只是被广播标记了清怪状态 ⇒ 队员永远结算不了。
 // 这里异步投递（同步会跨会话互等：广播方持有自己的 dungeon.mu，队友的回调又要它的锁）。
 func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession, instanceID uint64, objectKey uint32) {
+	s.dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer, instanceID, objectKey, nil)
+}
+
+// accept, when present, revalidates a scoped completion proof under the peer's
+// dungeon lock. Ordinary hostile-death callers retain their existing path.
+func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameSession, instanceID uint64, objectKey uint32, accept func(*runtimeDungeonState, worldmap.DungeonRoomScene) bool) {
 	if s == nil || peer == nil || instanceID == 0 {
 		return
 	}
@@ -536,6 +554,9 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession,
 		}
 		scene, ok := runtime.Session.Scene()
 		if !ok || !scene.Cleared {
+			return nil
+		}
+		if accept != nil && !accept(runtime, scene) {
 			return nil
 		}
 		if err := s.persistCurrentDungeonRoomClearQuestLocked(peer, runtime); err != nil {
@@ -864,6 +885,9 @@ func (s *Service) prepareRuntimeDungeonTargetRoom(
 	if _, err := s.configurePVFTutorialBasicActionRoom(runtime.Dungeon, target, targetRoom); err != nil {
 		return nil, 0, fmt.Errorf("%s tutorial basic-action room: %w", errPrefix, err)
 	}
+	if err := s.prepareCurrentGuildPracticeTargetRoom(runtime, targetRoom, target); err != nil {
+		return nil, 0, fmt.Errorf("%s guild practice room: %w", errPrefix, err)
+	}
 	runtime.registerPartyDungeonSharedRoom(target, targetRoom, extendedPlan.NextObjectKey)
 	return targetRoom, extendedPlan.NextObjectKey, nil
 }
@@ -930,8 +954,16 @@ func (s *Service) releasePartyDungeonInstance(runtime *runtimeDungeonState, char
 	var remaining int
 	registry.mu.Lock()
 	instance.mu.Lock()
+	if instance.memberRuntimes[characterID] != runtime {
+		instance.mu.Unlock()
+		registry.mu.Unlock()
+		s.logPacketEvent("game-dungeon-party-instance-stale-release-ignored",
+			"instance_id", instance.id, "char_id", characterID, "source", source)
+		return
+	}
 	delete(instance.members, characterID)
 	delete(instance.sessions, characterID)
+	delete(instance.memberRuntimes, characterID)
 	delete(instance.scenes, characterID)
 	delete(instance.positions, characterID)
 	remaining = len(instance.members)

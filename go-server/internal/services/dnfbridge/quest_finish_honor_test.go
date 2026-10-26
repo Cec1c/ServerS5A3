@@ -34,6 +34,10 @@ func TestCurrentFinishQuestAtCapPublishesHonorWithoutLevelOrSkillAward(t *testin
 				t.Fatal(err)
 			}
 			tables := finishBridgeCapProgression(t)
+			capEntry, err := tables.ThresholdToNext(89)
+			if err != nil {
+				t.Fatal(err)
+			}
 			honorTables, err := dnfhonor.LoadTables(honorServiceTestSource{dnfhonor.TablePath: honorServiceTestDocument()})
 			if err != nil {
 				t.Fatal(err)
@@ -63,7 +67,7 @@ func TestCurrentFinishQuestAtCapPublishesHonorWithoutLevelOrSkillAward(t *testin
 			if rate == 3 {
 				wantHonorLevel, wantHonorProgress = 2, 116
 			}
-			if got.Level != 90 || got.Stats["exp"] != 899999+int64(wantGain) || got.Stats[currentHonorExpertLevelStatKey] != wantHonorLevel || got.Stats[currentHonorExpertProgressExperienceStatKey] != wantHonorProgress {
+			if got.Level != 90 || got.Stats["exp"] != int64(capEntry) || got.Stats[currentHonorExpertLevelStatKey] != wantHonorLevel || got.Stats[currentHonorExpertProgressExperienceStatKey] != wantHonorProgress {
 				t.Fatalf("post character=%+v", got)
 			}
 			gotSkill, _, _ := repos.Skill.Load(ctx, "19")

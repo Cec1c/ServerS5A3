@@ -100,7 +100,12 @@ func handleMailboxOpen(ctx context.Context, req alignedcmd.Request) (alignedcmd.
 	if err != nil {
 		return class1Result(req.Opcode, "mailbox_open_rejected", err.Error(), buildErrorAck(mailboxErrorCode(err))), nil
 	}
-	snapshots, err := buildMailboxListNotifications(result.Mails, result.NotLoaded, result.ObservedAt)
+	snapshots, err := buildMailboxListNotificationsWithTypeResolver(
+		result.Mails,
+		result.NotLoaded,
+		result.ObservedAt,
+		req.MailboxItemResolver,
+	)
 	if err != nil {
 		return class1Result(req.Opcode, "mailbox_open_rejected", "mailbox snapshot unavailable: "+err.Error(), buildErrorAck(mailboxErrorCode(err))), nil
 	}
@@ -183,9 +188,14 @@ func handleMailboxExtract(ctx context.Context, req alignedcmd.Request) (alignedc
 	// attachment widgets until it receives another complete class0/0x61 page.
 	// Reload after the committed transfer and send that clear-first snapshot in
 	// the same response sequence as op96.
-	refreshed, refreshErr := NewOwner(req.Repositories).Open(ctx, characterID)
+	refreshed, refreshErr := NewOwner(req.Repositories, req.MailboxItemResolver).Open(ctx, characterID)
 	if refreshErr == nil {
-		snapshots, snapshotErr := buildMailboxListNotifications(refreshed.Mails, refreshed.NotLoaded, refreshed.ObservedAt)
+		snapshots, snapshotErr := buildMailboxListNotificationsWithTypeResolver(
+			refreshed.Mails,
+			refreshed.NotLoaded,
+			refreshed.ObservedAt,
+			req.MailboxItemResolver,
+		)
 		if snapshotErr == nil {
 			for _, snapshot := range snapshots {
 				out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
@@ -233,9 +243,14 @@ func handleMailboxChangeState(ctx context.Context, req alignedcmd.Request) (alig
 		// 但客户端界面上的三封信一行没少，直到手动重开邮箱才消失。
 		// 因此删除提交之后重新加载邮箱，并在同一次应答序列里补发那份 clear-first
 		// 快照；顺序与 A21 MailboxHandler 一致：ACK → 0x62 → 0x61 列表页。
-		refreshed, refreshErr := NewOwner(req.Repositories).Open(ctx, characterID)
+		refreshed, refreshErr := NewOwner(req.Repositories, req.MailboxItemResolver).Open(ctx, characterID)
 		if refreshErr == nil {
-			snapshots, snapshotErr := buildMailboxListNotifications(refreshed.Mails, refreshed.NotLoaded, refreshed.ObservedAt)
+			snapshots, snapshotErr := buildMailboxListNotificationsWithTypeResolver(
+				refreshed.Mails,
+				refreshed.NotLoaded,
+				refreshed.ObservedAt,
+				req.MailboxItemResolver,
+			)
 			if snapshotErr == nil {
 				for _, snapshot := range snapshots {
 					out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))

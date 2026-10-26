@@ -2,72 +2,63 @@ package dnfbridge
 
 import "longheng.io/server/internal/modules/dnf/dnfenum"
 
+// The pinned official-24.9/v103 image (SHA256 6418373c7cfbacbc...) writes
+// 1415..1419 for these commands and registers matching class1 replies.
+// The generated NoPack enum describes another command table. Preserve it for
+// other profiles; do not shift unrelated commands or state notifications.
+func (s *Service) currentEpicProductionCommandID(command dnfenum.CmdPacket) uint16 {
+	if s.options.currentClientVersion == "official-24.9" {
+		switch command {
+		case dnfenum.CmdPacketEpicProductionStartFinish:
+			return 1415
+		case dnfenum.CmdPacketEpicProductionChangeItem:
+			return 1416
+		case dnfenum.CmdPacketEpicProductionProcess:
+			return 1417
+		case dnfenum.CmdPacketEpicProductionMaterialCompound:
+			return 1418
+		case dnfenum.CmdPacketEpicProductionAbilityOption:
+			return 1419
+		}
+	}
+	return uint16(command)
+}
+
 func epicProductionGameplayModule() gameplayModuleDefinition {
-	startOpcode := uint16(dnfenum.CmdPacketEpicProductionStartFinish)
-	changeOpcode := uint16(dnfenum.CmdPacketEpicProductionChangeItem)
-	processOpcode := uint16(dnfenum.CmdPacketEpicProductionProcess)
-	compoundOpcode := uint16(dnfenum.CmdPacketEpicProductionMaterialCompound)
-	abilityOpcode := uint16(dnfenum.CmdPacketEpicProductionAbilityOption)
-	handleStart := func(service *Service, session *gameSession, request gameplayRequest) error {
-		return service.handleCurrentEpicProductionStart(session, request.Body)
+	operations := []struct {
+		command dnfenum.CmdPacket
+		handle  func(*Service, *gameSession, []byte) error
+	}{
+		{dnfenum.CmdPacketEpicProductionStartFinish, (*Service).handleCurrentEpicProductionStart},
+		{dnfenum.CmdPacketEpicProductionChangeItem, (*Service).handleCurrentEpicProductionChange},
+		{dnfenum.CmdPacketEpicProductionProcess, (*Service).handleCurrentEpicProductionProcess},
+		{dnfenum.CmdPacketEpicProductionMaterialCompound, (*Service).handleCurrentEpicProductionCompound},
+		{dnfenum.CmdPacketEpicProductionAbilityOption, (*Service).handleCurrentEpicProductionAbility},
 	}
-	handleChange := func(service *Service, session *gameSession, request gameplayRequest) error {
-		return service.handleCurrentEpicProductionChange(session, request.Body)
+	// The two command families overlap. Select by profile, never by ambiguous
+	// body length or unconditional aliases that can run another operation.
+	handle := func(service *Service, session *gameSession, request gameplayRequest) error {
+		for _, operation := range operations {
+			if request.Opcode == service.currentEpicProductionCommandID(operation.command) {
+				return operation.handle(service, session, request.Body)
+			}
+		}
+		service.logGameEvent(session, "game-epic-production-profile-unhandled",
+			"opcode", request.Opcode, "client_version", service.options.currentClientVersion)
+		return nil
 	}
-	handleProcess := func(service *Service, session *gameSession, request gameplayRequest) error {
-		return service.handleCurrentEpicProductionProcess(session, request.Body)
+	upper := func(service *Service, session *gameSession, request gameplayRequest) error {
+		if !requireDefaultGameplayClassification(service, session, request,
+			"game-upper-epic-production-blocked", "epic_production_command_class_mismatch") {
+			return nil
+		}
+		return handle(service, session, request)
 	}
-	handleCompound := func(service *Service, session *gameSession, request gameplayRequest) error {
-		return service.handleCurrentEpicProductionCompound(session, request.Body)
+	module := gameplayModuleDefinition{Name: "epic-production",
+		LegacyHandlers: make(map[uint16]gameplayHandler), UpperHandlers: make(map[uint16]gameplayHandler)}
+	for _, opcode := range []uint16{1415, 1416, 1417, 1418, 1419, 1420, 1421} {
+		module.LegacyHandlers[opcode] = handle
+		module.UpperHandlers[opcode] = upper
 	}
-	handleAbility := func(service *Service, session *gameSession, request gameplayRequest) error {
-		return service.handleCurrentEpicProductionAbility(session, request.Body)
-	}
-	return gameplayModuleDefinition{
-		Name: "epic-production",
-		LegacyHandlers: map[uint16]gameplayHandler{
-			startOpcode:    handleStart,
-			changeOpcode:   handleChange,
-			processOpcode:  handleProcess,
-			compoundOpcode: handleCompound,
-			abilityOpcode:  handleAbility,
-		},
-		UpperHandlers: map[uint16]gameplayHandler{
-			startOpcode: defaultClassGameplayHandler(
-				"game-upper-epic-production-start-blocked",
-				"current_exe_op1417_command_class_mismatch",
-				func(service *Service, session *gameSession, body []byte) error {
-					return service.handleCurrentEpicProductionStart(session, body)
-				},
-			),
-			changeOpcode: defaultClassGameplayHandler(
-				"game-upper-epic-production-change-blocked",
-				"current_exe_op1418_command_class_mismatch",
-				func(service *Service, session *gameSession, body []byte) error {
-					return service.handleCurrentEpicProductionChange(session, body)
-				},
-			),
-			processOpcode: defaultClassGameplayHandler(
-				"game-upper-epic-production-process-blocked",
-				"current_exe_op1419_command_class_mismatch",
-				func(service *Service, session *gameSession, body []byte) error {
-					return service.handleCurrentEpicProductionProcess(session, body)
-				},
-			),
-			compoundOpcode: defaultClassGameplayHandler(
-				"game-upper-epic-production-compound-blocked",
-				"current_exe_op1420_command_class_mismatch",
-				func(service *Service, session *gameSession, body []byte) error {
-					return service.handleCurrentEpicProductionCompound(session, body)
-				},
-			),
-			abilityOpcode: defaultClassGameplayHandler(
-				"game-upper-epic-production-ability-blocked",
-				"current_exe_op1421_command_class_mismatch",
-				func(service *Service, session *gameSession, body []byte) error {
-					return service.handleCurrentEpicProductionAbility(session, body)
-				},
-			),
-		},
-	}
+	return module
 }

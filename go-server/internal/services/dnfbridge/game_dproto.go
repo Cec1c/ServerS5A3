@@ -170,7 +170,7 @@ func (s *Service) writeGameRawPacket(session *gameSession, packet []byte) error 
 
 func (s *Service) writeGameRawPacketLocked(session *gameSession, packet []byte) error {
 	s.auditFallbackNameInOutboundPacket(session, packet, "game_raw_frame")
-	_, err := session.conn.Write(packet)
+	_, err := s.writeCurrentGameWireLocked(session, packet)
 	return err
 }
 
@@ -244,9 +244,13 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 			"protected", protected,
 			"outer_msg_id", outer.Header.MsgID)
 	}
-	n, err := session.conn.Write(wire)
+	n, err := s.writeCurrentGameWireLocked(session, wire)
 	if err == nil && n == len(wire) {
-		s.logCurrentSharedInventoryPacketWritten(session, inner)
+		if b := session.channelSceneBatch; b != nil {
+			b.upper = append(b.upper, append([]byte(nil), inner...))
+		} else {
+			s.logCurrentSharedInventoryPacketWritten(session, inner)
+		}
 	}
 	return err
 }
@@ -272,7 +276,7 @@ func (s *Service) writeDprotoProviderPacketsLocked(session *gameSession, packets
 			"owner", owner,
 			"msg_id", outer.Header.MsgID,
 			"packet_len", len(packet))
-		if _, err := session.conn.Write(packet); err != nil {
+		if _, err := s.writeCurrentGameWireLocked(session, packet); err != nil {
 			return err
 		}
 	}

@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -111,18 +112,42 @@ func TestCurrentPartyUDPRelaySyncRemovesFormerMemberLegs(t *testing.T) {
 
 func testCurrentPartyUDPRelayPortStart(t *testing.T) int {
 	t.Helper()
+	const portCount = 12
+	var lastErr error
+	lastRange := "not allocated"
 	for attempt := 0; attempt < 20; attempt++ {
+		lastRange = "not allocated"
 		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 		if err != nil {
-			t.Fatalf("allocate test UDP port: %v", err)
+			lastErr = err
+			continue
 		}
 		port := listener.LocalAddr().(*net.UDPAddr).Port
-		_ = listener.Close()
-		if port <= 65523 {
+		lastRange = fmt.Sprintf("%d-%d", port, port+portCount-1)
+		if port > 65523 {
+			_ = listener.Close()
+			lastErr = fmt.Errorf("range start %d exceeds 65523", port)
+			continue
+		}
+		// Hold every socket until the complete range has been checked together.
+		listeners := []*net.UDPConn{listener}
+		for offset := 1; offset < portCount; offset++ {
+			next, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port + offset})
+			if err != nil {
+				lastErr = err
+				break
+			}
+			listeners = append(listeners, next)
+		}
+		for _, held := range listeners {
+			_ = held.Close()
+		}
+		if len(listeners) == portCount {
+			// The relay binds after these closes; a TOCTOU window still remains.
 			return port
 		}
 	}
-	t.Fatal("could not allocate a usable twelve-port UDP test range")
+	t.Fatalf("could not allocate a usable twelve-port UDP test range after 20 attempts: bindIP=127.0.0.1 range=%s error=%v", lastRange, lastErr)
 	return 0
 }
 

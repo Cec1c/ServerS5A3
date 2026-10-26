@@ -42,6 +42,7 @@ func (s *Service) sendCurrentCrossScenePeerProfile(ctx context.Context, viewer, 
 	if repositories, ok := s.repositoryGroupFor(ctx); ok {
 		legacyRepo = repositories.LegacyUserInfo
 	}
+	ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(actorID)))
 	if buffSwapReapplyEnabled() {
 		ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, strconv.Itoa(int(actorID)))
 	}
@@ -70,6 +71,7 @@ func (s *Service) sendCurrentCrossScenePeerProfile(ctx context.Context, viewer, 
 	if err != nil || !delivered {
 		return err
 	}
+	s.rememberCurrentPeerProfile(viewerBound, actorBound, owner)
 	s.logGameEvent(viewer, "game-peer-userinfo-profile-refresh-sent",
 		"source_char_id", viewerID, "target_char_id", actorID,
 		"mode", currentCrossSceneMode8Subtype, "msg_id", uint16(dnfenum.CmdPacketSetUDPIPPort),

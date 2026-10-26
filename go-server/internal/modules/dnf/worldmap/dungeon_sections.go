@@ -31,12 +31,13 @@ var dungeonIntegerSections = stringSet(
 	"tournament round fatigue", "tournament clear reward gold rate", "monster random appear only",
 	"remain monster count visible",
 	"hell party required item count",
+	"agit war dungeon",
 )
 
 var dungeonNumberSections = stringSet("kill count const", "move speed")
 
 var dungeonFlagSections = stringSet(
-	"defense dungeon", "blood dungeon", "dimension dungeon", "tournament dungeon",
+	"defense dungeon", "blood dungeon", "dimension dungeon", "entry dungeon", "tournament dungeon",
 	"powerwar dungeon", "risk dungeon", "ancient dungeon", "event dungeon",
 	"crack of dimension dungeon", "disable exit", "individual map movement",
 	"open door even enemy", "move map even enemy", "enter without fatigue",
@@ -46,6 +47,7 @@ var dungeonFlagSections = stringSet(
 	"remove dungeon score and rank", "no revival timer limit", "multi start point",
 	"ignore default dungeon clear",
 	"inferno dungeon",
+	"friendly agit dungeon",
 )
 
 var dungeonTextSections = stringSet(
@@ -86,7 +88,7 @@ var opaqueDungeonSections = stringSet(
 	"result exp bonus per user decrease", "evil", "evil high level", "evil rate", "easy",
 	"medium", "hard", "round", "list", "type", "object type", "hide grid",
 	"on guide movie dungeon", "recommend party", "recommend equipment", "minimap boss icon",
-	"sway effect", "free difficulty", "entry dungeon", "adjust hp gauge", "necessary party",
+	"sway effect", "free difficulty", "adjust hp gauge", "necessary party",
 )
 
 var knownMazeSections = stringSet(

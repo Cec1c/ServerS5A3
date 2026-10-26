@@ -102,7 +102,7 @@ func ApplyLevelUpTicket(ctx context.Context, g repo.Group, tables *progression.T
 				allowed = true
 			}
 		}
-		grow, valid := repo.CharacterGrowTypeInDomain(c)
+		_, valid := repo.CharacterGrowTypeInDomain(c)
 		if !allowed || !valid {
 			return ErrLevelUpTicket
 		}
@@ -191,12 +191,12 @@ func ApplyLevelUpTicket(ctx context.Context, g repo.Group, tables *progression.T
 		if quests.CharacterID != req.CharacterID {
 			return ErrLevelUpTicket
 		}
-		qp, err := catalog.PlanLevelUpTicketQuestClear(quests, quest.CharacterEligibility{Level: target - 1, Job: job, GrowType: int(grow)}, now)
-		if err != nil {
-			return err
-		}
 		c, skill, bag = repo.CloneCharacter(c), repo.CloneSkill(skill), repo.CloneInventory(bag)
 		if err := progression.ApplyCharacterExperience(&c, &skill, target, plan.Experience.NewExperience, plan.SkillPoints.New, now); err != nil {
+			return err
+		}
+		qp, err := catalog.AuthorizeLevelUpTicketStory(&c, quests, d.ItemID, now)
+		if err != nil {
 			return err
 		}
 		stack = cloneStack(stack)

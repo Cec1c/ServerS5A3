@@ -29,7 +29,7 @@ func dungeonRunKeyFixture(t *testing.T, channelID byte) (*Service, *gameSession,
 	for _, session := range []*gameSession{leader, follower} {
 		session.dungeonPartyRun = key
 		session.dungeonPartyRunValid = true
-		session.dungeonPeerProjected = make(map[uint16]bool, 2)
+		session.dungeonPeerProjected = make(map[uint16]boundGameSessionCharacter, 2)
 	}
 	return service, leader, follower, state
 }
@@ -47,7 +47,7 @@ func TestDungeonPartyPeerProjectionRequiresSameRun(t *testing.T) {
 		t.Fatalf("projection wrote packets before the peer landed: leader=%d follower=%d",
 			leader.conn.(*bufferConn).write.Len(), follower.conn.(*bufferConn).write.Len())
 	}
-	if leader.dungeonPeerProjected[1002] {
+	if _, projected := leader.dungeonPeerProjected[1002]; projected {
 		t.Fatal("peer projection was claimed before the peer run key existed")
 	}
 
@@ -149,6 +149,19 @@ func TestDungeonPartyRunKeyIdentity(t *testing.T) {
 	otherSeed := &runtimeDungeonState{Dungeon: worldmap.Dungeon{ID: 9}, MazeIndex: 0, Seed: 8}
 	if otherKey, _ := dungeonPartyRunKeyFrom(leader, otherSeed, scene); otherKey == key {
 		t.Fatal("a different dungeon seed must not share the run key")
+	}
+	raidA := *runtime
+	raidA.raidEntry = &currentRaidDungeonEntry{RaidKey: 0x170001, InstanceID: "raid-instance-a", RunID: "raid-run-a"}
+	raidAKey, _ := dungeonPartyRunKeyFrom(leader, &raidA, scene)
+	raidB := raidA
+	raidB.raidEntry = &currentRaidDungeonEntry{RaidKey: 0x170001, InstanceID: "raid-instance-a", RunID: "raid-run-b"}
+	if raidBKey, _ := dungeonPartyRunKeyFrom(leader, &raidB, scene); raidBKey == raidAKey {
+		t.Fatal("different raid runs with identical map/room/seed must not share a run key")
+	}
+	raidCOwner := raidA
+	raidCOwner.raidEntry = &currentRaidDungeonEntry{RaidKey: 0x170002, InstanceID: "raid-instance-b", RunID: "raid-run-a"}
+	if raidCKey, _ := dungeonPartyRunKeyFrom(leader, &raidCOwner, scene); raidCKey == raidAKey {
+		t.Fatal("different raid instances must not share a run key")
 	}
 
 	storeRuntimePartyState(leader, alignedcmd.PartyState{

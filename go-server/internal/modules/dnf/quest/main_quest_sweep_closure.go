@@ -143,6 +143,14 @@ func (c *Catalog) applyMainQuestSweepSubClosure(
 		if !known {
 			continue
 		}
+		completed, active, _ := c.storySweepEvidence(plan.Record)
+		if _, parentDone := completed[definition.MainQuestID]; !parentDone {
+			continue
+		}
+		if !storySweepOrdinary(definition) || definition.LevelMin > cutoffLevel ||
+			!c.storySweepDependencies(definition, plan.Record, completed, active) {
+			continue
+		}
 		state, field, stateKnown := mutableQuestState(&plan.Record, subID)
 		if stateKnown && isCompletedQuestStatus(state.Status) {
 			continue

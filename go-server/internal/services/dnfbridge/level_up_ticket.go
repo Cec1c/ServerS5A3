@@ -237,7 +237,7 @@ func (s *Service) handleCurrentLevelUpTicket(p *gameSession, body []byte) error 
 	if err != nil {
 		return reject(err)
 	}
-	s.logGameEvent(p, "升级券使用已提交", "character_id", identity.character, "item_id", r.ItemID, "previous_level", r.Progression.Experience.PreviousLevel, "new_level", r.Character.Level, "gain", r.Progression.Experience.Gain, "sp_gain", r.Progression.SkillPoints.SPGain, "tp_gain", r.Progression.SkillPoints.TPGain, "remaining", r.Remaining, "cleared_quests", len(r.QuestPlan.ChangedQuestIDs))
+	s.logGameEvent(p, "升级券使用已提交", "character_id", identity.character, "item_id", r.ItemID, "previous_level", r.Progression.Experience.PreviousLevel, "new_level", r.Character.Level, "gain", r.Progression.Experience.Gain, "sp_gain", r.Progression.SkillPoints.SPGain, "tp_gain", r.Progression.SkillPoints.TPGain, "remaining", r.Remaining, "cleared_quests", len(r.QuestPlan.ChangedQuestIDs), "blocked_question_ids", int64ListText(r.QuestPlan.BlockedQuestionIDs), "damaged_question_ids", int64ListText(r.QuestPlan.DamagedQuestionIDs))
 	if err := s.sendGameUpperRawClass(p, op, buildCurrentLevelUpTicketSuccess(slot, list, r), 1); err != nil {
 		return err
 	}
@@ -258,11 +258,6 @@ func (s *Service) handleCurrentLevelUpTicket(p *gameSession, body []byte) error 
 	if err := s.sendCommittedDarkKnightSkillRefresh(p, r.Character, r.Skill, "level_up_ticket_after_state"); err != nil {
 		return err
 	}
-	if err := s.sendCurrentActiveQuestSnapshotForSession(p, "level_up_ticket_after_commit"); err != nil {
-		return err
-	}
-	if err := s.sendCurrentAcceptableQuestListOnlyForSession(p, "level_up_ticket_after_active"); err != nil {
-		return err
-	}
-	return s.sendCurrentClearQuestListFromCommittedQuest(p, r.QuestPlan.Record, "level_up_ticket_after_active_acceptable")
+	return s.sendCommittedStorySweepSnapshots(p, r.Character, r.QuestPlan.Record,
+		append(append([]int64(nil), r.QuestPlan.ChangedQuestIDs...), r.QuestPlan.ChangedLinkedSubIDs...), "level_up_ticket")
 }
