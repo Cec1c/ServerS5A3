@@ -154,7 +154,7 @@ func TestLegacyGetUserInfoMarksRosterAndPreventsFalseChannelReconnect(t *testing
 	)
 }
 
-func TestChannelReconnectOp4RunsImmediateTargetTownRouteWithoutChangingPersistedLocation(t *testing.T) {
+func TestChannelReconnectOp4RunsImmediateSeriaRouteAndKeepsOutsideOrigin(t *testing.T) {
 	service, session, repositories := newChannelReconnectTest(t)
 	session.channel.ID = 253
 	session.channel.Name = "ch.253"
@@ -167,7 +167,6 @@ func TestChannelReconnectOp4RunsImmediateTargetTownRouteWithoutChangingPersisted
 	if err != nil || !found {
 		t.Fatalf("load pre-reconnect character found=%t err=%v", found, err)
 	}
-	locationBefore := currentReconnectLocationSnapshot(before)
 
 	request := make([]byte, 2)
 	binary.LittleEndian.PutUint16(request, 29)
@@ -199,12 +198,17 @@ func TestChannelReconnectOp4RunsImmediateTargetTownRouteWithoutChangingPersisted
 	if err != nil || !found {
 		t.Fatalf("load post-reconnect character found=%t err=%v", found, err)
 	}
-	if got := currentReconnectLocationSnapshot(after); got != locationBefore {
-		t.Fatalf("channel reconnect changed durable location: before=%+v after=%+v", locationBefore, got)
+	if got := currentReconnectLocationSnapshot(after); got != (currentReconnectLocation{townID: 39, areaID: 2, positionX: 612, positionY: 244, direction: 5, areaState: 3}) {
+		t.Fatalf("普通换线没有采用城镇自己的赛丽亚房间：%+v", got)
+	}
+	if after.Stats[currentTownPrevVillageTownStat] != before.Stats["town_id"] ||
+		after.Stats[currentTownPrevVillageAreaStat] != before.Stats["area_id"] ||
+		after.Stats[currentTownPrevVillagePosXStat] != before.Stats["pos_x"] {
+		t.Fatalf("普通换线丢失原城镇房门来源：%v", after.Stats)
 	}
 }
 
-func TestChannelReconnectPersistedTownResolverDoesNotUnlockNeedQuestArea(t *testing.T) {
+func TestChannelReconnectSeriaLandingDoesNotUnlockNeedQuestArea(t *testing.T) {
 	service, session, repositories := newChannelReconnectTest(t)
 	character, found, err := repositories.Character.Load(context.Background(), "29")
 	if err != nil || !found {
@@ -216,6 +220,9 @@ func TestChannelReconnectPersistedTownResolverDoesNotUnlockNeedQuestArea(t *test
 	character.Stats["pos_y"] = 315
 	character.Stats["direction"] = 4
 	character.Stats["area_state"] = 6
+	if err := repositories.Character.Save(context.Background(), character); err != nil {
+		t.Fatal(err)
+	}
 
 	questWrites := &countingChannelReconnectQuestRepository{QuestRepository: repositories.Quest}
 	repositories.Quest = questWrites
@@ -229,9 +236,9 @@ func TestChannelReconnectPersistedTownResolverDoesNotUnlockNeedQuestArea(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if townID != 38 || areaID != 3 || row.Value1 != 571 || row.Value2 != 315 ||
-		row.Value3 != 4 || row.Value4 != 6 || mapPath != "Elvengard_hendon.map" {
-		t.Fatalf("read-only reconnect location town=%d area=%d row=%+v map=%q", townID, areaID, row, mapPath)
+	if townID != 38 || areaID != 1 || row.Value1 != 450 || row.Value2 != 234 ||
+		row.Value3 != 5 || row.Value4 != 3 || mapPath != "new_seria_room.map" {
+		t.Fatalf("普通换线房间落点town=%d area=%d row=%+v map=%q", townID, areaID, row, mapPath)
 	}
 	if questWrites.saveCount != 0 {
 		t.Fatalf("channel reconnect invoked persisted-area need-quest mutator %d time(s)", questWrites.saveCount)
