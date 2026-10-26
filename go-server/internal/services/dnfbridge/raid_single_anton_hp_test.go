@@ -56,6 +56,7 @@ func realSingleAntonHPFixture(t *testing.T, weekly int) (*raidStartGuardFixture,
 	if err := f.repos.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:50": {ItemID: int64(rule.ItemID), Count: rule.Count + 2}}}); err != nil {
 		t.Fatal(err)
 	}
+	enterRaidStartWaitingFixture(t, f, "")
 	state, ok, err := f.service.startRuntimeRaidWithEntryCost(session)
 	if err != nil || !ok || state.Battle == nil || len(state.Battle.SingleHPSymbols) != 8 {
 		t.Fatal("actual single admission", ok, err)

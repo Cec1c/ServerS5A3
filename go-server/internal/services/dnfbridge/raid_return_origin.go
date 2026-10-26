@@ -6,11 +6,13 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
+var currentRaidReturnLocationFields = [...]string{"town_id", "area_id", "pos_x", "pos_y", "direction", "area_state"}
+
 const currentRaidReturnOriginMarker = "raid_return_origin_v1"
 
 func currentClearRaidReturnOrigin(stats map[string]int64) bool {
 	changed := false
-	for _, field := range currentPVPReturnLocationFields {
+	for _, field := range currentRaidReturnLocationFields {
 		key := "raid_return_" + field
 		if _, exists := stats[key]; exists {
 			delete(stats, key)
@@ -32,7 +34,7 @@ func (s *Service) currentSaveRaidReturnOrigin(characterID uint16, character *dnf
 	if _, found, reason := s.currentPersistedTownLoginLocation(characterID, *character); !found {
 		return fmt.Errorf("团本入场原位不可用：%s", reason)
 	}
-	for _, field := range currentPVPReturnLocationFields {
+	for _, field := range currentRaidReturnLocationFields {
 		character.Stats["raid_return_"+field] = character.Stats[field]
 	}
 	character.Stats[currentRaidReturnOriginMarker] = 1
@@ -44,7 +46,7 @@ func (s *Service) currentRaidReturnOriginLocation(characterID uint16, character 
 		return currentTownLoginLocation{}, false, nil
 	}
 	projected := dnfrepo.CloneCharacter(character)
-	for _, field := range currentPVPReturnLocationFields {
+	for _, field := range currentRaidReturnLocationFields {
 		value, exists := character.Stats["raid_return_"+field]
 		if !exists {
 			return currentTownLoginLocation{}, false, fmt.Errorf("团本返城原位缺少字段%s", field)
