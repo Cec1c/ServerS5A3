@@ -87,9 +87,19 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	if !s.options.guildEssenceEnabled {
 		return nil
 	}
+	// A practice's native local actors use its frozen 191 table. Publish later
+	// guild changes when the character returns, instead of changing that table
+	// while the server still owns the original combat snapshot.
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	session.guild.placement.mu.Lock()
 	defer session.guild.placement.mu.Unlock()
+	if p := &session.guild.placement; p.frozenPractice != (boundGameSessionCharacter{}) {
+		if bound && p.frozenPractice == identity {
+			return nil
+		}
+		p.frozenPractice = boundGameSessionCharacter{}
+		p.identity = boundGameSessionCharacter{}
+	}
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Settings == nil {
 		return guild.ErrRepositoryUnavailable

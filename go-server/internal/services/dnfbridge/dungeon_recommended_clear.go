@@ -20,6 +20,7 @@ func currentDungeonMatchesRecommendedLevel(runtime *runtimeDungeonState) bool {
 func currentDungeonIsRecommendedClear(runtime *runtimeDungeonState) bool {
 	return runtime != nil &&
 		runtime.ordinaryFinalRoomClearAccepted &&
+		!worldmap.IsFriendlyGuildPractice(runtime.Dungeon) &&
 		currentDungeonMatchesRecommendedLevel(runtime)
 }
 
