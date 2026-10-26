@@ -450,6 +450,11 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		insertBatchRows = defaultInstanceMySQLInsertBatchRows
 	}
 	values["DNFBRIDGE_MYSQL_INSERT_BATCH"] = strconv.Itoa(insertBatchRows)
+	// Preserve the live per-launch override. A valid explicit DNF90 value wins
+	// over the persisted instance setting; invalid values fall back to it.
+	if batch, err := strconv.Atoi(strings.TrimSpace(os.Getenv("DNF90_MYSQL_INSERT_BATCH"))); err == nil && batch >= 1 && batch <= 1000 {
+		values["DNFBRIDGE_MYSQL_INSERT_BATCH"] = strconv.Itoa(batch)
+	}
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }
 
