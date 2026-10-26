@@ -42,6 +42,15 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		return errCurrentDungeonSettlementPVFInvalid
 	}
 	dungeonLevel := int(runtime.Dungeon.Metadata.BasisLevel.Value)
+	var paidCardCost int64
+	// Tournament rewards use the frozen free gold through their dedicated
+	// settlement flow and do not offer ordinary paid cards.
+	if !dungeonTournamentEnabled() || runtime.Tournament == nil {
+		paidCardCost, err = currentDungeonPaidCardCost(monsterCatalog.source, int64(dungeonLevel))
+		if err != nil {
+			return err
+		}
+	}
 	goldReference, found := goldReferences[int64(dungeonLevel)]
 	if !found {
 		return fmt.Errorf("%w: dungeon_level=%d", errCurrentDungeonGoldReferenceInvalid, runtime.Dungeon.Metadata.BasisLevel.Value)
@@ -118,6 +127,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	}
 	paid := dungeonCardRewardBundle{
 		Gold: paidGold,
+		Cost: paidCardCost,
 	}
 	if paidItemFound {
 		paid.Items = []dungeonCardItemReward{paidItem}
@@ -169,11 +179,10 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if premiumErr == nil &&
 		premium.Active(account, premium.DevilSlotType(premium.DevilSlotGoldCard), now) &&
 		premium.DailyUsage(character, premium.DevilSlotGoldCard, now) < premium.DailyLimit(premium.DevilSlotGoldCard) {
+		// 黄金卡牌契约只减免费用并消耗每日次数，不改变本局奖励数量。
+		paid.Cost = 0
 		paid.ConsumePremiumDaily = true
 		paid.PremiumDailySlot = premium.DevilSlotGoldCard
-		if err := applyCurrentDungeonGoldCardItemMultiplier(&paid); err != nil {
-			return err
-		}
 	}
 	if visit != nil {
 		visit.DropRNG = rng.Seed()
@@ -197,6 +206,9 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if err != nil {
 		return err
 	}
+	if premiumErr == nil {
+		state.premiumServiceBody = buildCurrentPremiumServiceDataBody(account, character, now)
+	}
 	runtime.settlementCardRewardState = state
 	s.logGameEvent(session, "game-dungeon-card-reward-plan-frozen",
 		"char_id", session.selectedCharacterID,
@@ -205,6 +217,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		"free_gold", free.Gold,
 		"free_item_count", len(free.Items),
 		"paid_gold", paid.Gold,
+		"paid_card_cost", paid.Cost,
 		"paid_item_count", len(paid.Items),
 		"premium_gold_card_available", paid.ConsumePremiumDaily,
 		"source", plan.Source,
@@ -212,10 +225,8 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	return nil
 }
 
-// applyCurrentDungeonGoldCardItemMultiplier turns the current EXE's visible
-// x2 Gold Card result into two durable item units. Stackables stay one reward
-// row with a doubled count. Equipment is cloned into independent count-one
-// instances because equipment must never be stored as a stack.
+// 双倍翻牌的独立道具生成工具，保留给后续活动接入；当前无活动资格调用，
+// 魔王契约免费翻牌不调用此工具。可堆叠物品增加数量，装备生成独立实例。
 func applyCurrentDungeonGoldCardItemMultiplier(bundle *dungeonCardRewardBundle) error {
 	if bundle == nil || len(bundle.Items) == 0 {
 		return nil
@@ -387,6 +398,11 @@ func (s *Service) selectCurrentDungeonCardLocked(
 		side >= dungeonCardSideCount || memberIndex >= dungeonCardSlotsPerSide {
 		return nil
 	}
+	if side == dungeonCardSidePaid && runtime.settlementPaidCardGrant != nil && !runtime.settlementCardSideRewardCommitted[side] {
+		// 队伍占位可能把原请求分配到另一张牌。首个成功应答写失败时，
+		// 客户端只知道原请求；续传仍使用已收费的同一牌位。
+		memberIndex = runtime.settlementCardSideMember[side]
+	}
 	if runtime.settlementCardSideSelectionKnown[side] &&
 		runtime.settlementCardSideMember[side] != memberIndex {
 		s.logGameEvent(session, "game-dungeon-card-select-blocked",
@@ -429,6 +445,14 @@ func (s *Service) selectCurrentDungeonCardLocked(
 	runtime.settlementCardSideMember[side] = memberIndex
 	runtime.settlementCardSelected = byte(side)
 	runtime.refreshCurrentDungeonFreeCardReadiness()
+	if side == dungeonCardSidePaid {
+		if _, _, _, err := s.grantCurrentDungeonSelectedCardAssetsLocked(session, runtime, side, memberIndex); err != nil {
+			s.logGameEvent(session, "付费翻牌收费或发奖失败，恢复未选择牌面",
+				"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+				"member_index", memberIndex, "source", source, "error", err)
+			return s.rejectCurrentDungeonPaidCardSelectionLocked(session, runtime, memberIndex)
+		}
+	}
 	// 行状态字节 = **翻牌人的队伍槽位**（修复档；回退档恒 0 = 改动前）。
 	// 客户端/厂商的 op71 语义是 `slots[牌位] = 队伍槽位`，写 0 会把队友翻的牌
 	// 算到收包者自己头上（现场 trace 实证），见 dungeon_party_card_flip_row_model.go。
@@ -569,41 +593,34 @@ func (s *Service) deliverCurrentDungeonSelectedCardRewardLocked(
 	if s == nil || session == nil || runtime == nil || runtime.settlementCardRewardState == nil {
 		return nil
 	}
-	reservation, result, err := runtime.settlementCardRewardState.reserveSelection(side, memberIndex)
+	grant, result, available, err := s.grantCurrentDungeonSelectedCardAssetsLocked(session, runtime, side, memberIndex)
 	if err != nil {
 		return err
 	}
-	if !reservation.grant {
-		s.logGameEvent(session, "game-dungeon-card-reward-delivery-skipped",
-			"char_id", session.selectedCharacterID,
-			"dungeon_id", runtime.Dungeon.ID,
-			"selection_result", result,
-			"side", side,
-			"member_index", memberIndex,
-			"source", source,
-			"reason", "no_undelivered_reward_for_selection")
+	if !available {
 		return nil
 	}
-	repositories, ok := s.repositoryGroup()
-	if !ok || repositories.CharacterAssets == nil {
-		runtime.settlementCardRewardState.finishDelivery(reservation, false)
-		return errDungeonCardAssetOwnerUnavailable
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
-	grant, err := deliverDungeonCardReservation(
-		ctx,
-		runtime.settlementCardRewardState,
-		reservation,
-		repositories,
-		0,
-		s.gameplayNow().UTC(),
-	)
-	if err != nil {
-		return err
+	projectionGold := grant.GoldAfter
+	if side == dungeonCardSidePaid {
+		// 缓存回执只用于防重复收费。续传前可能已发免费牌或发生其它
+		// 金币变更，钱包通知必须投影当前余额，不能重新发送旧回执余额。
+		repositories, ok := s.repositoryGroup()
+		if !ok || repositories.Character == nil {
+			return errDungeonCardAssetOwnerUnavailable
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		character, found, err := repositories.Character.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+		cancel()
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errDungeonCardAssetOwnerUnavailable
+		}
+		projectionGold = character.Stats["gold"]
 	}
 	if grant.GoldAfter != grant.GoldBefore {
-		body := buildCurrentGoldStateBody(grant.GoldAfter)
+		body := buildCurrentGoldStateBody(projectionGold)
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), body, 0); err != nil {
 			return err
 		}
@@ -625,6 +642,13 @@ func (s *Service) deliverCurrentDungeonSelectedCardRewardLocked(
 	); err != nil {
 		return err
 	}
+	if side == dungeonCardSidePaid && runtime.settlementCardRewardState.plan.Sides[side].ConsumePremiumDaily {
+		// 次数随奖励事务提交，翻牌前冻结的明细仍是旧值。提交后读取当前完整状态；
+		// 写失败保留本局资产回执及未完成通知游标，续传不再次扣次或发奖。
+		if err := s.sendCurrentPremiumServiceState(session, "黄金卡牌免费翻牌提交后_刷新契约次数"); err != nil {
+			return err
+		}
+	}
 	if grant.OverflowMailID != "" {
 		if err := s.sendMailboxAlarmToOnlineRecipient(session.selectedCharacterID); err != nil {
 			// Reward and its mailbox fallback have already committed. A packet
@@ -642,8 +666,10 @@ func (s *Service) deliverCurrentDungeonSelectedCardRewardLocked(
 		"selection_result", result,
 		"side", side,
 		"member_index", memberIndex,
+		"paid_card_cost", grant.Cost,
 		"gold_before", grant.GoldBefore,
 		"gold_after", grant.GoldAfter,
+		"gold_projection_current", projectionGold,
 		"item_slots", grant.ItemSlots,
 		"overflow_mail_id", grant.OverflowMailID,
 		"source", source,
