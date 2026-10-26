@@ -19,7 +19,7 @@ func TestDespairCompletedOp42DoesNotWaitForOrdinaryCards(t *testing.T) {
 	if rt.settlementCardLayoutSent || rt.settlementCardSelectionSent || rt.settlementCardRewardCommitted {
 		t.Fatal("tower exit fabricated an ordinary card reward")
 	}
-	assertCompletedDungeonTownRouteForTest(t, conn.write.Bytes(), rt.townReturnTransition.Body)
+	assertCompletedDungeonTownRouteWithGiveupAckForTest(t, conn.write.Bytes(), rt.townReturnTransition.Body)
 }
 
 func TestDespairCompletedOp42StillRequiresResultAndStatistic(t *testing.T) {

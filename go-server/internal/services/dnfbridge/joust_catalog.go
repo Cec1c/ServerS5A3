@@ -29,3 +29,35 @@ func (s *Service) currentJoustCatalog(ctx context.Context) (*dnfjoust.Catalog, e
 	s.joustCatalog, s.joustCatalogLoadErr = dnfjoust.LoadCatalog(ctx, itemCatalog.source)
 	return s.joustCatalog, s.joustCatalogLoadErr
 }
+
+// currentJoustCatalogForPublishing treats an unusable optional-event catalog as
+// an unavailable activity, not as a town-initialization failure. It records the
+// concrete resource error once at each publishing entry point; callers must
+// continue with unrelated protocol traffic and must still return any later
+// network write error.
+func (s *Service) currentJoustCatalogForPublishing(
+	ctx context.Context,
+	session *gameSession,
+	source string,
+) (*dnfjoust.Catalog, bool) {
+	catalog, err := s.currentJoustCatalog(ctx)
+	if err != nil {
+		if s != nil {
+			s.logGameEvent(session, "game-joust-catalog-unavailable",
+				"source", source,
+				"event_id", currentJoustEventID,
+				"reason", err.Error())
+		}
+		return nil, false
+	}
+	if catalog == nil {
+		if s != nil {
+			s.logGameEvent(session, "game-joust-catalog-unavailable",
+				"source", source,
+				"event_id", currentJoustEventID,
+				"reason", "joust catalog is nil")
+		}
+		return nil, false
+	}
+	return catalog, true
+}

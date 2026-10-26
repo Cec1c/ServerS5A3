@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrental "longheng.io/server/internal/modules/dnf/rental"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -28,11 +29,12 @@ var (
 )
 
 type currentRentalAssetResult struct {
-	Points   uint32
-	Gold     int64
-	ExpireAt time.Time
-	Slot     int16
-	Equipped bool
+	Points        uint32
+	Gold          int64
+	ExpireAt      time.Time
+	Slot          int16
+	Equipped      bool
+	QuestAdvanced bool
 }
 
 func cleanupExpiredCurrentRentalEquipment(
@@ -114,6 +116,7 @@ func rentCurrentEquipment(
 	pointCost uint32,
 	definition dungeonDropItemDefinition,
 	now time.Time,
+	questCatalog *dnfquest.Catalog,
 ) (currentRentalAssetResult, error) {
 	if owner == nil || itemID == 0 || pointCost == 0 || definition.ItemID != itemID ||
 		definition.Kind != dungeonDropItemEquipment || definition.Durability == 0 {
@@ -122,10 +125,11 @@ func rentCurrentEquipment(
 	expireAt := now.UTC().Add(currentRentalDuration)
 	result := currentRentalAssetResult{ExpireAt: expireAt}
 	wallet, err := owner.Rent(ctx, dnfrental.RentCommand{
-		AccountID:   accountID,
-		CharacterID: characterID,
-		PointCost:   pointCost,
-		UpdatedAt:   now,
+		AccountID:    accountID,
+		CharacterID:  characterID,
+		PointCost:    pointCost,
+		UpdatedAt:    now,
+		QuestCatalog: questCatalog,
 		Project: func(assets *dnfrental.Assets) (dnfrental.Changes, error) {
 			inventory := assets.Inventory
 			equipment := assets.Equipment
@@ -175,6 +179,7 @@ func rentCurrentEquipment(
 	}
 	result.Points = wallet.Points
 	result.Gold = wallet.Gold
+	result.QuestAdvanced = wallet.QuestAdvanced
 	return result, nil
 }
 

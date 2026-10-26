@@ -90,17 +90,112 @@ func (s *Service) publishRuntimePartyMembershipSnapshot(snapshot party.RuntimePa
 	// （阶段二的回收时机之一；参考实现里对应 TryBeginEnding/TryMarkEnded）。
 	s.recyclePartyDungeonInstances(int(snapshot.ID), "party_disbanded")
 	for _, member := range snapshot.Members {
-		s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+		s.clearRuntimePartyProjectionForSnapshot(member.UserID, snapshot.ID)
 	}
 	return alignedcmd.PartyState{}
 }
 
 func (s *Service) clearRuntimePartyProjection(userID uint16, generation uint64) {
+	if s == nil || userID == 0 || generation == 0 {
+		return
+	}
 	identity, ok := s.onlineGameSessionCharacterSnapshot(userID)
 	if !ok || identity.generation != generation {
 		return
 	}
-	storeRuntimePartyState(identity.session, alignedcmd.PartyState{})
+	// A late cleanup from an old membership must not erase a party created
+	// after the removal. The manager is the final arbiter: if this character
+	// is already in a current party, leave that newer projection alone.
+	if manager := s.runtimePartyManagerForService(); manager != nil {
+		if snapshot, found := manager.SnapshotByUser(userID, 0); found && snapshot.ID != 0 {
+			return
+		}
+	}
+	s.clearRuntimePartyProjectionForSessions(identity, 0)
+}
+
+// clearRuntimePartyProjectionForSnapshot is the one-member counterpart used
+// after a leave/kick. The manager intentionally retains that lobby so the
+// survivor can invite again, but the current EXE must not keep treating the
+// singleton as dungeon-leader authority. Guard by the exact post-mutation
+// snapshot so delayed cleanup cannot erase a party rebuilt in the meantime.
+func (s *Service) clearRuntimePartyProjectionForSnapshot(userID uint16, snapshotID uint16) {
+	if s == nil || userID == 0 || snapshotID == 0 {
+		return
+	}
+	identity, ok := s.onlineGameSessionCharacterSnapshot(userID)
+	if !ok {
+		return
+	}
+	s.clearRuntimePartyProjectionForSessions(identity, snapshotID)
+}
+
+// clearRuntimePartyProjectionForSessions clears the directory owner and every
+// registered live transport for the same character. A session cache is local
+// projection state, so leaving only the owner clean leaves auxiliary sockets
+// able to replay a removed party into the dungeon admission check.
+//
+// expectedSnapshotID == 0 means the character must still be absent from the
+// manager. Otherwise cleanup is valid only while that exact manager snapshot
+// still exists and remains a singleton lobby. Binding and projection locks
+// cover the final check and write; a newer publication runs after that write.
+func (s *Service) clearRuntimePartyProjectionForSessions(
+	identity boundGameSessionCharacter,
+	expectedSnapshotID uint16,
+) {
+	if s == nil || identity.session == nil || identity.character == 0 {
+		return
+	}
+	manager := s.runtimePartyManagerForService()
+	sessions := append([]*gameSession{identity.session}, s.liveSameCharacterSessions(identity.character, identity.session)...)
+	for _, session := range sessions {
+		current := func() bool {
+			// Match bindGameSessionCharacter's s.mu -> party.mu order. The
+			// manager has no callbacks into bridge/session locks.
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.gameSessions[identity.character] != identity.session ||
+				identity.session.characterGeneration != identity.generation {
+				return false
+			}
+			if session == nil || session.selectedCharacterID != identity.character {
+				return true
+			}
+			session.party.mu.Lock()
+			defer session.party.mu.Unlock()
+			if !runtimePartyProjectionCleanupCurrent(manager, identity.character, expectedSnapshotID) {
+				return false
+			}
+			session.party.state = alignedcmd.PartyState{}
+			return true
+		}()
+		if !current {
+			return
+		}
+	}
+}
+
+func runtimePartyProjectionCleanupCurrent(manager *party.RuntimePartyManager, characterID uint16, expectedSnapshotID uint16) bool {
+	if manager == nil {
+		return expectedSnapshotID == 0
+	}
+	snapshot, found := manager.SnapshotByUser(characterID, 0)
+	if expectedSnapshotID == 0 {
+		return !found
+	}
+	return found && snapshot.ID == expectedSnapshotID && len(snapshot.Members) <= 1
+}
+
+// liveGameSessionRegistered distinguishes a currently live auxiliary
+// transport from a retired socket that has no right to inherit the primary
+// connection's cache.
+func (s *Service) liveGameSessionRegistered(session *gameSession) bool {
+	if s == nil || session == nil || session.connID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.liveGameSessions[session.connID] == session
 }
 
 // runtimePartyStateForSession 解析"这个会话所属角色**当前权威的**队伍投影"。
@@ -142,6 +237,31 @@ func (s *Service) runtimePartyStateForSession(session *gameSession) alignedcmd.P
 	snapshot, found := manager.SnapshotByUser(session.selectedCharacterID, 0)
 	if !found {
 		s.logRuntimePartyMembershipMiss(session, cached, manager)
+		// The manager has no membership. A registered auxiliary transport
+		// still belongs to the same live character, so it must use the
+		// directory owner's projection rather than the copy inherited when it
+		// bound. This preserves legacy/not-yet-imported projections on the
+		// current session while preventing a removed auxiliary cache from
+		// resurrecting the old party.
+		if primary, ok := s.onlineGameSession(session.selectedCharacterID); ok &&
+			primary != nil && primary != session && s.liveGameSessionRegistered(session) {
+			primaryState := runtimePartyStateSnapshot(primary)
+			if cached.PartyID != primaryState.PartyID ||
+				len(runtimePartyMembers(cached)) != len(runtimePartyMembers(primaryState)) {
+				storeRuntimePartyState(session, primaryState)
+				s.logGameEvent(session, "game-party-session-projection-repaired",
+					"conn_id", session.connID,
+					"char_id", session.selectedCharacterID,
+					"character_generation", session.characterGeneration,
+					"party_id", primaryState.PartyID,
+					"leader_char_id", primaryState.UserID,
+					"member_count", len(runtimePartyMembers(primaryState)),
+					"cached_party_id", cached.PartyID,
+					"cached_member_count", len(runtimePartyMembers(cached)),
+					"reason", "authoritative_runtime_party_missing_used_current_character_session_projection")
+			}
+			return primaryState
+		}
 		return cached
 	}
 	authoritative := snapshot.StateFor(session.selectedCharacterID)
@@ -220,6 +340,9 @@ func (s *Service) logRuntimePartyMembershipMiss(
 }
 
 func (s *Service) createOrJoinManagedRuntimeParty(joiner, anchor *gameSession) (alignedcmd.PartyState, party.RuntimePartyResult, bool) {
+	if s.currentFiendWarAutomaticPartyOnly(joiner) || s.currentFiendWarAutomaticPartyOnly(anchor) {
+		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "fiendwar_automatic_encounter_party_only"}, false
+	}
 	joinerIdentity, joinerOK := s.boundGameSessionCharacterSnapshot(joiner)
 	anchorIdentity, anchorOK := s.boundGameSessionCharacterSnapshot(anchor)
 	if !joinerOK || !anchorOK || joinerIdentity.character == anchorIdentity.character {
@@ -600,6 +723,7 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	// （进图即 leaveTownPresenceForDungeon）⇒ 委任队长/成员变动后副本内的队伍框仍是旧数据。
 	// 这里对同一场副本里的成员再补一轮完整队伍帧（op153 + 每人一条 op9）。
 	s.sendDungeonPartyFrameRoster(state, "runtime_party_snapshot_dungeon_roster")
+	s.sendCurrentPartyCrossSceneProfiles(snapshot)
 	return nil
 }
 

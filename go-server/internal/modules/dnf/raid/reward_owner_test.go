@@ -149,7 +149,7 @@ func TestRaidRewardOwnerInvalidAuthorityNeverProjects(t *testing.T) {
 		{"no owned clear", func(c *RewardCommand) { c.OwnedClears = 0 }, ErrRewardIneligible},
 		{"no clear policy", func(c *RewardCommand) { c.MinimumClears = 0 }, ErrRewardIneligible},
 		{"invalid instance", func(c *RewardCommand) { c.InstanceID = "0" }, ErrRewardReceipt},
-		{"unsupported mode", func(c *RewardCommand) { c.Mode = 3 }, ErrRewardReceipt},
+		{"unsupported mode", func(c *RewardCommand) { c.Mode = 4 }, ErrRewardReceipt},
 		{"Luke final zero policy", func(c *RewardCommand) { c.Mode, c.Phase, c.MinimumClears = 2, 1, 0 }, ErrRewardIneligible},
 		{"invalid phase", func(c *RewardCommand) { c.Phase = 2 }, ErrRewardReceipt},
 		{"invalid kind", func(c *RewardCommand) { c.Kind = 0 }, ErrRewardReceipt},

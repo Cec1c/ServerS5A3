@@ -28,8 +28,62 @@ class DeploymentBoundaries(unittest.TestCase):
                 with patch.object(manage, "RUNTIME", Path(directory)), self.assertRaisesRegex(ValueError, "channel_advertise_server"):
                     manage.generate({"channel_advertise_server": value}, {})
                 self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_guild_ranking_requires_explicit_boolean(self):
+        for value in (False, True):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_ranking_enabled": value}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_RANKING_ENABLED=" + str(value).lower(), (Path(directory) / "server.env").read_text())
+        for value in (None, "true", "false", 0, 1):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_ranking_enabled"):
+                    manage.generate({"guild_ranking_enabled": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
+    def test_guardian_policy_is_explicit_and_preserves_false(self):
+        policy = {"first_purchase": "free_once", "initial_level": 1, "initial_skills": [1]*5, "first_select": False}
+        for config in (self.gm_config(), self.gm_config() | {"guild_essence_enabled": True, "guild_guardian_policy": policy}):
+            with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(config, {"ports": [10006]})
+                env = dict(line.split("=",1) for line in (Path(directory)/"server.env").read_text().splitlines())
+                self.assertEqual(env["DNFBRIDGE_GUILD_ESSENCE_ENABLED"], str(config.get("guild_essence_enabled",False)).lower())
+                raw = env["DNFBRIDGE_GUILD_GUARDIAN_POLICY"]
+                self.assertEqual(json.loads(raw) if raw else None, config.get("guild_guardian_policy"))
+        bad = [None, {}, "{}", policy | {"first_purchase":"unknown"}, policy | {"initial_level":True}, policy | {"initial_level":0}, policy | {"initial_skills":[6]*5}, policy | {"initial_skills":[1]*4}, policy | {"first_select":1}, policy | {"extra":True}]
+        for value in bad:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage,"RUNTIME",Path(directory)):
+                with self.assertRaisesRegex(ValueError,"guild_guardian_policy"):
+                    manage.generate({"guild_guardian_policy":value},{})
+                self.assertEqual(list(Path(directory).iterdir()),[])
+        for value in (None,0,1,"true"):
+            with self.subTest(enabled=value), tempfile.TemporaryDirectory() as directory, patch.object(manage,"RUNTIME",Path(directory)):
+                with self.assertRaisesRegex(ValueError,"guild_essence_enabled"):
+                    manage.generate({"guild_essence_enabled":value},{})
+                self.assertEqual(list(Path(directory).iterdir()),[])
+
     def gm_config(self):
         return {"host_ip":"192.168.1.50", "server_ip":"10.254.90.2", "database_ip":"10.254.90.3", "subnet":"10.254.90.0/24", "database_password":"abc", "root_password":"def", "admin_token":"ab"*24, "body_codec":"plaintext", "client_body_codec":"plaintext", "joust_event_enabled":True}
+
+    def test_guild_contribution_policy_explicit_mapping(self):
+        for policy in ("", "daily-v1"):
+            with self.subTest(policy=policy), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_contribution_policy": policy}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY=" + policy + "\n", (Path(directory) / "server.env").read_text())
+        for value in (None, True, 1, [], "unknown", "daily-v1\nINJECT=value"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_contribution_policy"):
+                    manage.generate({"guild_contribution_policy": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_guild_hongbao_explicit_mapping(self):
+        for value in (False, True):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_hongbao_enabled": value}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_HONGBAO_ENABLED=" + str(value).lower() + "\n", (Path(directory) / "server.env").read_text())
+        for value in (None, 1, "true", []):
+            with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_hongbao_enabled"):
+                    manage.generate({"guild_hongbao_enabled": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
 
     def test_gm_is_disabled_by_default(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):

@@ -100,7 +100,12 @@ func handleMailboxOpen(ctx context.Context, req alignedcmd.Request) (alignedcmd.
 	if err != nil {
 		return class1Result(req.Opcode, "mailbox_open_rejected", err.Error(), buildErrorAck(mailboxErrorCode(err))), nil
 	}
-	snapshot, err := buildMailboxListNotification(result.Mails, result.NotLoaded, result.ObservedAt)
+	snapshots, err := buildMailboxListNotificationsWithTypeResolver(
+		result.Mails,
+		result.NotLoaded,
+		result.ObservedAt,
+		req.MailboxItemResolver,
+	)
 	if err != nil {
 		return class1Result(req.Opcode, "mailbox_open_rejected", "mailbox snapshot unavailable: "+err.Error(), buildErrorAck(mailboxErrorCode(err))), nil
 	}
@@ -110,7 +115,9 @@ func handleMailboxOpen(ctx context.Context, req alignedcmd.Request) (alignedcmd.
 		fmt.Sprintf("current op96 ACK not_loaded=%d total=%d unread=%d claimable=%d", result.NotLoaded, result.Total, result.Unread, result.Claimable),
 		buildMailboxOpenAck(result.NotLoaded),
 	)
-	out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
+	for _, snapshot := range snapshots {
+		out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
+	}
 	return out, nil
 }
 
@@ -153,19 +160,21 @@ func handleMailboxExtract(ctx context.Context, req alignedcmd.Request) (alignedc
 		return class1Result(req.Opcode, "mailbox_extract_rejected", err.Error(), buildErrorAck(mailboxErrorCode(err))), nil
 	}
 	result, err := NewOwner(req.Repositories, req.MailboxItemResolver).
+		WithPremiumContractResolver(req.PremiumContractResolver).
 		WithEpicPieceCreditor(req.EpicPieceCreditor).
 		WithWarehouseCreditor(req.WarehouseCreditor).
 		Claim(ctx, characterID, parsed)
 	if err != nil {
-		return class1Result(req.Opcode, "mailbox_extract_rejected", "mailbox extract rejected: "+err.Error()+"; request="+parsed.String(), buildErrorAck(mailboxErrorCode(err))), nil
+		return class1Result(req.Opcode, "mailbox_extract_rejected", "mailbox extract rejected: "+err.Error()+"; request="+parsed.String(), buildErrorAck(mailboxExtractErrorCode(err))), nil
 	}
 	out := class1Result(
 		req.Opcode,
 		"mailbox_extract_ack",
-		fmt.Sprintf("claimed mails=%v gold=%d items=%d epic_pieces=%d warehouse_slots=%d", result.MailIDs, result.Gold, result.ItemCount, len(result.EpicPieces), len(result.WarehouseCredits)),
-		buildExtractAck(result.MailIDs),
+		fmt.Sprintf("领取对象=%v 金币=%d 附件=%d 史诗碎片项=%d 账号仓库格=%d", result.MailIDs, result.Gold, result.ItemCount, len(result.EpicPieces), len(result.WarehouseCredits)),
+		buildExtractObjectAck(result.ClaimObjects),
 	)
 	out.AccountWalletChanged = result.WalletChanged
+	out.PremiumContractActivations = result.ContractActivations
 	// 小晶块/灵魂并入账号晶块仓库后，槽位行（list 0 354..365）由下面这一处统一带上
 	// （result.ItemSlotRefreshes 里已经含仓库格；桥接层对账号共享格会从账号仓库记录
 	// 重读权威行）。这里**只**保留那一次 append，不能重复。
@@ -179,17 +188,28 @@ func handleMailboxExtract(ctx context.Context, req alignedcmd.Request) (alignedc
 	// attachment widgets until it receives another complete class0/0x61 page.
 	// Reload after the committed transfer and send that clear-first snapshot in
 	// the same response sequence as op96.
-	refreshed, refreshErr := NewOwner(req.Repositories).Open(ctx, characterID)
+	refreshed, refreshErr := NewOwner(req.Repositories, req.MailboxItemResolver).Open(ctx, characterID)
 	if refreshErr == nil {
-		snapshot, snapshotErr := buildMailboxListNotification(refreshed.Mails, refreshed.NotLoaded, refreshed.ObservedAt)
+		snapshots, snapshotErr := buildMailboxListNotificationsWithTypeResolver(
+			refreshed.Mails,
+			refreshed.NotLoaded,
+			refreshed.ObservedAt,
+			req.MailboxItemResolver,
+		)
 		if snapshotErr == nil {
-			out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
+			for _, snapshot := range snapshots {
+				out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
+			}
 		}
 	}
 	// The mailbox stays open while op95 is handled. Full op13 pages are only
 	// evidenced for character bootstrap and can corrupt that live UI state;
 	// refresh exactly the durable rows that this claim changed through op14.
 	out.ItemSlotRefreshes = append(out.ItemSlotRefreshes, result.ItemSlotRefreshes...)
+	if result.InventoryFull {
+		// 成功对象先确认并重建列表，最后提示仍留在邮件中的满包附件。
+		out.UpperResponses = append(out.UpperResponses, class1Response(req.Opcode, buildErrorAck(mailboxExtractErrorCode(ErrMailboxInventoryFull))))
+	}
 	return out, nil
 }
 
@@ -223,11 +243,18 @@ func handleMailboxChangeState(ctx context.Context, req alignedcmd.Request) (alig
 		// 但客户端界面上的三封信一行没少，直到手动重开邮箱才消失。
 		// 因此删除提交之后重新加载邮箱，并在同一次应答序列里补发那份 clear-first
 		// 快照；顺序与 A21 MailboxHandler 一致：ACK → 0x62 → 0x61 列表页。
-		refreshed, refreshErr := NewOwner(req.Repositories).Open(ctx, characterID)
+		refreshed, refreshErr := NewOwner(req.Repositories, req.MailboxItemResolver).Open(ctx, characterID)
 		if refreshErr == nil {
-			snapshot, snapshotErr := buildMailboxListNotification(refreshed.Mails, refreshed.NotLoaded, refreshed.ObservedAt)
+			snapshots, snapshotErr := buildMailboxListNotificationsWithTypeResolver(
+				refreshed.Mails,
+				refreshed.NotLoaded,
+				refreshed.ObservedAt,
+				req.MailboxItemResolver,
+			)
 			if snapshotErr == nil {
-				out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
+				for _, snapshot := range snapshots {
+					out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
+				}
 			}
 		}
 	}

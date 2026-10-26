@@ -81,6 +81,7 @@ func (r *csharpLegacyUserInfoReader) loadNativeBuffOwnedProjection() (buffswap.O
 		return buffswap.OwnedProjection{}, nil
 	}
 	r.buffOwned, r.buffOwnedErr = buffswap.LoadResolvedOwnedWithOptions(r.ctx, repos, r.characterID, r.service.accountIDForSession(r.session), buffswap.OwnedProjectionOptions{
+		MigrateCurrentInstances: true,
 		NeedsEquippedPetMetadata: func(item dnfrepo.EquipmentEntry) bool {
 			return item.SlotIndex == 26 && currentEquippedCreatureFromEquipment(item).valid() && currentEquippedCreatureEnchantCardID(item) == 0
 		},
@@ -117,6 +118,11 @@ func (r *csharpLegacyUserInfoReader) nativeBuffSwapUserInfoRows() (buffswap.Stat
 				continue
 			}
 			equipmentType, known := r.currentMode1EquipmentType(equipped)
+			if state.WireProfile == buffswap.CurrentWireProfile {
+				// The same instance is serialized at its actor slot; the stored
+				// legacy PVF key must not make a valid registered row disappear.
+				b.Index = binary.LittleEndian.Uint16(entry.data[:2])
+			}
 			rawBlocks = currentMode1EquipmentReadsRawBlocks(equipped.Extra, equipmentType, known)
 		case item.HasCurrentStack:
 			entry = currentItemListEntryFromStack(b.List, int16(b.Index), item.CurrentStack)

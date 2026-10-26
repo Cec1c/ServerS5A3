@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -198,6 +199,9 @@ func TestBindGameSessionAccountFromLoginTokenOverridesStalePIDBinding(t *testing
 	if !session.accountFromToken || !session.loginTokenSeen {
 		t.Fatalf("accountFromToken=%t loginTokenSeen=%t", session.accountFromToken, session.loginTokenSeen)
 	}
+	if session.loginChannelFlowKey != sha256.Sum256([]byte(token)) {
+		t.Fatal("只有已验证令牌才能建立频道交接的隔离摘要")
+	}
 	if got := service.accountIDForSession(session); got != "dnf:10001" {
 		t.Fatalf("accountIDForSession=%q, want dnf:10001", got)
 	}
@@ -235,6 +239,9 @@ func TestBindGameSessionAccountFromLoginTokenIgnoresLegacyAndUnknownTokens(t *te
 	}
 	if session.accountID != "dnf:1" || session.accountFromToken {
 		t.Fatalf("session account=%q accountFromToken=%t", session.accountID, session.accountFromToken)
+	}
+	if session.loginChannelFlowKey != [32]byte{} {
+		t.Fatal("未知令牌不能建立频道换线交接")
 	}
 	if !session.loginTokenSeen {
 		t.Fatal("a 32-hex token in the login packet must be recorded even when it resolves to nothing")

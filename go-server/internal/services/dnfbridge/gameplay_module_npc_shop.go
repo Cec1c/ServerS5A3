@@ -68,13 +68,16 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "body_len", len(body), "reason", err)
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
+	s.logAikenExchange(session, request, "aiken-exchange-request")
 	shop, err := s.currentNPCShopCatalog()
 	if err != nil {
+		s.logAikenExchange(session, request, "aiken-exchange-rejected", "stage", "shop_catalog")
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count, "reason", err)
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
 	items, err := s.currentPVFItemCatalog()
 	if err != nil {
+		s.logAikenExchange(session, request, "aiken-exchange-rejected", "stage", "item_catalog")
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count, "reason", err)
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
@@ -82,17 +85,28 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 	defer cancel()
 	result, err := s.commitCurrentNPCShopBuy(ctx, session, shop, items, request)
 	if err != nil {
+		s.logAikenExchange(session, request, "aiken-exchange-rejected", "stage", "transaction", "purchase_limit", errors.Is(err, dnfnpcshop.ErrPurchaseLimit))
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count, "shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", err)
 		if errors.Is(err, dnfnpcshop.ErrPurchaseLimit) {
 			return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopPurchaseLimitErrorCode)
 		}
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketBuyItem), buildCurrentNPCShopBuySuccessBody(result), dnfproto.DefaultChannelClassification); err != nil {
+	s.logAikenExchangeCommitted(session, request, result)
+	err = s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketBuyItem), buildCurrentNPCShopBuySuccessBody(result), dnfproto.DefaultChannelClassification)
+	s.logAikenExchange(session, request, "aiken-exchange-send-result", "msg_id", 21, "committed", true, "send_ok", err == nil)
+	if err != nil {
 		return err
 	}
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(dnfrepo.MainInventoryListType, result.Updates), 0); err != nil {
+	err = s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(dnfrepo.MainInventoryListType, result.Updates), 0)
+	s.logAikenExchange(session, request, "aiken-exchange-send-result", "msg_id", 14, "committed", true, "send_ok", err == nil)
+	if err != nil {
 		return err
+	}
+	if len(result.GuildMedalUpdates) > 0 {
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(currentGuildMedalInventoryListType, result.GuildMedalUpdates), 0); err != nil {
+			return err
+		}
 	}
 	s.logGameEvent(session, "game-npc-shop-buy-committed", "item_id", result.ItemID, "count", result.Count, "slot", result.Slot, "gold_after", result.GoldAfter, "incremental_entries", len(result.Updates), "ack_body", "current_exe_sub_1D27590", "item_update_body", "current_exe_class0_op14_raw77")
 	return nil

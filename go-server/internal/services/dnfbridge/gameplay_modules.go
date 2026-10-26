@@ -1,7 +1,10 @@
 package dnfbridge
 
 var currentGameplayModules = mustGameplayModuleRegistry(
+	aikenUpgradeGameplayModule(),
+	guildCompoundGameplayModule(),
 	guildGameplayModule(),
+	guildPartyTeleportGameplayModule(),
 	auctionGameplayModule(),
 	pvpGameplayModule(),
 	npcShopGameplayModule(),
@@ -9,6 +12,8 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	ceraPackageGameplayModule(),
 	premiumGameplayModule(),
 	experienceItemGameplayModule(),
+	levelUpTicketGameplayModule(),
+	professionChangeGameplayModule(),
 	inventoryGameplayModule(),
 	skillGameplayModule(),
 	equipmentDisjointGameplayModule(),
@@ -36,6 +41,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	imageCommunicationGameplayModule(),
 	questGameplayModule(),
 	dungeonNavigationGameplayModule(),
+	dungeonRidableGameplayModule(),
 	dungeonCombatDropGameplayModule(),
 	dungeonDeathReviveGameplayModule(),
 	dungeonSettlementCardGameplayModule(),
@@ -51,4 +57,6 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	collectboxGameplayModule(),
 	chronicleRefineGameplayModule(),
 	webViewerGameplayModule(),
+	attendanceMarbleGameplayModule(),
+	fiendWarGameplayModule(),
 )
