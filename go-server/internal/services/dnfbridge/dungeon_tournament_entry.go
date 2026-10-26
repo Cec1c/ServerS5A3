@@ -169,7 +169,10 @@ func (s *Service) validateDungeonEntryWithTournament(
 			}
 		}
 	}
-	if !dungeonTournamentEnabled() && !s.currentEpicEntryEnabled(dungeon.ID) {
+	if s.currentEpicEntryEnabled(dungeon.ID) {
+		return s.validateCurrentEpicEntryItems(ctx, character, dungeon, session)
+	}
+	if !dungeonTournamentEnabled() {
 		return validateDungeonEntry(character, dungeon, session)
 	}
 	required := currentTournamentEntryItems(dungeon)

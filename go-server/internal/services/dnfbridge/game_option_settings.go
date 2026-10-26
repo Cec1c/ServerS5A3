@@ -173,6 +173,8 @@ func (s *Service) handleGameOptionCommand(session *gameSession, typ uint16, body
 		return true, s.handleSaveQuickchat(session, body)
 	case currentSaveCharacterOptionOpcode:
 		return true, s.handleSaveCharacterOption(session, body)
+	case currentSaveQuestNotifyOpcode:
+		return true, s.handleSaveCurrentQuestNotify(session, body)
 	default:
 		return false, nil
 	}

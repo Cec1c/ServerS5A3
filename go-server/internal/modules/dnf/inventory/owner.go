@@ -175,6 +175,10 @@ type SortResult struct {
 	Mode        string
 	Refresh     map[string]dnfrepo.ItemStack
 	Changed     bool
+	// ContainerStateLoaded records the state already read by the inventory
+	// transaction so the refresh body does not issue the same settings read again.
+	ContainerStateLoaded bool
+	ContainerState       *dnfrepo.CharacterContainerState
 }
 
 // RepairResult 描述一次耐久修理的写库结果；当前只允许零金币单件修理回成功 ACK。
@@ -1099,20 +1103,24 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 
 	items, field := itemMapForList(&record, cmd.SourceListType)
 	start, end, ok := sortSegment(cmd.SourceListType, cmd.Category)
-	initialRefresh, err := o.sortRefreshSnapshot(ctx, cmd, items)
-	if err != nil {
-		return SortResult{}, err
-	}
 	result := SortResult{
-		CharacterID: characterID,
-		ListType:    cmd.SourceListType,
-		Category:    cmd.Category,
-		StartSlot:   start,
-		EndSlot:     end,
-		Mode:        "noop",
-		Refresh:     initialRefresh,
+		CharacterID:          characterID,
+		ListType:             cmd.SourceListType,
+		Category:             cmd.Category,
+		StartSlot:            start,
+		EndSlot:              end,
+		Mode:                 "noop",
+		ContainerStateLoaded: true,
+	}
+	if record.ContainerState != nil {
+		state := *record.ContainerState
+		result.ContainerState = &state
 	}
 	if !ok {
+		result.Refresh, err = o.sortRefreshSnapshot(ctx, cmd, items)
+		if err != nil {
+			return SortResult{}, err
+		}
 		return result, nil
 	}
 	if cmd.SourceListType == listTypePersonalCargo && record.ContainerState != nil && record.ContainerState.PersonalCargoSlotCount > 0 {
@@ -1130,6 +1138,10 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 	result.MovedCount = len(candidates)
 	targets := sortTargetSlots(start, end, lockedSlots)
 	if len(candidates) == 0 {
+		result.Refresh, err = o.sortRefreshSnapshot(ctx, cmd, items)
+		if err != nil {
+			return SortResult{}, err
+		}
 		return result, nil
 	}
 	if len(targets) < len(candidates) {
@@ -1156,6 +1168,10 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		}
 	}
 	if !changed {
+		result.Refresh, err = o.sortRefreshSnapshot(ctx, cmd, items)
+		if err != nil {
+			return SortResult{}, err
+		}
 		return result, nil
 	}
 
@@ -1166,15 +1182,15 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		items[slotKey(cmd.SourceListType, targets[index])] = candidate.stack
 	}
 
+	result.Refresh, err = o.sortRefreshSnapshot(ctx, cmd, items)
+	if err != nil {
+		return SortResult{}, err
+	}
 	record.UpdatedAt = time.Now()
 	if err := dnfrepo.SaveInventoryFields(ctx, o.repo, record, field); err != nil {
 		return SortResult{}, err
 	}
 	result.Mode = "sort"
-	result.Refresh, err = o.sortRefreshSnapshot(ctx, cmd, items)
-	if err != nil {
-		return SortResult{}, err
-	}
 	result.Changed = true
 
 	return result, nil
