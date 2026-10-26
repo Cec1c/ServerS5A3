@@ -13,7 +13,10 @@ import (
 
 func (s *Service) alignedMailboxItemResolverForCommand(opcode dnfenum.CmdPacket) (alignedcmd.MailboxItemResolver, error) {
 	needsPrice := opcode == dnfenum.CmdPacketMailboxSend || opcode == dnfenum.CmdPacketMultiMailboxSend
-	if !needsPrice && opcode != dnfenum.CmdPacketMailboxExtractItem {
+	needsPVFType := opcode == dnfenum.CmdPacketMailboxOpen ||
+		opcode == dnfenum.CmdPacketMailboxExtractItem ||
+		opcode == dnfenum.CmdPacketChangeLetterStat
+	if !needsPrice && !needsPVFType {
 		return nil, nil
 	}
 	// 只有领取（op95）才会把附件落成实例：装备/时装要在这一刻拿到 quality_seed
@@ -21,7 +24,13 @@ func (s *Service) alignedMailboxItemResolverForCommand(opcode dnfenum.CmdPacket)
 	claiming := opcode == dnfenum.CmdPacketMailboxExtractItem
 	catalog, err := s.currentPVFItemCatalog()
 	if err != nil {
-		return nil, err
+		// Keep the failing resolver non-nil. The mailbox handler must see that
+		// the authoritative item type is unavailable and suppress the 0x61
+		// projection, rather than falling back to mutable historical Extra.
+		catalogErr := err
+		return func(itemID uint32) (alignedcmd.MailboxItemResolution, error) {
+			return alignedcmd.MailboxItemResolution{}, fmt.Errorf("mailbox item=%d runtime PVF unavailable: %w", itemID, catalogErr)
+		}, err
 	}
 	return func(itemID uint32) (alignedcmd.MailboxItemResolution, error) {
 		definition, resolveErr := catalog.ResolveItem(itemID)
@@ -124,11 +133,20 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 	if definition.Kind == dungeonDropItemEquipment {
 		stackLimit = 1
 	}
+	equipmentType := strings.TrimSpace(definition.EquipmentType)
+	if equipmentType == "" && definition.Kind == dungeonDropItemStackable &&
+		normalizeDungeonDropStackableType(definition.StackableType) == "[creature]" {
+		// [creature] pet rename cards take the client's type-26 branch, whose
+		// row-width discriminator is stored in [stackable type]. Expose that
+		// authoritative token without assigning other stackable families to the
+		// equipment-type field used by the 0x61 projection.
+		equipmentType = strings.TrimSpace(definition.StackableType)
+	}
 	resolution := alignedcmd.MailboxItemResolution{
 		Price:           definition.Price,
 		PVFPath:         definition.PVFPath,
 		Kind:            string(definition.Kind),
-		EquipmentType:   definition.EquipmentType,
+		EquipmentType:   equipmentType,
 		SlotStart:       definition.SlotStart,
 		SlotEnd:         definition.SlotEnd,
 		StackLimit:      stackLimit,
