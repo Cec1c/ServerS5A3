@@ -101,14 +101,22 @@ func dungeonLayoutPoolCandidates(
 	if err == nil {
 		return pool, fileType, nil
 	}
+	if errors.Is(err, ErrMapDefinitionRead) {
+		return nil, fileType, err
+	}
 	if fileType == MapFileStart {
-		if pool, ok := resolver.raidStartResourcePool(dungeonID, mazeIndex, room); ok {
+		if pool, ok, readErr := resolver.raidStartResourcePoolRead(dungeonID, mazeIndex, room); readErr != nil {
+			return nil, fileType, readErr
+		} else if ok {
 			return pool, MapFileStart, nil
 		}
 	}
 	for _, fallbackType := range dungeonLayoutFallbackPoolFileTypes(fileType, room) {
 		fallbackRequest := MapPoolRequest{DungeonID: dungeonID, MazeIndex: mazeIndex, FileType: fallbackType}
 		fallbackPool, fallbackErr := resolver.PoolCandidates(fallbackRequest)
+		if errors.Is(fallbackErr, ErrMapDefinitionRead) {
+			return nil, fileType, fallbackErr
+		}
 		if fallbackErr == nil {
 			return fallbackPool, fallbackType, nil
 		}

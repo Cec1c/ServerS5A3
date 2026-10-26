@@ -442,6 +442,33 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		values["DNFBRIDGE_PARTY_UDP_RELAY_SEED_FORWARD"] = "on"
 		values["DNFBRIDGE_PARTY_UDP_RELAY_PROBE_PORTS"] = fmt.Sprintf("2311,2312,%d", relayPortStart)
 	}
+	// 控制器调用方显式选择批量落库；仍清理未经授权的 DNFBRIDGE 继承值。
+	if batch, err := strconv.Atoi(strings.TrimSpace(os.Getenv("DNF90_MYSQL_INSERT_BATCH"))); err == nil && batch >= 1 && batch <= 1000 {
+		values["DNFBRIDGE_MYSQL_INSERT_BATCH"] = strconv.Itoa(batch)
+	}
+	// 调用方显式选择已实现的改动格保存；原始 DNFBRIDGE 继承值仍统一清理。
+	switch scope := strings.ToLower(strings.TrimSpace(os.Getenv("DNF90_INVENTORY_SAVE_SCOPE"))); scope {
+	case "collection", "slot":
+		values["DNFBRIDGE_INVENTORY_SAVE_SCOPE"] = scope
+	}
+	switch scope := strings.ToLower(strings.TrimSpace(os.Getenv("DNF90_EQUIPMENT_SAVE_SCOPE"))); scope {
+	case "collection", "entry":
+		values["DNFBRIDGE_EQUIPMENT_SAVE_SCOPE"] = scope
+	}
+	// 仅显式白名单控制器选项可开启地图缓存，原始DNFBRIDGE继承值仍清理。
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("DNF90_MAP_CACHE"))); raw {
+	case "1", "true", "on":
+		values["DNFBRIDGE_MAP_CACHE"] = "true"
+	case "0", "false", "off":
+		values["DNFBRIDGE_MAP_CACHE"] = "false"
+	}
+	// 低内存模式为显式选择，不继承未经校验的DNFBRIDGE值。
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("DNF90_LOW_MEMORY"))); raw {
+	case "1", "true", "on":
+		values["DNFBRIDGE_LOW_MEMORY"] = "true"
+	case "0", "false", "off":
+		values["DNFBRIDGE_LOW_MEMORY"] = "false"
+	}
 	return mergeEnvironment(cleanRuntimeBaseEnvironment(os.Environ()), values)
 }
 
