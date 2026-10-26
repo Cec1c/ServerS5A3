@@ -82,7 +82,7 @@ def classify(offset, ranges):
 def build(data, *, baseline_sha256=V177_SHA256):
     image, section = verify_baseline(data, baseline_sha256=baseline_sha256)
     from verify_boundary import inject  # shared patch implementation
-    candidate = inject(data)
+    candidate = inject(data, baseline_sha256=baseline_sha256)
     patched = Image.from_bytes(candidate)
     extension = title_extension(EXTENSION_VA)
     require(len(extension) == OLD_EXTENSION_SIZE + 28,

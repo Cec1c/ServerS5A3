@@ -92,10 +92,12 @@ def require(condition, message):
         raise AssertionError(message)
 
 
-def inject(data):
+def inject(data, *, baseline_sha256=V177_SHA256):
+    require(baseline_sha256 in (V177_SHA256, 'eae47c4b805c8cc6d7c81c26380fe78785968f50ddcd9aeff4e12047f9ab00ac'),
+            'unsupported published baseline')
     image = Image.from_bytes(data)
-    require(image.sha256 == V177_SHA256 and len(data) == V177_SIZE,
-            'exact V177 image required')
+    require(image.sha256 == baseline_sha256 and len(data) == V177_SIZE,
+            'exact selected published image required')
     va = OP19UI + OLD_VIRTUAL_SIZE
     extension = title_extension(va)
     section = image.section('.op19ui')
