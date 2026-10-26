@@ -230,7 +230,9 @@ func replayFlow(t *testing.T, base *Service, table *worldmap.Table, resolver *wo
 	return result
 }
 
-func TestRealPVFMapCacheFullEntryReplay(t *testing.T) {
+func TestRealPVFMapCacheFullEntryReplay(t *testing.T) { realMapCacheFullEntryReplay(t, false) }
+
+func realMapCacheFullEntryReplay(t *testing.T, lowMemory bool) {
 	if os.Getenv("DNF_WORLDMAP_REAL_PVF_SMOKE") == "" {
 		t.Skip("未指定真实PVF")
 	}
@@ -319,7 +321,21 @@ func TestRealPVFMapCacheFullEntryReplay(t *testing.T) {
 	var trials []replayTrial
 	for _, mode := range []string{"现用全量常驻", "候选首次", "候选命中", "候选淘汰后"} {
 		if mode == "候选首次" {
-			if err = table.EnableMapCache(a, worldmap.DefaultMapCacheOptions()); err != nil {
+			if lowMemory {
+				// 基线回放已结束且无并发读者，在隔离夹具中转入有界/流式档。
+				if err = a.EnableBoundedReadCaches(8<<20, 8<<20); err != nil {
+					t.Fatal(err)
+				}
+				base.options.lowMemory = true
+				table, err = worldmap.LoadSourceCached(context.Background(), a, worldmap.Options{}, worldmap.DefaultMapCacheOptions())
+				if err != nil {
+					t.Fatal(err)
+				}
+				resolver, err = worldmap.NewResolver(table)
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err = table.EnableMapCache(a, worldmap.DefaultMapCacheOptions()); err != nil {
 				t.Fatal(err)
 			}
 			a.ReleaseReadCaches()
