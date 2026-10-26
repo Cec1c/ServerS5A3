@@ -20,9 +20,11 @@ const (
 	currentTownPostTransitionMode0Sent
 	currentTownPostTransitionMode1Sent
 	currentTownPostTransitionCreatureTableSent
+	currentTownPostTransitionCreatureItemSent
 	currentTownPostTransitionCreatureGrowthSent
 	currentTownPostTransitionFinishStateSent
 	currentTownPostTransitionFinishCompletionSent
+	currentTownPostTransitionFinishCompletionOmitted
 	currentTownPostTransitionSkillSent
 	currentTownPostTransitionGuildBuffsSent
 	currentTownPostTransitionComplete
@@ -37,29 +39,63 @@ func (s *Service) armCurrentTownPostTransitionPlayerState(session *gameSession, 
 	if session == nil || session.selectedCharacterID == 0 {
 		return
 	}
+	s.armCurrentTownPostTransitionPlayerStateWithProfile(
+		session, source, session.selectedCharacterID, currentTownActorOwnerContext(session), false,
+	)
+}
+
+// 已确认的7142返回在退休副本后立即冻结本代策略，早于任何可能失败的
+// 城镇属主核对或发包。重试沿本代游标继续，普通arm和reset不会继承省略策略。
+func (s *Service) armCurrentTownPostTransitionPlayerStateWithProfile(
+	session *gameSession, source string, characterID uint16, ownerChannel byte, omitSceneActivation bool,
+) {
+	if session == nil || characterID == 0 {
+		return
+	}
 	session.townPostTransition.mu.Lock()
 	defer session.townPostTransition.mu.Unlock()
-
 	session.townPostTransition.generation++
-	session.townPostTransition.characterID = session.selectedCharacterID
-	session.townPostTransition.ownerChannel = currentTownActorOwnerContext(session)
+	session.townPostTransition.characterID = characterID
+	session.townPostTransition.ownerChannel = ownerChannel
 	session.townPostTransition.stage = currentTownPostTransitionPending
+	session.townPostTransition.omitSceneActivation = omitSceneActivation
 	session.townPostTransition.source = source
-
 	// These gates belong to the actor generation invalidated by op24. The
 	// staged chain below owns their one replacement for the new generation.
 	session.setFinishLoadingGates(finishLoadingGates{})
 	session.initialTownSkillInfoSent = false
 	session.initialTownGuardianShieldDeckSent = false
 	session.initialTownGuardianShieldAppearanceSent = false
-
 	s.logGameEvent(session, "game-town-post-transition-player-state-armed",
 		"source", source,
-		"char_id", session.townPostTransition.characterID,
-		"owner_context", session.townPostTransition.ownerChannel,
+		"char_id", characterID,
+		"owner_context", ownerChannel,
 		"generation", session.townPostTransition.generation,
 		"stage", session.townPostTransition.stage,
-		"sequence", "mode0_mode1_op105_optional_op102_op37_op30_op19_op120")
+		"omit_scene_activation", omitSceneActivation,
+		"sequence", currentTownPostTransitionPlayerStateSequence(omitSceneActivation))
+}
+
+func currentTownPostTransitionPlayerStateSequence(omitSceneActivation bool) string {
+	if omitSceneActivation {
+		return "mode0_mode1_op105_optional_op102_op37_op19_op120"
+	}
+	return "mode0_mode1_op105_optional_op102_op37_op30_op19_op120"
+}
+
+// 仅让本次已确认返回的城镇代省略op30；真正再次入图和普通城镇过场会reset/arm新代。
+// 调用者不得持有townPostTransition.mu。
+func currentTownReturnOmitsSceneActivation(session *gameSession) bool {
+	if session == nil || !session.returnTownFinishLoadingAckOnly {
+		return false
+	}
+	session.townPostTransition.mu.Lock()
+	defer session.townPostTransition.mu.Unlock()
+	return session.townPostTransition.generation != 0 &&
+		session.townPostTransition.stage != currentTownPostTransitionIdle &&
+		session.townPostTransition.characterID == session.selectedCharacterID &&
+		session.townPostTransition.ownerChannel == currentConnectionTownActorOwnerContext(session) &&
+		session.townPostTransition.omitSceneActivation
 }
 
 // resetCurrentTownPostTransitionPlayerState drops a stale pending generation
@@ -72,6 +108,7 @@ func resetCurrentTownPostTransitionPlayerState(session *gameSession) {
 	session.townPostTransition.characterID = 0
 	session.townPostTransition.ownerChannel = 0
 	session.townPostTransition.stage = currentTownPostTransitionIdle
+	session.townPostTransition.omitSceneActivation = false
 	session.townPostTransition.source = ""
 	session.townPostTransition.mu.Unlock()
 }
@@ -146,10 +183,12 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		session.townPostTransition.stage = currentTownPostTransitionMode0Sent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionMode1Sent {
-		if err := s.sendSelectedActorMode1AppearanceRefresh(
+		if err := s.sendSelectedActorMode1AppearanceWithPostState(
 			session,
 			"town_post_transition",
 			source+"_mode1_native_owner",
+			false,
+			false,
 		); err != nil {
 			return err
 		}
@@ -163,6 +202,12 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 			return err
 		}
 		session.townPostTransition.stage = currentTownPostTransitionCreatureTableSent
+	}
+	if session.townPostTransition.stage < currentTownPostTransitionCreatureItemSent {
+		if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_slot26_after_op105"); err != nil {
+			return err
+		}
+		session.townPostTransition.stage = currentTownPostTransitionCreatureItemSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionCreatureGrowthSent {
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -196,14 +241,19 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		session.townPostTransition.stage = currentTownPostTransitionFinishStateSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionFinishCompletionSent {
-		if err := s.sendCurrentIncreaseStatusResult(
-			session,
-			source+"_op30_after_finish_state",
-		); err != nil {
-			return err
+		if session.townPostTransition.omitSceneActivation {
+			// 本返回代不重复激活体验退出后的场景对象；op30并非仅清零倒计时。
+			// 独立记录省略完成态，不把currentFinishLoadingCompletionSent伪记为已发送。
+			session.townPostTransition.stage = currentTownPostTransitionFinishCompletionOmitted
+			s.logGameEvent(session, "转职体验返回已省略场景激活",
+				"source", source, "char_id", characterID, "generation", generation, "msg_id", 30)
+		} else {
+			if err := s.sendCurrentIncreaseStatusResult(session, source+"_op30_after_finish_state"); err != nil {
+				return err
+			}
+			session.setFinishLoadingGateCompletion(true)
+			session.townPostTransition.stage = currentTownPostTransitionFinishCompletionSent
 		}
-		session.setFinishLoadingGateCompletion(true)
-		session.townPostTransition.stage = currentTownPostTransitionFinishCompletionSent
 	}
 
 	if _, err := s.sendSelectedGuardianShieldDeckInfo(session, source+"_guardian_deck"); err != nil {
@@ -220,7 +270,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 			if err := s.sendCurrentSceneSkillInfoProjection(
 				session,
 				session.initialTownSkillInfo,
-				source+"_op19_prepared_after_op30",
+				source+"_op19_prepared_after_finish_state",
 			); err != nil {
 				return err
 			}
@@ -229,7 +279,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 			// （档位与四条边界清单见 skill_switch_inventory.go）。
 			if err := s.sendSkillSwitchInventoryProjection(
 				session,
-				source+"_op19_prepared_after_op30_skill_switch_inventory",
+				source+"_op19_prepared_after_finish_state_skill_switch_inventory",
 			); err != nil {
 				return err
 			}
@@ -239,7 +289,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		} else {
 			if err := s.sendSelectedActorCurrentSceneSkillInfo(
 				session,
-				source+"_op19_reloaded_after_op30",
+				source+"_op19_reloaded_after_finish_state",
 			); err != nil {
 				return err
 			}
@@ -274,6 +324,7 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		"owner_context", ownerChannel,
 		"generation", generation,
 		"stage", session.townPostTransition.stage,
-		"sequence", "mode0_mode1_op105_optional_op102_op37_op30_op19_op120")
+		"omit_scene_activation", session.townPostTransition.omitSceneActivation,
+		"sequence", currentTownPostTransitionPlayerStateSequence(session.townPostTransition.omitSceneActivation))
 	return nil
 }

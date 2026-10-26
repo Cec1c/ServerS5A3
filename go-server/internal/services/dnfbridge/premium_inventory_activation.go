@@ -197,6 +197,7 @@ func (s *Service) sendCurrentPremiumInventoryActivations(
 	}
 	s.logCurrentPremiumInventoryActivation(session, result, source)
 	if refreshCrystal {
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		return s.sendCurrentCrystalContractState(session, source+"_after_type97_auto_activation")
 	}
 	return nil

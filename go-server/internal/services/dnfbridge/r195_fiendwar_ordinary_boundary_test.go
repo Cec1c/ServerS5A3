@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -30,13 +31,15 @@ func TestRealPVFCurrentFiendWarPortPreservesOrdinaryDailyProjection(t *testing.T
 		if err := f.service.sendCurrentRaidDailyAvailability(p, "ordinary boundary control"); err != nil {
 			t.Fatal(err)
 		}
-		if p.conn.(*bufferConn).write.Len() != 0 {
-			t.Fatal("ordinary channel gained daily snapshot", channel)
+		packet, rest := splitGameServerUpperPacket(t, p.conn.(*bufferConn).write.Bytes())
+		if len(rest) != 0 || packet.Header.MsgID != 1303 || len(packet.Body) != 12 || packet.Body[0] != 1 || packet.Body[4] != 2 || packet.Body[8] != 3 {
+			t.Fatal("ordinary channel daily snapshot missing or misaligned", channel, packet)
 		}
 	}
-	// The same authenticated current connection does receive the real three-row
-	// contract in FiendWar. This is projection only; it does not debit other modes.
+	// All three modes project their independent persisted ledgers. Projection
+	// itself does not debit entry counts; start commits the matching ledger.
 	p.channel.Type = 42
+	p.conn.(*bufferConn).write.Reset()
 	if err := f.service.sendCurrentRaidDailyAvailability(p, "FiendWar boundary control"); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +49,7 @@ func TestRealPVFCurrentFiendWarPortPreservesOrdinaryDailyProjection(t *testing.T
 	}
 }
 
-func TestRealPVFCurrentFiendWarPortPreservesLukeStartWithoutNewWaitingOrDailyDebit(t *testing.T) {
+func TestRealPVFCurrentFiendWarFullScopeLukeStartKeepsWaitingPolicyAndDailyDebit(t *testing.T) {
 	f, peers := actualCurrentFiendWar(t, 1)
 	s, p := f.service, peers[0]
 	p.channel.ID, p.channel.Type = 32, 32
@@ -71,7 +74,7 @@ func TestRealPVFCurrentFiendWarPortPreservesLukeStartWithoutNewWaitingOrDailyDeb
 	if err != nil || daily == nil {
 		t.Fatal("real Luke daily configuration unavailable", err)
 	}
-	before, beforeFound, err := f.repos.Settings.Load(ctx, daily.Scope)
+	before, _, err := f.repos.Settings.Load(ctx, daily.Scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +88,10 @@ func TestRealPVFCurrentFiendWarPortPreservesLukeStartWithoutNewWaitingOrDailyDeb
 	if err != nil {
 		t.Fatal(err)
 	}
-	if beforeFound != afterFound || !reflect.DeepEqual(before, after) {
-		t.Fatal("ordinary Luke start debited a new daily ledger")
+	usedBefore, beforeErr := fiendwar.FiendWarDailyUsed(before, p.accountID, daily.Now)
+	usedAfter, afterErr := fiendwar.FiendWarDailyUsed(after, p.accountID, daily.Now)
+	if !afterFound || beforeErr != nil || afterErr != nil || usedAfter != usedBefore+1 {
+		t.Fatal("ordinary Luke start did not debit exactly one daily entry", usedBefore, usedAfter, beforeErr, afterErr)
 	}
 	bag, _, err := f.repos.Inventory.Load(ctx, "19")
 	if err != nil {

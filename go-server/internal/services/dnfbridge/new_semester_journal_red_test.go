@@ -72,6 +72,9 @@ func prepareSemesterActualReady(t *testing.T) (*Service, *gameSession, oe.EpicCa
 	a.accountID = c.AccountID
 	a.loginPacketSeen = true
 	a.accountFromToken = true
+	if e = g.Account.Save(ctx, repo.AccountRecord{AccountID: c.AccountID}); e != nil {
+		t.Fatal(e)
+	}
 	s.bindGameSessionCharacter(a, 99)
 	if e = s.initializeActivityControls(ctx); e != nil {
 		t.Fatal(e)

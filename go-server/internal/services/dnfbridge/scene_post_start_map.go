@@ -390,7 +390,7 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	// Install the complete container snapshot only after the selected actor and
 	// its container managers exist. This changes inventory ownership only; the
 	// dungeon scene/camera packet sequence remains untouched.
-	if err := s.sendCurrentSelectInventoryBootstrap(session, source+"_after_actor_before_player_object"); err != nil {
+	if err := s.sendCurrentProfessionTrialInventoryBootstrap(session, runtime, scene, source+"_after_actor_before_player_object"); err != nil {
 		return err
 	}
 	// The container bootstrap owns its own bounded snapshot context and socket
@@ -426,11 +426,12 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), mode1Body, 0); err != nil {
 		return err
 	}
-	// Full mode1 recreates the selected actor's equipped creature. Its dynamic
-	// enchant card is applied only by the existing same-template slot26 op14
-	// path, so restore that durable state after creation in this lifecycle too.
+	// Full mode1 recreates the equipped creature. Publish metadata for this
+	// generation before slot26 resolves its serial; the previous scene's sent
+	// flag cannot suppress the table needed by the new notification.
 	if repositories, ok := s.repositoryGroup(); ok && repositories.Equipment != nil {
-		if err := s.sendSelectedEquippedCreatureItemRefresh(session, source+"_after_dungeon_mode1"); err != nil {
+		session.selectedCreatureStateTableSent = false
+		if err := s.sendSelectedCreatureInitialProjection(session, source+"_after_dungeon_mode1"); err != nil {
 			return err
 		}
 	}
@@ -577,6 +578,9 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	}
 
 	session.postStartMapPlayerStateSent = true
+	if err := s.armCurrentCrystalContractTimer(session, runtime); err != nil {
+		s.logGameEvent(session, "晶体契约-进图排程失败", "error", err)
+	}
 	session.sceneBootstrapTailDeferred = false
 	session.sceneBootstrapTailSent = true
 	minimumPacketCount := currentSceneOverseerPageCount + 13

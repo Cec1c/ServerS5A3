@@ -31,7 +31,7 @@ func newDungeonCardRewardPlan(
 	binary.LittleEndian.PutUint32(numeric[8:12], uint32(identity.MazeIndex))
 	binary.LittleEndian.PutUint32(numeric[12:16], identity.RunSeed)
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("dnf-card-plan-v2\x00"))
+	_, _ = hash.Write([]byte("dnf-card-plan-v3\x00"))
 	_, _ = hash.Write([]byte(identity.CharacterID))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(numeric[:])
@@ -65,6 +65,8 @@ func newDungeonCardRewardPlan(
 
 func writeDungeonCardBundleIdentity(digest hash.Hash, bundle dungeonCardRewardBundle) {
 	var numeric [8]byte
+	binary.LittleEndian.PutUint64(numeric[:], uint64(bundle.Cost))
+	_, _ = digest.Write(numeric[:])
 	binary.LittleEndian.PutUint64(numeric[:], uint64(bundle.Gold))
 	_, _ = digest.Write(numeric[:])
 	binary.LittleEndian.PutUint64(numeric[:], uint64(len(bundle.Items)))

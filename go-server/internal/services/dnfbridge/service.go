@@ -45,10 +45,19 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
-	guildDungeonCatalogMu sync.Mutex
-	guildDungeonCatalog   *dnfguild.DungeonCatalog
-	guildCreateMu         sync.Mutex
-	guildTeleportMu       sync.Mutex
+	guildRankingMu               sync.Mutex
+	guildRankingCatalogMu        sync.Mutex
+	guildRankingRules            *dnfguild.RankingRules
+	guildDungeonCatalogMu        sync.Mutex
+	guildDungeonCatalog          *dnfguild.DungeonCatalog
+	guildEssenceCatalog          *dnfguild.EssenceCatalog          // guarded by guildDungeonCatalogMu
+	guildContributionCatalog     *dnfguild.ContributionCatalog     // guarded by guildDungeonCatalogMu
+	guildHongbaoCatalog          *dnfguild.HongbaoCatalog          // guarded by guildDungeonCatalogMu
+	guildMerchantPurchaseCatalog *dnfguild.MerchantPurchaseCatalog // guarded by guildDungeonCatalogMu
+	guildCreateMu                sync.Mutex
+	guildTeleportMu              sync.Mutex
+	channelHandoffMu             sync.Mutex
+	channelHandoffs              map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
@@ -160,6 +169,8 @@ type Service struct {
 	dungeonRuleSource       initialEquipmentTextSource
 	weeklyCatalogMu         sync.Mutex
 	weeklyCatalog           *onlineevent.WeeklyCatalog
+	attendanceMarbleMu      sync.Mutex
+	attendanceMarbleCatalog *attendanceMarbleCatalog
 	monthlyCatalogMu        sync.Mutex
 	monthlyCatalog          *onlineevent.MonthlyCatalog
 	pvfItemCatalogMu        sync.Mutex
@@ -434,6 +445,8 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.Join(err, closeErr)
 	}
 	s.startGameplayTimeQueue(runCtx)
+	s.startCurrentGuildRankingSampler(runCtx)
+	s.startCurrentGuildHongbaoSettlement(runCtx)
 	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)

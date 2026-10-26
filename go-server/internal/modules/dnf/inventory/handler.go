@@ -409,6 +409,11 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		return ownerAppliedDamageFontSelectionResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketUpgradeItem:
+		// v150's separate flag sender writes u8 mode, u8 list38. Keep the
+		// ordinary decoder/owner unchanged for every other request.
+		if len(req.Body) >= 2 && req.Body[1] == 38 {
+			return handleGuildMedalUpgrade(ctx, req), nil
+		}
 		parsed, err := DecodeUpgradeItemRequest(req.Body)
 		cmd := NewUpgradeCommand(req, parsed)
 		if err != nil {
@@ -1667,9 +1672,16 @@ func noopGateSuffix(result dnfequip.MoveResult) string {
 func buildSortRefreshBody(ctx context.Context, settings dnfrepo.SettingsRepository, result SortResult) ([]byte, bool) {
 	switch result.ListType {
 	case listTypeMain, listTypePersonalCargo, listTypeAvatar:
-		state, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
-		if err != nil || !found {
-			state = dnfrepo.CharacterContainerState{}
+		state := dnfrepo.CharacterContainerState{}
+		if result.ContainerStateLoaded {
+			if result.ContainerState != nil {
+				state = *result.ContainerState
+			}
+		} else {
+			loaded, found, err := dnfrepo.LoadCharacterContainerState(ctx, settings, result.CharacterID)
+			if err == nil && found {
+				state = loaded
+			}
 		}
 		return buildCommonItemListRefreshBodyWithState(result.ListType, result.Refresh, state), true
 	case listTypePet:
@@ -1881,6 +1893,7 @@ func ownerAppliedUseStackableResult(opcode uint16, cmd Command, result UseStacka
 		ItemSlotRefreshes: itemSlotRefreshes,
 		PostActions:       postActions,
 	}
+	applied.ItemUsageChanged = result.ItemUsageChanged
 	if result.Changed && result.RemainingCount >= 0 && result.PreviousCount > 0 &&
 		result.PreviousCount-result.RemainingCount == 1 {
 		applied.StackableConsumption = &alignedcmd.StackableConsumption{

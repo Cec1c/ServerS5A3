@@ -13,6 +13,9 @@ import (
 // only the latest hash (the old settlement format) cannot reject older replays.
 // Receipts also record zero for nonmembers; joining later cannot claim that run.
 type guildSettlementReceipt struct {
+	GuildContribution guild.ContributionIncome
+	GuildRanking      guild.RankingClearResult
+	GuildEssence      guild.EssenceIncome
 	GuildDungeon      guild.DungeonClearResult
 	GuildDungeonItems []GuildDungeonGrantedItem
 	Version           int
@@ -38,6 +41,15 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 		return false, ErrSettlementStateInvalid
 	}
 	result.ExperienceGain, result.HonorExpertGain = receipt.ExperienceGain, receipt.HonorExpertGain
+	if (receipt.GuildEssence.GuildID == 0 && receipt.GuildEssence.AP != 0) || receipt.GuildEssence.AP > 0x7fffffff {
+		return false, ErrSettlementStateInvalid
+	}
+	result.GuildEssence = receipt.GuildEssence
+	if receipt.GuildContribution.Points > 0 && (receipt.GuildContribution.GuildID == 0 || (receipt.GuildContribution.Delivery.MailID == "" && receipt.GuildContribution.Delivery.Slot < 0)) {
+		return false, ErrSettlementStateInvalid
+	}
+	result.GuildContribution = receipt.GuildContribution
+	result.GuildContribution.Replayed = true
 	if cmd.GuildDungeon != nil {
 		e := cmd.GuildDungeon.Entry
 		if receipt.GuildDungeon.GuildID != e.GuildID || receipt.GuildDungeon.DungeonID != e.DungeonID || receipt.GuildDungeon.CycleKey != e.Cycle.Key || receipt.GuildDungeon.Units > e.Cycle.Units {
@@ -51,6 +63,14 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 	} else if receipt.GuildDungeon.GuildID != 0 {
 		return false, ErrSettlementStateInvalid
 	}
+	if receipt.GuildRanking.GuildID == 0 {
+		if receipt.GuildRanking.Points != 0 || !receipt.GuildRanking.Month.IsZero() {
+			return false, ErrSettlementStateInvalid
+		}
+	} else if receipt.GuildRanking.Points <= 0 || (guild.RankingActivity{Month: receipt.GuildRanking.Month, PartyClear: receipt.GuildRanking.Points}).Validate() != nil {
+		return false, ErrSettlementStateInvalid
+	}
+	result.GuildRanking = receipt.GuildRanking
 	result.GuildDungeon, result.GuildDungeonItems = receipt.GuildDungeon, receipt.GuildDungeonItems
 	result.PotionBonus = receipt.PotionBonus
 	result.SPGain, result.TPGain = receipt.SPGain, receipt.TPGain
@@ -61,7 +81,10 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 func saveGuildSettlementReceipt(ctx context.Context, settings r.SettingsRepository, cmd SettlementCommand, result SettlementResult, now time.Time) error {
 	owner := r.GuildOwner{AccountID: cmd.AccountID, CharacterID: cmd.CharacterID}
 	value, err := json.Marshal(guildSettlementReceipt{Version: 1, Owner: owner,
-		GuildDungeon: result.GuildDungeon, GuildDungeonItems: result.GuildDungeonItems,
+		GuildContribution: result.GuildContribution,
+		GuildRanking:      result.GuildRanking,
+		GuildEssence:      result.GuildEssence,
+		GuildDungeon:      result.GuildDungeon, GuildDungeonItems: result.GuildDungeonItems,
 		ExperienceGain: result.ExperienceGain, PotionBonus: result.PotionBonus, HonorExpertGain: result.HonorExpertGain,
 		SPGain: result.SPGain, TPGain: result.TPGain, LuckyStar: result.LuckyStar, GuildMileage: result.GuildMileage})
 	if err != nil {

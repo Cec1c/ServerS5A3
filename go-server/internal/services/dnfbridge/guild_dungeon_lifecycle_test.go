@@ -270,6 +270,10 @@ func TestGuildDungeonExtractedSixDGNAdmissionMetadata(t *testing.T) {
 				t.Fatal(err)
 			}
 			dgn := worldmap.ParseDungeon(entry.ID, entry.Path, doc)
+			fatigueCost, startOnly, fatigueErr := currentDungeonStartFatigueRule(dgn)
+			if fatigueErr != nil || !startOnly || fatigueCost != 8 {
+				t.Fatalf("fatigue rule cost=%d start_only=%t err=%v", fatigueCost, startOnly, fatigueErr)
+			}
 			if !currentGuildDungeon(&runtimeDungeonState{Dungeon: dgn}) || !reflect.DeepEqual(dgn.Metadata.DesignatedDifficulties, []int64{2}) || dgn.Metadata.MinimumRequiredLevel.Value != 50 {
 				t.Fatalf("metadata=%+v", dgn.Metadata)
 			}

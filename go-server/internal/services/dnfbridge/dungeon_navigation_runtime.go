@@ -463,6 +463,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			"maze_index", runtime.MazeIndex)
 	}
 	if prepared == nil {
+		if err := s.commitCurrentGuildDungeonEntryFatigue(ctx, session, runtime, scene, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
 		if err := s.consumeCurrentHellPartyGroupEntry(ctx, session, runtime, preparedFollowers); err != nil {
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
@@ -855,6 +858,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 		if err := s.enterRuntimePartyFollowers(session, body, preparedFollowers, partyStateAtRequest); err != nil {
 			return err
 		}
+	}
+	if err := s.activateAttendanceMarbleAfterEntry(session, runtime); err != nil {
+		return err
 	}
 	s.leaveTownPresenceForDungeon(session)
 	s.recordCurrentLukeScene(session, runtime, "enter")
