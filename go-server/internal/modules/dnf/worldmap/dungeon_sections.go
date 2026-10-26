@@ -31,6 +31,7 @@ var dungeonIntegerSections = stringSet(
 	"tournament round fatigue", "tournament clear reward gold rate", "monster random appear only",
 	"remain monster count visible",
 	"hell party required item count",
+	"agit war dungeon",
 )
 
 var dungeonNumberSections = stringSet("kill count const", "move speed")
@@ -46,6 +47,7 @@ var dungeonFlagSections = stringSet(
 	"remove dungeon score and rank", "no revival timer limit", "multi start point",
 	"ignore default dungeon clear",
 	"inferno dungeon",
+	"friendly agit dungeon",
 )
 
 var dungeonTextSections = stringSet(

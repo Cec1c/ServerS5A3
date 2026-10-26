@@ -89,6 +89,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
+		if !hasScene {
+			return nil
+		}
+		return s.handleCurrentGuildPracticeDeathLocked(session, runtime, scene, request)
+	}
 	if hasScene {
 		if handled, err := s.handleCurrentMissionInformerRetirementLocked(session, runtime, scene, request); handled || err != nil {
 			return err
