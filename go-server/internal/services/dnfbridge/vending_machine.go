@@ -175,7 +175,7 @@ func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte)
 	}
 	stack.Extra["source"] = "black_diamond_vending"
 	reward := dungeon.CardItemReward{Stack: stack, Stackable: definition.Kind == dungeonDropItemStackable, SlotStart: definition.SlotStart, SlotEnd: definition.SlotEnd, ExpireAt: definition.ExpirationDate}
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	reward.AllowQuickSlots, reward.PreferQuickSlots, reward.StackLimit = policy.AllowQuickSlots, policy.PreferQuickSlots, definition.StackLimit
 	if !reward.Stackable && reward.Stack.Count != 1 {
 		return refuse(fmt.Errorf("non-stackable vending count unsupported"))

@@ -72,7 +72,7 @@ func assertPVPReturnTown(t *testing.T, table *dnftown.Table) {
 			ctx := context.Background()
 			c, _, _ := repos.Character.Load(ctx, "29")
 			origin := currentReconnectLocationSnapshot(c)
-			originArea, found := s.townArea(origin.townID, origin.areaID)
+			_, found := s.townArea(origin.townID, origin.areaID)
 			if !found {
 				t.Fatal("入场原位地图缺失")
 			}
@@ -111,11 +111,11 @@ func assertPVPReturnTown(t *testing.T, table *dnftown.Table) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if currentReconnectLocationSnapshot(stored) != origin {
-				t.Fatalf("未恢复入场前原位: %+v", stored.Stats)
+			if stored.Stats["town_id"] != 38 || stored.Stats["area_id"] != 1 {
+				t.Fatalf("退场未进入原城镇的赛丽亚房间: %+v", stored.Stats)
 			}
-			if _, exists := stored.Stats[currentTownPrevVillageTownStat]; exists {
-				t.Fatal("旧决斗出口原点未清除")
+			if stored.Stats[currentTownPrevVillageTownStat] != origin.townID || stored.Stats[currentTownPrevVillageAreaStat] != origin.areaID {
+				t.Fatal("没有以普通城镇来源替换旧决斗出口")
 			}
 			if stored.Stats["gold"] != 12345 {
 				t.Fatal("退场修改玩家金币")
@@ -126,7 +126,7 @@ func assertPVPReturnTown(t *testing.T, table *dnftown.Table) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want, err := buildCurrentSceneTransitionBody(byte(origin.townID), byte(origin.areaID), []currentSceneTransitionRow{row})
+			want, err := buildCurrentSceneTransitionBody(byte(stored.Stats["town_id"]), byte(stored.Stats["area_id"]), []currentSceneTransitionRow{row})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,10 +146,15 @@ func assertPVPReturnTown(t *testing.T, table *dnftown.Table) {
 			if err != nil || questFound != afterFound || !reflect.DeepEqual(questBefore, questAfter) {
 				t.Fatal("退场更改任务数据")
 			}
-			// 再切一次普通频道，保存位置和下发位置保持一致。
-			_, gotTown, gotArea, _, gotPath, err := s.currentChannelReconnectTownTransition(ctx, session, 29, stored)
-			if err != nil || int64(gotTown) != origin.townID || int64(gotArea) != origin.areaID || gotPath != originArea.MapPath {
-				t.Fatalf("二次切换回到决斗场: %d/%d %s %v", gotTown, gotArea, gotPath, err)
+			// 决斗退场及后续普通换线共用房间规则，房门来源不得被共用地图覆盖。
+			projected, gotTown, gotArea, _, gotPath, err := s.currentChannelReconnectTownTransition(ctx, session, 29, stored)
+			if err != nil || gotTown != 38 || gotArea != 1 || !townMapPathLooksLikeSeria(gotPath) {
+				t.Fatalf("二次普通换线未进入赛丽亚房间: %d/%d %s %v", gotTown, gotArea, gotPath, err)
+			}
+			room, _, err := repos.Character.Load(ctx, "29")
+			if err != nil || currentReconnectLocationSnapshot(room) != currentReconnectLocationSnapshot(projected) ||
+				room.Stats[currentTownPrevVillageTownStat] != origin.townID || room.Stats[currentTownPrevVillageAreaStat] != origin.areaID {
+				t.Fatalf("二次普通换线没有同步落点或房门来源：%v %v", room.Stats, err)
 			}
 		})
 	}
@@ -201,7 +206,7 @@ func TestPVPReturnTownRequiresPVFAndTransaction(t *testing.T) {
 			if dependency == "PVF" {
 				s.townCatalog = nil
 			} else {
-				repos.CharacterSettlement = nil
+				repos.CharacterAssets = nil
 				s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
 			}
 			session.channelReconnect, session.selectedCharacterID = true, 29

@@ -13,15 +13,14 @@ import (
 
 // This regression covers the gap between an explicit cross-scene inspection
 // and an automatic roster/wear profile refresh. The explicit sender adds
-// nativePeerBuffInspectKey, so mode3 carries only the selected Buff skill's
-// learned base level. Automatic refresh must use the same context: both
-// mode8 packets target the same auxiliary cache, so a later refresh must
-// not replace the selected Buff skill with an empty or full skill page.
+// nativePeerProfileSkillsKey, so mode3 carries every learned level needed for
+// equipment and mastery calculation. Automatic refresh must use the same
+// context and must not replace the inspected skill page with Buff-only data.
 //
 // The fixture uses a real enabled Buff registration with one registered item,
 // one unrelated private bag item, and one unrelated learned skill. A correct
-// automatic refresh must retain exactly skill 38 at base Lv10 in both pages,
-// exclude skill 99, and keep the skill-page tail byte-identical to the
+// automatic refresh must retain skill 38 at base Lv10 and skill 99 at Lv9,
+// and keep the skill-page tail byte-identical to the
 // explicit mode3 record.
 
 const (
@@ -31,7 +30,7 @@ const (
 	crossSceneBuffMode3TailCreateCountOffset = crossSceneBuffMode3TailExtraSlotOffset + 1
 	crossSceneBuffMode3TailCreateRowsOffset  = crossSceneBuffMode3TailCreateCountOffset + 1
 	crossSceneBuffMode3TailSkillPageOffset   = crossSceneBuffMode3TailCreateRowsOffset + 4 + 4 + 4
-	crossSceneBuffMode3TailSkillPageBytes    = 9
+	crossSceneBuffMode3TailSkillPageBytes    = 15
 )
 
 func newCrossSceneBuffRegressionFixture(t *testing.T) (*currentCrossSceneProfileBatchFixture, dnfrepo.Group) {
@@ -161,8 +160,8 @@ func TestCrossSceneBuffAutomaticMode8MatchesExplicitSelectedSkill(t *testing.T) 
 
 			wantPage := []byte{
 				peerSkillPageSelectedResourceGroup,
-				1, 38, 0, 10,
-				1, 38, 0, 10,
+				2, 38, 0, 10, 99, 0, 9,
+				2, 38, 0, 10, 99, 0, 9,
 			}
 			privateItemBytes := []byte{0xb1, 0x68, 0xde, 0x3a} // 987654321
 
@@ -181,7 +180,7 @@ func TestCrossSceneBuffAutomaticMode8MatchesExplicitSelectedSkill(t *testing.T) 
 			explicitMode3 := crossSceneBuffMode3Tail(t, explicitBody, len(explicitMode0))
 			explicitPage := crossSceneBuffMode3SkillPage(t, explicitBody, len(explicitMode0))
 			if !bytes.Equal(explicitPage, wantPage) {
-				t.Fatalf("explicit mode8 mode3 page=%x, want selected Buff skill only %x", explicitPage, wantPage)
+				t.Fatalf("explicit mode8 mode3 page=%x, want complete learned page %x", explicitPage, wantPage)
 			}
 			if bytes.Contains(explicitBody, privateItemBytes) {
 				t.Fatal("explicit mode8 leaked the unregistered private bag item")
@@ -216,7 +215,7 @@ func TestCrossSceneBuffAutomaticMode8MatchesExplicitSelectedSkill(t *testing.T) 
 			automaticMode3 := crossSceneBuffMode3Tail(t, automaticBody, len(automaticMode0))
 			automaticPage := crossSceneBuffMode3SkillPage(t, automaticBody, len(automaticMode0))
 			if !bytes.Equal(automaticPage, wantPage) {
-				t.Fatalf("automatic mode8 mode3 page=%x, want selected Buff skill only %x; this refresh would replace the explicit inspection cache", automaticPage, wantPage)
+				t.Fatalf("automatic mode8 mode3 page=%x, want complete learned page %x; this refresh would replace the explicit inspection cache", automaticPage, wantPage)
 			}
 			if bytes.Contains(automaticBody, privateItemBytes) {
 				t.Fatal("automatic mode8 leaked the unregistered private bag item")
