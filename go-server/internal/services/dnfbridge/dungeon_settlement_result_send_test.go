@@ -143,7 +143,7 @@ func TestCurrentDungeonSettlementPlanRejectsOwnerRankAndZeroRewardMismatch(t *te
 	}
 	reward := currentDungeonClearRewardSnapshot{
 		CharacterID: 99, CompletionKey: "test-run", Source: "committed_test", Committed: true,
-		Base: [4]uint32{100}, Tail: currentDungeonClearRewardTail{ShowResult: true},
+		Base: [4]uint32{100}, Tail: currentDungeonClearRewardTail{PaidCardDoubleEvent: false},
 	}
 
 	wrongOwner := reward
@@ -185,7 +185,7 @@ func currentDungeonSettlementPacketPlanForTest(
 	}
 	reward := currentDungeonClearRewardSnapshot{
 		CharacterID: 99, CompletionKey: completionKey, Source: "committed_test_reward", Committed: true,
-		Base: [4]uint32{100}, Tail: currentDungeonClearRewardTail{ShowResult: true},
+		Base: [4]uint32{100}, Tail: currentDungeonClearRewardTail{PaidCardDoubleEvent: false},
 	}
 	plan, err := buildCurrentDungeonSettlementPacketPlan(
 		clientRankPoint,

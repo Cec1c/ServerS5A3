@@ -148,7 +148,7 @@ func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner b
 		if repos, ok := s.repositoryGroupFor(b.ctx); ok {
 			legacyRepo = repos.LegacyUserInfo
 		}
-		detailCtx := b.ctx
+		detailCtx := context.WithValue(b.ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(actorID)))
 		if buffSwapReapplyEnabled() {
 			detailCtx = context.WithValue(detailCtx, nativePeerBuffInspectKey{}, strconv.Itoa(int(actorID)))
 		}

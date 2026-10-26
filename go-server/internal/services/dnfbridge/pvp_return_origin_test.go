@@ -54,8 +54,10 @@ func TestPVPReturnOriginFreezesLatestPositionAndSurvivesPVPTransfer(t *testing.T
 			t.Fatal(err)
 		}
 		returned, err = s.commitCurrentReconnectLocation(ctx, 29, returned)
-		if err != nil || currentReconnectLocationSnapshot(returned) != origin {
-			t.Fatalf("返城未恢复原位: %+v %v", returned.Stats, err)
+		if err != nil || returned.Stats["town_id"] != 38 || returned.Stats["area_id"] != 1 ||
+			returned.Stats[currentTownPrevVillageTownStat] != origin.townID || returned.Stats[currentTownPrevVillageAreaStat] != origin.areaID ||
+			returned.Stats[currentTownPrevVillagePosXStat] != origin.positionX || returned.Stats[currentTownPrevVillagePosYStat] != origin.positionY {
+			t.Fatalf("返城未进入原城镇房间或丢失最终来源坐标: %+v %v", returned.Stats, err)
 		}
 		if returned.Stats[currentPVPReturnOriginMarker] != 0 {
 			t.Fatal("退场后残留旧原位")
