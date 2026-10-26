@@ -56,6 +56,8 @@ type Service struct {
 	guildMerchantPurchaseCatalog *dnfguild.MerchantPurchaseCatalog // guarded by guildDungeonCatalogMu
 	guildCreateMu                sync.Mutex
 	guildTeleportMu              sync.Mutex
+	channelHandoffMu             sync.Mutex
+	channelHandoffs              map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
@@ -167,6 +169,8 @@ type Service struct {
 	dungeonRuleSource       initialEquipmentTextSource
 	weeklyCatalogMu         sync.Mutex
 	weeklyCatalog           *onlineevent.WeeklyCatalog
+	attendanceMarbleMu      sync.Mutex
+	attendanceMarbleCatalog *attendanceMarbleCatalog
 	monthlyCatalogMu        sync.Mutex
 	monthlyCatalog          *onlineevent.MonthlyCatalog
 	pvfItemCatalogMu        sync.Mutex

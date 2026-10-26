@@ -735,7 +735,7 @@ func currentDungeonPickupPlacement(
 		definition.ExpirationDate = itemexpiration.NextDailyDeleteAt(time.Now().UTC())
 	}
 	kind := dnfdungeon.PickupItemKind(definition.Kind)
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	placement := dnfdungeon.PickupItemPlacement{
 		Definition: dnfdungeon.PickupItemDefinition{
 			ItemID:          definition.ItemID,

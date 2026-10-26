@@ -69,6 +69,8 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		return true, nil
 	}
 
+	viewerBound, _ := s.boundGameSessionCharacterSnapshot(session)
+	actorBound, _ := s.boundGameSessionCharacterSnapshot(targetSession)
 	loadedID, charName, character, found := s.characterForEnter(ctx, targetSession, targetID)
 	if !found || loadedID != targetID {
 		s.logGameEvent(session, "game-peer-userinfo-request-rejected",
@@ -123,6 +125,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 				"body_len", len(identityBody))
 		}
 	}
+	ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(targetID)))
 	if buffSwapReapplyEnabled() {
 		ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, strconv.Itoa(int(targetID)))
 	}
@@ -160,10 +163,14 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		// 打开后记下这份 body 的 hex，用于对比"t3 闪退侧(1028B) vs 正常侧(2098B)"缺了哪一段。
 		"body_hex", peerUserInfoBodyHexForLog(response),
 		"body_source", "current_exe_mode3_peer_userinfo")
-	return true, s.sendGameUpperRawClass(
+	err := s.sendGameUpperRawClass(
 		session,
 		uint16(dnfenum.CmdPacketSetUDPIPPort),
 		response,
 		0,
 	)
+	if err == nil {
+		s.rememberCurrentPeerProfile(viewerBound, actorBound, ownerContext)
+	}
+	return true, err
 }
