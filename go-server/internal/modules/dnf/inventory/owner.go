@@ -111,8 +111,8 @@ const (
 // Owner 是背包资产的 durable owner 边界。
 // 当前只改 repository 状态；旧客户端 ACK/刷新顺序必须在 EXE 证据闭合后再开放。
 type Owner struct {
-	cardSettings  dnfrepo.SettingsRepository
 	settings      dnfrepo.SettingsRepository
+	cardSettings  dnfrepo.SettingsRepository
 	repo          dnfrepo.InventoryRepository
 	accountRepo   dnfrepo.AccountInventoryRepository
 	accounts      dnfrepo.AccountRepository
@@ -352,8 +352,8 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 		return nil, ErrOwnerUnavailable
 	}
 	return &Owner{
-		cardSettings:  repos.Settings,
 		settings:      repos.Settings,
+		cardSettings:  repos.Settings,
 		repo:          repos.Inventory,
 		accountRepo:   repos.AccountInventory,
 		accounts:      repos.Account,
@@ -3848,12 +3848,16 @@ func (o *Owner) UpgradeTicket(ctx context.Context, cmd Command, resolver aligned
 	if resolution.PortableMode != "" {
 		result.TicketResolved = false
 		result.Portable = &alignedcmd.UpgradePortableConsumable{
-			ItemID:       material.ItemID,
-			Mode:         resolution.PortableMode,
-			LevelMin:     resolution.PortableLevelMin,
-			LevelMax:     resolution.PortableLevelMax,
-			SuccessBonus: resolution.PortableSuccessBonus,
-			PVFPath:      resolution.TicketPVFPath,
+			ItemID:             material.ItemID,
+			Mode:               resolution.PortableMode,
+			LevelMin:           resolution.PortableLevelMin,
+			LevelMax:           resolution.PortableLevelMax,
+			SuccessBonus:       resolution.PortableSuccessBonus,
+			PVFPath:            resolution.TicketPVFPath,
+			UsableItemLevelSet: resolution.MaterialUsableItemLevelSet,
+			UsableItemLevelMin: resolution.MaterialUsableItemLevelMin,
+			UsableItemLevelMax: resolution.MaterialUsableItemLevelMax,
+			TargetMinimumLevel: resolution.TargetMinimumLevel,
 		}
 		return result, nil
 	}

@@ -79,14 +79,14 @@ func TestRaidStartSafetyRegressions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"non_leader", "repeated_start", "commit_failure", "late_member_failure", "read_failure", "oversized_group", "rule_failure", "wrong_account", "missing_group_transaction", "duplicate_member", "normal_mode_minimum", "concurrent_start", "valid_team", "normal_team", "normal_late_member_failure"} {
+	for _, name := range []string{"non_leader", "repeated_start", "commit_failure", "late_member_failure", "read_failure", "oversized_group", "unassigned_groups", "rule_failure", "wrong_account", "missing_group_transaction", "duplicate_member", "normal_mode_minimum", "concurrent_start", "valid_team", "normal_team", "normal_late_member_failure"} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv(raidStartEntryCostGuardEnv, "enforce")
 			n := 1
 			if name == "non_leader" || name == "late_member_failure" || name == "valid_team" {
 				n = 2
 			}
-			if name == "oversized_group" {
+			if name == "oversized_group" || name == "unassigned_groups" {
 				n = 5
 			}
 			if name == "normal_team" || name == "normal_late_member_failure" {
@@ -102,6 +102,13 @@ func TestRaidStartSafetyRegressions(t *testing.T) {
 				}
 			}
 			switch name {
+			case "oversized_group":
+				// An explicit five-member group exceeds capacity. Zero means
+				// unassigned and is legitimately distributed into groups of four.
+				for i := range f.state.Members {
+					f.state.Members[i].GroupIndex = 1
+					f.state.Members[i].SlotOrder = byte(i)
+				}
 			case "normal_mode_minimum":
 				f.state.TailFlag = 0
 			case "non_leader":
@@ -157,12 +164,27 @@ func TestRaidStartSafetyRegressions(t *testing.T) {
 			}
 			want := int64(3)
 			wantStarts := 0
-			if name == "valid_team" || name == "normal_team" || name == "repeated_start" || name == "concurrent_start" {
+			if name == "valid_team" || name == "normal_team" || name == "repeated_start" || name == "concurrent_start" || name == "unassigned_groups" {
 				want = 2
 				wantStarts = 1
 			}
 			if successes != wantStarts || f.state.Started != (wantStarts == 1) {
 				t.Fatalf("starts=%d Started=%v want=%d", successes, f.state.Started, wantStarts)
+			}
+			if name == "unassigned_groups" {
+				groups := make(map[byte]int)
+				positions := make(map[[2]byte]bool)
+				for _, member := range f.state.Members {
+					position := [2]byte{member.GroupIndex, member.SlotOrder}
+					if member.GroupIndex < 1 || member.GroupIndex > 2 || int(member.SlotOrder) >= runtimeRaidGroupSize || positions[position] {
+						t.Fatalf("member=%d group=%d slot=%d: invalid automatic placement", member.CharID, member.GroupIndex, member.SlotOrder)
+					}
+					positions[position] = true
+					groups[member.GroupIndex]++
+				}
+				if groups[1] != 4 || groups[2] != 1 {
+					t.Fatalf("automatic placement=%v: want 4+1", groups)
+				}
 			}
 			for _, member := range f.state.Members {
 				// The read-failure wrapper is intentionally only the preflight reader.

@@ -13,6 +13,47 @@ type ExperienceResult struct {
 	NewExperience      uint32
 	LevelsGained       int
 	Saturated          bool
+	maximumLevelCap    *maximumLevelExperienceCap
+}
+
+// maximumLevelExperienceCap is minted only by the loaded PVF tables. It is
+// carried into the commit plan to authorize an exact at-cap normalization,
+// while ordinary cumulative-experience regressions remain invalid.
+type maximumLevelExperienceCap struct {
+	level           int
+	entryExperience uint32
+}
+
+// LimitCharacterExperienceAtCap bounds the character's cumulative EXP once
+// the caller-proven playable cap is reached. Raw Gain and PreviousExperience
+// remain intact for HonorExpert accounting and optimistic version checks.
+// A short legacy ledger is never inflated to the level-entry threshold.
+func (t *Tables) LimitCharacterExperienceAtCap(result ExperienceResult, maximumLevel int) (ExperienceResult, error) {
+	if t == nil || maximumLevel <= 0 || result.PreviousLevel <= 0 || result.PreviousLevel > maximumLevel || result.NewLevel < result.PreviousLevel || result.NewLevel > maximumLevel {
+		return ExperienceResult{}, ErrLevelOutOfRange
+	}
+	result.maximumLevelCap = nil
+	if result.NewLevel != maximumLevel || result.Gain == 0 {
+		return result, nil
+	}
+	var entry uint32
+	if maximumLevel > 1 {
+		var err error
+		entry, err = t.ThresholdToNext(maximumLevel - 1)
+		if err != nil {
+			return ExperienceResult{}, err
+		}
+	}
+	if result.NewExperience > entry {
+		result.NewExperience = entry
+	}
+	result.maximumLevelCap = &maximumLevelExperienceCap{level: maximumLevel, entryExperience: entry}
+	return result, nil
+}
+
+func (cap *maximumLevelExperienceCap) permitsNormalization(expected, next CommitState) bool {
+	return cap != nil && cap.level > 0 && expected.Level == cap.level && next.Level == cap.level &&
+		expected.Experience > cap.entryExperience && next.Experience == cap.entryExperience
 }
 
 // ThresholdToNext returns the cumulative experience required to advance from
@@ -26,7 +67,9 @@ func (t *Tables) ThresholdToNext(level int) (uint32, error) {
 }
 
 // ApplyExperience saturating-adds a current-EXE u32 experience gain and applies
-// cumulative PVF thresholds up to maxLevel. It does not persist or emit an op37.
+// cumulative PVF thresholds up to maxLevel. At that playable cap only the
+// character ledger is bounded; Gain remains available to the HonorExpert owner.
+// It does not persist or emit an op37.
 func (t *Tables) ApplyExperience(level int, totalExperience, gain uint32, maxLevel int) (ExperienceResult, error) {
 	result := ExperienceResult{
 		PreviousLevel:      level,
@@ -52,7 +95,7 @@ func (t *Tables) ApplyExperience(level int, totalExperience, gain uint32, maxLev
 		result.NewLevel++
 	}
 	result.LevelsGained = result.NewLevel - result.PreviousLevel
-	return result, nil
+	return t.LimitCharacterExperienceAtCap(result, maxLevel)
 }
 
 func thresholdCount(t *Tables) int {

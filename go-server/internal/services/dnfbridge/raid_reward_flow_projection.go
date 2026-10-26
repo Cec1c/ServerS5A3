@@ -133,10 +133,8 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	if !f.FinishedAt.IsZero() {
 		if f.Mode != 3 && !f.Single && f.Phase == 0 {
 			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{5, 0}}, currentAntonRewardPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, uint32(f.BreakUntil.Unix()), currentRaidNativeDuration(f.Mode, f.BreakUntil, f.Configuration.PhaseBreakSeconds, time.Now()))})
-		} else if !lukeFinal {
-			packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		}
-		// Final Luke completion keeps the committed reward screen above.
+		// Final/single completion keeps the committed reward screen above.
 		// Re-entering state4 after NOTI600 restarts that same screen when the
 		// first projection arrives after the display window has already ended.
 	}
@@ -257,6 +255,14 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			if owner != nil && f.SquadShownAt.IsZero() {
 				s.markCurrentRaidPartySelectionShownLocked(b.InstanceID, b.Phase, owner.CharacterID, time.Now())
 			}
+			s.raidMu.Unlock()
+			break
+		}
+	}
+	for _, packet := range packets {
+		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
+			s.raidMu.Lock()
+			s.markCurrentAntonPartyShownLocked(b.InstanceID, b.Phase, time.Now())
 			s.raidMu.Unlock()
 			break
 		}

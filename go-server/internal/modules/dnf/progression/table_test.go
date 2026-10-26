@@ -81,7 +81,9 @@ func TestApplyExperienceSaturatesCurrentEXEU32(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.NewExperience != math.MaxUint32 || result.NewLevel != 5 || !result.Saturated {
+	// Arithmetic still saturates before the proven cap is applied. The raw
+	// gain remains intact, while character EXP cannot cross the cap entry.
+	if result.NewExperience != 900 || result.NewLevel != 5 || !result.Saturated || result.Gain != 10 {
 		t.Fatalf("result = %+v", result)
 	}
 }

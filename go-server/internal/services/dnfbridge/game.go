@@ -199,6 +199,19 @@ type gameSession struct {
 	// 这两个迁移；它们会开事务并读整份背包，不能每次重建主背包都跑。
 	itemListMigrationsDone        bool
 	enterSelectDungeonContextSent bool
+	// partyDungeonEntryRoutedPendingCharacter 记录"这名角色的 op16 已经被回 ACK、正在等
+	// 队长那条整队进图流程给出结果"（0 = 没有在等）。文档段 104：那条流程在提交之前被
+	// 拒绝时，必须把本挂起态解掉并补一条既有形状的拒绝包，否则队员客户端只看到倒计时。
+	// 只在 session.dungeon.mu 下读写，见 party_entry_refusal_before_commit.go。
+	partyDungeonEntryRoutedPendingCharacter uint16
+	// partyDungeonEntryRoutedPendingGeneration 是写入挂起态时的会话 generation（取自
+	// boundGameSessionCharacterSnapshot，在 s.mu 下读；换角会让 generation 前进一步）。
+	// partyDungeonEntryRoutedPendingSeq 是每次绑定都递增的请求序号：队长那条流程只应答
+	// "自己那次请求"（角色号 + generation + seq 三者都匹配），因此同角色连续两次按进图时，
+	// 旧那条流程的拒绝不会吞掉新那条请求的挂起态。三者都只在 session.dungeon.mu 下读写，
+	// 见 party_entry_refusal_before_commit.go。
+	partyDungeonEntryRoutedPendingGeneration uint64
+	partyDungeonEntryRoutedPendingSeq        uint64
 	// hellBlocked 是「深渊派对准入逐槽位判定」的会话缓存：只在
 	// `DNFBRIDGE_HELL_BLOCKED_SLOTS=on` 档有内容，blocked 槽位随下一条 class0/op27
 	// 进本选择页下发（`List0`）。默认档恒为零值 ⇒ 下发体逐字节等于今天。
@@ -338,7 +351,7 @@ type gameSession struct {
 	dungeonPartyRunMu    sync.Mutex
 	dungeonPartyRun      dungeonPartyRunKey
 	dungeonPartyRunValid bool
-	dungeonPeerProjected map[uint16]bool
+	dungeonPeerProjected map[uint16]boundGameSessionCharacter
 	// dungeonOwnerOverrideLogged 是 DNFBRIDGE_PARTY_DUNGEON_OWNER_MODE=channel 时
 	// "owner 覆盖"单次日志的去重集合（键 = 队友 actor object_key）。与 dungeonPartyRun
 	// 共用 dungeonPartyRunMu，换场时一起清空；默认 zero 时始终为空。

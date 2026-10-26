@@ -58,8 +58,21 @@ func validateLukeAlias(id int64, alias lukeAlias, doc *dnfpvf.Document) error {
 	if !m.DungeonID.Set || m.DungeonID.Value != alias.originalOwner {
 		return fmt.Errorf("Luke map %d original owner mismatch", id)
 	}
-	if !m.PathgateRecognizeRange.Set || len(doc.Ints("pathgate recognize range")) != 8 || len(m.PathgatePositions) != 4 {
-		return fmt.Errorf("Luke map %d native door metadata missing", id)
+	if len(m.PathgatePositions) != 4 {
+		return fmt.Errorf("Luke map %d requires four pathgate positions", id)
+	}
+	// Native initialization and rectangle construction supply defaults when
+	// the range section is absent. An explicit section must still be intact;
+	// Ints alone would silently discard non-integer tokens.
+	if values, present := doc.Section("pathgate recognize range"); present {
+		if len(values) != 8 {
+			return fmt.Errorf("Luke map %d explicit pathgate range requires eight integers", id)
+		}
+		for _, value := range values {
+			if value.Kind != dnfpvf.TokenInt {
+				return fmt.Errorf("Luke map %d explicit pathgate range requires eight integers", id)
+			}
+		}
 	}
 	if alias.room == 1 && (len(doc.Ints("dungeon start area")) != 4 || !strings.Contains(m.Greed, "BB")) {
 		return fmt.Errorf("Luke map %d start role mismatch", id)

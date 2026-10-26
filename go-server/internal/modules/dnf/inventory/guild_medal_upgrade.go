@@ -33,7 +33,7 @@ func handleGuildMedalUpgrade(ctx context.Context, req alignedcmd.Request) aligne
 	normalized := append([]byte(nil), b...)
 	normalized[1] = 0
 	parsed, err := DecodeUpgradeItemRequest(normalized)
-	if err != nil || parsed.TargetSlotIndex < 0 || parsed.TargetSlotIndex > 48 || parsed.MaterialSlotIndex < 121 || parsed.MaterialSlotIndex > 176 || parsed.TargetItemTemplateID <= 0 {
+	if err != nil || parsed.TargetSlotIndex < 0 || parsed.TargetSlotIndex > 48 || parsed.MaterialSlotIndex < 121 || parsed.MaterialSlotIndex > 232 || parsed.TargetItemTemplateID <= 0 {
 		return reject(upgradeErrorInvalidTarget, "flag endpoint invalid")
 	}
 	cmd := NewUpgradeCommand(req, parsed)
@@ -116,6 +116,14 @@ func (o *Owner) upgradeGuildMedal(ctx context.Context, cmd Command, resolve alig
 		return result, err
 	}
 	if policy.MaterialID <= 0 || policy.MaterialCount <= 0 || policy.SuccessWeight < 0 || policy.SuccessWeight > 100000 || policy.PenaltyType < 0 || policy.PenaltyType > 2 || policy.PenaltyValue < 0 || old >= 31 {
+		return result, nil
+	}
+	// The NPC sender writes an absolute main-bag index. Certificates are
+	// quest items (177..232), not ordinary material-page items (121..176).
+	// Accept only the page resolved from the authoritative material policy.
+	validPage := (policy.MaterialSlotStart == 121 && policy.MaterialSlotEnd == 176) ||
+		(policy.MaterialSlotStart == 177 && policy.MaterialSlotEnd == 232)
+	if !validPage || cmd.MaterialSlotIndex < policy.MaterialSlotStart || cmd.MaterialSlotIndex > policy.MaterialSlotEnd {
 		return result, nil
 	}
 	materialKey := slotKey(0, cmd.MaterialSlotIndex)

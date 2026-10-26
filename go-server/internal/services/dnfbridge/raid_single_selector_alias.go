@@ -35,6 +35,9 @@ func currentRaidDungeonProjectionBody(b *runtimeRaidBattle, infection uint32) ([
 	if b == nil {
 		return nil, fmt.Errorf("raid map projection owner unavailable")
 	}
+	if b.Single && b.Mode == 2 {
+		return currentSingleLukeDungeonProjectionBody(b, infection)
+	}
 	if !b.Single || b.Mode != 1 {
 		return raid.BuildDungeonStateBody(b.Dungeons, infection)
 	}
