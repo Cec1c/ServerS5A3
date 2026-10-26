@@ -434,7 +434,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			// 旧标志 1 保留静默窗（默认 400 ms）；可靠的当前 UI 标志 2 立即执行。
 			// 这样一串被误打标的自动突发最多只执行**第一条**（最坏 1 件，而不是 5 件）。
 			// 挂起由读循环用临时读截止结算，见 equip_player_flag_quiet_window.go。
-			if window := op19PlayerFlagQuietWindow(); !currentUIPlayerRequest && window > 0 &&
+			if window := op19PlayerFlagQuietWindow(); !currentUIPlayerRequest && !op19MainBagMove(body) && window > 0 &&
 				!session.op19QuietResolving && !session.hasOp19QuietPending() {
 				session.pendOp19QuietBody(body)
 				s.logPacketEvent("equip-move/player-request-flag",
@@ -1384,6 +1384,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshCrystalContractState:
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		return s.sendCurrentCrystalContractState(session, "aligned_"+operation+"_after_type97_activation")
 	case alignedcmd.PostActionRefreshFatigueState:
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)

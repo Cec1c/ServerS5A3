@@ -21,8 +21,8 @@ import (
 // 街道、后巷、酒馆或 `[dungeon gate]`，没有任何 seria 房间；个别活动镇
 // （107/110/111 等）虽然文本里出现 "seriaroom"（`[show cutscene seriaroom out]`）
 // 或 dream_seria_room 地图，但不是常住城镇的赛丽亚房间。
-// 因此"该城镇没有赛丽亚房间"是**正常结果**而不是异常：调用方按既有口径回落 38/1，
-// 并把原因写进 fallback_reason。
+// 因此本文件只识别物理房间区域，不据此判断房间所属城镇。普通登录还会查街道地图
+// 的真实房门（initial_town_linked_seria.go）；共用38/1时仍保留来源城镇的房门及世界上下文。
 
 // currentTownSeriaRoomArea 返回该城镇的赛丽亚房间区域。
 //

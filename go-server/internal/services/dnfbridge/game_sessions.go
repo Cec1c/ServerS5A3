@@ -41,6 +41,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	defer session.dungeon.mu.Unlock()
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
 		s.cancelCurrentDungeonDeathReturnLocked(session, session.dungeon.runtime, "selected_character_changed")
+		s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "selected_character_changed")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, session.dungeon.runtime, "selected_character_changed")
 		s.cancelCurrentTournamentRewardAutoSelectTimerLocked(session, session.dungeon.runtime, "selected_character_changed")
 	}
@@ -205,6 +206,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	s.cancelCurrentDungeonDeathReturn(session, "game_session_unbound_or_disconnected")
 	session.dungeon.mu.Lock()
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, session.dungeon.runtime, "game_session_unbound_or_disconnected")
+	s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "game_session_unbound_or_disconnected")
 	s.cancelCurrentTournamentRewardAutoSelectTimerLocked(session, session.dungeon.runtime, "game_session_unbound_or_disconnected")
 	session.dungeon.mu.Unlock()
 	s.stopCurrentPetGrowthClock(session, "game_session_unbound_or_disconnected")

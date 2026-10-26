@@ -13,6 +13,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	premiumGameplayModule(),
 	experienceItemGameplayModule(),
 	levelUpTicketGameplayModule(),
+	professionChangeGameplayModule(),
 	inventoryGameplayModule(),
 	skillGameplayModule(),
 	equipmentDisjointGameplayModule(),
@@ -56,5 +57,6 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	collectboxGameplayModule(),
 	chronicleRefineGameplayModule(),
 	webViewerGameplayModule(),
+	attendanceMarbleGameplayModule(),
 	fiendWarGameplayModule(),
 )
