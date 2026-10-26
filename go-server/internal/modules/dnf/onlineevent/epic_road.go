@@ -13,8 +13,9 @@ import (
 const EpicPVFPath = "event/hellpartydungeonevent.evt"
 
 type EpicCatalog struct {
-	Thresholds [3]uint32
-	Rewards    [3]AttendancePVFItemReward
+	Thresholds        [3]uint32
+	Rewards           [3]AttendancePVFItemReward
+	EntryAlternatives map[int64][][]AttendancePVFItemReward
 }
 
 func LoadEpicCatalog(ctx context.Context, source pvf.Source) (*EpicCatalog, error) {
@@ -49,7 +50,17 @@ func LoadEpicCatalog(ctx context.Context, source pvf.Source) (*EpicCatalog, erro
 	if !ok || len(tokens) != 15 {
 		return nil, fmt.Errorf("epic reward tuple count")
 	}
-	c := &EpicCatalog{}
+	c := &EpicCatalog{EntryAlternatives: make(map[int64][][]AttendancePVFItemReward)}
+	for i := 0; i < len(required); i += 6 {
+		var items []AttendancePVFItemReward
+		for j := 2; j < 6; j += 2 {
+			if required[i+j+1] > 0 {
+				items = append(items, AttendancePVFItemReward{ItemID: required[i+j], Count: required[i+j+1]})
+			}
+		}
+		id := required[i+1]
+		c.EntryAlternatives[id] = append(c.EntryAlternatives[id], items)
+	}
 	for i := 0; i < 3; i++ {
 		row := tokens[i*5 : i*5+5]
 		for j := 0; j < 3; j++ {
