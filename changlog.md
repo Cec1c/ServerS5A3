@@ -1,3 +1,8 @@
+## 2026-10-26 — 升级券与任务手册分支同步 master 并保留后续修复
+
+- 以普通合并整合 master ad4c3062，保留当前 MR 的任务绑定、提交后投影与回归提交；双方更新日志并存，不改写公开历史。
+- 本轮仅日志发生文本冲突；业务代码与上游自动合流后重新执行专项、公共模块及独立交叉验证。验证结果以本轮报告为准，不代替原生客户端验收；不部署正式服务器。
+
 ## 2026-10-26 — 二次觉醒完成券分支同步 master 并保留后续修复
 
 - 以普通合并整合 master ad4c3062，保留当前 MR 的任务绑定、提交后投影与回归提交；双方更新日志并存，不改写公开历史。
@@ -272,6 +277,18 @@
 - 接通两类商人的真实 PVF 商品购买和逐级升级；精气、背包/等级及永久回执同事务提交，固定每日到期时间，失败回包解除等待，重试不重复扣费或发放。
 - 持久等级投影到 778/1297 与同会刷新；匹配 V174 客户端恢复升级两项接收门控并初始化发送前缀，保留原累计功能。
 - 覆盖 20 间真实商店、132 种商品和 137 次购买，协议、原生发送/消费、并发及隔离 SQL 回滚；方案与发布依赖见 Docs/seeker/GUILD_WAR_MERCHANTS.md。
+
+## 2026-10-25 — 任务手册两条入口的账号与角色绑定
+
+- 旧1429及当前1427预检/1454提交共同核对账号、角色代际和资产预约；事务中复核等级、职业与成长阶段，并在同一事务校验写入和返回提交快照。提交完成后先释放预约再刷新界面，过期会话不修改任务或发送旧角色结果。补充两入口等待后换代拒绝、预约释放及事务校验回滚测试。
+- 独立候选验证另行记录，尚待游戏验收。
+
+## 2026-10-24 — Preserve story choices and ticket continuation
+
+- Share predecessor, mutually exclusive route and explicit Question checks across level-up tickets and quest manuals. Preserve damaged historical choices instead of inventing an answer.
+- Persist versioned continuation authorization in the existing character transaction; resume after normal Question completion without another coupon or duplicate rewards. Preserve map gates and committed-state packet projection.
+- Add domain, bridge, resource and disposable-SQL regression coverage. No schema or client changes; see Docs/LEVEL_UP_TICKET_STORY_CHOICES.md for acceptance and rollback boundaries.
+
 
 ## 2026-10-25 — 二次觉醒券提交快照顺序
 

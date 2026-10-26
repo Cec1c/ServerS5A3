@@ -46,14 +46,16 @@ type UseClearCouponInput struct {
 }
 
 type UseClearCouponResult struct {
-	Character       repo.CharacterRecord
-	Skill           repo.SkillRecord
-	Quests          repo.QuestRecord
-	ChangedQuestIDs []int64
-	Remaining       int64
-	CutoffLevel     int
-	Changed         bool
-	Awakened        bool
+	BlockedQuestionIDs []int64
+	DamagedQuestionIDs []int64
+	Character          repo.CharacterRecord
+	Skill              repo.SkillRecord
+	Quests             repo.QuestRecord
+	ChangedQuestIDs    []int64
+	Remaining          int64
+	CutoffLevel        int
+	Changed            bool
+	Awakened           bool
 }
 
 // UseClearCoupon revalidates ownership, source and eligibility under the same
@@ -151,6 +153,8 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 				return err
 			}
 			result.Quests = plan.Record
+			result.BlockedQuestionIDs = append([]int64(nil), plan.BlockedQuestionIDs...)
+			result.DamagedQuestionIDs = append([]int64(nil), plan.DamagedQuestionIDs...)
 			result.ChangedQuestIDs = append(plan.ChangedQuestIDs, plan.ChangedLinkedSubIDs...)
 			result.CutoffLevel = cutoff
 			fields = plan.ChangedFields

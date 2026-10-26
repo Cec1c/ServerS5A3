@@ -233,8 +233,10 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 		return reject("commit_rejected", err)
 	}
 	if !result.Changed {
+		s.logQuestClearCouponEvent(session, "game-quest-clear-coupon-no-safe-work", r, "blocked_question_ids", int64ListText(result.BlockedQuestionIDs), "damaged_question_ids", int64ListText(result.DamagedQuestionIDs))
 		return reject("nothing_to_complete", nil)
 	}
+	s.logQuestClearCouponEvent(session, "game-quest-clear-coupon-question-guards", r, "blocked_question_ids", int64ListText(result.BlockedQuestionIDs), "damaged_question_ids", int64ListText(result.DamagedQuestionIDs))
 	s.logQuestClearCouponEvent(session, "game-quest-clear-coupon-committed", r, "item_id", stack.ItemID, "cutoff_level", result.CutoffLevel, "completed_quest_ids", int64ListText(result.ChangedQuestIDs), "awakened", result.Awakened, "remaining", result.Remaining, "reward_granted", false)
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), buildCurrentQuestCouponResult(r, true), dnfproto.DefaultChannelClassification); err != nil {
 		return true, err
@@ -247,13 +249,8 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 			return true, err
 		}
 	}
-	if err := s.sendCurrentClearQuestListFromCommittedQuest(session, result.Quests, "quest_coupon_committed"); err != nil {
-		return true, err
-	}
-	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "quest_coupon_committed"); err != nil {
-		return true, err
-	}
-	return true, s.sendCurrentAcceptableQuestListOnlyForSession(session, "quest_coupon_committed")
+	return true, s.sendCommittedStorySweepSnapshots(session, result.Character, result.Quests,
+		result.ChangedQuestIDs, "quest_coupon")
 }
 
 func (s *Service) sendCurrentAwakeningCouponSnapshots(ctx context.Context, session *gameSession, result dnfquest.UseClearCouponResult) error {
