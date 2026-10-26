@@ -63,7 +63,7 @@ func (s *Service) commitCurrentAvatarDisjoint(ctx context.Context, session *game
 	if err != nil {
 		return err
 	}
-	result, err := s.commitCurrentDisjoint(ctx, session, catalog, request.SourceSlot, currentAvatarInventoryListType, func(def dungeonDropItemDefinition, document *dnfpvf.Document) ([]currentDisjointReward, error) {
+	result, err := s.commitCurrentDisjoint(ctx, session, catalog, request.SourceSlot, currentAvatarInventoryListType, 0, func(def dungeonDropItemDefinition, document *dnfpvf.Document) ([]currentDisjointReward, error) {
 		if request.ExpectedItemID != 0 && def.ItemID != request.ExpectedItemID {
 			return nil, errCurrentDisjointSourceInvalid
 		}

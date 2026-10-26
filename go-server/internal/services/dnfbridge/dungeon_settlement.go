@@ -58,6 +58,7 @@ func (s *Service) sendCurrentDungeonSettlementEntryLocked(
 		return nil
 	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "normal_settlement_entry")
+	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "normal_settlement_entry")
 	if runtime.settlementEntrySent {
 		s.logGameEvent(session, "game-dungeon-settlement-entry-replay",
 			"char_id", session.selectedCharacterID,

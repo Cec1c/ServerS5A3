@@ -192,6 +192,7 @@ func (s *Service) retireCompletedDungeonForTownAction(session *gameSession, requ
 		return false, nil
 	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
+	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
 	session.dungeon.runtime = nil
 	retirementSource := "completed_run_other_dungeon_selector"

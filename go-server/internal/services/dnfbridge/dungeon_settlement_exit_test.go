@@ -61,7 +61,7 @@ func TestCompletedTutorialFirstOp42BuildsTownActorBeforeTypedTransition(t *testi
 		t.Fatal(err)
 	}
 
-	assertCompletedDungeonTownRouteForTest(t, conn.write.Bytes(), wantTutorialCompletionTownTransitionBody())
+	assertCompletedDungeonTownRouteWithGiveupAckForTest(t, conn.write.Bytes(), wantTutorialCompletionTownTransitionBody())
 	if runtime.settlementCardLayoutSent || runtime.settlementCardSelectionSent {
 		t.Fatalf("completed tutorial op42 incorrectly entered card flow state=%+v", runtime)
 	}
@@ -149,10 +149,10 @@ func TestCompletedTutorialOp42WriteFailureRetainsRuntimeForRetry(t *testing.T) {
 	}
 	retry24, rest := splitGameServerUpperPacket(t, connection.write.Bytes()[len(prefix):])
 	if retry24.Header.Classification != 0 || retry24.Header.MsgID != currentSceneTransitionMsgID ||
-		!bytes.Equal(retry24.Body, wantTutorialCompletionTownTransitionBody()) || len(rest) != 0 {
-		t.Fatalf("retry must write only exact op24: %+v body=%x rest=%x", retry24.Header, retry24.Body, rest)
+		!bytes.Equal(retry24.Body, wantTutorialCompletionTownTransitionBody()) {
+		t.Fatalf("retry must write exact op24 followed by op42 ACK: %+v body=%x rest=%x", retry24.Header, retry24.Body, rest)
 	}
-	assertCompletedDungeonTownRouteForTest(t, connection.write.Bytes(), wantTutorialCompletionTownTransitionBody())
+	assertCompletedDungeonTownRouteWithGiveupAckForTest(t, connection.write.Bytes(), wantTutorialCompletionTownTransitionBody())
 	if session.dungeon.runtime != nil || !runtime.townReturnOp24Sent {
 		t.Fatalf("successful completed tutorial retry did not detach owner=%p state=%+v", session.dungeon.runtime, runtime)
 	}
@@ -198,7 +198,7 @@ func TestCompletedTutorialOp42WaitsForPostSettlementStatisticBarrier(t *testing.
 	if err := service.handleDungeonGiveupGame(session, nil); err != nil {
 		t.Fatal(err)
 	}
-	assertCompletedDungeonTownRouteForTest(t, conn.write.Bytes(), wantTutorialCompletionTownTransitionBody())
+	assertCompletedDungeonTownRouteWithGiveupAckForTest(t, conn.write.Bytes(), wantTutorialCompletionTownTransitionBody())
 	if runtime.settlementCardLayoutSent || runtime.settlementCardSelectionSent ||
 		!runtime.townReturnOp24Sent || session.dungeon.runtime != nil {
 		t.Fatalf("post-barrier tutorial op42 did not commit direct town route state=%+v owner=%p",
@@ -404,12 +404,29 @@ func prepareOrdinaryCompletedSettlementRuntimeForExitTest(
 
 func assertCompletedDungeonTownRouteForTest(t *testing.T, data, wantTransition []byte) {
 	t.Helper()
+	if rest := completedDungeonTownRouteTailForTest(t, data, wantTransition); len(rest) != 0 {
+		t.Fatalf("non-op42 completed route emitted trailing packet=%x", rest)
+	}
+}
+
+func assertCompletedDungeonTownRouteWithGiveupAckForTest(t *testing.T, data, wantTransition []byte) {
+	t.Helper()
+	rest := completedDungeonTownRouteTailForTest(t, data, wantTransition)
+	ack, rest := splitGameServerUpperPacket(t, rest)
+	if ack.Header.Classification != dnfproto.DefaultChannelClassification || ack.Header.MsgID != uint16(dnfenum.CmdPacketGiveupGame) ||
+		!bytes.Equal(ack.Body, []byte{1}) || len(rest) != 0 {
+		t.Fatalf("completed op42 route ACK=%+v body=%x trailing=%x", ack.Header, ack.Body, rest)
+	}
+}
+
+func completedDungeonTownRouteTailForTest(t *testing.T, data, wantTransition []byte) []byte {
+	t.Helper()
 	rest := assertCompletedDungeonTownPrefixForTest(t, data, wantTransition)
 	op24, rest := splitGameServerUpperPacket(t, rest)
-	if op24.Header.MsgID != currentSceneTransitionMsgID || op24.Header.Classification != 0 ||
-		!bytes.Equal(op24.Body, wantTransition) || len(rest) != 0 {
+	if op24.Header.MsgID != currentSceneTransitionMsgID || op24.Header.Classification != 0 || !bytes.Equal(op24.Body, wantTransition) {
 		t.Fatalf("completed town route op24=%+v body=%x rest=%x", op24.Header, op24.Body, rest)
 	}
+	return rest
 }
 
 func assertCompletedDungeonTownPrefixForTest(t *testing.T, data, wantTransition []byte) []byte {

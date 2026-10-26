@@ -59,6 +59,9 @@ type gameSession struct {
 	loginTokenSeen bool
 	// loginPacketSeen 表示客户端已经交过 class1/op1 登录包：此后账号不会再变。
 	loginPacketSeen bool
+	// 只在令牌已验证后设置，用于关联同一登录会话的明确换线交接，不作为账号认证。
+	loginChannelFlowKey [32]byte
+	channelExitHandoff  *currentAuthenticatedChannelHandoff
 	// sharedAccountFallbackReason 记录"为什么会落到共享兜底账号"，
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
@@ -66,6 +69,7 @@ type gameSession struct {
 	sharedAccountWarnOnce sync.Once
 	channel               channelcatalog.Channel
 	residentChannel       channelcatalog.Channel
+	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
 	packetSeq             uint64
 	sequence              uint32
 	upperSeq              uint16
@@ -74,8 +78,9 @@ type gameSession struct {
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
-	wireMu sync.Mutex
-	dproto dproto.Session
+	wireMu            sync.Mutex
+	dproto            dproto.Session
+	channelSceneBatch *currentChannelSceneBatch // 仅普通换线；wireMu保护。
 
 	// Image-communication identity is guarded by townMu. Scene resets advance
 	// its generation; the nonce belongs only to this connection.
