@@ -108,6 +108,57 @@ func TestGuildPlacementMySQLRollbackConcurrencyAndReconnect(t *testing.T) {
 			}
 		})
 	}
+	t.Run("move-remove-restart-and-rollback", func(t *testing.T) {
+		create, now := seed()
+		p, err := ApplyPlacement(ctx, repos.Guild, create, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := PlacementChangeRequest{Owner: create.Owner, GuildID: create.GuildID, RequestID: fmt.Sprintf("%064x", 20), Change: PlacementChange{Action: PlacementMove, ID: p.Placement.ID, ObjectID: p.Placement.ObjectID, Area: p.Placement.Area, X: create.X + 36, Y: create.Y}, Books: map[uint32]PlacementBook{create.Book.ItemID: create.Book}, Map: create.Map, Revalidate: create.Revalidate, CanInteract: create.CanInteract}
+		before, _ := Load(ctx, repos.Settings)
+		calls := 0
+		q.Revalidate = func() bool { calls++; return calls < 3 }
+		if _, err = ApplyPlacementChange(ctx, repos.Guild, q, now); err == nil {
+			t.Fatal("stale generation committed")
+		}
+		after, _ := Load(ctx, newGroup().Settings)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatal("SQL rollback leaked changed cells or receipt")
+		}
+		q.Revalidate = create.Revalidate
+		var wg sync.WaitGroup
+		errs := make(chan error, 6)
+		for range 6 {
+			wg.Add(1)
+			go func() { defer wg.Done(); _, err := ApplyPlacementChange(ctx, repos.Guild, q, now); errs <- err }()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		remove := q
+		remove.Change.Action = PlacementRemove
+		remove.RequestID = fmt.Sprintf("%064x", 21)
+		if _, err = ApplyPlacementChange(ctx, newGroup().Guild, remove, now); err != nil {
+			t.Fatal(err)
+		}
+		for _, request := range []PlacementChangeRequest{q, remove} {
+			if _, err = ApplyPlacementChange(ctx, newGroup().Guild, request, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		after, err = Load(ctx, newGroup().Settings)
+		if err != nil || len(after.Guilds[1].Placements.Rows) != 0 || len(after.PlacementChangeReceipts) != 2 {
+			t.Fatal("SQL replay resurrected object", err)
+		}
+		inv, _, err := newGroup().Inventory.Load(ctx, "1")
+		if err != nil || inv.Slots["0:42"].Count != 2 {
+			t.Fatal("move/remove changed book debit", err)
+		}
+	})
 	for _, sameRequest := range []bool{false, true} {
 		t.Run(fmt.Sprint(sameRequest), func(t *testing.T) {
 			q, now := seed()
