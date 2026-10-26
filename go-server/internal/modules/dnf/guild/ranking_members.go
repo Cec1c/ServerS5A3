@@ -13,6 +13,8 @@ import (
 // RankingMemberFacts contains observations from the authoritative account and
 // character repositories. Newbie is an explicit status, never inferred from
 // merely joining a guild after the catalog's historical promotion date.
+// Owned soft-deleted Character records prove exclusion without removing guild
+// membership or accepting an unverified missing fact.
 type RankingMemberFacts struct {
 	Owner          r.GuildOwner
 	AdventureLevel int
@@ -32,11 +34,19 @@ func RankingMemberFactors(g *Guild, facts map[string]RankingMemberFacts, rules *
 	}
 	var active float64
 	var adventure, pvp, raid float64
+	var members int
 	for id, m := range g.Members {
 		f, ok := facts[id]
-		if !ok || f.Owner.CharacterID != id || f.Owner.AccountID != m.AccountID || f.Character.CharacterID != id || f.Character.AccountID != m.AccountID || f.Character.Stats["delete_flag"] != 0 || f.AdventureLevel < 0 || f.PVPGrade < 0 {
+		if !ok || f.Owner.CharacterID != id || f.Owner.AccountID != m.AccountID || f.Character.CharacterID != id || f.Character.AccountID != m.AccountID {
 			return RankingFactors{}, ErrCharacterNotFound
 		}
+		if f.Character.Stats["delete_flag"] != 0 {
+			continue
+		}
+		if f.AdventureLevel < 0 || f.PVPGrade < 0 {
+			return RankingFactors{}, ErrCharacterNotFound
+		}
+		members++
 		observations, err := rankingWeeklyPresence(m, f.Online, now)
 		if err != nil {
 			return RankingFactors{}, err
@@ -60,7 +70,7 @@ func RankingMemberFactors(g *Guild, facts map[string]RankingMemberFacts, rules *
 			raid += value * float64(recordedRankingRaidClears(f.Character, mode, start, now))
 		}
 	}
-	out.Members = float32(math.Min(rules.Members.Maximum, float64(len(g.Members))*rules.Members.Rate))
+	out.Members = float32(math.Min(rules.Members.Maximum, float64(members)*rules.Members.Rate))
 	out.WeeklyActive = float32(math.Min(rules.WeeklyActive.Maximum, active*rules.WeeklyActive.Rate))
 	out.Adventure, out.PVP, out.RaidClear = float32(adventure), float32(pvp), float32(raid)
 	if _, err := out.Total(); err != nil {

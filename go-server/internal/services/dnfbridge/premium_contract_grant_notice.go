@@ -56,6 +56,7 @@ func (s *Service) sendAlignedPremiumContractActivations(
 		"activation_count", len(activations),
 		"activations", fmt.Sprint(activations))
 	if refreshCrystal {
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		return s.sendCurrentCrystalContractState(session, "aligned_"+operation+"_after_type97_grant_activation")
 	}
 	return nil

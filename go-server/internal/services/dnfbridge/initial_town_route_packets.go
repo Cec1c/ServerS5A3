@@ -167,6 +167,15 @@ func (s *Service) sendCurrentInitialTownActorRoutePacketsWithOptionsLocked(
 	if err := s.sendCurrentTownActorPrerequisitesLocked(session, characterID, objectBody, prerequisiteMode1Body); err != nil {
 		return err
 	}
+	// 现用普通房间入口先给已绑定角色安装位置，再激活场景和加载整批角色资料。
+	// 否则800先把旧街道渲染出来，要等完整背包/技能加载完才收到23进入房间。
+	if s.options.currentClientVersion == "official-24.9" && !currentColdSpecialChannel(session.channel) {
+		if room, ok := s.townArea(int64(townID), int64(areaID)); ok && townMapPathLooksLikeSeria(room.MapPath) {
+			if err := s.sendCurrentInitialTownLocationAtStageLocked(session, characterID, townID, areaID, row, currentInitialTownRouteActorBound); err != nil {
+				return fmt.Errorf("房间场景激活前同步落点: %w", err)
+			}
+		}
+	}
 	deferPVPEquipmentCheck := isPVPChannel(session.channel)
 	if !deferPVPEquipmentCheck {
 		if err := s.sendCurrentInitialTownActorSceneSnapshotLocked(session, characterID); err != nil {

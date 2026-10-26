@@ -36,7 +36,7 @@ const (
 	channelReconnectPresenceChannelID         = 253
 )
 
-// channelReconnectPresenceFixture 是"两名角色都在频道 253、都从持久化落点进城"的最小夹具，
+// channelReconnectPresenceFixture 是"两名角色都在频道253、换线进入各自房间"的最小夹具，
 // 两人都通过**真实的 op4 客户端选择包**走 `sendCurrentChannelReconnectTownEntry`。
 type channelReconnectPresenceFixture struct {
 	service      *Service
@@ -217,11 +217,11 @@ func logLineIndexContaining(log string, parts ...string) int {
 // TestChannelReconnectTownEntryPublishesTownPresence 是本修复的正面钉子：
 // 走完频道重连进城路由之后
 //  1. 服务端在线区域表里**真的有**这个角色，且分桶键与 op36 那条路（town_move.go:372）一致
-//     （同城 + 同区 + 同频道 + 共享区域实例 0）；
+//     （房间是各角色的私有实例，出房间后街道实例为0）；
 //  2. 日志里出现参考实现同名的 `game-town-presence-published`
 //     且 `source=channel_reconnect_town_actor_route_complete`；
 //  3. 这条事件的**位置**与参考实现一致：entry-send → presence-published → entry-finished；
-//  4. 与"op36 进城"的另一名角色落进同一个桶 ⇒ 双向 `PeerInSameArea` 为真。
+//  4. 出房间后与街道的另一名角色落进同一个桶，房内不能串到街道或其他私房。
 func TestChannelReconnectTownEntryPublishesTownPresence(t *testing.T) {
 	fixture := newChannelReconnectPresenceFixture(t)
 	runChannelReconnectTownEntry(t, fixture, fixture.first, channelReconnectPresenceFirstCharacterID)
@@ -236,9 +236,9 @@ func TestChannelReconnectTownEntryPublishesTownPresence(t *testing.T) {
 	if info.Session != fixture.first {
 		t.Fatalf("published presence belongs to another session: got=%p want=%p", info.Session, fixture.first)
 	}
-	if info.TownID != 38 || info.AreaID != 0 || info.ChannelID != channelReconnectPresenceChannelID || info.Instance != 0 {
+	if info.TownID != 38 || info.AreaID != 1 || info.ChannelID != channelReconnectPresenceChannelID || info.Instance != uint32(channelReconnectPresenceFirstCharacterID) {
 		t.Fatalf(
-			"channel reconnect presence key town=%d area=%d channel=%d instance=%d, want 38/0/%d/0",
+			"channel reconnect presence key town=%d area=%d channel=%d instance=%d, want 38/1/%d/29",
 			info.TownID,
 			info.AreaID,
 			info.ChannelID,
@@ -246,9 +246,9 @@ func TestChannelReconnectTownEntryPublishesTownPresence(t *testing.T) {
 			channelReconnectPresenceChannelID,
 		)
 	}
-	if info.PositionX != 1677 || info.PositionY != 222 || info.Direction != 5 || info.AreaState != 3 {
+	if info.PositionX != 450 || info.PositionY != 234 || info.Direction != 5 || info.AreaState != 3 {
 		t.Fatalf(
-			"channel reconnect presence position=%d/%d dir=%d state=%d, want the persisted landing 1677/222/5/3",
+			"channel reconnect presence position=%d/%d dir=%d state=%d, want room gate 450/234/5/3",
 			info.PositionX,
 			info.PositionY,
 			info.Direction,
@@ -262,10 +262,10 @@ func TestChannelReconnectTownEntryPublishesTownPresence(t *testing.T) {
 		"source="+channelReconnectTownPresenceSource,
 		"char_id=29",
 		"town_id=38",
-		"area_id=0",
+		"area_id=1",
 		"area_key_channel=253",
-		"area_instance=0",
-		"map_path=new_Elvengard.map",
+		"area_instance=29",
+		"map_path=new_seria_room.map",
 	)
 	if published < 0 {
 		t.Fatalf("channel reconnect town entry did not publish town presence; log:\n%s", log)
@@ -301,6 +301,16 @@ func TestChannelReconnectTownEntryPublishesTownPresence(t *testing.T) {
 		Session:     fixture.second,
 	}
 	fixture.service.onlinePlayers.EnterArea(otherInfo)
+	if fixture.service.onlinePlayers.PeerInSameArea(channelReconnectPresenceFirstCharacterID, channelReconnectPresenceSecondCharacterID) {
+		t.Fatal("私有房间错误登记为共享街道")
+	}
+	if err := fixture.service.handleCurrentPrevVillage(fixture.first, nil); err != nil {
+		t.Fatal(err)
+	}
+	info, found = fixture.service.onlinePlayers.PlayerForCharacter(channelReconnectPresenceFirstCharacterID)
+	if !found || info.TownID != 38 || info.AreaID != 0 || info.Instance != 0 {
+		t.Fatalf("出房间没有登记回原街道：%+v", info)
+	}
 	if !fixture.service.onlinePlayers.PeerInSameArea(
 		channelReconnectPresenceSecondCharacterID,
 		channelReconnectPresenceFirstCharacterID,
@@ -317,12 +327,20 @@ func TestChannelReconnectTownEntryPublishesTownPresence(t *testing.T) {
 }
 
 // TestChannelReconnectTownArrivalsCanInviteEachOther 是根因的**反面证明**：
-// 两名角色都只走过频道重连进城这条路，之后 op10 mode0 的真实邀请必须被接受并转发给被邀请方。
+// 两名角色换线进入各自房间后走门进城，之后op10 mode0邀请必须被接受并转发。
 // 修复前这条会命中 `game-peer-request-target-outside-area` 且一个字节都不发。
 func TestChannelReconnectTownArrivalsCanInviteEachOther(t *testing.T) {
 	fixture := newChannelReconnectPresenceFixture(t)
 	runChannelReconnectTownEntry(t, fixture, fixture.first, channelReconnectPresenceFirstCharacterID)
 	runChannelReconnectTownEntry(t, fixture, fixture.second, channelReconnectPresenceSecondCharacterID)
+	if fixture.service.onlinePlayers.PeerInSameArea(channelReconnectPresenceFirstCharacterID, channelReconnectPresenceSecondCharacterID) {
+		t.Fatal("两个私有赛丽亚房间不能共用一个在线区域")
+	}
+	for _, session := range []*gameSession{fixture.first, fixture.second} {
+		if err := fixture.service.handleCurrentPrevVillage(session, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if !fixture.service.onlinePlayers.PeerInSameArea(
 		channelReconnectPresenceFirstCharacterID,

@@ -63,6 +63,28 @@ class DeploymentBoundaries(unittest.TestCase):
     def gm_config(self):
         return {"host_ip":"192.168.1.50", "server_ip":"10.254.90.2", "database_ip":"10.254.90.3", "subnet":"10.254.90.0/24", "database_password":"abc", "root_password":"def", "admin_token":"ab"*24, "body_codec":"plaintext", "client_body_codec":"plaintext", "joust_event_enabled":True}
 
+    def test_guild_contribution_policy_explicit_mapping(self):
+        for policy in ("", "daily-v1"):
+            with self.subTest(policy=policy), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_contribution_policy": policy}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY=" + policy + "\n", (Path(directory) / "server.env").read_text())
+        for value in (None, True, 1, [], "unknown", "daily-v1\nINJECT=value"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_contribution_policy"):
+                    manage.generate({"guild_contribution_policy": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_guild_hongbao_explicit_mapping(self):
+        for value in (False, True):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.gm_config() | {"guild_hongbao_enabled": value}, {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_GUILD_HONGBAO_ENABLED=" + str(value).lower() + "\n", (Path(directory) / "server.env").read_text())
+        for value in (None, 1, "true", []):
+            with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "guild_hongbao_enabled"):
+                    manage.generate({"guild_hongbao_enabled": value}, {})
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_gm_is_disabled_by_default(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
             manage.generate(self.gm_config(), {"ports": [10006]})

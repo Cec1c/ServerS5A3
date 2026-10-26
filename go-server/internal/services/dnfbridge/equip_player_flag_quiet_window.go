@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfinventory "longheng.io/server/internal/modules/dnf/inventory"
 )
 
 // 本文件实现 op19「玩家请求标志位」的**静默窗（quiet window）**：把"标志位误伤自动突发"的
@@ -59,6 +60,15 @@ const (
 	op19PlayerFlagQuietDefaultMS = 400
 	op19PlayerFlagQuietMaxMS     = 5000
 )
+
+// A move between positive slots of the main bag cannot reassert a worn slot.
+// Keep its normal owner validation and ACK synchronous, including legacy flag 1.
+// Slot zero (money) and every cross-container move retain their existing path.
+func op19MainBagMove(body []byte) bool {
+	request, err := dnfinventory.DecodeMoveItemspaceRequest(body)
+	return err == nil && request.SourceListType == 0 && request.DestinationListType == 0 &&
+		request.SourceSlotIndex > 0 && request.DestinationSlotIndex > 0
+}
 
 // op19PlayerFlagQuietWindow 归一化静默窗（每次调用都读 env，不缓存）。
 //
