@@ -135,7 +135,8 @@ func (s Skill) MaxLevelForGrowType(packedGrowType int) int {
 //	    1 + (characterLevel - [required level]) / [level interval])
 //
 // It is the gate the client draws its "+"/"已精通" state from, so the server
-// must never persist a level above it.
+// must not accept player purchases above it. PVF initial grants and automatic
+// growth levels are retained separately by the free-baseline repair rules.
 func (s Skill) MaxLearnableLevel(packedGrowType int, characterLevel int) int {
 	growtypeMaximum := s.MaxLevelForGrowType(packedGrowType)
 	if growtypeMaximum <= 0 {

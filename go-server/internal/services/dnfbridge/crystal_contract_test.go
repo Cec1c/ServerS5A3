@@ -116,6 +116,46 @@ func TestLegacyCrystalContractSelectionPersistsAndRestoresAfterRelog(t *testing.
 	}
 }
 
+func TestCurrentCrystalContractCancelKeepsNoneWithBlackCubesAvailableAfterRelog(t *testing.T) {
+	service, session, repositories, connection := newCrystalContractTestRuntime(t, map[string]dnfrepo.ItemStack{
+		"0:354": {ItemID: 3033, Count: 12},
+		"0:355": {ItemID: 3034, Count: 12},
+	})
+	if err := service.handleCurrentCrystalContractUpdate(session, []byte{0, 1}); err != nil {
+		t.Fatal(err)
+	}
+	connection.write.Reset()
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand),
+		uint16(dnfenum.CmdPacketUpdateContractOfCubeInfo), []byte{0, 0xff}); err != nil {
+		t.Fatal(err)
+	}
+	ack, rest := nextCrystalPacket(t, connection.write.Bytes())
+	if ack.Header.MsgID != uint16(dnfenum.CmdPacketUpdateContractOfCubeInfo) ||
+		!bytes.Equal(ack.Body, []byte{1, 0, 0xff}) {
+		t.Fatalf("cancel ACK header=%+v body=%x", ack.Header, ack.Body)
+	}
+	state, trailing := nextCrystalPacket(t, rest)
+	assertCurrentCrystalStatePacket(t, state, []byte{0, 0xff})
+	if len(trailing) != 0 {
+		t.Fatalf("cancel trailing packets=%x", trailing)
+	}
+	connection.write.Reset()
+	relogged := &gameSession{conn: connection, connID: "cancel-relogged",
+		selectedCharacterID: session.selectedCharacterID, accountID: session.accountID}
+	if err := service.sendCurrentCrystalContractState(relogged, "test_cancel_relog"); err != nil {
+		t.Fatal(err)
+	}
+	state, trailing = nextCrystalPacket(t, connection.write.Bytes())
+	assertCurrentCrystalStatePacket(t, state, []byte{0, 0xff})
+	if len(trailing) != 0 {
+		t.Fatalf("relog trailing packets=%x", trailing)
+	}
+	inventory, found, err := repositories.AccountInventory.Load(context.Background(), "account-1")
+	if err != nil || !found || inventory.Slots["0:354"].Count != 12 || inventory.Slots["0:355"].Count != 12 {
+		t.Fatalf("cancel changed cube inventory: found=%t err=%v slots=%+v", found, err, inventory.Slots)
+	}
+}
+
 func TestCurrentCrystalContractInitialBootstrapSendsOnceAndOp36IsFallbackPerTownRoute(t *testing.T) {
 	service, session, _, connection := newCrystalContractTestRuntime(t, map[string]dnfrepo.ItemStack{
 		"0:357": {ItemID: 3036, Count: 12},

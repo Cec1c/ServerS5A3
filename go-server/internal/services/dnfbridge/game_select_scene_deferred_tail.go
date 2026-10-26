@@ -20,6 +20,7 @@ const (
 	currentDeferredSelectSceneTailDamageFont
 	currentDeferredSelectSceneTailRepresentName
 	currentDeferredSelectSceneTailSeriaLuck
+	currentDeferredSelectSceneTailMarbleBuffs
 	currentDeferredSelectSceneTailComplete
 )
 
@@ -427,6 +428,12 @@ func (s *Service) sendDeferredSelectSceneTail(session *gameSession, source strin
 	}
 	if session.sceneBootstrapTailPostStage == currentDeferredSelectSceneTailSeriaLuck {
 		if err := s.sendInitialSeriaLuckGauge(session, source+"_after_scene_init_complete"); err != nil {
+			return err
+		}
+		session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailMarbleBuffs
+	}
+	if session.sceneBootstrapTailPostStage == currentDeferredSelectSceneTailMarbleBuffs {
+		if err := s.restoreAttendanceMarbleBuffs(session); err != nil {
 			return err
 		}
 		session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailComplete
