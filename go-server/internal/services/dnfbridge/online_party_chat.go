@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
 	"longheng.io/server/internal/platform/eventloop"
 )
 
@@ -21,6 +22,11 @@ func buildCurrentPartyChatBody(channel byte, name, message []byte) []byte {
 	w.writeRawDstr(message)
 	w.writeRawDstr(nil)
 	return w.bytes()
+}
+
+func currentPartyChatName(name string) ([]byte, bool) {
+	encoded, err := simplifiedchinese.GB18030.NewEncoder().Bytes([]byte(name))
+	return encoded, err == nil && len(encoded) > 0 && len(encoded) <= rosterNameMaxBytes && bytes.IndexByte(encoded, 0) < 0
 }
 
 func (s *Service) handleCurrentPartyChat(session *gameSession, op uint16, request currentPeerChatRequest) error {
@@ -50,17 +56,17 @@ func (s *Service) handleCurrentPartyChat(session *gameSession, op uint16, reques
 		return reject()
 	}
 	manager := s.runtimePartyManagerForService()
-	state, found := manager.SnapshotByUser(identity.character, 0)
+	state, found := manager.SnapshotByUser(identity.character, identity.generation)
 	if !found || len(state.Members) < 2 {
 		return reject()
 	}
-	name := rosterNameBytes(actor.Name)
+	name, validName := currentPartyChatName(actor.Name)
 	channel, validChannel := currentSessionOwnerChannelField(session)
-	if !validChannel || len(name) == 0 || len(name) > 30 || bytes.IndexByte(name, 0) >= 0 {
+	if !validChannel || !validName {
 		return reject()
 	}
 	validate := func() error {
-		current, belongs := manager.SnapshotByUser(identity.character, 0)
+		current, belongs := manager.SnapshotByUser(identity.character, identity.generation)
 		if !belongs || current.ID != state.ID || len(current.Members) < 2 || !s.boundGameSessionCharacterCurrent(identity) {
 			return errInvalidGameSessionEvent
 		}
@@ -80,6 +86,10 @@ func (s *Service) handleCurrentPartyChat(session *gameSession, op uint16, reques
 		}
 		peer, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || peer.session.channel.ID != session.channel.ID {
+			continue
+		}
+		current, belongs := manager.SnapshotByUser(peer.character, peer.generation)
+		if !belongs || current.ID != state.ID || len(current.Members) < 2 {
 			continue
 		}
 		if err := s.queueCurrentPartyChat(peer, state.ID, body); err != nil {
@@ -110,8 +120,16 @@ func (s *Service) queueCurrentPartyChat(peer boundGameSessionCharacter, partyID 
 		}
 		defer s.releaseCurrentCharacterAssets(reservation)
 		validate := func() error {
-			current, belongs := s.runtimePartyManagerForService().SnapshotByUser(peer.character, 0)
-			if !belongs || current.ID != partyID || !s.boundGameSessionCharacterCurrent(peer) {
+			current, belongs := s.runtimePartyManagerForService().SnapshotByUser(peer.character, peer.generation)
+			if !belongs || current.ID != partyID || len(current.Members) < 2 || !s.boundGameSessionCharacterCurrent(peer) {
+				return errInvalidGameSessionEvent
+			}
+			repos, available := s.repositoryGroup()
+			if !available || repos.Character == nil || account == "" {
+				return errInvalidGameSessionEvent
+			}
+			actor, found, err := repos.Character.Load(ctx, strconv.Itoa(int(peer.character)))
+			if err != nil || !found || actor.AccountID != account {
 				return errInvalidGameSessionEvent
 			}
 			return nil

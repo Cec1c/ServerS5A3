@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,6 +182,106 @@ func TestPartyChatQueuedRecipientLeaveAndRebind(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPartyChatRequiresCurrentSenderAndRecipientSessionGenerations(t *testing.T) {
+	for _, kind := range []string{"sender", "recipient"} {
+		t.Run(kind, func(t *testing.T) {
+			s, peers, _ := guildHallFixture(t)
+			manager := s.runtimePartyManagerForService()
+			sender, _ := s.boundGameSessionCharacterSnapshot(peers[29])
+			recipient, _ := s.boundGameSessionCharacterSnapshot(peers[30])
+			senderGeneration, recipientGeneration := sender.generation, recipient.generation
+			if kind == "sender" {
+				senderGeneration++
+			}
+			created := manager.Create(party.RuntimePartyMember{UserID: sender.character, SessionGeneration: senderGeneration}, alignedcmd.PartyState{MaxMembers: 4})
+			if !created.OK {
+				t.Fatal(created)
+			}
+			if kind == "recipient" {
+				recipientGeneration++
+			}
+			joined := manager.Join(created.Party.ID, party.RuntimePartyMember{UserID: recipient.character, SessionGeneration: recipientGeneration})
+			if !joined.OK {
+				t.Fatal(joined)
+			}
+			if err := s.handleCurrentPeerChat(peers[29], 17, partyChatRequest(29, "stale snapshot")); err != nil {
+				t.Fatal(err)
+			}
+			ack, rest := splitCurrentGameServerUpperPacketAuto(t, peers[29].conn.(*bufferConn).write.Bytes())
+			if kind == "sender" {
+				if !bytes.Equal(ack.Body, []byte{0, 1}) || len(rest) != 0 {
+					t.Fatalf("stale sender accepted: %x", ack.Body)
+				}
+			} else if !bytes.Equal(ack.Body, []byte{1}) {
+				t.Fatalf("current sender rejected: %x", ack.Body)
+			}
+			requireGuildChatNotice(t, peers[30], 0)
+		})
+	}
+}
+
+func TestPartyChatQueuedRecipientRechecksDatabaseAccount(t *testing.T) {
+	s, peers, repos := guildHallFixture(t)
+	partyChatGroup(t, s, peers, 29, 30)
+	actor, found, err := repos.Character.Load(context.Background(), "30")
+	if err != nil || !found {
+		t.Fatalf("load recipient: found=%v err=%v", found, err)
+	}
+	actor.AccountID = "replaced-account"
+	if err := repos.Character.Save(context.Background(), actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleCurrentPeerChat(peers[29], 17, partyChatRequest(29, "account changed")); err != nil {
+		t.Fatal(err)
+	}
+	ack, _ := splitCurrentGameServerUpperPacketAuto(t, peers[29].conn.(*bufferConn).write.Bytes())
+	if !bytes.Equal(ack.Body, []byte{1}) {
+		t.Fatalf("sender rejected: %x", ack.Body)
+	}
+	requireGuildChatNotice(t, peers[30], 0)
+}
+
+func TestPartyChatQueuedRecipientRechecksPartySessionGeneration(t *testing.T) {
+	s, peers, _ := guildHallFixture(t)
+	partyChatGroup(t, s, peers, 29, 30)
+	startGuildChatTestEvents(t, s, peers)
+	recipient, _ := s.boundGameSessionCharacterSnapshot(peers[30])
+	resume := pauseGuildChatRecipient(t, s, peers[30])
+	if err := s.handleCurrentPeerChat(peers[29], 17, partyChatRequest(29, "generation changed")); err != nil {
+		t.Fatal(err)
+	}
+	rebound := s.runtimePartyManagerForService().RebindSession(recipient.character, recipient.generation, party.RuntimePartyMember{
+		UserID: recipient.character, SessionGeneration: recipient.generation + 1,
+	})
+	if !rebound.OK {
+		t.Fatal(rebound)
+	}
+	resume()
+	flushGuildChatTestEvents(t, s, peers[30])
+	requireGuildChatNotice(t, peers[30], 0)
+}
+
+func TestPartyChatRejectsOverlongSenderNameInsteadOfTruncating(t *testing.T) {
+	s, peers, repos := guildHallFixture(t)
+	partyChatGroup(t, s, peers, 29, 30)
+	actor, found, err := repos.Character.Load(context.Background(), "29")
+	if err != nil || !found {
+		t.Fatalf("load sender: found=%v err=%v", found, err)
+	}
+	actor.Name = strings.Repeat("a", rosterNameMaxBytes+1)
+	if err := repos.Character.Save(context.Background(), actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleCurrentPeerChat(peers[29], 17, partyChatRequest(29, "name boundary")); err != nil {
+		t.Fatal(err)
+	}
+	ack, rest := splitCurrentGameServerUpperPacketAuto(t, peers[29].conn.(*bufferConn).write.Bytes())
+	if !bytes.Equal(ack.Body, []byte{0, 1}) || len(rest) != 0 {
+		t.Fatalf("overlong sender name accepted: %x", ack.Body)
+	}
+	requireGuildChatNotice(t, peers[30], 0)
 }
 
 func TestPartyChatSlowPeerDoesNotBlockOtherMembers(t *testing.T) {
