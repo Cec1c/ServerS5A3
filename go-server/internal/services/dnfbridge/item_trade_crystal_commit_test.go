@@ -138,6 +138,45 @@ func TestOnlineAccountCrystalRevalidatesOwnersAndBalanceAtCommit(t *testing.T) {
 	}
 }
 
+type currentCrystalPVFItemContract struct {
+	itemID  uint32
+	slot    int16
+	pvfPath string
+	name    string
+}
+
+var currentCrystalPVFItemContracts = []currentCrystalPVFItemContract{
+	{itemID: 3033, slot: 354, pvfPath: "stackable/material/cubepiece_black.stk", name: "黑色小晶块"},
+	{itemID: 3034, slot: 355, pvfPath: "stackable/material/cubepiece_white.stk", name: "白色小晶块"},
+	{itemID: 3035, slot: 356, pvfPath: "stackable/material/cubepiece_red.stk", name: "红色小晶块"},
+	{itemID: 3036, slot: 357, pvfPath: "stackable/material/cubepiece_blue.stk", name: "蓝色小晶块"},
+	{itemID: 3037, slot: 358, pvfPath: "stackable/material/cubepiece_clear.stk", name: "无色小晶块"},
+	{itemID: 3262, slot: 359, pvfPath: "stackable/material/cubepiece_gold.stk", name: "金色小晶块"},
+}
+
+func assertCurrentCrystalTradePVFItems(t *testing.T, catalog *pvfDungeonDropCatalog) {
+	t.Helper()
+	if catalog == nil {
+		t.Fatal("crystal trade PVF catalog is nil")
+	}
+	for _, want := range currentCrystalPVFItemContracts {
+		definition, err := catalog.ResolveItem(want.itemID)
+		if err != nil {
+			t.Fatalf("resolve crystal id=%d path=%s: %v", want.itemID, want.pvfPath, err)
+		}
+		if definition.ItemID != want.itemID || definition.PVFPath != want.pvfPath || definition.Name != want.name {
+			t.Fatalf("crystal identity id=%d: %+v, want slot=%d path=%s name=%s", want.itemID, definition, want.slot, want.pvfPath, want.name)
+		}
+		if definition.Kind != dungeonDropItemStackable ||
+			normalizeDungeonDropStackableType(definition.StackableType) != "[material]" ||
+			normalizeMagicBoxPVFType(definition.AttachType) != "free" ||
+			definition.StackLimit != 0 {
+			t.Fatalf("crystal semantics id=%d path=%s kind=%v stackable=%q attach=%q limit=%d, want stackable/material/free/no-limit",
+				want.itemID, want.pvfPath, definition.Kind, definition.StackableType, definition.AttachType, definition.StackLimit)
+		}
+	}
+}
+
 func TestOnlineAccountCrystalTradeRealPVFSixFreeItems(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
@@ -151,7 +190,8 @@ func TestOnlineAccountCrystalTradeRealPVFSixFreeItems(t *testing.T) {
 	// Each archive still has to satisfy all six actual item contracts below.
 	switch fmt.Sprintf("%x", sha256.Sum256(data)) {
 	case "ad7d05c70421278f7385729bcba3e81e37d99d0f3df85a87a9f0dc19c92504cb",
-		"a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290":
+		"a56cacf96087ba34ca5299e04ab65f8268f694b214b97dec9879fdebf46f5290",
+		"94a2549598816198115340f84c0be2d31603ddeea58f70f27afe6f73b25e3df7":
 	default:
 		t.Fatal("PVF hash mismatch")
 	}
@@ -163,6 +203,7 @@ func TestOnlineAccountCrystalTradeRealPVFSixFreeItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertCurrentCrystalTradePVFItems(t, catalog)
 	for index, item := range []int64{3033, 3034, 3035, 3036, 3037, 3262} {
 		t.Run(strconv.FormatInt(item, 10), func(t *testing.T) {
 			slot := int16(354 + index)

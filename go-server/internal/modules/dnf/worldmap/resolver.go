@@ -995,11 +995,11 @@ func startBossCoordinateFallbackFileTypes(fileType MapFileType, start bool, boss
 	if fileType != MapFileBoss || !start || !boss {
 		return nil
 	}
-	// The production training-room PVF marks its only coordinate as both
-	// start and boss while the only coordinate-owned map is explicitly named
-	// start. Exact boss/specification matches have already won before this
-	// narrow compatibility fallback.
-	return []MapFileType{MapFileStart}
+	// 修炼场和转职体验把同一坐标同时标为起点、首领。转职体验7142
+	// 的76032地图有明确的[dungeon]归属和(0,0)坐标，文件名却不被
+	// 识别为start/boss。保留已有start优先级，再接受同坐标normal资源；
+	// 显式规格和精确boss匹配仍在本回退之前，不借用其它坐标的房图。
+	return []MapFileType{MapFileStart, MapFileNormal}
 }
 
 func mazeQuestConnected(maze Maze) bool {

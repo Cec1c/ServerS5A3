@@ -129,7 +129,7 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 		return alignedcmd.MailboxItemResolution{}, fmt.Errorf("mailbox item %d has invalid negative runtime-PVF price", definition.ItemID)
 	}
 	stackLimit := definition.StackLimit
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	if definition.Kind == dungeonDropItemEquipment {
 		stackLimit = 1
 	}

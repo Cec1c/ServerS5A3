@@ -66,8 +66,7 @@ import (
 //     （依据：厂商 21B 首包 `02 01 …` 来自 uid=2、`02 00 …` 来自 uid=1 ⇒ 第 2 字节 = 发送者 uid-1）。
 //     解析成功的端点进 `probes[charID]`，供腿建立时当"种子目标"。
 //   - `DNFBRIDGE_PARTY_UDP_RELAY_PROBE_PORTS`（默认 `30000,<PORT_START>`）：探针监听端口列表。
-//     探针监听**永不阻塞中继**：腿需要用到某个被探针占住的端口时，`releasePort` 会先关掉那个
-//     探针 socket 再重试绑定。
+//     探针端口保持专用；定向腿跳过这些端口，容量不足时沿用完整拓扑失败回落。
 //   - `DNFBRIDGE_PARTY_UDP_RELAY_SEED_FORWARD`（**默认 on**）：腿建立时把"对端角色已被自己观测到的
 //     端点"（原生探针优先，其次同进程端点备忘）写进 `leg.seedEndpoint`；第一个数据报到达而对向腿
 //     未学习时，**直接投给种子端点**（而不是丢掉/只留存），并同时启动 relay 级定时清扫器
@@ -370,7 +369,7 @@ func partyUDPRelayAddrIPv4(source *net.UDPAddr) ([4]byte, bool) {
 // socket**（`192.168.0.101:5063` 既探测又收发）。
 //
 // 所以本表按 `(ip:port, hitPort)` 逐条保存（同一客户端打 2311 与 2312 算两条入向路径），
-// 投递时用该条 `hitPort` 对应的**探针 socket 作为发送源**；socket 已被 `releasePort` 释放给腿、
+// 投递时用该条 `hitPort` 对应的**探针 socket 作为发送源**；socket 已被 `releasePort` 显式关闭、
 // 或探针口未知/监听不在位时，退化回腿口并在 `fanout candidate used` 行记
 // `fallback_reason=probe_socket_released|probe_listener_port_unknown|probe_listener_unavailable|
 // probe_socket_write_failed`（绝不静默）。判读字段：`via_listener_port=` 与 `delivery_source=`，
@@ -503,7 +502,7 @@ func (r *currentPartyUDPRelay) observedProbeEndpointCount() int {
 
 // 退化原因（`fallback_reason=` 字段的取值）。
 const (
-	// observedDeliveryFallbackSocketReleased：想从探针口发，但那个 socket 已被腿抢走/关闭。
+	// observedDeliveryFallbackSocketReleased：想从探针口发，但那个 socket 已被显式关闭。
 	observedDeliveryFallbackSocketReleased = "probe_socket_released"
 	// observedDeliveryFallbackPortUnknown：表项没记到命中的监听口（测试直接登记等）。
 	observedDeliveryFallbackPortUnknown = "probe_listener_port_unknown"
@@ -515,7 +514,7 @@ const (
 )
 
 // probeListenerConn 返回某个探针监听口当前**活着**的 socket（判读/投递共用）。
-// nil = 该口没在监听（未启动、或已被 `releasePort` 释放给腿）。
+// nil = 该口没在监听（未启动、或已被 `releasePort` 显式关闭）。
 func (r *currentPartyUDPRelay) probeListenerConn(hitPort int) *net.UDPConn {
 	if r == nil || hitPort <= 0 {
 		return nil
@@ -535,7 +534,7 @@ func (r *currentPartyUDPRelay) probeListenerConn(hitPort int) *net.UDPConn {
 //     数据经加速器进入时，对端 P2P socket 只向**我们的 2311/2312** 发过包；我们把队长的
 //     握手从腿口 31001 发出去时 `delivered=true` 却 `opposite_received=0`（被丢），
 //     厂商现场也是"探测口 = 后来的收发口"（同一 socket）。
-//   - 该 socket 已被 `releasePort` 释放给腿 / 探针口未知 / 探针监听不在位 ⇒ 退化回腿口，
+//   - 该 socket 已被 `releasePort` 显式关闭 / 探针口未知 / 探针监听不在位 ⇒ 退化回腿口，
 //     并返回**具名原因**（`fallback_reason=`），绝不静默。
 func (r *currentPartyUDPRelay) observedProbeEndpointDeliverySocket(
 	entry currentPartyUDPRelayObservedProbeEndpoint,
@@ -568,7 +567,7 @@ func (leg *currentPartyUDPRelayLeg) learnedEndpointSnapshot() *net.UDPAddr {
 	return cloneCurrentPartyUDPRelayAddr(leg.learnedEndpoint)
 }
 
-// currentPartyUDPRelayProbeListeners 是中继端口范围之外的常驻 UDP 探针监听集合。
+// currentPartyUDPRelayProbeListeners 是常驻 UDP 探针监听集合；池内探针口同样保持专用。
 // 它只读、只记日志、只登记端点；不参与转发，也不改任何协议字节。
 type currentPartyUDPRelayProbeListeners struct {
 	relay *currentPartyUDPRelay
@@ -578,6 +577,10 @@ type currentPartyUDPRelayProbeListeners struct {
 	shown map[string]int
 	// bound 是**实际**绑到的端口（配置 0 = 由内核分配，主要用于测试与判读）。
 	bound []int
+	// Immutable after publication to relay.probeListener. Reserve configured
+	// ports even when bind fails, and actual ports for kernel-assigned port 0.
+	// Closing a probe socket must not turn later keepalives into directed traffic.
+	reservedPorts map[int]struct{}
 }
 
 // startProbeListeners 在配置的端口上常驻监听。端口 0 = 由内核分配（测试用）。
@@ -586,12 +589,15 @@ func (r *currentPartyUDPRelay) startProbeListeners(ports []int) {
 	if r == nil || !r.probeListen || len(ports) == 0 {
 		return
 	}
-	listeners := &currentPartyUDPRelayProbeListeners{relay: r, conns: make(map[int]*net.UDPConn, len(ports)), shown: make(map[string]int, 32)}
+	listeners := &currentPartyUDPRelayProbeListeners{relay: r, conns: make(map[int]*net.UDPConn, len(ports)), shown: make(map[string]int, 32), reservedPorts: make(map[int]struct{}, len(ports))}
 	bound := make([]int, 0, len(ports))
 	failed := make([]int, 0, len(ports))
 	for _, port := range ports {
 		if port < 0 || port > 65535 {
 			continue
+		}
+		if port != 0 {
+			listeners.reservedPorts[port] = struct{}{}
 		}
 		conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: append(net.IP(nil), r.bindIP...), Port: port})
 		if err != nil {
@@ -599,6 +605,7 @@ func (r *currentPartyUDPRelay) startProbeListeners(ports []int) {
 			continue
 		}
 		actual := conn.LocalAddr().(*net.UDPAddr).Port
+		listeners.reservedPorts[actual] = struct{}{}
 		listeners.conns[actual] = conn
 		listeners.bound = append(listeners.bound, actual)
 		bound = append(bound, actual)
@@ -626,7 +633,7 @@ func (r *currentPartyUDPRelay) startProbeListeners(ports []int) {
 	}()
 }
 
-// probeListenerPorts 返回**当前仍活着**的常驻探针监听端口（腿抢走端口后会从这里消失；
+// probeListenerPorts 返回**当前仍活着**的常驻探针监听端口（显式关闭后会从这里消失；
 // 判读与测试都用它）。
 func (r *currentPartyUDPRelay) probeListenerPorts() []int {
 	listeners := r.probeListeners()
@@ -673,7 +680,7 @@ func (l *currentPartyUDPRelayProbeListeners) readLoop(port int, conn *net.UDPCon
 	}
 }
 
-// releasePort 关掉占着该端口的探针 socket（腿要绑这个端口时调用）。返回是否有动作。
+// releasePort 显式关闭一个探针 socket，但保留其专用端口；不用于定向腿分配。
 func (l *currentPartyUDPRelayProbeListeners) releasePort(port int) bool {
 	if l == nil {
 		return false
@@ -1291,7 +1298,7 @@ func (r *currentPartyUDPRelay) fanOutUnlearnedDatagram(
 		}
 		written, err := source.WriteToUDP(payload, candidate.target)
 		if (err != nil || written != len(payload)) && candidate.via != nil {
-			// 探针 socket 在"取出之后、写出之前"被 releasePort 关掉（腿抢端口）：改用腿口补发。
+			// 探针 socket 在"取出之后、写出之前"被 releasePort 关掉（显式关闭）：改用腿口补发。
 			viaErr := err
 			written, err = conn.WriteToUDP(payload, candidate.target)
 			if err == nil && written == len(payload) {

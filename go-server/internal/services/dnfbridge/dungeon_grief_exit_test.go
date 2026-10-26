@@ -24,7 +24,7 @@ func TestGriefCompletedOp42DoesNotWaitForUnrequestedOrdinaryCards(t *testing.T) 
 	if rt.settlementCardLayoutSent || rt.settlementCardSelectionSent || rt.settlementCardRewardCommitted {
 		t.Fatal("grief exit fabricated an ordinary card reward")
 	}
-	assertCompletedDungeonTownRouteForTest(t, conn.write.Bytes(), rt.townReturnTransition.Body)
+	assertCompletedDungeonTownRouteWithGiveupAckForTest(t, conn.write.Bytes(), rt.townReturnTransition.Body)
 	conn.write.Reset()
 	if err := s.handleDungeonGiveupGame(session, nil); err != nil || conn.write.Len() != 0 {
 		t.Fatalf("retired grief exit replay: err=%v bytes=%d", err, conn.write.Len())
@@ -135,5 +135,5 @@ func TestRealPVFGriefFirstFloorCompletedTownReturn(t *testing.T) {
 	if session.dungeon.runtime != nil || !rt.townReturnOp24Sent || rt.settlementCardRewardCommitted {
 		t.Fatal("actual grief identity did not use receipted town return")
 	}
-	assertCompletedDungeonTownRouteForTest(t, conn.write.Bytes(), rt.townReturnTransition.Body)
+	assertCompletedDungeonTownRouteWithGiveupAckForTest(t, conn.write.Bytes(), rt.townReturnTransition.Body)
 }

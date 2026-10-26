@@ -46,8 +46,11 @@ func TestAncient121ReconnectCommitsExplicitTargetAndRebuildsWithoutAssetMutation
 		t.Fatal("target route unfinished")
 	}
 	after, _, err := repositories.Character.Load(context.Background(), "29")
-	if err != nil || currentReconnectLocationSnapshot(before) != currentReconnectLocationSnapshot(after) {
-		t.Fatalf("persisted location changed: %v", err)
+	if err != nil || after.Stats["town_id"] != 39 || after.Stats["area_id"] != 2 ||
+		after.Stats["pos_x"] != 612 || after.Stats["pos_y"] != 244 ||
+		after.Stats[currentTownPrevVillageTownStat] != before.Stats["town_id"] ||
+		after.Stats[currentTownPrevVillageAreaStat] != before.Stats["area_id"] {
+		t.Fatalf("远古频道换线未进入房间或丢失原城镇来源：%v %v", after.Stats, err)
 	}
 	equipmentAfter, _, err := repositories.Equipment.Load(context.Background(), "29")
 	if err != nil || !reflect.DeepEqual(equipmentBefore, equipmentAfter) {
