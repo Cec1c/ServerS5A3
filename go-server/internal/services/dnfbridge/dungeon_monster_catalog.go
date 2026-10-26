@@ -181,6 +181,7 @@ func dungeonMonsterScalars(document *dnfpvf.Document) map[string]float64 {
 		"attack_speed":  {"attack speed"},
 		"hit_recovery":  {"hit recovery"},
 		"exp":           {"exp", "experience"},
+		"named_monster": {"is named monster"},
 	}
 	out := make(map[string]float64)
 	for key, aliases := range names {

@@ -44,6 +44,7 @@ type dungeonCardItemReward struct {
 
 type dungeonCardRewardBundle struct {
 	Gold                int64
+	Cost                int64
 	Items               []dungeonCardItemReward
 	ConsumePremiumDaily bool
 	PremiumDailySlot    int64
@@ -88,6 +89,8 @@ type dungeonCardState struct {
 	mu sync.Mutex
 
 	plan dungeonCardRewardPlan
+	// 与奖励资格使用同一份账号/角色快照，避免显示契约牌却按普通牌收费。
+	premiumServiceBody []byte
 
 	selectedMember [dungeonCardSideCount]int8
 	deliveryBusy   [dungeonCardSideCount]bool
@@ -165,6 +168,9 @@ func validateDungeonCardPlan(plan dungeonCardRewardPlan) error {
 	}
 	bundles := append(plan.Sides[:], plan.BlackDiamondBonus)
 	for side, bundle := range bundles {
+		if bundle.Cost < 0 || bundle.Cost > math.MaxUint32 || side != int(dungeonCardSidePaid) && bundle.Cost != 0 {
+			return fmt.Errorf("%w: 翻牌行=%d 费用=%d", errDungeonCardPlanInvalid, side, bundle.Cost)
+		}
 		if bundle.Gold < 0 {
 			return fmt.Errorf("%w: side=%d gold=%d", errDungeonCardPlanInvalid, side, bundle.Gold)
 		}

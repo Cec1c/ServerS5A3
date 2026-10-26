@@ -25,6 +25,7 @@ const testQuestClearTicketSelectorZero = 0
 // gameplayModule 的 op1429 handler），与现场封包一致。
 func dispatchQuestClearTicket(t *testing.T, service *Service, session *gameSession, selector uint32) {
 	t.Helper()
+	bindAutoCompleteMainTestSession(service, session)
 	body := make([]byte, currentAutoCompleteMainQuestRequestSize)
 	binary.LittleEndian.PutUint32(body, selector)
 	if err := service.handleGameCommand(

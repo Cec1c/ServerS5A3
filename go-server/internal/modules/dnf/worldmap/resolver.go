@@ -697,7 +697,9 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 		return candidates, ResolutionMapSpecification, err
 	}
 
-	// 起始/首领房的两条真源之间的优先级。
+	// 以下是普通起始/首领房的两条真源之间的优先级。
+	// 上面的 FiendWar 4953/4978 显式房间校验同时适用于两档，不属于缺门回退；
+	// 其修复前后影响面需单独比较，不能从下述两档审计推出。
 	//
 	// 缺门声明守卫：改动前那条文件名启发式要发的房间地图
 	// **整段没有** `[pathgate recognize range]`（= 这个房间里一扇可用门都没声明），
@@ -715,6 +717,7 @@ func (r *Resolver) resolveCandidateSet(request ResolveRequest) ([]indexedMap, Re
 	// （操作者「7 格蓝迪 克雷没有修复」）。另有已验证的跨目录普通起点守卫，
 	// 由真档全量审计 `TestRealPVFStartMapPrecedenceKeepsEveryResolvableRoomResolvable`
 	// 钉住缺门形状和北门跨目录起点之外不发生意外换图，且不降低原有可解析性。
+	// 两档共同执行的 FiendWar 规则不在该比较的差异集合中，需单独核对。
 	if !r.options.preemptsSpecification() {
 		if candidates, ok := r.doorBearingSpecificationRoom(index, maze, key, expectedType); ok {
 			return candidates, ResolutionMapSpecification, nil
