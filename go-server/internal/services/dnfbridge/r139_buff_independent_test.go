@@ -14,7 +14,7 @@ import (
 
 // Reuse Hume's real-PVF fixture. Only add a real catalog item at its named
 // worn slot; full op19 placement validation is exercised on the re-wear.
-func r139PrepareSlot(t *testing.T, f *p94OwnedFixture, slot byte, item int64) string {
+func r139PrepareSlot(t *testing.T, f *loginWearAnchorFixture, slot byte, item int64) string {
 	t.Helper()
 	ctx := context.Background()
 	def, err := f.service.pvfItemCatalog.ResolveItem(uint32(item))
@@ -36,10 +36,10 @@ func r139PrepareSlot(t *testing.T, f *p94OwnedFixture, slot byte, item int64) st
 	return r139Register(t, f, slot)
 }
 
-func r139Register(t *testing.T, f *p94OwnedFixture, slot byte) string {
+func r139Register(t *testing.T, f *loginWearAnchorFixture, slot byte) string {
 	t.Helper()
 	f.buffer.write.Reset()
-	if err := f.service.handleGameCommand(f.session, 1, 1426, p94RegistrationCommand(38, slot, 3, uint16(slot))); err != nil {
+	if err := f.service.handleGameCommand(f.session, 1, 1426, reviewCurrentBuffCommand(38, slot, 3, uint16(slot))); err != nil {
 		t.Fatal(err)
 	}
 	state, found, err := buffswap.Load(context.Background(), f.group, "1", "dnf:10011")
@@ -49,13 +49,13 @@ func r139Register(t *testing.T, f *p94OwnedFixture, slot byte) string {
 	return state.Slots[slot].Instance
 }
 
-func r139AssertWire(t *testing.T, f *p94OwnedFixture, slot, list byte, index uint16, modeCount int) {
+func r139AssertWire(t *testing.T, f *loginWearAnchorFixture, slot, list byte, index uint16, modeCount int) {
 	t.Helper()
 	wire := append([]byte(nil), f.buffer.write.Bytes()...)
 	ackAt, rowAt, buffAt := -1, -1, -1
 	buffCount, actorCount := 0, 0
 	for seq := 0; len(wire) > 0; seq++ {
-		p, rest := p94SplitPacket(t, wire)
+		p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 		wire = rest
 		if p.Header.Classification == 1 && p.Header.MsgID == 19 {
 			ackAt = seq
@@ -87,7 +87,7 @@ func r139AssertWire(t *testing.T, f *p94OwnedFixture, slot, list byte, index uin
 	}
 }
 
-func r139AssertOwner(t *testing.T, f *p94OwnedFixture, slot byte, id string, list byte, index uint16) {
+func r139AssertOwner(t *testing.T, f *loginWearAnchorFixture, slot byte, id string, list byte, index uint16) {
 	t.Helper()
 	p, err := buffswap.LoadResolvedOwned(context.Background(), f.group, "1", "dnf:10011")
 	if err != nil {
@@ -112,10 +112,10 @@ func TestR139BuffDefaultSlotAndOrder(t *testing.T) {
 			f := p94Fixture(t)
 			instance := r139PrepareSlot(t, f, tc.slot, tc.item)
 			_, _, before, legacy := p94Snapshot(t, f)
-			p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, int16(tc.slot), int32(tc.item)), op19CurrentUIPlayerFlag))
+			p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, int16(tc.slot), int32(tc.item)), op19CurrentUIPlayerFlag))
 			r139AssertOwner(t, f, tc.slot, instance, 0, 15)
 			r139AssertWire(t, f, tc.slot, 0, 15, tc.actors)
-			p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, int32(tc.item), 3, int16(tc.slot), 0), op19CurrentUIPlayerFlag))
+			p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, int32(tc.item), 3, int16(tc.slot), 0), op19CurrentUIPlayerFlag))
 			r139AssertOwner(t, f, tc.slot, instance, 3, uint16(tc.slot))
 			r139AssertWire(t, f, tc.slot, 3, uint16(tc.slot), tc.actors)
 			_, _, after, old := p94Snapshot(t, f)
@@ -146,7 +146,7 @@ func TestR139BuffSameTemplateReregisterFollowsNewInstance(t *testing.T) {
 	if err := f.group.Inventory.Save(ctx, inv); err != nil {
 		t.Fatal(err)
 	}
-	body := p94FlaggedBody(t, p94MoveBody(0, 15, int32(p94Item), 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag)
+	body := flaggedBody(t, loginWearBridgeBody(0, 15, int32(p94Item), 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag)
 	p94Move(t, f, body)
 	r139AssertOwner(t, f, 16, a, 0, 15)
 	bID := r139Register(t, f, 16)
@@ -156,7 +156,7 @@ func TestR139BuffSameTemplateReregisterFollowsNewInstance(t *testing.T) {
 	p94Move(t, f, body) // A worn again; the newly registered B must follow into the bag.
 	r139AssertOwner(t, f, 16, bID, 0, 15)
 	r139AssertWire(t, f, 16, 0, 15, 0)
-	p94Move(t, f, p94MoveBody(0, 15, int32(p94Item), 0, 17, 0))
+	p94Move(t, f, loginWearBridgeBody(0, 15, int32(p94Item), 0, 17, 0))
 	r139AssertOwner(t, f, 16, bID, 0, 17)
 	p94Cold(t, f, 0, 17, true)
 }
@@ -184,7 +184,7 @@ func TestR139BuffFinalTransactionAbortNoProjection(t *testing.T) {
 	g := f.group
 	g.CharacterItems = r139AbortAfterBothSaves{g.CharacterItems, &reached}
 	f.service.repositoryProvider = func() (repo.Group, bool) { return g, true }
-	p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
+	p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 	ai, ae, an, ao := p94Snapshot(t, f)
 	if !reached || !reflect.DeepEqual(bi, ai) || !reflect.DeepEqual(be, ae) || !reflect.DeepEqual(bn, an) || !reflect.DeepEqual(bo, ao) || f.buffer.write.Len() != 0 {
 		t.Fatal("aborted transaction changed state/emitted projection")
@@ -192,7 +192,7 @@ func TestR139BuffFinalTransactionAbortNoProjection(t *testing.T) {
 }
 
 type r139FailMessageConn struct {
-	p94Conn
+	bufferConn
 	kind byte
 	msg  uint16
 	hit  bool
@@ -203,7 +203,7 @@ func (c *r139FailMessageConn) Write(p []byte) (int, error) {
 		c.hit = true
 		return 0, errors.New("r139 injected message write failure")
 	}
-	return c.p94Conn.Write(p)
+	return c.bufferConn.Write(p)
 }
 
 func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
@@ -217,14 +217,14 @@ func TestR139BuffCommittedWriteFailuresDoNotRollbackOrJumpOrder(t *testing.T) {
 			instance := p94Register(t, f)
 			conn := &r139FailMessageConn{kind: tc.kind, msg: tc.msg}
 			f.session.conn = conn
-			err := f.service.handleGameCommand(f.session, 1, 19, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
+			err := f.service.handleGameCommand(f.session, 1, 19, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 			if err == nil || !conn.hit {
 				t.Fatal("write failure not reached")
 			}
 			r139AssertOwner(t, f, 16, instance, 0, 15)
 			wire := conn.write.Bytes()
 			for len(wire) > 0 {
-				p, rest := p94SplitPacket(t, wire)
+				p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 				wire = rest
 				if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
 					t.Fatal("snapshot jumped failed ACK/row or retry duplicated failed snapshot")
@@ -246,14 +246,14 @@ func TestR139BuffEmptyMoveAndFeatureOff(t *testing.T) {
 		f := p94Fixture(t)
 		p94Register(t, f)
 		bi, be, bn, bo := p94Snapshot(t, f)
-		p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, 18, 0), op19CurrentUIPlayerFlag))
+		p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 18, 0), op19CurrentUIPlayerFlag))
 		ai, ae, an, ao := p94Snapshot(t, f)
 		if !reflect.DeepEqual(bi, ai) || !reflect.DeepEqual(be, ae) || !reflect.DeepEqual(bn, an) || !reflect.DeepEqual(bo, ao) {
 			t.Fatal("empty noop changed state")
 		}
 		wire := f.buffer.write.Bytes()
 		for len(wire) > 0 {
-			p, rest := p94SplitPacket(t, wire)
+			p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 			wire = rest
 			if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
 				t.Fatal("noop refreshed Buff")
@@ -264,11 +264,11 @@ func TestR139BuffEmptyMoveAndFeatureOff(t *testing.T) {
 		f := p94Fixture(t)
 		instance := p94Register(t, f)
 		t.Setenv(buffSwapReapplyEnv, "off")
-		p94Move(t, f, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
+		p94Move(t, f, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 		r139AssertOwner(t, f, 16, instance, 0, 15)
 		wire := f.buffer.write.Bytes()
 		for len(wire) > 0 {
-			p, rest := p94SplitPacket(t, wire)
+			p, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
 			wire = rest
 			if p.Header.Classification == 0 && p.Header.MsgID == 1368 {
 				t.Fatal("disabled replay sent snapshot")
