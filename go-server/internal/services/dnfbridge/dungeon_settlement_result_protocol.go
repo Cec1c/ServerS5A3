@@ -14,7 +14,7 @@ const (
 	// 210 bytes. After both eight-slot auxiliary tables the reader consumes
 	// one standalone u32 (v67), followed by the 22-byte result-window tail:
 	// u32(v50), u8(v101), u8(v97), and four u32 values. Omitting v67 shifts
-	// the result-window flag by four bytes and makes the client read it as 0.
+	// the final flags and corrupts their values in the current reader.
 	currentDungeonClearRewardMinimumBodySize    = 210
 	currentDungeonClearRewardGroupCount         = 8
 	currentDungeonClearRewardBonusFieldCount    = 22
@@ -125,15 +125,17 @@ type currentDungeonClearRewardDrop struct {
 type currentDungeonClearRewardTail struct {
 	// Current NoPack sub_1D4D380 reads this exact final sequence:
 	// u32(v50), u8(v101), u8(v97), u32(v65), u32(v51), u32(v53), u32(v49).
-	// ShowResult gates the normal result window. Current-EXE data flow proves
-	// the first u32 after the flags is the complete monster base EXP total.
-	Value0          uint32
-	ShowResult      bool
-	Flag0           bool
-	MonsterTotalExp uint32
-	Value2          uint32
-	Value3          uint32
-	Value4          uint32
+	// 现用客户端 op35 读者 0x1FFE430 将第一个 u8 交给 0x359C230，
+	// 设置 +0x79D 并绘制春节黄金翻牌双倍活动帧 142；它不控制结算窗口。
+	// 普通结算保持关闭，只有配套活动奖励已实现时才能启用。
+	// 两个标志之后的首个 u32 是本局怪物基础经验总额。
+	Value0              uint32
+	PaidCardDoubleEvent bool
+	Flag0               bool
+	MonsterTotalExp     uint32
+	Value2              uint32
+	Value3              uint32
+	Value4              uint32
 }
 
 // currentDungeonClearRewardSnapshot is an already-committed, immutable
@@ -162,7 +164,8 @@ type currentDungeonClearRewardSnapshot struct {
 	Quest        []currentDungeonClearRewardPair
 	Drops        []currentDungeonClearRewardDrop
 	CardSlots    [currentDungeonClearRewardGroupCount][]currentDungeonClearRewardPair
-	TotalReward  uint32
+	// 当前EXE 0x359C170写入UI+0x660的付费翻牌价格，并非奖励总额。
+	PaidCardCost uint32
 	AuxGroupsA   [currentDungeonClearRewardGroupCount][]currentDungeonClearRewardPair
 	AuxGroupsB   [currentDungeonClearRewardGroupCount][]currentDungeonClearRewardPair
 	// Current NoPack sub_1D4D380 reads this standalone u32 as v67 before the
@@ -206,7 +209,7 @@ func buildCurrentDungeonClearRewardBody(snapshot currentDungeonClearRewardSnapsh
 	for _, slot := range snapshot.CardSlots {
 		writeCurrentDungeonRewardU8Pairs(&writer, slot)
 	}
-	writer.writeUint32(snapshot.TotalReward)
+	writer.writeUint32(snapshot.PaidCardCost)
 	for _, group := range snapshot.AuxGroupsA {
 		writeCurrentDungeonRewardU8Pairs(&writer, group)
 	}
@@ -215,7 +218,7 @@ func buildCurrentDungeonClearRewardBody(snapshot currentDungeonClearRewardSnapsh
 	}
 	writer.writeUint32(snapshot.PreTailValue)
 	writer.writeUint32(snapshot.Tail.Value0)
-	writer.writeByte(boolByte(snapshot.Tail.ShowResult))
+	writer.writeByte(boolByte(snapshot.Tail.PaidCardDoubleEvent))
 	writer.writeByte(boolByte(snapshot.Tail.Flag0))
 	writer.writeUint32(snapshot.Tail.MonsterTotalExp)
 	writer.writeUint32(snapshot.Tail.Value2)
@@ -256,7 +259,7 @@ func validateCurrentDungeonClearRewardSnapshot(snapshot currentDungeonClearRewar
 
 func currentDungeonClearRewardHasCommittedValue(snapshot currentDungeonClearRewardSnapshot) bool {
 	if snapshot.CommittedExperienceGain != 0 || snapshot.CommittedSPGain != 0 || snapshot.CommittedTPGain != 0 ||
-		snapshot.BaseFlag != 0 || snapshot.TotalReward != 0 ||
+		snapshot.BaseFlag != 0 ||
 		len(snapshot.BonusGroupsA) != 0 || len(snapshot.BonusGroupsB) != 0 || len(snapshot.Quest) != 0 || len(snapshot.Drops) != 0 {
 		return true
 	}

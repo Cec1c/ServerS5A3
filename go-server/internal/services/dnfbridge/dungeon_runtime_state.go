@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	guildPractice                *currentGuildPracticeRun
 	guildDungeonClear            *dnfdungeon.GuildDungeonClear
 	settlementGuildDungeonSent   bool
 	ridableReportLastSequence    uint64
@@ -47,6 +48,7 @@ type runtimeDungeonState struct {
 	passiveQuestDropReceipts     map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
 	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
+	missionInformerRetirements   map[uint32]dungeonMissionInformerRetirement
 	entryCharacterLevel          int
 	petGrowthEntryPending        bool // follower runtime installed before the group commits
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
@@ -144,6 +146,7 @@ type runtimeDungeonState struct {
 	settlementResultPlan                 *currentDungeonSettlementPacketPlan
 	settlementResultNoticeSent           bool
 	settlementCharacterStateSent         bool
+	settlementPremiumServiceSent         bool
 	settlementClearRewardSent            bool
 	settlementDespairResultSent          bool
 	settlementDespairItemsSent           bool
@@ -168,6 +171,7 @@ type runtimeDungeonState struct {
 	townReturnAckSent                    bool
 	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
+	settlementPaidCardGrant              *dungeonCardAssetGrantResult
 	settlementMonsterExperienceTotal     uint32
 	settlementMonsterGrowthContractBonus uint32
 	settlementChampionExperience         uint32
@@ -199,6 +203,10 @@ type runtimeDungeonState struct {
 	townReturnSource                     string
 	townReturnOrigin                     currentTownPositionSnapshot
 	townReturnTransition                 currentDungeonTownTransition
+	crystalContractTimerActive           bool
+	crystalContractTimerGeneration       uint64
+	crystalContractTimerName             string
+	crystalContractTimerDueAt            time.Time
 	lifecycleToken                       uint64
 	deathReturnWaiting                   bool
 	deathReturnGeneration                uint64
@@ -250,6 +258,11 @@ type runtimeDungeonState struct {
 	tournamentRewardAutoSelectGeneration uint64
 	tournamentRewardAutoSelectTimerName  string
 	tournamentRewardAutoSelectDueAt      time.Time
+
+	// 大富翁Buff仅绑定本次地下城，换房保留。
+	attendanceMarbleBuffs                  byte
+	attendanceMarbleBuffsLoaded            bool
+	settlementMonsterAttendanceMarbleBonus uint32
 }
 
 func dungeonRuntimeOwnsCharacter(runtime *runtimeDungeonState, characterID uint16) bool {
@@ -899,6 +912,12 @@ func (s *Service) prepareDungeonRuntimePlanned(
 			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare time rift loot before admission: %w", err)
 		}
 	}
+	if s.currentEpicRoadLootEnabled(runtime.Dungeon.ID) {
+		runtime.riftLoot, err = s.prepareCurrentEpicRoadLoot(runtime.Dungeon.ID)
+		if err != nil {
+			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare epic road boss loot before admission: %w", err)
+		}
+	}
 	if err := s.freezeCurrentEpicEntry(session, runtime); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
@@ -954,6 +973,7 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 			return fmt.Errorf("%w: dungeon=%d maze=%d", errDungeonAlreadyActive, snapshot.DungeonID, snapshot.MazeIndex)
 		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
+		s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		// 被替换掉的旧运行时必须先脱离队伍实例，否则它的成员名额会一直挂着。
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")

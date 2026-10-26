@@ -254,11 +254,6 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 			continue
 		}
 		peerActorRemovalSent = append(peerActorRemovalSent, peer.CharacterID)
-		// The kind3 frame above retires the party record. Also erase the
-		// departed leader from the native active-player map on current clients.
-		if err := s.sendDungeonDepartedActorRemoval(peer.Session, leaderID, source); err != nil {
-			s.logGameEvent(peer.Session, "game-dungeon-departed-active-actor-remove-failed", "source", source, "departing_char_id", leaderID, "error", err)
-		}
 		s.logGameEvent(peer.Session, "game-party-dungeon-leader-exit-peer-actor-removal",
 			"source", source,
 			"party_id", state.PartyID,
@@ -284,8 +279,15 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 				break
 			}
 		}
+		if peerRemovalAlreadySent {
+			if err := s.clearDungeonSurvivorTownPartyRecords(memberSession, members, source); err != nil {
+				s.logGameEvent(memberSession, "game-party-dungeon-retired-town-record-clear-failed", "source", source, "error", err)
+				continue
+			}
+		}
 		if err := s.clearDisbandedDungeonPartyRecords(memberSession, members, leaderID, peerRemovalAlreadySent, source); err != nil {
 			s.logGameEvent(memberSession, "game-party-dungeon-retired-record-clear-failed", "source", source, "party_id", state.PartyID, "error", err)
+			continue
 		}
 		if err := s.sendRuntimePartyMemberRemoved(memberSession, leaderID, alignedcmd.PartyState{}); err != nil {
 			s.logGameEvent(memberSession, "game-party-dungeon-leader-exit-roster-clear-failed",
@@ -297,6 +299,13 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 			continue
 		}
 		rosterClearedSent = append(rosterClearedSent, memberSession.selectedCharacterID)
+		// The local kind3 roster must consume its previous manager slots
+		// before NOTI6 removes the departed leader from the active map.
+		if peerRemovalAlreadySent {
+			if err := s.sendDungeonDepartedActorRemoval(memberSession, leaderID, source); err != nil {
+				s.logGameEvent(memberSession, "game-dungeon-departed-active-actor-remove-failed", "source", source, "departing_char_id", leaderID, "error", err)
+			}
+		}
 	}
 
 	s.logGameEvent(session, "game-party-dungeon-leader-exit-disband",

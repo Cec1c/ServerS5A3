@@ -8,7 +8,17 @@ type SlotPolicy struct {
 	Start, End       int16
 	AllowQuickSlots  bool
 	PreferQuickSlots bool
-	ContainerState   *dnfrepo.CharacterContainerState
+	// SingleQuickEquipment 由运行时PVF识别的快捷装备，同一快捷栏只能放一件。
+	SingleQuickEquipment bool
+	ContainerState       *dnfrepo.CharacterContainerState
+}
+
+// ForGrant 获得快捷装备时只入装备页，交给玩家显式放入快捷栏；批量发放不得自动穿戴多件。
+func (p SlotPolicy) ForGrant() SlotPolicy {
+	if p.SingleQuickEquipment {
+		p.AllowQuickSlots, p.PreferQuickSlots = false, false
+	}
+	return p
 }
 
 // ForInventory 在原分类规则上附加角色容量，不改变事务、分页和快捷栏优先级。

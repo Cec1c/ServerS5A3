@@ -414,6 +414,17 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 	} else if err := validatePreparedGuildDungeon(runtime); err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
+	if prepared == nil && runtime.guildPractice == nil {
+		if err := s.freezeCurrentGuildPracticeGroup(ctx, session, runtime, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
+	}
+	if err := s.validateCurrentGuildPracticeEntry(session, runtime); err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
+	if err := s.prepareCurrentGuildPracticeRoom(session, runtime, scene); err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
 	if err := s.prepareCurrentRaidDungeonEntry(session, runtime, prepared, preparedFollowers); err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
@@ -593,6 +604,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			"reason", "typed_runtime_packet_plan_failed",
 			"error", err)
 		return nil
+	}
+	if err := s.sendCurrentGuildPracticeSnapshot(session, runtime); err != nil {
+		return err
 	}
 	s.logGameEvent(session, "game-upper-current-dungeon-info-op28-send",
 		"source", "select_dungeon_after_op27",
@@ -792,6 +806,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 		s.logDungeonEntryStepFailure(session, "cache_start_map_room", prepared, err)
 		return fmt.Errorf("cache current start-map runtime room after actor announce: %w", err)
 	}
+	if err := s.sendCurrentGuildPracticeDefeatedLocalActors(session, runtime); err != nil {
+		return err
+	}
 	s.logGameEvent(session, "game-upper-current-dungeon-start-op29-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
@@ -858,6 +875,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 		if err := s.enterRuntimePartyFollowers(session, body, preparedFollowers, partyStateAtRequest); err != nil {
 			return err
 		}
+	}
+	if err := s.activateAttendanceMarbleAfterEntry(session, runtime); err != nil {
+		return err
 	}
 	s.leaveTownPresenceForDungeon(session)
 	s.recordCurrentLukeScene(session, runtime, "enter")
@@ -973,8 +993,10 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		if err := freezeCurrentDungeonTownReturnOrigin(follower, followerRuntime); err != nil {
 			return nil, fmt.Errorf("freeze party member %d town return origin: %w", member.UserID, err)
 		}
-		if _, err := s.buildCurrentDungeonEntryPackets(followerRuntime, followerScene); err != nil {
-			return nil, fmt.Errorf("build party member %d dungeon entry packets: %w", member.UserID, err)
+		if !currentFriendlyGuildPractice(leaderRuntime) {
+			if _, err := s.buildCurrentDungeonEntryPackets(followerRuntime, followerScene); err != nil {
+				return nil, fmt.Errorf("build party member %d dungeon entry packets: %w", member.UserID, err)
+			}
 		}
 		prepared = append(prepared, &runtimePartyPreparedDungeonEntry{
 			session: follower,
@@ -995,6 +1017,22 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 	}
 	if err := s.freezeCurrentGuildDungeonGroup(ctx, leader, leaderRuntime, prepared); err != nil {
 		return nil, err
+	}
+	if err := s.freezeCurrentGuildPracticeGroup(ctx, leader, leaderRuntime, prepared); err != nil {
+		return nil, err
+	}
+	if currentFriendlyGuildPractice(leaderRuntime) {
+		if err := s.prepareCurrentGuildPracticeRoom(leader, leaderRuntime, leaderScene); err != nil {
+			return nil, err
+		}
+		for _, member := range prepared {
+			if err := s.prepareCurrentGuildPracticeRoom(member.session, member.runtime, member.scene); err != nil {
+				return nil, err
+			}
+			if _, err := s.buildCurrentDungeonEntryPackets(member.runtime, member.scene); err != nil {
+				return nil, fmt.Errorf("build guild practice member %d entry: %w", member.session.selectedCharacterID, err)
+			}
+		}
 	}
 	for _, member := range prepared {
 		if inRunTransfer {
@@ -1892,6 +1930,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	}
 	if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 		return fmt.Errorf("cache committed target dungeon room: %w", err)
+	}
+	if err := s.sendCurrentGuildPracticeDefeatedLocalActors(session, runtime); err != nil {
+		return err
 	}
 	// FINISH_LOADING's main class0 state and op30 completion are room-scoped.
 	// Keep the player/equipment/skill initialization gates intact: an ordinary

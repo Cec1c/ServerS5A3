@@ -69,6 +69,7 @@ type runtimeDungeonRoom struct {
 	aiCharacterCount      int
 	announcedSessions     map[*worldmap.DungeonSession]struct{}
 	deathBodies           map[uint32][]byte
+	guildPractice         *currentGuildPracticeRoom
 }
 
 func newRuntimeDungeonRoom(

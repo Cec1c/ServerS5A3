@@ -93,6 +93,9 @@ func (s *Service) handleDungeonBossDieCheckLocked(
 			"reason", "active_dungeon_runtime_character_owner_mismatch")
 		return nil
 	}
+	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
+		return s.handleCurrentGuildPracticeBossCheckLocked(session, runtime, request)
+	}
 	if runtime.bossDieCheckAccepted {
 		acceptedRequest := runtime.bossDieCheckRelatedActorObjectKey == request.RelatedActorObjectKey &&
 			runtime.bossDieCheckTargetObjectKey == request.TargetObjectKey

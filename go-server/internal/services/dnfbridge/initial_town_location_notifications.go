@@ -201,9 +201,13 @@ func (s *Service) sendCurrentInitialTownLocationNotificationsLocked(
 	areaID byte,
 	row currentSceneTransitionRow,
 ) error {
+	return s.sendCurrentInitialTownLocationAtStageLocked(session, characterID, townID, areaID, row, currentInitialTownRoutePlayerStatePrepared)
+}
+
+func (s *Service) sendCurrentInitialTownLocationAtStageLocked(session *gameSession, characterID uint16, townID, areaID byte, row currentSceneTransitionRow, minimum currentInitialTownRouteStage) error {
 	if session == nil || characterID == 0 ||
 		session.initialTownRouteCharacterID != characterID ||
-		session.initialTownRouteStage < currentInitialTownRoutePlayerStatePrepared ||
+		session.initialTownRouteStage < minimum ||
 		session.initialTownLocationNotificationsSent {
 		return nil
 	}

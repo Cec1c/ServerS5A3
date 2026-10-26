@@ -21,6 +21,7 @@ var (
 )
 
 type AutoCompleteMainInput struct {
+	AccountID     string
 	CharacterID   string
 	Eligibility   CharacterEligibility
 	CutoffLevel   int
@@ -29,9 +30,13 @@ type AutoCompleteMainInput struct {
 	// CouponClearScope。留空等价于 CouponClearScopeMainStorySweep。
 	Scope       CouponClearScope
 	CompletedAt time.Time
+	// Revalidate checks the reserved live character binding before mutation.
+	Revalidate func() bool
 }
 
 type AutoCompleteMainPlan struct {
+	BlockedQuestionIDs    []int64
+	DamagedQuestionIDs    []int64
 	Record                dnfrepo.QuestRecord
 	EligibleQuestIDs      []int64
 	ChangedQuestIDs       []int64
@@ -42,6 +47,9 @@ type AutoCompleteMainPlan struct {
 }
 
 type AutoCompleteMainResult struct {
+	BlockedQuestionIDs    []int64
+	DamagedQuestionIDs    []int64
+	PostCommitCharacter   dnfrepo.CharacterRecord
 	CharacterID           string
 	CutoffLevel           int
 	EligibleQuestIDs      []int64
@@ -103,7 +111,15 @@ func (c *Catalog) PlanAutoCompleteMainQuests(
 	if isCompletedQuestStatus(state.Status) {
 		return plan, nil
 	}
-	if !isActiveQuestStatus(state.Status) {
+	if !isActiveQuestStatus(state.Status) || !storySweepOrdinary(definition) {
+		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
+	}
+	completed, active, damaged := c.storySweepEvidence(plan.Record)
+	plan.DamagedQuestionIDs = damaged
+	if _, blocked := c.storySweepProtectedParents(character, completed)[definition.ID]; blocked {
+		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
+	}
+	if !c.storySweepDependencies(definition, plan.Record, completed, active) {
 		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
 	}
 	plan.ActiveCompletedCount = 1
@@ -136,7 +152,8 @@ func (o *Owner) ApplyAutoCompleteMain(
 		return AutoCompleteMainResult{}, ErrAutoCompleteMainUnavailable
 	}
 	input.CharacterID = strings.TrimSpace(input.CharacterID)
-	if input.CharacterID == "" || input.CompletedAt.IsZero() {
+	input.AccountID = strings.TrimSpace(input.AccountID)
+	if input.AccountID == "" || input.CharacterID == "" || input.CompletedAt.IsZero() {
 		return AutoCompleteMainResult{}, ErrCharacterRequired
 	}
 	if input.CutoffLevel <= 0 || input.CutoffLevel >= input.Eligibility.Level {
@@ -147,16 +164,26 @@ func (o *Owner) ApplyAutoCompleteMain(
 	}
 
 	var plan AutoCompleteMainPlan
+	var committedCharacter dnfrepo.CharacterRecord
+	var persisted dnfrepo.QuestRecord
 	err := o.repositories.CharacterSettlement.WithinCharacterSettlement(ctx, input.CharacterID, func(tx dnfrepo.Group) error {
+		if input.Revalidate != nil && !input.Revalidate() {
+			return ErrAutoCompleteMainUnavailable
+		}
 		character, found, err := tx.Character.Load(ctx, input.CharacterID)
 		if err != nil {
 			return err
 		}
-		if !found {
+		if !found || character.CharacterID != input.CharacterID || strings.TrimSpace(character.AccountID) != input.AccountID {
 			return ErrCharacterNotFound
 		}
 		if character.Level != input.Eligibility.Level || input.CutoffLevel >= character.Level {
 			return ErrAutoCompleteLevelInvalid
+		}
+		job, jobErr := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
+		grow := character.Stats["grow_type"]
+		if jobErr != nil || !jobmap.Valid(int(job)) || int(job) != input.Eligibility.Job || grow < 0 || grow > 255 || int(grow) != input.Eligibility.GrowType {
+			return ErrAutoCompleteMainUnavailable
 		}
 		record, found, err := tx.Quest.Load(ctx, input.CharacterID)
 		if err != nil {
@@ -172,29 +199,43 @@ func (o *Owner) ApplyAutoCompleteMain(
 			return err
 		}
 		plan.Record.CharacterID = input.CharacterID
+		committedCharacter = dnfrepo.CloneCharacter(character)
+		persisted = dnfrepo.CloneQuest(record)
 		if len(plan.ChangedFields) == 0 {
 			return nil
 		}
-		return dnfrepo.SaveQuestFields(ctx, tx.Quest, plan.Record, plan.ChangedFields...)
+		if input.Revalidate != nil && !input.Revalidate() {
+			return ErrAutoCompleteMainUnavailable
+		}
+		if err := dnfrepo.SaveQuestFields(ctx, tx.Quest, plan.Record, plan.ChangedFields...); err != nil {
+			return err
+		}
+		persisted, found, err = tx.Quest.Load(ctx, input.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !found || persisted.CharacterID != input.CharacterID {
+			return ErrQuestPersistVerify
+		}
+		for _, questID := range append(append([]int64(nil), plan.EligibleQuestIDs...), plan.ChangedLinkedSubIDs...) {
+			state, known := questStateFor(persisted, questID)
+			if !known || !isCompletedQuestStatus(state.Status) {
+				return fmt.Errorf("%w: quest=%d", ErrQuestPersistVerify, questID)
+			}
+		}
+		persisted = dnfrepo.CloneQuest(persisted)
+		return nil
 	})
 	if err != nil {
 		return AutoCompleteMainResult{}, err
 	}
 
-	persisted, found, err := o.quests.Load(ctx, input.CharacterID)
-	if err != nil {
-		return AutoCompleteMainResult{}, err
-	}
-	if !found {
-		return AutoCompleteMainResult{}, ErrQuestPersistVerify
-	}
-	for _, questID := range append(append([]int64(nil), plan.EligibleQuestIDs...), plan.ChangedLinkedSubIDs...) {
-		state, known := questStateFor(persisted, questID)
-		if !known || !isCompletedQuestStatus(state.Status) {
-			return AutoCompleteMainResult{}, fmt.Errorf("%w: quest=%d", ErrQuestPersistVerify, questID)
-		}
-	}
+	// Return the verified transaction snapshot. An unrelated later load must
+	// never turn an already committed completion into a failed operation.
 	return AutoCompleteMainResult{
+		BlockedQuestionIDs:    append([]int64(nil), plan.BlockedQuestionIDs...),
+		DamagedQuestionIDs:    append([]int64(nil), plan.DamagedQuestionIDs...),
+		PostCommitCharacter:   committedCharacter,
 		CharacterID:           input.CharacterID,
 		CutoffLevel:           input.CutoffLevel,
 		EligibleQuestIDs:      append([]int64(nil), plan.EligibleQuestIDs...),

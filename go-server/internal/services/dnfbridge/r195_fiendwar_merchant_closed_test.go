@@ -9,7 +9,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 )
 
-func TestR195FiendWarMerchantClosedAssetBoundaryAndOrdinarySharedGoods(t *testing.T) {
+func TestR195FiendWarMerchantRequiresValidInstanceAndPreservesOrdinarySharedGoods(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		merchant, shared bool
@@ -45,7 +45,11 @@ func TestR195FiendWarMerchantClosedAssetBoundaryAndOrdinarySharedGoods(t *testin
 				t.Fatal(err)
 			}
 			q := currentNPCShopBuyRequest{ItemID: 600, Count: 3, ActorContext: tc.actor, ShopContext: tc.shop}
-			if gateErr := rejectCurrentFiendWarMerchantPurchase(shop, q); (gateErr == nil) != tc.allowed {
+			unlock, gateErr := s.lockCurrentFiendWarMerchantPurchase(p, shop, q)
+			if gateErr == nil {
+				unlock()
+			}
+			if (gateErr == nil) != tc.allowed {
 				t.Fatalf("merchant gate allowed=%t err=%v", tc.allowed, gateErr)
 			}
 			_, err = s.commitCurrentNPCShopBuy(ctx, p, shop, items, q)
@@ -62,7 +66,7 @@ func TestR195FiendWarMerchantClosedAssetBoundaryAndOrdinarySharedGoods(t *testin
 			}
 			if !tc.allowed {
 				if !reflect.DeepEqual(beforeActor, afterActor) || !reflect.DeepEqual(beforeBag, afterBag) {
-					t.Fatal("closed merchant mutated assets")
+					t.Fatal("rejected merchant purchase mutated assets")
 				}
 				return
 			}
@@ -79,7 +83,7 @@ func TestR195FiendWarMerchantClosedAssetBoundaryAndOrdinarySharedGoods(t *testin
 	}
 }
 
-func TestR195FiendWarMerchantBoardAlwaysClearsMarker(t *testing.T) {
+func TestR195FiendWarMerchantBoardShowsActiveAreaAndClearsInactive(t *testing.T) {
 	now := time.Unix(1800000000, 0)
 	for _, state := range []string{"active", "expired", "complete", "failed"} {
 		t.Run(state, func(t *testing.T) {
@@ -100,24 +104,31 @@ func TestR195FiendWarMerchantBoardAlwaysClearsMarker(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			wantArea := byte(0)
+			if state == "active" {
+				wantArea = byte(b.MerchantArea)
+			}
 			count := 0
 			for _, packet := range packets {
 				if packet.opcode == currentFiendWarMerchant {
 					count++
-					if !reflect.DeepEqual(packet.body, []byte{0}) {
-						t.Fatalf("merchant exposed: %x", packet.body)
+					if !reflect.DeepEqual(packet.body, []byte{wantArea}) {
+						t.Fatalf("merchant marker=%x want area=%d state=%s", packet.body, wantArea, state)
 					}
 				}
 			}
 			if count != 1 {
-				t.Fatalf("merchant clear count=%d", count)
+				t.Fatalf("merchant notification count=%d", count)
 			}
 		})
 	}
 }
 
-func TestRealPVFCurrentFiendWarMerchantClosedUsesActualProductOwnership(t *testing.T) {
+func TestRealPVFCurrentFiendWarMerchantRejectsUnstartedInstanceWithActualProductOwnership(t *testing.T) {
 	f, peers := actualCurrentFiendWar(t, 1)
+	if f.state.Started {
+		t.Fatal("merchant rejection fixture must not start the raid")
+	}
 	s, p := f.service, peers[0]
 	shop, err := s.currentNPCShopCatalog()
 	if err != nil {
@@ -135,9 +146,11 @@ func TestRealPVFCurrentFiendWarMerchantClosedUsesActualProductOwnership(t *testi
 	if _, ok := shop.npcItems[20316][490007845]; !ok {
 		t.Fatal("shared supply absent from ordinary NPC")
 	}
-	if err := rejectCurrentFiendWarMerchantPurchase(shop, currentNPCShopBuyRequest{ItemID: 490007845, Count: 1, ActorContext: 20316}); err != nil {
+	unlock, err := s.lockCurrentFiendWarMerchantPurchase(p, shop, currentNPCShopBuyRequest{ItemID: 490007845, Count: 1, ActorContext: 20316})
+	if err != nil {
 		t.Fatal("real shared goods incorrectly blocked", err)
 	}
+	unlock()
 	ctx := context.Background()
 	beforeBag, _, err := f.repos.Inventory.Load(ctx, "19")
 	if err != nil {
@@ -152,11 +165,13 @@ func TestRealPVFCurrentFiendWarMerchantClosedUsesActualProductOwnership(t *testi
 		{ItemID: 490007845, Count: 1, ActorContext: 20316, ShopContext: currentFiendWarMerchantShop},
 		{ItemID: 490007846, Count: 1},
 	} {
-		if err := rejectCurrentFiendWarMerchantPurchase(shop, q); err == nil {
-			t.Fatal("real catalog guard accepted closed purchase", q)
+		unlock, gateErr := s.lockCurrentFiendWarMerchantPurchase(p, shop, q)
+		if gateErr == nil {
+			unlock()
+			t.Fatal("real catalog guard accepted merchant purchase without a started raid", q)
 		}
 		if _, err := s.commitCurrentNPCShopBuy(ctx, p, shop, items, q); err == nil {
-			t.Fatal("closed purchase committed", q)
+			t.Fatal("merchant purchase without a started raid committed", q)
 		}
 		afterBag, _, err := f.repos.Inventory.Load(ctx, "19")
 		if err != nil {
@@ -167,7 +182,7 @@ func TestRealPVFCurrentFiendWarMerchantClosedUsesActualProductOwnership(t *testi
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(beforeBag, afterBag) || !reflect.DeepEqual(beforeActor, afterActor) {
-			t.Fatal("real closed merchant mutated assets")
+			t.Fatal("real rejected merchant purchase mutated assets")
 		}
 	}
 }

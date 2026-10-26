@@ -25,6 +25,7 @@ var (
 	ErrAccountNotFound        = errors.New("dungeon account is not found")
 	ErrRewardInvalid          = errors.New("dungeon reward is invalid")
 	ErrInventoryFull          = errors.New("dungeon reward inventory is full")
+	ErrGoldInsufficient       = errors.New("dungeon gold is insufficient")
 	ErrGoldOverflow           = errors.New("dungeon gold would overflow")
 	ErrStackProjectorRequired = errors.New("dungeon expiring stack projector is required")
 	ErrPremiumDailyLimit      = errors.New("dungeon premium service daily limit reached")
@@ -54,9 +55,11 @@ type CardRewardBundle struct {
 }
 
 type CardRewardCommand struct {
-	CharacterID         string
-	MainSlots           uint16
-	Bundle              CardRewardBundle
+	CharacterID string
+	MainSlots   uint16
+	Bundle      CardRewardBundle
+	// Cost 在原资产事务中先于奖励扣除；免费翻牌保持零值。
+	Cost                int64
 	UpdatedAt           time.Time
 	Project             StackProjector
 	ConsumePremiumDaily bool
@@ -165,10 +168,14 @@ func (o *Owner) GrantCardReward(ctx context.Context, cmd CardRewardCommand) (Car
 			return ErrPremiumDailyLimit
 		}
 		currentGold := character.Stats["gold"]
+		if cmd.Cost > 0 && currentGold < cmd.Cost {
+			return ErrGoldInsufficient
+		}
+		result.GoldBefore = currentGold
+		currentGold -= cmd.Cost
 		if cmd.Bundle.Gold > 0 && currentGold > math.MaxInt64-cmd.Bundle.Gold {
 			return ErrGoldOverflow
 		}
-		result.GoldBefore = currentGold
 		result.GoldAfter = currentGold + cmd.Bundle.Gold
 		character.Stats["gold"] = result.GoldAfter
 
@@ -393,6 +400,9 @@ func CardRewardSlotRangeUsable(slotStart, slotEnd int16) bool {
 // 但把**命中的规则 + 现场数值**写进 error：线上 2026-09-27 的锦标赛日志只有一句裸
 // `dungeon reward is invalid`，看不出是道具 id 非法、数量非法、段取不到还是背包容量为 0。
 func validateCardReward(cmd CardRewardCommand) error {
+	if cmd.Cost < 0 {
+		return fmt.Errorf("%w: rule=card_reward_cost_negative cost=%d", ErrRewardInvalid, cmd.Cost)
+	}
 	if cmd.Bundle.Gold < 0 {
 		return fmt.Errorf("%w: rule=card_reward_gold_negative gold=%d", ErrRewardInvalid, cmd.Bundle.Gold)
 	}
