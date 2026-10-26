@@ -1,10 +1,12 @@
 package dnfbridge
 
 import (
+	"context"
 	"encoding/binary"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
 // P05 town-area regression. These cases cross the real SET_USER_AREA handler
@@ -29,7 +31,7 @@ func TestP05TownCrossAreaFinishLoadingPartyHPOrder(t *testing.T) {
 
 		// Character 29 leaves the shared town area. Character 17 remains in
 		// the old area, so the old peer must retain party identity via op23.
-		p05CrossAreaMoveTown(t, fixture.service, fixture.target, 39, 0, 900, 250, 5)
+		p05CrossAreaMoveTown(t, fixture.service, fixture.target, 38, 2, 900, 250, 5)
 		peerMoveFrames := p05Frames(t, fixture.service, fixture.actor)
 		p05CrossAreaRequireFrame(t, peerMoveFrames, currentTownUserAreaNotificationMsgID)
 		p05CrossAreaRequireNoLeave(t, peerMoveFrames, targetID)
@@ -43,12 +45,12 @@ func TestP05TownCrossAreaFinishLoadingPartyHPOrder(t *testing.T) {
 		fixture := newTownPartyActorHPFixture(t, true)
 		p05CrossAreaPrepareSharedTown(t, fixture)
 
-		p05CrossAreaMoveTown(t, fixture.service, fixture.target, 39, 0, 900, 250, 5)
+		p05CrossAreaMoveTown(t, fixture.service, fixture.target, 38, 2, 900, 250, 5)
 		peerFrames := p05Frames(t, fixture.service, fixture.actor)
 		p05CrossAreaRequireFrame(t, peerFrames, currentTownUserAreaNotificationMsgID)
 		p05CrossAreaRequireNoLeave(t, peerFrames, targetID)
 
-		pairFrames := p05CrossAreaMoveTown(t, fixture.service, fixture.actor, 39, 0, 870, 248, 6)
+		pairFrames := p05CrossAreaMoveTown(t, fixture.service, fixture.actor, 38, 2, 870, 248, 6)
 		p05CrossAreaRequireNoLeave(t, pairFrames, peerID)
 		// The peer's same-area entry also projects into the target connection.
 		// Drain it so the target's finish-loading assertion cannot pass on a
@@ -68,9 +70,9 @@ func TestP05TownCrossAreaFinishLoadingPartyHPOrder(t *testing.T) {
 		fixture := newTownPartyActorHPFixture(t, true)
 		p05CrossAreaPrepareSharedTown(t, fixture)
 
-		p05CrossAreaMoveTown(t, fixture.service, fixture.target, 39, 0, 900, 250, 5)
+		p05CrossAreaMoveTown(t, fixture.service, fixture.target, 38, 2, 900, 250, 5)
 		p05Frames(t, fixture.service, fixture.actor)
-		p05CrossAreaMoveTown(t, fixture.service, fixture.actor, 39, 0, 870, 248, 6)
+		p05CrossAreaMoveTown(t, fixture.service, fixture.actor, 38, 2, 870, 248, 6)
 		p05Frames(t, fixture.service, fixture.target)
 
 		// The first returner finishes while the other member is still in the
@@ -99,6 +101,18 @@ func TestP05TownCrossAreaFinishLoadingPartyHPOrder(t *testing.T) {
 // finish-loading assertions cannot pass on a pre-rebuild op153.
 func p05CrossAreaPrepareSharedTown(t *testing.T, fixture *townPartyActorHPFixture) {
 	t.Helper()
+	// This synthetic catalog models two public areas in one town; crossing to
+	// another town would require a separate portal/transport authorization.
+	table, err := dnftown.Load(context.Background(), townMoveTestSource{
+		"town/town.lst": "38 `new_Elvengard.twn`",
+		"town/new_Elvengard.twn": "[area]\n0 `new_Elvengard.map` `[normal]`\n[/area]\n" +
+			"[area]\n1 `new_seria_room.map` `[gate]` 450 234\n[/area]\n" +
+			"[area]\n2 `new_D_Elvengard_L.map` `[normal]`\n[/area]\n[name]\n`Elvengard`",
+	}, dnftown.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.townCatalog = table
 	p05CrossAreaMoveTown(t, fixture.service, fixture.target, 38, 0, 900, 250, 5)
 	_ = p05Frames(t, fixture.service, fixture.actor)
 	p05CrossAreaMoveTown(t, fixture.service, fixture.actor, 38, 0, 870, 248, 6)
@@ -119,6 +133,10 @@ func p05CrossAreaMoveTown(
 		buildTownMoveRequest(townID, areaID, x, y, direction),
 	); err != nil {
 		t.Fatalf("town area move town=%d area=%d: %v", townID, areaID, err)
+	}
+	info, found := service.onlinePlayers.PlayerForCharacter(session.selectedCharacterID)
+	if !found || info.Session != session || info.TownID != townID || info.AreaID != areaID {
+		t.Fatalf("town move did not publish requested area %d/%d: found=%v actual=%+v", townID, areaID, found, info)
 	}
 	return p05Frames(t, service, session)
 }
