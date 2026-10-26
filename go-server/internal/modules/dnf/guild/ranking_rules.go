@@ -50,6 +50,7 @@ type RankingConquest struct {
 }
 
 type RankingRules struct {
+	MemberRanking                            *MemberRankingRules
 	Members, WeeklyActive, Dungeon, Contents RankingRate
 	MinimumConquestPoint                     float64
 	Conquests                                []RankingConquest
@@ -285,6 +286,12 @@ func ParseRankingRules(text string) (*RankingRules, error) {
 	}
 	if len(r.Conquests) == 0 || len(r.Adventure) == 0 || len(r.PVP) == 0 || len(r.PartyClears) == 0 || len(r.RaidClears) != 3 || r.NewbieAfter.IsZero() {
 		return nil, ErrRankingRules
+	}
+	if seen["guild member ranking factor"] {
+		r.MemberRanking, err = ParseMemberRankingRules(text)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }

@@ -4,6 +4,7 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildMemberRankingOpcode:                     (*Service).handleCurrentGuildMemberRanking,
 		currentGuildRankingBoardOpcode:                      (*Service).handleCurrentGuildRankingBoard,
 		currentGuildRankingOpcode:                           (*Service).handleCurrentGuildRanking,
 		currentGuildHongbaoListOpcode:                       (*Service).handleCurrentGuildHongbaoList,
