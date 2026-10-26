@@ -65,7 +65,7 @@ func reviewRaidOverflowFixture(t *testing.T, catalog *pvfDungeonDropCatalog, con
 	}
 	now := time.Now().UTC()
 	plan, e := resolveCurrentAntonConfiguredReward(catalog, choice, zeroAntonRoll, now)
-	if e != nil || len(plan.Rewards) != 1 {
+	if e != nil || len(plan.Rewards) == 0 {
 		t.Fatal(e)
 	}
 	g := memory.NewMemoryGroup()
@@ -73,10 +73,11 @@ func reviewRaidOverflowFixture(t *testing.T, catalog *pvfDungeonDropCatalog, con
 	if e := g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "31", AccountID: "account"}); e != nil {
 		t.Fatal(e)
 	}
-	def := plan.Rewards[0].Definition
 	slots := map[string]repo.ItemStack{}
-	for slot := def.SlotStart; slot <= def.SlotEnd; slot++ {
-		slots[currentDungeonPickupMainSlotKey(slot)] = repo.ItemStack{ItemID: 10096296, Count: 1}
+	for _, reward := range plan.Rewards {
+		for slot := reward.Definition.SlotStart; slot <= reward.Definition.SlotEnd; slot++ {
+			slots[currentDungeonPickupMainSlotKey(slot)] = repo.ItemStack{ItemID: 10096296, Count: 1}
+		}
 	}
 	for slot := currentDungeonPickupQuickSlotStart; slot <= currentDungeonPickupQuickSlotEnd; slot++ {
 		slots[currentDungeonPickupMainSlotKey(slot)] = repo.ItemStack{ItemID: 10096296, Count: 1}
@@ -106,6 +107,11 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 	for _, mode := range []string{"success", "late_abort", "unknown_commit", "foreign_account", "foreign_character", "changed_fingerprint", "changed_card", "no_mail_capability", "cancelled", "concurrent_same", "concurrent_different"} {
 		t.Run(mode, func(t *testing.T) {
 			g, plan, cmd := reviewRaidOverflowFixture(t, catalog, config, 10304483)
+			wantMails := len(plan.Rewards)
+			var wantCount int64
+			for _, r := range plan.Rewards {
+				wantCount += int64(r.Count)
+			}
 			base := g.AccountAssets
 			oldInv, _, _ := g.Inventory.Load(context.Background(), "31")
 			switch mode {
@@ -161,7 +167,7 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 					}
 				}
 				mails, count := reviewRaidOverflowMailCount(t, g, "31")
-				if mails != 1 || count != 1 || (mode == "concurrent_same" && (failures != 0 || commits != 1)) || (mode == "concurrent_different" && failures != 4) {
+				if mails != wantMails || count != wantCount || (mode == "concurrent_same" && (failures != 0 || commits != 1)) || (mode == "concurrent_different" && failures != 4) {
 					t.Fatal("concurrent duplicate or owner conflict", mails, count, failures, commits)
 				}
 				return
@@ -177,7 +183,7 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 					t.Fatal("receipt card substitution", e)
 				}
 				m, c := reviewRaidOverflowMailCount(t, g, "31")
-				if m != 1 || c != 1 {
+				if m != wantMails || c != wantCount {
 					t.Fatal("changed card duplicated")
 				}
 				return
@@ -190,7 +196,7 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 					t.Fatal("unknown commit fixture not exercised")
 				}
 				m, c := reviewRaidOverflowMailCount(t, g, "31")
-				if m != 1 || c != 1 {
+				if m != wantMails || c != wantCount {
 					t.Fatal("durable fixture commit missing", m, c)
 				}
 				replay, e := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd)
@@ -198,7 +204,7 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 					t.Fatal("lost reply replay", e)
 				}
 				m, c = reviewRaidOverflowMailCount(t, g, "31")
-				if m != 1 || c != 1 {
+				if m != wantMails || c != wantCount {
 					t.Fatal("replay duplicated", m, c)
 				}
 				return
@@ -222,7 +228,7 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 					t.Fatal("rolled back grant cannot retry", e)
 				}
 				m, c = reviewRaidOverflowMailCount(t, g, "31")
-				if m != 1 || c != 1 {
+				if m != wantMails || c != wantCount {
 					t.Fatal("retry not exactly once")
 				}
 			}

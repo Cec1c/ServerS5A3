@@ -15,10 +15,10 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// This is a frozen result, not a bag source item. A configured legacy table
-// expands to its awarded contents; ordinary booster rewards remain actual
-// unopened boxes, as in the raid reward reference. Invalid tables never fall
-// back to awarding their ID. Projection/claim state is owned by the caller.
+// The frozen result contains final materials, cards and equipment. Random
+// reward wrappers expand before freezing; actual player-choice boxes remain.
+// Invalid tables never fall back to awarding their ID. Projection/claim state
+// is owned by the caller.
 type currentAntonRewardPlan struct {
 	Choice      raid.AntonRewardChoice
 	Rewards     []currentBoosterReward
@@ -38,30 +38,7 @@ func resolveCurrentAntonConfiguredReward(catalog *pvfDungeonDropCatalog, choice 
 	if catalog == nil || catalog.source == nil || choice.ContainerID == 0 || choice.Weight == 0 || choice.Flags > 1 || now.IsZero() {
 		return currentAntonRewardPlan{}, raid.ErrRewardReceipt
 	}
-	definition, err := catalog.ResolveItem(choice.ContainerID)
-	if err != nil {
-		return currentAntonRewardPlan{}, err
-	}
-	amounts := map[uint32]uint32{choice.ContainerID: 1}
-	var options map[uint32]byte
-	if definition.Kind == dungeonDropItemStackable {
-		doc, err := parseDungeonCardPVFDocument(catalog.source, definition.PVFPath)
-		if err != nil {
-			return currentAntonRewardPlan{}, err
-		}
-		typ := normalizeDungeonDropStackableType(magicBoxDocumentText(doc, "stackable type"))
-		if typ == "[upgradable legacy]" || typ == "[random upgradable legacy]" {
-			box, err := resolveCurrentBoosterDefinition(catalog, choice.ContainerID, currentBoosterRequestRandom)
-			if err != nil {
-				return currentAntonRewardPlan{}, err
-			}
-			amounts, options, err = resolveCurrentBoosterRewardAmounts(box, currentBoosterOpenRequest{Kind: currentBoosterRequestRandom}, roll)
-			if err != nil {
-				return currentAntonRewardPlan{}, err
-			}
-		}
-	}
-	rewards, err := resolveCurrentBoosterRewards(catalog, amounts, options, repo.ItemStack{}, now.UTC())
+	rewards, err := resolveCurrentRaidRewardContents(catalog, choice.ContainerID, roll, now)
 	if err != nil {
 		return currentAntonRewardPlan{}, err
 	}
@@ -101,51 +78,15 @@ func resolveCurrentAntonRewardPlan(catalog *pvfDungeonDropCatalog, phase raid.An
 	return resolveCurrentAntonConfiguredReward(catalog, choice, roll, now)
 }
 
-// Validate every legacy-table leaf before charging entry material. Direct
-// booster boxes are validated as actual awarded items, not automatically
-// opened. A corrupt legacy table or missing leaf aborts admission.
+// Validate all random-wrapper leaves before charging entry material.
 func validateCurrentAntonRewardDependencies(catalog *pvfDungeonDropCatalog, config raid.AntonRewardConfiguration, now time.Time) error {
-	seen := map[uint32]bool{}
+	var roots []uint32
 	for _, phase := range config.Phases {
 		for _, choice := range phase.Choices {
-			if seen[choice.ContainerID] {
-				continue
-			}
-			seen[choice.ContainerID] = true
-			definition, err := catalog.ResolveItem(choice.ContainerID)
-			if err != nil {
-				return err
-			}
-			doc, err := parseDungeonCardPVFDocument(catalog.source, definition.PVFPath)
-			if err != nil {
-				return err
-			}
-			typ := normalizeDungeonDropStackableType(magicBoxDocumentText(doc, "stackable type"))
-			amounts := map[uint32]uint32{choice.ContainerID: 1}
-			if definition.Kind == dungeonDropItemStackable && (typ == "[upgradable legacy]" || typ == "[random upgradable legacy]") {
-				box, err := resolveCurrentBoosterDefinition(catalog, choice.ContainerID, currentBoosterRequestRandom)
-				if err != nil {
-					return err
-				}
-				if _, _, err := resolveCurrentBoosterRewardAmounts(box, currentBoosterOpenRequest{Kind: currentBoosterRequestRandom}, func(int64) (int64, error) { return 0, nil }); err != nil {
-					return err
-				}
-				amounts = map[uint32]uint32{}
-				for _, group := range box.Random.Groups {
-					for _, entry := range group.Entries {
-						if entry.ItemID <= 0 || entry.ItemID > math.MaxUint32 || entry.Count <= 0 || entry.Count > math.MaxUint16 {
-							return raid.ErrRewardReceipt
-						}
-						amounts[uint32(entry.ItemID)] = uint32(entry.Count)
-					}
-				}
-			}
-			if _, err := resolveCurrentBoosterRewards(catalog, amounts, nil, repo.ItemStack{}, now.UTC()); err != nil {
-				return err
-			}
+			roots = append(roots, choice.ContainerID)
 		}
 	}
-	return nil
+	return validateCurrentRaidRewardContents(catalog, roots, now)
 }
 
 type currentAntonRewardGrantResult struct {

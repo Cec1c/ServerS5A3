@@ -288,7 +288,7 @@ func TestRealPVFAntonFlowSnapshotsDoNotShareEarnedPlans(t *testing.T) {
 	}
 }
 
-func TestRealPVFAntonFlowRareSquadUsesActualUnopenedBoosterAndCurrentNestedDisplay(t *testing.T) {
+func TestRealPVFAntonFlowRareSquadGrantsContentsAndCurrentNestedDisplay(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	roll := func(bound int64) (int64, error) {
@@ -304,8 +304,8 @@ func TestRealPVFAntonFlowRareSquadUsesActualUnopenedBoosterAndCurrentNestedDispl
 		t.Fatal(errs)
 	}
 	for _, id := range []string{"19", "20"} {
-		if antonGrantedItemCount(t, f, id, 10304483) != 1 {
-			t.Fatal("real rare squad booster was opened/substituted/missing", id)
+		if antonGrantedItemCount(t, f, id, 10304483) != 0 || antonGrantedItemCount(t, f, id, 10093974) != 20 || antonGrantedItemCount(t, f, id, 100050518) != 1 {
+			t.Fatal("rare squad final materials/equipment missing or wrapper awarded", id)
 		}
 	}
 	state := cloneRuntimeRaidState(*f.state)
@@ -317,7 +317,7 @@ func TestRealPVFAntonFlowRareSquadUsesActualUnopenedBoosterAndCurrentNestedDispl
 		t.Fatal(err)
 	}
 	body := antonNativeCardBodies(t, f)[3]
-	if len(body) != 26 || binary.LittleEndian.Uint32(body[7:11]) != 10304483 || body[13] != 1 {
+	if len(body) != 42 || binary.LittleEndian.Uint32(body[7:11]) != 10093974 || binary.LittleEndian.Uint32(body[15:19]) != 100050518 || body[13] != 1 || body[21] != 1 {
 		t.Fatal("rare current squad descriptor changed", body)
 	}
 	writeAntonNativeCardFixture(t, "go-anton-squad-rare-first.bin", body)
