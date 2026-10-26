@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"fmt"
 )
 
 func (s *Service) markCurrentTownSceneReady(session *gameSession) {
@@ -45,6 +46,12 @@ func (s *Service) currentTownEnterSelectReady(session *gameSession) (bool, strin
 // after the typed return op24, so the wrapper commits the pending runtime and
 // restores the town position owner needed by sendCurrentTownEnterSelectContext.
 func (s *Service) commitPendingDungeonReturnBeforeTownEnterSelect(session *gameSession, source string) error {
+	return s.commitPendingDungeonReturnBeforeTownAction(session, source, "current_exe_op15_enter_select_after_pending_town_return", nil)
+}
+
+// 选择器和体验结束后的正式转职都可能成为op24之后的第一条城镇动作。
+// 共用已有回城提交、角色重建和来源坐标恢复，避免转职绕过场景确认。
+func (s *Service) commitPendingDungeonReturnBeforeTownAction(session *gameSession, source, confirmationSource string, expectedRuntime *runtimeDungeonState) error {
 	if session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
@@ -52,6 +59,10 @@ func (s *Service) commitPendingDungeonReturnBeforeTownEnterSelect(session *gameS
 
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
+	if expectedRuntime != nil && runtime != expectedRuntime {
+		session.dungeon.mu.Unlock()
+		return fmt.Errorf("转职体验回城所属副本已改变")
+	}
 	shouldCommit := runtime != nil && runtime.Session != nil &&
 		runtime.townReturnPending && runtime.townReturnOp24Sent
 	transition := currentDungeonTownTransition{}
@@ -67,23 +78,6 @@ func (s *Service) commitPendingDungeonReturnBeforeTownEnterSelect(session *gameS
 			source+"_without_retained_runtime",
 		)
 	}
-	if err := s.commitPendingDungeonReturnForSceneRequest(session, "current_exe_op15_enter_select_after_pending_town_return"); err != nil {
-		return err
-	}
-
-	session.dungeon.mu.Lock()
-	stillHasRuntime := session.dungeon.runtime != nil
-	session.dungeon.mu.Unlock()
-	if stillHasRuntime || session.selectedCharacterID != characterID {
-		s.logGameEvent(session, "game-upper-enter-select-dungeon-pending-return-committed",
-			"source", source,
-			"char_id", characterID,
-			"runtime_retained", stillHasRuntime,
-			"selected_character", session.selectedCharacterID,
-			"reason", "pending_return_committed_but_town_context_changed")
-		return nil
-	}
-
 	snapshot := currentTownPositionSnapshot{
 		CharacterID:   characterID,
 		TownID:        transition.TownID,
@@ -102,6 +96,32 @@ func (s *Service) commitPendingDungeonReturnBeforeTownEnterSelect(session *gameS
 		positionSource = "current_exe_op35_runtime_origin_snapshot"
 	}
 
+	// 已确认的返回坐标先保存在会话；不提前标记城镇就绪。
+	// 回城ACK或角色投影中途写失败后，原runtime可能已经退休，重试仍需该坐标。
+	session.townMu.Lock()
+	if session.selectedCharacterID != characterID {
+		session.townMu.Unlock()
+		return fmt.Errorf("回城确认期间所选角色已改变")
+	}
+	session.townPositionSnapshot = snapshot
+	session.townMu.Unlock()
+	if err := s.commitPendingDungeonReturnForExpectedSceneRequest(session, confirmationSource, runtime); err != nil {
+		return err
+	}
+
+	session.dungeon.mu.Lock()
+	stillHasRuntime := session.dungeon.runtime != nil
+	session.dungeon.mu.Unlock()
+	if stillHasRuntime || session.selectedCharacterID != characterID {
+		s.logGameEvent(session, "game-upper-enter-select-dungeon-pending-return-committed",
+			"source", source,
+			"char_id", characterID,
+			"runtime_retained", stillHasRuntime,
+			"selected_character", session.selectedCharacterID,
+			"reason", "pending_return_committed_but_town_context_changed")
+		return nil
+	}
+
 	session.townMu.Lock()
 	clearCurrentTownSelectorOriginLocked(session)
 	session.townSceneReadyCharacterID = characterID
@@ -117,7 +137,7 @@ func (s *Service) commitPendingDungeonReturnBeforeTownEnterSelect(session *gameS
 		"position_y", snapshot.PositionY,
 		"movement_code", snapshot.MovementCode,
 		"position_source", positionSource,
-		"reason", "op15_can_be_first_town_side_request_after_back_to_village")
+		"reason", "town_action_can_be_first_confirmation_after_back_to_village")
 	return nil
 }
 

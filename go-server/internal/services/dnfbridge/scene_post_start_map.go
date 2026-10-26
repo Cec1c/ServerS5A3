@@ -390,7 +390,7 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	// Install the complete container snapshot only after the selected actor and
 	// its container managers exist. This changes inventory ownership only; the
 	// dungeon scene/camera packet sequence remains untouched.
-	if err := s.sendCurrentSelectInventoryBootstrap(session, source+"_after_actor_before_player_object"); err != nil {
+	if err := s.sendCurrentProfessionTrialInventoryBootstrap(session, runtime, scene, source+"_after_actor_before_player_object"); err != nil {
 		return err
 	}
 	// The container bootstrap owns its own bounded snapshot context and socket

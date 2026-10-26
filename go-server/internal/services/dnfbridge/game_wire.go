@@ -359,7 +359,13 @@ func (s *Service) sendCurrentSceneItemList(session *gameSession, msgID uint16, b
 		"body_len", len(body),
 		"body_encoded", false,
 		"body_codec", "plaintext")
-	return s.writeGameUpperPacket(session, packet)
+	if err := s.writeGameUpperPacket(session, packet); err != nil {
+		return err
+	}
+	if msgID == uint16(dnfenum.CmdPacketLeaveParty) && len(body) >= 5 && body[0] == 0 {
+		session.selectedMainInventoryCharacterID = session.selectedCharacterID
+	}
+	return nil
 }
 
 // sendCurrentProtectedClass0Packet owns current marker=1 scene transport
