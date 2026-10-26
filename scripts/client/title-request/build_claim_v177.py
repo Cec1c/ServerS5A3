@@ -29,6 +29,7 @@ from pe_support import Image, sha256
 from title_extension import OLD_VIRTUAL_SIZE, OP19UI, title_extension
 
 V177_SHA256 = '027eca60196f8e22b7d05a9cad4ae37fe0098ab48e3048714b8ceb9270f5e752'
+V178_SHA256 = 'eae47c4b805c8cc6d7c81c26380fe78785968f50ddcd9aeff4e12047f9ab00ac'
 V177_SIZE = 111919104
 OLD_EXTENSION_SIZE = 250
 OLD_EXTENSION_SHA256 = 'da62daefbd08ccc2808360df017a65e2ffa91e6c4ef9a9ad446bc74324b1c877'
@@ -43,10 +44,11 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def verify_baseline(data):
+def verify_baseline(data, *, baseline_sha256=V177_SHA256):
+    require(baseline_sha256 in (V177_SHA256, V178_SHA256), 'unsupported published baseline')
     image = Image.from_bytes(data)
-    require(image.sha256 == V177_SHA256 and len(data) == V177_SIZE,
-            'exact V177 image required')
+    require(image.sha256 == baseline_sha256 and len(data) == V177_SIZE,
+            'exact selected published image required')
     section = image.section('.op19ui')
     require(section['va'] == OP19UI and section['raw_size'] == 0x1000,
             'unexpected .op19ui section')
@@ -77,8 +79,8 @@ def classify(offset, ranges):
     return None
 
 
-def build(data):
-    image, section = verify_baseline(data)
+def build(data, *, baseline_sha256=V177_SHA256):
+    image, section = verify_baseline(data, baseline_sha256=baseline_sha256)
     from verify_boundary import inject  # shared patch implementation
     candidate = inject(data)
     patched = Image.from_bytes(candidate)
