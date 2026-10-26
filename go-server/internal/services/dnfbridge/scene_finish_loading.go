@@ -187,7 +187,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		return nil
 	}
 	if session.finishLoadingGateSnapshot().PostFinish {
-
+		s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_observed")
 		return nil
 	}
 	initialTownFinalized := currentInitialTownPlayerStateFinalized(session)
@@ -275,6 +275,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		session.deferredDungeonUserStateObjectKey = 0
 	}
 	session.setFinishLoadingGatePostFinish(true)
+	s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_placement")
 	return nil
 }
 

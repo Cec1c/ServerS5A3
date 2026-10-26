@@ -4,14 +4,16 @@ import (
 	"encoding/binary"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 )
 
-// Probe all 64 pool ports plus an out-of-pool lease socket in disjoint 128-port
+// Acquire an out-of-pool lease before probing 64 pool ports in disjoint 128-port
 // blocks below the usual dynamic port range. Hold the lease until test cleanup
-// so another copy of these tests cannot choose the same block after the pool
-// probes close. An unrelated process ignoring this lease can still contend;
+// so another copy cannot briefly bind this block while its owner is testing
+// close/rebind. Probing the pool before the lease would itself cause contention.
+// An unrelated process ignoring this lease can still contend;
 // bind failures are fixture failures, never evidence of a product defect.
 // No test sends traffic beyond loopback.
 func r137FreeRange(t *testing.T) int {
@@ -20,28 +22,55 @@ func r137FreeRange(t *testing.T) int {
 		first := testCurrentPartyUDPClient(t, "127.0.0.1")
 		start := 20000 + (first.LocalAddr().(*net.UDPAddr).Port%128)*128
 		first.Close()
+		lease, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start + 64})
+		if err != nil {
+			continue
+		}
 		var sockets []*net.UDPConn
-		for port := start; port < start+65; port++ {
+		for port := start; port < start+64; port++ {
 			c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 			if err != nil {
 				break
 			}
 			sockets = append(sockets, c)
 		}
-		if len(sockets) == 65 {
-			lease := sockets[64]
+		if len(sockets) == 64 {
 			t.Cleanup(func() { lease.Close() })
-			for _, c := range sockets[:64] {
+			for _, c := range sockets {
 				c.Close()
+			}
+			// Windows can return from closesocket before a just-released UDP
+			// endpoint can be rebound. These probes are fixture sockets only.
+			if runtime.GOOS == "windows" {
+				time.Sleep(20 * time.Millisecond)
 			}
 			return start
 		}
 		for _, c := range sockets {
 			c.Close()
 		}
+		lease.Close()
 	}
 	t.Fatal("no complete 65-port fixture range available")
 	return 0
+}
+
+// Check eventual release with a bounded deadline: an actually leaked socket
+// still fails. Windows may reject immediate rebind after a successful Close.
+func r137AssertPortReleased(t *testing.T, port int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		if err == nil {
+			socket.Close()
+			return
+		}
+		if runtime.GOOS != "windows" || time.Now().After(deadline) {
+			t.Fatalf("closed socket port %d remains unavailable: %v", port, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func r137NewRelay(t *testing.T, start int, ports []int, on bool, via int) *currentPartyUDPRelay {
@@ -227,11 +256,7 @@ func TestR137ProbeReservationLifecycle(t *testing.T) {
 	if r.Sync(77, members[:2]) {
 		t.Fatal("closed relay accepted sync")
 	}
-	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start})
-	if err != nil {
-		t.Fatal("relay close leaked probe socket", err)
-	}
-	socket.Close()
+	r137AssertPortReleased(t, start)
 }
 
 // 31 complete two-person topologies consume 62 of 63 directed ports. Neither
@@ -275,17 +300,17 @@ func TestR137ProbeReservationAtomicExhaustion(t *testing.T) {
 			t.Fatal("partial new party advertised")
 		}
 		// Rollback closes its tentative final socket, not just its map entry.
-		spare, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start + 63})
-		if err != nil {
-			t.Fatal("tentative socket leaked", err)
-		}
-		spare.Close()
+		r137AssertPortReleased(t, start+63)
 	}
 	if len(r.probeListenerPorts()) != 1 {
 		t.Fatal("exhaustion stole probe")
 	}
 	r.CloseParty(530)
-	if !r.Sync(900, r137Bindings(2000, 2001)) {
+	if runtime.GOOS == "windows" {
+		waitRelayCondition(t, time.Second, "pool recovers after Windows UDP close", func() bool {
+			return r.Sync(900, r137Bindings(2000, 2001))
+		})
+	} else if !r.Sync(900, r137Bindings(2000, 2001)) {
 		t.Fatal("pool did not recover after party close")
 	}
 	r137AssertPool(t, r, 62)

@@ -24,15 +24,16 @@ type currentRaidDungeonEntry struct {
 	RunID        string
 	Participants []uint16
 	// This admitted mode stays with the map after global raid progress changes.
-	fiendWarOrigin currentTownPositionSnapshot
-	fiendWarParty  *party.RuntimePartySnapshot
-	teamMode       bool
+	fiendWarOrigin  currentTownPositionSnapshot
+	teamMode        bool
+	singleAntonMode bool
+	fiendWarParty   *party.RuntimePartySnapshot
 }
 
-// Team raids do not create floor items or gold. Keep this rule on the frozen
+// Team raids and single Anton do not create floor items or gold. Keep this rule on the frozen
 // entry, so an expired or retired battle cannot restore ordinary map drops.
 func currentTeamRaidGroundDropsDisabled(runtime *runtimeDungeonState) bool {
-	return runtime != nil && runtime.raidEntry != nil && runtime.raidEntry.teamMode
+	return runtime != nil && runtime.raidEntry != nil && (runtime.raidEntry.teamMode || runtime.raidEntry.singleAntonMode)
 }
 
 func (s *Service) currentRaidDungeonBindingRequired(session *gameSession) bool {
@@ -189,6 +190,8 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 	}
 
 	if b.FiendWar != nil {
+		// The eight raid numbers are permanent seats, not the temporary combat
+		// party. Freeze that party's identity separately for encounter cleanup.
 		if entry.fiendWarParty == nil {
 			if snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(session.selectedCharacterID, session.characterGeneration); found {
 				ids := make([]uint16, 0, len(snapshot.Members))
@@ -212,6 +215,7 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 		}
 	}
 	entry.teamMode = !b.Single
+	entry.singleAntonMode = b.Single && b.Mode == 1
 	for _, target := range targets {
 		copy := entry
 		copy.Participants = append([]uint16(nil), entry.Participants...)

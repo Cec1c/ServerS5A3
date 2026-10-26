@@ -42,6 +42,39 @@ func damageFontTestDocument(index int, expiration string) string {
 		strconv.Itoa(index) + "\n[expiration info]\n" + expiration + "\n[/damage font info]\n"
 }
 
+// The pinned runtime PVF ships one row (490010086) that declares `[add damage
+// font skin]` without a `[damage font info]` block. That block is the only
+// authority for the granted font index and index 0 is the "no font" sentinel, so
+// production keeps rejecting a section-less row instead of inventing index 0. A
+// present block stays validated as before: positive index plus a supported
+// period/date/unlimit expiration.
+func TestDamageFontPVFDefinitionsRequireADamageFontInfoBlock(t *testing.T) {
+	const head = "[action type]\n`[add damage font skin]`\n[/action type]\n"
+	source := dungeonDropCatalogTestSource{
+		"monster/monster.lst":              "",
+		"equipment/equipment.lst":          "",
+		"stackable/stackable.lst":          "1 `font/absent.stk`\n2 `font/zero-index.stk`\n3 `font/no-expiration.stk`\n4 `font/period.stk`\n",
+		"stackable/font/absent.stk":        head + "[item category]\n`event`\n[/item category]\n",
+		"stackable/font/zero-index.stk":    head + "[damage font info]\n[index]\n0\n[expiration info]\n`[period]` 90\n[/damage font info]\n",
+		"stackable/font/no-expiration.stk": head + "[damage font info]\n[index]\n2\n[/damage font info]\n",
+		"stackable/font/period.stk":        damageFontTestDocument(2, "`[period]` 90"),
+	}
+	catalog, err := newPVFDungeonDropCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, itemID := range []uint32{1, 2, 3} {
+		if definition, err := catalog.ResolveItem(itemID); err == nil {
+			t.Fatalf("item=%d resolved without a usable [damage font info] block: %+v", itemID, definition)
+		}
+	}
+	control, err := catalog.ResolveItem(4)
+	if err != nil || control.DamageFontIndex != 2 || control.DamageFontExpirationMode != alignedcmd.DamageFontExpirationPeriod || control.DamageFontPeriodDays != 90 {
+		t.Fatalf("control damage-font item = %+v err=%v, want index=2 period=90", control, err)
+	}
+}
+
 func TestBuildCurrentDamageFontSkinListBodyMatchesVerifiedNoti1239Layout(t *testing.T) {
 	now := time.Unix(2_000_000_000, 0)
 	body := buildCurrentDamageFontSkinListBody(map[string]int64{

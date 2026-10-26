@@ -370,7 +370,8 @@ func TestAikenR142AllRealTemplates(t *testing.T) {
 }
 
 func TestAikenR142EveryOptionByteInBothPositions(t *testing.T) {
-	valid := map[byte]bool{}
+	// Zero is the observed unselected state; nonzero indices still require PVF membership.
+	valid := map[byte]bool{0: true}
 	for _, v := range []byte{1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 21, 22, 23, 24, 25} {
 		valid[v] = true
 	}

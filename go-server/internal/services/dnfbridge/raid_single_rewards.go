@@ -78,11 +78,15 @@ func loadCurrentSingleAntonRewards(catalog *pvfDungeonDropCatalog, sequence []ui
 // Expand only the explicitly equivalent outer single reward source. A rare
 // child booster remains its actual unopened item, matching the normal owner.
 func resolveCurrentSingleAntonSquadPlan(catalog *pvfDungeonDropCatalog, phase raid.AntonPhaseRewards, rank byte, roll func(int64) (int64, error), now time.Time) (currentAntonRewardPlan, error) {
+	return resolveCurrentSingleRaidSquadPlan(catalog, phase, rank, roll, now, singleAntonSquadSourceID, singleAntonCombinedSourceID)
+}
+
+func resolveCurrentSingleRaidSquadPlan(catalog *pvfDungeonDropCatalog, phase raid.AntonPhaseRewards, rank byte, roll func(int64) (int64, error), now time.Time, sourceID, combinedID uint32) (currentAntonRewardPlan, error) {
 	choices, total, err := phase.Pool("squad_item", rank)
-	if err != nil || total != 1 || len(choices) != 1 || choices[0].ContainerID != singleAntonSquadSourceID || choices[0].Flags != 0 || roll == nil || now.IsZero() {
+	if err != nil || total != 1 || len(choices) != 1 || choices[0].ContainerID != sourceID || choices[0].Flags != 0 || roll == nil || now.IsZero() {
 		return currentAntonRewardPlan{}, raid.ErrRewardReceipt
 	}
-	box, err := resolveCurrentBoosterDefinition(catalog, singleAntonSquadSourceID, currentBoosterRequestRandom)
+	box, err := resolveCurrentBoosterDefinition(catalog, sourceID, currentBoosterRequestRandom)
 	if err != nil {
 		return currentAntonRewardPlan{}, err
 	}
@@ -95,7 +99,7 @@ func resolveCurrentSingleAntonSquadPlan(catalog *pvfDungeonDropCatalog, phase ra
 		return currentAntonRewardPlan{}, raid.ErrRewardReceipt
 	}
 	for _, reward := range rewards {
-		if reward.Count == 0 || reward.Count > math.MaxUint16 || reward.Definition.ItemID == singleAntonSquadSourceID || reward.Definition.ItemID == singleAntonCombinedSourceID {
+		if reward.Count == 0 || reward.Count > math.MaxUint16 || reward.Definition.ItemID == sourceID || reward.Definition.ItemID == combinedID {
 			return currentAntonRewardPlan{}, raid.ErrRewardReceipt
 		}
 	}

@@ -119,6 +119,10 @@ func applyUpgradeSuccessMultiplier(weight int64, bonus int) int64 {
 //	模式必须相同（厂商 `materialConfig.Mode != command.Mode` → 23 wrong mode）；
 //	当前等级必须落在 `[action type]` 的窗口里（厂商 `AllowsConsumableCurrentLevel`
 //	  → 19 restriction）。
+//	目标装备的 `[minimum level]` 必须落在耗材的 `[check usable itemlevel]` 窗口里
+//	  （厂商 `ValidateRestrictions` → `AllowsItemLevel(context.EquipmentLevel)`；
+//	   `EquipmentLevel = targetMetadata.MinimumLevel`，同样回 19）；
+//	  窗口缺席时保持原行为；已声明窗口但目标等级未知时拒绝。
 func upgradePortableConsumableError(portable *alignedcmd.UpgradePortableConsumable, cmd Command, oldLevel byte) byte {
 	if portable == nil {
 		return 0
@@ -127,6 +131,11 @@ func upgradePortableConsumableError(portable *alignedcmd.UpgradePortableConsumab
 		return upgradeErrorWrongMode
 	}
 	if int(oldLevel) < portable.LevelMin || int(oldLevel) > portable.LevelMax {
+		return upgradePortableRestrictionError
+	}
+	// 顺序照厂商：先判当前等级窗口（AllowsConsumableCurrentLevel），再判目标装备等级窗口
+	// （ValidateRestrictions → AllowsItemLevel）。越界同样回「限制」码 19。
+	if !portableConsumableAllowsTargetLevel(portable) {
 		return upgradePortableRestrictionError
 	}
 	return 0
@@ -152,4 +161,42 @@ func upgradePortableConsumableMaterial(
 		return dnfrepo.ItemStack{}, "", upgradeErrorInvalidMaterial
 	}
 	return stack, key, 0
+}
+
+// portableConsumableAllowsTargetLevel 判这件便携消耗品的 `[check usable itemlevel]`
+// 窗口是否覆盖**目标装备的 `[minimum level]`**。
+//
+// 厂商口径（`ItemUpgradeRestriction.AllowsItemLevel(context.EquipmentLevel)`，
+// InventoryItemUpgradeService.cs:486；入参就是 `targetMetadata.MinimumLevel`，:388/:401）：
+//
+//	ItemLevelMin < 0 或 ItemLevelMax < 0 ⇒ 该端不判；
+//	窗口段没写 ⇒ 这件耗材不限目标等级，保持原行为；
+//	只给一端 ⇒ 只判给出来的那一端；
+//	已声明有效窗口而目标等级未知时拒绝，避免缺元数据绕过限制。
+func portableConsumableAllowsTargetLevel(portable *alignedcmd.UpgradePortableConsumable) bool {
+	if portable == nil || !portable.UsableItemLevelSet {
+		return true
+	}
+	min := portable.UsableItemLevelMin
+	max := portable.UsableItemLevelMax
+	if min < -1 || max < -1 {
+		return false
+	}
+	if min < 0 && max < 0 {
+		return true
+	}
+	if min >= 0 && max >= 0 && min > max {
+		return false
+	}
+	level := portable.TargetMinimumLevel
+	if level < 0 {
+		return false
+	}
+	if min >= 0 && level < min {
+		return false
+	}
+	if max >= 0 && level > max {
+		return false
+	}
+	return true
 }
