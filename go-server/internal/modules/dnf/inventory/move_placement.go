@@ -67,6 +67,9 @@ func moveSlotAllowed(cmd Command, moving dnfrepo.ItemStack, list byte, slot int1
 }
 
 func validateMovePlacement(cmd Command, src, dst map[string]dnfrepo.ItemStack, state *dnfrepo.CharacterContainerState) error {
+	if err := validateMoveQuickEquipment(cmd, src, dst); err != nil {
+		return err
+	}
 	source, sourceOK := src[slotKey(cmd.SourceListType, cmd.SourceSlotIndex)]
 	destination, destinationOK := dst[slotKey(cmd.DestinationListType, cmd.DestinationSlotIndex)]
 	if !sourceOK && !destinationOK {
