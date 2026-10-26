@@ -2,7 +2,10 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -22,6 +25,19 @@ type GuildOwner struct {
 // same commit; unrelated wallets, characters and settings remain inaccessible.
 type GuildUnitOfWork interface {
 	WithinGuild(context.Context, []GuildOwner, func(Group) error) error
+}
+
+// GuildTravelUnitOfWork commits a guild use and the locations of one ordinary
+// party (at most four characters). Other guild operations retain two owners.
+type GuildTravelUnitOfWork interface {
+	WithinGuildTravel(context.Context, []GuildOwner, func(Group) error) error
+}
+
+// GuildDungeonEntryUnitOfWork commits one guild-dungeon run across at most
+// four members plus its durable per-run receipt. It deliberately does not
+// widen the ordinary two-owner Guild boundary.
+type GuildDungeonEntryUnitOfWork interface {
+	WithinGuildDungeonEntry(context.Context, []GuildOwner, string, func(Group) error) error
 }
 
 // GuildInventoryUnitOfWork adds only the actor's inventory to the guild lock
@@ -72,7 +88,67 @@ func (r *guildInventory) SaveFields(ctx context.Context, record InventoryRecord,
 }
 
 func GuildOwners(owners []GuildOwner) ([]GuildOwner, error) {
-	if len(owners) < 1 || len(owners) > 2 {
+	return guildOwners(owners, 2)
+}
+
+func GuildTravelOwners(owners []GuildOwner) ([]GuildOwner, error) {
+	return guildOwners(owners, 4)
+}
+
+func GuildDungeonEntryOwners(owners []GuildOwner) ([]GuildOwner, error) {
+	return guildOwners(owners, 4)
+}
+
+const guildDungeonEntryReceiptPrefix = "guild-dungeon-entry-fatigue:v1:"
+
+func GuildDungeonEntryReceiptScope(guildID, dungeonID uint32, runID string) string {
+	if guildID == 0 || dungeonID == 0 || strings.TrimSpace(runID) != runID || runID == "" || len(runID) > 128 {
+		return ""
+	}
+	key := fmt.Sprintf("%d:%d:%q", guildID, dungeonID, runID)
+	return fmt.Sprintf("%s%x", guildDungeonEntryReceiptPrefix, sha256.Sum256([]byte(key)))
+}
+
+func ValidGuildDungeonEntryReceiptScope(scope string) bool {
+	if len(scope) != len(guildDungeonEntryReceiptPrefix)+64 || !strings.HasPrefix(scope, guildDungeonEntryReceiptPrefix) {
+		return false
+	}
+	digest := strings.TrimPrefix(scope, guildDungeonEntryReceiptPrefix)
+	_, err := hex.DecodeString(digest)
+	return err == nil && strings.ToLower(digest) == digest
+}
+
+func GuildDungeonEntrySettings(base SettingsRepository, receiptScope string) SettingsRepository {
+	return &guildDungeonEntrySettings{base: base, receiptScope: receiptScope}
+}
+
+type guildDungeonEntrySettings struct {
+	base         SettingsRepository
+	receiptScope string
+}
+
+func (r *guildDungeonEntrySettings) Load(ctx context.Context, scope string) (SettingsRecord, bool, error) {
+	if r.base == nil || (scope != GuildRegistryScope && scope != r.receiptScope) ||
+		!ValidGuildDungeonEntryReceiptScope(r.receiptScope) {
+		return SettingsRecord{}, false, ErrGuildTransaction
+	}
+	record, found, err := r.base.Load(ctx, scope)
+	if err == nil && found && record.Scope != scope {
+		return SettingsRecord{}, false, ErrGuildTransaction
+	}
+	return record, found, err
+}
+
+func (r *guildDungeonEntrySettings) Save(ctx context.Context, record SettingsRecord) error {
+	if r.base == nil || (record.Scope != GuildRegistryScope && record.Scope != r.receiptScope) ||
+		!ValidGuildDungeonEntryReceiptScope(r.receiptScope) {
+		return ErrGuildTransaction
+	}
+	return r.base.Save(ctx, record)
+}
+
+func guildOwners(owners []GuildOwner, limit int) ([]GuildOwner, error) {
+	if len(owners) < 1 || len(owners) > limit {
 		return nil, ErrGuildTransaction
 	}
 	ordered := append([]GuildOwner(nil), owners...)

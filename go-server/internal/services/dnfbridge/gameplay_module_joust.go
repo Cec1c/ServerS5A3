@@ -178,9 +178,16 @@ func (service *Service) sendCurrentJoustOpeningState(session *gameSession) error
 		service.logCurrentJoustEventDisabled(session, "op1240_opening_state")
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	if _, available := service.currentJoustCatalogForPublishing(
+		ctx,
+		session,
+		"op1240_opening_state",
+	); !available {
+		return nil
+	}
 	if session.selectedCharacterID != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		defer cancel()
 		service.joustOperationMu.Lock()
 		result, settleErr := service.settleCurrentJoustForSession(ctx, session, service.gameplayNow().UTC())
 		service.joustOperationMu.Unlock()
@@ -231,6 +238,13 @@ func (service *Service) sendCurrentJoustOpeningRoster(session *gameSession) erro
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	if _, available := service.currentJoustCatalogForPublishing(
+		ctx,
+		session,
+		"op1241_roster_op1242_pool",
+	); !available {
+		return nil
+	}
 	now := service.gameplayNow().UTC()
 	opening, err := service.currentJoustOpening(ctx, session, now)
 	if err != nil {

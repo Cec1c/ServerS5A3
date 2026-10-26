@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"strings"
@@ -56,6 +57,16 @@ type accountLoginTokenStore struct {
 	mu     sync.Mutex
 	tokens map[string]accountLoginTokenEntry
 	misses map[string]time.Time
+}
+
+func (r *accountLoginTokenStore) forgetAccount(account string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for token, entry := range r.tokens {
+		if entry.accountID == account {
+			delete(r.tokens, token)
+		}
+	}
 }
 
 func (r *accountLoginTokenStore) remember(token string, accountID string, expiresAt time.Time) {
@@ -251,14 +262,26 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 		return false
 	}
 	token := clientLoginTokenFromBody(body)
-	if token == "" {
-		return false
+	if token != "" {
+		session.loginTokenSeen = true
 	}
-	session.loginTokenSeen = true
 	if session.clientIP == "" {
 		session.clientIP = remoteIPOf(session.conn)
 	}
-	accountID := s.accountIDForLoginToken(token, session.clientIP)
+	var accountID string
+	if s.accountAPI != nil && s.options.accountAPILoginToken && !s.isLocalLoginToken(token) {
+		var err error
+		accountID, err = s.authenticateRemoteLogin(session, token)
+		if err != nil {
+			session.loginRevoked.Store(true)
+			return false
+		}
+	} else {
+		if token == "" {
+			return false
+		}
+		accountID = s.accountIDForLoginToken(token, session.clientIP)
+	}
 	if accountID == "" {
 		session.sharedAccountFallbackReason = sharedAccountReasonTokenNotRecognised
 		s.logPacketEvent("game-login-token-unbound",
@@ -285,6 +308,7 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 	previous := strings.TrimSpace(session.accountID)
 	session.accountID = accountID
 	session.accountFromToken = true
+	session.loginChannelFlowKey = sha256.Sum256([]byte(token))
 	session.sharedAccountFallbackReason = ""
 	s.mu.Unlock()
 	if session.clientPID != 0 {

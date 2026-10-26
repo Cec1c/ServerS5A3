@@ -7,12 +7,15 @@ import (
 	"time"
 )
 
-func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte) error {
+func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte) (routeErr error) {
+	if session != nil && session.coldChannelLanding != nil && session.coldChannelLanding.waiting {
+		return nil // 频道更正的LOGIN未完成，旧选角请求不能绑定角色或写入落点。
+	}
 	packets := expandedCSharpUpperSelectInitTemplate()
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	var selectedQuests dnfrepo.QuestRecord
 	hasSelectedQuests := false
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 
 	charID, charName, selectedCharacter, hasSelectedCharacter, slot := s.resolveSelectedCharacter(ctx, session, request)
@@ -25,6 +28,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			"request_body_len", len(request),
 			"reason", "select_request_not_decoded")
 		return nil
+	}
+	if redirected, err := s.redirectCurrentColdSpecialChannel(session, charID); redirected || err != nil {
+		return err
 	}
 	if s.options.currentClientVersion == "official-24.9" {
 		if err := currentCharacterRenameSelectionAllowed(selectedCharacter); err != nil {
@@ -132,6 +138,13 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 				premiumEntries = currentSelectAckPremiumEntries(account, time.Now().UTC())
 			}
 		}
+	}
+	batched, batchErr := s.beginCurrentOrdinaryChannelSceneBatch(session)
+	if batchErr != nil {
+		return batchErr
+	}
+	if batched {
+		defer func() { routeErr = s.finishCurrentOrdinaryChannelSceneBatch(session, routeErr) }()
 	}
 	for _, packet := range packets {
 		body := packet.body
@@ -279,6 +292,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 		if packet.kind == "select_ack" {
+			if err := s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack"); err != nil {
+				return err
+			}
 			if err := s.sendCurrentEpicWishSnapshot(session, "select_character_after_ack"); err != nil {
 				return err
 			}

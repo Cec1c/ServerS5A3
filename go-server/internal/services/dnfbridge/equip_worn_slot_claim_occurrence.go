@@ -140,6 +140,7 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 			"reason", "retry_tier_disabled_by_switch")
 		return 0
 	}
+	s.prepareCurrentWornClaimReceiptOwner(session)
 	epoch := wornSlotClaimEpochID(session)
 	if session.equipWornSlotClaimEpoch != epoch || session.equipWornSlotClaimCounts == nil {
 		session.equipWornSlotClaimEpoch = epoch
@@ -193,7 +194,20 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 	//   窗口外的批延续 ⇒ swallow      / burst
 	//   窗口外、单发   ⇒ apply-vendor / window-outside   ← "拖一次就成功"
 	decision, reason := "swallow", "window"
+	// An identical repeat of the statement the login-wear layer already absorbed
+	// is not player intent. v99+ manual UI drags carry tail=2 and bypass this
+	// counter entirely; tail=0 is the automatic login/town reassert family.
+	// Keep the late-landing occurrence counter for changed statements and
+	// outside-window single moves, but do not let it override repeat/round.
+	identicalLoginRepeat := false
+	if occurrence > 1 {
+		if statement, ok := loginWearReassertStatementOf(body); ok {
+			identicalLoginRepeat = session.loginWearReassertSlotRepeatAbsorbable(slot, statement) || s.currentWornClaimReceiptMatches(session, slot, statement)
+		}
+	}
 	switch {
+	case occurrence > 1 && identicalLoginRepeat:
+		decision, reason = "swallow", "identical-login-reassert"
 	case occurrence > 1:
 		decision, reason = "apply-vendor", "occurrence"
 	case inWindow:

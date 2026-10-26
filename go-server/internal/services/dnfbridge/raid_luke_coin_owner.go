@@ -113,5 +113,11 @@ func (s *Service) consumeCurrentDungeonReviveCoinWithLukeCaps(ctx context.Contex
 		}
 		b.RunCoins[entry.RunID]++
 	}
+	if phaseLimit > 0 {
+		// Publish committed absolute usage through the serialized latest-state projection.
+		b.ProgressVersion++
+		projection := cloneRuntimeRaidState(*state)
+		result.RaidCoinProjection = &projection
+	}
 	return result, nil
 }
