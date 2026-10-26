@@ -538,6 +538,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		runtime.townReturnSource = source
 		runtime.townReturnTransition = cloneCurrentDungeonTownTransition(transition)
 	}
+	routeOutputCommitted := runtime.townReturnOp24Sent
 	transition = cloneCurrentDungeonTownTransition(runtime.townReturnTransition)
 	session.dungeon.mu.Unlock()
 
@@ -628,7 +629,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	// task manual, and this second repository/PVF pair refreshes visible NPC
 	// task markers after the town transition has been committed by the route.
 	// This is a state snapshot only; it never accepts or completes a quest.
-	if questSnapshotsSeeded {
+	if questSnapshotsSeeded && !routeOutputCommitted {
 		if err := s.sendCurrentAcceptableQuestListForSession(
 			session,
 			source+"_post_op24_actor_ready_refresh",
@@ -642,6 +643,10 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	petClockRetired := false
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
+		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_committed")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_town_actor_route_committed")
 		// 通关回城：先留下共享实例指针，release 会把它置空；队伍处置见
@@ -716,6 +721,23 @@ func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 	runtime.townReturnTransition = currentDungeonTownTransition{}
 }
 
+// acknowledgeCurrentDungeonGiveupReturnLocked holds dungeon.mu. The saved
+// request owns this ACK: completed routes call after all actor/op24 output;
+// active routes call after positive town evidence. A failed write retains the
+// owner and a retry sends only the unfinished acknowledgement.
+func (s *Service) acknowledgeCurrentDungeonGiveupReturnLocked(session *gameSession, runtime *runtimeDungeonState) error {
+	if session == nil || runtime == nil || session.dungeon.runtime != runtime ||
+		!runtime.townReturnPending || !runtime.townReturnOp24Sent ||
+		runtime.townReturnRequestMsgID != uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnAckSent {
+		return nil
+	}
+	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketGiveupGame), nil); err != nil {
+		return err
+	}
+	runtime.townReturnAckSent = true
+	return nil
+}
+
 // cancelCurrentDungeonReturnAfterDungeonEvidenceLocked cancels an unconfirmed
 // return when a valid dungeon-only request proves that the client never left
 // the dungeon. An unrelated death or move request must not trigger another
@@ -788,17 +810,12 @@ func (s *Service) commitPendingDungeonReturnForSceneRequest(session *gameSession
 	}
 	committedStatus := snapshot.Run.Status
 	if snapshot.Run.Status == worldmap.DungeonRunActive {
-		// Current EXE's op42 sender sets actor+0x8BE; the general item-use
-		// path refuses to send op44 while it is set. Class-1 op42 callback
-		// RVA 18F4FB0 clears it through 22906D0 and reads no extra body.
-		// A typed op24 alone leaves this native wait flag armed across maps.
-		// Acknowledge only after positive town evidence, before retiring the
-		// owner, so a failed write keeps the pending return available to retry.
-		if runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) && runtime.townReturnOp24Sent {
-			if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketGiveupGame), nil); err != nil {
-				session.dungeon.mu.Unlock()
-				return err
-			}
+		// The matched v141 sender arms actor+0x8EE; the item-use gate reads
+		// it and command42 callback VA 0x1FA5400 clears it through 0x2961A90.
+		// Active give-up still waits for positive town evidence before ACK.
+		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
 		}
 		if err := runtime.Session.Abandon(); err != nil {
 			session.dungeon.mu.Unlock()
