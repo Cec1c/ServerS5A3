@@ -803,7 +803,7 @@ func (s *Service) grantAbyssEpicFragmentGuarantee(
 	// **保底仍然是结构性的**：候选列表非空时循环体没有"抽不到就跳过"的分支 ——
 	// `amount` 个碎片**一定**被抽出来。唯一能让本支不发的理由是候选为空
 	// （回退档不可能：目录装载期就拒绝空表）或等级索引读不到（上面已判）。
-	levelBand := abyssItemLevelBandFromEnv()
+	levelBand := abyssItemLevelBandFromEnv().forDungeon(runtime.Dungeon.Metadata.MinimumRequiredLevel.Value, runtime.Dungeon.Metadata.BasisLevel.Value)
 	pieces, levelIndex, levelErr := currentAbyssEpicPieceLevelCandidates(monsterCatalog, catalog, levelBand)
 	if levelErr != nil {
 		s.logAbyssEpicFragmentDeferred(session, runtime, scene, objectKey, groupID, finalWave,

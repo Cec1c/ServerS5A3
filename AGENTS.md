@@ -2,7 +2,11 @@
 
 ## Start Here
 
+- **每次新部署必须当场拉取上游**：在本次部署 run 内，对专用干净权威主干工作树执行 `git pull --ff-only`，来源必须是 GitGud 上游 `master`，并记录执行时间、来源、拉取前后 SHA。核对候选已集成最新主干及有效改动，同时保留线上累计修复和本服扩展。拉取失败、来源不符、分叉或漏接更新时，在打包、上传、切换前拒绝执行。构建完成后再次拉取；有新提交则重新集成和验证。历史拉取回执、本地旧引用或口头确认不能替代本次检查。
+- 已授权远端更新使用 `GAME_UPDATE_REMOTE.bat`，先 inspect actual active，再由 deploy 强制核对最新主干、完整范围、测试构建、备份、运行摘要、签名与频道；私有 profile 和累计基线不上传。工具及恢复来源约束见 [Docs/GAME_UPDATE.md](Docs/GAME_UPDATE.md)。
+
 - Read `changlog.md` before changing code, deployment scripts, generated configuration, or runtime behavior.
+- 部署前先读 [外部频道表选择与验收](Docs/CHANNEL_TABLE_DEPLOYMENT.md)，按仓库118频道CSV核对已批准的完整外部表，首次prepare就显式传入 `--channel-info`。不要默认提取PVF内置表作为部署目录；升级PVF时保留现有外部表。CSV仅供核对，运行输入必须是完整ETC，并读回实际进程路径、摘要、端口及客户端目录。
 - Keep `go-server` source-only. Runtime configuration, binaries, logs, PVF, database state, and PID files belong under `runtime`.
 - Edit `runtime/config/instance.json` or `deploy/templates/instance.example.json`; do not hand-edit generated files under `runtime/configs`.
 - Windows deployment entrypoints must stay BAT-only. Do not add PowerShell scripts or PowerShell calls.
@@ -13,6 +17,8 @@
 
 ## Seeker 研究与执行工作流
 
+- **先自主调查，再请求补充**：可识别的功能和现象即可开始；自行从代码、匹配PVF/客户端及现成证据定位并尝试复现，必要时建立最小夹具，按问题检查执行者与队友/观察者链路。缺日志或一次未复现不构成 `needs_info` 理由；仅在实际尝试后仍有不可自行还原的关键条件或已核实的基础设施缺口，且替代方法仍无法继续时，记录尝试、结果和具体卡点，再问最少必要项。续接时重审仅因缺日志挂起的旧条目，细则见 [BUG持续流水线](Docs/seeker/ISSUES_API_WORKFLOW.md)。
+- 论坛反馈按 [BUG持续流水线](Docs/seeker/ISSUES_API_WORKFLOW.md) 先查重、判断合理性/功能BUG和复现信息，再按影响校正优先级；选中批次分派当前账号并回复日期流水线，修复验证后按授权上传合并MR，在原反馈回写分支、MR、合并SHA及验收状态。
 - 用户指定当前会话为 Seeker 或调用 Seeker 工作流时，按 [Seeker 工作流](Docs/SEEKER_WORKFLOW.md) 推进：Astra 取证、解释成因、在 `Docs/seeker/` 留可公开方案；DeepSeek Flash 执行明确的小任务；Astra 验收关键结果。
 - 方案写清目标、必要文件、解决思路、测试与验收条件，简洁直接。明确告诉执行者：允许失败，返回已尝试方法、失败证据和下一步所需信息。
 - 默认一次一个 DeepSeek Flash 执行子代理，`max`、最小上下文、不嵌套；复杂问题由 Seeker 处理，或交用户指定的同模型 Helper。当前任务的委派授权随交接记录保存，其他会话仍按用户当次指令启用。

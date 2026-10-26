@@ -59,8 +59,13 @@ type currentRaidProjectionOwner struct {
 	initialized            bool
 	failed                 bool
 	startTransitionSent    bool
+	metadataReadyIdentity  currentRaidProjectionIdentity
+	metadataReady          bool
 	resultIdentity         currentRaidProjectionIdentity
 	resultSent             bool
+	movieIdentity          currentRaidProjectionIdentity
+	moviePromptSent        bool
+	movieCompleted         bool
 	rewardScreenIdentity   currentRaidProjectionIdentity
 	rewardScreenSent       bool
 	rewardFlowIdentity     currentRaidProjectionIdentity
@@ -68,12 +73,95 @@ type currentRaidProjectionOwner struct {
 	rewardDisplayIdentity  currentRaidProjectionIdentity
 	rewardDisplaySignature [32]byte
 	participation          map[uint16]currentRaidParticipationPosition
+	mapProjection          currentRaidMapProjection
+	clearEvents            map[currentRaidClearEvent]struct{}
 }
 
 type currentRaidProjectionPacket struct {
 	opcode       uint16
 	body         []byte
 	symbolCursor uint64
+}
+
+// Luke 585 carries a variable row list; the native Luke controller emits a
+// cleared notice whenever a row's new state is 3. Publish only changed rows so
+// a finished sanctum does not repeat its banner on an unrelated progress bump.
+// First subscription, reconnect and identity changes still receive a full map.
+// Other raid modes keep the historical full-map publication.
+type currentRaidMapProjection struct {
+	rows      map[uint32]byte
+	infection uint32
+	identity  currentRaidProjectionIdentity
+	valid     bool
+}
+
+func (c currentRaidMapProjection) packets(mode byte, resubscribe bool, identity currentRaidProjectionIdentity, rows []raid.DungeonState, infection uint32, fullBody []byte) ([]currentRaidProjectionPacket, currentRaidMapProjection, error) {
+	full := mode != 2 || resubscribe || !c.valid || c.identity != identity
+	delta, cache := currentRaidMapRowDelta(c.rows, rows)
+	next := currentRaidMapProjection{rows: cache, infection: infection, identity: identity, valid: true}
+	if full {
+		return []currentRaidProjectionPacket{{opcode: 585, body: fullBody}}, next, nil
+	}
+	if len(delta) > 0 {
+		body, err := raid.BuildDungeonStateBody(delta, infection)
+		if err != nil {
+			return nil, c, err
+		}
+		return []currentRaidProjectionPacket{{opcode: 585, body: body}}, next, nil
+	}
+	if c.infection != infection {
+		body, err := raid.BuildDungeonStateBody(nil, infection)
+		if err != nil {
+			return nil, c, err
+		}
+		return []currentRaidProjectionPacket{{opcode: 585, body: body}}, next, nil
+	}
+	return nil, next, nil
+}
+
+func currentRaidMapRowDelta(previous map[uint32]byte, rows []raid.DungeonState) ([]raid.DungeonState, map[uint32]byte) {
+	next := make(map[uint32]byte, len(rows))
+	delta := make([]raid.DungeonState, 0, len(rows))
+	for _, row := range rows {
+		next[row.ID] = row.State
+		if previous == nil {
+			delta = append(delta, row)
+			continue
+		}
+		if old, ok := previous[row.ID]; !ok || old != row.State {
+			delta = append(delta, row)
+		}
+	}
+	return delta, next
+}
+
+func currentRaidMapProjectionRows(body []byte) ([]raid.DungeonState, uint32, error) {
+	if len(body) < 6 || body[0] != 0 {
+		return nil, 0, fmt.Errorf("raid map projection header invalid")
+	}
+	count := int(body[1])
+	if len(body) != 2+count*5+4 {
+		return nil, 0, fmt.Errorf("raid map projection length mismatch")
+	}
+	rows := make([]raid.DungeonState, 0, count)
+	for i := 0; i < count; i++ {
+		base := 2 + i*5
+		rows = append(rows, raid.DungeonState{ID: binary.LittleEndian.Uint32(body[base:]), State: body[base+4]})
+	}
+	return rows, binary.LittleEndian.Uint32(body[2+count*5:]), nil
+}
+
+func (o *currentRaidProjectionOwner) recordCurrentRaidMapProjection(identity currentRaidProjectionIdentity, body []byte) error {
+	rows, infection, err := currentRaidMapProjectionRows(body)
+	if err != nil {
+		return err
+	}
+	cache := make(map[uint32]byte, len(rows))
+	for _, row := range rows {
+		cache[row.ID] = row.State
+	}
+	o.mapProjection = currentRaidMapProjection{rows: cache, infection: infection, identity: identity, valid: true}
+	return nil
 }
 
 func currentRaidTimerProjection(previous, next map[raid.AntonTimerKey]raid.AntonTimer) ([]currentRaidProjectionPacket, error) {
@@ -146,6 +234,9 @@ func currentRaidOrderedSymbolProjection(state *raid.AntonProgression, cursor uin
 func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, state runtimeRaidState, initial, resubscribe bool) error {
 	o := &session.raidProjection
 	b := state.Battle
+	if b != nil && b.FiendWar != nil {
+		return s.sendCurrentFiendWarProjectionLocked(session, state, initial, resubscribe)
+	}
 	identity := currentRaidProjectionIdentity{InstanceID: b.InstanceID, Phase: b.Phase, CharID: session.selectedCharacterID, Generation: session.characterGeneration}
 	if b.ChannelID != session.channel.ID || b.ChannelType != session.channel.Type {
 		return fmt.Errorf("raid projection frozen channel mismatch")
@@ -173,7 +264,24 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 	if err != nil {
 		return err
 	}
-	packets := []currentRaidProjectionPacket{{opcode: 585, body: mapBody}}
+	rows, mapInfection, err := currentRaidMapProjectionRows(mapBody)
+	if err != nil {
+		return err
+	}
+	mapPackets, nextMapProjection, err := o.mapProjection.packets(b.Mode, resubscribe, identity, rows, mapInfection, mapBody)
+	if err != nil {
+		return err
+	}
+	packets := make([]currentRaidProjectionPacket, 0, len(mapPackets)+len(rows))
+	packets = append(packets, mapPackets...)
+	if b.Mode == 2 && !b.Single {
+		coinBody, err := currentLukePhaseCoinBody(b)
+		if err != nil {
+			return err
+		}
+		// Absolute snapshot on initial phase, reconnect and committed progress.
+		packets = append(packets, currentRaidProjectionPacket{opcode: 775, body: coinBody})
+	}
 	cursor := o.symbolCursor
 	previousTimers := o.timers
 	if fresh {
@@ -204,15 +312,26 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 			if b.Phase >= byte(len(b.Configuration.PhaseLimitSeconds)) || b.Deadline.Unix() < 0 || b.Deadline.Unix() > math.MaxUint32 {
 				return fmt.Errorf("raid reconnect phase clock unavailable")
 			}
-			seconds := int64(math.Ceil(time.Until(b.Deadline).Seconds()))
+			clockEnd := b.Deadline
+			configured := b.Configuration.PhaseLimitSeconds[b.Phase] + b.Configuration.StartDelaySeconds
+			remainingKind := byte(0)
+			// A retained subscriber already has the finished reward projection's
+			// signature. Rejoin must restore its current break clock here, not
+			// overwrite it with the completed phase's old combat deadline.
+			if b.Mode == 2 && b.PhaseCompleted && !b.Single && b.Phase == 0 {
+				if flow := b.RewardFlow[0]; flow != nil && flow.InstanceID == b.InstanceID && flow.Phase == b.Phase && flow.Mode == b.Mode && !flow.FinishedAt.IsZero() && !flow.BreakUntil.IsZero() {
+					clockEnd, configured, remainingKind = flow.BreakUntil, flow.Configuration.PhaseBreakSeconds, 1
+				}
+			}
+			seconds := int64(math.Ceil(time.Until(clockEnd).Seconds()))
 			if seconds < 0 {
 				seconds = 0
 			}
-			end, duration := uint32(b.Deadline.Unix()), currentRaidNativeDuration(b.Mode, b.Deadline, b.Configuration.PhaseLimitSeconds[b.Phase]+b.Configuration.StartDelaySeconds, time.Now())
+			end, duration := uint32(clockEnd.Unix()), currentRaidNativeDuration(b.Mode, clockEnd, configured, time.Now())
 			if b.TimedOut {
 				end, duration, seconds = 0, 0, 0
 			}
-			packets = append(packets, currentRaidProjectionPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, end, duration)}, currentRaidProjectionPacket{opcode: 597, body: raid.BuildRemainingTimeBody(0, uint32(seconds))})
+			packets = append(packets, currentRaidProjectionPacket{opcode: 596, body: raid.BuildTimerBody(0, 0, end, duration)}, currentRaidProjectionPacket{opcode: 597, body: raid.BuildRemainingTimeBody(remainingKind, uint32(seconds))})
 		}
 	}
 	if singleHP != nil {
@@ -240,7 +359,12 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 	if err != nil {
 		return err
 	}
-	packets = append(packets, currentRaidParticipationProjection(o.participation, nextParticipation, fresh)...)
+	previousClearEvents := o.clearEvents
+	if !o.initialized || o.identity != identity {
+		previousClearEvents = nil
+	}
+	participationPackets, clearEvents := currentRaidParticipationProjection(o.participation, nextParticipation, fresh, previousClearEvents)
+	packets = append(packets, participationPackets...)
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, 0, true); err != nil {
 			o.failed = true
@@ -255,8 +379,15 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 			cursor = packet.symbolCursor
 		}
 	}
-	o.participation = nextParticipation
+	o.participation, o.clearEvents = nextParticipation, clearEvents
+	o.mapProjection = nextMapProjection
 	o.identity, o.version, o.symbolCursor, o.timers, o.initialized = identity, b.ProgressVersion, cursor, nextTimers, true
+	if b.Mode == 2 && !b.Single && b.FiendWar == nil && (initial || resubscribe) {
+		// For current Luke, every production caller of initial/resubscribe
+		// progress sends metadata immediately before it. Ordinary background
+		// progress (false,false) must not claim that the new client has metadata.
+		o.metadataReadyIdentity, o.metadataReady = identity, true
+	}
 	if fresh {
 		o.startTransitionSent = initial || resubscribe
 	}

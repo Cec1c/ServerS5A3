@@ -210,7 +210,7 @@ func TestReviewActualHatcherySingleMemberPartyRestoresRosterAfterTownReturn(t *t
 }
 
 func TestReviewActualHatcheryCompletionAndTownActionContract(t *testing.T) {
-	for _, id := range []uint32{221, 222, 223, 224} {
+	for _, id := range reviewAntonHatcheryPolicyIDs {
 		for _, action := range []byte{0, 1, 2} {
 			t.Run(fmt.Sprintf("%d/action%d", id, action), func(t *testing.T) {
 				s, session, _, target := actualAntonHatchWarpOwnerFor(t, id)

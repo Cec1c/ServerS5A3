@@ -24,6 +24,9 @@ type currentAntonResultProjection struct {
 // caller must additionally confirm its frozen weekly intent was committed.
 func prepareCurrentAntonResultProjection(state runtimeRaidState, rewardOption byte) (result currentAntonResultProjection, err error) {
 	b := state.Battle
+	if b != nil && b.FiendWar != nil {
+		return prepareCurrentFiendWarResult(state, rewardOption)
+	}
 	if !state.Started || b == nil || (b.Mode != 1 && b.Mode != 2) || b.Phase > 1 || b.EnterAfter.IsZero() || b.Deadline.IsZero() || !b.Deadline.After(b.EnterAfter) || rewardOption > 1 || (!b.Single && !currentRaidHasTwoPhaseProgram(b)) {
 		return result, fmt.Errorf("Anton result instance unavailable")
 	}

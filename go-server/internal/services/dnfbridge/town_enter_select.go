@@ -138,7 +138,7 @@ func (s *Service) retireCompletedDungeonForTownAction(session *gameSession, requ
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	if runtime == nil || runtime.Session == nil || (len(expected) > 0 && runtime != expected[0]) ||
-		(!s.currentCompletedDungeonActionReady(session, runtime) || (requireOpenRaidMap && runtime.raidEntry != nil && !s.currentRaidDungeonSelectionAllowed(session, uint32(runtime.Dungeon.ID)))) {
+		(!s.currentCompletedDungeonTownActionReady(session, runtime, requireOpenRaidMap) || (requireOpenRaidMap && runtime.raidEntry != nil && !s.currentRaidDungeonSelectionAllowed(session, uint32(runtime.Dungeon.ID)))) {
 		session.dungeon.mu.Unlock()
 		return false, nil
 	}
@@ -167,7 +167,7 @@ func (s *Service) retireCompletedDungeonForTownAction(session *gameSession, requ
 
 	session.dungeon.mu.Lock()
 	if session.dungeon.runtime != runtime ||
-		(!s.currentCompletedDungeonActionReady(session, runtime) || (requireOpenRaidMap && runtime.raidEntry != nil && !s.currentRaidDungeonSelectionAllowed(session, uint32(runtime.Dungeon.ID)))) {
+		(!s.currentCompletedDungeonTownActionReady(session, runtime, requireOpenRaidMap) || (requireOpenRaidMap && runtime.raidEntry != nil && !s.currentRaidDungeonSelectionAllowed(session, uint32(runtime.Dungeon.ID)))) {
 		session.dungeon.mu.Unlock()
 		return false, nil
 	}

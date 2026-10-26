@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"math"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
@@ -113,6 +114,7 @@ type currentBoosterGrantedReward struct {
 }
 
 type currentBoosterDefinition struct {
+	ItemUsage         *itemusage.Definition
 	GoldMinimumLevel  int64
 	Source            dungeonDropItemDefinition
 	StackableType     string
@@ -126,12 +128,13 @@ type currentBoosterDefinition struct {
 }
 
 type currentBoosterCommitResult struct {
-	EpicPieceCredits []alignedcmd.MailboxEpicPieceCredit
-	GoldAmount       uint32
-	GoldAfter        uint32
-	SourceItemID     uint32
-	SourceSlot       int16
-	SourceRemaining  uint32
+	ContractActivations []alignedcmd.PremiumContractActivation
+	EpicPieceCredits    []alignedcmd.MailboxEpicPieceCredit
+	GoldAmount          uint32
+	GoldAfter           uint32
+	SourceItemID        uint32
+	SourceSlot          int16
+	SourceRemaining     uint32
 	// The last box may be replaced by its reward in the same inventory slot.
 	// Native op14 must remove the old object before creating the new template.
 	SourceSlotReused bool

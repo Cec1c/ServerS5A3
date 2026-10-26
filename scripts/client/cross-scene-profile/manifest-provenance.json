@@ -1,0 +1,31 @@
+{
+  "formalSourceRoot": "remaining-source-20261024/scripts/client/cross-scene-profile/manifests",
+  "mapping": [
+    {
+      "formalRelative": "menu-candidate/windows.json",
+      "draftRelative": "manifests/menu-candidate/windows.json",
+      "sha256": "5f93ec7eff44f440aac7e34759c5b0c763ea8e09540817e7b5ea255a976050aa",
+      "patchCount": 3
+    },
+    {
+      "formalRelative": "detail-candidate/windows-v1.json",
+      "draftRelative": "manifests/detail-candidate/windows-v1.json",
+      "sha256": "d69e2b525aff1ea8596b11ec7c4745adbe8c029a47a6dff6ccccde621394f342",
+      "patchCount": 1
+    },
+    {
+      "formalRelative": "portrait-candidate/windows-v1.json",
+      "draftRelative": "manifests/portrait-candidate/windows-v1.json",
+      "sha256": "6b081f4be863b499efaceba93af6b16cb879197e1ca718dcd0fb774852f74906",
+      "patchCount": 2
+    },
+    {
+      "formalRelative": "mode8-route-candidate/windows-v1.json",
+      "draftRelative": "manifests/mode8-route-candidate/windows-v1.json",
+      "sha256": "dc708a924ff86439b3c6b0be2cf488bac63747e76d2c3ee404c7112f22489deb",
+      "patchCount": 2
+    }
+  ],
+  "totalPatchCount": 8,
+  "exeIncluded": false
+}
