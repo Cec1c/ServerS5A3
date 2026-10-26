@@ -19,6 +19,9 @@ type currentRoomClearQuestReceipt struct {
 // The caller holds session.dungeon.mu. This is a room objective, independent
 // of the final-dungeon reward barrier. A retry uses the same room receipt.
 func (s *Service) persistCurrentDungeonRoomClearQuestLocked(session *gameSession, runtime *runtimeDungeonState) error {
+	if currentFriendlyGuildPractice(runtime) {
+		return nil
+	}
 	if session == nil || runtime == nil || runtime.Session == nil || runtime.Room == nil ||
 		session.dungeon.runtime != runtime || !dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) {
 		return nil

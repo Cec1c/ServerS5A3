@@ -656,6 +656,9 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// completed_town_route 回城，最后一个成员到位后重建城镇同屏）。
 		leaderExitInstance = runtime.partyInstance
 		session.dungeon.runtime = nil
+		if runtime.guildPractice != nil {
+			releaseCurrentGuildPracticeProjection(session)
+		}
 		s.releasePartyDungeonInstance(runtime, characterID, "completed_town_route")
 		if err := queueCurrentPetGrowthClockTransition(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_after_completed_town_route"); err != nil {
 			s.logGameEvent(session, "game-pet-growth-clock-transition-rejected", "source", source+"_after_completed_town_route", "error", err)
@@ -668,6 +671,9 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		s.flushCurrentPetGrowthClockTransitions(session, source+"_after_completed_town_route")
 	}
 	if detached {
+		if runtime.guildPractice != nil {
+			s.projectOptionalGuildEssenceSnapshot(session)
+		}
 		session.townMu.Lock()
 		armCurrentCompletedTownSceneTailOwnerLocked(session, characterID)
 		session.townMu.Unlock()
@@ -860,6 +866,9 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	leaderExitInstance := runtime.partyInstance
 	leaderExitCharacterID := session.selectedCharacterID
 	session.dungeon.runtime = nil
+	if runtime.guildPractice != nil {
+		releaseCurrentGuildPracticeProjection(session)
+	}
 	if err := queueCurrentPetGrowthClockTransition(session, currentPetGrowthClockTown, s.gameplayNow(), source+"_confirmed_town_scene"); err != nil {
 		s.logGameEvent(session, "game-pet-growth-clock-transition-rejected", "source", source+"_confirmed_town_scene", "error", err)
 	}
@@ -871,6 +880,9 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	townID := runtime.townReturnTransition.TownID
 	areaID := runtime.townReturnTransition.AreaID
 	session.dungeon.mu.Unlock()
+	if runtime.guildPractice != nil {
+		s.projectOptionalGuildEssenceSnapshot(session)
+	}
 	if omitSceneActivation {
 		// 无可失败步骤地先保存本代策略，之后任何核对或写入失败都可沿游标重试。
 		// 显式使用连接频道；此刻townActorOwnerChannel可能仍属于副本owner0。
