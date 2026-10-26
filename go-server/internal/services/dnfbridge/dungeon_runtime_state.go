@@ -145,6 +145,7 @@ type runtimeDungeonState struct {
 	settlementResultPlan                 *currentDungeonSettlementPacketPlan
 	settlementResultNoticeSent           bool
 	settlementCharacterStateSent         bool
+	settlementPremiumServiceSent         bool
 	settlementClearRewardSent            bool
 	settlementDespairResultSent          bool
 	settlementDespairItemsSent           bool
@@ -169,6 +170,7 @@ type runtimeDungeonState struct {
 	townReturnAckSent                    bool
 	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
+	settlementPaidCardGrant              *dungeonCardAssetGrantResult
 	settlementMonsterExperienceTotal     uint32
 	settlementMonsterGrowthContractBonus uint32
 	settlementChampionExperience         uint32
@@ -907,6 +909,12 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		runtime.riftLoot, err = s.prepareCurrentTimeRiftLoot(runtime.Dungeon, request.Difficulty)
 		if err != nil {
 			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare time rift loot before admission: %w", err)
+		}
+	}
+	if s.currentEpicRoadLootEnabled(runtime.Dungeon.ID) {
+		runtime.riftLoot, err = s.prepareCurrentEpicRoadLoot(runtime.Dungeon.ID)
+		if err != nil {
+			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare epic road boss loot before admission: %w", err)
 		}
 	}
 	if err := s.freezeCurrentEpicEntry(session, runtime); err != nil {

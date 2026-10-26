@@ -65,10 +65,10 @@ func TestCurrentDungeonClearRewardMatchesCurrentOp35ReaderGrammar(t *testing.T) 
 		Drops: []currentDungeonClearRewardDrop{{
 			ObjectKey: 61, TemplateID: 62, StackCount: 63, Value16A: 64, Value8: 65, Value16B: 66,
 		}},
-		TotalReward:  71,
+		PaidCardCost: 71,
 		PreTailValue: 80,
 		Tail: currentDungeonClearRewardTail{
-			Value0: 81, ShowResult: true, Flag0: true, MonsterTotalExp: 85, Value2: 86, Value3: 87, Value4: 88,
+			Value0: 81, PaidCardDoubleEvent: true, Flag0: true, MonsterTotalExp: 85, Value2: 86, Value3: 87, Value4: 88,
 		},
 	}
 	snapshot.Bonus[0] = 16
@@ -129,7 +129,7 @@ func TestCurrentDungeonClearRewardMatchesCurrentOp35ReaderGrammar(t *testing.T) 
 	for _, slot := range snapshot.CardSlots {
 		reader.u8Pairs(t, slot)
 	}
-	if got := reader.u32(); got != snapshot.TotalReward {
+	if got := reader.u32(); got != snapshot.PaidCardCost {
 		t.Fatalf("total reward = %d", got)
 	}
 	for _, group := range snapshot.AuxGroupsA {
@@ -143,7 +143,7 @@ func TestCurrentDungeonClearRewardMatchesCurrentOp35ReaderGrammar(t *testing.T) 
 	}
 	tailOffset := reader.offset
 	if reader.u32() != snapshot.Tail.Value0 ||
-		reader.u8() != boolByte(snapshot.Tail.ShowResult) || reader.u8() != boolByte(snapshot.Tail.Flag0) ||
+		reader.u8() != boolByte(snapshot.Tail.PaidCardDoubleEvent) || reader.u8() != boolByte(snapshot.Tail.Flag0) ||
 		reader.u32() != snapshot.Tail.MonsterTotalExp || reader.u32() != snapshot.Tail.Value2 ||
 		reader.u32() != snapshot.Tail.Value3 || reader.u32() != snapshot.Tail.Value4 ||
 		reader.offset-tailOffset != currentDungeonClearRewardTailSize || reader.offset != len(body) {
@@ -157,7 +157,7 @@ func TestCurrentDungeonClearRewardRejectsUncommittedAndFabricatedZeroSnapshots(t
 		t.Fatalf("uncommitted error = %v", err)
 	}
 	base.Committed = true
-	base.Tail.ShowResult = true
+	base.Tail.PaidCardDoubleEvent = true
 	if _, err := buildCurrentDungeonClearRewardBody(base); !errors.Is(err, errCurrentDungeonClearRewardShape) {
 		t.Fatalf("zero reward error = %v", err)
 	}
@@ -177,7 +177,7 @@ func TestCurrentDungeonClearRewardMinimumCurrentEXEOffsets(t *testing.T) {
 	// exactly u32/u8/u8/u32/u32/u32/u32 (22 bytes), ending at 210.
 	snapshot := currentDungeonClearRewardSnapshot{
 		CharacterID: 20, CompletionKey: "run-20-min", Source: "committed_test", Committed: true,
-		Base: [4]uint32{333}, Tail: currentDungeonClearRewardTail{ShowResult: true},
+		Base: [4]uint32{333}, Tail: currentDungeonClearRewardTail{PaidCardDoubleEvent: true},
 	}
 	body, err := buildCurrentDungeonClearRewardBody(snapshot)
 	if err != nil {

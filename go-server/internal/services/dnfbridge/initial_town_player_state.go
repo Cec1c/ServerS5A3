@@ -116,6 +116,11 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentCarryGoldStage(session, character); err != nil {
 		return err
 	}
+	// 选角ACK的type58只恢复总契约图标；黄金卡牌专属牌面读取903明细中的
+	// 每项绝对期限和当前角色当日次数。空状态同样发送，清除上一角色的残留。
+	if err := s.sendCurrentPremiumServiceState(session, "选角城镇初始化_恢复魔王契约明细"); err != nil {
+		return err
+	}
 	// 转职次数随当前角色恢复；重登或切换角色不能继承上个角色的免费次数。
 	if err := s.sendCurrentProfessionChangeInfo(session, character); err != nil {
 		return err

@@ -337,7 +337,13 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		}
 	}
 
+	dimensionImageMaterials := false
 	appendSelected := func(itemID uint32) error {
+		// The image contract owns these two quantities once per special kill.
+		// Generic/independent tables must not add another one-item stack.
+		if dimensionImageMaterials && (itemID == 3311 || itemID == 10303569) {
+			return nil
+		}
 		if itemID == 0 {
 			// Real gold is selected only through the gold-rate branch above,
 			// where the amount comes from ItemDropInfo_Common.etc.
@@ -350,6 +356,10 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		return nil
 	}
 	dimensionDrops, err := currentDungeonDimensionDrops(monsterCatalog)
+	if err != nil {
+		return nil, err
+	}
+	dimensionDrops, err = currentRuntimeDimensionDrops(dimensionDrops, runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -373,6 +383,9 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			return nil, err
 		}
 	}
+	dimensionRank := currentDimensionRewardRank(runtime, monster, monsterType)
+	dimensionImageSpecial := dimensionMatched && runtime.Dungeon.Metadata.Flags["dimension dungeon"] && dimensionRank != 0 && fixedDropAttempts > 0
+	dimensionImageMaterials = dimensionImageSpecial
 	characterJob := byte(0)
 	characterGrowType := byte(runtime.Character.Stats["grow_type"]) & 0x0f
 	if dimensionMatched && len(dimensionDrops.ChronicleByCareer) > 0 {
@@ -384,6 +397,21 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	}
 	selectedDimensionChronicleItems := make([]uint32, 0, randomDropAttempts)
 	selectedDimensionChronicleGroups := make([]string, 0, randomDropAttempts)
+	// The image specifies one career item for every elite/boss. The PVF
+	// normal/set pool split remains authoritative; no outer equipment roll.
+	if dimensionImageSpecial && len(dimensionDrops.ChronicleByCareer) > 0 {
+		_, itemID, group, _, selected, err := currentDungeonDimensionChronicleItem(dimensionDrops, runtime.Dungeon.ID, runtime.Character.Level, characterJob, characterGrowType, rng, false)
+		if err != nil {
+			return nil, err
+		}
+		if selected {
+			if err := appendSelected(itemID); err != nil {
+				return nil, err
+			}
+			selectedDimensionChronicleItems = append(selectedDimensionChronicleItems, itemID)
+			selectedDimensionChronicleGroups = append(selectedDimensionChronicleGroups, group)
+		}
+	}
 	if probabilityFound && itemReferenceFound {
 		for attempt := 0; attempt < randomDropAttempts; attempt++ {
 			if rate := currentDungeonDropRate(probability.Rates[1], raw.MonsterTypeBonus[1][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
@@ -398,7 +426,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 					}
 				}
 			}
-			if rate := currentDungeonDropRate(probability.Rates[2], raw.MonsterTypeBonus[2][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
+			if rate := currentDungeonDropRate(probability.Rates[2], raw.MonsterTypeBonus[2][monsterType], difficultyRate); !dimensionImageSpecial && rate > rng.Next(currentDungeonDropDenominator) {
 				var itemID uint32
 				var selected bool
 				if dimensionMatched && len(dimensionDrops.ChronicleByCareer) > 0 {
@@ -451,7 +479,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		dimensionCandidates = append(dimensionCandidates, entry.ItemID)
 	}
 	selectedSpecialDimensionItems := make([]uint32, 0, fixedDropAttempts*len(dimensionPool))
-	if monsterType == 0 {
+	if dimensionRank == 0 {
 		// Normal monsters expose dimension materials only as ordinary area
 		// candidates. They therefore retain the shared 1000/10000 outer roll
 		// and cannot inherit the fixed special-monster projection.
@@ -464,6 +492,16 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		// rank probability.
 		for attempt := 0; attempt < fixedDropAttempts; attempt++ {
 			for _, entry := range dimensionPool {
+				if amount, specified := currentDimensionMaterialAmount(dimensionTier, dimensionRank, entry.ItemID); specified {
+					if attempt == 0 && amount > 0 {
+						if _, err := dropCatalog.ResolveItem(entry.ItemID); err != nil {
+							return nil, err
+						}
+						selectedDrops = append(selectedDrops, plannedDrop{itemID: entry.ItemID, amount: amount})
+						selectedSpecialDimensionItems = append(selectedSpecialDimensionItems, entry.ItemID)
+					}
+					continue
+				}
 				if err := appendSelected(entry.ItemID); err != nil {
 					return nil, err
 				}
@@ -489,7 +527,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	if dimensionMatched {
 		eventName := "game-dungeon-monster-dimension-ordinary-pool-roll"
 		dropMode := "ordinary_pool"
-		if monsterType != 0 {
+		if dimensionRank != 0 {
 			eventName = "game-dungeon-monster-dimension-special-rank-projection"
 			dropMode = "special_rank_fixed"
 		}
@@ -504,6 +542,8 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			"monster_type", monsterType,
 			"character_level", runtime.Character.Level,
 			"dimension_tier", dimensionTier,
+			"dimension_reward_rank", dimensionRank,
+			"image_special_reward", dimensionImageSpecial,
 			"drop_mode", dropMode,
 			"ordinary_pool_rate", currentDungeonExplicitPoolRate,
 			"ordinary_pool_denominator", currentDungeonDropDenominator,
