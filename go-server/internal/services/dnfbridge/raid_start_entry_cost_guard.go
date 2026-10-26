@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"math"
 	"os"
 	"sort"
@@ -137,6 +138,10 @@ func (s *Service) consumeRaidEntryCostForMember(ctx context.Context, accountID, 
 }
 
 func (s *Service) consumeRaidEntryCostForCharacters(ctx context.Context, ids []string, leaderID, leaderAccount string, rule raid.AdmissionRule, holdings ...raid.AdmissionRule) (int64, error) {
+	return s.consumeRaidEntryCostAndDaily(ctx, ids, leaderID, leaderAccount, rule, nil, holdings...)
+}
+
+func (s *Service) consumeRaidEntryCostAndDaily(ctx context.Context, ids []string, leaderID, leaderAccount string, rule raid.AdmissionRule, daily *currentRaidDailyRule, holdings ...raid.AdmissionRule) (int64, error) {
 	if rule.ItemID == 0 || rule.Count <= 0 || strings.TrimSpace(leaderAccount) == "" {
 		return 0, fmt.Errorf("raid entry cost rule or owner unsupported")
 	}
@@ -152,10 +157,11 @@ func (s *Service) consumeRaidEntryCostForCharacters(ctx context.Context, ids []s
 	if !ok {
 		return 0, fmt.Errorf("raid group inventory transaction unavailable")
 	}
-	err = unit.WithinCharacterInventoryGroup(ctx, ids, func(characters dnfrepo.CharacterRepository, inventories dnfrepo.InventoryRepository) error {
+	mutate := func(characters dnfrepo.CharacterRepository, inventories dnfrepo.InventoryRepository, settings dnfrepo.SettingsRepository) error {
 		// Stable owner order matches other trade transactions. Validate every member
 		// under row locks before saving; a late shortage or save error rolls back all.
 		updated := make([]dnfrepo.InventoryRecord, 0, len(ids))
+		accounts := make([]string, 0, len(ids))
 		for _, id := range ids {
 			character, found, err := characters.Load(ctx, id)
 			if err != nil {
@@ -181,6 +187,20 @@ func (s *Service) consumeRaidEntryCostForCharacters(ctx context.Context, ids []s
 				return fmt.Errorf("raid member %s: %w", id, err)
 			}
 			updated = append(updated, inventory)
+			accounts = append(accounts, character.AccountID)
+		}
+		if daily != nil {
+			record, _, err := settings.Load(ctx, daily.Scope)
+			if err != nil {
+				return err
+			}
+			next, err := reserveCurrentRaidDaily(record, accounts, daily)
+			if err != nil {
+				return err
+			}
+			if err := settings.Save(ctx, next); err != nil {
+				return err
+			}
 		}
 		for _, inventory := range updated {
 			if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
@@ -188,7 +208,16 @@ func (s *Service) consumeRaidEntryCostForCharacters(ctx context.Context, ids []s
 			}
 		}
 		return nil
-	})
+	}
+	if daily != nil {
+		assets, ok := repos.CharacterTrade.(dnfrepo.RaidEntryAssetUnitOfWork)
+		if !ok {
+			return 0, fmt.Errorf("团本日次数与门票原子事务不可用")
+		}
+		err = assets.WithinRaidEntryAssets(ctx, ids, daily.Scope, mutate)
+	} else {
+		err = unit.WithinCharacterInventoryGroup(ctx, ids, func(c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository) error { return mutate(c, i, nil) })
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -309,7 +338,23 @@ func (s *Service) guardRaidStartEntryCost(session *gameSession, state runtimeRai
 	if err != nil {
 		return dependencyFailure("entrance_requirements", err)
 	}
-	consumed, err := s.consumeRaidEntryCostForCharacters(ctx, ids, strconv.Itoa(int(state.LeaderID)), s.accountIDForSession(session), rule, holdings...)
+	var daily *currentRaidDailyRule
+	if s.options.currentClientVersion == "official-24.9" {
+		mode := byte(0)
+		if session.channel.Type == dnfenum.RaidChannelType {
+			mode = 1
+		}
+		if session.channel.Type == dnfenum.HiddenRaidType {
+			mode = 2
+		}
+		if mode != 0 {
+			daily, err = s.currentRaidDailyRule(mode)
+			if err != nil {
+				return dependencyFailure("daily_rule_unavailable", err)
+			}
+		}
+	}
+	consumed, err := s.consumeRaidEntryCostAndDaily(ctx, ids, strconv.Itoa(int(state.LeaderID)), s.accountIDForSession(session), rule, daily, holdings...)
 	if err != nil {
 		return dependencyFailure("group_commit_failed", err)
 	}

@@ -184,7 +184,8 @@ func assertCurrentDungeonSettlementProducerRewardBody(t *testing.T, body []byte)
 	if reader.u32() != 0 {
 		t.Fatal("unknown op35 pre-tail value is nonzero")
 	}
-	if reader.u32() != 0 || reader.u8() != 1 || reader.u8() != 0 ||
+	// 普通结算不得启用春节黄金翻牌双倍活动；该标志并非窗口显示开关。
+	if reader.u32() != 0 || reader.u8() != 0 || reader.u8() != 0 ||
 		reader.u32() != 0 || reader.u32() != 0 || reader.u32() != 0 || reader.u32() != 0 ||
 		reader.offset != len(body) {
 		t.Fatalf("op35 current reader tail/boundary mismatch offset=%d len=%d", reader.offset, len(body))

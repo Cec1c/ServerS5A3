@@ -448,7 +448,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 						selectedDimensionChronicleGroups = append(selectedDimensionChronicleGroups, group)
 					}
 				} else {
-					rarity := currentDungeonDropRarity(rng, rules)
+					rarity := currentDungeonDropRarityWithMarble(rng, rules, runtime.attendanceMarbleBuffs&1 != 0)
 					itemID, selected, err = dropCatalog.selectOrdinaryMonsterEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
 					if err != nil {
 						return nil, err

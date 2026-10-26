@@ -68,6 +68,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	var raidBarrierProjections []runtimeRaidState
+	var passivePeerCompletion func()
+	defer func() {
+		if passivePeerCompletion != nil {
+			passivePeerCompletion()
+		}
+	}()
 	defer func() {
 		for _, state := range raidBarrierProjections {
 			s.queueCurrentRaidDungeonProgress(state)
@@ -83,6 +89,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if hasScene {
+		if handled, err := s.handleCurrentMissionInformerRetirementLocked(session, runtime, scene, request); handled || err != nil {
+			return err
+		}
+	}
 	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
 	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
 	if hasScene {
@@ -222,6 +233,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 					scene,
 					request.RuntimeObjectKey,
 				)
+				if handled {
+					passivePeerCompletion = s.currentLukeDestroyObjectPeerCompletion(session, runtime, scene, request.RuntimeObjectKey)
+				}
 				if clearErr != nil {
 					return clearErr
 				}

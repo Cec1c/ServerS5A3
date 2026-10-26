@@ -167,6 +167,12 @@ def generate(c, catalog):
     if type(guild_essence) is not bool:
         raise ValueError("guild_essence_enabled must be a boolean")
     guardian_policy = c.get("guild_guardian_policy")
+    guild_hongbao = c.get("guild_hongbao_enabled", False)
+    if type(guild_hongbao) is not bool:
+        raise ValueError("guild_hongbao_enabled must be a boolean")
+    contribution_policy = c.get("guild_contribution_policy", "")
+    if type(contribution_policy) is not str or contribution_policy not in ("", "daily-v1"):
+        raise ValueError("guild_contribution_policy must be empty or daily-v1")
     if "guild_guardian_policy" in c:
         fields = {"first_purchase", "initial_level", "initial_skills", "first_select"}
         if type(guardian_policy) is not dict or set(guardian_policy) != fields:
@@ -257,6 +263,8 @@ create_databases = false
         "DNFBRIDGE_GUILD_RANKING_ENABLED": str(guild_ranking).lower(),
         "DNFBRIDGE_GUILD_ESSENCE_ENABLED": str(guild_essence).lower(),
         "DNFBRIDGE_GUILD_GUARDIAN_POLICY": json.dumps(guardian_policy, separators=(",", ":")) if guardian_policy is not None else "",
+        "DNFBRIDGE_GUILD_CONTRIBUTION_POLICY": contribution_policy,
+        "DNFBRIDGE_GUILD_HONGBAO_ENABLED": str(guild_hongbao).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
         "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",

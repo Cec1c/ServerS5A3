@@ -454,8 +454,13 @@ func TestPartyDungeonSharedLoadingBarrierTimesOutAndStillReleasesThePlacement(t 
 	runPartyDungeonSyncEntry(t, service, leader)
 
 	deadline := time.Now().Add(5 * time.Second)
+	var log string
 	for time.Now().Before(deadline) {
-		if partyDungeonSyncConnHasPlacement(t, leaderConn) && partyDungeonSyncConnHasPlacement(t, followerConn) {
+		log = testPacketLogText(t, service)
+		// Each release callback logs after writing its placement. Observing both
+		// packets does not mean either asynchronous callback has finished yet.
+		if partyDungeonSyncConnHasPlacement(t, leaderConn) && partyDungeonSyncConnHasPlacement(t, followerConn) &&
+			strings.Count(log, "kind=game-party-dungeon-loading-released ") == 2 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -465,9 +470,8 @@ func TestPartyDungeonSharedLoadingBarrierTimesOutAndStillReleasesThePlacement(t 
 			t.Fatalf("%s placement was never released after the barrier timeout", name)
 		}
 	}
-	log := testPacketLogText(t, service)
-	if !strings.Contains(log, "game-party-dungeon-loading-released") {
-		t.Fatalf("timeout release must log game-party-dungeon-loading-released:\n%s", log)
+	if got := strings.Count(log, "kind=game-party-dungeon-loading-released "); got != 2 {
+		t.Fatalf("timeout release events=%d want=2 (one completed callback per member):\n%s", got, log)
 	}
 }
 

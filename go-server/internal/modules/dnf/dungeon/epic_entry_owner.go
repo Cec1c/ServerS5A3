@@ -32,6 +32,7 @@ type EpicEntryCommand struct {
 	CharacterID, AccountID             string
 	DungeonID, ExpectedSequence, Nonce int64
 	Campaign                           *onlineevent.EpicCampaign
+	Alternatives                       [][]EntryItemRequirement
 	UpdatedAt                          time.Time
 	Project                            EntryItemProjector
 	Validate                           func() error
@@ -88,7 +89,11 @@ func (o *Owner) ConsumeEpicEntry(ctx context.Context, cmd EpicEntryCommand) (Epi
 			return ErrEntryItemConsumeInsufficient
 		}
 		v = dnfrepo.CloneInventory(v)
-		slots, err := consumeEntryItemRequirement(&v, EntryItemRequirement{ItemID: 3330, Count: count, ConsumeOnEntry: true}, cmd.Project)
+		alternatives := cmd.Alternatives
+		if len(alternatives) == 0 {
+			alternatives = [][]EntryItemRequirement{{{ItemID: 3330, Count: count, ConsumeOnEntry: true}}}
+		}
+		consumed, err := consumeEpicEntryItems(&v, alternatives, cmd.UpdatedAt, cmd.Project)
 		if err != nil {
 			return err
 		}
@@ -96,8 +101,14 @@ func (o *Owner) ConsumeEpicEntry(ctx context.Context, cmd EpicEntryCommand) (Epi
 		if err = dnfrepo.SaveInventoryFields(ctx, bags, v, dnfrepo.InventoryFieldSlots); err != nil {
 			return err
 		}
-		if cmd.Campaign != nil {
-			if err = onlineevent.AccumulateEpicInvitations(&c, *cmd.Campaign, cmd.UpdatedAt, count); err != nil {
+		var invitations int64
+		for _, item := range consumed {
+			if item.ItemID == 3330 {
+				invitations += item.Count
+			}
+		}
+		if cmd.Campaign != nil && invitations > 0 {
+			if err = onlineevent.AccumulateEpicInvitations(&c, *cmd.Campaign, cmd.UpdatedAt, invitations); err != nil {
 				return err
 			}
 		}
@@ -115,7 +126,7 @@ func (o *Owner) ConsumeEpicEntry(ctx context.Context, cmd EpicEntryCommand) (Epi
 			}
 		}
 		result.Character = c
-		result.Consumed = []EntryItemConsumedStack{{ItemID: 3330, Count: count, Slots: slots}}
+		result.Consumed = consumed
 		return nil
 	})
 	if err != nil {

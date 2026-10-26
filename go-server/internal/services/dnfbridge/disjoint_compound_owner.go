@@ -11,7 +11,63 @@ import (
 	dnfdisjoint "longheng.io/server/internal/modules/dnf/disjoint"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/worldmap"
 )
+
+const (
+	currentDelilahNPCID               = uint32(1000)
+	currentDelilahDisjointCostPerItem = int64(500)
+)
+
+var errCurrentDisjointInsufficientGold = errors.New("dnf current disjoint character gold is insufficient")
+var errCurrentDisjointCommittedReply = errors.New("dnf current disjoint committed but reply failed")
+
+// The current client displays DSTR 72992 ("each disassembly costs 500 gold")
+// when the NPC context is 1000. a56 maps NPC 1000 to Delilah's simple shop;
+// repair machines use their own NPC ids and remain free.
+func currentDelilahDisjointFee(contextValue uint32, itemCount int) int64 {
+	if contextValue != currentDelilahNPCID || itemCount <= 0 {
+		return 0
+	}
+	return int64(itemCount) * currentDelilahDisjointCostPerItem
+}
+
+func (s *Service) currentDisjointEntryAllowed(session *gameSession, contextValue uint32) bool {
+	if contextValue != currentDelilahNPCID {
+		return true
+	}
+	if s == nil || session == nil || session.selectedCharacterID == 0 {
+		return false
+	}
+	session.dungeon.mu.Lock()
+	runtime := session.dungeon.runtime
+	if runtime == nil || runtime.Session == nil ||
+		!dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) ||
+		runtime.AccountID != s.accountIDForSession(session) {
+		session.dungeon.mu.Unlock()
+		return false
+	}
+	snapshot := runtime.Session.Snapshot()
+	session.dungeon.mu.Unlock()
+	return snapshot.Run.Status == worldmap.DungeonRunCompleted && snapshot.Scene.Cleared
+}
+
+func chargeCurrentDisjointGold(character *dnfrepo.CharacterRecord, fee int64) (goldAfter int64, characterDirty bool, err error) {
+	if fee <= 0 {
+		return 0, false, nil
+	}
+	if character == nil {
+		return 0, false, errCurrentDisjointUnavailable
+	}
+	// Delilah is an NPC service. Like NPC shops and repairs, it uses the
+	// character gold account regardless of the personal-machine rollback mode.
+	gold := character.Stats["gold"]
+	if gold < fee {
+		return gold, false, errCurrentDisjointInsufficientGold
+	}
+	character.Stats["gold"] = gold - fee
+	return gold - fee, true, nil
+}
 
 func (s *Service) currentDisjointMutationOwner(session *gameSession) (string, string, *dnfdisjoint.Owner, error) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
@@ -109,6 +165,7 @@ func (s *Service) commitCurrentDisjoint(
 	catalog *pvfDungeonDropCatalog,
 	sourceSlot int16,
 	listType byte,
+	contextValue uint32,
 	resolve func(dungeonDropItemDefinition, *dnfpvf.Document) ([]currentDisjointReward, error),
 ) (currentDisjointResult, error) {
 	if session == nil || session.selectedCharacterID == 0 || catalog == nil || catalog.source == nil || resolve == nil {
@@ -130,13 +187,19 @@ func (s *Service) commitCurrentDisjoint(
 			if err != nil {
 				return dnfdisjoint.Changes{}, err
 			}
+			fee := currentDelilahDisjointFee(contextValue, 1)
+			goldAfter, characterDirty, err := chargeCurrentDisjointGold(assets.Character, fee)
+			if err != nil {
+				return dnfdisjoint.Changes{}, err
+			}
 			delete(inventory.Slots, currentCeraShopInventorySlotKey(listType, plan.Slot))
 			rewardSlots, accountDirty, err := currentGrantDisjointRewards(inventory, account, catalog, plan.Rewards)
 			if err != nil {
 				return dnfdisjoint.Changes{}, err
 			}
 			result.Rewards = rewardSlots
-			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true}, nil
+			result.GoldAfter, result.GoldChanged = goldAfter, characterDirty
+			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
 		},
 	}
 	switch listType {
@@ -167,6 +230,7 @@ func (s *Service) commitCurrentDisjointBatch(
 	session *gameSession,
 	catalog *pvfDungeonDropCatalog,
 	slots []int16,
+	contextValue uint32,
 	resolve func(dungeonDropItemDefinition, *dnfpvf.Document) ([]currentDisjointReward, error),
 ) (currentDisjointBatchResult, error) {
 	if session == nil || session.selectedCharacterID == 0 || catalog == nil || catalog.source == nil ||
@@ -193,6 +257,11 @@ func (s *Service) commitCurrentDisjointBatch(
 				}
 				plans = append(plans, plan)
 			}
+			fee := currentDelilahDisjointFee(contextValue, len(plans))
+			goldAfter, characterDirty, err := chargeCurrentDisjointGold(assets.Character, fee)
+			if err != nil {
+				return dnfdisjoint.Changes{}, err
+			}
 			items := make([]currentDisjointBatchItem, 0, len(plans))
 			accountDirty := false
 			for _, plan := range plans {
@@ -207,7 +276,8 @@ func (s *Service) commitCurrentDisjointBatch(
 				items = append(items, currentDisjointBatchItem{Slot: plan.Slot, Rewards: rewardSlots})
 			}
 			result.Items = items
-			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true}, nil
+			result.GoldAfter, result.GoldChanged = goldAfter, characterDirty
+			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
 		},
 	}
 	if err := owner.DisjointEquipment(ctx, command); err != nil {

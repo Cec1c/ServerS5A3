@@ -33,11 +33,12 @@ func (s *Service) handleCurrentGuildGuardian(session *gameSession, request gamep
 	if err != nil {
 		return fail(err)
 	}
-	if request.Sequence == nil || len(request.Body) != 16 || binary.LittleEndian.Uint32(request.Body[8:]) != 0 || binary.LittleEndian.Uint32(request.Body[12:]) != 0 {
+	if request.Sequence == nil || len(request.Body) != 16 {
 		return fail(guild.ErrGuardianInteraction)
 	}
 	action, id := binary.LittleEndian.Uint32(request.Body), binary.LittleEndian.Uint32(request.Body[4:])
-	if (action != guild.GuardianSelect && action != guild.GuardianPurchase) || id < 1 || id > 2 {
+	observed, value := binary.LittleEndian.Uint32(request.Body[8:]), binary.LittleEndian.Uint32(request.Body[12:])
+	if action > guild.GuardianPurchase || id < 1 || id > 2 || (action >= guild.GuardianSelect && (observed != 0 || value != 0)) {
 		return fail(guild.ErrGuardianInteraction)
 	}
 	identity, ok := s.boundGameSessionCharacterSnapshot(session)
@@ -55,6 +56,13 @@ func (s *Service) handleCurrentGuildGuardian(session *gameSession, request gamep
 	catalog, err := guild.LoadGuardianCatalog(items.source)
 	if err != nil {
 		return fail(err)
+	}
+	var growth *guild.GuardianGrowthCatalog
+	if action <= guild.GuardianSkillLast {
+		growth, err = guild.LoadGuardianGrowthCatalog(items.source)
+		if err != nil {
+			return fail(err)
+		}
 	}
 	scene, err := loadGuildGuardianScene(items.source)
 	if err != nil {
@@ -100,7 +108,7 @@ func (s *Service) handleCurrentGuildGuardian(session *gameSession, request gamep
 			return !inDungeon && found && townMapPathLooksLikeGuildHall(area.MapPath)
 		}
 		return guild.ApplyGuardian(ctx, repos.Guild, guild.GuardianRequest{
-			Owner: owner, GuildID: expectedGuild, RequestID: requestID, Action: action, GuardianID: id, Policy: policy, Revalidate: revalidate,
+			Owner: owner, GuildID: expectedGuild, RequestID: requestID, Action: action, GuardianID: id, Policy: policy, Revalidate: revalidate, Observed: observed, Value: value, Growth: growth,
 			CanInteract: func(actor r.CharacterRecord, g *guild.Guild, replay bool) bool {
 				p := session.townPositionSnapshot
 				if actor.Stats["town_id"] != int64(p.TownID) || actor.Stats["area_id"] != int64(p.AreaID) {
@@ -108,7 +116,7 @@ func (s *Service) handleCurrentGuildGuardian(session *gameSession, request gamep
 				}
 				// A committed first purchase replaces the initial NPC. A receipt
 				// recovery in the same hall reads state without reapplying it.
-				return replay || scene.near(g, id, p.PositionX, p.PositionY)
+				return replay || scene.hasInteractionNPC(g, id)
 			},
 		}, catalog, s.gameplayNow())
 	}()
