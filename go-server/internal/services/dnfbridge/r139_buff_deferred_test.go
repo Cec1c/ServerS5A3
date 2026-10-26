@@ -26,7 +26,7 @@ func (u r139CountTransactions) WithinCharacterItems(ctx context.Context, id stri
 }
 
 type r139ContainerFailureConn struct {
-	p94Conn
+	bufferConn
 	failed, sticky bool
 	buffAttempts   int
 }
@@ -45,7 +45,7 @@ func (c *r139ContainerFailureConn) Write(p []byte) (int, error) {
 	if c.failed && c.sticky {
 		return 0, errors.New("r139 connection still failed")
 	}
-	return c.p94Conn.Write(p)
+	return c.bufferConn.Write(p)
 }
 
 // This uses an existing supported full-container rollback option, a real
@@ -69,7 +69,7 @@ func TestR139BuffContainerDeferredMustNotEscapeBoundary(t *testing.T) {
 			f.service.options.equipMoveContainerRefreshFull = true
 			conn := &r139ContainerFailureConn{sticky: sticky}
 			f.session.conn = conn
-			err := f.service.handleGameCommand(f.session, 1, 19, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
+			err := f.service.handleGameCommand(f.session, 1, 19, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 			r139AssertOwner(t, f, 16, instance, 0, 15)
 			if !conn.failed || attempts != 1 || commits != 1 || !strings.Contains(logs.String(), "deferred remaining aligned post-commit projections") {
 				t.Fatalf("not the real deferred branch: failed=%v attempts=%d commits=%d logs=%s", conn.failed, attempts, commits, logs.String())
@@ -91,7 +91,7 @@ func TestR139BuffSnapshotWriteFailureCommitsOnlyOnce(t *testing.T) {
 	f.service.repositoryProvider = func() (repo.Group, bool) { return g, true }
 	conn := &r139FailMessageConn{kind: 0, msg: 1368}
 	f.session.conn = conn
-	err := f.service.handleGameCommand(f.session, 1, 19, p94FlaggedBody(t, p94MoveBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
+	err := f.service.handleGameCommand(f.session, 1, 19, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 	if err == nil || !strings.Contains(err.Error(), "r139 injected message write failure") || !conn.hit || attempts != 1 || commits != 1 {
 		t.Fatalf("1368 failure semantics: hit=%v attempts=%d commits=%d err=%v", conn.hit, attempts, commits, err)
 	}
