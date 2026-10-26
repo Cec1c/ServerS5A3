@@ -1,3 +1,13 @@
+## 2026-10-26 — 二次觉醒完成券分支同步 master 并保留后续修复
+
+- 以普通合并整合 master ad4c3062，保留当前 MR 的任务绑定、提交后投影与回归提交；双方更新日志并存，不改写公开历史。
+- 本轮仅日志发生文本冲突；业务代码与上游自动合流后重新执行专项、公共模块及独立交叉验证。验证结果以本轮报告为准，不代替原生客户端验收；不部署正式服务器。
+
+## 2026-10-26 — UDP回归夹具检查完整端口区间
+
+- 中继测试在保留首个临时端口时同时检查后续端口，确认完整12端口区间可绑定后交给中继，避免将单个空闲端口误认为完整可用区间；保留20次候选上限及原中继断言。
+- 失败输出补充区间和已有中继错误日志，便于区分资源准备与生产逻辑失败；不修改生产中继，不增加Sync重试或跳过。端口释放到中继绑定之间仍有竞争窗口。
+
 ## 2026-10-25 — 史诗之路按门票档位调整史诗概率
 
 - 付费史诗之路6063/6064/6065按30/45/60张邀请函档位分别使用10%/15%/20%的领主史诗奖励概率，保留各自PVF装备池、每次最多一件以及原重复死亡/拾取保护。
@@ -262,6 +272,11 @@
 - 接通两类商人的真实 PVF 商品购买和逐级升级；精气、背包/等级及永久回执同事务提交，固定每日到期时间，失败回包解除等待，重试不重复扣费或发放。
 - 持久等级投影到 778/1297 与同会刷新；匹配 V174 客户端恢复升级两项接收门控并初始化发送前缀，保留原累计功能。
 - 覆盖 20 间真实商店、132 种商品和 137 次购买，协议、原生发送/消费、并发及隔离 SQL 回滚；方案与发布依赖见 Docs/seeker/GUILD_WAR_MERCHANTS.md。
+
+## 2026-10-25 — 二次觉醒券提交快照顺序
+
+- 二次觉醒券提交后从同一次提交先发送活动任务快照，再发送已完成表和可接列表，避免空活动列表清空客户端完成缓存。补充真实PVF下的报文顺序与重复使用零变更回归。
+- 独立候选验证另行记录，尚待游戏验收。
 
 ## 2026-10-25 — Semgrep受限Runner原生运行兼容
 
@@ -603,6 +618,12 @@
 - 剧情子步骤完成、末子材料条件就绪时，活动快照将 quest-clear 父任务投影为可交付，覆盖即时通知及重登刷新，修复客户端完成入口被父进度阻断的情况。
 - 投影只读取真实父子定义和已提交状态，材料扣除及奖励仍由正式完成事务处理；保留独立奖励、未完成前置、缺目录及主记录优先级。
 - 增加同会话剧情回调、重连、原生请求正文、重复完成及投影不写玩家资产的回归；普通活动任务不触发额外目录加载。
+
+## 2026-10-24 — Restore second-awakening completion coupons
+
+- Dispatch validated op515/action121 through the existing authenticated session and atomic character settlement. Respect PVF class/place restrictions and supported ordinary-class awakening transitions.
+- Consume once with character, skill and quest persistence; preserve Question gates, rollback behavior and post-commit packet ordering. Add domain, transport, real-resource and disposable-SQL coverage; no schema or client changes.
+- Native acceptance covers ordinary-class success, one-item consumption, repeated-use refusal, skill use and full relogin on an integration build; external self-awakening remains unverified. See Docs/SECOND_AWAKENING_COUPON.md.
 
 ## 2026-10-24 — 卢克选择页返回等待区恢复同屏登记
 

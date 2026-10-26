@@ -25,6 +25,7 @@ const (
 	currentQuestClearCouponActionIndex        uint32 = 169
 	currentQuestLevelClearActionIndex         uint32 = 179
 	currentFirstAwakeningCouponActionIndex    uint32 = 118
+	currentSecondAwakeningCouponActionIndex   uint32 = 121
 	currentQuestClearCouponBodySize                  = 19
 	currentQuestClearCouponAckSize                   = 10 // Legacy fatigue helper below; not the quest reply.
 	currentQuestClearCouponDebugCommand              = "//lvclear"
@@ -44,7 +45,7 @@ func decodeCurrentQuestClearCouponRequest(body []byte) (currentQuestClearCouponR
 		return currentQuestClearCouponRequest{}, false
 	}
 	r := currentQuestClearCouponRequest{SourceSlotIndex: int16(binary.LittleEndian.Uint16(body[:2])), ListType: body[2], ActionIndex: binary.LittleEndian.Uint32(body[7:11])}
-	if r.ActionIndex != currentQuestClearCouponActionIndex && r.ActionIndex != currentFirstAwakeningCouponActionIndex && r.ActionIndex != currentQuestLevelClearActionIndex {
+	if r.ActionIndex != currentQuestClearCouponActionIndex && r.ActionIndex != currentFirstAwakeningCouponActionIndex && r.ActionIndex != currentQuestLevelClearActionIndex && r.ActionIndex != currentSecondAwakeningCouponActionIndex {
 		return currentQuestClearCouponRequest{}, false
 	}
 	r.ReservedValid = binary.LittleEndian.Uint32(body[3:7]) == 0 && binary.LittleEndian.Uint32(body[11:15]) == 0 && binary.LittleEndian.Uint32(body[15:19]) == 0
@@ -115,6 +116,11 @@ func resolveCurrentQuestCoupon(catalog *pvfDungeonDropCatalog, itemID int64, act
 		}
 		coupon.Kind = dnfquest.CouponMainStory
 		coupon.CutoffLevel = 90
+	case "[second awaken clear]":
+		if action != currentSecondAwakeningCouponActionIndex {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Kind = dnfquest.CouponSecondAwakening
 	case "[first awaken clear]":
 		if action != currentFirstAwakeningCouponActionIndex {
 			return coupon, dnfquest.ErrCouponClearUnavailable
@@ -160,6 +166,9 @@ func resolveCurrentQuestCoupon(catalog *pvfDungeonDropCatalog, itemID int64, act
 			}
 		}
 	}
+	if coupon.Kind == dnfquest.CouponSecondAwakening {
+		return resolveSecondAwakeningCouponConditions(coupon, doc)
+	}
 	return coupon, nil
 }
 
@@ -167,6 +176,9 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 	r, matched := decodeCurrentQuestClearCouponRequest(body)
 	if !matched {
 		return false, nil
+	}
+	if r.ActionIndex == currentSecondAwakeningCouponActionIndex {
+		return s.handleCurrentSecondAwakeningCoupon(session, r)
 	}
 	if session == nil || session.selectedCharacterID == 0 {
 		return true, nil
