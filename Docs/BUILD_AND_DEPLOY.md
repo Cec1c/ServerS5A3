@@ -2,7 +2,49 @@
 
 [返回项目首页](../README.md)
 
+> [!IMPORTANT]
+> **频道表在首次准备资源时就要选对。** `prepare` 显式传入 `--channel-info`，使用[完整的 118 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)并按[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾导致无法完成登录；已有服和 PVF 更新都保留已选外部表，检查运行进程真正加载的文件。
+
 你准备服务器、客户端和想法，Agent 负责读源码、运行命令、配置服务和排查问题。第一步的目标很具体：让自己的账号能进入游戏，创建角色，打一张图，退出后还能读到存档。
+
+## 当前活动开关与赛马关闭方法
+
+> [!WARNING]
+> **截至 2026-10-22，赛马活动可能导致客户端闪退，应保持关闭，修复后另行通知。** 它在活动管理中叫 **2365「竞技大赛（马战竞猜）」**。当前源码和 Docker 模板仍默认开启，首次部署和已有服都要主动核对关闭状态。
+
+下表是当前源码在**未设置环境覆盖、未保存活动设置**时的默认值。已有服的当前生效状态读取活动管理的 `effectiveEnabled`；是否有待重启的修改看 `pendingRestart`。
+
+| 活动 ID | 活动 | 源码默认 | 当前部署说明 |
+| --- | --- | --- | --- |
+| 350 | 史诗之路：超越征程 | 开启 | 按配套 PVF 的等级、任务和入场材料条件开放 |
+| 2347 | 累计在线得好礼 | 开启 | 保留此配置 ID；匹配新 PVF 时使用原生在线奖励面板 |
+| 331 | 普通签到 | 开启 | 等级 17 起，账号共享签到进度 |
+| 2208 | 每周签到得好礼 | 开启 | 依推荐地下城通关进度签到，首次启用绑定活动周期 |
+| 2370 | 每日签到得好礼 | 开启 | 每日通关 2 次推荐地下城签到，账号共享进度 |
+| 216 | 新学期累计奖励 | 关闭 | 需先核对客户端兼容性再启用 |
+| **2365** | **竞技大赛（马战竞猜／赛马）** | **开启** | **本次部署应改为关闭，修复后另行通知** |
+| 2395 | 红尾乔纳森 | 关闭 | 按需开启，控制中央公园该 NPC 的可见性 |
+
+默认值来源：[活动控制定义](../go-server/internal/services/dnfbridge/activity_controls.go)。这是活动管理中的八项开关；开启某项后，仍按对应 PVF 和玩法条件提供入口与奖励。
+
+### 新部署：在第一次启动前关闭赛马
+
+先执行带外部频道表的 `prepare`，再编辑它生成的 `runtime/docker/instance.json`，**只把 `joust_event_enabled` 改为 `false`，保留其他字段**：
+
+```json
+"joust_event_enabled": false
+```
+
+然后执行 `up`；该入口会读取源配置并重新生成环境文件。直接运行服务程序的部署，在自己的环境配置中设置 `DNFBRIDGE_JOUST_EVENT_ENABLED=false`；目录开关 `DNFBRIDGE_JOUST_EVENT_CATALOG` 使用 `auto` 或 `off`，不要保留 `on`。Docker 的生成文件 `server.env` 由工具维护，修改实例源配置即可。
+
+### 已有服：检查保存值、实际生效值和目录
+
+1. 在已接入游戏管理接口的 GM 活动管理中读取当前设置；Agent 也可通过已配置的私有 `POST /api/game/admin` 调用 `activities`。记录当前 `revision`。
+2. 仅把活动 **2365** 保存为 `enabled=false`，其余活动保持。使用管理 API 时，`save_activities` 带刚读取的 `revision` 和这一项 `changes`。**已保存的活动值优先于环境变量**，仅修改 `joust_event_enabled` 不能覆盖数据库中已保存的开启值。
+3. 按实例原有维护流程重启游戏服务，使关闭设置生效。只重启 GM 不会刷新游戏活动；重启前保存值和生效值可能不同。
+4. 重启后读回 2365：`enabled=false`、`effectiveEnabled=false`、`pendingRestart=false`；核对游戏启动日志 `joust_event_enabled=false`、`joust_event_catalog_includes_2365=false`。重新登录后确认活动目录不再出现赛马入口。
+
+状态及重启语义见[活动设置实现](../go-server/internal/modules/dnf/onlineevent/controls.go)。其他活动是否开启也按同一组字段交付，写清“已保存待重启”或“已生效”。
 
 ## 先认识这几样东西
 
@@ -38,7 +80,7 @@ cd ServerS5A3
 | Linux 服务器 | IP、SSH 端口、用户名、密码或密钥，以及可用的管理权限 |
 | 使用范围 | 自己玩、局域网朋友一起玩，还是通过公网连接 |
 | Windows 客户端 | 客户端完整目录，包含 `DNF.exe`、`Script.pvf` 及对应的 dstr/NPK 等资源 |
-| 配套频道表 | 从当前 PVF 提取，或提供已选定的外部 `channel_info.etc` |
+| 配套频道表 | 按[外部频道表部署说明](CHANNEL_TABLE_DEPLOYMENT.md)选择完整ETC，与仓库118频道CSV核对；不默认从PVF提取 |
 | 已有数据 | 告诉它这是全新安装，还是要保留已有账号、角色和配置 |
 | 配套工具 | 要一个基础登录器，还是接入 PurpleMagic 的登录器、更新和 GM |
 | 域名 | 公网 HTTPS 网关使用的域名；有的话一并提供 |
@@ -66,7 +108,7 @@ cd ServerS5A3
 ```text
 请帮我部署这个 ServerS5A3 / DNF90 项目。
 
-先阅读 AGENTS.md、README.md、Docs/BUILD_AND_DEPLOY.md 和 changlog.md。
+先阅读 AGENTS.md、README.md、Docs/BUILD_AND_DEPLOY.md、Docs/CHANNEL_TABLE_DEPLOYMENT.md 和 changlog.md。
 
 我的环境：
 - 服务器：[IP 或 SSH 别名]
@@ -79,6 +121,8 @@ cd ServerS5A3
 - 登录器与 GM：[基础登录器 / PurpleMagic / 自己指定的工具]
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
+频道表显式选择已批准的完整外部ETC，与仓库118频道CSV逐项核对；不要默认提取PVF内置表替代它。
+赛马活动2365保持关闭，检查配置、持久化覆盖与重启后的生效值；列出其余活动的实际开启状态。
 按当前源码支持的方式构建，生成独立运行配置，准备数据库和资源。
 有旧数据时先备份并验证，再部署本次服务。
 
@@ -142,18 +186,18 @@ go build -buildvcs=false -mod=readonly -trimpath -o ../dist/DNF90Server ./cmd/se
 
 ```sh
 sh deploy/docker/manage.sh build
-sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --host-ip 192.168.1.50
+sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --channel-info "go-server/internal/services/dnfbridge/testdata/channel_info.etc" --host-ip 192.168.1.50
 ```
 
-`prepare` 会生成独立数据库密码和管理令牌，保存 PVF，提取频道表，并生成 Compose、环境文件和服务端配置。成功时会输出真实频道数量和 `instance.json` 路径。
+`prepare` 会生成独立数据库密码和管理令牌，保存PVF和明确选定的外部频道表，并生成Compose、环境文件和服务端配置。本方案应输出118条频道，清单摘要及部署后验收见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)。
 
-如果采用已经确认配套的外部频道表，在启动前明确指定：
+若用户指定其他已经确认配套的外部表，在启动前记录与参考目录的差异并明确指定：
 
 ```sh
 sh deploy/docker/manage.sh prepare --channel-info "/srv/dnf-assets/channel_info.etc"
 ```
 
-启动并检查：
+**启动前，把 `runtime/docker/instance.json` 中的 `joust_event_enabled` 设为 `false`。** 复用旧数据库时，另按[活动开关说明](#已有服检查保存值实际生效值和目录)确认 2365 的持久化设置已关闭。然后启动并检查：
 
 ```sh
 sh deploy/docker/manage.sh up
@@ -198,7 +242,12 @@ curl http://127.0.0.1:17002/api/status
 
 ```bat
 .\DOCKER.bat build
-.\DOCKER.bat prepare --pvf "D:\GameClient\Script.pvf" --client-dir "D:\GameClient" --host-ip 192.168.1.50
+.\DOCKER.bat prepare --pvf "D:\GameClient\Script.pvf" --channel-info "go-server\internal\services\dnfbridge\testdata\channel_info.etc" --client-dir "D:\GameClient" --host-ip 192.168.1.50
+```
+
+在生成的 `runtime/docker/instance.json` 中把 `joust_event_enabled` 改为 `false`，再启动：
+
+```bat
 .\DOCKER.bat up
 .\DOCKER.bat status
 ```
@@ -229,7 +278,7 @@ curl http://127.0.0.1:17002/api/status
 
 ## 怎么知道已经搭好了
 
-请 Agent 交付服务状态、源码提交、程序和资源摘要，以及实际使用的端口与配置路径。然后用 Windows 客户端走完这组步骤：
+请 Agent 交付服务状态、源码提交、程序和资源摘要，以及实际使用的端口与配置路径。频道表须读回为已选外部表；活动清单逐项列出保存值与生效值，并确认 2365 已关闭。然后用 Windows 客户端走完这组步骤：
 
 1. 注册新账号，登录并看到正确的频道。
 2. 创建角色，进入城镇，移动并与 NPC 交互。

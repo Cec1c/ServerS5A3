@@ -59,6 +59,9 @@ func (s *Service) nextCurrentRelativeItemExpiration(session *gameSession, now ti
 			}
 		}
 		def, e := s.currentPVFDefinitionForItem(catalog, sceneInventoryUint32FromInt64(stack.ItemID))
+		if e == nil && stack.Extra["hatched_from_item_id"] != "" {
+			def, e = s.currentPetExpirationDefinition(catalog, stack)
+		}
 		if e != nil {
 			return e
 		}
@@ -90,10 +93,12 @@ func (s *Service) nextCurrentRelativeItemExpiration(session *gameSession, now ti
 }
 
 type currentItemExpiryProjection struct {
-	characterID uint16
-	generation  uint64
-	slots       []currentDailyDeleteSlot
-	wornRedraw  bool
+	characterID  uint16
+	generation   uint64
+	slots        []currentDailyDeleteSlot
+	wornRedraw   bool
+	petRefresh   bool
+	avatarRedraw bool
 }
 
 func (s *Service) mergeCurrentExpiryProjection(session *gameSession, characterID uint16, generation uint64, removed []currentDailyDeleteSlot) {
@@ -114,12 +119,19 @@ func (s *Service) mergeCurrentExpiryProjection(session *gameSession, characterID
 		seen[slot] = true
 	}
 	for _, slot := range removed {
+		if slot.list == currentDailyDeleteAvatarRefreshList {
+			p.avatarRedraw = true
+			continue
+		}
 		if !seen[slot] {
 			p.slots = append(p.slots, slot)
 			seen[slot] = true
 		}
 		if slot.list == 3 {
 			p.wornRedraw = true
+		}
+		if slot.list == 7 || (slot.list == 3 && slot.slot == 26) {
+			p.petRefresh = true
 		}
 	}
 	sort.Slice(p.slots, func(i, j int) bool {
@@ -142,16 +154,33 @@ func (s *Service) sendCurrentExpiryProjection(session *gameSession) error {
 		return nil
 	}
 	var regular []alignedcmd.ItemSlotRefresh
+	var pets []alignedcmd.ItemSlotRefresh
 	var worn []int16
+	petWorn := false
 	for _, slot := range p.slots {
-		if slot.list == 3 {
+		if slot.list == 3 && slot.slot == 26 {
+			petWorn = true
+		} else if slot.list == 3 {
 			worn = append(worn, slot.slot)
+		} else if slot.list == 7 {
+			pets = append(pets, alignedcmd.ItemSlotRefresh{ListType: slot.list, SlotIndex: slot.slot})
 		} else {
 			regular = append(regular, alignedcmd.ItemSlotRefresh{ListType: slot.list, SlotIndex: slot.slot})
 		}
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "relative_expiration", regular); err != nil {
 		return err
+	}
+	if err := s.sendSelectedPetMoveSlotRefreshes(session, "relative_expiration", pets); err != nil {
+		return err
+	}
+	if petWorn {
+		if !currentTownSelfActorAppearanceReady(session) {
+			return fmt.Errorf("pet expiry worn actor not ready")
+		}
+		if err := s.sendCurrentExpiredPetWornSlot(session); err != nil {
+			return err
+		}
 	}
 	if len(worn) > 0 {
 		if !currentTownSelfActorAppearanceReady(session) {
@@ -161,7 +190,21 @@ func (s *Service) sendCurrentExpiryProjection(session *gameSession) error {
 			return err
 		}
 	}
-	if p.wornRedraw {
+	if p.avatarRedraw {
+		if !currentTownSelfActorAppearanceReady(session) {
+			return fmt.Errorf("relative avatar expiry redraw actor not ready")
+		}
+		if err := s.sendCurrentContainerListTypesWithRefresh(session, "relative_avatar_expiration", true, []byte{currentAvatarInventoryListType}); err != nil {
+			return err
+		}
+		if err := s.sendAlignedPostAction(session, alignedcmd.Result{Operation: "relative_avatar_expiration"}, alignedcmd.PostActionRefreshSelectedActorAppearance); err != nil {
+			return err
+		}
+		if err := s.sendSelectedCurrentCombatPowerAffixes(session, "relative_avatar_expiration_after_commit"); err != nil {
+			return err
+		}
+	}
+	if p.wornRedraw && !p.avatarRedraw {
 		if !currentTownSelfActorAppearanceReady(session) {
 			return fmt.Errorf("relative expiry redraw actor not ready")
 		}
@@ -170,6 +213,14 @@ func (s *Service) sendCurrentExpiryProjection(session *gameSession) error {
 			return err
 		}
 		if err := s.sendSelectedCurrentCombatPowerAffixes(session, "relative_expiration_after_commit"); err != nil {
+			return err
+		}
+	}
+	if p.petRefresh {
+		if ready, _ := s.currentSceneActorReadyForState(session); !ready {
+			return fmt.Errorf("pet expiry actor not ready")
+		}
+		if err := s.sendSelectedCreatureStateTableWithRefresh(session, "relative_expiration", true); err != nil {
 			return err
 		}
 	}

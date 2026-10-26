@@ -71,6 +71,11 @@ func (s *Service) projectCurrentPVFItemExpirations(
 	if assets == nil {
 		return summary, itemexpiration.ErrProjectorRequired
 	}
+	var petErr error
+	summary, petErr = s.removeExpiredPetState(catalog, assets, now)
+	if petErr != nil {
+		return summary, petErr
+	}
 	var errs []error
 	normalizeStack := func(scope string, stack dnfrepo.ItemStack) (dnfrepo.ItemStack, bool, bool) {
 		definition, resolveErr := s.currentPVFDefinitionForItem(catalog, sceneInventoryUint32FromInt64(stack.ItemID))
@@ -143,6 +148,14 @@ func (s *Service) projectCurrentPVFItemExpirations(
 					assets.Equipment.Entries[key] = patched
 					summary.Equipment++
 				}
+				continue
+			}
+			if avatarSlot, matched := currentPVFRelativeAvatarEquipmentExpiry(definition, entry, now); matched {
+				if key != strconv.Itoa(int(entry.SlotIndex)) || entry.SlotIndex != avatarSlot {
+					return summary, fmt.Errorf("item expiry invalid avatar key %q slot %d", key, entry.SlotIndex)
+				}
+				delete(assets.Equipment.Entries, key)
+				summary.Equipment++
 				continue
 			}
 			if currentPVFRelativeGrantExpired(dnfrepo.ItemStack{

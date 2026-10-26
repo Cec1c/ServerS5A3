@@ -76,9 +76,10 @@ const (
 
 var errGameplayTimeQueueUnavailable = errors.New("gameplay time queue is unavailable")
 
-// handleDungeonDieCharacter accepts only the normal current-EXE writer shape:
-// two u16 actor coordinates. The request does not identify the actor; the
-// selected runtime owner supplies the real scene object key used by op32.
+// handleDungeonDieCharacter accepts two u16 actor coordinates, optionally
+// followed by a zero u16 emitted by the current EXE's non-15h sender branch.
+// Nonzero extra fields are not interpreted here. Neither accepted shape supplies
+// an actor identity; the selected runtime owner supplies the op32 scene key.
 func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) error {
 	var partyDeathRuntime *runtimeDungeonState
 	var raidLifeProjections []runtimeRaidState
@@ -95,11 +96,14 @@ func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) e
 	if session == nil {
 		return nil
 	}
-	if len(body) != currentDungeonDieCharacterBodySize {
+	if len(body) != currentDungeonDieCharacterBodySize &&
+		(len(body) != currentDungeonDieCharacterBodySize+2 ||
+			binary.LittleEndian.Uint16(body[currentDungeonDieCharacterBodySize:]) != 0) {
 		s.logGameEvent(session, "game-dungeon-character-death-blocked",
 			"body_len", len(body),
 			"expected_body_len", currentDungeonDieCharacterBodySize,
-			"reason", "current_exe_normal_op40_two_u16_coordinates_boundary_mismatch")
+			"optional_zero_tail_body_len", currentDungeonDieCharacterBodySize+2,
+			"reason", "current_exe_op40_coordinates_or_zero_tail_shape_mismatch")
 		return nil
 	}
 
@@ -471,14 +475,15 @@ func (s *Service) completeCurrentDungeonReviveLocked(
 }
 
 type currentDungeonReviveCoinConsumeResult struct {
-	Consumed      bool
-	FreeRevive    bool
-	SlotKey       string
-	Slot          int16
-	ItemID        int64
-	CountAfter    int64
-	HasItemUpdate bool
-	ItemUpdate    currentItemListEntry
+	Consumed           bool
+	FreeRevive         bool
+	SlotKey            string
+	Slot               int16
+	ItemID             int64
+	CountAfter         int64
+	HasItemUpdate      bool
+	ItemUpdate         currentItemListEntry
+	RaidCoinProjection *runtimeRaidState
 }
 
 // A completed ordinary run cancels its death-return timer when entering
@@ -611,6 +616,9 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 		source = "current_exe_op41_private_server_free_revive"
 	}
 	raidLifeProjections := s.completeCurrentDungeonReviveLocked(session, runtime, source)
+	if consume.RaidCoinProjection != nil {
+		raidLifeProjections = append(raidLifeProjections, *consume.RaidCoinProjection)
+	}
 	session.dungeon.mu.Unlock()
 	for _, state := range raidLifeProjections {
 		s.queueCurrentRaidDungeonProgress(state)

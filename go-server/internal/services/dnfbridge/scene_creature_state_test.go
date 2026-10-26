@@ -156,9 +156,7 @@ func TestSelectedCreatureInitialStateAfterMode1PushesBarsBeforeSceneTail(t *test
 		t.Fatal(err)
 	}
 
-	itemRefresh, rest := splitLongHengGameServerUpperPacket(t, connection.write.Bytes())
-	assertEquippedCreatureItemRefreshPacket(t, itemRefresh, 400990167, 37, 10008713, 2)
-	state, rest := splitGameServerUpperPacket(t, rest)
+	state, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	if state.Header.MsgID != currentCreatureStateTableMsgID ||
 		state.Header.Classification != 0 ||
 		len(state.Body) < 20 ||
@@ -169,6 +167,8 @@ func TestSelectedCreatureInitialStateAfterMode1PushesBarsBeforeSceneTail(t *test
 		state.Body[14] != 7 {
 		t.Fatalf("initial creature table header=%+v body=%x", state.Header, state.Body)
 	}
+	itemRefresh, rest := splitLongHengGameServerUpperPacket(t, rest)
+	assertEquippedCreatureItemRefreshPacket(t, itemRefresh, 400990167, 37, 10008713, 2)
 	growth, trailing := splitGameServerUpperPacket(t, rest)
 	wantGrowth := []byte{0, 0, 0, 7, 0, 0x78, 0x56, 0x34, 0x12}
 	if growth.Header.MsgID != currentCreatureGrowthMsgID ||

@@ -35,7 +35,11 @@ type OwnedProjectedItem struct {
 type OwnedProjectionOptions struct {
 	// Must be a pure metadata predicate, never I/O or a packet sender.
 	NeedsEquippedPetMetadata func(repo.EquipmentEntry) bool
-	legacyLists              []byte
+	// MigrateCurrentInstances upgrades unambiguous legacy coordinate/template
+	// bindings to the physical item identity in the same owned transaction.
+	// Ambiguous same-template registrations are never guessed.
+	MigrateCurrentInstances bool
+	legacyLists             []byte
 }
 
 func validateBindingIdentity(b Binding) error {
@@ -201,6 +205,14 @@ func LoadResolvedOwned(ctx context.Context, base repo.Group, characterID, accoun
 	return LoadResolvedOwnedWithOptions(ctx, base, characterID, accountID, OwnedProjectionOptions{})
 }
 
+// LoadResolvedOwnedMigratingCurrentInstances is the production projection
+// entry. It preserves legacy rows when a same-template item is ambiguous,
+// while assigning a durable physical identity to a binding whose item is
+// already unique. The migration commits atomically with the owned snapshot.
+func LoadResolvedOwnedMigratingCurrentInstances(ctx context.Context, base repo.Group, characterID, accountID string) (OwnedProjection, error) {
+	return LoadResolvedOwnedWithOptions(ctx, base, characterID, accountID, OwnedProjectionOptions{MigrateCurrentInstances: true})
+}
+
 func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characterID, accountID string, options OwnedProjectionOptions) (OwnedProjection, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -241,6 +253,11 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 		view, err := readOwnedSources(ctx, tx, characterID, options)
 		if err != nil {
 			return err
+		}
+		if options.MigrateCurrentInstances {
+			if _, err := migrateCurrentInstanceBindings(ctx, tx, characterID, &state, &view); err != nil {
+				return err
+			}
 		}
 		projection, err := resolveOwnedProjection(ctx, tx, characterID, state, view)
 		projection.Owner = result.Owner

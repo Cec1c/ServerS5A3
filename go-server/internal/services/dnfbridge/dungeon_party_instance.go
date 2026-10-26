@@ -113,6 +113,11 @@ type partyDungeonDoorArrivalKey struct {
 // 读改写与其它实例内共享状态同锁序（session.dungeon.mu → instance.mu）。
 // 见 dungeon_party_card_flip_projection.go。
 type dungeonPartyInstance struct {
+	guildRankingRun           *currentGuildRankingRun
+	guildContributionRun      *currentGuildContributionRun
+	ridableTerminals          *currentDungeonRidableTerminalOwner
+	ridableSelectionSignature [32]byte
+
 	semesterRun            *currentSemesterRun
 	mu                     sync.Mutex
 	id                     uint64
@@ -260,6 +265,10 @@ func (s *Service) adoptPartyDungeonInstance(
 		if runtime.Session != nil {
 			instance.scenes[characterID] = runtime.Session
 		}
+		if runtime.randomizedObjects != nil {
+			instance.ridableTerminals = runtime.randomizedObjects.ridableTerminals
+			instance.ridableSelectionSignature = runtime.randomizedObjects.entrySignature
+		}
 		instance.rooms[runtimeDungeonRoomKeyFromScene(scene)] = partyDungeonSharedRoom{Room: runtime.Room, Scene: scene}
 		registry.byKey[key] = instance
 		created = true
@@ -334,6 +343,9 @@ func (runtime *runtimeDungeonState) adoptPartyDungeonInstance(instance *dungeonP
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 	runtime.partyInstance = instance
+	if runtime.randomizedObjects != nil && runtime.randomizedObjects.entrySignature == instance.ridableSelectionSignature {
+		runtime.randomizedObjects.ridableTerminals = instance.ridableTerminals
+	}
 	if shared, ok := instance.rooms[runtimeDungeonRoomKeyFromScene(scene)]; ok && shared.Room != nil {
 		shared.Room.adoptAnnouncedSessionsFrom(runtime.Room)
 		runtime.Room = shared.Room
@@ -511,6 +523,12 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 // 最后一两只怪往往是队长打死的，队员那边只是被广播标记了清怪状态 ⇒ 队员永远结算不了。
 // 这里异步投递（同步会跨会话互等：广播方持有自己的 dungeon.mu，队友的回调又要它的锁）。
 func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession, instanceID uint64, objectKey uint32) {
+	s.dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer, instanceID, objectKey, nil)
+}
+
+// accept, when present, revalidates a scoped completion proof under the peer's
+// dungeon lock. Ordinary hostile-death callers retain their existing path.
+func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameSession, instanceID uint64, objectKey uint32, accept func(*runtimeDungeonState, worldmap.DungeonRoomScene) bool) {
 	if s == nil || peer == nil || instanceID == 0 {
 		return
 	}
@@ -526,12 +544,31 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession,
 		if !ok || !scene.Cleared {
 			return nil
 		}
+		if accept != nil && !accept(runtime, scene) {
+			return nil
+		}
 		if err := s.persistCurrentDungeonRoomClearQuestLocked(peer, runtime); err != nil {
 			return err
 		}
 		s.awardCurrentPetRoomClearLocked(peer, runtime, scene, "authoritative_peer_room_clear")
-		if err := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey); err != nil {
-			return err
+		completionErr := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(peer, runtime, scene, objectKey)
+		if runtime.bossDieCheckAccepted && !runtime.settlementEntrySent {
+			// A transient member-session write can fail after the final room and
+			// boss-die completion state were committed but before bodyless op31
+			// reached the client. The ordinary entry now returns early because
+			// bossDieCheckAccepted is set, so retry through that same settlement
+			// owner once. Identity, persistence, tournament and reward barriers
+			// remain owned by completeCurrentDungeonBossDieCheckLocked.
+			resumeErr := s.completeCurrentDungeonBossDieCheckLocked(
+				peer,
+				runtime,
+				"authoritative_party_death_dispatch_resume_partial_settlement",
+			)
+			if resumeErr != nil {
+				return errors.Join(completionErr, resumeErr)
+			}
+		} else if completionErr != nil {
+			return completionErr
 		}
 		if err := s.completePVFTutorialBosslessFinalRoomAfterDeathLocked(peer, runtime, scene); err != nil {
 			return err

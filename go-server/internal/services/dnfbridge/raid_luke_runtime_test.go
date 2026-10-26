@@ -248,15 +248,17 @@ func TestRealPVFLukeOwnedTwoPhasesRewardsAndWeekly(t *testing.T) {
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(first.AutoSelectAt.Add(65*time.Second), zeroAntonRoll); len(errs) != 0 || first.FinishedAt.IsZero() || first.BreakUntil.IsZero() {
 		t.Fatal("Luke no-squad flow stalled", errs)
 	}
+	// The second phase consumes confirmed current-battle waiting presence.
+	peer := f.session()
+	peer.selectedCharacterID, peer.accountID = 20, "account-20"
+	peer.channel, peer.loginPacketSeen, peer.accountFromToken = session.channel, true, true
+	f.service.bindGameSessionCharacter(peer, 20)
+	enterRaidStartWaitingFixture(t, f, b.InstanceID)
 	states, errs := f.service.advanceCurrentRaidClocks(first.BreakUntil)
 	if len(errs) != 0 || len(states) != 1 || b.Phase != 1 || !b.Anton.IsLuke() || b.PhaseCompleted {
 		t.Fatal("Luke next phase", states, errs)
 	}
 	at = b.EnterAfter.Add(time.Second)
-	peer := f.session()
-	peer.selectedCharacterID, peer.accountID = 20, "account-20"
-	peer.channel, peer.loginPacketSeen, peer.accountFromToken = session.channel, true, true
-	f.service.bindGameSessionCharacter(peer, 20)
 	for _, id := range []uint32{5311, 5313, 5057, 5058, 5059, 5060, 5064, 5065, 5061, 5062} {
 		owner := session
 		if id == 5313 || id == 5058 || id == 5060 || id == 5065 || id == 5062 {
