@@ -314,9 +314,10 @@ func TestRealPVFLukeWaiting39StartLeaveAndNetworkScopeLoss(t *testing.T) {
 			} else {
 				lukeWaitingPublicOp36(t, s, session, body)
 				if action == "start" {
-					s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 30, TownID: 32, AreaID: 4, ChannelID: 32, Instance: key})
+					peer := &gameSession{channel: session.channel, selectedCharacterID: 30, accountID: "dnf:30"}
+					s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 30, AccountID: peer.accountID, Session: peer, TownID: 32, AreaID: 4, ChannelID: 32, Instance: key})
 					s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 31, TownID: 32, AreaID: 2, ChannelID: 32, Instance: key})
-					s.onlinePlayers.bindAntonWaitingBattleInstance(key, "luke-started-battle")
+					s.onlinePlayers.bindRaidWaitingBattleInstance(waitingBattleScopeForTest(key, "luke-started-battle", 32, 32, 4, session, peer))
 					p, _ := s.onlinePlayers.PlayerForCharacter(29)
 					ordinary, _ := s.onlinePlayers.PlayerForCharacter(31)
 					if p.RaidBattleInstance != "luke-started-battle" || !s.onlinePlayers.PeerInSameArea(29, 30) || ordinary.RaidBattleInstance != "" {

@@ -118,6 +118,7 @@ func TestRealPVFAntonAutomaticRewardsLateFailureRetainsPlanAndRollsBack(t *testi
 
 func TestRealPVFAntonNextPhaseRequiresRewardsThenLeaderStartNoNewTicket(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
+	enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
 	if _, ok, err := f.service.startRuntimeRaidWithEntryCost(session); ok || err != nil {
 		t.Fatal("next phase admitted before rewards", ok, err)
 	}
