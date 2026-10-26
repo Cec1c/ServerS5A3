@@ -34,7 +34,7 @@ type r139ContainerFailureConn struct {
 func (c *r139ContainerFailureConn) Write(p []byte) (int, error) {
 	if len(p) >= 3 && p[0] == 0 {
 		msg := binary.LittleEndian.Uint16(p[1:3])
-		if msg == 1368 {
+		if r139IsBuffWireID(msg) {
 			c.buffAttempts++
 		}
 		if msg == 13 {
@@ -74,9 +74,9 @@ func TestR139BuffContainerDeferredMustNotEscapeBoundary(t *testing.T) {
 			if !conn.failed || attempts != 1 || commits != 1 || !strings.Contains(logs.String(), "deferred remaining aligned post-commit projections") {
 				t.Fatalf("not the real deferred branch: failed=%v attempts=%d commits=%d logs=%s", conn.failed, attempts, commits, logs.String())
 			}
-			t.Logf("real op19 committed once; failed op13; deferred warning=%t; subsequent1368Attempts=%d; returnedError=%v", strings.Contains(logs.String(), "deferred remaining aligned post-commit projections"), conn.buffAttempts, err)
+			t.Logf("real op19 committed once; failed op13; deferred warning=%t; subsequentBuffAttempts=%d; returnedError=%v", strings.Contains(logs.String(), "deferred remaining aligned post-commit projections"), conn.buffAttempts, err)
 			if err != nil || conn.buffAttempts != 0 {
-				t.Fatalf("deferred boundary escaped: 1368 attempts=%d returned error=%v; want no attempt and existing nil result", conn.buffAttempts, err)
+				t.Fatalf("deferred boundary escaped: Buff attempts=%d returned error=%v; want no attempt and existing nil result", conn.buffAttempts, err)
 			}
 		})
 	}
@@ -89,11 +89,12 @@ func TestR139BuffSnapshotWriteFailureCommitsOnlyOnce(t *testing.T) {
 	g := f.group
 	g.CharacterItems = r139CountTransactions{g.CharacterItems, &attempts, &commits}
 	f.service.repositoryProvider = func() (repo.Group, bool) { return g, true }
-	conn := &r139FailMessageConn{kind: 0, msg: 1368}
+	// Nonappearance wear uses the 1367 row-update form; the historical test name is retained.
+	conn := &r139FailMessageConn{kind: 0, msg: currentBuffSwapRowsID}
 	f.session.conn = conn
 	err := f.service.handleGameCommand(f.session, 1, 19, flaggedBody(t, loginWearBridgeBody(0, 15, 0, 3, 16, int32(p94Item)), op19CurrentUIPlayerFlag))
 	if err == nil || !strings.Contains(err.Error(), "r139 injected message write failure") || !conn.hit || attempts != 1 || commits != 1 {
-		t.Fatalf("1368 failure semantics: hit=%v attempts=%d commits=%d err=%v", conn.hit, attempts, commits, err)
+		t.Fatalf("1367 failure semantics: hit=%v attempts=%d commits=%d err=%v", conn.hit, attempts, commits, err)
 	}
 	r139AssertOwner(t, f, 16, instance, 0, 15)
 }
