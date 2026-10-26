@@ -64,16 +64,22 @@ func buildSuccessAck() []byte {
 }
 
 func buildExtractAck(mailIDs []uint32) []byte {
-	body := make([]byte, 1+4+len(mailIDs)*12)
+	objects := make([]mailboxClaimObject, len(mailIDs))
+	for i, id := range mailIDs {
+		objects[i] = mailboxClaimObject{MailID: id, ClaimID: id}
+	}
+	return buildExtractObjectAck(objects)
+}
+
+func buildExtractObjectAck(objects []mailboxClaimObject) []byte {
+	body := make([]byte, 1+4+len(objects)*12)
 	body[0] = 0x01
-	binary.LittleEndian.PutUint32(body[1:5], uint32(len(mailIDs)))
+	binary.LittleEndian.PutUint32(body[1:5], uint32(len(objects)))
 	offset := 5
-	for _, mailID := range mailIDs {
-		binary.LittleEndian.PutUint32(body[offset:offset+4], mailID)
-		// Current v96 summary append (0x29e122b) stores mailID as the claim
-		// object. ACK apply (0x29edb67) looks it up before retiring its widget.
-		// Keep mode zero; a zero claim object never matches this summary.
-		binary.LittleEndian.PutUint32(body[offset+4:offset+8], mailID)
+	for _, object := range objects {
+		binary.LittleEndian.PutUint32(body[offset:offset+4], object.MailID)
+		// 原生先定位父信，再按独立领取编号移除对应附件；尾部 mode 保持零。
+		binary.LittleEndian.PutUint32(body[offset+4:offset+8], object.ClaimID)
 		offset += 12
 	}
 	return body
@@ -150,17 +156,27 @@ func buildErrorAck(code byte) []byte {
 	return []byte{0x00, code}
 }
 
-// buildMailboxListNotification follows the current client's
-// sub_1D913C0 reader exactly: attachment/gold summaries, the deferred-page
-// count, then the detailed text/status rows. The common 0x77 item row is
-// deliberately retained as a bounded opaque client item row; its front fields
-// are projected separately because the client reads both representations.
-func buildMailboxListNotification(mails []dnfrepo.MailRecord, notLoaded int, now time.Time) ([]byte, error) {
+// projectMailboxSummaries 对应当前原生0x2043b90：附件/金币摘要、未加载数及正文。
+// 前部字段与0x77实例行均按原生顺序保留，不以数量覆盖装备的品质等实例属性。
+func projectMailboxSummaries(mails []dnfrepo.MailRecord) ([]mailboxSummary, error) {
 	if len(mails) > math.MaxUint16 {
 		return nil, fmt.Errorf("%w: mailbox page has %d mails", ErrMailboxInvalidRequest, len(mails))
 	}
 
 	summaries := make([]mailboxSummary, 0, len(mails))
+	// 直接编码调用也使用独立编号；在线路径已在 Open 的邮件事务中持久化相同编号。
+	record := dnfrepo.MailboxRecord{Mails: make(map[string]dnfrepo.MailRecord, len(mails))}
+	for _, mail := range mails {
+		record.Mails[mail.MailID] = mail
+	}
+	if _, err := ensureMailboxClaimIDs(&record); err != nil {
+		return nil, err
+	}
+	projected := make([]dnfrepo.MailRecord, len(mails))
+	for i, mail := range mails {
+		projected[i] = record.Mails[mail.MailID]
+	}
+	mails = projected
 	for _, durableMail := range mails {
 		mail := mailboxPresentationMail(durableMail)
 		mailID, err := mailboxWireID(mail.MailID)
@@ -168,43 +184,195 @@ func buildMailboxListNotification(mails []dnfrepo.MailRecord, notLoaded int, now
 			return nil, err
 		}
 		wrote := false
-		for _, attachment := range mail.Attachments {
+		claimIDs, _, err := mailboxStoredClaimIDs(mail)
+		if err != nil {
+			return nil, err
+		}
+		for index, attachment := range mail.Attachments {
 			if attachment.ItemID <= 0 || attachment.Count <= 0 {
 				return nil, fmt.Errorf("%w: invalid attachment mail=%d item=%d count=%d", ErrMailboxInvalidRequest, mailID, attachment.ItemID, attachment.Count)
-			}
-			if len(summaries) >= math.MaxUint8 {
-				return nil, fmt.Errorf("%w: mailbox page has more than %d attachment summaries", ErrMailboxInvalidRequest, math.MaxUint8)
 			}
 			summaries = append(summaries, mailboxSummary{
 				mail:        mail,
 				mailID:      mailID,
+				claimID:     claimIDs[index],
 				attachment:  &attachment,
 				includeGold: !wrote,
 			})
 			wrote = true
 		}
 		if !wrote && mail.Gold > 0 {
-			if len(summaries) >= math.MaxUint8 {
-				return nil, fmt.Errorf("%w: mailbox page has more than %d summaries", ErrMailboxInvalidRequest, math.MaxUint8)
-			}
-			summaries = append(summaries, mailboxSummary{mail: mail, mailID: mailID, includeGold: true})
+			summaries = append(summaries, mailboxSummary{mail: mail, mailID: mailID, claimID: claimIDs[0], includeGold: true})
 			wrote = true
 		}
 		// The client keeps the current message identity from the summary pass.
 		// A text-only mail therefore needs one intentionally empty seed record.
 		if !wrote {
-			if len(summaries) >= math.MaxUint8 {
-				return nil, fmt.Errorf("%w: mailbox page has more than %d summaries", ErrMailboxInvalidRequest, math.MaxUint8)
-			}
-			summaries = append(summaries, mailboxSummary{mail: mail, mailID: mailID, seedOnly: true})
+			summaries = append(summaries, mailboxSummary{mail: mail, mailID: mailID, claimID: mailID, seedOnly: true})
 		}
 	}
 
+	return summaries, nil
+}
+
+func buildMailboxListNotification(mails []dnfrepo.MailRecord, notLoaded int, now time.Time) ([]byte, error) {
+	summaries, err := projectMailboxSummaries(mails)
+	if err != nil {
+		return nil, err
+	}
+	if len(summaries) > math.MaxUint8 {
+		return nil, fmt.Errorf("%w: mailbox page has more than %d summaries", ErrMailboxInvalidRequest, math.MaxUint8)
+	}
+	return encodeMailboxListPacket(summaries, mails, notLoaded, now, false)
+}
+
+// buildMailboxListNotificationWithTypeResolver applies the runtime-PVF item
+// type to a send-only copy of the mailbox before framing 0x61. The older
+// builder remains the compatibility entry point for domain fixtures and
+// callers that have no item catalog; protocol handlers use this one.
+func buildMailboxListNotificationWithTypeResolver(
+	mails []dnfrepo.MailRecord,
+	notLoaded int,
+	now time.Time,
+	resolver alignedcmd.MailboxItemResolver,
+) ([]byte, error) {
+	normalized, err := normalizeMailboxAttachmentTypesForWire(mails, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return buildMailboxListNotification(normalized, notLoaded, now)
+}
+
+// 原生0x2043c72明确支持续包：首包清空，后续包追加。同封超过255件也不截断。
+func buildMailboxListNotifications(mails []dnfrepo.MailRecord, notLoaded int, now time.Time) ([][]byte, error) {
+	summaries, err := projectMailboxSummaries(mails)
+	if err != nil {
+		return nil, err
+	}
+	if len(summaries) == 0 {
+		body, e := encodeMailboxListPacket(nil, nil, notLoaded, now, false)
+		return [][]byte{body}, e
+	}
+	var packets [][]byte
+	for start := 0; start < len(summaries); {
+		end := start + math.MaxUint8
+		if end > len(summaries) {
+			end = len(summaries)
+		}
+		var body []byte
+		for {
+			batch := summaries[start:end]
+			seen := map[string]bool{}
+			details := make([]dnfrepo.MailRecord, 0, len(batch))
+			for _, summary := range batch {
+				if !seen[summary.mail.MailID] {
+					seen[summary.mail.MailID] = true
+					details = append(details, summary.mail)
+				}
+			}
+			var err error
+			body, err = encodeMailboxListPacket(batch, details, notLoaded, now, start != 0)
+			if err != nil {
+				return nil, err
+			}
+			// 时装扩展、姓名及正文也是变长字段；留足包头空间，避免只限制条数。
+			if len(body) <= 60*1024 {
+				break
+			}
+			if end == start+1 {
+				return nil, fmt.Errorf("%w: mailbox summary exceeds packet budget", ErrMailboxInvalidRequest)
+			}
+			end--
+		}
+		packets = append(packets, body)
+		start = end
+	}
+	return packets, nil
+}
+
+// buildMailboxListNotificationsWithTypeResolver is the protocol-facing list
+// builder. It must be used for the op96 open, op95 post-claim, and op134
+// post-delete refreshes so attachment row widths come from the same runtime PVF
+// type that the client parses.
+func buildMailboxListNotificationsWithTypeResolver(
+	mails []dnfrepo.MailRecord,
+	notLoaded int,
+	now time.Time,
+	resolver alignedcmd.MailboxItemResolver,
+) ([][]byte, error) {
+	normalized, err := normalizeMailboxAttachmentTypesForWire(mails, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return buildMailboxListNotifications(normalized, notLoaded, now)
+}
+
+// normalizeMailboxAttachmentTypesForWire returns deep copies for the wire
+// projection. It never repairs or rewrites the durable mailbox. When a
+// resolver is present, its Kind and EquipmentType replace mutable historical
+// Extra values; a resolver failure aborts the list instead of emitting a row
+// whose variable-width branch disagrees with the client.
+func normalizeMailboxAttachmentTypesForWire(
+	mails []dnfrepo.MailRecord,
+	resolver alignedcmd.MailboxItemResolver,
+) ([]dnfrepo.MailRecord, error) {
+	if resolver == nil || len(mails) == 0 {
+		return mails, nil
+	}
+	typeResolution := make(map[uint32]alignedcmd.MailboxItemResolution, len(mails))
+	typeResolutionErr := make(map[uint32]error)
+	out := make([]dnfrepo.MailRecord, len(mails))
+	for index, mail := range mails {
+		out[index] = cloneMailboxMail(mail)
+		for attachmentIndex := range out[index].Attachments {
+			attachment := &out[index].Attachments[attachmentIndex]
+			if attachment.ItemID <= 0 || attachment.ItemID > int64(^uint32(0)) {
+				return nil, fmt.Errorf("%w: attachment item=%d outside wire range", ErrMailboxInvalidRequest, attachment.ItemID)
+			}
+			itemID := uint32(attachment.ItemID)
+			resolution, resolved := typeResolution[itemID]
+			if !resolved {
+				var resolveErr error
+				resolution, resolveErr = resolver(itemID)
+				if resolveErr != nil {
+					typeResolutionErr[itemID] = resolveErr
+				} else {
+					typeResolution[itemID] = resolution
+				}
+				resolved = true
+			}
+			if resolveErr := typeResolutionErr[itemID]; resolveErr != nil {
+				return nil, fmt.Errorf("mailbox attachment item=%d runtime PVF type: %w", itemID, resolveErr)
+			}
+			kind := strings.TrimSpace(resolution.Kind)
+			typeToken := normalizeMailboxAttachmentTypeToken(resolution.EquipmentType)
+			if kind == "" && typeToken == "" {
+				continue
+			}
+			if attachment.Extra == nil {
+				attachment.Extra = make(map[string]string, 2)
+			}
+			if kind != "" {
+				attachment.Extra["mailbox_pvf_kind"] = kind
+			}
+			attachment.Extra["mailbox_equipment_type"] = typeToken
+		}
+	}
+	return out, nil
+}
+
+func normalizeMailboxAttachmentTypeToken(value string) string {
+	return strings.ToLower(strings.Trim(strings.TrimSpace(value), "[]` \t\r\n"))
+}
+
+func encodeMailboxListPacket(summaries []mailboxSummary, mails []dnfrepo.MailRecord, notLoaded int, now time.Time, appendPage bool) ([]byte, error) {
 	writer := mailboxBodyWriter{}
 	writer.u8(byte(len(summaries)))
-	// Zero makes sub_1D913C0 clear both current mail containers before this
-	// complete snapshot; subsequent page batches would use one here.
-	writer.u8(0)
+	flag := byte(0)
+	if appendPage {
+		flag = 1
+	}
+	writer.u8(flag)
 	for _, summary := range summaries {
 		if err := writer.writeSummary(summary, now); err != nil {
 			return nil, err
@@ -212,9 +380,8 @@ func buildMailboxListNotification(mails []dnfrepo.MailRecord, notLoaded int, now
 	}
 	writer.u16(clampMailboxU16(notLoaded))
 	writer.u16(uint16(len(mails)))
-	for _, durableMail := range mails {
-		mail := mailboxPresentationMail(durableMail)
-		if err := writer.writeDetail(mail); err != nil {
+	for _, m := range mails {
+		if err := writer.writeDetail(mailboxPresentationMail(m)); err != nil {
 			return nil, err
 		}
 	}
@@ -268,6 +435,7 @@ func BuildAlarmNotification(count int) []byte {
 }
 
 type mailboxSummary struct {
+	claimID     uint32
 	mail        dnfrepo.MailRecord
 	mailID      uint32
 	attachment  *dnfrepo.MailAttachment
@@ -308,7 +476,11 @@ func (w *mailboxBodyWriter) writeSummary(summary mailboxSummary, now time.Time) 
 	if err != nil {
 		return err
 	}
-	w.u32(summary.mailID) // v40/claim object: current op95 claims mail IDs.
+	claimID := summary.claimID
+	if claimID == 0 {
+		claimID = summary.mailID
+	}
+	w.u32(claimID) // 附件领取对象编号；尾部 mailID 用于同封归组。
 	w.u32(senderID)
 	if err := w.dstring(summary.mail.SenderName, maxMailboxRecipientBytes); err != nil {
 		return fmt.Errorf("sender name: %w", err)

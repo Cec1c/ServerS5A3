@@ -2,9 +2,13 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"longheng.io/server/internal/platform/eventloop"
 )
 
 // 本文件实现「全队 op37 finish-loading 到齐之后再统一放行」这一条读条屏障
@@ -158,48 +162,115 @@ type partyDungeonLoadingCycle struct {
 	released  time.Time
 	Timer     *time.Timer
 	membersAt []uint16
-	// sessions 记录本周期里每个成员**实际出现的那条会话**。
-	//
-	// 同角色的第二条连接（辅助/替换 socket，见 online_player_manager.go 的
-	// `LeaveAreaSession` 注释）可能正是发 op16/op37 的那条，而
-	// `s.onlineGameSession(charID)` 指的是角色目录里的那一条。放行必须回到"真正在跑
-	// 这一场副本的那条会话"，否则被压住的落位会永远放不出去（客户端卡在读条）。
-	sessions map[uint16]*gameSession
+	// owners keeps the actual session, including a replacement socket.
+	owners map[uint16]partyDungeonLoadingOwner
+	// admissions coalesces work waiting for capacity or execution. Placement-only
+	// and finish-tail requests are separate phases: a timeout may place a member
+	// before that member has sent op37. Protected by partyDungeonLoadingMu.
+	admissions map[partyDungeonLoadingAdmissionKey]*partyDungeonLoadingAdmission
 }
 
-// partyDungeonLoadingCycleSessions 返回本周期记录下来的"成员角色 → 会话"。
-func (s *Service) partyDungeonLoadingCycleSessions(partyID uint16) map[uint16]*gameSession {
-	if s == nil || partyID == 0 {
-		return nil
-	}
-	s.partyDungeonLoadingMu.Lock()
-	defer s.partyDungeonLoadingMu.Unlock()
-	current := s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
-	if current == nil || len(current.sessions) == 0 {
-		return nil
-	}
-	sessions := make(map[uint16]*gameSession, len(current.sessions))
-	for charID, session := range current.sessions {
-		sessions[charID] = session
-	}
-	return sessions
+type partyDungeonLoadingAdmissionKey struct {
+	character uint16
+	tail      bool
 }
 
-// partyDungeonLoadingCycleRecordSession 记下"本周期里这个成员是哪条会话在跑"。
-func (s *Service) partyDungeonLoadingCycleRecordSession(partyID uint16, session *gameSession) {
-	if s == nil || partyID == 0 || session == nil || session.selectedCharacterID == 0 {
-		return
+type partyDungeonLoadingAdmission struct {
+	timer    *time.Timer
+	identity boundGameSessionCharacter
+}
+
+const partyDungeonLoadingAdmissionRetryInterval = 100 * time.Millisecond
+
+// A loading release is bound to the exact session and committed runtime it
+// observed. Keeping the runtime alive does not make it the current scene.
+type partyDungeonLoadingOwner struct {
+	session *gameSession
+	runtime *runtimeDungeonState
+	token   uint64
+}
+
+func snapshotPartyDungeonLoadingOwner(session *gameSession) partyDungeonLoadingOwner {
+	if session == nil {
+		return partyDungeonLoadingOwner{}
 	}
+	session.dungeon.mu.Lock()
+	defer session.dungeon.mu.Unlock()
+	return partyDungeonLoadingOwner{session, session.dungeon.runtime, session.dungeon.runToken}
+}
+
+// Called before acquiring loadingMu: never acquire a dungeon lock beneath it.
+func (s *Service) partyDungeonLoadingOwners(session *gameSession, members []uint16) map[uint16]partyDungeonLoadingOwner {
+	owners := make(map[uint16]partyDungeonLoadingOwner, len(members))
+	for _, id := range members {
+		peer, _ := s.onlineGameSession(id)
+		if id == session.selectedCharacterID {
+			peer = session
+		}
+		if peer != nil {
+			owners[id] = snapshotPartyDungeonLoadingOwner(peer)
+		}
+	}
+	return owners
+}
+
+func (s *Service) ensurePartyDungeonLoadingCycleLocked(session *gameSession, partyID uint16, members []uint16, owners map[uint16]partyDungeonLoadingOwner) *partyDungeonLoadingCycle {
+	cycles := s.partyDungeonLoadingBarrierCyclesLocked()
+	current := cycles[partyID]
+	owner := owners[session.selectedCharacterID]
+	previous, known := partyDungeonLoadingOwner{}, false
+	if current != nil {
+		previous, known = current.owners[session.selectedCharacterID]
+	}
+	changed := known && previous != owner
+	if current == nil || changed || (current.Released && time.Since(current.released) >= partyDungeonLoadingBarrierRegroupWindow) {
+		next := 1
+		ready := make(map[uint16]bool)
+		if current != nil {
+			next = current.Cycle + 1
+			if current.Timer != nil {
+				current.Timer.Stop()
+			}
+			for _, admission := range current.admissions {
+				if admission.timer != nil {
+					admission.timer.Stop()
+				}
+			}
+			// A peer can commit its replacement while another member's op37 is
+			// already waiting. That unchanged member will not send op37 again.
+			// Preserve only pending arrivals owned by the exact same scene;
+			// released cycles and replaced owners must load afresh.
+			if !current.Released {
+				for _, id := range members {
+					previousOwner, existed := current.owners[id]
+					nextOwner, present := owners[id]
+					if existed && present && nextOwner.runtime != nil && previousOwner == nextOwner && current.Ready[id] {
+						ready[id] = true
+					}
+				}
+			}
+		}
+		current = &partyDungeonLoadingCycle{PartyID: partyID, Cycle: next, Ready: ready, owners: owners}
+		cycles[partyID] = current
+	}
+	if current.owners == nil {
+		current.owners = make(map[uint16]partyDungeonLoadingOwner)
+	}
+	current.owners[session.selectedCharacterID] = owner
+	current.membersAt = append([]uint16(nil), members...)
+	if !current.Released && current.Timer == nil {
+		expected := current
+		current.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() {
+			s.forceReleasePartyDungeonLoadingCycle(partyID, expected, "timeout_waiting_for_all_members_op37")
+		})
+	}
+	return current
+}
+
+func (s *Service) currentPartyDungeonLoadingCycle(partyID uint16) *partyDungeonLoadingCycle {
 	s.partyDungeonLoadingMu.Lock()
 	defer s.partyDungeonLoadingMu.Unlock()
-	current := s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
-	if current == nil {
-		return
-	}
-	if current.sessions == nil {
-		current.sessions = make(map[uint16]*gameSession, 1)
-	}
-	current.sessions[session.selectedCharacterID] = session
+	return s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
 }
 
 // partyDungeonPostLoadingRosterEnv 是 H3 的开关：**读条结束**（op37 主状态 + op30 + op19 +
@@ -346,45 +417,22 @@ func (s *Service) partyDungeonLoadingBarrierArrive(
 	session *gameSession,
 	partyID uint16,
 	members []uint16,
-) (release bool, first bool, cycle int, slot byte) {
+) (release bool, first bool, cycle int, slot byte, expected *partyDungeonLoadingCycle) {
 	if s == nil || session == nil || partyID == 0 {
-		return true, false, 0, 0
+		return true, false, 0, 0, nil
 	}
 	charID := session.selectedCharacterID
 	if index, indexed := runtimePartyMemberIndex(charID, s.runtimePartyStateForSession(session)); indexed {
 		slot = index
 	}
+	owners := s.partyDungeonLoadingOwners(session, members)
 	s.partyDungeonLoadingMu.Lock()
 	defer s.partyDungeonLoadingMu.Unlock()
-	cycles := s.partyDungeonLoadingBarrierCyclesLocked()
-	current := cycles[partyID]
+	current := s.ensurePartyDungeonLoadingCycleLocked(session, partyID, members, owners)
 	now := time.Now()
-	if current == nil || (current.Released && now.Sub(current.released) >= partyDungeonLoadingBarrierRegroupWindow) {
-		nextCycle := 1
-		if current != nil {
-			nextCycle = current.Cycle + 1
-			if current.Timer != nil {
-				current.Timer.Stop()
-			}
-		}
-		current = &partyDungeonLoadingCycle{
-			PartyID: partyID,
-			Cycle:   nextCycle,
-			Ready:   make(map[uint16]bool, len(members)),
-		}
-		cycles[partyID] = current
-		current.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() {
-			s.partyDungeonLoadingBarrierForceRelease(partyID, "timeout_waiting_for_all_members_op37")
-		})
-	}
-	current.membersAt = append([]uint16(nil), members...)
-	if current.sessions == nil {
-		current.sessions = make(map[uint16]*gameSession, len(members))
-	}
-	current.sessions[charID] = session
 	if current.Released {
 		// 合并窗口内的重复到达：按已放行处理，不再重新组队。
-		return true, false, current.Cycle, slot
+		return true, false, current.Cycle, slot, current
 	}
 	if !current.Ready[charID] {
 		current.Ready[charID] = true
@@ -392,7 +440,7 @@ func (s *Service) partyDungeonLoadingBarrierArrive(
 	}
 	for _, memberID := range members {
 		if !current.Ready[memberID] {
-			return false, first, current.Cycle, slot
+			return false, first, current.Cycle, slot, current
 		}
 	}
 	current.Released = true
@@ -401,17 +449,21 @@ func (s *Service) partyDungeonLoadingBarrierArrive(
 		current.Timer.Stop()
 		current.Timer = nil
 	}
-	return true, first, current.Cycle, slot
+	return true, first, current.Cycle, slot, current
 }
 
 // partyDungeonLoadingBarrierForceRelease 是超时/异常路径的统一放行入口。
 func (s *Service) partyDungeonLoadingBarrierForceRelease(partyID uint16, reason string) {
+	s.forceReleasePartyDungeonLoadingCycle(partyID, nil, reason)
+}
+
+func (s *Service) forceReleasePartyDungeonLoadingCycle(partyID uint16, expected *partyDungeonLoadingCycle, reason string) {
 	if s == nil || partyID == 0 {
 		return
 	}
 	s.partyDungeonLoadingMu.Lock()
 	current := s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
-	if current == nil || current.Released {
+	if current == nil || current.Released || (expected != nil && current != expected) {
 		s.partyDungeonLoadingMu.Unlock()
 		return
 	}
@@ -429,7 +481,7 @@ func (s *Service) partyDungeonLoadingBarrierForceRelease(partyID uint16, reason 
 	s.partyDungeonLoadingMu.Unlock()
 	// 超时路径：所有人补落位（他们要靠 op120/op3 才能进图、进而才会发 op37），
 	// 只有**上报过 op37 的**成员才补 op37 释放尾段。
-	s.releasePartyDungeonLoadingCycle(partyID, members, ready, reason)
+	s.releasePartyDungeonLoadingCycle(partyID, current, members, ready, reason)
 }
 
 // releasePartyDungeonLoadingCycle 给名单里的每个成员统一下发被压住的落位；
@@ -441,6 +493,7 @@ func (s *Service) partyDungeonLoadingBarrierForceRelease(partyID uint16, reason 
 // 它的事件循环上，会在调度完这个 goroutine 之后立刻返回。
 func (s *Service) releasePartyDungeonLoadingCycle(
 	partyID uint16,
+	expected *partyDungeonLoadingCycle,
 	members []uint16,
 	releaseTailMembers []uint16,
 	trigger string,
@@ -452,40 +505,80 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 	for _, charID := range releaseTailMembers {
 		releaseTail[charID] = true
 	}
-	// 优先回到"本周期里实际出现的那条会话"（同角色的第二条连接可能就是跑副本的那条），
-	// 只有本周期没见过这个角色时才退回角色目录里的会话。
-	cycleSessions := s.partyDungeonLoadingCycleSessions(partyID)
+	// Freeze the owners of this exact cycle before queuing any session work.
+	s.partyDungeonLoadingMu.Lock()
+	if expected == nil || s.partyDungeonLoadingCycles[partyID] != expected {
+		s.partyDungeonLoadingMu.Unlock()
+		return
+	}
+	owners := make(map[uint16]partyDungeonLoadingOwner, len(expected.owners))
+	for id, owner := range expected.owners {
+		owners[id] = owner
+	}
+	s.partyDungeonLoadingMu.Unlock()
+	// Each member keeps its own session loop, bounded dispatch wait and the existing
+	// cycle/owner guard. Only the wait for the previous member is removed: the
+	// callbacks are submitted to their own loops at the same time instead of one
+	// after another, so a slow member cannot delay a peer's placement.
+	var wg sync.WaitGroup
 	for _, charID := range members {
-		session := cycleSessions[charID]
-		if session == nil {
-			resident, online := s.onlineGameSession(charID)
-			if !online || resident == nil {
-				continue
-			}
-			session = resident
+		owner, known := owners[charID]
+		if !known || owner.session == nil || owner.runtime == nil {
+			continue
 		}
 		wantTail := releaseTail[charID]
-		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		err := s.callGameSession(ctx, session, "runtime-party-dungeon-loading-release", func() error {
-			if err := s.sendPendingPostStartMapPlayerPlacement(
-				session,
-				"party_dungeon_shared_loading_barrier",
-			); err != nil {
-				return err
-			}
-			if !wantTail {
-				return nil
-			}
-			return s.sendCurrentFinishLoadingReleaseTail(session, "request37_after_upper_status")
-		})
-		cancel()
+		wg.Add(1)
+		go func(charID uint16, owner partyDungeonLoadingOwner, wantTail bool) {
+			defer wg.Done()
+			s.releasePartyDungeonLoadingMember(partyID, expected, charID, owner, wantTail, trigger)
+		}(charID, owner, wantTail)
+	}
+	wg.Wait()
+}
+
+// releasePartyDungeonLoadingMember runs one member release as a single event on
+// that member's own loop. Only the queue dispatch is parallel: the packet order
+// inside the event is unchanged (deferred op120/op3 -> self mode0/mode1 ->
+// op37/op30/op19 -> peer actor tail), because the peer write-back must keep
+// running after this receiver's own placement. Every packet still serialises
+// through withGameWire, and sending peer actors to another session's socket
+// from this loop is the same pattern movement/copresence broadcasts already use.
+func (s *Service) releasePartyDungeonLoadingMember(partyID uint16, expected *partyDungeonLoadingCycle, charID uint16, owner partyDungeonLoadingOwner, wantTail bool, trigger string) {
+	session := owner.session
+	var identity boundGameSessionCharacter
+	key := partyDungeonLoadingAdmissionKey{character: charID, tail: wantTail}
+	var admission *partyDungeonLoadingAdmission
+	if session.events != nil && session.events.loop != nil {
+		var current bool
+		identity, admission, current = s.claimPartyDungeonLoadingAdmission(partyID, expected, key, session)
+		if !current {
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	run := func() error {
+		if admission != nil {
+			defer s.finishPartyDungeonLoadingAdmission(expected, key, admission)
+		}
+		// Binding identity is captured under the binding mutation lock before
+		// queue admission. Recheck it here along with the frozen scene owner.
+		if identity.session != nil && !s.boundGameSessionCharacterCurrent(identity) {
+			return nil
+		}
+		if s.currentPartyDungeonLoadingCycle(partyID) != expected || snapshotPartyDungeonLoadingOwner(session) != owner {
+			return nil
+		}
+		err := s.sendPendingPostStartMapPlayerPlacement(session, "party_dungeon_shared_loading_barrier")
+		if err == nil && wantTail {
+			err = s.sendCurrentFinishLoadingReleaseTail(session, "request37_after_upper_status")
+		}
 		slot := byte(0)
 		if index, indexed := runtimePartyMemberIndex(charID, s.runtimePartyStateForSession(session)); indexed {
 			slot = index
 		}
-		// 放行本身已经执行（落位与释放尾段都按上面的顺序试过了）；尾段里某一步失败时
-		// 仍记同一条 `-released`，只是带上 error —— 单看日志就能分清"没放行"和
-		// "放行了但后续某步失败"。
+		// Only this callback can report that placement/release actually ran.
+		// A caller's bounded wait may finish while this event is still queued.
 		fields := []any{
 			"conn_id", session.connID,
 			"channel_id", session.channel.ID,
@@ -501,7 +594,150 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 			fields = append(fields, "error", err)
 		}
 		s.logGameEvent(session, "game-party-dungeon-loading-released", fields...)
+		return err
 	}
+	if session.events == nil || session.events.loop == nil {
+		_ = run()
+		return
+	}
+	// The three-second budget bounds queue admission and the worker's wait.
+	// Once accepted, the event belongs to the live session, not that wait:
+	// expiring the wait must not discard its only placement/tail callback.
+	eventContext := session.ctx
+	if eventContext == nil {
+		eventContext = context.Background()
+	}
+	valid := func() bool {
+		return eventContext.Err() == nil && session.events.active.Load() &&
+			s.boundGameSessionCharacterCurrent(identity) && snapshotPartyDungeonLoadingOwner(session) == owner
+	}
+	callback := make(chan eventloop.Result, 1)
+	const source = "runtime-party-dungeon-loading-release"
+	event := eventloop.Event{
+		Type: source,
+		Data: gameSessionEventTask{
+			source: source, characterID: identity.character,
+			characterGeneration: identity.generation,
+			async:               true, run: run,
+		},
+		Priority: eventloop.PriorityMedium, Callback: callback, Context: eventContext,
+	}
+	err := session.events.loop.SubmitBlocking(ctx, event)
+	if err != nil {
+		s.logGameEvent(session, "game-party-dungeon-loading-release-queue-failed",
+			"party_id", partyID, "char_id", charID, "trigger", trigger, "error", err)
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, eventloop.ErrQueueFull) {
+			// Keep at most one timer for this member/phase, not a blocked worker.
+			// The immutable event retains the original identity and owner guards.
+			s.continuePartyDungeonLoadingAdmission(partyID, expected, key, admission, session, event, valid, trigger, true)
+		} else {
+			s.finishPartyDungeonLoadingAdmission(expected, key, admission)
+		}
+		return
+	}
+	select {
+	case <-callback:
+		s.finishPartyDungeonLoadingAdmission(expected, key, admission)
+	case <-ctx.Done():
+		s.logGameEvent(session, "game-party-dungeon-loading-release-wait-ended",
+			"party_id", partyID, "char_id", charID, "trigger", trigger,
+			"reason", "accepted_event_retains_session_lifetime", "error", ctx.Err())
+		s.continuePartyDungeonLoadingAdmission(partyID, expected, key, admission, session, event, valid, trigger, false)
+	}
+}
+
+// Capture the binding and claim under one mutation boundary. Reading identity
+// first and claiming later would let a delayed old snapshot replace a newer
+// generation's valid capacity retry. Lock order is binding -> loading; no
+// dungeon lock or event submission is acquired in this critical section.
+func (s *Service) claimPartyDungeonLoadingAdmission(partyID uint16, cycle *partyDungeonLoadingCycle, key partyDungeonLoadingAdmissionKey, session *gameSession) (boundGameSessionCharacter, *partyDungeonLoadingAdmission, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	identity := boundGameSessionCharacter{session: session, character: session.selectedCharacterID, generation: session.characterGeneration}
+	if identity.character == 0 || identity.character != key.character || s.gameSessions[identity.character] != session {
+		return identity, nil, false
+	}
+	s.partyDungeonLoadingMu.Lock()
+	defer s.partyDungeonLoadingMu.Unlock()
+	if cycle == nil || s.partyDungeonLoadingCycles[partyID] != cycle {
+		return identity, nil, false
+	}
+	if previous := cycle.admissions[key]; previous != nil {
+		if previous.identity == identity {
+			return identity, nil, false
+		}
+		if previous.timer != nil {
+			previous.timer.Stop()
+		}
+	}
+	if cycle.admissions == nil {
+		cycle.admissions = make(map[partyDungeonLoadingAdmissionKey]*partyDungeonLoadingAdmission)
+	}
+	admission := &partyDungeonLoadingAdmission{identity: identity}
+	cycle.admissions[key] = admission
+	return identity, admission, true
+}
+
+func (s *Service) finishPartyDungeonLoadingAdmission(cycle *partyDungeonLoadingCycle, key partyDungeonLoadingAdmissionKey, admission *partyDungeonLoadingAdmission) {
+	s.partyDungeonLoadingMu.Lock()
+	defer s.partyDungeonLoadingMu.Unlock()
+	if cycle.admissions[key] == admission {
+		if admission.timer != nil {
+			admission.timer.Stop()
+		}
+		delete(cycle.admissions, key)
+	}
+}
+
+// Retry only queue admission. After acceptance, observe completion/retirement;
+// never resubmit accepted work, even if execution or socket writes are slow.
+// A skipped processor or closed loop can finish an event without calling run.
+// The observer also cleans up that terminal path without a parked goroutine.
+// One timer per member/phase remains bounded by its current session and scene.
+func (s *Service) continuePartyDungeonLoadingAdmission(partyID uint16, cycle *partyDungeonLoadingCycle, key partyDungeonLoadingAdmissionKey, admission *partyDungeonLoadingAdmission, session *gameSession, event eventloop.Event, valid func() bool, trigger string, retry bool) {
+	s.partyDungeonLoadingMu.Lock()
+	defer s.partyDungeonLoadingMu.Unlock()
+	if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.admissions[key] != admission {
+		return
+	}
+	admission.timer = time.AfterFunc(partyDungeonLoadingAdmissionRetryInterval, func() {
+		// Never acquire binding/dungeon locks while holding loadingMu.
+		if !valid() {
+			s.finishPartyDungeonLoadingAdmission(cycle, key, admission)
+			return
+		}
+		if !retry {
+			select {
+			case <-event.Callback:
+				s.finishPartyDungeonLoadingAdmission(cycle, key, admission)
+			default:
+				s.continuePartyDungeonLoadingAdmission(partyID, cycle, key, admission, session, event, valid, trigger, false)
+			}
+			return
+		}
+		s.partyDungeonLoadingMu.Lock()
+		if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.admissions[key] != admission {
+			s.partyDungeonLoadingMu.Unlock()
+			return
+		}
+		// Submit does not wait for capacity or run the callback inline. Holding
+		// loadingMu here serialises acceptance with cycle replacement/coalescing.
+		err := session.events.loop.Submit(event)
+		admission.timer = nil
+		s.partyDungeonLoadingMu.Unlock()
+		if errors.Is(err, eventloop.ErrQueueFull) {
+			s.continuePartyDungeonLoadingAdmission(partyID, cycle, key, admission, session, event, valid, trigger, true)
+			return
+		}
+		if err != nil {
+			s.finishPartyDungeonLoadingAdmission(cycle, key, admission)
+		} else {
+			s.continuePartyDungeonLoadingAdmission(partyID, cycle, key, admission, session, event, valid, trigger, false)
+		}
+		s.logGameEvent(session, "game-party-dungeon-loading-release-capacity-retry",
+			"party_id", partyID, "char_id", key.character, "trigger", trigger,
+			"release_tail", key.tail, "accepted", err == nil, "error", err)
+	})
 }
 
 // deferPartyDungeonFinishLoadingForSharedBarrier 是 `sendFinishLoadingStatus` 的屏障钩子。
@@ -513,7 +749,7 @@ func (s *Service) deferPartyDungeonFinishLoadingForSharedBarrier(session *gameSe
 	if !ok {
 		return false, nil
 	}
-	release, first, cycle, slot := s.partyDungeonLoadingBarrierArrive(session, partyID, members)
+	release, first, cycle, slot, expected := s.partyDungeonLoadingBarrierArrive(session, partyID, members)
 	s.logGameEvent(session, "game-party-dungeon-loading-ready",
 		"conn_id", session.connID,
 		"channel_id", session.channel.ID,
@@ -528,7 +764,7 @@ func (s *Service) deferPartyDungeonFinishLoadingForSharedBarrier(session *gameSe
 	if release {
 		members := append([]uint16(nil), members...)
 		partyDungeonLoadingBarrierDispatch(func() {
-			s.releasePartyDungeonLoadingCycle(partyID, members, members, "last_member_op37")
+			s.releasePartyDungeonLoadingCycle(partyID, expected, members, members, "last_member_op37")
 		})
 	}
 	return true, nil
@@ -566,6 +802,9 @@ func (s *Service) sendPendingPostStartMapPlayerPlacement(session *gameSession, s
 		return nil
 	}
 	if pending.Runtime == nil || pending.Runtime.Session == nil {
+		return nil
+	}
+	if snapshotPartyDungeonLoadingOwner(session).runtime != pending.Runtime {
 		return nil
 	}
 	scene, ok := pending.Runtime.Session.Scene()
@@ -625,34 +864,17 @@ func (s *Service) deferPartyDungeonPostStartMapPlacement(
 		"barrier", "party_dungeon_shared_loading_barrier",
 		"deferred_until", "every_party_member_op37_finish_loading",
 		"reason", "vendor_sends_op120_op3_only_at_the_shared_loading_barrier_release")
-	s.partyDungeonLoadingBarrierArmWatchdog(partyID, members)
-	// 记下"这次被压住的落位属于哪条会话"：同角色的第二条连接可能就是跑这一场的那条，
-	// 放行时必须回到它，而不是角色目录里的那一条。
-	s.partyDungeonLoadingCycleRecordSession(partyID, session)
+	s.partyDungeonLoadingBarrierArmWatchdog(session, partyID, members)
 	return true
 }
 
 // partyDungeonLoadingBarrierArmWatchdog 在没有成员到达时也能超时放行。
-func (s *Service) partyDungeonLoadingBarrierArmWatchdog(partyID uint16, members []uint16) {
-	if s == nil || partyID == 0 {
+func (s *Service) partyDungeonLoadingBarrierArmWatchdog(session *gameSession, partyID uint16, members []uint16) {
+	if s == nil || session == nil || partyID == 0 {
 		return
 	}
+	owners := s.partyDungeonLoadingOwners(session, members)
 	s.partyDungeonLoadingMu.Lock()
 	defer s.partyDungeonLoadingMu.Unlock()
-	current := s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
-	if current == nil {
-		current = &partyDungeonLoadingCycle{
-			PartyID: partyID,
-			Cycle:   1,
-			Ready:   make(map[uint16]bool, len(members)),
-		}
-		s.partyDungeonLoadingCycles[partyID] = current
-	}
-	current.membersAt = append([]uint16(nil), members...)
-	if current.Released || current.Timer != nil {
-		return
-	}
-	current.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() {
-		s.partyDungeonLoadingBarrierForceRelease(partyID, "timeout_no_member_reported_op37")
-	})
+	s.ensurePartyDungeonLoadingCycleLocked(session, partyID, members, owners)
 }
