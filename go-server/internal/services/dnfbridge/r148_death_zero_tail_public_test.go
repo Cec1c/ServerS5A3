@@ -331,9 +331,9 @@ func TestR148DeathBothEntriesAndEnvironment(t *testing.T) {
 	}
 }
 
-// Public master has no retained completed-death revival capability. A shape
-// compatibility patch must not import that cumulative-only owner behavior.
-func TestR148DeathPublicCompletedReviveRemainsRejected(t *testing.T) {
+// Both accepted death shapes retain the same completed-run revival owner.
+// A repeated coin request or stale death timer must not debit or return twice.
+func TestR148DeathPublicCompletedReviveRetainsOwner(t *testing.T) {
 	for _, size := range []int{4, 6} {
 		t.Run(fmt.Sprintf("accepted_%d_then_completed", size), func(t *testing.T) {
 			s, g, r, q := r148DeathFixture(t)
@@ -343,14 +343,18 @@ func TestR148DeathPublicCompletedReviveRemainsRejected(t *testing.T) {
 			}
 			task := q.task(t, 0)
 			r148Complete(t, s, g, r)
+			phase, entry := r.settlementPhase, r.settlementEntrySent
+			r148AssertRevive(t, s, g, r)
+			if r.settlementPhase != phase || r.settlementEntrySent != entry || g.dungeon.runtime != r {
+				t.Fatal("completed revive changed settlement or run owner")
+			}
 			before := r148Bag(t, s)
-			wasDead, wasWaiting := r.deathStateSent, r.deathReturnWaiting
 			conn := g.conn.(*bufferConn)
 			conn.write.Reset()
 			r148Dispatch(t, s, g, 41, []byte{99, 0})
 			q.fire(task, true)
-			if conn.write.Len() != 0 || !reflect.DeepEqual(before, r148Bag(t, s)) || r.deathStateSent != wasDead || r.deathReturnWaiting != wasWaiting || r.townReturnPending {
-				t.Fatal("shape compatibility imported completed revive or revived stale timer")
+			if conn.write.Len() != 0 || !reflect.DeepEqual(before, r148Bag(t, s)) || r.deathStateSent || r.deathReturnWaiting || r.townReturnPending {
+				t.Fatal("completed revive replay changed assets or revived stale timer")
 			}
 			if _, _, active := q.counts(); active != 0 {
 				t.Fatal("completion left active death timer")
