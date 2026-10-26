@@ -160,7 +160,8 @@ func (s *Service) handleCurrentLotteryOverflowConfirm(session *gameSession, body
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseLotteryItem), resultBody, dnfproto.DefaultChannelClassification); err != nil {
 		return err
 	}
-	if result.GoldAmount > 0 {
+	official := s.options.currentClientVersion == "official-24.9"
+	if result.GoldAmount > 0 || (official && definition.LotteryGoldCost > 0) {
 		var entry currentItemListEntry
 		entry.patchCore(0, 0, result.GoldAfter)
 		var writer packetWriter
@@ -171,14 +172,24 @@ func (s *Service) handleCurrentLotteryOverflowConfirm(session *gameSession, body
 			return err
 		}
 	}
-	if err := s.sendSelectedIncrementalItemSlotRefreshes(
+	containerLists := result.ChangedLists
+	if official {
+		// CMD27 automatically continues using its cached source object. A full
+		// main-inventory NOTI13 destroys that object between consecutive opens.
+		// Keep its identity with the committed source/material/reward deltas.
+		plan := buildItemGrantNoticePlan(result.GrantSlots)
+		if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "use_lottery_item", plan.Delta); err != nil {
+			return err
+		}
+		containerLists = plan.ContainerLists
+	} else if err := s.sendSelectedIncrementalItemSlotRefreshes(
 		session,
 		"use_lottery_item",
 		[]alignedcmd.ItemSlotRefresh{{ListType: dnfrepo.MainInventoryListType, SlotIndex: result.SourceSlot}},
 	); err != nil {
 		return err
 	}
-	for _, listType := range result.ChangedLists {
+	for _, listType := range containerLists {
 		listBody, _, _, ok := s.buildCurrentItemListBodyForSession(ctx, session, listType)
 		if !ok {
 			return errCurrentBoosterOwnerUnavailable
