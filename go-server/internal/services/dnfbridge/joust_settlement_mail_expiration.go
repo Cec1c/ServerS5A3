@@ -96,9 +96,7 @@ func (s *Service) reconcileCurrentJoustSettlementMailBeforeOpen(session *gameSes
 	changed, err := s.reconcileCurrentJoustSettlementMailAttachments(ctx, session.selectedCharacterID)
 	if err != nil {
 		s.logGameEvent(session, "game-joust-settlement-mail-expiration-repair-deferred", "error", err)
-		return
-	}
-	if changed > 0 {
+	} else if changed > 0 {
 		s.logGameEvent(session, "game-joust-settlement-mail-expiration-repaired", "attachments", changed)
 	}
 	repaired, err := s.reconcileCurrentMailAttachmentExpirations(ctx, session.selectedCharacterID)

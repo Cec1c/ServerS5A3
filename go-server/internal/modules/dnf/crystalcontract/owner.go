@@ -1,5 +1,5 @@
 // Package crystalcontract owns the durable rules for 晶之契约: the selected
-// cube family and the atomic one-cube consumption reported by the current EXE.
+// cube family and atomic one-cube consumption within the active dungeon.
 package crystalcontract
 
 import (
@@ -237,6 +237,31 @@ func (o *Owner) Consume(
 	itemID int64,
 	now time.Time,
 ) (ConsumeResult, error) {
+	return o.consume(ctx, accountID, characterID, &slotIndex, &itemID, now)
+}
+
+// ConsumeSelected atomically resolves the character's durable Crystal
+// Contract selection and consumes one matching account-shared cube. The
+// current client applies the contract effect locally but does not send a
+// consumption command, so dungeon lifecycle ticks must not trust client item
+// or slot fields.
+func (o *Owner) ConsumeSelected(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	now time.Time,
+) (ConsumeResult, error) {
+	return o.consume(ctx, accountID, characterID, nil, nil, now)
+}
+
+func (o *Owner) consume(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	expectedSlot *uint16,
+	expectedItemID *int64,
+	now time.Time,
+) (ConsumeResult, error) {
 	accountID, characterID, err := normalizeOwnerIDs(accountID, characterID)
 	if err != nil {
 		return ConsumeResult{}, err
@@ -252,12 +277,7 @@ func (o *Owner) Consume(
 		return ConsumeResult{}, ErrContractInactive
 	}
 
-	result := ConsumeResult{
-		ItemID:         itemID,
-		SlotIndex:      slotIndex,
-		Consumed:       1,
-		SelectionAfter: SelectionNone,
-	}
+	result := ConsumeResult{Consumed: 1, SelectionAfter: SelectionNone}
 	err = o.repositories.AccountAssets.WithinAccountCharacterAssets(
 		ctx,
 		accountID,
@@ -280,13 +300,21 @@ func (o *Owner) Consume(
 			}
 			selection := storedSelection(character)
 			selectedItemID, valid := o.catalog.ItemID(selection)
-			if !valid || selectedItemID != itemID {
+			if !valid {
 				return ErrCubeRequestMismatch
 			}
 			selectedSlot, valid := o.catalog.AccountSlot(selection)
-			if !valid || slotIndex != uint16(selectedSlot) {
+			if !valid {
 				return ErrCubeRequestMismatch
 			}
+			if expectedItemID != nil && selectedItemID != *expectedItemID {
+				return ErrCubeRequestMismatch
+			}
+			if expectedSlot != nil && uint16(selectedSlot) != *expectedSlot {
+				return ErrCubeRequestMismatch
+			}
+			result.ItemID = selectedItemID
+			result.SlotIndex = uint16(selectedSlot)
 			accountInventory, inventoryFound, inventoryErr := accountInventories.Load(ctx, accountID)
 			if inventoryErr != nil {
 				return inventoryErr
@@ -296,7 +324,7 @@ func (o *Owner) Consume(
 			}
 			key := dnfrepo.AccountSharedInventorySlotKey(selectedSlot)
 			stack, stackFound := accountInventory.Slots[key]
-			if !stackFound || stack.ItemID != itemID || stack.Count <= 0 {
+			if !stackFound || stack.ItemID != selectedItemID || stack.Count <= 0 {
 				return ErrCubeUnavailable
 			}
 			stack.Count--

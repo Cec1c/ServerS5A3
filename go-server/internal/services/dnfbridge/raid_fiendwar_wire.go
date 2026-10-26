@@ -335,8 +335,11 @@ func buildCurrentFiendWarBoard(state, previous currentFiendWarProjection, viewer
 	appendRows(currentFiendWarWarning, warnings)
 	appendRows(currentFiendWarTimer, timers)
 	appendRows(currentFiendWarUser, users)
-	// Clear any stale merchant marker; purchasing this NPC is not activated.
-	packets = append(packets, currentFiendWarWire{currentFiendWarMerchant, []byte{0}})
+	merchant := b.MerchantArea
+	if b.Complete || b.Failed || !b.MerchantExpiresAt.IsZero() && !now.Before(b.MerchantExpiresAt) {
+		merchant = 0
+	}
+	packets = append(packets, currentFiendWarWire{currentFiendWarMerchant, []byte{byte(merchant)}})
 	var gates []raid.DungeonState
 	for _, id := range ids {
 		a := b.Config.Areas[id]

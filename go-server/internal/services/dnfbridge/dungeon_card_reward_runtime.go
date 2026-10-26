@@ -338,7 +338,7 @@ func currentDungeonCardItemReward(rng *currentDungeonDropLCG, catalog *pvfDungeo
 	if currentNewPVFEquipmentSealFlag(definition) != 0 {
 		extra["seal_flag"] = "1"
 	}
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	return dungeonCardItemReward{
 		ItemID:           int64(itemID),
 		Count:            1,

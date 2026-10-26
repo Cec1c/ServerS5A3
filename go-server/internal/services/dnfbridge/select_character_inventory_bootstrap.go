@@ -40,6 +40,10 @@ type currentSelectInventoryBootstrapPacket struct {
 // Runtime mutations continue to use the native ACK path, op14, or an explicit
 // op13 refresh where the command contract requires one.
 func (s *Service) sendCurrentSelectInventoryBootstrap(session *gameSession, source string) error {
+	return s.sendCurrentSelectInventoryBootstrapWithMainPreserved(session, source, false)
+}
+
+func (s *Service) sendCurrentSelectInventoryBootstrapWithMainPreserved(session *gameSession, source string, preserveMain bool) error {
 	if session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
@@ -56,57 +60,67 @@ func (s *Service) sendCurrentSelectInventoryBootstrap(session *gameSession, sour
 	s.cleanupSelectedExpiredRentalEquipment(session, source)
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
-
-	// 存量史诗碎片清扫（在**构包之前**，所以不需要任何 op14 刷新）。
-	//
-	// 为什么在这里：操作者背包 `0:122` 里那件 10300783 是"碎片当普通材料入包"
-	// 那条缺陷路径塞进去的（现场封包日志 packet_log.txt line 996 的 op14 就是它）。
-	// 只要它还在 `dnf_inventory_items` 里，客户端每次登录都会把材料页渲染一遍，
-	// 操作者看到的就还是"碎片在材料里"。清扫把数量并入账号级图鉴账本并从背包
-	// 移除，幂等（第二次没有命中就不写任何字节）。
-	//
-	// 失败一律**不阻断登录**：碎片留在背包是可修的数据问题，登不进去是可用性问题。
-	if purged, purgeErr := s.purgeCurrentInventoryEpicPieces(ctx, session, source); purgeErr != nil {
-		s.logWarn("dnfbridge epic piece inventory purge failed",
-			"conn_id", session.connID,
-			"char_id", session.selectedCharacterID,
-			"source", source,
-			"error", purgeErr)
-	} else if purged > 0 {
-		s.logPacketEvent("game-epic-piece-inventory-purge-committed",
-			"conn_id", session.connID,
-			"channel_id", session.channel.ID,
-			"source", source,
-			"char_id", session.selectedCharacterID,
-			"purged_rows", purged,
-			"asset_owner", "account_epic_piece_metadata_counter",
-			"env", epicPieceGrantEnv)
+	preserveMain = preserveMain && session.selectedMainInventoryCharacterID == session.selectedCharacterID
+	if preserveMain {
+		s.logGameEvent(session, "转职体验保留现有主背包对象", "source", source,
+			"char_id", session.selectedCharacterID, "list_type", 0,
+			"依据", "本连接已成功发送当前角色主背包，体验窗口仍持有转职书对象")
 	}
 
-	// 存量小晶块/灵魂清扫（同样在**构包之前**，所以不需要任何 op14 刷新）。
-	//
-	// 为什么在这里：运维的总规则是"不管如何获得小晶块都进入晶块仓库"。逐条改发放
-	// 路径（拾取/翻牌/盒子/礼包/任务/兑换/交易…）永远会漏；把收口放在"下一次进游戏
-	// 之前"则对任何路径都成立。DB 现场：角色 1 `0:130` item 3037 count 16233
-	// （Extra 只有身份键、没有 source = 邮件领取堆栈），角色 3/4/6 的材料页/快捷格
-	// 里也有 `source=dungeon_pvf_drop_pickup` 的晶块行。见 cube_warehouse_routing.go。
-	if purged, purgeErr := s.purgeCurrentInventoryCubes(ctx, session, source); purgeErr != nil {
-		s.logWarn("dnfbridge cube warehouse purge failed",
-			"conn_id", session.connID,
-			"char_id", session.selectedCharacterID,
-			"source", source,
-			"error", purgeErr)
-	} else if purged > 0 {
-		s.logPacketEvent("game-cube-warehouse-purge-committed",
-			"conn_id", session.connID,
-			"channel_id", session.channel.ID,
-			"source", source,
-			"char_id", session.selectedCharacterID,
-			"purged_rows", purged,
-			"asset_owner", "account_inventory_crystal_warehouse",
-			"env", cubeWarehouseRoutingEnv)
-	}
+	if !preserveMain {
+		// 存量史诗碎片清扫（在**构包之前**，所以不需要任何 op14 刷新）。
+		//
+		// 为什么在这里：操作者背包 `0:122` 里那件 10300783 是"碎片当普通材料入包"
+		// 那条缺陷路径塞进去的（现场封包日志 packet_log.txt line 996 的 op14 就是它）。
+		// 只要它还在 `dnf_inventory_items` 里，客户端每次登录都会把材料页渲染一遍，
+		// 操作者看到的就还是"碎片在材料里"。清扫把数量并入账号级图鉴账本并从背包
+		// 移除，幂等（第二次没有命中就不写任何字节）。
+		//
+		// 失败一律**不阻断登录**：碎片留在背包是可修的数据问题，登不进去是可用性问题。
+		if purged, purgeErr := s.purgeCurrentInventoryEpicPieces(ctx, session, source); purgeErr != nil {
+			s.logWarn("dnfbridge epic piece inventory purge failed",
+				"conn_id", session.connID,
+				"char_id", session.selectedCharacterID,
+				"source", source,
+				"error", purgeErr)
+		} else if purged > 0 {
+			s.logPacketEvent("game-epic-piece-inventory-purge-committed",
+				"conn_id", session.connID,
+				"channel_id", session.channel.ID,
+				"source", source,
+				"char_id", session.selectedCharacterID,
+				"purged_rows", purged,
+				"asset_owner", "account_epic_piece_metadata_counter",
+				"env", epicPieceGrantEnv)
+		}
 
+		// 存量小晶块/灵魂清扫（同样在**构包之前**，所以不需要任何 op14 刷新）。
+		//
+		// 为什么在这里：运维的总规则是"不管如何获得小晶块都进入晶块仓库"。逐条改发放
+		// 路径（拾取/翻牌/盒子/礼包/任务/兑换/交易…）永远会漏；把收口放在"下一次进游戏
+		// 之前"则对任何路径都成立。DB 现场：角色 1 `0:130` item 3037 count 16233
+		// （Extra 只有身份键、没有 source = 邮件领取堆栈），角色 3/4/6 的材料页/快捷格
+		// 里也有 `source=dungeon_pvf_drop_pickup` 的晶块行。见 cube_warehouse_routing.go。
+		if purged, purgeErr := s.purgeCurrentInventoryCubes(ctx, session, source); purgeErr != nil {
+			s.logWarn("dnfbridge cube warehouse purge failed",
+				"conn_id", session.connID,
+				"char_id", session.selectedCharacterID,
+				"source", source,
+				"error", purgeErr)
+		} else if purged > 0 {
+			s.logPacketEvent("game-cube-warehouse-purge-committed",
+				"conn_id", session.connID,
+				"channel_id", session.channel.ID,
+				"source", source,
+				"char_id", session.selectedCharacterID,
+				"purged_rows", purged,
+				"asset_owner", "account_inventory_crystal_warehouse",
+				"env", cubeWarehouseRoutingEnv)
+		}
+
+	}
+	// 7142的暖主背包继续由原生ACK/op14维护。首次登录已经执行迁移清扫；
+	// 在保留对象的体验入图不再次无通知搬走主背包物品，其它入口仍执行原清扫。
 	// Build the complete character snapshot before writing its first packet. A
 	// later repository failure must not leave the client with only a subset of
 	// its selected-character containers installed.
@@ -130,6 +144,9 @@ func (s *Service) sendCurrentSelectInventoryBootstrap(session *gameSession, sour
 	}
 	plan := make([]currentSelectInventoryBootstrapPacket, 0, len(listTypes))
 	for _, listType := range listTypes {
+		if preserveMain && listType == dnfrepo.MainInventoryListType {
+			continue
+		}
 		body, entrySource, entryCount, ok := s.buildCurrentSelectInventoryBootstrapBody(ctx, session, listType)
 		if !ok {
 			s.logPacketEvent("game-upper-select-inventory-bootstrap-deferred",

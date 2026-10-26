@@ -12,6 +12,9 @@
 //  2. 本文件在登录技能同步边界把历史遗留的超限行夹回上限，并按同一套点数规则
 //     退还 SP/TP，让被卡住的技能重新可加点。
 //
+// 初始免费授予及 [fixed level skill] 自动成长等级不属于玩家购买等级；
+// 它们可以高于手动可学上限，登录修复须保留当前等级的真实PVF免费基线。
+//
 // 安全边界：只夹 `[growtype maximum level][当前方向] > 0` 的技能。方向上限为 0
 // 表示"该方向不可学"，它既可能是历史脏数据，也可能是我们尚未实现的转职流程留下的
 // grow_type=0；后者夹成 0 会直接删掉玩家的技能，因此只上报、绝不改写。
@@ -71,8 +74,8 @@ type SkillAtCapEntry struct {
 	MaxLearnable int
 }
 
-// RepairLevelCaps clamps every persisted skill level above the current client's
-// learnable cap and refunds the difference in SP/TP.
+// RepairLevelCaps 只下调超过手动可学上限及PVF免费基线的已保存技能等级，
+// 并退还差额SP/TP；不主动升级技能，也不改变购买门禁。
 func (o *SceneOwner) RepairLevelCaps(ctx context.Context, table *Table, command LevelCapRepairCommand) (dnfrepo.SkillRecord, LevelCapRepairResult, error) {
 	characterID := strings.TrimSpace(command.CharacterID)
 	if characterID == "" {
@@ -123,14 +126,17 @@ func (o *SceneOwner) RepairLevelCaps(ctx context.Context, table *Table, command 
 				result.Unavailable = append(result.Unavailable, skillID)
 				continue
 			}
-			if state.Level <= maxLearnable {
-				continue
-			}
 			target := maxLearnable
-			// The PVF initial level is a free grant the player cannot refund
-			// below, so the clamp never goes under it.
+			// 初始免费及自动成长授予可高于玩家购买上限。先确定完整免费基线，
+			// 再判断是否超限，避免转职/洗点后下一次投影又降低合法技能或反复保存。
 			if floor := command.InitialLevels[skillID]; floor > target {
 				target = floor
+			}
+			if automatic := definition.FixedLevelForCharacter(command.CharacterLevel); automatic > target {
+				target = automatic
+			}
+			if state.Level <= target {
+				continue
 			}
 			if target < 0 {
 				target = 0
