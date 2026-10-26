@@ -34,7 +34,7 @@ func TestQuestCouponNativeActionMapping(t *testing.T) {
 	for _, tc := range []struct {
 		action uint32
 		want   bool
-	}{{118, true}, {169, true}, {179, true}, {121, false}, {167, false}, {164, false}, {162, false}} {
+	}{{118, true}, {169, true}, {179, true}, {121, true}, {167, false}, {164, false}, {162, false}} {
 		_, matched := decodeCurrentQuestClearCouponRequest(testQuestClearCouponRequestBody(87, tc.action))
 		if matched != tc.want {
 			t.Errorf("native action=%d matched=%v want=%v", tc.action, matched, tc.want)

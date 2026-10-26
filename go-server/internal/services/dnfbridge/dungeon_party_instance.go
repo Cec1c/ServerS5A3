@@ -523,6 +523,12 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 // 最后一两只怪往往是队长打死的，队员那边只是被广播标记了清怪状态 ⇒ 队员永远结算不了。
 // 这里异步投递（同步会跨会话互等：广播方持有自己的 dungeon.mu，队友的回调又要它的锁）。
 func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession, instanceID uint64, objectKey uint32) {
+	s.dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer, instanceID, objectKey, nil)
+}
+
+// accept, when present, revalidates a scoped completion proof under the peer's
+// dungeon lock. Ordinary hostile-death callers retain their existing path.
+func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameSession, instanceID uint64, objectKey uint32, accept func(*runtimeDungeonState, worldmap.DungeonRoomScene) bool) {
 	if s == nil || peer == nil || instanceID == 0 {
 		return
 	}
@@ -536,6 +542,9 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletion(peer *gameSession,
 		}
 		scene, ok := runtime.Session.Scene()
 		if !ok || !scene.Cleared {
+			return nil
+		}
+		if accept != nil && !accept(runtime, scene) {
 			return nil
 		}
 		if err := s.persistCurrentDungeonRoomClearQuestLocked(peer, runtime); err != nil {

@@ -14,19 +14,24 @@ import (
 )
 
 const (
-	CouponMainStory      = "main_story"
-	CouponFirstAwakening = "first_awakening"
+	CouponMainStory       = "main_story"
+	CouponFirstAwakening  = "first_awakening"
+	CouponSecondAwakening = "second_awakening"
 )
 
 // ClearCoupon is resolved from the actual inventory item's PVF, never from a
 // client-supplied task ID, level or profession.
 type ClearCoupon struct {
-	ItemID       int64
-	Kind         string
-	MinimumLevel int
-	MaximumLevel int
-	CutoffLevel  int
-	Jobs         []int
+	ItemID           int64
+	Kind             string
+	MinimumLevel     int
+	MaximumLevel     int
+	CutoffLevel      int
+	Jobs             []int
+	ExcludedJobs     []int
+	ExcludedBranches [][2]int
+	DisallowHardcore bool
+	Places           []string
 }
 
 type UseClearCouponInput struct {
@@ -36,6 +41,8 @@ type UseClearCouponInput struct {
 	Now                    time.Time
 	Profiles               *profession.Profiles
 	Skills                 *skill.Table
+	// ValidateSource runs under the settlement lock, before any mutation.
+	ValidateSource func(repo.CharacterRecord, repo.ItemStack) error
 }
 
 type UseClearCouponResult struct {
@@ -57,7 +64,7 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 	if o == nil || o.repositories.CharacterSettlement == nil || catalog == nil || input.AccountID == "" || input.CharacterID == "" || input.Slot < 0 || input.Coupon.ItemID <= 0 || input.Now.IsZero() {
 		return UseClearCouponResult{}, ErrCouponClearUnavailable
 	}
-	if input.Coupon.Kind != CouponMainStory && input.Coupon.Kind != CouponFirstAwakening {
+	if input.Coupon.Kind != CouponMainStory && input.Coupon.Kind != CouponFirstAwakening && input.Coupon.Kind != CouponSecondAwakening {
 		return UseClearCouponResult{}, ErrCouponClearUnavailable
 	}
 	var result UseClearCouponResult
@@ -93,6 +100,21 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 				return ErrQuestNotAcceptable
 			}
 		}
+		if input.Coupon.Kind == CouponSecondAwakening {
+			if c.Stats["delete_flag"] != 0 || input.Coupon.DisallowHardcore && c.Stats["is_hardcore_mode"] != 0 {
+				return ErrQuestNotAcceptable
+			}
+			for _, excluded := range input.Coupon.ExcludedJobs {
+				if job == excluded {
+					return ErrQuestNotAcceptable
+				}
+			}
+			for _, excluded := range input.Coupon.ExcludedBranches {
+				if job == excluded[0] && grow&15 == excluded[1] {
+					return ErrQuestNotAcceptable
+				}
+			}
+		}
 		inv, found, err := tx.Inventory.Load(ctx, input.CharacterID)
 		if err != nil {
 			return err
@@ -104,6 +126,11 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 		stack, found := inv.Slots[key]
 		if !found || stack.ItemID != input.Coupon.ItemID || stack.Count <= 0 || stack.Count > math.MaxInt32 || (!stack.ExpireAt.IsZero() && !input.Now.Before(stack.ExpireAt)) {
 			return ErrCouponClearUnavailable
+		}
+		if input.ValidateSource != nil {
+			if err := input.ValidateSource(c, stack); err != nil {
+				return err
+			}
 		}
 		quests, found, err := tx.Quest.Load(ctx, input.CharacterID)
 		if err != nil {
@@ -132,30 +159,42 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 			result.CutoffLevel = cutoff
 			fields = plan.ChangedFields
 		} else {
-			// Match the native first-awakening gate: a normal class branch at Lv50+,
-			// with no awakening yet. External classes do not use this ticket.
-			if c.Level < 50 || job == 9 || job == 10 || grow&15 == 0 {
+			// Both normal awakening stages use the existing PVF-backed transition.
+			// External self-awakening coupons have a different gate; not inferred here.
+			targetStage, questMarker, minimum := 1, 2, 50
+			if input.Coupon.Kind == CouponSecondAwakening {
+				targetStage, questMarker, minimum = 2, 3, 75
+			}
+			if c.Level < minimum || job == 9 || job == 10 || grow&15 == 0 {
 				return ErrQuestNotAcceptable
 			}
-			if grow>>4 >= 1 {
+			if grow>>4 >= targetStage {
 				return nil
+			}
+			if grow>>4 != targetStage-1 {
+				return ErrQuestNotAcceptable
 			}
 			if input.Profiles == nil || input.Skills == nil || tx.Skill == nil {
 				return ErrFinishProfessionUnavailable
 			}
-			transition, err := input.Profiles.PlanTransition(byte(job), byte(grow), profession.Request{Kind: profession.KindAwakening, ChainType: 2, GrowNumber: 1, JobChangeQuest: 2})
+			transition, err := input.Profiles.PlanTransition(byte(job), byte(grow), profession.Request{Kind: profession.KindAwakening, ChainType: 2, GrowNumber: byte(targetStage), JobChangeQuest: questMarker})
 			if err != nil {
 				return err
 			}
 			terminal := false
 			for _, def := range catalog.ordered {
-				if def.JobChangeQuest != 2 || !definitionMatchesCharacter(def, eligibility) || def.LevelMin > c.Level {
+				if def.JobChangeQuest != questMarker || !definitionMatchesCharacter(def, eligibility) || def.LevelMin > c.Level {
 					continue
 				}
-				if normalizeQuestTag(def.RewardType) == "awakening type" && len(def.RewardIntData) > 0 && def.RewardIntData[0] == 1 {
+				if normalizeQuestTag(def.RewardType) == "awakening type" && len(def.RewardIntData) > 0 && def.RewardIntData[0] == int64(targetStage) {
 					terminal = true
 				}
 				state, field, known := mutableQuestState(&result.Quests, def.ID)
+				// An awakening marker cannot authorize an unanswered player choice.
+				if input.Coupon.Kind == CouponSecondAwakening && normalizeQuestTag(def.Type) == "question" &&
+					(!known || !isCompletedQuestStatus(state.Status) || !validSecondAwakeningQuestionAnswer(def, state)) {
+					return ErrQuestNotAcceptable
+				}
 				if known && isCompletedQuestStatus(state.Status) {
 					continue
 				}
@@ -163,7 +202,7 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 					field = repo.QuestFieldStates
 				}
 				state = couponMainQuestClearState(state, def, c.Level, input.Now)
-				state.Extra["auto_complete_reason"] = "first_awakening_coupon_no_reward"
+				state.Extra["auto_complete_reason"] = input.Coupon.Kind + "_coupon_no_reward"
 				if field == repo.QuestFieldProgress {
 					result.Quests.Progress[def.ID] = state
 				} else {
@@ -176,7 +215,7 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 				result.ChangedQuestIDs = append(result.ChangedQuestIDs, def.ID)
 			}
 			if !terminal {
-				return fmt.Errorf("%w: first awakening terminal is missing", ErrQuestDefinitionMissing)
+				return fmt.Errorf("%w: awakening stage %d terminal is missing", ErrQuestDefinitionMissing, targetStage)
 			}
 			skills, found, err := tx.Skill.Load(ctx, input.CharacterID)
 			if err != nil {

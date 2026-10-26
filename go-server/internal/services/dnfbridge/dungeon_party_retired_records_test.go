@@ -18,18 +18,28 @@ func TestDungeonDisbandClearsEveryRetiredRecordForBothReceivers(t *testing.T) {
 	}
 	for name, conn := range map[string]*bufferConn{"leader": f.leaderConn, "member": f.memberConn} {
 		seen := map[uint16]int{}
+		var order []uint16
 		for _, frame := range splitUpperFrames(t, conn.write.Bytes()) {
 			if frame.msgID == 2 {
 				t.Fatalf("%s received an appearance redraw during disband", name)
 			}
 			if frame.msgID == 9 && len(frame.body) == 10 && frame.body[9] == 3 && frame.body[6] == 0 && frame.body[7] == 0 {
-				seen[binary.LittleEndian.Uint16(frame.body[4:6])]++
+				key := binary.LittleEndian.Uint16(frame.body[4:6])
+				seen[key]++
+				order = append(order, key)
 			}
 		}
 		for _, key := range []uint16{99, 100} {
 			if seen[key] != 1 {
 				t.Errorf("%s retired record key=%d clear count=%d; want exactly one", name, key, seen[key])
 			}
+		}
+		self := uint16(99)
+		if name == "member" {
+			self = 100
+		}
+		if len(order) != 2 || order[len(order)-1] != self {
+			t.Fatalf("%s retirement order=%v; own record must be last", name, order)
 		}
 	}
 	if f.member.dungeon.runtime != f.memberRuntime || f.memberRuntime.partyInstance != f.instance {

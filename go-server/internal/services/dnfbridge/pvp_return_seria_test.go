@@ -32,7 +32,7 @@ func TestRealPVFPVPReturnSeriaReconnectKeepsEntryTown(t *testing.T) {
 	assertPVPReturnSeriaEntryTown(t, table, archive)
 }
 
-// 现场先从赫顿玛尔进入共用房间，再进决斗。返城既要保留房内坐标，
+// 现场先从赫顿玛尔进入共用房间，再进决斗。返城统一使用PVF房间出生坐标，
 // 也要在发1375前恢复房门所属城镇；只断言六个坐标字段会漏掉这个错误。
 func assertPVPReturnSeriaEntryTown(t *testing.T, table *dnftown.Table, archive *platformpvf.Archive) {
 	t.Helper()
@@ -72,8 +72,8 @@ func assertPVPReturnSeriaEntryTown(t *testing.T, table *dnftown.Table, archive *
 				t.Fatal(err)
 			}
 			stored, _, _ := repos.Character.Load(ctx, "29")
-			if stored.Stats["town_id"] != 38 || stored.Stats["area_id"] != 1 || stored.Stats["pos_x"] != 433 || stored.Stats["pos_y"] != 311 {
-				t.Fatalf("房内原位丢失：%v", stored.Stats)
+			if stored.Stats["town_id"] != 38 || stored.Stats["area_id"] != 1 || stored.Stats["pos_x"] != 450 || stored.Stats["pos_y"] != 234 {
+				t.Fatalf("未使用房间真实出生坐标：%v", stored.Stats)
 			}
 			if session.townSeriaRoomEntrySnapshot != entry {
 				t.Fatalf("重连未恢复房门来源：%+v", session.townSeriaRoomEntrySnapshot)

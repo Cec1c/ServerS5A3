@@ -2,12 +2,15 @@ package dnfbridge
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
@@ -767,6 +770,25 @@ func TestPartyCardFlipIsProjectedToTheOtherMember(t *testing.T) {
 	}
 	assertOp71SlotFlipped(t, peerAck.Body, 0, dungeonCardSideFree, 0, "partner projection of the leader's flip")
 
+	// 付费牌先提交资产再投影，为本动作补齐真实内存仓储与队友角色。
+	// 前面的免费行仍只核对原有投影，保留其报文数量断言。
+	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
+		CharacterID: "1002",
+		AccountID:   "party-card-test",
+		Level:       20,
+		Stats:       map[string]int64{"gold": 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{
+		CharacterID: "1002",
+		Slots:       map[string]dnfrepo.ItemStack{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service.repositoryProvider = func() (dnfrepo.Group, bool) { return repositories, true }
+
 	// 队友（槽位 1）翻付费行：他自己的投影必须同时带两个槽位。
 	followerConn.write.Reset()
 	leaderConn.write.Reset()
@@ -782,6 +804,10 @@ func TestPartyCardFlipIsProjectedToTheOtherMember(t *testing.T) {
 	leaderPeerAck, _ := splitGameServerUpperPacket(t, leaderConn.write.Bytes())
 	assertOp71SlotFlipped(t, leaderPeerAck.Body, 1, dungeonCardSidePaid, 1, "leader projection of the follower's flip")
 	assertOp71SlotFlipped(t, leaderPeerAck.Body, 0, dungeonCardSideFree, 0, "leader's own slot kept in the peer projection")
+	paidCharacter, found, loadErr := repositories.Character.Load(context.Background(), "1002")
+	if loadErr != nil || !found || paidCharacter.Stats["gold"] != 19 {
+		t.Fatalf("队友付费牌未提交冻结的19金币奖励：found=%t gold=%d err=%v", found, paidCharacter.Stats["gold"], loadErr)
+	}
 }
 
 // TestPartyCardFlipProjectionLegacyStillSendsNothingToThePartner 钉住回退档：

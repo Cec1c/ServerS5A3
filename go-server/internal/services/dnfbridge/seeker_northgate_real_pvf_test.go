@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"testing"
@@ -93,6 +94,14 @@ func TestSeekerRealPVFNorthgateAfterLevel67Coupon(t *testing.T) {
 				}
 				if len(packets.StartMap) == 0 || len(packets.DungeonInfo) == 0 {
 					t.Fatal("entry must emit both dungeon info and start map")
+				}
+				if wantMaze == 0 {
+					// 真正下发的op29与服务器演员必须同源于当前DGN的22428，
+					// 不能只验证准备入口成功，或仍发送旧目录的11019/15063。
+					if scene.Map.Map.ID != 22428 || len(run.Room.Snapshot().Monsters) != 5 ||
+						len(packets.StartMap) < 19 || binary.LittleEndian.Uint32(packets.StartMap[14:18]) != 22428 || packets.StartMap[18] != 5 {
+						t.Fatalf("普通北门首房及op29不符：map=%d monsters=%d body=%x", scene.Map.Map.ID, len(run.Room.Snapshot().Monsters), packets.StartMap)
+					}
 				}
 				if difficulty == 2 && scenario.name != "coupon" && scenario.name != "active" {
 					assertNorthgateRidableRoomRoundTrip(t, svc, run, packets.StartMap, resolver)
