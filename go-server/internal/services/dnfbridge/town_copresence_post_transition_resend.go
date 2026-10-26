@@ -102,6 +102,9 @@ func (s *Service) resendTownCopresenceAfterTownPostTransition(session *gameSessi
 	// 这一次也必须能重新投影。
 	s.releaseTownCopresenceActorResend(session)
 	if len(peers) == 0 {
+		// Cross-area party HP still needs the post-rebuild boundary even when
+		// there are no same-area models to replay.
+		s.resendTownCopresencePeerActorsAfterFinishLoading(session, source)
 		s.logGameEvent(session, "game-town-copresence-post-transition-resend-skipped",
 			"source", source,
 			"char_id", session.selectedCharacterID,

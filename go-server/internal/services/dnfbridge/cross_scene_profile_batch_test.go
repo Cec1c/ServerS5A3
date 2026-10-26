@@ -198,8 +198,11 @@ func TestCurrentCrossSceneProfileBatchSendsRealMode8Wire(t *testing.T) {
 	mode3 := f.service.buildCurrentSelectedUserInfoMode3BodyInContext(context.Background(), f.actor, repos.LegacyUserInfo, character, true, 17, owner)
 	want := append([]byte{8, 1, 0}, mode0[3:]...)
 	want = append(want, mode3[3:]...)
+	// The complete records remain byte-identical except for the receiver's
+	// existing town HP projection in the embedded mode0 (fixture value 100).
+	want[townMode0FixtureHPOffset(t, want)] = 100
 	if !bytes.Equal(body, want) {
-		t.Fatal("mode8 wire did not retain both complete typed records")
+		t.Fatal("mode8 wire changed outside its town HP projection")
 	}
 	if f.actorConn.write.Len() != 0 || f.viewer2Conn.write.Len() != 0 {
 		t.Fatalf("cross-scene batch wrote to actor=%d or other viewer=%d",
