@@ -250,6 +250,11 @@ type runtimeDungeonState struct {
 	tournamentRewardAutoSelectGeneration uint64
 	tournamentRewardAutoSelectTimerName  string
 	tournamentRewardAutoSelectDueAt      time.Time
+
+	// 大富翁Buff仅绑定本次地下城，换房保留。
+	attendanceMarbleBuffs                  byte
+	attendanceMarbleBuffsLoaded            bool
+	settlementMonsterAttendanceMarbleBonus uint32
 }
 
 func dungeonRuntimeOwnsCharacter(runtime *runtimeDungeonState, characterID uint16) bool {

@@ -110,6 +110,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"collectbox",
 		"chronicle-refine",
 		"web-viewer",
+		"attendance-marble",
 		"fiendwar",
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
@@ -132,6 +133,9 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	legacyOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketAttendanceMarbleEventInfo):  "attendance-marble",
+		uint16(dnfenum.CmdPacketAttendanceMarbleEventDice):  "attendance-marble",
+		uint16(dnfenum.CmdPacketAttendanceMarbleDoubleExit): "attendance-marble",
 		434:                                   "guild-party-teleport",
 		435:                                   "guild-party-teleport",
 		uint16(dnfenum.CmdPacketCompoundGem):  "guild-compound",
@@ -199,6 +203,9 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 
 	upperOwners := map[uint16]string{
+		uint16(dnfenum.CmdPacketAttendanceMarbleEventInfo):      "attendance-marble",
+		uint16(dnfenum.CmdPacketAttendanceMarbleEventDice):      "attendance-marble",
+		uint16(dnfenum.CmdPacketAttendanceMarbleDoubleExit):     "attendance-marble",
 		uint16(dnfenum.CmdPacketCompoundGem):                    "guild-compound",
 		uint16(dnfenum.CmdPacketCompoundFlag):                   "guild-compound",
 		uint16(dnfenum.CmdPacketRegenerationRandomOption):       "equipment-regeneration",
