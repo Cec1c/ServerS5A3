@@ -94,6 +94,13 @@ helper-section mapping.
 
 ## Already-patched cumulative clients
 
+A reset branch alone does not prove end-to-end failure handling. V186 still
+classified CMD215 as owning its error byte, while its callback expected the
+dispatcher to supply that byte. Direct callback tests with error=1 missed this.
+The shared native harness now executes the real opcode classifier. See
+`../patch_vending_ack_error.py` and `../test_vending_ack_error.py` for the exact
+V186 correction and dispatcher-to-reset RED/GREEN verification.
+
 Inspect the current failure branch and mapped helper before choosing a build
 profile. An already-patched cumulative release should be verified directly;
 do not append another helper or strip its existing patches to feed this builder.
