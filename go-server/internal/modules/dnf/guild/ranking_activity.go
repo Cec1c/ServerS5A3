@@ -92,6 +92,13 @@ func ApplyRankingPartyClear(ctx context.Context, settings r.SettingsRepository, 
 	if !clear.Revalidate() {
 		return RankingClearResult{}, ErrCharacterNotFound
 	}
+	if rules := clear.Rules.MemberRanking; rules != nil {
+		if personal, ok := rules.PartyClears[clear.DungeonID]; ok {
+			if err := addMemberRankingParty(g, member, personal.Points, now); err != nil {
+				return RankingClearResult{}, err
+			}
+		}
+	}
 	g.RankingActivity, g.UpdatedAt = &activity, now
 	if err := Save(ctx, settings, reg, now); err != nil {
 		return RankingClearResult{}, err

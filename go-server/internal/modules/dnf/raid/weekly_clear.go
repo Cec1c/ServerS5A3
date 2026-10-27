@@ -110,9 +110,22 @@ type WeeklyClearResult struct {
 // entire raid group commits once; failure of any member rolls back all counts.
 // A per-instance marker survives restarts and later weeks to reject old replay.
 func CommitWeeklyClear(ctx context.Context, group repo.Group, cmd WeeklyClearCommand) (WeeklyClearResult, error) {
+	return commitWeeklyClear(ctx, group, cmd, nil)
+}
+
+// CommitWeeklyClearWithGuild adds guild events to the same permanent raid
+// completion transaction. The callback runs only for the first accepted clear.
+func CommitWeeklyClearWithGuild(ctx context.Context, group repo.Group, cmd WeeklyClearCommand, onCommit func(repo.Group) error) (WeeklyClearResult, error) {
+	if onCommit == nil {
+		return WeeklyClearResult{}, ErrWeeklyClearState
+	}
+	return commitWeeklyClear(ctx, group, cmd, onCommit)
+}
+
+func commitWeeklyClear(ctx context.Context, group repo.Group, cmd WeeklyClearCommand, onCommit func(repo.Group) error) (WeeklyClearResult, error) {
 	unit, ok := group.CharacterTrade.(repo.CharacterInventoryGroupUnitOfWork)
 	instance, decodeErr := hex.DecodeString(cmd.InstanceID)
-	if !ok || decodeErr != nil || len(instance) != 16 || cmd.Limit < 1 || cmd.Limit > 255 || len(cmd.Members) < 1 || len(cmd.Members) > MaxAttackPartyMembers {
+	if (onCommit == nil && !ok) || decodeErr != nil || len(instance) != 16 || cmd.Limit < 1 || cmd.Limit > 255 || len(cmd.Members) < 1 || len(cmd.Members) > MaxAttackPartyMembers {
 		return WeeklyClearResult{}, ErrWeeklyClearState
 	}
 	epochKey, countKey, err := weeklyKeys(cmd.Mode)
@@ -141,7 +154,8 @@ func CommitWeeklyClear(ctx context.Context, group repo.Group, cmd WeeklyClearCom
 	}
 	marker := fmt.Sprintf("raid_clear_v1_%d_%s", cmd.Mode, hex.EncodeToString(instance))
 	result := WeeklyClearResult{Used: map[string]int{}}
-	err = unit.WithinCharacterInventoryGroup(ctx, ids, func(chars repo.CharacterRepository, _ repo.InventoryRepository) error {
+	apply := func(tx repo.Group) error {
+		chars := tx.Character
 		characters := make([]repo.CharacterRecord, 0, len(ids))
 		marked := 0
 		for _, id := range ids {
@@ -191,8 +205,26 @@ func CommitWeeklyClear(ctx context.Context, group repo.Group, cmd WeeklyClearCom
 			}
 			result.Used[character.CharacterID] = used
 		}
+		if onCommit != nil {
+			return onCommit(tx)
+		}
 		return nil
-	})
+	}
+	if onCommit == nil {
+		err = unit.WithinCharacterInventoryGroup(ctx, ids, func(chars repo.CharacterRepository, _ repo.InventoryRepository) error {
+			return apply(repo.Group{Character: chars})
+		})
+	} else {
+		guildUnit, ok := group.Guild.(repo.GuildRaidClearUnitOfWork)
+		if !ok {
+			return WeeklyClearResult{}, ErrWeeklyClearState
+		}
+		owners := make([]repo.GuildOwner, 0, len(ids))
+		for _, id := range ids {
+			owners = append(owners, repo.GuildOwner{AccountID: members[id].AccountID, CharacterID: id})
+		}
+		err = guildUnit.WithinGuildRaidClear(ctx, owners, apply)
+	}
 	if err != nil {
 		return WeeklyClearResult{}, err
 	}

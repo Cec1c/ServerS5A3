@@ -9,28 +9,30 @@ import (
 type mysqlGuildUnitOfWork struct{ router mysqlRouter }
 
 func (u *mysqlGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, false, "", apply)
+	return u.withinGuild(ctx, owners, false, false, false, "", apply)
 }
 
 func (u *mysqlGuildUnitOfWork) WithinGuildTravel(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, true, "", apply)
+	return u.withinGuild(ctx, owners, false, true, false, "", apply)
 }
 
 func (u *mysqlGuildUnitOfWork) WithinGuildDungeonEntry(ctx context.Context, owners []repository.GuildOwner, receiptScope string, apply func(repository.Group) error) error {
 	if !repository.ValidGuildDungeonEntryReceiptScope(receiptScope) {
 		return repository.ErrGuildTransaction
 	}
-	return u.withinGuild(ctx, owners, false, false, receiptScope, apply)
+	return u.withinGuild(ctx, owners, false, false, false, receiptScope, apply)
 }
 
 func (u *mysqlGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, "", apply)
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, false, "", apply)
 }
 
-func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel bool, receiptScope string, apply func(repository.Group) error) error {
+func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel, raidClear bool, receiptScope string, apply func(repository.Group) error) error {
 	var ordered []repository.GuildOwner
 	var err error
 	switch {
+	case raidClear:
+		ordered, err = repository.GuildRaidClearOwners(owners)
 	case receiptScope != "":
 		ordered, err = repository.GuildDungeonEntryOwners(owners)
 	case travel:
@@ -109,4 +111,8 @@ func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposit
 		return errors.Join(repository.ErrGuildCommitUnknown, err)
 	}
 	return nil
+}
+
+func (u *mysqlGuildUnitOfWork) WithinGuildRaidClear(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, false, true, "", apply)
 }
