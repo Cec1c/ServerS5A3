@@ -136,27 +136,35 @@ type dungeonHellRoom struct {
 // 不在操作者清单第 ⑤ 条范围内。缺字段时厂商自己也会落到 ordinary 分支
 // （`Dungeon.cs:945-953`），因此这里的行为与厂商在"无季节门"数据上的行为一致。
 func resolveDungeonHellRoom(maze *worldmap.Maze, table *worldmap.Table) (dungeonHellRoom, bool) {
+	room, found, _ := resolveDungeonHellRoomRead(maze, table)
+	return room, found
+}
+func resolveDungeonHellRoomRead(maze *worldmap.Maze, table *worldmap.Table) (dungeonHellRoom, bool, error) {
 	if maze == nil {
-		return dungeonHellRoom{}, false
+		return dungeonHellRoom{}, false, nil
 	}
 	hellMapID := maze.SealDoorMapIndex
 	if !hellMapID.Set || hellMapID.Value <= 0 {
-		return dungeonHellRoom{}, false
+		return dungeonHellRoom{}, false, nil
 	}
 	if len(maze.SealDoorPosition) < 2 {
-		return dungeonHellRoom{}, false
+		return dungeonHellRoom{}, false, nil
 	}
 	x := int(maze.SealDoorPosition[0])
 	y := int(maze.SealDoorPosition[1])
 	if !mazeHasRoomAt(maze, x, y) {
-		return dungeonHellRoom{}, false
+		return dungeonHellRoom{}, false, nil
 	}
 	// 厂商 `IsHellPartyMap`：那张图上必须真有柱子，否则宁可不下发坐标
 	// （`Dungeon.cs:995-1004`：`normalMapId <= 0 || !hasHellParty` 一律拒）。
-	if !hellPartyMapCarriesPillar(table, hellMapID.Value) {
-		return dungeonHellRoom{}, false
+	hasPillar, readErr := hellPartyMapCarriesPillarRead(table, hellMapID.Value)
+	if readErr != nil {
+		return dungeonHellRoom{}, false, readErr
 	}
-	return dungeonHellRoom{MapID: hellMapID.Value, X: x, Y: y}, true
+	if !hasPillar {
+		return dungeonHellRoom{}, false, nil
+	}
+	return dungeonHellRoom{MapID: hellMapID.Value, X: x, Y: y}, true, nil
 }
 
 // mazeHasRoomAt 是厂商 `FindNormalMapIdForRoom(maze, x, y) <= 0` 判据的投影：
@@ -175,19 +183,26 @@ func mazeHasRoomAt(maze *worldmap.Maze, x, y int) bool {
 // 本仓 worldmap 已经解析好这层元数据（`parse_map.go:197 attachHellParty`、
 // `types.go:99-108 HellPartyEntry`），这里只读不改。
 func hellPartyMapCarriesPillar(table *worldmap.Table, mapID int64) bool {
+	found, _ := hellPartyMapCarriesPillarRead(table, mapID)
+	return found
+}
+func hellPartyMapCarriesPillarRead(table *worldmap.Table, mapID int64) (bool, error) {
 	if table == nil {
-		return false
+		return false, nil
 	}
-	value, ok := table.FindMap(mapID)
+	value, ok, err := table.FindMapWithError(mapID)
+	if err != nil {
+		return false, err
+	}
 	if !ok {
-		return false
+		return false, nil
 	}
 	for _, object := range value.SpecialPassiveObjects {
 		if len(object.HellParty) != 0 {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // resolveDungeonHellPartyMode 对应厂商 `ResolveHellPartyMode`
@@ -259,17 +274,21 @@ func dungeonRequestedHell(entryOption uint16) bool { return byte(entryOption) !=
 // 逐字节对应 `DungeonMapHandler.cs:512-513` 两行。
 // resolveDungeonHellRoomForEntry 是"这条 op16 要不要深渊房间"的唯一判据入口。
 // 只有修复档 + 真深渊请求（低字节 = `HellPartyRequestFlag`）才会去读 PVF。
-func (s *Service) resolveDungeonHellRoomForEntry(
+func (s *Service) resolveDungeonHellRoomForEntry(mode dungeonHellRoomMode, option uint16, dungeon worldmap.Dungeon, maze int, table *worldmap.Table) (dungeonHellRoom, bool) {
+	room, found, _ := s.resolveDungeonHellRoomForEntryRead(mode, option, dungeon, maze, table)
+	return room, found
+}
+func (s *Service) resolveDungeonHellRoomForEntryRead(
 	mode dungeonHellRoomMode,
 	entryOption uint16,
 	dungeon worldmap.Dungeon,
 	mazeIndex int,
 	table *worldmap.Table,
-) (dungeonHellRoom, bool) {
+) (dungeonHellRoom, bool, error) {
 	if !mode.enabled() || !dungeonRequestedHell(entryOption) {
-		return dungeonHellRoom{}, false
+		return dungeonHellRoom{}, false, nil
 	}
-	return resolveDungeonHellRoom(mazeForHellRoom(dungeon, mazeIndex), table)
+	return resolveDungeonHellRoomRead(mazeForHellRoom(dungeon, mazeIndex), table)
 }
 
 // applyDungeonHellRoomMap 把深渊房间那一间的房图换成 `[seal door map index]` 那张图。
@@ -292,7 +311,10 @@ func applyDungeonHellRoomMap(
 	if table == nil {
 		return errDungeonWorldMapUnavailable
 	}
-	mapValue, found := table.FindMap(room.MapID)
+	mapValue, found, readErr := table.FindMapWithError(room.MapID)
+	if readErr != nil {
+		return readErr
+	}
 	if !found {
 		return fmt.Errorf("%w: hell_room_map=%d", worldmap.ErrMapUnresolved, room.MapID)
 	}

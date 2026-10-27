@@ -596,6 +596,12 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			return nil, err
 		}
 	}
+	carbonCrystalSelected := currentDungeonOrdinaryMonsterLooksBoss(monster) && currentDungeonCarbonCrystalEligible(runtime, dropCatalog)
+	if carbonCrystalSelected {
+		if err := appendSelected(currentDungeonCarbonCrystalItemID); err != nil {
+			return nil, err
+		}
+	}
 	s.logGameEvent(nil, "game-dungeon-monster-special-drop-roll",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,
@@ -613,6 +619,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 		"world_denominator", currentDungeonWorldDropDenominator,
 		"world_selected", worldSelected,
 		"world_selected_item", worldItemID,
+		"carbon_crystal_guaranteed", carbonCrystalSelected,
 		"source", "runtime_pvf_independent_drop_and_world_drop")
 
 	// The LCG is advanced even when no standard scene item survived the real
