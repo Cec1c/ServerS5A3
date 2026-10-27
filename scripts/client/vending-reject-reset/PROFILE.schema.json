@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dnf90-vending-reject-reset-profile/v1",
+  "title": "DNF90 vending reject-reset local profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "input_sha256",
+    "input_size",
+    "image_base",
+    "failure_branch",
+    "controller",
+    "reset_call",
+    "new_section"
+  ],
+  "properties": {
+    "schema": {"const": "dnf90-vending-reject-reset-profile/v1"},
+    "input_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "input_size": {"type": "integer", "minimum": 1},
+    "image_base": {"type": "integer", "minimum": 65536},
+    "expected_output_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{64}$"},
+    "expected_output_size": {"type": ["integer", "null"], "minimum": 1},
+    "failure_branch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site_va", "original_bytes", "resume_va"],
+      "properties": {
+        "site_va": {"type": ["integer", "string"]},
+        "original_bytes": {"type": "string", "pattern": "^[0-9a-fA-F]{10,128}$"},
+        "resume_va": {"type": ["integer", "string"]}
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manager_global_va", "slot_offset", "getter_load", "getter_store"],
+      "properties": {
+        "manager_global_va": {"type": ["integer", "string"]},
+        "slot_offset": {"type": ["integer", "string"]},
+        "getter_load": {"$ref": "#/$defs/fingerprint"},
+        "getter_store": {"$ref": "#/$defs/fingerprint"}
+      }
+    },
+    "reset_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function_va", "argument", "prologue", "return", "callers"],
+      "properties": {
+        "function_va": {"type": ["integer", "string"]},
+        "argument": {"type": ["integer", "string"]},
+        "prologue": {"$ref": "#/$defs/fingerprint"},
+        "return": {"$ref": "#/$defs/fingerprint"},
+        "callers": {"type": "array", "items": {"$ref": "#/$defs/fingerprint"}}
+      }
+    },
+    "new_section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "virtual_size", "characteristics"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 8, "pattern": "^[ -~]+$"},
+        "virtual_size": {"type": ["integer", "string"]},
+        "characteristics": {"type": ["integer", "string"]}
+      }
+    }
+  },
+  "$defs": {
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["va", "bytes"],
+      "properties": {
+        "va": {"type": ["integer", "string"]},
+        "bytes": {"type": "string", "pattern": "^[0-9a-fA-F]+$"}
+      }
+    }
+  }
+}
