@@ -43,7 +43,7 @@ func decodeCurrentItemHyperlinkRequest(body []byte) (currentItemHyperlinkRequest
 		Reserved:    binary.LittleEndian.Uint32(body[3:7]),
 	}
 	messageLength := binary.LittleEndian.Uint32(body[7:11])
-	if request.MessageType != currentAreaChatMessageType || request.Reserved != 0 ||
+	if (request.MessageType != currentAreaChatMessageType && request.MessageType != currentGuildChatType) || request.Reserved != 0 ||
 		messageLength == 0 || messageLength > currentItemHyperlinkMessageLimit {
 		return currentItemHyperlinkRequest{}, errCurrentItemHyperlinkBodyInvalid
 	}
@@ -93,6 +93,11 @@ func (s *Service) handleCurrentItemHyperlinkMessage(session *gameSession, typ ui
 	if err != nil {
 		s.logGameEvent(session, "game-item-hyperlink-request-rejected", "body_len", len(body), "error", err)
 		return s.sendGameUpperFailure(session, typ, 1)
+	}
+	if request.MessageType == currentGuildChatType {
+		return s.handleCurrentGuildChatMessage(session, typ, currentPeerChatRequest{
+			MessageType: currentGuildChatType, Message: request.Message,
+		}, request.Items)
 	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound {

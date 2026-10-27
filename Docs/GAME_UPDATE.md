@@ -4,6 +4,8 @@
 
 这条流程更新已配置的远端 Docker 实例的游戏二进制，保留 GM、数据库、玩家数据、PVF、频道与登录器。需要更新客户端或内容时，先完成 [CLIENT_RELEASE_SYNC.md](CLIENT_RELEASE_SYNC.md) 的 Release、实际玩家通道和摘要核验，再执行依赖它们的游戏更新。Git 提交、推送及 PR/MR 仍按 [REPOSITORY_SYNC.md](REPOSITORY_SYNC.md) 单独处理。
 
+客户端前置要求见 [来源通知基线与后续累计修复](CLIENT_RELEASE_SYNC.md#来源通知基线与后续累计修复)：V183 来源通知基线已正式发布；后续直接在已发布基线及累计版本上修改，不要求每次运行通知 CLI。部署仍核对所选通道最新已发布 Release、实际玩家签名清单、下载文件和兼容 profile 的最终摘要；旧的合法签名或配置摘要本身不证明发行是最新版本。
+
 ## 本机配置
 
 私有目标配置在被忽略的 `runtime/game-update/profile.json`，格式见 `deploy/templates/game-update.example.json`。优先读取已有配置和 `local-notes/AGENT_HANDOFF.md`，不要覆盖已有环境信息或猜测地址。配置引用 SSH alias、玩家签名 profile 和无 GUI 探针，不写密码、私钥或 token。

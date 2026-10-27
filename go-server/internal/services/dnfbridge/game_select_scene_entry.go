@@ -335,6 +335,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			if err := s.sendCurrentStoryDigestLastLevel(session, selectedCharacter, hasSelectedCharacter, "select_character_after_ack_before_scene"); err != nil {
 				return err
 			}
+			if err := s.sendCurrentAccountNoticeProgress(ctx, session); err != nil {
+				return err
+			}
 			startsInTutorial := selectedCharacterStartsInTutorial(selectedCharacter, hasSelectedCharacter)
 			if session.channelReconnect {
 				clearReturnSelectTownReentry(session)

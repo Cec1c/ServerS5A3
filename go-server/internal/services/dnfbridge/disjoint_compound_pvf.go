@@ -10,6 +10,23 @@ import (
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
+// 返回的规则只读；随机产物和物品校验仍在每次操作中计算。
+func (c *pvfDungeonDropCatalog) currentDisjointPVFConfig() (currentDisjointPVFConfig, error) {
+	if c == nil {
+		return currentDisjointPVFConfig{}, errCurrentDisjointUnavailable
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.disjointConfig != nil {
+		return *c.disjointConfig, nil
+	}
+	config, err := loadCurrentDisjointPVFConfig(c.source)
+	if err == nil {
+		c.disjointConfig = &config
+	}
+	return config, err
+}
+
 func loadCurrentDisjointPVFConfig(source dnfpvf.Source) (currentDisjointPVFConfig, error) {
 	if source == nil {
 		return currentDisjointPVFConfig{}, errCurrentDisjointUnavailable

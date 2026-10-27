@@ -311,6 +311,8 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 			return nil
 		}
 		return s.handleUpdateRepresentAccountName(session, packet.Body, packet.Header.MsgID)
+	case dnfenum.UpperMsg(currentAccountNoticeProgressOpcode):
+		return s.handleCurrentAccountNoticeProgress(session, packet.Header.Classification, packet.Body)
 	case dnfenum.UpperMsg(dnfenum.CmdPacketStoryDigestUpdate):
 		return s.handleCurrentStoryDigestAccepted(session, packet.Header.Classification, packet.Body)
 	case dnfenum.UpperMsgSelectAck:
