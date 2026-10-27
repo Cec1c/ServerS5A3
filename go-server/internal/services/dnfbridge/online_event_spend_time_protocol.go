@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"longheng.io/server/internal/modules/dnf/onlineevent"
+	"longheng.io/server/internal/modules/dnf/packageitem"
 )
 
 const (
@@ -23,6 +24,8 @@ const (
 	// Actual current 0133101A and 0141784C check this activity before
 	// admitting/displaying the Luke channel selector.
 	currentLukeChannelEventID uint16 = 282
+	// 现用客户端01330F8D缺少此活动时提示“使用日期不准确”。
+	currentFiendWarChannelEventID uint16 = 2449
 	// Actual 01A55120 checks 2426 before selecting the original mode chooser
 	// (window 127 / RaidSelectSingleModeWindow.xui), instead of window 123.
 	currentAntonModeSelectionEventID uint16 = 2426
@@ -53,6 +56,8 @@ const (
 	currentSpendTimeBaseCatalogValue     = 1
 	currentSpendTimeEventInfoCodec       = "current_op108_spend_time_and_all_day_joust_catalog_zlib"
 	currentSpendTimeEventRoute           = "spend time event/0/0"
+	currentSpendTimeEventTitle           = "累计在线奖励"
+	currentSpendTimeEventDescription     = "累计在线时间达到对应阶段要求后，可领取该阶段奖励。"
 )
 
 // buildCurrentSpendTimeEventInfoBody retains the established op108 grammar.
@@ -204,6 +209,61 @@ func buildCurrentActivityEventInfoBodyWithOrdinary(rewardItemIDs []uint32, total
 }
 
 func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownActivities(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil)
+}
+
+func buildCurrentActivityEventInfoBodyWithImageTownActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownActivitiesAndFiendWar(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, townActivities, false)
+}
+
+// 超时空沿用通用活动行，仅声明入口开放，不改变角色资格或消耗次数。
+func buildCurrentActivityEventInfoBodyWithFiendWar(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, includeFiendWar bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownActivitiesAndFiendWar(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil, includeFiendWar)
+}
+
+func buildCurrentActivityEventInfoBodyWithImageTownActivitiesAndFiendWar(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownActivitiesAndFiendWarAndOnlinePanel(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, townActivities, includeFiendWar, false)
+}
+
+func buildCurrentActivityEventInfoBodyWithOnlinePanel(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownActivitiesAndFiendWarAndOnlinePanel(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil, false, nativeOnlinePanel)
+}
+
+func buildCurrentActivityEventInfoBodyWithImageTownActivitiesAndFiendWarAndOnlinePanel(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, townActivities, includeFiendWar, nativeOnlinePanel, false)
+}
+
+func buildCurrentActivityEventInfoBodyWithSeriaLuck(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil, false, false, includeSeriaLuck)
+}
+
+func buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, townActivities, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, false)
+}
+
+func buildCurrentActivityEventInfoBodyWithMarble(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeMarble bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil, false, nativeOnlinePanel, includeSeriaLuck, includeMarble)
+}
+
+// Compose native online rewards and Seria luck without replacing other catalog rows.
+func buildCurrentActivityEventInfoBodyWithRuntimeActivities(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, false)
+}
+
+func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeFiendWar bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeFiendWar, false)
+}
+
+// 大富翁只追加145行，保留每日在线和幸运值等既有目录。
+func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nativeOnlinePanel, includeSeriaLuck, includeFiendWar, includeMarble bool) ([]byte, error) {
+	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, nil, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, includeMarble)
+}
+
+// Keep the cumulative town and FiendWar rows while adding the verified marble row.
+func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, includeMarble bool) ([]byte, error) {
+	if err := validateCurrentImageTownActivityIDs(townActivities); err != nil {
+		return nil, err
+	}
 	if dayDungeonEvent != 0 && (dayDungeonEvent < 2418 || dayDungeonEvent > 2424) {
 		return nil, fmt.Errorf("unverified day dungeon event %d", dayDungeonEvent)
 	}
@@ -263,6 +323,10 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		baseCatalogCount++
 		activeCount++
 	}
+	if includeFiendWar {
+		baseCatalogCount++
+		activeCount++
+	}
 	if includeMonthly {
 		baseCatalogCount++
 		activeCount++
@@ -280,24 +344,39 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		baseCatalogCount++
 		activeCount++
 	}
+	if includeSeriaLuck {
+		baseCatalogCount++
+		activeCount++
+	}
+	if includeMarble {
+		baseCatalogCount++
+		activeCount++
+	}
 	var writer packetWriter
+	baseCatalogCount += uint16(len(townActivities))
+	activeCount += byte(len(townActivities))
 	writer.writeUint16(baseCatalogCount) // base_catalog_count
-	if includeSpendTime {
+	if includeSpendTime && nativeOnlinePanel {
+		writeCurrentPCRoomTimePointActivityBase(&writer)
+	} else if includeSpendTime {
 		writer.writeUint16(uint16(currentSpendTimeEventID))
 		writer.writeUint32(currentSpendTimeBaseCatalogValue)
-		writer.writeRawDstr(nil) // generic title; the fixed event UI owns visible text
+		writer.writeRawDstr(nil) // generic title; the extended descriptor owns the menu text
 		writer.writeRawDstr(nil) // generic description
 		writer.writeByte(1)      // has_extended: installs the native click action below
 		writer.writeByte(0)      // generic category flags
-		writer.writeByte(0)      // generic presentation flags
-		writer.writeRawDstr(nil) // optional title override
+		writer.writeByte(4)      // regular presentation: native GetStr(38499+4) is [一般]
+		writeClientNameDstr(&writer, currentSpendTimeEventTitle)
 		writer.writeRawDstr(nil) // optional subtitle override
-		writer.writeRawDstr(nil) // optional description override
-		writer.writeUint32(0)    // optional start timestamp
-		writer.writeUint32(0)    // optional end timestamp
+		writeClientNameDstr(&writer, currentSpendTimeEventDescription)
+		writer.writeUint32(0) // optional start timestamp
+		writer.writeUint32(0) // optional end timestamp
 		writer.writeAsciiDstr(currentSpendTimeEventRoute)
 		writer.writeRawDstr(nil) // optional status text
-		writer.writeByte(0)      // optional presentation tail
+		// The activity list accepts this server-owned row only when descriptor+B4
+		// is true. The title above is then read from descriptor+30, and the
+		// nonzero presentation makes the Event_tag.img frame type valid.
+		writer.writeByte(1) // allow the spend-time server menu entry
 	}
 	if includeJoustEvent {
 		writer.writeUint16(uint16(currentJoustEventID))
@@ -338,6 +417,13 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 	}
 	if includeLuke {
 		writer.writeUint16(currentLukeChannelEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
+	if includeFiendWar {
+		writer.writeUint16(currentFiendWarChannelEventID)
 		writer.writeUint32(currentSpendTimeBaseCatalogValue)
 		writer.writeRawDstr(nil)
 		writer.writeRawDstr(nil)
@@ -384,8 +470,34 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 		writer.writeRawDstr(nil)
 		writer.writeByte(0)
 	}
+	for _, id := range townActivities {
+		writer.writeUint16(id)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
+	if includeSeriaLuck {
+		writer.writeUint16(currentSeriaLuckEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
+	if includeMarble {
+		writer.writeUint16(currentAttendanceMarbleEventID)
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
 	writer.writeByte(activeCount) // active_count
-	if includeSpendTime {
+	if includeSpendTime && nativeOnlinePanel {
+		writer.writeUint16(currentPCRoomTimePointEventID)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	} else if includeSpendTime {
 		writer.writeUint16(uint16(currentSpendTimeEventID))
 		for _, value := range params {
 			writer.writeUint32(value)
@@ -427,6 +539,12 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 			writer.writeUint32(0)
 		}
 	}
+	if includeFiendWar {
+		writer.writeUint16(currentFiendWarChannelEventID)
+		for index := 0; index < currentSpendTimeDescriptorParamCount; index++ {
+			writer.writeUint32(0)
+		}
+	}
 	if includeMonthly {
 		writer.writeUint16(currentMonthlyAttendanceEventID)
 		writer.writeUint32(onlineevent.MonthlyRequiredClears) // Actual02301534/01113250 stores required clears.
@@ -448,6 +566,25 @@ func buildCurrentActivityEventInfoBodyWithEpicRoad(rewardItemIDs []uint32, total
 	}
 	if includeOrdinary {
 		writer.writeUint16(331)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	for _, id := range townActivities {
+		writer.writeUint16(id)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeSeriaLuck {
+		writer.writeUint16(currentSeriaLuckEventID)
+		writer.writeUint32(uint32(packageitem.SeriaLuckValueMax))
+		for i := 1; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+	if includeMarble {
+		writer.writeUint16(currentAttendanceMarbleEventID)
 		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
 			writer.writeUint32(0)
 		}

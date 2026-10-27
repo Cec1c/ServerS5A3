@@ -64,6 +64,11 @@ func (s *Service) noteCurrentRaidDisconnect(identity boundGameSessionCharacter) 
 	if snapshot.Battle != nil {
 		seconds = snapshot.Battle.Configuration.DisconnectWaitSeconds
 	}
+	if seconds == 0 && snapshot.RouteOrRaidType == 2 {
+		if c, err := s.loadCurrentFiendWarConfig(); err == nil {
+			seconds = uint32(c.DisconnectMemberWaitSeconds)
+		}
+	}
 	if seconds == 0 {
 		s.initialEquipmentMu.Lock()
 		archive, err := s.initialEquipmentArchiveLocked()
@@ -171,6 +176,12 @@ func (s *Service) restoreCurrentRaidPresence(session *gameSession) {
 		return
 	}
 	delete(s.currentRaidDisconnects, identity.character)
+	if b := state.Battle; b != nil && b.FiendWar != nil {
+		next := b.FiendWar.Clone()
+		next.MemberAreas[identity.character] = next.Config.WaitingArea
+		b.FiendWar = next
+		b.ProgressVersion++
+	}
 	state.Members[runtimeRaidMemberIndex(*state, identity.character)].UserState = 1
 	s.mu.Unlock()
 	copy := cloneRuntimeRaidState(*state)
@@ -184,6 +195,7 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 		return
 	}
 	changed := map[uint32]runtimeRaidState{}
+	expiredParticipation := map[uint32]bool{}
 	s.raidMu.Lock()
 	for id, seat := range s.currentRaidDisconnects {
 		state := s.raids[seat.RaidKey]
@@ -213,6 +225,10 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 		// The immutable Battle/reward journal still owns accepted clears/assets.
 		// Only the retained directory seat expires.
 		departedLeader := state.LeaderID == id
+		hadParticipation := false
+		if state.Battle != nil {
+			_, hadParticipation = state.Battle.Participation[id]
+		}
 		_, removed, disbanded := s.removeRuntimeRaidMemberLocked(id)
 		if disbanded && state.Battle != nil {
 			// Accepted battle and uncommitted reward/weekly intents outlive
@@ -237,6 +253,9 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 				}
 			}
 			changed[state.RaidKey] = cloneRuntimeRaidState(*state)
+			if hadParticipation {
+				expiredParticipation[state.RaidKey] = true
+			}
 		}
 	}
 	// One final roster per aggregate: expiring two seats in the same sweep
@@ -251,6 +270,9 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 	s.raidMu.Unlock()
 	for _, state := range changed {
 		s.publishCurrentRaidPresence(state, 0)
+		if expiredParticipation[state.RaidKey] {
+			s.queueCurrentRaidDungeonProgress(state)
+		}
 	}
 }
 func (s *Service) publishCurrentRaidPresence(state runtimeRaidState, excluded uint16) {

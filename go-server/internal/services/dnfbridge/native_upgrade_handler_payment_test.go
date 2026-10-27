@@ -50,11 +50,16 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 		npc                          uint16
 		stones, wantStones, wantGold int64
 		reject                       bool
+		converts                     bool
 	}{
-		{"legacy_default_control", "", 476, 5, 5, 100000, false},
-		{"candidate_jonathan", "candidate", 476, 5, 4, 100000, false},
-		{"candidate_ordinary", "candidate", 1, 5, 5, 15025, false},
-		{"candidate_missing_stone", "candidate", 476, 0, 0, 100000, true},
+		// 段106 修复后默认档（空值）已按 PVF 声明扣精炼的时空石；旧行为只在显式关断档复现。
+		{"legacy_kill_switch_control", "off", 476, 5, 5, 100000, false, false},
+		{"default_jonathan_conversion", "", 476, 5, 4, 100000, false, true},
+		{"candidate_jonathan", "candidate", 476, 5, 4, 100000, false, true},
+		{"candidate_ordinary", "candidate", 1, 5, 5, 15025, false, false},
+		{"default_ordinary_unchanged", "", 1, 5, 5, 100000, false, false},
+		{"candidate_missing_stone", "candidate", 476, 0, 0, 100000, true, false},
+		{"default_missing_stone", "", 476, 0, 0, 100000, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", tc.flag)
@@ -82,7 +87,7 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			conn := &bufferConn{}
 			session := &gameSession{conn: conn, connID: "r4-offline-jonathan", accountID: account, channel: channelcatalog.Channel{ID: 38}, selectedCharacterID: 77, townSceneReadyCharacterID: 77, townPositionSnapshot: currentTownPositionSnapshot{CharacterID: 77, TownID: byte(townID), AreaID: byte(areaID), PositionValid: true}}
 			s := &Service{options: options{accountID: account, gameUpperBodyCodec: gameUpperBodyCodecPlain, currentClientVersion: "official-24.9", pvfPath: path}, initialEquipmentArchive: archive, townCatalog: towns, gameSessions: map[uint16]*gameSession{77: session}, repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }}
-			policy, err := s.alignedUpgradePolicyResolver()("reinforce", 0)
+			policy, err := s.alignedUpgradePolicyResolver()("reinforce", 28309, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +178,7 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			if len(targetRow) != 119 || binary.LittleEndian.Uint32(targetRow[2:6]) != 28309 {
 				t.Fatal("target projection identity absent/wrong")
 			}
-			if tc.flag == "candidate" && tc.npc == 476 {
+			if tc.converts {
 				stoneRow := updates[135]
 				if len(stoneRow) != 119 || binary.LittleEndian.Uint32(stoneRow[2:6]) != 10158964 {
 					t.Fatal("conversion material projection absent/wrong")

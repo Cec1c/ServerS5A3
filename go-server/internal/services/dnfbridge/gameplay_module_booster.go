@@ -147,6 +147,14 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 	if err := s.sendCurrentEpicPieceCredits(session, result.EpicPieceCredits, "use_booster_item"); err != nil {
 		return err
 	}
+	if err := s.sendAlignedPremiumContractActivations(session, "use_booster_item", result.ContractActivations); err != nil {
+		return err
+	}
+	if definition.ItemUsage != nil {
+		if err := s.sendCurrentItemUsageForSession(session, "use_booster_item"); err != nil {
+			return err
+		}
+	}
 	s.logGameEvent(session, "game-current-booster-committed",
 		"source_slot", result.SourceSlot,
 		"source_item", result.SourceItemID,
@@ -192,6 +200,17 @@ func (s *Service) commitCurrentBooster(
 		return currentBoosterCommitResult{}, errCurrentBoosterPVFInvalid
 	}
 	delete(rewardAmounts, 0)
+	contracts := s.currentPremiumRewardContracts()
+	contractRewards := make(map[int64]premium.InventoryContract)
+	for itemID := range rewardAmounts {
+		if contract, ok := contracts[int64(itemID)]; ok {
+			contractRewards[int64(itemID)] = contract
+		}
+	}
+	// op27的奖励展示要求真实背包实例；该不支持的组合在扣道具前拒绝。
+	if request.AllowLotteryGold && len(contractRewards) > 0 {
+		return currentBoosterCommitResult{}, fmt.Errorf("%w: lottery contract reward needs native projection", errCurrentBoosterPVFInvalid)
+	}
 	accountID, characterID, owner, err := s.currentBoosterMutationOwner(session)
 	if err != nil {
 		return currentBoosterCommitResult{}, err
@@ -205,13 +224,14 @@ func (s *Service) commitCurrentBooster(
 			}
 		}
 	}
-	now := time.Now().UTC()
+	now := s.gameplayNow()
 	result := currentBoosterCommitResult{
 		SourceItemID: definition.Source.ItemID,
 		SourceSlot:   request.SourceSlot,
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
-		AccountLedger: len(pieceRewards) > 0,
+		ItemUsage:     definition.ItemUsage,
+		AccountLedger: len(pieceRewards) > 0 || len(contractRewards) > 0,
 		GoldCost:      definition.LotteryGoldCost,
 		AccountID:     accountID,
 		CharacterID:   characterID,
@@ -231,6 +251,11 @@ func (s *Service) commitCurrentBooster(
 				return dnfbooster.Changes{}, err
 			}
 			characterDirty := false
+			if definition.LotteryGoldCost > 0 {
+				// Owner has already debited the opening fee in this transaction.
+				// Keep its committed wallet for an incremental lottery notice.
+				result.GoldAfter = uint32(max(0, min(int64(math.MaxInt32), assets.Character.Stats["gold"])))
+			}
 			if goldAmount > 0 {
 				after, err := dnfbooster.CreditGold(assets.Character, goldAmount, definition.GoldMinimumLevel)
 				if err != nil {
@@ -293,6 +318,15 @@ func (s *Service) commitCurrentBooster(
 			changedRewardKeys := make(map[string]struct{})
 			accountDirty := false
 			for _, reward := range rewards {
+				if contract, ok := contractRewards[int64(reward.Definition.ItemID)]; ok {
+					activation, err := premium.ActivateContractGrant(assets.Account, contract, int64(reward.Count), now)
+					if err != nil {
+						return dnfbooster.Changes{}, err
+					}
+					result.ContractActivations = append(result.ContractActivations, alignedcmd.PremiumContractActivation{ItemID: activation.ItemID, PremiumType: activation.PremiumType, Units: activation.Units, ExpireAt: activation.ExpireAt})
+					result.Rewards = append(result.Rewards, currentBoosterGrantedReward{ItemID: reward.Definition.ItemID, Count: reward.Count})
+					continue
+				}
 				if _, piece := pieceRewards[reward.Definition.ItemID]; piece {
 					balance, err := dnfbooster.CreditEpicPiece(assets, reward.Definition.ItemID, reward.Count, now)
 					if err != nil {
@@ -361,7 +395,7 @@ func (s *Service) commitCurrentBooster(
 				result.ChangedLists = append(result.ChangedLists, listType)
 			}
 			sort.Slice(result.ChangedLists, func(i, j int) bool { return result.ChangedLists[i] < result.ChangedLists[j] })
-			return dnfbooster.Changes{Account: len(result.EpicPieceCredits) > 0, AccountInventory: accountDirty, Character: characterDirty, Inventory: true}, nil
+			return dnfbooster.Changes{Account: len(result.EpicPieceCredits) > 0 || len(result.ContractActivations) > 0, AccountInventory: accountDirty, Character: characterDirty, Inventory: true}, nil
 		},
 	})
 	if err != nil {

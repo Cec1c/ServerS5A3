@@ -550,6 +550,9 @@ func TestHandleCurrentRequestAdventureInfoSendsRealAccountSummary(t *testing.T) 
 	if got := binary.LittleEndian.Uint32(raw[currentAdventureInfoLoginDaysOffset : currentAdventureInfoLoginDaysOffset+4]); got != 1 {
 		t.Fatalf("real account consecutive login days = %d, want 1", got)
 	}
+	if got := binary.LittleEndian.Uint32(raw[16:20]); got != 3 {
+		t.Fatalf("冒险团请求未下发已保存的推荐地下城通关次数：%d", got)
+	}
 	recommendedOffset := currentAdventureInfoTripleOffset +
 		adventuregroup.ContentTypeRecommendedDungeon*currentAdventureInfoTripleSize
 	if got := binary.LittleEndian.Uint16(

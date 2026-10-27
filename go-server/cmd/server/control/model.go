@@ -33,12 +33,14 @@ type serverConfig struct {
 }
 
 type databaseConfig struct {
-	Mode     string `json:"mode"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Name     string `json:"name"`
-	User     string `json:"user"`
-	Password string `json:"password"`
+	// InsertBatchRows defaults to 200 when omitted or zero; 1 restores single-row writes.
+	InsertBatchRows int    `json:"insertBatchRows,omitempty"`
+	Mode            string `json:"mode"`
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	Name            string `json:"name"`
+	User            string `json:"user"`
+	Password        string `json:"password"`
 }
 
 type gameConfig struct {

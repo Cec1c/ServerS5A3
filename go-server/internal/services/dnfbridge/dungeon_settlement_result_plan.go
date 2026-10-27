@@ -13,11 +13,12 @@ var (
 	errCurrentDungeonSettlementPlanOwner = errors.New("current dungeon settlement packet plan owner mismatch")
 )
 
-// currentDungeonSettlementPacketPlan freezes the three current-EXE result
+// currentDungeonSettlementPacketPlan freezes the current-EXE result and premium
 // packets only after the reward transaction has committed. Keeping the exact
 // bodies makes a retry resume after the last successful write without reading
 // newer repository state into an older settlement.
 type currentDungeonSettlementPacketPlan struct {
+	GuildDungeonItemSlots []alignedcmd.ItemSlotRefresh
 	CharacterID           uint16
 	CompletionKey         string
 	Source                string
@@ -25,6 +26,7 @@ type currentDungeonSettlementPacketPlan struct {
 	PlayResultBody        []byte
 	CharacterBody         []byte
 	ClearRewardBody       []byte
+	PremiumServiceBody    []byte
 	DungeonPermissionBody []byte
 	DespairResultBody     []byte
 	DespairItemSlots      []alignedcmd.ItemSlotRefresh

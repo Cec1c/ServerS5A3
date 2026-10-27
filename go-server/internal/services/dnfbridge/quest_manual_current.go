@@ -113,6 +113,12 @@ func (s *Service) handleCurrentQuestManualCommit(session *gameSession, body []by
 	if err != nil || current != identity {
 		return nil
 	}
+	accountID := strings.TrimSpace(session.accountID)
+	reservation, err := s.reserveCurrentCharacterAssets(ctx, identity, accountID)
+	if err != nil {
+		return nil
+	}
+	defer s.releaseCurrentCharacterAssets(reservation)
 	eligibility, cutoff, valid := currentQuestManualEligibility(character)
 	catalog, err := s.loadQuestCatalog(ctx)
 	if !valid || err != nil {
@@ -123,9 +129,15 @@ func (s *Service) handleCurrentQuestManualCommit(session *gameSession, body []by
 		return err
 	}
 	result, err := owner.ApplyAutoCompleteMain(ctx, catalog, dnfquest.AutoCompleteMainInput{
-		CharacterID: character.CharacterID, Eligibility: eligibility, CutoffLevel: cutoff,
+		AccountID: accountID, CharacterID: character.CharacterID, Eligibility: eligibility, CutoffLevel: cutoff,
 		Scope: s.questClearTicketScope(), CompletedAt: now,
+		Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(identity) },
 	})
+	// Finish the mutation reservation before scene refresh or socket writes.
+	s.releaseCurrentCharacterAssets(reservation)
+	if !s.boundGameSessionCharacterCurrent(identity) {
+		return nil
+	}
 	if err != nil {
 		s.logGameEvent(session, "game-current-quest-manual-commit-rejected", "reason", err)
 		return nil
@@ -139,7 +151,7 @@ func (s *Service) handleCurrentQuestManualCommit(session *gameSession, body []by
 		"changed_sub_count", len(result.ChangedLinkedSubIDs), "reward_granted", false, "item_consumed", false)
 	// Native op574 with no active rows clears the completed-prerequisite
 	// lookup. Publish it before op356 restores the committed bitmap.
-	if err := s.sendCurrentActiveQuestSnapshotForSession(session, "current_manual_1454_committed"); err != nil {
+	if err := s.sendCurrentActiveQuestSnapshotFromCommittedQuest(session, result.PostCommitQuest, "current_manual_1454_committed"); err != nil {
 		return err
 	}
 	if err := s.sendCurrentClearQuestListFromCommittedQuest(session, result.PostCommitQuest, "current_manual_1454_committed"); err != nil {

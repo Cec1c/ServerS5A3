@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfonlineevent "longheng.io/server/internal/modules/dnf/onlineevent"
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -145,12 +147,10 @@ func (s *Service) currentSpendTimeCatalogIncludesTownNpcEvent() bool {
 	return townNpcEventCatalogEnabled()
 }
 
-// currentSpendTimeRuntimeCatalog is the current-EXE bridge projection of the
-// raw, protocol-independent attendance PVF catalog. Event 2347 is the only
-// activated descriptor: its four ordinary rewards use cumulative thresholds
-// 1800/3600/7200/10800 seconds. The cumulative activity is the explicitly
-// approved account service-day completion design, without new wire guesses.
+// 复用2347的账户在线时钟和历史账本。存在已核实的PCRoom资源时投影228
+// 原生四加四面板；无该资源的旧配套继续使用2347的小进度条。
 type currentSpendTimeRuntimeCatalog struct {
+	nativePCRoom      *dnfonlineevent.PCRoomTimePointCatalog
 	cumulative        *dnfonlineevent.CumulativeDefinition
 	definition        dnfonlineevent.Definition
 	rewardItemIDs     []uint32
@@ -263,11 +263,11 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 
 	s.spendTimeCatalogMu.Lock()
 	defer s.spendTimeCatalogMu.Unlock()
-	if s.spendTimeCatalogState != nil {
-		return s.spendTimeCatalogState, true, nil
-	}
 	if s.spendTimeCatalogLoadErr != nil {
 		return nil, true, s.spendTimeCatalogLoadErr
+	}
+	if s.spendTimeCatalogState != nil {
+		return s.spendTimeCatalogState, true, nil
 	}
 
 	s.initialEquipmentMu.Lock()
@@ -276,20 +276,32 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 	if archive == nil {
 		return nil, false, nil
 	}
+	var state *currentSpendTimeRuntimeCatalog
 	rawCatalog, err := dnfonlineevent.LoadAttendancePVFCatalog(ctx, archive)
 	if err == nil {
-		s.spendTimeCatalogState, err = buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
+		state, err = buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
 	}
-	s.spendTimeCatalogLoadErr = err
+	if err == nil {
+		// 缺少这套独立资源的旧版PVF继续使用2347；存在但损坏的配置不能静默降级。
+		if _, exists := archive.FindFile(dnfonlineevent.PCRoomTimePointPVFPath); exists {
+			state.nativePCRoom, err = dnfonlineevent.LoadPCRoomTimePointCatalog(ctx, archive)
+		}
+	}
 	if err != nil {
+		// An interrupted session load is not an immutable PVF failure.
+		// Let a fresh session retry while retaining real resource errors.
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			s.spendTimeCatalogLoadErr = err
+		}
 		return nil, true, err
 	}
+	s.spendTimeCatalogState = state
 	s.logPacketEvent("dnf-spend-time-catalog-loaded",
 		"event_id", currentSpendTimeEventID,
-		"reward_count", len(s.spendTimeCatalogState.rewardItemIDs),
-		"total_stage_seconds", s.spendTimeCatalogState.totalStageSeconds,
+		"reward_count", len(state.rewardItemIDs),
+		"total_stage_seconds", state.totalStageSeconds,
 		"source", dnfonlineevent.AttendanceEventPVFPath)
-	return s.spendTimeCatalogState, true, nil
+	return state, true, nil
 }
 
 func (s *Service) currentSpendTimeOwner() (*dnfonlineevent.Owner, error) {
@@ -300,12 +312,8 @@ func (s *Service) currentSpendTimeOwner() (*dnfonlineevent.Owner, error) {
 	return dnfonlineevent.NewOwner(repositories)
 }
 
-// sendCurrentSpendTimeInitialStateOnce publishes the proved activity
-// descriptor immediately followed by authoritative progress, then starts the
-// server-owned clock. The 2347 native widget consumes this pair as one
-// initialization transaction: no unrelated class-0 packet may appear between
-// op108 and op1206. Inventory rows produced by automatic threshold awards are
-// emitted only after the op108 -> op1206 pair and the separate joust snapshot.
+// 先发送活动目录和所属状态，再启动服务端时钟。原生228使用561，旧2347
+// 使用1206；其它活动快照及旧自动发奖的库存更新均在该状态之后发送。
 func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 	session *gameSession,
 	source string,
@@ -405,9 +413,7 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		sendDescriptor,
 	)
 	if sendDescriptor {
-		// Commit immediately after the op108 write, even when the following
-		// op1206 progress or a later joust snapshot write failed.
-		// Preserve initial-traffic deduplication after that successful write.
+		// 目录写入成功即记录去重，所属状态或后续活动快照失败可另行重试。
 		s.finishCurrentSpendTimeEventInfo(session, descriptorSent)
 	}
 	if sendErr != nil {
@@ -448,10 +454,15 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		session.spendTime.catalog = nil
 		return err
 	}
+	displayEventID, stateMessageID := currentSpendTimeEventID, currentSpendTimeProgressMsgID
+	if catalog.nativePCRoom != nil {
+		displayEventID, stateMessageID = uint32(currentPCRoomTimePointEventID), currentPCRoomTimePointStateID
+	}
 	s.logGameEvent(session, "game-spend-time-initial-state-sent",
 		"source", source,
 		"char_id", characterID,
-		"event_id", currentSpendTimeEventID,
+		"event_id", displayEventID,
+		"state_msg_id", stateMessageID,
 		"online_seconds", snapshot.OnlineSeconds,
 		"completed_stages", completedStages,
 		"reward_item_updates", len(rewardItems),
@@ -465,7 +476,7 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		"town_npc_event_catalog_includes_2395", s.currentSpendTimeCatalogIncludesTownNpcEvent(),
 		"anton_channel_event_id", currentAntonChannelEventID,
 		"anton_channel_event_in_first_descriptor", true,
-		"sequence", "class0_op108_descriptor_then_class0_op1206_progress_then_class0_op1240_joust_opening_state_then_class0_op1241_joust_roster_then_class0_op1242_joust_pool_then_atomic_reward_op14_before_typed_op24")
+		"sequence", "活动目录后立即发送所属活动状态，再发送其它活动快照和已提交库存更新")
 	return nil
 }
 
@@ -480,23 +491,64 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		return false, nil
 	}
 	var eventInfoTransport []byte
+	fiendWarAvailable := false
 	dayDungeonEvent := s.currentDayDungeonEvent()
 	includeFirstProcessDescriptor = includeFirstProcessDescriptor || dayDungeonEvent != session.activityCatalogDayEvent
+	joustEventEnabled := s.joustEventEnabled()
+	includeJoust := s.currentSpendTimeCatalogIncludesJoustEvent()
+	joustCatalogAvailable := false
+	if joustEventEnabled || (includeFirstProcessDescriptor && includeJoust) {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		_, joustCatalogAvailable = s.currentJoustCatalogForPublishing(
+			ctx,
+			session,
+			"op108_catalog_op1240_op1243",
+		)
+		cancel()
+	}
+	if includeJoust && !joustCatalogAvailable {
+		includeJoust = false
+	}
 	if includeFirstProcessDescriptor {
 		// 2365 的两行跟随 DNFBRIDGE_JOUST_EVENT_ENABLED（可被
 		// DNFBRIDGE_JOUST_EVENT_CATALOG 覆盖）。此前它们是无条件的，客户端因此
 		// 单独从本目录就能把竞技大赛判成全天开放并自动开窗。
 		// 2395（红尾乔纳森的可见性闸门）默认**不发**，只有
 		// DNFBRIDGE_TOWN_NPC_EVENT_CATALOG 显式打开才追加两行。
-		// The original full reader replaces the native catalog and releases the
-		// old map. Whole-dispatch replay covers extended 2347, its route and
-		// weekday removal. Keep op1206 directly after every updated catalog.
+		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
 		season, weeklyErr := s.currentWeeklySeason(session)
 		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithEpicRoad(
+		// Optional image town-NPC rows are resolved independently. The operator
+		// policy is read first: with every optional switch off there is nothing
+		// to validate and the resource archive is not read at all. When any
+		// switch is on, a missing, unreadable or mismatched entry is skipped
+		// with a structured diagnostic; it must never abort this catalog.
+		// Aborting here previously dropped the whole op108 directory and, with
+		// it, the op1206 pair that owns the existing 2347/签到 HUD.
+		var enabledTownActivities []uint16
+		for _, activity := range currentImageTownActivities() {
+			if s.options.currentClientVersion == "official-24.9" && s.activityControls != nil && s.activityControls.Enabled(activity.id) {
+				enabledTownActivities = append(enabledTownActivities, activity.id)
+			}
+		}
+		var townArchive dnfpvf.Source
+		if len(enabledTownActivities) > 0 {
+			s.initialEquipmentMu.Lock()
+			archive, loadErr := s.initialEquipmentArchiveLocked()
+			s.initialEquipmentMu.Unlock()
+			if loadErr == nil {
+				townArchive = archive
+			}
+			// loadErr != nil leaves townArchive nil: the archive itself is
+			// unusable, so every enabled optional entry is reported as
+			// skipped and the legacy catalog is kept.
+		}
+		townActivities := s.logCurrentImageTownActivitySkips(townArchive, enabledTownActivities, session, "current_spend_time_op108_catalog")
+		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
+		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(
 			catalog.rewardItemIDs,
 			catalog.totalStageSeconds,
-			s.currentSpendTimeCatalogIncludesJoustEvent(),
+			includeJoust,
 			s.currentSpendTimeCatalogIncludesTownNpcEvent(),
 			true,
 			s.currentAntonModeSelectionAvailable(session),
@@ -507,6 +559,11 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			includeWeekly,
 			s.currentOrdinaryAttendanceEnabled(),
 			s.currentEpicRoadActivityAvailable(),
+			townActivities,
+			fiendWarAvailable,
+			catalog.nativePCRoom != nil,
+			true, // Keep the native Seria luck entry alongside online rewards.
+			s.currentAttendanceMarbleAvailable(),
 		)
 		if err != nil {
 			return false, err
@@ -532,16 +589,18 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			return false, err
 		}
 		descriptorSent = true
+		s.logGameEvent(session, "超时空频道开放状态下发", "event_id", currentFiendWarChannelEventID, "available", fiendWarAvailable)
 		session.activityCatalogDayEvent = dayDungeonEvent
 		if dayDungeonEvent != 0 {
 			s.logGameEvent(session, "game-day-dungeon-catalog-sent", "event_id", dayDungeonEvent, "char_id", session.selectedCharacterID, "reset", "06:00_UTC+8", "reason", "full_catalog_replaces_previous_weekday")
 		}
 	}
-	// Keep the native cumulative-online-reward initialization atomic. The current
-	// client binds the 2347 HUD/hover controls while consuming op1206; injecting
-	// the unrelated joust bootstrap between op108 and op1206 leaves the progress
-	// bar present but its ItemReward hover page unbound.
-	if s.currentSpendTimeEventEnabled() {
+	// 两套在线活动的UI及协议不同，不能用旧1206替代原生展开面板的561。
+	if s.currentSpendTimeEventEnabled() && catalog.nativePCRoom != nil {
+		if err := s.sendCurrentPCRoomTimePoint(session, catalog, 0, -1); err != nil {
+			return descriptorSent, err
+		}
+	} else if s.currentSpendTimeEventEnabled() {
 		if err := s.sendGameUpperRawClass(session, currentSpendTimeProgressMsgID, progressBody, 0); err != nil {
 			return descriptorSent, err
 		}
@@ -552,11 +611,13 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 	// support pool. Repeat the opening snapshot for
 	// later character selections in the same client process so a failed or
 	// reconnected session can recover even though op108 is process-lifetime only.
-	if err := s.sendCurrentJoustOpeningState(session); err != nil {
-		return descriptorSent, err
-	}
-	if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
-		return descriptorSent, err
+	if joustCatalogAvailable {
+		if err := s.sendCurrentJoustOpeningState(session); err != nil {
+			return descriptorSent, err
+		}
+		if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
+			return descriptorSent, err
+		}
 	}
 	if err := s.armCurrentDayDungeonCatalogRefresh(session); err != nil {
 		return descriptorSent, err
@@ -649,6 +710,10 @@ func (s *Service) claimCurrentSpendTimeUnlockedStages(
 	}
 	itemCatalog, err := s.currentPVFItemCatalog()
 	if err != nil {
+		return snapshot, nil, err
+	}
+	if catalog.nativePCRoom != nil {
+		_, err := s.settleCurrentPCRoomTimePoint(ctx, accountID, characterID, catalog, claimedAt, 0, -1, nil)
 		return snapshot, nil, err
 	}
 	items := make([]dnfonlineevent.CommittedItem, 0, currentSpendTimeStageCount)
@@ -850,6 +915,10 @@ func (s *Service) runCurrentSpendTimeTick(session *gameSession, generation uint6
 			"char_id", session.spendTime.characterID,
 			"generation", generation,
 			"error", err)
+	} else if settlement.changed && session.spendTime.catalog.nativePCRoom != nil {
+		if sendErr := s.sendCurrentPCRoomTimePoint(session, session.spendTime.catalog, 0, -1); sendErr != nil {
+			s.logGameEvent(session, "原生在线奖励状态重试", "error", sendErr)
+		}
 	} else if settlement.changed && spendTimeProgressShouldSend(session.connID, session.spendTime.characterID, session.spendTime.onlineSeconds, session.spendTime.completedStages) {
 		body, buildErr := buildCurrentSpendTimeProgressBody(
 			session.spendTime.onlineSeconds,

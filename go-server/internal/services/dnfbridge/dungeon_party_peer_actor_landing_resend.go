@@ -108,9 +108,8 @@ func peerSceneStableForPeerActorLandingResend(session *gameSession) bool {
 	if session == nil {
 		return false
 	}
-	return session.currentFinishLoadingStateSent &&
-		session.currentFinishLoadingCompletionSent &&
-		session.postFinishLoadingPlayerStateSent
+	gates := session.finishLoadingGateSnapshot()
+	return gates.State && gates.Completion && gates.PostFinish
 }
 
 // resendDungeonPartyPeerActorToAlreadyLandedMembers 由**刚落位**的那一方调用：
@@ -123,6 +122,10 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 		return 0
 	}
 	if !dungeonPartyPeerActorLandingResendEnabled() {
+		return 0
+	}
+	identity, current := s.boundGameSessionCharacterSnapshot(session)
+	if !current {
 		return 0
 	}
 	// 判据只用"本会话有一条**有效**的副本运行键"（`recordDungeonPartyRunKey` 的唯一写入点
@@ -149,7 +152,8 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 			continue
 		}
 		peerKey, peerReady := s.currentDungeonPartyRunKey(peer)
-		peerSceneStable := peerSceneStableForPeerActorLandingResend(peer)
+		peerGates := peer.finishLoadingGateSnapshot()
+		peerSceneStable := peerGates.State && peerGates.Completion && peerGates.PostFinish
 		decision, reason := "resent",
 			"the_already_landed_member_finished_its_scene_rebuild_so_the_projection_is_pushed_again_after_it"
 		switch {
@@ -158,7 +162,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 		case !peerSceneStable:
 			decision, reason = "deferred",
 				"peer_scene_rebuild_is_still_running_its_own_finish_loading_resend_owns_that_window"
-		case !s.claimDungeonPeerActorResend(peer, ownKey):
+		case !s.claimDungeonPeerActorResend(peer, ownKey, identity):
 			decision, reason = "skip",
 				"the_peer_already_consumed_its_one_resend_for_this_room_and_run"
 		}
@@ -169,7 +173,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 				session,
 				source+"_peer_actor_landing_resend",
 			); err != nil {
-				s.releaseDungeonPeerActorResend(peer, ownKey)
+				s.releaseDungeonPeerActorResend(peer, ownKey, identity)
 				decision, reason, delivered = "failed", "peer_actor_landing_resend_send_failed", false
 				s.logGameEvent(session, "game-party-dungeon-peer-actor-landing-resend-failed",
 					"source", source,
@@ -197,9 +201,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 			"run_key_map_id", ownKey.MapID,
 			"run_key_seed", ownKey.Seed,
 			"peer_scene_stable", peerSceneStable,
-			"peer_finish_loading_tail", peer.currentFinishLoadingStateSent &&
-				peer.currentFinishLoadingCompletionSent &&
-				peer.postFinishLoadingPlayerStateSent,
+			"peer_finish_loading_tail", peerGates.State && peerGates.Completion && peerGates.PostFinish,
 			"decision", decision,
 			"delivered", delivered,
 			"reason", reason,

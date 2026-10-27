@@ -27,6 +27,15 @@ const (
 	currentAdventureInfoManageLevelOffset  = 0
 	currentAdventureInfoCurrentPointOffset = 8
 	currentAdventureInfoLoginDaysOffset    = 20
+	// 现用EXE E654E3..E6555B -> BEE0D8..BEE147；BE8BA0..BE8D09
+	// 按界面顺序读取推荐、决斗、绝望、悲叹、安徒恩、卢克和超时空。
+	currentAdventureInfoRecommendedOffset = 16
+	currentAdventureInfoPVPWinOffset      = 32
+	currentAdventureInfoDespairOffset     = 24
+	currentAdventureInfoGriefOffset       = 28
+	currentAdventureInfoAntonOffset       = 36
+	currentAdventureInfoLukeOffset        = 40
+	currentAdventureInfoFiendWarOffset    = 7420
 	// E654E3/E6552B copy raw+40/+48 to manager+EC/+F4; BEE108/BEE120
 	// project them to basic-info UI+494/+49C. BDF380 reads job+498,
 	// base transfer+499 and the genuine honor level+49C for the selected

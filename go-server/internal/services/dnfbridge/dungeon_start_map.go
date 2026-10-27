@@ -51,15 +51,10 @@ type currentDungeonStartMapActor struct {
 	Blocking byte
 }
 
-// The current EXE reads this row as 21 bytes. The older C# implementation
-// wrote a 19-byte row and is not wire-compatible here.
-//
-// 这条"21 字节"口径**只有出处不明的一句注释**（`_dist/pillar-drop-wire-diagnosis.md` §2.1）：
-// 仓库里没有任何抓包/反汇编/真档用例支撑它。厂商 `DungeonNotificationBuilder.cs:188-203`
-// 写的是 **19 字节**（`GlobalSeq` = u16），唯一分歧点就是第 2 个字段的宽度。
-// 因此这里保留 u32 结构体不变，由 `ExtraEntryVendorWidth` 选择**写到线上的**布局——
-// 默认 false = 今天（21 字节），`DNFBRIDGE_START_MAP_EXTRA_ENTRY_WIDTH` 可以把它翻成
-// 厂商的 19 字节。见 dungeon_passive_object_drop.go。
+// The exact v141 START_MAP loop (VA 0x1ffbec0..0x1ffbf77) consumes
+// 20 bytes per extra row. The fog byte at 0x1ffbf84 is outside that loop.
+// Constructor 0x2621750 receives its final flag as literal zero.
+// The explicit legacy-u16 diagnostic layout is retained separately.
 type currentDungeonStartMapExtraEntry struct {
 	PassiveObjectIndex byte
 	GlobalSequence     uint32
@@ -92,9 +87,8 @@ type currentDungeonStartMap struct {
 	MapID                     uint32
 	Actors                    []currentDungeonStartMapActor
 	ExtraEntries              []currentDungeonStartMapExtraEntry
-	// ExtraEntryVendorWidth 选择 extra entry 的**线上布局**：false = 本仓今天的 21 字节
-	// （`GlobalSequence` u32），true = 厂商 `DungeonNotificationBuilder.cs:188-203` 的
-	// 19 字节（`GlobalSeq` u16）。零值 = 今天，既有构造点一个字节都不变。
+	// ExtraEntryVendorWidth selects the explicit 19-byte legacy-u16
+	// diagnostic layout. The default native row is 20 bytes.
 	ExtraEntryVendorWidth bool
 	HellPartyFogFlag      byte
 	RidableGroups         [][]currentDungeonStartMapRidableEntry
@@ -213,15 +207,19 @@ func (packet currentDungeonStartMap) Build() ([]byte, error) {
 	for _, group := range packet.RidableGroups {
 		writer.writeByte(byte(len(group)))
 		for _, entry := range group {
-			writer.writeUint32(entry.PositionX)
-			writer.writeUint32(entry.PositionY)
-			writer.writeUint32(entry.ObjectCode)
-			writer.writeUint32(entry.Faction)
-			writer.writeUint32(entry.State)
+			writeCurrentDungeonStartMapRidableEntry(&writer, entry)
 		}
 	}
 	writer.writeByte(packet.PartyMemberIndex)
 	return writer.bytes(), nil
+}
+
+func writeCurrentDungeonStartMapRidableEntry(writer *packetWriter, entry currentDungeonStartMapRidableEntry) {
+	writer.writeUint32(entry.PositionX)
+	writer.writeUint32(entry.PositionY)
+	writer.writeUint32(entry.ObjectCode)
+	writer.writeUint32(entry.Faction)
+	writer.writeUint32(entry.State)
 }
 
 // currentDungeonCachedStartMap is the exact mode0 branch consumed by the
@@ -331,13 +329,9 @@ func currentDungeonStartMapActors(
 	return actors, nil
 }
 
-// writeCurrentDungeonStartMapExtraEntry 写一条 extra entry。
-//
-// vendorWidth = false（零值 / 今天）：本仓既有的 21 字节布局（`GlobalSequence` u32）。
-// vendorWidth = true：厂商 `DungeonNotificationBuilder.cs:188-203` 的 19 字节布局
-// （`GlobalSeq` u16，其后所有字段整体前移 2 字节）。字段名、顺序、其余宽度完全一致。
-// 只有 19 字节布局会让 u16 溢出成为真错误；21 字节布局下 u32 全域合法 ⇒ 默认档
-// **不会**新增任何错误分支。
+// writeCurrentDungeonStartMapExtraEntry follows the native 20-byte row
+// grammar by default. vendorWidth retains the explicit legacy-u16 diagnostic
+// layout, including its historical extra flag; it is not the v141 reader.
 func writeCurrentDungeonStartMapExtraEntry(
 	writer *packetWriter,
 	entry currentDungeonStartMapExtraEntry,
@@ -352,7 +346,6 @@ func writeCurrentDungeonStartMapExtraEntry(
 		writer.writeByte(entry.AmplifyType)
 		writer.writeUint16(entry.AmplifyValue)
 		writer.writeUint16(entry.ExtendedValue)
-		writer.writeByte(entry.ExtendedFlag)
 		return nil
 	}
 	if entry.GlobalSequence > uint32(^uint16(0)) {

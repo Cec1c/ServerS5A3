@@ -69,6 +69,7 @@ const (
 	currentAvatarCompoundBranchRequestedNotAvatar    = "requested_item_not_an_avatar"
 	currentAvatarCompoundBranchBonusItemInvalid      = "bonus_item_invalid"
 	currentAvatarCompoundBranchCommitRejected        = "commit_rejected"
+	currentAvatarCompoundBranchActionPoolMismatch    = "compounder_action_pool_mismatch"
 )
 
 // currentAvatarCompoundRejection 把一次可预期的拒绝归到一个稳定分支名。
@@ -113,17 +114,20 @@ var currentAvatarCompoundRoll = func(limit int) int {
 // currentAvatarCompoundPlan 是提交前算好的合成计划：两条材料、一个合成器、
 // 结果外观与写入槽位。事务内只会复核这份计划观察到的物品，不会重新决定产出。
 type currentAvatarCompoundPlan struct {
-	Part           string
-	VariantPath    string
-	ItemID1        uint32
-	ItemID2        uint32
-	CubeItemID     uint32
-	ResultItemIDs  []uint32
-	GrantSlots     []int16
-	AbilityNo      uint16
-	BonusRate      int64
-	BonusHits      bool
-	MaterialGrades [2]int64
+	Part              string
+	VariantPath       string
+	ItemID1           uint32
+	ItemID2           uint32
+	CubeItemID        uint32
+	ResultItemIDs     []uint32
+	GrantSlots        []int16
+	AbilityNo         uint16
+	BonusRate         int64
+	BonusHits         bool
+	MaterialGrades    [2]int64
+	PVFActionCube     bool
+	MaterialRole      string
+	MaterialRateBonus int64
 }
 
 // currentAvatarCompoundCommit 是提交结果，用于拼装成功回包与刷新列表。
@@ -203,6 +207,9 @@ func (s *Service) handleCurrentAvatarCompound(session *gameSession, body []byte)
 		"part", plan.Part,
 		"variant", plan.VariantPath,
 		"cube_item", plan.CubeItemID,
+		"pvf_action_cube", plan.PVFActionCube,
+		"material_role", plan.MaterialRole,
+		"material_rate_bonus", plan.MaterialRateBonus,
 		"material_grades", fmt.Sprintf("%v", plan.MaterialGrades),
 		"bonus_rate", plan.BonusRate,
 		"bonus_hit", plan.BonusHits,
@@ -282,7 +289,15 @@ func (s *Service) prepareCurrentAvatarCompound(
 	if err != nil {
 		return currentAvatarCompoundPlan{}, err
 	}
-	if !config.acceptsMaterial(cubeDefinition.ItemID) {
+	declaredCube := config.acceptsMaterial(cubeDefinition.ItemID)
+	pvfActionCube := false
+	if !declaredCube {
+		pvfActionCube, err = currentAvatarCompoundHasMasterAction(catalog.source, cubeDefinition)
+		if err != nil {
+			return currentAvatarCompoundPlan{}, rejectCurrentAvatarCompound(currentAvatarCompoundBranchConfigUnavailable, err)
+		}
+	}
+	if !declaredCube && !pvfActionCube {
 		return currentAvatarCompoundPlan{}, rejectCurrentAvatarCompound(
 			currentAvatarCompoundBranchCompounderUndeclared,
 			fmt.Errorf("%w: cube item=%d is not a declared compounder (declared=%v)",
@@ -301,6 +316,10 @@ func (s *Service) prepareCurrentAvatarCompound(
 			currentAvatarCompoundBranchRequestedPartMismatch,
 			fmt.Errorf("%w: requested item part=%s materials part=%s", errCurrentAvatarCompoundSource, part, part1))
 	}
+	if pvfActionCube && !variant.masterActionAllowsTarget(part, request.RequestedItemID) {
+		return currentAvatarCompoundPlan{}, rejectCurrentAvatarCompound(currentAvatarCompoundBranchActionPoolMismatch,
+			fmt.Errorf("%w: 动作类钻石%d的目标%d不在支持master的经典高级池%s", errCurrentAvatarCompoundSource, cubeDefinition.ItemID, request.RequestedItemID, variant.Path))
+	}
 	resultDefinition, err := catalog.ResolveItem(request.RequestedItemID)
 	if err != nil || resultDefinition.Kind != dungeonDropItemEquipment {
 		return currentAvatarCompoundPlan{}, rejectCurrentAvatarCompound(
@@ -314,18 +333,31 @@ func (s *Service) prepareCurrentAvatarCompound(
 			fmt.Errorf("%w: requested item=%d type=%q", errCurrentAvatarCompoundSource, request.RequestedItemID, resultDefinition.EquipmentType))
 	}
 
-	plan := currentAvatarCompoundPlan{
-		Part:           part,
-		VariantPath:    variant.Path,
-		ItemID1:        uint32(material1.ItemID),
-		ItemID2:        uint32(material2.ItemID),
-		CubeItemID:     cubeDefinition.ItemID,
-		ResultItemIDs:  []uint32{request.RequestedItemID},
-		GrantSlots:     []int16{request.Slot1},
-		AbilityNo:      request.AbilityNo,
-		MaterialGrades: [2]int64{definition1.Grade, definition2.Grade},
+	// 动作类活动钻石已通过自身PVF及所选经典池校验，其概率角色取该池的master。
+	// 扣料仍保留实际活动道具编号，不替换成配置表中的常规钻石编号。
+	rateCubeID := cubeDefinition.ItemID
+	if pvfActionCube {
+		rateCubeID = variant.MasterMaterialID
 	}
-	plan.BonusRate = variant.bonusRateFor(part, definition1.Grade, definition2.Grade)
+	materialBonus, materialRole, err := config.materialRateBonus(catalog.source, variant, rateCubeID)
+	if err != nil {
+		return currentAvatarCompoundPlan{}, rejectCurrentAvatarCompound(currentAvatarCompoundBranchConfigUnavailable, err)
+	}
+	plan := currentAvatarCompoundPlan{
+		Part:              part,
+		VariantPath:       variant.Path,
+		ItemID1:           uint32(material1.ItemID),
+		ItemID2:           uint32(material2.ItemID),
+		CubeItemID:        cubeDefinition.ItemID,
+		ResultItemIDs:     []uint32{request.RequestedItemID},
+		GrantSlots:        []int16{request.Slot1},
+		AbilityNo:         request.AbilityNo,
+		MaterialGrades:    [2]int64{definition1.Grade, definition2.Grade},
+		PVFActionCube:     pvfActionCube,
+		MaterialRole:      materialRole,
+		MaterialRateBonus: materialBonus,
+	}
+	plan.BonusRate = variant.bonusRateWithMaterial(part, definition1.Grade, definition2.Grade, materialBonus)
 	if currentAvatarCompoundBonusHits(plan.BonusRate) {
 		bonus, ok := currentRollCurrentAvatarCompoundBonus(variant.Parts[part].Bonus, currentAvatarCompoundRoll)
 		if ok {

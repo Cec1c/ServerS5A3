@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 
@@ -26,7 +27,8 @@ func buildCurrentTownActorSceneSnapshotBody(actorKey uint16) []byte {
 }
 
 // sendCurrentInitialTownActorSceneSnapshotLocked completes the mode0-created
-// selected actor's scene binding before full player state/location packets.
+// selected actor's scene binding before location packets. 所有PK入口需先补全装备，
+// 现用800处理器201EB30会调用2238960检查穿戴；绑定用的空装备mode1不能作检查依据。
 // The caller holds session.townMu.
 func (s *Service) sendCurrentInitialTownActorSceneSnapshotLocked(
 	session *gameSession,
@@ -49,11 +51,15 @@ func (s *Service) sendCurrentInitialTownActorSceneSnapshotLocked(
 		return err
 	}
 	session.initialTownActorSceneSnapshotSent = true
+	sequence := "mode0_mode1_actor_created_then_noti0x320_scene_snapshot_then_full_player_state"
+	if isPVPChannel(session.channel) {
+		sequence = "PK入口绑定角色后补全装备，再发800触发场景与穿戴检查"
+	}
 	s.logGameEvent(session, "game-initial-town-actor-scene-snapshot-sent",
 		"char_id", characterID,
 		"actor_object_key", actorKey,
 		"child_count", 0,
-		"sequence", "mode0_mode1_actor_created_then_noti0x320_scene_snapshot_then_full_player_state")
+		"sequence", sequence)
 	return nil
 }
 
@@ -161,8 +167,20 @@ func (s *Service) sendCurrentInitialTownActorRoutePacketsWithOptionsLocked(
 	if err := s.sendCurrentTownActorPrerequisitesLocked(session, characterID, objectBody, prerequisiteMode1Body); err != nil {
 		return err
 	}
-	if err := s.sendCurrentInitialTownActorSceneSnapshotLocked(session, characterID); err != nil {
-		return fmt.Errorf("initialize selected town actor scene snapshot: %w", err)
+	// 现用普通房间入口先给已绑定角色安装位置，再激活场景和加载整批角色资料。
+	// 否则800先把旧街道渲染出来，要等完整背包/技能加载完才收到23进入房间。
+	if s.options.currentClientVersion == "official-24.9" && !currentColdSpecialChannel(session.channel) {
+		if room, ok := s.townArea(int64(townID), int64(areaID)); ok && townMapPathLooksLikeSeria(room.MapPath) {
+			if err := s.sendCurrentInitialTownLocationAtStageLocked(session, characterID, townID, areaID, row, currentInitialTownRouteActorBound); err != nil {
+				return fmt.Errorf("房间场景激活前同步落点: %w", err)
+			}
+		}
+	}
+	deferPVPEquipmentCheck := isPVPChannel(session.channel)
+	if !deferPVPEquipmentCheck {
+		if err := s.sendCurrentInitialTownActorSceneSnapshotLocked(session, characterID); err != nil {
+			return fmt.Errorf("initialize selected town actor scene snapshot: %w", err)
+		}
 	}
 	if session.initialTownRouteStage < currentInitialTownRoutePlayerStatePrepared {
 		if err := s.sendCurrentTownPlayerStateLocked(
@@ -171,6 +189,11 @@ func (s *Service) sendCurrentInitialTownActorRoutePacketsWithOptionsLocked(
 			policy,
 		); err != nil {
 			return fmt.Errorf("initialize selected town actor before transition: %w", err)
+		}
+	}
+	if deferPVPEquipmentCheck {
+		if err := s.sendCurrentInitialTownActorSceneSnapshotLocked(session, characterID); err != nil {
+			return fmt.Errorf("PK入口完整装备后的场景与穿戴检查: %w", err)
 		}
 	}
 	if err := s.sendCurrentInitialTownLocationNotificationsLocked(session, characterID, townID, areaID, row); err != nil {
@@ -346,6 +369,20 @@ func (s *Service) sendCurrentTownTransitionLocked(
 				"conn_id", session.connID,
 				"char_id", characterID,
 				"error", err)
+		}
+
+		if townID == 10 && areaID == 4 {
+			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			_, _, c, found := s.selectedCharacterForEnter(ctx, session)
+			if !found {
+				cancel()
+				return fmt.Errorf("道场初始化角色不存在")
+			}
+			err := s.sendCurrentPVPDojoSkillsBeforeTransition(ctx, session, c)
+			cancel()
+			if err != nil {
+				return err
+			}
 		}
 		if err := s.sendGameUpperRawClass(session, currentSceneTransitionMsgID, transitionBody, 0); err != nil {
 			return err

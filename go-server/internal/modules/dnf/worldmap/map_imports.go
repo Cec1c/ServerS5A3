@@ -47,7 +47,10 @@ func parseMapWithImports(id int64, docPath string, doc *dnfpvf.Document, load ma
 			}
 			parsed = mergeImportedMapStaticSpawns(parsed, imported)
 		}
-		cache[key] = cloneMap(parsed)
+		// 根文档只处理一次，循环由 visiting 拒绝；不为永不复用的根创建完整副本。
+		if key != pathKey(docPath) {
+			cache[key] = cloneMap(parsed)
+		}
 		return parsed, nil
 	}
 

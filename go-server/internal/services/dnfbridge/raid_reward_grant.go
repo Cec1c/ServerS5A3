@@ -172,6 +172,9 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 		return currentAntonRewardGrantResult{}, raid.ErrRewardReceipt
 	}
 	wantKind := map[string]byte{"party_card": 1, "pcroom_card": 2, "squad_item": 3}[plan.Choice.Type]
+	if plan.Choice.Type == "fiendwar_retry" && cmd.Mode == 3 {
+		wantKind = 4
+	}
 	if wantKind == 0 || cmd.Kind != wantKind || cmd.Fingerprint != plan.Fingerprint || cmd.Project != nil {
 		return currentAntonRewardGrantResult{}, raid.ErrRewardReceipt
 	}
@@ -216,7 +219,12 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 		result.AccountChanged = changes.AccountInventory
 		return changes, nil
 	}
-	receipt, err := owner.Grant(ctx, cmd)
+	var receipt raid.RewardResult
+	if cmd.Kind == 4 {
+		receipt, err = owner.RefundFiendWarEntry(ctx, cmd)
+	} else {
+		receipt, err = owner.Grant(ctx, cmd)
+	}
 	if err != nil {
 		return currentAntonRewardGrantResult{}, err
 	}

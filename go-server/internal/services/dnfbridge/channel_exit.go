@@ -20,12 +20,17 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 			currentChannelExitRequestBodySize,
 		)
 	}
+	if err := s.captureCurrentOrdinaryChannelExitPosition(session); err != nil {
+		return err
+	}
+	cancelHandoff := s.rememberCurrentAuthenticatedChannelHandoff(session)
 	if err := s.sendGameUpperRawClassNoCodec(
 		session,
 		uint16(dnfenum.CmdPacketExit),
 		[]byte{1},
 		dnfproto.DefaultChannelClassification,
 	); err != nil {
+		cancelHandoff()
 		return err
 	}
 	s.logGameEvent(session, "game-channel-exit-acknowledged",

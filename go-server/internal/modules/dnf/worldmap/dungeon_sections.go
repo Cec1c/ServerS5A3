@@ -1,5 +1,9 @@
 package worldmap
 
+// DungeonUseFatigueOnlyStartKey is the DGN declaration whose integer payload
+// charges fatigue once when a dungeon run starts instead of once per room.
+const DungeonUseFatigueOnlyStartKey = "use fatigue only start dungeon"
+
 var dungeonCoreSections = stringSet(
 	"name", "explain", "cutscene image", "minimap image", "entering title",
 	"minimum required level", "basis level", "experience increasing point", "background pos",
@@ -27,21 +31,23 @@ var dungeonIntegerSections = stringSet(
 	"tournament round fatigue", "tournament clear reward gold rate", "monster random appear only",
 	"remain monster count visible",
 	"hell party required item count",
+	"agit war dungeon",
 )
 
 var dungeonNumberSections = stringSet("kill count const", "move speed")
 
 var dungeonFlagSections = stringSet(
-	"defense dungeon", "blood dungeon", "dimension dungeon", "tournament dungeon",
+	"defense dungeon", "blood dungeon", "dimension dungeon", "entry dungeon", "tournament dungeon",
 	"powerwar dungeon", "risk dungeon", "ancient dungeon", "event dungeon",
 	"crack of dimension dungeon", "disable exit", "individual map movement",
 	"open door even enemy", "move map even enemy", "enter without fatigue",
-	"use fatigue only start dungeon", "special dungeon", "kronos dungeon", "sao dungeon",
+	DungeonUseFatigueOnlyStartKey, "special dungeon", "kronos dungeon", "sao dungeon",
 	"no check enter boss room", "no giveup panalty", "boss mark disable", "enable apc stackable",
 	"movable even boss die", "ignore clear effect and sound", "dont kill mob when boss die",
 	"remove dungeon score and rank", "no revival timer limit", "multi start point",
 	"ignore default dungeon clear",
 	"inferno dungeon",
+	"friendly agit dungeon",
 )
 
 var dungeonTextSections = stringSet(
@@ -82,7 +88,7 @@ var opaqueDungeonSections = stringSet(
 	"result exp bonus per user decrease", "evil", "evil high level", "evil rate", "easy",
 	"medium", "hard", "round", "list", "type", "object type", "hide grid",
 	"on guide movie dungeon", "recommend party", "recommend equipment", "minimap boss icon",
-	"sway effect", "free difficulty", "entry dungeon", "adjust hp gauge", "necessary party",
+	"sway effect", "free difficulty", "adjust hp gauge", "necessary party",
 )
 
 var knownMazeSections = stringSet(

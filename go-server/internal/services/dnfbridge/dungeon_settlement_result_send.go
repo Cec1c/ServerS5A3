@@ -118,6 +118,14 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 			"body_source", "current_exe_sub_1D78240_post_commit_character_snapshot")
 	}
 	if !runtime.settlementClearRewardSent {
+		// 与费用和双份奖励共用冻结资格；先让客户端选对契约/普通牌面，再打开op35。
+		// 成功游标单独提交，后续写失败只续传未完成部分，不回读新的次数。
+		if len(plan.PremiumServiceBody) != 0 && !runtime.settlementPremiumServiceSent {
+			if err := s.sendCurrentPremiumServiceBody(session, plan.PremiumServiceBody, "结算翻牌前_冻结魔王契约明细"); err != nil {
+				return err
+			}
+			runtime.settlementPremiumServiceSent = true
+		}
 		if err := s.sendGameUpperRawClass(session, currentDungeonClearRewardMsgID, plan.ClearRewardBody, 0); err != nil {
 			return err
 		}
@@ -152,6 +160,9 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 		if err := s.sendCurrentGriefSettlementLocked(session, runtime, plan); err != nil {
 			return err
 		}
+	}
+	if err := s.sendCurrentGuildDungeonSettlement(session, runtime, plan); err != nil {
+		return err
 	}
 	runtime.advanceSettlementPhase(currentDungeonSettlementPhaseResultShown)
 	// Publish the receipted wallet without a second durable award.

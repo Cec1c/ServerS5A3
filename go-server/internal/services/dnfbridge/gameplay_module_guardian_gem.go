@@ -98,7 +98,8 @@ func (s *Service) commitCurrentGuardianGemUse(session *gameSession, request curr
 	if err != nil {
 		return currentGuardianGemMutationResult{}, err
 	}
-	if _, err := resolveCurrentGuardianGem(catalog, request.GuardianGemItemID); err != nil {
+	requestedGem, err := resolveCurrentGuardianGem(catalog, request.GuardianGemItemID)
+	if err != nil {
 		return currentGuardianGemMutationResult{}, err
 	}
 	if _, err := resolveCurrentGuardianGemMedal(catalog, request.TargetMedalItemID); err != nil {
@@ -120,7 +121,7 @@ func (s *Service) commitCurrentGuardianGemUse(session *gameSession, request curr
 			if err != nil {
 				return dnfguardiangem.Changes{}, err
 			}
-			if err := currentGuardianGemWriteTarget(inventory, equipment, target, request); err != nil {
+			if err := currentGuardianGemWriteTarget(inventory, equipment, target, request, requestedGem, catalog); err != nil {
 				return dnfguardiangem.Changes{}, err
 			}
 

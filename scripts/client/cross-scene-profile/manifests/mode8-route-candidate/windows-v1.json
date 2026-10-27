@@ -1,0 +1,27 @@
+{
+  "baseSha256": "a751cccfe3fb9f7a3730393fdfb32d0546222b55a5a254fc4f2416f6869fbdf6",
+  "patches": [
+    {
+      "name": "mode0-mode8-aux",
+      "site": "0x22c5054",
+      "expected": "57e8a69effff",
+      "replacement": "e9a7b2bf0490",
+      "candidateAddress": "0x6ec0300",
+      "code": "817d04ad8a2c020f84524d40fb57e8edeb3ffbe9424d40fb",
+      "codeSha256": "88fbd3ec61dc5d78e25139337ca191dd9dd37a3693fb70265e3f00cd08c8aefe"
+    },
+    {
+      "name": "mode3-mode8-aux",
+      "site": "0x22c42e6",
+      "expected": "8b8538fbffff",
+      "replacement": "e955c0bf0490",
+      "candidateAddress": "0x6ec0340",
+      "code": "817d04cd8a2c020f84aa3f40fb8b8538fbffffe9943f40fb",
+      "codeSha256": "d375e2627a43b2f33eddb2d3aa7b1ee167f5239cb29355b764553bdb3f121d0b"
+    }
+  ],
+  "scope": "Mode8 direct-call return addresses only; reuse original aux lookup/reset/category4 creation. Other mode0 calls retain active-scene creation. Other mode3 calls retain the separate existing-aux candidate.",
+  "exeGenerated": false,
+  "deployed": false,
+  "guiAccepted": false
+}

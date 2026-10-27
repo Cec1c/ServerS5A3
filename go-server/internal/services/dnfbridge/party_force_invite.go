@@ -333,6 +333,9 @@ func (s *Service) forceInviteParty(inviterID, inviteeID uint16, mode byte, value
 		return false, partyForceInviteReasonInviteeNotOnline, 0
 	}
 	inviteeIdentity, inviteeCurrent := s.boundGameSessionCharacterSnapshot(invitee)
+	if (mode == 0 || mode == 12) && (s.currentFiendWarAutomaticPartyOnly(inviter) || s.currentFiendWarAutomaticPartyOnly(invitee)) {
+		return false, "fiendwar_automatic_encounter_party_only", 0
+	}
 	if !inviteeCurrent {
 		s.logGameEvent(invitee, "game-force-invite-rejected",
 			"reason", partyForceInviteReasonInviteeNotAuth,

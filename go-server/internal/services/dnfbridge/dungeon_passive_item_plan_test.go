@@ -134,8 +134,8 @@ func TestRealPVFTimePlazaPassiveDropsAreIndependent(t *testing.T) {
 			t.Fatal(err)
 		}
 		offset := 19 + 21*len(packet.Actors)
-		if len(body) != 254+4*21 || body[offset] != 4 || binary.LittleEndian.Uint32(body[offset+2:offset+6]) != rows[0].GlobalSequence || binary.LittleEndian.Uint32(body[offset+6:offset+10]) != 10158700 {
-			t.Fatal("current EXE 21-byte extra row layout mismatch")
+		if len(body) != 254+4*20 || body[offset] != 4 || binary.LittleEndian.Uint32(body[offset+2:offset+6]) != rows[0].GlobalSequence || binary.LittleEndian.Uint32(body[offset+6:offset+10]) != 10158700 {
+			t.Fatal("current EXE 20-byte extra row layout mismatch")
 		}
 		runtimes = append(runtimes, runtime)
 	}

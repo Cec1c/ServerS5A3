@@ -2,9 +2,11 @@ package dnfbridge
 
 import (
 	"bytes"
+	"context"
 	"strconv"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"longheng.io/server/internal/modules/dnf/guild"
 )
 
 const currentGuildChatType byte = 6
@@ -24,92 +26,107 @@ func buildCurrentGuildChatBody(channel byte, sender []byte, message []byte) []by
 }
 
 func (s *Service) handleCurrentGuildChat(session *gameSession, op uint16, request currentPeerChatRequest) error {
-	reject := func() error { return s.sendGameUpperFailure(session, op, 1) }
+	reject := func(reason string, cause error) error {
+		connID := ""
+		if session != nil {
+			connID = session.connID
+		}
+		s.logWarn("dnfbridge guild chat rejected", "conn_id", connID, "reason", reason, "error", cause)
+		ctx, cancel := s.currentGuildContext()
+		defer cancel()
+		return s.sendCurrentGuildChatFrame(ctx, session, op, []byte{0, 1}, 1)
+	}
 	if request.MessageType != currentGuildChatType || request.Unknown != 0 ||
 		len(request.TargetName) != 0 || request.HasTrailingValue ||
 		len(request.Message) == 0 || len(request.Message) > 255 || bytes.IndexByte(request.Message, 0) >= 0 {
-		return reject()
+		return reject("invalid_request", nil)
 	}
 	source, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound {
-		return reject()
+		return reject("sender_binding", nil)
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	repos, registry, err := s.loadCurrentGuildRegistry(ctx)
 	if err != nil || repos.Character == nil {
-		return reject()
+		return reject("guild_snapshot", err)
 	}
 	sourceID := strconv.Itoa(int(source.character))
 	g, _, found := registry.GuildForCharacter(sourceID)
 	if !found {
-		return reject()
+		return reject("sender_not_member", nil)
 	}
-	identities := []boundGameSessionCharacter{source}
-	for id := range g.Members {
-		value, err := strconv.ParseUint(id, 10, 16)
-		if err != nil || value == 0 || uint16(value) == source.character {
-			continue
-		}
-		if identity, online := s.onlineGameSessionCharacterSnapshot(uint16(value)); online {
-			identities = append(identities, identity)
-		}
-	}
-	// Reserve the entire participant set in ascending character order once.
-	// Acquiring a sender first and then its peers can deadlock simultaneous sends.
-	// Reservations prevent reconnect/character selection during socket delivery.
-	release, err := s.reserveCurrentGuildParticipants(ctx, identities)
+	// Only the sender's transaction and echo need this reservation. Peer
+	// delivery runs on each recipient's bounded session queue after release.
+	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{source})
 	if err != nil {
-		return reject()
+		return reject("sender_reservation", err)
 	}
 	defer release()
 	character, err := s.currentGuildOwnedSelectedCharacter(session)
 	if err != nil {
-		return reject()
+		return reject("sender_ownership", err)
 	}
 	_, registry, err = s.loadCurrentGuildRegistry(ctx)
 	if err != nil {
-		return reject()
+		return reject("guild_revalidation", err)
 	}
 	current, member, found := registry.GuildForCharacter(sourceID)
 	if !found || current.ID != g.ID || member.AccountID != character.AccountID {
-		return reject()
+		return reject("sender_membership_changed", nil)
 	}
 	name, encodeErr := simplifiedchinese.GB18030.NewEncoder().Bytes([]byte(character.Name))
 	channel, channelOK := currentSessionOwnerChannelField(session)
 	if encodeErr != nil || len(name) == 0 || len(name) > 30 || bytes.IndexByte(name, 0) >= 0 || !channelOK {
-		return reject()
+		return reject("sender_display", encodeErr)
 	}
 	// The request's u16 comes from a client-side actor/target hint. It is not
 	// authority for sender identity or recipients; use the bound session only.
-	recipients := []*gameSession{session}
-	for _, identity := range identities[1:] {
-		id := strconv.Itoa(int(identity.character))
-		peerGuild, peerMember, belongs := registry.GuildForCharacter(id)
-		if !belongs || peerGuild.ID != current.ID {
+	var recipients []currentGuildChatRecipient
+	for id, member := range current.Members {
+		value, parseErr := strconv.ParseUint(id, 10, 16)
+		if parseErr != nil || value == 0 || uint16(value) == source.character {
 			continue
 		}
-		peer, exists, loadErr := repos.Character.Load(ctx, id)
-		if loadErr != nil || !exists || peer.AccountID != peerMember.AccountID ||
-			peer.AccountID != s.accountIDForSession(identity.session) || !s.boundGameSessionCharacterCurrent(identity) {
-			continue
+		if identity, online := s.onlineGameSessionCharacterSnapshot(uint16(value)); online {
+			recipients = append(recipients, currentGuildChatRecipient{identity: identity, account: member.AccountID, joinedAt: member.JoinedAt})
 		}
-		recipients = append(recipients, identity.session)
 	}
-	if err := s.sendGameUpperSuccess(session, op, nil); err != nil {
+	income, contributionErr := s.grantCurrentGuildContributionReserved(ctx, session, source, guild.ContributionChat)
+	if contributionErr != nil {
+		s.logGameEvent(session, "game-guild-contribution-chat-deferred", "error", contributionErr)
+	}
+	writeCtx, writeCancel := guildChatContext(session)
+	defer writeCancel()
+	if err := s.sendCurrentGuildChatFrame(writeCtx, session, op, []byte{1}, 1); err != nil {
 		return err
 	}
 	notice := buildCurrentGuildChatBody(channel, name, request.Message)
+	if err := s.sendCurrentGuildChatFrame(writeCtx, session, currentOfficialWhisperNotifyOpcode, notice, 0); err != nil {
+		return err
+	}
+	release()
 	for _, recipient := range recipients {
-		if err := s.sendGameUpperRawClassCodec(recipient, currentOfficialWhisperNotifyOpcode, notice, 0, true); err != nil {
-			if recipient == session {
-				return err
-			}
-			s.logWarn("dnfbridge guild chat peer send failed", "source_char_id", source.character,
-				"target_char_id", selectedCharacterID(recipient), "error", err)
+		if err := s.queueCurrentGuildChat(recipient, current.ID, notice); err != nil {
+			s.logWarn("dnfbridge guild chat recipient unavailable", "source_char_id", source.character,
+				"target_char_id", recipient.identity.character, "stage", "enqueue", "error", err)
 		}
 	}
 	s.logGameEvent(session, "game-guild-chat-forwarded", "guild_id", current.ID,
-		"source_char_id", source.character, "message_len", len(request.Message), "recipients", len(recipients))
+		"source_char_id", source.character, "message_len", len(request.Message), "recipient_candidates", len(recipients)+1)
+	if contributionErr == nil {
+		if err := s.projectCurrentGuildChatContribution(source, income); err != nil {
+			s.logGameEvent(session, "game-guild-contribution-chat-projection-deferred", "error", err)
+		}
+	}
 	return nil
+}
+
+// Each local delivery has its own budget and follows connection cancellation.
+func guildChatContext(session *gameSession) (context.Context, context.CancelFunc) {
+	ctx := session.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, createWriteTimeout)
 }

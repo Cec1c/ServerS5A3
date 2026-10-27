@@ -54,6 +54,12 @@ func parseCurrentTownSetUserPositionRequest(body []byte) (currentTownSetUserPosi
 }
 
 func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) error {
+	s.pvpMu.Lock()
+	inPVPRoom := session != nil && session.pvpRoom != nil
+	s.pvpMu.Unlock()
+	if inPVPRoom {
+		return nil
+	}
 	if session == nil {
 		return nil
 	}
@@ -84,6 +90,11 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 		runtime.actorPositionValid = true
 		// 队伍级共享实例：把本次坐标记进实例位置表。
 		runtime.recordPartyDungeonActorPosition()
+		if runtime.Session != nil {
+			if scene, ok := runtime.Session.Scene(); ok {
+				s.logFiendWarSceneDiagnostic(session, runtime, scene, "client_position", request.PositionX, request.PositionY)
+			}
+		}
 	}
 	session.dungeon.mu.Unlock()
 	if runtime != nil {
@@ -148,6 +159,7 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 			s.broadcastTownPlayerMove(mover, others)
 		}
 	}
+	s.queueCurrentFiendWarEncounterFrom(session, currentFiendWarAdmissionPhaseTownPosition)
 	return nil
 }
 
@@ -425,6 +437,21 @@ func freezeCurrentDungeonTownReturnOrigin(session *gameSession, runtime *runtime
 	if session == nil || runtime == nil || runtime.Session == nil {
 		return fmt.Errorf("%w: runtime owner missing", errCurrentDungeonTownReturnOriginUnavailable)
 	}
+	if e := runtime.raidEntry; e != nil && e.ChannelType == 42 {
+		origin := e.fiendWarOrigin
+		if origin.CharacterID != session.selectedCharacterID || !origin.PositionValid {
+			return fmt.Errorf("超时空副本返回坐标归属无效")
+		}
+		runtime.townReturnOrigin = origin
+		if runtime.Character.Stats == nil {
+			runtime.Character.Stats = map[string]int64{}
+		}
+		runtime.Character.Stats["town_id"], runtime.Character.Stats["area_id"] = int64(origin.TownID), int64(origin.AreaID)
+		runtime.Character.Stats["pos_x"], runtime.Character.Stats["pos_y"] = int64(origin.PositionX), int64(origin.PositionY)
+		runtime.Character.Stats["direction"] = int64(origin.MovementCode)
+		runtime.Character.Stats["area_state"] = 0
+		return nil
+	}
 	if isPVFTutorialDungeon(runtime) {
 		runtime.townReturnOrigin = currentTownPositionSnapshot{}
 		return nil
@@ -645,11 +672,19 @@ func applyCurrentTownPositionSnapshotToTransition(
 	); err != nil {
 		return currentDungeonTownTransition{}, err
 	}
+	direction := snapshot.MovementCode
+	if direction == 0 {
+		// Current-client direction values are non-zero. A zero here is an
+		// origin without an op35 direction (notably persisted fallback), so
+		// preserve its existing persisted-direction behavior.
+		direction = transition.Direction
+	}
+	transition.Direction = direction
 	row := currentSceneTransitionRow{
 		ObjectOrResourceKey: transition.ActorObjectKey,
 		Value1:              snapshot.PositionX,
 		Value2:              snapshot.PositionY,
-		Value3:              transition.Direction,
+		Value3:              direction,
 		Value4:              transition.AreaState,
 	}
 	body, err := buildCurrentSceneTransitionBody(

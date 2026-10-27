@@ -240,7 +240,10 @@ func (s *Service) resolveDungeonHellPartyWaves(
 	if table == nil {
 		return nil, errDungeonWorldMapUnavailable
 	}
-	mapValue, found := table.FindMap(hellRoomMapID)
+	mapValue, found, readErr := table.FindMapWithError(hellRoomMapID)
+	if readErr != nil {
+		return nil, readErr
+	}
 	if !found {
 		return nil, fmt.Errorf("%w: map=%d", errDungeonHellPartyMapUnresolved, hellRoomMapID)
 	}
@@ -401,13 +404,28 @@ func (s *Service) appendCurrentHellPartyTemplateRows(
 			order = 0
 		}
 		for _, monster := range wave.Monsters {
-			if monsterCatalog == nil {
-				return errDungeonMonsterCatalogUnavailable
-			}
-			if _, found, err := monsterCatalog.Find(monster.Code); err != nil {
-				return fmt.Errorf("resolve hell party wave monster code=%d: %w", monster.Code, err)
-			} else if !found {
-				return fmt.Errorf("%w: hell party wave monster code=%d", errDungeonMonsterDefinitionMiss, monster.Code)
+			// EntityType 1 is projected as Type 5 by the wave builder. Its
+			// definition belongs to AICharacter.lst, not monster.lst. Keep
+			// missing definitions fail-closed before committing the room move.
+			if monster.Type == 5 {
+				aiCatalog, err := s.dungeonAICharacterCatalog()
+				if err != nil {
+					return err
+				}
+				if _, found, err := aiCatalog.Find(monster.Code); err != nil {
+					return fmt.Errorf("resolve hell party wave APC code=%d: %w", monster.Code, err)
+				} else if !found {
+					return fmt.Errorf("%w: hell party wave APC code=%d", errDungeonAICharacterDefinitionMiss, monster.Code)
+				}
+			} else {
+				if monsterCatalog == nil {
+					return errDungeonMonsterCatalogUnavailable
+				}
+				if _, found, err := monsterCatalog.Find(monster.Code); err != nil {
+					return fmt.Errorf("resolve hell party wave monster code=%d: %w", monster.Code, err)
+				} else if !found {
+					return fmt.Errorf("%w: hell party wave monster code=%d", errDungeonMonsterDefinitionMiss, monster.Code)
+				}
 			}
 			packetIndex := uint32(normalIndex)
 			if monster.Type >= 5 {

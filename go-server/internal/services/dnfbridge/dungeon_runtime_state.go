@@ -36,13 +36,21 @@ var (
 )
 
 type runtimeDungeonState struct {
+	guildPractice                *currentGuildPracticeRun
+	guildDungeonClear            *dnfdungeon.GuildDungeonClear
+	settlementGuildDungeonSent   bool
+	ridableReportLastSequence    uint64
+	ridableReportChannelID       int
+	ridableReportChannelType     byte
 	huntMonsterReceipts          map[currentHuntMonsterReceiptKey]*currentRoomClearQuestReceipt
 	roomClearQuestReceipts       map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
 	questDropReceipts            map[currentDungeonQuestDropEventKey]currentDungeonQuestDropReceipt
 	passiveQuestDropReceipts     map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
 	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
+	missionInformerRetirements   map[uint32]dungeonMissionInformerRetirement
 	entryCharacterLevel          int
+	petGrowthEntryPending        bool // follower runtime installed before the group commits
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
 	settlementLuckyStarStateSent bool
 	raidDeadlineReturn           *currentRaidDeadlineReturn
@@ -50,11 +58,14 @@ type runtimeDungeonState struct {
 	semesterRun                  *currentSemesterRun
 	epicEntry                    *currentEpicEntry
 	raidEntry                    *currentRaidDungeonEntry
+	fiendWarRetreatKeepsParty    bool
 	antonMapReturnOwner          *currentAntonMapReturnOwner
+	lukeClosedEnergyReturn       *currentLukeClosedEnergyReturnOwner
 	antonHatcheryTransfer        *currentAntonHatcheryTransfer
 	deathStateSent               bool
 	riftLoot                     *currentRiftLootDefinition
 	fatigueRooms                 map[worldmap.RoomCoordinate]bool
+	fatigueStartDebited          bool
 	Request                      dungeoncmd.SelectDungeonRequest
 	Dungeon                      worldmap.Dungeon
 	MazeIndex                    int
@@ -135,6 +146,7 @@ type runtimeDungeonState struct {
 	settlementResultPlan                 *currentDungeonSettlementPacketPlan
 	settlementResultNoticeSent           bool
 	settlementCharacterStateSent         bool
+	settlementPremiumServiceSent         bool
 	settlementClearRewardSent            bool
 	settlementDespairResultSent          bool
 	settlementDespairItemsSent           bool
@@ -156,7 +168,9 @@ type runtimeDungeonState struct {
 	settlementCardAutoFlipGeneration     uint64
 	settlementCardAutoFlipTimerName      string
 	settlementCardExitAckSent            bool
+	settlementTownReturnRequestMsgID     uint16 // 本局明确回城请求，0表示无待办。
 	settlementCardRewardState            *dungeonCardState
+	settlementPaidCardGrant              *dungeonCardAssetGrantResult
 	settlementMonsterExperienceTotal     uint32
 	settlementMonsterGrowthContractBonus uint32
 	settlementChampionExperience         uint32
@@ -185,9 +199,14 @@ type runtimeDungeonState struct {
 	townReturnPending                    bool
 	townReturnOp24Sent                   bool
 	townReturnRequestMsgID               uint16
+	townReturnAckSent                    bool
 	townReturnSource                     string
 	townReturnOrigin                     currentTownPositionSnapshot
 	townReturnTransition                 currentDungeonTownTransition
+	crystalContractTimerActive           bool
+	crystalContractTimerGeneration       uint64
+	crystalContractTimerName             string
+	crystalContractTimerDueAt            time.Time
 	lifecycleToken                       uint64
 	deathReturnWaiting                   bool
 	deathReturnGeneration                uint64
@@ -198,6 +217,7 @@ type runtimeDungeonState struct {
 	actorPositionY                       uint16
 	actorDirection                       byte
 	actorPositionValid                   bool
+	fiendWarSceneDiagnostic              fiendWarSceneDiagnosticState
 	settlementDungeonPermissionSent      bool
 	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState
@@ -239,6 +259,11 @@ type runtimeDungeonState struct {
 	tournamentRewardAutoSelectGeneration uint64
 	tournamentRewardAutoSelectTimerName  string
 	tournamentRewardAutoSelectDueAt      time.Time
+
+	// 大富翁Buff仅绑定本次地下城，换房保留。
+	attendanceMarbleBuffs                  byte
+	attendanceMarbleBuffsLoaded            bool
+	settlementMonsterAttendanceMarbleBonus uint32
 }
 
 func dungeonRuntimeOwnsCharacter(runtime *runtimeDungeonState, characterID uint16) bool {
@@ -276,7 +301,12 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 			mapOptions.SupplementalDungeonIDs = append(mapOptions.SupplementalDungeonIDs, available.SupplementalDungeonIDs...)
 		}
 	}
-	table, err := worldmap.LoadSource(ctx, archive, mapOptions)
+	var table *worldmap.Table
+	if s.options.lowMemory {
+		table, err = worldmap.LoadSourceCached(ctx, archive, mapOptions, worldmap.DefaultMapCacheOptions())
+	} else {
+		table, err = worldmap.LoadSource(ctx, archive, mapOptions)
+	}
 	if err != nil {
 		return fmt.Errorf("preload dungeon worldmap table: %w", err)
 	}
@@ -324,6 +354,11 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	s.logPacketEvent("dnf-dungeon-clear-card-equipment-pool",
 		clearCardEquipmentPoolWarmUpFields(monsterTable)...)
 
+	if s.options.mapDefinitionCache && !s.options.lowMemory {
+		if err := table.EnableMapCache(archive, worldmap.DefaultMapCacheOptions()); err != nil {
+			return fmt.Errorf("准备地图按需缓存失败: %w", err)
+		}
+	}
 	s.worldMapMu.Lock()
 	s.worldMapTable = table
 	s.worldMapResolver = resolver
@@ -517,6 +552,11 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
+	// FiendWar movement is session-owned and deliberately not persisted. The
+	// fatigue refresh reloads the stored character, so restore its confirmed
+	// battlefield position before follower return-origin preflight compares it.
+	// This only changes the local runtime copy; fatigue and admission stay live.
+	applyCurrentFiendWarCharacterPosition(&character, session, session.selectedCharacterID)
 	if err := s.validateDungeonEntryWithTournament(ctx, character, dungeon, session); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
@@ -525,8 +565,10 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	// 扣减失败（持仓不足 / 事务失败）⇒ 明确拒绝入场（错误冒到
 	// `refuseDungeonSelectEntryValidation` 的既有拒绝回包），**绝不静默放行**。
 	// 默认档 / 未声明 `[required item]` 的 DGN ⇒ 一行都不执行、不读背包、不写库。
-	if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
-		return nil, worldmap.DungeonRoomScene{}, err
+	if !s.options.mapDefinitionCache {
+		if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
+			return nil, worldmap.DungeonRoomScene{}, err
+		}
 	}
 	questRecord, questRecordFound, err := s.dungeonQuestRecord(ctx, session.selectedCharacterID)
 	if err != nil {
@@ -565,6 +607,9 @@ func (s *Service) prepareDungeonRuntimePlanned(
 				return dungeonMazeSelection{}, fmt.Errorf("party leader dungeon selection is invalid: dungeon=%d maze=%d", partyPlan.dungeonID, partyPlan.mazeIndex)
 			}
 			return dungeonMazeSelection{Index: partyPlan.mazeIndex, Reason: "ordinary_party_leader_frozen_selection"}, nil
+		}
+		if isCurrentFiendWarChannel(session) {
+			return s.selectCurrentFiendWarMaze(session, dungeon)
 		}
 		return selectDungeonMaze(dungeon.Mazes, request.Difficulty, questRecord, s.chooseDungeonIndex)
 	}
@@ -614,8 +659,11 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	// 深渊请求标志按档位取字节：默认读 body[7]（厂商 Flag1），回退档读 body[5:7]。
 	// 线上 245/245 次真实 op16 的 body[5:7] 恒为 00 00，所以回退档等于"永远不是深渊"。
 	hellRequest := dungeonHellRequestOption(request)
-	hellRoom, hellRoomSet := s.resolveDungeonHellRoomForEntry(
+	hellRoom, hellRoomSet, hellRoomErr := s.resolveDungeonHellRoomForEntryRead(
 		hellMode, hellRequest, dungeon, mazeIndex, table)
+	if hellRoomErr != nil {
+		return nil, worldmap.DungeonRoomScene{}, hellRoomErr
+	}
 	topology, err := worldmap.BuildDungeonLayout(resolver, dungeon.ID, mazeIndex, chooser)
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("build dungeon layout: %w", err)
@@ -880,16 +928,32 @@ func (s *Service) prepareDungeonRuntimePlanned(
 			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare time rift loot before admission: %w", err)
 		}
 	}
+	if s.currentEpicRoadLootEnabled(runtime.Dungeon.ID) {
+		runtime.riftLoot, err = s.prepareCurrentEpicRoadLoot(runtime.Dungeon.ID)
+		if err != nil {
+			return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare epic road boss loot before admission: %w", err)
+		}
+	}
 	if err := s.freezeCurrentEpicEntry(session, runtime); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
 	if err := s.freezeCurrentSemesterRun(session, runtime); err != nil {
 		return nil, worldmap.DungeonRoomScene{}, err
 	}
+	// 按需地图和运行时准备成功后再消费原有票据；未启用保持原消费位置。
+	if s.options.mapDefinitionCache {
+		if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
+			return nil, worldmap.DungeonRoomScene{}, err
+		}
+	}
 	return runtime, scene, nil
 }
 
 func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDungeonState) error {
+	return s.commitDungeonRuntimeWithPetClock(session, runtime, true)
+}
+
+func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime *runtimeDungeonState, startPetClock bool) error {
 	if session == nil || runtime == nil || runtime.Session == nil {
 		return errDungeonWorldMapUnavailable
 	}
@@ -907,9 +971,23 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		}
 	}
 	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
+	petClockCommitted := false
+	defer func() {
+		session.dungeon.mu.Unlock()
+		if petClockCommitted {
+			s.flushCurrentPetGrowthClockTransitions(session, "dungeon_runtime_committed")
+		}
+	}()
 	if runtime.epicEntry != nil || s.currentEpicEntryEnabled(runtime.Dungeon.ID) {
-		return s.commitCurrentEpicEntryLocked(session, runtime)
+		if err := s.commitCurrentEpicEntryLocked(session, runtime); err != nil {
+			return err
+		}
+		runtime.petGrowthEntryPending = !startPetClock
+		if startPetClock {
+			s.queueCurrentPetGrowthDungeonEntryClock(session, runtime)
+			petClockCommitted = true
+		}
+		return nil
 	}
 	if session.dungeon.runtime != nil && session.dungeon.runtime.Session != nil {
 		snapshot := session.dungeon.runtime.Session.Snapshot().Run
@@ -917,6 +995,7 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 			return fmt.Errorf("%w: dungeon=%d maze=%d", errDungeonAlreadyActive, snapshot.DungeonID, snapshot.MazeIndex)
 		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
+		s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		// 被替换掉的旧运行时必须先脱离队伍实例，否则它的成员名额会一直挂着。
 		s.releasePartyDungeonInstance(session.dungeon.runtime, session.selectedCharacterID, "runtime_replaced_by_new_run")
@@ -944,6 +1023,8 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 		}
 	}
 	runtime.lifecycleToken = session.dungeon.runToken
+	runtime.ridableReportChannelID = session.channel.ID
+	runtime.ridableReportChannelType = session.channel.Type
 	session.dungeon.runtime = runtime
 	// 阶段二：同一队伍的成员进图时解析到同一个实例键（队伍+副本+迷宫+房间+地图+种子）
 	// 就接入同一个共享实例；单人/无队伍/房间对不上时返回 nil，per-session 路径不变。
@@ -951,6 +1032,11 @@ func (s *Service) commitDungeonRuntime(session *gameSession, runtime *runtimeDun
 	if scene, ok := runtime.Session.Scene(); ok {
 		s.adoptPartyDungeonInstance(session, runtime, scene)
 		attachCurrentSemesterPartyMember(session, runtime)
+	}
+	runtime.petGrowthEntryPending = !startPetClock
+	if startPetClock {
+		s.queueCurrentPetGrowthDungeonEntryClock(session, runtime)
+		petClockCommitted = true
 	}
 	return nil
 }
@@ -975,7 +1061,34 @@ func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sess
 	if stored := strings.TrimSpace(character.AccountID); stored != "" && accountID != "" && stored != accountID {
 		return dnfrepo.CharacterRecord{}, fmt.Errorf("%w: selected=%s stored=%s", errDungeonAccountMismatch, accountID, stored)
 	}
+	for _, p := range sessions {
+		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
+			applyCurrentFiendWarCharacterPosition(&character, p, characterID)
+			break
+		}
+	}
 	return character, nil
+}
+
+func applyCurrentFiendWarCharacterPosition(character *dnfrepo.CharacterRecord, session *gameSession, characterID uint16) {
+	if character == nil || characterID == 0 || !isCurrentFiendWarChannel(session) || session.selectedCharacterID != characterID {
+		return
+	}
+	session.townMu.Lock()
+	pos := session.townPositionSnapshot
+	session.townMu.Unlock()
+	if pos.CharacterID != characterID {
+		return
+	}
+	if character.Stats == nil {
+		character.Stats = map[string]int64{}
+	}
+	character.Stats["town_id"], character.Stats["area_id"] = int64(pos.TownID), int64(pos.AreaID)
+	if pos.PositionValid {
+		character.Stats["pos_x"], character.Stats["pos_y"] = int64(pos.PositionX), int64(pos.PositionY)
+		character.Stats["direction"] = int64(pos.MovementCode)
+		character.Stats["area_state"] = 0
+	}
 }
 
 func (s *Service) dungeonQuestRecord(ctx context.Context, characterID uint16) (dnfrepo.QuestRecord, bool, error) {
@@ -1000,6 +1113,10 @@ func (s *Service) dungeonQuestRecord(ctx context.Context, characterID uint16) (d
 func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Dungeon, session *gameSession) error {
 	partyCount := currentDungeonPartyCount(session)
 	fatigue, fatigueKnown := dnfdungeon.CharacterStat(character.Stats, "fatigue", "fp", "疲劳")
+	fatigueCost, _, err := currentDungeonStartFatigueRule(dungeon)
+	if err != nil {
+		return err
+	}
 	return dnfdungeon.ValidateEntry(dnfdungeon.EntryPolicy{
 		CharacterLevel:      character.Level,
 		MinimumLevel:        dungeon.Metadata.MinimumRequiredLevel.Value,
@@ -1011,6 +1128,7 @@ func validateDungeonEntry(character dnfrepo.CharacterRecord, dungeon worldmap.Du
 		EnterWithoutFatigue: dungeon.Metadata.Flags["enter without fatigue"],
 		Fatigue:             fatigue,
 		FatigueKnown:        fatigueKnown,
+		FatigueCost:         fatigueCost,
 	})
 }
 

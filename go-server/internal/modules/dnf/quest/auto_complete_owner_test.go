@@ -59,6 +59,7 @@ func TestOwnerAutoCompleteMainClosesSelectedActiveEpicAndItsLinkedSubQuestsWitho
 	}
 	completedAt := time.Date(2026, 7, 22, 7, 30, 0, 0, time.UTC)
 	result, err := owner.ApplyAutoCompleteMain(ctx, catalog, AutoCompleteMainInput{
+		AccountID:     "dnf:1",
 		CharacterID:   "17",
 		Eligibility:   CharacterEligibility{Level: 90, Job: 2, GrowType: 0},
 		CutoffLevel:   89,
@@ -121,6 +122,7 @@ func TestOwnerAutoCompleteMainClosesSelectedActiveEpicAndItsLinkedSubQuestsWitho
 	}
 
 	replayed, err := owner.ApplyAutoCompleteMain(ctx, catalog, AutoCompleteMainInput{
+		AccountID:     "dnf:1",
 		CharacterID:   "17",
 		Eligibility:   CharacterEligibility{Level: 90, Job: 2, GrowType: 0},
 		CutoffLevel:   89,
@@ -139,7 +141,7 @@ func TestOwnerAutoCompleteMainClosesSelectedActiveEpicAndItsLinkedSubQuestsWitho
 // "任务完成"(op1429 零 selector) 的批量口径由 scope 决定：
 //
 //   - MainStorySweep（线上默认，与客户端确认框"自动完成 Lv89 为止的主线任务"一致）
-//     ⇒ 100/106（激活）与 101/105（从没接过）都被标记完成；102 声明 [level] 90
+//     ⇒ 100/106（激活）与 101 合法完成；105 缺少真实问答前置而保留；102 声明 [level] 90
 //     超出 89 上限，103 是支线，104 职业不符，150 是 [sub] —— 都不动。
 //   - ActiveOnly（DNFBRIDGE_QUEST_CLEAR_TICKET_SWEEP=0 的回退口径）
 //     ⇒ 只完成 100/106，绝不制造没接过的行。
@@ -170,12 +172,15 @@ func TestPlanAutoCompleteMainZeroTargetFollowsTheConfiguredScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(plan.EligibleQuestIDs, []int64{100, 101, 105, 106}) ||
-		!reflect.DeepEqual(plan.ChangedQuestIDs, []int64{100, 101, 105, 106}) ||
-		plan.ActiveCompletedCount != 4 || plan.HighestCompletedQuest != 106 {
+	if _, exists := plan.Record.States[105]; exists {
+		t.Fatal("unanswered branch completed")
+	}
+	if !reflect.DeepEqual(plan.EligibleQuestIDs, []int64{100, 101, 106}) ||
+		!reflect.DeepEqual(plan.ChangedQuestIDs, []int64{100, 101, 106}) ||
+		plan.ActiveCompletedCount != 2 || plan.HighestCompletedQuest != 106 {
 		t.Fatalf("sweep zero-selector plan=%+v", plan)
 	}
-	for _, questID := range []int64{100, 101, 105, 106} {
+	for _, questID := range []int64{100, 101, 106} {
 		state := plan.Record.States[questID]
 		if state.Status != "completed" || state.ProgressValue != 0 ||
 			state.Extra["reward_state"] != finishRewardGranted ||

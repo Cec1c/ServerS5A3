@@ -31,6 +31,7 @@ type currentPartyUDPRelayBinding struct {
 }
 
 type currentPartyUDPRelayLegKey struct {
+	pvp     bool // 决斗房间与普通队伍使用不同命名空间。
 	partyID uint16
 	ownerID uint16
 	peerID  uint16
@@ -385,7 +386,7 @@ type currentPartyUDPRelay struct {
 	// pendingWindow 是待投队列的"周期重投总窗口"（DNFBRIDGE_PARTY_UDP_RELAY_RESEND_SECONDS，
 	// 默认 60s；零值 = 旧的一次性 pendingTTL，旧构造器路径行为不变）。
 	pendingWindow time.Duration
-	// probeListener 是常驻探针监听集合；腿要绑某个被它占用的端口时会先释放该端口。
+	// probeListener 是常驻探针监听集合；启用的探针口不参与定向腿分配。
 	probeListener *currentPartyUDPRelayProbeListeners
 	// sweeperStop 关闭 relay 级待投清扫器（见 sweepPendingProbes）。
 	sweeperStop chan struct{}
@@ -565,11 +566,18 @@ func (r *currentPartyUDPRelay) alive() bool {
 // It returns false without publishing a partial relay topology when a member
 // is stale/offline or the configured UDP range cannot satisfy the room.
 func (r *currentPartyUDPRelay) Sync(partyID uint16, bindings []currentPartyUDPRelayBinding) bool {
+	return r.syncGroup(false, partyID, bindings)
+}
+func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []currentPartyUDPRelayBinding) bool {
 	if r == nil || !r.enabled {
 		return false
 	}
 	bindings = currentPartyUDPRelayBindings(bindings)
-	if partyID == 0 || len(bindings) < 2 || len(bindings) > currentPartyUDPRelayMaxMembers {
+	limit := currentPartyUDPRelayMaxMembers
+	if pvp {
+		limit = 8
+	}
+	if partyID == 0 || len(bindings) < 2 || len(bindings) > limit {
 		return false
 	}
 
@@ -579,7 +587,7 @@ func (r *currentPartyUDPRelay) Sync(partyID uint16, bindings []currentPartyUDPRe
 			if owner.characterID == peer.characterID {
 				continue
 			}
-			wanted[currentPartyUDPRelayLegKey{partyID: partyID, ownerID: owner.characterID, peerID: peer.characterID}] = owner
+			wanted[currentPartyUDPRelayLegKey{pvp: pvp, partyID: partyID, ownerID: owner.characterID, peerID: peer.characterID}] = owner
 		}
 	}
 
@@ -622,7 +630,7 @@ func (r *currentPartyUDPRelay) Sync(partyID uint16, bindings []currentPartyUDPRe
 
 	toClose := make([]*currentPartyUDPRelayLeg, 0)
 	for key, existing := range r.legs {
-		if key.partyID != partyID {
+		if key.partyID != partyID || key.pvp != pvp {
 			continue
 		}
 		if binding, wanted := wanted[key]; !wanted || existing.binding != binding {
@@ -724,19 +732,19 @@ func (r *currentPartyUDPRelay) Endpoint(partyID, ownerID, peerID uint16) ([4]byt
 func (r *currentPartyUDPRelay) newLegLocked(key currentPartyUDPRelayLegKey, binding currentPartyUDPRelayBinding) (*currentPartyUDPRelayLeg, error) {
 	for offset := 0; offset < r.portCount; offset++ {
 		port := r.portStart + offset
+		// Native keepalives keep targeting probe ports after party formation.
+		// Reusing one as a directed leg lets a same-NAT peer overwrite its owner.
+		if r.probeListener != nil {
+			if _, reserved := r.probeListener.reservedPorts[port]; reserved {
+				continue
+			}
+		}
 		if _, used := r.usedPorts[port]; used {
 			continue
 		}
 		conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: append(net.IP(nil), r.bindIP...), Port: port})
 		if err != nil {
-			// 常驻原生探针监听可能正占着这个端口（PROBE_PORTS 配到了中继范围时）：
-			// 先释放它再重试一次。探针监听**永不阻塞中继**。
-			if r.probeListener != nil && r.probeListener.releasePort(port) {
-				conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: append(net.IP(nil), r.bindIP...), Port: port})
-			}
-			if err != nil {
-				continue
-			}
+			continue
 		}
 		r.usedPorts[port] = struct{}{}
 		return &currentPartyUDPRelayLeg{
@@ -763,7 +771,7 @@ func (r *currentPartyUDPRelay) releaseLegLocked(leg *currentPartyUDPRelayLeg) {
 func (r *currentPartyUDPRelay) removePartyLocked(partyID uint16) []*currentPartyUDPRelayLeg {
 	legs := make([]*currentPartyUDPRelayLeg, 0)
 	for key, leg := range r.legs {
-		if key.partyID != partyID {
+		if key.partyID != partyID || key.pvp {
 			continue
 		}
 		delete(r.legs, key)
@@ -826,6 +834,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 
 		r.mu.Lock()
 		opposite := r.legs[currentPartyUDPRelayLegKey{
+			pvp:     leg.key.pvp,
 			partyID: leg.key.partyID,
 			ownerID: leg.key.peerID,
 			peerID:  leg.key.ownerID,

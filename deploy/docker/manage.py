@@ -17,6 +17,52 @@ RUNTIME = ROOT / "runtime" / "docker"
 IMAGE = "servers5a3-local:dev"
 PROJECT = "servers5a3-local"
 
+RUNTIME_COMPATIBILITY_VALUES = {
+    "DNFBRIDGE_MYSQL_INSERT_BATCH": None,
+    "DNFBRIDGE_INVENTORY_SAVE_SCOPE": ("collection", "slot"),
+    "DNFBRIDGE_EQUIPMENT_SAVE_SCOPE": ("collection", "entry"),
+    "DNFBRIDGE_OWNER_CONTEXT_USE_CLIENT_CHANNEL": ("on",),
+    "DNFBRIDGE_PARTY_SELECTOR_MEMBER_SELF_PREPARE": ("on",),
+    "DNFBRIDGE_PARTY_DUNGEON_ALL_MEMBER_USER_STATE": ("all",),
+    "DNFBRIDGE_DUNGEON_DEATH_ROOM_PROOF": ("room_proven",),
+    "DNFBRIDGE_HELL_BLOCKED_SLOTS": ("on",),
+    "DNFBRIDGE_DUNGEON_ENTRY_SELECTION_MODE": ("allow",),
+    "DNFBRIDGE_PEER_USERINFO_IDENTITY_CARRIER_MODE0_GUARD": ("on",),
+    "DNFBRIDGE_TOWN_NPC_EVENT_CATALOG": ("on",),
+    "DNFBRIDGE_PARTY_FORMATION_ORDER": ("vendor_wire",),
+    "DNFBRIDGE_PARTY_PEER_ENDPOINTS_AFTER_ROSTER": ("repeat",),
+    "DNFBRIDGE_PARTY_PEER_ENDPOINT_REBROADCAST": ("on",),
+    "DNFBRIDGE_LOGIN_AREA_GATES": ("strict",),
+    "DNFBRIDGE_HOTKEY_SEEDED_LAYOUT": ("off",),
+    "DNFBRIDGE_SKILL_SWITCH_CANDIDATE_PAIRS": ("off",),
+    "DNFBRIDGE_LOGIN_SKILL_SWITCH_LOADOUT_AFTER_COMMIT": ("before_transition_only",),
+    "DNFBRIDGE_PEER_SKILL_PAGE_TOWN": ("off",),
+    "DNFBRIDGE_SKILL_SWITCH_DOWNLINK_SHAPE": ("off",),
+    "DNFBRIDGE_SKILL_SWITCH_ANSWER_AT_SCENE_READY": ("off",),
+}
+
+
+def runtime_compatibility_env(config):
+    compatibility = config.get("runtime_compatibility", {})
+    if compatibility == {}:
+        return {}
+    if not isinstance(compatibility, dict):
+        raise ValueError("runtime_compatibility must be an object")
+    validated = {}
+    for key, value in compatibility.items():
+        if key not in RUNTIME_COMPATIBILITY_VALUES:
+            raise ValueError(f"runtime_compatibility contains unsupported key: {key}")
+        if not isinstance(value, str):
+            raise ValueError(f"runtime_compatibility value must be a string: {key}")
+        allowed = RUNTIME_COMPATIBILITY_VALUES[key]
+        if allowed is None:
+            if not re.fullmatch(r"[0-9]+", value) or not 1 <= int(value) <= 1000:
+                raise ValueError("DNFBRIDGE_MYSQL_INSERT_BATCH must be an integer from 1 to 1000")
+        elif value not in allowed:
+            raise ValueError(f"runtime_compatibility value is not allowed: {key}={value}")
+        validated[key] = value
+    return validated
+
 
 def run(*args, capture=False):
     return subprocess.run(list(map(str, args)), check=True, text=True,
@@ -157,9 +203,50 @@ def prepare(args):
 
 
 def generate(c, catalog):
+    owner_range = c.get("channel_directory_owner_range")
+    if "channel_directory_owner_range" in c and owner_range not in ("off", "u8"):
+        raise ValueError("channel_directory_owner_range must be off or u8")
+    percent = c.get("main_quest_exp_percent")
+    if "main_quest_exp_percent" in c and (type(percent) is not int or not 0 <= percent <= 100):
+        raise ValueError("main_quest_exp_percent must be an integer from 0 to 100")
+    multiplier = c.get("main_quest_exp_multiplier")
+    if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
+        raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
+    tournament = c.get("dungeon_tournament")
+    if "dungeon_tournament" in c and tournament not in ("off", "vendor"):
+        raise ValueError("dungeon_tournament must be off or vendor")
     solo_create = c.get("guild_solo_create", False)
     if type(solo_create) is not bool:
         raise ValueError("guild_solo_create must be a boolean")
+    guild_ranking = c.get("guild_ranking_enabled", False)
+    if type(guild_ranking) is not bool:
+        raise ValueError("guild_ranking_enabled must be a boolean")
+    guild_essence = c.get("guild_essence_enabled", False)
+    if type(guild_essence) is not bool:
+        raise ValueError("guild_essence_enabled must be a boolean")
+    guardian_policy = c.get("guild_guardian_policy")
+    guild_hongbao = c.get("guild_hongbao_enabled", False)
+    if type(guild_hongbao) is not bool:
+        raise ValueError("guild_hongbao_enabled must be a boolean")
+    contribution_policy = c.get("guild_contribution_policy", "")
+    if type(contribution_policy) is not str or contribution_policy not in ("", "daily-v1"):
+        raise ValueError("guild_contribution_policy must be empty or daily-v1")
+    if "guild_guardian_policy" in c:
+        fields = {"first_purchase", "initial_level", "initial_skills", "first_select"}
+        if type(guardian_policy) is not dict or set(guardian_policy) != fields:
+            raise ValueError("guild_guardian_policy requires all four policy fields")
+        skills = guardian_policy["initial_skills"]
+        if (guardian_policy["first_purchase"] not in ("free_once", "paid")
+                or type(guardian_policy["initial_level"]) is not int
+                or not 1 <= guardian_policy["initial_level"] <= 50
+                or type(skills) is not list or len(skills) != 5
+                or any(type(v) is not int or not 0 <= v <= 5 for v in skills)
+                or type(guardian_policy["first_select"]) is not bool):
+            raise ValueError("guild_guardian_policy contains invalid policy values")
+    buff_swap_reapply = c.get("buff_swap_reapply")
+    if buff_swap_reapply is not None and buff_swap_reapply not in ("on", "off"):
+        raise ValueError("buff_swap_reapply must be 'on' or 'off' when configured")
+    compatibility_env = runtime_compatibility_env(c)
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
@@ -235,6 +322,11 @@ create_databases = false
     write(server / "configs/servergroup/plan.json", json.dumps(plan, indent=2))
     env = {
         "DNFBRIDGE_GUILD_SOLO_CREATE": str(solo_create).lower(),
+        "DNFBRIDGE_GUILD_RANKING_ENABLED": str(guild_ranking).lower(),
+        "DNFBRIDGE_GUILD_ESSENCE_ENABLED": str(guild_essence).lower(),
+        "DNFBRIDGE_GUILD_GUARDIAN_POLICY": json.dumps(guardian_policy, separators=(",", ":")) if guardian_policy is not None else "",
+        "DNFBRIDGE_GUILD_CONTRIBUTION_POLICY": contribution_policy,
+        "DNFBRIDGE_GUILD_HONGBAO_ENABLED": str(guild_hongbao).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
         "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",
@@ -254,10 +346,17 @@ create_databases = false
     }
     if game_token:
         env["DNFBRIDGE_PLAYER_ADMIN_SECRET"] = game_token
+    if buff_swap_reapply is not None:
+        env["DNFBRIDGE_BUFF_SWAP_REAPPLY"] = buff_swap_reapply
+    if owner_range is not None:
+        env["DNFBRIDGE_CHANNEL_DIRECTORY_OWNER_RANGE"] = owner_range
+    if tournament is not None:
+        env["DNFBRIDGE_DUNGEON_TOURNAMENT"] = tournament
     if multiplier is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER"] = str(multiplier)
     if percent is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"] = str(percent)
+    env.update(compatibility_env)
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}

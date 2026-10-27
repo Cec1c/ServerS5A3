@@ -37,6 +37,28 @@ type currentDungeonDimensionDropEntry struct {
 	ItemID uint32
 }
 
+// Operator-specified quantities for the current three-tier dimension dungeon
+// table. PVF still determines membership, tier and available material IDs. The
+// count is per defeated elite/boss, not per map equipment roll or fixed attempt.
+func currentDimensionMaterialAmount(tier int, monsterType byte, itemID uint32) (uint32, bool) {
+	if tier < 0 || tier > 2 || monsterType < 1 || monsterType > 3 {
+		return 0, false
+	}
+	switch itemID {
+	case 3311:
+		if monsterType == 3 {
+			return 28, true
+		}
+		return 7, true
+	case 10303569:
+		if monsterType == 3 {
+			return [3]uint32{0, 16, 28}[tier], true
+		}
+		return [3]uint32{0, 4, 5}[tier], true
+	}
+	return 0, false
+}
+
 type currentDungeonDimensionLevelThreshold struct {
 	Tier         int
 	MinimumLevel int
@@ -354,6 +376,52 @@ func loadCurrentDungeonDimensionChronicleDrops(source dnfpvf.Source, catalog *cu
 		catalog.ChronicleRates[int(tier)] = currentDungeonDimensionChronicleRate{RewardPercent: int(rewardPercent), SetPercent: int(setPercent)}
 	}
 	return nil
+}
+
+// Resolve the shared entry dungeon with its selected difficulty. Internal
+// DimensionCrack dungeons already carry an exact PVF tier. Never mutate the
+// shared catalog: two parties can enter different difficulties concurrently.
+func currentRuntimeDimensionDrops(catalog *currentDungeonDimensionDropCatalog, runtime *runtimeDungeonState) (*currentDungeonDimensionDropCatalog, error) {
+	if catalog == nil || runtime == nil || !runtime.Dungeon.Metadata.Flags["dimension dungeon"] {
+		return catalog, nil
+	}
+	entry := runtime.Dungeon.Metadata.Flags["entry dungeon"]
+	// Retain compatibility with directly constructed older metadata views.
+	for _, section := range runtime.Dungeon.Extensions {
+		if section.Name == "entry dungeon" {
+			entry = true
+			break
+		}
+	}
+	if !entry {
+		return catalog, nil
+	}
+	tier := int(runtime.Request.Difficulty)
+	if tier > 2 || len(catalog.ItemsByTier[tier]) == 0 {
+		return nil, fmt.Errorf("%w: entry=%d difficulty=%d", errCurrentDungeonDimensionDropInvalid, runtime.Dungeon.ID, tier)
+	}
+	view := *catalog
+	view.ExactTiers = make(map[int64]int, len(catalog.ExactTiers)+1)
+	for id, value := range catalog.ExactTiers {
+		view.ExactTiers[id] = value
+	}
+	view.ExactTiers[runtime.Dungeon.ID] = tier
+	return &view, nil
+}
+
+// Named monsters are often [normal] MAP spawns. Their explicit MOB flag, or a
+// DGN named-monster list, identifies the elite reward. Boss suffix wins first.
+func currentDimensionRewardRank(runtime *runtimeDungeonState, monster runtimeDungeonMonster, spawnRank byte) byte {
+	if runtime == nil || !runtime.Dungeon.Metadata.Flags["dimension dungeon"] {
+		return spawnRank
+	}
+	if actor, err := currentDungeonMonsterActorType(monster.Spawn); err == nil && currentDungeonIsBossActorType(actor) {
+		return 3
+	}
+	if spawnRank == 0 && (monster.Definition.Scalars["named_monster"] == 1 || currentDungeonMonsterIsNamed(runtime, monster.Spawn.MonsterID)) {
+		return 1
+	}
+	return spawnRank
 }
 
 func currentDungeonDimensionTier(catalog *currentDungeonDimensionDropCatalog, dungeonID int64, characterLevel int) (int, bool) {

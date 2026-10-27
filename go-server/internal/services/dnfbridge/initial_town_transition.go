@@ -14,6 +14,15 @@ func (s *Service) currentInitialTownTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if isCurrentFiendWarChannel(session) {
+		return s.currentRaidEntranceTownTransition(session, characterID, character)
+	}
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.currentTagTournamentTownTransition(characterID, character)
+	}
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
 	return s.currentPersistedTownTransition(ctx, session, characterID, character, "selected_character_persisted_location_read_only")
 }
 
@@ -23,22 +32,35 @@ func (s *Service) currentChannelReconnectTownTransition(
 	characterID uint16,
 	character dnfrepo.CharacterRecord,
 ) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
-	if session != nil && (session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType) {
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.currentTagTournamentTownTransition(characterID, character)
+	}
+	if session != nil && isPVPChannel(session.channel) {
+		return s.currentPVPTownTransition(session, characterID, character)
+	}
+	if session != nil && (session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType || session.channel.Type == 42) {
 		return s.currentRaidEntranceTownTransition(session, characterID, character)
 	}
-	if character.Stats["town_id"] == 19 || character.Stats["town_id"] == 32 {
-		location, err := s.currentInitialTownSeriaLoginLocation()
-		if err != nil {
-			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err
-		}
-		return currentReconnectLocationProjection(characterID, character, location)
+	// 所有普通频道入口共用选角色的房间政策，包含从决斗、无双及团本退回。
+	// 入场前的普通位置用于确定所属城镇和房门，不能直接用作街道出生点。
+	if session == nil {
+		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", fmt.Errorf("普通换线缺少角色会话")
 	}
-	return s.currentPersistedTownTransition(ctx, session, characterID, character, "channel_reconnect_persisted_location_read_only")
+	session.townMu.Lock()
+	defer session.townMu.Unlock()
+	return s.currentCharacterListLoginTransition(ctx, session, characterID, character)
 }
 
 // Raid channel entry uses the town's Seria room, not its dungeon gate.
 // Both PVF area-zero maps import Common/(R)Gate_Seria.map and declare a gate.
 func (s *Service) currentRaidEntranceTownTransition(session *gameSession, characterID uint16, character dnfrepo.CharacterRecord) (dnfrepo.CharacterRecord, byte, byte, currentSceneTransitionRow, string, error) {
+	if isCurrentFiendWarChannel(session) {
+		loc, err := s.currentFiendWarLoginLocation(session, characterID)
+		if err != nil {
+			return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err
+		}
+		return currentReconnectLocationProjection(characterID, character, loc)
+	}
 	townID := int64(19)
 	if session.channel.Type == dnfenum.HiddenRaidType {
 		townID = 32

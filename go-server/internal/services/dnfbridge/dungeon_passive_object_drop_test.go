@@ -145,10 +145,9 @@ func TestCurrentDungeonLiveHellRoomStartMapFrameDecodesToEmptyExtraTable(t *test
 	}
 }
 
-// TestCurrentDungeonStartMapExtraEntryWidthTierSettles21vs19 是"21 还是 19 字节"
-// 这一档的判据：同一帧（现场那一帧 + 一条探针行）在两种宽度下分别 275 / 273 字节，
-// 19 字节那一档里 `6c029b00` 落在 `+3`，21 字节那一档落在 `+5`。
-func TestCurrentDungeonStartMapExtraEntryWidthTierSettles21vs19(t *testing.T) {
+// The native u32 extra row is 20 bytes; the explicit legacy-u16 diagnostic
+// row remains 19 bytes. Empty-room and actor rows retain their prior bytes.
+func TestCurrentDungeonStartMapExtraEntryNative20AndLegacy19(t *testing.T) {
 	base := liveHellRoomStartMapPacket()
 	if built, err := base.Build(); err != nil {
 		t.Fatal(err)
@@ -194,7 +193,7 @@ func TestCurrentDungeonStartMapExtraEntryWidthTierSettles21vs19(t *testing.T) {
 		t.Fatalf("vendor-width extraCount=%d want=1", vendorBody[extraCountOffset])
 	}
 
-	// 本仓今天的 21 字节（= 显式 `u32`）：同样一条行，只是 GlobalSequence 宽度不同。
+	// 原生20字节（= 显式 `u32`）：同样一条行，只是 GlobalSequence 宽度不同。
 	current := base
 	current.ExtraEntries = []currentDungeonStartMapExtraEntry{probe}
 	current.ExtraEntryVendorWidth = false
@@ -202,8 +201,8 @@ func TestCurrentDungeonStartMapExtraEntryWidthTierSettles21vs19(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(currentBody) != 275 {
-		t.Fatalf("current-width body len=%d want=275", len(currentBody))
+	if len(currentBody) != 274 {
+		t.Fatalf("current-width body len=%d want=274", len(currentBody))
 	}
 	rowStart := extraCountOffset + 1
 	if currentBody[rowStart] != 0x00 || currentBody[rowStart+1] != 0x07 ||
@@ -256,7 +255,7 @@ func TestDungeonPassiveObjectDropSwitchPolicy(t *testing.T) {
 		t.Fatal("auto width must stay current-without-a-row and vendor-with-a-row")
 	}
 	if startMapExtraEntryWidthCurrent.vendorLayout(true) {
-		t.Fatal("explicit u32 must stay 21 bytes even with a row")
+		t.Fatal("explicit u32 selects the native 20-byte row")
 	}
 	if !startMapExtraEntryWidthVendor.vendorLayout(false) {
 		t.Fatal("explicit u16 must be vendor width even without a row")

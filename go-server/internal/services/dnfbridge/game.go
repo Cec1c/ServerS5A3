@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -20,18 +21,32 @@ import (
 )
 
 type gameSession struct {
+	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
+	professionChangeMu                  sync.Mutex
+	professionChangePending             *currentProfessionChangePending
+	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
+	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
+	pvpClientGameType                   uint32                                // 本次客户端选择的匹配类型，原子读取与更新。
+	fiendWarPendingMove                 *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
+	fiendWarProjection                  currentFiendWarProjection
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
 	guildBuffs                          guildBuffProjection
 	guild                               guildSessionState
 	initialTownGuildStateProjectionSent bool
+	guildEssenceLoginRetry              boundGameSessionCharacter // protected by townMu; exact failed login generation
+	guildContributionLoginRetry         boundGameSessionCharacter // protected by townMu; same completed-login event
 	pendingTitleEnchantCharacterID      uint16
 	pendingTitleEnchantRow              *currentItemListEntry
+	pendingGuardianGemCharacterID       uint16
+	pendingGuardianGemRow               *currentItemListEntry
 	conn                                net.Conn
 	connID                              string
 	accountID                           string
 	clientPID                           uint32
+	pvpPrivateCreate                    *currentPVPPrivateIntent
+	pvpRoom                             *currentPVPRoom // 由 Service.pvpMu 保护。
 	// clientIP 只用于日志与排查（连接来源），**绝不参与账号判定** ——
 	// 见 repository_access.go 的 accountIDForSession 与 client_account_ip.go。
 	clientIP string
@@ -40,10 +55,14 @@ type gameSession struct {
 	accountFromPID bool
 	// accountFromToken 表示账号来自启动器登录令牌，这是唯一权威来源。
 	accountFromToken bool
+	loginRevoked     atomic.Bool // A successful replacement fences all subsequent work.
 	// loginTokenSeen 表示登录包里确实读到了 32 位十六进制令牌（无论是否解析出账号）。
 	loginTokenSeen bool
 	// loginPacketSeen 表示客户端已经交过 class1/op1 登录包：此后账号不会再变。
 	loginPacketSeen bool
+	// 只在令牌已验证后设置，用于关联同一登录会话的明确换线交接，不作为账号认证。
+	loginChannelFlowKey [32]byte
+	channelExitHandoff  *currentAuthenticatedChannelHandoff
 	// sharedAccountFallbackReason 记录"为什么会落到共享兜底账号"，
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
@@ -51,6 +70,7 @@ type gameSession struct {
 	sharedAccountWarnOnce sync.Once
 	channel               channelcatalog.Channel
 	residentChannel       channelcatalog.Channel
+	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
 	packetSeq             uint64
 	sequence              uint32
 	upperSeq              uint16
@@ -59,8 +79,9 @@ type gameSession struct {
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
-	wireMu sync.Mutex
-	dproto dproto.Session
+	wireMu            sync.Mutex
+	dproto            dproto.Session
+	channelSceneBatch *currentChannelSceneBatch // 仅普通换线；wireMu保护。
 
 	// Image-communication identity is guarded by townMu. Scene resets advance
 	// its generation; the nonce belongs only to this connection.
@@ -104,8 +125,11 @@ type gameSession struct {
 	//   也就是说：换角色/重登（新 conn）与每次场景就绪 ack（新一轮）都会把它重置，
 	//   所以"连续换角色时第 2 个角色的第 1 条"永远算第 1 条（不会把 09-28 那条老症状带回来）。
 	// 只有本会话的 op19 读路径读写它。
-	equipWornSlotClaimEpoch  string
-	equipWornSlotClaimCounts map[int16]int
+	equipWornClaimReceiptOwner      uint16
+	equipWornClaimReceiptGeneration uint64
+	equipWornClaimReceipts          map[int16]currentWornClaimReceipt
+	equipWornSlotClaimEpoch         string
+	equipWornSlotClaimCounts        map[int16]int
 	// equipWornSlotClaimOccurrence 是**本条** op19 的序号（由 game_aligned.go 记一次后暂存），
 	// 供桥侧吸收判定（equip_login_wear_family_window.go）与域侧请求字段共用。
 	// 0 = 本条不是那一族形状 / 未计数 / 开关写 all。
@@ -175,6 +199,19 @@ type gameSession struct {
 	// 这两个迁移；它们会开事务并读整份背包，不能每次重建主背包都跑。
 	itemListMigrationsDone        bool
 	enterSelectDungeonContextSent bool
+	// partyDungeonEntryRoutedPendingCharacter 记录"这名角色的 op16 已经被回 ACK、正在等
+	// 队长那条整队进图流程给出结果"（0 = 没有在等）。文档段 104：那条流程在提交之前被
+	// 拒绝时，必须把本挂起态解掉并补一条既有形状的拒绝包，否则队员客户端只看到倒计时。
+	// 只在 session.dungeon.mu 下读写，见 party_entry_refusal_before_commit.go。
+	partyDungeonEntryRoutedPendingCharacter uint16
+	// partyDungeonEntryRoutedPendingGeneration 是写入挂起态时的会话 generation（取自
+	// boundGameSessionCharacterSnapshot，在 s.mu 下读；换角会让 generation 前进一步）。
+	// partyDungeonEntryRoutedPendingSeq 是每次绑定都递增的请求序号：队长那条流程只应答
+	// "自己那次请求"（角色号 + generation + seq 三者都匹配），因此同角色连续两次按进图时，
+	// 旧那条流程的拒绝不会吞掉新那条请求的挂起态。三者都只在 session.dungeon.mu 下读写，
+	// 见 party_entry_refusal_before_commit.go。
+	partyDungeonEntryRoutedPendingGeneration uint64
+	partyDungeonEntryRoutedPendingSeq        uint64
 	// hellBlocked 是「深渊派对准入逐槽位判定」的会话缓存：只在
 	// `DNFBRIDGE_HELL_BLOCKED_SLOTS=on` 档有内容，blocked 槽位随下一条 class0/op27
 	// 进本选择页下发（`List0`）。默认档恒为零值 ⇒ 下发体逐字节等于今天。
@@ -204,7 +241,11 @@ type gameSession struct {
 	selectPreviewActorOwnerChannel       byte
 	selectPreviewActorRemoved            bool
 	preDungeonContextPlayerStateSent     bool
+	snakeDungeonSkillInfo                *currentSnakeDungeonSkillInfo
 	postStartMapPlayerStateSent          bool
+	// 成功写出主背包容器的角色。场景门重置不销毁客户端的全局主背包；
+	// 7142转职窗口在体验期间保留其中的物品指针，不能随入图重新创建。
+	selectedMainInventoryCharacterID uint16
 	// dungeonPartySlotTableSentOnStartMap 记录"本次 start-map（op29）提交里，class0/op9
 	// kind0 槽位表已经发过一条"（厂商形状的房间槽位表，见 dungeon_party_room_slot_table.go）。
 	// 进图那一次提交里既有的 `…_post_start_map` 名册帧据此让位
@@ -215,14 +256,20 @@ type gameSession struct {
 	// pendingPostStartMapPlacement 是"落位包已经该发、但被全队读条屏障压住"的记录；
 	// pendingPostStartMapMu 保护它（屏障放行发生在另一个会话的 goroutine 上）。
 	// 见 party_dungeon_loading_barrier.go。
-	pendingPostStartMapMu              sync.Mutex
-	pendingPostStartMapPlacement       *pendingPostStartMapPlacement
-	deferredDungeonUserStateObjectKey  uint16
+	pendingPostStartMapMu             sync.Mutex
+	pendingPostStartMapPlacement      *pendingPostStartMapPlacement
+	deferredDungeonUserStateObjectKey uint16
+	// finishLoadingMu 保护下面三个 finish-loading 门闩。写点全部在所属会话的
+	// 事件循环上；读点有两类——同一循环的本地判断，以及读条放行时跨 loop 读
+	// 对端是否已完成场景重建（dungeon_party_peer_actor_landing_resend.go）。
+	// 锁只在赋值/读取那几行内持有，不包网络、仓储或其它锁。
+	finishLoadingMu                    sync.Mutex
 	currentFinishLoadingStateSent      bool
 	currentFinishLoadingCompletionSent bool
 	postFinishLoadingPlayerStateSent   bool
 	returnTownFinishLoadingAckOnly     bool
 	confirmedDungeonReturnStatePending bool
+	selectorReturnPresence             *currentSelectorReturnPresence // guarded by dungeon.mu
 	initialTownRouteCharacterID        uint16
 	initialTownRouteStage              currentInitialTownRouteStage
 	initialTownActorSceneSnapshotSent  bool
@@ -240,6 +287,9 @@ type gameSession struct {
 	initialTownLegacySceneReadyAccepted  bool
 	// Snapshot of the monotonic town cursor when this selector route starts.
 	initialTownRouteTownGeneration uint64
+	// Completed returns share the town packet builder, but their actor was
+	// already reconstructed and must not enter the cold-login replay hook.
+	initialTownRouteCompletedReturn bool
 	// loginActorGenerationRebuildArmed 在登录路径的 legacy type1345 场景就绪 ack 上布防，
 	// loginActorGenerationRebuildSent 保证一次进场只重建一次 actor 世代。
 	// 触发面 = **ack 之后的第一条客户端游戏报文**（`handleGameStreamPacket` 在派发前取
@@ -301,7 +351,7 @@ type gameSession struct {
 	dungeonPartyRunMu    sync.Mutex
 	dungeonPartyRun      dungeonPartyRunKey
 	dungeonPartyRunValid bool
-	dungeonPeerProjected map[uint16]bool
+	dungeonPeerProjected map[uint16]boundGameSessionCharacter
 	// dungeonOwnerOverrideLogged 是 DNFBRIDGE_PARTY_DUNGEON_OWNER_MODE=channel 时
 	// "owner 覆盖"单次日志的去重集合（键 = 队友 actor object_key）。与 dungeonPartyRun
 	// 共用 dungeonPartyRunMu，换场时一起清空；默认 zero 时始终为空。
@@ -310,13 +360,19 @@ type gameSession struct {
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.
-	equipmentProjectionMu       sync.Mutex
-	avatarAppearanceMu          sync.Mutex
-	avatarAppearanceLastAt      time.Time
-	avatarAppearanceTimer       string
-	avatarAppearanceTimerSerial uint64
-	petGrowth                   petGrowthClockState
-	spendTime                   currentSpendTimeClockState
+	equipmentProjectionMu sync.Mutex
+	// Serializes the final cross-scene profile write with appearance invalidation.
+	// No repository work is performed while this mutex is held.
+	crossSceneAppearanceMu         sync.Mutex
+	crossSceneAppearanceRevision   uint64
+	avatarAppearanceMu             sync.Mutex
+	avatarAppearanceLastAt         time.Time
+	avatarAppearanceTimer          string
+	avatarAppearanceTimerSerial    uint64
+	avatarAppearanceNeedsBuffClear bool
+	buffReplayDedupe               buffReplayDedupeState
+	petGrowth                      petGrowthClockState
+	spendTime                      currentSpendTimeClockState
 	// Owned by the serialized session event loop; full catalogs omit yesterday's flag.
 	activityCatalogDayEvent uint16
 	weeklyAttendance        currentWeeklyAttendanceProjection
@@ -381,7 +437,7 @@ type lotteryState struct {
 
 // petGrowthClockState 持有宠物饱食度时钟的会话状态。
 // mu 守护时钟模式、锚点、代数与定时器名的全部读写（含 timequeue 回调），
-// 停止/切换时的结算与归零时机保持不变。
+// pending保留尚未成功结算的模式边界，重试不覆盖原时间点。
 type petGrowthClockState struct {
 	mu          sync.Mutex
 	mode        currentPetGrowthClockMode
@@ -389,17 +445,19 @@ type petGrowthClockState struct {
 	anchor      time.Time
 	generation  uint64
 	timerName   string
+	pending     []currentPetGrowthClockTransition
 }
 
 // townPostTransitionState 持有城镇入场后过渡流程的会话状态。
-// mu 守护过渡代数、角色、属主频道、阶段与来源标记，arm/推进/归零时机保持不变。
+// mu 守护过渡代数、角色、属主频道、阶段、投影策略与来源标记。
 type townPostTransitionState struct {
-	mu           sync.Mutex
-	generation   uint64
-	characterID  uint16
-	ownerChannel byte
-	stage        currentTownPostTransitionStage
-	source       string
+	mu                  sync.Mutex
+	generation          uint64
+	characterID         uint16
+	ownerChannel        byte
+	stage               currentTownPostTransitionStage
+	omitSceneActivation bool
+	source              string
 }
 
 // dungeonSessionState 持有单个地下城运行周期的会话状态。
@@ -706,4 +764,67 @@ func isQuietGameReadError(err error) bool {
 	return errors.Is(err, io.EOF) ||
 		errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, syscall.ECONNRESET)
+}
+
+// finishLoadingGates is a consistent snapshot of the three finish-loading
+// gates. The fields are read and written only through the helpers below: the
+// only cross-loop access is "has this peer finished its scene rebuild", read by
+// another member's release event.
+type finishLoadingGates struct {
+	State      bool
+	Completion bool
+	PostFinish bool
+}
+
+func (s *gameSession) finishLoadingGateSnapshot() finishLoadingGates {
+	if s == nil {
+		return finishLoadingGates{}
+	}
+	s.finishLoadingMu.Lock()
+	defer s.finishLoadingMu.Unlock()
+	return finishLoadingGates{
+		State:      s.currentFinishLoadingStateSent,
+		Completion: s.currentFinishLoadingCompletionSent,
+		PostFinish: s.postFinishLoadingPlayerStateSent,
+	}
+}
+
+func (s *gameSession) setFinishLoadingGateState(value bool) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.currentFinishLoadingStateSent = value
+	s.finishLoadingMu.Unlock()
+}
+
+func (s *gameSession) setFinishLoadingGateCompletion(value bool) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.currentFinishLoadingCompletionSent = value
+	s.finishLoadingMu.Unlock()
+}
+
+func (s *gameSession) setFinishLoadingGatePostFinish(value bool) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.postFinishLoadingPlayerStateSent = value
+	s.finishLoadingMu.Unlock()
+}
+
+// setFinishLoadingGates replaces the whole triplet in one critical section.
+// Used by the scene resets so a reader can never observe a half-reset scene.
+func (s *gameSession) setFinishLoadingGates(gates finishLoadingGates) {
+	if s == nil {
+		return
+	}
+	s.finishLoadingMu.Lock()
+	s.currentFinishLoadingStateSent = gates.State
+	s.currentFinishLoadingCompletionSent = gates.Completion
+	s.postFinishLoadingPlayerStateSent = gates.PostFinish
+	s.finishLoadingMu.Unlock()
 }

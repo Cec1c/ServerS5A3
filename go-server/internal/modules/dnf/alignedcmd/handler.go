@@ -4,6 +4,7 @@ package alignedcmd
 
 import (
 	"context"
+	"longheng.io/server/internal/modules/dnf/itemusage"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -16,6 +17,8 @@ import (
 // Request 是 dnfbridge 交给 DNF 业务模块的最小上下文。
 // Body 是当前包体副本，模块不得在原地修改调用方缓冲区。
 type Request struct {
+	ItemUsageResolver      ItemUsageResolver
+	ItemUsageNow           time.Time
 	Command                byte
 	CommandKnown           bool
 	Opcode                 uint16
@@ -36,6 +39,9 @@ type Request struct {
 	UpgradeTicketResolver  UpgradeTicketResolver
 	UpgradePolicyResolver  UpgradePolicyResolver
 	UpgradeCostResolver    UpgradeCostResolver
+
+	// GuildMedalUpgradeResolver resolves only the current list38 flag sender.
+	GuildMedalUpgradeResolver GuildMedalUpgradeResolver
 	// ForgingResolver 让 op438（锻造 / 别升级 separate upgrade）拿到这一次
 	// 材料/目标在**运行时 PVF** 里的事实：etc/upgrade_separate.etc 的等级表与
 	// 材料表、目标的武器/品级/稀有度/耐久、材料槽那一件是不是便携式锻造炉或
@@ -303,12 +309,27 @@ type UpgradeTicketResolution struct {
 	// **乘算**加成（厂商 `SuccessRateBonusWeight`：`weight * (100000+bonus)/100000`，
 	// 即 30000 = 基础成功率 ×1.3）。唯一写在真档里的例子是「成功之兆强化器 / 增幅器」
 	// （`[new portable upgrade] 0 14 30000`）。0 = PVF 没写第 3 个参数 = 不加成。
-	PortableSuccessBonus int
+	PortableSuccessBonus       int
+	MaterialUsableItemLevelSet bool
+	// MaterialUsableItemLevelMin/Max 是材料槽那一件耗材的 `[check usable itemlevel]` 窗口
+	// （目标装备的 `[minimum level]` 必须落在其中）。-1 = 该段缺席 = 不限目标等级。
+	// 厂商 `ItemUpgradeConsumableResolver.FromPortable` 把这个窗口原样装进
+	// `ItemUpgradeConsumableConfig.Restriction.ItemLevelMin/ItemLevelMax`（默认 -1），
+	// `InventoryItemUpgradeService.ValidateRestrictions` 再用它判目标（回 ErrorRestriction 19）。
+	MaterialUsableItemLevelMin int
+	MaterialUsableItemLevelMax int
+	// TargetMinimumLevel 是**目标装备** PVF 的 `[minimum level]`
+	// （Tool/PvfLib/Models/EquipmentFile.cs:36/154，-1 = 该装备 PVF 没写这一段 = 未知）。
+	// 厂商在 portable 档用它做等级窗口判定
+	// （`EquipmentLevel = targetMetadata.MinimumLevel`，InventoryItemUpgradeService.cs:388/401
+	// -> `AllowsItemLevel(context.EquipmentLevel)`，:486），不是 `[grade]`、也不是角色等级。
+	TargetMinimumLevel int
 }
 
 // UpgradePortableConsumable 是"这次 op50 用的是哪一件便携强化/增幅消耗品"的
-// 领域层事实（由 dnfbridge 的运行时 PVF 解析器给出）。它只描述消耗品本身，
-// 不描述目标装备；判定与消耗都在 inventory/owner.go 的 Upgrade 里完成。
+// 领域层事实（由 dnfbridge 的运行时 PVF 解析器给出）。它主要描述消耗品本身，另带一个
+// 必须由目标装备侧提供的判据（UsableItemLevelMin/Max 与 TargetMinimumLevel）；
+// 判定与消耗都在 inventory/owner.go 的 Upgrade 里完成。
 type UpgradePortableConsumable struct {
 	// ItemID 是消耗品的模板 id（材料槽那一行必须逐字等于它）。
 	ItemID int64
@@ -320,7 +341,15 @@ type UpgradePortableConsumable struct {
 	// SuccessBonus 是十万分比的乘算加成（0 = 无）。
 	SuccessBonus int
 	// PVFPath 是解析出来的 stackable 路径（只用于日志取证）。
-	PVFPath string
+	PVFPath            string
+	UsableItemLevelSet bool
+	// UsableItemLevelMin/Max 是这一件消耗品 `[check usable itemlevel]` 声明的目标装备等级
+	// 窗口（真档一次性增幅器 10164868 = `1 90`）。-1 = 该段缺席 = 不限（保持原行为）。
+	UsableItemLevelMin int
+	UsableItemLevelMax int
+	// TargetMinimumLevel 是**目标装备** PVF 的 `[minimum level]`，即厂商
+	// `AllowsItemLevel(context.EquipmentLevel)` 的入参（不是 `[grade]`）。-1 = 未知/没写。
+	TargetMinimumLevel int
 }
 
 // UpgradeTicketResolver resolves the material and target templates through
@@ -332,7 +361,8 @@ type UpgradeTicketResolver func(materialItemID int64, targetItemID int64) (Upgra
 // for one normal NPC upgrade attempt (non-ticket scene).
 type UpgradePolicyResolution struct {
 	SuccessWeight      int // out of 100000
-	PenaltyType        int // 0=no change, 1=downgrade, 3=destroy
+	PenaltyType        int // 0/1=no change, 2=subtract PenaltyValue, 3=destroy
+	PenaltyValue       int
 	MaterialItemID     int
 	MaterialCount      int
 	DestroyBonusItemID int
@@ -409,9 +439,9 @@ func (id StackGrantIdentity) Extra() map[string]string {
 }
 
 // UpgradePolicyResolver resolves the PVF upgrade table row for the given mode
-// and current upgrade level. A nil resolver means guaranteed success (backward
-// compatible with pre-PVF-table behavior).
-type UpgradePolicyResolver func(mode string, currentLevel int) (UpgradePolicyResolution, error)
+// and current upgrade level of the owned target template. Equipment rarity is
+// resolved from PVF using targetItemID, never inventory metadata or packet text.
+type UpgradePolicyResolver func(mode string, targetItemID int64, currentLevel int) (UpgradePolicyResolution, error)
 
 // UpgradeProtectTicketResolution is the runtime-PVF identity of one inventory
 // template asked about during the op50 destroy branch.
@@ -634,6 +664,9 @@ type StackableUseProvenanceResolution struct {
 // An error means "no runtime-PVF answer", never "reject the item".
 type StackableUseProvenanceResolver func(itemID int64) (StackableUseProvenanceResolution, error)
 
+// ItemUsageResolver reads explicit daily/weekly use limits from the active PVF.
+type ItemUsageResolver func(itemID int64) (*itemusage.Definition, error)
+
 // DamageFontExpirationMode describes the expiration contract carried by a
 // runtime-PVF [add damage font skin] item.
 type DamageFontExpirationMode byte
@@ -715,6 +748,17 @@ type MailboxItemResolution struct {
 	// 是 dnfbridge 用同一条已测的投影算出来的创建期 Extra，只在附件缺该键时合并。
 	ExpireAt     time.Time
 	DefaultExtra map[string]string
+	// UsablePeriodDays is the relative period declared by the item template.
+	// Mail claims resolve it from the original attachment/mail, never claim time.
+	UsablePeriodDays int64
+	// OriginalExpiry reads only the attachment's existing instance evidence.
+	// It does not use the current time or generate a new grant deadline.
+	OriginalExpiry func(dnfrepo.MailAttachment) time.Time
+	// ProjectAttachment resolves evidence that belongs to one durable
+	// attachment rather than to the item template. The second argument is the
+	// trusted mail creation anchor, or the zero time when the caller cannot
+	// establish one. Existing instance evidence must win over any projection.
+	ProjectAttachment MailboxAttachmentProjector
 	// EpicPieceID 非零表示这件附件是**史诗碎片**（`etc/epicpieceinfo.etc`
 	// `[piece list]` 的成员）：它必须进账号级史诗图鉴账本，**不写任何背包行**。
 	// 只有 dnfbridge 同时提供了 Request.EpicPieceCreditor 时才允许置位；为零
@@ -727,6 +771,18 @@ type MailboxItemResolution struct {
 	// 原来的入包路径，逐字节不变。
 	AccountWarehouseSlot int16
 }
+
+// MailboxAttachmentProjection is per-attachment evidence derived from a
+// trusted anchor. Zero ExpireAt means the resolver has no projection; an empty
+// Extra map means it contributes no instance keys.
+type MailboxAttachmentProjection struct {
+	ExpireAt time.Time
+	Extra    map[string]string
+}
+
+// MailboxAttachmentProjector receives the attachment and the mail creation
+// anchor. It must not substitute claim time for a missing anchor.
+type MailboxAttachmentProjector func(dnfrepo.MailAttachment, time.Time) (MailboxAttachmentProjection, error)
 
 // MailboxItemResolver resolves each durable attachment template through the
 // active runtime PVF. A nil resolver makes attachment sends fail closed.
@@ -802,16 +858,27 @@ type PartyMemberState struct {
 
 // Result 表示模块化分流后的处理结果。
 // ResponseAllowed=false 表示证据不足或被阻断，bridge 不能伪造成功 ACK。
+// EquipmentMoveFact is emitted only after an op19 owner succeeds.
+type EquipmentMoveFact struct {
+	Changed       bool
+	WornClaimNoop bool
+}
 type Result struct {
-	Decision        Decision
-	Handled         bool
-	ResponseAllowed bool
-	Operation       string
-	Reason          string
-	UpperResponses  []UpperResponse
+	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
+	EquipmentMoveFact *EquipmentMoveFact
+	Decision          Decision
+	Handled           bool
+	ResponseAllowed   bool
+	Operation         string
+	Reason            string
+	UpperResponses    []UpperResponse
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16
+	// A committed wear move without an actor appearance refresh can still
+	// relocate registered Buff items. Reproject only after the move ACK and
+	// item rows; appearance-bearing moves own their Buff replay boundary.
+	RefreshSelectedBuffRegistration bool
 	// 消耗凭证仅由成功返回的库存事务提供，bridge 在回包前关联本局拾取记录。
 	StackableConsumption *StackableConsumption
 	// MailboxAlarmRecipientID asks the bridge to deliver the exact class0/0x63
@@ -848,6 +915,8 @@ type Result struct {
 	// EXE class0 premium-activated notice; op898 for the crystal contract) after
 	// the ACK. Empty for every command that grants no contract.
 	PremiumContractActivations []PremiumContractActivation
+	// 仅投影已经提交的账号幸运值；不参与扣道具或奖励结算。
+	SeriaLuck *SeriaLuckProjection
 	// EpicPieceCredits lists the account-level epic-piece ledger increments this
 	// command already committed. Fragments own no inventory row and are never
 	// mailed, so the bridge must announce each increment itself through the
@@ -898,6 +967,11 @@ type Result struct {
 	//
 	// Empty = previous behavior: every UpperResponse body is sent verbatim.
 	AuthoritativeListRefreshes []byte
+}
+
+type SeriaLuckProjection struct {
+	Before int64
+	After  int64
 }
 
 type StackableConsumption struct {
@@ -988,6 +1062,7 @@ const (
 	// Damage-font ownership is a character-stat projection consumed by NOTI
 	// 1239. It follows the class1 op515 ACK and source-slot refresh.
 	PostActionRefreshSelectedDamageFontState PostAction = "refresh_selected_damage_font_state"
+	PostActionDamageFontExpiredNotice        PostAction = "damage_font_expired_notice"
 	// Party-frame state is carried inside the current NoPack class0/op9 kind0
 	// actor record. The bridge rebuilds that record from the selected actor and
 	// live party slots before op153/op7 update the visible frame.

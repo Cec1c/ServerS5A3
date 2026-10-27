@@ -110,16 +110,27 @@ func TestBuildCurrentSpendTimeEventInfoBodyMatchesCurrentNoPackFirstProcessDescr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(body) != 184 {
+	if len(body) != 246 {
 		t.Fatalf("op108 body len=%d body=%x", len(body), body)
 	}
 	const (
 		extendedOffset    = 17
-		joustBaseOffset   = 68
-		activeOffset      = 83
-		paramsOffset      = 86
-		joustActiveOffset = 134
-		joustParamsOffset = 136
+		titleLengthOffset = 19
+		titleOffset       = 23
+		subtitleLength    = 35
+		descriptionLength = 39
+		descriptionOffset = 43
+		startOffset       = 93
+		endOffset         = 97
+		routeLengthOffset = 101
+		routeOffset       = 105
+		statusLength      = 125
+		tailOffset        = 129
+		joustBaseOffset   = 130
+		activeOffset      = 145
+		paramsOffset      = 148
+		joustActiveOffset = 196
+		joustParamsOffset = 198
 	)
 	if binary.LittleEndian.Uint16(body[:2]) != 2 ||
 		binary.LittleEndian.Uint16(body[2:4]) != uint16(currentSpendTimeEventID) ||
@@ -128,19 +139,23 @@ func TestBuildCurrentSpendTimeEventInfoBodyMatchesCurrentNoPackFirstProcessDescr
 		binary.LittleEndian.Uint32(body[12:16]) != 0 || body[16] != 1 {
 		t.Fatalf("op108 list prefix=%x", body[:17])
 	}
-	if body[extendedOffset] != 0 || body[extendedOffset+1] != 0 ||
-		binary.LittleEndian.Uint32(body[19:23]) != 0 ||
-		binary.LittleEndian.Uint32(body[23:27]) != 0 ||
-		binary.LittleEndian.Uint32(body[27:31]) != 0 ||
-		binary.LittleEndian.Uint32(body[31:35]) != 0 ||
-		binary.LittleEndian.Uint32(body[35:39]) != 0 {
-		t.Fatalf("op108 extended prefix=%x", body[extendedOffset:39])
+	title := mustHexBytes(t, "c0dbbcc6d4dacfdfbdb1c0f8")
+	description := mustHexBytes(t, "c0dbbcc6d4dacfdfcab1bce4b4efb5bdb6d4d3a6bdd7b6ced2aac7f3baf3a3acbfc9c1ecc8a1b8c3bdd7b6cebdb1c0f8a1a3")
+	if body[extendedOffset] != 0 || body[extendedOffset+1] != 4 ||
+		binary.LittleEndian.Uint32(body[titleLengthOffset:titleOffset]) != uint32(len(title)) ||
+		!bytes.Equal(body[titleOffset:titleOffset+len(title)], title) ||
+		binary.LittleEndian.Uint32(body[subtitleLength:descriptionLength]) != 0 ||
+		binary.LittleEndian.Uint32(body[descriptionLength:descriptionOffset]) != uint32(len(description)) ||
+		!bytes.Equal(body[descriptionOffset:descriptionOffset+len(description)], description) ||
+		binary.LittleEndian.Uint32(body[startOffset:endOffset]) != 0 ||
+		binary.LittleEndian.Uint32(body[endOffset:routeLengthOffset]) != 0 {
+		t.Fatalf("op108 extended menu metadata=%x", body[extendedOffset:routeLengthOffset])
 	}
-	routeLength := int(binary.LittleEndian.Uint32(body[39:43]))
+	routeLength := int(binary.LittleEndian.Uint32(body[routeLengthOffset:routeOffset]))
 	if routeLength != len(currentSpendTimeEventRoute) ||
-		string(body[43:43+routeLength]) != currentSpendTimeEventRoute ||
-		binary.LittleEndian.Uint32(body[63:67]) != 0 || body[67] != 0 {
-		t.Fatalf("op108 click route extension=%x", body[39:joustBaseOffset])
+		string(body[routeOffset:routeOffset+routeLength]) != currentSpendTimeEventRoute ||
+		binary.LittleEndian.Uint32(body[statusLength:tailOffset]) != 0 || body[tailOffset] != 1 {
+		t.Fatalf("op108 click route extension=%x", body[routeLengthOffset:joustBaseOffset])
 	}
 	if binary.LittleEndian.Uint16(body[joustBaseOffset:joustBaseOffset+2]) != uint16(currentJoustEventID) ||
 		binary.LittleEndian.Uint32(body[joustBaseOffset+2:joustBaseOffset+6]) != currentSpendTimeBaseCatalogValue ||
@@ -256,7 +271,8 @@ func TestSendCurrentSpendTimeProtocolStateKeepsProtectedDescriptorAndProgressAdj
 		t.Fatal(err)
 	}
 	wantDescriptor = withAntonChannelCatalogFixture(t, wantDescriptor)
-	if len(plainDescriptor) != 249 || !bytes.Equal(plainDescriptor, wantDescriptor) {
+	wantDescriptor = withSeriaLuckCatalogFixture(t, wantDescriptor)
+	if len(plainDescriptor) != 376 || !bytes.Equal(plainDescriptor, wantDescriptor) {
 		t.Fatalf("op108 plain=%x want=%x", plainDescriptor, wantDescriptor)
 	}
 	progress, rest := splitGameServerUpperPacket(t, rest)

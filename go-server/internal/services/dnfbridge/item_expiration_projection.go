@@ -251,6 +251,10 @@ func applyCurrentStackableExpiration(stack dnfrepo.ItemStack, expirationDate tim
 
 func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeonDropItemDefinition, now time.Time) (dnfrepo.ItemStack, bool) {
 	if definition.DailyDeleteItem {
+		// Catalog recognition alone cannot authorize repairing or deleting an old rental.
+		if definition.Kind == dungeonDropItemEquipment && !currentPVFDailyEquipmentGrantRecorded(stack, definition) {
+			return stack, false
+		}
 		stack, cleanupChanged := cleanupCurrentPVFWrongExpirationProjection(stack)
 		if now.IsZero() {
 			now = time.Now().UTC()
@@ -262,7 +266,10 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 			return stack, false
 		}
 		patched, rawChanged := applyCurrentItemListExpireTimeRaw(patched, patched.ExpireAt)
-		patched, periodChanged := applyCurrentPVFStackableUsePeriodAt(patched, patched.ExpireAt, now)
+		periodChanged := false
+		if definition.Kind == dungeonDropItemStackable {
+			patched, periodChanged = applyCurrentPVFStackableUsePeriodAt(patched, patched.ExpireAt, now)
+		}
 		return patched, cleanupChanged || changed || rawChanged || periodChanged
 	}
 	stack, changed := cleanupCurrentPVFWrongExpirationProjection(stack)
@@ -285,7 +292,9 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 	// 这条钳制在邮件/背包/仓库/装备/产出所有堆栈投影上共用同一个 helper，
 	// 所以同一道具在各路径上得到的到期时间必然相同。
 	rawExpiration := definition.ExpirationDate
-	definition.ExpirationDate = currentPVFRenewedRetiredExpirationDate(rawExpiration, now)
+	if !definition.ExpirationFromUsablePeriod {
+		definition.ExpirationDate = currentPVFRenewedRetiredExpirationDate(rawExpiration, now)
+	}
 	expirationDate := definition.ExpirationDate
 	if instanceExpire := currentItemListStackExpire(stack); instanceExpire != 0 &&
 		currentGiftBoxHistoryExpiration(definition, instanceExpire, currentGiftBoxInstanceHasIndependentExpiration(stack.Extra)).IsZero() &&

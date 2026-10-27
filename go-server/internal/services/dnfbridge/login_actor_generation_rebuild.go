@@ -219,7 +219,8 @@ func (s *Service) armLoginActorGenerationRebuild(session *gameSession) {
 	}
 	session.townMu.Lock()
 	if session.initialTownRouteCharacterID != 0 &&
-		session.initialTownRouteCharacterID == session.selectedCharacterID {
+		session.initialTownRouteCharacterID == session.selectedCharacterID &&
+		!session.initialTownRouteCompletedReturn {
 		session.loginActorGenerationRebuildArmed = true
 	}
 	session.townMu.Unlock()
@@ -236,7 +237,7 @@ func (s *Service) armLoginActorGenerationRebuild(session *gameSession) {
 //     `town_post_transition_player_state.go` 重建过 mode0/mode1，再补一份就是
 //     "把客户端绑到另一个原生对象上"（该文件 `:11-14` 的警告）。
 func loginActorGenerationRebuildOwnedLocked(session *gameSession) bool {
-	if session == nil {
+	if session == nil || session.initialTownRouteCompletedReturn {
 		return false
 	}
 	if session.initialTownRouteCharacterID == 0 ||
@@ -436,6 +437,9 @@ func (s *Service) rebuildLoginActorGenerationAfterSceneCommit(session *gameSessi
 	// rebuild147; the newly current slot26 cache then remained checksum-valid
 	// zero. Restore repository-backed instance/enchant after this last mode1.
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, trigger+"_after_actor_generation_rebuild"); err != nil {
+		return err
+	}
+	if err := s.sendSelectedActorGuardianGemRowRefresh(session, trigger+"_after_actor_generation_rebuild"); err != nil {
 		return err
 	}
 	petErr := s.sendSelectedEquippedCreatureItemRefresh(session, trigger+"_after_actor_generation_rebuild")

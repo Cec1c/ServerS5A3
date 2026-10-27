@@ -349,6 +349,7 @@ type memoryCharacterItemUnitOfWork struct {
 }
 
 type memoryCharacterTradeUnitOfWork struct {
+	settings         repository.SettingsRepository
 	accountInventory repository.AccountInventoryRepository
 	mu               sync.Mutex
 	sharedMu         *sync.Mutex

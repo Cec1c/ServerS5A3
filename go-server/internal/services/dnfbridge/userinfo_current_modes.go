@@ -131,7 +131,11 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *pack
 	w.writeUint32(creature.itemID)
 	w.writeUint32(creature.serialOrHandle) // sub_20077D0 equipped creature {item id, serial/handle}
 	// 技能页：off 档与原实现逐字节相同（0xff + 两个 0x00）；on 档见 peer_skill_page.go。
-	if buffSwapReapplyEnabled() && r.ctx != nil && r.ctx.Value(nativePeerBuffInspectKey{}) == r.characterID {
+	if len(r.peerSkills) != 0 {
+		w.writeBytes(r.peerSkills)
+	} else if r.ctx != nil && r.ctx.Value(nativePeerProfileSkillsKey{}) == r.characterID {
+		writePeerSkillPageBlock(w, peerSkillPageSelectedResourceGroup, r.loadPeerSkillPageSkills(r.characterID))
+	} else if buffSwapReapplyEnabled() && r.ctx != nil && r.ctx.Value(nativePeerBuffInspectKey{}) == r.characterID {
 		r.writeNativePeerBuffSkillPage(w)
 	} else if peerSkillPageEnabled() {
 		writePeerSkillPageBlock(w, peerSkillPageSelectedResourceGroup, r.loadPeerSkillPageSkills(r.characterID))
@@ -236,7 +240,9 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode1ObjectTail(w *pack
 	// 技能页：默认档 peer 只在「这条 body 是发给队友的」时写真实技能页
 	// （DNFBRIDGE_PEER_SKILL_PAGE=off 时逐字节回到 0xff + 两个 0x00；all 档不区分收包者）。
 	// 判据与理由见 peer_skill_page.go 文件头「修复档位」。
-	if r.peerSkillPageWriteForMode1Body() {
+	if len(r.peerSkills) != 0 {
+		w.writeBytes(r.peerSkills)
+	} else if r.peerSkillPageWriteForMode1Body() {
 		r.writePeerSkillPageForMode1Body(w)
 	} else {
 		w.writeByte(0xff) // sub_2003420 selected resource group, -1 keeps current/default

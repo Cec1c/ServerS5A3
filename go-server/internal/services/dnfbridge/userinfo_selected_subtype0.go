@@ -270,11 +270,7 @@ func (r csharpLegacyUserInfoReader) writeCSharpUserInfoSubtype0Tail(w *packetWri
 	w.writeByte(rowU8(tail, "link_slot_enabled", byte(numericCharacterStatValue(character, "link_slot_enabled"))))
 	w.writeByte(rowU8(tail, "link_type_a", 0))
 	w.writeByte(rowU8(tail, "link_type_b", 0))
-	emotionIndex := rowU16(tail, "emotion_index", 0)
-	if emotionIndex == 0 {
-		emotionIndex = uint16(numericCharacterStatValue(character, "emotion_index"))
-	}
-	w.writeUint16(emotionIndex)
+	w.writeUint16(statU16(character, "emotion_index", rowU16(tail, "emotion_index", 0)))
 	w.writeByte(rowU8(tail, "action_byte", 0))
 	w.writeUint16(rowU16(tail, "fatigue_display_update", 0))
 	w.writeByte(rowU8(tail, "costume_flag", 0))

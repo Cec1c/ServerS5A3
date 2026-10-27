@@ -327,6 +327,9 @@ func (s *Service) sendCurrentSceneItemList(session *gameSession, msgID uint16, b
 	if err != nil {
 		return err
 	}
+	if msgID == 13 || msgID == 14 {
+		defer s.rearmCurrentRelativeExpirationAfterItems(session, body)
+	}
 	runtimeName := upperRuntimeCmdPacketName(msgID, 0)
 	runtimeKnown := upperRuntimeCmdPacketKnown(msgID, 0)
 	s.logPacketEvent("game-upper-send-meta",
@@ -356,7 +359,13 @@ func (s *Service) sendCurrentSceneItemList(session *gameSession, msgID uint16, b
 		"body_len", len(body),
 		"body_encoded", false,
 		"body_codec", "plaintext")
-	return s.writeGameUpperPacket(session, packet)
+	if err := s.writeGameUpperPacket(session, packet); err != nil {
+		return err
+	}
+	if msgID == uint16(dnfenum.CmdPacketLeaveParty) && len(body) >= 5 && body[0] == 0 {
+		session.selectedMainInventoryCharacterID = session.selectedCharacterID
+	}
+	return nil
 }
 
 // sendCurrentProtectedClass0Packet owns current marker=1 scene transport
@@ -458,61 +467,71 @@ func (s *Service) sendGameUpperRawClassNoCodec(session *gameSession, msgID uint1
 }
 
 func (s *Service) sendGameUpperRawClassCodec(session *gameSession, msgID uint16, body []byte, classification byte, allowCodec bool) error {
+	if classification == 0 && (msgID == 13 || msgID == 14) {
+		// A grant remains committed even when its projection write fails.
+		// Rearm from repositories outside wireMu on either outcome.
+		defer s.rearmCurrentRelativeExpirationAfterItems(session, body)
+	}
 	return s.withGameWire(session, func() error {
-		sequence := session.upperSeq
-		headerSize := s.gameUpperHeaderSize()
-		wireBody := body
-		bodyEncoded := false
-		bodyCodec := s.gameUpperBodyCodecMode()
-		requireCurrentClass0Opcode1Codec := classification == 0 && msgID == 1
-		if allowCodec && requireCurrentClass0Opcode1Codec {
-			wireBody = dnfproto.EncodeLatestUpperClass0Opcode1Body(body)
-			bodyEncoded = true
-			bodyCodec = "current_class0_op1_xor_b5_rotl2"
-		} else if allowCodec && classification == dnfproto.DefaultChannelClassification && bodyCodec != gameUpperBodyCodecPlain {
-			encodedBody, encoded, err := dnfproto.EncodeLatestUpperServerBody(msgID, body)
-			if err != nil {
-				return err
-			}
-			wireBody = encodedBody
-			bodyEncoded = encoded
-		} else if !allowCodec {
-			bodyCodec = gameUpperBodyCodecPlain
-		}
-		packet, err := dnfproto.BuildGameServerUpperPacketWithHeaderSize(msgID, wireBody, sequence, classification, headerSize)
+		return s.sendGameUpperRawClassCodecLocked(session, msgID, body, classification, allowCodec)
+	})
+}
+
+// Caller holds session.wireMu for sequence allocation, codec and socket write.
+func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID uint16, body []byte, classification byte, allowCodec bool) error {
+	sequence := session.upperSeq
+	headerSize := s.gameUpperHeaderSize()
+	wireBody := body
+	bodyEncoded := false
+	bodyCodec := s.gameUpperBodyCodecMode()
+	requireCurrentClass0Opcode1Codec := classification == 0 && msgID == 1
+	if allowCodec && requireCurrentClass0Opcode1Codec {
+		wireBody = dnfproto.EncodeLatestUpperClass0Opcode1Body(body)
+		bodyEncoded = true
+		bodyCodec = "current_class0_op1_xor_b5_rotl2"
+	} else if allowCodec && classification == dnfproto.DefaultChannelClassification && bodyCodec != gameUpperBodyCodecPlain {
+		encodedBody, encoded, err := dnfproto.EncodeLatestUpperServerBody(msgID, body)
 		if err != nil {
 			return err
 		}
-		session.upperSeq++
-		runtimeName := upperRuntimeCmdPacketName(msgID, classification)
-		runtimeKnown := upperRuntimeCmdPacketKnown(msgID, classification)
-		s.logPacketEvent("game-upper-send-meta",
-			"conn_id", session.connID,
-			"channel_id", session.channel.ID,
-			"msg_id", msgID,
-			"runtime_cmd_name", runtimeName,
-			"runtime_cmd_known", runtimeKnown,
-			"classification", classification,
-			"sequence", sequence,
-			"header_size", headerSize,
-			"plain_body_len", len(body),
-			"body_len", len(wireBody),
-			"body_encoded", bodyEncoded,
-			"body_codec", bodyCodec,
-			"packet_len", len(packet))
-		s.logGamePacket(session, "SEND", "game-upper", packet,
-			"msg_id", msgID,
-			"runtime_cmd_name", runtimeName,
-			"runtime_cmd_known", runtimeKnown,
-			"classification", classification,
-			"header_seq", sequence,
-			"header_size", headerSize,
-			"plain_body_len", len(body),
-			"body_len", len(wireBody),
-			"body_encoded", bodyEncoded,
-			"body_codec", bodyCodec)
-		return s.writeGameUpperPacketLocked(session, packet)
-	})
+		wireBody = encodedBody
+		bodyEncoded = encoded
+	} else if !allowCodec {
+		bodyCodec = gameUpperBodyCodecPlain
+	}
+	packet, err := dnfproto.BuildGameServerUpperPacketWithHeaderSize(msgID, wireBody, sequence, classification, headerSize)
+	if err != nil {
+		return err
+	}
+	session.upperSeq++
+	runtimeName := upperRuntimeCmdPacketName(msgID, classification)
+	runtimeKnown := upperRuntimeCmdPacketKnown(msgID, classification)
+	s.logPacketEvent("game-upper-send-meta",
+		"conn_id", session.connID,
+		"channel_id", session.channel.ID,
+		"msg_id", msgID,
+		"runtime_cmd_name", runtimeName,
+		"runtime_cmd_known", runtimeKnown,
+		"classification", classification,
+		"sequence", sequence,
+		"header_size", headerSize,
+		"plain_body_len", len(body),
+		"body_len", len(wireBody),
+		"body_encoded", bodyEncoded,
+		"body_codec", bodyCodec,
+		"packet_len", len(packet))
+	s.logGamePacket(session, "SEND", "game-upper", packet,
+		"msg_id", msgID,
+		"runtime_cmd_name", runtimeName,
+		"runtime_cmd_known", runtimeKnown,
+		"classification", classification,
+		"header_seq", sequence,
+		"header_size", headerSize,
+		"plain_body_len", len(body),
+		"body_len", len(wireBody),
+		"body_encoded", bodyEncoded,
+		"body_codec", bodyCodec)
+	return s.writeGameUpperPacketLocked(session, packet)
 }
 
 func (s *Service) gameUpperHeaderSize() int {
