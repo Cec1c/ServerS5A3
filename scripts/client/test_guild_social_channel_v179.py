@@ -178,6 +178,7 @@ class SocialChannelV179Tests(unittest.TestCase):
                 directory = os.environ.get('DNF_GUILD_SOCIAL_NATIVE_DIR')
                 if directory:
                     Path(directory, f'friend-{opcode}-group{group}.bin').write_bytes(after.sent[0][1])
+                    Path(directory, f'friend-{opcode}-group{group}-before.bin').write_bytes(before.sent[0][1])
 
     def test_06_native_whisper_sender_uses_group_not_owner_channel(self):
         for group in (0, 7, 249):

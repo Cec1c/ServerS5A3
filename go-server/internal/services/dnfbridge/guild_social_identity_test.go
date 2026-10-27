@@ -29,6 +29,29 @@ func TestGuildSocialNativeFriendZeroGroup(t *testing.T) {
 	s.options.channelAdvertiseID = 1
 	for _, opcode := range []uint16{290, 291} {
 		conn.write.Reset()
+		// The old native sender substitutes directory 1 for character group 0.
+		// The existing character then receives the same 0x15 as a missing name.
+		wrongGroup := officialFriendRequest(opcode, 0xffff, 1, "来来来")
+		if dir := os.Getenv("DNF_GUILD_SOCIAL_NATIVE_DIR"); dir != "" {
+			native, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("friend-%d-group0-before.bin", opcode)))
+			if err != nil || !bytes.Equal(native, wrongGroup) {
+				t.Fatalf("old native request differs: %x err=%v", native, err)
+			}
+			wrongGroup = native
+		}
+		if err := s.handleCurrentOfficialCharacterFriendMutation(source, opcode, wrongGroup); err != nil {
+			t.Fatal(err)
+		}
+		rejected, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+		if !bytes.Equal(rejected.Body, []byte{0, 0x15}) || len(rest) != 0 {
+			t.Fatalf("old group must reject without list projection: %x", conn.write.Bytes())
+		}
+		reposBefore, _ := s.repositoryGroup()
+		beforeRows, err := characterfriend.NewOwner(reposBefore).List(context.Background(), "dnf:1", "1")
+		if err != nil || (opcode == 290 && len(beforeRows) != 0) || (opcode == 291 && (len(beforeRows) != 1 || beforeRows[0].CharacterID != "5")) {
+			t.Fatalf("rejected request changed friends: rows=%+v err=%v", beforeRows, err)
+		}
+		conn.write.Reset()
 		body := officialFriendRequest(opcode, 0xffff, 0, "来来来")
 		if dir := os.Getenv("DNF_GUILD_SOCIAL_NATIVE_DIR"); dir != "" {
 			native, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("friend-%d-group0.bin", opcode)))
