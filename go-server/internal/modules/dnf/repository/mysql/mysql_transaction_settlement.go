@@ -69,6 +69,14 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		}
 	}
 	base := newMySQLGroupFromRouter(txRouter, false)
+	// 角色结算和账号资产事务共用已验证的槽位差量写入。快照只属于当前
+	// SQL事务；未成功读取完整快照的保存仍走原有完整写入。
+	if store, ok := base.Inventory.(*mysqlBagStore); ok {
+		store.trackSlotChanges = true
+	}
+	if store, ok := base.AccountInventory.(*mysqlAccountInventoryStore); ok {
+		store.trackSlotChanges = true
+	}
 	if owner != nil {
 		if _, _, err := base.Settings.Load(ctx, repository.GuildRegistryScope); err != nil {
 			return err
@@ -234,6 +242,13 @@ func (r *characterSettlementScopedCharacterRepository) SaveFields(ctx context.Co
 		return err
 	}
 	return repository.SaveCharacterFields(ctx, r.base, record, fields...)
+}
+
+func (r *characterSettlementScopedCharacterRepository) SaveExpertJobExperience(ctx context.Context, record repository.CharacterRecord) error {
+	if err := repository.TransactionKeyError(ctx, r.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	return repository.SaveCharacterExpertExperience(ctx, r.base, record)
 }
 
 func (r *characterSettlementScopedCharacterRepository) ListByAccount(context.Context, string, int) ([]repository.CharacterRecord, error) {
