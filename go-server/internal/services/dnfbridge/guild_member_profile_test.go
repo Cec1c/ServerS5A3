@@ -154,6 +154,32 @@ func TestGuildMemberProfileSlowSocketDeadlineReleasesBindingAndLocks(t *testing.
 	}
 }
 
+func TestGuildMemberProfileStalePreparedPeerDoesNotFailViewer(t *testing.T) {
+	f, _ := guildMemberProfileFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	a, err := f.service.loadCurrentGuildMemberProfileAccess(ctx, f.target, currentGuildMemberProfileRequest{channel: 11, character: 17, directory: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.actor.characterGeneration++
+	if err := f.service.sendCurrentGuildMemberProfileFrames(ctx, a, 0, []currentGuildMemberProfileFrame{{2, 0, []byte{8}}}); err != nil {
+		t.Fatalf("stale peer failed viewer: %v", err)
+	}
+	if f.targetConn.write.Len() != 0 {
+		t.Fatal("stale profile sent")
+	}
+	v, ok := f.service.boundGameSessionCharacterSnapshot(f.target)
+	if !ok {
+		t.Fatal("viewer retired")
+	}
+	r, err := f.service.reserveCurrentCharacterAssets(ctx, v, "dnf:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.releaseCurrentCharacterAssets(r)
+}
+
 func TestGuildMemberProfileRejectsInvalidRequests(t *testing.T) {
 	for _, body := range [][]byte{nil, {11, 17, 0, 0}, {11, 17, 0, 0, 1, 0}, {0, 17, 0, 0, 1}, {255, 17, 0, 0, 1}, {12, 17, 0, 0, 1}, {11, 0, 0, 0, 1}, {11, 255, 255, 0, 1}, {11, 17, 0, 3, 1}, {11, 17, 0, 0, 2}, {11, 29, 0, 0, 1}} {
 		f, _ := guildMemberProfileFixture(t)

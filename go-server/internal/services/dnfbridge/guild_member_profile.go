@@ -209,6 +209,11 @@ func (s *Service) sendCurrentGuildMemberProfile(ctx context.Context, a currentGu
 func (s *Service) sendCurrentGuildMemberProfileFrames(ctx context.Context, a currentGuildMemberProfileAccess, revision uint64, frames []currentGuildMemberProfileFrame) error {
 	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{a.viewer, a.actor})
 	if err != nil {
+		// A peer may reconnect between preparation and binding reservation.
+		// Drop this inspection instead of failing the viewer's command stream.
+		if errors.Is(err, errDungeonWorldMapUnavailable) {
+			return nil
+		}
 		return err
 	}
 	defer release()
