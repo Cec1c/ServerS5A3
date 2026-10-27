@@ -8,13 +8,43 @@ import (
 	"strings"
 )
 
-var _ repository.AccountCharacterMailboxAssetUnitOfWork = (*memoryAccountCharacterAssetUnitOfWork)(nil)
+var (
+	_ repository.AccountCharacterMailboxAssetUnitOfWork       = (*memoryAccountCharacterAssetUnitOfWork)(nil)
+	_ repository.AccountCharacterLedgerMailboxAssetUnitOfWork = (*memoryAccountCharacterAssetUnitOfWork)(nil)
+)
 
 func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterMailboxAssets(
 	ctx context.Context,
 	accountID string,
 	characterID string,
 	apply func(repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.MailboxRepository) error,
+) (err error) {
+	if apply == nil {
+		return repository.ErrAccountCharacterAssetTransactionUnavailable
+	}
+	return u.withinAccountCharacterMailboxAssets(ctx, accountID, characterID, false, func(_ repository.AccountRepository, accounts repository.AccountInventoryRepository, characters repository.CharacterRepository, inventories repository.InventoryRepository, equipment repository.EquipmentRepository, mailboxes repository.MailboxRepository) error {
+		return apply(accounts, characters, inventories, equipment, mailboxes)
+	})
+}
+
+func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterLedgerMailboxAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.MailboxRepository) error,
+) (err error) {
+	if apply == nil {
+		return repository.ErrAccountCharacterAssetTransactionUnavailable
+	}
+	return u.withinAccountCharacterMailboxAssets(ctx, accountID, characterID, true, apply)
+}
+
+func (u *memoryAccountCharacterAssetUnitOfWork) withinAccountCharacterMailboxAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	includeLedger bool,
+	apply func(repository.AccountRepository, repository.AccountInventoryRepository, repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository, repository.MailboxRepository) error,
 ) (err error) {
 	accountID = strings.TrimSpace(accountID)
 	characterID = strings.TrimSpace(characterID)
@@ -35,6 +65,27 @@ func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterMailboxAss
 	}
 	lock.Lock()
 	defer lock.Unlock()
+
+	// Preserve the ledger asset lock order: aggregate lock, then the account
+	// lock held by pickup credit and other account Metadata writers.
+	var ledgerTx *memoryAccountTransaction
+	var ledgerRecord repository.AccountRecord
+	if includeLedger {
+		if u.account == nil {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+		u.account.nameMu.Lock()
+		defer u.account.nameMu.Unlock()
+		record, found, err := u.account.MemoryStore.Load(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		if !found || record.AccountID != accountID {
+			return repository.ErrAccountCharacterAssetTransactionUnavailable
+		}
+		ledgerRecord = record
+		ledgerTx = &memoryAccountTransaction{accountID: accountID, record: repository.CloneAccount(record), exists: true}
+	}
 
 	accountRecord, accountExists, err := u.accountInventory.Load(ctx, accountID)
 	if err != nil {
@@ -83,11 +134,32 @@ func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterMailboxAss
 		record:      repository.CloneEquipment(equipmentRecord),
 		exists:      equipmentExists,
 	}
-	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx, mailboxTx); err != nil {
+	if err := apply(ledgerTx, accountTx, characterTx, inventoryTx, equipmentTx, mailboxTx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if includeLedger {
+		return commitMemoryLedgerAssets(ctx,
+			memoryLedgerWrite{dirty: accountTx.dirty, save: func() error { return u.accountInventory.Save(ctx, accountTx.record) }, restore: func() error {
+				return restoreAccountInventoryRecord(u.accountInventory, accountID, accountRecord, accountExists)
+			}},
+			memoryLedgerWrite{dirty: characterTx.dirty, save: func() error { return u.character.Save(ctx, characterTx.record) }, restore: func() error {
+				return restoreCharacterRecord(u.character, characterID, characterRecord, characterExists, true)
+			}},
+			memoryLedgerWrite{dirty: inventoryTx.dirty, save: func() error { return u.inventory.Save(ctx, inventoryTx.record) }, restore: func() error {
+				return restoreInventoryRecordIfDirty(u.inventory, characterID, inventoryRecord, inventoryExists, true)
+			}},
+			memoryLedgerWrite{dirty: equipmentTx.dirty, save: func() error { return u.equipment.Save(ctx, equipmentTx.record) }, restore: func() error {
+				return restoreEquipmentRecordIfDirty(u.equipment, characterID, equipmentRecord, equipmentExists, true)
+			}},
+			memoryLedgerWrite{dirty: mailboxTx.dirty, save: func() error { return u.mailbox.Save(ctx, mailboxTx.record) }, restore: func() error {
+				return restoreMailboxRecordIfDirty(u.mailbox, characterID, mailboxRecord, mailboxExists, true)
+			}},
+			memoryLedgerWrite{dirty: ledgerTx.dirty, save: func() error { return u.account.MemoryStore.Save(ctx, ledgerTx.record) }, restore: func() error {
+				return u.account.MemoryStore.Save(context.Background(), ledgerRecord)
+			}})
 	}
 
 	// Mark an attempted physical write BEFORE calling the repository. A Save

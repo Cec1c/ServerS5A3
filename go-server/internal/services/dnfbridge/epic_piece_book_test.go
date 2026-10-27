@@ -11,6 +11,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
@@ -599,10 +600,13 @@ func TestCurrentSelectInventoryBootstrapCarriesTheAccountEpicPieceLedger(t *test
 	}
 	if packet.Header.MsgID != currentEpicPieceBalanceSyncOpcode ||
 		packet.Header.Classification != 0 ||
-		!bytes.Equal(packet.Body, want) ||
-		len(trailing) != 0 {
+		!bytes.Equal(packet.Body, want) {
 		t.Fatalf("select bootstrap epic-piece ledger header=%+v body=%x want=%x trailing=%x",
 			packet.Header, packet.Body, want, trailing)
+	}
+	trailing, _, _ = requireCurrentFateLoginTailPackets(t, trailing, dnfproto.GameServerUpperHeaderSize, 0, 0)
+	if len(trailing) != 0 {
+		t.Fatalf("select bootstrap emitted unknown packets after Fate: %x", trailing)
 	}
 	// 同一角色的引导是 one-shot：第二次不能再发。
 	connection.write.Reset()

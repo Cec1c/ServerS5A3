@@ -25,6 +25,9 @@ func TestPartyLeaderDungeonSelectionEntersEveryOnlineMemberWithStablePartyIndex(
 	source["dungeon/test.dgn"] = strings.Replace(source["dungeon/test.dgn"], "[limit party count]\n1\n", "[limit party count]\n4\n", 1)
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, source)
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"99", "100"} {
 		if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 			CharacterID: id,
@@ -996,6 +999,9 @@ func TestRuntimeDungeonRoomAnnounceAllActorsRejectsConflictWithoutStateAdvance(t
 func TestHandleDungeonSelectUpperDefersEntryPacketValidationUntilTypedScenePhases(t *testing.T) {
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, bridgeDungeonPVF(false))
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99",
 		AccountID:   "account-1",
@@ -1080,6 +1086,9 @@ func TestHandleDungeonSelectUpperDefersEntryPacketValidationUntilTypedScenePhase
 func TestHandleDungeonSelectUpperCommitsStartMapBeforePostPlayerState(t *testing.T) {
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, bridgeDungeonPVF(false))
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99",
 		AccountID:   "account-1",
@@ -1299,7 +1308,7 @@ func assertCurrentPostStartMapPlayerState(t *testing.T, session *gameSession, re
 		!bytes.Equal(lockSnapshot.Body, []byte{0, 0}) {
 		t.Fatalf("actor-bound pre-mode1 item-lock snapshot=%+v body=%x", lockSnapshot.Header, lockSnapshot.Body)
 	}
-	rest = next
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, next, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	want := make([]struct {
 		msgID uint16
 		mode  byte
