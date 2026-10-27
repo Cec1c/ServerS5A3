@@ -91,3 +91,14 @@ advances to the late empty result, the candidate clears pending/timer before
 the original error path, repeated failure resets each time, success parity,
 retry-success parity, null-manager safety, null-controller safety, and exact
 helper-section mapping.
+
+## Already-patched cumulative clients
+
+Inspect the current failure branch and mapped helper before choosing a build
+profile. An already-patched cumulative release should be verified directly;
+do not append another helper or strip its existing patches to feed this builder.
+`verify_reset.py` proves a deterministic build from a declared unpatched input.
+It does not attest the build provenance of an existing cumulative artifact.
+A native regression on such an artifact must bind its complete hash, preserve
+its actual receiver/reset/settlement instructions, and identify any independently
+written negative-control copy as a controlled mutation, not a historical release.
