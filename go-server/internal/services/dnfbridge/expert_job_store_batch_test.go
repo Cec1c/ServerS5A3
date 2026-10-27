@@ -125,6 +125,9 @@ func TestRealPVFPlayerDisjointBatchAtomicResult(t *testing.T) {
 			packets := splitAllGameServerUpperPackets(t, requesterConn.write.Bytes())
 			resultPackets := 0
 			for _, packet := range packets {
+				if packet.Header.MsgID == 13 {
+					t.Fatal("分解师结果期间不应重建整套道具容器")
+				}
 				if packet.Header.MsgID == 235 {
 					resultPackets++
 					if scenario != "visitor" && !self {

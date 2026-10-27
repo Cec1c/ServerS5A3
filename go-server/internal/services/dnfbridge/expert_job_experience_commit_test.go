@@ -14,7 +14,7 @@ import (
 )
 
 // Exercise the commands, including persistence and the post-commit packet
-// sequence. A level-up-only notification loses ordinary progress between levels.
+// sequence. 普通提取经验由USERINFO更新；完整205只在等级变化时重发。
 func TestRealPVFExpertJobExperienceAfterCommit(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
@@ -143,8 +143,8 @@ func TestRealPVFExpertJobExperienceAfterCommit(t *testing.T) {
 					}
 					if packet.Header.MsgID == 2 && len(packet.Body) > 0 && packet.Body[0] == 0 {
 						actorCount++
-						if infoCount != 1 {
-							t.Fatal("actor refresh preceded profession cache")
+						if operation == "compound" && infoCount != 1 || operation != "compound" && mode == "town" && infoCount != 0 {
+							t.Fatal("提取普通经验不应重发完整205，合成原有顺序保持")
 						}
 						_, offset := expertJobExpNotifySubtype0BodyOffsets(after.Name)
 						if len(packet.Body) < offset+4 || binary.LittleEndian.Uint32(packet.Body[offset:]) != uint32(experience) {
@@ -153,6 +153,9 @@ func TestRealPVFExpertJobExperienceAfterCommit(t *testing.T) {
 					}
 				}
 				wantInfo, wantActor := 1, 1
+				if operation != "compound" && mode == "town" {
+					wantInfo = 0
+				}
 				if mode == "dungeon" {
 					wantActor = 0
 				}

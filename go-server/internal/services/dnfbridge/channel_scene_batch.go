@@ -46,6 +46,12 @@ func (s *Service) writeCurrentGameWireLocked(p *gameSession, wire []byte) (int, 
 		b.frames++
 		return len(wire), nil
 	}
+	if p.nativeResultDelivery != nil {
+		// 原始帧及保护控制不属于分解结果，先释放此前准备的应答。
+		if err := s.flushNativeResultDeliveryLocked(p, "原始或保护控制报文"); err != nil {
+			return 0, err
+		}
+	}
 	return p.conn.Write(wire)
 }
 
