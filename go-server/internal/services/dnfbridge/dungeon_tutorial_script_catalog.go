@@ -152,7 +152,7 @@ func (c *pvfDungeonTutorialScriptCatalog) indexBasicActionDestroyTargets(
 			tutorialDungeonIDs[dungeon.ID] = struct{}{}
 		}
 	}
-	for _, mapValue := range table.Maps() {
+	for _, mapValue := range table.MapActionReferences() {
 		if strings.TrimSpace(mapValue.BasicAction) == "" || !mapOwnedByDungeonSet(mapValue, tutorialDungeonIDs) {
 			continue
 		}
