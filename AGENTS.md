@@ -44,14 +44,14 @@
 - The local profile is single-account and local-only. The 90CN bootstrap/channel download endpoint, admin endpoint, and MySQL stay on loopback. Dynamic channel-directory advertisements and every game port must use an automatically detected or explicitly configured private LAN IPv4 and bind only that local interface; never use a wildcard or public address.
 - The `90cn-decode-bypass-v1` protocol profile, asset hashes, and client hashes are a compatibility unit. Change them together and record evidence.
 
-## anti-RE 使用边界与客户端发布要求
+## 来源通知工具与客户端累计发布
 
-- anti-RE 是独立的 EXE 加锁、防篡改工具，按黑盒 CLI 使用。默认只读取 README、CLI 帮助和输入/输出、验证契约；非任务确需不深入源码、反编译或保护机制，不将其内部实现引入业务调查上下文，也不绕过工具报错或校验。
-- 后续客户端 Release 中的所有 EXE 都必须经过 anti-RE 加锁并通过工具规定的验证，包括正式、preview、热修复、独立 EXE 包及整包/分卷内的 EXE。未加锁的构建、补丁中间文件和调试 EXE 不得作为 Release 附件或进入玩家更新源。
-- 顺序固定为：完成功能修改 → anti-RE 加锁 → 按 CLI 契约验证最终文件 → 发布 Release 并同步指定镜像 → 更新玩家实际通道 → 部署依赖服务端。加锁后再改 EXE 必须重新加锁和验证。回执绑定工具版本、验证结果及最终 EXE 完整 SHA256/长度，其他字段按真实 CLI 契约记录；文件名、MZ 文件头、签名清单或摘要一致不能替代加锁验证。
-- 玩家更新源必须使用所选正式/预览通道最新已发布 Release 中的已加锁 EXE。每次更新当场核对权威发行列表、通道、标签与附件，排除草稿，不仅依赖缓存或 `latest` 指针；最新发行缺少加锁证明或验证失败就停止切换，不静默选旧发行或未加锁原版。本服派生修改也须先发布新的已加锁 Release，再切更新源。
-- 维护或使用一键更新、发布、镜像及更新源入口时，必须检查现有 BAT/Python、CI、Release 镜像、Hub、签名清单和实际下载链是否落实上述要求。重点检查 `GAME_UPDATE_REMOTE.bat`、`deploy/windows/game_update.py`、`scripts/ci/sync_client_releases.py`、`.github/workflows/client-release-sync.yml` 及实际更新源所属仓库。记录已接入的校验和仍缺的检查；缺少有效加锁验证或最新发行来源绑定时先补齐，不能仅凭旧脚本成功宣称新发布合规。
-- 镜像必须原样使用已验证的加锁产物，读回 Release 附件、玩家签名清单和实际下载文件并核对同一摘要。历史未加锁或加锁状态未确认的发行不得重新镜像、回填到另一端或设为新更新源。旧 Release 清理由用户指定的独立进程负责；本流程不自行删除。现有运行组合与回退产物保留，不据本条自动切换或重启服务。
+- anti-RE v0.2.0 是来源通知工具，保留通知与三处编码的轻量文案隐藏，已移除整文件 SHA 白名单和运行时防篡改。按黑盒 CLI 使用，默认只读 README、使用说明和输入/输出契约；非任务确需不深入实现，不恢复旧保护或把工具报错绕过。
+- 本轮由通知工具维护方基于未加通知的 V182 使用一次工具，在通知成品上累计迭代到 V183，完成游戏验收后统一发布 V183 EXE 基线；工具版本、配置、输入/输出 SHA256 与验证记录留档。内部 V182 通知候选不是已发布的 V183。已有更新累计成品时使用更新成品，不用早期候选覆盖后续修改。
+- V183 正式基线发布后，其他开发者从该基线及其后续累计版本恢复直接修改 EXE、验证并交付的流程。普通修复或新 Release 不要求重新运行通知 CLI；SHA 改变只记录为新的文件身份。此前“每次新 Release 必须加锁、每次修改后重新经过 CLI”的规则已被本条替代。
+- 普通修复保留通知新增节、挂接指令及依赖关系，输出独立候选，不将挂接恢复为未注入原指令。涉及通知位置、相关函数地址、调用约定、对象布局、所有权或消息流程时协调适配。需要时可自愿执行 `anti-re.exe verify --input <候选>` 检查通知结构；它不运行游戏，也不替代功能及游戏内验收。
+- 维护一键更新、发布、镜像及 Hub 时，沿用最新累计 EXE、所选通道最新已发布 Release、签名与最终下载摘要核对；不增加每次发版必须调用 anti-RE 的门槛。顺序仍为：修复验证与所需验收 → Release/指定镜像 → 玩家实际通道读回 → 依赖服务端部署。工具已发布、EXE 候选、正式基线及线上状态分别记录。
+- 旧 Release 清理由用户指定的独立进程负责；不自行删除或从另一端补回已清理版本。已退役版本不能替代当前累计基线；现有运行组合和回退产物按既有发布流程保留。
 
 ## 客户端函数索引与静态取证
 
