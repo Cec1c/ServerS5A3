@@ -49,6 +49,11 @@ func liveCharacter6EquipmentRows() []liveCharacter6EquipmentRow {
 func seedLiveCharacter6(t *testing.T, repositories dnfrepo.Group) {
 	t.Helper()
 	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{
+		AccountID: defaultAccountPrefix + "10011",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
 		CharacterID: "6",
 		AccountID:   defaultAccountPrefix + "10011",
@@ -128,6 +133,19 @@ func splitLoginBootstrapContainers(t *testing.T, stream []byte) (map[byte][]byte
 	return bodies, stream
 }
 
+func requireCurrentLoginBootstrapTailPackets(t *testing.T, stream []byte) {
+	t.Helper()
+	lockSnapshot, rest := splitCurrentGameServerUpperPacketAuto(t, stream)
+	if lockSnapshot.Header.Classification != 0 ||
+		lockSnapshot.Header.MsgID != dnfitemlock.LockListMessageID {
+		t.Fatalf("login bootstrap item-lock packet=%+v body=%x", lockSnapshot.Header, lockSnapshot.Body)
+	}
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize16, 0, 0)
+	if len(rest) != 0 {
+		t.Fatalf("login bootstrap emitted unknown trailing packets: %x", rest)
+	}
+}
+
 func loginItemListRowIDs(body []byte) map[int16]uint32 {
 	count := int(binary.LittleEndian.Uint16(body[1:3]))
 	out := make(map[int16]uint32, count)
@@ -183,13 +201,7 @@ func TestLoginEquipmentContainerIsSentAtCharacterSelectWithLiveCharacterShape(t 
 		t.Fatalf("list 3 carries slot 10 although the live character has no row there: %v", rows)
 	}
 	// 引导段之后必须紧跟 item-lock 快照，且没有多余字节（顺序与包数都被钉住）。
-	trailing, remaining := splitCurrentGameServerUpperPacketAuto(t, rest)
-	if trailing.Header.MsgID != dnfitemlock.LockListMessageID {
-		t.Fatalf("packet after containers = msg %d, want item-lock snapshot", trailing.Header.MsgID)
-	}
-	if len(remaining) != 0 {
-		t.Fatalf("bootstrap trailing bytes=%x", remaining)
-	}
+	requireCurrentLoginBootstrapTailPackets(t, rest)
 }
 
 // TestLoginEquipmentContainerRollbackIsByteForByteSixContainers 是回退字面量的用例：
@@ -269,6 +281,11 @@ func TestLoginEquipmentContainerEmitsEmptyContainerWhenEquipmentRecordAbsent(t *
 	t.Setenv(loginEquipmentContainerEnv, "")
 	repositories := dnfrepomemory.NewMemoryGroup()
 	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{
+		AccountID: defaultAccountPrefix + "10011",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
 		CharacterID: "91",
 		AccountID:   defaultAccountPrefix + "10011",
@@ -291,7 +308,8 @@ func TestLoginEquipmentContainerEmitsEmptyContainerWhenEquipmentRecordAbsent(t *
 	); err != nil {
 		t.Fatal(err)
 	}
-	bodies, _ := splitLoginBootstrapContainers(t, connection.write.Bytes())
+	bodies, rest := splitLoginBootstrapContainers(t, connection.write.Bytes())
+	requireCurrentLoginBootstrapTailPackets(t, rest)
 	equipmentBody, ok := bodies[currentSocketListEquipment]
 	if !ok {
 		t.Fatalf("absent equipment record dropped the list 3 container: %v", bodies)

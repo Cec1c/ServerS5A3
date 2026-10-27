@@ -568,6 +568,9 @@ func prepareTutorialScopeRuntime(
 		t.Fatalf("load synthetic tutorial script catalog: %v", err)
 	}
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	characterStats := map[string]int64{
 		"fatigue":    100,
 		"town_id":    7,

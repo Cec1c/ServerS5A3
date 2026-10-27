@@ -8,6 +8,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -412,6 +413,12 @@ func splitInitialTownPreparedStateBeforeTransitionWithPolicies(
 	overseerPages := 0
 	containerLists := 0
 	lastContainerListIndex := -1
+	wantFateSnapshot := wantContainerLists == len(currentSelectInventoryBootstrapListTypes)
+	itemLockSnapshotCount := 0
+	itemLockSnapshotIndex := -1
+	fateSnapshotCount := 0
+	fateListIndex := -1
+	fateWeeklyIndex := -1
 	containerListTypeCap := wantContainerLists
 	if containerListTypeCap < 0 {
 		containerListTypeCap = 1
@@ -497,6 +504,19 @@ func splitInitialTownPreparedStateBeforeTransitionWithPolicies(
 			if lastFullMode1Index >= 0 {
 				crystalOrderOK = crystalOrderOK && lastFullMode1Index > crystalStateIndex
 			}
+			fateOrderOK := fateSnapshotCount == 0
+			if wantFateSnapshot {
+				fateOrderOK = fateSnapshotCount == 1 && itemLockSnapshotCount == 1 &&
+					itemLockSnapshotIndex > lastContainerListIndex &&
+					fateListIndex > itemLockSnapshotIndex &&
+					fateWeeklyIndex == fateListIndex+1 &&
+					crystalStateIndex > fateWeeklyIndex
+			}
+			if !fateOrderOK {
+				t.Fatalf("initial town Fate ordering: want_snapshot=%t pairs=%d list44=%d weekly=%d containers_end=%d lock=%d@%d crystal=%d msg_ids=%v",
+					wantFateSnapshot, fateSnapshotCount, fateListIndex, fateWeeklyIndex,
+					lastContainerListIndex, itemLockSnapshotCount, itemLockSnapshotIndex, crystalStateIndex, msgIDs)
+			}
 			if overseerPages != 5 ||
 				!containerListPolicyOK || !actionTable || !cargoReset || !adventureInfo || fullMode1AfterContainers != wantFullMode1 ||
 				mode3 || !preTransitionOrderOK || !crystalOrderOK ||
@@ -558,12 +578,35 @@ func splitInitialTownPreparedStateBeforeTransitionWithPolicies(
 			if !cargoReset {
 				t.Fatalf("initial town op13 preceded cargo reset: body=%x", packet.Body)
 			}
+			if len(packet.Body) > 0 && packet.Body[0] == currentRaidCurrencyListType {
+				if !wantFateSnapshot || fateSnapshotCount != 0 || containerLists != wantContainerLists ||
+					itemLockSnapshotCount != 1 || itemLockSnapshotIndex <= lastContainerListIndex {
+					t.Fatalf("initial town unexpected or premature Fate snapshot: want=%t pairs=%d containers=%d/%d lock=%d@%d containers_end=%d",
+						wantFateSnapshot, fateSnapshotCount, containerLists, wantContainerLists,
+						itemLockSnapshotCount, itemLockSnapshotIndex, lastContainerListIndex)
+				}
+				// These town fixtures use the default 13-byte header for raw
+				// Fate packets. The seven scene containers retain their own
+				// fixed-16 transport and are counted separately above.
+				// Require the adjacent list44/1456 pair and the fixtures' empty
+				// account wallet, rather than skipping unrecognized op13 tails.
+				var weekly dnfproto.ChannelPacket
+				rest, _, weekly = requireCurrentFateLoginTailPackets(t, stream, dnfproto.GameServerUpperHeaderSize, 0, 0)
+				fateSnapshotCount++
+				fateListIndex = packetIndex
+				fateWeeklyIndex = packetIndex + 1
+				msgIDs = append(msgIDs, weekly.Header.MsgID)
+				packetBytes = len(stream) - len(rest)
+				break
+			}
 			if wantContainerLists < 0 || wantContainerLists == 1 {
 				if len(packet.Body) == 0 || packet.Body[0] != currentPetInventoryListType {
 					t.Fatalf("initial town late op13 body=%x: only list7 pet-scene rehydrate is allowed before op24", packet.Body)
 				}
-			} else if containerLists >= len(currentSelectInventoryBootstrapListTypes) ||
-				len(packet.Body) == 0 ||
+			} else if containerLists >= len(currentSelectInventoryBootstrapListTypes) {
+				t.Fatalf("initial town unexpected extra container op13[%d] body=%x after lists=%v",
+					containerLists, packet.Body, currentSelectInventoryBootstrapListTypes)
+			} else if len(packet.Body) == 0 ||
 				packet.Body[0] != currentSelectInventoryBootstrapListTypes[containerLists] {
 				t.Fatalf(
 					"initial town actor-bound op13[%d] body=%x want list%d",
@@ -577,6 +620,14 @@ func splitInitialTownPreparedStateBeforeTransitionWithPolicies(
 			if len(packet.Body) > 0 {
 				containerListTypes = append(containerListTypes, packet.Body[0])
 			}
+		case dnfitemlock.LockListMessageID:
+			if packet.Header.Classification != 0 {
+				t.Fatalf("initial town item-lock snapshot header=%+v body=%x", packet.Header, packet.Body)
+			}
+			itemLockSnapshotCount++
+			itemLockSnapshotIndex = packetIndex
+		case 1456:
+			t.Fatalf("initial town orphan or duplicate Fate weekly packet at %d: header=%+v body=%x", packetIndex, packet.Header, packet.Body)
 		case currentCrystalContractStateMsgID:
 			if packet.Header.Classification != 0 || len(packet.Body) != 2 || packet.Body[0] != 0 {
 				t.Fatalf("initial town crystal state header=%+v body=%x, want class0/op898 00+selection", packet.Header, packet.Body)
@@ -591,6 +642,9 @@ func splitInitialTownPreparedStateBeforeTransitionWithPolicies(
 				fullMode1 = true
 				lastFullMode1Index = packetIndex
 				if containerLists == wantContainerLists {
+					if wantFateSnapshot && fateSnapshotCount != 1 {
+						t.Fatalf("initial town full mode1 preceded Fate snapshot after all containers: packet=%d pairs=%d", packetIndex, fateSnapshotCount)
+					}
 					fullMode1AfterContainers = true
 				}
 			}

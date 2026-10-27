@@ -1126,6 +1126,8 @@ func TestReturnSelectReentryBootstrapsListsAndRehydratesGuardianGemAfterFullMode
 	op13Types := make([]byte, 0, len(currentSelectInventoryBootstrapListTypes))
 	bootstrapLists := make(map[byte]dnfproto.ChannelPacket, len(currentSelectInventoryBootstrapListTypes))
 	lastOp13Index := -1
+	fateListIndex := -1
+	fateListCount := 0
 	itemLockSnapshotIndex := -1
 	itemLockSnapshotBody := []byte(nil)
 	op14Count := 0
@@ -1139,6 +1141,13 @@ func TestReturnSelectReentryBootstrapsListsAndRehydratesGuardianGemAfterFullMode
 				fullMode1Index = packetIndex
 			}
 		case uint16(dnfenum.CmdPacketLeaveParty):
+			if len(packet.Body) > 0 && packet.Body[0] == currentRaidCurrencyListType {
+				// The shared town helper already checks this pair's exact
+				// balance and weekly body; it follows the seven containers.
+				fateListIndex = packetIndex
+				fateListCount++
+				break
+			}
 			op13Count++
 			if len(packet.Body) > 0 {
 				op13Types = append(op13Types, packet.Body[0])
@@ -1169,7 +1178,7 @@ func TestReturnSelectReentryBootstrapsListsAndRehydratesGuardianGemAfterFullMode
 		op13Count != len(currentSelectInventoryBootstrapListTypes) ||
 		!bytes.Equal(op13Types, currentSelectInventoryBootstrapListTypes) ||
 		lastOp13Index >= itemLockSnapshotIndex ||
-		itemLockSnapshotIndex >= fullMode1Index ||
+		fateListCount != 1 || itemLockSnapshotIndex >= fateListIndex || fateListIndex >= fullMode1Index ||
 		!bytes.Equal(itemLockSnapshotBody, []byte{0, 0}) ||
 		op14Count != 1 || guardianGemOp14Index <= fullMode1Index {
 		t.Fatalf("re-entry inventory placement: full_mode1=%d late_op13=%d lock_snapshot=%d/%x op13_types=%v op14=%d guardian_op14=%d", fullMode1Index, lastOp13Index, itemLockSnapshotIndex, itemLockSnapshotBody, op13Types, op14Count, guardianGemOp14Index)
