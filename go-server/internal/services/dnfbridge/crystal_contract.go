@@ -84,6 +84,7 @@ func (s *Service) handleCurrentCrystalContractUpdate(session *gameSession, body 
 			"error", err)
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUpdateContractOfCubeInfo), 1)
 	}
+	s.syncCurrentCrystalContractTimer(session, state, "选择已提交")
 	s.logGameEvent(session, "game-crystal-contract-selection-committed",
 		"msg_id", uint16(dnfenum.CmdPacketUpdateContractOfCubeInfo),
 		"state_msg_id", currentCrystalContractStateMsgID,
@@ -228,6 +229,11 @@ func (s *Service) handleCurrentCrystalContractCubeUse(session *gameSession, body
 			"error", err)
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUseLimitCube), 1)
 	}
+	// 兼容显式消耗请求成功后重新起计，旧定时回调不得紧接着再扣。
+	session.dungeon.mu.Lock()
+	s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "显式消耗已提交")
+	session.dungeon.mu.Unlock()
+	s.syncCurrentCrystalContractTimer(session, crystalcontract.State{Active: true, Selection: result.SelectionAfter, CubeItemID: result.ItemID}, "显式消耗已提交")
 	var response packetWriter
 	// NoPack sub_1D10130 consumes success + u32 item ID + u16 consumed count
 	// + u32 remaining stack count + u8 refresh flag.

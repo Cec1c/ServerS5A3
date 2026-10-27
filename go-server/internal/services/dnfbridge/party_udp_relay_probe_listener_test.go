@@ -354,8 +354,8 @@ func TestProbeCharacterIDParsing(t *testing.T) {
 	}
 }
 
-// ⑨ 探针监听**永不阻塞中继**：探针口与中继口配成同一个时，腿必须能把它抢过来。
-func TestProbePortReleaseKeepsRelayBindable(t *testing.T) {
+// ⑨ 探针口与中继范围重叠时保持专用，定向腿使用范围内其余端口。
+func TestProbePortReservationKeepsRelayBindable(t *testing.T) {
 	recorder := &relayLogRecorder{}
 	portStart := testCurrentPartyUDPRelayPortStart(t)
 	relay, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
@@ -377,7 +377,13 @@ func TestProbePortReleaseKeepsRelayBindable(t *testing.T) {
 	if portAB == portBA {
 		t.Fatalf("directed legs must bind distinct ports: %d/%d", portAB, portBA)
 	}
-	// 探针口被腿抢走之后必须真的从"活着的监听"里消失（腿赢，探针永不阻塞中继）。
+	// 保留探针监听，不能把持续保活导向某个角色的定向腿。
+	if ports := relay.probeListenerPorts(); len(ports) != 1 || ports[0] != portStart {
+		t.Fatalf("dedicated probe listener lost: %v", ports)
+	}
+	if int(portAB) == portStart || int(portBA) == portStart {
+		t.Fatal("probe port allocated to directed leg")
+	}
 	for _, probePort := range relay.probeListenerPorts() {
 		if probePort == int(portAB) || probePort == int(portBA) {
 			t.Fatalf("probe listener still holds a port a party leg is using: %d", probePort)
@@ -435,6 +441,10 @@ func TestFanOutUnlearnedDatagramHitsEveryKnownCandidate(t *testing.T) {
 		t.Fatalf("send B first datagram: %v", err)
 	}
 	waitRelayLog(t, recorder, "party UDP relay fanout candidate used", 3*time.Second)
+	// Each candidate is counted before its own log, but the first candidate's
+	// log does not mean the fan-out loop has reached the second candidate yet.
+	waitRelayLog(t, recorder, "kind memo_stale", 3*time.Second)
+	waitRelayLog(t, recorder, "kind advertised_port", 3*time.Second)
 	stats := relayLegStatsFor(t, relay, 101, 202)
 	if stats.StaleMemoDatagrams != 1 {
 		t.Fatalf("stale memo candidate must be written exactly once per datagram: %+v", stats)
@@ -490,7 +500,8 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 	}
 	recorder := &relayLogRecorder{}
 	portStart := testCurrentPartyUDPRelayPortStart(t)
-	kicked := make(chan string, 16)
+	kicked := make(chan time.Time, 16)
+	minAge := 120 * time.Millisecond
 	relay, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 		enabled:     true,
 		advertiseIP: "127.0.0.1",
@@ -499,13 +510,13 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 		probeReplay: true,
 		seedForward: true,
 		kickTiming: partyUDPRelayKickTiming{
-			minAge:   120 * time.Millisecond,
+			minAge:   minAge,
 			interval: 80 * time.Millisecond,
 			window:   3 * time.Second,
 			maxKicks: silentPeerKickMaxPerLeg,
 		},
 		onSilentPeer: func(partyID, memberID uint16) bool {
-			kicked <- time.Now().Format("150405.000")
+			kicked <- time.Now()
 			return true
 		},
 		logWarn: recorder.log,
@@ -515,6 +526,10 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = relay.Close() })
 	syncTwoMemberRoom(t, relay)
+	watchdogLeg := relayLegFor(t, relay, 202, 101)
+	watchdogLeg.mu.Lock()
+	minAgeAnchor := watchdogLeg.createdAt
+	watchdogLeg.mu.Unlock()
 	portAB, portBA := 0, 0
 	_, baPort, okBA := relay.Endpoint(77, 202, 101)
 	_, abPort, okAB := relay.Endpoint(77, 101, 202)
@@ -531,15 +546,13 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 		t.Fatalf("send B datagram: %v", err)
 	}
 	waitRelayLog(t, recorder, "party UDP relay peer endpoint not learned", 3*time.Second)
-	// ① 门槛内不许催（这正是 23:31 那次的时间点）。
+	// ①/② 以腿创建时刻判定真实下限；不能假定 setup 和日志等待
+	// 一定短于 120ms。首次 kick 必须存在，且时间戳不得早于下限。
 	select {
-	case <-kicked:
-		t.Fatal("kick must not fire before the minimum age")
-	case <-time.After(60 * time.Millisecond):
-	}
-	// ② 睡过 minAge 之后必须自己催起来（旧实现永远不会走到这里）。
-	select {
-	case <-kicked:
+	case kickAt := <-kicked:
+		if earliest := minAgeAnchor.Add(minAge); kickAt.Before(earliest) {
+			t.Fatalf("kick fired at %v before minimum-age anchor %v", kickAt, earliest)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("delayed watchdog never kicked after the minimum age")
 	}
@@ -692,9 +705,7 @@ func newObservedEndpointRelay(t *testing.T, recorder *relayLogRecorder, observed
 // newObservedEndpointRelayWithProbePorts 同上，但探针口列表由调用方给（传多个 0 = 多个监听口，
 // 用来复刻"客户端往 2311 与 2312 各打一次探针"的两条入向路径）。
 //
-// ⚠️ 探针口会被强制分配在**腿端口范围之外**：`newLegLocked` 只在"绑不上"时才 releasePort，
-// 所以探针口落进腿范围就会被腿抢走（生产上把 31000 同时写进 PROBE_PORTS 与腿范围就是这个效果），
-// 那样就测不到"从探针口发出"这条被钉住的语义了。
+// ⚠️ 此投递故障夹具把探针口放在腿范围外；范围重叠另由专用端口回归覆盖。
 func newObservedEndpointRelayWithProbePorts(
 	t *testing.T,
 	recorder *relayLogRecorder,
@@ -1114,7 +1125,7 @@ func TestObservedProbeEndpointDeliveryUsesTheProbeListenerSocket(t *testing.T) {
 	}
 }
 
-// ㉓ 探针 socket 已被腿抢走/释放时：退化回腿口补发，并**具名**记因（绝不静默、绝不丢包）。
+// ㉓ 探针 socket 已被显式关闭时：退化回腿口补发，并**具名**记因（绝不静默、绝不丢包）。
 func TestObservedProbeEndpointDeliveryFallsBackWhenProbeSocketReleased(t *testing.T) {
 	recorder := &relayLogRecorder{}
 	relay, probePort := newObservedEndpointRelay(t, recorder, true)
@@ -1127,7 +1138,7 @@ func TestObservedProbeEndpointDeliveryFallsBackWhenProbeSocketReleased(t *testin
 	waitRelayCondition(t, 3*time.Second, "both probe endpoints to be observed", func() bool {
 		return relay.observedProbeEndpointCount() == 2
 	})
-	// 腿要绑这个端口时会先释放它（party_udp_relay.go 的 releasePort 调用点）。
+	// 故障注入：显式关闭探针socket，验证投递回落；正常腿分配不得再抢占该口。
 	if listeners := relay.probeListeners(); listeners == nil || !listeners.releasePort(probePort) {
 		t.Fatal("releasePort must report the released probe socket")
 	}

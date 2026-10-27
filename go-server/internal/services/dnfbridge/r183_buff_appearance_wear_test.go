@@ -12,27 +12,6 @@ import (
 	"longheng.io/server/internal/modules/dnf/skillswitch"
 )
 
-// seedR167Loadout persists one binding-bearing record through the existing
-// loadout owner. The record is not a sentinel, so it must not answer immediately.
-func seedR167Loadout(t *testing.T, service *Service, session *gameSession, conn *bufferConn, repos repo.Group) {
-	t.Helper()
-	if _, err := service.handleSkillSwitchInventoryCommand(
-		session,
-		currentSkillSwitchInventoryOpcode,
-		skillSwitchInventoryBody(t, "000010003600"),
-	); err != nil {
-		t.Fatal(err)
-	}
-	if n := conn.write.Len(); n != 0 {
-		t.Fatalf("ordinary loadout record emitted %d bytes", n)
-	}
-	state, found, err := skillswitch.Load(context.Background(), repos, "1", skillswitch.LayoutV4)
-	if err != nil || !found || len(state.Records) == 0 {
-		t.Fatalf("loadout seed not persisted: found=%t state=%+v err=%v", found, state, err)
-	}
-	conn.write.Reset()
-}
-
 // The current client's 1428 stream belongs to the loadout owner even while the
 // native 1426/1368 reapply switch is enabled. It must not be persisted as a
 // positional buff binding or answered immediately.

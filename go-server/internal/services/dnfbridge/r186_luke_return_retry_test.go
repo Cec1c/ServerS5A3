@@ -10,7 +10,7 @@ func TestRealPVFR186LukeSpreadTownRetryKeepsOneAck(t *testing.T) {
 	f, p := prepareR165LukeSpreadSanctumRealResultFixture(t)
 	s, r := f.service, p.dungeon.runtime
 	f.conn.write.Reset()
-	failing := &r186LukeOp24FailureConn{bufferConn: f.conn, t: t, err: io.ErrUnexpectedEOF, failOnce: true}
+	failing := &completedReturnAckOp24FailureConn{bufferConn: f.conn, t: t, err: io.ErrUnexpectedEOF, failOnce: true}
 	p.conn = failing
 	if err := s.handleDungeonEplpCommand(p, []byte{1, 2}); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("first town write error = %v", err)
@@ -34,23 +34,4 @@ func TestRealPVFR186LukeSpreadTownRetryKeepsOneAck(t *testing.T) {
 	if r.settlementClearRewardSent {
 		t.Fatal("retry manufactured ordinary reward")
 	}
-}
-
-type r186LukeOp24FailureConn struct {
-	*bufferConn
-	t        *testing.T
-	err      error
-	failOnce bool
-}
-
-func (c *r186LukeOp24FailureConn) Write(data []byte) (int, error) {
-	packet, rest := splitCurrentGameServerUpperPacketAuto(c.t, data)
-	if len(rest) != 0 {
-		c.t.Errorf("expected one packet per write: rest=%x", rest)
-	}
-	if c.failOnce && packet.Header.Classification == 0 && packet.Header.MsgID == currentSceneTransitionMsgID {
-		c.failOnce = false
-		return 0, c.err
-	}
-	return c.bufferConn.Write(data)
 }

@@ -21,8 +21,9 @@ import (
 //	支持 0x 前缀（0x1b7 等价 439）与空白/分号分隔。
 //
 // 命中时会写一条 game-upper-suppressed 事件（含 msg_id/classification/长度与开关
-// 原文），并且**在发包日志之前**返回，因此 logs/packet_log.txt 里不会再出现被屏蔽
-// 的 SEND 行——日志即证据，不会出现“日志有、客户端没收到”的歧义。
+// 原文），在真正写连接之前返回。game_wire.go 的 SEND 行写在本过滤器之前，
+// 因此 SEND 行与上层发送函数返回 nil 都不能单独证明包已写连接或被客户端消费；
+// 取证还需检查同次 game-upper-suppressed / game-upper-vendor-absent-blocked 事件。
 const upperSendFilterEnv = "DNFBRIDGE_SUPPRESS_UPPER_SENDS"
 
 type upperSendFilterKey struct {

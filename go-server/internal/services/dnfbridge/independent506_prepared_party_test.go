@@ -141,10 +141,10 @@ func TestIndependent506PreparedPartyParticipantsEmitNoGroundDrops(t *testing.T) 
 	}
 }
 
-// Single raid: the ban must not reach a one-member raid. Positive control that
-// keeps its guaranteed gold/equipment ground drops on both trees.
-func TestIndependent506SingleRaidKeepsGroundDrops(t *testing.T) {
-	party := independent506PrepareParty(t, "anton", true, false)
+// Single Luke retains its existing ground-drop rules; single Anton now has
+// an explicit admitted no-ground-loot rule, independently of participant count.
+func TestIndependent506SingleLukeKeepsGroundDrops(t *testing.T) {
+	party := independent506PrepareParty(t, "luke", true, false)
 	monster := review452PositiveMonsterRules(t, party.service, party.leaderRuntime)
 	wires, err := party.service.planCurrentDungeonMonsterDrops(party.leaderRuntime, monster, currentSceneActorObjectKey(19))
 	if err != nil {

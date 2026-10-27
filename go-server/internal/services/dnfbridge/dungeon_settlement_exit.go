@@ -152,6 +152,28 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 		return nil
 	}
 	snapshot := runtime.Session.Snapshot()
+	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
+		if requestMsgID != uint16(dnfenum.CmdPacketGiveupGame) || !s.currentGuildPracticeSessionOwnsRoom(session, runtime, snapshot.Scene) {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		if snapshot.Run.Status == worldmap.DungeonRunCompleted {
+			if !runtime.guildPractice.Finished {
+				if err := s.completeCurrentGuildPracticeLocked(session, runtime); err != nil {
+					session.dungeon.mu.Unlock()
+					return err
+				}
+				if !runtime.guildPractice.Finished {
+					session.dungeon.mu.Unlock()
+					return nil
+				}
+			}
+			session.dungeon.mu.Unlock()
+			return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, requestMsgID, "friendly_guild_practice_completed")
+		}
+		defer session.dungeon.mu.Unlock()
+		return s.sendCurrentDungeonReturnToTownLocked(session, runtime, transition, requestMsgID, "friendly_guild_practice_giveup")
+	}
 	if s.currentLukeClosedEnergyExitReady(session, runtime) {
 		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
 		session.dungeon.mu.Unlock()

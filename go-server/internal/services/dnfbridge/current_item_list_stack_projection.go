@@ -51,7 +51,8 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 		// did not fire (missing item_kind/stackable_type), derive the remaining
 		// seconds directly from expire_time so the client never sees 0x0B==0
 		// on an item that still has a live expiration timestamp.
-		if binary.LittleEndian.Uint16(entry.data[0x0B:0x0D]) == 0 {
+		// A PVF-proven equipment row uses this word for durability, including zero.
+		if !strings.EqualFold(strings.TrimSpace(extra["item_kind"]), string(dungeonDropItemEquipment)) && binary.LittleEndian.Uint16(entry.data[0x0B:0x0D]) == 0 {
 			if expire := currentItemListStackExpire(stack); expire != 0 {
 				binary.LittleEndian.PutUint16(entry.data[0x0B:0x0D],
 					currentPVFStackableUsePeriodSeconds(time.Unix(int64(expire), 0).UTC(), time.Now().UTC()))

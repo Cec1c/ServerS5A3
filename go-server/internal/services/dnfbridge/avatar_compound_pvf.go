@@ -64,13 +64,15 @@ type currentAvatarCompoundPartPool struct {
 }
 
 type currentAvatarCompoundVariant struct {
-	Path          string
-	Grade         int64
-	UpperGrade    int64
-	RareRate      map[string]int64
-	UpperRareRate map[string]int64
-	Parts         map[string]currentAvatarCompoundPartPool
-	MaterialIDs   []uint32
+	Path             string
+	Grade            int64
+	UpperGrade       int64
+	RareRate         map[string]int64
+	UpperRareRate    map[string]int64
+	Parts            map[string]currentAvatarCompoundPartPool
+	MaterialIDs      []uint32
+	MaterialRoles    map[uint32]string
+	MasterMaterialID uint32
 }
 
 // currentAvatarCompoundVariantSkip 记录一份被跳过的候选表及其原因。
@@ -191,6 +193,7 @@ func parseCurrentAvatarCompoundVariant(documentPath string, text string, jobTag 
 		RareRate:      map[string]int64{},
 		UpperRareRate: map[string]int64{},
 		Parts:         map[string]currentAvatarCompoundPartPool{},
+		MaterialRoles: map[uint32]string{},
 	}
 	if grade, found := document.Int("grade"); found {
 		variant.Grade = grade
@@ -218,6 +221,10 @@ func parseCurrentAvatarCompoundVariant(documentPath string, text string, jobTag 
 	for _, section := range []string{"material", "material_upper", "material_master"} {
 		if material, ok := currentAvatarCompoundMaterialItemID(document, section); ok {
 			variant.MaterialIDs = append(variant.MaterialIDs, material)
+			variant.MaterialRoles[material] = section
+			if section == "material_master" {
+				variant.MasterMaterialID = material
+			}
 		}
 	}
 	if len(variant.MaterialIDs) == 0 {
@@ -441,8 +448,8 @@ func (c currentAvatarCompoundConfig) usablePaths() []string {
 // 数值全部来自 PVF：两件材料同为 [grade] 时用 [rare rate]；同为 [upper grade]
 // 时叠加 [upper rare rate]（与合成器说明"两个高级装扮合成时稀有几率增大"一致）；
 // 一高一普时取两者中点（沿用同族既有实现的三档写法）。
-// 黄金/钻石合成器的额外加成需要 etc/serverparameter.etc 的字段证据，本轮不猜，
-// 保持不加成。
+// 这里只计算材料品质基础概率；黄金/钻石的加成由 materialRateBonus 从当前
+// etc/serverparameter.etc 读取，再由 bonusRateWithMaterial 相加。
 func (v currentAvatarCompoundVariant) bonusRateFor(part string, grade1 int64, grade2 int64) int64 {
 	rare := v.RareRate[part]
 	upper := v.UpperRareRate[part]

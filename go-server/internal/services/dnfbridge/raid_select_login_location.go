@@ -32,27 +32,24 @@ func (s *Service) currentCharacterListLoginLocationForSession(session *gameSessi
 		loc, err := s.currentFiendWarLoginLocation(session, characterID)
 		return loc, character.Stats["town_id"], "", "", err
 	}
+	if s.isCurrentTagTournamentChannel(session) {
+		location, err := s.currentTagTournamentLoginLocation(character)
+		return location, character.Stats["town_id"], "", "", err
+	}
 	townID, raidChannel := currentRaidLoginTownID(session)
 	if !raidChannel {
-		if currentLoginLeavingChannelTown(session, character) && character.Stats["town_id"] == 10 {
-			location, err := s.currentPVPExitLoginLocation(characterID, character)
+		// 超时空退场保留上游的原位恢复；经过其他专用频道仍沿首次普通来源。
+		// 普通换线及未经过超时空的决斗退场继续使用所属城镇的房间。
+		if s.currentLoginLeavingChannelTown(session, character) &&
+			(character.Stats["town_id"] == 98 || character.Stats[currentFiendWarReturnOriginMarker] == 1) {
+			location, err := s.currentRaidExitLoginLocation(characterID, character)
 			return location, character.Stats["town_id"], "", "", err
 		}
-		if currentLoginLeavingChannelTown(session, character) {
-			location, err := s.currentRaidExitLoginLocation(characterID, character)
-			if err != nil {
-				return currentTownLoginLocation{}, character.Stats["town_id"], "", "", err
-			}
-			location.Branch = "ordinary_channel_after_raid"
-			reason := "raid_town_not_valid_for_ordinary_channel"
-			if character.Stats["town_id"] == 10 {
-				location.Branch = "普通频道退出决斗场"
-				reason = "决斗城镇不可作为普通频道落点"
-			}
-			location.Source = "ordinary_channel_runtime_pvf_seria_room"
-			return location, character.Stats["town_id"], reason, "", nil
+		ordinary, err := s.currentOrdinaryLoginOriginCharacter(session, characterID, character)
+		if err != nil {
+			return currentTownLoginLocation{}, character.Stats["town_id"], "", "", err
 		}
-		return s.currentCharacterListLoginLocation(characterID, character)
+		return s.currentCharacterListLoginLocation(characterID, ordinary)
 	}
 	location, found, reason := s.currentTownSeriaRoomLoginLocation(townID)
 	if !found {
@@ -67,14 +64,34 @@ func (s *Service) currentCharacterListLoginLocationForSession(session *gameSessi
 	return location, persistedTownID, "", "", nil
 }
 
-func currentLoginLeavingChannelTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
+// 特殊频道只保存专用城镇位置；普通登录先恢复本角色已验证的入场来源，
+// 再按该城镇选择房间。只改副本，不提前写库或清除来源标记。
+func (s *Service) currentOrdinaryLoginOriginCharacter(session *gameSession, characterID uint16, character dnfrepo.CharacterRecord) (dnfrepo.CharacterRecord, error) {
+	if !s.currentLoginLeavingChannelTown(session, character) {
+		return character, nil
+	}
+	var location currentTownLoginLocation
+	var err error
+	if character.Stats["town_id"] == 10 {
+		location, err = s.currentPVPExitLoginLocation(characterID, character)
+	} else {
+		location, err = s.currentRaidExitLoginLocation(characterID, character)
+	}
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, err
+	}
+	projected, _, _, _, _, err := currentReconnectLocationProjection(characterID, character, location)
+	return projected, err
+}
+
+func (s *Service) currentLoginLeavingChannelTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
 	if session == nil {
 		return false
 	}
-	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) || isPVPChannel(session.channel) || session.channel.Type == currentTagTournamentChannelType {
+	if _, raidChannel := currentRaidLoginTownID(session); raidChannel || isCurrentFiendWarChannel(session) || isPVPChannel(session.channel) || s.isCurrentTagTournamentChannel(session) {
 		return false
 	}
-	return currentRegisteredChannelTown(character.Stats["town_id"])
+	return s.currentDedicatedChannelTown(character.Stats["town_id"])
 }
 
 func currentRegisteredRaidTown(townID int64) bool {
@@ -83,7 +100,8 @@ func currentRegisteredRaidTown(townID int64) bool {
 }
 
 func currentRegisteredChannelTown(townID int64) bool {
-	return townID == 10 || townID == 48 || currentRegisteredRaidTown(townID)
+	// 专用城镇不能作为普通频道落点或覆盖普通城镇的返城原位。
+	return townID == 10 || currentRegisteredRaidTown(townID)
 }
 
 func (s *Service) currentSessionSelectAckTownID(session *gameSession, character dnfrepo.CharacterRecord, characterID uint16, slot int) (uint8, string, error) {
@@ -101,7 +119,7 @@ func (s *Service) currentSessionSelectAckTownID(session *gameSession, character 
 	return townID, source, nil
 }
 
-// 保留上游既有入口供其它普通登录调用；专用城镇判定统一收口。
-func currentLoginLeavingRaidTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
-	return currentLoginLeavingChannelTown(session, character)
+// 保留上游既有入口名称，专用城镇判定仍统一收口。
+func (s *Service) currentLoginLeavingRaidTown(session *gameSession, character dnfrepo.CharacterRecord) bool {
+	return s.currentLoginLeavingChannelTown(session, character)
 }

@@ -311,7 +311,7 @@ func (s *Service) stagePartyDungeonEntryMemberAtOp28(
 	defer cancel()
 	payload := append([]byte(nil), body...)
 	return s.callGameSession(ctx, follower, "runtime-party-dungeon-entry-op28-barrier", func() error {
-		return s.handleDungeonSelectUpperPlanned(follower, payload, member, false)
+		return s.handleDungeonSelectUpperPlanned(follower, payload, member, false, nil)
 	})
 }
 
@@ -332,6 +332,6 @@ func (s *Service) releasePartyDungeonEntryMemberAfterOp28Barrier(
 	defer cancel()
 	payload := append([]byte(nil), body...)
 	return s.callGameSession(ctx, follower, "runtime-party-dungeon-entry-after-op28-barrier", func() error {
-		return s.handleDungeonSelectUpperPlanned(follower, payload, member, false)
+		return s.handleDungeonSelectUpperPlanned(follower, payload, member, false, nil)
 	})
 }

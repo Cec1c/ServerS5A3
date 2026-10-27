@@ -102,7 +102,7 @@ func TestSeriaLuckCatalogCoexistsWithPCRoomAndLegacy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, native, true)
+			after, err := buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, nil, false, native, true)
 			if err != nil {
 				t.Fatal(err)
 			}

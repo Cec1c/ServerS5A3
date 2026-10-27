@@ -97,6 +97,9 @@ func (s *Service) handleDungeonBossDieCheckLocked(
 	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
 		return err
 	}
+	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
+		return s.handleCurrentGuildPracticeBossCheckLocked(session, runtime, request)
+	}
 	if runtime.bossDieCheckAccepted {
 		acceptedRequest := runtime.bossDieCheckRelatedActorObjectKey == request.RelatedActorObjectKey &&
 			runtime.bossDieCheckTargetObjectKey == request.TargetObjectKey

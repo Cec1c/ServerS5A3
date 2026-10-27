@@ -222,7 +222,7 @@ func isBootstrapEntrance(channel Channel) bool {
 
 // nonResidentChannelTypes 是**本数据集**（`data/dnf/channel_info.etc`）里已确认
 // 的"特殊区域/玩法"频道 type：22 远古地下城与亡者峡谷、23 安徒恩 raid、24 决斗场、
-// 32 卢克、36 交易-拍卖行、40 异次元裂缝、42 魔兽（见该文件自身注释与线上实测）。
+// 32 卢克、36 交易-拍卖行、39 帝国竞技场、40 异次元裂缝、42 魔兽（见该文件自身注释与线上实测）。
 // 普通城镇频道（10..20、205 等）用 type 11。
 //
 // 2026-09-26 修正：旧判据用通用枚举（`dnfenum.DeathTowerChannelType=11`、

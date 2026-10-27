@@ -342,6 +342,23 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 		}
 		b.AntonFlowConfig, b.AntonRewards = flow, &rewards
 	}
+	if single && mode == 2 {
+		// Single Luke uses one terminal sequence. These root movie settings
+		// drive the existing automatic-card policy; no normal phase is started.
+		flow, err := raid.LoadLukeFlowConfiguration(archive)
+		if err != nil {
+			return nil, err
+		}
+		catalog, err := newPVFDungeonDropCatalog(archive)
+		if err != nil {
+			return nil, err
+		}
+		rewards, err := loadCurrentSingleLukeRewards(catalog, b.SingleSequence, now)
+		if err != nil {
+			return nil, err
+		}
+		b.AntonFlowConfig, b.AntonRewards = flow, &rewards
+	}
 	if !single && mode == 1 {
 		flowConfiguration, err := raid.LoadAntonFlowConfiguration(archive)
 		if err != nil {

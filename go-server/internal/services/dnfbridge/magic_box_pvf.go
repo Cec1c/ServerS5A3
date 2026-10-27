@@ -477,7 +477,7 @@ func resolveCurrentMagicBoxRewardItem(catalog *pvfDungeonDropCatalog, source dnf
 	container := currentPVFItemTargetContainer(definition)
 	item.SlotStart = container.SlotStart
 	item.SlotEnd = container.SlotEnd
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	item.AllowQuickSlots = policy.AllowQuickSlots
 	item.PreferQuickSlots = policy.PreferQuickSlots
 	if container.ListType != dnfrepo.MainInventoryListType {
@@ -491,7 +491,7 @@ func resolveCurrentMagicBoxRewardItem(catalog *pvfDungeonDropCatalog, source dnf
 		return alignedcmd.MagicBoxRewardItem{}, fmt.Errorf("parse magic box reward item=%d path=%s: %w", itemID, definition.PVFPath, err)
 	}
 	attachType := normalizeMagicBoxPVFType(magicBoxDocumentText(document, "attach type"))
-	item.Seal = attachType == "sealing"
+	item.Seal = attachType == "sealing" || currentNewPVFEquipmentSealFlag(definition) != 0
 	// 与 dungeon_drop_catalog.go:244 同口径的三键回退（提取为 firstPositivePVFInt）：
 	// 这里要的是"新造实例的满耐久"，即 PVF 的最大耐久，而不是当前耐久 ——
 	// 消费方 packageitem/owner.go:784 与 :865 把同一个值同时写进 Extra 的

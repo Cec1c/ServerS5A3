@@ -85,10 +85,8 @@ const (
 	// 是否接过，都按运行时 PVF 的 `[epic]` + `[level]` + 角色/职业/成长谓词落一行
 	// completed。这是完成券 PVF 说明的字面语义。
 	//
-	// 安全性判据（真档 Script.pvf 全量断言，见 coupon_clear_real_pvf_test.go）：
-	// 该集合对角色是**闭合**的——集合内每条任务的 `[pre required quest]` 至少有一组
-	// 完全落在集合内，且不存在指向集合外非主线任务的引用。因此整段标记完成后不会
-	// 出现"已完成的任务其前置未完成"的不一致。
+	// 按实际前置与答案的固定点推进；Question、真实选奖、职业与特殊权限
+	// 留给正常结算。目录同等级不意味着所有互斥分支都可以完成。
 	CouponClearScopeMainStorySweep CouponClearScope = "main_story_sweep"
 )
 
@@ -106,6 +104,8 @@ type CouponClearInput struct {
 // CouponClearResult 是一次完成券结算的结果。它只描述任务行，不携带任何奖励、
 // 经验、金币或物品口径——完成券按说明"无任务奖励"。
 type CouponClearResult struct {
+	BlockedQuestionIDs    []int64
+	DamagedQuestionIDs    []int64
 	CharacterID           string
 	CutoffLevel           int
 	Scope                 CouponClearScope
@@ -161,81 +161,10 @@ func (c *Catalog) PlanCouponMainQuestClear(
 		scope = CouponClearScopeMainStorySweep
 	}
 
-	plan := AutoCompleteMainPlan{Record: dnfrepo.CloneQuest(record)}
-	sweep := scope == CouponClearScopeMainStorySweep
-	// sweptParents 是 `[sub]` 闭包的种子。sweep 口径下它是"所有符合条件的主线"
-	// （包括本次调用之前就已经是 completed 的行），因此一张被旧构建写成
-	// "父已完成、子还挂着"的记录，下一次用券/点按钮就会被自动补齐；active_only
-	// 口径下只收本次真正改动的父任务，DNFBRIDGE_QUEST_CLEAR_TICKET_SWEEP=0 的
-	// 回退语义保持不变。
-	sweptParents := make(map[int64]struct{})
-	for _, definition := range c.ordered {
-		if definition.JobChangeQuest != 0 || !mainStoryQuestAutoClearable(definition, character, cutoffLevel) {
-			continue
-		}
-		if sweep {
-			sweptParents[definition.ID] = struct{}{}
-		}
-		state, field, stateKnown := mutableQuestState(&plan.Record, definition.ID)
-		if stateKnown && isCompletedQuestStatus(state.Status) {
-			// 已经完成的行一个字节都不改（幂等）。
-			continue
-		}
-		if !(stateKnown && isActiveQuestStatus(state.Status)) {
-			// 非激活态（含"角色从没接过、记录里没有这一行"）。
-			if !sweep {
-				// ActiveOnly：任务手册的批量动作不替玩家"制造"没接过的任务行，
-				// 也不动放弃/失败的行。
-				continue
-			}
-			if !stateKnown {
-				// Sweep：按需创建 completed 行。只写 Status/ProgressValue/Extra，
-				// 不复制任何奖励/进度来源字段（与第七批 GM 覆写同一条口径）。
-				field = dnfrepo.QuestFieldStates
-				state = dnfrepo.QuestState{
-					Extra: map[string]string{
-						"pvf_path":   definition.Path,
-						"quest_type": definition.Type,
-					},
-				}
-			}
-		}
-		state = couponMainQuestClearState(state, definition, cutoffLevel, clearedAt)
-		switch field {
-		case dnfrepo.QuestFieldStates:
-			if plan.Record.States == nil {
-				plan.Record.States = make(map[int64]dnfrepo.QuestState, 1)
-			}
-			plan.Record.States[definition.ID] = state
-		case dnfrepo.QuestFieldProgress:
-			plan.Record.Progress[definition.ID] = state
-		}
-		if !sweep {
-			sweptParents[definition.ID] = struct{}{}
-		}
-		plan.EligibleQuestIDs = append(plan.EligibleQuestIDs, definition.ID)
-		plan.ChangedQuestIDs = append(plan.ChangedQuestIDs, definition.ID)
-		plan.ChangedFields = mergeQuestChangedField(plan.ChangedFields, field)
-		plan.ActiveCompletedCount++
-		if definition.ID > plan.HighestCompletedQuest {
-			plan.HighestCompletedQuest = definition.ID
-		}
+	if scope != CouponClearScopeMainStorySweep && scope != CouponClearScopeActiveOnly {
+		return AutoCompleteMainPlan{}, ErrCouponClearUnavailable
 	}
-	// `[sub]` 闭包：父任务被清掉时，`[main quest]` 指向它的 `[sub]` 子任务必须
-	// 一并完成，否则客户端会保留一个"父已完成、子仍可接取"的死节点——2026-09-25
-	// char3 的 3971「离别时刻」+ 3972/3973 就是这个形态（券只扫 `[epic]`，
-	// 子任务是 `[sub]`）。闭包同样不发奖励、不写结算回执。
-	maxSubQuestID := c.applyMainQuestSweepSubClosure(&plan, sweptParents, cutoffLevel, clearedAt, func(def Definition) bool {
-		return def.LevelMin <= cutoffLevel && def.JobChangeQuest == 0 && !def.IsEvent && definitionMatchesCharacter(def, character)
-	})
-	if plan.HighestCompletedQuest == 0 && maxSubQuestID > 0 {
-		// 只有闭包有活干时（旧记录的自愈），回包仍需要一个非零的最高任务 id。
-		plan.HighestCompletedQuest = maxSubQuestID
-	}
-	if len(plan.ChangedFields) != 0 {
-		plan.Record.UpdatedAt = clearedAt
-	}
-	return plan, nil
+	return c.planStorySweep(record, character, cutoffLevel, scope, false, clearedAt), nil
 }
 
 // ApplyCouponMainQuestClear 在一个角色结算事务里落库完成券的任务行改动。
@@ -302,6 +231,8 @@ func (o *Owner) ApplyCouponMainQuestClear(
 	}
 
 	result := CouponClearResult{
+		BlockedQuestionIDs:    append([]int64(nil), plan.BlockedQuestionIDs...),
+		DamagedQuestionIDs:    append([]int64(nil), plan.DamagedQuestionIDs...),
 		CharacterID:           input.CharacterID,
 		CutoffLevel:           input.CutoffLevel,
 		Scope:                 scope,

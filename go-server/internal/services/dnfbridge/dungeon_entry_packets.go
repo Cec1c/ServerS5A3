@@ -170,7 +170,11 @@ func buildCurrentDungeonEntryPacketsForModes(
 	if runtime == nil || runtime.Room == nil || runtime.Session == nil {
 		return currentDungeonEntryPackets{}, errDungeonWorldMapUnavailable
 	}
-	if err := validateCurrentDungeonEntryRequestForModes(runtime.Request, mode, selectionMode); err != nil {
+	if currentFriendlyGuildPractice(runtime) {
+		if err := validateCurrentGuildPracticeEntryRequest(runtime); err != nil {
+			return currentDungeonEntryPackets{}, err
+		}
+	} else if err := validateCurrentDungeonEntryRequestForModes(runtime.Request, mode, selectionMode); err != nil {
 		return currentDungeonEntryPackets{}, err
 	}
 	if runtime.Dungeon.ID <= 0 || runtime.Dungeon.ID > int64(^uint32(0)) {
@@ -310,12 +314,20 @@ func validateCurrentDungeonEntryRequestForModes(
 	// are not proved. Preserve it in the runtime request, but do not reject the
 	// normal entry mode or infer leader/quest authority from it.
 	runtimeStateSupported := request.RuntimeState == 0
-	// Live production traffic proves the current EXE writes runtime state 1
-	// only for the training-room request: dungeon 5000, token UINT16_MAX, and
-	// every other owned mode field zero. The field is not consumed by the
-	// typed op28/op29 builders, so accept only that exact evidence-backed
-	// compatibility unit instead of opening state 1 for ordinary dungeons.
+	// 保留既有修炼场5000的state=1、UINT16_MAX兼容判定；该字段不被
+	// typed op28/op29组包器消费。转职体验的独立完整形状在下面核对。
 	if request.DungeonID == 5000 && request.RuntimeState == 1 && request.RuntimeToken == 0xffff {
+		runtimeStateSupported = true
+	}
+	// 现用EXE的转职窗口0xE7D7F0在体验模式下，按职业对应副本调用
+	// 直接入场(1, UINT16_MAX)。现场7142的21字节op16与此一致；
+	// 它不携带正式转职请求。仅接纳这份完整形状，不放开其它副本、
+	// 难度、队伍或未知扩展字段，也不借用该标记修改正式职业/技能。
+	if request.DungeonID == 7142 && request.Difficulty == 0 &&
+		request.EntryOption == 0 && request.SelectionMode == 0 &&
+		request.RuntimeState == 1 && request.RuntimeToken == 0xffff &&
+		request.Reserved == 0 && request.PartyState == 0 && request.LeaderObjectKey == 0 &&
+		request.SpecialMode == 0 && len(request.OpaqueTail) == 0 {
 		runtimeStateSupported = true
 	}
 	// `entry_option`（= op16 body[5:7]，厂商 `HellPartyRequestFlag => Flag1` +

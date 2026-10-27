@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -69,7 +70,7 @@ func (s *Service) handleDungeonSelectUpper(session *gameSession, body []byte) er
 	if session != nil && isPVPChannel(session.channel) {
 		return nil
 	}
-	return s.handleDungeonSelectUpperPlanned(session, body, nil, true)
+	return s.handleDungeonSelectUpperPlanned(session, body, nil, true, nil)
 }
 
 // dispatchRoutedPartyEnterAsLeader 把队员转交过来的 op16 异步交给队长的事件循环执行。
@@ -78,30 +79,59 @@ func (s *Service) handleDungeonSelectUpper(session *gameSession, body []byte) er
 // callGameSession 反过来向队员的事件循环 SubmitBlocking，同步就会互等到超时
 // （线上实测 error="prepare party member 4 selector: context deadline exceeded"）。
 // 异步投递后：队员立刻返回 → 它的事件循环空闲 → 队长侧回调队员时能立刻执行。
-func (s *Service) dispatchRoutedPartyEnterAsLeader(leaderSession, followerSession *gameSession, body []byte) {
+//
+// `token` 是这次路由请求的令牌（见 party_entry_refusal_before_commit.go）：队长那条流程
+// 只用它应答这一次请求，不去猜别的挂起态。
+func (s *Service) dispatchRoutedPartyEnterAsLeader(
+	leaderSession *gameSession,
+	followerSession *gameSession,
+	body []byte,
+	token *partyDungeonEntryRoutedRequest,
+) {
 	if s == nil || leaderSession == nil {
 		return
 	}
 	leader := leaderSession
-	followerCharacterID := selectedCharacterID(followerSession)
+	leaderIdentity, _ := s.boundGameSessionCharacterSnapshot(leader)
+	followerIdentity, _ := s.boundGameSessionCharacterSnapshot(followerSession)
+	followerCharacterID := followerIdentity.character
 	payload := append([]byte(nil), body...)
 	go func() {
+		// Only one side may claim this queued request: the handler, or the
+		// dispatch failure path. A timeout cannot cancel a handler already
+		// running, because it may still commit the party successfully.
+		var claim atomic.Uint32 // 0 queued, 1 started, 2 cancelled before start
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		defer cancel()
 		err := s.callGameSession(ctx, leader, "runtime-party-routed-enter-select", func() error {
-			return s.handleDungeonSelectUpperPlanned(leader, payload, nil, true)
+			if !claim.CompareAndSwap(0, 1) {
+				return nil
+			}
+			return s.handleDungeonSelectUpperPlanned(leader, payload, nil, true, token)
 		})
 		if err != nil {
+			if claim.CompareAndSwap(0, 2) {
+				// The handler never installed its deferred answer. Use a fresh
+				// deadline and the original token; never consume a newer request.
+				if request, decodeErr := dungeoncmd.DecodeSelectDungeonRequest(payload); decodeErr == nil {
+					fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), createWriteTimeout)
+					s.answerRoutedPartyEntryOwnerOnRefusal(fallbackCtx, leader,
+						runtimePartyStateSnapshot(leader), token, request,
+						"party_entry_routed_dispatch_not_started", "entry_unavailable",
+						currentSelectDungeonUnavailableReason, err)
+					fallbackCancel()
+				}
+			}
 			s.logInfo("dnfbridge routed party dungeon entry deferred",
 				"conn_id", leader.connID,
-				"leader_char_id", leader.selectedCharacterID,
+				"leader_char_id", leaderIdentity.character,
 				"follower_char_id", followerCharacterID,
 				"error", err)
 			return
 		}
 		s.logPacketEvent("game-party-dungeon-entry-routed-async-committed",
 			"conn_id", leader.connID,
-			"leader_char_id", leader.selectedCharacterID,
+			"leader_char_id", leaderIdentity.character,
 			"follower_char_id", followerCharacterID,
 			"body_len", len(payload))
 	}()
@@ -152,17 +182,32 @@ func (s *Service) handleDungeonSelectUpperPlanned(
 	body []byte,
 	prepared *runtimePartyPreparedDungeonEntry,
 	fanoutParty bool,
+	routed *partyDungeonEntryRoutedRequest,
 ) error {
-	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, false)
+	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, routed, false)
 }
 
-// A claimed automatic encounter bypasses only its own admission interception.
-// Keep the public ordinary-party selector contract and all scene/asset gates.
-func (s *Service) handleDungeonSelectUpperPlannedAdmitted(session *gameSession, body []byte, prepared *runtimePartyPreparedDungeonEntry, fanoutParty bool) error {
-	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, true)
+// The automatic FiendWar admission calls back into the normal selector after
+// replacing the combat party. That exact call bypasses only the admission
+// interception; every dungeon, raid, asset and scene gate still runs.
+func (s *Service) handleDungeonSelectUpperPlannedAdmitted(
+	session *gameSession,
+	body []byte,
+	prepared *runtimePartyPreparedDungeonEntry,
+	fanoutParty bool,
+	routed *partyDungeonEntryRoutedRequest,
+) error {
+	return s.handleDungeonSelectUpperPlannedForAdmission(session, body, prepared, fanoutParty, routed, true)
 }
 
-func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSession, body []byte, prepared *runtimePartyPreparedDungeonEntry, fanoutParty, admitted bool) error {
+func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
+	session *gameSession,
+	body []byte,
+	prepared *runtimePartyPreparedDungeonEntry,
+	fanoutParty bool,
+	routed *partyDungeonEntryRoutedRequest,
+	admitted bool,
+) error {
 	var fiendWarSelectionDiagnostic *currentFiendWarAdmissionDiagnostic
 	if !admitted && prepared == nil && isCurrentFiendWarChannel(session) {
 		diagnostic := newCurrentFiendWarAdmissionDiagnostic(session, 0)
@@ -218,10 +263,39 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 		fiendWarSelectionDiagnostic.requestDungeon = uint32(request.DungeonID)
 		fiendWarSelectionDiagnostic.setReason("op16_decoded")
 	}
+	if routed != nil && !s.routedPartyDungeonEntrySourceCurrent(routed) {
+		// Only retire this exact old pending request. A newer request or a
+		// replacement character identity must remain owned by its own flow.
+		s.discardPartyDungeonEntryRoutedRequest(routed)
+		return nil
+	}
+	// 文档段 104 的兜底出口：这条流程一旦是"队员路由过来的那次请求"（routed != nil），返回时
+	// 如果期间没有任何出口精确应答过它，就补一条既有形状的拒绝包（厂商 default
+	// DungeonUnavailable）。精确出口会先把令牌取走，所以这里只在"流程从头到尾没有回答这次请求"
+	// 时生效：整队已经进图（令牌被 discard）、队员又按了一次进图（seq 变了）、或换了角，都取不到
+	// 令牌 ⇒ 一包不发。这样就不必依赖"每个 return 点都记得应答"这种枚举。
+	if routed != nil {
+		defer func() {
+			fallbackCtx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			defer cancel()
+			s.answerRoutedPartyEntryOwnerOnRefusal(
+				fallbackCtx,
+				session,
+				runtimePartyStateSnapshot(session),
+				routed,
+				request,
+				"party_entry_routed_flow_exited_without_answer",
+				"entry_unavailable",
+				currentSelectDungeonUnavailableReason,
+				nil,
+			)
+		}()
+	}
 	if s.isCurrentTagTournamentChannel(session) {
 		return s.handleCurrentTagTournamentDungeon(session, request)
 	}
 	request.DungeonID = s.resolveCurrentSingleAntonSelector(session, request.DungeonID)
+	request.DungeonID = s.resolveCurrentSingleLukeSelector(session, request.DungeonID)
 	request.DungeonID, err = s.resolveCurrentDespairSelection(session, request.DungeonID)
 	if err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
@@ -241,6 +315,11 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 	// 选图那次 op16 可能落在同角色的另一条连接上（辅助/替换 socket），
 	// 那条连接永远收不到 publish，只读缓存就会在队伍成立的情况下退化成单人。
 	// 见 party_manager_runtime.go 的 runtimePartyStateForSession。
+	if !admitted && prepared == nil && routed == nil {
+		if handled, err := s.interceptCurrentFiendWarNormalSelection(session, uint32(request.DungeonID)); handled {
+			return err
+		}
+	}
 	partyStateAtRequest := s.runtimePartyStateForSession(session)
 	if !admitted && prepared == nil {
 		if handled, err := s.interceptCurrentFiendWarNormalSelectionWithDiagnostic(session, uint32(request.DungeonID), fiendWarSelectionDiagnostic); handled {
@@ -339,7 +418,12 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 				"runtime_token", request.RuntimeToken,
 				"leader_object_key", request.LeaderObjectKey,
 				"reason", "leader_session_unavailable_for_routed_entry")
-			return nil
+			// 文档段 104：这一支在"给队员回 ACK"之前就 return 了，所以本次 op16 没有挂起态；
+			// 但如果这条会话上一次路由留下过挂起态（队长掉线重连 / 同角色另一条连接），必须
+			// 当场解掉并补一条既有形状的拒绝包，不能让队员客户端一直等这条永远不会被执行的
+			// 流程。没有挂起态时一包都不发（与改动前同口径）。
+			return s.answerPartyDungeonEntryRoutedMemberWhenLeaderCannotServe(
+				session, request, "party_entry_routed_leader_session_unavailable", partyStateAtRequest)
 		}
 		selectAckBody := buildSelectDungeonBodyForCharacter(session.selectedCharacterID)
 		if err := s.sendGameUpperSuccess(
@@ -358,6 +442,11 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			"runtime_token", request.RuntimeToken,
 			"leader_object_key", request.LeaderObjectKey,
 			"reason", "follower_pressed_enter_party_entry_runs_as_leader")
+		// 文档段 104：这条 ACK 已经告诉队员客户端"选图被接受了"，它随即进入等进图状态；
+		// 队长那条流程如果在提交之前被拒绝（例如这名队员自己没有解锁这张图），必须回来
+		// 把这条挂起态解掉并补一条拒绝包，否则队员只有倒计时、没有返回城镇。
+		// 令牌跟着这次路由一起投递：队长那条流程只应答它，不会吞掉队员后面的新请求。
+		routedRequest := s.bindPartyDungeonEntryRoutedPending(session)
 		// 这份请求正跑在**队员自己的事件循环**上，而队长侧的进图准备会反过来调用队员会话
 		// （prepareRuntimePartyDungeonEntry -> synchronizeRuntimePartyMembersEnterSelect
 		// -> callGameSession(队员) 的 SubmitBlocking）。同步等下去就是两个事件循环互等，
@@ -370,7 +459,7 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 		// （区域脱离/角色重建/op15），于是进图超时后 2P 的血槽 UI 也就错了。
 		// 因此改成异步投递到队长的事件循环执行：队员立刻拿到自己的 op16 ACK，
 		// 队长的事件循环空闲后跑正常进图流程，再回调队员时就不会互等。
-		s.dispatchRoutedPartyEnterAsLeader(leaderSession, session, body)
+		s.dispatchRoutedPartyEnterAsLeader(leaderSession, session, body, routedRequest)
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -407,7 +496,26 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 				"difficulty", request.Difficulty,
 				"reason", "party_entry_preflight_failed_before_any_member_commit",
 				"error", err)
-			return nil
+			// 文档段 104：整队进图在提交之前被拒绝时**必须回包并解掉队员的挂起态**。
+			// 改动前这里是静默 `return nil` —— 队长与队员两个客户端都收不到任何包，
+			// 队员客户端停在"等进图"的倒计时窗口里、没有返回城镇选项（现场口径）。
+			// 门禁本身一个字节不动：等级/疲劳/队伍/门票/前置的校验仍然按成员逐个执行，
+			// 且仍然全部发生在任何 runtime / 场景提交之前；这里只补"拒绝之后要回包"。
+			// reason 由**既有**映射给出（等级不足 = 14），不新增错误码：发起者与还在等结果的
+			// 队员拿到的 reason 字节逐字节相同。见 party_entry_refusal_before_commit.go。
+			reason, class := currentSelectDungeonEntryFailureReason(err)
+			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+				"party_entry_preflight_failed_before_any_member_commit", class, reason, err)
+			return s.refuseDungeonSelectEntry(
+				session,
+				request,
+				"party_entry_preflight_failed_before_any_member_commit",
+				class,
+				reason,
+				err,
+				"party_id", partyStateAtRequest.PartyID,
+				"party_member_count", len(runtimePartyMembers(partyStateAtRequest)),
+			)
 		}
 	}
 	if prepared == nil && runtime.guildDungeonClear == nil {
@@ -417,7 +525,24 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 	} else if err := validatePreparedGuildDungeon(runtime); err != nil {
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
+	if prepared == nil && runtime.guildPractice == nil {
+		if err := s.freezeCurrentGuildPracticeGroup(ctx, session, runtime, preparedFollowers); err != nil {
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
+	}
+	if err := s.validateCurrentGuildPracticeEntry(session, runtime); err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
+	if err := s.prepareCurrentGuildPracticeRoom(session, runtime, scene); err != nil {
+		return s.refuseDungeonSelectEntryValidation(session, request, err)
+	}
 	if err := s.prepareCurrentRaidDungeonEntry(session, runtime, prepared, preparedFollowers); err != nil {
+		// 文档段 104：队员那条进图前置已经过了（它自己的 op16 也已经被回 ACK），这一支仍然
+		// 在任何 runtime/场景提交之前 ⇒ 还在等结果的队员必须一起拿到同一形状、同一 reason
+		// 的拒绝包。
+		reason, class := currentSelectDungeonEntryFailureReason(err)
+		s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+			"dungeon_owner_validation_failed", class, reason, err)
 		return s.refuseDungeonSelectEntryValidation(session, request, err)
 	}
 	defer func() {
@@ -431,6 +556,12 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 	}()
 	if err := freezeCurrentDungeonTownReturnOrigin(session, runtime); err != nil {
 		// 返回城镇原点不可用 = 这次选择的会话状态不成立（厂商 InvalidSelectionState）。
+		// 文档段 104：这一支发生在队员的进图准备**之后**（"晚期"拒绝），队员客户端还在
+		// 等这条流程的结果，必须一起回包解挂，且 reason 与发起者那条相同
+		// （InvalidSelectionState = 0x13）。见 party_entry_refusal_before_commit.go。
+		s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+			"ordinary_dungeon_town_return_origin_unavailable",
+			"entry_town_return_origin_unavailable", currentSelectDungeonInvalidSelectionStateReason, err)
 		return s.refuseDungeonSelectEntry(session, request,
 			"ordinary_dungeon_town_return_origin_unavailable",
 			"entry_town_return_origin_unavailable",
@@ -458,6 +589,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 		if errors.Is(err, errDungeonEntryModeUnsupported) {
 			reason, class = currentSelectDungeonInvalidSelectionStateReason, "entry_mode_unsupported"
 		}
+		// 文档段 104：同为提交前的晚期拒绝，队员一样要拿到同形状、同 reason 的拒绝包。
+		s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+			"dungeon_entry_packet_preflight_failed", class, reason, err)
 		return s.refuseDungeonSelectEntry(session, request,
 			"dungeon_entry_packet_preflight_failed",
 			class,
@@ -470,12 +604,18 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
 		if err := s.consumeCurrentHellPartyGroupEntry(ctx, session, runtime, preparedFollowers); err != nil {
+			reason, class := currentSelectDungeonEntryFailureReason(err)
+			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+				"dungeon_owner_validation_failed", class, reason, err)
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
 	}
 	transferCommitted := false
 	if prepared == nil && runtime.antonHatcheryTransfer != nil {
 		if err := s.commitCurrentAntonHatcheryTransferGroup(session, runtime, preparedFollowers); err != nil {
+			reason, class := currentSelectDungeonEntryFailureReason(err)
+			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+				"dungeon_owner_validation_failed", class, reason, err)
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
 		transferCommitted = true
@@ -488,12 +628,31 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 				"difficulty", request.Difficulty,
 				"reason", "party_follower_runtime_commit_failed_before_leader_commit",
 				"error", err)
-			return nil
+			// 文档段 104 的"晚期错误"：队员的进图运行时已经提交过（失败时由
+			// commitRuntimePartyPreparedFollowers 回滚掉了），队长的进图还没提交。改动前这里
+			// 对两边都是静默 `return nil`，两名客户端都停在等待窗口里。回滚已经把队员的运行时
+			// 摘掉（不在既有静默口径内），因此这里按权威名单解挂并回既有形状的拒绝包，再给
+			// 发起者（队长）同一形状的拒绝包。见 party_entry_refusal_before_commit.go。
+			reason, class := currentSelectDungeonEntryFailureReason(err)
+			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+				"party_follower_runtime_commit_failed_before_leader_commit", class, reason, err)
+			return s.refuseDungeonSelectEntry(session, request,
+				"party_follower_runtime_commit_failed_before_leader_commit",
+				class,
+				reason,
+				err,
+				"party_id", partyStateAtRequest.PartyID,
+				"party_member_count", len(runtimePartyMembers(partyStateAtRequest)))
 		}
 	}
 	if !transferCommitted && (prepared == nil || !prepared.committed) {
 		if err := s.commitDungeonRuntime(session, runtime); err != nil {
 			s.rollbackRuntimePartyPreparedFollowers(preparedFollowers)
+			// 文档段 104：先回滚（队员挂着活动副本运行时的时候，既有静默口径会把拒绝包吞
+			// 掉），再解挂：两名客户端都还在等这条流程的结果。
+			reason, class := currentSelectDungeonEntryFailureReason(err)
+			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+				"dungeon_runtime_commit_failed", class, reason, err)
 			if errors.Is(err, dnfdungeon.ErrDailyEntryLimit) || errors.Is(err, dnfdungeon.ErrDayDungeonClosed) || errors.Is(err, dnfdungeon.ErrEntryItemConsumeInsufficient) {
 				return s.refuseDungeonSelectEntryValidation(session, request, err)
 			}
@@ -505,7 +664,11 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			return nil
 		}
 	}
+	// 到这里队长自己的 runtime 也提交成功了：这一队真的进图，这次路由请求的挂起态到此结清
 	s.commitCurrentFiendWarReservation(runtime)
+	// （只结清"还是这个令牌"的那一条；队员自己的 runtime 提交只是这条流程的中间点，见
+	// party_entry_refusal_before_commit.go）。
+	s.discardPartyDungeonEntryRoutedRequest(routed)
 	// Followers are installed before the leader can still reject admission.
 	// Start their dungeon clocks only after the entire group has committed.
 	s.activateCurrentPetGrowthDungeonClock(session, runtime)
@@ -596,6 +759,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(session *gameSessi
 			"reason", "typed_runtime_packet_plan_failed",
 			"error", err)
 		return nil
+	}
+	if err := s.sendCurrentGuildPracticeSnapshot(session, runtime); err != nil {
+		return err
 	}
 	s.logGameEvent(session, "game-upper-current-dungeon-info-op28-send",
 		"source", "select_dungeon_after_op27",
@@ -795,6 +961,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 		s.logDungeonEntryStepFailure(session, "cache_start_map_room", prepared, err)
 		return fmt.Errorf("cache current start-map runtime room after actor announce: %w", err)
 	}
+	if err := s.sendCurrentGuildPracticeDefeatedLocalActors(session, runtime); err != nil {
+		return err
+	}
 	s.logGameEvent(session, "game-upper-current-dungeon-start-op29-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
@@ -861,6 +1030,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 		if err := s.enterRuntimePartyFollowers(session, body, preparedFollowers, partyStateAtRequest); err != nil {
 			return err
 		}
+	}
+	if err := s.activateAttendanceMarbleAfterEntry(session, runtime); err != nil {
+		return err
 	}
 	s.leaveTownPresenceForDungeon(session)
 	s.recordCurrentLukeScene(session, runtime, "enter")
@@ -976,8 +1148,10 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		if err := freezeCurrentDungeonTownReturnOrigin(follower, followerRuntime); err != nil {
 			return nil, fmt.Errorf("freeze party member %d town return origin: %w", member.UserID, err)
 		}
-		if _, err := s.buildCurrentDungeonEntryPackets(followerRuntime, followerScene); err != nil {
-			return nil, fmt.Errorf("build party member %d dungeon entry packets: %w", member.UserID, err)
+		if !currentFriendlyGuildPractice(leaderRuntime) {
+			if _, err := s.buildCurrentDungeonEntryPackets(followerRuntime, followerScene); err != nil {
+				return nil, fmt.Errorf("build party member %d dungeon entry packets: %w", member.UserID, err)
+			}
 		}
 		prepared = append(prepared, &runtimePartyPreparedDungeonEntry{
 			session: follower,
@@ -998,6 +1172,22 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 	}
 	if err := s.freezeCurrentGuildDungeonGroup(ctx, leader, leaderRuntime, prepared); err != nil {
 		return nil, err
+	}
+	if err := s.freezeCurrentGuildPracticeGroup(ctx, leader, leaderRuntime, prepared); err != nil {
+		return nil, err
+	}
+	if currentFriendlyGuildPractice(leaderRuntime) {
+		if err := s.prepareCurrentGuildPracticeRoom(leader, leaderRuntime, leaderScene); err != nil {
+			return nil, err
+		}
+		for _, member := range prepared {
+			if err := s.prepareCurrentGuildPracticeRoom(member.session, member.runtime, member.scene); err != nil {
+				return nil, err
+			}
+			if _, err := s.buildCurrentDungeonEntryPackets(member.runtime, member.scene); err != nil {
+				return nil, fmt.Errorf("build guild practice member %d entry: %w", member.session.selectedCharacterID, err)
+			}
+		}
 	}
 	for _, member := range prepared {
 		if inRunTransfer {
@@ -1075,6 +1265,10 @@ func (s *Service) commitRuntimePartyPreparedFollowers(prepared []*runtimePartyPr
 			s.rollbackRuntimePartyPreparedFollowers(committed)
 			return fmt.Errorf("commit party member %d runtime: %w", member.session.selectedCharacterID, err)
 		}
+		// 队员自己的 runtime 提交只是这条流程的中间点：队长那条提交失败时它会被
+		// rollbackRuntimePartyPreparedFollowers 摘掉，那时"等队长那条流程给结果"的挂起态
+		// 必须还在，才能补上拒绝包。挂起态的统一结束点见
+		// finishPartyDungeonEntryRoutedPending（队长提交成功之后）。
 		member.committed = true
 		committed = append(committed, member)
 	}
@@ -1102,6 +1296,10 @@ func (s *Service) rollbackRuntimePartyPreparedFollowers(prepared []*runtimeParty
 		if petClockRolledBack {
 			s.flushCurrentPetGrowthClockTransitions(member.session, "party_entry_rollback")
 		}
+		// 挂起态与拒绝回包由调用方负责：调用方先回滚、再
+		// releasePartyEntryMembersRefusedBeforeCommit 解挂并回包（回滚之后队员不再挂着活动
+		// 运行时，拒绝包才不会被既有静默口径吞掉）。见
+		// party_entry_refusal_before_commit.go。
 		member.committed = false
 	}
 }
@@ -1162,7 +1360,7 @@ func (s *Service) enterRuntimePartyFollowers(
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		err := s.callGameSession(ctx, follower, "runtime-party-dungeon-entry", func() error {
-			return s.handleDungeonSelectUpperPlanned(follower, append([]byte(nil), body...), member, false)
+			return s.handleDungeonSelectUpperPlanned(follower, append([]byte(nil), body...), member, false, nil)
 		})
 		cancel()
 		if err != nil {
@@ -1378,6 +1576,9 @@ func (s *Service) refuseDungeonSelectEntryValidation(
 // 既有用例 `dungeon_runtime_test.go` 的"mismatched duplicate select"正是钉住这条
 // 口径。现场报障「开始冒险没反应」只出现在"没有 runtime、玩家卡在选图界面"这条
 // 路径上，因此这里只对那条路径补齐回包。
+//
+// 判据本身在 `dungeonSelectRefusalSuppression` 里，供"这条拒绝到底有没有真的回包"的
+// 计数方（`releasePartyEntryMembersRefusedBeforeCommit`）共用，避免两处漂移。
 func (s *Service) refuseDungeonSelectEntry(
 	session *gameSession,
 	request dungeoncmd.SelectDungeonRequest,
@@ -1387,18 +1588,8 @@ func (s *Service) refuseDungeonSelectEntry(
 	err error,
 	extra ...any,
 ) error {
-	reply := true
-	suppressed := ""
-	if sessionHasActiveDungeonRuntime(session) {
-		reply, suppressed = false, "active_dungeon_runtime_keeps_established_silence"
-	}
-	// `DNFBRIDGE_HELL_PARTY_ENTRY=legacy` 是 A/B 回滚档，承诺深渊派对请求
-	// "逐字节回到改动前行为（不校验、不回包）"——改动前这里就是静默丢弃，
-	// 所以 legacy 档必须连这些下游拒绝包一起保持静默（见 dungeon_hell_party_entry_test.go
-	// 的 legacy 用例）。普通选图请求（entry_option = 0）不受影响。
-	if hellPartySelectRequested(request) && !s.hellPartyEntryGate().enforces() {
-		reply, suppressed = false, "hell_party_legacy_mode_keeps_pre_change_silence"
-	}
+	suppressed, suppressedReason := s.dungeonSelectRefusalSuppression(session, request)
+	reply := !suppressed
 	var unlockFailure *dungeonMapQuestRequiredError
 	unlockNotice := reason == currentSelectDungeonMissingPermissionReason && errors.As(err, &unlockFailure) && s.currentRiftEntryEnabled(unlockFailure.dungeonID)
 	wireReason := reason
@@ -1421,14 +1612,37 @@ func (s *Service) refuseDungeonSelectEntry(
 	}
 	fields = append(fields, extra...)
 	fields = append(fields, "error", err)
-	if !reply {
-		fields = append(fields, "reply_suppressed_reason", suppressed)
+	if suppressed {
+		fields = append(fields, "reply_suppressed_reason", suppressedReason)
 	}
 	s.logGameEvent(session, "game-dungeon-select-blocked", fields...)
-	if !reply {
+	if suppressed {
 		return nil
 	}
 	return s.sendSelectDungeonFailureForError(session, reason, err)
+}
+
+// dungeonSelectRefusalSuppression 报告 `refuseDungeonSelectEntry` 对这条请求会不会真的
+// 回包以及静默原因。保留静默的只有两种既有情形：
+//
+//	① 会话**已经**有一条活动 runtime —— 客户端已经在副本里，不是在选图界面等应答；对
+//	   "另一个副本"的重复 op16 回拒绝包会干扰在跑的 runtime（既有用例
+//	   `dungeon_runtime_test.go` 的 "mismatched duplicate select" 钉的就是这条口径）。
+//	② `DNFBRIDGE_HELL_PARTY_ENTRY=legacy` 是 A/B 回滚档，承诺深渊派对请求"逐字节回到
+//	   改动前行为（不校验、不回包）"——改动前这里就是静默丢弃，所以 legacy 档必须连这些
+//	   下游拒绝包一起保持静默（见 `dungeon_hell_party_entry_test.go` 的 legacy 用例）。
+//	   普通选图请求（entry_option = 0）不受影响。
+func (s *Service) dungeonSelectRefusalSuppression(
+	session *gameSession,
+	request dungeoncmd.SelectDungeonRequest,
+) (bool, string) {
+	if sessionHasActiveDungeonRuntime(session) {
+		return true, "active_dungeon_runtime_keeps_established_silence"
+	}
+	if hellPartySelectRequested(request) && !s.hellPartyEntryGate().enforces() {
+		return true, "hell_party_legacy_mode_keeps_pre_change_silence"
+	}
+	return false, ""
 }
 
 func sameSelectDungeonRequest(left, right dungeoncmd.SelectDungeonRequest) bool {
@@ -1898,6 +2112,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	}
 	if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 		return fmt.Errorf("cache committed target dungeon room: %w", err)
+	}
+	if err := s.sendCurrentGuildPracticeDefeatedLocalActors(session, runtime); err != nil {
+		return err
 	}
 	// FINISH_LOADING's main class0 state and op30 completion are room-scoped.
 	// Keep the player/equipment/skill initialization gates intact: an ordinary

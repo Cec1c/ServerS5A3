@@ -68,6 +68,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	var raidBarrierProjections []runtimeRaidState
+	var passivePeerCompletion func()
+	defer func() {
+		if passivePeerCompletion != nil {
+			passivePeerCompletion()
+		}
+	}()
 	defer func() {
 		for _, state := range raidBarrierProjections {
 			s.queueCurrentRaidDungeonProgress(state)
@@ -85,6 +91,17 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	scene, hasScene := runtime.Session.Scene()
 	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
 		return s.handleCurrentTagTournamentMonsterDeathLocked(session, runtime, request)
+	}
+	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
+		if !hasScene {
+			return nil
+		}
+		return s.handleCurrentGuildPracticeDeathLocked(session, runtime, scene, request)
+	}
+	if hasScene {
+		if handled, err := s.handleCurrentMissionInformerRetirementLocked(session, runtime, scene, request); handled || err != nil {
+			return err
+		}
 	}
 	// 类别3任务物品先按报告事件结算，再保留已注册map-owned对象的地面行释放。
 	// 两条路径都不发送普通怪物死亡确认；其余报告继续既有怪物/APC处理。
@@ -225,6 +242,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 					scene,
 					request.RuntimeObjectKey,
 				)
+				if handled {
+					passivePeerCompletion = s.currentLukeDestroyObjectPeerCompletion(session, runtime, scene, request.RuntimeObjectKey)
+				}
 				if clearErr != nil {
 					return clearErr
 				}
@@ -732,6 +752,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			deathDrops, err = s.planCurrentRiftBossDrops(session, runtime, scene)
 		} else {
 			deathDrops, err = s.planPartyDungeonMonsterDrops(session, runtime, rewardMonster, playerObjectKey)
+			if err == nil && s.currentEpicRoadLootEnabled(runtime.Dungeon.ID) && bossActorDeath && scene.Boss {
+				var epicDrops []currentDungeonDeathDropWire
+				epicDrops, err = s.planCurrentRiftBossDrops(session, runtime, scene)
+				deathDrops = append(deathDrops, epicDrops...)
+			}
 		}
 		if err != nil {
 			reason := "runtime_pvf_csharp_formula_drop_plan_failed_zero_drop_fallback"

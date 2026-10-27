@@ -735,7 +735,7 @@ func currentDungeonPickupPlacement(
 		definition.ExpirationDate = itemexpiration.NextDailyDeleteAt(time.Now().UTC())
 	}
 	kind := dnfdungeon.PickupItemKind(definition.Kind)
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	placement := dnfdungeon.PickupItemPlacement{
 		Definition: dnfdungeon.PickupItemDefinition{
 			ItemID:          definition.ItemID,
@@ -806,6 +806,9 @@ func buildCurrentDungeonPickupStack(
 		stack.Extra["expire_time"] = stack.Extra[itemexpiration.DailyDeleteDeadlineKey]
 		stack.Extra["expire_unix"] = stack.Extra[itemexpiration.DailyDeleteDeadlineKey]
 		stack.ExpireAt = definition.ExpirationDate
+		if definition.Kind == dungeonDropItemEquipment {
+			stack.Extra["expiration_source"] = currentPVFDailyEquipmentGrantSource
+		}
 	}
 	if definition.Kind == dungeonDropItemEquipment {
 		if err := applyCurrentEquipmentQualitySeed(&stack, binary.LittleEndian.Uint32(entry.data[6:10])); err != nil {
