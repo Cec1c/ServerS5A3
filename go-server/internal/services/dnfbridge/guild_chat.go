@@ -26,6 +26,12 @@ func buildCurrentGuildChatBody(channel byte, sender []byte, message []byte) []by
 }
 
 func (s *Service) handleCurrentGuildChat(session *gameSession, op uint16, request currentPeerChatRequest) error {
+	return s.handleCurrentGuildChatMessage(session, op, request, nil)
+}
+
+// Text and item links share authoritative membership, contribution and bounded
+// delivery. Item rows have already passed the op424 fixed-size decoder.
+func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16, request currentPeerChatRequest, items [][]byte) error {
 	reject := func(reason string, cause error) error {
 		connID := ""
 		if session != nil {
@@ -102,12 +108,17 @@ func (s *Service) handleCurrentGuildChat(session *gameSession, op uint16, reques
 		return err
 	}
 	notice := buildCurrentGuildChatBody(channel, name, request.Message)
-	if err := s.sendCurrentGuildChatFrame(writeCtx, session, currentOfficialWhisperNotifyOpcode, notice, 0); err != nil {
+	noticeOpcode := currentOfficialWhisperNotifyOpcode
+	if len(items) > 0 {
+		noticeOpcode = currentGuildItemHyperlinkNotifyOpcode
+		notice = buildCurrentGuildItemHyperlinkNoticeBody(channel, name, request.Message, items)
+	}
+	if err := s.sendCurrentGuildChatFrame(writeCtx, session, noticeOpcode, notice, 0); err != nil {
 		return err
 	}
 	release()
 	for _, recipient := range recipients {
-		if err := s.queueCurrentGuildChat(recipient, current.ID, notice); err != nil {
+		if err := s.queueCurrentGuildChatNotice(recipient, current.ID, noticeOpcode, notice); err != nil {
 			s.logWarn("dnfbridge guild chat recipient unavailable", "source_char_id", source.character,
 				"target_char_id", recipient.identity.character, "stage", "enqueue", "error", err)
 		}
