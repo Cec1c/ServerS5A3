@@ -407,7 +407,9 @@ func (s *Service) Start(ctx context.Context) error {
 			s.mu.Unlock()
 			return errors.Join(err, closeErr)
 		}
+		s.releaseStartupPVFStageCaches()
 	}
+	s.releaseStartupPVFReadCaches()
 	gamePorts := s.gameListenPorts(catalog)
 	if len(gamePorts) == 0 {
 		cancel()

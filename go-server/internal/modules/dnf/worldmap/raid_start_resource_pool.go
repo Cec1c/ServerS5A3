@@ -6,20 +6,25 @@ import "unicode"
 // coordinate outside its current logical maze (actual BlackVolcano 19206).
 // Keep explicit/exact/pool precedence; do not choose a normal or foreign map.
 func (r *Resolver) raidStartResourcePool(dungeonID int64, mazeIndex int, room DungeonRoom) ([]Map, bool) {
+	values, ok, _ := r.raidStartResourcePoolRead(dungeonID, mazeIndex, room)
+	return values, ok
+}
+
+func (r *Resolver) raidStartResourcePoolRead(dungeonID int64, mazeIndex int, room DungeonRoom) ([]Map, bool, error) {
 	if r == nil || r.table == nil || !room.Start || room.Boss {
-		return nil, false
+		return nil, false, nil
 	}
 	di, ok := r.byDungeon[dungeonID]
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 	d := r.table.dungeons[di.dungeonPos]
 	if len(d.Mazes) != 1 || mazeIndex != 0 {
-		return nil, false
+		return nil, false, nil
 	}
 	maze := d.Mazes[0]
 	if len(maze.QuestConnection) != 0 || !maze.Width.Set || !maze.Height.Set {
-		return nil, false
+		return nil, false, nil
 	}
 	declared := false
 	for _, section := range d.SourceSections {
@@ -28,12 +33,12 @@ func (r *Resolver) raidStartResourcePool(dungeonID int64, mazeIndex int, room Du
 		}
 	}
 	if !declared {
-		return nil, false
+		return nil, false, nil
 	}
 	key := coordinateKey{room.Coordinate.X, room.Coordinate.Y}
 	index := di.mazes[0]
 	if len(index.bySpecification[key]) != 0 {
-		return nil, false
+		return nil, false, nil
 	}
 	var candidates []indexedMap
 	for _, refs := range index.byOwnership {
@@ -44,16 +49,16 @@ func (r *Resolver) raidStartResourcePool(dungeonID int64, mazeIndex int, room Du
 		}
 	}
 	if len(candidates) != 1 {
-		return nil, false
+		return nil, false, nil
 	}
 	ref := candidates[0]
 	m := r.table.maps[ref.mapPos]
 	if !m.DungeonID.Set || m.DungeonID.Value != dungeonID || len(m.DungeonIDs) != 1 || m.DungeonIDs[0] != dungeonID {
-		return nil, false
+		return nil, false, nil
 	}
 	x, y, ok := ParseMapFileCoordinate(m.Path)
 	if !ok || (x >= 0 && y >= 0 && x < maze.Width.Value && y < maze.Height.Value) {
-		return nil, false
+		return nil, false, nil
 	}
 	var expected uint8
 	for _, n := range room.Neighbors {
@@ -71,13 +76,17 @@ func (r *Resolver) raidStartResourcePool(dungeonID int64, mazeIndex int, room Du
 		}
 		value, ok := greedRoomMask(c)
 		if !ok || value == 0 || (seen && value != mask) {
-			return nil, false
+			return nil, false, nil
 		}
 		mask = value
 		seen = true
 	}
 	if !seen || expected == 0 || mask != expected {
-		return nil, false
+		return nil, false, nil
 	}
-	return []Map{cloneMap(m)}, true
+	value, err := r.table.readMap(ref.mapPos)
+	if err != nil {
+		return nil, false, err
+	}
+	return []Map{value}, true, nil
 }

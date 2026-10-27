@@ -17,6 +17,7 @@ var (
 )
 
 type Table struct {
+	mapCache      *mapDefinitionCache
 	maps          []Map
 	areas         []Area
 	dungeons      []Dungeon
@@ -162,14 +163,20 @@ func (t *Table) FindDungeonPath(dungeonPath string) (Dungeon, bool) {
 }
 
 func (t *Table) FindMap(id int64) (Map, bool) {
+	value, found, err := t.FindMapWithError(id)
+	return value, found && err == nil
+}
+
+func (t *Table) FindMapWithError(id int64) (Map, bool, error) {
 	if t == nil {
-		return Map{}, false
+		return Map{}, false, nil
 	}
-	pos, ok := t.mapByID[id]
-	if !ok {
-		return Map{}, false
+	pos, found := t.mapByID[id]
+	if !found {
+		return Map{}, false, nil
 	}
-	return cloneMap(t.maps[pos]), true
+	value, err := t.readMap(pos)
+	return value, err == nil, err
 }
 
 func (t *Table) FindMapPath(mapPath string) (Map, bool) {
@@ -180,7 +187,8 @@ func (t *Table) FindMapPath(mapPath string) (Map, bool) {
 	if !ok {
 		return Map{}, false
 	}
-	return cloneMap(t.maps[pos]), true
+	value, err := t.readMap(pos)
+	return value, err == nil
 }
 
 func (t *Table) FindArea(id int64) (Area, bool) {
@@ -217,14 +225,23 @@ func (t *Table) FindAreaByDungeon(dungeonID int64) (Area, bool) {
 }
 
 func (t *Table) Maps() []Map {
+	values, _ := t.MapsWithError()
+	return values
+}
+
+func (t *Table) MapsWithError() ([]Map, error) {
 	if t == nil {
-		return nil
+		return nil, nil
 	}
-	out := make([]Map, len(t.maps))
+	values := make([]Map, len(t.maps))
 	for i := range t.maps {
-		out[i] = cloneMap(t.maps[i])
+		var err error
+		values[i], err = t.readMap(i)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return out
+	return values, nil
 }
 
 func (t *Table) Areas() []Area {
