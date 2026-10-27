@@ -44,6 +44,15 @@
 - The local profile is single-account and local-only. The 90CN bootstrap/channel download endpoint, admin endpoint, and MySQL stay on loopback. Dynamic channel-directory advertisements and every game port must use an automatically detected or explicitly configured private LAN IPv4 and bind only that local interface; never use a wildcard or public address.
 - The `90cn-decode-bypass-v1` protocol profile, asset hashes, and client hashes are a compatibility unit. Change them together and record evidence.
 
+## 来源通知工具与客户端累计发布
+
+- anti-RE v0.2.0 是来源通知工具，保留通知与三处编码的轻量文案隐藏，已移除整文件 SHA 白名单和运行时防篡改。按黑盒 CLI 使用，默认只读 README、使用说明和输入/输出契约；非任务确需不深入实现，不恢复旧保护或把工具报错绕过。
+- V183 已作为一次性来源通知基线正式发布；工具版本、配置、输入/输出 SHA256 与验证记录留档，实际游戏验收按独立回执记录。后续以正式基线及最新累计成品为输入，不用早期候选覆盖后续修改。
+- V183 正式基线发布后，其他开发者从该基线及其后续累计版本恢复直接修改 EXE、验证并交付的流程。普通修复或新 Release 不要求重新运行通知 CLI；SHA 改变只记录为新的文件身份。此前“每次新 Release 必须加锁、每次修改后重新经过 CLI”的规则已被本条替代。
+- 普通修复保留通知新增节、挂接指令及依赖关系，输出独立候选，不将挂接恢复为未注入原指令。涉及通知位置、相关函数地址、调用约定、对象布局、所有权或消息流程时协调适配。需要时可自愿执行 `anti-re.exe verify --input <候选>` 检查通知结构；它不运行游戏，也不替代功能及游戏内验收。
+- 维护一键更新、发布、镜像及 Hub 时，沿用最新累计 EXE、所选通道最新已发布 Release、签名与最终下载摘要核对；不增加每次发版必须调用 anti-RE 的门槛。顺序仍为：修复验证与所需验收 → Release/指定镜像 → 玩家实际通道读回 → 依赖服务端部署。工具已发布、EXE 候选、正式基线及线上状态分别记录。
+- 旧 Release 清理由用户指定的独立进程负责；不自行删除或从另一端补回已清理版本。已退役版本不能替代当前累计基线；现有运行组合和回退产物按既有发布流程保留。
+
 ## 客户端函数索引与静态取证
 
 - 公共入口见 [客户端函数与协议索引](Docs/CLIENT_FUNCTION_INDEX.md)，机器可读记录在 `Docs/client-functions/`。该索引已获用户授权公开并同步；只收录模块摘要、RVA、脱敏语义及公共证据。原始反编译、私人报文和环境资料保存在被忽略的 `.cache/` 或 `local-notes/`。

@@ -91,6 +91,14 @@ func GuildOwners(owners []GuildOwner) ([]GuildOwner, error) {
 	return guildOwners(owners, 2)
 }
 
+// GuildRaidClearUnitOfWork atomically commits the registry and up to 20 final
+// raid participants. It exposes no inventories or account wallets.
+type GuildRaidClearUnitOfWork interface {
+	WithinGuildRaidClear(context.Context, []GuildOwner, func(Group) error) error
+}
+
+func GuildRaidClearOwners(owners []GuildOwner) ([]GuildOwner, error) { return guildOwners(owners, 20) }
+
 func GuildTravelOwners(owners []GuildOwner) ([]GuildOwner, error) {
 	return guildOwners(owners, 4)
 }
