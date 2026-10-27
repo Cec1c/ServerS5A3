@@ -23,6 +23,8 @@ MAX_ASSET = 512 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 32
 MARKER = "<!-- client-release-sync:v1 "
 TAG = re.compile(r"client-[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
+VERSION_TAG = re.compile(r"client-v([1-9][0-9]*)(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?\Z")
+MIN_CLIENT_VERSION = 180
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip\Z", re.I)
 SPLIT_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip)\.([0-9]{3})\Z", re.I)
 
@@ -630,6 +632,24 @@ def save_receipt(path,receipt):
     temporary.replace(path)
 
 
+def retained_release_tag(tag):
+    match = VERSION_TAG.fullmatch(tag) if isinstance(tag, str) else None
+    return bool(match and int(match[1]) >= MIN_CLIENT_VERSION)
+
+
+def select_release_rows(rows, requested_tags):
+    # Apply retention before identity() downloads any assets. A release
+    # removed on either side must not return from the other side's inventory.
+    selected, skipped = [], []
+    for row in rows:
+        tag = row["tag_name"]
+        if not retained_release_tag(tag):
+            skipped.append(tag)
+        elif not requested_tags or tag in requested_tags:
+            selected.append(row)
+    return selected, skipped
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--github",required=True)
@@ -643,6 +663,8 @@ def main():
     p.add_argument("--write-to",choices=("github","gitgud"),action="append",default=[])
     args=p.parse_args()
     validate_configuration(args.github,args.gitgud_project)
+    if any(not retained_release_tag(tag) for tag in args.tag):
+        raise SyncError(f"Client release synchronization requires a versioned tag at V{MIN_CLIENT_VERSION} or newer")
     gh=os.environ.get("GH_TOKEN","");gl=os.environ.get("GITGUD_RELEASE_TOKEN","")
     if args.local_auth:
         gh=gh or local_token(["gh","auth","token"])
@@ -652,15 +674,15 @@ def main():
     if args.write_to:
         for repo in repos:
             repo.writable = repo.writable and repo.key in args.write_to
-    inventory={}
+    inventory={};skipped={}
     for repo in repos:
-        rows=[x for x in repo.list() if not args.tag or x["tag_name"] in args.tag]
+        rows,skipped[repo.key]=select_release_rows(repo.list(),args.tag)
         inventory[repo.key]=[repo.identity(row,args.cache,fresh=True) for row in rows]
         print(f"Verified {repo.key}: {len(rows)} client releases",flush=True)
     actions=plan(inventory,repos)
     for repo,item in actions:
         repo.prepare(item,args.cache,publishing=args.apply)
-    receipt={"timeUtc":datetime.now(timezone.utc).isoformat(),"apply":args.apply,"verified":{key:[release_record(x) for x in rows] for key,rows in inventory.items()},"actions":[{"target":r.key,"tag":x["tag"],"identity":content_identity(x)} for r,x in actions],"completed":[]}
+    receipt={"timeUtc":datetime.now(timezone.utc).isoformat(),"apply":args.apply,"minimumClientVersion":MIN_CLIENT_VERSION,"skippedByRetention":skipped,"verified":{key:[release_record(x) for x in rows] for key,rows in inventory.items()},"actions":[{"target":r.key,"tag":x["tag"],"identity":content_identity(x)} for r,x in actions],"completed":[]}
     args.receipt.parent.mkdir(parents=True,exist_ok=True)
     save_receipt(args.receipt,receipt)
     for repo,item in actions:
