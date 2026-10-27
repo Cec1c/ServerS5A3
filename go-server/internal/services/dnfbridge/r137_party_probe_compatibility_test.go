@@ -122,22 +122,18 @@ func r136Fixture(t *testing.T, ipB string, mapped bool, nativeProfile ...bool) (
 	f, third := r137ProbeFixture(t)
 	if len(nativeProfile) > 0 && nativeProfile[0] {
 		f.service.partyUDPRelay.Close()
-		// Windows can allocate sequential ephemeral ports; repeatedly requesting
-		// a port outside a 64-port future range is not a reliable fixture.
-		probeSocket := testCurrentPartyUDPClient(t, "127.0.0.1")
-		probe := probeSocket.LocalAddr().(*net.UDPAddr).Port
-		start := probe + 1
-		if start+63 > 65535 {
-			start = probe - 64
-		}
-		probeSocket.Close()
+		// Let the actual probe listener atomically reserve its ephemeral port.
+		// Closing a separate probe socket before reopening the same port leaves
+		// a race with other processes. The relay reserves the kernel-assigned
+		// probe port even if it falls inside the directed-leg range.
+		start := testCurrentPartyUDPRelayPortStart(t)
 		r, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 			enabled: true, advertiseIP: "127.0.0.1", portStart: start, portCount: 64,
 			probeReplay:            readPartyUDPRelayProbeReplayMode("").enabled(),
 			probeListen:            readPartyUDPRelayProbeListenMode("").enabled(),
 			seedForward:            readPartyUDPRelaySeedForwardMode("").enabled(),
 			observedEndpointFanout: readPartyUDPRelayObservedEndpointFanoutMode(""),
-			probePorts:             []int{probe},
+			probePorts:             []int{0},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -414,8 +410,8 @@ func TestR136P70SameIPLoginTokensRemainSeparate(t *testing.T) {
 			t.Fatal("same-IP token account collapsed")
 		}
 	}
-	if sessions[0].accountID == sessions[1].accountID {
-		t.Fatal("distinct login tokens merged account identity")
+	if sessions[0].accountID == sessions[1].accountID || sessions[0].loginChannelFlowKey == sessions[1].loginChannelFlowKey {
+		t.Fatal("distinct login tokens merged account/flow identity")
 	}
 	sessions[1].clientIP = "198.51.100.30"
 	if got := f.service.accountIDForSession(sessions[1]); got != "r136-memory-account-1" {

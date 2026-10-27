@@ -443,9 +443,35 @@ func (c *currentEpicProductionCatalog) allows(jobTag string, targetItemID uint32
 	return ok
 }
 
+// allowsAnyJob reports whether the item is a configured production target of at
+// least one job in the catalog. The process transaction uses this union so the
+// persisted target is checked against the real production lists without being
+// re-filtered by the character's current job; the start handler already
+// restricted the target to one of those lists.
+func (c *currentEpicProductionCatalog) allowsAnyJob(targetItemID uint32) bool {
+	if c == nil || targetItemID == 0 {
+		return false
+	}
+	for _, targets := range c.targetsByJob {
+		if _, ok := targets[targetItemID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func validateCurrentEpicProductionTarget(source initialEquipmentTextSource, items *pvfDungeonDropCatalog, catalog *currentEpicProductionCatalog, jobTag string, targetItemID uint32) (dungeonDropItemDefinition, error) {
 	if source == nil || items == nil || catalog == nil || !catalog.allows(jobTag, targetItemID) {
 		return dungeonDropItemDefinition{}, fmt.Errorf("%w: target item=%d is not configured for job=%s", errCurrentEpicProductionInvalid, targetItemID, jobTag)
+	}
+	return validateCurrentEpicProductionEquipment(source, items, targetItemID)
+}
+
+// Ability changes address an owned inventory item, independently of the weapon
+// currently selected for production. Validate the actual item against the PVF.
+func validateCurrentEpicProductionEquipment(source initialEquipmentTextSource, items *pvfDungeonDropCatalog, targetItemID uint32) (dungeonDropItemDefinition, error) {
+	if source == nil || items == nil || targetItemID == 0 {
+		return dungeonDropItemDefinition{}, errCurrentEpicProductionInvalid
 	}
 	definition, err := items.ResolveItem(targetItemID)
 	if err != nil {
@@ -469,8 +495,12 @@ func validateCurrentEpicProductionTarget(source initialEquipmentTextSource, item
 	return definition, nil
 }
 
-func startCurrentEpicProduction(ctx context.Context, characters dnfrepo.CharacterRepository, accountID, characterID string, targetItemID uint32) (bool, error) {
-	if characters == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(characterID) == "" || targetItemID == 0 {
+// startCurrentEpicProduction applies the target change to the supplied repository.
+// Production callers must supply the CharacterAssets transaction repository via
+// commitCurrentEpicProductionStart so its active-target check and stats save
+// share the same lock as processing and target changes.
+func startCurrentEpicProduction(ctx context.Context, characters dnfrepo.CharacterRepository, accountID, characterID string, targetItemID, minimumLevel uint32) (bool, error) {
+	if characters == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(characterID) == "" || targetItemID == 0 || minimumLevel == 0 {
 		return false, errCurrentEpicProductionInvalid
 	}
 	character, found, err := characters.Load(ctx, characterID)
@@ -480,6 +510,12 @@ func startCurrentEpicProduction(ctx context.Context, characters dnfrepo.Characte
 	if !found || strings.TrimSpace(character.CharacterID) != strings.TrimSpace(characterID) || strings.TrimSpace(character.AccountID) != strings.TrimSpace(accountID) {
 		return false, errCurrentEpicProductionInvalid
 	}
+	// Match processing's catalog level requirement on the locked snapshot,
+	// including idempotent starts. A handler preflight read can become stale.
+	if int64(character.Level) < int64(minimumLevel) {
+		return false, errCurrentEpicProductionInvalid
+	}
+	character = dnfrepo.CloneCharacter(character)
 	if character.Stats == nil {
 		character.Stats = make(map[string]int64)
 	}
@@ -497,6 +533,22 @@ func startCurrentEpicProduction(ctx context.Context, characters dnfrepo.Characte
 	return true, nil
 }
 
+func commitCurrentEpicProductionStart(ctx context.Context, assets dnfrepo.CharacterAssetUnitOfWork, accountID, characterID string, targetItemID, minimumLevel uint32) (bool, error) {
+	if assets == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(characterID) == "" || targetItemID == 0 || minimumLevel == 0 {
+		return false, errCurrentEpicProductionInvalid
+	}
+	changed := false
+	err := assets.WithinCharacterAssets(ctx, characterID, func(characters dnfrepo.CharacterRepository, _ dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+		var err error
+		changed, err = startCurrentEpicProduction(ctx, characters, accountID, characterID, targetItemID, minimumLevel)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
 func buildCurrentEpicProductionStartSuccessBody(targetItemID uint32) []byte {
 	var body packetWriter
 	body.writeUint32(targetItemID)
@@ -511,16 +563,16 @@ func (s *Service) handleCurrentEpicProductionStart(session *gameSession, body []
 	targetItemID, err := decodeCurrentEpicProductionStartRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "body_len", len(body), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	if session.selectedCharacterID == 0 {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "reason", "selected_character_missing")
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	repositories, ok := s.repositoryGroup()
-	if !ok || repositories.Character == nil {
+	if !ok || repositories.Character == nil || repositories.CharacterAssets == nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "reason", "character_repository_missing")
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -536,7 +588,7 @@ func (s *Service) handleCurrentEpicProductionStart(session *gameSession, body []
 			"reason", "character_load_failed",
 			"character_found", found,
 			"load_error", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	if ok, ownerReason := s.epicProductionSessionOwnsCharacter(character, sessionAccountID); !ok {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked",
@@ -546,12 +598,12 @@ func (s *Service) handleCurrentEpicProductionStart(session *gameSession, body []
 			"character_account", character.AccountID,
 			"session_account", sessionAccountID,
 			"account_scope", s.epicProductionAccountScope().String())
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	jobValue := numericCharacterStat(character.Job)
 	if jobValue < 0 || jobValue > math.MaxUint8 {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "job", character.Job, "reason", "job_out_of_u8_range")
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 
 	s.initialEquipmentMu.Lock()
@@ -559,39 +611,39 @@ func (s *Service) handleCurrentEpicProductionStart(session *gameSession, body []
 	s.initialEquipmentMu.Unlock()
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	productionCatalog, err := parseCurrentEpicProductionCatalog(archive)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	items, err := s.currentPVFItemCatalog()
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	jobTag, err := currentRentalCharacterJobTag(archive, byte(jobValue))
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "job", jobValue, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 	definition, err := validateCurrentEpicProductionTarget(archive, items, productionCatalog, jobTag, targetItemID)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "job", jobValue, "job_tag", jobTag, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), currentEpicProductionGenericError)
 	}
 
-	changed, err := startCurrentEpicProduction(ctx, repositories.Character, sessionAccountID, characterID, targetItemID)
+	changed, err := commitCurrentEpicProductionStart(ctx, repositories.CharacterAssets, sessionAccountID, characterID, targetItemID, productionCatalog.levelLimit)
 	if err != nil {
 		code := byte(currentEpicProductionGenericError)
 		if errors.Is(err, errCurrentEpicProductionAlreadyActive) {
 			code = currentEpicProductionAlreadyActive
 		}
 		s.logGameEvent(session, "game-upper-epic-production-start-blocked", "target_item_id", targetItemID, "character_id", characterID, "job", jobValue, "job_tag", jobTag, "result_code", code, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), code)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), code)
 	}
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketEpicProductionStartFinish), buildCurrentEpicProductionStartSuccessBody(targetItemID)); err != nil {
+	if err := s.sendGameUpperSuccess(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), buildCurrentEpicProductionStartSuccessBody(targetItemID)); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-upper-epic-production-start-applied",
@@ -602,7 +654,8 @@ func (s *Service) handleCurrentEpicProductionStart(session *gameSession, body []
 		"pvf_path", definition.PVFPath,
 		"result_index", currentEpicProductionStartIndex,
 		"state_changed", changed,
-		"body_source", "current_exe_op1417_success_u8_true_u32_target_u32_valid_index")
+		"wire_opcode", s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish),
+		"body_source", "epic_production_start_u8_true_u32_target_u32_valid_index")
 	return nil
 }
 
@@ -836,11 +889,13 @@ func currentEpicProductionConsumeAbilityMaterial(
 func (s *Service) commitCurrentEpicProductionAbility(
 	ctx context.Context,
 	session *gameSession,
+	source initialEquipmentTextSource,
+	items *pvfDungeonDropCatalog,
 	recipe currentEpicProductionAbilityRecipe,
 	request currentEpicProductionAbilityRequest,
 	now time.Time,
 ) (currentEpicProductionAbilityResult, error) {
-	if s == nil || session == nil || session.selectedCharacterID == 0 || recipe.Category != request.Category || recipe.Option != request.Option {
+	if s == nil || session == nil || session.selectedCharacterID == 0 || source == nil || items == nil || recipe.Category != request.Category || recipe.Option != request.Option {
 		return currentEpicProductionAbilityResult{}, errCurrentEpicProductionInvalid
 	}
 	repositories, ok := s.repositoryGroup()
@@ -868,11 +923,7 @@ func (s *Service) commitCurrentEpicProductionAbility(
 			if err != nil {
 				return err
 			}
-			if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) != accountID || character.Stats == nil {
-				return errCurrentEpicProductionInvalid
-			}
-			targetItemID := character.Stats[currentEpicProductionTargetStat]
-			if targetItemID <= 0 || targetItemID > math.MaxUint32 {
+			if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) != accountID {
 				return errCurrentEpicProductionInvalid
 			}
 			inventory, found, err := inventories.Load(ctx, characterID)
@@ -903,8 +954,11 @@ func (s *Service) commitCurrentEpicProductionAbility(
 
 			targetKey := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, request.Slot)
 			target, found := inventory.Slots[targetKey]
-			if !found || target.ItemID != targetItemID || target.Count <= 0 || currentNPCShopItemLocked(target) {
-				return fmt.Errorf("%w: ability target slot=%d item=%d want=%d", errCurrentEpicProductionInvalid, request.Slot, target.ItemID, targetItemID)
+			if !found || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
+				return fmt.Errorf("%w: ability target slot=%d item=%d", errCurrentEpicProductionInvalid, request.Slot, target.ItemID)
+			}
+			if _, err := validateCurrentEpicProductionEquipment(source, items, uint32(target.ItemID)); err != nil {
+				return err
 			}
 			targetEntry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, request.Slot, target)
 			tail := append([]byte(nil), targetEntry.data[currentEpicProductionAbilityTailOffset:currentEpicProductionAbilityTailOffset+currentEpicProductionAbilityTailSize]...)
@@ -963,36 +1017,40 @@ func (s *Service) handleCurrentEpicProductionAbility(session *gameSession, body 
 	request, err := decodeCurrentEpicProductionAbilityRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-ability-blocked", "body_len", len(body), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
 	}
 	s.initialEquipmentMu.Lock()
 	archive, archiveErr := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
 	if archiveErr != nil {
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
 	}
 	catalog, err := parseCurrentEpicProductionAbilityCatalog(archive)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-ability-blocked", "slot", request.Slot, "category", request.Category, "option", request.Option, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
 	}
 	recipe, err := currentEpicProductionAbilityRecipeFor(catalog, request)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-ability-blocked", "slot", request.Slot, "category", request.Category, "option", request.Option, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
+	}
+	items, err := s.currentPVFItemCatalog()
+	if err != nil {
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), currentEpicProductionGenericError)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	result, err := s.commitCurrentEpicProductionAbility(ctx, session, recipe, request, time.Now().UTC())
+	result, err := s.commitCurrentEpicProductionAbility(ctx, session, archive, items, recipe, request, time.Now().UTC())
 	if err != nil {
 		code := byte(currentEpicProductionGenericError)
 		if errors.Is(err, errCurrentEpicProductionMaterial) {
 			code = currentEpicProductionMaterialError
 		}
 		s.logGameEvent(session, "game-upper-epic-production-ability-blocked", "slot", request.Slot, "category", request.Category, "option", request.Option, "result_code", code, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionAbilityOption), code)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), code)
 	}
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketEpicProductionAbilityOption), nil); err != nil {
+	if err := s.sendGameUpperSuccess(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption), nil); err != nil {
 		return err
 	}
 	if len(result.Updates) != 0 {
@@ -1007,7 +1065,8 @@ func (s *Service) handleCurrentEpicProductionAbility(session *gameSession, body 
 		"option", request.Option,
 		"material_types", len(recipe.Materials),
 		"state_changed", result.Applied,
-		"body_source", "current_exe_op1421_success_u8_true_no_additional_body_raw72_ability_state")
+		"wire_opcode", s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionAbilityOption),
+		"body_source", "epic_production_ability_u8_true_no_additional_body_raw72_ability_state")
 	return nil
 }
 
@@ -1461,16 +1520,16 @@ func (s *Service) handleCurrentEpicProductionChange(session *gameSession, body [
 	request, err := decodeCurrentEpicProductionChangeRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "body_len", len(body), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	if session.selectedCharacterID == 0 {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "reason", "selected_character_missing")
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Character == nil || repositories.AccountAssets == nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "reason", "account_asset_repository_missing")
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -1486,7 +1545,7 @@ func (s *Service) handleCurrentEpicProductionChange(session *gameSession, body [
 			"reason", "character_load_failed",
 			"character_found", found,
 			"load_error", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	if ok, ownerReason := s.epicProductionSessionOwnsCharacter(character, sessionAccountID); !ok {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked",
@@ -1496,12 +1555,12 @@ func (s *Service) handleCurrentEpicProductionChange(session *gameSession, body [
 			"character_account", character.AccountID,
 			"session_account", sessionAccountID,
 			"account_scope", s.epicProductionAccountScope().String())
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	jobValue := numericCharacterStat(character.Job)
 	if jobValue < 0 || jobValue > math.MaxUint8 {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "job", character.Job, "reason", "job_out_of_u8_range")
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 
 	s.initialEquipmentMu.Lock()
@@ -1509,27 +1568,27 @@ func (s *Service) handleCurrentEpicProductionChange(session *gameSession, body [
 	s.initialEquipmentMu.Unlock()
 	if archiveErr != nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "reason", archiveErr)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	catalog, err := parseCurrentEpicProductionCatalog(archive)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	items, err := s.currentPVFItemCatalog()
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	jobTag, err := currentRentalCharacterJobTag(archive, byte(jobValue))
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "job", jobValue, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 	definition, err := validateCurrentEpicProductionTarget(archive, items, catalog, jobTag, request.TargetItemID)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "job", jobValue, "job_tag", jobTag, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), currentEpicProductionGenericError)
 	}
 
 	result, err := s.commitCurrentEpicProductionChange(ctx, session, catalog, jobTag, request, time.Now().UTC())
@@ -1539,9 +1598,9 @@ func (s *Service) handleCurrentEpicProductionChange(session *gameSession, body [
 			code = 4
 		}
 		s.logGameEvent(session, "game-upper-epic-production-change-blocked", "target_item_id", request.TargetItemID, "character_id", characterID, "material_count", len(request.Materials), "result_code", code, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), code)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), code)
 	}
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketEpicProductionChangeItem), buildCurrentEpicProductionChangeSuccessBody(result.TargetItemID)); err != nil {
+	if err := s.sendGameUpperSuccess(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem), buildCurrentEpicProductionChangeSuccessBody(result.TargetItemID)); err != nil {
 		return err
 	}
 	if len(result.Updates) != 0 {
@@ -1556,7 +1615,8 @@ func (s *Service) handleCurrentEpicProductionChange(session *gameSession, body [
 		"job_tag", jobTag,
 		"pvf_path", definition.PVFPath,
 		"material_count", len(request.Materials),
-		"body_source", "current_exe_op1418_success_u8_true_u32_target_item_id")
+		"wire_opcode", s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionChangeItem),
+		"body_source", "epic_production_change_u8_true_u32_target_item_id")
 	return nil
 }
 
@@ -1769,30 +1829,37 @@ func buildCurrentEpicProductionCompoundSuccessBody(result currentEpicProductionC
 }
 
 func (s *Service) handleCurrentEpicProductionCompound(session *gameSession, body []byte) error {
+	if session == nil {
+		return errCurrentEpicProductionInvalid
+	}
 	request, err := decodeCurrentEpicProductionCompoundRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-compound-blocked", "body_len", len(body), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
+	}
+	if session.selectedCharacterID == 0 {
+		s.logGameEvent(session, "game-upper-epic-production-compound-blocked", "catalyst_item_id", request.CatalystItemID, "reason", "selected_character_missing")
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
 	}
 	s.initialEquipmentMu.Lock()
 	archive, archiveErr := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
 	if archiveErr != nil {
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
 	}
 	catalog, err := parseCurrentEpicProductionCatalog(archive)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-compound-blocked", "catalyst_item_id", request.CatalystItemID, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
 	}
 	items, err := s.currentPVFItemCatalog()
 	if err != nil {
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), currentEpicProductionGenericError)
 	}
 	plan, err := validateCurrentEpicProductionCompoundPlan(archive, items, catalog, request)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-compound-blocked", "catalyst_item_id", request.CatalystItemID, "material_count", len(request.Materials), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), 4)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), 4)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -1803,9 +1870,9 @@ func (s *Service) handleCurrentEpicProductionCompound(session *gameSession, body
 			code = 4
 		}
 		s.logGameEvent(session, "game-upper-epic-production-compound-blocked", "catalyst_item_id", request.CatalystItemID, "material_count", len(request.Materials), "result_code", code, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), code)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), code)
 	}
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketEpicProductionMaterialCompound), buildCurrentEpicProductionCompoundSuccessBody(result)); err != nil {
+	if err := s.sendGameUpperSuccess(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound), buildCurrentEpicProductionCompoundSuccessBody(result)); err != nil {
 		return err
 	}
 	if len(result.Updates) != 0 {
@@ -1820,7 +1887,8 @@ func (s *Service) handleCurrentEpicProductionCompound(session *gameSession, body
 		"output_count", result.OutputCount,
 		"group_selector", result.GroupSelector,
 		"carry_value", result.CarryValue,
-		"body_source", "current_exe_op1420_success_u8_true_u32_output_count_u8_group_u32_carry")
+		"wire_opcode", s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionMaterialCompound),
+		"body_source", "epic_production_compound_u8_true_u32_output_count_u8_group_u32_carry")
 	return nil
 }
 
@@ -1862,6 +1930,21 @@ func (s *Service) commitCurrentEpicProductionProcess(
 		if character.Level < int(catalog.levelLimit) || character.Stats == nil || character.Stats[currentEpicProductionTargetStat] <= 0 {
 			return errCurrentEpicProductionInvalid
 		}
+		// A corrupt persisted target must not spend catalysts: require a value the
+		// wire/stat range can hold and an item that is a configured production
+		// target of at least one job. The check intentionally enumerates the
+		// catalog's allowed sets and does not re-filter by the current job.
+		target := character.Stats[currentEpicProductionTargetStat]
+		if target > math.MaxUint32 || !catalog.allowsAnyJob(uint32(target)) {
+			return errCurrentEpicProductionInvalid
+		}
+		charge := character.Stats[currentEpicProductionChargeStat]
+		// Replayed/stale process requests cannot spend assets on a full target.
+		// Validate persisted charge before arithmetic, including corrupt values
+		// that could otherwise overflow when adding the next catalyst's points.
+		if charge < 0 || charge >= int64(catalog.maxChargePoint) {
+			return errCurrentEpicProductionInvalid
+		}
 		inventory, found, loadErr := inventories.Load(ctx, characterID)
 		if loadErr != nil {
 			return loadErr
@@ -1879,6 +1962,10 @@ func (s *Service) commitCurrentEpicProductionProcess(
 			weeklyCount = 0
 		}
 		if weeklyCount < 0 || weeklyCount >= int64(catalog.weeklyLimit) {
+			return errCurrentEpicProductionWeeklyLimit
+		}
+		// Official ACK counts are U8; reject before consuming assets.
+		if s.options.currentClientVersion == "official-24.9" && weeklyCount >= math.MaxUint8 {
 			return errCurrentEpicProductionWeeklyLimit
 		}
 
@@ -1908,13 +1995,10 @@ func (s *Service) commitCurrentEpicProductionProcess(
 		if chargeGain > math.MaxInt64 {
 			return errCurrentEpicProductionInvalid
 		}
-		charge := character.Stats[currentEpicProductionChargeStat]
-		if charge < 0 {
-			return errCurrentEpicProductionInvalid
-		}
-		charge += int64(chargeGain)
-		if charge > int64(catalog.maxChargePoint) {
+		if chargeGain >= uint64(int64(catalog.maxChargePoint)-charge) {
 			charge = int64(catalog.maxChargePoint)
+		} else {
+			charge += int64(chargeGain)
 		}
 		character.Stats[currentEpicProductionChargeStat] = charge
 		character.Stats[currentEpicProductionWeeklyCountStat] = weeklyCount + 1
@@ -1958,18 +2042,18 @@ func (s *Service) handleCurrentEpicProductionProcess(session *gameSession, body 
 	request, err := decodeCurrentEpicProductionProcessRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-process-blocked", "body_len", len(body), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionProcess), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionProcess), currentEpicProductionGenericError)
 	}
 	s.initialEquipmentMu.Lock()
 	archive, archiveErr := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
 	if archiveErr != nil {
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionProcess), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionProcess), currentEpicProductionGenericError)
 	}
 	catalog, err := parseCurrentEpicProductionCatalog(archive)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-epic-production-process-blocked", "body_len", len(body), "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionProcess), currentEpicProductionGenericError)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionProcess), currentEpicProductionGenericError)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -1980,9 +2064,9 @@ func (s *Service) handleCurrentEpicProductionProcess(session *gameSession, body 
 			code = currentEpicProductionWeeklyLimitError
 		}
 		s.logGameEvent(session, "game-upper-epic-production-process-blocked", "body_len", len(body), "material_count", len(request.Materials), "result_code", code, "reason", err)
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEpicProductionProcess), code)
+		return s.sendGameUpperFailure(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionProcess), code)
 	}
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketEpicProductionProcess), buildCurrentEpicProductionProcessSuccessBody(result)); err != nil {
+	if err := s.sendGameUpperSuccess(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionProcess), s.buildCurrentEpicProductionProcessSuccessBody(result)); err != nil {
 		return err
 	}
 	if len(result.Updates) != 0 {
@@ -1999,7 +2083,8 @@ func (s *Service) handleCurrentEpicProductionProcess(session *gameSession, body 
 		"charge_point", result.ChargePoint,
 		"weekly_count", result.WeeklyCount,
 		"big_success", result.BigSuccess,
-		"body_source", "current_exe_op1419_success_u8_true_u32_charge_u8_state_u8_ui_flag")
+		"wire_opcode", s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionProcess),
+		"body_source", "epic_production_process_u8_true_u32_charge_u8_state_u8_ui_flag")
 	return nil
 }
 
@@ -2115,10 +2200,22 @@ func (s *Service) sendSelectedCurrentEpicProductionInfo(session *gameSession, so
 		carryGroup2 = 0
 	}
 	body := buildCurrentEpicProductionInfoBody(session.selectedCharacterID, uint32(target), uint32(charge), remainingWeeklyCount, uint32(carryGroup1), uint32(carryGroup2))
+	if s.options.currentClientVersion == "official-24.9" {
+		// v103 copies state[13] to the same used-count byte updated by ACK1417.
+		// Sending the old reserved zero would undo that ACK. Project the loaded
+		// snapshot, including rollover; cap corrupt/legacy over-limit records to
+		// exhausted so the client's unsigned remaining calculation cannot wrap.
+		usedForNotice := catalog.weeklyLimit - remainingWeeklyCount
+		if usedForNotice > math.MaxUint8 {
+			usedForNotice = math.MaxUint8
+		}
+		body[4+13] = byte(usedForNotice)
+	}
+	msgID := s.epicProductionInfoMsgID()
 	s.logGameEvent(session, "game-upper-epic-production-info-send",
 		"source", source,
 		"character_id", session.selectedCharacterID,
-		"msg_id", currentEpicProductionInfoMsgID,
+		"msg_id", msgID,
 		"target_item_id", target,
 		"charge_point", charge,
 		"weekly_limit", catalog.weeklyLimit,
@@ -2130,5 +2227,5 @@ func (s *Service) sendSelectedCurrentEpicProductionInfo(session *gameSession, so
 		"info_push", s.epicProductionInfoPush().String(),
 		"account_scope", s.epicProductionAccountScope().String(),
 		"body_source", "current_exe_HandleEpicProductionInfoNotice_u32_prefix_plus_28_byte_state")
-	return s.sendGameUpperRawClass(session, currentEpicProductionInfoMsgID, body, 0)
+	return s.sendGameUpperRawClass(session, msgID, body, 0)
 }

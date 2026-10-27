@@ -1,6 +1,9 @@
 package dnfbridge
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -8,6 +11,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -199,6 +203,11 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 	// 堆叠物没有耐久语义，helper 内部按 Kind 硬门禁，绝不写。
 	// 交付端在盘里旧邮件上也做同一次修补（reconcileCurrentMailAttachmentExpirations）。
 	resolution.DefaultExtra = mergeCurrentMailAttachmentDurabilityExtra(resolution.DefaultExtra, definition)
+	// Daily-delete equipment has no relative [usable period] and no absolute
+	// [expiration date]; its deadline belongs to each issued attachment. Keep
+	// the item-template defaults without a grant source, and let the claim
+	// owner calculate that evidence from the mail's trusted creation anchor.
+	resolution.ProjectAttachment = currentMailboxDailyEquipmentAttachmentProjector(definition)
 	// 宠物背包的合法槽位不在主背包里：[creature] 消耗品（宠物更名卡）与 [feed]
 	// 属于 list 7 的宠物消耗品段，[creature] 装备（宠物本体）属于 list 7 的
 	// 0..139。玩家期望（2026-09-24 现场确认）与 A21 参考实现一致：更名卡就该待在
@@ -233,6 +242,121 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 		return resolution, nil
 	}
 	return resolution, nil
+}
+
+// currentMailboxDailyEquipmentAttachmentProjector returns a per-attachment
+// resolver only for the narrowly catalogued daily-delete equipment shape. The
+// callback never performs I/O and never changes the item template's shared
+// DefaultExtra, because two attachments in one mail can have different ages.
+func currentMailboxDailyEquipmentAttachmentProjector(
+	definition dungeonDropItemDefinition,
+) alignedcmd.MailboxAttachmentProjector {
+	if definition.Kind != dungeonDropItemEquipment || !definition.DailyDeleteItem ||
+		definition.UsablePeriodDays > 0 || !definition.ExpirationDate.IsZero() {
+		return nil
+	}
+	return func(attachment dnfrepo.MailAttachment, anchor time.Time) (alignedcmd.MailboxAttachmentProjection, error) {
+		if attachment.ItemID != int64(definition.ItemID) {
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf("daily equipment attachment template mismatch")
+		}
+		raw := attachment.RawEntry
+		rawHex, hasRawHex := attachment.Extra["raw_entry_hex"]
+		if hasRawHex {
+			if len(strings.TrimSpace(rawHex)) != 2*currentItemListEntryWireSize {
+				return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf("daily equipment attachment raw hex length invalid")
+			}
+			decoded, err := hex.DecodeString(strings.TrimSpace(rawHex))
+			if err != nil || len(decoded) != currentItemListEntryWireSize || binary.LittleEndian.Uint32(decoded[2:]) != uint32(attachment.ItemID) {
+				return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf("daily equipment attachment raw hex identity invalid")
+			}
+			// Both carriers describe the same durable instance. No proven
+			// projection contract permits differences, even outside expiry.
+			if len(raw) > 0 && !bytes.Equal(raw, decoded) {
+				return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf("daily equipment attachment raw carriers conflict")
+			}
+			if len(raw) == 0 {
+				raw = decoded
+			}
+		}
+		if len(raw) > 0 && (len(raw) != currentItemListEntryWireSize || binary.LittleEndian.Uint32(raw[2:]) != uint32(attachment.ItemID)) {
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf("daily equipment attachment raw identity invalid")
+		}
+		// Explicit durable expiry is never replaced by a new grant projection.
+		if !attachment.ExpireAt.IsZero() {
+			return alignedcmd.MailboxAttachmentProjection{}, nil
+		}
+		existing := currentMailboxOriginalAttachmentExpiry(attachment)
+		if existing.IsZero() && len(raw) == currentItemListEntryWireSize {
+			if stamp := binary.LittleEndian.Uint32(raw[currentItemListExpireTimeOffset:]); stamp != 0 {
+				existing = time.Unix(int64(stamp), 0).UTC()
+			}
+		}
+		source := strings.TrimSpace(attachment.Extra["expiration_source"])
+		if !existing.IsZero() {
+			// Preserve an existing instance deadline and its provenance. A raw
+			// row can supply the instance timestamp without becoming a new
+			// daily-delete authorization.
+			return alignedcmd.MailboxAttachmentProjection{ExpireAt: existing}, nil
+		}
+		if source != "" {
+			// GM/rental and every other independently owned deadline remains
+			// untouched, including a GM marker without a readable deadline.
+			if source != currentPVFDailyEquipmentGrantSource {
+				return alignedcmd.MailboxAttachmentProjection{}, nil
+			}
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf(
+				"daily equipment attachment item=%d has source but no deadline", attachment.ItemID)
+		}
+		// A raw row proves an existing instance, even when its expiry is zero.
+		// Preserve it without granting cleanup provenance or inferring its age.
+		if len(raw) > 0 || hasRawHex {
+			return alignedcmd.MailboxAttachmentProjection{}, nil
+		}
+		for _, key := range []string{"rental", "rental_item", "rental_expire_time", "rental_duration_hours", "gm_expire_days", "usable_period_days", "cera_shop_duration_days", "source", "last_grant_source"} {
+			if strings.TrimSpace(attachment.Extra[key]) != "" {
+				return alignedcmd.MailboxAttachmentProjection{}, nil
+			}
+		}
+		for _, key := range []string{"expire_time", "expire_unix", itemexpiration.DailyDeleteDeadlineKey} {
+			if strings.TrimSpace(attachment.Extra[key]) != "" {
+				return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf(
+					"daily equipment attachment item=%d has unreadable existing deadline %s", attachment.ItemID, key)
+			}
+		}
+		if anchor.IsZero() || anchor.Unix() <= 0 || anchor.Unix() > int64(^uint32(0)) {
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf(
+				"daily equipment attachment item=%d has no trusted mail creation anchor", attachment.ItemID)
+		}
+		granted, err := currentPVFItemDefinitionForGrantAt(definition, anchor.UTC())
+		if err != nil {
+			return alignedcmd.MailboxAttachmentProjection{}, err
+		}
+		deadline := granted.ExpirationDate
+		if deadline.IsZero() {
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf(
+				"daily equipment attachment item=%d has no deadline", attachment.ItemID)
+		}
+		unix := deadline.Unix()
+		if unix <= 0 || unix > int64(^uint32(0)) {
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf(
+				"daily equipment attachment item=%d deadline out of range", attachment.ItemID)
+		}
+		local := deadline.In(currentPVFExpirationDateLocation)
+		if local.Hour() != 6 || local.Minute() != 0 || local.Second() != 0 || local.Nanosecond() != 0 {
+			return alignedcmd.MailboxAttachmentProjection{}, fmt.Errorf(
+				"daily equipment attachment item=%d deadline is not an 06:00 boundary", attachment.ItemID)
+		}
+		text := strconv.FormatInt(unix, 10)
+		return alignedcmd.MailboxAttachmentProjection{
+			ExpireAt: deadline.UTC(),
+			Extra: map[string]string{
+				"expiration_source":                   currentPVFDailyEquipmentGrantSource,
+				itemexpiration.DailyDeleteDeadlineKey: text,
+				"expire_time":                         text,
+				"expire_unix":                         text,
+			},
+		}, nil
+	}
 }
 
 // mergeMailboxItemIdentityExtra 把运行时 PVF 解析出的道具身份并入领取投影的

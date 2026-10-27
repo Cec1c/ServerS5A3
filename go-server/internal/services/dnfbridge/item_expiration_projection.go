@@ -251,6 +251,10 @@ func applyCurrentStackableExpiration(stack dnfrepo.ItemStack, expirationDate tim
 
 func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeonDropItemDefinition, now time.Time) (dnfrepo.ItemStack, bool) {
 	if definition.DailyDeleteItem {
+		// Catalog recognition alone cannot authorize repairing or deleting an old rental.
+		if definition.Kind == dungeonDropItemEquipment && !currentPVFDailyEquipmentGrantRecorded(stack, definition) {
+			return stack, false
+		}
 		stack, cleanupChanged := cleanupCurrentPVFWrongExpirationProjection(stack)
 		if now.IsZero() {
 			now = time.Now().UTC()
@@ -262,7 +266,10 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 			return stack, false
 		}
 		patched, rawChanged := applyCurrentItemListExpireTimeRaw(patched, patched.ExpireAt)
-		patched, periodChanged := applyCurrentPVFStackableUsePeriodAt(patched, patched.ExpireAt, now)
+		periodChanged := false
+		if definition.Kind == dungeonDropItemStackable {
+			patched, periodChanged = applyCurrentPVFStackableUsePeriodAt(patched, patched.ExpireAt, now)
+		}
 		return patched, cleanupChanged || changed || rawChanged || periodChanged
 	}
 	stack, changed := cleanupCurrentPVFWrongExpirationProjection(stack)

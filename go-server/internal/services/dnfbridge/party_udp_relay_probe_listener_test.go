@@ -440,8 +440,9 @@ func TestFanOutUnlearnedDatagramHitsEveryKnownCandidate(t *testing.T) {
 	if _, err := clientB.WriteToUDP([]byte("fan-out-payload"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portBA)}); err != nil {
 		t.Fatalf("send B first datagram: %v", err)
 	}
-	// Each candidate updates its counters before logging. Wait for both
-	// candidates so the snapshot cannot race the remaining fan-out.
+	waitRelayLog(t, recorder, "party UDP relay fanout candidate used", 3*time.Second)
+	// Each candidate is counted before its own log, but the first candidate's
+	// log does not mean the fan-out loop has reached the second candidate yet.
 	waitRelayLog(t, recorder, "kind memo_stale", 3*time.Second)
 	waitRelayLog(t, recorder, "kind advertised_port", 3*time.Second)
 	stats := relayLegStatsFor(t, relay, 101, 202)
@@ -499,7 +500,8 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 	}
 	recorder := &relayLogRecorder{}
 	portStart := testCurrentPartyUDPRelayPortStart(t)
-	kicked := make(chan string, 16)
+	kicked := make(chan time.Time, 16)
+	minAge := 120 * time.Millisecond
 	relay, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 		enabled:     true,
 		advertiseIP: "127.0.0.1",
@@ -508,13 +510,13 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 		probeReplay: true,
 		seedForward: true,
 		kickTiming: partyUDPRelayKickTiming{
-			minAge:   120 * time.Millisecond,
+			minAge:   minAge,
 			interval: 80 * time.Millisecond,
 			window:   3 * time.Second,
 			maxKicks: silentPeerKickMaxPerLeg,
 		},
 		onSilentPeer: func(partyID, memberID uint16) bool {
-			kicked <- time.Now().Format("150405.000")
+			kicked <- time.Now()
 			return true
 		},
 		logWarn: recorder.log,
@@ -524,6 +526,10 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = relay.Close() })
 	syncTwoMemberRoom(t, relay)
+	watchdogLeg := relayLegFor(t, relay, 202, 101)
+	watchdogLeg.mu.Lock()
+	minAgeAnchor := watchdogLeg.createdAt
+	watchdogLeg.mu.Unlock()
 	portAB, portBA := 0, 0
 	_, baPort, okBA := relay.Endpoint(77, 202, 101)
 	_, abPort, okAB := relay.Endpoint(77, 101, 202)
@@ -540,15 +546,13 @@ func TestSilentPeerWatchdogKicksAfterMinAgeAndStopsWhenPeerSpeaks(t *testing.T) 
 		t.Fatalf("send B datagram: %v", err)
 	}
 	waitRelayLog(t, recorder, "party UDP relay peer endpoint not learned", 3*time.Second)
-	// ① 门槛内不许催（这正是 23:31 那次的时间点）。
+	// ①/② 以腿创建时刻判定真实下限；不能假定 setup 和日志等待
+	// 一定短于 120ms。首次 kick 必须存在，且时间戳不得早于下限。
 	select {
-	case <-kicked:
-		t.Fatal("kick must not fire before the minimum age")
-	case <-time.After(60 * time.Millisecond):
-	}
-	// ② 睡过 minAge 之后必须自己催起来（旧实现永远不会走到这里）。
-	select {
-	case <-kicked:
+	case kickAt := <-kicked:
+		if earliest := minAgeAnchor.Add(minAge); kickAt.Before(earliest) {
+			t.Fatalf("kick fired at %v before minimum-age anchor %v", kickAt, earliest)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("delayed watchdog never kicked after the minimum age")
 	}

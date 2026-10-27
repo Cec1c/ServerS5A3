@@ -6,10 +6,26 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
+
 	dnfinventory "longheng.io/server/internal/modules/dnf/inventory"
 )
 
 const currentDamageFontSkinListMsgID uint16 = 1239
+
+func (s *Service) sendDamageFontExpiredNotice(session *gameSession) error {
+	encoded, err := simplifiedchinese.GBK.NewEncoder().Bytes([]byte("该伤害字体已超过配置的使用期限，无法使用。道具未消耗。"))
+	if err != nil {
+		return err
+	}
+	var writer packetWriter
+	writer.writeByte(0)
+	writer.writeUint16(0xffff)
+	writer.writeByte(0)
+	writer.writeRawDstr(encoded)
+	writer.writeRawDstr(nil)
+	return s.sendGameUpperRawClass(session, currentAreaChatNotifyOpcode, writer.bytes(), 0)
+}
 
 func buildCurrentDamageFontSkinListBody(stats map[string]int64, now time.Time) []byte {
 	selected, entries := dnfinventory.DamageFontStateFromStats(stats, now)

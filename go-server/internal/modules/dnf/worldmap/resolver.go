@@ -292,6 +292,7 @@ func buildMazeMapIndex(
 			if _, layered := index.layeredMaps[mapPos]; layered {
 				continue
 			}
+			ref.fileType = classifyMapPoolType(mapValue)
 			index.byPool[ref.fileType] = appendUniqueIndexedMap(index.byPool[ref.fileType], ref)
 			continue
 		}
@@ -581,8 +582,12 @@ func (r *Resolver) ResolveLayered(
 			mapID,
 		)
 	}
+	value, readErr := r.table.readMap(mapPos)
+	if readErr != nil {
+		return ResolvedMap{}, readErr
+	}
 	return ResolvedMap{
-		Map:               cloneMap(r.table.maps[mapPos]),
+		Map:               value,
 		Source:            ResolutionMapSpecification,
 		SpecificationType: "layered",
 	}, nil
@@ -635,8 +640,12 @@ func (r *Resolver) ResolveStoryStage(dungeonID int64, mazeIndex int, stageIndex 
 		MapID:             r.table.maps[stage.mapPos].ID,
 		SpecificationType: stage.specificationType,
 	}
+	value, readErr := r.table.readMap(stage.mapPos)
+	if readErr != nil {
+		return ResolvedMap{}, DungeonStoryStage{}, readErr
+	}
 	return ResolvedMap{
-		Map:               cloneMap(r.table.maps[stage.mapPos]),
+		Map:               value,
 		Source:            ResolutionMapSpecification,
 		SpecificationType: stage.specificationType,
 	}, descriptor, nil
@@ -668,8 +677,12 @@ func (r *Resolver) ResolveCandidates(request ResolveRequest) ([]ResolvedMap, err
 	candidates = uniqueIndexedMaps(candidates)
 	out := make([]ResolvedMap, 0, len(candidates))
 	for _, candidate := range candidates {
+		value, readErr := r.table.readMap(candidate.mapPos)
+		if readErr != nil {
+			return nil, readErr
+		}
 		out = append(out, ResolvedMap{
-			Map:               cloneMap(r.table.maps[candidate.mapPos]),
+			Map:               value,
 			Source:            source,
 			SpecificationType: candidate.specificationType,
 		})
@@ -779,7 +792,11 @@ func (r *Resolver) PoolCandidates(request MapPoolRequest) ([]Map, error) {
 	}
 	out := make([]Map, 0, len(refs))
 	for _, ref := range refs {
-		out = append(out, cloneMap(r.table.maps[ref.mapPos]))
+		value, readErr := r.table.readMap(ref.mapPos)
+		if readErr != nil {
+			return nil, readErr
+		}
+		out = append(out, value)
 	}
 	return out, nil
 }
@@ -915,7 +932,8 @@ func (r *Resolver) ResolvePath(dungeonID int64, mazeIndex int, mapPath string) (
 	if !ok {
 		return Map{}, false
 	}
-	return cloneMap(r.table.maps[ref.mapPos]), true
+	value, err := r.table.readMap(ref.mapPos)
+	return value, err == nil
 }
 
 func (r *Resolver) Snapshot(dungeonID int64) (DungeonMapIndexSnapshot, bool) {
@@ -953,8 +971,12 @@ func (r *Resolver) resolveCandidates(request ResolveRequest, candidates []indexe
 		)
 	}
 	candidate := candidates[0]
+	value, readErr := r.table.readMap(candidate.mapPos)
+	if readErr != nil {
+		return ResolvedMap{}, readErr
+	}
 	return ResolvedMap{
-		Map: cloneMap(r.table.maps[candidate.mapPos]), Source: source,
+		Map: value, Source: source,
 		SpecificationType: candidate.specificationType,
 	}, nil
 }
@@ -1050,6 +1072,32 @@ func ParseMapFileCoordinate(mapPath string) (int64, int64, bool) {
 		return 0, 0, false
 	}
 	return x, y, true
+}
+
+// Pool maps have no coordinate binding. Prefer their explicit resource role;
+// filenames remain the fallback for absent or unrecognized declarations.
+// Coordinate and specification selection keep their existing precedence.
+func classifyMapPoolType(mapValue Map) MapFileType {
+	filenameType := ClassifyMapFileType(mapValue.Path)
+	value := strings.TrimSpace(mapValue.Type)
+	value = strings.TrimSpace(strings.Trim(value, "`"))
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = value[1 : len(value)-1]
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "normal":
+		// MAP [normal] describes room content, while s*.map identifies an
+		// entry role (for example real s101..s103 and s6801). Keep that
+		// established role so ordinary start pools do not disappear.
+		if filenameType == MapFileStart {
+			return MapFileStart
+		}
+		return MapFileNormal
+	case "start", "boss", "named", "end", "hidden", "quest", "default":
+		return specificationFileType(value)
+	default:
+		return filenameType
+	}
 }
 
 func ClassifyMapFileType(mapPath string) MapFileType {

@@ -225,7 +225,7 @@ func run(input, output, report string, route byte) error {
 		sum := sha256.Sum256([]byte(text))
 		mapEntries = append(mapEntries, indexEntry{id, strings.TrimPrefix(paths[0], "map/"), evidence, fmt.Sprintf("%x", sum)})
 	}
-	result := map[string]any{"read_only": output == "", "deployed": false, "input": in, "route": route, "dungeon_entries": dgnEntries, "map_entries": mapEntries, "unchanged_asset_contents": true, "native_door_issues": nativeDoorIssues}
+	result := map[string]any{"read_only": output == "", "deployed": false, "native_ready": false, "input": in, "route": route, "dungeon_entries": dgnEntries, "map_entries": mapEntries, "unchanged_asset_contents": true, "native_door_issues": nativeDoorIssues}
 	if output != "" {
 		if len(nativeDoorIssues) != 0 {
 			return fmt.Errorf("native room defects require investigation before writing candidate: %v", nativeDoorIssues)

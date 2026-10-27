@@ -110,12 +110,23 @@ func TestFiendWarReturnOriginPersistsAndRestores(t *testing.T) {
 					c, err = s.commitCurrentReconnectLocation(ctx, 29, c)
 				}
 			}
-			if err != nil || currentReconnectLocationSnapshot(c) != origin || c.Stats[currentRaidReturnOriginMarker] != 0 || c.Stats["gold"] != before.Stats["gold"] {
+			if err != nil || currentReconnectLocationSnapshot(c) != origin ||
+				c.Stats[currentPVPReturnOriginMarker] != 0 ||
+				c.Stats[currentRaidReturnOriginMarker] != 0 ||
+				c.Stats[currentFiendWarReturnOriginMarker] != 0 ||
+				c.Stats["gold"] != before.Stats["gold"] {
 				t.Fatalf("退场或资产异常：冷入%t冷退%t %+v %v", coldEntry, coldReturn, c.Stats, err)
 			}
 			stored, _, err := repos.Character.Load(ctx, "29")
-			if err != nil || currentReconnectLocationSnapshot(stored) != origin {
-				t.Fatal("退场只修改内存投影")
+			if err != nil || currentReconnectLocationSnapshot(stored) != origin ||
+				stored.Stats[currentPVPReturnOriginMarker] != 0 ||
+				stored.Stats[currentRaidReturnOriginMarker] != 0 ||
+				stored.Stats[currentFiendWarReturnOriginMarker] != 0 {
+				t.Fatal("退场未持久化原位置或未清理专用频道来源")
+			}
+			// Keep the complete ordinary origin through both warm and cold raid exits.
+			if stored.Stats["prev_village_town_id"] != origin.townID || stored.Stats["prev_village_area_id"] != origin.areaID || stored.Stats["prev_village_pos_x"] != origin.positionX || stored.Stats["prev_village_pos_y"] != origin.positionY || stored.Stats["prev_village_direction"] != origin.direction {
+				t.Fatalf("退场房门丢失普通来源：%+v", stored.Stats)
 			}
 			after, stillPresent, err := repos.Quest.Load(ctx, "29")
 			if err != nil || present != stillPresent || !reflect.DeepEqual(quests, after) {
@@ -133,6 +144,17 @@ func TestFiendWarReturnOriginRejectsInvalidAndLegacyFallsBack(t *testing.T) {
 	}
 	if err = s.currentSaveRaidReturnOrigin(29, &c); err != nil {
 		t.Fatal(err)
+	}
+	if c.Stats[currentRaidReturnOriginMarker] != 1 {
+		t.Fatalf("合法普通来源未写入标记：%+v", c.Stats)
+	}
+	for _, field := range currentRaidReturnLocationFields {
+		if got, want := c.Stats["raid_return_"+field], c.Stats[field]; got != want {
+			t.Fatalf("合法普通来源字段%s未持久化：got=%d want=%d", field, got, want)
+		}
+	}
+	if _, found, lookupErr := s.currentRaidReturnOriginLocation(29, c); lookupErr != nil || !found {
+		t.Fatalf("合法普通来源不可恢复：found=%t err=%v", found, lookupErr)
 	}
 	c.Stats["raid_return_town_id"] = 98
 	if _, _, err = s.currentRaidReturnOriginLocation(29, c); err == nil {

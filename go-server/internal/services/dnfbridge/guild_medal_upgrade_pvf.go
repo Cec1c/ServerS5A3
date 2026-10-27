@@ -85,6 +85,11 @@ func (s *Service) currentGuildMedalUpgradeResolver() alignedcmd.GuildMedalUpgrad
 		if err != nil || material.Kind != dungeonDropItemStackable {
 			return result, fmt.Errorf("flag material metadata unavailable: %v", err)
 		}
-		return alignedcmd.GuildMedalUpgradePolicy{MaterialID: int64(row.MaterialItemID), MaterialCount: int64(count), SuccessWeight: row.SuccessWeight(), PenaltyType: row.PenaltyType, PenaltyValue: row.PenaltyValue}, nil
+		container := currentPVFItemTargetContainer(material)
+		family := normalizeDungeonDropStackableType(material.StackableType)
+		if container.ListType != 0 || (family != "[quest]" && family != "[material]") {
+			return result, fmt.Errorf("flag material family unsupported: %s", family)
+		}
+		return alignedcmd.GuildMedalUpgradePolicy{MaterialSlotStart: container.SlotStart, MaterialSlotEnd: container.SlotEnd, MaterialID: int64(row.MaterialItemID), MaterialCount: int64(count), SuccessWeight: row.SuccessWeight(), PenaltyType: row.PenaltyType, PenaltyValue: row.PenaltyValue}, nil
 	}
 }

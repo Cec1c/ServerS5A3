@@ -85,11 +85,19 @@ func TestAttendanceMarbleNumericBuffEffects(t *testing.T) {
 }
 
 func TestParseAttendanceMarbleCatalogAgainstRuntimePVF(t *testing.T) {
-	path, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "runtime", "data", "dnf", "Script.pvf"))
-	if err != nil {
-		t.Fatal(err)
+	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
+	explicit := path != ""
+	if !explicit {
+		var err error
+		path, err = filepath.Abs(filepath.Join("..", "..", "..", "..", "runtime", "data", "dnf", "Script.pvf"))
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := os.Stat(path); err != nil {
+		if explicit {
+			t.Fatalf("requested real PVF unavailable: %v", err)
+		}
 		t.Skipf("runtime PVF unavailable: %v", err)
 	}
 	archive, err := platformpvf.LoadArchive(platformpvf.Options{Path: path})

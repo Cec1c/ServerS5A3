@@ -251,6 +251,11 @@ func (s *Service) commitCurrentBooster(
 				return dnfbooster.Changes{}, err
 			}
 			characterDirty := false
+			if definition.LotteryGoldCost > 0 {
+				// Owner has already debited the opening fee in this transaction.
+				// Keep its committed wallet for an incremental lottery notice.
+				result.GoldAfter = uint32(max(0, min(int64(math.MaxInt32), assets.Character.Stats["gold"])))
+			}
 			if goldAmount > 0 {
 				after, err := dnfbooster.CreditGold(assets.Character, goldAmount, definition.GoldMinimumLevel)
 				if err != nil {

@@ -231,11 +231,22 @@ func TestLotteryOpeningPriceReplyRefreshAndDuplicateConfirm(t *testing.T) {
 			if mode == "official-lottery" && (ack.Header.MsgID != 27 || len(ack.Body) != 126) {
 				t.Fatalf("native result header=%+v len=%d", ack.Header, len(ack.Body))
 			}
-			_, rest = splitGameServerUpperPacket(t, rest) // source slot
-			list, rest := splitCurrentSceneItemListPacket(t, rest)
 			wallet := currentGoldWalletItemListEntry(1000007)
-			if len(rest) != 0 || !bytes.Contains(list.Body, wallet.data[:]) {
-				t.Fatal("committed wallet missing from container refresh")
+			if mode == "official-lottery" {
+				money, remaining := splitGameServerUpperPacket(t, rest)
+				if money.Header.MsgID != 14 || !bytes.Contains(money.Body, wallet.data[:]) {
+					t.Fatal("committed wallet missing from incremental refresh")
+				}
+				delta, trailing := splitGameServerUpperPacket(t, remaining)
+				if delta.Header.MsgID != 14 || len(trailing) != 0 {
+					t.Fatal("lottery must preserve cached source object with slot deltas")
+				}
+			} else {
+				_, rest = splitGameServerUpperPacket(t, rest) // source slot
+				list, remaining := splitCurrentSceneItemListPacket(t, rest)
+				if len(remaining) != 0 || !bytes.Contains(list.Body, wallet.data[:]) {
+					t.Fatal("committed wallet missing from container refresh")
+				}
 			}
 			character, _, _ := repos.Character.Load(ctx, "19")
 			inventory, _, _ := repos.Inventory.Load(ctx, "19")
