@@ -311,7 +311,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 
 	case dnfenum.GameType(dnfenum.CmdPacketFpsDevideCollect):
 		return s.handleGameFpsDevideCollect(session, body)
-	case dnfenum.GameType(dnfenum.CmdPacketInformNotice2nd), dnfenum.GameType(dnfenum.CmdPacketOverflowInfo):
+	case dnfenum.GameType(dnfenum.CmdPacketInformNotice2nd):
+		return s.handleCurrentAccountNoticeProgress(session, dnfproto.DefaultChannelClassification, body)
+	case dnfenum.GameType(dnfenum.CmdPacketOverflowInfo):
 		s.logPacketEvent("game-legacy-passive-report-deferred",
 			"conn_id", session.connID,
 			"channel_id", session.channel.ID,
