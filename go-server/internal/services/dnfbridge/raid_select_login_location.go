@@ -24,10 +24,6 @@ func currentRaidLoginTownID(session *gameSession) (int64, bool) {
 }
 
 func (s *Service) currentCharacterListLoginLocationForSession(session *gameSession, characterID uint16, character dnfrepo.CharacterRecord) (currentTownLoginLocation, int64, string, string, error) {
-	if s.isCurrentTagTournamentChannel(session) {
-		location, err := s.currentTagTournamentLoginLocation(character)
-		return location, character.Stats["town_id"], "", "", err
-	}
 	if isCurrentFiendWarChannel(session) {
 		loc, err := s.currentFiendWarLoginLocation(session, characterID)
 		return loc, character.Stats["town_id"], "", "", err

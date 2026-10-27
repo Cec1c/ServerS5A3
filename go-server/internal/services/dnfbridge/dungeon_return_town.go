@@ -660,11 +660,11 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	petClockRetired := false
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
-		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+		if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
 			session.dungeon.mu.Unlock()
 			return err
 		}
-		if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
 			session.dungeon.mu.Unlock()
 			return err
 		}
@@ -846,6 +846,17 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 		session.dungeon.mu.Unlock()
 		return err
 	}
+	// 完成回城可能在op24写出后才查询/构造1388恢复资料。op35/op15是该回合
+	// 唯一共同的城镇确认入口：登记失败时保留原runtime、挑战和未ACK状态，
+	// 让下一条确认重试；登记成功后才允许ACK、Abandon并释放运行态。
+	if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
+	if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
 	committedStatus := snapshot.Run.Status
 	returnCharacterID := session.selectedCharacterID
 	returnOwnerChannel := currentConnectionTownActorOwnerContext(session)
@@ -865,10 +876,6 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 		// The matched v141 sender arms actor+0x8EE; the item-use gate reads
 		// it and command42 callback VA 0x1FA5400 clears it through 0x2961A90.
 		// Active give-up still waits for positive town evidence before ACK.
-		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
-			session.dungeon.mu.Unlock()
-			return err
-		}
 		if err := runtime.Session.Abandon(); err != nil {
 			session.dungeon.mu.Unlock()
 			return err
