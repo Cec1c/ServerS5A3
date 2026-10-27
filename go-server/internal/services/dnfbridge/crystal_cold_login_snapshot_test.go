@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -28,11 +29,21 @@ func (r *crystalColdLoginAccountSnapshotRepository) Load(ctx context.Context, ke
 func TestCrystalColdLoginBootstrapRejectsFailedAccountSnapshotAndRetries(t *testing.T) {
 	ctx := context.Background()
 	repos := testRepositoryGroup()
+	accountID := "dnf:crystal-cold"
+	if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: accountID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{
+		CharacterID: "77",
+		AccountID:   accountID,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	character := dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{"0:3": {ItemID: 1001, Count: 2}}}
 	raw := make([]byte, currentItemListEntryWireSize)
 	binary.LittleEndian.PutUint32(raw[0x0E:0x12], 3033)
 	raw[0x59] = 0x5a
-	account := dnfrepo.AccountInventoryRecord{AccountID: "dnf:crystal-cold", Slots: map[string]dnfrepo.ItemStack{"0:354": {ItemID: 3033, Count: 13, RawEntry: raw}}}
+	account := dnfrepo.AccountInventoryRecord{AccountID: accountID, Slots: map[string]dnfrepo.ItemStack{"0:354": {ItemID: 3033, Count: 13, RawEntry: raw}}}
 	if err := repos.Inventory.Save(ctx, character); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +59,7 @@ func TestCrystalColdLoginBootstrapRejectsFailedAccountSnapshotAndRetries(t *test
 	// Migrations have already completed. No PVF archive is installed, so cube,
 	// epic-piece, premium and expiration reconciliation cannot consume the
 	// injected account read. Assert its load count at the failing boundary.
-	session := &gameSession{conn: conn, connID: "crystal-cold-snapshot", selectedCharacterID: 77, itemListMigrationsDone: true}
+	session := &gameSession{conn: conn, connID: "crystal-cold-snapshot", accountID: accountID, selectedCharacterID: 77, itemListMigrationsDone: true}
 	if err := service.sendCurrentSelectInventoryBootstrap(session, "cold_snapshot_failure"); err == nil {
 		t.Fatal("account read failure accepted an incomplete bootstrap")
 	}
@@ -62,6 +73,7 @@ func TestCrystalColdLoginBootstrapRejectsFailedAccountSnapshotAndRetries(t *test
 		t.Fatal(err)
 	}
 	rest, lists, _ := requireCurrentSelectInventoryBootstrapPackets(t, conn.write.Bytes())
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	if len(rest) != 0 {
 		t.Fatalf("unexpected trailing packets: %x", rest)
 	}

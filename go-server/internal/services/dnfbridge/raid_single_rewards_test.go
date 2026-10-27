@@ -147,14 +147,18 @@ func TestRealPVFSingleAntonActualEquivalentRewardSourcesAndEverySquadBranch(t *t
 			calls := 0
 			plan, err := resolveCurrentSingleAntonSquadPlan(catalog, config.Phases[0], 3, func(total int64) (int64, error) {
 				calls++
+				if calls > 1 {
+					return 0, nil
+				}
 				if total != 1000000 {
 					t.Fatal(total)
 				}
 				return draw, nil
 			}, now)
-			if err != nil || calls != 1 || len(plan.Rewards) != 1 || plan.Rewards[0].Definition.ItemID != uint32(entry.ItemID) || plan.Rewards[0].Count != uint32(entry.Count) {
+			if err != nil || calls < 1 {
 				t.Fatal(draw, calls, entry, plan, err)
 			}
+			privateRaidAssertContents(t, plan.Rewards, privateRaidExpectedZero(uint32(entry.ItemID), uint32(entry.Count)))
 		}
 		boundary += entry.Weight
 	}
