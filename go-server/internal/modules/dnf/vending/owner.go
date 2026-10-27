@@ -24,6 +24,8 @@ type Command struct {
 type Result struct {
 	CoinRemaining int64
 	RewardSlot    int16
+	// RewardStack is the committed slot total, including an existing stack.
+	RewardStack repo.ItemStack
 }
 
 // A failed grant rolls back the coin debit. Entitlement, character ownership,
@@ -82,6 +84,7 @@ func Use(ctx context.Context, repos repo.Group, cmd Command) (Result, error) {
 		if e != nil {
 			return e
 		}
+		result.RewardStack = inventory.Slots["0:"+strconv.Itoa(int(result.RewardSlot))]
 		inventory.UpdatedAt = cmd.Now
 		return repo.SaveInventoryFields(ctx, items, inventory, repo.InventoryFieldSlots)
 	})
