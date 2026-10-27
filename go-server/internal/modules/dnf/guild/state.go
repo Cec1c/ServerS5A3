@@ -45,6 +45,7 @@ var (
 
 type Registry struct {
 	PlacementReceipts        map[string]PlacementReceipt        `json:"placement_receipts,omitempty"`
+	PlacementChangeReceipts  map[string]PlacementChangeReceipt  `json:"placement_change_receipts,omitempty"`
 	Hongbao                  *HongbaoState                      `json:"hongbao,omitempty"`
 	Ranking                  *RankingState                      `json:"ranking,omitempty"`
 	GuardianReceipts         map[string]GuardianReceipt         `json:"guardian_receipts,omitempty"`
@@ -102,11 +103,12 @@ type Guild struct {
 }
 
 type Member struct {
-	ServerGroup byte   `json:"server_group"`
-	CharacterID string `json:"character_id"`
-	AccountID   string `json:"account_id"`
-	Name        string `json:"name"`
-	Job         string `json:"job,omitempty"`
+	RankingActivity *MemberRankingActivity `json:"ranking_activity,omitempty"`
+	ServerGroup     byte                   `json:"server_group"`
+	CharacterID     string                 `json:"character_id"`
+	AccountID       string                 `json:"account_id"`
+	Name            string                 `json:"name"`
+	Job             string                 `json:"job,omitempty"`
 	// Packed job advancement byte used by the native roster.
 	GrowType string `json:"grow_type,omitempty"`
 	Level    int    `json:"level"`
@@ -658,6 +660,9 @@ func validateRegistry(r Registry) error {
 	if err := validatePlacementReceipts(r); err != nil {
 		return err
 	}
+	if err := validatePlacementChangeReceipts(r); err != nil {
+		return err
+	}
 	if err := validateBenefits(r); err != nil {
 		return err
 	}
@@ -708,6 +713,9 @@ func validateRegistry(r Registry) error {
 			}
 			if m.Grade < 1 || m.Grade > 4 || (m.Grade == DefaultMasterGrade && key != g.MasterCharacterID) {
 				return ErrInvalidRegistry
+			}
+			if err := m.RankingActivity.Validate(); err != nil {
+				return err
 			}
 			members[key] = true
 		}
