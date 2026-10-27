@@ -198,18 +198,21 @@ func TestRealPVFAntonBreakClockStartsActualSecondPhaseOnce(t *testing.T) {
 	if states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil.Add(-time.Nanosecond)); len(states) != 0 || len(errs) != 0 || f.state.Battle.Phase != 0 {
 		t.Fatal("break deadline ignored", states, errs)
 	}
-	// Completion leaves the members in their dungeon scene. The clock must
-	// retain the phase until those same members return to the owned waiting area.
-	if states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil); len(states) != 0 || len(errs) != 0 || f.state.Battle.Phase != 0 {
-		t.Fatal("next phase started outside waiting area", states, errs)
+	// Anton advances at its settled break deadline. The accepted Luke-only
+	// waiting-area gate is covered by TestRealPVFR195LukePhaseTwoRequiresCurrentWaitingMembers.
+	if f.state.Battle.Mode != 1 || f.state.Battle.Anton.IsLuke() {
+		t.Fatal("expected the actual Anton two-phase program")
 	}
-	enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
+	bags := raidWaitingInventories(t, f)
 	states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil)
 	if len(states) != 1 || len(errs) != 0 || states[0].Battle.Phase != 1 || !states[0].Battle.EnterAfter.Equal(flow.BreakUntil.Add(3*time.Second)) || !states[0].Battle.Deadline.Equal(flow.BreakUntil.Add(2403*time.Second)) {
 		t.Fatal("auto next phase timing incorrect", states, errs)
 	}
 	if states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil); len(states) != 0 || len(errs) != 0 {
 		t.Fatal("auto start repeated", states, errs)
+	}
+	if !reflect.DeepEqual(bags, raidWaitingInventories(t, f)) {
+		t.Fatal("next phase or repeated clock changed settled reward inventories")
 	}
 }
 
