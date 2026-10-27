@@ -45,6 +45,7 @@ var (
 
 type Registry struct {
 	PlacementReceipts        map[string]PlacementReceipt        `json:"placement_receipts,omitempty"`
+	PlacementChangeReceipts  map[string]PlacementChangeReceipt  `json:"placement_change_receipts,omitempty"`
 	Hongbao                  *HongbaoState                      `json:"hongbao,omitempty"`
 	Ranking                  *RankingState                      `json:"ranking,omitempty"`
 	GuardianReceipts         map[string]GuardianReceipt         `json:"guardian_receipts,omitempty"`
@@ -656,6 +657,9 @@ func validateRegistry(r Registry) error {
 		return err
 	}
 	if err := validatePlacementReceipts(r); err != nil {
+		return err
+	}
+	if err := validatePlacementChangeReceipts(r); err != nil {
 		return err
 	}
 	if err := validateBenefits(r); err != nil {

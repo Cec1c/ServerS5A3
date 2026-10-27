@@ -19,9 +19,10 @@ The builder contains two reviewed client changes:
    Fate weekly acquisition notification. The shared receive bitset remains unchanged, and all
    other classes/opcodes fall through to the previous gate.
 
-The candidate is **not game-accepted**. The existing native evidence remains attached to the exact
-raw SHA above; player mail refresh/selection, Fate weekly delivery, relog, and gameplay acceptance
-must still be checked separately. This repository and builder contain no anti-RE profile, protected
+The mail lifecycle and Fate notification fixes were accepted by the user on 2026-10-27 in the
+deployed cumulative V182 client. The historical raw SHA above identifies this exact builder stage;
+it is not the final cumulative release hash. Native evidence and final-release checks remain bound
+to their respective files, and this source merge does not rebuild or publish a client. This repository and builder contain no anti-RE profile, protected
 build, private key, EXE, PVF, disassembly dump, or native payload. Anti-RE/protected packaging and
 deployment are separate release operations and are not implied by this tool.
 
