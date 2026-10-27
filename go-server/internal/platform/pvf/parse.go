@@ -168,6 +168,17 @@ func (a *Archive) parseGroups(data []byte, count int) error {
 func (a *Archive) parseFiles(offset, count int) error {
 	a.items = make([]fileItem, 0, count)
 	a.files = make([]File, 0, count)
+	// 目录和文件名经常引用同一字符串偏移；构建索引时共享不可变字符串，
+	// 避免为每个文件重复分配。临时字典不保留到 Archive 中。
+	stringsByOffset := make(map[int]string)
+	resolveFileString := func(offset int) string {
+		if value, exists := stringsByOffset[offset]; exists {
+			return value
+		}
+		value := a.resolveString(offset)
+		stringsByOffset[offset] = value
+		return value
+	}
 	for idx := 0; idx < count; idx++ {
 		off := offset + idx*fileItemSize
 		if off+fileItemSize > len(a.data) {
@@ -181,8 +192,8 @@ func (a *Archive) parseFiles(offset, count int) error {
 			dataSize:   readInt32(a.data[off+16 : off+20]),
 			dataType:   readInt32(a.data[off+20 : off+24]),
 		}
-		name := a.resolveString(item.nameOffset)
-		dir := a.resolveString(item.pathOffset)
+		name := resolveFileString(item.nameOffset)
+		dir := resolveFileString(item.pathOffset)
 		archivePath := joinArchivePath(dir, name)
 		a.items = append(a.items, item)
 		a.files = append(a.files, File{

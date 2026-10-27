@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,15 +35,16 @@ var (
 )
 
 type ArchiveSnapshot struct {
-	Format       ArchiveFormat `json:"format"`
-	Path         string        `json:"path"`
-	Size         int64         `json:"size"`
-	Checksum     string        `json:"checksum"`
-	LoadedAt     string        `json:"loaded_at"`
-	FileCount    int           `json:"file_count"`
-	GroupCount   int           `json:"group_count"`
-	CachedChunks int           `json:"cached_chunks"`
-	CachedTexts  int           `json:"cached_texts"`
+	ReadCacheBudget *BoundedReadCacheSnapshot `json:"read_cache_budget,omitempty"`
+	Format          ArchiveFormat             `json:"format"`
+	Path            string                    `json:"path"`
+	Size            int64                     `json:"size"`
+	Checksum        string                    `json:"checksum"`
+	LoadedAt        string                    `json:"loaded_at"`
+	FileCount       int                       `json:"file_count"`
+	GroupCount      int                       `json:"group_count"`
+	CachedChunks    int                       `json:"cached_chunks"`
+	CachedTexts     int                       `json:"cached_texts"`
 }
 
 type PreloadResult struct {
@@ -77,8 +79,9 @@ type Archive struct {
 	strW    []byte
 
 	// chunks 缓存已解密解压的 body chunk，texts 缓存已解码的脚本文本。
-	chunks sync.Map
-	texts  sync.Map
+	chunks     sync.Map
+	texts      sync.Map
+	readBudget atomic.Pointer[boundedReadCaches]
 }
 
 func Open(path string) (*Archive, error) {
@@ -142,16 +145,22 @@ func (a *Archive) Snapshot() ArchiveSnapshot {
 		cachedTexts++
 		return true
 	})
+	budget := a.BoundedReadCacheSnapshot()
+	if budget != nil {
+		cachedTexts += budget.Texts
+		cachedChunks += budget.Chunks
+	}
 	return ArchiveSnapshot{
-		Format:       a.format,
-		Path:         a.snapshot.Path,
-		Size:         a.snapshot.Size,
-		Checksum:     a.snapshot.Checksum,
-		LoadedAt:     a.snapshot.LoadedAt.Format(rfc3339Nano),
-		FileCount:    len(a.files),
-		GroupCount:   len(a.groups),
-		CachedChunks: cachedChunks,
-		CachedTexts:  cachedTexts,
+		ReadCacheBudget: budget,
+		Format:          a.format,
+		Path:            a.snapshot.Path,
+		Size:            a.snapshot.Size,
+		Checksum:        a.snapshot.Checksum,
+		LoadedAt:        a.snapshot.LoadedAt.Format(rfc3339Nano),
+		FileCount:       len(a.files),
+		GroupCount:      len(a.groups),
+		CachedChunks:    cachedChunks,
+		CachedTexts:     cachedTexts,
 	}
 }
 
