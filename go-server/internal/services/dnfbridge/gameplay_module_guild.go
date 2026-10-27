@@ -96,6 +96,10 @@ func guildGameplayModule() gameplayModuleDefinition {
 	legacy[currentGuildMerchantPurchaseOpcode] = (*Service).handleCurrentGuildMerchantPurchase
 	upper[currentGuildPlacementOpcode] = (*Service).handleCurrentGuildPlacement
 	legacy[currentGuildPlacementOpcode] = (*Service).handleCurrentGuildPlacement
+	for _, opcode := range []uint16{currentGuildPlacementRemoveOpcode, currentGuildPlacementMoveOpcode} {
+		upper[opcode] = (*Service).handleCurrentGuildPlacementChange
+		legacy[opcode] = (*Service).handleCurrentGuildPlacementChange
+	}
 	upper[currentGuildHongbaoIssueOpcode] = (*Service).handleCurrentGuildHongbaoIssue
 	legacy[currentGuildHongbaoIssueOpcode] = (*Service).handleCurrentGuildHongbaoIssue
 	upper[currentGuildHongbaoClaimOpcode] = (*Service).handleCurrentGuildHongbaoClaim

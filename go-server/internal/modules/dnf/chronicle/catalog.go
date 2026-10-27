@@ -213,10 +213,17 @@ func (c *Catalog) Equipment(id int64) (Equipment, error) {
 			continue
 		}
 		ts := sectionTokens(doc, s)
-		if len(ts) == 3 && ts[0].Kind == pvf.TokenInt && ts[1].Kind == pvf.TokenInt && ts[0].Int >= 0 && ts[0].Int < 256 && ts[1].Int >= 0 && ts[1].Int < 16 {
-			checks = append(checks, Check{Job: byte(ts[0].Int), Grow: byte(ts[1].Int), EquipmentType: normalized(ts[2].Value)})
-		} else {
+		// 共用装备在同一段内连续声明多组“职业、转职、部位”，各组为可选条件。
+		// 每组三项必须完整有效；不能只读首组或因后续格式错误放行部分规则。
+		if len(ts) == 0 || len(ts)%3 != 0 {
 			return Equipment{}, fmt.Errorf("%w: 装备职业限制格式无效", ErrRules)
+		}
+		for offset := 0; offset < len(ts); offset += 3 {
+			group := ts[offset : offset+3]
+			if group[0].Kind != pvf.TokenInt || group[1].Kind != pvf.TokenInt || group[0].Int < 0 || group[0].Int >= 256 || group[1].Int < 0 || group[1].Int >= 16 {
+				return Equipment{}, fmt.Errorf("%w: 装备职业限制格式无效", ErrRules)
+			}
+			checks = append(checks, Check{Job: byte(group[0].Int), Grow: byte(group[1].Int), EquipmentType: normalized(group[2].Value)})
 		}
 	}
 	e := Equipment{ItemID: id, Path: ref.Path, Type: typ, TypeID: typeID, Rarity: rarity, Durability: uint16(dur), Jobs: jobs, CharacterChecks: checks}
