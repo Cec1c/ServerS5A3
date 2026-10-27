@@ -101,6 +101,9 @@ func (s *Service) preloadInitialEquipmentIndex(ctx context.Context) error {
 
 func (s *Service) initialEquipmentArchiveLocked() (*platformpvf.Archive, error) {
 	if s.initialEquipmentArchive != nil {
+		if err := s.prepareLowMemoryPVFReadCaches(s.initialEquipmentArchive); err != nil {
+			return nil, err
+		}
 		return s.initialEquipmentArchive, nil
 	}
 	if s.initialEquipmentLoadErr != nil {
@@ -116,6 +119,10 @@ func (s *Service) initialEquipmentArchiveLocked() (*platformpvf.Archive, error) 
 	}
 	archive, err := platformpvf.LoadArchive(platformpvf.Options{Path: pvfPath, MaxBytes: maxBytes})
 	if err != nil {
+		s.initialEquipmentLoadErr = err
+		return nil, err
+	}
+	if err := s.prepareLowMemoryPVFReadCaches(archive); err != nil {
 		s.initialEquipmentLoadErr = err
 		return nil, err
 	}
