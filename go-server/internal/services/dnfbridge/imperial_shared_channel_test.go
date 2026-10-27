@@ -9,7 +9,7 @@ import (
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
-// 帝国独立贡献只接专用入口及已有返城凭据，不依赖通用频道重定向候选。
+// 主干普通换线政策先回赛丽亚房间，再通过房门恢复入帝国前的普通城镇。
 func TestImperialSharedLandingPersistsOrdinaryOrigin(t *testing.T) {
 	for _, coldEntry := range []bool{false, true} {
 		for _, coldReturn := range []bool{false, true} {
@@ -36,6 +36,10 @@ func TestImperialSharedLandingPersistsOrdinaryOrigin(t *testing.T) {
 			}
 			before := dnfrepo.CloneCharacter(c)
 			origin := currentReconnectLocationSnapshot(c)
+			room, roomErr := s.currentInitialTownSeriaLoginLocation()
+			if roomErr != nil {
+				t.Fatal(roomErr)
+			}
 			p.channel = channelcatalog.Channel{ServerID: 1, ID: 187, Type: 39, Group: "tagtournament"}
 			if channelcatalog.IsResidentChannel(p.channel) {
 				t.Fatal("帝国频道进入普通常驻候选")
@@ -76,8 +80,14 @@ func TestImperialSharedLandingPersistsOrdinaryOrigin(t *testing.T) {
 				}
 			}
 			stored, _, readErr := repos.Character.Load(ctx, "29")
-			if err != nil || readErr != nil || currentReconnectLocationSnapshot(c) != origin || currentReconnectLocationSnapshot(stored) != origin {
-				t.Fatalf("普通来源未持久恢复：冷入%t冷退%t %+v %v %v", coldEntry, coldReturn, c.Stats, err, readErr)
+			wantRoom := currentReconnectLocation{townID: int64(room.TownID), areaID: int64(room.AreaID), positionX: room.PositionX, positionY: room.PositionY, direction: int64(room.Direction), areaState: int64(room.AreaState)}
+			if err != nil || readErr != nil || currentReconnectLocationSnapshot(c) != wantRoom || currentReconnectLocationSnapshot(stored) != wantRoom {
+				t.Fatalf("普通来源房间未持久恢复：冷入%t冷退%t %+v %v %v", coldEntry, coldReturn, c.Stats, err, readErr)
+			}
+			for _, record := range []dnfrepo.CharacterRecord{c, stored} {
+				if record.Stats[currentTownPrevVillageTownStat] != origin.townID || record.Stats[currentTownPrevVillageAreaStat] != origin.areaID || record.Stats[currentTownPrevVillagePosXStat] != origin.positionX || record.Stats[currentTownPrevVillagePosYStat] != origin.positionY || record.Stats[currentTownPrevVillageDirectionStat] != origin.direction {
+					t.Fatalf("原普通城镇房门出口丢失：%+v", record.Stats)
+				}
 			}
 			if c.Stats[currentRaidReturnOriginMarker] != 0 || c.Stats[currentPVPReturnOriginMarker] != 0 || c.Stats["gold"] != before.Stats["gold"] || c.Level != before.Level {
 				t.Fatal("帝国退场留下旧凭据或改变资产等级")
