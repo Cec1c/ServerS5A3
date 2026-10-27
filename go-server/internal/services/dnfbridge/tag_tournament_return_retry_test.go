@@ -78,13 +78,26 @@ func tagReturnPositionConfirmationBody(runtime *runtimeDungeonState) []byte {
 
 func TestCompletedTagReturnRetriesRosterBeforeOp35(t *testing.T) {
 	s, p, b, runtime, restoreRoster := tagCompletedReturnRosterFailureForTest(t)
-	restoreRoster()
 	body := tagReturnPositionConfirmationBody(runtime)
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleTownSetUserPosition(p, body); err == nil {
+		t.Fatal("op35 with the roster source still missing was not rejected")
+	}
+	counts := tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 0 ||
+		counts[currentTagTournamentRosterNotification] != 0 ||
+		p.dungeon.runtime != runtime || p.tagTournamentBattle != b ||
+		p.tagTournamentReturnRoster != nil || runtime.townReturnAckSent {
+		t.Fatalf("failed op35 retry did not preserve ownership: counts=%v runtime=%p battle=%p roster=%p ack=%t",
+			counts, p.dungeon.runtime, p.tagTournamentBattle, p.tagTournamentReturnRoster, runtime.townReturnAckSent)
+	}
+
+	restoreRoster()
 	p.conn.(*bufferConn).write.Reset()
 	if err := s.handleTownSetUserPosition(p, body); err != nil {
 		t.Fatal(err)
 	}
-	counts := tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	counts = tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
 	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 1 ||
 		counts[currentTagTournamentRosterNotification] != 1 ||
 		p.dungeon.runtime != nil || p.tagTournamentBattle != nil ||
@@ -105,13 +118,26 @@ func TestCompletedTagReturnRetriesRosterBeforeOp35(t *testing.T) {
 }
 
 func TestCompletedTagReturnRetriesRosterBeforeOp15(t *testing.T) {
-	s, p, b, runtime, restoreRoster := tagCompletedReturnRosterFailureForTest(t)
+	s, p, b, _, restoreRoster := tagCompletedReturnRosterFailureForTest(t)
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.sendEnterSelectDungeonState(p, "tag_return_roster_retry_missing", false, true); err == nil {
+		t.Fatal("op15 with the roster source still missing was not rejected")
+	}
+	counts := tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 0 ||
+		counts[currentTagTournamentRosterNotification] != 0 ||
+		p.dungeon.runtime == nil || p.tagTournamentBattle != b ||
+		p.tagTournamentReturnRoster != nil || p.dungeon.runtime.townReturnAckSent {
+		t.Fatalf("failed op15 retry did not preserve ownership: counts=%v runtime=%p battle=%p roster=%p",
+			counts, p.dungeon.runtime, p.tagTournamentBattle, p.tagTournamentReturnRoster)
+	}
+
 	restoreRoster()
 	p.conn.(*bufferConn).write.Reset()
 	if err := s.sendEnterSelectDungeonState(p, "tag_return_roster_retry", false, true); err != nil {
 		t.Fatal(err)
 	}
-	counts := tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	counts = tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
 	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 1 ||
 		counts[currentTagTournamentRosterNotification] != 1 ||
 		p.dungeon.runtime != nil || p.tagTournamentReturnRoster != nil || !b.returnRosterSent ||
@@ -146,5 +172,61 @@ func TestCompletedTagReturnRosterRetryRejectsStaleCharacterOwner(t *testing.T) {
 		p.tagTournamentReturnRoster != nil || runtime.townReturnAckSent {
 		t.Fatalf("stale owner escaped isolation: counts=%v runtime=%p battle=%p roster=%p ack=%t",
 			counts, p.dungeon.runtime, p.tagTournamentBattle, p.tagTournamentReturnRoster, runtime.townReturnAckSent)
+	}
+}
+
+func TestActiveTagReturnRetriesRosterBeforeOp35(t *testing.T) {
+	s, p := tagResultActionFixture(t, tagtournament.Hard, false)
+	b, runtime := p.tagTournamentBattle, p.dungeon.runtime
+	restoreRoster := tagReturnRosterSourceOffForTest(t, s, p)
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleDungeonGiveupGame(p, nil); err == nil {
+		t.Fatal("active give-up with the roster source missing was not rejected")
+	}
+	counts := tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	if counts[currentSceneTransitionMsgID] != 1 ||
+		counts[uint16(dnfenum.CmdPacketGiveupGame)] != 0 ||
+		p.dungeon.runtime != runtime || p.tagTournamentBattle != b ||
+		p.tagTournamentReturnRoster != nil || runtime.townReturnAckSent {
+		t.Fatalf("active registration failure crossed the ACK/runtime boundary: counts=%v runtime=%p battle=%p ack=%t",
+			counts, p.dungeon.runtime, p.tagTournamentBattle, runtime.townReturnAckSent)
+	}
+
+	body := tagReturnPositionConfirmationBody(runtime)
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleTownSetUserPosition(p, body); err == nil {
+		t.Fatal("active op35 with the roster source still missing was not rejected")
+	}
+	counts = tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 0 ||
+		counts[currentTagTournamentRosterNotification] != 0 ||
+		p.dungeon.runtime != runtime || p.tagTournamentBattle != b ||
+		p.tagTournamentReturnRoster != nil || runtime.townReturnAckSent {
+		t.Fatalf("failed active op35 retry did not preserve ownership: counts=%v runtime=%p battle=%p ack=%t",
+			counts, p.dungeon.runtime, p.tagTournamentBattle, runtime.townReturnAckSent)
+	}
+
+	restoreRoster()
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleTownSetUserPosition(p, body); err != nil {
+		t.Fatal(err)
+	}
+	counts = tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 1 ||
+		counts[currentTagTournamentRosterNotification] != 1 ||
+		p.dungeon.runtime != nil || p.tagTournamentBattle != nil ||
+		p.tagTournamentReturnRoster != nil || !b.returnRosterSent {
+		t.Fatalf("active op35 did not retry once before release/ACK: counts=%v runtime=%p battle=%p roster=%p sent=%t",
+			counts, p.dungeon.runtime, p.tagTournamentBattle, p.tagTournamentReturnRoster, b.returnRosterSent)
+	}
+
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleTownSetUserPosition(p, body); err != nil {
+		t.Fatal(err)
+	}
+	counts = tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
+	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 0 ||
+		counts[currentTagTournamentRosterNotification] != 0 {
+		t.Fatalf("repeated active op35 acknowledged or restored the roster again: %v", counts)
 	}
 }
