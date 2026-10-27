@@ -2,7 +2,9 @@
 
 `Client Release sync` 在上游 GitGud Release 与本方 GitHub Release 之间直接双向同步客户端 EXE 发布资产。GitGud fork 仅参与服务端源码贡献：先推 fork，再向上游提交 PR/MR；它不参与 Release 同步。
 
-同步仅处理 `client-*` 标签及包含 `DNF.exe` 的原始 ZIP（可附说明与摘要），保留精确标签提交、附件、预览状态、来源说明和完整 SHA256。工作流不构建服务端，不复制服务端产物，不修改任何源码分支，也不切换玩家更新源或部署服务。
+同步仅处理版本号不低于 V180 的 `client-v<数字>` 标签（可带 `-说明` 后缀）及包含 `DNF.exe` 的原始 ZIP（可附说明与摘要），保留精确标签提交、附件、预览状态、来源说明和完整 SHA256。工作流不构建服务端，不复制服务端产物，不修改任何源码分支，也不切换玩家更新源或部署服务。
+
+两端发行列表在下载附件前按数值版本过滤；V179及更早版本、没有可识别版本号的标签不进入校验或复制计划。单侧清理的旧发布不会由另一侧补回。手动 `--tag` 同样执行V180下限，旧标签或无法识别的标签在读取凭据和访问网络前报错。回执记录 `minimumClientVersion` 和两端 `skippedByRetention`；清理既有Release由单独授权的操作执行，同步脚本只筛选处理范围。
 
 同时支持带来源记录的 `.zip.001` 等分卷。每卷必须声明完整归档的摘要、大小、总卷数和本卷序号；下载逐卷验哈后，按连续序号重组并检查完整 ZIP。分卷配套包必须含唯一有效 EXE 和 `client/Script.pvf`，EXE 与同一发行的独立包一致。最多16卷、完整归档及解压总量均不超过512MiB；缺卷、重复、序号冲突、摘要不符或越界均停止。原样镜像分卷及其来源记录，PVF仅作静态归档验证，不安装到玩家或服务端。
 
@@ -32,7 +34,7 @@ SSH写入前只读审计标签内的全部工作流：允许手动、定时、Re
 python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project UPSTREAM_RELEASE_PROJECT_ID --cache runtime/client-release-cache --receipt runtime/client-release-sync.json
 ```
 
-手动运行 `Client Release sync` 时可填写 `tag`，只验证和同步该版本；留空及定时触发仍检查全部版本。指定标签继续执行原有归档、来源、摘要及双端读回校验。
+手动运行 `Client Release sync` 时可填写 `tag`，只验证和同步该版本；留空及定时触发检查V180及以后版本。指定标签继续执行原有归档、来源、摘要及双端读回校验。
 
 默认只检查和生成计划；正式执行增加 `--apply`。`--tag` 可限制版本，`--write-to github` 或 `--write-to gitgud` 可限制本次方向。默认核对两个仓库，向缺少对应发行的一方复制；没有第三个 Release 仓库。
 
