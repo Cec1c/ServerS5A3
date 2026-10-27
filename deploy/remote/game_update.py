@@ -9,6 +9,68 @@ MAIN_QUEST_EXP_KEY = 'DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER'
 MAIN_QUEST_PERCENT_KEY = 'DNFBRIDGE_MAIN_QUEST_EXP_PERCENT'
 GAME_CONFIG_FILES = ['runtime/docker/instance.json', 'runtime/docker/compose.json',
                      'runtime/docker/server.env', 'runtime/active-game-baseline.json']
+RUNTIME_CHANNEL_TARGET = 'runtime/docker/data/channel.override.etc'
+RUNTIME_CHANNEL_CONTAINER = '/runtime/data/dnf/channel.override.etc'
+RUNTIME_CHANNEL_FILE = 'channel.override.etc'
+
+
+def checked_runtime_channel_phase(spec, channel_source, channel_sha256, mode):
+    if mode not in ('prepare', 'generate', 'deploy', 'rollback'):
+        raise ValueError('invalid runtime channel phase')
+    # Rollback is invoked after the successful transition and must recognize
+    # the exact deployed state. Preparation/switch still require the old state.
+    prefix = '' if mode == 'rollback' else 'base_'
+    if channel_source != spec[prefix + 'channel_source']:
+        raise ValueError('active channel source differs for ' + mode)
+    if channel_sha256 != spec[prefix + 'sha256']:
+        raise ValueError('active channel bytes differ for ' + mode)
+
+
+def checked_empire_area_map_delta(current, candidate):
+    newline = b'\r\n' if b'\r\n' in current else b'\n'
+    old = b'[dungeon]' + newline + b'`[tagtournament]`' + newline + '`帝国竞技场`'.encode() + newline + b'[/dungeon]' + newline
+    new = old.replace(b'[/dungeon]' + newline, b'320' + newline + b'336' + newline + b'[/dungeon]' + newline)
+    if current.count(old) != 1 or candidate != current.replace(old, new, 1):
+        raise ValueError('Imperial channel update changes bytes beyond the reviewed dungeon mapping')
+
+
+def expected_server_ports(bind, ports):
+    if (not isinstance(ports, list) or not ports or
+            any(type(port) is not int or port < 10001 or port > 10999 for port in ports) or
+            len(ports) != len(set(ports))):
+        raise ValueError('invalid game channel ports')
+    return ([f'127.0.0.1:{port}:{port}/tcp' for port in (7001, 17002, 18111)] +
+            [f'{bind}:{port}:{port}/tcp' for port in ports] +
+            [f'{bind}:30000-30063:30000-30063/udp'])
+
+
+def channel_info_env_path(file_name):
+    if file_name not in ('channel_info.etc', 'channel.override.etc'):
+        raise ValueError('invalid channel file name')
+    return 'data/dnf/' + file_name
+
+
+def player_endpoint_projection(instance, catalog, manage):
+    bind, advertised, bootstrap = manage.player_endpoints(instance, catalog)
+    return {'bind': bind, 'advertised': advertised, 'bootstrap': bootstrap,
+            'serverPorts': expected_server_ports(bind, catalog['ports'])}
+
+
+def projected_server_ports(instance, catalog, manage):
+    return player_endpoint_projection(instance, catalog, manage)['serverPorts']
+
+
+def checked_runtime_channel_host(instance, catalog, manage, published_ports, port):
+    endpoint = player_endpoint_projection(instance, catalog, manage)
+    bindings = (published_ports or {}).get(f'{port}/tcp') or []
+    if not any((binding or {}).get('HostIp') == endpoint['bind'] and
+               (binding or {}).get('HostPort') == str(port) for binding in bindings):
+        raise ValueError('runtime channel host binding differs from manage.player_endpoints bind')
+    return endpoint
+
+
+def rollback_config_paths(extra=()):
+    return list(dict.fromkeys(GAME_CONFIG_FILES + list(extra)))
 
 
 def tournament_mode(manifest):
@@ -40,7 +102,7 @@ def main_quest_exp_percent(manifest):
     return checked_main_quest_percent(manifest['mainQuestExpPercent'])
 
 
-def target_instance(instance, image, mode, multiplier=None, percent=None):
+def target_instance(instance, image, mode, multiplier=None, percent=None, channel_source=None):
     updated = dict(instance, server_image=image)
     if mode is not None:
         if mode not in ('off', 'vendor'): raise ValueError('Invalid tournament mode')
@@ -49,6 +111,10 @@ def target_instance(instance, image, mode, multiplier=None, percent=None):
         updated['main_quest_exp_multiplier'] = checked_main_quest_exp(multiplier)
     if percent is not None:
         updated['main_quest_exp_percent'] = checked_main_quest_percent(percent)
+    if channel_source is not None:
+        if channel_source != 'external:approved-119-empire-arena-pvfmap-v2':
+            raise ValueError('Invalid runtime channel source')
+        updated['channel_source'] = channel_source
     return updated
 
 
@@ -91,8 +157,8 @@ def target_env_bytes(before, mode, multiplier=None, percent=None):
     return b''.join(lines)
 
 
-def restore_game_configs(root, backup, atomic):
-    for rel in GAME_CONFIG_FILES:
+def restore_game_configs(root, backup, atomic, extra=()):
+    for rel in rollback_config_paths(extra):
         atomic(root / rel, (backup / rel).read_bytes())
 
 
@@ -245,9 +311,9 @@ def checked_edge_evidence(raw, expected_sha256, now):
     return value
 
 
-def backup_game_context(root, hub, backup, config_hashes, edge_evidence=None):
+def backup_game_context(root, hub, backup, config_hashes, edge_evidence=None, extra_paths=()):
     import shutil
-    paths = [root / rel for rel in config_hashes]
+    paths = list(dict.fromkeys([root / rel for rel in config_hashes] + list(extra_paths)))
     if not edge_evidence:
         paths.append(hub / 'state.json')
     for path in paths:
@@ -332,7 +398,7 @@ def main():
         raise ValueError('Invalid run ID')
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,62}', args.project):
         raise ValueError('Invalid compose project')
-    import json, hashlib, subprocess, os, fcntl, sys, tarfile, shutil, time, datetime, gzip, urllib.request, importlib.util
+    import json, hashlib, subprocess, os, fcntl, sys, tarfile, shutil, time, datetime, gzip, socket, urllib.request, importlib.util
 
     os.umask(0o077)
     r = args.root.resolve()
@@ -375,10 +441,25 @@ def main():
     def publication():
         value = edge()
         return value['published'] if value else read(h / 'state.json')['published']
-    def channel_path():
+    def channel_file_name():
         name = read(d / 'instance.json').get('channel_file', 'channel_info.etc')
         assert Path(name).name == name and name in ('channel_info.etc', 'channel.override.etc')
-        return d / 'data' / name
+        return name
+    def channel_path():
+        return d / 'data' / channel_file_name()
+    def channel_container_path():
+        return '/runtime/data/dnf/' + channel_file_name()
+    def channel_rows(raw):
+        section = re.search(rb'(?ms)^[ \t]*\[server\][^\r\n]*\r?\n(.*?)^[ \t]*\[/server\][ \t]*\r?\n?', raw)
+        assert section, 'missing complete [server] channel section'
+        row_pattern = re.compile(rb'(?m)^[ \t]*(\d+)[ \t]+`([^`\r\n]*)`[ \t]+(\d+)[ \t]+`([^`\r\n]*)`[^\r\n]*\r?$')
+        rows = []
+        for match in row_pattern.finditer(section.group(1)):
+            group = match.group(4).decode('utf-8').strip()
+            assert group.startswith('[') and group.endswith(']'), 'invalid channel group'
+            rows.append((int(match.group(1)), match.group(2).decode('utf-8'),
+                         int(match.group(3)), group[1:-1]))
+        return rows
     def channel_metadata_path():
         prior = d / 'data/channel-manifest.json'
         return prior if prior.is_file() else d / 'data/manifest.json'
@@ -422,8 +503,24 @@ def main():
             assert pvf in (d / 'gm/state/item-index.json').read_text()
         else:
             assert management_state['pvfSha256'] == pvf
+        channel_file = channel_file_name()
         channel = sha(channel_path())
         assert channel == active['channelSha256']
+        channel_container = run('docker', 'exec', args.project + '-server-1', 'sha256sum', channel_container_path()).split()[0]
+        assert channel_container == channel, 'container channel file differs from host file'
+        channel_entries = channel_rows(channel_path().read_bytes())
+        channel_catalog = read(channel_metadata_path())
+        assert channel_catalog['channels'] == len(channel_entries), 'channel metadata count differs from ETC'
+        assert channel_catalog['ports'] == [10000 + row[0] for row in channel_entries], 'channel metadata ports differ from ETC'
+        server_projection = inspect('server')
+        server_environment = dict(x.split('=', 1) for x in server_projection['Config']['Env'])
+        assert server_environment.get('DNFBRIDGE_CHANNEL_INFO_PATH') == channel_info_env_path(channel_file), 'container channel path differs'
+        channel_state = {'name': channel_file, 'channelSource': read(d / 'instance.json').get('channel_source'),
+                         'hostPath': str(channel_path().relative_to(r)),
+                         'containerPath': channel_container_path(), 'sha256': channel,
+                         'containerSha256': channel_container, 'rows': len(channel_entries),
+                         'empireRows': [list(row) for row in channel_entries if row[2] == 39 or row[3] == 'tagtournament'],
+                         'ports': channel_catalog['ports'], 'catalogSha256': sha(channel_metadata_path())}
         files = [d / x for x in ['instance.json', 'compose.json', 'server.env', 'database.env', 'data/manifest.json']]
         files.append(channel_metadata_path())
         if 'gm' in container_names: files.append(d / 'gm/config.json')
@@ -433,17 +530,33 @@ def main():
         files += management_files
         config_hashes = {str(p.relative_to(r)): sha(p) for p in files}
         inst = read(d / 'instance.json')
+        channel_state['listenerChecks'] = []
+        channel_state['listenerHostSource'] = 'manage.player_endpoints.bind'
+        empire_entries = [row for row in channel_entries if row[2] == 39 or row[3] == 'tagtournament']
+        if empire_entries:
+            manage_spec = importlib.util.spec_from_file_location('manage_snapshot', r / 'deploy/docker/manage.py')
+            manage_snapshot = importlib.util.module_from_spec(manage_spec); manage_spec.loader.exec_module(manage_snapshot)
+            endpoint = player_endpoint_projection(inst, channel_catalog, manage_snapshot)
+            published_ports = server_projection['NetworkSettings']['Ports']
+            for row in empire_entries:
+                port = 10000 + row[0]
+                checked_runtime_channel_host(inst, channel_catalog, manage_snapshot, published_ports, port)
+                with socket.create_connection((endpoint['bind'], port), timeout=3):
+                    pass
+                channel_state['listenerChecks'].append(port)
         req = urllib.request.Request('http://' + inst['server_ip'] + ':17002/api/player/admin', data=b'{"action":"sessions"}', headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + inst['player_admin_secret']})
         sessions = json.load(urllib.request.urlopen(req, timeout=10))
         assert sessions['ok']
         counts = {'leases': len(sessions['sessions']), 'connections': sum(x.get('connections', 0) for x in sessions['sessions'])}
-        snapshot = ({'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'active': active, 'sourceManifestSha256': sha(manifest_path), 'sourceManifest': manifest, 'verifiedSourceFiles': len(manifest['files']), 'containers': containers, 'serverPid': int(pids[0]), 'serverSha256': binary_hash, 'pvfSha256': pvf, 'channelSha256': channel, 'exeSha256': pub['profile']['ExeSha256'], 'sequence': pub['sequence'], 'publishedSha256': digest_json(pub), 'configHashes': config_hashes, 'sessions': counts})
+        snapshot = ({'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'active': active, 'sourceManifestSha256': sha(manifest_path), 'sourceManifest': manifest, 'verifiedSourceFiles': len(manifest['files']), 'containers': containers, 'serverPid': int(pids[0]), 'serverSha256': binary_hash, 'pvfSha256': pvf, 'channelSha256': channel, 'channel': channel_state, 'exeSha256': pub['profile']['ExeSha256'], 'sequence': pub['sequence'], 'publishedSha256': digest_json(pub), 'configHashes': config_hashes, 'sessions': counts})
         snapshot['management'] = management_state
         process_env = dict(line.decode().split('=', 1) for line in (Path('/proc') / pids[0] / 'environ').read_bytes().split(b'\0') if b'=' in line)
+        assert process_env.get('DNFBRIDGE_CHANNEL_INFO_PATH') == channel_info_env_path(channel_file), 'process channel path differs'
+        channel_state['processPath'] = process_env['DNFBRIDGE_CHANNEL_INFO_PATH']
         snapshot['tournament'] = tournament_snapshot(inst, dict(x.split('=', 1) for x in inspect('server')['Config']['Env']), process_env)
         snapshot['mainQuestExperience'] = main_quest_exp_snapshot(inst, dict(x.split('=', 1) for x in inspect('server')['Config']['Env']), process_env)
         if args.mode == "verify":
-            snapshot = {key: snapshot[key] for key in ["active", "serverSha256", "containers", "pvfSha256", "channelSha256", "exeSha256", "sequence", "sessions", "management", "tournament", "mainQuestExperience"]}
+            snapshot = {key: snapshot[key] for key in ["active", "serverSha256", "containers", "pvfSha256", "channelSha256", "channel", "exeSha256", "sequence", "sessions", "management", "tournament", "mainQuestExperience"]}
         print(json.dumps(snapshot))
         return
     old = read(s / 'runtime-before.json')
@@ -452,6 +565,30 @@ def main():
     config_multiplier = main_quest_exp_multiplier(src)
     config_percent = main_quest_exp_percent(src)
     config_changed = config_mode is not None or config_multiplier is not None or config_percent is not None
+    runtime_channel = src.get('runtimeChannelUpdate')
+    if runtime_channel is not None:
+        required = {'target', 'container_path', 'channel_file', 'base_channel_source', 'channel_source', 'base_sha256', 'sha256',
+                    'pvf_sha256', 'base_channels', 'channels', 'channel_id', 'port',
+                    'channel_type', 'group', 'name'}
+        assert isinstance(runtime_channel, dict) and set(runtime_channel) == required, 'invalid runtime channel binding'
+        assert runtime_channel['target'] == RUNTIME_CHANNEL_TARGET, 'runtime channel target differs'
+        assert runtime_channel['container_path'] == RUNTIME_CHANNEL_CONTAINER, 'runtime channel container path differs'
+        assert runtime_channel['channel_file'] == RUNTIME_CHANNEL_FILE, 'runtime channel file differs'
+        assert runtime_channel['base_channel_source'] == 'external:approved-119-empire-arena-v1', 'runtime channel base source differs'
+        assert runtime_channel['channel_source'] == 'external:approved-119-empire-arena-pvfmap-v2', 'runtime channel source differs'
+        assert runtime_channel['target'] == str(channel_path().relative_to(r)), 'active channel path differs'
+        assert read(d / 'instance.json').get('channel_file', 'channel_info.etc') == RUNTIME_CHANNEL_FILE
+        checked_runtime_channel_phase(runtime_channel, read(d / 'instance.json').get('channel_source'), sha(channel_path()), args.mode)
+        assert runtime_channel['base_sha256'] == old['channelSha256'], 'runtime channel base differs'
+        assert runtime_channel['pvf_sha256'] == old['pvfSha256'], 'runtime channel PVF binding differs'
+        assert (runtime_channel['base_channels'], runtime_channel['channels'], runtime_channel['channel_id'],
+                runtime_channel['port'], runtime_channel['channel_type'], runtime_channel['group'], runtime_channel['name']) == (119, 119, 187, 10187, 39, 'tagtournament', '帝国竞技场')
+        if args.mode != 'rollback':
+            assert sha(s / RUNTIME_CHANNEL_FILE) == runtime_channel['sha256'], 'runtime channel candidate differs'
+    rollback_extra = list(dict.fromkeys(
+        [runtime_channel['target'], str(channel_metadata_path().relative_to(r))]
+        if runtime_channel is not None else []))
+    rollback_configs = rollback_config_paths(rollback_extra)
     assert src['baseCommit'] == old['active']['sourceCommit']
     assert re.fullmatch(r'[0-9a-f]{40}', src['sourceCommit'])
     assert sha(s / 'DNF90Server') == src['serverSha256']
@@ -507,19 +644,59 @@ def main():
             assert image['Config'].get(key) == base_config.get(key), key
         check = run('docker', 'run', '--rm', '--network=none', '--entrypoint', 'sha256sum', tag, '/usr/local/bin/DNF90Server').split()[0]
         assert check == src['serverSha256']
-        write(s / 'prepared-game.json', {'image': image['Id'], 'tag': tag, 'beforeImage': current['Image'], 'beforeTag': base, 'serverSha256': check, 'runtimeBaseImage': args.image_base, 'sourceDirectory': str(tree), 'sourceFiles': len(src['files'])})
+        if runtime_channel is not None:
+            prior_catalog = read(channel_metadata_path())
+            assert prior_catalog['channels'] == len(prior_catalog['ports']) == 119, 'live channel metadata is not the approved 119-row base'
+            base_raw = channel_path().read_bytes()
+            candidate_raw = (s / RUNTIME_CHANNEL_FILE).read_bytes()
+            checked_empire_area_map_delta(base_raw, candidate_raw)
+            base_entries = channel_rows(base_raw)
+            candidate_entries = channel_rows(candidate_raw)
+            assert len(base_entries) == len(candidate_entries) == 119, 'runtime channel row count differs'
+            assert len({row[0] for row in base_entries}) == len({row[0] for row in candidate_entries}) == 119, 'runtime channel IDs are not unique'
+            assert candidate_entries == base_entries, 'runtime channel update changed a channel row'
+            assert candidate_entries[-1] == (187, '帝国竞技场', 39, 'tagtournament'), 'runtime channel tail row differs'
+            (s / RUNTIME_CHANNEL_FILE).chmod(0o644)
+            assert current['Config']['User'], 'runtime image user is missing'
+            report = run('docker', 'run', '--rm', '--network', 'none', '--user', current['Config']['User'],
+                         '--mount', 'type=bind,source=' + str(d / 'data/Script.pvf') + ',target=/assets/Script.pvf,readonly',
+                         '--mount', 'type=bind,source=' + str(s / RUNTIME_CHANNEL_FILE) + ',target=/candidate/channel.override.etc,readonly',
+                         '--tmpfs', '/out:rw,size=1m,mode=1777',
+                         '--entrypoint', 'DNF90Assets', tag, '-pvf', '/assets/Script.pvf',
+                         '-channel', '/candidate/channel.override.etc', '-output', '/out/channel.override.etc')
+            channel_catalog = json.loads(report)
+            assert channel_catalog['source'] == 'external:' + RUNTIME_CHANNEL_FILE
+            assert channel_catalog['sha256'] == runtime_channel['sha256']
+            assert channel_catalog['channels'] == 119
+            assert channel_catalog['ports'] == [10000 + row[0] for row in candidate_entries]
+            assert channel_catalog['ports'] == prior_catalog['ports']
+            assert runtime_channel['port'] in channel_catalog['ports']
+            channel_catalog['pvf_sha256'] = src['pvfSha256']
+            write(s / 'channel-catalog.json', channel_catalog)
+        prepared = {'image': image['Id'], 'tag': tag, 'beforeImage': current['Image'], 'beforeTag': base, 'serverSha256': check, 'runtimeBaseImage': args.image_base, 'sourceDirectory': str(tree), 'sourceFiles': len(src['files'])}
+        if runtime_channel is not None:
+            prepared['runtimeChannel'] = {**runtime_channel, 'catalogSha256': sha(s / 'channel-catalog.json')}
+        write(s / 'prepared-game.json', prepared)
         print('PASS image and immutable source prepared; running game unchanged', flush=True)
     elif mode == 'generate':
         validate_before(); prepared = read(s / 'prepared-game.json')
         assert json.loads(run('docker', 'image', 'inspect', prepared['tag']))[0]['Id'] == prepared['image']
         prior = read(d / 'compose.json'); instance = read(d / 'instance.json')
-        updated = target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent)
+        updated = target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent,
+                                  runtime_channel['channel_source'] if runtime_channel is not None else None)
+        prior_catalog = read(channel_metadata_path())
+        generated_catalog = read(s / 'channel-catalog.json') if runtime_channel is not None else prior_catalog
         spec = importlib.util.spec_from_file_location('manage', r / 'deploy/docker/manage.py')
         manage = importlib.util.module_from_spec(spec); spec.loader.exec_module(manage)
         uid, gid = map(int, prior['services']['server']['user'].split(':'))
         os.getuid = lambda: uid; os.getgid = lambda: gid
-        manage.RUNTIME = s / 'generated'; manage.generate(updated, read(channel_metadata_path()))
+        manage.RUNTIME = s / 'generated'; manage.generate(updated, generated_catalog)
         expected = json.loads(json.dumps(prior)); expected['services']['server']['image'] = prepared['tag']
+        if runtime_channel is not None:
+            expected['services']['server']['ports'] = projected_server_ports(updated, generated_catalog, manage)
+            assert generated_catalog['ports'] == prior_catalog['ports']
+            assert expected['services']['server']['ports'] == prior['services']['server']['ports'], 'Imperial mapping changed published ports'
+            write(s / 'generated-channel-metadata.json', generated_catalog)
         assert read(s / 'generated/compose.json') == expected, 'compose differs beyond image'
         for rel in ['server.env', 'database.env'] + (['gm/config.json'] if 'gm' in container_names else []):
             if rel.endswith('.json'): assert read(s / 'generated' / rel) == read(d / rel)
@@ -527,7 +704,8 @@ def main():
             else: assert (s / 'generated' / rel).read_bytes() == (d / rel).read_bytes()
         write(s / 'generated/instance.json', updated)
         changed_keys = sorted(k for k in updated.keys() | instance.keys() if updated.get(k) != instance.get(k))
-        write(s / 'config-generation.json', {'changedInstanceKeys': changed_keys, 'changedComposeKeys': ['services.server.image'], 'environmentPreserved': not config_changed, 'tournamentMode': config_mode, 'mainQuestExpMultiplier': config_multiplier, 'mainQuestExpPercent': config_percent, 'deploymentUIDPreserved': True})
+        changed_compose_keys = ['services.server.image']
+        write(s / 'config-generation.json', {'changedInstanceKeys': changed_keys, 'changedComposeKeys': changed_compose_keys, 'environmentPreserved': not config_changed, 'tournamentMode': config_mode, 'mainQuestExpMultiplier': config_multiplier, 'mainQuestExpPercent': config_percent, 'deploymentUIDPreserved': True, 'runtimeChannel': runtime_channel is not None})
         print('PASS configuration generated; only image and explicit tournament/quest experience settings allowed', flush=True)
     elif mode == 'deploy':
         assert not (s / 'game-deployment.json').exists()
@@ -545,7 +723,8 @@ def main():
         backup.mkdir()
         # In split topology the Hub lives on the edge host and is not mutated here.
         # Keep its verified snapshot; never require a fictitious local Hub state file.
-        backup_game_context(r, h, backup, old['configHashes'], args.edge_evidence)
+        backup_extra = [r / runtime_channel['target']] if runtime_channel is not None else []
+        backup_game_context(r, h, backup, old['configHashes'], args.edge_evidence, backup_extra)
         started = time.time()
         backup_output = run('python3', str(r / 'deploy/remote/backup.py'), '--runtime-dir', str(r / 'runtime'), '--container', args.project + '-db-1', '--no-retention')
         match = re.fullmatch(r'Database backup: (database-\d{8}T\d{6}Z\.sql\.gz)', backup_output)
@@ -556,7 +735,7 @@ def main():
             assert b'MariaDB' in stream.read(4096)
             while stream.read(1024 * 1024): pass
         run('docker', 'image', 'save', '-o', str(backup / 'game-before.tar'), prepared['beforeTag'])
-        backup_receipt = {'backup': str(backup), 'databaseBackup': str(dump), 'databaseBackupSha256': sha(dump), 'beforeImage': prepared['beforeImage'], 'beforeTag': prepared['beforeTag'], 'beforeImageArchiveSha256': sha(backup / 'game-before.tar'), 'rollbackPreservesPlayerDatabase': True}
+        backup_receipt = {'backup': str(backup), 'databaseBackup': str(dump), 'databaseBackupSha256': sha(dump), 'beforeImage': prepared['beforeImage'], 'beforeTag': prepared['beforeTag'], 'beforeImageArchiveSha256': sha(backup / 'game-before.tar'), 'beforeChannelSha256': old['channelSha256'], 'beforeChannelCatalogSha256': sha(channel_metadata_path()), 'rollbackPreservesPlayerDatabase': True}
         write(s / 'backup-receipt.json', backup_receipt)
         project = before['server']['Config']['Labels']['com.docker.compose.project']
         compose = ['docker', 'compose', '--project-directory', str(d), '-p', project, '-f', str(d / 'compose.json')]
@@ -570,17 +749,30 @@ def main():
                 time.sleep(2)
             raise RuntimeError('game health timeout')
         rollback = backup / 'rollback-game.py'
-        rollback.write_text('from pathlib import Path\nimport shutil,subprocess,fcntl,os,json,hashlib\nr=Path(' + repr(str(r)) + ');b=Path(' + repr(str(backup)) + ')\nlock=(r/"runtime/guild-deployment.lock").open("a");fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)\na=json.loads((r/"runtime/active-game-baseline.json").read_text());assert a["sourceCommit"] in ' + repr([src['sourceCommit'], old['active']['sourceCommit']]) + ',"another deployment is active"\nassert hashlib.sha256((b/"game-before.tar").read_bytes()).hexdigest()==' + repr(backup_receipt['beforeImageArchiveSha256']) + '\nsubprocess.run(["docker","image","load","-i",str(b/"game-before.tar")],check=True)\nsubprocess.run(["docker","tag",' + repr(prepared['beforeImage']) + ',' + repr(read(d / 'compose.json')['services']['server']['image']) + '],check=True)\nfor rel in ["runtime/docker/instance.json","runtime/docker/compose.json","runtime/docker/server.env","runtime/active-game-baseline.json"]:\n p=r/rel;st=p.stat();t=p.with_name(p.name+".rollback-new");assert not t.exists();shutil.copy2(b/rel,t);os.chmod(t,st.st_mode&0o777);os.chown(t,st.st_uid,st.st_gid);t.replace(p)\nsubprocess.run(' + repr(compose + ['up', '-d', '--no-deps', '--force-recreate', '--no-build', '--pull', 'never', 'server']) + ',check=True)\nprint("Game image/config restored; player database preserved. Verify process hash and health.")\n')
+        rollback.write_text('from pathlib import Path\nimport shutil,subprocess,fcntl,os,json,hashlib\nr=Path(' + repr(str(r)) + ');b=Path(' + repr(str(backup)) + ')\nlock=(r/"runtime/guild-deployment.lock").open("a");fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)\na=json.loads((r/"runtime/active-game-baseline.json").read_text());assert a["sourceCommit"] in ' + repr([src['sourceCommit'], old['active']['sourceCommit']]) + ',"another deployment is active"\nassert hashlib.sha256((b/"game-before.tar").read_bytes()).hexdigest()==' + repr(backup_receipt['beforeImageArchiveSha256']) + '\nsubprocess.run(["docker","image","load","-i",str(b/"game-before.tar")],check=True)\nsubprocess.run(["docker","tag",' + repr(prepared['beforeImage']) + ',' + repr(read(d / 'compose.json')['services']['server']['image']) + '],check=True)\nfor rel in ' + repr(rollback_configs) + ':\n p=r/rel;st=p.stat();t=p.with_name(p.name+".rollback-new");assert not t.exists();shutil.copy2(b/rel,t);os.chmod(t,st.st_mode&0o777);os.chown(t,st.st_uid,st.st_gid);t.replace(p)\nsubprocess.run(' + repr(compose + ['up', '-d', '--no-deps', '--force-recreate', '--no-build', '--pull', 'never', 'server']) + ',check=True)\nprint("Game image/config restored; player database preserved. Verify process hash and health.")\n')
         validate_before()
         prior = read(d / 'compose.json'); new = read(s / 'generated/compose.json')
+        new_instance = read(s / 'generated/instance.json')
         expected = json.loads(json.dumps(prior)); expected['services']['server']['image'] = prepared['tag']
+        prior_catalog = read(channel_metadata_path())
+        channel_catalog = read(s / 'channel-catalog.json') if runtime_channel is not None else prior_catalog
+        if runtime_channel is not None:
+            assert len(prior_catalog['ports']) == 119 and channel_catalog['ports'] == prior_catalog['ports']
+            assert runtime_channel['port'] in channel_catalog['ports']
+            spec = importlib.util.spec_from_file_location('manage', r / 'deploy/docker/manage.py')
+            manage = importlib.util.module_from_spec(spec); spec.loader.exec_module(manage)
+            expected['services']['server']['ports'] = projected_server_ports(new_instance, channel_catalog, manage)
+            assert sha(s / 'generated-channel-metadata.json') == prepared['runtimeChannel']['catalogSha256'], 'generated channel metadata changed'
         assert new == expected
         assert json.loads(run('docker', 'image', 'inspect', prepared['tag']))[0]['Id'] == prepared['image'], 'prepared image tag moved'
-        new_instance = read(s / 'generated/instance.json')
-        assert new_instance == target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent), 'unapproved instance change'
+        assert new_instance == target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent,
+                                                runtime_channel['channel_source'] if runtime_channel is not None else None), 'unapproved instance change'
         assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent)
         print('Verified database/config/image backups; switching game service only', flush=True)
         try:
+            if runtime_channel is not None:
+                atomic(channel_path(), (s / RUNTIME_CHANNEL_FILE).read_bytes())
+                atomic(channel_metadata_path(), (s / 'generated-channel-metadata.json').read_bytes())
             atomic(d / 'instance.json', (s / 'generated/instance.json').read_bytes())
             atomic(d / 'compose.json', (s / 'generated/compose.json').read_bytes())
             if config_changed:
@@ -596,18 +788,38 @@ def main():
                 assert after[name]['Id'] == before[name]['Id'] and after[name]['State']['StartedAt'] == before[name]['State']['StartedAt']
             for name, path in [('server', '/runtime/data/dnf/Script.pvf')] + ([('gm', '/assets/Script.pvf')] if 'gm' in container_names else []):
                 assert run('docker', 'exec', args.project + '-' + name + '-1', 'sha256sum', path).split()[0] == old['pvfSha256']
-            assert sha(channel_path()) == old['channelSha256']
+            expected_channel = runtime_channel['sha256'] if runtime_channel is not None else old['channelSha256']
+            assert sha(channel_path()) == expected_channel
+            assert run('docker', 'exec', args.project + '-server-1', 'sha256sum', channel_container_path()).split()[0] == expected_channel, 'container channel file differs after deploy'
+            updated_server_env = dict(x.split('=', 1) for x in after['server']['Config']['Env'])
+            expected_channel_env = channel_info_env_path(channel_file_name())
+            assert updated_server_env.get('DNFBRIDGE_CHANNEL_INFO_PATH') == expected_channel_env
+            assert process_env.get('DNFBRIDGE_CHANNEL_INFO_PATH') == expected_channel_env
+            if runtime_channel is not None:
+                assert sha(channel_metadata_path()) == sha(s / 'generated-channel-metadata.json')
+                published_ports = after['server']['NetworkSettings']['Ports']
+                assert f"{runtime_channel['port']}/tcp" in published_ports
+                runtime_endpoint = checked_runtime_channel_host(new_instance, channel_catalog, manage, published_ports, runtime_channel['port'])
+                assert all(f'{port}/tcp' in published_ports for port in prior_catalog['ports']), 'an original channel port disappeared'
+                with socket.create_connection((runtime_endpoint['bind'], runtime_channel['port']), timeout=3):
+                    pass
             assert management_snapshot()[0] == old.get('management', {'mode': 'container'})
             assert digest_json(publication()) == old['publishedSha256']
             for rel, digest in old['configHashes'].items():
-                if rel not in ['runtime/docker/instance.json', 'runtime/docker/compose.json'] + (['runtime/docker/server.env'] if config_changed else []): assert sha(r / rel) == digest
+                changed_configs = list(dict.fromkeys(['runtime/docker/instance.json', 'runtime/docker/compose.json'] + (['runtime/docker/server.env'] if config_changed else []) + (rollback_extra if runtime_channel is not None else [])))
+                if rel not in changed_configs: assert sha(r / rel) == digest
             assert (d / 'server.env').read_bytes() == target_env_bytes((backup / 'runtime/docker/server.env').read_bytes(), config_mode, config_multiplier, config_percent)
-            receipt = {'sourceCommit': src['sourceCommit'], 'baseCommit': src['baseCommit'], 'upstream': src['upstream'], 'publicGuildCommit': src['publicGuildCommit'], 'publicFixCommits': src['publicFixCommits'], 'gameExe': actual, 'image': prepared['image'], 'sourceArchiveSha256': src['sourceArchiveSha256'], 'sourceDirectory': prepared['sourceDirectory'], 'sourceFiles': prepared['sourceFiles'], 'liveWorkingSourcePreserved': True, 'sequence': old['sequence'], 'exeSha256': old['exeSha256'], 'pvfSha256': old['pvfSha256'], 'channelSha256': old['channelSha256'], 'gameHealthy': True, 'gmHealthy': True, 'gmContainerUnchanged': True, 'databaseContainerUnchanged': True, 'serverEnvironmentPreserved': True, 'deployedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'nativeAcceptance': 'pending', 'runtimeBaseImage': prepared['runtimeBaseImage'], **backup_receipt}
+            receipt = {'sourceCommit': src['sourceCommit'], 'baseCommit': src['baseCommit'], 'upstream': src['upstream'], 'publicGuildCommit': src['publicGuildCommit'], 'publicFixCommits': src['publicFixCommits'], 'gameExe': actual, 'image': prepared['image'], 'sourceArchiveSha256': src['sourceArchiveSha256'], 'sourceDirectory': prepared['sourceDirectory'], 'sourceFiles': prepared['sourceFiles'], 'liveWorkingSourcePreserved': True, 'sequence': old['sequence'], 'exeSha256': old['exeSha256'], 'pvfSha256': old['pvfSha256'], 'channelSha256': expected_channel, 'gameHealthy': True, 'gmHealthy': True, 'gmContainerUnchanged': True, 'databaseContainerUnchanged': True, 'serverEnvironmentPreserved': True, 'deployedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'nativeAcceptance': 'pending', 'runtimeBaseImage': prepared['runtimeBaseImage'], **backup_receipt}
             receipt['gmMode'] = management_snapshot()[0]['mode']
+            receipt['channelFile'] = new_instance.get('channel_file')
+            receipt['channelSource'] = new_instance.get('channel_source')
             receipt['tournament'] = tournament_state
             receipt['mainQuestExperience'] = main_quest_exp_snapshot(new_instance, dict(x.split('=', 1) for x in after['server']['Config']['Env']), process_env)
             receipt['serverEnvironmentPreserved'] = not config_changed
             receipt['onlyApprovedEnvironmentChange'] = config_changed
+            if runtime_channel is not None:
+                receipt['runtimeChannel'] = runtime_channel
+                receipt['runtimeChannelPortCheck'] = {'port': runtime_channel['port'], 'connected': True}
             receipt['gmContainerUnchanged'] = 'gm' in container_names
             receipt['sourceGitBundleSha256'] = src['sourceGitBundleSha256']
             if 'sourceRecovery' in src: receipt['sourceRecovery'] = src['sourceRecovery']
@@ -619,7 +831,7 @@ def main():
             atomic(r / 'runtime/active-game-baseline.json', json.dumps(receipt, indent=2).encode())
             write(s / 'game-deployment.json', receipt)
         except BaseException:
-            restore_game_configs(r, backup, atomic)
+            restore_game_configs(r, backup, atomic, rollback_extra)
             restart(); healthy(); assert binary()['sha256'] == old['serverSha256']
             write(s / 'game-rollback.json', {'backup': str(backup), 'databasePreserved': True, 'oldProcessVerified': True})
             raise
@@ -633,11 +845,12 @@ def main():
         before = inspect('server')
         project = before['Config']['Labels']['com.docker.compose.project']
         assert sha(backup / 'game-before.tar') == receipt['beforeImageArchiveSha256']
-        for rel in GAME_CONFIG_FILES:
-            assert sha(backup / rel) == old['configHashes'][rel], 'rollback config changed'
+        for rel in rollback_configs:
+            expected = old['channelSha256'] if runtime_channel is not None and rel == runtime_channel['target'] else old['configHashes'][rel]
+            assert sha(backup / rel) == expected, 'rollback config changed'
         run('docker', 'image', 'load', '-i', str(backup / 'game-before.tar'))
         run('docker', 'tag', receipt['beforeImage'], read(backup / 'runtime/docker/compose.json')['services']['server']['image'])
-        restore_game_configs(r, backup, atomic)
+        restore_game_configs(r, backup, atomic, rollback_extra)
         subprocess.run(['docker', 'compose', '--project-directory', str(d), '-p', project, '-f', str(d / 'compose.json'), 'up', '-d', '--no-deps', '--force-recreate', '--no-build', '--pull', 'never', 'server'], check=True)
         for attempt in range(100):
             if inspect('server')['State'].get('Health', {}).get('Status') == 'healthy': break
@@ -645,7 +858,9 @@ def main():
             time.sleep(2)
         else: raise RuntimeError('rollback health timeout')
         assert binary()['sha256'] == old['serverSha256']
-        write(s / 'game-rollback.json', {'beforeCommit': old['active']['sourceCommit'], 'processVerified': True, 'databasePreserved': True})
+        assert sha(channel_path()) == old['channelSha256']
+        assert run('docker', 'exec', args.project + '-server-1', 'sha256sum', channel_container_path()).split()[0] == old['channelSha256']
+        write(s / 'game-rollback.json', {'beforeCommit': old['active']['sourceCommit'], 'beforeChannelSha256': old['channelSha256'], 'processVerified': True, 'databasePreserved': True})
         print('ROLLED BACK: old process restored; player database preserved')
     else:
         raise ValueError(mode)

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import re
 
-from migrate_empire_channel import CHANNEL_GROUP, CHANNEL_ID, CHANNEL_NAME, CHANNEL_PORT, CHANNEL_TYPE, migrate
+from migrate_empire_channel import CHANNEL_DUNGEON_IDS, CHANNEL_GROUP, CHANNEL_ID, CHANNEL_NAME, CHANNEL_PORT, CHANNEL_TYPE, migrate
 
 
 ROW = re.compile(rb"(?m)^[ \t]*(\d+)[ \t]+`([^`\r\n]*)`[ \t]+(\d+)[ \t]+`([^`\r\n]*)`[^\r\n]*\r?$")
@@ -37,6 +37,7 @@ def validate(base: bytes, candidate: bytes):
         "type": CHANNEL_TYPE,
         "group": CHANNEL_GROUP,
         "name": CHANNEL_NAME,
+        "dungeonIds": CHANNEL_DUNGEON_IDS,
         "startupRequirement": False,
         "explicitPreflight": True,
     }

@@ -6,7 +6,7 @@ import json
 import tempfile
 import unittest
 
-from migrate_empire_channel import CHANNEL_ID, main, migrate
+from migrate_empire_channel import CHANNEL_DUNGEON_IDS, CHANNEL_ID, main, migrate
 
 
 def fixture(newline: bytes = b"\n") -> bytes:
@@ -23,7 +23,9 @@ class EmpireChannelMigrationTests(unittest.TestCase):
             with self.subTest(newline=newline):
                 source = fixture(newline)
                 output = migrate(source)
-                area = b"[dungeon]" + newline + b"`[tagtournament]`" + newline + "`帝国竞技场`".encode() + newline + b"[/dungeon]" + newline + newline
+                area = (b"[dungeon]" + newline + b"`[tagtournament]`" + newline +
+                        "`帝国竞技场`".encode() + newline + b"320" + newline + b"336" + newline +
+                        b"[/dungeon]" + newline + newline)
                 row = f"   {CHANNEL_ID}   `帝国竞技场`   39   `[tagtournament]`   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   ``".encode() + newline
                 self.assertEqual(output.replace(area, b"", 1).replace(row, b"", 1), source)
                 self.assertEqual(output.count(b"`[tagtournament]`"), 2)
@@ -57,6 +59,7 @@ class EmpireChannelMigrationTests(unittest.TestCase):
             receipt = json.loads(stdout.getvalue())
             self.assertEqual(receipt["base_rows"], 118)
             self.assertEqual(receipt["output_rows"], 119)
+            self.assertEqual(receipt["dungeon_ids"], list(CHANNEL_DUNGEON_IDS))
             self.assertEqual(output.read_bytes(), migrate(source.read_bytes()))
             old = output.read_bytes()
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:

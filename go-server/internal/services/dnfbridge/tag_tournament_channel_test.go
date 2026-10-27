@@ -98,7 +98,7 @@ func TestTagTournamentMissingResourcesAndProfileIsolation(t *testing.T) {
 }
 
 func TestOfficial249TagTournamentDirectoryProjection(t *testing.T) {
-	const base = "\n[dungeon]\n`[tagtournament]`\n`帝国竞技场`\n[/dungeon]\n[server]\n" +
+	const base = "\n[dungeon]\n`[tagtournament]`\n`帝国竞技场`\n320\n336\n[/dungeon]\n[server]\n" +
 		"19 `<chn_channel_info_028>` 11 `[granfloris]` 5 0 0 ``\n" +
 		"187 `帝国竞技场` 39 `[tagtournament]` 0 0 0 0 0 0 0 0 0 0 0 ``\n[/server]\n"
 	parseCatalog := func(t *testing.T, raw string) *channelcatalog.Catalog {
@@ -132,6 +132,12 @@ func TestOfficial249TagTournamentDirectoryProjection(t *testing.T) {
 	onlineChannel, ok := online.ServerChannel(0, 187)
 	if !ok || onlineChannel.Type != 39 || onlineChannel.AreaKey != "tagtournament" || onlineChannel.NameKey != "帝国竞技场" {
 		t.Fatalf("empire channel did not reach downloaded directory: %+v ok=%v\n%s", onlineChannel, ok, script)
+	}
+	for _, dungeonID := range []int{320, 336} {
+		mapped := online.ChannelsForDungeon(dungeonID)
+		if len(mapped) != 1 || mapped[0].ID != 187 {
+			t.Fatalf("empire dungeon %d did not map to downloaded channel 187: %+v", dungeonID, mapped)
+		}
 	}
 }
 
@@ -172,5 +178,11 @@ func TestExternalOfficial249TagTournamentChannelDirectory(t *testing.T) {
 	onlineChannel, ok := online.ServerChannel(0, 187)
 	if !ok || onlineChannel.Type != 39 || onlineChannel.AreaKey != "tagtournament" || onlineChannel.NameKey != "帝国竞技场" {
 		t.Fatalf("帝国频道未进入动态下载目录：%+v ok=%v", onlineChannel, ok)
+	}
+	for _, dungeonID := range []int{320, 336} {
+		mapped := online.ChannelsForDungeon(dungeonID)
+		if len(mapped) != 1 || mapped[0].ID != 187 {
+			t.Fatalf("待部署完整目录中帝国副本%d未映射频道187：%+v", dungeonID, mapped)
+		}
 	}
 }

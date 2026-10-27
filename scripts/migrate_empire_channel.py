@@ -2,8 +2,8 @@
 
 Usage: python scripts/migrate_empire_channel.py INPUT OUTPUT
 OUTPUT must be new. The input must contain one complete one-row-per-channel
-server block. Every existing byte is preserved; only the empty tag-tournament
-area block and one type-39 channel row are inserted.
+server block. Every existing byte is preserved; only the tag-tournament area
+block and one type-39 channel row are inserted.
 """
 import argparse
 import hashlib
@@ -17,6 +17,7 @@ CHANNEL_PORT = 10187
 CHANNEL_TYPE = 39
 CHANNEL_GROUP = "tagtournament"
 CHANNEL_NAME = "帝国竞技场"
+CHANNEL_DUNGEON_IDS = (320, 336)
 EXPECTED_ROWS = 118
 ROW = re.compile(rb"[ \t]*([0-9]+)[ \t]+(`[^`\r\n]*`)[ \t]+([0-9]+)[ \t]+(`[^`\r\n]*`)[^\r\n]*")
 
@@ -50,6 +51,7 @@ def migrate(data: bytes) -> bytes:
     area_block = (b"[dungeon]" + newline +
                   area_key + newline +
                   b"`" + CHANNEL_NAME.encode("utf-8") + b"`" + newline +
+                  b"".join(str(dungeon_id).encode("ascii") + newline for dungeon_id in CHANNEL_DUNGEON_IDS) +
                   b"[/dungeon]" + newline + newline)
     channel_row = (b"   187   `" + CHANNEL_NAME.encode("utf-8") +
                    b"`   39   `[tagtournament]`   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   0.0   ``" +
@@ -82,6 +84,7 @@ def main(argv=None):
         "type": CHANNEL_TYPE,
         "group": CHANNEL_GROUP,
         "name": CHANNEL_NAME,
+        "dungeon_ids": CHANNEL_DUNGEON_IDS,
         "existing_bytes_preserved": True,
     }, ensure_ascii=False, sort_keys=True))
 

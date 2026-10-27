@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from check_empire_channel import main, validate
-from migrate_empire_channel import CHANNEL_ID, CHANNEL_PORT, migrate
+from migrate_empire_channel import CHANNEL_DUNGEON_IDS, CHANNEL_ID, CHANNEL_PORT, migrate
 from test_migrate_empire_channel import fixture
 
 
@@ -20,6 +20,7 @@ class EmpireChannelPreflightTests(unittest.TestCase):
         self.assertEqual(result["candidateRows"], 119)
         self.assertEqual(result["channelId"], CHANNEL_ID)
         self.assertEqual(result["port"], CHANNEL_PORT)
+        self.assertEqual(result["dungeonIds"], CHANNEL_DUNGEON_IDS)
         self.assertFalse(result["startupRequirement"])
 
     def test_rejects_unchanged_or_tampered_candidate(self):
