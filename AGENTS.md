@@ -44,6 +44,15 @@
 - The local profile is single-account and local-only. The 90CN bootstrap/channel download endpoint, admin endpoint, and MySQL stay on loopback. Dynamic channel-directory advertisements and every game port must use an automatically detected or explicitly configured private LAN IPv4 and bind only that local interface; never use a wildcard or public address.
 - The `90cn-decode-bypass-v1` protocol profile, asset hashes, and client hashes are a compatibility unit. Change them together and record evidence.
 
+## anti-RE 使用边界与客户端发布要求
+
+- anti-RE 是独立的 EXE 加锁、防篡改工具，按黑盒 CLI 使用。默认只读取 README、CLI 帮助和输入/输出、验证契约；非任务确需不深入源码、反编译或保护机制，不将其内部实现引入业务调查上下文，也不绕过工具报错或校验。
+- 后续客户端 Release 中的所有 EXE 都必须经过 anti-RE 加锁并通过工具规定的验证，包括正式、preview、热修复、独立 EXE 包及整包/分卷内的 EXE。未加锁的构建、补丁中间文件和调试 EXE 不得作为 Release 附件或进入玩家更新源。
+- 顺序固定为：完成功能修改 → anti-RE 加锁 → 按 CLI 契约验证最终文件 → 发布 Release 并同步指定镜像 → 更新玩家实际通道 → 部署依赖服务端。加锁后再改 EXE 必须重新加锁和验证。回执绑定工具版本、验证结果及最终 EXE 完整 SHA256/长度，其他字段按真实 CLI 契约记录；文件名、MZ 文件头、签名清单或摘要一致不能替代加锁验证。
+- 玩家更新源必须使用所选正式/预览通道最新已发布 Release 中的已加锁 EXE。每次更新当场核对权威发行列表、通道、标签与附件，排除草稿，不仅依赖缓存或 `latest` 指针；最新发行缺少加锁证明或验证失败就停止切换，不静默选旧发行或未加锁原版。本服派生修改也须先发布新的已加锁 Release，再切更新源。
+- 维护或使用一键更新、发布、镜像及更新源入口时，必须检查现有 BAT/Python、CI、Release 镜像、Hub、签名清单和实际下载链是否落实上述要求。重点检查 `GAME_UPDATE_REMOTE.bat`、`deploy/windows/game_update.py`、`scripts/ci/sync_client_releases.py`、`.github/workflows/client-release-sync.yml` 及实际更新源所属仓库。记录已接入的校验和仍缺的检查；缺少有效加锁验证或最新发行来源绑定时先补齐，不能仅凭旧脚本成功宣称新发布合规。
+- 镜像必须原样使用已验证的加锁产物，读回 Release 附件、玩家签名清单和实际下载文件并核对同一摘要。历史未加锁或加锁状态未确认的发行不得重新镜像、回填到另一端或设为新更新源。旧 Release 清理由用户指定的独立进程负责；本流程不自行删除。现有运行组合与回退产物保留，不据本条自动切换或重启服务。
+
 ## 客户端函数索引与静态取证
 
 - 公共入口见 [客户端函数与协议索引](Docs/CLIENT_FUNCTION_INDEX.md)，机器可读记录在 `Docs/client-functions/`。该索引已获用户授权公开并同步；只收录模块摘要、RVA、脱敏语义及公共证据。原始反编译、私人报文和环境资料保存在被忽略的 `.cache/` 或 `local-notes/`。
