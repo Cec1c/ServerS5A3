@@ -123,7 +123,8 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	scoreBonus := currentDungeonScoreBonusExp(gain, resources, clientRankPoint)
 	// 黑钻加成: base × 10% (premium type 1 or 17).
 	blackDiamondBonus := s.currentBlackDiamondBonusExp(ctx, s.accountIDForSession(session), gain)
-	totalGain := uint32(min(uint64(gain)+uint64(growthBonus)+uint64(scoreBonus)+uint64(blackDiamondBonus), uint64(math.MaxUint32)))
+	marbleBonus := currentAttendanceMarbleClearExperienceBonus(runtime.attendanceMarbleBuffs, gain)
+	totalGain := uint32(min(uint64(gain)+uint64(growthBonus)+uint64(scoreBonus)+uint64(blackDiamondBonus)+uint64(marbleBonus), uint64(math.MaxUint32)))
 	presentation, err := currentDungeonSettlementPresentationForRuntime(
 		runtime,
 		resources.ClearRankCatalog,
@@ -194,7 +195,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		CommittedSPGain:         result.SPGain,
 		CommittedTPGain:         result.TPGain,
 		Base: [4]uint32{
-			currentDungeonClearRewardBaseClearExperienceIndex: gain,
+			currentDungeonClearRewardBaseClearExperienceIndex: saturatingCurrentDungeonUint32Add(gain, marbleBonus),
 			currentDungeonClearRewardBaseScoreBonusIndex:      scoreBonus,
 		},
 		Bonus:     bonusPresentation,
@@ -202,12 +203,13 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		Drops:     drops,
 		CardSlots: cardSlots,
 		Tail: currentDungeonClearRewardTail{
-			ShowResult:      true,
-			MonsterTotalExp: runtime.settlementMonsterExperienceTotal,
+			PaidCardDoubleEvent: false,
+			MonsterTotalExp:     saturatingCurrentDungeonUint32Add(runtime.settlementMonsterExperienceTotal, runtime.settlementMonsterAttendanceMarbleBonus),
 		},
 	}
 	if runtime.settlementCardRewardState != nil {
 		runtime.settlementCardRewardState.mu.Lock()
+		reward.PaidCardCost = uint32(runtime.settlementCardRewardState.plan.Sides[dungeonCardSidePaid].Cost)
 		bonus := cloneDungeonCardRewardBundle(runtime.settlementCardRewardState.plan.BlackDiamondBonus)
 		runtime.settlementCardRewardState.mu.Unlock()
 		if bonus.Gold > 0 || len(bonus.Items) > 0 {
@@ -232,6 +234,11 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	)
 	if err != nil {
 		return err
+	}
+	if state := runtime.settlementCardRewardState; state != nil {
+		state.mu.Lock()
+		plan.PremiumServiceBody = append([]byte(nil), state.premiumServiceBody...)
+		state.mu.Unlock()
 	}
 	if len(permissionBody) != 0 {
 		plan.DungeonPermissionBody = append([]byte(nil), permissionBody...)
@@ -581,6 +588,14 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 			weekly = &dnfdungeon.WeeklyClearContract{Catalog: catalog, Season: season}
 		}
 	}
+	var marble *attendanceMarbleCatalog
+	if s.currentAttendanceMarbleEnabled() && currentDungeonIsRecommendedClear(runtime) {
+		marble, err = s.currentAttendanceMarbleCatalog()
+		if err != nil {
+			s.logGameEvent(session, "大富翁通关计次配置不可用", "error", err)
+			marble = nil
+		}
+	}
 	luckyPolicy, err := s.currentDungeonLuckyStarPolicy(runtime)
 	if err != nil {
 		return currentDungeonSettlementCommitResult{}, err
@@ -659,6 +674,7 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		LuckyStar:               luckyPolicy,
 		MonthlyAttendance:       s.currentMonthlyAttendanceEnabled(),
 		WeeklyAttendance:        weekly,
+		AttendanceMarble:        marble,
 		AdventureRuntime:        &adventureRuntime,
 		HonorExpertTables:       honorTables,
 		MaximumCharacterLevel:   currentAdventureCharacterLevelCap,

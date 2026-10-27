@@ -16,7 +16,7 @@ func dungeonCombatDropGameplayModule() gameplayModuleDefinition {
 		LegacyHandlers: map[uint16]gameplayHandler{
 			dropOpcode: legacyDungeonDiscardGameplayHandler,
 			dieMonsterOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
-				return service.handleDungeonMonsterDeath(session, request.Body)
+				return service.handleDungeonMonsterDeathRequest(session, request.Body, request.Sequence)
 			},
 			pickupOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
 				return service.handleCurrentDungeonPickup(session, request.Body)

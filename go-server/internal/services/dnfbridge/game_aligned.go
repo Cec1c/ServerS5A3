@@ -99,6 +99,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		if handled, err := s.handleCurrentGuildMileageItem(session, body); handled || err != nil {
 			return handled, err
 		}
+		if handled, err := s.handleCurrentDimensionGateExtraTicketUse(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentFatiguePotionUse(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -434,7 +437,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			// 旧标志 1 保留静默窗（默认 400 ms）；可靠的当前 UI 标志 2 立即执行。
 			// 这样一串被误打标的自动突发最多只执行**第一条**（最坏 1 件，而不是 5 件）。
 			// 挂起由读循环用临时读截止结算，见 equip_player_flag_quiet_window.go。
-			if window := op19PlayerFlagQuietWindow(); !currentUIPlayerRequest && window > 0 &&
+			if window := op19PlayerFlagQuietWindow(); !currentUIPlayerRequest && !op19MainBagMove(body) && window > 0 &&
 				!session.op19QuietResolving && !session.hasOp19QuietPending() {
 				session.pendOp19QuietBody(body)
 				s.logPacketEvent("equip-move/player-request-flag",
@@ -594,6 +597,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		RandomOptionResolver:         randomOptionResolver,
 		UpgradeTicketResolver:        upgradeTicketResolver,
 		UpgradePolicyResolver:        upgradePolicyResolver,
+		GuildMedalUpgradeResolver:    s.currentGuildMedalUpgradeResolver(),
 		UpgradeCostResolver:          s.candidateUpgradeCostResolver(session),
 		UpgradeProtectTicketResolver: upgradeProtectTicketResolver,
 		UpgradeRateBuffResolver:      upgradeRateBuffResolver,
@@ -1384,6 +1388,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshCrystalContractState:
+		s.requestCurrentCrystalContractTimerRefresh(session)
 		return s.sendCurrentCrystalContractState(session, "aligned_"+operation+"_after_type97_activation")
 	case alignedcmd.PostActionRefreshFatigueState:
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -1395,6 +1400,8 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		return s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0)
 	case alignedcmd.PostActionRefreshSelectedDamageFontState:
 		return s.sendSelectedDamageFontState(session, "aligned_"+operation+"_after_ack_and_item_refresh")
+	case alignedcmd.PostActionDamageFontExpiredNotice:
+		return s.sendDamageFontExpiredNotice(session)
 	case alignedcmd.PostActionRefreshSelectedPartyFrame:
 		state, err := s.ensureManagedRuntimePartyForSession(session)
 		if err != nil {

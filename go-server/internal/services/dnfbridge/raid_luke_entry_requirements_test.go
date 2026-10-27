@@ -37,6 +37,7 @@ func TestRealPVFLukeStartRejectsMissingOriginalPrerequisiteWithoutCharging(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	enterRaidStartWaitingFixture(t, f, "")
 	q := dnfrepo.QuestRecord{CharacterID: "19", States: map[int64]dnfrepo.QuestState{2903: {Status: "completed"}, 12830: {Status: "active"}}}
 	inv := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{"0:50": {ItemID: int64(ticket.ItemID), Count: 2}, "0:51": {ItemID: 10159142, Count: 40}}}
 	if err := f.repos.Inventory.Save(ctx, inv); err != nil {

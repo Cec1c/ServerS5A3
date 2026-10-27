@@ -376,8 +376,12 @@ func TestMainQuestExperiencePercentAtCounterLimitStillGrantsHonorOnce(t *testing
 	input.MainQuestExperiencePercent = 15
 	input.LoadHonorTables = func(context.Context) (*dnfhonor.Tables, error) { return finishHonorTables(t), nil }
 	catalog := mainQuestExperienceTestCatalog(mainQuestPercentDefinition(3145, 89))
+	entryExperience, err := tables.ThresholdToNext(89)
+	if err != nil {
+		t.Fatal(err)
+	}
 	first, err := owner.ApplyFinishSettlement(ctx, catalog, input)
-	if err != nil || first.ExperienceDelta != 42444667 || first.NewExperience != math.MaxUint32 || first.NewLevel != 90 || first.HonorExpertGain != 42444667 {
+	if err != nil || first.ExperienceDelta != 42444667 || first.NewExperience != entryExperience || first.NewLevel != 90 || first.HonorExpertGain != 42444667 {
 		t.Fatalf("counter limit: result=%+v err=%v", first, err)
 	}
 	before, _, _ := repositories.Character.Load(ctx, "19")

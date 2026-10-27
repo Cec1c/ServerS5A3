@@ -204,6 +204,7 @@ func (s *Service) commitCurrentAntonHatcheryTransferGroup(leader *gameSession, r
 	for _, member := range group {
 		old := member.runtime.antonHatcheryTransfer.Old
 		s.cancelCurrentDungeonDeathReturnLocked(member.session, old, "anton_hatchery_transfer_committed")
+		s.cancelCurrentCrystalContractTimerLocked(member.session, old, "anton_hatchery_transfer_committed")
 		s.cancelCurrentDungeonCardAutoFlipLocked(member.session, old, "anton_hatchery_transfer_committed")
 		s.releasePartyDungeonInstance(old, member.session.selectedCharacterID, "anton_hatchery_transfer_committed")
 		scene, _ := member.runtime.Session.Scene()

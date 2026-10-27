@@ -473,7 +473,7 @@ func resolveCurrentBoosterRewards(
 			Definition: definition,
 			Count:      count,
 			Option:     options[itemID],
-			Seal:       attachType == "sealing",
+			Seal:       attachType == "sealing" || currentNewPVFEquipmentSealFlag(definition) != 0,
 			Placement:  placement,
 		})
 	}

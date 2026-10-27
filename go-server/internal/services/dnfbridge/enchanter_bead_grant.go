@@ -24,7 +24,7 @@ func grantCurrentExpertJobBeads(inventory *dnfrepo.InventoryRecord, definition d
 	if inventory.Slots == nil {
 		inventory.Slots = make(map[string]dnfrepo.ItemStack)
 	}
-	policy := currentPVFItemPlacementPolicy(definition)
+	policy := currentPVFItemPlacementPolicy(definition).ForGrant()
 	policy.Start, policy.End = definition.SlotStart, definition.SlotEnd
 	policy = policy.ForInventory(inventory)
 	identity := currentPVFGrantIdentity(definition)
