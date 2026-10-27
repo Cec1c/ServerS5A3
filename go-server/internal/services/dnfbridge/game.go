@@ -79,9 +79,12 @@ type gameSession struct {
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
-	wireMu            sync.Mutex
-	dproto            dproto.Session
-	channelSceneBatch *currentChannelSceneBatch // 仅普通换线；wireMu保护。
+	wireMu                  sync.Mutex
+	dproto                  dproto.Session
+	channelSceneBatch       *currentChannelSceneBatch // 仅普通换线；wireMu保护。
+	nativeResultDelivery    *nativeResultDelivery     // 原生连续分解结果集中写回；wireMu保护。
+	nativeNPCDisjointReplay *nativeNPCDisjointReplay  // 仅当前会话事件的已提交NPC批量结果。
+	nativeExtractionReplay  *nativeExtractionReplay
 
 	// Image-communication identity is guarded by townMu. Scene resets advance
 	// its generation; the nonce belongs only to this connection.
@@ -601,88 +604,7 @@ func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	buffer := make([]byte, 0, 4096)
-	chunk := make([]byte, 4096)
-	var streamWaitTrace gameStreamWaitTrace
-	for {
-		n, err := conn.Read(chunk)
-		if err != nil {
-			// 「静默窗」读截止到期：**这不是连接错误**（真正的断线/EOF/ECONNRESET 走下面的原路）。
-			// 只有"本会话确实有一条挂起的 tail==1 op19" + 错误是超时，才判成我们自己的截止。
-			// 到期 = 挂起那条之后 quiet_ms 内没有第二条 op19 ⇒ 玩家亲手发起 ⇒ 按厂商口径执行。
-			if isOp19QuietReadDeadline(session, err) {
-				s.resolveOp19QuietPending(session, true)
-				clearOp19QuietReadDeadline(conn)
-				s.logPacketEvent("game-read-quiet-window-deadline",
-					"conn_id", session.connID,
-					"decision", "resolve-as-player-request",
-					"reason", "op19-quiet-window-elapsed",
-					"quiet_ms", op19PlayerFlagQuietWindow().Milliseconds())
-				continue
-			}
-			quiet := isQuietGameReadError(err)
-			s.logPacketEvent("game-read-close",
-				"conn_id", session.connID,
-				"remote", conn.RemoteAddr().String(),
-				"local", conn.LocalAddr().String(),
-				"channel_id", channel.ID,
-				"pending_bytes", len(buffer),
-				"quiet", quiet,
-				"error", err)
-			if !quiet && ctx.Err() == nil {
-				s.logWarn("dnfbridge read game packet failed", "remote", conn.RemoteAddr().String(), "error", err)
-			}
-			return
-		}
-		if n > 0 {
-			s.logGamePacket(session, "RECV", "game-raw", chunk[:n])
-		}
-		buffer = append(buffer, chunk[:n]...)
-		packets, remaining, skipped, err := dnfproto.SplitLatestGameStream(buffer, s.options.maxPacketBytes)
-		if err != nil {
-			s.logPacketEvent("game-split-error",
-				"conn_id", session.connID,
-				"remote", conn.RemoteAddr().String(),
-				"local", conn.LocalAddr().String(),
-				"channel_id", channel.ID,
-				"buffer_bytes", len(buffer),
-				"error", err)
-			s.logWarn("dnfbridge split game stream failed", "remote", conn.RemoteAddr().String(), "error", err)
-			return
-		}
-		if skipped > 0 {
-			s.logWarn("dnfbridge game frame resynced", "remote", conn.RemoteAddr().String(), "skipped", skipped)
-		}
-		if s.options.gameStreamWaitTrace {
-			if metadata, report := streamWaitTrace.observe(time.Now(), remaining, len(remaining) < len(buffer), s.options.maxPacketBytes); report {
-				fields := []any{"conn_id", session.connID, "channel_id", channel.ID, "pending_bytes", metadata.pendingBytes, "header_shape", metadata.headerShape}
-				if metadata.hasChannelHeader {
-					fields = append(fields, "head_class", metadata.classification, "head_opcode", metadata.opcode, "head_declared_length", metadata.declaredLength)
-				}
-				s.logPacketEvent("game-stream-wait", fields...)
-			}
-		}
-		buffer = remaining
-		for _, packet := range packets {
-			packet := packet
-			// 「静默窗」挂起期间来了新包 ⇒ **先结挂起（按门禁路径）再处理本包**：
-			// 顺序不变、一个包都不丢（同一批 SplitLatestGameStream 拆出的多包逐包适用）。
-			if session.hasOp19QuietPending() {
-				s.resolveOp19QuietPending(session, false)
-				clearOp19QuietReadDeadline(conn)
-			}
-			if err := s.callGameSession(ctx, session, "game-stream-packet", func() error {
-				return s.handleGameStreamPacket(session, packet)
-			}); err != nil {
-				s.logWarn("dnfbridge handle game packet failed", "remote", conn.RemoteAddr().String(), "error", err)
-				return
-			}
-			// 本包刚挂起了一条 ⇒ 给它挂上静默窗读截止（会话本来没有读截止，结算后清掉即可）。
-			if session.hasOp19QuietPending() {
-				armOp19QuietReadDeadline(conn, op19PlayerFlagQuietWindow())
-			}
-		}
-	}
+	s.handleGameStreamInput(ctx, session)
 }
 
 func (s *Service) channelForConn(conn net.Conn) (channelcatalog.Channel, bool) {

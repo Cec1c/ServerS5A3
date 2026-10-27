@@ -110,6 +110,11 @@ func TestRealPVFExpertMachineEpicRewardsAndRequesterWarehouse(t *testing.T) {
 			if err := service.handleCurrentExpertJobStoreDisjoint(session, 235, body); err != nil {
 				t.Fatal(err)
 			}
+			for _, packet := range splitAllGameServerUpperPackets(t, visitorConn.write.Bytes()) {
+				if packet.Header.MsgID == 13 {
+					t.Fatal("单件分解机应答已携带产物和钱包，不应再替换整容器")
+				}
+			}
 			packets := splitAllGameServerUpperPackets(t, ownerConn.write.Bytes())
 			incomePackets := 0
 			for _, packet := range packets {

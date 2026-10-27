@@ -83,6 +83,35 @@ func (s *Service) sendCurrentExpertJobInfoFromRepository(session *gameSession, e
 	return s.sendCurrentExpertJobInfoForCharacter(session, character, force)
 }
 
+// 提取的普通经验变化只同步当前角色经验。完整205会清空重建配方集合并操作配方窗口，
+// 仅在升级时才需要重发；原生USERINFO仍携带每次已提交的经验，不能一并省略。
+// 副本内禁止USERINFO及显式legacy开关继续沿用原有兼容路径。
+func (s *Service) sendCurrentExpertJobExtractionProgress(session *gameSession, expectedType byte, levelChanged bool) error {
+	if s == nil || session == nil || session.selectedCharacterID == 0 {
+		return nil
+	}
+	if levelChanged || sessionHasActiveDungeonRuntime(session) || !currentExpertJobExpNotifyEnabled() {
+		return s.sendCurrentExpertJobInfoFromRepository(session, expectedType, true)
+	}
+	repositories, ok := s.repositoryGroup()
+	if !ok || repositories.Character == nil {
+		return dnfexpertjob.ErrOwnerUnavailable
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
+	defer cancel()
+	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+	character, found, err := repositories.Character.Load(ctx, characterID)
+	if err != nil {
+		return err
+	}
+	if !found || character.CharacterID != characterID || character.Stats["expert_job_type"] != int64(expectedType) {
+		return dnfexpertjob.ErrCharacterNotFound
+	}
+	experience := max(int64(0), character.Stats["expert_job_exp"])
+	s.notifyCurrentExpertJobExperience(session, character, expectedType, experience)
+	return nil
+}
+
 func (s *Service) sendCurrentExpertJobInfo(session *gameSession, jobType byte, experience int64, learned []int64, stats map[string]int64, force bool) error {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil
@@ -183,9 +212,8 @@ func (s *Service) sendCurrentExpertJobInfo(session *gameSession, jobType byte, e
 	return nil
 }
 
-// The deployed main DLL (RVA 57E8..57FC) recognizes an EJXP/u32 footer
-// and caches EXP before its post-native actor projection. Without it, that
-// projection overwrites the native mode0 EXP with the old zero cache.
+// 保留历史配套使用的EJXP/u32兼容尾；不能据此认定当前客户端读取了它。
+// 当前原生经验仍由USERINFO的副职业字段更新，完整205负责配方及资格资料。
 func writeCurrentExpertJobExperienceFooter(w *packetWriter, experience int64) {
 	w.writeBytes([]byte("EJXP"))
 	if experience < 0 {
