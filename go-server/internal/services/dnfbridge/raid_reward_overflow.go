@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/raid"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"sort"
 )
@@ -13,8 +14,27 @@ import (
 // first. Only an ordinary page-full error is converted to transaction-scoped
 // mail. A failed partial character placement is restored before the complete
 // remaining row is mailed; the account placement is retained in the same UOW.
+// Fate rows are account-ledger mutations and never enter bag/overflow-mail
+// placement.
 func grantCurrentAntonRewardRow(ctx context.Context, a *raid.RewardAssets, catalog *pvfDungeonDropCatalog, reward currentBoosterReward, cmd raid.RewardCommand) ([]string, bool, bool, error) {
-	if a == nil || a.Inventory == nil || a.AccountInventory == nil || catalog == nil || catalog.source == nil || reward.Count == 0 {
+	if a == nil || reward.Count == 0 {
+		return nil, false, false, raid.ErrRewardReceipt
+	}
+	if reward.Definition.ItemID == raidcurrency.FateItemID {
+		if a.Ledger == nil {
+			return nil, false, false, raid.ErrRewardOwnerUnavailable
+		}
+		granted, _, err := raidcurrency.Credit(a.Ledger, reward.Count, cmd.CompletedAt)
+		if err != nil {
+			return nil, false, false, err
+		}
+		a.FateGranted += granted
+		// Fate is account ledger data. The bridge projects list44 after commit;
+		// it never creates a list-0 mirror or a bag-overflow mail attachment.
+		a.LedgerChanged = true
+		return nil, false, false, nil
+	}
+	if a.Inventory == nil || a.AccountInventory == nil || catalog == nil || catalog.source == nil {
 		return nil, false, false, raid.ErrRewardReceipt
 	}
 	remaining := int64(reward.Count)

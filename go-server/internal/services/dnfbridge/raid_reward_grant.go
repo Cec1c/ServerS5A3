@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/cerashop"
 	"longheng.io/server/internal/modules/dnf/raid"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -23,9 +25,16 @@ type currentAntonRewardPlan struct {
 	Choice      raid.AntonRewardChoice
 	Rewards     []currentBoosterReward
 	Fingerprint [32]byte
+	// Display-only committed quantity, outside the immutable entitlement hash.
+	// Persisted in the same receipt so replay cannot infer it from a later balance.
+	FateGranted *uint32
 }
 
 func cloneCurrentAntonRewardPlan(p currentAntonRewardPlan) currentAntonRewardPlan {
+	if p.FateGranted != nil {
+		value := *p.FateGranted
+		p.FateGranted = &value
+	}
 	p.Rewards = append([]currentBoosterReward(nil), p.Rewards...)
 	for i := range p.Rewards {
 		p.Rewards[i].Definition.UsableEquipTypes = append([]string(nil), p.Rewards[i].Definition.UsableEquipTypes...)
@@ -94,13 +103,24 @@ type currentAntonRewardGrantResult struct {
 	Replayed       bool
 	GrantSlots     []alignedcmd.ItemSlotRefresh
 	AccountChanged bool
+	LedgerChanged  bool
+	WalletChanged  bool
 }
 
 // Caller must authenticate the online/frozen raid owner, its authoritative
 // phase clear, minimum participation and frozen card selection first. The
 // dedicated raid domain owner persists placement and receipt together.
 func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog *pvfDungeonDropCatalog, plan currentAntonRewardPlan, cmd raid.RewardCommand) (currentAntonRewardGrantResult, error) {
-	if catalog == nil || catalog.source == nil || len(plan.Rewards) == 0 || plan.Fingerprint == [32]byte{} {
+	requiresLedger := false
+	requiresCatalog := false
+	for _, reward := range plan.Rewards {
+		if reward.Definition.ItemID == raidcurrency.FateItemID {
+			requiresLedger = true
+		} else {
+			requiresCatalog = true
+		}
+	}
+	if len(plan.Rewards) == 0 || plan.Fingerprint == [32]byte{} || requiresCatalog && (catalog == nil || catalog.source == nil) {
 		return currentAntonRewardGrantResult{}, raid.ErrRewardReceipt
 	}
 	// Verify the plan has not been changed after freezing. No RNG is called
@@ -119,6 +139,9 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 	if wantKind == 0 || cmd.Kind != wantKind || cmd.Fingerprint != plan.Fingerprint || cmd.Project != nil {
 		return currentAntonRewardGrantResult{}, raid.ErrRewardReceipt
 	}
+	cmd.RequireLedger = requiresLedger
+	vouchers := currentRaidRewardVouchers(plan)
+	cmd.RequireWallet = !vouchers.IsZero()
 	owner, err := raid.NewRewardOwner(group)
 	if err != nil {
 		return currentAntonRewardGrantResult{}, err
@@ -126,8 +149,17 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 	result := currentAntonRewardGrantResult{Plan: cloneCurrentAntonRewardPlan(plan)}
 	cmd.Project = func(a *raid.RewardAssets) (raid.RewardChanges, error) {
 		changes := raid.RewardChanges{}
+		if !vouchers.IsZero() {
+			if _, err := cerashop.CreditVoucherCounts(a.Ledger, vouchers); err != nil {
+				return changes, err
+			}
+			changes.Ledger, result.WalletChanged = true, true
+		}
 		writes := map[string]bool{}
 		for _, r := range plan.Rewards {
+			if cerashop.IsVoucher(int64(r.Definition.ItemID)) {
+				continue
+			}
 			keys, accountChanged, mailed, err := grantCurrentAntonRewardRow(ctx, a, catalog, r, cmd)
 			if err != nil {
 				return raid.RewardChanges{}, err
@@ -140,6 +172,7 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 			}
 			changes.Inventory = changes.Inventory || len(keys) > 0
 			changes.Mailbox = changes.Mailbox || mailed
+			changes.Ledger = changes.Ledger || a.LedgerChanged
 			if accountChanged {
 				slot, found := currentDisjointWarehouseFixedSlots[r.Definition.ItemID]
 				if !found {
@@ -158,6 +191,7 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 			result.GrantSlots = append(result.GrantSlots, alignedcmd.ItemSlotRefresh{ListType: list, SlotIndex: slot})
 		}
 		result.AccountChanged = changes.AccountInventory
+		result.LedgerChanged = a.LedgerChanged
 		return changes, nil
 	}
 	var receipt raid.RewardResult
@@ -170,6 +204,10 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 		return currentAntonRewardGrantResult{}, err
 	}
 	result.Replayed = receipt.Replayed
+	if receipt.FateRecorded {
+		granted := receipt.FateGranted
+		result.Plan.FateGranted = &granted
+	}
 	sort.Slice(result.GrantSlots, func(i, j int) bool {
 		a, b := result.GrantSlots[i], result.GrantSlots[j]
 		if a.ListType != b.ListType {
@@ -190,4 +228,22 @@ func tagCurrentAntonRewardStack(stack repo.ItemStack, cmd raid.RewardCommand) re
 	stack.Extra["raid_phase"] = strconv.Itoa(int(cmd.Phase))
 	stack.Extra["raid_reward_kind"] = strconv.Itoa(int(cmd.Kind))
 	return stack
+}
+
+func currentRaidRewardVouchers(plan currentAntonRewardPlan) (counts cerashop.VoucherCounts) {
+	for _, reward := range plan.Rewards {
+		counts = counts.Add(currentRewardVoucherCounts(reward.Definition.ItemID, reward.Count))
+	}
+	return
+}
+
+// Callers validate bounded uint32 reward counts before adding them to a wallet.
+func currentRewardVoucherCounts(itemID, count uint32) cerashop.VoucherCounts {
+	switch cerashop.VoucherKindOf(int64(itemID)) {
+	case cerashop.VoucherTokenCera:
+		return cerashop.VoucherCounts{TokenCera: int64(count)}
+	case cerashop.VoucherHappyTokenCera:
+		return cerashop.VoucherCounts{HappyTokenCera: int64(count)}
+	}
+	return cerashop.VoucherCounts{}
 }

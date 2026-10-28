@@ -122,3 +122,10 @@ func parseDailyLoginState(value string) (time.Time, uint32, bool, error) {
 	}
 	return date, uint32(count), true, nil
 }
+
+// RecordedDailyLoginDays reads the committed streak without observing a new
+// login. Viewing another account must not advance its durable activity.
+func RecordedDailyLoginDays(account dnfrepo.AccountRecord) (uint32, error) {
+	_, days, _, err := parseDailyLoginState(account.Metadata[DailyLoginStateMetadataKey])
+	return days, err
+}

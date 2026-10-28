@@ -4,6 +4,8 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildMemberProfileOpcode:                     (*Service).handleCurrentGuildMemberProfile,
+		currentGuildMemberRankingOpcode:                     (*Service).handleCurrentGuildMemberRanking,
 		currentGuildRankingBoardOpcode:                      (*Service).handleCurrentGuildRankingBoard,
 		currentGuildRankingOpcode:                           (*Service).handleCurrentGuildRanking,
 		currentGuildHongbaoListOpcode:                       (*Service).handleCurrentGuildHongbaoList,
@@ -95,6 +97,10 @@ func guildGameplayModule() gameplayModuleDefinition {
 	legacy[currentGuildMerchantPurchaseOpcode] = (*Service).handleCurrentGuildMerchantPurchase
 	upper[currentGuildPlacementOpcode] = (*Service).handleCurrentGuildPlacement
 	legacy[currentGuildPlacementOpcode] = (*Service).handleCurrentGuildPlacement
+	for _, opcode := range []uint16{currentGuildPlacementRemoveOpcode, currentGuildPlacementMoveOpcode} {
+		upper[opcode] = (*Service).handleCurrentGuildPlacementChange
+		legacy[opcode] = (*Service).handleCurrentGuildPlacementChange
+	}
 	upper[currentGuildHongbaoIssueOpcode] = (*Service).handleCurrentGuildHongbaoIssue
 	legacy[currentGuildHongbaoIssueOpcode] = (*Service).handleCurrentGuildHongbaoIssue
 	upper[currentGuildHongbaoClaimOpcode] = (*Service).handleCurrentGuildHongbaoClaim

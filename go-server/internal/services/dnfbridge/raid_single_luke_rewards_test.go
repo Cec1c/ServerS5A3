@@ -218,7 +218,7 @@ func TestRealPVFSingleLukeTwoGroupAssetFailurePreservesCommittedPartyAndFrozenDr
 	if err := f.service.sendCurrentAntonTerminalResult(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
 	flow := f.state.Battle.RewardFlow[0]
 	if flow.Party[19] == nil || !flow.Party[19].Committed || antonGrantedItemCount(t, f, "19", 10304529) != 80 {
@@ -233,7 +233,7 @@ func TestRealPVFSingleLukeTwoGroupAssetFailurePreservesCommittedPartyAndFrozenDr
 		t.Fatal(err)
 	}
 	original := f.repos.AccountAssets
-	f.repos.AccountAssets = antonCardFailLateAssets{original}
+	f.repos.AccountAssets = newAntonCardFailLateAssets(original)
 	calls := 0
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, func(int64) (int64, error) { calls++; return 0, nil }); len(errs) != 1 || calls != 2 {
 		t.Fatal("expected failure after both group draws and transaction saves", errs, calls)

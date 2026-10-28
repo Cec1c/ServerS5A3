@@ -3,6 +3,7 @@ package party
 import (
 	"sort"
 	"sync"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
@@ -62,6 +63,7 @@ type runtimePartyInvite struct {
 	partyID           uint16
 	mode              byte
 	request           RuntimePeerRequest
+	expiresAt         time.Time
 }
 
 // RuntimePeerRequest fixes the join direction when the prompt is registered.
@@ -399,6 +401,25 @@ func (m *RuntimePartyManager) RecordOnlinePeerRequest(recipient uint16, recipien
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
+	for id, invite := range m.invites {
+		if !invite.expiresAt.IsZero() && !now.Before(invite.expiresAt) {
+			delete(m.invites, id)
+		}
+	}
+	if invite, ok := m.invites[recipient]; ok && invite.mode == 1 {
+		return RuntimePeerRequest{}, false
+	}
+	if mode == 1 {
+		// An outstanding trade invitation belongs to both participants; a
+		// second prompt must not silently replace either participant's consent.
+		for _, invite := range m.invites {
+			if invite.invitee == recipient || (invite.mode == 1 &&
+				(invite.inviter == recipient || invite.invitee == requester || invite.inviter == requester)) {
+				return RuntimePeerRequest{}, false
+			}
+		}
+	}
 	request := RuntimePeerRequest{JoinerID: recipient, AnchorID: requester}
 	sourceParty, sourceMember := m.partyMemberLocked(requester)
 	targetParty, targetMember := m.partyMemberLocked(recipient)
@@ -421,7 +442,13 @@ func (m *RuntimePartyManager) RecordOnlinePeerRequest(recipient uint16, recipien
 	} else if sourceParty != nil {
 		request.PartyID = sourceParty.id
 	}
-	m.invites[recipient] = runtimePartyInvite{invitee: recipient, inviteeGeneration: recipientGeneration, inviter: requester, inviterGeneration: requesterGeneration, partyID: request.PartyID, mode: mode, request: request}
+	invite := runtimePartyInvite{invitee: recipient, inviteeGeneration: recipientGeneration, inviter: requester, inviterGeneration: requesterGeneration, partyID: request.PartyID, mode: mode, request: request}
+	if mode == 1 {
+		// Server-side lease; native close/cancel is handled separately. This
+		// bounds an abandoned prompt without scheduling per-player timers.
+		invite.expiresAt = now.Add(time.Minute)
+	}
+	m.invites[recipient] = invite
 	return request, true
 }
 
@@ -441,6 +468,9 @@ func (m *RuntimePartyManager) ConsumePeerRequest(invitee uint16, inviteeGenerati
 		return RuntimePeerRequest{}, false
 	}
 	delete(m.invites, invitee)
+	if !invite.expiresAt.IsZero() && !time.Now().Before(invite.expiresAt) {
+		return RuntimePeerRequest{}, false
+	}
 	return invite.request, true
 }
 

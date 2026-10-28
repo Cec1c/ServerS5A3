@@ -29,12 +29,14 @@ func firstAntonFlowFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, 
 		t.Fatal(err)
 	}
 	f := raidSafetyFixture(t, archive, 2)
+	ensureRaidRewardAccount(t, f, "account-20")
 	f.service.options.currentClientVersion = "official-24.9"
 	session, peer := f.session(), f.session()
 	session.loginPacketSeen, session.accountFromToken = true, true
 	peer.selectedCharacterID, peer.accountID, peer.loginPacketSeen, peer.accountFromToken = 20, "account-20", true, true
 	f.service.bindGameSessionCharacter(session, 19)
 	f.service.bindGameSessionCharacter(peer, 20)
+	r195RewardParty(t, f.service, 19, 20)
 	for i := range f.state.Members {
 		f.state.Members[i].GroupIndex = 1
 	}
@@ -64,6 +66,21 @@ func firstAntonFlowFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, 
 	rewardFlow := f.state.Battle.RewardFlow[0]
 	rewardFlow.PartyShownAt = rewardFlow.CompletedAt.Add(currentAntonMovieWindow(rewardFlow))
 	return f, session, start.Add(8 * time.Second)
+}
+
+func ensureRaidRewardAccount(t *testing.T, f *raidStartGuardFixture, accountID string) {
+	t.Helper()
+	ctx := context.Background()
+	_, found, err := f.repos.Account.Load(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		return
+	}
+	if err := f.repos.Account.Save(ctx, repo.AccountRecord{AccountID: accountID}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func zeroAntonRoll(int64) (int64, error) { return 0, nil }
@@ -114,7 +131,7 @@ func TestRealPVFAntonAutomaticRewardsLateFailureRetainsPlanAndRollsBack(t *testi
 	f, _, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	original := f.repos.AccountAssets
-	f.repos.AccountAssets = antonCardFailLateAssets{original}
+	f.repos.AccountAssets = newAntonCardFailLateAssets(original)
 	f.service.repositoryProvider = func() (repo.Group, bool) { return f.repos, true }
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, zeroAntonRoll); len(errs) != 1 || len(flow.Party) != 1 || flow.Party[19].Committed || !flow.SquadShownAt.IsZero() {
 		t.Fatal("failed grant advanced/revealed", errs)
@@ -127,8 +144,18 @@ func TestRealPVFAntonAutomaticRewardsLateFailureRetainsPlanAndRollsBack(t *testi
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(time.Second), zeroAntonRoll); len(errs) != 0 || flow.Party[19].Committed {
 		t.Fatal("backoff ignored", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(2*time.Second), zeroAntonRoll); len(errs) != 0 || !flow.Party[19].Committed || !reflect.DeepEqual(flow.Party[19].Plan, frozen) {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(2*time.Second), zeroAntonRoll); len(errs) != 0 || !flow.Party[19].Committed {
 		t.Fatal("retry lost frozen plan", errs)
+	}
+	committed := cloneCurrentAntonRewardPlan(flow.Party[19].Plan)
+	if frozen.FateGranted != nil || committed.FateGranted == nil || *committed.FateGranted != 30 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
+		t.Fatal("retry did not publish the actual committed Fate amount")
+	}
+	// The committed display amount is outside the immutable entitlement.
+	// Every frozen reward byte and fingerprint must still match the failed try.
+	committed.FateGranted = nil
+	if !reflect.DeepEqual(committed, frozen) {
+		t.Fatal("retry changed the immutable reward entitlement")
 	}
 }
 
@@ -198,11 +225,13 @@ func TestRealPVFAntonBreakClockStartsActualSecondPhaseOnce(t *testing.T) {
 	if states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil.Add(-time.Nanosecond)); len(states) != 0 || len(errs) != 0 || f.state.Battle.Phase != 0 {
 		t.Fatal("break deadline ignored", states, errs)
 	}
-	// Anton advances at its settled break deadline. The accepted Luke-only
-	// waiting-area gate is covered by TestRealPVFR195LukePhaseTwoRequiresCurrentWaitingMembers.
+	// The cumulative server requires all admitted members in the waiting
+	// area for either two-phase mode. Keep the settled deadline checks here;
+	// refusal before members return is covered by the shared waiting tests.
 	if f.state.Battle.Mode != 1 || f.state.Battle.Anton.IsLuke() {
 		t.Fatal("expected the actual Anton two-phase program")
 	}
+	enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
 	bags := raidWaitingInventories(t, f)
 	states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil)
 	if len(states) != 1 || len(errs) != 0 || states[0].Battle.Phase != 1 || !states[0].Battle.EnterAfter.Equal(flow.BreakUntil.Add(3*time.Second)) || !states[0].Battle.Deadline.Equal(flow.BreakUntil.Add(2403*time.Second)) {
@@ -218,6 +247,7 @@ func TestRealPVFAntonBreakClockStartsActualSecondPhaseOnce(t *testing.T) {
 
 func TestRealPVFAntonFinalAutomaticRewardsWaitForOwnedWeeklyCommit(t *testing.T) {
 	f, session, _, at := onlineAntonTerminalFixture(t)
+	ensureRaidRewardAccount(t, f, "account-20")
 	archive := f.service.initialEquipmentArchive
 	config, err := raid.LoadAntonFlowConfiguration(archive)
 	if err != nil {
@@ -361,7 +391,7 @@ func TestRealPVFAntonFlowRareSquadGrantsContentsAndCurrentNestedDisplay(t *testi
 	}
 	// A late movie completion must ACK without covering the standby state.
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	packet, rest := splitGameServerUpperPacket(t, f.conn.write.Bytes())
 	if packet.Header.MsgID != 659 || len(rest) != 0 {
 		t.Fatal("late movie reopened old cards", packet, rest)

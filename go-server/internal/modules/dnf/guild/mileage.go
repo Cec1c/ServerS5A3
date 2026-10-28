@@ -72,6 +72,9 @@ func (r *Registry) GrantItemMileage(owner dnfrepo.GuildOwner, amount uint32, nam
 	if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: owner.CharacterID, CharacterName: name, Kind: MileageHistoryItem, Amount: amount}); err != nil {
 		return nil, err
 	}
+	if err := addMemberRankingMileage(g, m, amount, now); err != nil {
+		return nil, err
+	}
 	g.Mileage += amount
 	g.UpdatedAt = now
 	return g, nil

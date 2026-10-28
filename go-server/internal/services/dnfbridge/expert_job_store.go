@@ -1027,9 +1027,8 @@ func (s *Service) handleCurrentExpertJobStoreDisjoint(session *gameSession, opco
 			return err
 		}
 	}
-	if err := s.sendSelectedCurrentContainerListsRefresh(session, "expert_job_store_disjoint_after_ack"); err != nil {
-		return err
-	}
+	// 原生235应答已经包含来源、产物、钱包和耐久；批量来源槽另由上面的op14清除。
+	// 与86一致，不在结果汇总期间再用整容器包替换背包及其它无关容器。
 	if store.OwnerSession != nil {
 		if store.OwnerSession != session {
 			// Native NOTI203 (registered at 1992C42) consumes success/u32
