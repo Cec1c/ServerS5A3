@@ -57,8 +57,9 @@ func parseVendingGroup(d *doc.Document, group uint32, coinID int64) (int64, []ve
 // coinSlot:u16. The first field selects etc/vendingmachine.lst; each current
 // machine's output table has its own [group num] 1. It is not that group ID.
 // Current official-24.9 reader 1FE64D0 consumes slot:u16, remaining:u32, rewardId/count:u32,
-// two ignored u32 fields, and a u16 embedded-item count. Inventory op14 owns
-// our item refresh, so the embedded-item vector is legitimately empty.
+// two ignored u32 fields, and a u16 embedded-item count. The embedded rows
+// drive the native settlement window; later op14 inventory refreshes do not
+// populate that window. Each main-inventory row is listType:u8 + raw[119].
 func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte) error {
 	const opcode = uint16(dnfenum.CmdPacketUseVendingMachine)
 	refuse := func(e error) error {
@@ -189,12 +190,15 @@ func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte)
 	if e != nil {
 		return refuse(e)
 	}
-	ack := make([]byte, 25)
+	entry := currentItemListEntryFromStack(0, result.RewardSlot, result.RewardStack)
+	ack := make([]byte, 25+1+len(entry.data))
 	ack[0] = 1
 	binary.LittleEndian.PutUint16(ack[1:], uint16(slot))
 	binary.LittleEndian.PutUint32(ack[3:], uint32(result.CoinRemaining))
 	binary.LittleEndian.PutUint32(ack[7:], uint32(selected.ID))
 	binary.LittleEndian.PutUint32(ack[11:], uint32(selected.Count))
+	binary.LittleEndian.PutUint16(ack[23:], 1)
+	copy(ack[26:], entry.data[:])
 	if e = s.sendGameUpperRawClass(session, opcode, ack, 1); e != nil {
 		return e
 	}
