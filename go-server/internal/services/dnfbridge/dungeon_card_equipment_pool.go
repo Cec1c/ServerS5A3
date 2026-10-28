@@ -34,7 +34,8 @@ func (c *pvfDungeonDropCatalog) selectGeneratedEquipment(rng *currentDungeonDrop
 	if c.clearCardEquipmentErr != nil {
 		return 0, false, c.clearCardEquipmentErr
 	}
-	if level <= 0 || level > 200 || down < 0 || down > 200 || up <= 0 || up > 200 {
+	// 上浮为0仍可形成非空区间，例如89级引用(6,0)对应[83,89)。
+	if level <= 0 || level > 200 || down < 0 || down > 200 || up < 0 || up > 200 {
 		return 0, false, nil
 	}
 	collect := func(wanted int64) []dungeonDropWeightedItem {
