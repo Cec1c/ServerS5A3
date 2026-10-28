@@ -19,15 +19,41 @@ type sqlTransactionDB struct {
 }
 
 func (db sqlTransactionDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return db.tx.ExecContext(ctx, query, args...)
+	timing := repository.TransactionTimingFromContext(ctx)
+	if timing == nil {
+		return db.tx.ExecContext(ctx, query, args...)
+	}
+	started := time.Now()
+	result, err := db.tx.ExecContext(ctx, query, args...)
+	timing.Record(repository.TransactionWrite, time.Since(started), 1)
+	return result, err
 }
 
 func (db sqlTransactionDB) QueryContext(ctx context.Context, query string, args ...any) (SQLRows, error) {
-	return db.tx.QueryContext(ctx, query, args...)
+	timing := repository.TransactionTimingFromContext(ctx)
+	if timing == nil {
+		return db.tx.QueryContext(ctx, query, args...)
+	}
+	started := time.Now()
+	rows, err := db.tx.QueryContext(ctx, query, args...)
+	phase := transactionReadPhase(query)
+	timing.Record(phase, time.Since(started), 1)
+	if err != nil {
+		return nil, err
+	}
+	return timedTransactionRows{SQLRows: rows, timing: timing, phase: phase}, nil
 }
 
 func (db sqlTransactionDB) QueryRowContext(ctx context.Context, query string, args ...any) SQLRow {
-	return db.tx.QueryRowContext(ctx, query, args...)
+	timing := repository.TransactionTimingFromContext(ctx)
+	if timing == nil {
+		return db.tx.QueryRowContext(ctx, query, args...)
+	}
+	started := time.Now()
+	row := db.tx.QueryRowContext(ctx, query, args...)
+	phase := transactionReadPhase(query)
+	timing.Record(phase, time.Since(started), 1)
+	return timedTransactionRow{SQLRow: row, timing: timing, phase: phase}
 }
 
 func (db sqlTransactionDB) PingContext(ctx context.Context) error {
@@ -170,7 +196,7 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	if !ok {
 		return repository.ErrCharacterProgressionTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginTimedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -181,6 +207,8 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// 未满级经验同样复用事务内完整锁读的属性差量写入。
+	txGroup.Character.(*mysqlCharStore).trackStatChanges = true
 	characters := &characterProgressionScopedCharacterRepository{
 		characterID: characterID,
 		base:        txGroup.Character,
@@ -189,13 +217,13 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 		characterID: characterID,
 		base:        txGroup.Skill,
 	}
-	if err := apply(characters, skills); err != nil {
-		return errors.Join(err, tx.Rollback())
+	if err := apply(characters, scopeSkillPointLedger(skills, txGroup.Skill, characterID)); err != nil {
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	return tx.Commit()
+	return commitTimedSQLTransaction(ctx, tx)
 }
 
 type characterProgressionScopedCharacterRepository struct {
@@ -274,7 +302,7 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	if !ok {
 		return repository.ErrCharacterItemTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginTimedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -286,9 +314,9 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
 	if err := apply(txGroup.Inventory, txGroup.Equipment); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	return tx.Commit()
+	return commitTimedSQLTransaction(ctx, tx)
 }
 
 func (u *mysqlCharacterTradeUnitOfWork) WithinCharacterTrade(ctx context.Context, first, second string, apply func(repository.CharacterRepository, repository.InventoryRepository) error) error {

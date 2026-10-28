@@ -777,6 +777,12 @@ func (s *Service) handleCurrentAdventureGrowthCapsule(session *gameSession, body
 		s.logGameEvent(session, "game-adventure-growth-capsule-rejected", "error", err)
 		return s.sendGameUpperFailure(session, currentAdventureGrowthCapsuleMsgID, currentAdventureGenericFailureCode)
 	}
+	// 胶囊可推进角色经验；后续副本击杀必须从同一已提交状态继续规划。
+	session.dungeon.mu.Lock()
+	if runtime := session.dungeon.runtime; runtime != nil && runtime.Character.CharacterID == result.Character.CharacterID {
+		runtime.Character = dnfrepo.CloneCharacter(result.Character)
+	}
+	session.dungeon.mu.Unlock()
 	if err := s.sendGameUpperSuccess(session, currentAdventureGrowthCapsuleMsgID, nil); err != nil {
 		return err
 	}

@@ -126,7 +126,17 @@ func Commit(
 			)
 		}
 
-		skill, skillExists, err := skills.Load(ctx, plan.CharacterID)
+		var skill dnfrepo.SkillRecord
+		var skillExists bool
+		pointLedger, pointsOnly := skills.(dnfrepo.SkillPointLedgerRepository)
+		if pointsOnly {
+			ledger, found, loadErr := pointLedger.LoadPointLedger(ctx, plan.CharacterID)
+			err, skillExists = loadErr, found
+			// 该局部快照仅供原经验规则应用；只经成对的SavePointLedger写回。
+			skill = dnfrepo.SkillRecord{CharacterID: ledger.CharacterID, Points: ledger.Points, UpdatedAt: ledger.UpdatedAt}
+		} else {
+			skill, skillExists, err = skills.Load(ctx, plan.CharacterID)
+		}
 		if err != nil {
 			return err
 		}
@@ -153,10 +163,9 @@ func Commit(
 				result.Idempotent = true
 				return nil
 			}
-			// At the playable cap the EXP/SP/TP state can stay unchanged while
-			// a new award advances HonorExpert. Only an identical progression
-			// version may continue to the expected-stat precondition below.
-			if !commitStatesEqual(plan.Expected, plan.Next) {
+			// 角色EXP已饱和时，带版本前置条件的熟练度等统计仍可推进。
+			// 只有标量也等于Expected且有受保护统计时才继续校验并写入。
+			if !commitStatesEqual(current, plan.Expected) || len(plan.ExpectedCharacterStats) == 0 {
 				return fmt.Errorf(
 					"%w: character=%s progression reached next state without matching level stats",
 					ErrCommitStateInvalid,
@@ -197,8 +206,17 @@ func Commit(
 		); err != nil {
 			return err
 		}
-		if err := dnfrepo.SaveSkillFields(ctx, skills, skill, dnfrepo.SkillFieldPoints); err != nil {
-			return err
+		// 已在原事务锁读并校验完整账本。同级经验和满级熟练度不变更技能点，
+		// 不为仅更新时间戳重写；升级或任何SP/TP变化仍与角色原子提交。
+		if current.SkillPoints != plan.Next.SkillPoints {
+			if pointsOnly {
+				err = pointLedger.SavePointLedger(ctx, dnfrepo.SkillPointLedger{CharacterID: skill.CharacterID, Points: skill.Points, UpdatedAt: skill.UpdatedAt})
+			} else {
+				err = dnfrepo.SaveSkillFields(ctx, skills, skill, dnfrepo.SkillFieldPoints)
+			}
+			if err != nil {
+				return err
+			}
 		}
 
 		result.Current = plan.Next

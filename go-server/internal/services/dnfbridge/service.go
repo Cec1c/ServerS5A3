@@ -391,6 +391,8 @@ func (s *Service) Start(ctx context.Context) error {
 		{"profession profiles", s.preloadProfessionProfiles},
 		{"quest catalog", s.preloadQuestCatalog},
 		{"dungeon world map", s.preloadDungeonWorldMap},
+		{"普通怪通用掉落候选池", s.preloadDungeonGenericDropPools},
+		{"普通怪静态掉落规则", s.preloadDungeonMonsterDropTables},
 		{"character stat table", s.preloadCharacterStatTable},
 		{"equipment stat index", s.preloadEquipmentStatIndex},
 		{"combat power affix catalog", s.preloadCombatPowerAffixCatalog},

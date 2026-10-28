@@ -96,8 +96,8 @@ func (s *RuntimeState) Normalize(config RuntimeConfig, now time.Time) {
 			s.ShopPoints[category.Index] = category.MaxPoint
 		}
 	}
-	if config.Capsule.MaximumExperience > 0 && s.GrowthExperience > config.Capsule.MaximumExperience {
-		s.GrowthExperience = config.Capsule.MaximumExperience
+	if maximum := CapsuleTotalCapacity(config.Capsule); maximum > 0 && s.GrowthExperience > maximum {
+		s.GrowthExperience = maximum
 	}
 }
 
@@ -157,8 +157,8 @@ func (s *RuntimeState) AddMaximumLevelExperience(config RuntimeConfig, value uin
 		}
 		s.ShopPoints[ShopPointBrave] = saturatingPointAdd(s.ShopPoints[ShopPointBrave], uint32(add), category.MaxPoint)
 	}
-	if config.Capsule.MaximumExperience > 0 {
-		remaining := config.Capsule.MaximumExperience - minUint64(config.Capsule.MaximumExperience, s.GrowthExperience)
+	if maximum := CapsuleTotalCapacity(config.Capsule); maximum > 0 {
+		remaining := maximum - minUint64(maximum, s.GrowthExperience)
 		add := uint64(value)
 		if add > remaining {
 			add = remaining

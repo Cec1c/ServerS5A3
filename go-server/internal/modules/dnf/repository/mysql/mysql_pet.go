@@ -13,10 +13,15 @@ const mysqlPetTable = "pets"
 
 type mysqlPetStore struct {
 	mysqlStoreBase
+	trackGrowthChanges bool
+	loadedSnapshot     *repository.PetRecord
 }
 
 // Load reads one character creature record from MySQL.
 func (s *mysqlPetStore) Load(ctx context.Context, characterID string) (repository.PetRecord, bool, error) {
+	if s.trackGrowthChanges {
+		s.loadedSnapshot = nil
+	}
 	table, err := s.router.readTable(mysqlPetTable, characterID)
 	if err != nil {
 		return repository.PetRecord{}, false, err
@@ -65,6 +70,10 @@ func (s *mysqlPetStore) Load(ctx context.Context, characterID string) (repositor
 		return repository.PetRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackGrowthChanges {
+		snapshot := repository.ClonePet(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.ClonePet(record), true, nil
 }
 
@@ -75,6 +84,11 @@ func (s *mysqlPetStore) Save(ctx context.Context, record repository.PetRecord) e
 
 // SaveFields writes selected creature fields.
 func (s *mysqlPetStore) SaveFields(ctx context.Context, record repository.PetRecord, fields ...repository.PetField) error {
+	var previous *repository.PetRecord
+	if s.trackGrowthChanges {
+		previous = s.loadedSnapshot
+		s.loadedSnapshot = nil
+	}
 	characterID, err := requireRecordKey(repository.PetKey, record, "pet")
 	if err != nil {
 		return err
@@ -131,6 +145,11 @@ func (s *mysqlPetStore) SaveFields(ctx context.Context, record repository.PetRec
 		}
 		if !saveEntries {
 			return nil
+		}
+		if s.trackGrowthChanges && previous != nil && previous.CharacterID == characterID {
+			if handled, err := savePetGrowthChanges(ctx, database, entriesTable, tokensTable, *previous, record); handled {
+				return err
+			}
 		}
 		if err := replacePetEntries(ctx, database, entriesTable, extraTable, tokensTable, characterID, record.Entries); err != nil {
 			return err

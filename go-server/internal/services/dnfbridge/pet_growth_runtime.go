@@ -119,7 +119,7 @@ func (s *Service) applyCurrentPetGrowthElapsedLocked(session *gameSession, now t
 	if elapsed == 0 {
 		return nil
 	}
-	owner, catalog, repositories, err := s.currentPetGrowthOwner()
+	owner, catalog, _, err := s.currentPetGrowthOwner()
 	if err != nil {
 		return err
 	}
@@ -129,20 +129,14 @@ func (s *Service) applyCurrentPetGrowthElapsedLocked(session *gameSession, now t
 		SelectedCharacterID: session.petGrowth.characterID,
 		Elapsed:             elapsed,
 	}
+	ctx, txTiming := dnfrepo.WithTransactionTiming(ctx)
 	var result dnfpet.PetGrowthPersistenceResult
 	if session.petGrowth.mode == currentPetGrowthClockDungeon {
-		artifactItemIDs, err := currentEquippedPetArtifactItemIDs(ctx, repositories, session.petGrowth.characterID)
-		if err != nil {
-			return err
-		}
-		command.Modifiers, err = catalog.ResolveSatietyModifiers(artifactItemIDs)
-		if err != nil {
-			return err
-		}
-		result, err = owner.ApplyDungeonElapsed(ctx, command)
+		result, err = owner.ApplyDungeonElapsedWithCatalog(ctx, command, catalog)
 	} else {
 		result, err = owner.ApplyTownElapsed(ctx, command)
 	}
+	s.logCurrentDungeonTransactionTiming(session, "宠物饱食度事务内部耗时", txTiming, err)
 	if err != nil {
 		return err
 	}
@@ -309,6 +303,8 @@ func (s *Service) awardCurrentPetRoomClearLocked(
 	// Room-entry fatigue is committed before this authoritative clear. Revisited
 	// rooms reuse the same durable clear token; no-fatigue maps do not grant the
 	// fatigue-based growth award. A client death report alone is insufficient.
+	timing := newCurrentDungeonSlowWorkTiming()
+	defer timing.finish(s, session, "宠物清房分段耗时", [4]string{"饱食度结算毫秒", "成长准备毫秒", "成长事务毫秒", "成长通知毫秒"})
 	now := s.gameplayNow()
 	if err := s.settleCurrentPetGrowthClock(session, now, source+"_before_experience"); err != nil {
 		s.logGameEvent(session, "game-pet-room-clear-growth-deferred",
@@ -320,7 +316,8 @@ func (s *Service) awardCurrentPetRoomClearLocked(
 			"error", err)
 		return
 	}
-	owner, _, repositories, err := s.currentPetGrowthOwner()
+	timing.next()
+	owner, _, _, err := s.currentPetGrowthOwner()
 	if err != nil {
 		s.logGameEvent(session, "game-pet-room-clear-growth-deferred", "source", source, "reason", "growth_owner_unavailable", "error", err)
 		return
@@ -336,12 +333,15 @@ func (s *Service) awardCurrentPetRoomClearLocked(
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	timing.next()
+	ctx, txTiming := dnfrepo.WithTransactionTiming(ctx)
 	result, err := owner.ApplyDungeonClear(ctx, dnfpet.DungeonClearGrowthCommand{
 		SelectedCharacterID: session.selectedCharacterID,
 		ClearToken:          clearToken,
 		ConsumedFatigue:     1,
 		ApplyEvolution:      false,
 	})
+	s.logCurrentDungeonTransactionTiming(session, "宠物成长事务内部耗时", txTiming, err)
 	if err != nil {
 		s.logGameEvent(session, "game-pet-room-clear-growth-deferred",
 			"char_id", session.selectedCharacterID,
@@ -352,6 +352,7 @@ func (s *Service) awardCurrentPetRoomClearLocked(
 			"error", err)
 		return
 	}
+	timing.next()
 	if result.Replayed || result.ExperienceGained == 0 {
 		s.logGameEvent(session, "game-pet-room-clear-growth-committed",
 			"char_id", session.selectedCharacterID,
@@ -367,12 +368,7 @@ func (s *Service) awardCurrentPetRoomClearLocked(
 			"evolution", "disabled_until_current_exe_wire_closes")
 		return
 	}
-	entry, err := currentPetGrowthEntry(ctx, repositories, session.selectedCharacterID, result.PetKey)
-	if err != nil {
-		s.logGameEvent(session, "game-pet-room-clear-growth-notification-deferred", "source", source, "pet_key", result.PetKey, "error", err)
-		return
-	}
-	body, err := dnfpet.BuildCreatureGrowthBody(entry)
+	body, err := dnfpet.BuildCreatureGrowthBody(result.Entry)
 	if err != nil {
 		s.logGameEvent(session, "game-pet-room-clear-growth-notification-deferred", "source", source, "pet_key", result.PetKey, "error", err)
 		return

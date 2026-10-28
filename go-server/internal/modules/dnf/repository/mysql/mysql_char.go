@@ -254,6 +254,8 @@ func mysqlTwoDigit(value int) string {
 
 type mysqlCharStore struct {
 	mysqlStoreBase
+	trackStatChanges bool
+	loadedSnapshot   *repository.CharacterRecord
 }
 
 func (s *mysqlCharStore) AdvanceStoryDigest(ctx context.Context, characterID string, level, migrationVersion uint32) error {
@@ -275,6 +277,9 @@ func (s *mysqlCharStore) AdvanceStoryDigest(ctx context.Context, characterID str
 
 // Load 按角色 ID 从 MySQL 读取 DNF 角色记录。
 func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
+	if s.trackStatChanges {
+		s.loadedSnapshot = nil
+	}
 	table, err := s.router.readTable(mysqlCharTable, characterID)
 	if err != nil {
 		return repository.CharacterRecord{}, false, err
@@ -301,11 +306,16 @@ func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (reposito
 		return repository.CharacterRecord{}, ok, scanErr
 	}
 	mergeCharacterMirrorStats(&record, mirrorStats)
-	if err := loadCharacterSupplement(ctx, s.router, characterID, &record); err != nil {
+	var shadowStats bool
+	if err := loadCharacterSupplement(ctx, s.router, characterID, &record, &shadowStats); err != nil {
 		return repository.CharacterRecord{}, false, err
 	}
 	record.CreatedAt = scanTime(createdAt)
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackStatChanges && !shadowStats && characterStatSnapshotEligible(record.Stats) {
+		snapshot := repository.CloneCharacter(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.CloneCharacter(record), true, nil
 }
 
@@ -367,6 +377,11 @@ func (s *mysqlCharStore) CreateCharacter(ctx context.Context, record repository.
 // SaveFields 保存 DNF 角色指定字段到 MySQL。
 // 插入路径会补角色基础字段；更新路径只写 dirty 字段，避免整包覆盖。
 func (s *mysqlCharStore) SaveFields(ctx context.Context, record repository.CharacterRecord, fields ...repository.CharacterField) error {
+	var previous *repository.CharacterRecord
+	if s.trackStatChanges {
+		previous = s.loadedSnapshot
+		s.loadedSnapshot = nil
+	}
 	characterID, err := requireRecordKey(repository.CharacterKey, record, "character")
 	if err != nil {
 		return err
@@ -421,6 +436,9 @@ func (s *mysqlCharStore) SaveFields(ctx context.Context, record repository.Chara
 	return withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
 		if _, execErr := database.ExecContext(ctx, buildUpsert(table, columns, updates), args...); execErr != nil {
 			return execErr
+		}
+		if s.trackStatChanges && previous != nil && previous.CharacterID == characterID {
+			return saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty, previous.Stats)
 		}
 		return saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty)
 	})

@@ -106,6 +106,43 @@ func TestCommitAtomicallyTransitionsProtectedCharacterStats(t *testing.T) {
 	}
 }
 
+func TestCommitSaturatedExperienceAdvancesProtectedStatsAndReplaysExactly(t *testing.T) {
+	ctx := context.Background()
+	repos := seedProgressionCommitRepositories(t, ctx)
+	c, _, _ := repos.Character.Load(ctx, "77")
+	c.Level = 90
+	c.Stats["exp"] = math.MaxUint32
+	if err := repos.Character.Save(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	skill, _, _ := repos.Skill.Load(ctx, "77")
+	skill.Points.SyncedLevel = 90
+	if err := repos.Skill.Save(ctx, skill); err != nil {
+		t.Fatal(err)
+	}
+	state := CommitState{Level: 90, Experience: math.MaxUint32, SkillPoints: skill.Points}
+	plan := CommitPlan{CharacterID: "77", AccountID: "dnf:1", Expected: state, Next: state,
+		ExpectedCharacterStats: map[string]int64{"dungeon_capped_award_revision": 0, "honor_expert_progress_experience": 0},
+		NextCharacterStats:     map[string]int64{"dungeon_capped_award_revision": 1, "honor_expert_progress_experience": 10}}
+	got, err := Commit(ctx, repos.CharacterProgression, plan)
+	if err != nil || !got.Applied || got.Idempotent {
+		t.Fatalf("EXP饱和后未推进熟练度：%+v %v", got, err)
+	}
+	replay, err := Commit(ctx, repos.CharacterProgression, plan)
+	if err != nil || !replay.Idempotent {
+		t.Fatalf("饱和经验重放：%+v %v", replay, err)
+	}
+	stale := plan
+	stale.NextCharacterStats = map[string]int64{"dungeon_capped_award_revision": 2, "honor_expert_progress_experience": 20}
+	if _, err := Commit(ctx, repos.CharacterProgression, stale); !errors.Is(err, ErrCommitVersionPrecondition) {
+		t.Fatalf("过期版本覆盖熟练度：%v", err)
+	}
+	c, _, _ = repos.Character.Load(ctx, "77")
+	if c.Stats["exp"] != math.MaxUint32 || c.Stats["honor_expert_progress_experience"] != 10 || c.Stats["dungeon_capped_award_revision"] != 1 {
+		t.Fatalf("饱和经验状态错误：%+v", c.Stats)
+	}
+}
+
 func TestCommitRejectsStaleOrPartiallyCommittedVersion(t *testing.T) {
 	ctx := context.Background()
 	for _, test := range []struct {

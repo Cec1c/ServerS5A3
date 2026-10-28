@@ -46,11 +46,11 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginTimedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollbackTimedSQLTransaction(ctx, tx)
 	txRouter := u.router
 	txRouter.db = sqlTransactionDB{tx: tx}
 	// Character settlement can also consume account-owned crystal/soul slots.
@@ -69,6 +69,9 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		}
 	}
 	base := newMySQLGroupFromRouter(txRouter, false)
+	// 只比较本事务内成功锁读的完整快照；普通仓储和无快照保存保持原路径。
+	base.Account.(*mysqlAccountStore).trackMetadataChanges = true
+	base.Character.(*mysqlCharStore).trackStatChanges = true
 	// 角色结算和账号资产事务共用已验证的槽位差量写入。快照只属于当前
 	// SQL事务；未成功读取完整快照的保存仍走原有完整写入。
 	if store, ok := base.Inventory.(*mysqlBagStore); ok {
@@ -112,13 +115,14 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		txGroup.Settings = repository.GuildSettlementSettings(base.Settings, receiptScope)
 		txGroup.Mailbox = &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}
 	}
+	txGroup.Skill = scopeSkillPointLedger(txGroup.Skill, base.Skill, characterID)
 	if err := apply(txGroup); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTimedSQLTransaction(ctx, tx); err != nil {
 		if owner != nil {
 			return errors.Join(repository.ErrGuildCommitUnknown, err)
 		}
@@ -138,6 +142,26 @@ type characterSettlementAccountRepository struct {
 func (r *characterSettlementAccountRepository) accountID(ctx context.Context) (string, error) {
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
+	}
+	// 仍在同一事务锁定角色主行并实时核对归属，不加载与归属无关的全部属性。
+	if characters, ok := r.characters.(*mysqlCharStore); ok {
+		table, err := characters.router.readTable(mysqlCharTable, r.characterID)
+		if err != nil {
+			return "", err
+		}
+		var accountID string
+		err = characters.router.db.QueryRowContext(ctx, characters.router.selectQuery("SELECT account_id FROM "+table+" WHERE character_id = ?"), r.characterID).Scan(&accountID)
+		if err != nil {
+			if found, scanErr := scanErr(err); !found && scanErr == nil {
+				return "", repository.ErrCharacterSettlementTransactionUnavailable
+			}
+			return "", err
+		}
+		accountID = strings.TrimSpace(accountID)
+		if accountID == "" {
+			return "", repository.ErrCharacterSettlementTransactionUnavailable
+		}
+		return accountID, nil
 	}
 	character, found, err := r.characters.Load(ctx, r.characterID)
 	if err != nil {

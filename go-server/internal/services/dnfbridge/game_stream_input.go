@@ -46,6 +46,7 @@ func (s *Service) handleGameStreamInput(ctx context.Context, session *gameSessio
 			if readAhead.obsoleteTimeout(input) {
 				continue
 			}
+			s.logCurrentGameReadWait(session, input)
 		}
 		if err != nil {
 			// 「静默窗」读截止到期：**这不是连接错误**（真正的断线/EOF/ECONNRESET 走下面的原路）。
@@ -113,9 +114,13 @@ func (s *Service) handleGameStreamInput(ctx context.Context, session *gameSessio
 			if deferredRead == nil {
 				packets, buffer, deferredRead = s.collectNativeExtractionReadyPackets(session, readAhead, packets, buffer)
 			}
+			if deferredRead == nil {
+				packets, buffer, deferredRead = s.collectCurrentDungeonDeathReadyPackets(session, readAhead, packets, buffer)
+			}
 		}
+		// 此刻本批完整帧均已拆出；只计其后等待，不把它当作客户端发起时间。
+		packetsReadyAt := time.Now()
 		for index := 0; index < len(packets); {
-			packet := packets[index]
 			count := nativeNPCDisjointPrefix(packets[index:])
 			extractionCount := nativeExtractionPrefix(packets[index:])
 			processed := 1
@@ -144,12 +149,12 @@ func (s *Service) handleGameStreamInput(ctx context.Context, session *gameSessio
 						return err
 					}
 				}
-				if readAhead != nil {
-					if err := s.prepareNativeResultDelivery(session, packet); err != nil {
-						return err
-					}
+				span := 1
+				if s.currentDungeonDeathBurstEnabled(session) {
+					span = currentDungeonDeathBurstSpan(packets[index:])
 				}
-				return s.handleGameStreamPacket(session, packet)
+				processed = span
+				return s.handleCurrentDungeonDeathBurstPackets(session, packets[index:index+span], readAhead != nil, packetsReadyAt)
 			}); err != nil {
 				s.logWarn("dnfbridge handle game packet failed", "remote", conn.RemoteAddr().String(), "error", err)
 				return

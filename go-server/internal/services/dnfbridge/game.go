@@ -90,6 +90,7 @@ type gameSession struct {
 	// its generation; the nonce belongs only to this connection.
 	imageCommunicationNonce           [32]byte
 	imageCommunicationSceneGeneration uint64
+	dungeonDeathBurst                 *currentDungeonDeathBurst // 同一会话事件内的连续击杀；不跨事件保存。
 
 	endpointHandshakeMu                     sync.Mutex
 	currentChannelResidentNoticeSent        bool

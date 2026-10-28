@@ -85,17 +85,6 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 	if !ok || repositories.Quest == nil || repositories.CharacterItems == nil {
 		return currentQuestDropGrantResult{}, errDungeonQuestRepositoryUnavailable
 	}
-	questHelperActive := false
-	growthQuestDropPercent := int64(0)
-	if repositories.Account != nil {
-		account, accountFound, accountErr := repositories.Account.Load(ctx, s.accountIDForSession(session))
-		questHelperActive = accountErr == nil &&
-			accountFound &&
-			premium.Active(account, premium.DevilSlotType(premium.DevilSlotQuestHelper), time.Now().UTC())
-	}
-	if growthEffect, growthActive := s.currentGrowthContractEffect(ctx, s.accountIDForSession(session)); growthActive {
-		growthQuestDropPercent = growthEffect.QuestItemDropRatePercent
-	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
 	questRecord, found, err := repositories.Quest.Load(ctx, characterID)
 	if err != nil {
@@ -124,6 +113,18 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 	if len(candidates) == 0 {
 		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
+	// 有真实匹配的任务掉落时才读取加成；仍逐次实时核对，不缓存资格，
+	// 原有候选、rollSeed、概率取整及普通掉落随机流保持不变。
+	questHelperActive := false
+	growthQuestDropPercent := int64(0)
+	if repositories.Account != nil {
+		account, accountFound, accountErr := repositories.Account.Load(ctx, s.accountIDForSession(session))
+		questHelperActive = accountErr == nil && accountFound &&
+			premium.Active(account, premium.DevilSlotType(premium.DevilSlotQuestHelper), time.Now().UTC())
+	}
+	if growthEffect, growthActive := s.currentGrowthContractEffect(ctx, s.accountIDForSession(session)); growthActive {
+		growthQuestDropPercent = growthEffect.QuestItemDropRatePercent
+	}
 	owner, err := dnfdungeon.NewOwner(repositories)
 	if err != nil {
 		return currentQuestDropGrantResult{}, err
@@ -131,9 +132,11 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 	dropCatalog, catalogErr := s.currentPVFItemCatalog()
 	rng := newCurrentDungeonDropLCG(rollSeed)
 	var grantedSlots []int16
+	ctx, txTiming := dnfrepo.WithTransactionTiming(ctx)
 	mutation, err := owner.MutateInventory(ctx, dnfdungeon.InventoryMutationCommand{
-		CharacterID: characterID,
-		UpdatedAt:   time.Now().UTC(),
+		CharacterID:      characterID,
+		UpdatedAt:        time.Now().UTC(),
+		SaveChangedSlots: true,
 		Apply: func(inventory *dnfrepo.InventoryRecord) (bool, error) {
 			granted := false
 			for _, candidate := range candidates {
@@ -207,6 +210,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 			return granted, nil
 		},
 	})
+	s.logCurrentDungeonTransactionTiming(session, "任务物品入包事务内部耗时", txTiming, err, "enemy_type", enemyType, "enemy_code", enemyCode)
 	if err != nil {
 		return currentQuestDropGrantResult{}, err
 	}

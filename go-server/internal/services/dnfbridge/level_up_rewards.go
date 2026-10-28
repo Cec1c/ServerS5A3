@@ -211,6 +211,12 @@ func (s *Service) afterCurrentLevelUpRewardCommand(session *gameSession) {
 	if s == nil || s.options.currentClientVersion != "official-24.9" {
 		return
 	}
+	// 连续击杀的真实升级仍在该条命令末尾处理；没有升级的命令统一在
+	// 整段结束后恢复一次，避免每只怪之间重复访问角色和同队成员。
+	if session != nil && session.dungeonDeathBurst != nil && session.dungeonDeathBurst.deferRewards {
+		session.dungeonDeathBurst.rewardsPending = true
+		return
+	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound {
 		return

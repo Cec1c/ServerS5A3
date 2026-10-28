@@ -77,7 +77,13 @@ func TestAwardCurrentPetRoomClearCommitsOnceAndSendsExactSceneOp102(t *testing.T
 	}
 	scene := worldmap.DungeonRoomScene{Coordinate: worldmap.RoomCoordinate{X: 3, Y: 4}, Cleared: true}
 
+	petReads := &petGrowthDirectReadProbe{PetRepository: repositories.Pet}
+	repositories.Pet = petReads
 	service.awardCurrentPetRoomClearLocked(session, runtime, scene, "test_authoritative_clear")
+	if petReads.loads != 0 {
+		t.Fatalf("清房在事务外重复读取宠物%d次", petReads.loads)
+	}
+	repositories.Pet = petReads.PetRepository
 	packet, trailing := splitGameServerUpperPacket(t, connection.write.Bytes())
 	if packet.Header.MsgID != currentCreatureGrowthMsgID || packet.Header.Classification != 0 ||
 		!bytes.Equal(packet.Body, []byte{0, 0, 0, 1, 0, 1, 0, 0, 0}) {
@@ -104,6 +110,16 @@ func TestAwardCurrentPetRoomClearCommitsOnceAndSendsExactSceneOp102(t *testing.T
 	if record.Entries["37"].Exp != 1 || len(record.Entries["37"].AppliedClearTokens) != 1 {
 		t.Fatalf("replay mutated entry=%+v", record.Entries["37"])
 	}
+}
+
+type petGrowthDirectReadProbe struct {
+	dnfrepo.PetRepository
+	loads int
+}
+
+func (p *petGrowthDirectReadProbe) Load(ctx context.Context, id string) (dnfrepo.PetRecord, bool, error) {
+	p.loads++
+	return p.PetRepository.Load(ctx, id)
 }
 
 func TestCurrentPetMoveTouchesGrowthStateOnlyForProvedList7Targets(t *testing.T) {

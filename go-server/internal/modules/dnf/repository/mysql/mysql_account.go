@@ -26,10 +26,15 @@ const (
 
 type mysqlAccountStore struct {
 	mysqlStoreBase
+	trackMetadataChanges bool
+	loadedSnapshot       *repository.AccountRecord
 }
 
 // Load 按账号 ID 从 MySQL 读取 DNF 账号记录。
 func (s *mysqlAccountStore) Load(ctx context.Context, accountID string) (repository.AccountRecord, bool, error) {
+	if s.trackMetadataChanges {
+		s.loadedSnapshot = nil
+	}
 	table, err := s.router.readTable(mysqlAccountTable, accountID)
 	if err != nil {
 		return repository.AccountRecord{}, false, err
@@ -68,11 +73,20 @@ func (s *mysqlAccountStore) Load(ctx context.Context, accountID string) (reposit
 	}
 	record.CreatedAt = scanTime(createdAt)
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackMetadataChanges {
+		snapshot := repository.CloneAccount(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.CloneAccount(record), true, nil
 }
 
 // Save 保存完整 DNF 账号记录到 MySQL。
 func (s *mysqlAccountStore) Save(ctx context.Context, record repository.AccountRecord) error {
+	var previous *repository.AccountRecord
+	if s.trackMetadataChanges {
+		previous = s.loadedSnapshot
+		s.loadedSnapshot = nil
+	}
 	accountID, err := requireRecordKey(repository.AccountKey, record, "account")
 	if err != nil {
 		return err
@@ -107,6 +121,9 @@ func (s *mysqlAccountStore) Save(ctx context.Context, record repository.AccountR
 	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
 		if _, execErr := database.ExecContext(ctx, buildUpsert(table, columns, updates), args...); execErr != nil {
 			return execErr
+		}
+		if s.trackMetadataChanges && previous != nil && previous.AccountID == accountID {
+			return saveChangedAccountMetadata(ctx, database, metadataTable, accountID, previous.Metadata, record.Metadata)
 		}
 		return replaceStringMap(ctx, database, metadataTable, "account_id", accountID, record.Metadata)
 	})

@@ -67,6 +67,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if session == nil {
 		return nil
 	}
+	timing := newCurrentDungeonDeathTiming()
+	defer timing.finish(s, session, request.RuntimeObjectKey)
 	var raidBarrierProjections []runtimeRaidState
 	var passivePeerCompletion func()
 	defer func() {
@@ -81,12 +83,22 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}()
 	session.dungeon.mu.Lock()
 	defer session.dungeon.mu.Unlock()
+	timing.mark(0)
 	runtime := session.dungeon.runtime
 	if runtime == nil || runtime.Session == nil || runtime.Room == nil {
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 			"object_key", request.RuntimeObjectKey,
 			"reason", "dungeon_runtime_missing")
 		return nil
+	}
+	// 特殊波次/APC/被动对象及重复报告可能走各自的完成入口；它们开始
+	// 处理前先提交之前普通怪的经验，不能让待提交奖励跨过这些生命周期。
+	if b := s.activeCurrentDungeonDeathBurst(session, runtime); b != nil {
+		if _, ordinary := runtime.Room.AnnouncedMonster(request.RuntimeObjectKey); !ordinary {
+			if err := s.flushCurrentDungeonDeathBurstLocked(session); err != nil {
+				return err
+			}
+		}
 	}
 	scene, hasScene := runtime.Session.Scene()
 	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
@@ -744,6 +756,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}
 	var deathDrops []currentDungeonDeathDropWire
 	dropSource := "none"
+	timing.mark(1)
 	if rewardMonsterCandidate {
 		if (s.currentRiftEntryEnabled(runtime.Dungeon.ID) || (s.currentTimeRiftLootEnabled(runtime.Dungeon.ID) && cleared)) && bossActorDeath && scene.Boss {
 			deathDrops, err = s.planCurrentRiftBossDrops(session, runtime, scene)
@@ -781,9 +794,56 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			dropSource = "runtime_pvf_csharp_drop_formula_no_standard_item"
 		}
 	}
+	timing.mark(2)
+	forcedBossClearCount := 0
+	forcedBossVisualDeathCount := 0
+	var stagedStoryForcedCombatEnd *currentDungeonForcedCombatEnd
+	nextStoryCoordinate, nextStoryStageIndex, pendingStoryAdvance := currentDungeonPendingStoryAdvance(runtime, scene)
+	if pendingStoryAdvance && bossActorDeath && !cleared && !storyAIBossGateActive &&
+		!isPVFTutorialDungeonScene(runtime, scene) {
+		prepared, prepareErr := s.prepareCurrentDungeonForcedCombatEndLocked(runtime, request.RuntimeObjectKey)
+		if prepareErr != nil {
+			s.logGameEvent(session, "game-dungeon-story-stage-force-clear-deferred",
+				"dungeon_id", runtime.Dungeon.ID,
+				"maze_index", runtime.MazeIndex,
+				"room", scene.Coordinate.String(),
+				"map_id", scene.Map.Map.ID,
+				"story_stage_index", runtime.StoryStageIndex,
+				"next_story_stage_index", nextStoryStageIndex,
+				"next_story_room", nextStoryCoordinate.String(),
+				"boss_object_key", request.RuntimeObjectKey,
+				"reason", "story_stage_boss_forced_clear_prepare_failed",
+				"error", prepareErr)
+		} else {
+			stagedStoryForcedCombatEnd = &prepared
+			forcedBossClearCount = len(prepared.Targets)
+			cleared = cleared || prepared.Cleared
+			if prepared.SceneOK {
+				scene = prepared.Scene
+			}
+		}
+	}
+	var optionalStoryRoom []worldmap.RoomCoordinate
+	if pendingStoryAdvance && cleared && (!storyAIBossGateActive || storyAIBossGate.Ready) {
+		optionalStoryRoom = append(optionalStoryRoom, nextStoryCoordinate)
+	}
+	responseBody, deathResponseErr := buildCurrentDungeonDeathNotificationBodyWithDrops(
+		target.ObjectKey,
+		target.ResponseKind,
+		deathDrops,
+		optionalStoryRoom...,
+	)
+	// 房间已确认死亡与掉落，先通知客户端，再串行完成经验事务。
+	// 经验显示仍在提交成功后发送；连接写入失败也须保留原有经验结算。
+	var deathNotifyErr error
+	if deathResponseErr == nil {
+		deathNotifyErr = s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, responseBody, playerObjectKey), 0)
+	}
+	timing.mark(3)
 	var monsterExperience currentDungeonMonsterExperienceCommitResult
 	var monsterExperienceBody []byte
-	if rewardMonsterCandidate {
+	experienceQueued := rewardMonsterCandidate && s.queueCurrentDungeonDeathBurstExperience(session, runtime, rewardMonster)
+	if rewardMonsterCandidate && !experienceQueued {
 		experienceContext, cancelExperience := context.WithTimeout(context.Background(), createWriteTimeout)
 		monsterExperience, err = s.awardCurrentDungeonMonsterExperience(
 			experienceContext,
@@ -826,49 +886,16 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			}
 		}
 	}
-	forcedBossClearCount := 0
-	forcedBossVisualDeathCount := 0
-	var stagedStoryForcedCombatEnd *currentDungeonForcedCombatEnd
-	nextStoryCoordinate, nextStoryStageIndex, pendingStoryAdvance := currentDungeonPendingStoryAdvance(runtime, scene)
-	if pendingStoryAdvance && bossActorDeath && !cleared && !storyAIBossGateActive &&
-		!isPVFTutorialDungeonScene(runtime, scene) {
-		prepared, prepareErr := s.prepareCurrentDungeonForcedCombatEndLocked(runtime, request.RuntimeObjectKey)
-		if prepareErr != nil {
-			s.logGameEvent(session, "game-dungeon-story-stage-force-clear-deferred",
-				"dungeon_id", runtime.Dungeon.ID,
-				"maze_index", runtime.MazeIndex,
-				"room", scene.Coordinate.String(),
-				"map_id", scene.Map.Map.ID,
-				"story_stage_index", runtime.StoryStageIndex,
-				"next_story_stage_index", nextStoryStageIndex,
-				"next_story_room", nextStoryCoordinate.String(),
-				"boss_object_key", request.RuntimeObjectKey,
-				"reason", "story_stage_boss_forced_clear_prepare_failed",
-				"error", prepareErr)
-		} else {
-			stagedStoryForcedCombatEnd = &prepared
-			forcedBossClearCount = len(prepared.Targets)
-			cleared = cleared || prepared.Cleared
-			if prepared.SceneOK {
-				scene = prepared.Scene
-			}
+	if b := s.activeCurrentDungeonDeathBurst(session, runtime); b != nil && b.levelBoundary {
+		if err := s.commitCurrentDungeonDeathBurstLocked(session); err != nil {
+			return errors.Join(deathResponseErr, deathNotifyErr, err)
 		}
 	}
-	var optionalStoryRoom []worldmap.RoomCoordinate
-	if pendingStoryAdvance && cleared && (!storyAIBossGateActive || storyAIBossGate.Ready) {
-		optionalStoryRoom = append(optionalStoryRoom, nextStoryCoordinate)
+	if deathResponseErr != nil {
+		return deathResponseErr
 	}
-	responseBody, err := buildCurrentDungeonDeathNotificationBodyWithDrops(
-		target.ObjectKey,
-		target.ResponseKind,
-		deathDrops,
-		optionalStoryRoom...,
-	)
-	if err != nil {
-		return err
-	}
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, responseBody, playerObjectKey), 0); err != nil {
-		return err
+	if deathNotifyErr != nil {
+		return deathNotifyErr
 	}
 	// 权威死亡状态：① 记下来（供重复 op39 幂等重放）；② 广播给同一队伍副本实例内的队友，
 	// 否则队友的客户端永远不知道这只怪已经死了（复测症状：一边打完，另一边还剩白色残影）。
@@ -900,7 +927,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		cleared = cleared || forcedCleared
 	}
 	if len(monsterExperienceBody) != 0 {
-		if err := s.sendGameUpperRawClass(session, currentDungeonCharacterStateMsgID, monsterExperienceBody, 0); err != nil {
+		if err := s.sendCurrentDungeonMonsterExperienceState(session, runtime, monsterExperienceBody, monsterExperience); err != nil {
 			return err
 		}
 		s.logGameEvent(session, "game-dungeon-monster-experience-awarded",
@@ -940,7 +967,20 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			"formula_source", "86jp_domain_formula_with_runtime_pvf_monsterexp_table",
 			"packet_source", "current_exe_sub_1D78240_full_character_state")
 	}
+	// 终场、脚本推进和清房消费者必须看到已经提交的经验，不能跨房间暂存。
+	if cleared || bossActorDeath || stagedStoryForcedCombatEnd != nil {
+		if err := s.flushCurrentDungeonDeathBurstLocked(session); err != nil {
+			return err
+		}
+	}
+	timing.mark(4)
+	detailStarted := time.Now()
+	questWork := currentDungeonDeathQuestWork{true, true, true}
 	if rewardMonsterCandidate {
+		questWork = s.currentDungeonDeathQuestWorkFor(session, runtime, rewardMonster)
+	}
+	detailStarted = timing.detail(0, detailStarted)
+	if rewardMonsterCandidate && questWork.huntEnemy {
 		huntCtx, cancelHunt := context.WithTimeout(context.Background(), createWriteTimeout)
 		huntErr := s.persistCurrentDungeonHuntEnemyKillPhaseA(
 			huntCtx,
@@ -963,11 +1003,19 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "86jp_hunt_enemy_progress_owner_failed",
 				"error", huntErr)
 		}
+	}
+	detailStarted = timing.detail(1, detailStarted)
+	if rewardMonsterCandidate && questWork.questDrops {
 		s.checkCurrentDungeonQuestMonsterDrops(session, runtime, rewardMonster.Spawn.MonsterID)
+	}
+	detailStarted = timing.detail(2, detailStarted)
+	if rewardMonsterCandidate && questWork.huntMonster {
 		// Keep ordinary drops, EXP and boss/story completion in their existing
 		// order even if quest persistence or its snapshot needs a retry.
 		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 	}
+	timing.detail(3, detailStarted)
+	timing.mark(5)
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
 		forcedDefeated, forcedVisual, forcedCleared, forceErr := s.forceCurrentDungeonCombatEndWithFiendWarGuardLocked(
@@ -1014,17 +1062,21 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"flow_source", "86jp_boss_death_means_combat_end")
 		}
 	}
+	detailStarted = time.Now()
 	if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 		return fmt.Errorf("cache dungeon room after actor death: %w", err)
 	}
+	detailStarted = timing.detail(4, detailStarted)
 	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
 		return err
 	}
+	detailStarted = timing.detail(5, detailStarted)
 	if cleared || (storyAIBossGateActive && storyAIBossGate.Ready && scene.Cleared) {
 		if clearedScene, ok := runtime.Session.Scene(); ok {
 			s.awardCurrentPetRoomClearLocked(session, runtime, clearedScene, "authoritative_monster_room_clear")
 		}
 	}
+	timing.detail(6, detailStarted)
 	// 锦标赛赛制推进（默认档 `runtime.Tournament == nil` ⇒ 这一整段不可达）。
 	//
 	// 放在这里而不是 op39 入口：本函数上面的 Boss 强制清怪
@@ -1093,7 +1145,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"drop_count", len(deathDrops),
 		"drop_source", dropSource,
 		"monster_experience_gain", monsterExperience.Award.Gain,
-		"monster_experience_state_sent", len(monsterExperienceBody) != 0,
+		"monster_experience_state_sent", len(monsterExperienceBody) != 0 && session.dungeonDeathBurst == nil,
+		"monster_experience_queued", experienceQueued,
 		"response", "current_exe_op38_actor_death_notification")
 	if runtime.bossDieCheckPending &&
 		uint32(runtime.bossDieCheckPendingRequest.TargetObjectKey) == request.RuntimeObjectKey {
