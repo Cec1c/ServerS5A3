@@ -140,14 +140,11 @@ func desiredServerRuntimeConfigSHA256(cfg instanceConfig) (string, error) {
 		Database databaseConfig `json:"database"`
 		Game     gameConfig     `json:"game"`
 		Protocol protocolConfig `json:"protocol"`
-		// Bind the controller-owned policy so a pre-fix process cannot be reused.
-		NativeBuffSwap bool `json:"nativeBuffSwap,omitempty"`
 	}{
-		Server:         cfg.Server,
-		Database:       cfg.Database,
-		Game:           cfg.Game,
-		Protocol:       cfg.Protocol,
-		NativeBuffSwap: cfg.Protocol.Profile == officialNativeProtocolProfile,
+		Server:   cfg.Server,
+		Database: cfg.Database,
+		Game:     cfg.Game,
+		Protocol: cfg.Protocol,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode server runtime identity: %w", err)
@@ -188,14 +185,11 @@ func currentServerRuntimeConfigSHA256(
 		Database databaseConfig `json:"database"`
 		Game     gameConfig     `json:"game"`
 		Protocol protocolConfig `json:"protocol"`
-		// Bind the controller-owned policy so a pre-fix process cannot be reused.
-		NativeBuffSwap bool `json:"nativeBuffSwap,omitempty"`
 	}{
-		Server:         cfg.Server,
-		Database:       cfg.Database,
-		Game:           cfg.Game,
-		Protocol:       cfg.Protocol,
-		NativeBuffSwap: cfg.Protocol.Profile == officialNativeProtocolProfile,
+		Server:   cfg.Server,
+		Database: cfg.Database,
+		Game:     cfg.Game,
+		Protocol: cfg.Protocol,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode active server runtime identity: %w", err)
@@ -445,8 +439,6 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		values["DNFBRIDGE_PARTY_UDP_RELAY_PORT_START"] = strconv.Itoa(relayPortStart)
 		values["DNFBRIDGE_PARTY_UDP_RELAY_PORT_COUNT"] = strconv.Itoa(relayPortCount)
 		values["DNFBRIDGE_CURRENT_CLIENT_VERSION"] = "official-24.9"
-		// Native op1426 registrations and scene restores must share one owner.
-		values["DNFBRIDGE_BUFF_SWAP_REAPPLY"] = "on"
 		values["DNFBRIDGE_PARTY_UDP_RELAY_MODE"] = "embedded"
 		values["DNFBRIDGE_PARTY_UDP_RELAY_PROBE_LISTEN"] = "on"
 		values["DNFBRIDGE_PARTY_UDP_RELAY_SEED_FORWARD"] = "on"
