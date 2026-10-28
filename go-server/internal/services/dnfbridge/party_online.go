@@ -52,11 +52,17 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 		// These modes need their native failure envelope even when sent from
 		// a duel channel. The retired-session guard above still runs first.
 		if typ == 10 {
+			if req, err := party.DecodeRequestPeerRequest(body); err == nil && req.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+				return true, s.handleCurrentItemTradeInvitation(session, req)
+			}
 			if req, err := party.DecodeRequestPeerRequest(body); err == nil && s.currentTownPVPMode(req.Mode) {
 				return true, s.rejectCurrentTownPVPRequest(session, typ, req)
 			}
 		}
 		if typ == 11 {
+			if req, err := party.DecodeResponsePeerRequest(body); err == nil && req.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+				return true, s.handleCurrentItemTradeInvitationResponse(session, req)
+			}
 			if req, err := party.DecodeResponsePeerRequest(body); err == nil && s.currentTownPVPMode(req.Mode) {
 				return true, s.rejectCurrentTownPVPResponse(session, typ, req)
 			}
@@ -131,6 +137,9 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 	}
 	if s.currentTownPVPMode(parsed.Mode) {
 		return s.rejectCurrentTownPVPRequest(session, typ, parsed)
+	}
+	if parsed.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+		return s.handleCurrentItemTradeInvitation(session, parsed)
 	}
 	sourceID := selectedCharacterID(session)
 	if handled, err := s.rejectCurrentFiendWarActivePartyRequest(session, typ, parsed); handled || err != nil {
@@ -882,6 +891,12 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 	}
 	if s.currentTownPVPMode(parsed.Mode) {
 		return s.rejectCurrentTownPVPResponse(session, typ, parsed)
+	}
+	if parsed.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+		return s.handleCurrentItemTradeInvitationResponse(session, parsed)
+	}
+	if parsed.RejectReason != 0 {
+		return nil
 	}
 	s.logGameEvent(session, "game-party-response-peer-received",
 		"type", typ,

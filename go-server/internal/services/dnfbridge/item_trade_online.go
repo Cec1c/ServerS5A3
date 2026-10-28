@@ -54,6 +54,7 @@ type onlineItemTrade struct {
 	gold         map[uint16]int64
 	states       map[uint16]byte
 	committing   bool
+	opening      bool
 }
 
 func (t *onlineItemTrade) other(characterID uint16) (uint16, bool) {
@@ -69,13 +70,17 @@ func (t *onlineItemTrade) other(characterID uint16) (uint16, bool) {
 	return 0, false
 }
 
-func (s *Service) beginOnlineItemTrade(first, second *gameSession) {
+func (s *Service) beginOnlineItemTrade(first, second *gameSession) *onlineItemTrade {
+	return s.beginOnlineItemTradeState(first, second, false)
+}
+
+func (s *Service) beginOnlineItemTradeState(first, second *gameSession, opening bool) *onlineItemTrade {
 	if s == nil || first == nil || second == nil || first == second || first.selectedCharacterID == 0 || second.selectedCharacterID == 0 {
-		return
+		return nil
 	}
 	firstID, secondID := first.selectedCharacterID, second.selectedCharacterID
 	if s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(firstID, secondID) {
-		return
+		return nil
 	}
 	s.tradeMu.Lock()
 	defer s.tradeMu.Unlock()
@@ -84,11 +89,11 @@ func (s *Service) beginOnlineItemTrade(first, second *gameSession) {
 	}
 	for _, id := range []uint16{firstID, secondID} {
 		if old := s.itemTrades[id]; old != nil {
-			delete(s.itemTrades, old.participants[0])
-			delete(s.itemTrades, old.participants[1])
+			return nil
 		}
 	}
 	trade := &onlineItemTrade{
+		opening:      opening,
 		participants: [2]uint16{firstID, secondID},
 		accounts:     map[uint16]string{firstID: strings.TrimSpace(first.accountID), secondID: strings.TrimSpace(second.accountID)},
 		offers: map[uint16]map[uint16]onlineItemTradeOffer{
@@ -100,6 +105,7 @@ func (s *Service) beginOnlineItemTrade(first, second *gameSession) {
 	}
 	s.itemTrades[firstID] = trade
 	s.itemTrades[secondID] = trade
+	return trade
 }
 
 func (s *Service) handleOnlineItemTradeCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
@@ -109,6 +115,12 @@ func (s *Service) handleOnlineItemTradeCommand(session *gameSession, typ uint16,
 	trade := s.currentOnlineItemTrade(session.selectedCharacterID)
 	if trade == nil {
 		return false, nil
+	}
+	s.tradeMu.Lock()
+	opening := trade.opening
+	s.tradeMu.Unlock()
+	if opening && (typ == currentItemTradeMoveMsg || typ == currentItemTradeReadyMsg) {
+		return true, s.sendGameUpperFailure(session, typ, 1)
 	}
 	switch typ {
 	case currentItemTradeMoveMsg:

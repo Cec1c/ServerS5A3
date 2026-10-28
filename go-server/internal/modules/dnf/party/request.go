@@ -47,6 +47,8 @@ type ResponsePeerRequest struct {
 	TargetID uint16
 	Mode     byte
 	Value    uint32
+	// Current trade prompt cancellation appends u16 reason 133.
+	RejectReason uint16
 }
 
 // RequestPeerRequest 保存 0x000A 的通用 peer 请求体。
@@ -209,14 +211,21 @@ func DecodeRequestPeerRequest(body []byte) (RequestPeerRequest, error) {
 
 // DecodeResponsePeerRequest 按 EXE 发送点解析：u16 target + u8 mode + u32 value。
 func DecodeResponsePeerRequest(body []byte) (ResponsePeerRequest, error) {
-	if len(body) != 7 {
+	if len(body) != 7 && len(body) != 9 {
 		return ResponsePeerRequest{}, errResponsePeerBodyShort
 	}
-	return ResponsePeerRequest{
+	request := ResponsePeerRequest{
 		TargetID: binary.LittleEndian.Uint16(body[:2]),
 		Mode:     body[2],
 		Value:    binary.LittleEndian.Uint32(body[3:7]),
-	}, nil
+	}
+	if len(body) == 9 {
+		request.RejectReason = binary.LittleEndian.Uint16(body[7:])
+		if request.Mode != 1 || request.RejectReason != 133 {
+			return ResponsePeerRequest{}, errResponsePeerBodyShort
+		}
+	}
+	return request, nil
 }
 
 // DecodeWalkoutPartyMemberRequest 按 EXE sub_32513D0 case 6 解析：body 只写入 u8 slot。
