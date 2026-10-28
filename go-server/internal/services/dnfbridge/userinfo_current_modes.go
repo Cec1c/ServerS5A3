@@ -135,7 +135,7 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *pack
 		w.writeBytes(r.peerSkills)
 	} else if r.ctx != nil && r.ctx.Value(nativePeerProfileSkillsKey{}) == r.characterID {
 		writePeerSkillPageBlock(w, peerSkillPageSelectedResourceGroup, r.loadPeerSkillPageSkills(r.characterID))
-	} else if buffSwapReapplyEnabled() && r.ctx != nil && r.ctx.Value(nativePeerBuffInspectKey{}) == r.characterID {
+	} else if r.service.buffSwapReapplyEnabled() && r.ctx != nil && r.ctx.Value(nativePeerBuffInspectKey{}) == r.characterID {
 		r.writeNativePeerBuffSkillPage(w)
 	} else if peerSkillPageEnabled() {
 		writePeerSkillPageBlock(w, peerSkillPageSelectedResourceGroup, r.loadPeerSkillPageSkills(r.characterID))
@@ -205,7 +205,7 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode1ObjectTail(w *pack
 		writeCurrentMode1EquipmentCreateRow(w, row)
 	}
 	w.writeUint32(0) // sub_1D77560 final state dword
-	if buffSwapReapplyEnabled() {
+	if r.service.buffSwapReapplyEnabled() {
 		r.writeNativeBuffSwapUserInfo(w)
 	} else {
 		if len(equipmentRows) > 0 && len(updateRows) == 0 {

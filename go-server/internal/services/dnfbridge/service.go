@@ -755,6 +755,7 @@ func (s *Service) Start(ctx context.Context) error {
 		// （别名 early_only）= 改动前的四条边界档；record = 只落库不下发；
 		// reference_drop = 逐字节回到改动前（收下即丢）。见 skill_switch_inventory.go。
 		"skill_switch_inventory", s.skillSwitchInventoryMode(),
+		"buff_swap_registration_enabled", s.buffSwapReapplyEnabled(),
 		// op1428 **上行记录读法**：默认 v4 = 修复档（真实包体 4 字节
 		// `u8 slot | u8 mode | u16 value`；现行分帧交来的 6 字节按 dual-read 去前缀，
 		// 落库写 4 字节规范形）；v6（别名 legacy/today/old/6）= 逐字节回到改动前。

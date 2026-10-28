@@ -10,6 +10,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/party"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -140,6 +141,26 @@ func peerUserInfoActiveDungeonRequest(targetID uint16) []byte {
 	return []byte{byte(targetID), byte(targetID >> 8), currentPeerUserInfoMode}
 }
 
+func peerUserInfoActiveDungeonResponse(t *testing.T, data []byte, targetID uint16, owner byte) dnfproto.ChannelPacket {
+	t.Helper()
+	// Current clients always receive the Buff-only mode1 envelope before the
+	// mode3 detail. Consume and validate both frames, including actor ownership.
+	buff, rest := splitLongHengGameServerUpperPacket(t, data)
+	if buff.Header.Classification != 0 || buff.Header.MsgID != uint16(dnfenum.CmdPacketSetUDPIPPort) ||
+		len(buff.Body) < 23 || buff.Body[0] != 1 || buff.Body[4] != owner ||
+		binary.LittleEndian.Uint16(buff.Body[21:23]) != targetID {
+		t.Fatalf("invalid Buff carrier for target %d, owner %d: %x", targetID, owner, buff.Body)
+	}
+	detail, tail := splitLongHengGameServerUpperPacket(t, rest)
+	if len(tail) != 0 || detail.Header.Classification != 0 ||
+		detail.Header.MsgID != uint16(dnfenum.CmdPacketSetUDPIPPort) ||
+		len(detail.Body) < 15 || detail.Body[0] != currentPeerUserInfoMode ||
+		detail.Body[4] != owner || binary.LittleEndian.Uint16(detail.Body[13:15]) != targetID {
+		t.Fatalf("invalid detail after Buff carrier: body=%x trailing=%d", detail.Body, len(tail))
+	}
+	return detail
+}
+
 func assertPeerUserInfoActiveDungeonRejected(t *testing.T, fixture *peerUserInfoActiveDungeonFixture, requestSession *gameSession) {
 	t.Helper()
 	handled, err := fixture.service.handleCurrentPeerUserInfoRequest(
@@ -176,10 +197,7 @@ func TestPeerUserInfoActiveDungeonSameRunSendsMode3TargetID(t *testing.T) {
 	if !handled {
 		t.Fatal("mode3 dungeon peer request was not consumed")
 	}
-	packet, rest := splitLongHengGameServerUpperPacket(t, fixture.source.conn.(*bufferConn).write.Bytes())
-	if len(rest) != 0 {
-		t.Fatalf("unexpected trailing bytes: %x", rest)
-	}
+	packet := peerUserInfoActiveDungeonResponse(t, fixture.source.conn.(*bufferConn).write.Bytes(), 1002, 10)
 	if packet.Header.Classification != 0 || packet.Header.MsgID != uint16(dnfenum.CmdPacketSetUDPIPPort) {
 		t.Fatalf("response header=%+v", packet.Header)
 	}
@@ -207,9 +225,9 @@ func TestPeerUserInfoActiveDungeonOwnerUsesConnectionContextAcrossDungeonActorPl
 			if err != nil {
 				t.Fatal(err)
 			}
-			packet, rest := splitLongHengGameServerUpperPacket(t, fixture.source.conn.(*bufferConn).write.Bytes())
-			if len(rest) != 0 || len(packet.Body) < 0x17 {
-				t.Fatalf("invalid mode3 response: body=%d rest=%d", len(packet.Body), len(rest))
+			packet := peerUserInfoActiveDungeonResponse(t, fixture.source.conn.(*bufferConn).write.Bytes(), 1002, 10)
+			if len(packet.Body) < 0x17 {
+				t.Fatalf("invalid mode3 response: body=%d", len(packet.Body))
 			}
 			if got, want := packet.Body[4], byte(10); got != want {
 				t.Fatalf("mode3 owner=%d want active connection owner %d", got, want)
@@ -373,9 +391,9 @@ func TestPeerUserInfoActiveDungeonUsesRetainedConnectionOwner(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			packet, rest := splitLongHengGameServerUpperPacket(t, fixture.source.conn.(*bufferConn).write.Bytes())
-			if len(rest) != 0 || len(packet.Body) < 15 || packet.Body[4] != 10 {
-				t.Fatalf("retained owner response=%x rest=%d", packet.Body[:min(15, len(packet.Body))], len(rest))
+			packet := peerUserInfoActiveDungeonResponse(t, fixture.source.conn.(*bufferConn).write.Bytes(), 1002, 10)
+			if len(packet.Body) < 15 || packet.Body[4] != 10 {
+				t.Fatalf("retained owner response=%x", packet.Body[:min(15, len(packet.Body))])
 			}
 		})
 	}
