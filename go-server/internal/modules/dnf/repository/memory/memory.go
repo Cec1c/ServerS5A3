@@ -20,7 +20,7 @@ func NewMemoryGroup() repository.Group {
 	quests := db.NewMemoryStore(repository.QuestKey, repository.CloneQuest)
 	skills := db.NewMemoryStore(repository.SkillKey, repository.CloneSkill)
 	dungeonPermissions := newMemoryDungeonPermissionStore()
-	settings := db.NewMemoryStore(repository.SettingsKey, repository.CloneSettings)
+	settings := &memorySettingsStore{db.NewMemoryStore(repository.SettingsKey, repository.CloneSettings)}
 	mailboxes := db.NewMemoryStore(repository.MailboxKey, repository.CloneMailbox)
 	aggregateTxMu := &sync.Mutex{}
 	return repository.Group{
