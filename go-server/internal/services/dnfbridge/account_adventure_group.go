@@ -162,22 +162,28 @@ func (s *Service) currentAccountAdventureGroupInfoState(
 		return accountAdventureGroupState{}, fmt.Errorf("load adventure-group runtime account: %w", loadErr)
 	}
 	if found {
-		total, err := dnfpvp.ReadTotalProgress(account)
-		if err != nil {
-			return accountAdventureGroupState{}, fmt.Errorf("读取冒险团决斗累计胜场：%w", err)
-		}
-		// 三角色总力战使用账号战绩，领域结算不增加三个角色的个人胜场。
-		state.Projection.AddContentCount(adventuregroup.ContentTypePVPWin, total.Stats[dnfpvp.WinsKey])
-		state.Projection.CollectionSelections = adventuregroup.CollectionSelections(account)
-		runtime, parseErr := adventuregroup.ParseRuntimeState(account, s.adventureGroupTable.Runtime(), s.gameplayNow())
-		if parseErr != nil {
-			return accountAdventureGroupState{}, parseErr
-		}
-		state.Projection.Runtime = runtime
-		if config := s.adventureGroupTable.Runtime(); len(config.CollectionGroups) > 0 {
-			rows := adventuregroup.CollectionRows(state.Characters, state.Projection.CollectionSelections, currentAdventureCharacterLevelCap)
-			state.Projection.CollectionCounts = config.CollectionCounts(rows, currentAdventureCharacterLevelCap)
-		}
+		return s.projectCurrentAdventureAccountState(state, account)
+	}
+	return state, nil
+}
+
+// Shared read-only projection; observing a login remains the caller's choice.
+func (s *Service) projectCurrentAdventureAccountState(state accountAdventureGroupState, account dnfrepo.AccountRecord) (accountAdventureGroupState, error) {
+	total, err := dnfpvp.ReadTotalProgress(account)
+	if err != nil {
+		return accountAdventureGroupState{}, fmt.Errorf("读取冒险团决斗累计胜场：%w", err)
+	}
+	// 三角色总力战使用账号战绩，领域结算不增加三个角色的个人胜场。
+	state.Projection.AddContentCount(adventuregroup.ContentTypePVPWin, total.Stats[dnfpvp.WinsKey])
+	state.Projection.CollectionSelections = adventuregroup.CollectionSelections(account)
+	runtime, parseErr := adventuregroup.ParseRuntimeState(account, s.adventureGroupTable.Runtime(), s.gameplayNow())
+	if parseErr != nil {
+		return accountAdventureGroupState{}, parseErr
+	}
+	state.Projection.Runtime = runtime
+	if config := s.adventureGroupTable.Runtime(); len(config.CollectionGroups) > 0 {
+		rows := adventuregroup.CollectionRows(state.Characters, state.Projection.CollectionSelections, currentAdventureCharacterLevelCap)
+		state.Projection.CollectionCounts = config.CollectionCounts(rows, currentAdventureCharacterLevelCap)
 	}
 	return state, nil
 }

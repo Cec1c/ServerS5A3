@@ -13,6 +13,9 @@ import (
 func TestDungeonSelectDoesNotReplayOp27AfterTownEnterSelectPage(t *testing.T) {
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, bridgeDungeonPVF(false))
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99",
 		AccountID:   "account-1",

@@ -90,16 +90,9 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		packets = append(packets, currentAntonRewardPacket{opcode: 587, body: []byte{4, 0}})
 		if owner != nil {
 			var cards []raid.RewardDisplayCard
-			var visible map[uint16]bool
-			if lukePartyOnly || fiendWar {
-				visible = s.currentRaidPartyRewardDisplayMembers(session, state)
-			}
+			visible := s.currentRaidPartyRewardDisplayMembers(session, state)
 			for _, recipient := range f.Recipients {
-				if lukePartyOnly || fiendWar {
-					if !visible[recipient.CharacterID] {
-						continue
-					}
-				} else if recipient.Group != owner.Group {
+				if !visible[recipient.CharacterID] {
 					continue
 				}
 				card := raid.RewardDisplayCard{CharacterID: recipient.CharacterID, CardType: byte(len(cards) + 1)}
@@ -252,6 +245,7 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	for _, packet := range packets {
 		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 1 {
 			s.raidMu.Lock()
+			s.markCurrentAntonPartyShownLocked(b.InstanceID, b.Phase, time.Now())
 			if owner != nil && f.SquadShownAt.IsZero() {
 				s.markCurrentRaidPartySelectionShownLocked(b.InstanceID, b.Phase, owner.CharacterID, time.Now())
 			}
@@ -273,6 +267,21 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 			_ = session.conn.Close()
 		}
 		return err
+	}
+	if err := s.refreshCurrentRaidFateSnapshot(session); err != nil {
+		return err
+	}
+	for _, card := range []*currentAntonRewardCard{f.Party[session.selectedCharacterID], f.Squad[session.selectedCharacterID]} {
+		if card != nil && card.Committed && !currentRaidRewardVouchers(card.Plan).IsZero() {
+			if err := s.sendCurrentAccountWallet(session); err != nil {
+				o.failed = true
+				if session.conn != nil {
+					_ = session.conn.Close()
+				}
+				return err
+			}
+			break
+		}
 	}
 	if trackedScreen {
 		for _, packet := range packets {
