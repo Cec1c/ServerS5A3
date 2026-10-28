@@ -852,6 +852,9 @@ func runRequiredItemDungeonSelectStreamForTournamentControl(t *testing.T) []byte
 	source["dungeon/test.dgn"] += "[required item]\n4726 1 1\n[/required item]\n"
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, source)
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99",
 		AccountID:   "account-1",

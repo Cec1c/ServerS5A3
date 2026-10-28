@@ -36,6 +36,9 @@ func partyDungeonDeathFixture(t *testing.T) (*Service, *gameSession, *gameSessio
 	)
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, source)
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, characterID := range []string{"99", "100"} {
 		if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 			CharacterID: characterID,

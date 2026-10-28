@@ -86,6 +86,9 @@ func newSeekerLukeNextFixture(t *testing.T, source bridgePVFSource) *seekerLukeN
 	t.Helper()
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, source)
 	repos := dnfrepomemory.NewMemoryGroup()
+	if err := repos.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repos.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99", AccountID: "account-1", Level: 90,
 		Stats: map[string]int64{

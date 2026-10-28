@@ -388,8 +388,14 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 					if f.Mode == 1 && f.Phase == 0 && !f.Single {
 						selectAt = currentAntonPartySelectAt(f, movie)
 					}
-					if (f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single) && !f.PartySelectAfter[owner.CharacterID].IsZero() {
-						selectAt = f.PartySelectAfter[owner.CharacterID]
+					if f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single {
+						// An owner whose card screen really reached its socket uses
+						// exactly the frozen display window. The unattended deadline
+						// remains a fallback only for owners that never displayed, so
+						// a late display cannot be shortened by an earlier fallback.
+						if shown := f.PartySelectAfter[owner.CharacterID]; !shown.IsZero() {
+							selectAt = shown
+						}
 					}
 					if now.Before(selectAt) {
 						s.raidMu.Unlock()
@@ -424,11 +430,12 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 				plan := cloneCurrentAntonRewardPlan(card.Plan)
 				s.raidMu.Unlock()
 				ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-				_, grantErr := grantCurrentAntonRewardPlan(ctx, repos, catalog, plan, command)
+				granted, grantErr := grantCurrentAntonRewardPlan(ctx, repos, catalog, plan, command)
 				cancel()
 				s.raidMu.Lock()
 				if grantErr == nil {
 					card.Committed = true
+					card.Plan.FateGranted = granted.Plan.FateGranted
 				} else {
 					f.NextAttempt = now.Add(2 * time.Second)
 				}
@@ -454,8 +461,10 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		if all && f.SquadShownAt.IsZero() {
 			f.SquadShownAt = now
 		}
-		// Keep the full squad display available for one actual movie window.
-		if all && (currentLukePhase0PartyOnlyRewardSettled(f) || !now.Before(f.SquadShownAt.Add(movie))) {
+		// Luke phase zero has no squad display. Its already-settled party
+		// rewards can enter the break immediately; other modes still retain
+		// the full squad movie window after all asset commits.
+		if all && (!f.squadRequired() || !now.Before(f.SquadShownAt.Add(movie))) {
 			f.FinishedAt = now
 			if f.Mode != 3 && !f.Single && f.Phase == 0 {
 				f.BreakUntil = now.Add(time.Duration(f.Configuration.PhaseBreakSeconds) * time.Second)

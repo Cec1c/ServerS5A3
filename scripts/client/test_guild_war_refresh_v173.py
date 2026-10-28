@@ -61,7 +61,9 @@ class WarNative:
             0x376EC10:self.decoded_packet,0x2523820:lambda:self.ret(8,1),
             0x374EA10:lambda:self.ret(value=self.NETWORK),0x374E9D0:lambda:self.ret(value=0),
             0x374FC40:lambda:self.ret(4),0x37501A0:lambda:self.ret(8),
-            0x8BAB80:lambda:self.ret(value=0),0x769AD0:lambda:self.ret(),
+            # Keep the real opcode-specific error-byte classifier (8BAB80).
+            # Replacing it with zero hides CMD215's missing-error regression.
+            0x769AD0:lambda:self.ret(),
             0x2524210:lambda:self.ret(4,self.NETWORK),0x2523FF0:lambda:self.ret(value=0x2000C000),
             0x37DE240:lambda:self.ret(value=0x2000B800),
             0x45FEA0:self.string_init,0x90D380:lambda:self.ret(4),

@@ -1,8 +1,6 @@
 package dnfbridge
 
 import (
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -75,8 +73,8 @@ func loadCurrentSingleAntonRewards(catalog *pvfDungeonDropCatalog, sequence []ui
 	return config, nil
 }
 
-// Expand only the explicitly equivalent outer single reward source. A rare
-// child booster remains its actual unopened item, matching the normal owner.
+// Expand the equivalent single source and nested random rewards using the
+// same direct-grant policy as normal raids. Player-choice rewards remain.
 func resolveCurrentSingleAntonSquadPlan(catalog *pvfDungeonDropCatalog, phase raid.AntonPhaseRewards, rank byte, roll func(int64) (int64, error), now time.Time) (currentAntonRewardPlan, error) {
 	return resolveCurrentSingleRaidSquadPlan(catalog, phase, rank, roll, now, singleAntonSquadSourceID, singleAntonCombinedSourceID)
 }
@@ -86,29 +84,14 @@ func resolveCurrentSingleRaidSquadPlan(catalog *pvfDungeonDropCatalog, phase rai
 	if err != nil || total != 1 || len(choices) != 1 || choices[0].ContainerID != sourceID || choices[0].Flags != 0 || roll == nil || now.IsZero() {
 		return currentAntonRewardPlan{}, raid.ErrRewardReceipt
 	}
-	box, err := resolveCurrentBoosterDefinition(catalog, sourceID, currentBoosterRequestRandom)
+	plan, err := resolveCurrentAntonConfiguredReward(catalog, choices[0], roll, now)
 	if err != nil {
 		return currentAntonRewardPlan{}, err
 	}
-	amounts, options, err := resolveCurrentBoosterRewardAmounts(box, currentBoosterOpenRequest{Kind: currentBoosterRequestRandom}, roll)
-	if err != nil {
-		return currentAntonRewardPlan{}, err
-	}
-	rewards, err := resolveCurrentBoosterRewards(catalog, amounts, options, repo.ItemStack{}, now.UTC())
-	if err != nil || len(rewards) == 0 || len(rewards) > 255 {
-		return currentAntonRewardPlan{}, raid.ErrRewardReceipt
-	}
-	for _, reward := range rewards {
-		if reward.Count == 0 || reward.Count > math.MaxUint16 || reward.Definition.ItemID == sourceID || reward.Definition.ItemID == combinedID {
+	for _, reward := range plan.Rewards {
+		if reward.Definition.ItemID == sourceID || reward.Definition.ItemID == combinedID {
 			return currentAntonRewardPlan{}, raid.ErrRewardReceipt
 		}
 	}
-	encoded, err := json.Marshal(struct {
-		Choice  raid.AntonRewardChoice
-		Rewards []currentBoosterReward
-	}{choices[0], rewards})
-	if err != nil {
-		return currentAntonRewardPlan{}, err
-	}
-	return currentAntonRewardPlan{Choice: choices[0], Rewards: rewards, Fingerprint: sha256.Sum256(encoded)}, nil
+	return plan, nil
 }
