@@ -8,8 +8,8 @@ import (
 	"longheng.io/server/internal/modules/dnf/repository"
 )
 
-func (s *mysqlSettingsStore) WalkGuildSettlementReceipts(ctx context.Context, since time.Time, visit func(repository.SettingsRecord) error) error {
-	if visit == nil || len(s.router.writeDBs) == 0 {
+func (s *mysqlSettingsStore) WalkGuildSettlementReceipts(ctx context.Context, guildID uint32, since time.Time, visit func(repository.SettingsRecord) error) error {
+	if visit == nil || guildID == 0 || len(s.router.writeDBs) == 0 {
 		return repository.ErrGuildTransaction
 	}
 	for shard, database := range s.router.writeDBs {
@@ -17,8 +17,8 @@ func (s *mysqlSettingsStore) WalkGuildSettlementReceipts(ctx context.Context, si
 		values := mysqlTable(database, s.router.tablePrefix, mysqlSettingValuesTable)
 		// No FOR UPDATE: the caller holds the guild registry lock and receipts
 		// are immutable. The prefix limits the scan to dungeon settlements.
-		query := "SELECT s.scope, s.updated_at, v.entry_value FROM " + settings + " s JOIN " + values + " v ON v.scope = s.scope AND v.entry_key = ? WHERE s.scope LIKE ?"
-		args := []any{"receipt", "guild-clear:v1:%"}
+		query := "SELECT s.scope, s.updated_at, v.entry_value FROM " + settings + " s JOIN " + values + " v ON v.scope = s.scope AND v.entry_key = ? WHERE s.scope LIKE ? AND CASE WHEN JSON_VALID(v.entry_value) THEN JSON_EXTRACT(v.entry_value, '$.GuildDungeon.GuildID') ELSE ? END = ?"
+		args := []any{"receipt", "guild-clear:v1:%", guildID, guildID}
 		if !since.IsZero() {
 			query += " AND s.updated_at >= ?"
 			args = append(args, since.UTC())

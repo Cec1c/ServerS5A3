@@ -27,7 +27,7 @@ func HongbaoContributionMembers(ctx context.Context, settings r.SettingsReposito
 		}
 	}
 	totals := map[string]uint64{}
-	err := reader.WalkGuildSettlementReceipts(ctx, since, func(record r.SettingsRecord) error {
+	err := reader.WalkGuildSettlementReceipts(ctx, g.ID, since, func(record r.SettingsRecord) error {
 		var receipt struct {
 			Version      int
 			Owner        r.GuildOwner
