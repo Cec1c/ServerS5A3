@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -64,6 +65,11 @@ func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte)
 	const opcode = uint16(dnfenum.CmdPacketUseVendingMachine)
 	refuse := func(e error) error {
 		s.logGameEvent(session, "game-black-diamond-vending-rejected", "error", e)
+		if errors.Is(e, vending.ErrBlackDiamondRequired) {
+			// Cumulative client displays the entitlement reason and resets the
+			// pending draw; coins/rewards remain owned by the transaction.
+			return s.sendGameUpperFailure(session, opcode, 23)
+		}
 		return s.sendGameUpperFailure(session, opcode, 1)
 	}
 	if session == nil || session.selectedCharacterID == 0 || len(body) != 10 || binary.LittleEndian.Uint32(body[4:]) != 1 {
