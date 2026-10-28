@@ -94,7 +94,8 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 		settingsBefore[receiptScope] = receipt
 		settingsFound[receiptScope] = receiptFound
 	}
-	group := repository.GuildScopedGroup(repository.Group{Character: chars, Settings: settings}, ordered)
+	readSettings := &memoryGuildReceiptSettings{SettingsRepository: settings, reader: u.settings}
+	group := repository.GuildScopedGroup(repository.Group{Character: chars, Settings: readSettings}, ordered)
 	if receiptScope != "" {
 		group.Settings = repository.GuildDungeonEntrySettings(memoryGuildDungeonEntrySettings(settingsTransactions), receiptScope)
 	}

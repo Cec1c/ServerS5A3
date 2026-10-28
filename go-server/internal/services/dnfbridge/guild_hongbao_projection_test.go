@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/guild"
+	r "longheng.io/server/internal/modules/dnf/repository"
 )
 
 func TestGuildHongbaoPointsProjectsCurrentCharacterWithoutSaving(t *testing.T) {
@@ -31,6 +33,14 @@ func TestGuildHongbaoPointsProjectsCurrentCharacterWithoutSaving(t *testing.T) {
 	if err := repos.Character.Save(ctx, actor); err != nil {
 		t.Fatal(err)
 	}
+	owner := r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID}
+	receipt, err := json.Marshal(map[string]any{"Version": 1, "Owner": owner, "GuildDungeon": guild.DungeonClearResult{GuildID: 1, Contribution: 60}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Settings.Save(ctx, r.SettingsRecord{Scope: r.GuildSettlementReceiptScope(owner, "projection-clear"), Values: map[string]string{"receipt": string(receipt)}, UpdatedAt: s.gameplayNow()}); err != nil {
+		t.Fatal(err)
+	}
 	before, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)
 	for range 2 {
 		guildDispatch(t, s, peers[0], 1301, nil)
@@ -39,7 +49,7 @@ func TestGuildHongbaoPointsProjectsCurrentCharacterWithoutSaving(t *testing.T) {
 			t.Fatalf("packet=%x", packet)
 		}
 		row := packet[5:45]
-		if row[4] != 90 || !bytes.Equal(bytes.TrimRight(row[5:35], "\x00"), rosterNameBytes(actor.Name)) || binary.LittleEndian.Uint32(row[35:39]) != 74 {
+		if row[4] != 90 || !bytes.Equal(bytes.TrimRight(row[5:35], "\x00"), rosterNameBytes(actor.Name)) || binary.LittleEndian.Uint32(row[35:39]) != 14 {
 			t.Fatalf("stale/incorrect hongbao projection: %x", row)
 		}
 	}

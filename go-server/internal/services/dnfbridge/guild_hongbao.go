@@ -74,6 +74,10 @@ func (s *Service) handleCurrentGuildHongbaoQuery(session *gameSession, op uint16
 			return guild.ErrNotMember
 		}
 		members = guild.SortedMembers(g)
+		if op == currentGuildHongbaoPointsOpcode {
+			members, e = guild.HongbaoContributionMembers(ctx, tx.Settings, g)
+			return e
+		}
 		return nil
 	})
 	if !s.boundGameSessionCharacterCurrent(source) {
