@@ -84,6 +84,22 @@ func (s *Service) handleCurrentGuildHongbaoQuery(session *gameSession, op uint16
 	}
 	var response []byte
 	if op == currentGuildHongbaoPointsOpcode {
+		// Membership stores the profile observed when joining. Project current
+		// character data after releasing the guild transaction: its character
+		// scope only contains the requester, not every listed member.
+		current := members[:0]
+		for _, member := range members {
+			character, found, e := repos.Character.Load(ctx, member.CharacterID)
+			if e != nil {
+				return fail()
+			}
+			if !found || character.CharacterID != member.CharacterID || character.AccountID != member.AccountID || character.Stats["delete_flag"] != 0 {
+				continue
+			}
+			member.Name, member.Level = character.Name, character.Level
+			current = append(current, member)
+		}
+		members = current
 		response, err = buildCurrentGuildHongbaoPointsBody(members)
 		if err != nil {
 			return fail()
@@ -100,6 +116,9 @@ func (s *Service) handleCurrentGuildHongbaoQuery(session *gameSession, op uint16
 		w.writeUint32(0) // Claims: no transactions exist in this implementation.
 		w.writeUint32(0) // Empty hongbao collection.
 		response = w.bytes()
+	}
+	if !s.boundGameSessionCharacterCurrent(source) {
+		return nil
 	}
 	return s.sendGameUpperSuccess(session, op, response)
 }
