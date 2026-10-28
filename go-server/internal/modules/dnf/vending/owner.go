@@ -2,6 +2,7 @@ package vending
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/dungeon"
 	"longheng.io/server/internal/modules/dnf/premium"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"time"
 )
+
+var ErrBlackDiamondRequired = errors.New("black diamond required")
 
 type Command struct {
 	AccountID, CharacterID string
@@ -41,7 +44,7 @@ func Use(ctx context.Context, repos repo.Group, cmd Command) (Result, error) {
 			return e
 		}
 		if !found || !premium.Active(account, premium.TypeBlackDiamond, cmd.Now) {
-			return fmt.Errorf("black diamond required")
+			return ErrBlackDiamondRequired
 		}
 		character, found, e := characters.Load(ctx, cmd.CharacterID)
 		if e != nil {

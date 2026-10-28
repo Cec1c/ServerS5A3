@@ -2,6 +2,7 @@ package vending
 
 import (
 	"context"
+	"errors"
 	"longheng.io/server/internal/modules/dnf/dungeon"
 	"longheng.io/server/internal/modules/dnf/premium"
 	repo "longheng.io/server/internal/modules/dnf/repository"
@@ -20,7 +21,7 @@ func TestVendingRequiresBlackDiamondAndRollsBackCoinWhenRewardCannotFit(t *testi
 	repos.Character.Save(ctx, repo.CharacterRecord{AccountID: account.AccountID, CharacterID: "99"})
 	repos.Inventory.Save(ctx, repo.InventoryRecord{CharacterID: "99", Slots: map[string]repo.ItemStack{"0:10": {ItemID: 7454, Count: 2}, "0:11": {ItemID: 7000, Count: 1}}})
 	cmd := Command{AccountID: account.AccountID, CharacterID: "99", CoinID: 7454, CoinCount: 1, CoinSlot: 10, Now: now, Reward: dungeon.CardItemReward{Stack: repo.ItemStack{ItemID: 7463, Count: 4}, Stackable: true, SlotStart: 11, SlotEnd: 11}}
-	if _, e := Use(ctx, repos, cmd); e == nil {
+	if _, e := Use(ctx, repos, cmd); !errors.Is(e, ErrBlackDiamondRequired) {
 		t.Fatal("ordinary account used black diamond machine")
 	}
 	account.Metadata[premium.MetadataKey(premium.TypeBlackDiamond)] = strconv.FormatInt(now.Add(time.Hour).Unix(), 10)
