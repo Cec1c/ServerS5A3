@@ -14,7 +14,7 @@ import (
 
 func currentNativeWhisperFixture(target byte) []byte {
 	// Produced by current EXE 0x201BFF7 / 0x348F65B with native scalar
-	// writers; synthetic message and GBK recipient name, final opaque u8=7.
+	// writers; synthetic message and GBK recipient name, final character group u8=7.
 	body, _ := hex.DecodeString("240000000000001300000068656c6c6f203c6974656d3a3930303030313e06000000c0b4c0b4c0b407")
 	body[1] = target
 	return body
@@ -58,7 +58,9 @@ func TestCurrentNativeWhisperResolvesNameAcrossAreasAndDoesNotBroadcast(t *testi
 		spectator := &gameSession{conn: spectatorConn, channel: source.channel, accountID: "dnf:3", selectedCharacterID: 9}
 		service.bindGameSessionCharacter(spectator, 9)
 		service.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 9, TownID: 1, AreaID: 1, Session: spectator})
-		if err := service.handleCurrentPeerChat(source, 17, currentNativeWhisperFixture(targetID)); err != nil {
+		body := currentNativeWhisperFixture(targetID)
+		body[len(body)-1] = 0 // This fixture repository owns character group zero.
+		if err := service.handleCurrentPeerChat(source, 17, body); err != nil {
 			t.Fatal(err)
 		}
 		ack, rest := splitGameServerUpperPacket(t, sourceConn.write.Bytes())
@@ -66,14 +68,14 @@ func TestCurrentNativeWhisperResolvesNameAcrossAreasAndDoesNotBroadcast(t *testi
 			t.Fatalf("ACK %+v", ack)
 		}
 		echo, rest := splitGameServerUpperPacket(t, rest)
-		want := buildCurrentOfficialWhisperBody(42, "pouut", "来来来", []byte("hello <item:900001>"))
+		want := buildCurrentOfficialWhisperBody(0, "pouut", "来来来", []byte("hello <item:900001>"))
 		if echo.Header.MsgID != 65 || echo.Header.Classification != 0 || !bytes.Equal(echo.Body, want) || len(rest) != 0 {
 			t.Fatal("sender message route or extra trade-state notification")
 		}
 		notice, rest := splitGameServerUpperPacket(t, targetConn.write.Bytes())
-		want = buildCurrentOfficialWhisperBody(42, "pouut", "pouut", []byte("hello <item:900001>"))
+		want = buildCurrentOfficialWhisperBody(0, "pouut", "pouut", []byte("hello <item:900001>"))
 		if notice.Header.MsgID != 65 || notice.Header.Classification != 0 || !bytes.Equal(notice.Body, want) || len(rest) != 0 {
-			t.Fatal("private notice altered bytes or sender channel")
+			t.Fatal("private notice altered bytes or sender group")
 		}
 		if spectatorConn.write.Len() != 0 {
 			t.Fatal("private text leaked to town")

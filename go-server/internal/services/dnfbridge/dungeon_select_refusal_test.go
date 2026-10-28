@@ -35,6 +35,9 @@ func newDungeonSelectRefusalFixture(
 	t.Helper()
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, bridgeDungeonPVF(false))
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), character); err != nil {
 		t.Fatal(err)
 	}
@@ -289,6 +292,9 @@ func TestHandleDungeonSelectUpperAnswersUnsupportedEntryMode(t *testing.T) {
 func TestHandleDungeonSelectUpperSuccessPathStaysByteIdentical(t *testing.T) {
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, bridgeDungeonPVF(false))
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99",
 		AccountID:   "account-1",

@@ -11,6 +11,7 @@ import (
 	dnfenum "longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
@@ -40,8 +41,50 @@ func requireCurrentSelectInventoryBootstrapPackets(t *testing.T, stream []byte) 
 	return stream, lists, lockSnapshot
 }
 
+func requireCurrentFateLoginTailPackets(
+	t *testing.T,
+	stream []byte,
+	headerSize int,
+	wantBalance uint32,
+	wantEarned uint32,
+) ([]byte, dnfproto.ChannelPacket, dnfproto.ChannelPacket) {
+	t.Helper()
+	// This helper knows its fixture's transport. A nonzero sequence in a
+	// 16-byte header must not be mistaken for a 13-byte header plus body.
+	listPacket, rest := splitGameServerUpperPacketWithHeader(t, stream, headerSize)
+	if listPacket.Header.Classification != 0 ||
+		listPacket.Header.MsgID != uint16(dnfenum.CmdPacketLeaveParty) ||
+		len(listPacket.Body) != 3+currentItemListEntryWireSize ||
+		listPacket.Body[0] != currentRaidCurrencyListType ||
+		binary.LittleEndian.Uint16(listPacket.Body[1:3]) != 1 {
+		t.Fatalf("Fate login list44 packet=%+v body=%x", listPacket.Header, listPacket.Body)
+	}
+	row := listPacket.Body[3:]
+	if binary.LittleEndian.Uint16(row[0:2]) != 0 ||
+		binary.LittleEndian.Uint32(row[2:6]) != raidcurrency.FateItemID ||
+		binary.LittleEndian.Uint32(row[6:10]) != wantBalance {
+		t.Fatalf("Fate login list44 row=%x want item=%d balance=%d", row, raidcurrency.FateItemID, wantBalance)
+	}
+	weekly, rest := splitGameServerUpperPacketWithHeader(t, rest, headerSize)
+	if weekly.Header.Classification != 0 ||
+		weekly.Header.MsgID != 1456 ||
+		len(weekly.Body) != 14 ||
+		binary.LittleEndian.Uint16(weekly.Body[0:2]) != 1 ||
+		binary.LittleEndian.Uint32(weekly.Body[2:6]) != raidcurrency.FateItemID ||
+		binary.LittleEndian.Uint32(weekly.Body[6:10]) != wantEarned ||
+		binary.LittleEndian.Uint32(weekly.Body[10:14]) != raidcurrency.WeeklyLimit {
+		t.Fatalf("Fate login weekly packet=%+v body=%x want earned=%d", weekly.Header, weekly.Body, wantEarned)
+	}
+	return rest, listPacket, weekly
+}
+
 func TestCurrentSelectInventoryBootstrapIsBoundToSelectedCharacter(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{
+		AccountID: defaultAccountPrefix + "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, characterID := range []string{"77", "78"} {
 		if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 			CharacterID: characterID,
@@ -74,6 +117,7 @@ func TestCurrentSelectInventoryBootstrapIsBoundToSelectedCharacter(t *testing.T)
 		t.Fatal(err)
 	}
 	rest, _, _ := requireCurrentSelectInventoryBootstrapPackets(t, connection.write.Bytes())
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	if len(rest) != 0 {
 		t.Fatalf("first character emitted trailing packets: %x", rest)
 	}
@@ -96,6 +140,7 @@ func TestCurrentSelectInventoryBootstrapIsBoundToSelectedCharacter(t *testing.T)
 		t.Fatal(err)
 	}
 	rest, _, _ = requireCurrentSelectInventoryBootstrapPackets(t, connection.write.Bytes())
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	if len(rest) != 0 {
 		t.Fatalf("second character emitted trailing packets: %x", rest)
 	}
@@ -157,6 +202,7 @@ func TestCurrentSelectInventoryBootstrapCarriesRealItemsForAllSixLists(t *testin
 		t.Fatal(err)
 	}
 	rest, lists, _ := requireCurrentSelectInventoryBootstrapPackets(t, connection.write.Bytes())
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	if len(rest) != 0 {
 		t.Fatalf("real item bootstrap emitted trailing packets: %x", rest)
 	}
@@ -192,7 +238,14 @@ func TestCurrentSelectInventoryBootstrapCarriesRealItemsForAllSixLists(t *testin
 
 func TestCurrentSelectInventoryBootstrapSendsDurableItemLockSnapshotAfterContainers(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
-	if err := repositories.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{
+	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{
 		CharacterID: "77",
 		Slots: map[string]dnfrepo.ItemStack{
 			"0:108": {ItemID: 490701734, Count: 36},
@@ -205,14 +258,18 @@ func TestCurrentSelectInventoryBootstrapSendsDurableItemLockSnapshotAfterContain
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true }}
+	service := &Service{
+		options:            options{accountID: "dnf:77"},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+	}
 	connection := &bufferConn{}
-	session := &gameSession{conn: connection, connID: "select-item-lock-snapshot", selectedCharacterID: 77}
+	session := &gameSession{conn: connection, connID: "select-item-lock-snapshot", accountID: "dnf:77", selectedCharacterID: 77}
 
 	if err := service.sendCurrentSelectInventoryBootstrap(session, "item_lock_snapshot"); err != nil {
 		t.Fatal(err)
 	}
 	rest, _, snapshot := requireCurrentSelectInventoryBootstrapPackets(t, connection.write.Bytes())
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	if len(rest) != 0 {
 		t.Fatalf("lock snapshot emitted trailing packets: %x", rest)
 	}
@@ -227,14 +284,21 @@ func TestCurrentSelectInventoryBootstrapSendsDurableItemLockSnapshotAfterContain
 
 func TestCurrentSelectInventoryBootstrapPreservesAccountSharedNativeRowsInList0(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
-	if err := repositories.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{
+	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{
 		CharacterID: "77",
 		Slots:       map[string]dnfrepo.ItemStack{"0:3": {ItemID: 1001, Count: 2}},
 		Warehouse:   map[string]dnfrepo.ItemStack{},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repositories.AccountInventory.Save(context.Background(), dnfrepo.AccountInventoryRecord{
+	if err := repositories.AccountInventory.Save(ctx, dnfrepo.AccountInventoryRecord{
 		AccountID: "dnf:77",
 		Slots: map[string]dnfrepo.ItemStack{
 			"0:354": {ItemID: 3033, Count: 13, RawEntry: bytes.Repeat([]byte{0x5a}, currentItemListEntryWireSize)},
@@ -248,12 +312,13 @@ func TestCurrentSelectInventoryBootstrapPreservesAccountSharedNativeRowsInList0(
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
 	}
 	connection := &bufferConn{}
-	session := &gameSession{conn: connection, connID: "select-virtual-counters", selectedCharacterID: 77}
+	session := &gameSession{conn: connection, connID: "select-virtual-counters", accountID: "dnf:77", selectedCharacterID: 77}
 
 	if err := service.sendCurrentSelectInventoryBootstrap(session, "virtual_counters"); err != nil {
 		t.Fatal(err)
 	}
 	rest, lists, _ := requireCurrentSelectInventoryBootstrapPackets(t, connection.write.Bytes())
+	rest, _, _ = requireCurrentFateLoginTailPackets(t, rest, dnfproto.GameServerUpperHeaderSize, 0, 0)
 	if len(rest) != 0 {
 		t.Fatalf("account-shared list0 bootstrap emitted trailing packets: %x", rest)
 	}
@@ -286,6 +351,12 @@ func (repository *failAfterInventoryLoads) Load(ctx context.Context, characterID
 
 func TestCurrentSelectInventoryBootstrapDoesNotSendPartialContainerPlan(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{
 		CharacterID: "77",
 		Slots:       map[string]dnfrepo.ItemStack{},
@@ -303,6 +374,7 @@ func TestCurrentSelectInventoryBootstrapDoesNotSendPartialContainerPlan(t *testi
 	session := &gameSession{
 		conn:                connection,
 		connID:              "select-inventory-atomic-plan",
+		accountID:           "dnf:77",
 		channel:             channelcatalog.Channel{ID: 38},
 		selectedCharacterID: 77,
 	}
@@ -323,6 +395,12 @@ func TestCurrentSelectInventoryBootstrapDoesNotSendPartialContainerPlan(t *testi
 
 func TestCurrentSelectInventoryBootstrapWriteFailureDoesNotCommitCharacterGate(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "dnf:77"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{
 		CharacterID: "77",
 		Slots:       map[string]dnfrepo.ItemStack{},
@@ -339,6 +417,7 @@ func TestCurrentSelectInventoryBootstrapWriteFailureDoesNotCommitCharacterGate(t
 	session := &gameSession{
 		conn:                connection,
 		connID:              "select-inventory-write-failure",
+		accountID:           "dnf:77",
 		channel:             channelcatalog.Channel{ID: 38},
 		selectedCharacterID: 77,
 	}

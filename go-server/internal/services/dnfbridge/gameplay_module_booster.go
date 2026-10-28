@@ -12,8 +12,10 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfbooster "longheng.io/server/internal/modules/dnf/booster"
+	"longheng.io/server/internal/modules/dnf/cerashop"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/premium"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -150,6 +152,16 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 	if err := s.sendAlignedPremiumContractActivations(session, "use_booster_item", result.ContractActivations); err != nil {
 		return err
 	}
+	if result.FateCurrencyChanged {
+		if err := s.refreshCurrentFateSnapshot(session); err != nil {
+			return err
+		}
+	}
+	if result.WalletChanged {
+		if err := s.sendCurrentAccountWallet(session); err != nil {
+			return err
+		}
+	}
 	if definition.ItemUsage != nil {
 		if err := s.sendCurrentItemUsageForSession(session, "use_booster_item"); err != nil {
 			return err
@@ -207,9 +219,20 @@ func (s *Service) commitCurrentBooster(
 			contractRewards[int64(itemID)] = contract
 		}
 	}
-	// op27的奖励展示要求真实背包实例；该不支持的组合在扣道具前拒绝。
-	if request.AllowLotteryGold && len(contractRewards) > 0 {
-		return currentBoosterCommitResult{}, fmt.Errorf("%w: lottery contract reward needs native projection", errCurrentBoosterPVFInvalid)
+	vouchers := cerashop.VoucherCounts{}
+	for id, count := range rewardAmounts {
+		vouchers = vouchers.Add(currentRewardVoucherCounts(id, count))
+	}
+	// op27 requires a real item-container projection before any asset mutation.
+	if request.AllowLotteryGold {
+		// Official CMD27 classifies Fate into the real account container (44)
+		// and adds the row count. Only the pure Fate outcome has this projection;
+		// mixed rewards and contracts still need a separate native contract.
+		unsupportedFate := rewardAmounts[raidcurrency.FateItemID] > 0 &&
+			(s.options.currentClientVersion != "official-24.9" || len(rewardAmounts) != 1 || goldAmount > 0)
+		if len(contractRewards) > 0 || unsupportedFate || !vouchers.IsZero() {
+			return currentBoosterCommitResult{}, fmt.Errorf("%w: lottery reward needs native projection", errCurrentBoosterPVFInvalid)
+		}
 	}
 	accountID, characterID, owner, err := s.currentBoosterMutationOwner(session)
 	if err != nil {
@@ -231,7 +254,7 @@ func (s *Service) commitCurrentBooster(
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
 		ItemUsage:     definition.ItemUsage,
-		AccountLedger: len(pieceRewards) > 0 || len(contractRewards) > 0,
+		AccountLedger: len(pieceRewards) > 0 || len(contractRewards) > 0 || rewardAmounts[raidcurrency.FateItemID] > 0 || !vouchers.IsZero(),
 		GoldCost:      definition.LotteryGoldCost,
 		AccountID:     accountID,
 		CharacterID:   characterID,
@@ -315,9 +338,32 @@ func (s *Service) commitCurrentBooster(
 				}
 			}
 
+			if !vouchers.IsZero() {
+				if _, err := cerashop.CreditVoucherCounts(assets.Account, vouchers); err != nil {
+					return dnfbooster.Changes{}, err
+				}
+				result.WalletChanged = true
+			}
 			changedRewardKeys := make(map[string]struct{})
 			accountDirty := false
 			for _, reward := range rewards {
+				if cerashop.IsVoucher(int64(reward.Definition.ItemID)) {
+					result.Rewards = append(result.Rewards, currentBoosterGrantedReward{ItemID: reward.Definition.ItemID, Count: reward.Count})
+					continue
+				}
+				if reward.Definition.ItemID == raidcurrency.FateItemID {
+					granted, _, err := raidcurrency.Credit(assets.Account, reward.Count, now)
+					if err != nil {
+						return dnfbooster.Changes{}, err
+					}
+					result.FateCurrencyChanged = true
+					result.FateGranted += granted
+					// Only present the quantity actually credited under the account cap.
+					if granted > 0 {
+						result.Rewards = append(result.Rewards, currentBoosterGrantedReward{ItemID: reward.Definition.ItemID, Count: granted})
+					}
+					continue
+				}
 				if contract, ok := contractRewards[int64(reward.Definition.ItemID)]; ok {
 					activation, err := premium.ActivateContractGrant(assets.Account, contract, int64(reward.Count), now)
 					if err != nil {
@@ -336,8 +382,12 @@ func (s *Service) commitCurrentBooster(
 					result.Rewards = append(result.Rewards, currentBoosterGrantedReward{ItemID: reward.Definition.ItemID, Count: reward.Count})
 					continue
 				}
+				beforeCounts := currentBoosterInventoryCounts(inventory)
 				keys, sharedChanged, grantErr := grantCurrentBoosterRewardByOwner(inventory, account, catalog.source, reward)
 				if grantErr != nil {
+					return dnfbooster.Changes{}, grantErr
+				}
+				if grantErr := appendCurrentBoosterRewardSlotDeltas(&result, reward, beforeCounts, keys, inventory); grantErr != nil {
 					return dnfbooster.Changes{}, grantErr
 				}
 				accountDirty = accountDirty || sharedChanged
@@ -395,13 +445,81 @@ func (s *Service) commitCurrentBooster(
 				result.ChangedLists = append(result.ChangedLists, listType)
 			}
 			sort.Slice(result.ChangedLists, func(i, j int) bool { return result.ChangedLists[i] < result.ChangedLists[j] })
-			return dnfbooster.Changes{Account: len(result.EpicPieceCredits) > 0 || len(result.ContractActivations) > 0, AccountInventory: accountDirty, Character: characterDirty, Inventory: true}, nil
+			sort.Slice(result.RewardSlotDeltas, func(i, j int) bool {
+				if result.RewardSlotDeltas[i].ListType != result.RewardSlotDeltas[j].ListType {
+					return result.RewardSlotDeltas[i].ListType < result.RewardSlotDeltas[j].ListType
+				}
+				if result.RewardSlotDeltas[i].SlotIndex != result.RewardSlotDeltas[j].SlotIndex {
+					return result.RewardSlotDeltas[i].SlotIndex < result.RewardSlotDeltas[j].SlotIndex
+				}
+				return result.RewardSlotDeltas[i].RewardItemID < result.RewardSlotDeltas[j].RewardItemID
+			})
+			return dnfbooster.Changes{Account: result.WalletChanged || result.FateCurrencyChanged || len(result.EpicPieceCredits) > 0 || len(result.ContractActivations) > 0, AccountInventory: accountDirty, Character: characterDirty, Inventory: true}, nil
 		},
 	})
 	if err != nil {
 		return currentBoosterCommitResult{}, currentBoosterMutationError(err)
 	}
 	return result, nil
+}
+
+func currentBoosterInventoryCounts(inventory *dnfrepo.InventoryRecord) map[string]int64 {
+	counts := make(map[string]int64)
+	if inventory == nil {
+		return counts
+	}
+	for key, stack := range inventory.Slots {
+		counts[key] = stack.Count
+	}
+	return counts
+}
+
+// appendCurrentBoosterRewardSlotDeltas records the exact per-slot increase
+// performed by one reward grant. The owner helpers may fill existing stacks and
+// spill the remainder into several slots; retaining the returned touched keys
+// plus before/after counts is the only way CMD27 can send a truthful ADD delta.
+func appendCurrentBoosterRewardSlotDeltas(
+	result *currentBoosterCommitResult,
+	reward currentBoosterReward,
+	before map[string]int64,
+	keys []string,
+	inventory *dnfrepo.InventoryRecord,
+) error {
+	if result == nil || inventory == nil || reward.Definition.ItemID == 0 {
+		return errCurrentBoosterPVFInvalid
+	}
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		stack, found := inventory.Slots[key]
+		if !found || stack.ItemID != int64(reward.Definition.ItemID) {
+			// Some established reward adapters intentionally transform the
+			// definition identity (for example a revive-coin wallet item). Those
+			// are not direct item-row deltas and cannot be used by CMD27's row.
+			continue
+		}
+		delta := stack.Count - before[key]
+		if delta <= 0 {
+			continue
+		}
+		if uint64(delta) > math.MaxUint32 {
+			return fmt.Errorf("%w: reward slot delta overflow key=%s item=%d before=%d after=%d", errCurrentBoosterPVFInvalid, key, reward.Definition.ItemID, before[key], stack.Count)
+		}
+		listType, slot, parsed := parseSceneInventorySlotKey(key)
+		if !parsed {
+			return fmt.Errorf("%w: reward slot key=%s", errCurrentBoosterPVFInvalid, key)
+		}
+		result.RewardSlotDeltas = append(result.RewardSlotDeltas, currentBoosterRewardSlotDelta{
+			RewardItemID: reward.Definition.ItemID,
+			ListType:     listType,
+			SlotIndex:    slot,
+			Delta:        uint32(delta),
+		})
+	}
+	return nil
 }
 
 func (s *Service) currentBoosterMutationOwner(session *gameSession) (string, string, *dnfbooster.Owner, error) {

@@ -50,6 +50,11 @@ func liveCharacter6EquipmentRows31() []liveSceneReadyEquipmentRow31 {
 func seedLiveCharacter631WornSlots(t *testing.T, repositories dnfrepo.Group) {
 	t.Helper()
 	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{
+		AccountID: defaultAccountPrefix + "10011",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
 		CharacterID: "6",
 		AccountID:   defaultAccountPrefix + "10011",

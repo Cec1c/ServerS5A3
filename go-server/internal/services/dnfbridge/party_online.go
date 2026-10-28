@@ -32,9 +32,6 @@ const (
 )
 
 func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
-	if session != nil && isPVPChannel(session.channel) && isOnlinePartyCommand(typ) {
-		return true, s.sendPartyCommandFailure(session, typ, 19)
-	}
 	// The old connection can still deliver a buffered party command after a
 	// reconnect has made a replacement session authoritative for the same
 	// character. Never let that stale packet invite, join, leave, kick, or
@@ -50,6 +47,21 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 				"character_generation", session.characterGeneration)
 			return true, nil
 		}
+	}
+	if session != nil && isPVPChannel(session.channel) && isOnlinePartyCommand(typ) {
+		// These modes need their native failure envelope even when sent from
+		// a duel channel. The retired-session guard above still runs first.
+		if typ == 10 {
+			if req, err := party.DecodeRequestPeerRequest(body); err == nil && s.currentTownPVPMode(req.Mode) {
+				return true, s.rejectCurrentTownPVPRequest(session, typ, req)
+			}
+		}
+		if typ == 11 {
+			if req, err := party.DecodeResponsePeerRequest(body); err == nil && s.currentTownPVPMode(req.Mode) {
+				return true, s.rejectCurrentTownPVPResponse(session, typ, req)
+			}
+		}
+		return true, s.sendPartyCommandFailure(session, typ, 19)
 	}
 	if handled, err := s.rejectCurrentFiendWarManualPartyCommand(session, typ); handled || err != nil {
 		return handled, err
@@ -116,6 +128,9 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 			"body_len", len(body),
 			"error", err)
 		return nil
+	}
+	if s.currentTownPVPMode(parsed.Mode) {
+		return s.rejectCurrentTownPVPRequest(session, typ, parsed)
 	}
 	sourceID := selectedCharacterID(session)
 	if handled, err := s.rejectCurrentFiendWarActivePartyRequest(session, typ, parsed); handled || err != nil {
@@ -865,6 +880,9 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 		s.logGameEvent(session, "game-party-response-peer-body-short", "type", typ, "body_len", len(body), "error", err)
 		return nil
 	}
+	if s.currentTownPVPMode(parsed.Mode) {
+		return s.rejectCurrentTownPVPResponse(session, typ, parsed)
+	}
 	s.logGameEvent(session, "game-party-response-peer-received",
 		"type", typ,
 		"source_char_id", selectedCharacterID(session),
@@ -1144,8 +1162,8 @@ func isForwardedPeerRequestMode(mode byte) bool {
 
 func peerResponseRejected(req party.ResponsePeerRequest) bool {
 	// Current EXE sub_269FBF0 accepts ordinary mode-0/1/12 prompts by sending
-	// value zero. Quick-party modes 4/13 use explicit value 1 for accept and
-	// value 0 for reject (sub_2114B10/sub_2114BB0).
+	// value zero. Street/guild-arena modes 4/13 use explicit value 1 for accept
+	// and value 0 for reject (V179 sub_23D2780/sub_23D2820).
 	return (req.Mode == 4 || req.Mode == 13) && req.Value == 0
 }
 

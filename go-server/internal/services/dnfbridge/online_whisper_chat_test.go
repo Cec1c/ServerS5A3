@@ -18,7 +18,7 @@ func TestOfficialWhisperUsesMessageRouteWithoutTradeState(t *testing.T) {
 	request.writeUint32(0)
 	request.writeRawDstr([]byte("hello"))
 	request.writeRawDstr(rosterNameBytes("来来来"))
-	request.writeByte(7)
+	request.writeByte(0)
 	if err := service.handleCurrentPeerChat(source, 17, request.bytes()); err != nil {
 		t.Fatal(err)
 	}
@@ -27,12 +27,12 @@ func TestOfficialWhisperUsesMessageRouteWithoutTradeState(t *testing.T) {
 		t.Fatalf("ack=%+v", ack)
 	}
 	echo, rest := splitGameServerUpperPacket(t, rest)
-	want := buildCurrentOfficialWhisperBody(42, "pouut", "来来来", []byte("hello"))
+	want := buildCurrentOfficialWhisperBody(0, "pouut", "来来来", []byte("hello"))
 	if echo.Header.MsgID != 65 || echo.Header.Classification != 0 || !bytes.Equal(echo.Body, want) || len(rest) != 0 {
 		t.Fatalf("echo=%+v trailing=%d", echo, len(rest))
 	}
 	incoming, rest := splitGameServerUpperPacket(t, targetConn.write.Bytes())
-	want = buildCurrentOfficialWhisperBody(42, "pouut", "pouut", []byte("hello"))
+	want = buildCurrentOfficialWhisperBody(0, "pouut", "pouut", []byte("hello"))
 	if incoming.Header.MsgID != 65 || incoming.Header.Classification != 0 || !bytes.Equal(incoming.Body, want) || len(rest) != 0 || selectedCharacterID(target) != 5 {
 		t.Fatalf("incoming=%+v trailing=%d", incoming, len(rest))
 	}
@@ -57,13 +57,13 @@ func TestOfficialWhisperUsesMessageRouteWithoutTradeState(t *testing.T) {
 	reply.writeUint32(0)
 	reply.writeRawDstr([]byte("reply"))
 	reply.writeRawDstr(rosterNameBytes("pouut"))
-	reply.writeByte(42)
+	reply.writeByte(0)
 	if err := service.handleCurrentPeerChat(target, 17, reply.bytes()); err != nil {
 		t.Fatal(err)
 	}
 	receivedReply, trailing := splitGameServerUpperPacket(t, sourceConn.write.Bytes())
 	if receivedReply.Header.MsgID != 65 || receivedReply.Header.Classification != 0 || len(trailing) != 0 ||
-		!bytes.Equal(receivedReply.Body, buildCurrentOfficialWhisperBody(42, "来来来", "来来来", []byte("reply"))) {
+		!bytes.Equal(receivedReply.Body, buildCurrentOfficialWhisperBody(0, "来来来", "来来来", []byte("reply"))) {
 		t.Fatalf("reply=%+v trailing=%d", receivedReply, len(trailing))
 	}
 }

@@ -36,6 +36,9 @@ func GrantDungeonMileage(ctx context.Context, settings r.SettingsRepository, own
 	if err := g.appendMileageHistory(MileageHistoryEntry{At: now, CharacterID: owner.CharacterID, CharacterName: m.Name, Kind: MileageHistoryDungeon, Amount: OrdinaryDungeonMileage}); err != nil {
 		return DungeonMileageResult{}, err
 	}
+	if err := addMemberRankingMileage(g, m, OrdinaryDungeonMileage, now); err != nil {
+		return DungeonMileageResult{}, err
+	}
 	g.Mileage += OrdinaryDungeonMileage
 	g.UpdatedAt = now
 	if err := Save(ctx, settings, reg, now); err != nil {

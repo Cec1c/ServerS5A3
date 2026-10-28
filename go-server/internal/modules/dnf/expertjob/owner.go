@@ -28,6 +28,7 @@ type Assets struct {
 
 type Changes struct {
 	Character        bool
+	ExpertExperience bool
 	AccountInventory bool
 	Inventory        bool
 	Quest            bool
@@ -159,9 +160,15 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		if err != nil {
 			return err
 		}
-		if changes.Character {
+		if changes.Character || changes.ExpertExperience {
 			character.UpdatedAt = now
-			if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, character, dnfrepo.CharacterFieldStats); err != nil {
+			var err error
+			if changes.Character {
+				err = dnfrepo.SaveCharacterFields(ctx, tx.Character, character, dnfrepo.CharacterFieldStats)
+			} else {
+				err = dnfrepo.SaveCharacterExpertExperience(ctx, tx.Character, character)
+			}
+			if err != nil {
 				return err
 			}
 		}
