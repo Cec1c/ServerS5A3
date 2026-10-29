@@ -342,15 +342,17 @@ type currentDisjointExpand struct {
 }
 
 type currentDisjointPVFConfig struct {
-	CubeItemID         uint32
-	CubeBase           float64
-	CubeMultipliers    []float64
-	Additional         [][]uint32
-	AdditionalConsts   []currentDisjointAdditionalConst
-	Expands            []currentDisjointExpand
-	AvatarByJob        map[string][]uint32             // legacy disjoint.etc [avatar disjoint info], kept for config validation
-	AvatarEmblemTables []currentAvatarEmblemGradeTable // etc/avatardisjoint/emblemlistinfo_<grade>.etc
-	EmblemBoosters     map[[2]int]uint32               // (emblem grade,input count) -> booster item
+	CubeItemID                  uint32
+	CubeBase                    float64
+	CubeMultipliers             []float64
+	Additional                  [][]uint32
+	AdditionalConsts            []currentDisjointAdditionalConst
+	Expands                     []currentDisjointExpand
+	AvatarByJob                 map[string][]uint32             // legacy disjoint.etc [avatar disjoint info], kept for config validation
+	AvatarEmblemTables          []currentAvatarEmblemGradeTable // etc/avatardisjoint/emblemlistinfo_<grade>.etc
+	EmblemBoosters              map[[2]int]uint32               // (emblem grade,input count) -> booster item
+	CustomAbilityDisableLoaded  bool                            // false means individualcustominfo.etc was not read successfully
+	DisabledByCustomAbilityType map[string]map[uint32]struct{}  // individualcustominfo.etc [disjoint disable item]
 }
 
 // currentAvatarEmblemGradeTable is one grade's avatar disjoint reward table
