@@ -36,6 +36,8 @@ var (
 )
 
 type runtimeDungeonState struct {
+	durabilityLastSequence       uint64
+	durabilitySequenceKnown      bool
 	guildPractice                *currentGuildPracticeRun
 	guildDungeonClear            *dnfdungeon.GuildDungeonClear
 	settlementGuildDungeonSent   bool

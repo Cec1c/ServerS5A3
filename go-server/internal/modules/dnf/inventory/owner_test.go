@@ -1691,6 +1691,9 @@ func TestHandlerRepairUsesOwnerAndReturnsAck(t *testing.T) {
 	if !got.Handled || !got.ResponseAllowed || got.Operation != "repair_equipment" {
 		t.Fatalf("result = %+v", got)
 	}
+	if len(got.ItemSlotRefreshes) != 1 || got.ItemSlotRefreshes[0] != (alignedcmd.ItemSlotRefresh{ListType: listTypeMain, SlotIndex: 5}) {
+		t.Fatalf("repaired bag slot not projected after ACK: %+v", got.ItemSlotRefreshes)
+	}
 	if len(got.UpperResponses) != 1 {
 		t.Fatalf("responses = %+v", got.UpperResponses)
 	}
@@ -1755,6 +1758,9 @@ func TestHandlerRepairEquippedUsesEquipOwnerAndReturnsAck(t *testing.T) {
 	}
 	ack := got.UpperResponses[0]
 	wantBody := []byte{1, 0x78, 0x03, 0x00, 0x00, listTypeEquipment, 0x0B, 0x00, 0x00, 0x00}
+	if len(got.PostAckWornEquipmentSlotRefreshes) != 0 {
+		t.Fatalf("unsupported worn slot 11 must not use ordinary slot projector: %v", got.PostAckWornEquipmentSlotRefreshes)
+	}
 	if ack.MsgID != uint16(dnfenum.CmdPacketRepairEquipment) || string(ack.Body) != string(wantBody) {
 		t.Fatalf("ack = %+v body=% X want=% X", ack, ack.Body, wantBody)
 	}
@@ -3274,6 +3280,10 @@ func TestHandlerRepairAllReturnsAckWithSlotFFFF(t *testing.T) {
 	}
 	if !got.Handled || !got.ResponseAllowed || got.Operation != "repair_equipment" || len(got.UpperResponses) != 1 {
 		t.Fatalf("result = %+v", got)
+	}
+	if len(got.PostAckWornEquipmentSlotRefreshes) != 1 || got.PostAckWornEquipmentSlotRefreshes[0] != 12 ||
+		len(got.ItemSlotRefreshes) != 1 || got.ItemSlotRefreshes[0] != (alignedcmd.ItemSlotRefresh{ListType: listTypeMain, SlotIndex: 4}) {
+		t.Fatalf("repair-all changed slots not projected after ACK: worn=%v bag=%v", got.PostAckWornEquipmentSlotRefreshes, got.ItemSlotRefreshes)
 	}
 	// weapon 12 lost 8 -> 512; amulet slot4 lost 10 -> 640; total 1152,
 	// gold 5000-1152 = 3848 = 0x0F08 little-endian.

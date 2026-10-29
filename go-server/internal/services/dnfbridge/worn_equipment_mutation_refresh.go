@@ -13,6 +13,16 @@ import (
 // 附魔ACK 0x1fbc697使用同一getter，故必须先原位更新，再让弹窗持有该对象。
 // 此处不重建list3容器，不发送被当前接收位屏蔽的op342，也不改变装备移动路径。
 func (s *Service) sendWornEquipmentMutationSlots(session *gameSession, operation string, slots []int16) error {
+	return s.sendWornEquipmentMutationSlotsWithPolicy(session, operation, slots, false)
+}
+
+// Repair can only update an existing item. An absent or unprojectable worn row
+// must never be encoded as the empty-slot sentinel after a successful repair.
+func (s *Service) sendRepairedWornEquipmentSlots(session *gameSession, operation string, slots []int16) error {
+	return s.sendWornEquipmentMutationSlotsWithPolicy(session, operation, slots, true)
+}
+
+func (s *Service) sendWornEquipmentMutationSlotsWithPolicy(session *gameSession, operation string, slots []int16, requireOccupied bool) error {
 	if len(slots) == 0 {
 		return nil
 	}
@@ -54,6 +64,9 @@ func (s *Service) sendWornEquipmentMutationSlots(session *gameSession, operation
 		seen[slot] = true
 		entry, occupied := bySlot[slot]
 		if !occupied {
+			if requireOccupied {
+				return fmt.Errorf("repaired worn slot %d has no projectable committed row", slot)
+			}
 			// 精炼失败碎装：仅清除本次目标，现用op14原生清除actor该槽。
 			entry.patchCore(slot, math.MaxUint32, 0)
 		}

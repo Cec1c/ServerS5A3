@@ -1705,7 +1705,7 @@ func buildSortRefreshBody(ctx context.Context, settings dnfrepo.SettingsReposito
 }
 
 func ownerAppliedRepairResult(opcode uint16, cmd Command, result RepairResult) alignedcmd.Result {
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
@@ -1724,10 +1724,14 @@ func ownerAppliedRepairResult(opcode uint16, cmd Command, result RepairResult) a
 			class1Response(opcode, buildRepairEquipmentAck(cmd.SourceListType, result.SlotIndex, result.UpdatedGold)),
 		},
 	}
+	if result.Changed {
+		applied.ItemSlotRefreshes = []alignedcmd.ItemSlotRefresh{{ListType: result.ListType, SlotIndex: result.SlotIndex}}
+	}
+	return applied
 }
 
 func ownerAppliedRepairAllResult(opcode uint16, cmd Command, result dnfequip.RepairResult) alignedcmd.Result {
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
@@ -1744,10 +1748,21 @@ func ownerAppliedRepairAllResult(opcode uint16, cmd Command, result dnfequip.Rep
 			class1Response(opcode, buildRepairEquipmentAck(cmd.SourceListType, -1, result.UpdatedGold)),
 		},
 	}
+	for _, slot := range result.RepairedEquipmentSlots {
+		// The current-client in-place row projector is proven only for ordinary
+		// worn slots 12..25. Other equipment categories keep their native ACK.
+		if slot >= 12 && slot <= 25 {
+			applied.PostAckWornEquipmentSlotRefreshes = append(applied.PostAckWornEquipmentSlotRefreshes, slot)
+		}
+	}
+	for _, slot := range result.RepairedInventorySlots {
+		applied.ItemSlotRefreshes = append(applied.ItemSlotRefreshes, alignedcmd.ItemSlotRefresh{ListType: listTypeMain, SlotIndex: slot})
+	}
+	return applied
 }
 
 func ownerAppliedEquippedRepairResult(opcode uint16, cmd Command, result dnfequip.RepairResult) alignedcmd.Result {
-	return alignedcmd.Result{
+	applied := alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
 		Operation:       cmd.Operation,
@@ -1767,6 +1782,12 @@ func ownerAppliedEquippedRepairResult(opcode uint16, cmd Command, result dnfequi
 			class1Response(opcode, buildRepairEquipmentAck(cmd.SourceListType, result.SlotIndex, result.UpdatedGold)),
 		},
 	}
+	for _, slot := range result.RepairedEquipmentSlots {
+		if slot >= 12 && slot <= 25 {
+			applied.PostAckWornEquipmentSlotRefreshes = append(applied.PostAckWornEquipmentSlotRefreshes, slot)
+		}
+	}
+	return applied
 }
 
 // applyUpgradeRateBuffResolution 在 op44/op251 真正扣道具之前认出「强化/增幅成功率
