@@ -447,6 +447,14 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 				return ownerBlockedResult(cmd, ticketErr), nil
 			}
 			if ticketResult.TicketResolved {
+				// 券资产已提交，再读取实际模式的notice配置；缺配置只省略播报，
+				// 不把一次已完成的用券操作改成可重复提交的失败。
+				cmd.UpgradeNoticeLevel = -1
+				if ticketResult.Success && req.UpgradePolicyResolver != nil {
+					if policy, err := req.UpgradePolicyResolver(ticketResult.Mode, ticketResult.TargetUpdatedStack.ItemID, int(ticketResult.OldLevel)); err == nil {
+						cmd.UpgradeNoticeLevel = policy.NoticeLevel
+					}
+				}
 				return ownerAppliedUpgradeTicketResult(ctx, req.Repositories.Settings, req.Opcode, cmd, ticketResult), nil
 			}
 			// 材料槽里是便携强化/增幅消耗品（一次性增幅器 / 凯丽的强化器）：它不是券，
@@ -779,16 +787,9 @@ func ownerAppliedUpgradeResult(ctx context.Context, settings dnfrepo.SettingsRep
 		wallet.writeBytes(makeCurrentItemListEntry(0, 0, result.UpdatedGold))
 		responses = append(responses, class0Response(msgItemListUpdate, wallet.bytes()))
 	}
-	// NOTI 0x0056 upgrade announcement when level meets notice threshold.
-	if cmd.UpgradeNoticeLevel >= 0 {
-		noticeLevel := result.NewLevel
-		if !result.UpgradeSucceeded {
-			noticeLevel = result.OldLevel
-		}
-		if int(noticeLevel) >= cmd.UpgradeNoticeLevel {
-			responses = append(responses, class0Response(msgUpgradeNotice, buildUpgradeNoticeBody(
-				result.UpgradeSucceeded, cmd.SelectedCharacterID, result.TargetItemTemplateID, noticeLevel)))
-		}
+	announcement := equipmentUpgradeAnnouncement(cmd, result.Mode, result.TargetItemTemplateID, result.OldLevel, result.NewLevel, result.UpgradeSucceeded, result.TargetNoticeStack)
+	if announcement != nil {
+		responses = append(responses, class0Response(msgUpgradeNotice, announcement.Body))
 	}
 	return alignedcmd.Result{
 		Handled:         true,
@@ -813,8 +814,9 @@ func ownerAppliedUpgradeResult(ctx context.Context, settings dnfrepo.SettingsRep
 		// 保护券档位的事实（消耗了哪一行 / 没找到 / 开关取值）同理交给 dnfbridge，
 		// 由它发 `game-upgrade-protect-ticket-consumed` / `-absent`。见
 		// upgrade_protect_ticket.go。
-		UpgradeProtectTicket: upgradeProtectTicketPayload(result, upgradeProtectTicketMode()),
-		UpperResponses:       responses,
+		UpgradeProtectTicket:   upgradeProtectTicketPayload(result, upgradeProtectTicketMode()),
+		EquipmentUpgradeNotice: announcement,
+		UpperResponses:         responses,
 	}
 }
 
@@ -1076,6 +1078,10 @@ func ownerAppliedUpgradeTicketResult(ctx context.Context, settings dnfrepo.Setti
 	if entries := upgradeTicketUpdateEntries(result); len(entries) > 0 {
 		responses = append(responses, class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, entries)))
 	}
+	announcement := equipmentUpgradeAnnouncement(cmd, result.Mode, int32(result.TargetUpdatedStack.ItemID), result.OldLevel, result.NewLevel, result.UpgradeSucceeded, result.TargetUpdatedStack)
+	if announcement != nil {
+		responses = append(responses, class0Response(msgUpgradeNotice, announcement.Body))
+	}
 	return alignedcmd.Result{
 		Handled:         true,
 		ResponseAllowed: true,
@@ -1090,7 +1096,8 @@ func ownerAppliedUpgradeTicketResult(ctx context.Context, settings dnfrepo.Setti
 			result.MaterialRemainingStackCount,
 			result.Changed,
 		),
-		UpperResponses: responses,
+		UpperResponses:         responses,
+		EquipmentUpgradeNotice: announcement,
 	}
 }
 

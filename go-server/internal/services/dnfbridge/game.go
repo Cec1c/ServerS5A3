@@ -21,6 +21,7 @@ import (
 )
 
 type gameSession struct {
+	dungeonPermissionMigrationAccount   string                         // 只记本会话已完成归并的账号，不缓存权限值。
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending

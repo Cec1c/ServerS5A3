@@ -216,6 +216,7 @@ type UpgradeResult struct {
 	GoldCost                    int64
 	UpdatedGold                 int64
 	MainRefresh                 map[string]dnfrepo.ItemStack
+	TargetNoticeStack           dnfrepo.ItemStack
 	TargetUpdatedStack          dnfrepo.ItemStack
 	MaterialUpdated             bool
 	MaterialUpdatedStack        dnfrepo.ItemStack
@@ -1444,6 +1445,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		result.ErrorCode = upgradeErrorDurability
 		return result, nil
 	}
+	result.TargetNoticeStack = cloneStack(target)
 	oldLevel := upgradeLevelOf(target)
 	result.OldLevel = oldLevel
 	result.NewLevel = oldLevel
@@ -3746,8 +3748,8 @@ type UpgradeTicketResult struct {
 // roll the level jumps directly to the ticket's target level, on failure the
 // level is retained without penalty; exactly one ticket is consumed either
 // way. The request's optional ticket slot is ignored, mirroring the
-// reference. Gold cost, the 0x0056 notice broadcast, and the [enchant random]
-// multi-candidate family are still not owned here; **protect tickets are**
+// reference. Gold cost and the [enchant random] multi-candidate family are
+// still not owned here; the handler owns committed 0x0056 notices. Protect tickets are
 // (the normal NPC path owns them, see upgrade_protect_ticket.go). A portable
 // consumable (一次性增幅器 / 凯丽的强化器) resolves through this entry but is
 // **not** consumed here: it only carries its identity back so the request

@@ -72,6 +72,12 @@ func (authorityEntryLoadFailure) Load(context.Context, string) (dnfrepo.DungeonP
 }
 
 func newAuthorityEntryService(profile string, repositories dnfrepo.Group) (*Service, *gameSession) {
+	// 共享难度按账号枚举角色，夹具也保留真实角色归属。
+	if repositories.Character != nil {
+		if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{CharacterID: "99", AccountID: defaultAccountPrefix + "1"}); err != nil {
+			panic(err)
+		}
+	}
 	service := &Service{
 		options:            options{currentClientVersion: profile},
 		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },

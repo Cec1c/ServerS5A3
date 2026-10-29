@@ -34,12 +34,17 @@ func TestDungeonEntryResourceStatePreservesSavedDifficulty(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repos := testRepositoryGroup()
+			for _, character := range []dnfrepo.CharacterRecord{{CharacterID: "99", AccountID: defaultAccountPrefix + "1"}, {CharacterID: "98", AccountID: "other-account"}} {
+				if err := repos.Character.Save(context.Background(), character); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.saved > 0 {
 				if _, _, err := repos.DungeonPermission.UpsertMax(context.Background(), "99", 700, tc.saved); err != nil {
 					t.Fatal(err)
 				}
 			}
-			// A different character's higher permission must never be used.
+			// 其他账号角色的较高记录不能被共享。
 			if _, _, err := repos.DungeonPermission.UpsertMax(context.Background(), "98", 700, 4); err != nil {
 				t.Fatal(err)
 			}
