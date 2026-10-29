@@ -148,6 +148,15 @@ func (o *Owner) ApplyAutoCompleteMain(
 	catalog *Catalog,
 	input AutoCompleteMainInput,
 ) (AutoCompleteMainResult, error) {
+	return o.applyAutoCompleteMain(ctx, catalog, input, false)
+}
+
+func (o *Owner) applyAutoCompleteMain(
+	ctx context.Context,
+	catalog *Catalog,
+	input AutoCompleteMainInput,
+	recoverPreviousSweep bool,
+) (AutoCompleteMainResult, error) {
 	if o == nil || o.repositories.CharacterSettlement == nil || catalog == nil {
 		return AutoCompleteMainResult{}, ErrAutoCompleteMainUnavailable
 	}
@@ -194,7 +203,11 @@ func (o *Owner) ApplyAutoCompleteMain(
 		} else if strings.TrimSpace(record.CharacterID) != input.CharacterID {
 			return ErrQuestPersistVerify
 		}
-		plan, err = catalog.PlanAutoCompleteMainQuests(record, input.Eligibility, input.CutoffLevel, input.TargetQuestID, input.Scope, input.CompletedAt)
+		if recoverPreviousSweep {
+			plan, input.CutoffLevel, err = catalog.planPreviousMainStorySweepRecovery(record, input.Eligibility, input.CutoffLevel, input.CompletedAt)
+		} else {
+			plan, err = catalog.PlanAutoCompleteMainQuests(record, input.Eligibility, input.CutoffLevel, input.TargetQuestID, input.Scope, input.CompletedAt)
+		}
 		if err != nil {
 			return err
 		}
