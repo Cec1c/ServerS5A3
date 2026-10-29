@@ -298,6 +298,10 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		return nil
 	}
 
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		return s.handleCurrentTagTournamentResultAction(session, request.ValueA, request.ValueB)
+	}
+
 	// Current-EXE EPLP writers prove {u8 state, u8 option} semantics, and live
 	// plaintext clicks on the patched client pinned the option indices: hover
 	// sends {2, index}; clicks send {1, 0} for 再次挑战, {1, 1} for

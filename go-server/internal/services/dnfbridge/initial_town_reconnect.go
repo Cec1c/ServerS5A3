@@ -140,6 +140,9 @@ func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) err
 			return err
 		}
 	}
+	if err := s.sendCurrentTagTournamentLobby(session); err != nil {
+		return err
+	}
 	session.channelReconnect = false
 	session.sceneBootstrapTailDeferred = false
 	session.sceneBootstrapTailSent = true

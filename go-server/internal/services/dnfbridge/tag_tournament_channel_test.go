@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
+	"longheng.io/server/internal/modules/dnf/channelinfo"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	memory "longheng.io/server/internal/modules/dnf/repository/memory"
 	town "longheng.io/server/internal/modules/dnf/town"
@@ -93,5 +94,95 @@ func TestTagTournamentMissingResourcesAndProfileIsolation(t *testing.T) {
 	s.options.currentClientVersion = "90cn"
 	if s.isCurrentTagTournamentChannel(&gameSession{channel: channelcatalog.Channel{Type: 39}}) {
 		t.Fatal("旧配套误用24.9入口")
+	}
+}
+
+func TestOfficial249TagTournamentDirectoryProjection(t *testing.T) {
+	const base = "\n[dungeon]\n`[tagtournament]`\n`帝国竞技场`\n320\n336\n[/dungeon]\n[server]\n" +
+		"19 `<chn_channel_info_028>` 11 `[granfloris]` 5 0 0 ``\n" +
+		"187 `帝国竞技场` 39 `[tagtournament]` 0 0 0 0 0 0 0 0 0 0 0 ``\n[/server]\n"
+	parseCatalog := func(t *testing.T, raw string) *channelcatalog.Catalog {
+		t.Helper()
+		index, err := channelinfo.Parse([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalog, err := channelcatalog.New(index, channelcatalog.Options{ServerID: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return catalog
+	}
+
+	s := &Service{options: options{currentClientVersion: "official-24.9", channelServerID: 1, channelAdvertiseID: 0}}
+	catalog := parseCatalog(t, base)
+	channel, ok := catalog.Channel(187)
+	if !ok || channel.Type != 39 || channel.Group != "tagtournament" || channel.Port != 10187 {
+		t.Fatalf("empire channel did not reach catalog/listener projection: %+v ok=%v", channel, ok)
+	}
+
+	script, err := s.buildChannelScript([]byte(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	online, err := channelinfo.Parse(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlineChannel, ok := online.ServerChannel(0, 187)
+	if !ok || onlineChannel.Type != 39 || onlineChannel.AreaKey != "tagtournament" || onlineChannel.NameKey != "帝国竞技场" {
+		t.Fatalf("empire channel did not reach downloaded directory: %+v ok=%v\n%s", onlineChannel, ok, script)
+	}
+	for _, dungeonID := range []int{320, 336} {
+		mapped := online.ChannelsForDungeon(dungeonID)
+		if len(mapped) != 1 || mapped[0].ID != 187 {
+			t.Fatalf("empire dungeon %d did not map to downloaded channel 187: %+v", dungeonID, mapped)
+		}
+	}
+}
+
+func TestExternalOfficial249TagTournamentChannelDirectory(t *testing.T) {
+	path := os.Getenv("DNFBRIDGE_EMPIRE_CHANNEL_INFO")
+	if path == "" {
+		t.Skip("未提供待部署的完整频道目录")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := channelinfo.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := channelcatalog.New(index, channelcatalog.Options{ServerID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{options: options{currentClientVersion: "official-24.9", channelServerID: 1, channelAdvertiseID: 0}}
+	channels := catalog.Channels()
+	if len(channels) != 119 {
+		t.Fatalf("完整候选目录应有118条原记录加1条帝国频道，实际%d", len(channels))
+	}
+	channel, ok := catalog.Channel(187)
+	if !ok || channel.Type != 39 || channel.Group != "tagtournament" || channel.Port != 10187 {
+		t.Fatalf("帝国频道目录/监听投影不符：%+v ok=%v", channel, ok)
+	}
+	script, err := s.buildChannelScript(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	online, err := channelinfo.Parse(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlineChannel, ok := online.ServerChannel(0, 187)
+	if !ok || onlineChannel.Type != 39 || onlineChannel.AreaKey != "tagtournament" || onlineChannel.NameKey != "帝国竞技场" {
+		t.Fatalf("帝国频道未进入动态下载目录：%+v ok=%v", onlineChannel, ok)
+	}
+	for _, dungeonID := range []int{320, 336} {
+		mapped := online.ChannelsForDungeon(dungeonID)
+		if len(mapped) != 1 || mapped[0].ID != 187 {
+			t.Fatalf("待部署完整目录中帝国副本%d未映射频道187：%+v", dungeonID, mapped)
+		}
 	}
 }

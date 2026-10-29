@@ -8,7 +8,7 @@ import (
 // 调用者持有dungeon.mu；待办只属于当前角色、当前已完成普通副本。
 // 团本、教学、塔和锦标赛继续由各自的结果与退出流程处理。
 func currentOrdinaryCompletedTownExitOwner(session *gameSession, runtime *runtimeDungeonState) bool {
-	return session != nil && runtime != nil && runtime.Session != nil &&
+	return session != nil && session.tagTournamentBattle == nil && runtime != nil && runtime.Session != nil &&
 		session.dungeon.runtime == runtime && dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) &&
 		runtime.Session.Snapshot().Run.Status == worldmap.DungeonRunCompleted &&
 		runtime.raidEntry == nil && runtime.Tournament == nil &&

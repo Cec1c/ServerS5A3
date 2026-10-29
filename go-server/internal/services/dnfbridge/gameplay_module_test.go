@@ -96,6 +96,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"image-communication",
 		"quest",
 		"dungeon-navigation",
+		"tag-tournament",
 		"dungeon-ridable",
 		"dungeon-combat-drop",
 		"dungeon-death-revive",
@@ -200,6 +201,12 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketJoustBetting):                   "joust",
 		uint16(dnfenum.CmdPacketJoustMatchHistory):              "joust",
 		uint16(dnfenum.CmdPacketSelectCollectbox):               "collectbox",
+		currentTagTournamentSetRosterOpcode:                     "tag-tournament",
+		currentTagTournamentRosterListOpcode:                    "tag-tournament",
+		currentTagTournamentEnterOpcode:                         "tag-tournament",
+		currentTagTournamentTagOpcode:                           "tag-tournament",
+		currentTagTournamentDeathOpcode:                         "tag-tournament",
+		currentTagTournamentWeeklyClaimOpcode:                   "tag-tournament",
 	}
 	for opcode, want := range legacyOwners {
 		if route, ok := currentGameplayModules.legacyHandlers[opcode]; !ok || route.module != want {
@@ -256,6 +263,12 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		uint16(dnfenum.CmdPacketCompoundAvatar):                 "avatar-compound",
 		uint16(dnfenum.CmdPacketBindPlus):                       "avatar-absolute",
 		uint16(dnfenum.CmdPacketWebViewerInfo):                  "web-viewer",
+		currentTagTournamentSetRosterOpcode:                     "tag-tournament",
+		currentTagTournamentRosterListOpcode:                    "tag-tournament",
+		currentTagTournamentEnterOpcode:                         "tag-tournament",
+		currentTagTournamentTagOpcode:                           "tag-tournament",
+		currentTagTournamentDeathOpcode:                         "tag-tournament",
+		currentTagTournamentWeeklyClaimOpcode:                   "tag-tournament",
 	}
 	for opcode, want := range upperOwners {
 		if route, ok := currentGameplayModules.upperHandlers[opcode]; !ok || route.module != want {

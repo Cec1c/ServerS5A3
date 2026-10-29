@@ -89,6 +89,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		return s.handleCurrentTagTournamentMonsterDeathLocked(session, runtime, request)
+	}
 	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
 		if !hasScene {
 			return nil
@@ -1095,6 +1098,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"monster_experience_gain", monsterExperience.Award.Gain,
 		"monster_experience_state_sent", len(monsterExperienceBody) != 0,
 		"response", "current_exe_op38_actor_death_notification")
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if runtime.bossDieCheckPending &&
 		uint32(runtime.bossDieCheckPendingRequest.TargetObjectKey) == request.RuntimeObjectKey {
 		pendingRequest := runtime.bossDieCheckPendingRequest
@@ -1247,6 +1253,9 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 		"session_room_cleared", sessionRoomCleared,
 		"reason", reason,
 		"source", "current_exe_op38_actor_death_notification")
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if sessionRoomCleared && runtime.Session != nil {
 		// 队友自己的房间清空了：在他自己的会话里跑最终房间完成（与"被接受的 op39"同一条链）。
 		if scene, ok := runtime.Session.Scene(); ok {
