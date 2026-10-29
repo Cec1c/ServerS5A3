@@ -24,6 +24,10 @@ const (
 	// the selected actor. The same-version DOVE scene entry carries 0x06;
 	// zero is not the neutral state and leaves its visual refresh path unset.
 	currentSceneNormalTownVisualState byte = 0x06
+	// V195 mode0 finalizer 22C628B -> 2961D30 sets actor+0x3ac. The Empire
+	// roster UI reads that identity at 129A44D; it is independent of the
+	// advertised route in the mode0 prefix and remains the local roster 0.
+	currentSceneActorLocalRosterServer byte = 0
 )
 
 func currentSceneActorObjectKey(characterID uint16) uint16 {

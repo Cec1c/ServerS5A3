@@ -133,7 +133,7 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	writer.writeUint32(0)                                       // sub_20042F0 后的对象 flag dword
 	writer.writeByte(0)                                         // internal field +197
 	writer.writeUint16(0)                                       // sub_2691CF0/sub_2691B70
-	writer.writeByte(0)                                         // sub_34AEA80
+	writer.writeByte(currentSceneActorLocalRosterServer)        // V195 22C628B -> 2961D30, actor+0x3ac
 	writer.writeUint16(0)                                       // sub_20029A0
 	writer.writeByte(0)                                         // sub_20029A0
 	writer.writeUint16(statU16(character, "emotion_index", 0))  // V179 022BE190: actor mood

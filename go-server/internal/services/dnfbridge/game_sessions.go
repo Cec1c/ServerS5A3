@@ -190,6 +190,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	if s == nil || session == nil {
 		return
 	}
+	s.retireCurrentTagTournamentBattle(session)
 	guildClock := s.ensureGameplayTimeQueue()
 	s.closeCurrentGuildCreateSession(session)
 	s.unregisterLiveGameSession(session)

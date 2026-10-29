@@ -37,6 +37,7 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/signupbenefits"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
+	"longheng.io/server/internal/modules/dnf/tagtournament"
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	appkit "longheng.io/server/internal/platform/app"
@@ -45,6 +46,9 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	tagTournamentCatalog         *tagtournament.Catalog                                                      // 由initialEquipmentMu保护。
+	tagTournamentSentRosters     map[currentTagTournamentRosterCacheKey]currentTagTournamentRosterCacheEntry // 由mu保护。
+	tagTournamentLoadErr         error
 	guildRankingMu               sync.Mutex
 	guildRankingCatalogMu        sync.Mutex
 	guildRankingRules            *dnfguild.RankingRules
@@ -456,6 +460,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.startCurrentAuctionClock(runCtx)
 	s.startCurrentJoustScheduler(runCtx)
 	s.startCurrentRaidClock(runCtx)
+	s.startCurrentTagTournamentClock(runCtx)
 	s.startCurrentLevelUpRewardClock(runCtx)
 	// 强制组队测试触发器：**默认 off**（off 档直接 return，零副作用）。
 	// 见 party_force_trigger.go。
@@ -985,6 +990,7 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	logger := s.packetLog
 	s.mu.Unlock()
 	if logger == nil {
+		s.logEmpireTeamSetupDiagnostic(kind, args...)
 		s.logDungeonSettlementDiagnostic(kind, args...)
 		s.logCrossSceneProfileDiagnostic(kind, args...)
 		s.logRaidPeerDiagnostic(kind, args...)

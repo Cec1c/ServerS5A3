@@ -22,6 +22,9 @@ func (s *Service) completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(
 		runtime.townReturnPending || runtime.townReturnOp24Sent {
 		return nil
 	}
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if isPVFTutorialDungeonScene(runtime, scene) ||
 		!dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) {
 		return nil
