@@ -159,8 +159,10 @@ type EnchantByBeadRequest struct {
 
 // DecodeDeleteRequest 解析删除物品请求，兼容 C# 里 simple 与 extended 两种格式。
 func DecodeDeleteRequest(body []byte) (DeleteRequest, error) {
-	// Skill-material consumption appends a one-byte state marker (0x01)
-	// after the declared delete protobuf. Keep this exception local to op18.
+	// Current op18 appends its client state byte after the declared protobuf.
+	// Observed states 1 and 2 are written by the same native sender; neither
+	// participates in item identity or quantity validation. Keep this local
+	// to op18 and retain strict rejection of unsupported trailer values.
 	if payload, ok := unwrapCurrentDeleteStateTrailer(body); ok {
 		return decodeCurrentDeleteRequest(payload)
 	}
@@ -210,10 +212,11 @@ func unwrapCurrentDeleteStateTrailer(body []byte) ([]byte, bool) {
 	}
 	declared := uint64(binary.LittleEndian.Uint32(body[:4]))
 	available := uint64(len(body) - 4)
-	if declared+1 != available || body[len(body)-1] != 1 || declared > uint64(len(body)-5) {
+	state := body[len(body)-1]
+	if declared+1 != available || (state != 1 && state != 2) {
 		return nil, false
 	}
-	return body[4 : 4+int(declared)], true
+	return body[4 : len(body)-1], true
 }
 
 func DecodeDeleteOrSellRequest(body []byte) (DeleteOrSellRequest, error) {
