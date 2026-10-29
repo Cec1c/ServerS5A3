@@ -259,8 +259,8 @@ func TestTagPlayRejectsSkippedRoomsAndWrongDeathSelector(t *testing.T) {
 	if p.tagTournamentBattle.run.Snapshot().Vitals[0].HP != 0 {
 		t.Fatal("实际1466没有记录当前队员死亡")
 	}
-	if err := s.handleCurrentTagTournamentTag(p, []byte{1}); err != nil {
-		t.Fatal(err)
+	if p.tagTournamentBattle.run.Snapshot().Active != 1 {
+		t.Fatal("死亡后未由服务端接替，原生不能再发普通Tag")
 	}
 	if err := s.handleCurrentTagTournamentDeath(p, []byte{1}); err != nil {
 		t.Fatal(err)
@@ -305,7 +305,6 @@ func TestTagPlayHardDefeatMailsConfirmedRoundsWithoutFalseClearUI(t *testing.T) 
 	p.conn.(*bufferConn).write.Reset()
 	for _, call := range []func() error{
 		func() error { return s.handleCurrentTagTournamentDeath(p, []byte{0}) },
-		func() error { return s.handleCurrentTagTournamentTag(p, []byte{1}) },
 		func() error { return s.handleCurrentTagTournamentDeath(p, []byte{1}) },
 	} {
 		if err := call(); err != nil {

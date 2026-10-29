@@ -75,8 +75,13 @@ func TestRealTagPlayActualEntryAndWholeDailyRun(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
-					if err := s.handleCurrentTagTournamentTag(p, []byte{1}); err != nil {
-						t.Fatal(err)
+					if mode == tagtournament.Hard {
+						if err := s.handleCurrentTagTournamentTag(p, []byte{1}); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if p.tagTournamentBattle.run.Snapshot().Active != 1 {
+						t.Fatal("存活备用角色没有出战")
 					}
 				}
 				if mode == tagtournament.Normal && round == 3 {

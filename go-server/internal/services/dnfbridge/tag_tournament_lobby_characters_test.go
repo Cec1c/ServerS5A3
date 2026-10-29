@@ -71,23 +71,23 @@ func TestTagTournamentLobbyDoesNotAdvertiseUnresolvableDetails(t *testing.T) {
 	}
 }
 
-func TestTagTournamentRosterUsesAdvertisedRegionForSaveAndRestore(t *testing.T) {
+func TestTagTournamentRosterUsesLocalRegionAcrossAdvertisedRoutes(t *testing.T) {
 	var fixtures []map[string]any
-	for _, server := range []byte{0, 7, 249} {
+	for _, server := range []byte{0, 1, 7, 249} {
 		s, p, g := newTagRosterBridgeTest(t)
 		s.options.channelAdvertiseID = int(server)
-		// 本机仓储/缓存编号为1，对外编号可以为0；不能把它们混用。
+		// 缓存按内部服务器1隔离；客户端本区角色编号来自mode0尾部，恒为0。
 		p.clientPID = 12345
 		s.rememberCurrentRenameRoster(p, p.currentRenameRoster)
 		normal := s.buildCurrentRosterBody(p.currentRenameRoster)
 		p.currentRenameRoster = nil
-		request := []byte{server, 2, server, 0}
+		request := []byte{0, 2, 0, 0}
 		if err := s.handleCurrentTagTournamentSetRoster(p, request); err != nil {
 			t.Fatal(err)
 		}
 		ack, rest := splitCurrentGameServerUpperPacketAuto(t, p.conn.(*bufferConn).write.Bytes())
 		if !bytes.Equal(ack.Body, upperSuccessBody(request)) || len(rest) != 0 {
-			t.Fatal("对外区服号保存失败", server, ack, rest)
+			t.Fatal("本区队伍保存失败", server, ack, rest)
 		}
 		// 重建服务对象，验证名单来自持久化仓储。
 		reopened := &Service{repositoryProvider: s.repositoryProvider, options: s.options, tagTournamentCatalog: s.tagTournamentCatalog}
@@ -116,7 +116,7 @@ func TestTagTournamentRosterUsesAdvertisedRegionForSaveAndRestore(t *testing.T) 
 				t.Fatal("队员保存触发扣费或发奖")
 			}
 		}
-		fixtures = append(fixtures, map[string]any{"server": server, "count": 3, "roster": normal, "counts": counts.Body, "request": request, "ack": ack.Body, "saved": team.Body, "entry_opcodes": []int{1395, 1398, 1388}, "open_opcodes": []int{1388, 1403}})
+		fixtures = append(fixtures, map[string]any{"server": byte(0), "advertised_route": server, "count": 3, "roster": normal, "counts": counts.Body, "request": request, "ack": ack.Body, "saved": team.Body, "entry_opcodes": []int{1395, 1398, 1388}, "open_opcodes": []int{1388, 1403}})
 	}
 	if path := os.Getenv("DNFBRIDGE_TAG_TEAM_UI_NATIVE_FIXTURES"); path != "" {
 		data, err := json.MarshalIndent(fixtures, "", "  ")
@@ -129,18 +129,21 @@ func TestTagTournamentRosterUsesAdvertisedRegionForSaveAndRestore(t *testing.T) 
 	}
 }
 
-func TestTagTournamentRosterRejectsInternalRegionAndInvalidAdvertisedRange(t *testing.T) {
-	for _, server := range []int{0, 7, 250, 255} {
+func TestTagTournamentRosterRejectsForeignRegionAndInvalidAdvertisedRange(t *testing.T) {
+	for _, test := range []struct {
+		advertised int
+		requested  byte
+	}{{0, 1}, {1, 1}, {7, 7}, {249, 249}, {250, 0}, {255, 0}} {
 		s, p, g := newTagRosterBridgeTest(t)
-		s.options.channelAdvertiseID = server
+		s.options.channelAdvertiseID = test.advertised
 		before, _, _ := g.Account.Load(context.Background(), "a")
-		if err := s.handleCurrentTagTournamentSetRoster(p, []byte{1, 2, 1, 0}); err != nil {
+		if err := s.handleCurrentTagTournamentSetRoster(p, []byte{test.requested, 2, test.requested, 0}); err != nil {
 			t.Fatal(err)
 		}
 		ack, rest := splitCurrentGameServerUpperPacketAuto(t, p.conn.(*bufferConn).write.Bytes())
 		after, _, _ := g.Account.Load(context.Background(), "a")
 		if !bytes.Equal(ack.Body, []byte{0, 3}) || len(rest) != 0 || !reflect.DeepEqual(before, after) {
-			t.Fatal("错误区服修改账号", server, ack, rest)
+			t.Fatal("错误区服修改账号", test, ack, rest)
 		}
 	}
 }

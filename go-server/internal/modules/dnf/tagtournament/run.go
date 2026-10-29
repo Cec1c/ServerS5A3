@@ -179,7 +179,7 @@ func (r *Run) Tag(now time.Time, target int) error {
 }
 
 // ApplyVitals只接收服务端伤害/治疗处理结果；不能直接传入客户端声明的HP/MP。
-// 死亡后不能用同步或恢复道具复活，剩余队员也须通过正常Tag路径切入。
+// 死亡后不能用同步或恢复道具复活；确认死亡后的接替使用HandoffAfterDeath。
 func (r *Run) ApplyVitals(now time.Time, role int, hp, mp int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -198,6 +198,23 @@ func (r *Run) ApplyVitals(now time.Time, role int, hp, mp int64) error {
 		r.phase = Defeated
 	}
 	return nil
+}
+
+// HandoffAfterDeath只允许已确认死亡的出战者交给存活队员，不复活、不推进回合。
+// 原生死亡角色不会发普通Tag，接替不能被生前的手动切人冷却阻塞。
+// 重复调用没有副作用，普通Tag的冷却与目标校验保持不变。
+func (r *Run) HandoffAfterDeath(now time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.checkTime(now); err != nil {
+		return false, err
+	}
+	if r.phase != Fighting || r.vitals[r.active].HP != 0 || r.vitals[1-r.active].HP <= 0 {
+		return false, nil
+	}
+	r.active, r.lastTime = 1-r.active, now
+	r.nextTag = now.Add(time.Duration(r.catalog.config.CharacterTagCooldownRaw) * time.Second)
+	return true, nil
 }
 
 // UseConsumable返回真实PVF效果供桥接层投影；库存不扣除，也不能用于死亡队员。

@@ -1,8 +1,10 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"slices"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -139,12 +141,38 @@ func TestCompletedTagReturnRetriesRosterBeforeOp15(t *testing.T) {
 	}
 	counts = tagActionPacketCounts(t, p.conn.(*bufferConn).write.Bytes())
 	if counts[uint16(dnfenum.CmdPacketGiveupGame)] != 1 ||
-		counts[currentTagTournamentRosterNotification] != 1 ||
+		counts[currentTagTournamentRosterNotification] != 2 ||
 		p.dungeon.runtime != nil || p.tagTournamentReturnRoster != nil || !b.returnRosterSent ||
-		p.tagTournamentBattle == b {
+		p.tagTournamentBattle == nil || p.tagTournamentBattle == b {
 		t.Fatalf("op15 did not retry once before release/Ack: counts=%v runtime=%p battle=%p roster=%p sent=%t",
 			counts, p.dungeon.runtime, p.tagTournamentBattle, p.tagTournamentReturnRoster, b.returnRosterSent)
 	}
+	// The first roster restores the saved lobby team. The second installs the
+	// root-first native identities before creation of the next paid challenge.
+	// They must both precede creation; no delayed roster may destroy new actors.
+	var sequence []uint16
+	var rosters [][]byte
+	for rest := p.conn.(*bufferConn).write.Bytes(); len(rest) > 0; {
+		packet, tail := splitCurrentGameServerUpperPacketAuto(t, rest)
+		rest = tail
+		switch packet.Header.MsgID {
+		case currentTagTournamentRosterNotification, 1389, 15:
+			sequence = append(sequence, packet.Header.MsgID)
+		}
+		if packet.Header.MsgID == currentTagTournamentRosterNotification {
+			rosters = append(rosters, append([]byte(nil), packet.Body...))
+		}
+	}
+	if !slices.Equal(sequence, []uint16{1388, 1388, 1389, 15}) {
+		t.Fatal("return restoration / creation identity / creation / entry order", sequence)
+	}
+	// This fixture registers the logged-in character first, so saved and
+	// creation identities are equal. Reverse registration has separate coverage.
+	if !bytes.Equal(rosters[0], b.prepared.creationRosterBody) ||
+		!bytes.Equal(rosters[1], p.tagTournamentBattle.prepared.creationRosterBody) {
+		t.Fatal("retry restored a different team", rosters)
+	}
+	assertTagCreationRoster(t, p, p.tagTournamentBattle)
 
 	p.conn.(*bufferConn).write.Reset()
 	if err := s.sendEnterSelectDungeonState(p, "tag_return_roster_retry_repeat", false, true); err != nil {

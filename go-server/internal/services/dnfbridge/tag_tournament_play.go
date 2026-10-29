@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
+	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/tagtournament"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
@@ -17,6 +18,7 @@ type currentTagTournamentPrepared struct {
 	rooms                     map[worldmap.RoomCoordinate]currentTagTournamentPreparedRoom
 	characters                [2]currentTagTournamentCharacterProjection
 	characterBody, optionBody []byte
+	creationRosterBody        []byte
 	skillState                currentTagTournamentSkillState
 	entered                   bool
 	creationSent              bool
@@ -53,6 +55,19 @@ func (s *Service) prepareCurrentTagTournamentPlay(p *gameSession, layout *tagtou
 	if rows[1].character.CharacterID == strconv.Itoa(int(p.selectedCharacterID)) {
 		current = 1
 	}
+	if rows[current].character.CharacterID != strconv.Itoa(int(p.selectedCharacterID)) {
+		return nil, fmt.Errorf("帝国竞技场入场准备缺少原登录角色")
+	}
+	sent, server, err := s.currentTagTournamentSentRoster(p)
+	if err != nil {
+		return nil, err
+	}
+	// 创建时本体固定native0。保存应答只更新休息室行并清空战斗区服缓存，
+	// 必须在1389前按本体/备用顺序安装1388。备用不是当前角色，不触发其自动回写。
+	rosterBody, err := buildCurrentTagTournamentSavedRosterBody([2]repo.CharacterRecord{rows[current].character, rows[1-current].character}, sent, server)
+	if err != nil {
+		return nil, err
+	}
 	runtime := &runtimeDungeonState{
 		Request: dungeoncmd.SelectDungeonRequest{DungeonID: uint32(dungeon.ID), RuntimeToken: 0xffff},
 		Dungeon: dungeon, Character: rows[current].character, AccountID: p.accountID,
@@ -71,6 +86,7 @@ func (s *Service) prepareCurrentTagTournamentPlay(p *gameSession, layout *tagtou
 		return nil, err
 	}
 	prepared := &currentTagTournamentPrepared{runtime: runtime, layout: layout, characters: rows, characterBody: append([]byte(nil), characterBody...), optionBody: append([]byte(nil), optionBody...), rooms: make(map[worldmap.RoomCoordinate]currentTagTournamentPreparedRoom)}
+	prepared.creationRosterBody = rosterBody
 	nextKey := uint32(firstDungeonMonsterObjectKey)
 	// Rooms的固定拓扑顺序只用于分配互不重复的对象键，回合顺序由layout.Rounds决定。
 	for _, source := range session.Rooms() {
@@ -129,13 +145,16 @@ func (s *Service) sendCurrentTagTournamentCreation(p *gameSession, b *currentTag
 	if b.prepared.creationSent {
 		return nil
 	}
-	if len(b.prepared.skillState.commands) == 0 || len(b.prepared.skillState.buffSwap) == 0 {
+	if len(b.prepared.creationRosterBody) != 4 || len(b.prepared.skillState.commands) == 0 || len(b.prepared.skillState.buffSwap) == 0 {
 		return fmt.Errorf("帝国竞技场缺少两名队员独立技能指令或Buff换装资料")
 	}
 	for _, row := range b.prepared.characters {
 		if row.job == 9 && len(b.prepared.skillState.darkKnight) == 0 {
 			return fmt.Errorf("帝国竞技场缺少黑暗武士独立连招正文")
 		}
+	}
+	if err := s.sendGameUpperRawClass(p, currentTagTournamentRosterNotification, b.prepared.creationRosterBody, 0); err != nil {
+		return err
 	}
 	if err := s.sendGameUpperRawClass(p, 1389, b.prepared.characterBody, 0); err != nil {
 		return err

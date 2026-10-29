@@ -59,9 +59,9 @@ func (s *Service) currentTagTournamentSentRoster(p *gameSession) ([]repo.Charact
 	if !seen[strconv.Itoa(int(p.selectedCharacterID))] {
 		return nil, 0, fmt.Errorf("帝国竞技场当前角色不在该客户端已收到的角色表中")
 	}
-	// 客户端以频道目录中的对外区服号标识本区角色，本机为0；
-	// 内部channelServerID仍用于仓储和同客户端缓存，不进入队员协议。
-	return rows, s.currentSceneActorRoute(), nil
+	// V195设队窗口从actor+0x3ac取本区角色表编号，与mode0尾部保持一致。
+	// 对外频道route及内部channelServerID均不是该字段；缓存仍按内部服务器隔离。
+	return rows, currentSceneActorLocalRosterServer, nil
 }
 
 func (s *Service) currentTagTournamentOwner() (*tagtournament.Owner, error) {
@@ -77,23 +77,34 @@ func (s *Service) currentTagTournamentOwner() (*tagtournament.Owner, error) {
 }
 
 func (s *Service) handleCurrentTagTournamentSetRoster(p *gameSession, body []byte) error {
+	stage := "decode"
+	var pairs [2]currentTagTournamentRosterPair
+	var server byte
+	var rows []repo.CharacterRecord
 	fail := func(err error) error {
-		s.logGameEvent(p, "帝国竞技场队员设置已拒绝，未扣费", "error", err)
+		s.logGameEvent(p, "帝国竞技场队员设置已拒绝，未扣费", "error", err,
+			"stage", stage, "body_len", len(body), "server", server, "count", len(rows),
+			"first_server", pairs[0].server, "first_selector", pairs[0].selector,
+			"second_server", pairs[1].server, "second_selector", pairs[1].selector,
+			"rejection", currentEmpireRosterRejection(err))
 		return s.sendGameUpperFailure(p, currentTagTournamentSetRosterOpcode, 3)
 	}
 	pairs, err := decodeCurrentTagTournamentRoster(body)
 	if err != nil {
 		return fail(err)
 	}
-	rows, server, err := s.currentTagTournamentSentRoster(p)
+	stage = "sent_roster"
+	rows, server, err = s.currentTagTournamentSentRoster(p)
 	if err != nil {
 		return fail(err)
 	}
+	stage = "session"
 	identity, ok := s.boundGameSessionCharacterSnapshot(p)
 	if !ok {
 		return fail(fmt.Errorf("帝国竞技场角色会话已失效"))
 	}
 	var expected [2]repo.CharacterRecord
+	stage = "selector"
 	for i, pair := range pairs {
 		if pair.server != server || int(pair.selector) >= len(rows) {
 			return fail(fmt.Errorf("帝国竞技场队员服务器或角色序号不在已下发表中"))
@@ -101,6 +112,7 @@ func (s *Service) handleCurrentTagTournamentSetRoster(p *gameSession, body []byt
 		expected[i] = rows[pair.selector]
 	}
 	current := strconv.Itoa(int(identity.character))
+	stage = "current_member"
 	if expected[0].CharacterID == expected[1].CharacterID || expected[0].CharacterID != current && expected[1].CharacterID != current {
 		return fail(fmt.Errorf("帝国竞技场需设置包含当前角色的两名不同队员"))
 	}
@@ -109,30 +121,36 @@ func (s *Service) handleCurrentTagTournamentSetRoster(p *gameSession, body []byt
 	if err = s.confirmCurrentTagTournamentRosterTownReturn(p); err != nil {
 		return err
 	}
+	stage = "lobby_ready"
 	if !currentTagTournamentLobbyInteractionReady(p) {
 		return fail(fmt.Errorf("帝国竞技场只能在角色就绪的休息室设置队员"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	stage = "asset_reservation"
 	reservation, err := s.reserveCurrentCharacterAssets(ctx, identity, p.accountID)
 	if err != nil {
 		return fail(err)
 	}
 	defer s.releaseCurrentCharacterAssets(reservation)
+	stage = "owner"
 	owner, err := s.currentTagTournamentOwner()
 	if err != nil {
 		return fail(err)
 	}
 	repositories, _ := s.repositoryGroup()
+	stage = "current_record"
 	ch, found, err := repositories.Character.Load(ctx, current)
 	if err != nil {
 		return fail(err)
 	}
 	// 实际城镇落点由commitCurrentReconnectLocation写入Stats；Location是独立镜像，
 	// 可能仍停留在上一城镇或副本，不能据此误拒绝已就绪的休息室角色。
+	stage = "current_town"
 	if !found || ch.AccountID != p.accountID || ch.Stats["town_id"] != 48 {
 		return fail(fmt.Errorf("帝国竞技场当前角色不在休息室"))
 	}
+	stage = "register_transaction"
 	if err = owner.RegisterRosterFromSnapshot(ctx, p.accountID, current, expected); err != nil {
 		return fail(err)
 	}
@@ -176,6 +194,7 @@ func (s *Service) sendCurrentTagTournamentLobby(p *gameSession) error {
 // 现用36C35F0在DA窗口需要资料时发送1467空正文，且以+105抑制等待中的重发。
 // 只有收到该请求后才回1403；已保存队伍先下发，避免窗口先画出空队伍。
 func (s *Service) handleCurrentTagTournamentRosterList(p *gameSession, body []byte) error {
+	s.logGameEvent(p, "帝国竞技场队伍框资料请求已收到", "body_len", len(body))
 	if len(body) != 0 {
 		s.logGameEvent(p, "帝国竞技场队伍框资料请求已忽略", "body_len", len(body), "reason", "角色未就绪或请求正文无效")
 		return nil

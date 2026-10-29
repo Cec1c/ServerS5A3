@@ -184,7 +184,7 @@ func (s *Service) handleCurrentTagTournamentDeath(p *gameSession, body []byte) e
 	}
 	role, found := b.roleForNativeID(body[0])
 	snapshot := b.run.Snapshot()
-	if !found || role != snapshot.Active {
+	if !found || role != snapshot.Active && snapshot.Vitals[role].HP != 0 {
 		return refuse(fmt.Errorf("帝国竞技场死亡队员与权威生命状态不符"))
 	}
 	if snapshot.Vitals[role].HP != 0 {
@@ -192,7 +192,20 @@ func (s *Service) handleCurrentTagTournamentDeath(p *gameSession, body []byte) e
 			return refuse(err)
 		}
 	}
-	return s.sendGameUpperSuccess(p, currentTagTournamentDeathOpcode, nil)
+	// V195的1466成功应答会启动整局失败倒计时，并在10秒后发送42。
+	// 只有全灭才发送它；单人死亡由1402接替，重复包只补未完成投影。
+	if switched, handoffErr := b.run.HandoffAfterDeath(b.now()); handoffErr != nil {
+		return refuse(handoffErr)
+	} else if switched {
+		b.tagProjectionPending = true
+	}
+	if b.run.Snapshot().Phase == tagtournament.Defeated {
+		return s.sendGameUpperSuccess(p, currentTagTournamentDeathOpcode, nil)
+	}
+	if b.tagProjectionPending {
+		return s.sendCurrentTagTournamentTagProjection(p, b)
+	}
+	return nil
 }
 
 // BeginNext只由服务端地图准备路径调用，不能用客户端怪物ID/回合号推进。

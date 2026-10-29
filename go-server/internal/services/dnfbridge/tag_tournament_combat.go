@@ -111,6 +111,7 @@ func (s *Service) acceptCurrentTagTournamentDeath(p *gameSession, b *currentTagT
 	}
 	s.logGameEvent(p, "帝国竞技场当前角色死亡已登记", "character", b.characters[role].CharacterID, "all_dead", b.run.Snapshot().Phase == tagtournament.Defeated)
 	if b.run.Snapshot().Phase == tagtournament.Defeated {
+		b.tagProjectionPending = false // 没有存活角色，不补发先前未完成的切人。
 		b.settlementPending = snapshot.Cleared > 0
 		return s.flushCurrentTagTournamentSettlement(p, b)
 	}
@@ -175,6 +176,8 @@ func (s *Service) closeCurrentTagTournamentForReturn(p *gameSession) error {
 			return err
 		}
 	}
+	// 离场已恢复本体和键位，旧的战斗切人补发不再适用；否则会阻止回城释放。
+	b.tagProjectionPending = false
 	return nil
 }
 

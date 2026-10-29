@@ -28,8 +28,8 @@ func tagSpecialChoiceFixture(t *testing.T, mode tagtournament.Mode) (*Service, *
 	if err := s.handleCurrentTagTournamentDeath(p, []byte{0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.handleCurrentTagTournamentTag(p, []byte{1}); err != nil {
-		t.Fatal(err)
+	if b.run.Snapshot().Active != 1 {
+		t.Fatal("死亡后未接替存活角色")
 	}
 	if err := b.run.ApplyVitals(now, 1, 700, 120); err != nil {
 		t.Fatal(err)
