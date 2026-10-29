@@ -196,8 +196,19 @@ func (f *r134FatigueFixture) use(t *testing.T, wantSuccess bool) []byte {
 		t.Fatal("op14 missing", update.Header)
 	}
 	points, rest := splitGameServerUpperPacket(t, rest)
-	if points.Header.MsgID != currentFatigueMsgID || len(rest) != 0 {
+	if points.Header.MsgID != currentFatigueMsgID || points.Header.Classification != 0 {
 		t.Fatal("fatigue projection/order", points.Header, len(rest))
+	}
+	if f.def.DailyLimit > 0 {
+		usage, trailing := splitGameServerUpperPacket(t, rest)
+		character, _ := f.snapshot(t)
+		want := []byte{1, 0, 0, 0, 0, byte(character.Stats["fatigue_potion_used_"+f.def.UsageGroup()]), 0}
+		binary.LittleEndian.PutUint32(want[1:5], uint32(f.def.ItemID))
+		if usage.Header.Classification != 0 || usage.Header.MsgID != currentFatiguePotionUsageMsgID || !bytes.Equal(usage.Body, want) || len(trailing) != 0 {
+			t.Fatalf("usage projection/order header=%+v body=%x want=%x trailing=%d", usage.Header, usage.Body, want, len(trailing))
+		}
+	} else if len(rest) != 0 {
+		t.Fatalf("unlimited potion unexpected trailing projection=%x", rest)
 	}
 	return update.Body
 }
