@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,6 +108,19 @@ func TestRealPVFDungeonDeathBurstCapsuleClaimDoesNotRefillAndContinuesKills(t *t
 	s, p, repos, packets := prepareDungeonDeathBurstTest(t, true)
 	prepareDeathBurstCapsule(t, s, repos)
 	s.initialEquipmentArchive = archive
+	logPath := filepath.Join(t.TempDir(), "胶囊经验诊断.log")
+	logger, err := openPacketLogger(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.packetLog = logger
+	t.Cleanup(func() {
+		_ = s.packetLog.Close()
+		if t.Failed() {
+			data, _ := os.ReadFile(logPath)
+			t.Logf("胶囊真实资源诊断：\n%s", data)
+		}
+	})
 	check := func(wantCapsule uint64, wantExp int64) {
 		t.Helper()
 		a, _, _ := repos.Account.Load(context.Background(), "account-1")

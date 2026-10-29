@@ -29,6 +29,13 @@ func (s *Service) preloadDungeonMonsterDropTables(ctx context.Context) error {
 		{"金币参考", func() error { _, err := currentDungeonGoldReferences(catalog); return err }},
 		{"独立及世界掉落", func() error { _, err := currentDungeonSpecialDrops(catalog); return err }},
 		{"异界掉落", func() error { _, err := currentDungeonDimensionDrops(catalog); return err }},
+		{"深渊碎片等级索引", func() error {
+			if !abyssItemLevelBandFromEnv().Active {
+				return nil
+			}
+			_, err := currentAbyssEpicPieceLevelIndexFor(catalog)
+			return err
+		}},
 	}
 	for _, stage := range stages {
 		if err := ctx.Err(); err != nil {

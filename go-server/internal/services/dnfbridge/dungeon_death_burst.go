@@ -17,14 +17,22 @@ const currentDungeonDeathBurstLimit = 32
 func (s *Service) collectCurrentDungeonDeathReadyPackets(session *gameSession, ahead *nativeResultReadAhead,
 	packets []dnfproto.LatestGameStreamPacket, remaining []byte,
 ) ([]dnfproto.LatestGameStreamPacket, []byte, *nativeResultReadChunk) {
+	budget := 16
+	return s.collectCurrentDungeonDeathReadyPacketsBudget(session, ahead, packets, remaining, &budget)
+}
+
+func (s *Service) collectCurrentDungeonDeathReadyPacketsBudget(session *gameSession, ahead *nativeResultReadAhead,
+	packets []dnfproto.LatestGameStreamPacket, remaining []byte, budget *int,
+) ([]dnfproto.LatestGameStreamPacket, []byte, *nativeResultReadChunk) {
 	if ahead == nil || len(packets) == 0 || !currentDungeonDeathBurstPacket(packets[0]) || currentDungeonDeathBurstSpan(packets) != len(packets) {
 		return packets, remaining, nil
 	}
-	for i := 0; i < 16 && len(packets) < currentDungeonDeathBurstLimit; i++ {
+	for *budget > 0 && len(packets) < currentDungeonDeathBurstLimit {
 		chunk, ready := ahead.tryNext()
 		if !ready {
 			break
 		}
+		*budget--
 		if chunk.err != nil {
 			return packets, remaining, &chunk
 		}
@@ -106,8 +114,46 @@ func (s *Service) activeCurrentDungeonDeathBurst(session *gameSession, runtime *
 }
 
 func (s *Service) handleCurrentDungeonDeathBurstPackets(session *gameSession, packets []dnfproto.LatestGameStreamPacket, prepare bool, readyAt ...time.Time) (resultErr error) {
+	var at time.Time
+	if len(readyAt) > 0 {
+		at = readyAt[0]
+	}
+	_, resultErr = s.handleCurrentDungeonDeathBurstWithContinuation(session, packets, prepare, at, nil)
+	return resultErr
+}
+
+// 调用方仍独占当前会话事件。单只处理返回后、经验提交前再检查已到达字节，
+// 不等新包、不跨其它指令；新增帧各自保留就绪时间。每个事件最多32只、16个接续读块。
+func (s *Service) handleCurrentDungeonDeathReadyPackets(session *gameSession, packets *[]dnfproto.LatestGameStreamPacket,
+	index, span int, ahead *nativeResultReadAhead, remaining *[]byte, deferred **nativeResultReadChunk, readyAt *time.Time,
+) (int, error) {
+	budget := 16
+	initialReadyAt := *readyAt
+	continuedReadyAt := initialReadyAt
+	next := func(consumed int) (dnfproto.LatestGameStreamPacket, time.Time, bool) {
+		items := *packets
+		cursor := index + consumed
+		if cursor == len(items) && *deferred == nil && budget > 0 {
+			extended, tail, held := s.collectCurrentDungeonDeathReadyPacketsBudget(session, ahead, items[index:], *remaining, &budget)
+			*packets = append(items[:index], extended...)
+			*remaining, *deferred = tail, held
+			items = *packets
+			continuedReadyAt = time.Now()
+			*readyAt = continuedReadyAt
+		}
+		if cursor >= len(items) || !currentDungeonDeathBurstPacket(items[cursor]) {
+			return dnfproto.LatestGameStreamPacket{}, time.Time{}, false
+		}
+		return items[cursor], continuedReadyAt, true
+	}
+	return s.handleCurrentDungeonDeathBurstWithContinuation(session, (*packets)[index:index+span], true, initialReadyAt, next)
+}
+
+func (s *Service) handleCurrentDungeonDeathBurstWithContinuation(session *gameSession, packets []dnfproto.LatestGameStreamPacket,
+	prepare bool, readyAt time.Time, next func(int) (dnfproto.LatestGameStreamPacket, time.Time, bool),
+) (consumed int, resultErr error) {
 	runtime := session.dungeon.runtime
-	if s.currentDungeonDeathBurstEnabled(session) && len(packets) > 1 {
+	if s.currentDungeonDeathBurstEnabled(session) && (len(packets) > 1 || next != nil) {
 		session.dungeonDeathBurst = &currentDungeonDeathBurst{runtime: runtime, room: runtime.Room,
 			character: session.selectedCharacterID, generation: session.characterGeneration,
 			projectedEXP: statU32(runtime.Character, "exp", 0), deferRewards: true}
@@ -121,28 +167,46 @@ func (s *Service) handleCurrentDungeonDeathBurstPackets(session *gameSession, pa
 			}
 		}()
 	}
-	for _, packet := range packets {
+	for {
+		var packet dnfproto.LatestGameStreamPacket
+		at := readyAt
+		if consumed < len(packets) {
+			packet = packets[consumed]
+		} else {
+			// 原处理入口在升级、清房及特殊对象前已排空pending。只在同一
+			// 房间还有普通怪经验待提交时接续，不能越过这些生命周期边界。
+			b := s.activeCurrentDungeonDeathBurst(session, runtime)
+			if consumed >= currentDungeonDeathBurstLimit || next == nil || b == nil || len(b.pending) == 0 {
+				break
+			}
+			var ok bool
+			packet, at, ok = next(consumed)
+			if !ok {
+				break
+			}
+		}
+		consumed++
 		if b := s.activeCurrentDungeonDeathBurst(session, runtime); b != nil {
 			b.deferRewards = true
 		}
 		// 每条请求都保留原callGameSession的替换登录隔离，不能因合并事件而
 		// 在旧连接已撤销后继续接受后续击杀；此前接受的奖励仍由defer提交。
 		if session.loginRevoked.Load() {
-			return errLoginReplaced
+			return consumed, errLoginReplaced
 		}
 		if prepare {
 			if err := s.prepareNativeResultDelivery(session, packet); err != nil {
-				return err
+				return consumed, err
 			}
 		}
-		if len(readyAt) > 0 {
-			s.logCurrentDungeonDeathReadyWait(session, packet, readyAt[0])
+		if !at.IsZero() {
+			s.logCurrentDungeonDeathReadyWait(session, packet, at)
 		}
 		if err := s.handleGameStreamPacket(session, packet); err != nil {
-			return err
+			return consumed, err
 		}
 	}
-	return nil
+	return consumed, nil
 }
 
 func (s *Service) queueCurrentDungeonDeathBurstExperience(session *gameSession, runtime *runtimeDungeonState, monster runtimeDungeonMonster) bool {

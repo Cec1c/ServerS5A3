@@ -152,6 +152,11 @@ func (s *Service) handleGameStreamInput(ctx context.Context, session *gameSessio
 				span := 1
 				if s.currentDungeonDeathBurstEnabled(session) {
 					span = currentDungeonDeathBurstSpan(packets[index:])
+					if readAhead != nil && currentDungeonDeathBurstPacket(packets[index]) {
+						var err error
+						processed, err = s.handleCurrentDungeonDeathReadyPackets(session, &packets, index, span, readAhead, &buffer, &deferredRead, &packetsReadyAt)
+						return err
+					}
 				}
 				processed = span
 				return s.handleCurrentDungeonDeathBurstPackets(session, packets[index:index+span], readAhead != nil, packetsReadyAt)

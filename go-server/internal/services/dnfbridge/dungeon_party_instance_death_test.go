@@ -24,9 +24,12 @@ import (
 //     后到者被拒且没有任何下行 → 客户端留白色残影）；
 //  2. 已经 defeated 的**重复 op39 不能只回错误**：要把既有权威死亡状态幂等重放给请求方；
 //  3. 单人/无队伍不进实例，重复 op39 仍然保持原来的静默行为（由 dungeon_runtime_test.go 钉住）。
-func partyDungeonDeathFixture(t *testing.T) (*Service, *gameSession, *gameSession, *runtimeDungeonState, *runtimeDungeonState) {
+func partyDungeonDeathFixture(t *testing.T, counts ...int) (*Service, *gameSession, *gameSession, *runtimeDungeonState, *runtimeDungeonState) {
 	t.Helper()
 	source := bridgeDungeonPVF(false)
+	if len(counts) > 0 {
+		source["map/dungeon/test/start.map"] = "[map name]\n`start`\n[dungeon]\n700\n[type]\n`[start]`\n[monster]\n" + strings.Repeat("3001 10 0 100 200 0 0 0 `[fixed]` `[normal]`\n", counts[0])
+	}
 	// 合成副本默认 `[limit party count] 1`；两人同场必须是 2 人以上。
 	source["dungeon/test.dgn"] = strings.Replace(
 		source["dungeon/test.dgn"],

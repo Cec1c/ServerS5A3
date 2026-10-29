@@ -19,8 +19,12 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-func prepareDungeonDeathBurstTest(t *testing.T, capped bool) (*Service, *gameSession, dnfrepo.Group, []dnfproto.LatestGameStreamPacket) {
+func prepareDungeonDeathBurstTest(t *testing.T, capped bool, counts ...int) (*Service, *gameSession, dnfrepo.Group, []dnfproto.LatestGameStreamPacket) {
 	t.Helper()
+	count := 5
+	if len(counts) > 0 {
+		count = counts[0]
+	}
 	s, _, repos := prepareCurrentDungeonMonsterExperienceTest(t)
 	catalog, err := s.dungeonMonsterCatalog()
 	if err != nil {
@@ -28,7 +32,7 @@ func prepareDungeonDeathBurstTest(t *testing.T, capped bool) (*Service, *gameSes
 	}
 	source := catalog.source.(bridgePVFSource)
 	source["map/dungeon/test/start.map"] = "[map name]\n`start`\n[dungeon]\n700\n[type]\n`[start]`\n[monster]\n" +
-		strings.Repeat("3001 10 0 100 200 0 0 0 `[fixed]` `[normal]`\n", 5)
+		strings.Repeat("3001 10 0 100 200 0 0 0 `[fixed]` `[normal]`\n", count)
 	s.worldMapTable, s.worldMapResolver, s.dungeonMonsterTable = loadBridgeDungeonStaticData(t, source)
 	s.options.currentClientVersion = "official-24.9"
 	if capped {
@@ -64,7 +68,7 @@ func prepareDungeonDeathBurstTest(t *testing.T, capped bool) (*Service, *gameSes
 		body[30] = 1
 		packets = append(packets, nativeResultTestPacket(39, body))
 	}
-	if len(packets) != 5 {
+	if len(packets) != count {
 		t.Fatalf("连续击杀夹具怪物数=%d", len(packets))
 	}
 	return s, p, repos, packets
