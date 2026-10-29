@@ -111,7 +111,7 @@ func (c *Catalog) PlanAutoCompleteMainQuests(
 	if isCompletedQuestStatus(state.Status) {
 		return plan, nil
 	}
-	if !isActiveQuestStatus(state.Status) || !storySweepOrdinary(definition) {
+	if !isActiveQuestStatus(state.Status) || !(storySweepOrdinary(definition) || storySweepAchievedAwakening(definition, character)) {
 		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
 	}
 	completed, active, damaged := c.storySweepEvidence(plan.Record)
