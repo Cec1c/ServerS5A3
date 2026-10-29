@@ -11,6 +11,7 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -21,9 +22,16 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for mode, cfg := range map[byte]raid.AntonRewardConfiguration{1: anton, 2: luke} {
+	fiend, e := raid.LoadFiendWarRewardConfiguration(catalog.source)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for mode, cfg := range map[byte]raid.AntonRewardConfiguration{1: anton, 2: luke, 3: fiend} {
 		for phase, p := range cfg.Phases {
 			for _, choice := range p.Choices {
+				if choice.Type != "party_card" && choice.Type != "pcroom_card" && choice.Type != "squad_item" {
+					continue
+				}
 				t.Run(fmt.Sprintf("mode%d/phase%d/container%d/type%s", mode, phase, choice.ContainerID, choice.Type), func(t *testing.T) {
 					now := time.Now().UTC()
 					plan, e := resolveCurrentAntonConfiguredReward(catalog, choice, zeroAntonRoll, now)
@@ -37,7 +45,14 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 					}
 					iv := repo.InventoryRecord{CharacterID: "31", Slots: map[string]repo.ItemStack{}}
 					var want int64
+					wantMails := 0
+					shared := map[uint32]uint32{}
 					for _, r := range plan.Rewards {
+						if _, ok := currentDisjointWarehouseFixedSlots[r.Definition.ItemID]; ok {
+							shared[r.Definition.ItemID] += r.Count
+							continue
+						}
+						wantMails++
 						for slot := r.Definition.SlotStart; slot <= r.Definition.SlotEnd; slot++ {
 							iv.Slots[currentDungeonPickupMainSlotKey(slot)] = repo.ItemStack{ItemID: 10096296, Count: 1}
 						}
@@ -62,8 +77,15 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 						t.Fatal("overflow changed occupied page")
 					}
 					m, count := reviewRaidOverflowMailCount(t, g, "31")
-					if m != len(plan.Rewards) || count != want {
+					if m != wantMails || count != want {
 						t.Fatal("wrong attachment total", m, count, want)
+					}
+					account, _, _ := g.AccountInventory.Load(ctx, "account")
+					for id, n := range shared {
+						slot := currentDisjointWarehouseFixedSlots[id]
+						if account.Slots[repo.AccountSharedInventorySlotKey(slot)].Count != int64(n) {
+							t.Fatal("shared final reward missing", id, n)
+						}
 					}
 					mb, _, _ := g.Mailbox.Load(ctx, "31")
 					for _, mail := range mb.Mails {
@@ -78,7 +100,7 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 						t.Fatal(e)
 					}
 					m, count = reviewRaidOverflowMailCount(t, g, "31")
-					if m != len(plan.Rewards) || count != want {
+					if m != wantMails || count != want {
 						t.Fatal("configured replay duplicated")
 					}
 				})
@@ -88,23 +110,28 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 }
 
 // An explicit private server-frozen unit plan, not a configured Anton reward:
-// two copies of real PVF equipment35381 exercise sequential placement, where one
+// two copies of the actual raid equipment100050518 exercise sequential placement, where one
 // empty equipment slot accepts the first instance before the second is full.
 func TestReviewActualPVFEquipmentPartialPlacementRollback(t *testing.T) {
 	catalog, _ := actualAntonRewardFixture(t)
-	def, e := catalog.ResolveItem(35381)
+	def, e := catalog.ResolveItem(100050518)
 	if e != nil || def.Kind != dungeonDropItemEquipment {
 		t.Fatal("actual equipment fixture", def.Kind, e)
 	}
 	placement, e := currentBoosterPlacement(def)
-	if e != nil {
-		t.Fatal(e)
+	if e != nil || placement != currentBoosterRewardMain {
+		t.Fatal("fixture must use ordinary raid equipment", placement, e)
 	}
 	g := memory.NewMemoryGroup()
 	ctx := context.Background()
 	g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "31", AccountID: "account"})
 	iv := repo.InventoryRecord{CharacterID: "31", Slots: map[string]repo.ItemStack{}}
 	for slot := def.SlotStart; slot <= def.SlotEnd; slot++ {
+		iv.Slots[currentDungeonPickupMainSlotKey(slot)] = repo.ItemStack{ItemID: 10096296, Count: 1}
+	}
+	// Ordinary equipment also falls back to quick slots. Occupy that route
+	// before leaving exactly one equipment slot for the partial-placement case.
+	for slot := currentDungeonPickupQuickSlotStart; slot <= currentDungeonPickupQuickSlotEnd; slot++ {
 		iv.Slots[currentDungeonPickupMainSlotKey(slot)] = repo.ItemStack{ItemID: 10096296, Count: 1}
 	}
 	delete(iv.Slots, currentDungeonPickupMainSlotKey(def.SlotStart))
@@ -116,7 +143,7 @@ func TestReviewActualPVFEquipmentPartialPlacementRollback(t *testing.T) {
 		t.Fatal("partial placement fixture did not reach actual full after first item", e)
 	}
 	now := time.Now().UTC()
-	plan := currentAntonRewardPlan{Choice: raid.AntonRewardChoice{ContainerID: 35381, Type: "squad_item", Weight: 1}, Rewards: []currentBoosterReward{row}}
+	plan := currentAntonRewardPlan{Choice: raid.AntonRewardChoice{ContainerID: 100050518, Type: "squad_item", Weight: 1}, Rewards: []currentBoosterReward{row}}
 	encoded, e := json.Marshal(struct {
 		Choice  raid.AntonRewardChoice
 		Rewards []currentBoosterReward
@@ -140,7 +167,7 @@ func TestReviewActualPVFEquipmentPartialPlacementRollback(t *testing.T) {
 			t.Fatal("equipment instances flattened")
 		}
 		for _, a := range mail.Attachments {
-			if a.Count != 1 || a.ItemID != 35381 || len(a.RawEntry) != currentItemListEntryWireSize {
+			if a.Count != 1 || a.ItemID != 100050518 || len(a.RawEntry) != currentItemListEntryWireSize {
 				t.Fatal("equipment projection lost")
 			}
 		}
@@ -150,53 +177,54 @@ func TestReviewActualRaidOverflowMailClaimUsesExistingOwner(t *testing.T) {
 	catalog, cfg := actualAntonRewardFixture(t)
 	g, plan, cmd := reviewRaidOverflowFixture(t, catalog, cfg, 10304483)
 	ctx := context.Background()
-	if _, e := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd); e != nil {
-		t.Fatal(e)
+	if _, err := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd); err != nil {
+		t.Fatal(err)
 	}
 	iv, _, _ := g.Inventory.Load(ctx, "31")
-	delete(iv.Slots, currentDungeonPickupMainSlotKey(plan.Rewards[0].Definition.SlotStart))
-	g.Inventory.Save(ctx, iv)
+	for _, r := range plan.Rewards {
+		delete(iv.Slots, currentDungeonPickupMainSlotKey(r.Definition.SlotStart))
+	}
+	if err := g.Inventory.Save(ctx, iv); err != nil {
+		t.Fatal(err)
+	}
 	mb, _, _ := g.Mailbox.Load(ctx, "31")
-	var mailID uint32
+	var mailIDs []uint32
 	for _, mail := range mb.Mails {
-		if mail.MailID != "1" {
-			t.Fatal("unexpected first mail ID", mail.MailID)
+		id, err := strconv.ParseUint(mail.MailID, 10, 32)
+		if err != nil {
+			t.Fatal(err)
 		}
-		mailID = 1
+		mailIDs = append(mailIDs, uint32(id))
+	}
+	if len(mailIDs) != 2 {
+		t.Fatal("final rows not mailed", mailIDs)
 	}
 	s := &Service{options: options{gameUpperHeader: gameUpperHeaderServer16, gameUpperBodyCodec: gameUpperBodyCodecPlain}, pvfItemCatalog: catalog, repositoryProvider: func() (repo.Group, bool) { return g, true }}
 	session := &gameSession{conn: &bufferConn{}, channel: channelcatalog.Channel{ID: 38, Type: 1}, selectedCharacterID: 31}
 	s.bindGameSessionCharacter(session, 31)
-	handled, e := s.handleAlignedGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketMailboxExtractItem), mailIDListBody(mailID))
-	if e != nil || !handled {
-		t.Fatal(e)
-	}
-	after, _, _ := g.Inventory.Load(ctx, "31")
-	var amount int64
-	for _, stack := range after.Slots {
-		if stack.ItemID == 10304483 {
-			amount += stack.Count
-			if len(stack.RawEntry) != currentItemListEntryWireSize {
-				t.Fatal("claimed raw lost", len(stack.RawEntry))
+	for attempt := 0; attempt < 2; attempt++ {
+		handled, err := s.handleAlignedGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketMailboxExtractItem), mailIDListBody(mailIDs...))
+		if err != nil || !handled {
+			t.Fatal(err)
+		}
+		after, _, _ := g.Inventory.Load(ctx, "31")
+		for _, r := range plan.Rewards {
+			var count int64
+			for _, stack := range after.Slots {
+				if stack.ItemID == int64(r.Definition.ItemID) {
+					count += stack.Count
+					if len(stack.RawEntry) != currentItemListEntryWireSize {
+						t.Fatal("claimed metadata lost")
+					}
+				}
+			}
+			if count != int64(r.Count) {
+				t.Fatal("claim missing or duplicated", attempt, r.Definition.ItemID, count, r.Count)
 			}
 		}
 	}
-	if amount != 1 {
-		t.Fatal("overflow mail cannot be claimed", amount)
-	}
-	s.handleAlignedGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketMailboxExtractItem), mailIDListBody(mailID))
-	after, _, _ = g.Inventory.Load(ctx, "31")
-	amount = 0
-	for _, stack := range after.Slots {
-		if stack.ItemID == 10304483 {
-			amount += stack.Count
-		}
-	}
-	if amount != 1 {
-		t.Fatal("mail claim replay duplicated")
-	}
-	result, e := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd)
-	if e != nil || !result.Replayed {
-		t.Fatal("claimed mail receipt no longer replays", e)
+	replay, err := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd)
+	if err != nil || !replay.Replayed {
+		t.Fatal("claimed receipt not retained", err)
 	}
 }

@@ -68,6 +68,9 @@ func (s *Service) sendCurrentSelectInventoryBootstrapWithMainPreserved(session *
 	}
 
 	if !preserveMain {
+		if err := s.migrateCurrentFateAccount(ctx, session); err != nil {
+			return err
+		}
 		// 存量史诗碎片清扫（在**构包之前**，所以不需要任何 op14 刷新）。
 		//
 		// 为什么在这里：操作者背包 `0:122` 里那件 10300783 是"碎片当普通材料入包"
@@ -180,6 +183,13 @@ func (s *Service) sendCurrentSelectInventoryBootstrapWithMainPreserved(session *
 			"reason", "item_lock_snapshot_unavailable")
 		return fmt.Errorf("selected character %d item-lock snapshot unavailable", session.selectedCharacterID)
 	}
+	fateState, fateKnown, err := s.currentFateState(ctx, session)
+	if err != nil {
+		return err
+	}
+	if !fateKnown {
+		return fmt.Errorf("selected character %d raid currency snapshot unavailable", session.selectedCharacterID)
+	}
 	for index, packet := range plan {
 		s.logPacketEvent("game-upper-select-inventory-bootstrap-send",
 			"conn_id", session.connID,
@@ -244,6 +254,9 @@ func (s *Service) sendCurrentSelectInventoryBootstrapWithMainPreserved(session *
 		return err
 	}
 	if err := s.sendCurrentAikenSetSnapshot(ctx, session); err != nil {
+		return err
+	}
+	if err := s.sendPreparedCurrentFateSnapshot(session, fateState, true); err != nil {
 		return err
 	}
 	session.selectedItemListRefreshSent = true

@@ -156,6 +156,9 @@ func partyDungeonSyncFixture(t *testing.T) (
 	source["dungeon/test.dgn"] = strings.Replace(source["dungeon/test.dgn"], "[limit party count]\n1\n", "[limit party count]\n4\n", 1)
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, source)
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"99", "100"} {
 		if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 			CharacterID: id,

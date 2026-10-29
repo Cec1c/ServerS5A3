@@ -11,12 +11,19 @@ import (
 
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	"longheng.io/server/internal/modules/dnf/raid"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
 
 type antonCardFailLateAssets struct {
 	repo.AccountCharacterAssetUnitOfWork
+	ledgerMailbox repo.AccountCharacterLedgerMailboxAssetUnitOfWork
+}
+
+func newAntonCardFailLateAssets(original repo.AccountCharacterAssetUnitOfWork) antonCardFailLateAssets {
+	ledgerMailbox, _ := original.(repo.AccountCharacterLedgerMailboxAssetUnitOfWork)
+	return antonCardFailLateAssets{AccountCharacterAssetUnitOfWork: original, ledgerMailbox: ledgerMailbox}
 }
 
 func (u antonCardFailLateAssets) WithinAccountCharacterAssets(ctx context.Context, account, character string, apply func(repo.AccountInventoryRepository, repo.CharacterRepository, repo.InventoryRepository, repo.EquipmentRepository) error) error {
@@ -28,9 +35,33 @@ func (u antonCardFailLateAssets) WithinAccountCharacterAssets(ctx context.Contex
 	})
 }
 
+func (u antonCardFailLateAssets) WithinAccountCharacterLedgerMailboxAssets(
+	ctx context.Context,
+	account, character string,
+	apply func(repo.AccountRepository, repo.AccountInventoryRepository, repo.CharacterRepository, repo.InventoryRepository, repo.EquipmentRepository, repo.MailboxRepository) error,
+) error {
+	if u.ledgerMailbox == nil {
+		return errors.New("ledger-mailbox transaction unavailable in late-failure fixture")
+	}
+	return u.ledgerMailbox.WithinAccountCharacterLedgerMailboxAssets(ctx, account, character, func(
+		ledger repo.AccountRepository,
+		accountInventory repo.AccountInventoryRepository,
+		characters repo.CharacterRepository,
+		inventories repo.InventoryRepository,
+		equipment repo.EquipmentRepository,
+		mailboxes repo.MailboxRepository,
+	) error {
+		if err := apply(ledger, accountInventory, characters, inventories, equipment, mailboxes); err != nil {
+			return err
+		}
+		return errors.New("injected failure after card assets and receipt saves")
+	})
+}
+
 func ownedAntonCardFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, runtimeRaidState) {
 	t.Helper()
 	f, session, state, now := onlineAntonTerminalFixture(t)
+	r195RewardParty(t, f.service, 19, 20)
 	if done, errs := f.service.commitCurrentRaidWeeklyIntents(now); len(done) != 1 || len(errs) != 0 {
 		t.Fatal(done, errs)
 	}
@@ -52,9 +83,10 @@ func dispatchAntonCardRequest(t *testing.T, f *raidStartGuardFixture, session *g
 	}
 }
 
-func antonGrantedItemCount(t *testing.T, f *raidStartGuardFixture, id string, item uint32) int64 {
+func raidRewardItemCount(t *testing.T, group repo.Group, characterID string, item uint32) int64 {
 	t.Helper()
-	inventory, _, err := f.repos.Inventory.Load(context.Background(), id)
+	ctx := context.Background()
+	inventory, _, err := group.Inventory.Load(ctx, characterID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +96,33 @@ func antonGrantedItemCount(t *testing.T, f *raidStartGuardFixture, id string, it
 			n += stack.Count
 		}
 	}
+	if item == raidcurrency.FateItemID {
+		character, found, err := group.Character.Load(ctx, characterID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			return n
+		}
+		account, found, err := group.Account.Load(ctx, character.AccountID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			return n
+		}
+		state, err := raidcurrency.Read(account, time.Now().UTC())
+		if err != nil {
+			t.Fatalf("read fate ledger for character=%s: %v", characterID, err)
+		}
+		n += int64(state.Balance)
+	}
 	return n
+}
+
+func antonGrantedItemCount(t *testing.T, f *raidStartGuardFixture, id string, item uint32) int64 {
+	t.Helper()
+	return raidRewardItemCount(t, f.repos, id, item)
 }
 
 func antonNativeCardBodies(t *testing.T, f *raidStartGuardFixture) map[byte][]byte {
@@ -100,10 +158,11 @@ func TestRealPVFAntonOnlineCardsActualCMTSequenceGrantsOnlyOnceAndUsesOwnedPhase
 		t.Fatal("card accepted before actual movie completion")
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	// v157: body1 reports movie close completion; body0 only requests a skip.
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	masks := antonNativeCardBodies(t, f)
 	if len(masks) != 2 || masks[1][1] != 2 || masks[0][1] != 2 {
-		t.Fatal("natural completion did not prepare real eligible party cards", masks)
+		t.Fatal("movie close completion did not prepare real eligible party cards", masks)
 	}
 	writeAntonNativeCardFixture(t, "go-anton-card-party-mask.bin", masks[1])
 	writeAntonNativeCardFixture(t, "go-anton-card-gold-mask.bin", masks[0])
@@ -175,7 +234,7 @@ func TestRealPVFAntonOnlineCardCollisionReservesUniqueCardAndFreezesRNGAcrossFai
 	firstCalls := calls
 	before, _, _ := f.repos.Inventory.Load(context.Background(), "19")
 	original := f.repos.AccountAssets
-	f.repos.AccountAssets = antonCardFailLateAssets{original}
+	f.repos.AccountAssets = newAntonCardFailLateAssets(original)
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 2})
 	after, _, _ := f.repos.Inventory.Load(context.Background(), "19")
 	if !reflect.DeepEqual(before, after) || f.state.Battle.RewardCards[1][19].Committed {
@@ -197,7 +256,7 @@ func TestRealPVFAntonOnlineCardCollisionReservesUniqueCardAndFreezesRNGAcrossFai
 	if err := f.service.sendCurrentAntonTerminalResult(peer, state); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, peer, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, peer, 659, []byte{1})
 	other, _, err := f.service.freezeCurrentAntonPartyCard(peer, state, 2, catalog, roll)
 	if err != nil || other.Card != 0 {
 		t.Fatal("two same-party players claimed same card", other, err)
@@ -264,7 +323,7 @@ func TestRealPVFAntonOnlineCardsFirstPhaseUsesThirtyAndDoesNotCountWeekly(t *tes
 		t.Fatal("first-phase stage wrong", p)
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	f.conn.write.Reset()
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
 	if antonGrantedItemCount(t, f, "19", 10304529) != 30 || len(f.service.raidWeeklyIntents) != 0 {
@@ -275,7 +334,7 @@ func TestRealPVFAntonOnlineCardsFirstPhaseUsesThirtyAndDoesNotCountWeekly(t *tes
 
 func TestRealPVFAntonOnlineCardCommittedBeforePartialProjectionRejoinsWithoutDuplicate(t *testing.T) {
 	f, session, state := ownedAntonCardFixture(t)
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	conn := &antonPartialWriteConn{Conn: session.conn}
 	session.conn = conn
 	if err := f.service.handleCurrentAntonRewardCard(session, 660, []byte{1, 0}); err == nil || !conn.closed || !session.raidProjection.failed {
@@ -292,7 +351,7 @@ func TestRealPVFAntonOnlineCardCommittedBeforePartialProjectionRejoinsWithoutDup
 		t.Fatal(err)
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, replacement, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, replacement, 659, []byte{1})
 	restored := antonNativeCardBodies(t, f)[1]
 	want, _ := raid.BuildRewardListBody(1, []raid.RewardDisplayCard{{CharacterID: 19, CardType: 0, Items: []raid.RewardDisplayItem{{ItemID: 10304529, Quantity: 45}}}, {CharacterID: 20, CardType: 2}})
 	if !reflect.DeepEqual(restored, want) {
@@ -314,7 +373,7 @@ func TestRealPVFAntonOnlineCardsObserverFinishesMovieWithoutAssetsAndRejectsFore
 		t.Fatal(err)
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, observer, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, observer, 659, []byte{1})
 	if len(antonNativeCardBodies(t, f)) != 0 {
 		t.Fatal("observer received eligible player's cards")
 	}
@@ -325,7 +384,7 @@ func TestRealPVFAntonOnlineCardsObserverFinishesMovieWithoutAssetsAndRejectsFore
 	for _, name := range []string{"no_result", "no_movie", "uncommitted_final", "login", "account", "channel", "single", "unfinished", "timeout", "phase", "group", "removed", "malformed"} {
 		t.Run(name, func(t *testing.T) {
 			g, session, _ := ownedAntonCardFixture(t)
-			dispatchAntonCardRequest(t, g, session, 659, []byte{0})
+			dispatchAntonCardRequest(t, g, session, 659, []byte{1})
 			body := []byte{1, 0}
 			b := g.state.Battle
 			switch name {

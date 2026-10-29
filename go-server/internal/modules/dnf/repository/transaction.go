@@ -227,3 +227,12 @@ type AccountCharacterMailboxAssetUnitOfWork interface {
 type AccountCharacterLedgerAssetUnitOfWork interface {
 	WithinAccountCharacterLedgerAssets(context.Context, string, string, func(AccountRepository, AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository) error) error
 }
+
+// AccountCharacterLedgerMailboxAssetUnitOfWork extends the ledger asset
+// boundary with the character's mailbox. Raid receipts and account metadata
+// must commit in the same transaction as account/character assets and any
+// overflow mail; implementations must acquire the account ledger before the
+// remaining assets and must not nest another asset transaction.
+type AccountCharacterLedgerMailboxAssetUnitOfWork interface {
+	WithinAccountCharacterLedgerMailboxAssets(context.Context, string, string, func(AccountRepository, AccountInventoryRepository, CharacterRepository, InventoryRepository, EquipmentRepository, MailboxRepository) error) error
+}

@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	cryptorand "crypto/rand"
+	"fmt"
 	"math"
 	"math/big"
 	"strconv"
@@ -9,6 +10,8 @@ import (
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
+
+const currentDisjointIndividualCustomInfoPath = "etc/customability/individualcustominfo.etc"
 
 // 返回的规则只读；随机产物和物品校验仍在每次操作中计算。
 func (c *pvfDungeonDropCatalog) currentDisjointPVFConfig() (currentDisjointPVFConfig, error) {
@@ -66,6 +69,21 @@ func loadCurrentDisjointPVFConfig(source dnfpvf.Source) (currentDisjointPVFConfi
 	}
 	config.AvatarByJob = currentDisjointParseAvatarByJob(disjoint)
 	config.AvatarEmblemTables = currentDisjointLoadAvatarEmblemTables(source)
+	if customInfoText, readErr := source.ReadText(currentDisjointIndividualCustomInfoPath); readErr == nil {
+		customInfo, parseErr := dnfpvf.Parse(currentDisjointIndividualCustomInfoPath, customInfoText)
+		if parseErr != nil {
+			return currentDisjointPVFConfig{}, fmt.Errorf("parse %s: %w", currentDisjointIndividualCustomInfoPath, parseErr)
+		}
+		disabled, parseErr := currentDisjointParseDisabledByCustomAbility(customInfo)
+		if parseErr != nil {
+			return currentDisjointPVFConfig{}, parseErr
+		}
+		config.CustomAbilityDisableLoaded = true
+		config.DisabledByCustomAbilityType = disabled
+	}
+	// A missing optional table keeps ordinary equipment usable, but leaves the
+	// explicit loaded=false state so any custom-ability source fails closed in
+	// currentDisjointFilterDisabledRewards.
 
 	emblem, err := parseDungeonCardPVFDocument(source, "etc/emblemcompound.etc")
 	if err != nil {
@@ -76,6 +94,121 @@ func loadCurrentDisjointPVFConfig(source dnfpvf.Source) (currentDisjointPVFConfi
 		return currentDisjointPVFConfig{}, errCurrentDisjointRewardInvalid
 	}
 	return config, nil
+}
+
+// currentDisjointParseDisabledByCustomAbility reads the custom-ability-family
+// contribution rules used by etc/disjoint.etc. Keep the parsed table local to
+// the immutable disjoint configuration so ordinary legendary equipment cannot
+// inherit Aiken-specific suppression.
+func currentDisjointParseDisabledByCustomAbility(document *dnfpvf.Document) (map[string]map[uint32]struct{}, error) {
+	if document == nil {
+		return nil, fmt.Errorf("%w: missing %s", errCurrentDisjointRewardInvalid, currentDisjointIndividualCustomInfoPath)
+	}
+	var customAbilityType string
+	typeSections := 0
+	for _, section := range document.Sections {
+		if !strings.EqualFold(strings.TrimSpace(section.Name), "custom ability type") {
+			continue
+		}
+		typeSections++
+		if section.Start < 0 || section.End > len(document.Tokens) || section.End-section.Start != 1 {
+			return nil, fmt.Errorf("%w: malformed custom ability type", errCurrentDisjointRewardInvalid)
+		}
+		token := document.Tokens[section.Start]
+		if token.Kind != dnfpvf.TokenString && token.Kind != dnfpvf.TokenIdent {
+			return nil, fmt.Errorf("%w: custom ability type is not text", errCurrentDisjointRewardInvalid)
+		}
+		customAbilityType = currentDisjointCustomAbilityTypeKey(token.Value)
+	}
+	if typeSections != 1 || customAbilityType == "" {
+		return nil, fmt.Errorf("%w: want one non-empty custom ability type", errCurrentDisjointRewardInvalid)
+	}
+	disabled := make(map[uint32]struct{})
+	disableSections := 0
+	for _, section := range document.Sections {
+		if !strings.EqualFold(strings.TrimSpace(section.Name), "disjoint disable item") {
+			continue
+		}
+		disableSections++
+		if section.Start < 0 || section.End > len(document.Tokens) || section.Start > section.End {
+			return nil, fmt.Errorf("%w: malformed disjoint disable item", errCurrentDisjointRewardInvalid)
+		}
+		for _, token := range document.Tokens[section.Start:section.End] {
+			if token.Kind != dnfpvf.TokenInt || token.Int <= 0 || token.Int > math.MaxUint32 {
+				return nil, fmt.Errorf("%w: invalid disjoint disable item", errCurrentDisjointRewardInvalid)
+			}
+			itemID := uint32(token.Int)
+			if _, duplicate := disabled[itemID]; duplicate {
+				return nil, fmt.Errorf("%w: duplicate disjoint disable item=%d", errCurrentDisjointRewardInvalid, itemID)
+			}
+			disabled[itemID] = struct{}{}
+		}
+	}
+	if disableSections > 1 {
+		return nil, fmt.Errorf("%w: duplicate disjoint disable item sections", errCurrentDisjointRewardInvalid)
+	}
+	if disableSections == 0 {
+		return map[string]map[uint32]struct{}{}, nil
+	}
+	return map[string]map[uint32]struct{}{customAbilityType: disabled}, nil
+}
+
+func currentDisjointCustomAbilityTypeKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Trim(value, "`")))
+}
+
+func currentDisjointDocumentCustomAbilityType(document *dnfpvf.Document) (string, error) {
+	if document == nil {
+		return "", errCurrentDisjointRewardInvalid
+	}
+	var result string
+	sections := 0
+	for _, section := range document.Sections {
+		if !strings.EqualFold(strings.TrimSpace(section.Name), "custom ability type") {
+			continue
+		}
+		sections++
+		if section.Start < 0 || section.End > len(document.Tokens) || section.End-section.Start != 1 {
+			return "", fmt.Errorf("%w: malformed source custom ability type", errCurrentDisjointRewardInvalid)
+		}
+		token := document.Tokens[section.Start]
+		if token.Kind != dnfpvf.TokenString && token.Kind != dnfpvf.TokenIdent {
+			return "", fmt.Errorf("%w: source custom ability type is not text", errCurrentDisjointRewardInvalid)
+		}
+		result = currentDisjointCustomAbilityTypeKey(token.Value)
+	}
+	if sections > 1 || (sections == 1 && result == "") {
+		return "", fmt.Errorf("%w: malformed source custom ability type", errCurrentDisjointRewardInvalid)
+	}
+	return result, nil
+}
+
+func currentDisjointFilterDisabledRewards(config currentDisjointPVFConfig, document *dnfpvf.Document, rewards []currentDisjointReward) ([]currentDisjointReward, error) {
+	customAbilityType, err := currentDisjointDocumentCustomAbilityType(document)
+	if err != nil {
+		return nil, err
+	}
+	if customAbilityType == "" {
+		return rewards, nil
+	}
+	if !config.CustomAbilityDisableLoaded {
+		return nil, fmt.Errorf("%w: custom ability rules were not loaded for %q", errCurrentDisjointRewardInvalid, customAbilityType)
+	}
+	disabled, configured := config.DisabledByCustomAbilityType[customAbilityType]
+	if !configured {
+		if customAbilityType == "warriors dungeon" {
+			return nil, fmt.Errorf("%w: missing disable table for custom ability type %q", errCurrentDisjointRewardInvalid, customAbilityType)
+		}
+		return rewards, nil
+	}
+	filtered := make([]currentDisjointReward, 0, len(rewards))
+	for _, reward := range rewards {
+		if _, blocked := disabled[reward.ItemID]; blocked {
+			continue
+		}
+		filtered = append(filtered, reward)
+	}
+	return filtered, nil
 }
 
 func currentDisjointSectionTokens(document *dnfpvf.Document, section dnfpvf.Section) []dnfpvf.Token {
@@ -354,7 +487,7 @@ func currentEquipmentDisjointRewards(config currentDisjointPVFConfig, document *
 			}
 		}
 	}
-	return rewards, nil
+	return currentDisjointFilterDisabledRewards(config, document, rewards)
 }
 
 // currentAvatarDisjointRewards resolves the avatar's PVF [grade] into the

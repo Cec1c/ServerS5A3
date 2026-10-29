@@ -42,11 +42,20 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 	if err := validateCurrentAntonRewardDependencies(catalog, config, now); err != nil {
 		t.Fatal(err)
 	}
-	want := map[uint32]struct{ id, count uint32 }{
-		10304474: {10304529, 30}, 10304481: {10093974, 11}, 10304479: {10093974, 19},
-		10304483: {10304483, 1}, 10304484: {10304484, 1}, 10304475: {10304529, 45},
-		10304480: {10093974, 52}, 10157783: {10095702, 1}, 10304485: {10304485, 1}, 10304486: {10304486, 1}, 10304487: {10304487, 1},
+	want := map[uint32]map[uint32]uint32{
+		10304474: privateRaidExpectedZero(10304474, 1),
+		10304481: privateRaidExpectedZero(10304481, 1),
+		10304479: privateRaidExpectedZero(10304479, 1),
+		10304483: privateRaidExpectedZero(10304483, 1),
+		10304484: privateRaidExpectedZero(10304484, 1),
+		10304475: privateRaidExpectedZero(10304475, 1),
+		10304480: privateRaidExpectedZero(10304480, 1),
+		10157783: privateRaidExpectedZero(10157783, 1),
+		10304485: privateRaidExpectedZero(10304485, 1),
+		10304486: privateRaidExpectedZero(10304486, 1),
+		10304487: privateRaidExpectedZero(10304487, 1),
 	}
+
 	seen := map[uint32]bool{}
 	for phase, p := range config.Phases {
 		for _, choice := range p.Choices {
@@ -59,9 +68,11 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 				t.Fatal(choice.ContainerID, err)
 			}
 			w, ok := want[choice.ContainerID]
-			if !ok || len(plan.Rewards) != 1 || plan.Rewards[0].Definition.ItemID != w.id || plan.Rewards[0].Count != w.count {
-				t.Fatalf("container=%d wrong expanded/direct reward %+v", choice.ContainerID, plan.Rewards)
+			if !ok {
+				t.Fatalf("unexpected source %d", choice.ContainerID)
 			}
+			privateRaidAssertContents(t, plan.Rewards, w)
+
 			g := memory.NewMemoryGroup()
 			ctx := context.Background()
 			if err := g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "31", AccountID: "account"}); err != nil {
@@ -81,20 +92,23 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 			if inv.Slots["0:50"].Count != 2 {
 				t.Fatal("raid grant consumed ticket/source box")
 			}
-			var found int64
-			for _, slots := range []map[string]repo.ItemStack{inv.Slots, account.Slots} {
-				for _, stack := range slots {
-					if stack.ItemID == int64(w.id) {
-						found += stack.Count
-						if stack.Extra["source"] != "raid_reward" || len(stack.RawEntry) != currentItemListEntryWireSize {
-							t.Fatalf("invalid persisted reward metadata %+v", stack)
+			for itemID, count := range w {
+				var found int64
+				for _, slots := range []map[string]repo.ItemStack{inv.Slots, account.Slots} {
+					for _, stack := range slots {
+						if stack.ItemID == int64(itemID) {
+							found += stack.Count
+							if stack.Extra["source"] != "raid_reward" || len(stack.RawEntry) != currentItemListEntryWireSize {
+								t.Fatalf("invalid persisted reward metadata %+v", stack)
+							}
 						}
 					}
 				}
+				if found != int64(count) {
+					t.Fatalf("source=%d item=%d persisted=%d want=%d", choice.ContainerID, itemID, found, count)
+				}
 			}
-			if found != int64(w.count) {
-				t.Fatalf("container=%d persisted count=%d want=%d", choice.ContainerID, found, w.count)
-			}
+
 			replay, err := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd)
 			if err != nil || !replay.Replayed || len(replay.GrantSlots) != 0 || replay.AccountChanged {
 				t.Fatal("repeat grant not receipt-only", err, replay)
@@ -104,7 +118,7 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 			if _, err := grantCurrentAntonRewardPlan(ctx, g, catalog, changed, cmd); !errors.Is(err, raid.ErrRewardReceipt) {
 				t.Fatal("changed frozen amount accepted", err)
 			}
-			t.Logf("container=%d actual_item=%d count=%d direct_box=%t shared=%t receipt_replay=true", choice.ContainerID, w.id, w.count, w.id == choice.ContainerID, result.AccountChanged)
+			t.Logf("container=%d actual=%v shared=%t receipt_replay=true", choice.ContainerID, w, result.AccountChanged)
 		}
 	}
 	if len(seen) != len(want) {

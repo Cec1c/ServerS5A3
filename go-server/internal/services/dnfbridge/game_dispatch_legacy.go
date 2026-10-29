@@ -301,7 +301,12 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 		// 登录引导窗口在这里开启（默认关闭的兜底开关专用；见
 		// equip_login_wear_window.go）。13 次现场登录 op19 全部落在本 ack 之后 ≤2s。
 		s.openEquipLoginWearWindow(session, "legacy_type1345_scene_ready_ack")
-		return s.sendCurrentLegacyTownSceneReadyBoundary(session, "legacy_type1345_scene_ready_ack")
+		if err := s.sendCurrentLegacyTownSceneReadyBoundary(session, "legacy_type1345_scene_ready_ack"); err != nil {
+			return err
+		}
+		// The war mission tab sends the same request. Keep the scene boundary
+		// above (including its one-shot guards) before projecting the list.
+		return s.sendCurrentGuildWarMissions(session)
 	case dnfenum.GameTypeContentsPlayInfo:
 		return s.sendContentsPlayInfoState(session, body)
 	case dnfenum.GameType(dnfenum.CmdPacketRequestBlacklist):

@@ -4,6 +4,7 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func guildGameplayModule() gameplayModuleDefinition {
 	handlers := map[uint16]func(*Service, *gameSession, []byte) error{
+		currentGuildMemberProfileOpcode:                     (*Service).handleCurrentGuildMemberProfile,
 		currentGuildMemberRankingOpcode:                     (*Service).handleCurrentGuildMemberRanking,
 		currentGuildRankingBoardOpcode:                      (*Service).handleCurrentGuildRankingBoard,
 		currentGuildRankingOpcode:                           (*Service).handleCurrentGuildRanking,
@@ -114,5 +115,8 @@ func guildGameplayModule() gameplayModuleDefinition {
 	legacy[currentGuildContractOpcode] = (*Service).handleCurrentGuildContract
 	upper[currentGuildRefreshOpcode] = (*Service).handleCurrentGuildRefresh
 	legacy[currentGuildRefreshOpcode] = (*Service).handleCurrentGuildRefresh
+	// Legacy 1345 also owns the login scene-ready boundary; it must remain
+	// in handleGameCommandRequest instead of being intercepted here.
+	upper[uint16(dnfenum.CmdPacketAgitWarInfo)] = (*Service).handleCurrentGuildWarMissionQuery
 	return gameplayModuleDefinition{Name: "guild", LegacyHandlers: legacy, UpperHandlers: upper}
 }

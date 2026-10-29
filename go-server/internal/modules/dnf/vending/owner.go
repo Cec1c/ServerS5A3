@@ -2,6 +2,7 @@ package vending
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/dungeon"
 	"longheng.io/server/internal/modules/dnf/premium"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"time"
 )
+
+var ErrBlackDiamondRequired = errors.New("black diamond required")
 
 type Command struct {
 	AccountID, CharacterID string
@@ -24,6 +27,8 @@ type Command struct {
 type Result struct {
 	CoinRemaining int64
 	RewardSlot    int16
+	// RewardStack is the committed slot total, including an existing stack.
+	RewardStack repo.ItemStack
 }
 
 // A failed grant rolls back the coin debit. Entitlement, character ownership,
@@ -39,7 +44,7 @@ func Use(ctx context.Context, repos repo.Group, cmd Command) (Result, error) {
 			return e
 		}
 		if !found || !premium.Active(account, premium.TypeBlackDiamond, cmd.Now) {
-			return fmt.Errorf("black diamond required")
+			return ErrBlackDiamondRequired
 		}
 		character, found, e := characters.Load(ctx, cmd.CharacterID)
 		if e != nil {
@@ -82,6 +87,7 @@ func Use(ctx context.Context, repos repo.Group, cmd Command) (Result, error) {
 		if e != nil {
 			return e
 		}
+		result.RewardStack = inventory.Slots["0:"+strconv.Itoa(int(result.RewardSlot))]
 		inventory.UpdatedAt = cmd.Now
 		return repo.SaveInventoryFields(ctx, items, inventory, repo.InventoryFieldSlots)
 	})
