@@ -58,6 +58,13 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		return s.handleCurrentDungeonTownExitRequest(session, body, uint16(dnfenum.CmdPacketBack2Village))
 	}
 
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		if err := s.closeCurrentTagTournamentForReturn(session); err != nil {
+			s.logGameEvent(session, "帝国竞技场返回休息室等待结算重试", "error", err)
+			return nil
+		}
+	}
+
 	if _, err := s.persistCurrentActiveTutorialExit(
 		session,
 		selectedCharacterID,
@@ -171,6 +178,9 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 	}
 	defer session.dungeon.mu.Unlock()
 	if runtime.townReturnPending {
+		if b := session.tagTournamentBattle; b != nil && !b.returnRosterSent && runtime.townReturnOp24Sent {
+			return s.queueCurrentTagTournamentReturnRoster(session, runtime)
+		}
 		session.confirmedDungeonReturnStatePending = false
 		resetCurrentDungeonReturnAttempt(runtime)
 		s.logGameEvent(session, "game-dungeon-back-to-village-retry",
@@ -478,9 +488,15 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 			return err
 		}
 		runtime.townReturnOp24Sent = true
+		if b := session.tagTournamentBattle; b != nil && b.prepared != nil && b.prepared.runtime == runtime {
+			b.returnRosterSent = false
+		}
 		session.confirmedDungeonReturnStatePending = true
 		session.selectorReturnPresence = nil
 		markBackToVillageEnterSelectPending(session)
+	}
+	if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+		return err
 	}
 	s.logGameEvent(session, "game-dungeon-back-to-village-pending",
 		"char_id", session.selectedCharacterID,
@@ -644,6 +660,10 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 	petClockRetired := false
 	if session.dungeon.runtime == runtime {
 		runtime.townReturnOp24Sent = true
+		if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+			session.dungeon.mu.Unlock()
+			return err
+		}
 		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
 			session.dungeon.mu.Unlock()
 			return err
@@ -656,6 +676,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// completed_town_route 回城，最后一个成员到位后重建城镇同屏）。
 		leaderExitInstance = runtime.partyInstance
 		session.dungeon.runtime = nil
+		s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
 		if runtime.guildPractice != nil {
 			releaseCurrentGuildPracticeProjection(session)
 		}
@@ -825,6 +846,17 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 		session.dungeon.mu.Unlock()
 		return err
 	}
+	// 完成回城可能在op24写出后才查询/构造1388恢复资料。op35/op15是该回合
+	// 唯一共同的城镇确认入口：登记失败时保留原runtime、挑战和未ACK状态，
+	// 让下一条确认重试；登记成功后才允许ACK、Abandon并释放运行态。
+	if err := s.queueCurrentTagTournamentReturnRoster(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
+	if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return err
+	}
 	committedStatus := snapshot.Run.Status
 	returnCharacterID := session.selectedCharacterID
 	returnOwnerChannel := currentConnectionTownActorOwnerContext(session)
@@ -844,10 +876,6 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 		// The matched v141 sender arms actor+0x8EE; the item-use gate reads
 		// it and command42 callback VA 0x1FA5400 clears it through 0x2961A90.
 		// Active give-up still waits for positive town evidence before ACK.
-		if err := s.acknowledgeCurrentDungeonGiveupReturnLocked(session, runtime); err != nil {
-			session.dungeon.mu.Unlock()
-			return err
-		}
 		if err := runtime.Session.Abandon(); err != nil {
 			session.dungeon.mu.Unlock()
 			return err
@@ -866,6 +894,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	leaderExitInstance := runtime.partyInstance
 	leaderExitCharacterID := session.selectedCharacterID
 	session.dungeon.runtime = nil
+	s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
 	if runtime.guildPractice != nil {
 		releaseCurrentGuildPracticeProjection(session)
 	}

@@ -42,6 +42,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	imageCommunicationGameplayModule(),
 	questGameplayModule(),
 	dungeonNavigationGameplayModule(),
+	tagTournamentGameplayModule(),
 	dungeonRidableGameplayModule(),
 	dungeonCombatDropGameplayModule(),
 	dungeonDeathReviveGameplayModule(),

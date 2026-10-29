@@ -119,6 +119,11 @@ func (s *Service) sendEnterSelectDungeonState(
 				"response", "enter_select_state")
 		}
 	}
+	if !transport && requestDriven {
+		if err := s.confirmCurrentTagTournamentEnterSelectReturn(session); err != nil {
+			return err
+		}
+	}
 	if !transport && requestDriven && session != nil && session.backToVillageEnterSelectPending {
 		armedAge := time.Since(session.backToVillageEnterSelectArmedAt)
 		// A typed op24 from system-menu op132 is followed by a client-owned
@@ -226,6 +231,12 @@ func (s *Service) sendEnterSelectDungeonState(
 	contextReadyReason := "legacy_or_proactive_path"
 	if !transport && requestDriven {
 		contextReady, contextReadyReason = s.currentTownEnterSelectReady(session)
+	}
+	if contextReady {
+		if err := s.restoreCurrentTagTournamentBeforeSelect(session); err != nil {
+			s.logGameEvent(session, "帝国竞技场选图前恢复挑战失败", "error", err)
+			return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEnterSelectDungeon), currentSelectDungeonInvalidSelectionStateReason)
+		}
 	}
 	packetCount := 2
 	if contextReady {

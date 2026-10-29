@@ -14,7 +14,7 @@ func (s *Service) isCurrentTagTournamentChannel(p *gameSession) bool {
 	return s != nil && s.options.currentClientVersion == "official-24.9" && p != nil && p.channel.Type == currentTagTournamentChannelType
 }
 
-// 仅接城镇查看入口；不创建双角色战斗或结算，也不编造入口坐标。
+// 从真实PVF投影帝国休息室入口；双角色战斗与结算由独立调用链负责。
 func (s *Service) currentTagTournamentLoginLocation(c repo.CharacterRecord) (currentTownLoginLocation, error) {
 	a, ok := s.townGateArea(48)
 	if !ok || a.ID < 0 || a.ID > 255 || a.Gate == nil ||

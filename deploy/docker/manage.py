@@ -212,6 +212,9 @@ def generate(c, catalog):
     multiplier = c.get("main_quest_exp_multiplier")
     if "main_quest_exp_multiplier" in c and (type(multiplier) is not int or not 1 <= multiplier <= 100):
         raise ValueError("main_quest_exp_multiplier must be an integer from 1 to 100")
+    encoding = c.get("channel_script_encoding")
+    if "channel_script_encoding" in c and (type(encoding) is not str or encoding not in ("utf8", "gbk")):
+        raise ValueError("channel_script_encoding must be utf8 or gbk")
     tournament = c.get("dungeon_tournament")
     if "dungeon_tournament" in c and tournament not in ("off", "vendor"):
         raise ValueError("dungeon_tournament must be off or vendor")
@@ -357,6 +360,8 @@ create_databases = false
     if percent is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"] = str(percent)
     env.update(compatibility_env)
+    if encoding is not None:
+        env["DNFBRIDGE_CHANNEL_SCRIPT_ENCODING"] = encoding
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}

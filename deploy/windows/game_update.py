@@ -21,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKER = ROOT / "deploy/remote/game_update.py"
 SSH_OPTIONS = ["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]
 AUTHORITATIVE_URL = "https://gitgud.io/16ww/servers5a3.git"
+RUNTIME_CHANNEL_TARGET = "runtime/docker/data/channel.override.etc"
+RUNTIME_CHANNEL_CONTAINER = "/runtime/data/dnf/channel.override.etc"
+RUNTIME_CHANNEL_FILE = "channel.override.etc"
 EMERGENCY_MR226_PATHS = {"Docs/CHARACTER_SELECTION_TIMEOUT.md", "changlog.md"} | {
     "go-server/internal/services/dnfbridge/" + name for name in
     ("game_select_scene_entry.go", "game_select_state.go", "character_rename_current.go", "character_select_deadline_test.go")}
@@ -174,7 +177,42 @@ def write_archive(source, old_archive, old_files, changed, output):
     return files
 
 
+def checked_runtime_channel_profile(profile):
+    spec = profile.get("runtime_channel_update")
+    if spec is None:
+        return None
+    expected = {"source", "target", "container_path", "channel_file", "base_channel_source", "channel_source",
+                "base_sha256", "sha256", "pvf_sha256", "base_channels",
+                "channels", "channel_id", "port", "channel_type", "group", "name"}
+    if not isinstance(spec, dict) or set(spec) != expected:
+        raise ValueError("runtime_channel_update has an invalid key set")
+    if not isinstance(spec["source"], str) or not spec["source"]:
+        raise ValueError("runtime_channel_update.source must be a non-empty path")
+    if (spec["target"] != RUNTIME_CHANNEL_TARGET or
+            spec["container_path"] != RUNTIME_CHANNEL_CONTAINER or
+            spec["channel_file"] != RUNTIME_CHANNEL_FILE):
+        raise ValueError("runtime channel target differs from the reviewed channel.override.etc path")
+    for key in ("base_sha256", "sha256", "pvf_sha256"):
+        if not isinstance(spec[key], str) or not re.fullmatch(r"[0-9a-f]{64}", spec[key]):
+            raise ValueError("runtime channel sha256 fields must be lowercase SHA256")
+    if (type(spec["base_channels"]) is not int or spec["base_channels"] != 119 or
+            type(spec["channels"]) is not int or spec["channels"] != 119 or
+            type(spec["channel_id"]) is not int or spec["channel_id"] != 187 or
+            type(spec["port"]) is not int or spec["port"] != 10187 or
+            type(spec["channel_type"]) is not int or spec["channel_type"] != 39 or
+            spec["group"] != "tagtournament" or spec["name"] != "帝国竞技场" or
+            spec["base_channel_source"] != "external:approved-119-empire-arena-v1" or
+            spec["channel_source"] != "external:approved-119-empire-arena-pvfmap-v2"):
+        raise ValueError("runtime channel update differs from the reviewed Imperial Arena binding")
+    return spec
+
+
 def check_profile(profile):
+    checked_runtime_channel_profile(profile)
+    if "channel_script_encoding" in profile:
+        value = profile["channel_script_encoding"]
+        if type(value) is not str or value not in ("utf8", "gbk"):
+            raise ValueError("channel_script_encoding must be utf8 or gbk")
     if "main_quest_exp_percent" in profile:
         value = profile["main_quest_exp_percent"]
         if type(value) is not int or not 0 <= value <= 100:
@@ -269,6 +307,7 @@ class Update:
         self.recovery = None
         self.source = None
         self.emergency = None
+        self.channel_asset = None
 
     def checkpoint(self, phase):
         self.authority.check(self.source, phase)
@@ -279,6 +318,27 @@ class Update:
         if self.authority is None:
             raise ValueError("A fresh in-process authoritative pull is required for " + phase)
         return self.authority.require(phase)
+
+    def checked_channel_asset(self, snapshot):
+        spec = checked_runtime_channel_profile(self.profile)
+        if spec is None:
+            return None
+        source = Path(spec["source"]).resolve(strict=True)
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("Runtime channel asset must be one regular file")
+        if digest(source) != spec["sha256"]:
+            raise ValueError("Runtime channel candidate changed")
+        live_channel = snapshot["channelSha256"]
+        if live_channel not in (spec["base_sha256"], spec["sha256"]):
+            raise ValueError("Live channel file is neither the reviewed 119-row base nor its mapped candidate")
+        live_source = (snapshot.get("channel") or {}).get("channelSource")
+        expected_source = spec["channel_source"] if live_channel == spec["sha256"] else spec["base_channel_source"]
+        if live_source != expected_source:
+            raise ValueError("Live channel_source does not match the selected channel state")
+        if snapshot["pvfSha256"] != spec["pvf_sha256"]:
+            raise ValueError("Live PVF differs from the PVF used for the Imperial Arena evidence")
+        return {"path": source, "already_applied": live_channel == spec["sha256"],
+                "manifest": {key: value for key, value in spec.items() if key != "source"}}
 
     def ssh(self, argv, code=None, capture=True):
         return subprocess.run(["ssh", *SSH_OPTIONS, self.profile["ssh_alias"], shlex.join(argv)],
@@ -457,6 +517,14 @@ class Update:
             manifest["mainQuestExpMultiplier"] = self.profile["main_quest_exp_multiplier"]
         if "main_quest_exp_percent" in self.profile:
             manifest["mainQuestExpPercent"] = self.profile["main_quest_exp_percent"]
+        if "channel_script_encoding" in self.profile:
+            manifest["channelScriptEncoding"] = self.profile["channel_script_encoding"]
+        if self.channel_asset and not self.channel_asset["already_applied"]:
+            staged_channel = self.stage / RUNTIME_CHANNEL_FILE
+            shutil.copy2(self.channel_asset["path"], staged_channel)
+            if digest(staged_channel) != self.channel_asset["manifest"]["sha256"]:
+                raise ValueError("Staged runtime channel candidate changed")
+            manifest["runtimeChannelUpdate"] = self.channel_asset["manifest"]
         save(self.stage / "game-source-manifest.json", manifest)
 
     def deploy(self, source, allowed, recovered_base=None, emergency_evidence=None):
@@ -464,6 +532,9 @@ class Update:
         snapshot = json.loads(self.worker("snapshot").stdout)
         self.stage.mkdir(parents=True, exist_ok=False)
         save(self.stage / "runtime-before.json", snapshot)
+        self.channel_asset = self.checked_channel_asset(snapshot)
+        if self.channel_asset:
+            save(self.stage / "channel-asset.json", {"alreadyApplied": self.channel_asset["already_applied"], **self.channel_asset["manifest"]})
         self.source = source
         self.pinned = pinned
         if emergency_evidence:
@@ -485,7 +556,7 @@ class Update:
                 expected[x["path"]] = x["afterSha256"]
             if expected != pinned["files"]:
                 raise ValueError("Emergency includes unreviewed source changes")
-            for key in ("dungeon_tournament", "main_quest_exp_multiplier", "main_quest_exp_percent"):
+            for key in ("dungeon_tournament", "main_quest_exp_multiplier", "main_quest_exp_percent", "channel_script_encoding"):
                 if key in self.profile:
                     raise ValueError("Emergency is source-only; omit runtime configuration changes")
             e["evidenceSha256"] = digest(emergency_evidence)
@@ -500,6 +571,8 @@ class Update:
             base = recovered_base
         changed = checked_changes(source, base, allowed, self.authority.baseline)
         if pinned["head"] == snapshot["active"]["sourceCommit"]:
+            if self.channel_asset and not self.channel_asset["already_applied"]:
+                raise ValueError("A runtime channel update must accompany the next reviewed source deployment")
             mode = self.profile.get("dungeon_tournament")
             if mode is not None and snapshot.get("tournament", {}).get("sourceMode") != mode:
                 raise ValueError("Tournament configuration changes require a reviewed source update")
@@ -509,6 +582,9 @@ class Update:
             percent = self.profile.get("main_quest_exp_percent")
             if percent is not None and snapshot.get("mainQuestExperience", {}).get("sourcePercent") != percent:
                 raise ValueError("Main quest percent configuration changes require a reviewed source update")
+            encoding = self.profile.get("channel_script_encoding")
+            if encoding is not None and snapshot.get("channelScriptEncoding", {}).get("sourceEncoding") != encoding:
+                raise ValueError("Channel script encoding changes require a reviewed source update")
             self.compatibility(snapshot); self.probe(self.stage / "probe.log")
             if source_state(source) != pinned: raise ValueError("Candidate changed during verification")
             save(self.stage / "no-op.json", {"sourceCommit": pinned["head"], "restarted": False, "verified": True})
@@ -541,7 +617,10 @@ class Update:
         self.require_authority("upload")
         self.ssh(["mkdir", "-p", str(PurePosixPath(self.remote_stage).parent)])
         self.ssh(["mkdir", "-m", "700", self.remote_stage])
-        for name in ["DNF90Server", "game-source.tar.gz", "game-source.bundle", "game-source-manifest.json", "runtime-before.json", "compatibility-readback.json"]:
+        names = ["DNF90Server", "game-source.tar.gz", "game-source.bundle", "game-source-manifest.json", "runtime-before.json", "compatibility-readback.json"]
+        if self.channel_asset and not self.channel_asset["already_applied"]:
+            names.append(RUNTIME_CHANNEL_FILE)
+        for name in names:
             print("Upload:", name, flush=True)
             subprocess.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                             str(self.stage / name), self.profile["ssh_alias"] + ":" + self.remote_stage + "/" + name], check=True)
