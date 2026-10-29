@@ -6,7 +6,7 @@ Docker Compose v2, Python 3.10+ (with Tk for the launcher), approximately 4 GiB
 for the server, and matching client/PVF/channel assets supplied separately.
 
 > [!IMPORTANT]
-> Select the complete external channel table on the first `prepare` call with `--channel-info`. Use the [118-channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md) to verify the actual loaded table; preserve it when updating the PVF.
+> Select the complete external channel table on the first `prepare` call with `--channel-info`. Use the [120-channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md) to verify the actual loaded table; preserve it when updating the PVF.
 
 ## Activity settings before startup
 
@@ -62,7 +62,7 @@ do not hand-edit the generated files. The old Windows controller and its
 
 Select the external channel table explicitly on the first `prepare` call.
 The [channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md) includes the approved
-118-row CSV and the matching complete ETC input. Preparation copies the supplied
+120-row CSV and the matching complete ETC input. Preparation copies the supplied
 PVF and selected table, records SHA256 values, and derives game ports from that
 external catalog. Preserve it across PVF updates. The implementation can extract
 a PVF table when no override is selected; that is not this deployment procedure.
@@ -90,8 +90,11 @@ Lorain tutorial scene:
 DOCKER.bat prepare --channel-info "go-server\internal\services\dnfbridge\testdata\channel_info.etc"
 ```
 
-This is the table selected in the tested local environment. Its SHA256 is
+The historical 118-channel table selected in that tested environment had SHA256
 `b1741336a9f91646ece865c799d187d6c36460bc826bf9efbc1b850b39a71a36`.
+The current 120-channel PVP/empire revision has a different hash and requires its
+own deployment and gameplay acceptance; see the linked deployment guide. Existing
+runtime copies are preserved by `prepare` and do not update when Git is pulled.
 The supplied client/server PVF SHA256 is
 `b86dd8fa5bcde40a445d9e494a9e1a89d0fc15ddd15d61041e4b97f78973d00f`.
 These results establish basic startup compatibility, not complete gameplay or

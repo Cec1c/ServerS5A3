@@ -15,7 +15,7 @@
 </div>
 
 > [!IMPORTANT]
-> **先选对频道表，再启动服务。** 首次 `prepare` 必须显式传入 `--channel-info`，使用[完整的 118 频道外部 ETC](go-server/internal/services/dnfbridge/testdata/channel_info.etc)，并按[频道表部署说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾出现能解析、却无法完成登录的情况；更新 PVF 时保留已选外部表，部署后核对实际加载路径、摘要和频道目录。
+> **先选对频道表，再启动服务。** 首次 `prepare` 必须显式传入 `--channel-info`，使用[完整的 120 频道外部 ETC](go-server/internal/services/dnfbridge/testdata/channel_info.etc)，并按[频道表部署说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾出现能解析、却无法完成登录的情况；更新 PVF 时保留已选外部表，部署后核对实际加载路径、摘要和频道目录。
 
 ## 当前活动开放说明
 
@@ -37,7 +37,7 @@
 帮我在指定的 Linux 服务器部署一套 DNF90。
 服务器连接信息和 Windows 客户端目录由我提供。
 先确认机器、现有服务和客户端配套，再完成构建、配置、备份与部署。
-首次准备时显式选择118频道外部表，关闭2365赛马活动并核对实际生效状态。
+首次准备时显式选择120频道外部表，关闭2365赛马活动并核对实际生效状态。
 给我一个能注册、登录、选频道并启动游戏的基础登录器，
 最后留下启动、停止、备份、更新和回退方法。
 ```
