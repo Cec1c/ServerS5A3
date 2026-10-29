@@ -27,8 +27,7 @@ import (
 //
 // 额度用尽即拒绝入场；计数与**同一轮入场的其他资产**（门票、入场房间疲劳）必须在同一个
 // `WithinCharacterAssets` 事务里提交，否则拒绝分支会留下已经扣掉的疲劳或门票。
-// 本仓这里只做持久计数与准入判据，不发包；当前 EXE 的 812 不是次数通知。
-// 计数 UI 保持待验，见 Docs/D33_DAILY_COUNT_ENTRY_20261014.md 的反汇编纠正。
+// 领域持久化额度与准入判据；bridge按已验证的812契约投影基础/追加/周计数。
 const (
 	dimensionGateDayKey   = "dimension_gate_daily_entry_day"
 	dimensionGateUsedKey  = "dimension_gate_daily_entry_used"
