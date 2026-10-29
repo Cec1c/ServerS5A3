@@ -1,13 +1,16 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
 
@@ -32,6 +35,8 @@ func TestTitleV197NativeRequestCommitsAndReequips(t *testing.T) {
 	}
 	f.service.initialEquipmentArchive, f.service.pvfItemCatalog = archive, catalog
 	f.service.options.currentClientVersion = "official-24.9"
+	var logs bytes.Buffer
+	f.service.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	definition, err := catalog.ResolveItem(400330094)
 	if err != nil {
 		t.Fatal(err)
@@ -61,10 +66,24 @@ func TestTitleV197NativeRequestCommitsAndReequips(t *testing.T) {
 	if f.wornItemID(t, 13) != 400330094 {
 		t.Fatal("unmarked login reassert changed equipment")
 	}
+	// Slot41 is outside the unexpanded fixture's unlocked range. The manual
+	// marker must not bypass capacity. Then model the expanded bag used by
+	// the native producer fixture, without changing its captured request.
+	send(current)
+	if f.wornItemID(t, 13) != 400330094 || f.session.hasOp19QuietPending() {
+		t.Fatal("manual marker bypassed locked-slot capacity")
+	}
+	if err := f.group.Settings.Save(context.Background(), dnfrepo.SettingsRecord{
+		Scope:  dnfrepo.CharacterContainerStateScope("1"),
+		Values: map[string]string{"main_list_param16": "8", "avatar_list_param16": "0", "personal_cargo_list_param16": "8"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logs.Reset()
 	for i := 0; i < 3; i++ {
 		send(current)
 		if f.session.hasOp19QuietPending() || f.wornItemID(t, 13) != 0 {
-			t.Fatal("native manual request did not unequip immediately")
+			t.Fatalf("native manual request did not unequip immediately: %s", logs.String())
 		}
 		inventory, ok, err := f.group.Inventory.Load(context.Background(), "1")
 		if err != nil || !ok {
