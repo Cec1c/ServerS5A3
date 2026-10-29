@@ -46,4 +46,3 @@ func DimensionHiddenSnapshot(character dnfrepo.CharacterRecord, now time.Time) (
 	}
 	return state, nil
 }
-
