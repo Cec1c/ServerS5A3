@@ -138,6 +138,11 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 		return err
 	}
 	runtime.Character = character
+	if s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon) {
+		if err := s.sendCurrentDimensionCount(session, character); err != nil {
+			s.logGameEvent(session, "game-dimension-count-refresh-deferred", "source", "entry_commit", "error", err)
+		}
+	}
 	s.refreshCurrentDungeonCycleInfo(session, runtime, "entry_commit")
 	if assets.debitRoomFatigue && hasScene {
 		if runtime.fatigueRooms == nil {

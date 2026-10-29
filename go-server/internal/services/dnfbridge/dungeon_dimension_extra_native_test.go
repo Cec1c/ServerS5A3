@@ -76,6 +76,7 @@ func newDimensionExtraNativeFixture(t *testing.T, path string) (*Service, dnfrep
 		connID:              "dimension-extra-native",
 	}
 	bindDungeonSelectorOriginForTestAt(t, service, session, 107, 0, 250, 224)
+	service.gameSessions = map[uint16]*gameSession{19: session}
 	return service, repos, session, conn
 }
 
@@ -146,7 +147,7 @@ func TestRealPVFDimensionGateExtraTicketNativeAction156(t *testing.T) {
 				t.Fatalf("ack=%x want=%x", got, wantAck)
 			}
 			refresh, trailing := splitLongHengGameServerUpperPacket(t, rest)
-			if refresh.Header.MsgID != 14 || refresh.Header.Classification != 0 || len(trailing) != 0 || len(refresh.Body) < 3 {
+			if refresh.Header.MsgID != 14 || refresh.Header.Classification != 0 || len(refresh.Body) < 3 {
 				t.Fatalf("second packet msg=%d, want op14 slot refresh", refresh.Header.MsgID)
 			}
 			rows := decodeCurrentItemListTestRows(t, refresh.Body[3:])
@@ -164,6 +165,10 @@ func TestRealPVFDimensionGateExtraTicketNativeAction156(t *testing.T) {
 			}
 			if testCase.material {
 				assertCurrentItemListTestRow(t, rows[1], 30, ^uint32(0), 0)
+			}
+			counts, trailing := splitLongHengGameServerUpperPacket(t, trailing)
+			if counts.Header.MsgID != 812 || counts.Header.Classification != 0 || len(trailing) != 0 || len(counts.Body) != 9 || binary.LittleEndian.Uint32(counts.Body) != 0 || binary.LittleEndian.Uint32(counts.Body[4:]) != uint32(testCase.wantGranted) || counts.Body[8] != 0 {
+				t.Fatalf("post-commit counts=%+v trailing=%x", counts, trailing)
 			}
 		})
 	}
