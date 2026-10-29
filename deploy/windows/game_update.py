@@ -209,6 +209,10 @@ def checked_runtime_channel_profile(profile):
 
 def check_profile(profile):
     checked_runtime_channel_profile(profile)
+    if "channel_script_encoding" in profile:
+        value = profile["channel_script_encoding"]
+        if type(value) is not str or value not in ("utf8", "gbk"):
+            raise ValueError("channel_script_encoding must be utf8 or gbk")
     if "main_quest_exp_percent" in profile:
         value = profile["main_quest_exp_percent"]
         if type(value) is not int or not 0 <= value <= 100:
@@ -513,6 +517,8 @@ class Update:
             manifest["mainQuestExpMultiplier"] = self.profile["main_quest_exp_multiplier"]
         if "main_quest_exp_percent" in self.profile:
             manifest["mainQuestExpPercent"] = self.profile["main_quest_exp_percent"]
+        if "channel_script_encoding" in self.profile:
+            manifest["channelScriptEncoding"] = self.profile["channel_script_encoding"]
         if self.channel_asset and not self.channel_asset["already_applied"]:
             staged_channel = self.stage / RUNTIME_CHANNEL_FILE
             shutil.copy2(self.channel_asset["path"], staged_channel)
@@ -550,7 +556,7 @@ class Update:
                 expected[x["path"]] = x["afterSha256"]
             if expected != pinned["files"]:
                 raise ValueError("Emergency includes unreviewed source changes")
-            for key in ("dungeon_tournament", "main_quest_exp_multiplier", "main_quest_exp_percent"):
+            for key in ("dungeon_tournament", "main_quest_exp_multiplier", "main_quest_exp_percent", "channel_script_encoding"):
                 if key in self.profile:
                     raise ValueError("Emergency is source-only; omit runtime configuration changes")
             e["evidenceSha256"] = digest(emergency_evidence)
@@ -576,6 +582,9 @@ class Update:
             percent = self.profile.get("main_quest_exp_percent")
             if percent is not None and snapshot.get("mainQuestExperience", {}).get("sourcePercent") != percent:
                 raise ValueError("Main quest percent configuration changes require a reviewed source update")
+            encoding = self.profile.get("channel_script_encoding")
+            if encoding is not None and snapshot.get("channelScriptEncoding", {}).get("sourceEncoding") != encoding:
+                raise ValueError("Channel script encoding changes require a reviewed source update")
             self.compatibility(snapshot); self.probe(self.stage / "probe.log")
             if source_state(source) != pinned: raise ValueError("Candidate changed during verification")
             save(self.stage / "no-op.json", {"sourceCommit": pinned["head"], "restarted": False, "verified": True})

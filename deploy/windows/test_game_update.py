@@ -212,6 +212,58 @@ class UpdateTests(unittest.TestCase):
             if value is None: self.assertNotIn('mainQuestExpPercent', manifest)
             else: self.assertEqual(manifest['mainQuestExpPercent'], value)
 
+    def test_same_source_requires_exact_channel_encoding_source_match(self):
+        for source_value in (None, 'utf8', 'gbk'):
+            up = update.Update(dict(self.up.profile, channel_script_encoding='gbk'), 'same-encoding')
+            up.stage = self.root / ('receipt-' + str(source_value))
+            up.worker = Mock(return_value=self.reply(self.snapshot() | {'channelScriptEncoding': {'sourceEncoding': source_value}}))
+            up.compatibility = Mock(); up.probe = Mock(); up.validate = Mock()
+            if source_value == 'gbk':
+                up.deploy(self.source, [])
+                self.assertTrue((up.stage / 'no-op.json').exists())
+            else:
+                with self.assertRaisesRegex(ValueError, 'require a reviewed source update'):
+                    up.deploy(self.source, [])
+                up.compatibility.assert_not_called()
+            up.validate.assert_not_called()
+            self.assertEqual([c.args[0] for c in up.worker.call_args_list], ['snapshot'])
+
+    def test_manifest_freezes_requested_channel_encoding_and_omits_unspecified(self):
+        self.candidate()
+        archive = self.root / 'old-source.tar.gz'
+        files = {'go-server/main.go': b'old\n', 'README.md': b'line\n'}
+        with tarfile.open(archive, 'w:gz') as tar:
+            for name, data in files.items():
+                member = tarfile.TarInfo(name); member.size = len(data)
+                tar.addfile(member, io.BytesIO(data))
+        (self.source / '.git/info/exclude').write_text('dist/\n')
+        binary = self.source / 'dist/linux-amd64/DNF90Server'
+        binary.parent.mkdir(parents=True); binary.write_bytes(b'fixture-binary')
+        for value in (None, 'utf8', 'gbk'):
+            profile = dict(self.up.profile)
+            if value is not None: profile['channel_script_encoding'] = value
+            up = update.Update(profile, 'package-encoding')
+            if value is not None: profile['channel_script_encoding'] = 'gbk' if value == 'utf8' else 'utf8'
+            up.stage = self.root / ('package-' + str(value)); up.stage.mkdir()
+            up.authority = update.AuthorityGate(up.stage / 'authority', up.stage, up.run_id)
+            up.authority.check(self.source, 'package')
+            up.ssh = Mock(return_value=Mock(stdout=archive.read_bytes()))
+            snapshot = {'sourceManifest': {'files': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}},
+                        'active': {'sourceCommit': self.base, 'sourceDirectory': '/example/run/source',
+                                   'sourceArchiveSha256': update.digest(archive)}}
+            up.package(self.source, snapshot, {'go-server/main.go'})
+            manifest = json.loads((up.stage / 'game-source-manifest.json').read_text())
+            if value is None: self.assertNotIn('channelScriptEncoding', manifest)
+            else: self.assertEqual(manifest['channelScriptEncoding'], value)
+
+    def test_channel_encoding_profile_rejects_invalid_values(self):
+        update.check_profile(self.up.profile)
+        for value in ('utf8', 'gbk'):
+            update.check_profile(dict(self.up.profile, channel_script_encoding=value))
+        for value in (None, True, False, 1, 'UTF8', '', 'gbk\n', [], {}):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'channel_script_encoding'):
+                update.check_profile(dict(self.up.profile, channel_script_encoding=value))
+
     def test_candidate_moved_during_validation_blocks_upload(self):
         self.candidate()
         self.up.worker = Mock(return_value=self.reply(self.snapshot()))

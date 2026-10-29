@@ -7,6 +7,7 @@ All credentials are read on the server and never returned in snapshots.
 TOURNAMENT_KEY = 'DNFBRIDGE_DUNGEON_TOURNAMENT'
 MAIN_QUEST_EXP_KEY = 'DNFBRIDGE_MAIN_QUEST_EXP_MULTIPLIER'
 MAIN_QUEST_PERCENT_KEY = 'DNFBRIDGE_MAIN_QUEST_EXP_PERCENT'
+CHANNEL_ENCODING_KEY = 'DNFBRIDGE_CHANNEL_SCRIPT_ENCODING'
 GAME_CONFIG_FILES = ['runtime/docker/instance.json', 'runtime/docker/compose.json',
                      'runtime/docker/server.env', 'runtime/active-game-baseline.json']
 RUNTIME_CHANNEL_TARGET = 'runtime/docker/data/channel.override.etc'
@@ -102,7 +103,18 @@ def main_quest_exp_percent(manifest):
     return checked_main_quest_percent(manifest['mainQuestExpPercent'])
 
 
-def target_instance(instance, image, mode, multiplier=None, percent=None, channel_source=None):
+def checked_channel_script_encoding(value):
+    if type(value) is not str or value not in ('utf8', 'gbk'):
+        raise ValueError('channel_script_encoding must be utf8 or gbk')
+    return value
+
+
+def channel_script_encoding(manifest):
+    if 'channelScriptEncoding' not in manifest: return None
+    return checked_channel_script_encoding(manifest['channelScriptEncoding'])
+
+
+def target_instance(instance, image, mode, multiplier=None, percent=None, channel_source=None, encoding=None):
     updated = dict(instance, server_image=image)
     if mode is not None:
         if mode not in ('off', 'vendor'): raise ValueError('Invalid tournament mode')
@@ -115,10 +127,12 @@ def target_instance(instance, image, mode, multiplier=None, percent=None, channe
         if channel_source != 'external:approved-119-empire-arena-pvfmap-v2':
             raise ValueError('Invalid runtime channel source')
         updated['channel_source'] = channel_source
+    if encoding is not None:
+        updated['channel_script_encoding'] = checked_channel_script_encoding(encoding)
     return updated
 
 
-def target_environment(environment, mode, multiplier=None, percent=None):
+def target_environment(environment, mode, multiplier=None, percent=None, encoding=None):
     updated = dict(environment)
     if mode is not None:
         if mode not in ('off', 'vendor'): raise ValueError('Invalid tournament mode')
@@ -127,11 +141,13 @@ def target_environment(environment, mode, multiplier=None, percent=None):
         updated[MAIN_QUEST_EXP_KEY] = str(checked_main_quest_exp(multiplier))
     if percent is not None:
         updated[MAIN_QUEST_PERCENT_KEY] = str(checked_main_quest_percent(percent))
+    if encoding is not None:
+        updated[CHANNEL_ENCODING_KEY] = checked_channel_script_encoding(encoding)
     return updated
 
 
-def target_env_bytes(before, mode, multiplier=None, percent=None):
-    if mode is None and multiplier is None and percent is None: return before
+def target_env_bytes(before, mode, multiplier=None, percent=None, encoding=None):
+    if mode is None and multiplier is None and percent is None and encoding is None: return before
     changes = {}
     if mode is not None:
         if mode not in ('off', 'vendor'): raise ValueError('Invalid tournament mode')
@@ -140,6 +156,8 @@ def target_env_bytes(before, mode, multiplier=None, percent=None):
         changes[MAIN_QUEST_EXP_KEY] = str(checked_main_quest_exp(multiplier))
     if percent is not None:
         changes[MAIN_QUEST_PERCENT_KEY] = str(checked_main_quest_percent(percent))
+    if encoding is not None:
+        changes[CHANNEL_ENCODING_KEY] = checked_channel_script_encoding(encoding)
     lines = before.splitlines(keepends=True)
     if before and not before.endswith(b'\n'):
         raise ValueError('Ambiguous environment file')
@@ -150,7 +168,7 @@ def target_env_bytes(before, mode, multiplier=None, percent=None):
         replacement = prefix + value.encode() + b'\n'
         if found: lines[found[0]] = replacement
         else:
-            order = (TOURNAMENT_KEY, MAIN_QUEST_EXP_KEY, MAIN_QUEST_PERCENT_KEY)
+            order = (TOURNAMENT_KEY, MAIN_QUEST_EXP_KEY, MAIN_QUEST_PERCENT_KEY, CHANNEL_ENCODING_KEY)
             later = tuple((k + '=').encode() for k in order[order.index(key) + 1:])
             index = next((i for i, line in enumerate(lines) if later and line.startswith(later)), len(lines))
             lines.insert(index, replacement)
@@ -197,6 +215,21 @@ def main_quest_exp_snapshot(instance, container_env, process_env):
             'containerValue': current, 'processValue': process,
             'sourcePercent': percent, 'effectivePercent': percent if percent is not None else 0,
             'containerPercent': current_percent, 'processPercent': process_percent}
+
+def channel_script_encoding_snapshot(instance, container_env, process_env):
+    source = instance.get('channel_script_encoding')
+    if 'channel_script_encoding' in instance:
+        checked_channel_script_encoding(source)
+    current = container_env.get(CHANNEL_ENCODING_KEY)
+    process = process_env.get(CHANNEL_ENCODING_KEY)
+    assert current == process, 'process and container channel script encoding differ'
+    if source is not None:
+        assert current == source, 'source and runtime channel script encoding differ'
+    else:
+        assert current in (None, 'utf8'), 'implicit channel script encoding must remain utf8'
+    return {'sourceEncoding': source, 'effectiveEncoding': source if source is not None else 'utf8',
+            'containerValue': current, 'processValue': process}
+
 
 def archive_members(archive, files):
     """Validate the complete archive before creating any source file."""
@@ -328,7 +361,7 @@ def checked_emergency_scope(src, old):
     if src.get('integrationMode') != 'emergency-selected-mr':
         return
     e = src['emergency']
-    if any(key in src for key in ('dungeonTournament', 'mainQuestExpMultiplier', 'mainQuestExpPercent')):
+    if any(key in src for key in ('dungeonTournament', 'mainQuestExpMultiplier', 'mainQuestExpPercent', 'channelScriptEncoding')):
         raise ValueError('Emergency cannot change runtime settings')
     if e['baseArchiveSha256'] != old['active']['sourceArchiveSha256']:
         raise ValueError('Emergency active archive changed')
@@ -555,8 +588,9 @@ def main():
         channel_state['processPath'] = process_env['DNFBRIDGE_CHANNEL_INFO_PATH']
         snapshot['tournament'] = tournament_snapshot(inst, dict(x.split('=', 1) for x in inspect('server')['Config']['Env']), process_env)
         snapshot['mainQuestExperience'] = main_quest_exp_snapshot(inst, dict(x.split('=', 1) for x in inspect('server')['Config']['Env']), process_env)
+        snapshot['channelScriptEncoding'] = channel_script_encoding_snapshot(inst, dict(x.split('=', 1) for x in inspect('server')['Config']['Env']), process_env)
         if args.mode == "verify":
-            snapshot = {key: snapshot[key] for key in ["active", "serverSha256", "containers", "pvfSha256", "channelSha256", "channel", "exeSha256", "sequence", "sessions", "management", "tournament", "mainQuestExperience"]}
+            snapshot = {key: snapshot[key] for key in ["active", "serverSha256", "containers", "pvfSha256", "channelSha256", "channel", "exeSha256", "sequence", "sessions", "management", "tournament", "mainQuestExperience", "channelScriptEncoding"]}
         print(json.dumps(snapshot))
         return
     old = read(s / 'runtime-before.json')
@@ -564,7 +598,8 @@ def main():
     config_mode = tournament_mode(src)
     config_multiplier = main_quest_exp_multiplier(src)
     config_percent = main_quest_exp_percent(src)
-    config_changed = config_mode is not None or config_multiplier is not None or config_percent is not None
+    config_encoding = channel_script_encoding(src)
+    config_changed = config_mode is not None or config_multiplier is not None or config_percent is not None or config_encoding is not None
     runtime_channel = src.get('runtimeChannelUpdate')
     if runtime_channel is not None:
         required = {'target', 'container_path', 'channel_file', 'base_channel_source', 'channel_source', 'base_sha256', 'sha256',
@@ -683,7 +718,7 @@ def main():
         assert json.loads(run('docker', 'image', 'inspect', prepared['tag']))[0]['Id'] == prepared['image']
         prior = read(d / 'compose.json'); instance = read(d / 'instance.json')
         updated = target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent,
-                                  runtime_channel['channel_source'] if runtime_channel is not None else None)
+                                  runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding)
         prior_catalog = read(channel_metadata_path())
         generated_catalog = read(s / 'channel-catalog.json') if runtime_channel is not None else prior_catalog
         spec = importlib.util.spec_from_file_location('manage', r / 'deploy/docker/manage.py')
@@ -700,13 +735,13 @@ def main():
         assert read(s / 'generated/compose.json') == expected, 'compose differs beyond image'
         for rel in ['server.env', 'database.env'] + (['gm/config.json'] if 'gm' in container_names else []):
             if rel.endswith('.json'): assert read(s / 'generated' / rel) == read(d / rel)
-            elif rel == 'server.env': assert (s / 'generated' / rel).read_bytes() == target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent), 'unapproved server environment change'
+            elif rel == 'server.env': assert (s / 'generated' / rel).read_bytes() == target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent, config_encoding), 'unapproved server environment change'
             else: assert (s / 'generated' / rel).read_bytes() == (d / rel).read_bytes()
         write(s / 'generated/instance.json', updated)
         changed_keys = sorted(k for k in updated.keys() | instance.keys() if updated.get(k) != instance.get(k))
         changed_compose_keys = ['services.server.image']
-        write(s / 'config-generation.json', {'changedInstanceKeys': changed_keys, 'changedComposeKeys': changed_compose_keys, 'environmentPreserved': not config_changed, 'tournamentMode': config_mode, 'mainQuestExpMultiplier': config_multiplier, 'mainQuestExpPercent': config_percent, 'deploymentUIDPreserved': True, 'runtimeChannel': runtime_channel is not None})
-        print('PASS configuration generated; only image and explicit tournament/quest experience settings allowed', flush=True)
+        write(s / 'config-generation.json', {'changedInstanceKeys': changed_keys, 'changedComposeKeys': changed_compose_keys, 'environmentPreserved': not config_changed, 'tournamentMode': config_mode, 'mainQuestExpMultiplier': config_multiplier, 'mainQuestExpPercent': config_percent, 'channelScriptEncoding': config_encoding, 'deploymentUIDPreserved': True, 'runtimeChannel': runtime_channel is not None})
+        print('PASS configuration generated; only image and explicit tournament/quest experience/channel encoding settings allowed', flush=True)
     elif mode == 'deploy':
         assert not (s / 'game-deployment.json').exists()
         validate_before(); prepared = read(s / 'prepared-game.json')
@@ -766,8 +801,8 @@ def main():
         assert new == expected
         assert json.loads(run('docker', 'image', 'inspect', prepared['tag']))[0]['Id'] == prepared['image'], 'prepared image tag moved'
         assert new_instance == target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent,
-                                                runtime_channel['channel_source'] if runtime_channel is not None else None), 'unapproved instance change'
-        assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent)
+                                                runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding), 'unapproved instance change'
+        assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding)
         print('Verified database/config/image backups; switching game service only', flush=True)
         try:
             if runtime_channel is not None:
@@ -780,7 +815,7 @@ def main():
             restart(); after = healthy(); actual = binary()
             assert actual['sha256'] == src['serverSha256'] and after['server']['Image'] == prepared['image']
             assert after['server']['RestartCount'] == 0
-            assert dict(x.split('=', 1) for x in after['server']['Config']['Env']) == target_environment(dict(x.split('=', 1) for x in before['server']['Config']['Env']), config_mode, config_multiplier, config_percent)
+            assert dict(x.split('=', 1) for x in after['server']['Config']['Env']) == target_environment(dict(x.split('=', 1) for x in before['server']['Config']['Env']), config_mode, config_multiplier, config_percent, config_encoding)
             process_env = dict(line.decode().split('=', 1) for line in (Path('/proc') / str(actual['pid']) / 'environ').read_bytes().split(b'\0') if b'=' in line)
             tournament_state = tournament_snapshot(new_instance, dict(x.split('=', 1) for x in after['server']['Config']['Env']), process_env)
             assert after['server']['Config']['User'] == before['server']['Config']['User']
@@ -808,13 +843,14 @@ def main():
             for rel, digest in old['configHashes'].items():
                 changed_configs = list(dict.fromkeys(['runtime/docker/instance.json', 'runtime/docker/compose.json'] + (['runtime/docker/server.env'] if config_changed else []) + (rollback_extra if runtime_channel is not None else [])))
                 if rel not in changed_configs: assert sha(r / rel) == digest
-            assert (d / 'server.env').read_bytes() == target_env_bytes((backup / 'runtime/docker/server.env').read_bytes(), config_mode, config_multiplier, config_percent)
+            assert (d / 'server.env').read_bytes() == target_env_bytes((backup / 'runtime/docker/server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding)
             receipt = {'sourceCommit': src['sourceCommit'], 'baseCommit': src['baseCommit'], 'upstream': src['upstream'], 'publicGuildCommit': src['publicGuildCommit'], 'publicFixCommits': src['publicFixCommits'], 'gameExe': actual, 'image': prepared['image'], 'sourceArchiveSha256': src['sourceArchiveSha256'], 'sourceDirectory': prepared['sourceDirectory'], 'sourceFiles': prepared['sourceFiles'], 'liveWorkingSourcePreserved': True, 'sequence': old['sequence'], 'exeSha256': old['exeSha256'], 'pvfSha256': old['pvfSha256'], 'channelSha256': expected_channel, 'gameHealthy': True, 'gmHealthy': True, 'gmContainerUnchanged': True, 'databaseContainerUnchanged': True, 'serverEnvironmentPreserved': True, 'deployedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'nativeAcceptance': 'pending', 'runtimeBaseImage': prepared['runtimeBaseImage'], **backup_receipt}
             receipt['gmMode'] = management_snapshot()[0]['mode']
             receipt['channelFile'] = new_instance.get('channel_file')
             receipt['channelSource'] = new_instance.get('channel_source')
             receipt['tournament'] = tournament_state
             receipt['mainQuestExperience'] = main_quest_exp_snapshot(new_instance, dict(x.split('=', 1) for x in after['server']['Config']['Env']), process_env)
+            receipt['channelScriptEncoding'] = channel_script_encoding_snapshot(new_instance, dict(x.split('=', 1) for x in after['server']['Config']['Env']), process_env)
             receipt['serverEnvironmentPreserved'] = not config_changed
             receipt['onlyApprovedEnvironmentChange'] = config_changed
             if runtime_channel is not None:

@@ -59,6 +59,12 @@
 
 默认全量 Go 测试不设置真实 PVF 或玩家测试 DSN。需要真实 PVF 专项时，在私有 profile 的 `real_pvf_commands` 配置已审查的 argv 数组；脚本先验证 `pvf_file` 与运行 PVF 摘要相同，再只对这些命令设置 `DNFBRIDGE_REAL_PVF_SMOKE`。数据库专项另用一次性隔离数据库，不能向脚本传入真实玩家库。
 
+### 频道脚本下载编码
+
+私有更新 profile 的可选 `channel_script_encoding` 仅接受严格字符串 `utf8` 或 `gbk`；省略时保留实例现值，未配置时使用服务端默认 UTF-8。值固定进 manifest 的 `channelScriptEncoding`，由实例源配置及生成器映射到 `DNFBRIDGE_CHANNEL_SCRIPT_ENCODING`，仅影响客户端下载脚本，不改写 UTF-8 外部频道表及其摘要。相同源码却请求不同配置会拒绝，不将配置更新当作 no-op。
+
+控制器、worker 与实例生成器均校验值；更新生成器仍按独立运维维护流程实施。生成后的环境只允许该键及其他显式已审配置变化，失败回退恢复原实例、Compose 和环境文件。`inspect`、`verify` 和部署回执核对实例、容器、实际进程三方编码一致。选择 GBK 前须验证所选通道当前累计客户端解析，并先完成依赖客户端 Release、镜像和玩家签名通道完整读回。
+
 ## 游戏与网关分机部署
 
 迁移后游戏机与账号／签名／外部 GM 网关可使用不同 SSH 目标。私有 profile 可设置 `edge_ssh_alias` 和 `edge_remote_root`，仍由 `GAME_UPDATE_REMOTE.bat` 统一调用。每个阶段先通过已固定主机密钥的 SSH 读取网关实际进程、PVF、六类索引、私有接口与签名发布状态，再将带 SHA256 和采集时间的证据传给游戏 worker；超过五分钟、传输摘要错误或玩家／GM PVF 不同均拒绝。
