@@ -54,6 +54,18 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	if handled, err := s.handleCurrentMonsterCardCommand(session, typ, body); handled || err != nil {
 		return handled, err
 	}
+	if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+		parsed, decodeErr := inventory.DecodeRepairEquipmentRequest(body)
+		if decodeErr != nil {
+			s.logInfo("dnfbridge repair request received", "conn_id", session.connID,
+				"char_id", session.selectedCharacterID, "body_len", len(body), "decode_error", decodeErr)
+		} else {
+			s.logInfo("dnfbridge repair request received", "conn_id", session.connID,
+				"char_id", session.selectedCharacterID, "list", parsed.InvenType,
+				"slot", parsed.SlotIndex, "repair_item_slot", parsed.RepairItemSlot,
+				"quick", parsed.QuickRepair, "auto", parsed.AutoRepair)
+		}
+	}
 	if session != nil && dnfenum.CmdPacket(typ) == dnfenum.CmdPacketMoveItemspace {
 		// Keep the durable move, ACK, changed-slot rows and immediate appearance
 		// projection in the same order as a taken 200ms appearance callback.
@@ -640,6 +652,13 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		EquipAppearanceSlotGateOff:   s.equipAppearanceSlotGateOffRequested(),
 	})
 	session.party.mu.Unlock()
+	if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+		s.logInfo("dnfbridge repair request outcome", "conn_id", session.connID,
+			"char_id", session.selectedCharacterID, "handled", ok, "error", err,
+			"action", result.Decision.Action, "response_allowed", result.ResponseAllowed,
+			"responses", len(result.UpperResponses), "operation", result.Operation,
+			"reason", result.Reason)
+	}
 	if err != nil || !ok {
 		return ok, err
 	}
@@ -768,7 +787,15 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 				s.logPacketEvent(upgradeProtectTicketEventName(fact), fields...)
 			}
 			if err := s.sendAlignedUpperResponses(session, result); err != nil {
+				if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+					s.logInfo("dnfbridge repair response failed", "conn_id", session.connID,
+						"char_id", session.selectedCharacterID, "error", err)
+				}
 				return true, err
+			}
+			if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+				s.logInfo("dnfbridge repair response sent", "conn_id", session.connID,
+					"char_id", session.selectedCharacterID, "responses", len(result.UpperResponses))
 			}
 			if loginEquipment.planned {
 				s.sendLoginEquipmentNoopSlotRows(session, loginEquipment, "login_wear_noop_after_ack")
@@ -959,6 +986,9 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			"char_id", session.selectedCharacterID,
 			"list_type", listType,
 			"reason", "no_matching_class0_refresh_response")
+	}
+	if err := s.sendRepairedWornEquipmentSlots(session, result.Operation+"_after_ack", result.PostAckWornEquipmentSlotRefreshes); err != nil {
+		return err
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
