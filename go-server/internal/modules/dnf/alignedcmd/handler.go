@@ -875,6 +875,9 @@ type Result struct {
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16
+	// Repair commits first, then sends class1/op23. Refresh only the changed
+	// equipped rows after that ACK so dungeon equipment panels see new durability.
+	PostAckWornEquipmentSlotRefreshes []int16
 	// A committed wear move without an actor appearance refresh can still
 	// relocate registered Buff items. Reproject only after the move ACK and
 	// item rows; appearance-bearing moves own their Buff replay boundary.
@@ -1146,6 +1149,7 @@ func (r Registry) Route(ctx context.Context, req Request) (Result, bool, error) 
 		result.UpperResponses[i].Body = append([]byte(nil), result.UpperResponses[i].Body...)
 	}
 	result.PostActions = append([]PostAction(nil), result.PostActions...)
+	result.PostAckWornEquipmentSlotRefreshes = append([]int16(nil), result.PostAckWornEquipmentSlotRefreshes...)
 	result.AuthoritativeListRefreshes = append([]byte(nil), result.AuthoritativeListRefreshes...)
 	if result.StackableConsumption != nil {
 		fact := *result.StackableConsumption

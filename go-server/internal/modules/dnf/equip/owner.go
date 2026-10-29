@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +100,9 @@ type RepairResult struct {
 	FreeRepair bool
 	// RepairedCount is set by RepairAll: how many entries were restored.
 	RepairedCount int
+	// Only slots committed by this transaction may be projected after the ACK.
+	RepairedEquipmentSlots []int16
+	RepairedInventorySlots []int16
 }
 
 // MoveCommand 描述装备槽和物品栏之间移动的最小命令。
@@ -379,6 +383,7 @@ func (o *Owner) repairSingleEquipped(
 	result.UpdatedGold = gold - cost
 	result.Changed = true
 	result.FreeRepair = freeRepair
+	result.RepairedEquipmentSlots = []int16{cmd.SlotIndex}
 	return result, nil
 }
 
@@ -548,6 +553,7 @@ func (o *Owner) repairAllInTransaction(
 			}
 			entry.Extra["durability"] = strconv.FormatInt(target.maxDura, 10)
 			equipRecord.Entries[target.key] = entry
+			result.RepairedEquipmentSlots = append(result.RepairedEquipmentSlots, target.slot)
 			continue
 		}
 		stack := invRecord.Slots[target.key]
@@ -561,6 +567,7 @@ func (o *Owner) repairAllInTransaction(
 			SetRepairDurabilityWord(stack.RawEntry, stack.ItemID, target.maxDura)
 		}
 		invRecord.Slots[target.key] = stack
+		result.RepairedInventorySlots = append(result.RepairedInventorySlots, target.slot)
 	}
 	if len(targets) > 0 {
 		equipRecord.UpdatedAt = time.Now()
@@ -580,6 +587,8 @@ func (o *Owner) repairAllInTransaction(
 	result.UpdatedGold = gold - total
 	result.Changed = true
 	result.RepairedCount = len(targets)
+	sort.Slice(result.RepairedEquipmentSlots, func(i, j int) bool { return result.RepairedEquipmentSlots[i] < result.RepairedEquipmentSlots[j] })
+	sort.Slice(result.RepairedInventorySlots, func(i, j int) bool { return result.RepairedInventorySlots[i] < result.RepairedInventorySlots[j] })
 	return result, nil
 }
 

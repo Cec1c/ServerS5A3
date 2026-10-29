@@ -42,6 +42,9 @@ func TestWornMutationRefreshOnlyRequestedSlotAndPreservesCompleteCurrentRow(t *t
 		t.Fatal("只读投影修改了仓储")
 	}
 	conn.write.Reset()
+	if err := s.sendRepairedWornEquipmentSlots(session, "维修仅更新实际存在装备", []int16{16}); err == nil || conn.write.Len() != 0 {
+		t.Fatal("repair must not clear an absent worn slot")
+	}
 	if err := s.sendWornEquipmentMutationSlots(session, "禁止通用扩展", []int16{26}); err == nil || conn.write.Len() != 0 {
 		t.Fatal("普通装备原位路径不应覆盖宠物移动生命周期")
 	}
