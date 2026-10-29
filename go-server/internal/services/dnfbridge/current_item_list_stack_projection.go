@@ -43,7 +43,19 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 		applyCurrentItemListAvatarAbilityRow(&entry, currentItemListAvatarAbility(extra, raw))
 	} else {
 		entry.setByte(0x0A, sceneInventoryExtraByte(extra, "ext_data0", "ext0", "packed_flag_byte", "packed_flag", "packed"))
-		entry.setUint16(0x0B, sceneInventoryExtraUint16(extra, "durability", "max_durability"))
+		hasDurability := strings.EqualFold(strings.TrimSpace(extra["item_kind"]), string(dungeonDropItemEquipment)) ||
+			strings.TrimSpace(extra["durability"]) != "" || strings.TrimSpace(extra["current_durability"]) != ""
+		if hasDurability && currentItemStackHasCurrentRaw77(stack) {
+			// A stored equipment row can be worn down to zero. A maximum-only
+			// hint must not overwrite its current durability after unequipping.
+			binary.LittleEndian.PutUint16(entry.data[0x0B:0x0D], binary.LittleEndian.Uint16(raw[0x0B:0x0D]))
+		} else {
+			entry.setUint16(0x0B, sceneInventoryExtraUint16(extra, "durability", "max_durability"))
+		}
+		if value, present := sceneInventoryExtraUint(extra, "durability", "current_durability"); present && value <= 65535 {
+			// Explicit zero is a broken item, not an absent optional overlay.
+			binary.LittleEndian.PutUint16(entry.data[0x0B:0x0D], uint16(value))
+		}
 		if usePeriod, ok := currentItemListStackableUsePeriod(stack); ok {
 			binary.LittleEndian.PutUint16(entry.data[0x0B:0x0D], usePeriod)
 		}
@@ -52,7 +64,7 @@ func currentItemListEntryFromStack(listType byte, slot int16, stack dnfrepo.Item
 		// seconds directly from expire_time so the client never sees 0x0B==0
 		// on an item that still has a live expiration timestamp.
 		// A PVF-proven equipment row uses this word for durability, including zero.
-		if !strings.EqualFold(strings.TrimSpace(extra["item_kind"]), string(dungeonDropItemEquipment)) && binary.LittleEndian.Uint16(entry.data[0x0B:0x0D]) == 0 {
+		if !hasDurability && binary.LittleEndian.Uint16(entry.data[0x0B:0x0D]) == 0 {
 			if expire := currentItemListStackExpire(stack); expire != 0 {
 				binary.LittleEndian.PutUint16(entry.data[0x0B:0x0D],
 					currentPVFStackableUsePeriodSeconds(time.Unix(int64(expire), 0).UTC(), time.Now().UTC()))
