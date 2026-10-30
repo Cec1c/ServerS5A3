@@ -34,6 +34,17 @@ func (r pair916FailingCharacterRepository) Load(context.Context, string) (dnfrep
 	return dnfrepo.CharacterRecord{}, false, r.err
 }
 
+type pair916FailingWalletAssets struct {
+	dnfrepo.AccountCharacterAssetUnitOfWork
+	err error
+}
+
+func (u pair916FailingWalletAssets) WithinAccountCharacterAssets(ctx context.Context, accountID, characterID string, apply func(dnfrepo.AccountInventoryRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
+	return u.AccountCharacterAssetUnitOfWork.WithinAccountCharacterAssets(ctx, accountID, characterID, func(a dnfrepo.AccountInventoryRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository) error {
+		return apply(a, pair916FailingCharacterRepository{CharacterRepository: c, err: u.err}, i, e)
+	})
+}
+
 func pair916FixtureWithUnreadableWallet(t *testing.T) *refreshCostFixture {
 	t.Helper()
 	fixture := newRefreshCostFixture(t)
@@ -44,6 +55,9 @@ func pair916FixtureWithUnreadableWallet(t *testing.T) *refreshCostFixture {
 		CharacterRepository: group.Character,
 		err:                 errors.New("character wallet read timeout"),
 	}
+	// A committed expiry snapshot is also an authoritative wallet source.
+	// Make that read fail too, instead of failing only a now-redundant reload.
+	group.AccountAssets = pair916FailingWalletAssets{AccountCharacterAssetUnitOfWork: group.AccountAssets, err: errors.New("transaction wallet read timeout")}
 	fixture.service.repositoryProvider = func() (dnfrepo.Group, bool) { return group, true }
 	return fixture
 }

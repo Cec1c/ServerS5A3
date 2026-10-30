@@ -125,7 +125,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		return errDungeonHuntEnemyCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	planning, found, err := dnfrepo.LoadQuestPlanning(ctx, repositories.Quest, characterID)
+	planning, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		receipt.Sent = true
 		return nil
 	}
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (s *Service) persistCurrentDungeonHuntEnemyTargetPhaseA(
 	if len(result.ChangedFields) == 0 && len(result.Completions) == 0 {
 		return nil
 	}
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}

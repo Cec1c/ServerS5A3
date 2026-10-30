@@ -44,15 +44,22 @@ func (s *Service) reconcileCurrentPVFItemExpirationsWithCatalog(
 	accountID string,
 	catalog *pvfDungeonDropCatalog,
 ) (currentPVFExpirationReconcileSummary, error) {
+	summary, _, err := s.reconcileCurrentPVFItemExpirationsSnapshot(ctx, repositories, characterID, accountID, catalog)
+	return summary, err
+}
+
+func (s *Service) reconcileCurrentPVFItemExpirationsSnapshot(
+	ctx context.Context, repositories dnfrepo.Group, characterID, accountID string, catalog *pvfDungeonDropCatalog,
+) (currentPVFExpirationReconcileSummary, itemexpiration.Snapshot, error) {
 	if catalog == nil {
-		return currentPVFExpirationReconcileSummary{}, errDungeonDropSourceRequired
+		return currentPVFExpirationReconcileSummary{}, itemexpiration.Snapshot{}, errDungeonDropSourceRequired
 	}
 	owner, err := itemexpiration.NewOwner(repositories)
 	if err != nil {
-		return currentPVFExpirationReconcileSummary{}, err
+		return currentPVFExpirationReconcileSummary{}, itemexpiration.Snapshot{}, err
 	}
 	now := s.gameplayNow().UTC()
-	return owner.Reconcile(ctx, itemexpiration.Command{
+	return owner.ReconcileSnapshot(ctx, itemexpiration.Command{
 		AccountID:   accountID,
 		CharacterID: characterID,
 		UpdatedAt:   now,

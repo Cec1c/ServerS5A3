@@ -543,12 +543,12 @@ func (s *mysqlCharStore) SwapCharacterSlots(ctx context.Context, accountID strin
 	if !ok {
 		return repository.ErrCharacterSlotSwapUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	txRouter := s.router
-	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), s.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), s.router.writeDBs...)
 	txRouter.lockReads = true

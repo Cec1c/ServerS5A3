@@ -26,7 +26,7 @@ func (u *mysqlSemesterClearUnitOfWork) WithinSemesterClear(ctx context.Context, 
 	if !ok {
 		return repository.ErrSemesterClearTransaction
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func (u *mysqlSemesterClearUnitOfWork) WithinSemesterClear(ctx context.Context, 
 	// error remains unknown; database/sql may already consider the tx finished.
 	defer tx.Rollback()
 	router := u.router
-	router.db = newSQLTransactionDB(tx, router.db)
+	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true

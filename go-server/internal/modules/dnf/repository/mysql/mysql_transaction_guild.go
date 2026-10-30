@@ -56,13 +56,13 @@ func (u *mysqlGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposit
 	if !ok {
 		return repository.ErrGuildTransaction
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	router := u.router
-	router.db = newSQLTransactionDB(tx, router.db)
+	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true

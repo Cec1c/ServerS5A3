@@ -881,6 +881,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	deathWriteStarted := s.performanceStart()
 	deathWriteErr := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, responseBody, playerObjectKey), 0)
 	s.performanceEnd(perfMonsterDeathWrite, deathWriteStarted, deathWriteErr)
+	s.performanceEnd(perfMonsterEnqueueToDeath, session.performanceEventQueuedAt, deathWriteErr)
 	if deathWriteErr != nil {
 		return deathWriteErr
 	}

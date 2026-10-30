@@ -18,10 +18,11 @@ const (
 	sqlObserveRow
 	sqlObservePing
 	sqlObserveBegin
+	sqlObserveTransaction
 	sqlObserveKinds
 )
 
-var sqlObserveNames = [sqlObserveKinds]string{"exec", "query", "queryrow", "ping", "begin"}
+var sqlObserveNames = [sqlObserveKinds]string{"exec", "query", "queryrow", "ping", "begin", "transaction_lifetime"}
 
 const SQLObservationName = "dnf_mysql_observation"
 

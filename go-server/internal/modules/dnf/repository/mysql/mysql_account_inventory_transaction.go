@@ -36,7 +36,7 @@ func (u *mysqlAccountCharacterItemUnitOfWork) WithinAccountCharacterItems(
 	if !ok {
 		return repository.ErrAccountCharacterItemTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func (u *mysqlAccountCharacterItemUnitOfWork) WithinAccountCharacterItems(
 	// Account and character keys may route to different logical databases,
 	// but both tables live on the same MySQL server and share this sql.Tx.
 	txRouter := u.router
-	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -128,7 +128,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	if !ok {
 		return repository.ErrAccountCharacterAssetTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	// databases. They still share one physical MySQL transaction, so keep the
 	// full write plan while forcing locked reads through the transaction.
 	txRouter := u.router
-	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true

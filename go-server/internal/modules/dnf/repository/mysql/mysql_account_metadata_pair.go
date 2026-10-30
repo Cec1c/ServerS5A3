@@ -20,7 +20,7 @@ func (s *mysqlAccountStore) UpdateMetadataPair(ctx context.Context, left, right 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func (s *mysqlAccountStore) UpdateMetadataPair(ctx context.Context, left, right 
 		}
 	}()
 	router := s.router
-	router.db = newSQLTransactionDB(tx, router.db)
+	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), router.writeDBs...)
 	router.lockReads = true
 	store := &mysqlAccountStore{mysqlStoreBase: mysqlStoreBase{router: router}}

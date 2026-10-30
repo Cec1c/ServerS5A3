@@ -34,7 +34,7 @@ func (o *Owner) ApplyHuntEnemyKill(
 	} else if !ok {
 		return HuntEnemyPersistResult{}, ErrCharacterNotFound
 	}
-	record, ok, err := dnfrepo.LoadQuestPlanning(ctx, o.quests, characterID)
+	record, ok, err := catalog.LoadHuntPlanning(ctx, o.quests, characterID)
 	if err != nil {
 		return HuntEnemyPersistResult{}, err
 	}

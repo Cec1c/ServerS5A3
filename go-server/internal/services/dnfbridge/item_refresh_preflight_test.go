@@ -32,7 +32,7 @@ func TestMainInventoryPreflightReusesOneSnapshotPerRequest(t *testing.T) {
 	fixture.warmUp(t)
 
 	// Reusing the preflight removes one steady-state non-transactional load:
-	// this path used to perform three Inventory.Load calls and now performs two.
+	// this path now uses one preflight load and the committed expiration snapshot.
 	for build := 1; build <= 2; build++ {
 		fixture.counter.reset()
 		if _, _, _, ok := fixture.service.buildCurrentItemListBodyForSession(
@@ -40,8 +40,8 @@ func TestMainInventoryPreflightReusesOneSnapshotPerRequest(t *testing.T) {
 		); !ok {
 			t.Fatalf("build %d failed", build)
 		}
-		if got := fixture.counter.total("Inventory.Load"); got != 2 {
-			t.Fatalf("build %d Inventory.Load=%d, want 2; calls=%s", build, got, fixture.counter.summary())
+		if got := fixture.counter.total("Inventory.Load"); got != 1 {
+			t.Fatalf("build %d Inventory.Load=%d, want 1; calls=%s", build, got, fixture.counter.summary())
 		}
 		if got := fixture.counter.total("AccountAssets.inventory.Load"); got != 1 {
 			t.Fatalf("build %d AccountAssets.inventory.Load=%d, want 1", build, got)
@@ -82,8 +82,8 @@ func TestMainInventoryPreflightDoesNotHideContractAddedBeforeNextBuild(t *testin
 	if !ok {
 		t.Fatal("second build failed")
 	}
-	if got := fixture.counter.total("Inventory.Load"); got != 2 {
-		t.Fatalf("second build Inventory.Load=%d, want 2 (no cross-request snapshot); calls=%s", got, fixture.counter.summary())
+	if got := fixture.counter.total("Inventory.Load"); got != 1 {
+		t.Fatalf("second build Inventory.Load=%d, want 1 (no cross-request snapshot); calls=%s", got, fixture.counter.summary())
 	}
 	if got := fixture.counter.total("RentalAssets.Begin"); got != 1 {
 		t.Fatalf("RentalAssets.Begin=%d, want 1 for the newly added contract", got)
@@ -120,8 +120,8 @@ func TestMainInventoryPreflightDropsSnapshotAfterGoldSlotRepair(t *testing.T) {
 	if !ok {
 		t.Fatal("main-inventory build failed")
 	}
-	if got := fixture.counter.total("Inventory.Load"); got != 3 {
-		t.Fatalf("Inventory.Load=%d, want 3: the changed repair must drop the preflight before the next gate; calls=%s", got, fixture.counter.summary())
+	if got := fixture.counter.total("Inventory.Load"); got != 2 {
+		t.Fatalf("Inventory.Load=%d, want 2: repair invalidates preflight; final projection uses the committed expiry snapshot; calls=%s", got, fixture.counter.summary())
 	}
 	if got := fixture.counter.total("CharacterItems.Begin"); got != 1 {
 		t.Fatalf("CharacterItems.Begin=%d, want 1 durable repair", got)

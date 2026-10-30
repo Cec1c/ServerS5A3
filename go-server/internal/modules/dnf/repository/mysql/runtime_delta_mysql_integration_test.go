@@ -60,6 +60,7 @@ func TestRuntimeDeltasDisposableMySQL(t *testing.T) {
 	t.Run("progression-authority-and-rollback", func(t *testing.T) {
 		runProgressionRealDBCase(t, ctx, db, name, g)
 	})
+	t.Run("active-quest-dependency-view", func(t *testing.T) { runActiveQuestRealDBCase(t, ctx, db, name) })
 	t.Run("account-metadata-mailbox", func(t *testing.T) {
 		runAccountMetadataRealDBCase(t, ctx, db, name, g)
 	})

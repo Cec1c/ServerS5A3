@@ -176,7 +176,7 @@ func (s *Service) armCurrentMonthlyAttendanceTick(session *gameSession) error {
 	if queue == nil {
 		return errGameplayTimeQueueUnavailable
 	}
-	return queue.ScheduleAfter(fmt.Sprintf("dnf-monthly-attendance:%s", session.connID), 30*time.Second, func(time.Time) {
+	return queue.ScheduleAfter(fmt.Sprintf("dnf-monthly-attendance:%s", session.connID), currentAttendanceTickDelay(s.gameplayNow(), s.accountIDForSession(session), 0), func(time.Time) {
 		err := s.postGameSessionCharacterEvent(session, "monthly-attendance-retry", charID, generation, func() error {
 			if err := s.sendCurrentMonthlyAttendance(session, false); err != nil {
 				s.logGameEvent(session, "game-monthly-attendance-deferred", "error", err)

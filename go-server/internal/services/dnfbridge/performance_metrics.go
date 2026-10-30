@@ -26,6 +26,9 @@ const (
 	perfMonsterDeathWrite
 	perfMonsterTasks
 	perfMonsterClear
+	perfMonsterEnqueueToDeath
+	perfGuildRanking
+	perfGuildHongbao
 	perfCount
 )
 
@@ -33,6 +36,7 @@ var bridgePerformanceNames = [perfCount]string{
 	"event_queue", "event_run", "wire_lock", "wire_direct", "wire_scene",
 	"wire_native", "wire_overflow", "upper_39", "upper_other", "monster_total",
 	"monster_experience", "monster_death_write", "monster_tasks", "monster_clear",
+	"monster_enqueue_to_death", "guild_ranking", "guild_hongbao",
 }
 var bridgePerformanceLimits = [...]time.Duration{5 * time.Millisecond, 10 * time.Millisecond, 25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, time.Second, 3 * time.Second}
 
@@ -43,14 +47,16 @@ type bridgePerformanceSeries struct {
 	buckets [len(bridgePerformanceLimits) + 1]atomic.Int64
 }
 type bridgePerformanceMetrics struct {
-	series [perfCount]bridgePerformanceSeries
+	series    [perfCount]bridgePerformanceSeries
+	slowAfter [perfCount]atomic.Int64
+	slowEpoch time.Time
 }
 
 func newBridgePerformanceMetrics(registry *metrics.Registry) *bridgePerformanceMetrics {
 	if registry == nil {
 		return nil
 	}
-	m := &bridgePerformanceMetrics{}
+	m := &bridgePerformanceMetrics{slowEpoch: time.Now()}
 	registry.RegisterObserver("dnfbridge_performance", m.observe)
 	return m
 }
@@ -104,7 +110,29 @@ func (s *Service) performanceEnd(stage int, start time.Time, err error) {
 	if s == nil || s.performance == nil || start.IsZero() {
 		return
 	}
-	s.performance.record(stage, time.Since(start), err != nil)
+	s.recordPerformance(stage, time.Since(start), err != nil)
+}
+
+func (m *bridgePerformanceMetrics) admitSlowSample(stage int, duration time.Duration, now time.Time) bool {
+	if m == nil || stage < 0 || stage >= perfCount || duration < 300*time.Millisecond {
+		return false
+	}
+	elapsed := now.Sub(m.slowEpoch)
+	deadline := m.slowAfter[stage].Load()
+	if int64(elapsed) < deadline {
+		return false
+	}
+	return m.slowAfter[stage].CompareAndSwap(deadline, int64(elapsed+10*time.Second))
+}
+
+func (s *Service) recordPerformance(stage int, duration time.Duration, failed bool) {
+	if s == nil || s.performance == nil {
+		return
+	}
+	s.performance.record(stage, duration, failed)
+	if s.performance.admitSlowSample(stage, duration, time.Now()) {
+		s.logInfo("dnfbridge slow stage sample", "stage", bridgePerformanceNames[stage], "duration_ms", duration.Milliseconds(), "failed", failed)
+	}
 }
 
 // Preserves actual write count, bytes, errors and existing caller short-write policy.
@@ -112,7 +140,7 @@ func (s *Service) writeGameConnectionObserved(conn net.Conn, data []byte, stage 
 	start := s.performanceStart()
 	n, err := conn.Write(data)
 	if s != nil && s.performance != nil {
-		s.performance.record(stage, time.Since(start), err != nil || n != len(data))
+		s.recordPerformance(stage, time.Since(start), err != nil || n != len(data))
 	}
 	return n, err
 }

@@ -134,7 +134,9 @@ func (s *Service) startCurrentGuildHongbaoSettlement(ctx context.Context) {
 	}()
 }
 
-func (s *Service) settleCurrentGuildHongbaos(ctx context.Context) error {
+func (s *Service) settleCurrentGuildHongbaos(ctx context.Context) (resultErr error) {
+	started := s.performanceStart()
+	defer func() { s.performanceEnd(perfGuildHongbao, started, resultErr) }()
 	owner, err := s.currentGuildHongbaoOwner()
 	if err != nil {
 		return err

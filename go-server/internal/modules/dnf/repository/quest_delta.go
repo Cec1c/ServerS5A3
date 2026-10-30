@@ -68,6 +68,8 @@ func SaveQuestChanges(ctx context.Context, r QuestRepository, before, after Ques
 	scope := planningScope(ctx, r, before.CharacterID)
 	if scope != nil {
 		scope.loaded = false
+		scope.activeLoaded = false
+		scope.dependentLoaded = false
 	}
 	var err error
 	if writer, ok := r.(QuestDeltaWriter); ok {

@@ -172,7 +172,7 @@ func (s *Service) armCurrentOrdinaryAttendanceTick(session *gameSession) error {
 	if queue == nil {
 		return errGameplayTimeQueueUnavailable
 	}
-	return queue.ScheduleAfter(fmt.Sprintf("dnf-ordinary-attendance:%s", session.connID), 30*time.Second, func(time.Time) {
+	return queue.ScheduleAfter(fmt.Sprintf("dnf-ordinary-attendance:%s", session.connID), currentAttendanceTickDelay(s.gameplayNow(), s.accountIDForSession(session), 2), func(time.Time) {
 		err := s.postGameSessionCharacterEvent(session, "ordinary-attendance-refresh", charID, generation, func() error {
 			if err := s.sendCurrentOrdinaryAttendance(session); err != nil {
 				s.logGameEvent(session, "game-ordinary-attendance-deferred", "error", err)

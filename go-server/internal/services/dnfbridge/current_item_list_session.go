@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	dnfinventory "longheng.io/server/internal/modules/dnf/inventory"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrevivecoin "longheng.io/server/internal/modules/dnf/revivecoin"
 )
@@ -21,6 +22,7 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 		return nil, "", 0, false
 	}
 	characterID := strconv.Itoa(int(session.selectedCharacterID))
+	var committed itemexpiration.Snapshot
 	if listType == 3 {
 		return s.buildCurrentEquippedItemListBodyForSession(ctx, session)
 	}
@@ -147,9 +149,21 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 				"err", activationErr,
 				"fallback", "retain_recoverable_contract_item")
 		}
-		s.reconcileCurrentPVFItemExpirationsBestEffort(session, repos, characterID, accountID)
+		committed = s.reconcileCurrentPVFItemExpirationsBestEffort(session, repos, characterID, accountID)
 	}
-	entries, source, known, inventorySnapshotErr := currentItemListEntriesFromInventorySnapshot(ctx, repos.Inventory, characterID, listType)
+	var entries []currentItemListEntry
+	var source string
+	var known bool
+	var inventorySnapshotErr error
+	if committed.Available {
+		source, known = "inventory", true
+		if committed.Inventory != nil {
+			entries = currentItemListEntriesFromRecord(*committed.Inventory, listType)
+			source, known = "inventory", true
+		}
+	} else {
+		entries, source, known, inventorySnapshotErr = currentItemListEntriesFromInventorySnapshot(ctx, repos.Inventory, characterID, listType)
+	}
 	if inventorySnapshotErr != nil {
 		s.logPacketEvent("game-upper-current-item-list-inventory-load-failed",
 			"conn_id", session.connID,
@@ -158,7 +172,9 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 			"err", inventorySnapshotErr)
 		return nil, source, 0, false
 	}
-	if (!known || len(entries) == 0) && repos.LegacyInventory != nil {
+	// A present canonical record that became empty is authoritative. Only a
+	// missing record may fall back to unmigrated legacy initialization rows.
+	if (!committed.Available || committed.Inventory == nil) && (!known || len(entries) == 0) && repos.LegacyInventory != nil {
 		legacyEntries, err := currentItemListEntriesFromLegacy(ctx, repos.LegacyInventory, characterID, listType)
 		if err != nil {
 			s.logPacketEvent("game-upper-current-item-list-legacy-load-failed",
@@ -174,7 +190,15 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 	}
 	if listType == dnfrepo.MainInventoryListType {
 		var accountKnown bool
-		entries, accountKnown = s.mergeCurrentAccountSharedItemListEntries(ctx, session, repos.AccountInventory, entries)
+		if committed.Available {
+			account := dnfrepo.AccountInventoryRecord{AccountID: strings.TrimSpace(s.accountIDForSession(session))}
+			if committed.AccountInventory != nil {
+				account = *committed.AccountInventory
+			}
+			entries, accountKnown = s.mergeCurrentAccountSharedItemListRecord(session, account, committed.AccountInventory != nil, entries)
+		} else {
+			entries, accountKnown = s.mergeCurrentAccountSharedItemListEntries(ctx, session, repos.AccountInventory, entries)
+		}
 		// An account snapshot error must not install a partial list-0 view and
 		// commit the selected-character bootstrap gate. A missing optional
 		// repository retains the legacy path; a healthy absent record is known.
@@ -186,7 +210,14 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 			known = true
 		}
 		if repos.Character != nil {
-			character, found, err := repos.Character.Load(ctx, characterID)
+			var character dnfrepo.CharacterRecord
+			var found bool
+			var err error
+			if committed.Available && committed.Character != nil {
+				character, found = *committed.Character, true
+			} else {
+				character, found, err = repos.Character.Load(ctx, characterID)
+			}
 			if err != nil {
 				s.logPacketEvent("game-upper-current-gold-wallet-load-failed",
 					"conn_id", session.connID,
@@ -280,7 +311,7 @@ func (s *Service) reconcileCurrentPVFItemExpirationsBestEffort(
 	repos dnfrepo.Group,
 	characterID string,
 	accountID string,
-) {
+) itemexpiration.Snapshot {
 	catalog, err := s.currentPVFItemCatalog()
 	if err != nil {
 		s.logPacketEvent("game-upper-current-item-use-period-reconcile-failed",
@@ -292,11 +323,11 @@ func (s *Service) reconcileCurrentPVFItemExpirationsBestEffort(
 			"account_repaired", 0,
 			"equipment_repaired", 0,
 			"err", err)
-		return
+		return itemexpiration.Snapshot{}
 	}
 	reconcileCtx, cancel := context.WithTimeout(context.Background(), currentItemListPVFReconcileTimeout)
 	defer cancel()
-	summary, reconcileErr := s.reconcileCurrentPVFItemExpirationsWithCatalog(reconcileCtx, repos, characterID, accountID, catalog)
+	summary, snapshot, reconcileErr := s.reconcileCurrentPVFItemExpirationsSnapshot(reconcileCtx, repos, characterID, accountID, catalog)
 	if reconcileErr != nil {
 		s.logPacketEvent("game-upper-current-item-use-period-reconcile-failed",
 			"conn_id", session.connID,
@@ -307,7 +338,7 @@ func (s *Service) reconcileCurrentPVFItemExpirationsBestEffort(
 			"account_repaired", summary.Account,
 			"equipment_repaired", summary.Equipment,
 			"err", reconcileErr)
-		return
+		return itemexpiration.Snapshot{}
 	}
 	if summary.Total() > 0 {
 		s.logPacketEvent("game-upper-current-item-use-period-reconciled",
@@ -320,4 +351,5 @@ func (s *Service) reconcileCurrentPVFItemExpirationsBestEffort(
 			"equipment_repaired", summary.Equipment,
 			"source", "runtime_pvf_expiration_date_to_expire_time_and_stackable_u16_seconds")
 	}
+	return snapshot
 }

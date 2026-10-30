@@ -85,7 +85,9 @@ func (s *Service) handleCurrentGuildRanking(session *gameSession, request []byte
 // The registry and result are published as one epoch. Character repositories
 // are sampled without holding the global guild lock; source changes reject
 // publication instead of overwriting concurrent membership or clear events.
-func (s *Service) refreshCurrentGuildRanking(ctx context.Context, owner r.GuildOwner) (guild.Registry, error) {
+func (s *Service) refreshCurrentGuildRanking(ctx context.Context, owner r.GuildOwner) (result guild.Registry, resultErr error) {
+	started := s.performanceStart()
+	defer func() { s.performanceEnd(perfGuildRanking, started, resultErr) }()
 	s.guildRankingMu.Lock()
 	defer s.guildRankingMu.Unlock()
 	for attempt := 0; attempt < 2; attempt++ {

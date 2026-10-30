@@ -11,11 +11,17 @@ type questPlanningScopeKey struct{}
 // It must not be retained by a session or used concurrently. Transactional
 // delta writers still validate before-images against the database.
 type questPlanningScope struct {
-	repository QuestRepository
-	id         string
-	record     QuestRecord
-	found      bool
-	loaded     bool
+	repository      QuestRepository
+	id              string
+	record          QuestRecord
+	found           bool
+	loaded          bool
+	activeLoaded    bool
+	activeFound     bool
+	activeRecord    QuestRecord
+	dependentLoaded bool
+	dependentKey    any
+	dependentRecord QuestRecord
 }
 
 func WithQuestPlanningScope(ctx context.Context, r QuestRepository, id string) context.Context {
