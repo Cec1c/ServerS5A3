@@ -36,6 +36,7 @@ var (
 	ErrFinishExperienceBonusInvalid     = errors.New("dnf quest finish experience bonus is invalid")
 	ErrFinishProfessionUnavailable      = errors.New("dnf quest finish profession resources are unavailable")
 	ErrFinishRequiredItemsMissing       = errors.New("dnf quest finish required items are missing")
+	ErrFinishRequiredGoldMissing        = errors.New("dnf quest finish required gold is missing")
 	ErrFinishMaximumLevelInvalid        = errors.New("dnf quest finish maximum character level is invalid")
 	ErrFinishCharacterAboveMaximumLevel = errors.New("dnf quest finish character level exceeds the trusted maximum")
 	ErrFinishHonorTablesUnavailable     = errors.New("dnf quest finish honor tables are unavailable")
@@ -491,6 +492,10 @@ func (o *Owner) ApplyFinishSettlement(
 		if err != nil {
 			return err
 		}
+		paidCurrency, err := consumeFinishRequiredGold(&character, definition)
+		if err != nil {
+			return err
+		}
 		terminalChildSettlements, terminalChildItems, terminalChildConsumed, terminalChildCurrency, err := settleFinishTerminalChildren(
 			catalog,
 			terminalChildren,
@@ -515,7 +520,7 @@ func (o *Owner) ApplyFinishSettlement(
 		if err != nil {
 			return err
 		}
-		currency, err = coalesceFinishCurrency(append(terminalChildCurrency, currency...))
+		currency, err = coalesceFinishCurrency(append(append(paidCurrency, terminalChildCurrency...), currency...))
 		if err != nil {
 			return err
 		}
@@ -818,7 +823,15 @@ func settleFinishTerminalChildren(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
+		paidCurrency, err := consumeFinishRequiredGold(character, child.definition)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 		childCurrency, err := applyFinishRewardCurrency(character, tables, reward)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		childCurrency, err = coalesceFinishCurrency(append(paidCurrency, childCurrency...))
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
@@ -889,7 +902,7 @@ func coalesceFinishCurrency(currencies []FinishCommittedCurrency) ([]FinishCommi
 	for _, currency := range currencies {
 		name := strings.ToLower(strings.TrimSpace(currency.Name))
 		if index, exists := indexByName[name]; exists {
-			if out[index].Delta > math.MaxInt64-currency.Delta {
+			if (currency.Delta > 0 && out[index].Delta > math.MaxInt64-currency.Delta) || (currency.Delta < 0 && out[index].Delta < math.MinInt64-currency.Delta) {
 				return nil, fmt.Errorf("%w: currency %q delta overflow", ErrQuestRewardMalformed, currency.Name)
 			}
 			out[index].Delta += currency.Delta
@@ -1565,7 +1578,7 @@ func finishResultFromReceipt(
 	}
 	finalCurrency := make(map[string]FinishCommittedCurrency, len(receipt.Currency))
 	for _, currency := range receipt.Currency {
-		if currency.Delta < 0 || currency.PostValue < 0 {
+		if currency.PostValue < 0 {
 			return FinishCommitResult{}, ErrFinishQuestSettlementCorrupt
 		}
 		name := strings.ToLower(strings.TrimSpace(currency.Name))

@@ -33,6 +33,10 @@ func currentHuntMonsterHasActiveQuests(record dnfrepo.QuestRecord) bool {
 
 // Called under the recipient's dungeon lock, after an authoritative death.
 func (s *Service) persistCurrentDungeonHuntMonsterDeathLocked(session *gameSession, runtime *runtimeDungeonState, objectKey uint32) error {
+	return s.persistCurrentDungeonHuntMonsterDeathWithContext(context.Background(), session, runtime, objectKey)
+}
+
+func (s *Service) persistCurrentDungeonHuntMonsterDeathWithContext(parent context.Context, session *gameSession, runtime *runtimeDungeonState, objectKey uint32) error {
 	target, ok := runtime.Room.DefeatedDeathTarget(objectKey)
 	if !ok {
 		return nil
@@ -45,7 +49,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterDeathLocked(session *gameSessi
 	if !ok {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
 	defer cancel()
 	err := s.persistCurrentDungeonHuntMonsterKillPhaseA(ctx, session, runtime, scene, monster, objectKey)
 	if errors.Is(err, errDungeonHuntEnemyCompletionUnavailable) {
@@ -121,6 +125,14 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		return errDungeonHuntEnemyCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+	planning, found, err := dnfrepo.LoadQuestPlanning(ctx, repositories.Quest, characterID)
+	if err != nil {
+		return err
+	}
+	if !found || len(planning.States)+len(planning.Progress) == 0 {
+		receipt.Sent = true
+		return nil
+	}
 	// The owner validates the character and loads the quest plan once. A
 	// preliminary full load here only repeats that work for every kill.
 	catalog, err := s.loadQuestCatalog(ctx)

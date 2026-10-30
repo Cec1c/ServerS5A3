@@ -495,7 +495,9 @@ func (s *Service) commitCurrentDungeonExperience(
 	if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) != accountID {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	skill, found, err := repositories.Skill.Load(ctx, characterID)
+	// This operation only plans and projects the SP/TP ledger. Learned
+	// skills, layouts and cooldowns are not inputs to an experience award.
+	skill, found, err := dnfrepo.LoadProgressionSkill(ctx, repositories.Skill, characterID)
 	if err != nil {
 		return currentDungeonMonsterExperienceCommitResult{}, err
 	}
@@ -568,10 +570,7 @@ func (s *Service) commitCurrentDungeonExperience(
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
 	character.Level = committed.Current.Level
-	character.Stats["exp"] = int64(committed.Current.Experience)
-	for key, value := range commit.NextCharacterStats {
-		character.Stats[key] = value
-	}
+	character.Stats = committed.CharacterStats
 	skill = dnfrepo.CloneSkill(skill)
 	skill.Points = committed.Current.SkillPoints
 	result.Character = character

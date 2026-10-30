@@ -29,6 +29,21 @@ type QuestPlanningReader interface {
 }
 
 func LoadQuestPlanning(ctx context.Context, r QuestRepository, id string) (QuestRecord, bool, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return QuestRecord{}, false, ctx.Err()
+	}
+	scope := planningScope(ctx, r, id)
+	if scope != nil && scope.loaded {
+		return CloneQuest(scope.record), scope.found, nil
+	}
+	record, found, err := loadQuestPlanningUncached(ctx, r, id)
+	if scope != nil && err == nil {
+		scope.record, scope.found, scope.loaded = CloneQuest(record), found, true
+	}
+	return record, found, err
+}
+
+func loadQuestPlanningUncached(ctx context.Context, r QuestRepository, id string) (QuestRecord, bool, error) {
 	_, delta := r.(QuestDeltaWriter)
 	if reader, ok := r.(QuestPlanningReader); ok && delta {
 		return reader.LoadQuestPlanning(ctx, id)
@@ -47,10 +62,20 @@ func QuestStatusActive(status string) bool {
 }
 
 func SaveQuestChanges(ctx context.Context, r QuestRepository, before, after QuestRecord, fields ...QuestField) error {
-	if writer, ok := r.(QuestDeltaWriter); ok {
-		return writer.SaveQuestChanges(ctx, before, after, fields...)
+	// Even a failed write can mean the before-image became stale. The next
+	// stage must reload. Success also reloads because unrelated quests can
+	// change concurrently without violating this delta's preconditions.
+	scope := planningScope(ctx, r, before.CharacterID)
+	if scope != nil {
+		scope.loaded = false
 	}
-	return SaveQuestFields(ctx, r, after, fields...)
+	var err error
+	if writer, ok := r.(QuestDeltaWriter); ok {
+		err = writer.SaveQuestChanges(ctx, before, after, fields...)
+	} else {
+		err = SaveQuestFields(ctx, r, after, fields...)
+	}
+	return err
 }
 
 func LoadQuestIDs(ctx context.Context, r QuestRepository, id string, ids []int64) (QuestRecord, bool, error) {

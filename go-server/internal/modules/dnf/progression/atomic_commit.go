@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"time"
@@ -78,6 +79,9 @@ type CommitResult struct {
 	Current    CommitState
 	Applied    bool
 	Idempotent bool
+	// CharacterStats is the transaction's authoritative post-transition
+	// snapshot, including progression audit fields. It is not a full character.
+	CharacterStats map[string]int64
 }
 
 // Commit atomically persists Character.Level/Stats["exp"] and the complete
@@ -151,6 +155,7 @@ func Commit(
 		if commitStatesEqual(current, plan.Next) {
 			if characterStatsMatch(character.Stats, plan.NextCharacterStats) {
 				result.Idempotent = true
+				result.CharacterStats = maps.Clone(character.Stats)
 				return nil
 			}
 			// At the playable cap the EXP/SP/TP state can stay unchanged while
@@ -200,6 +205,7 @@ func Commit(
 
 		result.Current = plan.Next
 		result.Applied = true
+		result.CharacterStats = maps.Clone(character.Stats)
 		return nil
 	})
 	if err != nil {

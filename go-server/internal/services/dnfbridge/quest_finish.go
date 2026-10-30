@@ -545,7 +545,9 @@ func (s *Service) sendCurrentFinishQuestRewardItemUpdate(session *gameSession, r
 	entries := make([]currentItemListEntry, 0, len(result.Items)+len(result.ConsumedItems)+len(result.Currency))
 	seenGold := false
 	for _, currency := range result.Currency {
-		if currency.Delta < 0 || currency.PostValue < 0 {
+		// Required quest gold is a debit; the wallet row carries the committed
+		// nonnegative balance, not the signed receipt delta.
+		if currency.PostValue < 0 {
 			return errCurrentFinishQuestAckShape
 		}
 		switch strings.ToLower(strings.TrimSpace(currency.Name)) {
@@ -828,6 +830,7 @@ func currentFinishQuestBusinessFailure(err error) bool {
 		errors.Is(err, dnfquest.ErrFinishHonorTablesUnavailable) ||
 		errors.Is(err, dnfquest.ErrFinishProgressionUnproven) ||
 		errors.Is(err, dnfquest.ErrFinishRequiredItemsMissing) ||
+		errors.Is(err, dnfquest.ErrFinishRequiredGoldMissing) ||
 		errors.Is(err, dnfquest.ErrQuestDefinitionMissing) ||
 		errors.Is(err, dnfquest.ErrQuestNotAcceptable) ||
 		errors.Is(err, dnfquest.ErrQuestRewardUnsupported) ||

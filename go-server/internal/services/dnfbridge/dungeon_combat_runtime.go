@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -944,7 +945,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			"packet_source", "current_exe_sub_1D78240_full_character_state")
 	}
 	if rewardMonsterCandidate {
-		huntCtx, cancelHunt := context.WithTimeout(context.Background(), createWriteTimeout)
+		questCtx := context.Background()
+		if repos, ok := s.repositoryGroup(); ok && repos.Quest != nil {
+			questCtx = dnfrepo.WithQuestPlanningScope(questCtx, repos.Quest, strconv.FormatUint(uint64(session.selectedCharacterID), 10))
+		}
+		huntCtx, cancelHunt := context.WithTimeout(questCtx, createWriteTimeout)
 		huntErr := s.persistCurrentDungeonHuntEnemyKillPhaseA(
 			huntCtx,
 			session,
@@ -966,10 +971,10 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "86jp_hunt_enemy_progress_owner_failed",
 				"error", huntErr)
 		}
-		s.checkCurrentDungeonQuestMonsterDrops(session, runtime, rewardMonster.Spawn.MonsterID)
+		s.checkCurrentDungeonQuestMonsterDropsWithContext(questCtx, session, runtime, rewardMonster.Spawn.MonsterID)
 		// Keep ordinary drops, EXP and boss/story completion in their existing
 		// order even if quest persistence or its snapshot needs a retry.
-		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathWithContext(questCtx, session, runtime, request.RuntimeObjectKey)
 	}
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
