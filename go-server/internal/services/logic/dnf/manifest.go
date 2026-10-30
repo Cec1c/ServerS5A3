@@ -25,6 +25,7 @@ type Runtime struct {
 type RepoComponent struct {
 	component *mysql.Component
 	db        *sql.DB
+	prepared  *mysql.PreparedSQLDB
 	redis     *platformdb.RedigoExecutor
 	cacheOpts dnfrepo.RedisCacheOptions
 }
@@ -107,7 +108,13 @@ func newRepoComponent(env *appkit.Env, cfg RepositoryConfig) (*RepoComponent, er
 			Timeout:  cfg.redisTimeout(),
 		})
 	}
-	component := mysql.NewComponentFromServerGroup(mysql.SQLDBAdapter{DB: db}, manager, mysql.ComponentOptions{
+	var database mysql.SQLDB = mysql.SQLDBAdapter{DB: db}
+	var prepared *mysql.PreparedSQLDB
+	if cfg.MySQLPreparedCacheSize != nil && *cfg.MySQLPreparedCacheSize > 0 {
+		prepared = mysql.NewPreparedSQLDB(db, *cfg.MySQLPreparedCacheSize)
+		database = prepared
+	}
+	component := mysql.NewComponentFromServerGroup(database, manager, mysql.ComponentOptions{
 		ShardID:                   cfg.ShardID,
 		TablePrefix:               cfg.TablePrefix,
 		AutoCreateSchema:          cfg.AutoCreateSchema,
@@ -118,6 +125,7 @@ func newRepoComponent(env *appkit.Env, cfg RepositoryConfig) (*RepoComponent, er
 	return &RepoComponent{
 		component: component,
 		db:        db,
+		prepared:  prepared,
 		redis:     redisExec,
 		cacheOpts: dnfrepo.RedisCacheOptions{
 			KeyPrefix: cfg.RedisKeyPrefix,
@@ -180,6 +188,9 @@ func (c *RepoComponent) Stop(ctx context.Context) error {
 		errs = append(errs, c.component.Stop(ctx))
 	}
 	if c.db != nil {
+		if c.prepared != nil {
+			errs = append(errs, c.prepared.Close())
+		}
 		errs = append(errs, c.db.Close())
 	}
 	if c.redis != nil {

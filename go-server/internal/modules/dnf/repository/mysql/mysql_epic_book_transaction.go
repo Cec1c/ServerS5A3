@@ -75,7 +75,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) WithinEpicBookAssets(ctx context.
 	}
 	defer tx.Rollback()
 	router := u.router
-	router.db = sqlTransactionDB{tx: tx}
+	router.db = newSQLTransactionDB(tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true

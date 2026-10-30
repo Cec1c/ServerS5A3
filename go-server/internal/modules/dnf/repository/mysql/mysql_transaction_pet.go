@@ -36,7 +36,7 @@ func (u *mysqlCharacterPetUnitOfWork) WithinCharacterPets(
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true

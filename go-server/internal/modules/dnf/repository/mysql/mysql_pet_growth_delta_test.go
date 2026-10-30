@@ -26,7 +26,7 @@ func TestPetGrowthDeltaSatietyPreservesHistoryAndArtifacts(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			store := &mysqlPetStore{mysqlStoreBase{router: mysqlRouter{db: sqlTransactionDB{tx}, lockReads: true, readDBs: []string{"replica"}, writeDBs: []string{"primary"}}}}
+			store := &mysqlPetStore{mysqlStoreBase{router: mysqlRouter{db: sqlTransactionDB{tx: tx}, lockReads: true, readDBs: []string{"replica"}, writeDBs: []string{"primary"}}}}
 			before := repository.PetEntry{PetKey: "p", ItemID: 1, Satiety: 100, SatietyMicros: 100000000, Extra: map[string]string{"keep": "history"}, AppliedClearTokens: map[string]bool{"old": true}, AppliedClearTokenOrder: []string{"old"}}
 			after := repository.PetRecord{CharacterID: "c", EquippedKey: "p", UpdatedAt: time.Unix(1800000000, 0), Entries: map[string]repository.PetEntry{"p": before}}
 			next := before

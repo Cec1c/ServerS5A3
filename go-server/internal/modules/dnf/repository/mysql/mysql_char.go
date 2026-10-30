@@ -548,7 +548,7 @@ func (s *mysqlCharStore) SwapCharacterSlots(ctx context.Context, accountID strin
 		return err
 	}
 	txRouter := s.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), s.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), s.router.writeDBs...)
 	txRouter.lockReads = true

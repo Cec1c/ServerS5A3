@@ -27,7 +27,7 @@ func withMySQLWriteExecutor(ctx context.Context, database SQLDB, apply func(SQLD
 	if err != nil {
 		return err
 	}
-	txDB := sqlTransactionDB{tx: tx}
+	txDB := newSQLTransactionDB(tx, database)
 	if err := apply(txDB); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}

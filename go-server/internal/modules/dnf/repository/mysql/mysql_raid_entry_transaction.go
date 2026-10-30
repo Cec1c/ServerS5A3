@@ -30,7 +30,7 @@ func (u *mysqlCharacterTradeUnitOfWork) WithinRaidEntryAssets(ctx context.Contex
 	}
 	defer tx.Rollback() // Also release the SQL transaction if the callback panics.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	// Character IDs can route to different logical schemas. They remain on
 	// one physical MySQL connection, so keep the full qualified write plan.
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)

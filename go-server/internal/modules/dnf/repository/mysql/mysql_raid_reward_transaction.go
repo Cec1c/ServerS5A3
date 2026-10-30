@@ -71,7 +71,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterMailboxAsse
 	// databases. They still share one physical MySQL transaction, so keep the
 	// full write plan while forcing locked reads through the transaction.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true

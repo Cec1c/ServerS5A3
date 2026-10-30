@@ -27,7 +27,7 @@ func (u *mysqlRentalAssetUnitOfWork) WithinPVPTotal(ctx context.Context, account
 		return err
 	}
 	router := u.router
-	router.db = sqlTransactionDB{tx: tx}
+	router.db = newSQLTransactionDB(tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true

@@ -47,7 +47,13 @@ func TestRuntimeDeltasDisposableMySQL(t *testing.T) {
 	if err := EnsureMySQLSchema(ctx, db, SchemaOptions{AutoCreate: true, CreateDatabases: true, DatabasePlan: plan}); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewMySQLGroupFromDB(db, MySQLGroupOptions{DatabasePlan: plan})
+	var adapter SQLDB = SQLDBAdapter{DB: db}
+	if os.Getenv("DNF_RUNTIME_PREPARED") == "1" {
+		prepared := NewPreparedSQLDB(db, 64)
+		defer prepared.Close()
+		adapter = prepared
+	}
+	g, err := NewMySQLGroup(adapter, MySQLGroupOptions{DatabasePlan: plan})
 	if err != nil {
 		t.Fatal(err)
 	}

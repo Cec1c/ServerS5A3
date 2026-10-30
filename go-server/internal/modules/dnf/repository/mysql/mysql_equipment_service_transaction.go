@@ -31,7 +31,7 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinEquipmentServiceAssets(ctx context.C
 	}
 	defer tx.Rollback()
 	r := u.router
-	r.db = sqlTransactionDB{tx: tx}
+	r.db = newSQLTransactionDB(tx, r.db)
 	r.readDBs = append([]string(nil), r.writeDBs...)
 	r.lockReads = true
 	base := newMySQLGroupFromRouter(r, false)

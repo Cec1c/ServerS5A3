@@ -15,18 +15,45 @@ type sqlTxBeginner interface {
 }
 
 type sqlTransactionDB struct {
-	tx *sql.Tx
+	tx       *sql.Tx
+	prepared *PreparedSQLDB
+	local    *transactionStatements
 }
 
 func (db sqlTransactionDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	s, err := db.preparedStatement(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil {
+		result, err := s.ExecContext(ctx, args...)
+		db.forgetFailedStatement(query, s, err)
+		return result, err
+	}
 	return db.tx.ExecContext(ctx, query, args...)
 }
 
 func (db sqlTransactionDB) QueryContext(ctx context.Context, query string, args ...any) (SQLRows, error) {
+	s, err := db.preparedStatement(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil {
+		rows, err := s.QueryContext(ctx, args...)
+		db.forgetFailedStatement(query, s, err)
+		return rows, err
+	}
 	return db.tx.QueryContext(ctx, query, args...)
 }
 
 func (db sqlTransactionDB) QueryRowContext(ctx context.Context, query string, args ...any) SQLRow {
+	s, err := db.preparedStatement(ctx, query)
+	if err != nil {
+		return errorRow{err}
+	}
+	if s != nil {
+		return transactionPreparedRow{row: s.QueryRowContext(ctx, args...), database: db, query: query, statement: s}
+	}
 	return db.tx.QueryRowContext(ctx, query, args...)
 }
 
@@ -91,7 +118,7 @@ func (u *mysqlCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.C
 	}
 	defer tx.Rollback()
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -140,7 +167,7 @@ func (u *mysqlCharacterSkillUnitOfWork) WithinCharacterSkill(ctx context.Context
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -176,7 +203,7 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -280,7 +307,7 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -353,7 +380,7 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	}
 	defer tx.Rollback() // Also release the SQL transaction if the callback panics.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	// Character IDs can route to different logical schemas. They remain on
 	// one physical MySQL connection, so keep the full qualified write plan.
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
@@ -456,7 +483,7 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -506,7 +533,7 @@ func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	// Account and character keys can hash to different logical databases. Keep
 	// the complete write plan while using one physical MySQL transaction.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -571,7 +598,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Con
 	// qualified write plan so account, character, and settings keys remain in
 	// one SQL transaction even when their logical database hashes differ.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true

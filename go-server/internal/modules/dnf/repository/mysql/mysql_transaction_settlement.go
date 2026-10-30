@@ -53,7 +53,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	}
 	defer tx.Rollback()
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx, txRouter.db)
 	// Character settlement can also consume account-owned crystal/soul slots.
 	// Keep the full logical database plan inside the same physical SQL
 	// transaction so the character and account keys may route independently.

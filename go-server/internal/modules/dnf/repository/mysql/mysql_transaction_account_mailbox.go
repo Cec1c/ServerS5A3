@@ -41,7 +41,7 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailboxCharacter(ctx context.
 	}
 	defer tx.Rollback() // Also covers a panicking callback; Commit marks it done.
 	r := u.router
-	r.db = sqlTransactionDB{tx: tx}
+	r.db = newSQLTransactionDB(tx, r.db)
 	r.readDBs = append([]string(nil), u.router.writeDBs...)
 	r.writeDBs = append([]string(nil), u.router.writeDBs...)
 	r.lockReads = true
