@@ -60,7 +60,17 @@ func loadCurrentDisjointPVFConfig(source dnfpvf.Source) (currentDisjointPVFConfi
 		config.CubeMultipliers = append(config.CubeMultipliers, values[1:]...)
 	}
 	config.Additional = currentDisjointParseAdditional(disjoint.Ints("additional result"))
-	config.AdditionalConsts = currentDisjointParseAdditionalConsts(disjoint.Numbers("additional result const"), len(config.Additional))
+	if tokens, present := disjoint.Section("additional result const"); present {
+		for _, token := range tokens {
+			if token.Kind != dnfpvf.TokenInt && token.Kind != dnfpvf.TokenFloat {
+				return currentDisjointPVFConfig{}, errCurrentDisjointRewardInvalid
+			}
+		}
+		config.AdditionalConsts = currentDisjointParseAdditionalConsts(disjoint.Numbers("additional result const"), config.Additional)
+		if len(config.Additional) == 0 || config.AdditionalConsts == nil {
+			return currentDisjointPVFConfig{}, errCurrentDisjointRewardInvalid
+		}
+	}
 	expandItems := disjoint.Ints("additional result expand")
 	expandValues := disjoint.Numbers("additional result expand const")
 	config.Expands = currentDisjointParseExpands(expandItems, expandValues)
@@ -238,21 +248,32 @@ func currentDisjointParseAdditional(values []int64) [][]uint32 {
 	return out
 }
 
-func currentDisjointParseAdditionalConsts(values []float64, rows int) []currentDisjointAdditionalConst {
-	out := make([]currentDisjointAdditionalConst, 0, rows)
+// Constants follow the counted item rows: a disabled rarity has one zero
+// placeholder, an enabled rarity has four values. Use the item rows rather
+// than guessing from the remaining length (there can be multiple zero rows).
+func currentDisjointParseAdditionalConsts(values []float64, rows [][]uint32) []currentDisjointAdditionalConst {
+	out := make([]currentDisjointAdditionalConst, len(rows))
 	offset := 0
-	for row := 0; row < rows && offset < len(values); row++ {
-		remaining := rows - row - 1
-		if len(values)-offset == 1+remaining*4 {
-			out = append(out, currentDisjointAdditionalConst{GreatDivisor: values[offset]})
-			offset++
-			continue
+	for row, items := range rows {
+		width := 1
+		if len(items) > 0 {
+			width = 4
 		}
-		if offset+3 >= len(values) {
+		if len(values)-offset < width {
 			return nil
 		}
-		out = append(out, currentDisjointAdditionalConst{GreatDivisor: values[offset], NormalDivisor: values[offset+1], GreatChance: values[offset+2]})
-		offset += 4
+		for _, value := range values[offset : offset+width] {
+			if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+				return nil
+			}
+		}
+		if width == 4 {
+			out[row] = currentDisjointAdditionalConst{GreatDivisor: values[offset], NormalDivisor: values[offset+1], GreatChance: values[offset+2]}
+		}
+		offset += width
+	}
+	if offset != len(values) {
+		return nil
 	}
 	return out
 }

@@ -1,8 +1,6 @@
 package dnfbridge
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -10,11 +8,6 @@ import (
 )
 
 const currentRaidRewardWireDiagnosticKind = "game-raid-reward-wire"
-
-func currentProjectionBodyDigest(body []byte) string {
-	digest := sha256.Sum256(body)
-	return hex.EncodeToString(digest[:8])
-}
 
 // logCurrentRaidRewardWire records only fixed, bounded wire facts. It is
 // deliberately independent of packetLog: the current incident has packet

@@ -83,6 +83,7 @@ func (s *Service) finishCurrentOrdinaryChannelSceneBatch(p *gameSession, routeEr
 	}
 	for _, inner := range b.upper {
 		s.logCurrentSharedInventoryPacketWritten(p, inner)
+		s.logGoldDiagnosticPacketResult(p, inner, false)
 	}
 	s.logGameEvent(p, "普通换线初始化批次已写出", "报文数", b.frames, "字节数", len(b.wire), "准备毫秒", time.Since(b.started).Milliseconds(), "范围", "选角ACK至完整房间初始化，原报文顺序保持")
 	return nil

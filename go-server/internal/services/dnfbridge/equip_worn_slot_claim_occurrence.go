@@ -202,7 +202,8 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 	identicalLoginRepeat := false
 	if occurrence > 1 {
 		if statement, ok := loginWearReassertStatementOf(body); ok {
-			identicalLoginRepeat = session.loginWearReassertSlotRepeatAbsorbable(slot, statement) || s.currentWornClaimReceiptMatches(session, slot, statement)
+			identicalLoginRepeat = session.loginWearReassertSlotRepeatAbsorbable(slot, statement) ||
+				s.currentWornClaimReceiptMatches(session, slot, statement)
 		}
 	}
 	switch {
@@ -233,6 +234,16 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 		"window_ms", s.loginWearReassertWindowDuration().Milliseconds(),
 		"burst_continuation", burstContinuation,
 		"retry_tier", tier)
+	if slot == 13 {
+		// Packet logging is disabled in production. Record only the title-slot
+		// decision so one right-click can be correlated with ingress and outcome.
+		s.logInfo("dnfbridge title claim decision",
+			"conn_id", session.connID, "char_id", session.selectedCharacterID,
+			"slot", slot, "occurrence", occurrence,
+			"decision", decision, "reason", reason,
+			"ack_delta_ms", ackDelta.Milliseconds(), "in_window", inWindow,
+			"burst_continuation", burstContinuation, "retry_tier", tier)
+	}
 	if decision == "apply-vendor" {
 		// 域侧契约：≥2 = 放行（两条登录闸门惰性），1 = 吞。
 		return 2

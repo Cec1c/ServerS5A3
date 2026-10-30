@@ -63,7 +63,9 @@ func (s *Service) publishRuntimePartySnapshot(snapshot party.RuntimePartySnapsho
 				"reason", "runtime_party_records_a_different_session_generation_for_this_member")
 			continue
 		}
-		storeRuntimePartyState(identity.session, snapshot.StateFor(member.UserID))
+		if !s.storeCurrentPartyProjection(identity, snapshot.StateFor(member.UserID)) {
+			continue
+		}
 		// 记下队长会话的权威队伍号，供 handleOnlineChangePartyHost 认重发。
 		// 普通队员保持零值，避免一条本来就无权的 op121 被误认成委任重发。
 		// 成功的 transfer 会给退位队长单独写上"新队长 + 新队号"。
@@ -75,23 +77,16 @@ func (s *Service) publishRuntimePartySnapshot(snapshot party.RuntimePartySnapsho
 	return snapshot.StateFor(snapshot.Leader)
 }
 
-// publishRuntimePartyMembershipSnapshot keeps a one-member manager lobby
-// available for the next invite, but deliberately removes its client-facing
-// party projection after a leave/kick/disconnect mutation.  The current EXE
-// treats a nonzero cached party id as dungeon leader authority even when its
-// roster only has one row.  Replaying such a singleton after a successful
-// leave is what left the player unable to enter alone.
+// Keep the surviving lobby visible. The current EXE's town two-to-one
+// transition owns the retention prompt; sending zero rows bypasses it.
+// The departing player is cleared separately and can enter alone.
 func (s *Service) publishRuntimePartyMembershipSnapshot(snapshot party.RuntimePartySnapshot) alignedcmd.PartyState {
 	state := s.publishRuntimePartySnapshot(snapshot)
-	if len(snapshot.Members) > 1 {
+	if len(snapshot.Members) > 0 {
 		return state
 	}
-	// 队伍缩到 1 人/解散：这个队伍再也不会有人进图，立即回收它的队伍级副本实例
-	// （阶段二的回收时机之一；参考实现里对应 TryBeginEnding/TryMarkEnded）。
+	// A surviving member may still own a live dungeon instance.
 	s.recyclePartyDungeonInstances(int(snapshot.ID), "party_disbanded")
-	for _, member := range snapshot.Members {
-		s.clearRuntimePartyProjectionForSnapshot(member.UserID, snapshot.ID)
-	}
 	return alignedcmd.PartyState{}
 }
 
@@ -268,9 +263,8 @@ func (s *Service) runtimePartyStateForSession(session *gameSession) alignedcmd.P
 	if authoritative.PartyID <= 0 {
 		return cached
 	}
-	if cached.PartyID != authoritative.PartyID ||
-		len(runtimePartyMembers(cached)) != len(runtimePartyMembers(authoritative)) {
-		storeRuntimePartyState(session, authoritative)
+	if !sameCurrentPartyProjectionState(cached, authoritative) || cached.IsLeader != authoritative.IsLeader {
+		s.repairCurrentPartyProjection(session, authoritative)
 		s.logGameEvent(session, "game-party-session-projection-repaired",
 			"conn_id", session.connID,
 			"char_id", session.selectedCharacterID,

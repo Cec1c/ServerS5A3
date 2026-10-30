@@ -41,11 +41,14 @@ func selectDungeonMaze(
 
 	defaults := make([]int, 0, len(mazes))
 	for index := range mazes {
-		if len(mazes[index].QuestConnection) == 0 {
+		if !mazes[index].HiddenBoss && len(mazes[index].QuestConnection) == 0 {
 			defaults = append(defaults, index)
 		}
 	}
 	if len(defaults) == 0 {
+		if mazes[0].HiddenBoss {
+			return dungeonMazeSelection{}, worldmap.ErrMazeNotFound
+		}
 		return dungeonMazeSelection{Index: 0, Reason: "pvf_first_maze_no_default"}, nil
 	}
 	index, err := chooseDungeonCandidate(defaults, choose)
@@ -67,6 +70,9 @@ func selectQuestConnectedMaze(
 	}
 	candidates := make([]int, 0, 1)
 	for index := range mazes {
+		if mazes[index].HiddenBoss {
+			continue
+		}
 		connection := mazes[index].QuestConnection
 		if len(connection) < 2 || connection[0] != requiredType {
 			continue

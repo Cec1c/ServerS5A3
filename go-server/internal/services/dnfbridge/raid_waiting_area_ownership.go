@@ -140,7 +140,7 @@ func (s *Service) prepareCurrentRaidWaitingBattleScope(session *gameSession, sta
 	return scope, nil
 }
 
-// 超时空开团只重绑本场已冻结成员的当前等待区记录；
+// 安图恩、卢克和超时空共用。只重绑本场已冻结成员的当前等待区记录；
 // 普通区域、其他频道/账号/连接及已属于另一场战斗的记录均保持原状。
 func (m *OnlinePlayerManager) bindRaidWaitingBattleInstance(scope currentRaidWaitingBattleScope) {
 	if m == nil || scope.raidKey == 0 || scope.battleID == "" || scope.channelID <= 0 || scope.townID == 0 {
@@ -163,40 +163,6 @@ func (m *OnlinePlayerManager) bindRaidWaitingBattleInstance(scope currentRaidWai
 		m.removeFromAreaLocked(id)
 		key.RaidBattleInstance = scope.battleID
 		info.RaidBattleInstance = scope.battleID
-		if m.byArea[key] == nil {
-			m.byArea[key] = make(map[uint16]*onlinePlayerInfo)
-		}
-		m.byArea[key][id] = info
-		m.byChar[id] = key
-	}
-}
-
-// Rebucket the already admitted waiting members together when their frozen
-// battle starts. Their actor identity and coordinates stay unchanged.
-func (m *OnlinePlayerManager) bindAntonWaitingBattleInstance(raidKey uint32, battleID string) {
-	if m == nil || raidKey == 0 || battleID == "" {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	ids := make([]uint16, 0)
-	for id, key := range m.byChar {
-		if ((key.TownID == 19 && key.AreaID == 2) || (key.TownID == 32 && key.AreaID == 4)) && key.Instance == raidKey {
-			ids = append(ids, id)
-		}
-	}
-	for _, id := range ids {
-		key := m.byChar[id]
-		if !((key.TownID == 19 && key.AreaID == 2) || (key.TownID == 32 && key.AreaID == 4)) || key.Instance != raidKey {
-			continue
-		}
-		info := m.byArea[key][id]
-		if info == nil {
-			continue
-		}
-		m.removeFromAreaLocked(id)
-		key.RaidBattleInstance = battleID
-		info.RaidBattleInstance = battleID
 		if m.byArea[key] == nil {
 			m.byArea[key] = make(map[uint16]*onlinePlayerInfo)
 		}

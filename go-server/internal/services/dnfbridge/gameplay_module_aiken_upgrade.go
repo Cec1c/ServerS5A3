@@ -38,15 +38,36 @@ func (s *Service) handleCurrentAikenUpgrade(g *gameSession, b []byte) error {
 	if g == nil {
 		return nil
 	}
+	// Keep this request's identity across transaction and socket outcomes.
+	// Diagnostics must remain available when the raw packet logger is disabled.
+	// send_ok describes the existing send helper's result, not client receipt.
+	s.mu.Lock()
+	connID, charID := g.connID, g.selectedCharacterID
+	s.mu.Unlock()
+	slot := int16(-1)
+	if len(b) == 2 {
+		slot = int16(binary.LittleEndian.Uint16(b))
+	}
+	diagnostic := func(event string, fields ...any) {
+		if s.logger != nil {
+			args := []any{"conn_id", connID, "char_id", charID, "opcode", 1342, "slot", slot}
+			s.logger.Info(event, append(args, fields...)...)
+		}
+	}
+	diagnostic("aiken-upgrade-request", "body_len", len(b), "slot_decoded", len(b) == 2)
 	reject := func(e error) error {
 		reason := "invalid_or_unavailable"
+		nativeReason := byte(0)
 		if errors.Is(e, aiken.ErrMaterials) {
 			reason = "materials_insufficient"
+			// v156 00E66CD7: reason 8 -> dstr FILE/102 ID 60557.
+			nativeReason = 8
 		}
-		if s.logger != nil {
-			s.logger.Info("aiken-upgrade-rejected", "reason", reason)
-		}
-		return s.sendGameUpperRawClass(g, 1342, []byte{0, 0}, 1)
+		diagnostic("aiken-upgrade-rejected", "reason", reason, "native_reason", nativeReason)
+		err := s.sendGameUpperRawClass(g, 1342, []byte{0, nativeReason}, 1)
+		diagnostic("aiken-upgrade-send-result", "msg_id", 1342, "classification", 1,
+			"ack_success", false, "native_reason", nativeReason, "committed", false, "send_ok", err == nil)
+		return err
 	}
 	if g.selectedCharacterID == 0 || len(b) != 2 {
 		return reject(aiken.ErrInvalid)
@@ -81,12 +102,35 @@ func (s *Service) handleCurrentAikenUpgrade(g *gameSession, b []byte) error {
 		return reject(e)
 	}
 	entries := currentAikenChangedEntries(result)
+	if s.logger != nil {
+		// Sorted by the same slots as the actual 14 projection. Zero item/count
+		// denotes a cleared slot; no instance bytes or opaque Extra are logged.
+		slots := make([]int, 0, len(result.Changed))
+		for changedSlot := range result.Changed {
+			slots = append(slots, int(changedSlot))
+		}
+		sort.Ints(slots)
+		itemIDs, counts := make([]int64, 0, len(slots)), make([]int64, 0, len(slots))
+		for _, changedSlot := range slots {
+			stack := result.Changed[int16(changedSlot)]
+			itemIDs, counts = append(itemIDs, stack.ItemID), append(counts, stack.Count)
+		}
+		diagnostic("aiken-upgrade-committed", "before", result.Before, "after", result.After,
+			"item_id", result.Changed[slot].ItemID, "material_item_id", rules.Material,
+			"changed_slots", slots, "item_ids", itemIDs, "counts", counts)
+	}
 	// E672A0->10E2D70 snapshots the existing item; notify its new instance first.
 	// A write failure never reruns the asset transaction or sends a success ACK.
-	if e := s.sendGameUpperRawClass(g, 14, buildCurrentItemUpdateBody(0, entries), 0); e != nil {
+	e = s.sendGameUpperRawClass(g, 14, buildCurrentItemUpdateBody(0, entries), 0)
+	diagnostic("aiken-upgrade-send-result", "msg_id", 14, "classification", 0,
+		"committed", true, "send_ok", e == nil)
+	if e != nil {
 		return e
 	}
-	return s.sendGameUpperRawClass(g, 1342, []byte{1}, 1)
+	e = s.sendGameUpperRawClass(g, 1342, []byte{1}, 1)
+	diagnostic("aiken-upgrade-send-result", "msg_id", 1342, "classification", 1,
+		"ack_success", true, "committed", true, "send_ok", e == nil)
+	return e
 }
 
 func currentAikenChangedEntries(result aiken.Result) []currentItemListEntry {

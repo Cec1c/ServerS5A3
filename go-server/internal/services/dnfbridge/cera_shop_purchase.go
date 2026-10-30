@@ -51,8 +51,13 @@ var (
 // byte 5 is the row's avatar-attribute selector; the two deliberately remain
 // distinct even though the first row begins at byte 4.
 type currentCeraShopPurchaseRequest struct {
-	PaymentMode byte
-	Items       []currentCeraShopPurchaseRequestItem
+	FestivalRequestID string
+	FestivalDigest    string
+	FestivalSerial    uint64
+	FestivalOwner     boundGameSessionCharacter
+	FestivalAccount   string
+	PaymentMode       byte
+	Items             []currentCeraShopPurchaseRequestItem
 }
 
 type currentCeraShopPurchaseRequestItem struct {
@@ -202,6 +207,10 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 	catalog, err := s.currentCeraShopCatalog()
 	if err != nil {
 		s.logGameEvent(session, "game-cera-shop-purchase-rejected", "body_len", len(body), "reason", err)
+		return s.sendCurrentCeraShopPurchaseFailure(session)
+	}
+	if err := s.preparePrivateFestivalPurchase(session, catalog, &request, body, sequences); err != nil {
+		s.logGameEvent(session, "private-festival-purchase-rejected", "error", err)
 		return s.sendCurrentCeraShopPurchaseFailure(session)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -374,6 +383,13 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 	}
 	if err := s.sendGameUpperRawClass(session, currentCeraShopUpdateMsgID, buildCurrentCeraShopWalletBody(result.CeraAfter, result.WalletAfter.TokenCera, result.WalletAfter.HappyTokenCera), 0); err != nil {
 		return err
+	}
+	if request.FestivalRequestID != "" {
+		if _, _, err := s.settlePrivateFestival(ctx, session); err != nil {
+			s.logGameEvent(session, "private-festival-mail-pending", "error", err)
+		} else if err := s.sendMailboxAlarmForSession(session, session.selectedCharacterID, "private_festival"); err != nil {
+			return err
+		}
 	}
 	s.logGameEvent(session, "game-cera-shop-purchase-committed",
 		"item_count", len(result.Products), "cart", currentCeraShopCartSummary(request.Items), "payment_mode", request.PaymentMode, "container_update_count", len(result.Updates), "main_inventory_expansion", result.MainInventoryExpansion, "personal_cargo_slot_count", result.PersonalCargoSlotCount, "avatar_inventory_expansion", result.AvatarInventoryExpansion, "account_cargo_selection_key", result.AccountCargoSelectionKey, "cera_after", result.CeraAfter, "premium_activation_count", len(result.PremiumActivations),
@@ -642,6 +658,9 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		PayPolicy:     dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: ceraOnlyCost, TokenOnlyCost: tokenOnlyCost,
 		UpdatedAt:     checkoutNow,
 		IncludeSkills: includeSkills,
+		Preflight: func(account *dnfrepo.AccountRecord) error {
+			return s.privateFestivalPreflight(session, account, request)
+		},
 		Project: func(assets *dnfcerashop.CheckoutAssets) (dnfcerashop.CheckoutChanges, error) {
 			if assets == nil || assets.Account == nil || assets.Character == nil || assets.Inventory == nil ||
 				assets.Equipment == nil || assets.Settings == nil {
@@ -924,6 +943,12 @@ func (s *Service) commitCurrentCeraShopPurchase(
 				SkillTreeExpanded:          includeSkills,
 			}
 			changes.Inventory = inventoryChanged
+			if err := s.privateFestivalPreflight(session, account, request); err != nil {
+				return dnfcerashop.CheckoutChanges{}, err
+			}
+			if err := projectPrivateFestivalPurchase(catalog, account, characterID, request, purchases); err != nil {
+				return dnfcerashop.CheckoutChanges{}, err
+			}
 			return changes, nil
 		},
 	})
@@ -932,6 +957,11 @@ func (s *Service) commitCurrentCeraShopPurchase(
 	}
 	result.CeraAfter = checkoutResult.CeraAfter
 	result.WalletAfter = checkoutResult.WalletAfter
+	if request.FestivalRequestID != "" {
+		s.mu.Lock()
+		session.privateFestivalCommittedSerial = request.FestivalSerial
+		s.mu.Unlock()
+	}
 	return result, nil
 }
 

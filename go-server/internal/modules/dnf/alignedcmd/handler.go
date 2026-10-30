@@ -858,11 +858,13 @@ type PartyMemberState struct {
 
 // Result 表示模块化分流后的处理结果。
 // ResponseAllowed=false 表示证据不足或被阻断，bridge 不能伪造成功 ACK。
-// EquipmentMoveFact is emitted only after an op19 owner succeeds.
+// EquipmentMoveFact is returned only after an op19 movement owner succeeds.
+// It carries domain outcome, independent of notification delivery or log text.
 type EquipmentMoveFact struct {
 	Changed       bool
 	WornClaimNoop bool
 }
+
 type Result struct {
 	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
 	EquipmentMoveFact *EquipmentMoveFact
@@ -928,6 +930,10 @@ type Result struct {
 	// that grants no fragment.
 	EpicPieceCredits     []MailboxEpicPieceCredit
 	AccountWalletChanged bool
+	// FateCurrencyChanged reports that this command increased the account-wide
+	// Fate wallet after applying the weekly acquisition cap. The bridge owns the
+	// client projection because Fate owns no inventory row.
+	FateCurrencyChanged bool
 	// UpgradeDestroyBonusMerge describes where the "equipment destroyed by a
 	// failed reinforcement/amplification" compensation item landed: which row
 	// received it, whether that row was an existing same-identity stack or a
@@ -1029,6 +1035,8 @@ const (
 	PostActionRefreshSelectedActorAppearance        PostAction = "refresh_selected_actor_appearance"
 	PostActionRefreshSelectedActorExpandedEquipment PostAction = "refresh_selected_actor_expanded_equipment"
 	PostActionRefreshSelectedItemContainers         PostAction = "refresh_selected_item_containers"
+	// Guild medal moves only invalidate list38, not every character container.
+	PostActionRefreshGuildMedalContainer PostAction = "refresh_guild_medal_container"
 	// 穿脱装备/时装（op19）专用的整容器重发动作。它与
 	// PostActionRefreshSelectedItemContainers 的旧口径逐字节等价（class0/op13
 	// list 0/1/2/7/38 五个整容器），但**只由穿脱路径发出**，因此 dnfbridge 可以

@@ -64,11 +64,12 @@ func (s *Service) logFiendWarSceneDiagnostic(p *gameSession, r *runtimeDungeonSt
 	default:
 		return
 	}
+	finishGates := p.finishLoadingGateSnapshot()
 	args := []any{"kind", "game-fiendwar-scene-diagnostic", "conn_id", p.connID, "channel_id", p.channel.ID,
 		"char_id", p.selectedCharacterID, "stage", stage, "dungeon_id", key.DungeonID,
 		"map_id", key.MapID, "maze", key.MazeIndex, "room_x", key.RoomX, "room_y", key.RoomY,
 		"seed", key.Seed, "raid_key", key.RaidKey, "instance_id", key.RaidInstanceID, "run_id", key.RaidRunID,
-		"post_start_ready", p.postStartMapPlayerStateSent, "finish_ready", p.postFinishLoadingPlayerStateSent}
+		"post_start_ready", p.postStartMapPlayerStateSent, "finish_ready", finishGates.PostFinish}
 	if stage == "client_position" {
 		args = append(args, "position_report", d.positions, "position_x", x, "position_y", y)
 	} else {

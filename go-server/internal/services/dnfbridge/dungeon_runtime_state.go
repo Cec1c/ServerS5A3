@@ -52,11 +52,14 @@ type runtimeDungeonState struct {
 	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
 	missionInformerRetirements   map[uint32]dungeonMissionInformerRetirement
 	entryCharacterLevel          int
+	entryPartyCount              int
 	petGrowthEntryPending        bool // follower runtime installed before the group commits
 	settlementLuckyStar          dnfdungeon.LuckyStarResult
 	settlementLuckyStarStateSent bool
 	raidDeadlineReturn           *currentRaidDeadlineReturn
 	lukeSanctumMaze              *currentLukeSanctumMazePreparation
+	dimensionHiddenAdmission     *dnfdungeon.DimensionHiddenAdmission
+	dimensionHiddenHighReward    bool
 	semesterRun                  *currentSemesterRun
 	epicEntry                    *currentEpicEntry
 	raidEntry                    *currentRaidDungeonEntry
@@ -616,7 +619,13 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		}
 		return selectDungeonMaze(dungeon.Mazes, request.Difficulty, questRecord, s.chooseDungeonIndex)
 	}
-	mazeSelection, lukeSanctumMaze, err := s.selectCurrentLukeSanctumMaze(session, dungeon, chooseMaze, partyPlan != nil)
+	var dimensionHiddenAdmission *dnfdungeon.DimensionHiddenAdmission
+	chooseWithDimension := func() (dungeonMazeSelection, error) {
+		selected, plan, err := s.selectCurrentDimensionHiddenMaze(session, dungeon, character, chooseMaze, partyPlan != nil)
+		dimensionHiddenAdmission = plan
+		return selected, err
+	}
+	mazeSelection, lukeSanctumMaze, err := s.selectCurrentLukeSanctumMaze(session, dungeon, chooseWithDimension, partyPlan != nil)
 	if err != nil {
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("choose dungeon maze: %w", err)
 	}
@@ -864,13 +873,15 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		return nil, worldmap.DungeonRoomScene{}, fmt.Errorf("prepare randomized dungeon objects before admission: %w", err)
 	}
 	runtime := &runtimeDungeonState{
-		antonHatcheryTransfer: antonTransfer,
-		randomizedObjects:     randomizedObjects,
-		lukeSanctumMaze:       lukeSanctumMaze,
-		Request:               request, Dungeon: dungeon, MazeIndex: mazeIndex,
+		antonHatcheryTransfer:    antonTransfer,
+		randomizedObjects:        randomizedObjects,
+		lukeSanctumMaze:          lukeSanctumMaze,
+		dimensionHiddenAdmission: dimensionHiddenAdmission,
+		Request:                  request, Dungeon: dungeon, MazeIndex: mazeIndex,
 		storyExperience: storyExperience,
 		Character:       character, AccountID: s.accountIDForSession(session),
 		entryCharacterLevel: character.Level,
+		entryPartyCount:     min(4, max(1, currentDungeonPartyCount(session))),
 		Session:             dungeonSession, Room: room, NextObjectKey: nextObjectKey,
 		BossCoordinate: bossCoordinate, BossSet: true,
 		LayeredMapIndex: -1, StoryStageIndex: -1, Seed: seed,

@@ -1179,11 +1179,9 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 		postActions = append(postActions, alignedcmd.PostActionRefreshSelectedItemContainers)
 	}
 	if result.Changed && (cmd.SourceListType == listTypeGuildMedal || cmd.DestinationListType == listTypeGuildMedal) {
-		// list 38 与 list 7 一样不能走 list 0/1/2 的 op14 增量行：它有自己 98 格
-		// 容器的权威快照构造器（buildCurrentItemListBodyForSession(38)）。勋章/
-		// 守护珠的拖拽（背包 → 勋章栏、勋章栏 → 背包）改由这条已经验证过的
-		// 「整容器重发」路径收口，客户端才会真的把行搬到目标页。
-		postActions = append(postActions, alignedcmd.PostActionRefreshSelectedItemContainers)
+		// Rebuild the dedicated 98-slot list38 snapshot after the move ACK.
+		// Other touched supported containers retain their existing slot refreshes.
+		postActions = append(postActions, alignedcmd.PostActionRefreshGuildMedalContainer)
 	}
 	return alignedcmd.Result{
 		Handled:         true,
@@ -1531,16 +1529,17 @@ func ownerAppliedEquipmentMoveResult(opcode uint16, cmd Command, result dnfequip
 		)
 	}
 	return alignedcmd.Result{
-		EquipmentMoveFact: &alignedcmd.EquipmentMoveFact{Changed: result.Changed, WornClaimNoop: result.Mode == "noop" && !result.Changed && result.NoopGate == dnfequip.WornSlotReassertGate},
-		Handled:           true,
-		ResponseAllowed:   true,
-		Operation:         cmd.Operation,
-		Reason:            reason,
+		Handled:         true,
+		ResponseAllowed: true,
+		Operation:       cmd.Operation,
+		Reason:          reason,
 		UpperResponses: []alignedcmd.UpperResponse{
 			class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 		},
 		PostActions:                     postActions,
 		RefreshSelectedBuffRegistration: result.Changed && !appearanceRefresh,
+		EquipmentMoveFact: &alignedcmd.EquipmentMoveFact{Changed: result.Changed,
+			WornClaimNoop: result.Mode == "noop" && !result.Changed && result.NoopGate == dnfequip.WornSlotReassertGate},
 	}
 }
 

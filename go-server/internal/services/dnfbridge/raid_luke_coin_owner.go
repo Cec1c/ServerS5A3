@@ -41,12 +41,31 @@ func (s *Service) consumeCurrentDungeonReviveCoinWithLukeCaps(ctx context.Contex
 	if !isLuke {
 		return s.consumeCurrentDungeonReviveCoin(ctx, char)
 	}
+	// Keep rejection identity available when packet logging is disabled. Only
+	// fixed gate names and owned runtime/quota fields leave this boundary;
+	// repository errors may contain connection details and are never forwarded.
+	auditReason := "asset_transaction_failed"
+	auditFields := []any{"char_id", char, "has_runtime", r != nil}
+	if r != nil {
+		auditFields = append(auditFields, "dungeon_id", r.Dungeon.ID)
+		if r.raidEntry != nil {
+			auditFields = append(auditFields, "run_id", r.raidEntry.RunID, "instance_id", r.raidEntry.InstanceID, "entry_phase", r.raidEntry.Phase, "entry_attempt", r.raidEntry.Attempt)
+		}
+	}
+	defer func() {
+		s.logGameEvent(session, "game-luke-coin-validation", append(auditFields, "reason", auditReason)...)
+	}()
+	reject := func(reason, message string) (currentDungeonReviveCoinConsumeResult, error) {
+		auditReason = reason
+		return empty, fmt.Errorf("%s", message)
+	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound || identity.character != char || !s.currentRaidAuthenticated(session) || r == nil || r.raidEntry == nil || r.Session == nil || r.Session.Snapshot().Run.Status != worldmap.DungeonRunActive || !dungeonRuntimeOwnsCharacter(r, char) || r.townReturnPending || !r.deathReturnWaiting || !r.deathStateSent || !session.postStartMapPlayerStateSent {
-		return empty, fmt.Errorf("Luke coin requires accepted death in current committed owned run")
+		return reject("accepted_death_owner_required", "Luke coin requires accepted death in current committed owned run")
 	}
 	mapLimit, e := currentLukeDungeonCoinLimit(r.Dungeon)
 	if e != nil {
+		auditReason = "map_limit_resource_invalid"
 		return empty, e
 	}
 	now := s.gameplayNow()
@@ -55,51 +74,61 @@ func (s *Service) consumeCurrentDungeonReviveCoinWithLukeCaps(ctx context.Contex
 	state := s.runtimeRaidByMemberLocked(char)
 	entry := r.raidEntry
 	if state == nil || !state.Started || state.Battle == nil || state.RaidKey != entry.RaidKey {
-		return empty, fmt.Errorf("Luke coin raid owner missing")
+		return reject("raid_owner_missing", "Luke coin raid owner missing")
 	}
 	b := state.Battle
+	auditFields = append(auditFields, "phase", b.Phase, "map_coin_used", b.RunCoins[entry.RunID], "map_coin_limit", mapLimit)
+	if b.Phase < 2 {
+		auditFields = append(auditFields, "phase_coin_used", b.PhaseCoins[b.Phase], "phase_coin_limit", b.Configuration.PhaseCoinLimits[b.Phase])
+	}
 	if b.Single || b.Mode != 2 || b.Anton == nil || !b.Anton.IsLuke() || b.InstanceID != entry.InstanceID || b.Phase != entry.Phase || b.Phase > 1 || b.Anton.Epoch() != entry.Attempt || entry.RunID == "" || b.ChannelID != entry.ChannelID || b.ChannelType != entry.ChannelType || session.channel.ID != entry.ChannelID || session.channel.Type != entry.ChannelType || b.MemberAccounts[char] != r.AccountID || r.AccountID != s.accountIDForSession(session) || b.PhaseCompleted || b.TimedOut || now.Before(b.EnterAfter) || !now.Before(b.Deadline) || now.Before(b.Anton.LastTime()) {
-		return empty, fmt.Errorf("Luke coin binding expired")
+		return reject("binding_expired", "Luke coin binding expired")
 	}
 	participant := false
 	for _, id := range entry.Participants {
 		participant = participant || id == char
 	}
 	if !participant {
-		return empty, fmt.Errorf("Luke coin participant not frozen")
+		return reject("participant_not_frozen", "Luke coin participant not frozen")
 	}
 	if _, done := b.ClearedRuns[entry.RunID]; done {
-		return empty, fmt.Errorf("Luke coin run completed")
+		return reject("run_already_completed", "Luke coin run completed")
 	}
 	open := false
 	for _, d := range b.Dungeons {
 		open = open || int64(d.ID) == r.Dungeon.ID && d.State == 0
 	}
 	if !open || !(&raid.LukeProgression{AntonProgression: b.Anton}).HasEnteredRun(entry.RunID, uint32(r.Dungeon.ID)) {
-		return empty, fmt.Errorf("Luke coin dungeon unavailable")
+		return reject("dungeon_unavailable", "Luke coin dungeon unavailable")
 	}
 	life, found := b.MemberLives[currentRaidMemberRun{RunID: entry.RunID, CharacterID: char}]
 	if !found || !life.Dead || life.Phase != entry.Phase || life.Attempt != entry.Attempt {
-		return empty, fmt.Errorf("Luke coin has no accepted owned death journal")
+		return reject("death_journal_missing", "Luke coin has no accepted owned death journal")
 	}
 	phaseLimit := b.Configuration.PhaseCoinLimits[b.Phase]
-	if phaseLimit > 0 && b.PhaseCoins[b.Phase] >= phaseLimit || mapLimit > 0 && b.RunCoins[entry.RunID] >= mapLimit {
-		return empty, fmt.Errorf("Luke revive coin limit reached")
+	if phaseLimit > 0 && b.PhaseCoins[b.Phase] >= phaseLimit {
+		return reject("phase_coin_limit_reached", "Luke revive coin limit reached")
+	}
+	if mapLimit > 0 && b.RunCoins[entry.RunID] >= mapLimit {
+		return reject("map_coin_limit_reached", "Luke revive coin limit reached")
 	}
 	if mapLimit > 0 && len(b.RunCoins) >= 4096 {
 		if _, exists := b.RunCoins[entry.RunID]; !exists {
-			return empty, fmt.Errorf("Luke coin run journal limit")
+			return reject("run_journal_limit", "Luke coin run journal limit")
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.gameSessions[char] != session || session.selectedCharacterID != identity.character || session.characterGeneration != identity.generation || session.events != nil && !session.events.active.Load() {
-		return empty, fmt.Errorf("Luke coin canonical session changed")
+		return reject("canonical_session_changed", "Luke coin canonical session changed")
 	}
 	coinCtx, cancel := context.WithDeadline(ctx, b.Deadline)
 	defer cancel()
 	result, e := s.consumeCurrentDungeonReviveCoin(coinCtx, char)
 	if e != nil || !result.Consumed && !result.FreeRevive {
+		if e == nil {
+			auditReason = "coin_unavailable"
+		}
 		return result, e
 	}
 	// Phase scope survives re-entry; shared run scope resets by a new run ID.
@@ -114,10 +143,12 @@ func (s *Service) consumeCurrentDungeonReviveCoinWithLukeCaps(ctx context.Contex
 		b.RunCoins[entry.RunID]++
 	}
 	if phaseLimit > 0 {
-		// Publish committed absolute usage through the serialized latest-state projection.
+		// Native NOTI775 writes the client's shared raid count. Publish only
+		// committed counts and let the serialized projection select latest state.
 		b.ProgressVersion++
 		projection := cloneRuntimeRaidState(*state)
 		result.RaidCoinProjection = &projection
 	}
+	auditReason = "accepted"
 	return result, nil
 }

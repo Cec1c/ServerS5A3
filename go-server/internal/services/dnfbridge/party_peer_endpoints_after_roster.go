@@ -94,6 +94,23 @@ func (s *Service) sendRuntimePartyPeerEndpointInfo(
 	state alignedcmd.PartyState,
 	order partyFormationOrderMode,
 ) ([]byte, error) {
+	return s.sendRuntimePartyPeerEndpointInfoAtStage(session, state, order, partyPeerEndpointStageInitial)
+}
+
+// sendRuntimePartyPeerEndpointInfoAtStage keeps the existing packet-log event
+// and wire/return behavior while attaching a bounded post-send diagnostic to
+// the actual call site. The stage is explicit so the roster repeat cannot be
+// mistaken for the initial phase-one formation send.
+func (s *Service) sendRuntimePartyPeerEndpointInfoAtStage(
+	session *gameSession,
+	state alignedcmd.PartyState,
+	order partyFormationOrderMode,
+	stage partyPeerEndpointStage,
+) ([]byte, error) {
+	current := s.currentPartyRetirementGuard(session, &state)
+	if !current() {
+		return nil, nil
+	}
 	body := s.buildRuntimePartyPeerEndpointInfoForReceiver(session, state)
 	peerCount := 0
 	if len(body) > 0 {
@@ -111,7 +128,12 @@ func (s *Service) sendRuntimePartyPeerEndpointInfo(
 		"include_self", s.partyPeerEndpointIncludeSelf().String(),
 		"ordering", order.orderingLabel(),
 		"source", order.phase1Source())
-	return body, s.sendGameUpperRawClassCodec(session, 0x000b, body, 0, true)
+	sent, err := s.sendRetiredPartyPacket(session, 0x000b, body, &state, current, false)
+	if !sent && err == nil {
+		return nil, nil
+	}
+	s.logPartyPeerEndpointSendDiagnostic(session, state, stage, body, err)
+	return body, err
 }
 
 // sendRuntimePartyPeerEndpointsAfterRoster 是 M1 的动作点：op9 名册已经发出之后，
@@ -139,7 +161,12 @@ func (s *Service) sendRuntimePartyPeerEndpointsAfterRoster(
 	}
 	order := s.partyFormationOrder()
 	ordering := order.afterRosterOrderingLabel()
-	body, err := s.sendRuntimePartyPeerEndpointInfo(session, state, order)
+	body, err := s.sendRuntimePartyPeerEndpointInfoAtStage(
+		session,
+		state,
+		order,
+		partyPeerEndpointStageAfterRosterRepeat,
+	)
 	if err != nil {
 		return err
 	}

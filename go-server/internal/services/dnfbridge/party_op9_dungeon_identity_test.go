@@ -163,6 +163,8 @@ func newPartyFrameSessions(t *testing.T, channelID, townOwnerChannel byte) (*Ser
 func TestDungeonContextPartyFrameCarriesMemberIdentityBlockForClientChannel(t *testing.T) {
 	const channelID = byte(10)
 	service, leader, member, state := newPartyFrameSessions(t, channelID, currentSceneObjectContext)
+	storeRuntimePartyState(leader, state)
+	storeRuntimePartyState(member, state)
 
 	if sent, err := service.sendCurrentPartyFrameProjection(member, state, "test_dungeon_post_start_map"); err != nil || !sent {
 		t.Fatalf("dungeon party frame sent=%t err=%v", sent, err)
@@ -217,6 +219,8 @@ func TestDungeonContextPartyFrameCarriesMemberIdentityBlockForClientChannel(t *t
 func TestTownContextPartyFrameKeepsSameChannelSlotRows(t *testing.T) {
 	const channelID = byte(10)
 	service, leader, member, state := newPartyFrameSessions(t, channelID, channelID)
+	storeRuntimePartyState(leader, state)
+	storeRuntimePartyState(member, state)
 
 	if sent, err := service.sendCurrentPartyFrameProjection(leader, state, "test_town_party_frame"); err != nil || !sent {
 		t.Fatalf("town party frame sent=%t err=%v", sent, err)

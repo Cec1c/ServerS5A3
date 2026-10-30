@@ -8,6 +8,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/party"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -18,9 +19,7 @@ func TestTownEnterSelectOp15SendsCurrentOp27AfterAckAndFatigue(t *testing.T) {
 	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.handleTownSetUserPosition(session, buildTownPositionRequest(884, 248, 6, 100)); err != nil {
-		t.Fatal(err)
-	}
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
 	connection := session.conn.(*bufferConn)
 	connection.write.Reset()
 
@@ -200,13 +199,12 @@ func TestTownTransportSceneFinalizerOp15DoesNotOpenDungeonSelector(t *testing.T)
 	connection := session.conn.(*bufferConn)
 	connection.write.Reset()
 
-	if err := service.sendEnterSelectDungeonState(session, "test_town_transport_scene_finalizer", false, true); err != nil {
-		t.Fatal(err)
-	}
-	if connection.write.Len() != 0 || session.townTransportEnterSelectPending ||
+	sendTownEnterSelectUpper(t, service, session)
+	if connection.write.Len() != 0 || session.townTransportEnterSelectPending || session.townEnterSelectDeferred != nil ||
 		session.enterSelectDungeonSent || session.enterSelectDungeonContextSent {
-		t.Fatalf("town transport finalizer wrote=%x pending=%t selector_sent=%t context_sent=%t",
+		t.Fatalf("town transport finalizer wrote=%x pending=%t deferred=%+v selector_sent=%t context_sent=%t",
 			connection.write.Bytes(), session.townTransportEnterSelectPending,
+			session.townEnterSelectDeferred,
 			session.enterSelectDungeonSent, session.enterSelectDungeonContextSent)
 	}
 }
@@ -236,40 +234,373 @@ func TestTownEnterSelectOp15DoesNotSendOp27WithoutTownLocationOwner(t *testing.T
 	}
 }
 
-func TestTownEnterSelectOp15DoesNotSendOp27WithoutCurrentOp35Position(t *testing.T) {
+func TestTownEnterSelectOp15BeforeCurrentOp35PositionDefersThenReplies(t *testing.T) {
 	service, session, _ := newTownMoveTest(t)
+	session.characterGeneration = 1
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
+		t.Fatal(err)
+	}
+	if session.townPositionSnapshot.CharacterID != session.selectedCharacterID || session.townPositionSnapshot.PositionValid || session.townSceneGeneration == 0 {
+		t.Fatalf("fixture position state=%+v scene_generation=%d, want owned but not reported", session.townPositionSnapshot, session.townSceneGeneration)
+	}
+	connection := session.conn.(*bufferConn)
+	connection.write.Reset()
+
+	sendTownEnterSelectUpper(t, service, session)
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred == nil ||
+		session.enterSelectDungeonSent || session.enterSelectDungeonAckSent || session.enterSelectDungeonContextSent {
+		t.Fatalf("early op15 wrote=%x deferred=%+v sent=%t ack=%t context=%t",
+			connection.write.Bytes(), session.townEnterSelectDeferred,
+			session.enterSelectDungeonSent, session.enterSelectDungeonAckSent, session.enterSelectDungeonContextSent)
+	}
+
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	ack, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+	if ack.Header.Classification != dnfproto.DefaultChannelClassification ||
+		ack.Header.MsgID != uint16(dnfenum.CmdPacketEnterSelectDungeon) ||
+		!bytes.Equal(ack.Body, []byte{1, 1, 0}) {
+		t.Fatalf("deferred op15 ack header=%+v body=%x", ack.Header, ack.Body)
+	}
+	fatigue, rest := splitGameServerUpperPacket(t, rest)
+	if fatigue.Header.MsgID != currentFatigueMsgID {
+		t.Fatalf("deferred op15 fatigue header=%+v", fatigue.Header)
+	}
+	contextPacket, trailing := splitGameServerUpperPacket(t, rest)
+	if contextPacket.Header.Classification != 0 || contextPacket.Header.MsgID != currentDungeonContextMsgID || len(trailing) != 0 {
+		t.Fatalf("deferred op15 context=%+v trailing=%x", contextPacket.Header, trailing)
+	}
+	if session.townEnterSelectDeferred != nil || !session.enterSelectDungeonSent ||
+		!session.enterSelectDungeonAckSent || !session.enterSelectDungeonContextSent || !session.townSelectorOriginBound {
+		t.Fatalf("deferred state=%+v sent=%t ack=%t context=%t origin=%t",
+			session.townEnterSelectDeferred, session.enterSelectDungeonSent,
+			session.enterSelectDungeonAckSent, session.enterSelectDungeonContextSent, session.townSelectorOriginBound)
+	}
+
+	connection.write.Reset()
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(885, 249, 6, 100))
+	if connection.write.Len() != 0 {
+		t.Fatalf("later op35 replayed the already-delivered selector request: %x", connection.write.Bytes())
+	}
+}
+
+func sendTownEnterSelectUpper(t *testing.T, service *Service, session *gameSession) {
+	t.Helper()
+	frame, err := dnfproto.BuildChannelPacket(uint16(dnfenum.UpperMsgSelectStart), nil, 0, dnfproto.DefaultChannelClassification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.handleGameUpper(session, frame); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func sendTownSetUserPositionUpper(t *testing.T, service *Service, session *gameSession, body []byte) {
+	t.Helper()
+	frame, err := dnfproto.BuildChannelPacket(uint16(dnfenum.CmdPacketSetUserPosition), body, 0, dnfproto.DefaultChannelClassification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.handleGameUpper(session, frame); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func deferTownEnterSelectBeforePosition(t *testing.T) (*Service, *gameSession, *bufferConn) {
+	t.Helper()
+	service, session, _ := newTownMoveTest(t)
+	session.characterGeneration = 1
 	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
 		t.Fatal(err)
 	}
 	connection := session.conn.(*bufferConn)
 	connection.write.Reset()
+	sendTownEnterSelectUpper(t, service, session)
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred == nil {
+		t.Fatalf("precondition did not defer: wrote=%x deferred=%+v", connection.write.Bytes(), session.townEnterSelectDeferred)
+	}
+	return service, session, connection
+}
 
-	if err := service.sendEnterSelectDungeonState(session, "test_missing_position_op15", false, true); err != nil {
+func TestTownEnterSelectDeferredIsFencedByCharacterGeneration(t *testing.T) {
+	service, session, connection := deferTownEnterSelectBeforePosition(t)
+	session.characterGeneration++
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred != nil || session.enterSelectDungeonSent {
+		t.Fatalf("generation change replayed stale op15: wrote=%x deferred=%+v sent=%t",
+			connection.write.Bytes(), session.townEnterSelectDeferred, session.enterSelectDungeonSent)
+	}
+}
+
+func TestTownEnterSelectDeferredIsFencedByTownSceneGeneration(t *testing.T) {
+	service, session, connection := deferTownEnterSelectBeforePosition(t)
+	session.townMu.Lock()
+	session.townSceneGeneration++
+	session.townMu.Unlock()
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred != nil || session.enterSelectDungeonSent {
+		t.Fatalf("scene generation change replayed stale op15: wrote=%x deferred=%+v sent=%t",
+			connection.write.Bytes(), session.townEnterSelectDeferred, session.enterSelectDungeonSent)
+	}
+}
+
+func TestTownEnterSelectDeferredIsClearedByTownAreaReset(t *testing.T) {
+	service, session, connection := deferTownEnterSelectBeforePosition(t)
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
 		t.Fatal(err)
 	}
-	_, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
-	_, trailing := splitGameServerUpperPacket(t, rest)
-	if len(trailing) != 0 || session.enterSelectDungeonContextSent || session.townSelectorOriginBound {
-		t.Fatalf(
-			"missing-position op15 emitted trailing=%x context_sent=%t origin_bound=%t",
-			trailing,
-			session.enterSelectDungeonContextSent,
-			session.townSelectorOriginBound,
-		)
+	session.townMu.Lock()
+	deferred := session.townEnterSelectDeferred
+	session.townMu.Unlock()
+	if deferred != nil {
+		t.Fatalf("same-character/same-area reset retained deferred op15: %+v", deferred)
+	}
+	connection.write.Reset()
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	if connection.write.Len() != 0 || session.enterSelectDungeonSent {
+		t.Fatalf("town area reset replayed stale op15: wrote=%x sent=%t", connection.write.Bytes(), session.enterSelectDungeonSent)
+	}
+}
+
+func TestTownEnterSelectDeferredIsClearedByReturnSceneReset(t *testing.T) {
+	service, session, connection := deferTownEnterSelectBeforePosition(t)
+	resetDungeonEntrySceneGates(session)
+	session.townMu.Lock()
+	setCurrentTownPositionSceneLocked(session, session.selectedCharacterID, 38, 0)
+	session.townSceneReadyCharacterID = session.selectedCharacterID
+	session.townMu.Unlock()
+	connection.write.Reset()
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred != nil || session.enterSelectDungeonSent {
+		t.Fatalf("same town/area return scene reused stale op15: wrote=%x deferred=%+v sent=%t",
+			connection.write.Bytes(), session.townEnterSelectDeferred, session.enterSelectDungeonSent)
+	}
+}
+
+func TestTownEnterSelectDeferredIsClearedByCharacterBinding(t *testing.T) {
+	service, session, _ := deferTownEnterSelectBeforePosition(t)
+	beforeGeneration := session.townSceneGeneration
+	service.bindGameSessionCharacter(session, session.selectedCharacterID)
+	session.townMu.Lock()
+	deferred := session.townEnterSelectDeferred
+	afterGeneration := session.townSceneGeneration
+	session.townMu.Unlock()
+	if deferred != nil || afterGeneration <= beforeGeneration {
+		t.Fatalf("character bind retained deferred op15: deferred=%+v scene_generation=%d before=%d",
+			deferred, afterGeneration, beforeGeneration)
+	}
+}
+
+func TestTownEnterSelectDeferredDoesNotReplayAcrossCharacterABARebind(t *testing.T) {
+	service, session, _ := newTownMoveTest(t)
+	session.characterGeneration = 1
+	service.bindGameSessionCharacter(session, session.selectedCharacterID)
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
+		t.Fatal(err)
+	}
+	connection := session.conn.(*bufferConn)
+	connection.write.Reset()
+	sendTownEnterSelectUpper(t, service, session)
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred == nil {
+		t.Fatalf("precondition did not defer: wrote=%x deferred=%+v", connection.write.Bytes(), session.townEnterSelectDeferred)
+	}
+
+	originalCharacterID := session.selectedCharacterID
+	originalGeneration := session.characterGeneration
+	service.bindGameSessionCharacter(session, 28)
+	service.bindGameSessionCharacter(session, originalCharacterID)
+	if session.townEnterSelectDeferred != nil || session.characterGeneration == originalGeneration ||
+		session.selectedCharacterID != originalCharacterID {
+		t.Fatalf("A-B-A rebind retained stale op15: deferred=%+v generation=%d original=%d selected=%d original_character=%d",
+			session.townEnterSelectDeferred, session.characterGeneration, originalGeneration,
+			session.selectedCharacterID, originalCharacterID)
+	}
+
+	connection.write.Reset()
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	if connection.write.Len() != 0 || session.enterSelectDungeonSent {
+		t.Fatalf("A-B-A rebind replayed stale op15 after real op35: wrote=%x sent=%t",
+			connection.write.Bytes(), session.enterSelectDungeonSent)
+	}
+}
+
+func TestTownEnterSelectDeferredExpiresBeforeOp35(t *testing.T) {
+	service, session, connection := deferTownEnterSelectBeforePosition(t)
+	session.townMu.Lock()
+	session.townEnterSelectDeferred.DeferredAt = time.Now().Add(-currentTownEnterSelectDeferredLifetime - time.Second)
+	session.townMu.Unlock()
+	sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred != nil || session.enterSelectDungeonSent {
+		t.Fatalf("expired deferred op15 replayed: wrote=%x deferred=%+v sent=%t",
+			connection.write.Bytes(), session.townEnterSelectDeferred, session.enterSelectDungeonSent)
+	}
+}
+
+func deferTownEnterSelectWithParty(t *testing.T, state alignedcmd.PartyState) (*Service, *gameSession, *bufferConn) {
+	t.Helper()
+	service, session, _ := newTownMoveTest(t)
+	session.characterGeneration = 1
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
+		t.Fatal(err)
+	}
+	storeRuntimePartyState(session, state)
+	connection := session.conn.(*bufferConn)
+	connection.write.Reset()
+	sendTownEnterSelectUpper(t, service, session)
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred == nil {
+		t.Fatalf("party precondition did not defer: wrote=%x deferred=%+v", connection.write.Bytes(), session.townEnterSelectDeferred)
+	}
+	return service, session, connection
+}
+
+func TestTownEnterSelectDeferredRevalidatesPartyLeaderAndMembership(t *testing.T) {
+	base := alignedcmd.PartyState{
+		PartyID: 29, UserID: 29, MaxMembers: 4,
+		Members: []alignedcmd.PartyMemberState{{UserID: 29}, {UserID: 17}},
+	}
+	for _, tc := range []struct {
+		name  string
+		state alignedcmd.PartyState
+	}{
+		{name: "leader_changed", state: alignedcmd.PartyState{PartyID: 29, UserID: 17, MaxMembers: 4, Members: []alignedcmd.PartyMemberState{{UserID: 29}, {UserID: 17}}}},
+		{name: "membership_changed", state: alignedcmd.PartyState{PartyID: 29, UserID: 29, MaxMembers: 4, Members: []alignedcmd.PartyMemberState{{UserID: 29}, {UserID: 18}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, session, connection := deferTownEnterSelectWithParty(t, base)
+			storeRuntimePartyState(session, tc.state)
+			sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+			if connection.write.Len() != 0 || session.townEnterSelectDeferred != nil || session.enterSelectDungeonSent {
+				t.Fatalf("party change replayed stale op15: wrote=%x deferred=%+v sent=%t",
+					connection.write.Bytes(), session.townEnterSelectDeferred, session.enterSelectDungeonSent)
+			}
+		})
+	}
+}
+
+func deferTownEnterSelectWithManagedParty(t *testing.T) (
+	*Service,
+	*gameSession,
+	*bufferConn,
+	uint64,
+	uint64,
+) {
+	t.Helper()
+	service, session, _ := newTownMoveTest(t)
+	session.characterGeneration = 1
+	service.bindGameSessionCharacter(session, session.selectedCharacterID)
+	identity, bound := service.boundGameSessionCharacterSnapshot(session)
+	if !bound {
+		t.Fatal("session was not bound to a character generation")
+	}
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := service.runtimePartyManagerForService()
+	if manager == nil {
+		t.Fatal("runtime party manager is unavailable")
+	}
+	created := manager.Create(party.RuntimePartyMember{
+		UserID:            identity.character,
+		SessionGeneration: identity.generation,
+		State:             alignedcmd.PartyMemberState{UserID: identity.character, UserState: 1},
+	}, alignedcmd.PartyState{NameBytes: []byte("selector-party"), MaxMembers: 4, UserState: 1})
+	if !created.OK {
+		t.Fatalf("create managed party: %+v", created)
+	}
+	const memberID uint16 = 17
+	memberGeneration := identity.generation + 100
+	joined := manager.Join(created.Party.ID, party.RuntimePartyMember{
+		UserID:            memberID,
+		SessionGeneration: memberGeneration,
+		State:             alignedcmd.PartyMemberState{UserID: memberID, UserState: 1},
+	})
+	if !joined.OK {
+		t.Fatalf("join managed party: %+v", joined)
+	}
+
+	connection := session.conn.(*bufferConn)
+	connection.write.Reset()
+	sendTownEnterSelectUpper(t, service, session)
+	if connection.write.Len() != 0 || session.townEnterSelectDeferred == nil {
+		t.Fatalf("managed-party precondition did not defer: wrote=%x deferred=%+v",
+			connection.write.Bytes(), session.townEnterSelectDeferred)
+	}
+	return service, session, connection, identity.generation, memberGeneration
+}
+
+func TestTownEnterSelectDeferredRevalidatesManagedPartyLeaderAndMembership(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*party.RuntimePartyManager, uint16, uint64, uint64) bool
+	}{
+		{
+			name: "leader_changed",
+			mutate: func(manager *party.RuntimePartyManager, leaderID uint16, leaderGeneration, memberGeneration uint64) bool {
+				result := manager.TransferLeader(leaderID, leaderGeneration, 17, memberGeneration)
+				return result.OK
+			},
+		},
+		{
+			name: "membership_changed",
+			mutate: func(manager *party.RuntimePartyManager, _ uint16, _, memberGeneration uint64) bool {
+				result := manager.Leave(17, memberGeneration)
+				return result.OK
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, session, connection, leaderGeneration, memberGeneration := deferTownEnterSelectWithManagedParty(t)
+			if !tc.mutate(service.runtimePartyManagerForService(), session.selectedCharacterID, leaderGeneration, memberGeneration) {
+				t.Fatal("failed to mutate the authoritative runtime party")
+			}
+			sendTownSetUserPositionUpper(t, service, session, buildTownPositionRequest(884, 248, 6, 100))
+			if connection.write.Len() != 0 || session.townEnterSelectDeferred != nil || session.enterSelectDungeonSent {
+				t.Fatalf("managed-party change replayed stale op15: wrote=%x deferred=%+v sent=%t",
+					connection.write.Bytes(), session.townEnterSelectDeferred, session.enterSelectDungeonSent)
+			}
+		})
+	}
+}
+
+func TestTownEnterSelectExistingAckKeepsOriginalReply(t *testing.T) {
+	service, session, _ := newTownMoveTest(t)
+	session.characterGeneration = 1
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
+		t.Fatal(err)
+	}
+	connection := session.conn.(*bufferConn)
+	connection.write.Reset()
+	session.enterSelectDungeonAckSent = true
+	sendTownEnterSelectUpper(t, service, session)
+	ack, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+	if ack.Header.MsgID != uint16(dnfenum.CmdPacketEnterSelectDungeon) || ack.Header.Classification != dnfproto.DefaultChannelClassification ||
+		!bytes.Equal(ack.Body, []byte{1, 1, 0}) {
+		t.Fatalf("existing-ACK duplicate was swallowed: header=%+v body=%x", ack.Header, ack.Body)
+	}
+	fatigue, trailing := splitGameServerUpperPacket(t, rest)
+	if fatigue.Header.MsgID != currentFatigueMsgID || len(trailing) != 0 {
+		t.Fatalf("existing-ACK fatigue header=%+v trailing=%x", fatigue.Header, trailing)
+	}
+	if session.townEnterSelectDeferred != nil {
+		t.Fatalf("existing ACK was converted into a deferred request: %+v", session.townEnterSelectDeferred)
 	}
 }
 
 func TestTownEnterSelectOp15DoesNotSendOp27WithActiveDungeonRuntime(t *testing.T) {
 	service, session, _ := newTownMoveTest(t)
-	service.markCurrentTownSceneReady(session)
-	session.dungeon.runtime = &runtimeDungeonState{}
-	if err := service.sendEnterSelectDungeonState(session, "test_active_runtime_op15", false, true); err != nil {
+	session.characterGeneration = 1
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
 		t.Fatal(err)
 	}
-	_, rest := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
+	connection := session.conn.(*bufferConn)
+	connection.write.Reset()
+	session.dungeon.runtime = &runtimeDungeonState{}
+	sendTownEnterSelectUpper(t, service, session)
+	_, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	_, trailing := splitGameServerUpperPacket(t, rest)
-	if len(trailing) != 0 || session.enterSelectDungeonContextSent {
-		t.Fatalf("active-runtime op15 emitted trailing=%x context_sent=%t", trailing, session.enterSelectDungeonContextSent)
+	if len(trailing) != 0 || session.enterSelectDungeonContextSent || session.townEnterSelectDeferred != nil {
+		t.Fatalf("active-runtime op15 emitted trailing=%x context_sent=%t deferred=%+v",
+			trailing, session.enterSelectDungeonContextSent, session.townEnterSelectDeferred)
 	}
 }
 

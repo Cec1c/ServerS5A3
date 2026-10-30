@@ -20,7 +20,7 @@ import (
 const currentLotteryPendingTTL = 30 * time.Second
 
 func currentLotterySupportedType(stackableType string) bool {
-	return stackableType == "[random upgradable legacy]" || stackableType == "[upgradable legacy]"
+	return stackableType == "[random upgradable legacy]" || stackableType == "[upgradable legacy]" || stackableType == "[monster tarot card]"
 }
 
 func decodeCurrentLotteryRequest(body []byte) (bool, int16, error) {
@@ -83,7 +83,7 @@ func (s *Service) handleCurrentLotteryItem(session *gameSession, body []byte) er
 	}
 	doubleReward := false
 	now := time.Now().UTC()
-	if wantsDouble {
+	if wantsDouble && definition.StackableType != "[monster tarot card]" {
 		_, account, character, premiumErr := s.currentPremiumServiceRecords(ctx, session)
 		doubleReward = premiumErr == nil &&
 			premium.Active(account, premium.DevilSlotType(premium.DevilSlotDoubleJar), now) &&
@@ -198,6 +198,13 @@ func (s *Service) handleCurrentLotteryOverflowConfirm(session *gameSession, body
 			return err
 		}
 	}
+	if result.FateCurrencyChanged {
+		// CMD27 first presents the committed grant delta. Replace the account
+		// container count with the authoritative balance after that addition.
+		if err := s.refreshCurrentFateSnapshot(session); err != nil {
+			return err
+		}
+	}
 	if doubleReward {
 		if err := s.sendCurrentPremiumServiceState(session, "lottery_double_reward_after_commit"); err != nil {
 			return err
@@ -221,6 +228,19 @@ func (s *Service) buildCurrentLotteryResultBody(
 	catalog *pvfDungeonDropCatalog,
 	result currentBoosterCommitResult,
 ) ([]byte, error) {
+	if result.FateCurrencyChanged && s.options.currentClientVersion == "official-24.9" {
+		// This is the same actual account-list slot used by the Fate snapshot,
+		// not a main-inventory placeholder. CMD27 derives list44 from item ID.
+		// Its +0x4C item method and result UI both consume the granted delta,
+		// including zero when the weekly cap prevented any new acquisition.
+		entry := currentFateItemRow(result.FateGranted)
+		var writer packetWriter
+		writer.writeByte(1)
+		writer.writeUint16(uint16(result.SourceSlot))
+		writer.writeBytes(entry.data[:])
+		writer.writeUint32(0)
+		return writer.bytes(), nil
+	}
 	if result.GoldAmount > 0 && s.options.currentClientVersion == "official-24.9" {
 		// Native CMD27 reads source u16, a full raw77 reward row, then
 		// u32 currency amount. A zero-template/zero-count row selects the
@@ -248,6 +268,28 @@ func (s *Service) buildCurrentLotteryResultBody(
 	}
 	rewards := append([]currentBoosterGrantedReward(nil), result.Rewards...)
 	sort.Slice(rewards, func(i, j int) bool { return rewards[i].ItemID < rewards[j].ItemID })
+	if s.options.currentClientVersion == "official-24.9" {
+		display, delta, displayStack, selected := selectCurrentLotteryRewardDelta(rewards, result.RewardSlotDeltas, &inventory)
+		if !selected {
+			return s.currentLotteryErrorBody(), nil
+		}
+		definition, err := catalog.ResolveItem(display.ItemID)
+		if err != nil {
+			return nil, err
+		}
+		entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, delta.SlotIndex, displayStack)
+		if definition.Kind == dungeonDropItemStackable {
+			// The native reader ADDs this value. Use one real slot touched by this
+			// grant and that slot's exact delta, never an aggregate across split slots.
+			entry.patchCore(delta.SlotIndex, display.ItemID, delta.Delta)
+		}
+		var writer packetWriter
+		writer.writeByte(1)
+		writer.writeUint16(uint16(result.SourceSlot))
+		writer.writeBytes(entry.data[:])
+		writer.writeUint32(0)
+		return writer.bytes(), nil
+	}
 	display := rewards[0]
 	displaySlot := int16(-1)
 	displayStack := dnfrepo.ItemStack{}
@@ -277,17 +319,6 @@ func (s *Service) buildCurrentLotteryResultBody(
 			durability = uint16(value)
 		}
 	}
-	if s.options.currentClientVersion == "official-24.9" {
-		entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, displaySlot, displayStack)
-		var writer packetWriter
-		writer.writeByte(1)
-		writer.writeUint16(uint16(result.SourceSlot))
-		writer.writeBytes(entry.data[:])
-		// Native fallback for currency-only rewards. This pool contains real
-		// nonzero item identifiers, so no currency fallback is being granted.
-		writer.writeUint32(0)
-		return writer.bytes(), nil
-	}
 	var writer packetWriter
 	writer.writeByte(1)
 	writer.writeUint16(uint16(result.SourceSlot))
@@ -305,4 +336,41 @@ func (s *Service) buildCurrentLotteryResultBody(
 	}
 	writer.writeBytes([]byte{0, 0, 0})
 	return writer.bytes(), nil
+}
+
+// selectCurrentLotteryRewardDelta chooses the one CMD27 row that can be shown.
+// When the grant split one reward across slots, the row corresponds to the
+// largest actual slot delta (lowest slot on a tie). That is deliberately a real
+// partial grant rather than a fabricated aggregate ADD to an arbitrary slot;
+// the subsequent op14 rows still publish every touched slot's absolute total.
+func selectCurrentLotteryRewardDelta(
+	rewards []currentBoosterGrantedReward,
+	deltas []currentBoosterRewardSlotDelta,
+	inventory *dnfrepo.InventoryRecord,
+) (currentBoosterGrantedReward, currentBoosterRewardSlotDelta, dnfrepo.ItemStack, bool) {
+	if inventory == nil {
+		return currentBoosterGrantedReward{}, currentBoosterRewardSlotDelta{}, dnfrepo.ItemStack{}, false
+	}
+	for _, reward := range rewards {
+		var selected currentBoosterRewardSlotDelta
+		var selectedStack dnfrepo.ItemStack
+		found := false
+		for _, delta := range deltas {
+			if delta.RewardItemID != reward.ItemID || delta.ListType != dnfrepo.MainInventoryListType || delta.Delta == 0 {
+				continue
+			}
+			key := currentCeraShopInventorySlotKey(delta.ListType, delta.SlotIndex)
+			stack, present := inventory.Slots[key]
+			if !present || stack.ItemID != int64(delta.RewardItemID) || stack.Count < int64(delta.Delta) {
+				continue
+			}
+			if !found || delta.Delta > selected.Delta || (delta.Delta == selected.Delta && delta.SlotIndex < selected.SlotIndex) {
+				selected, selectedStack, found = delta, stack, true
+			}
+		}
+		if found {
+			return reward, selected, selectedStack, true
+		}
+	}
+	return currentBoosterGrantedReward{}, currentBoosterRewardSlotDelta{}, dnfrepo.ItemStack{}, false
 }

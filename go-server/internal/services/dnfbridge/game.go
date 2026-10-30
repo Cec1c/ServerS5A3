@@ -21,14 +21,15 @@ import (
 )
 
 type gameSession struct {
+	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending
-	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
 	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
-	pvpClientGameType                   uint32                                // 本次客户端选择的匹配类型，原子读取与更新。
 	fiendWarPendingMove                 *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
+	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
 	fiendWarProjection                  currentFiendWarProjection
+	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
@@ -72,9 +73,13 @@ type gameSession struct {
 	residentChannel       channelcatalog.Channel
 	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
 	packetSeq             uint64
+	goldDiagnosticCount   atomic.Uint32
 	sequence              uint32
 	upperSeq              uint16
 	ctx                   context.Context
+
+	goldDiagnosticSnapshot atomic.Pointer[currentGoldDiagnosticSnapshot]
+
 	// wireMu owns the complete per-session wire boundary: sequence
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
@@ -193,6 +198,15 @@ type gameSession struct {
 	selectorAdventureInfoPending         bool
 	selectorAdventureInfoSlot            uint16
 	enterSelectDungeonSent               bool
+	// townEnterSelectDeferred records a client op15 that arrived after the
+	// current town area was committed but before that scene's first op35.
+	// It is protected by townMu and replayed from the same event loop when the
+	// matching position report makes the selector context sendable.
+	townEnterSelectDeferred *currentTownEnterSelectDeferredRequest
+	// townSceneGeneration changes on every town-scene reset or return. It
+	// fences a deferred op15 from a later scene even when the same character,
+	// town and area are reused. Protected by townMu.
+	townSceneGeneration uint64
 	// tournamentRewardStateRequested 记录"本会话这一轮锦标赛里，客户端已经发来过体长为 0 的
 	// 457（= 翻牌选奖界面已打开、在等选奖）"。它只在 session.dungeon.mu 下读写，只在
 	// handleCurrentTournamentRewardCommand 的空 body 分支置位。3s 兜底自动选奖（source=timer）

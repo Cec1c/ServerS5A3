@@ -308,7 +308,7 @@ func progressionTestSource() progressionMemorySource {
 400 -1
 500 -1
 [gold reward table]
-10 -1
+10
 [green level penalty]
 80
 [grey level penalty]

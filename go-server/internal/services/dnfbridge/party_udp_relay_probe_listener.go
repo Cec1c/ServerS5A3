@@ -921,7 +921,7 @@ func (r *currentPartyUDPRelay) forwardToSeedEndpoint(
 		}
 		return false
 	}
-	written, err := opposite.conn.WriteToUDP(payload, target)
+	written, err := r.writeCurrentPairDatagram(leg, opposite, opposite.conn, payload, target)
 	if err != nil || written != len(payload) {
 		failed, first := opposite.noteSeedForward(0, true)
 		if first {
@@ -1053,8 +1053,8 @@ type partyUDPRelayCandidate struct {
 //
 //	seed_probe               —— 该角色**在组队前/本场自己发到中继端口**被我们观测到的端点
 //	                            （最可信：还要求载荷解析出的角色 id 对得上、源 IP == 该角色 TCP 观测 IP）
-//	observed_probe_endpoint  —— 探针监听看到过的**任意**源端点里、除本条数据报发送者之外的那些
-//	                            （不需要角色 id；现场 1 字节探针只能走这条路，见"无归属观测端点表"）
+//	observed_probe_endpoint  —— 与目标成员会话IPv4一致、且不是本条数据报发送者的观测端点
+//	                            （不需要角色 id；保留同IP不同NAT端口的1字节探针引导）
 //	seed_memo_fresh          —— 该角色自己发过的端点，且新鲜（≤ MEMO_TTL_SECONDS）
 //	memo_stale               —— 同上但已陈旧（仍发一份，成本≈0，但绝不单独依赖它）
 //	advertised_port          —— 该角色 CS op2 自报端口 + 游戏 TCP 观测 IP（加速器下通常不可达）
@@ -1062,8 +1062,7 @@ type partyUDPRelayCandidate struct {
 // `sender` 是**本条数据报的源端点**：`observed_probe_endpoint` 候选必须排除它，
 // 否则中继会把包原样投回发送者自己（同机双开时两端同一个公网 IP、只有端口不同）。
 //
-// 除 `observed_probe_endpoint` 外，所有候选的 IP 都取自该角色游戏 TCP 会话观测到的 IPv4
-// （binding.address）；`observed_probe_endpoint` 取的是我们内核亲自观测到的源 IPv4。
+// 所有候选的 IP 都必须等于该角色游戏 TCP 会话观测到的 IPv4（binding.address）。
 func (r *currentPartyUDPRelay) unlearnedCandidateTargets(
 	skipMemo bool,
 	opposite *currentPartyUDPRelayLeg,
@@ -1104,6 +1103,11 @@ func (r *currentPartyUDPRelay) unlearnedCandidateTargets(
 	// 无归属观测端点（默认档；`off` 时 entries 返回 nil ⇒ 与旧行为一致）。
 	// 每条表项都从"它当初探测命中的那个监听口"发出（socket 已释放时退化回腿口并记因）。
 	for _, entry := range r.observedProbeEndpointEntries(sender) {
+		// Observation alone does not associate an arbitrary host with this
+		// member. Keep the same authenticated IPv4 boundary as normal reads.
+		if entry.address != address {
+			continue
+		}
 		via, viaPort, fallbackReason := r.observedProbeEndpointDeliverySocket(entry)
 		target := currentPartyUDPRelayObservedTarget(entry)
 		add("observed_probe_endpoint", target, true, via, viaPort, fallbackReason)
@@ -1296,11 +1300,11 @@ func (r *currentPartyUDPRelay) fanOutUnlearnedDatagram(
 			viaSource = "probe_listener_socket"
 			fallbackReason = ""
 		}
-		written, err := source.WriteToUDP(payload, candidate.target)
+		written, err := r.writeCurrentPairDatagram(leg, opposite, source, payload, candidate.target, candidate.kind == "observed_probe_endpoint")
 		if (err != nil || written != len(payload)) && candidate.via != nil {
 			// 探针 socket 在"取出之后、写出之前"被 releasePort 关掉（显式关闭）：改用腿口补发。
 			viaErr := err
-			written, err = conn.WriteToUDP(payload, candidate.target)
+			written, err = r.writeCurrentPairDatagram(leg, opposite, conn, payload, candidate.target, candidate.kind == "observed_probe_endpoint")
 			if err == nil && written == len(payload) {
 				sourcePort = int(opposite.port)
 				viaSource = "leg_socket"

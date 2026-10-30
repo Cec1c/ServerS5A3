@@ -50,6 +50,9 @@ func TestOwnerMutateRejectsAccountMismatchBeforeProjection(t *testing.T) {
 	ctx := context.Background()
 	repositories := dnfrepomemory.NewMemoryGroup()
 	seedNPCShopOwner(t, ctx, repositories)
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "dnf:2"}); err != nil {
+		t.Fatal(err)
+	}
 	owner, err := NewOwner(repositories)
 	if err != nil {
 		t.Fatalf("NewOwner error = %v", err)
@@ -97,6 +100,17 @@ func TestOwnerMutateRollsBackAllAssetsWhenProjectionFails(t *testing.T) {
 }
 
 func seedNPCShopOwner(t *testing.T, ctx context.Context, repositories dnfrepo.Group) {
+	t.Helper()
+	seedNPCShopOwnerWithoutAccount(t, ctx, repositories)
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{
+		AccountID: "dnf:1",
+		Metadata:  map[string]string{},
+	}); err != nil {
+		t.Fatalf("save account: %v", err)
+	}
+}
+
+func seedNPCShopOwnerWithoutAccount(t *testing.T, ctx context.Context, repositories dnfrepo.Group) {
 	t.Helper()
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
 		CharacterID: "77",

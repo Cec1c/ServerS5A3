@@ -169,6 +169,7 @@ func (s *Service) flushNativeResultDeliveryLocked(p *gameSession, reason string)
 	}
 	for _, inner := range b.upper {
 		s.logCurrentSharedInventoryPacketWritten(p, inner)
+		s.logGoldDiagnosticPacketResult(p, inner, false)
 	}
 	s.logGameEvent(p, "原生分解连续回包已写出", "协议", b.key.opcode, "请求数", b.requests, "报文数", b.frames, "字节数", len(b.wire), "准备毫秒", time.Since(b.started).Milliseconds(), "释放原因", reason)
 	return nil

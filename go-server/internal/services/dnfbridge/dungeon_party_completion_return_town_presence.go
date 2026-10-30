@@ -117,6 +117,7 @@ func (s *Service) publishCompletedDungeonReturnTownPresence(
 	}
 	clearCurrentTownSelectorOriginLocked(session)
 	if positionValid {
+		resetCurrentTownEnterSelectSceneLocked(session)
 		session.townSceneReadyCharacterID = characterID
 		session.townPositionSnapshot = currentTownPositionSnapshot{
 			CharacterID:   characterID,

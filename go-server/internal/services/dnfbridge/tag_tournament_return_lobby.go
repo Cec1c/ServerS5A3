@@ -153,6 +153,7 @@ func (s *Service) confirmCurrentTagTournamentRosterTownReturn(p *gameSession) er
 		position = origin
 	}
 	p.townMu.Lock()
+	resetCurrentTownEnterSelectSceneLocked(p)
 	p.townPositionSnapshot = position
 	p.townMu.Unlock()
 	return s.commitPendingDungeonReturnForSceneRequest(p, "帝国1467确认已发送的休息室回城")

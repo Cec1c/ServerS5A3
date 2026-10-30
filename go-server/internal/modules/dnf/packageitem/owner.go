@@ -18,16 +18,17 @@ import (
 )
 
 var (
-	ErrOwnerUnavailable             = errors.New("package owner unavailable")
-	ErrCharacterRequired            = errors.New("selected character id required")
-	ErrInventoryNotFound            = errors.New("inventory record not found")
-	ErrSlotNotFound                 = errors.New("package source slot not found")
-	ErrMaterialNotFound             = errors.New("package material slot not found")
-	ErrRewardMissing                = errors.New("package reward evidence is missing")
-	ErrMagicBoxResolverRequired     = errors.New("magic box requires runtime-PVF resolvers")
-	ErrInventoryTransactionRequired = errors.New("package mutation requires a character item transaction")
-	ErrMailboxTransactionRequired   = errors.New("package overflow requires a mailbox asset transaction")
-	ErrRewardInventoryFull          = errors.New("package reward target inventory is full")
+	ErrOwnerUnavailable                 = errors.New("package owner unavailable")
+	ErrCharacterRequired                = errors.New("selected character id required")
+	ErrInventoryNotFound                = errors.New("inventory record not found")
+	ErrSlotNotFound                     = errors.New("package source slot not found")
+	ErrMaterialNotFound                 = errors.New("package material slot not found")
+	ErrRewardMissing                    = errors.New("package reward evidence is missing")
+	ErrMagicBoxResolverRequired         = errors.New("magic box requires runtime-PVF resolvers")
+	ErrInventoryTransactionRequired     = errors.New("package mutation requires a character item transaction")
+	ErrMailboxTransactionRequired       = errors.New("package overflow requires a mailbox asset transaction")
+	ErrAccountLedgerTransactionRequired = errors.New("package mutation requires the account-first ledger mailbox transaction")
+	ErrRewardInventoryFull              = errors.New("package reward target inventory is full")
 )
 
 // MagicBoxResult 描述一次随机盒开启的写库结果；Success=false 仍映射为
@@ -133,9 +134,9 @@ func magicBoxContractRewards(
 // contract: resolve the pool and material requirement from the runtime PVF,
 // draw one weighted entry per group (DrawCount picks each), consume the box
 // and the per-open material, then grant the aggregated rewards into the main
-// inventory inside one character-item transaction. Only the single-open
-// count is owned here; batch opens and the Seria luck doubling are
-// intentionally not owned yet.
+// inventory inside one character-item transaction. Batch opens reuse the same
+// core; account-backed Seria/contract rewards select the account-first ledger
+// mailbox transaction before drawing, keeping Account reads and writes inside it.
 func (o *Owner) ApplyMagicBox(ctx context.Context, cmd MagicBoxCommand, boxResolver alignedcmd.MagicBoxResolver, rewardResolver alignedcmd.MagicBoxRewardItemResolver) (MagicBoxResult, error) {
 	base := MagicBoxResult{
 		ClientType:        cmd.RawListType,
@@ -153,23 +154,39 @@ func (o *Owner) ApplyMagicBox(ctx context.Context, cmd MagicBoxCommand, boxResol
 	}
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	base.CharacterID = characterID
-	if !o.inMailboxTransaction && o.mailboxAssets != nil {
+	if !o.inMailboxTransaction && (o.ledgerMailboxAssets != nil || o.accounts != nil || o.mailboxAssets != nil) {
 		var result MagicBoxResult
-		err := o.mailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(
-			_ dnfrepo.CharacterRepository,
-			inventory dnfrepo.InventoryRepository,
-			mailboxes dnfrepo.MailboxRepository,
-		) error {
-			txOwner := *o
-			txOwner.inventory = inventory
-			txOwner.mailbox = mailboxes
-			txOwner.inMailboxTransaction = true
-			var err error
-			result, err = txOwner.ApplyMagicBox(ctx, cmd, boxResolver, rewardResolver)
-			return err
-		})
-		if err != nil {
-			return MagicBoxResult{}, err
+		if o.ledgerMailboxAssets != nil && o.accounts != nil {
+			err := o.withAccountLedgerMailbox(ctx, characterID, cmd.AccountID, func(txOwner *Owner, ledgerAccountID string) error {
+				txCmd := cmd
+				txCmd.AccountID = ledgerAccountID
+				var applyErr error
+				result, applyErr = txOwner.ApplyMagicBox(ctx, txCmd, boxResolver, rewardResolver)
+				return applyErr
+			})
+			if err != nil {
+				return MagicBoxResult{}, err
+			}
+		} else if o.accounts != nil {
+			return MagicBoxResult{}, ErrAccountLedgerTransactionRequired
+		} else if o.mailboxAssets != nil {
+			err := o.mailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(
+				characters dnfrepo.CharacterRepository,
+				inventory dnfrepo.InventoryRepository,
+				mailboxes dnfrepo.MailboxRepository,
+			) error {
+				txOwner := *o
+				txOwner.characters = characters
+				txOwner.inventory = inventory
+				txOwner.mailbox = mailboxes
+				txOwner.inMailboxTransaction = true
+				var err error
+				result, err = txOwner.ApplyMagicBox(ctx, cmd, boxResolver, rewardResolver)
+				return err
+			})
+			if err != nil {
+				return MagicBoxResult{}, err
+			}
 		}
 		if result.CharacterID == "" {
 			result = base
@@ -222,23 +239,39 @@ func (o *Owner) ApplyMagicBoxExpand(ctx context.Context, cmd MagicBoxExpandComma
 	}
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	base.CharacterID = characterID
-	if !o.inMailboxTransaction && o.mailboxAssets != nil {
+	if !o.inMailboxTransaction && (o.ledgerMailboxAssets != nil || o.accounts != nil || o.mailboxAssets != nil) {
 		var result MagicBoxResult
-		err := o.mailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(
-			_ dnfrepo.CharacterRepository,
-			inventory dnfrepo.InventoryRepository,
-			mailboxes dnfrepo.MailboxRepository,
-		) error {
-			txOwner := *o
-			txOwner.inventory = inventory
-			txOwner.mailbox = mailboxes
-			txOwner.inMailboxTransaction = true
-			var err error
-			result, err = txOwner.ApplyMagicBoxExpand(ctx, cmd, boxResolver, rewardResolver)
-			return err
-		})
-		if err != nil {
-			return MagicBoxResult{}, err
+		if o.ledgerMailboxAssets != nil && o.accounts != nil {
+			err := o.withAccountLedgerMailbox(ctx, characterID, cmd.AccountID, func(txOwner *Owner, ledgerAccountID string) error {
+				txCmd := cmd
+				txCmd.AccountID = ledgerAccountID
+				var applyErr error
+				result, applyErr = txOwner.ApplyMagicBoxExpand(ctx, txCmd, boxResolver, rewardResolver)
+				return applyErr
+			})
+			if err != nil {
+				return MagicBoxResult{}, err
+			}
+		} else if o.accounts != nil {
+			return MagicBoxResult{}, ErrAccountLedgerTransactionRequired
+		} else if o.mailboxAssets != nil {
+			err := o.mailboxAssets.WithinMailboxAssets(ctx, characterID, characterID, func(
+				characters dnfrepo.CharacterRepository,
+				inventory dnfrepo.InventoryRepository,
+				mailboxes dnfrepo.MailboxRepository,
+			) error {
+				txOwner := *o
+				txOwner.characters = characters
+				txOwner.inventory = inventory
+				txOwner.mailbox = mailboxes
+				txOwner.inMailboxTransaction = true
+				var err error
+				result, err = txOwner.ApplyMagicBoxExpand(ctx, cmd, boxResolver, rewardResolver)
+				return err
+			})
+			if err != nil {
+				return MagicBoxResult{}, err
+			}
 		}
 		if result.CharacterID == "" {
 			result = base
@@ -275,6 +308,52 @@ func (o *Owner) ApplyMagicBoxExpand(ctx context.Context, cmd MagicBoxExpandComma
 		MaterialSlotIndex:   cmd.MaterialSlotIndex,
 	}
 	return o.applyMagicBoxInTransaction(ctx, base, single, int64(cmd.OpenCount), cmd.BoxItemID, cmd.MaterialItemID, cmd.AccountID, boxResolver, rewardResolver)
+}
+
+func (o *Owner) withAccountLedgerMailbox(
+	ctx context.Context,
+	characterID string,
+	accountHint string,
+	apply func(*Owner, string) error,
+) error {
+	if o == nil || o.ledgerMailboxAssets == nil || apply == nil {
+		return ErrAccountLedgerTransactionRequired
+	}
+	accountID := strings.TrimSpace(accountHint)
+	if accountID == "" {
+		if o.characters == nil {
+			return ErrAccountLedgerTransactionRequired
+		}
+		character, found, err := o.characters.Load(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) == "" {
+			return ErrAccountLedgerTransactionRequired
+		}
+		accountID = strings.TrimSpace(character.AccountID)
+	}
+	return o.ledgerMailboxAssets.WithinAccountCharacterLedgerMailboxAssets(
+		ctx,
+		accountID,
+		characterID,
+		func(
+			accounts dnfrepo.AccountRepository,
+			_ dnfrepo.AccountInventoryRepository,
+			characters dnfrepo.CharacterRepository,
+			inventory dnfrepo.InventoryRepository,
+			_ dnfrepo.EquipmentRepository,
+			mailboxes dnfrepo.MailboxRepository,
+		) error {
+			txOwner := *o
+			txOwner.accounts = accounts
+			txOwner.characters = characters
+			txOwner.inventory = inventory
+			txOwner.mailbox = mailboxes
+			txOwner.inMailboxTransaction = true
+			return apply(&txOwner, accountID)
+		},
+	)
 }
 
 // applyMagicBoxInTransaction 是单开/连开共用的事务内核心；opens 是请求的
@@ -395,7 +474,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 	doubleGranted := make(map[int64]int64)
 	displayGranted := make(map[int64]int64)
 	for open := int64(0); open < opens; open++ {
-		drawn := drawMagicBoxRewards(resolution, 1)
+		drawn := drawMagicBoxRewardsWithRoll(resolution, 1, o.drawRoll)
 		for itemID, count := range drawn {
 			granted[itemID] += count
 			displayGranted[itemID] += count
@@ -662,6 +741,14 @@ func magicBoxResultReward(item alignedcmd.MagicBoxRewardItem, count int64, slot 
 // 每组先算总权重，DrawCount 决定每轮每组抽几次，全部轮次聚合到同一张
 // item->count 表。
 func drawMagicBoxRewards(resolution alignedcmd.MagicBoxResolution, opens int64) map[int64]int64 {
+	return drawMagicBoxRewardsWithRoll(resolution, opens, nil)
+}
+
+func drawMagicBoxRewardsWithRoll(
+	resolution alignedcmd.MagicBoxResolution,
+	opens int64,
+	rollFn func(int64) int64,
+) map[int64]int64 {
 	granted := make(map[int64]int64)
 	if opens < 1 {
 		opens = 1
@@ -682,7 +769,15 @@ func drawMagicBoxRewards(resolution alignedcmd.MagicBoxResolution, opens int64) 
 		}
 		for open := int64(0); open < opens; open++ {
 			for draw := int64(0); draw < drawCount; draw++ {
-				roll := rand.Int63n(totalWeight)
+				roll := int64(0)
+				if rollFn != nil {
+					roll = rollFn(totalWeight)
+					if roll < 0 || roll >= totalWeight {
+						continue
+					}
+				} else {
+					roll = rand.Int63n(totalWeight)
+				}
 				cumulative := int64(0)
 				for _, entry := range group.Entries {
 					if entry.Weight <= 0 {
@@ -1052,11 +1147,14 @@ type PlanResult struct {
 // Owner 只负责礼包/随机箱的可靠边界预检，不在奖励包体闭合前提交资产变更。
 type Owner struct {
 	settings             dnfrepo.SettingsRepository
+	characters           dnfrepo.CharacterRepository
 	inventory            dnfrepo.InventoryRepository
 	items                dnfrepo.CharacterItemUnitOfWork
 	accounts             dnfrepo.AccountRepository
 	mailbox              dnfrepo.MailboxRepository
 	mailboxAssets        dnfrepo.MailboxAssetUnitOfWork
+	ledgerMailboxAssets  dnfrepo.AccountCharacterLedgerMailboxAssetUnitOfWork
+	drawRoll             func(int64) int64
 	inItemTransaction    bool
 	inMailboxTransaction bool
 }
@@ -1066,13 +1164,23 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 	if repos.Inventory == nil {
 		return nil, ErrOwnerUnavailable
 	}
+	var ledger dnfrepo.AccountCharacterLedgerMailboxAssetUnitOfWork
+	if repos.Account != nil {
+		if assetLedger, ok := repos.AccountAssets.(dnfrepo.AccountCharacterLedgerMailboxAssetUnitOfWork); ok {
+			ledger = assetLedger
+		} else if mailboxLedger, ok := repos.MailboxAssets.(dnfrepo.AccountCharacterLedgerMailboxAssetUnitOfWork); ok {
+			ledger = mailboxLedger
+		}
+	}
 	return &Owner{
-		settings:      repos.Settings,
-		inventory:     repos.Inventory,
-		items:         repos.CharacterItems,
-		accounts:      repos.Account,
-		mailbox:       repos.Mailbox,
-		mailboxAssets: repos.MailboxAssets,
+		settings:            repos.Settings,
+		characters:          repos.Character,
+		inventory:           repos.Inventory,
+		items:               repos.CharacterItems,
+		accounts:            repos.Account,
+		mailbox:             repos.Mailbox,
+		mailboxAssets:       repos.MailboxAssets,
+		ledgerMailboxAssets: ledger,
 	}, nil
 }
 

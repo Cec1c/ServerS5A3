@@ -73,6 +73,7 @@ func (s *Service) restoreCurrentSelectorReturnPresence(session *gameSession, own
 	}
 	tr := owner.transition
 	session.townMu.Lock()
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: owner.identity.character, TownID: tr.TownID, AreaID: tr.AreaID, PositionX: uint16(tr.PositionX), PositionY: uint16(tr.PositionY), MovementCode: tr.Direction, PositionValid: true}
 	session.townMu.Unlock()
 	// Reuse the typed actor/appearance/roster broadcaster. Final registration

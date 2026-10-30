@@ -772,7 +772,6 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		}
 		return cloneRuntimeRaidState(*state), true, nil
 	}
-
 	soloBefore := make(map[uint16]bool, len(state.Members))
 	for _, member := range state.Members {
 		soloBefore[member.CharID] = member.OrdinaryPartySolo
@@ -814,16 +813,15 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	if err != nil {
 		return runtimeRaidState{}, false, err
 	}
-	var waitingScope currentRaidWaitingBattleScope
+	waitingScope, err := s.prepareCurrentRaidWaitingBattleScope(session, *state, battle)
+	if err != nil {
+		return runtimeRaidState{}, false, err
+	}
+	if err := s.onlinePlayers.requireRaidStartWaitingArea(waitingScope, ""); err != nil {
+		return runtimeRaidState{}, false, err
+	}
 	allowed := false
 	if battle != nil && battle.FiendWar != nil {
-		waitingScope, err = s.prepareCurrentRaidWaitingBattleScope(session, *state, battle)
-		if err != nil {
-			return runtimeRaidState{}, false, err
-		}
-		if err := s.onlinePlayers.requireRaidStartWaitingArea(waitingScope, ""); err != nil {
-			return runtimeRaidState{}, false, err
-		}
 		err = s.consumeCurrentFiendWarEntry(session, *state, battle)
 		allowed = err == nil
 	} else {
@@ -838,11 +836,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	state.Started = true
 	state.Battle = battle
 	if battle != nil {
-		if battle.FiendWar != nil {
-			s.onlinePlayers.bindRaidWaitingBattleInstance(waitingScope)
-		} else {
-			s.onlinePlayers.bindAntonWaitingBattleInstance(state.RaidKey, battle.InstanceID)
-		}
+		s.onlinePlayers.bindRaidWaitingBattleInstance(waitingScope)
 	}
 	startCommitted = true
 	return cloneRuntimeRaidState(*state), true, nil
@@ -964,8 +958,11 @@ func (s *Service) broadcastRuntimeRaidRefresh(state runtimeRaidState) error {
 }
 
 func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
-	// Permanent FiendWar seats are not ordinary parties. Admission creates the
-	// temporary combat party from the confirmed source-map roster.
+	// FiendWar's 1..8 placements are personal raid seats, not ordinary party
+	// rows. Its only party is the temporary combat party created from the
+	// confirmed source-map encounter roster. Applying this helper at raid start
+	// would form one self-only ordinary party per seat (route 2 has eight
+	// single-member groups), causing the local HP bar before anyone enters.
 	if state.Battle != nil && state.Battle.FiendWar != nil {
 		return nil
 	}

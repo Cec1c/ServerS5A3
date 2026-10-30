@@ -263,7 +263,10 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 			b.upper = append(b.upper, append([]byte(nil), inner...))
 		} else {
 			s.logCurrentSharedInventoryPacketWritten(session, inner)
+			s.logGoldDiagnosticPacketResult(session, inner, false)
 		}
+	} else if session.channelSceneBatch == nil && session.nativeResultDelivery == nil {
+		s.logGoldDiagnosticPacketResult(session, inner, true)
 	}
 	return err
 }

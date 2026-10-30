@@ -172,6 +172,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentParticularHellInfo(session, character); err != nil {
 		return err
 	}
+	if err := s.sendCurrentSilentForestCount(session, character); err != nil {
+		return err
+	}
 	if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
 		return err
 	}

@@ -9,7 +9,7 @@ import (
 var errCurrentRaidMembersOutsideWaitingArea = errors.New("还有队员未进入本团等候区，无法开始攻坚")
 
 // 调用方持有raidMu；整份在线名单在同一个读锁内校验。
-// 超时空初次开团必须尚未绑定战斗实例；普通团本仍用公开开团路径。
+// 初次开团必须尚未绑定战斗实例，第二阶段沿用本场实例。
 // 失败发生在扣门票或推进阶段之前，不能只跳过未到位成员继续开团。
 func (m *OnlinePlayerManager) requireRaidStartWaitingArea(scope currentRaidWaitingBattleScope, expectedBattle string) error {
 	if scope.battleID == "" { // 旧协议不使用当前团本实例。

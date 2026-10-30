@@ -11,6 +11,10 @@ import (
 
 const currentGuildPlacementOpcode uint16 = 837
 
+// The compatibility release retains placement state while denying new writes.
+// Enable only after that release is the verified rollback baseline.
+const currentGuildPlacementWritesDefault = true
+
 func (s *Service) handleCurrentGuildPlacement(session *gameSession, request gameplayRequest) error {
 	if !requireDefaultGameplayClassification(s, session, request, "game-guild-placement-class-rejected", "command_class_mismatch") {
 		return nil
@@ -19,7 +23,7 @@ func (s *Service) handleCurrentGuildPlacement(session *gameSession, request game
 		s.logGameEvent(session, "game-guild-placement-rejected", "error", err)
 		return s.sendGameUpperFailure(session, currentGuildPlacementOpcode, 3)
 	}
-	if !s.options.guildEssenceEnabled || request.Sequence == nil {
+	if !s.options.guildEssenceEnabled || !s.options.guildPlacementWritesEnabled || request.Sequence == nil {
 		return fail(guild.ErrPlacementIdentity)
 	}
 	q, err := parseCurrentGuildPlacementRequest(request.Body)

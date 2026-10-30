@@ -375,14 +375,17 @@ func TestVendorPeerRowFieldsOnRelayFormationShape(t *testing.T) {
 	service, leader, member := vendorRelayFixture(t)
 	state := runtimePartyStateSnapshot(leader)
 	relay := service.currentPartyUDPRelay()
-	address, port, ok := relay.Endpoint(uint16(state.PartyID), 1001, 1002)
-	if !ok {
-		t.Fatal("relay leg 1001->1002 missing")
-	}
 	service.captureCurrentPartyPeerEndpointRegistration(member, buildCapturedPeerEndpointRegistrationBody(t, 20613))
 	memberAcc := currentPartyPeerEndpointSnapshot(member).PeerRowAcc
 	if memberAcc == 0 {
 		t.Fatal("CS op2 did not stamp the member session")
+	}
+	if !service.syncRuntimePartyUDPRelay(state) {
+		t.Fatal("relay did not adopt the current registration")
+	}
+	address, port, ok := relay.Endpoint(uint16(state.PartyID), 1001, 1002)
+	if !ok {
+		t.Fatal("relay leg 1001->1002 missing")
 	}
 
 	body := service.buildRuntimePartyPeerEndpointInfoForReceiver(leader, state)

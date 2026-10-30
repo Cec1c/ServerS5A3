@@ -32,6 +32,14 @@ const (
 	adventureGroupCreatedDateLayout        = "2006-01-02"
 )
 
+// accountRepresentNameMetadataWriter updates the unique nickname column and
+// one derived metadata row without replacing unrelated account metadata.
+// MySQL implements the atomic narrow write; other repositories retain the
+// historical snapshot save fallback used by existing fixtures.
+type accountRepresentNameMetadataWriter interface {
+	SaveRepresentAccountName(context.Context, string, string, string, string, string, time.Time) error
+}
+
 func (s *Service) sendRepresentAccountNameState(session *gameSession, name string, forceRegister bool, source string) error {
 	encoded, err := encodeRepresentAccountName(name)
 	if err != nil {
@@ -208,10 +216,11 @@ func (s *Service) handleUpdateRepresentAccountName(session *gameSession, body []
 		s.logGameEvent(session, "game-represent-account-name-update-load-failed", "account_id", accountID, "error", err)
 		return s.sendGameUpperFailure(session, responseMsgID, representAccountNameRetryCode)
 	}
+	now := time.Now().UTC()
 	if found && strings.TrimSpace(account.RepresentAccountName) != "" {
 		if strings.EqualFold(strings.TrimSpace(account.RepresentAccountName), name) {
-			if ensureAdventureGroupCreatedDate(&account, time.Now().UTC()) {
-				if err := repositories.Account.Save(ctx, account); err != nil {
+			if ensureAdventureGroupCreatedDate(&account, now) {
+				if err := saveRepresentAccountName(ctx, repositories.Account, account, name, now); err != nil {
 					s.logGameEvent(session, "game-represent-account-name-date-save-failed", "account_id", accountID, "error", err)
 					return s.sendGameUpperFailure(session, responseMsgID, representAccountNameRetryCode)
 				}
@@ -236,8 +245,8 @@ func (s *Service) handleUpdateRepresentAccountName(session *gameSession, body []
 		account = dnfrepo.AccountRecord{AccountID: accountID, State: "active"}
 	}
 	account.RepresentAccountName = name
-	ensureAdventureGroupCreatedDate(&account, time.Now().UTC())
-	if err := repositories.Account.Save(ctx, account); err != nil {
+	ensureAdventureGroupCreatedDate(&account, now)
+	if err := saveRepresentAccountName(ctx, repositories.Account, account, name, now); err != nil {
 		if errors.Is(err, dnfrepo.ErrRepresentAccountNameExists) {
 			return s.sendGameUpperFailure(session, responseMsgID, representAccountNameDuplicateCode)
 		}
@@ -258,6 +267,34 @@ func (s *Service) handleUpdateRepresentAccountName(session *gameSession, body []
 	}
 	session.representAccountNamePending = false
 	return s.sendUpperGetUserInfoRosterBootstrap(session)
+}
+
+func saveRepresentAccountName(
+	ctx context.Context,
+	repository dnfrepo.AccountRepository,
+	account dnfrepo.AccountRecord,
+	name string,
+	now time.Time,
+) error {
+	createdDate := account.Metadata[adventureGroupCreatedDateMetadataKey]
+	if writer, ok := repository.(accountRepresentNameMetadataWriter); ok {
+		return writer.SaveRepresentAccountName(
+			ctx,
+			account.AccountID,
+			name,
+			adventureGroupCreatedDateMetadataKey,
+			createdDate,
+			account.State,
+			now.UTC(),
+		)
+	}
+	account.RepresentAccountName = name
+	if account.Metadata == nil {
+		account.Metadata = make(map[string]string)
+	}
+	account.Metadata[adventureGroupCreatedDateMetadataKey] = createdDate
+	account.UpdatedAt = now.UTC()
+	return repository.Save(ctx, account)
 }
 
 // ensureAdventureGroupCreatedDate persists the calendar day on which the

@@ -21,6 +21,7 @@ import (
 func guildPlacementFixture(t *testing.T) (*Service, *gameSession, r.Group) {
 	t.Helper()
 	s, p, repos, source := guildMerchantFixture(t)
+	s.options.guildPlacementWritesEnabled = true
 	merchantPurchaseSource(t, source)
 	source["etc/agitwar.etc"] += "\n[building construct time]\n180"
 	source["stackable/merchant.stk"] += "\n[action type]\n`[deploy in isometric cell map]` 71021 15 30\n[/action type]"

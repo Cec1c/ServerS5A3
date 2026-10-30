@@ -368,27 +368,6 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition,
 			uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_completed_tournament_return_to_town")
 	}
-	if runtime != nil && (shouldReturnToTown || shouldOpenOtherSelector && retryRequesterIsLeader) && s.currentLukeClosedEnergyExitReady(session, runtime) {
-		if !runtime.settlementCardExitAckSent {
-			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
-				session.dungeon.mu.Unlock()
-				return err
-			}
-			runtime.settlementCardExitAckSent = true
-		}
-		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
-		session.dungeon.mu.Unlock()
-		if shouldOpenOtherSelector {
-			return s.selectOtherDungeonForCompletedParty(session, runtime)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
-		cancel()
-		if err != nil {
-			return err
-		}
-		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_closed_luke_energy_return")
-	}
 	// The completed Luke spread-sanctum result page is owned by its accepted
 	// raid clear journal. The ordinary op34/35 chain may be absent after a
 	// reconnect; requiring it here leaves op72 返回城镇 inert until the menu
@@ -417,12 +396,45 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		s.logGameEvent(session, "game-raid-completed-map-exit-accepted", "char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID, "request_msg_id", uint16(dnfenum.CmdPacketEplpCommand), "source", "owned_luke_spread_sanctum_clear_without_ordinary_settlement_reward")
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_owned_raid_map_return_to_town")
 	}
+	if runtime != nil && (shouldReturnToTown || shouldOpenOtherSelector && retryRequesterIsLeader) && s.currentLukeClosedEnergyExitReady(session, runtime) {
+		if !runtime.settlementCardExitAckSent {
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketEplpCommand), buildCurrentDungeonOp72SuccessBody(request.ValueA, request.ValueB), currentDungeonCardResponseClass); err != nil {
+				session.dungeon.mu.Unlock()
+				return err
+			}
+			runtime.settlementCardExitAckSent = true
+		}
+		runtime.advanceSettlementPhase(currentDungeonSettlementPhaseEnding)
+		session.dungeon.mu.Unlock()
+		if shouldOpenOtherSelector {
+			return s.selectOtherDungeonForCompletedParty(session, runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, session, session.selectedCharacterID)
+		cancel()
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_closed_luke_energy_return")
+	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
-		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
+		fields := []any{
 			"char_id", session.selectedCharacterID,
 			"request_value_a", request.ValueA,
 			"request_value_b", request.ValueB,
-			"reason", "settlement_clear_reward_not_sent")
+			"has_runtime", runtime != nil,
+			"reason", "settlement_clear_reward_not_sent",
+		}
+		if runtime != nil {
+			fields = append(fields, "dungeon_id", runtime.Dungeon.ID, "town_return_pending", runtime.townReturnPending)
+			if runtime.Session != nil {
+				fields = append(fields, "run_status", runtime.Session.Snapshot().Run.Status)
+			}
+			if runtime.raidEntry != nil {
+				fields = append(fields, "run_id", runtime.raidEntry.RunID, "instance_id", runtime.raidEntry.InstanceID, "entry_phase", runtime.raidEntry.Phase, "entry_attempt", runtime.raidEntry.Attempt)
+			}
+		}
+		s.logGameEvent(session, "game-dungeon-card-exit-blocked", fields...)
 		session.dungeon.mu.Unlock()
 		return nil
 	}

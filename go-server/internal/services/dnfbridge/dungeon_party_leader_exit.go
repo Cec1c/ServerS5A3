@@ -159,15 +159,23 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 	leavingCharacterID uint16,
 	source string,
 ) int {
-	if s == nil || session == nil || leavingCharacterID == 0 {
+	if s == nil || session == nil || leavingCharacterID == 0 || instance == nil {
 		return 0
 	}
 	if s.dungeonPartyLeaderExitDisbandMode() == dungeonPartyLeaderExitLegacy {
 		// 一键回退档：逐字节回到改动前——不碰管理器、不发包、不记新事件。
 		return 0
 	}
-	// 权威名单按**角色**查中央管理器（会话本地缓存可能落后，见 party_manager_runtime.go）。
-	state := s.runtimePartyStateForSession(session)
+	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if !bound || identity.character != leavingCharacterID {
+		return 0
+	}
+	manager := s.runtimePartyManagerForService()
+	before, found := manager.SnapshotByUser(leavingCharacterID, 0)
+	if !found || before.ID != instance.key.PartyID {
+		return 0
+	}
+	state := before.StateFor(leavingCharacterID)
 	members := runtimePartyMembers(state)
 	if state.PartyID <= 0 || len(members) < 2 {
 		return 0
@@ -183,38 +191,24 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 		return 0
 	}
 
-	// 1. 解散：每个成员都摘掉。**先摘非队长、最后摘队长**：管理器里"队长离队且队里还有人"
-	// 会走"退役这一代 + 用新 id 重建"的分支（runtime_manager.go:271-306），那会白白多出
-	// 一代队伍；先摘掉其他人，队长最后离队时 `party.count()==0`，直接返回 `Disbanded=true`。
-	manager := s.runtimePartyManagerForService()
+	// Retire only this instance's exact roster in one manager transaction.
+	// A delayed return cannot remove a replacement party or a changed roster.
+	if !s.withCurrentDungeonPartyRetirement(identity, instance, func() bool {
+		return manager.RetireSnapshot(before)
+	}) {
+		return 0
+	}
 	removed := make([]uint16, 0, len(members))
-	disbanded := false
-	if manager != nil {
-		leaveOrder := make([]uint16, 0, len(members))
-		for _, member := range members {
-			if member.UserID == 0 || member.UserID == leaderID {
-				continue
-			}
-			leaveOrder = append(leaveOrder, member.UserID)
-		}
-		leaveOrder = append(leaveOrder, leaderID)
-		for _, characterID := range leaveOrder {
-			result := manager.LeaveCurrent(characterID)
-			if !result.OK {
-				continue
-			}
-			removed = append(removed, characterID)
-			if result.Disbanded {
-				disbanded = true
-			}
-		}
+	disbanded := true
+	for _, member := range members {
+		removed = append(removed, member.UserID)
 	}
 
 	// 2. 清投影 + 关中继（队伍已经不存在了）。
 	online := make([]*gameSession, 0, len(members))
 	for _, member := range members {
 		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
-		if !ok {
+		if !ok || identity.generation != beforeMemberGeneration(before, member.UserID) {
 			continue
 		}
 		s.clearRuntimePartyProjection(member.UserID, identity.generation)
@@ -237,12 +231,13 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 			currentSceneObjectContext,
 			s.currentSceneActorRoute(),
 		)
-		if err := s.sendGameUpperRawClass(
+		sent, err := s.sendRetiredPartyPacket(
 			peer.Session,
 			uint16(dnfenum.CmdPacketRecoverStamina),
 			removal,
-			0,
-		); err != nil {
+			nil, nil, false,
+		)
+		if err != nil {
 			s.logGameEvent(peer.Session, "game-party-dungeon-leader-exit-peer-actor-removal-failed",
 				"source", source,
 				"party_id", state.PartyID,
@@ -251,6 +246,9 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 				"leaving_char_id", leavingCharacterID,
 				"object_key", leaderObjectKey,
 				"error", err)
+			continue
+		}
+		if !sent {
 			continue
 		}
 		peerActorRemovalSent = append(peerActorRemovalSent, peer.CharacterID)
@@ -337,7 +335,7 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 				memberIDs = append(memberIDs, member.UserID)
 			}
 		}
-		if cleared := s.forgetRuntimePartyRunKeysOnDisband(memberIDs, source); len(cleared) > 0 {
+		if cleared := s.forgetRuntimePartyRunKeysOnDisband(memberIDs, before.ID, source); len(cleared) > 0 {
 			s.logGameEvent(session, "game-party-dungeon-leader-exit-run-keys-cleared",
 				"source", source,
 				"party_id", state.PartyID,

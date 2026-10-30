@@ -412,6 +412,31 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			selectedDimensionChronicleGroups = append(selectedDimensionChronicleGroups, group)
 		}
 	}
+	if monster.Definition.DimensionHiddenBoss {
+		if !runtime.dimensionHiddenHighReward {
+			return nil, fmt.Errorf("%w: hidden boss death without committed weekly reward admission", errCurrentDungeonDimensionDropInvalid)
+		}
+		if !dimensionMatched || runtime.MazeIndex < 0 || runtime.MazeIndex >= len(runtime.Dungeon.Mazes) || !runtime.Dungeon.Mazes[runtime.MazeIndex].HiddenBoss {
+			return nil, fmt.Errorf("%w: hidden boss outside dimension hidden maze", errCurrentDungeonDimensionDropInvalid)
+		}
+		hiddenItems, hiddenErr := currentDimensionHiddenDropItems(dimensionDrops.HiddenBossByTier[dimensionTier], rng)
+		if hiddenErr != nil {
+			return nil, hiddenErr
+		}
+		for _, itemID := range hiddenItems {
+			if err := appendSelected(itemID); err != nil {
+				return nil, err
+			}
+		}
+		s.logGameEvent(nil, "game-dungeon-dimension-hidden-boss-drop-roll",
+			"dungeon_id", runtime.Dungeon.ID,
+			"maze_index", runtime.MazeIndex,
+			"monster_id", monster.Spawn.MonsterID,
+			"dimension_tier", dimensionTier,
+			"candidate_count", len(dimensionDrops.HiddenBossByTier[dimensionTier]),
+			"selected_items", hiddenItems,
+			"source", currentDungeonDimensionInfoPath+"/[hidden boss drop table]")
+	}
 	if probabilityFound && itemReferenceFound {
 		for attempt := 0; attempt < randomDropAttempts; attempt++ {
 			if rate := currentDungeonDropRate(probability.Rates[1], raw.MonsterTypeBonus[1][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
