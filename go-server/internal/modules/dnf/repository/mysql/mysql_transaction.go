@@ -629,6 +629,20 @@ func (r *rentalScopedAccountRepository) Save(ctx context.Context, record reposit
 	return r.base.Save(ctx, record)
 }
 
+// SaveMetadataEntry forwards a single-key metadata write so callers do not
+// fall back to the scoped repository's full account Save, which replaces every
+// metadata row. The account key and the underlying transaction stay intact.
+func (r *rentalScopedAccountRepository) SaveMetadataEntry(ctx context.Context, accountID, key, value string, at time.Time) error {
+	if err := repository.TransactionKeyError(ctx, r.accountID, accountID); err != nil {
+		return err
+	}
+	writer, ok := r.base.(repository.AccountMetadataEntryWriter)
+	if !ok {
+		return repository.ErrAccountMetadataUnavailable
+	}
+	return writer.SaveMetadataEntry(ctx, accountID, key, value, at)
+}
+
 type rentalScopedCharacterRepository struct {
 	characterID string
 	base        repository.CharacterRepository

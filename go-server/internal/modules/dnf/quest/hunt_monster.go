@@ -83,20 +83,20 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 	}
 	seen := make(map[int64]struct{})
 	visit := func(states map[int64]dnfrepo.QuestState, field dnfrepo.QuestField) {
-		ids := make([]int64, 0, len(states))
-		for questID := range states {
-			ids = append(ids, questID)
-		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-		for _, questID := range ids {
+		ids := make([]int64, 0)
+		for questID, state := range states {
 			if _, duplicate := seen[questID]; duplicate {
 				continue
 			}
+			// States shadows Progress even when its entry is inactive.
 			seen[questID] = struct{}{}
-			state := states[questID]
-			if !isActiveQuestStatus(state.Status) || state.ProgressValue < 0 {
-				continue
+			if isActiveQuestStatus(state.Status) && state.ProgressValue >= 0 {
+				ids = append(ids, questID)
 			}
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		for _, questID := range ids {
+			state := states[questID]
 			definition, ok := c.byID[questID]
 			if !ok || normalizeQuestTag(definition.Type) != "hunt monster" {
 				continue

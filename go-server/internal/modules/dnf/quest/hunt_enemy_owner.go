@@ -40,8 +40,6 @@ func (o *Owner) ApplyHuntEnemyKill(
 	}
 	if !ok {
 		record = dnfrepo.QuestRecord{CharacterID: characterID}
-	} else {
-		record = dnfrepo.CloneQuest(record)
 	}
 	if strings.TrimSpace(record.CharacterID) == "" {
 		record.CharacterID = characterID

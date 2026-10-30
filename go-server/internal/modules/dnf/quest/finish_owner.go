@@ -921,9 +921,11 @@ func syncActiveQuestClearParentProgress(
 		if len(states) == 0 {
 			return
 		}
-		ids := make([]int64, 0, len(states))
-		for questID := range states {
-			ids = append(ids, questID)
+		ids := make([]int64, 0)
+		for questID, state := range states {
+			if isActiveQuestStatus(state.Status) {
+				ids = append(ids, questID)
+			}
 		}
 		sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
 		for _, questID := range ids {

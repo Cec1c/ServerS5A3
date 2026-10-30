@@ -46,7 +46,8 @@ func (s *mysqlQuestStore) Load(ctx context.Context, characterID string) (reposit
 		return repository.QuestRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
-	return repository.CloneQuest(record), true, nil
+	// Every map above was allocated by this load; no store-owned snapshot escapes.
+	return record, true, nil
 }
 
 func (s *mysqlQuestStore) Save(ctx context.Context, record repository.QuestRecord) error {

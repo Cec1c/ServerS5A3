@@ -5,6 +5,7 @@ import (
 	"errors"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"strings"
+	"time"
 )
 
 // mysqlCharacterSettlementUnitOfWork keeps quest state, progression, wallet,
@@ -200,6 +201,24 @@ func (r *characterSettlementAccountRepository) Save(ctx context.Context, record 
 		return err
 	}
 	return r.accounts.Save(ctx, record)
+}
+
+// SaveMetadataEntry keeps the metadata update to one row while re-verifying
+// that the requested account still owns the settlement character inside the
+// same transaction.
+func (r *characterSettlementAccountRepository) SaveMetadataEntry(ctx context.Context, accountID, key, value string, at time.Time) error {
+	want, err := r.accountID(ctx)
+	if err != nil {
+		return err
+	}
+	if err := repository.TransactionKeyError(ctx, want, accountID); err != nil {
+		return err
+	}
+	writer, ok := r.accounts.(repository.AccountMetadataEntryWriter)
+	if !ok {
+		return repository.ErrAccountMetadataUnavailable
+	}
+	return writer.SaveMetadataEntry(ctx, accountID, key, value, at)
 }
 
 // characterSettlementAccountInventoryRepository resolves and verifies the

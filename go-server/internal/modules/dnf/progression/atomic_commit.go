@@ -108,7 +108,7 @@ func Commit(
 		characters dnfrepo.CharacterRepository,
 		skills dnfrepo.SkillRepository,
 	) error {
-		character, characterExists, err := characters.Load(ctx, plan.CharacterID)
+		character, characterExists, err := dnfrepo.LoadProgressionCharacter(ctx, characters, plan.CharacterID)
 		if err != nil {
 			return err
 		}
@@ -126,7 +126,7 @@ func Commit(
 			)
 		}
 
-		skill, skillExists, err := skills.Load(ctx, plan.CharacterID)
+		skill, skillExists, err := dnfrepo.LoadProgressionSkill(ctx, skills, plan.CharacterID)
 		if err != nil {
 			return err
 		}
@@ -182,23 +182,20 @@ func Commit(
 			)
 		}
 
+		before := dnfrepo.CloneCharacter(character)
 		if err := ApplyCharacterExperience(&character, &skill, plan.Next.Level, plan.Next.Experience, plan.Next.SkillPoints, time.Now().UTC()); err != nil {
 			return err
 		}
 		for key, value := range plan.NextCharacterStats {
 			character.Stats[key] = value
 		}
-		if err := dnfrepo.SaveCharacterFields(
-			ctx,
-			characters,
-			character,
-			dnfrepo.CharacterFieldBase,
-			dnfrepo.CharacterFieldStats,
-		); err != nil {
+		if err := dnfrepo.SaveProgressionCharacter(ctx, characters, before, character); err != nil {
 			return err
 		}
-		if err := dnfrepo.SaveSkillFields(ctx, skills, skill, dnfrepo.SkillFieldPoints); err != nil {
-			return err
+		if current.SkillPoints != plan.Next.SkillPoints {
+			if err := dnfrepo.SaveSkillFields(ctx, skills, skill, dnfrepo.SkillFieldPoints); err != nil {
+				return err
+			}
 		}
 
 		result.Current = plan.Next
