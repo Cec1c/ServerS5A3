@@ -2076,7 +2076,7 @@ func TestHandlerUpgradeReturnsOp50AckAndSlotUpdate(t *testing.T) {
 		t.Fatalf("result = %+v", got)
 	}
 	ack := got.UpperResponses[0]
-	wantAck := []byte{1, 0, 121, 0, 1, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 1, 0, 9, 0, 0xFF, 0xFF}
+	wantAck := []byte{1, 0, 121, 0, 1, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 1, 0, 9, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0}
 	if ack.MsgID != uint16(dnfenum.CmdPacketUpgradeItem) || ack.Classification != dnfproto.DefaultChannelClassification || !ack.AllowCodec || !bytes.Equal(ack.Body, wantAck) {
 		t.Fatalf("ack = %+v body=% X want=% X", ack, ack.Body, wantAck)
 	}

@@ -139,13 +139,13 @@ func TestRealPVFJonathanAtomicPaymentCandidate(t *testing.T) {
 	}
 }
 
-// 段106 修复后：只有**空值**是默认启用档（且只钉已核的 476 材料转换），其余历史值
-// （off / vendor / 1 …）保持修复前接线（nil），candidate 仍是显式整链档。
-func TestNativeUpgradeCostCandidateIsExplicitOptIn(t *testing.T) {
+// 段106 修复后：空值是完整原生报价的默认启用档，candidate 保留为同一整链的兼容别名；
+// 其余历史值（off / vendor / 1 …）仍显式停用费用 resolver（nil）。
+func TestNativeUpgradeCostDefaultAndCandidateSelection(t *testing.T) {
 	service := &Service{}
 	t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", "")
 	if service.candidateUpgradeCostResolver(nil) == nil {
-		t.Fatal("empty value must install the verified NPC conversion resolver")
+		t.Fatal("empty value must install the full native quote resolver")
 	}
 	for _, value := range []string{"off", "vendor", "1", "disable", "unknown-value"} {
 		t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", value)
@@ -155,7 +155,7 @@ func TestNativeUpgradeCostCandidateIsExplicitOptIn(t *testing.T) {
 	}
 	t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", "candidate")
 	if service.candidateUpgradeCostResolver(nil) == nil {
-		t.Fatal("candidate resolver missing")
+		t.Fatal("candidate alias must install the full native quote resolver")
 	}
 }
 

@@ -18,8 +18,8 @@ import (
 //  1. 归一化：只有 `[protect equipment]` / `[amplify protect equipment]`
 //     （含 `[new …]` 变体）被判成保护券，其它 `[action type]` 一律不是；
 //  2. `[action type]` 段里的整数 = 失败回落等级（缺省 0）；
-//  3. 真档 Script.pvf 里那 9 张券逐字节解析出正确的模式，且非券模板（一次性增幅器、
-//     材料、装备）一个都不许被判成券。
+//  3. 真档 Script.pvf 里那 9 张券逐字节解析出正确的模式；回落等级由测试直接读取
+//     同一份原始文档得到，且非券模板（一次性增幅器、材料、装备）一个都不许被判成券。
 
 func TestUpgradeProtectTicketActionTypeNormalization(t *testing.T) {
 	cases := []struct {
@@ -46,6 +46,32 @@ func TestUpgradeProtectTicketActionTypeNormalization(t *testing.T) {
 	}
 }
 
+// realPVFActionTypeRetainLevel reads the expectation from the item's source
+// document. It deliberately does not call the protect-ticket resolver under
+// test, so a resolver that ignores or invents [action type] parameters cannot
+// make its own integration test pass.
+func realPVFActionTypeRetainLevel(
+	t *testing.T,
+	archive *platformpvf.Archive,
+	catalog *pvfDungeonDropCatalog,
+	itemID int64,
+) (string, int) {
+	t.Helper()
+	definition, err := catalog.ResolveItem(uint32(itemID))
+	if err != nil {
+		t.Fatalf("resolve source item=%d: %v", itemID, err)
+	}
+	document, err := parseDungeonCardPVFDocument(archive, definition.PVFPath)
+	if err != nil {
+		t.Fatalf("parse source document %s: %v", definition.PVFPath, err)
+	}
+	values := document.Ints("action type")
+	if len(values) == 0 || values[0] <= 0 {
+		return definition.PVFPath, 0
+	}
+	return definition.PVFPath, int(values[0])
+}
+
 func TestUpgradeProtectTicketResolutionReadsActionTypeParameters(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -61,11 +87,11 @@ func TestUpgradeProtectTicketResolutionReadsActionTypeParameters(t *testing.T) {
 			wantRetain: 0,
 		},
 		{
-			name: "vendor shape: [action type] carries the failure retain level",
+			name: "synthetic shape: [action type] carries the failure retain level",
 			document: "[stackable type]\n`[material]` 0\n" +
-				"[action type]\n`[protect equipment]` 10\n[/action type]\n",
+				"[action type]\n`[protect equipment]` 7\n[/action type]\n",
 			wantMode:   "reinforce",
-			wantRetain: 10,
+			wantRetain: 7,
 		},
 		{
 			name:     "not a protection ticket",
@@ -157,17 +183,19 @@ func TestUpgradeProtectTicketEventFieldsNameItemSlotAndSwitch(t *testing.T) {
 // 真档 PVF 回归：9 张线上保护券逐字节解析 + 反例。
 //
 // 取证来源（`pvfscriptedit.exe -dump-text`，Script.pvf
-// sha256=afa00e752189a0e14326f92b3264ec59afb7fd1d2c12ae33b7a831c4adb505fe）：
+// sha256=afa00e752189a0e14326f92b3264ec59afb7fd1d2c12ae33b7a831c4adb505fe）。
+// 路径和模式是固定断言；`[action type]` 的回落参数不写进公共测试，运行时从这些
+// 原始文档逐项读取：
 //
-//	stackable/10093001/10093371.stk 装备强化保护券  [action type] `[protect equipment]`
-//	stackable/10147001/10147773.stk 装备保护券      [action type] `[protect equipment]`
-//	stackable/10164001/10164034.stk 装备强化保护券  [action type] `[protect equipment]`
-//	stackable/10304001/10304354.stk 装备强化保护券  [action type] `[protect equipment]`
-//	stackable/10093001/10093372.stk 装备增幅保护券  [action type] `[amplify protect equipment]`
-//	stackable/10098001/10098989.stk 装备增幅保护券  [action type] `[amplify protect equipment]`
-//	stackable/10164001/10164047.stk 装备增幅保护券  [action type] `[amplify protect equipment]`
-//	stackable/10303001/10303749.stk 装备增幅保护券  [action type] `[amplify protect equipment]`
-//	stackable/10304001/10304363.stk 装备增幅保护券  [action type] `[amplify protect equipment]`
+//	stackable/10093001/10093371.stk 装备强化保护券 mode=reinforce
+//	stackable/10147001/10147773.stk 装备保护券     mode=reinforce
+//	stackable/10164001/10164034.stk 装备强化保护券 mode=reinforce
+//	stackable/10304001/10304354.stk 装备强化保护券 mode=reinforce
+//	stackable/10093001/10093372.stk 装备增幅保护券 mode=amplify
+//	stackable/10098001/10098989.stk 装备增幅保护券 mode=amplify
+//	stackable/10164001/10164047.stk 装备增幅保护券 mode=amplify
+//	stackable/10303001/10303749.stk 装备增幅保护券 mode=amplify
+//	stackable/10304001/10304363.stk 装备增幅保护券 mode=amplify
 func TestRealPVFUpgradeProtectTicketResolverClassifiesLiveTickets(t *testing.T) {
 	pvfPath := strings.TrimSpace(os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE"))
 	if pvfPath == "" {
@@ -203,6 +231,14 @@ func TestRealPVFUpgradeProtectTicketResolverClassifiesLiveTickets(t *testing.T) 
 		{itemID: 101040148},
 	}
 	for _, test := range cases {
+		wantRetain := 0
+		if test.wantMode != "" {
+			rawPath, rawRetain := realPVFActionTypeRetainLevel(t, archive, catalog, test.itemID)
+			if rawPath != test.wantPath {
+				t.Fatalf("item=%d source path=%q, want %q", test.itemID, rawPath, test.wantPath)
+			}
+			wantRetain = rawRetain
+		}
 		resolution, err := resolveCurrentUpgradeProtectTicket(catalog, archive, test.itemID)
 		if err != nil {
 			t.Fatalf("resolve item=%d: %v", test.itemID, err)
@@ -216,11 +252,10 @@ func TestRealPVFUpgradeProtectTicketResolverClassifiesLiveTickets(t *testing.T) 
 		if resolution.PVFPath != test.wantPath {
 			t.Fatalf("item=%d path=%q, want %q", test.itemID, resolution.PVFPath, test.wantPath)
 		}
-		// 线上 9 张券的 `[action type]` 段都没有整数参数 ⇒ 回落等级 0
-		// （与各自的 [explain]「使装备回到未强化状态 / 使装备回到非增幅状态」一致）。
-		if resolution.RetainLevel != 0 {
-			t.Fatalf("item=%d retain level=%d, want 0 (the live PVF writes no [action type] parameter)",
-				test.itemID, resolution.RetainLevel)
+		// 这个预期来自上面的原始文档读取，而不是被测 resolver。
+		if resolution.RetainLevel != wantRetain {
+			t.Fatalf("item=%d retain level=%d, want %d from its source [action type]",
+				test.itemID, resolution.RetainLevel, wantRetain)
 		}
 		if resolution.UnitCost != 1 {
 			t.Fatalf("item=%d unit cost=%d, want 1", test.itemID, resolution.UnitCost)
