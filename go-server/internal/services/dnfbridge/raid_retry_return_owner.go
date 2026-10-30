@@ -115,6 +115,7 @@ func (g currentRaidRetrySceneGates) restore(session *gameSession) {
 	session.backToVillageEnterSelectPending = g.backToVillageEnterSelectPending
 	session.townSelectorOriginSnapshot = g.townSelectorOriginSnapshot
 	session.townSelectorOriginBound = g.townSelectorOriginBound
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townPositionSnapshot = g.townPositionSnapshot
 }
 

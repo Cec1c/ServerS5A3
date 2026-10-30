@@ -40,7 +40,7 @@ func levelTicketFixture(t *testing.T) (repo.Group, *progression.Tables, *quest.C
 	}
 	source[progression.ExperienceTablePath] = exp.String()
 	source[progression.SkillPointTablePath] = "[sp table]\n" + sp.String() + "[/sp table]\n[tp table]\n" + tp.String() + "[/tp table]"
-	source[progression.QuestParameterPath] = "[difficulty] `N` 100\n[/difficulty]\n[exp reward table]\n100 -1\n[gold reward table]\n10 -1\n[green level penalty]\n80\n[grey level penalty]\n30\n"
+	source[progression.QuestParameterPath] = "[difficulty] `N` 100\n[/difficulty]\n[exp reward table]\n100 -1\n[gold reward table]\n10\n[green level penalty]\n80\n[grey level penalty]\n30\n"
 	source[quest.DefaultList] = "100 `ticket_a.qst`\n101 `ticket_b.qst`\n102 `ticket_future.qst`"
 	for i := 100; i <= 102; i++ {
 		p := map[int]string{100: "n_quest/ticket_a.qst", 101: "n_quest/ticket_b.qst", 102: "n_quest/ticket_future.qst"}[i]

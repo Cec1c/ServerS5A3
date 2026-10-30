@@ -207,7 +207,7 @@ func (r *currentPartyUDPRelay) forwardToAdvertisedEndpoint(
 	if !ok || target == nil {
 		return
 	}
-	written, err := opposite.conn.WriteToUDP(payload, target)
+	written, err := r.writeCurrentPairDatagram(source, opposite, opposite.conn, payload, target)
 	if err != nil || written != len(payload) {
 		datagrams, failed, _ := opposite.noteEndpointFallbackWrite(0, true)
 		if opposite.noteEndpointFallbackFailureLogged() {

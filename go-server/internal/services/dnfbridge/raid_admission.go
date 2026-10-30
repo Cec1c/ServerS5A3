@@ -144,7 +144,7 @@ func (s *Service) sendCurrentRuntimeRaidEntryCost(session *gameSession, state ru
 	if err := s.sendRuntimeRaidEntryCostStatuses(session, state, statuses, rule); err != nil {
 		return err
 	}
-	if state.Started && isCurrentFiendWarChannel(session) {
+	if state.Started {
 		return s.sendCurrentRaidDailyAvailability(session, "团本开战扣票提交后")
 	}
 	return nil

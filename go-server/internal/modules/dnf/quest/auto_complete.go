@@ -111,7 +111,7 @@ func (c *Catalog) PlanAutoCompleteMainQuests(
 	if isCompletedQuestStatus(state.Status) {
 		return plan, nil
 	}
-	if !isActiveQuestStatus(state.Status) || !storySweepOrdinary(definition) {
+	if !isActiveQuestStatus(state.Status) || !(storySweepOrdinary(definition) || storySweepAchievedAwakening(definition, character)) {
 		return AutoCompleteMainPlan{}, ErrAutoCompleteTargetInvalid
 	}
 	completed, active, damaged := c.storySweepEvidence(plan.Record)
@@ -147,6 +147,15 @@ func (o *Owner) ApplyAutoCompleteMain(
 	ctx context.Context,
 	catalog *Catalog,
 	input AutoCompleteMainInput,
+) (AutoCompleteMainResult, error) {
+	return o.applyAutoCompleteMain(ctx, catalog, input, false)
+}
+
+func (o *Owner) applyAutoCompleteMain(
+	ctx context.Context,
+	catalog *Catalog,
+	input AutoCompleteMainInput,
+	recoverPreviousSweep bool,
 ) (AutoCompleteMainResult, error) {
 	if o == nil || o.repositories.CharacterSettlement == nil || catalog == nil {
 		return AutoCompleteMainResult{}, ErrAutoCompleteMainUnavailable
@@ -194,7 +203,11 @@ func (o *Owner) ApplyAutoCompleteMain(
 		} else if strings.TrimSpace(record.CharacterID) != input.CharacterID {
 			return ErrQuestPersistVerify
 		}
-		plan, err = catalog.PlanAutoCompleteMainQuests(record, input.Eligibility, input.CutoffLevel, input.TargetQuestID, input.Scope, input.CompletedAt)
+		if recoverPreviousSweep {
+			plan, input.CutoffLevel, err = catalog.planPreviousMainStorySweepRecovery(record, input.Eligibility, input.CutoffLevel, input.CompletedAt)
+		} else {
+			plan, err = catalog.PlanAutoCompleteMainQuests(record, input.Eligibility, input.CutoffLevel, input.TargetQuestID, input.Scope, input.CompletedAt)
+		}
 		if err != nil {
 			return err
 		}

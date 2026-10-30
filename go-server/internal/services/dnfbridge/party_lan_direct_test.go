@@ -433,6 +433,11 @@ func TestPartyLANDirectFallsBackToRelayInEveryNonSameLANCase(t *testing.T) {
 			}
 			service.options.partyLANDirect = partyLANDirectLAN
 			state := runtimePartyStateSnapshot(leader)
+			// Registration changes replace both directed legs. Snapshot the
+			// adopted topology rather than caching an endpoint from the old pair.
+			if !service.syncRuntimePartyUDPRelay(state) {
+				t.Fatal("relay did not adopt the current registration")
+			}
 
 			want, relayAddress, relayPort := relayEndpointBytes(t, service, uint16(state.PartyID), 1001, 1002)
 			body := service.buildRuntimePartyPeerEndpointInfoForReceiver(leader, state)

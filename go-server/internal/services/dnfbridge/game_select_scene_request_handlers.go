@@ -89,6 +89,14 @@ func (s *Service) sendFinishLoadingStatus(session *gameSession, request []byte) 
 		s.logGameEvent(session, "game-upper-finish-loading-return-town-ack-only",
 			"request_body_len", len(request),
 			"reason", "completed_dungeon_town_state_already_published")
+		// SET_USER_AREA can publish peer actors before this request reaches the
+		// client. The ACK-only branch intentionally skips the op37 state tail, so
+		// run its town co-presence half here, after the receiving scene has
+		// acknowledged loading. See luke_stage_rest_copresence.go.
+		s.resendTownCopresenceAfterReturnFinishLoadingAck(
+			session,
+			"return_finish_loading_ack_only_after_confirmed_direct_return",
+		)
 		return nil
 	}
 	if !actorReady {

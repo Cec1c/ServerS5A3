@@ -3,7 +3,123 @@ package dnfbridge
 import (
 	"context"
 	"fmt"
+	"sort"
+	"time"
 )
+
+const currentTownEnterSelectReasonPositionNotReported = "town_scene_position_not_reported"
+
+const currentTownEnterSelectDeferredLifetime = 3 * time.Second
+
+const currentTownEnterSelectUpperRequestSource = "upper_15"
+
+// currentTownEnterSelectDeferredRequest preserves the client's intent when a
+// town area is committed but its first op35 position report has not arrived.
+// The old path emitted the op15 success ACK and fatigue without op27, then lost
+// the request; the client saw no selectable dungeon page until it clicked again.
+type currentTownEnterSelectDeferredRequest struct {
+	CharacterID         uint16
+	CharacterGeneration uint64
+	SceneGeneration     uint64
+	TownID              byte
+	AreaID              byte
+	Source              string
+	DeferredAt          time.Time
+	PartyID             int
+	PartyLeaderID       uint16
+	PartyMemberCount    int
+	PartyMembers        [4]uint16
+	PartyBound          bool
+}
+
+type currentTownEnterSelectPartySnapshot struct {
+	PartyID     int
+	LeaderID    uint16
+	MemberCount int
+	Members     [4]uint16
+	Bound       bool
+}
+
+func (s *Service) currentTownEnterSelectPartyFence(session *gameSession) currentTownEnterSelectPartySnapshot {
+	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if bound {
+		manager := s.runtimePartyManagerForService()
+		if manager != nil {
+			if snapshot, found := manager.SnapshotByUser(identity.character, identity.generation); found {
+				ids := make([]uint16, 0, len(snapshot.Members))
+				for _, member := range snapshot.Members {
+					if member.UserID != 0 {
+						ids = append(ids, member.UserID)
+					}
+				}
+				sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+				var members [4]uint16
+				count := len(ids)
+				if count > len(members) {
+					count = len(members)
+				}
+				copy(members[:], ids[:count])
+				return currentTownEnterSelectPartySnapshot{
+					PartyID: int(snapshot.ID), LeaderID: snapshot.Leader,
+					MemberCount: count, Members: members, Bound: true,
+				}
+			}
+		}
+		return currentTownEnterSelectPartySnapshot{Bound: true}
+	}
+	state := runtimePartyStateSnapshot(session)
+	members := runtimePartyMembers(state)
+	ids := make([]uint16, 0, len(members))
+	for _, member := range members {
+		if member.UserID != 0 {
+			ids = append(ids, member.UserID)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var result [4]uint16
+	count := len(ids)
+	if count > len(result) {
+		count = len(result)
+	}
+	copy(result[:], ids[:count])
+	return currentTownEnterSelectPartySnapshot{
+		PartyID: state.PartyID, LeaderID: state.UserID,
+		MemberCount: count, Members: result,
+	}
+}
+
+func currentTownEnterSelectPartyFenceEqual(
+	current currentTownEnterSelectPartySnapshot,
+	deferred *currentTownEnterSelectDeferredRequest,
+) string {
+	if current.Bound != deferred.PartyBound {
+		return "party_authority_changed"
+	}
+	if current.PartyID != deferred.PartyID {
+		return "party_id_changed"
+	}
+	if current.LeaderID != deferred.PartyLeaderID {
+		return "party_leader_changed"
+	}
+	if current.MemberCount != deferred.PartyMemberCount || current.Members != deferred.PartyMembers {
+		return "party_membership_changed"
+	}
+	return ""
+}
+
+// resetCurrentTownEnterSelectSceneLocked invalidates deferred op15 work when
+// a return or scene reset reuses the same character/town/area tuple. The
+// caller must hold townMu.
+func resetCurrentTownEnterSelectSceneLocked(session *gameSession) {
+	if session == nil {
+		return
+	}
+	session.townSceneGeneration++
+	if session.townSceneGeneration == 0 {
+		session.townSceneGeneration = 1
+	}
+	session.townEnterSelectDeferred = nil
+}
 
 func (s *Service) markCurrentTownSceneReady(session *gameSession) {
 	if session == nil || session.selectedCharacterID == 0 {
@@ -28,16 +144,166 @@ func (s *Service) currentTownEnterSelectReady(session *gameSession) (bool, strin
 	if positionSnapshot.CharacterID != session.selectedCharacterID {
 		return false, "town_scene_location_owner_missing"
 	}
-	if !positionSnapshot.PositionValid {
-		return false, "town_scene_position_not_reported"
-	}
 	session.dungeon.mu.Lock()
 	hasDungeonRuntime := session.dungeon.runtime != nil
 	session.dungeon.mu.Unlock()
 	if hasDungeonRuntime {
 		return false, "active_dungeon_runtime"
 	}
+	// A retained runtime also fences the selector when its Session has not
+	// been attached yet. Do not classify that boundary as a missing position
+	// and park an op15 which must keep the existing ACK-only behavior.
+	if !positionSnapshot.PositionValid {
+		return false, currentTownEnterSelectReasonPositionNotReported
+	}
 	return true, "current_town_scene_player_state_finalized"
+}
+
+func (s *Service) deferCurrentTownEnterSelectRequest(session *gameSession, source, reason string) bool {
+	if session == nil || session.selectedCharacterID == 0 || session.characterGeneration == 0 {
+		return false
+	}
+	characterID := session.selectedCharacterID
+	characterGeneration := session.characterGeneration
+	if identity, current := s.boundGameSessionCharacterSnapshot(session); current {
+		characterID, characterGeneration = identity.character, identity.generation
+	}
+	if s.sessionHasActiveDungeonRuntime(session) {
+		return false
+	}
+	ready, readyReason := s.currentTownEnterSelectReady(session)
+	if ready || readyReason != currentTownEnterSelectReasonPositionNotReported {
+		return false
+	}
+	party := s.currentTownEnterSelectPartyFence(session)
+	deferred := &currentTownEnterSelectDeferredRequest{
+		CharacterID:         characterID,
+		CharacterGeneration: characterGeneration,
+		Source:              source,
+		DeferredAt:          time.Now(),
+		PartyID:             party.PartyID,
+		PartyLeaderID:       party.LeaderID,
+		PartyMemberCount:    party.MemberCount,
+		PartyMembers:        party.Members,
+		PartyBound:          party.Bound,
+	}
+	session.townMu.Lock()
+	snapshot := session.townPositionSnapshot
+	if session.selectedCharacterID != deferred.CharacterID || session.characterGeneration != deferred.CharacterGeneration ||
+		session.townSceneReadyCharacterID != deferred.CharacterID ||
+		snapshot.CharacterID != deferred.CharacterID || snapshot.PositionValid {
+		session.townMu.Unlock()
+		return false
+	}
+	deferred.SceneGeneration = session.townSceneGeneration
+	deferred.TownID, deferred.AreaID = snapshot.TownID, snapshot.AreaID
+	session.townEnterSelectDeferred = deferred
+	session.townMu.Unlock()
+	s.logInfo("dnfbridge town enter-select request deferred until current op35 position",
+		"conn_id", session.connID,
+		"char_id", deferred.CharacterID,
+		"character_generation", deferred.CharacterGeneration,
+		"town_scene_generation", deferred.SceneGeneration,
+		"town_id", deferred.TownID,
+		"area_id", deferred.AreaID,
+		"source", source,
+		"reason", reason)
+	return true
+}
+
+func (s *Service) clearDeferredTownEnterSelectRequest(session *gameSession, reason string) {
+	if session == nil {
+		return
+	}
+	session.townMu.Lock()
+	deferred := session.townEnterSelectDeferred
+	session.townEnterSelectDeferred = nil
+	session.townMu.Unlock()
+	if deferred != nil && reason != "" {
+		s.logInfo("dnfbridge town enter-select deferred request discarded",
+			"conn_id", session.connID,
+			"char_id", deferred.CharacterID,
+			"source", deferred.Source,
+			"reason", reason)
+	}
+}
+
+func (s *Service) resumeDeferredTownEnterSelectAfterPosition(session *gameSession) error {
+	if session == nil || session.selectedCharacterID == 0 {
+		return nil
+	}
+	session.townMu.Lock()
+	deferred := session.townEnterSelectDeferred
+	if deferred == nil {
+		session.townMu.Unlock()
+		return nil
+	}
+	currentSnapshot := session.townPositionSnapshot
+	currentCharacterGeneration := session.characterGeneration
+	currentTownSceneGeneration := session.townSceneGeneration
+	discardReason := ""
+	switch {
+	case deferred.CharacterID != session.selectedCharacterID:
+		discardReason = "character_changed"
+	case deferred.CharacterGeneration != currentCharacterGeneration:
+		discardReason = "character_generation_changed"
+	case deferred.SceneGeneration != currentTownSceneGeneration:
+		discardReason = "town_scene_generation_changed"
+	case currentSnapshot.CharacterID != deferred.CharacterID || currentSnapshot.TownID != deferred.TownID || currentSnapshot.AreaID != deferred.AreaID:
+		discardReason = "town_scene_snapshot_changed"
+	}
+	if discardReason != "" {
+		session.townEnterSelectDeferred = nil
+		session.townMu.Unlock()
+		s.logInfo("dnfbridge town enter-select deferred request discarded",
+			"conn_id", session.connID,
+			"char_id", deferred.CharacterID,
+			"source", deferred.Source,
+			"reason", discardReason)
+		return nil
+	}
+	session.townMu.Unlock()
+
+	if age := time.Since(deferred.DeferredAt); age > currentTownEnterSelectDeferredLifetime {
+		s.clearDeferredTownEnterSelectRequest(session, "deadline_expired")
+		return nil
+	}
+	if currentIdentity, current := s.boundGameSessionCharacterSnapshot(session); current &&
+		(currentIdentity.character != deferred.CharacterID || currentIdentity.generation != deferred.CharacterGeneration) {
+		s.clearDeferredTownEnterSelectRequest(session, "bound_character_identity_changed")
+		return nil
+	} else if deferred.PartyBound && !current {
+		s.clearDeferredTownEnterSelectRequest(session, "session_binding_removed")
+		return nil
+	}
+	if reason := currentTownEnterSelectPartyFenceEqual(s.currentTownEnterSelectPartyFence(session), deferred); reason != "" {
+		s.clearDeferredTownEnterSelectRequest(session, reason)
+		return nil
+	}
+
+	ready, reason := s.currentTownEnterSelectReady(session)
+	if !ready {
+		s.clearDeferredTownEnterSelectRequest(session, "not_ready_"+reason)
+		return nil
+	}
+
+	session.townMu.Lock()
+	if session.townEnterSelectDeferred != deferred {
+		session.townMu.Unlock()
+		return nil
+	}
+	session.townEnterSelectDeferred = nil
+	session.townMu.Unlock()
+	s.logInfo("dnfbridge town enter-select deferred request resumed after current op35 position",
+		"conn_id", session.connID,
+		"char_id", deferred.CharacterID,
+		"character_generation", deferred.CharacterGeneration,
+		"town_scene_generation", deferred.SceneGeneration,
+		"town_id", deferred.TownID,
+		"area_id", deferred.AreaID,
+		"source", deferred.Source,
+		"deferred_ms", time.Since(deferred.DeferredAt).Milliseconds())
+	return s.sendEnterSelectDungeonState(session, deferred.Source+"_after_current_op35_position", false, true)
 }
 
 // commitPendingDungeonReturnBeforeTownEnterSelect repairs the current EXE
@@ -103,6 +369,7 @@ func (s *Service) commitPendingDungeonReturnBeforeTownAction(session *gameSessio
 		session.townMu.Unlock()
 		return fmt.Errorf("回城确认期间所选角色已改变")
 	}
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townPositionSnapshot = snapshot
 	session.townMu.Unlock()
 	if err := s.commitPendingDungeonReturnForExpectedSceneRequest(session, confirmationSource, runtime); err != nil {
@@ -124,6 +391,7 @@ func (s *Service) commitPendingDungeonReturnBeforeTownAction(session *gameSessio
 
 	session.townMu.Lock()
 	clearCurrentTownSelectorOriginLocked(session)
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townSceneReadyCharacterID = characterID
 	session.townPositionSnapshot = snapshot
 	session.townMu.Unlock()
@@ -215,6 +483,7 @@ func (s *Service) retireCompletedDungeonForTownAction(session *gameSession, requ
 	clearCurrentDungeonSelectContext(session)
 	session.townMu.Lock()
 	clearCurrentTownSelectorOriginLocked(session)
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townSceneReadyCharacterID = characterID
 	session.townPositionSnapshot = origin
 	session.townMu.Unlock()

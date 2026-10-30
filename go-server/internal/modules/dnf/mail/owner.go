@@ -15,6 +15,7 @@ import (
 	shop "longheng.io/server/internal/modules/dnf/cerashop"
 	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/premium"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -89,6 +90,9 @@ type ClaimResult struct {
 	InventoryFull       bool
 	ClaimObjects        []mailboxClaimObject
 	WalletChanged       bool
+	// FateCurrencyChanged is true only when the account-wide Fate balance
+	// actually increased. A capped claim still settles its durable mail receipt.
+	FateCurrencyChanged bool
 	MailIDs             []uint32
 	Gold                int64
 	ItemCount           int
@@ -419,7 +423,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			return ClaimResult{}, err
 		}
 	}
-	hasAttachments, hasVouchers := false, false
+	hasAttachments, hasVouchers, hasFate := false, false, false
 	contracts := make(map[int64]premium.InventoryContract)
 	preselected, err := selectMailboxClaims(record, req.MailIDs)
 	if err != nil {
@@ -431,7 +435,11 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			continue
 		}
 		for _, item := range mail.Attachments {
-			if shop.IsVoucher(item.ItemID) {
+			if item.ItemID == int64(raidcurrency.FateItemID) {
+				// Fate settles into the account wallet and never occupies a
+				// character inventory slot.
+				hasFate = true
+			} else if shop.IsVoucher(item.ItemID) {
 				hasVouchers = true
 			} else {
 				if o.premiumResolver != nil {
@@ -458,7 +466,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 	var accounts dnfrepo.AccountRepository
 	var accountID string
 	within := o.repos.MailboxAssets.WithinMailboxAssets
-	if hasVouchers || len(contracts) > 0 {
+	if hasVouchers || hasFate || len(contracts) > 0 {
 		tx, ok := o.repos.MailboxAssets.(dnfrepo.AccountTradeMailboxUnitOfWork)
 		if !ok || o.repos.Character == nil {
 			return ClaimResult{}, ErrMailboxAssetsUOW
@@ -583,6 +591,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 		var totalGold int64
 		acceptedVouchers := shop.VoucherCounts{}
 		var acceptedContracts []mailboxContractCredit
+		var acceptedFate int64
 		inventoryChanged := false
 		inventoryFull := false
 		// acceptedPieces 是"已接受但还没入账"的碎片，按碎片 id 聚合。
@@ -611,10 +620,19 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			candidateInventoryChanged := false
 			candidatePieces := make(map[uint32]int64)
 			candidateWarehouse := make(map[int16]mailboxWarehouseCreditItem)
+			var candidateFate int64
 			fits := true
 			for _, attachment := range candidate.mail.Attachments {
 				if attachment.ItemID <= 0 || attachment.Count <= 0 {
 					return ErrMailboxInvalidRequest
+				}
+				if attachment.ItemID == int64(raidcurrency.FateItemID) {
+					if candidateFate > math.MaxUint32-attachment.Count {
+						return ErrMailboxInvalidRequest
+					}
+					candidateFate += attachment.Count
+					candidateItemCount++
+					continue
 				}
 				if kind := shop.VoucherKindOf(attachment.ItemID); kind != shop.VoucherNone {
 					if accounts == nil || attachment.Count > shop.MaxWalletBalance {
@@ -745,6 +763,10 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			}
 			acceptedVouchers = acceptedVouchers.Add(candidateVouchers)
 			acceptedContracts = append(acceptedContracts, candidateContracts...)
+			if acceptedFate > math.MaxUint32-candidateFate {
+				return ErrMailboxInvalidRequest
+			}
+			acceptedFate += candidateFate
 			inventory = candidateInventory
 			inventoryChanged = inventoryChanged || candidateInventoryChanged
 			for pieceID, count := range candidatePieces {
@@ -782,7 +804,10 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 		}
 		result.InventoryFull = inventoryFull
 		result.Gold = totalGold
-		if !acceptedVouchers.IsZero() || len(acceptedContracts) > 0 {
+		if !acceptedVouchers.IsZero() || len(acceptedContracts) > 0 || acceptedFate > 0 {
+			if accounts == nil {
+				return ErrMailboxAssetsUOW
+			}
 			account, found, e := accounts.Load(ctx, accountID)
 			if e != nil {
 				return e
@@ -800,6 +825,17 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 					return err
 				}
 				result.ContractActivations = append(result.ContractActivations, alignedcmd.PremiumContractActivation{ItemID: activation.ItemID, PremiumType: activation.PremiumType, Units: activation.Units, ExpireAt: activation.ExpireAt})
+			}
+			if acceptedFate > 0 {
+				// A mail attachment is a still-unclaimed grant, not an already
+				// owned inventory row. The existing bootstrap migration owns
+				// Consolidate for historical inventory; first successful mail
+				// claims use the account-wide weekly Credit cap.
+				granted, _, creditErr := raidcurrency.Credit(&account, uint32(acceptedFate), now)
+				if creditErr != nil {
+					return creditErr
+				}
+				result.FateCurrencyChanged = granted > 0
 			}
 			account.UpdatedAt = now
 			if e = accounts.Save(ctx, account); e != nil {

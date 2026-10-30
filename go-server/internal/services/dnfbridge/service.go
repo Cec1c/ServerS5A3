@@ -132,6 +132,9 @@ type Service struct {
 	// 与 partyUDPRelay 至多一个非 nil（由 newPartyUDPRelayBackends 决定）。
 	// 见 party_udp_relay_remote.go。
 	partyUDPRelayRemote *currentPartyUDPRelayRemote
+	// Serialize Sync/Close for each party without holding manager or binding
+	// locks across remote I/O. The bounded stripes avoid a growing lock map.
+	partyRelayMutation  [64]sync.Mutex
 	runtimePartyManager *party.RuntimePartyManager
 	partyDungeons       *partyDungeonInstanceRegistry
 	// partyDungeonLoadingCycles 是"全队 op37 finish-loading 到齐再统一放行"的组队状态
@@ -761,6 +764,7 @@ func (s *Service) Start(ctx context.Context) error {
 		// （别名 early_only）= 改动前的四条边界档；record = 只落库不下发；
 		// reference_drop = 逐字节回到改动前（收下即丢）。见 skill_switch_inventory.go。
 		"skill_switch_inventory", s.skillSwitchInventoryMode(),
+		"buff_swap_registration_enabled", s.buffSwapReapplyEnabled(),
 		// op1428 **上行记录读法**：默认 v4 = 修复档（真实包体 4 字节
 		// `u8 slot | u8 mode | u16 value`；现行分帧交来的 6 字节按 dual-read 去前缀，
 		// 落库写 4 字节规范形）；v6（别名 legacy/today/old/6）= 逐字节回到改动前。
@@ -991,10 +995,14 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	logger := s.packetLog
 	s.mu.Unlock()
 	if logger == nil {
+		s.logTownLoadingDiagnostic(kind, args...)
 		s.logEmpireTeamSetupDiagnostic(kind, args...)
 		s.logDungeonSettlementDiagnostic(kind, args...)
-		s.logCrossSceneProfileDiagnostic(kind, args...)
-		s.logRaidPeerDiagnostic(kind, args...)
+		if kind == "game-peer-userinfo-profile-refresh-sent" || kind == "game-peer-userinfo-profile-refresh-failed" {
+			s.logCrossSceneProfileDiagnostic(kind, args...)
+		} else {
+			s.logRaidPeerDiagnostic(kind, args...)
+		}
 	}
 	logger.Event(kind, args...)
 }

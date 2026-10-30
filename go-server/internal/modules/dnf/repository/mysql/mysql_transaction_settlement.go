@@ -59,6 +59,40 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
+
+	// Settlements can update Account metadata. Guild settlements first take the
+	// global guild-registry row used by every guild unit of work, then lock the
+	// account, then the character. Non-guild settlements start at the account.
+	// The ownership lookup is deliberately non-locking; the character row is
+	// re-read under the later lock and the account association is checked again.
+	var settlementAccountID string
+	if owner != nil {
+		settlementAccountID = strings.TrimSpace(owner.AccountID)
+	} else {
+		lookupRouter := txRouter
+		lookupRouter.lockReads = false
+		lookup := newMySQLGroupFromRouter(lookupRouter, false)
+		character, found, lookupErr := lookup.Character.Load(ctx, characterID)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if !found || character.CharacterID != characterID {
+			return repository.ErrCharacterSettlementTransactionUnavailable
+		}
+		settlementAccountID = strings.TrimSpace(character.AccountID)
+	}
+	if settlementAccountID == "" {
+		return repository.ErrCharacterSettlementTransactionUnavailable
+	}
+	base := newMySQLGroupFromRouter(txRouter, false)
+	// 当前事务已加载的完整背包与共享仓库快照用于槽位差量。
+	// 保留既有公会登记、账号、角色的锁顺序；未Load仍走完整写入。
+	if store, ok := base.Inventory.(*mysqlBagStore); ok {
+		store.trackSlotChanges = true
+	}
+	if store, ok := base.AccountInventory.(*mysqlAccountInventoryStore); ok {
+		store.trackSlotChanges = true
+	}
 	if owner != nil {
 		table, err := txRouter.writeTable(mysqlSettingsTable, repository.GuildRegistryScope)
 		if err != nil {
@@ -67,27 +101,23 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		if _, err = txRouter.db.ExecContext(ctx, "INSERT INTO "+table+" (scope, updated_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE scope = VALUES(scope)", repository.GuildRegistryScope, txRouter.now()); err != nil {
 			return err
 		}
-	}
-	base := newMySQLGroupFromRouter(txRouter, false)
-	// 角色结算和账号资产事务共用已验证的槽位差量写入。快照只属于当前
-	// SQL事务；未成功读取完整快照的保存仍走原有完整写入。
-	if store, ok := base.Inventory.(*mysqlBagStore); ok {
-		store.trackSlotChanges = true
-	}
-	if store, ok := base.AccountInventory.(*mysqlAccountInventoryStore); ok {
-		store.trackSlotChanges = true
-	}
-	if owner != nil {
 		if _, _, err := base.Settings.Load(ctx, repository.GuildRegistryScope); err != nil {
 			return err
 		}
-		character, found, err := base.Character.Load(ctx, characterID)
-		if err != nil {
-			return err
-		}
-		if !found || character.CharacterID != owner.CharacterID || character.AccountID != owner.AccountID {
+	}
+	accountLocker := &rentalScopedAccountRepository{accountID: settlementAccountID, base: base.Account}
+	if _, _, lockErr := accountLocker.Load(ctx, settlementAccountID); lockErr != nil {
+		return lockErr
+	}
+	lockedCharacter, found, lockErr := base.Character.Load(ctx, characterID)
+	if lockErr != nil {
+		return lockErr
+	}
+	if !found || lockedCharacter.CharacterID != characterID || strings.TrimSpace(lockedCharacter.AccountID) != settlementAccountID {
+		if owner != nil {
 			return repository.ErrGuildTransaction
 		}
+		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
 
 	txGroup := repository.Group{

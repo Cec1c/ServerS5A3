@@ -56,8 +56,27 @@ func magicBoxTestRewardItems() map[int64]alignedcmd.MagicBoxRewardItem {
 
 func saveMagicBoxFixture(t *testing.T, ctx context.Context, repos dnfrepo.Group, slots map[string]dnfrepo.ItemStack) {
 	t.Helper()
+	if _, found, err := repos.Account.Load(ctx, "acc"); err != nil {
+		t.Fatalf("load magic-box account: %v", err)
+	} else if !found {
+		if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "acc", State: "active"}); err != nil {
+			t.Fatalf("save magic-box account: %v", err)
+		}
+	}
+	saveMagicBoxTestCharacter(t, ctx, repos, "acc")
 	if err := repos.Inventory.Save(ctx, dnfrepo.InventoryRecord{CharacterID: "77", Slots: slots}); err != nil {
 		t.Fatalf("save inventory: %v", err)
+	}
+}
+
+func saveMagicBoxTestCharacter(t *testing.T, ctx context.Context, repos dnfrepo.Group, accountID string) {
+	t.Helper()
+	if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{
+		CharacterID: "77",
+		AccountID:   accountID,
+		Name:        "magic-box-owner",
+	}); err != nil {
+		t.Fatalf("save magic-box character: %v", err)
 	}
 }
 

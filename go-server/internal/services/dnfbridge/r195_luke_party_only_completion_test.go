@@ -12,18 +12,6 @@ import (
 	"time"
 )
 
-func r195WantOwners(owners []uint16, want ...uint16) bool {
-	if len(owners) != len(want) {
-		return false
-	}
-	for i := range want {
-		if owners[i] != want[i] {
-			return false
-		}
-	}
-	return true
-}
-
 type r195LukeCompletionPacket struct {
 	Type    byte   `json:"type"`
 	Op      uint16 `json:"op"`
@@ -152,7 +140,7 @@ func TestR195LukePartyOnlyCompletionWire(t *testing.T) {
 	changed := send("changed_party", session)
 	r195LukeWantCompletionWire(t, changed, "kind1", "empty3", "state5")
 	body, err := hex.DecodeString(changed[0].BodyHex)
-	if err != nil || !r195WantOwners(parsePhase0CardOwners(t, body), 19, 20) {
+	if err != nil || !reflect.DeepEqual(parsePhase0CardOwners(t, body), []uint16{19, 20}) {
 		t.Fatal("changed party body was lost", err, changed)
 	}
 	r195LukeWantCompletionWire(t, send("changed_party_duplicate", session))

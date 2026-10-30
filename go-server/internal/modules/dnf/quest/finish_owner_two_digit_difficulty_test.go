@@ -26,7 +26,7 @@ func TestOwnerApplyFinishSettlementUsesFullTwoDigitDifficultyKey(t *testing.T) {
 	tables, err := progression.Load(context.Background(), finishProgressionSource{
 		progression.ExperienceTablePath: "100 250 500\n",
 		progression.SkillPointTablePath: "[sp table]\n1 0\n2 30\n3 30\n4 40\n[/sp table]\n[tp table]\n50 1\n[/tp table]\n",
-		progression.QuestParameterPath:  "[difficulty]\n`N` 100\n`G` 30\n`10` 708\n[/difficulty]\n[exp reward table]\n200 -1\n[gold reward table]\n10 -1\n[green level penalty]\n80\n[grey level penalty]\n30\n",
+		progression.QuestParameterPath:  "[difficulty]\n`N` 100\n`G` 30\n`10` 708\n[/difficulty]\n[exp reward table]\n200 -1\n[gold reward table]\n10\n[green level penalty]\n80\n[grey level penalty]\n30\n",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -112,10 +112,10 @@ func TestCurrentPartyUDPRelaySyncRemovesFormerMemberLegs(t *testing.T) {
 
 func testCurrentPartyUDPRelayPortStart(t *testing.T) int {
 	t.Helper()
-	const portCount = 12
+	const portCount = 64
 	var lastErr error
 	lastRange := "not allocated"
-	for attempt := 0; attempt < 20; attempt++ {
+	for attempt := 0; attempt < 128; attempt++ {
 		lastRange = "not allocated"
 		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 		if err != nil {
@@ -124,9 +124,9 @@ func testCurrentPartyUDPRelayPortStart(t *testing.T) int {
 		}
 		port := listener.LocalAddr().(*net.UDPAddr).Port
 		lastRange = fmt.Sprintf("%d-%d", port, port+portCount-1)
-		if port > 65523 {
+		if port > 65535-portCount+1 {
 			_ = listener.Close()
-			lastErr = fmt.Errorf("range start %d exceeds 65523", port)
+			lastErr = fmt.Errorf("range start %d exceeds 65472", port)
 			continue
 		}
 		// Hold every socket until the complete range has been checked together.
@@ -147,7 +147,7 @@ func testCurrentPartyUDPRelayPortStart(t *testing.T) int {
 			return port
 		}
 	}
-	t.Fatalf("could not allocate a usable twelve-port UDP test range after 20 attempts: bindIP=127.0.0.1 range=%s error=%v", lastRange, lastErr)
+	t.Fatalf("could not allocate a usable sixty-four-port UDP test range after 128 attempts: bindIP=127.0.0.1 range=%s error=%v", lastRange, lastErr)
 	return 0
 }
 

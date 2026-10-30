@@ -118,14 +118,15 @@ type dungeonPartyInstance struct {
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 
-	semesterRun *currentSemesterRun
-	mu          sync.Mutex
-	id          uint64
-	key         dungeonPartyRunKey
-	createdAt   time.Time
-	lastSeenAt  time.Time
-	members     map[uint16]time.Time
-	sessions    map[uint16]*gameSession
+	semesterRun     *currentSemesterRun
+	mu              sync.Mutex
+	id              uint64
+	key             dungeonPartyRunKey
+	createdAt       time.Time
+	entryPartyCount int
+	lastSeenAt      time.Time
+	members         map[uint16]time.Time
+	sessions        map[uint16]*gameSession
 	// Exact runtime attachment owns membership retirement. Character IDs can
 	// already belong to a replacement socket/run when old cleanup arrives.
 	memberRuntimes         map[uint16]*runtimeDungeonState
@@ -252,19 +253,20 @@ func (s *Service) adoptPartyDungeonInstance(
 	if instance == nil {
 		registry.nextID++
 		instance = &dungeonPartyInstance{
-			id:             registry.nextID,
-			key:            key,
-			createdAt:      now,
-			lastSeenAt:     now,
-			members:        map[uint16]time.Time{characterID: now},
-			sessions:       map[uint16]*gameSession{characterID: session},
-			memberRuntimes: map[uint16]*runtimeDungeonState{characterID: runtime},
-			scenes:         map[uint16]*worldmap.DungeonSession{},
-			room:           runtime.Room,
-			dropOwner:      runtime.DropOwner,
-			nextObjectKey:  runtime.NextObjectKey,
-			rooms:          map[runtimeDungeonRoomKey]partyDungeonSharedRoom{},
-			scene:          scene,
+			id:              registry.nextID,
+			key:             key,
+			createdAt:       now,
+			entryPartyCount: runtime.entryPartyCount,
+			lastSeenAt:      now,
+			members:         map[uint16]time.Time{characterID: now},
+			sessions:        map[uint16]*gameSession{characterID: session},
+			memberRuntimes:  map[uint16]*runtimeDungeonState{characterID: runtime},
+			scenes:          map[uint16]*worldmap.DungeonSession{},
+			room:            runtime.Room,
+			dropOwner:       runtime.DropOwner,
+			nextObjectKey:   runtime.NextObjectKey,
+			rooms:           map[runtimeDungeonRoomKey]partyDungeonSharedRoom{},
+			scene:           scene,
 		}
 		if runtime.Session != nil {
 			instance.scenes[characterID] = runtime.Session
@@ -355,6 +357,7 @@ func (runtime *runtimeDungeonState) adoptPartyDungeonInstance(instance *dungeonP
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 	runtime.partyInstance = instance
+	runtime.entryPartyCount = instance.entryPartyCount
 	if runtime.randomizedObjects != nil && runtime.randomizedObjects.entrySignature == instance.ridableSelectionSignature {
 		runtime.randomizedObjects.ridableTerminals = instance.ridableTerminals
 	}
@@ -544,9 +547,16 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameS
 	if s == nil || peer == nil || instanceID == 0 {
 		return
 	}
+	identity, bound := s.boundGameSessionCharacterSnapshot(peer)
+	if !bound {
+		return
+	}
 	run := func() error {
 		peer.dungeon.mu.Lock()
 		defer peer.dungeon.mu.Unlock()
+		if !s.boundGameSessionCharacterCurrent(identity) {
+			return nil
+		}
 		runtime := peer.dungeon.runtime
 		if runtime == nil || runtime.Session == nil || runtime.partyInstance == nil ||
 			runtime.partyInstance.id != instanceID {

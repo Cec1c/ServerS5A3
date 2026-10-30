@@ -156,7 +156,7 @@ func finishBridgeCapProgression(t *testing.T) *progression.Tables {
 	tables, err := progression.Load(context.Background(), finishBridgePVFSource{
 		progression.ExperienceTablePath: thresholds.String(),
 		progression.SkillPointTablePath: "[sp table]\n" + sp.String() + "[/sp table]\n[tp table]\n50 1\n[/tp table]\n",
-		progression.QuestParameterPath:  "[difficulty]\n`N` 100\n[/difficulty]\n[exp reward table]\n100 -1\n[gold reward table]\n10 -1\n[epic grey level penalty]\n100\n",
+		progression.QuestParameterPath:  "[difficulty]\n`N` 100\n[/difficulty]\n[exp reward table]\n100 -1\n[gold reward table]\n10\n[epic grey level penalty]\n100\n",
 	})
 	if err != nil {
 		t.Fatal(err)

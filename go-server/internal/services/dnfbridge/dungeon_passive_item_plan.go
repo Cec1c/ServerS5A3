@@ -171,6 +171,9 @@ func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession,
 	rows := make([]*currentDungeonPassiveObjectDropRow, 0, len(plan))
 	for i, row := range plan {
 		drop := &runtimeDungeonDrop{ObjectKey: nextKey + uint32(i), SceneSlot: nextSlot + uint16(i), Item: definitions[i], Amount: 1, OwnerActorObjectKey: actor, Room: room, Status: runtimeDungeonDropAvailable, MapOwnedPassiveObject: true, MapOwnedPassiveIndex: row.objectIndex}
+		if err := initializeCurrentAikenPassiveDrop(drop); err != nil {
+			return err
+		}
 		batch = append(batch, drop)
 		rows = append(rows, &currentDungeonPassiveObjectDropRow{NativeObjectKey: true, ObjectIndex: row.objectIndex, SceneSlot: drop.SceneSlot, ObjectKey: drop.ObjectKey, ItemID: row.itemID, StackCount: 1})
 	}

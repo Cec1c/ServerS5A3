@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/mysql"
 	"strings"
@@ -400,6 +401,69 @@ func (c *progressionSQLConn) ExecContext(_ context.Context, query string, _ []dr
 	c.state.queries = append(c.state.queries, query)
 	c.state.mu.Unlock()
 	return driver.RowsAffected(1), nil
+}
+
+func (c *progressionSQLConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	c.state.mu.Lock()
+	c.state.queries = append(c.state.queries, query)
+	c.state.mu.Unlock()
+	return progressionSQLRowsFor(query), nil
+}
+
+type progressionSQLRows struct {
+	columns []string
+	rows    [][]driver.Value
+	next    int
+}
+
+func (r *progressionSQLRows) Columns() []string { return r.columns }
+func (r *progressionSQLRows) Close() error      { return nil }
+
+func (r *progressionSQLRows) Next(dest []driver.Value) error {
+	if r.next >= len(r.rows) {
+		return io.EOF
+	}
+	row := r.rows[r.next]
+	r.next++
+	if len(dest) != len(row) {
+		return errors.New("progression SQL row width mismatch")
+	}
+	copy(dest, row)
+	return nil
+}
+
+func progressionSQLRowsFor(query string) driver.Rows {
+	selectList := strings.TrimPrefix(query, "SELECT ")
+	if end := strings.Index(selectList, " FROM "); end >= 0 {
+		selectList = selectList[:end]
+	}
+	rows := &progressionSQLRows{columns: strings.Split(selectList, ",")}
+	values := make([]driver.Value, len(rows.columns))
+	for index := range values {
+		values[index] = int64(0)
+	}
+	switch {
+	case strings.HasPrefix(query, "SELECT account_id, state,"):
+		values[0], values[1], values[3] = "dnf:1", "active", nil
+		if len(values) > 4 {
+			values[4] = nil
+		}
+		if len(values) > 5 {
+			values[5] = nil
+		}
+		rows.rows = [][]driver.Value{values}
+	case strings.HasPrefix(query, "SELECT character_id, account_id,"):
+		values[0], values[1], values[3], values[4] = "77", "dnf:1", "hero", "0"
+		values[2], values[5] = int64(0), int64(2)
+		if len(values) > 1 {
+			values[len(values)-1] = nil
+		}
+		if len(values) > 2 {
+			values[len(values)-2] = nil
+		}
+		rows.rows = [][]driver.Value{values}
+	}
+	return rows
 }
 
 type progressionSQLTx struct {

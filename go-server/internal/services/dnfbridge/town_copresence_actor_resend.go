@@ -74,6 +74,11 @@ func (s *Service) resendTownCopresencePeerActorsAfterFinishLoading(session *game
 	if s.sessionHasActiveDungeonRuntime(session) {
 		return
 	}
+	if err := s.sendCurrentTownPartyHPAfterCrossAreaLoading(session); err != nil {
+		s.logGameEvent(session, "game-town-cross-area-party-hp-resend-failed",
+			"source", source, "char_id", session.selectedCharacterID, "error", err)
+		return
+	}
 	peers := s.onlinePlayers.PeersInSameArea(session.selectedCharacterID)
 	if len(peers) == 0 {
 		return

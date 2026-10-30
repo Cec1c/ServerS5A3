@@ -140,7 +140,11 @@ type ClearCondition struct {
 }
 
 type Maze struct {
-	Index                    int                      `json:"index"`
+	Index int `json:"index"`
+	// HiddenBoss marks the alternate hidden-boss maze. It belongs to one
+	// Maze, not to DungeonMetadata.Flags: ordinary and hidden mazes commonly
+	// coexist in the same DGN.
+	HiddenBoss               bool                     `json:"hidden_boss,omitempty"`
 	Width                    OptionalInt              `json:"width"`
 	Height                   OptionalInt              `json:"height"`
 	Greed                    string                   `json:"greed,omitempty"`

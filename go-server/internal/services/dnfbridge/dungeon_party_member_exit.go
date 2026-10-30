@@ -37,11 +37,18 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 		// The leader is still inside this exact instance. Do not pass through
 		// the generic below-two-members publisher: it erases the surviving
 		// lobby's projection and recycles its still-active dungeon registry.
+		var recordedGeneration uint64
+		for _, member := range before.Members {
+			if member.UserID == identity.character {
+				recordedGeneration = member.SessionGeneration
+			}
+		}
 		var result party.RuntimePartyResult
-		if drifted {
-			result = manager.LeaveCurrent(identity.character)
-		} else {
-			result = manager.Leave(identity.character, identity.generation)
+		if !s.withCurrentDungeonPartyRetirement(identity, instance, func() bool {
+			result = manager.LeaveExpected(identity.character, recordedGeneration, before.ID)
+			return result.OK
+		}) {
+			return nil
 		}
 		removed = result.OK
 		if removed {
@@ -101,6 +108,10 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 			continue
 		}
 		receiver := identity.session
+		current := s.currentPartyRetirementGuard(receiver, &state)
+		if !current() {
+			continue
+		}
 		active := false
 		for _, peer := range peers {
 			if peer.CharacterID == identity.character && peer.Session == receiver {
@@ -119,19 +130,23 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 			// identity. Requires the client local-actor-preserving kind3 helper:
 			// deleting the local party record must not destroy its living model.
 			retired := []alignedcmd.PartyMemberState{{UserID: departingID}, member}
-			if err := s.clearDungeonSurvivorTownPartyRecords(receiver, retired, "member_giveup_single_survivor"); err != nil {
+			if err := s.clearDungeonSurvivorTownPartyRecords(receiver, retired, "member_giveup_single_survivor", state); err != nil {
 				errs = errors.Join(errs, err)
 				continue
 			}
-			if err := s.clearDisbandedDungeonPartyRecords(receiver, retired, 0, false, "member_giveup_single_survivor"); err != nil {
+			if err := s.clearDisbandedDungeonPartyRecords(receiver, retired, 0, false, "member_giveup_single_survivor", state); err != nil {
 				errs = errors.Join(errs, err)
 				continue
 			}
-			if err := s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_single_survivor"); err != nil {
+			if !current() {
+				continue
+			}
+			if err := s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_single_survivor", state); err != nil {
 				errs = errors.Join(errs, err)
 				continue
 			}
-			errs = errors.Join(errs, s.sendGameUpperRawClassCodec(receiver, 0x0099, runtimePartyRealtimeInfoBody(alignedcmd.PartyState{}), 0, true))
+			_, err := s.sendRetiredPartyPacket(receiver, 0x0099, runtimePartyRealtimeInfoBody(alignedcmd.PartyState{}), &state, current, false)
+			errs = errors.Join(errs, err)
 			continue
 		}
 		if departingID != 0 {
@@ -143,7 +158,8 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 				continue
 			}
 			body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(departingID), currentSceneObjectContext, s.currentSceneActorRoute())
-			if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, 0); err != nil {
+			sent, err = s.sendRetiredPartyPacket(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, &state, current, false)
+			if err != nil || !sent {
 				errs = errors.Join(errs, err)
 				continue
 			}
@@ -164,10 +180,11 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 		// NOTI6 clears those slots before erasing the actor. Sending it first
 		// loses the only identity that the roster diff can use for removal.
 		// Keep each receiver's actor until its complete roster has been sent.
-		if rosterErr == nil && selfSent && departingID != 0 {
-			errs = errors.Join(errs, s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_confirmed_town"))
+		if rosterErr == nil && selfSent && departingID != 0 && current() {
+			errs = errors.Join(errs, s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_confirmed_town", state))
 		}
-		errs = errors.Join(errs, s.sendGameUpperRawClassCodec(receiver, 0x0099, runtimePartyRealtimeInfoBody(state), 0, true))
+		_, err := s.sendRetiredPartyPacket(receiver, 0x0099, runtimePartyRealtimeInfoBody(state), &state, current, false)
+		errs = errors.Join(errs, err)
 	}
 	return errs
 }

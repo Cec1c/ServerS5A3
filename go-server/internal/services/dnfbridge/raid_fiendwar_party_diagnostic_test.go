@@ -200,7 +200,7 @@ func TestFiendWarPartyAdmissionSceneKeyUsesRawSoloRuntime(t *testing.T) {
 
 func TestFiendWarPartyAdmissionDiagnosticDropsUnboundedFields(t *testing.T) {
 	service, _, _, logs := newFiendWarPartyAdmissionDiagnosticFixture(t)
-	service.logFiendWarPartyAdmissionFields(
+	service.logPacketEvent(fiendWarPartyAdmissionDiagnosticKind,
 		"phase", "request",
 		"char_id", 26,
 		"account_id", "dnf:secret",

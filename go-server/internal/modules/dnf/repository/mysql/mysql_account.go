@@ -28,6 +28,8 @@ type mysqlAccountStore struct {
 	mysqlStoreBase
 }
 
+var _ repository.AccountCreateIfAbsentWriter = (*mysqlAccountStore)(nil)
+
 // Load 按账号 ID 从 MySQL 读取 DNF 账号记录。
 func (s *mysqlAccountStore) Load(ctx context.Context, accountID string) (repository.AccountRecord, bool, error) {
 	table, err := s.router.readTable(mysqlAccountTable, accountID)
@@ -109,6 +111,110 @@ func (s *mysqlAccountStore) Save(ctx context.Context, record repository.AccountR
 			return execErr
 		}
 		return replaceStringMap(ctx, database, metadataTable, "account_id", accountID, record.Metadata)
+	})
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return repository.ErrRepresentAccountNameExists
+	}
+	return err
+}
+
+// CreateIfAbsent inserts one complete account record only when its account ID
+// is not already present. The account row and bootstrap metadata share one
+// physical transaction. A competing creator that wins the INSERT makes this
+// call return created=false without updating the existing row or metadata.
+func (s *mysqlAccountStore) CreateIfAbsent(ctx context.Context, record repository.AccountRecord) (bool, error) {
+	accountID, err := requireRecordKey(repository.AccountKey, record, "account")
+	if err != nil {
+		return false, err
+	}
+	table, err := s.router.writeTable(mysqlAccountTable, accountID)
+	if err != nil {
+		return false, err
+	}
+	metadataTable, err := s.router.writeTable(mysqlAccountMetadataTable, accountID)
+	if err != nil {
+		return false, err
+	}
+	updatedAt := timeOrNow(record.UpdatedAt, s.router.now)
+	createdAt := record.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = updatedAt
+	}
+	representName := strings.TrimSpace(record.RepresentAccountName)
+	var representNameArg any
+	if representName != "" {
+		representNameArg = representName
+	}
+	query := "INSERT IGNORE INTO " + table + " (account_id, state, " + mysqlAccountHonorColumn + ", " + mysqlAccountRepresentNameColumn + ", created_at, updated_at) " +
+		"VALUES (?, ?, ?, ?, ?, ?)"
+	metadataQuery := "INSERT INTO " + metadataTable + " (account_id, entry_key, entry_value) VALUES (?, ?, ?)"
+	created := false
+	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
+		result, execErr := database.ExecContext(ctx, query, accountID, record.State, record.HonorExp, representNameArg, sqlTime(createdAt), updatedAt)
+		if execErr != nil {
+			return execErr
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return rowsErr
+		}
+		if rows == 0 {
+			return nil
+		}
+		created = true
+		for _, key := range sortedStringKeys(record.Metadata) {
+			if _, execErr := database.ExecContext(ctx, metadataQuery, accountID, key, record.Metadata[key]); execErr != nil {
+				return execErr
+			}
+		}
+		return nil
+	})
+	return created, err
+}
+
+// SaveRepresentAccountName updates only the account-wide nickname column and
+// one metadata row. This avoids the full-metadata replacement performed by
+// Save overwriting unrelated keys such as the account Fate ledger.
+func (s *mysqlAccountStore) SaveRepresentAccountName(
+	ctx context.Context,
+	accountID, name, metadataKey, metadataValue, newAccountState string,
+	updatedAt time.Time,
+) error {
+	accountID = strings.TrimSpace(accountID)
+	name = strings.TrimSpace(name)
+	metadataKey = strings.TrimSpace(metadataKey)
+	metadataValue = strings.TrimSpace(metadataValue)
+	newAccountState = strings.TrimSpace(newAccountState)
+	if accountID == "" {
+		return db.ErrRecordKeyRequired
+	}
+	if name == "" || metadataKey == "" || metadataValue == "" {
+		return repository.ErrAccountMetadataKeyRequired
+	}
+	accountTable, err := s.router.writeTable(mysqlAccountTable, accountID)
+	if err != nil {
+		return err
+	}
+	metadataTable, err := s.router.writeTable(mysqlAccountMetadataTable, accountID)
+	if err != nil {
+		return err
+	}
+	if newAccountState == "" {
+		newAccountState = "active"
+	}
+	updatedAt = timeOrNow(updatedAt, s.router.now)
+	accountQuery := "INSERT INTO " + accountTable + " (account_id, state, " + mysqlAccountRepresentNameColumn + ", created_at, updated_at) " +
+		"VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE " + mysqlAccountRepresentNameColumn + " = VALUES(" + mysqlAccountRepresentNameColumn + "), " +
+		"updated_at = VALUES(updated_at)"
+	metadataQuery := "INSERT INTO " + metadataTable + " (account_id, entry_key, entry_value) VALUES (?, ?, ?) " +
+		"ON DUPLICATE KEY UPDATE entry_value = VALUES(entry_value)"
+	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
+		if _, execErr := database.ExecContext(ctx, accountQuery, accountID, newAccountState, name, updatedAt, updatedAt); execErr != nil {
+			return execErr
+		}
+		_, execErr := database.ExecContext(ctx, metadataQuery, accountID, metadataKey, metadataValue)
+		return execErr
 	})
 	var mysqlErr *mysql.MySQLError
 	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {

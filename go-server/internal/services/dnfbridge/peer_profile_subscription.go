@@ -126,7 +126,7 @@ func (s *Service) sendCurrentInspectedProfile(ctx context.Context, sub currentPe
 		return nil
 	}
 	ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(id)))
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, strconv.Itoa(int(id)))
 	}
 	mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(ctx, a.session, legacy, character, true, id, owner)

@@ -208,6 +208,8 @@ func (s *Service) handleCurrentGuildInfo(session *gameSession, _ []byte) error {
 }
 
 func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, opcode uint16) error {
+	s.logInfo("dnfbridge guild roster request", "conn_id", session.connID,
+		"char_id", session.selectedCharacterID, "opcode", opcode)
 	session.guild.mu.Lock()
 	session.guild.memberListRequested = true
 	session.guild.mu.Unlock()
@@ -242,7 +244,15 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 			return err
 		}
 	}
-	return s.sendGameUpperSuccess(session, opcode, buildCurrentGuildMemberListBody(g, full, cursor, s.currentGuildOnlineChannels(g, session), s.gameplayNow(), byte(s.channelAdvertiseID())))
+	online := s.currentGuildOnlineChannels(g, session)
+	members := 0
+	if g != nil {
+		members = len(g.Members)
+	}
+	s.logInfo("dnfbridge guild roster response", "conn_id", session.connID,
+		"char_id", session.selectedCharacterID, "opcode", opcode,
+		"members", members, "online", len(online), "full", full, "cursor", cursor)
+	return s.sendGameUpperSuccess(session, opcode, buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID())))
 }
 
 func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {

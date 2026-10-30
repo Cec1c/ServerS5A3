@@ -149,7 +149,7 @@ func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner b
 			legacyRepo = repos.LegacyUserInfo
 		}
 		detailCtx := context.WithValue(b.ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(actorID)))
-		if buffSwapReapplyEnabled() {
+		if s.buffSwapReapplyEnabled() {
 			detailCtx = context.WithValue(detailCtx, nativePeerBuffInspectKey{}, strconv.Itoa(int(actorID)))
 		}
 		mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(detailCtx, actor, legacyRepo, a.character, true, actorID, owner)

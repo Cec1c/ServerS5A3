@@ -292,6 +292,9 @@ func TestRuntimePartyStateForSessionStaysCharacterKeyedAcrossSocketReplacement(t
 	// 同角色的第二条活 socket：`bindGameSessionCharacter` 的早退分支刻意不夺目录，
 	// 只把**那一刻**的投影拷给它（此刻还没有队伍 ⇒ 拷贝是空的）。
 	replacement := &gameSession{conn: &bufferConn{}, connID: "keyed-replacement"}
+	// Production registers accepted transports before binding a character.
+	service.registerLiveGameSession(replacement)
+	t.Cleanup(func() { service.unregisterLiveGameSession(replacement) })
 	service.onlinePlayers.EnterArea(&onlinePlayerInfo{
 		CharacterID: 1001, TownID: 38, AreaID: 1, Session: first,
 	})
@@ -339,6 +342,7 @@ func TestRuntimePartyStateForSessionStaysCharacterKeyedAcrossSocketReplacement(t
 
 	// 对照：真正的移除（无活兄弟 socket 的 detach）之后，被摘掉的那条**目录**会话的
 	// 投影被清空，访问器于是回落到空值 —— 与现场 `party_id=0 member_count=0` 同形。
+	service.unregisterLiveGameSession(replacement)
 	service.detachRuntimePartySession(first, "test_last_socket_closed")
 	if _, found := manager.SnapshotByUser(1001, 0); found {
 		t.Fatal("the manager still holds the character after its last socket detached")

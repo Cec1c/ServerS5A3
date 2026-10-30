@@ -47,6 +47,8 @@ type dungeonMonsterDropPoolEntry struct {
 }
 
 type dungeonDropItemDefinition struct {
+	// Static rules are shared; rolled instance state is copied only into a ground
+	// drop or new grant, never back into itemCache.
 	AikenInitial             *aiken.InitialCatalog
 	AikenInitialState        [5]byte
 	CeraOnly, TokenCeraOnly  bool

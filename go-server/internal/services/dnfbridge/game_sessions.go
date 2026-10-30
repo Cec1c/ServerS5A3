@@ -18,6 +18,9 @@ type boundGameSessionCharacter struct {
 
 func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) {
 	if session != nil {
+		session.townMu.Lock()
+		resetCurrentTownEnterSelectSceneLocked(session)
+		session.townMu.Unlock()
 		session.darkKnightCombo.reset()
 		session.initialTownGuardianShieldDeckSent = false
 		session.initialTownGuardianShieldAppearanceSent = false
@@ -89,6 +92,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		session.expertJobInfoCharacterID = 0
 	}
 	session.selectedCharacterID = charID
+	s.installGoldDiagnosticSnapshot(session)
 	if resident != nil && resident != session {
 		if current := s.gameSessions[charID]; current == resident {
 			storeRuntimePartyState(session, residentParty)
@@ -191,6 +195,7 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	if s == nil || session == nil {
 		return
 	}
+	s.clearGoldDiagnosticSnapshot(session)
 	s.retireCurrentTagTournamentBattle(session)
 	guildClock := s.ensureGameplayTimeQueue()
 	s.closeCurrentGuildCreateSession(session)

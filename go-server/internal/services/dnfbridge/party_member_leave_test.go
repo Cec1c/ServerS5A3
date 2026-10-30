@@ -96,8 +96,60 @@ func (h *partyLeaveHarness) dispatchMemberLeave(t *testing.T) {
 	}
 }
 
+// assertPartyLeaveLeaderSingleton pins the retained manager and session state
+// after the last ordinary member leaves. The party ID and the leader's fixed
+// slot survive the departure; only the departing member is removed.
+func assertPartyLeaveLeaderSingleton(t *testing.T, h *partyLeaveHarness) {
+	t.Helper()
+	manager := h.service.runtimePartyManagerForService()
+	snapshot, found := manager.SnapshotByUser(1001, 0)
+	if !found || snapshot.ID != h.partyID || snapshot.Leader != 1001 ||
+		len(snapshot.Members) != 1 || snapshot.Members[0].UserID != 1001 || snapshot.Members[0].Slot != 0 {
+		t.Fatalf("leader singleton manager state = found:%t snapshot:%+v; want party=%d leader=1001 member=1001 slot=0",
+			found, snapshot, h.partyID)
+	}
+	state := runtimePartyStateSnapshot(h.leader)
+	members := runtimePartyMembers(state)
+	if state.PartyID != int(h.partyID) || state.UserID != 1001 || !state.IsLeader ||
+		len(members) != 1 || members[0].UserID != 1001 || members[0].Slot != 0 {
+		t.Fatalf("leader singleton client projection = party:%d leader:%d is_leader:%t members:%+v; want party=%d leader=1001 member=1001 slot=0",
+			state.PartyID, state.UserID, state.IsLeader, members, h.partyID)
+	}
+}
+
+// assertPartyLeaveLeaderSingletonWire requires the two packets that follow a
+// member's explicit leave: one kind0 party row and one op153 row, both for the
+// leader in its original slot. It returns any trailing bytes for strict checks.
+func assertPartyLeaveLeaderSingletonWire(t *testing.T, h *partyLeaveHarness, data []byte) []byte {
+	t.Helper()
+	partyFrame, rest := splitGameServerUpperPacket(t, data)
+	if partyFrame.Header.Classification != 0 || partyFrame.Header.MsgID != uint16(dnfenum.CmdPacketRecoverStamina) {
+		t.Fatalf("party singleton frame = class %d msg %d", partyFrame.Header.Classification, partyFrame.Header.MsgID)
+	}
+	if len(partyFrame.Body) < 10 {
+		t.Fatalf("party singleton frame too short: len=%d body=% X", len(partyFrame.Body), partyFrame.Body)
+	}
+	hasIdentity := int(partyFrame.Body[7]) != currentClientSelectedChannelID(h.leader)
+	rows, leaderSlot := parseOp9PartyFrame(t, partyFrame.Body, hasIdentity)
+	if len(rows) != 1 || rows[0].uid != 1001 || rows[0].slot != 0 || leaderSlot != 0 {
+		t.Fatalf("party singleton kind0 rows=%+v leader_slot=%d; want uid=1001 slot=0 leader_slot=0 body=% X",
+			rows, leaderSlot, partyFrame.Body)
+	}
+	realtime, rest := splitGameServerUpperPacket(t, rest)
+	if realtime.Header.Classification != 0 || realtime.Header.MsgID != 0x0099 {
+		t.Fatalf("party singleton realtime = class %d msg %d", realtime.Header.Classification, realtime.Header.MsgID)
+	}
+	realtimeRows := parseRealtimeInfoRows(t, realtime.Body)
+	if len(realtimeRows) != 1 || realtimeRows[0].uid != 1001 || realtimeRows[0].hp != 100 ||
+		realtimeRows[0].helper != 0 || realtimeRows[0].slot != 0 {
+		t.Fatalf("party singleton realtime rows=%+v; want uid=1001 hp=100 helper=0 slot=0 body=% X",
+			realtimeRows, realtime.Body)
+	}
+	return rest
+}
+
 // TestMemberLeavePartyRemovesMemberAndNotifiesLeader 是基线用例：代际一致时
-// "队员点退出队伍"必须做到双方视图一致。
+// "队员点退出队伍"必须只移除离队者，并把队长保留为原 party/slot 的单人行。
 func TestMemberLeavePartyRemovesMemberAndNotifiesLeader(t *testing.T) {
 	h := newPartyLeaveHarness(t)
 	memberIdentity, _ := h.service.boundGameSessionCharacterSnapshot(h.member)
@@ -107,10 +159,11 @@ func TestMemberLeavePartyRemovesMemberAndNotifiesLeader(t *testing.T) {
 	if snapshot, found := h.service.runtimePartyManagerForService().SnapshotByUser(1002, memberIdentity.generation); found {
 		t.Fatalf("member is still inside the runtime party: %+v", snapshot)
 	}
+	assertPartyLeaveLeaderSingleton(t, h)
 	if h.leaderConn.write.Len() == 0 {
 		t.Fatal("leader received no packet after the member left: the leader still renders the member")
 	}
-	leaderRest := assertRuntimePartyRemoved(t, h.leaderConn.write.Bytes(), 1002, 0)
+	leaderRest := assertPartyLeaveLeaderSingletonWire(t, h, h.leaderConn.write.Bytes())
 	if len(leaderRest) != 0 {
 		t.Fatalf("leader trailing bytes = %d", len(leaderRest))
 	}
@@ -160,11 +213,12 @@ func TestMemberLeavePartyRepairsManagerGenerationDrift(t *testing.T) {
 	if snapshot, found := manager.SnapshotByUser(1002, 0); found {
 		t.Fatalf("member stayed inside the runtime party after leave: %+v", snapshot)
 	}
+	assertPartyLeaveLeaderSingleton(t, h)
 	// 队长必须被通知：这是改动前失败的那条断言。
 	if h.leaderConn.write.Len() == 0 {
 		t.Fatal("leader received no removal after the member left: the leader still renders the member in its party window")
 	}
-	leaderRest := assertRuntimePartyRemoved(t, h.leaderConn.write.Bytes(), 1002, 0)
+	leaderRest := assertPartyLeaveLeaderSingletonWire(t, h, h.leaderConn.write.Bytes())
 	if len(leaderRest) != 0 {
 		t.Fatalf("leader trailing bytes = %d", len(leaderRest))
 	}

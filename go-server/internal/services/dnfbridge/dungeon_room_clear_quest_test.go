@@ -177,6 +177,7 @@ func TestRoomClearQuestPeerDispatchUsesMemberQuestEligibility(t *testing.T) {
 	for _, eligible := range []bool{true, false} {
 		t.Run(fmt.Sprint(eligible), func(t *testing.T) {
 			svc, peer, rt, repos := roomClearQuestBridgeFixture(t, true)
+			svc.bindGameSessionCharacter(peer, peer.selectedCharacterID)
 			rt.partyInstance = &dungeonPartyInstance{id: 91}
 			if !eligible {
 				if err := repos.Quest.Save(context.Background(), dnfrepo.QuestRecord{CharacterID: "99"}); err != nil {

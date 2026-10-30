@@ -197,6 +197,9 @@ func (c *Catalog) planStorySweep(r repo.QuestRecord, ch CharacterEligibility, cu
 	completed, active, damaged := c.storySweepEvidence(p.Record)
 	protectedParents := c.storySweepProtectedParents(ch, completed)
 	p.DamagedQuestionIDs = damaged
+	skippable := func(d Definition) bool {
+		return storySweepOrdinary(d) || !ticket && storySweepAchievedAwakening(d, ch)
+	}
 	eligible := func(d Definition) bool {
 		if ticket {
 			grade := normalizeQuestTag(d.Grade)
@@ -204,7 +207,7 @@ func (c *Catalog) planStorySweep(r repo.QuestRecord, ch CharacterEligibility, cu
 				d.ExposedByNPC != 0 && !d.IsEvent && !d.HasCreatureRequirement && !d.HasExpertRequirement &&
 				d.JobChangeQuest == 0 && definitionMatchesCharacter(d, ch) && levelUpTicketQuestRewardOrdinary(d)
 		}
-		return mainStoryQuestAutoClearable(d, ch, cutoff) && d.JobChangeQuest == 0
+		return mainStoryQuestAutoClearable(d, ch, cutoff) && (d.JobChangeQuest == 0 || storySweepAchievedAwakening(d, ch))
 	}
 	roots := map[int64]struct{}{}
 	if scope != CouponClearScopeActiveOnly {
@@ -219,7 +222,7 @@ func (c *Catalog) planStorySweep(r repo.QuestRecord, ch CharacterEligibility, cu
 	for pass := 0; pass <= len(c.ordered); pass++ {
 		changed := false
 		for _, d := range c.ordered {
-			if !eligible(d) || !storySweepOrdinary(d) {
+			if !eligible(d) || !skippable(d) {
 				continue
 			}
 			if _, blocked := protectedParents[d.ID]; blocked {
