@@ -507,13 +507,6 @@ func (s *Service) handleOnlineWalkoutPartyMember(session *gameSession, typ uint1
 	return nil
 }
 
-// handleOnlineChangePartyHost implements the current client's real delegate-
-// leader command. NoPack sends class1/op121 with one selected party slot. The
-// party window derives leadership from slot zero, so changing only UserID is
-// insufficient: clear the old client-side table, move the new leader to slot
-// zero, then rebuild op9 for every member. The already-connected P2P transport
-// must remain intact: replaying op153/op11 here makes the current EXE start a
-// second endpoint handshake and leaves one side stuck in "connecting".
 // answerPartyCommandRejection 记录拒绝并把 [0, code] 失败包回给客户端。
 //
 // 这些拒绝路径此前只写日志、一个包都不回，玩家看到的就是"点了没反应"。
@@ -528,6 +521,9 @@ func (s *Service) answerPartyCommandRejection(session *gameSession, typ uint16, 
 	return s.sendPartyCommandFailure(session, typ, code)
 }
 
+// handleOnlineChangePartyHost accepts class1/op121 with a selected fixed slot.
+// Transferring leadership preserves the party ID, member slots and established
+// relay endpoints, then publishes the new leader in each member's roster.
 func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte) error {
 	const changeHostOpcode = uint16(dnfenum.CmdPacketChangeHost)
 	if len(body) < 1 {

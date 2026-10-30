@@ -166,6 +166,21 @@ func (s *Service) fanOutDungeonSelectReturnToPartyMembers(session *gameSession, 
 					"leader_char_id", state.UserID,
 					"member_char_id", member.UserID,
 					"error", err)
+			} else if peer.events != nil && peer.events.loop != nil {
+				// Preserve the captured selector owner while waiting behind the
+				// member's current request; sending directly can interrupt it.
+				decision, reason = "queued", "member_event_loop_owns_selector_return"
+				err := s.tryPostGameSessionCharacterEvent(peer, "party-select-return", memberOwner.character, memberOwner.generation, func() error {
+					sent, sendErr := s.sendDungeonSelectReturnToMember(peer, transition, source, owner)
+					s.logGameEvent(peer, "game-party-dungeon-select-return-owner-completed",
+						"source", source, "delivered", sent, "error", sendErr)
+					return sendErr
+				})
+				if err != nil {
+					decision, reason = "failed", "member_event_queue_unavailable"
+					s.logGameEvent(session, "game-party-dungeon-select-return-fanout-failed",
+						"source", source, "member_char_id", memberOwner.character, "error", err)
+				}
 			} else if sent, err := s.sendDungeonSelectReturnToMember(peer, transition, source, owner); err != nil {
 				decision, reason = "failed", "member_select_town_return_send_failed"
 				s.logGameEvent(session, "game-party-dungeon-select-return-fanout-failed",
