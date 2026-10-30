@@ -221,6 +221,9 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 			"quest_type": plan.Type,
 		},
 	}
+	if catalog.IsWorldMapHuntQuest(int64(cmd.QuestID)) {
+		record.States[int64(cmd.QuestID)].Extra[worldMapHuntProgressKey] = "1"
+	}
 	for _, linked := range plan.LinkedSubQuests {
 		record.States[linked.QuestID] = dnfrepo.QuestState{
 			Status:        "active",
@@ -450,9 +453,9 @@ func (o *Owner) ApplySetTrigger(ctx context.Context, cmd Command) (PlanResult, e
 		result.EchoOnly = true
 		return result, nil
 	}
-	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" {
+	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" || state.Extra[worldMapHuntProgressKey] == "1" {
 		// A client trigger can echo the authoritative remaining count, but
-		// cannot substitute for a successfully owned raid phase result.
+		// cannot substitute for a committed raid result or worldmap kill.
 		return result, nil
 	}
 

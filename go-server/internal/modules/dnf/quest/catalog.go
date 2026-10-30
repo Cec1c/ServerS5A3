@@ -126,6 +126,7 @@ type Definition struct {
 	Type               string
 	SubType            int
 	IntData            []int64
+	DungeonInfo        []int64
 	CheckCount         []int64
 	ConditionData      []int64
 	DependGiveItemData []int64
@@ -829,6 +830,7 @@ func parseDefinition(entry dnfpvf.ListEntry, doc *dnfpvf.Document) Definition {
 		definition.SubType = boundedInt(value)
 	}
 	definition.IntData = append([]int64(nil), doc.Ints("int data")...)
+	definition.DungeonInfo = append([]int64(nil), doc.Ints("dungeon info")...)
 	definition.CheckCount = append([]int64(nil), doc.Ints("check count")...)
 	definition.ConditionData = append([]int64(nil), doc.Ints("condition data")...)
 	definition.SubReward = append([]int64(nil), doc.Ints("sub reward")...)
@@ -1086,6 +1088,13 @@ func definitionInitialTrigger(definition Definition, completed map[int64]struct{
 		}
 		return packTriggerChannels(counts...)
 	case "hunt monster":
+		if targets, ok := worldMapHuntTargets(definition.IntData); ok {
+			counts := make([]int64, 0, len(targets))
+			for _, target := range targets {
+				counts = append(counts, target.count)
+			}
+			return packTriggerChannels(counts...)
+		}
 		return triggerFromIntData(definition.IntData, 4)
 	case "hunt enemy":
 		return triggerFromIntData(definition.IntData, 5)
@@ -1226,6 +1235,9 @@ func (c *Catalog) definitionAcceptable(definition Definition, character Characte
 		return false
 	}
 	grade := normalizeQuestTag(definition.Grade)
+	if grade == "auto daily mission" && !c.IsWorldMapHuntQuest(definition.ID) {
+		return false
+	}
 	if !(selectableGrade(grade) || allowedEpicRoad && grade == "special") || grade == "training" {
 		return false
 	}
@@ -1522,7 +1534,7 @@ func normalizeStatus(value string) string {
 
 func selectableGrade(grade string) bool {
 	switch grade {
-	case "", "normal", "side", "sub", "epic", "realization", "training", "achievement", "mission", "daily", "daily random", "normaly repeat", "special daily", "common unique", "system":
+	case "", "normal", "side", "sub", "epic", "realization", "training", "achievement", "mission", "daily", "daily random", "auto daily mission", "normaly repeat", "special daily", "common unique", "system":
 		return true
 	default:
 		return strings.HasPrefix(grade, "daily") || strings.HasPrefix(grade, "special daily")
@@ -1596,6 +1608,7 @@ func boundedInt(value int64) int {
 
 func cloneDefinition(definition Definition) Definition {
 	definition.IntData = append([]int64(nil), definition.IntData...)
+	definition.DungeonInfo = append([]int64(nil), definition.DungeonInfo...)
 	definition.CheckCount = append([]int64(nil), definition.CheckCount...)
 	definition.ConditionData = append([]int64(nil), definition.ConditionData...)
 	definition.DependGiveItemData = append([]int64(nil), definition.DependGiveItemData...)

@@ -34,10 +34,11 @@ const QuestDailyCompletionDayKey = "quest_daily_completed_day_v1"
 // 「[安徒恩单人模式]吞噬火的武器」。参考实现自己的每日完成循环自测也把 2683
 // 当作每日任务（SelfTests/DailyQuestCompletionCycleSelfTest.cs:39-41），
 // 所以同一份任务在这两代 PVF 里都必须是每日档。
+// auto daily mission 是当前地区击杀/红玉髓每日使命使用的独立 grade。
 func isDailyQuestGrade(grade string) bool {
 	normalized := normalizeQuestTag(grade)
 	switch normalized {
-	case "daily", "daily random", "daily mission":
+	case "daily", "daily random", "daily mission", "auto daily mission":
 		return true
 	default:
 		// special daily 在既有 grade 判定里按前缀成族处理
