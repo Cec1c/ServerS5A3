@@ -43,7 +43,7 @@ func (s *Service) sendCurrentCrossScenePeerProfile(ctx context.Context, viewer, 
 		legacyRepo = repositories.LegacyUserInfo
 	}
 	ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(actorID)))
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, strconv.Itoa(int(actorID)))
 	}
 	mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(ctx, actor, legacyRepo, character, true, actorID, owner)

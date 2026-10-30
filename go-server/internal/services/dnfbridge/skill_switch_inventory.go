@@ -376,7 +376,7 @@ func (s *Service) handleSkillSwitchInventoryCommand(session *gameSession, typ ui
 	if typ != currentSkillSwitchInventoryOpcode {
 		return false, nil
 	}
-	if buffSwapReapplyEnabled() && !s.currentClientLoadoutOwnsBuffSwap1428() {
+	if s.buffSwapReapplyEnabled() && !s.currentClientLoadoutOwnsBuffSwap1428() {
 		return s.handleNativeBuffSwapRegistration(session, body)
 	}
 	mode := s.skillSwitchInventoryMode()
@@ -738,7 +738,7 @@ func skillSwitchSkillGateStrict() bool {
 // 于是实验帧是这条边界上唯一被解析的帧。见
 // skill_switch_inventory_candidate_pairs.go。
 func (s *Service) sendSkillSwitchInventoryProjection(session *gameSession, source string) error {
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		return nil // Native snapshots have explicit late lifecycle boundaries.
 	}
 	if s == nil || session == nil || session.selectedCharacterID == 0 {

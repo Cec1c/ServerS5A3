@@ -90,7 +90,7 @@ const skillSwitchAnswerRegistrationSource = "current_exe_op1428_registration_sen
 //
 // 只在默认档下执行；任何失败都只记事件、返回 nil（与落库同一条 fire-and-forget 契约）。
 func (s *Service) answerSkillSwitchRegistration(session *gameSession, sentinel bool) {
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		return
 	}
 	if s == nil || session == nil || !sentinel {

@@ -16,7 +16,8 @@ const currentBuffSwapSnapshotID uint16 = 1368
 const currentBuffSwapRowsID uint16 = 1367
 const currentBuffSwapRegistrationID uint16 = 1426
 
-// Default off preserves all legacy registration and packet behavior.
+// Legacy clients retain their explicit compatibility opt-in. Current clients
+// use the service policy below and do not require an environment switch.
 func buffSwapReapplyEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(buffSwapReapplyEnv))) {
 	case "on", "1", "true":
@@ -26,9 +27,19 @@ func buffSwapReapplyEnabled() bool {
 	}
 }
 
+// Current registration is normal gameplay for the official client. Keep the
+// policy in the server so Docker, the controller and direct starts all persist
+// and restore the same state, even when an old deployment exports "off".
+func (s *Service) buffSwapReapplyEnabled() bool {
+	if s != nil && s.currentClientLoadoutOwnsBuffSwap1428() {
+		return true
+	}
+	return buffSwapReapplyEnabled()
+}
+
 // currentClientLoadoutOwnsBuffSwap1428 reports whether op1428 is the current
-// client's Buff-enhancement loadout stream. DNFBRIDGE_BUFF_SWAP_REAPPLY owns the
-// native 1426/1368 producer; it must not consume the separate 1428 loadout
+// client's Buff-enhancement loadout stream. The current registration policy
+// owns the native 1426/1368 producer; it must not consume the separate 1428 loadout
 // record and persist it as a positional native binding. Other profiles retain
 // the historical 1428/1369 native path.
 //
@@ -43,7 +54,7 @@ func (s *Service) currentClientLoadoutOwnsBuffSwap1428() bool {
 // producer. Invalid lengths and fields are consumed/rejected;
 // they cannot complete an FPS loading gate or create registration state.
 func (s *Service) handleCurrentBuffSwap1426Command(session *gameSession, typ uint16, body []byte) (bool, error) {
-	if s == nil || session == nil || typ != currentBuffSwapRegistrationID || !buffSwapReapplyEnabled() {
+	if s == nil || session == nil || typ != currentBuffSwapRegistrationID || !s.buffSwapReapplyEnabled() {
 		return false, nil
 	}
 	return s.handleBuffSwapRegistration(session, body, true)
@@ -140,7 +151,7 @@ func (s *Service) sendBuffSwapReapplyAfterNonAppearanceWear(session *gameSession
 // through this function. The replay cache is therefore updated by direct sends
 // as well; only a successful socket write is recorded.
 func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered, skipUnchanged bool) error {
-	if !buffSwapReapplyEnabled() || s == nil || session == nil {
+	if !s.buffSwapReapplyEnabled() || s == nil || session == nil {
 		return nil
 	}
 	identity, current := s.captureBuffOwnedSendIdentity(session)

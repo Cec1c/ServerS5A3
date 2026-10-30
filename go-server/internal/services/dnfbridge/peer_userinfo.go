@@ -132,7 +132,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		}
 	}
 	ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(targetID)))
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, strconv.Itoa(int(targetID)))
 	}
 	response := s.buildCurrentSelectedUserInfoMode3BodyInContext(
@@ -144,7 +144,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		targetID,
 		ownerContext,
 	)
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		buffBody := s.buildNativePeerBuffCarrier(ctx, targetSession, targetID, response)
 		if len(buffBody) > 0 {
 			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), buffBody, 0); err != nil {
