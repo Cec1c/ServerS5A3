@@ -6,9 +6,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"longheng.io/server/internal/modules/dnf/adminapi"
+	"longheng.io/server/internal/modules/dnf/moderation"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
+	"longheng.io/server/internal/modules/dnf/qqbinding"
+	"longheng.io/server/internal/modules/dnf/repository"
 )
 
 // Only runtime-owned facts and operations belong here. GM pages, credentials,
@@ -33,6 +37,100 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 	out := adminapi.Response{Version: adminapi.Version, OK: true}
 	s := a.service
 	switch req.Action {
+	case "reset_account_password":
+		var err error
+		if req.PasswordReset == nil {
+			err = securityError(400, "invalid_reset", "重置参数无效")
+		} else {
+			out.PasswordReset, err = a.resetAccountPassword(r.Context(), req.AccountID, *req.PasswordReset)
+		}
+		if err != nil {
+			out.OK = false
+			out.ErrorCode, out.Error = "reset_unavailable", "密码重置服务暂不可用"
+			var failure *accountSecurityError
+			if errors.As(err, &failure) {
+				out.ErrorCode, out.Error = failure.code, failure.message
+			}
+		}
+	case "qq_settings", "qq_settings_save", "qq_bindings", "qq_complete", "qq_jobs", "qq_ack", "qq_blocked", "ban_targets":
+		var err error
+		switch req.Action {
+		case "ban_targets":
+			out.BanTargets, err = a.banTargets(r.Context(), a.db, req.AccountID)
+		case "qq_jobs":
+			out.QQActions, err = a.claimQQActions(r.Context())
+		case "qq_ack":
+			if req.QQAck == nil {
+				err = errors.New("missing acknowledgement")
+			} else {
+				err = a.ackQQAction(r.Context(), *req.QQAck)
+			}
+		case "qq_blocked":
+			out.QQBlocked, err = a.qqBlacklisted(r.Context(), req.QQ)
+		case "qq_settings":
+			out.QQSettings, err = a.qqSettings(r.Context())
+		case "qq_settings_save":
+			if req.QQSettings == nil {
+				err = errors.New("missing settings")
+			} else {
+				out.QQSettings, err = a.saveQQSettings(r.Context(), *req.QQSettings)
+			}
+		case "qq_bindings":
+			q := qqbinding.Query{}
+			if req.QQQuery != nil {
+				q = *req.QQQuery
+			}
+			out.QQBindings, err = a.queryQQBindings(r.Context(), q)
+		case "qq_complete":
+			if req.QQComplete == nil {
+				err = errors.New("missing binding")
+			} else {
+				out.QQBinding, err = a.completeQQBinding(r.Context(), *req.QQComplete)
+			}
+		}
+		if err != nil {
+			out.OK = false
+			out.Error = "绑定服务暂不可用"
+			if !strings.Contains(err.Error(), "Error ") && !strings.Contains(err.Error(), "sql:") {
+				out.Error = err.Error()
+			}
+		}
+
+	case "clear_stats", "moderation_accounts", "bans", "change_ban":
+		var err error
+		if req.Action == "change_ban" {
+			if req.BanChange == nil {
+				err = errors.New("invalid ban request")
+			} else {
+				out.Ban, err = a.changeBan(r.Context(), *req.BanChange)
+			}
+		} else {
+			q := moderation.Query{}
+			if req.ModerationQuery != nil {
+				q = *req.ModerationQuery
+			}
+			switch req.Action {
+			case "bans":
+				out.Bans, err = a.moderationBans(r.Context(), q)
+			case "moderation_accounts":
+				out.ModerationAccounts, err = a.moderationAccounts(r.Context(), q)
+			case "clear_stats":
+				group, _ := s.repositoryGroup()
+				reader, ok := group.Character.(repository.ClearHistoryReader)
+				if !ok {
+					err = errors.New("clear history unavailable")
+				} else {
+					var page moderation.ClearPage
+					page, err = reader.QueryClears(r.Context(), q)
+					out.Clears = &page
+				}
+			}
+		}
+		if err != nil {
+			out.OK = false
+			out.Error = moderationError(err)
+		}
+
 	case "online":
 		if req.CharacterID == 0 {
 			out.OK = false

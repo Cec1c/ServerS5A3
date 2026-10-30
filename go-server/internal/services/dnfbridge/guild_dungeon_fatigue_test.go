@@ -147,7 +147,7 @@ func TestGuildDungeonFatigueDailyAssetsAndFailureBoundary(t *testing.T) {
 	if err := assets.inTransaction(&character); err != nil {
 		t.Fatal(err)
 	}
-	if !assets.debitRoomFatigue || assets.fatigueCost != 8 || !assets.fatigueStartOnly || character.Stats["fatigue"] != 12 {
+	if !assets.debitRoomFatigue || assets.fatigueCost != 8 || !assets.fatigueStartOnly || character.Stats["fatigue"] != 12 || assets.fatigueSpent == nil || *assets.fatigueSpent != 8 {
 		t.Fatalf("daily assets=%+v fatigue=%d", assets, character.Stats["fatigue"])
 	}
 

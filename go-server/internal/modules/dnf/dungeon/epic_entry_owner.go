@@ -38,9 +38,10 @@ type EpicEntryCommand struct {
 	Validate                           func() error
 }
 type EpicEntryResult struct {
-	Character dnfrepo.CharacterRecord
-	Consumed  []EntryItemConsumedStack
-	Replay    bool
+	FatigueSpent int64
+	Character    dnfrepo.CharacterRecord
+	Consumed     []EntryItemConsumedStack
+	Replay       bool
 }
 
 // ConsumeEpicEntry keeps current FP1 behavior. It does not interpret the PVF
@@ -70,6 +71,7 @@ func (o *Owner) ConsumeEpicEntry(ctx context.Context, cmd EpicEntryCommand) (Epi
 		if seq == cmd.ExpectedSequence+1 && c.Stats[epicEntryNonceKey] == cmd.Nonce && c.Stats[epicEntryDungeonKey] == cmd.DungeonID {
 			result.Character = c
 			result.Replay = true
+			result.FatigueSpent = 1
 			return nil
 		}
 		if seq != cmd.ExpectedSequence {
@@ -113,6 +115,7 @@ func (o *Owner) ConsumeEpicEntry(ctx context.Context, cmd EpicEntryCommand) (Epi
 			}
 		}
 		dnffatigue.Debit(&c)
+		result.FatigueSpent = 1
 		c.Stats[EpicEntrySequenceKey] = cmd.ExpectedSequence + 1
 		c.Stats[epicEntryNonceKey] = cmd.Nonce
 		c.Stats[epicEntryDungeonKey] = cmd.DungeonID

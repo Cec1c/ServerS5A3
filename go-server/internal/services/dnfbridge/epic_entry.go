@@ -234,6 +234,7 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		runtime.ridableReportChannelID = session.channel.ID
 		runtime.ridableReportChannelType = session.channel.Type
 		runtime.Character = result.Character
+		runtime.fatigueSpent += result.FatigueSpent
 		if runtime.fatigueRooms == nil {
 			runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)
 		}

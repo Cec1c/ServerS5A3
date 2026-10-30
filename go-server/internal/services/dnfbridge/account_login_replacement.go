@@ -81,7 +81,7 @@ func (a *accountAPIServer) handleLoginReplacement(ctx context.Context, w http.Re
 		}
 	}
 	a.service.logInfo("dnfbridge account login replaced previous launch", "account_id", accountID, "replaced_connections", len(displaced))
-	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{OK: true, AccountID: accountID, Token: token, Message: "登录成功"})
+	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{OK: true, AccountID: accountID, Token: token, BoundQQ: request.boundQQ, Message: "登录成功"})
 }
 
 // Caller holds accountLogins.mu. Password verification is performed before the
@@ -135,6 +135,12 @@ func (s *Service) authenticateRemoteLogin(session *gameSession, token string) (s
 	}
 	ctx, cancel := context.WithTimeout(ctx, accountAPIWriteTimeout)
 	defer cancel()
+	api := s.accountAPI
+	if api == nil || api.db == nil {
+		return "", errLoginReplaced
+	}
+	api.moderationMu.RLock()
+	defer api.moderationMu.RUnlock()
 	p := &s.accountLogins
 	for {
 		p.mu.Lock()
@@ -152,6 +158,14 @@ func (s *Service) authenticateRemoteLogin(session *gameSession, token string) (s
 		if err != nil || account == "" {
 			p.mu.Unlock()
 			return "", errLoginReplaced
+		}
+		if err := api.checkModeration(ctx, account, session.clientIP); err != nil {
+			p.mu.Unlock()
+			return "", errPlayerRestricted
+		}
+		if err := api.requireQQBinding(ctx, account, false); err != nil {
+			p.mu.Unlock()
+			return "", errPlayerRestricted
 		}
 		if retirement := p.retiring[account]; retirement != nil {
 			done := retirement.done

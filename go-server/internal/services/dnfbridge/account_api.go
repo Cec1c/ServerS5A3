@@ -55,6 +55,7 @@ const (
 var accountAPIUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{3,20}$`)
 
 type accountAPIServer struct {
+	moderationMu  sync.RWMutex
 	listen        string
 	table         string
 	allowRegister bool
@@ -77,13 +78,22 @@ type accountAPIServer struct {
 }
 
 type accountAPIRequest struct {
-	Account  string `json:"account"`
-	Password string `json:"password"`
+	boundQQ          string
+	NewPassword      string `json:"newPassword"`
+	RequireQQBinding bool   `json:"requireQQBinding"`
+	Account          string `json:"account"`
+	Password         string `json:"password"`
 }
 
 type accountAPIResponse struct {
-	OK        bool   `json:"ok"`
-	AccountID string `json:"account_id,omitempty"`
+	Code        string   `json:"code,omitempty"`
+	RetryAfter  int64    `json:"retryAfter,omitempty"`
+	BindingCode string   `json:"bindingCode,omitempty"`
+	BoundQQ     string   `json:"boundQQ,omitempty"`
+	ExpiresAt   int64    `json:"expiresAt,omitempty"`
+	Groups      []string `json:"groups,omitempty"`
+	OK          bool     `json:"ok"`
+	AccountID   string   `json:"account_id,omitempty"`
 	// Token 是本次登录的启动器令牌：启动器把它写进 TCLS 启动串的 outer token
 	// 字段，客户端会原样转发，服务端据此精确认账号（见 account_login_token.go）。
 	Token   string `json:"token,omitempty"`
@@ -141,6 +151,8 @@ func (s *Service) startAccountAPI(ctx context.Context) error {
 	mux.HandleFunc("/api/status", api.handleStatus)
 	mux.HandleFunc("/api/account/register", api.handleRegister)
 	mux.HandleFunc("/api/account/login", api.handleLogin)
+	mux.HandleFunc("/api/account/binding-code", api.handleAccountSecurity)
+	mux.HandleFunc("/api/account/password", api.handleAccountSecurity)
 	mux.HandleFunc("/api/game/admin", api.handleGameAdmin)
 	// 客户端补丁"云端更新"只读端点（复用同一个 7002，不新开端口）。
 	// 前缀跟 /api/account/* 一致：GET /api/patch/manifest.json 与
@@ -227,7 +239,13 @@ func (a *accountAPIServer) ensureSchema(ctx context.Context) error {
 	if _, err := a.db.ExecContext(ctx, statement); err != nil {
 		return fmt.Errorf("create account API table %s: %w", a.table, err)
 	}
+	if err := a.ensureAccountSecuritySchema(ctx); err != nil {
+		return err
+	}
 	if err := a.ensureLoginTokenSchema(ctx); err != nil {
+		return err
+	}
+	if err := a.ensureModerationSchema(ctx); err != nil {
 		return err
 	}
 	benefits, err := signupbenefits.NewStore(a.db, a.table)
@@ -324,6 +342,13 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	ip := accountAPIClientIP(r)
+	a.moderationMu.RLock()
+	defer a.moderationMu.RUnlock()
+	if err := a.checkModeration(ctx, "", ip); err != nil {
+		writeAccountAPIError(w, http.StatusForbidden, "该 IP 暂不可注册，请联系管理员")
+		return
+	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
@@ -352,6 +377,10 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 	accountID := fmt.Sprintf("dnf:%d", accountAPIBaseAccountID+rowID)
 	update := fmt.Sprintf("UPDATE %s SET account_id = ? WHERE id = ?", a.table)
 	if _, err := tx.ExecContext(ctx, update, accountID, rowID); err != nil {
+		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
+		return
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO "+a.table+"_registration_sources (account_id, ip) VALUES (?, ?)", accountID, ip); err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
 		return
 	}
@@ -396,18 +425,27 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), accountAPIWriteTimeout)
 	defer cancel()
 
-	var storedHash, accountID string
-	query := fmt.Sprintf("SELECT password_hash, account_id FROM %s WHERE account = ?", a.table)
-	if err := a.db.QueryRowContext(ctx, query, request.Account).Scan(&storedHash, &accountID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeAccountAPIError(w, http.StatusUnauthorized, "账号不存在或密码错误")
-			return
-		}
-		writeAccountAPIError(w, http.StatusInternalServerError, "登录失败")
+	tx, accountID, storedHash, err := a.credentialTransaction(ctx, request.Account, request.Password)
+	if err != nil {
+		a.securityFailure(w, err)
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(request.Password)); err != nil {
-		writeAccountAPIError(w, http.StatusUnauthorized, "账号不存在或密码错误")
+	if err = tx.Commit(); err != nil {
+		a.securityFailure(w, err)
+		return
+	}
+	if err = a.requireQQBinding(ctx, accountID, request.RequireQQBinding); err != nil {
+		a.securityFailure(w, err)
+		return
+	}
+	if err = a.db.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=?", accountID).Scan(&request.boundQQ); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		a.securityFailure(w, err)
+		return
+	}
+	a.moderationMu.RLock()
+	defer a.moderationMu.RUnlock()
+	if err := a.checkModeration(ctx, accountID, ip); err != nil {
+		writeAccountAPIError(w, http.StatusForbidden, "该账号或 IP 暂不可登录，请联系管理员")
 		return
 	}
 
@@ -427,6 +465,7 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{
 		OK:        true,
 		AccountID: accountID,
+		BoundQQ:   request.boundQQ,
 		Message:   "登录成功",
 	})
 }

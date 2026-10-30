@@ -68,6 +68,7 @@ type runtimeDungeonState struct {
 	riftLoot                     *currentRiftLootDefinition
 	fatigueRooms                 map[worldmap.RoomCoordinate]bool
 	fatigueStartDebited          bool
+	fatigueSpent                 int64
 	Request                      dungeoncmd.SelectDungeonRequest
 	Dungeon                      worldmap.Dungeon
 	MazeIndex                    int
