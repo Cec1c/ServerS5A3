@@ -39,7 +39,7 @@ func (s *Settings) Normalize() error {
 }
 
 type Complete struct {
-	Account  string `json:"account"`
+	Account  string `json:"account,omitempty"` // Legacy commands only; six-digit codes resolve the account.
 	Code     string `json:"code"`
 	QQ       string `json:"qq"`
 	Group    string `json:"group"`
