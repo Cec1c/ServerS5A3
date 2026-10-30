@@ -69,6 +69,7 @@ type currentBoosterSelectionRequest struct {
 // option}, followed by one trailing UI byte.
 type currentBoosterOpenRequest struct {
 	AllowLotteryGold    bool
+	CompactArmorSet     bool
 	Kind                currentBoosterRequestKind
 	SourceSlot          int16
 	SelectionContext    uint16
@@ -181,6 +182,32 @@ func parseCurrentBoosterOpenRequest(body []byte) (currentBoosterOpenRequest, err
 			SelectedItemID:  selectedItemID,
 			SelectionOption: body[8],
 			TrailingUIByte:  body[9],
+		}, nil
+	case 26:
+		// Captured armor-set UI sends five IDs without the repeated avatar
+		// attribute rows. Limit this format to the verified five-item shape;
+		// source identity and exact PVF membership are checked separately.
+		if body[24] != 0 || body[25] != 0 {
+			return currentBoosterOpenRequest{}, errCurrentBoosterRequestMalformed
+		}
+		selections := make([]currentBoosterSelectionRequest, 0, 5)
+		seen := make(map[uint32]struct{}, 5)
+		for offset := 4; offset < 24; offset += 4 {
+			id := binary.LittleEndian.Uint32(body[offset : offset+4])
+			if id == 0 {
+				return currentBoosterOpenRequest{}, errCurrentBoosterRequestMalformed
+			}
+			if _, duplicate := seen[id]; duplicate {
+				return currentBoosterOpenRequest{}, errCurrentBoosterRequestMalformed
+			}
+			seen[id] = struct{}{}
+			selections = append(selections, currentBoosterSelectionRequest{ItemID: id})
+		}
+		return currentBoosterOpenRequest{
+			Kind: currentBoosterRequestSelection, CompactArmorSet: true,
+			SourceSlot:       int16(binary.LittleEndian.Uint16(body[0:2])),
+			SelectionContext: binary.LittleEndian.Uint16(body[2:4]),
+			Selections:       selections, SelectedItemID: selections[0].ItemID,
 		}, nil
 	default:
 		return parseCurrentBoosterMultiSelectionRequest(body)
