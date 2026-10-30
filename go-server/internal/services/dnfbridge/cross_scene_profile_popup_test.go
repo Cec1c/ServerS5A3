@@ -46,6 +46,26 @@ func TestCurrentCrossSceneProfileAutomaticBatchStaysMode8WhileInspectionPairsMod
 	)
 }
 
+// Transport tests need a complete native profile now that the delivery path
+// refreshes its HP byte. Use the real builder/sender once to obtain valid
+// bodies, then clear only the captured wire before testing transport behavior.
+func currentCrossSceneProfileTransportBodies(t *testing.T, f *currentCrossSceneProfileBatchFixture) [][]byte {
+	t.Helper()
+	f.reset()
+	if err := f.service.sendCurrentCrossScenePeerProfile(context.Background(), f.target, f.actor,
+		f.target.selectedCharacterID, f.actor.selectedCharacterID); err != nil {
+		t.Fatalf("prepare valid transport profile: %v", err)
+	}
+	frames := splitUpperFrames(t, f.targetConn.write.Bytes())
+	if len(frames) != 2 || len(frames[0].body) == 0 || frames[0].body[0] != currentCrossSceneMode8Subtype ||
+		len(frames[1].body) == 0 || frames[1].body[0] != currentCrossSceneMode3Subtype {
+		t.Fatal("transport fixture needs the real mode8/mode3 pair")
+	}
+	bodies := [][]byte{append([]byte(nil), frames[0].body...), append([]byte(nil), frames[1].body...)}
+	f.reset()
+	return bodies
+}
+
 func TestCurrentCrossSceneProfileFramesRejectEmptyList(t *testing.T) {
 	f := newCurrentCrossSceneProfileBatchFixture(t)
 	f.reset()
@@ -59,13 +79,14 @@ func TestCurrentCrossSceneProfileFramesRejectEmptyList(t *testing.T) {
 
 func TestCurrentCrossSceneProfileFramesStopBeforeNextInvalidatedFrame(t *testing.T) {
 	f := newCurrentCrossSceneProfileBatchFixture(t)
+	bodies := currentCrossSceneProfileTransportBodies(t, f)
 	f.reset()
 	checks := 0
 	delivered, err := f.service.sendCurrentCrossSceneProfileFrames(
 		context.Background(),
 		f.target,
 		f.actor,
-		[][]byte{{currentCrossSceneMode8Subtype, 0, 0}, {currentCrossSceneMode3Subtype, 0, 0}},
+		bodies,
 		func() bool {
 			checks++
 			// Simulate a binding/generation invalidation after the priming frame.
@@ -104,6 +125,7 @@ func (c *crossSceneProfileFailNthConn) Close() error {
 
 func TestCurrentCrossSceneProfileFramesCloseStreamAfterLaterFrameFailure(t *testing.T) {
 	f := newCurrentCrossSceneProfileBatchFixture(t)
+	bodies := currentCrossSceneProfileTransportBodies(t, f)
 	f.reset()
 	conn := &crossSceneProfileFailNthConn{bufferConn: f.targetConn, failAt: 2}
 	f.target.conn = conn
@@ -112,7 +134,7 @@ func TestCurrentCrossSceneProfileFramesCloseStreamAfterLaterFrameFailure(t *test
 		context.Background(),
 		f.target,
 		f.actor,
-		[][]byte{{currentCrossSceneMode8Subtype, 0, 0}, {currentCrossSceneMode3Subtype, 0, 0}},
+		bodies,
 		func() bool { return true },
 	)
 	if err == nil || delivered || !conn.closed || conn.writes != 2 {
@@ -144,6 +166,7 @@ func readCurrentCrossSceneUpperFrame(conn net.Conn) ([]byte, error) {
 
 func TestCurrentCrossSceneProfileFramesShareDeadlineAcrossPair(t *testing.T) {
 	f := newCurrentCrossSceneProfileBatchFixture(t)
+	bodies := currentCrossSceneProfileTransportBodies(t, f)
 	left, right := net.Pipe()
 	defer left.Close()
 	defer right.Close()
@@ -164,7 +187,7 @@ func TestCurrentCrossSceneProfileFramesShareDeadlineAcrossPair(t *testing.T) {
 			ctx,
 			f.target,
 			f.actor,
-			[][]byte{{currentCrossSceneMode8Subtype, 0, 0}, {currentCrossSceneMode3Subtype, 0, 0}},
+			bodies,
 			func() bool { return true },
 		)
 		done <- result{delivered: delivered, err: err}

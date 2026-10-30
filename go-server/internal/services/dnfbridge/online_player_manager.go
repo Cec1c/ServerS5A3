@@ -491,6 +491,18 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
 	}
+	// A presence row can still refer to an auxiliary transport after the
+	// character directory has selected its resident connection. Build the actor
+	// and its HP update from that same current identity, before sending mode0.
+	var actorIdentity boundGameSessionCharacter
+	if partyFrame && s.options.currentClientVersion == "official-24.9" {
+		var current bool
+		actorIdentity, current = s.onlineGameSessionCharacterSnapshot(actor.CharacterID)
+		if !current || actorIdentity.session == nil || !s.boundGameSessionCharacterCurrent(actorIdentity) {
+			return fmt.Errorf("remote town actor has no current session: actor=%d", actor.CharacterID)
+		}
+		actor.Session = actorIdentity.session
+	}
 	targetCharacterID := target.selectedCharacterID
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -588,6 +600,14 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	if target.selectedCharacterID != targetCharacterID || actor.Session.selectedCharacterID != charID {
 		return fmt.Errorf("remote town actor selection changed during construction: actor=%d receiver=%d", charID, targetCharacterID)
 	}
+	if actorIdentity.session != nil && !s.boundGameSessionCharacterCurrent(actorIdentity) {
+		return fmt.Errorf("remote town actor session changed during construction: actor=%d", charID)
+	}
+	if partyFrame {
+		if err := projectCurrentTownPartyHPIntoMode0(mode0Body, s.currentTownPartyRealtimeBody(target, actor.Session), charID); err != nil {
+			return fmt.Errorf("initialize remote town actor party HP: %w", err)
+		}
+	}
 	s.logCurrentPeerActorAppearanceEvent(target, actor.Session, source, mode0Body, mode1Body, subtype0Body)
 	if err := s.sendGameUpperRawClass(
 		target,
@@ -630,6 +650,9 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	// `DNFBRIDGE_TOWN_COPRESENCE_SKIP_SAME_PARTY_FRAME`（official-24.9 城镇默认开，其他档默认 off）。
 	if !partyFrame {
 		return nil
+	}
+	if err := s.sendCurrentTownPartyHPAfterActor(target, actor.Session); err != nil {
+		return fmt.Errorf("send remote town actor party HP: %w", err)
 	}
 	if s.shouldSkipTownCopresencePartyFrame(target, actor.Session) {
 		s.logPacketEvent("game-town-copresence-party-frame-skipped",
@@ -778,7 +801,7 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 		s.broadcastTownPlayerAreaChange(playerInfo, oldOthers, partyStateBefore)
 	}
 	s.broadcastTownPlayerEnter(playerInfo, newOthers)
-	partyStateAfter := runtimePartyStateSnapshot(session)
+	partyStateAfter := s.townCopresenceActorPartyState(session)
 	if partyStateAfter.PartyID > 0 {
 		if err := s.sendTownRemotePartyActors(session, partyStateAfter); err != nil {
 			s.logGameEvent(session, "game-dungeon-return-copresence-roster-failed",
@@ -799,7 +822,8 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 			if peer == nil {
 				continue
 			}
-			if err := s.sendRuntimePartyRosterLocal(peer, runtimePartyStateSnapshot(peer), source+"_dungeon_return_peer_roster_rebind"); err != nil {
+			peerState := s.townCopresenceActorPartyState(peer)
+			if err := s.sendRuntimePartyRosterLocal(peer, peerState, source+"_dungeon_return_peer_roster_rebind"); err != nil {
 				continue
 			}
 		}
@@ -1066,6 +1090,13 @@ func (s *Service) broadcastTownPlayerAreaChange(
 ) {
 	if s == nil || mover == nil || len(oldOthers) == 0 {
 		return
+	}
+	// The caller snapshot can be empty or stale on replacement sockets. Resolve the
+	// mover's party from the same central state used by town actor projections so
+	// a current same-party cross-area move never falls into the destructive op6
+	// branch, while a genuinely stale/old party still does.
+	if mover.Session != nil {
+		state = s.townCopresenceActorPartyState(mover.Session)
 	}
 	partyMembers := make(map[uint16]struct{}, len(runtimePartyMembers(state)))
 	if state.PartyID > 0 {
