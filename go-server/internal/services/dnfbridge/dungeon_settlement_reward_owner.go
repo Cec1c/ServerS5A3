@@ -14,6 +14,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	"longheng.io/server/internal/modules/dnf/guild"
 	dnfhonor "longheng.io/server/internal/modules/dnf/honor"
+	"longheng.io/server/internal/modules/dnf/moderation"
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -654,7 +655,20 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		}
 		essenceCurrent = func() bool { return s.boundGameSessionCharacterCurrent(identity) }
 	}
+	finished := runtime.clearMapCompletionAt
+	if finished.IsZero() {
+		finished = runtime.settlementEntryAt
+	}
+	if finished.IsZero() {
+		finished = now
+	}
+	started := runtime.startedAt
+	if started.IsZero() || started.After(finished) {
+		started = finished
+	}
+	fatigueSpent := runtime.fatigueSpent
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		Clear:             &moderation.Clear{FatigueSpent: &fatigueSpent, DungeonID: runtime.Dungeon.ID, DungeonName: runtime.Dungeon.Metadata.Name, Difficulty: int(runtime.Request.Difficulty), StartedAt: started, FinishedAt: finished, DurationMS: finished.Sub(started).Milliseconds()},
 		GuildContribution: contribution,
 		GuildEssence:      essence, GuildEssenceRevalidate: essenceCurrent,
 		GuildRanking:            rankingClear,

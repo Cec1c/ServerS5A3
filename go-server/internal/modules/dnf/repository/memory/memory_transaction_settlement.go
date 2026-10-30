@@ -285,6 +285,15 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 			return err
 		}
 	}
+	if characterTx.clear != nil {
+		writer, ok := u.character.(repository.ClearHistoryWriter)
+		if !ok {
+			return repository.ErrCharacterSettlementTransactionUnavailable
+		}
+		if err := writer.AppendClear(ctx, *characterTx.clear); err != nil {
+			return err
+		}
+	}
 	committed = true
 	return nil
 }

@@ -179,7 +179,7 @@ func TestGuildDungeonEntryFatigueChargesWholePartyAtomically(t *testing.T) {
 				if got := fixture.storedFatigue(t, id); got != 72 {
 					t.Fatalf("member %s fatigue=%d", id, got)
 				}
-				if !fixture.runtimes[index].fatigueStartDebited {
+				if !fixture.runtimes[index].fatigueStartDebited || fixture.runtimes[index].fatigueSpent != 8 {
 					t.Fatalf("member %s runtime was not marked debited", id)
 				}
 			}
@@ -212,7 +212,7 @@ func TestGuildDungeonEntryFatigueRollsBackEveryMemberOnLateSaveFailure(t *testin
 				if got := fixture.storedFatigue(t, id); got != 80 {
 					t.Fatalf("member %s retained partial debit: %d", id, got)
 				}
-				if fixture.runtimes[index].fatigueStartDebited {
+				if fixture.runtimes[index].fatigueStartDebited || fixture.runtimes[index].fatigueSpent != 0 {
 					t.Fatalf("member %s was marked committed", id)
 				}
 			}

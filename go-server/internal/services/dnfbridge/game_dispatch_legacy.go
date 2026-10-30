@@ -151,6 +151,9 @@ func (s *Service) handleGameCommand(session *gameSession, cmd byte, typ uint16, 
 
 func (s *Service) handleGameCommandRequest(session *gameSession, request gameplayRequest) error {
 	cmd, typ, body := request.Classification, request.Opcode, request.Body
+	if s.options.playerStrict && (session == nil || !session.accountFromToken) {
+		return errPlayerAuthentication
+	}
 	if dnfenum.GameCmd(cmd) != dnfenum.GameCmdCommand {
 		return nil
 	}

@@ -44,10 +44,10 @@ func epicBalance(t *testing.T, g repo.Group) (int64, int64, int64) {
 }
 func TestEpicEntryOwnerAtomicReceiptReplayAndNextRun(t *testing.T) {
 	o, g, cmd := epicOwnerFixture(t)
-	if r, e := o.ConsumeEpicEntry(context.Background(), cmd); e != nil || r.Replay {
+	if r, e := o.ConsumeEpicEntry(context.Background(), cmd); e != nil || r.Replay || r.FatigueSpent != 1 {
 		t.Fatal(r, e)
 	}
-	if r, e := o.ConsumeEpicEntry(context.Background(), cmd); e != nil || !r.Replay {
+	if r, e := o.ConsumeEpicEntry(context.Background(), cmd); e != nil || !r.Replay || r.FatigueSpent != 1 {
 		t.Fatal(r, e)
 	}
 	if seq, fp, tickets := epicBalance(t, g); seq != 1 || fp != 99 || tickets != 60 {

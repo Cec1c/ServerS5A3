@@ -27,8 +27,8 @@ func TestSchemaComponentStartCreatesSchemaWhenEnabled(t *testing.T) {
 	if err := component.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if len(exec.statements) != 58 {
-		t.Fatalf("executed statements = %d, want 58", len(exec.statements))
+	if len(exec.statements) != 60 {
+		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
 	}
 	snapshot := component.Snapshot()
 	if !snapshot.Started || !snapshot.AutoCreate || snapshot.ShardID != "9999" {

@@ -13,6 +13,20 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 	if err != nil {
 		return err
 	}
+	if s.options.playerStrict && !session.accountFromToken {
+		if packet.Header.MsgID != 1 || packet.Header.Classification != dnfproto.DefaultChannelClassification {
+			return errPlayerAuthentication
+		}
+		if s.options.playerStrict {
+			if err := s.authenticatePlayer(session, clientLoginTokenFromBody(packet.Body)); err != nil {
+				return err
+			}
+		}
+		s.bindGameSessionAccountFromLoginToken(session, packet.Header.Classification, packet.Body)
+		if !session.accountFromToken {
+			return errPlayerAuthentication
+		}
+	}
 	requestSequence := session.guild.purchaseSequence.observe(packet.Header.Seq)
 	runtimeName := upperRuntimeCmdPacketName(packet.Header.MsgID, packet.Header.Classification)
 	runtimeKnown := upperRuntimeCmdPacketKnown(packet.Header.MsgID, packet.Header.Classification)

@@ -140,7 +140,7 @@ func TestAccountLoginReplacementMySQLRejectedPasswordPreservesOld(t *testing.T) 
 	}
 	// The hash may change after bcrypt but before the transaction obtains its row lock.
 	f.service.accountLogins.mu.Lock()
-	_, _, err := f.api.replaceLoginLocked(context.Background(), "main", oldLogin.AccountID, "outdated-hash", "192.0.2.44")
+	_, _, err := f.api.replaceLoginLocked(context.Background(), "main", oldLogin.AccountID, "outdated-hash", "192.0.2.44", "")
 	f.service.accountLogins.mu.Unlock()
 	if err == nil || old.loginRevoked.Load() {
 		t.Fatal("changed password retired old session")

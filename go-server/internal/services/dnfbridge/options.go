@@ -707,8 +707,12 @@ type options struct {
 	//
 	// 注意：置 0 时按来源 IP 的那条兜底通道**已经不存在**（2026-09-25 删除，
 	// 见 client_account_ip.go），会话会直接落到共享兜底账号并写 WARN。
-	accountAPILoginToken bool
-	playerAdminSecret    string
+	playerStrict            bool
+	playerProxySecret       string
+	playerRegistrationLimit int
+	playerMaxOnline         int
+	accountAPILoginToken    bool
+	playerAdminSecret       string
 
 	// gameProactiveEndpointWhenUnbound 是握手顺序的回退开关
 	// （DNFBRIDGE_GAME_PROACTIVE_ENDPOINT_WHEN_UNBOUND=1）。
@@ -955,12 +959,16 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 			envString(equipMode0RepositoryMemoEnv, equipMode0RepositoryMemoReuse),
 		),
 
-		accountAPIListen:     envString("DNFBRIDGE_ACCOUNT_API_LISTEN", defaultAccountAPIListen),
-		accountAPIDSN:        envString("DNFBRIDGE_ACCOUNT_API_DSN", ""),
-		accountAPITable:      envString("DNFBRIDGE_ACCOUNT_API_TABLE", defaultAccountAPITable),
-		accountAPIRegister:   envBool("DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER", true),
-		accountAPILoginToken: envBool("DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN", true),
-		playerAdminSecret:    envString("DNFBRIDGE_PLAYER_ADMIN_SECRET", ""),
+		accountAPIListen:        envString("DNFBRIDGE_ACCOUNT_API_LISTEN", defaultAccountAPIListen),
+		accountAPIDSN:           envString("DNFBRIDGE_ACCOUNT_API_DSN", ""),
+		accountAPITable:         envString("DNFBRIDGE_ACCOUNT_API_TABLE", defaultAccountAPITable),
+		accountAPIRegister:      envBool("DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER", true),
+		accountAPILoginToken:    envBool("DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN", true),
+		playerStrict:            envBool("DNFBRIDGE_PLAYER_STRICT", false),
+		playerProxySecret:       envString("DNFBRIDGE_PLAYER_PROXY_SECRET", ""),
+		playerRegistrationLimit: envInt("DNFBRIDGE_PLAYER_REGISTRATION_LIMIT", 0),
+		playerMaxOnline:         envInt("DNFBRIDGE_PLAYER_MAX_ONLINE", 0),
+		playerAdminSecret:       envString("DNFBRIDGE_PLAYER_ADMIN_SECRET", ""),
 		// 握手顺序回退开关：置 1 才恢复"未绑定会话收主动端点成功包"的旧行为。
 		gameProactiveEndpointWhenUnbound: envBool("DNFBRIDGE_GAME_PROACTIVE_ENDPOINT_WHEN_UNBOUND", false),
 		patchDistDir:                     envString("DNFBRIDGE_PATCH_DIST_DIR", defaultPatchDistDir),
