@@ -15,13 +15,13 @@ import (
 //
 //	否则第一个数据报只能被丢掉/留存，两端互相等待 ⇒ 永久死锁"。
 //
-// ## 现场证据（香港 38.22.90.52 `/opt/dnf90/logs/dnf90.out`，只读引用）
+// ## 现场证据（香港 192.0.2.12 `/opt/dnf90/logs/dnf90.out`，只读引用）
 //
 //	23512 20:46:10.362 leg listening owner_id=3 peer_id=4 leg_listen_port=31000 advertised_udp_port=61566
 //	23513 20:46:10.362 leg listening owner_id=4 peer_id=3 leg_listen_port=31001 advertised_udp_port=61630
-//	23514 20:46:10.434 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=39.172.226.229:21574
-//	23515 20:46:10.434 probe queued       owner_id=4 peer_id=3 leg=31001 source=39.172.226.229:21574 held_from_owner_id=3
-//	23516 20:46:10.434 endpoint fallback used owner_id=4 peer_id=3 leg=31001 target=39.172.226.229:61630
+//	23514 20:46:10.434 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=192.0.2.19:21574
+//	23515 20:46:10.434 probe queued       owner_id=4 peer_id=3 leg=31001 source=192.0.2.19:21574 held_from_owner_id=3
+//	23516 20:46:10.434 endpoint fallback used owner_id=4 peer_id=3 leg=31001 target=192.0.2.19:61630
 //	23536 20:46:50.001 legs closed received_datagrams=1 leg_forwarded_datagrams=0
 //
 // 逐行读法（**判读关键，上一轮被误读**）：`peer endpoint not learned` 的 owner/peer/leg 是
@@ -333,12 +333,12 @@ func partyUDPRelayAddrIPv4(source *net.UDPAddr) ([4]byte, bool) {
 // 2026-09-26 02:13 现场取证（香港 `/opt/dnf90/logs/dnf90.out`，只读引用；
 // 探针口配成 `2311,2312,31000` = 登录通告里给客户端的 `DNF_INITIAL_UDP_PORT1/2` + 中继起始口）：
 //
-//	02:13:09.685 native probe observed listener_port=2311 source=39.172.226.229:21854 bytes=1 payload_hex=01
-//	02:13:12.199 native probe observed listener_port=2312 source=39.172.226.229:21863 bytes=1 payload_hex=00
-//	02:13:13.253 native probe observed listener_port=2312 source=39.172.226.229:21854 bytes=1 payload_hex=00
+//	02:13:09.685 native probe observed listener_port=2311 source=192.0.2.19:21854 bytes=1 payload_hex=01
+//	02:13:12.199 native probe observed listener_port=2312 source=192.0.2.19:21863 bytes=1 payload_hex=00
+//	02:13:13.253 native probe observed listener_port=2312 source=192.0.2.19:21854 bytes=1 payload_hex=00
 //	…30 秒后…
-//	02:13:40.806 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=39.172.226.229:21863
-//	02:13:40.806 fanout candidate used        owner_id=4 peer_id=3 leg=31001 kind=advertised_port target=39.172.226.229:61502
+//	02:13:40.806 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=192.0.2.19:21863
+//	02:13:40.806 fanout candidate used        owner_id=4 peer_id=3 leg=31001 kind=advertised_port target=192.0.2.19:61502
 //
 // 两条硬结论：
 //
@@ -359,8 +359,8 @@ func partyUDPRelayAddrIPv4(source *net.UDPAddr) ([4]byte, bool) {
 //
 // 只把候选接进扇出之后，02:28 实测拿到的是"投出去了、但对面还是 0 包"：
 //
-//	02:28:17.804 fanout candidate used leg=31001 kind=observed_probe_endpoint target=39.172.226.229:21863
-//	02:28:17.804 fanout candidate used leg=31001 kind=advertised_port     target=39.172.226.229:61502
+//	02:28:17.804 fanout candidate used leg=31001 kind=observed_probe_endpoint target=192.0.2.19:21863
+//	02:28:17.804 fanout candidate used leg=31001 kind=advertised_port     target=192.0.2.19:61502
 //	02:28:19.772 silent peer kick phase=delayed attempt=1 delivered=true opposite_received=0
 //
 // 即 `delivered=true` 只证明**本机把包交给了内核**。真正的原因是入向方向被加速器/NAT 过滤：
@@ -1002,7 +1002,7 @@ func (r *currentPartyUDPRelay) traceRelayDatagramDelivered(
 // memoTTL 开关：DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS（默认 30 秒）。
 //
 // 依据（2026-09-25 21:07 / 21:15 两次现场）：加速器 NAT 端口只存活几十秒到两分钟。
-// 21:15 那次三份连续转发的目标 `39.172.226.229:21590` 是 **21:07 那次**留下的旧端口
+// 21:15 那次三份连续转发的目标 `192.0.2.19:21590` 是 **21:07 那次**留下的旧端口
 // （相隔约 8 分钟）⇒ 全部被加速器丢掉、对端一个包都没收到。所以陈旧记忆**不能单独使用**，
 // 只能作为多候选扇出里的一份（成本≈0，但不指望它）。
 const partyUDPRelayMemoTTLSecondsEnv = "DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS"

@@ -19,7 +19,7 @@ import (
 //
 // store.go 的 `Apply` 只做一件事：把每条记录写进 `slot_<Slot>`。于是**状态键集合
 // 只增不减**——它是"这台服务器见过的所有槽位的并集"，不是"客户端最后一次登记"。
-// 现场实证（HK `109.244.63.71`，`packet_log.txt`，2026-09-28）：
+// 现场实证（HK `192.0.2.11`，`packet_log.txt`，2026-09-28）：
 //
 //	char 6 = `test78`（job 0）最后一次完整登记在 13:52:42.240..44.977Z，
 //	客户端推上来的是 **11 个槽位** {12,14,15,16,17,18,19,20,21,22,23}；
@@ -202,7 +202,7 @@ func CurrentRegistrationArm() string {
 //
 // # 它修的是什么（操作者第六次报障：「1 buff强化为空。登记成功后切换角色清空。」）
 //
-// 现场（HK `109.244.63.71`，`packet_log.txt`，char 6 = `test78`，account `dnf:10011`）：
+// 现场（HK `192.0.2.11`，`packet_log.txt`，char 6 = `test78`，account `dnf:10011`）：
 //
 //	16:15:41.501Z  边界提交 `commit_trigger=boundary_open_window`
 //	               → 落库 **11 行 ModeRegister**：`slot_12=0c003600`（Value 54）、
@@ -365,7 +365,7 @@ func CurrentBindingRestore() string {
 //
 // # 它修的是什么（操作者第七次报障：「选择角色后 面板里原本有的那些行消失了」）
 //
-// 现场（HK `109.244.63.71`，`packet_log.txt` + `dnf_setting_values`，2026-09-28）：
+// 现场（HK `192.0.2.11`，`packet_log.txt` + `dnf_setting_values`，2026-09-28）：
 //
 //   - char 1 = `test1` 的 scope 在 18:38:52.817Z 之前有 **20 行**
 //     （槽位 1..7 / 12..23 / 25），服务端在入场边界上把这些行原样重发

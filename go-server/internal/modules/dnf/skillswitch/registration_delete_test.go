@@ -9,7 +9,7 @@ import (
 
 // 「删除语义」（`DNFBRIDGE_SKILL_SWITCH_REGISTRATION_DELETE`）在仓储层的钉子。
 //
-// 现场（HK `109.244.63.71`，`packet_log.txt` 第 197164..197200 行 + `dnf_setting_values`，
+// 现场（HK `192.0.2.11`，`packet_log.txt` 第 197164..197200 行 + `dnf_setting_values`，
 // 2026-09-28。逐字原文见 `_dist/buff-swap-round6.md` §1）：
 //
 //	18:38:57.864 .. 18:39:00.547Z  char 1 = `test1` 推 9 条记录

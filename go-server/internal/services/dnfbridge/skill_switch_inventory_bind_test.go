@@ -16,7 +16,7 @@ import (
 // （`handleSkillSwitchInventoryCommand` + 重投影边界）上的钉子。
 //
 // 操作者第六次报障（原文）：「**1 buff强化为空。登记成功后切换角色清空。**」
-// 现场（HK `109.244.63.71`，`packet_log.txt` + `dnf_setting_values`，2026-09-28，
+// 现场（HK `192.0.2.11`，`packet_log.txt` + `dnf_setting_values`，2026-09-28，
 // 原始行与 SQL 见 `_dist/buff-swap-round3.md` §1/§2），全在同一角色 char 6 = `test78`
 // （账号 `dnf:10011`）：
 //

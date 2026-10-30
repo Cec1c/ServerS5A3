@@ -1,5 +1,7 @@
 ## 2026-10-13 — Native merging persists; instantaneous merged-purchase count fix integrated
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 Own account10071/character108 completed the activity prerequisites normally and bought two talismans on server703. Read-only snapshots prove one inventory row/count2, gold600992 and unchanged expiry after a complete normal client restart. SQL count2/week2962 and the restarted native2/70 agree. This closes the tested new-purchase merge/persistence boundary. It does not close the live-count defect: the second merged purchase showed3/70 until restart, and the original screenshots are retained in own-expiration-merge711.
 
 Private actual-client analysis722 identifies the BuyItem ACK quantity as the increment at VA0x1FD8E51/0x1C61450. The integrated server candidate projects stackable ACKs with the purchased quantity, then keeps full inventory totals in the following op14 update and in storage. Three meaningful controls (pre-existing gold stack, two actual-PVF purchases and merged material exchange) fail on baseline and pass on candidate724; equipment instance data stays unchanged. Combined validation and deployed native verification remain pending.
@@ -220,7 +222,7 @@ P7/P11黑色火山副本整体屏障；P10团本进度变化后的回城；冒�
 
 真实线上dnf90.service已于香港时间2026-10-12 22:45:13启动新程序。独立回读确认PID1153394、ActiveState=active/SubState=running/NRestarts=0；运行程序与经过443构建检查的Linux amd64成品逐字节SHA一致，3452文件源码归档对应仓库18393b1dbd8af41de3f977a6c242b219e7f88629。118个游戏TCP监听以及7001游戏引导、7002账号、7003管理入口均属于此新进程，HTTPS账号代理也指向它。不是只上传仓库或只替换文件。
 
-标准/预览是客户端更新频道。已核对当前发布登录器源码及实际成品：两者启动游戏都连接109.244.63.71:7001，两个已签名清单客户端版本均为24.9.12.42-v96。此次只更新服务端，客户端版本文字仍是v96，客户端EXE、PVF及更新清单无需改动。用户验收统一用标准测试。
+标准/预览是客户端更新频道。已核对当前发布登录器源码及实际成品：两者启动游戏都连接192.0.2.11:7001，两个已签名清单客户端版本均为24.9.12.42-v96。此次只更新服务端，客户端版本文字仍是v96，客户端EXE、PVF及更新清单无需改动。用户验收统一用标准测试。
 
 本批新增可复验范围：
 

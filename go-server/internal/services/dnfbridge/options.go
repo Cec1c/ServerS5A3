@@ -466,7 +466,7 @@ type options struct {
 	// 证据、命名空间隔离与一键回退见 party_udp_relay_remote.go 文件头。
 	partyUDPRelayMode partyUDPRelayMode
 	// partyUDPRelayRemoteEndpoint 是 DNFBRIDGE_PARTY_UDP_RELAY_REMOTE（host:port，
-	// 默认 38.22.90.52:10250 = 港机 a21-relay 的控制通道）。
+	// 必须显式配置；未配置时沿用端点无效的 embedded 回退，不选择外部主机）。
 	partyUDPRelayRemoteEndpoint string
 	// partyUDPRelayRemoteSecret 是解析后的 32 字节密钥；**nil = 未配/非法 ⇒ 回退 embedded**。
 	// 它只用于 HMAC，绝不进日志（日志里只有 partyUDPRelayRemoteSecretState 那三个词）。
@@ -830,7 +830,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		partyUDPRelayMode: readPartyUDPRelayMode(
 			envString(partyUDPRelayModeEnv, partyUDPRelayModeValueRemote)),
 		partyUDPRelayRemoteEndpoint: envString(
-			partyUDPRelayRemoteEndpointEnv, defaultPartyUDPRelayRemoteEndpoint),
+			partyUDPRelayRemoteEndpointEnv, ""),
 		partyUDPRelayRemoteRoomBase: partyUDPRelayRemoteRoomBase(
 			envString(partyUDPRelayRemoteRoomBaseEnv, "")),
 		// 收集箱：默认 reference = 按厂商 9.16 参考实现下发（操作者现场是

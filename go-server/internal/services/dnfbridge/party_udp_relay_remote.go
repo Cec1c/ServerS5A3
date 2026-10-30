@@ -27,7 +27,7 @@ import (
 //     客户端按"源 ip:port"区分队友；**客户端视角恒为"队友 P 在中继公网IP:port(owner,peer)"**。
 //
 // 为什么必须有这个文件（港机现场事实）：`/etc/systemd/system/a21-relay.service` 的注释写明
-// 「境外组队 UDP 中继（HK 38.22.90.52）… 国内游戏服只做游戏逻辑、**不绑定中继端口、不转发
+// 「境外组队 UDP 中继（HK 192.0.2.12）… 国内游戏服只做游戏逻辑、**不绑定中继端口、不转发
 // 队友流量**；本服务只监听控制 TCP 10250 + UDP 30000..30255」。也就是说厂商架构里中继是
 // **独立进程**，游戏服只做两件事：① 在控制通道上把"房间成员集合"换成"端口矩阵"；
 // ② 把矩阵写进 op11 的 22B 行里。我们此前的内嵌中继（party_udp_relay.go）自己 bind 31000+X
@@ -79,7 +79,6 @@ const (
 	partyUDPRelayModeValueRemote   = "remote"
 	partyUDPRelayModeValueEmbedded = "embedded"
 
-	defaultPartyUDPRelayRemoteEndpoint = "38.22.90.52:10250"
 	// defaultPartyUDPRelayRemoteRoomBase 远离小整数房间号（另一台服在用的 18/19/20/22/61）。
 	defaultPartyUDPRelayRemoteRoomBase = 100000
 )
@@ -1401,7 +1400,7 @@ func parsePartyUDPRelayRemoteEndpoint(endpoint string) (string, int, error) {
 // publicIp 就是 `DNFBRIDGE_SERVER_IP`。两个理由：
 //   - 控制通道端点可以是内网/回环地址（本地联调、同机部署），而 op11 里给客户端的必须是
 //     **公网可达**地址；
-//   - 港机上 a21-relay 与游戏服同机（38.22.90.52），两者本来就相同，这条口径不会引入差异。
+//   - 港机上 a21-relay 与游戏服同机（192.0.2.12），两者本来就相同，这条口径不会引入差异。
 //
 // 两者都拿不到具体 IPv4（含 0.0.0.0）时返回 false ⇒ 回退 embedded 并记具名事件。
 func partyUDPRelayRemotePublicIP(host, advertiseIP string) ([4]byte, bool) {

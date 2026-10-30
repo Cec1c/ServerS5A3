@@ -1,5 +1,7 @@
 # R134 P67 黑暗武士六项 TP 学习核验
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 日期：2026-10-21（香港）。独立副本：`D:/codex-build-r134/skill-source`。
 
 ## 结论与交付范围
@@ -72,7 +74,7 @@ $env:GOMAXPROCS = '3'
 $env:GOFLAGS = '-mod=readonly -p=2'
 $env:GOCACHE = 'D:/codex-build-r104/main/cache'
 $env:DNFBRIDGE_REAL_PVF_SMOKE = 'D:/codex-build-r129/container-baseline/Script.pvf'
-& 'C:/Users/16ww/go-tc/go/bin/go.exe' test -buildvcs=false -count=1 -run '^TestRealPVFR134DarkKnightTPLearning$' -v ./internal/services/dnfbridge
+& '<go-toolchain>/bin/go.exe' test -buildvcs=false -count=1 -run '^TestRealPVFR134DarkKnightTPLearning$' -v ./internal/services/dnfbridge
 # 默认跳过验证：先移除上面的 PVF 环境变量，再运行相同目标命令。
 ```
 

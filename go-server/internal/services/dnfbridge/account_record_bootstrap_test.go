@@ -97,7 +97,7 @@ func newAccountRecordBootstrapFixture(t *testing.T) (*Service, dnfrepo.Group) {
 		CharacterID: "10",
 		AccountID:   accountRecordBootstrapTestAccountID,
 		Slot:        0,
-		Name:        "smcz",
+		Name:        "sample-account-a",
 		Job:         "3",
 		Level:       16,
 		Stats: map[string]int64{
