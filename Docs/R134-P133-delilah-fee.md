@@ -1,5 +1,7 @@
 # R134 P133 德利拉收费、钱包与 MR140 保留核验
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 日期：2026-10-21（香港）。副本：`D:/codex-build-r134/skill-source`，HEAD `7ca5fe751560118883416833edecad09182da40e`。
 
 ## 结论
@@ -80,7 +82,7 @@ $env:GOMAXPROCS='3'
 $env:GOFLAGS='-mod=readonly -p=2'
 $env:GOCACHE='D:/codex-build-r104/main/cache'
 $env:DNFBRIDGE_REAL_PVF_SMOKE='D:/codex-build-r129/container-baseline/Script.pvf'
-& 'C:/Users/16ww/go-tc/go/bin/go.exe' test -buildvcs=false -count=1 -run '^(TestRealPVFR134DelilahDispatchWallet|TestDelilah.*|TestDisjointFeeScopeKeepsOrdinaryMachinesFree)$' -v ./internal/services/dnfbridge
+& '<go-toolchain>/bin/go.exe' test -buildvcs=false -count=1 -run '^(TestRealPVFR134DelilahDispatchWallet|TestDelilah.*|TestDisjointFeeScopeKeepsOrdinaryMachinesFree)$' -v ./internal/services/dnfbridge
 ```
 
 ## 交付与现场下一步

@@ -543,8 +543,8 @@ func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {
 	// 依据：① 客户端进程号（本地 Windows 一键端，client_account_registry.go）；
 	// ② 客户端登录包里的启动器令牌（稍后到达，account_login_token.go）。
 	// 来源 IP 只写进 session.clientIP 供日志判读，绝不参与账号判定 ——
-	// 2026-09-25 香港取证：玩家的启动器登录出口（203.198.28.63）与游戏连接来源
-	// （加速器出口 175.43.105.6 等，会话间还会漂移）不是同一个地址。
+	// 2026-09-25 香港取证：玩家的启动器登录出口（192.0.2.14）与游戏连接来源
+	// （加速器出口 192.0.2.13 等，会话间还会漂移）不是同一个地址。
 	session.clientIP = remoteIPOf(conn)
 	s.registerLiveGameSession(session)
 	defer s.unregisterLiveGameSession(session)

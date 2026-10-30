@@ -13,7 +13,7 @@ import (
 // 「Buff 强化 / 技能换装」**登记窗口**（`DNFBRIDGE_SKILL_SWITCH_REGISTRATION`）的钉子。
 //
 // 这一档修的是操作者第四次报障：「选择角色后**刚选择的装备没有登记**」。
-// 现场事实（HK `109.244.63.71`，`packet_log.txt`，2026-09-28，报告
+// 现场事实（HK `192.0.2.11`，`packet_log.txt`，2026-09-28，报告
 // `_dist/buff-swap-registration.md` §1/§2 有逐行原始输出）：
 //
 //	char 6 = `test78`（job 0）最后一次完整登记在 13:52:42.240..44.977Z，

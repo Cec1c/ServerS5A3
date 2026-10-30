@@ -10,7 +10,7 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// 现场（香港 38.22.90.52，/opt/dnf90/logs/packet_log.txt 2026-09-25）：
+// 现场（香港 192.0.2.12，/opt/dnf90/logs/packet_log.txt 2026-09-25）：
 //
 //	:3505 RECV type=598 CREATE_EXPERT_JOB_STORE hex=...00 01000000 01 01000000 ed06 5c01 ffff
 //	:3509 RECV type=599 ENTER_EXPERT_JOB_STORE  hex=...0300

@@ -1,5 +1,7 @@
 # R134 N3 超时空赛丽亚私人房间隔离
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 2026-10-21；独立目录 `D:/codex-build-r134/skill-source`，HEAD `7ca5fe751560118883416833edecad09182da40e`（主代理预备累计副本）。本轮没有提交、合并、部署或启动客户端，没有修改正式EXE/PVF、玩家数据、源仓库或source-continuation。
 
 ## 交付结论
@@ -53,7 +55,7 @@ op36的16字节请求没有由玩家指定房间owner的字段；owner由服务�
 
 新N3测试自身1个顶层、8个子测试全部通过。反例包括同频道98/1仍共享、移动/聊天继续发送；同队两名成员和PartyID不变；89级/缺8641不得进入；98/2没有改成单人私房。既有目标回归还覆盖普通城镇跨区队友名册、跨频道投影、公会成员/聊天/回退、安徒恩/卢克私房、团队等待区、公共回城重建及UDP认证定向腿转发/离队腿回收。
 
-运行环境：Go `C:/Users/16ww/go-tc/go/bin/go.exe`；`GOMAXPROCS=3`；`GOFLAGS=-mod=readonly -p=2`；`GOCACHE=D:/codex-build-r104/main/cache`；`DNFBRIDGE_REAL_PVF_SMOKE`为上述固定文件；只运行目标测试，未自行跑全套或构建部署。测试角色/点位仅内存夹具，实际PVF的等级90/任务8641门槛没有关闭。
+运行环境：Go `<go-toolchain>/bin/go.exe`；`GOMAXPROCS=3`；`GOFLAGS=-mod=readonly -p=2`；`GOCACHE=D:/codex-build-r104/main/cache`；`DNFBRIDGE_REAL_PVF_SMOKE`为上述固定文件；只运行目标测试，未自行跑全套或构建部署。测试角色/点位仅内存夹具，实际PVF的等级90/任务8641门槛没有关闭。
 
 ## 中继与待验边界
 

@@ -19,9 +19,9 @@ import (
 // 现场证据（香港 /opt/dnf90/logs/packet_log.txt，服务器进程 2026-09-25 05:58 起）：
 // 9 条落到 dnf:1 的会话全部满足 session_account_bound=false、
 // request_body_len=0、reason=unbound_channel_discovery_probe，且
-// RECV ENUM_CMDPACKET_LOGIN 计数为 0（含把 smcz/czfm 建到 dnf:1 的
-// game-000197 / game-000203）；它们的来源 IP 是加速器出口 175.43.105.6，
-// 而该玩家四个账号的 last_login_ip 都是 203.198.28.63。
+// RECV ENUM_CMDPACKET_LOGIN 计数为 0（含把 sample-account-a/sample-account-b 建到 dnf:1 的
+// game-000197 / game-000203）；它们的来源 IP 是加速器出口 192.0.2.13，
+// 而该玩家四个账号的 last_login_ip 都是 192.0.2.14。
 
 type accountResolutionTestService struct {
 	service *Service
@@ -62,7 +62,7 @@ func TestAccountResolutionPrefersLoginTokenAndNeverUsesClientIP(t *testing.T) {
 
 	session := &gameSession{
 		connID:   "game-000197",
-		clientIP: "203.198.28.63",
+		clientIP: "192.0.2.14",
 		channel:  channelcatalog.Channel{ID: 253, Type: 40},
 	}
 	if !f.service.bindGameSessionAccountFromLoginToken(
@@ -79,7 +79,7 @@ func TestAccountResolutionPrefersLoginTokenAndNeverUsesClientIP(t *testing.T) {
 		t.Fatalf("token-bound session warned about the shared account:\n%s", f.warnings())
 	}
 	// 令牌账号与来源 IP 没有任何关系：换一个 IP 结果必须一样。
-	session.clientIP = "175.43.105.6"
+	session.clientIP = "192.0.2.13"
 	if got := f.service.accountIDForSession(session); got != "dnf:10013" {
 		t.Fatalf("account after client IP change=%q, want dnf:10013", got)
 	}
@@ -94,7 +94,7 @@ func TestAccountResolutionFallsBackToClientPIDBindingNotClientIP(t *testing.T) {
 	session := &gameSession{
 		connID:         "game-000203",
 		clientPID:      4242,
-		clientIP:       "203.198.28.63",
+		clientIP:       "192.0.2.14",
 		accountID:      "dnf:10015",
 		accountFromPID: true,
 	}
@@ -123,7 +123,7 @@ func TestAccountResolutionWithoutTokenWarnsAndUsesSharedAccount(t *testing.T) {
 	f := newAccountResolutionTestService(t)
 	session := &gameSession{
 		connID:   "game-000197",
-		clientIP: "175.43.105.6",
+		clientIP: "192.0.2.13",
 		channel:  channelcatalog.Channel{ID: 253, Type: 40},
 	}
 	if got := f.service.accountIDForSession(session); got != "dnf:1" {
@@ -140,7 +140,7 @@ func TestAccountResolutionWithoutTokenWarnsAndUsesSharedAccount(t *testing.T) {
 		"account_id=dnf:1",
 		"token_found=false",
 		"login_packet_seen=false",
-		"client_ip=175.43.105.6",
+		"client_ip=192.0.2.13",
 		"reason=" + sharedAccountReasonNoLoginPacket,
 	} {
 		if !strings.Contains(warn, want) {
@@ -160,7 +160,7 @@ func TestAccountResolutionLoginPacketWithoutTokenReportsNoTokenReason(t *testing
 	f := newAccountResolutionTestService(t)
 	session := &gameSession{
 		connID:          "game-000300",
-		clientIP:        "175.43.105.6",
+		clientIP:        "192.0.2.13",
 		channel:         channelcatalog.Channel{ID: 251, Type: 40},
 		loginPacketSeen: true,
 	}
@@ -192,7 +192,7 @@ func TestGameBootstrapWaitsForLoginPacketWhenAccountIsUnknown(t *testing.T) {
 	session := &gameSession{
 		conn:            conn,
 		connID:          "game-000197",
-		clientIP:        "175.43.105.6",
+		clientIP:        "192.0.2.13",
 		channel:         channel,
 		residentChannel: channel,
 	}

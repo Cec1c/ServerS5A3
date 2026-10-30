@@ -29,7 +29,7 @@ import (
 //	RECV kind=game-upper conn_id=game-002721 pkt_seq=551 msg_id=690
 //	     runtime_cmd_name=ENUM_CMDPACKET_STATICS_RUNTIME_TING t=2026-09-29T06:05:20.426046166Z
 //	EVENT kind=game-read-close conn_id=game-002721 ... quiet=true
-//	     error=read tcp 109.244.63.71:10010->39.172.226.229:21945: read: connection reset by peer
+//	     error=read tcp 192.0.2.11:10010->192.0.2.19:21945: read: connection reset by peer
 //	     t=2026-09-29T06:05:20.494985829Z                   ← 最后一条 458 之后 1.265s 客户端进程死
 //
 // 对照（这一步是判据的关键）：全日志只有 7 条 `SEND msg_id=458`，分属 4 个会话

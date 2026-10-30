@@ -17,7 +17,7 @@ import (
 //
 // # 这一档修的是什么（操作者第三次报障：选择角色后换装还是会消失）
 //
-// 换装状态**已经落库、且从不被覆盖**（HK `109.244.63.71` 只读 SQL，
+// 换装状态**已经落库、且从不被覆盖**（HK `192.0.2.11` 只读 SQL，
 // 2026-09-28T13:55Z：`dnf_setting_values` 里 `character:6:skill_switch_inventory`
 // 有 14 条 `slot_*` 状态行 + `slot_count=14` + `source=current_exe_op1428` +
 // `updated_at=2026-09-28T13:52:44.958764974Z`）。所以缺陷**不是保存**，

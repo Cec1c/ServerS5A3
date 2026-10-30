@@ -14,9 +14,9 @@ import (
 //
 // 现场依据（香港只读日志 `/opt/dnf90/logs/dnf90.out`）：
 //
-//	23514 20:46:10.434 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=39.172.226.229:21574
-//	23515 20:46:10.434 probe queued owner_id=4 peer_id=3 leg=31001 source=39.172.226.229:21574
-//	23516 20:46:10.434 endpoint fallback used owner_id=4 peer_id=3 target=39.172.226.229:61630
+//	23514 20:46:10.434 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=192.0.2.19:21574
+//	23515 20:46:10.434 probe queued owner_id=4 peer_id=3 leg=31001 source=192.0.2.19:21574
+//	23516 20:46:10.434 endpoint fallback used owner_id=4 peer_id=3 target=192.0.2.19:61630
 //	23536 20:46:50.001 legs closed received_datagrams=1 leg_forwarded_datagrams=0
 //
 // 厂商对照（`D:\DNF90-test\server\runtime\logs\packet_log.txt`）：`game-party-peer-endpoint-bound`
@@ -681,10 +681,10 @@ func TestKickTimingAndProbePortDefaults(t *testing.T) {
 //
 // 现场形状（香港只读日志 `/opt/dnf90/logs/dnf90.out`）：
 //
-//	02:13:09.685 native probe observed listener_port=2311 source=39.172.226.229:21854 bytes=1 payload_hex=01
-//	02:13:12.199 native probe observed listener_port=2312 source=39.172.226.229:21863 bytes=1 payload_hex=00
-//	02:13:40.806 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=39.172.226.229:21863
-//	02:13:40.806 fanout candidate used        owner_id=4 peer_id=3 leg=31001 kind=advertised_port target=39.172.226.229:61502
+//	02:13:09.685 native probe observed listener_port=2311 source=192.0.2.19:21854 bytes=1 payload_hex=01
+//	02:13:12.199 native probe observed listener_port=2312 source=192.0.2.19:21863 bytes=1 payload_hex=00
+//	02:13:40.806 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=192.0.2.19:21863
+//	02:13:40.806 fanout candidate used        owner_id=4 peer_id=3 leg=31001 kind=advertised_port target=192.0.2.19:61502
 //
 // 即：真实端点 `:21854` **30 秒前就被我们观测到过**，首包却仍然投给不可达的自报端口 `:61502`。
 // 下面六条回归钉住修法：1 字节探针要进表、表要接进候选集、绝不回投发送者、TTL 过期、上限/MRU、

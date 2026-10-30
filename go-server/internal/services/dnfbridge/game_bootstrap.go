@@ -35,7 +35,7 @@ func (s *Service) sendGameInitial(session *gameSession) (mode string, bodyLen in
 // 直接收到主动端点成功包，客户端因此永远不发登录包，令牌永远读不到，会话永远
 // 停在共享账号 dnf:1。现场 9/9 条落到 dnf:1 的会话都满足
 // `request_body_len=0 reason=unbound_channel_discovery_probe` 且
-// `RECV ENUM_CMDPACKET_LOGIN` 计数为 0（其中包括把 smcz/czfm 建到 dnf:1 的
+// `RECV ENUM_CMDPACKET_LOGIN` 计数为 0（其中包括把 sample-account-a/sample-account-b 建到 dnf:1 的
 // game-000197/000203）。
 //
 // 现在只要频道自洽就先发通知等登录包，账号在收到登录包后再绑定；这也让

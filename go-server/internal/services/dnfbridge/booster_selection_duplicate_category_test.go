@@ -11,7 +11,7 @@ import (
 
 // 操作者第 14 条：灿烂徽章礼盒「能获得道具但弹窗物品栏空间不足（最后一个会报错）」。
 //
-// 现场（HK 线上 109.244.63.71，`/opt/dnf90/logs/packet_log.txt`，02:5x，角色 6）：
+// 现场（HK 线上 192.0.2.11，`/opt/dnf90/logs/packet_log.txt`，02:5x，角色 6）：
 //
 //	game-current-booster-rejected conn_id=game-000018 source_slot=97
 //	  selected_item=10095130 selected_count=1 request_kind=1
