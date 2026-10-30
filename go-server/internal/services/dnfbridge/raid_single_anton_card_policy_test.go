@@ -14,7 +14,12 @@ func installSingleAntonCardPolicyTestPVF(t *testing.T, service *Service) {
 	if !ok {
 		t.Fatalf("monster catalog source type=%T", catalog.source)
 	}
-	source[currentDungeonClearRewardRulePath] = "[gold card cost table]\n1 100\n20 100\n[/gold card cost table]\n"
+	source[currentDungeonClearRewardRulePath] = "[dungeon difficulty gold drop bonusrate]\n1.02\n1.38\n1.60\n1.90\n2.00\n" +
+		"[party member drop bonusrate]\n1.00\n1.20\n1.40\n1.60\n" +
+		"[gold card cost table]\n" +
+		"1 100\n2 220\n3 340\n4 460\n5 580\n6 700\n7 820\n8 940\n9 1060\n10 1180\n" +
+		"11 1300\n12 1420\n13 1540\n14 1660\n15 1780\n16 1900\n17 2020\n18 2140\n19 2260\n20 2380\n" +
+		"[/gold card cost table]\n"
 	installCurrentTournamentCardRewardTestPVF(t, service)
 }
 
@@ -23,6 +28,10 @@ func TestSingleAntonCardPolicyKeepsOrdinaryAndLukeRewards(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			f := review452GroundRun(t, kind, kind == "luke", false)
 			installSingleAntonCardPolicyTestPVF(t, f.service)
+			f.runtime.entryPartyCount = 1
+			f.runtime.settlementPlayResultReceived = true
+			f.runtime.settlementPlayResultBody = make([]byte, currentDungeonPlayResultBaseSize)
+			f.runtime.settlementPlayResultBody[currentDungeonPlayResultClientRankPointOffset] = 73
 			if err := f.service.freezeCurrentDungeonCardRewardStateLocked(f.session, f.runtime); err != nil {
 				t.Fatal(err)
 			}

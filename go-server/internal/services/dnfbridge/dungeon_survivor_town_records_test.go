@@ -155,6 +155,16 @@ func TestDungeonSurvivorTownRecordsWriteFailureStopsBeforeFollowingRecords(t *te
 		UserID:  99,
 		Members: []alignedcmd.PartyMemberState{{UserID: 99, UserState: 1, HPPercent: 100, MPPercent: 100}},
 	}
+	// This helper runs after the departure has committed its retained roster.
+	manager := service.runtimePartyManagerForService()
+	if before, found := manager.SnapshotByUser(100, 0); found {
+		result := manager.LeaveExpected(100, beforeMemberGeneration(before, 100), before.ID)
+		if !result.OK {
+			t.Fatal("fixture member departure failed")
+		}
+		state = result.Party.StateFor(99)
+	}
+	storeRuntimePartyState(receiver, state)
 	err := service.sendMemberGiveupSurvivorRosterAfterDeparture(state, leaderRuntime.partyInstance, 100)
 	if !errors.Is(err, errDungeonSurvivorTownInjectedWrite) {
 		t.Fatalf("write error=%v want injected failure", err)

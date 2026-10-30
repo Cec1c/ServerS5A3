@@ -356,9 +356,7 @@ func TestP33Op665SingletonSurvivorProjectsSoloRoster(t *testing.T) {
 		t.Fatal(err)
 	}
 	leaderIdentity, _ := s.boundGameSessionCharacterSnapshot(leader)
-	if party := runtimePartyStateSnapshot(leader); party.PartyID != 0 || len(runtimePartyMembers(party)) != 0 {
-		t.Fatalf("singleton client projection was not cleared: %+v", party)
-	}
+	assertPartyProjectionSingleton(t, "raid survivor", runtimePartyStateSnapshot(leader), int(partyID), leaderIdentity.character, 0, true)
 	managerParty, found := s.runtimePartyManagerForService().SnapshotByUser(leaderIdentity.character, leaderIdentity.generation)
 	if !found || managerParty.ID != partyID || len(managerParty.Members) != 1 {
 		t.Fatalf("singleton manager lobby=%+v found=%t", managerParty, found)
@@ -399,11 +397,9 @@ func TestP33Op665PartyLeaderRetirementClearsOnlyOldGeneration(t *testing.T) {
 	if !found || managerParty.ID == oldPartyID || len(managerParty.Members) != 1 || managerParty.Members[0].UserID != memberIdentity.character {
 		t.Fatalf("party leader retirement did not create a survivor generation: %+v found=%t", managerParty, found)
 	}
-	if party := runtimePartyStateSnapshot(member); party.PartyID != 0 || len(runtimePartyMembers(party)) != 0 {
-		t.Fatalf("party leader retirement left the retired client generation: %+v", party)
-	}
-	if !p33HasPartyRemovalSequence(t, memberConn.write.Bytes(), 0) {
-		t.Fatal("party leader retirement did not clear the surviving client's old party")
+	assertPartyProjectionSingleton(t, "raid successor", runtimePartyStateSnapshot(member), int(managerParty.ID), memberIdentity.character, 1, true)
+	if !p33HasPartyRemovalSequence(t, memberConn.write.Bytes(), 1) {
+		t.Fatal("party leader retirement did not publish the surviving client's new singleton")
 	}
 	s.raidMu.Lock()
 	afterVersion := s.raids[raid.RaidKey].Battle.ProgressVersion
