@@ -165,3 +165,36 @@ func TestMySQLAccountMailboxOnePhysicalTransaction(t *testing.T) {
 		})
 	}
 }
+
+func TestMySQLAccountMailboxLocksAccountBeforeCharacter(t *testing.T) {
+	state := &accountMailSQLState{scenario: "success"}
+	database := sql.OpenDB(accountMailSQLConnector{state})
+	defer database.Close()
+	uow := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{
+		db:          SQLDBAdapter{DB: database},
+		readDBs:     []string{"readonly"},
+		writeDBs:    []string{"shard_a", "shard_b"},
+		tablePrefix: "dnf_",
+		now:         time.Now,
+	}}
+	if err := uow.WithinAccountMailbox(context.Background(), "a", "19", func(repo.AccountRepository, repo.MailboxRepository) error {
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	accountLocked, characterLocked := -1, -1
+	for index, query := range state.queries {
+		if !strings.HasSuffix(query, " FOR UPDATE") {
+			continue
+		}
+		if accountLocked < 0 && strings.HasPrefix(query, "SELECT account_id,") {
+			accountLocked = index
+		}
+		if characterLocked < 0 && strings.HasPrefix(query, "SELECT character_id,") {
+			characterLocked = index
+		}
+	}
+	if accountLocked != 0 || characterLocked <= accountLocked {
+		t.Fatalf("account mailbox lock order account=%d character=%d queries=%v", accountLocked, characterLocked, state.queries)
+	}
+}
