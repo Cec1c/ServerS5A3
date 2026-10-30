@@ -196,8 +196,8 @@ func (s *Service) logDungeonEntrySequence(
 	if indexed {
 		localSlot = memberIndex
 	}
-	if _, leaderIndexed := runtimePartyMemberIndex(partyState.UserID, partyState); leaderIndexed {
-		leaderSlot = 0
+	if index, leaderIndexed := runtimePartyMemberIndex(partyState.UserID, partyState); leaderIndexed {
+		leaderSlot = index
 	}
 	release := peerEntry
 	s.logGameEvent(session, "game-party-dungeon-entry-prepared",

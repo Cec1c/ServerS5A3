@@ -239,7 +239,7 @@ func TestChangePartyHostRepeatForCurrentLeaderIsIdempotent(t *testing.T) {
 	if !found || firstTransfer.Leader != 1002 {
 		t.Fatalf("first transfer did not move leadership: found=%t snapshot=%+v", found, firstTransfer)
 	}
-	// 老队长仍然在这份队伍里（transfer 只是换了队长并把新队长排到 0 号位）：
+	// 老队长仍然在这份队伍里（transfer 只更换队长，保留所有成员固定槽位）：
 	// 它自己那份缓存更新过 ⇒ 重发 op121 必须被认成重发，而不是再退役一代。
 	if live, liveFound := manager.SnapshotByUser(1001, leaderGeneration); !liveFound || live.ID != firstTransfer.ID {
 		t.Fatalf("former leader lost the live party: found=%t snapshot=%+v", liveFound, live)
