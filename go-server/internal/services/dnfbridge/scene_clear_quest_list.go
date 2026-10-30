@@ -109,6 +109,12 @@ func (s *Service) buildCurrentClearQuestListTransportBodyForSession(
 	if found && strings.TrimSpace(record.CharacterID) != characterID {
 		return nil, fmt.Errorf("clear quest list owner mismatch: selected=%s record=%q", characterID, record.CharacterID)
 	}
+	if found {
+		record, err = s.recoverPreviousStorySweepForSnapshot(ctx, session, record)
+		if err != nil {
+			return nil, fmt.Errorf("recover previous story sweep for character %s: %w", characterID, err)
+		}
+	}
 	record = s.projectCurrentDailyQuestRollover(ctx, record)
 	return s.buildCurrentClearQuestListTransportBodyForRecord(session, record, found, source)
 }

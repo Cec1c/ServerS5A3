@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "operation": "copy-raw-and-repoint-equipment-list",
+  "oldPathsPreserved": true,
+  "definitionsByteIdentical": true,
+  "items": [
+    {
+      "id": 990028001,
+      "original_id": 401000005,
+      "old_path": "equipment/private_seria/990028001.equ",
+      "new_path": "equipment/character/swordman/weapon/ssword/private_seria_990028001.equ"
+    },
+    {
+      "id": 990028002,
+      "original_id": 401030005,
+      "old_path": "equipment/private_seria/990028002.equ",
+      "new_path": "equipment/character/swordman/weapon/hsword/private_seria_990028002.equ"
+    },
+    {
+      "id": 990028003,
+      "original_id": 401020005,
+      "old_path": "equipment/private_seria/990028003.equ",
+      "new_path": "equipment/character/swordman/weapon/club/private_seria_990028003.equ"
+    },
+    {
+      "id": 990028004,
+      "original_id": 401010005,
+      "old_path": "equipment/private_seria/990028004.equ",
+      "new_path": "equipment/character/swordman/weapon/katana/private_seria_990028004.equ"
+    },
+    {
+      "id": 990028005,
+      "original_id": 401040005,
+      "old_path": "equipment/private_seria/990028005.equ",
+      "new_path": "equipment/character/swordman/weapon/beamsword/private_seria_990028005.equ"
+    },
+    {
+      "id": 990028006,
+      "original_id": 402000005,
+      "old_path": "equipment/private_seria/990028006.equ",
+      "new_path": "equipment/character/fighter/weapon/knuckle/private_seria_990028006.equ"
+    },
+    {
+      "id": 990028007,
+      "original_id": 402010005,
+      "old_path": "equipment/private_seria/990028007.equ",
+      "new_path": "equipment/character/fighter/weapon/gauntlet/private_seria_990028007.equ"
+    },
+    {
+      "id": 990028008,
+      "original_id": 402020005,
+      "old_path": "equipment/private_seria/990028008.equ",
+      "new_path": "equipment/character/fighter/weapon/claw/private_seria_990028008.equ"
+    },
+    {
+      "id": 990028009,
+      "original_id": 402040005,
+      "old_path": "equipment/private_seria/990028009.equ",
+      "new_path": "equipment/character/fighter/weapon/tonfa/private_seria_990028009.equ"
+    },
+    {
+      "id": 990028010,
+      "original_id": 402030005,
+      "old_path": "equipment/private_seria/990028010.equ",
+      "new_path": "equipment/character/fighter/weapon/boxglove/private_seria_990028010.equ"
+    },
+    {
+      "id": 990028011,
+      "original_id": 404000012,
+      "old_path": "equipment/private_seria/990028011.equ",
+      "new_path": "equipment/character/gunner/weapon/revolver/private_seria_990028011.equ"
+    },
+    {
+      "id": 990028012,
+      "original_id": 404010013,
+      "old_path": "equipment/private_seria/990028012.equ",
+      "new_path": "equipment/character/gunner/weapon/automatic/private_seria_990028012.equ"
+    },
+    {
+      "id": 990028013,
+      "original_id": 404040013,
+      "old_path": "equipment/private_seria/990028013.equ",
+      "new_path": "equipment/character/gunner/weapon/bowgun/private_seria_990028013.equ"
+    },
+    {
+      "id": 990028014,
+      "original_id": 404020012,
+      "old_path": "equipment/private_seria/990028014.equ",
+      "new_path": "equipment/character/gunner/weapon/musket/private_seria_990028014.equ"
+    },
+    {
+      "id": 990028015,
+      "original_id": 404030013,
+      "old_path": "equipment/private_seria/990028015.equ",
+      "new_path": "equipment/character/gunner/weapon/hcannon/private_seria_990028015.equ"
+    },
+    {
+      "id": 990028016,
+      "original_id": 406000005,
+      "old_path": "equipment/private_seria/990028016.equ",
+      "new_path": "equipment/character/mage/weapon/spear/private_seria_990028016.equ"
+    },
+    {
+      "id": 990028017,
+      "original_id": 406020005,
+      "old_path": "equipment/private_seria/990028017.equ",
+      "new_path": "equipment/character/mage/weapon/rod/private_seria_990028017.equ"
+    },
+    {
+      "id": 990028018,
+      "original_id": 406010005,
+      "old_path": "equipment/private_seria/990028018.equ",
+      "new_path": "equipment/character/mage/weapon/pole/private_seria_990028018.equ"
+    },
+    {
+      "id": 990028019,
+      "original_id": 406030005,
+      "old_path": "equipment/private_seria/990028019.equ",
+      "new_path": "equipment/character/mage/weapon/staff/private_seria_990028019.equ"
+    },
+    {
+      "id": 990028020,
+      "original_id": 406040005,
+      "old_path": "equipment/private_seria/990028020.equ",
+      "new_path": "equipment/character/mage/weapon/broom/private_seria_990028020.equ"
+    },
+    {
+      "id": 990028021,
+      "original_id": 408000007,
+      "old_path": "equipment/private_seria/990028021.equ",
+      "new_path": "equipment/character/priest/weapon/cross/private_seria_990028021.equ"
+    },
+    {
+      "id": 990028022,
+      "original_id": 408010007,
+      "old_path": "equipment/private_seria/990028022.equ",
+      "new_path": "equipment/character/priest/weapon/rosary/private_seria_990028022.equ"
+    },
+    {
+      "id": 990028023,
+      "original_id": 408020008,
+      "old_path": "equipment/private_seria/990028023.equ",
+      "new_path": "equipment/character/priest/weapon/totem/private_seria_990028023.equ"
+    },
+    {
+      "id": 990028024,
+      "original_id": 408040007,
+      "old_path": "equipment/private_seria/990028024.equ",
+      "new_path": "equipment/character/priest/weapon/axe/private_seria_990028024.equ"
+    },
+    {
+      "id": 990028025,
+      "original_id": 408030007,
+      "old_path": "equipment/private_seria/990028025.equ",
+      "new_path": "equipment/character/priest/weapon/scythe/private_seria_990028025.equ"
+    },
+    {
+      "id": 990028026,
+      "original_id": 409000005,
+      "old_path": "equipment/private_seria/990028026.equ",
+      "new_path": "equipment/character/thief/weapon/dagger/private_seria_990028026.equ"
+    },
+    {
+      "id": 990028027,
+      "original_id": 409010005,
+      "old_path": "equipment/private_seria/990028027.equ",
+      "new_path": "equipment/character/thief/weapon/twinsword/private_seria_990028027.equ"
+    },
+    {
+      "id": 990028028,
+      "original_id": 409020005,
+      "old_path": "equipment/private_seria/990028028.equ",
+      "new_path": "equipment/character/thief/weapon/wand/private_seria_990028028.equ"
+    },
+    {
+      "id": 990028029,
+      "original_id": 409040025,
+      "old_path": "equipment/private_seria/990028029.equ",
+      "new_path": "equipment/character/thief/weapon/chakraweapon/private_seria_990028029.equ"
+    },
+    {
+      "id": 990028030,
+      "original_id": 414010040,
+      "old_path": "equipment/private_seria/990028030.equ",
+      "new_path": "equipment/character/demoniclancer/weapon/halberd/private_seria_990028030.equ"
+    },
+    {
+      "id": 990028031,
+      "original_id": 414000040,
+      "old_path": "equipment/private_seria/990028031.equ",
+      "new_path": "equipment/character/demoniclancer/weapon/pike/private_seria_990028031.equ"
+    },
+    {
+      "id": 990028032,
+      "original_id": 414030024,
+      "old_path": "equipment/private_seria/990028032.equ",
+      "new_path": "equipment/character/demoniclancer/weapon/javelin/private_seria_990028032.equ"
+    },
+    {
+      "id": 990028033,
+      "original_id": 414020034,
+      "old_path": "equipment/private_seria/990028033.equ",
+      "new_path": "equipment/character/demoniclancer/weapon/beamspear/private_seria_990028033.equ"
+    },
+    {
+      "id": 990028034,
+      "original_id": 416010012,
+      "old_path": "equipment/private_seria/990028034.equ",
+      "new_path": "equipment/character/gunblader/weapon/sblade/private_seria_990028034.equ"
+    },
+    {
+      "id": 990028035,
+      "original_id": 416020012,
+      "old_path": "equipment/private_seria/990028035.equ",
+      "new_path": "equipment/character/gunblader/weapon/mswd/private_seria_990028035.equ"
+    },
+    {
+      "id": 990028036,
+      "original_id": 416000013,
+      "old_path": "equipment/private_seria/990028036.equ",
+      "new_path": "equipment/character/gunblader/weapon/lblade/private_seria_990028036.equ"
+    },
+    {
+      "id": 990028037,
+      "original_id": 416030012,
+      "old_path": "equipment/private_seria/990028037.equ",
+      "new_path": "equipment/character/gunblader/weapon/coreswd/private_seria_990028037.equ"
+    }
+  ]
+}

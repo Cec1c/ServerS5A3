@@ -160,6 +160,18 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 			"error", repairErr)
 		return nil, false
 	}
+	// Repair historical sweeps before op21/op574 as well as op356. Otherwise
+	// the initial town would offer stale prerequisites before receiving the
+	// newly committed completion bitmap.
+	if hasRecord {
+		record, err = s.recoverPreviousStorySweepForSnapshot(ctx, session, record)
+		if err != nil {
+			s.logGameEvent(session, "game-upper-current-acceptable-quest-list-skipped",
+				"char_id", session.selectedCharacterID,
+				"reason", "previous_story_sweep_recovery_failed", "error", err)
+			return nil, false
+		}
+	}
 	eligibility := dnfquest.CharacterEligibility{
 		Level:    character.Level,
 		Job:      int(job),
