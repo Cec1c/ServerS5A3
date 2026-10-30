@@ -104,9 +104,14 @@ func testMailboxFateMultipleAttachmentsCreditAccountAndHandlerFact(t *testing.T)
 	if !result.FateCurrencyChanged {
 		t.Fatal("handler did not publish the committed Fate balance change")
 	}
-	if len(result.UpperResponses) != 1 ||
+	if len(result.UpperResponses) < 2 ||
 		result.UpperResponses[0].MsgID != uint16(dnfenum.CmdPacketMailboxExtractItem) {
-		t.Fatalf("mail claim must update existing native objects without rebuilding managers: %+v", result.UpperResponses)
+		t.Fatalf("mail claim must preserve the existing ACK and mailbox refresh sequence: %+v", result.UpperResponses)
+	}
+	for _, response := range result.UpperResponses[1:] {
+		if response.MsgID != mailboxListNotificationMessageID {
+			t.Fatalf("unexpected response after claim ACK: %+v", response)
+		}
 	}
 	ack := result.UpperResponses[0].Body
 	if len(ack) != 5+3*12 || ack[0] != 1 || binary.LittleEndian.Uint32(ack[1:5]) != 3 {
