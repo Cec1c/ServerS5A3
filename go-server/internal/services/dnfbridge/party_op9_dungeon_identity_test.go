@@ -74,6 +74,11 @@ type op9PartyRow struct {
 // 返回值第二个是尾部 4 字节里的**队长槽位**（客户端画队长标记的那一行）。
 func parseOp9PartyFrame(t *testing.T, body []byte, hasIdentity bool) ([]op9PartyRow, byte) {
 	t.Helper()
+	return parseOp9PartyFrameForProfile(t, body, hasIdentity, false)
+}
+
+func parseOp9PartyFrameForProfile(t *testing.T, body []byte, hasIdentity, official249 bool) ([]op9PartyRow, byte) {
+	t.Helper()
 	if len(body) < 30 || binary.LittleEndian.Uint16(body[0:2]) != 1 ||
 		binary.LittleEndian.Uint16(body[2:4]) != currentSceneOp9StableSceneValue ||
 		body[9] != currentSceneOp9ActorDisplayKind {
@@ -81,6 +86,9 @@ func parseOp9PartyFrame(t *testing.T, body []byte, hasIdentity bool) ([]op9Party
 	}
 	nameLen := int(binary.LittleEndian.Uint32(body[12:16]))
 	offset := 16 + nameLen + 13
+	if official249 {
+		offset++ // actor metadata byte before member count
+	}
 	if offset >= len(body) {
 		t.Fatalf("op9 party record offset=%d exceeds body len=%d body=% X", offset, len(body), body)
 	}
@@ -102,6 +110,9 @@ func parseOp9PartyFrame(t *testing.T, body []byte, hasIdentity bool) ([]op9Party
 			row.level = body[offset+1]
 			row.grow = body[offset+2]
 			offset += 4
+			if official249 {
+				offset++ // current-client inline identity metadata
+			}
 			if offset+4 > len(body) {
 				t.Fatalf("op9 party row %d identity name length truncated body=% X", index, body)
 			}
@@ -113,6 +124,20 @@ func parseOp9PartyFrame(t *testing.T, body []byte, hasIdentity bool) ([]op9Party
 			}
 			row.name = string(body[offset : offset+memberNameLen])
 			offset += memberNameLen
+			if official249 {
+				if offset+4 > len(body) {
+					t.Fatal("op9 secondary identity length truncated")
+				}
+				secondaryLen := int(binary.LittleEndian.Uint32(body[offset : offset+4]))
+				offset += 4
+				if secondaryLen < 0 || offset+secondaryLen+1 > len(body) {
+					t.Fatal("op9 secondary identity truncated")
+				}
+				offset += secondaryLen + 1
+			}
+		}
+		if offset+3 > len(body) {
+			t.Fatal("op9 member state truncated")
 		}
 		row.state = body[offset+1]
 		offset += 3

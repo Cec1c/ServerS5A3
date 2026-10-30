@@ -1034,7 +1034,7 @@ func TestHandleOnlineLeavePartyRetainsSuccessorSingletonProjection(t *testing.T)
 	if len(rest) != 0 {
 		t.Fatalf("leader trailing bytes = %d", len(rest))
 	}
-	memberRest := assertRuntimePartySnapshot(t, memberConn.write.Bytes(), 1)
+	memberRest := assertRuntimeSuccessorSingletonSnapshot(t, memberConn.write.Bytes(), member, false, 1)
 	if len(memberRest) != 0 {
 		t.Fatalf("member trailing bytes = %d", len(memberRest))
 	}
@@ -1709,6 +1709,33 @@ func assertRaidRefreshMemberState(t *testing.T, members []raidRefreshMemberForTe
 // **peer-only** (vendor 9.16 shape: `u8 peerCount + 22B/peer row`, the receiver's
 // own row is absent — see party_peer_endpoint_include_self.go), so a party of
 // `wantMembers` members carries `wantMembers-1` rows.
+// A new leader keeps its fixed slot, which need not be zero. Its new lobby
+// requires op11, then op153, then a kind0 frame in the selected client profile.
+func assertRuntimeSuccessorSingletonSnapshot(t *testing.T, data []byte, receiver *gameSession, official249 bool, slot byte) []byte {
+	t.Helper()
+	endpoints, rest := splitGameServerUpperPacket(t, data)
+	if endpoints.Header.Classification != 0 || endpoints.Header.MsgID != 11 || !bytes.Equal(endpoints.Body, []byte{0}) {
+		t.Fatalf("successor endpoints=%+v body=%x", endpoints.Header, endpoints.Body)
+	}
+	realtime, rest := splitGameServerUpperPacket(t, rest)
+	if realtime.Header.Classification != 0 || realtime.Header.MsgID != 153 {
+		t.Fatalf("successor realtime=%+v", realtime.Header)
+	}
+	rows := parseRealtimeInfoRows(t, realtime.Body)
+	if len(rows) != 1 || rows[0].uid != receiver.selectedCharacterID || rows[0].slot != slot {
+		t.Fatalf("successor realtime rows=%+v", rows)
+	}
+	frame, rest := splitGameServerUpperPacket(t, rest)
+	if frame.Header.Classification != 0 || frame.Header.MsgID != 9 || len(frame.Body) < 10 {
+		t.Fatalf("successor frame=%+v body=%x", frame.Header, frame.Body)
+	}
+	members, leaderSlot := parseOp9PartyFrameForProfile(t, frame.Body, int(frame.Body[7]) != currentClientSelectedChannelID(receiver), official249)
+	if len(members) != 1 || members[0].uid != receiver.selectedCharacterID || members[0].slot != slot || leaderSlot != slot {
+		t.Fatalf("successor frame rows=%+v leader=%d want uid=%d slot=%d", members, leaderSlot, receiver.selectedCharacterID, slot)
+	}
+	return rest
+}
+
 func assertRuntimePartySnapshot(t *testing.T, data []byte, wantMembers byte) []byte {
 	t.Helper()
 	peerEndpoints, rest := splitGameServerUpperPacket(t, data)

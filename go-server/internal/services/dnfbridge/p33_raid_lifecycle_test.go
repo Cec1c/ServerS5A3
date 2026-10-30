@@ -402,7 +402,7 @@ func TestP33Op665PartyLeaderRetirementClearsOnlyOldGeneration(t *testing.T) {
 	for data := memberConn.write.Bytes(); len(data) > 0; {
 		packet, rest := splitGameServerUpperPacket(t, data)
 		if packet.Header.Classification == 0 && packet.Header.MsgID == 11 {
-			assertRuntimePartySnapshot(t, data, 1)
+			assertRuntimeSuccessorSingletonSnapshot(t, data, member, true, 1)
 			sawReplacementSnapshot = true
 			break
 		}
