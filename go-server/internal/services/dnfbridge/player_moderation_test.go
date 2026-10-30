@@ -115,6 +115,7 @@ func TestModerationMySQLIPRegistrationNativeTokenAndConcurrency(t *testing.T) {
 	raw, _ := json.Marshal(accountAPIRequest{Account: "new_fixture", Password: "fixture-password"})
 	r := httptest.NewRequest("POST", "/api/account/register", bytes.NewReader(raw))
 	r.RemoteAddr = "192.0.2.99:4321"
+	r.Header.Set("X-Forwarded-For", "192.0.2.100") // Untrusted headers cannot bypass an IP ban.
 	w := httptest.NewRecorder()
 	f.api.handleRegister(w, r)
 	if w.Code != 403 {

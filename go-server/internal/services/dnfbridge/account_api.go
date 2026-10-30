@@ -525,14 +525,7 @@ func accountAPIClientIP(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if idx := strings.Index(forwarded, ","); idx >= 0 {
-			forwarded = forwarded[:idx]
-		}
-		if ip := normalizeClientIP(forwarded); ip != "" {
-			return ip
-		}
-	}
+	// Client-supplied forwarding headers are not an authenticated IP source.
 	if r.RemoteAddr == "" {
 		return ""
 	}
