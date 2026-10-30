@@ -110,6 +110,13 @@ type characterPetScopedPetRepository struct {
 	base        repository.PetRepository
 }
 
+func (r *characterPetScopedPetRepository) SavePetGrowth(ctx context.Context, record repository.PetRecord, key string, before repository.PetEntry) error {
+	if err := repository.TransactionKeyError(ctx, r.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	return repository.SavePetGrowth(ctx, r.base, record, key, before)
+}
+
 func (r *characterPetScopedPetRepository) Load(ctx context.Context, characterID string) (repository.PetRecord, bool, error) {
 	if err := repository.TransactionKeyError(ctx, r.characterID, characterID); err != nil {
 		return repository.PetRecord{}, false, err

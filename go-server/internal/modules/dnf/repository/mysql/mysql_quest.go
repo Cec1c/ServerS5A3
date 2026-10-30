@@ -55,6 +55,9 @@ func (s *mysqlQuestStore) Save(ctx context.Context, record repository.QuestRecor
 }
 
 func (s *mysqlQuestStore) SaveFields(ctx context.Context, record repository.QuestRecord, fields ...repository.QuestField) error {
+	if record.PlanningPartial {
+		return repository.ErrQuestPartialSave
+	}
 	characterID, err := requireRecordKey(repository.QuestKey, record, "quest")
 	if err != nil {
 		return err
@@ -103,8 +106,18 @@ func loadQuestStates(
 	router mysqlRouter,
 	statesTable, extraTable, characterID, stateGroup string,
 ) (map[int64]repository.QuestState, error) {
-	query := router.selectQuery("SELECT quest_id, status, trigger_type, progress_value, reward_select_index, multiplier, state_updated_at FROM " + statesTable + " WHERE character_id = ? AND state_group = ? ORDER BY quest_id")
-	rows, err := router.db.QueryContext(ctx, query, characterID, stateGroup)
+	return loadSelectedQuestStates(ctx, router, statesTable, extraTable, characterID, stateGroup, "", nil)
+}
+
+// suffix and arguments are built internally; values never become SQL text.
+func loadSelectedQuestStates(ctx context.Context, router mysqlRouter, statesTable, extraTable, characterID, stateGroup, suffix string, selectedArgs []any) (map[int64]repository.QuestState, error) {
+	return loadQuestStatesWithActiveExtras(ctx, router, statesTable, extraTable, characterID, stateGroup, suffix, selectedArgs, false)
+}
+
+func loadQuestStatesWithActiveExtras(ctx context.Context, router mysqlRouter, statesTable, extraTable, characterID, stateGroup, suffix string, selectedArgs []any, activeExtras bool) (map[int64]repository.QuestState, error) {
+	args := append([]any{characterID, stateGroup}, selectedArgs...)
+	query := router.selectQuery("SELECT quest_id, status, trigger_type, progress_value, reward_select_index, multiplier, state_updated_at FROM " + statesTable + " WHERE character_id = ? AND state_group = ?" + suffix + " ORDER BY quest_id")
+	rows, err := router.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,21 +151,53 @@ func loadQuestStates(
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
+	if activeExtras {
+		active := make([]int64, 0)
+		for id, state := range states {
+			if repository.QuestStatusActive(state.Status) {
+				active = append(active, id)
+			}
+		}
+		if len(active) == 0 {
+			return states, nil
+		}
+		sort.Slice(active, func(i, j int) bool { return active[i] < active[j] })
+		// Headers were already loaded. Fetch only active extras, in bounded
+		// batches, without another header query for each group.
+		for start := 0; start < len(active); start += questIDReadBatch {
+			end := min(start+questIDReadBatch, len(active))
+			selectedArgs := make([]any, end-start)
+			for i, id := range active[start:end] {
+				selectedArgs[i] = id
+			}
+			if err := loadQuestExtrasInto(ctx, router, extraTable, characterID, stateGroup, questIDsSuffix(len(selectedArgs)), selectedArgs, states); err != nil {
+				return nil, err
+			}
+		}
+		return states, nil
+	}
+	if err := loadQuestExtrasInto(ctx, router, extraTable, characterID, stateGroup, suffix, selectedArgs, states); err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
+func loadQuestExtrasInto(ctx context.Context, router mysqlRouter, extraTable, characterID, stateGroup, suffix string, selectedArgs []any, states map[int64]repository.QuestState) error {
+	args := append([]any{characterID, stateGroup}, selectedArgs...)
 	extras, err := router.db.QueryContext(
 		ctx,
-		router.selectQuery("SELECT quest_id, extra_key, extra_value FROM "+extraTable+" WHERE character_id = ? AND state_group = ? ORDER BY quest_id, extra_key"),
-		characterID,
-		stateGroup,
+		router.selectQuery("SELECT quest_id, extra_key, extra_value FROM "+extraTable+" WHERE character_id = ? AND state_group = ?"+suffix+" ORDER BY quest_id, extra_key"),
+		args...,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer extras.Close()
 	for extras.Next() {
 		var questID int64
 		var key, value string
 		if err := extras.Scan(&questID, &key, &value); err != nil {
-			return nil, err
+			return err
 		}
 		state, ok := states[questID]
 		if !ok {
@@ -165,9 +210,9 @@ func loadQuestStates(
 		states[questID] = state
 	}
 	if err := extras.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return states, nil
+	return nil
 }
 
 func replaceQuestStates(

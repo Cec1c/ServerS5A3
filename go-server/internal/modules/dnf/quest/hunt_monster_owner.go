@@ -35,7 +35,7 @@ func (o *Owner) ApplyHuntMonsterKill(
 	} else if !ok {
 		return HuntMonsterPersistResult{}, ErrCharacterNotFound
 	}
-	record, ok, err := o.quests.Load(ctx, characterID)
+	record, ok, err := dnfrepo.LoadQuestPlanning(ctx, o.quests, characterID)
 	if err != nil {
 		return HuntMonsterPersistResult{}, err
 	}
@@ -61,10 +61,14 @@ func (o *Owner) ApplyHuntMonsterKill(
 	if len(plan.ChangedFields) == 0 {
 		return result, nil
 	}
-	if err := dnfrepo.SaveQuestFields(ctx, o.quests, plan.Record, plan.ChangedFields...); err != nil {
+	if err := dnfrepo.SaveQuestChanges(ctx, o.quests, record, plan.Record, plan.ChangedFields...); err != nil {
 		return HuntMonsterPersistResult{}, err
 	}
-	persisted, ok, err := o.quests.Load(ctx, characterID)
+	ids := make([]int64, 0, len(result.Completions))
+	for _, completion := range result.Completions {
+		ids = append(ids, completion.QuestID)
+	}
+	persisted, ok, err := dnfrepo.LoadQuestIDs(ctx, o.quests, characterID, ids)
 	if err != nil {
 		return HuntMonsterPersistResult{}, err
 	}

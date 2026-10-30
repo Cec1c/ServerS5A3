@@ -97,7 +97,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 		growthQuestDropPercent = growthEffect.QuestItemDropRatePercent
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	questRecord, found, err := repositories.Quest.Load(ctx, characterID)
+	questRecord, found, err := dnfrepo.LoadQuestPlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return currentQuestDropGrantResult{}, err
 	}
