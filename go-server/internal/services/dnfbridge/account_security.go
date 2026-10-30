@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -46,6 +45,7 @@ func (a *accountAPIServer) ensureAccountSecuritySchema(ctx context.Context) erro
 		"_qq_actions (id CHAR(64) NOT NULL PRIMARY KEY, account_id VARCHAR(64) NOT NULL, qq VARCHAR(16) NOT NULL, group_id VARCHAR(16) NOT NULL, state VARCHAR(16) NOT NULL DEFAULT 'pending', attempts INT NOT NULL DEFAULT 0, cause VARCHAR(128) NOT NULL DEFAULT '', lease CHAR(32) NOT NULL DEFAULT '', next_at BIGINT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, KEY due(state,next_at), KEY by_account(account_id))",
 		"_auth_failures (subject CHAR(64) NOT NULL PRIMARY KEY, failures INT NOT NULL DEFAULT 0, blocked_until BIGINT NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL)",
 		"_qq_settings (id INT NOT NULL PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT FALSE, allow_binding BOOLEAN NOT NULL DEFAULT FALSE, groups_json TEXT NOT NULL, revision BIGINT UNSIGNED NOT NULL DEFAULT 0)",
+		"_qq_code_reservations (code_hash CHAR(64) NOT NULL PRIMARY KEY, account_id VARCHAR(64) NOT NULL, expires_at BIGINT NOT NULL)",
 		"_qq_codes (account_id VARCHAR(64) NOT NULL PRIMARY KEY, code_hash CHAR(64) NOT NULL, expires_at BIGINT NOT NULL, failures INT NOT NULL DEFAULT 0)",
 		"_qq_bindings (account_id VARCHAR(64) NOT NULL PRIMARY KEY, qq VARCHAR(16) NOT NULL, group_id VARCHAR(16) NOT NULL, bound_at BIGINT NOT NULL, code_hash CHAR(64) NOT NULL, UNIQUE KEY uniq_qq(qq))",
 	} {
@@ -269,15 +269,13 @@ func (a *accountAPIServer) handleAccountSecurity(w http.ResponseWriter, r *http.
 		a.securityFailure(w, err)
 		return
 	}
-	var token [16]byte
-	if _, err = rand.Read(token[:]); err != nil {
+	expiry := time.Now().Add(10 * time.Minute).Unix()
+	code, err := a.reserveBindingCode(ctx, tx, id, expiry, rand.Reader)
+	if err != nil {
 		a.securityFailure(w, err)
 		return
 	}
-	code := hex.EncodeToString(token[:])
-	digest := sha256.Sum256([]byte(code))
-	expiry := time.Now().Add(10 * time.Minute).Unix()
-	_, err = tx.ExecContext(ctx, "INSERT INTO "+a.table+"_qq_codes(account_id,code_hash,expires_at,failures) VALUES(?,?,?,0) ON DUPLICATE KEY UPDATE code_hash=VALUES(code_hash),expires_at=VALUES(expires_at),failures=0", id, hex.EncodeToString(digest[:]), expiry)
+	_, err = tx.ExecContext(ctx, "INSERT INTO "+a.table+"_qq_codes(account_id,code_hash,expires_at,failures) VALUES(?,?,?,0) ON DUPLICATE KEY UPDATE code_hash=VALUES(code_hash),expires_at=VALUES(expires_at),failures=0", id, bindingCodeHash(code), expiry)
 	if err == nil {
 		err = tx.Commit()
 	}
@@ -285,7 +283,7 @@ func (a *accountAPIServer) handleAccountSecurity(w http.ResponseWriter, r *http.
 		a.securityFailure(w, err)
 		return
 	}
-	writeAccountAPIJSON(w, 200, accountAPIResponse{OK: true, Message: "绑定码 10 分钟内有效", BindingCode: code, ExpiresAt: expiry, Groups: cfg.Groups})
+	writeAccountAPIJSON(w, 200, accountAPIResponse{OK: true, Message: "六位绑定码 10 分钟内有效，绑定成功后失效", BindingCode: code, ExpiresAt: expiry, Groups: cfg.Groups})
 }
 
 func (a *accountAPIServer) completeQQBinding(ctx context.Context, in qqbinding.Complete) (*qqbinding.Binding, error) {
@@ -296,8 +294,11 @@ func (a *accountAPIServer) completeQQBinding(ctx context.Context, in qqbinding.C
 	} else if blocked {
 		return nil, errors.New("该 QQ 已在黑名单中")
 	}
-	if !accountAPIUsernamePattern.MatchString(in.Account) || !qqbinding.Number.MatchString(in.QQ) || !qqbinding.Number.MatchString(in.Group) || len(in.Code) != 32 {
+	if !qqbinding.Number.MatchString(in.QQ) || !qqbinding.Number.MatchString(in.Group) || (!shortBindingCode.MatchString(in.Code) && !(legacyBindingCode.MatchString(in.Code) && accountAPIUsernamePattern.MatchString(in.Account))) {
 		return nil, errors.New("绑定参数无效")
+	}
+	if err := a.chargeBindingAttempt(ctx, in.QQ); err != nil {
+		return nil, err
 	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -321,52 +322,49 @@ func (a *accountAPIServer) completeQQBinding(ctx context.Context, in qqbinding.C
 	if !cfg.BindingAllowed() || !allowed || cfg.Revision != in.Revision {
 		return nil, errors.New("绑定未启用或允许群已变化，请重新发送指令")
 	}
+	invalid := errors.New("绑定码无效、已使用或已过期，请在登录器重新获取")
+	candidate := bindingCodeHash(in.Code)
 	var id, account string
-	if err = tx.QueryRowContext(ctx, "SELECT account_id,account FROM "+a.table+" WHERE account=?", in.Account).Scan(&id, &account); errors.Is(err, sql.ErrNoRows) {
-		return nil, errors.New("绑定码无效或已过期，请重新获取")
+	if shortBindingCode.MatchString(in.Code) {
+		err = tx.QueryRowContext(ctx, "SELECT account_id FROM "+a.table+"_qq_code_reservations WHERE code_hash=? AND expires_at>?", candidate, time.Now().Unix()).Scan(&id)
+	} else {
+		// Accept outstanding legacy commands while old launchers are updated.
+		err = tx.QueryRowContext(ctx, "SELECT account_id FROM "+a.table+" WHERE account=?", in.Account).Scan(&id)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, invalid
 	}
 	if err != nil {
+		return nil, err
+	}
+	// Match issuance/password-reset ordering: account first, then code. Current
+	// locking reads see rotations and password changes committed while waiting.
+	if err = tx.QueryRowContext(ctx, "SELECT account FROM "+a.table+" WHERE account_id=? FOR UPDATE", id).Scan(&account); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, invalid
+		}
 		return nil, err
 	}
 	var hash string
 	var expires int64
 	var failures int
-	if err = tx.QueryRowContext(ctx, "SELECT code_hash,expires_at,failures FROM "+a.table+"_qq_codes WHERE account_id=? FOR UPDATE", id).Scan(&hash, &expires, &failures); errors.Is(err, sql.ErrNoRows) {
-		return nil, errors.New("绑定码无效或已过期，请重新获取")
-	}
-	if err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT code_hash,expires_at,failures FROM "+a.table+"_qq_codes WHERE account_id=? FOR UPDATE", id).Scan(&hash, &expires, &failures); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, invalid
+		}
 		return nil, err
 	}
-	digest := sha256.Sum256([]byte(in.Code))
-	candidate := hex.EncodeToString(digest[:])
-	if expires <= time.Now().Unix() || failures >= 5 {
-		return nil, errors.New("绑定码无效或已过期，请重新获取")
-	}
-	if subtle.ConstantTimeCompare([]byte(hash), []byte(candidate)) != 1 {
-		if _, err = tx.ExecContext(ctx, "UPDATE "+a.table+"_qq_codes SET failures=failures+1 WHERE account_id=?", id); err != nil {
-			return nil, err
-		}
-		if err = tx.Commit(); err != nil {
-			return nil, err
-		}
-		return nil, errors.New("绑定码无效或已过期，请重新获取")
+	if expires <= time.Now().Unix() || failures >= 5 || hash != candidate {
+		return nil, invalid
 	}
 	out := qqbinding.Binding{AccountID: id, Account: account, QQ: in.QQ, Group: in.Group, BoundAt: time.Now().Unix()}
-	var previousQQ, previousHash string
-	err = tx.QueryRowContext(ctx, "SELECT qq,code_hash,group_id,bound_at FROM "+a.table+"_qq_bindings WHERE account_id=?", id).Scan(&previousQQ, &previousHash, &out.Group, &out.BoundAt)
-	if err == nil {
-		if previousQQ == in.QQ && previousHash == hash {
-			return &out, tx.Commit()
-		}
-		return nil, errors.New("该账号已绑定 QQ")
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO "+a.table+"_qq_bindings(account_id,qq,group_id,bound_at,code_hash) VALUES(?,?,?,?,?)", id, in.QQ, in.Group, out.BoundAt, hash); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 			return nil, errors.New("该 QQ 或账号已有绑定，每个 QQ 只能绑定一个账号")
 		}
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM "+a.table+"_qq_codes WHERE account_id=?", id); err != nil {
 		return nil, err
 	}
 	return &out, tx.Commit()

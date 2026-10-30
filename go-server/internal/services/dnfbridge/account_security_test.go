@@ -37,10 +37,10 @@ func TestAccountSecurityMySQLBindingLifecycle(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	w, out := securityRequest(f, "binding-code", "main", "fixture-password", "")
-	if w.Code != 200 || len(out.BindingCode) != 32 {
+	if w.Code != 200 || !shortBindingCode.MatchString(out.BindingCode) {
 		t.Fatal(w.Body.String())
 	}
-	c := qqbinding.Complete{Account: "main", Code: out.BindingCode, QQ: "234567890", Group: "123456789", Revision: cfg.Revision}
+	c := qqbinding.Complete{Code: out.BindingCode, QQ: "234567890", Group: "123456789", Revision: cfg.Revision}
 	bad := c
 	bad.Group = "345678901"
 	if _, err = f.api.completeQQBinding(ctx, bad); err == nil {
@@ -56,8 +56,8 @@ func TestAccountSecurityMySQLBindingLifecycle(t *testing.T) {
 		t.Fatal(b, err)
 	}
 	b2, err := f.api.completeQQBinding(ctx, c)
-	if err != nil || *b2 != *b {
-		t.Fatal("lost response replay", b2, err)
+	if err == nil {
+		t.Fatal("consumed code accepted again", b2)
 	}
 	bad = c
 	bad.QQ = "456789012"
@@ -166,7 +166,7 @@ func TestAccountSecurityMySQLConcurrentGuessesAndBinding(t *testing.T) {
 		wg.Add(1)
 		go func(qq string) {
 			defer wg.Done()
-			_, e := f.api.completeQQBinding(ctx, qqbinding.Complete{Account: "other", Code: out.BindingCode, QQ: qq, Group: cfg.Groups[0], Revision: cfg.Revision})
+			_, e := f.api.completeQQBinding(ctx, qqbinding.Complete{Code: out.BindingCode, QQ: qq, Group: cfg.Groups[0], Revision: cfg.Revision})
 			results <- e
 		}(qq)
 	}
@@ -215,7 +215,7 @@ func TestAccountSecurityMySQLCodeRotationExpiryAndPasswordInvalidation(t *testin
 	cfg, _ := f.api.saveQQSettings(ctx, qqbinding.Settings{Enabled: true, Groups: []string{"123456789"}})
 	_, old := securityRequest(f, "binding-code", "main", "fixture-password", "")
 	_, fresh := securityRequest(f, "binding-code", "main", "fixture-password", "")
-	c := qqbinding.Complete{Account: "main", Code: old.BindingCode, QQ: "234567890", Group: cfg.Groups[0], Revision: cfg.Revision}
+	c := qqbinding.Complete{Code: old.BindingCode, QQ: "234567890", Group: cfg.Groups[0], Revision: cfg.Revision}
 	if _, err := f.api.completeQQBinding(ctx, c); err == nil {
 		t.Fatal("superseded code accepted")
 	}

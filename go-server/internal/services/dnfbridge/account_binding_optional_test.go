@@ -20,10 +20,10 @@ func TestAccountSecurityMySQLOptionalBinding(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	w, out := securityRequest(f, "binding-code", "main", "fixture-password", "")
-	if w.Code != 200 || len(out.BindingCode) != 32 {
+	if w.Code != 200 || !shortBindingCode.MatchString(out.BindingCode) {
 		t.Fatal(w.Body.String())
 	}
-	binding, err := f.api.completeQQBinding(ctx, qqbinding.Complete{Account: "main", Code: out.BindingCode, QQ: "234567890", Group: cfg.Groups[0], Revision: cfg.Revision})
+	binding, err := f.api.completeQQBinding(ctx, qqbinding.Complete{Code: out.BindingCode, QQ: "234567890", Group: cfg.Groups[0], Revision: cfg.Revision})
 	if err != nil || binding.QQ != "234567890" {
 		t.Fatal(binding, err)
 	}
