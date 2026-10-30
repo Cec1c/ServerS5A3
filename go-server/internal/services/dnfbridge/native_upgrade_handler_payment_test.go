@@ -57,15 +57,22 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 		{"default_jonathan_conversion", "", 476, 5, 4, 100000, false, true},
 		{"candidate_jonathan", "candidate", 476, 5, 4, 100000, false, true},
 		{"candidate_ordinary", "candidate", 1, 5, 5, 15025, false, false},
-		{"default_ordinary_unchanged", "", 1, 5, 5, 100000, false, false},
+		{"default_ordinary_gold", "", 1, 5, 5, 15025, false, false},
 		{"candidate_missing_stone", "candidate", 476, 0, 0, 100000, true, false},
 		{"default_missing_stone", "", 476, 0, 0, 100000, true, false},
+		{"default_ordinary_insufficient_gold", "", 1, 5, 5, 84974, true, false},
+		{"default_ordinary_exact_gold", "", 1, 5, 5, 0, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", tc.flag)
 			ctx := context.Background()
 			repos := memory.NewMemoryGroup()
 			character := dnfrepo.CharacterRecord{CharacterID: "77", AccountID: account, Level: 90, Stats: map[string]int64{"gold": 100000}}
+			if tc.name == "default_ordinary_insufficient_gold" {
+				character.Stats["gold"] = 84974
+			} else if tc.name == "default_ordinary_exact_gold" {
+				character.Stats["gold"] = 84975
+			}
 			target := realForgingWeaponStack(28309, 45)
 			binary.LittleEndian.PutUint16(target.RawEntry[:2], 54)
 			target.Extra["r4_identity_marker"] = "target-28309"
@@ -154,8 +161,12 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			gotBag, _, _ := repos.Inventory.Load(ctx, "77")
 			gotShared, _, _ := repos.AccountInventory.Load(ctx, account)
 			if tc.reject {
-				if !bytes.Equal(ack, []byte{0, 22}) {
-					t.Fatalf("rejection ACK=%x want0016", ack)
+				code := byte(22)
+				if tc.name == "default_ordinary_insufficient_gold" {
+					code = 10
+				}
+				if !bytes.Equal(ack, []byte{0, code}) {
+					t.Fatalf("rejection ACK=%x want=00%02x", ack, code)
 				}
 				if !reflect.DeepEqual(beforeChar, gotChar) || !reflect.DeepEqual(beforeBag, gotBag) || !reflect.DeepEqual(beforeShared, gotShared) {
 					t.Fatal("rejected request changed assets")
@@ -167,6 +178,13 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			}
 			if len(ack) < 2 || ack[0] != 1 {
 				t.Fatalf("success ACK=%x", ack)
+			}
+			wantTailSlot, wantTailCount := uint16(65535), uint32(0)
+			if tc.converts {
+				wantTailSlot, wantTailCount = 135, uint32(tc.wantStones)
+			}
+			if len(ack) != 25 || binary.LittleEndian.Uint16(ack[19:21]) != wantTailSlot || binary.LittleEndian.Uint32(ack[21:25]) != wantTailCount {
+				t.Fatalf("missing/wrong native NPC material tail: %x", ack)
 			}
 			if gotChar.Stats["gold"] != tc.wantGold || gotBag.Slots["0:135"].Count != tc.wantStones || gotShared.Slots[sharedKey].Count != 1000-int64(policy.MaterialCount) {
 				t.Fatalf("settlement gold=%d stones=%d ordinary=%d policy=%+v", gotChar.Stats["gold"], gotBag.Slots["0:135"].Count, gotShared.Slots[sharedKey].Count, policy)
@@ -191,7 +209,7 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			if len(normalRow) != 119 || binary.LittleEndian.Uint32(normalRow[2:6]) != 3037 || int64(binary.LittleEndian.Uint32(normalRow[6:10])) != 1000-int64(policy.MaterialCount) {
 				t.Fatal("ordinary material projection identity/quantity differs from committed assets")
 			}
-			if walletSeen != (tc.flag == "candidate" && tc.npc == 1) {
+			if walletSeen != (tc.wantGold < 100000) {
 				t.Fatalf("wallet projected=%t for %s", walletSeen, tc.name)
 			}
 			if walletSeen && int64(binary.LittleEndian.Uint32(updates[0][6:10])) != tc.wantGold {

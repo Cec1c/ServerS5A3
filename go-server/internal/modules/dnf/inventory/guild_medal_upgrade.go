@@ -52,9 +52,7 @@ func handleGuildMedalUpgrade(ctx context.Context, req alignedcmd.Request) aligne
 	ack := buildUpgradeItemSuccessAck(result)
 	// 0x1fe03df reads this byte; 0x1fe0706..71b selects target list+slot.
 	ack[14] = 38
-	// Native 0x1fe0e3b..0x1fe0e53 consumes this common slot/count tail.
-	// This sender has no NPC-conversion material: neutral slot -1, count 0.
-	ack = append(ack, 0xff, 0xff, 0, 0, 0, 0)
+	// The shared encoder includes the neutral NPC-material tail for this sender.
 	main := []commonItemListEntry{{slot: cmd.MaterialSlotIndex, stack: result.MaterialUpdatedStack}}
 	responses := []alignedcmd.UpperResponse{class1Response(req.Opcode, ack), class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(0, main)), class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(38, []commonItemListEntry{{slot: cmd.TargetSlotIndex, stack: result.TargetUpdatedStack}}))}
 	return alignedcmd.Result{Handled: true, ResponseAllowed: true, Operation: "guild_medal_upgrade", Reason: fmt.Sprintf("flag committed slot=%d level=%d->%d outcome=%d material_remaining=%d gold=%d", cmd.TargetSlotIndex, result.OldLevel, result.NewLevel, result.ResultCode, result.MaterialRemainingStackCount, result.GoldCost), UpperResponses: responses}

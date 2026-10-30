@@ -121,16 +121,20 @@ func (s *Service) alignedNativeUpgradeCostResolver() alignedcmd.UpgradeCostResol
 	}
 }
 
-// Default installs the verified NPC reinforcement conversion and ordinary
-// amplification gold quote. Portable consumables bypass quotation in the owner.
-// "candidate" additionally enables ordinary reinforcement gold quotation;
+// Default installs authoritative reinforcement and amplification gold quotes.
+// Portable consumables bypass quotation in the owner. "candidate" is retained
+// as an alias for the previously opt-in ordinary reinforcement quotation;
 // other nonempty values retain the existing explicit opt-out behavior.
 func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.UpgradeCostResolver {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("DNFBRIDGE_NATIVE_UPGRADE_COST"))) {
-	case "candidate":
+	case "", "candidate":
 		base := s.alignedNativeUpgradeCostResolver()
 		identity, _ := s.boundGameSessionCharacterSnapshot(session)
+		conversion := s.alignedUpgradeNPCConversionCostResolver(identity)
 		return func(mode string, itemID int64, level int, present bool, npcID uint16) (alignedcmd.UpgradeCostResolution, error) {
+			if mode == "reinforce" && present && npcID == currentVerifiedUpgradeConversionNPCID {
+				return conversion(mode, itemID, level, present, npcID)
+			}
 			quote, err := base(mode, itemID, level, present, npcID)
 			if err != nil {
 				return quote, err
@@ -141,16 +145,6 @@ func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.
 				}
 			}
 			return quote, nil
-		}
-	case "":
-		identity, _ := s.boundGameSessionCharacterSnapshot(session)
-		conversion := s.alignedUpgradeNPCConversionCostResolver(identity)
-		base := s.alignedNativeUpgradeCostResolver()
-		return func(mode string, itemID int64, level int, present bool, npcID uint16) (alignedcmd.UpgradeCostResolution, error) {
-			if mode == "amplify" {
-				return base(mode, itemID, level, present, npcID)
-			}
-			return conversion(mode, itemID, level, present, npcID)
 		}
 	}
 	return nil

@@ -309,6 +309,16 @@ func buildUpgradeItemSuccessAck(result UpgradeResult) []byte {
 	} else if result.ResultCode == upgradeResultCodeDestroy {
 		writer.writeByte(0)
 	}
+	// Current-client op80 receiver 0x1fe0e3b reads this u16/i32 tail after
+	// every accepted result, including downgrade and destruction. Omitting it
+	// makes the native readers consume bytes beyond the packet body.
+	if result.ConversionMaterialUpdated {
+		writer.writeInt16(result.ConversionMaterialSlot)
+		writer.writeInt32(clampInt32(result.ConversionMaterialRemainingCount))
+	} else {
+		writer.writeInt16(-1)
+		writer.writeInt32(0)
+	}
 	return writer.bytes()
 }
 
@@ -338,7 +348,8 @@ func buildUpgradeNoticeBody(success bool, userID uint16, itemID int32, level byt
 // consumed by the current EXE op50 handler: u8 0x01, u8 mode, i16 material
 // slot, i32 material remaining, i16 optional ticket slot (always -1), u8 0,
 // u8 old level, u8 result code, u8 new level, u8 0, i16 target slot, i16
-// optional ticket slot (always -1).
+// optional ticket slot (always -1), followed by the current-client neutral
+// NPC-material slot/count tail (i16 -1, i32 0).
 func buildUpgradeTicketSuccessAck(result UpgradeTicketResult) []byte {
 	var writer packetWriter
 	writer.writeByte(1)
@@ -353,6 +364,8 @@ func buildUpgradeTicketSuccessAck(result UpgradeTicketResult) []byte {
 	writer.writeByte(0)
 	writer.writeInt16(result.TargetSlotIndex)
 	writer.writeInt16(-1)
+	writer.writeInt16(-1)
+	writer.writeInt32(0)
 	return writer.bytes()
 }
 

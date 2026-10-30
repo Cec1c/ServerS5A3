@@ -565,6 +565,7 @@ func TestOwnerUpgradeProtectTicketACKExtraFieldsAndPayload(t *testing.T) {
 		0,    // reserved
 		9, 0, // target slot 9
 		0xFF, 0xFF, // optional ticket slot -1
+		0xFF, 0xFF, 0, 0, 0, 0, // neutral NPC material tail
 	}
 	if len(body) != len(want) {
 		t.Fatalf("protected ACK len = %d, want %d (no destroy-bonus tail): %x", len(body), len(want), body)
@@ -660,8 +661,8 @@ func TestHandlerUpgradeProtectTicketSendsDowngradeAckAndTicketRefresh(t *testing
 	if ack.MsgID != uint16(dnfenum.CmdPacketUpgradeItem) || ack.Classification != 1 {
 		t.Fatalf("ack = msg 0x%04X class %d", ack.MsgID, ack.Classification)
 	}
-	if len(ack.Body) != 19 {
-		t.Fatalf("protected ACK len = %d, want 19 (no destroy-bonus tail): %x", len(ack.Body), ack.Body)
+	if len(ack.Body) != 25 {
+		t.Fatalf("protected ACK len = %d, want 25 (common tail, no destroy bonus): %x", len(ack.Body), ack.Body)
 	}
 	if ack.Body[0] != 1 || ack.Body[11] != 13 || ack.Body[12] != upgradeResultCodeDowngrade || ack.Body[13] != 0 {
 		t.Fatalf("ACK = %x, want flag=1 oldLevel=13 resultCode=%d newLevel=0", ack.Body, upgradeResultCodeDowngrade)
