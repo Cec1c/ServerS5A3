@@ -190,6 +190,11 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		return nil
 	}
 	if session.finishLoadingGateSnapshot().PostFinish {
+		// A dungeon room move keeps the actor-initialization gate set and only
+		// re-arms the op37/op30 state. Record that the finish request was
+		// observed, with placement_sent=false, before returning. The real
+		// finish_loading_placement event remains owned by the successful send
+		// path and has its own per-room limit.
 		s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_observed")
 		return nil
 	}

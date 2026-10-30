@@ -189,6 +189,7 @@ func (s *Service) captureCurrentPartyPeerEndpointRegistration(session *gameSessi
 	// clients before their UDP socket is ready. Preserve the existing endpoint
 	// until a real non-zero port arrives.
 	if registration.Port == 0 {
+		s.logPartyPeerEndpointRegistrationDiagnostic(session, registration, false)
 		return false
 	}
 	// vendor 档：CS op2 就是"这个会话开始了"的权威信号（与厂商的 acc 取样时刻同一个
@@ -204,6 +205,7 @@ func (s *Service) captureCurrentPartyPeerEndpointRegistration(session *gameSessi
 	changed := partyPeerEndpointChanged(session.partyPeer, registration)
 	session.partyPeer = registration
 	session.partyPeerMu.Unlock()
+	s.logPartyPeerEndpointRegistrationDiagnostic(session, registration, changed)
 	little, big := currentPartyPeerPortReadings(registration.PortRaw)
 	s.logGameEvent(session, "game-party-peer-endpoint-registered",
 		"char_id", session.selectedCharacterID,

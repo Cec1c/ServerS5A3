@@ -207,6 +207,10 @@ func TestHandlerMagicBoxExpandFailureAcksZeroByte(t *testing.T) {
 func TestHandlerMagicBoxExpandSeriaBatchAckMatchesCurrentEXELayout(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
+	if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "acc"}); err != nil {
+		t.Fatal(err)
+	}
+	saveMagicBoxTestCharacter(t, ctx, repos, "acc")
 	slots := map[string]dnfrepo.ItemStack{
 		"0:67": {ItemID: 2682272, Count: 10, Extra: map[string]string{"item_kind": "stackable"}},
 	}
@@ -268,6 +272,7 @@ func TestOwnerApplyMagicBoxExpandSeriaLuckDoublePersistsPerAccount(t *testing.T)
 	if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "acc", Metadata: map[string]string{currentSeriaLuckMetadataKey: "7"}}); err != nil {
 		t.Fatal(err)
 	}
+	saveMagicBoxTestCharacter(t, ctx, repos, "acc")
 	saveMagicBoxFixture(t, ctx, repos, map[string]dnfrepo.ItemStack{
 		"0:67": {ItemID: 2682272, Count: 2, Extra: map[string]string{"item_kind": "stackable"}},
 	})

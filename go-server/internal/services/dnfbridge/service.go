@@ -132,6 +132,9 @@ type Service struct {
 	// 与 partyUDPRelay 至多一个非 nil（由 newPartyUDPRelayBackends 决定）。
 	// 见 party_udp_relay_remote.go。
 	partyUDPRelayRemote *currentPartyUDPRelayRemote
+	// Serialize Sync/Close for each party without holding manager or binding
+	// locks across remote I/O. The bounded stripes avoid a growing lock map.
+	partyRelayMutation  [64]sync.Mutex
 	runtimePartyManager *party.RuntimePartyManager
 	partyDungeons       *partyDungeonInstanceRegistry
 	// partyDungeonLoadingCycles 是"全队 op37 finish-loading 到齐再统一放行"的组队状态
@@ -992,10 +995,14 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	logger := s.packetLog
 	s.mu.Unlock()
 	if logger == nil {
+		s.logTownLoadingDiagnostic(kind, args...)
 		s.logEmpireTeamSetupDiagnostic(kind, args...)
 		s.logDungeonSettlementDiagnostic(kind, args...)
-		s.logCrossSceneProfileDiagnostic(kind, args...)
-		s.logRaidPeerDiagnostic(kind, args...)
+		if kind == "game-peer-userinfo-profile-refresh-sent" || kind == "game-peer-userinfo-profile-refresh-failed" {
+			s.logCrossSceneProfileDiagnostic(kind, args...)
+		} else {
+			s.logRaidPeerDiagnostic(kind, args...)
+		}
 	}
 	logger.Event(kind, args...)
 }

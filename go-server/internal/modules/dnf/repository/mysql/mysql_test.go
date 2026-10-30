@@ -16,12 +16,13 @@ type fakeSQLCall struct {
 }
 
 type fakeSQLDB struct {
-	execs   []fakeSQLCall
-	rows    []fakeSQLRow
-	rowsets []fakeSQLRows
-	pings   int
-	execErr error
-	pingErr error
+	execs      []fakeSQLCall
+	rows       []fakeSQLRow
+	rowsets    []fakeSQLRows
+	pings      int
+	execErr    error
+	execResult sql.Result
+	pingErr    error
 }
 
 func (f *fakeSQLDB) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
@@ -31,6 +32,9 @@ func (f *fakeSQLDB) ExecContext(_ context.Context, query string, args ...any) (s
 	})
 	if f.execErr != nil {
 		return nil, f.execErr
+	}
+	if f.execResult != nil {
+		return f.execResult, nil
 	}
 	return nil, nil
 }

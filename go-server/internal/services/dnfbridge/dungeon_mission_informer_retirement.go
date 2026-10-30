@@ -141,7 +141,7 @@ func (s *Service) handleCurrentMissionInformerRetirementLocked(
 	}
 	// 复用原子对象提交，仅维护这一非阻挡APC的权威死亡/场景绑定，九怪保持原状态。
 	// 随即返回，绝不继续普通死亡处理器的经验、掉落、击杀任务和清图奖励链。
-	target, _, err := runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+	target, _, err := runtime.Room.commitActorDeathReport(request.RuntimeObjectKey, runtime.Session, false)
 	if err != nil {
 		return true, err
 	}

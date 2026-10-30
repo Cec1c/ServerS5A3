@@ -10,7 +10,8 @@ import (
 	"longheng.io/server/internal/modules/dnf/guildcompound"
 )
 
-// buildCurrentGuildCompoundSuccessAck builds the class1 result body for op835 and op864. The current client first reads the success byte and, on success,
+// buildCurrentGuildCompoundSuccessAck builds the class1 result body for op835
+// and op864. The current client first reads the success byte and, on success,
 // reads one little-endian u32 product item ID before building the result-window
 // item. That item has already been committed and granted by guildcompound.Owner;
 // this value is only the native result-window reference and must never trigger

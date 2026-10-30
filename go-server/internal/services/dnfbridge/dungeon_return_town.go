@@ -933,7 +933,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	//   - 其余（`abandoned` / 其它非 completed 状态）：**中途放弃**，行为与上一轮
 	//     逐字节相同（dungeon_party_leader_exit.go 的解散）。
 	if s.retireCurrentFiendWarEncounterParty(session, runtime) {
-		// Only the frozen temporary encounter party is retired.
+		// Every combat party is temporary; the attack-raid's numbered seats stay.
 	} else if committedStatus == worldmap.DungeonRunCompleted {
 		s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
 	} else if runtime.fiendWarRetreatKeepsParty {
@@ -1135,6 +1135,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.initialTownAdventureOverheadRefreshSent = false
 	session.initialTownCombatPowerAffixesSent = false
 	session.townSceneReadyCharacterID = 0
+	resetCurrentTownEnterSelectSceneLocked(session)
 	advanceImageCommunicationSceneLocked(session)
 	session.townActorOwnerChannel = currentSceneObjectContext
 	session.completedTownSceneTailOwner = nil

@@ -149,6 +149,119 @@ func TestRealPVFCurrentBlackDiamondVendingAllOutcomes(t *testing.T) {
 	}
 }
 
+// CMD215 resolves every embedded settlement row through the client inventory.
+// Slot zero is an actual inventory lookup, not a display-only mail marker. A
+// full [disguise] page must therefore reject atomically instead of returning a
+// synthetic row, debiting the coin, or creating a mail-only reward.
+func TestRealPVFCurrentBlackDiamondVendingFullPageRejectsWithoutDebitOrMail(t *testing.T) {
+	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
+	if path == "" {
+		t.Skip("requires current PVF")
+	}
+	a, err := archive.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain, currentClientVersion: "official-24.9"}, initialEquipmentArchive: a}
+	const targetItemID int64 = 7433 // COS变装玩具 (莎兰), [disguise], main slots 65..120
+	var machineID uint32
+	var coinID int64
+	var drawOffset int
+	for _, candidate := range []struct {
+		id   uint32
+		path string
+		coin int64
+	}{{1, "etc/pcroom.vm", 7454}, {2, "etc/pcroom3.vm", 10005506}, {3, "etc/pcroom4.vm", 2749933}, {6, "etc/pcroom5.vm", 7454}} {
+		text, readErr := a.ReadText(candidate.path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		document, parseErr := doc.Parse(candidate.path, text)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		_, rows, ok := parseVendingGroup(document, 1, candidate.coin)
+		if !ok {
+			continue
+		}
+		offset := 0
+		for _, row := range rows {
+			if row.ID == targetItemID {
+				machineID, coinID, drawOffset = candidate.id, candidate.coin, offset
+				break
+			}
+			offset += int(row.Weight)
+		}
+		if machineID != 0 {
+			break
+		}
+	}
+	if machineID == 0 {
+		t.Fatalf("current PVF has no registered vending machine containing item %d", targetItemID)
+	}
+	definition, err := service.currentPVFItemCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := definition.ResolveItem(uint32(targetItemID))
+	if err != nil || resolved.Kind != dungeonDropItemStackable || resolved.SlotStart != 65 || resolved.SlotEnd != 120 {
+		t.Fatalf("resolved target item=%+v err=%v", resolved, err)
+	}
+
+	repos := memory.NewMemoryGroup()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(repos.Account.Save(ctx, repo.AccountRecord{AccountID: "vending-overflow-fixture", Metadata: map[string]string{premium.MetadataKey(premium.TypeBlackDiamond): strconv.FormatInt(now.Add(time.Hour).Unix(), 10)}}))
+	must(repos.Character.Save(ctx, repo.CharacterRecord{CharacterID: "77", AccountID: "vending-overflow-fixture", Level: 90, Stats: map[string]int64{"gold": 7}}))
+	slots := map[string]repo.ItemStack{"0:141": {ItemID: coinID, Count: 4}}
+	for slot := int16(3); slot <= 8; slot++ {
+		slots["0:"+strconv.Itoa(int(slot))] = repo.ItemStack{ItemID: 800000 + int64(slot), Count: 1}
+	}
+	for slot := int16(65); slot <= 120; slot++ {
+		slots["0:"+strconv.Itoa(int(slot))] = repo.ItemStack{ItemID: 900000 + int64(slot), Count: 1}
+	}
+	must(repos.Inventory.Save(ctx, repo.InventoryRecord{CharacterID: "77", Slots: slots}))
+	service.repositoryProvider = func() (repo.Group, bool) { return repos, true }
+	service.dungeonChoice = func(limit int) (int, error) {
+		if drawOffset < 0 || drawOffset >= limit {
+			return 0, fmt.Errorf("draw offset %d outside %d", drawOffset, limit)
+		}
+		return drawOffset, nil
+	}
+	conn := &bufferConn{}
+	session := &gameSession{conn: conn, selectedCharacterID: 77, accountID: "vending-overflow-fixture"}
+	request := make([]byte, 10)
+	binary.LittleEndian.PutUint32(request, machineID)
+	binary.LittleEndian.PutUint32(request[4:], 1)
+	binary.LittleEndian.PutUint16(request[8:], 141)
+	sendMerchantRequest(t, service, session, 215, request, 1)
+	packets := splitAllGameServerUpperPackets(t, conn.write.Bytes())
+	if len(packets) != 1 || packets[0].Header.MsgID != 215 || !bytes.Equal(packets[0].Body, []byte{0, 1}) {
+		t.Fatalf("full-page result packets=%+v, want one op215 failure [00 01]", packets)
+	}
+	inventory, found, err := repos.Inventory.Load(ctx, "77")
+	must(err)
+	if !found || inventory.Slots["0:141"].Count != 4 {
+		t.Fatalf("rejected full-page draw consumed coin: inventory=%+v found=%t", inventory.Slots, found)
+	}
+	for _, stack := range inventory.Slots {
+		if stack.ItemID == targetItemID {
+			t.Fatalf("overflow reward also entered the full inventory: %+v", stack)
+		}
+	}
+	mailbox, found, err := repos.Mailbox.Load(ctx, "77")
+	must(err)
+	if found && len(mailbox.Mails) != 0 {
+		t.Fatalf("rejected full-page draw created mail: %+v", mailbox.Mails)
+	}
+}
+
 func TestRealPVFVendingRejectsWrongMachineMaterialWithoutAssetChange(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {

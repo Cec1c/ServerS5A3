@@ -355,8 +355,8 @@ func TestCurrentNPCShopSellLockedOrOverflowDoesNotMutate(t *testing.T) {
 func TestCurrentNPCShopBuyCommitFailureRollsBackWalletAndInventory(t *testing.T) {
 	shop, items := mustCurrentNPCShopTestCatalogs(t)
 	repositories := mustCurrentNPCShopRepositories(t, 1000, nil)
-	repositories.CharacterSettlement = rejectingCurrentNPCShopCommit{
-		inner: repositories.CharacterSettlement,
+	repositories.AccountAssets = rejectingCurrentNPCShopAccountAssets{
+		inner: repositories.AccountAssets,
 		err:   errors.New("injected NPC shop commit failure"),
 	}
 	connection := &bufferConn{}
@@ -729,6 +729,51 @@ func (u rejectingCurrentNPCShopCommit) WithinCharacterSettlement(
 ) error {
 	return u.inner.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
 		if err := apply(tx); err != nil {
+			return err
+		}
+		return u.err
+	})
+}
+
+// rejectingCurrentNPCShopAccountAssets injects a late failure at the account
+// transaction boundary now used by NPC shop purchases. The underlying memory
+// transaction must roll back everything projected before
+// WithinAccountCharacterLedgerAssets reports the injected commit error.
+type rejectingCurrentNPCShopAccountAssets struct {
+	inner dnfrepo.AccountCharacterAssetUnitOfWork
+	err   error
+}
+
+func (u rejectingCurrentNPCShopAccountAssets) WithinAccountCharacterAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	apply func(dnfrepo.AccountInventoryRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error,
+) error {
+	if u.inner == nil {
+		return dnfrepo.ErrAccountCharacterAssetTransactionUnavailable
+	}
+	return u.inner.WithinAccountCharacterAssets(ctx, accountID, characterID, apply)
+}
+
+func (u rejectingCurrentNPCShopAccountAssets) WithinAccountCharacterLedgerAssets(
+	ctx context.Context,
+	accountID string,
+	characterID string,
+	apply func(dnfrepo.AccountRepository, dnfrepo.AccountInventoryRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error,
+) error {
+	ledger, ok := u.inner.(dnfrepo.AccountCharacterLedgerAssetUnitOfWork)
+	if !ok {
+		return dnfrepo.ErrAccountCharacterAssetTransactionUnavailable
+	}
+	return ledger.WithinAccountCharacterLedgerAssets(ctx, accountID, characterID, func(
+		account dnfrepo.AccountRepository,
+		accountInventory dnfrepo.AccountInventoryRepository,
+		character dnfrepo.CharacterRepository,
+		inventory dnfrepo.InventoryRepository,
+		equipment dnfrepo.EquipmentRepository,
+	) error {
+		if err := apply(account, accountInventory, character, inventory, equipment); err != nil {
 			return err
 		}
 		return u.err

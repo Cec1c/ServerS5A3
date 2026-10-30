@@ -7,13 +7,18 @@ func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
 	switch kind {
 	case "game-dungeon-settlement-entry-blocked",
 		"game-dungeon-settlement-entry-op31-send",
+		"game-dungeon-card-reward-plan-frozen",
 		"game-dungeon-party-instance-peer-final-room-deferred",
 		"game-dungeon-giveup-game-blocked",
 		"game-dungeon-card-exit-blocked",
 		"game-dungeon-card-exit-return-blocked",
 		"game-dungeon-back-to-village-request-received",
 		"game-dungeon-back-to-village-blocked",
-		"game-dungeon-completed-town-route-committed":
+		"game-dungeon-completed-town-route-committed",
+		"game-dungeon-select-back-to-village-committed",
+		"game-luke-coin-validation",
+		"game-dungeon-use-coin-blocked",
+		"game-dungeon-use-coin-success":
 	default:
 		return
 	}
@@ -28,7 +33,17 @@ func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
 			"dungeon_id", "object_key", "instance_id", "request_msg_id", "source", "reason",
 			"run_status", "settlement_entry_sent", "settlement_play_result_received",
 			"settlement_statistic_received", "settlement_clear_reward_sent", "settlement_phase",
-			"boss_die_check_accepted", "op115_sent", "completion_persisted", "runtime_detached":
+			"boss_die_check_accepted", "op115_sent", "completion_persisted", "runtime_detached",
+			"has_runtime", "request_value_a", "request_value_b", "body_len", "run_id",
+			"phase", "entry_phase", "entry_attempt", "phase_coin_used", "phase_coin_limit",
+			"map_coin_used", "map_coin_limit", "target_object_key", "expected_object_key",
+			"town_id", "area_id", "route_stage", "scene_tail_deferred", "town_return_pending",
+			"enter_select_sent", "enter_select_ack_sent", "enter_select_context_sent", "party_id":
+			args = append(args, key, fields[i+1])
+		case "free_gold", "paid_gold", "paid_card_cost", "free_item_count",
+			"paid_item_count", "premium_gold_card_available", "gold_normal_kills",
+			"gold_champion_kills", "gold_boss_kills", "gold_entry_party_count",
+			"gold_difficulty_rate", "gold_party_rate", "gold_rank_bonus", "gold_final_multiplier":
 			args = append(args, key, fields[i+1])
 		}
 	}

@@ -463,7 +463,7 @@ func mainQuestPercentProgression(t *testing.T, levels int) *progression.Tables {
 	tables, err := progression.Load(context.Background(), finishProgressionSource{
 		progression.ExperienceTablePath: experience.String(),
 		progression.SkillPointTablePath: skills.String(),
-		progression.QuestParameterPath:  "[difficulty]\n`N` 100\n[/difficulty]\n[exp reward table]\n100 -1\n[gold reward table]\n10 -1\n[green level penalty]\n80\n[grey level penalty]\n30\n",
+		progression.QuestParameterPath:  "[difficulty]\n`N` 100\n[/difficulty]\n[exp reward table]\n100 -1\n[gold reward table]\n10\n[green level penalty]\n80\n[grey level penalty]\n30\n",
 	})
 	if err != nil {
 		t.Fatal(err)

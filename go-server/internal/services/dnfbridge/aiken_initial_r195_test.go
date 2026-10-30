@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	aiken "longheng.io/server/internal/modules/dnf/aikenupgrade"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
 )
@@ -94,6 +97,94 @@ func TestR195AikenInitialGroundPickupAndProjection(t *testing.T) {
 	bad.AikenInitialState[0] = 255
 	if _, err := buildCurrentDungeonPickupStack(9, bad, 1, 554884773); err == nil {
 		t.Fatal("invalid frozen state accepted")
+	}
+}
+
+type r195AikenRepairFailure struct {
+	repo.AccountCharacterAssetUnitOfWork
+}
+
+func (u r195AikenRepairFailure) WithinAccountCharacterAssets(ctx context.Context, a, c string, f func(repo.AccountInventoryRepository, repo.CharacterRepository, repo.InventoryRepository, repo.EquipmentRepository) error) error {
+	return u.AccountCharacterAssetUnitOfWork.WithinAccountCharacterAssets(ctx, a, c, func(ar repo.AccountInventoryRepository, cr repo.CharacterRepository, ir repo.InventoryRepository, er repo.EquipmentRepository) error {
+		if err := f(ar, cr, ir, er); err != nil {
+			return err
+		}
+		return errors.New("injected final commit failure")
+	})
+}
+
+func TestR195AikenInitialRepairPreservesPaidGradeAndIsAtomic(t *testing.T) {
+	for _, fault := range []bool{false, true} {
+		t.Run(map[bool]string{false: "commit-and-repeat", true: "rollback"}[fault], func(t *testing.T) {
+			c, d := r195AikenDefinition(t)
+			ctx := context.Background()
+			g := memory.NewMemoryGroup()
+			s, err := buildCurrentDungeonPickupStack(9, d, 1, 554884773)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err = currentAikenWriteState(s, 9, [5]byte{0, 0, 0, 1, 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Extra["equipment_lock_state"] = "1"
+			s.Extra["preserve"] = "yes"
+			known, _ := currentAikenWriteState(s, 10, [5]byte{1, 13, 0, 1, 3})
+			partial, _ := currentAikenWriteState(s, 11, [5]byte{1, 0, 0, 0, 2})
+			if err := g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "19", AccountID: "a"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := g.Inventory.Save(ctx, repo.InventoryRecord{CharacterID: "19", Slots: map[string]repo.ItemStack{"0:9": s, "0:10": known, "0:11": partial}, Warehouse: map[string]repo.ItemStack{"2:1": s}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := g.Equipment.Save(ctx, repo.EquipmentRecord{CharacterID: "19", Entries: map[string]repo.EquipmentEntry{"14": {SlotIndex: 14, ItemID: s.ItemID, RawEntry: s.RawEntry, Extra: s.Extra}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := g.AccountInventory.Save(ctx, repo.AccountInventoryRecord{AccountID: "a", Slots: map[string]repo.ItemStack{"12:1": s}}); err != nil {
+				t.Fatal(err)
+			}
+			before, _, _ := g.Inventory.Load(ctx, "19")
+			beforeW, _, _ := g.Equipment.Load(ctx, "19")
+			beforeA, _, _ := g.AccountInventory.Load(ctx, "a")
+			provided := g
+			if fault {
+				provided.AccountAssets = r195AikenRepairFailure{g.AccountAssets}
+			}
+			o, _ := aiken.NewOwner(provided)
+			cmd := aiken.InitialRepairCommand{AccountID: "a", CharacterID: "19", Now: time.Now(), ReadState: currentAikenState, WriteState: currentAikenWriteState, Roll: func(uint32) (uint32, error) { return 0, nil }, Catalog: func(id int64) (*aiken.InitialCatalog, error) {
+				v, e := c.ResolveItem(uint32(id))
+				return v.AikenInitial, e
+			}}
+			n, err := o.RepairInitialOptions(ctx, cmd)
+			after, _, _ := g.Inventory.Load(ctx, "19")
+			afterW, _, _ := g.Equipment.Load(ctx, "19")
+			afterA, _, _ := g.AccountInventory.Load(ctx, "a")
+			if fault {
+				if err == nil || n != 0 || !reflect.DeepEqual(before, after) || !reflect.DeepEqual(beforeW, afterW) || !reflect.DeepEqual(beforeA, afterA) {
+					t.Fatal("repair did not roll back all assets")
+				}
+				return
+			}
+			if err != nil || n != 4 {
+				t.Fatal(n, err)
+			}
+			if !reflect.DeepEqual(known, after.Slots["0:10"]) || !reflect.DeepEqual(partial, after.Slots["0:11"]) {
+				t.Fatal("already selected instance changed")
+			}
+			for _, repaired := range []repo.ItemStack{after.Slots["0:9"], after.Warehouse["2:1"], afterA.Slots["12:1"], {ItemID: s.ItemID, RawEntry: afterW.Entries["14"].RawEntry, Extra: afterW.Entries["14"].Extra}} {
+				state, err := currentAikenState(repaired)
+				if err != nil || state[0] == 0 || state[1] == 0 || state[3] != 1 || state[4] != 1 || repaired.Extra["equipment_lock_state"] != "1" || repaired.Extra["preserve"] != "yes" {
+					t.Fatal("grade/set/lock/extra lost", state, err)
+				}
+			}
+			if n, err := o.RepairInitialOptions(ctx, cmd); err != nil || n != 0 {
+				t.Fatal("repeat changed repaired instance", n, err)
+			}
+			cmd.AccountID = "other"
+			if n, err := o.RepairInitialOptions(ctx, cmd); err == nil || n != 0 {
+				t.Fatal("wrong account accepted")
+			}
+		})
 	}
 }
 

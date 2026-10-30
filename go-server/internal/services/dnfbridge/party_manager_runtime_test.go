@@ -35,8 +35,8 @@ func TestManagedPartyCrossJoinRefreshesPriorPartySurvivor(t *testing.T) {
 	if state.UserID != 1003 || len(runtimePartyMembers(state)) != 2 {
 		t.Fatalf("target party projection=%+v", state)
 	}
-	if old := runtimePartyStateSnapshot(leaderA); old.PartyID != 0 {
-		t.Fatalf("prior party survivor singleton projection was not cleared: %+v", old)
+	if old := runtimePartyStateSnapshot(leaderA); old.PartyID <= 0 || len(runtimePartyMembers(old)) != 1 || old.UserID != 1001 || !old.IsLeader {
+		t.Fatalf("prior party survivor singleton projection was not retained: %+v", old)
 	}
 	if next := runtimePartyStateSnapshot(joiner); next.UserID != 1003 || len(runtimePartyMembers(next)) != 2 {
 		t.Fatalf("joiner projection=%+v", next)

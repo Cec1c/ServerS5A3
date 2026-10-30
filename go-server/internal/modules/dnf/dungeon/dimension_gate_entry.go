@@ -74,6 +74,8 @@ type DimensionGateEntryCommand struct {
 	// ExtraLimit is the verified daily ticket grant cap; zero disables grants.
 	// Limit remains the initial allowance, never the maximum including tickets.
 	ExtraLimit int64
+	// Hidden is an optional frozen server maze plan, committed with admissions.
+	Hidden *DimensionHiddenAdmission
 	// Requirements / FreePasses / Project 与本仓既有每日次数命令同义：DGN 声明的
 	// `ConsumeOnEntry` 门票在同一事务里扣除，失败则整轮拒绝且不写任何字节。
 	Requirements []EntryItemRequirement
@@ -86,9 +88,10 @@ type DimensionGateEntryCommand struct {
 }
 
 type DimensionGateEntryResult struct {
-	Character dnfrepo.CharacterRecord
-	Used      int64
-	Consumed  []EntryItemConsumedStack
+	Character        dnfrepo.CharacterRecord
+	Used             int64
+	Consumed         []EntryItemConsumedStack
+	HiddenHighReward bool
 }
 
 // ConsumeDimensionGateEntry 在单次角色资产事务里提交共享日计数与同批入场资产。
@@ -136,6 +139,10 @@ func (o *Owner) ConsumeDimensionGateEntry(ctx context.Context, cmd DimensionGate
 				return err
 			}
 		}
+		highReward, err := applyDimensionHiddenAdmission(&character, cmd.UpdatedAt, cmd.Hidden)
+		if err != nil {
+			return err
+		}
 		if len(consumed) > 0 {
 			inventory.UpdatedAt = cmd.UpdatedAt
 			if err := dnfrepo.SaveInventoryFields(ctx, bags, inventory, dnfrepo.InventoryFieldSlots); err != nil {
@@ -153,6 +160,7 @@ func (o *Owner) ConsumeDimensionGateEntry(ctx context.Context, cmd DimensionGate
 			return err
 		}
 		result.Character, result.Used, result.Consumed = character, used+1, consumed
+		result.HiddenHighReward = highReward
 		return nil
 	})
 	if err != nil {

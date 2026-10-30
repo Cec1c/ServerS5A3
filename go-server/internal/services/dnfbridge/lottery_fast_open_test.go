@@ -44,12 +44,19 @@ func TestFastLotteryTwentyOneOpensKeepIncrementalInventory(t *testing.T) {
 			conn := &bufferConn{}
 			session := &gameSession{conn: conn, selectedCharacterID: 19}
 			for opened := 1; opened <= 21; opened++ {
+				before, _, err := repos.Inventory.Load(ctx, "19")
+				if err != nil {
+					t.Fatal(err)
+				}
 				if err := s.handleCurrentLotteryItem(session, []byte{0, 0, 75, 0}); err != nil {
 					t.Fatal(err)
 				}
 				packets := drainUpperPackets(t, conn)
 				if len(packets) < 2 || packets[0].msgID != 27 || len(packets[0].body) != 126 || packets[0].body[0] != 1 {
 					t.Fatalf("open=%d packets=%+v", opened, packets)
+				}
+				if got := binary.LittleEndian.Uint32(packets[0].body[9:13]); got != 1 {
+					t.Fatalf("open=%d native ADD/display quantity=%d, want this open's grant 1", opened, got)
 				}
 				rows := map[uint16][]byte{}
 				for i, p := range packets {
@@ -111,6 +118,11 @@ func TestFastLotteryTwentyOneOpensKeepIncrementalInventory(t *testing.T) {
 						continue
 					}
 					total += stack.Count
+					// A later expiration second can create a new stack. Only changed
+					// reward slots need a delta; unchanged earlier stacks stay cached.
+					if reflect.DeepEqual(before.Slots[key], stack) {
+						continue
+					}
 					_, slot, _ := parseSceneInventorySlotKey(key)
 					row := rows[uint16(slot)]
 					if len(row) != 119 || binary.LittleEndian.Uint32(row[6:10]) != uint32(stack.Count) {

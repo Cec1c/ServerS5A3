@@ -111,7 +111,21 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 			}
 		}
 	}
-	freeGold := currentDungeonCardGoldAmount(rng, goldReference, int(runtime.Request.Difficulty))
+	var freeGold int64
+	var goldInputs currentDungeonFreeCardGoldInputs
+	if dungeonTournamentEnabled() && runtime.Tournament != nil {
+		// The tournament owns its separate settlement contract.
+		freeGold = currentDungeonCardGoldAmount(rng, goldReference, int(runtime.Request.Difficulty))
+	} else {
+		goldInputs, err = loadCurrentDungeonFreeCardGoldInputs(monsterCatalog.source, runtime)
+		if err != nil {
+			return err
+		}
+		freeGold, err = goldInputs.amount(rng, goldReference)
+		if err != nil {
+			return err
+		}
+	}
 	freeItem, freeItemFound, err := randomCardItem(rng, session.selectedCharacterID)
 	if err != nil {
 		return err
@@ -219,6 +233,13 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		"dungeon_id", runtime.Dungeon.ID,
 		"plan_id", plan.ID,
 		"free_gold", free.Gold,
+		"gold_normal_kills", goldInputs.Kills.Normal,
+		"gold_champion_kills", goldInputs.Kills.Champion,
+		"gold_boss_kills", goldInputs.Kills.Boss,
+		"gold_entry_party_count", goldInputs.PartyCount,
+		"gold_difficulty_rate", goldInputs.DifficultyRate,
+		"gold_party_rate", goldInputs.PartyRate,
+		"gold_rank_bonus", goldInputs.RankBonus,
 		"free_item_count", len(free.Items),
 		"paid_gold", paid.Gold,
 		"paid_card_cost", paid.Cost,

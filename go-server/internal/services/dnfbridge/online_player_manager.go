@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -488,6 +489,7 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	source string,
 	partyFrame bool,
 ) error {
+	constructionStarted := time.Now()
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
 	}
@@ -609,6 +611,8 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 		}
 	}
 	s.logCurrentPeerActorAppearanceEvent(target, actor.Session, source, mode0Body, mode1Body, subtype0Body)
+	constructionElapsed := time.Since(constructionStarted)
+	sendStarted := time.Now()
 	if err := s.sendGameUpperRawClass(
 		target,
 		uint16(dnfenum.CmdPacketSetUDPIPPort),
@@ -625,6 +629,11 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	); err != nil {
 		return fmt.Errorf("send remote town actor mode1: %w", err)
 	}
+	s.logPacketEvent("game-town-copresence-actor-state-delivered",
+		"conn_id", target.connID, "channel_id", target.channel.ID,
+		"source", source, "target_char_id", targetCharacterID, "actor_char_id", charID,
+		"mode0_body_len", len(mode0Body), "mode1_body_len", len(mode1Body),
+		"construction_us", constructionElapsed.Microseconds(), "send_us", time.Since(sendStarted).Microseconds())
 	if len(subtype0Body) != 0 {
 		s.sendPeerUserInfoSubtype0Appearance(target, subtype0Body, source+"_peer_userinfo_subtype0", charID)
 	}

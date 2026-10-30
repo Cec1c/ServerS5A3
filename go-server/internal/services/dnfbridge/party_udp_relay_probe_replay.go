@@ -418,7 +418,13 @@ func (r *currentPartyUDPRelay) handleUnlearnedProbe(
 		return false
 	}
 	// (1) 先留一份：对端一旦发包就立刻补投。
+	r.mu.Lock()
+	if !r.pairCurrentLocked(leg, opposite) {
+		r.mu.Unlock()
+		return false
+	}
 	queued, bytes, first := opposite.queuePendingProbe(payload)
+	r.mu.Unlock()
 	if first {
 		sourceText := ""
 		if source != nil {
@@ -443,7 +449,7 @@ func (r *currentPartyUDPRelay) handleUnlearnedProbe(
 	if !ok || target == nil {
 		return false
 	}
-	written, err := opposite.conn.WriteToUDP(payload, target)
+	written, err := r.writeCurrentPairDatagram(leg, opposite, opposite.conn, payload, target)
 	failed := err != nil || written != len(payload)
 	datagrams, firstLog := opposite.noteMemoBootstrap(len(payload), failed)
 	if failed {
@@ -509,7 +515,7 @@ func (r *currentPartyUDPRelay) flushPendingProbesTo(leg *currentPartyUDPRelayLeg
 	var replayed, failed int
 	var bytes uint64
 	for _, payload := range pending {
-		written, err := leg.conn.WriteToUDP(payload, destination)
+		written, err := r.writeCurrentLegDatagram(leg, payload, destination)
 		if err != nil || written != len(payload) {
 			failed++
 			continue

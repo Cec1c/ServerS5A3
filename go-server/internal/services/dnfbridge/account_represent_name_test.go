@@ -144,6 +144,114 @@ func TestRepresentAccountNameRegistrationPersistsWithoutResumingRoleSelect(t *te
 	}
 }
 
+type representNameTargetedAccount struct {
+	base              dnfrepo.AccountRepository
+	fullSaveCalls     int
+	targetedCalls     int
+	injectFateOnLoad  bool
+	injectedFate      bool
+	lastName          string
+	lastMetadataKey   string
+	lastMetadataValue string
+}
+
+func (r *representNameTargetedAccount) Load(ctx context.Context, accountID string) (dnfrepo.AccountRecord, bool, error) {
+	account, found, err := r.base.Load(ctx, accountID)
+	if err != nil || !found || !r.injectFateOnLoad || r.injectedFate {
+		return account, found, err
+	}
+	current, currentFound, loadErr := r.base.Load(ctx, accountID)
+	if loadErr != nil || !currentFound {
+		return account, found, loadErr
+	}
+	if current.Metadata == nil {
+		current.Metadata = make(map[string]string)
+	}
+	current.Metadata["raid_fate_balance_v1"] = "777"
+	current.Metadata["raid_fate_week_v1"] = "2943"
+	current.Metadata["raid_fate_earned_v1"] = "345"
+	if saveErr := r.base.Save(ctx, current); saveErr != nil {
+		return account, found, saveErr
+	}
+	r.injectedFate = true
+	// Return the pre-credit snapshot on purpose: the original handler would
+	// full-save it and erase the concurrently committed Fate keys.
+	return account, found, nil
+}
+
+func (r *representNameTargetedAccount) Save(ctx context.Context, account dnfrepo.AccountRecord) error {
+	r.fullSaveCalls++
+	return r.base.Save(ctx, account)
+}
+
+func (r *representNameTargetedAccount) FindAccountIDByRepresentName(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (r *representNameTargetedAccount) SaveRepresentAccountName(
+	ctx context.Context,
+	accountID, name, metadataKey, metadataValue, newAccountState string,
+	now time.Time,
+) error {
+	r.targetedCalls++
+	r.lastName = name
+	r.lastMetadataKey = metadataKey
+	r.lastMetadataValue = metadataValue
+	account, found, err := r.base.Load(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		account = dnfrepo.AccountRecord{AccountID: accountID, State: newAccountState, CreatedAt: now}
+	}
+	account.RepresentAccountName = name
+	if account.Metadata == nil {
+		account.Metadata = make(map[string]string)
+	}
+	account.Metadata[metadataKey] = metadataValue
+	account.UpdatedAt = now
+	return r.base.Save(ctx, account)
+}
+
+func TestRepresentAccountNameRegistrationUsesNarrowMetadataWriter(t *testing.T) {
+	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{
+		AccountID: "dnf:new",
+		State:     "active",
+		Metadata: map[string]string{
+			"keep": "yes",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	capture := &representNameTargetedAccount{base: repositories.Account, injectFateOnLoad: true}
+	repositories.Account = capture
+	connection := &bufferConn{}
+	service := &Service{
+		options: options{
+			accountID:          "dnf:new",
+			gameUpperHeader:    gameUpperHeaderServer16,
+			gameUpperBodyCodec: gameUpperBodyCodecPlain,
+		},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+	}
+	session := &gameSession{conn: connection, connID: "represent-name-narrow", channel: channelcatalog.Channel{ID: 19}}
+	request := []byte{6, 0, 0, 0, 'g', 'r', 'o', 'u', 'p', '1'}
+	if err := service.handleUpdateRepresentAccountName(session, request, currentCmdUpdateRepresentAccountName); err != nil {
+		t.Fatal(err)
+	}
+	if capture.fullSaveCalls != 0 || capture.targetedCalls != 1 || !capture.injectedFate || capture.lastName != "group1" || capture.lastMetadataKey != adventureGroupCreatedDateMetadataKey || capture.lastMetadataValue == "" {
+		t.Fatalf("narrow writer calls=%d/%d injected=%t name=%q metadata=%q/%q", capture.fullSaveCalls, capture.targetedCalls, capture.injectedFate, capture.lastName, capture.lastMetadataKey, capture.lastMetadataValue)
+	}
+	account, found, err := repositories.Account.Load(context.Background(), "dnf:new")
+	if err != nil || !found {
+		t.Fatalf("load account found=%t err=%v", found, err)
+	}
+	if account.RepresentAccountName != "group1" || account.Metadata["raid_fate_balance_v1"] != "777" || account.Metadata["raid_fate_week_v1"] != "2943" || account.Metadata["raid_fate_earned_v1"] != "345" || account.Metadata["keep"] != "yes" {
+		t.Fatalf("account metadata was replaced: %+v", account)
+	}
+}
+
 func TestRepresentAccountNameRegistrationAfterSceneSendsExactlyOnce(t *testing.T) {
 	repositories := dnfrepomemory.NewMemoryGroup()
 	connection := &bufferConn{}

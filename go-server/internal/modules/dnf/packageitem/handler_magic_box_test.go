@@ -181,6 +181,7 @@ func TestHandlerMagicBoxSingleSeriaUsesCurrentEXECase4Header(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	saveMagicBoxTestCharacter(t, ctx, repos, "acc")
 	resolution := alignedcmd.MagicBoxResolution{
 		Kind:   "random",
 		Groups: []alignedcmd.MagicBoxRewardGroup{{DrawCount: 1, Entries: []alignedcmd.MagicBoxRewardEntry{{ItemID: 10000391, Weight: 100, Count: 2}}}},

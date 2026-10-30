@@ -28,6 +28,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 		}
 	}
 	requestSequence := session.guild.purchaseSequence.observe(packet.Header.Seq)
+	if packet.Header.MsgID == privateFestivalOpcode {
+		return s.handlePrivateFestival(session, packet.Header.Classification, packet.Body)
+	}
 	runtimeName := upperRuntimeCmdPacketName(packet.Header.MsgID, packet.Header.Classification)
 	runtimeKnown := upperRuntimeCmdPacketKnown(packet.Header.MsgID, packet.Header.Classification)
 	wireBodyLen := len(packet.Body)
@@ -491,7 +494,7 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 			"body_len", len(packet.Body))
 		return nil
 	case dnfenum.UpperMsgSelectStart:
-		return s.sendEnterSelectDungeonState(session, "upper_15", false, true)
+		return s.sendEnterSelectDungeonState(session, currentTownEnterSelectUpperRequestSource, false, true)
 
 	default:
 		if dnfenum.UpperMsg(packet.Header.MsgID) == dnfenum.UpperMsg(dnfenum.CmdPacketPeerConnectResult) {

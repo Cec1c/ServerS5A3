@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 )
 
@@ -44,6 +45,26 @@ func assertPartyProjectionEmpty(t *testing.T, label string, session *gameSession
 	}
 }
 
+func assertPartyProjectionSingleton(
+	t *testing.T,
+	label string,
+	state alignedcmd.PartyState,
+	wantPartyID int,
+	wantUserID uint16,
+	wantSlot byte,
+	wantIsLeader bool,
+) {
+	t.Helper()
+	members := runtimePartyMembers(state)
+	if state.PartyID != wantPartyID || state.UserID != wantUserID ||
+		state.IsLeader != wantIsLeader || len(members) != 1 ||
+		members[0].UserID != wantUserID || members[0].Slot != wantSlot {
+		t.Fatalf("%s singleton projection mismatch: party=%d leader=%d is_leader=%t members=%+v; want party=%d leader=%d slot=%d is_leader=%t",
+			label, state.PartyID, state.UserID, state.IsLeader, members,
+			wantPartyID, wantUserID, wantSlot, wantIsLeader)
+	}
+}
+
 func leavePartyThroughDispatch(t *testing.T, service *Service, session *gameSession) {
 	t.Helper()
 	handled, err := service.handleAlignedGameCommand(
@@ -60,7 +81,10 @@ func leavePartyThroughDispatch(t *testing.T, service *Service, session *gameSess
 	}
 }
 
-func TestPartyLeaveProjectionMemberLeaveClearsEveryTargetConnection(t *testing.T) {
+// Town op13 member leave keeps the survivor's singleton projection for the
+// client's two-to-one transition. The departing primary and auxiliary caches
+// remain cleared.
+func TestPartyLeaveProjectionMemberLeaveClearsDepartedAndRetainsSurvivorSingleton(t *testing.T) {
 	h := newPartyLeaveHarness(t)
 	leaderAux := addPartyLeaveAuxiliary(t, h.service, h.leader)
 	memberAux := addPartyLeaveAuxiliary(t, h.service, h.member)
@@ -79,11 +103,18 @@ func TestPartyLeaveProjectionMemberLeaveClearsEveryTargetConnection(t *testing.T
 	for label, session := range map[string]*gameSession{
 		"departed primary":   h.member,
 		"departed auxiliary": memberAux,
-		"survivor primary":   h.leader,
-		"survivor auxiliary": leaderAux,
 	} {
 		assertPartyProjectionEmpty(t, label, session)
 	}
+	assertPartyProjectionSingleton(
+		t,
+		"survivor primary cache",
+		runtimePartyStateSnapshot(h.leader),
+		int(leaderParty.ID),
+		1001,
+		0,
+		true,
+	)
 
 	for label, session := range map[string]*gameSession{
 		"departed primary accessor":   h.member,
@@ -101,14 +132,13 @@ func TestPartyLeaveProjectionMemberLeaveClearsEveryTargetConnection(t *testing.T
 		"survivor auxiliary accessor": leaderAux,
 	} {
 		state := h.service.runtimePartyStateForSession(session)
-		if state.PartyID <= 0 || state.UserID != 1001 || !state.IsLeader ||
-			len(runtimePartyMembers(state)) != 1 || isNonLeaderPartyMember(state, 1001) {
-			t.Fatalf("%s lost the surviving leader lobby: %+v", label, state)
-		}
+		assertPartyProjectionSingleton(t, label, state, int(leaderParty.ID), 1001, 0, true)
 	}
 }
 
-func TestPartyLeaveProjectionLeaderLeaveRebuildsTheRemainingLeader(t *testing.T) {
+// Town op13 leader leave rebuilds the remaining member under a fresh party id.
+// The successor keeps its fixed slot and is projected as the singleton leader.
+func TestPartyLeaveProjectionLeaderLeaveRebuildsRemainingLeaderSingleton(t *testing.T) {
 	h := newPartyLeaveHarness(t)
 	leaderAux := addPartyLeaveAuxiliary(t, h.service, h.leader)
 	memberAux := addPartyLeaveAuxiliary(t, h.service, h.member)
@@ -129,22 +159,28 @@ func TestPartyLeaveProjectionLeaderLeaveRebuildsTheRemainingLeader(t *testing.T)
 
 	assertPartyProjectionEmpty(t, "departed leader primary", h.leader)
 	assertPartyProjectionEmpty(t, "departed leader auxiliary", leaderAux)
-	assertPartyProjectionEmpty(t, "rebuilt leader primary cache", h.member)
-	assertPartyProjectionEmpty(t, "rebuilt leader auxiliary cache", memberAux)
+	assertPartyProjectionSingleton(
+		t,
+		"rebuilt leader primary cache",
+		runtimePartyStateSnapshot(h.member),
+		int(memberParty.ID),
+		1002,
+		1,
+		true,
+	)
 
 	for label, session := range map[string]*gameSession{
 		"rebuilt leader primary accessor":   h.member,
 		"rebuilt leader auxiliary accessor": memberAux,
 	} {
 		state := h.service.runtimePartyStateForSession(session)
-		if state.PartyID != int(memberParty.ID) || state.UserID != 1002 || !state.IsLeader ||
-			len(runtimePartyMembers(state)) != 1 || isNonLeaderPartyMember(state, 1002) {
-			t.Fatalf("%s did not resolve the rebuilt leader: %+v", label, state)
-		}
+		assertPartyProjectionSingleton(t, label, state, int(memberParty.ID), 1002, 1, true)
 	}
 }
 
-func TestPartyLeaveProjectionKickClearsTargetAuxiliary(t *testing.T) {
+// Town op14 kick clears the target's primary and auxiliary projections while
+// retaining the kicker's singleton for the client's two-to-one transition.
+func TestPartyLeaveProjectionKickClearsTargetAndRetainsKickerSingleton(t *testing.T) {
 	h := newPartyLeaveHarness(t)
 	leaderAux := addPartyLeaveAuxiliary(t, h.service, h.leader)
 	memberAux := addPartyLeaveAuxiliary(t, h.service, h.member)
@@ -169,17 +205,22 @@ func TestPartyLeaveProjectionKickClearsTargetAuxiliary(t *testing.T) {
 	}
 	assertPartyProjectionEmpty(t, "kicked primary", h.member)
 	assertPartyProjectionEmpty(t, "kicked auxiliary", memberAux)
-	assertPartyProjectionEmpty(t, "kicker primary cache", h.leader)
-	assertPartyProjectionEmpty(t, "kicker auxiliary cache", leaderAux)
+	assertPartyProjectionSingleton(
+		t,
+		"kicker primary cache",
+		runtimePartyStateSnapshot(h.leader),
+		int(leaderParty.ID),
+		1001,
+		0,
+		true,
+	)
 
 	if state := h.service.runtimePartyStateForSession(memberAux); state.PartyID != 0 ||
 		isNonLeaderPartyMember(state, 1002) {
 		t.Fatalf("kicked auxiliary still resolved the old party: %+v", state)
 	}
-	if state := h.service.runtimePartyStateForSession(leaderAux); state.PartyID <= 0 ||
-		state.UserID != 1001 || !state.IsLeader {
-		t.Fatalf("kicker auxiliary lost the surviving leader lobby: %+v", state)
-	}
+	state := h.service.runtimePartyStateForSession(leaderAux)
+	assertPartyProjectionSingleton(t, "kicker auxiliary accessor", state, int(leaderParty.ID), 1001, 0, true)
 }
 
 func TestPartyLeaveProjectionOldSessionCannotEraseARegroup(t *testing.T) {

@@ -172,6 +172,7 @@ type options struct {
 	gameStreamWaitTrace      bool
 	maxPacketBytes           int
 	packetLogEnabled         bool
+	goldDiagnosticCharID     int
 	packetLogPath            string
 	accountID                string
 	accountPrefix            string
@@ -187,10 +188,11 @@ type options struct {
 	// 只有一个变量。读取与抑制点见 Service.joustEventEnabled。
 	joustEventDisabled bool
 	// Requires the matching 1297/1284 client receive chain before enabling.
-	guildEssenceEnabled     bool
-	guildGuardianPolicy     string
-	guildContributionPolicy string
-	guildHongbaoEnabled     bool
+	guildEssenceEnabled         bool
+	guildPlacementWritesEnabled bool
+	guildGuardianPolicy         string
+	guildContributionPolicy     string
+	guildHongbaoEnabled         bool
 
 	// joustEventCatalogMode 是 DNFBRIDGE_JOUST_EVENT_CATALOG 的归一化取值，只决定
 	// op108 在线活动目录里马战（竞技大赛）事件 2365 的那两行要不要下发：
@@ -813,6 +815,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		gameStreamWaitTrace:    envBool("DNFBRIDGE_GAME_STREAM_WAIT_TRACE", false),
 		maxPacketBytes:         envInt("DNF_MAX_PACKET_BYTES", defaultMaxPacketBytes),
 		packetLogEnabled:       envBool("DNFBRIDGE_PACKET_LOG", false),
+		goldDiagnosticCharID:   envInt("DNFBRIDGE_GOLD_DIAGNOSTIC_CHARACTER", 0),
 		packetLogPath:          envString("DNFBRIDGE_PACKET_LOG_PATH", "logs/packet_log.txt"),
 		accountID:              envString("DNFBRIDGE_ACCOUNT_ID", ""),
 		accountPrefix:          envString("DNFBRIDGE_ACCOUNT_PREFIX", defaultAccountPrefix),
@@ -845,11 +848,12 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		collectboxMutation: collectboxMutationValue(envString(collectboxMutationEnv, collectboxMutationReference)),
 		// 单变量实验开关：置 0/false/off/no 时不推送 op1240/op1241/op1242/op1243，
 		// 用来复现/排除"马战事件把客户端切进受限（赛事）状态"的怀疑。
-		joustEventDisabled:      !envBool("DNFBRIDGE_JOUST_EVENT_ENABLED", true),
-		guildEssenceEnabled:     envBool("DNFBRIDGE_GUILD_ESSENCE_ENABLED", false),
-		guildGuardianPolicy:     envString("DNFBRIDGE_GUILD_GUARDIAN_POLICY", ""),
-		guildContributionPolicy: envString("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY", ""),
-		guildHongbaoEnabled:     envBool("DNFBRIDGE_GUILD_HONGBAO_ENABLED", false),
+		joustEventDisabled:          !envBool("DNFBRIDGE_JOUST_EVENT_ENABLED", true),
+		guildEssenceEnabled:         envBool("DNFBRIDGE_GUILD_ESSENCE_ENABLED", false),
+		guildPlacementWritesEnabled: currentGuildPlacementWritesDefault,
+		guildGuardianPolicy:         envString("DNFBRIDGE_GUILD_GUARDIAN_POLICY", ""),
+		guildContributionPolicy:     envString("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY", ""),
+		guildHongbaoEnabled:         envBool("DNFBRIDGE_GUILD_HONGBAO_ENABLED", false),
 		// 单变量实验开关：置 0/false/off/no 时不再下发 op1378（选角 ack 之后的
 		// story digest last-level 通知），也不再接受客户端"开始播放"上报去推进/
 		// 持久化 story_digest_last_level，用来复现/排除"剧情回顾子系统的下发与

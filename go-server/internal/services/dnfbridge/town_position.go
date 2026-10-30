@@ -159,6 +159,9 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 			s.broadcastTownPlayerMove(mover, others)
 		}
 	}
+	if err := s.resumeDeferredTownEnterSelectAfterPosition(session); err != nil {
+		return err
+	}
 	s.queueCurrentFiendWarEncounterFrom(session, currentFiendWarAdmissionPhaseTownPosition)
 	return nil
 }
@@ -219,6 +222,7 @@ func (s *Service) commitPendingDungeonReturnBeforeTownPosition(
 
 	session.townMu.Lock()
 	clearCurrentTownSelectorOriginLocked(session)
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townSceneReadyCharacterID = characterID
 	session.townPositionSnapshot = currentTownPositionSnapshot{
 		CharacterID:     characterID,
@@ -398,6 +402,7 @@ func setCurrentTownPositionSceneLocked(session *gameSession, characterID uint16,
 	}
 	clearCurrentTownSelectorOriginLocked(session)
 	advanceImageCommunicationSceneLocked(session)
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townPositionSnapshot = currentTownPositionSnapshot{
 		CharacterID: characterID,
 		TownID:      townID,

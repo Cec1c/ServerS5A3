@@ -88,7 +88,7 @@ func resolveCurrentBoosterDefinition(
 			)
 		}
 	case currentBoosterRequestRandom:
-		if stackableType != "[booster]" && stackableType != "[cera booster]" && stackableType != "[booster random]" && stackableType != "[random upgradable legacy]" && stackableType != "[upgradable legacy]" {
+		if stackableType != "[booster]" && stackableType != "[cera booster]" && stackableType != "[booster random]" && !currentLotterySupportedType(stackableType) {
 			return currentBoosterDefinition{}, fmt.Errorf("%w: source item=%d type=%q is not random", errCurrentBoosterPVFInvalid, sourceItemID, stackableType)
 		}
 		if stackableType == "[upgradable legacy]" {

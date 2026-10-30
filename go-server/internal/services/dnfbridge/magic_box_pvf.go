@@ -144,6 +144,12 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 	}
 
 	switch normalizeMagicBoxPVFType(magicBoxDocumentText(document, "stackable type")) {
+	case "monster tarot card":
+		group, err := currentMonsterTarotRewardGroup(document)
+		if err != nil {
+			return alignedcmd.MagicBoxResolution{}, fmt.Errorf("tarot card item=%d: %w", boxItemID, err)
+		}
+		resolution.Groups = []alignedcmd.MagicBoxRewardGroup{group}
 	case "upgradable legacy":
 		// Lottery jars use a top-level item/weight/count table, without a
 		// RANDOMBOX wrapper or a leading draw count (PvfLib's
@@ -179,6 +185,38 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 	resolution.Kind = "random"
 	resolution.MaterialItemID, resolution.MaterialCountPerUse = resolveMagicBoxNeedMaterial(document, boxItemID)
 	return resolution, nil
+}
+
+// Monster tarot cards have one top-level item/weight/count table. Validate
+// every token so an invalid row cannot silently change the reward weights.
+// Unlike legacy jars, item zero is not a currency-reward sentinel here.
+func currentMonsterTarotRewardGroup(document *dnfpvf.Document) (alignedcmd.MagicBoxRewardGroup, error) {
+	var values []int64
+	found := false
+	for _, section := range document.Sections {
+		if normalizeMagicBoxSectionName(section.Name) != "int data" {
+			continue
+		}
+		if found || section.Start < 0 || section.End > len(document.Tokens) || section.End <= section.Start {
+			return alignedcmd.MagicBoxRewardGroup{}, errCurrentBoosterPVFInvalid
+		}
+		found = true
+		for _, token := range document.Tokens[section.Start:section.End] {
+			if token.Kind != dnfpvf.TokenInt {
+				return alignedcmd.MagicBoxRewardGroup{}, errCurrentBoosterPVFInvalid
+			}
+			values = append(values, token.Int)
+		}
+	}
+	if len(values) == 0 || len(values)%3 != 0 {
+		return alignedcmd.MagicBoxRewardGroup{}, errCurrentBoosterPVFInvalid
+	}
+	for i := 0; i < len(values); i += 3 {
+		if values[i] <= 0 || values[i] > math.MaxUint32 {
+			return alignedcmd.MagicBoxRewardGroup{}, errCurrentBoosterPVFInvalid
+		}
+	}
+	return weightedMagicBoxLotteryGroup(append([]int64{1}, values...), 3)
 }
 
 // parseMagicBoxRandomGroups walks the [RANDOMBOX] child [int data] sections.

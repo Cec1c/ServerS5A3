@@ -140,7 +140,7 @@ func (s *Service) forgetStaleDungeonPartyRunKeyOutsideDungeon(session *gameSessi
 // forgetRuntimePartyRunKeysOnDisband 在"队伍解散"之后把每个会话的副本运行键一起清掉：
 // 队伍已经不存在，那条键没有归属，留着就会在**下一次组队**时把新队伍误判成"还在上一场副本里"。
 // 返回被清掉键的角色 id（用于解散事件的判读字段）。开关为回退档时零动作。
-func (s *Service) forgetRuntimePartyRunKeysOnDisband(memberIDs []uint16, source string) []uint16 {
+func (s *Service) forgetRuntimePartyRunKeysOnDisband(memberIDs []uint16, retiredPartyID uint16, source string) []uint16 {
 	if s == nil || !dungeonPartyRunKeyTownResetEnabled() || len(memberIDs) == 0 {
 		return nil
 	}
@@ -149,16 +149,24 @@ func (s *Service) forgetRuntimePartyRunKeysOnDisband(memberIDs []uint16, source 
 		if characterID == 0 {
 			continue
 		}
-		session, ok := s.onlineGameSession(characterID)
-		if !ok || session == nil {
+		identity, ok := s.onlineGameSessionCharacterSnapshot(characterID)
+		if !ok {
 			continue
 		}
-		if _, had := forgetDungeonPartyRunKey(session); !had {
+		session := identity.session
+		forgotten, counts := s.forgetRetiredDungeonPartyRunKey(identity, retiredPartyID)
+		if !forgotten {
 			continue
 		}
 		cleared = append(cleared, characterID)
-		// 解散即换代：同一个锁域里结束投影世代（见 dungeon_party_peer_projection_generation.go）。
-		s.resetDungeonPeerProjectionGeneration(session, source+"_peer_projection_generation")
+		if !counts.empty() {
+			s.logGameEvent(session, "game-party-dungeon-peer-projection-generation-reset",
+				"source", source+"_peer_projection_generation", "char_id", characterID, "conn_id", session.connID,
+				"dropped_projected_peers", counts.projected, "dropped_owner_override_rows", counts.overrides,
+				"dropped_resend_keys", counts.resends,
+				"reason", "the_dungeon_run_was_invalidated_so_every_peer_must_be_projected_again_on_the_next_entry",
+				"switch", dungeonPartyPeerProjectionGenerationEnv, "mode", dungeonPartyPeerProjectionGenerationMode())
+		}
 		s.logGameEvent(session, "game-party-dungeon-run-key-cleared",
 			"source", source,
 			"char_id", characterID,
@@ -168,4 +176,31 @@ func (s *Service) forgetRuntimePartyRunKeysOnDisband(memberIDs []uint16, source 
 			"mode", dungeonPartyRunKeyTownResetMode())
 	}
 	return cleared
+}
+
+// Clear the retired key and its peer projection as one operation. A new
+// membership or another run must survive delayed cleanup from an old instance.
+func (s *Service) forgetRetiredDungeonPartyRunKey(identity boundGameSessionCharacter, retiredPartyID uint16) (bool, dungeonPeerProjectionGenerationCounts) {
+	var counts dungeonPeerProjectionGenerationCounts
+	manager := s.runtimePartyManagerForService()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session := identity.session
+	if session == nil || s.gameSessions[identity.character] != session || session.characterGeneration != identity.generation || session.selectedCharacterID != identity.character {
+		return false, counts
+	}
+	session.dungeonPartyRunMu.Lock()
+	defer session.dungeonPartyRunMu.Unlock()
+	if !session.dungeonPartyRunValid || session.dungeonPartyRun.PartyID != retiredPartyID {
+		return false, counts
+	}
+	err := manager.WithSoloMember(identity.character, func() error {
+		session.dungeonPartyRun = dungeonPartyRunKey{}
+		session.dungeonPartyRunValid = false
+		if dungeonPartyPeerProjectionGenerationEnabled() {
+			counts = dropDungeonPeerProjectionGenerationLocked(session)
+		}
+		return nil
+	})
+	return err == nil, counts
 }

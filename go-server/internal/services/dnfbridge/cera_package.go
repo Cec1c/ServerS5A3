@@ -16,6 +16,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -63,6 +64,8 @@ type currentCeraPackageReward struct {
 
 type currentCeraPackageCommitResult struct {
 	ContractActivations []alignedcmd.PremiumContractActivation
+	FateCurrencyChanged bool
+	FateGranted         uint32
 	ChangedListTypes    []byte
 	RewardRows          int
 	RewardUnits         uint64
@@ -361,6 +364,11 @@ func (s *Service) handleCurrentCeraPackageOpen(session *gameSession, body []byte
 	if err := s.sendAlignedPremiumContractActivations(session, "open_cera_package", result.ContractActivations); err != nil {
 		return err
 	}
+	if result.FateCurrencyChanged {
+		if err := s.refreshCurrentFateSnapshot(session); err != nil {
+			return err
+		}
+	}
 	if result.OverflowMailID != "" {
 		if err := s.sendMailboxAlarmToOnlineRecipient(session.selectedCharacterID); err != nil {
 			// The package, its directly placed rewards, and the overflow mail
@@ -383,6 +391,8 @@ func (s *Service) handleCurrentCeraPackageOpen(session *gameSession, body []byte
 		"reward_units", result.RewardUnits,
 		"overflow_mail_id", result.OverflowMailID,
 		"overflow_items", result.OverflowItems,
+		"fate_currency_changed", result.FateCurrencyChanged,
+		"fate_granted", result.FateGranted,
 		"changed_lists", fmt.Sprint(result.ChangedListTypes),
 		"container_lists", fmt.Sprint(grantContainerLists),
 		"item_grant_notice", itemGrantNoticeMode(),
@@ -453,13 +463,16 @@ func (s *Service) commitCurrentCeraPackage(
 	now := time.Now().UTC()
 	contracts := s.currentPremiumRewardContracts()
 	hasContracts := false
+	hasFate := false
 	for _, reward := range definition.Rewards {
-		if _, ok := contracts[int64(reward.Definition.ItemID)]; ok {
+		if reward.Definition.ItemID == raidcurrency.FateItemID {
+			hasFate = true
+		} else if _, ok := contracts[int64(reward.Definition.ItemID)]; ok {
 			hasContracts = true
 		}
 	}
 	within := func(apply func(dnfrepo.AccountRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.MailboxRepository) error) error {
-		if hasContracts {
+		if hasContracts || hasFate {
 			tx, ok := repositories.MailboxAssets.(dnfrepo.AccountTradeMailboxUnitOfWork)
 			if !ok || accountID == "" {
 				return errCurrentCeraPackageOwnerUnavailable
@@ -485,7 +498,7 @@ func (s *Service) commitCurrentCeraPackage(
 			return errCurrentCeraPackageOwnerUnavailable
 		}
 		var account dnfrepo.AccountRecord
-		if hasContracts {
+		if hasContracts || hasFate {
 			if accounts == nil {
 				return errCurrentCeraPackageOwnerUnavailable
 			}
@@ -537,11 +550,26 @@ func (s *Service) commitCurrentCeraPackage(
 		}
 
 		var rewardUnits uint64
+		var fateGranted uint64
+		fateAccountTouched := false
 		for _, reward := range definition.Rewards {
 			rewardUnits += uint64(reward.Count)
 			grantDefinition, expirationErr := currentPVFItemDefinitionForNestedRewardGrantAt(reward.Definition, sourceStack, now)
 			if expirationErr != nil {
 				return fmt.Errorf("%w: reward item=%d expiration: %v", errCurrentCeraPackagePVFInvalid, reward.Definition.ItemID, expirationErr)
+			}
+			if reward.Definition.ItemID == raidcurrency.FateItemID {
+				granted, _, creditErr := raidcurrency.Credit(&account, reward.Count, now)
+				if creditErr != nil {
+					return creditErr
+				}
+				if fateGranted > math.MaxUint32-uint64(granted) {
+					return errCurrentCeraPackagePVFInvalid
+				}
+				fateGranted += uint64(granted)
+				result.FateCurrencyChanged = result.FateCurrencyChanged || granted > 0
+				fateAccountTouched = true
+				continue
 			}
 			if contract, ok := contracts[int64(reward.Definition.ItemID)]; ok {
 				activation, err := premium.ActivateContractGrant(&account, contract, int64(reward.Count), now)
@@ -663,7 +691,7 @@ func (s *Service) commitCurrentCeraPackage(
 		if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
 			return err
 		}
-		if len(result.ContractActivations) > 0 {
+		if len(result.ContractActivations) > 0 || fateAccountTouched {
 			account.UpdatedAt = now
 			if err := accounts.Save(ctx, account); err != nil {
 				return err
@@ -692,6 +720,8 @@ func (s *Service) commitCurrentCeraPackage(
 		sort.Slice(listTypes, func(left, right int) bool { return listTypes[left] < listTypes[right] })
 		result = currentCeraPackageCommitResult{
 			ContractActivations: result.ContractActivations,
+			FateCurrencyChanged: result.FateCurrencyChanged,
+			FateGranted:         uint32(fateGranted),
 			ChangedListTypes:    listTypes,
 			RewardRows:          len(definition.Rewards),
 			RewardUnits:         rewardUnits,

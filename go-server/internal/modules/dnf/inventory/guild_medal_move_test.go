@@ -169,8 +169,8 @@ func TestOwnerMoveRejectsGuildMedalSlotsOutsideTheContainer(t *testing.T) {
 	}
 }
 
-// handler 层：动了 list 38 的移动必须请求"整容器重发"（list 38 有自己的权威快照
-// 构造器，不能走 list 0/1/2 的 op14 增量行）。
+// handler 层：动了 list 38 的移动只请求 list38 整容器重发。通用动作会额外重放
+// list 0/1/2/7，使守护珠页的每次拖动都重建无关容器。
 func TestHandlerMoveTouchingGuildMedalRequestsContainerRefresh(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
@@ -193,14 +193,17 @@ func TestHandlerMoveTouchingGuildMedalRequestsContainerRefresh(t *testing.T) {
 	if !result.Handled {
 		t.Fatalf("handler did not apply the move: %+v", result)
 	}
-	found := false
+	found, generic := false, false
 	for _, action := range result.PostActions {
-		if action == alignedcmd.PostActionRefreshSelectedItemContainers {
+		if action == alignedcmd.PostActionRefreshGuildMedalContainer {
 			found = true
 		}
+		if action == alignedcmd.PostActionRefreshSelectedItemContainers {
+			generic = true
+		}
 	}
-	if !found {
-		t.Fatalf("post actions = %v, want %v", result.PostActions, alignedcmd.PostActionRefreshSelectedItemContainers)
+	if !found || generic {
+		t.Fatalf("post actions = %v, want only %v", result.PostActions, alignedcmd.PostActionRefreshGuildMedalContainer)
 	}
 	loaded := loadTestInventory(t, ctx, repos, "77")
 	if got := loaded.Slots[slotKey(listTypeGuildMedal, 0)]; got.ItemID != 100380017 {
@@ -229,7 +232,7 @@ func TestHandlerMoveWithoutGuildMedalKeepsPostActions(t *testing.T) {
 		t.Fatalf("Handle error = %v", err)
 	}
 	for _, action := range result.PostActions {
-		if action == alignedcmd.PostActionRefreshSelectedItemContainers {
+		if action == alignedcmd.PostActionRefreshGuildMedalContainer {
 			t.Fatalf("ordinary main-list move requested the list-38 container refresh: %v", result.PostActions)
 		}
 	}

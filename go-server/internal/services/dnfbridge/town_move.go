@@ -86,6 +86,22 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 		s.logTownSetUserAreaBlocked(session, request, "超时空区域移动被拒绝")
 		return nil
 	}
+	if isCurrentFiendWarChannel(session) {
+		// Register before the town lock defer so this observes the completed
+		// attempt after that lock is released, including pre-entry rejections.
+		defer func() {
+			d := newCurrentFiendWarAdmissionDiagnostic(session, 0)
+			d.phase = "area_move"
+			if state, found := s.runtimeRaidForMember(session.selectedCharacterID); found {
+				d.captureRaid(state)
+			}
+			d.reason = "area_move_not_committed"
+			if fplan != nil && fplan.confirmed {
+				d.reason = "area_move_committed"
+			}
+			s.logCurrentFiendWarAdmissionDiagnostic(d)
+		}()
+	}
 	defer s.cancelCurrentFiendWarMove(fplan)
 	session.dungeon.mu.Lock()
 	pendingDungeonReturn := session.dungeon.runtime != nil &&
@@ -745,6 +761,12 @@ func (s *Service) sendTownAreaQuestRequirementFailure(session *gameSession, requ
 }
 
 func (s *Service) logTownSetUserAreaBlocked(session *gameSession, request currentTownSetUserAreaRequest, reason string) {
+	if isCurrentFiendWarChannel(session) {
+		s.logInfo("dnfbridge fiendwar area move rejected", "kind", "game-fiendwar-area-move-rejected",
+			"conn_id", session.connID, "char_id", session.selectedCharacterID,
+			"town_id", request.TownID, "area_id", request.AreaID,
+			"position_x", request.PositionX, "position_y", request.PositionY, "reason", reason)
+	}
 	s.logGameEvent(session, "game-town-set-user-area-blocked",
 		"char_id", session.selectedCharacterID,
 		"town_id", request.TownID,
