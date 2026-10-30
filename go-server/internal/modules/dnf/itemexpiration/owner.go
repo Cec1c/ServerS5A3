@@ -34,7 +34,18 @@ func (summary Summary) Total() int {
 	return summary.Inventory + summary.Warehouse + summary.Account + summary.Equipment + summary.Pets
 }
 
+// Snapshot is available only after the unit of work commits successfully.
+// Nil containers mean confirmed absence, not a failed read. It belongs to one
+// response and must never be retained across requests or used for a later write.
+type Snapshot struct {
+	Available        bool
+	Character        *dnfrepo.CharacterRecord
+	Inventory        *dnfrepo.InventoryRecord
+	AccountInventory *dnfrepo.AccountInventoryRecord
+}
+
 type Assets struct {
+	character        *dnfrepo.CharacterRecord
 	Inventory        *dnfrepo.InventoryRecord
 	AccountInventory *dnfrepo.AccountInventoryRecord
 	Equipment        *dnfrepo.EquipmentRecord
@@ -66,6 +77,20 @@ func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
 }
 
 func (o *Owner) Reconcile(ctx context.Context, command Command) (Summary, error) {
+	return o.reconcile(ctx, command, nil)
+}
+
+func (o *Owner) ReconcileSnapshot(ctx context.Context, command Command) (Summary, Snapshot, error) {
+	var snapshot Snapshot
+	summary, err := o.reconcile(ctx, command, &snapshot)
+	if err != nil {
+		return summary, Snapshot{}, err
+	}
+	snapshot.Available = true
+	return summary, snapshot, nil
+}
+
+func (o *Owner) reconcile(ctx context.Context, command Command, snapshot *Snapshot) (Summary, error) {
 	if o == nil || o.assets == nil {
 		return Summary{}, ErrOwnerUnavailable
 	}
@@ -151,6 +176,22 @@ func (o *Owner) Reconcile(ctx context.Context, command Command) (Summary, error)
 				return fmt.Errorf("save item expiration pets: %w", err)
 			}
 		}
+		if snapshot != nil {
+			// Clone while still inside the successful transaction, including the
+			// no-change path. Do not expose pointers retained by the projector.
+			if assets.character != nil {
+				v := dnfrepo.CloneCharacter(*assets.character)
+				snapshot.Character = &v
+			}
+			if assets.Inventory != nil {
+				v := dnfrepo.CloneInventory(*assets.Inventory)
+				snapshot.Inventory = &v
+			}
+			if assets.AccountInventory != nil {
+				v := dnfrepo.CloneAccountInventory(*assets.AccountInventory)
+				snapshot.AccountInventory = &v
+			}
+		}
 		return nil
 	}
 	var err error
@@ -187,6 +228,8 @@ func loadAssets(
 	if strings.TrimSpace(character.AccountID) != accountID {
 		return Assets{}, fmt.Errorf("%w: account=%s character=%s", ErrAccountMismatch, accountID, characterID)
 	}
+	character = dnfrepo.CloneCharacter(character)
+	assets.character = &character
 	inventory, found, err := inventories.Load(ctx, characterID)
 	if err != nil {
 		return Assets{}, fmt.Errorf("load item expiration inventory: %w", err)

@@ -82,6 +82,11 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count, "reason", err)
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
+	if err := validateCurrentNPCShopBuyShelf(shop, request); err != nil {
+		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count,
+			"shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", err)
+		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := s.commitCurrentNPCShopBuy(ctx, session, shop, items, request)

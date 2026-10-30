@@ -166,6 +166,11 @@ func raidLedgerRowsFor(query, characterAccount string, args []driver.NamedValue)
 		values[4], values[5] = nil, nil
 		rows.rows = [][]driver.Value{values}
 	case mysqlCharTable:
+		if strings.HasPrefix(query, "SELECT character_id, account_id FROM ") {
+			values[0], values[1] = "19", characterAccount
+			rows.rows = [][]driver.Value{values}
+			break
+		}
 		values[0], values[1], values[3], values[4] = "19", characterAccount, "raid-ledger", "0"
 		values[2], values[5] = int64(0), int64(90)
 		values[len(values)-2], values[len(values)-1] = nil, nil

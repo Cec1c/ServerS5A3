@@ -28,13 +28,13 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountTradeMailbox(ctx context.Cont
 	if !ok || len(u.router.writeDBs) == 0 {
 		return r.ErrMailboxAssetTransactionUnavailable
 	}
-	tx, err := b.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, b, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	router := u.router
-	router.db = sqlTransactionDB{tx: tx}
+	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true

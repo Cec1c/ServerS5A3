@@ -30,7 +30,7 @@ func (o *Owner) ApplyClearMapCompletion(
 	if characterID == "" {
 		return ClearMapPersistResult{}, ErrCharacterRequired
 	}
-	if _, ok, err := o.characters.Load(ctx, characterID); err != nil {
+	if _, ok, err := dnfrepo.LoadCharacterIdentity(ctx, o.characters, characterID); err != nil {
 		return ClearMapPersistResult{}, err
 	} else if !ok {
 		return ClearMapPersistResult{}, ErrCharacterNotFound

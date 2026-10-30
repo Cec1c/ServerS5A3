@@ -33,6 +33,10 @@ func currentHuntMonsterHasActiveQuests(record dnfrepo.QuestRecord) bool {
 
 // Called under the recipient's dungeon lock, after an authoritative death.
 func (s *Service) persistCurrentDungeonHuntMonsterDeathLocked(session *gameSession, runtime *runtimeDungeonState, objectKey uint32) error {
+	return s.persistCurrentDungeonHuntMonsterDeathWithContext(context.Background(), session, runtime, objectKey)
+}
+
+func (s *Service) persistCurrentDungeonHuntMonsterDeathWithContext(parent context.Context, session *gameSession, runtime *runtimeDungeonState, objectKey uint32) error {
 	if runtime == nil || !runtime.Room.HasCombatDeath(objectKey) {
 		return nil
 	}
@@ -48,7 +52,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterDeathLocked(session *gameSessi
 	if !ok {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
 	defer cancel()
 	err := s.persistCurrentDungeonHuntMonsterKillPhaseA(ctx, session, runtime, scene, monster, objectKey)
 	if errors.Is(err, errDungeonHuntEnemyCompletionUnavailable) {
@@ -124,17 +128,16 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		return errDungeonHuntEnemyCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	if _, found, err := repositories.Character.Load(ctx, characterID); err != nil {
+	planning, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
+	if err != nil {
 		return err
-	} else if !found {
-		return dnfquest.ErrCharacterNotFound
 	}
-	if record, found, err := repositories.Quest.Load(ctx, characterID); err != nil {
-		return err
-	} else if !found || !currentHuntMonsterHasActiveQuests(record) {
+	if !found || len(planning.States)+len(planning.Progress) == 0 {
 		receipt.Sent = true
 		return nil
 	}
+	// The owner validates the character and loads the quest plan once. A
+	// preliminary full load here only repeats that work for every kill.
 	catalog, err := s.loadQuestCatalog(ctx)
 	if err != nil {
 		return fmt.Errorf("load hunt-monster quest catalog: %w", err)
@@ -175,7 +178,7 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		receipt.Sent = true
 		return nil
 	}
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}
@@ -232,16 +235,7 @@ func (s *Service) persistCurrentDungeonHuntEnemyTargetPhaseA(
 		return errDungeonHuntEnemyCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	if _, found, err := repositories.Character.Load(ctx, characterID); err != nil {
-		return err
-	} else if !found {
-		return dnfquest.ErrCharacterNotFound
-	}
-	if _, found, err := repositories.Quest.Load(ctx, characterID); err != nil {
-		return err
-	} else if !found {
-		return nil
-	}
+	// Character existence and quest reads belong to the owner below.
 	catalog, err := s.loadQuestCatalog(ctx)
 	if err != nil {
 		return fmt.Errorf("load hunt-enemy quest catalog: %w", err)
@@ -276,7 +270,7 @@ func (s *Service) persistCurrentDungeonHuntEnemyTargetPhaseA(
 	if len(result.ChangedFields) == 0 && len(result.Completions) == 0 {
 		return nil
 	}
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}

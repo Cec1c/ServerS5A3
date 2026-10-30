@@ -5,6 +5,7 @@ import (
 	"errors"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"strings"
+	"time"
 )
 
 // mysqlCharacterSettlementUnitOfWork keeps quest state, progression, wallet,
@@ -46,13 +47,13 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	// Character settlement can also consume account-owned crystal/soul slots.
 	// Keep the full logical database plan inside the same physical SQL
 	// transaction so the character and account keys may route independently.
@@ -169,7 +170,7 @@ func (r *characterSettlementAccountRepository) accountID(ctx context.Context) (s
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	character, found, err := r.characters.Load(ctx, r.characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, r.characters, r.characterID)
 	if err != nil {
 		return "", err
 	}
@@ -202,6 +203,24 @@ func (r *characterSettlementAccountRepository) Save(ctx context.Context, record 
 	return r.accounts.Save(ctx, record)
 }
 
+// SaveMetadataEntry keeps the metadata update to one row while re-verifying
+// that the requested account still owns the settlement character inside the
+// same transaction.
+func (r *characterSettlementAccountRepository) SaveMetadataEntry(ctx context.Context, accountID, key, value string, at time.Time) error {
+	want, err := r.accountID(ctx)
+	if err != nil {
+		return err
+	}
+	if err := repository.TransactionKeyError(ctx, want, accountID); err != nil {
+		return err
+	}
+	writer, ok := r.accounts.(repository.AccountMetadataEntryWriter)
+	if !ok {
+		return repository.ErrAccountMetadataUnavailable
+	}
+	return writer.SaveMetadataEntry(ctx, accountID, key, value, at)
+}
+
 // characterSettlementAccountInventoryRepository resolves and verifies the
 // account owner while keeping the transaction limited to the selected
 // character's account inventory record.
@@ -215,7 +234,7 @@ func (r *characterSettlementAccountInventoryRepository) accountID(ctx context.Co
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	character, found, err := r.characters.Load(ctx, r.characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, r.characters, r.characterID)
 	if err != nil {
 		return "", err
 	}

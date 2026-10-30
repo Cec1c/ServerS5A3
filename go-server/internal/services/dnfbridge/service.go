@@ -46,6 +46,7 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	performance                  *bridgePerformanceMetrics
 	tagTournamentCatalog         *tagtournament.Catalog                                                      // 由initialEquipmentMu保护。
 	tagTournamentSentRosters     map[currentTagTournamentRosterCacheKey]currentTagTournamentRosterCacheEntry // 由mu保护。
 	tagTournamentLoadErr         error
@@ -314,6 +315,7 @@ func NewWithOptions(env *appkit.Env, serviceOptions ServiceOptions) *Service {
 	}
 	core := env.Core()
 	service := &Service{
+		performance:             newBridgePerformanceMetrics(core.Metrics),
 		logger:                  core.Logger,
 		options:                 optionsFromConfig(core.Config),
 		conns:                   make(map[net.Conn]struct{}),

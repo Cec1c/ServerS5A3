@@ -13,10 +13,13 @@ type QuestRepository interface {
 }
 
 type QuestRecord struct {
-	CharacterID string               `json:"character_id"`
-	States      map[int64]QuestState `json:"states,omitempty"`
-	Progress    map[int64]QuestState `json:"progress,omitempty"`
-	UpdatedAt   time.Time            `json:"updated_at,omitempty"`
+	// PlanningPartial means historical Extra maps were not loaded. Such a
+	// record may only be persisted with an optimistic delta writer.
+	PlanningPartial bool                 `json:"-"`
+	CharacterID     string               `json:"character_id"`
+	States          map[int64]QuestState `json:"states,omitempty"`
+	Progress        map[int64]QuestState `json:"progress,omitempty"`
+	UpdatedAt       time.Time            `json:"updated_at,omitempty"`
 }
 
 type QuestState struct {
@@ -37,6 +40,9 @@ const (
 )
 
 func SaveQuestFields(ctx context.Context, repo QuestRepository, record QuestRecord, fields ...QuestField) error {
+	if record.PlanningPartial {
+		return ErrQuestPartialSave
+	}
 	return db.SaveFields(ctx, repo, record, QuestFields.Normalize, fields...)
 }
 

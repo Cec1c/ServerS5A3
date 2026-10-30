@@ -398,9 +398,11 @@ func (c *Catalog) activateMissingLinkedNoRewardSubQuests(
 		if len(states) == 0 {
 			return
 		}
-		parentIDs := make([]int64, 0, len(states))
-		for questID := range states {
-			parentIDs = append(parentIDs, questID)
+		parentIDs := make([]int64, 0)
+		for questID, state := range states {
+			if isActiveQuestStatus(state.Status) {
+				parentIDs = append(parentIDs, questID)
+			}
 		}
 		sort.Slice(parentIDs, func(left, right int) bool { return parentIDs[left] < parentIDs[right] })
 		for _, parentID := range parentIDs {

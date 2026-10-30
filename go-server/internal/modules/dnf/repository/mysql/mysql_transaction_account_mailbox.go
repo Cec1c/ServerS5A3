@@ -35,13 +35,13 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailboxCharacter(ctx context.
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrMailboxAssetTransactionUnavailable
 	}
-	tx, err := b.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, b, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // Also covers a panicking callback; Commit marks it done.
 	r := u.router
-	r.db = sqlTransactionDB{tx: tx}
+	r.db = newSQLTransactionDB(tx.Tx, r.db)
 	r.readDBs = append([]string(nil), u.router.writeDBs...)
 	r.writeDBs = append([]string(nil), u.router.writeDBs...)
 	r.lockReads = true

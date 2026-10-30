@@ -25,6 +25,8 @@ type currentNPCShopCatalog struct {
 	source                    dnfpvf.Source
 	buyableItems              map[uint32]struct{}
 	npcItems                  map[uint32]map[uint32]struct{}
+	shopItems                 map[uint32]map[uint32]struct{}
+	shopNPCs                  map[uint32]uint32
 	tradingProducts           map[uint32]map[uint32]currentNPCTradingProduct
 	equipmentSellRatePermille int64
 	listedShopCount           int
@@ -60,6 +62,8 @@ func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, err
 	}
 	buyable := make(map[uint32]struct{})
 	npcItems := make(map[uint32]map[uint32]struct{})
+	shopItems := make(map[uint32]map[uint32]struct{})
+	shopNPCs := make(map[uint32]uint32)
 	loadedShopCount := 0
 	missingShopCount := 0
 	firstMissingShopPath := ""
@@ -80,7 +84,11 @@ func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, err
 			return nil, fmt.Errorf("%w: shop=%d path=%s: %v", errCurrentNPCShopCatalogUnavailable, shopID, documentPath, parseErr)
 		}
 		loadedShopCount++
+		shopItems[uint32(shopID)] = make(map[uint32]struct{})
 		npcID, _ := document.Int("NPC")
+		if npcID > 0 && npcID <= math.MaxUint32 {
+			shopNPCs[uint32(shopID)] = uint32(npcID)
+		}
 		if npcID > 0 && npcID <= math.MaxUint32 && npcItems[uint32(npcID)] == nil {
 			npcItems[uint32(npcID)] = make(map[uint32]struct{})
 		}
@@ -91,6 +99,7 @@ func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, err
 			for _, token := range document.Tokens[section.Start:section.End] {
 				if token.Kind == dnfpvf.TokenInt && token.Int > 0 && token.Int <= math.MaxUint32 {
 					buyable[uint32(token.Int)] = struct{}{}
+					shopItems[uint32(shopID)][uint32(token.Int)] = struct{}{}
 					if npcID > 0 && npcID <= math.MaxUint32 {
 						npcItems[uint32(npcID)][uint32(token.Int)] = struct{}{}
 					}
@@ -118,6 +127,8 @@ func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, err
 		source:                    source,
 		buyableItems:              buyable,
 		npcItems:                  npcItems,
+		shopItems:                 shopItems,
+		shopNPCs:                  shopNPCs,
 		equipmentSellRatePermille: rates[0],
 		listedShopCount:           len(shopPaths),
 		loadedShopCount:           loadedShopCount,
@@ -261,6 +272,32 @@ func currentNPCShopContainsItem(catalog *currentNPCShopCatalog, itemID uint32) b
 	}
 	_, found := catalog.buyableItems[itemID]
 	return found
+}
+
+// A global union of every itemshop shelf is useful for indexing, but is not
+// purchase authorization. All four op21 fields are client-controlled; bind
+// the requested item to the exact PVF shop and its declared NPC before any
+// payment or grant. Trading-system NPCs have no itemshop.lst shop number and
+// use their own actor-scoped catalog instead.
+func validateCurrentNPCShopBuyShelf(shop *currentNPCShopCatalog, request currentNPCShopBuyRequest) error {
+	if shop == nil || request.ItemID == 0 {
+		return errCurrentNPCShopProductUnavailable
+	}
+	if shelf, known := shop.shopItems[request.ShopContext]; known {
+		if _, listed := shelf[request.ItemID]; !listed {
+			return fmt.Errorf("%w: item=%d shop=%d shelf_miss", errCurrentNPCShopProductUnavailable, request.ItemID, request.ShopContext)
+		}
+		// The native client sends actor=0 for some itemshop tabs.
+		// A nonzero actor must match the declared PVF NPC.
+		if npc := shop.shopNPCs[request.ShopContext]; npc != 0 && request.ActorContext != 0 && npc != request.ActorContext {
+			return fmt.Errorf("%w: item=%d shop=%d actor_mismatch", errCurrentNPCShopProductUnavailable, request.ItemID, request.ShopContext)
+		}
+		return nil
+	}
+	if _, listed := shop.tradingProducts[request.ActorContext][request.ItemID]; listed {
+		return nil
+	}
+	return fmt.Errorf("%w: item=%d shop=%d actor=%d unknown_shelf", errCurrentNPCShopProductUnavailable, request.ItemID, request.ShopContext, request.ActorContext)
 }
 
 func currentNPCShopPurchaseLimit(pricing currentNPCShopPricing, count uint32) *dnfnpcshop.PurchaseLimit {

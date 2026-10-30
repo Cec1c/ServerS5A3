@@ -157,7 +157,9 @@ func (s *Service) withGameWire(session *gameSession, operation func() error) err
 	if session == nil || session.conn == nil {
 		return errors.New("dnf game connection is unavailable")
 	}
+	started := s.performanceStart()
 	session.wireMu.Lock()
+	s.performanceEnd(perfWireLock, started, nil)
 	defer session.wireMu.Unlock()
 	return operation()
 }

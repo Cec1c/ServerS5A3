@@ -127,7 +127,7 @@ func (s *Service) armCurrentSemesterCumulativeTick(session *gameSession) error {
 	if queue == nil {
 		return errGameplayTimeQueueUnavailable
 	}
-	return queue.ScheduleAfter(fmt.Sprintf("dnf-semester216:%s", session.connID), 30*time.Second, func(time.Time) {
+	return queue.ScheduleAfter(fmt.Sprintf("dnf-semester216:%s", session.connID), currentAttendanceTickDelay(s.gameplayNow(), s.accountIDForSession(session), 3), func(time.Time) {
 		err := s.postGameSessionCharacterEvent(session, "semester216-refresh", charID, generation, func() error {
 			identity, ok := s.boundGameSessionCharacterSnapshot(session)
 			if ok {

@@ -52,7 +52,7 @@ func (s *Service) writeCurrentGameWireLocked(p *gameSession, wire []byte) (int, 
 			return 0, err
 		}
 	}
-	return p.conn.Write(wire)
+	return s.writeGameConnectionObserved(p.conn, wire, perfWireDirect)
 }
 
 func (s *Service) finishCurrentOrdinaryChannelSceneBatch(p *gameSession, routeErr error) error {
@@ -70,7 +70,7 @@ func (s *Service) finishCurrentOrdinaryChannelSceneBatch(p *gameSession, routeEr
 		routeErr = p.ctx.Err()
 	}
 	if routeErr == nil && len(b.wire) != 0 {
-		n, err := p.conn.Write(b.wire)
+		n, err := s.writeGameConnectionObserved(p.conn, b.wire, perfWireScene)
 		routeErr = err
 		if routeErr == nil && n != len(b.wire) {
 			routeErr = io.ErrShortWrite

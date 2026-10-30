@@ -32,13 +32,13 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinBuffOwnedSnapshot(
 	if !ok {
 		return repository.ErrBuffOwnedSnapshotUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	tx, err := beginObservedSQLTransaction(ctx, beginner, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	router := u.router
-	router.db = sqlTransactionDB{tx: tx}
+	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true

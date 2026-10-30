@@ -488,14 +488,16 @@ func (s *Service) commitCurrentDungeonExperience(
 	if accountID == "" || runtime.Character.CharacterID != characterID {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	character, found, err := repositories.Character.Load(ctx, characterID)
+	character, found, err := dnfrepo.LoadProgressionCharacter(ctx, repositories.Character, characterID)
 	if err != nil {
 		return currentDungeonMonsterExperienceCommitResult{}, err
 	}
 	if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) != accountID {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	skill, found, err := repositories.Skill.Load(ctx, characterID)
+	// This operation only plans and projects the SP/TP ledger. Learned
+	// skills, layouts and cooldowns are not inputs to an experience award.
+	skill, found, err := dnfrepo.LoadProgressionSkill(ctx, repositories.Skill, characterID)
 	if err != nil {
 		return currentDungeonMonsterExperienceCommitResult{}, err
 	}
@@ -531,6 +533,16 @@ func (s *Service) commitCurrentDungeonExperience(
 	}
 	commit := progression.CommitPlanFromExperienceSkillPoints(characterID, accountID, planned)
 	if planned.Experience.LevelsGained > 0 {
+		// Job/presentation is required only when a level changes. Reload it
+		// then, and refuse a changed progression/owner before deriving stats.
+		full, found, loadErr := repositories.Character.Load(ctx, characterID)
+		if loadErr != nil {
+			return currentDungeonMonsterExperienceCommitResult{}, loadErr
+		}
+		if !found || full.CharacterID != characterID || strings.TrimSpace(full.AccountID) != accountID || full.Level != character.Level || full.Stats["exp"] != experience {
+			return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
+		}
+		character = full
 		levelStats, statErr := s.characterPVFStatValuesForLevel(character, planned.Experience.NewLevel)
 		if statErr != nil {
 			return currentDungeonMonsterExperienceCommitResult{}, statErr
@@ -563,15 +575,22 @@ func (s *Service) commitCurrentDungeonExperience(
 	if err != nil {
 		return currentDungeonMonsterExperienceCommitResult{}, err
 	}
+	if _, narrow := repositories.Character.(dnfrepo.ProgressionCharacterReader); narrow && planned.Experience.LevelsGained == 0 {
+		if _, delta := repositories.Character.(dnfrepo.ProgressionCharacterWriter); delta {
+			// Preserve the current dungeon presentation; only transactionally
+			// committed progression is refreshed by an ordinary EXP award.
+			presentation := dnfrepo.CloneCharacter(runtime.Character)
+			presentation.AccountID = character.AccountID
+			presentation.UpdatedAt = character.UpdatedAt
+			character = presentation
+		}
+	}
 	character = dnfrepo.CloneCharacter(character)
 	if character.Stats == nil {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
 	character.Level = committed.Current.Level
-	character.Stats["exp"] = int64(committed.Current.Experience)
-	for key, value := range commit.NextCharacterStats {
-		character.Stats[key] = value
-	}
+	character.Stats = committed.CharacterStats
 	skill = dnfrepo.CloneSkill(skill)
 	skill.Points = committed.Current.SkillPoints
 	result.Character = character

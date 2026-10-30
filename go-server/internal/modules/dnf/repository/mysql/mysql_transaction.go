@@ -15,18 +15,46 @@ type sqlTxBeginner interface {
 }
 
 type sqlTransactionDB struct {
-	tx *sql.Tx
+	observation *SQLObservation
+	tx          *sql.Tx
+	prepared    *PreparedSQLDB
+	local       *transactionStatements
 }
 
-func (db sqlTransactionDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (db sqlTransactionDB) rawExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	s, err := db.preparedStatement(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil {
+		result, err := s.ExecContext(ctx, args...)
+		db.forgetFailedStatement(query, s, err)
+		return result, err
+	}
 	return db.tx.ExecContext(ctx, query, args...)
 }
 
-func (db sqlTransactionDB) QueryContext(ctx context.Context, query string, args ...any) (SQLRows, error) {
+func (db sqlTransactionDB) rawQueryContext(ctx context.Context, query string, args ...any) (SQLRows, error) {
+	s, err := db.preparedStatement(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil {
+		rows, err := s.QueryContext(ctx, args...)
+		db.forgetFailedStatement(query, s, err)
+		return rows, err
+	}
 	return db.tx.QueryContext(ctx, query, args...)
 }
 
-func (db sqlTransactionDB) QueryRowContext(ctx context.Context, query string, args ...any) SQLRow {
+func (db sqlTransactionDB) rawQueryRowContext(ctx context.Context, query string, args ...any) SQLRow {
+	s, err := db.preparedStatement(ctx, query)
+	if err != nil {
+		return errorRow{err}
+	}
+	if s != nil {
+		return transactionPreparedRow{row: s.QueryRowContext(ctx, args...), database: db, query: query, statement: s}
+	}
 	return db.tx.QueryRowContext(ctx, query, args...)
 }
 
@@ -85,13 +113,13 @@ func (u *mysqlCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.C
 	if !ok {
 		return repository.ErrCharacterCreationTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -134,13 +162,13 @@ func (u *mysqlCharacterSkillUnitOfWork) WithinCharacterSkill(ctx context.Context
 	if !ok {
 		return repository.ErrCharacterSkillTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -170,13 +198,13 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	if !ok {
 		return repository.ErrCharacterProgressionTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -274,13 +302,13 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	if !ok {
 		return repository.ErrCharacterItemTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -347,13 +375,13 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	if !ok {
 		return repository.ErrCharacterTradeTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // Also release the SQL transaction if the callback panics.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	// Character IDs can route to different logical schemas. They remain on
 	// one physical MySQL connection, so keep the full qualified write plan.
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
@@ -450,13 +478,13 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	if !ok {
 		return repository.ErrCharacterAssetTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -499,14 +527,14 @@ func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	if !ok {
 		return repository.ErrRentalAssetTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	// Account and character keys can hash to different logical databases. Keep
 	// the complete write plan while using one physical MySQL transaction.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -563,7 +591,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Con
 	if !ok {
 		return repository.ErrCeraShopAssetTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -571,7 +599,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Con
 	// qualified write plan so account, character, and settings keys remain in
 	// one SQL transaction even when their logical database hashes differ.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -627,6 +655,20 @@ func (r *rentalScopedAccountRepository) Save(ctx context.Context, record reposit
 		return err
 	}
 	return r.base.Save(ctx, record)
+}
+
+// SaveMetadataEntry forwards a single-key metadata write so callers do not
+// fall back to the scoped repository's full account Save, which replaces every
+// metadata row. The account key and the underlying transaction stay intact.
+func (r *rentalScopedAccountRepository) SaveMetadataEntry(ctx context.Context, accountID, key, value string, at time.Time) error {
+	if err := repository.TransactionKeyError(ctx, r.accountID, accountID); err != nil {
+		return err
+	}
+	writer, ok := r.base.(repository.AccountMetadataEntryWriter)
+	if !ok {
+		return repository.ErrAccountMetadataUnavailable
+	}
+	return writer.SaveMetadataEntry(ctx, accountID, key, value, at)
 }
 
 type rentalScopedCharacterRepository struct {
@@ -717,4 +759,21 @@ func (r *rentalScopedEquipmentRepository) SaveFields(ctx context.Context, record
 		return err
 	}
 	return repository.SaveEquipmentFields(ctx, r.base, record, fields...)
+}
+
+func (db sqlTransactionDB) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
+	start := db.observation.start()
+	result, err := db.rawExecContext(ctx, q, args...)
+	db.observation.finish(1, sqlObserveExec, start, 0, err)
+	return result, err
+}
+func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...any) (SQLRows, error) {
+	start := db.observation.start()
+	rows, err := db.rawQueryContext(ctx, q, args...)
+	return observedRows(db.observation, 1, start, rows, err)
+}
+func (db sqlTransactionDB) QueryRowContext(ctx context.Context, q string, args ...any) SQLRow {
+	start := db.observation.start()
+	row := db.rawQueryRowContext(ctx, q, args...)
+	return observedRow(db.observation, 1, start, row)
 }

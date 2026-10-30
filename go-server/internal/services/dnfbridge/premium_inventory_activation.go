@@ -73,6 +73,10 @@ func (s *Service) activateCurrentPremiumInventoryContracts(
 	ctx context.Context,
 	session *gameSession,
 ) (premium.InventoryActivationResult, error) {
+	return s.activateCurrentPremiumInventoryContractsFromSnapshot(ctx, session, nil)
+}
+
+func (s *Service) activateCurrentPremiumInventoryContractsFromSnapshot(ctx context.Context, session *gameSession, snapshot *dnfrepo.InventoryRecord) (premium.InventoryActivationResult, error) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return premium.InventoryActivationResult{}, fmt.Errorf("premium inventory activation requires a selected character")
 	}
@@ -93,19 +97,13 @@ func (s *Service) activateCurrentPremiumInventoryContracts(
 	if len(contracts) == 0 {
 		return premium.InventoryActivationResult{}, nil
 	}
-	// 空集门（2026-09-26）：主背包里一件 PVF 契约道具都没有时，这次激活必然是零动作。
-	// premium.ActivateInventoryContracts 只会删除"键前缀 0:、ItemID>0、Count>0 且
-	// ItemID 命中 contracts"的堆叠，命中不了就直接返回零值结果，随后事务里两处
-	// Save 都不会执行 —— 也就是说这个事务的唯一作用就是"确认无事可做"。
-	//
-	// 为什么值得加这道门：开盒子、穿时装这类高频操作每一次都会重建主背包快照
-	// （见 current_item_list_session.go 的 list-0 分支），于是每开一次盒子都要为一个
-	// 空动作付一次 RentalAssets 事务 + 账号/背包两份深拷贝。判定只用一次只读 Load，
-	// 且判定条件与域侧的选行规则一致。
-	//
-	// 只有在"只读预检无法判定"（读失败、记录不存在）时才落回原事务路径，所以
-	// 错误语义、写语义、日志语义都没有变化；有契约道具时路径逐字节不变。
-	if inventory, found, loadErr := repositories.Inventory.Load(ctx, characterID); loadErr == nil && found &&
+	// Only the read-only empty-set preflight may reuse this request's snapshot.
+	// A possible contract is always reloaded inside the asset transaction.
+	if snapshot != nil {
+		if !currentPremiumInventoryHasContractStack(*snapshot, contracts) {
+			return premium.InventoryActivationResult{}, nil
+		}
+	} else if inventory, found, loadErr := repositories.Inventory.Load(ctx, characterID); loadErr == nil && found &&
 		!currentPremiumInventoryHasContractStack(inventory, contracts) {
 		return premium.InventoryActivationResult{}, nil
 	}
@@ -298,7 +296,11 @@ func (s *Service) reconcileCurrentPremiumInventoryBeforeList(
 	source string,
 	notify bool,
 ) error {
-	result, err := s.activateCurrentPremiumInventoryContracts(ctx, session)
+	return s.reconcileCurrentPremiumInventoryBeforeListFromSnapshot(ctx, session, source, notify, nil)
+}
+
+func (s *Service) reconcileCurrentPremiumInventoryBeforeListFromSnapshot(ctx context.Context, session *gameSession, source string, notify bool, snapshot *dnfrepo.InventoryRecord) error {
+	result, err := s.activateCurrentPremiumInventoryContractsFromSnapshot(ctx, session, snapshot)
 	if err != nil {
 		return err
 	}

@@ -82,7 +82,14 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 	events := &gameSessionEvents{}
 	events.loop = eventloop.New(
 		"dnf-game-session-"+session.connID,
-		eventloop.ProcessorFunc(func(_ context.Context, event eventloop.Event) eventloop.Result {
+		eventloop.ProcessorFunc(func(_ context.Context, event eventloop.Event) (result eventloop.Result) {
+			started := s.performanceStart()
+			session.performanceEventQueuedAt = event.SentAt
+			defer func() { session.performanceEventQueuedAt = time.Time{} }()
+			if s.performance != nil && !event.SentAt.IsZero() {
+				s.performance.record(perfEventQueue, started.Sub(event.SentAt), false)
+			}
+			defer func() { s.performanceEnd(perfEventRun, started, result.Err) }()
 			task, ok := event.Data.(gameSessionEventTask)
 			if !ok || task.run == nil {
 				return eventloop.Result{Err: errInvalidGameSessionEvent}

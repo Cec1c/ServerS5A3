@@ -75,15 +75,22 @@ func (o *Owner) Status(ctx context.Context, command StatusCommand) (Snapshot, er
 		if changed {
 			state.resetTo(date)
 		}
+		cumulativeKey := cumulativeKeyPrefix + command.Definition.ID
+		cumulativeChanged := false
 		if _, hasReceipt := state.Claims[command.Definition.QualificationStageID]; hasReceipt {
-			before := account.Metadata[cumulativeKeyPrefix+command.Definition.ID]
+			before := account.Metadata[cumulativeKey]
 			if err := recordQualifiedDay(&account, command.Definition, state); err != nil {
 				return err
 			}
-			changed = changed || before != account.Metadata[cumulativeKeyPrefix+command.Definition.ID]
+			cumulativeChanged = before != account.Metadata[cumulativeKey]
+			changed = changed || cumulativeChanged
 		}
 		if changed {
-			if err := saveState(ctx, tx.Account, account, state, observedAt); err != nil {
+			var extra []string
+			if cumulativeChanged {
+				extra = append(extra, cumulativeKey)
+			}
+			if err := saveState(ctx, tx.Account, account, state, observedAt, extra...); err != nil {
 				return err
 			}
 		}
@@ -236,12 +243,13 @@ func (o *Owner) Claim(ctx context.Context, command ClaimCommand) (ClaimResult, e
 			state.resetTo(date)
 		}
 		if receipt, replayed := state.Claims[stageID]; replayed {
-			before := account.Metadata[cumulativeKeyPrefix+command.Definition.ID]
+			cumulativeKey := cumulativeKeyPrefix + command.Definition.ID
+			before := account.Metadata[cumulativeKey]
 			if err := recordQualifiedDay(&account, command.Definition, state); err != nil {
 				return err
 			}
-			if before != account.Metadata[cumulativeKeyPrefix+command.Definition.ID] {
-				if err := saveState(ctx, tx.Account, account, state, claimedAt); err != nil {
+			if before != account.Metadata[cumulativeKey] {
+				if err := saveState(ctx, tx.Account, account, state, claimedAt, cumulativeKey); err != nil {
 					return err
 				}
 			}
@@ -320,10 +328,16 @@ func (o *Owner) Claim(ctx context.Context, command ClaimCommand) (ClaimResult, e
 			ClaimedAt:   claimedAt.UTC(),
 		}
 		state.Claims[stageID] = receipt
+		cumulativeKey := cumulativeKeyPrefix + command.Definition.ID
+		beforeCumulative := account.Metadata[cumulativeKey]
 		if err := recordQualifiedDay(&account, command.Definition, state); err != nil {
 			return err
 		}
-		if err := saveState(ctx, tx.Account, account, state, claimedAt); err != nil {
+		var extra []string
+		if beforeCumulative != account.Metadata[cumulativeKey] {
+			extra = append(extra, cumulativeKey)
+		}
+		if err := saveState(ctx, tx.Account, account, state, claimedAt, extra...); err != nil {
 			return err
 		}
 		result = resultFromReceipt(command.Definition.ID, state, receipt, false)
@@ -385,6 +399,7 @@ func saveState(
 	account dnfrepo.AccountRecord,
 	state persistedState,
 	updatedAt time.Time,
+	changedKeys ...string,
 ) error {
 	encoded, err := encodeState(state)
 	if err != nil {
@@ -393,9 +408,36 @@ func saveState(
 	if account.Metadata == nil {
 		account.Metadata = make(map[string]string)
 	}
-	account.Metadata[metadataKey(state.EventID)] = encoded
-	account.UpdatedAt = updatedAt.UTC()
-	return accounts.Save(ctx, account)
+	stateKey := metadataKey(state.EventID)
+	account.Metadata[stateKey] = encoded
+	// Stores without a single-key writer keep the previous full-record Save.
+	// The scoped MySQL wrappers implement the writer, so production writes only
+	// this event's key (plus the cumulative ledger key when it actually
+	// changed) and leave every unrelated metadata row untouched.
+	if _, narrow := accounts.(dnfrepo.AccountMetadataEntryWriter); !narrow {
+		account.UpdatedAt = updatedAt.UTC()
+		return accounts.Save(ctx, account)
+	}
+	keys := make([]string, 0, 1+len(changedKeys))
+	keys = append(keys, stateKey)
+	seen := map[string]struct{}{stateKey: {}}
+	for _, key := range changedKeys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	for _, key := range keys {
+		if err := dnfrepo.SaveAccountMetadataEntry(ctx, accounts, account, key, account.Metadata[key], updatedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resultFromReceipt(eventID string, state persistedState, receipt claimReceipt, replayed bool) ClaimResult {

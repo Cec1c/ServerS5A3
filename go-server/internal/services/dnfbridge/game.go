@@ -21,6 +21,8 @@ import (
 )
 
 type gameSession struct {
+	// Written and read only by this session's serial event owner.
+	performanceEventQueuedAt            time.Time
 	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
