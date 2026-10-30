@@ -467,7 +467,11 @@ func resolveMagicBoxNeedMaterial(document *dnfpvf.Document, boxItemID int64) (in
 	if normalizeMagicBoxPVFType(magicBoxDocumentText(document, "stackable type")) == "upgradable legacy" {
 		ints = document.Ints("lottery use need item")
 		_, explicitPrice := document.Section("lottery use cost")
-		if len(ints) == 0 && !explicitPrice {
+		// 10094738 is purchased in the Anton raid shop with these four
+		// fragments. Its [need material] is the exchange cost, not a second
+		// opening cost. Keep explicit opening fees and every other jar's
+		// established behavior unchanged.
+		if len(ints) == 0 && !explicitPrice && boxItemID != 10094738 {
 			ints = document.Ints("need material")
 		}
 		if len(ints) >= 2 && ints[0] > 0 && ints[1] > 0 && ints[0] != boxItemID {
