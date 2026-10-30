@@ -14,6 +14,8 @@ func installSingleAntonCardPolicyTestPVF(t *testing.T, service *Service) {
 	if !ok {
 		t.Fatalf("monster catalog source type=%T", catalog.source)
 	}
+	installCurrentDungeonMonsterExperienceTestPVF(source)
+	source[currentDungeonRankSystemPVFPath] = "[rank grade]\n99 90 80 60 50 30 20 10\n[/rank grade]\n"
 	source[currentDungeonClearRewardRulePath] = "[dungeon difficulty gold drop bonusrate]\n1.02\n1.38\n1.60\n1.90\n2.00\n" +
 		"[party member drop bonusrate]\n1.00\n1.20\n1.40\n1.60\n" +
 		"[gold card cost table]\n" +

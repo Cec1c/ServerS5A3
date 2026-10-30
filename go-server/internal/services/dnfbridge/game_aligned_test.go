@@ -1034,7 +1034,7 @@ func TestHandleOnlineLeavePartyRetainsSuccessorSingletonProjection(t *testing.T)
 	if len(rest) != 0 {
 		t.Fatalf("leader trailing bytes = %d", len(rest))
 	}
-	memberRest := assertRuntimePartyRemoved(t, memberConn.write.Bytes(), 1001, 1)
+	memberRest := assertRuntimePartySnapshot(t, memberConn.write.Bytes(), 1)
 	if len(memberRest) != 0 {
 		t.Fatalf("member trailing bytes = %d", len(memberRest))
 	}

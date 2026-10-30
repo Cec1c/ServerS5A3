@@ -398,7 +398,17 @@ func TestP33Op665PartyLeaderRetirementClearsOnlyOldGeneration(t *testing.T) {
 		t.Fatalf("party leader retirement did not create a survivor generation: %+v found=%t", managerParty, found)
 	}
 	assertPartyProjectionSingleton(t, "raid successor", runtimePartyStateSnapshot(member), int(managerParty.ID), memberIdentity.character, 1, true)
-	if !p33HasPartyRemovalSequence(t, memberConn.write.Bytes(), 1) {
+	sawReplacementSnapshot := false
+	for data := memberConn.write.Bytes(); len(data) > 0; {
+		packet, rest := splitGameServerUpperPacket(t, data)
+		if packet.Header.Classification == 0 && packet.Header.MsgID == 11 {
+			assertRuntimePartySnapshot(t, data, 1)
+			sawReplacementSnapshot = true
+			break
+		}
+		data = rest
+	}
+	if !sawReplacementSnapshot {
 		t.Fatal("party leader retirement did not publish the surviving client's new singleton")
 	}
 	s.raidMu.Lock()
