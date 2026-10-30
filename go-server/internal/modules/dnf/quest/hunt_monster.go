@@ -31,11 +31,13 @@ const (
 // dungeonId/difficulty allow the same wildcards as the 86JP domain logic:
 // dungeonId -1 means any dungeon, difficulty < 0 means any difficulty.
 type HuntMonsterKillInput struct {
-	DungeonID     int64
-	Difficulty    int64
-	MonsterCode   int64
-	CompletionKey string
-	CompletedAt   time.Time
+	DungeonID      int64
+	Difficulty     int64
+	MonsterCode    int64
+	WorldMapAreaID int64
+	MonsterKind    WorldMapHuntMonsterKind
+	CompletionKey  string
+	CompletedAt    time.Time
 }
 
 type HuntMonsterCompletion struct {
@@ -101,7 +103,11 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 			if !ok || normalizeQuestTag(definition.Type) != "hunt monster" {
 				continue
 			}
-			channel, ok := huntMonsterMatchedChannel(definition.IntData, input)
+			matchedInput := input
+			if matchedInput.WorldMapAreaID == 0 {
+				matchedInput.WorldMapAreaID = worldMapHuntFallbackArea(definition, input)
+			}
+			channel, ok := huntMonsterMatchedChannel(definition.IntData, matchedInput)
 			if !ok {
 				continue
 			}
@@ -199,6 +205,9 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 }
 
 func huntMonsterMatchedChannel(values []int64, input HuntMonsterKillInput) (int, bool) {
+	if len(values) > 0 && values[0] == -4 {
+		return worldMapHuntMatchedChannel(values, input)
+	}
 	for index, offset := 0, 0; offset+huntMonsterStride <= len(values) && index < 3; index, offset = index+1, offset+huntMonsterStride {
 		dungeonID := values[offset]
 		difficulty := values[offset+1]

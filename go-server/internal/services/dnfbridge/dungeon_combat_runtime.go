@@ -684,6 +684,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		target, cleared, reportErr = runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
 	}
 	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
 		if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
 			return err
 		}
@@ -987,6 +988,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		// Keep ordinary drops, EXP and boss/story completion in their existing
 		// order even if quest persistence or its snapshot needs a retry.
 		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathWithContext(questCtx, session, runtime, request.RuntimeObjectKey)
+		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
 		s.performanceEnd(perfMonsterTasks, questStarted, errors.Join(huntErr, huntProgressErr))
 	}
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&

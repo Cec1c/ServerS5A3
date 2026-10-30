@@ -57,6 +57,7 @@ type runtimeDungeonRoomSnapshot struct {
 type runtimeDungeonRoom struct {
 	mu                    sync.RWMutex
 	cardGoldKills         currentDungeonCardKillCounts
+	combatDeaths          map[uint32]struct{}
 	coordinate            worldmap.RoomCoordinate
 	mapID                 int64
 	monsters              []runtimeDungeonMonster
@@ -617,6 +618,12 @@ func (r *runtimeDungeonRoom) commitActorDeathReport(
 		return runtimeDungeonDeathTarget{}, false, err
 	}
 	*state = runtimeDungeonMonsterDefeated
+	if recordCombatKill {
+		if r.combatDeaths == nil {
+			r.combatDeaths = make(map[uint32]struct{})
+		}
+		r.combatDeaths[objectKey] = struct{}{}
+	}
 	if recordCombatKill && classified {
 		r.cardGoldKills.addActorType(actorType)
 	}
@@ -842,6 +849,17 @@ func (r *runtimeDungeonRoom) DeathResponseBody(objectKey uint32) ([]byte, bool) 
 		return nil, false
 	}
 	return append([]byte(nil), body...), true
+}
+
+// HasCombatDeath distinguishes accepted combat deaths from forced cleanup.
+func (r *runtimeDungeonRoom) HasCombatDeath(objectKey uint32) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.combatDeaths[objectKey]
+	return ok
 }
 
 // DefeatedDeathTarget 取出某个 object key 的死亡目标（要求房间里的权威状态已经是 defeated），

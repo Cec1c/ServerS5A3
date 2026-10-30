@@ -37,6 +37,9 @@ func (s *Service) persistCurrentDungeonHuntMonsterDeathLocked(session *gameSessi
 }
 
 func (s *Service) persistCurrentDungeonHuntMonsterDeathWithContext(parent context.Context, session *gameSession, runtime *runtimeDungeonState, objectKey uint32) error {
+	if runtime == nil || !runtime.Room.HasCombatDeath(objectKey) {
+		return nil
+	}
 	target, ok := runtime.Room.DefeatedDeathTarget(objectKey)
 	if !ok {
 		return nil
@@ -144,12 +147,29 @@ func (s *Service) persistCurrentDungeonHuntMonsterKillPhaseA(
 		return fmt.Errorf("create hunt-monster quest owner: %w", err)
 	}
 	completedAt, completionKey := receipt.At, receipt.Key
+	var areaID int64
+	if table, _, err := s.dungeonWorldMap(); err == nil {
+		if area, found := table.FindAreaByDungeon(runtime.Dungeon.ID); found {
+			areaID = area.ID
+		}
+	}
+	kind := dnfquest.WorldMapHuntMonsterUnknown
+	if actorType, err := currentDungeonMonsterActorType(monster.Spawn); err == nil {
+		switch actorType {
+		case 0:
+			kind = dnfquest.WorldMapHuntMonsterOrdinary
+		case 3:
+			kind = dnfquest.WorldMapHuntMonsterBoss
+		}
+	}
 	result, err := owner.ApplyHuntMonsterKill(ctx, catalog, characterID, dnfquest.HuntMonsterKillInput{
-		DungeonID:     runtime.Dungeon.ID,
-		Difficulty:    int64(runtime.Request.Difficulty),
-		MonsterCode:   monster.Spawn.MonsterID,
-		CompletionKey: completionKey,
-		CompletedAt:   completedAt,
+		DungeonID:      runtime.Dungeon.ID,
+		Difficulty:     int64(runtime.Request.Difficulty),
+		MonsterCode:    monster.Spawn.MonsterID,
+		WorldMapAreaID: areaID,
+		MonsterKind:    kind,
+		CompletionKey:  completionKey,
+		CompletedAt:    completedAt,
 	})
 	if err != nil {
 		return fmt.Errorf("persist hunt-monster quest phase A: %w", err)
