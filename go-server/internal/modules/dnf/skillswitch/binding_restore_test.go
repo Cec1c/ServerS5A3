@@ -10,7 +10,7 @@ import (
 
 // 「绑定还原」（`DNFBRIDGE_SKILL_SWITCH_BINDING_RESTORE`）在仓储层的钉子。
 //
-// 现场（HK `109.244.63.71`，2026-09-28，逐行原始证据见 `_dist/buff-swap-round4.md`）。
+// 现场（HK `192.0.2.11`，2026-09-28，逐行原始证据见 `_dist/buff-swap-round4.md`）。
 // `keep` 档上线（17:45:20Z 重启）之后运维重登记了一次，**什么都没再被破坏**
 // （`registration_dropped_count=0`），但那一批记录全是 `Value == Slot`（不含绑定），
 // 于是重发帧是 `pairs=(12,12)(13,13)…(25,25)` —— 这些 value 指向主背包的 12..25 号格子，

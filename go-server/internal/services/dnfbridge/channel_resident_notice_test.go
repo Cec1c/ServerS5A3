@@ -440,7 +440,7 @@ func unboundRealChannelHandshake(t *testing.T, proactive bool) (bool, []byte, *S
 // 旧行为（未绑定 → 直接发主动 class1/op1 成功包）会让客户端永远不发登录包，
 // 令牌永远读不到，会话只能落到共享账号 dnf:1 —— 这正是现场 9/9 条
 // `request_body_len=0 reason=unbound_channel_discovery_probe` + RECV LOGIN=0 的形态
-// （含把 smcz/czfm 建到 dnf:1 的 game-000197/000203）。
+// （含把 sample-account-a/sample-account-b 建到 dnf:1 的 game-000197/000203）。
 func TestHandleGameConnUnboundRealChannelPublishesChannelInfoForLoginToken(t *testing.T) {
 	_, wire, service, special := unboundRealChannelHandshake(t, false)
 	notice, rest := splitGameServerUpperPacketWithHeader(t, wire, service.gameUpperHeaderSize())
@@ -574,7 +574,7 @@ func residentNoticeTestService(t *testing.T) *Service {
 		options: options{
 			channelServerID:    1,
 			channelAdvertiseID: 0,
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			initialUDPPort1:    defaultInitialUDPPort1,
 			initialUDPPort2:    defaultInitialUDPPort2,
 			commandCount:       defaultCommandCount,

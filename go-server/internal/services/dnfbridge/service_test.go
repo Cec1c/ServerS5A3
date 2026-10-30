@@ -784,7 +784,7 @@ func TestBuildChannelInfoBodyUsesLatestHeader(t *testing.T) {
 	}
 	service := &Service{
 		options: options{
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			channelServerID:    1,
 			channelAdvertiseID: 0,
 		},
@@ -818,7 +818,7 @@ func TestBuildChannelInfoBodyIgnoresCSharpPrefix(t *testing.T) {
 	catalog := testChannelCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:            "42.240.165.245",
+			serverIP:            "198.51.100.115",
 			channelServerID:     1,
 			channelAdvertiseID:  0,
 			channelInfoBodyMode: "legacy_csharp",
@@ -853,7 +853,7 @@ func TestBuildChannelInfoBodyUsesCatalogOnly(t *testing.T) {
 	catalog := testCatalogWithoutAutoChannel(t)
 	service := &Service{
 		options: options{
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			channelServerID:    1,
 			channelAdvertiseID: 0,
 		},
@@ -878,7 +878,7 @@ func TestBootstrapAdsSkipTowerTrade(t *testing.T) {
 	catalog := testTowerCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:        "42.240.165.245",
+			serverIP:        "198.51.100.115",
 			channelServerID: 1,
 		},
 		catalog: catalog,
@@ -916,7 +916,7 @@ func TestRefreshAdsKeepTowerTrade(t *testing.T) {
 	catalog := testTowerCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:        "42.240.165.245",
+			serverIP:        "198.51.100.115",
 			channelServerID: 1,
 		},
 		catalog: catalog,
@@ -950,7 +950,7 @@ func TestBundledManualAdsKeepCrackChannel(t *testing.T) {
 		t.Fatalf("build bundled catalog: %v", err)
 	}
 	service := &Service{
-		options: options{serverIP: "42.240.165.245", channelServerID: 1},
+		options: options{serverIP: "198.51.100.115", channelServerID: 1},
 		catalog: catalog,
 	}
 
@@ -977,7 +977,7 @@ func TestBuildChannelInfoBodyPreservesCatalogOrder(t *testing.T) {
 	catalog := testChannelCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:        "42.240.165.245",
+			serverIP:        "198.51.100.115",
 			channelServerID: 1,
 		},
 		catalog: catalog,
@@ -1001,7 +1001,7 @@ func TestBuildNoticeBody(t *testing.T) {
 	service := &Service{options: options{
 		channelServerID:    1,
 		channelAdvertiseID: 0,
-		serverIP:           "42.240.165.245",
+		serverIP:           "198.51.100.115",
 		initialUDPPort1:    defaultInitialUDPPort1,
 		initialUDPPort2:    defaultInitialUDPPort2,
 		commandCount:       defaultCommandCount,
@@ -1048,8 +1048,8 @@ func TestBuildNoticeBody(t *testing.T) {
 	offset += 4
 	ipLen := int(binary.LittleEndian.Uint32(body[offset : offset+4]))
 	offset += 4
-	if got := string(body[offset : offset+ipLen]); got != "42.240.165.245" {
-		t.Fatalf("server ip = %q, want 42.240.165.245", got)
+	if got := string(body[offset : offset+ipLen]); got != "198.51.100.115" {
+		t.Fatalf("server ip = %q, want 198.51.100.115", got)
 	}
 	offset += ipLen
 	for _, want := range []uint32{defaultInitialUDPPort1, defaultInitialUDPPort2} {
@@ -1097,7 +1097,7 @@ func TestBuildNoticeBody(t *testing.T) {
 
 func TestSendGameInitial(t *testing.T) {
 	service := &Service{options: options{
-		serverIP:        "42.240.165.245",
+		serverIP:        "198.51.100.115",
 		gameInitialMode: gameInitialModeUpper,
 	}}
 	channel := channelcatalog.Channel{ID: 38, Type: 1, Name: "ch.38", Port: 10038}
@@ -1116,7 +1116,7 @@ func TestSendGameInitial(t *testing.T) {
 
 func TestBuildLoginSuccessMatchesCurrentExeMsg1Layout(t *testing.T) {
 	service := &Service{options: options{
-		serverIP:       "42.240.165.245",
+		serverIP:       "198.51.100.115",
 		gameOuterToken: 0x11223344,
 	}}
 	channel := channelcatalog.Channel{ID: 19, Type: 22, Name: "ch.19", Port: 10019}
@@ -1160,7 +1160,7 @@ func TestBuildLoginSuccessMatchesCurrentExeMsg1Layout(t *testing.T) {
 
 func TestSendGameInitialHeader(t *testing.T) {
 	service := &Service{options: options{
-		serverIP:        "42.240.165.245",
+		serverIP:        "198.51.100.115",
 		gameInitialMode: gameInitialModeUpper,
 		gameUpperHeader: gameUpperHeaderServer16,
 	}}
@@ -1180,7 +1180,7 @@ func TestSendGameInitialHeader(t *testing.T) {
 
 func TestSendGameInitialCodec(t *testing.T) {
 	service := &Service{options: options{
-		serverIP:           "42.240.165.245",
+		serverIP:           "198.51.100.115",
 		gameInitialMode:    gameInitialModeUpper,
 		gameUpperHeader:    gameUpperHeaderServer16,
 		gameUpperBodyCodec: gameUpperBodyCodecPlain,
@@ -3455,7 +3455,7 @@ func TestInitialNoneNotice(t *testing.T) {
 }
 
 func TestLegacyGameEndpointACKIsWriteSilent(t *testing.T) {
-	service := &Service{options: options{serverIP: "42.240.165.245"}}
+	service := &Service{options: options{serverIP: "198.51.100.115"}}
 	channel := channelcatalog.Channel{ID: 19, Type: 1, Name: "ch.19", Port: 10019}
 	conn := &bufferConn{}
 	session := &gameSession{conn: conn, channel: channel}
@@ -5172,7 +5172,7 @@ func TestHandleLegacyChannelRefreshDoesNotResendScript(t *testing.T) {
 	catalog := testChannelCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			channelServerID:    1,
 			channelAdvertiseID: 0,
 			channelInfoFile:    tempChannelInfoFile(t),
@@ -5226,7 +5226,7 @@ func TestHandleLatestChannelAskSendsScriptBeforeChannelInfo(t *testing.T) {
 	catalog := testChannelCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			channelServerID:    1,
 			channelAdvertiseID: 0,
 			channelInfoFile:    tempChannelInfoFile(t),
@@ -5306,7 +5306,7 @@ func TestHandleLegacyChannelProbeKeepsFollowingAskPacket(t *testing.T) {
 	catalog := testChannelCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			channelServerID:    1,
 			channelAdvertiseID: 0,
 			channelInfoFile:    tempChannelInfoFile(t),
@@ -5362,7 +5362,7 @@ func TestHandleChannelUpdateReturnsLoginChannelEndpoint(t *testing.T) {
 	catalog := testChannelCatalog(t)
 	service := &Service{
 		options: options{
-			serverIP: "42.240.165.245",
+			serverIP: "198.51.100.115",
 		},
 		catalog: catalog,
 	}
@@ -5399,7 +5399,7 @@ func TestHandleChannelUpdateUsesResidentChannel11Endpoint(t *testing.T) {
 	catalog := testCatalogWithoutAutoChannel(t)
 	service := &Service{
 		options: options{
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			channelServerID:    1,
 			channelAdvertiseID: 0,
 		},

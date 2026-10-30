@@ -9,7 +9,7 @@ import (
 
 // 账号级记录按需补齐（account-level record bootstrap）。
 //
-// 现场（2026-09-25 香港 38.22.90.52，`/opt/dnf90/logs/packet_log.txt`
+// 现场（2026-09-25 香港 192.0.2.12，`/opt/dnf90/logs/packet_log.txt`
 // conn_id=game-000014，服务端日志同毫秒）：
 //
 //	16:37:42.960 INFO  login token bound game session account_id=dnf:10013
@@ -51,7 +51,7 @@ import (
 //
 // 绝不写 represent_account_name：`dnf_accounts` 上
 // `uk_dnf_accounts_represent_account_name` 是唯一键，凭空猜一个名字会把别人的
-// 名字撞掉（现场 `dnf:1` 上残留的 `represent_account_name='smcz'` 正是无法逐行
+// 名字撞掉（现场 `dnf:1` 上残留的 `represent_account_name='sample-account-a'` 正是无法逐行
 // 归因的共享账号残留，同一份报告的 4.2 C）。冒险团名字仍由客户端 op1437/op1444
 // 显式注册，本函数不代劳。
 //

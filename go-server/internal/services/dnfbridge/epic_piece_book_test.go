@@ -155,7 +155,7 @@ func TestCurrentEpicPieceBalanceIsAccountWideAndIgnoresMalformedKeys(t *testing.
 	if !ok {
 		t.Fatal("memory account repository has no epic-piece counter")
 	}
-	// 角色 A（smcz）拾到 2 个碎片 A；角色 B（fmcz）再拾 1 个碎片 A + 3 个碎片 B。
+	// 角色 A（sample-account-a）拾到 2 个碎片 A；角色 B（fmcz）再拾 1 个碎片 A + 3 个碎片 B。
 	// 三次调用之间**没有**任何角色参数：账本只按账号 ID 定位。
 	if balance, err := counter.AddAccountEpicPieceBalance(ctx, accountID, 10300807, 2, time.Now().UTC()); err != nil || balance != 2 {
 		t.Fatalf("first credit balance=%d err=%v", balance, err)

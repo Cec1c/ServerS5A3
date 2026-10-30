@@ -13,7 +13,7 @@ import (
 
 // 「绑定还原」（`DNFBRIDGE_SKILL_SWITCH_BINDING_RESTORE`）在**真实边界**上的钉子。
 //
-// 现场（HK `109.244.63.71`，2026-09-28，原始行见 `_dist/buff-swap-round4.md`）：
+// 现场（HK `192.0.2.11`，2026-09-28，原始行见 `_dist/buff-swap-round4.md`）：
 // `keep` 档上线（服务 17:45:20Z 重启）后，运维在 17:50:26..17:50:30Z 重登记了一次，
 // 那 13 条记录**全是 `Value == Slot`**（`ModeConfirm`，不含绑定），落库
 // `registration_dropped_count=0`（没有任何东西被破坏），于是 17:50:35.867Z 起的每一次

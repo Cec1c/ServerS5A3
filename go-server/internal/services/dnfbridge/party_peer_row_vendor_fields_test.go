@@ -234,8 +234,8 @@ func TestVendorPeerRowFieldsAccAutoIsStampedPerSessionAndStable(t *testing.T) {
 func TestVendorPeerRowAccOverridePinsEveryRow(t *testing.T) {
 	service := vendorPeerRowFieldService(0x1c)
 	body := service.buildPartyPeerEndpointInfoBody([]party.PeerEndpoint{
-		{UserID: 3, IPv4: [4]byte{38, 22, 90, 52}, Port: 31000, AccountID: 3},
-		{UserID: 4, IPv4: [4]byte{38, 22, 90, 52}, Port: 31001, AccountID: 4},
+		{UserID: 3, IPv4: [4]byte{192, 0, 2, 12}, Port: 31000, AccountID: 3},
+		{UserID: 4, IPv4: [4]byte{192, 0, 2, 12}, Port: 31001, AccountID: 4},
 	})
 	if body[0] != 2 {
 		t.Fatalf("row count = %d want 2", body[0])

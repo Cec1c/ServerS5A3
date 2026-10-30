@@ -1,5 +1,7 @@
 ## 2026-10-13 本批云CI全部成功（539d，香港01:57独立回读）
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 实际部署源码 `4d7b1b2b` 的[流水线165000](https://gitgud.io/16ww/servers5a3/-/pipelines/165000)已success。Linux build571472、Windows build571473、core-tests571475、semgrep-sast571474四项均实际success，均由Runner1615执行且开始/完成时间完整。SAST虽配置allow_failure，但本次自身状态也是success。未读取私密trace，旧失败记录保留。本结论对应当前部署源码，不以此前b181的流水线替代；客户端实机验收另记，02:00前尚未执行。
 
 ## 2026-10-13 当前实际部署（540/541，香港01:44独立回读）
@@ -35,7 +37,7 @@ P2/P37/P50无需再做修复。P61/P68、P20、P56、P29与P66的源码改动已
 
 ## 2026-10-13 云Runner、合并及本段停止（523）
 
-云117.72.214.66已安装Docker并实际启用项目Runner1615，locked且仅项目51684，Docker executor、非privileged、concurrent=2，官方Go1.26.5/helper19.4.0/semgrep6镜像已校验并实际运行。本机Docker仍停止。注册凭据只在云root0600配置，文档及仓库没有明文凭据。
+云192.0.2.10已安装Docker并实际启用项目Runner1615，locked且仅项目51684，Docker executor、非privileged、concurrent=2，官方Go1.26.5/helper19.4.0/semgrep6镜像已校验并实际运行。本机Docker仍停止。注册凭据只在云root0600配置，文档及仓库没有明文凭据。
 
 旧流水线164936与164963两项build及semgrep-sast均success，core-tests为script_failure。私密trace仅内存读取：当前已定位TestResolveBinaryInstallStateRejectsEscapingPath、TestValidateInstance两个公开路径校验失败，未保存或散列私密trace。Runner离线/未匹配的问题已解决，不能把旧流水线写成整体通过。
 
