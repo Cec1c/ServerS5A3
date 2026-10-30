@@ -227,6 +227,28 @@ func (s *Service) postGameSessionCharacterEvent(
 	})
 }
 
+// tryPostGameSessionCharacterEvent never waits for queue capacity. Cross-session
+// fanout must not deadlock two owners when both destination queues are full.
+func (s *Service) tryPostGameSessionCharacterEvent(session *gameSession, source string, characterID uint16, generation uint64, run func() error) error {
+	if session == nil || run == nil {
+		return errInvalidGameSessionEvent
+	}
+	if session.loginRevoked.Load() {
+		return errLoginReplaced
+	}
+	if session.events == nil || session.events.loop == nil {
+		return run()
+	}
+	ctx := session.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return session.events.loop.Submit(eventloop.Event{
+		Type: source, Context: ctx, Priority: eventloop.PriorityMedium,
+		Data: gameSessionEventTask{source: source, characterID: characterID, characterGeneration: generation, async: true, run: run},
+	})
+}
+
 func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bool) {
 	if session == nil {
 		return

@@ -101,8 +101,9 @@ func dungeonPartyCompletionReturnFanoutMode() string {
 	return cloneAvatarAppearanceOff
 }
 
-// fanOutCompletedDungeonReturnToPartyMembers 把"通关回城"这条服务端路线扇出给
-// 同一队伍副本实例内**已经结算完**的其它成员。返回真正被送回城镇的成员数。
+// fanOutCompletedDungeonReturnToPartyMembers queues each member's return on
+// that member's event loop. Its return value counts only inline completions;
+// queued delivery is recorded when the receiving owner actually executes it.
 //
 // 调用方必须**不在**任何 `session.dungeon.mu` 里（见文件头的锁序说明）。
 func (s *Service) fanOutCompletedDungeonReturnToPartyMembers(
@@ -127,88 +128,133 @@ func (s *Service) fanOutCompletedDungeonReturnToPartyMembers(
 		if member == nil || peer.CharacterID == 0 || member == session {
 			continue
 		}
-		// 只读地看一眼这名队员的运行时状态，**立刻释放**它的 dungeon 锁；
-		// 真正的路线走 sendCurrentCompletedDungeonReturnToTown（它自己会上锁）。
+		identity, bound := s.boundGameSessionCharacterSnapshot(member)
+		if !bound || identity.character != peer.CharacterID {
+			continue
+		}
 		member.dungeon.mu.Lock()
-		memberRuntime := member.dungeon.runtime
-		holdInstance := memberRuntime != nil && memberRuntime.partyInstance == instance
-		memberCharacterID := member.selectedCharacterID
-		settlementDone := false
-		runCompleted := false
-		pendingReturn := false
-		if memberRuntime != nil && memberRuntime.Session != nil {
-			settlementDone = memberRuntime.settlementClearRewardSent
-			runCompleted = memberRuntime.Session.Snapshot().Run.Status == worldmap.DungeonRunCompleted
-			pendingReturn = memberRuntime.townReturnPending
-		}
+		expectedRuntime := member.dungeon.runtime
 		member.dungeon.mu.Unlock()
-
-		decision := "fan_out"
-		reason := "member_finished_settlement_and_still_holds_the_completed_party_instance"
-		switch {
-		case memberRuntime == nil:
-			decision, reason = "skip", "member_holds_no_dungeon_runtime"
-		case !holdInstance:
-			decision, reason = "skip", "member_no_longer_holds_the_leaders_party_instance"
-		case memberCharacterID != peer.CharacterID || memberCharacterID == 0:
-			decision, reason = "skip", "member_selected_character_changed"
-		case pendingReturn:
-			decision, reason = "skip", "member_already_has_a_pending_town_return"
-		case !runCompleted:
-			decision, reason = "deferred", "member_run_is_not_completed_yet"
-		case !settlementDone:
-			decision, reason = "deferred", "member_has_not_consumed_its_settlement_reward_screen_yet"
+		if expectedRuntime == nil {
+			continue
 		}
-		delivered := false
-		if decision == "fan_out" {
-			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, member, memberCharacterID)
-			cancel()
-			if err != nil {
-				decision, reason, delivered = "failed", "member_town_transition_origin_unavailable", false
-				s.logGameEvent(session, "game-party-dungeon-completion-return-fanout-failed",
-					"source", source,
-					"leader_char_id", leavingCharacterID,
-					"member_char_id", memberCharacterID,
-					"error", err)
-			} else if err := s.sendCurrentCompletedDungeonReturnToTown(
-				member,
-				memberRuntime,
-				transition,
-				0,
-				"completed_town_route_fanout",
-			); err != nil {
-				decision, reason, delivered = "failed", "member_completed_town_route_send_failed", false
-				s.logGameEvent(session, "game-party-dungeon-completion-return-fanout-failed",
-					"source", source,
-					"leader_char_id", leavingCharacterID,
-					"member_char_id", memberCharacterID,
-					"error", err)
-			} else {
-				delivered = true
-				fannedOut++
-			}
+		if member.events == nil || member.events.loop == nil {
+			fannedOut += s.completePartyMemberReturnOnOwner(session, identity, instance, expectedRuntime, leavingCharacterID, source)
+			continue
 		}
-		// 这一行是"下一次实测一眼可判"的那一条：点名队伍/实例/队长/队员、决策、
-		// 队员侧是否已经结算完、档位。
-		s.logGameEvent(session, "game-party-dungeon-completion-return-fanout",
-			"source", source,
-			"party_id", instancePartyIDOfPartyDungeonInstance(instance),
-			"instance_id", instanceIDOfPartyDungeonInstance(instance),
-			"leader_char_id", leavingCharacterID,
-			"member_char_id", peer.CharacterID,
-			"member_selected_char_id", memberCharacterID,
-			"member_holds_instance", holdInstance,
-			"member_run_completed", runCompleted,
-			"member_settlement_clear_reward_sent", settlementDone,
-			"member_town_return_pending", pendingReturn,
-			"decision", decision,
-			"delivered", delivered,
-			"reason", reason,
-			"switch", dungeonPartyCompletionReturnFanoutEnv,
-			"mode", dungeonPartyCompletionReturnFanoutMode())
+		// Never wait for another player's event loop from this player's loop.
+		// Queue the whole route behind any in-flight quest ACK/snapshot batch.
+		err := s.tryPostGameSessionCharacterEvent(member, "party-completed-return", identity.character, identity.generation, func() error {
+			s.completePartyMemberReturnOnOwner(session, identity, instance, expectedRuntime, leavingCharacterID, source)
+			return nil
+		})
+		if err != nil {
+			s.logGameEvent(session, "game-party-dungeon-completion-return-queue-failed",
+				"member_char_id", identity.character, "source", source, "error", err)
+		}
 	}
 	return fannedOut
+}
+
+// completePartyMemberReturnOnOwner runs on the receiving player's event loop.
+// Revalidate the character and exact runtime after waiting; an old request must
+// never return a replacement character or a later dungeon instance to town.
+func (s *Service) completePartyMemberReturnOnOwner(
+	session *gameSession, identity boundGameSessionCharacter,
+	instance *dungeonPartyInstance, expectedRuntime *runtimeDungeonState,
+	leavingCharacterID uint16, source string,
+) int {
+	if !s.boundGameSessionCharacterCurrent(identity) {
+		return 0
+	}
+	member := identity.session
+	if state := runtimePartyStateSnapshot(member); state.PartyID != int(instancePartyIDOfPartyDungeonInstance(instance)) {
+		return 0
+	}
+	deliveredCount := 0
+	// 只读地看一眼这名队员的运行时状态，**立刻释放**它的 dungeon 锁；
+	// 真正的路线走 sendCurrentCompletedDungeonReturnToTown（它自己会上锁）。
+	member.dungeon.mu.Lock()
+	memberRuntime := member.dungeon.runtime
+	holdInstance := memberRuntime != nil && memberRuntime.partyInstance == instance
+	memberCharacterID := member.selectedCharacterID
+	settlementDone := false
+	runCompleted := false
+	pendingReturn := false
+	if memberRuntime != nil && memberRuntime.Session != nil {
+		settlementDone = memberRuntime.settlementClearRewardSent
+		runCompleted = memberRuntime.Session.Snapshot().Run.Status == worldmap.DungeonRunCompleted
+		pendingReturn = memberRuntime.townReturnPending
+	}
+	member.dungeon.mu.Unlock()
+
+	decision := "fan_out"
+	reason := "member_finished_settlement_and_still_holds_the_completed_party_instance"
+	switch {
+	case memberRuntime == nil:
+		decision, reason = "skip", "member_holds_no_dungeon_runtime"
+	case memberRuntime != expectedRuntime:
+		decision, reason = "skip", "member_dungeon_runtime_changed_while_queued"
+	case !holdInstance:
+		decision, reason = "skip", "member_no_longer_holds_the_leaders_party_instance"
+	case memberCharacterID != identity.character || memberCharacterID == 0:
+		decision, reason = "skip", "member_selected_character_changed"
+	case pendingReturn:
+		decision, reason = "skip", "member_already_has_a_pending_town_return"
+	case !runCompleted:
+		decision, reason = "deferred", "member_run_is_not_completed_yet"
+	case !settlementDone:
+		decision, reason = "deferred", "member_has_not_consumed_its_settlement_reward_screen_yet"
+	}
+	delivered := false
+	if decision == "fan_out" {
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		transition, err := s.prepareCurrentDungeonTownTransitionForSession(ctx, member, memberCharacterID)
+		cancel()
+		if err != nil {
+			decision, reason, delivered = "failed", "member_town_transition_origin_unavailable", false
+			s.logGameEvent(session, "game-party-dungeon-completion-return-fanout-failed",
+				"source", source,
+				"leader_char_id", leavingCharacterID,
+				"member_char_id", memberCharacterID,
+				"error", err)
+		} else if err := s.sendCurrentCompletedDungeonReturnToTown(
+			member,
+			memberRuntime,
+			transition,
+			0,
+			"completed_town_route_fanout",
+		); err != nil {
+			decision, reason, delivered = "failed", "member_completed_town_route_send_failed", false
+			s.logGameEvent(session, "game-party-dungeon-completion-return-fanout-failed",
+				"source", source,
+				"leader_char_id", leavingCharacterID,
+				"member_char_id", memberCharacterID,
+				"error", err)
+		} else {
+			delivered = true
+			deliveredCount++
+		}
+	}
+	// 这一行是"下一次实测一眼可判"的那一条：点名队伍/实例/队长/队员、决策、
+	// 队员侧是否已经结算完、档位。
+	s.logGameEvent(session, "game-party-dungeon-completion-return-fanout",
+		"source", source,
+		"party_id", instancePartyIDOfPartyDungeonInstance(instance),
+		"instance_id", instanceIDOfPartyDungeonInstance(instance),
+		"leader_char_id", leavingCharacterID,
+		"member_char_id", identity.character,
+		"member_selected_char_id", memberCharacterID,
+		"member_holds_instance", holdInstance,
+		"member_run_completed", runCompleted,
+		"member_settlement_clear_reward_sent", settlementDone,
+		"member_town_return_pending", pendingReturn,
+		"decision", decision,
+		"delivered", delivered,
+		"reason", reason,
+		"switch", dungeonPartyCompletionReturnFanoutEnv,
+		"mode", dungeonPartyCompletionReturnFanoutMode())
+	return deliveredCount
 }
 
 // instancePartyIDOfPartyDungeonInstance 只读实例上记的队伍号（取不到返回 0）。
