@@ -188,7 +188,11 @@ func (a *accountAPIServer) handleAccountSecurity(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	ip := accountAPIClientIP(r)
+	ip := a.clientIP(r)
+	if a.service.options.playerStrict && (ip == "" || !playerDevicePattern.MatchString(req.Device)) {
+		a.securityFailure(w, securityError(400, "invalid_device", "请使用新版登录器"))
+		return
+	}
 	if !a.allowRate(ip) {
 		a.securityFailure(w, securityError(429, "rate_limited", "尝试过于频繁，请稍后重试"))
 		return
@@ -204,6 +208,8 @@ func (a *accountAPIServer) handleAccountSecurity(w http.ResponseWriter, r *http.
 	}
 	// Match login issuance lock order before changing credentials/tokens.
 	if changing {
+		a.service.playerAdmission.mu.Lock()
+		defer a.service.playerAdmission.mu.Unlock()
 		a.service.accountLogins.mu.Lock()
 		defer a.service.accountLogins.mu.Unlock()
 	}

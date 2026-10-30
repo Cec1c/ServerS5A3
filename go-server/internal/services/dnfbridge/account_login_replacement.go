@@ -69,11 +69,16 @@ func (p *accountLoginSessions) finished(session *gameSession) {
 func (a *accountAPIServer) handleLoginReplacement(ctx context.Context, w http.ResponseWriter, request accountAPIRequest, accountID, verifiedHash, ip string) {
 	p := &a.service.accountLogins
 	p.mu.Lock()
-	token, displaced, err := a.replaceLoginLocked(ctx, request.Account, accountID, verifiedHash, ip)
+	token, displaced, err := a.replaceLoginLocked(ctx, request.Account, accountID, verifiedHash, ip, request.Device)
 	p.mu.Unlock()
 	if err != nil {
 		writeAccountAPIError(w, http.StatusServiceUnavailable, "登录失败，请重试")
 		return
+	}
+	// Strict admission is held by handleLogin across issuance and reservation.
+	// A failed transaction never reserves a slot or retires a live session.
+	if a.service.options.playerStrict {
+		a.service.playerAdmission.reserve(accountID, request.Device, token, time.Now())
 	}
 	for _, session := range displaced {
 		if session.conn != nil {
@@ -86,7 +91,10 @@ func (a *accountAPIServer) handleLoginReplacement(ctx context.Context, w http.Re
 
 // Caller holds accountLogins.mu. Password verification is performed before the
 // lock, then rechecked under a row lock before changing any login state.
-func (a *accountAPIServer) replaceLoginLocked(ctx context.Context, account, accountID, verifiedHash, ip string) (string, []*gameSession, error) {
+func (a *accountAPIServer) replaceLoginLocked(ctx context.Context, account, accountID, verifiedHash, ip, device string) (string, []*gameSession, error) {
+	if a.service.options.playerStrict && !playerDevicePattern.MatchString(device) {
+		return "", nil, errPlayerAuthentication
+	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", nil, err
@@ -110,6 +118,11 @@ func (a *accountAPIServer) replaceLoginLocked(ctx context.Context, account, acco
 	if _, err := tx.ExecContext(ctx, "INSERT INTO "+a.loginTokenTable()+" (token, account, account_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)", token, account, accountID, now, now.Add(loginTokenTTL)); err != nil {
 		return "", nil, err
 	}
+	if a.service.options.playerStrict {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO "+a.table+"_player_tokens (token, device) VALUES (?, ?)", token, device); err != nil {
+			return "", nil, err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM "+a.loginTokenTable()+" WHERE BINARY account_id=BINARY ? AND BINARY token<>BINARY ?", accountID, token); err != nil {
 		return "", nil, err
 	}
@@ -117,6 +130,23 @@ func (a *accountAPIServer) replaceLoginLocked(ctx context.Context, account, acco
 		return "", nil, err
 	}
 	displaced := a.service.accountLogins.replace(accountID)
+	if a.service.options.playerStrict {
+		// Admission is also held by handleLogin. Include sockets between strict
+		// token admission and authoritative account binding: they have no game
+		// state to save yet, but must not survive as part of the old launch.
+		if lease := a.service.playerAdmission.leases[accountID]; lease != nil {
+			seen := make(map[*gameSession]bool, len(displaced))
+			for _, session := range displaced {
+				seen[session] = true
+			}
+			for session := range lease.connections {
+				session.loginRevoked.Store(true)
+				if !seen[session] {
+					displaced = append(displaced, session)
+				}
+			}
+		}
+	}
 	a.service.loginTokens.forgetAccount(accountID)
 	a.service.loginTokens.remember(token, accountID, now.Add(loginTokenTTL))
 	return token, displaced, nil

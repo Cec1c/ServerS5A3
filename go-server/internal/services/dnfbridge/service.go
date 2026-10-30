@@ -157,6 +157,7 @@ type Service struct {
 	clientAccounts       clientAccountRegistry
 	// loginTokens 保存启动器登录签发的令牌到账号的映射（见 account_login_token.go）。
 	accountLogins     accountLoginSessions
+	playerAdmission   playerAdmission
 	loginTokens       accountLoginTokenStore
 	localLoginMu      sync.Mutex
 	localLoginEpoch   uint64

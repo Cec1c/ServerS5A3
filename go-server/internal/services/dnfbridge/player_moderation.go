@@ -20,8 +20,6 @@ var errBanConflict = errors.New("ban revision conflict")
 
 func (a *accountAPIServer) ensureModerationSchema(ctx context.Context) error {
 	for _, statement := range []string{
-		`CREATE TABLE IF NOT EXISTS ` + a.table + `_registration_sources (account_id VARCHAR(64) PRIMARY KEY, ip VARCHAR(45) NOT NULL, KEY(ip)) ENGINE=InnoDB`,
-		`CREATE TABLE IF NOT EXISTS ` + a.table + `_player_accounts (account_id VARCHAR(64) PRIMARY KEY, disabled BOOLEAN NOT NULL DEFAULT FALSE) ENGINE=InnoDB`,
 		`CREATE TABLE IF NOT EXISTS ` + a.table + `_bans (kind VARCHAR(16) NOT NULL, target VARCHAR(128) COLLATE utf8mb4_bin NOT NULL, label VARCHAR(128) NOT NULL, reason VARCHAR(512) NOT NULL, expires_at DATETIME(6) NULL, revoked BOOLEAN NOT NULL, revision BIGINT UNSIGNED NOT NULL, updated_at DATETIME(6) NOT NULL, PRIMARY KEY(kind,target), KEY ban_updated(updated_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS ` + a.table + `_ban_receipts (request_id VARCHAR(80) COLLATE utf8mb4_bin PRIMARY KEY, payload_hash CHAR(64) NOT NULL, result_json TEXT NOT NULL, created_at DATETIME(6) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	} {
@@ -33,7 +31,7 @@ func (a *accountAPIServer) ensureModerationSchema(ctx context.Context) error {
 }
 
 // Callers hold moderationMu through admission/registration. Ban changes take
-// its write lock, followed by accountLogins.mu.
+// its write lock, followed by playerAdmission.mu and accountLogins.mu.
 func (a *accountAPIServer) checkModeration(ctx context.Context, account, ip string) error {
 	if canonical, err := moderation.CanonicalIP(ip); err == nil {
 		ip = canonical
@@ -157,6 +155,8 @@ func (a *accountAPIServer) changeBan(ctx context.Context, c moderation.BanChange
 	hash := hex.EncodeToString(digest[:])
 	a.moderationMu.Lock()
 	defer a.moderationMu.Unlock()
+	p := &a.service.playerAdmission
+	p.mu.Lock()
 	logins := &a.service.accountLogins
 	logins.mu.Lock()
 	result, _, err := a.commitBan(ctx, c, hash)
@@ -191,6 +191,14 @@ func (a *accountAPIServer) changeBan(ctx context.Context, c moderation.BanChange
 				targets[account] = true
 			}
 		}
+		for account, lease := range p.leases {
+			for session := range lease.connections {
+				ip, _ := moderation.CanonicalIP(session.clientIP)
+				if ips[ip] {
+					targets[account] = true
+				}
+			}
+		}
 		for account := range targets {
 			for _, session := range logins.replace(account) {
 				if session.conn != nil {
@@ -198,9 +206,19 @@ func (a *accountAPIServer) changeBan(ctx context.Context, c moderation.BanChange
 				}
 			}
 			a.service.loginTokens.forgetAccount(account)
+			if lease := p.leases[account]; lease != nil {
+				for session := range lease.connections {
+					session.loginRevoked.Store(true)
+					if session.conn != nil {
+						connections = append(connections, session.conn)
+					}
+				}
+				delete(p.leases, account)
+			}
 		}
 	}
 	logins.mu.Unlock()
+	p.mu.Unlock()
 	for _, conn := range connections {
 		_ = conn.Close()
 	}

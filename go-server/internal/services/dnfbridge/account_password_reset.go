@@ -25,6 +25,8 @@ func (a *accountAPIServer) resetAccountPassword(ctx context.Context, accountID s
 	}
 	a.moderationMu.RLock()
 	defer a.moderationMu.RUnlock()
+	a.service.playerAdmission.mu.Lock()
+	defer a.service.playerAdmission.mu.Unlock()
 	a.service.accountLogins.mu.Lock()
 	defer a.service.accountLogins.mu.Unlock()
 	tx, err := a.db.BeginTx(ctx, nil)
@@ -86,12 +88,21 @@ func (a *accountAPIServer) resetAccountPassword(ctx context.Context, accountID s
 	return &adminapi.PasswordResetResult{RequestID: in.RequestID, AccountID: id, Account: account, ResetAt: now}, nil
 }
 
-// Caller holds accountLogins.mu, after SQL commit.
+// Caller holds playerAdmission.mu and accountLogins.mu, after SQL commit.
 func (a *accountAPIServer) revokeAccountCredentialsLocked(id string) {
 	a.service.loginTokens.forgetAccount(id)
 	for _, session := range a.service.accountLogins.replace(id) {
 		if session.conn != nil {
 			session.conn.Close()
 		}
+	}
+	if lease := a.service.playerAdmission.leases[id]; lease != nil {
+		for session := range lease.connections {
+			session.loginRevoked.Store(true)
+			if session.conn != nil {
+				session.conn.Close()
+			}
+		}
+		delete(a.service.playerAdmission.leases, id)
 	}
 }

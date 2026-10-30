@@ -5,6 +5,7 @@ package dnfbridge
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
@@ -256,6 +257,7 @@ func (s *Service) unregisterLiveGameSession(session *gameSession) {
 	if s == nil || session == nil || session.connID == "" {
 		return
 	}
+	s.playerAdmission.detach(session, time.Now())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.liveGameSessions[session.connID] == session {

@@ -216,10 +216,30 @@ func TestAccountPasswordResetRetiresOnlyTargetSession(t *testing.T) {
 	a := &accountAPIServer{service: s}
 	target, other := &gameSession{}, &gameSession{}
 	s.accountLogins.sessions = map[*gameSession]string{target: "main", other: "other"}
+	s.playerAdmission.mu.Lock()
 	s.accountLogins.mu.Lock()
 	a.revokeAccountCredentialsLocked("main")
 	s.accountLogins.mu.Unlock()
+	s.playerAdmission.mu.Unlock()
 	if !target.loginRevoked.Load() || other.loginRevoked.Load() {
 		t.Fatal("reset did not isolate target sessions")
+	}
+}
+
+func TestAccountPasswordResetRetiresOnlyTargetLease(t *testing.T) {
+	s := &Service{}
+	a := &accountAPIServer{service: s}
+	target, other := &gameSession{}, &gameSession{}
+	s.playerAdmission.leases = map[string]*playerLease{
+		"main":  {connections: map[*gameSession]struct{}{target: {}}},
+		"other": {connections: map[*gameSession]struct{}{other: {}}},
+	}
+	s.playerAdmission.mu.Lock()
+	s.accountLogins.mu.Lock()
+	a.revokeAccountCredentialsLocked("main")
+	s.accountLogins.mu.Unlock()
+	s.playerAdmission.mu.Unlock()
+	if !target.loginRevoked.Load() || other.loginRevoked.Load() || s.playerAdmission.leases["main"] != nil || s.playerAdmission.leases["other"] == nil {
+		t.Fatal("reset did not isolate the target admission lease")
 	}
 }
