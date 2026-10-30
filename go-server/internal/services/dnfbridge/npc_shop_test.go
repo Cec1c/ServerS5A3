@@ -147,7 +147,7 @@ func TestCurrentNPCShopBuyCommitsGoldAndItemThenSendsIncrementalUpdate(t *testin
 	connection := &bufferConn{}
 	service := currentNPCShopTestService(repositories, shop, items)
 	session := &gameSession{conn: connection, connID: "npc-shop-buy", selectedCharacterID: 19}
-	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(600, 3, 44, 88)); err != nil {
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(600, 3, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,7 +179,7 @@ func TestCurrentNPCShopBuyCommitsGoldAndItemThenSendsIncrementalUpdate(t *testin
 	}
 	stack, found := inventory.Slots[currentCeraShopInventorySlotKey(0, itemSlot)]
 	if !found || stack.ItemID != 600 || stack.Count != 3 || len(stack.RawEntry) != currentItemListEntryWireSize ||
-		stack.Extra["last_grant_source"] != "npc_shop" || stack.Extra["last_npc_shop_context"] != "44" || stack.Extra["last_npc_shop_actor_context"] != "88" {
+		stack.Extra["last_grant_source"] != "npc_shop" || stack.Extra["last_npc_shop_context"] != "1" || stack.Extra["last_npc_shop_actor_context"] != "326" {
 		t.Fatalf("bought stack=%+v found=%t", stack, found)
 	}
 }
@@ -190,7 +190,7 @@ func TestCurrentNPCShopBuyNormalizesCurrentEXEEquipmentZeroCountToOne(t *testing
 	connection := &bufferConn{}
 	service := currentNPCShopTestService(repositories, shop, items)
 	session := &gameSession{conn: connection, connID: "npc-shop-equipment-zero-count", selectedCharacterID: 19}
-	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(700, 0, 28, 45)); err != nil {
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(700, 0, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,7 +213,7 @@ func TestCurrentNPCShopBuyNormalizesCurrentEXEEquipmentZeroCountToOne(t *testing
 			break
 		}
 	}
-	if bought.ItemID != 700 || bought.Count != 1 || bought.Extra["last_npc_shop_context"] != "28" || bought.Extra["last_npc_shop_actor_context"] != "45" {
+	if bought.ItemID != 700 || bought.Count != 1 || bought.Extra["last_npc_shop_context"] != "1" || bought.Extra["last_npc_shop_actor_context"] != "326" {
 		t.Fatalf("bought equipment=%+v", bought)
 	}
 	character, found, err := repositories.Character.Load(context.Background(), "19")
@@ -444,7 +444,7 @@ func TestCurrentNPCShopBuyMaterialExchangeConsumesCharacterStack(t *testing.T) {
 	connection := &bufferConn{}
 	service := currentNPCShopTestService(repositories, shop, items)
 	session := &gameSession{conn: connection, connID: "npc-shop-exchange", selectedCharacterID: 19}
-	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(602, 3, 15, 2)); err != nil {
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(602, 3, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -478,7 +478,7 @@ func TestCurrentNPCShopBuyEquipmentMaterialExchangeConsumesMaterialAndGrantsOne(
 	connection := &bufferConn{}
 	service := currentNPCShopTestService(repositories, shop, items)
 	session := &gameSession{conn: connection, connID: "npc-shop-equipment-exchange", selectedCharacterID: 19}
-	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(701, 0, 28, 45)); err != nil {
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(701, 0, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,7 +500,7 @@ func TestCurrentNPCShopBuyEquipmentMaterialExchangeConsumesMaterialAndGrantsOne(
 	}
 	assertCurrentNPCShopInventoryAmount(t, inventory, 701, 1)
 	for _, stack := range inventory.Slots {
-		if stack.ItemID == 701 && (stack.Extra["last_npc_shop_context"] != "28" || stack.Extra["last_npc_shop_actor_context"] != "45") {
+		if stack.ItemID == 701 && (stack.Extra["last_npc_shop_context"] != "1" || stack.Extra["last_npc_shop_actor_context"] != "326") {
 			t.Fatalf("equipment exchange metadata=%+v", stack.Extra)
 		}
 	}
@@ -513,7 +513,7 @@ func TestCurrentNPCShopBuyEquipmentMaterialExchangeInsufficientMaterialDoesNotMu
 	connection := &bufferConn{}
 	service := currentNPCShopTestService(repositories, shop, items)
 	session := &gameSession{conn: connection, connID: "npc-shop-equipment-exchange-insufficient", selectedCharacterID: 19}
-	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(701, 0, 28, 45)); err != nil {
+	if err := service.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(701, 0, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 

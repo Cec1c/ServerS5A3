@@ -8,11 +8,17 @@ import (
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 )
 
-func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
+func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr error) {
 	packet, err := dnfproto.ParseChannelPacketUnchecked(raw)
 	if err != nil {
 		return err
 	}
+	started := s.performanceStart()
+	stage := perfUpperOther
+	if packet.Header.MsgID == 39 {
+		stage = perfUpper39
+	}
+	defer func() { s.performanceEnd(stage, started, resultErr) }()
 	if s.options.playerStrict && !session.accountFromToken {
 		if packet.Header.MsgID != 1 || packet.Header.Classification != dnfproto.DefaultChannelClassification {
 			return errPlayerAuthentication

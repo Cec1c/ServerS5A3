@@ -143,6 +143,10 @@ func (a *PreparedSQLDB) Close() error {
 
 func newSQLTransactionDB(tx *sql.Tx, parent SQLDB) sqlTransactionDB {
 	r := sqlTransactionDB{tx: tx}
+	if observed, ok := parent.(*ObservedSQLDB); ok {
+		r.observation = observed.Observation
+		parent = observed.SQLDB
+	}
 	if p, ok := parent.(*PreparedSQLDB); ok {
 		r.prepared = p
 		r.local = &transactionStatements{statements: make(map[string]*sql.Stmt)}

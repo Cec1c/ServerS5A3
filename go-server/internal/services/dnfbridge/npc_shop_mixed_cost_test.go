@@ -72,7 +72,7 @@ func TestNPCShopMixedCostChargesBatchAndProjectsWallet(t *testing.T) {
 	repos := mustCurrentNPCShopRepositories(t, 1000, map[string]dnfrepo.ItemStack{"0:121": {ItemID: 900, Count: 10}})
 	s := currentNPCShopTestService(repos, shop, items)
 	c := &bufferConn{}
-	if err := s.handleCurrentNPCShopBuy(&gameSession{conn: c, selectedCharacterID: 19}, currentNPCShopBuyTestBody(602, 3, 15, 2)); err != nil {
+	if err := s.handleCurrentNPCShopBuy(&gameSession{conn: c, selectedCharacterID: 19}, currentNPCShopBuyTestBody(602, 3, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 	ack, rest := splitGameServerUpperPacket(t, c.write.Bytes())

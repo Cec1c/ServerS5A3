@@ -46,7 +46,7 @@ func TestNPCShopMaterialLimitRejectsRepeatAndReturnsPersistedCount(t *testing.T)
 	session.conn = conn
 	// The real handler must answer the wrapped quota error using the native
 	// purchase-limit message, without an inventory update or another debit.
-	if err := service.handleCurrentNPCShopBuy(session, currentNPCShopBuyTestBody(602, 1, 0, 326)); err != nil {
+	if err := service.handleCurrentNPCShopBuy(session, currentNPCShopBuyTestBody(602, 1, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 	failure, trailing := splitGameServerUpperPacket(t, conn.write.Bytes())

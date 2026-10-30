@@ -15,12 +15,13 @@ type sqlTxBeginner interface {
 }
 
 type sqlTransactionDB struct {
-	tx       *sql.Tx
-	prepared *PreparedSQLDB
-	local    *transactionStatements
+	observation *SQLObservation
+	tx          *sql.Tx
+	prepared    *PreparedSQLDB
+	local       *transactionStatements
 }
 
-func (db sqlTransactionDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (db sqlTransactionDB) rawExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	s, err := db.preparedStatement(ctx, query)
 	if err != nil {
 		return nil, err
@@ -33,7 +34,7 @@ func (db sqlTransactionDB) ExecContext(ctx context.Context, query string, args .
 	return db.tx.ExecContext(ctx, query, args...)
 }
 
-func (db sqlTransactionDB) QueryContext(ctx context.Context, query string, args ...any) (SQLRows, error) {
+func (db sqlTransactionDB) rawQueryContext(ctx context.Context, query string, args ...any) (SQLRows, error) {
 	s, err := db.preparedStatement(ctx, query)
 	if err != nil {
 		return nil, err
@@ -46,7 +47,7 @@ func (db sqlTransactionDB) QueryContext(ctx context.Context, query string, args 
 	return db.tx.QueryContext(ctx, query, args...)
 }
 
-func (db sqlTransactionDB) QueryRowContext(ctx context.Context, query string, args ...any) SQLRow {
+func (db sqlTransactionDB) rawQueryRowContext(ctx context.Context, query string, args ...any) SQLRow {
 	s, err := db.preparedStatement(ctx, query)
 	if err != nil {
 		return errorRow{err}
@@ -758,4 +759,21 @@ func (r *rentalScopedEquipmentRepository) SaveFields(ctx context.Context, record
 		return err
 	}
 	return repository.SaveEquipmentFields(ctx, r.base, record, fields...)
+}
+
+func (db sqlTransactionDB) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
+	start := db.observation.start()
+	result, err := db.rawExecContext(ctx, q, args...)
+	db.observation.finish(1, sqlObserveExec, start, 0, err)
+	return result, err
+}
+func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...any) (SQLRows, error) {
+	start := db.observation.start()
+	rows, err := db.rawQueryContext(ctx, q, args...)
+	return observedRows(db.observation, 1, start, rows, err)
+}
+func (db sqlTransactionDB) QueryRowContext(ctx context.Context, q string, args ...any) SQLRow {
+	start := db.observation.start()
+	row := db.rawQueryRowContext(ctx, q, args...)
+	return observedRow(db.observation, 1, start, row)
 }

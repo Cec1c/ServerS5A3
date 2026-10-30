@@ -158,7 +158,7 @@ func (s *Service) flushNativeResultDeliveryLocked(p *gameSession, reason string)
 		return nil
 	}
 	if len(b.wire) > 0 {
-		n, err := p.conn.Write(b.wire)
+		n, err := s.writeGameConnectionObserved(p.conn, b.wire, perfWireNative)
 		if err == nil && n != len(b.wire) {
 			err = io.ErrShortWrite
 		}
@@ -181,7 +181,7 @@ func (s *Service) writeNativeResultDeliveryLocked(p *gameSession, wire []byte) (
 		if err := s.flushNativeResultDeliveryLocked(p, "缓冲容量上限"); err != nil {
 			return 0, err
 		}
-		return p.conn.Write(wire)
+		return s.writeGameConnectionObserved(p.conn, wire, perfWireOverflow)
 	}
 	b.wire = append(b.wire, wire...)
 	b.frames++

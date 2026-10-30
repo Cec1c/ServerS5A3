@@ -57,6 +57,12 @@ func TestRuntimeDeltasDisposableMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("progression-authority-and-rollback", func(t *testing.T) {
+		runProgressionRealDBCase(t, ctx, db, name, g)
+	})
+	t.Run("account-metadata-mailbox", func(t *testing.T) {
+		runAccountMetadataRealDBCase(t, ctx, db, name, g)
+	})
 	t.Run("quest-history-conflict-rollback", func(t *testing.T) {
 		original := repository.QuestRecord{CharacterID: "q", States: map[int64]repository.QuestState{}, UpdatedAt: time.Now().UTC().Truncate(time.Second)}
 		for id := int64(1); id <= 674; id++ {

@@ -23,11 +23,12 @@ type Runtime struct {
 }
 
 type RepoComponent struct {
-	component *mysql.Component
-	db        *sql.DB
-	prepared  *mysql.PreparedSQLDB
-	redis     *platformdb.RedigoExecutor
-	cacheOpts dnfrepo.RedisCacheOptions
+	component       *mysql.Component
+	db              *sql.DB
+	prepared        *mysql.PreparedSQLDB
+	redis           *platformdb.RedigoExecutor
+	cacheOpts       dnfrepo.RedisCacheOptions
+	stopObservation func()
 }
 
 // NewRuntime 创建 DNF logic 运行时装配对象。
@@ -114,6 +115,12 @@ func newRepoComponent(env *appkit.Env, cfg RepositoryConfig) (*RepoComponent, er
 		prepared = mysql.NewPreparedSQLDB(db, *cfg.MySQLPreparedCacheSize)
 		database = prepared
 	}
+	var stopObservation func()
+	if env != nil && env.Core().Metrics != nil {
+		database = &mysql.ObservedSQLDB{SQLDB: database, Observation: mysql.NewSQLObservation(env.Core().Metrics, db)}
+		registry := env.Core().Metrics
+		stopObservation = func() { registry.RegisterObserver(mysql.SQLObservationName, nil) }
+	}
 	component := mysql.NewComponentFromServerGroup(database, manager, mysql.ComponentOptions{
 		ShardID:                   cfg.ShardID,
 		TablePrefix:               cfg.TablePrefix,
@@ -123,10 +130,11 @@ func newRepoComponent(env *appkit.Env, cfg RepositoryConfig) (*RepoComponent, er
 		Now:                       time.Now,
 	})
 	return &RepoComponent{
-		component: component,
-		db:        db,
-		prepared:  prepared,
-		redis:     redisExec,
+		component:       component,
+		db:              db,
+		prepared:        prepared,
+		stopObservation: stopObservation,
+		redis:           redisExec,
 		cacheOpts: dnfrepo.RedisCacheOptions{
 			KeyPrefix: cfg.RedisKeyPrefix,
 			TTL:       cfg.redisTTL(),
@@ -186,6 +194,10 @@ func (c *RepoComponent) Stop(ctx context.Context) error {
 	var errs []error
 	if c.component != nil {
 		errs = append(errs, c.component.Stop(ctx))
+	}
+	if c.stopObservation != nil {
+		c.stopObservation()
+		c.stopObservation = nil
 	}
 	if c.db != nil {
 		if c.prepared != nil {

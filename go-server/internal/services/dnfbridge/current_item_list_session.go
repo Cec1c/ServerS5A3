@@ -79,6 +79,24 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 				"wallet_total", reviveCoinMigration.Total,
 				"source", "repository_backed_fixed_slot1_and_coin_general_consolidation")
 		}
+		// Reuse only the two read-only preflights. Never feed this snapshot to a
+		// write transaction or the final list projection, and never retain it on
+		// the session: expiry, mail, shared assets and GM writes remain visible.
+		var preflight *dnfrepo.InventoryRecord
+		if repos.Inventory != nil {
+			record, found, loadErr := repos.Inventory.Load(ctx, characterID)
+			if loadErr != nil {
+				s.logPacketEvent("game-upper-current-item-list-inventory-load-failed",
+					"conn_id", session.connID,
+					"char_id", session.selectedCharacterID,
+					"list_type", listType,
+					"err", loadErr)
+				return nil, "", 0, false
+			}
+			if found {
+				preflight = &record
+			}
+		}
 		catalog, catalogErr := s.currentPVFItemCatalog()
 		if catalogErr != nil {
 			s.logPacketEvent("game-upper-current-gold-wallet-slot-repair-catalog-failed",
@@ -87,7 +105,10 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 				"list_type", listType,
 				"err", catalogErr)
 		} else {
-			goldWalletRepair, repairErr := s.repairCurrentGoldWalletReservedSlot(ctx, repos, characterID, catalog)
+			goldWalletRepair, repairErr := s.repairCurrentGoldWalletReservedSlotFromSnapshot(ctx, repos, characterID, catalog, preflight)
+			if repairErr != nil || goldWalletRepair.Changed {
+				preflight = nil
+			}
 			if repairErr != nil {
 				s.logPacketEvent("game-upper-current-gold-wallet-slot-repair-failed",
 					"conn_id", session.connID,
@@ -108,11 +129,12 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 					"source", "runtime_pvf_page_and_atomic_inventory_owner_relocation")
 			}
 		}
-		if activationErr := s.reconcileCurrentPremiumInventoryBeforeList(
+		if activationErr := s.reconcileCurrentPremiumInventoryBeforeListFromSnapshot(
 			ctx,
 			session,
 			"list0_snapshot_before_client_projection",
 			true,
+			preflight,
 		); activationErr != nil {
 			// Keep the recoverable item row when PVF/account persistence is
 			// unavailable. A later list snapshot or character selection retries

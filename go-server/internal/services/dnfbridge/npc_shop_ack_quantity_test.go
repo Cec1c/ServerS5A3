@@ -16,7 +16,7 @@ func TestCurrentNPCShopMergedBuyACKUsesPurchaseQuantityAndUpdateUsesTotal(t *tes
 	s := currentNPCShopTestService(repos, shop, items)
 	c := &bufferConn{}
 	session := &gameSession{conn: c, connID: "npc-shop-ack-quantity", selectedCharacterID: 19}
-	if err := s.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(600, 3, 44, 88)); err != nil {
+	if err := s.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(600, 3, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 	ack, rest := splitGameServerUpperPacket(t, c.write.Bytes())
@@ -49,7 +49,7 @@ func TestCurrentNPCShopRealPVFMergedBuyACKCountsEachPurchaseOnce(t *testing.T) {
 	var slot int16
 	for total := uint32(1); total <= 2; total++ {
 		c.write.Reset()
-		if err := s.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(490010214, 1, 0, 1)); err != nil {
+		if err := s.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(490010214, 1, 400000044, 0)); err != nil {
 			t.Fatal(err)
 		}
 		ack, rest := splitGameServerUpperPacket(t, c.write.Bytes())
@@ -89,7 +89,7 @@ func TestCurrentNPCShopMergedMaterialExchangeACKKeepsCostAndInventoryTotals(t *t
 	s := currentNPCShopTestService(repos, shop, items)
 	c := &bufferConn{}
 	session := &gameSession{conn: c, connID: "npc-shop-ack-material", selectedCharacterID: 19}
-	if err := s.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(602, 2, 1, 1)); err != nil {
+	if err := s.handleGameCommand(session, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyTestBody(602, 2, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 	ack, rest := splitGameServerUpperPacket(t, c.write.Bytes())

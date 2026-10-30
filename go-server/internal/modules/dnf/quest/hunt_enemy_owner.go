@@ -29,7 +29,7 @@ func (o *Owner) ApplyHuntEnemyKill(
 	if characterID == "" {
 		return HuntEnemyPersistResult{}, ErrCharacterRequired
 	}
-	if _, ok, err := o.characters.Load(ctx, characterID); err != nil {
+	if _, ok, err := dnfrepo.LoadCharacterIdentity(ctx, o.characters, characterID); err != nil {
 		return HuntEnemyPersistResult{}, err
 	} else if !ok {
 		return HuntEnemyPersistResult{}, ErrCharacterNotFound

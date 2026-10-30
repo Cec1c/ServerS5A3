@@ -72,7 +72,7 @@ func (s *Service) persistCurrentDungeonClearMapCompletionPhaseA(
 		return errDungeonClearMapCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	if _, found, err := repositories.Character.Load(ctx, characterID); err != nil {
+	if _, found, err := dnfrepo.LoadCharacterIdentity(ctx, repositories.Character, characterID); err != nil {
 		return err
 	} else if !found {
 		return dnfquest.ErrCharacterNotFound

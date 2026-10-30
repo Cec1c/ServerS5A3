@@ -170,7 +170,7 @@ func (r *characterSettlementAccountRepository) accountID(ctx context.Context) (s
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	character, found, err := r.characters.Load(ctx, r.characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, r.characters, r.characterID)
 	if err != nil {
 		return "", err
 	}
@@ -234,7 +234,7 @@ func (r *characterSettlementAccountInventoryRepository) accountID(ctx context.Co
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	character, found, err := r.characters.Load(ctx, r.characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, r.characters, r.characterID)
 	if err != nil {
 		return "", err
 	}

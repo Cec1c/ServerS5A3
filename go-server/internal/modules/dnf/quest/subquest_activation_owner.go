@@ -28,7 +28,7 @@ func (o *Owner) ApplyActiveQuestClearLinkedSubQuestActivation(
 	if characterID == "" {
 		return LinkedSubQuestActivationPersistResult{}, ErrCharacterRequired
 	}
-	if _, ok, err := o.characters.Load(ctx, characterID); err != nil {
+	if _, ok, err := dnfrepo.LoadCharacterIdentity(ctx, o.characters, characterID); err != nil {
 		return LinkedSubQuestActivationPersistResult{}, err
 	} else if !ok {
 		return LinkedSubQuestActivationPersistResult{}, ErrCharacterNotFound

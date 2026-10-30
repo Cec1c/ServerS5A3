@@ -21,15 +21,28 @@ func (s *Service) repairCurrentGoldWalletReservedSlot(
 	characterID string,
 	catalog *pvfDungeonDropCatalog,
 ) (dnfinventory.ReservedMainSlotRelocation, error) {
+	return s.repairCurrentGoldWalletReservedSlotFromSnapshot(ctx, repositories, characterID, catalog, nil)
+}
+
+// snapshot is only a read-only preflight from this list request. Any relocation
+// still reloads and commits under the original inventory transaction.
+func (s *Service) repairCurrentGoldWalletReservedSlotFromSnapshot(ctx context.Context, repositories dnfrepo.Group, characterID string, catalog *pvfDungeonDropCatalog, snapshot *dnfrepo.InventoryRecord) (dnfinventory.ReservedMainSlotRelocation, error) {
 	if catalog == nil {
 		return dnfinventory.ReservedMainSlotRelocation{}, errDungeonDropSourceRequired
 	}
 	if repositories.Inventory == nil {
 		return dnfinventory.ReservedMainSlotRelocation{}, dnfinventory.ErrOwnerUnavailable
 	}
-	record, found, err := repositories.Inventory.Load(ctx, characterID)
-	if err != nil || !found {
-		return dnfinventory.ReservedMainSlotRelocation{}, err
+	var record dnfrepo.InventoryRecord
+	if snapshot != nil {
+		record = *snapshot
+	} else {
+		var found bool
+		var err error
+		record, found, err = repositories.Inventory.Load(ctx, characterID)
+		if err != nil || !found {
+			return dnfinventory.ReservedMainSlotRelocation{}, err
+		}
 	}
 	stack, found := record.Slots[currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, currentGoldWalletReservedSlot)]
 	if !found || stack.ItemID == 0 {
