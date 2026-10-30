@@ -1,5 +1,7 @@
 # D33 技能选项（锁定 / CD 提示）字段取证与保存回放可观测性
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 2026-10-14，装备席。覆盖 DOC-060、DOC-114 与 DOC-053 里的三条技能设置症状（技能锁定重选重置、攻击类型物理/魔法重选变普通、CD 提示重选需再激活）。**不关闭任何 DOC 条目**：源码与受控回归不等于实机验收。
 
 ## 1. 已证字段（含当前客户端复核）
@@ -36,7 +38,7 @@ op447 逐字节落库（official-24.9 只接受 512，与客户端读取端同�
 
 - 旧失败复现（临时切片，跑完按 SHA256 校验还原，ab5d9043… 前后一致）：把角色选项回放改回旧的一次性连接闸门后，返回选角、同角色重进、A→B/B→A、同一 entry 重试只发一次 390 四组既有回归全部 RED（390=-1，19 仍发），本席新增的端到端用例同样 RED（390/19 order: option=-1 skills=30）。
 - GREEN：-run TestCharacterOption 全部通过（含 6 个新用例与既有投影 / 守卫 / 回放回归）；整个 internal/services/dnfbridge 包通过（20.3s）；gofmt、go vet、go list 干净。未跑全套重测试（主代理负责集成）。
-- 命令口径：固定 go C:/Users/16ww/go-tc/go/bin/go.exe，GOTOOLCHAIN=local、GOPROXY=off、GOSUMDB=off、GOENV=off、GOWORK=off、-mod=readonly -buildvcs=false -count=1。
+- 命令口径：固定 go <go-toolchain>/bin/go.exe，GOTOOLCHAIN=local、GOPROXY=off、GOSUMDB=off、GOENV=off、GOWORK=off、-mod=readonly -buildvcs=false -count=1。
 
 主代理审核补充：保存失败时不能记作已经清空列表。新增故障仓储回归先重现误报，再确认保护后旧存档保持且不再发 cleared 事件；保存和回放字节不变。源码 `556a2fb` 完整验证通过：gofmt/list/vet、Windows/Linux 构建；核心 9323 通过节点、859 跳过、零失败；固定真实 PVF 全部 146 个指定测试根通过，657 通过节点、2 个无选中测试的包跳过、零失败。BAT 预检因源码工作树缺 `channel_info.etc` 返回 1。主代理独立复跑当前 EXE 的 11 项离线布局检查均通过。
 

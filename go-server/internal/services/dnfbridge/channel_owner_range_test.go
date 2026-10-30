@@ -49,7 +49,7 @@ func oversizedOwnerTestService(t *testing.T) *Service {
 		options: options{
 			channelServerID:    1,
 			channelAdvertiseID: 0,
-			serverIP:           "42.240.165.245",
+			serverIP:           "198.51.100.115",
 			initialUDPPort1:    defaultInitialUDPPort1,
 			initialUDPPort2:    defaultInitialUDPPort2,
 			commandCount:       defaultCommandCount,

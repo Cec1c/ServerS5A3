@@ -244,8 +244,8 @@ func TestPartyPeerSelfEndpointModeDefaultsObserved(t *testing.T) {
 // 否则 `reported` 档就不只是"换了自己那一行的 IP"，而会连带改掉整份 body 的形状。
 func TestBuildCurrentPartyPeerEndpointInfoRowsMatchesProvenBuilder(t *testing.T) {
 	endpoints := []party.PeerEndpoint{
-		{UserID: 3, IPv4: [4]byte{38, 22, 90, 52}, Port: 31000, AccountID: 3},
-		{UserID: 4, IPv4: [4]byte{38, 22, 90, 52}, Port: 31001, AccountID: 4},
+		{UserID: 3, IPv4: [4]byte{192, 0, 2, 12}, Port: 31000, AccountID: 3},
+		{UserID: 4, IPv4: [4]byte{192, 0, 2, 12}, Port: 31001, AccountID: 4},
 	}
 	rows := make([]currentPartyPeerEndpointRow, 0, len(endpoints))
 	for _, endpoint := range endpoints {

@@ -190,7 +190,7 @@ func normalizeUpgradeRoomReplyMode(value string) string {
 
 // 宠物/神器穿戴（op19 落点 list 3 槽 26..29）的"回包后刷新"口径。
 //
-// 现场（国内服 109.244.63.71，`/opt/dnf90/logs/packet_log.txt`，conn `game-000015`，
+// 现场（国内服 192.0.2.11，`/opt/dnf90/logs/packet_log.txt`，conn `game-000015`，
 // 角色 1，操作者报"穿戴宠物 宠物正确出现 但是背包和已经装备的宠物消失 重新选择角色后出现"）：
 // 同一条 op19 上，宠物移动是**唯一还在回放整容器**的搬运路径：
 //

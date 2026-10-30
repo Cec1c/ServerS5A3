@@ -15,7 +15,7 @@ import (
 // 「登记窗口」（`DNFBRIDGE_SKILL_SWITCH_REGISTRATION`）在**仓储层**的钉子。
 //
 // 判据一律是"settings scope 里**实际有哪些 `slot_*` 键、值是什么**"（不是任何标志位）。
-// 现场形状取自 HK `109.244.63.71` 的 `character:6:skill_switch_inventory`
+// 现场形状取自 HK `192.0.2.11` 的 `character:6:skill_switch_inventory`
 // （2026-09-28T13:52:44.958764974Z，14 条 `slot_*`），见
 // `_dist/buff-swap-registration.md` §1 的原始 SQL 输出。
 

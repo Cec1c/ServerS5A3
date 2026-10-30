@@ -5,7 +5,7 @@ package dnfbridge
 // "登录复述穿戴态"那一族 op19 去补，服务端只能靠 equip_login_wear* 的兜底闸门
 // 一条条挡；挡住的 noop 又什么都不告诉客户端 ⇒ 客户端永远收敛不了。
 //
-// ── 一、现场事实（国内服 109.244.63.71，`/opt/dnf90/logs/packet_log.txt`，只读取证）
+// ── 一、现场事实（国内服 192.0.2.11，`/opt/dnf90/logs/packet_log.txt`，只读取证）
 //
 //  1. list 3 **从未**以容器（class0/op13, msg_id=13）下发过：
 //     `game-upper-select-inventory-bootstrap-send` 137 次 × 恰好 6 个 list

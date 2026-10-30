@@ -11,7 +11,7 @@ import (
 
 // 「arm 之前那一段 burst」（`DNFBRIDGE_SKILL_SWITCH_REGISTRATION_ARM`）在仓储层的钉子。
 //
-// 现场（HK `109.244.63.71`，`packet_log.txt`，2026-09-28，逐行原始证据见
+// 现场（HK `192.0.2.11`，`packet_log.txt`，2026-09-28，逐行原始证据见
 // `_dist/buff-swap-registration-commit.md` §1/§2）：
 //
 //	char 3 = `test2`（job 14）在 15:35:02.929..15:35:05.201Z 推了 **8 条** op1428 记录

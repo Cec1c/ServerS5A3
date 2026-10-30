@@ -12,7 +12,7 @@ import (
 
 // 「绑定保护」（`DNFBRIDGE_SKILL_SWITCH_REGISTRATION_BIND`）在仓储层的钉子。
 //
-// 现场（HK `109.244.63.71`，`packet_log.txt` + `dnf_setting_values`，2026-09-28，
+// 现场（HK `192.0.2.11`，`packet_log.txt` + `dnf_setting_values`，2026-09-28，
 // 逐行原始证据见 `_dist/buff-swap-round3.md` §1/§2）。char 6 = `test78`：
 //
 //	16:15:41.501Z  边界提交 11 行 **ModeRegister**：`slot_12=0c003600`(54)、

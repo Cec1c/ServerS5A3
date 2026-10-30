@@ -1,5 +1,7 @@
 ## 本段最终CI与停止结论（528，香港2026-10-13 00:30:45独立回读）
 
+> 本文环境地址、账号和工具链路径已脱敏；示例地址不表示当前部署目标。
+
 用户合入MR1的b181abd1已在云Runner1615完成[流水线164976](https://gitgud.io/16ww/servers5a3/-/pipelines/164976)：pipeline为success，Linux build571415、Windows build571416、core-tests571418、semgrep-sast571417四项均实际success，开始/完成时间完整、均由1615执行。再次独立GET pipeline/jobs/runner均HTTP200，Runner online=true、paused=false；不是仅Runner在线或允许失败导致的pipeline绿色。旧164936/164963核心测试失败记录保留。
 
 四路已完成交接且关闭，02:00恢复heartbeat已回读PAUSED，后续需用户明确继续。线上游戏仍为18393b1d，合并b181及独立候选未部署；本轮只同步交接文档。可验收/未修复清单以本文件523/524节为准；账号金库候选完整仍有3项FAIL，P66金币与P57按钮尚未定位，团队掉落候选未集成。新流水线成功不关闭玩家尚未通过的报告。
@@ -30,12 +32,12 @@
 
 | 对象 | 最近核实状态 | 含义 |
 |---|---|---|
-| 实际线上游戏 | 109.244.63.71，dnf90.service，源码18393b1dbd8af41de3f977a6c242b219e7f88629，3452文件；香港2026-10-12 22:45:13启动，PID1153394 | 本文件清单按这一已部署版本列出；MR合并没有自动部署 |
+| 实际线上游戏 | 192.0.2.11，dnf90.service，源码18393b1dbd8af41de3f977a6c242b219e7f88629，3452文件；香港2026-10-12 22:45:13启动，PID1153394 | 本文件清单按这一已部署版本列出；MR合并没有自动部署 |
 | 运行成品 | /opt/dnf90/bin/dnf90server，SHA256 29e410a2b876d712bfd25622abc16760d422a9f5a9c73bb710b4cdd83a5bfd59 | 460安装、461独立回读；118游戏TCP与7001/7002/7003归属新进程，原备份保留 |
-| 客户端 | v96；标准与预览启动游戏连接同一个109.244.63.71:7001 | 用户验收统一选“标准测试”；完全退出再重新登录 |
+| 客户端 | v96；标准与预览启动游戏连接同一个192.0.2.11:7001 | 用户验收统一选“标准测试”；完全退出再重新登录 |
 | 本地在线仓库R | H:/YKCN90工作区/交付/servers5a3-git-upload-20261011，Go source merge b181abd1 | 519已ff-only，后续纯文档提交不改变该Go source；尚未部署到游戏 |
 | 维护源码M | H:/YKCN90工作区/当前工程/go-server | 仍是已部署18393的3452文件；没有把合并后的Go复制覆盖，恢复时先比对，不称当前R/M一致 |
-| 云CI主机 | 117.72.214.66，Debian12/x86_64，Docker运行，Runner1615 | 只作CI；不是游戏服；concurrent=2，不安装本机Docker |
+| 云CI主机 | 192.0.2.10，Debian12/x86_64，Docker运行，Runner1615 | 只作CI；不是游戏服；concurrent=2，不安装本机Docker |
 
 ## 代理产物与准确边界
 
@@ -67,7 +69,7 @@ E:/90的保护脚本每个检查点只执行一次；恢复后创建新编号/�
 
 ## 2026-10-13 云Runner、合并及本段停止（523）
 
-云117.72.214.66已安装Docker并实际启用项目Runner1615，locked且仅项目51684，Docker executor、非privileged、concurrent=2，官方Go1.26.5/helper19.4.0/semgrep6镜像已校验并实际运行。本机Docker仍停止。注册凭据只在云root0600配置，文档及仓库没有明文凭据。
+云192.0.2.10已安装Docker并实际启用项目Runner1615，locked且仅项目51684，Docker executor、非privileged、concurrent=2，官方Go1.26.5/helper19.4.0/semgrep6镜像已校验并实际运行。本机Docker仍停止。注册凭据只在云root0600配置，文档及仓库没有明文凭据。
 
 旧流水线164936与164963两项build及semgrep-sast均success，core-tests为script_failure。私密trace仅内存读取：当前已定位TestResolveBinaryInstallStateRejectsEscapingPath、TestValidateInstance两个公开路径校验失败，未保存或散列私密trace。Runner离线/未匹配的问题已解决，不能把旧流水线写成整体通过。
 

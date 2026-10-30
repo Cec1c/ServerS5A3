@@ -16,7 +16,7 @@ import (
 //   - "已学真实端点"只有一个来源：**该成员自己先往这条腿发过数据报**
 //     （`readLoop` 里 `leg.learnedEndpoint = source`）；
 //   - 实测：char4（队长 slot0）在腿建立 61ms 后就发了首包（`peer endpoint not learned
-//     source=39.172.226.229:21418` 就是它的包），char3（队员 slot1）整场**一个数据报都没发**
+//     source=192.0.2.19:21418` 就是它的包），char3（队员 slot1）整场**一个数据报都没发**
 //     （`received_datagrams=0`、所有 drop 计数为 0）⇒ 反向腿永远学不到 ⇒ 单向死锁。
 //
 // 因此中继手上关于"沉默成员"的唯一信息就是它**自报**的 endpoint：

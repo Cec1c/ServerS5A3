@@ -42,11 +42,11 @@ func (s *Service) accountID() string {
 // 这里**不再**按来源 IP 猜账号。2026-09-25 香港取证（dnf_local.dnf90_web_accounts
 // + /opt/dnf90/logs）：
 //
-//	玩家 smcz/czfm/cscz/jk233 四个账号的 last_login_ip 都是 203.198.28.63
+//	玩家 sample-account-a/sample-account-b/sample-account-c/sample-account-d 四个账号的 last_login_ip 都是 192.0.2.14
 //	（启动器走 HTTP 登录的出口），而同一台机器启动的游戏客户端 TCP 来源 IP 是
-//	175.43.105.6 / 47.98.164.140 / 121.41.167.197 / 185.242.226.9 —— 它们是
+//	192.0.2.13 / 192.0.2.16 / 192.0.2.17 / 192.0.2.18 —— 它们是
 //	加速器出口，还会在会话之间漂移。落到共享账号 dnf:1 的 9 条会话全部满足
-//	client_ip≈175.43.105.6、account_from_ip=false、account_from_last_login_ip=false。
+//	client_ip≈192.0.2.13、account_from_ip=false、account_from_last_login_ip=false。
 //	即：启动器登录 IP 与游戏连接来源 IP 根本不是同一个地址，按 IP 绑定在结构上
 //	不可能正确，只会把"两个账号共用一个角色池"的后果放大。
 func (s *Service) accountIDForSession(sessions ...*gameSession) string {
