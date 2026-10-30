@@ -228,6 +228,44 @@ func (a *Archive) ReadText(relativePath string) (string, error) {
 	return a.readTextIndex(idx)
 }
 
+// VisitTextsGrouped decodes each referenced archive chunk once while processing
+// the requested paths. The callback index corresponds to the input order.
+// Missing and unreadable paths are reported individually without changing the
+// archive's read-cache policy.
+func (a *Archive) VisitTextsGrouped(paths []string, visit func(int, string, error)) {
+	type target struct{ request, index, chunk int }
+	targets := make([]target, 0, len(paths))
+	for i, p := range paths {
+		idx := a.FindFileIndex(p)
+		if idx < 0 {
+			visit(i, "", fmt.Errorf("%w: %s", ErrFileNotFound, p))
+			continue
+		}
+		targets = append(targets, target{i, idx, a.items[idx].chunkIndex})
+	}
+	sort.SliceStable(targets, func(i, j int) bool { return targets[i].chunk < targets[j].chunk })
+	for i := 0; i < len(targets); {
+		j := i + 1
+		for j < len(targets) && targets[j].chunk == targets[i].chunk {
+			j++
+		}
+		chunk, err := a.decodeChunkIndex(targets[i].chunk)
+		for _, t := range targets[i:j] {
+			if err != nil {
+				visit(t.request, "", err)
+				continue
+			}
+			item := a.items[t.index]
+			if item.dataOffset < 0 || item.dataSize < 0 || item.dataOffset+item.dataSize > len(chunk) {
+				visit(t.request, "", fmt.Errorf("%w: file %d data range is invalid", ErrInvalidArchive, t.index))
+				continue
+			}
+			visit(t.request, a.decodeText(item.dataType, chunk[item.dataOffset:item.dataOffset+item.dataSize]), nil)
+		}
+		i = j
+	}
+}
+
 func (a *Archive) ReadRaw(relativePath string) ([]byte, error) {
 	if a == nil {
 		return nil, fmt.Errorf("%w: archive is nil", ErrInvalidArchive)
