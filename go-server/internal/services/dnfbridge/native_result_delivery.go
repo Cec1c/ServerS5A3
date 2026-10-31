@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"os"
@@ -116,7 +117,9 @@ func nativeResultRequestKey(packet dnfproto.LatestGameStreamPacket) (nativeResul
 // 都先写出已准备的结果；不把不同入口当成同一个选择集合。
 func (s *Service) prepareNativeResultDelivery(p *gameSession, packet dnfproto.LatestGameStreamPacket) error {
 	key, eligible := nativeResultRequestKey(packet)
-	p.wireMu.Lock()
+	if err := s.lockGameWire(p, nil); err != nil {
+		return err
+	}
 	defer p.wireMu.Unlock()
 	if b := p.nativeResultDelivery; b != nil {
 		if !eligible || key != b.key || b.requests >= 127 || time.Since(b.lastProgress) >= 4*time.Second {
@@ -145,7 +148,13 @@ func (s *Service) prepareNativeResultDelivery(p *gameSession, packet dnfproto.La
 }
 
 func (s *Service) finishNativeResultDelivery(p *gameSession, reason string) error {
-	p.wireMu.Lock()
+	// Cleanup must still detach an empty/completed batch after transport
+	// cancellation. Actual writes below remain transport-cancellable.
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	if err := lockCurrentCrossSceneProfile(ctx, &p.wireMu); err != nil {
+		return err
+	}
 	defer p.wireMu.Unlock()
 	return s.flushNativeResultDeliveryLocked(p, reason)
 }
@@ -158,16 +167,17 @@ func (s *Service) flushNativeResultDeliveryLocked(p *gameSession, reason string)
 		return nil
 	}
 	if len(b.wire) > 0 {
-		n, err := s.writeGameConnectionObserved(p.conn, b.wire, perfWireNative)
+		n, err := s.writeGameSessionObserved(p, b.wire, perfWireNative)
 		if err == nil && n != len(b.wire) {
 			err = io.ErrShortWrite
 		}
 		if err != nil {
-			_ = p.conn.Close()
+			p.closeGameTransport()
 			return err
 		}
 	}
 	for _, inner := range b.upper {
+		noteSelectAckWrittenLocked(p, inner)
 		s.logCurrentSharedInventoryPacketWritten(p, inner)
 		s.logGoldDiagnosticPacketResult(p, inner, false)
 	}
@@ -181,7 +191,7 @@ func (s *Service) writeNativeResultDeliveryLocked(p *gameSession, wire []byte) (
 		if err := s.flushNativeResultDeliveryLocked(p, "缓冲容量上限"); err != nil {
 			return 0, err
 		}
-		return s.writeGameConnectionObserved(p.conn, wire, perfWireOverflow)
+		return s.writeGameSessionObserved(p, wire, perfWireOverflow)
 	}
 	b.wire = append(b.wire, wire...)
 	b.frames++

@@ -14,14 +14,15 @@ import (
 
 // onlinePlayerInfo is one player's town presence state.
 type onlinePlayerInfo struct {
-	CharacterID uint16
-	AccountID   string
-	Name        string
-	Job         byte
-	GrowType    byte
-	Level       byte
-	TownID      byte
-	AreaID      byte
+	presenceGeneration uint64 // OnlinePlayerManager.mu; immutable after EnterArea
+	CharacterID        uint16
+	AccountID          string
+	Name               string
+	Job                byte
+	GrowType           byte
+	Level              byte
+	TownID             byte
+	AreaID             byte
 	// Instance 把"每个角色一份"的私有房间与共享城镇区域分开：0 = 普通共享区域，
 	// 非 0 = 该私有房间拥有者的角色 ID。
 	//
@@ -109,9 +110,10 @@ func resolvePresenceChannelID(info *onlinePlayerInfo) int {
 // OnlinePlayerManager tracks online players grouped by (TownID, AreaID)
 // and provides broadcast capabilities for town multiplayer visibility.
 type OnlinePlayerManager struct {
-	mu     sync.RWMutex
-	byArea map[areaKey]map[uint16]*onlinePlayerInfo // areaKey -> characterID -> info
-	byChar map[uint16]areaKey                       // characterID -> current area
+	nextPresenceGeneration uint64
+	mu                     sync.RWMutex
+	byArea                 map[areaKey]map[uint16]*onlinePlayerInfo // areaKey -> characterID -> info
+	byChar                 map[uint16]areaKey                       // characterID -> current area
 }
 
 func newOnlinePlayerManager() *OnlinePlayerManager {
@@ -138,6 +140,8 @@ func (m *OnlinePlayerManager) EnterArea(info *onlinePlayerInfo) []onlinePlayerIn
 		RaidBattleInstance: info.RaidBattleInstance,
 	}
 	info.ChannelID = key.ChannelID
+	m.nextPresenceGeneration++
+	info.presenceGeneration = m.nextPresenceGeneration
 
 	// Remove from previous area if any.
 	m.removeFromAreaLocked(info.CharacterID)
@@ -489,6 +493,10 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	source string,
 	partyFrame bool,
 ) error {
+	return s.sendTownRemoteActorStateChecked(target, actor, source, partyFrame, nil)
+}
+
+func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onlinePlayerInfo, source string, partyFrame bool, current func() bool) error {
 	constructionStarted := time.Now()
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
@@ -507,7 +515,7 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	}
 	targetCharacterID := target.selectedCharacterID
 
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := gameTransportBudget(target, nil)
 	defer cancel()
 	ctx, err := s.currentRemoteActorEquipmentSnapshot(ctx, actor.Session, actor.CharacterID)
 	if err != nil {
@@ -606,13 +614,20 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 		return fmt.Errorf("remote town actor session changed during construction: actor=%d", charID)
 	}
 	if partyFrame {
-		if err := projectCurrentTownPartyHPIntoMode0(mode0Body, s.currentTownPartyRealtimeBody(target, actor.Session), charID); err != nil {
+		realtime, err := s.currentTownPartyRealtimeBodyContext(ctx, target, actor.Session)
+		if err != nil {
+			return err
+		}
+		if err := projectCurrentTownPartyHPIntoMode0(mode0Body, realtime, charID); err != nil {
 			return fmt.Errorf("initialize remote town actor party HP: %w", err)
 		}
 	}
 	s.logCurrentPeerActorAppearanceEvent(target, actor.Session, source, mode0Body, mode1Body, subtype0Body)
 	constructionElapsed := time.Since(constructionStarted)
 	sendStarted := time.Now()
+	if current != nil && !current() {
+		return nil
+	}
 	if err := s.sendGameUpperRawClass(
 		target,
 		uint16(dnfenum.CmdPacketSetUDPIPPort),
@@ -827,14 +842,14 @@ func (s *Service) rebindTownCopresenceAfterDungeonReturn(
 				"error", err)
 		}
 		for i := range newOthers {
-			peer := newOthers[i].Session
-			if peer == nil {
+			peer := newOthers[i]
+			if peer.Session == nil {
 				continue
 			}
-			peerState := s.townCopresenceActorPartyState(peer)
-			if err := s.sendRuntimePartyRosterLocal(peer, peerState, source+"_dungeon_return_peer_roster_rebind"); err != nil {
-				continue
-			}
+			s.queueTownPeerDelivery(peer, source+"_dungeon_return_peer_roster_rebind", nil, func() error {
+				peerState := s.townCopresenceActorPartyState(peer.Session)
+				return s.sendRuntimePartyRosterLocal(peer.Session, peerState, source+"_dungeon_return_peer_roster_rebind")
+			})
 		}
 	}
 	s.logGameEvent(session, "game-dungeon-return-copresence-rebound",
@@ -874,20 +889,19 @@ func (s *Service) broadcastTownPlayerEnter(newPlayer *onlinePlayerInfo, others [
 		if peers[i].Session == nil || (s.currentAntonWaitingArea(newPlayer.TownID, newPlayer.AreaID) && !s.onlinePlayers.PeerInSameArea(newPlayer.CharacterID, peers[i].CharacterID)) {
 			continue
 		}
-		if err := s.sendTownRemoteActorState(
-			peers[i].Session,
-			*newPlayer,
-			"town_copresence_actor_state_newcomer_to_existing",
-		); err != nil {
-			s.logGameEvent(peers[i].Session, "game-town-copresence-actor-state-failed",
-				"source", "town_copresence_actor_state_newcomer_to_existing",
-				"actor_char_id", newPlayer.CharacterID,
-				"error", err)
-			continue
-		}
-		_ = s.sendCurrentSceneFixedClass0Packet(peers[i].Session,
-			currentTownUserAreaNotificationMsgID, enterBody,
-			"town_copresence_enter_0x0017_to_existing")
+		peer, actor := peers[i], *newPlayer
+		current := func() bool { return s.onlinePlayers.presenceCurrent(actor) }
+		s.queueTownPeerDelivery(peer, "town_copresence_actor_state_newcomer_to_existing",
+			current, func() error {
+				if err := s.sendTownRemoteActorStateChecked(peer.Session, actor, "town_copresence_actor_state_newcomer_to_existing", true, current); err != nil {
+					return err
+				}
+				if !current() {
+					return nil
+				}
+				return s.sendCurrentSceneFixedClass0Packet(peer.Session, currentTownUserAreaNotificationMsgID,
+					enterBody, "town_copresence_enter_0x0017_to_existing")
+			})
 	}
 
 	// To newcomer: each existing player's mode0/mode1/op9, then 0x0017.
@@ -1078,7 +1092,7 @@ func (s *Service) broadcastTownPlayerLeave(characterID uint16, others []onlinePl
 	leaveBody := buildTownUserLeaveBody(characterID)
 	for i := range others {
 		if others[i].Session != nil {
-			_ = s.sendCurrentSceneFixedClass0Packet(others[i].Session,
+			s.queueTownPeerPacket(others[i], nil,
 				currentTownUserLeaveMsgID, leaveBody,
 				"town_copresence_leave_0x0006")
 		}
@@ -1141,16 +1155,16 @@ func (s *Service) broadcastTownPlayerAreaChange(
 			peerState = s.townCopresenceActorPartyState(peer)
 		}
 		if sameAuthoritativeParty && peerState.PartyID == state.PartyID {
-			_ = s.sendCurrentSceneFixedClass0Packet(
-				peer,
+			s.queueTownPeerPacket(
+				oldOthers[i], mover,
 				currentTownUserAreaNotificationMsgID,
 				areaBody,
 				"town_party_member_area_change_0x0017",
 			)
 			continue
 		}
-		_ = s.sendCurrentSceneFixedClass0Packet(
-			peer,
+		s.queueTownPeerPacket(
+			oldOthers[i], nil,
 			currentTownUserLeaveMsgID,
 			leaveBody,
 			"town_copresence_leave_0x0006",
@@ -1182,7 +1196,7 @@ func (s *Service) broadcastTownPlayerMove(mover *onlinePlayerInfo, others []onli
 	)
 	for i := range others {
 		if others[i].Session != nil && (!s.currentAntonWaitingArea(mover.TownID, mover.AreaID) || s.onlinePlayers.PeerInSameArea(mover.CharacterID, others[i].CharacterID)) {
-			_ = s.sendCurrentSceneFixedClass0Packet(others[i].Session,
+			s.queueTownPeerPacket(others[i], mover,
 				currentTownUserPositionNotificationMsgID, moveBody,
 				"town_copresence_move_0x0016")
 		}

@@ -477,6 +477,19 @@ func (s *Service) broadcastCurrentExpertJobStoreClose(store *currentExpertJobSto
 		if player.Session == nil || (!includeOwner && player.CharacterID == store.OwnerCharacterID) {
 			continue
 		}
+		if player.Session != store.OwnerSession {
+			// Logout owns the store removal, not every observer's socket.
+			// A subsequent placement must not be destroyed by this old close.
+			peer := player
+			s.queueTownPeerDelivery(peer, "expert_job_store_close", func() bool {
+				s.expertJobStoreMu.Lock()
+				defer s.expertJobStoreMu.Unlock()
+				return s.expertJobStores[store.OwnerCharacterID] == nil
+			}, func() error {
+				return s.sendGameUpperRawClass(peer.Session, currentExpertJobStoreCloseNotification, body, 0)
+			})
+			continue
+		}
 		if err := s.sendGameUpperRawClass(player.Session, currentExpertJobStoreCloseNotification, body, 0); err != nil {
 			s.logGameEvent(player.Session, "game-expert-job-store-close-broadcast-failed",
 				"store_owner_char_id", store.OwnerCharacterID,

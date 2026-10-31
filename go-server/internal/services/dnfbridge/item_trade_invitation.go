@@ -7,7 +7,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"longheng.io/server/internal/modules/dnf/party"
 )
@@ -168,27 +167,17 @@ func (s *Service) sendCurrentItemTradeInvitationFrame(ctx context.Context, sessi
 	if session == nil || session.conn == nil {
 		return errors.New("trade invitation connection unavailable")
 	}
-	if err := lockCurrentCrossSceneProfile(ctx, &session.wireMu); err != nil {
+	if err := s.lockGameWire(session, ctx); err != nil {
 		return err
 	}
 	defer session.wireMu.Unlock()
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return context.DeadlineExceeded
-	}
-	if err := session.conn.SetWriteDeadline(deadline); err != nil {
+	finishWrite, err := beginGameWriteBudgetLocked(session, ctx)
+	if err != nil {
 		return err
 	}
-	finished := make(chan struct{})
-	stop := context.AfterFunc(ctx, func() { _ = session.conn.SetWriteDeadline(time.Now()); close(finished) })
-	defer func() {
-		if !stop() {
-			<-finished
-		}
-		_ = session.conn.SetWriteDeadline(time.Time{})
-	}()
+	defer finishWrite()
 	if err := s.sendGameUpperRawClassCodecLocked(session, op, body, class, true); err != nil {
-		_ = session.conn.Close()
+		session.closeGameTransport()
 		return err
 	}
 	return nil

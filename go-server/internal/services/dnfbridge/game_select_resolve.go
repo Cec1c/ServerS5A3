@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"strconv"
+	"time"
 
 	dnfcharacterdata "longheng.io/server/internal/modules/dnf/characterdata"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -27,21 +28,25 @@ func (s *Service) resolveSelectedCharacter(
 			"source", parsed.source)
 	}
 	if repos, ok := s.repositoryGroup(); ok && repos.Character != nil {
-		characters, err := s.listCharacters(ctx, repos, s.accountIDForSession(session))
+		readStarted := time.Now()
+		characters, err := characterSelectionIdentities(ctx, repos.Character, s.accountIDForSession(session))
+		noteSelectReadTiming(session, "identity", readStarted)
 		if err != nil {
 			s.logGameEvent(session, "game-upper-select-character-list-failed", "slot", slot, "error", err)
 		} else if len(characters) > 0 {
 			if selected, selectedBy, ok := selectCharacterRecord(characters, session.currentRenameRoster, parsed); ok {
+				readStarted = time.Now()
+				selected, valid := loadSelectedCharacterIdentity(ctx, repos.Character, selected, s.accountIDForSession(session))
+				noteSelectReadTiming(session, "selected", readStarted)
+				if !valid {
+					return 0, "", dnfrepo.CharacterRecord{}, false, slot
+				}
 				if repos.Equipment != nil {
+					readStarted = time.Now()
 					s.attachEquipmentSummary(ctx, repos, &selected)
+					noteSelectReadTiming(session, "initialization", readStarted)
 				}
-				// listCharacters is a roster projection. Restore the complete
-				// structured map before persisting level-stat repairs so a
-				// partial row cannot erase unrelated character state.
-				charIDStr := strconv.FormatUint(uint64(numericCharacterID(selected)), 10)
-				if fullChar, found, err := repos.Character.Load(ctx, charIDStr); err == nil && found && fullChar.Stats != nil {
-					selected.Stats = fullChar.Stats
-				}
+				// selected is already a complete, ownership-checked record.
 				if stats, ok := s.characterPVFStatsForUserInfo(ctx, session, selected, true); ok {
 					needsRepair := characterPVFStatsNeedRepair(selected, stats)
 					applyCharacterPVFStats(&selected, stats)

@@ -32,6 +32,24 @@ type channelSession struct {
 
 const channelReadIdleTimeout = 8 * time.Second
 
+// Channel requests have a single connection owner, so no game codec lock is
+// needed. Bound their bootstrap writes as well as the game socket path.
+func writeChannelConnection(conn net.Conn, data []byte) (int, error) {
+	if err := conn.SetWriteDeadline(time.Now().Add(createWriteTimeout)); err != nil {
+		_ = conn.Close()
+		return 0, err
+	}
+	defer func() { _ = conn.SetWriteDeadline(time.Time{}) }()
+	n, err := conn.Write(data)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		_ = conn.Close()
+	}
+	return n, err
+}
+
 func (s *Service) handleChannelConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	session := &channelSession{conn: conn, connID: s.nextPacketConnID("channel")}
@@ -101,7 +119,7 @@ func (s *Service) acceptDofLoginPreface(reader *bufio.Reader, session *channelSe
 	s.logChannelPacket(session, "RECV", "channel-dof-preface", raw)
 	ack := dnfproto.BuildDofLoginAck(s.aesKey())
 	s.logChannelPacket(session, "SEND", "channel-dof-ack", ack)
-	_, err = session.conn.Write(ack)
+	_, err = writeChannelConnection(session.conn, ack)
 	return err
 }
 
@@ -133,7 +151,7 @@ func (s *Service) handleLegacyChannelRequest(reader *bufio.Reader, session *chan
 	}
 	packet := dnfproto.BuildLegacyChannelPacket(dnfenum.LegacyMsgChannelInfo, body)
 	s.logChannelPacket(session, "SEND", "channel-dof-info", packet, "msg_id", dnfenum.LegacyMsgChannelInfo)
-	if _, err := session.conn.Write(packet); err != nil {
+	if _, err := writeChannelConnection(session.conn, packet); err != nil {
 		return true, err
 	}
 	s.logPacketEvent("channel-dof-info-sent",
@@ -152,7 +170,7 @@ func (s *Service) sendLegacyScript(session *channelSession) error {
 	}
 	packet := dnfproto.BuildLegacyChannelPacket(dnfenum.LegacyMsgDofScript, body)
 	s.logChannelPacket(session, "SEND", "channel-dof-script", packet, "msg_id", dnfenum.LegacyMsgDofScript)
-	if _, err := session.conn.Write(packet); err != nil {
+	if _, err := writeChannelConnection(session.conn, packet); err != nil {
 		return err
 	}
 	session.scriptSent = true
@@ -334,7 +352,7 @@ func (s *Service) sendChannelClass(session *channelSession, msgID uint16, body [
 		"msg_id", msgID,
 		"header_seq", session.seq-1,
 		"body_len", len(body))
-	_, err = session.conn.Write(packet)
+	_, err = writeChannelConnection(session.conn, packet)
 	return err
 }
 

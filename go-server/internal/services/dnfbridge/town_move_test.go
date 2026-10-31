@@ -454,8 +454,7 @@ func TestHandleTownSetUserAreaPreservesStationaryPartyRosterWithAreaUpdate(t *te
 	service, session, repositories := newTownMoveTest(t)
 	service.options.gameUpperBodyCodec = gameUpperBodyCodecPlain
 	service.onlinePlayers = newOnlinePlayerManager()
-	service.bindGameSessionCharacter(session, session.selectedCharacterID)
-	service.onlinePlayers.EnterArea(&onlinePlayerInfo{
+	startTownPeerTest(t, service, session, &onlinePlayerInfo{
 		CharacterID: 29,
 		AccountID:   "dnf:1",
 		Name:        "mover",
@@ -492,8 +491,7 @@ func TestHandleTownSetUserAreaPreservesStationaryPartyRosterWithAreaUpdate(t *te
 		townSceneReadyCharacterID: 17,
 		townActorOwnerChannel:     byte(session.channel.ID),
 	}
-	service.bindGameSessionCharacter(peer, 17)
-	service.onlinePlayers.EnterArea(&onlinePlayerInfo{
+	startTownPeerTest(t, service, peer, &onlinePlayerInfo{
 		CharacterID: 17,
 		AccountID:   "dnf:2",
 		Name:        "peer",
@@ -520,6 +518,8 @@ func TestHandleTownSetUserAreaPreservesStationaryPartyRosterWithAreaUpdate(t *te
 	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
 		t.Fatal(err)
 	}
+	drainTownPeerTest(t, service, session)
+	drainTownPeerTest(t, service, peer)
 	transition, rest := splitTownAreaTransitionSequence(
 		t,
 		session.conn.(*bufferConn).write.Bytes(),
@@ -567,9 +567,33 @@ func TestHandleTownSetUserAreaPreservesStationaryPartyRosterWithAreaUpdate(t *te
 	// roster rebind, without replaying op153/op11 and restarting P2P.
 	session.conn.(*bufferConn).write.Reset()
 	peerConn.write.Reset()
+	// Hold the stationary owner's queue. All of the mover's actor, area and
+	// final roster traffic must queue behind it, with no synchronous bypass.
+	entered, release := make(chan struct{}), make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	if err := service.postGameSessionCharacterEvent(session, "test-area-owner-gate", session.selectedCharacterID, session.characterGeneration, func() error {
+		close(entered)
+		<-release
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitTestSignal(t, entered, "stationary event gate not entered")
 	if err := service.handleTownSetUserArea(peer, buildTownMoveRequest(38, 0, 870, 248, 6)); err != nil {
 		t.Fatal(err)
 	}
+	if session.conn.(*bufferConn).write.Len() != 0 {
+		t.Fatal("area-change peer traffic bypassed recipient event queue")
+	}
+	close(release)
+	released = true
+	drainTownPeerTest(t, service, session)
+	drainTownPeerTest(t, service, peer)
 	peerTransition, peerRest := splitTownAreaTransitionSequence(
 		t,
 		peerConn.write.Bytes(),
@@ -630,6 +654,11 @@ func TestHandleTownSetUserAreaPreservesStationaryPartyRosterWithAreaUpdate(t *te
 		newcomerArea.Header.MsgID != currentTownUserAreaNotificationMsgID || len(newcomerArea.Body) < 10 || newcomerArea.Body[3] != 0 {
 		t.Fatalf("same-area newcomer sequence mode0=%+v mode1=%+v op9=%+v area=%+v body=%x",
 			newcomerMode0.Header, newcomerMode1.Header, newcomerParty.Header, newcomerArea.Header, newcomerArea.Body)
+	}
+	newcomerHP, _ := splitGameServerUpperPacket(t, stationary)
+	if newcomerHPRows := parseRealtimeInfoRows(t, newcomerHP.Body); !reflect.DeepEqual(newcomerHPRows, townPartyActorHPRows29And17()) {
+		t.Fatalf("same-area newcomer HP rows=%+v want=%+v body=%x",
+			newcomerHPRows, townPartyActorHPRows29And17(), newcomerHP.Body)
 	}
 	stationary = assertRuntimePartySceneRefresh(t, stationary, 2)
 	if len(stationary) != 0 {

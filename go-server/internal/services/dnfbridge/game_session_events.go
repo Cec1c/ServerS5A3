@@ -140,6 +140,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 }
 
 func (s *Service) beginGameSessionClose(session *gameSession) {
+	session.stopGameTransport()
 	if session == nil || session.events == nil {
 		return
 	}
