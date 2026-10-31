@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"unicode/utf16"
 
+	dnppet "longheng.io/server/internal/modules/dnf/pet"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -80,7 +81,13 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	creatureAliveState := byte(0)
 	if creature.valid() {
 		creatureItemID = creature.itemID
-		creatureName = rosterNameBytes(creature.name)
+		name := creature.name
+		if creature.nameFromPVF {
+			name = dnppet.DefaultCreatureNameForWire(name)
+		} else {
+			name = dnppet.CreatureNameForWire(name)
+		}
+		creatureName = rosterNameBytes(name)
 		creatureAliveState = creature.aliveState
 	}
 	writer.writeUint32(creatureItemID)
