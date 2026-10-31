@@ -6,5 +6,10 @@
 /README.md text eol=lf
 /changlog.md text eol=lf
 /Docs/*.md text eol=lf
+/changelog.d/*.md text eol=lf
+/scripts/ci/changelog_fragments.py text eol=lf
+/scripts/ci/test_changelog_fragments.py text eol=lf
+/.github/workflows/changelog.yml text eol=lf
+/.gitlab/merge_request_templates/*.md text eol=lf
 /deploy/windows/*.bat text eol=crlf
 *.go linguist-language=Go

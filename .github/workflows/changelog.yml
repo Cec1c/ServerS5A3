@@ -1,0 +1,31 @@
+name: Change notes
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: '上次发布提交或 tag；留空汇总全部片段'
+        type: string
+        required: false
+permissions:
+  contents: read
+jobs:
+  notes:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate and render the checked-out public snapshot
+        env:
+          NOTES_SINCE: ${{ inputs.since }}
+        run: |
+          python3 -m unittest discover -s scripts/ci -p test_changelog_fragments.py -v
+          python3 scripts/ci/changelog_fragments.py check
+          python3 scripts/ci/changelog_fragments.py render --since "$NOTES_SINCE" --output-dir dist/change-notes
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-change-notes
+          path: dist/change-notes/
+          retention-days: 14
