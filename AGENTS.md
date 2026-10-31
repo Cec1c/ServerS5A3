@@ -6,7 +6,7 @@
 - **单独发布客户端也必须先 pull**：每次客户端更新、构建发布准备及仅客户端发布均执行上述权威主干实际拉取、证据记录、独立集成与固定提交构建检查；发布前再核对上游和实际玩家通道，有变化则重新集成验证。禁止直接将当前工作区或旧构建目录打包发布。
 - 已授权远端更新使用 `GAME_UPDATE_REMOTE.bat`，先 inspect actual active，再由 deploy 强制核对最新主干、完整范围、测试构建、备份、运行摘要、签名与频道；私有 profile 和累计基线不上传。工具及恢复来源约束见 [Docs/GAME_UPDATE.md](Docs/GAME_UPDATE.md)。
 
-- Read `changlog.md` before changing code, deployment scripts, generated configuration, or runtime behavior.
+- Read recent `changelog.d/` entries and relevant design notes before changes; consult `changlog.md` for historical context. Follow [the change-note workflow](Docs/CHANGELOG_WORKFLOW.md).
 - 部署前先读 [外部频道表选择与验收](Docs/CHANNEL_TABLE_DEPLOYMENT.md)，按仓库118频道CSV核对已批准的完整外部表，首次prepare就显式传入 `--channel-info`。不要默认提取PVF内置表作为部署目录；升级PVF时保留现有外部表。CSV仅供核对，运行输入必须是完整ETC，并读回实际进程路径、摘要、端口及客户端目录。
 - Keep `go-server` source-only. Runtime configuration, binaries, logs, PVF, database state, and PID files belong under `runtime`.
 - Edit `runtime/config/instance.json` or `deploy/templates/instance.example.json`; do not hand-edit generated files under `runtime/configs`.
@@ -89,7 +89,8 @@ Run deployment preflight without a database:
 
 ## Documentation
 
-- Record meaningful code, deployment, database, test, and compatibility changes in `changlog.md`.
+- Every contribution adds its own `changelog.d/YYYYMMDD-unique-slug.type.md` (fix/feature/change/docs, category `功能修复`). Merged fragments and historical `changlog.md` are immutable; corrections use new fragments. Private downstream content belongs only in its private `.pos5a3/changelog.d/` with category `群服内容`.
+- CI validates fragments and renders artifacts; release notes are generated for a fixed commit range, never written back on each merge. Legacy append-only conflicts may use the strict resolver described in `Docs/CHANGELOG_WORKFLOW.md`; all other conflicts require review. Do not configure a blanket union/ours merge driver.
 - Never record plaintext generated passwords in `changlog.md`, logs, screenshots, commits, or support bundles.
 - The requested runtime profile deliberately uses a plaintext `root` DSN. Keep it loopback-only and never commit generated runtime configuration.
 
