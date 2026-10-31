@@ -223,6 +223,7 @@ type UpgradeResult struct {
 	ConversionMaterialSlot           int16
 	ConversionMaterialRemainingCount int64
 	Changed                          bool
+	TargetNoticeStack                dnfrepo.ItemStack
 	// DestroyBonusSlot 是 op50 摧毁档 ACK 里报给客户端的那个槽：有并入时是第一个并入的
 	// 既有行，没有可并的行时就是新开的那一格（修复前语义 = 恒为新开格）。
 	DestroyBonusSlot   int16
@@ -1445,6 +1446,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		result.ErrorCode = upgradeErrorDurability
 		return result, nil
 	}
+	result.TargetNoticeStack = cloneStack(target)
 	oldLevel := upgradeLevelOf(target)
 	result.OldLevel = oldLevel
 	result.NewLevel = oldLevel
@@ -3748,8 +3750,8 @@ type UpgradeTicketResult struct {
 // roll the level jumps directly to the ticket's target level, on failure the
 // level is retained without penalty; exactly one ticket is consumed either
 // way. The request's optional ticket slot is ignored, mirroring the
-// reference. Gold cost, the 0x0056 notice broadcast, and the [enchant random]
-// multi-candidate family are still not owned here; **protect tickets are**
+// reference. Gold cost and the [enchant random] multi-candidate family are
+// still not owned here; the handler owns committed 0x0056 notices. Protect tickets are
 // (the normal NPC path owns them, see upgrade_protect_ticket.go). A portable
 // consumable (一次性增幅器 / 凯丽的强化器) resolves through this entry but is
 // **not** consumed here: it only carries its identity back so the request

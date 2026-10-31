@@ -351,6 +351,7 @@ func (o *Owner) SeparateUpgrade(ctx context.Context, cmd Command, resolver align
 		result.MaterialUpdatedStack = material
 	}
 
+	result.TargetUpdatedStack = cloneStack(target)
 	if newLevel != result.OldLevel {
 		if targetFromEquipment {
 			entry := equipmentRecord.Entries[equipmentKey]

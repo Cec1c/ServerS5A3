@@ -67,7 +67,7 @@ func (s *Service) sendCurrentDungeonResourceState(
 	if session.selectedCharacterID != 0 {
 		if repositories, ok := s.repositoryGroup(); ok && repositories.DungeonPermission != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			record, found, err := repositories.DungeonPermission.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+			record, found, err := s.currentAccountDungeonPermissionSnapshot(ctx, session, repositories)
 			cancel()
 			if err != nil {
 				// Entry has already committed. Omit this optional cache update rather
@@ -157,8 +157,7 @@ func (s *Service) currentDungeonPermissionSnapshotEntries(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	record, found, err := repositories.DungeonPermission.Load(ctx, characterID)
+	record, found, err := s.currentAccountDungeonPermissionSnapshot(ctx, session, repositories)
 	if err != nil || !found {
 		return nil, err
 	}
@@ -272,6 +271,16 @@ func (s *Service) commitCurrentDungeonPermission(
 	if err != nil {
 		return nil, 0, false, err
 	}
+	shared, sharedChanged, shareErr := s.advanceCurrentAccountDungeonPermission(ctx, session, repositories, entry.DungeonID, entry.ClearState)
+	if shareErr != nil {
+		return nil, 0, false, shareErr
+	}
+	entry = shared
+	// 仓储保留账号历史最高值；客户端投影只发送当前副本PVF支持的难度。
+	if maxState := currentDungeonMaxClearState(runtime.Dungeon); entry.ClearState > maxState {
+		entry.ClearState = maxState
+	}
+	updated = updated || sharedChanged
 	if !updated {
 		s.logGameEvent(session, "game-dungeon-permission-clear-state-unchanged",
 			"char_id", session.selectedCharacterID,

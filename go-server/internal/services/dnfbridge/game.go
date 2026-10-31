@@ -24,6 +24,7 @@ type gameSession struct {
 	// Written and read only by this session's serial event owner.
 	performanceEventQueuedAt            time.Time
 	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
+	dungeonPermissionMigrationAccount   string                         // 只记本会话已完成归并的账号，不缓存权限值。
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending
