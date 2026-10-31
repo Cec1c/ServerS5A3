@@ -273,6 +273,15 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	if err != nil {
 		return nil, err
 	}
+	areaMaterialEntry, areaMaterialMatched := currentDungeonAreaMaterialPoolEntry(runtime.Dungeon.ID)
+	if areaMaterialMatched {
+		// 与轮回实现相同：区域材料加入怪物模板材料池，共享原有外层抽取，
+		// 不另开独立判定，也不按领主、难度或成长契约额外放大。
+		if _, err := dropCatalog.ResolveItem(areaMaterialEntry.ItemID); err != nil {
+			return nil, err
+		}
+		pool = append(pool, areaMaterialEntry)
+	}
 	visit, err := runtime.currentDungeonRoomVisit(scene)
 	if err != nil {
 		return nil, err
@@ -583,6 +592,27 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			"chronicle_grow_type", characterGrowType,
 			"special_probability_shared", false,
 			"source", currentDungeonDimensionGatePath+"+"+currentDungeonDimensionInfoPath+"+"+currentDungeonDimensionDropListPath+"+"+currentDungeonDimensionDropExcludePath+"+rank_split_monster_template_pool")
+	}
+	if areaMaterialMatched {
+		selectedAreaMaterialCount := 0
+		for _, itemID := range selectedPoolItems {
+			if itemID == areaMaterialEntry.ItemID {
+				selectedAreaMaterialCount++
+			}
+		}
+		s.logGameEvent(nil, "副本区域材料掉落判定",
+			"dungeon_id", runtime.Dungeon.ID,
+			"room", scene.Coordinate.String(),
+			"map_id", scene.Map.Map.ID,
+			"monster_id", monster.Spawn.MonsterID,
+			"monster_object_key", monster.ObjectKey,
+			"item_id", areaMaterialEntry.ItemID,
+			"item_weight", areaMaterialEntry.Weight,
+			"ordinary_pool_rate", currentDungeonExplicitPoolRate,
+			"ordinary_pool_denominator", currentDungeonDropDenominator,
+			"ordinary_pool_attempts", fixedDropAttempts,
+			"ordinary_pool_candidate_count", len(pool),
+			"selected_area_material_count", selectedAreaMaterialCount)
 	}
 	specialDrops, err := currentDungeonSpecialDrops(monsterCatalog)
 	if err != nil {
