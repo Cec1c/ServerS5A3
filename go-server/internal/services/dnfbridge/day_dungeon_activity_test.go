@@ -177,10 +177,15 @@ func TestRealPVFDayDungeonCatalogRefreshAndSameDayDedupe(t *testing.T) {
 					t.Fatal("yesterday flag retained")
 				}
 			}
-			progress, _ := splitGameServerUpperPacket(t, rest)
+			progress, schedule := splitGameServerUpperPacket(t, rest)
 			if progress.Header.MsgID != 1206 {
 				t.Fatal("progress no longer adjacent")
 			}
+			opened := uint32(4907)
+			if day == 2422 {
+				opened = 4909
+			}
+			assertCurrentDayDungeonSchedulePackets(t, schedule, opened)
 		}
 		if s.currentDayDungeonEvent() != dnfdungeon.DayDungeonEvent(queue.now) {
 			t.Fatal("actual PVF schedule unavailable")
@@ -205,10 +210,11 @@ func TestRealPVFDayDungeonCatalogRefreshAndSameDayDedupe(t *testing.T) {
 	if !shape.hasEvent(2423) || shape.hasEvent(2422) {
 		t.Fatal("scheduled old weekday retained")
 	}
-	progress, _ := splitGameServerUpperPacket(t, rest)
+	progress, schedule := splitGameServerUpperPacket(t, rest)
 	if progress.Header.MsgID != 1206 {
 		t.Fatal("scheduled progress not adjacent")
 	}
+	assertCurrentDayDungeonSchedulePackets(t, schedule, 4906, 4908, 4910)
 	conn.write.Reset()
 	task = queue.tasks[len(queue.tasks)-1]
 	session.characterGeneration++

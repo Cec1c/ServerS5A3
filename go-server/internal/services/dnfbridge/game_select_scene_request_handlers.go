@@ -126,6 +126,9 @@ func (s *Service) sendCurrentFinishLoadingReleaseTail(session *gameSession, sour
 	if err := s.sendCurrentFinishLoadingCharacterState(session, source); err != nil {
 		return err
 	}
+	if err := s.sendCurrentDayDungeonTownSchedule(session, source); err != nil {
+		return err
+	}
 	if err := s.sendCompletedTutorialReentryExit(session, source+"_after_current_finish_loading_state"); err != nil {
 		return err
 	}
