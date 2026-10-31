@@ -21,6 +21,7 @@ type currentEquippedCreatureSnapshot struct {
 	itemID         uint32
 	serialOrHandle uint32
 	name           string
+	nameFromPVF    bool
 	level          byte
 	aliveState     byte
 	townDisplay    bool
@@ -183,6 +184,7 @@ func currentEquippedCreatureEnrichFromPetRecord(snapshot *currentEquippedCreatur
 	if found {
 		if strings.TrimSpace(entry.Name) != "" {
 			snapshot.name = strings.TrimSpace(entry.Name)
+			snapshot.nameFromPVF = false
 		}
 		if entry.Level > 0 {
 			snapshot.level = currentCreatureLevelByte(entry.Level)
@@ -238,6 +240,7 @@ func (s *Service) currentEquippedCreatureEnrichNameFromPVF(snapshot *currentEqui
 		return
 	}
 	snapshot.name = strings.TrimSpace(definition.Name)
+	snapshot.nameFromPVF = snapshot.name != ""
 }
 
 func currentEquippedCreatureSerialFromRaw(raw []byte) uint32 {

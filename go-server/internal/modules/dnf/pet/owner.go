@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -318,16 +319,15 @@ func validatedCreatureEntries(record dnfrepo.PetRecord) ([]dnfrepo.PetEntry, err
 		if entry.CreatureKey > maxCreatureSerial || entry.ItemID <= 0 {
 			return nil, fmt.Errorf("%w: key=%d item=%d", ErrPetStateInvalid, entry.CreatureKey, entry.ItemID)
 		}
-		if entry.ModeFlag > 1 || entry.TailFlag > 1 || entry.Level < 1 || entry.Level > MaxCreatureLevel || entry.Exp < 0 || len(entry.NameRaw) >= 30 {
+		if entry.ModeFlag > 1 || entry.TailFlag > 1 || entry.Level < 1 || entry.Level > MaxCreatureLevel || entry.Exp < 0 {
 			return nil, fmt.Errorf("%w: key=%d mode=%d tail=%d level=%d exp=%d name_bytes=%d", ErrPetStateInvalid, entry.CreatureKey, entry.ModeFlag, entry.TailFlag, entry.Level, entry.Exp, len(entry.NameRaw))
 		}
 		if len(entry.NameRaw) == 0 && entry.Name != "" {
-			nameRaw := []byte(entry.Name)
-			if len(nameRaw) >= 30 {
-				return nil, fmt.Errorf("%w: key=%d legacy_name_bytes=%d", ErrPetStateInvalid, entry.CreatureKey, len(nameRaw))
-			}
-			entry.NameRaw = nameRaw
+			entry.NameRaw, _ = simplifiedchinese.GB18030.NewEncoder().Bytes([]byte(CreatureNameForWire(entry.Name)))
 		}
+		// This is an independent login/wire snapshot. Keep durable legacy names
+		// intact while preventing one oversized name from rejecting the list.
+		entry.NameRaw = CreatureNameRawForWire(entry.NameRaw)
 	}
 	return entries, nil
 }

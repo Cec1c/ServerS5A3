@@ -130,11 +130,12 @@ func buildCreatureListBody(entries []dnfrepo.PetEntry) ([]byte, error) {
 		if entry.ModeFlag > 1 {
 			return nil, fmt.Errorf("%w: %d", errCreatureModeInvalid, entry.ModeFlag)
 		}
-		// sub_1D57AB0 passes max=30 to upper_pkt_read_wstr. Its reader accepts
-		// only lengths strictly below max; a 30-byte name would be rejected
-		// without consuming the bytes and desynchronize the remainder.
-		if len(entry.NameRaw) >= 30 {
-			return nil, fmt.Errorf("%w: %d", errCreatureNameTooLong, len(entry.NameRaw))
+		// Persisted names may predate the current WCHAR limit. Project them at
+		// the protocol boundary so a valid long name cannot desynchronize the
+		// remainder; malformed existing bytes are sent as an empty name.
+		nameRaw := CreatureNameRawForWire(entry.NameRaw)
+		if len(nameRaw) >= 30 {
+			return nil, fmt.Errorf("%w: %d", errCreatureNameTooLong, len(nameRaw))
 		}
 		if entry.TailFlag > 1 {
 			return nil, fmt.Errorf("%w: %d", errCreatureTailInvalid, entry.TailFlag)
@@ -149,7 +150,7 @@ func buildCreatureListBody(entries []dnfrepo.PetEntry) ([]byte, error) {
 			writer.writeByte(entry.Mode1Field0B)
 		}
 		writer.writeByte(clampByte(entry.Level))
-		writer.writeRawDstr(entry.NameRaw)
+		writer.writeRawDstr(nameRaw)
 		writer.writeByte(entry.TailFlag)
 	}
 	return writer.bytes(), nil

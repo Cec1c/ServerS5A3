@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -97,6 +96,9 @@ func (o *Owner) Rename(ctx context.Context, cmd RenameCommand) (RenameResult, er
 		)
 	}
 	if err := validateCreatureRenameName(cmd.NameRaw); err != nil {
+		return RenameResult{}, fmt.Errorf("%w: %v", ErrPetRenameNameInvalid, err)
+	}
+	if err := validateCreatureRenameNameWire(cmd.NameRaw); err != nil {
 		return RenameResult{}, fmt.Errorf("%w: %v", ErrPetRenameNameInvalid, err)
 	}
 
@@ -277,9 +279,9 @@ func equippedCreatureIdentity(record dnfrepo.EquipmentRecord) (int64, uint32, er
 }
 
 func decodeCurrentCreatureName(raw []byte) string {
-	decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(raw)
-	if err != nil {
+	decoded, ok := decodeCreatureNameRaw(raw)
+	if !ok {
 		return ""
 	}
-	return string(decoded)
+	return decoded
 }
