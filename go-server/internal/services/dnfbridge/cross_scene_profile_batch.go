@@ -18,6 +18,10 @@ type currentCrossSceneProfileBatch struct {
 	peers   map[uint16]*currentCrossSceneProfilePeer
 	bodies  map[currentCrossSceneProfileKey]currentCrossSceneProfileBody
 	sent    map[currentCrossSceneProfileDelivery]bool
+	// Raid rosters share a preparation budget across recipients. Once a frame
+	// is admitted, give its write a full bounded window instead of truncating
+	// the stream when the remaining preparation time runs out.
+	completeAdmittedWrite bool
 }
 
 type currentCrossSceneProfilePeer struct {
@@ -159,12 +163,12 @@ func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner b
 		}
 		b.bodies[key] = body
 	}
-	delivered, err := s.sendCurrentCrossSceneProfileFrame(b.ctx, viewer, actor, body.data, func() bool {
+	delivered, err := s.sendCurrentCrossSceneProfileFramesWithBudget(b.ctx, viewer, actor, [][]byte{body.data}, func() bool {
 		return body.revision == actor.crossSceneAppearanceRevision &&
 			v.current(s) && a.current(s) && b.route == s.currentSceneActorRoute() &&
 			owner == currentConnectionTownActorOwnerContext(viewer) &&
 			s.currentCrossSceneProfileMembership(viewer, actor, viewerID, actorID)
-	})
+	}, b.completeAdmittedWrite)
 	if err != nil || !delivered {
 		return err
 	}

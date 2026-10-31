@@ -51,6 +51,9 @@ func (s *Service) expireCurrentGuildBenefit(peer boundGameSessionCharacter) {
 		return
 	}
 	defer peer.session.townMu.Unlock()
+	if peer.session.channelExitAcknowledged {
+		return
+	}
 	if peer.session.townSceneReadyCharacterID != peer.character {
 		retry()
 		return

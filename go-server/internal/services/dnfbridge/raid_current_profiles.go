@@ -13,7 +13,13 @@ import (
 func (s *Service) sendCurrentRuntimeRaidProfiles(session *gameSession, state runtimeRaidState) error {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	return s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, newCurrentCrossSceneProfileBatch(s, ctx))
+	return s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, newCurrentRaidProfileBatch(s, ctx))
+}
+
+func newCurrentRaidProfileBatch(s *Service, ctx context.Context) *currentCrossSceneProfileBatch {
+	batch := newCurrentCrossSceneProfileBatch(s, ctx)
+	batch.completeAdmittedWrite = true
+	return batch
 }
 
 func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch) error {

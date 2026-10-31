@@ -24,6 +24,11 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 		return err
 	}
 	cancelHandoff := s.rememberCurrentAuthenticatedChannelHandoff(session)
+	// Serialize the ACK with guild projections already using this scene.
+	// After the client sees EXIT it may release the role data read by NOTI127,
+	// while the old socket remains alive until the client's orderly close.
+	session.townMu.Lock()
+	defer session.townMu.Unlock()
 	if err := s.sendGameUpperRawClassNoCodec(
 		session,
 		uint16(dnfenum.CmdPacketExit),
@@ -33,6 +38,7 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 		cancelHandoff()
 		return err
 	}
+	session.channelExitAcknowledged = true
 	s.logGameEvent(session, "game-channel-exit-acknowledged",
 		"source", source,
 		"request_body_len", len(body),

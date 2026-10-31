@@ -152,7 +152,6 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 	if s == nil || !projection.changed {
 		return nil
 	}
-	var errs []error
 	if projection.retired {
 		s.closeRuntimePartyUDPRelay(projection.previous.PartyID)
 		for _, member := range runtimePartyMembers(projection.previous) {
@@ -164,7 +163,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 				continue
 			}
 			if err := s.sendRuntimePartyMemberRemoved(peer, removedID, alignedcmd.PartyState{}); err != nil {
-				errs = append(errs, err)
+				s.failRuntimeRaidRecipient(peer, "party_exit", err)
 			}
 		}
 		if projection.next.PartyID > 0 {
@@ -176,7 +175,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 				}
 				storeRuntimePartyState(peer, projection.next)
 				if err := s.sendRuntimePartySnapshot(peer, projection.next); err != nil {
-					errs = append(errs, err)
+					s.failRuntimeRaidRecipient(peer, "party_exit_snapshot", err)
 				}
 			}
 		}
@@ -200,7 +199,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 			}
 			storeRuntimePartyState(peer, projection.next)
 			if err := s.sendRuntimePartyMemberRemoved(peer, removedID, projection.next); err != nil {
-				errs = append(errs, err)
+				s.failRuntimeRaidRecipient(peer, "party_exit", err)
 			}
 		}
 	}
@@ -208,7 +207,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 		runtimePartySoloMemberIDs(projection.previous, projection.next),
 		false,
 	)
-	return errors.Join(errs...)
+	return nil
 }
 
 func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
@@ -501,7 +500,7 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 				continue
 			}
 			if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
-				errs = append(errs, err)
+				s.failRuntimeRaidRecipient(peer, "leave_metadata", err)
 			}
 		}
 	}
@@ -539,7 +538,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 		for _, member := range state.Members {
 			if peer, found := s.onlineGameSession(member.CharID); found {
 				if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
-					return err
+					s.failRuntimeRaidRecipient(peer, "start_metadata", err)
 				}
 			}
 		}
@@ -558,7 +557,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 			}
 			if found {
 				if err := s.sendCurrentRaidBattleState(peer, state); err != nil {
-					return err
+					s.failRuntimeRaidRecipient(peer, "battle_state", err)
 				}
 			}
 		}
@@ -573,7 +572,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 			}
 			if found {
 				if err := s.sendSelectedCurrentContainerListsRefresh(peer, "raid_entry_cost_after_commit"); err != nil {
-					return err
+					s.failRuntimeRaidRecipient(peer, "entry_cost_containers", err)
 				}
 			}
 		}
@@ -935,26 +934,25 @@ func (s *Service) broadcastRuntimeRaidRefresh(state runtimeRaidState) error {
 	}
 	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancelProfiles()
-	profiles := newCurrentCrossSceneProfileBatch(s, profileCtx)
-	var errs []error
+	profiles := newCurrentRaidProfileBatch(s, profileCtx)
 	for _, member := range state.Members {
 		session, ok := s.onlineGameSession(member.CharID)
 		if !ok {
 			continue
 		}
 		if err := s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, profiles); err != nil {
-			errs = append(errs, err)
+			s.failRuntimeRaidRecipient(session, "profiles", err)
 			continue
 		}
 		if err := s.sendGameUpperRawClassCodec(session, raid.RaidMemberRefreshMsgID, body, 0, true); err != nil {
-			errs = append(errs, err)
+			s.failRuntimeRaidRecipient(session, "roster", err)
 			continue
 		}
 		if err := s.sendCurrentRuntimeRaidEntryCost(session, state); err != nil {
-			errs = append(errs, err)
+			s.failRuntimeRaidRecipient(session, "entry_cost", err)
 		}
 	}
-	return errors.Join(errs...)
+	return nil
 }
 
 func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
@@ -988,7 +986,7 @@ func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
 				continue
 			}
 			if err := s.sendRuntimePartySnapshot(session, partyState); err != nil {
-				return err
+				s.failRuntimeRaidRecipient(session, "party_snapshot", err)
 			}
 		}
 	}

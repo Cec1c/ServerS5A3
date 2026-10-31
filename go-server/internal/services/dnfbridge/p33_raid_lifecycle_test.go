@@ -16,7 +16,13 @@ import (
 
 type p33RaidExitFailConn struct {
 	bufferConn
-	err error
+	err    error
+	closed bool
+}
+
+func (connection *p33RaidExitFailConn) Close() error {
+	connection.closed = true
+	return nil
 }
 
 func (connection *p33RaidExitFailConn) Write(data []byte) (int, error) {
@@ -204,8 +210,9 @@ func TestP33Op665SyncsMatchingPartyContinuesAfterNotifyFailureAndPreservesReward
 	if err := repository.Character.Save(context.Background(), dnfrepo.CharacterRecord{CharacterID: "21", AccountID: "dnf:3", Name: "P33 survivor", Job: "0", Level: 90}); err != nil {
 		t.Fatal(err)
 	}
+	failedConn := &p33RaidExitFailConn{err: failure}
 	failingPartyLeader := &gameSession{
-		conn: &p33RaidExitFailConn{err: failure}, connID: "p33-failing-party-leader",
+		conn: failedConn, connID: "p33-failing-party-leader",
 		channel: leader.channel, accountID: "dnf:3", selectedCharacterID: 21,
 		loginPacketSeen: true, accountFromToken: true,
 	}
@@ -224,8 +231,11 @@ func TestP33Op665SyncsMatchingPartyContinuesAfterNotifyFailureAndPreservesReward
 	leaderConn.write.Reset()
 	memberConn.write.Reset()
 
-	if err := s.handleGameCommand(member, 1, 665, []byte{byte(member.selectedCharacterID), 0}); !errors.Is(err, failure) {
-		t.Fatalf("op665 error=%v, want joined survivor notification failure", err)
+	if err := s.handleGameCommand(member, 1, 665, []byte{byte(member.selectedCharacterID), 0}); err != nil {
+		t.Fatalf("op665 propagated another recipient's failure: %v", err)
+	}
+	if !failedConn.closed {
+		t.Fatal("failed recipient remained open after notification failure")
 	}
 	ack, _ := splitGameServerUpperPacket(t, memberConn.write.Bytes())
 	if ack.Header.MsgID != 665 || len(ack.Body) != 2 || ack.Body[0] != 1 {
