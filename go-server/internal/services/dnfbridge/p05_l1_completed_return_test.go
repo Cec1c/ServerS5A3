@@ -39,7 +39,7 @@ func (g *p05L1V2DeadlineGate) Deadline() (time.Time, bool) {
 	for {
 		frame, more := frames.Next()
 		stack = append(stack, frame.Function)
-		inFrames = inFrames || strings.HasSuffix(frame.Function, ".(*Service).sendCurrentCrossSceneProfileFrames")
+		inFrames = inFrames || strings.HasSuffix(frame.Function, ".(*Service).sendCurrentCrossSceneProfileFramesWithBudget")
 		inBatch = inBatch || strings.HasSuffix(frame.Function, ".(*currentCrossSceneProfileBatch).send")
 		if !more {
 			break

@@ -199,10 +199,14 @@ func (s *Service) currentCreatureStateEntriesForWire(entries []dnfrepo.PetEntry)
 		entry := &out[index]
 		entry.NameRaw = append([]byte(nil), entry.NameRaw...)
 		if len(entry.NameRaw) != 0 {
-			continue
+			entry.NameRaw = dnppet.CreatureNameRawForWire(entry.NameRaw)
+			if len(entry.NameRaw) != 0 {
+				continue
+			}
 		}
 
 		name := strings.TrimSpace(entry.Name)
+		defaultName := false
 		if name == "" {
 			if !catalogLoaded {
 				catalog, _ = s.currentPetPVFCatalog()
@@ -211,8 +215,17 @@ func (s *Service) currentCreatureStateEntriesForWire(entries []dnfrepo.PetEntry)
 			if catalog != nil {
 				if definition, err := catalog.ResolveCreature(entry.ItemID); err == nil {
 					name = strings.TrimSpace(definition.Name)
+					defaultName = name != ""
 				}
 			}
+		}
+		if name == "" {
+			continue
+		}
+		if defaultName {
+			name = dnppet.DefaultCreatureNameForWire(name)
+		} else {
+			name = dnppet.CreatureNameForWire(name)
 		}
 		if name == "" {
 			continue

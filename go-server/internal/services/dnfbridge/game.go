@@ -332,6 +332,7 @@ type gameSession struct {
 	auraSkinMu                              sync.Mutex
 	auraSkinTownUIReadyStateSent            bool
 	townSceneReadyCharacterID               uint16
+	channelExitAcknowledged                 bool // protected by townMu; old connection's scene is gone after EXIT ACK
 	townPositionSnapshot                    currentTownPositionSnapshot
 	townPrevVillageSnapshot                 currentTownPositionSnapshot
 	// townSeriaRoomEntrySnapshot 记录"这一次是从哪个 (城镇, 区域, 坐标) 走门进赛丽亚房间的"，

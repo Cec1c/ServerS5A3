@@ -3,7 +3,6 @@ package pet
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"strings"
 	"testing"
 
@@ -88,7 +87,7 @@ func TestBuildCreatureListBodyModeOneAndValidation(t *testing.T) {
 	}
 }
 
-func TestBuildCreatureListBodyEnforcesCurrentReaderExclusiveNameLimit(t *testing.T) {
+func TestBuildCreatureListBodyProjectsCurrentReaderNameLimit(t *testing.T) {
 	accepted := dnfrepo.PetEntry{
 		PetKey:      "9",
 		CreatureKey: 9,
@@ -96,12 +95,20 @@ func TestBuildCreatureListBodyEnforcesCurrentReaderExclusiveNameLimit(t *testing
 		NameRaw:     []byte(strings.Repeat("a", 29)),
 		Level:       1,
 	}
-	if _, err := buildCreatureListBody([]dnfrepo.PetEntry{accepted}); err != nil {
+	body, err := buildCreatureListBody([]dnfrepo.PetEntry{accepted})
+	if err != nil {
 		t.Fatalf("29-byte name rejected: %v", err)
 	}
+	if got := binary.LittleEndian.Uint32(body[12:16]); got != CurrentCreatureNameUTF16Limit {
+		t.Fatalf("projected 29-byte name length=%d body=% X", got, body)
+	}
 	accepted.NameRaw = []byte(strings.Repeat("b", 30))
-	if _, err := buildCreatureListBody([]dnfrepo.PetEntry{accepted}); !errors.Is(err, errCreatureNameTooLong) {
-		t.Fatalf("30-byte name error = %v, want %v", err, errCreatureNameTooLong)
+	body, err = buildCreatureListBody([]dnfrepo.PetEntry{accepted})
+	if err != nil {
+		t.Fatalf("30-byte name rejected: %v", err)
+	}
+	if got := binary.LittleEndian.Uint32(body[12:16]); got != CurrentCreatureNameUTF16Limit {
+		t.Fatalf("projected 30-byte name length=%d body=% X", got, body)
 	}
 }
 
