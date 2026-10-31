@@ -19,7 +19,9 @@ func TestMySQLSettlementOwnershipNarrowReadMatchesFullReads(t *testing.T) {
 		s, _, router := newDeathDeltaSQL(t)
 		seedDeathDeltaState(t, router)
 		s.calls = nil
+		callbackStart := 0
 		err := (&mysqlCharacterSettlementUnitOfWork{router: router}).WithinCharacterSettlement(context.Background(), "77", func(tx repository.Group) error {
+			callbackStart = len(s.calls)
 			accounts := tx.Account.(*characterSettlementAccountRepository)
 			if full {
 				accounts.characters = fullOwnershipCharacterReader{accounts.characters}
@@ -34,7 +36,7 @@ func TestMySQLSettlementOwnershipNarrowReadMatchesFullReads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		readCounts = append(readCounts, len(s.calls))
+		readCounts = append(readCounts, len(s.calls)-callbackStart)
 	}
 	if readCounts[0] <= readCounts[1] || readCounts[1] != 2 {
 		t.Fatal("归属校验读取未减少", readCounts)
@@ -77,20 +79,23 @@ func TestMySQLSettlementAccountOwnershipReadsOnlyLockedOwner(t *testing.T) {
 		if err != nil || v.Calls[repository.TransactionBegin] != 1 || v.Calls[repository.TransactionCommit] != 1 {
 			t.Fatal(err, v)
 		}
-		var narrow, full int
+		var narrow, unlocked, full int
 		for _, call := range s.calls {
-			if strings.HasPrefix(call.Query, "SELECT account_id FROM ") {
-				narrow++
-				if !strings.HasSuffix(call.Query, " FOR UPDATE") {
-					t.Fatal("归属读取必须保留原角色行锁")
+			if strings.HasPrefix(call.Query, "SELECT character_id, account_id FROM ") {
+				if strings.HasSuffix(call.Query, " FOR UPDATE") {
+					narrow++
+				} else {
+					unlocked++
 				}
 			}
 			if strings.HasPrefix(call.Query, "SELECT character_id, account_id,") {
 				full++
 			}
 		}
-		if narrow != 2 || full != 0 {
-			t.Fatal("归属校验不应重复读取完整角色", narrow, full)
+		// One lookup precedes the account lock; the locked recheck and both
+		// account operations must read the live owner under the character lock.
+		if narrow != 3 || unlocked != 1 || full != 0 {
+			t.Fatal("归属校验不应重复读取完整角色", narrow, unlocked, full)
 		}
 		if v.Calls[repository.TransactionLockRead]+v.Calls[repository.TransactionRead]+v.Calls[repository.TransactionWrite] != len(s.calls) {
 			t.Fatal("SQL调用计数不一致", v, len(s.calls))

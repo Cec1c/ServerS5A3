@@ -73,7 +73,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		lookupRouter := txRouter
 		lookupRouter.lockReads = false
 		lookup := newMySQLGroupFromRouter(lookupRouter, false)
-		character, found, lookupErr := lookup.Character.Load(ctx, characterID)
+		character, found, lookupErr := repository.LoadCharacterIdentity(ctx, lookup.Character, characterID)
 		if lookupErr != nil {
 			return lookupErr
 		}
@@ -112,7 +112,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if _, _, lockErr := accountLocker.Load(ctx, settlementAccountID); lockErr != nil {
 		return lockErr
 	}
-	lockedCharacter, found, lockErr := base.Character.Load(ctx, characterID)
+	lockedCharacter, found, lockErr := repository.LoadCharacterIdentity(ctx, base.Character, characterID)
 	if lockErr != nil {
 		return lockErr
 	}

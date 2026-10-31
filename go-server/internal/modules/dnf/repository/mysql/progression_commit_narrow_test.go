@@ -172,6 +172,10 @@ func (s *progressionCommitSQLState) selectRows(query string) ([][]driver.Value, 
 			s.updatedAt,
 		}
 		return [][]driver.Value{values}, len(values), nil
+	case strings.Contains(query, "SELECT expanded, active_tree, total_sp,"):
+		// A legacy character may have no secondary skill page. The narrow ledger
+		// still validates and locks this header, without reading skill details.
+		return nil, 7, nil
 	default:
 		return nil, 0, errors.New("unexpected progression SQL query: " + query)
 	}
@@ -246,8 +250,8 @@ func progressionCommitPlan(state *progressionCommitSQLState, nextLevel int, next
 
 func assertProgressionCommitLockedReads(t *testing.T, state *progressionCommitSQLState) {
 	t.Helper()
-	if len(state.reads) != 3 {
-		t.Fatalf("progression reads = %d, want 3: %+v", len(state.reads), state.reads)
+	if len(state.reads) != 4 {
+		t.Fatalf("progression reads = %d, want 4: %+v", len(state.reads), state.reads)
 	}
 	for _, call := range state.reads {
 		if !strings.Contains(call.query, "`writer`.") || strings.Contains(call.query, "`replica`") {

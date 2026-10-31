@@ -16,6 +16,23 @@ type deathQuestFullProbe struct {
 	loads int
 }
 
+// The personal-drop journal reads inside its own transaction. Observe that
+// actual read rather than requiring the retired outer-repository read path.
+type deathQuestPreparationProbe struct {
+	dnfrepo.QuestMaterialPreparationUnitOfWork
+	loads int
+}
+
+func (p *deathQuestPreparationProbe) WithinQuestMaterialPreparation(ctx context.Context, ids []string, apply func(dnfrepo.Group) error) error {
+	return p.QuestMaterialPreparationUnitOfWork.WithinQuestMaterialPreparation(ctx, ids, func(tx dnfrepo.Group) error {
+		probe := &deathQuestFullProbe{QuestRepository: tx.Quest}
+		tx.Quest = probe
+		err := apply(tx)
+		p.loads += probe.loads
+		return err
+	})
+}
+
 func TestDungeonDeathQuestActiveMonsterItemDropIsNotSkipped(t *testing.T) {
 	s, p, repos, key := qst017Fixture(t, 2)
 	source := bridgePVFSource{
@@ -34,13 +51,15 @@ func TestDungeonDeathQuestActiveMonsterItemDropIsNotSkipped(t *testing.T) {
 	full := &deathQuestFullProbe{QuestRepository: repos.Quest}
 	probe := &deathQuestStatusProbe{deathQuestFullProbe: full}
 	repos.Quest = probe
+	preparation := &deathQuestPreparationProbe{QuestMaterialPreparationUnitOfWork: repos.QuestMaterialPlan}
+	repos.QuestMaterialPlan = preparation
 	s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
 	if err := qst017Death(s, p, key); err != nil {
 		t.Fatal(err)
 	}
 	inv, _, err := repos.Inventory.Load(context.Background(), "19")
-	if err != nil || currentQuestDropHeldCount(inv, int64(seekerQST022ItemID)) != 1 || full.loads == 0 || probe.queries != 1 {
-		t.Fatalf("正常怪任务物品未发放：reads=%d query=%d err=%v", full.loads, probe.queries, err)
+	if err != nil || currentQuestDropHeldCount(inv, int64(seekerQST022ItemID)) != 1 || preparation.loads == 0 || probe.queries != 1 {
+		t.Fatalf("正常怪任务物品未发放：transactionReads=%d query=%d err=%v", preparation.loads, probe.queries, err)
 	}
 	if err := qst017Death(s, p, key); err != nil {
 		t.Fatal(err)
