@@ -30,7 +30,7 @@ func (u *mysqlCharacterPetUnitOfWork) WithinCharacterPets(
 	if !ok {
 		return repository.ErrCharacterPetTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -41,16 +41,17 @@ func (u *mysqlCharacterPetUnitOfWork) WithinCharacterPets(
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	txGroup.Pet.(*mysqlPetStore).trackGrowthChanges = true
 	inventory := &characterPetScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &characterPetScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}
 	pets := &characterPetScopedPetRepository{characterID: characterID, base: txGroup.Pet}
 	if err := apply(inventory, equipment, pets); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	return tx.Commit()
+	return commitTimedSQLTransaction(ctx, tx)
 }
 
 type characterPetScopedInventoryRepository struct {

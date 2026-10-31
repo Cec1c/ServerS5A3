@@ -113,7 +113,7 @@ func (u *mysqlCharacterCreationUnitOfWork) WithinCharacterCreation(ctx context.C
 	if !ok {
 		return repository.ErrCharacterCreationTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func (u *mysqlCharacterSkillUnitOfWork) WithinCharacterSkill(ctx context.Context
 	if !ok {
 		return repository.ErrCharacterSkillTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	if !ok {
 		return repository.ErrCharacterProgressionTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -209,6 +209,8 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// 未满级经验同样复用事务内完整锁读的属性差量写入。
+	txGroup.Character.(*mysqlCharStore).trackStatChanges = true
 	characters := &characterProgressionScopedCharacterRepository{
 		characterID: characterID,
 		base:        txGroup.Character,
@@ -217,13 +219,13 @@ func (u *mysqlCharacterProgressionUnitOfWork) WithinCharacterProgression(
 		characterID: characterID,
 		base:        txGroup.Skill,
 	}
-	if err := apply(characters, skills); err != nil {
-		return errors.Join(err, tx.Rollback())
+	if err := apply(characters, scopeSkillPointLedger(skills, txGroup.Skill, characterID)); err != nil {
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	return tx.Commit()
+	return commitTimedSQLTransaction(ctx, tx)
 }
 
 type characterProgressionScopedCharacterRepository struct {
@@ -302,7 +304,7 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	if !ok {
 		return repository.ErrCharacterItemTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -314,9 +316,9 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
 	if err := apply(txGroup.Inventory, txGroup.Equipment); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	return tx.Commit()
+	return commitTimedSQLTransaction(ctx, tx)
 }
 
 func (u *mysqlCharacterTradeUnitOfWork) WithinCharacterTrade(ctx context.Context, first, second string, apply func(repository.CharacterRepository, repository.InventoryRepository) error) error {
@@ -375,7 +377,7 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	if !ok {
 		return repository.ErrCharacterTradeTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -478,7 +480,7 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	if !ok {
 		return repository.ErrCharacterAssetTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -527,7 +529,7 @@ func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	if !ok {
 		return repository.ErrRentalAssetTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -591,7 +593,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Con
 	if !ok {
 		return repository.ErrCeraShopAssetTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
@@ -763,17 +765,38 @@ func (r *rentalScopedEquipmentRepository) SaveFields(ctx context.Context, record
 
 func (db sqlTransactionDB) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
 	start := db.observation.start()
+	timing := repository.TransactionTimingFromContext(ctx)
+	started := time.Now()
 	result, err := db.rawExecContext(ctx, q, args...)
+	if timing != nil {
+		timing.Record(repository.TransactionWrite, time.Since(started), 1)
+	}
 	db.observation.finish(1, sqlObserveExec, start, 0, err)
 	return result, err
 }
 func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...any) (SQLRows, error) {
 	start := db.observation.start()
+	timing := repository.TransactionTimingFromContext(ctx)
+	started := time.Now()
 	rows, err := db.rawQueryContext(ctx, q, args...)
+	if timing != nil {
+		phase := transactionReadPhase(q)
+		timing.Record(phase, time.Since(started), 1)
+		if err == nil {
+			rows = timedTransactionRows{SQLRows: rows, timing: timing, phase: phase}
+		}
+	}
 	return observedRows(db.observation, 1, start, rows, err)
 }
 func (db sqlTransactionDB) QueryRowContext(ctx context.Context, q string, args ...any) SQLRow {
 	start := db.observation.start()
+	timing := repository.TransactionTimingFromContext(ctx)
+	started := time.Now()
 	row := db.rawQueryRowContext(ctx, q, args...)
+	if timing != nil {
+		phase := transactionReadPhase(q)
+		timing.Record(phase, time.Since(started), 1)
+		row = timedTransactionRow{SQLRow: row, timing: timing, phase: phase}
+	}
 	return observedRow(db.observation, 1, start, row)
 }

@@ -17,6 +17,8 @@ type InventoryMutationCommand struct {
 	CharacterID string
 	UpdatedAt   time.Time
 	Apply       InventoryMutation
+	// 仅在本事务完整读取的前后快照之间推导槽变化；默认继续原保存路径。
+	SaveChangedSlots bool
 }
 
 type InventoryMutationResult struct {
@@ -135,6 +137,7 @@ func (o *Owner) MutateInventory(ctx context.Context, cmd InventoryMutationComman
 		if !found {
 			return ErrInventoryNotFound
 		}
+		before := inventory
 		inventory = dnfrepo.CloneInventory(inventory)
 		if inventory.Slots == nil {
 			inventory.Slots = make(map[string]dnfrepo.ItemStack)
@@ -145,7 +148,7 @@ func (o *Owner) MutateInventory(ctx context.Context, cmd InventoryMutationComman
 		}
 		if changed {
 			inventory.UpdatedAt = now
-			if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
+			if err := saveMutatedInventorySlots(ctx, inventories, before, inventory, cmd.SaveChangedSlots); err != nil {
 				return err
 			}
 		}

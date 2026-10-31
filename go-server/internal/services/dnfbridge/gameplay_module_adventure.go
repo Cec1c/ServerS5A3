@@ -240,7 +240,8 @@ func (s *Service) handleCurrentRequestAdventureInfo(session *gameSession, reques
 		"date_source", dateSource,
 		"name_source", "account_repository",
 		"growth_capsule_progress", state.Projection.Runtime.GrowthExperience,
-		"independent_tail_u32", 0)
+		"brave_experience_progress", state.Projection.Runtime.BraveExperience,
+		"capsule_claim_experience", state.Projection.CapsuleClaimExperience)
 	return s.sendGameUpperSuccess(session, currentAdventureInfoRequestMsgID, body)
 }
 

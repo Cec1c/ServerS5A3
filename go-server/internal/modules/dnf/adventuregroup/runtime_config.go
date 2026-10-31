@@ -45,6 +45,23 @@ type CapsuleConfig struct {
 	UpdateAt          time.Time
 }
 
+// MaximumExperience是单个胶囊的容量，MaximumCount才是可累计的胶囊数。
+func CapsuleTotalCapacity(config CapsuleConfig) uint64 {
+	count := max(uint64(config.MaximumCount), 1)
+	if config.MaximumExperience > math.MaxUint64/count {
+		return math.MaxUint64
+	}
+	return config.MaximumExperience * count
+}
+
+// 胶囊领取命令每次消耗一个MinimumExperience档；页面须预告实际发放点数。
+func CapsuleClaimExperience(config CapsuleConfig, accumulated uint64) uint32 {
+	if config.MinimumExperience == 0 || config.MaximumExperience < config.MinimumExperience || accumulated < config.MinimumExperience {
+		return 0
+	}
+	return config.GrantedExperience
+}
+
 type ExpeditionArea struct {
 	Index               byte
 	RequiredManageLevel int

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"os"
+	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
@@ -22,7 +24,45 @@ func real90DropArchive(t *testing.T) *platformpvf.Archive {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 生产进程只持有现用归档；真实资源回归会反复打开隔离归档。
+	// 用例结束后解除自己的静态缓存引用，不能让后续用例累积整份PVF。
+	t.Cleanup(func() {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		releaseReal90DropArchiveCaches(a)
+		runtime.GC()
+		runtime.ReadMemStats(&after)
+		t.Logf("真实PVF用例释放自身归档缓存：堆占用%d→%d MiB", before.HeapAlloc>>20, after.HeapAlloc>>20)
+	})
 	return a
+}
+
+func releaseReal90DropArchiveCaches(archive *platformpvf.Archive) {
+	var ownsSource func(dnfpvf.Source) bool
+	ownsSource = func(source dnfpvf.Source) bool {
+		switch value := source.(type) {
+		case *platformpvf.Archive:
+			return value == archive
+		case *dungeonGenericPoolReadProbe:
+			return value != nil && ownsSource(value.source)
+		}
+		return false
+	}
+	for _, cache := range []*sync.Map{
+		&currentAbyssEpicPieceLevelIndexes, &currentDungeonGoldReferencesByCatalog,
+		&currentDungeonMonsterDropRulesByCatalog, &currentDungeonDimensionDropsByMonsterCatalog,
+		&currentDungeonSpecialDropsByMonsterCatalog, &currentDungeonMonsterExperienceResourcesByCatalog,
+		&currentDungeonMonsterExperienceSourcesByCatalog, &currentEpicPieceCatalogs,
+		&currentEpicPieceCatalogUnavailableLogged,
+	} {
+		cache.Range(func(key, _ any) bool {
+			if catalog, ok := key.(*pvfDungeonMonsterCatalog); ok && ownsSource(catalog.source) {
+				cache.Delete(key)
+			}
+			return true
+		})
+	}
+	archive.ReleaseReadCaches()
 }
 
 // 采用实际表、实际抽取和119字节物品投影，资产仅落隔离内存仓储。

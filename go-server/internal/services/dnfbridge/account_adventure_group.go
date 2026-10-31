@@ -181,6 +181,7 @@ func (s *Service) projectCurrentAdventureAccountState(state accountAdventureGrou
 		return accountAdventureGroupState{}, parseErr
 	}
 	state.Projection.Runtime = runtime
+	state.Projection.CapsuleClaimExperience = adventuregroup.CapsuleClaimExperience(s.adventureGroupTable.Runtime().Capsule, runtime.GrowthExperience)
 	if config := s.adventureGroupTable.Runtime(); len(config.CollectionGroups) > 0 {
 		rows := adventuregroup.CollectionRows(state.Characters, state.Projection.CollectionSelections, currentAdventureCharacterLevelCap)
 		state.Projection.CollectionCounts = config.CollectionCounts(rows, currentAdventureCharacterLevelCap)

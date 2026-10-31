@@ -34,6 +34,7 @@ func loadCharacterSupplement(
 	router mysqlRouter,
 	characterID string,
 	record *repository.CharacterRecord,
+	shadowStats ...*bool,
 ) error {
 	statsTable, err := router.readTable(mysqlCharacterStatsTable, characterID)
 	if err != nil {
@@ -79,6 +80,9 @@ func loadCharacterSupplement(
 			rows.Close()
 			return err
 		}
+		if isMySQLCharacterMirrorStatKey(key) && len(shadowStats) == 1 && shadowStats[0] != nil {
+			*shadowStats[0] = true
+		}
 		mergeCharacterExtraStat(record, key, value, mirrorAuthoritative)
 	}
 	if err := rows.Err(); err != nil {
@@ -120,14 +124,21 @@ func saveCharacterSupplement(
 	characterID string,
 	record repository.CharacterRecord,
 	fields map[repository.CharacterField]struct{},
+	previousStats ...map[string]int64,
 ) error {
 	if _, ok := fields[repository.CharacterFieldStats]; ok {
 		statsTable, err := router.writeTable(mysqlCharacterStatsTable, characterID)
 		if err != nil {
 			return err
 		}
-		if err := replaceCharacterExtraStats(ctx, database, statsTable, characterID, record.Stats); err != nil {
-			return err
+		var saveErr error
+		if len(previousStats) == 1 {
+			saveErr = saveChangedCharacterStats(ctx, database, statsTable, characterID, previousStats[0], record.Stats)
+		} else {
+			saveErr = replaceCharacterExtraStats(ctx, database, statsTable, characterID, record.Stats)
+		}
+		if saveErr != nil {
+			return saveErr
 		}
 	}
 	if _, ok := fields[repository.CharacterFieldLocation]; ok {

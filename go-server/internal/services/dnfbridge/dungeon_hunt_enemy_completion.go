@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -22,8 +21,7 @@ type currentHuntMonsterReceiptKey struct {
 func currentHuntMonsterHasActiveQuests(record dnfrepo.QuestRecord) bool {
 	for _, states := range []map[int64]dnfrepo.QuestState{record.States, record.Progress} {
 		for _, state := range states {
-			switch strings.ToLower(strings.TrimSpace(state.Status)) {
-			case "active", "accepted", "inprogress", "progress":
+			if currentDungeonQuestStatusActive(state.Status) {
 				return true
 			}
 		}

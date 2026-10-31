@@ -32,6 +32,7 @@ type Projection struct {
 	ContentCounts               [ContentTypeCount]uint32
 	CollectionCounts            [CollectionTypeCount]uint16
 	Runtime                     RuntimeState
+	CapsuleClaimExperience      uint32
 	CollectionSelections        map[string]string
 	CollectionSourceServerGroup byte
 }

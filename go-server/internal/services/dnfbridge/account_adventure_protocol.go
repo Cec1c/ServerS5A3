@@ -118,7 +118,10 @@ func buildCurrentAdventureInfoBodyWithState(
 		}
 		offset := currentAdventureInfoShopPointOffset + index*currentAdventureInfoShopPointEntrySize
 		binary.LittleEndian.PutUint32(raw[offset:offset+4], points)
-		binary.LittleEndian.PutUint32(raw[offset+4:offset+8], points)
+		// 原生条目为{结晶数量, 当前经验余数}，第二项不能重复写数量。
+		if index == adventuregroup.ShopPointBrave {
+			binary.LittleEndian.PutUint32(raw[offset+4:offset+8], uint32(min(projection.Runtime.BraveExperience, uint64(^uint32(0)))))
+		}
 	}
 	purchaseIndex := 0
 	for _, category := range []byte{
@@ -147,6 +150,10 @@ func buildCurrentAdventureInfoBodyWithState(
 	binary.LittleEndian.PutUint64(
 		raw[currentAdventureInfoGrowthCapsuleOffset:currentAdventureInfoGrowthCapsuleOffset+8],
 		projection.Runtime.GrowthExperience,
+	)
+	binary.LittleEndian.PutUint32(
+		raw[currentAdventureInfoCapsuleClaimExperienceOffset:currentAdventureInfoCapsuleClaimExperienceOffset+4],
+		projection.CapsuleClaimExperience,
 	)
 
 	var writer packetWriter

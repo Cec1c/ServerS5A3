@@ -80,6 +80,7 @@ func (s *Service) collectNativeExtractionReadyPackets(p *gameSession, ahead *nat
 		if err != nil || skipped != 0 {
 			return packets, remaining, &chunk
 		}
+		s.logCurrentGameReadWait(p, chunk)
 		if len(chunk.data) > 0 {
 			s.logGamePacket(p, "RECV", "game-raw", chunk.data)
 		}

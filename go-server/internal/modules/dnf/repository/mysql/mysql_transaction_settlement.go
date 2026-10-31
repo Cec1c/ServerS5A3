@@ -47,11 +47,11 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollbackTimedSQLTransaction(ctx, tx)
 	txRouter := u.router
 	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	// Character settlement can also consume account-owned crystal/soul slots.
@@ -86,6 +86,8 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
 	base := newMySQLGroupFromRouter(txRouter, false)
+	base.Account.(*mysqlAccountStore).trackMetadataChanges = true
+	base.Character.(*mysqlCharStore).trackStatChanges = true
 	// 当前事务已加载的完整背包与共享仓库快照用于槽位差量。
 	// 保留既有公会登记、账号、角色的锁顺序；未Load仍走完整写入。
 	if store, ok := base.Inventory.(*mysqlBagStore); ok {
@@ -143,13 +145,14 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		txGroup.Settings = repository.GuildSettlementSettings(base.Settings, receiptScope)
 		txGroup.Mailbox = &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}
 	}
+	txGroup.Skill = scopeSkillPointLedger(txGroup.Skill, base.Skill, characterID)
 	if err := apply(txGroup); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTimedSQLTransaction(ctx, tx); err != nil {
 		if owner != nil {
 			return errors.Join(repository.ErrGuildCommitUnknown, err)
 		}

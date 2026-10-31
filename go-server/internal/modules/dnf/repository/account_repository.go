@@ -22,6 +22,13 @@ type AccountCreateIfAbsentWriter interface {
 	CreateIfAbsent(context.Context, AccountRecord) (bool, error)
 }
 
+// AccountMetadataEntryReader 只读已存在账号的一项元数据，不载入完整账号快照。
+// found=false 表示账号或该键不存在；实现必须避免返回孤立元数据行。
+// 不支持该能力的仓储继续使用 AccountRepository.Load。
+type AccountMetadataEntryReader interface {
+	LoadMetadataEntry(ctx context.Context, accountID, key string) (value string, found bool, err error)
+}
+
 // AccountMetadataEntryWriter persists one normalized account-metadata row
 // without replacing unrelated keys.
 type AccountMetadataEntryWriter interface {
