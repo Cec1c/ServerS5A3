@@ -241,7 +241,7 @@ def check_profile(profile):
         raise ValueError("Headless channel probe must be an argv array")
 
 
-def checked_changes(source, base, allowed, upstream=None):
+def checked_changes(source, base, allowed, upstream=None, ancillary_review=None):
     if not isinstance(allowed, list) or not all(isinstance(p, str) for p in allowed):
         raise ValueError("Reviewed path list must be a JSON string array")
     if git(source, "status", "--porcelain"):
@@ -250,6 +250,7 @@ def checked_changes(source, base, allowed, upstream=None):
     changed = set(filter(None, git(source, "diff", "--no-renames", "--name-only", "-z", base, "HEAD").split("\0")))
     if changed != set(allowed):
         raise ValueError("Candidate changes differ from reviewed path list: " + repr(sorted(changed ^ set(allowed))))
+    exceptions = {}
     for rel in changed:
         safe_path(rel)
         if not (rel.startswith(("go-server/", "Docs/")) or rel in ("changlog.md", "AGENTS.md", "README.md")):
@@ -259,7 +260,21 @@ def checked_changes(source, base, allowed, upstream=None):
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 return result.stdout.strip() if result.returncode == 0 else None
             if not upstream or blob("HEAD") != blob(upstream):
-                raise ValueError("Non-game source must exactly match reviewed authoritative master: " + rel)
+                if not upstream or not rel.startswith(("deploy/", "scripts/")) or not rel.endswith(".py"):
+                    raise ValueError("Non-game source must exactly match reviewed authoritative master: " + rel)
+                def content_hash(ref):
+                    if blob(ref) is None:
+                        return None
+                    data = subprocess.check_output(["git", "show", ref + ":" + rel], cwd=source)
+                    return hashlib.sha256(data).hexdigest()
+                exceptions[rel] = {"baseSha256": content_hash(base), "upstreamSha256": content_hash(upstream),
+                                   "candidateSha256": content_hash("HEAD")}
+    if exceptions or ancillary_review is not None:
+        expected = {"format": 1, "purpose": "source-archive-only", "baseCommit": base,
+                    "upstreamCommit": upstream, "candidateCommit": git(source, "rev-parse", "HEAD"),
+                    "files": exceptions}
+        if not exceptions or ancillary_review != expected:
+            raise ValueError("Non-game source requires an exact three-version archive review; no runtime tools are installed")
     return changed
 
 
@@ -527,7 +542,7 @@ class Update:
             manifest["runtimeChannelUpdate"] = self.channel_asset["manifest"]
         save(self.stage / "game-source-manifest.json", manifest)
 
-    def deploy(self, source, allowed, recovered_base=None, emergency_evidence=None):
+    def deploy(self, source, allowed, recovered_base=None, emergency_evidence=None, ancillary_review=None):
         pinned = source_state(source)
         snapshot = json.loads(self.worker("snapshot").stdout)
         self.stage.mkdir(parents=True, exist_ok=False)
@@ -569,7 +584,14 @@ class Update:
             self.recovery = checked_recovered_base(source, recovered_base, snapshot)
             save(self.stage / "source-recovery.json", self.recovery)
             base = recovered_base
-        changed = checked_changes(source, base, allowed, self.authority.baseline)
+        archive_review = None
+        if ancillary_review:
+            if self.emergency or recovered_base:
+                raise ValueError("Archive review cannot be combined with emergency/recovery modes")
+            archive_review = json.loads(ancillary_review.read_text(encoding="utf-8-sig"))
+        changed = checked_changes(source, base, allowed, self.authority.baseline, archive_review)
+        if archive_review:
+            save(self.stage / "ancillary-source-review.json", archive_review)
         if pinned["head"] == snapshot["active"]["sourceCommit"]:
             if self.channel_asset and not self.channel_asset["already_applied"]:
                 raise ValueError("A runtime channel update must accompany the next reviewed source deployment")
@@ -675,6 +697,7 @@ def main():
     parser.add_argument("--changed-files", type=Path, help="JSON array of reviewed repository-relative paths")
     parser.add_argument("--recovered-base", help="New root commit matching every deployed manifest byte; never the lost SHA")
     parser.add_argument("--emergency-evidence", type=Path, help="Explicitly authorized MR226 recovery with exact source/validation hashes")
+    parser.add_argument("--ancillary-review", type=Path, help="Exact base/upstream/candidate hashes for reviewed Python source archives; never installs runtime tools")
     parser.add_argument("--run-id")
     parser.add_argument("--apply", action="store_true", help="Apply a backup cleanup plan")
     args = parser.parse_args()
@@ -683,7 +706,7 @@ def main():
     update = Update(json.loads(args.profile.read_text(encoding="utf-8-sig")), run_id)
     if args.command == "deploy":
         if not args.source or not args.changed_files: parser.error("deploy requires --source and --changed-files")
-        update.deploy(args.source.resolve(), json.loads(args.changed_files.read_text(encoding="utf-8-sig")), args.recovered_base, args.emergency_evidence)
+        update.deploy(args.source.resolve(), json.loads(args.changed_files.read_text(encoding="utf-8-sig")), args.recovered_base, args.emergency_evidence, args.ancillary_review)
     elif args.command == "cleanup": update.cleanup(args.apply)
     elif args.command == "rollback":
         update.worker("rollback", capture=False)
