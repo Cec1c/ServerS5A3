@@ -1000,6 +1000,7 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 		s.logTownLoadingDiagnostic(kind, args...)
 		s.logEmpireTeamSetupDiagnostic(kind, args...)
 		s.logDungeonSettlementDiagnostic(kind, args...)
+		s.logTownSelectorDiagnostic(kind, args...)
 		if kind == "game-peer-userinfo-profile-refresh-sent" || kind == "game-peer-userinfo-profile-refresh-failed" {
 			s.logCrossSceneProfileDiagnostic(kind, args...)
 		} else {
