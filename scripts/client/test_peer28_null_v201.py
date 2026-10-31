@@ -2,7 +2,7 @@
 
 Executes the real switch, five-byte body consumption, slot validators, normal
 equipment getter, proxy getter and whole opcode-28 branch up to common cleanup.
-Scene lookup, typed-object registry, packet readers, item-value codec and final
+Scene lookup, typed-object registry, item-value codec and final
 UI effects are explicit adapters; this is not an end-to-end multiplayer test.
 """
 import argparse
@@ -31,14 +31,14 @@ class Native:
         for at, size in ((0x20000000, 0x40000), (0x21000000, 0x40000), (self.STUB, 4096), (self.NETWORK, 0x20B000)):
             self.u.mem_map(at, size)
         self.body = struct.pack('<HHB', 0, 123, slot)
-        self.cursor, self.effects, self.lookups, self.faults = 0, [], [], []
+        self.effects, self.lookups, self.faults = [], [], []
         self.visited, self.resume = set(), None
         self.local, self.broken, self.state = local, broken, state
-        self.put(self.PACKET, 28 << 8)
-        self.put(self.NETWORK, self.READERS)
+        self.u.mem_write(self.PACKET, struct.pack('<BHI', 0, 28, 7 + len(self.body)) + self.body)
+        # Actual V201 network vtable and native U8/U16 readers; no reader hook.
+        self.put(self.NETWORK, 0x4CF5554)
+        self.put(self.NETWORK + 0x20A024, self.PACKET + 7)
         self.put(self.NETWORK + 0x20A028, self.ACTOR)
-        self.put(self.READERS + 0x54, self.STUB + 0x10)
-        self.put(self.READERS + 0x58, self.STUB + 0x20)
         self.put(self.ACTOR, self.TABLE)
         self.put(self.TABLE + 0x44, self.STUB + 0x30)
         self.put(self.TABLE + 0xB54, 0x2771FB0)
@@ -52,8 +52,6 @@ class Native:
         if proxy:
             self.put(self.TABLE + 0xB54, proxy)
         self.hooks = {
-            self.STUB + 0x10: lambda: self.reader(1),
-            self.STUB + 0x20: lambda: self.reader(2),
             self.STUB + 0x30: lambda: self.ret(value=0),
             self.STUB + 0x40: self.item_info,
             self.STUB + 0x50: lambda: self.ret(value=int(broken)),
@@ -92,12 +90,6 @@ class Native:
             self.u.reg_write(UC_X86_REG_EAX, value)
         self.u.reg_write(UC_X86_REG_EIP, self.read(sp))
         self.u.reg_write(UC_X86_REG_ESP, sp + 4 + pop)
-
-    def reader(self, width):
-        assert self.cursor + width <= len(self.body)
-        self.u.mem_write(self.arg(), self.body[self.cursor:self.cursor + width])
-        self.cursor += width
-        self.ret(4)
 
     def actor_lookup(self):
         self.lookups.append([self.arg(i) for i in range(3)])
@@ -141,11 +133,13 @@ class Native:
         except UcError:
             if not self.faults:
                 raise
-        assert self.cursor == 5
+        consumed = self.read(self.NETWORK + 0x20A024) - self.PACKET - 7
+        assert consumed == 5
+        assert {0x32962A0, 0x32962C0} <= self.visited
         assert self.lookups == [[0, 123, 1]]
         assert self.reg(UC_X86_REG_ESP) == self.STACK
         return dict(end=hex(self.reg(UC_X86_REG_EIP)), effects=self.effects,
-                    faults=self.faults, consumed=self.cursor, resume=self.resume)
+                    faults=self.faults, consumed=consumed, resume=self.resume)
 
 
 def verify(data, candidate):
