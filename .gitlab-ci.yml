@@ -22,6 +22,7 @@ workflow:
         - 'go.work'
         - 'go.work.sum'
         - 'scripts/**/*'
+        - 'changelog.d/**/*'
         - 'ci/**/*'
         - '*.sh'
         - '*.bat'
@@ -85,6 +86,22 @@ core-tests:
   - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
   - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
   - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+changelog-fragments:
+  stage: test
+  needs: []
+  image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
+  cache: []
+  variables:
+    GIT_DEPTH: "0"
+  before_script:
+  - apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates
+  script:
+  - python -m unittest discover -s scripts/ci -p 'test_changelog_fragments.py' -v
+  - python scripts/ci/changelog_fragments.py ci --output-dir dist/changelog-preview
+  artifacts:
+    paths:
+    - dist/changelog-preview/
+    expire_in: 30 days
 channel-u8-tests:
   stage: test
   dependencies: []
