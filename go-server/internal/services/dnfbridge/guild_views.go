@@ -59,6 +59,9 @@ func (s *Service) writeCurrentGuildManagementState(session *gameSession, g *dnfg
 }
 
 func (s *Service) writeCurrentGuildManagementProjection(session *gameSession, g *dnfguild.Guild, notifyMembership bool) error {
+	if session.channelExitAcknowledged {
+		return nil
+	}
 	grade := byte(100)
 	if g != nil {
 		if m, ok := g.Members[strconv.Itoa(int(session.selectedCharacterID))]; ok && m.AccountID == s.accountIDForSession(session) {
@@ -121,7 +124,7 @@ func (s *Service) sendCurrentInitialTownGuildStateProjectionLocked(session *game
 	if repos, ok := s.repositoryGroup(); !ok || repos.Settings == nil || repos.Character == nil {
 		return nil
 	}
-	if !session.initialTownLegacySceneReadyAccepted || session.initialTownGuildStateProjectionSent || session.selectedCharacterID == 0 || session.townSceneReadyCharacterID != session.selectedCharacterID {
+	if session.channelExitAcknowledged || !session.initialTownLegacySceneReadyAccepted || session.initialTownGuildStateProjectionSent || session.selectedCharacterID == 0 || session.townSceneReadyCharacterID != session.selectedCharacterID {
 		return nil
 	}
 	g, err := s.currentGuildForSelectedCharacter(session)
