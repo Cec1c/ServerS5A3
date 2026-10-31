@@ -18,6 +18,7 @@ func TestBuildCurrentAdventureInfoBodyProjectsShopAndGrowthRuntimeState(t *testi
 	projection := adventuregroup.Projection{
 		Runtime: adventuregroup.RuntimeState{
 			ShopPoints:       [adventuregroup.ShopPointTypeCount]uint32{7, 11, 13},
+			BraveExperience:  7_500_000,
 			GrowthExperience: 123456,
 			Purchases: map[string]uint32{
 				"0:10304122": 2,
@@ -39,8 +40,12 @@ func TestBuildCurrentAdventureInfoBodyProjectsShopAndGrowthRuntimeState(t *testi
 		if balance := binary.LittleEndian.Uint32(raw[offset : offset+4]); balance != want {
 			t.Fatalf("native shop balance[%d]=%d want=%d", index, balance, want)
 		}
-		if got := binary.LittleEndian.Uint32(raw[offset+4 : offset+8]); got != want {
-			t.Fatalf("shop points[%d]=%d want=%d", index, got, want)
+		wantProgress := uint32(0)
+		if index == adventuregroup.ShopPointBrave {
+			wantProgress = 7_500_000
+		}
+		if got := binary.LittleEndian.Uint32(raw[offset+4 : offset+8]); got != wantProgress {
+			t.Fatalf("结晶经验余数[%d]=%d，期望%d", index, got, wantProgress)
 		}
 	}
 	first := raw[currentAdventureInfoPurchaseOffset : currentAdventureInfoPurchaseOffset+currentAdventureInfoPurchaseEntrySize]

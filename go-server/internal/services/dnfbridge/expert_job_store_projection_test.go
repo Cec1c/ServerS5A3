@@ -58,7 +58,12 @@ func newExpertJobStoreProjectionFixture(t *testing.T) expertJobStoreProjectionFi
 		connectionTownActorOwnerChannel: byte(channel.ID),
 		townActorOwnerChannel:           byte(channel.ID),
 	}
-	service.bindGameSessionCharacter(peer, 17)
+	startTownPeerTest(t, service, owner, &onlinePlayerInfo{
+		CharacterID: 29, AccountID: "dnf:1", Name: "owner",
+		TownID: 38, AreaID: 0, PositionX: 651, PositionY: 197,
+		Direction: 5, AreaState: 3, Session: owner,
+	})
+	startTownPeerTest(t, service, peer, nil)
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "17",
 		AccountID:   "dnf:2",
@@ -72,11 +77,6 @@ func newExpertJobStoreProjectionFixture(t *testing.T) expertJobStoreProjectionFi
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service.onlinePlayers.EnterArea(&onlinePlayerInfo{
-		CharacterID: 29, AccountID: "dnf:1", Name: "owner",
-		TownID: 38, AreaID: 0, PositionX: 651, PositionY: 197,
-		Direction: 5, AreaState: 3, Session: owner,
-	})
 	service.expertJobStores = map[uint16]*currentExpertJobStore{
 		29: newExpertJobStoreProjectionStore(29, owner, 38, 0, 0, channel.ID),
 	}
@@ -133,6 +133,8 @@ func (f expertJobStoreProjectionFixture) enterTownArea(
 	}
 	others := f.service.onlinePlayers.EnterArea(info)
 	f.service.broadcastTownPlayerEnter(info, others)
+	drainTownPeerTest(t, f.service, f.owner)
+	drainTownPeerTest(t, f.service, f.peer)
 }
 
 // storeProjectionFrames 取出（并清空）某个会话收到的 NOTI538 投影 body。
@@ -159,6 +161,8 @@ func TestExpertJobStoreProjectionReachesLateAreaJoiner(t *testing.T) {
 	// B 从自己的私有赛丽亚房（38/1）走出房门，进入 A 摆机器的那个共享区域 —— 正是现场
 	// :899 `source=prev_village_return_from_private_seria_room` 那一步。
 	fixture.service.publishTownPresenceAfterSeriaRoomReturn(fixture.peer, 38, 0, 622, 196, 5, 3)
+	drainTownPeerTest(t, fixture.service, fixture.owner)
+	drainTownPeerTest(t, fixture.service, fixture.peer)
 
 	// 先把日志落盘再断言：断言的 t.Fatal 会跳过后续语句，不能把 Close 留到断言之后。
 	if err := logger.Close(); err != nil {
@@ -261,6 +265,7 @@ func TestExpertJobStoreProjectionDoesNotDoubleSendOnSetUserArea(t *testing.T) {
 	fixture := newExpertJobStoreProjectionFixture(t)
 	fixture.enterTownArea(t, fixture.peer, 17, "peer", 38, 0, 0)
 	fixture.service.replayCurrentExpertJobStores(fixture.peer, 38, 0)
+	drainTownPeerTest(t, fixture.service, fixture.peer)
 	if bodies := storeProjectionFrames(t, fixture.peer); len(bodies) != 1 {
 		t.Fatalf("op36 entry produced %d store projections, want exactly 1", len(bodies))
 	}
@@ -284,6 +289,7 @@ func TestExpertJobStoreProjectionLegacyRollback(t *testing.T) {
 	}
 	// ……旧重放（op36 路径）恢复改动前的行为：无条件发一次、逐字节同形状。
 	fixture.service.replayCurrentExpertJobStores(fixture.peer, 38, 0)
+	drainTownPeerTest(t, fixture.service, fixture.peer)
 	bodies := storeProjectionFrames(t, fixture.peer)
 	want := buildCurrentExpertJobStoreCreateNotification(fixture.service.expertJobStores[29])
 	if len(bodies) != 1 || !bytes.Equal(bodies[0], want) {
@@ -305,6 +311,8 @@ func TestExpertJobStoreCreateBroadcastReachesPresentPeersOnly(t *testing.T) {
 		Direction: 5, AreaState: 3, Session: fixture.peer,
 	})
 	fixture.service.broadcastCurrentExpertJobStoreCreate(store, body, "test_store_create")
+	drainTownPeerTest(t, fixture.service, fixture.peer)
+	drainTownPeerTest(t, fixture.service, fixture.owner)
 	frames := storeProjectionFrames(t, fixture.peer)
 	if len(frames) != 1 || !bytes.Equal(frames[0], body) {
 		t.Fatalf("present peer store broadcast=% X want exactly one % X", frames, body)

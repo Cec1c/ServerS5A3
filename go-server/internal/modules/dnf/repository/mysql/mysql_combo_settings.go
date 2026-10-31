@@ -12,13 +12,13 @@ type characterComboSettingsRepository struct {
 }
 
 func (r *characterComboSettingsRepository) Load(ctx context.Context, scope string) (repository.SettingsRecord, bool, error) {
-	if r == nil || r.base == nil || !repository.CharacterSkillSettingsScope(r.characterID, scope) {
+	if r == nil || r.base == nil || !(repository.CharacterSkillSettingsScope(r.characterID, scope) || repository.QuestMaterialSettingsScope(r.characterID, scope)) {
 		return repository.SettingsRecord{}, false, repository.ErrCharacterSettlementTransactionUnavailable
 	}
 	return r.base.Load(ctx, scope)
 }
 func (r *characterComboSettingsRepository) Save(ctx context.Context, record repository.SettingsRecord) error {
-	if r == nil || r.base == nil || !repository.CharacterSkillSettingsScope(r.characterID, repository.SettingsKey(record)) {
+	if r == nil || r.base == nil || !(repository.CharacterSkillSettingsScope(r.characterID, repository.SettingsKey(record)) || repository.QuestMaterialSettingsScope(r.characterID, repository.SettingsKey(record))) {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
 	return r.base.Save(ctx, record)

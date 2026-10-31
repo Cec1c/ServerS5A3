@@ -202,6 +202,16 @@ func parseCurrentBoosterSelectionCatalog(
 		}
 		values := magicBoxSectionInts(document, section)
 		if len(values) == 0 {
+			if name == "booster equipment upgrade" {
+				return nil, nil, fmt.Errorf("invalid booster equipment upgrade")
+			}
+			continue
+		}
+		if name == "booster equipment upgrade" {
+			// Zero requests no reinforcement; nonzero semantics are unverified.
+			if len(values) != 1 || values[0] != 0 || section.End-section.Start != 1 {
+				return nil, nil, fmt.Errorf("unsupported booster equipment upgrade")
+			}
 			continue
 		}
 		stride := 0
@@ -277,6 +287,9 @@ func currentBoosterSelectedCandidates(
 	definition currentBoosterDefinition,
 	request currentBoosterOpenRequest,
 ) ([]currentBoosterSelectionCandidate, error) {
+	if request.CompactArmorSet && (definition.Source.ItemID != 490008265 || definition.SelectionRequired != 0 || len(request.Selections) != 5) {
+		return nil, errCurrentBoosterSelectionInvalid
+	}
 	if len(request.Selections) == 0 {
 		return nil, errCurrentBoosterSelectionInvalid
 	}

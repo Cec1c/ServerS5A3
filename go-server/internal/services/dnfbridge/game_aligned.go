@@ -998,6 +998,8 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			return err
 		}
 	}
+	s.broadcastCurrentEquipmentUpgradeNotice(session, result.EquipmentUpgradeNotice)
+
 	for listType := range authoritativeLists {
 		if handledLists[listType] {
 			continue

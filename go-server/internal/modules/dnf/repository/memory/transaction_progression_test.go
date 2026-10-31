@@ -452,6 +452,8 @@ func progressionSQLRowsFor(query string) driver.Rows {
 			values[5] = nil
 		}
 		rows.rows = [][]driver.Value{values}
+	case strings.HasPrefix(query, "SELECT character_id, account_id FROM "):
+		rows.rows = [][]driver.Value{{"77", "dnf:1"}}
 	case strings.HasPrefix(query, "SELECT character_id, account_id,"):
 		values[0], values[1], values[3], values[4] = "77", "dnf:1", "hero", "0"
 		values[2], values[5] = int64(0), int64(2)

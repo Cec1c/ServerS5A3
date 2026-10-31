@@ -320,6 +320,7 @@ func TestGuildHallMembershipLossRetiresOldPresence(t *testing.T) {
 	for _, route := range []string{"publish", "return", "move"} {
 		t.Run(route, func(t *testing.T) {
 			s, peers, repos := guildHallFixture(t)
+			startTownPeerTest(t, s, peers[29], nil)
 			for _, id := range []uint16{29, 30} {
 				s.publishTownPresenceInArea(peers[id], 8, 0, 500, 220, 5, 3, "before")
 			}
@@ -332,6 +333,7 @@ func TestGuildHallMembershipLossRetiresOldPresence(t *testing.T) {
 			if err := dnfguild.Save(context.Background(), repos.Settings, reg, s.gameplayNow()); err != nil {
 				t.Fatal(err)
 			}
+			drainTownPeerTest(t, s, peers[29])
 			peers[29].conn.(*bufferConn).write.Reset()
 			switch route {
 			case "publish":
@@ -346,6 +348,7 @@ func TestGuildHallMembershipLossRetiresOldPresence(t *testing.T) {
 			if _, found := s.onlinePlayers.PlayerForCharacter(30); found {
 				t.Fatal("former member remains in hall roster")
 			}
+			drainTownPeerTest(t, s, peers[29])
 			packet, rest := splitCurrentGameServerUpperPacketAuto(t, peers[29].conn.(*bufferConn).write.Bytes())
 			if packet.Header.MsgID != currentTownUserLeaveMsgID || len(rest) != 0 {
 				t.Fatal("old peer did not remove former member")

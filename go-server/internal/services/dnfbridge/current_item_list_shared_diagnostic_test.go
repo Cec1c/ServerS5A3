@@ -45,7 +45,7 @@ func TestCurrentSharedInventoryDiagnosticOnlyLogsCompleteSocketWrite(t *testing.
 			ordinary.patchCore(111, 36, 1)
 			body := buildCurrentItemListBody(0, []currentItemListEntry{ordinary, shared}, dnfrepo.CharacterContainerState{MainSlotCount: 144})
 			err := service.sendCurrentSceneItemList(session, 13, body)
-			if (err != nil) != (kind == "failed") {
+			if (err != nil) != (kind == "failed" || kind == "short") {
 				t.Fatalf("send error %v for %s", err, kind)
 			}
 			if err := logger.Close(); err != nil {

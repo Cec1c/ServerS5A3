@@ -24,6 +24,7 @@ type gameSession struct {
 	// Written and read only by this session's serial event owner.
 	performanceEventQueuedAt            time.Time
 	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
+	dungeonPermissionMigrationAccount   string                         // 只记本会话已完成归并的账号，不缓存权限值。
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending
@@ -87,6 +88,14 @@ type gameSession struct {
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
 	wireMu                  sync.Mutex
+	wireWriteContext        context.Context // wireMu; active logical write budget
+	selectTimingMu          sync.Mutex
+	selectTiming            *currentSelectTiming        // selectTimingMu
+	selectLoadingTiming     *currentSelectLoadingTiming // selectTimingMu
+	transportOnce           sync.Once
+	transportCloseOnce      sync.Once
+	transportCtx            context.Context
+	transportCancel         context.CancelFunc
 	dproto                  dproto.Session
 	channelSceneBatch       *currentChannelSceneBatch // 仅普通换线；wireMu保护。
 	nativeResultDelivery    *nativeResultDelivery     // 原生连续分解结果集中写回；wireMu保护。
@@ -97,6 +106,7 @@ type gameSession struct {
 	// its generation; the nonce belongs only to this connection.
 	imageCommunicationNonce           [32]byte
 	imageCommunicationSceneGeneration uint64
+	dungeonDeathBurst                 *currentDungeonDeathBurst // 同一会话事件内的连续击杀；不跨事件保存。
 
 	endpointHandshakeMu                     sync.Mutex
 	currentChannelResidentNoticeSent        bool
@@ -595,6 +605,7 @@ func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {
 	}
 	dprotoOpened := false
 	defer func() {
+		session.stopGameTransport()
 		s.shutdownGameSessionEvents(session, dprotoOpened)
 	}()
 	if err := s.callGameSession(ctx, session, "game-dproto-open", func() error {

@@ -63,6 +63,8 @@ type PetGrowthPersistenceResult struct {
 	ExperienceGained int64
 	Evolution        PetEvolutionUpdate
 	SatietyDelta     int
+	// Entry是本次事务的独立宠物快照，仅在成功提交后供通知使用。
+	Entry dnfrepo.PetEntry
 }
 
 // GrowthOwner atomically owns creature experience, evolution and satiety.
@@ -97,7 +99,7 @@ func (o *GrowthOwner) ApplyDungeonClear(ctx context.Context, cmd DungeonClearGro
 	if cmd.ConsumedFatigue < 0 {
 		return PetGrowthPersistenceResult{}, ErrPetGrowthStateInvalid
 	}
-	return o.withEquipped(ctx, characterID, func(
+	return o.withEquipped(ctx, characterID, nil, func(
 		petRecord *dnfrepo.PetRecord,
 		petKey string,
 		entry *dnfrepo.PetEntry,
@@ -195,19 +197,42 @@ func rememberGrowthClearToken(entry *dnfrepo.PetEntry, token string) {
 }
 
 func (o *GrowthOwner) ApplyDungeonElapsed(ctx context.Context, cmd PetElapsedCommand) (PetGrowthPersistenceResult, error) {
-	return o.applySatiety(ctx, cmd, true)
+	return o.applySatiety(ctx, cmd, true, nil)
+}
+
+// 与成长使用同一次锁读解析当前神器，不在事务前额外加载整份宠物记录。
+func (o *GrowthOwner) ApplyDungeonElapsedWithCatalog(ctx context.Context, cmd PetElapsedCommand, catalog *PVFCatalog) (PetGrowthPersistenceResult, error) {
+	if catalog == nil {
+		return PetGrowthPersistenceResult{}, ErrPetGrowthOwnerUnavailable
+	}
+	return o.applySatiety(ctx, cmd, true, catalog)
 }
 
 func (o *GrowthOwner) ApplyTownElapsed(ctx context.Context, cmd PetElapsedCommand) (PetGrowthPersistenceResult, error) {
-	return o.applySatiety(ctx, cmd, false)
+	return o.applySatiety(ctx, cmd, false, nil)
 }
 
-func (o *GrowthOwner) applySatiety(ctx context.Context, cmd PetElapsedCommand, dungeon bool) (PetGrowthPersistenceResult, error) {
+func (o *GrowthOwner) applySatiety(ctx context.Context, cmd PetElapsedCommand, dungeon bool, catalog *PVFCatalog) (PetGrowthPersistenceResult, error) {
 	characterID, err := growthCharacterID(cmd.SelectedCharacterID)
 	if err != nil {
 		return PetGrowthPersistenceResult{}, err
 	}
-	return o.withEquipped(ctx, characterID, func(
+	var prepare func(dnfrepo.PetRecord) error
+	if dungeon && catalog != nil {
+		prepare = func(record dnfrepo.PetRecord) error {
+			itemIDs := make([]int64, 0, 3)
+			for _, kind := range []string{"red", "blue", "green"} {
+				artifact, ok := record.Artifacts[kind]
+				if ok && artifact.ItemID > 0 && artifact.Count > 0 {
+					itemIDs = append(itemIDs, artifact.ItemID)
+				}
+			}
+			var err error
+			cmd.Modifiers, err = catalog.ResolveSatietyModifiers(itemIDs)
+			return err
+		}
+	}
+	return o.withEquipped(ctx, characterID, prepare, func(
 		petRecord *dnfrepo.PetRecord,
 		petKey string,
 		entry *dnfrepo.PetEntry,
@@ -252,7 +277,7 @@ type equippedGrowthMutation func(
 	*dnfrepo.EquipmentEntry,
 ) (PetGrowthPersistenceResult, error)
 
-func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, mutate equippedGrowthMutation) (PetGrowthPersistenceResult, error) {
+func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, prepare func(dnfrepo.PetRecord) error, mutate equippedGrowthMutation) (PetGrowthPersistenceResult, error) {
 	if o == nil || o.engine == nil {
 		return PetGrowthPersistenceResult{}, ErrPetGrowthOwnerUnavailable
 	}
@@ -268,6 +293,11 @@ func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, muta
 		petRecord, petFound, err := petRepo.Load(ctx, characterID)
 		if err != nil {
 			return err
+		}
+		if prepare != nil {
+			if err := prepare(petRecord); err != nil {
+				return err
+			}
 		}
 		equipment, equipmentFound, err := equipmentRepo.Load(ctx, characterID)
 		if err != nil {
@@ -317,6 +347,7 @@ func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, muta
 		if err != nil {
 			return err
 		}
+		result.Entry = dnfrepo.ClonePet(dnfrepo.PetRecord{Entries: map[string]dnfrepo.PetEntry{petKey: entry}}).Entries[petKey]
 		if !result.Changed {
 			return nil
 		}
@@ -333,6 +364,9 @@ func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, muta
 		}
 		return nil
 	})
+	if err != nil {
+		result.Entry = dnfrepo.PetEntry{}
+	}
 	return result, err
 }
 

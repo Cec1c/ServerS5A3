@@ -323,7 +323,7 @@ func currentDungeonMonsterExperienceCSharpUint(value float32) (uint32, error) {
 
 type currentDungeonMonsterExperienceCommitResult struct {
 	Character  dnfrepo.CharacterRecord
-	Skill      dnfrepo.SkillRecord
+	Skill      dnfrepo.SkillPointLedger
 	Award      currentDungeonMonsterExperienceAward
 	SPGain     int
 	TPGain     int
@@ -336,7 +336,8 @@ type currentDungeonMonsterExperienceCommitResult struct {
 	AttendanceMarbleBonus uint32
 	// HonorExpertGain is the accepted part of this award earned after the
 	// DNF90 character-level cap.
-	HonorExpertGain uint32
+	HonorExpertGain         uint32
+	AdventureExperienceGain uint32
 }
 
 // recordCurrentDungeonMonsterExperience owns result-window statistics only.
@@ -431,6 +432,20 @@ func (s *Service) commitCurrentDungeonMonsterExperience(
 	tables *progression.Tables,
 	result currentDungeonMonsterExperienceCommitResult,
 ) (currentDungeonMonsterExperienceCommitResult, error) {
+	result, err := s.prepareCurrentDungeonMonsterExperienceBonuses(ctx, session, runtime, result)
+	if err != nil {
+		return currentDungeonMonsterExperienceCommitResult{}, err
+	}
+	return s.commitCurrentDungeonExperience(ctx, session, runtime, tables, result)
+}
+
+// 在接受击杀时固定各项加成，连续请求稍后提交时仍使用该次击杀的资格和取整。
+func (s *Service) prepareCurrentDungeonMonsterExperienceBonuses(
+	ctx context.Context,
+	session *gameSession,
+	runtime *runtimeDungeonState,
+	result currentDungeonMonsterExperienceCommitResult,
+) (currentDungeonMonsterExperienceCommitResult, error) {
 	// 成长契约 (premium type 84): +20% monster kill experience while active.
 	// The total is what gets planned and committed; the base Gain stays the
 	// pure PVF/86JP monster award for logging and tests.
@@ -444,10 +459,11 @@ func (s *Service) commitCurrentDungeonMonsterExperience(
 	result.GuildBonus = min(guildBonus, math.MaxUint32-result.Award.Gain-growthBonus)
 	marbleBonus := currentAttendanceMarbleMonsterExperienceBonus(runtime.attendanceMarbleBuffs, result.Award.Gain)
 	result.AttendanceMarbleBonus = min(marbleBonus, math.MaxUint32-result.Award.Gain-result.GrowthContractBonus-result.GuildBonus)
-	return s.commitCurrentDungeonExperience(ctx, session, runtime, tables, result)
+	return result, nil
 }
 
-// commitCurrentDungeonExperience 是**两条经验提交路径共用的唯一实现**：
+// commitCurrentDungeonExperience 是怪物与锦标赛的单笔经验入口；连续击杀
+// 通过相同的planCurrentDungeonExperience及commitCurrentDungeonExperiencePlan集中提交：
 //
 //	① 怪物击杀经验（`commitCurrentDungeonMonsterExperience`，调用方已经算好
 //	   `result.Award.Gain` 与成长契约加成）；
@@ -461,8 +477,8 @@ func (s *Service) commitCurrentDungeonMonsterExperience(
 // 等级推进 / 经验上限（`planCurrentDungeonSettlementProgression` 的
 // `currentAdventureCharacterLevelCap`）/ 名誉 Expert 溢出
 // （`currentHonorExpertExperienceGain`）/ SP·TP 账本
-// （`progression.Commit` 走角色 progression 仓储的**单一事务**）**一律复用**，
-// 本函数里没有任何一条规则是新的。
+// （`progression.Commit` 走角色 progression 仓储的**单一事务**）一律复用；
+// 满级部分在共享规划内分流，不再同时增加普通角色EXP。
 //
 // version precondition：`progression.Commit` 用 `character.Level` / `Stats["exp"]` /
 // `skill.Points` 做乐观校验，只有"库内状态 == 调用方看到的状态"时才会写。
@@ -495,9 +511,7 @@ func (s *Service) commitCurrentDungeonExperience(
 	if !found || character.CharacterID != characterID || strings.TrimSpace(character.AccountID) != accountID {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	// This operation only plans and projects the SP/TP ledger. Learned
-	// skills, layouts and cooldowns are not inputs to an experience award.
-	skill, found, err := dnfrepo.LoadProgressionSkill(ctx, repositories.Skill, characterID)
+	skill, found, err := loadCurrentDungeonExperienceSkillPoints(ctx, repositories.Skill, characterID)
 	if err != nil {
 		return currentDungeonMonsterExperienceCommitResult{}, err
 	}
@@ -511,56 +525,96 @@ func (s *Service) commitCurrentDungeonExperience(
 		skill.Points.SyncedLevel != character.Level {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
+	if _, narrow := repositories.Character.(dnfrepo.ProgressionCharacterReader); narrow {
+		total := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus + result.AttendanceMarbleBonus
+		honor, previewErr := currentHonorExpertExperienceGain(tables, character.Level, statU32(character, "exp", 0), total)
+		if previewErr != nil {
+			return currentDungeonMonsterExperienceCommitResult{}, previewErr
+		}
+		preview, previewErr := planCurrentDungeonSettlementProgression(tables, character.Level, statU32(character, "exp", 0), total-honor, skill.Points)
+		if previewErr != nil {
+			return currentDungeonMonsterExperienceCommitResult{}, previewErr
+		}
+		if preview.Experience.LevelsGained > 0 {
+			full, found, loadErr := repositories.Character.Load(ctx, characterID)
+			if loadErr != nil {
+				return currentDungeonMonsterExperienceCommitResult{}, loadErr
+			}
+			if !found || full.CharacterID != characterID || strings.TrimSpace(full.AccountID) != accountID || full.Level != character.Level || full.Stats["exp"] != experience {
+				return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
+			}
+			character = full
+		} else {
+			presentation := dnfrepo.CloneCharacter(runtime.Character)
+			presentation.AccountID, presentation.UpdatedAt = character.AccountID, character.UpdatedAt
+			presentation.Stats = character.Stats
+			character = presentation
+		}
+	}
+	result, commit, err := s.planCurrentDungeonExperience(ctx, tables, character, skill, result)
+	if err != nil {
+		return currentDungeonMonsterExperienceCommitResult{}, err
+	}
+	committed, err := s.commitCurrentDungeonExperiencePlanTimed(ctx, session, repositories, commit, []uint32{result.HonorExpertGain})
+	if err != nil {
+		return currentDungeonMonsterExperienceCommitResult{}, err
+	}
+	result.Applied, result.Idempotent = committed.Applied, committed.Idempotent
+	result.Character.Level = committed.Current.Level
+	result.Character.Stats = committed.CharacterStats
+	result.Skill.Points = committed.Current.SkillPoints
+	if s.adventureGroupTable.Runtime().Capsule.MaximumExperience > 0 {
+		result.AdventureExperienceGain = result.HonorExpertGain
+	}
+	return result, nil
+}
+
+// 只规划内存快照，不写库或发包；批次与单只入口共用同一套经验及熟练度规则。
+func (s *Service) planCurrentDungeonExperience(ctx context.Context, tables *progression.Tables,
+	character dnfrepo.CharacterRecord, skill dnfrepo.SkillPointLedger, result currentDungeonMonsterExperienceCommitResult,
+) (currentDungeonMonsterExperienceCommitResult, progression.CommitPlan, error) {
 	totalGain := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus + result.AttendanceMarbleBonus
 	honorExpertGain, err := currentHonorExpertExperienceGain(
 		tables,
 		character.Level,
-		uint32(experience),
+		statU32(character, "exp", 0),
 		totalGain,
 	)
 	if err != nil {
-		return currentDungeonMonsterExperienceCommitResult{}, err
+		return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, err
 	}
+	// 满级部分只进入熟练度和成长胶囊。当前客户端用op37普通EXP差值
+	// 生成系统栏提示；保持满级普通EXP不变，也避免历史超量EXP被回退。
 	planned, err := planCurrentDungeonSettlementProgression(
 		tables,
 		character.Level,
-		uint32(experience),
-		totalGain,
+		statU32(character, "exp", 0),
+		totalGain-honorExpertGain,
 		skill.Points,
 	)
 	if err != nil {
-		return currentDungeonMonsterExperienceCommitResult{}, err
+		return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, err
 	}
-	commit := progression.CommitPlanFromExperienceSkillPoints(characterID, accountID, planned)
+	commit := progression.CommitPlanFromExperienceSkillPoints(character.CharacterID, character.AccountID, planned)
 	if planned.Experience.LevelsGained > 0 {
-		// Job/presentation is required only when a level changes. Reload it
-		// then, and refuse a changed progression/owner before deriving stats.
-		full, found, loadErr := repositories.Character.Load(ctx, characterID)
-		if loadErr != nil {
-			return currentDungeonMonsterExperienceCommitResult{}, loadErr
-		}
-		if !found || full.CharacterID != characterID || strings.TrimSpace(full.AccountID) != accountID || full.Level != character.Level || full.Stats["exp"] != experience {
-			return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
-		}
-		character = full
 		levelStats, statErr := s.characterPVFStatValuesForLevel(character, planned.Experience.NewLevel)
 		if statErr != nil {
-			return currentDungeonMonsterExperienceCommitResult{}, statErr
+			return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, statErr
 		}
 		commit.NextCharacterStats = levelStats
 	}
 	if honorExpertGain > 0 {
 		honorTables, honorErr := s.loadHonorTable(ctx)
 		if honorErr != nil {
-			return currentDungeonMonsterExperienceCommitResult{}, honorErr
+			return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, honorErr
 		}
 		currentHonor, honorErr := currentHonorExpertProgress(character)
 		if honorErr != nil {
-			return currentDungeonMonsterExperienceCommitResult{}, honorErr
+			return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, honorErr
 		}
 		nextHonor, honorErr := planCurrentHonorExpertProgress(honorTables, character, honorExpertGain)
 		if honorErr != nil {
-			return currentDungeonMonsterExperienceCommitResult{}, honorErr
+			return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, honorErr
 		}
 		commit.ExpectedCharacterStats = currentHonorExpertStats(currentHonor)
 		if commit.NextCharacterStats == nil {
@@ -571,35 +625,38 @@ func (s *Service) commitCurrentDungeonExperience(
 		}
 		result.HonorExpertGain = honorExpertGain
 	}
-	committed, err := progression.Commit(ctx, repositories.CharacterProgression, commit)
-	if err != nil {
-		return currentDungeonMonsterExperienceCommitResult{}, err
-	}
-	if _, narrow := repositories.Character.(dnfrepo.ProgressionCharacterReader); narrow && planned.Experience.LevelsGained == 0 {
-		if _, delta := repositories.Character.(dnfrepo.ProgressionCharacterWriter); delta {
-			// Preserve the current dungeon presentation; only transactionally
-			// committed progression is refreshed by an ordinary EXP award.
-			presentation := dnfrepo.CloneCharacter(runtime.Character)
-			presentation.AccountID = character.AccountID
-			presentation.UpdatedAt = character.UpdatedAt
-			character = presentation
+	if commit.Expected == commit.Next {
+		// EXP标量及熟练度都可能封顶，胶囊仍能在领取后继续累计。
+		// 为该次规划保留受事务保护的版本，避免把新击杀误判成重放。
+		revision := character.Stats[currentDungeonCapAwardRevisionStatKey]
+		if revision < 0 || revision == math.MaxInt64 {
+			return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, errCurrentDungeonMonsterExperienceStateInvalid
 		}
+		if commit.ExpectedCharacterStats == nil {
+			commit.ExpectedCharacterStats = make(map[string]int64)
+		}
+		if commit.NextCharacterStats == nil {
+			commit.NextCharacterStats = make(map[string]int64)
+		}
+		commit.ExpectedCharacterStats[currentDungeonCapAwardRevisionStatKey] = revision
+		commit.NextCharacterStats[currentDungeonCapAwardRevisionStatKey] = revision + 1
 	}
 	character = dnfrepo.CloneCharacter(character)
 	if character.Stats == nil {
-		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
+		return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
-	character.Level = committed.Current.Level
-	character.Stats = committed.CharacterStats
-	skill = dnfrepo.CloneSkill(skill)
-	skill.Points = committed.Current.SkillPoints
+	character.Level = commit.Next.Level
+	character.Stats["exp"] = int64(commit.Next.Experience)
+	for key, value := range commit.NextCharacterStats {
+		character.Stats[key] = value
+	}
+	// 技能点投影只含值字段，已随参数独立复制；不生成完整技能快照。
+	skill.Points = commit.Next.SkillPoints
 	result.Character = character
 	result.Skill = skill
 	result.SPGain = planned.SkillPoints.SPGain
 	result.TPGain = planned.SkillPoints.TPGain
-	result.Applied = committed.Applied
-	result.Idempotent = committed.Idempotent
-	return result, nil
+	return result, commit, nil
 }
 
 // currentGrowthContractEffect resolves the live account entitlement and the
@@ -614,7 +671,7 @@ func (s *Service) currentGrowthContractEffect(ctx context.Context, accountID str
 	if !ok || repositories.Account == nil {
 		return currentPremiumEffectInfo{}, false
 	}
-	account, found, err := repositories.Account.Load(ctx, strings.TrimSpace(accountID))
+	account, found, err := loadCurrentGrowthContractAccount(ctx, repositories.Account, strings.TrimSpace(accountID))
 	if err != nil || !found {
 		return currentPremiumEffectInfo{}, false
 	}
@@ -630,6 +687,19 @@ func (s *Service) currentGrowthContractEffect(ctx context.Context, accountID str
 		return currentPremiumEffectInfo{}, false
 	}
 	return effect, true
+}
+
+// 每次仍读取最新到期时间，续费和到期即时生效；不引入跨击杀的资格缓存。
+func loadCurrentGrowthContractAccount(ctx context.Context, accounts dnfrepo.AccountRepository, accountID string) (dnfrepo.AccountRecord, bool, error) {
+	if reader, ok := accounts.(dnfrepo.AccountMetadataEntryReader); ok {
+		key := premium.MetadataKey(premium.TypeBonusExp)
+		value, found, err := reader.LoadMetadataEntry(ctx, accountID, key)
+		if err != nil || !found {
+			return dnfrepo.AccountRecord{}, false, err
+		}
+		return dnfrepo.AccountRecord{AccountID: accountID, Metadata: map[string]string{key: value}}, true, nil
+	}
+	return accounts.Load(ctx, accountID)
 }
 
 // currentGrowthContractBonusExp returns the runtime-PVF [bonus exp]

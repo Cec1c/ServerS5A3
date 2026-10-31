@@ -157,10 +157,15 @@ func (s *Service) withGameWire(session *gameSession, operation func() error) err
 	if session == nil || session.conn == nil {
 		return errors.New("dnf game connection is unavailable")
 	}
-	started := s.performanceStart()
-	session.wireMu.Lock()
-	s.performanceEnd(perfWireLock, started, nil)
+	if err := s.lockGameWire(session, nil); err != nil {
+		return err
+	}
 	defer session.wireMu.Unlock()
+	finish, err := beginGameWriteBudgetLocked(session, nil)
+	if err != nil {
+		return err
+	}
+	defer finish()
 	return operation()
 }
 
@@ -264,6 +269,7 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 		} else if b := session.nativeResultDelivery; b != nil {
 			b.upper = append(b.upper, append([]byte(nil), inner...))
 		} else {
+			noteSelectAckWrittenLocked(session, inner)
 			s.logCurrentSharedInventoryPacketWritten(session, inner)
 			s.logGoldDiagnosticPacketResult(session, inner, false)
 		}

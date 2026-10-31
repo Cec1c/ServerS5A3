@@ -38,23 +38,9 @@ func mysqlSkillTreeSchema(database, prefix string) []string {
 }
 
 func (s *mysqlSkillStore) loadSkillTrees(ctx context.Context, characterID string) (repository.SkillTreeState, error) {
-	var state repository.SkillTreeState
-	table, err := s.router.readTable(mysqlSkillTreeTable, characterID)
-	if err != nil {
+	state, found, err := s.loadSkillTreeProfile(ctx, characterID)
+	if err != nil || !found {
 		return state, err
-	}
-	err = s.router.db.QueryRowContext(ctx, s.router.selectQuery(
-		"SELECT expanded, active_tree, total_sp, remaining_sp, total_tp, remaining_tp, synced_level FROM "+table+" WHERE character_id = ?"), characterID).Scan(
-		&state.Expanded, &state.Active, &state.Other.Points.TotalSP, &state.Other.Points.RemainingSP,
-		&state.Other.Points.TotalTP, &state.Other.Points.RemainingTP, &state.Other.Points.SyncedLevel)
-	if err == sql.ErrNoRows {
-		return state, nil
-	}
-	if err != nil {
-		return state, err
-	}
-	if state.Active > 1 || (!state.Expanded && state.Active != 0) {
-		return state, fmt.Errorf("技能页持久化状态无效: character_id=%s active_tree=%d expanded=%t", characterID, state.Active, state.Expanded)
 	}
 	statesTable, err := s.router.readTable(mysqlSkillTreeStatesTable, characterID)
 	if err != nil {
@@ -62,6 +48,29 @@ func (s *mysqlSkillStore) loadSkillTrees(ctx context.Context, characterID string
 	}
 	state.Other.Skills, err = loadSkillStates(ctx, s.router, statesTable, characterID)
 	return state, err
+}
+
+// 复用同一条页头查询及校验，经验窄读不加载另一页技能明细。
+func (s *mysqlSkillStore) loadSkillTreeProfile(ctx context.Context, characterID string) (repository.SkillTreeState, bool, error) {
+	var state repository.SkillTreeState
+	table, err := s.router.readTable(mysqlSkillTreeTable, characterID)
+	if err != nil {
+		return state, false, err
+	}
+	err = s.router.db.QueryRowContext(ctx, s.router.selectQuery(
+		"SELECT expanded, active_tree, total_sp, remaining_sp, total_tp, remaining_tp, synced_level FROM "+table+" WHERE character_id = ?"), characterID).Scan(
+		&state.Expanded, &state.Active, &state.Other.Points.TotalSP, &state.Other.Points.RemainingSP,
+		&state.Other.Points.TotalTP, &state.Other.Points.RemainingTP, &state.Other.Points.SyncedLevel)
+	if err == sql.ErrNoRows {
+		return state, false, nil
+	}
+	if err != nil {
+		return state, false, err
+	}
+	if state.Active > 1 || (!state.Expanded && state.Active != 0) {
+		return state, false, fmt.Errorf("技能页持久化状态无效: character_id=%s active_tree=%d expanded=%t", characterID, state.Active, state.Expanded)
+	}
+	return state, true, nil
 }
 
 func (s *mysqlSkillStore) saveSkillTrees(ctx context.Context, database SQLDB, characterID string, state repository.SkillTreeState) error {

@@ -104,6 +104,18 @@ func ownerAppliedSeparateUpgradeResult(cmd Command, result SeparateUpgradeResult
 	if !result.Success {
 		return response
 	}
+	// 86普通锻造达到5级后成功/失败均播报；券仅成功达到5级才播报。
+	level := result.NewLevel
+	if !result.Succeeded {
+		level = result.OldLevel
+	}
+	if level >= 5 && (!result.TicketApplied || result.Succeeded) {
+		if body, err := buildEquipmentUpgradeAnnouncementBody(14, result.Succeeded, cmd.SelectedCharacterID,
+			int32(result.TargetItemID), upgradeLevelOf(result.TargetUpdatedStack), result.NewLevel, result.TargetUpdatedStack); err == nil {
+			response.UpperResponses = append(response.UpperResponses, class0Response(msgUpgradeNotice, body))
+			response.EquipmentUpgradeNotice = &alignedcmd.EquipmentUpgradeNotice{Kind: "forging", ItemID: result.TargetItemID, Level: level, Succeeded: result.Succeeded, Body: body}
+		}
+	}
 	if result.MaterialUpdated && result.MaterialSlotIndex >= 0 {
 		response.ItemSlotRefreshes = append(response.ItemSlotRefreshes, alignedcmd.ItemSlotRefresh{
 			ListType:  listTypeMain,

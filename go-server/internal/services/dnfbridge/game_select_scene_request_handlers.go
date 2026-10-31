@@ -42,6 +42,7 @@ func (s *Service) sendFinishLoadingStatus(session *gameSession, request []byte) 
 			"reason", "current_live_legacy_op37_body_length_mismatch")
 		return nil
 	}
+	s.noteSelectClientLoadingReport(session)
 	actorReady, actorReadySource := s.currentSceneActorReadyForState(session)
 	// 全员读条屏障把落位（op120/op3）压到"全队 op37 到齐"之后，而
 	// `postStartMapPlayerStateSent` 正是落位里置上的 ⇒ 这段时间
@@ -123,6 +124,9 @@ func (s *Service) sendFinishLoadingStatus(session *gameSession, request []byte) 
 // source 语义与拆分前逐字一致：调用方传 `request37_after_upper_status`。
 func (s *Service) sendCurrentFinishLoadingReleaseTail(session *gameSession, source string) error {
 	if err := s.sendCurrentFinishLoadingCharacterState(session, source); err != nil {
+		return err
+	}
+	if err := s.sendCurrentDayDungeonTownSchedule(session, source); err != nil {
 		return err
 	}
 	if err := s.sendCompletedTutorialReentryExit(session, source+"_after_current_finish_loading_state"); err != nil {

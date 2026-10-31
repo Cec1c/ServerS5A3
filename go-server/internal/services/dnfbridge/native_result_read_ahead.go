@@ -13,6 +13,7 @@ import (
 type nativeResultReadChunk struct {
 	data               []byte
 	err                error
+	readAt             time.Time
 	resume             chan struct{}
 	deadlineGeneration uint64
 }
@@ -38,7 +39,8 @@ func newNativeResultReadAhead(conn net.Conn) *nativeResultReadAhead {
 			generation := r.deadlineGeneration
 			r.deadlineMu.Unlock()
 			n, err := conn.Read(buffer)
-			chunk := nativeResultReadChunk{data: append([]byte(nil), buffer[:n]...), err: err, deadlineGeneration: generation}
+			readAt := time.Now()
+			chunk := nativeResultReadChunk{data: append([]byte(nil), buffer[:n]...), err: err, readAt: readAt, deadlineGeneration: generation}
 			if err != nil {
 				chunk.resume = make(chan struct{})
 			}

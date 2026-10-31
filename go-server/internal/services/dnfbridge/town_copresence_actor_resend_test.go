@@ -193,10 +193,11 @@ func TestPrevVillageReturnFromSeriaRoomPublishesTownPresence(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service.onlinePlayers.EnterArea(&onlinePlayerInfo{
+	peerInfo := onlinePlayerInfo{
 		CharacterID: 17, TownID: 38, AreaID: 0, PositionX: 622, PositionY: 196,
 		Direction: 5, AreaState: 3, Session: peer,
-	})
+	}
+	startTownPeerTest(t, service, peer, &peerInfo)
 	if service.onlinePlayers.PeerInSameArea(29, 17) {
 		t.Fatal("fixture must start with the local player inside the private Seria-room instance")
 	}
@@ -215,6 +216,7 @@ func TestPrevVillageReturnFromSeriaRoomPublishesTownPresence(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	drainTownPeerTest(t, service, peer)
 	published, ok := service.onlinePlayers.PlayerForCharacter(29)
 	if !ok || published.TownID != 38 || published.AreaID != 0 || published.Instance != 0 {
 		t.Fatalf("presence after Seria-room return=%+v ok=%t want the shared town area 38/0 instance 0",

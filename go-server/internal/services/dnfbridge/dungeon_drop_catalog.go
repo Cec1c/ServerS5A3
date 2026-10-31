@@ -628,38 +628,82 @@ func (c *pvfDungeonDropCatalog) ensureGenericPools() error {
 }
 
 func (c *pvfDungeonDropCatalog) loadGenericStackablesLocked() error {
-	for _, itemID := range c.stackableIDs {
-		reference, found := c.itemRefs[itemID]
-		if !found || reference.kind != dungeonDropItemStackable || dungeonDropExcludedStackablePath(reference.path) {
-			continue
-		}
-		docPath, text, err := readDungeonDropText(c.source, string(dungeonDropItemStackable), reference.path)
-		if err != nil {
-			// The C# loader skips one unreadable stackable rather than replacing the
-			// whole table with a synthetic fallback.
-			continue
-		}
+	type loaded struct {
+		key   dungeonDropGradeRarityKey
+		valid bool
+	}
+	results := make([]loaded, len(c.stackableIDs))
+	parse := func(i int, docPath, text string) {
 		document, err := dnfpvf.Parse(docPath, text)
 		if err != nil {
-			continue
+			return
 		}
-		creationRate, found := document.Int("creation rate")
-		if !found || creationRate <= 0 {
-			continue
+		rate, found := document.Int("creation rate")
+		if !found || rate <= 0 {
+			return
 		}
 		grade, found := document.Int("grade")
 		if !found || grade <= 0 || grade > 200 {
-			continue
+			return
 		}
 		rarity, found := document.Int("rarity")
 		if !found {
 			rarity = 0
 		}
 		if rarity < 0 || rarity > 6 {
-			continue
+			return
 		}
-		key := dungeonDropGradeRarityKey{Grade: grade, Rarity: rarity}
-		c.genericStackables[key] = append(c.genericStackables[key], itemID)
+		results[i] = loaded{key: dungeonDropGradeRarityKey{Grade: grade, Rarity: rarity}, valid: true}
+	}
+	type groupedSource interface {
+		FindFileIndex(string) int
+		VisitTextsGrouped([]string, func(int, string, error))
+	}
+	if source, ok := c.source.(groupedSource); ok {
+		paths := make([]string, 0, len(c.stackableIDs))
+		indices := make([]int, 0, len(c.stackableIDs))
+		for i, id := range c.stackableIDs {
+			ref, found := c.itemRefs[id]
+			if !found || ref.kind != dungeonDropItemStackable || dungeonDropExcludedStackablePath(ref.path) {
+				continue
+			}
+			for _, candidate := range dungeonDropTextCandidates(string(dungeonDropItemStackable), ref.path) {
+				if source.FindFileIndex(candidate) >= 0 {
+					paths = append(paths, candidate)
+					indices = append(indices, i)
+					break
+				}
+			}
+		}
+		source.VisitTextsGrouped(paths, func(n int, text string, err error) {
+			i := indices[n]
+			if err != nil {
+				ref := c.itemRefs[c.stackableIDs[i]]
+				p, fallback, readErr := readDungeonDropText(c.source, string(dungeonDropItemStackable), ref.path)
+				if readErr == nil {
+					parse(i, p, fallback)
+				}
+				return
+			}
+			parse(i, paths[n], text)
+		})
+	} else {
+		for i, id := range c.stackableIDs {
+			ref, found := c.itemRefs[id]
+			if !found || ref.kind != dungeonDropItemStackable || dungeonDropExcludedStackablePath(ref.path) {
+				continue
+			}
+			p, text, err := readDungeonDropText(c.source, string(dungeonDropItemStackable), ref.path)
+			if err == nil {
+				parse(i, p, text)
+			}
+		}
+	}
+	// Keep the list's original order: it is part of the existing RNG mapping.
+	for i, r := range results {
+		if r.valid {
+			c.genericStackables[r.key] = append(c.genericStackables[r.key], c.stackableIDs[i])
+		}
 	}
 	return nil
 }
@@ -809,7 +853,7 @@ func selectDungeonMonsterDrop(pool []dungeonMonsterDropPoolEntry, roll uint64) (
 	return dungeonMonsterDropPoolEntry{}, false
 }
 
-func readDungeonDropText(source dnfpvf.Source, root, listedPath string) (string, string, error) {
+func dungeonDropTextCandidates(root, listedPath string) []string {
 	clean := cleanDungeonDropPath(listedPath)
 	candidates := []string{clean}
 	root = cleanDungeonDropPath(root)
@@ -826,6 +870,11 @@ func readDungeonDropText(source dnfpvf.Source, root, listedPath string) (string,
 		}
 		candidates = append(candidates, dir+"(r)"+base)
 	}
+	return candidates
+}
+
+func readDungeonDropText(source dnfpvf.Source, root, listedPath string) (string, string, error) {
+	candidates := dungeonDropTextCandidates(root, listedPath)
 	var lastErr error
 	for _, candidate := range candidates {
 		text, err := source.ReadText(candidate)

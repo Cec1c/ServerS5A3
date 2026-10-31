@@ -42,6 +42,7 @@ type Group struct {
 	CharacterSkills      CharacterSkillUnitOfWork
 	CharacterProgression CharacterProgressionUnitOfWork
 	CharacterSettlement  CharacterSettlementUnitOfWork
+	QuestMaterialPlan    QuestMaterialPreparationUnitOfWork
 	SemesterClear        SemesterClearUnitOfWork
 	Guild                GuildUnitOfWork
 }

@@ -184,8 +184,11 @@ func TestBroadcastTownPlayerEnterCreatesRepositoryBackedRemoteActorsBeforePeerSt
 	}
 	service.bindGameSessionCharacter(existingSession, 17)
 	service.bindGameSessionCharacter(newcomerSession, 23)
+	startTownPeerTest(t, service, existingSession, &existing)
+	service.onlinePlayers.EnterArea(newcomer)
 
 	service.broadcastTownPlayerEnter(newcomer, []onlinePlayerInfo{existing})
+	drainTownPeerTest(t, service, existingSession)
 
 	assertTownRemoteActorSequence(
 		t,

@@ -40,6 +40,7 @@ func (p *accountLoginSessions) replace(account string) []*gameSession {
 		}
 		retirement.sessions[session] = struct{}{}
 		session.loginRevoked.Store(true)
+		session.stopGameTransport()
 		displaced = append(displaced, session)
 	}
 	return displaced
@@ -200,10 +201,13 @@ func (s *Service) authenticateRemoteLogin(session *gameSession, token string) (s
 		if retirement := p.retiring[account]; retirement != nil {
 			done := retirement.done
 			p.mu.Unlock()
+			started := time.Now()
 			select {
 			case <-done:
+				s.logInfo("dnfbridge login retirement completed", "conn_id", session.connID, "wait_ms", time.Since(started).Milliseconds())
 				continue // Another login may have superseded this token while waiting.
 			case <-ctx.Done():
+				s.logWarn("dnfbridge login retirement wait failed", "conn_id", session.connID, "stage", "old_session_cleanup", "wait_ms", time.Since(started).Milliseconds())
 				return "", ctx.Err()
 			}
 		}

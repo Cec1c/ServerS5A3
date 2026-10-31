@@ -102,7 +102,7 @@ func (s *Service) sendCurrentGuildChatFrameChecked(ctx context.Context, p *gameS
 	if p == nil || p.conn == nil {
 		return errInvalidGameSessionEvent
 	}
-	if err := lockCurrentCrossSceneProfile(ctx, &p.wireMu); err != nil {
+	if err := s.lockGameWire(p, ctx); err != nil {
 		return err
 	}
 	defer p.wireMu.Unlock()
@@ -119,24 +119,14 @@ func (s *Service) sendCurrentGuildChatFrameChecked(ctx context.Context, p *gameS
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return context.DeadlineExceeded
-	}
-	if err := p.conn.SetWriteDeadline(deadline); err != nil {
+	finishWrite, err := beginGameWriteBudgetLocked(p, ctx)
+	if err != nil {
 		return err
 	}
-	finished := make(chan struct{})
-	stop := context.AfterFunc(ctx, func() { _ = p.conn.SetWriteDeadline(time.Now()); close(finished) })
-	defer func() {
-		if !stop() {
-			<-finished
-		}
-		_ = p.conn.SetWriteDeadline(time.Time{})
-	}()
-	err := s.sendGameUpperRawClassCodecLocked(p, op, body, class, true)
+	defer finishWrite()
+	err = s.sendGameUpperRawClassCodecLocked(p, op, body, class, true)
 	if err != nil {
-		_ = p.conn.Close()
+		p.closeGameTransport()
 		return err
 	}
 	return nil

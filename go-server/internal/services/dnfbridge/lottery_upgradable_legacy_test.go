@@ -98,7 +98,7 @@ func TestRealPVFAntonUpgradableLegacyLotteryPool(t *testing.T) {
 		t.Fatalf("definition=%+v", definition)
 	}
 	group := definition.Random.Groups[0]
-	if group.DrawCount != 1 || len(group.Entries) != 47 || definition.Random.MaterialItemID != 10095702 || definition.Random.MaterialCountPerUse != 4 {
+	if group.DrawCount != 1 || len(group.Entries) != 47 || definition.Random.MaterialItemID != 0 || definition.Random.MaterialCountPerUse != 0 {
 		t.Fatalf("pool=%+v material=%d/%d", group, definition.Random.MaterialItemID, definition.Random.MaterialCountPerUse)
 	}
 	for _, row := range group.Entries {

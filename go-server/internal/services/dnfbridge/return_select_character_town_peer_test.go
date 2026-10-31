@@ -195,7 +195,19 @@ func townSwitchRosterContainsKey(rows []currentSceneTransitionRow, characterID u
 // 并且新角色 3 的 op24 名册里不再有 29。
 func TestReturnSelectCharacterSelectEvictsPreviousTownPeer(t *testing.T) {
 	fixture := newTownSwitchFixture(t)
+	previousInfo, ok := fixture.service.onlinePlayers.PlayerForCharacter(townSwitchPreviousCharacterID)
+	if !ok {
+		t.Fatal("previous character presence missing before select")
+	}
+	startTownPeerTest(t, fixture.service, fixture.session, &previousInfo)
+	peerInfo, ok := fixture.service.onlinePlayers.PlayerForCharacter(townSwitchPeerCharacterID)
+	if !ok {
+		t.Fatal("town peer presence missing before select")
+	}
+	startTownPeerTest(t, fixture.service, fixture.peer, &peerInfo)
 	fixture.switchCharacter(t)
+	drainTownPeerTest(t, fixture.service, fixture.session)
+	drainTownPeerTest(t, fixture.service, fixture.peer)
 
 	// ① 上一个角色必须已经不在城镇在线表里。
 	if player, still := fixture.service.onlinePlayers.PlayerForCharacter(townSwitchPreviousCharacterID); still {

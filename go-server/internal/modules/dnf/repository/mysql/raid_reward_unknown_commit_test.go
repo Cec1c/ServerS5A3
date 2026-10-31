@@ -65,6 +65,8 @@ func (c raidCommitSQLConn) QueryContext(_ context.Context, q string, _ []driver.
 	fields := strings.Split(strings.Split(strings.TrimPrefix(q, "SELECT "), " FROM ")[0], ",")
 	rows := &pairSQLRows{columns: fields}
 	switch {
+	case strings.HasPrefix(q, "SELECT character_id, account_id FROM "):
+		rows.rows = [][]driver.Value{{"19", "a"}}
 	case strings.HasPrefix(q, "SELECT character_id, account_id,"):
 		vals := make([]driver.Value, len(fields))
 		for n := range vals {

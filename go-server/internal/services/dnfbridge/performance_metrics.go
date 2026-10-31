@@ -29,6 +29,11 @@ const (
 	perfMonsterEnqueueToDeath
 	perfGuildRanking
 	perfGuildHongbao
+	perfSelectQueue
+	perfSelectResolve
+	perfSelectTotal
+	perfSelectAck
+	perfSelectLoadingReport
 	perfCount
 )
 
@@ -37,6 +42,8 @@ var bridgePerformanceNames = [perfCount]string{
 	"wire_native", "wire_overflow", "upper_39", "upper_other", "monster_total",
 	"monster_experience", "monster_death_write", "monster_tasks", "monster_clear",
 	"monster_enqueue_to_death", "guild_ranking", "guild_hongbao",
+	"select_queue", "select_resolve", "select_total", "select_ack_write",
+	"select_client_loading_report",
 }
 var bridgePerformanceLimits = [...]time.Duration{5 * time.Millisecond, 10 * time.Millisecond, 25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, time.Second, 3 * time.Second}
 

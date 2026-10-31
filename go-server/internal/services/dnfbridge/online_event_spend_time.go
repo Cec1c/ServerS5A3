@@ -609,6 +609,11 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 			return descriptorSent, err
 		}
 	}
+	// 保留108与所属在线活动状态紧邻，然后同步周常逐图开放表。
+	// 同一进程省略108时，换角仍需恢复855；写失败重试时发送整组状态。
+	if err := s.sendCurrentDayDungeonSchedule(session, dayDungeonEvent, "活动目录与所属状态之后"); err != nil {
+		return descriptorSent, err
+	}
 	// Current NoPack creates the joust owners while consuming op108. Its owner
 	// 609 open gate then reads the state set by the exact three-byte class-0
 	// op1240 handler before it can use the class-0 op1241 roster and op1242
@@ -625,6 +630,12 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 	}
 	if err := s.armCurrentDayDungeonCatalogRefresh(session); err != nil {
 		return descriptorSent, err
+	}
+	if err := s.recoverQuestMaterials(session); err != nil {
+		s.logGameEvent(session, "game-quest-material-bootstrap-deferred", "error", err)
+	}
+	if err := s.armQuestMaterialRecovery(session); err != nil {
+		s.logGameEvent(session, "game-quest-material-retry-deferred", "error", err)
 	}
 	if s.currentMonthlyAttendanceEnabled() {
 		if err := s.sendCurrentMonthlyAttendance(session, false); err != nil {

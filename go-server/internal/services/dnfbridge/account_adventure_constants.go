@@ -69,12 +69,13 @@ const (
 	// E65567/E655A4 source is EBP-0x2CA + 0x9A = raw+7348.
 	// E63CF3 updates the same native +0x98 array after selecting a card.
 	// These triples are collection counters, not dungeon-clear activity.
-	currentAdventureInfoTripleOffset         = 7348
-	currentAdventureInfoTripleCount          = 20
-	currentAdventureInfoTripleSize           = 3
-	currentAdventureInfoTripleCountOffset    = 1
-	currentAdventureInfoTripleTypeOffset     = 0
-	currentAdventureInfoGrowthCapsuleOffset  = 7408
-	currentAdventureInfoTailUint32Offset     = 7416
-	currentSelectorAdventureInfoSlotMetadata = adventuregroup.SelectorSlotMetadataKey
+	currentAdventureInfoTripleOffset        = 7348
+	currentAdventureInfoTripleCount         = 20
+	currentAdventureInfoTripleSize          = 3
+	currentAdventureInfoTripleCountOffset   = 1
+	currentAdventureInfoTripleTypeOffset    = 0
+	currentAdventureInfoGrowthCapsuleOffset = 7408
+	// E63243/E652AA将raw+7416存入manager+0x310；BDCD54和BD3E5B读取实际经验点数。
+	currentAdventureInfoCapsuleClaimExperienceOffset = 7416
+	currentSelectorAdventureInfoSlotMetadata         = adventuregroup.SelectorSlotMetadataKey
 )

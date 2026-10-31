@@ -46,7 +46,7 @@ func TestRuntimeStateMonthlyResetAccrualPurchaseAndCapsule(t *testing.T) {
 		t.Fatalf("monthly normalized state=%+v", state)
 	}
 	state.AddMaximumLevelExperience(config, 30_000_005)
-	if state.ShopPoints[ShopPointBrave] != 9 || state.BraveExperience != 5 || state.GrowthExperience != 100 {
+	if state.ShopPoints[ShopPointBrave] != 9 || state.BraveExperience != 5 || state.GrowthExperience != 1000 {
 		t.Fatalf("maximum-level accrual=%+v", state)
 	}
 	category, _ := config.Shop(ShopPointBrave)
@@ -56,7 +56,7 @@ func TestRuntimeStateMonthlyResetAccrualPurchaseAndCapsule(t *testing.T) {
 	if state.ShopPoints[ShopPointBrave] != 8 || state.PurchaseCount(ShopPointBrave, 10) != 1 {
 		t.Fatalf("purchase state=%+v", state)
 	}
-	if !state.ConsumeCapsule(config) || state.GrowthExperience != 90 {
+	if !state.ConsumeCapsule(config) || state.GrowthExperience != 990 {
 		t.Fatalf("capsule state=%+v", state)
 	}
 }

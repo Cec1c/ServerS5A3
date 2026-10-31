@@ -142,15 +142,15 @@ func characterInitializationPresenceForRecord(
 	}
 	presence := characterInitializationPresence{settings: make(map[string]bool, 3)}
 	var err error
-	_, presence.inventory, err = repos.Inventory.Load(ctx, characterID)
+	presence.inventory, err = initializationRecordExists(ctx, repos.Inventory, characterID, repos.Inventory.Load)
 	if err != nil {
 		return characterInitializationPresence{}, fmt.Errorf("load character inventory initialization state: %w", err)
 	}
-	_, presence.equipment, err = repos.Equipment.Load(ctx, characterID)
+	presence.equipment, err = initializationRecordExists(ctx, repos.Equipment, characterID, repos.Equipment.Load)
 	if err != nil {
 		return characterInitializationPresence{}, fmt.Errorf("load character equipment initialization state: %w", err)
 	}
-	_, presence.skill, err = repos.Skill.Load(ctx, characterID)
+	presence.skill, err = initializationRecordExists(ctx, repos.Skill, characterID, repos.Skill.Load)
 	if err != nil {
 		return characterInitializationPresence{}, fmt.Errorf("load character skill initialization state: %w", err)
 	}
@@ -162,7 +162,7 @@ func characterInitializationPresenceForRecord(
 		newCharacterInitBodiesSettingsScope(characterID),
 		newCharacterHotkeySettingsScope(characterID),
 	} {
-		_, found, loadErr := repos.Settings.Load(ctx, scope)
+		found, loadErr := initializationRecordExists(ctx, repos.Settings, scope, repos.Settings.Load)
 		if loadErr != nil {
 			return characterInitializationPresence{}, fmt.Errorf("load character setting initialization state %q: %w", scope, loadErr)
 		}
@@ -178,4 +178,12 @@ func sortedInitializationScopes(scopes []string) []string {
 	out := append([]string(nil), scopes...)
 	sort.Strings(out)
 	return out
+}
+
+func initializationRecordExists[T any](ctx context.Context, store any, key string, fallback func(context.Context, string) (T, bool, error)) (bool, error) {
+	if narrow, ok := store.(dnfrepo.RecordPresenceReader); ok {
+		return narrow.Exists(ctx, key)
+	}
+	_, found, err := fallback(ctx, key)
+	return found && err == nil, err
 }

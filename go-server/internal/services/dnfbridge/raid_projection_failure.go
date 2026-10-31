@@ -8,9 +8,7 @@ func (s *Service) failRuntimeRaidRecipient(peer *gameSession, stage string, err 
 	if peer == nil || err == nil {
 		return
 	}
-	if peer.conn != nil {
-		_ = peer.conn.Close()
-	}
+	peer.closeGameTransport()
 	s.logWarn("dnfbridge raid recipient projection failed",
 		"conn_id", peer.connID, "channel_id", peer.channel.ID,
 		"char_id", selectedCharacterID(peer), "stage", stage, "error", err)

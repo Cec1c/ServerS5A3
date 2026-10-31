@@ -26,7 +26,7 @@ func TestPetGrowthDeltaSatietyPreservesHistoryAndArtifacts(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			store := &mysqlPetStore{mysqlStoreBase{router: mysqlRouter{db: sqlTransactionDB{tx: tx}, lockReads: true, readDBs: []string{"replica"}, writeDBs: []string{"primary"}}}}
+			store := &mysqlPetStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: sqlTransactionDB{tx: tx}, lockReads: true, readDBs: []string{"replica"}, writeDBs: []string{"primary"}}}}
 			before := repository.PetEntry{PetKey: "p", ItemID: 1, Satiety: 100, SatietyMicros: 100000000, Extra: map[string]string{"keep": "history"}, AppliedClearTokens: map[string]bool{"old": true}, AppliedClearTokenOrder: []string{"old"}}
 			after := repository.PetRecord{CharacterID: "c", EquippedKey: "p", UpdatedAt: time.Unix(1800000000, 0), Entries: map[string]repository.PetEntry{"p": before}}
 			next := before
@@ -96,7 +96,7 @@ func TestPetGrowthTokenWindowUsesSingleAppendAndBoundedEviction(t *testing.T) {
 }
 
 func TestPetGrowthDeltaRequiresTransaction(t *testing.T) {
-	s := &mysqlPetStore{mysqlStoreBase{router: mysqlRouter{db: &fakeSQLDB{}}}}
+	s := &mysqlPetStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: &fakeSQLDB{}}}}
 	if err := s.SavePetGrowth(context.Background(), repository.PetRecord{}, "p", repository.PetEntry{}); err == nil || errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("unlocked write err=%v", err)
 	}

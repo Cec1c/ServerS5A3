@@ -174,6 +174,9 @@ func (s *Service) sendCurrentAdventureInfoPushState(
 		"roster_count", len(characters),
 		"consecutive_login_days", projection.ConsecutiveLoginDays,
 		"recommended_dungeon_clears", projection.ContentCounts[adventuregroup.ContentTypeRecommendedDungeon],
+		"brave_experience_progress", projection.Runtime.BraveExperience,
+		"growth_capsule_experience", projection.Runtime.GrowthExperience,
+		"capsule_claim_experience", projection.CapsuleClaimExperience,
 		"represent_account_name_set", strings.TrimSpace(representAccountName) != "",
 		"created_date", createdDate,
 		"date_source", dateSource)

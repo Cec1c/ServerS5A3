@@ -140,6 +140,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 }
 
 func (s *Service) beginGameSessionClose(session *gameSession) {
+	session.stopGameTransport()
 	if session == nil || session.events == nil {
 		return
 	}
@@ -269,6 +270,7 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 		s.retireCurrentLukeSessionRun(session)
 		s.releaseCurrentRaidParticipationSession(session)
 		s.cancelCurrentDayDungeonCatalogRefresh(session)
+		s.cancelQuestMaterialRecovery(session)
 		s.cancelCurrentMonthlyAttendanceTick(session)
 		s.cancelCurrentWeeklyAttendanceTick(session)
 		s.cancelCurrentOrdinaryAttendanceTick(session)

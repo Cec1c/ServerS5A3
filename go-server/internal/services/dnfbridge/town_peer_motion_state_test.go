@@ -84,9 +84,6 @@ func newTownPeerMotionStateFixture(t *testing.T) townPeerMotionStateFixture {
 	t.Helper()
 	service, mover, _ := newTownMoveTest(t)
 	service.onlinePlayers = newOnlinePlayerManager()
-	mover.townMu.Lock()
-	setCurrentTownPositionSceneLocked(mover, 29, 38, 2)
-	mover.townMu.Unlock()
 
 	channel := mover.channel
 	observer := &gameSession{
@@ -99,14 +96,17 @@ func newTownPeerMotionStateFixture(t *testing.T) townPeerMotionStateFixture {
 		selectedCharacterID:             17,
 		townSceneReadyCharacterID:       17,
 	}
-	for _, info := range []*onlinePlayerInfo{
-		{CharacterID: 29, AccountID: "dnf:1", Name: "mover", TownID: 38, AreaID: 2,
-			PositionX: 450, PositionY: 234, Direction: 5, AreaState: 3, Session: mover},
-		{CharacterID: 17, AccountID: "dnf:2", Name: "observer", TownID: 38, AreaID: 2,
-			PositionX: 400, PositionY: 200, Direction: 5, AreaState: 3, Session: observer},
-	} {
-		service.onlinePlayers.EnterArea(info)
-	}
+	startTownPeerTest(t, service, mover, &onlinePlayerInfo{
+		CharacterID: 29, AccountID: "dnf:1", Name: "mover", TownID: 38, AreaID: 2,
+		PositionX: 450, PositionY: 234, Direction: 5, AreaState: 3, Session: mover,
+	})
+	startTownPeerTest(t, service, observer, &onlinePlayerInfo{
+		CharacterID: 17, AccountID: "dnf:2", Name: "observer", TownID: 38, AreaID: 2,
+		PositionX: 400, PositionY: 200, Direction: 5, AreaState: 3, Session: observer,
+	})
+	mover.townMu.Lock()
+	setCurrentTownPositionSceneLocked(mover, 29, 38, 2)
+	mover.townMu.Unlock()
 	observerBuf := observer.conn.(*bufferConn)
 	moverBuf := mover.conn.(*bufferConn)
 	observerBuf.write.Reset()
@@ -142,6 +142,8 @@ func TestTownPeerMoveBroadcastCarriesTheMoverMotionState(t *testing.T) {
 			); err != nil {
 				t.Fatalf("op35 report: %v", err)
 			}
+			drainTownPeerTest(t, fixture.service, fixture.observer)
+			drainTownPeerTest(t, fixture.service, fixture.mover)
 
 			packet, rest := splitCurrentGameServerUpperPacketAuto(t, fixture.observerBuf.write.Bytes())
 			if packet.Header.MsgID != currentTownUserPositionNotificationMsgID ||
@@ -176,6 +178,8 @@ func TestTownPeerMoveBroadcastFixDiffersFromLegacyByExactlyTwoBytes(t *testing.T
 		); err != nil {
 			t.Fatalf("op35 report: %v", err)
 		}
+		drainTownPeerTest(t, fixture.service, fixture.observer)
+		drainTownPeerTest(t, fixture.service, fixture.mover)
 		packet, _ := splitCurrentGameServerUpperPacketAuto(t, fixture.observerBuf.write.Bytes())
 		return append([]byte(nil), packet.Body...)
 	}

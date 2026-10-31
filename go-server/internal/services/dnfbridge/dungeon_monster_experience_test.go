@@ -212,7 +212,7 @@ func TestCurrentDungeonMonsterExperienceAtCapCommitsHonorExpertWithProgression(t
 		t.Fatal(err)
 	}
 	if result.HonorExpertGain != 10 || result.Character.Level != currentAdventureCharacterLevelCap ||
-		result.Character.Stats["exp"] != 133 ||
+		result.Character.Stats["exp"] != 123 ||
 		result.Character.Stats[currentHonorExpertLevelStatKey] != 1 ||
 		result.Character.Stats[currentHonorExpertProgressExperienceStatKey] != 5 {
 		t.Fatalf("result=%+v", result)
@@ -223,6 +223,9 @@ func TestCurrentDungeonMonsterExperienceAtCapCommitsHonorExpertWithProgression(t
 		t.Fatalf("persisted=%+v err=%v", persisted, err)
 	}
 	body := buildCurrentFinishLoadingCharacterStateBody(result.Character, result.Skill.Points)
+	if got := binary.LittleEndian.Uint32(body[1:5]); got != 123 {
+		t.Fatalf("满级击杀增加了普通EXP并触发系统提示：%d", got)
+	}
 	if got := binary.LittleEndian.Uint32(body[55:59]); got != 1 {
 		t.Fatalf("op37 HonorExpert level=%d", got)
 	}

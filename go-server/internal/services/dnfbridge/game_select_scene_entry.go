@@ -12,6 +12,8 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 		return nil // 频道更正的LOGIN未完成，旧选角请求不能绑定角色或写入落点。
 	}
 	packets := expandedCSharpUpperSelectInitTemplate()
+	timing := s.beginSelectTiming(session)
+	defer func() { s.finishSelectTiming(session, timing, routeErr) }()
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	var selectedQuests dnfrepo.QuestRecord
 	hasSelectedQuests := false
@@ -19,6 +21,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 	defer cancel()
 
 	charID, charName, selectedCharacter, hasSelectedCharacter, slot := s.resolveSelectedCharacter(ctx, session, request)
+	timing.resolve = time.Since(timing.started)
 	if !hasSelectedCharacter {
 		s.logPacketEvent("game-upper-select-character-init-blocked",
 			"conn_id", session.connID,
@@ -42,6 +45,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 	if !s.currentRenameSelectionStillCurrent(ctx, session, selectedCharacter) {
 		return s.handleUpperReturnSelectCharacter(session, nil)
 	}
+	timing.admission = time.Since(timing.started) - timing.resolve
 	if err := s.preSyncGuardianShieldMainProjection(ctx, session, selectedCharacter, hasSelectedCharacter); err != nil {
 		s.logGameEvent(session, "game-guardian-shield-login-repair-deferred", "原因", err)
 	}
@@ -147,6 +151,8 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 		}
 	}
 	batched, batchErr := s.beginCurrentOrdinaryChannelSceneBatch(session)
+	timing.batched = batched
+	timing.preparation = time.Since(timing.started) - timing.resolve - timing.admission
 	if batchErr != nil {
 		return batchErr
 	}

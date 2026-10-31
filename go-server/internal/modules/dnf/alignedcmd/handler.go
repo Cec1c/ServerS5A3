@@ -865,7 +865,18 @@ type EquipmentMoveFact struct {
 	WornClaimNoop bool
 }
 
+// EquipmentUpgradeNotice只描述已提交的强化/增幅/锻造播报，不允许广播私有资产应答。
+type EquipmentUpgradeNotice struct {
+	Kind      string
+	ItemID    int64
+	Level     byte
+	Succeeded bool
+	Body      []byte
+}
+
 type Result struct {
+	EquipmentUpgradeNotice *EquipmentUpgradeNotice
+
 	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
 	EquipmentMoveFact *EquipmentMoveFact
 	Decision          Decision
