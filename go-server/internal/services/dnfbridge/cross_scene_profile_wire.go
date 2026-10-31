@@ -79,6 +79,10 @@ func (s *Service) lockCurrentCrossSceneProfileForDelivery(ctx context.Context, v
 // frame can leave that frame delivered, so the caller must treat a partial
 // pair as a failed attempt that can be retried by the next request.
 func (s *Service) sendCurrentCrossSceneProfileFrames(ctx context.Context, viewer, actor *gameSession, bodies [][]byte, current func() bool) (bool, error) {
+	return s.sendCurrentCrossSceneProfileFramesWithBudget(ctx, viewer, actor, bodies, current, false)
+}
+
+func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Context, viewer, actor *gameSession, bodies [][]byte, current func() bool, completeAdmittedWrite bool) (bool, error) {
 	if len(bodies) == 0 {
 		return false, errors.New("cross-scene profile frame list is empty")
 	}
@@ -97,12 +101,26 @@ func (s *Service) sendCurrentCrossSceneProfileFrames(ctx context.Context, viewer
 	}
 	defer actor.crossSceneAppearanceMu.Unlock()
 	defer viewer.wireMu.Unlock()
-	deadline, _ := ctx.Deadline()
+	writeCtx := ctx
+	if completeAdmittedWrite {
+		// Preparation and lock waits still honor ctx. A frame already entering
+		// the protected wire must complete within its own bounded window; a
+		// shared raid preparation deadline is not evidence of a slow socket.
+		var cancelWrite context.CancelFunc
+		writeCtx, cancelWrite = context.WithTimeout(context.WithoutCancel(ctx), createWriteTimeout)
+		stopCancel := context.AfterFunc(ctx, func() {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				cancelWrite()
+			}
+		})
+		defer func() { stopCancel(); cancelWrite() }()
+	}
+	deadline, _ := writeCtx.Deadline()
 	if err := viewer.conn.SetWriteDeadline(deadline); err != nil {
 		return false, err
 	}
 	finished := make(chan struct{})
-	stop := context.AfterFunc(ctx, func() {
+	stop := context.AfterFunc(writeCtx, func() {
 		_ = viewer.conn.SetWriteDeadline(time.Now())
 		close(finished)
 	})
@@ -138,8 +156,8 @@ func (s *Service) sendCurrentCrossSceneProfileFrames(ctx context.Context, viewer
 			// A timeout may have written a prefix and advanced DPROTO. Reusing
 			// that stream would corrupt subsequent frames; close only this peer.
 			_ = viewer.conn.Close()
-			if ctx.Err() != nil {
-				return false, ctx.Err()
+			if writeCtx.Err() != nil {
+				return false, writeCtx.Err()
 			}
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return false, context.DeadlineExceeded
