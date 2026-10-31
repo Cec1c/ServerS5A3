@@ -69,6 +69,7 @@ func p05MoverInfo(session *gameSession, townID, areaID byte) onlinePlayerInfo {
 
 func p05Frames(t *testing.T, service *Service, session *gameSession) []upperFrame {
 	t.Helper()
+	drainTownPeerTest(t, service, session)
 	connection := session.conn.(*bufferConn)
 	raw := append([]byte(nil), connection.write.Bytes()...)
 	connection.write.Reset()
@@ -84,9 +85,11 @@ func p05Frames(t *testing.T, service *Service, session *gameSession) []upperFram
 func TestP05TownAreaChangeUsesAuthoritativePartyForEmptySessionCache(t *testing.T) {
 	t.Setenv(townCopresencePartyAuthoritativeEnv, "on")
 	fixture := newTownPartyActorHPFixture(t, true)
+	startTownPeerTest(t, fixture.service, fixture.actor, nil)
 	storeRuntimePartyState(fixture.target, alignedcmd.PartyState{})
 	storeRuntimePartyState(fixture.actor, alignedcmd.PartyState{})
 	mover := p05MoverInfo(fixture.target, 38, 0)
+	fixture.service.onlinePlayers.EnterArea(&mover)
 
 	fixture.service.broadcastTownPlayerAreaChange(&mover, []onlinePlayerInfo{fixture.actorInfo}, alignedcmd.PartyState{})
 
@@ -99,11 +102,13 @@ func TestP05TownAreaChangeUsesAuthoritativePartyForEmptySessionCache(t *testing.
 func TestP05TownAreaChangeUsesAuthoritativeNewPartyOverOldSessionCache(t *testing.T) {
 	t.Setenv(townCopresencePartyAuthoritativeEnv, "on")
 	fixture := newTownPartyActorHPFixture(t, true)
+	startTownPeerTest(t, fixture.service, fixture.actor, nil)
 	repositories, ok := fixture.service.repositoryGroup()
 	if !ok {
 		t.Fatal("test repository provider unavailable")
 	}
 	stranger, strangerInfo := newP05ExtraTownSession(t, fixture.service, repositories, fixture.target, 18)
+	startTownPeerTest(t, fixture.service, stranger, nil)
 	oldState := alignedcmd.PartyState{
 		PartyID: 901, UserID: fixture.target.selectedCharacterID, UserState: 1, IsLeader: true, MaxMembers: 4,
 		Members: []alignedcmd.PartyMemberState{
@@ -115,6 +120,7 @@ func TestP05TownAreaChangeUsesAuthoritativeNewPartyOverOldSessionCache(t *testin
 	storeRuntimePartyState(stranger, oldState)
 	strangerInfo.Session = stranger
 	mover := p05MoverInfo(fixture.target, 38, 0)
+	fixture.service.onlinePlayers.EnterArea(&mover)
 
 	fixture.service.broadcastTownPlayerAreaChange(
 		&mover,
@@ -154,6 +160,7 @@ func TestP05TownMovePublishesAuthoritativeFinalHPAndRosterWithEmptyCache(t *test
 
 func TestP05ReturnRebindUsesAuthoritativePartyWithEmptySessionCache(t *testing.T) {
 	_, service, leader, member, leaderConn, memberConn := newTownCoPresenceTestService(t)
+	startTownPeerTest(t, service, member, nil)
 	t.Setenv(townCopresencePartyAuthoritativeEnv, "on")
 	service.options.currentClientVersion = "official-24.9"
 	ok, _, reason, members := service.forceManagedRuntimeParty(leader.selectedCharacterID, member.selectedCharacterID)

@@ -263,9 +263,7 @@ func (s *Service) answerRoutedPartyEntryOwnerOnRefusal(
 			// This routed callback has no peer read-loop caller to close the
 			// connection on an outbound error. A partial frame cannot be
 			// retried safely; finish this peer through the normal disconnect.
-			if peer.conn != nil {
-				_ = peer.conn.Close()
-			}
+			peer.closeGameTransport()
 			return refuseErr
 		}
 		delivered = true

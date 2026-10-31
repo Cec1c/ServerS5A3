@@ -20,3 +20,9 @@ func LoadCharacterIdentity(ctx context.Context, characters CharacterRepository, 
 	record, found, err := characters.Load(ctx, id)
 	return CharacterIdentity{CharacterID: record.CharacterID, AccountID: record.AccountID}, found, err
 }
+
+// CharacterSelectionIdentityReader returns only nondeleted account/slot rows.
+// These rows must be reloaded before projecting or saving character state.
+type CharacterSelectionIdentityReader interface {
+	ListCharacterIdentities(context.Context, string, int) ([]CharacterRecord, error)
+}

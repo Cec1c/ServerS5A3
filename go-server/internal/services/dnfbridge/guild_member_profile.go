@@ -222,25 +222,15 @@ func (s *Service) sendCurrentGuildMemberProfileFrames(ctx context.Context, a cur
 		return err
 	}
 	defer actor.crossSceneAppearanceMu.Unlock()
-	if err := lockCurrentCrossSceneProfile(ctx, &viewer.wireMu); err != nil {
+	if err := s.lockGameWire(viewer, ctx); err != nil {
 		return err
 	}
 	defer viewer.wireMu.Unlock()
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return context.DeadlineExceeded
-	}
-	if err := viewer.conn.SetWriteDeadline(deadline); err != nil {
+	finishWrite, err := beginGameWriteBudgetLocked(viewer, ctx)
+	if err != nil {
 		return err
 	}
-	finished := make(chan struct{})
-	stop := context.AfterFunc(ctx, func() { _ = viewer.conn.SetWriteDeadline(time.Now()); close(finished) })
-	defer func() {
-		if !stop() {
-			<-finished
-		}
-		_ = viewer.conn.SetWriteDeadline(time.Time{})
-	}()
+	defer finishWrite()
 	for _, frame := range frames {
 		if revision != actor.crossSceneAppearanceRevision {
 			return nil
@@ -252,7 +242,7 @@ func (s *Service) sendCurrentGuildMemberProfileFrames(ctx context.Context, a cur
 			return err
 		}
 		if err := s.sendGameUpperRawClassCodecLocked(viewer, frame.opcode, frame.body, frame.class, true); err != nil {
-			_ = viewer.conn.Close()
+			viewer.closeGameTransport()
 			return err
 		}
 	}

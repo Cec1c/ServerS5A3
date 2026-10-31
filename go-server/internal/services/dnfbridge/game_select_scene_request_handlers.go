@@ -42,6 +42,7 @@ func (s *Service) sendFinishLoadingStatus(session *gameSession, request []byte) 
 			"reason", "current_live_legacy_op37_body_length_mismatch")
 		return nil
 	}
+	s.noteSelectClientLoadingReport(session)
 	actorReady, actorReadySource := s.currentSceneActorReadyForState(session)
 	// 全员读条屏障把落位（op120/op3）压到"全队 op37 到齐"之后，而
 	// `postStartMapPlayerStateSent` 正是落位里置上的 ⇒ 这段时间

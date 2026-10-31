@@ -128,6 +128,11 @@ func runP05L1CompletedReturnV2(t *testing.T, invalidateActor, viewerReturnsLast 
 		session.connectionTownActorOwnerChannel = byte(session.channel.ID)
 		session.dungeon.runtime.Character = character
 	}
+	// Town peer traffic is delivered through each recipient's real events
+	// queue. Start both owners so the completed-return fan-out can run before
+	// this fixture snapshots its buffers or inspects the receiver wire.
+	startTownPeerTest(t, s, viewer, nil)
+	startTownPeerTest(t, s, actor, nil)
 	first, firstRuntime := viewer, f.leaderRuntime
 	last, lastRuntime := actor, f.memberRuntime
 	if viewerReturnsLast {
@@ -135,6 +140,8 @@ func runP05L1CompletedReturnV2(t *testing.T, invalidateActor, viewerReturnsLast 
 		last, lastRuntime = viewer, f.leaderRuntime
 	}
 	p05L1V2RunCompletedReturn(t, s, first, firstRuntime)
+	drainTownPeerTest(t, s, viewer)
+	drainTownPeerTest(t, s, actor)
 	if !s.sessionHasActiveDungeonRuntime(last) || s.sessionHasActiveDungeonRuntime(first) {
 		t.Fatal("fixture needs the same party with exactly one member already returned")
 	}
@@ -196,6 +203,8 @@ func runP05L1CompletedReturnV2(t *testing.T, invalidateActor, viewerReturnsLast 
 	}
 
 	p05L1V2RunCompletedReturn(t, s, last, lastRuntime)
+	drainTownPeerTest(t, s, viewer)
+	drainTownPeerTest(t, s, actor)
 	partyAfter, found := s.runtimePartyManagerForService().SnapshotByUser(viewer.selectedCharacterID, 0)
 	revisionAfter := currentCrossSceneAppearanceRevision(actor)
 	ownerAfter := currentConnectionTownActorOwnerContext(viewer)

@@ -260,6 +260,13 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		return nil
 	}
 	timing.markAckStart()
+	if result.HasSlotExpansion {
+		if err := validateCurrentFinishQuestSlotCommit(session, result); err != nil {
+			s.logWarn("dnfbridge committed slot quest receipt invalid", "conn_id", session.connID,
+				"quest_id", request.QuestID, "error", err)
+			return err
+		}
+	}
 	payload, err := buildCurrentFinishQuestSuccessBody(result)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-finish-quest-blocked",
@@ -267,7 +274,9 @@ func (s *Service) handleCurrentFinishQuestTimed(
 			"completion_key", result.CompletionKey,
 			"reason", "committed_result_ack_shape_invalid",
 			"error", err)
-		return nil
+		s.logWarn("dnfbridge committed quest receipt invalid", "conn_id", session.connID,
+			"quest_id", request.QuestID, "error", err)
+		return err
 	}
 	replayKey := newCurrentFinishQuestReplayKey(session.selectedCharacterID, request)
 	if result.Replayed && session.currentFinishQuestAnswered(replayKey) {
@@ -335,7 +344,30 @@ func (s *Service) handleCurrentFinishQuestTimed(
 	if result.HasProfession {
 		return s.sendCurrentProfessionFinishPostCommitSnapshots(session, result)
 	}
-	return s.sendCurrentFinishQuestPostCommitSnapshots(session, result)
+	err = s.sendCurrentFinishQuestPostCommitSnapshots(session, result)
+	if err != nil && result.HasSlotExpansion {
+		// The ACK already removed the UI quest. Never send a second terminal
+		// receipt on this stream; a fresh scene loads the committed slot state.
+		session.closeGameTransport()
+		s.logWarn("dnfbridge committed slot quest refresh failed", "conn_id", session.connID,
+			"quest_id", request.QuestID, "stage", "post_ack_refresh", "error", err)
+	}
+	return err
+}
+
+func validateCurrentFinishQuestSlotCommit(session *gameSession, result dnfquest.FinishCommitResult) error {
+	if session == nil {
+		return errCurrentFinishQuestAckShape
+	}
+	id := strconv.Itoa(int(session.selectedCharacterID))
+	bit, valid := dnfquest.ExEquipSlotBitForPVFIndex(result.SlotExpansionIndex)
+	if !result.AtomicCommitted || !valid || bit != result.SlotExpansionBit ||
+		result.CharacterID != id || result.PostCommitCharacter.CharacterID != id ||
+		result.PostCommitSkill.CharacterID != id || result.PostCommitQuest.CharacterID != id ||
+		result.PostCommitCharacter.Stats["ex_equip_slot_stat"]&int64(bit) == 0 {
+		return errCurrentFinishQuestAckShape
+	}
+	return nil
 }
 
 func currentQuestRewardIsProfession(value string) bool {
@@ -784,7 +816,7 @@ func buildCurrentFinishQuestSuccessBody(result dnfquest.FinishCommitResult) ([]b
 	}
 	if result.HasSlotExpansion {
 		expectedBit, validIndex := dnfquest.ExEquipSlotBitForPVFIndex(result.SlotExpansionIndex)
-		if len(result.Items) != 0 || len(result.Currency) != 0 ||
+		if len(result.Items) != 0 || !validCurrentFinishQuestSlotExpansionCurrency(result.Currency) ||
 			!validIndex ||
 			result.SlotExpansionBit != expectedBit {
 			return nil, errCurrentFinishQuestAckShape
@@ -812,6 +844,22 @@ func buildCurrentFinishQuestSuccessBody(result dnfquest.FinishCommitResult) ([]b
 		writer.writeByte(item.RawEntry[0x13])
 	}
 	return writer.bytes(), nil
+}
+
+// A paid slot-expansion quest commits one gold debit in the same transaction,
+// but the current finish ACK has no currency field. Keep the ordinary chain and
+// publish the committed wallet through the existing inventory refresh; reject
+// every other reward combination rather than silently omitting it.
+func validCurrentFinishQuestSlotExpansionCurrency(currencies []dnfquest.FinishCommittedCurrency) bool {
+	switch len(currencies) {
+	case 0:
+		return true
+	case 1:
+		currency := currencies[0]
+		return currency.Name == "gold" && currency.Delta < 0 && currency.PostValue >= 0
+	default:
+		return false
+	}
 }
 
 func currentFinishQuestBusinessFailure(err error) bool {

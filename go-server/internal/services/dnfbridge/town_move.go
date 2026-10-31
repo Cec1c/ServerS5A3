@@ -534,19 +534,21 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 		// Existing same-area party clients have just received the mover's new
 		// mode0/mode1 actor. Refresh their selected local roster as the final
 		// step so the HUD/minimap keeps the authoritative slot mapping.
+		moverID := session.selectedCharacterID
 		for i := range newAreaOthers {
-			peer := newAreaOthers[i].Session
-			if peer == nil || peer == session ||
+			peer := newAreaOthers[i]
+			if peer.Session == nil || peer.Session == session ||
 				!containsRuntimePartyMember(runtimePartyMembers(partyStateAfterTownMove), newAreaOthers[i].CharacterID) {
 				continue
 			}
-			peerState := s.townCopresenceActorPartyState(peer)
-			if peerState.PartyID != partyStateAfterTownMove.PartyID {
-				continue
-			}
-			if err := s.sendRuntimePartyRosterLocal(peer, partyStateAfterTownMove, "town_set_user_area_same_area_peer_roster_rebind"); err != nil {
-				return err
-			}
+			s.queueTownPeerDelivery(peer, "town_set_user_area_same_area_peer_roster_rebind", nil, func() error {
+				peerState := s.townCopresenceActorPartyState(peer.Session)
+				if peerState.PartyID != partyStateAfterTownMove.PartyID ||
+					!containsRuntimePartyMember(runtimePartyMembers(peerState), moverID) {
+					return nil
+				}
+				return s.sendRuntimePartyRosterLocal(peer.Session, peerState, "town_set_user_area_same_area_peer_roster_rebind")
+			})
 		}
 	}
 

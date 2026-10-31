@@ -339,9 +339,19 @@ func TestTownPartyActorHPGateControls(t *testing.T) {
 // the actor projection, then the mid HP table, then op23, and finally the
 // unchanged local roster pair.
 func TestTownPartyReturnRebindHPFollowsActorProjection(t *testing.T) {
-	_, service, leader, _, leaderConn, memberConn := newTownCoPresenceTestService(t)
+	_, service, leader, member, leaderConn, memberConn := newTownCoPresenceTestService(t)
 	service.options.currentClientVersion = "official-24.9"
 	t.Setenv(townCopresenceSkipSamePartyFrameEnv, "off")
+	leaderInfo, ok := service.onlinePlayers.PlayerForCharacter(leader.selectedCharacterID)
+	if !ok {
+		t.Fatal("leader presence missing before return")
+	}
+	startTownPeerTest(t, service, leader, &leaderInfo)
+	memberInfo, ok := service.onlinePlayers.PlayerForCharacter(member.selectedCharacterID)
+	if !ok {
+		t.Fatal("member presence missing before return")
+	}
+	startTownPeerTest(t, service, member, &memberInfo)
 
 	if ok, partyID, reason, members := service.forceManagedRuntimeParty(1001, 1002); !ok {
 		t.Fatalf("force managed return party: party=%d members=%d reason=%s", partyID, members, reason)
@@ -351,6 +361,8 @@ func TestTownPartyReturnRebindHPFollowsActorProjection(t *testing.T) {
 	memberConn.write.Reset()
 
 	service.rebindTownCopresenceAfterDungeonReturn(leader, 38, 2, "test_town_party_actor_hp_return")
+	drainTownPeerTest(t, service, leader)
+	drainTownPeerTest(t, service, member)
 
 	readFrames := func(wire []byte) []upperFrame {
 		var frames []upperFrame

@@ -101,6 +101,8 @@ func TestP05TownCrossAreaFinishLoadingPartyHPOrder(t *testing.T) {
 // finish-loading assertions cannot pass on a pre-rebuild op153.
 func p05CrossAreaPrepareSharedTown(t *testing.T, fixture *townPartyActorHPFixture) {
 	t.Helper()
+	startTownPeerTest(t, fixture.service, fixture.target, nil)
+	startTownPeerTest(t, fixture.service, fixture.actor, nil)
 	// This synthetic catalog models two public areas in one town; crossing to
 	// another town would require a separate portal/transport authorization.
 	table, err := dnftown.Load(context.Background(), townMoveTestSource{

@@ -87,6 +87,14 @@ type gameSession struct {
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
 	wireMu                  sync.Mutex
+	wireWriteContext        context.Context // wireMu; active logical write budget
+	selectTimingMu          sync.Mutex
+	selectTiming            *currentSelectTiming        // selectTimingMu
+	selectLoadingTiming     *currentSelectLoadingTiming // selectTimingMu
+	transportOnce           sync.Once
+	transportCloseOnce      sync.Once
+	transportCtx            context.Context
+	transportCancel         context.CancelFunc
 	dproto                  dproto.Session
 	channelSceneBatch       *currentChannelSceneBatch // 仅普通换线；wireMu保护。
 	nativeResultDelivery    *nativeResultDelivery     // 原生连续分解结果集中写回；wireMu保护。
@@ -595,6 +603,7 @@ func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {
 	}
 	dprotoOpened := false
 	defer func() {
+		session.stopGameTransport()
 		s.shutdownGameSessionEvents(session, dprotoOpened)
 	}()
 	if err := s.callGameSession(ctx, session, "game-dproto-open", func() error {

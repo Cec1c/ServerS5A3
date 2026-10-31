@@ -355,7 +355,10 @@ func TestTownRemotePartyActorProjectionSkipsOtherChannels(t *testing.T) {
 	service, receiver, repositories := newTownMoveTest(t)
 	service.onlinePlayers = newOnlinePlayerManager()
 	service.options.gameUpperBodyCodec = gameUpperBodyCodecPlain
-	service.bindGameSessionCharacter(receiver, receiver.selectedCharacterID)
+	startTownPeerTest(t, service, receiver, &onlinePlayerInfo{
+		CharacterID: 29, TownID: 38, AreaID: 0, PositionX: 450, PositionY: 234,
+		Direction: 5, AreaState: 3, Session: receiver,
+	})
 
 	peerConn := &bufferConn{}
 	peer := &gameSession{
@@ -395,6 +398,7 @@ func TestTownRemotePartyActorProjectionSkipsOtherChannels(t *testing.T) {
 	if err := service.sendTownRemotePartyActors(receiver, state); err != nil {
 		t.Fatalf("same-channel remote party actor projection: %v", err)
 	}
+	drainTownPeerTest(t, service, receiver)
 	if len(receiver.conn.(*bufferConn).write.Bytes()) == 0 {
 		t.Fatal("same-channel other-area party member must still be projected into the party frame")
 	}
@@ -417,6 +421,7 @@ func TestTownRemotePartyActorProjectionSkipsOtherChannels(t *testing.T) {
 	if err := service.sendTownRemotePartyActors(receiver, state); err != nil {
 		t.Fatalf("cross-channel remote party actor projection: %v", err)
 	}
+	drainTownPeerTest(t, service, receiver)
 	if got := receiver.conn.(*bufferConn).write.Bytes(); len(got) != 0 {
 		t.Fatalf("cross-channel party member must not be projected into the local town scene: %x", got)
 	}

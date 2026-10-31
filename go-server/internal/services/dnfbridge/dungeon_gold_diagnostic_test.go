@@ -170,7 +170,7 @@ func TestGoldDiagnosticDoesNotClaimSuppressedOrQueuedPacketsWereSent(t *testing.
 			if mode == "short" {
 				p.conn = &sharedDiagnosticFaultConn{short: true}
 			}
-			if err := s.sendGameUpperRawClass(p, 38, goldDiagnosticBody(t), 0); err != nil {
+			if err := s.sendGameUpperRawClass(p, 38, goldDiagnosticBody(t), 0); (err != nil) != (mode == "short") {
 				t.Fatal(err)
 			}
 			events := goldDiagnosticEvents(t, &logs)

@@ -23,7 +23,9 @@ func (s *Service) beginCurrentOrdinaryChannelSceneBatch(p *gameSession) (bool, e
 	if s == nil || p == nil || p.conn == nil || s.options.currentClientVersion != "official-24.9" || !p.channelReconnect || currentColdSpecialChannel(p.channel) {
 		return false, nil
 	}
-	p.wireMu.Lock()
+	if err := s.lockGameWire(p, nil); err != nil {
+		return false, err
+	}
 	defer p.wireMu.Unlock()
 	if p.channelSceneBatch != nil {
 		return false, fmt.Errorf("普通换线初始化批次不能嵌套")
@@ -52,11 +54,13 @@ func (s *Service) writeCurrentGameWireLocked(p *gameSession, wire []byte) (int, 
 			return 0, err
 		}
 	}
-	return s.writeGameConnectionObserved(p.conn, wire, perfWireDirect)
+	return s.writeGameSessionObserved(p, wire, perfWireDirect)
 }
 
 func (s *Service) finishCurrentOrdinaryChannelSceneBatch(p *gameSession, routeErr error) error {
-	p.wireMu.Lock()
+	if err := s.lockGameWire(p, nil); err != nil {
+		return err
+	}
 	defer p.wireMu.Unlock()
 	b := p.channelSceneBatch
 	p.channelSceneBatch = nil
@@ -70,18 +74,19 @@ func (s *Service) finishCurrentOrdinaryChannelSceneBatch(p *gameSession, routeEr
 		routeErr = p.ctx.Err()
 	}
 	if routeErr == nil && len(b.wire) != 0 {
-		n, err := s.writeGameConnectionObserved(p.conn, b.wire, perfWireScene)
+		n, err := s.writeGameSessionObserved(p, b.wire, perfWireScene)
 		routeErr = err
 		if routeErr == nil && n != len(b.wire) {
 			routeErr = io.ErrShortWrite
 		}
 	}
 	if routeErr != nil {
-		_ = p.conn.Close() // 保护层已编码的失败批次不能在旧序列上继续使用。
+		p.closeGameTransport() // 保护层已编码的失败批次不能在旧序列上继续使用。
 		s.logGameEvent(p, "普通换线初始化批次失败", "报文数", b.frames, "字节数", len(b.wire), "原因", routeErr)
 		return routeErr
 	}
 	for _, inner := range b.upper {
+		noteSelectAckWrittenLocked(p, inner)
 		s.logCurrentSharedInventoryPacketWritten(p, inner)
 		s.logGoldDiagnosticPacketResult(p, inner, false)
 	}

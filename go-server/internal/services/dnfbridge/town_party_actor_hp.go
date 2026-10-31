@@ -1,8 +1,10 @@
 package dnfbridge
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 )
 
 // Published v158 class0/op153 (0x20331e0) updates HP only for actors already
@@ -11,7 +13,15 @@ import (
 // on other actors can postpone the existing final local-roster refresh.
 // This is an HP update only: it must not redeclare op9 or restart op11 links.
 func (s *Service) sendCurrentTownPartyHPAfterActor(target, actor *gameSession) error {
-	body := s.currentTownPartyRealtimeBody(target, actor)
+	if !s.currentTownPartyHPProjectionEligible(target, actor) {
+		return nil
+	}
+	ctx, cancel := gameTransportBudget(target, nil)
+	defer cancel()
+	body, err := s.currentTownPartyRealtimeBodyContext(ctx, target, actor)
+	if err != nil {
+		return err
+	}
 	if len(body) == 0 {
 		return nil
 	}
@@ -54,11 +64,30 @@ func (s *Service) sendCurrentTownPartyHPAfterCrossAreaLoading(target *gameSessio
 // particular, do not interpret the party subsystem's default percentage as
 // measured HP or change its established town roster serialization here.
 func (s *Service) currentTownPartyRealtimeBody(target, actor *gameSession) []byte {
-	if !s.currentTownPartyHPProjectionEligible(target, actor) ||
-		s.sessionHasActiveDungeonRuntime(target) || s.sessionHasActiveDungeonRuntime(actor) {
-		return nil
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	body, _ := s.currentTownPartyRealtimeBodyContext(ctx, target, actor)
+	return body
+}
+
+// Never hold one player's dungeon lock while waiting for another player's
+// lock. Both snapshots are sampled together, with a bounded retry budget.
+func (s *Service) currentTownPartyRealtimeBodyContext(ctx context.Context, target, actor *gameSession) ([]byte, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if body, ready := s.tryCurrentTownPartyRealtimeBodyOnWire(target, actor); ready {
+			return body, nil
+		}
+		timer := time.NewTimer(time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	return s.currentTownPartyRealtimeBodyOutsideDungeon(target, actor)
 }
 
 func (s *Service) currentTownPartyHPProjectionEligible(target, actor *gameSession) bool {

@@ -25,19 +25,36 @@ func TestTownPartyAreaChangeKeepsManagedPeerWhenSessionProjectionWasLost(t *test
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(townCopresencePartyAuthoritativeEnv, tc.switchValue)
 			h := newPartyForceHarness(t)
+			h.service.onlinePlayers = newOnlinePlayerManager()
 			h.service.options.currentClientVersion = tc.profile
 			if ok, _, reason, _ := h.service.forceManagedRuntimeParty(1001, 1002); !ok {
 				t.Fatal(reason)
 			}
 			state := h.service.runtimePartyStateForSession(h.leader)
 			storeRuntimePartyState(h.member, alignedcmd.PartyState{})
-			h.memberConn.write.Reset()
 			outside := &gameSession{conn: &bufferConn{}, selectedCharacterID: 4000, channel: h.member.channel}
-			mover := onlinePlayerInfo{CharacterID: 1001, TownID: 31, AreaID: 3, PositionX: 120, PositionY: 240, Direction: 1, AreaState: 1, Session: h.leader}
-			h.service.broadcastTownPlayerAreaChange(&mover, []onlinePlayerInfo{
-				{CharacterID: 1002, Session: h.member},
-				{CharacterID: 4000, Session: outside},
-			}, state)
+			startTownPeerTest(t, h.service, h.leader, &onlinePlayerInfo{
+				CharacterID: 1001, TownID: 31, AreaID: 3, PositionX: 120, PositionY: 240,
+				Direction: 1, AreaState: 1, Session: h.leader,
+			})
+			startTownPeerTest(t, h.service, h.member, &onlinePlayerInfo{
+				CharacterID: 1002, TownID: 31, AreaID: 2, Session: h.member,
+			})
+			startTownPeerTest(t, h.service, outside, &onlinePlayerInfo{
+				CharacterID: 4000, TownID: 31, AreaID: 2, Session: outside,
+			})
+			h.memberConn.write.Reset()
+			outside.conn.(*bufferConn).write.Reset()
+			mover, leaderPresent := h.service.onlinePlayers.PlayerForCharacter(1001)
+			member, memberPresent := h.service.onlinePlayers.PlayerForCharacter(1002)
+			outsiderPresence, outsidePresent := h.service.onlinePlayers.PlayerForCharacter(4000)
+			if !leaderPresent || !memberPresent || !outsidePresent {
+				t.Fatalf("town presence missing: leader=%t member=%t outsider=%t",
+					leaderPresent, memberPresent, outsidePresent)
+			}
+			h.service.broadcastTownPlayerAreaChange(&mover, []onlinePlayerInfo{member, outsiderPresence}, state)
+			drainTownPeerTest(t, h.service, h.member)
+			drainTownPeerTest(t, h.service, outside)
 			packet, trailing := splitGameServerUpperPacketWithHeader(t, h.memberConn.write.Bytes(), dnfproto.GameServerUpperHeaderSize16)
 			if len(trailing) != 0 || packet.Header.MsgID != tc.wantID || packet.Header.Classification != 0 {
 				t.Fatalf("peer area-change packet = %+v trailing=%x; want exactly class0 op%d", packet, trailing, tc.wantID)

@@ -91,6 +91,11 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Conte
 	if viewer == nil || viewer.conn == nil || actor == nil {
 		return false, errors.New("cross-scene profile connection unavailable")
 	}
+	stopTransport := context.AfterFunc(viewer.gameTransportContext(), cancel)
+	defer stopTransport()
+	if viewer.gameTransportContext().Err() != nil {
+		return false, context.Canceled
+	}
 	needsHP := false
 	for _, body := range bodies {
 		needsHP = needsHP || (len(body) > 0 && body[0] == currentCrossSceneMode8Subtype)
@@ -115,23 +120,11 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Conte
 		})
 		defer func() { stopCancel(); cancelWrite() }()
 	}
-	deadline, _ := writeCtx.Deadline()
-	if err := viewer.conn.SetWriteDeadline(deadline); err != nil {
+	finishWrite, err := beginGameWriteBudgetLocked(viewer, writeCtx)
+	if err != nil {
 		return false, err
 	}
-	finished := make(chan struct{})
-	stop := context.AfterFunc(writeCtx, func() {
-		_ = viewer.conn.SetWriteDeadline(time.Now())
-		close(finished)
-	})
-	defer func() {
-		if !stop() {
-			<-finished
-		}
-		// Restore before releasing wireMu so later ordinary frames do not
-		// inherit this profile's deadline or a racing cancellation callback.
-		_ = viewer.conn.SetWriteDeadline(time.Time{})
-	}()
+	defer finishWrite()
 	for _, body := range bodies {
 		if err := ctx.Err(); err != nil {
 			return false, err
@@ -155,7 +148,7 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Conte
 		if err != nil {
 			// A timeout may have written a prefix and advanced DPROTO. Reusing
 			// that stream would corrupt subsequent frames; close only this peer.
-			_ = viewer.conn.Close()
+			viewer.closeGameTransport()
 			if writeCtx.Err() != nil {
 				return false, writeCtx.Err()
 			}
