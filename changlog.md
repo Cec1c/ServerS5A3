@@ -1,3 +1,9 @@
+## 2026-10-31 — Durable personal quest materials for shared monster deaths
+
+- Fan out existing type-1 quest-material rules to each eligible same-room character instead of only the accepted death reporter. Preserve ordinary ground loot and type-2/type-3 owners; no quest-ID exceptions.
+- Persist personal decisions and delivery/notification receipts in existing Settings, commit inventory atomically, and recover the same decision after disconnect, full bags, rollback or an ambiguous commit. Add scoped preparation transactions, bounded inbox recovery and generation guards without a schema migration.
+- Add official-profile handler matrices, personal probability/eligibility and queue tests, plus real disposable MariaDB atomicity/concurrency/reload coverage. Design, limits and acceptance boundaries: Docs/PARTY_QUEST_MATERIAL_DELIVERY.md. No production deployment or native-client acceptance is implied.
+
 ## 2026-10-31 — 公会上期回归夹具的月末边界
 
 - 公会过期副本快照和已结算排行榜测试改为从实际周期边界取上一期，避免 31 日直接减一个月被 Go 日期归一化到本月，错误构造“上一期”。生产周期、奖励和读写逻辑不变。

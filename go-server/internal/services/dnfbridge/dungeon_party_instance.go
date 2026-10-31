@@ -479,6 +479,7 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 			continue
 		}
 		delivered++
+		s.dispatchQuestMaterialPeer(peer.Session)
 		sceneCleared := false
 		sceneMarked := false
 		sceneMarkReason := "peer_scene_missing"

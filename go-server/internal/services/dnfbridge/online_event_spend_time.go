@@ -622,6 +622,12 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 	if err := s.armCurrentDayDungeonCatalogRefresh(session); err != nil {
 		return descriptorSent, err
 	}
+	if err := s.recoverQuestMaterials(session); err != nil {
+		s.logGameEvent(session, "game-quest-material-bootstrap-deferred", "error", err)
+	}
+	if err := s.armQuestMaterialRecovery(session); err != nil {
+		s.logGameEvent(session, "game-quest-material-retry-deferred", "error", err)
+	}
 	if s.currentMonthlyAttendanceEnabled() {
 		if err := s.sendCurrentMonthlyAttendance(session, false); err != nil {
 			s.logGameEvent(session, "game-monthly-attendance-bootstrap-deferred", "error", err)

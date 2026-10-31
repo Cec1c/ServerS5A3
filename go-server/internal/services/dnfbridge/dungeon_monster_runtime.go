@@ -56,6 +56,9 @@ type runtimeDungeonRoomSnapshot struct {
 
 type runtimeDungeonRoom struct {
 	mu                    sync.RWMutex
+	deathCommitMu         sync.Mutex
+	materialID            string
+	materialRecipients    map[uint32][]questMaterialRecipient
 	cardGoldKills         currentDungeonCardKillCounts
 	combatDeaths          map[uint32]struct{}
 	coordinate            worldmap.RoomCoordinate
@@ -568,9 +571,15 @@ func (r *runtimeDungeonRoom) commitActorDeathReport(
 	session *worldmap.DungeonSession,
 	recordCombatKill bool,
 ) (runtimeDungeonDeathTarget, bool, error) {
+	return r.commitActorDeathReportPrepared(objectKey, session, recordCombatKill, nil)
+}
+
+func (r *runtimeDungeonRoom) commitActorDeathReportPrepared(objectKey uint32, session *worldmap.DungeonSession, recordCombatKill bool, prepare func() error) (runtimeDungeonDeathTarget, bool, error) {
 	if r == nil {
 		return runtimeDungeonDeathTarget{}, false, errDungeonMonsterObjectNotFound
 	}
+	r.deathCommitMu.Lock()
+	defer r.deathCommitMu.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	target, state, err := r.deathTargetLocked(objectKey)
@@ -612,6 +621,29 @@ func (r *runtimeDungeonRoom) commitActorDeathReport(
 		// optional card accounting must not reject an otherwise valid death.
 		actorType, err = r.cardGoldActorTypeLocked(objectKey)
 		classified = err == nil
+	}
+	if prepare != nil {
+		for _, dead := range scene.DefeatedObjects {
+			if dead == objectKey {
+				return runtimeDungeonDeathTarget{}, false, worldmap.ErrHostileAlreadyDefeated
+			}
+		}
+		// Serialize death commits without holding the room state lock over SQL.
+		// Readers/ordinary loot callbacks remain free to inspect this room.
+		r.mu.Unlock()
+		var prepareErr error
+		func() { defer r.mu.Lock(); prepareErr = prepare() }()
+		if prepareErr != nil {
+			return runtimeDungeonDeathTarget{}, false, prepareErr
+		}
+		target, state, err = r.deathTargetLocked(objectKey)
+		if err != nil {
+			return runtimeDungeonDeathTarget{}, false, err
+		}
+		if *state != runtimeDungeonMonsterAnnounced {
+			return runtimeDungeonDeathTarget{}, false, errDungeonMonsterAlreadyDefeated
+		}
+
 	}
 	cleared, err := session.MarkHostileDefeated(objectKey)
 	if err != nil {
