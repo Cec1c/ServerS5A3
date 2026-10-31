@@ -362,3 +362,52 @@ func TestR148DeathPublicCompletedReviveRetainsOwner(t *testing.T) {
 		})
 	}
 }
+
+// The integrated live baseline retains a proven ordinary-run death through
+// settlement. Both accepted op40 shapes must obey the same narrow owner and
+// exactly-once debit contract; an unproved or replaced owner remains rejected.
+func TestR148DeathCompletedReviveRequiresCurrentRetainedOwner(t *testing.T) {
+	for _, size := range []int{4, 6} {
+		for _, proof := range []string{"retained", "no_accepted_death", "unproved_completion", "replaced_run"} {
+			t.Run(fmt.Sprintf("accepted_%d_then_completed/%s", size, proof), func(t *testing.T) {
+				s, g, r, q := r148DeathFixture(t)
+				r148Dispatch(t, s, g, 40, make([]byte, size))
+				if !r.deathStateSent || !r.deathReturnWaiting {
+					t.Fatal("active death must be accepted before completion")
+				}
+				task := q.task(t, 0)
+				r148Complete(t, s, g, r)
+				switch proof {
+				case "no_accepted_death":
+					r.deathStateSent = false
+				case "unproved_completion":
+					r.bossDieCheckAccepted = false
+				case "replaced_run":
+					g.dungeon.runToken++
+				}
+				before := r148Bag(t, s)
+				wasDead, wasWaiting := r.deathStateSent, r.deathReturnWaiting
+				phase, result, entry := r.settlementPhase, r.settlementPlayResultReceived, r.settlementEntrySent
+				conn := g.conn.(*bufferConn)
+				conn.write.Reset()
+				if proof == "retained" {
+					r148AssertRevive(t, s, g, r)
+					before = r148Bag(t, s)
+					wasDead, wasWaiting = false, false
+					conn.write.Reset()
+				}
+				r148Dispatch(t, s, g, 41, []byte{99, 0})
+				q.fire(task, true)
+				if conn.write.Len() != 0 || !reflect.DeepEqual(before, r148Bag(t, s)) || r.deathStateSent != wasDead || r.deathReturnWaiting != wasWaiting || r.townReturnPending {
+					t.Fatal("unproved/repeated revive or stale timer changed assets or return owner")
+				}
+				if r.settlementPhase != phase || r.settlementPlayResultReceived != result || r.settlementEntrySent != entry || g.dungeon.runtime != r {
+					t.Fatal("revive altered settlement barriers or runtime ownership")
+				}
+				if _, _, active := q.counts(); active != 0 {
+					t.Fatal("completion left active death timer")
+				}
+			})
+		}
+	}
+}

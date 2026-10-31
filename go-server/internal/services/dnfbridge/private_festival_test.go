@@ -231,3 +231,37 @@ func TestPrivateFestivalWireAndCartIsolation(t *testing.T) {
 		t.Fatal("wire size")
 	}
 }
+
+func TestPrivateFestivalOldInstancesRenewFromExactEvidence(t *testing.T) {
+	path := os.Getenv("PRIVATE_FESTIVAL_PVF")
+	if path == "" {
+		t.Skip("candidate PVF required")
+	}
+	archive, e := platformpvf.Open(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	c, e := newPVFDungeonDropCatalog(archive)
+	if e != nil {
+		t.Fatal(e)
+	}
+	now := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	for _, r := range privateFestivalRetiredDates {
+		d, e := c.ResolveItem(r.id)
+		if e != nil {
+			t.Fatal(e)
+		}
+		s := repo.ItemStack{ItemID: int64(r.id), Count: 1, ExpireAt: time.Unix(int64(r.previous), 0)}
+		renewed, changed := normalizeCurrentPVFItemStack(s, d, now)
+		if !changed || currentItemListStackExpire(renewed) != 1861826400 {
+			t.Fatalf("old item %d not renewed: path=%q expected=%q definition=%s usable=%d daily=%v match=%v changed=%v old=%d actual=%d", r.id, d.PVFPath, r.path, d.ExpirationDate, d.UsablePeriodDays, d.DailyDeleteItem, privateFestivalInstanceNeedsRenewal(d, r.previous), changed, r.previous, currentItemListStackExpire(renewed))
+		}
+		if _, changed = normalizeCurrentPVFItemStack(renewed, d, now); changed {
+			t.Fatalf("renewal %d is not idempotent", r.id)
+		}
+		// Distinct dates and independently assigned rental/GM deadlines are not evidence.
+		if !currentGiftBoxHistoryExpiration(d, r.previous+1, false).IsZero() || !currentGiftBoxHistoryExpiration(d, r.previous, true).IsZero() {
+			t.Fatalf("overbroad migration %d", r.id)
+		}
+	}
+}

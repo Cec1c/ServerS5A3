@@ -140,6 +140,11 @@ func TestRealPVFTowerStartResourceFloors(t *testing.T) {
 	if got := rest25RealPVFHash(t, pvfPath); got != rest25RealPVFSHA256 {
 		t.Fatalf("paired PVF mismatch: sha256=%s want=%s path=%s", got, rest25RealPVFSHA256, pvfPath)
 	}
+	checkRealPVFTowerStartResourceFloors(t, pvfPath)
+}
+
+func checkRealPVFTowerStartResourceFloors(t *testing.T, pvfPath string) {
+	t.Helper()
 	archive, err := platformpvf.Open(pvfPath)
 	if err != nil {
 		t.Fatalf("open real Script.pvf: %v", err)

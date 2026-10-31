@@ -117,6 +117,15 @@ func currentGiftBoxInstanceNeedsRenewal(definition dungeonDropItemDefinition, in
 }
 
 func currentGiftBoxHistoryExpiration(definition dungeonDropItemDefinition, instance uint32, protected bool) time.Time {
+	if !protected && privateExperienceInstanceNeedsRenewal(definition, instance) {
+		return definition.ExpirationDate
+	}
+	// The exact festival manifest also renews the exact 50 audited festival definitions,
+	// including coupons and stones which are not gift containers. The manifest
+	// matches item, path, previous absolute date and current PVF deadline.
+	if !protected && privateFestivalInstanceNeedsRenewal(definition, instance) {
+		return definition.ExpirationDate
+	}
 	if !protected && currentGiftBoxInstanceNeedsRenewal(definition, instance) {
 		return definition.ExpirationDate
 	}

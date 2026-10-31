@@ -182,33 +182,18 @@ func handleMailboxExtract(ctx context.Context, req alignedcmd.Request) (alignedc
 	// 史诗碎片不进背包，因此没有可刷新的槽位行：账本监听由桥接层在这条 ACK 之后
 	// 用 class0/0x047D 补发（与契约激活通知同一条"无物品行也要通知"的范式）。
 	out.EpicPieceCredits = result.EpicPieces
-	// 史诗碎片不进背包，因此没有可刷新的槽位行：账本监听由桥接层在这条 ACK 之后
-	// 用 class0/0x047D 补发（与契约激活通知同一条"无物品行也要通知"的范式）。
-	out.EpicPieceCredits = result.EpicPieces
-	// op95 changes the claim state, but the current client keeps its prior
-	// attachment widgets until it receives another complete class0/0x61 page.
-	// Reload after the committed transfer and send that clear-first snapshot in
-	// the same response sequence as op96.
-	refreshed, refreshErr := NewOwner(req.Repositories, req.MailboxItemResolver).Open(ctx, characterID)
-	if refreshErr == nil {
-		snapshots, snapshotErr := buildMailboxListNotificationsWithTypeResolver(
-			refreshed.Mails,
-			refreshed.NotLoaded,
-			refreshed.ObservedAt,
-			req.MailboxItemResolver,
-		)
-		if snapshotErr == nil {
-			for _, snapshot := range snapshots {
-				out.UpperResponses = append(out.UpperResponses, class0Response(mailboxListNotificationMessageID, snapshot))
-			}
-		}
-	}
+	// op95 removes only the accepted attachment. With a sibling still present,
+	// the detail window retains its selected mail. Rebuilding the whole mailbox
+	// manager in this response can release that parent while the detail view is
+	// still open, so the ACK owns the removal and an explicit op96 remains the
+	// sole full-page rebuild. The claim transaction cannot prove that a native
+	// detail window has closed merely because the reload succeeded.
 	// The mailbox stays open while op95 is handled. Full op13 pages are only
 	// evidenced for character bootstrap and can corrupt that live UI state;
 	// refresh exactly the durable rows that this claim changed through op14.
 	out.ItemSlotRefreshes = append(out.ItemSlotRefreshes, result.ItemSlotRefreshes...)
 	if result.InventoryFull {
-		// 成功对象先确认并重建列表，最后提示仍留在邮件中的满包附件。
+		// 确认已提交对象，再提示仍留在邮件中的满包附件。
 		out.UpperResponses = append(out.UpperResponses, class1Response(req.Opcode, buildErrorAck(mailboxExtractErrorCode(ErrMailboxInventoryFull))))
 	}
 	return out, nil

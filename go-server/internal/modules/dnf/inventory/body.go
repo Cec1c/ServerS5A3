@@ -85,6 +85,20 @@ func buildDeleteItemAck(items []DeletedItem) []byte {
 	return buildCurrentProtobufAck(protobuf)
 }
 
+// Delete uses the protobuf ACK reader even when the class1 result is false.
+// The dispatcher therefore does not consume an ordinary one-byte error code.
+// A parsed list and nonzero protobuf error reach the native pending-delete
+// cleanup without applying any successful deletion rows.
+func buildDeleteItemFailureAck(listType byte) []byte {
+	protobuf := protowire.AppendTag(nil, 1, protowire.VarintType)
+	protobuf = protowire.AppendVarint(protobuf, uint64(listType))
+	protobuf = protowire.AppendTag(protobuf, 3, protowire.VarintType)
+	protobuf = protowire.AppendVarint(protobuf, 1)
+	body := buildCurrentProtobufAck(protobuf)
+	body[0] = 0
+	return body
+}
+
 func buildMoveItemspaceSuccessAck(cmd Command, moveValue int32) []byte {
 	// Current class1/op19 dispatch registers sub_1D2DE80. The class1 result
 	// marker is consumed before the handler reads these remaining ten bytes.

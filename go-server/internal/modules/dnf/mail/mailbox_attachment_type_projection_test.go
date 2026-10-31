@@ -80,18 +80,24 @@ func TestMailboxOpenAndPartialClaimNormalizeMultiAttachmentWireTypes(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(claimed.UpperResponses) < 2 || len(claimed.UpperResponses[0].Body) != 17 {
+	if len(claimed.UpperResponses) != 1 || len(claimed.UpperResponses[0].Body) != 17 {
 		t.Fatalf("partial claim responses = %+v", claimed.UpperResponses)
 	}
+	reopened, err := h.Handle(ctx, alignedcmd.Request{
+		Opcode: 96, SelectedCharacterID: 77, Repositories: repos, MailboxItemResolver: mailboxWireTypeTestResolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var remaining []byte
-	for _, response := range claimed.UpperResponses[1:] {
+	for _, response := range reopened.UpperResponses[1:] {
 		if response.MsgID == mailboxListNotificationMessageID && response.Classification == 0 {
 			remaining = response.Body
 			break
 		}
 	}
 	if len(remaining) == 0 {
-		t.Fatal("partial claim did not refresh the remaining attachment")
+		t.Fatal("explicit reopen did not return the remaining attachment")
 	}
 	invWalkMailboxList(t, remaining, []bool{true})
 

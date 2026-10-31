@@ -210,7 +210,9 @@ func TestHandlerDeleteState2RejectsWrongMaterialOrCountWithoutMutation(t *testin
 			if err != nil {
 				t.Fatalf("Handle error = %v", err)
 			}
-			if !got.Handled || got.ResponseAllowed || got.Operation != "delete_item" || len(got.UpperResponses) != 0 {
+			if test.name == "wrong item id" {
+				requireDeleteFailureAck(t, got, listTypeMain, test.wantReason)
+			} else if !got.Handled || got.ResponseAllowed || got.Operation != "delete_item" || len(got.UpperResponses) != 0 {
 				t.Fatalf("result = %+v", got)
 			}
 			if !strings.Contains(got.Reason, test.wantReason) {

@@ -52,8 +52,8 @@ func TestMailboxClaimSettlesStuckEmptyLetter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	// 必须成功（不是 0x04「已领取」），且补发的 0x61 页里已经没有这封信。
-	assertMailboxExtractSuccessWithEmptyPage(t, got, currentExtractAck(2))
+	// 必须成功（不是 0x04「已领取」），且显式重新打开的 0x61 页里已经没有这封信。
+	assertMailboxExtractSuccessThenEmptyReopen(t, got, currentExtractAck(2), repos, 6)
 
 	box, found, err := repos.Mailbox.Load(ctx, "6")
 	if err != nil || !found {
@@ -104,7 +104,7 @@ func TestMailboxClaimFinishesFreshlyClaimedLetter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertMailboxExtractSuccessWithEmptyPage(t, got, currentExtractAck(181))
+	assertMailboxExtractSuccessThenEmptyReopen(t, got, currentExtractAck(181), repos, 6)
 
 	inventory, found, err := repos.Inventory.Load(ctx, "6")
 	if err != nil || !found {
@@ -167,7 +167,7 @@ func TestMailboxClaimSettlesLegacyClaimedLetterWithoutRedelivering(t *testing.T)
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertMailboxExtractSuccessWithEmptyPage(t, got, currentExtractAck(2))
+	assertMailboxExtractSuccessThenEmptyReopen(t, got, currentExtractAck(2), repos, 6)
 
 	// 不重复发货：背包里不该出现那件附件，金币也不该再加 7。
 	inventory, found, err := repos.Inventory.Load(ctx, "6")
@@ -220,7 +220,7 @@ func TestMailboxClaimKeepsSavedClaimedLetter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertMailboxExtractSuccessWithSnapshot(t, got, currentExtractAck(9))
+	assertMailboxExtractSuccessThenSavedReopen(t, got, currentExtractAck(9), repos, 6)
 	box, _, _ := repos.Mailbox.Load(ctx, "6")
 	if kept := box.Mails["9"]; kept.Deleted || !kept.Claimed {
 		t.Fatalf("saved claimed letter = %+v, want it kept in the inbox", kept)
