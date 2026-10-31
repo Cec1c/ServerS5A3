@@ -108,8 +108,8 @@ func TestLoadBundledChannelAssetsBuildsOnlineDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(online.ChannelsForServer(0)); got != 118 {
-		t.Fatalf("90cn online channels = %d, want 118", got)
+	if got := len(online.ChannelsForServer(0)); got != 120 {
+		t.Fatalf("90cn online channels = %d, want 120", got)
 	}
 	ordinary, ok := online.ServerChannel(0, 19)
 	if !ok ||

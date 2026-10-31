@@ -590,8 +590,8 @@ func TestBundledChannelInfoMatchesCompleteVersionChannelSet(t *testing.T) {
 	if channel, ok := catalog.Channel(dnfenum.DefaultAutoChannelID); ok {
 		t.Fatalf("server 1 unexpectedly contains legacy auto channel: %+v", channel)
 	}
-	if got := len(catalog.Channels()); got != 118 {
-		t.Fatalf("complete channel count = %d, want 118", got)
+	if got := len(catalog.Channels()); got != 120 {
+		t.Fatalf("complete channel count = %d, want 120", got)
 	}
 	ordinary, ok := catalog.Channel(201)
 	if !ok || ordinary.Type != 11 || ordinary.Group != "metro" {

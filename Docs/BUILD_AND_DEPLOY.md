@@ -3,7 +3,7 @@
 [返回项目首页](../README.md)
 
 > [!IMPORTANT]
-> **频道表在首次准备资源时就要选对。** `prepare` 显式传入 `--channel-info`，使用[完整的 118 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)并按[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾导致无法完成登录；已有服和 PVF 更新都保留已选外部表，检查运行进程真正加载的文件。
+> **频道表在首次准备资源时就要选对。** `prepare` 显式传入 `--channel-info`，使用[完整的 120 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)并按[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾导致无法完成登录；已有服和 PVF 更新都保留已选外部表，检查运行进程真正加载的文件。
 
 你准备服务器、客户端和想法，Agent 负责读源码、运行命令、配置服务和排查问题。第一步的目标很具体：让自己的账号能进入游戏，创建角色，打一张图，退出后还能读到存档。
 
@@ -80,7 +80,7 @@ cd ServerS5A3
 | Linux 服务器 | IP、SSH 端口、用户名、密码或密钥，以及可用的管理权限 |
 | 使用范围 | 自己玩、局域网朋友一起玩，还是通过公网连接 |
 | Windows 客户端 | 客户端完整目录，包含 `DNF.exe`、`Script.pvf` 及对应的 dstr/NPK 等资源 |
-| 配套频道表 | 按[外部频道表部署说明](CHANNEL_TABLE_DEPLOYMENT.md)选择完整ETC，与仓库118频道CSV核对；不默认从PVF提取 |
+| 配套频道表 | 按[外部频道表部署说明](CHANNEL_TABLE_DEPLOYMENT.md)选择完整ETC，与仓库120频道CSV核对；不默认从PVF提取 |
 | 已有数据 | 告诉它这是全新安装，还是要保留已有账号、角色和配置 |
 | 配套工具 | 要一个基础登录器，还是接入 PurpleMagic 的登录器、更新和 GM |
 | 域名 | 公网 HTTPS 网关使用的域名；有的话一并提供 |
@@ -121,7 +121,7 @@ cd ServerS5A3
 - 登录器与 GM：[基础登录器 / PurpleMagic / 自己指定的工具]
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
-频道表显式选择已批准的完整外部ETC，与仓库118频道CSV逐项核对；不要默认提取PVF内置表替代它。
+频道表显式选择已批准的完整外部ETC，与仓库120频道CSV逐项核对；不要默认提取PVF内置表替代它。
 赛马活动2365保持关闭，检查配置、持久化覆盖与重启后的生效值；列出其余活动的实际开启状态。
 按当前源码支持的方式构建，生成独立运行配置，准备数据库和资源。
 有旧数据时先备份并验证，再部署本次服务。
@@ -189,7 +189,7 @@ sh deploy/docker/manage.sh build
 sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --channel-info "go-server/internal/services/dnfbridge/testdata/channel_info.etc" --host-ip 192.168.1.50
 ```
 
-`prepare` 会生成独立数据库密码和管理令牌，保存PVF和明确选定的外部频道表，并生成Compose、环境文件和服务端配置。本方案应输出118条频道，清单摘要及部署后验收见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)。
+`prepare` 会生成独立数据库密码和管理令牌，保存PVF和明确选定的外部频道表，并生成Compose、环境文件和服务端配置。本方案应输出120条频道，清单摘要及部署后验收见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)。
 
 若用户指定其他已经确认配套的外部表，在启动前记录与参考目录的差异并明确指定：
 
