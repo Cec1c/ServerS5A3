@@ -56,6 +56,8 @@ type runtimeDungeonRoomSnapshot struct {
 
 type runtimeDungeonRoom struct {
 	mu                    sync.RWMutex
+	cardGoldKills         currentDungeonCardKillCounts
+	combatDeaths          map[uint32]struct{}
 	coordinate            worldmap.RoomCoordinate
 	mapID                 int64
 	monsters              []runtimeDungeonMonster
@@ -558,6 +560,14 @@ func (r *runtimeDungeonRoom) CommitActorDeathReport(
 	objectKey uint32,
 	session *worldmap.DungeonSession,
 ) (runtimeDungeonDeathTarget, bool, error) {
+	return r.commitActorDeathReport(objectKey, session, true)
+}
+
+func (r *runtimeDungeonRoom) commitActorDeathReport(
+	objectKey uint32,
+	session *worldmap.DungeonSession,
+	recordCombatKill bool,
+) (runtimeDungeonDeathTarget, bool, error) {
 	if r == nil {
 		return runtimeDungeonDeathTarget{}, false, errDungeonMonsterObjectNotFound
 	}
@@ -594,11 +604,29 @@ func (r *runtimeDungeonRoom) CommitActorDeathReport(
 			bound,
 		)
 	}
+	var actorType byte
+	var classified bool
+	if recordCombatKill {
+		// Special projections (including tournament opponents) do not use
+		// ordinary START_MAP ranks. Their dedicated rewards remain separate;
+		// optional card accounting must not reject an otherwise valid death.
+		actorType, err = r.cardGoldActorTypeLocked(objectKey)
+		classified = err == nil
+	}
 	cleared, err := session.MarkHostileDefeated(objectKey)
 	if err != nil {
 		return runtimeDungeonDeathTarget{}, false, err
 	}
 	*state = runtimeDungeonMonsterDefeated
+	if recordCombatKill {
+		if r.combatDeaths == nil {
+			r.combatDeaths = make(map[uint32]struct{})
+		}
+		r.combatDeaths[objectKey] = struct{}{}
+	}
+	if recordCombatKill && classified {
+		r.cardGoldKills.addActorType(actorType)
+	}
 	return target, cleared, nil
 }
 
@@ -625,7 +653,7 @@ func (r *runtimeDungeonRoom) CommitRemainingAnnouncedHostilesAfterBoss(
 		if monster.ObjectKey == bossObjectKey || monster.State != runtimeDungeonMonsterAnnounced {
 			continue
 		}
-		target, roomCleared, err := r.CommitActorDeathReport(monster.ObjectKey, session)
+		target, roomCleared, err := r.commitActorDeathReport(monster.ObjectKey, session, false)
 		if err != nil {
 			if errors.Is(err, errDungeonMonsterAlreadyDefeated) || errors.Is(err, worldmap.ErrHostileAlreadyDefeated) {
 				continue
@@ -656,7 +684,7 @@ func (r *runtimeDungeonRoom) CommitRemainingAnnouncedHostilesAfterBoss(
 			}
 			continue
 		}
-		target, roomCleared, err := r.CommitActorDeathReport(actor.ObjectKey, session)
+		target, roomCleared, err := r.commitActorDeathReport(actor.ObjectKey, session, false)
 		if err != nil {
 			if errors.Is(err, errDungeonMonsterAlreadyDefeated) || errors.Is(err, worldmap.ErrHostileAlreadyDefeated) {
 				continue
@@ -821,6 +849,17 @@ func (r *runtimeDungeonRoom) DeathResponseBody(objectKey uint32) ([]byte, bool) 
 		return nil, false
 	}
 	return append([]byte(nil), body...), true
+}
+
+// HasCombatDeath distinguishes accepted combat deaths from forced cleanup.
+func (r *runtimeDungeonRoom) HasCombatDeath(objectKey uint32) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.combatDeaths[objectKey]
+	return ok
 }
 
 // DefeatedDeathTarget 取出某个 object key 的死亡目标（要求房间里的权威状态已经是 defeated），

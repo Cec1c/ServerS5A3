@@ -234,6 +234,7 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		runtime.ridableReportChannelID = session.channel.ID
 		runtime.ridableReportChannelType = session.channel.Type
 		runtime.Character = result.Character
+		runtime.fatigueSpent += result.FatigueSpent
 		if runtime.fatigueRooms == nil {
 			runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)
 		}
@@ -254,6 +255,11 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 	}
 	s.adoptPartyDungeonInstance(session, runtime, scene)
 	attachCurrentSemesterPartyMember(session, runtime)
+	if cmd.DungeonID == dnfdungeon.SilentForestDungeonID {
+		if e := s.sendCurrentSilentForestCount(session, result.Character); e != nil {
+			s.logGameEvent(session, "game-silent-forest-count-deferred", "error", e)
+		}
+	}
 	var refreshes []alignedcmd.ItemSlotRefresh
 	for _, c := range result.Consumed {
 		for _, slot := range c.Slots {

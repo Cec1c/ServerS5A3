@@ -54,6 +54,9 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 			if s.currentCrossSceneProfileMembership(session, targetSession, sourceID, targetID) {
 				return true, s.sendCurrentCrossScenePeerProfile(ctx, session, targetSession, sourceID, targetID)
 			}
+			if handled, err := s.tryCurrentGuildMemberProfile(session, targetID, 0); handled || err != nil {
+				return true, err
+			}
 			s.logGameEvent(session, "game-peer-userinfo-request-rejected",
 				"source_char_id", sourceID, "target_char_id", targetID,
 				"mode", body[2], "reason", "invalid_active_dungeon_peer_or_connection_context")
@@ -62,6 +65,9 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 	} else if !s.onlinePlayers.PeerInSameArea(sourceID, targetID) {
 		if s.currentCrossSceneProfileMembership(session, targetSession, sourceID, targetID) {
 			return true, s.sendCurrentCrossScenePeerProfile(ctx, session, targetSession, sourceID, targetID)
+		}
+		if handled, err := s.tryCurrentGuildMemberProfile(session, targetID, 0); handled || err != nil {
+			return true, err
 		}
 		s.logGameEvent(session, "game-peer-userinfo-request-rejected",
 			"source_char_id", sourceID, "target_char_id", targetID,
@@ -126,7 +132,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		}
 	}
 	ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(targetID)))
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, strconv.Itoa(int(targetID)))
 	}
 	response := s.buildCurrentSelectedUserInfoMode3BodyInContext(
@@ -138,7 +144,7 @@ func (s *Service) handleCurrentPeerUserInfoRequest(session *gameSession, body []
 		targetID,
 		ownerContext,
 	)
-	if buffSwapReapplyEnabled() {
+	if s.buffSwapReapplyEnabled() {
 		buffBody := s.buildNativePeerBuffCarrier(ctx, targetSession, targetID, response)
 		if len(buffBody) > 0 {
 			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), buffBody, 0); err != nil {

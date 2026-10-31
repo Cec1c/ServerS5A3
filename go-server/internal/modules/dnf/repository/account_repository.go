@@ -15,6 +15,13 @@ type AccountRepository interface {
 	db.Store[AccountRecord]
 }
 
+// AccountCreateIfAbsentWriter creates a complete account record without
+// updating an existing account or any of its metadata. A concurrent creator
+// that wins the insert makes the call return created=false and nil.
+type AccountCreateIfAbsentWriter interface {
+	CreateIfAbsent(context.Context, AccountRecord) (bool, error)
+}
+
 // AccountMetadataEntryWriter persists one normalized account-metadata row
 // without replacing unrelated keys.
 type AccountMetadataEntryWriter interface {

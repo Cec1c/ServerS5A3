@@ -200,28 +200,29 @@ type RepairResult struct {
 // Success=false is still a handled client-visible result and maps to an op50
 // failure ACK; Changed only means repository state changed.
 type UpgradeResult struct {
-	CharacterID                 string
-	Mode                        string
-	Success                     bool
-	ErrorCode                   byte
-	TargetSlotIndex             int16
-	TargetItemTemplateID        int32
-	MaterialSlotIndex           int16
-	OptionalTicketSlotIndex     int16
-	OldLevel                    byte
-	NewLevel                    byte
-	ResultCode                  byte
-	UpgradeSucceeded            bool
-	MaterialRemainingStackCount int64
-	GoldCost                    int64
-	UpdatedGold                 int64
-	MainRefresh                 map[string]dnfrepo.ItemStack
-	TargetUpdatedStack          dnfrepo.ItemStack
-	MaterialUpdated             bool
-	MaterialUpdatedStack        dnfrepo.ItemStack
-	ConversionMaterialUpdated   bool
-	ConversionMaterialSlot      int16
-	Changed                     bool
+	CharacterID                      string
+	Mode                             string
+	Success                          bool
+	ErrorCode                        byte
+	TargetSlotIndex                  int16
+	TargetItemTemplateID             int32
+	MaterialSlotIndex                int16
+	OptionalTicketSlotIndex          int16
+	OldLevel                         byte
+	NewLevel                         byte
+	ResultCode                       byte
+	UpgradeSucceeded                 bool
+	MaterialRemainingStackCount      int64
+	GoldCost                         int64
+	UpdatedGold                      int64
+	MainRefresh                      map[string]dnfrepo.ItemStack
+	TargetUpdatedStack               dnfrepo.ItemStack
+	MaterialUpdated                  bool
+	MaterialUpdatedStack             dnfrepo.ItemStack
+	ConversionMaterialUpdated        bool
+	ConversionMaterialSlot           int16
+	ConversionMaterialRemainingCount int64
+	Changed                          bool
 	// DestroyBonusSlot 是 op50 摧毁档 ACK 里报给客户端的那个槽：有并入时是第一个并入的
 	// 既有行，没有可并的行时就是新开的那一格（修复前语义 = 恒为新开格）。
 	DestroyBonusSlot   int16
@@ -1768,6 +1769,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		}
 		result.ConversionMaterialUpdated = true
 		result.ConversionMaterialSlot = cmd.UpgradeNPCMaterialSlot
+		result.ConversionMaterialRemainingCount = stack.Count
 	}
 	if goldCost > 0 {
 		character = dnfrepo.CloneCharacter(character)

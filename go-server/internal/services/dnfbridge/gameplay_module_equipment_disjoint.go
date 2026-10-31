@@ -64,9 +64,14 @@ func (s *Service) handleCurrentDisjointItem(session *gameSession, body []byte) e
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	catalog, err := s.currentPVFItemCatalog()
-	if err == nil {
-		err = s.commitCurrentDisjointItem(ctx, session, catalog, request)
+	if session.nativeNPCDisjointReplay != nil {
+		err = s.commitCurrentDisjointItem(ctx, session, nil, request)
+	} else {
+		catalog, loadErr := s.currentPVFItemCatalog()
+		err = loadErr
+		if err == nil {
+			err = s.commitCurrentDisjointItem(ctx, session, catalog, request)
+		}
 	}
 	if err != nil {
 		if errors.Is(err, errCurrentDisjointCommittedReply) {
@@ -118,7 +123,7 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 	catalog, err := s.currentPVFItemCatalog()
 	var config currentDisjointPVFConfig
 	if err == nil {
-		config, err = loadCurrentDisjointPVFConfig(catalog.source)
+		config, err = catalog.currentDisjointPVFConfig()
 	}
 	var result currentDisjointBatchResult
 	if err == nil {
@@ -304,14 +309,23 @@ func (s *Service) sendCurrentDisjointBatchContainerRefresh(session *gameSession)
 }
 
 func (s *Service) commitCurrentDisjointItem(ctx context.Context, session *gameSession, catalog *pvfDungeonDropCatalog, request currentDisjointItemRequest) error {
-	if s == nil || session == nil || catalog == nil {
+	if s == nil || session == nil {
 		return errCurrentDisjointUnavailable
 	}
-	config, err := loadCurrentDisjointPVFConfig(catalog.source)
-	if err != nil {
-		return err
+	var result currentDisjointResult
+	var err error
+	if replay := session.nativeNPCDisjointReplay; replay != nil {
+		result, err = replay.take(request)
+	} else {
+		if catalog == nil {
+			return errCurrentDisjointUnavailable
+		}
+		config, configErr := catalog.currentDisjointPVFConfig()
+		if configErr != nil {
+			return configErr
+		}
+		result, err = s.commitCurrentDisjoint(ctx, session, catalog, request.SourceSlot, 0, request.Context, currentEquipmentDisjointResolver(config))
 	}
-	result, err := s.commitCurrentDisjoint(ctx, session, catalog, request.SourceSlot, 0, request.Context, currentEquipmentDisjointResolver(config))
 	if err != nil {
 		return err
 	}

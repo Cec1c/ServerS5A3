@@ -74,6 +74,11 @@ const (
 func seedForgingSelectRound16Character(t *testing.T, repositories dnfrepo.Group) {
 	t.Helper()
 	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{
+		AccountID: defaultAccountPrefix + "10011",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
 		CharacterID: strconv.Itoa(forgingSelectRound16CharacterID),
 		AccountID:   defaultAccountPrefix + "10011",
@@ -190,7 +195,8 @@ func TestForgingSelectRound16PersistedForgeReachesSelectAndWearProjections(t *te
 	if err := service.sendCurrentSelectInventoryBootstrap(selectSession, "round16_select"); err != nil {
 		t.Fatalf("select-character bootstrap: %v", err)
 	}
-	bodies, _ := splitLoginBootstrapContainers(t, selectConnection.write.Bytes())
+	bodies, rest := splitLoginBootstrapContainers(t, selectConnection.write.Bytes())
+	requireCurrentLoginBootstrapTailPackets(t, rest)
 	equipmentBody, ok := bodies[currentSocketListEquipment]
 	if !ok {
 		t.Fatalf("select-character bootstrap never sent list %d; containers=%v", currentSocketListEquipment, bodies)

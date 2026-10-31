@@ -228,7 +228,7 @@ func (s *Service) armCurrentWeeklyAttendanceTick(session *gameSession) error {
 	if queue == nil {
 		return errGameplayTimeQueueUnavailable
 	}
-	return queue.ScheduleAfter(fmt.Sprintf("dnf-weekly-attendance:%s", session.connID), 30*time.Second, func(time.Time) {
+	return queue.ScheduleAfter(fmt.Sprintf("dnf-weekly-attendance:%s", session.connID), currentAttendanceTickDelay(s.gameplayNow(), s.accountIDForSession(session), 1), func(time.Time) {
 		err := s.postGameSessionCharacterEvent(session, "weekly-attendance-retry", charID, generation, func() error {
 			if err := s.sendCurrentWeeklyAttendance(session, false, false); err != nil {
 				s.logGameEvent(session, "game-weekly-attendance-deferred", "error", err)

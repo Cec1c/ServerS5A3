@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	dnfnpcshop "longheng.io/server/internal/modules/dnf/npcshop"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -162,6 +163,10 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 		return currentNPCShopBuyResult{}, fmt.Errorf("%w: exchange item=%d cost=%d x%d", errCurrentNPCShopProductUnavailable, request.ItemID, pricing.NeedMaterialItem, pricing.NeedMaterialCount)
 	}
 	totalMaterial := pricing.NeedMaterialCount * int64(request.Count)
+	fateCost := pricing.NeedMaterialItem == raidcurrency.FateItemID
+	if fateCost && totalMaterial > math.MaxInt32 {
+		return currentNPCShopBuyResult{}, errCurrentNPCShopMaterialInsufficient
+	}
 	if pricing.ExchangeGold < 0 || pricing.ExchangeGold > math.MaxInt64/int64(request.Count) {
 		return currentNPCShopBuyResult{}, errCurrentNPCShopGoldOverflow
 	}
@@ -176,6 +181,7 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 		CharacterID:   characterID,
 		UpdatedAt:     s.gameplayNow(),
 		PurchaseLimit: currentNPCShopPurchaseLimit(pricing, request.Count),
+		AccountLedger: fateCost,
 		Project: func(assets *dnfnpcshop.Assets) (dnfnpcshop.Changes, error) {
 			character := assets.Character
 			inventory := assets.Inventory
@@ -192,7 +198,14 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 
 			// Consume the material cost.
 			accountDirty := false
-			if materialSlot, warehouseMaterial := currentDisjointWarehouseFixedSlots[pricing.NeedMaterialItem]; warehouseMaterial {
+			if fateCost {
+				state, debitErr := raidcurrency.Debit(assets.Account, uint32(totalMaterial), s.gameplayNow())
+				if debitErr != nil {
+					return dnfnpcshop.Changes{}, fmt.Errorf("%w: %v", errCurrentNPCShopMaterialInsufficient, debitErr)
+				}
+				result.CostItemID = raidcurrency.FateItemID
+				result.CostItemNewCount = int64(state.Balance)
+			} else if materialSlot, warehouseMaterial := currentDisjointWarehouseFixedSlots[pricing.NeedMaterialItem]; warehouseMaterial {
 				key := dnfrepo.AccountSharedInventorySlotKey(materialSlot)
 				stack, exists := account.Slots[key]
 				if !exists || stack.ItemID != int64(pricing.NeedMaterialItem) || stack.Count < totalMaterial {
@@ -314,7 +327,7 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 			result.ItemID = request.ItemID
 			result.Count = request.Count
 			character.Stats["gold"] = gold
-			return dnfnpcshop.Changes{AccountInventory: accountDirty, Inventory: true, Character: totalGold != 0}, nil
+			return dnfnpcshop.Changes{Account: fateCost, AccountInventory: accountDirty, Inventory: true, Character: totalGold != 0}, nil
 		},
 	})
 	if err != nil {
@@ -413,7 +426,7 @@ func (s *Service) currentNPCShopMutationOwner(session *gameSession) (string, str
 		return "", "", dnfrepo.Group{}, nil, errCurrentNPCShopOwnerUnavailable
 	}
 	repositories, ok := s.repositoryGroup()
-	if !ok || repositories.CharacterSettlement == nil {
+	if !ok {
 		return "", "", dnfrepo.Group{}, nil, errCurrentNPCShopOwnerUnavailable
 	}
 	accountID := strings.TrimSpace(s.accountIDForSession(session))

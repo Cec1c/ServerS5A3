@@ -60,9 +60,7 @@ func TestTownSelectorDiagnosticTracksActualSendOutcome(t *testing.T) {
 				if err := s.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
 					t.Fatal(err)
 				}
-				if err := s.handleTownSetUserPosition(session, buildTownPositionRequest(884, 248, 6, 100)); err != nil {
-					t.Fatal(err)
-				}
+				sendTownSetUserPositionUpper(t, s, session, buildTownPositionRequest(884, 248, 6, 100))
 			}
 			conn := session.conn.(*bufferConn)
 			conn.write.Reset()

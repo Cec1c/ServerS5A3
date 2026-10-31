@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
@@ -210,7 +211,16 @@ func (s *Service) handleCurrentExpertJobExtraction(session *gameSession, body []
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	result, err := s.commitCurrentExpertJobExtraction(ctx, session, request)
+	var result currentExpertJobExtractionResult
+	var projected *nativeExtractionOutcome
+	if session.nativeExtractionReplay != nil {
+		projected, err = session.nativeExtractionReplay.take(request)
+		if err == nil {
+			result = projected.result
+		}
+	} else {
+		result, err = s.commitCurrentExpertJobExtraction(ctx, session, request)
+	}
 	if err != nil {
 		code := currentExpertJobExtractionError(err)
 		s.logGameEvent(session, "game-expert-job-extraction-rejected", "extractor_type", request.ExtractorType, "extractor_slot", request.ExtractorSlot, "target_slot", request.TargetSlot, "error", err, "error_code", code)
@@ -219,12 +229,25 @@ func (s *Service) handleCurrentExpertJobExtraction(session *gameSession, body []
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketExpertExtraction), buildCurrentExpertJobExtractionSuccessBody(result), dnfproto.DefaultChannelClassification); err != nil {
 		return err
 	}
-	if err := s.sendSelectedCurrentContainerListsRefresh(session, "expert_job_extraction_after_ack"); err != nil {
-		return err
-	}
-	if result.ExperienceGain != 0 || result.LevelChanged {
-		if err := s.sendCurrentExpertJobInfoFromRepository(session, result.JobType, true); err != nil {
+	if projected != nil {
+		if err := s.sendNativeExtractionProjection(session, projected); err != nil {
 			return err
+		}
+	} else {
+		// 86 在成功应答后仅刷新来源与产物槽；整容器替换会重建原生提取窗口引用的道具对象。
+		// 保留每个请求的原生应答及本次获得数量，不按时间猜测或合并选择范围。
+		refreshes := make([]alignedcmd.ItemSlotRefresh, 0, len(result.Materials)+1)
+		refreshes = append(refreshes, alignedcmd.ItemSlotRefresh{ListType: result.TargetList, SlotIndex: result.TargetSlot})
+		for _, material := range result.Materials {
+			refreshes = append(refreshes, alignedcmd.ItemSlotRefresh{ListType: dnfrepo.MainInventoryListType, SlotIndex: material.Slot})
+		}
+		if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "expert_job_extraction_changed_slots_after_ack", refreshes); err != nil {
+			return err
+		}
+		if result.ExperienceGain != 0 || result.LevelChanged {
+			if err := s.sendCurrentExpertJobExtractionProgress(session, result.JobType, result.LevelChanged); err != nil {
+				return err
+			}
 		}
 	}
 	s.logGameEvent(session, "game-expert-job-extraction-committed", "job_type", result.JobType, "extractor_slot", request.ExtractorSlot, "target_slot", request.TargetSlot, "materials", len(result.Materials))
@@ -329,56 +352,65 @@ func (s *Service) commitCurrentExpertJobExtraction(ctx context.Context, session 
 	}
 	var result currentExpertJobExtractionResult
 	err = owner.Extract(ctx, dnfexpertjob.Command{AccountID: accountID, CharacterID: characterID, UpdatedAt: s.gameplayNow(), Project: func(assets *dnfexpertjob.Assets) (dnfexpertjob.Changes, error) {
-		jobType, experience, err := currentExpertJobCharacterState(assets.Character)
-		if err != nil || jobType != request.ExtractorType {
-			return dnfexpertjob.Changes{}, dnfexpertjob.ErrJobUnsupported
-		}
-		extractor, extractorFound := assets.Inventory.Slots[currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, request.ExtractorSlot)]
-		targetKey := currentCeraShopInventorySlotKey(request.TargetList, request.TargetSlot)
-		target, targetFound := assets.Inventory.Slots[targetKey]
-		if !extractorFound || extractor.ItemID <= 0 || currentNPCShopItemLocked(extractor) || !targetFound || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
-			return dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
-		}
-		metadata, err := jobCatalog.Equipment(target.ItemID)
-		if err != nil {
-			return dnfexpertjob.Changes{}, err
-		}
-		if metadata.DisjointForbidden || metadata.AttachType == "trade delete" {
-			return dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
-		}
-		metadata.State = currentExpertJobEquipmentState(target)
-		plan, err := jobCatalog.PlanExtraction(jobType, experience, extractor.ItemID, metadata, rand.IntN)
-		if err != nil {
-			return dnfexpertjob.Changes{}, err
-		}
-		delete(assets.Inventory.Slots, targetKey)
-		rewards := make([]currentDisjointReward, 0, len(plan.Materials))
-		for _, reward := range plan.Materials {
-			if reward.ItemID <= 0 || reward.ItemID > math.MaxUint32 || reward.Count <= 0 || reward.Count > math.MaxUint32 {
-				return dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
-			}
-			currentDisjointMergeReward(&rewards, currentDisjointReward{ItemID: uint32(reward.ItemID), Count: uint32(reward.Count)})
-		}
-		rows, _, grantErr := currentGrantDisjointRewards(assets.Inventory, assets.AccountInventory, items, rewards)
-		if grantErr != nil {
-			return dnfexpertjob.Changes{}, grantErr
-		}
-		for _, row := range rows {
-			result.Materials = append(result.Materials, currentExpertJobExtractionMaterial{Slot: row.Slot, ItemID: row.ItemID, Count: row.Granted})
-		}
-		if assets.Character.Stats == nil {
-			assets.Character.Stats = make(map[string]int64)
-		}
-		assets.Character.Stats["expert_job_exp"] = plan.FinalExperience
-		result.JobType = jobType
-		result.TargetList = request.TargetList
-		result.TargetSlot = request.TargetSlot
-		result.LevelChanged = plan.LevelChanged
-		result.ExperienceGain = plan.ExperienceGain
-		sort.Slice(result.Materials, func(i, j int) bool { return result.Materials[i].Slot < result.Materials[j].Slot })
-		return dnfexpertjob.Changes{Character: plan.ExperienceGain != 0, Inventory: true, AccountInventory: true}, nil
+		var changes dnfexpertjob.Changes
+		var projectErr error
+		result, changes, projectErr = projectCurrentExpertJobExtraction(assets, jobCatalog, items, request)
+		return changes, projectErr
 	}})
 	return result, err
+}
+
+// 单件和连续请求共用原提取规则；调用者负责事务，产物与经验按请求顺序累加。
+func projectCurrentExpertJobExtraction(assets *dnfexpertjob.Assets, jobCatalog *dnfexpertjob.Catalog, items *pvfDungeonDropCatalog, request currentExpertJobExtractionRequest) (currentExpertJobExtractionResult, dnfexpertjob.Changes, error) {
+	var result currentExpertJobExtractionResult
+	jobType, experience, err := currentExpertJobCharacterState(assets.Character)
+	if err != nil || jobType != request.ExtractorType {
+		return result, dnfexpertjob.Changes{}, dnfexpertjob.ErrJobUnsupported
+	}
+	extractor, extractorFound := assets.Inventory.Slots[currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, request.ExtractorSlot)]
+	targetKey := currentCeraShopInventorySlotKey(request.TargetList, request.TargetSlot)
+	target, targetFound := assets.Inventory.Slots[targetKey]
+	if !extractorFound || extractor.ItemID <= 0 || currentNPCShopItemLocked(extractor) || !targetFound || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
+		return result, dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
+	}
+	metadata, err := jobCatalog.Equipment(target.ItemID)
+	if err != nil {
+		return result, dnfexpertjob.Changes{}, err
+	}
+	if metadata.DisjointForbidden || metadata.AttachType == "trade delete" {
+		return result, dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
+	}
+	metadata.State = currentExpertJobEquipmentState(target)
+	plan, err := jobCatalog.PlanExtraction(jobType, experience, extractor.ItemID, metadata, rand.IntN)
+	if err != nil {
+		return result, dnfexpertjob.Changes{}, err
+	}
+	delete(assets.Inventory.Slots, targetKey)
+	rewards := make([]currentDisjointReward, 0, len(plan.Materials))
+	for _, reward := range plan.Materials {
+		if reward.ItemID <= 0 || reward.ItemID > math.MaxUint32 || reward.Count <= 0 || reward.Count > math.MaxUint32 {
+			return result, dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
+		}
+		currentDisjointMergeReward(&rewards, currentDisjointReward{ItemID: uint32(reward.ItemID), Count: uint32(reward.Count)})
+	}
+	rows, accountDirty, grantErr := currentGrantDisjointRewards(assets.Inventory, assets.AccountInventory, items, rewards)
+	if grantErr != nil {
+		return result, dnfexpertjob.Changes{}, grantErr
+	}
+	for _, row := range rows {
+		result.Materials = append(result.Materials, currentExpertJobExtractionMaterial{Slot: row.Slot, ItemID: row.ItemID, Count: row.Granted})
+	}
+	if assets.Character.Stats == nil {
+		assets.Character.Stats = make(map[string]int64)
+	}
+	assets.Character.Stats["expert_job_exp"] = plan.FinalExperience
+	result.JobType = jobType
+	result.TargetList = request.TargetList
+	result.TargetSlot = request.TargetSlot
+	result.LevelChanged = plan.LevelChanged
+	result.ExperienceGain = plan.ExperienceGain
+	sort.Slice(result.Materials, func(i, j int) bool { return result.Materials[i].Slot < result.Materials[j].Slot })
+	return result, dnfexpertjob.Changes{ExpertExperience: plan.ExperienceGain != 0, Inventory: true, AccountInventory: accountDirty}, nil
 }
 
 func (s *Service) currentExpertJobMutationContext(session *gameSession) (*dnfexpertjob.Catalog, *pvfDungeonDropCatalog, *dnfexpertjob.Owner, string, string, error) {

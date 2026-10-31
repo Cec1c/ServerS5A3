@@ -30,13 +30,13 @@ func (u *mysqlCharacterPetUnitOfWork) WithinCharacterPets(
 	if !ok {
 		return repository.ErrCharacterPetTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = []string{writeDatabase}
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
@@ -108,6 +108,13 @@ func (r *characterPetScopedEquipmentRepository) SaveFields(ctx context.Context, 
 type characterPetScopedPetRepository struct {
 	characterID string
 	base        repository.PetRepository
+}
+
+func (r *characterPetScopedPetRepository) SavePetGrowth(ctx context.Context, record repository.PetRecord, key string, before repository.PetEntry) error {
+	if err := repository.TransactionKeyError(ctx, r.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	return repository.SavePetGrowth(ctx, r.base, record, key, before)
 }
 
 func (r *characterPetScopedPetRepository) Load(ctx context.Context, characterID string) (repository.PetRecord, bool, error) {

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -57,12 +58,26 @@ func parseVendingGroup(d *doc.Document, group uint32, coinID int64) (int64, []ve
 // coinSlot:u16. The first field selects etc/vendingmachine.lst; each current
 // machine's output table has its own [group num] 1. It is not that group ID.
 // Current official-24.9 reader 1FE64D0 consumes slot:u16, remaining:u32, rewardId/count:u32,
-// two ignored u32 fields, and a u16 embedded-item count. Inventory op14 owns
-// our item refresh, so the embedded-item vector is legitimately empty.
+// two ignored u32 fields, and a u16 embedded-item count. The embedded rows
+// drive the native settlement window; later op14 inventory refreshes do not
+// populate that window. Each main-inventory row is listType:u8 + raw[119].
 func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte) error {
 	const opcode = uint16(dnfenum.CmdPacketUseVendingMachine)
 	refuse := func(e error) error {
 		s.logGameEvent(session, "game-black-diamond-vending-rejected", "error", e)
+		characterID := uint16(0)
+		if session != nil {
+			characterID = session.selectedCharacterID
+		}
+		s.logInfo("dnfbridge black diamond vending rejected",
+			"character_id", characterID,
+			"inventory_full", errors.Is(e, dungeon.ErrInventoryFull),
+			"error", e)
+		if errors.Is(e, vending.ErrBlackDiamondRequired) {
+			// Cumulative client displays the entitlement reason and resets the
+			// pending draw; coins/rewards remain owned by the transaction.
+			return s.sendGameUpperFailure(session, opcode, 23)
+		}
 		return s.sendGameUpperFailure(session, opcode, 1)
 	}
 	if session == nil || session.selectedCharacterID == 0 || len(body) != 10 || binary.LittleEndian.Uint32(body[4:]) != 1 {
@@ -180,6 +195,9 @@ func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte)
 	if !reward.Stackable && reward.Stack.Count != 1 {
 		return refuse(fmt.Errorf("non-stackable vending count unsupported"))
 	}
+	// Keep OverflowToMail disabled. CMD215 resolves every embedded settlement
+	// row through the client's real inventory; a mail-only reward has no slot
+	// that can be sent without creating a phantom inventory object.
 	result, e := vending.Use(ctx, repos, vending.Command{AccountID: s.accountIDForSession(session), CharacterID: characterID, CoinID: coin.ItemID, CoinCount: cost, CoinSlot: slot, Reward: reward, Now: now, ValidateCoin: func(stack repo.ItemStack, at time.Time) error {
 		return validateCurrentBoosterSourceExpiration(stack, coinDefinition, at)
 	}, Project: func(stack repo.ItemStack, expiry time.Time) (repo.ItemStack, error) {
@@ -187,17 +205,46 @@ func (s *Service) handleCurrentVendingMachine(session *gameSession, body []byte)
 		return stack, nil
 	}})
 	if e != nil {
+		if errors.Is(e, dungeon.ErrInventoryFull) {
+			s.logGameEvent(session, "game-black-diamond-vending-inventory-full",
+				"coin_id", coin.ItemID,
+				"coin_slot", slot,
+				"reward_item_id", selected.ID,
+				"reward_count", selected.Count,
+				"result", "rejected_without_coin_debit_or_mail",
+				"failure_code", 1)
+		}
 		return refuse(e)
 	}
-	ack := make([]byte, 25)
+	if result.RewardSlot < 0 {
+		return refuse(fmt.Errorf("vending committed reward has no inventory slot"))
+	}
+	entry := currentItemListEntryFromStack(repo.MainInventoryListType, result.RewardSlot, result.RewardStack)
+	ack := make([]byte, 25+1+len(entry.data))
 	ack[0] = 1
 	binary.LittleEndian.PutUint16(ack[1:], uint16(slot))
 	binary.LittleEndian.PutUint32(ack[3:], uint32(result.CoinRemaining))
 	binary.LittleEndian.PutUint32(ack[7:], uint32(selected.ID))
 	binary.LittleEndian.PutUint32(ack[11:], uint32(selected.Count))
+	binary.LittleEndian.PutUint16(ack[23:], 1)
+	copy(ack[26:], entry.data[:])
 	if e = s.sendGameUpperRawClass(session, opcode, ack, 1); e != nil {
 		return e
 	}
 	s.logGameEvent(session, "game-black-diamond-vending-used", "coin_id", coin.ItemID, "item_id", selected.ID, "count", selected.Count, "reward_slot", result.RewardSlot)
-	return s.sendSelectedIncrementalItemSlotRefreshes(session, "black_diamond_vending_after_ack", []alignedcmd.ItemSlotRefresh{{ListType: 0, SlotIndex: slot}, {ListType: 0, SlotIndex: result.RewardSlot}})
+	s.logInfo("dnfbridge black diamond vending settled",
+		"character_id", session.selectedCharacterID,
+		"coin_id", coin.ItemID,
+		"coin_slot", slot,
+		"coin_remaining", result.CoinRemaining,
+		"reward_item_id", selected.ID,
+		"reward_count", selected.Count,
+		"reward_slot", result.RewardSlot,
+		"ack_bytes", len(ack))
+	refreshes := []alignedcmd.ItemSlotRefresh{{ListType: repo.MainInventoryListType, SlotIndex: slot}}
+	refreshes = append(refreshes, alignedcmd.ItemSlotRefresh{ListType: repo.MainInventoryListType, SlotIndex: result.RewardSlot})
+	if e = s.sendSelectedIncrementalItemSlotRefreshes(session, "black_diamond_vending_after_ack", refreshes); e != nil {
+		return e
+	}
+	return nil
 }

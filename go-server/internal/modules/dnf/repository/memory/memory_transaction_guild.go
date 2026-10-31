@@ -15,28 +15,30 @@ type memoryGuildUnitOfWork struct {
 }
 
 func (u *memoryGuildUnitOfWork) WithinGuild(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, false, "", apply)
+	return u.withinGuild(ctx, owners, false, false, false, "", apply)
 }
 
 func (u *memoryGuildUnitOfWork) WithinGuildTravel(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, owners, false, true, "", apply)
+	return u.withinGuild(ctx, owners, false, true, false, "", apply)
 }
 
 func (u *memoryGuildUnitOfWork) WithinGuildDungeonEntry(ctx context.Context, owners []repository.GuildOwner, receiptScope string, apply func(repository.Group) error) error {
 	if !repository.ValidGuildDungeonEntryReceiptScope(receiptScope) {
 		return repository.ErrGuildTransaction
 	}
-	return u.withinGuild(ctx, owners, false, false, receiptScope, apply)
+	return u.withinGuild(ctx, owners, false, false, false, receiptScope, apply)
 }
 
 func (u *memoryGuildUnitOfWork) WithinGuildInventory(ctx context.Context, owner repository.GuildOwner, apply func(repository.Group) error) error {
-	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, "", apply)
+	return u.withinGuild(ctx, []repository.GuildOwner{owner}, true, false, false, "", apply)
 }
 
-func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel bool, receiptScope string, apply func(repository.Group) error) (result error) {
+func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []repository.GuildOwner, withInventory, travel, raidClear bool, receiptScope string, apply func(repository.Group) error) (result error) {
 	var ordered []repository.GuildOwner
 	var err error
 	switch {
+	case raidClear:
+		ordered, err = repository.GuildRaidClearOwners(owners)
 	case receiptScope != "":
 		ordered, err = repository.GuildDungeonEntryOwners(owners)
 	case travel:
@@ -92,7 +94,8 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 		settingsBefore[receiptScope] = receipt
 		settingsFound[receiptScope] = receiptFound
 	}
-	group := repository.GuildScopedGroup(repository.Group{Character: chars, Settings: settings}, ordered)
+	readSettings := &memoryGuildReceiptSettings{SettingsRepository: settings, reader: u.settings}
+	group := repository.GuildScopedGroup(repository.Group{Character: chars, Settings: readSettings}, ordered)
 	if receiptScope != "" {
 		group.Settings = repository.GuildDungeonEntrySettings(memoryGuildDungeonEntrySettings(settingsTransactions), receiptScope)
 	}
@@ -211,4 +214,8 @@ func (s *memoryGuildInventorySettings) Load(ctx context.Context, scope string) (
 		return repository.CloneSettings(s.record), s.found, nil
 	}
 	return s.SettingsRepository.Load(ctx, scope)
+}
+
+func (u *memoryGuildUnitOfWork) WithinGuildRaidClear(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
+	return u.withinGuild(ctx, owners, false, false, true, "", apply)
 }

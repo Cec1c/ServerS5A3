@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/festival"
 	"math"
 	"sync"
 
@@ -40,6 +41,7 @@ type currentCeraShopProduct struct {
 type pvfCeraShopCatalog struct {
 	products              map[uint32]currentCeraShopProduct
 	bonusByCommodity      map[uint32][]currentCeraShopBonusItem
+	festivals             *festival.Catalog
 	items                 *pvfDungeonDropCatalog
 	source                dnfpvf.Source
 	accountCargoOnce      sync.Once
@@ -112,7 +114,11 @@ func newPVFCeraShopCatalog(source dnfpvf.Source) (*pvfCeraShopCatalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &pvfCeraShopCatalog{products: products, bonusByCommodity: bonusByCommodity, items: items, source: source}, nil
+	festivals, err := parsePrivateFestivalCatalog(source, products)
+	if err != nil {
+		return nil, err
+	}
+	return &pvfCeraShopCatalog{products: products, bonusByCommodity: bonusByCommodity, festivals: festivals, items: items, source: source}, nil
 }
 
 func parseCurrentCeraShopProductSection(

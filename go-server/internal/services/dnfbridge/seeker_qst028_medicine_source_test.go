@@ -483,7 +483,7 @@ func qst028MedicineProgression(t *testing.T) *progression.Tables {
 		progression.ExperienceTablePath: thresholds.String(),
 		progression.SkillPointTablePath: points.String(),
 		progression.QuestParameterPath: "[difficulty]\n`G` 100\n`N` 100\n[/difficulty]\n[exp reward table]\n" +
-			questExperience.String() + "[gold reward table]\n10 -1\n[green level penalty]\n80\n[grey level penalty]\n30\n",
+			questExperience.String() + "[gold reward table]\n10\n[green level penalty]\n80\n[grey level penalty]\n30\n",
 	})
 	if err != nil {
 		t.Fatal(err)

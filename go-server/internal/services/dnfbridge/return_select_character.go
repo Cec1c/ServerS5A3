@@ -57,6 +57,8 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	if s == nil || session == nil {
 		return 0, false
 	}
+	s.clearGoldDiagnosticSnapshot(session)
+	s.retireCurrentTagTournamentBattle(session)
 	s.closeCurrentGuildCreateSession(session)
 	guildClock := s.ensureGameplayTimeQueue()
 	s.closeCurrentPVPSession(session)

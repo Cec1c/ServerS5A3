@@ -33,6 +33,7 @@ type currentDailyCountEntryAssets struct {
 	debitRoomFatigue bool
 	fatigueCost      int64
 	fatigueStartOnly bool
+	fatigueSpent     *int64
 }
 
 // currentDailyCountEntryEnabled 报告该副本的每日次数是否走"与入场资产同事务"的新路径。
@@ -86,12 +87,19 @@ func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon wor
 	assets.debitRoomFatigue = true
 	assets.fatigueCost = fatigueCost
 	assets.fatigueStartOnly = fatigueStartOnly
+	var spent int64
+	assets.fatigueSpent = &spent
 	assets.inTransaction = func(character *dnfrepo.CharacterRecord) error {
 		dnffatigue.Refresh(character, account, now)
+		before := character.Stats["fatigue"]
 		if fatigueStartOnly {
-			return debitCurrentDungeonFatigueAmount(character, fatigueCost)
+			if err := debitCurrentDungeonFatigueAmount(character, fatigueCost); err != nil {
+				return err
+			}
+		} else {
+			dnffatigue.Debit(character)
 		}
-		dnffatigue.Debit(character)
+		spent = max(int64(0), before-character.Stats["fatigue"])
 		return nil
 	}
 	return assets, nil
@@ -138,6 +146,14 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 		return err
 	}
 	runtime.Character = character
+	if assets.fatigueSpent != nil {
+		runtime.fatigueSpent += *assets.fatigueSpent
+	}
+	if s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon) {
+		if err := s.sendCurrentDimensionCount(session, character); err != nil {
+			s.logGameEvent(session, "game-dimension-count-refresh-deferred", "source", "entry_commit", "error", err)
+		}
+	}
 	s.refreshCurrentDungeonCycleInfo(session, runtime, "entry_commit")
 	if assets.debitRoomFatigue && hasScene {
 		if runtime.fatigueRooms == nil {

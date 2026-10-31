@@ -36,20 +36,26 @@ func (s *Service) updateCurrentCharacterFatigueWithDebit(
 	session *gameSession,
 	applyDebit func(*dnfrepo.CharacterRecord) error,
 ) (dnfrepo.CharacterRecord, error) {
+	character, _, err := s.updateCurrentCharacterFatigueMeasured(ctx, session, applyDebit)
+	return character, err
+}
+
+func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, session *gameSession, applyDebit func(*dnfrepo.CharacterRecord) error) (dnfrepo.CharacterRecord, int64, error) {
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Character == nil {
-		return dnfrepo.CharacterRecord{}, fmt.Errorf("fatigue character repository unavailable")
+		return dnfrepo.CharacterRecord{}, 0, fmt.Errorf("fatigue character repository unavailable")
 	}
 	account := dnfrepo.AccountRecord{}
 	if repos.Account != nil {
 		var err error
 		account, _, err = repos.Account.Load(ctx, s.accountIDForSession(session))
 		if err != nil {
-			return dnfrepo.CharacterRecord{}, err
+			return dnfrepo.CharacterRecord{}, 0, err
 		}
 	}
 	key := strconv.Itoa(int(session.selectedCharacterID))
 	var result dnfrepo.CharacterRecord
+	var spent int64
 	apply := func(characters dnfrepo.CharacterRepository) error {
 		character, found, err := characters.Load(ctx, key)
 		if err != nil {
@@ -64,9 +70,11 @@ func (s *Service) updateCurrentCharacterFatigueWithDebit(
 		character = dnfrepo.CloneCharacter(character)
 		changed := dnffatigue.Refresh(&character, account, s.gameplayNow())
 		if applyDebit != nil {
+			before := character.Stats["fatigue"]
 			if err := applyDebit(&character); err != nil {
 				return err
 			}
+			spent = max(int64(0), before-character.Stats["fatigue"])
 			changed = true
 		}
 		if changed {
@@ -85,7 +93,10 @@ func (s *Service) updateCurrentCharacterFatigueWithDebit(
 	} else {
 		err = apply(repos.Character)
 	}
-	return result, err
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, 0, err
+	}
+	return result, spent, nil
 }
 
 func (s *Service) armCurrentFatigueDailyRefresh(session *gameSession) {
@@ -152,16 +163,18 @@ func (s *Service) debitDungeonRoomFatigue(session *gameSession, runtime *runtime
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	var character dnfrepo.CharacterRecord
-	if startOnly {
-		character, err = s.updateCurrentCharacterFatigueAmount(ctx, session, fatigueCost)
-	} else {
-		character, err = s.updateCurrentCharacterFatigue(ctx, session, true)
-	}
+	character, spent, err := s.updateCurrentCharacterFatigueMeasured(ctx, session, func(c *dnfrepo.CharacterRecord) error {
+		if startOnly {
+			return debitCurrentDungeonFatigueAmount(c, fatigueCost)
+		}
+		dnffatigue.Debit(c)
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("debit room fatigue: %w", err)
 	}
 	runtime.Character = character
+	runtime.fatigueSpent += spent
 	runtime.fatigueRooms[scene.Coordinate] = true
 	if startOnly {
 		runtime.fatigueStartDebited = true

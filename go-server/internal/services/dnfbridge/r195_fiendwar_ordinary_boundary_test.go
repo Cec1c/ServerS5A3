@@ -17,8 +17,8 @@ func TestR195FiendWarPortPreservesOrdinaryCapacityAndTown48(t *testing.T) {
 			t.Fatal("ordinary raid inherited FiendWar seat rules", route)
 		}
 	}
-	if currentRegisteredChannelTown(48) || !currentRegisteredChannelTown(98) {
-		t.Fatal("FiendWar town registration changed ordinary town48")
+	if currentRegisteredRaidTown(48) || !currentRegisteredRaidTown(98) {
+		t.Fatal("FiendWar town registration absorbed the separate imperial town")
 	}
 }
 

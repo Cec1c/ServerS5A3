@@ -38,10 +38,11 @@ type currentPartyUDPRelayLegKey struct {
 }
 
 type currentPartyUDPRelayLeg struct {
-	key     currentPartyUDPRelayLegKey
-	binding currentPartyUDPRelayBinding
-	conn    *net.UDPConn
-	port    uint16
+	key         currentPartyUDPRelayLegKey
+	binding     currentPartyUDPRelayBinding
+	peerBinding currentPartyUDPRelayBinding
+	conn        *net.UDPConn
+	port        uint16
 
 	mu              sync.Mutex
 	learnedEndpoint *net.UDPAddr
@@ -582,7 +583,9 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 	}
 
 	wanted := make(map[currentPartyUDPRelayLegKey]currentPartyUDPRelayBinding, len(bindings)*(len(bindings)-1))
+	byID := make(map[uint16]currentPartyUDPRelayBinding, len(bindings))
 	for _, owner := range bindings {
+		byID[owner.characterID] = owner
 		for _, peer := range bindings {
 			if owner.characterID == peer.characterID {
 				continue
@@ -607,7 +610,7 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 	}
 	newLegs := make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
 	for key, binding := range wanted {
-		if existing := r.legs[key]; existing != nil && existing.binding == binding {
+		if existing := r.legs[key]; existing != nil && existing.binding == binding && existing.peerBinding == byID[key.peerID] {
 			continue
 		}
 		leg, err := r.newLegLocked(key, binding)
@@ -625,6 +628,7 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 		// owner（= O）的观测端点，IP 校验用它自己 binding 里那份 TCP 观测 IPv4。
 		// 有了它，对面那个人发来的第一个数据报会被**立即投给 O**，而不是被留存/丢弃后两端互等。
 		leg.seedEndpoint = seeds[key.ownerID]
+		leg.peerBinding = byID[key.peerID]
 		newLegs[key] = leg
 	}
 
@@ -633,7 +637,7 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 		if key.partyID != partyID || key.pvp != pvp {
 			continue
 		}
-		if binding, wanted := wanted[key]; !wanted || existing.binding != binding {
+		if binding, wanted := wanted[key]; !wanted || existing.binding != binding || existing.peerBinding != byID[key.peerID] {
 			toClose = append(toClose, existing)
 			delete(r.legs, key)
 			delete(r.usedPorts, int(existing.port))
@@ -642,6 +646,7 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 	for key, leg := range newLegs {
 		r.legs[key] = leg
 	}
+	r.wg.Add(len(newLegs))
 	r.mu.Unlock()
 
 	for _, leg := range toClose {
@@ -650,7 +655,6 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 	r.logLegClosure(toClose, "party_membership_changed")
 	r.logLegCreation(sortedCurrentPartyUDPRelayLegs(newLegs))
 	for _, leg := range newLegs {
-		r.wg.Add(1)
 		go r.readLoop(leg)
 	}
 	return true
@@ -806,6 +810,11 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 			r.traceRelayDatagram(leg, source, n, buffer[:n], "dropped_source_mismatch")
 			continue
 		}
+		r.mu.Lock()
+		if r.closed || r.legs[leg.key] != leg {
+			r.mu.Unlock()
+			return
+		}
 		leg.noteReceived()
 		leg.mu.Lock()
 		firstLearn := !leg.endpointKnown
@@ -813,6 +822,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 		leg.learnedEndpoint = cloneCurrentPartyUDPRelayAddr(source)
 		leg.mu.Unlock()
 		r.rememberEndpoint(leg, source)
+		r.mu.Unlock()
 		if firstLearn {
 			// 首包留存重放：这条腿第一次学到"写给它的对端"的真实端点 ⇒ 把之前为它
 			// 留存下来的（对向腿的）首包原样补投过去。off 档下本函数立即返回。
@@ -833,6 +843,10 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 		}
 
 		r.mu.Lock()
+		if r.closed || r.legs[leg.key] != leg {
+			r.mu.Unlock()
+			return
+		}
 		opposite := r.legs[currentPartyUDPRelayLegKey{
 			pvp:     leg.key.pvp,
 			partyID: leg.key.partyID,
@@ -888,7 +902,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 			r.traceRelayDatagramDelivered(leg, source, n, buffer[:n], decision, deliverySourcePort)
 			continue
 		}
-		if _, err := opposite.conn.WriteToUDP(buffer[:n], destination); err != nil {
+		if _, err := r.writeCurrentPairDatagram(leg, opposite, opposite.conn, buffer[:n], destination); err != nil {
 			r.log("party UDP relay forward failed", "party_id", leg.key.partyID, "owner_id", leg.key.ownerID, "peer_id", leg.key.peerID, "error", err)
 			r.traceRelayDatagram(leg, source, n, buffer[:n], "forward_failed")
 			continue

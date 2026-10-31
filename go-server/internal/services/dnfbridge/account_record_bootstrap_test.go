@@ -39,6 +39,54 @@ func (s failingAccountStore) Save(context.Context, dnfrepo.AccountRecord) error 
 	return s.err
 }
 
+type racingBootstrapAccountStore struct {
+	dnfrepo.AccountRepository
+	loadCalls     int
+	createCalls   int
+	fullSaveCalls int
+	forceMissing  bool
+}
+
+// Load models the stale pre-check that lost the race: another writer has
+// already committed, while this callback still observes found=false.
+func (s *racingBootstrapAccountStore) Load(ctx context.Context, accountID string) (dnfrepo.AccountRecord, bool, error) {
+	s.loadCalls++
+	if s.forceMissing {
+		return dnfrepo.AccountRecord{}, false, nil
+	}
+	return s.AccountRepository.Load(ctx, accountID)
+}
+
+func (s *racingBootstrapAccountStore) Save(ctx context.Context, record dnfrepo.AccountRecord) error {
+	s.fullSaveCalls++
+	return s.AccountRepository.Save(ctx, record)
+}
+
+func (s *racingBootstrapAccountStore) CreateIfAbsent(ctx context.Context, record dnfrepo.AccountRecord) (bool, error) {
+	s.createCalls++
+	_, found, err := s.AccountRepository.Load(ctx, record.AccountID)
+	if err != nil || found {
+		return false, err
+	}
+	return true, s.AccountRepository.Save(ctx, record)
+}
+
+type racingBootstrapAccountInventoryStore struct {
+	dnfrepo.AccountInventoryRepository
+	loadCalls int
+	saveCalls int
+}
+
+func (s *racingBootstrapAccountInventoryStore) Load(context.Context, string) (dnfrepo.AccountInventoryRecord, bool, error) {
+	s.loadCalls++
+	return dnfrepo.AccountInventoryRecord{}, false, nil
+}
+
+func (s *racingBootstrapAccountInventoryStore) Save(ctx context.Context, record dnfrepo.AccountInventoryRecord) error {
+	s.saveCalls++
+	return s.AccountInventoryRepository.Save(ctx, record)
+}
+
 func newAccountRecordBootstrapFixture(t *testing.T) (*Service, dnfrepo.Group) {
 	t.Helper()
 	repositories := testRepositoryGroup()
@@ -49,7 +97,7 @@ func newAccountRecordBootstrapFixture(t *testing.T) (*Service, dnfrepo.Group) {
 		CharacterID: "10",
 		AccountID:   accountRecordBootstrapTestAccountID,
 		Slot:        0,
-		Name:        "smcz",
+		Name:        "sample-account-a",
 		Job:         "3",
 		Level:       16,
 		Stats: map[string]int64{
@@ -151,13 +199,12 @@ func TestSelectedCharacterEnterCreatesMissingAccountRecordsAndKeepsTheSessionAli
 	if account.CreatedAt.IsZero() {
 		t.Fatal("created account has no created_at")
 	}
-	// 账号级容器只补一个空壳，绝不伪造物品行（那 7 件共享物品无法逐行归因）。
-	if accountInventory, inventoryFound, inventoryErr := repositories.AccountInventory.Load(ctx, accountRecordBootstrapTestAccountID); inventoryErr != nil {
+	// 账号容器完全惰性创建：缺失读取方按空容器处理，bootstrap 不写空壳，
+	// 因而不会与并发的首条共享物品写入互相覆盖。
+	if _, inventoryFound, inventoryErr := repositories.AccountInventory.Load(ctx, accountRecordBootstrapTestAccountID); inventoryErr != nil {
 		t.Fatalf("load account inventory: %v", inventoryErr)
-	} else if !inventoryFound {
-		t.Fatal("account inventory row was not created on demand")
-	} else if len(accountInventory.Slots) != 0 {
-		t.Fatalf("account inventory was seeded with invented rows: %#v", accountInventory.Slots)
+	} else if inventoryFound {
+		t.Fatal("bootstrap must leave the account inventory absent until its first real writer")
 	}
 
 	// 现场断线那一步：账号行补齐之后必须成功，会话不再被关掉。
@@ -222,6 +269,115 @@ func TestSelectedCharacterEnterNeverRewritesAnExistingAccountRecord(t *testing.T
 	}
 	if _, bootstrapped := after.Metadata[accountRecordBootstrapMetadataKey]; bootstrapped {
 		t.Fatalf("existing account row was marked as bootstrapped: %#v", after.Metadata)
+	}
+}
+
+func TestAccountRecordBootstrapCreateIfAbsentPreservesConcurrentWinnerMetadata(t *testing.T) {
+	repositories := testRepositoryGroup()
+	ctx := context.Background()
+	existing := dnfrepo.AccountRecord{
+		AccountID: accountRecordBootstrapTestAccountID,
+		State:     "active",
+		Metadata: map[string]string{
+			"keep":                 "yes",
+			"raid_fate_balance_v1": "777",
+			"raid_fate_week_v1":    "2943",
+			"raid_fate_earned_v1":  "345",
+		},
+	}
+	if err := repositories.Account.Save(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	racing := &racingBootstrapAccountStore{AccountRepository: repositories.Account, forceMissing: true}
+	repositories.Account = racing
+	service := &Service{
+		options:            options{accountPrefix: defaultAccountPrefix},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+	}
+	session := newAccountRecordBootstrapSession()
+	if !service.ensureAccountLevelRecords(ctx, repositories, session, accountRecordBootstrapTestAccountID, accountRecordBootstrapLoginSource) {
+		t.Fatal("existing account was not recognized as available")
+	}
+	if racing.loadCalls != 1 || racing.createCalls != 1 || racing.fullSaveCalls != 0 {
+		t.Fatalf("bootstrap calls load/create/save=%d/%d/%d", racing.loadCalls, racing.createCalls, racing.fullSaveCalls)
+	}
+	after, found, err := racing.AccountRepository.Load(ctx, accountRecordBootstrapTestAccountID)
+	if err != nil || !found {
+		t.Fatalf("load account found=%t err=%v", found, err)
+	}
+	if after.Metadata["keep"] != "yes" || after.Metadata["raid_fate_balance_v1"] != "777" || after.Metadata["raid_fate_week_v1"] != "2943" || after.Metadata["raid_fate_earned_v1"] != "345" {
+		t.Fatalf("concurrent account metadata was replaced: %#v", after.Metadata)
+	}
+}
+
+func TestAccountRecordBootstrapExistingAccountStaysReadOnly(t *testing.T) {
+	repositories := testRepositoryGroup()
+	ctx := context.Background()
+	existing := dnfrepo.AccountRecord{
+		AccountID: accountRecordBootstrapTestAccountID,
+		State:     "active",
+		Metadata:  map[string]string{"keep": "yes", "raid_fate_balance_v1": "777"},
+	}
+	if err := repositories.Account.Save(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	counting := &racingBootstrapAccountStore{AccountRepository: repositories.Account}
+	repositories.Account = counting
+	service := &Service{
+		options:            options{accountPrefix: defaultAccountPrefix},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+	}
+	if !service.ensureAccountLevelRecords(ctx, repositories, newAccountRecordBootstrapSession(), accountRecordBootstrapTestAccountID, accountRecordBootstrapLoginSource) {
+		t.Fatal("existing account was not recognized")
+	}
+	if counting.loadCalls != 1 || counting.createCalls != 0 || counting.fullSaveCalls != 0 {
+		t.Fatalf("existing-account bootstrap calls load/create/save=%d/%d/%d", counting.loadCalls, counting.createCalls, counting.fullSaveCalls)
+	}
+	after, found, err := counting.AccountRepository.Load(ctx, accountRecordBootstrapTestAccountID)
+	if err != nil || !found || after.Metadata["keep"] != "yes" || after.Metadata["raid_fate_balance_v1"] != "777" {
+		t.Fatalf("existing account changed: found=%t account=%+v err=%v", found, after, err)
+	}
+}
+
+func TestAccountRecordBootstrapUsesCreateIfAbsentForMissingAccount(t *testing.T) {
+	repositories := testRepositoryGroup()
+	ctx := context.Background()
+	if err := repositories.AccountInventory.Save(ctx, dnfrepo.AccountInventoryRecord{
+		AccountID: accountRecordBootstrapTestAccountID,
+		Slots: map[string]dnfrepo.ItemStack{
+			"0:1": {ItemID: 1001, Count: 7},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &racingBootstrapAccountInventoryStore{AccountInventoryRepository: repositories.AccountInventory}
+	repositories.AccountInventory = inventory
+	racing := &racingBootstrapAccountStore{AccountRepository: repositories.Account}
+	repositories.Account = racing
+	service := &Service{
+		options:            options{accountPrefix: defaultAccountPrefix},
+		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
+	}
+	session := newAccountRecordBootstrapSession()
+	if !service.ensureAccountLevelRecords(ctx, repositories, session, accountRecordBootstrapTestAccountID, accountRecordBootstrapLoginSource) {
+		t.Fatal("missing account was not created")
+	}
+	if racing.loadCalls != 1 || racing.createCalls != 1 || racing.fullSaveCalls != 0 {
+		t.Fatalf("bootstrap calls load/create/save=%d/%d/%d", racing.loadCalls, racing.createCalls, racing.fullSaveCalls)
+	}
+	after, found, err := racing.AccountRepository.Load(ctx, accountRecordBootstrapTestAccountID)
+	if err != nil || !found {
+		t.Fatalf("load created account found=%t err=%v", found, err)
+	}
+	if after.Metadata[accountRecordBootstrapMetadataKey] != "true" || after.Metadata[accountRecordBootstrapSourceMetadataKey] != accountRecordBootstrapLoginSource {
+		t.Fatalf("created account metadata=%#v", after.Metadata)
+	}
+	if inventory.loadCalls != 0 || inventory.saveCalls != 0 {
+		t.Fatalf("bootstrap touched lazy account inventory load/save=%d/%d", inventory.loadCalls, inventory.saveCalls)
+	}
+	stored, found, err := inventory.AccountInventoryRepository.Load(ctx, accountRecordBootstrapTestAccountID)
+	if err != nil || !found || stored.Slots["0:1"].ItemID != 1001 || stored.Slots["0:1"].Count != 7 {
+		t.Fatalf("concurrent account inventory was not preserved: found=%t record=%+v err=%v", found, stored, err)
 	}
 }
 

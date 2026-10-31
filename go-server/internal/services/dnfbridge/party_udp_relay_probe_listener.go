@@ -15,13 +15,13 @@ import (
 //
 //	否则第一个数据报只能被丢掉/留存，两端互相等待 ⇒ 永久死锁"。
 //
-// ## 现场证据（香港 38.22.90.52 `/opt/dnf90/logs/dnf90.out`，只读引用）
+// ## 现场证据（香港 192.0.2.12 `/opt/dnf90/logs/dnf90.out`，只读引用）
 //
 //	23512 20:46:10.362 leg listening owner_id=3 peer_id=4 leg_listen_port=31000 advertised_udp_port=61566
 //	23513 20:46:10.362 leg listening owner_id=4 peer_id=3 leg_listen_port=31001 advertised_udp_port=61630
-//	23514 20:46:10.434 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=39.172.226.229:21574
-//	23515 20:46:10.434 probe queued       owner_id=4 peer_id=3 leg=31001 source=39.172.226.229:21574 held_from_owner_id=3
-//	23516 20:46:10.434 endpoint fallback used owner_id=4 peer_id=3 leg=31001 target=39.172.226.229:61630
+//	23514 20:46:10.434 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=192.0.2.19:21574
+//	23515 20:46:10.434 probe queued       owner_id=4 peer_id=3 leg=31001 source=192.0.2.19:21574 held_from_owner_id=3
+//	23516 20:46:10.434 endpoint fallback used owner_id=4 peer_id=3 leg=31001 target=192.0.2.19:61630
 //	23536 20:46:50.001 legs closed received_datagrams=1 leg_forwarded_datagrams=0
 //
 // 逐行读法（**判读关键，上一轮被误读**）：`peer endpoint not learned` 的 owner/peer/leg 是
@@ -333,12 +333,12 @@ func partyUDPRelayAddrIPv4(source *net.UDPAddr) ([4]byte, bool) {
 // 2026-09-26 02:13 现场取证（香港 `/opt/dnf90/logs/dnf90.out`，只读引用；
 // 探针口配成 `2311,2312,31000` = 登录通告里给客户端的 `DNF_INITIAL_UDP_PORT1/2` + 中继起始口）：
 //
-//	02:13:09.685 native probe observed listener_port=2311 source=39.172.226.229:21854 bytes=1 payload_hex=01
-//	02:13:12.199 native probe observed listener_port=2312 source=39.172.226.229:21863 bytes=1 payload_hex=00
-//	02:13:13.253 native probe observed listener_port=2312 source=39.172.226.229:21854 bytes=1 payload_hex=00
+//	02:13:09.685 native probe observed listener_port=2311 source=192.0.2.19:21854 bytes=1 payload_hex=01
+//	02:13:12.199 native probe observed listener_port=2312 source=192.0.2.19:21863 bytes=1 payload_hex=00
+//	02:13:13.253 native probe observed listener_port=2312 source=192.0.2.19:21854 bytes=1 payload_hex=00
 //	…30 秒后…
-//	02:13:40.806 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=39.172.226.229:21863
-//	02:13:40.806 fanout candidate used        owner_id=4 peer_id=3 leg=31001 kind=advertised_port target=39.172.226.229:61502
+//	02:13:40.806 peer endpoint not learned owner_id=3 peer_id=4 leg=31000 source=192.0.2.19:21863
+//	02:13:40.806 fanout candidate used        owner_id=4 peer_id=3 leg=31001 kind=advertised_port target=192.0.2.19:61502
 //
 // 两条硬结论：
 //
@@ -359,8 +359,8 @@ func partyUDPRelayAddrIPv4(source *net.UDPAddr) ([4]byte, bool) {
 //
 // 只把候选接进扇出之后，02:28 实测拿到的是"投出去了、但对面还是 0 包"：
 //
-//	02:28:17.804 fanout candidate used leg=31001 kind=observed_probe_endpoint target=39.172.226.229:21863
-//	02:28:17.804 fanout candidate used leg=31001 kind=advertised_port     target=39.172.226.229:61502
+//	02:28:17.804 fanout candidate used leg=31001 kind=observed_probe_endpoint target=192.0.2.19:21863
+//	02:28:17.804 fanout candidate used leg=31001 kind=advertised_port     target=192.0.2.19:61502
 //	02:28:19.772 silent peer kick phase=delayed attempt=1 delivered=true opposite_received=0
 //
 // 即 `delivered=true` 只证明**本机把包交给了内核**。真正的原因是入向方向被加速器/NAT 过滤：
@@ -921,7 +921,7 @@ func (r *currentPartyUDPRelay) forwardToSeedEndpoint(
 		}
 		return false
 	}
-	written, err := opposite.conn.WriteToUDP(payload, target)
+	written, err := r.writeCurrentPairDatagram(leg, opposite, opposite.conn, payload, target)
 	if err != nil || written != len(payload) {
 		failed, first := opposite.noteSeedForward(0, true)
 		if first {
@@ -1002,7 +1002,7 @@ func (r *currentPartyUDPRelay) traceRelayDatagramDelivered(
 // memoTTL 开关：DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS（默认 30 秒）。
 //
 // 依据（2026-09-25 21:07 / 21:15 两次现场）：加速器 NAT 端口只存活几十秒到两分钟。
-// 21:15 那次三份连续转发的目标 `39.172.226.229:21590` 是 **21:07 那次**留下的旧端口
+// 21:15 那次三份连续转发的目标 `192.0.2.19:21590` 是 **21:07 那次**留下的旧端口
 // （相隔约 8 分钟）⇒ 全部被加速器丢掉、对端一个包都没收到。所以陈旧记忆**不能单独使用**，
 // 只能作为多候选扇出里的一份（成本≈0，但不指望它）。
 const partyUDPRelayMemoTTLSecondsEnv = "DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS"
@@ -1053,8 +1053,8 @@ type partyUDPRelayCandidate struct {
 //
 //	seed_probe               —— 该角色**在组队前/本场自己发到中继端口**被我们观测到的端点
 //	                            （最可信：还要求载荷解析出的角色 id 对得上、源 IP == 该角色 TCP 观测 IP）
-//	observed_probe_endpoint  —— 探针监听看到过的**任意**源端点里、除本条数据报发送者之外的那些
-//	                            （不需要角色 id；现场 1 字节探针只能走这条路，见"无归属观测端点表"）
+//	observed_probe_endpoint  —— 与目标成员会话IPv4一致、且不是本条数据报发送者的观测端点
+//	                            （不需要角色 id；保留同IP不同NAT端口的1字节探针引导）
 //	seed_memo_fresh          —— 该角色自己发过的端点，且新鲜（≤ MEMO_TTL_SECONDS）
 //	memo_stale               —— 同上但已陈旧（仍发一份，成本≈0，但绝不单独依赖它）
 //	advertised_port          —— 该角色 CS op2 自报端口 + 游戏 TCP 观测 IP（加速器下通常不可达）
@@ -1062,8 +1062,7 @@ type partyUDPRelayCandidate struct {
 // `sender` 是**本条数据报的源端点**：`observed_probe_endpoint` 候选必须排除它，
 // 否则中继会把包原样投回发送者自己（同机双开时两端同一个公网 IP、只有端口不同）。
 //
-// 除 `observed_probe_endpoint` 外，所有候选的 IP 都取自该角色游戏 TCP 会话观测到的 IPv4
-// （binding.address）；`observed_probe_endpoint` 取的是我们内核亲自观测到的源 IPv4。
+// 所有候选的 IP 都必须等于该角色游戏 TCP 会话观测到的 IPv4（binding.address）。
 func (r *currentPartyUDPRelay) unlearnedCandidateTargets(
 	skipMemo bool,
 	opposite *currentPartyUDPRelayLeg,
@@ -1104,6 +1103,11 @@ func (r *currentPartyUDPRelay) unlearnedCandidateTargets(
 	// 无归属观测端点（默认档；`off` 时 entries 返回 nil ⇒ 与旧行为一致）。
 	// 每条表项都从"它当初探测命中的那个监听口"发出（socket 已释放时退化回腿口并记因）。
 	for _, entry := range r.observedProbeEndpointEntries(sender) {
+		// Observation alone does not associate an arbitrary host with this
+		// member. Keep the same authenticated IPv4 boundary as normal reads.
+		if entry.address != address {
+			continue
+		}
 		via, viaPort, fallbackReason := r.observedProbeEndpointDeliverySocket(entry)
 		target := currentPartyUDPRelayObservedTarget(entry)
 		add("observed_probe_endpoint", target, true, via, viaPort, fallbackReason)
@@ -1296,11 +1300,11 @@ func (r *currentPartyUDPRelay) fanOutUnlearnedDatagram(
 			viaSource = "probe_listener_socket"
 			fallbackReason = ""
 		}
-		written, err := source.WriteToUDP(payload, candidate.target)
+		written, err := r.writeCurrentPairDatagram(leg, opposite, source, payload, candidate.target, candidate.kind == "observed_probe_endpoint")
 		if (err != nil || written != len(payload)) && candidate.via != nil {
 			// 探针 socket 在"取出之后、写出之前"被 releasePort 关掉（显式关闭）：改用腿口补发。
 			viaErr := err
-			written, err = conn.WriteToUDP(payload, candidate.target)
+			written, err = r.writeCurrentPairDatagram(leg, opposite, conn, payload, candidate.target, candidate.kind == "observed_probe_endpoint")
 			if err == nil && written == len(payload) {
 				sourcePort = int(opposite.port)
 				viaSource = "leg_socket"

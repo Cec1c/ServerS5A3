@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,27 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
+
+func TestGrowthOwnerTokenFitsDatabaseColumn(t *testing.T) {
+	for _, size := range []int{255, 256} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			owner := newGrowthTestOwner(t, repos)
+			seedGrowthTestCreature(t, ctx, repos, 77, 37, 10, 1, 1, 100)
+			before, _, _ := repos.Pet.Load(ctx, "77")
+			result, err := owner.ApplyDungeonClear(ctx, DungeonClearGrowthCommand{SelectedCharacterID: 77, ClearToken: strings.Repeat("a", size), ConsumedFatigue: 1})
+			after, _, _ := repos.Pet.Load(ctx, "77")
+			if size == 255 {
+				if err != nil || !result.Changed || !after.Entries["37"].AppliedClearTokens[strings.Repeat("a", size)] {
+					t.Fatalf("valid token: %+v %v", result, err)
+				}
+			} else if !errors.Is(err, ErrPetGrowthTokenRequired) || !reflect.DeepEqual(before, after) {
+				t.Fatalf("oversize token wrote state: %v", err)
+			}
+		})
+	}
+}
 
 func TestGrowthOwnerDungeonClearPersistsOnceAndAtomicallyEvolvesWornCreature(t *testing.T) {
 	ctx := context.Background()

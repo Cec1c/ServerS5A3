@@ -18,7 +18,7 @@ func TestGuildChatCompanionWhisperNativeMessageCapacity(t *testing.T) {
 		w.writeUint32(0)
 		w.writeRawDstr([]byte(message))
 		w.writeRawDstr(rosterNameBytes("来来来"))
-		w.writeByte(7)
+		w.writeByte(0) // Authoritative character group of this fixture.
 		if err := s.handleCurrentPeerChat(source, 17, w.bytes()); err != nil {
 			t.Fatal(err)
 		}

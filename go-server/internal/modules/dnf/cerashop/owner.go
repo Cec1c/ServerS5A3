@@ -56,6 +56,9 @@ type CheckoutCommand struct {
 	UpdatedAt                   time.Time
 	IncludeSkills               bool
 	Project                     CheckoutProjector
+	// Preflight executes under the account transaction before charging. It is
+	// used by the private festival checkout to reject transport retries.
+	Preflight func(*dnfrepo.AccountRecord) error
 }
 
 type CheckoutResult struct {
@@ -186,6 +189,11 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 			equipmentRecord = dnfrepo.CloneEquipment(equipmentRecord)
 			settingsRecord = dnfrepo.CloneSettings(settingsRecord)
 
+			if command.Preflight != nil {
+				if err := command.Preflight(&account); err != nil {
+					return err
+				}
+			}
 			walletBefore := WalletBalance(account)
 			if command.CeraOnlyCost < 0 || command.TokenOnlyCost < 0 || command.CeraOnlyCost > command.Cost || command.TokenOnlyCost > command.Cost-command.CeraOnlyCost {
 				return ErrOwnerUnavailable

@@ -587,6 +587,7 @@ func (s *Service) logGamePacket(session *gameSession, direction string, kind str
 }
 
 func (s *Service) logGameEvent(session *gameSession, kind string, fields ...any) {
+	s.logGoldDiagnosticPickup(session, kind, fields...)
 	if session == nil {
 		s.logPacketEvent(kind, fields...)
 		return

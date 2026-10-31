@@ -29,19 +29,17 @@ func (o *Owner) ApplyHuntEnemyKill(
 	if characterID == "" {
 		return HuntEnemyPersistResult{}, ErrCharacterRequired
 	}
-	if _, ok, err := o.characters.Load(ctx, characterID); err != nil {
+	if _, ok, err := dnfrepo.LoadCharacterIdentity(ctx, o.characters, characterID); err != nil {
 		return HuntEnemyPersistResult{}, err
 	} else if !ok {
 		return HuntEnemyPersistResult{}, ErrCharacterNotFound
 	}
-	record, ok, err := o.quests.Load(ctx, characterID)
+	record, ok, err := catalog.LoadHuntPlanning(ctx, o.quests, characterID)
 	if err != nil {
 		return HuntEnemyPersistResult{}, err
 	}
 	if !ok {
 		record = dnfrepo.QuestRecord{CharacterID: characterID}
-	} else {
-		record = dnfrepo.CloneQuest(record)
 	}
 	if strings.TrimSpace(record.CharacterID) == "" {
 		record.CharacterID = characterID
@@ -62,10 +60,14 @@ func (o *Owner) ApplyHuntEnemyKill(
 	if len(plan.ChangedFields) == 0 {
 		return result, nil
 	}
-	if err := dnfrepo.SaveQuestFields(ctx, o.quests, plan.Record, plan.ChangedFields...); err != nil {
+	if err := dnfrepo.SaveQuestChanges(ctx, o.quests, record, plan.Record, plan.ChangedFields...); err != nil {
 		return HuntEnemyPersistResult{}, err
 	}
-	persisted, ok, err := o.quests.Load(ctx, characterID)
+	ids := make([]int64, 0, len(result.Completions))
+	for _, completion := range result.Completions {
+		ids = append(ids, completion.QuestID)
+	}
+	persisted, ok, err := dnfrepo.LoadQuestIDs(ctx, o.quests, characterID, ids)
 	if err != nil {
 		return HuntEnemyPersistResult{}, err
 	}

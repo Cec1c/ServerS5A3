@@ -30,7 +30,7 @@ import (
 //     没有一条 key=5（队友）的包。⇒ 队员客户端根本没有队长 actor（"只有自己"），
 //     队长客户端只剩进图前那份城镇 actor（"看得到但不动"）。
 //   - 位移本身走客户端 P2P：副本内两个连接都没有 op22/op36 位置包；op11 已经把中转端点发对
-//     （实测 `uid=3 → 38.22.90.52:31001`、`uid=5 → 38.22.90.52:31000`，
+//     （实测 `uid=3 → 192.0.2.12:31001`、`uid=5 → 192.0.2.12:31000`，
 //     `DNFBRIDGE_PARTY_UDP_RELAY_ENABLED=true`，dnf90.out 无 relay 警告）。
 //     所以缺的是"对面 actor 存在"，不是端点。
 //
@@ -461,6 +461,14 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	if receiver == nil || actor == nil || actor.selectedCharacterID == 0 {
 		return nil
 	}
+	receiverIdentity, receiverCurrent := s.boundGameSessionCharacterSnapshot(receiver)
+	actorIdentity, actorCurrent := s.boundGameSessionCharacterSnapshot(actor)
+	if !receiverCurrent || !actorCurrent {
+		return nil
+	}
+	membershipCurrent := s.currentPartyProjectionMembershipGuard(actorIdentity, nil)
+	receiverRun, receiverHasRun := s.currentDungeonPartyRunKey(receiver)
+	actorRun, actorHasRun := s.currentDungeonPartyRunKey(actor)
 	// owner 计划：默认 zero = 两个 owner 都是副本场景上下文 0（现行为）；
 	// channel = 两个都是收包者频道号；mixed = op2 取频道号、op9 取 0。
 	// 权威写入点与三档理由见 partyDungeonPeerOwnerPlan。
@@ -481,12 +489,19 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	// 所以它的技能页槽位要写被投影 actor 的真实技能等级 —— 否则收包方客户端把
 	// 这个 actor 的所有 BUFF 按 0 级算（现场症状：勇气祝福特效可见、面板不动、buff 栏 0 级）。
 	// 判定与档位表见 peer_skill_page.go 文件头；发给本人的 body 不带这个标记，一个字节都不变。
-	ctx = withDungeonPartyPeerSkillPageTarget(ctx, receiver.selectedCharacterID)
-	charID, charName, character, hasCharacter := s.characterForEnter(ctx, actor, actor.selectedCharacterID)
-	if charID != actor.selectedCharacterID || !hasCharacter {
+	ctx = withDungeonPartyPeerSkillPageTarget(ctx, receiverIdentity.character)
+	// Mode0 and mode1 describe one actor snapshot. A second repository read
+	// failing after mode0 must not become a successful empty equipment list.
+	var err error
+	ctx, err = s.currentRemoteActorEquipmentSnapshot(ctx, actor, actorIdentity.character)
+	if err != nil {
+		return fmt.Errorf("snapshot dungeon peer equipment: %w", err)
+	}
+	charID, charName, character, hasCharacter := s.characterForEnter(ctx, actor, actorIdentity.character)
+	if charID != actorIdentity.character || !hasCharacter {
 		return fmt.Errorf(
 			"dungeon peer actor repository record unavailable: requested=%d loaded=%d found=%t",
-			actor.selectedCharacterID,
+			actorIdentity.character,
 			charID,
 			hasCharacter,
 		)
@@ -502,6 +517,13 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	)
 	if err != nil {
 		return fmt.Errorf("build dungeon peer actor mode0: %w", err)
+	}
+	// This frame arrives after dungeon USER_STATE and may create or reuse an
+	// actor. Native mode0 copies its state into actor+0x4c, so a town default
+	// would undo state=1, including when the appearance frame is repeated.
+	mode0Body, err = projectCurrentDungeonPeerActorState(mode0Body, currentSceneActorObjectKey(charID))
+	if err != nil {
+		return fmt.Errorf("project dungeon peer actor state: %w", err)
 	}
 	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, actor, character, hasCharacter)
 	mode1Body := s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
@@ -530,6 +552,7 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	// 发送处日志同时给出档位与**两个实际 owner 值**（op2 的 body[4] 与 op9 的 body[7]），
 	// 线上一眼判档位；`owner_channel`/`owner_mode` 是 op2 的实际值与档位。
 	peerActorFields = append(peerActorFields, ownerPlan.ownerFields()...)
+	peerActorFields = append(peerActorFields, currentPeerActorWireDiagnostic(mode0Body, mode1Body)...)
 	s.logGameEvent(receiver, "game-dungeon-party-peer-actor-send", peerActorFields...)
 	// 判读事件：这条投影到底带没带队友的时装（克隆装扮链接字段）。操作者的
 	// 「队长看不到队员时装、队员看得到队长时装」两个方向都靠这一条事件判定，见
@@ -542,11 +565,30 @@ func (s *Service) sendDungeonPartyPeerActorState(
 		ctx, receiver, actor, character, hasCharacter, charID, charName, mode0Body,
 	)
 	s.logCurrentPeerActorAppearanceEvent(receiver, actor, source, mode0Body, mode1Body, subtype0Body)
-	if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketSetUDPIPPort), mode0Body, 0); err != nil {
-		return fmt.Errorf("send dungeon peer actor mode0: %w", err)
+	delivered := false
+	if err := s.withGameWire(receiver, func() error {
+		if !s.boundGameSessionCharacterCurrent(receiverIdentity) || !s.boundGameSessionCharacterCurrent(actorIdentity) || !membershipCurrent() {
+			return nil
+		}
+		currentReceiverRun, currentReceiverHasRun := s.currentDungeonPartyRunKey(receiver)
+		currentActorRun, currentActorHasRun := s.currentDungeonPartyRunKey(actor)
+		if receiverHasRun != currentReceiverHasRun || actorHasRun != currentActorHasRun || receiverRun != currentReceiverRun || actorRun != currentActorRun {
+			return nil
+		}
+		// Keep creation and binding adjacent on the receiver's stream. A leave
+		// removal must not split them and then be undone by the old binding.
+		for _, body := range [][]byte{mode0Body, mode1Body} {
+			if err := s.sendGameUpperRawClassCodecLocked(receiver, uint16(dnfenum.CmdPacketSetUDPIPPort), body, 0, true); err != nil {
+				return err
+			}
+		}
+		delivered = true
+		return nil
+	}); err != nil {
+		return fmt.Errorf("send dungeon peer actor snapshot: %w", err)
 	}
-	if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketSetUDPIPPort), mode1Body, 0); err != nil {
-		return fmt.Errorf("send dungeon peer actor mode1: %w", err)
+	if !delivered {
+		return nil
 	}
 	if len(subtype0Body) != 0 {
 		s.sendPeerUserInfoSubtype0Appearance(receiver, subtype0Body, source+"_peer_userinfo_subtype0", charID)

@@ -40,7 +40,13 @@ type leaderExitFixtureState struct {
 
 func newLeaderExitFixture(t *testing.T) leaderExitFixtureState {
 	t.Helper()
-	service, leader, member, leaderRuntime, memberRuntime := partyDungeonDeathFixture(t)
+	// Register the authoritative party before dungeon admission, matching the
+	// production order. Its allocated ID must also own the shared instance.
+	service, leader, member, leaderRuntime, memberRuntime := partyDungeonDeathFixture(t, func(service *Service, leader, _ *gameSession) {
+		if _, ok := service.bootstrapManagedRuntimePartyForSession(leader); !ok {
+			t.Fatal("pre-entry party bootstrap failed")
+		}
+	})
 	// 把队伍真正登记进中央管理器（现场口径：管理器持有队伍，客户端投影只是缓存）。
 	// 夹具的会话投影已经是 2 人（99 = 队长 / 100 = 队员）。
 	if snapshot, ok := service.bootstrapManagedRuntimePartyForSession(leader); !ok || len(snapshot.Members) != 2 {
@@ -186,7 +192,7 @@ func TestDungeonLeaderExitDisbandsPartyKeepsMemberInInstanceAndRemovesPeerActor(
 		"leader_char_id=99",
 		"leaving_char_id=99",
 		"member_count_before=2",
-		"removed_char_ids=[100 99]",
+		"removed_char_ids=[99 100]",
 		"disbanded=true",
 		"members_still_in_dungeon=[100]",
 		"peer_actor_removal_sent_to=[100]",

@@ -4,6 +4,7 @@ package memory
 
 import (
 	"context"
+	"longheng.io/server/internal/modules/dnf/moderation"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
 	"strings"
@@ -15,6 +16,8 @@ import (
 type memoryCharStore struct {
 	*db.MemoryStore[repository.CharacterRecord]
 	storyDigestMu sync.Mutex
+	clearMu       sync.Mutex
+	clears        map[string]moderation.Clear
 }
 
 func newMemoryCharStore() *memoryCharStore {

@@ -94,12 +94,26 @@ func (s *Service) sendEnterSelectDungeonState(
 					"char_id", session.selectedCharacterID,
 					"reason", "current_exe_town_transport_scene_finalizer_op15_is_not_dungeon_selector_intent",
 					"response", "none")
+				s.logInfo("dnfbridge town transport enter-select suppressed",
+					"conn_id", session.connID,
+					"char_id", session.selectedCharacterID,
+					"source", source,
+					"reason", "current_exe_town_transport_scene_finalizer_op15_is_not_dungeon_selector_intent",
+					"response", "none")
 				return nil
 			}
 			if armedAge <= window {
 				s.logGameEvent(session, "game-upper-enter-select-dungeon-after-town-transport-suppressed",
 					"source", source,
 					"char_id", session.selectedCharacterID,
+					"armed_age_ms", armedAge.Milliseconds(),
+					"window_ms", window.Milliseconds(),
+					"reason", "current_exe_town_transport_scene_finalizer_op15_is_not_dungeon_selector_intent",
+					"response", "none")
+				s.logInfo("dnfbridge town transport enter-select suppressed",
+					"conn_id", session.connID,
+					"char_id", session.selectedCharacterID,
+					"source", source,
 					"armed_age_ms", armedAge.Milliseconds(),
 					"window_ms", window.Milliseconds(),
 					"reason", "current_exe_town_transport_scene_finalizer_op15_is_not_dungeon_selector_intent",
@@ -117,6 +131,11 @@ func (s *Service) sendEnterSelectDungeonState(
 				"window_ms", window.Milliseconds(),
 				"reason", "scene_finalizer_op15_never_arrived_answer_player_selector_intent",
 				"response", "enter_select_state")
+		}
+	}
+	if !transport && requestDriven {
+		if err := s.confirmCurrentTagTournamentEnterSelectReturn(session); err != nil {
+			return err
 		}
 	}
 	if !transport && requestDriven && session != nil && session.backToVillageEnterSelectPending {
@@ -226,6 +245,21 @@ func (s *Service) sendEnterSelectDungeonState(
 	contextReadyReason := "legacy_or_proactive_path"
 	if !transport && requestDriven {
 		contextReady, contextReadyReason = s.currentTownEnterSelectReady(session)
+		if !contextReady && source == currentTownEnterSelectUpperRequestSource && !session.enterSelectDungeonAckSent &&
+			contextReadyReason == currentTownEnterSelectReasonPositionNotReported &&
+			!s.sessionHasActiveDungeonRuntime(session) &&
+			s.deferCurrentTownEnterSelectRequest(session, source, contextReadyReason) {
+			return nil
+		}
+		// A request that is ready now supersedes an older parked request from
+		// the same town scene, preventing a duplicate op27 on its op35 flush.
+		s.clearDeferredTownEnterSelectRequest(session, "superseded_by_ready_request")
+	}
+	if contextReady {
+		if err := s.restoreCurrentTagTournamentBeforeSelect(session); err != nil {
+			s.logGameEvent(session, "帝国竞技场选图前恢复挑战失败", "error", err)
+			return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEnterSelectDungeon), currentSelectDungeonInvalidSelectionStateReason)
+		}
 	}
 	packetCount := 2
 	if contextReady {
@@ -273,7 +307,18 @@ func (s *Service) sendEnterSelectDungeonState(
 		return err
 	}
 	if hasCharacter {
+		if !transport {
+			if err := s.sendCurrentDimensionCount(session, character); err != nil {
+				return err
+			}
+			if err := s.sendCurrentSilentForestCount(session, character); err != nil {
+				return err
+			}
+		}
 		if err := s.sendCurrentDungeonCycleInfo(session, character); err != nil {
+			return err
+		}
+		if err := s.sendCurrentDimensionCount(session, character); err != nil {
 			return err
 		}
 	}
@@ -381,7 +426,8 @@ func (s *Service) synchronizeRuntimePartyMembersEnterSelect(initiator *gameSessi
 			}
 			continue
 		}
-		follower, ok := s.onlineGameSession(member.UserID)
+		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		follower := identity.session
 		if !ok || follower == initiator {
 			continue
 		}
@@ -389,8 +435,12 @@ func (s *Service) synchronizeRuntimePartyMembersEnterSelect(initiator *gameSessi
 		if followerState.PartyID != state.PartyID || followerState.UserID != state.UserID {
 			continue
 		}
+		currentMembership := s.currentPartyProjectionMembershipGuard(identity, &state)
 		fanoutCtx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		err := s.callGameSession(fanoutCtx, follower, "runtime-party-enter-select", func() error {
+			if !s.boundGameSessionCharacterCurrent(identity) || !currentMembership() {
+				return nil
+			}
 			_, prepareErr := s.prepareRuntimePartyFollowerEnterSelect(
 				follower,
 				state.UserID,
@@ -420,6 +470,10 @@ func (s *Service) prepareRuntimePartyFollowerEnterSelect(
 	source string,
 ) (bool, error) {
 	if follower == nil || follower.selectedCharacterID == 0 {
+		return false, nil
+	}
+	partyState := s.runtimePartyStateForSession(follower)
+	if partyState.PartyID != partyID || partyState.UserID != leaderCharacterID {
 		return false, nil
 	}
 	if allowed, reason := s.currentRaidSelectorOpenAdmission(follower); !allowed {
@@ -492,7 +546,7 @@ func (s *Service) prepareRuntimePartyFollowerEnterSelect(
 	if err := s.sendGameUpperRawClass(follower, uint16(dnfenum.CmdPacketExit), userStateBody, 0); err != nil {
 		return false, err
 	}
-	partyState := runtimePartyStateSnapshot(follower)
+	partyState = s.runtimePartyStateForSession(follower)
 	if partyState.PartyID != partyID || partyState.UserID != leaderCharacterID {
 		return false, nil
 	}

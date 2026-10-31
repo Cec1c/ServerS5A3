@@ -18,7 +18,6 @@ import (
 // The online raid owns these values. Notifications are projections of this
 // instance, never substitutes for an admission transaction or a cleared map.
 type runtimeRaidBattle struct {
-	FiendWarAdmissionClaim currentFiendWarAdmissionClaim
 	FiendWar               *fiendwar.FiendWarBattle
 	FiendWarConfig         *fiendwar.FiendWarConfig
 	FiendWarEndedAt        time.Time
@@ -26,6 +25,7 @@ type runtimeRaidBattle struct {
 	FiendWarEncounters     map[int]currentFiendWarEncounter
 	FiendWarRetreatRuns    map[string]bool
 	FiendWarClearCounts    map[uint16]uint32
+	FiendWarAdmissionClaim currentFiendWarAdmissionClaim
 	LukeMemberRoutes       map[uint16]currentLukeMemberRoute
 	LukeSanctumMazeGroup   *currentLukeSanctumMazeGroup
 	InstanceID             string
@@ -92,9 +92,9 @@ func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {
 		e.Participants = append([]uint16(nil), e.Participants...)
 		v.FiendWarEncounters[area] = e
 	}
-	v.FiendWarClearCounts = make(map[uint16]uint32, len(b.FiendWarClearCounts))
 	v.FiendWarAdmissionClaim.Participants = append([]uint16(nil), b.FiendWarAdmissionClaim.Participants...)
 	v.FiendWarAdmissionClaim.Members = append([]currentFiendWarAdmissionMember(nil), b.FiendWarAdmissionClaim.Members...)
+	v.FiendWarClearCounts = make(map[uint16]uint32, len(b.FiendWarClearCounts))
 	for id, n := range b.FiendWarClearCounts {
 		v.FiendWarClearCounts[id] = n
 	}

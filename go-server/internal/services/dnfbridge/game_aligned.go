@@ -54,6 +54,18 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	if handled, err := s.handleCurrentMonsterCardCommand(session, typ, body); handled || err != nil {
 		return handled, err
 	}
+	if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+		parsed, decodeErr := inventory.DecodeRepairEquipmentRequest(body)
+		if decodeErr != nil {
+			s.logInfo("dnfbridge repair request received", "conn_id", session.connID,
+				"char_id", session.selectedCharacterID, "body_len", len(body), "decode_error", decodeErr)
+		} else {
+			s.logInfo("dnfbridge repair request received", "conn_id", session.connID,
+				"char_id", session.selectedCharacterID, "list", parsed.InvenType,
+				"slot", parsed.SlotIndex, "repair_item_slot", parsed.RepairItemSlot,
+				"quick", parsed.QuickRepair, "auto", parsed.AutoRepair)
+		}
+	}
 	if session != nil && dnfenum.CmdPacket(typ) == dnfenum.CmdPacketMoveItemspace {
 		// Keep the durable move, ACK, changed-slot rows and immediate appearance
 		// projection in the same order as a taken 200ms appearance callback.
@@ -93,6 +105,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	}
 	// 当前 EXE：主线券 169 / 按等级券 179 / 一次觉醒券 118，均走 op515。
 	if typ == uint16(dnfenum.CmdPacketUseStackableAction) {
+		if handled, err := s.handlePrivateQuestExperiencePotion(session, body); handled || err != nil {
+			return handled, err
+		}
 		if handled, err := s.handleCurrentRidingPotionUse(session, body); handled || err != nil {
 			return handled, err
 		}
@@ -416,6 +431,25 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	// mirrorReequipEcho 是"甲"的判定结果：本条 op19 是我们刚脱下那件的镜像回穿。
 	mirrorReequipEcho := false
 	if dnfenum.CmdPacket(typ) == dnfenum.CmdPacketMoveItemspace {
+		// Keep a narrow ingress record for the equipped title slot even when a
+		// later guard returns before the ordinary equipment outcome log. The
+		// request body and unrelated equipment moves stay out of this log.
+		if move, decodeErr := inventory.DecodeMoveItemspaceRequest(body); decodeErr == nil &&
+			((move.SourceListType == currentSocketListEquipment && move.SourceSlotIndex == 13) ||
+				(move.DestinationListType == currentSocketListEquipment && move.DestinationSlotIndex == 13)) {
+			tail := byte(0)
+			if len(body) > 26 {
+				tail = body[26]
+			}
+			s.logInfo("dnfbridge title move received",
+				"conn_id", session.connID, "char_id", session.selectedCharacterID,
+				"src_list", move.SourceListType, "src_slot", move.SourceSlotIndex,
+				"src_instance", move.SourceInstanceValue,
+				"dst_list", move.DestinationListType, "dst_slot", move.DestinationSlotIndex,
+				"dst_instance", move.DestinationInstanceValue,
+				"count", move.MoveCount, "tail", tail, "body_len", len(body),
+				"scene_round", session.equipLoginWearReassertRound)
+		}
 		// 「家族 ↔ 分页」闸门（操作者问题清单第 48 条：物品栏可随意拖动至任意类别）。
 		// 默认档 `log` 只记事件、包与写库逐字节不变；`enforce` 档在这里直接结束命令，
 		// 因此**连登录引导窗口都不会被消费**（被拒的请求没有发生任何真实移动）。
@@ -640,6 +674,13 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		EquipAppearanceSlotGateOff:   s.equipAppearanceSlotGateOffRequested(),
 	})
 	session.party.mu.Unlock()
+	if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+		s.logInfo("dnfbridge repair request outcome", "conn_id", session.connID,
+			"char_id", session.selectedCharacterID, "handled", ok, "error", err,
+			"action", result.Decision.Action, "response_allowed", result.ResponseAllowed,
+			"responses", len(result.UpperResponses), "operation", result.Operation,
+			"reason", result.Reason)
+	}
 	if err != nil || !ok {
 		return ok, err
 	}
@@ -768,7 +809,15 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 				s.logPacketEvent(upgradeProtectTicketEventName(fact), fields...)
 			}
 			if err := s.sendAlignedUpperResponses(session, result); err != nil {
+				if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+					s.logInfo("dnfbridge repair response failed", "conn_id", session.connID,
+						"char_id", session.selectedCharacterID, "error", err)
+				}
 				return true, err
+			}
+			if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
+				s.logInfo("dnfbridge repair response sent", "conn_id", session.connID,
+					"char_id", session.selectedCharacterID, "responses", len(result.UpperResponses))
 			}
 			if loginEquipment.planned {
 				s.sendLoginEquipmentNoopSlotRows(session, loginEquipment, "login_wear_noop_after_ack")
@@ -960,6 +1009,9 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			"list_type", listType,
 			"reason", "no_matching_class0_refresh_response")
 	}
+	if err := s.sendRepairedWornEquipmentSlots(session, result.Operation+"_after_ack", result.PostAckWornEquipmentSlotRefreshes); err != nil {
+		return err
+	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
 	}
@@ -1053,6 +1105,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			return err
 		}
 	}
+	if result.FateCurrencyChanged {
+		if err := s.refreshCurrentFateSnapshot(session); err != nil {
+			return err
+		}
+	}
 	if err := s.sendCurrentEpicPieceCredits(
 		session,
 		result.EpicPieceCredits,
@@ -1085,6 +1142,25 @@ func alignedPostActionTouchesCombatPower(action alignedcmd.PostAction) bool {
 func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.Result, action alignedcmd.PostAction) error {
 	operation := result.Operation
 	switch action {
+	case alignedcmd.PostActionRefreshGuildMedalContainer:
+		s.logPacketEvent("game-aligned-command-post-action-send",
+			"conn_id", session.connID,
+			"operation", operation,
+			"post_action", action,
+			"char_id", session.selectedCharacterID,
+			"msg_id", uint16(dnfenum.CmdPacketLeaveParty),
+			"classification", 0,
+			"list_types", []byte{currentGuildMedalInventoryListType},
+			"sequence", "durable_list38_move_then_ack_then_list38_only_snapshot")
+		if err := s.sendCurrentContainerListTypesWithRefresh(
+			session,
+			"aligned_"+operation+"_after_ack",
+			true,
+			[]byte{currentGuildMedalInventoryListType},
+		); err != nil {
+			return fmt.Errorf("%w: refresh guild medal container: %v", errAlignedPostCommitProjectionDeferred, err)
+		}
+		return nil
 	case alignedcmd.PostActionRefreshSelectedItemContainers:
 		// delta 档（DNFBRIDGE_ITEM_GRANT_NOTICE 的默认档）：本次开盒真正写过的
 		// (list, slot) 已经在 `sendAlignedUpperResponses` 里发成 class0/msg14 逐槽增量

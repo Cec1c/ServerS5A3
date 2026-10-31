@@ -40,6 +40,9 @@ func guildHallFixture(t *testing.T) (*Service, map[uint16]*gameSession, dnfrepo.
 	for id := uint16(29); id <= 33; id++ {
 		c := dnfrepo.CloneCharacter(base)
 		c.CharacterID, c.AccountID, c.Name = fmt.Sprint(id), fmt.Sprintf("hall:%d", id), fmt.Sprintf("角色%d", id)
+		if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: c.AccountID}); err != nil {
+			t.Fatal(err)
+		}
 		c.Stats["town_id"], c.Stats["area_id"] = 8, 0
 		c.Stats["pos_x"], c.Stats["pos_y"] = 500, 220
 		if err := repos.Character.Save(ctx, c); err != nil {

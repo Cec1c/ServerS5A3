@@ -27,7 +27,7 @@ import (
 var (
 	lanFixtureInner     = [4]byte{192, 168, 0, 101}
 	lanFixtureOtherLAN  = [4]byte{192, 168, 1, 2}
-	lanFixtureReported  = [4]byte{38, 22, 90, 52} // 客户端自报的 outer（公网/加速器地址，与本档判定**无关**）
+	lanFixtureReported  = [4]byte{192, 0, 2, 12} // 客户端自报的 outer（公网/加速器地址，与本档判定**无关**）
 	lanFixtureObservedA = net.IPv4(203, 0, 113, 7)
 	lanFixtureObservedB = net.IPv4(203, 0, 113, 9)
 )
@@ -433,6 +433,11 @@ func TestPartyLANDirectFallsBackToRelayInEveryNonSameLANCase(t *testing.T) {
 			}
 			service.options.partyLANDirect = partyLANDirectLAN
 			state := runtimePartyStateSnapshot(leader)
+			// Registration changes replace both directed legs. Snapshot the
+			// adopted topology rather than caching an endpoint from the old pair.
+			if !service.syncRuntimePartyUDPRelay(state) {
+				t.Fatal("relay did not adopt the current registration")
+			}
 
 			want, relayAddress, relayPort := relayEndpointBytes(t, service, uint16(state.PartyID), 1001, 1002)
 			body := service.buildRuntimePartyPeerEndpointInfoForReceiver(leader, state)

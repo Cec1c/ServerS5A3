@@ -157,21 +157,22 @@ func (r *currentPartyUDPRelay) watchSilentPeer(leg, opposite *currentPartyUDPRel
 	if r.onSilentPeer == nil && !r.seedForward {
 		return
 	}
+	r.mu.Lock()
+	stop := r.done
+	if stop == nil || !r.pairCurrentLocked(leg, opposite) {
+		r.mu.Unlock()
+		return
+	}
 	opposite.mu.Lock()
 	if opposite.kickRunning {
 		opposite.mu.Unlock()
-		return
-	}
-	r.mu.Lock()
-	stop := r.done
-	r.mu.Unlock()
-	if stop == nil {
-		opposite.mu.Unlock()
+		r.mu.Unlock()
 		return
 	}
 	opposite.kickRunning = true
 	opposite.mu.Unlock()
 	r.wg.Add(1)
+	r.mu.Unlock()
 	go r.silentPeerWatchdog(stop, leg, opposite)
 }
 
@@ -250,6 +251,11 @@ func (r *currentPartyUDPRelay) silentPairStillLive(leg, opposite *currentPartyUD
 // kickSilentPeer 执行一次"催"：严格限量 + 判定性日志（phase/attempt/delivered/opposite_received）。
 func (r *currentPartyUDPRelay) kickSilentPeer(leg, opposite *currentPartyUDPRelayLeg, phase string) {
 	if r == nil || r.onSilentPeer == nil || leg == nil || opposite == nil {
+		return
+	}
+	// The callback refreshes a dungeon party roster. A PvP room can reuse
+	// its numeric ID, and a retired watchdog must not request a fresh roster.
+	if leg.key.pvp || opposite.key.pvp || !r.silentPairStillLive(leg, opposite) {
 		return
 	}
 	now := time.Now()
@@ -352,10 +358,33 @@ func sortStrings(values []string) {
 	}
 }
 
-// kickSilentPartyMember 给**某一个成员单独**重推一次运行时队伍名册（其中就含 op11 `PARTY_IP_INFO`
-// 行，即"开口"的扳机）。它复用 M2 重播所用的同一条发送原语，不新造协议字节。
+// kickSilentPartyMember 给**某一个成员单独**重推一次运行时队伍名册（其中就含 op11 PARTY_IP_INFO
+// 行，即"开口"的扳机）。它复用现有 formation 发送原语，不新造协议字节。
+//
+// 这里必须继承当前 M1 档位：vendor_wire 下 op11 在 op9 之前；若当前 repeat=on，
+// 同一个 builder 还会在 op9/op153 之后再补一次接收者定制 op11。silent recovery 不能
+// 绕过已经在 formation 生效的 repeat 策略。op9 是否会清掉客户端的 endpoint 绑定仍未
+// 被客户端证据证明；本函数只保证恢复动作与当前 repeat 策略一致，不声称 op9 是根因。
 //
 // 前置条件（缺一即返回 false，行为与不开这个功能时一致）：队伍快照存在、该成员在线。
+
+// silentPeerKickOrdering 是 silent kick 实际发出的 msg_id 顺序，按当前 formation
+// 档位展开，并明确标出 repeat 是否在 roster 之后再补一次 op11。不要沿用单档
+// 硬编码字符串，否则 vendor_wire 下的诊断会把 op9/op153 顺序读反。
+func silentPeerKickOrdering(order partyFormationOrderMode, afterRoster partyPeerEndpointsAfterRosterMode) string {
+	ordering := "op11_then_op153_then_op9"
+	switch order {
+	case partyFormationOrderVendorWire:
+		ordering = "op11_then_op9_then_op153"
+	case partyFormationOrderLegacy:
+		ordering = "op153_then_op11_then_op9"
+	}
+	if afterRoster.repeats() {
+		return ordering + "_then_op11_after_roster"
+	}
+	return ordering + "_single_op11_before_roster"
+}
+
 func (s *Service) kickSilentPartyMember(partyID, memberID uint16) bool {
 	if s == nil || partyID == 0 || memberID == 0 {
 		return false
@@ -369,7 +398,9 @@ func (s *Service) kickSilentPartyMember(partyID, memberID uint16) bool {
 	if !online || identity.session == nil {
 		return false
 	}
-	if err := s.sendRuntimePartySnapshotWithoutPeerEndpointRepeat(identity.session, snapshot.StateFor(memberID)); err != nil {
+	order := s.partyFormationOrder()
+	afterRoster := s.partyPeerEndpointsAfterRoster()
+	if err := s.sendRuntimePartySnapshotMode(identity.session, snapshot.StateFor(memberID), afterRoster); err != nil {
 		s.logGameEvent(identity.session, "party-udp-relay-silent-peer-kick-failed",
 			"party_id", partyID,
 			"member_id", memberID,
@@ -379,7 +410,9 @@ func (s *Service) kickSilentPartyMember(partyID, memberID uint16) bool {
 	s.logGameEvent(identity.session, "party-udp-relay-silent-peer-kick",
 		"party_id", partyID,
 		"member_id", memberID,
-		"ordering", "op153_then_op11_then_op9_single_endpoint_frame",
+		"ordering", silentPeerKickOrdering(order, afterRoster),
+		"formation_order", order.String(),
+		"after_roster", afterRoster.String(),
 		"source", "udp_relay_reverse_leg_has_never_sent_a_datagram")
 	return true
 }

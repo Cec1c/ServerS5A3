@@ -176,12 +176,9 @@ func parseQuestExperienceRules(doc *dnfpvf.Document) (questExperienceRules, erro
 		rules.baseByLevel = append(rules.baseByLevel, uint32(value))
 	}
 	goldValues := doc.Ints("gold reward table")
-	if len(goldValues)%2 != 0 {
-		return questExperienceRules{}, fmt.Errorf("%w: %s [gold reward table] integers=%d", ErrTableMalformed, QuestParameterPath, len(goldValues))
-	}
-	rules.goldByLevel = make([]uint32, 0, len(goldValues)/2)
-	for index := 0; index < len(goldValues); index += 2 {
-		value := goldValues[index]
+	// Gold is one value per level; only the EXP table has paired sentinels.
+	rules.goldByLevel = make([]uint32, 0, len(goldValues))
+	for _, value := range goldValues {
 		if value < 0 || value > math.MaxUint32 {
 			return questExperienceRules{}, fmt.Errorf("%w: %s quest gold=%d", ErrTableMalformed, QuestParameterPath, value)
 		}

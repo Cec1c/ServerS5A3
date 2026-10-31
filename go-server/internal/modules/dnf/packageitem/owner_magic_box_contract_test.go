@@ -83,6 +83,7 @@ func saveMagicBoxContractAccount(t *testing.T, ctx context.Context, repos dnfrep
 	}); err != nil {
 		t.Fatalf("save account: %v", err)
 	}
+	saveMagicBoxTestCharacter(t, ctx, repos, magicBoxContractTestAccountID)
 }
 
 func TestOwnerApplyMagicBoxContractRewardStacksDurationWhenInventoryIsFull(t *testing.T) {

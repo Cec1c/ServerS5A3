@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/moderation"
 	"math"
 	"os"
 	"sort"
@@ -303,7 +304,7 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		"op35_clear_black_diamond_bonus", blackDiamondBonus,
 		"op35_monster_base_exp", runtime.settlementMonsterExperienceTotal,
 		"op35_monster_growth_contract_bonus", runtime.settlementMonsterGrowthContractBonus,
-		"op35_show_result", true,
+		"op35_show_result", !currentSingleAntonUsesRaidRewards(runtime),
 		"op35_free_card_pairs", len(cardSlots[0]),
 		"op35_champion_experience", runtime.settlementChampionExperience,
 		"op35_super_champion_experience", runtime.settlementSuperChampionExperience,
@@ -654,7 +655,20 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		}
 		essenceCurrent = func() bool { return s.boundGameSessionCharacterCurrent(identity) }
 	}
+	finished := runtime.clearMapCompletionAt
+	if finished.IsZero() {
+		finished = runtime.settlementEntryAt
+	}
+	if finished.IsZero() {
+		finished = now
+	}
+	started := runtime.startedAt
+	if started.IsZero() || started.After(finished) {
+		started = finished
+	}
+	fatigueSpent := runtime.fatigueSpent
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		Clear:             &moderation.Clear{FatigueSpent: &fatigueSpent, DungeonID: runtime.Dungeon.ID, DungeonName: runtime.Dungeon.Metadata.Name, Difficulty: int(runtime.Request.Difficulty), StartedAt: started, FinishedAt: finished, DurationMS: finished.Sub(started).Milliseconds()},
 		GuildContribution: contribution,
 		GuildEssence:      essence, GuildEssenceRevalidate: essenceCurrent,
 		GuildRanking:            rankingClear,

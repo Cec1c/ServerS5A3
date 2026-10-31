@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -42,6 +43,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	body []byte,
 	sequence *uint64,
 ) (resultErr error) {
+	started := s.performanceStart()
+	defer func() { s.performanceEnd(perfMonsterTotal, started, resultErr) }()
 	var huntProgressErr error
 	defer func() {
 		if resultErr == nil {
@@ -89,6 +92,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	scene, hasScene := runtime.Session.Scene()
+	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
+		return s.handleCurrentTagTournamentMonsterDeathLocked(session, runtime, request)
+	}
 	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
 		if !hasScene {
 			return nil
@@ -592,11 +598,14 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 			return fmt.Errorf("cache dungeon room after special monster retirement: %w", err)
 		}
+		clearStarted := s.performanceStart()
 		if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+			s.performanceEnd(perfMonsterClear, clearStarted, err)
 			return err
 		}
 		scene, _ = runtime.Session.Scene()
 		s.awardCurrentPetRoomClearLocked(session, runtime, scene, "authoritative_special_monster_retirement")
+		s.performanceEnd(perfMonsterClear, clearStarted, nil)
 		s.logGameEvent(session, "game-dungeon-special-monster-retired",
 			"dungeon_id", runtime.Dungeon.ID,
 			"maze_index", runtime.MazeIndex,
@@ -675,6 +684,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		target, cleared, reportErr = runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
 	}
 	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
 		if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
 			return err
 		}
@@ -784,6 +794,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	var monsterExperience currentDungeonMonsterExperienceCommitResult
 	var monsterExperienceBody []byte
 	if rewardMonsterCandidate {
+		experienceStarted := s.performanceStart()
 		experienceContext, cancelExperience := context.WithTimeout(context.Background(), createWriteTimeout)
 		monsterExperience, err = s.awardCurrentDungeonMonsterExperience(
 			experienceContext,
@@ -792,6 +803,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			rewardMonster,
 		)
 		cancelExperience()
+		s.performanceEnd(perfMonsterExperience, experienceStarted, err)
 		if err != nil {
 			s.logGameEvent(session, "game-dungeon-monster-experience-deferred",
 				"dungeon_id", runtime.Dungeon.ID,
@@ -867,8 +879,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if err != nil {
 		return err
 	}
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, responseBody, playerObjectKey), 0); err != nil {
-		return err
+	deathWriteStarted := s.performanceStart()
+	deathWriteErr := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, responseBody, playerObjectKey), 0)
+	s.performanceEnd(perfMonsterDeathWrite, deathWriteStarted, deathWriteErr)
+	s.performanceEnd(perfMonsterEnqueueToDeath, session.performanceEventQueuedAt, deathWriteErr)
+	if deathWriteErr != nil {
+		return deathWriteErr
 	}
 	// 权威死亡状态：① 记下来（供重复 op39 幂等重放）；② 广播给同一队伍副本实例内的队友，
 	// 否则队友的客户端永远不知道这只怪已经死了（复测症状：一边打完，另一边还剩白色残影）。
@@ -941,7 +957,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			"packet_source", "current_exe_sub_1D78240_full_character_state")
 	}
 	if rewardMonsterCandidate {
-		huntCtx, cancelHunt := context.WithTimeout(context.Background(), createWriteTimeout)
+		questStarted := s.performanceStart()
+		questCtx := context.Background()
+		if repos, ok := s.repositoryGroup(); ok && repos.Quest != nil {
+			questCtx = dnfrepo.WithQuestPlanningScope(questCtx, repos.Quest, strconv.FormatUint(uint64(session.selectedCharacterID), 10))
+		}
+		huntCtx, cancelHunt := context.WithTimeout(questCtx, createWriteTimeout)
 		huntErr := s.persistCurrentDungeonHuntEnemyKillPhaseA(
 			huntCtx,
 			session,
@@ -963,10 +984,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "86jp_hunt_enemy_progress_owner_failed",
 				"error", huntErr)
 		}
-		s.checkCurrentDungeonQuestMonsterDrops(session, runtime, rewardMonster.Spawn.MonsterID)
+		s.checkCurrentDungeonQuestMonsterDropsWithContext(questCtx, session, runtime, rewardMonster.Spawn.MonsterID)
 		// Keep ordinary drops, EXP and boss/story completion in their existing
 		// order even if quest persistence or its snapshot needs a retry.
-		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathWithContext(questCtx, session, runtime, request.RuntimeObjectKey)
+		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
+		s.performanceEnd(perfMonsterTasks, questStarted, errors.Join(huntErr, huntProgressErr))
 	}
 	if bossActorDeath && !storyAIBossGateActive && !currentLukeNormalBossesPending(runtime, scene) && !isPVFTutorialDungeonScene(runtime, scene) &&
 		stagedStoryForcedCombatEnd == nil {
@@ -1017,7 +1040,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if err := runtime.cacheCurrentDungeonRoom(); err != nil {
 		return fmt.Errorf("cache dungeon room after actor death: %w", err)
 	}
+	clearStarted := s.performanceStart()
 	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
+		s.performanceEnd(perfMonsterClear, clearStarted, err)
 		return err
 	}
 	if cleared || (storyAIBossGateActive && storyAIBossGate.Ready && scene.Cleared) {
@@ -1025,6 +1050,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			s.awardCurrentPetRoomClearLocked(session, runtime, clearedScene, "authoritative_monster_room_clear")
 		}
 	}
+	s.performanceEnd(perfMonsterClear, clearStarted, nil)
 	// 锦标赛赛制推进（默认档 `runtime.Tournament == nil` ⇒ 这一整段不可达）。
 	//
 	// 放在这里而不是 op39 入口：本函数上面的 Boss 强制清怪
@@ -1095,6 +1121,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"monster_experience_gain", monsterExperience.Award.Gain,
 		"monster_experience_state_sent", len(monsterExperienceBody) != 0,
 		"response", "current_exe_op38_actor_death_notification")
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if runtime.bossDieCheckPending &&
 		uint32(runtime.bossDieCheckPendingRequest.TargetObjectKey) == request.RuntimeObjectKey {
 		pendingRequest := runtime.bossDieCheckPendingRequest
@@ -1247,6 +1276,9 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 		"session_room_cleared", sessionRoomCleared,
 		"reason", reason,
 		"source", "current_exe_op38_actor_death_notification")
+	if handled, err := s.syncCurrentTagTournamentRoundLocked(session, runtime); handled {
+		return err
+	}
 	if sessionRoomCleared && runtime.Session != nil {
 		// 队友自己的房间清空了：在他自己的会话里跑最终房间完成（与"被接受的 op39"同一条链）。
 		if scene, ok := runtime.Session.Scene(); ok {

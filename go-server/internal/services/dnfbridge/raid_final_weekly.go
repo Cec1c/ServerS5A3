@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/guild"
 	"longheng.io/server/internal/modules/dnf/raid"
 )
 
@@ -158,7 +159,11 @@ func (s *Service) commitCurrentRaidWeeklyIntents(now time.Time) ([]raid.WeeklyCl
 			err = raid.ErrWeeklyClearState
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			_, err = raid.CommitWeeklyClear(ctx, repositories, job.command)
+			if s.options.guildRankingEnabled {
+				_, err = guild.CommitRankedRaidClear(ctx, repositories, job.command)
+			} else {
+				_, err = raid.CommitWeeklyClear(ctx, repositories, job.command)
+			}
 			cancel()
 		}
 		s.raidMu.Lock()

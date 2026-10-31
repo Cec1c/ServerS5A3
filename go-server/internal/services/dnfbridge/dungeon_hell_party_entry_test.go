@@ -55,6 +55,9 @@ func newHellPartyEntryTestService(
 	t.Helper()
 	table, resolver, monsters := loadBridgeDungeonStaticData(t, hellPartyBridgePVF())
 	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(context.Background(), dnfrepo.CharacterRecord{
 		CharacterID: "99",
 		AccountID:   "account-1",

@@ -25,7 +25,8 @@ import (
 // npc/476_Jonathan.npc 声明 `[upgrade gold convert to material] 10158964 100000`，
 // 10158964 = stackable/10158001/10158964.stk「精炼的时空石」(`[material]`)。
 // 修复前唯一安装点 candidateUpgradeCostResolver 在历史默认档返回 nil ⇒ owner 只按存量
-// Extra 金币字段收费，精炼的时空石一件不扣。默认档现在只钉已核的 476。
+// Extra 金币字段收费，精炼的时空石一件不扣。生产默认接线现在报价完整原生金币费用，
+// 并只把已核的 476 reinforce 请求分派给独立的材料转换 helper。
 const (
 	rest14JonathanNPC     uint16 = 476
 	rest14TimeStoneItemID int64  = 10158964
@@ -45,9 +46,10 @@ const (
 	rest14InvalidMaterialACK byte = 22
 )
 
-// 单元档（不需要真实 PVF）：只有空值启用默认转换档，其余历史值保持修复前接线；
-// 未核编号一律不查资源、不报错，直接沿用既有金币路径。
-func TestJonathanConversionDefaultResolverScoping(t *testing.T) {
+// 单元档（不需要真实 PVF）：空值与 candidate 启用生产默认完整报价，其余历史值保持
+// 显式停用。没有运行时档案时，普通强化报价在读取规则处失败关闭；独立 476 helper 仍负
+// 责自己的材料转换，普通 NPC、无 NPC 与 0xFFFF 对它保持未解析。
+func TestUpgradeCostDefaultQuotesFailClosedWithoutArchive(t *testing.T) {
 	// This case deliberately asks a Service without an archive to fail. Do not
 	// let its process-global loader error contaminate later real-PVF cases, or
 	// let a previous real-PVF cache make the missing-archive case succeed.
@@ -67,8 +69,10 @@ func TestJonathanConversionDefaultResolverScoping(t *testing.T) {
 	service := &Service{}
 	resolver := service.candidateUpgradeCostResolver(nil)
 	if resolver == nil {
-		t.Fatal("empty value must install the verified NPC conversion resolver")
+		t.Fatal("empty value must install the full native quote resolver")
 	}
+	identity, _ := service.boundGameSessionCharacterSnapshot(nil)
+	conversion := service.alignedUpgradeNPCConversionCostResolver(identity)
 	for _, tc := range []struct {
 		name    string
 		mode    string
@@ -80,18 +84,16 @@ func TestJonathanConversionDefaultResolverScoping(t *testing.T) {
 		{"ordinary npc", "reinforce", true, rest14OrdinaryNPC},
 		{"npc outside the list", "reinforce", true, 65534},
 	} {
-		quote, err := resolver(tc.mode, rest14TargetItemID, 0, tc.present, tc.npc)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
+		quote, err := conversion(tc.mode, rest14TargetItemID, 0, tc.present, tc.npc)
+		if err != nil || quote.Resolved || quote.GoldCost != 0 || quote.ConversionItemID != 0 || quote.ConversionCount != 0 {
+			t.Fatalf("%s: independent 476 helper quote=%+v err=%v, want unresolved", tc.name, quote, err)
 		}
-		if quote.Resolved || quote.GoldCost != 0 || quote.ConversionItemID != 0 || quote.ConversionCount != 0 {
-			t.Fatalf("%s: quote %+v must stay unresolved", tc.name, quote)
+		if quote, err := resolver(tc.mode, rest14TargetItemID, 0, tc.present, tc.npc); err == nil {
+			t.Fatalf("%s: ordinary quote without a runtime archive must fail closed, got %+v", tc.name, quote)
 		}
 	}
 	// Amplification now has its own default gold quote; the independent
 	// reinforcement conversion resolver must still leave it unresolved.
-	identity, _ := service.boundGameSessionCharacterSnapshot(nil)
-	conversion := service.alignedUpgradeNPCConversionCostResolver(identity)
 	if quote, err := conversion("amplify", rest14TargetItemID, 0, true, rest14JonathanNPC); err != nil || quote.Resolved {
 		t.Fatalf("amplification entered reinforcement conversion: %+v err=%v", quote, err)
 	}
@@ -297,8 +299,8 @@ func rest14UpgradeOp50(t *testing.T, service *Service, session *gameSession, con
 	return ack, updates, walletSeen
 }
 
-// 真档默认强化转换只解析已核的476，报价与整链候选一致且先过场景授权；
-// 普通强化沿旧金币路径，增幅现在取得独立金币报价但不进入强化转换。
+// 真档默认入口为普通强化、无 NPC 和 0xFFFF 报价完整原生金币，并拒绝未知 NPC 65534；
+// 476 仍走独立材料转换 helper，报价与整链候选一致且先过场景授权；增幅独立报价。
 func TestRealPVFJonathanConversionDefaultResolverScoping(t *testing.T) {
 	fixture := rest14LoadFixture(t)
 	t.Setenv("DNFBRIDGE_NATIVE_UPGRADE_COST", "")
@@ -307,7 +309,7 @@ func TestRealPVFJonathanConversionDefaultResolverScoping(t *testing.T) {
 	service, session, _ := fixture.rest14Service(repos, fixture.townID, fixture.areaID, true)
 	resolver := service.candidateUpgradeCostResolver(session)
 	if resolver == nil {
-		t.Fatal("empty value must install the verified NPC conversion resolver")
+		t.Fatal("empty value must install the full native quote resolver")
 	}
 	quote, err := resolver("reinforce", rest14TargetItemID, 0, true, rest14JonathanNPC)
 	if err != nil {
@@ -323,17 +325,20 @@ func TestRealPVFJonathanConversionDefaultResolverScoping(t *testing.T) {
 	if quote != candidate {
 		t.Fatalf("default quote %+v differs from the native candidate %+v", quote, candidate)
 	}
-	for _, npc := range []uint16{rest14OrdinaryNPC, 2, 65534, 0xFFFF} {
+	for _, npc := range []uint16{rest14OrdinaryNPC, 2, 0xFFFF} {
 		ordinary, err := resolver("reinforce", rest14TargetItemID, 0, true, npc)
-		if err != nil || ordinary.Resolved || ordinary.GoldCost != 0 || ordinary.ConversionCount != 0 {
-			t.Fatalf("npc %d must stay on the legacy gold path: %+v err=%v", npc, ordinary, err)
+		if err != nil || !ordinary.Resolved || ordinary.GoldCost != 84975 || ordinary.ConversionItemID != 0 || ordinary.ConversionCount != 0 {
+			t.Fatalf("npc %d native quote=%+v err=%v, want resolved gold 84975", npc, ordinary, err)
 		}
+	}
+	if unknown, err := resolver("reinforce", rest14TargetItemID, 0, true, 65534); err == nil {
+		t.Fatalf("unknown npc 65534 must fail closed, got %+v", unknown)
 	}
 	if amplify, err := resolver("amplify", rest14TargetItemID, 0, true, rest14JonathanNPC); err != nil || !amplify.Resolved || amplify.GoldCost != 220500 || amplify.ConversionCount != 0 {
 		t.Fatalf("amplify must quote its own gold cost without reinforcement conversion: %+v err=%v", amplify, err)
 	}
-	if absent, err := resolver("reinforce", rest14TargetItemID, 0, false, 0); err != nil || absent.Resolved {
-		t.Fatalf("no npc context must stay unresolved: %+v err=%v", absent, err)
+	if absent, err := resolver("reinforce", rest14TargetItemID, 0, false, 0); err != nil || !absent.Resolved || absent.GoldCost != 84975 || absent.ConversionItemID != 0 || absent.ConversionCount != 0 {
+		t.Fatalf("no npc context native quote=%+v err=%v, want resolved gold 84975", absent, err)
 	}
 	// 场景不符（角色停在另一个不含 476 的真实区域）时 476 也必须拒绝，不能报价。
 	mismatch, _, _ := fixture.rest14Service(repos, fixture.otherTownID, fixture.otherAreaID, true)
@@ -352,7 +357,7 @@ func mismatchSessionFor(t *testing.T, service *Service) *gameSession {
 }
 
 // 真实 handler 专项（runner 固定名）：默认档扣精炼的时空石、场景不符拒绝、石头不足拒绝、
-// 已核编号之外一律沿用既有金币路径，off/candidate 保持各自语义。
+// 普通 NPC 使用完整原生金币报价并忽略旧 Extra 费用，off/candidate 保持各自语义。
 func TestRealPVFJonathanDefaultHandlerRound14(t *testing.T) {
 	fixture := rest14LoadFixture(t)
 	for _, tc := range []struct {
@@ -374,7 +379,7 @@ func TestRealPVFJonathanDefaultHandlerRound14(t *testing.T) {
 		{"default 476 missing stone stack rejected", "", rest14JonathanNPC, 0, "", "", "town", 0, rest14StartGold, false, true},
 		// +10 时原生金币 254925 ⇒ 需要 3 个石头；给 2 个是真·不足档（数量 2 < 3）。
 		{"default 476 insufficient stones rejected", "", rest14JonathanNPC, 2, "", "10", "town", 2, rest14StartGold, false, true},
-		{"default ordinary npc keeps legacy gold", "", rest14OrdinaryNPC, rest14StartStones, rest14LegacyGoldFee, "", "town", rest14StartStones, rest14StartGold - 1234, false, false},
+		{"default ordinary npc uses native gold quote", "", rest14OrdinaryNPC, rest14StartStones, rest14LegacyGoldFee, "", "town", rest14StartStones, 15025, false, false},
 		{"off keeps the pre-fix wiring", "off", rest14JonathanNPC, rest14StartStones, "", "", "town", rest14StartStones, rest14StartGold, false, false},
 		{"candidate 476 town scene deducts one stone", "candidate", rest14JonathanNPC, rest14StartStones, "", "", "town", 4, rest14StartGold, true, false},
 		{"candidate 476 other area rejected", "candidate", rest14JonathanNPC, rest14StartStones, "", "", "other", rest14StartStones, rest14StartGold, false, true},

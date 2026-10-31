@@ -31,7 +31,7 @@ import (
 //	   `writeCurrentMode1EquipmentCreateRow`，现场四次 row_summary 也完全相同。
 //	   进图能显示正确耐久 ⇒ 投影行不是缺陷所在。
 //
-// 现场夹具（只读来源：109.244.63.71:/opt/dnf90/logs/packet_log.txt，
+// 现场夹具（只读来源：192.0.2.11:/opt/dnf90/logs/packet_log.txt，
 // conn game-000021 / character_id=6 / 13:52:48.847660354Z）。
 const liveLoginChar6RowSummary = "0:42601:type=0:durability=4:derived=1:raw=1:create=1;" +
 	"1:42603:type=1:durability=4:derived=1:raw=1:create=1;" +

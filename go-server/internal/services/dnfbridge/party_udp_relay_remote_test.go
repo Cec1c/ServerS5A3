@@ -414,7 +414,7 @@ func newPartyRemoteTestClient(t *testing.T, server *partyRemoteTestServer, mutat
 		endpoint:       server.addr(),
 		host:           host,
 		port:           port,
-		publicIP:       [4]byte{38, 22, 90, 52},
+		publicIP:       [4]byte{192, 0, 2, 12},
 		secret:         server.secret,
 		roomBase:       defaultPartyUDPRelayRemoteRoomBase,
 		onEvent:        events.record,
@@ -545,8 +545,8 @@ func TestPartyRemoteSyncFrameLayoutAndMatrixFeedEndpoint(t *testing.T) {
 	if !ok {
 		t.Fatal("Endpoint(300->5) missing after SYNC_OK")
 	}
-	if address != [4]byte{38, 22, 90, 52} {
-		t.Fatalf("relay ip = % X, want 38.22.90.52", address)
+	if address != [4]byte{192, 0, 2, 12} {
+		t.Fatalf("relay ip = % X, want 192.0.2.12", address)
 	}
 	wantAB, _ := partyRemoteTestLegPort([]uint16{5, 300}, 300, 5)
 	if portAB != wantAB {
@@ -848,9 +848,9 @@ func TestPartyRelayRemotePlanReasons(t *testing.T) {
 	ready := func(service *Service) {
 		service.options.partyUDPRelayEnabled = true
 		service.options.partyUDPRelayMode = partyUDPRelayModeRemote
-		service.options.partyUDPRelayRemoteEndpoint = defaultPartyUDPRelayRemoteEndpoint
+		service.options.partyUDPRelayRemoteEndpoint = "192.0.2.12:10250"
 		service.options.partyUDPRelayRemoteRoomBase = defaultPartyUDPRelayRemoteRoomBase
-		service.options.serverIP = "38.22.90.52"
+		service.options.serverIP = "192.0.2.12"
 		service.options.partyUDPRelayRemoteSecret, service.options.partyUDPRelayRemoteSecretState =
 			readPartyUDPRelayRemoteSecret(partyRemoteTestSecret)
 	}
@@ -873,7 +873,7 @@ func TestPartyRelayRemotePlanReasons(t *testing.T) {
 
 	badEndpoint := newService()
 	ready(badEndpoint)
-	badEndpoint.options.partyUDPRelayRemoteEndpoint = "38.22.90.52"
+	badEndpoint.options.partyUDPRelayRemoteEndpoint = "192.0.2.12"
 	if plan := badEndpoint.resolvePartyUDPRelayRemotePlan(); plan.reason != partyUDPRelayRemoteReasonEndpointInvalid {
 		t.Fatalf("坏端点 reason = %q, want %q", plan.reason, partyUDPRelayRemoteReasonEndpointInvalid)
 	}
@@ -890,8 +890,8 @@ func TestPartyRelayRemotePlanReasons(t *testing.T) {
 	ready(byAdvertise)
 	byAdvertise.options.partyUDPRelayRemoteEndpoint = "relay.example.com:10250"
 	if plan := byAdvertise.resolvePartyUDPRelayRemotePlan(); plan.effective != partyUDPRelayModeRemote ||
-		plan.settings.publicIP != [4]byte{38, 22, 90, 52} {
-		t.Fatalf("域名端点 + SERVER_IP 回退 = (%v, % X), want (remote, 38.22.90.52)",
+		plan.settings.publicIP != [4]byte{192, 0, 2, 12} {
+		t.Fatalf("域名端点 + SERVER_IP 回退 = (%v, % X), want (remote, 192.0.2.12)",
 			plan.effective, plan.settings.publicIP)
 	}
 
@@ -901,8 +901,8 @@ func TestPartyRelayRemotePlanReasons(t *testing.T) {
 	loopbackEndpoint := newService()
 	ready(loopbackEndpoint)
 	loopbackEndpoint.options.partyUDPRelayRemoteEndpoint = "127.0.0.1:10250"
-	if plan := loopbackEndpoint.resolvePartyUDPRelayRemotePlan(); plan.settings.publicIP != [4]byte{38, 22, 90, 52} {
-		t.Fatalf("回环端点 public ip = % X, want 38.22.90.52（配置的 publicIp 优先）", plan.settings.publicIP)
+	if plan := loopbackEndpoint.resolvePartyUDPRelayRemotePlan(); plan.settings.publicIP != [4]byte{192, 0, 2, 12} {
+		t.Fatalf("回环端点 public ip = % X, want 192.0.2.12（配置的 publicIp 优先）", plan.settings.publicIP)
 	}
 }
 
@@ -921,7 +921,7 @@ func TestPartyRelayRemoteBackendWiringUsesControlChannelOnly(t *testing.T) {
 	service.options.partyUDPRelayMode = partyUDPRelayModeRemote
 	service.options.partyUDPRelayRemoteEndpoint = fmt.Sprintf("%s:%d", host, port)
 	service.options.partyUDPRelayRemoteRoomBase = defaultPartyUDPRelayRemoteRoomBase
-	service.options.serverIP = "38.22.90.52"
+	service.options.serverIP = "192.0.2.12"
 	service.options.partyUDPRelayRemoteSecret, service.options.partyUDPRelayRemoteSecretState =
 		readPartyUDPRelayRemoteSecret(partyRemoteTestSecret)
 
@@ -968,8 +968,8 @@ func TestPartyRelayRemoteBackendWiringUsesControlChannelOnly(t *testing.T) {
 	if !ok {
 		t.Fatal("backend.Endpoint(101->202) missing")
 	}
-	if address != [4]byte{38, 22, 90, 52} {
-		t.Fatalf("relay ip = % X, want 38.22.90.52", address)
+	if address != [4]byte{192, 0, 2, 12} {
+		t.Fatalf("relay ip = % X, want 192.0.2.12", address)
 	}
 	wantAB, _ := partyRemoteTestLegPort([]uint16{101, 202}, 101, 202)
 	if portAB != wantAB {
@@ -1030,9 +1030,9 @@ func TestPartyRelayRemoteSwitchFallsBackToEmbedded(t *testing.T) {
 			}
 			service.options.partyUDPRelayEnabled = true
 			service.options.partyUDPRelayMode = partyUDPRelayModeRemote
-			service.options.partyUDPRelayRemoteEndpoint = defaultPartyUDPRelayRemoteEndpoint
+			service.options.partyUDPRelayRemoteEndpoint = "192.0.2.12:10250"
 			service.options.partyUDPRelayRemoteRoomBase = defaultPartyUDPRelayRemoteRoomBase
-			service.options.serverIP = "38.22.90.52"
+			service.options.serverIP = "192.0.2.12"
 			service.options.partyUDPRelayRemoteSecret, service.options.partyUDPRelayRemoteSecretState =
 				readPartyUDPRelayRemoteSecret(testCase.secret)
 
@@ -1044,8 +1044,8 @@ func TestPartyRelayRemoteSwitchFallsBackToEmbedded(t *testing.T) {
 				t.Fatalf("reason = %q, want %q", plan.reason, testCase.wantReason)
 			}
 			if testCase.wantEffective == partyUDPRelayModeRemote {
-				if plan.settings.publicIP != [4]byte{38, 22, 90, 52} {
-					t.Fatalf("public ip = % X, want 38.22.90.52", plan.settings.publicIP)
+				if plan.settings.publicIP != [4]byte{192, 0, 2, 12} {
+					t.Fatalf("public ip = % X, want 192.0.2.12", plan.settings.publicIP)
 				}
 				if plan.settings.roomBase != defaultPartyUDPRelayRemoteRoomBase {
 					t.Fatalf("room base = %d, want %d", plan.settings.roomBase, defaultPartyUDPRelayRemoteRoomBase)

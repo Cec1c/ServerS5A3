@@ -1,0 +1,5 @@
+local-profiles/
+fixtures/
+candidates/
+receipts/
+__pycache__/

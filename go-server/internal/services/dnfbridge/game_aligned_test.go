@@ -442,6 +442,7 @@ func TestSendCurrentPartyActorFrameProjectionUpdatesRemoteJoinState(t *testing.T
 		PartyID: 1002, UserID: 1002, IsLeader: true, MaxMembers: 4,
 		Members: []alignedcmd.PartyMemberState{{UserID: 1002, UserState: 1}},
 	}
+	storeRuntimePartyState(actor, createdSoloParty)
 	if sent, err := service.sendCurrentPartyActorFrameProjection(receiver, actor, createdSoloParty, "test_remote_party_created"); err != nil || !sent {
 		t.Fatalf("active remote projection sent=%t err=%v", sent, err)
 	}
@@ -455,6 +456,7 @@ func TestSendCurrentPartyActorFrameProjectionUpdatesRemoteJoinState(t *testing.T
 	}
 
 	receiverConn.write.Reset()
+	storeRuntimePartyState(actor, alignedcmd.PartyState{})
 	if sent, err := service.sendCurrentPartyActorFrameProjection(receiver, actor, alignedcmd.PartyState{}, "test_remote_party_cleared"); err != nil || !sent {
 		t.Fatalf("empty remote projection sent=%t err=%v", sent, err)
 	}
@@ -980,7 +982,7 @@ func TestHandleRequestAndResponsePeerForwardsTradePrompt(t *testing.T) {
 	}
 }
 
-func TestHandleOnlineLeavePartyClearsResidualSingletonProjection(t *testing.T) {
+func TestHandleOnlineLeavePartyRetainsSuccessorSingletonProjection(t *testing.T) {
 	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}}
 	leaderConn := &bufferConn{}
 	memberConn := &bufferConn{}
@@ -1016,9 +1018,11 @@ func TestHandleOnlineLeavePartyClearsResidualSingletonProjection(t *testing.T) {
 	if leader.party.state.PartyID != 0 {
 		t.Fatalf("leader party was not cleared: %+v", leader.party.state)
 	}
-	if member.party.state.PartyID != 0 {
-		t.Fatalf("member residual singleton was not cleared: %+v", member.party.state)
+	retained, found := service.runtimePartyManagerForService().SnapshotByUser(1002, 0)
+	if !found {
+		t.Fatal("successor singleton missing from manager")
 	}
+	assertPartyProjectionSingleton(t, "successor", runtimePartyStateSnapshot(member), int(retained.ID), 1002, 1, true)
 
 	ack, rest := splitGameServerUpperPacket(t, leaderConn.write.Bytes())
 	if ack.Header.Classification != dnfproto.DefaultChannelClassification ||
@@ -1030,13 +1034,13 @@ func TestHandleOnlineLeavePartyClearsResidualSingletonProjection(t *testing.T) {
 	if len(rest) != 0 {
 		t.Fatalf("leader trailing bytes = %d", len(rest))
 	}
-	memberRest := assertRuntimePartyRemoved(t, memberConn.write.Bytes(), 1001, 0)
+	memberRest := assertRuntimeSuccessorSingletonSnapshot(t, memberConn.write.Bytes(), member, false, 1)
 	if len(memberRest) != 0 {
 		t.Fatalf("member trailing bytes = %d", len(memberRest))
 	}
 }
 
-func TestHandleOnlineWalkoutPartyMemberClearsLeaderSingletonProjection(t *testing.T) {
+func TestHandleOnlineWalkoutPartyMemberRetainsLeaderSingletonProjection(t *testing.T) {
 	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}}
 	leaderConn := &bufferConn{}
 	memberConn := &bufferConn{}
@@ -1069,9 +1073,11 @@ func TestHandleOnlineWalkoutPartyMemberClearsLeaderSingletonProjection(t *testin
 	if !handled {
 		t.Fatalf("WalkoutPartyMember should be handled by online party bridge")
 	}
-	if leader.party.state.PartyID != 0 {
-		t.Fatalf("leader residual singleton was not cleared: %+v", leader.party.state)
+	retained, found := service.runtimePartyManagerForService().SnapshotByUser(1001, 0)
+	if !found {
+		t.Fatal("leader singleton missing from manager")
 	}
+	assertPartyProjectionSingleton(t, "leader", runtimePartyStateSnapshot(leader), int(retained.ID), 1001, 0, true)
 	if member.party.state.PartyID != 0 {
 		t.Fatalf("kicked member party was not cleared: %+v", member.party.state)
 	}
@@ -1083,7 +1089,7 @@ func TestHandleOnlineWalkoutPartyMemberClearsLeaderSingletonProjection(t *testin
 		t.Fatalf("walkout ack = class %d msg %d body=% X", ack.Header.Classification, ack.Header.MsgID, ack.Body)
 	}
 	rest = assertRuntimePartyWalkoutNotice(t, rest, 1, 0)
-	rest = assertRuntimePartyRemoved(t, rest, 1002, 0)
+	rest = assertRuntimePartyRemoved(t, rest, 1002, 1)
 	if len(rest) != 0 {
 		t.Fatalf("leader trailing bytes = %d", len(rest))
 	}
@@ -1703,6 +1709,33 @@ func assertRaidRefreshMemberState(t *testing.T, members []raidRefreshMemberForTe
 // **peer-only** (vendor 9.16 shape: `u8 peerCount + 22B/peer row`, the receiver's
 // own row is absent — see party_peer_endpoint_include_self.go), so a party of
 // `wantMembers` members carries `wantMembers-1` rows.
+// A new leader keeps its fixed slot, which need not be zero. Its new lobby
+// requires op11, then op153, then a kind0 frame in the selected client profile.
+func assertRuntimeSuccessorSingletonSnapshot(t *testing.T, data []byte, receiver *gameSession, official249 bool, slot byte) []byte {
+	t.Helper()
+	endpoints, rest := splitGameServerUpperPacket(t, data)
+	if endpoints.Header.Classification != 0 || endpoints.Header.MsgID != 11 || !bytes.Equal(endpoints.Body, []byte{0}) {
+		t.Fatalf("successor endpoints=%+v body=%x", endpoints.Header, endpoints.Body)
+	}
+	realtime, rest := splitGameServerUpperPacket(t, rest)
+	if realtime.Header.Classification != 0 || realtime.Header.MsgID != 153 {
+		t.Fatalf("successor realtime=%+v", realtime.Header)
+	}
+	rows := parseRealtimeInfoRows(t, realtime.Body)
+	if len(rows) != 1 || rows[0].uid != receiver.selectedCharacterID || rows[0].slot != slot {
+		t.Fatalf("successor realtime rows=%+v", rows)
+	}
+	frame, rest := splitGameServerUpperPacket(t, rest)
+	if frame.Header.Classification != 0 || frame.Header.MsgID != 9 || len(frame.Body) < 10 {
+		t.Fatalf("successor frame=%+v body=%x", frame.Header, frame.Body)
+	}
+	members, leaderSlot := parseOp9PartyFrameForProfile(t, frame.Body, int(frame.Body[7]) != currentClientSelectedChannelID(receiver), official249)
+	if len(members) != 1 || members[0].uid != receiver.selectedCharacterID || members[0].slot != slot || leaderSlot != slot {
+		t.Fatalf("successor frame rows=%+v leader=%d want uid=%d slot=%d", members, leaderSlot, receiver.selectedCharacterID, slot)
+	}
+	return rest
+}
+
 func assertRuntimePartySnapshot(t *testing.T, data []byte, wantMembers byte) []byte {
 	t.Helper()
 	peerEndpoints, rest := splitGameServerUpperPacket(t, data)

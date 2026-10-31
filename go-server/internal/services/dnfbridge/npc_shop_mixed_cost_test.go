@@ -45,7 +45,7 @@ func TestNPCShopMixedCostSharedMaterialCommitsOrRollsBackTogether(t *testing.T) 
 				t.Fatal(err)
 			}
 			if fail {
-				repos.CharacterSettlement = rejectingCurrentNPCShopCommit{inner: repos.CharacterSettlement, err: errors.New("shared mixed-cost commit fault")}
+				repos.AccountAssets = rejectingCurrentNPCShopAccountAssets{inner: repos.AccountAssets, err: errors.New("shared mixed-cost commit fault")}
 			}
 			s := currentNPCShopTestService(repos, shop, items)
 			_, err := s.commitCurrentNPCShopBuy(context.Background(), &gameSession{selectedCharacterID: 19}, shop, items, currentNPCShopBuyRequest{ItemID: 602, Count: 3})
@@ -72,7 +72,7 @@ func TestNPCShopMixedCostChargesBatchAndProjectsWallet(t *testing.T) {
 	repos := mustCurrentNPCShopRepositories(t, 1000, map[string]dnfrepo.ItemStack{"0:121": {ItemID: 900, Count: 10}})
 	s := currentNPCShopTestService(repos, shop, items)
 	c := &bufferConn{}
-	if err := s.handleCurrentNPCShopBuy(&gameSession{conn: c, selectedCharacterID: 19}, currentNPCShopBuyTestBody(602, 3, 15, 2)); err != nil {
+	if err := s.handleCurrentNPCShopBuy(&gameSession{conn: c, selectedCharacterID: 19}, currentNPCShopBuyTestBody(602, 3, 1, 326)); err != nil {
 		t.Fatal(err)
 	}
 	ack, rest := splitGameServerUpperPacket(t, c.write.Bytes())
@@ -105,7 +105,7 @@ func TestNPCShopMixedCostFailurePreservesAllAssets(t *testing.T) {
 			beforeChar, _, _ := repos.Character.Load(context.Background(), "19")
 			beforeBag, _, _ := repos.Inventory.Load(context.Background(), "19")
 			if tc.failCommit {
-				repos.CharacterSettlement = rejectingCurrentNPCShopCommit{inner: repos.CharacterSettlement, err: errors.New("mixed cost commit fault")}
+				repos.AccountAssets = rejectingCurrentNPCShopAccountAssets{inner: repos.AccountAssets, err: errors.New("mixed cost commit fault")}
 			}
 			s := currentNPCShopTestService(repos, shop, items)
 			_, err := s.commitCurrentNPCShopBuy(context.Background(), &gameSession{selectedCharacterID: 19}, shop, items, currentNPCShopBuyRequest{ItemID: 602, Count: 3, ActorContext: 2})

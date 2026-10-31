@@ -181,10 +181,11 @@ func (s *Service) handleCurrentGuildHongbaoLiveQuery(session *gameSession, op ui
 		rows := make([]currentGuildHongbaoRow, 0, len(view.Records))
 		for _, record := range view.Records {
 			done := record.RemainingPortions() == 0 || !now.Before(record.ExpiresAt) || record.Settlement != nil
+			claimed := false
 			for _, claim := range record.Claims {
-				done = done || claim.Owner.AccountID == actor.AccountID
+				claimed = claimed || claim.Owner.AccountID == actor.AccountID
 			}
-			rows = append(rows, currentGuildHongbaoRow{ID: record.ID, ItemID: uint32(record.Product.ItemID), Name: record.SenderName, Portions: record.RemainingPortions(), Completed: done})
+			rows = append(rows, currentGuildHongbaoRow{ID: record.ID, ItemID: uint32(record.Product.ItemID), Name: record.SenderName, Portions: record.RemainingPortions(), Completed: done, Claimed: claimed})
 		}
 		response, err = buildCurrentGuildHongbaoListBody(uint16(view.MemberCount), view.PurchasedToday, view.TakenToday, rows)
 		if err != nil {

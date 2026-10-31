@@ -36,7 +36,7 @@ func (u *mysqlAccountCharacterItemUnitOfWork) WithinAccountCharacterItems(
 	if !ok {
 		return repository.ErrAccountCharacterItemTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func (u *mysqlAccountCharacterItemUnitOfWork) WithinAccountCharacterItems(
 	// Account and character keys may route to different logical databases,
 	// but both tables live on the same MySQL server and share this sql.Tx.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
@@ -128,7 +128,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	if !ok {
 		return repository.ErrAccountCharacterAssetTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
@@ -139,12 +139,20 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	// databases. They still share one physical MySQL transaction, so keep the
 	// full write plan while forcing locked reads through the transaction.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
 	var ledger repository.AccountRepository
+	// 分解、提取等资产事务也以本事务成功加载的完整快照计算槽位差量。
+	// 仓储实例只在当前事务内存在；未成功 Load 的保存继续走完整替换。
+	if store, ok := txGroup.AccountInventory.(*mysqlAccountInventoryStore); ok {
+		store.trackSlotChanges = true
+	}
+	if store, ok := txGroup.Inventory.(*mysqlBagStore); ok {
+		store.trackSlotChanges = true
+	}
 	if includeLedger {
 		ledger = &rentalScopedAccountRepository{accountID: accountID, base: txGroup.Account}
 		// 先锁账号再锁其它资产，避免与拾取自增/图鉴制作发生反序。

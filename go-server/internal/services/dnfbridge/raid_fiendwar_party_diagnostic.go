@@ -53,7 +53,7 @@ func (s *Service) logFiendWarPartyAdmission(phase string, session *gameSession, 
 		}
 		fields = append(fields, key, extra[i+1])
 	}
-	s.logFiendWarPartyAdmissionFields(fields...)
+	s.logPacketEvent(fiendWarPartyAdmissionDiagnosticKind, fields...)
 }
 
 func (s *Service) fiendWarPartyAdmissionSessionFields(session *gameSession, charKey, prefix string) []any {
@@ -110,7 +110,18 @@ func (s *Service) fiendWarPartyAdmissionSessionFields(session *gameSession, char
 	}
 	session.dungeon.mu.Unlock()
 
-	_, runKeyPresent := s.currentDungeonPartyRunKey(session)
+	runKey, runKeyPresent := s.currentDungeonPartyRunKey(session)
+	if runKeyPresent {
+		if runID == "" {
+			runID = runKey.RaidRunID
+		}
+		if raidKey == 0 {
+			raidKey = runKey.RaidKey
+		}
+		if raidInstanceID == "" {
+			raidInstanceID = runKey.RaidInstanceID
+		}
+	}
 	// Readiness is reported from the live runtime and finish-loading gates.
 	// run_key is a separate fact: solo runtimes legitimately have no party key.
 	ready := runtimePresent && scenePresent && postStart && finish && postFinish
@@ -144,27 +155,4 @@ func fiendWarPartyAdmissionParticipants(ids []uint16) string {
 		parts[i] = strconv.FormatUint(uint64(id), 10)
 	}
 	return strings.Join(parts, ",")
-}
-
-// Application logging remains useful with raw packet logging disabled.
-func (s *Service) logFiendWarPartyAdmissionFields(fields ...any) {
-	args := []any{"kind", fiendWarPartyAdmissionDiagnosticKind}
-	for i := 0; i+1 < len(fields); i += 2 {
-		key, ok := fields[i].(string)
-		if !ok {
-			continue
-		}
-		switch key {
-		case "phase", "char_id", "peer_char_id", "mode", "reason", "party_id", "peer_party_id", "party_members", "peer_party_members",
-			"raid_key", "peer_raid_key", "raid_instance_id", "peer_raid_instance_id",
-			"run_id", "peer_run_id", "participants", "peer_participants",
-			"scene_key", "peer_scene_key", "run_key", "peer_run_key",
-			"post_start", "peer_post_start", "finish", "peer_finish",
-			"post_finish", "peer_post_finish", "ready", "peer_ready",
-			"party_instance_id", "peer_party_instance_id", "had_invite":
-			args = append(args, key, fields[i+1])
-		}
-
-	}
-	s.logInfo("dnfbridge fiendwar party diagnostic", args...)
 }

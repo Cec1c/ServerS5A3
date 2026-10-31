@@ -26,25 +26,26 @@ type Config struct {
 }
 
 type RepositoryConfig struct {
-	Enabled              bool   `toml:"enabled"`
-	MySQLDSN             string `toml:"mysql_dsn"`
-	MySQLMaxOpenConns    int    `toml:"mysql_max_open_conns"`
-	MySQLMaxIdleConns    int    `toml:"mysql_max_idle_conns"`
-	MySQLConnMaxLifetime int    `toml:"mysql_conn_max_lifetime_seconds"`
-	RedisEnabled         bool   `toml:"redis_enabled"`
-	RedisAddress         string `toml:"redis_address"`
-	RedisPassword        string `toml:"redis_password"`
-	RedisDB              int    `toml:"redis_db"`
-	RedisPoolSize        int    `toml:"redis_pool_size"`
-	RedisTimeoutSeconds  int    `toml:"redis_timeout_seconds"`
-	RedisKeyPrefix       string `toml:"redis_key_prefix"`
-	RedisTTLSeconds      int    `toml:"redis_ttl_seconds"`
-	ShardID              string `toml:"shard_id"`
-	TablePrefix          string `toml:"table_prefix"`
-	ServerGroupPlanFile  string `toml:"server_group_plan_file"`
-	AutoCreateSchema     bool   `toml:"auto_create_schema"`
-	CSharpLegacySchema   bool   `toml:"csharp_legacy_schema"`
-	CreateDatabases      bool   `toml:"create_databases"`
+	Enabled                bool   `toml:"enabled"`
+	MySQLDSN               string `toml:"mysql_dsn"`
+	MySQLMaxOpenConns      int    `toml:"mysql_max_open_conns"`
+	MySQLMaxIdleConns      int    `toml:"mysql_max_idle_conns"`
+	MySQLConnMaxLifetime   int    `toml:"mysql_conn_max_lifetime_seconds"`
+	MySQLPreparedCacheSize *int   `toml:"mysql_prepared_cache_size"`
+	RedisEnabled           bool   `toml:"redis_enabled"`
+	RedisAddress           string `toml:"redis_address"`
+	RedisPassword          string `toml:"redis_password"`
+	RedisDB                int    `toml:"redis_db"`
+	RedisPoolSize          int    `toml:"redis_pool_size"`
+	RedisTimeoutSeconds    int    `toml:"redis_timeout_seconds"`
+	RedisKeyPrefix         string `toml:"redis_key_prefix"`
+	RedisTTLSeconds        int    `toml:"redis_ttl_seconds"`
+	ShardID                string `toml:"shard_id"`
+	TablePrefix            string `toml:"table_prefix"`
+	ServerGroupPlanFile    string `toml:"server_group_plan_file"`
+	AutoCreateSchema       bool   `toml:"auto_create_schema"`
+	CSharpLegacySchema     bool   `toml:"csharp_legacy_schema"`
+	CreateDatabases        bool   `toml:"create_databases"`
 }
 
 // LoadConfig 读取 DNF logic manifest 外部配置。
@@ -112,6 +113,10 @@ func (c *Config) Normalize(env *appkit.Env) {
 	if repo.MySQLConnMaxLifetime <= 0 {
 		repo.MySQLConnMaxLifetime = 300
 	}
+	if repo.MySQLPreparedCacheSize == nil {
+		size := 64
+		repo.MySQLPreparedCacheSize = &size
+	}
 	if repo.RedisEnabled {
 		if repo.RedisAddress == "" {
 			repo.RedisAddress = "127.0.0.1:6379"
@@ -149,6 +154,9 @@ func (c Config) Validate() error {
 	}
 	if repo.MySQLMaxOpenConns <= 0 || repo.MySQLMaxIdleConns <= 0 || repo.MySQLConnMaxLifetime <= 0 {
 		return fmt.Errorf("%w: repository mysql pool values must be positive", ErrConfigInvalid)
+	}
+	if repo.MySQLPreparedCacheSize != nil && (*repo.MySQLPreparedCacheSize < 0 || *repo.MySQLPreparedCacheSize > 1024) {
+		return fmt.Errorf("%w: repository prepared cache size must be between 0 and 1024", ErrConfigInvalid)
 	}
 	if repo.RedisEnabled {
 		if strings.TrimSpace(repo.RedisAddress) == "" {

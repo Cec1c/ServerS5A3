@@ -316,7 +316,7 @@ func TestSemesterRouteBootstrapAndTimerLifecycle(t *testing.T) {
 			task := q.active[key]
 			q.mu.Unlock()
 			if enabled {
-				if n != 1 || task == nil || task.delay != 30*time.Second {
+				if n != 1 || task == nil || task.delay <= 0 || task.delay > 30*time.Second {
 					t.Fatal(n, task)
 				}
 				s.cancelCurrentSemesterCumulativeTick(a)

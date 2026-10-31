@@ -25,7 +25,7 @@ import (
 //
 // Two independent sources agree on this shape:
 //
-//  1. Live wire (2026-09-28, 109.244.63.71 /opt/dnf90/logs/packet_log.txt). Every
+//  1. Live wire (2026-09-28, 192.0.2.11 /opt/dnf90/logs/packet_log.txt). Every
 //     op38 body ever logged is 7 + n*127: 473x7, 85x134(n=1), 6x261(n=2), 2x388(n=3),
 //     1x896(n=7), 1x1023(n=8), 1x1277(n=10), 1x1404(n=11). 77 op43 pickups were
 //     accepted against the exact u32 keys those rows carried (gold and equipment

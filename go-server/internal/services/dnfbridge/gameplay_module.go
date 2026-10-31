@@ -132,6 +132,9 @@ func (r *gameplayModuleRegistry) dispatchLegacyRequest(service *Service, session
 	if r == nil {
 		return false, nil
 	}
+	if handled, err := service.rejectCurrentTagTournamentMutation(session, request); handled {
+		return true, err
+	}
 	route, ok := r.legacyHandlers[request.Opcode]
 	if !ok {
 		return false, nil
@@ -152,6 +155,9 @@ func (r *gameplayModuleRegistry) DispatchUpper(
 func (r *gameplayModuleRegistry) dispatchUpperRequest(service *Service, session *gameSession, request gameplayRequest) (bool, error) {
 	if r == nil {
 		return false, nil
+	}
+	if handled, err := service.rejectCurrentTagTournamentMutation(session, request); handled {
+		return true, err
 	}
 	route, ok := r.upperHandlers[request.Opcode]
 	if !ok {

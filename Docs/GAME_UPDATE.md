@@ -4,6 +4,8 @@
 
 这条流程更新已配置的远端 Docker 实例的游戏二进制，保留 GM、数据库、玩家数据、PVF、频道与登录器。需要更新客户端或内容时，先完成 [CLIENT_RELEASE_SYNC.md](CLIENT_RELEASE_SYNC.md) 的 Release、实际玩家通道和摘要核验，再执行依赖它们的游戏更新。Git 提交、推送及 PR/MR 仍按 [REPOSITORY_SYNC.md](REPOSITORY_SYNC.md) 单独处理。
 
+客户端前置要求见 [来源通知基线与后续累计修复](CLIENT_RELEASE_SYNC.md#来源通知基线与后续累计修复)：V183 来源通知基线已正式发布；后续直接在已发布基线及累计版本上修改，不要求每次运行通知 CLI。部署仍核对所选通道最新已发布 Release、实际玩家签名清单、下载文件和兼容 profile 的最终摘要；旧的合法签名或配置摘要本身不证明发行是最新版本。
+
 ## 本机配置
 
 私有目标配置在被忽略的 `runtime/game-update/profile.json`，格式见 `deploy/templates/game-update.example.json`。优先读取已有配置和 `local-notes/AGENT_HANDOFF.md`，不要覆盖已有环境信息或猜测地址。配置引用 SSH alias、玩家签名 profile 和无 GUI 探针，不写密码、私钥或 token。
@@ -56,6 +58,12 @@
 生成器必须具有此映射；缺失时明确失败，不直接编辑生成的 env。切换只允许镜像和显式指定的大会／主线经验变量变化，其余环境逐字节/逐键保持；实际进程与容器的大会模式、客户端 profile 共同读回。环境文件与实例、Compose、active 一同备份及恢复，自动失败回退和手动回退均保留当前玩家数据库。更新生成器/控制器属于独立运维工具维护，不混入游戏源码 changed-files。
 
 默认全量 Go 测试不设置真实 PVF 或玩家测试 DSN。需要真实 PVF 专项时，在私有 profile 的 `real_pvf_commands` 配置已审查的 argv 数组；脚本先验证 `pvf_file` 与运行 PVF 摘要相同，再只对这些命令设置 `DNFBRIDGE_REAL_PVF_SMOKE`。数据库专项另用一次性隔离数据库，不能向脚本传入真实玩家库。
+
+### 频道脚本下载编码
+
+私有更新 profile 的可选 `channel_script_encoding` 仅接受严格字符串 `utf8` 或 `gbk`；省略时保留实例现值，未配置时使用服务端默认 UTF-8。值固定进 manifest 的 `channelScriptEncoding`，由实例源配置及生成器映射到 `DNFBRIDGE_CHANNEL_SCRIPT_ENCODING`，仅影响客户端下载脚本，不改写 UTF-8 外部频道表及其摘要。相同源码却请求不同配置会拒绝，不将配置更新当作 no-op。
+
+控制器、worker 与实例生成器均校验值；更新生成器仍按独立运维维护流程实施。生成后的环境只允许该键及其他显式已审配置变化，失败回退恢复原实例、Compose 和环境文件。`inspect`、`verify` 和部署回执核对实例、容器、实际进程三方编码一致。选择 GBK 前须验证所选通道当前累计客户端解析，并先完成依赖客户端 Release、镜像和玩家签名通道完整读回。
 
 ## 游戏与网关分机部署
 

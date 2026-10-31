@@ -125,9 +125,28 @@ func TestImageCommunicationAssetQuestSQLTransaction(t *testing.T) {
 			if state.begins != 1 {
 				t.Fatalf("transactions=%d", state.begins)
 			}
-			for _, query := range state.queries {
-				if strings.Contains(query, "stale_replica") || !strings.HasSuffix(query, "FOR UPDATE") {
-					t.Fatalf("unlocked/replica read: %s", query)
+			accountLock := -1
+			for index, query := range state.queries {
+				if strings.Contains(query, "`dnf__"+mysqlAccountTable+"`") && strings.HasSuffix(query, "FOR UPDATE") {
+					accountLock = index
+					break
+				}
+			}
+			if accountLock < 0 {
+				t.Fatalf("account FOR UPDATE was not acquired: %v", state.queries)
+			}
+			for index, query := range state.queries {
+				if strings.Contains(query, "stale_replica") {
+					t.Fatalf("replica read escaped the writer transaction: %s", query)
+				}
+				if index < accountLock {
+					if strings.HasSuffix(query, "FOR UPDATE") {
+						t.Fatalf("asset read locked before ownership/account lock: %s", query)
+					}
+					continue
+				}
+				if !strings.HasSuffix(query, "FOR UPDATE") {
+					t.Fatalf("asset read after account lock is unlocked: %s", query)
 				}
 			}
 		})

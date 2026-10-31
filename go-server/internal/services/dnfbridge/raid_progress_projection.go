@@ -56,6 +56,7 @@ type currentRaidProjectionOwner struct {
 	version                uint64
 	symbolCursor           uint64
 	timers                 map[raid.AntonTimerKey]raid.AntonTimer
+	mapProjection          currentRaidMapProjection
 	initialized            bool
 	failed                 bool
 	startTransitionSent    bool
@@ -73,7 +74,6 @@ type currentRaidProjectionOwner struct {
 	rewardDisplayIdentity  currentRaidProjectionIdentity
 	rewardDisplaySignature [32]byte
 	participation          map[uint16]currentRaidParticipationPosition
-	mapProjection          currentRaidMapProjection
 	clearEvents            map[currentRaidClearEvent]struct{}
 }
 
@@ -83,11 +83,17 @@ type currentRaidProjectionPacket struct {
 	symbolCursor uint64
 }
 
-// Luke 585 carries a variable row list; the native Luke controller emits a
-// cleared notice whenever a row's new state is 3. Publish only changed rows so
-// a finished sanctum does not repeat its banner on an unrelated progress bump.
-// First subscription, reconnect and identity changes still receive a full map.
-// Other raid modes keep the historical full-map publication.
+// Native v157 585 -> 01A65320 -> the current Luke controller vtbl+0x18
+// (01111F20) enqueues dstr30207 "已通关%s 地下城。" whenever a row's NEW state
+// is 3; the old state is never compared. b.Dungeons keeps state 3 for the whole
+// phase after a dungeon is finished, so re-publishing the full map on every
+// ProgressVersion bump repeats that prompt. 585 carries a variable row list, so
+// publish only rows whose state changed; a first subscription, a reconnect and
+// a new projection identity still get the complete snapshot.
+//
+// Only Luke (Mode 2) is switched to the row delta. The native state-3 prompt is
+// proven for the Luke controller vtable; Anton/FiendWar keep the historical
+// full-map behaviour until their own consumers are proven equivalent.
 type currentRaidMapProjection struct {
 	rows      map[uint32]byte
 	infection uint32
@@ -95,6 +101,8 @@ type currentRaidMapProjection struct {
 	valid     bool
 }
 
+// packets returns the 585 frames this projection must publish and the cache to
+// commit only after the whole batch reached the socket.
 func (c currentRaidMapProjection) packets(mode byte, resubscribe bool, identity currentRaidProjectionIdentity, rows []raid.DungeonState, infection uint32, fullBody []byte) ([]currentRaidProjectionPacket, currentRaidMapProjection, error) {
 	full := mode != 2 || resubscribe || !c.valid || c.identity != identity
 	delta, cache := currentRaidMapRowDelta(c.rows, rows)
@@ -109,6 +117,8 @@ func (c currentRaidMapProjection) packets(mode byte, resubscribe bool, identity 
 		}
 		return []currentRaidProjectionPacket{{opcode: 585, body: body}}, next, nil
 	}
+	// The infection word is the last field of every 585. A change limited to it
+	// must still be published: an empty row count with the new infection.
 	if c.infection != infection {
 		body, err := raid.BuildDungeonStateBody(nil, infection)
 		if err != nil {
@@ -135,6 +145,8 @@ func currentRaidMapRowDelta(previous map[uint32]byte, rows []raid.DungeonState) 
 	return delta, next
 }
 
+// currentRaidMapProjectionRows decodes the body this package encodes through
+// raid.BuildDungeonStateBody so delta and snapshot share one row owner.
 func currentRaidMapProjectionRows(body []byte) ([]raid.DungeonState, uint32, error) {
 	if len(body) < 6 || body[0] != 0 {
 		return nil, 0, fmt.Errorf("raid map projection header invalid")
@@ -151,6 +163,9 @@ func currentRaidMapProjectionRows(body []byte) ([]raid.DungeonState, uint32, err
 	return rows, binary.LittleEndian.Uint32(body[2+count*5:]), nil
 }
 
+// recordCurrentRaidMapProjection seeds the delta cache from a full 585 another
+// owner already wrote (the battle-state start packet), so the same round does
+// not publish a second, identical map.
 func (o *currentRaidProjectionOwner) recordCurrentRaidMapProjection(identity currentRaidProjectionIdentity, body []byte) error {
 	rows, infection, err := currentRaidMapProjectionRows(body)
 	if err != nil {
@@ -160,6 +175,8 @@ func (o *currentRaidProjectionOwner) recordCurrentRaidMapProjection(identity cur
 	for _, row := range rows {
 		cache[row.ID] = row.State
 	}
+	// Replace the whole cache in one assignment: a new start packet must never
+	// inherit row or infection state from the previous identity.
 	o.mapProjection = currentRaidMapProjection{rows: cache, infection: infection, identity: identity, valid: true}
 	return nil
 }
@@ -279,7 +296,8 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 		if err != nil {
 			return err
 		}
-		// Absolute snapshot on initial phase, reconnect and committed progress.
+		// Absolute snapshot on initial phase, reconnect and every committed
+		// progress update. No client-side zero/reset guesses survive a restore.
 		packets = append(packets, currentRaidProjectionPacket{opcode: 775, body: coinBody})
 	}
 	cursor := o.symbolCursor
@@ -317,8 +335,9 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 			remainingKind := byte(0)
 			// A retained subscriber already has the finished reward projection's
 			// signature. Rejoin must restore its current break clock here, not
-			// overwrite it with the completed phase's old combat deadline.
-			if b.Mode == 2 && b.PhaseCompleted && !b.Single && b.Phase == 0 {
+			// overwrite it with the completed phase's old combat deadline and
+			// rely on an identical reward projection to send the break again.
+			if b.PhaseCompleted && !b.Single && b.Phase == 0 {
 				if flow := b.RewardFlow[0]; flow != nil && flow.InstanceID == b.InstanceID && flow.Phase == b.Phase && flow.Mode == b.Mode && !flow.FinishedAt.IsZero() && !flow.BreakUntil.IsZero() {
 					clockEnd, configured, remainingKind = flow.BreakUntil, flow.Configuration.PhaseBreakSeconds, 1
 				}

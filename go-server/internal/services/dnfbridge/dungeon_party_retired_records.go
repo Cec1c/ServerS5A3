@@ -13,7 +13,7 @@ const dungeonPartyRetiredRecordClearEnv = "DNFBRIDGE_PARTY_DUNGEON_RETIRED_RECOR
 // Retire this same membership snapshot there before removing dungeon records.
 // Requires the paired client helper to preserve the living local actor while
 // clearing its current-channel record in an ordinary dungeon.
-func (s *Service) clearDungeonSurvivorTownPartyRecords(receiver *gameSession, members []alignedcmd.PartyMemberState, source string) error {
+func (s *Service) clearDungeonSurvivorTownPartyRecords(receiver *gameSession, members []alignedcmd.PartyMemberState, source string, retained ...alignedcmd.PartyState) error {
 	if s == nil || s.options.currentClientVersion != "official-24.9" {
 		return nil
 	}
@@ -25,6 +25,11 @@ func (s *Service) clearDungeonSurvivorTownPartyRecords(receiver *gameSession, me
 	if !ok {
 		return nil
 	}
+	var expected *alignedcmd.PartyState
+	if len(retained) > 0 {
+		expected = &retained[0]
+	}
+	current := s.currentPartyRetirementGuard(receiver, expected)
 	// Entry resets townActorOwnerChannel to the dungeon namespace. The client
 	// keeps its selected channel; match the paired native channel guard.
 	owner := currentClientSelectedChannel(receiver)
@@ -48,12 +53,16 @@ func (s *Service) clearDungeonSurvivorTownPartyRecords(receiver *gameSession, me
 			continue
 		}
 		seen[key] = true
-		if !s.boundGameSessionCharacterCurrent(identity) {
+		if !current() {
 			return nil
 		}
 		body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(key), owner, s.currentSceneActorRoute())
-		if err := s.sendGameUpperRawClass(receiver, 9, body, 0); err != nil {
+		sent, err := s.sendRetiredPartyPacket(receiver, 9, body, expected, current, false)
+		if err != nil {
 			return err
+		}
+		if !sent {
+			return nil
 		}
 		s.logGameEvent(receiver, "game-party-dungeon-retired-town-record-clear",
 			"source", source, "receiver_char_id", identity.character, "record_char_id", key, "owner_context", owner)
@@ -65,7 +74,7 @@ func (s *Service) clearDungeonSurvivorTownPartyRecords(receiver *gameSession, me
 // member, including itself. Clearing only its town-context record leaves the
 // old dungeon roster available to later actor interaction lookups. Retire all
 // records belonging to this exact disband snapshot without redrawing actors.
-func (s *Service) clearDisbandedDungeonPartyRecords(receiver *gameSession, members []alignedcmd.PartyMemberState, leaderID uint16, peerRemovalAlreadySent bool, source string) error {
+func (s *Service) clearDisbandedDungeonPartyRecords(receiver *gameSession, members []alignedcmd.PartyMemberState, leaderID uint16, peerRemovalAlreadySent bool, source string, retained ...alignedcmd.PartyState) error {
 	if s == nil || s.options.currentClientVersion != "official-24.9" {
 		return nil
 	}
@@ -77,6 +86,11 @@ func (s *Service) clearDisbandedDungeonPartyRecords(receiver *gameSession, membe
 	if !ok {
 		return nil
 	}
+	var expected *alignedcmd.PartyState
+	if len(retained) > 0 {
+		expected = &retained[0]
+	}
+	current := s.currentPartyRetirementGuard(receiver, expected)
 	seen := make(map[uint16]bool, len(members))
 	// A receiver can be bound to any projected member's dungeon record. The
 	// native self-slot setter clears that backpointer even when it belongs to
@@ -101,12 +115,16 @@ func (s *Service) clearDisbandedDungeonPartyRecords(receiver *gameSession, membe
 			continue
 		}
 		seen[key] = true
-		if !s.boundGameSessionCharacterCurrent(identity) {
+		if !current() {
 			return nil
 		}
 		body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(key), currentSceneObjectContext, s.currentSceneActorRoute())
-		if err := s.sendGameUpperRawClass(receiver, 9, body, 0); err != nil {
+		sent, err := s.sendRetiredPartyPacket(receiver, 9, body, expected, current, false)
+		if err != nil {
 			return err
+		}
+		if !sent {
+			return nil
 		}
 		s.logGameEvent(receiver, "game-party-dungeon-retired-record-clear",
 			"source", source, "receiver_char_id", identity.character, "record_char_id", key,

@@ -8,12 +8,35 @@ import (
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 )
 
-func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
+func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr error) {
 	packet, err := dnfproto.ParseChannelPacketUnchecked(raw)
 	if err != nil {
 		return err
 	}
+	started := s.performanceStart()
+	stage := perfUpperOther
+	if packet.Header.MsgID == 39 {
+		stage = perfUpper39
+	}
+	defer func() { s.performanceEnd(stage, started, resultErr) }()
+	if s.options.playerStrict && !session.accountFromToken {
+		if packet.Header.MsgID != 1 || packet.Header.Classification != dnfproto.DefaultChannelClassification {
+			return errPlayerAuthentication
+		}
+		if s.options.playerStrict {
+			if err := s.authenticatePlayer(session, clientLoginTokenFromBody(packet.Body)); err != nil {
+				return err
+			}
+		}
+		s.bindGameSessionAccountFromLoginToken(session, packet.Header.Classification, packet.Body)
+		if !session.accountFromToken {
+			return errPlayerAuthentication
+		}
+	}
 	requestSequence := session.guild.purchaseSequence.observe(packet.Header.Seq)
+	if packet.Header.MsgID == privateFestivalOpcode {
+		return s.handlePrivateFestival(session, packet.Header.Classification, packet.Body)
+	}
 	runtimeName := upperRuntimeCmdPacketName(packet.Header.MsgID, packet.Header.Classification)
 	runtimeKnown := upperRuntimeCmdPacketKnown(packet.Header.MsgID, packet.Header.Classification)
 	wireBodyLen := len(packet.Body)
@@ -311,6 +334,8 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 			return nil
 		}
 		return s.handleUpdateRepresentAccountName(session, packet.Body, packet.Header.MsgID)
+	case dnfenum.UpperMsg(currentAccountNoticeProgressOpcode):
+		return s.handleCurrentAccountNoticeProgress(session, packet.Header.Classification, packet.Body)
 	case dnfenum.UpperMsg(dnfenum.CmdPacketStoryDigestUpdate):
 		return s.handleCurrentStoryDigestAccepted(session, packet.Header.Classification, packet.Body)
 	case dnfenum.UpperMsgSelectAck:
@@ -475,7 +500,7 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) error {
 			"body_len", len(packet.Body))
 		return nil
 	case dnfenum.UpperMsgSelectStart:
-		return s.sendEnterSelectDungeonState(session, "upper_15", false, true)
+		return s.sendEnterSelectDungeonState(session, currentTownEnterSelectUpperRequestSource, false, true)
 
 	default:
 		if dnfenum.UpperMsg(packet.Header.MsgID) == dnfenum.UpperMsg(dnfenum.CmdPacketPeerConnectResult) {

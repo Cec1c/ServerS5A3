@@ -28,13 +28,13 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountTradeMailbox(ctx context.Cont
 	if !ok || len(u.router.writeDBs) == 0 {
 		return r.ErrMailboxAssetTransactionUnavailable
 	}
-	tx, err := b.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, b, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	router := u.router
-	router.db = sqlTransactionDB{tx: tx}
+	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true
@@ -45,7 +45,19 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountTradeMailbox(ctx context.Cont
 	}
 	c := &characterTradeScopedCharacterRepository{allowed: scope, base: base.Character}
 	i := &characterTradeScopedInventoryRepository{allowed: scope, base: base.Inventory}
-	// 先按稳定顺序锁角色，避免同一托管记录被并发购买。
+	// Account-first matches the ledger and account-asset unit-of-work lock order.
+	// A concurrent ledger write must not acquire the account after this path has
+	// already locked a participant character.
+	a := &rentalScopedAccountRepository{accountID: accountID, base: base.Account}
+	account, found, err := a.Load(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !found || account.AccountID != accountID {
+		return r.ErrMailboxAssetTransactionUnavailable
+	}
+	// Then lock participant characters in stable order. The mailbox owner's
+	// account remains sourced from the character row read inside this tx.
 	for _, id := range ids {
 		ch, found, e := c.Load(ctx, id)
 		if e != nil {
@@ -57,14 +69,6 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountTradeMailbox(ctx context.Cont
 		if id == mailID && (ch.AccountID != accountID || ch.Stats["delete_flag"] != 0) {
 			return r.ErrAccountCharacterMailboxOwnership
 		}
-	}
-	a := &rentalScopedAccountRepository{accountID: accountID, base: base.Account}
-	account, found, err := a.Load(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	if !found || account.AccountID != accountID {
-		return r.ErrMailboxAssetTransactionUnavailable
 	}
 	m := &mailboxAssetScopedMailboxRepository{characterID: mailID, base: base.Mailbox}
 	if err = apply(a, c, i, m); err != nil {

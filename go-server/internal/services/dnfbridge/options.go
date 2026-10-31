@@ -172,6 +172,7 @@ type options struct {
 	gameStreamWaitTrace      bool
 	maxPacketBytes           int
 	packetLogEnabled         bool
+	goldDiagnosticCharID     int
 	packetLogPath            string
 	accountID                string
 	accountPrefix            string
@@ -187,10 +188,11 @@ type options struct {
 	// 只有一个变量。读取与抑制点见 Service.joustEventEnabled。
 	joustEventDisabled bool
 	// Requires the matching 1297/1284 client receive chain before enabling.
-	guildEssenceEnabled     bool
-	guildGuardianPolicy     string
-	guildContributionPolicy string
-	guildHongbaoEnabled     bool
+	guildEssenceEnabled         bool
+	guildPlacementWritesEnabled bool
+	guildGuardianPolicy         string
+	guildContributionPolicy     string
+	guildHongbaoEnabled         bool
 
 	// joustEventCatalogMode 是 DNFBRIDGE_JOUST_EVENT_CATALOG 的归一化取值，只决定
 	// op108 在线活动目录里马战（竞技大赛）事件 2365 的那两行要不要下发：
@@ -464,7 +466,7 @@ type options struct {
 	// 证据、命名空间隔离与一键回退见 party_udp_relay_remote.go 文件头。
 	partyUDPRelayMode partyUDPRelayMode
 	// partyUDPRelayRemoteEndpoint 是 DNFBRIDGE_PARTY_UDP_RELAY_REMOTE（host:port，
-	// 默认 38.22.90.52:10250 = 港机 a21-relay 的控制通道）。
+	// 必须显式配置；未配置时沿用端点无效的 embedded 回退，不选择外部主机）。
 	partyUDPRelayRemoteEndpoint string
 	// partyUDPRelayRemoteSecret 是解析后的 32 字节密钥；**nil = 未配/非法 ⇒ 回退 embedded**。
 	// 它只用于 HMAC，绝不进日志（日志里只有 partyUDPRelayRemoteSecretState 那三个词）。
@@ -707,8 +709,12 @@ type options struct {
 	//
 	// 注意：置 0 时按来源 IP 的那条兜底通道**已经不存在**（2026-09-25 删除，
 	// 见 client_account_ip.go），会话会直接落到共享兜底账号并写 WARN。
-	accountAPILoginToken bool
-	playerAdminSecret    string
+	playerStrict            bool
+	playerProxySecret       string
+	playerRegistrationLimit int
+	playerMaxOnline         int
+	accountAPILoginToken    bool
+	playerAdminSecret       string
 
 	// gameProactiveEndpointWhenUnbound 是握手顺序的回退开关
 	// （DNFBRIDGE_GAME_PROACTIVE_ENDPOINT_WHEN_UNBOUND=1）。
@@ -809,6 +815,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		gameStreamWaitTrace:    envBool("DNFBRIDGE_GAME_STREAM_WAIT_TRACE", false),
 		maxPacketBytes:         envInt("DNF_MAX_PACKET_BYTES", defaultMaxPacketBytes),
 		packetLogEnabled:       envBool("DNFBRIDGE_PACKET_LOG", false),
+		goldDiagnosticCharID:   envInt("DNFBRIDGE_GOLD_DIAGNOSTIC_CHARACTER", 0),
 		packetLogPath:          envString("DNFBRIDGE_PACKET_LOG_PATH", "logs/packet_log.txt"),
 		accountID:              envString("DNFBRIDGE_ACCOUNT_ID", ""),
 		accountPrefix:          envString("DNFBRIDGE_ACCOUNT_PREFIX", defaultAccountPrefix),
@@ -823,7 +830,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		partyUDPRelayMode: readPartyUDPRelayMode(
 			envString(partyUDPRelayModeEnv, partyUDPRelayModeValueRemote)),
 		partyUDPRelayRemoteEndpoint: envString(
-			partyUDPRelayRemoteEndpointEnv, defaultPartyUDPRelayRemoteEndpoint),
+			partyUDPRelayRemoteEndpointEnv, ""),
 		partyUDPRelayRemoteRoomBase: partyUDPRelayRemoteRoomBase(
 			envString(partyUDPRelayRemoteRoomBaseEnv, "")),
 		// 收集箱：默认 reference = 按厂商 9.16 参考实现下发（操作者现场是
@@ -841,11 +848,12 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		collectboxMutation: collectboxMutationValue(envString(collectboxMutationEnv, collectboxMutationReference)),
 		// 单变量实验开关：置 0/false/off/no 时不推送 op1240/op1241/op1242/op1243，
 		// 用来复现/排除"马战事件把客户端切进受限（赛事）状态"的怀疑。
-		joustEventDisabled:      !envBool("DNFBRIDGE_JOUST_EVENT_ENABLED", true),
-		guildEssenceEnabled:     envBool("DNFBRIDGE_GUILD_ESSENCE_ENABLED", false),
-		guildGuardianPolicy:     envString("DNFBRIDGE_GUILD_GUARDIAN_POLICY", ""),
-		guildContributionPolicy: envString("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY", ""),
-		guildHongbaoEnabled:     envBool("DNFBRIDGE_GUILD_HONGBAO_ENABLED", false),
+		joustEventDisabled:          !envBool("DNFBRIDGE_JOUST_EVENT_ENABLED", true),
+		guildEssenceEnabled:         envBool("DNFBRIDGE_GUILD_ESSENCE_ENABLED", false),
+		guildPlacementWritesEnabled: currentGuildPlacementWritesDefault,
+		guildGuardianPolicy:         envString("DNFBRIDGE_GUILD_GUARDIAN_POLICY", ""),
+		guildContributionPolicy:     envString("DNFBRIDGE_GUILD_CONTRIBUTION_POLICY", ""),
+		guildHongbaoEnabled:         envBool("DNFBRIDGE_GUILD_HONGBAO_ENABLED", false),
 		// 单变量实验开关：置 0/false/off/no 时不再下发 op1378（选角 ack 之后的
 		// story digest last-level 通知），也不再接受客户端"开始播放"上报去推进/
 		// 持久化 story_digest_last_level，用来复现/排除"剧情回顾子系统的下发与
@@ -955,12 +963,16 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 			envString(equipMode0RepositoryMemoEnv, equipMode0RepositoryMemoReuse),
 		),
 
-		accountAPIListen:     envString("DNFBRIDGE_ACCOUNT_API_LISTEN", defaultAccountAPIListen),
-		accountAPIDSN:        envString("DNFBRIDGE_ACCOUNT_API_DSN", ""),
-		accountAPITable:      envString("DNFBRIDGE_ACCOUNT_API_TABLE", defaultAccountAPITable),
-		accountAPIRegister:   envBool("DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER", true),
-		accountAPILoginToken: envBool("DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN", true),
-		playerAdminSecret:    envString("DNFBRIDGE_PLAYER_ADMIN_SECRET", ""),
+		accountAPIListen:        envString("DNFBRIDGE_ACCOUNT_API_LISTEN", defaultAccountAPIListen),
+		accountAPIDSN:           envString("DNFBRIDGE_ACCOUNT_API_DSN", ""),
+		accountAPITable:         envString("DNFBRIDGE_ACCOUNT_API_TABLE", defaultAccountAPITable),
+		accountAPIRegister:      envBool("DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER", true),
+		accountAPILoginToken:    envBool("DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN", true),
+		playerStrict:            envBool("DNFBRIDGE_PLAYER_STRICT", false),
+		playerProxySecret:       envString("DNFBRIDGE_PLAYER_PROXY_SECRET", ""),
+		playerRegistrationLimit: envInt("DNFBRIDGE_PLAYER_REGISTRATION_LIMIT", 0),
+		playerMaxOnline:         envInt("DNFBRIDGE_PLAYER_MAX_ONLINE", 0),
+		playerAdminSecret:       envString("DNFBRIDGE_PLAYER_ADMIN_SECRET", ""),
 		// 握手顺序回退开关：置 1 才恢复"未绑定会话收主动端点成功包"的旧行为。
 		gameProactiveEndpointWhenUnbound: envBool("DNFBRIDGE_GAME_PROACTIVE_ENDPOINT_WHEN_UNBOUND", false),
 		patchDistDir:                     envString("DNFBRIDGE_PATCH_DIST_DIR", defaultPatchDistDir),

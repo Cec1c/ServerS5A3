@@ -11,6 +11,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
@@ -154,7 +155,7 @@ func TestCurrentEpicPieceBalanceIsAccountWideAndIgnoresMalformedKeys(t *testing.
 	if !ok {
 		t.Fatal("memory account repository has no epic-piece counter")
 	}
-	// 角色 A（smcz）拾到 2 个碎片 A；角色 B（fmcz）再拾 1 个碎片 A + 3 个碎片 B。
+	// 角色 A（sample-account-a）拾到 2 个碎片 A；角色 B（fmcz）再拾 1 个碎片 A + 3 个碎片 B。
 	// 三次调用之间**没有**任何角色参数：账本只按账号 ID 定位。
 	if balance, err := counter.AddAccountEpicPieceBalance(ctx, accountID, 10300807, 2, time.Now().UTC()); err != nil || balance != 2 {
 		t.Fatalf("first credit balance=%d err=%v", balance, err)
@@ -599,10 +600,13 @@ func TestCurrentSelectInventoryBootstrapCarriesTheAccountEpicPieceLedger(t *test
 	}
 	if packet.Header.MsgID != currentEpicPieceBalanceSyncOpcode ||
 		packet.Header.Classification != 0 ||
-		!bytes.Equal(packet.Body, want) ||
-		len(trailing) != 0 {
+		!bytes.Equal(packet.Body, want) {
 		t.Fatalf("select bootstrap epic-piece ledger header=%+v body=%x want=%x trailing=%x",
 			packet.Header, packet.Body, want, trailing)
+	}
+	trailing, _, _ = requireCurrentFateLoginTailPackets(t, trailing, dnfproto.GameServerUpperHeaderSize, 0, 0)
+	if len(trailing) != 0 {
+		t.Fatalf("select bootstrap emitted unknown packets after Fate: %x", trailing)
 	}
 	// 同一角色的引导是 one-shot：第二次不能再发。
 	connection.write.Reset()

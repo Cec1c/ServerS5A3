@@ -16,6 +16,7 @@ type currentGuildHongbaoRow struct {
 	Name       string
 	Portions   byte
 	Completed  bool
+	Claimed    bool // This account claimed; other accounts can still take a share.
 }
 
 type currentGuildHongbaoClaimRow struct {
@@ -59,6 +60,8 @@ func buildCurrentGuildHongbaoListBody(memberCount uint16, spent, claims uint32, 
 		wire[38] = row.Portions
 		if row.Completed {
 			wire[39] = 1
+		} else if row.Claimed {
+			wire[39] = 2
 		}
 		w.writeBytes(wire[:])
 	}

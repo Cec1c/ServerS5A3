@@ -127,6 +127,9 @@ func (s *Service) handleCurrentRequestAdventureInfo(session *gameSession, reques
 	targetSession := session
 	if targetID != sourceID {
 		if s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(sourceID, targetID) {
+			if handled, err := s.tryCurrentGuildMemberProfile(session, targetID, 4); handled || err != nil {
+				return err
+			}
 			s.logGameEvent(session, "game-adventure-info-request-rejected",
 				"selected_character_id", sourceID,
 				"target_character_id", targetID,

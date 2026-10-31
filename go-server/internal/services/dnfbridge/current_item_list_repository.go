@@ -29,13 +29,17 @@ func currentItemListEntriesFromInventorySnapshot(ctx context.Context, repo dnfre
 	if !found {
 		return nil, "", false, nil
 	}
+	return currentItemListEntriesFromRecord(record, listType), "inventory", true, nil
+}
+
+func currentItemListEntriesFromRecord(record dnfrepo.InventoryRecord, listType byte) []currentItemListEntry {
 	entries := make([]currentItemListEntry, 0)
 	entries = append(entries, currentItemListEntriesFromMap(record.Slots, listType)...)
 	if listType == 2 || listType == 12 {
 		entries = append(entries, currentItemListEntriesFromMap(record.Warehouse, listType)...)
 	}
 	sortCurrentItemListEntries(entries)
-	return entries, "inventory", true, nil
+	return entries
 }
 
 func (s *Service) mergeCurrentAccountSharedItemListEntries(
@@ -62,6 +66,11 @@ func (s *Service) mergeCurrentAccountSharedItemListEntries(
 		account = dnfrepo.AccountInventoryRecord{AccountID: accountID}
 	}
 
+	return s.mergeCurrentAccountSharedItemListRecord(session, account, found, characterEntries)
+}
+
+func (s *Service) mergeCurrentAccountSharedItemListRecord(session *gameSession, account dnfrepo.AccountInventoryRecord, found bool, characterEntries []currentItemListEntry) ([]currentItemListEntry, bool) {
+	accountID := strings.TrimSpace(s.accountIDForSession(session))
 	accountView := dnfrepo.MergeAccountSharedInventory(dnfrepo.InventoryRecord{}, account)
 	merged := make([]currentItemListEntry, 0, len(characterEntries)+len(accountView.Slots))
 	for _, entry := range characterEntries {

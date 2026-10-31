@@ -41,7 +41,7 @@ import (
 // （initial_equipment_roster_projection.go:59）。于是同一个角色、同一件克隆装扮，
 // 两条载体给出两个不同的字节：名册那条带链接、队友投影那条恒 0。
 //
-// # 线上字节取证（109.244.63.71 packet_log.txt，2026-09-28 13:36/13:45 组队会话）
+// # 线上字节取证（192.0.2.11 packet_log.txt，2026-09-28 13:36/13:45 组队会话）
 //
 // 角色 6（test78，dnf:10011）穿 8 件稀有克隆装扮（穿戴行 item_id
 // 42601/42603/42605/42609/42611/42615/42607/42613，Extra
@@ -226,7 +226,7 @@ func currentSceneAppearanceSlotComponent(slot int) string {
 // 偏移依据 userinfo_current_modes.go:22-56 的写入顺序（mode/owner/raw16/objectKey/
 // exp/statBlob/extraEquipSlotState 之后就是 sub_1D77560 的创建行计数）。
 func currentUserInfoMode1CreateRowCountForLog(body []byte) (int, bool) {
-	if len(body) < 23 || body[0] != 1 {
+	if len(body) < 31 || body[0] != 1 {
 		return 0, false
 	}
 	statLen := int(binary.LittleEndian.Uint32(body[27:31]))

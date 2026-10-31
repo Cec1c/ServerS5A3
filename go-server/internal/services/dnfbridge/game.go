@@ -21,14 +21,17 @@ import (
 )
 
 type gameSession struct {
+	// Written and read only by this session's serial event owner.
+	performanceEventQueuedAt            time.Time
+	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending
-	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // protected by townMu
 	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
-	pvpClientGameType                   uint32                                // 本次客户端选择的匹配类型，原子读取与更新。
 	fiendWarPendingMove                 *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
+	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
 	fiendWarProjection                  currentFiendWarProjection
+	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
@@ -72,16 +75,23 @@ type gameSession struct {
 	residentChannel       channelcatalog.Channel
 	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
 	packetSeq             uint64
+	goldDiagnosticCount   atomic.Uint32
 	sequence              uint32
 	upperSeq              uint16
 	ctx                   context.Context
+
+	goldDiagnosticSnapshot atomic.Pointer[currentGoldDiagnosticSnapshot]
+
 	// wireMu owns the complete per-session wire boundary: sequence
 	// allocation, DPROTO state transitions, and socket writes.  A gameplay
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
-	wireMu            sync.Mutex
-	dproto            dproto.Session
-	channelSceneBatch *currentChannelSceneBatch // 仅普通换线；wireMu保护。
+	wireMu                  sync.Mutex
+	dproto                  dproto.Session
+	channelSceneBatch       *currentChannelSceneBatch // 仅普通换线；wireMu保护。
+	nativeResultDelivery    *nativeResultDelivery     // 原生连续分解结果集中写回；wireMu保护。
+	nativeNPCDisjointReplay *nativeNPCDisjointReplay  // 仅当前会话事件的已提交NPC批量结果。
+	nativeExtractionReplay  *nativeExtractionReplay
 
 	// Image-communication identity is guarded by townMu. Scene resets advance
 	// its generation; the nonce belongs only to this connection.
@@ -103,6 +113,9 @@ type gameSession struct {
 	currentAdventureExpeditionView          currentAdventureExpeditionSentView
 	rosterRequested                         bool
 	currentRenameRoster                     []dnfrepo.CharacterRecord
+	tagTournamentLobbyDay                   int64
+	tagTournamentBattle                     *currentTagTournamentBattle // 当前会话事件循环独占；Tag不改登录角色身份。
+	tagTournamentReturnRoster               *currentTagTournamentBattle // 真实城镇请求确认后恢复，不能紧随24销毁战斗对象。
 	currentRenameRosterPrepared             []dnfrepo.CharacterRecord
 	channelReconnect                        bool
 	townActorOwnerChannel                   byte
@@ -187,6 +200,15 @@ type gameSession struct {
 	selectorAdventureInfoPending         bool
 	selectorAdventureInfoSlot            uint16
 	enterSelectDungeonSent               bool
+	// townEnterSelectDeferred records a client op15 that arrived after the
+	// current town area was committed but before that scene's first op35.
+	// It is protected by townMu and replayed from the same event loop when the
+	// matching position report makes the selector context sendable.
+	townEnterSelectDeferred *currentTownEnterSelectDeferredRequest
+	// townSceneGeneration changes on every town-scene reset or return. It
+	// fences a deferred op15 from a later scene even when the same character,
+	// town and area are reused. Protected by townMu.
+	townSceneGeneration uint64
 	// tournamentRewardStateRequested 记录"本会话这一轮锦标赛里，客户端已经发来过体长为 0 的
 	// 457（= 翻牌选奖界面已打开、在等选奖）"。它只在 session.dungeon.mu 下读写，只在
 	// handleCurrentTournamentRewardCommand 的空 body 分支置位。3s 兜底自动选奖（source=timer）
@@ -523,8 +545,8 @@ func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {
 	// 依据：① 客户端进程号（本地 Windows 一键端，client_account_registry.go）；
 	// ② 客户端登录包里的启动器令牌（稍后到达，account_login_token.go）。
 	// 来源 IP 只写进 session.clientIP 供日志判读，绝不参与账号判定 ——
-	// 2026-09-25 香港取证：玩家的启动器登录出口（203.198.28.63）与游戏连接来源
-	// （加速器出口 175.43.105.6 等，会话间还会漂移）不是同一个地址。
+	// 2026-09-25 香港取证：玩家的启动器登录出口（192.0.2.14）与游戏连接来源
+	// （加速器出口 192.0.2.13 等，会话间还会漂移）不是同一个地址。
 	session.clientIP = remoteIPOf(conn)
 	s.registerLiveGameSession(session)
 	defer s.unregisterLiveGameSession(session)
@@ -601,88 +623,7 @@ func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	buffer := make([]byte, 0, 4096)
-	chunk := make([]byte, 4096)
-	var streamWaitTrace gameStreamWaitTrace
-	for {
-		n, err := conn.Read(chunk)
-		if err != nil {
-			// 「静默窗」读截止到期：**这不是连接错误**（真正的断线/EOF/ECONNRESET 走下面的原路）。
-			// 只有"本会话确实有一条挂起的 tail==1 op19" + 错误是超时，才判成我们自己的截止。
-			// 到期 = 挂起那条之后 quiet_ms 内没有第二条 op19 ⇒ 玩家亲手发起 ⇒ 按厂商口径执行。
-			if isOp19QuietReadDeadline(session, err) {
-				s.resolveOp19QuietPending(session, true)
-				clearOp19QuietReadDeadline(conn)
-				s.logPacketEvent("game-read-quiet-window-deadline",
-					"conn_id", session.connID,
-					"decision", "resolve-as-player-request",
-					"reason", "op19-quiet-window-elapsed",
-					"quiet_ms", op19PlayerFlagQuietWindow().Milliseconds())
-				continue
-			}
-			quiet := isQuietGameReadError(err)
-			s.logPacketEvent("game-read-close",
-				"conn_id", session.connID,
-				"remote", conn.RemoteAddr().String(),
-				"local", conn.LocalAddr().String(),
-				"channel_id", channel.ID,
-				"pending_bytes", len(buffer),
-				"quiet", quiet,
-				"error", err)
-			if !quiet && ctx.Err() == nil {
-				s.logWarn("dnfbridge read game packet failed", "remote", conn.RemoteAddr().String(), "error", err)
-			}
-			return
-		}
-		if n > 0 {
-			s.logGamePacket(session, "RECV", "game-raw", chunk[:n])
-		}
-		buffer = append(buffer, chunk[:n]...)
-		packets, remaining, skipped, err := dnfproto.SplitLatestGameStream(buffer, s.options.maxPacketBytes)
-		if err != nil {
-			s.logPacketEvent("game-split-error",
-				"conn_id", session.connID,
-				"remote", conn.RemoteAddr().String(),
-				"local", conn.LocalAddr().String(),
-				"channel_id", channel.ID,
-				"buffer_bytes", len(buffer),
-				"error", err)
-			s.logWarn("dnfbridge split game stream failed", "remote", conn.RemoteAddr().String(), "error", err)
-			return
-		}
-		if skipped > 0 {
-			s.logWarn("dnfbridge game frame resynced", "remote", conn.RemoteAddr().String(), "skipped", skipped)
-		}
-		if s.options.gameStreamWaitTrace {
-			if metadata, report := streamWaitTrace.observe(time.Now(), remaining, len(remaining) < len(buffer), s.options.maxPacketBytes); report {
-				fields := []any{"conn_id", session.connID, "channel_id", channel.ID, "pending_bytes", metadata.pendingBytes, "header_shape", metadata.headerShape}
-				if metadata.hasChannelHeader {
-					fields = append(fields, "head_class", metadata.classification, "head_opcode", metadata.opcode, "head_declared_length", metadata.declaredLength)
-				}
-				s.logPacketEvent("game-stream-wait", fields...)
-			}
-		}
-		buffer = remaining
-		for _, packet := range packets {
-			packet := packet
-			// 「静默窗」挂起期间来了新包 ⇒ **先结挂起（按门禁路径）再处理本包**：
-			// 顺序不变、一个包都不丢（同一批 SplitLatestGameStream 拆出的多包逐包适用）。
-			if session.hasOp19QuietPending() {
-				s.resolveOp19QuietPending(session, false)
-				clearOp19QuietReadDeadline(conn)
-			}
-			if err := s.callGameSession(ctx, session, "game-stream-packet", func() error {
-				return s.handleGameStreamPacket(session, packet)
-			}); err != nil {
-				s.logWarn("dnfbridge handle game packet failed", "remote", conn.RemoteAddr().String(), "error", err)
-				return
-			}
-			// 本包刚挂起了一条 ⇒ 给它挂上静默窗读截止（会话本来没有读截止，结算后清掉即可）。
-			if session.hasOp19QuietPending() {
-				armOp19QuietReadDeadline(conn, op19PlayerFlagQuietWindow())
-			}
-		}
-	}
+	s.handleGameStreamInput(ctx, session)
 }
 
 func (s *Service) channelForConn(conn net.Conn) (channelcatalog.Channel, bool) {

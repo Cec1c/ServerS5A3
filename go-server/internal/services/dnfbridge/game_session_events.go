@@ -82,7 +82,14 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 	events := &gameSessionEvents{}
 	events.loop = eventloop.New(
 		"dnf-game-session-"+session.connID,
-		eventloop.ProcessorFunc(func(_ context.Context, event eventloop.Event) eventloop.Result {
+		eventloop.ProcessorFunc(func(_ context.Context, event eventloop.Event) (result eventloop.Result) {
+			started := s.performanceStart()
+			session.performanceEventQueuedAt = event.SentAt
+			defer func() { session.performanceEventQueuedAt = time.Time{} }()
+			if s.performance != nil && !event.SentAt.IsZero() {
+				s.performance.record(perfEventQueue, started.Sub(event.SentAt), false)
+			}
+			defer func() { s.performanceEnd(perfEventRun, started, result.Err) }()
 			task, ok := event.Data.(gameSessionEventTask)
 			if !ok || task.run == nil {
 				return eventloop.Result{Err: errInvalidGameSessionEvent}
@@ -224,6 +231,28 @@ func (s *Service) postGameSessionCharacterEvent(
 		},
 		Priority: eventloop.PriorityMedium,
 		Context:  ctx,
+	})
+}
+
+// tryPostGameSessionCharacterEvent never waits for queue capacity. Cross-session
+// fanout must not deadlock two owners when both destination queues are full.
+func (s *Service) tryPostGameSessionCharacterEvent(session *gameSession, source string, characterID uint16, generation uint64, run func() error) error {
+	if session == nil || run == nil {
+		return errInvalidGameSessionEvent
+	}
+	if session.loginRevoked.Load() {
+		return errLoginReplaced
+	}
+	if session.events == nil || session.events.loop == nil {
+		return run()
+	}
+	ctx := session.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return session.events.loop.Submit(eventloop.Event{
+		Type: source, Context: ctx, Priority: eventloop.PriorityMedium,
+		Data: gameSessionEventTask{source: source, characterID: characterID, characterGeneration: generation, async: true, run: run},
 	})
 }
 

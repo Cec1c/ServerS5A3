@@ -170,6 +170,25 @@ func (s *Service) handleCurrentSetQuestTrigger(session *gameSession, body []byte
 			"error", catalogErr)
 	}
 	if catalog != nil {
+		if catalog.IsWorldMapHuntQuest(int64(request.QuestID)) {
+			result, err := owner.Plan(ctx, dnfquest.NewTriggerCommand(alignedcmd.Request{AccountID: s.accountIDForSession(session), SelectedCharacterID: session.selectedCharacterID}, request))
+			if err != nil {
+				return err
+			}
+			if !result.Known || result.Status != "active" || result.ProgressValue < 0 || result.ProgressValue > math.MaxUint32 {
+				return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketSetQuestTrigger), 22)
+			}
+			// A local kill callback may follow the server death snapshot. Echo
+			// the committed remaining count once per value, never decrement twice.
+			if session.linkedTriggerAlreadySent(replayKey, result.ProgressValue) {
+				return nil
+			}
+			if err := s.sendCurrentSetQuestTriggerSuccess(session, request, result, "worldmap_hunt_authoritative_progress"); err != nil {
+				return err
+			}
+			session.markLinkedTriggerSent(replayKey, result.ProgressValue)
+			return nil
+		}
 		if _, question := catalog.QuestionOptionCount(int64(request.QuestID)); question {
 			command := dnfquest.NewTriggerCommand(alignedcmd.Request{
 				AccountID:           s.accountIDForSession(session),

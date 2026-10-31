@@ -27,7 +27,7 @@ import (
 //     客户端按"源 ip:port"区分队友；**客户端视角恒为"队友 P 在中继公网IP:port(owner,peer)"**。
 //
 // 为什么必须有这个文件（港机现场事实）：`/etc/systemd/system/a21-relay.service` 的注释写明
-// 「境外组队 UDP 中继（HK 38.22.90.52）… 国内游戏服只做游戏逻辑、**不绑定中继端口、不转发
+// 「境外组队 UDP 中继（HK 192.0.2.12）… 国内游戏服只做游戏逻辑、**不绑定中继端口、不转发
 // 队友流量**；本服务只监听控制 TCP 10250 + UDP 30000..30255」。也就是说厂商架构里中继是
 // **独立进程**，游戏服只做两件事：① 在控制通道上把"房间成员集合"换成"端口矩阵"；
 // ② 把矩阵写进 op11 的 22B 行里。我们此前的内嵌中继（party_udp_relay.go）自己 bind 31000+X
@@ -79,7 +79,6 @@ const (
 	partyUDPRelayModeValueRemote   = "remote"
 	partyUDPRelayModeValueEmbedded = "embedded"
 
-	defaultPartyUDPRelayRemoteEndpoint = "38.22.90.52:10250"
 	// defaultPartyUDPRelayRemoteRoomBase 远离小整数房间号（另一台服在用的 18/19/20/22/61）。
 	defaultPartyUDPRelayRemoteRoomBase = 100000
 )
@@ -489,6 +488,8 @@ type currentPartyUDPRelayRemote struct {
 	sessionID     uint64
 	matrices      map[uint32]*partyUDPRelayRemoteMatrix
 	roomMembers   map[uint32][]uint16
+	roomEpoch     map[uint32]uint64
+	closingRooms  map[uint32]struct{}
 	pending       map[uint32]*partyUDPRelayRemotePending
 	renewals      map[uint32][]uint16
 	resyncPending map[uint32]struct{}
@@ -810,6 +811,7 @@ func (r *currentPartyUDPRelayRemote) serveChannel() bool {
 	r.sessionSeq++
 	sessionID = r.sessionSeq
 	r.sessionID = sessionID
+	r.closingRooms = nil
 	r.degradedUntil = time.Time{}
 	r.unavailableReason = ""
 	r.mu.Unlock()
@@ -862,10 +864,7 @@ func (r *currentPartyUDPRelayRemote) renewLoop(stop <-chan struct{}) {
 			return
 		}
 		for _, room := range r.trackedRooms() {
-			r.mu.Lock()
-			r.renewals[room.roomID] = room.members
-			r.mu.Unlock()
-			_ = r.sendFrame(partyRelayOpSync, buildPartyRelaySyncPayload(room.roomID, room.members))
+			r.sendTrackedRoom(room, false)
 		}
 	}
 }
@@ -873,6 +872,7 @@ func (r *currentPartyUDPRelayRemote) renewLoop(stop <-chan struct{}) {
 type partyUDPRelayRemoteTrackedRoom struct {
 	roomID  uint32
 	members []uint16
+	epoch   uint64
 }
 
 func (r *currentPartyUDPRelayRemote) trackedRooms() []partyUDPRelayRemoteTrackedRoom {
@@ -883,6 +883,7 @@ func (r *currentPartyUDPRelayRemote) trackedRooms() []partyUDPRelayRemoteTracked
 		rooms = append(rooms, partyUDPRelayRemoteTrackedRoom{
 			roomID:  roomID,
 			members: append([]uint16(nil), members...),
+			epoch:   r.roomEpoch[roomID],
 		})
 	}
 	sort.Slice(rooms, func(left, right int) bool { return rooms[left].roomID < rooms[right].roomID })
@@ -895,13 +896,8 @@ func (r *currentPartyUDPRelayRemote) resyncActiveRooms() {
 	if len(rooms) == 0 {
 		return
 	}
-	r.mu.Lock()
 	for _, room := range rooms {
-		r.resyncPending[room.roomID] = struct{}{}
-	}
-	r.mu.Unlock()
-	for _, room := range rooms {
-		_ = r.sendFrame(partyRelayOpSync, buildPartyRelaySyncPayload(room.roomID, room.members))
+		r.sendTrackedRoom(room, true)
 	}
 }
 
@@ -923,7 +919,11 @@ func (r *currentPartyUDPRelayRemote) dispatch(opcode byte, payload []byte) {
 		r.syncFailCount.Add(1)
 		r.completeSync(roomID, nil, partyUDPRelayRemoteSyncResult{reason: partyUDPRelayRemoteReasonSyncRejected})
 	case partyRelayOpCloseOK:
-		_, _ = decodePartyRelayCloseOK(payload)
+		if roomID, ok := decodePartyRelayCloseOK(payload); ok {
+			r.mu.Lock()
+			delete(r.closingRooms, roomID)
+			r.mu.Unlock()
+		}
 	default:
 		// 未知帧忽略，**不因此断链**（厂商同口径）。
 		r.noteUnknownFrame(opcode, "unknown_opcode")
@@ -949,7 +949,12 @@ func (r *currentPartyUDPRelayRemote) completeSync(roomID uint32, ports map[party
 	r.mu.Lock()
 	if !r.connected {
 		// 旧连接迟到的回包：丢弃，不能让上一次会话的端口矩阵复活。
-		result = partyUDPRelayRemoteSyncResult{reason: partyUDPRelayRemoteReasonChannelLost}
+		r.mu.Unlock()
+		return
+	}
+	if _, closing := r.closingRooms[roomID]; closing {
+		r.mu.Unlock()
+		return
 	}
 	pending := r.pending[roomID]
 	if pending != nil {
@@ -1076,35 +1081,47 @@ func (r *currentPartyUDPRelayRemote) syncRoom(roomID uint32, members []uint16) b
 		return false
 	}
 	now := time.Now()
-
+	r.sendMu.Lock()
 	r.mu.Lock()
 	if matrix := r.matrices[roomID]; matrix != nil &&
 		equalPartyRelayRemoteMembers(r.roomMembers[roomID], members) &&
 		now.Sub(matrix.stampedAt) < r.freshWindow {
 		r.mu.Unlock()
+		r.sendMu.Unlock()
 		return true
 	}
 	if now.Before(r.degradedUntil) {
 		// 刚超时过：窗口内直接回"不可用"，不重复阻塞组队广播路径。
 		r.mu.Unlock()
+		r.sendMu.Unlock()
 		return false
 	}
 	if !r.connected || r.conn == nil {
 		r.mu.Unlock()
+		r.sendMu.Unlock()
 		r.noteUnavailable(partyUDPRelayRemoteReasonNotConnected, "room_id", roomID)
+		return false
+	}
+	_, closing := r.closingRooms[roomID]
+	_, renewing := r.renewals[roomID]
+	_, resyncing := r.resyncPending[roomID]
+	if closing || r.pending[roomID] != nil || renewing || resyncing {
+		// This protocol has no request ID. Never let an old reply consume a
+		// replacement waiter; CLOSE_OK is the ordered retirement boundary.
+		r.mu.Unlock()
+		r.sendMu.Unlock()
 		return false
 	}
 	pending := &partyUDPRelayRemotePending{
 		members: append([]uint16(nil), members...),
 		done:    make(chan partyUDPRelayRemoteSyncResult, 1),
 	}
-	superseded := r.pending[roomID]
 	r.pending[roomID] = pending
 	r.mu.Unlock()
-	// 同一 roomId 只保留最新一次请求：旧请求立即以失败结束（厂商同口径）。
-	superseded.deliver(partyUDPRelayRemoteSyncResult{reason: partyUDPRelayRemoteReasonSyncRejected})
 
-	if err := r.sendFrame(partyRelayOpSync, buildPartyRelaySyncPayload(roomID, members)); err != nil {
+	sendErr := r.sendFrameLocked(partyRelayOpSync, buildPartyRelaySyncPayload(roomID, members))
+	r.sendMu.Unlock()
+	if err := sendErr; err != nil {
 		r.removePending(roomID, pending)
 		r.dropActiveRoomIfUnpublished(roomID, pending)
 		r.noteUnavailable(partyUDPRelayRemoteReasonSendFailed, "room_id", roomID, "error", err.Error())
@@ -1124,7 +1141,7 @@ func (r *currentPartyUDPRelayRemote) syncRoom(roomID uint32, members []uint16) b
 		r.noteUnavailable(reason, "room_id", roomID, "member_count", len(members))
 		return false
 	case <-time.After(r.syncTimeout):
-		r.removePending(roomID, pending)
+		r.closeRoomExpected(roomID, "sync_timeout", pending)
 		r.dropActiveRoomIfUnpublished(roomID, pending)
 		r.mu.Lock()
 		r.degradedUntil = time.Now().Add(r.syncTimeout)
@@ -1162,11 +1179,29 @@ func (r *currentPartyUDPRelayRemote) dropActiveRoomIfUnpublished(roomID uint32, 
 
 // closeRoom 交还一个房间：清缓存 + 发 CLOSE（尽力而为）。
 func (r *currentPartyUDPRelayRemote) closeRoom(roomID uint32, reason string) {
+	r.closeRoomExpected(roomID, reason, nil)
+}
+
+func (r *currentPartyUDPRelayRemote) closeRoomExpected(roomID uint32, reason string, expected *partyUDPRelayRemotePending) {
 	if r == nil || roomID == 0 {
 		return
 	}
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
 	r.mu.Lock()
+	if expected != nil && r.pending[roomID] != expected {
+		r.mu.Unlock()
+		return
+	}
+	if _, closing := r.closingRooms[roomID]; closing {
+		r.mu.Unlock()
+		return
+	}
 	_, existed := r.roomMembers[roomID]
+	if r.roomEpoch == nil {
+		r.roomEpoch = make(map[uint32]uint64)
+	}
+	r.roomEpoch[roomID]++
 	delete(r.matrices, roomID)
 	delete(r.roomMembers, roomID)
 	delete(r.renewals, roomID)
@@ -1175,13 +1210,19 @@ func (r *currentPartyUDPRelayRemote) closeRoom(roomID uint32, reason string) {
 	delete(r.pending, roomID)
 	connected := r.connected
 	closed := r.closed
+	if connected && !closed && (existed || pending != nil) {
+		if r.closingRooms == nil {
+			r.closingRooms = make(map[uint32]struct{})
+		}
+		r.closingRooms[roomID] = struct{}{}
+	}
 	r.mu.Unlock()
 	pending.deliver(partyUDPRelayRemoteSyncResult{reason: partyUDPRelayRemoteReasonChannelLost})
-	if !existed || closed {
+	if (!existed && pending == nil) || closed {
 		return
 	}
 	if connected {
-		if err := r.sendFrame(partyRelayOpClose, buildPartyRelayClosePayload(roomID)); err == nil {
+		if err := r.sendFrameLocked(partyRelayOpClose, buildPartyRelayClosePayload(roomID)); err == nil {
 			r.closeSentCt.Add(1)
 		}
 	}
@@ -1193,6 +1234,13 @@ func (r *currentPartyUDPRelayRemote) sendFrame(opcode byte, payload []byte) erro
 	if r == nil {
 		return errors.New("relay remote is nil")
 	}
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
+	return r.sendFrameLocked(opcode, payload)
+}
+
+// Caller holds sendMu from state validation through the complete frame write.
+func (r *currentPartyUDPRelayRemote) sendFrameLocked(opcode byte, payload []byte) error {
 	r.mu.Lock()
 	conn := r.conn
 	connected := r.connected
@@ -1200,7 +1248,13 @@ func (r *currentPartyUDPRelayRemote) sendFrame(opcode byte, payload []byte) erro
 	if conn == nil || !connected {
 		return errors.New("control channel is not connected")
 	}
-	return writePartyRelayFrame(conn, opcode, payload, r.writeTimeout)
+	err := writePartyRelayFrame(conn, opcode, payload, r.writeTimeout)
+	if err != nil {
+		// A partially written request has no reliable response boundary.
+		// Closing this channel lets the reader retire all pending state.
+		_ = conn.Close()
+	}
+	return err
 }
 
 // writePartyRelayFrame 一把写完一帧（持 sendMu ⇒ 多 goroutine 写不会交错）。
@@ -1232,6 +1286,7 @@ func writePartyRelayFrame(conn net.Conn, opcode byte, payload []byte, timeout ti
 func (r *currentPartyUDPRelayRemote) handleChannelLoss(sessionID uint64) {
 	r.mu.Lock()
 	if sessionID != 0 && sessionID != r.sessionID {
+		r.mu.Unlock()
 		return
 	}
 	activeRooms := len(r.roomMembers)
@@ -1240,6 +1295,7 @@ func (r *currentPartyUDPRelayRemote) handleChannelLoss(sessionID uint64) {
 	r.matrices = make(map[uint32]*partyUDPRelayRemoteMatrix)
 	r.renewals = make(map[uint32][]uint16)
 	r.resyncPending = make(map[uint32]struct{})
+	r.closingRooms = nil
 	for roomID, pending := range r.pending {
 		delete(r.pending, roomID)
 		pending.deliver(partyUDPRelayRemoteSyncResult{reason: partyUDPRelayRemoteReasonChannelLost})
@@ -1344,7 +1400,7 @@ func parsePartyUDPRelayRemoteEndpoint(endpoint string) (string, int, error) {
 // publicIp 就是 `DNFBRIDGE_SERVER_IP`。两个理由：
 //   - 控制通道端点可以是内网/回环地址（本地联调、同机部署），而 op11 里给客户端的必须是
 //     **公网可达**地址；
-//   - 港机上 a21-relay 与游戏服同机（38.22.90.52），两者本来就相同，这条口径不会引入差异。
+//   - 港机上 a21-relay 与游戏服同机（192.0.2.12），两者本来就相同，这条口径不会引入差异。
 //
 // 两者都拿不到具体 IPv4（含 0.0.0.0）时返回 false ⇒ 回退 embedded 并记具名事件。
 func partyUDPRelayRemotePublicIP(host, advertiseIP string) ([4]byte, bool) {

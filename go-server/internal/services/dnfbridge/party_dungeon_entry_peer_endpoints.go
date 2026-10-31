@@ -155,7 +155,15 @@ func (s *Service) sendDungeonEntryPeerEndpointRemotes(session *gameSession, sour
 		"packet_order", dungeonEntryPacketOrder(true),
 		"vendor_packet_order", dungeonEntryVendorPacketOrder,
 		"reason", "vendor_re_sends_op11_remotes_inside_the_party_dungeon_entry_sequence")
-	return true, s.sendGameUpperRawClassCodec(session, 0x000b, body, 0, true)
+	err := s.sendGameUpperRawClassCodec(session, 0x000b, body, 0, true)
+	s.logPartyPeerEndpointSendDiagnostic(
+		session,
+		state,
+		partyPeerEndpointStageDungeonEntryRemotes,
+		body,
+		err,
+	)
+	return true, err
 }
 
 // logDungeonEntrySequence 在进场序列的 op28 之后留下一条与厂商同名的事件
@@ -188,8 +196,8 @@ func (s *Service) logDungeonEntrySequence(
 	if indexed {
 		localSlot = memberIndex
 	}
-	if _, leaderIndexed := runtimePartyMemberIndex(partyState.UserID, partyState); leaderIndexed {
-		leaderSlot = 0
+	if index, leaderIndexed := runtimePartyMemberIndex(partyState.UserID, partyState); leaderIndexed {
+		leaderSlot = index
 	}
 	release := peerEntry
 	s.logGameEvent(session, "game-party-dungeon-entry-prepared",

@@ -150,6 +150,7 @@ func (s *Service) rememberCurrentRenameRoster(session *gameSession, characters [
 		return
 	}
 	session.currentRenameRoster = append([]dnfrepo.CharacterRecord(nil), characters[:rosterCount(characters)]...)
+	s.rememberCurrentTagTournamentSentRoster(session, session.currentRenameRoster)
 }
 
 // removeCurrentSelectorRosterCharacter applies the same compaction the current

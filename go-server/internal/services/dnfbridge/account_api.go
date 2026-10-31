@@ -55,6 +55,7 @@ const (
 var accountAPIUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{3,20}$`)
 
 type accountAPIServer struct {
+	moderationMu  sync.RWMutex
 	listen        string
 	table         string
 	allowRegister bool
@@ -77,13 +78,23 @@ type accountAPIServer struct {
 }
 
 type accountAPIRequest struct {
-	Account  string `json:"account"`
-	Password string `json:"password"`
+	boundQQ          string
+	NewPassword      string `json:"newPassword"`
+	RequireQQBinding bool   `json:"requireQQBinding"`
+	Account          string `json:"account"`
+	Password         string `json:"password"`
+	Device           string `json:"device"`
 }
 
 type accountAPIResponse struct {
-	OK        bool   `json:"ok"`
-	AccountID string `json:"account_id,omitempty"`
+	Code        string   `json:"code,omitempty"`
+	RetryAfter  int64    `json:"retryAfter,omitempty"`
+	BindingCode string   `json:"bindingCode,omitempty"`
+	BoundQQ     string   `json:"boundQQ,omitempty"`
+	ExpiresAt   int64    `json:"expiresAt,omitempty"`
+	Groups      []string `json:"groups,omitempty"`
+	OK          bool     `json:"ok"`
+	AccountID   string   `json:"account_id,omitempty"`
 	// Token 是本次登录的启动器令牌：启动器把它写进 TCLS 启动串的 outer token
 	// 字段，客户端会原样转发，服务端据此精确认账号（见 account_login_token.go）。
 	Token   string `json:"token,omitempty"`
@@ -92,6 +103,9 @@ type accountAPIResponse struct {
 
 // startAccountAPI 按配置启动公网账号 API；未配置监听地址时直接跳过。
 func (s *Service) startAccountAPI(ctx context.Context) error {
+	if s.options.playerStrict && (!s.options.accountAPILoginToken || len(s.options.playerProxySecret) < 32) {
+		return errors.New("strict player mode requires token authentication and a proxy key of at least 32 characters")
+	}
 	listen := strings.TrimSpace(s.options.accountAPIListen)
 	if listen == "" {
 		return nil
@@ -141,6 +155,8 @@ func (s *Service) startAccountAPI(ctx context.Context) error {
 	mux.HandleFunc("/api/status", api.handleStatus)
 	mux.HandleFunc("/api/account/register", api.handleRegister)
 	mux.HandleFunc("/api/account/login", api.handleLogin)
+	mux.HandleFunc("/api/account/binding-code", api.handleAccountSecurity)
+	mux.HandleFunc("/api/account/password", api.handleAccountSecurity)
 	mux.HandleFunc("/api/game/admin", api.handleGameAdmin)
 	// 客户端补丁"云端更新"只读端点（复用同一个 7002，不新开端口）。
 	// 前缀跟 /api/account/* 一致：GET /api/patch/manifest.json 与
@@ -227,7 +243,16 @@ func (a *accountAPIServer) ensureSchema(ctx context.Context) error {
 	if _, err := a.db.ExecContext(ctx, statement); err != nil {
 		return fmt.Errorf("create account API table %s: %w", a.table, err)
 	}
+	if err := a.ensureAccountSecuritySchema(ctx); err != nil {
+		return err
+	}
 	if err := a.ensureLoginTokenSchema(ctx); err != nil {
+		return err
+	}
+	if err := a.ensureModerationSchema(ctx); err != nil {
+		return err
+	}
+	if err := a.ensurePlayerSchema(ctx); err != nil {
 		return err
 	}
 	benefits, err := signupbenefits.NewStore(a.db, a.table)
@@ -295,6 +320,11 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 		writeAccountAPIError(w, http.StatusForbidden, "本服务器当前关闭了自助注册，请联系管理员开号")
 		return
 	}
+	ip := a.clientIP(r)
+	if (a.service.options.playerStrict && ip == "") || !a.allowRate(ip) {
+		writeAccountAPIError(w, http.StatusTooManyRequests, "请从新版登录器注册，或稍后重试")
+		return
+	}
 	request, ok := a.decodeRequest(w, r)
 	if !ok {
 		return
@@ -324,12 +354,22 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	a.moderationMu.RLock()
+	defer a.moderationMu.RUnlock()
+	if err := a.checkModeration(ctx, "", ip); err != nil {
+		writeAccountAPIError(w, http.StatusForbidden, "该 IP 暂不可注册，请联系管理员")
+		return
+	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := a.takeRegistrationSlot(ctx, tx, ip); err != nil {
+		writeAccountAPIError(w, http.StatusForbidden, "该 IP 已达到注册上限，或注册服务暂不可用")
+		return
+	}
 
 	placeholder := fmt.Sprintf("pending:%d", time.Now().UnixNano())
 	insert := fmt.Sprintf(
@@ -350,6 +390,10 @@ func (a *accountAPIServer) handleRegister(w http.ResponseWriter, r *http.Request
 		return
 	}
 	accountID := fmt.Sprintf("dnf:%d", accountAPIBaseAccountID+rowID)
+	if _, err := tx.ExecContext(ctx, "INSERT INTO "+a.table+"_registration_sources (account_id, ip) VALUES (?, ?)", accountID, ip); err != nil {
+		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
+		return
+	}
 	update := fmt.Sprintf("UPDATE %s SET account_id = ? WHERE id = ?", a.table)
 	if _, err := tx.ExecContext(ctx, update, accountID, rowID); err != nil {
 		writeAccountAPIError(w, http.StatusInternalServerError, "创建账号失败")
@@ -387,7 +431,11 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := accountAPIClientIP(r)
+	ip := a.clientIP(r)
+	if a.service.options.playerStrict && (ip == "" || !playerDevicePattern.MatchString(request.Device)) {
+		writeAccountAPIError(w, http.StatusBadRequest, "请使用新版登录器登录")
+		return
+	}
 	if !a.allowRate(ip) {
 		writeAccountAPIError(w, http.StatusTooManyRequests, "尝试过于频繁，请稍后再试")
 		return
@@ -396,19 +444,46 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), accountAPIWriteTimeout)
 	defer cancel()
 
-	var storedHash, accountID string
-	query := fmt.Sprintf("SELECT password_hash, account_id FROM %s WHERE account = ?", a.table)
-	if err := a.db.QueryRowContext(ctx, query, request.Account).Scan(&storedHash, &accountID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeAccountAPIError(w, http.StatusUnauthorized, "账号不存在或密码错误")
-			return
-		}
-		writeAccountAPIError(w, http.StatusInternalServerError, "登录失败")
+	tx, accountID, storedHash, err := a.credentialTransaction(ctx, request.Account, request.Password)
+	if err != nil {
+		a.securityFailure(w, err)
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(request.Password)); err != nil {
-		writeAccountAPIError(w, http.StatusUnauthorized, "账号不存在或密码错误")
+	if err = tx.Commit(); err != nil {
+		a.securityFailure(w, err)
 		return
+	}
+	if err = a.requireQQBinding(ctx, accountID, request.RequireQQBinding); err != nil {
+		a.securityFailure(w, err)
+		return
+	}
+	if err = a.db.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=?", accountID).Scan(&request.boundQQ); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		a.securityFailure(w, err)
+		return
+	}
+	a.moderationMu.RLock()
+	defer a.moderationMu.RUnlock()
+	if err := a.checkModeration(ctx, accountID, ip); err != nil {
+		writeAccountAPIError(w, http.StatusForbidden, "该账号或 IP 暂不可登录，请联系管理员")
+		return
+	}
+	if a.service.options.playerStrict {
+		a.service.playerAdmission.mu.Lock()
+		defer a.service.playerAdmission.mu.Unlock()
+		var disabled bool
+		var currentHash string
+		if err := a.db.QueryRowContext(ctx, "SELECT a.password_hash, COALESCE(p.disabled,0) FROM "+a.table+" a LEFT JOIN "+a.table+"_player_accounts p ON BINARY p.account_id=BINARY a.account_id WHERE a.account_id=?", accountID).Scan(&currentHash, &disabled); err != nil || disabled || currentHash != storedHash {
+			writeAccountAPIError(w, http.StatusForbidden, "该账号暂不可登录，请联系管理员")
+			return
+		}
+		available := a.service.playerAdmission.available
+		if a.service.options.accountAPILoginToken {
+			available = a.service.playerAdmission.availableReplacement
+		}
+		if err := available(accountID, request.Device, a.service.options.playerMaxOnline, time.Now()); err != nil {
+			writeAccountAPIError(w, http.StatusConflict, err.Error())
+			return
+		}
 	}
 
 	if a.service.options.accountAPILoginToken {
@@ -427,6 +502,7 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{
 		OK:        true,
 		AccountID: accountID,
+		BoundQQ:   request.boundQQ,
 		Message:   "登录成功",
 	})
 }
@@ -439,7 +515,7 @@ func (a *accountAPIServer) decodeRequest(w http.ResponseWriter, r *http.Request)
 		writeAccountAPIError(w, http.StatusBadRequest, "请求格式不正确")
 		return request, false
 	}
-	if err := decoder.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeAccountAPIError(w, http.StatusBadRequest, "请求格式不正确")
 		return request, false
 	}
@@ -485,14 +561,6 @@ func (a *accountAPIServer) allowRate(ip string) bool {
 func accountAPIClientIP(r *http.Request) string {
 	if r == nil {
 		return ""
-	}
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if idx := strings.Index(forwarded, ","); idx >= 0 {
-			forwarded = forwarded[:idx]
-		}
-		if ip := normalizeClientIP(forwarded); ip != "" {
-			return ip
-		}
 	}
 	if r.RemoteAddr == "" {
 		return ""

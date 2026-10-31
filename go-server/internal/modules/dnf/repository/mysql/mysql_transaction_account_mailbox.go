@@ -35,30 +35,33 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailboxCharacter(ctx context.
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrMailboxAssetTransactionUnavailable
 	}
-	tx, err := b.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, b, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // Also covers a panicking callback; Commit marks it done.
 	r := u.router
-	r.db = sqlTransactionDB{tx: tx}
+	r.db = newSQLTransactionDB(tx.Tx, r.db)
 	r.readDBs = append([]string(nil), u.router.writeDBs...)
 	r.writeDBs = append([]string(nil), u.router.writeDBs...)
 	r.lockReads = true
 	base := newMySQLGroupFromRouter(r, false)
-	character, found, err := base.Character.Load(ctx, characterID)
-	if err != nil {
-		return errors.Join(err, tx.Rollback())
-	}
-	if !found || character.CharacterID != characterID || character.AccountID != accountID {
-		return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
-	}
+	// Account-first matches the Fate ledger, durability, trade mailbox and
+	// settlement writers. Loading the character first creates an account/
+	// character deadlock cycle with those account-first transactions.
 	accounts := &rentalScopedAccountRepository{accountID: accountID, base: base.Account}
 	account, found, err := accounts.Load(ctx, accountID)
 	if err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if !found || account.AccountID != accountID {
+		return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
+	}
+	character, found, err := base.Character.Load(ctx, characterID)
+	if err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+	if !found || character.CharacterID != characterID || character.AccountID != accountID {
 		return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
 	}
 	mailboxes := &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}

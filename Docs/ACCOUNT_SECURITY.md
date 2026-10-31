@@ -1,0 +1,11 @@
+# 账号绑定与凭据安全
+
+账号 API 增加 `/api/account/binding-code` 和 `/api/account/password`。登录、改密与发码共享持久失败计数：连续三次失败冷却 60 秒，冷却期间尝试不延长截止时间，旧十分钟状态按原失败时间缩短。密码保存 bcrypt，绑定码仅保存摘要。
+
+QQ 配置默认关闭；`enabled=false, allowBinding=false` 关闭，`false,true` 自愿绑定，`true,true` 强制绑定。旧 enabled 仍表示强制，不自动开启自愿入口。一次性绑定码验证账号及允许群，QQ 与账号一对一；禁用策略时原绑定与操作回执保留。旧表只增补 allow_binding 列。
+
+私有受鉴权 `/api/game/admin` 提供 QQ 配置、绑定完成/查询、联合封禁队列及 `reset_account_password`。网关须继续隔离管理路径。重置请求绑定账号 ID、账号名和请求编号；同一事务更新密码、撤销令牌/未用绑定码、清除冷却并保存不可逆请求摘要。提交后只断开目标账号旧会话；重放返回原回执，不断开新登录，后续改密后旧请求不能覆盖。账号、角色、钱包和福利均不重置。
+
+账号关联使用 BINARY 比较以兼容历史排序规则。通关与封禁依赖见 [通关记录与玩家封禁](PLAYER_MODERATION.md)。严格准入默认关闭；启用 DNFBRIDGE_PLAYER_STRICT 时必须使用令牌认证和至少32字节的受信代理密钥（DNFBRIDGE_PLAYER_PROXY_SECRET）。每设备一个账号，原生辅助连接和换频道属于同次启动；同账号替换不重复占用名额，提交新令牌后关闭旧连接，等待全部旧会话存档清理完成再允许进入。DNFBRIDGE_PLAYER_REGISTRATION_LIMIT 和 DNFBRIDGE_PLAYER_MAX_ONLINE 分别控制注册/IP与总在线名额，默认0不设限。本次不包含管理前端、私有编辑保护或福利调度器。
+
+验证包括一次性 MariaDB 的绑定、跨排序规则、并发失败计数、封禁与永久回执、重置回放及账号隔离，以及完整 Go 检查和双平台构建。

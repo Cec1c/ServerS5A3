@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -9,7 +10,8 @@ import (
 )
 
 // 以下文档和 806/8 字节实现仅适用于旧厂商档。公开 v84 EXE 的实际通知是
-// class0/812（0x01049E00），读取 u32/u32/u8。official-24.9 在发送入口跳过
+// class0/812（0x01049E00），读取 u32/u32/u8。v141 已确认这三个字段为基础已用、
+// 额外可用、每周隐藏领主计数，但门控和每周状态尚未上线。official-24.9 在发送入口跳过
 // 旧档；不能把旧默认 5/0 冒充共享持久计数，也不能直接改 opcode 并补一个猜测字节。
 //
 // 旧档背景：操作者已知问题清单第 67 条，魔界裂缝（次元门 / DimensionGate）每日入场次数在客户端
@@ -222,19 +224,19 @@ func (s *Service) sendCurrentDimensionGateEntranceInfo(session *gameSession, sou
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
-	// The current EXE registers dimension entry state at class0/812,
-	// handler 0x01049E00: u32/u32/u8 (9 bytes). Legacy 806/8 is a
-	// different feature. Do not emit or renumber the default-only legacy
-	// state until the shared durable counters and final byte are verified.
+	// Current EXE 812 is a distinct nine-byte, durable counter projection.
+	// The legacy default-only 806 body never enters this profile.
 	if s.options.currentClientVersion == "official-24.9" {
-		s.logGameEvent(session, "game-dimension-gate-entrance-info-skipped",
-			"char_id", session.selectedCharacterID,
-			"source", source,
-			"msg_id", currentDimensionGateEntranceMsgID,
-			"reason", "current_client_requires_verified_812_and_shared_persisted_counts",
-			"native_msg_id", 812,
-			"native_body_len", 9)
-		return nil
+		if s.initialEquipmentArchive == nil || !currentDimensionGateEntranceEnabled() {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+		defer cancel()
+		character, err := s.dungeonCharacter(ctx, session.selectedCharacterID, session)
+		if err != nil {
+			return err
+		}
+		return s.sendCurrentDimensionCount(session, character)
 	}
 	if !currentDimensionGateEntranceEnabled() {
 		s.logGameEvent(session, "game-dimension-gate-entrance-info-skipped",

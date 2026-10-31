@@ -88,6 +88,7 @@ type currentDungeonDimensionDropCatalog struct {
 	ExactTiers        map[int64]int
 	LevelThresholds   []currentDungeonDimensionLevelThreshold
 	ItemsByTier       map[int][]currentDungeonDimensionDropEntry
+	HiddenBossByTier  map[int][]currentDimensionHiddenDropRow
 	ChronicleByCareer map[currentDungeonDimensionChronicleKey]currentDungeonDimensionChroniclePool
 	ChronicleRates    map[int]currentDungeonDimensionChronicleRate
 }
@@ -152,6 +153,7 @@ func loadCurrentDungeonDimensionDrops(source dnfpvf.Source) (*currentDungeonDime
 		LegacyDungeons:    make(map[int64]struct{}),
 		ExactTiers:        make(map[int64]int),
 		ItemsByTier:       make(map[int][]currentDungeonDimensionDropEntry),
+		HiddenBossByTier:  make(map[int][]currentDimensionHiddenDropRow),
 		ChronicleByCareer: make(map[currentDungeonDimensionChronicleKey]currentDungeonDimensionChroniclePool),
 		ChronicleRates:    make(map[int]currentDungeonDimensionChronicleRate),
 	}
@@ -191,6 +193,12 @@ func loadCurrentDungeonDimensionDrops(source dnfpvf.Source) (*currentDungeonDime
 	document, err := dnfpvf.Parse(currentDungeonDimensionInfoPath, infoText)
 	if err != nil {
 		return nil, err
+	}
+	if _, found := document.Section("hidden boss drop table"); found {
+		catalog.HiddenBossByTier, err = parseCurrentDimensionHiddenDropTable(document)
+		if err != nil {
+			return nil, err
+		}
 	}
 	infoValues, err := currentDungeonDimensionSectionInts(document, "dimension dungeon info", false)
 	if err != nil {

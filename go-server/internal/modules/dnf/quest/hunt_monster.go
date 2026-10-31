@@ -31,11 +31,13 @@ const (
 // dungeonId/difficulty allow the same wildcards as the 86JP domain logic:
 // dungeonId -1 means any dungeon, difficulty < 0 means any difficulty.
 type HuntMonsterKillInput struct {
-	DungeonID     int64
-	Difficulty    int64
-	MonsterCode   int64
-	CompletionKey string
-	CompletedAt   time.Time
+	DungeonID      int64
+	Difficulty     int64
+	MonsterCode    int64
+	WorldMapAreaID int64
+	MonsterKind    WorldMapHuntMonsterKind
+	CompletionKey  string
+	CompletedAt    time.Time
 }
 
 type HuntMonsterCompletion struct {
@@ -83,25 +85,29 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 	}
 	seen := make(map[int64]struct{})
 	visit := func(states map[int64]dnfrepo.QuestState, field dnfrepo.QuestField) {
-		ids := make([]int64, 0, len(states))
-		for questID := range states {
-			ids = append(ids, questID)
-		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-		for _, questID := range ids {
+		ids := make([]int64, 0)
+		for questID, state := range states {
 			if _, duplicate := seen[questID]; duplicate {
 				continue
 			}
+			// States shadows Progress even when its entry is inactive.
 			seen[questID] = struct{}{}
-			state := states[questID]
-			if !isActiveQuestStatus(state.Status) || state.ProgressValue < 0 {
-				continue
+			if isActiveQuestStatus(state.Status) && state.ProgressValue >= 0 {
+				ids = append(ids, questID)
 			}
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		for _, questID := range ids {
+			state := states[questID]
 			definition, ok := c.byID[questID]
 			if !ok || normalizeQuestTag(definition.Type) != "hunt monster" {
 				continue
 			}
-			channel, ok := huntMonsterMatchedChannel(definition.IntData, input)
+			matchedInput := input
+			if matchedInput.WorldMapAreaID == 0 {
+				matchedInput.WorldMapAreaID = worldMapHuntFallbackArea(definition, input)
+			}
+			channel, ok := huntMonsterMatchedChannel(definition.IntData, matchedInput)
 			if !ok {
 				continue
 			}
@@ -199,6 +205,9 @@ func (c *Catalog) PlanHuntMonsterKill(record dnfrepo.QuestRecord, input HuntMons
 }
 
 func huntMonsterMatchedChannel(values []int64, input HuntMonsterKillInput) (int, bool) {
+	if len(values) > 0 && values[0] == -4 {
+		return worldMapHuntMatchedChannel(values, input)
+	}
 	for index, offset := 0, 0; offset+huntMonsterStride <= len(values) && index < 3; index, offset = index+1, offset+huntMonsterStride {
 		dungeonID := values[offset]
 		difficulty := values[offset+1]

@@ -16,6 +16,7 @@ var (
 	ErrCharacterRequired = errors.New("NPC shop character id is required")
 	ErrCharacterNotFound = errors.New("NPC shop character is not found")
 	ErrAccountMismatch   = errors.New("NPC shop character account mismatch")
+	ErrAccountNotFound   = errors.New("NPC shop account is not found")
 	ErrInventoryNotFound = errors.New("NPC shop inventory is not found")
 	ErrProjectorRequired = errors.New("NPC shop mutation projector is required")
 )
@@ -41,6 +42,10 @@ type Command struct {
 	CharacterID   string
 	UpdatedAt     time.Time
 	PurchaseLimit *PurchaseLimit
+	// AccountLedger requires the account-first ledger transaction. When that
+	// capability exists it is also preferred for ordinary purchases; the legacy
+	// character settlement path is used only when no ledger capability exists.
+	AccountLedger bool
 	Project       Projector
 }
 
@@ -48,19 +53,24 @@ type Command struct {
 // character wallet, and character inventory commit. Current-client packet
 // rows and PVF projections remain in the bridge.
 type Owner struct {
-	settings    dnfrepo.SettingsRepository
-	settlements dnfrepo.CharacterSettlementUnitOfWork
+	settings     dnfrepo.SettingsRepository
+	settlements  dnfrepo.CharacterSettlementUnitOfWork
+	ledgerAssets dnfrepo.AccountCharacterLedgerAssetUnitOfWork
 }
 
 func NewOwner(repositories dnfrepo.Group) (*Owner, error) {
-	if repositories.CharacterSettlement == nil {
+	ledgerAssets, _ := repositories.AccountAssets.(dnfrepo.AccountCharacterLedgerAssetUnitOfWork)
+	if repositories.CharacterSettlement == nil && ledgerAssets == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{settings: repositories.Settings, settlements: repositories.CharacterSettlement}, nil
+	return &Owner{
+		settings: repositories.Settings, settlements: repositories.CharacterSettlement,
+		ledgerAssets: ledgerAssets,
+	}, nil
 }
 
 func (o *Owner) Mutate(ctx context.Context, command Command) error {
-	if o == nil || o.settlements == nil {
+	if o == nil || (o.settlements == nil && o.ledgerAssets == nil) || (command.AccountLedger && o.ledgerAssets == nil) {
 		return ErrOwnerUnavailable
 	}
 	accountID := strings.TrimSpace(command.AccountID)
@@ -84,9 +94,15 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	useLedger := o.ledgerAssets != nil
 
-	return o.settlements.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
-		accounts, characters, inventories := tx.AccountInventory, tx.Character, tx.Inventory
+	mutate := func(
+		accountRepo dnfrepo.AccountRepository,
+		accountInventoryRepo dnfrepo.AccountInventoryRepository,
+		characterRepo dnfrepo.CharacterRepository,
+		inventoryRepo dnfrepo.InventoryRepository,
+	) error {
+		accounts, characters, inventories := accountInventoryRepo, characterRepo, inventoryRepo
 		if accounts == nil || characters == nil || inventories == nil {
 			return ErrOwnerUnavailable
 		}
@@ -100,15 +116,20 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 		if strings.TrimSpace(character.AccountID) != accountID {
 			return fmt.Errorf("%w: account=%s character=%s", ErrAccountMismatch, accountID, characterID)
 		}
-		var account dnfrepo.AccountRecord
-		if tx.Account != nil {
-			account, _, err = tx.Account.Load(ctx, accountID)
-			if err != nil {
-				return err
-			}
+		if accountRepo == nil {
+			return ErrOwnerUnavailable
+		}
+		account, accountFound, err := accountRepo.Load(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		if !accountFound {
+			return ErrAccountNotFound
+		}
+		if strings.TrimSpace(account.AccountID) != accountID {
+			return ErrAccountMismatch
 		}
 		account = dnfrepo.CloneAccount(account)
-		account.AccountID = accountID
 		inventory, found, err := inventories.Load(ctx, characterID)
 		if err != nil {
 			return err
@@ -152,11 +173,8 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 		changes.Account = changes.Account || limitChanges.Account
 		changes.Character = changes.Character || limitChanges.Character
 		if changes.Account {
-			if tx.Account == nil {
-				return ErrOwnerUnavailable
-			}
 			account.UpdatedAt = now
-			if err := tx.Account.Save(ctx, account); err != nil {
+			if err := accountRepo.Save(ctx, account); err != nil {
 				return err
 			}
 		}
@@ -179,5 +197,23 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 			}
 		}
 		return nil
+	}
+
+	if useLedger {
+		return o.ledgerAssets.WithinAccountCharacterLedgerAssets(ctx, accountID, characterID, func(
+			account dnfrepo.AccountRepository,
+			accountInventory dnfrepo.AccountInventoryRepository,
+			character dnfrepo.CharacterRepository,
+			inventory dnfrepo.InventoryRepository,
+			_ dnfrepo.EquipmentRepository,
+		) error {
+			return mutate(account, accountInventory, character, inventory)
+		})
+	}
+	if o.settlements == nil {
+		return ErrOwnerUnavailable
+	}
+	return o.settlements.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
+		return mutate(tx.Account, tx.AccountInventory, tx.Character, tx.Inventory)
 	})
 }

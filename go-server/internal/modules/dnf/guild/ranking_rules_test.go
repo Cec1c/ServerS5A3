@@ -58,6 +58,13 @@ const rankingRulesFixture = `
 [/event]
 [/guild member factor]
 [guild member ranking factor]
+[raid clear]
+[point]
+` + "`anton` 1 `luke` 2 `fiendwar` 2" + `
+[/point]
+[with guild member bonus point] 3
+[/raid clear]
+[mileage count point rate] 1
 [guild party clear]
 247 6 9 5106 6 9
 [/guild party clear]

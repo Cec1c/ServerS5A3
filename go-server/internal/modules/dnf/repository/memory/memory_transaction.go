@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"longheng.io/server/internal/modules/dnf/moderation"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"sort"
 	"strconv"
@@ -1188,6 +1189,7 @@ func (tx *memoryAccountTransaction) Save(ctx context.Context, record repository.
 }
 
 type memoryCharacterTransaction struct {
+	clear       *moderation.Clear
 	characterID string
 	record      repository.CharacterRecord
 	exists      bool

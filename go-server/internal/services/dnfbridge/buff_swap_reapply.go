@@ -16,7 +16,8 @@ const currentBuffSwapSnapshotID uint16 = 1368
 const currentBuffSwapRowsID uint16 = 1367
 const currentBuffSwapRegistrationID uint16 = 1426
 
-// Default off preserves all legacy registration and packet behavior.
+// Legacy clients retain their explicit compatibility opt-in. Current clients
+// use the service policy below and do not require an environment switch.
 func buffSwapReapplyEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(buffSwapReapplyEnv))) {
 	case "on", "1", "true":
@@ -26,9 +27,19 @@ func buffSwapReapplyEnabled() bool {
 	}
 }
 
+// Current registration is normal gameplay for the official client. Keep the
+// policy in the server so Docker, the controller and direct starts all persist
+// and restore the same state, even when an old deployment exports "off".
+func (s *Service) buffSwapReapplyEnabled() bool {
+	if s != nil && s.currentClientLoadoutOwnsBuffSwap1428() {
+		return true
+	}
+	return buffSwapReapplyEnabled()
+}
+
 // currentClientLoadoutOwnsBuffSwap1428 reports whether op1428 is the current
-// client's Buff-enhancement loadout stream. DNFBRIDGE_BUFF_SWAP_REAPPLY owns the
-// native 1426/1368 producer; it must not consume the separate 1428 loadout
+// client's Buff-enhancement loadout stream. The current registration policy
+// owns the native 1426/1368 producer; it must not consume the separate 1428 loadout
 // record and persist it as a positional native binding. Other profiles retain
 // the historical 1428/1369 native path.
 //
@@ -43,7 +54,7 @@ func (s *Service) currentClientLoadoutOwnsBuffSwap1428() bool {
 // producer. Invalid lengths and fields are consumed/rejected;
 // they cannot complete an FPS loading gate or create registration state.
 func (s *Service) handleCurrentBuffSwap1426Command(session *gameSession, typ uint16, body []byte) (bool, error) {
-	if s == nil || session == nil || typ != currentBuffSwapRegistrationID || !buffSwapReapplyEnabled() {
+	if s == nil || session == nil || typ != currentBuffSwapRegistrationID || !s.buffSwapReapplyEnabled() {
 		return false, nil
 	}
 	return s.handleBuffSwapRegistration(session, body, true)
@@ -85,7 +96,7 @@ func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, 
 	}
 	s.logGameEvent(session, event, "char_id", session.selectedCharacterID, "skill", c.Skill, "equipment_slot", c.Slot, "source_list", c.List, "source_slot", c.Index, "wire_profile", wireProfile, "error", err)
 	if err == nil {
-		return true, s.sendBuffSwapReapply(session, "registration_changed")
+		return true, s.sendBuffSwapReapplyForRegistration(session, "registration_changed")
 	}
 	return true, nil
 }
@@ -114,7 +125,13 @@ func nativeBuffSwapSnapshotBody(state buffswap.State) []byte {
 }
 
 func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error {
-	return s.sendBuffSwapReapplyOwned(session, source, false, false)
+	return s.sendBuffSwapReapplyOwned(session, source, false, false, false)
+}
+
+// Explicit 1426 registration is one of the two interactive Buff boundaries for
+// which a bounded diagnostic is useful when packet logging is disabled.
+func (s *Service) sendBuffSwapReapplyForRegistration(session *gameSession, source string) error {
+	return s.sendBuffSwapReapplyOwned(session, source, false, false, true)
 }
 
 // Equipment movement does not create a native registration. When this owner
@@ -122,7 +139,7 @@ func (s *Service) sendBuffSwapReapply(session *gameSession, source string) error
 // Explicitly cleared or unresolved stored registrations still publish their
 // empty snapshot, as do login and character-switch boundaries.
 func (s *Service) sendBuffSwapReapplyAfterCommittedWear(session *gameSession, source string) error {
-	return s.sendBuffSwapReapplyOwned(session, source, s.currentClientLoadoutOwnsBuffSwap1428(), false)
+	return s.sendBuffSwapReapplyOwned(session, source, s.currentClientLoadoutOwnsBuffSwap1428(), false, true)
 }
 
 // Non-appearance equipment commits do not rebuild the actor. Replaying an
@@ -133,18 +150,27 @@ func (s *Service) sendBuffSwapReapplyAfterCommittedWear(session *gameSession, so
 // appearance rebuilds keep the unconditional committed-wear replay.
 func (s *Service) sendBuffSwapReapplyAfterNonAppearanceWear(session *gameSession, source string) error {
 	current := s.currentClientLoadoutOwnsBuffSwap1428()
-	return s.sendBuffSwapReapplyOwned(session, source, current, current)
+	return s.sendBuffSwapReapplyOwned(session, source, current, current, true)
 }
 
 // Every 1368/1369 producer, including explicit registration and clear, passes
 // through this function. The replay cache is therefore updated by direct sends
 // as well; only a successful socket write is recorded.
-func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered, skipUnchanged bool) error {
-	if !buffSwapReapplyEnabled() || s == nil || session == nil {
+func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered, skipUnchanged, diagnostics bool) error {
+	if s == nil || session == nil {
+		return nil
+	}
+	if !s.buffSwapReapplyEnabled() {
+		if diagnostics {
+			s.logBuffSwapDiagnostic(session, "skipped", "reapply_disabled", source, buffOwnedSendIdentity{}, 0, nil, 0, buffswap.State{}, 0)
+		}
 		return nil
 	}
 	identity, current := s.captureBuffOwnedSendIdentity(session)
 	if !current {
+		if diagnostics {
+			s.logBuffSwapDiagnostic(session, "skipped", "owner_identity_unavailable", source, identity, 0, nil, 0, buffswap.State{}, 0)
+		}
 		return nil
 	}
 	if identity.sharedFallback {
@@ -152,6 +178,9 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 	}
 	repos, ok := s.repositoryGroup()
 	if !ok {
+		if diagnostics {
+			s.logBuffSwapDiagnostic(session, "skipped", "repository_unavailable", source, identity, 0, nil, 0, buffswap.State{}, 0)
+		}
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -161,11 +190,17 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 	if err == nil {
 		if skipUnregistered && !projection.Found {
 			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "current_native_registration_absent")
+			if diagnostics {
+				s.logBuffSwapDiagnostic(session, "skipped", "registration_absent", source, identity, 0, nil, 0, projection.State, projection.Omitted)
+			}
 			return nil
 		}
 		state, omitted := currentBuffOwnedWireState(projection), projection.Omitted
 		if !s.buffOwnedSendIdentityCurrent(identity) {
 			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "stale_owner_generation")
+			if diagnostics {
+				s.logBuffSwapDiagnostic(session, "skipped", "stale_owner_generation", source, identity, 0, nil, 0, state, omitted)
+			}
 			return nil
 		}
 		{
@@ -174,30 +209,44 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 			if state.WireProfile == buffswap.CurrentWireProfile {
 				snapshotID = currentBuffSwapSnapshotID
 			}
-			if skipUnchanged && s.buffReplayUnchanged(session, identity, snapshotID, body) {
-				s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "unchanged_projection_after_unrelated_wear", "msg_id", snapshotID)
-				return nil
-			}
+			unchanged := s.buffReplayUnchanged(session, identity, snapshotID, body)
 			wireID, wireBody := snapshotID, body
-			// v153 registers 1367 directly to 9985F0. It resolves current item
-			// objects and replaces registration rows without 1368's 997210
-			// manager reset. Rebuilds must refresh these pointers even if their
-			// list/index bytes did not change. Explicit registration and login
-			// keep the full snapshot, as does a skill not yet sent to this owner.
 			if skipUnregistered && snapshotID == currentBuffSwapSnapshotID && s.buffReplaySkillCurrent(session, identity, state.Skill) {
 				wireID, wireBody = currentBuffSwapRowsID, body[2:]
 			}
+			if skipUnchanged && unchanged {
+				s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "unchanged_projection_after_unrelated_wear", "msg_id", snapshotID)
+				if diagnostics {
+					s.logBuffSwapDiagnostic(session, "skipped", "unchanged_projection", source, identity, wireID, body, len(wireBody), state, omitted)
+				}
+				return nil
+			}
+			// v153 registers 1367 directly to 9985F0. It resolves current item
+			// objects and replaces registration rows without 1368's 997210
+			// manager reset. v154 execution confirms both entries still invoke
+			// 9980A0(actor,0xF1). Rebuilds must refresh these pointers even if
+			// their list/index bytes did not change. Explicit registration and
+			// login keep the full snapshot, as does a skill not yet sent here.
 			if err := s.sendGameUpperRawClass(session, wireID, wireBody, 0); err != nil {
+				if diagnostics {
+					s.logBuffSwapDiagnostic(session, "failed", "socket_write_failed", source, identity, wireID, body, len(wireBody), state, omitted)
+				}
 				return err
 			}
 			// Cache the canonical logical state after either successful wire
 			// form. A failed row update must remain eligible for retry.
 			s.rememberBuffReplay(session, identity, snapshotID, body)
 			s.logGameEvent(session, "game-buff-swap-native-reapply-sent", "source", source, "skill", state.Skill, "rows", len(state.Slots), "omitted", omitted, "msg_id", wireID, "classification", 0, "body_len", len(wireBody))
+			if diagnostics {
+				s.logBuffSwapDiagnostic(session, "sent", "wire_write_succeeded", source, identity, wireID, body, len(wireBody), state, omitted)
+			}
 		}
 	}
 	if err != nil {
 		s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "error", err)
+		if diagnostics {
+			s.logBuffSwapDiagnostic(session, "failed", buffSwapProjectionFailureReason(err), source, identity, 0, nil, 0, buffswap.State{}, 0)
+		}
 	}
 	return nil
 }

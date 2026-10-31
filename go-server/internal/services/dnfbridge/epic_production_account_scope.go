@@ -8,7 +8,7 @@ import (
 
 // 本文件修的是"自制史诗 NPC（史诗制作者）选择武器 → 客户端弹『用户信息错误』"。
 //
-// 一、现场（香港 38.22.90.52，/opt/dnf90/logs/packet_log.txt 2026-09-25，当前这份日志
+// 一、现场（香港 192.0.2.12，/opt/dnf90/logs/packet_log.txt 2026-09-25，当前这份日志
 // 由 19:26 的部署轮转而来；操作者就是在这个会话里点的武器）：
 //
 //	:2152 RECV kind=game-legacy conn_id=game-000016 channel_id=253 cmd=1 type=1417

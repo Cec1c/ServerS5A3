@@ -18,7 +18,7 @@ import (
 const (
 	equippedCreatureListType   byte  = 3
 	equippedCreatureSlot       int16 = 26
-	maxGrowthClearTokenBytes         = 256
+	maxGrowthClearTokenBytes         = 255
 	maxGrowthClearTokenHistory       = 128
 )
 
@@ -312,6 +312,7 @@ func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, muta
 		if _, err := o.engine.resolveCreature(entry.ItemID); err != nil {
 			return fmt.Errorf("%w: pet_key=%s item=%d: %w", ErrPetGrowthEquippedMismatch, petKey, entry.ItemID, err)
 		}
+		beforeEntry := dnfrepo.ClonePet(dnfrepo.PetRecord{Entries: map[string]dnfrepo.PetEntry{petKey: entry}}).Entries[petKey]
 		result, err = mutate(&petRecord, petKey, &entry, &equipment, &worn)
 		if err != nil {
 			return err
@@ -321,7 +322,7 @@ func (o *GrowthOwner) withEquipped(ctx context.Context, characterID string, muta
 		}
 		now := o.now()
 		petRecord.UpdatedAt = now
-		if err := dnfrepo.SavePetFields(ctx, petRepo, petRecord, dnfrepo.PetFieldEntries); err != nil {
+		if err := dnfrepo.SavePetGrowth(ctx, petRepo, petRecord, petKey, beforeEntry); err != nil {
 			return err
 		}
 		if result.Evolution.Changed {

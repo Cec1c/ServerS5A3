@@ -234,8 +234,8 @@ func TestVendorPeerRowFieldsAccAutoIsStampedPerSessionAndStable(t *testing.T) {
 func TestVendorPeerRowAccOverridePinsEveryRow(t *testing.T) {
 	service := vendorPeerRowFieldService(0x1c)
 	body := service.buildPartyPeerEndpointInfoBody([]party.PeerEndpoint{
-		{UserID: 3, IPv4: [4]byte{38, 22, 90, 52}, Port: 31000, AccountID: 3},
-		{UserID: 4, IPv4: [4]byte{38, 22, 90, 52}, Port: 31001, AccountID: 4},
+		{UserID: 3, IPv4: [4]byte{192, 0, 2, 12}, Port: 31000, AccountID: 3},
+		{UserID: 4, IPv4: [4]byte{192, 0, 2, 12}, Port: 31001, AccountID: 4},
 	})
 	if body[0] != 2 {
 		t.Fatalf("row count = %d want 2", body[0])
@@ -375,14 +375,17 @@ func TestVendorPeerRowFieldsOnRelayFormationShape(t *testing.T) {
 	service, leader, member := vendorRelayFixture(t)
 	state := runtimePartyStateSnapshot(leader)
 	relay := service.currentPartyUDPRelay()
-	address, port, ok := relay.Endpoint(uint16(state.PartyID), 1001, 1002)
-	if !ok {
-		t.Fatal("relay leg 1001->1002 missing")
-	}
 	service.captureCurrentPartyPeerEndpointRegistration(member, buildCapturedPeerEndpointRegistrationBody(t, 20613))
 	memberAcc := currentPartyPeerEndpointSnapshot(member).PeerRowAcc
 	if memberAcc == 0 {
 		t.Fatal("CS op2 did not stamp the member session")
+	}
+	if !service.syncRuntimePartyUDPRelay(state) {
+		t.Fatal("relay did not adopt the current registration")
+	}
+	address, port, ok := relay.Endpoint(uint16(state.PartyID), 1001, 1002)
+	if !ok {
+		t.Fatal("relay leg 1001->1002 missing")
 	}
 
 	body := service.buildRuntimePartyPeerEndpointInfoForReceiver(leader, state)

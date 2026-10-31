@@ -446,6 +446,15 @@ func (s *Service) buildChannelInfoBodyFor(request []byte, bootstrap bool) ([]byt
 		"count", len(channels),
 		"first_channel", firstChannel,
 		"last_channel", lastChannel)
+	// The packet log is optional in production. Keep the selected group and
+	// directory shape visible in the ordinary service log for NPC channel
+	// navigation diagnostics without recording the request body.
+	s.logInfo("dnfbridge channel directory advertised",
+		"requested_group", group,
+		"bootstrap", bootstrap,
+		"count", len(channels),
+		"first_channel", firstChannel,
+		"last_channel", lastChannel)
 	var writer packetWriter
 	s.writeChannelInfoPrefix(&writer, len(channels))
 	s.writeChannelInfoEntries(&writer, channels)

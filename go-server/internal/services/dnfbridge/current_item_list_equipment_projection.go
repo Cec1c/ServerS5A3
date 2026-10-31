@@ -37,7 +37,7 @@ func currentItemListEntryFromEquipment(equipped dnfrepo.EquipmentEntry) (current
 		applyCurrentItemListAvatarAbilityRow(&entry, currentItemListEquipmentAvatarAbility(equipped))
 	} else {
 		entry.setByte(0x0A, currentItemListEquipmentExtData(equipped))
-		entry.setUint16(0x0B, currentItemListEquipmentDurability(equipped))
+		binary.LittleEndian.PutUint16(entry.data[0x0B:0x0D], currentItemListEquipmentDurability(equipped))
 	}
 	entry.setByte(0x0D, currentItemListBindFlag(equipped.Bind, extra))
 	entry.setUint32(0x0E, currentItemListEquipmentValueA(equipped))
@@ -200,8 +200,8 @@ func currentItemListEquipmentExtData(equipped dnfrepo.EquipmentEntry) byte {
 }
 
 func currentItemListEquipmentDurability(equipped dnfrepo.EquipmentEntry) uint16 {
-	if value := sceneInventoryExtraUint16(equipped.Extra, "durability", "max_durability"); value != 0 {
-		return value
+	if value, present := sceneInventoryExtraUint(equipped.Extra, "durability", "current_durability"); present && value <= 65535 {
+		return uint16(value)
 	}
 	raw := equipped.RawEntry
 	if currentEquipmentEntryHasCurrentRaw77(equipped) {
@@ -210,5 +210,5 @@ func currentItemListEquipmentDurability(equipped dnfrepo.EquipmentEntry) uint16 
 	if len(raw) >= 12 {
 		return binary.LittleEndian.Uint16(raw[10:12])
 	}
-	return 0
+	return sceneInventoryExtraUint16(equipped.Extra, "max_durability")
 }

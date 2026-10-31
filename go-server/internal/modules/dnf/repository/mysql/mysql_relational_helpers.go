@@ -23,11 +23,11 @@ func withMySQLWriteExecutor(ctx context.Context, database SQLDB, apply func(SQLD
 	if !ok {
 		return apply(database)
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
-	txDB := sqlTransactionDB{tx: tx}
+	txDB := newSQLTransactionDB(tx.Tx, database)
 	if err := apply(txDB); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}

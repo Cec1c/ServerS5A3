@@ -133,7 +133,7 @@ func (s *Service) commitCurrentGuildDungeonEntryFatigue(ctx context.Context, lea
 	if err != nil {
 		return err
 	}
-	markGuildDungeonEntryFatigueCommitted(members, result.Characters)
+	markGuildDungeonEntryFatigueCommitted(members, result.Characters, q.Cost)
 	s.logGameEvent(leader, "game-guild-dungeon-entry-fatigue-committed", "guild_id", q.Entries[0].GuildID, "dungeon_id", runtime.Dungeon.ID, "run_id", q.Entries[0].RunID, "cost", q.Cost, "member_count", len(members), "replayed", result.Replayed)
 	return nil
 }
@@ -168,12 +168,16 @@ func guildDungeonEntryFatigueMembers(
 func markGuildDungeonEntryFatigueCommitted(
 	members []guildDungeonEntryFatigueMember,
 	roles map[string]dnfrepo.CharacterRecord,
+	cost int64,
 ) {
 	for _, member := range members {
 		if roles != nil {
 			if character, found := roles[strconv.Itoa(int(member.session.selectedCharacterID))]; found {
 				member.runtime.Character = character
 			}
+		}
+		if !member.runtime.fatigueStartDebited {
+			member.runtime.fatigueSpent += cost
 		}
 		member.runtime.fatigueStartDebited = true
 		if member.runtime.fatigueRooms == nil {

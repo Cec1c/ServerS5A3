@@ -32,9 +32,6 @@ const (
 )
 
 func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
-	if session != nil && isPVPChannel(session.channel) && isOnlinePartyCommand(typ) {
-		return true, s.sendPartyCommandFailure(session, typ, 19)
-	}
 	// The old connection can still deliver a buffered party command after a
 	// reconnect has made a replacement session authoritative for the same
 	// character. Never let that stale packet invite, join, leave, kick, or
@@ -50,6 +47,27 @@ func (s *Service) handleOnlinePartyCommand(session *gameSession, typ uint16, bod
 				"character_generation", session.characterGeneration)
 			return true, nil
 		}
+	}
+	if session != nil && isPVPChannel(session.channel) && isOnlinePartyCommand(typ) {
+		// These modes need their native failure envelope even when sent from
+		// a duel channel. The retired-session guard above still runs first.
+		if typ == 10 {
+			if req, err := party.DecodeRequestPeerRequest(body); err == nil && req.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+				return true, s.handleCurrentItemTradeInvitation(session, req)
+			}
+			if req, err := party.DecodeRequestPeerRequest(body); err == nil && s.currentTownPVPMode(req.Mode) {
+				return true, s.rejectCurrentTownPVPRequest(session, typ, req)
+			}
+		}
+		if typ == 11 {
+			if req, err := party.DecodeResponsePeerRequest(body); err == nil && req.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+				return true, s.handleCurrentItemTradeInvitationResponse(session, req)
+			}
+			if req, err := party.DecodeResponsePeerRequest(body); err == nil && s.currentTownPVPMode(req.Mode) {
+				return true, s.rejectCurrentTownPVPResponse(session, typ, req)
+			}
+		}
+		return true, s.sendPartyCommandFailure(session, typ, 19)
 	}
 	if handled, err := s.rejectCurrentFiendWarManualPartyCommand(session, typ); handled || err != nil {
 		return handled, err
@@ -116,6 +134,12 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 			"body_len", len(body),
 			"error", err)
 		return nil
+	}
+	if s.currentTownPVPMode(parsed.Mode) {
+		return s.rejectCurrentTownPVPRequest(session, typ, parsed)
+	}
+	if parsed.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+		return s.handleCurrentItemTradeInvitation(session, parsed)
 	}
 	sourceID := selectedCharacterID(session)
 	if handled, err := s.rejectCurrentFiendWarActivePartyRequest(session, typ, parsed); handled || err != nil {
@@ -483,13 +507,6 @@ func (s *Service) handleOnlineWalkoutPartyMember(session *gameSession, typ uint1
 	return nil
 }
 
-// handleOnlineChangePartyHost implements the current client's real delegate-
-// leader command. NoPack sends class1/op121 with one selected party slot. The
-// party window derives leadership from slot zero, so changing only UserID is
-// insufficient: clear the old client-side table, move the new leader to slot
-// zero, then rebuild op9 for every member. The already-connected P2P transport
-// must remain intact: replaying op153/op11 here makes the current EXE start a
-// second endpoint handshake and leaves one side stuck in "connecting".
 // answerPartyCommandRejection 记录拒绝并把 [0, code] 失败包回给客户端。
 //
 // 这些拒绝路径此前只写日志、一个包都不回，玩家看到的就是"点了没反应"。
@@ -504,6 +521,9 @@ func (s *Service) answerPartyCommandRejection(session *gameSession, typ uint16, 
 	return s.sendPartyCommandFailure(session, typ, code)
 }
 
+// handleOnlineChangePartyHost accepts class1/op121 with a selected fixed slot.
+// Transferring leadership preserves the party ID, member slots and established
+// relay endpoints, then publishes the new leader in each member's roster.
 func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte) error {
 	const changeHostOpcode = uint16(dnfenum.CmdPacketChangeHost)
 	if len(body) < 1 {
@@ -865,6 +885,15 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 		s.logGameEvent(session, "game-party-response-peer-body-short", "type", typ, "body_len", len(body), "error", err)
 		return nil
 	}
+	if s.currentTownPVPMode(parsed.Mode) {
+		return s.rejectCurrentTownPVPResponse(session, typ, parsed)
+	}
+	if parsed.Mode == 1 && s.options.currentClientVersion == "official-24.9" {
+		return s.handleCurrentItemTradeInvitationResponse(session, parsed)
+	}
+	if parsed.RejectReason != 0 {
+		return nil
+	}
 	s.logGameEvent(session, "game-party-response-peer-received",
 		"type", typ,
 		"source_char_id", selectedCharacterID(session),
@@ -1144,8 +1173,8 @@ func isForwardedPeerRequestMode(mode byte) bool {
 
 func peerResponseRejected(req party.ResponsePeerRequest) bool {
 	// Current EXE sub_269FBF0 accepts ordinary mode-0/1/12 prompts by sending
-	// value zero. Quick-party modes 4/13 use explicit value 1 for accept and
-	// value 0 for reject (sub_2114B10/sub_2114BB0).
+	// value zero. Street/guild-arena modes 4/13 use explicit value 1 for accept
+	// and value 0 for reject (V179 sub_23D2780/sub_23D2820).
 	return (req.Mode == 4 || req.Mode == 13) && req.Value == 0
 }
 
@@ -1236,7 +1265,8 @@ func (s *Service) sendFormationRealtimeInfo(
 		"classification", 0,
 		"ordering", order.orderingLabel(),
 		"source", source)
-	return s.sendGameUpperRawClassCodec(session, 0x0099, body, 0, true)
+	_, err := s.sendRetiredPartyPacket(session, 0x0099, body, &state, nil, false)
+	return err
 }
 
 func (s *Service) sendRuntimePartySnapshotLocal(
@@ -1293,7 +1323,8 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 		return nil
 	}
 	if !partyActive {
-		return s.sendGameUpperRawClassCodec(session, 0x0099, party.BuildEmptyRealtimeInfo(), 0, true)
+		_, err := s.sendRetiredPartyPacket(session, 0x0099, party.BuildEmptyRealtimeInfo(), &state, nil, false)
+		return err
 	}
 	// vendor_wire：厂商日志里 op153 实际落在 op9 之后（备用档，默认不启用）。
 	if !order.realtimeBeforeRoster() {
@@ -1512,17 +1543,26 @@ func (s *Service) currentPartyUDPRelay() *currentPartyUDPRelay {
 // `embedded` = 我们自建的内嵌中继）：remote 档下 `Sync` 拿不到端口矩阵时同样返回 false，
 // 调用方按厂商语义**整份回退直连名单**（不做半份混合）。见 party_udp_relay_remote.go。
 func (s *Service) syncRuntimePartyUDPRelay(state alignedcmd.PartyState) bool {
-	relay := s.partyRelayBackend()
-	if state.PartyID > 0 && state.PartyID < int(^uint16(0)) {
-		manager := s.runtimePartyManagerForService()
-		snapshot, found := manager.SnapshotByID(uint16(state.PartyID))
-		if !found {
-			return false
-		}
-		state = snapshot.StateFor(snapshot.Leader)
+	if s == nil || state.PartyID <= 0 || state.PartyID > int(^uint16(0)) {
+		return false
 	}
+	mutation := &s.partyRelayMutation[state.PartyID%len(s.partyRelayMutation)]
+	mutation.Lock()
+	defer mutation.Unlock()
+	relay := s.partyRelayBackend()
+	if relay == nil || !relay.Enabled() {
+		return false
+	}
+	manager := s.runtimePartyManagerForService()
+	snapshot, found := manager.SnapshotByID(uint16(state.PartyID))
+	if !found {
+		relay.CloseParty(uint16(state.PartyID))
+		return false
+	}
+	state = snapshot.StateFor(snapshot.Leader)
 	members := runtimePartyMembers(state)
-	if relay == nil || !relay.Enabled() || state.PartyID <= 0 || len(members) < 2 {
+	if len(members) < 2 {
+		relay.CloseParty(uint16(state.PartyID))
 		return false
 	}
 	bindings := make([]currentPartyUDPRelayBinding, 0, len(members))
@@ -1547,24 +1587,39 @@ func (s *Service) syncRuntimePartyUDPRelay(state alignedcmd.PartyState) bool {
 		binding.advertisedPort = currentPartyPeerEndpointSnapshot(identity.session).Port
 		bindings = append(bindings, binding)
 	}
-	return relay.Sync(uint16(state.PartyID), bindings)
+	ready := relay.Sync(uint16(state.PartyID), bindings)
+	current, exists := manager.SnapshotByID(uint16(state.PartyID))
+	if !exists || !sameCurrentPartyProjectionMembership(snapshot, current) {
+		// A leave/rebind may finish during remote I/O. Retire this result before
+		// another serialized caller can establish the newer topology.
+		relay.CloseParty(uint16(state.PartyID))
+		return false
+	}
+	return ready
 }
 
 func (s *Service) closeRuntimePartyUDPRelay(partyID int) {
-	if partyID <= 0 || partyID > int(^uint16(0)) {
+	if s == nil || partyID <= 0 || partyID > int(^uint16(0)) {
 		return
 	}
+	mutation := &s.partyRelayMutation[partyID%len(s.partyRelayMutation)]
+	mutation.Lock()
+	defer mutation.Unlock()
 	// 与 sync 侧同一个后端：remote 档下这是给 a21-relay 发 CLOSE 交还租约（不等 30s 自然到期）。
+	if current, exists := s.runtimePartyManagerForService().SnapshotByID(uint16(partyID)); exists && len(current.Members) > 1 {
+		return // A delayed close must not tear down a currently rejoined lobby.
+	}
 	if relay := s.partyRelayBackend(); relay != nil {
 		relay.CloseParty(uint16(partyID))
 	}
 }
 
 func (s *Service) sendRuntimePartyRealtimeInfoLocal(session *gameSession, state alignedcmd.PartyState) error {
-	if session == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) <= 1 {
+	if session == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) == 0 {
 		return nil
 	}
-	return s.sendGameUpperRawClassCodec(session, 0x0099, runtimePartyRealtimeInfoBody(state), 0, true)
+	_, err := s.sendRetiredPartyPacket(session, 0x0099, runtimePartyRealtimeInfoBody(state), &state, nil, false)
+	return err
 }
 
 // runtimePartyRealtimeInfoBody 是 op153（0x0099 队员血条/槽位实时表）的 bridge 出口。
@@ -1611,7 +1666,10 @@ func (s *Service) broadcastRuntimePartyMemberRemoved(previousState, nextState al
 		if !ok || session == skip {
 			continue
 		}
-		storeRuntimePartyState(session, nextState)
+		identity, bound := s.boundGameSessionCharacterSnapshot(session)
+		if !bound || !s.storeCurrentPartyProjection(identity, nextState) {
+			continue
+		}
 		if err := s.sendRuntimePartyMemberRemoved(session, removedID, nextState); err != nil {
 			return err
 		}
@@ -1620,6 +1678,11 @@ func (s *Service) broadcastRuntimePartyMemberRemoved(previousState, nextState al
 }
 
 func (s *Service) sendRuntimePartyMemberRemoved(session *gameSession, _ uint16, state alignedcmd.PartyState) error {
+	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if !bound {
+		return nil
+	}
+	current := s.currentPartyProjectionMembershipGuard(identity, &state)
 	frameSent, err := s.sendCurrentPartyFrameProjection(session, state, "runtime_party_member_removed")
 	if err != nil {
 		return err
@@ -1631,7 +1694,12 @@ func (s *Service) sendRuntimePartyMemberRemoved(session *gameSession, _ uint16, 
 	if state.PartyID > 0 {
 		realtime = runtimePartyRealtimeInfoBody(state)
 	}
-	if err := s.sendGameUpperRawClassCodec(session, 0x0099, realtime, 0, true); err != nil {
+	if err := s.withGameWire(session, func() error {
+		if !s.boundGameSessionCharacterCurrent(identity) || !current() {
+			return nil
+		}
+		return s.sendGameUpperRawClassCodecLocked(session, 0x0099, realtime, 0, true)
+	}); err != nil {
 		return err
 	}
 	if state.PartyID <= 0 {
@@ -1771,6 +1839,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 	if !ok {
 		return false, nil
 	}
+	membershipCurrent := s.currentPartyProjectionMembershipGuard(actorIdentity, &state)
 	receiverOwnerChannel := receiver.townActorOwnerChannel
 	// 2026-09-27：默认分支原本直接用会话里**存下的** owner 字段（常驻频道 10 ✗），
 	// 与客户端当前频道（252）不一致 ⇒ 客户端 mode0-owner-compare 对远端 actor 行无限重试
@@ -1856,6 +1925,9 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		}
 		leaderSlot = currentSceneOp9PartyLeaderSlot(projections, state.UserID)
 	}
+	if !membershipCurrent() {
+		return false, nil
+	}
 	slotZeroCharID := uint16(0)
 	if len(projections) > 0 {
 		slotZeroCharID = projections[0].State.UserID
@@ -1889,6 +1961,27 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		return false, nil
 	}
 	objectKey := currentSceneActorObjectKey(characterID)
+	// Recheck inside wireMu: a completed leave/rebind while this projection
+	// waited for the socket must win over the previously constructed body.
+	sendCurrentFrame := func(body []byte) (bool, error) {
+		sent := false
+		err := s.withGameWire(receiver, func() error {
+			if !s.boundGameSessionCharacterCurrent(receiverIdentity) || !s.boundGameSessionCharacterCurrent(actorIdentity) || !membershipCurrent() {
+				return nil
+			}
+			for _, identity := range projectionIdentities {
+				if !s.boundGameSessionCharacterCurrent(identity) {
+					return nil
+				}
+			}
+			if err := s.sendGameUpperRawClassCodecLocked(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, 0, true); err != nil {
+				return err
+			}
+			sent = true
+			return nil
+		})
+		return sent, err
+	}
 	if !partyActive {
 		body := buildCurrentSceneOp9ActorRemovalBodyInContext(
 			objectKey,
@@ -1907,10 +2000,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 			"msg_id", uint16(dnfenum.CmdPacketRecoverStamina),
 			"classification", 0,
 			"body_source", "current_exe_sub_1D64CA0_kind3_party_object_destroy")
-		if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, 0); err != nil {
-			return false, err
-		}
-		return true, nil
+		return sendCurrentFrame(body)
 	}
 	// 成员行是否带内联身份块，参照值必须是**客户端当前频道**（`sub_1D64CA0`/
 	// `sub_269EE50` 的判据），不是本地 town 上下文：进副本后 `townActorOwnerChannel`
@@ -1942,6 +2032,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		}
 	}
 	op9Fields := []any{
+		"body_digest", currentProjectionBodyDigest(body),
 		"conn_id", receiver.connID,
 		"source", source,
 		"receiver_char_id", receiverIdentity.character,
@@ -1971,10 +2062,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 			"op2_owner_channel", ownerSelection.PeerActorOwner)
 	}
 	s.logPacketEvent("game-current-party-frame-op9-send", op9Fields...)
-	if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, 0); err != nil {
-		return false, err
-	}
-	return true, nil
+	return sendCurrentFrame(body)
 }
 
 func (s *Service) broadcastCurrentPartyActorProjection(actor *gameSession, state alignedcmd.PartyState, source string) error {

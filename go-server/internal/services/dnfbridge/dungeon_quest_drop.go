@@ -46,7 +46,12 @@ func (s *Service) checkCurrentDungeonQuestMonsterDrops(
 	runtime *runtimeDungeonState,
 	monsterID int64,
 ) {
-	result, err := s.grantCurrentDungeonQuestEnemyDrops(
+	s.checkCurrentDungeonQuestMonsterDropsWithContext(context.Background(), session, runtime, monsterID)
+}
+
+func (s *Service) checkCurrentDungeonQuestMonsterDropsWithContext(ctx context.Context, session *gameSession, runtime *runtimeDungeonState, monsterID int64) {
+	result, err := s.grantCurrentDungeonQuestEnemyDropsWithContext(
+		ctx,
 		session,
 		runtime,
 		1,
@@ -76,10 +81,14 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 	enemyCode int64,
 	rollSeed uint32,
 ) (currentQuestDropGrantResult, error) {
+	return s.grantCurrentDungeonQuestEnemyDropsWithContext(context.Background(), session, runtime, enemyType, enemyCode, rollSeed)
+}
+
+func (s *Service) grantCurrentDungeonQuestEnemyDropsWithContext(parent context.Context, session *gameSession, runtime *runtimeDungeonState, enemyType, enemyCode int64, rollSeed uint32) (currentQuestDropGrantResult, error) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 || runtime == nil || enemyCode <= 0 {
 		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
 	defer cancel()
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Quest == nil || repositories.CharacterItems == nil {
@@ -97,7 +106,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 		growthQuestDropPercent = growthEffect.QuestItemDropRatePercent
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	questRecord, found, err := repositories.Quest.Load(ctx, characterID)
+	questRecord, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return currentQuestDropGrantResult{}, err
 	}

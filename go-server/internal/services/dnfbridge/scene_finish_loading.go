@@ -34,7 +34,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	completionNeeded := !gates.Completion && !currentTownReturnOmitsSceneActivation(session)
 	followupsNeeded := completionNeeded || !gates.PostFinish
 	if !stateNeeded && !followupsNeeded {
-		return nil
+		return s.sendCurrentTagTournamentInitialRoleAfterLoading(session)
 	}
 
 	if stateNeeded {
@@ -52,6 +52,9 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		session.setFinishLoadingGateCompletion(true)
 	}
 	if err := s.sendCurrentPostFinishLoadingPlayerState(session, source+"_after_finish_loading_state"); err != nil {
+		return err
+	}
+	if err := s.sendCurrentTagTournamentInitialRoleAfterLoading(session); err != nil {
 		return err
 	}
 	// finish-loading 全部发完 = 收包方客户端真正进入本房间场景。这时把队友 actor 补发一次，
@@ -187,6 +190,11 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		return nil
 	}
 	if session.finishLoadingGateSnapshot().PostFinish {
+		// A dungeon room move keeps the actor-initialization gate set and only
+		// re-arms the op37/op30 state. Record that the finish request was
+		// observed, with placement_sent=false, before returning. The real
+		// finish_loading_placement event remains owned by the successful send
+		// path and has its own per-room limit.
 		s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_observed")
 		return nil
 	}

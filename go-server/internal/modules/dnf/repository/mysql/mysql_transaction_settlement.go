@@ -5,6 +5,7 @@ import (
 	"errors"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"strings"
+	"time"
 )
 
 // mysqlCharacterSettlementUnitOfWork keeps quest state, progression, wallet,
@@ -46,19 +47,53 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	// Character settlement can also consume account-owned crystal/soul slots.
 	// Keep the full logical database plan inside the same physical SQL
 	// transaction so the character and account keys may route independently.
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
+
+	// Settlements can update Account metadata. Guild settlements first take the
+	// global guild-registry row used by every guild unit of work, then lock the
+	// account, then the character. Non-guild settlements start at the account.
+	// The ownership lookup is deliberately non-locking; the character row is
+	// re-read under the later lock and the account association is checked again.
+	var settlementAccountID string
+	if owner != nil {
+		settlementAccountID = strings.TrimSpace(owner.AccountID)
+	} else {
+		lookupRouter := txRouter
+		lookupRouter.lockReads = false
+		lookup := newMySQLGroupFromRouter(lookupRouter, false)
+		character, found, lookupErr := lookup.Character.Load(ctx, characterID)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if !found || character.CharacterID != characterID {
+			return repository.ErrCharacterSettlementTransactionUnavailable
+		}
+		settlementAccountID = strings.TrimSpace(character.AccountID)
+	}
+	if settlementAccountID == "" {
+		return repository.ErrCharacterSettlementTransactionUnavailable
+	}
+	base := newMySQLGroupFromRouter(txRouter, false)
+	// 当前事务已加载的完整背包与共享仓库快照用于槽位差量。
+	// 保留既有公会登记、账号、角色的锁顺序；未Load仍走完整写入。
+	if store, ok := base.Inventory.(*mysqlBagStore); ok {
+		store.trackSlotChanges = true
+	}
+	if store, ok := base.AccountInventory.(*mysqlAccountInventoryStore); ok {
+		store.trackSlotChanges = true
+	}
 	if owner != nil {
 		table, err := txRouter.writeTable(mysqlSettingsTable, repository.GuildRegistryScope)
 		if err != nil {
@@ -67,19 +102,23 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		if _, err = txRouter.db.ExecContext(ctx, "INSERT INTO "+table+" (scope, updated_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE scope = VALUES(scope)", repository.GuildRegistryScope, txRouter.now()); err != nil {
 			return err
 		}
-	}
-	base := newMySQLGroupFromRouter(txRouter, false)
-	if owner != nil {
 		if _, _, err := base.Settings.Load(ctx, repository.GuildRegistryScope); err != nil {
 			return err
 		}
-		character, found, err := base.Character.Load(ctx, characterID)
-		if err != nil {
-			return err
-		}
-		if !found || character.CharacterID != owner.CharacterID || character.AccountID != owner.AccountID {
+	}
+	accountLocker := &rentalScopedAccountRepository{accountID: settlementAccountID, base: base.Account}
+	if _, _, lockErr := accountLocker.Load(ctx, settlementAccountID); lockErr != nil {
+		return lockErr
+	}
+	lockedCharacter, found, lockErr := base.Character.Load(ctx, characterID)
+	if lockErr != nil {
+		return lockErr
+	}
+	if !found || lockedCharacter.CharacterID != characterID || strings.TrimSpace(lockedCharacter.AccountID) != settlementAccountID {
+		if owner != nil {
 			return repository.ErrGuildTransaction
 		}
+		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
 
 	txGroup := repository.Group{
@@ -131,7 +170,7 @@ func (r *characterSettlementAccountRepository) accountID(ctx context.Context) (s
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	character, found, err := r.characters.Load(ctx, r.characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, r.characters, r.characterID)
 	if err != nil {
 		return "", err
 	}
@@ -164,6 +203,24 @@ func (r *characterSettlementAccountRepository) Save(ctx context.Context, record 
 	return r.accounts.Save(ctx, record)
 }
 
+// SaveMetadataEntry keeps the metadata update to one row while re-verifying
+// that the requested account still owns the settlement character inside the
+// same transaction.
+func (r *characterSettlementAccountRepository) SaveMetadataEntry(ctx context.Context, accountID, key, value string, at time.Time) error {
+	want, err := r.accountID(ctx)
+	if err != nil {
+		return err
+	}
+	if err := repository.TransactionKeyError(ctx, want, accountID); err != nil {
+		return err
+	}
+	writer, ok := r.accounts.(repository.AccountMetadataEntryWriter)
+	if !ok {
+		return repository.ErrAccountMetadataUnavailable
+	}
+	return writer.SaveMetadataEntry(ctx, accountID, key, value, at)
+}
+
 // characterSettlementAccountInventoryRepository resolves and verifies the
 // account owner while keeping the transaction limited to the selected
 // character's account inventory record.
@@ -177,7 +234,7 @@ func (r *characterSettlementAccountInventoryRepository) accountID(ctx context.Co
 	if r == nil || r.characters == nil || r.accounts == nil {
 		return "", repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	character, found, err := r.characters.Load(ctx, r.characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, r.characters, r.characterID)
 	if err != nil {
 		return "", err
 	}
@@ -234,6 +291,13 @@ func (r *characterSettlementScopedCharacterRepository) SaveFields(ctx context.Co
 		return err
 	}
 	return repository.SaveCharacterFields(ctx, r.base, record, fields...)
+}
+
+func (r *characterSettlementScopedCharacterRepository) SaveExpertJobExperience(ctx context.Context, record repository.CharacterRecord) error {
+	if err := repository.TransactionKeyError(ctx, r.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	return repository.SaveCharacterExpertExperience(ctx, r.base, record)
 }
 
 func (r *characterSettlementScopedCharacterRepository) ListByAccount(context.Context, string, int) ([]repository.CharacterRecord, error) {

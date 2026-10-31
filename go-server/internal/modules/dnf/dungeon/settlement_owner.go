@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/moderation"
 	"math"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	Clear                  *moderation.Clear
 	GuildContribution      *GuildContributionClear
 	GuildRanking           *guild.RankingPartyClear
 	GuildEssence           *guild.EssenceCatalog
@@ -475,6 +477,20 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 		if cmd.GuildContribution != nil && !cmd.GuildContribution.Revalidate() {
 			return ErrSettlementStateInvalid
+		}
+		if cmd.Clear != nil {
+			c := *cmd.Clear
+			c.Key = cmd.CompletionKey
+			c.AccountID = cmd.AccountID
+			c.CharacterID = cmd.CharacterID
+			c.CharacterName = character.Name
+			writer, ok := tx.Character.(dnfrepo.ClearHistoryWriter)
+			if !ok {
+				return ErrOwnerUnavailable
+			}
+			if err := writer.AppendClear(ctx, c); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

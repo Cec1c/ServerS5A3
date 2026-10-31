@@ -153,6 +153,7 @@ func mysqlSchemaMigrations(options SchemaOptions) ([]string, error) {
 			fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INT NOT NULL DEFAULT 0", skillTable, quoteSQLIdentifier("total_tp")),
 			fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INT NOT NULL DEFAULT 0", skillTable, quoteSQLIdentifier("remaining_tp")),
 			fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INT NOT NULL DEFAULT 0", skillTable, quoteSQLIdentifier("synced_level")),
+			fmt.Sprintf("ALTER TABLE %s ADD COLUMN fatigue_spent BIGINT NULL", mysqlTable(database, tablePrefix, "clear_history")),
 		)
 	}
 	return statements, nil
@@ -300,6 +301,7 @@ func mysqlTableSchema(database, prefix string) []string {
   PRIMARY KEY (scope)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`, settings),
 	}
+	statements = append(statements, clearHistorySchema(database, prefix))
 	statements = append(statements, mysqlSkillTreeSchema(database, prefix)...)
 	return append(statements, mysqlRelationalTableSchema(database, prefix)...)
 }

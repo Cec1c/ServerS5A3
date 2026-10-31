@@ -157,7 +157,9 @@ func (s *Service) withGameWire(session *gameSession, operation func() error) err
 	if session == nil || session.conn == nil {
 		return errors.New("dnf game connection is unavailable")
 	}
+	started := s.performanceStart()
 	session.wireMu.Lock()
+	s.performanceEnd(perfWireLock, started, nil)
 	defer session.wireMu.Unlock()
 	return operation()
 }
@@ -207,6 +209,11 @@ func (s *Service) writeGameUpperPacketLocked(session *gameSession, inner []byte)
 // 诊断钩子（注入/屏蔽/回放）都在 writeGameUpperPacketLocked 里，注入包直接调本函数，
 // 因此不会再触发钩子（否则锚点相同就会递归）。
 func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte) error {
+	if session.nativeResultDelivery != nil && !s.nativeResultPacketCanWait(session, inner) {
+		if err := s.flushNativeResultDeliveryLocked(session, "其他功能报文"); err != nil {
+			return err
+		}
+	}
 	// 审计必须在 DPROTO 编码**之前**：一旦被 provider 保护，内层明文就只剩
 	// 加密信封（外层 opcode = DprotoServerEnvelopeOpcode），现场无法从任何
 	// 一侧日志里还原内层消息号与包体。默认 off，见 fallback_name_audit.go。
@@ -244,13 +251,24 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 			"protected", protected,
 			"outer_msg_id", outer.Header.MsgID)
 	}
-	n, err := s.writeCurrentGameWireLocked(session, wire)
+	var n int
+	var err error
+	if session.nativeResultDelivery != nil {
+		n, err = s.writeNativeResultDeliveryLocked(session, wire)
+	} else {
+		n, err = s.writeCurrentGameWireLocked(session, wire)
+	}
 	if err == nil && n == len(wire) {
 		if b := session.channelSceneBatch; b != nil {
 			b.upper = append(b.upper, append([]byte(nil), inner...))
+		} else if b := session.nativeResultDelivery; b != nil {
+			b.upper = append(b.upper, append([]byte(nil), inner...))
 		} else {
 			s.logCurrentSharedInventoryPacketWritten(session, inner)
+			s.logGoldDiagnosticPacketResult(session, inner, false)
 		}
+	} else if session.channelSceneBatch == nil && session.nativeResultDelivery == nil {
+		s.logGoldDiagnosticPacketResult(session, inner, true)
 	}
 	return err
 }

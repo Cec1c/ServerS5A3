@@ -127,9 +127,20 @@ type currentBoosterDefinition struct {
 	Random            alignedcmd.MagicBoxResolution
 }
 
+type currentBoosterRewardSlotDelta struct {
+	RewardItemID uint32
+	ListType     byte
+	SlotIndex    int16
+	Delta        uint32
+}
+
 type currentBoosterCommitResult struct {
+	WalletChanged       bool
+	FateCurrencyChanged bool
+	FateGranted         uint32
 	ContractActivations []alignedcmd.PremiumContractActivation
 	EpicPieceCredits    []alignedcmd.MailboxEpicPieceCredit
+	RewardSlotDeltas    []currentBoosterRewardSlotDelta
 	GoldAmount          uint32
 	GoldAfter           uint32
 	SourceItemID        uint32

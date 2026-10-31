@@ -38,6 +38,39 @@ func (s *Service) sendCurrentCrossSceneProfileFrame(ctx context.Context, viewer,
 	return s.sendCurrentCrossSceneProfileFrames(ctx, viewer, actor, [][]byte{body}, current)
 }
 
+// Return with appearance and wire held, and with HP sampled only after that
+// wire was acquired. A completed return may have written new HP while this
+// profile was being built or waiting. Try-only dungeon reads avoid the inverse
+// order of gameplay handlers that send while holding dungeon.mu.
+func (s *Service) lockCurrentCrossSceneProfileForDelivery(ctx context.Context, viewer, actor *gameSession, needsHP bool) ([]byte, error) {
+	for {
+		if err := lockCurrentCrossSceneProfile(ctx, &actor.crossSceneAppearanceMu); err != nil {
+			return nil, err
+		}
+		if err := lockCurrentCrossSceneProfile(ctx, &viewer.wireMu); err != nil {
+			actor.crossSceneAppearanceMu.Unlock()
+			return nil, err
+		}
+		var realtime []byte
+		ready := true
+		if needsHP {
+			realtime, ready = s.tryCurrentTownPartyRealtimeBodyOnWire(viewer, actor)
+		}
+		if ready {
+			return realtime, nil
+		}
+		viewer.wireMu.Unlock()
+		actor.crossSceneAppearanceMu.Unlock()
+		timer := time.NewTimer(time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 // sendCurrentCrossSceneProfileFrames keeps a compound profile projection on
 // one connection with one appearance snapshot. The caller may send a silent
 // mode8 priming frame followed by the ordinary mode3 inspection frame without
@@ -54,13 +87,15 @@ func (s *Service) sendCurrentCrossSceneProfileFrames(ctx context.Context, viewer
 	if viewer == nil || viewer.conn == nil || actor == nil {
 		return false, errors.New("cross-scene profile connection unavailable")
 	}
-	if err := lockCurrentCrossSceneProfile(ctx, &actor.crossSceneAppearanceMu); err != nil {
+	needsHP := false
+	for _, body := range bodies {
+		needsHP = needsHP || (len(body) > 0 && body[0] == currentCrossSceneMode8Subtype)
+	}
+	realtime, err := s.lockCurrentCrossSceneProfileForDelivery(ctx, viewer, actor, needsHP)
+	if err != nil {
 		return false, err
 	}
 	defer actor.crossSceneAppearanceMu.Unlock()
-	if err := lockCurrentCrossSceneProfile(ctx, &viewer.wireMu); err != nil {
-		return false, err
-	}
 	defer viewer.wireMu.Unlock()
 	deadline, _ := ctx.Deadline()
 	if err := viewer.conn.SetWriteDeadline(deadline); err != nil {
@@ -91,6 +126,12 @@ func (s *Service) sendCurrentCrossSceneProfileFrames(ctx context.Context, viewer
 		}
 		if err := ctx.Err(); err != nil {
 			return false, err
+		}
+		if len(body) > 0 && body[0] == currentCrossSceneMode8Subtype {
+			body, err = projectCurrentTownPartyHPIntoProfile(body, realtime, selectedCharacterID(actor))
+			if err != nil {
+				return false, err
+			}
 		}
 		err := s.sendGameUpperRawClassCodecLocked(viewer, uint16(dnfenum.CmdPacketSetUDPIPPort), body, 0, true)
 		if err != nil {

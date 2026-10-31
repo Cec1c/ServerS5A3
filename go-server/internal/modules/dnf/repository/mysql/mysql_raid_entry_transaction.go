@@ -24,13 +24,13 @@ func (u *mysqlCharacterTradeUnitOfWork) WithinRaidEntryAssets(ctx context.Contex
 	if !ok {
 		return repository.ErrCharacterTradeTransactionUnavailable
 	}
-	tx, err := beginner.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // Also release the SQL transaction if the callback panics.
 	txRouter := u.router
-	txRouter.db = sqlTransactionDB{tx: tx}
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
 	// Character IDs can route to different logical schemas. They remain on
 	// one physical MySQL connection, so keep the full qualified write plan.
 	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)

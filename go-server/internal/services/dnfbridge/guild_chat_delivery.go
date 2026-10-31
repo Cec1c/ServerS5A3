@@ -22,6 +22,10 @@ type currentGuildChatRecipient struct {
 // on each other's full queues. Offline, stale and overloaded peers are local
 // delivery failures; they cannot cancel the sender or healthy recipients.
 func (s *Service) queueCurrentGuildChat(peer currentGuildChatRecipient, guildID uint32, body []byte) error {
+	return s.queueCurrentGuildChatNotice(peer, guildID, currentOfficialWhisperNotifyOpcode, body)
+}
+
+func (s *Service) queueCurrentGuildChatNotice(peer currentGuildChatRecipient, guildID uint32, opcode uint16, body []byte) error {
 	p := peer.identity.session
 	if p == nil || p.loginRevoked.Load() {
 		return errInvalidGameSessionEvent
@@ -33,7 +37,7 @@ func (s *Service) queueCurrentGuildChat(peer currentGuildChatRecipient, guildID 
 		defer cancel()
 		ctx, expireCancel := context.WithDeadline(ctx, expires)
 		defer expireCancel()
-		err := s.deliverCurrentGuildChat(ctx, peer, guildID, body)
+		err := s.deliverCurrentGuildChatNotice(ctx, peer, guildID, opcode, body)
 		if err != nil {
 			s.logWarn("dnfbridge guild chat recipient unavailable", "target_char_id", peer.identity.character, "stage", "delivery", "error", err)
 		}
@@ -56,6 +60,10 @@ func (s *Service) queueCurrentGuildChat(peer currentGuildChatRecipient, guildID 
 }
 
 func (s *Service) deliverCurrentGuildChat(ctx context.Context, peer currentGuildChatRecipient, guildID uint32, body []byte) error {
+	return s.deliverCurrentGuildChatNotice(ctx, peer, guildID, currentOfficialWhisperNotifyOpcode, body)
+}
+
+func (s *Service) deliverCurrentGuildChatNotice(ctx context.Context, peer currentGuildChatRecipient, guildID uint32, opcode uint16, body []byte) error {
 	reservation, err := s.reserveCurrentCharacterAssets(ctx, peer.identity, peer.account)
 	if err != nil {
 		return err
@@ -80,7 +88,7 @@ func (s *Service) deliverCurrentGuildChat(ctx context.Context, peer currentGuild
 		}
 		return nil
 	}
-	return s.sendCurrentGuildChatFrameChecked(ctx, peer.identity.session, currentOfficialWhisperNotifyOpcode, body, 0, validate)
+	return s.sendCurrentGuildChatFrameChecked(ctx, peer.identity.session, opcode, body, 0, validate)
 }
 
 // Sequence allocation, DPROTO and the socket write stay under the existing

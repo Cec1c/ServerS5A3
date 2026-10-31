@@ -289,7 +289,7 @@ func TestWearMoveAppearanceRefreshCostStaysOnTheActorProjection(t *testing.T) {
 			name:            what,
 			bytes:           fixture.buffer.write.Len(),
 			inventoryLoads:  fixture.counter.total("Inventory.Load"),
-			accountInvLoads: fixture.counter.total("AccountInventory.Load"),
+			accountInvLoads: fixture.counter.total("AccountInventory.Load") + fixture.counter.total("AccountAssets.accountInventory.Load"),
 			saves:           fixture.counter.total(".Save"),
 			transactions: fixture.counter.total("AccountAssets.Begin") +
 				fixture.counter.total("RentalAssets.Begin") +

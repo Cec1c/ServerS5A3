@@ -163,6 +163,7 @@ type runtimePartyDungeonEntryPlan struct {
 }
 
 type runtimePartyPreparedDungeonEntry struct {
+	current   func() bool
 	session   *gameSession
 	runtime   *runtimeDungeonState
 	scene     worldmap.DungeonRoomScene
@@ -209,7 +210,18 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 	admitted bool,
 ) error {
 	var fiendWarSelectionDiagnostic *currentFiendWarAdmissionDiagnostic
-	if !admitted && prepared == nil && isCurrentFiendWarChannel(session) {
+	if prepared != nil && (prepared.session != session || prepared.current == nil || !prepared.current()) {
+		return errors.New("prepared party dungeon entry no longer owns this character or membership")
+	}
+	if prepared != nil && prepared.committed {
+		session.dungeon.mu.Lock()
+		ownsRuntime := session.dungeon.runtime == prepared.runtime
+		session.dungeon.mu.Unlock()
+		if !ownsRuntime {
+			return errors.New("prepared party dungeon entry runtime was replaced")
+		}
+	}
+	if !admitted && prepared == nil && routed == nil && isCurrentFiendWarChannel(session) {
 		diagnostic := newCurrentFiendWarAdmissionDiagnostic(session, 0)
 		if state, ok := s.runtimeRaidForMember(session.selectedCharacterID); ok {
 			diagnostic.captureRaid(state)
@@ -291,6 +303,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 			)
 		}()
 	}
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.handleCurrentTagTournamentDungeon(session, request)
+	}
 	request.DungeonID = s.resolveCurrentSingleAntonSelector(session, request.DungeonID)
 	request.DungeonID = s.resolveCurrentSingleLukeSelector(session, request.DungeonID)
 	request.DungeonID, err = s.resolveCurrentDespairSelection(session, request.DungeonID)
@@ -313,16 +328,11 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 	// 那条连接永远收不到 publish，只读缓存就会在队伍成立的情况下退化成单人。
 	// 见 party_manager_runtime.go 的 runtimePartyStateForSession。
 	if !admitted && prepared == nil && routed == nil {
-		if handled, err := s.interceptCurrentFiendWarNormalSelection(session, uint32(request.DungeonID)); handled {
-			return err
-		}
-	}
-	partyStateAtRequest := s.runtimePartyStateForSession(session)
-	if !admitted && prepared == nil {
 		if handled, err := s.interceptCurrentFiendWarNormalSelectionWithDiagnostic(session, uint32(request.DungeonID), fiendWarSelectionDiagnostic); handled {
 			return err
 		}
 	}
+	partyStateAtRequest := s.runtimePartyStateForSession(session)
 	partyMemberIndex, partyMemberIndexed := runtimePartyMemberIndex(session.selectedCharacterID, partyStateAtRequest)
 	s.logGameEvent(session, "game-dungeon-select-request-decoded",
 		"body_len", len(body),
@@ -1117,7 +1127,8 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			!s.currentFiendWarAdmissionAllowsPeer(leader, member.UserID, state.PartyID, int64(request.DungeonID)) {
 			return nil, fmt.Errorf("party member %d is not present in the leader town channel/area", member.UserID)
 		}
-		follower, ok := s.onlineGameSession(member.UserID)
+		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		follower := identity.session
 		if !ok || follower == leader {
 			return nil, fmt.Errorf("party member %d has no resident game session", member.UserID)
 		}
@@ -1125,6 +1136,8 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		if followerState.PartyID != state.PartyID || followerState.UserID != state.UserID {
 			return nil, fmt.Errorf("party member %d has stale party state", member.UserID)
 		}
+		membership := s.currentPartyProjectionMembershipGuard(identity, &state)
+		current := func() bool { return s.boundGameSessionCharacterCurrent(identity) && membership() }
 		if !inRunTransfer {
 			if ready, reason := s.currentTownEnterSelectReady(follower); !ready {
 				return nil, fmt.Errorf("party member %d selector is not ready: %s", member.UserID, reason)
@@ -1151,6 +1164,7 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			}
 		}
 		prepared = append(prepared, &runtimePartyPreparedDungeonEntry{
+			current: current,
 			session: follower,
 			runtime: followerRuntime,
 			scene:   followerScene,
@@ -1192,6 +1206,9 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		}
 		ready := false
 		err := s.callGameSession(ctx, member.session, "runtime-party-dungeon-selector-preflight", func() error {
+			if !member.current() {
+				return errors.New("party selector preflight membership changed")
+			}
 			var prepareErr error
 			ready, prepareErr = s.prepareRuntimePartyFollowerEnterSelect(
 				member.session,
@@ -1257,6 +1274,10 @@ func (s *Service) commitRuntimePartyPreparedFollowers(prepared []*runtimePartyPr
 		if member == nil || member.session == nil || member.runtime == nil {
 			s.rollbackRuntimePartyPreparedFollowers(committed)
 			return errors.New("prepared party member runtime is incomplete")
+		}
+		if member.current != nil && !member.current() {
+			s.rollbackRuntimePartyPreparedFollowers(committed)
+			return errors.New("prepared party member identity or membership changed")
 		}
 		if err := s.commitDungeonRuntimeWithPetClock(member.session, member.runtime, false); err != nil {
 			s.rollbackRuntimePartyPreparedFollowers(committed)
@@ -1647,6 +1668,9 @@ func sameSelectDungeonRequest(left, right dungeoncmd.SelectDungeonRequest) bool 
 }
 
 func (s *Service) handleDungeonMoveMap(session *gameSession, body []byte) error {
+	if s.isCurrentTagTournamentChannel(session) {
+		return s.handleCurrentTagTournamentMove(session, body)
+	}
 	return s.handleDungeonMoveMapPlanned(session, body, nil, true)
 }
 

@@ -159,6 +159,9 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 			s.broadcastTownPlayerMove(mover, others)
 		}
 	}
+	if err := s.resumeDeferredTownEnterSelectAfterPosition(session); err != nil {
+		return err
+	}
 	s.queueCurrentFiendWarEncounterFrom(session, currentFiendWarAdmissionPhaseTownPosition)
 	return nil
 }
@@ -192,10 +195,13 @@ func (s *Service) commitPendingDungeonReturnBeforeTownPosition(
 		// written. If an earlier confirmation reached that boundary but a
 		// later mode0/mode1/creature/skill write failed, op35 is the next
 		// current-client town proof and must resume only the unfinished suffix.
-		return s.ensureCurrentConfirmedDungeonReturnPlayerState(
+		if err := s.ensureCurrentConfirmedDungeonReturnPlayerState(
 			session,
 			"current_exe_op35_position_without_retained_runtime",
-		)
+		); err != nil {
+			return err
+		}
+		return s.sendCurrentTagTournamentConfirmedReturnRoster(session)
 	}
 
 	if err := s.commitPendingDungeonReturnForSceneRequest(session, "current_exe_op35_position_after_pending_town_return"); err != nil {
@@ -216,6 +222,7 @@ func (s *Service) commitPendingDungeonReturnBeforeTownPosition(
 
 	session.townMu.Lock()
 	clearCurrentTownSelectorOriginLocked(session)
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townSceneReadyCharacterID = characterID
 	session.townPositionSnapshot = currentTownPositionSnapshot{
 		CharacterID:     characterID,
@@ -239,7 +246,7 @@ func (s *Service) commitPendingDungeonReturnBeforeTownPosition(
 		"opaque_scaled_u16", request.OpaqueScaledU16,
 		"position_source", transition.PositionSource,
 		"reason", "op35_is_first_town_side_confirmation_after_typed_op24_return")
-	return nil
+	return s.sendCurrentTagTournamentConfirmedReturnRoster(session)
 }
 
 // currentTownLoginLocation 是"角色列表登录"入口解析出的落点：要写回角色记录的
@@ -395,6 +402,7 @@ func setCurrentTownPositionSceneLocked(session *gameSession, characterID uint16,
 	}
 	clearCurrentTownSelectorOriginLocked(session)
 	advanceImageCommunicationSceneLocked(session)
+	resetCurrentTownEnterSelectSceneLocked(session)
 	session.townPositionSnapshot = currentTownPositionSnapshot{
 		CharacterID: characterID,
 		TownID:      townID,

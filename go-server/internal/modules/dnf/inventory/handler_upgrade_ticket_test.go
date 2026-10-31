@@ -68,6 +68,7 @@ func TestHandlerUpgradeTicketSendsAckThenSlotUpdate(t *testing.T) {
 		0x00,
 		0x09, 0x00,
 		0xFF, 0xFF,
+		0xFF, 0xFF, 0, 0, 0, 0, // neutral NPC material tail
 	}
 	if string(ack.Body) != string(wantAck) {
 		t.Fatalf("ack body = %x, want %x", ack.Body, wantAck)

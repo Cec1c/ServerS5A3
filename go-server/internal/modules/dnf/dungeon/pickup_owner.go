@@ -27,6 +27,9 @@ var (
 )
 
 type PickupItemDefinition struct {
+	// ListType is the authoritative destination container. Zero preserves
+	// ordinary bag placement; list 38 is the guild medal/gem container.
+	ListType        byte
 	ItemID          uint32
 	Kind            PickupItemKind
 	StackLimit      int64
@@ -93,7 +96,7 @@ func (o *Owner) GrantPickupItem(ctx context.Context, cmd PickupItemCommand) (Pic
 			if err != nil {
 				return err
 			}
-			record.Slots[mainSlotKey(slot)] = cloneStack(stack)
+			record.Slots[pickupSlotKey(cmd.Placement.Definition.ListType, slot)] = cloneStack(stack)
 		}
 		record.UpdatedAt = now
 		if err := dnfrepo.SaveInventoryFields(ctx, inventories, record, dnfrepo.InventoryFieldSlots); err != nil {
@@ -113,7 +116,8 @@ func (o *Owner) GrantPickupItem(ctx context.Context, cmd PickupItemCommand) (Pic
 func PlacePickupItem(record *dnfrepo.InventoryRecord, placement PickupItemPlacement) (uint16, dnfrepo.ItemStack, error) {
 	definition := placement.Definition
 	if record == nil || placement.Amount == 0 || definition.ItemID == 0 ||
-		definition.SlotStart <= 0 || definition.SlotEnd < definition.SlotStart {
+		definition.SlotStart < 0 || (definition.ListType == 0 && definition.SlotStart == 0) || definition.SlotEnd < definition.SlotStart ||
+		(definition.ListType != 0 && definition.ListType != 38) {
 		return 0, dnfrepo.ItemStack{}, ErrPickupItemInvalid
 	}
 	if definition.Kind != PickupItemStackable && definition.Kind != PickupItemEquipment {
@@ -136,7 +140,7 @@ func PlacePickupItem(record *dnfrepo.InventoryRecord, placement PickupItemPlacem
 		record.Slots = make(map[string]dnfrepo.ItemStack)
 	}
 	policy := dnfplacement.SlotPolicy{
-		ListType: dnfrepo.MainInventoryListType, Start: definition.SlotStart, End: definition.SlotEnd,
+		ListType: definition.ListType, Start: definition.SlotStart, End: definition.SlotEnd,
 		AllowQuickSlots:  definition.AllowQuickSlots,
 		PreferQuickSlots: definition.Kind == PickupItemStackable && definition.PreferQuickSlot,
 	}
@@ -149,7 +153,7 @@ func PlacePickupItem(record *dnfrepo.InventoryRecord, placement PickupItemPlacem
 		}
 	}
 	for _, slot := range policy.EmptySlots() {
-		if _, occupied := record.Slots[mainSlotKey(uint16(slot))]; !occupied {
+		if _, occupied := record.Slots[pickupSlotKey(definition.ListType, uint16(slot))]; !occupied {
 			return insertPickup(record, placement, slot)
 		}
 	}
@@ -173,7 +177,7 @@ func stackPickupInRange(
 		return 0, dnfrepo.ItemStack{}, false, nil
 	}
 	for slot := start; slot <= end; slot++ {
-		key := mainSlotKey(uint16(slot))
+		key := pickupSlotKey(definition.ListType, uint16(slot))
 		stack, exists := record.Slots[key]
 		if !exists || stack.ItemID != int64(definition.ItemID) || stack.Bind || stack.Count < 0 {
 			continue
@@ -240,6 +244,10 @@ func insertPickup(
 		stack.Count != int64(placement.Amount) {
 		return 0, dnfrepo.ItemStack{}, ErrPickupItemInvalid
 	}
-	record.Slots[mainSlotKey(uint16(slot))] = cloneStack(stack)
+	record.Slots[pickupSlotKey(placement.Definition.ListType, uint16(slot))] = cloneStack(stack)
 	return uint16(slot), cloneStack(stack), nil
+}
+
+func pickupSlotKey(listType byte, slot uint16) string {
+	return fmt.Sprintf("%d:%d", listType, slot)
 }

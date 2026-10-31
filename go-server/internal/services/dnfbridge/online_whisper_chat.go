@@ -12,18 +12,18 @@ func isCurrentPrivateWhisperType(messageType byte) bool {
 	return messageType == 0x24 || messageType == 0x28
 }
 
-// NOTI65 / 201B510 reads type, result, sender DSTR, sender channel,
+// NOTI65 / 201B510 reads type, result, sender DSTR, sender character group,
 // message DSTR, auxiliary DSTR, then the conversation peer DSTR for type 0x24.
 // 29FFFA0 -> 348B520 uses the last name to find/create the conversation window;
 // it must name the other participant from the receiving client's perspective.
 // A zero result takes 201C076 -> 201C22B, the actual message display path.
 // NOTI17 is STATE_ITEMTRADE in this EXE and must not be emitted for whispers.
-func buildCurrentOfficialWhisperBody(channel byte, sender, peer string, message []byte) []byte {
+func buildCurrentOfficialWhisperBody(group byte, sender, peer string, message []byte) []byte {
 	var writer packetWriter
 	writer.writeByte(0x24)
 	writer.writeByte(0)
 	writer.writeRawDstr(rosterNameBytes(sender))
-	writer.writeByte(channel)
+	writer.writeByte(group)
 	writer.writeRawDstr(message)
 	writer.writeRawDstr(nil)
 	writer.writeRawDstr(rosterNameBytes(peer))
@@ -38,12 +38,12 @@ func (s *Service) sendCurrentOfficialWhisper(sourceSession, targetSession *gameS
 	if err := s.sendGameUpperSuccess(sourceSession, opcode, nil); err != nil {
 		return err
 	}
-	channel, _ := currentSessionOwnerChannelField(sourceSession)
-	incoming := buildCurrentOfficialWhisperBody(channel, source.Name, source.Name, request.Message)
+	group := currentAdventureCharacterServerGroup(source)
+	incoming := buildCurrentOfficialWhisperBody(group, source.Name, source.Name, request.Message)
 	if err := s.sendGameUpperRawClassCodec(targetSession, currentOfficialWhisperNotifyOpcode, incoming, 0, true); err != nil {
 		return err
 	}
-	echo := buildCurrentOfficialWhisperBody(channel, source.Name, target.Name, request.Message)
+	echo := buildCurrentOfficialWhisperBody(group, source.Name, target.Name, request.Message)
 	if err := s.sendGameUpperRawClassCodec(sourceSession, currentOfficialWhisperNotifyOpcode, echo, 0, true); err != nil {
 		return err
 	}

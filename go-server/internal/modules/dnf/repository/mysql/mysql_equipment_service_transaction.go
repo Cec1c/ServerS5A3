@@ -25,13 +25,13 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinEquipmentServiceAssets(ctx context.C
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrMailboxAssetTransactionUnavailable
 	}
-	tx, err := b.BeginTx(ctx, nil)
+	tx, err := beginObservedSQLTransaction(ctx, b, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	r := u.router
-	r.db = sqlTransactionDB{tx: tx}
+	r.db = newSQLTransactionDB(tx.Tx, r.db)
 	r.readDBs = append([]string(nil), r.writeDBs...)
 	r.lockReads = true
 	base := newMySQLGroupFromRouter(r, false)

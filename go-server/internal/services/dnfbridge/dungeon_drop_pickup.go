@@ -95,6 +95,7 @@ func buildCurrentDungeonGoldPickupResultBody(
 }
 
 func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) error {
+	s.logGoldDiagnosticPickup(session, "game-dungeon-pickup-received", "body_len", len(body))
 	request, err := dungeoncmd.DecodeGetItemRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-dungeon-pickup-blocked",
@@ -687,16 +688,17 @@ func grantCurrentDungeonPickupItem(
 		return 0, currentItemListEntry{}, errDungeonPickupTransactionMissing
 	}
 	var itemUpdate currentItemListEntry
+	placement := currentDungeonPickupPlacement(definition, amount, qualitySeed...)
 	result, err := owner.GrantPickupItem(ctx, dnfdungeon.PickupItemCommand{
 		CharacterID: characterID,
-		Placement:   currentDungeonPickupPlacement(definition, amount, qualitySeed...),
+		Placement:   placement,
 		UpdatedAt:   now,
 		Finalize: func(slot int16, stack dnfrepo.ItemStack) (dnfrepo.ItemStack, error) {
 			if stack.ItemID != int64(definition.ItemID) || stack.Count <= 0 {
 				return dnfrepo.ItemStack{}, errDungeonPickupItemInvalid
 			}
 			itemUpdate = currentItemListEntryFromStack(
-				dnfrepo.MainInventoryListType,
+				placement.Definition.ListType,
 				slot,
 				stack,
 			)
@@ -750,6 +752,14 @@ func currentDungeonPickupPlacement(
 		// 所有"把可堆叠道具放进背包"的路径都先并入同身份的既有行：判据交给
 		// dnfrepo.CanMergeItemStack（仓库层唯一实现），身份键或实例到期时间冲突的行不并。
 		MergeIdentity: currentPVFGrantIdentity(definition),
+	}
+	container := currentPVFItemTargetContainer(definition)
+	if container.GuildMedal || container.GuardianGem {
+		placement.Definition.ListType = container.ListType
+		placement.Definition.SlotStart = container.SlotStart
+		placement.Definition.SlotEnd = container.SlotEnd
+		placement.Definition.PreferQuickSlot = false
+		placement.Definition.AllowQuickSlots = false
 	}
 	if !definition.ExpirationDate.IsZero() {
 		placement.NormalizeExisting = func(stack dnfrepo.ItemStack) (dnfrepo.ItemStack, error) {
@@ -818,7 +828,11 @@ func buildCurrentDungeonPickupStack(
 	if !definition.ExpirationDate.IsZero() {
 		stack, _ = applyCurrentPVFItemExpiration(stack, definition)
 	}
-	entry = currentItemListEntryFromStack(dnfrepo.MainInventoryListType, slot, stack)
+	listType := byte(dnfrepo.MainInventoryListType)
+	if container := currentPVFItemTargetContainer(definition); container.GuildMedal || container.GuardianGem {
+		listType = container.ListType
+	}
+	entry = currentItemListEntryFromStack(listType, slot, stack)
 	stack.RawEntry = append([]byte(nil), entry.data[:]...)
 	if definition.AikenInitial != nil {
 		return currentAikenWriteState(stack, slot, aikenState)

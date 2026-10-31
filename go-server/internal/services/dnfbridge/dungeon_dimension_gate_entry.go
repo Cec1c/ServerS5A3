@@ -131,7 +131,7 @@ func (s *Service) validateCurrentDimensionGateDailyCount(character dnfrepo.Chara
 // 日计数与同批入场资产（门票、入场房间疲劳）放进同一个角色事务提交；调用方
 // `consumeCurrentDailyCountEntry` 负责槽位刷新与疲劳房间标记。
 //
-// 客户端次数 UI 仍待核验。当前 EXE 的 812 不是次数通知；此处不发包。
+// 812投影在调用者确认事务提交后发送；隐藏出现状态与同次入场原子保存。
 func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, runtime *runtimeDungeonState, assets currentDailyCountEntryAssets) (dnfrepo.CharacterRecord, []dnfdungeon.EntryItemConsumedStack, error) {
 	if runtime == nil || !s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon) {
 		return dnfrepo.CharacterRecord{}, nil, nil
@@ -158,6 +158,7 @@ func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, ru
 		CharacterID:   strconv.Itoa(int(session.selectedCharacterID)),
 		Limit:         limit,
 		ExtraLimit:    extraLimit,
+		Hidden:        runtime.dimensionHiddenAdmission,
 		Requirements:  assets.requirements,
 		UpdatedAt:     s.gameplayNow(),
 		Project:       assets.project,
@@ -166,6 +167,7 @@ func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, ru
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, nil, err
 	}
+	runtime.dimensionHiddenHighReward = result.HiddenHighReward
 	s.logGameEvent(session, "game-dimension-gate-daily-entry-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
@@ -175,7 +177,7 @@ func (s *Service) consumeCurrentDimensionGateDailyEntry(session *gameSession, ru
 		"limit_source", source,
 		"entry_items", len(result.Consumed),
 		"fatigue_commit", assets.debitRoomFatigue,
-		"client_projection", "pending_native_count_ui_verification",
+		"client_projection", "committed_812_counts",
 		"reset", "06:00_UTC+8")
 	return result.Character, result.Consumed, nil
 }
