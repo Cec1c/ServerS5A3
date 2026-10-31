@@ -360,6 +360,18 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	s.logPacketEvent("dnf-dungeon-clear-card-equipment-pool",
 		clearCardEquipmentPoolWarmUpFields(monsterTable)...)
 
+	// Build generic monster-drop pools before listeners open. The first player
+	// must never pay the PVF scan cost while holding a live dungeon session.
+	if s.options.currentClientVersion == "official-24.9" {
+		started := time.Now()
+		catalog, warmErr := monsterTable.DropCatalog()
+		if warmErr == nil {
+			warmErr = catalog.ensureGenericPools()
+		}
+		s.logPacketEvent("dnf-dungeon-generic-drop-pool-warmup", "ready", warmErr == nil,
+			"elapsed_ms", time.Since(started).Milliseconds(), "error", warmErr)
+	}
+
 	if s.options.mapDefinitionCache && !s.options.lowMemory {
 		if err := table.EnableMapCache(archive, worldmap.DefaultMapCacheOptions()); err != nil {
 			return fmt.Errorf("准备地图按需缓存失败: %w", err)
