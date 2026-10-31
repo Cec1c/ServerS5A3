@@ -119,6 +119,7 @@ func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repos
 		LegacyInventory:   &mysqlLegacyInventoryStore{mysqlStoreBase: base},
 	}
 	if includeTransactions {
+		group.QuestMaterialPlan = &mysqlQuestMaterialPreparation{router: router}
 		if _, ok := router.db.(sqlTxBeginner); ok {
 			group.CharacterCreate = &mysqlCharacterCreationUnitOfWork{router: router}
 			group.CharacterItems = &mysqlCharacterItemUnitOfWork{router: router}

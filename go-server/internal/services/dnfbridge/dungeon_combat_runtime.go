@@ -686,14 +686,14 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		runtimeDungeonMonsterAnnounced, runtimeDungeonMonsterDefeated)
 	if bossActorDeath || fiendWarBossTarget {
 		allowed, err := s.commitCurrentFiendWarBossWindowLocked(session, runtime, func() error {
-			target, cleared, reportErr = runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+			target, cleared, reportErr = s.commitQuestMaterialDeath(session, runtime, request.RuntimeObjectKey)
 			return nil
 		})
 		if !allowed || err != nil {
 			return err
 		}
 	} else {
-		target, cleared, reportErr = runtime.Room.CommitActorDeathReport(request.RuntimeObjectKey, runtime.Session)
+		target, cleared, reportErr = s.commitQuestMaterialDeath(session, runtime, request.RuntimeObjectKey)
 	}
 	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
 		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
@@ -1026,8 +1026,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		}
 	}
 	detailStarted = timing.detail(1, detailStarted)
-	if rewardMonsterCandidate && questWork.questDrops {
-		s.checkCurrentDungeonQuestMonsterDropsWithContext(questCtx, session, runtime, rewardMonster.Spawn.MonsterID)
+	if rewardMonsterCandidate {
+		// Type-1 decisions and personal delivery are journaled at authoritative death.
+		if err := s.recoverQuestMaterials(session); err != nil {
+			s.logGameEvent(session, "game-quest-material-delivery-deferred", "error", err)
+		}
 	}
 	detailStarted = timing.detail(2, detailStarted)
 	if rewardMonsterCandidate && questWork.huntMonster {

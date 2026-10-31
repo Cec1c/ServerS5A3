@@ -42,6 +42,11 @@
 
 - 在既有普通日志中保留选图准备、上下文写出返回、回城抑制与队员同步的有界标量字段；不改变判定和发包顺序。原始报文、账号及错误对象不进入该回退。
 - 沿用原MR的合成日志/请求链回归并保留最新主干诊断分派，阶段记录不表示客户端已显示画面或历史问题已通过实机验收。
+## 2026-10-31 — Durable personal quest materials for shared monster deaths
+
+- Fan out existing type-1 quest-material rules to each eligible same-room character instead of only the accepted death reporter. Preserve ordinary ground loot and type-2/type-3 owners; no quest-ID exceptions.
+- Persist personal decisions and delivery/notification receipts in existing Settings, commit inventory atomically, and recover the same decision after disconnect, full bags, rollback or an ambiguous commit. Add scoped preparation transactions, bounded inbox recovery and generation guards without a schema migration.
+- Add official-profile handler matrices, personal probability/eligibility and queue tests, plus real disposable MariaDB atomicity/concurrency/reload coverage. Design, limits and acceptance boundaries: Docs/PARTY_QUEST_MATERIAL_DELIVERY.md. No production deployment or native-client acceptance is implied.
 
 ## 2026-10-31 — 公会上期回归夹具的月末边界
 

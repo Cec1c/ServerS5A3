@@ -270,6 +270,7 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 		s.retireCurrentLukeSessionRun(session)
 		s.releaseCurrentRaidParticipationSession(session)
 		s.cancelCurrentDayDungeonCatalogRefresh(session)
+		s.cancelQuestMaterialRecovery(session)
 		s.cancelCurrentMonthlyAttendanceTick(session)
 		s.cancelCurrentWeeklyAttendanceTick(session)
 		s.cancelCurrentOrdinaryAttendanceTick(session)
