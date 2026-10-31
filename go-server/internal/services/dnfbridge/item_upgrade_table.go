@@ -418,13 +418,28 @@ func (s *Service) alignedUpgradePolicyResolver() func(mode string, targetItemID 
 			return alignedcmd.UpgradePolicyResolution{}, fmt.Errorf("upgrade table row unavailable or invalid: mode=%s target=%d", mode, targetLevel)
 		}
 		penaltyType := row.PenaltyType
+		penaltyValue := row.PenaltyValue
 		if destroyLv := table.DestroyLevel(rarity); destroyLv >= 0 && currentLevel >= destroyLv && penaltyType < 3 {
 			penaltyType = 3
+		}
+		// The 2018 ordinary reinforcement rule distinguishes weapons from
+		// armor, jewelry and the ordinary special-equipment slots. The current
+		// PVF has a shared weapon-like table for both, so only override the
+		// confirmed nonweapon families at the +10 and +11 failure boundaries.
+		// Leave unknown/special families and all amplification rules untouched.
+		if mode == "reinforce" && currentLevel >= 10 && penaltyType < 3 {
+			if itemType, found := doc.Text("equipment type"); found {
+				if placement, valid := currentEquipmentPlacementRuleForPVFType(itemType); valid &&
+					((placement.targetSlot >= 14 && placement.targetSlot <= 23) || placement.targetSlot == 25) {
+					penaltyType = 3
+					penaltyValue = 0
+				}
+			}
 		}
 		resolution := alignedcmd.UpgradePolicyResolution{
 			SuccessWeight:  row.SuccessWeight(),
 			PenaltyType:    penaltyType,
-			PenaltyValue:   row.PenaltyValue,
+			PenaltyValue:   penaltyValue,
 			MaterialItemID: row.MaterialItemID,
 			MaterialCount:  row.MaterialCount,
 			NoticeLevel:    table.NoticeLevel,
