@@ -318,8 +318,8 @@ func TestMailboxSendThenRecipientOpenAndClaimCompletesSameAccountTransfer(t *tes
 	if err != nil {
 		t.Fatalf("claim recipient mail: %v", err)
 	}
-	// 领完即结清（claimed_letter.go 默认档）：补发的 0x61 页里已经没有这封信。
-	assertMailboxExtractSuccessWithEmptyPage(t, claim, currentExtractAck(1))
+	// 领完即结清（claimed_letter.go 默认档）：显式重新打开的 0x61 页里已经没有这封信。
+	assertMailboxExtractSuccessThenEmptyReopen(t, claim, currentExtractAck(1), repos, 88)
 
 	receiver, found, err := repos.Character.Load(ctx, "88")
 	if err != nil || !found {
@@ -494,8 +494,8 @@ func TestMailboxExtractClaimsGoldAndItemAtomicallyThenRejectsRepeat(t *testing.T
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	// 领完即结清（claimed_letter.go 默认档）：这封信已经不在补发的 0x61 页里。
-	assertMailboxExtractSuccessWithEmptyPage(t, got, currentExtractAck(123))
+	// 领完即结清（claimed_letter.go 默认档）：这封信已经不在显式重新打开的 0x61 页里。
+	assertMailboxExtractSuccessThenEmptyReopen(t, got, currentExtractAck(123), repos, 77)
 	if len(got.PostActions) != 0 {
 		t.Fatalf("post actions = %v, want no full container refresh", got.PostActions)
 	}
@@ -580,7 +580,7 @@ func TestMailboxExtractUsesPVFItemTabWithInitialExpansionMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertMailboxExtractSuccessWithEmptyPage(t, got, currentExtractAck(1))
+	assertMailboxExtractSuccessThenEmptyReopen(t, got, currentExtractAck(1), repos, 77)
 	inventory, found, err := repos.Inventory.Load(ctx, "77")
 	if err != nil || !found {
 		t.Fatalf("load inventory found=%v err=%v", found, err)
@@ -675,15 +675,14 @@ func TestMailboxExtractBatchFillsQuickSlotsAndItemTabBeforeLeavingFullMail(t *te
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	// 本次领取的 1..8 全部领完即结清（claimed_letter.go 默认档），补发的 0x61 页里
-	// 只剩没领到的那封满信（mail 9）—— 旧断言钉的是"已领取的信留作空收据留在页里"，
-	// 现改为钉住"页面里剩下的就是还能领的那一封"。
-	if len(got.UpperResponses) != 3 {
-		t.Fatalf("response count = %d, want op95 ACK, class0/0x61 snapshot and full-inventory popup", len(got.UpperResponses))
+	// ACK updates existing native objects; only explicit reopen rebuilds the
+	// list, which must retain the unclaimed full-bag letter (mail 9).
+	if len(got.UpperResponses) != 2 {
+		t.Fatalf("response count = %d, want op95 ACK and full-inventory popup", len(got.UpperResponses))
 	}
-	assertMailboxResponse(t, got.UpperResponses[2], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, []byte{0, 4})
+	assertMailboxResponse(t, got.UpperResponses[1], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, []byte{0, 4})
 	assertMailboxResponse(t, got.UpperResponses[0], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, currentExtractAck(1, 2, 3, 4, 5, 6, 7, 8))
-	page := got.UpperResponses[1]
+	page := mailboxExplicitReopenPage(t, repos, 77)
 	if page.MsgID != mailboxListNotificationMessageID || page.Classification != 0 {
 		t.Fatalf("extract page = msg 0x%04X class %d, want class0/0x61", page.MsgID, page.Classification)
 	}
@@ -769,7 +768,7 @@ func TestMailboxExtractSettlesAlreadyClaimedLetters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle error = %v", err)
 	}
-	assertMailboxExtractSuccessWithEmptyPage(t, got, currentExtractAck(1, 2))
+	assertMailboxExtractSuccessThenEmptyReopen(t, got, currentExtractAck(1, 2), repos, 77)
 	inventory, found, err := repos.Inventory.Load(ctx, "77")
 	if err != nil || !found {
 		t.Fatalf("load inventory found=%v err=%v", found, err)
@@ -1278,16 +1277,16 @@ func assertOneMailboxResponse(t *testing.T, got alignedcmd.Result, opcode dnfenu
 	assertMailboxResponse(t, got.UpperResponses[0], uint16(opcode), dnfproto.DefaultChannelClassification, body)
 }
 
-func assertMailboxExtractSuccessWithSnapshot(t *testing.T, got alignedcmd.Result, ack []byte) {
+func assertMailboxExtractSuccessThenSavedReopen(t *testing.T, got alignedcmd.Result, ack []byte, repos dnfrepo.Group, characterID uint16) {
 	t.Helper()
 	if !got.Handled || !got.ResponseAllowed {
 		t.Fatalf("mailbox extract should be handled with a response: %+v", got)
 	}
-	if len(got.UpperResponses) != 2 {
-		t.Fatalf("response count = %d, want op95 ACK plus class0/0x61 snapshot", len(got.UpperResponses))
+	if len(got.UpperResponses) != 1 {
+		t.Fatalf("response count = %d, want op95 ACK without rebuilding native objects", len(got.UpperResponses))
 	}
 	assertMailboxResponse(t, got.UpperResponses[0], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, ack)
-	snapshot := got.UpperResponses[1]
+	snapshot := mailboxExplicitReopenPage(t, repos, characterID)
 	if snapshot.MsgID != mailboxListNotificationMessageID || snapshot.Classification != 0 || len(snapshot.Body) < 2 || snapshot.Body[1] != 0 {
 		t.Fatalf("mailbox extract snapshot = %+v, want class0/0x61 clear-first page", snapshot)
 	}
@@ -1310,21 +1309,18 @@ func assertMailboxExtractSuccessWithSnapshot(t *testing.T, got alignedcmd.Result
 	}
 }
 
-// assertMailboxExtractSuccessWithEmptyPage 钉住 claimed_letter.go 默认档的结清契约：
-// 请求里那些"已经领取过"的信在 op95 之后必须从收件箱消失，所以 ACK 之后补发的
-// clear-first 0x61 页必须**一封都不剩**。空页本身是已验证形状：op134 全删之后补发的
-// 那份快照就是这个形状（TestMailboxChangeStateDeleteAllRefreshesPageOnce，现场
-// 2026-09-28）。
-func assertMailboxExtractSuccessWithEmptyPage(t *testing.T, got alignedcmd.Result, ack []byte) {
+// The claim ACK updates the existing objects; a later explicit reopen proves
+// the durable settlement without freeing a parent still used by the detail UI.
+func assertMailboxExtractSuccessThenEmptyReopen(t *testing.T, got alignedcmd.Result, ack []byte, repos dnfrepo.Group, characterID uint16) {
 	t.Helper()
 	if !got.Handled || !got.ResponseAllowed {
 		t.Fatalf("mailbox extract should be handled with a response: %+v", got)
 	}
-	if len(got.UpperResponses) != 2 {
-		t.Fatalf("response count = %d, want op95 ACK plus class0/0x61 snapshot", len(got.UpperResponses))
+	if len(got.UpperResponses) != 1 {
+		t.Fatalf("response count = %d, want op95 ACK without rebuilding native objects", len(got.UpperResponses))
 	}
 	assertMailboxResponse(t, got.UpperResponses[0], uint16(dnfenum.CmdPacketMailboxExtractItem), dnfproto.DefaultChannelClassification, ack)
-	snapshot := got.UpperResponses[1]
+	snapshot := mailboxExplicitReopenPage(t, repos, characterID)
 	if snapshot.MsgID != mailboxListNotificationMessageID || snapshot.Classification != 0 {
 		t.Fatalf("mailbox extract snapshot = %+v, want class0/0x61 clear-first page", snapshot)
 	}
@@ -1333,6 +1329,15 @@ func assertMailboxExtractSuccessWithEmptyPage(t *testing.T, got alignedcmd.Resul
 		t.Fatalf("settled letters are still listed: summary=%d total=%d detail=%d, want an empty page",
 			walked.summaryCount, walked.totalMails, walked.detailCount)
 	}
+}
+
+func mailboxExplicitReopenPage(t *testing.T, repos dnfrepo.Group, characterID uint16) alignedcmd.UpperResponse {
+	t.Helper()
+	opened, err := NewHandler().Handle(context.Background(), alignedcmd.Request{Opcode: 96, SelectedCharacterID: characterID, Repositories: repos})
+	if err != nil || len(opened.UpperResponses) != 2 {
+		t.Fatalf("explicit mailbox reopen=%+v err=%v", opened, err)
+	}
+	return opened.UpperResponses[1]
 }
 
 func assertMailboxResponse(t *testing.T, response alignedcmd.UpperResponse, messageID uint16, classification byte, body []byte) {

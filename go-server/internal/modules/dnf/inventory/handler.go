@@ -47,11 +47,11 @@ func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.R
 		}
 		owner, err := NewOwner(req.Repositories)
 		if err != nil {
-			return ownerBlockedResult(cmd, err), nil
+			return ownerRejectedDeleteResult(req.Opcode, cmd, err), nil
 		}
 		result, err := owner.Delete(ctx, cmd)
 		if err != nil {
-			return ownerBlockedResult(cmd, err), nil
+			return ownerRejectedDeleteResult(req.Opcode, cmd, err), nil
 		}
 		return ownerAppliedDeleteResult(req.Opcode, cmd, result), nil
 	case dnfenum.CmdPacketMoveItemspace:
@@ -2011,6 +2011,15 @@ func ownerAppliedDeleteResult(opcode uint16, cmd Command, result DeleteResult) a
 		),
 		UpperResponses: responses,
 	}
+}
+
+func ownerRejectedDeleteResult(opcode uint16, cmd Command, err error) alignedcmd.Result {
+	result := ownerBlockedResult(cmd, err)
+	result.ResponseAllowed = true
+	result.UpperResponses = []alignedcmd.UpperResponse{
+		class1Response(opcode, buildDeleteItemFailureAck(cmd.SourceListType)),
+	}
+	return result
 }
 
 // buildSortLockAck 是 713/714 的 class1 成功体：u8 1 + u8 list + u16 slot。

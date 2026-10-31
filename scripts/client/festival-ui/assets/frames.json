@@ -1,0 +1,79 @@
+[
+  {
+    "name": "body",
+    "w": 912,
+    "h": 884,
+    "logicalWidth": 456,
+    "logicalHeight": 442
+  },
+  {
+    "name": "banner-201601",
+    "w": 864,
+    "h": 184,
+    "logicalWidth": 432,
+    "logicalHeight": 92
+  },
+  {
+    "name": "banner-201605",
+    "w": 864,
+    "h": 184,
+    "logicalWidth": 432,
+    "logicalHeight": 92
+  },
+  {
+    "name": "banner-201607",
+    "w": 864,
+    "h": 184,
+    "logicalWidth": 432,
+    "logicalHeight": 92
+  },
+  {
+    "name": "banner-201701",
+    "w": 864,
+    "h": 184,
+    "logicalWidth": 432,
+    "logicalHeight": 92
+  },
+  {
+    "name": "banner-201801",
+    "w": 864,
+    "h": 184,
+    "logicalWidth": 432,
+    "logicalHeight": 92
+  },
+  {
+    "name": "banner-201807",
+    "w": 864,
+    "h": 184,
+    "logicalWidth": 432,
+    "logicalHeight": 92
+  },
+  {
+    "name": "card-locked",
+    "w": 420,
+    "h": 140,
+    "logicalWidth": 210,
+    "logicalHeight": 70
+  },
+  {
+    "name": "card-pending",
+    "w": 420,
+    "h": 140,
+    "logicalWidth": 210,
+    "logicalHeight": 70
+  },
+  {
+    "name": "card-sent",
+    "w": 420,
+    "h": 140,
+    "logicalWidth": 210,
+    "logicalHeight": 70
+  },
+  {
+    "name": "separator",
+    "w": 864,
+    "h": 2,
+    "logicalWidth": 432,
+    "logicalHeight": 1
+  }
+]

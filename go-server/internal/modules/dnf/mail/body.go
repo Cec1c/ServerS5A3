@@ -291,7 +291,7 @@ func buildMailboxListNotifications(mails []dnfrepo.MailRecord, notLoaded int, no
 }
 
 // buildMailboxListNotificationsWithTypeResolver is the protocol-facing list
-// builder. It must be used for the op96 open, op95 post-claim, and op134
+// builder. It must be used for the op96 open and op134
 // post-delete refreshes so attachment row widths come from the same runtime PVF
 // type that the client parses.
 func buildMailboxListNotificationsWithTypeResolver(

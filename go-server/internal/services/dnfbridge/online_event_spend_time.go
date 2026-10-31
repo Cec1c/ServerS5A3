@@ -568,6 +568,10 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		if err != nil {
 			return false, err
 		}
+		eventInfoBody, err = s.withPrivateFestivalCalendar(eventInfoBody)
+		if err != nil {
+			return false, fmt.Errorf("festival calendar: %w", err)
+		}
 		eventInfoTransport, err = zlibCompress(eventInfoBody)
 		if err != nil {
 			return false, fmt.Errorf("compress current spend-time op108: %w", err)
