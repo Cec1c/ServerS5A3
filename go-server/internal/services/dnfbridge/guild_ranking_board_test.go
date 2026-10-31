@@ -29,7 +29,7 @@ func TestGuildRankingBoardSettledPacketsReadOnlyAndExport(t *testing.T) {
 	guildDispatch(t, s, peers[0], 1503, []byte{1, 0})
 	lowModel := guildReply(t, peers[0], 1503)
 	reg, _ := guild.Load(ctx, repos.Settings)
-	previous, err := guild.BuildRankingPeriod(q.now.AddDate(0, -1, 0), map[uint32]guild.RankingFactors{
+	previous, err := guild.BuildRankingPeriod(guild.RankingMonthStart(q.now).AddDate(0, -1, 0), map[uint32]guild.RankingFactors{
 		1: {Members: 25.75, WeeklyActive: 10.5, Dungeon: 60, War: 35, PVP: 15, Contents: 20, Adventure: 2000, PartyClear: 350, RaidClear: 45},
 		2: {Members: 20, WeeklyActive: 5},
 	})

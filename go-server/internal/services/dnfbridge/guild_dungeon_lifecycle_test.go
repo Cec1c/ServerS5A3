@@ -186,7 +186,12 @@ func TestGuildDungeonSnapshotExpiredCycleIsReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	previous, err := reg.DungeonPolicy.Cycle(s.gameplayNow().AddDate(0, -1, 0))
+	current, err := reg.DungeonPolicy.Cycle(s.gameplayNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Subtract from the cycle boundary, not a month-end wall-clock date.
+	previous, err := reg.DungeonPolicy.Cycle(time.Unix(int64(current.StartUnix)-1, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
