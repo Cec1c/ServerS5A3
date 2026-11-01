@@ -27,6 +27,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	equipmentRegenerationGameplayModule(),
 	equipmentEmancipateGameplayModule(),
 	boosterGameplayModule(),
+	eventItemGameplayModule(),
 	rentalGameplayModule(),
 	epicProductionGameplayModule(),
 	epicBookGameplayModule(),

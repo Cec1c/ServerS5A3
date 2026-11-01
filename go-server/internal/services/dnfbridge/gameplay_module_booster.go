@@ -60,6 +60,9 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 		s.logGameEvent(session, "game-current-booster-rejected", "body_len", len(body), "reason", err)
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUseBoosterItem), s.currentBoosterFailureCode(err))
 	}
+	if request.Kind == currentBoosterRequestRandom && s.currentEventCargoSource(session, request.SourceSlot) {
+		return s.handleCurrentEventItem(session, uint16(dnfenum.CmdPacketUseBoosterItem), body)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	catalog, err := s.currentPVFItemCatalog()

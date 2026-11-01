@@ -87,6 +87,12 @@ func resolveCurrentBoosterDefinition(
 				len(definition.SelectionCategory),
 			)
 		}
+		definition.CompactArmorCategories = make(map[uint16]bool)
+		if definition.SelectionRequired == 0 {
+			for category, rows := range definition.SelectionCategory {
+				definition.CompactArmorCategories[category] = currentBoosterCompleteArmorCategory(catalog, rows)
+			}
+		}
 	case currentBoosterRequestRandom:
 		if stackableType != "[booster]" && stackableType != "[cera booster]" && stackableType != "[booster random]" && !currentLotterySupportedType(stackableType) {
 			return currentBoosterDefinition{}, fmt.Errorf("%w: source item=%d type=%q is not random", errCurrentBoosterPVFInvalid, sourceItemID, stackableType)
@@ -283,11 +289,35 @@ func parseCurrentBoosterSelectionCatalog(
 	return result, categories, nil
 }
 
+// The compact UI carries a complete five-piece armor choice. Its identity is
+// the runtime definition, not the item number of one historical event.
+func currentBoosterCompleteArmorCategory(catalog *pvfDungeonDropCatalog, rows []currentBoosterSelectionCandidate) bool {
+	if len(rows) != 5 {
+		return false
+	}
+	parts := map[string]bool{"[coat]": false, "[pants]": false, "[shoulder]": false, "[shoes]": false, "[waist]": false}
+	for _, row := range rows {
+		if row.Count != 1 || row.CategoryKind != 0 || row.Option != 0 {
+			return false
+		}
+		item, err := catalog.ResolveItem(row.ItemID)
+		if err != nil || item.Kind != dungeonDropItemEquipment {
+			return false
+		}
+		seen, valid := parts[item.EquipmentType]
+		if !valid || seen {
+			return false
+		}
+		parts[item.EquipmentType] = true
+	}
+	return true
+}
+
 func currentBoosterSelectedCandidates(
 	definition currentBoosterDefinition,
 	request currentBoosterOpenRequest,
 ) ([]currentBoosterSelectionCandidate, error) {
-	if request.CompactArmorSet && (definition.Source.ItemID != 490008265 || definition.SelectionRequired != 0 || len(request.Selections) != 5) {
+	if request.CompactArmorSet && (!definition.CompactArmorCategories[request.SelectionContext] || definition.SelectionRequired != 0 || len(request.Selections) != 5) {
 		return nil, errCurrentBoosterSelectionInvalid
 	}
 	if len(request.Selections) == 0 {

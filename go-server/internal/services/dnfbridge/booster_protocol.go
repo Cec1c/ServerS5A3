@@ -115,17 +115,18 @@ type currentBoosterGrantedReward struct {
 }
 
 type currentBoosterDefinition struct {
-	ItemUsage         *itemusage.Definition
-	GoldMinimumLevel  int64
-	Source            dungeonDropItemDefinition
-	StackableType     string
-	SelectionRequired int
-	Selection         []currentBoosterSelectionCandidate
-	SelectionCategory map[uint16][]currentBoosterSelectionCandidate
-	MaterialItemID    int64
-	MaterialCount     int64
-	LotteryGoldCost   int64
-	Random            alignedcmd.MagicBoxResolution
+	ItemUsage              *itemusage.Definition
+	GoldMinimumLevel       int64
+	Source                 dungeonDropItemDefinition
+	StackableType          string
+	SelectionRequired      int
+	Selection              []currentBoosterSelectionCandidate
+	SelectionCategory      map[uint16][]currentBoosterSelectionCandidate
+	CompactArmorCategories map[uint16]bool
+	MaterialItemID         int64
+	MaterialCount          int64
+	LotteryGoldCost        int64
+	Random                 alignedcmd.MagicBoxResolution
 }
 
 type currentBoosterRewardSlotDelta struct {

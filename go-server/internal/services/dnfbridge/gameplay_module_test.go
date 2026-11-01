@@ -81,6 +81,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"equipment-regeneration",
 		"equipment-emancipate",
 		"booster-item",
+		"event-container-item",
 		"equipment-rental",
 		"epic-production",
 		"epic-book",
