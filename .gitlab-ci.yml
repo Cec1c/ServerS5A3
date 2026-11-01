@@ -50,7 +50,11 @@ stages:
 variables:
   GOTOOLCHAIN: local
   CGO_ENABLED: "0"
+  GOMAXPROCS: "2"
+  GOFLAGS: "-p=2"
   GOPATH: "$CI_PROJECT_DIR/.cache/go"
+  # Runner-owned /cache persists between jobs; Go keys compiled objects by inputs.
+  GOCACHE: "/cache/go-build/$CI_PROJECT_ID/$CI_COMMIT_REF_PROTECTED"
 default:
   image: golang:1.26.5
   cache:
@@ -61,6 +65,7 @@ default:
     - .cache/go/pkg/mod/
 build:
   stage: build
+  needs: [build-contract-tests]
   dependencies: []
   parallel:
     matrix:
@@ -68,24 +73,26 @@ build:
       TARGET_ARCH: [amd64]
       TARGET_COMPONENT: [server, control, doctor]
   script:
-  - sh scripts/check-server-boundary.sh
-  - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
-  - sh scripts/ci/test_build_components.sh
-  - sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
+  - sh scripts/ci/run_compute.sh build sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
   # Keep the same three programs and dist/ paths in separate downloadable jobs.
   # A combined 50MB ZIP exceeds the proxy deadline on the regular runner route.
-  - go run scripts/ci/artifacts/upload.go
-core-tests:
-  stage: test
+  - sh scripts/ci/artifacts/upload_serialized.sh
+build-contract-tests:
+  stage: build
+  needs: []
   dependencies: []
   script:
   - sh scripts/check-server-boundary.sh
-  - cd go-server
-  - go list -buildvcs=false -mod=readonly ./...
-  - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
-  - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
-  - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
-  - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+  - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
+  - sh scripts/ci/test_build_components.sh
+  - sh scripts/ci/artifacts/test_upload_serialized.sh
+  - sh scripts/ci/test_compute_locks.sh
+core-tests:
+  stage: test
+  needs: []
+  dependencies: []
+  script:
+  - sh scripts/ci/run_compute.sh heavy sh scripts/ci/test_core.sh
 changelog-fragments:
   stage: test
   needs: []
@@ -104,6 +111,7 @@ changelog-fragments:
     expire_in: 30 days
 channel-u8-tests:
   stage: test
+  needs: []
   dependencies: []
   image: docker.m.daocloud.io/library/python:3.13-slim@sha256:8fb4cfa1a2616d7b8e0c2175cc6ad68f5729c34ea8488c0b360d2934b7be9024
   cache: []
@@ -112,6 +120,9 @@ channel-u8-tests:
 # Semgrep's OCaml Eio io_uring backend fails to initialize on constrained runners.
 # Use its supported POSIX backend; keep the analyzer, rules and failure policy.
 semgrep-sast:
+  needs: []
+  script:
+  - sh scripts/ci/run_compute.sh heavy /analyzer run
   variables:
     EIO_BACKEND: posix
   dependencies: []
