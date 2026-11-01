@@ -76,6 +76,14 @@ func resolveCurrentBoosterDefinition(
 		definition.SelectionRequired = int(requiredValues[0])
 		definition.Selection, definition.SelectionCategory, err = parseCurrentBoosterSelectionCatalog(document)
 		if err != nil {
+			// Some native equipment-labelled choices actually award stackable
+			// tickets. Only their fully resolved, non-equipment rewards can
+			// safely use the ordinary grant projection without instance fields.
+			if rows, categories, compatible := parseCurrentBoosterStackableSelectionMetadata(catalog, document); compatible {
+				definition.Selection, definition.SelectionCategory, err = rows, categories, nil
+			}
+		}
+		if err != nil {
 			return currentBoosterDefinition{}, fmt.Errorf("%w: source item=%d: %v", errCurrentBoosterPVFInvalid, sourceItemID, err)
 		}
 		if len(definition.Selection) == 0 || len(definition.SelectionCategory) == 0 {
@@ -91,6 +99,17 @@ func resolveCurrentBoosterDefinition(
 		if definition.SelectionRequired == 0 {
 			for category, rows := range definition.SelectionCategory {
 				definition.CompactArmorCategories[category] = currentBoosterCompleteArmorCategory(catalog, rows)
+			}
+		}
+		for category, candidates := range definition.SelectionCategory {
+			defaults := 0
+			for _, candidate := range candidates {
+				if candidate.DefaultSelected {
+					defaults++
+				}
+			}
+			if definition.SelectionRequired > 0 && defaults > definition.SelectionRequired {
+				return currentBoosterDefinition{}, fmt.Errorf("%w: category=%d default selections=%d exceed selection_num=%d", errCurrentBoosterPVFInvalid, category, defaults, definition.SelectionRequired)
 			}
 		}
 	case currentBoosterRequestRandom:
@@ -151,8 +170,13 @@ func parseCurrentBoosterSelectionCatalog(
 	seen := make(map[uint32]currentBoosterSelectionCandidate)
 	categorySeen := make(map[uint16]map[uint32]struct{})
 	categories := make(map[uint16][]currentBoosterSelectionCandidate)
+	defaults := make(map[uint16]map[uint32]struct{})
+	selectionNum := document.Ints("booster selection num")
+	previousSection := ""
 	for _, section := range document.Sections {
 		name := normalizeMagicBoxSectionName(section.Name)
+		priorSection := previousSection
+		previousSection = name
 		switch name {
 		case "booster select category":
 			if inCategory {
@@ -198,6 +222,11 @@ func parseCurrentBoosterSelectionCatalog(
 			continue
 		case "/booster select category":
 			if !inCategory {
+				// A second adjacent terminator has no content and cannot change
+				// the completed category. Do not accept an initial/unrelated close.
+				if priorSection == "/booster select category" && section.Start == section.End && len(categories) > 0 {
+					continue
+				}
 				return nil, nil, fmt.Errorf("booster selection category close without open")
 			}
 			inCategory = false
@@ -206,7 +235,50 @@ func parseCurrentBoosterSelectionCatalog(
 		if !inCategory || strings.HasPrefix(name, "/") {
 			continue
 		}
+		if name == "default select" {
+			// Count + item IDs, not item/count reward pairs. The IDs reference
+			// ordinary rows in this category. Preserve their real quantities and
+			// include them in selection_num rather than granting them twice.
+			values := magicBoxSectionInts(document, section)
+			if len(values) == 0 || len(values) != section.End-section.Start ||
+				values[0] < 0 || values[0] > currentBoosterMaxRewardRows || values[0] != int64(len(values)-1) {
+				return nil, nil, fmt.Errorf("invalid default select header")
+			}
+			previous, duplicate := defaults[categoryID]
+			if duplicate && !categoryReopened {
+				return nil, nil, fmt.Errorf("duplicate default select category=%d", categoryID)
+			}
+			defaults[categoryID] = make(map[uint32]struct{})
+			for _, value := range values[1:] {
+				if value <= 0 || value > math.MaxUint32 {
+					return nil, nil, fmt.Errorf("invalid default select item=%d", value)
+				}
+				id := uint32(value)
+				if _, duplicate := defaults[categoryID][id]; duplicate {
+					return nil, nil, fmt.Errorf("duplicate default select item=%d", id)
+				}
+				defaults[categoryID][id] = struct{}{}
+			}
+			if duplicate {
+				if len(previous) != len(defaults[categoryID]) {
+					return nil, nil, fmt.Errorf("conflicting default select category=%d", categoryID)
+				}
+				for id := range previous {
+					if _, same := defaults[categoryID][id]; !same {
+						return nil, nil, fmt.Errorf("conflicting default select category=%d", categoryID)
+					}
+				}
+			}
+			continue
+		}
 		values := magicBoxSectionInts(document, section)
+		if name == "booster equipment upgrade" || name == "booster equipment grade" || name == "booster equipment separate" {
+			// An empty/string/float attribute is not an empty reward table.
+			// Check the raw token before the generic zero-integer fast path.
+			if section.End-section.Start != 1 || len(values) != 1 || document.Tokens[section.Start].Kind != dnfpvf.TokenInt {
+				return nil, nil, fmt.Errorf("invalid %s integer metadata", name)
+			}
+		}
 		if len(values) == 0 {
 			if name == "booster equipment upgrade" {
 				return nil, nil, fmt.Errorf("invalid booster equipment upgrade")
@@ -222,11 +294,11 @@ func parseCurrentBoosterSelectionCatalog(
 		}
 		stride := 0
 		switch name {
-		case "avatar":
+		case "avatar", "special avatar":
 			// Avatar choices carry item/count plus the client attribute
 			// category and option written in the 10-byte op160 request.
 			stride = 4
-		case "stackable", "creature", "equipment", "etc":
+		case "stackable", "creature", "equipment", "etc", "cera":
 			// Ordinary items, pets and enchant orbs are simple item/count
 			// pairs. Treating two adjacent pairs as one avatar quad made the
 			// second item look like an option byte and rejected valid choices.
@@ -261,7 +333,12 @@ func parseCurrentBoosterSelectionCatalog(
 				result = append(result, candidate)
 			}
 			if _, duplicate := categorySeen[categoryID][candidate.ItemID]; duplicate {
-				if categoryReopened {
+				if categoryReopened || (len(selectionNum) == 1 && selectionNum[0] > 0) {
+					// The native rows may repeat an identical item. Requests select
+					// IDs, not row indices; for a positive explicit selection count
+					// an identical row adds no distinct choice. Conflicting rows
+					// were rejected above. selection_num=0 retains strict rejection
+					// because its all-rows semantics could depend on multiplicity.
 					// 合并进来的第二段块重复了第一段已有的行：它是同一份数据的
 					// 重复占位，丢掉这一行即可（真档 490700910 的第二段是空块，
 					// 这条只是对"非空重复块"的保守兜底）。
@@ -277,6 +354,12 @@ func parseCurrentBoosterSelectionCatalog(
 		return nil, nil, fmt.Errorf("booster selection category is not closed")
 	}
 	for id, candidates := range categories {
+		// Native 0x3b40beb compares each actual reward ID to the default-ID
+		// vector and only sets the row's default flag on a match. Stale default
+		// IDs are inert UI metadata, not an additional reward definition.
+		for i := range candidates {
+			_, candidates[i].DefaultSelected = defaults[id][candidates[i].ItemID]
+		}
 		// Job/grow-type selection documents retain empty category placeholders
 		// for combinations the client does not offer (for example a job without
 		// a fifth advancement).  They do not invalidate populated categories.
@@ -372,6 +455,13 @@ func currentBoosterSelectedCandidates(
 			return nil, fmt.Errorf("%w: item=%d option=%d want=%d", errCurrentBoosterSelectionInvalid, choice.ItemID, choice.Option, candidate.Option)
 		}
 		selected = append(selected, candidate)
+	}
+	for _, candidate := range category {
+		if candidate.DefaultSelected {
+			if _, found := seen[candidate.ItemID]; !found {
+				return nil, fmt.Errorf("%w: category=%d missing default item=%d", errCurrentBoosterSelectionInvalid, request.SelectionContext, candidate.ItemID)
+			}
+		}
 	}
 	return selected, nil
 }

@@ -87,6 +87,9 @@ type currentBoosterSelectionCandidate struct {
 	Count        uint32
 	CategoryKind int64
 	Option       byte
+	// DefaultSelected is category-local metadata; quantity/attributes still
+	// come from the actual reward row, never from the default-select list.
+	DefaultSelected bool
 }
 
 type currentBoosterRewardPlacement byte

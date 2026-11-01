@@ -132,6 +132,26 @@ func resolveCurrentCeraPackageDefinition(
 		return currentCeraPackageDefinition{}, fmt.Errorf("%w: source item=%d stackable_type=%q", errCurrentCeraPackagePVFInvalid, sourceItemID, stackableType)
 	}
 	values := document.Ints("package data")
+	// Native package-period rows are item/count/days, not item/count pairs.
+	// These four historical ticket packages use days=0. Preserve the reward's
+	// own definition and nested-expiry rules in that case. Nonzero overrides
+	// need an end-to-end grant contract; never silently drop that whole table
+	// when an ordinary package-data table happens to exist alongside it.
+	for _, section := range document.Sections {
+		if normalizeMagicBoxSectionName(section.Name) != "package data include usable period" {
+			continue
+		}
+		periodRows := magicBoxSectionInts(document, section)
+		if len(periodRows) == 0 || len(periodRows)%3 != 0 || len(periodRows) != section.End-section.Start {
+			return currentCeraPackageDefinition{}, fmt.Errorf("%w: source item=%d malformed package period rows", errCurrentCeraPackagePVFInvalid, sourceItemID)
+		}
+		for i := 0; i < len(periodRows); i += 3 {
+			if periodRows[i+2] != 0 {
+				return currentCeraPackageDefinition{}, fmt.Errorf("%w: source item=%d unsupported package period=%d", errCurrentCeraPackagePVFInvalid, sourceItemID, periodRows[i+2])
+			}
+			values = append(values, periodRows[i], periodRows[i+1])
+		}
+	}
 	if len(values) == 0 || len(values)%2 != 0 || len(values)/2 > currentCeraPackageMaxRewardRows {
 		return currentCeraPackageDefinition{}, fmt.Errorf("%w: source item=%d package_data_values=%d", errCurrentCeraPackagePVFInvalid, sourceItemID, len(values))
 	}
