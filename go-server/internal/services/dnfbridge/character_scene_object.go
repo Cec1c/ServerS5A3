@@ -9,6 +9,11 @@ import (
 const currentSceneBootstrapObjectKey uint16 = 0x0191
 
 const (
+	currentSceneMenuAdventureNameOffset = 0x32
+	currentSceneMenuAdventureNameEnd    = 0x43
+)
+
+const (
 	// The current client resolves UINT32_MAX to runtime creature type 8.  A
 	// live mode0 trace then shows the empty overhead marker.  Zero is the
 	// C# no-equipped-creature value and must be kept for an absent pet.
@@ -105,6 +110,12 @@ func writeCurrentSceneObjectEntryWithCreatureAndAdventureName(writer *packetWrit
 	}
 
 	if rawState, ok := buildCurrentSceneObjectRawState(character, hasCharacter, name); ok {
+		// 现用EXE的22C5622把记录头+0x32的17字节名称写入人物资料+0x41C，
+		// 人物菜单353FC86读取这一份；独立冒险团资料包不会补写此字段。
+		// 沿用冒险团名的16字节编码限制，保留末尾NUL及+0x43的图标字段。
+		if encoded, err := encodeRepresentAccountName(adventureName); err == nil {
+			copy(rawState[currentSceneMenuAdventureNameOffset:currentSceneMenuAdventureNameEnd], encoded)
+		}
 		// MCP/live hook：sub_34DBD90 会校验这段对象状态的编码值；全 0 会跳到 0x18181818。
 		writer.writeBytes(rawState)
 	} else {
@@ -128,9 +139,9 @@ func buildCurrentSceneObjectRawState(character dnfrepo.CharacterRecord, hasChara
 	// offset 0x0A is the actor level read by sub_2059450/sub_269E330; offset
 	// 0x2C keeps the actor's own list/overhead entries visible in
 	// sub_11B6FF0/sub_11B7C90; offset 0x43 is the overhead icon record id that
-	// sub_1F60CE0 skips only when -1.  Every other consumed offset is
-	// zero-safe, and the never-read bytes stay zero rather than an
-	// account-specific value from DOVE.
+	// sub_1F60CE0 skips only when -1.
+	// +0x32到+0x42另由入场入口填入当前账号的冒险团名；其余未知字段保留零，
+	// 不使用抓包中的账号私有状态。
 	_ = fallbackName
 	const rawLen = 0x47
 	const actorReadyOffset = 0x07

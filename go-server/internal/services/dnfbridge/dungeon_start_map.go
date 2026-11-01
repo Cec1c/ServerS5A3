@@ -51,9 +51,8 @@ type currentDungeonStartMapActor struct {
 	Blocking byte
 }
 
-// The exact v141 START_MAP loop (VA 0x1ffbec0..0x1ffbf77) consumes
-// 20 bytes per extra row. The fog byte at 0x1ffbf84 is outside that loop.
-// Constructor 0x2621750 receives its final flag as literal zero.
+// START_MAP/op29 consumes 21 bytes per extra row, including ExtendedFlag.
+// The previously cited 20-byte loop belongs to the separate op387 handler.
 // The explicit legacy-u16 diagnostic layout is retained separately.
 type currentDungeonStartMapExtraEntry struct {
 	PassiveObjectIndex byte
@@ -88,7 +87,7 @@ type currentDungeonStartMap struct {
 	Actors                    []currentDungeonStartMapActor
 	ExtraEntries              []currentDungeonStartMapExtraEntry
 	// ExtraEntryVendorWidth selects the explicit 19-byte legacy-u16
-	// diagnostic layout. The default native row is 20 bytes.
+	// diagnostic layout. The default native row is 21 bytes.
 	ExtraEntryVendorWidth bool
 	HellPartyFogFlag      byte
 	RidableGroups         [][]currentDungeonStartMapRidableEntry
@@ -329,9 +328,10 @@ func currentDungeonStartMapActors(
 	return actors, nil
 }
 
-// writeCurrentDungeonStartMapExtraEntry follows the native 20-byte row
-// grammar by default. vendorWidth retains the explicit legacy-u16 diagnostic
-// layout, including its historical extra flag; it is not the v141 reader.
+// writeCurrentDungeonStartMapExtraEntry follows the START_MAP (op29)
+// 21-byte row grammar, including its per-row flag. The separate op387
+// reader omits that flag and must not define op29's layout. vendorWidth
+// retains the explicit 19-byte legacy-u16 diagnostic layout.
 func writeCurrentDungeonStartMapExtraEntry(
 	writer *packetWriter,
 	entry currentDungeonStartMapExtraEntry,
@@ -346,6 +346,7 @@ func writeCurrentDungeonStartMapExtraEntry(
 		writer.writeByte(entry.AmplifyType)
 		writer.writeUint16(entry.AmplifyValue)
 		writer.writeUint16(entry.ExtendedValue)
+		writer.writeByte(entry.ExtendedFlag)
 		return nil
 	}
 	if entry.GlobalSequence > uint32(^uint16(0)) {
