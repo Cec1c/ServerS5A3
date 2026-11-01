@@ -53,6 +53,8 @@ variables:
   GOMAXPROCS: "2"
   GOFLAGS: "-p=2"
   GOPATH: "$CI_PROJECT_DIR/.cache/go"
+  # Runner-owned /cache persists between jobs; Go keys compiled objects by inputs.
+  GOCACHE: "/cache/go-build/$CI_PROJECT_ID/$CI_COMMIT_REF_PROTECTED"
 default:
   image: golang:1.26.5
   cache:
@@ -71,7 +73,7 @@ build:
       TARGET_ARCH: [amd64]
       TARGET_COMPONENT: [server, control, doctor]
   script:
-  - sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
+  - sh scripts/ci/run_compute.sh build sh build.sh "$TARGET_OS" "$TARGET_ARCH" "$TARGET_COMPONENT"
   # Keep the same three programs and dist/ paths in separate downloadable jobs.
   # A combined 50MB ZIP exceeds the proxy deadline on the regular runner route.
   - sh scripts/ci/artifacts/upload_serialized.sh
@@ -84,18 +86,13 @@ build-contract-tests:
   - go test -count=1 scripts/ci/artifacts/upload.go scripts/ci/artifacts/upload_test.go
   - sh scripts/ci/test_build_components.sh
   - sh scripts/ci/artifacts/test_upload_serialized.sh
+  - sh scripts/ci/test_compute_locks.sh
 core-tests:
   stage: test
   needs: []
   dependencies: []
   script:
-  - sh scripts/check-server-boundary.sh
-  - cd go-server
-  - go list -buildvcs=false -mod=readonly ./...
-  - go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
-  - go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
-  - go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
-  - go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+  - sh scripts/ci/run_compute.sh heavy sh scripts/ci/test_core.sh
 changelog-fragments:
   stage: test
   needs: []
@@ -124,6 +121,8 @@ channel-u8-tests:
 # Use its supported POSIX backend; keep the analyzer, rules and failure policy.
 semgrep-sast:
   needs: []
+  script:
+  - sh scripts/ci/run_compute.sh heavy /analyzer run
   variables:
     EIO_BACKEND: posix
   dependencies: []
