@@ -34,6 +34,9 @@ func TestR134P14AntonManualToFlowDoesNotReplay(t *testing.T) {
 				f, p, at = singleAntonCompletedRewardFixture(t)
 			} else {
 				f, p, _, at = onlineAntonTerminalFixture(t)
+				// Reward display follows current ordinary-party membership as
+				// well as the earned raid group; the terminal fixture has no party.
+				r195RewardParty(t, f.service, 19, 20)
 				// This older terminal fixture predates reward-flow setup. Load the
 				// actual flow config and run its normal entitlement freeze, rather
 				// than manufacturing a card/reward map or treating nil as a defect.
@@ -53,7 +56,7 @@ func TestR134P14AntonManualToFlowDoesNotReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.conn.write.Reset()
-			dispatchAntonCardRequest(t, f, p, 659, []byte{0})
+			dispatchAntonCardRequest(t, f, p, 659, []byte{1})
 			if len(antonNativeCardBodies(t, f)) != 2 {
 				t.Fatal("manual movie completion omitted masks")
 			}
@@ -136,7 +139,7 @@ func TestR134P14AntonManualMaskReconnectRestoresWithoutGrant(t *testing.T) {
 	if err := f.service.sendCurrentAntonTerminalResult(old, state); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, old, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, old, 659, []byte{1})
 	replacement := f.session()
 	conn := &bufferConn{}
 	replacement.conn, replacement.loginPacketSeen, replacement.accountFromToken = conn, true, true
@@ -169,7 +172,7 @@ func TestR134P14AntonManualMaskReconnectRestoresWithoutGrant(t *testing.T) {
 		t.Fatalf("fresh owned connection restore screens=%d lists=%d", screens, lists)
 	}
 	conn.write.Reset()
-	if err := f.service.handleCurrentAntonMovieCompletion(replacement, 659, []byte{0}); err != nil {
+	if err := f.service.handleCurrentAntonMovieCompletion(replacement, 659, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.service.sendCurrentAntonRewardFlowProjection(replacement, state); err != nil {
@@ -282,7 +285,7 @@ func TestR134P14SinglePublicCombatAndSettlement(t *testing.T) {
 	}
 	deadlineAuditV10Event(t, s, p, func() error { return s.sendCurrentAntonTerminalResult(p, state) })
 	deadlineAuditV10Event(t, s, p, func() error {
-		if err := s.handleCurrentAntonMovieCompletion(p, 659, []byte{0}); err != nil {
+		if err := s.handleCurrentAntonMovieCompletion(p, 659, []byte{1}); err != nil {
 			return err
 		}
 		return s.handleCurrentAntonRewardCard(p, 660, []byte{1, 0})

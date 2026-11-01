@@ -336,6 +336,11 @@ func (o *Owner) consume(
 				accountInventory.Slots[key] = stack
 			}
 			accountInventory.UpdatedAt = now
+			if selectedItemID == dnfrepo.ColorlessCubeItemID {
+				if err := dnfrepo.RecordCharacterColorless(ctx, characters, character, 1, "contract", now); err != nil {
+					return err
+				}
+			}
 			if err := accountInventories.Save(ctx, accountInventory); err != nil {
 				return err
 			}

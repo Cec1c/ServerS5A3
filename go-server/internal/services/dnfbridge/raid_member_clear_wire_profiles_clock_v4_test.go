@@ -97,16 +97,29 @@ func auditMemberClearInfoWire(t *testing.T, f *raidStartGuardFixture, session *g
 	if got := c.roster(); !reflect.DeepEqual(got, want) {
 		t.Fatal("NOTI591 roster count", got, want)
 	}
-	// Entry-cost refresh NOTI598 is the only source-proven optional remainder.
+	// Started raids append the authoritative daily snapshot after entry cost.
 	if len(tail) > 0 {
 		cost, left := splitGameServerUpperPacket(t, tail)
-		if cost.Header.Classification != 0 || cost.Header.MsgID != 598 || len(left) != 0 || len(cost.Body) != 4+5*len(want) || binary.LittleEndian.Uint32(cost.Body) != uint32(len(want)) {
-			t.Fatal("unexpected remainder after NOTI591")
+		if cost.Header.Classification != 0 || cost.Header.MsgID != 598 || len(cost.Body) != 4+5*len(want) || binary.LittleEndian.Uint32(cost.Body) != uint32(len(want)) {
+			t.Fatalf("unexpected remainder after NOTI591: class=%d opcode=%d bodyBytes=%d tailBytes=%d body=%x tail=%x", cost.Header.Classification, cost.Header.MsgID, len(cost.Body), len(left), cost.Body, left)
 		}
 		for i := 0; i < len(want); i++ {
 			row := cost.Body[4+5*i : 4+5*(i+1)]
 			if _, ok := want[binary.LittleEndian.Uint16(row)]; !ok || row[2] > 1 {
 				t.Fatal("entry-cost foreign owner/ready")
+			}
+		}
+		if len(left) > 0 {
+			daily, remaining := splitGameServerUpperPacket(t, left)
+			if daily.Header.Classification != 0 || daily.Header.MsgID != 1303 || len(remaining) != 0 || len(daily.Body) != 12 {
+				t.Fatal("unexpected daily snapshot envelope", daily.Header, daily.Body)
+			}
+			for i := 0; i < 3; i++ {
+				rule, err := f.service.currentRaidDailyRule(byte(i + 1))
+				row := daily.Body[i*4 : i*4+4]
+				if err != nil || rule == nil || row[0] != byte(i+1) || row[1] != 0 || row[2] != byte(rule.Limit) || row[3] != 0 {
+					t.Fatal("daily snapshot differs from uncharged fixture/PVF", row, err)
+				}
 			}
 		}
 	}
@@ -257,10 +270,18 @@ func TestRealPVFRaidMemberPhaseAdvanceClearInfoWireProfilesClock(t *testing.T) {
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
+	if flow.SquadShownAt.IsZero() {
+		t.Fatal("squad rewards not committed")
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.SquadShownAt.Add(currentAntonMovieWindow(flow)), zeroAntonRoll); len(errs) != 0 || flow.FinishedAt.IsZero() || flow.BreakUntil.IsZero() {
+		t.Fatal("squad movie did not finish before phase advance", errs)
+	}
 	enterRaidStartWaitingFixture(t, f, f.state.Battle.InstanceID)
-	state, ok, err := f.service.startRuntimeRaidWithEntryCost(session)
-	if !ok || err != nil || state.Battle.Phase != 1 || len(state.Battle.MemberClears) != 0 {
-		t.Fatal("legitimate phase advance", ok, err)
+	// This fixture's completion is two minutes in the past; the current PVF
+	// break may be longer. Advance the real clock reducer at its owned deadline.
+	states, errs := f.service.advanceCurrentRaidClocks(flow.BreakUntil)
+	if len(states) != 1 || len(errs) != 0 || states[0].Battle.Phase != 1 || len(states[0].Battle.MemberClears) != 0 {
+		t.Fatal("legitimate phase advance", states, errs)
 	}
 	auditMemberClearInfoWire(t, f, session, map[uint16]byte{19: 0, 20: 0})
 }

@@ -33,21 +33,25 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
-	Clear                  *moderation.Clear
-	GuildContribution      *GuildContributionClear
-	GuildRanking           *guild.RankingPartyClear
-	GuildEssence           *guild.EssenceCatalog
-	GuildEssenceRevalidate func() bool
-	GuildDungeon           *GuildDungeonClear
-	DespairClearedFloor    int
-	DespairRewards         *DespairRewards
-	GriefClearedFloor      int
-	GriefRewards           *GriefRewards
-	AccountID              string
-	CharacterID            string
-	CompletionKey          string
-	Tables                 *progression.Tables
-	Experience             uint32
+	BattlePassDungeonKind                       uint32
+	BattlePassNoCoinClear, BattlePassSRankClear bool
+	ReturneeDimensionClear                      bool // 服务端已核实的异界终局；不依赖战令。
+	Clear                                       *moderation.Clear
+	GuildContribution                           *GuildContributionClear
+	GuildRanking                                *guild.RankingPartyClear
+	GuildEssence                                *guild.EssenceCatalog
+	GuildEssenceRevalidate                      func() bool
+	GuildDungeon                                *GuildDungeonClear
+	DespairClearedFloor                         int
+	DespairRewards                              *DespairRewards
+	GriefClearedFloor                           int
+	GriefRewards                                *GriefRewards
+	AccountID                                   string
+	CharacterID                                 string
+	CompletionKey                               string
+	DungeonID                                   int64
+	Tables                                      *progression.Tables
+	Experience                                  uint32
 	// ClearPotionBase is the clear EXP before rank, contracts and other bonuses.
 	ClearPotionBase         uint32
 	RecommendedDungeonClear bool
@@ -292,6 +296,23 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			appliedHonorExpertGain = maximumLevelExperience
 		}
 		if cmd.RecommendedDungeonClear {
+			if tx.Activity == nil {
+				return dnfrepo.ErrActivityTransaction
+			}
+			eventHash := sha256.Sum256([]byte(cmd.AccountID + "\x00" + cmd.CharacterID + "\x00" + cmd.CompletionKey))
+			created, err := tx.Activity.Record(ctx, dnfrepo.ActivityEvent{
+				ID: fmt.Sprintf("recommended:%x", eventHash), AccountID: cmd.AccountID, CharacterID: cmd.CharacterID,
+				Metric: dnfrepo.ActivityRecommendedDungeon, Amount: 1, OccurredAt: now,
+				DungeonID: cmd.DungeonID, Source: "recommended_clear",
+			})
+			if err != nil {
+				return err
+			}
+			// 已提交旧局不得在后续一局之后重放成新的冒险团累计。
+			if !created {
+				return ErrSettlementStateInvalid
+			}
+			dnfrepo.AddBattlePassCounter(&character, 0, -1, 1, now)
 			count := character.Stats[adventuregroup.RecommendedDungeonClearStatKey]
 			if count < 0 {
 				return ErrSettlementStateInvalid
@@ -299,6 +320,30 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			if count < math.MaxUint32 {
 				character.Stats[adventuregroup.RecommendedDungeonClearStatKey] = count + 1
 			}
+		}
+		if cmd.ReturneeDimensionClear {
+			dnfrepo.AddReturneeCounter(&character, dnfrepo.ReturneeDimensionCountKey, now)
+		}
+		if cmd.BattlePassDungeonKind != 0 {
+			if cmd.BattlePassDungeonKind != 8 && cmd.BattlePassDungeonKind != 24 && cmd.BattlePassDungeonKind != 44 {
+				return ErrSettlementStateInvalid
+			}
+			dnfrepo.AddBattlePassCounter(&character, cmd.BattlePassDungeonKind, -1, 1, now)
+			if cmd.BattlePassDungeonKind == 44 && !cmd.ReturneeDimensionClear {
+				dnfrepo.AddReturneeCounter(&character, dnfrepo.ReturneeDimensionCountKey, now)
+			}
+		}
+		if cmd.DespairClearedFloor > 0 {
+			dnfrepo.AddBattlePassCounter(&character, 7, -1, 1, now)
+		}
+		if cmd.GriefClearedFloor > 0 {
+			dnfrepo.AddBattlePassCounter(&character, 45, -1, 1, now)
+		}
+		if cmd.BattlePassNoCoinClear {
+			dnfrepo.AddBattlePassCounter(&character, 5, -1, 1, now)
+		}
+		if cmd.BattlePassSRankClear {
+			dnfrepo.AddBattlePassCounter(&character, 6, -1, 1, now)
 		}
 		lucky, err := commitSettlementLuckyStar(ctx, tx, &character, cmd.LuckyStar, now)
 		if err != nil {
@@ -420,7 +465,14 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			if err != nil {
 				return err
 			}
+			braveBefore := runtimeState.ShopPoints[adventuregroup.ShopPointBrave]
 			runtimeState.AddMaximumLevelExperience(*cmd.AdventureRuntime, maximumLevelExperience)
+			if gained := int64(runtimeState.ShopPoints[adventuregroup.ShopPointBrave]) - int64(braveBefore); gained > 0 {
+				dnfrepo.AddBattlePassCounter(&character, 26, -1, gained, now)
+				if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, character, dnfrepo.CharacterFieldStats); err != nil {
+					return err
+				}
+			}
 			encoded, err := runtimeState.Marshal()
 			if err != nil {
 				return err

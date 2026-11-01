@@ -324,9 +324,25 @@ func TestRealPVFAntonFlowSnapshotsDoNotShareEarnedPlans(t *testing.T) {
 func TestRealPVFAntonFlowRareSquadGrantsContentsAndCurrentNestedDisplay(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
+	pool, total, err := flow.Rewards.Pool("squad_item", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rareDraw uint32
+	found := false
+	for _, choice := range pool {
+		if choice.ContainerID == 10304483 {
+			found = true
+			break
+		}
+		rareDraw += choice.Weight
+	}
+	if !found {
+		t.Fatal("rare legendary equipment branch missing")
+	}
 	roll := func(bound int64) (int64, error) {
-		if bound == 100 {
-			return 98, nil
+		if bound == int64(total) {
+			return int64(rareDraw), nil
 		}
 		return 0, nil
 	}

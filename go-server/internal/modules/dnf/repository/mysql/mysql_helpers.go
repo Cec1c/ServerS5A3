@@ -16,12 +16,13 @@ import (
 )
 
 type mysqlRouter struct {
-	db          SQLDB
-	readDBs     []string
-	writeDBs    []string
-	tablePrefix string
-	now         func() time.Time
-	lockReads   bool
+	battlePassChanges *repository.BattlePassChangeFeed
+	db                SQLDB
+	readDBs           []string
+	writeDBs          []string
+	tablePrefix       string
+	now               func() time.Time
+	lockReads         bool
 }
 
 type mysqlStoreBase struct {
@@ -55,11 +56,12 @@ func newMySQLRouter(db SQLDB, options MySQLGroupOptions) (mysqlRouter, error) {
 		now = time.Now
 	}
 	return mysqlRouter{
-		db:          db,
-		readDBs:     append([]string(nil), readDBs...),
-		writeDBs:    append([]string(nil), writeDBs...),
-		tablePrefix: tablePrefix,
-		now:         now,
+		battlePassChanges: repository.NewBattlePassChangeFeed(),
+		db:                db,
+		readDBs:           append([]string(nil), readDBs...),
+		writeDBs:          append([]string(nil), writeDBs...),
+		tablePrefix:       tablePrefix,
+		now:               now,
 	}, nil
 }
 

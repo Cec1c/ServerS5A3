@@ -38,6 +38,10 @@ func (s *Service) sendCharacterBootstrap(session *gameSession, source string) er
 // 当前 bridge 只落账号、角色、空背包和空技能记录；后续 starter 装备、技能和经济初始化要迁入 DNF 角色 owner。
 
 func (s *Service) sendUpperRoster(session *gameSession, characters []dnfrepo.CharacterRecord) error {
+	// 原生角色表绘制前准备活动名单。
+	if err := s.sendCurrentLevelChallengeSelector(session); err != nil {
+		s.logGameEvent(session, "升级大挑战选角状态暂缓", "error", err)
+	}
 	if err := s.sendGameUpperCharacterRosterRaw(session, s.buildCurrentRosterBody(characters)); err != nil {
 		return err
 	}
@@ -65,6 +69,10 @@ func (s *Service) sendCharacterList(session *gameSession, characters []dnfrepo.C
 // ID/slot notification: the current reader dispatches type 2 to
 // sub_200BEA0(mode=2), which consumes the complete roster rows.
 func (s *Service) sendCurrentCharacterSelectRoster(session *gameSession, characters []dnfrepo.CharacterRecord) error {
+	// 原生角色表绘制前准备活动名单。
+	if err := s.sendCurrentLevelChallengeSelector(session); err != nil {
+		s.logGameEvent(session, "升级大挑战选角状态暂缓", "error", err)
+	}
 	body := s.buildCurrentRosterBody(characters)
 	if len(body) < 15 {
 		return fmt.Errorf("current character roster is shorter than its 15-byte prefix: %d", len(body))
@@ -87,6 +95,9 @@ func (s *Service) sendCurrentCharacterSelectRoster(session *gameSession, charact
 		latestCharacterStateRoute,
 	); err != nil {
 		return err
+	}
+	if err := s.sendCurrentLevelAimingSelector(session); err != nil {
+		s.logGameEvent(session, "预约活动选角状态暂缓", "error", err)
 	}
 	noteEmptyRosterSlotProbe(session, body)
 	s.rememberCurrentRenameRoster(session, characters)

@@ -16,7 +16,7 @@ type sqlTxBeginner interface {
 
 type sqlTransactionDB struct {
 	observation *SQLObservation
-	tx          *sql.Tx
+	tx          sqlTransaction
 	prepared    *PreparedSQLDB
 	local       *transactionStatements
 }
@@ -394,7 +394,7 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	for _, id := range ids {
 		allowed[id] = struct{}{}
 	}
-	characters := &characterTradeScopedCharacterRepository{allowed: allowed, base: txGroup.Character}
+	characters := &characterTradeScopedCharacterRepository{allowed: allowed, base: txGroup.Character, activity: txGroup.Activity}
 	inventories := &characterTradeScopedInventoryRepository{allowed: allowed, base: txGroup.Inventory}
 	var warehouse repository.AccountInventoryRepository
 	if warehouseOwner != "" {
@@ -410,8 +410,9 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 }
 
 type characterTradeScopedCharacterRepository struct {
-	allowed map[string]struct{}
-	base    repository.CharacterRepository
+	activity repository.ActivityRepository
+	allowed  map[string]struct{}
+	base     repository.CharacterRepository
 }
 
 func (r *characterTradeScopedCharacterRepository) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
@@ -484,6 +485,7 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	writeDatabase := u.router.writeDBs[pickDatabase(characterID, len(u.router.writeDBs))]
 	txRouter := u.router
 	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
@@ -491,6 +493,12 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// 账本按账号键分库；仍然复用本次物理事务，不能沿用角色单库路由。
+	activityRouter := txRouter
+	activityRouter.readDBs = append([]string(nil), u.router.writeDBs...)
+	activityRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
+	txGroup.Character.(*mysqlCharStore).activity = &mysqlCharacterActivityStore{mysqlActivityStore: &mysqlActivityStore{mysqlStoreBase{router: activityRouter}}, characterID: characterID}
+
 	if err := apply(txGroup.Character, txGroup.Inventory, txGroup.Equipment); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
@@ -533,6 +541,7 @@ func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	// Account and character keys can hash to different logical databases. Keep
 	// the complete write plan while using one physical MySQL transaction.
 	txRouter := u.router
@@ -541,6 +550,12 @@ func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// 账本按账号键分库；仍然复用本次物理事务，不能沿用角色单库路由。
+	activityRouter := txRouter
+	activityRouter.readDBs = append([]string(nil), u.router.writeDBs...)
+	activityRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
+	txGroup.Character.(*mysqlCharStore).activity = &mysqlCharacterActivityStore{mysqlActivityStore: &mysqlActivityStore{mysqlStoreBase{router: activityRouter}}, characterID: characterID}
+
 	accounts := &rentalScopedAccountRepository{accountID: accountID, base: txGroup.Account}
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: txGroup.Character}
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
@@ -764,24 +779,30 @@ func (r *rentalScopedEquipmentRepository) SaveFields(ctx context.Context, record
 }
 
 func (db sqlTransactionDB) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
-	start := db.observation.start()
 	timing := repository.TransactionTimingFromContext(ctx)
-	started := time.Now()
+	var timedStart time.Time
+	if timing != nil {
+		timedStart = time.Now()
+	}
+	start := db.observation.start()
 	result, err := db.rawExecContext(ctx, q, args...)
 	if timing != nil {
-		timing.Record(repository.TransactionWrite, time.Since(started), 1)
+		timing.Record(repository.TransactionWrite, time.Since(timedStart), 1)
 	}
 	db.observation.finish(1, sqlObserveExec, start, 0, err)
 	return result, err
 }
 func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...any) (SQLRows, error) {
-	start := db.observation.start()
 	timing := repository.TransactionTimingFromContext(ctx)
-	started := time.Now()
+	var timedStart time.Time
+	if timing != nil {
+		timedStart = time.Now()
+	}
+	start := db.observation.start()
 	rows, err := db.rawQueryContext(ctx, q, args...)
 	if timing != nil {
 		phase := transactionReadPhase(q)
-		timing.Record(phase, time.Since(started), 1)
+		timing.Record(phase, time.Since(timedStart), 1)
 		if err == nil {
 			rows = timedTransactionRows{SQLRows: rows, timing: timing, phase: phase}
 		}
@@ -789,14 +810,35 @@ func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...a
 	return observedRows(db.observation, 1, start, rows, err)
 }
 func (db sqlTransactionDB) QueryRowContext(ctx context.Context, q string, args ...any) SQLRow {
-	start := db.observation.start()
 	timing := repository.TransactionTimingFromContext(ctx)
-	started := time.Now()
+	var timedStart time.Time
+	if timing != nil {
+		timedStart = time.Now()
+	}
+	start := db.observation.start()
 	row := db.rawQueryRowContext(ctx, q, args...)
 	if timing != nil {
 		phase := transactionReadPhase(q)
-		timing.Record(phase, time.Since(started), 1)
+		timing.Record(phase, time.Since(timedStart), 1)
 		row = timedTransactionRow{SQLRow: row, timing: timing, phase: phase}
 	}
 	return observedRow(db.observation, 1, start, row)
+}
+
+func (r *rentalScopedCharacterRepository) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {
+	if err := repository.TransactionKeyError(ctx, r.characterID, event.CharacterID); err != nil {
+		return false, err
+	}
+	return repository.RecordCharacterActivity(ctx, r.base, event)
+}
+
+func (r *characterTradeScopedCharacterRepository) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {
+	ch, found, err := r.Load(ctx, event.CharacterID)
+	if err != nil {
+		return false, err
+	}
+	if !found || r.activity == nil {
+		return false, repository.ErrActivityTransaction
+	}
+	return repository.ScopeCharacterActivity(r.activity, ch).Record(ctx, event)
 }

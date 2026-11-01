@@ -396,6 +396,9 @@ func (o *Owner) Transfer(ctx context.Context, catalog Catalog, config TransferCo
 				return ErrRules
 			}
 			n, ok = multiply(base, rule.EpicPieceWeight[category])
+			if rule.EpicPieceFixedCost > 0 {
+				n, ok = rule.EpicPieceFixedCost, true
+			}
 			if !ok || n > math.MaxUint32 {
 				return ErrRules
 			}

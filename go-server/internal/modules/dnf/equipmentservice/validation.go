@@ -141,6 +141,13 @@ func validateTransferDocument(d *pvf.Document) error {
 			return fmt.Errorf("%w: 跨界类型无效或重复", ErrRules)
 		}
 		types[group[0].Int] = true
+		fixed, present, err := uniqueSection(group, "private epic piece fixed cost")
+		if err != nil {
+			return err
+		}
+		if present && (group[0].Int != 7 || len(fixed) != 1 || fixed[0].Kind != pvf.TokenInt || fixed[0].Int <= 0 || fixed[0].Int > math.MaxUint32) {
+			return fmt.Errorf("%w: private fixed epic-piece cost must be one positive Grandi-only integer", ErrRules)
+		}
 		for _, s := range []struct {
 			name           string
 			width, leading int

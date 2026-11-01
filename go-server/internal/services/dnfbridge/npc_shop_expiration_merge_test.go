@@ -262,19 +262,20 @@ func (f expirationFailSaveCharacter) Save(context.Context, dnfrepo.CharacterReco
 	return errors.New("injected repository save failure")
 }
 
-// expirationFailSaveSettlement hands the projector a transaction group whose inventory
+// expirationFailSaveLedger hands the projector transaction repositories whose inventory
 // and character stores fail on Save, so the failure lands after the in-memory
 // mutation and before the settlement can commit.
-type expirationFailSaveSettlement struct {
-	dnfrepo.CharacterSettlementUnitOfWork
+type expirationFailSaveLedger struct {
+	dnfrepo.AccountCharacterAssetUnitOfWork
 	saveCalls *int64
 }
 
-func (f expirationFailSaveSettlement) WithinCharacterSettlement(ctx context.Context, characterID string, apply func(dnfrepo.Group) error) error {
-	return f.CharacterSettlementUnitOfWork.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
-		tx.Inventory = expirationFailSaveInventory{InventoryRepository: tx.Inventory, saveCalls: f.saveCalls}
-		tx.Character = expirationFailSaveCharacter{CharacterRepository: tx.Character, saveCalls: f.saveCalls}
-		return apply(tx)
+func (f expirationFailSaveLedger) WithinAccountCharacterLedgerAssets(ctx context.Context, accountID, characterID string, apply func(dnfrepo.AccountRepository, dnfrepo.AccountInventoryRepository, dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
+	inner := f.AccountCharacterAssetUnitOfWork.(dnfrepo.AccountCharacterLedgerAssetUnitOfWork)
+	return inner.WithinAccountCharacterLedgerAssets(ctx, accountID, characterID, func(a dnfrepo.AccountRepository, ai dnfrepo.AccountInventoryRepository, c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository) error {
+		inventory := expirationFailSaveInventory{InventoryRepository: i, saveCalls: f.saveCalls}
+		character := expirationFailSaveCharacter{CharacterRepository: c, saveCalls: f.saveCalls}
+		return apply(a, ai, character, inventory, e)
 	})
 }
 
@@ -303,9 +304,9 @@ func expirationTalismanRows(t *testing.T, repos dnfrepo.Group) (rows int, total 
 func TestCurrentNPCShopExpirationMidTransactionSaveFailureRollsBackEverything(t *testing.T) {
 	shop, items := realPVF535(t)
 	repos := mustCurrentNPCShopRepositories(t, 100000000, nil)
-	settlementInner := repos.CharacterSettlement
+	ledgerInner := repos.AccountAssets
 	var saveCalls int64
-	repos.CharacterSettlement = expirationFailSaveSettlement{CharacterSettlementUnitOfWork: settlementInner, saveCalls: &saveCalls}
+	repos.AccountAssets = expirationFailSaveLedger{AccountCharacterAssetUnitOfWork: ledgerInner, saveCalls: &saveCalls}
 	service := currentNPCShopTestService(repos, shop, items)
 	conn := &bufferConn{}
 	session := &gameSession{conn: conn, connID: "npc-shop-expiration-fault", selectedCharacterID: 19}
@@ -317,7 +318,7 @@ func TestCurrentNPCShopExpirationMidTransactionSaveFailureRollsBackEverything(t 
 	if atomic.LoadInt64(&saveCalls) == 0 {
 		t.Fatal("the failing Save was never called, so no post-mutation fault was injected")
 	}
-	repos.CharacterSettlement = settlementInner
+	repos.AccountAssets = ledgerInner
 	rows, total, gold := expirationTalismanRows(t, repos)
 	if rows != 0 || total != 0 {
 		t.Fatalf("rollback left rows=%d total=%d want none", rows, total)

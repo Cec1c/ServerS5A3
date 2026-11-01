@@ -277,6 +277,13 @@ func (s *Service) commitCurrentBooster(
 				return dnfbooster.Changes{}, err
 			}
 			characterDirty := false
+			if definition.Source.ItemID == 2682272 || definition.Source.ItemID == 10007369 {
+				activityChanged, err := s.applyPrivateActivity(assets.Character, 5, 1, now, now)
+				if err != nil {
+					return dnfbooster.Changes{}, err
+				}
+				characterDirty = activityChanged
+			}
 			if definition.LotteryGoldCost > 0 {
 				// Owner has already debited the opening fee in this transaction.
 				// Keep its committed wallet for an incremental lottery notice.

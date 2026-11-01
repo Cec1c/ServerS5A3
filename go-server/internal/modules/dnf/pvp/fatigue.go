@@ -12,10 +12,14 @@ import (
 var ErrFatigueInsufficient = errors.New("街机疲劳不足")
 
 type ConsumeArcadeCommand struct {
+	Activity               *repo.ActivityEvent
 	AccountID, CharacterID string
 	Amount                 int64
 	RequireFull            bool
 	UpdatedAt              time.Time
+	// OnFatigueDebit mutates the transaction-owned character before its stats
+	// are saved. Returning an error rolls back both the debit and these changes.
+	OnFatigueDebit func(*repo.CharacterRecord, int64, time.Time) error
 }
 type ConsumeArcadeResult struct{ Before, After, Consumed int64 }
 
@@ -43,6 +47,21 @@ func ConsumeArcadeFatigue(ctx context.Context, repos repo.Group, q ConsumeArcade
 		character = repo.CloneCharacter(character)
 		fatigue.Refresh(&character, account, q.UpdatedAt)
 		out.Before = character.Stats["fatigue"]
+
+		if q.Activity != nil && q.Amount > 0 {
+			event := *q.Activity
+			if event.AccountID != q.AccountID || event.CharacterID != q.CharacterID || event.Amount != q.Amount || event.Metric != repo.ActivityFatigue || event.Source != "arcade" {
+				return repo.ErrActivityInvalid
+			}
+			added, err := repo.RecordCharacterActivity(ctx, c, event)
+			if err != nil {
+				return err
+			}
+			if !added {
+				out.After = out.Before
+				return nil
+			}
+		}
 		if out.Before < q.Amount {
 			return ErrFatigueInsufficient
 		}
@@ -51,6 +70,11 @@ func ConsumeArcadeFatigue(ctx context.Context, repos repo.Group, q ConsumeArcade
 		character.Stats["fatigue"] = out.After
 		character.Stats["fatigue_used"] = character.Stats["fatigue_limit"] - out.After
 		character.Stats["fatigue_display_update"] = character.Stats["fatigue_used"]
+		if consumed := out.Before - out.After; consumed > 0 && q.OnFatigueDebit != nil {
+			if err := q.OnFatigueDebit(&character, consumed, q.UpdatedAt); err != nil {
+				return err
+			}
+		}
 		character.UpdatedAt = q.UpdatedAt
 		return repo.SaveCharacterFields(ctx, c, character, repo.CharacterFieldStats)
 	})

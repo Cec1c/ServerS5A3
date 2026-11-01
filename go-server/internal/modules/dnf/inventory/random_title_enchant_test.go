@@ -139,7 +139,7 @@ func saveRandomTitleEnchantFixture(t *testing.T, ctx context.Context, repos dnfr
 		target.ExpireAt = time.Now().Add(-time.Minute)
 	}
 
-	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
+	saveEnchantTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
 		CharacterID: randomTitleEnchantCharacterID,
 		Slots: map[string]dnfrepo.ItemStack{
 			slotKey(listTypeMain, randomTitleEnchantBeadSlot):   bead,
@@ -152,7 +152,7 @@ func saveRandomTitleEnchantFixture(t *testing.T, ctx context.Context, repos dnfr
 // list 7 槽 24，并写入同坐标 PetEntry），形状与 savePetEnchantFixture 一致。
 func saveRandomTitleEnchantPetLaneFixture(t *testing.T, ctx context.Context, repos dnfrepo.Group, beadCount int64) {
 	t.Helper()
-	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
+	saveEnchantTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
 		CharacterID: randomTitleEnchantCharacterID,
 		Slots: map[string]dnfrepo.ItemStack{
 			slotKey(listTypeMain, randomTitleEnchantBeadSlot): {

@@ -23,6 +23,11 @@ func TestRealPVFPetDungeonMode1RebindRestoresOnlyEquippedEnchant(t *testing.T) {
 	}
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
+	// A scene bootstrap reads the authoritative account Fate ledger before
+	// projecting equipment; a character-only fixture is not a logged-in owner.
+	if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "9", AccountID: "account-1", Name: "Actor9", Job: "14", Level: 90, Stats: map[string]int64{"fatigue": 156}}); err != nil {
 		t.Fatal(err)
 	}

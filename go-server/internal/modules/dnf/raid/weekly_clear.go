@@ -198,6 +198,14 @@ func commitWeeklyClear(ctx context.Context, group repo.Group, cmd WeeklyClearCom
 			used := result.Used[character.CharacterID] + 1
 			character.Stats[epochKey] = epoch
 			character.Stats[countKey] = int64(used)
+			// 与冒险团同一逐实例终局提交；重放分支在此之前返回。
+			repo.AddBattlePassCounter(&character, 32, -1, 1, cmd.CompletedAt)
+			if cmd.Mode == 2 {
+				repo.AddBattlePassCounter(&character, 34, -1, 1, cmd.CompletedAt)
+			}
+			if cmd.Mode == 3 {
+				repo.AddBattlePassCounter(&character, 33, -1, 1, cmd.CompletedAt)
+			}
 			character.Stats[marker] = epoch
 			character.UpdatedAt = cmd.CompletedAt
 			if err := chars.Save(ctx, character); err != nil {

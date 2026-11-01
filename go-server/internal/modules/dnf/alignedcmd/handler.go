@@ -555,6 +555,9 @@ type MagicBoxRewardGroup struct {
 // per-open material requirement (0 when the box opens free); the box itself
 // is never reported as a material.
 type MagicBoxResolution struct {
+	// OnOpen is a trusted server projection inside the box transaction.
+	// It never comes from request metadata; nil preserves existing behavior.
+	OnOpen              func(*dnfrepo.CharacterRecord) (bool, error)
 	Kind                string
 	Groups              []MagicBoxRewardGroup
 	PackageItems        []MagicBoxRewardEntry

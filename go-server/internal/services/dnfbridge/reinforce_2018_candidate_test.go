@@ -81,8 +81,9 @@ func Test2018ReinforceRealPVFPolicyAndSettlement(t *testing.T) {
 	}{
 		{"armor9_no_drop", 100050667, 9, false, 1, 9},
 		{"armor10_destroy", 100050667, 10, false, 3, -1},
-		{"armor11_protected", 100050667, 11, true, 2, 0},
-		{"earring10_protected", 100390003, 10, true, 2, 0},
+		// This private PVF explicitly retains +7 when protection is consumed.
+		{"armor11_protected", 100050667, 11, true, 2, 7},
+		{"earring10_protected", 100390003, 10, true, 2, 7},
 		{"weapon10_drop_three_keep_ticket", 28309, 10, true, 2, 7},
 		{"weapon11_drop_three", 28309, 11, false, 2, 8},
 		{"weapon12_destroy", 28309, 12, false, 3, -1},
@@ -165,7 +166,7 @@ func Test2018ReinforceRealPVFPolicyAndSettlement(t *testing.T) {
 			if err != nil || character.Stats["gold"] != 900 {
 				t.Fatalf("gold transaction: %v", err)
 			}
-			if result.UpgradeProtectTicket != nil && result.UpgradeProtectTicket.Consumed != (tc.ticket && tc.wantLevel == 0) {
+			if result.UpgradeProtectTicket != nil && result.UpgradeProtectTicket.Consumed != (tc.name == "armor11_protected" || tc.name == "earring10_protected") {
 				t.Fatal("protection result mismatch")
 			}
 		})
@@ -204,14 +205,14 @@ func Test2018ReinforceRealPVFPolicyAndSettlement(t *testing.T) {
 			t.Fatalf("handler %v", err)
 		}
 		ack := result.UpperResponses[0]
-		if len(ack.Body) < 14 || ack.Body[0] != 1 || ack.Body[12] != 2 || ack.Body[13] != 0 {
+		if len(ack.Body) < 14 || ack.Body[0] != 1 || ack.Body[12] != 2 || ack.Body[13] != 7 {
 			t.Fatalf("portable failure response %v", ack.Body)
 		}
 		bag, _, err := repos.Inventory.Load(ctx, "77")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if bag.Slots["0:107"].Count != 2 || bag.Slots["0:121"].Count != 1 || bag.Slots["0:9"].RawEntry[0x0a]&31 != 0 {
+		if bag.Slots["0:107"].Count != 2 || bag.Slots["0:121"].Count != 1 || bag.Slots["0:9"].RawEntry[0x0a]&31 != 7 {
 			t.Fatal("portable item, protection or equipment result disagreed")
 		}
 		character, _, err := repos.Character.Load(ctx, "77")

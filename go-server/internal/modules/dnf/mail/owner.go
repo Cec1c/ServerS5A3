@@ -376,6 +376,12 @@ func (o Owner) Send(ctx context.Context, senderCharacterID string, req SendReque
 				},
 			}
 			record.UpdatedAt = now
+			if err := dnfrepo.RecordCharacterGold(ctx, characters, sender, dnfrepo.ActivityGoldMailOut, gold, now); err != nil {
+				return err
+			}
+			if err := dnfrepo.RecordCharacterGold(ctx, characters, sender, dnfrepo.ActivityGoldPostage, postage, now); err != nil {
+				return err
+			}
 			sender.Stats["gold"] -= totalDebit
 			if err := dnfrepo.SaveCharacterFields(ctx, characters, sender, dnfrepo.CharacterFieldStats); err != nil {
 				return err
@@ -592,6 +598,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 		acceptedVouchers := shop.VoucherCounts{}
 		var acceptedContracts []mailboxContractCredit
 		var acceptedFate int64
+		var fateGained int64
 		inventoryChanged := false
 		inventoryFull := false
 		// acceptedPieces 是"已接受但还没入账"的碎片，按碎片 id 聚合。
@@ -791,6 +798,11 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				merged.count += credit.count
 				acceptedWarehouse[slot] = merged
 			}
+			for _, attachment := range candidate.mail.Attachments {
+				if attachment.ItemID == dnfrepo.BattlePassFateItemID && attachment.Count > 0 {
+					fateGained += min(attachment.Count, math.MaxInt64-fateGained)
+				}
+			}
 			result.ItemCount += candidateItemCount
 			result.ItemSlotRefreshes = append(result.ItemSlotRefreshes, candidateRefreshes...)
 			result.MailIDs = append(result.MailIDs, candidate.id)
@@ -844,7 +856,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 			result.WalletChanged = !acceptedVouchers.IsZero()
 		}
 
-		if totalGold > 0 {
+		if totalGold > 0 || fateGained > 0 {
 			character, ok, err := characters.Load(ctx, characterID)
 			if err != nil {
 				return err
@@ -859,6 +871,7 @@ func (o Owner) Claim(ctx context.Context, characterID string, req ExtractRequest
 				return ErrMailboxInvalidRequest
 			}
 			character.Stats["gold"] += totalGold
+			dnfrepo.AddBattlePassCounter(&character, 43, -1, fateGained, now)
 			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
 				return err
 			}

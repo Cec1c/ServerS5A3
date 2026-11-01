@@ -20,6 +20,7 @@ func TestR158LateFinalMovieHasOneRewardTransition(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			f, session, _, at := onlineAntonTerminalFixture(t)
+			ensureRaidRewardAccount(t, f, "account-20")
 			cfg, err := raid.LoadAntonFlowConfiguration(f.service.initialEquipmentArchive)
 			if err != nil {
 				t.Fatal(err)
@@ -44,7 +45,7 @@ func TestR158LateFinalMovieHasOneRewardTransition(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.conn.write.Reset()
-			dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+			dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 			stream := append([]byte(nil), f.conn.write.Bytes()...)
 			var starts, squads, acks int
 			var order []uint16
@@ -70,7 +71,7 @@ func TestR158LateFinalMovieHasOneRewardTransition(t *testing.T) {
 				t.Fatal("real final rewards changed")
 			}
 			f.conn.write.Reset()
-			dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+			dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 			p, rest := splitGameServerUpperPacket(t, f.conn.write.Bytes())
 			if p.Header.MsgID != 659 || len(rest) != 0 {
 				t.Fatal("same movie replay reopened reward screen")
@@ -81,6 +82,7 @@ func TestR158LateFinalMovieHasOneRewardTransition(t *testing.T) {
 
 func TestR158LateMovieCannotBypassWeeklyRollback(t *testing.T) {
 	f, session, _, at := onlineAntonTerminalFixture(t)
+	ensureRaidRewardAccount(t, f, "account-20")
 	cfg, err := raid.LoadAntonFlowConfiguration(f.service.initialEquipmentArchive)
 	if err != nil {
 		t.Fatal(err)
@@ -101,12 +103,16 @@ func TestR158LateMovieCannotBypassWeeklyRollback(t *testing.T) {
 	if err := f.service.sendCurrentAntonTerminalResult(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
-	p, rest := splitGameServerUpperPacket(t, f.conn.write.Bytes())
-	if p.Header.MsgID != 659 || len(p.Body) == 0 || p.Body[0] != 0 || len(rest) != 0 {
-		t.Fatal("failed weekly owner published reward success")
-	}
-	if len(flow.Party) != 0 || len(flow.Squad) != 0 || !flow.FinishedAt.IsZero() || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
-		t.Fatal("late movie bypassed real atomic weekly receipt")
+	// Neither a skip request nor close completion may bypass the rolled-back receipt.
+	for _, stage := range []byte{0, 1} {
+		dispatchAntonCardRequest(t, f, session, 659, []byte{stage})
+		p, rest := splitGameServerUpperPacket(t, f.conn.write.Bytes())
+		if p.Header.MsgID != 659 || len(p.Body) == 0 || p.Body[0] != 0 || len(rest) != 0 {
+			t.Fatal("failed weekly owner published reward success")
+		}
+		if len(flow.Party) != 0 || len(flow.Squad) != 0 || !flow.FinishedAt.IsZero() || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
+			t.Fatal("late movie bypassed real atomic weekly receipt")
+		}
+		f.conn.write.Reset()
 	}
 }

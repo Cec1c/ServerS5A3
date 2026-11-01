@@ -132,3 +132,37 @@ func seedNPCShopOwnerWithoutAccount(t *testing.T, ctx context.Context, repositor
 		t.Fatalf("save account inventory: %v", err)
 	}
 }
+
+func TestNPCGoldActivityBuySellAndRollback(t *testing.T) {
+	for _, name := range []string{"购买", "出售", "免费", "失败"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			g := dnfrepomemory.NewMemoryGroup()
+			seedNPCShopOwner(t, ctx, g)
+			owner, _ := NewOwner(g)
+			err := owner.Mutate(ctx, Command{AccountID: "dnf:1", CharacterID: "77", Project: func(a *Assets) (Changes, error) {
+				switch name {
+				case "购买":
+					a.Character.Stats["gold"] -= 300
+				case "出售":
+					a.Character.Stats["gold"] += 300
+				case "失败":
+					a.Character.Stats["gold"] -= 300
+					return Changes{Character: true}, errors.New("拒绝购买")
+				}
+				return Changes{Character: true}, nil
+			}})
+			if (err != nil) != (name == "失败") {
+				t.Fatal(err)
+			}
+			summary, e := g.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: "dnf:1"})
+			want := int64(0)
+			if name == "购买" {
+				want = 300
+			}
+			if e != nil || summary.Metrics[dnfrepo.ActivityGoldNPC] != want {
+				t.Fatal(summary, e)
+			}
+		})
+	}
+}

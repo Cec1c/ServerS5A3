@@ -61,7 +61,7 @@ func TestBirthBudPlanSharesTemplatePoolRollAndWeights(t *testing.T) {
 				visit.DropRNG, r.NextObjectKey, r.DropOwner = seed, 200, newRuntimeDungeonDropOwner()
 				model := newCurrentDungeonDropLCG(seed)
 				var want uint32
-				if model.Next(currentDungeonDropDenominator) < currentDungeonExplicitPoolRate {
+				if model.Next(currentDungeonDropDenominator) < 1000 /* independent fixture: private monster template probability */ {
 					entry, ok := selectDungeonMonsterDrop(pool, uint64(model.NextUint32()))
 					if !ok {
 						t.Fatal("测试材料池为空")

@@ -165,6 +165,11 @@ func (s *Service) handleCurrentWebViewerTicket(session *gameSession, body []byte
 			"reason", "unsupported_current_exe_ticket_type")
 		return s.sendGameUpperFailure(session, opcode, 0)
 	}
+	if ticketType == 6 {
+		if err := s.recordBattlePassAcceptedEvent(session, 11, -1); err != nil {
+			s.logGameEvent(session, "战令商城访问计数失败", "error", err)
+		}
+	}
 	url := currentWebViewerTicketAckURL()
 	reply := buildCurrentWebViewerAck(ticketType, url)
 	s.logGameEvent(session, "game-web-viewer-ticket-ack",

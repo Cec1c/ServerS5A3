@@ -1,27 +1,10 @@
 package dnfbridge
 
 import (
-	"context"
 	"reflect"
-	"strconv"
 	"testing"
 	"time"
-
-	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
-
-func raidWaitingInventories(t *testing.T, f *raidStartGuardFixture) map[uint16]dnfrepo.InventoryRecord {
-	t.Helper()
-	bags := make(map[uint16]dnfrepo.InventoryRecord)
-	for _, member := range f.state.Members {
-		bag, found, err := f.repos.Inventory.Load(context.Background(), strconv.Itoa(int(member.CharID)))
-		if !found || err != nil {
-			t.Fatal("读取隔离背包失败", found, err)
-		}
-		bags[member.CharID] = bag
-	}
-	return bags
-}
 
 func partyOnlyLukeSettlementFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, *gameSession, *currentAntonRewardFlow) {
 	t.Helper()

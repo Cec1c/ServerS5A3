@@ -58,6 +58,11 @@ func raidSafetyFixture(t *testing.T, archive *platformpvf.Archive, members int) 
 	t.Cleanup(func() { _ = f.logger.Close() })
 	for n := 1; n < members; n++ {
 		id := strconv.Itoa(19 + n)
+		// Team members need the same account ledger as the leader now that
+		// Fate rewards commit to the account instead of material inventory.
+		if err := f.repos.Account.Save(context.Background(), dnfrepo.AccountRecord{AccountID: "account-" + id}); err != nil {
+			t.Fatal(err)
+		}
 		if err := f.repos.Character.Save(context.Background(), dnfrepo.CharacterRecord{CharacterID: id, AccountID: "account-" + id}); err != nil {
 			t.Fatal(err)
 		}

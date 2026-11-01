@@ -112,17 +112,18 @@ func (s *Service) currentDungeonRuntimeCharacterIsCommitReady(
 // party, and result-window bonuses: none of those has a current Go owner in
 // this single-character in-dungeon path.
 type currentDungeonMonsterExperienceAward struct {
-	MonsterID       int64
-	MonsterLevel    int
-	MonsterType     byte
-	NamedMonster    bool
-	MonsterTableEXP uint32
-	DungeonWeight   float32
-	DifficultyRate  float32
-	MonsterTypeRate float32
-	LevelPenalty    float32
-	PrePenaltyGain  uint32
-	Gain            uint32
+	BattlePassMonster, BattlePassBoss bool
+	MonsterID                         int64
+	MonsterLevel                      int
+	MonsterType                       byte
+	NamedMonster                      bool
+	MonsterTableEXP                   uint32
+	DungeonWeight                     float32
+	DifficultyRate                    float32
+	MonsterTypeRate                   float32
+	LevelPenalty                      float32
+	PrePenaltyGain                    uint32
+	Gain                              uint32
 }
 
 // currentDungeonMonsterExperienceAwardFor reconstructs only the ordinary
@@ -225,6 +226,7 @@ func currentDungeonMonsterExperienceAwardFor(
 		return currentDungeonMonsterExperienceAward{}, err
 	}
 	return currentDungeonMonsterExperienceAward{
+		BattlePassMonster: true, BattlePassBoss: currentBattlePassBossMonster(monster),
 		MonsterID:       monster.Spawn.MonsterID,
 		MonsterLevel:    int(monsterLevel),
 		MonsterType:     monsterType,
@@ -334,6 +336,9 @@ type currentDungeonMonsterExperienceCommitResult struct {
 	GrowthContractBonus   uint32
 	GuildBonus            uint32
 	AttendanceMarbleBonus uint32
+	WelcomeBonus          uint32
+	LuckyCharacterBonus   uint32
+	FatigueBurnBonus      uint32
 	// HonorExpertGain is the accepted part of this award earned after the
 	// DNF90 character-level cap.
 	HonorExpertGain         uint32
@@ -361,6 +366,9 @@ func recordCurrentDungeonMonsterExperience(
 		result.GrowthContractBonus,
 	)
 	runtime.settlementMonsterAttendanceMarbleBonus = saturatingCurrentDungeonUint32Add(runtime.settlementMonsterAttendanceMarbleBonus, result.AttendanceMarbleBonus)
+	runtime.settlementMonsterWelcomeBonus = saturatingCurrentDungeonUint32Add(runtime.settlementMonsterWelcomeBonus, result.WelcomeBonus)
+	runtime.settlementMonsterLuckyCharacterBonus = saturatingCurrentDungeonUint32Add(runtime.settlementMonsterLuckyCharacterBonus, result.LuckyCharacterBonus)
+	runtime.settlementMonsterFatigueBurnBonus = saturatingCurrentDungeonUint32Add(runtime.settlementMonsterFatigueBurnBonus, result.FatigueBurnBonus)
 	actorType, err := currentDungeonMonsterActorType(monster.Spawn)
 	if err != nil {
 		actorType = result.Award.MonsterType
@@ -459,6 +467,18 @@ func (s *Service) prepareCurrentDungeonMonsterExperienceBonuses(
 	result.GuildBonus = min(guildBonus, math.MaxUint32-result.Award.Gain-growthBonus)
 	marbleBonus := currentAttendanceMarbleMonsterExperienceBonus(runtime.attendanceMarbleBuffs, result.Award.Gain)
 	result.AttendanceMarbleBonus = min(marbleBonus, math.MaxUint32-result.Award.Gain-result.GrowthContractBonus-result.GuildBonus)
+	total := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus + result.AttendanceMarbleBonus
+	welcome, err := s.currentReturneeWelcomeExperienceBonus(ctx, session, runtime.Character, result.Award.Gain)
+	if err != nil {
+		return currentDungeonMonsterExperienceCommitResult{}, err
+	}
+	result.WelcomeBonus = min(welcome, math.MaxUint32-total)
+	total += result.WelcomeBonus
+	if lucky := s.currentLuckyCharacterEffect(session, runtime.Character); lucky != nil {
+		result.LuckyCharacterBonus = min(currentPercentageBonusUint32(result.Award.Gain, lucky.Monster), math.MaxUint32-total)
+	}
+	total += result.LuckyCharacterBonus
+	result.FatigueBurnBonus = min(currentPercentageBonusUint32(result.Award.Gain, s.currentLuckyRoomBurnPercent(runtime)), math.MaxUint32-total)
 	return result, nil
 }
 
@@ -493,7 +513,7 @@ func (s *Service) commitCurrentDungeonExperience(
 ) (currentDungeonMonsterExperienceCommitResult, error) {
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Character == nil || repositories.Skill == nil ||
-		repositories.CharacterProgression == nil || tables == nil || result.Award.Gain == 0 {
+		repositories.CharacterProgression == nil || tables == nil || (result.Award.Gain == 0 && !result.Award.BattlePassMonster) {
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceUnavailable
 	}
 	if ctx == nil {
@@ -526,12 +546,12 @@ func (s *Service) commitCurrentDungeonExperience(
 		return currentDungeonMonsterExperienceCommitResult{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
 	if _, narrow := repositories.Character.(dnfrepo.ProgressionCharacterReader); narrow {
-		total := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus + result.AttendanceMarbleBonus
-		honor, previewErr := currentHonorExpertExperienceGain(tables, character.Level, statU32(character, "exp", 0), total)
+		total := result.totalGain()
+		previewHonor, previewErr := currentHonorExpertExperienceGain(tables, character.Level, statU32(character, "exp", 0), total)
 		if previewErr != nil {
 			return currentDungeonMonsterExperienceCommitResult{}, previewErr
 		}
-		preview, previewErr := planCurrentDungeonSettlementProgression(tables, character.Level, statU32(character, "exp", 0), total-honor, skill.Points)
+		preview, previewErr := planCurrentDungeonSettlementProgression(tables, character.Level, statU32(character, "exp", 0), total-previewHonor, skill.Points)
 		if previewErr != nil {
 			return currentDungeonMonsterExperienceCommitResult{}, previewErr
 		}
@@ -573,7 +593,7 @@ func (s *Service) commitCurrentDungeonExperience(
 func (s *Service) planCurrentDungeonExperience(ctx context.Context, tables *progression.Tables,
 	character dnfrepo.CharacterRecord, skill dnfrepo.SkillPointLedger, result currentDungeonMonsterExperienceCommitResult,
 ) (currentDungeonMonsterExperienceCommitResult, progression.CommitPlan, error) {
-	totalGain := result.Award.Gain + result.GrowthContractBonus + result.GuildBonus + result.AttendanceMarbleBonus
+	totalGain := result.totalGain()
 	honorExpertGain, err := currentHonorExpertExperienceGain(
 		tables,
 		character.Level,
@@ -645,6 +665,7 @@ func (s *Service) planCurrentDungeonExperience(ctx context.Context, tables *prog
 	if character.Stats == nil {
 		return currentDungeonMonsterExperienceCommitResult{}, progression.CommitPlan{}, errCurrentDungeonMonsterExperienceStateInvalid
 	}
+	addBattlePassKillPlan(&commit, character, result.Award, s.gameplayNow())
 	character.Level = commit.Next.Level
 	character.Stats["exp"] = int64(commit.Next.Experience)
 	for key, value := range commit.NextCharacterStats {
@@ -730,4 +751,9 @@ func currentPercentageBonusUint32(base uint32, percent int64) uint32 {
 		bonus = limit
 	}
 	return uint32(bonus)
+}
+
+// 所有经验加成在同一提交入口计算，避免u32累加溢出。
+func (r currentDungeonMonsterExperienceCommitResult) totalGain() uint32 {
+	return uint32(min(uint64(r.Award.Gain)+uint64(r.GrowthContractBonus)+uint64(r.GuildBonus)+uint64(r.AttendanceMarbleBonus)+uint64(r.WelcomeBonus)+uint64(r.LuckyCharacterBonus)+uint64(r.FatigueBurnBonus), uint64(math.MaxUint32)))
 }

@@ -36,47 +36,54 @@ var (
 )
 
 type runtimeDungeonState struct {
-	durabilityLastSequence       uint64
-	durabilitySequenceKnown      bool
-	guildPractice                *currentGuildPracticeRun
-	guildDungeonClear            *dnfdungeon.GuildDungeonClear
-	settlementGuildDungeonSent   bool
-	ridableReportLastSequence    uint64
-	ridableReportChannelID       int
-	ridableReportChannelType     byte
-	huntMonsterReceipts          map[currentHuntMonsterReceiptKey]*currentRoomClearQuestReceipt
-	roomClearQuestReceipts       map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
-	questDropReceipts            map[currentDungeonQuestDropEventKey]currentDungeonQuestDropReceipt
-	passiveQuestDropReceipts     map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
-	passiveQuestDropSourceUsage  map[runtimeDungeonRoomKey]map[int64]int
-	storyProcDeaths              map[uint32]dungeonStoryProcDeathReceipt
-	missionInformerRetirements   map[uint32]dungeonMissionInformerRetirement
-	entryCharacterLevel          int
-	entryPartyCount              int
-	petGrowthEntryPending        bool // follower runtime installed before the group commits
-	settlementLuckyStar          dnfdungeon.LuckyStarResult
-	settlementLuckyStarStateSent bool
-	raidDeadlineReturn           *currentRaidDeadlineReturn
-	lukeSanctumMaze              *currentLukeSanctumMazePreparation
-	dimensionHiddenAdmission     *dnfdungeon.DimensionHiddenAdmission
-	dimensionHiddenHighReward    bool
-	semesterRun                  *currentSemesterRun
-	epicEntry                    *currentEpicEntry
-	raidEntry                    *currentRaidDungeonEntry
-	fiendWarRetreatKeepsParty    bool
-	antonMapReturnOwner          *currentAntonMapReturnOwner
-	lukeClosedEnergyReturn       *currentLukeClosedEnergyReturnOwner
-	antonHatcheryTransfer        *currentAntonHatcheryTransfer
-	deathStateSent               bool
-	riftLoot                     *currentRiftLootDefinition
-	fatigueRooms                 map[worldmap.RoomCoordinate]bool
-	fatigueStartDebited          bool
-	fatigueSpent                 int64
-	Request                      dungeoncmd.SelectDungeonRequest
-	Dungeon                      worldmap.Dungeon
-	MazeIndex                    int
-	storyExperience              currentDungeonStoryExperienceProfile
-	Character                    dnfrepo.CharacterRecord
+	battlePassSkillSequence                  uint64
+	battlePassSkillSequenceSet               bool
+	battlePassCoinUsed, battlePassSRankClear bool
+	durabilityLastSequence                   uint64
+	durabilitySequenceKnown                  bool
+	guildPractice                            *currentGuildPracticeRun
+	guildDungeonClear                        *dnfdungeon.GuildDungeonClear
+	settlementGuildDungeonSent               bool
+	activityAbyssRecorded                    bool
+	activityAbyssEvent                       *dnfrepo.ActivityEvent
+	activityAbyssRecipients                  []dungeonDropRecipient
+	ridableReportLastSequence                uint64
+	ridableReportChannelID                   int
+	ridableReportChannelType                 byte
+	huntMonsterReceipts                      map[currentHuntMonsterReceiptKey]*currentRoomClearQuestReceipt
+	roomClearQuestReceipts                   map[runtimeDungeonRoomKey]*currentRoomClearQuestReceipt
+	questDropReceipts                        map[currentDungeonQuestDropEventKey]currentDungeonQuestDropReceipt
+	passiveQuestDropReceipts                 map[currentDungeonPassiveQuestDropEventKey]currentDungeonPassiveQuestDropReceipt
+	passiveQuestDropSourceUsage              map[runtimeDungeonRoomKey]map[int64]int
+	storyProcDeaths                          map[uint32]dungeonStoryProcDeathReceipt
+	missionInformerRetirements               map[uint32]dungeonMissionInformerRetirement
+	entryCharacterLevel                      int
+	entryPartyCount                          int
+	petGrowthEntryPending                    bool // follower runtime installed before the group commits
+	settlementLuckyStar                      dnfdungeon.LuckyStarResult
+	settlementLuckyStarStateSent             bool
+	raidDeadlineReturn                       *currentRaidDeadlineReturn
+	lukeSanctumMaze                          *currentLukeSanctumMazePreparation
+	dimensionHiddenAdmission                 *dnfdungeon.DimensionHiddenAdmission
+	dimensionHiddenHighReward                bool
+	semesterRun                              *currentSemesterRun
+	epicEntry                                *currentEpicEntry
+	raidEntry                                *currentRaidDungeonEntry
+	fiendWarRetreatKeepsParty                bool
+	antonMapReturnOwner                      *currentAntonMapReturnOwner
+	lukeClosedEnergyReturn                   *currentLukeClosedEnergyReturnOwner
+	antonHatcheryTransfer                    *currentAntonHatcheryTransfer
+	deathStateSent                           bool
+	riftLoot                                 *currentRiftLootDefinition
+	fatigueRooms                             map[worldmap.RoomCoordinate]bool
+	luckyFatigueRooms                        map[worldmap.RoomCoordinate]int64
+	fatigueStartDebited                      bool
+	fatigueSpent                             int64
+	Request                                  dungeoncmd.SelectDungeonRequest
+	Dungeon                                  worldmap.Dungeon
+	MazeIndex                                int
+	storyExperience                          currentDungeonStoryExperienceProfile
+	Character                                dnfrepo.CharacterRecord
 	// AccountID 是**建这个 runtime 的那条会话**的账号（accountIDForSession，在请求
 	// 边界冻结，与 currentEquipmentPlacementValidator.selectedAccountID 同一口径）。
 	// 副本内所有**账号级**读取（成长契约/黑钻等 entitlement、掉落按账号取的加成）
@@ -188,6 +195,7 @@ type runtimeDungeonState struct {
 	dungeonCycleClearNonceLo             int64
 	clearMapCompletionPhaseAPersisted    bool
 	hellQuestCompletionKey               string
+	privateActivityHellDeaths            map[uint32]time.Time
 	hellQuestCompletionAt                time.Time
 	hellQuestCompletionPersisted         bool
 	hellQuestCompletionSnapshotSent      bool
@@ -213,6 +221,8 @@ type runtimeDungeonState struct {
 	crystalContractTimerGeneration       uint64
 	crystalContractTimerName             string
 	crystalContractTimerDueAt            time.Time
+	seriaSkillSequence                   uint64
+	seriaSkillSequenceSet                bool
 	lifecycleToken                       uint64
 	deathReturnWaiting                   bool
 	deathReturnGeneration                uint64
@@ -227,6 +237,12 @@ type runtimeDungeonState struct {
 	settlementDungeonPermissionSent      bool
 	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState
+	settlementMonsterWelcomeBonus        uint32
+	settlementMonsterLuckyCharacterBonus uint32
+	settlementClearWelcomeBonus          *uint32
+	settlementClearLuckyBonus            *uint32
+	settlementMonsterFatigueBurnBonus    uint32
+	settlementClearFatigueBurnBonus      *uint32
 	// Tournament 是本次 run 的锦标赛赛制运行时（厂商
 	// `DungeonInstance.Mechanisms.Tournament`）。只有
 	// `DNFBRIDGE_DUNGEON_TOURNAMENT=vendor` 且该 DGN 声明了 `[tournament dungeon]`

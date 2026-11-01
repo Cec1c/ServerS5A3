@@ -43,6 +43,7 @@ type dungeonCardItemReward struct {
 }
 
 type dungeonCardRewardBundle struct {
+	BattlePassGoldCard  bool
 	Gold                int64
 	Cost                int64
 	Items               []dungeonCardItemReward

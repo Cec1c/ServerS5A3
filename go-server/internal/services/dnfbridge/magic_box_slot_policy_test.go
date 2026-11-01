@@ -59,6 +59,12 @@ func TestRealPVFMagicBoxRewardsUseSharedSlotPolicy(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				ctx := context.Background()
 				repos := dnfrepomemory.NewMemoryGroup()
+				if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "acc", State: "active"}); err != nil {
+					t.Fatal(err)
+				}
+				if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "acc", Name: "magic-box-owner"}); err != nil {
+					t.Fatal(err)
+				}
 				boxSlot := int16(9)
 				if reward.Kind == "equipment" {
 					boxSlot = 70

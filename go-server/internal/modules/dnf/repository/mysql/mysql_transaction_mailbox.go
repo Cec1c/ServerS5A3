@@ -44,6 +44,7 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinMailboxAssets(
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	base := newMySQLGroupFromRouter(txRouter, false)
+	base.Character.(*mysqlCharStore).activity = &mysqlCharacterActivityStore{mysqlActivityStore: base.Activity.(*mysqlActivityStore), characterID: assetCharacterID}
 	characters := &characterSettlementScopedCharacterRepository{
 		characterID: assetCharacterID,
 		base:        base.Character,

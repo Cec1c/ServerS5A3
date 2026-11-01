@@ -126,6 +126,35 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	blackDiamondBonus := s.currentBlackDiamondBonusExp(ctx, s.accountIDForSession(session), gain)
 	marbleBonus := currentAttendanceMarbleClearExperienceBonus(runtime.attendanceMarbleBuffs, gain)
 	totalGain := uint32(min(uint64(gain)+uint64(growthBonus)+uint64(scoreBonus)+uint64(blackDiamondBonus)+uint64(marbleBonus), uint64(math.MaxUint32)))
+	welcomeBonus := uint32(0)
+	if runtime.settlementClearWelcomeBonus != nil {
+		welcomeBonus = *runtime.settlementClearWelcomeBonus
+	} else {
+		welcomeBonus, err = s.currentReturneeWelcomeExperienceBonus(ctx, session, runtime.Character, gain)
+		if err != nil {
+			return err
+		}
+		welcomeBonus = min(welcomeBonus, math.MaxUint32-totalGain)
+	}
+	totalGain = saturatingCurrentDungeonUint32Add(totalGain, welcomeBonus)
+	luckyBonus := uint32(0)
+	if runtime.settlementClearLuckyBonus != nil {
+		luckyBonus = *runtime.settlementClearLuckyBonus
+	} else if lucky := s.currentLuckyCharacterEffect(session, runtime.Character); lucky != nil {
+		percent := lucky.Clear
+		if runtime.partyInstance != nil && runtime.partyInstance.memberCount() > 1 {
+			percent += lucky.Party
+		}
+		luckyBonus = min(currentPercentageBonusUint32(gain, percent), math.MaxUint32-totalGain)
+	}
+	totalGain = saturatingCurrentDungeonUint32Add(totalGain, luckyBonus)
+	var fatigueBurnBonus uint32
+	if runtime.settlementClearFatigueBurnBonus != nil {
+		fatigueBurnBonus = *runtime.settlementClearFatigueBurnBonus
+	} else {
+		fatigueBurnBonus = min(currentPercentageBonusUint32(gain, s.currentLuckyRoomBurnPercent(runtime)), math.MaxUint32-totalGain)
+	}
+	totalGain = saturatingCurrentDungeonUint32Add(totalGain, fatigueBurnBonus)
 	presentation, err := currentDungeonSettlementPresentationForRuntime(
 		runtime,
 		resources.ClearRankCatalog,
@@ -134,6 +163,8 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if err != nil {
 		return err
 	}
+	// rank grade顺序为SSS/SS/S等；使用本次已冻结op46评分与当前PVF，拒绝写死分数。
+	runtime.battlePassSRankClear = len(resources.ClearRankCatalog.gradeThresholds) >= 3 && clientRankPoint >= resources.ClearRankCatalog.gradeThresholds[2]
 	result, err := s.commitCurrentDungeonSettlementWithPotion(
 		ctx,
 		session,
@@ -145,6 +176,9 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if err != nil {
 		return err
 	}
+	runtime.settlementClearWelcomeBonus = &welcomeBonus
+	runtime.settlementClearLuckyBonus = &luckyBonus
+	runtime.settlementClearFatigueBurnBonus = &fatigueBurnBonus
 	permissionBody, permissionState, permissionUpdated, permissionErr := s.commitCurrentDungeonPermission(
 		ctx,
 		session,
@@ -172,6 +206,12 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	}
 	cardSlots := currentDungeonClearRewardCardSlotsFromRuntime(runtime, currentDungeonCardFlipRowStateValue(session))
 	var bonusPresentation [currentDungeonClearRewardBonusFieldCount]uint32
+	bonusPresentation[currentDungeonClearRewardBonusClearEventIndex] = welcomeBonus
+	bonusPresentation[currentDungeonClearRewardBonusClearLuckyCharacterIndex] = luckyBonus
+	bonusPresentation[currentDungeonClearRewardBonusMonsterReturnedHeroPart2Index] = runtime.settlementMonsterWelcomeBonus
+	bonusPresentation[currentDungeonClearRewardBonusMonsterLuckyCharacterPartyIndex] = runtime.settlementMonsterLuckyCharacterBonus
+	bonusPresentation[currentDungeonClearRewardBonusClearFatigueBurnIndex] = fatigueBurnBonus
+	bonusPresentation[currentDungeonClearRewardBonusMonsterFatigueBurnIndex] = runtime.settlementMonsterFatigueBurnBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearAncientElixirIndex] = result.PotionBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearBlackDiamondIndex] = blackDiamondBonus
 	bonusPresentation[currentDungeonClearRewardBonusClearGrowthContractIndex] = growthBonus
@@ -668,9 +708,13 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	}
 	fatigueSpent := runtime.fatigueSpent
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
-		Clear:             &moderation.Clear{FatigueSpent: &fatigueSpent, DungeonID: runtime.Dungeon.ID, DungeonName: runtime.Dungeon.Metadata.Name, Difficulty: int(runtime.Request.Difficulty), StartedAt: started, FinishedAt: finished, DurationMS: finished.Sub(started).Milliseconds()},
-		GuildContribution: contribution,
-		GuildEssence:      essence, GuildEssenceRevalidate: essenceCurrent,
+		BattlePassDungeonKind:  currentBattlePassAdaptedDungeonKind(runtime),
+		BattlePassNoCoinClear:  currentBattlePassDungeonClear(runtime) && !runtime.battlePassCoinUsed,
+		BattlePassSRankClear:   currentBattlePassDungeonClear(runtime) && runtime.battlePassSRankClear,
+		ReturneeDimensionClear: s.currentDimensionGateDailyEntryEnabled(runtime.Dungeon),
+		Clear:                  &moderation.Clear{FatigueSpent: &fatigueSpent, DungeonID: runtime.Dungeon.ID, DungeonName: runtime.Dungeon.Metadata.Name, Difficulty: int(runtime.Request.Difficulty), StartedAt: started, FinishedAt: finished, DurationMS: finished.Sub(started).Milliseconds()},
+		GuildContribution:      contribution,
+		GuildEssence:           essence, GuildEssenceRevalidate: essenceCurrent,
 		GuildRanking:            rankingClear,
 		GuildDungeon:            runtime.guildDungeonClear,
 		DespairClearedFloor:     despairFloor,
@@ -680,6 +724,7 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		AccountID:               s.accountIDForSession(session),
 		CharacterID:             fmt.Sprintf("%d", session.selectedCharacterID),
 		CompletionKey:           completionKey,
+		DungeonID:               runtime.Dungeon.ID,
 		Tables:                  tables,
 		Experience:              gain,
 		ClearPotionBase:         potionBase,

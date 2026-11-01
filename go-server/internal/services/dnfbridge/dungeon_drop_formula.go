@@ -12,11 +12,8 @@ import (
 )
 
 const (
-	currentDungeonDropDenominator  = 10000
-	currentDungeonExplicitPoolRate = 1000
+	currentDungeonDropDenominator = 10000
 )
-
-var currentDungeonDropDifficultyBonus = [...]float64{1.0, 1.2, 1.4, 1.6, 1.8}
 
 var (
 	errCurrentDungeonDropRulesUnavailable = errors.New("current dungeon drop PVF rules are unavailable")
@@ -165,25 +162,20 @@ func currentDungeonDropRate(base int64, typeBonus float64, difficultyBonus float
 	return int(value)
 }
 
-func currentDungeonDropDifficultyRate(index int) float64 {
-	if index < 0 || index >= len(currentDungeonDropDifficultyBonus) {
-		return 1.0
-	}
-	return currentDungeonDropDifficultyBonus[index]
-}
-
 func currentDungeonDropRarity(rng *currentDungeonDropLCG, rules *dnfdrops.MonsterRules) int64 {
 	return currentDungeonDropRarityWithMarble(rng, rules, false)
 }
 
 func currentDungeonDropRarityWithMarble(rng *currentDungeonDropLCG, rules *dnfdrops.MonsterRules, uniqueBuff bool) int64 {
+	return currentDungeonDropRarityWithLucky(rng, rules, uniqueBuff, 0)
+}
+
+// 幸运角色与大富翁都增加原始神器档权重；仅从更低档位让出概率，不放大传说、史诗。
+func currentDungeonDropRarityWithLucky(rng *currentDungeonDropLCG, rules *dnfdrops.MonsterRules, uniqueBuff bool, luckyPercent int64) int64 {
 	if rng == nil || rules == nil {
 		return 0
 	}
-	thresholds := rules.RawTables().RarityDecision[0]
-	if uniqueBuff {
-		thresholds = onlineevent.MarbleEquipmentRarityThresholds(thresholds)
-	}
+	thresholds := currentLuckyRarityThresholds(rules.RawTables().RarityDecision[0], uniqueBuff, luckyPercent)
 	roll := int64(rng.Next(1000000)) + 1
 	for rarity, threshold := range thresholds {
 		if roll <= threshold {
@@ -191,6 +183,21 @@ func currentDungeonDropRarityWithMarble(rng *currentDungeonDropLCG, rules *dnfdr
 		}
 	}
 	return 0
+}
+
+func currentLuckyRarityThresholds(base [7]int64, uniqueBuff bool, luckyPercent int64) [7]int64 {
+	thresholds := base
+	if uniqueBuff {
+		thresholds = onlineevent.MarbleEquipmentRarityThresholds(thresholds)
+	}
+	if luckyPercent > 0 {
+		weight := max(int64(0), min(base[3], int64(1000000))-base[2])
+		extra := weight * min(luckyPercent, int64(1000)) / 100
+		for i := 0; i < 3; i++ {
+			thresholds[i] = max(int64(0), thresholds[i]-extra)
+		}
+	}
+	return thresholds
 }
 
 func currentDungeonGoldAmount(rng *currentDungeonDropLCG, reference currentDungeonGoldReference, difficulty float64) uint32 {

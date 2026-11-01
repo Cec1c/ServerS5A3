@@ -154,6 +154,9 @@ func packageSealFixture(t *testing.T, catalog *pvfDungeonDropCatalog, source dun
 	t.Helper()
 	repositories := dnfrepomemory.NewMemoryGroup()
 	ctx := context.Background()
+	if err := repositories.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "account-1", State: "active"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1", Job: "0", Level: 90}); err != nil {
 		t.Fatal(err)
 	}

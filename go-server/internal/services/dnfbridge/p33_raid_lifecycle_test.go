@@ -200,6 +200,90 @@ func p33HasPartyRemovalSequence(t *testing.T, data []byte, want byte) bool {
 	return false
 }
 
+// p33HasCompletePartySingletonSnapshotSequence verifies the survivor's full
+// local update: removal uses op9 then op153; a rebuilt party uses the formation
+// order op153 then op9. Both carry the same character and fixed slot.
+// The retired generation may clear first;
+// a later self kind3 clear invalidates the retained singleton result.
+func p33HasCompletePartySingletonSnapshotSequence(t *testing.T, session *gameSession, data []byte, wantUserID uint16, wantSlot byte, realtimeFirst bool) bool {
+	t.Helper()
+	found := false
+	wantObjectKey := currentSceneActorObjectKey(wantUserID)
+	for len(data) > 0 {
+		packet, rest := splitGameServerUpperPacket(t, data)
+		data = rest
+		if packet.Header.MsgID == 9 && len(packet.Body) >= 10 &&
+			binary.LittleEndian.Uint16(packet.Body[4:6]) == wantObjectKey &&
+			packet.Body[9] == currentSceneOp9ActorRemoveKind {
+			found = false
+			continue
+		}
+		if len(rest) == 0 {
+			continue
+		}
+		next, _ := splitGameServerUpperPacket(t, rest)
+		realtime, op9 := packet, next
+		if !realtimeFirst {
+			realtime, op9 = next, packet
+		}
+		if realtime.Header.Classification != 0 || realtime.Header.MsgID != 0x0099 {
+			continue
+		}
+		realtimeRows := parseRealtimeInfoRows(t, realtime.Body)
+		if len(realtimeRows) != 1 || realtimeRows[0].uid != wantUserID || realtimeRows[0].slot != wantSlot {
+			continue
+		}
+		if op9.Header.Classification != 0 || op9.Header.MsgID != 9 || len(op9.Body) < 10 ||
+			binary.LittleEndian.Uint16(op9.Body[4:6]) != wantObjectKey ||
+			op9.Body[9] != currentSceneOp9ActorDisplayKind {
+			continue
+		}
+		hasIdentity := int(op9.Body[7]) != currentClientSelectedChannelID(session)
+		partyRows, leaderSlot := p33ParseCurrentSingletonPartyFrame(t, op9.Body, hasIdentity)
+		if len(partyRows) == 1 && partyRows[0].uid == wantUserID && partyRows[0].slot == wantSlot && leaderSlot == wantSlot {
+			found = true
+		}
+	}
+	return found
+}
+
+// P33 uses official-24.9: its actor metadata and member identity contain
+// fields absent from the legacy parseOp9PartyFrame fixture.
+func p33ParseCurrentSingletonPartyFrame(t *testing.T, body []byte, hasIdentity bool) ([]op9PartyRow, byte) {
+	t.Helper()
+	offset := 12
+	take := func(n int) []byte {
+		if n < 0 || offset+n > len(body) {
+			t.Fatalf("P33 op9 truncated offset=%d n=%d len=%d", offset, n, len(body))
+		}
+		v := body[offset : offset+n]
+		offset += n
+		return v
+	}
+	dstr := func() { take(int(binary.LittleEndian.Uint32(take(4)))) }
+	dstr()
+	take(14) // actor job/level/grow metadata, including official +0x55
+	count := int(take(1)[0])
+	rows := make([]op9PartyRow, 0, count)
+	for i := 0; i < count; i++ {
+		head := take(3)
+		row := op9PartyRow{slot: head[0], uid: binary.LittleEndian.Uint16(head[1:])}
+		if hasIdentity {
+			take(5)
+			dstr()
+			dstr() // optional secondary identity string
+			take(1)
+		}
+		row.state = take(3)[1]
+		rows = append(rows, row)
+	}
+	leaderSlot := take(4)[1]
+	if offset != len(body) {
+		t.Fatalf("P33 op9 extra bytes offset=%d len=%d", offset, len(body))
+	}
+	return rows, leaderSlot
+}
+
 func TestP33Op665SyncsMatchingPartyContinuesAfterNotifyFailureAndPreservesReward(t *testing.T) {
 	s, leader, member, leaderConn, memberConn, raid := prepareApprovedCurrentRaid(t)
 	failure := errors.New("p33 injected survivor write failure")
@@ -368,8 +452,15 @@ func TestP33Op665SingletonSurvivorProjectsSoloRoster(t *testing.T) {
 	leaderIdentity, _ := s.boundGameSessionCharacterSnapshot(leader)
 	assertPartyProjectionSingleton(t, "raid survivor", runtimePartyStateSnapshot(leader), int(partyID), leaderIdentity.character, 0, true)
 	managerParty, found := s.runtimePartyManagerForService().SnapshotByUser(leaderIdentity.character, leaderIdentity.generation)
-	if !found || managerParty.ID != partyID || len(managerParty.Members) != 1 {
+	if !found || managerParty.ID != partyID || managerParty.Leader != leaderIdentity.character || len(managerParty.Members) != 1 ||
+		managerParty.Members[0].UserID != leaderIdentity.character || managerParty.Members[0].Slot != 0 {
 		t.Fatalf("singleton manager lobby=%+v found=%t", managerParty, found)
+	}
+	party := runtimePartyStateSnapshot(leader)
+	partyMembers := runtimePartyMembers(party)
+	if party.PartyID != int(managerParty.ID) || party.UserID != leaderIdentity.character || !party.IsLeader ||
+		len(partyMembers) != 1 || partyMembers[0].UserID != leaderIdentity.character || partyMembers[0].Slot != 0 {
+		t.Fatalf("singleton client projection=%+v rows=%+v", party, partyMembers)
 	}
 	state, found := s.runtimeRaidForMember(leaderIdentity.character)
 	if !found || len(state.Members) != 1 || !state.Members[0].OrdinaryPartySolo || state.Battle == nil || state.Battle.ProgressVersion != beforeVersion+1 {
@@ -382,6 +473,9 @@ func TestP33Op665SingletonSurvivorProjectsSoloRoster(t *testing.T) {
 	p33WaitRaidProjectionVersion(t, leader, state.Battle.ProgressVersion)
 	if !p33HasMessageBody(t, leaderConn.write.Bytes(), 591, projection) {
 		t.Fatal("op665 survivor roster did not carry the committed solo group marker")
+	}
+	if !p33HasCompletePartySingletonSnapshotSequence(t, leader, leaderConn.write.Bytes(), leaderIdentity.character, 0, false) {
+		t.Fatal("op665 survivor did not receive the complete op9 kind0 followed by op153 singleton update")
 	}
 }
 
@@ -404,7 +498,8 @@ func TestP33Op665PartyLeaderRetirementClearsOnlyOldGeneration(t *testing.T) {
 		t.Fatal("departed party leader retained manager membership")
 	}
 	managerParty, found := manager.SnapshotByUser(memberIdentity.character, memberIdentity.generation)
-	if !found || managerParty.ID == oldPartyID || len(managerParty.Members) != 1 || managerParty.Members[0].UserID != memberIdentity.character {
+	if !found || managerParty.ID == oldPartyID || managerParty.Leader != memberIdentity.character || len(managerParty.Members) != 1 ||
+		managerParty.Members[0].UserID != memberIdentity.character || managerParty.Members[0].Slot != 1 {
 		t.Fatalf("party leader retirement did not create a survivor generation: %+v found=%t", managerParty, found)
 	}
 	assertPartyProjectionSingleton(t, "raid successor", runtimePartyStateSnapshot(member), int(managerParty.ID), memberIdentity.character, 1, true)

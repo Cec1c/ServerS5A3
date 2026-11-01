@@ -21,11 +21,17 @@ import (
 )
 
 type gameSession struct {
+	battlePassBusiness gameBattlePassState
+	battlePassPush     *gameBattlePassPushState
+	battlePassEntry    gameBattlePassState
 	// Written and read only by this session's serial event owner.
 	performanceEventQueuedAt            time.Time
 	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
 	dungeonPermissionMigrationAccount   string                         // 只记本会话已完成归并的账号，不缓存权限值。
 	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
+	accountRank                         gameAccountRankState           // 限流和请求号由会话循环访问。
+	battlePassLast                      time.Time                      // 战令预览限流，仅会话循环访问。
+	playerStats                         gamePlayerStatsState           // 请求/缓存只由会话循环使用，busy跨工作协程。
 	professionChangeMu                  sync.Mutex
 	professionChangePending             *currentProfessionChangePending
 	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
@@ -405,6 +411,23 @@ type gameSession struct {
 	avatarAppearanceNeedsBuffClear bool
 	buffReplayDedupe               buffReplayDedupeState
 	petGrowth                      petGrowthClockState
+	levelAimingCreatedID           uint16
+	returneeProjection             currentReturneeProjection
+	returneeTimeCharacter          uint16
+	returneeTimeGeneration         uint64
+	returneeTimeExpiresAt          int64
+	returneePreparedExpiresAt      int64
+	returneePreparedCharacter      uint16
+	returneePreparedGeneration     uint64
+	returneeActive                 bool
+	returneeConnectionObserved     bool
+	luckyPreparedCharacter         uint16
+	luckyPreparedGeneration        uint64
+	luckyPreparedActorGeneration   uint64
+	luckyPreparedActive            bool
+	luckyFatigueProjection         currentLuckyFatigueProjection
+	portedActivityNextRefresh      time.Time
+	laborDayAnchor                 time.Time
 	spendTime                      currentSpendTimeClockState
 	// Owned by the serialized session event loop; full catalogs omit yesterday's flag.
 	activityCatalogDayEvent uint16

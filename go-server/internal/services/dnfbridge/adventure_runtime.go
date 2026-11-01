@@ -255,7 +255,7 @@ func (s *Service) handleCurrentAdventureExpeditionStart(session *gameSession, bo
 		Members:    members,
 		Reward:     reward,
 	}
-	if err := saveCurrentAdventureRuntime(ctx, state.Repositories.Account, state.Account, state.Runtime, now); err != nil {
+	if err := adventuregroup.CommitBattlePassExpeditionStart(ctx, state.Repositories, state.Account.AccountID, state.CharacterID, state.Account.Metadata[adventuregroup.RuntimeStateMetadataKey], state.Runtime, now); err != nil {
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketMercenaryCompetition), currentAdventureGenericFailureCode)
 	}
 	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketMercenaryCompetition), nil); err != nil {
@@ -363,9 +363,8 @@ func (s *Service) handleCurrentAdventureExpeditionReward(session *gameSession, b
 	if !found || expedition.EndsAt > now.Unix() || expedition.Reward == 0 {
 		return s.sendGameUpperFailure(session, currentAdventureExpeditionRewardMsgID, currentAdventureGenericFailureCode)
 	}
-	delete(state.Runtime.Expeditions, key)
-	state.Runtime.AddGlory(state.Config, expedition.Reward)
-	if err := saveCurrentAdventureRuntime(ctx, state.Repositories.Account, state.Account, state.Runtime, now); err != nil {
+	state.Runtime, err = adventuregroup.CommitBattlePassExpeditionReward(ctx, state.Repositories, state.Account.AccountID, state.CharacterID, state.Account.Metadata[adventuregroup.RuntimeStateMetadataKey], state.Config, body[0], now)
+	if err != nil {
 		return s.sendGameUpperFailure(session, currentAdventureExpeditionRewardMsgID, currentAdventureGenericFailureCode)
 	}
 	var response packetWriter

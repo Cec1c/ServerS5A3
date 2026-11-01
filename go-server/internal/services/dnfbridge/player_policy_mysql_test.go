@@ -128,10 +128,7 @@ func TestPlayerPolicyMySQL(t *testing.T) {
 		t.Fatal("unknown token accepted")
 	}
 	// Revocation must win over a populated in-memory token cache.
-	if err = func() error {
-		_, err := db.Exec("INSERT INTO "+table+"_player_accounts(account_id,disabled) VALUES (?,TRUE)", login.AccountID)
-		return err
-	}(); err != nil {
+	if err = a.mutatePlayerAccount(context.Background(), login.AccountID, "disable", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.authenticatePlayer(&gameSession{}, login.Token); err == nil {
@@ -139,5 +136,17 @@ func TestPlayerPolicyMySQL(t *testing.T) {
 	}
 	if w = call("login", "login_0", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "192.0.2.10"); w.Code != 403 {
 		t.Fatal("disabled login accepted", w.Code)
+	}
+	request := httptest.NewRequest("POST", "/api/player/admin", bytes.NewBufferString(`{"Action":"list"}`))
+	denied := httptest.NewRecorder()
+	a.handlePlayerAdmin(denied, request)
+	if denied.Code != 404 {
+		t.Fatal("public admin")
+	}
+	request.Header.Set("Authorization", "Bearer "+s.options.playerAdminSecret)
+	allowed := httptest.NewRecorder()
+	a.handlePlayerAdmin(allowed, request)
+	if allowed.Code != 200 || bytes.Contains(allowed.Body.Bytes(), []byte("password")) {
+		t.Fatal("admin response boundary")
 	}
 }

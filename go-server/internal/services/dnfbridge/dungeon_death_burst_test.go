@@ -379,7 +379,8 @@ func (c *dungeonDeathBurstInputConn) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Input uses a pipe; output is captured independently even after read EOF.
+// Reads use the pipe to exercise fragmented input/EOF. Writes are captured
+// independently above, so their deadline must not inherit the closed read pipe.
 func (c *dungeonDeathBurstInputConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestDungeonDeathBurstRealConnectionFragmentationAndEOF(t *testing.T) {

@@ -225,11 +225,14 @@ func (s *Service) consumeCurrentDungeonCycleEntryAssets(session *gameSession, ru
 		return dnfrepo.CharacterRecord{}, nil, err
 	}
 	at := s.gameplayNow()
+	if assets.activity != nil {
+		at = assets.activity.OccurredAt
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := owner.ConsumeDailyEntry(ctx, dnfdungeon.DailyEntryCommand{
 		CharacterID: strconv.Itoa(int(session.selectedCharacterID)), DungeonID: runtime.Dungeon.ID, Limit: rule.Limit,
-		Requirements: assets.requirements, Project: assets.project, UpdatedAt: at, CycleEntry: true,
+		Activity: assets.activity, Requirements: assets.requirements, Project: assets.project, UpdatedAt: at, CycleEntry: true,
 		ClearNonceHi: runtime.dungeonCycleClearNonceHi, ClearNonceLo: runtime.dungeonCycleClearNonceLo,
 		InTransaction: func(character *dnfrepo.CharacterRecord) error {
 			if err := dnfdungeon.ValidateCycleEntryAllowance(*character, rule, at); err != nil {

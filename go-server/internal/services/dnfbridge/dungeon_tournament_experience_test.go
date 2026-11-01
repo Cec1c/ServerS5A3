@@ -131,6 +131,7 @@ func installCurrentTournamentCardRewardTestPVF(t *testing.T, service *Service) {
 	// fixture 副本 700 的 `[basis level]` 是 20（`bridgeDungeonPVF`），
 	// 所以金币参考表与掉落参考表都要有 level 20 的行。
 	source[dungeonCardGoldReferencePath] = "[gold drop ref table]\n20 100 0\n"
+	source[currentDungeonClearRewardRulePath] = "[gold card cost table]\n1 100\n20 100\n[/gold card cost table]\n"
 	source[dungeonCardDropRulePath] = strings.Replace(
 		currentDungeonGoldDropTestRuleText(),
 		"[item drop ref table]\n1 0 3\n",

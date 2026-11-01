@@ -220,8 +220,8 @@ func TestCurrentDungeonGoldDropRegistersRealAmountForPickup(t *testing.T) {
 		t.Fatalf("gold drop was not planned: wires=%+v", wires)
 	}
 	wireAmount := binary.LittleEndian.Uint32(goldWire.Item.data[0x06:0x0A])
-	if wireAmount != 120 {
-		t.Fatalf("gold wire amount=%d want 120", wireAmount)
+	if wireAmount != 100 {
+		t.Fatalf("gold wire amount=%d want 100", wireAmount)
 	}
 	registered := runtime.DropOwner.byObjectKey[goldWire.SceneObjectKey]
 	if registered == nil || !registered.isGold() || registered.Amount != wireAmount {
@@ -515,7 +515,10 @@ func currentDungeonPickupTestBody(dropObjectKey uint32) []byte {
 }
 
 func currentDungeonGoldDropTestRuleText() string {
-	return `[drop prob count]
+	return `[private monster template probability]
+1000
+[/private monster template probability]
+[drop prob count]
 1
 [drop prob]
 1 200 10000 0 0 0 0

@@ -16,6 +16,7 @@ type memoryAccountCharacterItemUnitOfWork struct {
 }
 
 type memoryAccountCharacterAssetUnitOfWork struct {
+	activity         *memoryActivityStore
 	mu               sync.Mutex
 	sharedMu         *sync.Mutex
 	account          *memoryAccountStore
@@ -23,6 +24,7 @@ type memoryAccountCharacterAssetUnitOfWork struct {
 	character        repository.CharacterRepository
 	inventory        repository.InventoryRepository
 	equipment        repository.EquipmentRepository
+	skills           repository.SkillRepository
 	pet              repository.PetRepository
 	mailbox          repository.MailboxRepository
 }
@@ -197,6 +199,11 @@ func (u *memoryAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 		record:      repository.CloneEquipment(equipmentRecord),
 		exists:      equipmentExists,
 	}
+	var activityTx *memoryActivityTransaction
+	if u.activity != nil && characterExists {
+		activityTx = u.activity.transaction()
+		characterTx.activity = repository.ScopeCharacterActivity(activityTx, characterRecord)
+	}
 	if err := apply(ledgerTx, accountTx, characterTx, inventoryTx, equipmentTx); err != nil {
 		return err
 	}
@@ -206,7 +213,7 @@ func (u *memoryAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 
 	if includeLedger {
 		// 所有预映像均已取得；错误、取消或底层保存抛出panic都恢复整个开盒事务。
-		return commitMemoryLedgerAssets(ctx,
+		err := commitMemoryLedgerAssets(ctx,
 			memoryLedgerWrite{dirty: accountTx.dirty, save: func() error { return u.accountInventory.Save(ctx, accountTx.record) }, restore: func() error {
 				return restoreAccountInventoryRecord(u.accountInventory, accountID, accountRecord, accountExists)
 			}},
@@ -220,6 +227,10 @@ func (u *memoryAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 				return restoreEquipmentRecordIfDirty(u.equipment, characterID, equipmentRecord, equipmentExists, true)
 			}},
 			memoryLedgerWrite{dirty: ledgerTx.dirty, save: func() error { return u.account.MemoryStore.Save(ctx, ledgerTx.record) }, restore: func() error { return u.account.MemoryStore.Save(context.Background(), ledgerRecord) }})
+		if err == nil && activityTx != nil {
+			activityTx.commit()
+		}
+		return err
 	}
 
 	if accountTx.dirty {
@@ -256,6 +267,9 @@ func (u *memoryAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 				restoreAccountInventoryRecordIfDirty(u.accountInventory, accountID, accountRecord, accountExists, accountTx.dirty),
 			)
 		}
+	}
+	if activityTx != nil {
+		activityTx.commit()
 	}
 	return nil
 }

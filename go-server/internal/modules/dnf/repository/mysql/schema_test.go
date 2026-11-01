@@ -44,13 +44,16 @@ func TestMySQLSchemaCreatesDatabaseAndTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MySQLSchema() error = %v", err)
 	}
-	if len(schema) != 44 {
-		t.Fatalf("schema statement count = %d, want 44", len(schema))
+	if len(schema) != 48 {
+		t.Fatalf("schema statement count = %d, want 48", len(schema))
 	}
 	joined := strings.Join(schema, "\n")
 	for _, want := range []string{
 		"CREATE DATABASE IF NOT EXISTS `dnf_s1_w1`",
 		"CREATE TABLE IF NOT EXISTS `dnf_s1_w1`.`dnf_accounts`",
+		"CREATE TABLE IF NOT EXISTS `dnf_s1_w1`.`dnf_activity_events`",
+		"CREATE TABLE IF NOT EXISTS `dnf_s1_w1`.`dnf_activity_counters`",
+		"KEY idx_activity_account_time (account_id,occurred_at,event_id)",
 		"honor_exp BIGINT UNSIGNED NOT NULL DEFAULT 0",
 		"CREATE TABLE IF NOT EXISTS `dnf_s1_w1`.`dnf_characters`",
 		"`pc_room_id` BIGINT NOT NULL DEFAULT 65537",
@@ -265,8 +268,8 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() error = %v", err)
 	}
-	if len(exec.statements) != 60 {
-		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+	if len(exec.statements) != 67 {
+		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 	}
 	wantMigrations := []string{
 		"ALTER TABLE `dnf_s1_w1`.`dnf_accounts` ADD COLUMN `honor_exp` BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER `state`",
@@ -279,16 +282,26 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 		"ALTER TABLE `dnf_s1_w1`.`dnf_characters` ADD COLUMN `cera` BIGINT NOT NULL DEFAULT 0 AFTER `gold`",
 		"ALTER TABLE `dnf_s1_w1`.`dnf_characters` ADD COLUMN `premium_crystal_selection` TINYINT NOT NULL DEFAULT -1 AFTER `aura_flag`",
 	}
+	migrations, err := mysqlSchemaMigrations(SchemaOptions{DatabasePlan: repository.DatabasePlan{WriteDatabases: []string{"dnf_s1_w1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for index, want := range wantMigrations {
-		if got := exec.statements[len(exec.statements)-16+index]; got != want {
+		if got := exec.statements[len(exec.statements)-len(migrations)+index]; got != want {
 			t.Fatalf("migration %d = %q, want %q", index, got, want)
+		}
+	}
+	for index, table := range []string{"dnf_activity_events", "dnf_activity_counters"} {
+		want := "ALTER TABLE `dnf_s1_w1`.`" + table + "` MODIFY COLUMN metric VARCHAR(64) NOT NULL"
+		if got := exec.statements[len(exec.statements)-3+index]; got != want {
+			t.Fatalf("activity metric migration = %q, want %q", got, want)
 		}
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingHonorExpColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  45,
+		failAt:  49,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'honor_exp'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -299,14 +312,14 @@ func TestEnsureMySQLSchemaIgnoresExistingHonorExpColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate honor migration error = %v", err)
 	}
-	if len(exec.statements) != 60 {
-		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+	if len(exec.statements) != 67 {
+		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingRepresentNameIndex(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  47,
+		failAt:  51,
 		failErr: &mysql.MySQLError{Number: 1061, Message: "Duplicate key name 'uk_dnf_accounts_represent_account_name'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -317,14 +330,14 @@ func TestEnsureMySQLSchemaIgnoresExistingRepresentNameIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate represent-name index error = %v", err)
 	}
-	if len(exec.statements) != 60 {
-		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+	if len(exec.statements) != 67 {
+		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingTutorialFlagColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  48,
+		failAt:  52,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'tutorial_completed'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -335,14 +348,14 @@ func TestEnsureMySQLSchemaIgnoresExistingTutorialFlagColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate migration error = %v", err)
 	}
-	if len(exec.statements) != 60 {
-		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+	if len(exec.statements) != 67 {
+		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaIgnoresExistingTutorialRewardFlagColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  49,
+		failAt:  53,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'tutorial_reward_progress_38'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -353,8 +366,8 @@ func TestEnsureMySQLSchemaIgnoresExistingTutorialRewardFlagColumn(t *testing.T) 
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate reward migration error = %v", err)
 	}
-	if len(exec.statements) != 60 {
-		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+	if len(exec.statements) != 67 {
+		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 	}
 }
 
@@ -364,8 +377,8 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 		failAt int
 		column string
 	}{
-		{name: "last level", failAt: 50, column: "story_digest_last_level"},
-		{name: "migration version", failAt: 51, column: "story_digest_migration_version"},
+		{name: "last level", failAt: 54, column: "story_digest_last_level"},
+		{name: "migration version", failAt: 55, column: "story_digest_migration_version"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			exec := &fakeSchemaExec{
@@ -380,8 +393,8 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EnsureMySQLSchema() duplicate %s error = %v", test.column, err)
 			}
-			if len(exec.statements) != 60 {
-				t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+			if len(exec.statements) != 67 {
+				t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 			}
 		})
 	}
@@ -389,7 +402,7 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 
 func TestEnsureMySQLSchemaIgnoresExistingCeraColumn(t *testing.T) {
 	exec := &fakeSchemaExec{
-		failAt:  52,
+		failAt:  56,
 		failErr: &mysql.MySQLError{Number: 1060, Message: "Duplicate column name 'cera'"},
 	}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
@@ -400,13 +413,13 @@ func TestEnsureMySQLSchemaIgnoresExistingCeraColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate cera migration error = %v", err)
 	}
-	if len(exec.statements) != 60 {
-		t.Fatalf("executed statements = %d, want 60", len(exec.statements))
+	if len(exec.statements) != 67 {
+		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
 	}
 }
 
 func TestEnsureMySQLSchemaStopsOnTutorialFlagMigrationError(t *testing.T) {
-	exec := &fakeSchemaExec{failAt: 46}
+	exec := &fakeSchemaExec{failAt: 52}
 	err := EnsureMySQLSchema(context.Background(), exec, SchemaOptions{
 		AutoCreate:      true,
 		CreateDatabases: true,
@@ -415,8 +428,8 @@ func TestEnsureMySQLSchemaStopsOnTutorialFlagMigrationError(t *testing.T) {
 	if !errors.Is(err, errFakeSchemaExec) {
 		t.Fatalf("EnsureMySQLSchema() migration error = %v, want fake error", err)
 	}
-	if len(exec.statements) != 46 {
-		t.Fatalf("executed statements = %d, want 46", len(exec.statements))
+	if len(exec.statements) != 52 {
+		t.Fatalf("executed statements = %d, want 52", len(exec.statements))
 	}
 }
 
