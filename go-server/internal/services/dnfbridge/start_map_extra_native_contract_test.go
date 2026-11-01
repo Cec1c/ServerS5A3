@@ -8,10 +8,9 @@ import (
 	"testing"
 )
 
-// This grammar is independent of the server writer. In the exact v141 module
-// 26abf551..., loop 0x1ffbec0..0x1ffbf77 reads u8, three u32, u16,
-// u8, two u16. The next u8 is outside that loop, at 0x1ffbf84.
-// Constructor 0x2621750 receives its last flag as literal zero.
+// This grammar is independent of the server writer so a shared struct change
+// cannot hide a wire shift. It pins the native 21-byte row, including its final
+// per-row flag, with the fog/ridable/party fields kept after the rows.
 func TestStartMapExtraRowsMatchNativeLoopAndPreserveFollowingFields(t *testing.T) {
 	type nativeRow struct {
 		ObjectIndex   byte
@@ -22,19 +21,21 @@ func TestStartMapExtraRowsMatchNativeLoopAndPreserveFollowingFields(t *testing.T
 		AmplifyType   byte
 		AmplifyValue  uint16
 		ExtendedValue uint16
+		ExtendedFlag  byte
 	}
-	if binary.Size(nativeRow{}) != 20 {
+	if binary.Size(nativeRow{}) != 21 {
 		t.Fatal("native fixture width changed")
 	}
-	for _, count := range []int{0, 1, 4} {
+	nativeFlags := []byte{0x31, 0x42, 0x53, 0x64, 0x75, 0x86}
+	for _, count := range []int{0, 1, 4, 6} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			packet := currentDungeonStartMap{MapID: 36765, HellPartyFogFlag: 0x4a, PartyMemberIndex: 0x5f,
 				RidableGroups: [][]currentDungeonStartMapRidableEntry{{{PositionX: 11, PositionY: 22, ObjectCode: 33, Faction: 44, State: 55}}}}
 			expected := make([]nativeRow, count)
 			for i := range expected {
-				expected[i] = nativeRow{byte(i), uint32(474 + i), 10158700, 1, 0x42, 3, 0x45, 0x47}
+				expected[i] = nativeRow{byte(i), uint32(474 + i), 10158700, 1, 0x42, 3, 0x45, 0x47, nativeFlags[i]}
 				r := expected[i]
-				packet.ExtraEntries = append(packet.ExtraEntries, currentDungeonStartMapExtraEntry{PassiveObjectIndex: r.ObjectIndex, GlobalSequence: r.Sequence, ItemID: r.Item, StackCount: r.Count, Endurance: r.Endurance, AmplifyType: r.AmplifyType, AmplifyValue: r.AmplifyValue, ExtendedValue: r.ExtendedValue, ExtendedFlag: 0x49})
+				packet.ExtraEntries = append(packet.ExtraEntries, currentDungeonStartMapExtraEntry{PassiveObjectIndex: r.ObjectIndex, GlobalSequence: r.Sequence, ItemID: r.Item, StackCount: r.Count, Endurance: r.Endurance, AmplifyType: r.AmplifyType, AmplifyValue: r.AmplifyValue, ExtendedValue: r.ExtendedValue, ExtendedFlag: r.ExtendedFlag})
 			}
 			body, err := packet.Build()
 			if err != nil {

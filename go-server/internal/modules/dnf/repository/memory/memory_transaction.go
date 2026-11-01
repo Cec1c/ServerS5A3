@@ -350,6 +350,7 @@ type memoryCharacterItemUnitOfWork struct {
 }
 
 type memoryCharacterTradeUnitOfWork struct {
+	activity         *memoryActivityStore
 	settings         repository.SettingsRepository
 	accountInventory repository.AccountInventoryRepository
 	mu               sync.Mutex
@@ -359,6 +360,7 @@ type memoryCharacterTradeUnitOfWork struct {
 }
 
 type memoryCharacterAssetUnitOfWork struct {
+	activity  *memoryActivityStore
 	mu        sync.Mutex
 	sharedMu  *sync.Mutex
 	character repository.CharacterRepository
@@ -381,6 +383,7 @@ func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssetsAndQuest(ctx conte
 }
 
 type memoryRentalAssetUnitOfWork struct {
+	activity  *memoryActivityStore
 	mu        sync.Mutex
 	sharedMu  *sync.Mutex
 	account   repository.AccountRepository
@@ -724,6 +727,10 @@ func (u *memoryCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx conte
 		accountTx = &memoryAccountInventoryTransaction{accountID: accountID, record: repository.CloneAccountInventory(accountRecord), exists: accountExists}
 		warehouse = accountTx
 	}
+	if u.activity != nil {
+		characterTx.activity = u.activity.transaction()
+		characterTx.activityOwners = originalCharacters
+	}
 	if err := apply(characterTx, inventoryTx, warehouse); err != nil {
 		return err
 	}
@@ -771,14 +778,19 @@ func (u *memoryCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx conte
 			return rollback(errors.Join(err, restoreAccountInventoryRecord(u.accountInventory, accountTx.accountID, accountRecord, accountExists)))
 		}
 	}
+	if characterTx.activity != nil {
+		characterTx.activity.commit()
+	}
 	return nil
 }
 
 type memoryCharacterTradeCharacterTransaction struct {
-	allowed map[string]struct{}
-	records map[string]repository.CharacterRecord
-	exists  map[string]bool
-	dirty   map[string]bool
+	activity       *memoryActivityTransaction
+	activityOwners map[string]repository.CharacterRecord
+	allowed        map[string]struct{}
+	records        map[string]repository.CharacterRecord
+	exists         map[string]bool
+	dirty          map[string]bool
 }
 
 func (tx *memoryCharacterTradeCharacterTransaction) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
@@ -885,6 +897,11 @@ func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Conte
 		return err
 	}
 	characterTx := &memoryCharacterTransaction{characterID: characterID, record: repository.CloneCharacter(character), exists: true}
+	var activityTx *memoryActivityTransaction
+	if u.activity != nil && characterExists {
+		activityTx = u.activity.transaction()
+		characterTx.activity = repository.ScopeCharacterActivity(activityTx, character)
+	}
 	inventoryTx := &memoryInventoryTransaction{characterID: characterID, record: repository.CloneInventory(inventory), exists: inventoryExists}
 	equipmentTx := &memoryEquipmentTransaction{characterID: characterID, record: repository.CloneEquipment(equipment), exists: equipmentExists}
 	if err := apply(characterTx, inventoryTx, equipmentTx); err != nil {
@@ -917,6 +934,9 @@ func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Conte
 				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
 			)
 		}
+	}
+	if activityTx != nil {
+		activityTx.commit()
 	}
 	return nil
 }
@@ -966,6 +986,11 @@ func (u *memoryRentalAssetUnitOfWork) WithinRentalAssets(
 
 	accountTx := &memoryAccountTransaction{accountID: accountID, record: repository.CloneAccount(account), exists: accountExists}
 	characterTx := &memoryCharacterTransaction{characterID: characterID, record: repository.CloneCharacter(character), exists: characterExists}
+	var activityTx *memoryActivityTransaction
+	if u.activity != nil && characterExists {
+		activityTx = u.activity.transaction()
+		characterTx.activity = repository.ScopeCharacterActivity(activityTx, character)
+	}
 	inventoryTx := &memoryInventoryTransaction{characterID: characterID, record: repository.CloneInventory(inventory), exists: inventoryExists}
 	equipmentTx := &memoryEquipmentTransaction{characterID: characterID, record: repository.CloneEquipment(equipment), exists: equipmentExists}
 	if err := apply(accountTx, characterTx, inventoryTx, equipmentTx); err != nil {
@@ -1009,6 +1034,9 @@ func (u *memoryRentalAssetUnitOfWork) WithinRentalAssets(
 				restoreAccountRecord(u.account, accountID, account, accountExists, accountTx.dirty),
 			)
 		}
+	}
+	if activityTx != nil {
+		activityTx.commit()
 	}
 	return nil
 }
@@ -1190,6 +1218,7 @@ func (tx *memoryAccountTransaction) Save(ctx context.Context, record repository.
 
 type memoryCharacterTransaction struct {
 	clear       *moderation.Clear
+	activity    repository.ActivityRepository
 	characterID string
 	record      repository.CharacterRecord
 	exists      bool
@@ -1395,4 +1424,19 @@ func (tx *memoryEquipmentTransaction) Save(ctx context.Context, record repositor
 	tx.exists = true
 	tx.dirty = true
 	return nil
+}
+
+func (tx *memoryCharacterTransaction) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {
+	if tx.activity == nil {
+		return false, repository.ErrActivityTransaction
+	}
+	return tx.activity.Record(ctx, event)
+}
+
+func (tx *memoryCharacterTradeCharacterTransaction) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {
+	ch, ok := tx.activityOwners[event.CharacterID]
+	if !ok || tx.activity == nil {
+		return false, repository.ErrActivityTransaction
+	}
+	return repository.ScopeCharacterActivity(tx.activity, ch).Record(ctx, event)
 }

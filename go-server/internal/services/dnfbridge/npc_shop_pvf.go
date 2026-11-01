@@ -229,13 +229,14 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 	}
 	// Current client shape: [purchase limit] <scope> <period> <count>, for
 	// example "account weekly 70" as declared by the Epic Road talisman
-	// 490010214 in itemshop/2018_epicroad_kairyu.shp (NPC 3136). An unknown
-	// scope or period fails closed instead of silently dropping the limit.
+	// 490010214 in itemshop/2018_epicroad_kairyu.shp (NPC 3136), or
+	// "account accumulate 1" for a permanent account quota. An unknown scope
+	// or period fails closed instead of silently dropping the limit.
 	if tokens, found := document.Section("purchase limit"); found {
 		if len(tokens) != 3 || tokens[0].Kind != dnfpvf.TokenString || tokens[1].Kind != dnfpvf.TokenString ||
 			tokens[2].Kind != dnfpvf.TokenInt ||
 			(tokens[0].Value != "character" && tokens[0].Value != "account") ||
-			(tokens[1].Value != "daily" && tokens[1].Value != "weekly") ||
+			(tokens[1].Value != "daily" && tokens[1].Value != "weekly" && tokens[1].Value != "accumulate") ||
 			tokens[2].Int <= 0 || tokens[2].Int > math.MaxInt32 {
 			return currentNPCShopPricing{}, fmt.Errorf("%w: invalid purchase limit item=%d", errCurrentNPCShopProductUnavailable, itemID)
 		}
@@ -287,8 +288,8 @@ func validateCurrentNPCShopBuyShelf(shop *currentNPCShopCatalog, request current
 		if _, listed := shelf[request.ItemID]; !listed {
 			return fmt.Errorf("%w: item=%d shop=%d shelf_miss", errCurrentNPCShopProductUnavailable, request.ItemID, request.ShopContext)
 		}
-		// The native client sends actor=0 for some itemshop tabs.
-		// A nonzero actor must match the declared PVF NPC.
+		// The native client sends actor=0 for some itemshop tabs (Aiken's
+		// 247/486 is one observed example). A nonzero actor must match PVF.
 		if npc := shop.shopNPCs[request.ShopContext]; npc != 0 && request.ActorContext != 0 && npc != request.ActorContext {
 			return fmt.Errorf("%w: item=%d shop=%d actor_mismatch", errCurrentNPCShopProductUnavailable, request.ItemID, request.ShopContext)
 		}

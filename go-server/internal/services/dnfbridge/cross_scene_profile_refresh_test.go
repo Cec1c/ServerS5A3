@@ -33,7 +33,7 @@ func TestCrossScenePartyRefreshAppendsProfilesAfterExistingTransport(t *testing.
 	}
 	frames := splitUpperFrames(t, f.targetConn.write.Bytes())
 	if len(frames) != len(baseline)+2 {
-		t.Fatalf("frames=%v baseline=%v, want two appended profiles", townPartyActorHPFrameIDs(frames), townPartyActorHPFrameIDs(baseline))
+		t.Fatalf("frames=%v baseline=%v, want two appended profiles", crossSceneProfileActorFrameIDs(frames), crossSceneProfileActorFrameIDs(baseline))
 	}
 	for i, old := range baseline {
 		if frames[i].msgID != old.msgID || !bytes.Equal(frames[i].body, old.body) {
@@ -66,7 +66,7 @@ func TestCrossSceneRaidRefreshPrimesAppearanceBetweenProfilesAndRoster(t *testin
 	}{{lc, member.selectedCharacterID}, {mc, leader.selectedCharacterID}} {
 		frames := splitUpperFrames(t, tc.conn.write.Bytes())
 		if len(frames) < 3 || frames[0].msgID != 752 || frames[2].msgID != 591 {
-			t.Fatalf("raid refresh must retain 752 -> auxiliary profile -> 591, got %v", townPartyActorHPFrameIDs(frames))
+			t.Fatalf("raid refresh must retain 752 -> auxiliary profile -> 591, got %v", crossSceneProfileActorFrameIDs(frames))
 		}
 		requireCurrentCrossSceneProfileBatchMode8(t, frames[1:2], tc.peer, byte(state.RaidKey>>16))
 	}
@@ -93,7 +93,7 @@ func TestCrossSceneRaidRefreshDoesNotPrimeDirectoryViewer(t *testing.T) {
 
 func TestCrossSceneWearRefreshReloadsAppearanceAndClearsRemovedFashion(t *testing.T) {
 	t.Setenv(buffSwapReapplyEnv, "off")
-	f := newTownPartyActorHPFixture(t, true)
+	f := newCrossSceneProfileActorFixture(t, true)
 	f.target.accountID, f.actor.accountID = "dnf:1", "dnf:2"
 	f.target.connectionTownActorOwnerChannel = byte(f.target.channel.ID)
 	info := f.actorInfo
@@ -115,7 +115,7 @@ func TestCrossSceneWearRefreshReloadsAppearanceAndClearsRemovedFashion(t *testin
 		}
 		own := splitUpperFrames(t, f.actorConn.write.Bytes())
 		if len(own) != 1 || own[0].msgID != 2 || own[0].body[0] != 0 {
-			t.Fatalf("wear changed the actor's existing mode0 stream: %v", townPartyActorHPFrameIDs(own))
+			t.Fatalf("wear changed the actor's existing mode0 stream: %v", crossSceneProfileActorFrameIDs(own))
 		}
 		body := requireCurrentCrossSceneProfileBatchMode8(t, splitUpperFrames(t, f.targetConn.write.Bytes()), 17, currentConnectionTownActorOwnerContext(f.target))
 		start := currentSceneObjectTailStartForTest("peer") + 6
@@ -130,7 +130,7 @@ func TestCrossSceneWearRefreshReloadsAppearanceAndClearsRemovedFashion(t *testin
 
 func TestCrossSceneWearRefreshDoesNotFailCommittedWearOnPeerWrite(t *testing.T) {
 	t.Setenv(buffSwapReapplyEnv, "off")
-	f := newTownPartyActorHPFixture(t, true)
+	f := newCrossSceneProfileActorFixture(t, true)
 	f.target.accountID, f.actor.accountID = "dnf:1", "dnf:2"
 	f.target.connectionTownActorOwnerChannel = byte(f.target.channel.ID)
 	bad := &currentCrossSceneProfileBatchFailConn{}

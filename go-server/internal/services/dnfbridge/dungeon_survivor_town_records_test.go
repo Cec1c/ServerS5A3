@@ -177,3 +177,20 @@ func TestDungeonSurvivorTownRecordsWriteFailureStopsBeforeFollowingRecords(t *te
 		t.Fatalf("successfully written town records=%v want only the departing first key 100", keys)
 	}
 }
+
+func TestDungeonSurvivorTownRecordsRejectStaleRetainedRoster(t *testing.T) {
+	service, receiver, _, leaderRuntime, _ := partyDungeonDeathFixture(t)
+	service.options.currentClientVersion = "official-24.9"
+	t.Setenv(dungeonPartyRetiredRecordClearEnv, "on")
+	receiver.channel.ID = 11
+	conn := receiver.conn.(*bufferConn)
+	conn.write.Reset()
+	stale := alignedcmd.PartyState{PartyID: 12, UserID: 99,
+		Members: []alignedcmd.PartyMemberState{{UserID: 99, UserState: 1}}}
+	if err := service.sendMemberGiveupSurvivorRosterAfterDeparture(stale, leaderRuntime.partyInstance, 100); err != nil {
+		t.Fatal(err)
+	}
+	if conn.write.Len() != 0 {
+		t.Fatalf("stale one-member roster wrote %d bytes over current two-member party", conn.write.Len())
+	}
+}

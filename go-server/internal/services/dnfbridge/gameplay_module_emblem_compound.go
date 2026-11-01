@@ -180,7 +180,7 @@ func (s *Service) commitCurrentEmblemCompound(ctx context.Context, session *game
 			}
 			sortCurrentItemListEntries(result.Updates)
 			result.Rewards = rewardSlots
-			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true}, nil
+			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true, EmblemUpgradeFrom: minimumGrade}, nil
 		},
 	})
 	if err != nil {

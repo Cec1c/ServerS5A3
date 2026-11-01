@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -89,6 +92,18 @@ func TestPortableUsableItemLevelHandlerRound15(t *testing.T) {
 				if len(got.UpperResponses) != 1 {
 					t.Errorf("rejection projected updates=%+v", got.UpperResponses)
 				}
+			}
+			if tc.ok {
+				key := fmt.Sprintf("%s%s:38:-1", repo.BattlePassCounterPrefix, repo.ActivityDay(time.Now()))
+				if afterC.Stats[key] != 1 {
+					t.Fatalf("portable upgrade must count once: %+v", afterC.Stats)
+				}
+				for k := range afterC.Stats {
+					if strings.HasPrefix(k, repo.BattlePassCounterPrefix) {
+						delete(afterC.Stats, k)
+					}
+				}
+				afterC.UpdatedAt = c.UpdatedAt
 			}
 			if !reflect.DeepEqual(c, afterC) {
 				t.Error("portable request changed character/gold")

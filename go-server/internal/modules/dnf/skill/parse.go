@@ -36,6 +36,8 @@ func parseSkill(job byte, id uint16, skillPath string, doc *dnfpvf.Document) (Sk
 		Name:                        firstText(doc, "name", "display name"),
 		Kind:                        kind,
 		Active:                      strings.Contains(strings.ToLower(kind), "active"),
+		UsesColorlessCube:           consumesColorlessCube(doc),
+		ColorlessCubeCount:          fixedColorlessCubeCount(doc),
 		RequiredLevel:               firstIntValue(doc, "required level", "minimum level", "level"),
 		MaximumLevel:                firstIntValue(doc, "maximum level", "max level"),
 		GrowtypeMaximumLevels:       intValues(doc, "growtype maximum level"),

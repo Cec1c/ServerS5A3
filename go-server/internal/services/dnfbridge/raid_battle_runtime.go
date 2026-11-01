@@ -438,6 +438,9 @@ func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtime
 	if session.raidProjection.failed {
 		return fmt.Errorf("raid projection transport previously failed")
 	}
+	if session.raidProjection.sessionRestorePending {
+		return nil
+	}
 	var err error
 	state, err = s.latestCurrentRaidProjectionState(session, state)
 	if err != nil {

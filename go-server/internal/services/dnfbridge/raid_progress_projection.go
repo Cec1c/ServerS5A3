@@ -62,6 +62,7 @@ type currentRaidProjectionOwner struct {
 	startTransitionSent    bool
 	metadataReadyIdentity  currentRaidProjectionIdentity
 	metadataReady          bool
+	sessionRestorePending  bool
 	resultIdentity         currentRaidProjectionIdentity
 	resultSent             bool
 	movieIdentity          currentRaidProjectionIdentity
@@ -250,6 +251,9 @@ func currentRaidOrderedSymbolProjection(state *raid.AntonProgression, cursor uin
 // values and subscribes at the current cursor, never replaying old instructions.
 func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, state runtimeRaidState, initial, resubscribe bool) error {
 	o := &session.raidProjection
+	if o.sessionRestorePending && !resubscribe {
+		return nil
+	}
 	b := state.Battle
 	if b != nil && b.FiendWar != nil {
 		return s.sendCurrentFiendWarProjectionLocked(session, state, initial, resubscribe)

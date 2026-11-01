@@ -8,7 +8,7 @@ import (
 
 const (
 	DailyLoginStateMetadataKey     = "adventure_group_daily_login"
-	RecommendedDungeonClearStatKey = "adventure_recommended_dungeon_clears"
+	RecommendedDungeonClearStatKey = dnfrepo.ActivityRecommendedDungeon
 	DespairHundredClearStatKey     = "adventure_despair_100_clears"
 	GriefHundredClearStatKey       = "adventure_grief_100_clears"
 	CollectionTypeCount            = 20

@@ -480,14 +480,15 @@ func TestRealPVFStackableUseProvenanceSmoke(t *testing.T) {
 		t.Fatal("no [unlimited waste] explain examined")
 	}
 
-	// 5) [expert town potion] 不在放行集合里（该族是机制混合容器，见报告逐族表）。
+	// 5) 混合类型不能进入通用裸扣路径；水晶之光由 town_potion002 的
+	// 专用效果事务接收。此处强化秘药仍缺少确定加成，不得全族放行。
 	expert := read("stackable/professional/potion/secret_reinforcement.stk")
 	expertType, _ := expert.Text("stackable type")
 	if stackableTypeToken(expertType) != "[expert town potion]" {
 		t.Fatalf("secret_reinforcement stackable type = %q", expertType)
 	}
 	if stackableTypeIsPVFProvenUseConsumable(expertType) {
-		t.Fatalf("%q must stay outside the op44 accept set", expertType)
+		t.Fatalf("%q must stay outside generic debit-only op44; specialized owners are tested separately", expertType)
 	}
 	if stackableTypeSkipsSourceConsumption(expertType) {
 		t.Fatalf("%q must not enter the no-consume branch", expertType)

@@ -103,6 +103,9 @@ type accountAPIResponse struct {
 
 // startAccountAPI 按配置启动公网账号 API；未配置监听地址时直接跳过。
 func (s *Service) startAccountAPI(ctx context.Context) error {
+	if s.options.gmEditProtection && !s.options.accountAPILoginToken {
+		return errors.New("GM edit protection requires launcher token authentication")
+	}
 	if s.options.playerStrict && (!s.options.accountAPILoginToken || len(s.options.playerProxySecret) < 32) {
 		return errors.New("strict player mode requires token authentication and a proxy key of at least 32 characters")
 	}
@@ -157,6 +160,7 @@ func (s *Service) startAccountAPI(ctx context.Context) error {
 	mux.HandleFunc("/api/account/login", api.handleLogin)
 	mux.HandleFunc("/api/account/binding-code", api.handleAccountSecurity)
 	mux.HandleFunc("/api/account/password", api.handleAccountSecurity)
+	mux.HandleFunc("/api/player/admin", api.handlePlayerAdmin)
 	mux.HandleFunc("/api/game/admin", api.handleGameAdmin)
 	// 客户端补丁"云端更新"只读端点（复用同一个 7002，不新开端口）。
 	// 前缀跟 /api/account/* 一致：GET /api/patch/manifest.json 与

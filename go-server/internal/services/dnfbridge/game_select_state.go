@@ -18,6 +18,9 @@ func (s *Service) sendSelectCharacterState(session *gameSession, body []byte) er
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	charID, _, selectedCharacter, hasCharacter, slot := s.resolveSelectedCharacter(ctx, session, body)
+	if s.gmEditProtectionEnabled() && !hasCharacter {
+		return nil
+	}
 	if s.options.currentClientVersion == "official-24.9" && hasCharacter && currentCharacterRenamePending(selectedCharacter) {
 		return s.sendCharacterBootstrap(session, "pending_rename_legacy_select_retry")
 	}
@@ -28,6 +31,12 @@ func (s *Service) sendSelectCharacterState(session *gameSession, body []byte) er
 	// 与 upper 选角入口同一条口径：先补齐账号级记录再往下走（见
 	// account_record_bootstrap.go）。
 	s.ensureAccountRecordsForSelection(ctx, session, accountRecordBootstrapLegacySource)
+	if hasCharacter {
+		if _, err := s.resetCurrentLuckyFatigueOnSelect(ctx, session); err != nil {
+			s.logGameEvent(session, "选角疲劳燃烧重置失败", "角色编号", charID, "原因", err)
+			return err
+		}
+	}
 	// 成功选角后记录该账号最后选中的角色（account_last_online_character.go）：
 	// 好友离线时用它恢复"上次在线角色"。只认真实在线 owner，失败不打断选角。
 	s.rememberLastOnlineCharacter(ctx, session, charID)
@@ -37,12 +46,18 @@ func (s *Service) sendSelectCharacterState(session *gameSession, body []byte) er
 	s.cleanupExpiredNameTagOnSelect(ctx, session, charID)
 	s.logGameEvent(session, "game-select-character-state-selected", "slot", slot, "char_id", charID)
 	// NoPack.exe 0x2FBC9B0 type=3 S2C reads u32,u8,u8,u32,u8.
-	return s.sendGame(
+	if err := s.sendGame(
 		session,
 		byte(dnfenum.GameCmdCommand),
 		uint16(dnfenum.GameTypeSelectCharacter),
 		append([]byte(nil), body[:11]...),
-	)
+	); err != nil {
+		return err
+	}
+	if hasCharacter {
+		return s.sendCurrentLuckyCharacterState(session)
+	}
+	return nil
 }
 
 func (s *Service) cleanupExpiredNameTagOnSelect(

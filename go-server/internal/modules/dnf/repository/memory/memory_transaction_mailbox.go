@@ -10,6 +10,7 @@ import (
 )
 
 type memoryMailboxAssetUnitOfWork struct {
+	activity         *memoryActivityStore
 	mu               sync.Mutex
 	sharedMu         *sync.Mutex
 	account          repository.AccountRepository
@@ -73,6 +74,11 @@ func (u *memoryMailboxAssetUnitOfWork) WithinMailboxAssets(
 		record:      repository.CloneMailbox(mailbox),
 		exists:      mailboxExists,
 	}
+	var activityTx *memoryActivityTransaction
+	if u.activity != nil && characterExists {
+		activityTx = u.activity.transaction()
+		characterTx.activity = repository.ScopeCharacterActivity(activityTx, character)
+	}
 	if err := apply(characterTx, inventoryTx, mailboxTx); err != nil {
 		return err
 	}
@@ -127,6 +133,9 @@ func (u *memoryMailboxAssetUnitOfWork) WithinMailboxAssets(
 	}
 	if err = ctx.Err(); err != nil {
 		return err
+	}
+	if activityTx != nil {
+		activityTx.commit()
 	}
 	committed = true
 

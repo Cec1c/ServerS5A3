@@ -22,6 +22,8 @@ const (
 	// class0/S2C op39 is the ordinary scene-item pickup result.
 	currentDungeonPickupResultOpcode      uint16 = 39
 	currentDungeonPickupResultSize               = 19
+	currentDungeonGoldPickupPartyRows            = 8
+	currentDungeonGoldPickupResultSize           = 6 + currentDungeonGoldPickupPartyRows*5 + 1 + 4 + 4
 	currentDungeonPickupRequestOpcode     uint16 = 43
 	currentDungeonPickupInventoryFullCode byte   = 4
 	currentDungeonPickupQuickSlotStart           = int16(3)
@@ -70,28 +72,60 @@ func buildCurrentDungeonNormalPickupResultBody(
 func buildCurrentDungeonGoldPickupResultBody(
 	dropObjectKey uint32,
 	pickerActorObjectKey uint16,
+	amount uint32,
+	partySlot int,
 ) ([]byte, error) {
-	if dropObjectKey == 0 || pickerActorObjectKey == 0 {
+	if dropObjectKey == 0 || pickerActorObjectKey == 0 || amount == 0 || amount > math.MaxInt32 ||
+		partySlot < 0 || partySlot >= currentDungeonGoldPickupPartyRows {
 		return nil, fmt.Errorf(
-			"%w: drop=%d picker=%d",
+			"%w: drop=%d picker=%d amount=%d party_slot=%d",
 			errDungeonPickupResponseInvalid,
 			dropObjectKey,
 			pickerActorObjectKey,
+			amount,
+			partySlot,
 		)
 	}
 	var writer packetWriter
 	writer.writeUint32(dropObjectKey)
 	writer.writeUint16(pickerActorObjectKey)
-	writer.writeByte(1) // current visible pickup-effect gate, matching 86JP gold branch semantics
-	writer.writeBytes(make([]byte, 7))
-	writer.writeUint16(pickerActorObjectKey)
-	writer.writeUint16(0) // gold has no destination inventory slot
-	writer.writeByte(1)   // gold pickup/remove effect flag
+	// 原生 op39 金币分支按队伍固定槽读取 8 行：每行 u8 present + u32 amount，
+	// 中选行再追加 u8 component-count + 组件 + u32 尾标志。组件数 0 只走文本
+	// 包装并清除地面对象；组件数 1、组件值 0 走地面对象保留的拾取反馈行，
+	// 不会额外发钱。中选槽之外的槽位写 present=0/amount=0，总计 55 字节。
+	// 原生解码与实际音效另行核实，本条只固定线上载荷布局。
+	for slot := 0; slot < currentDungeonGoldPickupPartyRows; slot++ {
+		if slot == partySlot {
+			writer.writeByte(1)
+			writer.writeUint32(amount)
+			writer.writeByte(1)
+			writer.writeUint32(0) // effect component, no additional currency
+			writer.writeUint32(1) // native pickup-effect tail, matching the captured reference
+		} else {
+			writer.writeByte(0)
+			writer.writeUint32(0)
+		}
+	}
 	body := writer.bytes()
-	if len(body) != currentDungeonPickupResultSize {
+	if len(body) != currentDungeonGoldPickupResultSize {
 		return nil, fmt.Errorf("%w: body_len=%d", errDungeonPickupResponseInvalid, len(body))
 	}
 	return body, nil
+}
+
+func currentDungeonGoldPickupPartySlot(session *gameSession) int {
+	state := runtimePartyStateSnapshot(session)
+	if state.PartyID == 0 {
+		return 0
+	}
+	// 使用房间原生队伍表的固定槽位，保留离队成员留下的空洞：切片下标不等于
+	// 线上槽位。
+	for _, member := range runtimePartyMembers(state) {
+		if member.UserID == session.selectedCharacterID {
+			return int(member.Slot)
+		}
+	}
+	return -1
 }
 
 func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) error {
@@ -114,6 +148,8 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 	if session == nil {
 		return nil
 	}
+	// 队伍槽位快照在拿副本/实例锁之前完成，金币回包投影在资产事务之前构建并校验。
+	goldPartySlot := currentDungeonGoldPickupPartySlot(session)
 	session.dungeon.mu.Lock()
 	defer session.dungeon.mu.Unlock()
 	runtime := session.dungeon.runtime
@@ -217,7 +253,11 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		return nil
 	}
 	if drop.Status == runtimeDungeonDropConsumed {
-		if len(drop.PickupResponseBody) != currentDungeonPickupResultSize {
+		responseSize := currentDungeonPickupResultSize
+		if drop.isGold() {
+			responseSize = currentDungeonGoldPickupResultSize
+		}
+		if len(drop.PickupResponseBody) != responseSize {
 			s.logGameEvent(session, "game-dungeon-pickup-blocked",
 				"drop_object_key", drop.ObjectKey,
 				"reason", "consumed_drop_response_missing",
@@ -284,6 +324,18 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		return nil
 	}
 	if drop.isGold() {
+		// 事务前构建并校验 55 字节投影：金额或队伍槽位非法时不入账、不消费
+		// 掉落、不发包，避免提交后才发现无法回包。
+		responseBody, err := buildCurrentDungeonGoldPickupResultBody(drop.ObjectKey, pickerActorObjectKey, drop.Amount, goldPartySlot)
+		if err != nil {
+			s.logGameEvent(session, "game-dungeon-pickup-blocked",
+				"drop_object_key", drop.ObjectKey,
+				"amount", drop.Amount,
+				"party_slot", goldPartySlot,
+				"reason", "gold_pickup_response_values_invalid",
+				"error", err)
+			return nil
+		}
 		repositories, ok := s.repositoryGroup()
 		if !ok || repositories.CharacterAssets == nil {
 			s.logGameEvent(session, "game-dungeon-pickup-blocked",
@@ -311,19 +363,6 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 				"item_id", drop.Item.ItemID,
 				"amount", drop.Amount,
 				"reason", "character_gold_transaction_failed_drop_remains_available",
-				"error", err)
-			return nil
-		}
-		responseBody, err := buildCurrentDungeonGoldPickupResultBody(drop.ObjectKey, pickerActorObjectKey)
-		if err != nil {
-			drop.Status = runtimeDungeonDropConsumed
-			drop.GoldAfter = goldAfter
-			s.logGameEvent(session, "game-dungeon-pickup-response-blocked-after-commit",
-				"drop_object_key", drop.ObjectKey,
-				"item_id", drop.Item.ItemID,
-				"amount", drop.Amount,
-				"gold_after", goldAfter,
-				"reason", "gold_pickup_response_invariant_failed_drop_consumed_to_prevent_duplicate_grant",
 				"error", err)
 			return nil
 		}
@@ -560,13 +599,18 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		return nil
 	}
 	characterID := strconv.Itoa(int(session.selectedCharacterID))
-	destinationSlot, itemUpdate, err := grantCurrentDungeonPickupItem(
+	activity, activityErr := s.currentActivityPickupPartyLocked(session, runtime, *drop)
+	if activityErr != nil {
+		return activityErr
+	}
+	destinationSlot, itemUpdate, err := grantCurrentDungeonPickupItemWithActivity(
 		context.Background(),
 		repositories,
 		characterID,
 		drop.Item,
 		drop.Amount,
-		time.Now().UTC(),
+		s.gameplayNow(),
+		activity,
 		drop.QualitySeed,
 	)
 	if err != nil {
@@ -649,13 +693,14 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 	)
 }
 
-func grantCurrentDungeonPickupItem(
+func grantCurrentDungeonPickupItemWithActivity(
 	ctx context.Context,
 	repositories dnfrepo.Group,
 	characterID string,
 	definition dungeonDropItemDefinition,
 	amount uint32,
 	now time.Time,
+	activity *dnfrepo.ActivityEvent,
 	qualitySeed ...uint32,
 ) (uint16, currentItemListEntry, error) {
 	if repositories.CharacterItems == nil || characterID == "" {
@@ -690,6 +735,7 @@ func grantCurrentDungeonPickupItem(
 	var itemUpdate currentItemListEntry
 	placement := currentDungeonPickupPlacement(definition, amount, qualitySeed...)
 	result, err := owner.GrantPickupItem(ctx, dnfdungeon.PickupItemCommand{
+		Activity:    activity,
 		CharacterID: characterID,
 		Placement:   placement,
 		UpdatedAt:   now,
@@ -880,4 +926,9 @@ func mapCurrentDungeonPickupOwnerError(err error) error {
 
 func currentDungeonPickupMainSlotKey(slot int16) string {
 	return "0:" + strconv.FormatInt(int64(slot), 10)
+}
+
+// 原有通用发奖调用不带副本拾取来源，不计入获取统计。
+func grantCurrentDungeonPickupItem(ctx context.Context, repositories dnfrepo.Group, characterID string, definition dungeonDropItemDefinition, amount uint32, now time.Time, qualitySeed ...uint32) (uint16, currentItemListEntry, error) {
+	return grantCurrentDungeonPickupItemWithActivity(ctx, repositories, characterID, definition, amount, now, nil, qualitySeed...)
 }

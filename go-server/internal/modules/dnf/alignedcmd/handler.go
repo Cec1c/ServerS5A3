@@ -555,6 +555,9 @@ type MagicBoxRewardGroup struct {
 // per-open material requirement (0 when the box opens free); the box itself
 // is never reported as a material.
 type MagicBoxResolution struct {
+	// OnOpen is a trusted server projection inside the box transaction.
+	// It never comes from request metadata; nil preserves existing behavior.
+	OnOpen              func(*dnfrepo.CharacterRecord) (bool, error)
 	Kind                string
 	Groups              []MagicBoxRewardGroup
 	PackageItems        []MagicBoxRewardEntry
@@ -651,6 +654,9 @@ type PremiumContractResolver func(itemID int64) (PremiumContractResolution, erro
 // contract. This is deliberately the *identity*, not a verdict: the family
 // accept set stays in the inventory domain (inventory/use_upgrad_buff.go).
 type StackableUseProvenanceResolution struct {
+	// Optional, PVF-validated effect for the dedicated town-potion owner;
+	// never a permission to consume the mixed family through the generic gate.
+	TownPotion002 *TownPotion002Definition
 	ItemID        int64
 	PVFPath       string
 	StackableType string

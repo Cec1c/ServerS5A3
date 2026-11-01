@@ -69,6 +69,7 @@ func TestRealPVFFatiguePotionAckPreservesRequestAction(t *testing.T) {
 			}
 			service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}, initialEquipmentArchive: archive, pvfItemCatalog: catalog, gameplayTimers: queue, repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }}
 			session := &gameSession{conn: &bufferConn{}, connID: "fatigue-ack", selectedCharacterID: 17, accountID: account.AccountID}
+			service.bindGameSessionCharacter(session, 17)
 			const action = currentFatiguePotionAction
 			handled, err := service.handleCurrentFatiguePotionUse(session, testQuestClearCouponRequestBody(87, action))
 			if err != nil || !handled {

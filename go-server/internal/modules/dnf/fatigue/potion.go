@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/itemlock"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -39,9 +40,28 @@ type PotionResult struct {
 	Character dnfrepo.CharacterRecord
 }
 
+// The live bridge supplies the canonical session reservation and the current
+// canonical instance expiry checker. Recheck inside the transaction, including after
+// the writes, so a rejected request cannot commit a debit or a usage counter.
+type PotionUseGuard struct {
+	Revalidate func() bool
+	Expired    func(dnfrepo.ItemStack, time.Time) bool
+}
+
+func RestorePotionWithGuard(ctx context.Context, repos dnfrepo.Group, account dnfrepo.AccountRecord, characterID string, slot int16, definition PotionDefinition, now time.Time, guard PotionUseGuard) (PotionResult, error) {
+	if guard.Revalidate == nil || guard.Expired == nil {
+		return PotionResult{}, fmt.Errorf("fatigue potion live guard missing")
+	}
+	return restorePotion(ctx, repos, account, characterID, slot, definition, now, &guard)
+}
+
 // RestorePotion owns both the stack debit and durable character-day usage.
 // Values originate in the active PVF, never in the client action arguments.
 func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.AccountRecord, characterID string, slot int16, definition PotionDefinition, now time.Time) (PotionResult, error) {
+	return restorePotion(ctx, repos, account, characterID, slot, definition, now, nil)
+}
+
+func restorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.AccountRecord, characterID string, slot int16, definition PotionDefinition, now time.Time, guard *PotionUseGuard) (PotionResult, error) {
 	if repos.CharacterAssets == nil {
 		return PotionResult{}, dnfrepo.ErrCharacterAssetTransactionUnavailable
 	}
@@ -50,6 +70,9 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 	}
 	var result PotionResult
 	err := repos.CharacterAssets.WithinCharacterAssets(ctx, characterID, func(characters dnfrepo.CharacterRepository, items dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+		if guard != nil && !guard.Revalidate() {
+			return fmt.Errorf("fatigue potion session changed")
+		}
 		character, found, err := characters.Load(ctx, characterID)
 		if err != nil {
 			return err
@@ -57,7 +80,7 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 		if !found {
 			return fmt.Errorf("fatigue character missing")
 		}
-		if character.AccountID != "" && character.AccountID != account.AccountID {
+		if account.AccountID == "" || character.AccountID != account.AccountID {
 			return fmt.Errorf("fatigue potion account mismatch")
 		}
 		if int64(character.Level) < definition.MinimumLevel {
@@ -74,6 +97,20 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 		stack, found := inventory.Slots[key]
 		if !found || stack.ItemID != definition.ItemID || stack.Count <= 0 {
 			return fmt.Errorf("fatigue potion source changed")
+		}
+		if itemlock.IsLockedAt(stack, now) {
+			return fmt.Errorf("fatigue potion source locked")
+		}
+		if !stack.ExpireAt.IsZero() && !now.Before(stack.ExpireAt) {
+			return fmt.Errorf("fatigue potion instance expired")
+		}
+		for _, field := range []string{"expire_time", "expire_unix"} {
+			if expiry, err := strconv.ParseInt(stack.Extra[field], 10, 64); err == nil && expiry > 0 && now.Unix() >= expiry {
+				return fmt.Errorf("fatigue potion instance expired")
+			}
+		}
+		if guard != nil && guard.Expired(stack, now) {
+			return fmt.Errorf("fatigue potion instance expired")
 		}
 		character = dnfrepo.CloneCharacter(character)
 		inventory = dnfrepo.CloneInventory(inventory)
@@ -117,6 +154,9 @@ func RestorePotion(ctx context.Context, repos dnfrepo.Group, account dnfrepo.Acc
 		}
 		if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
+		}
+		if guard != nil && !guard.Revalidate() {
+			return fmt.Errorf("fatigue potion session changed before commit")
 		}
 		result = PotionResult{Remaining: stack.Count, Character: character}
 		return nil

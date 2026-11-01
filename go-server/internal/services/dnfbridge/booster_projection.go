@@ -128,6 +128,13 @@ func grantCurrentBoosterReward(
 		if reward.Seal {
 			stack.Extra["seal_flag"] = "1"
 		}
+		if reward.EquipmentUpgrade != 0 || reward.EquipmentSeparate != 0 {
+			var err error
+			stack, err = currentBoosterUpgradedStack(key, stack, reward.EquipmentUpgrade, reward.EquipmentSeparate)
+			if err != nil {
+				return nil, err
+			}
+		}
 		inventory.Slots[key] = stack
 	}
 	return keys, nil

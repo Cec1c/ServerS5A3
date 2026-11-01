@@ -1,0 +1,14 @@
+{
+  "architecture": "x86",
+  "imageBase": "0x400000",
+  "payloadBase": "0x06ef0000",
+  "scope": "activity window and already-public festival integration only",
+  "sourceCompatibilityEXESHA256": "534b5ef166d0090d1ab88e01f5f443721abf97eabfacfb007e04e30fd9d51b24",
+  "requiredNPK": [
+    "sprite_interface_privateactivity010.NPK",
+    "sprite_interface_privatefestival005.NPK"
+  ],
+  "protocol": "0x7f01; 184-byte state",
+  "clientExecuted": false,
+  "applicationToExecutableIncluded": false
+}

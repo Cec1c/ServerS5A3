@@ -1326,6 +1326,8 @@ func (o *Owner) Repair(ctx context.Context, cmd Command, costResolver alignedcmd
 			character.Stats["gold"] = gold - cost
 			statsChanged = true
 		}
+		dnfrepo.AddBattlePassCounter(&character, 18, -1, 1, time.Now())
+		statsChanged = true
 		if statsChanged {
 			character.UpdatedAt = time.Now()
 			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
@@ -1349,6 +1351,9 @@ func (o *Owner) Repair(ctx context.Context, cmd Command, costResolver alignedcmd
 
 		record.UpdatedAt = time.Now()
 		if err := dnfrepo.SaveInventoryFields(ctx, inventoryRepo, record, field); err != nil {
+			return err
+		}
+		if err := dnfrepo.RecordCharacterGold(ctx, characters, character, dnfrepo.ActivityGoldRepair, cost, character.UpdatedAt); err != nil {
 			return err
 		}
 		result.Cost = cost
@@ -1579,6 +1584,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 	result.UpdatedGold = character.Stats["gold"]
 	goldCost := upgradeGoldCostOf(target, cmd.Mode, oldLevel)
 	var conversionKey string
+	var conversionItemID int64
 	var conversionCount int64
 	if cmd.UpgradeCostResolver != nil && !(portable != nil && upgradePortableConsumableEnabled()) {
 		quote, err := cmd.UpgradeCostResolver(cmd.Mode, target.ItemID, int(oldLevel), cmd.UpgradeNPCPresent, cmd.UpgradeNPCID)
@@ -1604,6 +1610,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 					result.ErrorCode = upgradeErrorInvalidMaterial
 					return result, nil
 				}
+				conversionItemID = quote.ConversionItemID
 				conversionCount = quote.ConversionCount
 			}
 		}
@@ -1772,15 +1779,49 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		result.ConversionMaterialUpdated = true
 		result.ConversionMaterialSlot = cmd.UpgradeNPCMaterialSlot
 		result.ConversionMaterialRemainingCount = stack.Count
+		// 乔纳森普通强化用转换材料支付时，PVF 周任务 28 跟踪实际扣除的
+		// 材料身份和数量。失败但仍扣料同样计入；未能进入扣料块的拒绝请求不会到这里。
+		if cmd.Mode == "reinforce" && cmd.UpgradeNPCPresent && cmd.UpgradeNPCID == 476 {
+			character = dnfrepo.CloneCharacter(character)
+			dnfrepo.AddBattlePassCounter(&character, 28, conversionItemID, conversionCount, time.Now())
+		}
+	}
+	character = dnfrepo.CloneCharacter(character)
+	counterKind := uint32(16)
+	if cmd.Mode == "amplify" {
+		counterKind = 38
+	}
+	dnfrepo.AddBattlePassCounter(&character, counterKind, -1, 1, time.Now())
+	if upgradeSuccess {
+		if cmd.Mode == "amplify" && newLevel == 7 {
+			dnfrepo.AddBattlePassCounter(&character, 40, 7, 1, time.Now())
+		}
+		if cmd.Mode != "amplify" && newLevel == 10 {
+			dnfrepo.AddBattlePassCounter(&character, 39, 10, 1, time.Now())
+		}
+	}
+	if materialOwner != upgradeMaterialNone && material.ItemID == dnfrepo.ColorlessCubeItemID {
+		if err := dnfrepo.RecordCharacterColorless(ctx, o.characters, character, requiredMaterialCount, "upgrade", time.Now()); err != nil {
+			return UpgradeResult{}, err
+		}
+	}
+	if goldCost == 0 {
+		character.UpdatedAt = time.Now()
+		if err := dnfrepo.SaveCharacterFields(ctx, o.characters, character, dnfrepo.CharacterFieldStats); err != nil {
+			return UpgradeResult{}, err
+		}
 	}
 	if goldCost > 0 {
-		character = dnfrepo.CloneCharacter(character)
-		if character.Stats == nil {
-			character.Stats = make(map[string]int64, 1)
-		}
 		character.Stats["gold"] -= goldCost
 		character.UpdatedAt = time.Now()
 		if err := dnfrepo.SaveCharacterFields(ctx, o.characters, character, dnfrepo.CharacterFieldStats); err != nil {
+			return UpgradeResult{}, err
+		}
+		metric := dnfrepo.ActivityGoldReinforce
+		if cmd.Mode == "amplify" {
+			metric = dnfrepo.ActivityGoldAmplify
+		}
+		if err := dnfrepo.RecordCharacterGold(ctx, o.characters, character, metric, goldCost, character.UpdatedAt); err != nil {
 			return UpgradeResult{}, err
 		}
 		result.GoldCost = goldCost
@@ -1868,7 +1909,7 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	}
 	if (cmd.TargetListType == listTypeMain || wornEquipmentTarget) && !o.inItemTransaction {
 		var result EnchantResult
-		err := o.withinInventoryTransaction(ctx, characterID, func(txOwner *Owner) error {
+		err := o.withinEnchantAssetTransaction(ctx, characterID, func(txOwner *Owner) error {
 			var err error
 			result, err = txOwner.Enchant(ctx, cmd, resolver)
 			return err
@@ -2115,6 +2156,11 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 	}
 	result.Success = true
 	result.ErrorCode = 0
+	if !wornPetTarget && cmd.TargetListType != listTypePet {
+		if err := o.recordBattlePassOperation(ctx, characterID, 27, now); err != nil {
+			return EnchantResult{}, err
+		}
+	}
 	result.EnchantUpgradeCount = upgradeCount
 	result.MainRefresh = cloneItemMap(record.Slots)
 	result.Changed = true
@@ -2393,6 +2439,9 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 		)
 	}
 
+	if result, handled, err := o.tryTownPotion002(ctx, cmd); handled {
+		return result, err
+	}
 	if premiumResolver != nil {
 		resolution, err := premiumResolver(int64(cmd.ItemTemplateID))
 		if err != nil {

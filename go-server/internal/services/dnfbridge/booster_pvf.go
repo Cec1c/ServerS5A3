@@ -75,6 +75,14 @@ func resolveCurrentBoosterDefinition(
 		}
 		definition.SelectionRequired = int(requiredValues[0])
 		definition.Selection, definition.SelectionCategory, err = parseCurrentBoosterSelectionCatalog(document)
+		if err != nil || currentBoosterSelectionHasEquipmentAttributes(definition.Selection) {
+			// Some native equipment-labelled choices actually award stackable
+			// tickets. Only their fully resolved, non-equipment rewards can
+			// safely use the ordinary grant projection without instance fields.
+			if rows, categories, compatible := parseCurrentBoosterStackableSelectionMetadata(catalog, document); compatible {
+				definition.Selection, definition.SelectionCategory, err = rows, categories, nil
+			}
+		}
 		if err != nil {
 			return currentBoosterDefinition{}, fmt.Errorf("%w: source item=%d: %v", errCurrentBoosterPVFInvalid, sourceItemID, err)
 		}
@@ -86,6 +94,23 @@ func resolveCurrentBoosterDefinition(
 				len(definition.Selection),
 				len(definition.SelectionCategory),
 			)
+		}
+		definition.CompactArmorCategories = make(map[uint16]bool)
+		if definition.SelectionRequired == 0 {
+			for category, rows := range definition.SelectionCategory {
+				definition.CompactArmorCategories[category] = currentBoosterCompleteArmorCategory(catalog, rows)
+			}
+		}
+		for category, candidates := range definition.SelectionCategory {
+			defaults := 0
+			for _, candidate := range candidates {
+				if candidate.DefaultSelected {
+					defaults++
+				}
+			}
+			if definition.SelectionRequired > 0 && defaults > definition.SelectionRequired {
+				return currentBoosterDefinition{}, fmt.Errorf("%w: category=%d default selections=%d exceed selection_num=%d", errCurrentBoosterPVFInvalid, category, defaults, definition.SelectionRequired)
+			}
 		}
 	case currentBoosterRequestRandom:
 		if stackableType != "[booster]" && stackableType != "[cera booster]" && stackableType != "[booster random]" && !currentLotterySupportedType(stackableType) {
@@ -141,14 +166,25 @@ func parseCurrentBoosterSelectionCatalog(
 	// 占位丢弃，而不是把整只礼盒判成非法 PVF（旧行为 ⇒ 客户端弹通用失败码 4）。
 	categoryReopened := false
 	var categoryID uint16
+	var equipmentUpgrade byte
+	var equipmentSeparate byte
+	var equipmentUpgradeTable currentBoosterUpgradeTable
 	result := make([]currentBoosterSelectionCandidate, 0, 8)
 	seen := make(map[uint32]currentBoosterSelectionCandidate)
 	categorySeen := make(map[uint16]map[uint32]struct{})
 	categories := make(map[uint16][]currentBoosterSelectionCandidate)
+	defaults := make(map[uint16]map[uint32]struct{})
+	selectionNum := document.Ints("booster selection num")
+	previousSection := ""
 	for _, section := range document.Sections {
 		name := normalizeMagicBoxSectionName(section.Name)
+		priorSection := previousSection
+		previousSection = name
 		switch name {
 		case "booster select category":
+			equipmentUpgrade = 0
+			equipmentSeparate = 0
+			equipmentUpgradeTable = currentBoosterUpgradeTable{}
 			if inCategory {
 				return nil, nil, fmt.Errorf("nested booster selection category")
 			}
@@ -192,6 +228,11 @@ func parseCurrentBoosterSelectionCatalog(
 			continue
 		case "/booster select category":
 			if !inCategory {
+				// A second adjacent terminator has no content and cannot change
+				// the completed category. Do not accept an initial/unrelated close.
+				if priorSection == "/booster select category" && section.Start == section.End && len(categories) > 0 {
+					continue
+				}
 				return nil, nil, fmt.Errorf("booster selection category close without open")
 			}
 			inCategory = false
@@ -200,7 +241,61 @@ func parseCurrentBoosterSelectionCatalog(
 		if !inCategory || strings.HasPrefix(name, "/") {
 			continue
 		}
+		if name == "default select" {
+			// Count + item IDs, not item/count reward pairs. The IDs reference
+			// ordinary rows in this category. Preserve their real quantities and
+			// include them in selection_num rather than granting them twice.
+			values := magicBoxSectionInts(document, section)
+			if len(values) == 0 || len(values) != section.End-section.Start ||
+				values[0] < 0 || values[0] > currentBoosterMaxRewardRows || values[0] != int64(len(values)-1) {
+				return nil, nil, fmt.Errorf("invalid default select header")
+			}
+			previous, duplicate := defaults[categoryID]
+			if duplicate && !categoryReopened {
+				return nil, nil, fmt.Errorf("duplicate default select category=%d", categoryID)
+			}
+			defaults[categoryID] = make(map[uint32]struct{})
+			for _, value := range values[1:] {
+				if value <= 0 || value > math.MaxUint32 {
+					return nil, nil, fmt.Errorf("invalid default select item=%d", value)
+				}
+				id := uint32(value)
+				if _, duplicate := defaults[categoryID][id]; duplicate {
+					return nil, nil, fmt.Errorf("duplicate default select item=%d", id)
+				}
+				defaults[categoryID][id] = struct{}{}
+			}
+			if duplicate {
+				if len(previous) != len(defaults[categoryID]) {
+					return nil, nil, fmt.Errorf("conflicting default select category=%d", categoryID)
+				}
+				for id := range previous {
+					if _, same := defaults[categoryID][id]; !same {
+						return nil, nil, fmt.Errorf("conflicting default select category=%d", categoryID)
+					}
+				}
+			}
+			continue
+		}
 		values := magicBoxSectionInts(document, section)
+		if name == "booster equipment upgrade" || name == "booster equipment grade" || name == "booster equipment separate" {
+			// An empty/string/float attribute is not an empty reward table.
+			// Check the raw token before the generic zero-integer fast path.
+			if section.End-section.Start != 1 || len(values) != 1 || document.Tokens[section.Start].Kind != dnfpvf.TokenInt {
+				return nil, nil, fmt.Errorf("invalid %s integer metadata", name)
+			}
+		}
+		if name == "random probability" {
+			if equipmentUpgrade != 255 || equipmentUpgradeTable != (currentBoosterUpgradeTable{}) {
+				return nil, nil, fmt.Errorf("random upgrade table without unique marker")
+			}
+			var err error
+			equipmentUpgradeTable, err = parseCurrentBoosterUpgradeTable(document, section)
+			if err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
 		if len(values) == 0 {
 			if name == "booster equipment upgrade" {
 				return nil, nil, fmt.Errorf("invalid booster equipment upgrade")
@@ -208,19 +303,32 @@ func parseCurrentBoosterSelectionCatalog(
 			continue
 		}
 		if name == "booster equipment upgrade" {
-			// Zero requests no reinforcement; nonzero semantics are unverified.
-			if len(values) != 1 || values[0] != 0 || section.End-section.Start != 1 {
+			// Native 0x3b406ee reads the category's integer; 0x3b40b61
+			// copies it only into equipment rows. 255 selects a distinct random
+			// upgrade table and must not become a literal reinforcement value.
+			if len(values) != 1 || values[0] < 0 || (values[0] > 31 && values[0] != 255) || section.End-section.Start != 1 {
 				return nil, nil, fmt.Errorf("unsupported booster equipment upgrade")
 			}
+			equipmentUpgrade = byte(values[0])
+			equipmentUpgradeTable = currentBoosterUpgradeTable{}
+			continue
+		}
+		if name == "booster equipment separate" {
+			// The native equipment row's second attribute is forging. Keep
+			// the existing inventory owner's 0..8 range and byte 0x57 contract.
+			if values[0] < 0 || values[0] > 8 {
+				return nil, nil, fmt.Errorf("unsupported booster equipment separate")
+			}
+			equipmentSeparate = byte(values[0])
 			continue
 		}
 		stride := 0
 		switch name {
-		case "avatar":
+		case "avatar", "special avatar":
 			// Avatar choices carry item/count plus the client attribute
 			// category and option written in the 10-byte op160 request.
 			stride = 4
-		case "stackable", "creature", "equipment", "etc":
+		case "stackable", "creature", "equipment", "etc", "cera":
 			// Ordinary items, pets and enchant orbs are simple item/count
 			// pairs. Treating two adjacent pairs as one avatar quad made the
 			// second item look like an option byte and rejected valid choices.
@@ -246,6 +354,16 @@ func parseCurrentBoosterSelectionCatalog(
 				CategoryKind: categoryKind,
 				Option:       byte(option),
 			}
+			if name == "equipment" {
+				candidate.EquipmentUpgrade = equipmentUpgrade
+				candidate.EquipmentSeparate = equipmentSeparate
+				if equipmentUpgrade == 255 {
+					if equipmentUpgradeTable == (currentBoosterUpgradeTable{}) || count != 1 {
+						return nil, nil, fmt.Errorf("random upgrade requires table and one equipment instance")
+					}
+					candidate.EquipmentUpgradeTable = equipmentUpgradeTable
+				}
+			}
 			if previous, duplicate := seen[candidate.ItemID]; duplicate {
 				if previous != candidate {
 					return nil, nil, fmt.Errorf("selection item=%d has conflicting rows", candidate.ItemID)
@@ -255,7 +373,12 @@ func parseCurrentBoosterSelectionCatalog(
 				result = append(result, candidate)
 			}
 			if _, duplicate := categorySeen[categoryID][candidate.ItemID]; duplicate {
-				if categoryReopened {
+				if categoryReopened || (len(selectionNum) == 1 && selectionNum[0] > 0) {
+					// The native rows may repeat an identical item. Requests select
+					// IDs, not row indices; for a positive explicit selection count
+					// an identical row adds no distinct choice. Conflicting rows
+					// were rejected above. selection_num=0 retains strict rejection
+					// because its all-rows semantics could depend on multiplicity.
 					// 合并进来的第二段块重复了第一段已有的行：它是同一份数据的
 					// 重复占位，丢掉这一行即可（真档 490700910 的第二段是空块，
 					// 这条只是对"非空重复块"的保守兜底）。
@@ -271,6 +394,12 @@ func parseCurrentBoosterSelectionCatalog(
 		return nil, nil, fmt.Errorf("booster selection category is not closed")
 	}
 	for id, candidates := range categories {
+		// Native 0x3b40beb compares each actual reward ID to the default-ID
+		// vector and only sets the row's default flag on a match. Stale default
+		// IDs are inert UI metadata, not an additional reward definition.
+		for i := range candidates {
+			_, candidates[i].DefaultSelected = defaults[id][candidates[i].ItemID]
+		}
 		// Job/grow-type selection documents retain empty category placeholders
 		// for combinations the client does not offer (for example a job without
 		// a fifth advancement).  They do not invalidate populated categories.
@@ -283,11 +412,35 @@ func parseCurrentBoosterSelectionCatalog(
 	return result, categories, nil
 }
 
+// The compact UI carries a complete five-piece armor choice. Its identity is
+// the runtime definition, not the item number of one historical event.
+func currentBoosterCompleteArmorCategory(catalog *pvfDungeonDropCatalog, rows []currentBoosterSelectionCandidate) bool {
+	if len(rows) != 5 {
+		return false
+	}
+	parts := map[string]bool{"[coat]": false, "[pants]": false, "[shoulder]": false, "[shoes]": false, "[waist]": false}
+	for _, row := range rows {
+		if row.Count != 1 || row.CategoryKind != 0 || row.Option != 0 {
+			return false
+		}
+		item, err := catalog.ResolveItem(row.ItemID)
+		if err != nil || item.Kind != dungeonDropItemEquipment {
+			return false
+		}
+		seen, valid := parts[item.EquipmentType]
+		if !valid || seen {
+			return false
+		}
+		parts[item.EquipmentType] = true
+	}
+	return true
+}
+
 func currentBoosterSelectedCandidates(
 	definition currentBoosterDefinition,
 	request currentBoosterOpenRequest,
 ) ([]currentBoosterSelectionCandidate, error) {
-	if request.CompactArmorSet && (definition.Source.ItemID != 490008265 || definition.SelectionRequired != 0 || len(request.Selections) != 5) {
+	if request.CompactArmorSet && (!definition.CompactArmorCategories[request.SelectionContext] || definition.SelectionRequired != 0 || len(request.Selections) != 5) {
 		return nil, errCurrentBoosterSelectionInvalid
 	}
 	if len(request.Selections) == 0 {
@@ -342,6 +495,13 @@ func currentBoosterSelectedCandidates(
 			return nil, fmt.Errorf("%w: item=%d option=%d want=%d", errCurrentBoosterSelectionInvalid, choice.ItemID, choice.Option, candidate.Option)
 		}
 		selected = append(selected, candidate)
+	}
+	for _, candidate := range category {
+		if candidate.DefaultSelected {
+			if _, found := seen[candidate.ItemID]; !found {
+				return nil, fmt.Errorf("%w: category=%d missing default item=%d", errCurrentBoosterSelectionInvalid, request.SelectionContext, candidate.ItemID)
+			}
+		}
 	}
 	return selected, nil
 }

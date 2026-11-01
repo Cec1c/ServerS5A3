@@ -10,6 +10,7 @@ func skillGameplayModule() gameplayModuleDefinition {
 
 		Name: "skill",
 		LegacyHandlers: map[uint16]gameplayHandler{
+			uint16(dnfenum.CmdPacketUseSkill): (*Service).handleCurrentBattlePassUseSkill,
 			uint16(dnfenum.CmdPacketComboSkillInfo): func(s *Service, g *gameSession, r gameplayRequest) error {
 				return s.handleCurrentDarkKnightComboSkillInfo(g, r.Body)
 			},
@@ -18,10 +19,12 @@ func skillGameplayModule() gameplayModuleDefinition {
 			},
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
+			uint16(dnfenum.CmdPacketUseSkill):                          (*Service).handleCurrentBattlePassUseSkill,
 			uint16(dnfenum.CmdPacketComboSkillInfo):                    defaultClassGameplayHandler("game-dark-knight-combo-class-blocked", "连招保存分类不符", (*Service).handleCurrentDarkKnightComboSkillInfo),
 			uint16(dnfenum.CmdPacketComboSkillExtensionQuickSlotReset): defaultClassGameplayHandler("game-dark-knight-reset-class-blocked", "连招重置分类不符", (*Service).handleCurrentDarkKnightComboQuickSlotReset),
 		},
 		LegacyNormalizers: map[uint16]gameplayLegacyNormalizer{
+			uint16(dnfenum.CmdPacketUseSkill):                          func(body []byte) []byte { return stripLegacyTransportTrailer(body, 10) },
 			uint16(dnfenum.CmdPacketComboSkillInfo):                    normalizeLegacyDarkKnightComboSkillInfoBody,
 			uint16(dnfenum.CmdPacketComboSkillExtensionQuickSlotReset): func(body []byte) []byte { return stripLegacyTransportTrailer(body, 2) },
 			layoutOpcode: func(body []byte) []byte {

@@ -49,12 +49,27 @@ func (o *Owner) CommitExperienceAward(ctx context.Context, cmd ExperienceAwardCo
 		if err != nil {
 			return err
 		}
+		braveBefore := state.ShopPoints[adventuregroup.ShopPointBrave]
 		for _, gain := range cmd.MaximumLevelGains {
 			state.AddMaximumLevelExperience(cmd.AdventureRuntime, gain)
 			if uint64(gain) > math.MaxUint64-account.HonorExp {
 				account.HonorExp = math.MaxUint64
 			} else {
 				account.HonorExp += uint64(gain)
+			}
+		}
+		if gained := int64(state.ShopPoints[adventuregroup.ShopPointBrave]) - int64(braveBefore); gained > 0 {
+			ch, found, err := tx.Character.Load(ctx, cmd.Plan.CharacterID)
+			if err != nil {
+				return err
+			}
+			if !found || ch.AccountID != cmd.Plan.AccountID {
+				return ErrSettlementStateInvalid
+			}
+			ch = dnfrepo.CloneCharacter(ch)
+			dnfrepo.AddBattlePassCounter(&ch, 26, -1, gained, now)
+			if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, ch, dnfrepo.CharacterFieldStats); err != nil {
+				return err
 			}
 		}
 		encoded, err := state.Marshal()

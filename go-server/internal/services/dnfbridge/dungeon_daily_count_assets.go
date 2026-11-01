@@ -32,8 +32,10 @@ type currentDailyCountEntryAssets struct {
 	inTransaction    func(character *dnfrepo.CharacterRecord) error
 	debitRoomFatigue bool
 	fatigueCost      int64
+	luckyBurn        *currentLuckyRoomFatigueReceipt
 	fatigueStartOnly bool
 	fatigueSpent     *int64
+	activity         *dnfrepo.ActivityEvent
 }
 
 // currentDailyCountEntryEnabled 报告该副本的每日次数是否走"与入场资产同事务"的新路径。
@@ -54,8 +56,11 @@ func (s *Service) currentDailyCountEntryEnabled(dungeon worldmap.Dungeon) (bool,
 
 // currentDailyCountEntryAssets 组装与每日次数同批提交的资产。门票只取 `ConsumeOnEntry` 条目：
 // 与 `consumeDungeonEntryItemsWithTournament` 同源同条件，因此开关关闭时一行都不扣，与改动前一致。
-func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon worldmap.Dungeon, roomFatiguePending bool) (currentDailyCountEntryAssets, error) {
+func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon worldmap.Dungeon, roomFatiguePending bool, events ...*dnfrepo.ActivityEvent) (currentDailyCountEntryAssets, error) {
 	assets := currentDailyCountEntryAssets{}
+	if len(events) > 0 {
+		assets.activity = events[0]
+	}
 	if dungeonTournamentEnabled() {
 		for _, requirement := range currentTournamentEntryItems(dungeon) {
 			if requirement.ConsumeOnEntry {
@@ -84,11 +89,15 @@ func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon wor
 		account = loaded
 	}
 	now := s.gameplayNow()
+	if assets.activity != nil {
+		now = assets.activity.OccurredAt
+	}
 	assets.debitRoomFatigue = true
 	assets.fatigueCost = fatigueCost
 	assets.fatigueStartOnly = fatigueStartOnly
 	var spent int64
 	assets.fatigueSpent = &spent
+	assets.luckyBurn = &currentLuckyRoomFatigueReceipt{}
 	assets.inTransaction = func(character *dnfrepo.CharacterRecord) error {
 		dnffatigue.Refresh(character, account, now)
 		before := character.Stats["fatigue"]
@@ -97,9 +106,16 @@ func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon wor
 				return err
 			}
 		} else {
-			dnffatigue.Debit(character)
+			*assets.luckyBurn = s.debitCurrentLuckyRoomFatigue(session, character, dungeon)
 		}
 		spent = max(int64(0), before-character.Stats["fatigue"])
+		if assets.activity != nil {
+			assets.activity.Amount = spent
+		}
+		if spent > 0 {
+			_, err := s.applyPrivateActivity(character, 6, uint32(spent), now, now)
+			return err
+		}
 		return nil
 	}
 	return assets, nil
@@ -126,7 +142,15 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 		return nil
 	}
 	roomFatiguePending := currentDailyCountFatiguePending(runtime, scene, hasScene)
-	assets, err := s.currentDailyCountEntryAssets(session, runtime.Dungeon, roomFatiguePending)
+	var event *dnfrepo.ActivityEvent
+	if roomFatiguePending && !currentDungeonUsesNoFatigue(runtime.Dungeon) {
+		var e error
+		event, e = s.currentActivityEvent(session, runtime, dnfrepo.ActivityFatigue, "cycle_entry", scene.Coordinate.String())
+		if e != nil {
+			return e
+		}
+	}
+	assets, err := s.currentDailyCountEntryAssets(session, runtime.Dungeon, roomFatiguePending, event)
 	if err != nil {
 		return err
 	}
@@ -146,6 +170,9 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 		return err
 	}
 	runtime.Character = character
+	if assets.luckyBurn != nil && assets.fatigueSpent != nil && assets.luckyBurn.Cost == *assets.fatigueSpent {
+		recordCurrentLuckyFatigueRoom(runtime, scene.Coordinate, assets.luckyBurn.BonusPercent)
+	}
 	if assets.fatigueSpent != nil {
 		runtime.fatigueSpent += *assets.fatigueSpent
 	}
@@ -160,8 +187,13 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 			runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)
 		}
 		runtime.fatigueRooms[scene.Coordinate] = true
+		if assets.luckyBurn != nil {
+			recordCurrentLuckyFatigueRoom(runtime, scene.Coordinate, assets.luckyBurn.BonusPercent)
+		}
 		if assets.fatigueStartOnly {
 			runtime.fatigueStartDebited = true
+		} else if assets.luckyBurn != nil {
+			assets.fatigueCost = assets.luckyBurn.Cost
 		}
 		s.logGameEvent(session, "game-dungeon-fatigue-room-debited",
 			"char_id", session.selectedCharacterID,

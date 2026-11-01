@@ -32,6 +32,10 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	var guildObservations []currentGuildPresenceObservation
 	defer func() { s.persistCurrentGuildPresence(guildObservations...) }()
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
+		if p := session.battlePassPush; p != nil {
+			p.stop(s)
+		}
+		s.closeCurrentPVPSession(session)
 		s.closeCurrentGuildCreateSession(session)
 		s.closeCurrentPVPSession(session)
 		s.closeCurrentExpertJobStoreSession(session, true)
@@ -67,6 +71,11 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 			residentParty = runtimePartyStateSnapshot(resident)
 		}
 	}
+	// Install the restore gate before exposing a replacement to raid clocks.
+	// Authentication of the projected object happens after binding, at send time.
+	if session.selectedCharacterID != charID || session.characterGeneration == 0 {
+		s.markCurrentRaidSessionRestore(session, charID)
+	}
 	s.lockCurrentCharacterBindingMutation(session, charID)
 	if s.gameSessions == nil {
 		s.gameSessions = make(map[uint16]*gameSession)
@@ -81,6 +90,8 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	characterChanged := session.selectedCharacterID != charID
 	if characterChanged || previous != session {
 		s.clearCurrentPeerProfileReferencesLocked(session)
+		session.laborDayAnchor = time.Time{}
+		session.portedActivityNextRefresh = time.Time{}
 	}
 	if characterChanged || session.characterGeneration == 0 ||
 		(previous != nil && previous != session && session.characterGeneration == previous.characterGeneration) {

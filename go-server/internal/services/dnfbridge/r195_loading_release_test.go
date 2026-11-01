@@ -1,8 +1,11 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -199,5 +202,72 @@ func TestR195LoadingReleaseStaleOwnerIsNotReleased(t *testing.T) {
 	}
 	if !r195LoadingReleasedLine(text, follower.selectedCharacterID) || followerConn.write.Len() == 0 {
 		t.Fatalf("valid member was not released:\n%s", text)
+	}
+}
+
+func r195PeerActorSendCount(t *testing.T, logs string, receiver, actor uint16) int {
+	t.Helper()
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(logs), "\n") {
+		var event map[string]any
+		if json.Unmarshal([]byte(line), &event) != nil {
+			continue
+		}
+		if event["kind"] != "game-dungeon-party-peer-actor-send" {
+			continue
+		}
+		if event["receiver_char_id"] == float64(receiver) && event["actor_char_id"] == float64(actor) {
+			count++
+		}
+	}
+	return count
+}
+
+// Both resend owners share one claim per (receiver, actor): the finish-loading
+// tail resends the peer actor into the member that just loaded, and the landing
+// resend re-pushes the just-landed member's own actor into an already stable
+// peer. Whichever fires first must deliver exactly one body per direction, and
+// the second one plus a repeat pass must not send it again.
+func TestR195LoadingReleasePeerResendIsExactlyOncePerPair(t *testing.T) {
+	for _, order := range []string{"leader_first", "follower_first"} {
+		t.Run(order, func(t *testing.T) {
+			t.Setenv(dungeonPartyPeerActorLandingResendEnv, "on")
+			service, leader, follower, _, _ := partyDungeonDeathFixture(t)
+			var logs bytes.Buffer
+			service.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			for _, session := range []*gameSession{leader, follower} {
+				session.connID = fmt.Sprintf("game-%04d", session.selectedCharacterID)
+				session.currentFinishLoadingStateSent = true
+				session.currentFinishLoadingCompletionSent = true
+				session.postFinishLoadingPlayerStateSent = true
+			}
+			first, second := leader, follower
+			if order == "follower_first" {
+				first, second = follower, leader
+			}
+			// First member finishes loading: its tail resends the peer actor into
+			// its own (stable) scene.
+			service.resendDungeonPartyPeerActorsAfterFinishLoading(first, "r195_order_"+order)
+			// Second member lands: the landing resend covers the same pair.
+			service.resendDungeonPartyPeerActorToAlreadyLandedMembers(second, "r195_order_"+order)
+			// Opposite direction, in the same order.
+			service.resendDungeonPartyPeerActorsAfterFinishLoading(second, "r195_order_"+order)
+			service.resendDungeonPartyPeerActorToAlreadyLandedMembers(first, "r195_order_"+order)
+			// A repeated pass must add nothing.
+			service.resendDungeonPartyPeerActorsAfterFinishLoading(first, "r195_order_repeat")
+			service.resendDungeonPartyPeerActorsAfterFinishLoading(second, "r195_order_repeat")
+			service.resendDungeonPartyPeerActorToAlreadyLandedMembers(first, "r195_order_repeat")
+			service.resendDungeonPartyPeerActorToAlreadyLandedMembers(second, "r195_order_repeat")
+
+			text := logs.String()
+			if got := r195PeerActorSendCount(t, text, first.selectedCharacterID, second.selectedCharacterID); got != 1 {
+				t.Fatalf("%s: receiver=%d actor=%d peer sends=%d want exactly 1\n%s",
+					order, first.selectedCharacterID, second.selectedCharacterID, got, text)
+			}
+			if got := r195PeerActorSendCount(t, text, second.selectedCharacterID, first.selectedCharacterID); got != 1 {
+				t.Fatalf("%s: receiver=%d actor=%d peer sends=%d want exactly 1\n%s",
+					order, second.selectedCharacterID, first.selectedCharacterID, got, text)
+			}
+		})
 	}
 }

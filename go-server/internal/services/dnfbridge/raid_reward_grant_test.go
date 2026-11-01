@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/cerashop"
 	"longheng.io/server/internal/modules/dnf/raid"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
 	platformpvf "longheng.io/server/internal/platform/pvf"
@@ -43,17 +45,18 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[uint32]map[uint32]uint32{
-		10304474: privateRaidExpectedZero(10304474, 1),
-		10304481: privateRaidExpectedZero(10304481, 1),
-		10304479: privateRaidExpectedZero(10304479, 1),
-		10304483: privateRaidExpectedZero(10304483, 1),
-		10304484: privateRaidExpectedZero(10304484, 1),
-		10304475: privateRaidExpectedZero(10304475, 1),
-		10304480: privateRaidExpectedZero(10304480, 1),
-		10157783: privateRaidExpectedZero(10157783, 1),
-		10304485: privateRaidExpectedZero(10304485, 1),
-		10304486: privateRaidExpectedZero(10304486, 1),
-		10304487: privateRaidExpectedZero(10304487, 1),
+		10304474:  privateRaidExpectedZero(10304474, 1),
+		10304481:  privateRaidExpectedZero(10304481, 1),
+		10304479:  privateRaidExpectedZero(10304479, 1),
+		10304483:  privateRaidExpectedZero(10304483, 1),
+		10304484:  privateRaidExpectedZero(10304484, 1),
+		10304475:  privateRaidExpectedZero(10304475, 1),
+		10304480:  privateRaidExpectedZero(10304480, 1),
+		10157783:  privateRaidExpectedZero(10157783, 1),
+		10304485:  privateRaidExpectedZero(10304485, 1),
+		10304486:  privateRaidExpectedZero(10304486, 1),
+		10304487:  privateRaidExpectedZero(10304487, 1),
+		990027101: {2681917: 2000},
 	}
 
 	seen := map[uint32]bool{}
@@ -75,6 +78,9 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 
 			g := memory.NewMemoryGroup()
 			ctx := context.Background()
+			if err := g.Account.Save(ctx, repo.AccountRecord{AccountID: "account"}); err != nil {
+				t.Fatal(err)
+			}
 			if err := g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "31", AccountID: "account"}); err != nil {
 				t.Fatal(err)
 			}
@@ -94,6 +100,21 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 			}
 			for itemID, count := range w {
 				var found int64
+				if itemID == raidcurrency.FateItemID || cerashop.IsVoucher(int64(itemID)) {
+					ledger, exists, err := g.Account.Load(ctx, "account")
+					if err != nil || !exists {
+						t.Fatal("missing committed ledger", err)
+					}
+					if itemID == raidcurrency.FateItemID {
+						state, err := raidcurrency.Read(ledger, now)
+						if err != nil {
+							t.Fatal(err)
+						}
+						found = int64(state.Balance)
+					} else {
+						found = cerashop.WalletBalance(ledger).HappyTokenCera
+					}
+				}
 				for _, slots := range []map[string]repo.ItemStack{inv.Slots, account.Slots} {
 					for _, stack := range slots {
 						if stack.ItemID == int64(itemID) {

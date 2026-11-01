@@ -232,13 +232,18 @@ func TestR134CompletedReviveRequiresRetainedDeathOwner(t *testing.T) {
 			case "unproved_completion":
 				r.bossDieCheckAccepted = false
 			case "pending_return":
+				// The ordinary completed route now requires actual result/card
+				// barriers. Retain a real pending owner by failing its op24 write.
 				authenticateRound100RetrySession(s, session)
-				completeSettlementExitBarriersForTest(t, s, r, session)
-				plan, err := newDungeonCardRewardPlan(dungeonCardPlanIdentity{CharacterID: "99", DungeonID: r.Dungeon.ID, MazeIndex: r.MazeIndex, RunSeed: r.Seed}, "r134_pending_return", dungeonCardRewardBundle{Gold: 17}, dungeonCardRewardBundle{})
+				plan := currentDungeonSettlementPacketPlanForTest(t, r, 0)
+				r.settlementResultPlan = &plan
+				dispatch(uint16(dnfenum.CmdPacketSetPlayResult), make([]byte, currentDungeonPlayResultBaseSize))
+				dispatch(uint16(dnfenum.CmdPacketCharacterStatistic), make([]byte, currentDungeonCharacterStatisticBodySize))
+				cardPlan, err := newDungeonCardRewardPlan(dungeonCardPlanIdentity{CharacterID: "99", DungeonID: r.Dungeon.ID, MazeIndex: r.MazeIndex, RunSeed: r.Seed}, "r134_pending_revive_test", dungeonCardRewardBundle{}, dungeonCardRewardBundle{})
 				if err != nil {
 					t.Fatal(err)
 				}
-				r.settlementCardRewardState, err = newDungeonCardState(plan)
+				r.settlementCardRewardState, err = newDungeonCardState(cardPlan)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -246,14 +251,14 @@ func TestR134CompletedReviveRequiresRetainedDeathOwner(t *testing.T) {
 				dispatch(uint16(dnfenum.CmdPacketCardSelectRightState), nil)
 				dispatch(uint16(dnfenum.CmdPacketSelectCard), []byte{0, 0})
 				if !r.settlementCardRewardCommitted {
-					t.Fatal("return fixture must finish the real free-card barrier")
+					t.Fatal("free reward barrier not completed")
 				}
 				writeErr := errors.New("r134 pending town transition")
 				failure := &completedReturnAckOp24FailureConn{bufferConn: conn, t: t, err: writeErr, failOnce: true}
 				session.conn = failure
 				err = s.handleGameUpper(session, buildCurrentDungeonClientUpperForPhaseTest(t, uint16(dnfenum.CmdPacketBack2Village), nil))
 				if !errors.Is(err, writeErr) || failure.failedOp24Attempts != 1 || !r.townReturnPending || r.townReturnOp24Sent || session.dungeon.runtime != r {
-					t.Fatalf("op132 must retain pending town return after a failed op24: err=%v attempts=%d pending=%v", err, failure.failedOp24Attempts, r.townReturnPending)
+					t.Fatalf("op132 must retain pending town return after failed op24: err=%v attempts=%d pending=%v sent=%v same=%v", err, failure.failedOp24Attempts, r.townReturnPending, r.townReturnOp24Sent, session.dungeon.runtime == r)
 				}
 				session.conn = conn
 			case "raid":

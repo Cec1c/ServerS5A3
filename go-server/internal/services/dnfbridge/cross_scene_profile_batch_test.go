@@ -20,14 +20,14 @@ import (
 // cross-scene tests are left unchanged.
 
 type currentCrossSceneProfileBatchFixture struct {
-	*townPartyActorHPFixture
+	*crossSceneProfileActorFixture
 	viewer2     *gameSession
 	viewer2Conn *bufferConn
 }
 
 func newCurrentCrossSceneProfileBatchFixture(t *testing.T) *currentCrossSceneProfileBatchFixture {
 	t.Helper()
-	base := newTownPartyActorHPFixture(t, true)
+	base := newCrossSceneProfileActorFixture(t, true)
 	s := base.service
 	s.options.currentClientVersion = "official-24.9"
 	base.target.accountID = "dnf:1"
@@ -89,9 +89,9 @@ func newCurrentCrossSceneProfileBatchFixture(t *testing.T) *currentCrossScenePro
 	s.publishRuntimePartySnapshot(joined.Party)
 
 	return &currentCrossSceneProfileBatchFixture{
-		townPartyActorHPFixture: base,
-		viewer2:                 viewer2,
-		viewer2Conn:             viewer2Conn,
+		crossSceneProfileActorFixture: base,
+		viewer2:                       viewer2,
+		viewer2Conn:                   viewer2Conn,
 	}
 }
 
@@ -300,8 +300,8 @@ func TestCurrentCrossSceneProfileBatchRejectsInvalidOwnerIdentityAndMembership(t
 		t.Helper()
 		// Keep both local session caches claiming the original party. The
 		// central manager is the only authority for cross-scene membership.
-		storeRuntimePartyState(f.target, townPartyActorHPPartyState())
-		storeRuntimePartyState(f.actor, townPartyActorHPPartyState())
+		storeRuntimePartyState(f.target, crossSceneProfileActorPartyState())
+		storeRuntimePartyState(f.actor, crossSceneProfileActorPartyState())
 		if result := f.service.runtimePartyManagerForService().LeaveCurrent(id); !result.OK {
 			t.Fatalf("leave central party %d: %s", id, result.Reason)
 		}

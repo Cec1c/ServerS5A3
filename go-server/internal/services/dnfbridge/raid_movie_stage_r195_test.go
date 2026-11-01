@@ -13,6 +13,10 @@ func r195MovieStageFixture(t *testing.T, phase string) (*raidStartGuardFixture, 
 	var f *raidStartGuardFixture
 	var session, peer *gameSession
 	switch phase {
+	case "anton_phase0":
+		f, session, _ = firstAntonFlowFixture(t)
+	case "anton_phase1":
+		f, session, _ = ownedAntonCardFixture(t)
 	case "luke_phase0":
 		f, session, _ = r195LukeCompletedPartyFixture(t)
 	case "luke_phase1":
@@ -100,7 +104,7 @@ func r195MoviePeer(f *raidStartGuardFixture, leader *gameSession) *gameSession {
 // Fixed v157 023FB4B3 -> 018FBF20 emits zero on input while the movie
 // is still active. Only 023FAC8C -> 018FBED0(true) emits completion one.
 func TestR195RealMovieSkipRequestDoesNotConfirmCompletion(t *testing.T) {
-	for _, phase := range []string{"luke_phase0", "luke_phase1"} {
+	for _, phase := range []string{"anton_phase0", "anton_phase1", "luke_phase0", "luke_phase1", "fiendwar"} {
 		t.Run(phase, func(t *testing.T) {
 			f, sessions := r195MovieStageFixture(t, phase)
 			session := sessions[0]
@@ -176,37 +180,41 @@ func r195MovieWantPromptWire(t *testing.T, stream []byte, prompt bool) {
 }
 
 func TestR195RealMoviePromptPartialWriteRestoresOnlyOnNewConnection(t *testing.T) {
-	f, sessions := r195MovieStageFixture(t, "luke_phase0")
-	session := sessions[0]
-	failed := &antonPartialWriteConn{Conn: session.conn}
-	session.conn = failed
-	if err := f.service.handleCurrentAntonMovieCompletion(session, 659, []byte{0}); err == nil {
-		t.Fatal("partial prompt write was hidden")
-	}
-	if !failed.closed || !session.raidProjection.failed || session.raidProjection.moviePromptSent || session.raidProjection.movieCompleted {
-		t.Fatal("failed prompt was recorded as sent/completed or stream remained reusable")
-	}
-	if err := f.service.handleCurrentAntonMovieCompletion(session, 659, []byte{0}); err == nil || failed.calls != 2 {
-		t.Fatal("partial frame was retried on the old connection")
-	}
-	replacement := f.session()
-	replacement.channel, replacement.loginPacketSeen, replacement.accountFromToken = session.channel, true, true
-	replacement.conn = &bufferConn{}
-	f.service.bindGameSessionCharacter(replacement, 19)
-	if err := f.service.sendCurrentAntonTerminalResult(replacement, cloneRuntimeRaidState(*f.state)); err != nil {
-		t.Fatal(err)
-	}
-	f.conn = replacement.conn.(*bufferConn)
-	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, replacement, 659, []byte{0})
-	r195MovieWantPromptWire(t, f.conn.write.Bytes(), true)
-	if len(f.state.Battle.RewardCardReady[0]) != 0 || len(f.state.Battle.RewardCards[0]) != 0 {
-		t.Fatal("prompt transport recovery completed or granted rewards")
+	for _, phase := range []string{"anton_phase0", "luke_phase0"} {
+		t.Run(phase, func(t *testing.T) {
+			f, sessions := r195MovieStageFixture(t, phase)
+			session := sessions[0]
+			failed := &antonPartialWriteConn{Conn: session.conn}
+			session.conn = failed
+			if err := f.service.handleCurrentAntonMovieCompletion(session, 659, []byte{0}); err == nil {
+				t.Fatal("partial prompt write was hidden")
+			}
+			if !failed.closed || !session.raidProjection.failed || session.raidProjection.moviePromptSent || session.raidProjection.movieCompleted {
+				t.Fatal("failed prompt was recorded as sent/completed or stream remained reusable")
+			}
+			if err := f.service.handleCurrentAntonMovieCompletion(session, 659, []byte{0}); err == nil || failed.calls != 2 {
+				t.Fatal("partial frame was retried on the old connection")
+			}
+			replacement := f.session()
+			replacement.channel, replacement.loginPacketSeen, replacement.accountFromToken = session.channel, true, true
+			replacement.conn = &bufferConn{}
+			f.service.bindGameSessionCharacter(replacement, 19)
+			if err := f.service.sendCurrentAntonTerminalResult(replacement, cloneRuntimeRaidState(*f.state)); err != nil {
+				t.Fatal(err)
+			}
+			f.conn = replacement.conn.(*bufferConn)
+			f.conn.write.Reset()
+			dispatchAntonCardRequest(t, f, replacement, 659, []byte{0})
+			r195MovieWantPromptWire(t, f.conn.write.Bytes(), true)
+			if len(f.state.Battle.RewardCardReady[0]) != 0 || len(f.state.Battle.RewardCards[0]) != 0 {
+				t.Fatal("prompt transport recovery completed or granted rewards")
+			}
+		})
 	}
 }
 
 func TestR195RealMovieMixedSkipAndNaturalCompletion(t *testing.T) {
-	for _, phase := range []string{"luke_phase0", "luke_phase1"} {
+	for _, phase := range []string{"anton_phase0", "anton_phase1", "luke_phase0", "luke_phase1", "fiendwar"} {
 		for _, naturalFirst := range []bool{false, true} {
 			name := "skip_closes_first"
 			if naturalFirst {
@@ -220,6 +228,7 @@ func TestR195RealMovieMixedSkipAndNaturalCompletion(t *testing.T) {
 					t.Fatal("completed raid has no frozen reward flow")
 				}
 				flow.AutoSelectAt = time.Now().Add(time.Minute)
+				flow.PartyShownAt = time.Time{}
 				for _, session := range sessions {
 					if err := f.service.sendCurrentAntonTerminalResult(session, cloneRuntimeRaidState(*f.state)); err != nil {
 						t.Fatal(err)
@@ -233,8 +242,8 @@ func TestR195RealMovieMixedSkipAndNaturalCompletion(t *testing.T) {
 				if sessions[1].conn.(*bufferConn).write.Len() != 0 {
 					t.Fatal("one member's skip prompt was sent to another member")
 				}
-				if len(b.RewardCardReady[b.Phase]) != 0 || len(flow.Party) != 0 {
-					t.Fatal("skip input changed readiness or rewards")
+				if len(b.RewardCardReady[b.Phase]) != 0 || !flow.PartyShownAt.IsZero() || len(flow.Party) != 0 {
+					t.Fatal("skip input changed readiness, party display clock or rewards")
 				}
 				order := []int{0, 1}
 				if naturalFirst {

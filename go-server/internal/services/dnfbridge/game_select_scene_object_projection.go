@@ -83,6 +83,16 @@ func (s *Service) buildCurrentSceneObjectListBodyForSessionInContextWithPolicy(
 	if charName == "" {
 		charName = csharpSelectCharacterName(charID)
 	}
+	// 回归资格先于首个actor投影准备；后续1369只更新任务管理器，
+	// 不会打开actor上的原生回归入口。只修改本次报文副本。
+	var returneeErr error
+	character, returneeErr = s.currentReturneeSceneCharacter(session, charID, character, hasCharacter)
+	if returneeErr != nil {
+		if strict {
+			return nil, returneeErr
+		}
+		s.logGameEvent(session, "回归场景资格投影暂缓", "error", returneeErr)
+	}
 	mode0EquipSummarySource := "character_roster_partial_current_exe_typed_tail"
 	if fullRows, source, found, err := s.loadCurrentSelectedActorMode0AppearanceSummary(ctx, session, charID); err != nil {
 		if session != nil {

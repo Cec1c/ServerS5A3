@@ -198,3 +198,21 @@ func TestRoomClearQuestPeerDispatchUsesMemberQuestEligibility(t *testing.T) {
 		})
 	}
 }
+
+func TestRoomClearQuestPeerDispatchRejectsReplacedSession(t *testing.T) {
+	svc, peer, rt, repos := roomClearQuestBridgeFixture(t, true)
+	rt.partyInstance = &dungeonPartyInstance{id: 91}
+	svc.gameSessions = map[uint16]*gameSession{99: {selectedCharacterID: 99, characterGeneration: 2}}
+	before, _, err := repos.Quest.Load(context.Background(), "99")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.dispatchPartyDungeonPeerFinalRoomCompletion(peer, 91, 1)
+	after, _, err := repos.Quest.Load(context.Background(), "99")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) || peer.conn.(*bufferConn).write.Len() != 0 {
+		t.Fatal("replaced session progressed a quest or sent a notification")
+	}
+}

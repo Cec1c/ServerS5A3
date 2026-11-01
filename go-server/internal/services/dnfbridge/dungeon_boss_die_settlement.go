@@ -45,6 +45,10 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	if err := s.persistPrivateActivityDungeon(ctx, session, runtime); err != nil {
+		s.logGameEvent(session, "private-activity-dungeon-retry", "error", err)
+		return err
+	}
 	tutorialDungeon := isPVFTutorialDungeon(runtime)
 	if tutorialDungeon && !runtime.tutorialCompletionPersisted {
 		previousFlag, err := s.persistCurrentDungeonTutorialCompletion(ctx, session.selectedCharacterID)
@@ -81,6 +85,9 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 			"tutorial_completion_character_snapshot_mutated", false,
 			"settlement_persistence_barrier_ready", true,
 			"source", "owned_cleared_runtime_boss_op117")
+	}
+	if err := s.recordCurrentActivityAbyss(session, runtime, snapshot.Scene, true); err != nil {
+		return err
 	}
 	// 按通关计数的副本（艾肯）：次数提交是这一轮通关的**阻塞前置**。失败时保持
 	// dungeonCycleClearCountCommitted=false 并直接返回——不进入后续结算、不发 op115/终局包，

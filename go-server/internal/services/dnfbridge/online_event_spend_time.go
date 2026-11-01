@@ -431,6 +431,7 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 		return err
 	}
 
+	s.settlePortedPresenceLocked(ctx, session, now, true)
 	session.spendTime.characterID = characterID
 	session.spendTime.characterGeneration = characterGeneration
 	session.spendTime.initializedCharacterGeneration = characterGeneration
@@ -516,55 +517,8 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		// 2395（红尾乔纳森的可见性闸门）默认**不发**，只有
 		// DNFBRIDGE_TOWN_NPC_EVENT_CATALOG 显式打开才追加两行。
 		// 客户端完整替换活动目录；更新后紧接发送本在线活动所属状态。
-		season, weeklyErr := s.currentWeeklySeason(session)
-		includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
-		// Optional image town-NPC rows are resolved independently. The operator
-		// policy is read first: with every optional switch off there is nothing
-		// to validate and the resource archive is not read at all. When any
-		// switch is on, a missing, unreadable or mismatched entry is skipped
-		// with a structured diagnostic; it must never abort this catalog.
-		// Aborting here previously dropped the whole op108 directory and, with
-		// it, the op1206 pair that owns the existing 2347/签到 HUD.
-		var enabledTownActivities []uint16
-		for _, activity := range currentImageTownActivities() {
-			if s.options.currentClientVersion == "official-24.9" && s.activityControls != nil && s.activityControls.Enabled(activity.id) {
-				enabledTownActivities = append(enabledTownActivities, activity.id)
-			}
-		}
-		var townArchive dnfpvf.Source
-		if len(enabledTownActivities) > 0 {
-			s.initialEquipmentMu.Lock()
-			archive, loadErr := s.initialEquipmentArchiveLocked()
-			s.initialEquipmentMu.Unlock()
-			if loadErr == nil {
-				townArchive = archive
-			}
-			// loadErr != nil leaves townArchive nil: the archive itself is
-			// unusable, so every enabled optional entry is reported as
-			// skipped and the legacy catalog is kept.
-		}
-		townActivities := s.logCurrentImageTownActivitySkips(townArchive, enabledTownActivities, session, "current_spend_time_op108_catalog")
-		fiendWarAvailable = s.currentFiendWarChannelAvailable(session)
-		eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndMarble(
-			catalog.rewardItemIDs,
-			catalog.totalStageSeconds,
-			includeJoust,
-			s.currentSpendTimeCatalogIncludesTownNpcEvent(),
-			true,
-			s.currentAntonModeSelectionAvailable(session),
-			s.currentSpendTimeEventEnabled(),
-			dayDungeonEvent,
-			s.currentLukeNormalChannelAvailable(session),
-			s.currentMonthlyAttendanceEnabled(),
-			includeWeekly,
-			s.currentOrdinaryAttendanceEnabled(),
-			s.currentEpicRoadActivityAvailable(),
-			townActivities,
-			fiendWarAvailable,
-			catalog.nativePCRoom != nil,
-			true, // Keep the native Seria luck entry alongside online rewards.
-			s.currentAttendanceMarbleAvailable(),
-		)
+		eventInfoBody, available, err := s.buildCurrentCompleteActivityInfo(session, catalog, includeJoust)
+		fiendWarAvailable = available
 		if err != nil {
 			return false, err
 		}
@@ -627,6 +581,10 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		if err := s.sendCurrentJoustOpeningRoster(session); err != nil {
 			return descriptorSent, err
 		}
+	}
+	s.refreshCurrentPortedActivities(session, true)
+	if err := s.recordBattlePassLogin(session); err != nil {
+		s.logGameEvent(session, "战令登录日登记暂缓", "error", err)
 	}
 	if err := s.armCurrentDayDungeonCatalogRefresh(session); err != nil {
 		return descriptorSent, err
@@ -986,6 +944,8 @@ func (s *Service) settleCurrentSpendTimeClockLocked(
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), currentSpendTimeWriteTimeout)
 	defer cancel()
+	s.refreshCurrentPortedActivities(session, false)
+	s.settlePortedPresenceLocked(ctx, session, now, false)
 	definition := session.spendTime.catalog.definition
 	characterID := strconv.Itoa(int(session.spendTime.characterID))
 	cursor := session.spendTime.anchor
@@ -1108,6 +1068,14 @@ func currentSpendTimeNextServiceBoundary(
 }
 
 func (s *Service) stopCurrentSpendTimeClock(session *gameSession, source string) {
+	if session != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), currentSpendTimeWriteTimeout)
+		session.spendTime.mu.Lock()
+		s.settlePortedPresenceLocked(ctx, session, s.gameplayNow(), true)
+		session.spendTime.mu.Unlock()
+		cancel()
+		s.saveCurrentReturneeLastSeen(session)
+	}
 	if s == nil || session == nil {
 		return
 	}
@@ -1147,4 +1115,64 @@ func (s *Service) stopCurrentSpendTimeClock(session *gameSession, source string)
 			"source", source,
 			"error", settlement.claimErr)
 	}
+}
+
+func (s *Service) buildCurrentCompleteActivityInfo(session *gameSession, catalog *currentSpendTimeRuntimeCatalog, includeJoust bool) ([]byte, bool, error) {
+	return s.buildCurrentCompleteActivityInfoForDay(session, catalog, includeJoust, s.currentDayDungeonEvent())
+}
+
+// 一次发布的108与855使用相同服务日，避免构包横跨06:00时分别取时。
+func (s *Service) buildCurrentCompleteActivityInfoForDay(session *gameSession, catalog *currentSpendTimeRuntimeCatalog, includeJoust bool, dayDungeonEvent uint16) ([]byte, bool, error) {
+	season, weeklyErr := s.currentWeeklySeason(session)
+	includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
+	// Optional image town-NPC rows are resolved independently. The operator
+	// policy is read first: with every optional switch off there is nothing
+	// to validate and the resource archive is not read at all. When any
+	// switch is on, a missing, unreadable or mismatched entry is skipped
+	// with a structured diagnostic; it must never abort this catalog.
+	// Aborting here previously dropped the whole op108 directory and, with
+	// it, the op1206 pair that owns the existing 2347/签到 HUD.
+	var enabledTownActivities []uint16
+	for _, activity := range currentImageTownActivities() {
+		if s.options.currentClientVersion == "official-24.9" && s.activityControls != nil && s.activityControls.Enabled(activity.id) {
+			enabledTownActivities = append(enabledTownActivities, activity.id)
+		}
+	}
+	var townArchive dnfpvf.Source
+	if len(enabledTownActivities) > 0 {
+		s.initialEquipmentMu.Lock()
+		archive, loadErr := s.initialEquipmentArchiveLocked()
+		s.initialEquipmentMu.Unlock()
+		if loadErr == nil {
+			townArchive = archive
+		}
+		// loadErr != nil leaves townArchive nil: the archive itself is
+		// unusable, so every enabled optional entry is reported as
+		// skipped and the legacy catalog is kept.
+	}
+	townActivities := s.logCurrentImageTownActivitySkips(townArchive, enabledTownActivities, session, "current_spend_time_op108_catalog")
+	fiendWarAvailable := s.currentFiendWarChannelAvailable(session)
+	eventInfoBody, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(
+		catalog.rewardItemIDs,
+		catalog.totalStageSeconds,
+		includeJoust,
+		s.currentSpendTimeCatalogIncludesTownNpcEvent(),
+		true,
+		s.currentAntonModeSelectionAvailable(session),
+		s.currentSpendTimeEventEnabled(),
+		dayDungeonEvent,
+		s.currentLukeNormalChannelAvailable(session),
+		s.currentMonthlyAttendanceEnabled(),
+		includeWeekly,
+		s.currentOrdinaryAttendanceEnabled(),
+		s.currentEpicRoadActivityAvailable(),
+		townActivities,
+		fiendWarAvailable,
+		catalog.nativePCRoom != nil,
+		true, // 幸运值结算始终启用，同步其原生图标入口。
+		s.currentAttendanceMarbleAvailable(),
+		s.currentPortedCatalogAt(s.gameplayNow()),
+		s.currentBattlePassEntryAvailable(),
+	)
+	return eventInfoBody, fiendWarAvailable, err
 }

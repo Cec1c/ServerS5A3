@@ -46,7 +46,7 @@ func TestRelicBoxesRealPVFAndInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, sourceID := range []uint32{490008265, 490008654} {
+	for _, sourceID := range []uint32{490008265, 490009313, 490008654} {
 		definition, err := resolveCurrentBoosterDefinition(catalog, sourceID, currentBoosterRequestSelection)
 		if err != nil {
 			t.Fatalf("source %d: %v", sourceID, err)
@@ -57,7 +57,7 @@ func TestRelicBoxesRealPVFAndInventory(t *testing.T) {
 				t.Fatalf("source %d empty category %d", sourceID, category)
 			}
 			var body []byte
-			if sourceID == 490008265 {
+			if sourceID != 490008654 {
 				if category >= len(relicArmorChoices) {
 					t.Fatalf("unexpected armor category %d", category)
 				}
@@ -113,7 +113,9 @@ func TestRelicBoxesRealPVFAndInventory(t *testing.T) {
 }
 
 func TestRelicUpgradeMetadataRejectsUnverifiedValues(t *testing.T) {
-	for _, value := range []string{"1", "", "0 0", "`0`"} {
+	// Fixed levels 0..31 are covered by the 005 native/PVF grant tests.
+	// Random tables and malformed metadata remain rejected.
+	for _, value := range []string{"32", "255", "-1", "", "0 0", "`0`"} {
 		doc, err := dnfpvf.Parse("stackable/test.stk", "[booster select category]\n0 0\n[booster equipment upgrade]\n"+value+"\n[equipment]\n123 1\n[/equipment]\n[/booster select category]\n")
 		if err != nil {
 			t.Fatal(err)
@@ -147,12 +149,13 @@ func TestRelicCompactSelectionRejectsForgedRequests(t *testing.T) {
 	for _, id := range relicArmorChoices[0] {
 		category = append(category, currentBoosterSelectionCandidate{ItemID: id, Count: 1})
 	}
-	def := currentBoosterDefinition{Source: dungeonDropItemDefinition{ItemID: 490008265}, SelectionCategory: map[uint16][]currentBoosterSelectionCandidate{0: category}}
+	def := currentBoosterDefinition{Source: dungeonDropItemDefinition{ItemID: 490008265}, SelectionCategory: map[uint16][]currentBoosterSelectionCandidate{0: category}, CompactArmorCategories: map[uint16]bool{0: true}}
 	if _, err := currentBoosterSelectedCandidates(def, req); err != nil {
 		t.Fatal(err)
 	}
 	other := def
 	other.Source.ItemID = 490008654
+	other.SelectionRequired = 1 // The weapon box's actual PVF contract.
 	if _, err := currentBoosterSelectedCandidates(other, req); err == nil {
 		t.Fatal("compact format accepted for other box")
 	}

@@ -104,6 +104,15 @@ func TestEpicRoadActualPreparedEntryCommitChargesOnce(t *testing.T) {
 			s.dungeonMonsterTable = monsters
 			s.dungeonAICharacterTable = ai
 			s.initialEquipmentArchive = actual.initialEquipmentArchive
+			// Private activity must be committed by the actual paid-entry path,
+			// not just the ordinary per-room debit helper.
+			activityAt := s.gameplayNow()
+			if _, e = s.applyPrivateActivity(&c, 6, 99, activityAt, activityAt); e != nil {
+				t.Fatal(e)
+			}
+			if e = g.Character.Save(ctx, c); e != nil {
+				t.Fatal(e)
+			}
 			s.bindGameSessionCharacter(a, 99)
 			bindDungeonSelectorOriginForTestAt(t, s, a, 50, 0, 441, 207)
 			runtime, _, e := s.prepareDungeonRuntime(ctx, a, dungeoncmd.SelectDungeonRequest{DungeonID: id})
@@ -126,12 +135,22 @@ func TestEpicRoadActualPreparedEntryCommitChargesOnce(t *testing.T) {
 			if a.dungeon.runtime != runtime || v.Slots["0:1"].Count != 0 || v.Slots["0:2"].Count != 7 || after.Stats["fatigue"] != before.Stats["fatigue"]-1 || after.Stats["epic_entry_sequence"] != 1 {
 				t.Fatalf("actual atomic admission before%v after%v bag%v", before.Stats, after.Stats, v.Slots)
 			}
+			if after.Stats["private_activity_v1_progress_6"] != 100 || after.Stats["private_activity_v1_points"] != 20 {
+				t.Fatalf("epic admission missed activity fatigue: %v", after.Stats)
+			}
 			if e = s.commitDungeonRuntime(a, runtime); e == nil {
 				t.Fatal("repeat active admission accepted")
 			}
 			final, _, _ := g.Character.Load(ctx, "99")
 			if final.Stats["fatigue"] != after.Stats["fatigue"] || final.Stats["epic_entry_sequence"] != 1 {
 				t.Fatal("repeat charged")
+			}
+			if final.Stats["private_activity_v1_points"] != 20 {
+				t.Fatal("replayed epic entry awarded twice")
+			}
+			summary, err := g.Activity.Summary(ctx, repo.ActivityQuery{AccountID: after.AccountID})
+			if err != nil || summary.Metrics[repo.ActivityFatigue] != 1 {
+				t.Fatal("史诗之路入场漏记或重放重复记账", summary, err)
 			}
 		})
 	}

@@ -60,6 +60,9 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 		s.logGameEvent(session, "game-current-booster-rejected", "body_len", len(body), "reason", err)
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketUseBoosterItem), s.currentBoosterFailureCode(err))
 	}
+	if request.Kind == currentBoosterRequestRandom && s.currentEventCargoSource(session, request.SourceSlot) {
+		return s.handleCurrentEventItem(session, uint16(dnfenum.CmdPacketUseBoosterItem), body)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	catalog, err := s.currentPVFItemCatalog()
@@ -274,6 +277,13 @@ func (s *Service) commitCurrentBooster(
 				return dnfbooster.Changes{}, err
 			}
 			characterDirty := false
+			if definition.Source.ItemID == 2682272 || definition.Source.ItemID == 10007369 {
+				activityChanged, err := s.applyPrivateActivity(assets.Character, 5, 1, now, now)
+				if err != nil {
+					return dnfbooster.Changes{}, err
+				}
+				characterDirty = activityChanged
+			}
 			if definition.LotteryGoldCost > 0 {
 				// Owner has already debited the opening fee in this transaction.
 				// Keep its committed wallet for an incremental lottery notice.
@@ -295,6 +305,9 @@ func (s *Service) commitCurrentBooster(
 			}
 			rewards, err := resolveCurrentBoosterRewards(catalog, rewardAmounts, rewardOptions, sourceStack, now)
 			if err != nil {
+				return dnfbooster.Changes{}, err
+			}
+			if err := applyCurrentBoosterSelectionUpgrades(definition, request, rewards); err != nil {
 				return dnfbooster.Changes{}, err
 			}
 

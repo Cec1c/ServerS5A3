@@ -247,6 +247,7 @@ func ApplyContribution(ctx context.Context, tx r.Group, actor *r.CharacterRecord
 	if err := Save(ctx, tx.Settings, reg, now); err != nil {
 		return ContributionIncome{}, err
 	}
+	r.AddBattlePassCounter(actor, 9, -1, int64(amount), now)
 	result.Points, result.Delivery = amount, delivery
 	return result, nil
 }

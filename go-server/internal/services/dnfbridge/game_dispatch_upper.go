@@ -19,7 +19,7 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 		stage = perfUpper39
 	}
 	defer func() { s.performanceEnd(stage, started, resultErr) }()
-	if s.options.playerStrict && !session.accountFromToken {
+	if s.gmEditProtectionEnabled() && !session.accountFromToken {
 		if packet.Header.MsgID != 1 || packet.Header.Classification != dnfproto.DefaultChannelClassification {
 			return errPlayerAuthentication
 		}
@@ -34,6 +34,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 		}
 	}
 	requestSequence := session.guild.purchaseSequence.observe(packet.Header.Seq)
+	if packet.Header.MsgID == privateActivityOpcode {
+		return s.handlePrivateActivity(session, packet.Header.Classification, packet.Body)
+	}
 	if packet.Header.MsgID == privateFestivalOpcode {
 		return s.handlePrivateFestival(session, packet.Header.Classification, packet.Body)
 	}
@@ -202,6 +205,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	); handled || err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentPortedActivityRequest(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled {
+		return err
+	}
 	switch dnfenum.UpperMsg(packet.Header.MsgID) {
 	case dnfenum.UpperMsgGameEndpoint:
 		// 客户端在这个 class1/op1 登录包里带出启动器写入 TCLS 启动串的账号令牌，
@@ -353,7 +359,7 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	case dnfenum.UpperMsgFollowUpStatus:
 		s.logInfo("dnfbridge latest upper follow-up received", "msg_id", packet.Header.MsgID, "body_len", len(packet.Body))
 		// 63 在当前枚举里是 Cera 查询，不是进场景 gate；用它触发 DOVE tail 会让 HUD 包早于客户端 runtime 阶段。
-		return s.sendGameUpperSuccess(session, packet.Header.MsgID, nil)
+		return s.handleCurrentCeraQueryVisit(session, packet.Header.Classification, packet.Body)
 
 	case dnfenum.UpperMsgFollowUpReady:
 		return s.sendRequestBlacklistState(session, "upper_120_request", packet.Body)

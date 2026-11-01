@@ -155,6 +155,11 @@ func TestMailboxSendTransfersGoldAndStoresRecipientMail(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load sender ok=%v error=%v", ok, err)
 	}
+	summary, summaryErr := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: "acc-a"})
+	gold, goldErr := dnfrepo.SummarizeActivityGold(summary.Metrics)
+	if summaryErr != nil || goldErr != nil || gold.Spent != 0 || summary.Metrics[dnfrepo.ActivityGoldMailOut] != 50 || summary.Metrics[dnfrepo.ActivityGoldPostage] != 102 {
+		t.Fatal("邮寄不应算作培养消耗", summary, gold, summaryErr, goldErr)
+	}
 	if sender.Stats["gold"] != 48 {
 		t.Fatalf("sender gold = %d, want 48 after 50 transfer + 102 postage", sender.Stats["gold"])
 	}

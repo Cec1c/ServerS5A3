@@ -313,6 +313,10 @@ func TestOwnerApplyFinishSettlementConsumesAccountSharedSeekingMaterialsAndRepla
 	if got := account.Slots["0:358"].Count; got != 30 {
 		t.Fatalf("replay consumed shared material twice: count=%d", got)
 	}
+	summary, err := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: "acc"})
+	if err != nil || summary.Metrics[dnfrepo.ActivityColorless] != 100 {
+		t.Fatalf("任务提交与重放的实际无色统计错误: %+v %v", summary, err)
+	}
 }
 
 func TestOwnerApplyFinishSettlementRollsBackAccountSharedMaterialsOnAllocatorFailure(t *testing.T) {

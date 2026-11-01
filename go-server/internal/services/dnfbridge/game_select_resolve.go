@@ -35,6 +35,14 @@ func (s *Service) resolveSelectedCharacter(
 			s.logGameEvent(session, "game-upper-select-character-list-failed", "slot", slot, "error", err)
 		} else if len(characters) > 0 {
 			if selected, selectedBy, ok := selectCharacterRecord(characters, session.currentRenameRoster, parsed); ok {
+				if selected.AccountID != s.accountIDForSession(session) || numericCharacterID(selected) <= 0 || numericCharacterID(selected) > 65535 {
+					return 0, "", dnfrepo.CharacterRecord{}, false, slot
+				}
+				if err := s.admitCharacterForEdits(ctx, session, selected.AccountID, uint16(numericCharacterID(selected))); err != nil {
+					s.logGameEvent(session, "game-character-edit-admission-failed", "error", err)
+					return 0, "", dnfrepo.CharacterRecord{}, false, slot
+				}
+				// Always reload after GM admission; the narrow identity is not a gameplay snapshot.
 				readStarted = time.Now()
 				selected, valid := loadSelectedCharacterIdentity(ctx, repos.Character, selected, s.accountIDForSession(session))
 				noteSelectReadTiming(session, "selected", readStarted)

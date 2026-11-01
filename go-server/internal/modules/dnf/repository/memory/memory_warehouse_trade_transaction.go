@@ -76,6 +76,10 @@ func (u *memoryCharacterTradeUnitOfWork) WithinCharacterWarehouseTrade(ctx conte
 		i.exists[id] = found
 		originalInventoryExists[id] = found
 	}
+	if u.activity != nil {
+		c.activity = u.activity.transaction()
+		c.activityOwners = originalCharacters
+	}
 	if err := apply(c, i, accountTx); err != nil {
 		return err
 	}
@@ -115,6 +119,9 @@ func (u *memoryCharacterTradeUnitOfWork) WithinCharacterWarehouseTrade(ctx conte
 				return rollback(err)
 			}
 		}
+	}
+	if c.activity != nil {
+		c.activity.commit()
 	}
 	return nil
 }

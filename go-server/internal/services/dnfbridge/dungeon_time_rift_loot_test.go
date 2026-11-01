@@ -10,8 +10,10 @@ import (
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
 
-func TestOfficialNormalAbyssSingleTrialAndReplay(t *testing.T) {
-	s, session, conn, runtime, _, _ := prepareAbyssEpicFragmentRuntime(t, bridgeAbyssEpicFragmentPVF())
+func TestOfficialNormalAbyssPVFZeroRateAndReplay(t *testing.T) {
+	source := bridgeAbyssEpicFragmentPVF()
+	source[hellPartyRewardDropInfoPath] = privateNativeHellText(0, 0)
+	s, session, conn, runtime, _, _ := prepareAbyssEpicFragmentRuntime(t, source)
 	s.options.currentClientVersion = "official-24.9"
 	first, last := hellPartyRewardActorKeys(t, runtime)
 	death := func(key uint32) []abyssEpicFragmentDropRow {
@@ -99,20 +101,20 @@ func TestRealPVFTimeRiftAndNormalAbyssProbability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := hellPartyRewardRequest{DungeonMinimumLevel: d.Metadata.MinimumRequiredLevel.Value, DungeonBasisLevel: d.Metadata.BasisLevel.Value, dropCatalog: drops, rng: newCurrentDungeonDropLCG(1)}
+	request := hellPartyRewardRequest{DungeonMinimumLevel: d.Metadata.MinimumRequiredLevel.Value, DungeonBasisLevel: d.Metadata.BasisLevel.Value, AbyssPartyDifficulty: 1, DungeonDifficulty: 2, RewardRollCount: 8, dropCatalog: drops, rng: newCurrentDungeonDropLCG(1)}
 	hits := 0
 	for i := 0; i < 10000; i++ {
 		result, err := currentNormalAbyssEpicClearReward(request)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Rolls != 1 || result.Chance != 130000 || len(result.Selected) > 1 {
-			t.Fatal("normal abyss did not use one 13% trial")
+		if result.Rolls != 8 || result.Chance != 1000 || len(result.Selected) > 8 || result.RarityMode != "pvf" {
+			t.Fatal("normal abyss did not use native PVF rolls/rate")
 		}
-		hits += len(result.Selected)
+		hits += result.RaritySelected[4]
 	}
-	if hits < 1100 || hits > 1500 {
+	if hits < 400 || hits > 750 {
 		t.Fatalf("normal abyss sample: %d/10000", hits)
 	}
-	t.Logf("PVF7539 real equipment=%d mapped pieces=%d; guaranteed fragments=%d; epic=20%%; normal abyss one-trial sample=%d/10000 (13%%)", len(def.Equipment), len(def.Pieces), def.FragmentCount, hits)
+	t.Logf("PVF7539 real equipment=%d mapped pieces=%d; guaranteed fragments=%d; epic=20%%; normal abyss epic sample from 80000 rolls=%d/80000 (PVF rarity 0.7%% per successful roll)", len(def.Equipment), len(def.Pieces), def.FragmentCount, hits)
 }

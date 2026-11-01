@@ -27,9 +27,10 @@ type Assets struct {
 }
 
 type Changes struct {
-	AccountInventory bool
-	Inventory        bool
-	CharacterStats   bool
+	EmblemUpgradeFrom int
+	AccountInventory  bool
+	Inventory         bool
+	CharacterStats    bool
 }
 
 type Projector func(*Assets) (Changes, error)
@@ -132,6 +133,7 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		if err := dnfrepo.BindInventoryContainerState(ctx, o.settings, &inventory); err != nil {
 			return err
 		}
+		previousSlots := inventory.Slots
 		inventory = dnfrepo.CloneInventory(inventory)
 
 		changes, err := command.Project(&Assets{
@@ -158,6 +160,55 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 			accountInventory.UpdatedAt = now
 			if err := accounts.Save(ctx, accountInventory); err != nil {
 				return err
+			}
+		}
+		if changes.Inventory && operation != "equipment-disjoint" {
+			consumed := false
+			for key, before := range previousSlots {
+				after := inventory.Slots[key]
+				if before.Count > 0 && (after.ItemID != before.ItemID || after.Count < before.Count) {
+					consumed = true
+					break
+				}
+			}
+			if consumed {
+				kind := uint32(19)
+				if operation == "avatar-disjoint" {
+					kind = 42
+				}
+				dnfrepo.AddBattlePassCounter(&character, kind, -1, 1, now)
+				if operation == "emblem-compound" && (changes.EmblemUpgradeFrom == 2 || changes.EmblemUpgradeFrom == 3) {
+					dnfrepo.AddBattlePassCounter(&character, 20, int64(changes.EmblemUpgradeFrom), 1, now)
+				}
+				character.UpdatedAt = now
+				if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+					return err
+				}
+			}
+		}
+		if changes.Inventory && operation == "equipment-disjoint" {
+			count := int64(0)
+			for key, before := range previousSlots {
+				after, ok := inventory.Slots[key]
+				consumed := before.Count
+				if ok && after.ItemID == before.ItemID {
+					consumed -= after.Count
+				}
+				if consumed > 0 {
+					count += min(consumed, int64(^uint64(0)>>1)-count)
+				}
+			}
+			if count > 0 {
+				character = dnfrepo.CloneCharacter(character)
+				dnfrepo.AddBattlePassCounter(&character, 17, -1, count, now)
+				if dnfrepo.SeriaWelcomeActiveAt(character, now) {
+					current := max(character.Stats["seria_returnee_disjoint_count"], 0)
+					character.Stats["seria_returnee_disjoint_count"] = current + min(count, int64(^uint64(0)>>1)-current)
+				}
+				character.UpdatedAt = now
+				if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

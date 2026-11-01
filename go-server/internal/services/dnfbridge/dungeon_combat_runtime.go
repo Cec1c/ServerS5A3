@@ -147,7 +147,13 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		if questDropErr != nil || mapOwnedErr != nil {
 			return errors.Join(questDropErr, mapOwnedErr)
 		}
-		if questDropHandled || mapOwnedHandled {
+		// A native passive-object report can also satisfy the maze's explicit
+		// destroy-object clear condition. Material/drop handling is a separate
+		// effect: even a resolved no-reward receipt must not consume that clear.
+		// Continue through the existing shape/actor/clear dispatch only for the
+		// exact current-room target; preserve its peer completion and retries.
+		if (questDropHandled || mapOwnedHandled) &&
+			currentDungeonDestroyObjectClearConditionSource(runtime, scene, request.RuntimeObjectKey) == "" {
 			return nil
 		}
 	}
@@ -448,6 +454,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if target, matchedSpecialMonster, retirementErr := runtime.Room.RetireSpecialMonsterActor(request.RuntimeObjectKey); matchedSpecialMonster {
 		if retirementErr != nil {
 			if errors.Is(retirementErr, errDungeonMonsterAlreadyDefeated) {
+				if err := s.persistPrivateActivityHellKill(context.Background(), session, runtime, request.RuntimeObjectKey, false); err != nil {
+					return err
+				}
 				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
 			}
 			s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -460,6 +469,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "special_monster_retirement_rejected",
 				"error", retirementErr)
 			return nil
+		}
+		if err := s.persistPrivateActivityHellKill(context.Background(), session, runtime, target.ObjectKey, true); err != nil {
+			return err
 		}
 		if err := s.completeCurrentSuspiciousVillageElevatorLocked(session, runtime, target.ObjectKey); err != nil {
 			return err
@@ -475,7 +487,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		// 见 dungeon_hell_party_reward.go。
 		var hellPartyRewardWaves []currentDungeonDeathDropWire
 		hellPartyRewardMode := hellPartyRewardRollModeFromEnv()
-		if hellPartyRewardMode.rolls() {
+		if s.options.currentClientVersion == "official-24.9" || hellPartyRewardMode.rolls() {
 			if groupID, isRewardWave := dungeonHellPartyRewardWaves(runtime, scene, target.ObjectKey); isRewardWave {
 				rewardRequest, requestErr := s.resolveHellPartyReward(runtime, scene, groupID,
 					dungeonHellPartyRewardMonsterCode(runtime.Room, target.ObjectKey))
@@ -495,9 +507,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 						var rewardResult hellPartyRewardResult
 						var rewardErr error
 						if s.options.currentClientVersion == "official-24.9" {
-							if currentNormalAbyssEpicClearReady(runtime, groupID) {
-								rewardResult, rewardErr = currentNormalAbyssEpicClearReward(rewardRequest)
-							}
+							rewardResult, rewardErr = currentNativePVFHellReward(rewardRequest)
 						} else {
 							rewardResult, rewardErr = hellPartyRewardRolls(rewardRequest)
 						}
@@ -887,6 +897,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 					monsterExperience.Skill.Points,
 					&currentFinishLoadingExperiencePresentation{
 						GrowthContractBonus: monsterExperience.GrowthContractBonus,
+						WelcomeBonus:        monsterExperience.WelcomeBonus,
+						FatigueBurnBonus:    &monsterExperience.FatigueBurnBonus,
 					},
 				)
 				if len(monsterExperienceBody) != currentFinishLoadingCharacterStateBodySize {
@@ -967,7 +979,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			"experience_gain", monsterExperience.Award.Gain,
 			"growth_contract_bonus", monsterExperience.GrowthContractBonus,
 			"guild_bonus", monsterExperience.GuildBonus,
-			"committed_experience_gain", uint64(monsterExperience.Award.Gain)+uint64(monsterExperience.GrowthContractBonus)+uint64(monsterExperience.GuildBonus),
+			"committed_experience_gain", uint64(monsterExperience.totalGain()),
 			"honor_expert_gain", monsterExperience.HonorExpertGain,
 			"honor_expert_level", numericCharacterStatValue(monsterExperience.Character, currentHonorExpertLevelStatKey),
 			"honor_expert_progress", numericCharacterStatValue(monsterExperience.Character, currentHonorExpertProgressExperienceStatKey),
@@ -1027,7 +1039,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}
 	detailStarted = timing.detail(1, detailStarted)
 	if rewardMonsterCandidate {
-		// Type-1 decisions and personal delivery are journaled at authoritative death.
+		// Recover the persisted decision even if this character's live quest
+		// filters changed. Never run the former unjournaled Type-1 path too.
 		if err := s.recoverQuestMaterials(session); err != nil {
 			s.logGameEvent(session, "game-quest-material-delivery-deferred", "error", err)
 		}
@@ -1037,6 +1050,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		// Keep ordinary drops, EXP and boss/story completion in their existing
 		// order even if quest persistence or its snapshot needs a retry.
 		huntProgressErr = s.persistCurrentDungeonHuntMonsterDeathWithContext(questCtx, session, runtime, request.RuntimeObjectKey)
+	}
+	if rewardMonsterCandidate {
 		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
 	}
 	s.performanceEnd(perfMonsterTasks, questStarted, errors.Join(huntErr, huntProgressErr))
@@ -1235,6 +1250,13 @@ func (s *Service) replayCurrentDungeonMonsterDeathLocked(
 	runtime *runtimeDungeonState,
 	objectKey uint32,
 ) error {
+	if runtime.Session != nil {
+		if scene, ok := runtime.Session.Scene(); ok {
+			if err := s.recordCurrentActivityAbyss(session, runtime, scene, false); err != nil {
+				return err
+			}
+		}
+	}
 	if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, objectKey); err != nil {
 		return err
 	}
@@ -1338,6 +1360,9 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 	if sessionRoomCleared && runtime.Session != nil {
 		// 队友自己的房间清空了：在他自己的会话里跑最终房间完成（与"被接受的 op39"同一条链）。
 		if scene, ok := runtime.Session.Scene(); ok {
+			if err := s.recordCurrentActivityAbyss(session, runtime, scene, false); err != nil {
+				return err
+			}
 			s.awardCurrentPetRoomClearLocked(session, runtime, scene, "authoritative_party_death_replay_room_clear")
 			if err := s.completeCurrentDungeonOrdinaryFinalRoomAfterDeathLocked(session, runtime, scene, objectKey); err != nil {
 				return err

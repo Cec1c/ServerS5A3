@@ -221,17 +221,6 @@ func TestPrivateFestivalPreflightRejectsChangedOwner(t *testing.T) {
 	}
 }
 
-func TestPrivateFestivalWireAndCartIsolation(t *testing.T) {
-	if units := festivalCartUnits(&pvfCeraShopCatalog{}, currentCeraShopPurchaseRequest{Items: []currentCeraShopPurchaseRequestItem{{CommodityID: 1}}}); len(units) != 0 {
-		t.Fatal(units)
-	}
-	// Packet is always bound to the server-selected character, never request IDs.
-	b := encodePrivateFestival(festival.State{}, nil, 19, 7, 99, 5)
-	if len(b) != 1568 || string(b[:4]) != "FES1" {
-		t.Fatal("wire size")
-	}
-}
-
 func TestPrivateFestivalOldInstancesRenewFromExactEvidence(t *testing.T) {
 	path := os.Getenv("PRIVATE_FESTIVAL_PVF")
 	if path == "" {
@@ -263,5 +252,71 @@ func TestPrivateFestivalOldInstancesRenewFromExactEvidence(t *testing.T) {
 		if !currentGiftBoxHistoryExpiration(d, r.previous+1, false).IsZero() || !currentGiftBoxHistoryExpiration(d, r.previous, true).IsZero() {
 			t.Fatalf("overbroad migration %d", r.id)
 		}
+	}
+}
+
+func TestPrivateFestivalWireAndCartIsolation(t *testing.T) {
+	if units := festivalCartUnits(&pvfCeraShopCatalog{}, currentCeraShopPurchaseRequest{Items: []currentCeraShopPurchaseRequestItem{{CommodityID: 1}}}); len(units) != 0 {
+		t.Fatal(units)
+	}
+	// Packet is always bound to the server-selected character, never request IDs.
+	b := encodePrivateFestival(festival.State{}, nil, 19, 7, 99, 5)
+	if len(b) != 1568 || string(b[:4]) != "FES1" {
+		t.Fatal("wire size")
+	}
+}
+
+func TestPrivateFestivalThreeTabExchanges(t *testing.T) {
+	path := os.Getenv("PRIVATE_FESTIVAL_PVF")
+	if path == "" {
+		t.Skip("candidate PVF required")
+	}
+	a, e := platformpvf.Open(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	shop, e := newCurrentNPCShopCatalog(a)
+	if e != nil {
+		t.Fatal(e)
+	}
+	items, e := newPVFDungeonDropCatalog(a)
+	if e != nil {
+		t.Fatal(e)
+	}
+	shelves := shop.npcItems[400000025]
+	if len(shelves) != 44 {
+		t.Fatalf("flower shelf items=%d", len(shelves))
+	}
+	counts := map[uint32]int{}
+	for id := range shelves {
+		pricing, e := resolveCurrentNPCShopPricing(shop, items, id)
+		if e != nil || !pricing.MaterialExchange || pricing.NeedMaterialCount <= 0 {
+			t.Fatalf("exchange %d %+v %v", id, pricing, e)
+		}
+		counts[pricing.NeedMaterialItem]++
+		slots := map[string]repo.ItemStack{"0:121": {ItemID: int64(pricing.NeedMaterialItem), Count: 10000}}
+		g := mustCurrentNPCShopRepositories(t, 1000000, slots)
+		s := currentNPCShopTestService(g, shop, items)
+		session := &gameSession{selectedCharacterID: 19}
+		buy := func(n uint32) error {
+			_, e := s.commitCurrentNPCShopBuy(context.Background(), session, shop, items, currentNPCShopBuyRequest{ItemID: id, Count: n, ActorContext: 400000025})
+			return e
+		}
+		if e := buy(1); e != nil {
+			t.Fatalf("exchange item %d: %v", id, e)
+		}
+		inv, _, _ := g.Inventory.Load(context.Background(), "19")
+		if inv.Slots["0:121"].Count != 10000-pricing.NeedMaterialCount {
+			t.Fatalf("wrong currency debit %d", id)
+		}
+		assertCurrentNPCShopInventoryAmount(t, inv, int64(id), 1)
+		if pricing.PurchaseLimitValue > 0 {
+			if e := buy(uint32(pricing.PurchaseLimitValue)); e == nil {
+				t.Fatalf("quota bypass %d", id)
+			}
+		}
+	}
+	if counts[490700573] != 31 || counts[490701321] != 13 || counts[490702726] != 0 || counts[490702729] != 0 {
+		t.Fatal(counts)
 	}
 }

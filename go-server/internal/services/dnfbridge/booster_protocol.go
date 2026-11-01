@@ -87,6 +87,12 @@ type currentBoosterSelectionCandidate struct {
 	Count        uint32
 	CategoryKind int64
 	Option       byte
+	// DefaultSelected is category-local metadata; quantity/attributes still
+	// come from the actual reward row, never from the default-select list.
+	DefaultSelected       bool
+	EquipmentUpgrade      byte
+	EquipmentSeparate     byte
+	EquipmentUpgradeTable currentBoosterUpgradeTable
 }
 
 type currentBoosterRewardPlacement byte
@@ -102,11 +108,13 @@ const (
 )
 
 type currentBoosterReward struct {
-	Definition dungeonDropItemDefinition
-	Count      uint32
-	Option     byte
-	Seal       bool
-	Placement  currentBoosterRewardPlacement
+	Definition        dungeonDropItemDefinition
+	Count             uint32
+	Option            byte
+	Seal              bool
+	Placement         currentBoosterRewardPlacement
+	EquipmentUpgrade  byte
+	EquipmentSeparate byte
 }
 
 type currentBoosterGrantedReward struct {
@@ -115,17 +123,18 @@ type currentBoosterGrantedReward struct {
 }
 
 type currentBoosterDefinition struct {
-	ItemUsage         *itemusage.Definition
-	GoldMinimumLevel  int64
-	Source            dungeonDropItemDefinition
-	StackableType     string
-	SelectionRequired int
-	Selection         []currentBoosterSelectionCandidate
-	SelectionCategory map[uint16][]currentBoosterSelectionCandidate
-	MaterialItemID    int64
-	MaterialCount     int64
-	LotteryGoldCost   int64
-	Random            alignedcmd.MagicBoxResolution
+	ItemUsage              *itemusage.Definition
+	GoldMinimumLevel       int64
+	Source                 dungeonDropItemDefinition
+	StackableType          string
+	SelectionRequired      int
+	Selection              []currentBoosterSelectionCandidate
+	SelectionCategory      map[uint16][]currentBoosterSelectionCandidate
+	CompactArmorCategories map[uint16]bool
+	MaterialItemID         int64
+	MaterialCount          int64
+	LotteryGoldCost        int64
+	Random                 alignedcmd.MagicBoxResolution
 }
 
 type currentBoosterRewardSlotDelta struct {

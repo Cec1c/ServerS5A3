@@ -6,8 +6,10 @@ import (
 	"time"
 )
 
-// One side can finish three balls and report kind2 before the other side
-// finishes the fourth. Neither side may start the damage window early.
+// The 01:25 test78/test99 round had three completions on one side, followed
+// by kind2 before the fourth ball died. No side may start that window early.
+// One side can finish three balls while the other holds the fourth; neither
+// side may open its damage window before that shared final ball is cleared.
 func TestR195BossSharedWindowWaitsForLastBall(t *testing.T) {
 	for _, fast := range []int{0, 1} {
 		t.Run(bossPatternSideName(fast), func(t *testing.T) {

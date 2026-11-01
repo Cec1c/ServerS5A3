@@ -21,6 +21,9 @@ type DungeonEntryFatigueQuery struct {
 	Accounts   map[string]r.AccountRecord
 	Cost       int64
 	Revalidate func() bool
+	// OnFatigueDebit mutates only the transaction-owned character. It shares
+	// the debit/receipt transaction and frozen time; replay and zero cost skip it.
+	OnFatigueDebit func(*r.CharacterRecord, int64, time.Time) error
 }
 
 type DungeonEntryFatigueResult struct {
@@ -106,9 +109,15 @@ func CommitDungeonEntryFatigue(ctx context.Context, unit r.GuildUnitOfWork, q Du
 				if character.Stats["fatigue"] < q.Cost {
 					return fmt.Errorf("%w: character=%s required=%d", ErrDungeonEntryFatigue, owner.CharacterID, q.Cost)
 				}
+				before := character.Stats["fatigue"]
 				character.Stats["fatigue"] -= q.Cost
 				character.Stats["fatigue_used"] = character.Stats["fatigue_limit"] - character.Stats["fatigue"]
 				character.Stats["fatigue_display_update"] = character.Stats["fatigue_used"]
+				if consumed := before - character.Stats["fatigue"]; consumed > 0 && q.OnFatigueDebit != nil {
+					if err := q.OnFatigueDebit(&character, consumed, now); err != nil {
+						return err
+					}
+				}
 			}
 			result.Characters[owner.CharacterID] = character
 		}
