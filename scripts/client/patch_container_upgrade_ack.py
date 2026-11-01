@@ -11,6 +11,12 @@ import patch_receivers_v128 as pe
 
 INPUT_SHA256 = '534b5ef166d0090d1ab88e01f5f443721abf97eabfacfb007e04e30fd9d51b24'
 INPUT_SIZE = 112541696
+INPUT_PROFILES = {
+    INPUT_SHA256: INPUT_SIZE,
+    # Published V204 retains the exact receive gate and .bp0 layout checked
+    # below. Its later skill/raid sections remain outside every changed range.
+    'a9a6587699b7203cc41ce18b0d0fb977538df077dd0b46c745e3caff3ff22cf8': 112549888,
+}
 CALL_VA = 0x2523A13
 PREVIOUS_GATE = 0x6F06100
 HELPER_VA = 0x6F20400
@@ -27,7 +33,8 @@ def helper():
 
 
 def build(data):
-    if len(data) != INPUT_SIZE or pe.sha(data) != INPUT_SHA256:
+    input_sha256 = pe.sha(data)
+    if INPUT_PROFILES.get(input_sha256) != len(data):
         raise ValueError('exact cumulative client SHA256 and length required')
     opt, sections = pe.headers(data)
     table = opt + struct.unpack_from('<H', data, opt-4)[0]
@@ -62,7 +69,7 @@ def build(data):
     if data[cursor:] != out[cursor:]:
         raise ValueError('unexpected trailing change')
     result = bytes(out)
-    return result, dict(inputSHA256=INPUT_SHA256, outputSHA256=pe.sha(result),
+    return result, dict(inputSHA256=input_sha256, outputSHA256=pe.sha(result),
         size=len(result), helperVA=hex(HELPER_VA), fallbackVA=hex(PREVIOUS_GATE),
         addedClass1=[408,430], changedRanges=ranges, gameExecuted=False,
         entryImportsTLSUnchanged=True, otherBytesPreserved=True)
@@ -76,7 +83,7 @@ def write_candidate(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open('xb') as f:
         f.write(result)
-    if pe.sha(source.read_bytes()) != INPUT_SHA256 or pe.sha(destination.read_bytes()) != receipt['outputSHA256']:
+    if pe.sha(source.read_bytes()) != receipt['inputSHA256'] or pe.sha(destination.read_bytes()) != receipt['outputSHA256']:
         raise RuntimeError('input or candidate changed during readback')
     return receipt
 
