@@ -370,9 +370,7 @@ func (s *Service) createOrJoinManagedRuntimeParty(joiner, anchor *gameSession) (
 		// an invitee's transient op12 singleton.
 		if _, joinerManaged := manager.SnapshotByUser(joinerIdentity.character, joinerIdentity.generation); !joinerManaged &&
 			runtimePartyStateSnapshot(joiner).PartyID > 0 {
-			if imported, importedOK := s.bootstrapManagedRuntimePartyForSession(joiner); importedOK && imported.ID == anchorParty.ID {
-				return s.publishRuntimePartySnapshot(anchorParty), party.RuntimePartyResult{OK: true, Party: anchorParty, TargetUser: joinerIdentity.character}, true
-			}
+			s.bootstrapManagedRuntimePartyForSession(joiner)
 		}
 		result = manager.Join(anchorParty.ID, joinerMember)
 	} else {

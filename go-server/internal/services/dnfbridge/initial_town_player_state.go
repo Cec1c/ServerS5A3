@@ -375,6 +375,9 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	// The normal initial-town route can commit without the optional client
 	// finish-loading followup. Restore durable friends and invitations after
 	// the selected actor exists, before that first visible town commit.
+	if err := s.sendCurrentCharacterFriendList(session, source+"_after_adventure_actor_before_scene_commit"); err != nil {
+		return err
+	}
 	if err := s.sendCurrentAccountFriendLists(session, source+"_after_adventure_actor_before_scene_commit"); err != nil {
 		return err
 	}

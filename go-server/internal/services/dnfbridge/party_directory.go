@@ -204,14 +204,23 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 		return
 	}
 	state := runtimePartyStateSnapshot(session)
-	if !s.hasManagedRuntimeParty(session) && state.PartyID <= 0 {
+	before, managed := s.runtimePartyManagerForService().SnapshotByUser(identity.character, 0)
+	if managed {
+		// The central membership remains authoritative even if the departing
+		// client has cleared its window or its recorded generation drifted.
+		state = before.StateFor(identity.character)
+	} else if state.PartyID <= 0 {
 		return
 	}
 	nextState, result, removed := s.leaveManagedRuntimeParty(identity, "detach:"+source)
+	if !removed && result.Reason == "stale_session" && s.partyLeaveRepair() == partyLeaveRepairOn {
+		nextState, result, removed = s.repairManagedRuntimePartyLeave(identity)
+	}
 	if !removed {
 		storeRuntimePartyState(session, alignedcmd.PartyState{})
 		return
 	}
+	s.notifyRuntimePartySelectionDeparture(session, result, source)
 	if result.Retired != nil {
 		s.closeRuntimePartyUDPRelay(int(result.Retired.ID))
 		for _, member := range result.Retired.Members {

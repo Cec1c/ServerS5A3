@@ -1798,14 +1798,14 @@ func assertRuntimePartyRemoved(t *testing.T, data []byte, _ uint16, wantMembers 
 func assertRuntimePartyWalkoutNotice(t *testing.T, data []byte, slot byte, mode byte) []byte {
 	t.Helper()
 	packet, rest := splitGameServerUpperPacket(t, data)
-	if packet.Header.Classification != dnfproto.DefaultChannelClassification ||
+	if packet.Header.Classification != 0 ||
 		packet.Header.MsgID != uint16(dnfenum.CmdPacketRequestPeer) ||
 		!bytes.Equal(packet.Body, []byte{slot, mode}) {
 		t.Fatalf("walkout notice = class %d msg %d body=% X, want class %d msg %d body=% X",
 			packet.Header.Classification,
 			packet.Header.MsgID,
 			packet.Body,
-			dnfproto.DefaultChannelClassification,
+			0,
 			dnfenum.CmdPacketRequestPeer,
 			[]byte{slot, mode})
 	}

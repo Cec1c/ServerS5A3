@@ -549,6 +549,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// free-reward transaction; otherwise the original op42 loses its ACK.
 		if currentOrdinaryCompletedTownExitOwner(session, runtime) &&
 			(runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) ||
+				runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) ||
 				runtime.settlementTownReturnRequestMsgID == uint16(dnfenum.CmdPacketBack2Village)) {
 			requestMsgID = runtime.settlementTownReturnRequestMsgID
 		}
@@ -705,7 +706,13 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// 本函数（`:493` 的闸门）只在 run_status=completed 时才会走到 ⇒ 这里就是
 		// **通关回城**这条路径，不走 dungeon_party_leader_exit.go 的解散。
 		if !s.retireCurrentFiendWarEncounterParty(session, runtime) {
-			s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, characterID, "completed_town_route")
+			if s.options.currentClientVersion == "official-24.9" && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) {
+				if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
+					return err
+				}
+			} else {
+				s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, characterID, "completed_town_route")
+			}
 		}
 		// 通关回城**不走 SET_USER_AREA**，而待决回城那条提交点（:761-767）已经为这件事
 		// 收过口：没有这一步，本会话永远不会满足 `currentPartyTownReturnSceneReady`
@@ -760,10 +767,10 @@ func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 func (s *Service) acknowledgeCurrentDungeonGiveupReturnLocked(session *gameSession, runtime *runtimeDungeonState) error {
 	if session == nil || runtime == nil || session.dungeon.runtime != runtime ||
 		!runtime.townReturnPending || !runtime.townReturnOp24Sent ||
-		runtime.townReturnRequestMsgID != uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnAckSent {
+		(runtime.townReturnRequestMsgID != uint16(dnfenum.CmdPacketGiveupGame) && runtime.townReturnRequestMsgID != uint16(dnfenum.CmdPacketLeaveParty)) || runtime.townReturnAckSent {
 		return nil
 	}
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketGiveupGame), nil); err != nil {
+	if err := s.sendGameUpperSuccess(session, runtime.townReturnRequestMsgID, nil); err != nil {
 		return err
 	}
 	runtime.townReturnAckSent = true
@@ -933,10 +940,13 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	//     completed_town_route ⇒ 这是**通关回城**，保留队伍
 	//     （dungeon_party_completion_return.go）；
 	//   - deadline owner：自动阶段超时，保留普通队伍，只退自己的 run；
-	//   - 其余（`abandoned` / 其它非 completed 状态）：**中途放弃**，行为与上一轮
-	//     逐字节相同（dungeon_party_leader_exit.go 的解散）。
+	//   - 其余中途放弃：当前客户端仅退出本人，保留留图队伍并移交队长。
 	if s.retireCurrentFiendWarEncounterParty(session, runtime) {
 		// Every combat party is temporary; the attack-raid's numbered seats stay.
+	} else if s.options.currentClientVersion == "official-24.9" && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) {
+		if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
+			s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
+		}
 	} else if committedStatus == worldmap.DungeonRunCompleted {
 		s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
 	} else if runtime.fiendWarRetreatKeepsParty {
@@ -950,8 +960,10 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 			"run_id", deadlineOwner.RunID,
 			"reason", "automatic_deadline_not_explicit_leader_leave")
 	} else {
-		s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
-		if committedStatus == worldmap.DungeonRunAbandoned && (runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame) || runtime.townReturnSource == currentRaidTableReturnSource) {
+		if s.options.currentClientVersion != "official-24.9" {
+			s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
+		}
+		if committedStatus == worldmap.DungeonRunAbandoned {
 			if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 				s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
 			}

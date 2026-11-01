@@ -37,6 +37,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	completionNeeded := !gates.Completion && !currentTownReturnOmitsSceneActivation(session)
 	followupsNeeded := completionNeeded || !gates.PostFinish
 	if !stateNeeded && !followupsNeeded {
+		s.finishDungeonPartyPeerActorProjection(session, "finish_loading_after_player_state")
 		return s.sendCurrentTagTournamentInitialRoleAfterLoading(session)
 	}
 
@@ -64,7 +65,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	// 因为进图/过图那一次的投影落在"场景还没就绪"的窗口里（现场：队长侧 41ms 后就被
 	// context removed）。幂等、只补队友、不重发本地自身。详见
 	// dungeon_party_peer_actor_resend.go 的函数头。
-	s.resendDungeonPartyPeerActorsAfterFinishLoading(session, "finish_loading_after_player_state")
+	s.finishDungeonPartyPeerActorProjection(session, "finish_loading_after_player_state")
 	// （H3 开关，默认 off = 零发包、零日志）读条尾段之后给**本人**补推一次实时名册：读条前
 	// 推过的名册到这一刻可能已经过期，而尾段里的队友 actor 补发只描述队友、不含 op153。
 	// 见 party_dungeon_loading_barrier.go 的 partyDungeonPostLoadingRosterEnv。

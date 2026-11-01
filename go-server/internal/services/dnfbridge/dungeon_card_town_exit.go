@@ -25,7 +25,7 @@ func (s *Service) resumeCurrentDungeonCardTownReturn(session *gameSession, runti
 	session.dungeon.mu.Lock()
 	requestMsgID := runtime.settlementTownReturnRequestMsgID
 	ready := currentOrdinaryCompletedTownExitOwner(session, runtime) &&
-		(requestMsgID == uint16(dnfenum.CmdPacketGiveupGame) || requestMsgID == uint16(dnfenum.CmdPacketBack2Village)) &&
+		(requestMsgID == uint16(dnfenum.CmdPacketGiveupGame) || requestMsgID == uint16(dnfenum.CmdPacketBack2Village) || requestMsgID == uint16(dnfenum.CmdPacketLeaveParty)) &&
 		completedDungeonSettlementResultReady(runtime, session.selectedCharacterID) &&
 		runtime.settlementCardLayoutSent && runtime.settlementPhase >= currentDungeonSettlementPhaseCardsRevealed
 	session.dungeon.mu.Unlock()

@@ -37,15 +37,16 @@ type RuntimePartySnapshot struct {
 }
 
 type RuntimePartyResult struct {
-	OK          bool
-	Reason      string
-	Party       RuntimePartySnapshot
-	Previous    *RuntimePartySnapshot
-	Retired     *RuntimePartySnapshot
-	PriorLeave  *RuntimePartyResult
-	TargetUser  uint16
-	Disbanded   bool
-	LeaderMoved bool
+	OK            bool
+	Reason        string
+	Party         RuntimePartySnapshot
+	Previous      *RuntimePartySnapshot
+	Retired       *RuntimePartySnapshot
+	PriorLeave    *RuntimePartyResult
+	TargetUser    uint16
+	Disbanded     bool
+	LeaderMoved   bool
+	AlreadyMember bool
 }
 
 type runtimeParty struct {
@@ -209,7 +210,12 @@ func (m *RuntimePartyManager) Join(partyID uint16, member RuntimePartyMember) Ru
 	}
 	if existing := party.member(member.UserID); existing != nil {
 		if existing.SessionGeneration == member.SessionGeneration {
-			return runtimePartyFailure("already_member")
+			// Invite acceptance and the following entry confirmation may name
+			// the same member. Confirm it under the same lock, before capacity
+			// checks, without changing leadership, fixed slots or generation.
+			result := runtimePartySuccess(party, member.UserID)
+			result.AlreadyMember = true
+			return result
 		}
 		return runtimePartyFailure("stale_member_session")
 	}

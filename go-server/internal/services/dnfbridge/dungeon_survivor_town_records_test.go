@@ -172,9 +172,9 @@ func TestDungeonSurvivorTownRecordsWriteFailureStopsBeforeFollowingRecords(t *te
 	if conn.attempts != 2 {
 		t.Fatalf("write attempts=%d want 2: helper continued after the failed frame", conn.attempts)
 	}
-	keys, _ := dungeonSurvivorTownOp9TownRecords(t, baseConn.write.Bytes())
-	if len(keys) != 1 || keys[0] != 100 {
-		t.Fatalf("successfully written town records=%v want only the departing first key 100", keys)
+	frames := splitUpperFrames(t, baseConn.write.Bytes())
+	if len(frames) != 1 || frames[0].msgID != 9 || frames[0].body[9] != 0 || binary.LittleEndian.Uint16(frames[0].body[4:6]) != 99 {
+		t.Fatalf("need the survivor's new roster before the failed departing-record update: %+v", frames)
 	}
 }
 

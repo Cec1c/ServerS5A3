@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	partyExperienceReceipts                  map[currentPartyMonsterExperienceReceipt]bool
 	battlePassSkillSequence                  uint64
 	battlePassSkillSequenceSet               bool
 	battlePassCoinUsed, battlePassSRankClear bool

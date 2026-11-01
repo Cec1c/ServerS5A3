@@ -222,13 +222,15 @@ func TestPeerAppearanceProjectionSurvivesDisbandAndReForm(t *testing.T) {
 		leaderConn.write.Reset()
 		followerConn.write.Reset()
 		before := strings.Count(testPacketLogText(t, service), "appearance_subtype0_sent=true")
-		beforeResends := strings.Count(testPacketLogText(t, service), "kind=game-party-dungeon-peer-actor-landing-resend")
+		beforeResends := strings.Count(testPacketLogText(t, service), "decision=resent delivered=true")
 		if err := service.projectDungeonPartyPeerActors(follower, "entry2_party_peer_copresence"); err != nil {
 			t.Fatalf("entry 2 projection: %v", err)
 		}
+		markPeerSceneStableForTest(follower)
+		service.finishDungeonPartyPeerActorProjection(follower, "entry2_finish_loading")
 		log = testPacketLogText(t, service)
 		entry2Carriers = strings.Count(log, "appearance_subtype0_sent=true") - before
-		landingResends = strings.Count(log, "kind=game-party-dungeon-peer-actor-landing-resend") - beforeResends
+		landingResends = strings.Count(log, "decision=resent delivered=true") - beforeResends
 		for _, frame := range splitUpperFrames(t, leaderConn.write.Bytes()) {
 			if frame.msgID == 2 {
 				leaderEntry2Mode2++

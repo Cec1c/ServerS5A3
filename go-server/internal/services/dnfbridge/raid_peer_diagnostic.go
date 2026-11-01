@@ -5,6 +5,8 @@ package dnfbridge
 func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 	switch kind {
 	case "game-dungeon-party-peer-actor-delivered",
+		"game-party-entry-rejected",
+		"game-party-entry-confirmed",
 		"game-peer-userinfo-profile-refresh-sent",
 		"game-peer-userinfo-profile-refresh-failed",
 		"game-dungeon-party-peer-actor-send",
@@ -30,6 +32,13 @@ func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)
 		if !ok {
+			continue
+		}
+		if kind == "game-party-entry-rejected" || kind == "game-party-entry-confirmed" {
+			switch key {
+			case "conn_id", "channel_id", "type", "source_char_id", "target_id", "party_id", "member_count", "reason", "error_code":
+				args = append(args, key, fields[i+1])
+			}
 			continue
 		}
 		if kind == "game-peer-userinfo-profile-refresh-sent" || kind == "game-peer-userinfo-profile-refresh-failed" {

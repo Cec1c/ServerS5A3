@@ -40,6 +40,9 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return
 	}
+	if !peerSceneStableForPeerActorLandingResend(session) {
+		return
+	}
 	// 只在**副本场景**里补发：城镇的 finish-loading 有自己的 actor 重建路径，
 	// 这里的补发只针对"队友 actor 投影落在收包方场景还没就绪的窗口里"那条。
 	if !s.sessionHasActiveDungeonRuntime(session) {
@@ -67,7 +70,7 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 			continue
 		}
 		peerKey, peerReady := s.currentDungeonPartyRunKey(peer)
-		if !peerReady || peerKey != runKey {
+		if !peerReady || peerKey != runKey || !peerSceneStableForPeerActorLandingResend(peer) {
 			continue
 		}
 		if !s.claimDungeonPeerActorResend(session, runKey, identity) {
@@ -104,6 +107,17 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 		"run_key_map_id", runKey.MapID,
 		"trigger", "receiver_finish_loading",
 		"reason", "peer actor projection landed before the receiving client finished its scene rebuild")
+}
+
+// Whichever participant finishes last completes both directions. A receiver
+// finishing first must not consume the final resend while its peer is still
+// rebuilding; the late participant retries that receiver after both tails.
+func (s *Service) finishDungeonPartyPeerActorProjection(session *gameSession, source string) {
+	if !peerSceneStableForPeerActorLandingResend(session) {
+		return
+	}
+	s.resendDungeonPartyPeerActorsAfterFinishLoading(session, source)
+	s.resendDungeonPartyPeerActorToAlreadyLandedMembers(session, source)
 }
 
 // claimDungeonPeerActorResend reserves one resend for this run and peer binding.
