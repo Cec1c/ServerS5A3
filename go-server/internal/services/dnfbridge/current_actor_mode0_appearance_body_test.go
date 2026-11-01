@@ -37,6 +37,9 @@ func TestBuildCurrentSceneObjectListBodyForSessionProjectsAdventureNameToNativeO
 	}
 	session := &gameSession{accountID: "dnf:1", selectedCharacterID: 19}
 	body := service.buildCurrentSceneObjectListBodyForSession(ctx, session, 19, character.Name, character, true)
+	if got := bytes.TrimRight(body[5+0x32:5+0x43], "\x00"); !bytes.Equal(got, rosterNameBytes("冒险团名称")) {
+		t.Fatalf("人物菜单冒险团名=%x", got)
+	}
 	if level, got := currentSceneObjectOrganizationNameForTest(t, body); level != 1 || !bytes.Equal(got, rosterNameBytes("冒险团名称")) {
 		t.Fatalf("organization level=%d name=%x want level=1 name=%x", level, got, rosterNameBytes("冒险团名称"))
 	}
@@ -44,6 +47,9 @@ func TestBuildCurrentSceneObjectListBodyForSessionProjectsAdventureNameToNativeO
 	// A peer projection cannot inherit the current viewer's account label.
 	peer := dnfrepo.CharacterRecord{CharacterID: "20", AccountID: "dnf:2", Name: "Peer", Job: "0", Level: 90}
 	peerBody := service.buildCurrentSceneObjectListBodyForSession(ctx, session, 20, peer.Name, peer, true)
+	if !bytes.Equal(peerBody[5+0x32:5+0x43], make([]byte, 17)) {
+		t.Fatal("其他人物的菜单继承了查看者的冒险团名")
+	}
 	if level, got := currentSceneObjectOrganizationNameForTest(t, peerBody); level != 0 || len(got) != 0 {
 		t.Fatalf("peer organization level=%d name=%x, want empty", level, got)
 	}
