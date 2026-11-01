@@ -1517,7 +1517,7 @@ func buildCurrentAuctionSearchRow(listing dnfauction.Listing) []byte {
 	binary.LittleEndian.PutUint32(row[0x11:0x15], currentAuctionBuyoutUnitPrice(listing))
 	writeCurrentAuctionName(row[0x15:0x2A], listing.SellerName)
 	row[0x2A] = currentAuctionRemainingHours(listing, time.Now().UTC())
-	copy(row[0x2B:0x7E], buildCurrentAuctionItem83(listing.Item))
+	copy(row[0x2B:0x7E], buildCurrentAuctionItem83(listing.ListType, listing.Item))
 	// row[0xA0] is the seller-warning tier, not a duration: the current EXE
 	// row painter (sub_2076540) feeds it to sub_20743D0, which renders text
 	// 21671/21672/21673 - 注意！赖皮小人！/无耻之徒！/全民公敌！ - as a red
@@ -1555,7 +1555,7 @@ func buildCurrentAuctionOwnedBody(listings []dnfauction.Listing, sellerID string
 		// bytes instead of 21; both land on struct+0x2A in the shared 0xA8 row
 		// the client builds for the painter.
 		row[0x1D] = currentAuctionRemainingHours(listing, now)
-		copy(row[0x1E:0x71], buildCurrentAuctionItem83(listing.Item))
+		copy(row[0x1E:0x71], buildCurrentAuctionItem83(listing.ListType, listing.Item))
 		binary.LittleEndian.PutUint32(row[0x93:0x97], currentAuctionBuyoutUnitPrice(listing))
 		response.writeBytes(row)
 	}
@@ -1599,14 +1599,14 @@ func buildCurrentAuctionBiddingBody(listings []dnfauction.Listing, bidderID stri
 		binary.LittleEndian.PutUint32(row[0x0C:0x10], currentAuctionBuyoutTotalPrice(listing))
 		writeCurrentAuctionName(row[0x10:0x1D], listing.SellerName)
 		row[0x25] = currentAuctionRemainingHours(listing, now)
-		copy(row[0x26:0x79], buildCurrentAuctionItem83(listing.Item))
+		copy(row[0x26:0x79], buildCurrentAuctionItem83(listing.ListType, listing.Item))
 		binary.LittleEndian.PutUint32(row[0x9B:0x9F], currentAuctionBuyoutUnitPrice(listing))
 		response.writeBytes(row)
 	}
 	return response.bytes()
 }
 
-func buildCurrentAuctionItem83(stack dnfrepo.ItemStack) []byte {
+func buildCurrentAuctionItem83(listType byte, stack dnfrepo.ItemStack) []byte {
 	item := make([]byte, 0x53)
 	if stack.Bind {
 		item[0] = 1
@@ -1616,13 +1616,17 @@ func buildCurrentAuctionItem83(stack dnfrepo.ItemStack) []byte {
 	// The escrow keeps both RawEntry and Extra. Freshly granted or upgraded
 	// equipment may have no raw cache, so use the same durable projection as
 	// the inventory instead of displaying an empty +0 instance.
-	entry := currentItemListEntryFromStack(0, 0, stack)
-	raw := entry.data[:]
-	if !currentItemListStackExtraIsAvatar(stack.Extra) &&
-		!strings.Contains(strings.ToLower(stack.Extra["equipment_type"]), "creature") {
-		dnfequip.ProjectUpgradeFields(raw, stack.Extra)
+	raw := stack.RawEntry
+	creature := strings.EqualFold(strings.TrimSpace(stack.Extra["item_kind"]), "pet") ||
+		strings.Contains(strings.ToLower(stack.Extra["equipment_type"]), "creature")
+	if !creature {
+		entry := currentItemListEntryFromStack(listType, 0, stack)
+		raw = entry.data[:]
+		if !currentItemListStackIsAvatar(listType, stack) {
+			dnfequip.ProjectUpgradeFields(raw, stack.Extra)
+		}
+		copy(item[0x06:0x0A], raw[0x06:0x0A])
 	}
-	copy(item[0x06:0x0A], raw[0x06:0x0A])
 	if len(raw) == currentItemListEntryWireSize {
 		if raw[0x0D] != 0 {
 			item[0] = 1

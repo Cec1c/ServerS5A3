@@ -97,7 +97,30 @@ func TestRealPVFAuctionUpgradedEquipmentMetadata(t *testing.T) {
 	if _, _, ok := currentAuctionRegistrationPolicyForDefinition(def, stack); !ok {
 		t.Fatal("sealed equipment rejected")
 	}
-	if row := buildCurrentAuctionItem83(stack); row[5] != 10 {
+	if row := buildCurrentAuctionItem83(0, stack); row[5] != 10 {
 		t.Fatalf("upgrade=%d", row[5])
+	}
+}
+
+func TestAuctionUpgradeProjectionPreservesAvatarAndCreatureLayouts(t *testing.T) {
+	avatar := dnfrepo.ItemStack{ItemID: 6001, Count: 1, Extra: map[string]string{"ext_data0": "3"}}
+	listing := dnfauction.Listing{ListType: 1, Item: avatar}
+	row := buildCurrentAuctionSearchRow(listing)[0x2b:0x7e]
+	if row[5] != 0 || binary.LittleEndian.Uint16(row[10:12]) != 3 {
+		t.Fatal("avatar container lost ability semantics", row[:12])
+	}
+	for _, extra := range []map[string]string{
+		{"item_kind": "pet", "ext_data0": "44"},
+		{"item_kind": "equipment", "equipment_type": "[CrEaTuRe]", "ext_data0": "44"},
+	} {
+		stack := dnfrepo.ItemStack{ItemID: 6002, Count: 1, Extra: extra}
+		if row := buildCurrentAuctionItem83(0, stack); row[5] != 0 {
+			t.Fatal("creature metadata interpreted as reinforcement")
+		}
+		stack.RawEntry = make([]byte, 119)
+		stack.RawEntry[10] = 7
+		if row := buildCurrentAuctionItem83(0, stack); row[5] != 7 {
+			t.Fatal("creature opaque raw semantics changed")
+		}
 	}
 }

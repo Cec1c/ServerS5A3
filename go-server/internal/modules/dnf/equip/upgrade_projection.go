@@ -8,10 +8,13 @@ import (
 
 // ProjectUpgradeFields overlays durable ordinary-equipment attributes on a
 // current 0x77 item row. Missing values preserve the row; explicit zero clears
-// stale cached attributes. Callers exclude avatars and creatures, whose bytes
-// have different meanings. No persistent data or input metadata is modified.
+// stale cached attributes. Avatar and creature metadata is excluded; callers
+// also honor container-only type evidence. No persistent data is modified.
 func ProjectUpgradeFields(raw []byte, extra map[string]string) {
-	if len(raw) != 119 {
+	kind := strings.ToLower(strings.TrimSpace(extra["item_kind"]))
+	equipmentType := strings.ToLower(extra["equipment_type"] + " " + extra["mailbox_equipment_type"])
+	if len(raw) != 119 || kind == "avatar" || kind == "pet" || kind == "creature" ||
+		strings.Contains(equipmentType, "avatar") || strings.Contains(equipmentType, "creature") {
 		return
 	}
 	if value, ok := upgradeProjectionUint(extra, 8, "ext_data0", "ext0", "packed_flag_byte", "packed_flag", "packed"); ok {

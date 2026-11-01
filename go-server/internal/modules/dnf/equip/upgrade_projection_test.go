@@ -35,3 +35,19 @@ func TestUpgradeProjectionRejectsOtherWireLayouts(t *testing.T) {
 		}
 	}
 }
+
+func TestUpgradeProjectionDoesNotInterpretAvatarOrCreatureMetadata(t *testing.T) {
+	for _, marker := range []map[string]string{
+		{"item_kind": "avatar"}, {"item_kind": "pet"}, {"item_kind": "creature"},
+		{"equipment_type": "[coat avatar]"}, {"equipment_type": "[CrEaTuRe]"},
+		{"mailbox_equipment_type": "[creature]"},
+	} {
+		raw := bytes.Repeat([]byte{0x5a}, 119)
+		before := append([]byte(nil), raw...)
+		marker["ext_data0"], marker["byte_13"], marker["marker_16"] = "3", "4", "123"
+		ProjectUpgradeFields(raw, marker)
+		if !bytes.Equal(raw, before) {
+			t.Fatalf("interpreted non-equipment metadata: %v", marker)
+		}
+	}
+}
