@@ -23,6 +23,7 @@ type raidLedgerSQLState struct {
 	begins, commits, rollbacks, writes int
 	outsideTxOperations                int
 	characterAccount                   string
+	allowOwnerHint                     bool
 	queries, writeSQL                  []string
 }
 
@@ -80,6 +81,10 @@ func (c *raidLedgerSQLConn) begin() (driver.Tx, error) {
 func (c *raidLedgerSQLConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	if !c.transactional() {
 		c.state.outsideTxOperations++
+		if c.state.allowOwnerHint && strings.HasPrefix(query, "SELECT character_id, account_id FROM ") && !strings.HasSuffix(query, " FOR UPDATE") {
+			c.state.queries = append(c.state.queries, query)
+			return raidLedgerRowsFor(query, c.state.characterAccount, args), nil
+		}
 		return nil, errors.New("query outside physical transaction")
 	}
 	c.state.queries = append(c.state.queries, query)

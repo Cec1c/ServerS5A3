@@ -47,30 +47,20 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if !ok || len(u.router.writeDBs) == 0 {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
-	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
-	if err != nil {
-		return err
-	}
-	defer rollbackTimedSQLTransaction(ctx, tx)
-	txRouter := u.router
-	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
-	// Character settlement can also consume account-owned crystal/soul slots.
-	// Keep the full logical database plan inside the same physical SQL
-	// transaction so the character and account keys may route independently.
-	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
-	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
-	txRouter.lockReads = true
-
 	// Settlements can update Account metadata. Guild settlements first take the
 	// global guild-registry row used by every guild unit of work, then lock the
 	// account, then the character. Non-guild settlements start at the account.
-	// The ownership lookup is deliberately non-locking; the character row is
-	// re-read under the later lock and the account association is checked again.
+	// Resolve ownership on the primary before BEGIN. A consistent read inside
+	// the transaction creates a stale read view while the account lock waits:
+	// a concurrent character update can then make MariaDB reject the later
+	// locking read with error 1020. This hint grants no authority; re-read the
+	// character under its lock and validate the account association below.
 	var settlementAccountID string
 	if owner != nil {
 		settlementAccountID = strings.TrimSpace(owner.AccountID)
 	} else {
-		lookupRouter := txRouter
+		lookupRouter := u.router
+		lookupRouter.readDBs = append([]string(nil), u.router.writeDBs...)
 		lookupRouter.lockReads = false
 		lookup := newMySQLGroupFromRouter(lookupRouter, false)
 		character, found, lookupErr := repository.LoadCharacterIdentity(ctx, lookup.Character, characterID)
@@ -85,6 +75,20 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if settlementAccountID == "" {
 		return repository.ErrCharacterSettlementTransactionUnavailable
 	}
+	tx, err := beginTimedObservedSQLTransaction(ctx, beginner)
+	if err != nil {
+		return err
+	}
+	defer rollbackTimedSQLTransaction(ctx, tx)
+	txRouter := u.router
+	txRouter.db = newSQLTransactionDB(tx.Tx, txRouter.db)
+	// Character settlement can also consume account-owned crystal/soul slots.
+	// Keep the full logical database plan inside the same physical SQL
+	// transaction so the character and account keys may route independently.
+	txRouter.readDBs = append([]string(nil), u.router.writeDBs...)
+	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
+	txRouter.lockReads = true
+
 	base := newMySQLGroupFromRouter(txRouter, false)
 	base.Account.(*mysqlAccountStore).trackMetadataChanges = true
 	base.Character.(*mysqlCharStore).trackStatChanges = true

@@ -47,6 +47,10 @@ func (c imageCommunicationSQLConn) BeginTx(ctx context.Context, o driver.TxOptio
 	return imageCommunicationSQLTx{tx, c.state}, nil
 }
 func (c imageCommunicationSQLConn) QueryContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
+	if !c.state.active && strings.HasPrefix(q, "SELECT character_id, account_id FROM ") && !strings.HasSuffix(q, " FOR UPDATE") {
+		c.state.queries = append(c.state.queries, q)
+		return &pairSQLRows{columns: []string{"character_id", "account_id"}, rows: [][]driver.Value{{"19", "a"}}}, nil
+	}
 	rows, err := c.raidCommitSQLConn.QueryContext(ctx, q, args)
 	if err == nil && strings.HasPrefix(q, "SELECT character_id, account_id,") {
 		r := rows.(*pairSQLRows)

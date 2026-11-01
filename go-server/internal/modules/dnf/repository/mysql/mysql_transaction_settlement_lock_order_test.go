@@ -12,7 +12,7 @@ import (
 )
 
 func TestMySQLCharacterSettlementLocksAccountBeforeCharacter(t *testing.T) {
-	state := &raidLedgerSQLState{characterAccount: "a"}
+	state := &raidLedgerSQLState{characterAccount: "a", allowOwnerHint: true}
 	database := sql.OpenDB(raidLedgerSQLConnector{state: state})
 	defer database.Close()
 	settlement := &mysqlCharacterSettlementUnitOfWork{router: mysqlRouter{
@@ -37,7 +37,7 @@ func TestMySQLCharacterSettlementLocksAccountBeforeCharacter(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !callbackRan || state.begins != 1 || state.commits != 1 || state.rollbacks != 0 || state.outsideTxOperations != 0 {
+	if !callbackRan || state.begins != 1 || state.commits != 1 || state.rollbacks != 0 || state.outsideTxOperations != 1 {
 		t.Fatalf("settlement state=%+v callback=%t", state, callbackRan)
 	}
 	if len(state.queries) == 0 ||
