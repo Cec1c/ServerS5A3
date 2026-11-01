@@ -183,7 +183,7 @@ func TestSaveNewCharacterSeedsInitialEquipmentRecord(t *testing.T) {
 		UpdatedAt:   time.Now().UTC(),
 	}
 
-	if err := service.saveNewCharacter(context.Background(), repos, record); err != nil {
+	if err := service.saveNewCharacter(context.Background(), repos, record, nil); err != nil {
 		t.Fatalf("save new character: %v", err)
 	}
 	equipment, found, err := repos.Equipment.Load(context.Background(), "77")

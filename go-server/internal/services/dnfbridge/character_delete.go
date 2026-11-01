@@ -156,7 +156,13 @@ func (s *Service) handleGameDeleteCharacter(session *gameSession, body []byte) e
 		"roster_replay", "none_vendor_1005_1006")
 	s.removeCurrentSelectorRosterCharacter(session, target.CharacterID)
 	// 成功 ACK 回显请求里的客户端 0-based slot（厂商 :990-1003，勿用 charId）。
-	return s.sendGameDeleteCharacterSuccess(session, req.Slot)
+	if err := s.sendGameDeleteCharacterSuccess(session, req.Slot); err != nil {
+		return err
+	}
+	if err := s.sendCurrentLevelChallengeSelector(session); err != nil {
+		s.logGameEvent(session, "升级大挑战选角状态暂缓", "error", err, "source", "game-delete-character")
+	}
+	return nil
 }
 
 // characterDeleteNameMatches 判断请求名是否就是这个角色。

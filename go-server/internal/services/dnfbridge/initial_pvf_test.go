@@ -94,7 +94,7 @@ func TestSaveNewCharacterPVFFailureLeavesNoPartialRecords(t *testing.T) {
 		UpdatedAt:   now,
 	}
 
-	if err := service.saveNewCharacter(context.Background(), repos, record); err == nil {
+	if err := service.saveNewCharacter(context.Background(), repos, record, nil); err == nil {
 		t.Fatal("save new character succeeded without PVF initialization")
 	}
 	if _, found, err := repos.Character.Load(context.Background(), "199"); err != nil || found {
@@ -150,7 +150,7 @@ func TestSaveNewCharacterSeedsPVFInitializationSnapshot(t *testing.T) {
 		UpdatedAt:   now,
 	}
 
-	if err := service.saveNewCharacter(context.Background(), repos, record); err != nil {
+	if err := service.saveNewCharacter(context.Background(), repos, record, nil); err != nil {
 		t.Fatalf("save new character: %v", err)
 	}
 	equipment, found, err := repos.Equipment.Load(context.Background(), "177")
@@ -243,7 +243,7 @@ func TestSaveNewCharacterSeedsCSharpDefaultState(t *testing.T) {
 		UpdatedAt:   now,
 	}
 
-	if err := service.saveNewCharacter(context.Background(), repos, record); err != nil {
+	if err := service.saveNewCharacter(context.Background(), repos, record, nil); err != nil {
 		t.Fatalf("save new character: %v", err)
 	}
 	saved, found, err := repos.Character.Load(context.Background(), "188")
