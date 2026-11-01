@@ -64,13 +64,17 @@ func TestRealPVFGrandineAndTimeStoneExtraNativeRows(t *testing.T) {
 		for _, seed := range []uint32{1, 17, 0xdeadbeef} {
 			owner := newRuntimeDungeonDropOwner()
 			seen := make(map[uint32]bool)
+			// These isolated runtimes share the drop ledger. Carry the next
+			// object key forward as the production party allocator does.
+			nextKey := uint32(401)
 			for _, member := range []uint16{19, 20, 21} {
 				name := fmt.Sprintf("d%d-map%d-seed%d-member%d", pair.dungeon, pair.mapID, seed, member)
-				runtime := &runtimeDungeonState{Dungeon: dungeon, Seed: seed, NextObjectKey: 401, DropOwner: owner}
+				runtime := &runtimeDungeonState{Dungeon: dungeon, Seed: seed, NextObjectKey: nextKey, DropOwner: owner}
 				session := &gameSession{selectedCharacterID: member}
 				if err := service.prepareCurrentDungeonPassiveObjectDrops(session, runtime, scene, "native-contract"); err != nil {
 					t.Fatal(name, err)
 				}
+				nextKey = runtime.NextObjectKey
 				rows, vendor := currentDungeonPassiveObjectDropEntries(runtime, scene)
 				if len(rows) != pair.count || vendor {
 					t.Fatalf("%s rows=%+v vendor=%v", name, rows, vendor)
