@@ -359,7 +359,7 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	case dnfenum.UpperMsgFollowUpStatus:
 		s.logInfo("dnfbridge latest upper follow-up received", "msg_id", packet.Header.MsgID, "body_len", len(packet.Body))
 		// 63 在当前枚举里是 Cera 查询，不是进场景 gate；用它触发 DOVE tail 会让 HUD 包早于客户端 runtime 阶段。
-		return s.sendGameUpperSuccess(session, packet.Header.MsgID, nil)
+		return s.handleCurrentCeraQueryVisit(session, packet.Header.Classification, packet.Body)
 
 	case dnfenum.UpperMsgFollowUpReady:
 		return s.sendRequestBlacklistState(session, "upper_120_request", packet.Body)
