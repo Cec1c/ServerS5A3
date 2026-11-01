@@ -21,6 +21,10 @@ func TestDungeonPeerReplacementProjectsToRetainedLeader(t *testing.T) {
 	if err := s.projectDungeonPartyPeerActors(replacement, "replacement"); err != nil {
 		t.Fatal(err)
 	}
+	// Initial creation can precede the replacement's own finish tail. The
+	// final stable-scene resend belongs after that tail, in both directions.
+	markPeerSceneStableForTest(replacement)
+	s.finishDungeonPartyPeerActorProjection(replacement, "replacement_finish_loading")
 	frames := splitUpperFrames(t, leader.conn.(*bufferConn).write.Bytes())
 	mode0, mode1, op9 := r160UpperPeerActorCounts(frames, replacement.selectedCharacterID)
 	if mode0 == 0 || mode1 != 2 || op9 == 0 {

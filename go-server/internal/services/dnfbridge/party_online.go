@@ -319,6 +319,14 @@ func (s *Service) handleOnlineLeaveParty(session *gameSession, typ uint16) error
 			"reason", "session_has_no_current_authoritative_character")
 		return s.sendPartyCommandFailure(session, typ, walkoutPartyFailureInvalid)
 	}
+	if s.options.currentClientVersion == "official-24.9" {
+		session.dungeon.mu.Lock()
+		inDungeon := session.dungeon.runtime != nil && session.dungeon.runtime.partyInstance != nil
+		session.dungeon.mu.Unlock()
+		if inDungeon {
+			return s.handleCurrentDungeonTownExitRequest(session, nil, typ)
+		}
+	}
 	nextState, result, removed := s.leaveManagedRuntimeParty(identity, "client_leave_party_op13")
 	if !removed && s.partyLeaveRepair() == partyLeaveRepairOn {
 		// 缺陷（操作者："p2 点击的是退出队伍，但是仍然在队伍里面"）：
@@ -478,6 +486,14 @@ func (s *Service) handleOnlineWalkoutPartyMember(session *gameSession, typ uint1
 	}
 	previousState := snapshot.StateFor(identity.character)
 	kickedSnapshot := snapshot
+	var kickInstance *dungeonPartyInstance
+	if s.options.currentClientVersion == "official-24.9" {
+		session.dungeon.mu.Lock()
+		if runtime := session.dungeon.runtime; runtime != nil {
+			kickInstance = runtime.partyInstance
+		}
+		session.dungeon.mu.Unlock()
+	}
 	result := manager.Kick(identity.character, identity.generation, target.UserID, target.SessionGeneration)
 	if !result.OK {
 		return s.sendPartyCommandFailure(session, typ, walkoutPartyFailureInvalid)
@@ -497,9 +513,31 @@ func (s *Service) handleOnlineWalkoutPartyMember(session *gameSession, typ uint1
 	}
 	if targetSession, ok := s.onlineGameSession(target.UserID); ok {
 		s.clearRuntimePartyProjection(target.UserID, target.SessionGeneration)
-		if err := s.sendRuntimePartyMemberRemoved(targetSession, target.UserID, alignedcmd.PartyState{}); err != nil {
+		if err := s.sendRuntimePartyDeparture(targetSession, previousState); err != nil {
 			return err
 		}
+		if targetIdentity, bound := s.boundGameSessionCharacterSnapshot(targetSession); bound {
+			targetSession.dungeon.mu.Lock()
+			expectedRuntime := targetSession.dungeon.runtime
+			targetSession.dungeon.mu.Unlock()
+			if err := s.tryPostGameSessionCharacterEvent(targetSession, "party-kick-personal-return", targetIdentity.character, targetIdentity.generation, func() error {
+				targetSession.dungeon.mu.Lock()
+				inDungeon := expectedRuntime != nil && targetSession.dungeon.runtime == expectedRuntime && expectedRuntime.partyInstance != nil
+				targetSession.dungeon.mu.Unlock()
+				if _, rejoined := manager.SnapshotByUser(targetIdentity.character, 0); rejoined {
+					return nil
+				}
+				if inDungeon {
+					return s.handleCurrentDungeonTownExitRequest(targetSession, nil, 0)
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	if kickInstance != nil {
+		return s.sendMemberGiveupSurvivorRosterAfterDeparture(nextState, kickInstance, target.UserID)
 	}
 	if err := s.broadcastRuntimePartyMemberRemoved(previousState, nextState, target.UserID, nil); err != nil {
 		return err
@@ -707,7 +745,9 @@ func (s *Service) broadcastRuntimePartyWalkoutNotice(state alignedcmd.PartyState
 		if !ok {
 			continue
 		}
-		if err := s.sendGameUpperRawClassCodec(session, uint16(dnfenum.CmdPacketRequestPeer), body, dnfproto.DefaultChannelClassification, true); err != nil {
+		// Current EXE registers WALKOUT at class0/op10 (sub_200ABD0).
+		// Class1/op10 is REQUEST_PEER's ACK and never displays the kick reason.
+		if err := s.sendGameUpperRawClassCodec(session, uint16(dnfenum.CmdPacketRequestPeer), body, 0, true); err != nil {
 			return err
 		}
 	}
@@ -1025,6 +1065,9 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 			"reason", result.Reason)
 		return nil
 	}
+	if result.AlreadyMember {
+		return s.sendRuntimePartyRosterRefresh(joiner, result.Party.StateFor(selectedCharacterID(joiner)), "party_invite_existing_member_confirmation")
+	}
 	s.synchronizeOrdinaryPartyRaidGroups(state, "party_invite_accept")
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return err
@@ -1106,17 +1149,28 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 				"target_channel", currentTownPresenceChannelID(targetSession),
 				"reason", partyMemberChannelMismatchReason)
 		}
-		s.logGameEvent(session, "game-party-entry-party-full",
+		code := byte(entryIntoPartyFailureGeneric)
+		if result.Reason == "party_full" {
+			code = entryIntoPartyFailureFull
+		}
+		s.logGameEvent(session, "game-party-entry-rejected",
 			"type", typ,
 			"source_char_id", session.selectedCharacterID,
 			"target_id", targetID,
-			"reason", result.Reason)
-		return s.sendPartyCommandFailure(session, typ, entryIntoPartyFailureFull)
+			"reason", result.Reason,
+			"error_code", code)
+		return s.sendPartyCommandFailure(session, typ, code)
 	}
-	s.synchronizeOrdinaryPartyRaidGroups(state, "party_entry_into_party")
 	if err := s.sendGameUpperRawClassCodec(session, typ, party.BuildEntryIntoPartyAck(parsed.TargetID, uint32(session.selectedCharacterID)), dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
 	}
+	if result.AlreadyMember {
+		s.logGameEvent(session, "game-party-entry-confirmed",
+			"type", typ, "source_char_id", selectedCharacterID(session), "target_id", targetID,
+			"party_id", state.PartyID, "member_count", len(result.Party.Members))
+		return s.sendRuntimePartyRosterRefresh(session, result.Party.StateFor(selectedCharacterID(session)), "party_entry_existing_member_confirmation")
+	}
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_entry_into_party")
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return err
 	}

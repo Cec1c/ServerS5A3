@@ -6,7 +6,52 @@ import (
 	"testing"
 )
 
-func TestDungeonLastRemoteDepartureClearsHUDKeepsSurvivorInstance(t *testing.T) {
+func assertDungeonSurvivorRetainsParty(t *testing.T, survivor *gameSession, departing uint16) {
+	t.Helper()
+	local, departure, restored, removed, hp := -1, -1, -1, -1, -1
+	for i, frame := range splitUpperFrames(t, survivor.conn.(*bufferConn).write.Bytes()) {
+		switch frame.msgID {
+		case 2, 11:
+			t.Fatal("survivor actor or network was rebuilt")
+		case 9:
+			if len(frame.body) < 10 || frame.body[9] == 3 {
+				t.Fatal("surviving party received disband record")
+			}
+			id := binary.LittleEndian.Uint16(frame.body[4:6])
+			switch frame.body[9] {
+			case 0:
+				rows := departureRowsInSelectedChannel(t, frame.body, currentClientSelectedChannelID(survivor))
+				if id != survivor.selectedCharacterID || len(rows) != 1 || rows[0].uid != survivor.selectedCharacterID {
+					t.Fatal("surviving singleton roster lost")
+				}
+				if local < 0 {
+					local = i
+				}
+				restored = i
+			case 2:
+				if id != departing || len(frame.body) != 15 || frame.body[10] != 0 {
+					t.Fatal("wrong departing record")
+				}
+				departure = i
+			}
+		case currentTownUserLeaveMsgID:
+			if binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != departing {
+				t.Fatal("wrong active actor removal")
+			}
+			removed = i
+		case 153:
+			if len(frame.body) <= 1 || frame.body[0] != 1 {
+				t.Fatal("surviving party realtime roster was cleared")
+			}
+			hp = i
+		}
+	}
+	if local < 0 || departure <= local || restored <= departure || removed <= restored || hp <= removed {
+		t.Fatalf("invalid departure order: roster=%d departing=%d restored=%d actor=%d realtime=%d", local, departure, restored, removed, hp)
+	}
+}
+
+func TestDungeonLastRemoteDepartureKeepsSurvivorPartyAndInstance(t *testing.T) {
 	for _, departing := range []uint16{99, 100} {
 		t.Run(fmt.Sprint(departing), func(t *testing.T) {
 			f := newLeaderExitFixture(t)
@@ -15,58 +60,20 @@ func TestDungeonLastRemoteDepartureClearsHUDKeepsSurvivorInstance(t *testing.T) 
 			f.leader.townActorOwnerChannel, f.member.townActorOwnerChannel = 0, 0
 			manager := f.service.runtimePartyManagerForService()
 			before, _ := manager.SnapshotByUser(99, 0)
-			round69AlignInstancePartyID(t, f, before.ID)
 			leaver, survivor, retained := f.member, f.leader, f.leaderRuntime
 			if departing == 99 {
-				// Keep the survivor in its real slot 1, as in the reported case.
-				result := manager.TransferLeader(99, f.leader.characterGeneration, 100, f.member.characterGeneration)
-				if !result.OK {
-					t.Fatal(result.Reason)
-				}
-				f.service.publishRuntimePartySnapshot(result.Party)
 				leaver, survivor, retained = f.leader, f.member, f.memberRuntime
 			}
 			leaver.dungeon.runtime = nil
 			if err := f.service.leaveRuntimePartyOnMemberGiveup(leaver, f.instance); err != nil {
 				t.Fatal(err)
 			}
-			frames := splitUpperFrames(t, survivor.conn.(*bufferConn).write.Bytes())
-			var keys []uint16
-			var owners []byte
-			removed, hp := false, false
-			for _, frame := range frames {
-				switch frame.msgID {
-				case 2, 11:
-					t.Fatal("survivor actor or network was rebuilt")
-				case 9:
-					if len(frame.body) != 10 || frame.body[9] != 3 || removed {
-						t.Fatal("survivor HUD redeclared or record retired after actor")
-					}
-					keys = append(keys, binary.LittleEndian.Uint16(frame.body[4:6]))
-					owners = append(owners, frame.body[7])
-				case currentTownUserLeaveMsgID:
-					if len(keys) != 4 || binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != departing {
-						t.Fatal("wrong active actor removal")
-					}
-					removed = true
-				case 153:
-					if !removed || len(frame.body) != 1 || frame.body[0] != 0 {
-						t.Fatal("single survivor received nonempty HP roster")
-					}
-					hp = true
-				}
-			}
-			if len(keys) != 4 || keys[0] != departing || keys[1] != survivor.selectedCharacterID || keys[2] != departing || keys[3] != survivor.selectedCharacterID || !removed || !hp {
-				t.Fatalf("incomplete retirement keys=%v remove=%v hp=%v", keys, removed, hp)
-			}
-			if string(owners) != string([]byte{11, 11, 0, 0}) {
-				t.Fatalf("retired contexts=%v; want current town then dungeon", owners)
-			}
+			assertDungeonSurvivorRetainsParty(t, survivor, departing)
 			if survivor.dungeon.runtime != retained || retained.partyInstance != f.instance {
 				t.Fatal("survivor instance changed")
 			}
 			after, found := manager.SnapshotByUser(survivor.selectedCharacterID, 0)
-			if !found || after.ID != before.ID || len(after.Members) != 1 {
+			if !found || after.ID != before.ID || len(after.Members) != 1 || after.Leader != survivor.selectedCharacterID {
 				t.Fatal("server instance party identity lost")
 			}
 			for _, old := range before.Members {

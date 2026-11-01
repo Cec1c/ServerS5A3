@@ -23,6 +23,11 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 	if err := s.captureCurrentOrdinaryChannelExitPosition(session); err != nil {
 		return err
 	}
+	// EXIT is explicit player intent. Do not let the subsequent socket
+	// handover preserve a party whose client has already left its scene.
+	if !session.channelExitAcknowledged {
+		s.detachRuntimePartySession(session, "channel_exit")
+	}
 	cancelHandoff := s.rememberCurrentAuthenticatedChannelHandoff(session)
 	// Serialize the ACK with guild projections already using this scene.
 	// After the client sees EXIT it may release the role data read by NOTI127,

@@ -866,6 +866,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	var monsterExperience currentDungeonMonsterExperienceCommitResult
 	var monsterExperienceBody []byte
 	experienceQueued := rewardMonsterCandidate && s.queueCurrentDungeonDeathBurstExperience(session, runtime, rewardMonster)
+	if rewardMonsterCandidate {
+		s.dispatchCurrentDungeonMonsterExperienceToPeersLocked(session, runtime, rewardMonster)
+	}
 	if rewardMonsterCandidate && !experienceQueued {
 		experienceStarted := s.performanceStart()
 		experienceContext, cancelExperience := context.WithTimeout(context.Background(), createWriteTimeout)

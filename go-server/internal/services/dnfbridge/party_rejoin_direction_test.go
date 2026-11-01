@@ -88,7 +88,7 @@ func TestPartyMemberGiveupKeepsLeaderRuntimeAndRetiresOldClientRecords(t *testin
 			}
 			seen := map[uint16]int{}
 			for _, frame := range splitUpperFrames(t, f.memberConn.write.Bytes()) {
-				if frame.msgID == 9 && len(frame.body) == 10 && frame.body[7] == 0 && frame.body[9] == 3 {
+				if frame.msgID == 9 && len(frame.body) == 15 && frame.body[7] == 0 && frame.body[9] == 2 && frame.body[10] == 0 {
 					seen[binary.LittleEndian.Uint16(frame.body[4:6])]++
 				}
 			}
@@ -97,36 +97,7 @@ func TestPartyMemberGiveupKeepsLeaderRuntimeAndRetiresOldClientRecords(t *testin
 					t.Errorf("leaver old context record %d cleared %d times", key, seen[key])
 				}
 			}
-			var retired []uint16
-			actorRemoved, hpCleared := false, false
-			for _, frame := range splitUpperFrames(t, f.leaderConn.write.Bytes()) {
-				if frame.msgID == 2 || frame.msgID == 11 {
-					t.Fatal("leave unexpectedly redrew appearance or restarted peer handshake")
-				}
-				switch frame.msgID {
-				case 9:
-					if len(frame.body) != 10 || frame.body[9] != 3 || actorRemoved {
-						t.Fatal("survivor HUD redeclared or record retired after actor removal")
-					}
-					if frame.body[7] != 0 {
-						continue // Current-town records are additionally retired first.
-					}
-					retired = append(retired, binary.LittleEndian.Uint16(frame.body[4:6]))
-				case currentTownUserLeaveMsgID:
-					if len(retired) != 2 || len(frame.body) < 2 || binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != 100 {
-						t.Fatal("wrong active actor removal")
-					}
-					actorRemoved = true
-				case 153:
-					if !actorRemoved || len(frame.body) != 1 || frame.body[0] != 0 {
-						t.Fatal("single survivor received nonempty or premature HP roster")
-					}
-					hpCleared = true
-				}
-			}
-			if len(retired) != 2 || retired[0] != 100 || retired[1] != 99 || !actorRemoved || !hpCleared {
-				t.Fatalf("incomplete client retirement: keys=%v actor=%v hp=%v", retired, actorRemoved, hpCleared)
-			}
+			assertDungeonSurvivorRetainsParty(t, f.leader, 100)
 		})
 	}
 }

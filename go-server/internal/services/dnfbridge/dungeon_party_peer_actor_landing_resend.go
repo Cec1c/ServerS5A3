@@ -124,6 +124,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 	if !dungeonPartyPeerActorLandingResendEnabled() {
 		return 0
 	}
+	ownSceneStable := peerSceneStableForPeerActorLandingResend(session)
 	identity, current := s.boundGameSessionCharacterSnapshot(session)
 	if !current {
 		return 0
@@ -162,6 +163,8 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 		case !peerSceneStable:
 			decision, reason = "deferred",
 				"peer_scene_rebuild_is_still_running_its_own_finish_loading_resend_owns_that_window"
+		case !ownSceneStable:
+			decision, reason = "deferred", "actor_scene_rebuild_is_still_running_final_finish_loading_tail_will_retry"
 		case !s.claimDungeonPeerActorResend(peer, ownKey, identity):
 			decision, reason = "skip",
 				"the_peer_already_consumed_its_one_resend_for_this_room_and_run"

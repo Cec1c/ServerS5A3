@@ -27,16 +27,15 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 		}
 		before, found = manager.SnapshotByUser(identity.character, 0)
 	}
-	if !found || before.ID != instance.key.PartyID || before.Leader == identity.character {
+	if !found || before.ID != instance.key.PartyID {
 		return nil
 	}
 	peers := dungeonPartyInstanceMemberSessions(instance, identity.character)
 	var next alignedcmd.PartyState
 	var removed bool
 	if s.options.currentClientVersion == "official-24.9" {
-		// The leader is still inside this exact instance. Do not pass through
-		// the generic below-two-members publisher: it erases the surviving
-		// lobby's projection and recycles its still-active dungeon registry.
+		// Preserve the active instance's identity, slots and surviving lobby.
+		// A departing leader transfers ownership without retiring that instance.
 		var recordedGeneration uint64
 		for _, member := range before.Members {
 			if member.UserID == identity.character {
@@ -45,7 +44,7 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 		}
 		var result party.RuntimePartyResult
 		if !s.withCurrentDungeonPartyRetirement(identity, instance, func() bool {
-			result = manager.LeaveExpected(identity.character, recordedGeneration, before.ID)
+			result = manager.LeaveDungeonExpected(identity.character, recordedGeneration, before.ID)
 			return result.OK
 		}) {
 			return nil
@@ -65,9 +64,6 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 		return nil
 	}
 	var errs error
-	if s.options.currentClientVersion == "official-24.9" {
-		errs = errors.Join(errs, s.clearDisbandedDungeonPartyRecords(session, before.StateFor(before.Leader).Members, before.Leader, false, "member_giveup_retired_receiver"))
-	}
 	if s.options.currentClientVersion != "official-24.9" {
 		for _, peer := range peers {
 			body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(identity.character), currentSceneObjectContext, s.currentSceneActorRoute())
@@ -79,7 +75,7 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 	} else {
 		s.syncRuntimePartyUDPRelay(next)
 	}
-	errs = errors.Join(errs, s.sendRuntimePartyMemberRemoved(session, identity.character, alignedcmd.PartyState{}))
+	errs = errors.Join(errs, s.sendRuntimePartyDeparture(session, before.StateFor(before.Leader)))
 	if s.options.currentClientVersion == "official-24.9" {
 		errs = errors.Join(errs, s.sendMemberGiveupSurvivorRosterAfterDeparture(next, instance, identity.character))
 	} else {
@@ -90,8 +86,8 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 	return errs
 }
 
-// Rebuild only the remaining records in their current scene context. A town
-// owner record cannot replace a survivor's old owner-0 dungeon roster.
+// A survivor can still be bound to a pre-entry selected-channel party record.
+// Update that record and owner-0 dungeon records with the same retained roster.
 func (s *Service) sendMemberGiveupSurvivorRoster(state alignedcmd.PartyState, instance *dungeonPartyInstance) error {
 	return s.sendMemberGiveupSurvivorRosterAfterDeparture(state, instance, 0)
 }
@@ -123,68 +119,61 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 			errs = errors.Join(errs, s.sendRuntimePartyMemberRemoved(receiver, 0, state))
 			continue
 		}
-		if departingID != 0 && len(members) == 1 {
-			// The server keeps this player's active instance and fixed slot, but
-			// a one-player dungeon has no remote party HUD/network membership.
-			// Retire both old records, self last, before NOTI6 erases the peer
-			// identity. Requires the client local-actor-preserving kind3 helper:
-			// deleting the local party record must not destroy its living model.
-			retired := []alignedcmd.PartyMemberState{{UserID: departingID}, member}
-			if err := s.clearDungeonSurvivorTownPartyRecords(receiver, retired, "member_giveup_single_survivor", state); err != nil {
+		owners := []byte{currentSceneObjectContext}
+		if owner := currentClientSelectedChannel(receiver); owner != currentSceneObjectContext {
+			owners = append([]byte{owner}, owners...)
+		}
+		complete := true
+		for _, owner := range owners {
+			sent, err := s.sendMemberGiveupSurvivorRosterInContext(receiver, state, departingID, owner, current)
+			if err != nil || !sent {
 				errs = errors.Join(errs, err)
-				continue
+				complete = false
+				break
 			}
-			if err := s.clearDisbandedDungeonPartyRecords(receiver, retired, 0, false, "member_giveup_single_survivor", state); err != nil {
-				errs = errors.Join(errs, err)
-				continue
-			}
-			if !current() {
-				continue
-			}
-			if err := s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_single_survivor", state); err != nil {
-				errs = errors.Join(errs, err)
-				continue
-			}
-			_, err := s.sendRetiredPartyPacket(receiver, 0x0099, runtimePartyRealtimeInfoBody(alignedcmd.PartyState{}), &state, current, false)
-			errs = errors.Join(errs, err)
+		}
+		if !complete {
 			continue
 		}
-		if departingID != 0 {
-			// First apply the new membership to this receiver's local record,
-			// while the old actor slots still identify every network peer.
-			sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, receiver, state, "member_giveup_network_roster", nil, currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerDungeonContext})
-			if err != nil || !sent {
-				errs = errors.Join(errs, err)
-				continue
-			}
-			body := buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(departingID), currentSceneObjectContext, s.currentSceneActorRoute())
-			sent, err = s.sendRetiredPartyPacket(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, &state, current, false)
-			if err != nil || !sent {
-				errs = errors.Join(errs, err)
-				continue
-			}
-		}
-		var rosterErr error
-		selfSent := false
-		for _, actorRow := range runtimePartyMembers(state) {
-			actor, found := s.onlineGameSession(actorRow.UserID)
-			if !found {
-				continue
-			}
-			sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, actor, state, "member_giveup_survivor_dungeon_roster", nil, currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerDungeonContext})
-			selfSent = selfSent || (sent && actor == receiver)
-			rosterErr = errors.Join(rosterErr, err)
-		}
-		errs = errors.Join(errs, rosterErr)
 		// NOTI9 diffs the old manager slots to retire missing network peers.
 		// NOTI6 clears those slots before erasing the actor. Sending it first
 		// loses the only identity that the roster diff can use for removal.
 		// Keep each receiver's actor until its complete roster has been sent.
-		if rosterErr == nil && selfSent && departingID != 0 && current() {
+		if departingID != 0 && current() {
 			errs = errors.Join(errs, s.sendDungeonDepartedActorRemoval(receiver, departingID, "member_giveup_confirmed_town", state))
 		}
 		_, err := s.sendRetiredPartyPacket(receiver, 0x0099, runtimePartyRealtimeInfoBody(state), &state, current, false)
 		errs = errors.Join(errs, err)
 	}
 	return errs
+}
+
+func (s *Service) sendMemberGiveupSurvivorRosterInContext(receiver *gameSession, state alignedcmd.PartyState, departingID uint16, owner byte, current func() bool) (bool, error) {
+	selection := currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerExplicit, Owner: owner}
+	if departingID != 0 {
+		// Diff the local roster before clearing the departed actor's record;
+		// restore every surviving record before NOTI6 can erase its identity.
+		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, receiver, state, "member_giveup_network_roster", nil, selection)
+		if err != nil || !sent {
+			return false, err
+		}
+		body := s.buildCurrentPartyDepartureBody(departingID, owner)
+		sent, err = s.sendRetiredPartyPacket(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, &state, current, false)
+		if err != nil || !sent {
+			return false, err
+		}
+	}
+	selfSent := false
+	for _, row := range runtimePartyMembers(state) {
+		actor, found := s.onlineGameSession(row.UserID)
+		if !found {
+			continue
+		}
+		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, actor, state, "member_giveup_survivor_dungeon_roster", nil, selection)
+		if err != nil || !sent {
+			return false, err
+		}
+		selfSent = selfSent || actor == receiver
+	}
+	return selfSent, nil
 }

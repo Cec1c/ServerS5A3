@@ -224,6 +224,9 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 	}
 
 	source := "current_exe_bodyless_op42_active_run_giveup"
+	if requestMsgID == uint16(dnfenum.CmdPacketLeaveParty) {
+		source = "current_exe_op13_personal_party_leave"
+	}
 	if snapshot.Run.Status == worldmap.DungeonRunCompleted {
 		source = "current_exe_op31_completed_tutorial_or_settlement_timed_op42"
 		if requestMsgID == uint16(dnfenum.CmdPacketBack2Village) {

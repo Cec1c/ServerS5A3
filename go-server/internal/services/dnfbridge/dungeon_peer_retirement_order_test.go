@@ -56,12 +56,13 @@ func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
 			for _, peer := range peers {
 				frames := splitUpperFrames(t, peer.conn.(*bufferConn).write.Bytes())
 				first, retired, removed, final := -1, -1, -1, -1
+				retiredOwners := map[byte]bool{}
 				for i, frame := range frames {
 					if frame.msgID == 2 || frame.msgID == 11 {
 						t.Fatal("retirement rebuilt an actor or restarted its connection")
 					}
-					if frame.msgID == 9 && len(frame.body) > 10 {
-						rows := parseRetirementCurrentRows(t, frame.body)
+					if frame.msgID == 9 && len(frame.body) > 10 && frame.body[9] == 0 {
+						rows := departureRowsInSelectedChannel(t, frame.body, currentClientSelectedChannelID(peer))
 						if len(rows) != count-1 {
 							t.Fatalf("remaining rows=%+v", rows)
 						}
@@ -82,11 +83,12 @@ func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
 							final = i
 						}
 					}
-					if frame.msgID == 9 && len(frame.body) == 10 && frame.body[9] == 3 {
-						if binary.LittleEndian.Uint16(frame.body[4:6]) != 100 || retired >= 0 {
+					if frame.msgID == 9 && len(frame.body) == 15 && frame.body[9] == 2 && frame.body[10] == 0 {
+						if binary.LittleEndian.Uint16(frame.body[4:6]) != 100 || retiredOwners[frame.body[7]] {
 							t.Fatal("unexpected retired record")
 						}
 						retired = i
+						retiredOwners[frame.body[7]] = true
 					}
 					if frame.msgID == currentTownUserLeaveMsgID {
 						if removed >= 0 || binary.LittleEndian.Uint16(frame.body[len(frame.body)-2:]) != 100 {
@@ -95,7 +97,7 @@ func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
 						removed = i
 					}
 				}
-				if first < 0 || retired <= first || final <= retired || removed <= final {
+				if first < 0 || retired <= first || final <= retired || removed <= final || len(retiredOwners) != 2 {
 					t.Fatalf("receiver %d: local=%d retire=%d restore=%d active=%d", peer.selectedCharacterID, first, retired, final, removed)
 				}
 			}
