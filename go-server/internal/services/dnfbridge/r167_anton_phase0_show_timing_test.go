@@ -106,7 +106,7 @@ func TestRealPVFAntonPhase0AutoSelectionWaitsForActualShow(t *testing.T) {
 	}
 }
 
-// A late natural 659 is the real v151 movie-completion path. It must open the
+// v157 659/body1 reports movie close completion. A late completion must open the
 // face-down party list first and must not surface an already granted card.
 func TestRealPVFAntonPhase0LateNatural659ShowsBeforeAutomaticGrant(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
@@ -126,7 +126,7 @@ func TestRealPVFAntonPhase0LateNatural659ShowsBeforeAutomaticGrant(t *testing.T)
 	}
 
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	var partyBody []byte
 	for stream := f.conn.write.Bytes(); len(stream) > 0; {
 		packet, rest := splitGameServerUpperPacket(t, stream)

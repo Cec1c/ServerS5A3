@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"os"
 	"testing"
 
@@ -69,6 +70,56 @@ func TestNPCShopMaterialLimitRejectsRepeatAndReturnsPersistedCount(t *testing.T)
 	want := buildCurrentNPCShopPurchaseCountBody(map[uint32]uint32{602: 1})
 	if len(rest) != 0 || !bytes.Equal(ack.Body, want) {
 		t.Fatalf("persisted native count body=%x want=%x", ack.Body, want)
+	}
+}
+
+func TestNPCShopAccumulatePurchaseLimitParsing(t *testing.T) {
+	for _, row := range []struct {
+		name   string
+		limit  string
+		reset  bool
+		reject bool
+	}{
+		{name: "accumulate", limit: "`account` `accumulate` 1"},
+		{name: "accumulate_with_daily_marker", limit: "`account` `accumulate` 1", reset: true},
+		{name: "unknown_period", limit: "`account` `monthly` 1", reject: true},
+		{name: "unknown_scope", limit: "`unknown` `accumulate` 1", reject: true},
+		{name: "zero_maximum", limit: "`account` `accumulate` 0", reject: true},
+		{name: "negative_maximum", limit: "`account` `accumulate` -1", reject: true},
+		{name: "overflow_maximum", limit: "`account` `accumulate` 2147483648", reject: true},
+		{name: "string_maximum", limit: "`account` `accumulate` `1`", reject: true},
+		{name: "missing_maximum", limit: "`account` `accumulate`", reject: true},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			shop, _ := mustCurrentNPCShopTestCatalogs(t)
+			source := shop.source.(bridgePVFSource)
+			source["stackable/material_exchange.stk"] += "[purchase limit]\n" + row.limit + "\n"
+			if row.reset {
+				source["stackable/material_exchange.stk"] += "[reset daily purchase item]\n"
+			}
+			items, err := newPVFDungeonDropCatalog(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pricing, err := resolveCurrentNPCShopPricing(shop, items, 602)
+			if row.reject {
+				if !errors.Is(err, errCurrentNPCShopProductUnavailable) {
+					t.Fatalf("invalid limit must fail closed: pricing=%+v err=%v", pricing, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := currentNPCShopPurchaseLimit(pricing, 1)
+			if policy == nil || policy.ItemID != 602 || policy.Scope != "account" || policy.Period != "accumulate" ||
+				policy.Maximum != 1 || policy.Count != 1 || policy.ResetDaily != row.reset {
+				t.Fatalf("accumulate policy=%+v", policy)
+			}
+			if !pricing.Buyable || !pricing.MaterialExchange || pricing.NeedMaterialItem != 900 || pricing.NeedMaterialCount != 2 {
+				t.Fatalf("accumulate must preserve material exchange: %+v", pricing)
+			}
+		})
 	}
 }
 

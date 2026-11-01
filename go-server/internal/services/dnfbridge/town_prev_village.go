@@ -355,6 +355,9 @@ func (s *Service) handleCurrentPrevVillage(session *gameSession, requestBody []b
 	character.Stats["pos_y"] = int64(origin.PositionY)
 	character.Stats["direction"] = int64(direction)
 	character.UpdatedAt = time.Now().UTC()
+	if !townMapPathLooksLikeSeria(targetArea.MapPath) {
+		dnfrepo.RecordReturneeVillage(&character, int64(origin.TownID), s.gameplayNow())
+	}
 	if err := dnfrepo.SaveCharacterFields(ctx, repositories.Character, character, dnfrepo.CharacterFieldStats); err != nil {
 		return err
 	}

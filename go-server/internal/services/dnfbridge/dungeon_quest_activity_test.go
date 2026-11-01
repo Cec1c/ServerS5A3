@@ -58,7 +58,7 @@ func TestDungeonDeathQuestActiveMonsterItemDropIsNotSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	inv, _, err := repos.Inventory.Load(context.Background(), "19")
-	if err != nil || currentQuestDropHeldCount(inv, int64(seekerQST022ItemID)) != 1 || preparation.loads == 0 || probe.queries != 1 {
+	if err != nil || currentQuestDropHeldCount(inv, int64(seekerQST022ItemID)) != 1 || preparation.loads == 0 || full.loads != 0 || probe.queries != 1 {
 		t.Fatalf("正常怪任务物品未发放：transactionReads=%d query=%d err=%v", preparation.loads, probe.queries, err)
 	}
 	if err := qst017Death(s, p, key); err != nil {

@@ -42,6 +42,15 @@ func aikenR142Request(t *testing.T, s *Service, session *gameSession, slot int16
 }
 func aikenR142Outcome(t *testing.T, session *gameSession, success bool) {
 	t.Helper()
+	// Preserve the exact generic rejection contract for all existing callers.
+	aikenR142OutcomeReason(t, session, success, 0)
+}
+
+func aikenR142OutcomeReason(t *testing.T, session *gameSession, success bool, failureReason byte) {
+	t.Helper()
+	if success && failureReason != 0 {
+		t.Fatal("successful outcome must not specify a failure reason")
+	}
 	raw := session.conn.(*bufferConn).write.Bytes()
 	if success {
 		p, rest := splitGameServerUpperPacket(t, raw)
@@ -51,7 +60,7 @@ func aikenR142Outcome(t *testing.T, session *gameSession, success bool) {
 		raw = rest
 	}
 	p, rest := splitGameServerUpperPacket(t, raw)
-	want := []byte{0, 0}
+	want := []byte{0, failureReason}
 	if success {
 		want = []byte{1}
 	}
@@ -68,12 +77,15 @@ func TestAikenR142ContainerExpiryAndCount(t *testing.T) {
 		deadline         int
 		locked           bool
 		success          bool
+		failureReason    byte
 	}{
-		{"base_last", 40, 152, 0, 0, false, true}, {"base_closed_target", 41, 121, 0, 0, false, false}, {"base_closed_material", 9, 153, 0, 0, false, false},
-		{"expand8_last", 48, 160, 8, 0, false, true}, {"expand8_closed", 49, 161, 8, 0, false, false}, {"expand16_last", 56, 168, 16, 0, false, true}, {"expand24_last", 64, 176, 24, 0, false, true},
-		{"quick_target", 3, 121, 0, 0, false, true}, {"quick_material", 9, 8, 0, 0, false, true}, {"wrong_page", 65, 121, 24, 0, false, false}, {"wrong_material_page", 9, 177, 24, 0, false, false},
-		{"live_expire_at", 9, 121, 0, 1, false, true}, {"exact_expire_at", 9, 121, 0, 2, false, false}, {"expired_extra", 9, 121, 0, 3, false, false}, {"live_extra", 9, 121, 0, 4, false, true},
-		{"locked_material", 9, 121, 0, 0, true, false},
+		// Unavailable material rows are skipped, so shortage is ErrMaterials/8;
+		// an unavailable target is rejected earlier as ErrInvalid/0.
+		{"base_last", 40, 152, 0, 0, false, true, 0}, {"base_closed_target", 41, 121, 0, 0, false, false, 0}, {"base_closed_material", 9, 153, 0, 0, false, false, 8},
+		{"expand8_last", 48, 160, 8, 0, false, true, 0}, {"expand8_closed", 49, 161, 8, 0, false, false, 0}, {"expand16_last", 56, 168, 16, 0, false, true, 0}, {"expand24_last", 64, 176, 24, 0, false, true, 0},
+		{"quick_target", 3, 121, 0, 0, false, true, 0}, {"quick_material", 9, 8, 0, 0, false, true, 0}, {"wrong_page", 65, 121, 24, 0, false, false, 0}, {"wrong_material_page", 9, 177, 24, 0, false, false, 8},
+		{"live_expire_at", 9, 121, 0, 1, false, true, 0}, {"exact_expire_at", 9, 121, 0, 2, false, false, 8}, {"expired_extra", 9, 121, 0, 3, false, false, 8}, {"live_extra", 9, 121, 0, 4, false, true, 0},
+		{"locked_material", 9, 121, 0, 0, true, false, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, session, g, _, _ := aikenR142Fixture(t, "")
@@ -114,7 +126,7 @@ func TestAikenR142ContainerExpiryAndCount(t *testing.T) {
 			if e := aikenR142Request(t, s, session, tc.source); e != nil {
 				t.Fatal(e)
 			}
-			aikenR142Outcome(t, session, tc.success)
+			aikenR142OutcomeReason(t, session, tc.success, tc.failureReason)
 			after := aikenR142Load(t, g)
 			if !tc.success {
 				if !reflect.DeepEqual(inv, after) {
@@ -219,7 +231,12 @@ func TestAikenR142RejectIsAtomic(t *testing.T) {
 			if e := aikenR142Request(t, s, session, 9); e != nil {
 				t.Fatal(e)
 			}
-			aikenR142Outcome(t, session, false)
+			failureReason := byte(0)
+			if name == "shortage_after_partial" || name == "locked_partial_material" {
+				// Eligible quantities are 5+5 or only5, both below the cost11.
+				failureReason = 8
+			}
+			aikenR142OutcomeReason(t, session, false, failureReason)
 			after := aikenR142Load(t, g)
 			c, _, _ := g.Character.Load(ctx, "19")
 			a, _, _ := g.AccountInventory.Load(ctx, "account-1")

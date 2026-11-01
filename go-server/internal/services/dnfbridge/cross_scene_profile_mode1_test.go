@@ -3,7 +3,7 @@ package dnfbridge
 // Regression coverage for the confirmed mode1 cross-scene appearance
 // omission in appearance-refresh-path-audit.md (2026-10-24). The tests reuse
 // the existing real op19/domain fixtures and wire helpers:
-//   - newTownPartyActorHPFixture and newCurrentCrossSceneProfileBatchFixture
+//   - newCrossSceneProfileActorFixture and newCurrentCrossSceneProfileBatchFixture
 //   - loginWearBridgeBody (the current-EXE op19 body layout)
 //   - the avatar slots/items used by equip_avatar_appearance_refresh_test.go
 //   - requireCurrentCrossSceneProfileBatchMode8 and the mode0 row helpers
@@ -38,9 +38,9 @@ const mode1CrossSceneActorWornAltList byte = 17
 // top of the existing town party fixture. Both characters stay authenticated,
 // in the same channel, and in the central party; only the actor's presence row
 // moves to another town area so the target is genuinely viewing another scene.
-func newMode1CrossSceneTwoSceneFixture(t *testing.T) *townPartyActorHPFixture {
+func newMode1CrossSceneTwoSceneFixture(t *testing.T) *crossSceneProfileActorFixture {
 	t.Helper()
-	f := newTownPartyActorHPFixture(t, true)
+	f := newCrossSceneProfileActorFixture(t, true)
 	t.Cleanup(func() { f.service.stopAvatarAppearanceCoalesce(f.actor, "mode1_cross_scene_test_cleanup") })
 	f.service.options.currentClientVersion = "official-24.9"
 	f.service.options.gameUpperHeader = gameUpperHeaderChannel13

@@ -15,6 +15,7 @@ import (
 var ErrDailyEntryLimit = errors.New("dungeon daily entry limit reached")
 
 type DailyEntryCommand struct {
+	Activity           *dnfrepo.ActivityEvent
 	CharacterID        string
 	DungeonID          int64
 	Limit              int64
@@ -114,7 +115,8 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 	}
 	ctx = contextOrBackground(ctx)
 	var result DailyEntryResult
-	err := o.assets.WithinCharacterAssets(ctx, cmd.CharacterID, func(chars dnfrepo.CharacterRepository, bags dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+	var activityWriter dnfrepo.ActivityRepository
+	apply := func(chars dnfrepo.CharacterRepository, bags dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
 		character, found, err := chars.Load(ctx, cmd.CharacterID)
 		if err != nil {
 			return err
@@ -166,6 +168,18 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 				return err
 			}
 		}
+		if cmd.Activity != nil && cmd.Activity.Amount > 0 {
+			if activityWriter == nil {
+				return dnfrepo.ErrActivityTransaction
+			}
+			added, e := activityWriter.Record(ctx, *cmd.Activity)
+			if e != nil {
+				return e
+			}
+			if !added {
+				return dnfrepo.ErrActivityConflict
+			}
+		}
 		if len(result.Consumed) > 0 {
 			inventory.UpdatedAt = cmd.UpdatedAt
 			if err := dnfrepo.SaveInventoryFields(ctx, bags, inventory, dnfrepo.InventoryFieldSlots); err != nil {
@@ -186,7 +200,19 @@ func (o *Owner) ConsumeDailyEntry(ctx context.Context, cmd DailyEntryCommand) (D
 		}
 		result.Character, result.Used = character, used+1
 		return nil
-	})
+	}
+	var err error
+	if cmd.Activity != nil {
+		if o.settlements == nil {
+			return DailyEntryResult{}, dnfrepo.ErrActivityTransaction
+		}
+		err = o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, func(tx dnfrepo.Group) error {
+			activityWriter = tx.Activity
+			return apply(tx.Character, tx.Inventory, tx.Equipment)
+		})
+	} else {
+		err = o.assets.WithinCharacterAssets(ctx, cmd.CharacterID, apply)
+	}
 	if err != nil {
 		return DailyEntryResult{}, err
 	}

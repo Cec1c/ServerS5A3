@@ -117,6 +117,7 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		if !found || strings.TrimSpace(inventory.CharacterID) != characterID || inventory.Slots == nil {
 			return fmt.Errorf("%w: character=%s operation=%s", ErrInventoryNotFound, characterID, operation)
 		}
+		previous := dnfrepo.CloneInventory(inventory).Slots
 		inventory = dnfrepo.CloneInventory(inventory)
 
 		changes, err := command.Project(&Assets{Inventory: &inventory})
@@ -125,6 +126,22 @@ func (o *Owner) mutate(ctx context.Context, operation string, command Command) e
 		}
 		if !changes.Inventory {
 			return nil
+		}
+		consumed := false
+		for key, before := range previous {
+			after := inventory.Slots[key]
+			if before.Count > 0 && (after.ItemID != before.ItemID || after.Count < before.Count) {
+				consumed = true
+				break
+			}
+		}
+		if consumed {
+			character = dnfrepo.CloneCharacter(character)
+			dnfrepo.AddBattlePassCounter(&character, 41, -1, 1, now)
+			character.UpdatedAt = now
+			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+				return err
+			}
 		}
 		inventory.UpdatedAt = now
 		return dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots)

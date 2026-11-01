@@ -8,9 +8,14 @@ import (
 	"strings"
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
+	platformpvf "longheng.io/server/internal/platform/pvf"
 )
 
 const TransferConfigPath = "etc/cargotransportstone.etc"
+
+// The native client stops parsing a stone on an unknown tag followed by an
+// integer. Private transfer settings must stay outside its native table.
+const PrivateTransferConfigPath = "etc/private_grandi_transfer.etc"
 const ResealConfigPath = "etc/reseal.etc"
 
 var ErrRules = errors.New("装备跨界或封装PVF配置无效")
@@ -22,21 +27,22 @@ type RangeWeight struct {
 }
 
 type TransferRule struct {
-	StoneType       int64
-	GradeWeights    []RangeWeight
-	RarityWeights   map[int64]int64
-	EquipmentTypes  map[string]bool
-	IncludeItemIDs  map[uint32]bool
-	ExcludeItemIDs  map[uint32]bool
-	ExceptGrowth    bool
-	ExceptPeriod    bool
-	SoulItemIDs     map[int64]uint32
-	SoulWeights     map[int64][]int64
-	ElementItemID   uint32
-	ElementWeights  map[int64][]int64
-	EpicPieceWeight []int64
-	ParticularCosts []ParticularCost
-	ChronicleCost   int64
+	StoneType          int64
+	GradeWeights       []RangeWeight
+	RarityWeights      map[int64]int64
+	EquipmentTypes     map[string]bool
+	IncludeItemIDs     map[uint32]bool
+	ExcludeItemIDs     map[uint32]bool
+	ExceptGrowth       bool
+	ExceptPeriod       bool
+	SoulItemIDs        map[int64]uint32
+	SoulWeights        map[int64][]int64
+	ElementItemID      uint32
+	ElementWeights     map[int64][]int64
+	EpicPieceWeight    []int64
+	EpicPieceFixedCost int64 // Private opt-in: only Grandi's corresponding-piece debit.
+	ParticularCosts    []ParticularCost
+	ChronicleCost      int64
 }
 
 type ParticularCost struct {
@@ -124,6 +130,7 @@ func LoadTransferConfig(source dnfpvf.Source) (TransferConfig, error) {
 			fillPVFCategoryWeightValues(rule.ElementWeights, elementValues[1:], 4)
 		}
 		rule.EpicPieceWeight = pvfTokenInts(sectionPVFTokens(group, "cargo transport stone epic piece cost weight"))
+		rule.EpicPieceFixedCost, _ = cargoFirstPVFInt(sectionPVFTokens(group, "private epic piece fixed cost"))
 		particular := pvfTokenInts(sectionPVFTokens(group, "cargo transport stone particular cost"))
 		for offset := 0; offset+3 < len(particular); offset += 4 {
 			if particular[offset+2] <= 0 || particular[offset+2] > math.MaxUint32 || particular[offset+3] <= 0 {
@@ -140,7 +147,37 @@ func LoadTransferConfig(source dnfpvf.Source) (TransferConfig, error) {
 	if len(config.Rules) == 0 {
 		return TransferConfig{}, fmt.Errorf("%w: 缺少跨界石规则", ErrRules)
 	}
+	if err := loadPrivateTransferConfig(source, &config); err != nil {
+		return TransferConfig{}, err
+	}
 	return config, nil
+}
+
+func loadPrivateTransferConfig(source dnfpvf.Source, config *TransferConfig) error {
+	text, err := source.ReadText(PrivateTransferConfigPath)
+	if errors.Is(err, dnfpvf.ErrDocNotFound) || errors.Is(err, platformpvf.ErrFileNotFound) {
+		return nil // Archives without the private opt-in retain native costs.
+	}
+	if err != nil {
+		return err
+	}
+	document, err := dnfpvf.Parse(PrivateTransferConfigPath, text)
+	if err != nil {
+		return err
+	}
+	tokens := document.Tokens
+	if len(tokens) != 3 || !isPVFSectionToken(tokens[0], "private epic piece fixed cost") ||
+		!isPVFSectionToken(tokens[2], "/private epic piece fixed cost") ||
+		tokens[1].Kind != dnfpvf.TokenInt || tokens[1].Int <= 0 || tokens[1].Int > math.MaxUint32 {
+		return fmt.Errorf("%w: private Grandi config requires exactly one positive fixed-piece cost", ErrRules)
+	}
+	rule, found := config.Rules[7]
+	if !found || rule.EpicPieceFixedCost != 0 {
+		return fmt.Errorf("%w: missing Grandi rule or duplicate private cost", ErrRules)
+	}
+	rule.EpicPieceFixedCost = tokens[1].Int
+	config.Rules[7] = rule
+	return nil
 }
 
 func LoadResealConfig(source dnfpvf.Source) (ResealConfig, error) {

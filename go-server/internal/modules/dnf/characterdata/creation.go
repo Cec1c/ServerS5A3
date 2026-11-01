@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/onlineevent"
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/signupbenefits"
@@ -19,16 +20,17 @@ var ErrChildCharacterMismatch = errors.New("character child record belongs to an
 type Creation struct {
 	// WelcomeCera is the entitlement captured at web registration. It is
 	// credited once with the account receipt in this creation transaction.
-	WelcomeCera int64
-	Account     *dnfrepo.AccountRecord
-	Character   dnfrepo.CharacterRecord
-	Inventory   *dnfrepo.InventoryRecord
-	Equipment   *dnfrepo.EquipmentRecord
-	Skill       *dnfrepo.SkillRecord
-	Quest       *dnfrepo.QuestRecord
-	Pet         *dnfrepo.PetRecord
-	Settings    []dnfrepo.SettingsRecord
-	PVPPrivate  *dnfpvp.PrivateCreation
+	WelcomeCera    int64
+	Account        *dnfrepo.AccountRecord
+	Character      dnfrepo.CharacterRecord
+	Inventory      *dnfrepo.InventoryRecord
+	Equipment      *dnfrepo.EquipmentRecord
+	Skill          *dnfrepo.SkillRecord
+	Quest          *dnfrepo.QuestRecord
+	Pet            *dnfrepo.PetRecord
+	Settings       []dnfrepo.SettingsRecord
+	PVPPrivate     *dnfpvp.PrivateCreation
+	LevelChallenge *onlineevent.LevelChallengeCatalog
 }
 
 // Creator persists one Creation through the repository transaction boundary.
@@ -92,6 +94,14 @@ func (c *Creator) Create(ctx context.Context, creation Creation) error {
 			}
 			if err := signupbenefits.WelcomeCera(&account, creation.WelcomeCera); err != nil {
 				return err
+			}
+			if creation.LevelChallenge != nil {
+				if creation.PVPPrivate != nil {
+					return fmt.Errorf("决斗专用角色不能参加升级大挑战")
+				}
+				if err := creation.LevelChallenge.Register(&account, &creation.Character); err != nil {
+					return err
+				}
 			}
 			if err := tx.Account.Save(ctx, account); err != nil {
 				return fmt.Errorf("save account: %w", err)
@@ -169,6 +179,9 @@ func (c *Creator) Create(ctx context.Context, creation Creation) error {
 }
 
 func normalizeCreation(creation Creation) (Creation, error) {
+	if creation.LevelChallenge != nil && creation.Account == nil {
+		return Creation{}, fmt.Errorf("升级大挑战创建缺少账号事务")
+	}
 	characterID := strings.TrimSpace(creation.Character.CharacterID)
 	if characterID == "" {
 		return Creation{}, ErrCharacterIDRequired

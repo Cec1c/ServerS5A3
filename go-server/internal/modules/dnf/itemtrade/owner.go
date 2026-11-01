@@ -292,6 +292,14 @@ func (o *Owner) Exchange(ctx context.Context, first Participant, second Particip
 				if err := characters.Save(ctx, record); err != nil {
 					return err
 				}
+				for _, flow := range []struct {
+					metric string
+					amount int64
+				}{{dnfrepo.ActivityGoldTradeOut, participant.Gold}, {dnfrepo.ActivityGoldTradeIn, receivedGold[participant.CharacterID] - goldFees[participant.CharacterID]}, {dnfrepo.ActivityGoldTradeFee, goldFees[participant.CharacterID]}} {
+					if err := dnfrepo.RecordCharacterGold(ctx, characters, record, flow.metric, flow.amount, record.UpdatedAt); err != nil {
+						return err
+					}
+				}
 				loadedCharacters[participant.CharacterID] = record
 			}
 			result = Result{Inventories: loaded, Characters: loadedCharacters, Received: received, ReceivedGold: receivedGold, GoldFees: goldFees}

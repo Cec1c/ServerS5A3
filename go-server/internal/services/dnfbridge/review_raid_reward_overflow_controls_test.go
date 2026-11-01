@@ -237,10 +237,12 @@ func TestReviewActualRaidOverflowIdentityFailureReplayAndConcurrency(t *testing.
 }
 func TestReviewActualRaidUncappedMergeRetainsNormalContract(t *testing.T) {
 	catalog, config := actualAntonRewardFixture(t)
-	g, plan, cmd := reviewRaidOverflowFixture(t, catalog, config, 10304474)
+	// 10304474 now grants account-ledger Fate and cannot exercise bag merging.
+	// Use the actual ordinary-material choice and its zero-draw quantity.
+	g, plan, cmd := reviewRaidOverflowFixture(t, catalog, config, 10304479)
 	r := plan.Rewards[0]
 	def := r.Definition
-	if _, shared := currentDisjointWarehouseFixedSlots[def.ItemID]; shared || r.Count != 30 || def.ItemID != 10304529 || def.StackLimit != 0 {
+	if _, shared := currentDisjointWarehouseFixedSlots[def.ItemID]; shared || len(plan.Rewards) != 1 || r.Count != 19 || def.ItemID != 10093974 || def.StackLimit != 0 {
 		t.Fatal("actual non-shared reward fixture invalid", r.Count, def.ItemID, def.StackLimit)
 	}
 	// Cera fillRange takes one unit at MaxInt32, then the existing pickup

@@ -78,6 +78,14 @@ func TestUpgradeAuthoritativeCostAndConversionAreAtomic(t *testing.T) {
 			}
 			after := loadTestInventory(t, ctx, repos, "77")
 			char, _, _ := repos.Character.Load(ctx, "77")
+			summary, summaryErr := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: "acc"})
+			wantSpent := int64(0)
+			if name == "ordinary" {
+				wantSpent = 800
+			}
+			if summaryErr != nil || summary.Metrics[dnfrepo.ActivityGoldReinforce] != wantSpent {
+				t.Fatal("强化扣款与流水不一致", summary, summaryErr)
+			}
 			success := name == "ordinary" || name == "converted"
 			if !success {
 				if got.Success {

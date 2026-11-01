@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "release": "resources-selected-20261101",
+  "kind": "exact authorized cumulative resources",
+  "pvfSHA256": "95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c",
+  "sourceBuildClaim": false,
+  "items": [
+    {
+      "path": "client/Script.pvf",
+      "kind": "pvf",
+      "sha256": "95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c",
+      "bytes": 126018482
+    },
+    {
+      "path": "client/ImagePacks2/sprite_interface2_cs_shop_cs_battlpass.NPK",
+      "kind": "npk",
+      "sha256": "6f92cb8d880aa9887aada0a9046598c4a45188676ca6c6f63eb715a76e507ccc",
+      "bytes": 475234
+    },
+    {
+      "path": "client/ImagePacks2/sprite_interface2_hud_information_button.NPK",
+      "kind": "npk",
+      "sha256": "979c0ca41406efdf5bd40a882e9ac71103bee8151d1a281d7c8f15d2a0f033ce",
+      "bytes": 568229
+    },
+    {
+      "path": "client/ImagePacks2/sprite_interface2_localaccountrank.NPK",
+      "kind": "npk",
+      "sha256": "59f742a1eb1734b1352668ce5a2246ac8d7f36f78a3213ce6a7e946da7f3edd9",
+      "bytes": 16949
+    },
+    {
+      "path": "client/ImagePacks2/sprite_interface2_localbattlepass_light95.NPK",
+      "kind": "npk",
+      "sha256": "886179d9f49dac8d0e287e8712d398f70f45f005512c737c582209ffdc9b7555",
+      "bytes": 324248
+    },
+    {
+      "path": "client/ImagePacks2/sprite_interface2_localbattlepass_windowcommon95.NPK",
+      "kind": "npk",
+      "sha256": "ff3d7e2bc51a3e68741ba118e8ff2bceaca6a8c4bb5b430156cc533ca060ce82",
+      "bytes": 177966
+    },
+    {
+      "path": "client/ImagePacks2/sprite_interface_privateactivity010.NPK",
+      "kind": "npk",
+      "sha256": "4fa1c2be179eacb3ef7c56a0b6e07c558b168b61cc3bb3468fcbb2a341df7840",
+      "bytes": 325146
+    },
+    {
+      "path": "payload/gm/indexes/expert-jobs-v1-95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c.json",
+      "kind": "gmIndex",
+      "sha256": "feb985cc8f0e7a11dd37a869222fbe50cc281eb7a403360fbc7c53573f1d8dc3",
+      "bytes": 1054
+    },
+    {
+      "path": "payload/gm/indexes/item-details-v3-95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c.bin",
+      "kind": "gmIndex",
+      "sha256": "bd45b0120600d8064897af3c7a61d23a23e462aa7ebf7138f9780673bcb71062",
+      "bytes": 215044306
+    },
+    {
+      "path": "payload/gm/indexes/items.json",
+      "kind": "gmIndex",
+      "sha256": "cde6d8d3aa10b370f44c52efc910969ed2bf4de2916e2530eb6da7e59f39d001",
+      "bytes": 49656442
+    },
+    {
+      "path": "payload/gm/indexes/professions-v1-95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c.bin",
+      "kind": "gmIndex",
+      "sha256": "ecfd4e0cc2c4fab8e1028b1bdbfb32742c4c61cf45195b850822a39b38c5b485",
+      "bytes": 415748
+    },
+    {
+      "path": "payload/gm/indexes/pvf.bin",
+      "kind": "gmIndex",
+      "sha256": "f407cd3d89fdb655fddc1650beffa2b315317d9406a4deb910c1cefb8036263a",
+      "bytes": 72092160
+    },
+    {
+      "path": "payload/gm/indexes/quests-v1-95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c.bin",
+      "kind": "gmIndex",
+      "sha256": "6c5cb0e92d894dc6dd390aa56b8a198abf1fc36aff343b4fe33fc712dd2f828a",
+      "bytes": 4263197
+    },
+    {
+      "path": "payload/runtime/data/dnf/channel_info.etc",
+      "kind": "channel",
+      "sha256": "5630b099ef98e322806c35cec25be7c7aae699ebfbc8f16e60f1a70d12bfe7d7",
+      "bytes": 17854
+    }
+  ]
+}

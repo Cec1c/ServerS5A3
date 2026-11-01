@@ -150,6 +150,8 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 		txGroup.Mailbox = &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}
 	}
 	txGroup.Skill = scopeSkillPointLedger(txGroup.Skill, base.Skill, characterID)
+	txGroup.Activity = &mysqlCharacterActivityStore{mysqlActivityStore: base.Activity.(*mysqlActivityStore), characterID: characterID}
+	base.Character.(*mysqlCharStore).activity = txGroup.Activity
 	if err := apply(txGroup); err != nil {
 		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
@@ -421,4 +423,11 @@ func (r *characterSettlementScopedEquipmentRepository) SaveFields(ctx context.Co
 		return err
 	}
 	return repository.SaveEquipmentFields(ctx, r.base, record, fields...)
+}
+
+func (r *characterSettlementScopedCharacterRepository) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {
+	if err := repository.TransactionKeyError(ctx, r.characterID, event.CharacterID); err != nil {
+		return false, err
+	}
+	return repository.RecordCharacterActivity(ctx, r.base, event)
 }

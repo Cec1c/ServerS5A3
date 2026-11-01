@@ -60,12 +60,19 @@ func writeNoPackRosterEntry(writer *packetWriter, index int, character dnfrepo.C
 	// The later character-id/empty-summary experiment left the selector black
 	// with the current source-built upper-body-bypass DLL.
 	writeNoPackRosterEquipSummary(writer, characterEquipSummary(character))
-	writeNoPackRosterNormalPostEquip(writer, character.Roster.PVPEntryQuestCompleted, dnfpvp.IsPrivateCharacter(character))
+	role := byte(3)
+	if character.Stats["level_aiming_222_role"] == 5 && !dnfpvp.IsPrivateCharacter(character) {
+		role = 5
+	}
+	writeNoPackRosterNormalPostEquipWithRole(writer, role, character.Roster.PVPEntryQuestCompleted, dnfpvp.IsPrivateCharacter(character))
 }
 
 func writeNoPackRosterNormalPostEquip(writer *packetWriter, pvp ...bool) {
+	writeNoPackRosterNormalPostEquipWithRole(writer, 3, pvp...)
+}
+func writeNoPackRosterNormalPostEquipWithRole(writer *packetWriter, role byte, pvp ...bool) {
 	writer.writeZero(24)
-	writer.writeByte(3)
+	writer.writeByte(role)
 	writer.writeByte(0)
 	writer.writeByte(0)
 	writer.writeByte(4)

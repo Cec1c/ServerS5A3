@@ -235,18 +235,22 @@ func (s *Service) sendCurrentCrystalContractCubeInventoryUpdate(
 	session *gameSession,
 	result crystalcontract.ConsumeResult,
 ) error {
+	return s.sendCurrentAccountCubeInventoryUpdate(session, result.ItemID, int16(result.SlotIndex), result.Remaining)
+}
+
+func (s *Service) sendCurrentAccountCubeInventoryUpdate(session *gameSession, itemID int64, slot int16, remaining int64) error {
 	stack := dnfrepo.ItemStack{
-		ItemID: result.ItemID,
-		Count:  result.Remaining,
+		ItemID: itemID,
+		Count:  remaining,
 		Extra:  map[string]string{"item_kind": "stackable"},
 	}
-	if result.Remaining <= 0 {
+	if remaining <= 0 {
 		stack.ItemID = 0
 		stack.Count = 0
 	}
 	entry := currentItemListEntryFromStack(
 		dnfrepo.MainInventoryListType,
-		int16(result.SlotIndex),
+		slot,
 		stack,
 	)
 	body := buildCurrentItemUpdateBody(

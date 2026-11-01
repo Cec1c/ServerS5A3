@@ -304,6 +304,10 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 			"reason", sharedAccountReasonTokenNotRecognised)
 		return false
 	}
+	if err := s.admitAccountForEdits(session, accountID); err != nil {
+		s.logWarn("dnfbridge account admission fence failed", "conn_id", session.connID, "error", err)
+		return false
+	}
 	s.lockCurrentCharacterBindingMutation(session, 0)
 	previous := strings.TrimSpace(session.accountID)
 	session.accountID = accountID

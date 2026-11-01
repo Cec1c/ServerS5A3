@@ -46,7 +46,7 @@ func TestCrossSceneProfileRefreshDiagnosticsSurviveDisabledPacketLog(t *testing.
 		}
 		f.service.sendCurrentCrossSceneProfileRefresh(batch, f.target, f.actor, owner, "party_roster")
 
-		event := r195DiagnosticEvent(t, &logs, "game-peer-userinfo-profile-refresh-sent")
+		event := crossSceneProfileDiagnosticEvent(t, &logs, "game-peer-userinfo-profile-refresh-sent")
 		assertCrossSceneProfileRefreshDiagnosticIdentity(t, event, f.target, f.actor, owner)
 		body := requireCurrentCrossSceneProfileBatchMode8(
 			t,
@@ -84,7 +84,7 @@ func TestCrossSceneProfileRefreshDiagnosticsSurviveDisabledPacketLog(t *testing.
 		}
 		f.service.sendCurrentCrossSceneProfileRefresh(batch, f.target, f.actor, owner, "equipment_appearance")
 
-		event := r195DiagnosticEvent(t, &logs, "game-peer-userinfo-profile-refresh-failed")
+		event := crossSceneProfileDiagnosticEvent(t, &logs, "game-peer-userinfo-profile-refresh-failed")
 		assertCrossSceneProfileRefreshDiagnosticIdentity(t, event, f.target, f.actor, owner)
 		if event["reason"] != "equipment_appearance" {
 			t.Fatalf("failed diagnostic lost reason: %v", event)
@@ -132,7 +132,7 @@ func TestCrossSceneProfileRefreshDiagnosticWhitelistDropsPrivateContent(t *testi
 				"char_id", uint16(999),
 			)
 
-			event := r195DiagnosticEvent(t, &logs, kind)
+			event := crossSceneProfileDiagnosticEvent(t, &logs, kind)
 			want := map[string]any{
 				"conn_id":        "cross-scene-profile-whitelist",
 				"channel_id":     float64(19),

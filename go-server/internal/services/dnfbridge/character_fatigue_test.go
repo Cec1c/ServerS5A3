@@ -29,7 +29,7 @@ func TestDungeonFatigueVisitsArePersonalDurableAndNeverNegative(t *testing.T) {
 	}
 	s := &Service{options: options{accountID: "account-1"}, repositoryProvider: func() (repo.Group, bool) { return repos, true }}
 	sessions := []*gameSession{{selectedCharacterID: 99}, {selectedCharacterID: 100}}
-	runtimes := []*runtimeDungeonState{{}, {}}
+	runtimes := []*runtimeDungeonState{{Dungeon: worldmap.Dungeon{ID: 310}}, {Dungeon: worldmap.Dungeon{ID: 310}}}
 	for i, session := range sessions {
 		for _, position := range []worldmap.RoomCoordinate{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 0, Y: 0}, {X: 2, Y: 0}} {
 			if e := s.debitDungeonRoomFatigue(session, runtimes[i], worldmap.DungeonRoomScene{Coordinate: position}); e != nil {

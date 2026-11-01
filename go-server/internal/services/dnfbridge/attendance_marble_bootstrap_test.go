@@ -37,7 +37,7 @@ func TestAttendanceMarbleProductionCatalogAdds145OnlyWhenConfigured(t *testing.T
 }
 
 func TestAttendanceMarbleCatalogPreservesAllOtherRows(t *testing.T) {
-	old, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities([]uint32{100}, 10800, true, true, true, true, true, 2418, true, true, true, true, true, true, true)
+	old, err := buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities([]uint32{100}, 10800, true, true, true, true, true, 2418, true, true, true, true, true, nil, false, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,35 +59,6 @@ func TestAttendanceMarbleCatalogPreservesAllOtherRows(t *testing.T) {
 	want = append(want, make([]byte, 48)...)
 	if !bytes.Equal(next, want) || len(b.baseRows) != len(a.baseRows)+1 || len(b.activeRows) != len(a.activeRows)+1 {
 		t.Fatal("新增145行改变了既有目录或不符合独立夹具")
-	}
-}
-
-func TestAttendanceMarbleCatalogPreservesFiendWarAndAllOtherRows(t *testing.T) {
-	old, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar([]uint32{100}, 10800, true, true, true, true, true, 2418, true, true, true, true, true, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	next, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble([]uint32{100}, 10800, true, true, true, true, true, 2418, true, true, true, true, true, true, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, b := parseCurrentSpendTimeEventInfoBody(t, old), parseCurrentSpendTimeEventInfoBody(t, next)
-	if !b.hasEvent(currentFiendWarChannelEventID) || !b.hasEvent(currentAttendanceMarbleEventID) || b.baseCount != 14 || b.activeCount != 14 {
-		t.Fatalf("combined catalog lost an activity: %+v", b)
-	}
-	offset := 2
-	for _, row := range a.baseRows {
-		offset += len(row.raw)
-	}
-	want := append([]byte(nil), old[:offset]...)
-	binary.LittleEndian.PutUint16(want, a.baseCount+1)
-	want = append(want, []byte{0x91, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}...)
-	want = append(want, a.activeCount+1)
-	want = append(want, old[offset+1:]...)
-	want = append(want, 0x91, 0)
-	want = append(want, make([]byte, 48)...)
-	if !bytes.Equal(next, want) {
-		t.Fatal("adding marble changed existing activity bytes")
 	}
 }
 
@@ -191,5 +162,34 @@ func TestAttendanceMarbleMissingTableDoesNotBlockLogin(t *testing.T) {
 	}
 	if conn.write.Len() != 0 {
 		t.Fatal("缺少棋盘表时发送了伪造活动状态")
+	}
+}
+
+func TestAttendanceMarbleCatalogPreservesFiendWarAndAllOtherRows(t *testing.T) {
+	old, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar([]uint32{100}, 10800, true, true, true, true, true, 2418, true, true, true, true, true, true, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWarAndMarble([]uint32{100}, 10800, true, true, true, true, true, 2418, true, true, true, true, true, true, true, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := parseCurrentSpendTimeEventInfoBody(t, old), parseCurrentSpendTimeEventInfoBody(t, next)
+	if !b.hasEvent(currentFiendWarChannelEventID) || !b.hasEvent(currentAttendanceMarbleEventID) || b.baseCount != 14 || b.activeCount != 14 {
+		t.Fatalf("combined catalog lost an activity: %+v", b)
+	}
+	offset := 2
+	for _, row := range a.baseRows {
+		offset += len(row.raw)
+	}
+	want := append([]byte(nil), old[:offset]...)
+	binary.LittleEndian.PutUint16(want, a.baseCount+1)
+	want = append(want, []byte{0x91, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}...)
+	want = append(want, a.activeCount+1)
+	want = append(want, old[offset+1:]...)
+	want = append(want, 0x91, 0)
+	want = append(want, make([]byte, 48)...)
+	if !bytes.Equal(next, want) {
+		t.Fatal("adding marble changed existing activity bytes")
 	}
 }

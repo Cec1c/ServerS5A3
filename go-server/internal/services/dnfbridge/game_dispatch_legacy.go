@@ -151,11 +151,38 @@ func (s *Service) handleGameCommand(session *gameSession, cmd byte, typ uint16, 
 
 func (s *Service) handleGameCommandRequest(session *gameSession, request gameplayRequest) error {
 	cmd, typ, body := request.Classification, request.Opcode, request.Body
-	if s.options.playerStrict && (session == nil || !session.accountFromToken) {
+	if s.gmEditProtectionEnabled() && (session == nil || !session.accountFromToken) {
 		return errPlayerAuthentication
 	}
 	if dnfenum.GameCmd(cmd) != dnfenum.GameCmdCommand {
 		return nil
+	}
+	// The current client sends activity requests in its legacy 13-byte frame.
+	// Keep the common authentication and classification gates above this route.
+	if typ == privateActivityOpcode {
+		return s.handlePrivateActivity(session, cmd, body)
+	}
+	if typ == privateFestivalOpcode {
+		return s.handlePrivateFestival(session, cmd, body)
+	}
+	if typ == accountRankGameOpcode {
+		return s.handleAccountRankGame(session, body)
+	}
+	if typ == battlePassGameOpcode {
+		if len(body) >= 4 {
+			switch string(body[:4]) {
+			case "BPE2":
+				return s.handleBattlePassPushSubscribe(session, body)
+			case "BPE1":
+				return s.handleBattlePassEntry(session, body)
+			case "BPQ2", "BPQ3":
+				return s.handleBattlePassGame(session, body)
+			}
+		}
+		return s.handleBattlePassPreview(session, body)
+	}
+	if typ == playerStatsGameOpcode {
+		return s.handlePlayerStatsGame(session, body)
 	}
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)
@@ -185,6 +212,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 		return err
 	}
 	if handled, err := s.handleCurrentMonthlyAttendanceClaim(session, typ, 1, body); handled || err != nil {
+		return err
+	}
+	if handled, err := s.handleCurrentPortedActivityRequest(session, typ, 1, body); handled {
 		return err
 	}
 	if typ == 689 {

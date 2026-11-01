@@ -88,7 +88,7 @@ func TestMySQLSettlementAccountOwnershipReadsOnlyLockedOwner(t *testing.T) {
 					unlocked++
 				}
 			}
-			if strings.HasPrefix(call.Query, "SELECT character_id, account_id,") {
+			if strings.HasPrefix(call.Query, "SELECT character_id, account_id, slot,") {
 				full++
 			}
 		}

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/onlineevent"
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	"time"
 
@@ -75,6 +76,21 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 		}
 		settings = append(settings, comboSettings)
 	}
+	if !dnfpvp.IsPrivateCharacter(record) && s.currentPortedActivityEnabled(1054) {
+		_, lucky, err := s.currentReturneeLuckyCatalogs(ctx)
+		if err != nil {
+			return fmt.Errorf("load new-character lucky policy: %w", err)
+		}
+		// Preserve the legacy creation marker for rollback compatibility only.
+		// Current lucky eligibility never requires it or backfills older roles.
+		if lucky != nil && lucky.Level1To89Only {
+			record = dnfrepo.CloneCharacter(record)
+			if record.Stats == nil {
+				record.Stats = make(map[string]int64)
+			}
+			record.Stats[currentLuckyNewCharacterStat] = 1
+		}
+	}
 	creation := dnfcharacterdata.Creation{
 		WelcomeCera: welcomeCera,
 		Account: &dnfrepo.AccountRecord{
@@ -93,6 +109,22 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 	if dnfpvp.IsPrivateCharacter(record) {
 		if err := s.initializePVPPrivateCreation(ctx, &creation); err != nil {
 			return err
+		}
+	}
+	requestedChallenge := record.Stats[onlineevent.LevelChallengeRoleStat] == 1
+	if requestedChallenge || (!dnfpvp.IsPrivateCharacter(record) && s.currentPortedActivityEnabled(288)) {
+		if !s.currentPortedActivityEnabled(288) {
+			return fmt.Errorf("升级大挑战未开启")
+		}
+		catalog, err := s.currentLevelChallengeCatalog(ctx)
+		if err != nil {
+			return err
+		}
+		if catalog == nil {
+			return fmt.Errorf("升级大挑战配置未就绪")
+		}
+		if requestedChallenge || catalog.AutomaticNewCharacters {
+			creation.LevelChallenge = catalog
 		}
 	}
 	if err := dnfcharacterdata.NewCreator(repos).Create(ctx, creation); err != nil {

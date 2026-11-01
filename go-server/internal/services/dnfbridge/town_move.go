@@ -296,6 +296,10 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 	character.Stats["pos_y"] = int64(request.PositionY)
 	character.Stats["direction"] = int64(request.Direction)
 	character.UpdatedAt = time.Now().UTC()
+	if !townMapPathLooksLikeSeria(area.MapPath) &&
+		(previous.Stats["town_id"] != int64(request.TownID) || previous.Stats["area_id"] != int64(request.AreaID)) {
+		dnfrepo.RecordReturneeVillage(&character, int64(request.TownID), s.gameplayNow())
+	}
 	if committed == nil && !isPVPChannel(session.channel) && !isCurrentFiendWarChannel(session) {
 		if err := dnfrepo.SaveCharacterFields(ctx, repositories.Character, character, dnfrepo.CharacterFieldStats); err != nil {
 			return err
@@ -596,14 +600,22 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 		if fplan.instance != "" {
 			copy := *fplan
 			session.fiendWarPendingMove = &copy
-			// Preserve the destination already committed through op24; automatic
-			// encounter admission must not wait for a new movement in that room.
+			// op36 already supplied the destination coordinates and op24 has
+			// successfully committed them. The generic scene reset above
+			// intentionally discarded the previous area's op35 position; retain
+			// this new, committed landing so automatic FiendWar entry does not
+			// depend on movement in a destination that is waiting for the battle.
 			session.townPositionSnapshot.PositionX = uint16(request.PositionX)
 			session.townPositionSnapshot.PositionY = uint16(request.PositionY)
 			session.townPositionSnapshot.MovementCode = request.Direction
 			session.townPositionSnapshot.PositionValid = true
 		}
 		s.queueCurrentFiendWarEncounterFrom(session, currentFiendWarAdmissionPhaseTownArea)
+	}
+	if townMapPathLooksLikeGuildHall(area.MapPath) && !s.currentGuildHallArea(byte(previous.Stats["town_id"]), byte(previous.Stats["area_id"])) {
+		if err := s.recordBattlePassAcceptedEvent(session, 10, 8); err != nil {
+			s.logGameEvent(session, "战令公会大厅入场计数失败", "error", err)
+		}
 	}
 	finishCurrentCompletedTownSceneTailAfterAreaCommitLocked(session, completedTailOwner)
 	return nil

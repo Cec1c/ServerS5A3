@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"time"
 
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
@@ -41,6 +42,10 @@ func (s *Service) commitCurrentGuildDungeonEntryFatigue(ctx context.Context, lea
 	q := dnfguild.DungeonEntryFatigueQuery{Cost: cost, Accounts: map[string]dnfrepo.AccountRecord{}}
 	if currentDungeonUsesNoFatigue(runtime.Dungeon) {
 		q.Cost = 0
+	}
+	q.OnFatigueDebit = func(character *dnfrepo.CharacterRecord, consumed int64, now time.Time) error {
+		_, err := s.applyPrivateActivity(character, 6, uint32(consumed), now, now)
+		return err
 	}
 	identities := make([]boundGameSessionCharacter, 0, len(members))
 	for _, member := range members {

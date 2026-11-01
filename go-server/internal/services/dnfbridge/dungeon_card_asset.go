@@ -62,9 +62,10 @@ func grantDungeonCardRewardBundle(
 		})
 	}
 	result, err := owner.GrantCardReward(ctx, dnfdungeon.CardRewardCommand{
-		CharacterID: characterID,
-		MainSlots:   mainSlotCount,
-		Cost:        bundle.Cost,
+		BattlePassGoldCard: bundle.BattlePassGoldCard,
+		CharacterID:        characterID,
+		MainSlots:          mainSlotCount,
+		Cost:               bundle.Cost,
 		Bundle: dnfdungeon.CardRewardBundle{
 			Gold:  bundle.Gold,
 			Items: items,
@@ -107,6 +108,7 @@ func deliverDungeonCardReservation(
 	if state == nil || !reservation.grant {
 		return dungeonCardAssetGrantResult{}, nil
 	}
+	reservation.bundle.BattlePassGoldCard = reservation.side == dungeonCardSidePaid
 	result, err := grantDungeonCardRewardBundle(ctx, repositories, state.plan.CharacterID, mainSlotCount, reservation.bundle, now)
 	state.finishDelivery(reservation, err == nil)
 	return result, err

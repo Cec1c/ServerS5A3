@@ -165,6 +165,7 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 		}
 	}
 	accounts := &accountInventoryScopedRepository{accountID: accountID, base: txGroup.AccountInventory}
+	txGroup.Character.(*mysqlCharStore).activity = &mysqlCharacterActivityStore{mysqlActivityStore: txGroup.Activity.(*mysqlActivityStore), characterID: characterID}
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: txGroup.Character}
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}

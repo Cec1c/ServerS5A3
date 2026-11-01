@@ -40,6 +40,7 @@ func actualCurrentFiendWar(t *testing.T, n int) (*raidStartGuardFixture, []*game
 		if i > 0 {
 			p.accountID = "account-" + strconv.Itoa(19+i)
 		}
+		ensureRaidRewardAccount(t, f, p.accountID)
 		p.conn = &bufferConn{}
 		f.service.bindGameSessionCharacter(p, p.selectedCharacterID)
 		f.state.Members[i].GroupIndex = byte(i + 1)

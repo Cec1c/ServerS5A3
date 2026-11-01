@@ -16,8 +16,8 @@ var ErrPurchaseLimit = errors.New("NPC shop purchase limit exceeded")
 type PurchaseLimit struct {
 	ItemID uint32
 	Scope  string
-	// Period is the purchase window period: "", "daily", or "weekly". An empty
-	// period is the legacy daily form.
+	// Period is the purchase window period: "", "daily", "weekly", or
+	// "accumulate". An empty period is the legacy daily form.
 	Period     string
 	Maximum    int64
 	ResetDaily bool
@@ -33,7 +33,7 @@ func purchaseLimitKeys(itemID uint32) (string, string) {
 // period is the legacy daily form.
 func validPurchaseLimitPeriod(period string) bool {
 	switch strings.ToLower(strings.TrimSpace(period)) {
-	case "", "daily", "weekly":
+	case "", "daily", "weekly", "accumulate":
 		return true
 	}
 	return false
@@ -56,10 +56,13 @@ func validPurchaseLimitPeriod(period string) bool {
 //   - weekly  -> Thursday-06:00 Chinese week bucket
 //   - daily   -> 06:00 Beijing service day bucket, regardless of the
 //     optional reset marker: the explicit period is authoritative
+//   - accumulate -> bucket 0, never resets, regardless of the reset marker
 //   - legacy (empty period) without reset -> bucket 0, never resets
 //   - legacy (empty period) with reset    -> 06:00 Beijing service day bucket
 func purchaseLimitBucket(policy PurchaseLimit, now time.Time) int64 {
 	switch strings.ToLower(strings.TrimSpace(policy.Period)) {
+	case "accumulate":
+		return 0
 	case "weekly":
 		return premium.ServiceDayID(now) / 7
 	case "daily":

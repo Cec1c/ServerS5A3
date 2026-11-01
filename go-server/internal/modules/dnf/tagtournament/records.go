@@ -173,6 +173,24 @@ func (o *Owner) RecordCompletion(ctx context.Context, r *Run) (CompletionRecord,
 			}
 		}
 		result = CompletionRecord{Current: current, Best: *ledger.Best[i], Weekly: ledger.Weeks[week]}
+		// 复用完整通关计时回执；同场重复请求已经在上面返回，不给双角色各记一次。
+		for _, ch := range a.characters {
+			if ch.CharacterID != a.recipient {
+				continue
+			}
+			actual, found, err := chars.Load(ctx, ch.CharacterID)
+			if err != nil {
+				return err
+			}
+			if !found || actual.AccountID != a.accountID {
+				return fmt.Errorf("帝国战令计数归属无效")
+			}
+			actual = repo.CloneCharacter(actual)
+			repo.AddBattlePassCounter(&actual, 35, -1, 1, current.FinishedAt)
+			if err = repo.SaveCharacterFields(ctx, chars, actual, repo.CharacterFieldStats); err != nil {
+				return err
+			}
+		}
 		ledger.Receipt = &recordReceipt{Token: a.token, CompletionRecord: result}
 		return saveMetadata(ctx, accounts, account, recordsKey, ledger, o.now())
 	})

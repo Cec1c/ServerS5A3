@@ -23,7 +23,9 @@ func NewMemoryGroup() repository.Group {
 	settings := &memorySettingsStore{db.NewMemoryStore(repository.SettingsKey, repository.CloneSettings)}
 	mailboxes := db.NewMemoryStore(repository.MailboxKey, repository.CloneMailbox)
 	aggregateTxMu := &sync.Mutex{}
+	activity := newMemoryActivityStore()
 	return repository.Group{
+		Activity:             activity,
 		Account:              accounts,
 		AccountInventory:     accountInventory,
 		Character:            characters,
@@ -38,18 +40,18 @@ func NewMemoryGroup() repository.Group {
 		Mailbox:              mailboxes,
 		CharacterCreate:      &memoryCharacterCreationUnitOfWork{sharedMu: aggregateTxMu},
 		CharacterItems:       &memoryCharacterItemUnitOfWork{sharedMu: aggregateTxMu, inventory: inventory, equipment: equipment},
-		CharacterTrade:       &memoryCharacterTradeUnitOfWork{sharedMu: aggregateTxMu, character: characters, inventory: inventory, accountInventory: accountInventory, settings: settings},
+		CharacterTrade:       &memoryCharacterTradeUnitOfWork{activity: activity, sharedMu: aggregateTxMu, character: characters, inventory: inventory, accountInventory: accountInventory, settings: settings},
 		CharacterPets:        &memoryCharacterPetUnitOfWork{sharedMu: aggregateTxMu, inventory: inventory, equipment: equipment, pets: pets},
 		AccountItems:         &memoryAccountCharacterItemUnitOfWork{sharedMu: aggregateTxMu, accountInventory: accountInventory, inventory: inventory},
-		CharacterAssets:      &memoryCharacterAssetUnitOfWork{sharedMu: aggregateTxMu, character: characters, inventory: inventory, equipment: equipment, quests: quests},
-		MailboxAssets:        &memoryMailboxAssetUnitOfWork{sharedMu: aggregateTxMu, accountInventory: accountInventory, account: accounts, character: characters, inventory: inventory, mailbox: mailboxes},
-		AccountAssets:        &memoryAccountCharacterAssetUnitOfWork{sharedMu: aggregateTxMu, account: accounts, accountInventory: accountInventory, character: characters, inventory: inventory, equipment: equipment, pet: pets, mailbox: mailboxes},
-		RentalAssets:         &memoryRentalAssetUnitOfWork{sharedMu: aggregateTxMu, account: accounts, character: characters, inventory: inventory, equipment: equipment},
+		CharacterAssets:      &memoryCharacterAssetUnitOfWork{activity: activity, sharedMu: aggregateTxMu, character: characters, inventory: inventory, equipment: equipment, quests: quests},
+		MailboxAssets:        &memoryMailboxAssetUnitOfWork{activity: activity, sharedMu: aggregateTxMu, accountInventory: accountInventory, account: accounts, character: characters, inventory: inventory, mailbox: mailboxes},
+		AccountAssets:        &memoryAccountCharacterAssetUnitOfWork{activity: activity, skills: skills, sharedMu: aggregateTxMu, account: accounts, accountInventory: accountInventory, character: characters, inventory: inventory, equipment: equipment, pet: pets, mailbox: mailboxes},
+		RentalAssets:         &memoryRentalAssetUnitOfWork{activity: activity, sharedMu: aggregateTxMu, account: accounts, character: characters, inventory: inventory, equipment: equipment},
 		CeraShopAssets:       &memoryCeraShopAssetUnitOfWork{sharedMu: aggregateTxMu, account: accounts, character: characters, inventory: inventory, equipment: equipment, settings: settings, pet: pets, skills: skills},
 		CharacterSkills:      &memoryCharacterSkillUnitOfWork{sharedMu: aggregateTxMu, skills: skills},
 		CharacterProgression: &memoryCharacterProgressionUnitOfWork{sharedMu: aggregateTxMu, character: characters, skills: skills},
 		QuestMaterialPlan:    &memoryQuestMaterialPreparation{mu: aggregateTxMu, quests: quests, settings: settings},
-		CharacterSettlement:  &memoryCharacterSettlementUnitOfWork{sharedMu: aggregateTxMu, settings: settings, account: accounts, accountInventory: accountInventory, character: characters, quests: quests, inventory: inventory, equipment: equipment, skills: skills, mailbox: mailboxes},
+		CharacterSettlement:  &memoryCharacterSettlementUnitOfWork{activity: activity, sharedMu: aggregateTxMu, settings: settings, account: accounts, accountInventory: accountInventory, character: characters, quests: quests, inventory: inventory, equipment: equipment, skills: skills, mailbox: mailboxes},
 		SemesterClear:        &memorySemesterClearUnitOfWork{sharedMu: aggregateTxMu, character: characters, quest: quests, settings: settings},
 		Guild:                &memoryGuildUnitOfWork{sharedMu: aggregateTxMu, character: characters, settings: settings, inventory: inventory},
 	}

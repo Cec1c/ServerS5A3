@@ -256,6 +256,7 @@ type mysqlCharStore struct {
 	mysqlStoreBase
 	trackStatChanges bool
 	loadedSnapshot   *repository.CharacterRecord
+	activity         repository.ActivityRepository
 }
 
 func (s *mysqlCharStore) AdvanceStoryDigest(ctx context.Context, characterID string, level, migrationVersion uint32) error {
@@ -437,10 +438,22 @@ func (s *mysqlCharStore) SaveFields(ctx context.Context, record repository.Chara
 		if _, execErr := database.ExecContext(ctx, buildUpsert(table, columns, updates), args...); execErr != nil {
 			return execErr
 		}
+		var saveErr error
 		if s.trackStatChanges && previous != nil && previous.CharacterID == characterID {
-			return saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty, previous.Stats)
+			saveErr = saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty, previous.Stats)
+		} else {
+			saveErr = saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty)
 		}
-		return saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty)
+		if saveErr == nil {
+			if _, stats := dirty[repository.CharacterFieldStats]; stats {
+				if previous != nil && previous.CharacterID == characterID {
+					stageBattlePassCounters(database, s.router, record, previous.Stats)
+				} else {
+					stageBattlePassCounters(database, s.router, record)
+				}
+			}
+		}
+		return saveErr
 	})
 }
 
@@ -681,4 +694,11 @@ func (s *mysqlCharStore) NextNumericID(ctx context.Context) (int, error) {
 		}
 	}
 	return maxID + 1, nil
+}
+
+func (s *mysqlCharStore) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {
+	if s.activity == nil {
+		return false, repository.ErrActivityTransaction
+	}
+	return s.activity.Record(ctx, event)
 }

@@ -660,6 +660,10 @@ func (o *Owner) ApplyFinishSettlement(
 				quests.Progress[input.QuestID] = state
 			}
 		}
+		dnfrepo.AddBattlePassCounter(&character, 13, -1, 1, now)
+		if dnfrepo.SeriaWelcomeActiveAt(character, now) {
+			character.Stats["seria_returnee_quest_count"] = min(max(character.Stats["seria_returnee_quest_count"], 0), math.MaxInt64-1) + 1
+		}
 		if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, character, dnfrepo.CharacterFieldBase, dnfrepo.CharacterFieldStats); err != nil {
 			return err
 		}
@@ -680,6 +684,19 @@ func (o *Owner) ApplyFinishSettlement(
 			if err := tx.AccountInventory.Save(ctx, accountInventory); err != nil {
 				return err
 			}
+		}
+		var colorlessSpent int64
+		for _, consumed := range consumedItems {
+			if consumed.ItemID != dnfrepo.ColorlessCubeItemID {
+				continue
+			}
+			if consumed.Delta < 0 || colorlessSpent > math.MaxInt64-consumed.Delta {
+				return dnfrepo.ErrActivityInvalid
+			}
+			colorlessSpent += consumed.Delta
+		}
+		if err := dnfrepo.RecordColorlessActivity(ctx, tx.Activity, character, colorlessSpent, "quest", now); err != nil {
+			return err
 		}
 		if err := dnfrepo.SaveQuestFields(ctx, tx.Quest, quests, questFields...); err != nil {
 			return err

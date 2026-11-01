@@ -199,9 +199,8 @@ func TestGoldDiagnosticDoesNotClaimSuppressedOrQueuedPacketsWereSent(t *testing.
 func TestGoldDiagnosticPreservesPickupCommitAndReplay(t *testing.T) {
 	s, runtime, repos := prepareCurrentDungeonDropTest(t, 0, 3227)
 	source := s.dungeonMonsterTable.source.(bridgePVFSource)
-	// The fixture selects difficulty index 1. The public base formula uses a
-	// 1.20 gold difficulty bonus, so a base of 100 with zero variance yields
-	// floor(100 * 1.20) = 120. Keep exact pickup and replay assertions on it.
+	// The fixture's PVF declares a 1.0 gold difficulty bonus. With a base
+	// of 100 and zero variance the authoritative amount is exactly 100.
 	source[dungeonCardDropRulePath] = currentDungeonGoldDropTestRuleText()
 	source[dungeonCardGoldReferencePath] = "[gold drop ref table]\n20 100 0\n"
 	currentDungeonMonsterDropRulesByCatalog.Delete(s.dungeonMonsterTable)
@@ -222,7 +221,7 @@ func TestGoldDiagnosticPreservesPickupCommitAndReplay(t *testing.T) {
 			break
 		}
 	}
-	if gold == nil || gold.Amount != 120 {
+	if gold == nil || gold.Amount != 100 {
 		t.Fatal("missing known gold drop", gold)
 	}
 	for i := 0; i < 2; i++ {
@@ -231,14 +230,14 @@ func TestGoldDiagnosticPreservesPickupCommitAndReplay(t *testing.T) {
 		}
 	}
 	character, found, err := repos.Character.Load(context.Background(), "99")
-	if err != nil || !found || character.Stats["gold"] != 120 || gold.Status != runtimeDungeonDropConsumed {
+	if err != nil || !found || character.Stats["gold"] != 100 || gold.Status != runtimeDungeonDropConsumed {
 		t.Fatal("pickup ledger changed", character, err)
 	}
 	var accepted, replayed int
 	for _, e := range goldDiagnosticEvents(t, &logs) {
 		if e["kind"] == "game-dungeon-pickup-accepted" {
 			accepted++
-			if e["amount"] != float64(120) {
+			if e["amount"] != float64(100) {
 				t.Fatal(e)
 			}
 		}

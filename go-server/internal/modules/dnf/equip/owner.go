@@ -358,6 +358,8 @@ func (o *Owner) repairSingleEquipped(
 		character.Stats["gold"] = gold - cost
 		statsChanged = true
 	}
+	dnfrepo.AddBattlePassCounter(&character, 18, -1, 1, time.Now())
+	statsChanged = true
 	if statsChanged {
 		character.UpdatedAt = time.Now()
 		if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
@@ -384,6 +386,9 @@ func (o *Owner) repairSingleEquipped(
 	result.Changed = true
 	result.FreeRepair = freeRepair
 	result.RepairedEquipmentSlots = []int16{cmd.SlotIndex}
+	if err := dnfrepo.RecordCharacterGold(ctx, characters, character, dnfrepo.ActivityGoldRepair, result.Cost, character.UpdatedAt); err != nil {
+		return RepairResult{}, err
+	}
 	return result, nil
 }
 
@@ -536,12 +541,11 @@ func (o *Owner) repairAllInTransaction(
 	if total > gold {
 		return RepairResult{}, fmt.Errorf("%w: cost=%d gold=%d", ErrRepairGoldInsufficient, total, gold)
 	}
-	if total > 0 || freeRepair {
-		character.Stats["gold"] = gold - total
-		character.UpdatedAt = time.Now()
-		if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
-			return RepairResult{}, err
-		}
+	dnfrepo.AddBattlePassCounter(&character, 18, -1, 1, time.Now())
+	character.Stats["gold"] = gold - total
+	character.UpdatedAt = time.Now()
+	if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+		return RepairResult{}, err
 	}
 	for _, target := range targets {
 		if target.equipped {
@@ -589,6 +593,9 @@ func (o *Owner) repairAllInTransaction(
 	result.RepairedCount = len(targets)
 	sort.Slice(result.RepairedEquipmentSlots, func(i, j int) bool { return result.RepairedEquipmentSlots[i] < result.RepairedEquipmentSlots[j] })
 	sort.Slice(result.RepairedInventorySlots, func(i, j int) bool { return result.RepairedInventorySlots[i] < result.RepairedInventorySlots[j] })
+	if err := dnfrepo.RecordCharacterGold(ctx, characters, character, dnfrepo.ActivityGoldRepair, result.Cost, character.UpdatedAt); err != nil {
+		return RepairResult{}, err
+	}
 	return result, nil
 }
 

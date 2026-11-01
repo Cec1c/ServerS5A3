@@ -14,11 +14,11 @@ func TestR195FiendWarActivityCatalogPreservesOnlineAndSeria(t *testing.T) {
 			for _, enabled := range []bool{false, true} {
 				t.Run(fmt.Sprintf("native=%t/seria=%t/fiend=%t", native, seria, enabled), func(t *testing.T) {
 					ids := currentSpendTimeJoustCatalogGoldenRewards
-					old, err := buildCurrentActivityEventInfoBodyWithRuntimeActivities(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, native, seria)
+					old, err := buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, nil, false, native, seria)
 					if err != nil {
 						t.Fatal(err)
 					}
-					next, err := buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndFiendWar(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, native, seria, enabled)
+					next, err := buildCurrentActivityEventInfoBodyWithImageTownRuntimeActivities(ids, 10800, true, true, true, true, true, 2418, true, true, true, true, true, nil, enabled, native, seria)
 					if err != nil {
 						t.Fatal(err)
 					}

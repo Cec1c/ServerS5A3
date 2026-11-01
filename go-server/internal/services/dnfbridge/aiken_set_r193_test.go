@@ -9,16 +9,12 @@ import (
 	"testing"
 
 	aiken "longheng.io/server/internal/modules/dnf/aikenupgrade"
-	proto "longheng.io/server/internal/modules/dnf/protocol"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 func aikenR193Fixture(t *testing.T) (*Service, *gameSession, repo.Group) {
 	t.Helper()
-	s, g, repos, _, _ := aikenR142Fixture(t, "")
-	if err := repos.Settings.Save(context.Background(), repo.SettingsRecord{Scope: repo.CharacterContainerStateScope("19"), Values: map[string]string{"main_list_param16": "24", "avatar_list_param16": "0", "personal_cargo_list_param16": "8"}}); err != nil {
-		t.Fatal(err)
-	}
+	s, g, repos, _ := aikenR167ZeroStateFixture(t)
 	inv := aikenR142Load(t, repos)
 	for slot, id := range map[int]int64{9: 100120561, 10: 100220536, 11: 100352922} {
 		raw := make([]byte, 119)
@@ -50,7 +46,7 @@ func TestAikenR193RealSetCreateReplaceAndRelog(t *testing.T) {
 		t.Fatalf("unexpected real plan %+v", plan)
 	}
 	body := []byte{1, 34, 3, 9, 0, 10, 0, 11, 0}
-	aikenSetDispatch(t, s, g, 1341, body)
+	aikenR160Dispatch(t, s, g, 1341, body)
 	packets := splitAllGameServerUpperPackets(t, g.conn.(*bufferConn).write.Bytes())
 	if len(packets) != 3 || packets[0].Header.MsgID != 14 || packets[1].Header.MsgID != 1278 || packets[2].Header.MsgID != 1341 || packets[2].Header.Classification != 1 || !bytes.Equal(packets[2].Body, []byte{1}) {
 		t.Fatalf("set must publish item, record, then success: %+v", packets)
@@ -78,7 +74,7 @@ func TestAikenR193RealSetCreateReplaceAndRelog(t *testing.T) {
 		t.Fatalf("snapshot must restore one deduplicated record: %+v", packets)
 	}
 	g.conn.(*bufferConn).write.Reset()
-	aikenSetDispatch(t, s, g, 1341, body)
+	aikenR160Dispatch(t, s, g, 1341, body)
 	final := aikenR142Load(t, repos)
 	// 118 - trunc(float32(118)*0.9) = 12, not another full price.
 	if final.Slots["0:158"].Count != 5000-118-12 {
@@ -108,7 +104,7 @@ func TestAikenR193RealSetInsufficientAndMalformed(t *testing.T) {
 			}
 			aikenR142Save(t, repos, inv)
 			before := aikenR142Load(t, repos)
-			aikenSetDispatch(t, s, g, 1341, body)
+			aikenR160Dispatch(t, s, g, 1341, body)
 			packets := splitAllGameServerUpperPackets(t, g.conn.(*bufferConn).write.Bytes())
 			code := byte(1)
 			if name == "insufficient" {
@@ -145,16 +141,5 @@ func TestAikenR193RealCatalogCostRange(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func aikenSetDispatch(t *testing.T, s *Service, session *gameSession, opcode uint16, body []byte) {
-	t.Helper()
-	frame, err := proto.BuildChannelPacket(opcode, body, 1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.handleGameUpper(session, frame); err != nil {
-		t.Fatal(err)
 	}
 }

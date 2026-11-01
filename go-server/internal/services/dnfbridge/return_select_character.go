@@ -129,5 +129,6 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	session.rosterRequested = false
 	session.channelReconnect = false
 	session.townActorOwnerChannel = currentConnectionTownActorOwnerContext(session)
+	s.releaseCharacterEditAdmission(session)
 	return previousCharacterID, abandonedDungeon
 }

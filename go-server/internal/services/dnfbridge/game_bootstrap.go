@@ -403,6 +403,10 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 	if session != nil && session.coldChannelLanding != nil && session.coldChannelLanding.waiting {
 		return nil
 	}
+	// 登录、返回选角和固定封包共用入口，须在角色表之前发送815。
+	if err := s.sendCurrentLevelChallengeSelector(session); err != nil {
+		s.logGameEvent(session, "升级大挑战选角状态暂缓", "error", err)
+	}
 	body := s.buildUpperGetUserInfoRosterBody(session)
 	s.logPacketEvent("game-upper-get-userinfo-bootstrap-send",
 		"conn_id", session.connID,

@@ -11,6 +11,7 @@ import (
 // memoryCharacterSettlementUnitOfWork buffers all settlement aggregates
 // before committing them under the shared aggregate transaction mutex.
 type memoryCharacterSettlementUnitOfWork struct {
+	activity         *memoryActivityStore
 	mu               sync.Mutex
 	sharedMu         *sync.Mutex
 	account          repository.AccountRepository
@@ -192,6 +193,12 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 	} else if comboSettingsTx != nil {
 		txGroup.Settings = comboSettingsTx
 	}
+	var activityTx *memoryActivityTransaction
+	if u.activity != nil && characterExists {
+		activityTx = u.activity.transaction()
+		txGroup.Activity = repository.ScopeCharacterActivity(activityTx, character)
+		characterTx.activity = txGroup.Activity
+	}
 	if err := apply(txGroup); err != nil {
 		return err
 	}
@@ -293,6 +300,9 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		if err := writer.AppendClear(ctx, *characterTx.clear); err != nil {
 			return err
 		}
+	}
+	if activityTx != nil {
+		activityTx.commit()
 	}
 	committed = true
 	return nil

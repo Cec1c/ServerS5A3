@@ -195,7 +195,12 @@ func TestRealPVFDayDungeonCatalogRefreshAndSameDayDedupe(t *testing.T) {
 		t.Fatalf("crossday timer delay %v", got)
 	}
 	conn.write.Reset()
-	task := queue.tasks[len(queue.tasks)-1]
+	// Quest-material recovery also schedules work after the day refresh.
+	// Exercise the named production callback, independently of insertion order.
+	task := queue.active["dnf-day-dungeon-catalog:"+session.connID]
+	if task == nil {
+		t.Fatal("day catalog timer missing")
+	}
 	queue.now = queue.now.Add(24 * time.Hour)
 	queue.fire(task, false)
 	if session.activityCatalogDayEvent != 2423 || conn.write.Len() == 0 {
@@ -216,7 +221,10 @@ func TestRealPVFDayDungeonCatalogRefreshAndSameDayDedupe(t *testing.T) {
 	}
 	assertCurrentDayDungeonSchedulePackets(t, schedule, 4906, 4908, 4910)
 	conn.write.Reset()
-	task = queue.tasks[len(queue.tasks)-1]
+	task = queue.active["dnf-day-dungeon-catalog:"+session.connID]
+	if task == nil {
+		t.Fatal("next day catalog timer missing")
+	}
 	session.characterGeneration++
 	queue.now = queue.now.Add(24 * time.Hour)
 	queue.fire(task, false)

@@ -160,6 +160,10 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			gotChar, _, _ := repos.Character.Load(ctx, "77")
 			gotBag, _, _ := repos.Inventory.Load(ctx, "77")
 			gotShared, _, _ := repos.AccountInventory.Load(ctx, account)
+			goldSummary, goldErr := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: account})
+			if goldErr != nil || goldSummary.Metrics[dnfrepo.ActivityGoldReinforce] != beforeChar.Stats["gold"]-tc.wantGold {
+				t.Fatal("真实PVF费用与金币流水不一致", goldSummary, goldErr)
+			}
 			if tc.reject {
 				code := byte(22)
 				if tc.name == "default_ordinary_insufficient_gold" {

@@ -115,6 +115,9 @@ type partyDungeonDoorArrivalKey struct {
 type dungeonPartyInstance struct {
 	guildRankingRun           *currentGuildRankingRun
 	guildContributionRun      *currentGuildContributionRun
+	activityNonce             string
+	activityAbyssAt           time.Time
+	activityAbyssRecipients   []dungeonDropRecipient
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 

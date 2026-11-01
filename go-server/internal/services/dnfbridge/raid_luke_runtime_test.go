@@ -37,6 +37,7 @@ func normalLukeFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, time
 		t.Fatal(err)
 	}
 	f := raidSafetyFixture(t, a, 2)
+	ensureRaidRewardAccount(t, f, "account-20")
 	f.service.options.currentClientVersion = "official-24.9"
 	session := f.session()
 	session.channel.ID, session.channel.Type = 32, 32
@@ -248,7 +249,8 @@ func TestRealPVFLukeOwnedTwoPhasesRewardsAndWeekly(t *testing.T) {
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(first.AutoSelectAt.Add(65*time.Second), zeroAntonRoll); len(errs) != 0 || first.FinishedAt.IsZero() || first.BreakUntil.IsZero() {
 		t.Fatal("Luke no-squad flow stalled", errs)
 	}
-	// The second phase consumes confirmed current-battle waiting presence.
+	// Phase admission now requires both admitted characters to be online in
+	// the real waiting area. The older fixture omitted that return boundary.
 	peer := f.session()
 	peer.selectedCharacterID, peer.accountID = 20, "account-20"
 	peer.channel, peer.loginPacketSeen, peer.accountFromToken = session.channel, true, true

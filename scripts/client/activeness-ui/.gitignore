@@ -1,0 +1,6 @@
+*.obj
+*.lib
+*.exp
+*.map
+*.payload
+__pycache__/
