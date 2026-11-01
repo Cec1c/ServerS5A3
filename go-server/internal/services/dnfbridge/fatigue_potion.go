@@ -89,6 +89,15 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 	if !supported {
 		return false, nil
 	}
+	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if !bound || identity.generation == 0 || strconv.Itoa(int(identity.character)) != characterID {
+		return reject()
+	}
+	reservation, err := s.reserveCurrentCharacterAssets(ctx, identity, s.accountIDForSession(session))
+	if err != nil {
+		return reject()
+	}
+	defer s.releaseCurrentCharacterAssets(reservation)
 	session.dungeon.mu.Lock()
 	inDungeon := session.dungeon.runtime != nil
 	session.dungeon.mu.Unlock()
@@ -102,7 +111,14 @@ func (s *Service) handleCurrentFatiguePotionUse(session *gameSession, body []byt
 	if !found {
 		return true, nil
 	}
-	result, err := dnffatigue.RestorePotion(ctx, repos, account, characterID, slot, definition, s.gameplayNow())
+	result, err := dnffatigue.RestorePotionWithGuard(ctx, repos, account, characterID, slot, definition, s.gameplayNow(), dnffatigue.PotionUseGuard{
+		Expired: currentDungeonDiscardStackExpired,
+		Revalidate: func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.currentCharacterAssetReservationValidLocked(reservation)
+		},
+	})
 	if err != nil {
 		s.logGameEvent(session, "game-fatigue-potion-rejected", "char_id", session.selectedCharacterID, "item_id", stack.ItemID, "action_index", binary.LittleEndian.Uint32(body[7:11]), "error", err)
 		return reject()

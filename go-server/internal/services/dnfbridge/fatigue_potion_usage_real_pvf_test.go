@@ -71,6 +71,7 @@ func testRealPVFFatiguePotionRemainingCountLifecycle(t *testing.T, itemID uint32
 	service := &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}, initialEquipmentArchive: archive, pvfItemCatalog: catalog, gameplayTimers: queue, repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }}
 	conn := &bufferConn{}
 	session := &gameSession{conn: conn, connID: "fatigue416", selectedCharacterID: 17, characterGeneration: 1, accountID: account.AccountID}
+	service.bindGameSessionCharacter(session, 17)
 	checkUsage := func(data []byte, want byte) {
 		t.Helper()
 		packet, rest := splitGameServerUpperPacket(t, data)

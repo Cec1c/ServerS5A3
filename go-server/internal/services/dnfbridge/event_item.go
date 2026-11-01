@@ -44,6 +44,12 @@ func (s *Service) handleCurrentPermanentWeapon(session *gameSession, body []byte
 }
 
 func (s *Service) handleCurrentEventItem(p *gameSession, op uint16, body []byte) error {
+	if op == uint16(dnfenum.CmdPacketUpgradeInventory) {
+		// The registered event module runs before the aligned fallback. Route
+		// every inventory ticket through the same PVF/transaction/ACK owner.
+		_, err := s.handleCurrentContainerUpgradeTicket(p, 1, op, body)
+		return err
+	}
 	kind, slot, targetSlot, err := parseCurrentEventItemRequest(op, body)
 	reject := func(reason any) error {
 		s.logGameEvent(p, "game-event-item-rejected", "opcode", op, "reason", reason)

@@ -105,6 +105,7 @@ func publicFatigueNew(t *testing.T, r publicFatigueResources, id, count int64, n
 func (f *publicFatigueFixture) reload() {
 	f.s = &Service{options: options{gameUpperBodyCodec: gameUpperBodyCodecPlain}, initialEquipmentArchive: f.resource.archive, pvfItemCatalog: f.resource.catalog, gameplayTimers: f.queue, repositoryProvider: func() (repo.Group, bool) { return f.repos, true }}
 	f.p = &gameSession{conn: &bufferConn{}, connID: "fatigue-local", selectedCharacterID: 17, accountID: "fatigue-local"}
+	f.s.bindGameSessionCharacter(f.p, 17)
 }
 func (f *publicFatigueFixture) spendFixtureFatigue(t *testing.T) {
 	// Controlled dungeon-spend prerequisite for clock tests; not production data.
