@@ -8,10 +8,11 @@ P.add_argument('--after',type=Path,required=True)
 P.add_argument('--out',type=Path,required=True,help='New output directory')
 cli_args=P.parse_args()
 import patch_container_upgrade_ack as patch
-EXPECTED=patch.INPUT_SHA256
+EXPECTED=hashlib.sha256(cli_args.before.read_bytes()).hexdigest()
 def load():
     raw=cli_args.before.read_bytes()
     assert hashlib.sha256(raw).hexdigest()==EXPECTED,'Input SHA256 mismatch'
+    assert patch.INPUT_PROFILES.get(EXPECTED)==len(raw),'Unrecognized cumulative input'
     return raw,None
 sys.dont_write_bytecode = True
 from test_patch_fatigue_count_v164 import native,windows_image
