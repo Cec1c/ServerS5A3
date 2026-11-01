@@ -22,30 +22,45 @@ func (s *Service) notifyRuntimePartySelectionDeparture(leaving *gameSession, res
 	if !result.OK || result.Previous == nil {
 		return
 	}
-	name := "一名队员"
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
-	if repositories, ok := s.repositoryGroup(); ok && repositories.Character != nil {
-		if c, found, err := repositories.Character.Load(ctx, strconv.Itoa(int(result.TargetUser))); err == nil && found && c.Name != "" {
-			name = c.Name
-		}
-	}
-	var w packetWriter
-	w.writeByte(0)
-	w.writeUint16(0xffff)
-	w.writeByte(0)
-	w.writeRawDstr(rosterNameBytes(name + "已" + action + "并退出队伍。"))
-	w.writeRawDstr(nil)
+	departed := result.TargetUser
 	for _, member := range result.Previous.Members {
-		if member.UserID == result.TargetUser {
+		if member.UserID == departed {
 			continue
 		}
 		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || identity.session == leaving || identity.generation != member.SessionGeneration {
 			continue
 		}
-		if err := s.sendGameUpperRawClass(identity.session, currentAreaChatNotifyOpcode, w.bytes(), 0); err != nil {
-			s.logWarn("dnfbridge party selection departure notice failed", "source", source, "char_id", member.UserID, "error", err)
+		// This optional text and its name lookup belong to the receiver. A
+		// slow peer or full queue must not delay the leaving player's ACK.
+		err := s.tryPostGameSessionCharacterEvent(identity.session, "party-selection-departure-notice", identity.character, identity.generation, func() error {
+			if !s.boundGameSessionCharacterCurrent(identity) {
+				return nil
+			}
+			name := "一名队员"
+			ctx, cancel := context.WithTimeout(identity.session.gameTransportContext(), createWriteTimeout)
+			defer cancel()
+			if repositories, ok := s.repositoryGroup(); ok && repositories.Character != nil {
+				if c, found, err := repositories.Character.Load(ctx, strconv.Itoa(int(departed))); err == nil && found && c.Name != "" {
+					name = c.Name
+				}
+			}
+			if !s.boundGameSessionCharacterCurrent(identity) {
+				return nil
+			}
+			var w packetWriter
+			w.writeByte(0)
+			w.writeUint16(0xffff)
+			w.writeByte(0)
+			w.writeRawDstr(rosterNameBytes(name + "已" + action + "并退出队伍。"))
+			w.writeRawDstr(nil)
+			if err := s.sendGameUpperRawClass(identity.session, currentAreaChatNotifyOpcode, w.bytes(), 0); err != nil {
+				s.logWarn("dnfbridge party selection departure notice failed", "source", source, "char_id", identity.character, "error", err)
+			}
+			return nil
+		})
+		if err != nil {
+			s.logGameEvent(identity.session, "game-party-selection-notice-deferred", "source", source, "error", err)
 		}
 	}
 }
