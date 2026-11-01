@@ -32,6 +32,16 @@ func applyCurrentBoosterSelectionUpgrades(def currentBoosterDefinition, req curr
 	for i := range rewards {
 		row := byID[rewards[i].Definition.ItemID]
 		level, forging := row.EquipmentUpgrade, row.EquipmentSeparate
+		if level == 255 {
+			if rewards[i].Count != 1 || rewards[i].Definition.Kind != dungeonDropItemEquipment || rewards[i].Placement != currentBoosterRewardMain {
+				return errCurrentBoosterPVFInvalid
+			}
+			var err error
+			level, err = newCurrentBoosterRandomUpgrade(row.EquipmentUpgradeTable)
+			if err != nil {
+				return err
+			}
+		}
 		if level == 0 && forging == 0 {
 			continue
 		}

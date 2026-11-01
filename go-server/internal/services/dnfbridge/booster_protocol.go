@@ -89,9 +89,10 @@ type currentBoosterSelectionCandidate struct {
 	Option       byte
 	// DefaultSelected is category-local metadata; quantity/attributes still
 	// come from the actual reward row, never from the default-select list.
-	DefaultSelected   bool
-	EquipmentUpgrade  byte
-	EquipmentSeparate byte
+	DefaultSelected       bool
+	EquipmentUpgrade      byte
+	EquipmentSeparate     byte
+	EquipmentUpgradeTable currentBoosterUpgradeTable
 }
 
 type currentBoosterRewardPlacement byte

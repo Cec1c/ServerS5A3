@@ -168,6 +168,7 @@ func parseCurrentBoosterSelectionCatalog(
 	var categoryID uint16
 	var equipmentUpgrade byte
 	var equipmentSeparate byte
+	var equipmentUpgradeTable currentBoosterUpgradeTable
 	result := make([]currentBoosterSelectionCandidate, 0, 8)
 	seen := make(map[uint32]currentBoosterSelectionCandidate)
 	categorySeen := make(map[uint16]map[uint32]struct{})
@@ -183,6 +184,7 @@ func parseCurrentBoosterSelectionCatalog(
 		case "booster select category":
 			equipmentUpgrade = 0
 			equipmentSeparate = 0
+			equipmentUpgradeTable = currentBoosterUpgradeTable{}
 			if inCategory {
 				return nil, nil, fmt.Errorf("nested booster selection category")
 			}
@@ -283,6 +285,17 @@ func parseCurrentBoosterSelectionCatalog(
 				return nil, nil, fmt.Errorf("invalid %s integer metadata", name)
 			}
 		}
+		if name == "random probability" {
+			if equipmentUpgrade != 255 || equipmentUpgradeTable != (currentBoosterUpgradeTable{}) {
+				return nil, nil, fmt.Errorf("random upgrade table without unique marker")
+			}
+			var err error
+			equipmentUpgradeTable, err = parseCurrentBoosterUpgradeTable(document, section)
+			if err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
 		if len(values) == 0 {
 			if name == "booster equipment upgrade" {
 				return nil, nil, fmt.Errorf("invalid booster equipment upgrade")
@@ -293,10 +306,11 @@ func parseCurrentBoosterSelectionCatalog(
 			// Native 0x3b406ee reads the category's integer; 0x3b40b61
 			// copies it only into equipment rows. 255 selects a distinct random
 			// upgrade table and must not become a literal reinforcement value.
-			if len(values) != 1 || values[0] < 0 || values[0] > 31 || section.End-section.Start != 1 {
+			if len(values) != 1 || values[0] < 0 || (values[0] > 31 && values[0] != 255) || section.End-section.Start != 1 {
 				return nil, nil, fmt.Errorf("unsupported booster equipment upgrade")
 			}
 			equipmentUpgrade = byte(values[0])
+			equipmentUpgradeTable = currentBoosterUpgradeTable{}
 			continue
 		}
 		if name == "booster equipment separate" {
@@ -343,6 +357,12 @@ func parseCurrentBoosterSelectionCatalog(
 			if name == "equipment" {
 				candidate.EquipmentUpgrade = equipmentUpgrade
 				candidate.EquipmentSeparate = equipmentSeparate
+				if equipmentUpgrade == 255 {
+					if equipmentUpgradeTable == (currentBoosterUpgradeTable{}) || count != 1 {
+						return nil, nil, fmt.Errorf("random upgrade requires table and one equipment instance")
+					}
+					candidate.EquipmentUpgradeTable = equipmentUpgradeTable
+				}
 			}
 			if previous, duplicate := seen[candidate.ItemID]; duplicate {
 				if previous != candidate {
