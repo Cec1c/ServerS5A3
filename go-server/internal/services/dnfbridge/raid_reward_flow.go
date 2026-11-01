@@ -35,8 +35,8 @@ type currentAntonRewardFlow struct {
 	Squad              map[uint16]*currentAntonRewardCard
 	Weekly             raid.WeeklyClearCommand
 	AutoSelectAt       time.Time
-	PartySelectAfter   map[uint16]time.Time
 	PartyShownAt       time.Time
+	PartySelectAfter   map[uint16]time.Time
 	PartyCommittedAt   time.Time
 	SquadShownAt       time.Time
 	FinishedAt         time.Time
@@ -369,6 +369,24 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			continue
 		}
 		failed := false
+		if privateActivityFinalRaid(f) {
+			for _, owner := range owners {
+				if owner.Clears < f.Rewards.MinimumClears {
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+				err := s.persistPrivateActivity(ctx, owner.AccountID, strconv.Itoa(int(owner.CharacterID)), 4, now, f.CompletedAt)
+				cancel()
+				if err != nil {
+					errors = append(errors, err)
+					failed = true
+					break
+				}
+			}
+			if failed {
+				continue
+			}
+		}
 		for _, kind := range []byte{1, 3} {
 			if kind == 3 && !f.squadRequired() {
 				continue

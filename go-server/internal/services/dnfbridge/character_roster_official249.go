@@ -31,7 +31,11 @@ func writeOfficial249RosterEntryWithPermission(writer *packetWriter, index int, 
 	writer.writeUint32(0)
 	writeNoPackRosterEquipSummary(writer, characterEquipSummary(character))
 	writer.writeZero(24)
-	writer.writeByte(3)
+	role := byte(3)
+	if character.Stats["level_aiming_222_role"] == 5 {
+		role = 5
+	}
+	writer.writeByte(role)
 	writer.writeByte(0)
 	writer.writeByte(0)
 	writer.writeByte(4)

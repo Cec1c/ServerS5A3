@@ -6,6 +6,7 @@ type dungeonDropRecipient struct {
 	CharacterID uint16
 	ActorKey    uint16
 	AccountID   string
+	Session     *gameSession
 }
 
 // Snapshot recipients without entering another session's dungeon lock. Accounts
@@ -26,7 +27,7 @@ func partyDungeonDropRecipients(runtime *runtimeDungeonState, characterID uint16
 		if member == nil {
 			continue
 		}
-		recipients = append(recipients, dungeonDropRecipient{CharacterID: id, ActorKey: currentSceneActorObjectKey(id), AccountID: member.accountID})
+		recipients = append(recipients, dungeonDropRecipient{CharacterID: id, ActorKey: currentSceneActorObjectKey(id), AccountID: member.accountID, Session: member})
 	}
 	return recipients
 }
@@ -36,7 +37,7 @@ func partyDungeonDropRecipients(runtime *runtimeDungeonState, characterID uint16
 func (s *Service) planPartyDungeonMonsterDrops(session *gameSession, runtime *runtimeDungeonState, monster runtimeDungeonMonster, actorKey uint16) ([]currentDungeonDeathDropWire, error) {
 	recipients := partyDungeonDropRecipients(runtime, session.selectedCharacterID, actorKey)
 	if len(recipients) == 1 {
-		return s.planCurrentDungeonMonsterDrops(runtime, monster, actorKey)
+		return s.planCurrentDungeonMonsterDropsWithLuckyRate(runtime, monster, actorKey, s.currentLuckyUniqueDropPercent(session, runtime.Character))
 	}
 	monsterCatalog, err := s.dungeonMonsterCatalog()
 	if err != nil {
@@ -54,7 +55,7 @@ func (s *Service) planPartyDungeonMonsterDrops(session *gameSession, runtime *ru
 	var all []currentDungeonDeathDropWire
 	for _, recipient := range recipients {
 		view := *runtime
-		if dimensionMatched && recipient.CharacterID != session.selectedCharacterID {
+		if (dimensionMatched || s.currentPortedActivityEnabled(1054)) && recipient.CharacterID != session.selectedCharacterID {
 			character, err := s.loadDimensionDropCharacter(recipient.CharacterID)
 			if err != nil {
 				s.logGameEvent(session, "game-dungeon-party-member-drop-deferred", "recipient_char_id", recipient.CharacterID, "error", err)
@@ -66,7 +67,12 @@ func (s *Service) planPartyDungeonMonsterDrops(session *gameSession, runtime *ru
 		view.AccountID = recipient.AccountID
 		// An unavailable peer account must not inherit the killer's contract.
 		view.Character.AccountID = recipient.AccountID
-		wires, err := s.planCurrentDungeonMonsterDrops(&view, monster, recipient.ActorKey)
+		recipientSession := session
+		if recipient.CharacterID != session.selectedCharacterID {
+			recipientSession = recipient.Session
+		}
+		luckyPercent := s.currentLuckyUniqueDropPercent(recipientSession, view.Character)
+		wires, err := s.planCurrentDungeonMonsterDropsWithLuckyRate(&view, monster, recipient.ActorKey, luckyPercent)
 		if err != nil {
 			s.logGameEvent(session, "game-dungeon-party-member-drop-deferred", "monster_object_key", monster.ObjectKey, "recipient_char_id", recipient.CharacterID, "error", err)
 			continue

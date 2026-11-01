@@ -267,6 +267,9 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 	defer cancel()
 	var cleanupCompleted atomic.Bool
 	cleanup := func() error {
+		if p := session.battlePassPush; p != nil {
+			p.stop(s)
+		}
 		s.retireCurrentLukeSessionRun(session)
 		s.releaseCurrentRaidParticipationSession(session)
 		s.cancelCurrentDayDungeonCatalogRefresh(session)
@@ -293,6 +296,7 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 		cleanupErr = errors.Join(cleanupErr, cleanup())
 	}
 	if stopErr == nil && cleanupCompleted.Load() {
+		s.releaseAccountEditAdmission(session)
 		s.accountLogins.finished(session)
 	}
 	if stopErr != nil && s.accountLogins.tracked(session) {
@@ -307,6 +311,7 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 			if !cleanupCompleted.Load() {
 				_ = cleanup()
 			}
+			s.releaseAccountEditAdmission(session)
 			s.accountLogins.finished(session)
 			s.logInfo("dnfbridge deferred session cleanup completed", "conn_id", session.connID)
 		}()

@@ -243,6 +243,15 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	monster runtimeDungeonMonster,
 	ownerActorObjectKey uint16,
 ) ([]currentDungeonDeathDropWire, error) {
+	return s.planCurrentDungeonMonsterDropsWithLuckyRate(runtime, monster, ownerActorObjectKey, 0)
+}
+
+func (s *Service) planCurrentDungeonMonsterDropsWithLuckyRate(
+	runtime *runtimeDungeonState,
+	monster runtimeDungeonMonster,
+	ownerActorObjectKey uint16,
+	luckyUniquePercent int64,
+) ([]currentDungeonDeathDropWire, error) {
 	if runtime == nil || runtime.Session == nil || runtime.Room == nil {
 		return nil, errDungeonWorldMapUnavailable
 	}
@@ -297,8 +306,26 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	rng := newCurrentDungeonDropLCG(visit.DropRNG)
 	probability, probabilityFound := rules.Probability(int64(monsterLevel))
 	itemReference, itemReferenceFound := rules.ItemReference(int64(monsterLevel))
-	difficultyRate := currentDungeonDropDifficultyRate(int(runtime.Request.Difficulty))
 	raw := rules.RawTables()
+	difficulty := int(runtime.Request.Difficulty)
+	if difficulty < 0 || difficulty >= 5 {
+		return nil, fmt.Errorf("PVF drop difficulty invalid: %d", difficulty)
+	}
+	partyCount := 1
+	if runtime.partyInstance != nil {
+		partyCount = runtime.partyInstance.memberCount()
+	}
+	if partyCount < 1 {
+		partyCount = 1
+	}
+	if partyCount > 4 {
+		partyCount = 4
+	}
+	categoryRate := func(category int) int {
+		return currentDungeonDropRate(probability.Rates[category], raw.MonsterTypeBonus[category][monsterType], raw.DifficultyBonus[category][difficulty]*raw.PartyBonus[category][partyCount-1])
+	}
+	difficultyRate := raw.DifficultyBonus[0][difficulty]
+	explicitPoolRate := 0
 
 	type plannedDrop struct {
 		itemID uint32
@@ -321,7 +348,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			return nil, fmt.Errorf("%w: monster_level=%d", errCurrentDungeonGoldReferenceInvalid, monsterLevel)
 		}
 		goldAmount := currentDungeonGoldAmount(rng, goldReference, difficultyRate)
-		goldRate := currentDungeonDropRate(probability.Rates[0], raw.MonsterTypeBonus[0][monsterType], difficultyRate)
+		goldRate := categoryRate(0)
 		goldRoll := rng.Next(currentDungeonDropDenominator)
 		goldSelected := goldRate > goldRoll
 		s.logGameEvent(nil, "game-dungeon-monster-drop-gold-roll",
@@ -448,7 +475,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	}
 	if probabilityFound && itemReferenceFound {
 		for attempt := 0; attempt < randomDropAttempts; attempt++ {
-			if rate := currentDungeonDropRate(probability.Rates[1], raw.MonsterTypeBonus[1][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
+			if rate := categoryRate(1); rate > rng.Next(currentDungeonDropDenominator) {
 				rarity := currentDungeonDropRarity(rng, rules)
 				itemID, selected, err := dropCatalog.SelectGenericStackable(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
 				if err != nil {
@@ -460,7 +487,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 					}
 				}
 			}
-			if rate := currentDungeonDropRate(probability.Rates[2], raw.MonsterTypeBonus[2][monsterType], difficultyRate); !dimensionImageSpecial && rate > rng.Next(currentDungeonDropDenominator) {
+			if rate := categoryRate(2); !dimensionImageSpecial && rate > rng.Next(currentDungeonDropDenominator) {
 				var itemID uint32
 				var selected bool
 				if dimensionMatched && len(dimensionDrops.ChronicleByCareer) > 0 {
@@ -482,7 +509,9 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 						selectedDimensionChronicleGroups = append(selectedDimensionChronicleGroups, group)
 					}
 				} else {
-					rarity := currentDungeonDropRarityWithMarble(rng, rules, runtime.attendanceMarbleBuffs&1 != 0)
+					var luckyPercent int64
+					luckyPercent = luckyUniquePercent
+					rarity := currentDungeonDropRarityWithLucky(rng, rules, runtime.attendanceMarbleBuffs&1 != 0, luckyPercent)
 					itemID, selected, err = dropCatalog.selectOrdinaryMonsterEquipment(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
 					if err != nil {
 						return nil, err
@@ -494,7 +523,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 					}
 				}
 			}
-			if rate := currentDungeonDropRate(probability.Rates[3], raw.MonsterTypeBonus[3][monsterType], difficultyRate); rate > rng.Next(currentDungeonDropDenominator) {
+			if rate := categoryRate(3); rate > rng.Next(currentDungeonDropDenominator) {
 				rarity := currentDungeonDropRarity(rng, rules)
 				itemID, selected, err := dropCatalog.SelectGenericStackable(rng, int(monsterLevel), itemReference.ValueA, itemReference.ValueB, rarity)
 				if err != nil {
@@ -545,8 +574,13 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 	}
 	selectedPoolItems := make([]uint32, 0, fixedDropAttempts)
 	if len(pool) > 0 {
+		var e error
+		explicitPoolRate, e = dropCatalog.privatePVFTemplateProbability()
+		if e != nil {
+			return nil, e
+		}
 		for attempt := 0; attempt < fixedDropAttempts; attempt++ {
-			if currentDungeonExplicitPoolRate <= rng.Next(currentDungeonDropDenominator) {
+			if explicitPoolRate <= rng.Next(currentDungeonDropDenominator) {
 				continue
 			}
 			poolEntry, selected := selectDungeonMonsterDrop(pool, uint64(rng.NextUint32()))
@@ -579,7 +613,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			"dimension_reward_rank", dimensionRank,
 			"image_special_reward", dimensionImageSpecial,
 			"drop_mode", dropMode,
-			"ordinary_pool_rate", currentDungeonExplicitPoolRate,
+			"ordinary_pool_rate", explicitPoolRate,
 			"ordinary_pool_denominator", currentDungeonDropDenominator,
 			"ordinary_pool_attempts", fixedDropAttempts,
 			"ordinary_pool_candidate_count", len(pool),
@@ -608,7 +642,7 @@ func (s *Service) planCurrentDungeonMonsterDrops(
 			"monster_object_key", monster.ObjectKey,
 			"item_id", areaMaterialEntry.ItemID,
 			"item_weight", areaMaterialEntry.Weight,
-			"ordinary_pool_rate", currentDungeonExplicitPoolRate,
+			"ordinary_pool_rate", explicitPoolRate,
 			"ordinary_pool_denominator", currentDungeonDropDenominator,
 			"ordinary_pool_attempts", fixedDropAttempts,
 			"ordinary_pool_candidate_count", len(pool),

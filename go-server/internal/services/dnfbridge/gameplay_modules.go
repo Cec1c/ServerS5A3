@@ -8,6 +8,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	guildPartyTeleportGameplayModule(),
 	auctionGameplayModule(),
 	pvpGameplayModule(),
+	luckyFatigueGameplayModule(),
 	npcShopGameplayModule(),
 	ceraShopGameplayModule(),
 	ceraPackageGameplayModule(),

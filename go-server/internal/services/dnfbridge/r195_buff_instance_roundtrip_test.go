@@ -14,7 +14,14 @@ import (
 // registered physical instance in both bag and worn containers.
 func TestR195BuffRegisteredInstanceWornInventoryWornWithTemplateSibling(t *testing.T) {
 	f := p94Fixture(t)
-	f.session.accountFromToken = true // Carry real provenance without enabling a public strict policy.
+	// Match the live deployment's strict token-authenticated account path.
+	owner, found, err := f.group.Character.Load(context.Background(), "1")
+	if err != nil || !found {
+		t.Fatal("fixture owner unavailable")
+	}
+	f.service.options.playerStrict = true
+	f.session.accountID = owner.AccountID
+	f.session.accountFromToken = true
 	instance := p94Register(t, f)
 	ctx := context.Background()
 	inv, eq, before, legacy := p94Snapshot(t, f)

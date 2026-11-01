@@ -32,6 +32,10 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	var guildObservations []currentGuildPresenceObservation
 	defer func() { s.persistCurrentGuildPresence(guildObservations...) }()
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
+		if p := session.battlePassPush; p != nil {
+			p.stop(s)
+		}
+		s.closeCurrentPVPSession(session)
 		s.closeCurrentGuildCreateSession(session)
 		s.closeCurrentPVPSession(session)
 		s.closeCurrentExpertJobStoreSession(session, true)
@@ -86,6 +90,8 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	characterChanged := session.selectedCharacterID != charID
 	if characterChanged || previous != session {
 		s.clearCurrentPeerProfileReferencesLocked(session)
+		session.laborDayAnchor = time.Time{}
+		session.portedActivityNextRefresh = time.Time{}
 	}
 	if characterChanged || session.characterGeneration == 0 ||
 		(previous != nil && previous != session && session.characterGeneration == previous.characterGeneration) {

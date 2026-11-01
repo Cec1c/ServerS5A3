@@ -124,70 +124,22 @@ func (s *mysqlAccountStore) Save(ctx context.Context, record repository.AccountR
 		if _, execErr := database.ExecContext(ctx, buildUpsert(table, columns, updates), args...); execErr != nil {
 			return execErr
 		}
+		var saveErr error
 		if s.trackMetadataChanges && previous != nil && previous.AccountID == accountID {
-			return saveChangedAccountMetadata(ctx, database, metadataTable, accountID, previous.Metadata, record.Metadata)
+			saveErr = saveChangedAccountMetadata(ctx, database, metadataTable, accountID, previous.Metadata, record.Metadata)
+		} else {
+			saveErr = replaceStringMap(ctx, database, metadataTable, "account_id", accountID, record.Metadata)
 		}
-		return replaceStringMap(ctx, database, metadataTable, "account_id", accountID, record.Metadata)
+		if saveErr == nil && (previous == nil || previous.Metadata["battlepass_v2"] != record.Metadata["battlepass_v2"]) {
+			stageBattlePassChange(database, s.router.battlePassChanges, repository.BattlePassChange{AccountID: accountID, Account: true})
+		}
+		return saveErr
 	})
 	var mysqlErr *mysql.MySQLError
 	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
 		return repository.ErrRepresentAccountNameExists
 	}
 	return err
-}
-
-// CreateIfAbsent inserts one complete account record only when its account ID
-// is not already present. The account row and bootstrap metadata share one
-// physical transaction. A competing creator that wins the INSERT makes this
-// call return created=false without updating the existing row or metadata.
-func (s *mysqlAccountStore) CreateIfAbsent(ctx context.Context, record repository.AccountRecord) (bool, error) {
-	accountID, err := requireRecordKey(repository.AccountKey, record, "account")
-	if err != nil {
-		return false, err
-	}
-	table, err := s.router.writeTable(mysqlAccountTable, accountID)
-	if err != nil {
-		return false, err
-	}
-	metadataTable, err := s.router.writeTable(mysqlAccountMetadataTable, accountID)
-	if err != nil {
-		return false, err
-	}
-	updatedAt := timeOrNow(record.UpdatedAt, s.router.now)
-	createdAt := record.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = updatedAt
-	}
-	representName := strings.TrimSpace(record.RepresentAccountName)
-	var representNameArg any
-	if representName != "" {
-		representNameArg = representName
-	}
-	query := "INSERT IGNORE INTO " + table + " (account_id, state, " + mysqlAccountHonorColumn + ", " + mysqlAccountRepresentNameColumn + ", created_at, updated_at) " +
-		"VALUES (?, ?, ?, ?, ?, ?)"
-	metadataQuery := "INSERT INTO " + metadataTable + " (account_id, entry_key, entry_value) VALUES (?, ?, ?)"
-	created := false
-	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
-		result, execErr := database.ExecContext(ctx, query, accountID, record.State, record.HonorExp, representNameArg, sqlTime(createdAt), updatedAt)
-		if execErr != nil {
-			return execErr
-		}
-		rows, rowsErr := result.RowsAffected()
-		if rowsErr != nil {
-			return rowsErr
-		}
-		if rows == 0 {
-			return nil
-		}
-		created = true
-		for _, key := range sortedStringKeys(record.Metadata) {
-			if _, execErr := database.ExecContext(ctx, metadataQuery, accountID, key, record.Metadata[key]); execErr != nil {
-				return execErr
-			}
-		}
-		return nil
-	})
-	return created, err
 }
 
 // SaveRepresentAccountName updates only the account-wide nickname column and
@@ -278,6 +230,9 @@ func (s *mysqlAccountStore) SaveMetadataEntry(
 			key,
 			value,
 		)
+		if err == nil && key == "battlepass_v2" {
+			stageBattlePassChange(database, s.router.battlePassChanges, repository.BattlePassChange{AccountID: accountID, Account: true})
+		}
 		return err
 	})
 }

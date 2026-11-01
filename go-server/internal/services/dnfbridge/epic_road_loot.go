@@ -31,23 +31,16 @@ func (s *Service) prepareCurrentEpicRoadLoot(id int64) (*currentRiftLootDefiniti
 	if err != nil {
 		return nil, err
 	}
-	// Paid Epic Road tiers have distinct encounter probabilities. The shared
-	// inferno-weapon rate belongs to the particular-hell configuration; it
-	// must not make all three ticket prices award epics at the same 50% rate.
-	switch id {
-	case 6063: // 30 invitations
-		definition.EpicRate = 0.10
-	case 6064: // 45 invitations
-		definition.EpicRate = 0.15
-	case 6065: // 60 invitations
-		definition.EpicRate = 0.20
-	default:
-		return nil, fmt.Errorf("unsupported epic road probability dungeon %d", id)
-	}
 	drops, err := monsters.DropCatalog()
 	if err != nil {
 		return nil, err
 	}
+	probability, err := drops.privateSpecialEpicProbability(id)
+	if err != nil {
+		return nil, err
+	}
+	definition.EpicRate = float64(probability) / 1000000
+	definition.RateSource = hellPartyRewardDropInfoPath + " [" + privateSpecialEpicSection + "]"
 	for _, id := range definition.Equipment {
 		item, err := drops.ResolveItem(id)
 		if err != nil {

@@ -23,7 +23,7 @@ func TestClearFatigueTracksCommittedDebitsAcrossRefills(t *testing.T) {
 	}
 	s := &Service{options: options{accountID: "account-1"}, gameplayTimers: queue, repositoryProvider: func() (repo.Group, bool) { return repos, true }}
 	session := &gameSession{selectedCharacterID: 99}
-	run := &runtimeDungeonState{}
+	run := &runtimeDungeonState{Dungeon: worldmap.Dungeon{ID: 310}}
 	debit := func(x int) {
 		t.Helper()
 		if err := s.debitDungeonRoomFatigue(session, run, worldmap.DungeonRoomScene{Coordinate: worldmap.RoomCoordinate{X: int64(x)}}); err != nil {
@@ -51,7 +51,7 @@ func TestClearFatigueTracksCommittedDebitsAcrossRefills(t *testing.T) {
 	if run.fatigueSpent != 3 || run.Character.Stats["fatigue"] != 155 {
 		t.Fatalf("daily refresh: spent=%d balance=%d", run.fatigueSpent, run.Character.Stats["fatigue"])
 	}
-	repos.CharacterAssets = failedClearFatigueAssets{repos.CharacterAssets}
+	repos.CharacterSettlement = failedClearFatigueSettlement{repos.CharacterSettlement}
 	if err := s.debitDungeonRoomFatigue(session, run, worldmap.DungeonRoomScene{Coordinate: worldmap.RoomCoordinate{X: 4}}); err == nil {
 		t.Fatal("expected rollback")
 	}
@@ -68,6 +68,19 @@ func TestClearFatigueTracksCommittedDebitsAcrossRefills(t *testing.T) {
 }
 
 type failedClearFatigueAssets struct{ repo.CharacterAssetUnitOfWork }
+
+type failedClearFatigueSettlement struct {
+	repo.CharacterSettlementUnitOfWork
+}
+
+func (f failedClearFatigueSettlement) WithinCharacterSettlement(ctx context.Context, id string, apply func(repo.Group) error) error {
+	return f.CharacterSettlementUnitOfWork.WithinCharacterSettlement(ctx, id, func(g repo.Group) error {
+		if err := apply(g); err != nil {
+			return err
+		}
+		return errors.New("fixture rollback")
+	})
+}
 
 func (f failedClearFatigueAssets) WithinCharacterAssets(ctx context.Context, id string, fn func(repo.CharacterRepository, repo.InventoryRepository, repo.EquipmentRepository) error) error {
 	return f.CharacterAssetUnitOfWork.WithinCharacterAssets(ctx, id, func(c repo.CharacterRepository, i repo.InventoryRepository, e repo.EquipmentRepository) error {

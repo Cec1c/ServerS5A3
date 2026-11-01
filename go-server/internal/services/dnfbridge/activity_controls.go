@@ -13,6 +13,13 @@ func (s *Service) initializeActivityControls(ctx context.Context) error {
 		return nil
 	}
 	definitions := []onlineevent.ControlDefinition{
+		{ID: 2520, Name: "战令", Description: "关闭时拒绝查询、领取和购买；保留已有权益与进度。", Source: "2520 / 0x7f11 / PVF", DefaultEnabled: true},
+		{ID: 288, Name: "升级大挑战（国服中文）", Description: "新建普通角色按私有PVF设置自动参加；全职业、多角色，达级邮件发放。与旧预约222/116互斥，需客户端815/816接收许可。", Source: "event/createeventcharacter.evt、event/eventgift.evt / 创建5、状态815/816", DefaultEnabled: false},
+		{ID: 1370, Name: "赛丽亚的热忱（新手/回归）", Description: "默认关闭。新账号首次进场景起30天、仅一次，老账号不补发；回归仍按离线七天和30天权益。两组任务、七天签到及邮件奖励读取PVF，沿用1369、304、1429、1430原生协议。", Source: "etc/seriawelcome.etc group0/1 / 状态1369、引导1429、领取1430", DefaultEnabled: false},
+		{ID: 1054, Name: "幸运角色", Description: "兼容验证完成前默认关闭。长期向全职业开放；怪物、通关、任务和组队经验按PVF比例生效，特殊频道及决斗场除外。", Source: "etc/chn_activatecharacter.etc / 状态1054", DefaultEnabled: false},
+		{ID: 222, Name: "Lv预约升级", Description: "兼容验证完成前默认关闭。长期开放，保留PVF职业、目标及奖励限制；新建角色后预约，邮件发奖。", Source: "event/levelaimingevent.evt / 状态623、请求689事件222", DefaultEnabled: false},
+		{ID: 116, Name: "升级大挑战（旧预约模式）", Description: "旧版预约模式，与Lv预约222不能同时开启；需配套客户端验证。", Source: "event/decidelevelupevent.evt / 496、497、567、1122", DefaultEnabled: false},
+		{ID: 2348, Name: "劳动节登录和在线送礼", Description: "默认关闭登录和在线两类奖励；开启后账号前三个登录日发PVF登录奖励，每日在线10分钟一档，最多10档，06点重置。", Source: "event/chn_event/chn_playdnfatlaborday.evt / 活动2348", DefaultEnabled: false},
 		{ID: 145, Name: "大富翁骰子（幸运热舞派对）", Description: "角色基础2次，推荐地下城4/8/12次各加2次；28格及圈数奖励读取现用PVF，奖励邮件发放，06点重置每日次数。", Source: "event/attendancemarble.evt / 原生活动145、查询629、掷骰630", DefaultEnabled: true},
 		{ID: 216, Name: "新学期累计奖励（需兼容客户端）", Description: "默认关闭；需独立审核客户端654/689许可后启用。角色通关6062按中国06时活动日累计，8、16、24天领取邮件；每日表为空，不发日奖。", Source: "实际新学期216及event53模型 / 累计689、状态654", DefaultEnabled: false},
 		{ID: 350, Name: "史诗之路：超越征程", Description: "开放当前湍流NPC及任务；祥瑞溪谷仍要求等级17和完成5579，三个高级地下城等级85且按实际PVF扣邀请函。", Source: "实际npc3135/event350及2018_epciroad2资源", DefaultEnabled: true},

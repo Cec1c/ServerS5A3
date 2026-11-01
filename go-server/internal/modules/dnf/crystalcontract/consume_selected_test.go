@@ -31,6 +31,14 @@ func TestConsumeSelectedResolvesEveryCubeFromDurableSelection(t *testing.T) {
 			if err != nil || inv.Slots[testCrystalSlot(selection)].Count != 1 {
 				t.Fatalf("cancel inventory=%+v err=%v", inv, err)
 			}
+			summary, err := repos.Activity.Summary(context.Background(), dnfrepo.ActivityQuery{AccountID: "account-1"})
+			var want int64
+			if id == dnfrepo.ColorlessCubeItemID {
+				want = 1
+			}
+			if err != nil || summary.Metrics[dnfrepo.ActivityColorless] != want {
+				t.Fatalf("契约无色实际统计: %+v %v", summary, err)
+			}
 		})
 	}
 }

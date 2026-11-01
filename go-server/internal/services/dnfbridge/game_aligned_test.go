@@ -1738,6 +1738,11 @@ func assertRuntimeSuccessorSingletonSnapshot(t *testing.T, data []byte, receiver
 
 func assertRuntimePartySnapshot(t *testing.T, data []byte, wantMembers byte) []byte {
 	t.Helper()
+	return assertRuntimePartySnapshotWithLeaderSlot(t, data, wantMembers, 0)
+}
+
+func assertRuntimePartySnapshotWithLeaderSlot(t *testing.T, data []byte, wantMembers, wantLeaderSlot byte) []byte {
+	t.Helper()
 	peerEndpoints, rest := splitGameServerUpperPacket(t, data)
 	if peerEndpoints.Header.Classification != 0 || peerEndpoints.Header.MsgID != 0x000b {
 		t.Fatalf("peer endpoint packet = class %d msg %d", peerEndpoints.Header.Classification, peerEndpoints.Header.MsgID)
@@ -1757,7 +1762,7 @@ func assertRuntimePartySnapshot(t *testing.T, data []byte, wantMembers byte) []b
 	if len(realtime.Body) == 0 || realtime.Body[0] != wantMembers {
 		t.Fatalf("realtime members = % X, want count %d", realtime.Body, wantMembers)
 	}
-	rest = assertCurrentPartyFrameProjection(t, rest, wantMembers, wantMembers > 0)
+	rest = assertCurrentPartyFrameProjectionWithLeaderSlot(t, rest, wantMembers, wantMembers > 0, wantLeaderSlot)
 	return rest
 }
 
@@ -1827,6 +1832,11 @@ func assertRuntimePartyChangePosition(t *testing.T, data []byte, fromSlot byte, 
 
 func assertCurrentPartyFrameProjection(t *testing.T, data []byte, wantMembers byte, wantActive bool) []byte {
 	t.Helper()
+	return assertCurrentPartyFrameProjectionWithLeaderSlot(t, data, wantMembers, wantActive, 0)
+}
+
+func assertCurrentPartyFrameProjectionWithLeaderSlot(t *testing.T, data []byte, wantMembers byte, wantActive bool, wantLeaderSlot byte) []byte {
+	t.Helper()
 	frame, rest := splitGameServerUpperPacket(t, data)
 	if frame.Header.Classification != 0 || frame.Header.MsgID != uint16(dnfenum.CmdPacketRecoverStamina) {
 		t.Fatalf("party frame packet = class %d msg %d", frame.Header.Classification, frame.Header.MsgID)
@@ -1855,15 +1865,15 @@ func assertCurrentPartyFrameProjection(t *testing.T, data []byte, wantMembers by
 		t.Fatalf("party frame slots=%d want=%d body=% X", frame.Body[slotCountOffset], wantMembers, frame.Body)
 	}
 	// The byte at len-3 is the **leader slot** the client uses to draw the party
-	// leader mark: it must always name slot zero (the authoritative leader row),
-	// never "which row the receiving player occupies". Party activity is
-	// represented by the current slot-table count instead.
+	// leader mark. A successor keeps its fixed slot; the receiver's own slot
+	// is not a substitute for the leader slot. Party activity is represented
+	// by the current slot-table count instead.
 	active := frame.Body[slotCountOffset] > 0
 	if active != wantActive {
 		t.Fatalf("party frame active=%t want=%t body=% X", active, wantActive, frame.Body)
 	}
-	if active && frame.Body[len(frame.Body)-3] != 0 {
-		t.Fatalf("party frame leader slot=%d want 0 body=% X", frame.Body[len(frame.Body)-3], frame.Body)
+	if active && frame.Body[len(frame.Body)-3] != wantLeaderSlot {
+		t.Fatalf("party frame leader slot=%d want %d body=% X", frame.Body[len(frame.Body)-3], wantLeaderSlot, frame.Body)
 	}
 	return rest
 }

@@ -29,6 +29,7 @@ func EpicEntryTicketCount(id int64) (int64, bool) {
 }
 
 type EpicEntryCommand struct {
+	Activity                           *dnfrepo.ActivityEvent
 	CharacterID, AccountID             string
 	DungeonID, ExpectedSequence, Nonce int64
 	Campaign                           *onlineevent.EpicCampaign
@@ -36,6 +37,8 @@ type EpicEntryCommand struct {
 	UpdatedAt                          time.Time
 	Project                            EntryItemProjector
 	Validate                           func() error
+	// Runs only for a new successful debit, inside the ticket/receipt transaction.
+	OnFatigueDebit func(*dnfrepo.CharacterRecord, int64, time.Time) error
 }
 type EpicEntryResult struct {
 	FatigueSpent int64
@@ -114,8 +117,28 @@ func (o *Owner) ConsumeEpicEntry(ctx context.Context, cmd EpicEntryCommand) (Epi
 				return err
 			}
 		}
+		beforeFatigue := c.Stats["fatigue"]
 		dnffatigue.Debit(&c)
-		result.FatigueSpent = 1
+		result.FatigueSpent = max(int64(0), beforeFatigue-c.Stats["fatigue"])
+		if result.FatigueSpent > 0 && cmd.OnFatigueDebit != nil {
+			if err = cmd.OnFatigueDebit(&c, result.FatigueSpent, cmd.UpdatedAt); err != nil {
+				return err
+			}
+		}
+		if cmd.Activity != nil && beforeFatigue > c.Stats["fatigue"] {
+			event := *cmd.Activity
+			event.Amount = beforeFatigue - c.Stats["fatigue"]
+			if event.AccountID != cmd.AccountID || event.CharacterID != cmd.CharacterID || event.DungeonID != cmd.DungeonID || event.Metric != dnfrepo.ActivityFatigue || event.Source != "epic_entry" {
+				return dnfrepo.ErrActivityInvalid
+			}
+			added, err := dnfrepo.RecordCharacterActivity(ctx, chars, event)
+			if err != nil {
+				return err
+			}
+			if !added {
+				return dnfrepo.ErrActivityConflict
+			}
+		}
 		c.Stats[EpicEntrySequenceKey] = cmd.ExpectedSequence + 1
 		c.Stats[epicEntryNonceKey] = cmd.Nonce
 		c.Stats[epicEntryDungeonKey] = cmd.DungeonID

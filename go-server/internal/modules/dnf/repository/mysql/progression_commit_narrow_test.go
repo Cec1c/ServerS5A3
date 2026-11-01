@@ -140,6 +140,10 @@ func progressionCommitNamedCall(query string, args []driver.NamedValue) progress
 
 func (s *progressionCommitSQLState) selectRows(query string) ([][]driver.Value, int, error) {
 	switch {
+	case strings.Contains(query, "SELECT expanded, active_tree, total_sp, remaining_sp, total_tp, remaining_tp, synced_level FROM"):
+		// The new paired point-ledger capability retains the native skill-page
+		// validity read. This fixture has no second page; all detail stays absent.
+		return nil, 7, nil
 	case strings.Contains(query, "SELECT character_id, account_id, level,"):
 		values := make([]driver.Value, 0, 4+len(mysqlCharacterStatColumns))
 		values = append(values, s.characterID, s.accountID, int64(s.level))
@@ -251,7 +255,7 @@ func progressionCommitPlan(state *progressionCommitSQLState, nextLevel int, next
 func assertProgressionCommitLockedReads(t *testing.T, state *progressionCommitSQLState) {
 	t.Helper()
 	if len(state.reads) != 4 {
-		t.Fatalf("progression reads = %d, want 4: %+v", len(state.reads), state.reads)
+		t.Fatalf("progression reads = %d, want 4 including skill-page validity: %+v", len(state.reads), state.reads)
 	}
 	for _, call := range state.reads {
 		if !strings.Contains(call.query, "`writer`.") || strings.Contains(call.query, "`replica`") {

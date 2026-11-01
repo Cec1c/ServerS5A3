@@ -31,14 +31,16 @@ type Prerequisite struct {
 }
 
 type Skill struct {
-	Job           byte   `json:"job"`
-	ID            uint16 `json:"id"`
-	Path          string `json:"path"`
-	Name          string `json:"name"`
-	Kind          string `json:"kind,omitempty"`
-	Active        bool   `json:"active,omitempty"`
-	RequiredLevel int    `json:"required_level,omitempty"`
-	MaximumLevel  int    `json:"maximum_level,omitempty"`
+	UsesColorlessCube  bool   `json:"uses_colorless_cube,omitempty"`
+	ColorlessCubeCount int64  `json:"colorless_cube_count,omitempty"`
+	Job                byte   `json:"job"`
+	ID                 uint16 `json:"id"`
+	Path               string `json:"path"`
+	Name               string `json:"name"`
+	Kind               string `json:"kind,omitempty"`
+	Active             bool   `json:"active,omitempty"`
+	RequiredLevel      int    `json:"required_level,omitempty"`
+	MaximumLevel       int    `json:"maximum_level,omitempty"`
 	// GrowtypeMaximumLevels is the live PVF `[growtype maximum level]` table
 	// (6 slots, indexed by the packed grow_type's low nibble). It is the level
 	// the CLIENT lets a player buy: `[maximum level]` is the absolute ceiling

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func (s *Service) updateCurrentCharacterFatigue(ctx context.Context, session *gameSession, debit bool) (dnfrepo.CharacterRecord, error) {
+func (s *Service) updateCurrentCharacterFatigue(ctx context.Context, session *gameSession, debit bool, events ...*dnfrepo.ActivityEvent) (dnfrepo.CharacterRecord, error) {
 	var applyDebit func(*dnfrepo.CharacterRecord) error
 	if debit {
 		applyDebit = func(character *dnfrepo.CharacterRecord) error {
@@ -18,7 +18,7 @@ func (s *Service) updateCurrentCharacterFatigue(ctx context.Context, session *ga
 			return nil
 		}
 	}
-	return s.updateCurrentCharacterFatigueWithDebit(ctx, session, applyDebit)
+	return s.updateCurrentCharacterFatigueWithDebit(ctx, session, applyDebit, events...)
 }
 
 func (s *Service) updateCurrentCharacterFatigueAmount(ctx context.Context, session *gameSession, debitAmount int64) (dnfrepo.CharacterRecord, error) {
@@ -35,12 +35,13 @@ func (s *Service) updateCurrentCharacterFatigueWithDebit(
 	ctx context.Context,
 	session *gameSession,
 	applyDebit func(*dnfrepo.CharacterRecord) error,
+	events ...*dnfrepo.ActivityEvent,
 ) (dnfrepo.CharacterRecord, error) {
-	character, _, err := s.updateCurrentCharacterFatigueMeasured(ctx, session, applyDebit)
+	character, _, err := s.updateCurrentCharacterFatigueMeasured(ctx, session, applyDebit, events...)
 	return character, err
 }
 
-func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, session *gameSession, applyDebit func(*dnfrepo.CharacterRecord) error) (dnfrepo.CharacterRecord, int64, error) {
+func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, session *gameSession, applyDebit func(*dnfrepo.CharacterRecord) error, events ...*dnfrepo.ActivityEvent) (dnfrepo.CharacterRecord, int64, error) {
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Character == nil {
 		return dnfrepo.CharacterRecord{}, 0, fmt.Errorf("fatigue character repository unavailable")
@@ -54,6 +55,11 @@ func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, ses
 		}
 	}
 	key := strconv.Itoa(int(session.selectedCharacterID))
+	var activity dnfrepo.ActivityRepository
+	var event *dnfrepo.ActivityEvent
+	if len(events) > 0 {
+		event = events[0]
+	}
 	var result dnfrepo.CharacterRecord
 	var spent int64
 	apply := func(characters dnfrepo.CharacterRepository) error {
@@ -68,13 +74,39 @@ func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, ses
 			return errDungeonAccountMismatch
 		}
 		character = dnfrepo.CloneCharacter(character)
-		changed := dnffatigue.Refresh(&character, account, s.gameplayNow())
+		now := s.gameplayNow()
+		if event != nil {
+			now = event.OccurredAt
+		}
+		changed := dnffatigue.Refresh(&character, account, now)
 		if applyDebit != nil {
 			before := character.Stats["fatigue"]
+			original := dnfrepo.CloneCharacter(character)
 			if err := applyDebit(&character); err != nil {
 				return err
 			}
 			spent = max(int64(0), before-character.Stats["fatigue"])
+			if event != nil && spent > 0 {
+				if activity == nil {
+					return dnfrepo.ErrActivityTransaction
+				}
+				frozen := *event
+				frozen.Amount = spent
+				added, err := activity.Record(ctx, frozen)
+				if err != nil {
+					return err
+				}
+				if !added {
+					result = original
+					spent = 0
+					return nil
+				}
+			}
+			if consumed := spent; consumed > 0 {
+				if _, err := s.applyPrivateActivity(&character, 6, uint32(consumed), now, now); err != nil {
+					return err
+				}
+			}
 			changed = true
 		}
 		if changed {
@@ -86,7 +118,12 @@ func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, ses
 		return nil
 	}
 	var err error
-	if repos.CharacterAssets != nil {
+	if event != nil {
+		if repos.CharacterSettlement == nil {
+			return dnfrepo.CharacterRecord{}, 0, dnfrepo.ErrActivityTransaction
+		}
+		err = repos.CharacterSettlement.WithinCharacterSettlement(ctx, key, func(tx dnfrepo.Group) error { activity = tx.Activity; return apply(tx.Character) })
+	} else if repos.CharacterAssets != nil {
 		err = repos.CharacterAssets.WithinCharacterAssets(ctx, key, func(characters dnfrepo.CharacterRepository, _ dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
 			return apply(characters)
 		})
@@ -163,27 +200,39 @@ func (s *Service) debitDungeonRoomFatigue(session *gameSession, runtime *runtime
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	event, err := s.currentActivityEvent(session, runtime, dnfrepo.ActivityFatigue, "dungeon_room", scene.Coordinate.String())
+	if err != nil {
+		return err
+	}
+	var luckyBurn currentLuckyRoomFatigueReceipt
 	character, spent, err := s.updateCurrentCharacterFatigueMeasured(ctx, session, func(c *dnfrepo.CharacterRecord) error {
 		if startOnly {
 			return debitCurrentDungeonFatigueAmount(c, fatigueCost)
 		}
-		dnffatigue.Debit(c)
+		luckyBurn = s.debitCurrentLuckyRoomFatigue(session, c, runtime.Dungeon)
 		return nil
-	})
+	}, event)
 	if err != nil {
 		return fmt.Errorf("debit room fatigue: %w", err)
 	}
 	runtime.Character = character
 	runtime.fatigueSpent += spent
+	if luckyBurn.Cost != spent {
+		luckyBurn = currentLuckyRoomFatigueReceipt{}
+	}
+	recordCurrentLuckyFatigueRoom(runtime, scene.Coordinate, luckyBurn.BonusPercent)
 	runtime.fatigueRooms[scene.Coordinate] = true
 	if startOnly {
 		runtime.fatigueStartDebited = true
+	} else {
+		fatigueCost = luckyBurn.Cost
 	}
 	s.logGameEvent(session, "game-dungeon-fatigue-room-debited",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
 		"room", scene.Coordinate.String(),
 		"cost", fatigueCost,
+		"燃烧经验百分比", luckyBurn.BonusPercent,
 		"start_only", startOnly,
 		"remaining", character.Stats["fatigue"],
 		"limit", character.Stats["fatigue_limit"])

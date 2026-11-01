@@ -77,10 +77,11 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			"fallback", "retain_contract_item_and_retry_before_list0")
 	}
 	s.persistCurrentSelectorAdventureInfoSlot(ctx, session, slot)
-	if refreshed, err := s.updateCurrentCharacterFatigue(ctx, session, false); err == nil {
+	if refreshed, err := s.resetCurrentLuckyFatigueOnSelect(ctx, session); err == nil {
 		selectedCharacter = refreshed
 	} else {
-		s.logGameEvent(session, "game-character-fatigue-refresh-failed", "char_id", charID, "error", err)
+		s.logGameEvent(session, "选角疲劳燃烧重置失败", "角色编号", charID, "原因", err)
+		return err // 未清除旧开关时不能继续进图并沿用燃烧扣费。
 	}
 	session.selectedCreatureStateTableSent = false
 	s.armCurrentFatigueDailyRefresh(session)
@@ -311,6 +312,11 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 		if packet.kind == "select_ack" {
+			// Clear an old/full-level role before constructing its scene; do not
+			// wait for the one-minute activity clock or reuse the previous role.
+			if err := s.sendCurrentLuckyCharacterState(session); err != nil {
+				return err
+			}
 			if err := s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack"); err != nil {
 				return err
 			}
@@ -333,6 +339,10 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			// does not need to re-enter the dungeon selector to see its maps.
 			if err := s.sendCurrentDungeonPermissionSnapshot(ctx, session, "select_character_after_ack_before_worldmap_scene"); err != nil {
 				return err
+			}
+			// 先同步参与状态，再进入新手副本或城镇；不依赖在线时钟，也不在此发奖。
+			if err := s.sendCurrentLevelChallengeSelectedState(session); err != nil {
+				s.logGameEvent(session, "升级大挑战参与状态暂缓", "source", "select_character_after_ack", "error", err)
 			}
 			// Current EXE sub_11DBE40 consumes class0/op1378 raw u32 before
 			// the selected scene is finalized. Send the durable per-character

@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ type dungeonDropCatalogTestSource map[string]string
 func (s dungeonDropCatalogTestSource) ReadText(relativePath string) (string, error) {
 	text, ok := s[cleanDungeonDropPath(relativePath)]
 	if !ok {
-		return "", errors.New("test PVF document missing: " + relativePath)
+		return "", fmt.Errorf("%w: test PVF document missing: %s", dnfpvf.ErrDocNotFound, relativePath)
 	}
 	return text, nil
 }

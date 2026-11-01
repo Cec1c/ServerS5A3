@@ -70,6 +70,8 @@ func components(env *appkit.Env, cancel context.CancelFunc) ([]appkit.Component,
 		env.AdminMux.HandleFunc("/local/account/login", env.AdminAuth("platform", bridge.LocalAccountLoginHandler))
 	}
 	if env != nil && env.AdminMux != nil {
+		// 玩家只读接口自己核对回环TCP所属DNF进程与已确认游戏会话，不接受GM凭据或指定账号。
+		env.AdminMux.HandleFunc("/local/player-stats", bridge.NativePlayerStatsHandler)
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				w.Header().Set("Allow", http.MethodPost)

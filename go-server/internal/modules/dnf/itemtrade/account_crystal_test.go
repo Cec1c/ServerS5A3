@@ -148,6 +148,11 @@ func TestAccountCrystalTradeMixedGoldAndCharacterItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	summary, summaryErr := r.Activity.Summary(ctx, repo.ActivityQuery{AccountID: "a"})
+	gold, goldErr := repo.SummarizeActivityGold(summary.Metrics)
+	if summaryErr != nil || goldErr != nil || gold.Spent != 0 || summary.Metrics[repo.ActivityGoldTradeOut] != 100 || summary.Metrics[repo.ActivityGoldTradeIn] != 49 || summary.Metrics[repo.ActivityGoldTradeFee] != 1 {
+		t.Fatal("交易流水分类错误", summary, gold, summaryErr, goldErr)
+	}
 	if result.ReceivedGold["1"] != 50 || result.ReceivedGold["2"] != 100 || result.GoldFees["1"] != 1 || result.GoldFees["2"] != 3 {
 		t.Fatalf("mixed trade gross/fee receipts: %+v", result)
 	}

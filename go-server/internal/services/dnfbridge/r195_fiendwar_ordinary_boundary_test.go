@@ -8,6 +8,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
 	repo "longheng.io/server/internal/modules/dnf/repository"
+	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
 func TestR195FiendWarPortPreservesOrdinaryCapacityAndTown48(t *testing.T) {
@@ -17,8 +18,53 @@ func TestR195FiendWarPortPreservesOrdinaryCapacityAndTown48(t *testing.T) {
 			t.Fatal("ordinary raid inherited FiendWar seat rules", route)
 		}
 	}
-	if currentRegisteredRaidTown(48) || !currentRegisteredRaidTown(98) {
-		t.Fatal("FiendWar town registration absorbed the separate imperial town")
+	for _, townID := range []int64{10, 19, 32, 98} {
+		if !currentRegisteredChannelTown(townID) {
+			t.Fatalf("registered channel town %d missing from current contract", townID)
+		}
+	}
+	for _, townID := range []int64{0, 11, 47, 48, 49} {
+		if currentRegisteredChannelTown(townID) {
+			t.Fatalf("unregistered town %d accepted by channel contract", townID)
+		}
+	}
+	for _, townID := range []int64{19, 32, 98} {
+		if !currentRegisteredRaidTown(townID) {
+			t.Fatalf("registered raid town %d missing", townID)
+		}
+	}
+	for _, townID := range []int64{10, 48} {
+		if currentRegisteredRaidTown(townID) {
+			t.Fatalf("town %d incorrectly absorbed into the raid landing set", townID)
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		profile string
+		path    string
+		want    bool
+	}{
+		{"official empire map", "official-24.9", "Town/CollosseumofEmpire/CollosseumofEmpire.map", true},
+		{"official Windows path", "official-24.9", "Town\\CollosseumofEmpire\\CollosseumofEmpire.map", true},
+		{"official ordinary map", "official-24.9", "Town/Ordinary.map", false},
+		{"legacy profile empire map", "90cn", "Town/CollosseumofEmpire/CollosseumofEmpire.map", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			table, err := dnftown.Load(context.Background(), townMoveTestSource{
+				"town/town.lst":     "48 `boundary.twn`",
+				"town/boundary.twn": "[area]\n0 `" + tc.path + "` `[gate]` 543 255\n[/area]\n",
+			}, dnftown.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := &Service{options: options{currentClientVersion: tc.profile}, townCatalog: table}
+			if got := s.currentDedicatedChannelTown(48); got != tc.want {
+				t.Fatalf("town48 dedicated classification=%t, want %t", got, tc.want)
+			}
+			if currentRegisteredChannelTown(48) || currentRegisteredRaidTown(48) {
+				t.Fatal("town48 must stay outside fixed ordinary and raid town registries")
+			}
+		})
 	}
 }
 
@@ -78,8 +124,16 @@ func TestRealPVFCurrentFiendWarFullScopeLukeStartKeepsWaitingPolicyAndDailyDebit
 	if err != nil {
 		t.Fatal(err)
 	}
-	// No waiting-area presence is created. The public Luke start requires its
-	// original prerequisites and ticket, not the new FiendWar waiting scope.
+	// The actual cumulative service applies owned waiting-area admission to all modes.
+	// A rejected attempt must not debit the daily ledger; then enter the real fixture area.
+	if _, started, err := s.startRuntimeRaidWithEntryCost(p); started || err == nil {
+		t.Fatal("Luke started without owned waiting-area presence", started, err)
+	}
+	rejected, _, err := f.repos.Settings.Load(ctx, daily.Scope)
+	if err != nil || !reflect.DeepEqual(before, rejected) {
+		t.Fatal("rejected waiting-area admission changed daily ledger", err)
+	}
+	enterRaidStartWaitingFixture(t, f, "")
 	state, ok, err := s.startRuntimeRaidWithEntryCost(p)
 	if err != nil || !ok || state.Battle == nil || state.Battle.Mode != 2 {
 		t.Fatal("ordinary Luke start changed", ok, err)

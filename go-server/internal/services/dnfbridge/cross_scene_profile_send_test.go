@@ -88,7 +88,7 @@ func assertPeerUserInfoCrossSceneProfile(t *testing.T, fixture *peerUserInfoActi
 }
 
 func TestCrossScenePeerRequestPrimesMode8ThenOpensNormalMode3(t *testing.T) {
-	fixture := newTownPartyActorHPFixture(t, true)
+	fixture := newCrossSceneProfileActorFixture(t, true)
 	s, viewer, actor := fixture.service, fixture.target, fixture.actor
 	viewer.accountID = "dnf:1"
 	actor.accountID = "dnf:2"
@@ -117,7 +117,7 @@ func TestCrossScenePeerRequestPrimesMode8ThenOpensNormalMode3(t *testing.T) {
 }
 
 func TestCrossScenePeerRequestRejectsCachedPartyWithoutMembership(t *testing.T) {
-	fixture := newTownPartyActorHPFixture(t, false)
+	fixture := newCrossSceneProfileActorFixture(t, false)
 	s, viewer, actor := fixture.service, fixture.target, fixture.actor
 	viewer.accountID, actor.accountID = "dnf:1", "dnf:2"
 	viewer.connectionTownActorOwnerChannel = byte(viewer.channel.ID)

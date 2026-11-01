@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"errors"
+	"longheng.io/server/internal/modules/dnf/onlineevent"
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	"strconv"
@@ -53,6 +54,14 @@ func (s *Service) createCharacter(session *gameSession, req createCharacterReque
 	now := time.Now().UTC()
 	level := newCharacterInitialLevel
 	stats := defaultCreatedCharacterStatsFromRequest(req)
+	challenge, challengeErr := currentLevelChallengeCreation(req.options)
+	if challengeErr != nil || (challenge && (!upper || !s.currentPortedActivityEnabled(288))) {
+		s.logGameEvent(session, "升级大挑战创建请求拒绝", "error", challengeErr, "option_len", len(req.options))
+		return s.sendCreateFailure(session, upper, createCodeServerError)
+	}
+	if challenge {
+		stats[onlineevent.LevelChallengeRoleStat] = 1
+	}
 	grow, private := currentPrivateCreationGrow(req.options)
 	if !private && session.pvpPrivateCreate != nil && time.Now().Before(session.pvpPrivateCreate.expires) && session.pvpPrivateCreate.job == req.job && session.pvpPrivateCreate.grow == 0 && len(req.options) == 8 {
 		zero := true
@@ -109,6 +118,10 @@ func (s *Service) createCharacter(session *gameSession, req createCharacterReque
 			return s.sendCreateFailure(session, upper, createCodeDuplicated)
 		}
 		return s.sendCreateFailure(session, upper, createCodeServerError)
+	}
+	session.levelAimingCreatedID = 0
+	if !dnfpvp.IsPrivateCharacter(record) {
+		session.levelAimingCreatedID = uint16(numericCharacterID(record))
 	}
 	updated, err := s.listCharacters(ctx, repos, accountID)
 	if err != nil {

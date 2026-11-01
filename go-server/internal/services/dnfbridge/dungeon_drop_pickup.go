@@ -560,13 +560,18 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		return nil
 	}
 	characterID := strconv.Itoa(int(session.selectedCharacterID))
-	destinationSlot, itemUpdate, err := grantCurrentDungeonPickupItem(
+	activity, activityErr := s.currentActivityPickupPartyLocked(session, runtime, *drop)
+	if activityErr != nil {
+		return activityErr
+	}
+	destinationSlot, itemUpdate, err := grantCurrentDungeonPickupItemWithActivity(
 		context.Background(),
 		repositories,
 		characterID,
 		drop.Item,
 		drop.Amount,
-		time.Now().UTC(),
+		s.gameplayNow(),
+		activity,
 		drop.QualitySeed,
 	)
 	if err != nil {
@@ -649,13 +654,14 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 	)
 }
 
-func grantCurrentDungeonPickupItem(
+func grantCurrentDungeonPickupItemWithActivity(
 	ctx context.Context,
 	repositories dnfrepo.Group,
 	characterID string,
 	definition dungeonDropItemDefinition,
 	amount uint32,
 	now time.Time,
+	activity *dnfrepo.ActivityEvent,
 	qualitySeed ...uint32,
 ) (uint16, currentItemListEntry, error) {
 	if repositories.CharacterItems == nil || characterID == "" {
@@ -690,6 +696,7 @@ func grantCurrentDungeonPickupItem(
 	var itemUpdate currentItemListEntry
 	placement := currentDungeonPickupPlacement(definition, amount, qualitySeed...)
 	result, err := owner.GrantPickupItem(ctx, dnfdungeon.PickupItemCommand{
+		Activity:    activity,
 		CharacterID: characterID,
 		Placement:   placement,
 		UpdatedAt:   now,
@@ -880,4 +887,9 @@ func mapCurrentDungeonPickupOwnerError(err error) error {
 
 func currentDungeonPickupMainSlotKey(slot int16) string {
 	return "0:" + strconv.FormatInt(int64(slot), 10)
+}
+
+// 原有通用发奖调用不带副本拾取来源，不计入获取统计。
+func grantCurrentDungeonPickupItem(ctx context.Context, repositories dnfrepo.Group, characterID string, definition dungeonDropItemDefinition, amount uint32, now time.Time, qualitySeed ...uint32) (uint16, currentItemListEntry, error) {
+	return grantCurrentDungeonPickupItemWithActivity(ctx, repositories, characterID, definition, amount, now, nil, qualitySeed...)
 }

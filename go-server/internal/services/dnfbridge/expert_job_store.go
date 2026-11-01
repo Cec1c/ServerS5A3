@@ -1328,6 +1328,7 @@ func (s *Service) commitCurrentExpertJobStoreEnchant(ctx context.Context, sessio
 			return feeErr
 		}
 		if plan.Success {
+			dnfrepo.AddBattlePassCounter(requesterCharacter, 27, -1, 1, s.gameplayNow())
 			currentExpertJobSetEnchantFields(&target, card.ItemID, upgradeCount)
 			requesterInventory.Slots[targetKey] = target
 		}

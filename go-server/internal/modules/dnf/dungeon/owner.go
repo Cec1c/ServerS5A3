@@ -55,9 +55,10 @@ type CardRewardBundle struct {
 }
 
 type CardRewardCommand struct {
-	CharacterID string
-	MainSlots   uint16
-	Bundle      CardRewardBundle
+	BattlePassGoldCard bool
+	CharacterID        string
+	MainSlots          uint16
+	Bundle             CardRewardBundle
 	// Cost 在原资产事务中先于奖励扣除；免费翻牌保持零值。
 	Cost                int64
 	UpdatedAt           time.Time
@@ -211,6 +212,9 @@ func (o *Owner) GrantCardReward(ctx context.Context, cmd CardRewardCommand) (Car
 			result.ItemSlots = append(result.ItemSlots, slot)
 		}
 
+		if cmd.BattlePassGoldCard {
+			dnfrepo.AddBattlePassCounter(&character, 22, 1, 1, now)
+		}
 		character.UpdatedAt = now
 		inventory.UpdatedAt = now
 		if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {

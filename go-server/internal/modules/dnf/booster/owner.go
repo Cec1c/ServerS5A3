@@ -167,6 +167,7 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		}
 		inventory = dnfrepo.CloneInventory(inventory)
 
+		fateBefore := dnfrepo.BattlePassFateCount(inventory.Slots, accountInventory.Slots)
 		changes, err := command.Project(&Assets{
 			Account:          account,
 			AccountInventory: &accountInventory,
@@ -175,6 +176,10 @@ func (o *Owner) Open(ctx context.Context, command Command) error {
 		})
 		if err != nil {
 			return err
+		}
+		if gained := dnfrepo.BattlePassFateCount(inventory.Slots, accountInventory.Slots) - fateBefore; gained > 0 {
+			dnfrepo.AddBattlePassCounter(&character, 43, -1, gained, now)
+			changes.Character = true
 		}
 		if command.ItemUsage != nil {
 			if err := itemusage.Consume(&character, *command.ItemUsage, now); err != nil {

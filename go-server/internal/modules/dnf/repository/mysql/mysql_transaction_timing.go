@@ -10,13 +10,9 @@ import (
 )
 
 func beginTimedObservedSQLTransaction(ctx context.Context, beginner sqlTxBeginner) (*observedSQLTransaction, error) {
-	timing := repository.TransactionTimingFromContext(ctx)
-	started := time.Now()
-	tx, err := beginObservedSQLTransaction(ctx, beginner, nil)
-	if timing != nil {
-		timing.Record(repository.TransactionBegin, time.Since(started), 1)
-	}
-	return tx, err
+	// The observed constructor already records the transaction timing. Keep
+	// the private call sites without counting the same BeginTx twice.
+	return beginObservedSQLTransaction(ctx, beginner, nil)
 }
 
 func beginTimedSQLTransaction(ctx context.Context, beginner sqlTxBeginner) (*sql.Tx, error) {

@@ -17,11 +17,9 @@ func TestR182AntonPhase0SquadRetainsOpenScreenAndRestoresNewConnection(t *testin
 	f.conn.write.Reset()
 	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	r182AssertRewardPresentation(t, f.conn.write.Bytes(), 1, 1)
-	var movie time.Duration
-	for _, seconds := range flow.Configuration.MovieEndSeconds {
-		movie = max(movie, time.Duration(seconds)*time.Second)
-	}
-	for _, at := range []time.Time{flow.AutoSelectAt} {
+	phase0AllCardsFaceDown(t, antonNativeCardBodies(t, f)[1])
+	movie := currentAntonMovieWindow(flow)
+	for _, at := range []time.Time{flow.PartyShownAt.Add(movie), flow.PartyShownAt.Add(2 * movie)} {
 		if _, errs := f.service.advanceCurrentAntonRewardFlows(at, zeroAntonRoll); len(errs) != 0 {
 			t.Fatal(errs)
 		}

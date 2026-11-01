@@ -195,6 +195,10 @@ func TestPVPFatigueNativeRequestsAndPaymentRetry(t *testing.T) {
 		if stored.Stats["fatigue"] != 148 {
 			t.Fatal("retry charged fatigue twice")
 		}
+		summary, err := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: stored.AccountID})
+		if err != nil || summary.Metrics[dnfrepo.ActivityFatigue] != 40 {
+			t.Fatal("街机网络失败重试重复或遗漏疲劳统计", summary, err)
+		}
 		state, rest := splitCurrentGameServerUpperPacketAuto(t, conn.write.Bytes())
 		ack, rest := splitCurrentGameServerUpperPacketAuto(t, rest)
 		if state.Header.MsgID != 36 || state.Header.Classification != 0 || binary.LittleEndian.Uint16(state.Body) != 40 || ack.Header.MsgID != 1271 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, []byte{1}) || len(rest) != 0 {

@@ -55,7 +55,7 @@ func (u *mysqlCharacterTradeUnitOfWork) WithinCharacterWarehouseTrade(ctx contex
 	for _, id := range a {
 		allowedAccounts[id] = struct{}{}
 	}
-	chars := &characterTradeScopedCharacterRepository{allowed: allowed, base: group.Character}
+	chars := &characterTradeScopedCharacterRepository{allowed: allowed, base: group.Character, activity: group.Activity}
 	inventory := &characterTradeScopedInventoryRepository{allowed: allowed, base: group.Inventory}
 	warehouse := &warehouseTradeScopedAccountRepository{allowed: allowedAccounts, base: group.AccountInventory}
 	if err := apply(chars, inventory, warehouse); err != nil {

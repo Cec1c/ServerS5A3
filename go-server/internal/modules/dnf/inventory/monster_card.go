@@ -215,6 +215,9 @@ func (o *Owner) UpgradeMonsterCard(ctx context.Context, cmd MonsterCardCommand, 
 	if err = dnfrepo.SaveInventoryFields(ctx, o.repo, record, dnfrepo.InventoryFieldSlots); err != nil {
 		return MonsterCardResult{}, err
 	}
+	if err := o.recordBattlePassOperation(ctx, record.CharacterID, 31, record.UpdatedAt); err != nil {
+		return MonsterCardResult{}, err
+	}
 	return MonsterCardResult{Applied: true, Upgraded: success, ItemID: target.ItemID, Level: next, ChancePercent: percent, ResultSlot: resultSlot, ChangedSlots: cardChangedSlots(changed), Inventory: record}, nil
 }
 
@@ -443,6 +446,9 @@ func (o *Owner) CompoundMonsterCards(ctx context.Context, cmd MonsterCardCommand
 	changed[resultSlot] = true
 	record.UpdatedAt = time.Now()
 	if err = dnfrepo.SaveInventoryFields(ctx, o.repo, record, dnfrepo.InventoryFieldSlots); err != nil {
+		return MonsterCardResult{}, err
+	}
+	if err := o.recordBattlePassOperation(ctx, record.CharacterID, 21, record.UpdatedAt); err != nil {
 		return MonsterCardResult{}, err
 	}
 	return MonsterCardResult{Applied: true, Upgraded: upgraded, ItemID: rewardID, Level: 0, ChancePercent: percent, ResultSlot: resultSlot, ChangedSlots: cardChangedSlots(changed), Inventory: record}, nil

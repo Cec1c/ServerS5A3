@@ -62,6 +62,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"guild-party-teleport",
 		"auction",
 		"pvp",
+		"lucky-fatigue",
 		"npc-shop",
 		"cera-shop",
 		"cera-package",

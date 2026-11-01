@@ -11,8 +11,9 @@ import (
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 )
 
-// Luke phase zero settles its party-only rewards at AutoSelectAt. The later
-// movie tick must not extend the break or grant the settled rewards again.
+// Luke phase zero has only party rewards. The cumulative runtime settles them
+// at AutoSelectAt and enters the break immediately, without a phantom squad
+// movie window. Keep this real-PVF setup aligned with that deployed contract.
 func lukeSelectorPartyOnlySettlementFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, *gameSession) {
 	t.Helper()
 	f, leader, at := normalLukeFixture(t)
@@ -50,8 +51,10 @@ func lukeSelectorPartyOnlySettlementFixture(t *testing.T) (*raidStartGuardFixtur
 	settledAt := flow.AutoSelectAt
 	wantBreakUntil := settledAt.Add(time.Duration(flow.Configuration.PhaseBreakSeconds) * time.Second)
 	if !flow.FinishedAt.Equal(settledAt) || !flow.BreakUntil.Equal(wantBreakUntil) || len(flow.Squad) != 0 {
-		t.Fatal("real Luke party-only rewards did not settle")
+		t.Fatalf("party-only settlement mismatch: finished=%v want=%v break=%v want=%v squad=%d",
+			flow.FinishedAt, settledAt, flow.BreakUntil, wantBreakUntil, len(flow.Squad))
 	}
+	// A later timer tick must neither extend the settled break nor grant again.
 	before := lukeSelectorWaitingInventories(t, f)
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(settledAt.Add(time.Duration(movie)*time.Second), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)

@@ -53,6 +53,7 @@ type PickupItemPlacement struct {
 }
 
 type PickupItemCommand struct {
+	Activity    *dnfrepo.ActivityEvent
 	CharacterID string
 	Placement   PickupItemPlacement
 	UpdatedAt   time.Time
@@ -72,7 +73,7 @@ func (o *Owner) GrantPickupItem(ctx context.Context, cmd PickupItemCommand) (Pic
 	now := updatedAtOrNow(cmd.UpdatedAt)
 
 	var result PickupItemResult
-	err := o.items.WithinCharacterItems(ctx, cmd.CharacterID, func(
+	apply := func(
 		inventories dnfrepo.InventoryRepository,
 		_ dnfrepo.EquipmentRepository,
 	) error {
@@ -104,7 +105,28 @@ func (o *Owner) GrantPickupItem(ctx context.Context, cmd PickupItemCommand) (Pic
 		}
 		result = PickupItemResult{Slot: slot, Stack: cloneStack(stack)}
 		return nil
-	})
+	}
+	var err error
+	if cmd.Activity != nil {
+		if o.settlements == nil {
+			return PickupItemResult{}, dnfrepo.ErrActivityTransaction
+		}
+		err = o.settlements.WithinCharacterSettlement(ctx, cmd.CharacterID, func(tx dnfrepo.Group) error {
+			if tx.Activity == nil {
+				return dnfrepo.ErrActivityTransaction
+			}
+			added, e := tx.Activity.Record(ctx, *cmd.Activity)
+			if e != nil {
+				return e
+			}
+			if !added {
+				return dnfrepo.ErrActivityConflict
+			}
+			return apply(tx.Inventory, tx.Equipment)
+		})
+	} else {
+		err = o.items.WithinCharacterItems(ctx, cmd.CharacterID, apply)
+	}
 	if err != nil {
 		return PickupItemResult{}, err
 	}

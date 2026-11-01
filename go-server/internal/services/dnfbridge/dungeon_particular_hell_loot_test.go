@@ -10,7 +10,7 @@ import (
 )
 
 func TestDemonRiftMultiEpicsPreserveRealPoolAndFragmentGuarantee(t *testing.T) {
-	def := currentRiftLootDefinition{Equipment: []uint32{10, 11}, Pieces: []uint32{20, 21}, FragmentCount: 10, MultiEpicCount: true}
+	def := currentRiftLootDefinition{Equipment: []uint32{10, 11}, Pieces: []uint32{20, 21}, FragmentCount: 10, MultiEpicCount: true, PVFEpicCounts: []privatePVFEpicCount{{1, 500000}, {2, 300000}, {3, 150000}, {4, 50000}}}
 	var seen [5]bool
 	for seed := uint32(1); seed <= 10000; seed++ {
 		items := def.selectItems(newCurrentDungeonDropLCG(seed))

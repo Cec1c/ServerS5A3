@@ -70,7 +70,7 @@ func TestOwnerRepairDeductsFormulaCostAndGoldAtomically(t *testing.T) {
 	ctx := context.Background()
 	repos := dnfrepomemory.NewMemoryGroup()
 	raw := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 0, 13, 14}
-	saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77", Stats: map[string]int64{"gold": 1000}})
+	saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77", AccountID: "repair-account", Stats: map[string]int64{"gold": 1000}})
 	saveTestEquipment(t, ctx, repos, dnfrepo.EquipmentRecord{
 		CharacterID: "77",
 		Entries: map[string]dnfrepo.EquipmentEntry{
@@ -97,6 +97,10 @@ func TestOwnerRepairDeductsFormulaCostAndGoldAtomically(t *testing.T) {
 	loaded := loadTestEquipment(t, ctx, repos, "77")
 	if got := uint16(loaded.Entries["11"].RawEntry[10]) | uint16(loaded.Entries["11"].RawEntry[11])<<8; got != 20 {
 		t.Fatalf("raw durability = %d, want 20", got)
+	}
+	summary, err := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: "repair-account"})
+	if err != nil || summary.Metrics[dnfrepo.ActivityGoldRepair] != 512 {
+		t.Fatal("修理扣款和流水不一致", summary, err)
 	}
 }
 

@@ -64,6 +64,15 @@ func TestAmplifyAuthoritativeFeeRollbackAndPortableBoundary(t *testing.T) {
 			got, err := owner.Upgrade(ctx, cmd)
 			wallet, _, _ := repos.Character.Load(ctx, "77")
 			after := loadTestInventory(t, ctx, repos, "77")
+			summary, summaryErr := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: "acc"})
+			expectedGold := int64(0)
+			if name == "ordinary" {
+				expectedGold = 800
+			}
+			if summaryErr != nil || summary.Metrics[dnfrepo.ActivityGoldAmplify] != expectedGold {
+				t.Fatalf("增幅流水未随资产提交/回滚: %+v %v", summary, summaryErr)
+			}
+
 			if name == "portable" {
 				if calls != 0 || err != nil || !got.Success || wallet.Stats["gold"] != 12345 || after.Slots["0:10"].Count != 1 {
 					t.Fatalf("portable charged: calls=%d result=%+v err=%v wallet=%+v", calls, got, err, wallet)

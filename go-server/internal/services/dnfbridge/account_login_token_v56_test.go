@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -33,6 +34,34 @@ func TestV56LoginTokenLayoutAndLifecycle(t *testing.T) {
 				t.Fatal("accepted wrong classification")
 			}
 		})
+	}
+}
+
+func TestObservedLoginShapeStillRequiresAuthentication(t *testing.T) {
+	for _, token := range []string{"", "de509f65000000000000000000000000"} {
+		service := residentNoticeTestService(t)
+		service.options.playerStrict = true
+		body := make([]byte, 594)
+		binary.LittleEndian.PutUint32(body, 1)
+		body[4] = 0x30
+		binary.LittleEndian.PutUint32(body[5:9], 32)
+		copy(body[9:], token)
+		raw, err := dnfproto.BuildChannelPacket(1, body, 0, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		packets, rest, skipped, err := dnfproto.SplitLatestGameStream(raw, 65535)
+		if err != nil || len(packets) != 1 || len(rest) != 0 || skipped != 0 || packets[0].Kind != dnfproto.LatestGameStreamUpper {
+			t.Fatalf("login stream did not reach upper authentication: packets=%d remaining=%d skipped=%d error=%v", len(packets), len(rest), skipped, err)
+		}
+		conn := &bufferConn{}
+		session := &gameSession{conn: conn}
+		if err := service.handleGameStreamPacket(session, packets[0]); !errors.Is(err, errPlayerAuthentication) {
+			t.Fatalf("unverified token error = %v", err)
+		}
+		if session.accountFromToken || session.accountID != "" || conn.write.Len() != 0 || session.gameEndpointSuccessSent {
+			t.Fatal("recognizing a login shape must not authenticate or acknowledge an unverified token")
+		}
 	}
 }
 

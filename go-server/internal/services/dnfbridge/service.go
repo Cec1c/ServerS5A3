@@ -14,7 +14,9 @@ import (
 
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/activityrank"
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
+	"longheng.io/server/internal/modules/dnf/battlepass"
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/channelinfo"
 	dnfcharstat "longheng.io/server/internal/modules/dnf/charstat"
@@ -46,27 +48,32 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	battlePassCatalogMu   sync.Mutex
+	battlePassCatalog     *battlepass.Catalog
+	battlePassFingerprint string
+	guildPlacementCatalog *guildPlacementCatalog // guarded by guildDungeonCatalogMu
+	// Protected by mu; released only after session cleanup and event-loop stop.
+	accountEditAdmissions        map[*gameSession]map[string]bool
+	characterEditAdmissions      map[*gameSession]map[uint16]string
+	guildCreateMu                sync.Mutex
+	activityRankService          *activityrank.Service
+	playerStatsQueries           gamePlayerStatsQueries
+	channelHandoffMu             sync.Mutex
+	channelHandoffs              map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff
+	guildDungeonCatalogMu        sync.Mutex
+	guildDungeonCatalog          *dnfguild.DungeonCatalog
+	guildTeleportMu              sync.Mutex
 	performance                  *bridgePerformanceMetrics
-	tagTournamentCatalog         *tagtournament.Catalog                                                      // 由initialEquipmentMu保护。
-	tagTournamentSentRosters     map[currentTagTournamentRosterCacheKey]currentTagTournamentRosterCacheEntry // 由mu保护。
-	tagTournamentLoadErr         error
 	guildRankingMu               sync.Mutex
 	guildRankingCatalogMu        sync.Mutex
 	guildRankingRules            *dnfguild.RankingRules
-	guildDungeonCatalogMu        sync.Mutex
-	guildDungeonCatalog          *dnfguild.DungeonCatalog
-	guildEssenceCatalog          *dnfguild.EssenceCatalog          // guarded by guildDungeonCatalogMu
-	guildContributionCatalog     *dnfguild.ContributionCatalog     // guarded by guildDungeonCatalogMu
-	guildHongbaoCatalog          *dnfguild.HongbaoCatalog          // guarded by guildDungeonCatalogMu
+	guildEssenceCatalog          *dnfguild.EssenceCatalog                                                    // guarded by guildDungeonCatalogMu
+	guildContributionCatalog     *dnfguild.ContributionCatalog                                               // guarded by guildDungeonCatalogMu
+	guildHongbaoCatalog          *dnfguild.HongbaoCatalog                                                    // guarded by guildDungeonCatalogMu
+	tagTournamentCatalog         *tagtournament.Catalog                                                      // 由initialEquipmentMu保护。
+	tagTournamentSentRosters     map[currentTagTournamentRosterCacheKey]currentTagTournamentRosterCacheEntry // 由mu保护。
+	tagTournamentLoadErr         error
 	guildMerchantPurchaseCatalog *dnfguild.MerchantPurchaseCatalog // guarded by guildDungeonCatalogMu
-	guildPlacementCatalog        *guildPlacementCatalog            // guarded by guildDungeonCatalogMu
-	guildCreateMu                sync.Mutex
-	guildTeleportMu              sync.Mutex
-	channelHandoffMu             sync.Mutex
-	channelHandoffs              map[currentAuthenticatedChannelHandoffKey]*currentAuthenticatedChannelHandoff
-	// Protected by mu; released only after session cleanup and event-loop stop.
-	accountEditAdmissions   map[*gameSession]map[string]bool
-	characterEditAdmissions map[*gameSession]map[uint16]string
 	// Serializes warehouse ACKs and snapshots; never acquire while holding an
 	// actor reservation. A snapshot must not overtake its transfer's ACK.
 	guildCargoMu     sync.Mutex
@@ -161,13 +168,13 @@ type Service struct {
 	clientAccounts       clientAccountRegistry
 	// loginTokens 保存启动器登录签发的令牌到账号的映射（见 account_login_token.go）。
 	accountLogins     accountLoginSessions
-	playerAdmission   playerAdmission
 	loginTokens       accountLoginTokenStore
 	localLoginMu      sync.Mutex
 	localLoginEpoch   uint64
 	localLoginStopped bool
 	localLoginTokens  map[string]struct{}
 	accountAPI        *accountAPIServer
+	playerAdmission   playerAdmission
 	signupBenefits    *signupbenefits.Store
 	// 账号判定只有两条依据：启动器登录令牌（loginTokens）与本地客户端进程号登记
 	// （clientAccounts）。原来"最近登录 IP → 账号"的内存表与 accountIPCache
@@ -179,44 +186,57 @@ type Service struct {
 	initialEquipmentLoadErr error
 	// dungeonRuleSource lets focused tests provide the exact approved PVF texts
 	// they exercise. Production leaves it nil and uses initialEquipmentArchive.
-	dungeonRuleSource       initialEquipmentTextSource
-	weeklyCatalogMu         sync.Mutex
-	weeklyCatalog           *onlineevent.WeeklyCatalog
-	attendanceMarbleMu      sync.Mutex
-	attendanceMarbleCatalog *attendanceMarbleCatalog
-	monthlyCatalogMu        sync.Mutex
-	monthlyCatalog          *onlineevent.MonthlyCatalog
-	pvfItemCatalogMu        sync.Mutex
-	pvfItemCatalog          *pvfDungeonDropCatalog
-	pvfItemCatalogLoadErr   error
-	joustCatalogMu          sync.Mutex
-	joustCatalog            *dnfjoust.Catalog
-	joustCatalogLoadErr     error
-	joustHistoryMu          sync.Mutex
-	joustOperationMu        sync.Mutex
-	spendTimeCatalogMu      sync.Mutex
-	spendTimeCatalogState   *currentSpendTimeRuntimeCatalog
-	spendTimeCatalogLoadErr error
-	expertJobMu             sync.Mutex
-	expertJobCatalog        *dnfexpertjob.Catalog
-	expertJobCatalogLoadErr error
-	petCatalogMu            sync.Mutex
-	petCatalog              *dnfpet.PVFCatalog
-	petCatalogLoadErr       error
-	premiumCatalogMu        sync.Mutex
-	premiumCatalog          *currentPremiumCatalog
-	premiumCatalogLoadErr   error
-	repairCostMu            sync.Mutex
-	repairCostCatalog       *currentRepairCostCatalog
-	repairCostLoadErr       error
-	npcShopCatalogMu        sync.Mutex
-	npcShopCatalog          *currentNPCShopCatalog
-	npcShopCatalogLoadErr   error
-	adventureGroupMu        sync.Mutex
-	adventureGroupLoginMu   sync.Mutex
-	adventureGroupRuntimeMu sync.Mutex
-	adventureGroupTable     *adventuregroup.Tables
-	adventureGroupLoadErr   error
+	dungeonRuleSource         initialEquipmentTextSource
+	weeklyCatalogMu           sync.Mutex
+	weeklyCatalog             *onlineevent.WeeklyCatalog
+	attendanceMarbleMu        sync.Mutex
+	attendanceMarbleCatalog   *attendanceMarbleCatalog
+	monthlyCatalogMu          sync.Mutex
+	monthlyCatalog            *onlineevent.MonthlyCatalog
+	pvfItemCatalogMu          sync.Mutex
+	pvfItemCatalog            *pvfDungeonDropCatalog
+	pvfItemCatalogLoadErr     error
+	joustCatalogMu            sync.Mutex
+	joustCatalog              *dnfjoust.Catalog
+	joustCatalogLoadErr       error
+	joustHistoryMu            sync.Mutex
+	joustOperationMu          sync.Mutex
+	portedActivityPolicy      *onlineevent.PortedActivityPolicy
+	portedActivityNativeReady map[uint16]bool
+	laborDayMu                sync.Mutex
+	laborDayCatalog           *onlineevent.LaborDayCatalog
+	returneeLuckyMu           sync.Mutex
+	returneeCatalog           *onlineevent.ReturneeCatalog
+	luckyCharacterCatalog     *currentLuckyCatalog
+	levelAimingMu             sync.Mutex
+	levelChallengeMu          sync.Mutex
+	levelChallengeCatalog     *onlineevent.LevelChallengeCatalog
+	levelAimingCatalog        *onlineevent.LevelAimingCatalog
+	legacyLevelMu             sync.Mutex
+	legacyLevelCatalog        *onlineevent.LegacyLevelCatalog
+	spendTimeCatalogMu        sync.Mutex
+	spendTimeCatalogState     *currentSpendTimeRuntimeCatalog
+	spendTimeCatalogLoadErr   error
+	expertJobMu               sync.Mutex
+	expertJobCatalog          *dnfexpertjob.Catalog
+	expertJobCatalogLoadErr   error
+	petCatalogMu              sync.Mutex
+	petCatalog                *dnfpet.PVFCatalog
+	petCatalogLoadErr         error
+	premiumCatalogMu          sync.Mutex
+	premiumCatalog            *currentPremiumCatalog
+	premiumCatalogLoadErr     error
+	repairCostMu              sync.Mutex
+	repairCostCatalog         *currentRepairCostCatalog
+	repairCostLoadErr         error
+	npcShopCatalogMu          sync.Mutex
+	npcShopCatalog            *currentNPCShopCatalog
+	npcShopCatalogLoadErr     error
+	adventureGroupMu          sync.Mutex
+	adventureGroupLoginMu     sync.Mutex
+	adventureGroupRuntimeMu   sync.Mutex
+	adventureGroupTable       *adventuregroup.Tables
+	adventureGroupLoadErr     error
 	// lastOnlineCharacter 是账号级写序列点，见 account_last_online_character.go。
 	lastOnlineCharacter    lastOnlineCharacterState
 	honorMu                sync.Mutex
@@ -358,6 +378,9 @@ func (s *Service) Start(ctx context.Context) error {
 	if err := s.initializeActivityControls(ctx); err != nil {
 		return err
 	}
+	if err := s.initializePortedActivityPolicy(ctx); err != nil {
+		return err
+	}
 	catalog, channelScript, err := s.loadChannelAssets()
 	if err != nil {
 		return err
@@ -407,6 +430,7 @@ func (s *Service) Start(ctx context.Context) error {
 		{"equipment stat index", s.preloadEquipmentStatIndex},
 		{"combat power affix catalog", s.preloadCombatPowerAffixCatalog},
 		{"装备合成目录", s.preloadEquipmentRegenerationCatalog},
+		{"四项移植活动目录", s.preloadPortedActivities},
 	}
 	for _, preload := range pvfPreloads {
 		if err := preload.load(runCtx); err != nil {

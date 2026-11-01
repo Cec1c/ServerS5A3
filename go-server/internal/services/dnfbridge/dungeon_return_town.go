@@ -454,6 +454,9 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 			"reason", "dungeon_run_not_active")
 		return nil
 	}
+	if err := s.recordCurrentActivityAbyss(session, runtime, snapshot.Scene, false); err != nil {
+		return err
+	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_return_transition_started")
 	if !runtime.townReturnPending {
 		runtime.townReturnPending = true

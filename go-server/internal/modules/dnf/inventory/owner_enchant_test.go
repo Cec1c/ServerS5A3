@@ -57,7 +57,7 @@ func saveEnchantFixture(t *testing.T, ctx context.Context, repos dnfrepo.Group, 
 	targetRawEntry[0x0F] = byte(targetCardID >> 8)
 	targetRawEntry[0x10] = byte(targetCardID >> 16)
 	targetRawEntry[0x11] = byte(targetCardID >> 24)
-	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
+	saveEnchantTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
 		CharacterID: "77",
 		Slots: map[string]dnfrepo.ItemStack{
 			slotKey(listTypeMain, 12): {
@@ -88,7 +88,7 @@ func savePetEnchantFixture(t *testing.T, ctx context.Context, repos dnfrepo.Grou
 		petSlot   int16 = 24
 	)
 	petRaw := make([]byte, currentItemListEntrySize)
-	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
+	saveEnchantTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
 		CharacterID: "77",
 		Slots: map[string]dnfrepo.ItemStack{
 			slotKey(listTypeMain, 12): {
@@ -341,7 +341,7 @@ func TestOwnerEnchantRejections(t *testing.T) {
 			name:     "bead slot missing",
 			resolver: coatEnchantResolver(9001, nil),
 			setup: func(t *testing.T, repos dnfrepo.Group) {
-				saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{}})
+				saveEnchantTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{}})
 			},
 			wantCode: enchantErrorInvalidBead,
 		},
@@ -349,7 +349,7 @@ func TestOwnerEnchantRejections(t *testing.T) {
 			name:     "target slot missing",
 			resolver: coatEnchantResolver(9001, nil),
 			setup: func(t *testing.T, repos dnfrepo.Group) {
-				saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
+				saveEnchantTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{
 					CharacterID: "77",
 					Slots: map[string]dnfrepo.ItemStack{
 						slotKey(listTypeMain, 12): {ItemID: 8801, Count: 1},

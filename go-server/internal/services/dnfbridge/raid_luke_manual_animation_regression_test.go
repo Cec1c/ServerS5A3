@@ -19,18 +19,12 @@ func TestRealPVFLukeManualFlipFinishDoesNotRestartAnimation(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	f.conn.write.Reset()
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
-	sawCards := false
-	for stream := f.conn.write.Bytes(); len(stream) > 0; {
-		p, rest := splitGameServerUpperPacket(t, stream)
-		sawCards = sawCards || p.Header.MsgID == 600
-		stream = rest
-	}
-	if !sawCards {
-		t.Fatal("manual flip omitted card list")
-	}
+	// Completion now belongs to this local manual flip, before another group
+	// reaches the unattended deadline. The later break must not repeat it.
+	r195LukeWantCompletionWire(t, r195LukeCompletionWire(t, f.conn.write.Bytes()), "kind1", "empty3")
 	for _, now := range []time.Time{flow.AutoSelectAt, flow.AutoSelectAt.Add(65 * time.Second)} {
 		if _, errs := f.service.advanceCurrentAntonRewardFlows(now, zeroAntonRoll); len(errs) != 0 {
 			t.Fatal(errs)
@@ -48,7 +42,7 @@ func TestRealPVFLukeManualFlipFinishDoesNotRestartAnimation(t *testing.T) {
 			t.Fatal("finish restarted already delivered reward screen")
 		}
 		if p.Header.MsgID == 600 {
-			t.Fatal("finish replayed manually delivered cards")
+			t.Fatal("finish replayed already delivered cards/completion", p.Body)
 		}
 		sawBreak = sawBreak || p.Header.MsgID == 587 && len(p.Body) == 2 && p.Body[0] == 5
 		stream = rest

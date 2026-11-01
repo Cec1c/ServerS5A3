@@ -192,6 +192,7 @@ func buildCurrentPVPFatigueUseBody(success bool) []byte {
 }
 
 type currentPVPArcadeRun struct {
+	fatigueEvent    *dnfrepo.ActivityEvent
 	startedAt       time.Time
 	difficulty      byte
 	usageAttempted  bool
@@ -225,18 +226,9 @@ func parseCurrentPVPArcadeResult(body []byte) (byte, bool, byte, bool) {
 	return mode, body[1] == 1, difficulty, ok
 }
 
-// 本文件属于决斗场街机模式(op1271/1272/1285)的移植。参考实现里
-// handleCurrentPVPFatigueAcceleration(op562 疲劳值加速勾选框)只是恰好写在同一
-// 文件里,它本身不是决斗场功能:它需要 fatigue_burn.go 整套运行时同步
-// (currentFatigueBurnRules / sendCurrentFatigueBurnState /
-// currentFatigueBurnToggleCharacter)、returnee lucky 角色表,以及疲劳 owner 的
-// BurnEnabled 双倍扣除语义。
-//
-// 本次只移植决斗场代码,所以 op562 维持本树原本的状态:不注册、不处理。
-// 刻意不做"只存 fatigue_acceleration 并回成功"的降级版——那会让客户端的勾选框
-// 显示为已开启而实际不双倍扣疲劳,比不响应更容易误导玩家。
-// 移植时已经落地的决斗场部分不受影响:街机付费走 handleCurrentPVPFatigueUsage,
-// 结算走 handleCurrentPVPArcadeRoundInfo / handleCurrentPVPArcadeResult。
+// 本文件只负责决斗场街机付费与结算(op1271/1272/1285)。普通地下城的
+// 幸运角色疲劳加速(op562/490)由lucky_character_effects.go及房间扣费入口处理，
+// 不复用街机付费规则。
 
 func currentPVPArcadeRoom(session *gameSession) (*currentPVPRoom, bool) {
 	if session == nil || session.selectedCharacterID == 0 {
@@ -310,9 +302,24 @@ func (s *Service) handleCurrentPVPFatigueUsage(session *gameSession, body []byte
 			run.usageAttempted = true
 			return s.sendGameUpperRawClass(session, 1271, []byte{0}, 1)
 		}
+
+		if run.fatigueEvent == nil && repos.Activity != nil && amount > 0 {
+			run.fatigueEvent, err = s.currentArcadeActivityEvent(character.AccountID, character.CharacterID, amount)
+			if err != nil {
+				return err
+			}
+		}
+		paidAt := s.gameplayNow()
+		if run.fatigueEvent != nil {
+			run.fatigueEvent.OccurredAt = paidAt
+		}
 		result, err := dnfpvp.ConsumeArcadeFatigue(ctx, repos, dnfpvp.ConsumeArcadeCommand{
 			AccountID: character.AccountID, CharacterID: character.CharacterID,
-			Amount: amount, RequireFull: true, UpdatedAt: s.gameplayNow(),
+			Amount: amount, RequireFull: true, UpdatedAt: paidAt, Activity: run.fatigueEvent,
+			OnFatigueDebit: func(character *dnfrepo.CharacterRecord, consumed int64, at time.Time) error {
+				_, err := s.applyPrivateActivity(character, 6, uint32(consumed), at, at)
+				return err
+			},
 		})
 		if err != nil {
 			if errors.Is(err, dnfpvp.ErrFatigueInsufficient) {
