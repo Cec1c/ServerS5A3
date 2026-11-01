@@ -56,10 +56,11 @@ func TestRealPVFLevelChallengeNativeCreationAllJobs(t *testing.T) {
 			conn := &bufferConn{}
 			session := &gameSession{conn: conn, accountID: account, loginPacketSeen: true, accountFromToken: true}
 			session.spendTime.eventInfoSent = true
-			create := func(name string, participate byte) (bool, string, []byte) {
+			createWithOptions := func(name string, options []byte) (bool, string, []byte) {
 				t.Helper()
 				conn.write.Reset()
-				request := append(buildCreateRequest(byte(job), name), 0, 0, 0, 0, 0, 0, 0xff, participate, 5)
+				request := buildCreateRequest(byte(job), name)
+				request = append(request, options...)
 				if err := s.handleUpperCreateCharacter(session, request); err != nil {
 					t.Fatal(err)
 				}
@@ -74,6 +75,10 @@ func TestRealPVFLevelChallengeNativeCreationAllJobs(t *testing.T) {
 					t.Fatal("创建成功缺少角色编号")
 				}
 				return true, strconv.Itoa(int(binary.LittleEndian.Uint16(ack.Body[1:3]))), rest
+			}
+			create := func(name string, participate byte) (bool, string, []byte) {
+				t.Helper()
+				return createWithOptions(name, []byte{0, 0, 0, 0, 0, 0, 0xff, participate, 5})
 			}
 			ok, id, rest := create(fmt.Sprintf("challenge%d", job), 1)
 			if !ok {
@@ -104,18 +109,18 @@ func TestRealPVFLevelChallengeNativeCreationAllJobs(t *testing.T) {
 				t.Fatalf("创建后活动名单=%d %x", packet.Header.MsgID, packet.Body)
 			}
 			automatic := s.levelChallengeCatalog.AutomaticNewCharacters
-			if ok, _, _ := create(fmt.Sprintf("repeat%d", job), 1); ok != automatic {
-				t.Fatalf("第二名新角色创建=%v，自动参加=%v", ok, automatic)
+			repeatOK, _, _ := create(fmt.Sprintf("repeat%d", job), 1)
+			if repeatOK != automatic {
+				t.Fatalf("第二名新角色创建=%v，自动参加=%v", repeatOK, automatic)
 			}
-			ordinaryFlag := byte(0)
 			expectedCount := 1
-			if automatic {
-				ordinaryFlag, expectedCount = 1, 3
+			if repeatOK {
+				expectedCount++
 			}
 			ordinaryOK, ordinaryID, _ := create(fmt.Sprintf("ordinary%d", job), 0)
 			if !ordinaryOK {
 				t.Fatal("名额用完后普通创建被阻止")
-			} else if ordinary, found, err := repos.Character.Load(ctx, ordinaryID); err != nil || !found || ordinary.Stats[onlineevent.LevelChallengeRoleStat] != int64(ordinaryFlag) || ordinary.Stats["grow_type"] != 0 {
+			} else if ordinary, found, err := repos.Character.Load(ctx, ordinaryID); err != nil || !found || ordinary.Stats[onlineevent.LevelChallengeRoleStat] != 0 || ordinary.Stats["grow_type"] != 0 {
 				t.Fatalf("普通角色错误报名或被末字节转职：%+v err=%v", ordinary, err)
 			}
 			stored, _, err := repos.Account.Load(ctx, account)
@@ -126,11 +131,32 @@ func TestRealPVFLevelChallengeNativeCreationAllJobs(t *testing.T) {
 			if _, registered := state[id]; !registered {
 				t.Fatal("活动角色没有持久报名回执")
 			}
+			legacyOK, legacyID, _ := createWithOptions(fmt.Sprintf("legacy%d", job), nil)
+			if !legacyOK {
+				t.Fatal("无创建选项旧请求被阻止")
+			}
+			legacy, found, err := repos.Character.Load(ctx, legacyID)
+			expectedLegacyFlag := int64(0)
+			if automatic {
+				expectedLegacyFlag = 1
+				expectedCount++
+			}
+			if err != nil || !found || legacy.Stats[onlineevent.LevelChallengeRoleStat] != expectedLegacyFlag || legacy.Stats["grow_type"] != 0 {
+				t.Fatalf("无选项legacy角色=%+v found=%t err=%v", legacy, found, err)
+			}
+			stored, _, err = repos.Account.Load(ctx, account)
+			state, stateErr = onlineevent.ReadLevelChallengeState(stored)
+			if err != nil || stateErr != nil || len(state) != expectedCount {
+				t.Fatalf("legacy报名回执不符：%+v %v %v", state, err, stateErr)
+			}
+			if _, registered := state[legacyID]; registered != automatic {
+				t.Fatalf("legacy角色报名=%v，自动参加=%v", registered, automatic)
+			}
 			// 此时没有进入城镇、也未初始化在线时钟，选角后仍须正确通知816。
 			for _, selected := range []struct {
 				id   string
 				flag byte
-			}{{id, 1}, {ordinaryID, ordinaryFlag}} {
+			}{{id, 1}, {ordinaryID, 0}, {legacyID, byte(expectedLegacyFlag)}} {
 				n, err := strconv.Atoi(selected.id)
 				if err != nil {
 					t.Fatal(err)

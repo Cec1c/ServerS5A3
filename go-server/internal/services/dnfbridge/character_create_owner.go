@@ -12,7 +12,7 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, record dnfrepo.CharacterRecord) error {
+func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, record dnfrepo.CharacterRecord, options []byte) error {
 	now := record.UpdatedAt
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -112,7 +112,8 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 		}
 	}
 	requestedChallenge := record.Stats[onlineevent.LevelChallengeRoleStat] == 1
-	if requestedChallenge || (!dnfpvp.IsPrivateCharacter(record) && s.currentPortedActivityEnabled(288)) {
+	legacyAutomaticCandidate := len(options) < 8
+	if requestedChallenge || (!dnfpvp.IsPrivateCharacter(record) && legacyAutomaticCandidate && s.currentPortedActivityEnabled(288)) {
 		if !s.currentPortedActivityEnabled(288) {
 			return fmt.Errorf("升级大挑战未开启")
 		}
@@ -123,7 +124,7 @@ func (s *Service) saveNewCharacter(ctx context.Context, repos dnfrepo.Group, rec
 		if catalog == nil {
 			return fmt.Errorf("升级大挑战配置未就绪")
 		}
-		if requestedChallenge || catalog.AutomaticNewCharacters {
+		if requestedChallenge || (catalog.AutomaticNewCharacters && len(options) < 8) {
 			creation.LevelChallenge = catalog
 		}
 	}
