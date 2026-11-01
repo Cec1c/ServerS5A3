@@ -94,6 +94,7 @@ type gameSession struct {
 	selectLoadingTiming     *currentSelectLoadingTiming // selectTimingMu
 	transportOnce           sync.Once
 	transportCloseOnce      sync.Once
+	transportFailureOnce    sync.Once
 	transportCtx            context.Context
 	transportCancel         context.CancelFunc
 	dproto                  dproto.Session

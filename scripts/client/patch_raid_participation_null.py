@@ -11,7 +11,10 @@ import json
 import patch_receivers_v128 as pe
 from patch_at5t_input_priority import Code
 
-INPUTS = {'534b5ef166d0090d1ab88e01f5f443721abf97eabfacfb007e04e30fd9d51b24': 112541696}
+INPUTS = {
+    '534b5ef166d0090d1ab88e01f5f443721abf97eabfacfb007e04e30fd9d51b24': 112541696,
+    'b63d35bb28ba70353af5388cdaea4f2f8294cacc5064fcbb31db175519a02783': 112549888,
+}
 SITE = 0x01FF4CAE
 RESUME = SITE + 6
 NEXT_ROW = 0x01FF4E3D
@@ -39,7 +42,9 @@ def build(data):
     count = struct.unpack_from('<H', data, coff + 6)[0]
     table = opt + struct.unpack_from('<H', data, coff + 20)[0]
     header = table + count * 40
-    if header + 40 > struct.unpack_from('<I', data, opt + 60)[0] or any(data[header:header + 40]):
+    empty_header = header + 40 <= struct.unpack_from('<I', data, opt + 60)[0] and not any(data[header:header + 40])
+    reuse_v203_padding = digest == 'b63d35bb28ba70353af5388cdaea4f2f8294cacc5064fcbb31db175519a02783'
+    if not empty_header and not reuse_v203_padding:
         raise ValueError('no empty section header')
     if struct.unpack_from('<II', data, opt + 32) != (4096, 4096) or any(struct.unpack_from('<II', data, opt + 128)):
         raise ValueError('unexpected alignment or certificate')
@@ -56,18 +61,37 @@ def build(data):
         at = pe.offset(sections, va, len(expected))
         if data[at:at + len(expected)] != expected:
             raise ValueError('participation callback fingerprint changed')
-    base = pe.IMAGE_BASE + image_size
-    code = helper(base)
-    out = bytearray(data) + code + bytes(4096 - len(code))
+    if reuse_v203_padding:
+        # V203 fills the PE header table. Its exact .ctnull section contains
+        # 21 verified bytes and zero raw padding. Keep that existing helper
+        # intact; allocate our independent helper at the next 16-byte boundary.
+        last = table + (count - 1) * 40
+        name, used, rva, raw_size, raw = struct.unpack_from('<8sIIII', data, last)
+        flags = struct.unpack_from('<I', data, last + 36)[0]
+        if name != b'.ctnull\0' or used != 21 or raw_size != 4096 or raw + raw_size != len(data) or flags != 0x60000020:
+            raise ValueError('unexpected exact V203 last-section layout')
+        offset = (used + 15) & ~15
+        base = pe.IMAGE_BASE + rva + offset
+        code = helper(base)
+        if offset + len(code) > raw_size or any(data[raw + used:raw + raw_size]):
+            raise ValueError('V203 helper padding is not empty')
+        out = bytearray(data)
+        out[raw + offset:raw + offset + len(code)] = code
+        struct.pack_into('<I', out, last + 8, offset + len(code))
+        allocation_ranges = [(last + 8, last + 12), (raw + offset, raw + offset + len(code))]
+    else:
+        base = pe.IMAGE_BASE + image_size
+        code = helper(base)
+        out = bytearray(data) + code + bytes(4096 - len(code))
+        struct.pack_into('<8sIIIIIIHHI', out, header, b'.raidnul', len(code), image_size, 4096, len(data), 0, 0, 0, 0, 0x60000020)
+        struct.pack_into('<H', out, coff + 6, count + 1)
+        struct.pack_into('<I', out, opt + 4, struct.unpack_from('<I', data, opt + 4)[0] + 4096)
+        struct.pack_into('<I', out, opt + 56, image_size + 4096)
+        allocation_ranges = [(coff + 6, coff + 8), (opt + 4, opt + 8), (opt + 56, opt + 60), (header, header + 40)]
     at = pe.offset(sections, SITE, len(ORIGINAL))
     out[at:at + 6] = b'\xe9' + struct.pack('<i', base - SITE - 5) + b'\x90'
-    struct.pack_into('<8sIIIIIIHHI', out, header, b'.raidnul', len(code), image_size, 4096, len(data), 0, 0, 0, 0, 0x60000020)
-    struct.pack_into('<H', out, coff + 6, count + 1)
-    struct.pack_into('<I', out, opt + 4, struct.unpack_from('<I', data, opt + 4)[0] + 4096)
-    struct.pack_into('<I', out, opt + 56, image_size + 4096)
     struct.pack_into('<I', out, opt + 64, pe.checksum(out, opt + 64))
-    ranges = sorted([(at, at + 6), (coff + 6, coff + 8), (opt + 4, opt + 8),
-                     (opt + 56, opt + 60), (opt + 64, opt + 68), (header, header + 40)])
+    ranges = sorted([(at, at + 6), (opt + 64, opt + 68)] + allocation_ranges)
     normalized = bytearray(out[:len(data)])
     for lo, hi in ranges:
         normalized[lo:hi] = data[lo:hi]
@@ -75,7 +99,9 @@ def build(data):
         raise ValueError('change outside approved ranges')
     return bytes(out), dict(inputSha256=digest, outputSha256=pe.sha(out), size=len(out),
                            helperVA=hex(base), helperSize=len(code), changedRanges=ranges,
-                           appendedRange=[len(data), len(out)], playerAcceptance='pending')
+                           appendedRange=[len(data), len(out)],
+                           allocation='verified_v203_last_section_padding' if reuse_v203_padding else 'new_section',
+                           playerAcceptance='pending')
 
 
 def main():

@@ -18,8 +18,6 @@ from unicorn.x86_const import *
 import patch_raid_participation_null as patch
 
 
-INPUT_SHA256 = '534b5ef166d0090d1ab88e01f5f443721abf97eabfacfb007e04e30fd9d51b24'
-INPUT_SIZE = 112541696
 CALLBACK = 0x01FF4940
 OWN_RAID_GETTER = 0x01A553E0
 OWN_RAID_GETTER_CODE = bytes.fromhex(
@@ -395,7 +393,7 @@ def assert_equal(source, candidate, label):
 
 
 def checksum_fixture(source, candidate):
-    if len(source) != INPUT_SIZE or sha256(source) != INPUT_SHA256:
+    if patch.INPUTS.get(sha256(source)) != len(source):
         raise AssertionError('exact verified baseline SHA256/size required')
     opt, source_sections = patch.pe.headers(source)
     _, candidate_sections = patch.pe.headers(candidate)
