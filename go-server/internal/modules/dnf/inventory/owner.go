@@ -1584,6 +1584,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 	result.UpdatedGold = character.Stats["gold"]
 	goldCost := upgradeGoldCostOf(target, cmd.Mode, oldLevel)
 	var conversionKey string
+	var conversionItemID int64
 	var conversionCount int64
 	if cmd.UpgradeCostResolver != nil && !(portable != nil && upgradePortableConsumableEnabled()) {
 		quote, err := cmd.UpgradeCostResolver(cmd.Mode, target.ItemID, int(oldLevel), cmd.UpgradeNPCPresent, cmd.UpgradeNPCID)
@@ -1609,6 +1610,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 					result.ErrorCode = upgradeErrorInvalidMaterial
 					return result, nil
 				}
+				conversionItemID = quote.ConversionItemID
 				conversionCount = quote.ConversionCount
 			}
 		}
@@ -1777,6 +1779,12 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		result.ConversionMaterialUpdated = true
 		result.ConversionMaterialSlot = cmd.UpgradeNPCMaterialSlot
 		result.ConversionMaterialRemainingCount = stack.Count
+		// 乔纳森普通强化用转换材料支付时，PVF 周任务 28 跟踪实际扣除的
+		// 材料身份和数量。失败但仍扣料同样计入；未能进入扣料块的拒绝请求不会到这里。
+		if cmd.Mode == "reinforce" && cmd.UpgradeNPCPresent && cmd.UpgradeNPCID == 476 {
+			character = dnfrepo.CloneCharacter(character)
+			dnfrepo.AddBattlePassCounter(&character, 28, conversionItemID, conversionCount, time.Now())
+		}
 	}
 	character = dnfrepo.CloneCharacter(character)
 	counterKind := uint32(16)
