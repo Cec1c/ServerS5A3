@@ -75,7 +75,7 @@ func resolveCurrentBoosterDefinition(
 		}
 		definition.SelectionRequired = int(requiredValues[0])
 		definition.Selection, definition.SelectionCategory, err = parseCurrentBoosterSelectionCatalog(document)
-		if err != nil {
+		if err != nil || currentBoosterSelectionHasEquipmentAttributes(definition.Selection) {
 			// Some native equipment-labelled choices actually award stackable
 			// tickets. Only their fully resolved, non-equipment rewards can
 			// safely use the ordinary grant projection without instance fields.
@@ -166,6 +166,8 @@ func parseCurrentBoosterSelectionCatalog(
 	// 占位丢弃，而不是把整只礼盒判成非法 PVF（旧行为 ⇒ 客户端弹通用失败码 4）。
 	categoryReopened := false
 	var categoryID uint16
+	var equipmentUpgrade byte
+	var equipmentSeparate byte
 	result := make([]currentBoosterSelectionCandidate, 0, 8)
 	seen := make(map[uint32]currentBoosterSelectionCandidate)
 	categorySeen := make(map[uint16]map[uint32]struct{})
@@ -179,6 +181,8 @@ func parseCurrentBoosterSelectionCatalog(
 		previousSection = name
 		switch name {
 		case "booster select category":
+			equipmentUpgrade = 0
+			equipmentSeparate = 0
 			if inCategory {
 				return nil, nil, fmt.Errorf("nested booster selection category")
 			}
@@ -286,10 +290,22 @@ func parseCurrentBoosterSelectionCatalog(
 			continue
 		}
 		if name == "booster equipment upgrade" {
-			// Zero requests no reinforcement; nonzero semantics are unverified.
-			if len(values) != 1 || values[0] != 0 || section.End-section.Start != 1 {
+			// Native 0x3b406ee reads the category's integer; 0x3b40b61
+			// copies it only into equipment rows. 255 selects a distinct random
+			// upgrade table and must not become a literal reinforcement value.
+			if len(values) != 1 || values[0] < 0 || values[0] > 31 || section.End-section.Start != 1 {
 				return nil, nil, fmt.Errorf("unsupported booster equipment upgrade")
 			}
+			equipmentUpgrade = byte(values[0])
+			continue
+		}
+		if name == "booster equipment separate" {
+			// The native equipment row's second attribute is forging. Keep
+			// the existing inventory owner's 0..8 range and byte 0x57 contract.
+			if values[0] < 0 || values[0] > 8 {
+				return nil, nil, fmt.Errorf("unsupported booster equipment separate")
+			}
+			equipmentSeparate = byte(values[0])
 			continue
 		}
 		stride := 0
@@ -323,6 +339,10 @@ func parseCurrentBoosterSelectionCatalog(
 				Count:        uint32(count),
 				CategoryKind: categoryKind,
 				Option:       byte(option),
+			}
+			if name == "equipment" {
+				candidate.EquipmentUpgrade = equipmentUpgrade
+				candidate.EquipmentSeparate = equipmentSeparate
 			}
 			if previous, duplicate := seen[candidate.ItemID]; duplicate {
 				if previous != candidate {

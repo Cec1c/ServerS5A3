@@ -300,6 +300,9 @@ func (s *Service) commitCurrentBooster(
 			if err != nil {
 				return dnfbooster.Changes{}, err
 			}
+			if err := applyCurrentBoosterSelectionUpgrades(definition, request, rewards); err != nil {
+				return dnfbooster.Changes{}, err
+			}
 
 			materialKey := ""
 			var materialItemID int64

@@ -113,7 +113,9 @@ func TestRelicBoxesRealPVFAndInventory(t *testing.T) {
 }
 
 func TestRelicUpgradeMetadataRejectsUnverifiedValues(t *testing.T) {
-	for _, value := range []string{"1", "", "0 0", "`0`"} {
+	// Fixed levels 0..31 are covered by the 005 native/PVF grant tests.
+	// Random tables and malformed metadata remain rejected.
+	for _, value := range []string{"32", "255", "-1", "", "0 0", "`0`"} {
 		doc, err := dnfpvf.Parse("stackable/test.stk", "[booster select category]\n0 0\n[booster equipment upgrade]\n"+value+"\n[equipment]\n123 1\n[/equipment]\n[/booster select category]\n")
 		if err != nil {
 			t.Fatal(err)

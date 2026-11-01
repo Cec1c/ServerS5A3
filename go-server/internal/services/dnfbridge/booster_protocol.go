@@ -89,7 +89,9 @@ type currentBoosterSelectionCandidate struct {
 	Option       byte
 	// DefaultSelected is category-local metadata; quantity/attributes still
 	// come from the actual reward row, never from the default-select list.
-	DefaultSelected bool
+	DefaultSelected   bool
+	EquipmentUpgrade  byte
+	EquipmentSeparate byte
 }
 
 type currentBoosterRewardPlacement byte
@@ -105,11 +107,13 @@ const (
 )
 
 type currentBoosterReward struct {
-	Definition dungeonDropItemDefinition
-	Count      uint32
-	Option     byte
-	Seal       bool
-	Placement  currentBoosterRewardPlacement
+	Definition        dungeonDropItemDefinition
+	Count             uint32
+	Option            byte
+	Seal              bool
+	Placement         currentBoosterRewardPlacement
+	EquipmentUpgrade  byte
+	EquipmentSeparate byte
 }
 
 type currentBoosterGrantedReward struct {
