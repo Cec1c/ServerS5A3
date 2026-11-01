@@ -71,6 +71,11 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 			residentParty = runtimePartyStateSnapshot(resident)
 		}
 	}
+	// Install the restore gate before exposing a replacement to raid clocks.
+	// Authentication of the projected object happens after binding, at send time.
+	if session.selectedCharacterID != charID || session.characterGeneration == 0 {
+		s.markCurrentRaidSessionRestore(session, charID)
+	}
 	s.lockCurrentCharacterBindingMutation(session, charID)
 	if s.gameSessions == nil {
 		s.gameSessions = make(map[uint16]*gameSession)

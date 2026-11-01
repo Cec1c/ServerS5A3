@@ -841,7 +841,7 @@ func buildCurrentDungeonMoveStartMapBody(
 			Operation:        plan.Operation,
 			Seed:             plan.Seed,
 			RoomStateValue:   1,
-			PartyMemberIndex: currentDungeonRuntimePartyMemberIndex(runtime),
+			PartyMemberIndex: 0xff,
 		}).Build()
 		if err != nil {
 			return nil, fmt.Errorf("build cached target-room start-map body: %w", err)
@@ -867,7 +867,7 @@ func buildCurrentDungeonMoveStartMapBody(
 		HellPartyFogFlag:      runtime.StartMapHellFogFlag,
 		RoomStateValue:        1,
 		RoomStateFlag:         plan.PayloadMode,
-		PartyMemberIndex:      currentDungeonRuntimePartyMemberIndex(runtime),
+		PartyMemberIndex:      0xff,
 		ExtraEntries:          passiveObjectDropEntries,
 		ExtraEntryVendorWidth: passiveObjectDropVendorWidth,
 	})

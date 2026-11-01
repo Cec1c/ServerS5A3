@@ -279,6 +279,10 @@ func TestRealPVFR195Upper15RestoresMetadataAfterBackgroundProgressInitialized(t 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newRaidSelectorRestoreR195Fixture(t)
+			// Preserve coverage for a connection that already had its native
+			// object when progress arrived. Fresh replacements are now gated;
+			// raid_session_restore_test covers that separate lifecycle.
+			f.session.raidProjection.sessionRestorePending = false
 			tc.setup(t, f)
 			initialized, startTransition, metadataReady := r195SelectorRestoreFlags(f.session)
 			if !initialized || metadataReady || (tc.name == "progress_only" && startTransition) {

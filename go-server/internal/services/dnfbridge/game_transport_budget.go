@@ -104,6 +104,7 @@ func (s *Service) writeGameSessionObserved(p *gameSession, data []byte, stage in
 	if p.wireWriteContext == nil {
 		finish, err := beginGameWriteBudgetLocked(p, nil)
 		if err != nil {
+			s.logFirstGameTransportFailure(p, "budget_setup", stage, len(data), 0, 0, nil)
 			p.closeGameTransport()
 			return 0, err
 		}
@@ -111,11 +112,13 @@ func (s *Service) writeGameSessionObserved(p *gameSession, data []byte, stage in
 	}
 	ctx := p.wireWriteContext
 	if err := ctx.Err(); err != nil {
+		s.logFirstGameTransportFailure(p, "before_socket_write", stage, len(data), 0, 0, ctx)
 		p.closeGameTransport() // The caller may already have encoded this frame.
 		return 0, err
 	}
 	deadline, _ := ctx.Deadline()
 	if err := p.conn.SetWriteDeadline(deadline); err != nil {
+		s.logFirstGameTransportFailure(p, "set_write_deadline", stage, len(data), 0, 0, ctx)
 		p.closeGameTransport()
 		return 0, err
 	}
@@ -129,14 +132,17 @@ func (s *Service) writeGameSessionObserved(p *gameSession, data []byte, stage in
 			<-finished
 		}
 		if err := p.conn.SetWriteDeadline(time.Time{}); err != nil {
+			s.logFirstGameTransportFailure(p, "clear_write_deadline", stage, len(data), 0, 0, ctx)
 			p.closeGameTransport()
 		}
 	}()
+	writeStarted := time.Now()
 	n, err := s.writeGameConnectionObserved(p.conn, data, stage)
 	if err == nil && n != len(data) {
 		err = io.ErrShortWrite
 	}
 	if err != nil {
+		s.logFirstGameTransportFailure(p, "socket_write", stage, len(data), n, time.Since(writeStarted), ctx)
 		// Keep the established zero-byte, non-timeout retry contract. A partial
 		// frame or expired write can no longer safely reuse this stream.
 		// Do not call arbitrary error Unwrap/Timeout methods here: preserve
@@ -149,4 +155,24 @@ func (s *Service) writeGameSessionObserved(p *gameSession, data []byte, stage in
 		}
 	}
 	return n, err
+}
+
+// Keep the initiating write failure even when packet logs are disabled. Later
+// context-canceled errors from queued work must not replace this evidence.
+// Do not format provider errors, payloads or account data here.
+func (s *Service) logFirstGameTransportFailure(p *gameSession, phase string, stage, planned, written int, elapsed time.Duration, ctx context.Context) {
+	p.transportFailureOnce.Do(func() {
+		budget := "unavailable"
+		if ctx != nil {
+			budget = "active"
+			if ctx.Err() == context.Canceled {
+				budget = "canceled"
+			} else if deadline, ok := ctx.Deadline(); ctx.Err() == context.DeadlineExceeded || ok && !time.Now().Before(deadline) {
+				budget = "deadline_exceeded"
+			}
+		}
+		s.logWarn("dnfbridge first game transport failure", "conn_id", p.connID,
+			"phase", phase, "write_stage", stage, "planned_bytes", planned,
+			"written_bytes", written, "write_us", elapsed.Microseconds(), "budget_state", budget)
+	})
 }

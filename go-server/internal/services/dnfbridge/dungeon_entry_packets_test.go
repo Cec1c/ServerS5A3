@@ -123,7 +123,7 @@ func TestPartyLeaderDungeonSelectionEntersEveryOnlineMemberWithStablePartyIndex(
 		if test.session.dungeon.runtime.Seed != 0x12345678 {
 			t.Fatalf("%s seed=%08x", test.name, test.session.dungeon.runtime.Seed)
 		}
-		assertDungeonStartMapPartyIndex(t, test.connection.write.Bytes(), test.index)
+		assertDungeonStartMapPartyIndex(t, test.connection.write.Bytes(), 0xff)
 		assertDungeonPartyRealtimeSnapshot(t, test.connection.write.Bytes(), 2)
 		wantPartyFrames := 1
 		if test.name == "follower" && !partySelectorPreserveActorEnabled() {
@@ -236,6 +236,9 @@ func TestPartyLeaderDungeonRoomMoveSynchronizesEveryMemberAndLeaderSeed(t *testi
 		packet, trailing := splitGameServerUpperPacket(t, test.connection.write.Bytes())
 		if packet.Header.Classification != 0 || packet.Header.MsgID != currentDungeonStartNotification {
 			t.Fatalf("%s move packet=%+v trailing=%x", test.name, packet.Header, trailing)
+		}
+		if len(packet.Body) == 0 || packet.Body[len(packet.Body)-1] != 0xff {
+			t.Fatalf("%s shared move must bind every party model: %x", test.name, packet.Body)
 		}
 		// 厂商 packet_order ③：过图提交之后先一条 class0/op36 fatigue 状态，
 		// 再跟一条 class0/op9 kind0 房间槽位表（`…-ff-op36-op9-room-slot-table`）。

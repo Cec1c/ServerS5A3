@@ -30,6 +30,9 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		return nil
 	}
 	gates := session.finishLoadingGateSnapshot()
+	if err := s.restoreCurrentRaidSessionProjection(session, source+"_raid_session_restore"); err != nil {
+		return err
+	}
 	stateNeeded := !gates.State
 	completionNeeded := !gates.Completion && !currentTownReturnOmitsSceneActivation(session)
 	followupsNeeded := completionNeeded || !gates.PostFinish

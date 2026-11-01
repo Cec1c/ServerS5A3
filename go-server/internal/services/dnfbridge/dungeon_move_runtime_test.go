@@ -63,6 +63,37 @@ func TestPlanCurrentDungeonMovePreflightsWithoutCommitting(t *testing.T) {
 	}
 }
 
+func TestSharedRoomMoveBindsEveryMemberInFullRefreshAndCachedPackets(t *testing.T) {
+	for _, indexed := range []bool{false, true} {
+		for _, slot := range []byte{0, 1, 2, 3} {
+			for _, mode := range []byte{currentDungeonStartMapPayloadBuild, currentDungeonStartMapPayloadRefresh, currentDungeonStartMapPayloadCached} {
+				t.Run(fmt.Sprintf("indexed_%t_slot_%d_mode_%d", indexed, slot, mode), func(t *testing.T) {
+					service, runtime := prepareSyntheticMoveRuntime(t, false)
+					runtime.partyMemberIndexed, runtime.partyMemberIndex = indexed, slot
+					plan, err := service.planCurrentDungeonMove(runtime, dungeoncmd.MoveMapRequest{NextX: 1, NextY: 0})
+					if err != nil {
+						t.Fatal(err)
+					}
+					plan.PayloadMode = mode
+					if mode == currentDungeonStartMapPayloadCached {
+						plan.TargetVisit = &runtimeDungeonRoomVisit{Scene: plan.Target, Room: plan.TargetRoom, Seed: plan.Seed}
+					}
+					body, err := buildCurrentDungeonMoveStartMapBody(runtime, plan)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(body) == 0 || body[len(body)-1] != 0xff {
+						t.Fatalf("shared room selected only one actor: %x", body)
+					}
+					if runtime.partyMemberIndexed != indexed || runtime.partyMemberIndex != slot {
+						t.Fatal("room transition changed recipient identity")
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestHandleDungeonMoveMapRunsOrderedRepeatedBossStoryStages(t *testing.T) {
 	service, runtime := prepareSyntheticStoryStageRuntime(t)
 	service.options.gameUpperBodyCodec = gameUpperBodyCodecPlain

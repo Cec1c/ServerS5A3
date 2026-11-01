@@ -266,10 +266,10 @@ func buildCurrentDungeonEntryPacketsForModes(
 			StartMapSuppressedReason: reason,
 		}, nil
 	}
-	partyMemberIndex := byte(0xff)
-	if runtime.partyMemberIndexed {
-		partyMemberIndex = runtime.partyMemberIndex
-	}
+	// This byte selects the actors affected by the room transition, not the
+	// recipient's identity. The current client's op29 handler binds only the
+	// selected model for 0..7 and all existing party models for 0xff. Every
+	// member enters this shared room; retain identity in runtime/op9 instead.
 	// 柱子（map-owned 特殊被动对象）的预生成掉落行：只由
 	// `Service.prepareCurrentDungeonPassiveObjectDrops`（probe 档）登记过才会有内容；
 	// 默认档下 `registration == nil ⇒ nil/false`，这一帧与今天逐字节相同。
@@ -282,7 +282,7 @@ func buildCurrentDungeonEntryPacketsForModes(
 		HellPartyFogFlag:      runtime.StartMapHellFogFlag,
 		RoomStateValue:        1,
 		RoomStateFlag:         currentDungeonStartMapPayloadBuild,
-		PartyMemberIndex:      partyMemberIndex,
+		PartyMemberIndex:      0xff,
 		ExtraEntries:          passiveObjectDropEntries,
 		ExtraEntryVendorWidth: passiveObjectDropVendorWidth,
 	})
