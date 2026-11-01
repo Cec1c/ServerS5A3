@@ -147,7 +147,13 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		if questDropErr != nil || mapOwnedErr != nil {
 			return errors.Join(questDropErr, mapOwnedErr)
 		}
-		if questDropHandled || mapOwnedHandled {
+		// A native passive-object report can also satisfy the maze's explicit
+		// destroy-object clear condition. Material/drop handling is a separate
+		// effect: even a resolved no-reward receipt must not consume that clear.
+		// Continue through the existing shape/actor/clear dispatch only for the
+		// exact current-room target; preserve its peer completion and retries.
+		if (questDropHandled || mapOwnedHandled) &&
+			currentDungeonDestroyObjectClearConditionSource(runtime, scene, request.RuntimeObjectKey) == "" {
 			return nil
 		}
 	}
