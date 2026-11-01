@@ -288,7 +288,7 @@ func assertNarrowAccountUpdate(t *testing.T, queries []string) {
 }
 
 func TestMySQLCharacterSettlementMetadataEntryUsesNarrowWriteInOneTransaction(t *testing.T) {
-	state := &raidLedgerSQLState{characterAccount: "a"}
+	state := &raidLedgerSQLState{characterAccount: "a", allowOwnerHint: true}
 	database := sql.OpenDB(raidLedgerSQLConnector{state: state})
 	defer database.Close()
 	settlement := &mysqlCharacterSettlementUnitOfWork{router: mysqlRouter{
@@ -312,7 +312,7 @@ func TestMySQLCharacterSettlementMetadataEntryUsesNarrowWriteInOneTransaction(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.begins != 1 || state.commits != 1 || state.rollbacks != 0 || state.outsideTxOperations != 0 {
+	if state.begins != 1 || state.commits != 1 || state.rollbacks != 0 || state.outsideTxOperations != 1 {
 		t.Fatalf("transaction state=%+v", state)
 	}
 	writes := metadataWritesIn(state.writeSQL)
@@ -357,7 +357,7 @@ func (c *metadataFaultConn) ExecContext(ctx context.Context, query string, args 
 }
 
 func TestMySQLCharacterSettlementMetadataEntryFailureRollsBack(t *testing.T) {
-	state := &raidLedgerSQLState{characterAccount: "a"}
+	state := &raidLedgerSQLState{characterAccount: "a", allowOwnerHint: true}
 	connector := metadataFaultConnector{
 		state: state,
 		failOn: func(query string) bool {

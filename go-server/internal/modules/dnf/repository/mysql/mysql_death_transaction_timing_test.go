@@ -97,7 +97,8 @@ func TestMySQLSettlementAccountOwnershipReadsOnlyLockedOwner(t *testing.T) {
 		if narrow != 3 || unlocked != 1 || full != 0 {
 			t.Fatal("归属校验不应重复读取完整角色", narrow, unlocked, full)
 		}
-		if v.Calls[repository.TransactionLockRead]+v.Calls[repository.TransactionRead]+v.Calls[repository.TransactionWrite] != len(s.calls) {
+		// The primary ownership hint is now outside the timed SQL transaction.
+		if v.Calls[repository.TransactionLockRead]+v.Calls[repository.TransactionRead]+v.Calls[repository.TransactionWrite] != len(s.calls)-unlocked {
 			t.Fatal("SQL调用计数不一致", v, len(s.calls))
 		}
 	}
