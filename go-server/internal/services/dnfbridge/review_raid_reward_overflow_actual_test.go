@@ -8,6 +8,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/raid"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
 	"reflect"
@@ -40,14 +41,22 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 					}
 					g := memory.NewMemoryGroup()
 					ctx := context.Background()
+					if e := g.Account.Save(ctx, repo.AccountRecord{AccountID: "account"}); e != nil {
+						t.Fatal(e)
+					}
 					if e := g.Character.Save(ctx, repo.CharacterRecord{CharacterID: "31", AccountID: "account"}); e != nil {
 						t.Fatal(e)
 					}
 					iv := repo.InventoryRecord{CharacterID: "31", Slots: map[string]repo.ItemStack{}}
 					var want int64
+					var wantFate uint32
 					wantMails := 0
 					shared := map[uint32]uint32{}
 					for _, r := range plan.Rewards {
+						if r.Definition.ItemID == raidcurrency.FateItemID {
+							wantFate += r.Count
+							continue
+						}
 						if _, ok := currentDisjointWarehouseFixedSlots[r.Definition.ItemID]; ok {
 							shared[r.Definition.ItemID] += r.Count
 							continue
@@ -68,10 +77,38 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 						t.Fatal(e)
 					}
 					cmd := raid.RewardCommand{AccountID: "account", CharacterID: "31", InstanceID: "00112233445566778899aabbccddeeff", Mode: mode, Phase: byte(phase), Kind: map[string]byte{"party_card": 1, "pcroom_card": 2, "squad_item": 3}[choice.Type], MinimumClears: p.MinimumClears, OwnedClears: p.MinimumClears, Fingerprint: plan.Fingerprint, CompletedAt: now}
+					checkFate := func() {
+						ledger, found, err := g.Account.Load(ctx, "account")
+						if err != nil || !found {
+							t.Fatal("reward owner account missing", err)
+						}
+						state, err := raidcurrency.Read(ledger, now)
+						if err != nil || state.Balance != wantFate || state.Earned != wantFate {
+							t.Fatal("Fate ledger missing or duplicated", state, wantFate, err)
+						}
+						inventory, _, _ := g.Inventory.Load(ctx, "31")
+						sharedInventory, _, _ := g.AccountInventory.Load(ctx, "account")
+						for _, slots := range []map[string]repo.ItemStack{inventory.Slots, sharedInventory.Slots} {
+							for _, stack := range slots {
+								if stack.ItemID == int64(raidcurrency.FateItemID) {
+									t.Fatal("Fate created an ordinary inventory row")
+								}
+							}
+						}
+						mailbox, _, _ := g.Mailbox.Load(ctx, "31")
+						for _, mail := range mailbox.Mails {
+							for _, attachment := range mail.Attachments {
+								if attachment.ItemID == int64(raidcurrency.FateItemID) {
+									t.Fatal("Fate created an overflow attachment")
+								}
+							}
+						}
+					}
 					result, e := grantCurrentAntonRewardPlan(ctx, g, catalog, plan, cmd)
 					if e != nil || result.Replayed {
 						t.Fatal(e)
 					}
+					checkFate()
 					after, _, _ := g.Inventory.Load(ctx, "31")
 					if !reflect.DeepEqual(after, iv) {
 						t.Fatal("overflow changed occupied page")
@@ -99,6 +136,7 @@ func TestReviewActualAllAntonAndLukeConfiguredRewardsOverflow(t *testing.T) {
 					if e != nil || !result.Replayed {
 						t.Fatal(e)
 					}
+					checkFate()
 					m, count = reviewRaidOverflowMailCount(t, g, "31")
 					if m != wantMails || count != want {
 						t.Fatal("configured replay duplicated")

@@ -50,7 +50,7 @@ func (s *Service) accountID() string {
 //	即：启动器登录 IP 与游戏连接来源 IP 根本不是同一个地址，按 IP 绑定在结构上
 //	不可能正确，只会把"两个账号共用一个角色池"的后果放大。
 func (s *Service) accountIDForSession(sessions ...*gameSession) string {
-	if s.options.playerStrict && (len(sessions) == 0 || sessions[0] == nil || !sessions[0].accountFromToken) {
+	if s.gmEditProtectionEnabled() && (len(sessions) == 0 || sessions[0] == nil || !sessions[0].accountFromToken) {
 		return ""
 	}
 	if len(sessions) > 0 && sessions[0] != nil {

@@ -396,6 +396,9 @@ func TestRealPVFNPCEquipmentTransferMaterialAndPieceDebits(t *testing.T) {
 		pieces := int64(0)
 		if d.Rarity == 4 {
 			pieces = base * rule.EpicPieceWeight[category]
+			if rule.EpicPieceFixedCost > 0 {
+				pieces = rule.EpicPieceFixedCost
+			}
 		}
 		costs := map[uint32]int64{rule.SoulItemIDs[d.Rarity]: soul, rule.ElementItemID: elements}
 		for _, c := range rule.ParticularCosts {

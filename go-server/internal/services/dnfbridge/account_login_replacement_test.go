@@ -19,6 +19,7 @@ func TestAccountLoginReplacementDrainsInflightWorkAndDropsQueuedWork(t *testing.
 	}
 	defer stopTestGameSessionEvents(t, s, old)
 	s.accountLogins.sessions = map[*gameSession]string{old: "a"}
+	s.accountEditAdmissions = map[*gameSession]map[string]bool{old: {"a": true}}
 	started, release := make(chan struct{}), make(chan struct{})
 	packetDone := make(chan error, 1)
 	go func() {
@@ -55,6 +56,9 @@ func TestAccountLoginReplacementDrainsInflightWorkAndDropsQueuedWork(t *testing.
 	}
 	if s.accountLogins.tracked(old) {
 		t.Fatal("finished session retained")
+	}
+	if len(s.accountEditAdmissions) != 0 {
+		t.Fatal("completed shutdown retained account edit admission")
 	}
 }
 
@@ -114,6 +118,7 @@ func TestAccountLoginReplacementEventuallyFinishesSlowShutdown(t *testing.T) {
 	}
 	defer stopTestGameSessionEvents(t, s, old)
 	s.accountLogins.sessions = map[*gameSession]string{old: "a"}
+	s.accountEditAdmissions = map[*gameSession]map[string]bool{old: {"a": true}}
 	started, release := make(chan struct{}), make(chan struct{})
 	packetDone := make(chan error, 1)
 	go func() {
@@ -136,6 +141,9 @@ func TestAccountLoginReplacementEventuallyFinishesSlowShutdown(t *testing.T) {
 	s.wg.Wait()
 	if s.accountLogins.tracked(old) {
 		t.Fatal("finished session retained")
+	}
+	if len(s.accountEditAdmissions) != 0 {
+		t.Fatal("completed shutdown retained account edit admission")
 	}
 }
 

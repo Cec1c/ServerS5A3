@@ -28,12 +28,12 @@ func r195FiendWarDiagnosticEvent(t *testing.T, logs *bytes.Buffer, reason string
 func TestR195FiendWarAdmissionDiagnosticWritesBoundedStructuredContext(t *testing.T) {
 	var logs bytes.Buffer
 	s := &Service{logger: slog.New(slog.NewJSONHandler(&logs, nil))}
-	p := &gameSession{selectedCharacterID: 19, connID: "game-19", townSceneReadyCharacterID: 19}
-	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 19, TownID: 98, AreaID: 31, PositionValid: true}
+	p := &gameSession{selectedCharacterID: 1047, connID: "game-1047", townSceneReadyCharacterID: 1047}
+	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 1047, TownID: 98, AreaID: 31, PositionValid: true}
 	diagnostic := newCurrentFiendWarAdmissionDiagnostic(p, 4953)
 	diagnostic.reason = "target_dungeon_mismatch"
 	diagnostic.raidKey = 32769047
-	diagnostic.raidInstanceID = "battle-19"
+	diagnostic.raidInstanceID = "battle-1047"
 	diagnostic.memberArea = 31
 	diagnostic.memberGroup = 4
 	diagnostic.memberAreaOpen = true
@@ -41,8 +41,8 @@ func TestR195FiendWarAdmissionDiagnosticWritesBoundedStructuredContext(t *testin
 
 	event := r195FiendWarDiagnosticEvent(t, &logs, "target_dungeon_mismatch")
 	for key, want := range map[string]any{
-		"char_id": float64(19), "conn_id": "game-19", "raid_key": float64(32769047),
-		"raid_instance_id": "battle-19", "member_area": float64(31), "member_group": float64(4),
+		"char_id": float64(1047), "conn_id": "game-1047", "raid_key": float64(32769047),
+		"raid_instance_id": "battle-1047", "member_area": float64(31), "member_group": float64(4),
 		"member_area_open": true, "town_id": float64(98), "town_area": float64(31),
 		"position_valid": true, "scene_ready": true, "request_dungeon": float64(4953),
 	} {
@@ -56,8 +56,8 @@ func TestR195FiendWarAdmissionDiagnosticWritesBoundedStructuredContext(t *testin
 }
 
 func TestR195FiendWarAdmissionDiagnosticSourceReasons(t *testing.T) {
-	p := &gameSession{selectedCharacterID: 19}
-	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 19, TownID: 98, AreaID: 31}
+	p := &gameSession{selectedCharacterID: 1047}
+	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 1047, TownID: 98, AreaID: 31}
 	if _, _, _, _, _, reason := currentFiendWarEncounterSourceAreaWithReason(p, 31, 98, "battle"); reason != "source_position_invalid" {
 		t.Fatalf("invalid position reason=%s", reason)
 	}
@@ -66,12 +66,12 @@ func TestR195FiendWarAdmissionDiagnosticSourceReasons(t *testing.T) {
 	if _, ready, atTarget, _, ok, reason := currentFiendWarEncounterSourceAreaWithReason(p, 31, 98, "battle"); !ok || ready || atTarget || reason != "source_scene_not_ready" {
 		t.Fatalf("scene reason=%s ready=%t at_target=%t ok=%t", reason, ready, atTarget, ok)
 	}
-	p.townSceneReadyCharacterID = 19
+	p.townSceneReadyCharacterID = 1047
 	if _, ready, atTarget, _, ok, reason := currentFiendWarEncounterSourceAreaWithReason(p, 31, 98, "battle"); !ok || !ready || atTarget || reason != "source_not_target" {
 		t.Fatalf("target reason=%s ready=%t at_target=%t ok=%t", reason, ready, atTarget, ok)
 	}
 	p.townPositionSnapshot.AreaID = 31
-	p.fiendWarPendingMove = &currentFiendWarMovePlan{instance: "battle", character: 19, from: 29, to: 31}
+	p.fiendWarPendingMove = &currentFiendWarMovePlan{instance: "battle", character: 1047, from: 29, to: 31}
 	if source, ready, atTarget, pending, ok, reason := currentFiendWarEncounterSourceAreaWithReason(p, 31, 98, "battle"); !ok || !ready || !atTarget || !pending || source != 29 || reason != "source_ready" {
 		t.Fatalf("pending reason=%s source=%d ready=%t at_target=%t pending=%t ok=%t", reason, source, ready, atTarget, pending, ok)
 	}

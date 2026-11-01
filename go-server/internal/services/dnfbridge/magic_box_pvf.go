@@ -63,7 +63,20 @@ func (s *Service) alignedMagicBoxResolversForCommand(opcode dnfenum.CmdPacket) (
 		premiumCatalog = nil
 	}
 	return func(boxItemID int64) (alignedcmd.MagicBoxResolution, error) {
-			return resolveCurrentInventoryMagicBox(catalog, source, boxItemID)
+			resolution, err := resolveCurrentInventoryMagicBox(catalog, source, boxItemID)
+			if err == nil && (boxItemID == 2682272 || boxItemID == 10007369) {
+				activity, activityErr := s.privateActivityCatalog()
+				if activityErr != nil {
+					return resolution, activityErr
+				}
+				if activity != nil {
+					now := s.gameplayNow()
+					resolution.OnOpen = func(ch *dnfrepo.CharacterRecord) (bool, error) {
+						return s.applyPrivateActivity(ch, 5, 1, now, now)
+					}
+				}
+			}
+			return resolution, err
 		}, func(itemID int64) (alignedcmd.MagicBoxRewardItem, error) {
 			item, err := resolveCurrentMagicBoxRewardItem(catalog, source, itemID)
 			if err != nil {

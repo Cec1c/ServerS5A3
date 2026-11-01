@@ -25,11 +25,11 @@ func r195FiendWarAutomaticDiagnosticEvents(t *testing.T, logs *bytes.Buffer) []m
 func TestR195FiendWarAutomaticAdmissionDiagnosticDedupesPendingSignature(t *testing.T) {
 	var logs bytes.Buffer
 	s := &Service{logger: slog.New(slog.NewJSONHandler(&logs, nil))}
-	p := &gameSession{selectedCharacterID: 19, connID: "game-19", townSceneReadyCharacterID: 19}
-	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 19, TownID: 98, AreaID: 30}
+	p := &gameSession{selectedCharacterID: 1047, connID: "game-1047", townSceneReadyCharacterID: 1047}
+	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 1047, TownID: 98, AreaID: 30}
 	p.fiendWarPendingMove = &currentFiendWarMovePlan{
-		instance:  "battle-19",
-		character: 19,
+		instance:  "battle-1047",
+		character: 1047,
 		from:      29,
 		to:        30,
 		confirmed: true,
@@ -46,7 +46,7 @@ func TestR195FiendWarAutomaticAdmissionDiagnosticDedupesPendingSignature(t *test
 	}
 	event := events[0]
 	for key, want := range map[string]any{
-		"phase": currentFiendWarAdmissionPhaseTownArea, "pending_instance": "battle-19",
+		"phase": currentFiendWarAdmissionPhaseTownArea, "pending_instance": "battle-1047",
 		"pending_from": float64(29), "pending_to": float64(30), "pending_confirmed": true,
 	} {
 		if event[key] != want {
@@ -78,9 +78,9 @@ func TestR195FiendWarAutomaticAdmissionDiagnosticDedupesPendingSignature(t *test
 func TestR195FiendWarAutomaticAdmissionDiagnosticRequiresPendingMove(t *testing.T) {
 	var logs bytes.Buffer
 	s := &Service{logger: slog.New(slog.NewJSONHandler(&logs, nil))}
-	p := &gameSession{selectedCharacterID: 19, townSceneReadyCharacterID: 19}
+	p := &gameSession{selectedCharacterID: 1047, townSceneReadyCharacterID: 1047}
 	p.channel.Type = 42
-	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 19, TownID: 98, AreaID: 30}
+	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 1047, TownID: 98, AreaID: 30}
 	diagnostic := newCurrentFiendWarAdmissionDiagnostic(p, 0)
 	diagnostic.phase = currentFiendWarAdmissionPhaseTownPosition
 	diagnostic.reason = "source_position_invalid"
@@ -100,7 +100,7 @@ func TestR195FiendWarAutomaticAdmissionDiagnosticRequiresPendingMove(t *testing.
 	if _, ok := currentFiendWarQueuedAdmissionDiagnostic(p, currentFiendWarAdmissionPhaseTownPosition); ok {
 		t.Fatal("another character's pending move was eligible for automatic diagnostics")
 	}
-	p.fiendWarPendingMove = &currentFiendWarMovePlan{instance: "battle-19", character: 19, from: 29, to: 30}
+	p.fiendWarPendingMove = &currentFiendWarMovePlan{instance: "battle-1047", character: 1047, from: 29, to: 30}
 	p.dungeon.runtime = &runtimeDungeonState{}
 	if _, ok := currentFiendWarQueuedAdmissionDiagnostic(p, currentFiendWarAdmissionPhaseTownPosition); ok {
 		t.Fatal("already-entered session was eligible for automatic diagnostics")

@@ -210,6 +210,15 @@ func (s *Service) handleCurrentFinishQuestTimed(
 	if growthEffect, active := s.currentGrowthContractEffect(ctx, accountID); active {
 		experienceBonusPercent = growthEffect.BonusExperiencePercent
 	}
+	if s.currentPortedActivityEnabled(1054) {
+		if ch, found, err := repositories.Character.Load(ctx, characterID); err != nil {
+			return err
+		} else if found {
+			if lucky := s.currentLuckyCharacterEffect(session, ch); lucky != nil {
+				experienceBonusPercent += lucky.Quest
+			}
+		}
+	}
 	timing.markTxStart()
 	// 与本次会话的玩法时钟一致：每日任务的完成日键按这个时间落库。
 	result, err := owner.ApplyFinishSettlement(ctx, catalog, dnfquest.FinishCommitInput{

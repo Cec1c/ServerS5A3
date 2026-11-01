@@ -256,11 +256,14 @@ func TestGuildR192MedalRouteUsesOwnPage(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	packets := splitItemGrantNoticeStream(t, s, g.conn.(*bufferConn).write.Bytes())
-	wantAck := make([]byte, 5)
-	wantAck[0] = 1
-	binary.LittleEndian.PutUint32(wantAck[1:], uint32(after.Slots["38:0"].ItemID))
-	if len(packets) != 2 || packets[0].msgID != 864 || !bytes.Equal(packets[0].body, wantAck) || packets[1].body[0] != 38 {
-		t.Fatalf("packets=%+v wantAck=%x", packets, wantAck)
+	resultItem := uint32(after.Slots["38:0"].ItemID)
+	wantAck := binary.LittleEndian.AppendUint32([]byte{1}, resultItem)
+	if len(packets) != 2 || packets[0].msgID != 864 || !bytes.Equal(packets[0].body, wantAck) || len(packets[1].body) != 3+2*currentItemListEntryWireSize || packets[1].body[0] != 38 {
+		t.Fatalf("packets=%+v", packets)
+	}
+	row := packets[1].body[3 : 3+currentItemListEntryWireSize]
+	if int16(binary.LittleEndian.Uint16(row[0:2])) != 0 || int64(binary.LittleEndian.Uint32(row[2:6])) != after.Slots["38:0"].ItemID || binary.LittleEndian.Uint32(row[6:10]) != 1 {
+		t.Fatalf("list38 medal row slot=%d item=%d count=%d", binary.LittleEndian.Uint16(row[0:2]), binary.LittleEndian.Uint32(row[2:6]), binary.LittleEndian.Uint32(row[6:10]))
 	}
 }
 

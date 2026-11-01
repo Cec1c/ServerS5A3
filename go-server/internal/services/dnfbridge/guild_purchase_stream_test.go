@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -38,12 +39,18 @@ func TestGuildPurchaseStreamSequenceIncludesLegacyTraffic(t *testing.T) {
 	}
 }
 
-func TestGuildPurchaseStreamRejectsWrongClass(t *testing.T) {
-	for _, mode := range []string{"class"} {
+func TestGuildPurchaseStreamRejectsUnauthenticatedAndWrongClass(t *testing.T) {
+	for _, mode := range []string{"authentication", "class"} {
 		t.Run(mode, func(t *testing.T) {
 			s, peers, repos := guildPurchaseFixture(t)
 			before, _, _ := repos.Settings.Load(context.Background(), guild.RegistryScope)
-			classification := byte(0)
+			classification := byte(1)
+			if mode == "authentication" {
+				s.options.playerStrict = true
+				peers[0].accountFromToken = false
+			} else {
+				classification = 0
+			}
 			wire, _ := protocol.BuildChannelPacket(761, []byte{11, 0, 0, 0, 0, 0, 0, 0}, 10, classification)
 			wire[0] = classification // The builder defaults zero to command class 1.
 			packets, rest, skipped, err := protocol.SplitLatestGameStream(wire, 65535)
@@ -51,7 +58,7 @@ func TestGuildPurchaseStreamRejectsWrongClass(t *testing.T) {
 				t.Fatal("invalid stream fixture")
 			}
 			err = s.handleGameStreamPacket(peers[0], packets[0])
-			if err != nil {
+			if (mode == "authentication" && !errors.Is(err, errPlayerAuthentication)) || (mode == "class" && err != nil) {
 				t.Fatal(err)
 			}
 			after, _, _ := repos.Settings.Load(context.Background(), guild.RegistryScope)

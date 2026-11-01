@@ -146,8 +146,10 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	writer.writeUint16(statU16(character, "emotion_index", 0))  // V179 022BE190: actor mood
 	// 当前固定EXE 22c6458 -> 22bff00：该字节决定actor+0x5d78的第二页资格。
 	writer.writeByte(currentActorSkillTreeWireIndex(character)) // ff=未购买，0/1=已购买并选中该页
-	writer.writeByte(0)                                         // sub_2690AF0
-	writer.writeUint32(0)                                       // object internal +267
+	// 现用22c645d直接读取此u8并交2961f90写入actor+3c4；
+	// 底部回归按钮与原生窗口均检查该位，1369任务状态不能代替它。
+	writer.writeByte(currentReturneeSceneFlag(character, hasCharacter))
+	writer.writeUint32(0) // object internal +267
 }
 
 func currentSceneObjectNameTagState(character dnfrepo.CharacterRecord, hasCharacter bool) (uint32, uint32) {

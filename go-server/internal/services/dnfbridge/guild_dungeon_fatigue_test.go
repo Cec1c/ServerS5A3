@@ -64,6 +64,10 @@ func TestGuildDungeonStartFatigueIsChargedOncePerRun(t *testing.T) {
 			t.Fatalf("new run member %d fatigue=%d", id, next.Character.Stats["fatigue"])
 		}
 	}
+	summary, err := repos.Activity.Summary(ctx, dnfrepo.ActivityQuery{AccountID: accountID})
+	if err != nil || summary.Metrics[dnfrepo.ActivityFatigue] != 32 {
+		t.Fatalf("two players, two runs, eight fatigue each: %+v %v", summary, err)
+	}
 }
 
 func TestGuildDungeonStartFatigueUsesRefreshedBalance(t *testing.T) {

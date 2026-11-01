@@ -33,6 +33,8 @@ type Changes struct {
 	AccountInventory bool
 	Character        bool
 	Inventory        bool
+	// 由材料购买成功投影提供实际扣量；出售及库存转移保持为零。
+	ColorlessSpent int64
 }
 
 type Projector func(*Assets) (Changes, error)
@@ -156,6 +158,7 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 			accountInventory.Slots = make(map[string]dnfrepo.ItemStack)
 		}
 
+		goldBefore := character.Stats["gold"]
 		assets := &Assets{
 			Account:          &account,
 			AccountInventory: &accountInventory,
@@ -166,9 +169,14 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 		if err != nil {
 			return err
 		}
+		fateBefore := dnfrepo.BattlePassFateCount(inventory.Slots, accountInventory.Slots)
 		changes, err := command.Project(assets)
 		if err != nil {
 			return err
+		}
+		if gained := dnfrepo.BattlePassFateCount(inventory.Slots, accountInventory.Slots) - fateBefore; gained > 0 {
+			dnfrepo.AddBattlePassCounter(&character, 43, -1, gained, now)
+			changes.Character = true
 		}
 		changes.Account = changes.Account || limitChanges.Account
 		changes.Character = changes.Character || limitChanges.Character
@@ -195,6 +203,12 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 			if err := accounts.Save(ctx, accountInventory); err != nil {
 				return err
 			}
+		}
+		if err := dnfrepo.RecordCharacterColorless(ctx, characters, character, changes.ColorlessSpent, "npc_material", now); err != nil {
+			return err
+		}
+		if changes.Character && goldBefore > character.Stats["gold"] {
+			return dnfrepo.RecordCharacterGold(ctx, characters, character, dnfrepo.ActivityGoldNPC, goldBefore-character.Stats["gold"], now)
 		}
 		return nil
 	}

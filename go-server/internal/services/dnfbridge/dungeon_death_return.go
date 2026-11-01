@@ -617,6 +617,9 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 		return nil
 	}
 
+	if consume.Consumed {
+		runtime.battlePassCoinUsed = true
+	}
 	source := "current_exe_op41_revive_coin_consumed"
 	if consume.FreeRevive {
 		source = "current_exe_op41_private_server_free_revive"

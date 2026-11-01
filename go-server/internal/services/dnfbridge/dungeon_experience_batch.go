@@ -71,7 +71,7 @@ func (s *Service) commitCurrentDungeonExperienceBatch(ctx context.Context, sessi
 	var maximumGains []uint32
 	for i, item := range items {
 		results[i] = item.result
-		if item.result.Award.Gain == 0 {
+		if item.result.Award.Gain == 0 && !item.result.Award.BattlePassMonster {
 			continue
 		}
 		result, plan, err := s.planCurrentDungeonExperience(ctx, item.tables, character, skill, item.result)

@@ -1,0 +1,151 @@
+{
+  "tag": "resources-selected-20261101",
+  "parts": [
+    {
+      "name": "resources-selected-20261101-player.zip.001",
+      "sha256": "9d3e156e5ed68906251195210342047120518198b3d3d8e516f7b58a154698c1",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-player.zip",
+      "archiveSHA256": "2bdf997a4f4eb7671daa2d7923f68890471914c26eea5f8ec973640c771c874b",
+      "archiveBytes": 108460840,
+      "part": 1,
+      "parts": 4,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-2bdf997a4f4eb767/resources-selected-20261101-player.zip.001"
+    },
+    {
+      "name": "resources-selected-20261101-player.zip.002",
+      "sha256": "5bca00d94664f6fb74a67838020c23f9b0e6f6a1329eacb51aca6d7b4f54634e",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-player.zip",
+      "archiveSHA256": "2bdf997a4f4eb7671daa2d7923f68890471914c26eea5f8ec973640c771c874b",
+      "archiveBytes": 108460840,
+      "part": 2,
+      "parts": 4,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-2bdf997a4f4eb767/resources-selected-20261101-player.zip.002"
+    },
+    {
+      "name": "resources-selected-20261101-player.zip.003",
+      "sha256": "2576a24a031eefc93810b63e4dfced07da1e291d45f525a45632c73ed7c70457",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-player.zip",
+      "archiveSHA256": "2bdf997a4f4eb7671daa2d7923f68890471914c26eea5f8ec973640c771c874b",
+      "archiveBytes": 108460840,
+      "part": 3,
+      "parts": 4,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-2bdf997a4f4eb767/resources-selected-20261101-player.zip.003"
+    },
+    {
+      "name": "resources-selected-20261101-player.zip.004",
+      "sha256": "24febded2cf348c73437033cad04bd8255088376a66b1c2a33544031ab89e151",
+      "bytes": 7797544,
+      "archive": "resources-selected-20261101-player.zip",
+      "archiveSHA256": "2bdf997a4f4eb7671daa2d7923f68890471914c26eea5f8ec973640c771c874b",
+      "archiveBytes": 108460840,
+      "part": 4,
+      "parts": 4,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-2bdf997a4f4eb767/resources-selected-20261101-player.zip.004"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.001",
+      "sha256": "adaedccb344d398b5cca47ca30de238ef31c2c85099ebd9be6aea4f9a7fae9eb",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 1,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.001"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.002",
+      "sha256": "0dcfba6ca7f400c8adafbb817e6d7cf79c7d5a69a0943c2b91b2343b88ea2855",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 2,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.002"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.003",
+      "sha256": "a74fef5af5b358ff13bf77a7ed97be3dc38bd79f2d15987acbac40975ad98943",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 3,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.003"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.004",
+      "sha256": "4a4b637258174f1640ee14fd929ced285322d165746ad4252a970258072ea56f",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 4,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.004"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.005",
+      "sha256": "0631d2ee9a65475240371fc813f934f8a7891581e37e84f7ebc7a159d36bb99d",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 5,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.005"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.006",
+      "sha256": "4ab5d66119b2a7b33b6d71e43c6d23228e6c05f24ba6608986dd321a90efbf28",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 6,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.006"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.007",
+      "sha256": "b553dcfa196c88816867de11f600b81376516dfec967f7f1166ec56d3ca4ade6",
+      "bytes": 33554432,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 7,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.007"
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip.008",
+      "sha256": "1e168e6f32bc5956c64b6b13b4e28c0b9345925e5a18870a7123bef13d1f7129",
+      "bytes": 28733791,
+      "archive": "resources-selected-20261101-gm-indexes.zip",
+      "archiveSHA256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "archiveBytes": 263614815,
+      "part": 8,
+      "parts": 8,
+      "url": "https://gitgud.io/api/v4/projects/51684/packages/generic/dnf-resources/resources-selected-20261101-dc4d943a4aaa7913/resources-selected-20261101-gm-indexes.zip.008"
+    }
+  ],
+  "archives": [
+    {
+      "name": "resources-selected-20261101-player.zip",
+      "sha256": "2bdf997a4f4eb7671daa2d7923f68890471914c26eea5f8ec973640c771c874b",
+      "bytes": 108460840,
+      "files": 8
+    },
+    {
+      "name": "resources-selected-20261101-gm-indexes.zip",
+      "sha256": "dc4d943a4aaa7913af89628d697188da27d079dec0ac8191d1265806d0828eb1",
+      "bytes": 263614815,
+      "files": 6
+    }
+  ]
+}

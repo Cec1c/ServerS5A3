@@ -98,7 +98,7 @@ func TestWornEquipmentEnchantRejectsInvalidTargetsAndRollsBack(t *testing.T) {
 			eq, _, _ := g.Equipment.Load(ctx, "77")
 			switch name {
 			case "保存失败":
-				g.CharacterItems = forgingFailingEquipmentSaveUOW{base: g.CharacterItems}
+				g.CharacterAssets = enchantFailingEquipmentAssets{base: g.CharacterAssets}
 			case "部位不匹配":
 				resolver = staticEnchantResolver(alignedcmd.EnchantBeadResolution{CardItemID: 9001, TargetKind: "equipment", AllowedEquipmentTypes: []string{"[ring]"}, TargetEquipmentType: "[coat]"})
 			case "锁定":
@@ -125,4 +125,14 @@ func TestWornEquipmentEnchantRejectsInvalidTargetsAndRollsBack(t *testing.T) {
 			}
 		})
 	}
+}
+
+type enchantFailingEquipmentAssets struct {
+	base dnfrepo.CharacterAssetUnitOfWork
+}
+
+func (u enchantFailingEquipmentAssets) WithinCharacterAssets(ctx context.Context, id string, apply func(dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
+	return u.base.WithinCharacterAssets(ctx, id, func(c dnfrepo.CharacterRepository, i dnfrepo.InventoryRepository, e dnfrepo.EquipmentRepository) error {
+		return apply(c, i, forgingFailingEquipmentRepository{base: e})
+	})
 }

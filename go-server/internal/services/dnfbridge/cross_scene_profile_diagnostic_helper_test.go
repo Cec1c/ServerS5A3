@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func r195DiagnosticEvent(t *testing.T, logs *bytes.Buffer, kind string) map[string]any {
+func crossSceneProfileDiagnosticEvent(t *testing.T, logs *bytes.Buffer, kind string) map[string]any {
 	t.Helper()
 	var found map[string]any
 	for _, line := range bytes.Split(logs.Bytes(), []byte{'\n'}) {

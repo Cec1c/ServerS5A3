@@ -95,7 +95,13 @@ func TestAikenR142PendingUnlockUsesGameplayClock(t *testing.T) {
 				if e := aikenR142Request(t, s, session, 9); e != nil {
 					t.Fatal(e)
 				}
-				aikenR142Outcome(t, session, delta <= 0)
+				failureReason := byte(0)
+				if material && delta > 0 {
+					// Pending material is skipped, leaving no eligible payment.
+					// A pending target instead fails the source guard with reason0.
+					failureReason = 8
+				}
+				aikenR142OutcomeReason(t, session, delta <= 0, failureReason)
 				if delta > 0 && !reflect.DeepEqual(before, aikenR142Load(t, g)) {
 					t.Fatal("pending lock mutated assets")
 				}

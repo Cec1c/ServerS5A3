@@ -13,7 +13,7 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-type townPartyActorHPFixture struct {
+type crossSceneProfileActorFixture struct {
 	service    *Service
 	target     *gameSession
 	actor      *gameSession
@@ -22,7 +22,7 @@ type townPartyActorHPFixture struct {
 	actorInfo  onlinePlayerInfo
 }
 
-func newTownPartyActorHPFixture(t *testing.T, managed bool) *townPartyActorHPFixture {
+func newCrossSceneProfileActorFixture(t *testing.T, managed bool) *crossSceneProfileActorFixture {
 	t.Helper()
 	service, target, repositories := newTownMoveTest(t)
 	service.options.currentClientVersion = "official-24.9"
@@ -91,7 +91,7 @@ func newTownPartyActorHPFixture(t *testing.T, managed bool) *townPartyActorHPFix
 			t.Fatalf("force managed town party: party=%d members=%d reason=%s", partyID, members, reason)
 		}
 	} else {
-		state := townPartyActorHPPartyState()
+		state := crossSceneProfileActorPartyState()
 		storeRuntimePartyState(target, state)
 		storeRuntimePartyState(actor, state)
 	}
@@ -103,7 +103,7 @@ func newTownPartyActorHPFixture(t *testing.T, managed bool) *townPartyActorHPFix
 	if !found {
 		t.Fatal("town party fixture lost the actor presence row")
 	}
-	return &townPartyActorHPFixture{
+	return &crossSceneProfileActorFixture{
 		service:    service,
 		target:     target,
 		actor:      actor,
@@ -113,7 +113,7 @@ func newTownPartyActorHPFixture(t *testing.T, managed bool) *townPartyActorHPFix
 	}
 }
 
-func townPartyActorHPPartyState() alignedcmd.PartyState {
+func crossSceneProfileActorPartyState() alignedcmd.PartyState {
 	return alignedcmd.PartyState{
 		PartyID:    1,
 		UserID:     29,
@@ -127,12 +127,12 @@ func townPartyActorHPPartyState() alignedcmd.PartyState {
 	}
 }
 
-func (fixture *townPartyActorHPFixture) reset() {
+func (fixture *crossSceneProfileActorFixture) reset() {
 	fixture.targetConn.write.Reset()
 	fixture.actorConn.write.Reset()
 }
 
-func townPartyActorHPFrameIDs(frames []upperFrame) []uint16 {
+func crossSceneProfileActorFrameIDs(frames []upperFrame) []uint16 {
 	ids := make([]uint16, 0, len(frames))
 	for _, frame := range frames {
 		ids = append(ids, frame.msgID)

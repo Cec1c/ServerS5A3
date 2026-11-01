@@ -537,6 +537,35 @@ func (o *Owner) ApplyBuy(ctx context.Context, cmd Command) (MutationResult, erro
 			result.Entries = mutation.Entries
 			result.AppliedRefund = mutation.AppliedRefund
 			result.ConsumedRefundItem = true
+			if !dnfrepo.SeriaWelcomeActiveAt(character, time.Now()) {
+				return nil
+			}
+			live, found, err := group.Character.Load(ctx, characterID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return ErrCharacterNotFound
+			}
+			return recordReturneeLearnedSkill(ctx, group.Character, live, cmd)
+		})
+	} else if dnfrepo.SeriaWelcomeActiveAt(character, time.Now()) && o.progressTx != nil {
+		err = o.progressTx.WithinCharacterProgression(ctx, characterID, func(chars dnfrepo.CharacterRepository, skills dnfrepo.SkillRepository) error {
+			live, found, err := chars.Load(ctx, characterID)
+			if err != nil {
+				return err
+			}
+			if !found || live.AccountID != character.AccountID {
+				return ErrCharacterOwner
+			}
+			mutation, err := o.applyBuyMutation(ctx, cmd, live, job, growType, growTypePresent, effectiveLevel, tree, skills, nil)
+			if err != nil {
+				return err
+			}
+			if err := recordReturneeLearnedSkill(ctx, chars, live, cmd); err != nil {
+				return err
+			}
+			result.Points, result.Entries, result.AppliedRefund = mutation.Points, mutation.Entries, mutation.AppliedRefund
 			return nil
 		})
 	} else {
@@ -1351,4 +1380,25 @@ func planError(operation string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+// 成功的正向学习操作才计数；退款、重置、快捷栏修改不计入任务。
+func recordReturneeLearnedSkill(ctx context.Context, chars dnfrepo.CharacterRepository, ch dnfrepo.CharacterRecord, cmd Command) error {
+	if !dnfrepo.SeriaWelcomeActiveAt(ch, time.Now()) {
+		return nil
+	}
+	learned := int64(0)
+	for _, e := range cmd.BuyEntries {
+		if e.SignedDelta() > 0 {
+			learned += min(int64(e.SignedDelta()), int64(^uint64(0)>>1)-learned)
+		}
+	}
+	if learned == 0 {
+		return nil
+	}
+	ch = dnfrepo.CloneCharacter(ch)
+	current := max(ch.Stats["seria_returnee_skill_count"], 0)
+	ch.Stats["seria_returnee_skill_count"] = current + min(learned, int64(^uint64(0)>>1)-current)
+	ch.UpdatedAt = time.Now().UTC()
+	return dnfrepo.SaveCharacterFields(ctx, chars, ch, dnfrepo.CharacterFieldStats)
 }

@@ -3,8 +3,6 @@ package dnfbridge
 import (
 	"fmt"
 	"math"
-	"os"
-	"strconv"
 	"strings"
 
 	dnfdrops "longheng.io/server/internal/modules/dnf/drop"
@@ -18,6 +16,8 @@ type currentRiftLootDefinition struct {
 	Pieces           []uint32
 	EpicRate         float64
 	MultiEpicCount   bool
+	PVFEpicCounts    []privatePVFEpicCount
+	RateSource       string
 	FragmentCount    int
 	DropCatalog      *pvfDungeonDropCatalog
 	MonsterCatalog   *pvfDungeonMonsterCatalog
@@ -92,13 +92,6 @@ func (s *Service) prepareCurrentRiftLoot(difficulty byte) (*currentRiftLootDefin
 		return nil, err
 	}
 	definition.MultiEpicCount = true // Only the dungeon-316 preparation path.
-	if override := strings.TrimSpace(os.Getenv("DNFBRIDGE_RIFT_EPIC_RATE")); override != "" {
-		rate, err := strconv.ParseFloat(override, 64)
-		if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || rate > 1 {
-			return nil, fmt.Errorf("rift epic rate override invalid")
-		}
-		definition.EpicRate = rate
-	}
 	monsterCatalog, err := s.dungeonMonsterCatalog()
 	if err != nil {
 		return nil, err
@@ -107,6 +100,15 @@ func (s *Service) prepareCurrentRiftLoot(difficulty byte) (*currentRiftLootDefin
 	if err != nil {
 		return nil, err
 	}
+	config, err := dropCatalog.privatePVFDropConfig()
+	if err != nil {
+		return nil, err
+	}
+	if len(config.counts) == 0 {
+		return nil, fmt.Errorf("PVF [%s] missing", privateDemonCountSection)
+	}
+	definition.PVFEpicCounts = config.counts
+	definition.RateSource = hellPartyRewardDropInfoPath + " [" + privateDemonCountSection + "]"
 	pieces, err := s.epicPieceCatalog()
 	if err != nil || pieces == nil {
 		return nil, fmt.Errorf("rift epic piece catalog unavailable: %w", err)
@@ -149,7 +151,13 @@ func (definition *currentRiftLootDefinition) selectItems(rng *currentDungeonDrop
 	epics := 0
 	roll := rng.Next(dnfdrops.EpicClearProbabilityBound)
 	if definition.MultiEpicCount {
-		epics = dnfdrops.DemonRiftEpicCount(roll)
+		for _, row := range definition.PVFEpicCounts {
+			if roll < row.weight {
+				epics = row.count
+				break
+			}
+			roll -= row.weight
+		}
 	} else if float64(roll) < definition.EpicRate*1000000 {
 		epics = 1
 	}
@@ -202,7 +210,7 @@ func (s *Service) planCurrentRiftBossDrops(session *gameSession, runtime *runtim
 			return nil, err
 		}
 		wires = append(wires, memberWires...)
-		s.logGameEvent(session, "game-rift-boss-loot-registered", "dungeon_id", runtime.Dungeon.ID, "recipient_char_id", recipient.CharacterID, "fragment_count", definition.FragmentCount, "epic_probability", definition.EpicRate, "multi_epic_count", definition.MultiEpicCount, "items", hellPartyRewardItemList(selected), "source", "particularhellparty_pool_and_epicpieceinfo_mapping")
+		s.logGameEvent(session, "game-rift-boss-loot-registered", "dungeon_id", runtime.Dungeon.ID, "recipient_char_id", recipient.CharacterID, "fragment_count", definition.FragmentCount, "epic_probability", definition.EpicRate, "probability_source", definition.RateSource, "multi_epic_count", definition.MultiEpicCount, "items", hellPartyRewardItemList(selected), "source", "particularhellparty_pool_and_epicpieceinfo_mapping")
 	}
 	return wires, nil
 }

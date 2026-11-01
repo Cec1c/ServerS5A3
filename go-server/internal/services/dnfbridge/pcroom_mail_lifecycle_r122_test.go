@@ -175,8 +175,9 @@ func TestPCRoom632MailClaimLifecycleAndSameDayAccountMask(t *testing.T) {
 	}
 	r122AssertInventoryItemCount(t, f.repos, "1", uint32(firstMail.Attachments[0].ItemID), firstMail.Attachments[0].Count)
 
+	// Current op95 uses 21 for an unavailable claim and 4 for a full inventory.
 	duplicate := r122FormalMailClaim(t, f.repos, resolver, 1, mailID)
-	if duplicate.Operation != "mailbox_extract_rejected" || !r122MailFailureCode(duplicate, 4) {
+	if duplicate.Operation != "mailbox_extract_rejected" || !r122MailFailureCode(duplicate, 21) {
 		t.Fatalf("duplicate claim result=%+v", duplicate)
 	}
 	r122AssertInventoryItemCount(t, f.repos, "1", uint32(firstMail.Attachments[0].ItemID), firstMail.Attachments[0].Count)
@@ -219,7 +220,7 @@ func TestPCRoom632MailClaimLifecycleAndSameDayAccountMask(t *testing.T) {
 		t.Fatalf("fill inventory: %v", err)
 	}
 	failed := r122FormalMailClaim(t, f.repos, resolver, 1, secondMailID)
-	if failed.Operation != "mailbox_extract_rejected" || !r122MailFailureCode(failed, 6) {
+	if failed.Operation != "mailbox_extract_rejected" || !r122MailFailureCode(failed, 4) {
 		t.Fatalf("full-bag claim result=%+v", failed)
 	}
 	box, _, err = f.repos.Mailbox.Load(ctx, "1")

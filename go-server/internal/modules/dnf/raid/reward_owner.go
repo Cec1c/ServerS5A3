@@ -208,6 +208,7 @@ func (o *RewardOwner) grant(ctx context.Context, cmd RewardCommand, refund bool)
 		}
 		character = repo.CloneCharacter(character)
 		assets := &RewardAssets{AccountInventory: &account, Inventory: &inventory, Mailbox: mailboxes, Ledger: ledgerRecord}
+		fateBefore := repo.BattlePassFateCount(inventory.Slots, account.Slots)
 		changes, err := cmd.Project(assets)
 		if err != nil {
 			return err
@@ -226,6 +227,9 @@ func (o *RewardOwner) grant(ctx context.Context, cmd RewardCommand, refund bool)
 		}
 		if character.Stats == nil {
 			character.Stats = map[string]int64{}
+		}
+		if gained := repo.BattlePassFateCount(inventory.Slots, account.Slots) - fateBefore; gained > 0 {
+			repo.AddBattlePassCounter(&character, 43, -1, gained, cmd.CompletedAt)
 		}
 		character.Stats[marker] = cmd.CompletedAt.Unix()
 		character.Stats[marker+"_card"] = int64(cmd.Card) + 1

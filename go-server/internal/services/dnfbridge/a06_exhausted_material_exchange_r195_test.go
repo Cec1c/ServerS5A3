@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	aiken "longheng.io/server/internal/modules/dnf/aikenupgrade"
-	proto "longheng.io/server/internal/modules/dnf/protocol"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -227,52 +226,5 @@ func TestA06R195AikenChangedEntriesKeepsSlotZeroContract(t *testing.T) {
 	rows := a06InventoryRows(t, buildCurrentItemUpdateBody(0, entries))
 	if len(rows) != 1 || rows[0] != (a06InventoryRow{slot: 0, item: 0, count: 0}) {
 		t.Fatalf("preserve the old Aiken slot0 item0/count0 contract, never FFFFFFFF: %+v", rows)
-	}
-}
-
-// Helpers are scoped to the real dispatcher regression above.
-type a06InventoryRow struct {
-	slot  int16
-	item  uint32
-	count uint32
-}
-
-func a06InventoryRows(t *testing.T, body []byte) []a06InventoryRow {
-	t.Helper()
-	if len(body) < 3 || body[0] != byte(repo.MainInventoryListType) {
-		t.Fatalf("not a main-container14: %x", body)
-	}
-	n := int(binary.LittleEndian.Uint16(body[1:3]))
-	if len(body) != 3+n*119 {
-		t.Fatalf("14 row length=%d count=%d", len(body), n)
-	}
-	rows := make([]a06InventoryRow, 0, n)
-	for i := 0; i < n; i++ {
-		r := body[3+i*119 : 3+(i+1)*119]
-		rows = append(rows, a06InventoryRow{int16(binary.LittleEndian.Uint16(r)), binary.LittleEndian.Uint32(r[2:6]), binary.LittleEndian.Uint32(r[6:10])})
-	}
-	return rows
-}
-
-func a06DispatchFrame(t *testing.T, s *Service, session *gameSession, transport string, opcode uint16, body []byte) {
-	t.Helper()
-	var err error
-	if transport == "legacy" {
-		frame := make([]byte, proto.LegacyGameHeaderSize+len(body))
-		frame[0] = 1
-		binary.LittleEndian.PutUint16(frame[1:3], opcode)
-		binary.LittleEndian.PutUint32(frame[3:7], uint32(len(frame)))
-		binary.LittleEndian.PutUint16(frame[11:13], 1)
-		copy(frame[proto.LegacyGameHeaderSize:], body)
-		err = s.handleLegacyGamePacket(session, frame)
-	} else {
-		var frame []byte
-		frame, err = proto.BuildChannelPacket(opcode, body, 1, 1)
-		if err == nil {
-			err = s.handleGameUpper(session, frame)
-		}
-	}
-	if err != nil {
-		t.Fatal(err)
 	}
 }

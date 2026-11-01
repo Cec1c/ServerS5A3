@@ -28,7 +28,7 @@ func TestCurrentCrossSceneProfileAutomaticBatchStaysMode8WhileInspectionPairsMod
 		if len(frames) != 1 || frames[0].msgID != uint16(dnfenum.CmdPacketSetUDPIPPort) ||
 			len(frames[0].body) < 3 || frames[0].body[0] != currentCrossSceneMode8Subtype ||
 			binary.LittleEndian.Uint16(frames[0].body[1:3]) != currentCrossSceneMode8Count {
-			t.Fatalf("automatic refresh round %d emitted non-prime frames: %v", round, townPartyActorHPFrameIDs(frames))
+			t.Fatalf("automatic refresh round %d emitted non-prime frames: %v", round, crossSceneProfileActorFrameIDs(frames))
 		}
 	}
 
@@ -98,7 +98,7 @@ func TestCurrentCrossSceneProfileFramesStopBeforeNextInvalidatedFrame(t *testing
 	}
 	frames := splitUpperFrames(t, f.targetConn.write.Bytes())
 	if len(frames) != 1 || len(frames[0].body) == 0 || frames[0].body[0] != currentCrossSceneMode8Subtype {
-		t.Fatalf("invalidated pair did not leave only the already-written prime: %v", townPartyActorHPFrameIDs(frames))
+		t.Fatalf("invalidated pair did not leave only the already-written prime: %v", crossSceneProfileActorFrameIDs(frames))
 	}
 	assertCrossSceneProfileLocksReleased(t, f.target, f.actor)
 }
@@ -142,7 +142,7 @@ func TestCurrentCrossSceneProfileFramesCloseStreamAfterLaterFrameFailure(t *test
 	}
 	frames := splitUpperFrames(t, f.targetConn.write.Bytes())
 	if len(frames) != 1 || len(frames[0].body) == 0 || frames[0].body[0] != currentCrossSceneMode8Subtype {
-		t.Fatalf("failed pair did not retain only its complete first frame: %v", townPartyActorHPFrameIDs(frames))
+		t.Fatalf("failed pair did not retain only its complete first frame: %v", crossSceneProfileActorFrameIDs(frames))
 	}
 	assertCrossSceneProfileLocksReleased(t, f.target, f.actor)
 }

@@ -718,15 +718,13 @@ func equalCurrentNPCShopSlots(left map[string]dnfrepo.ItemStack, right map[strin
 }
 
 type rejectingCurrentNPCShopCommit struct {
+	dnfrepo.AccountCharacterAssetUnitOfWork
 	inner dnfrepo.CharacterSettlementUnitOfWork
 	err   error
 }
 
-func (u rejectingCurrentNPCShopCommit) WithinCharacterSettlement(
-	ctx context.Context,
-	characterID string,
-	apply func(dnfrepo.Group) error,
-) error {
+// Other domain fixtures still exercise the character-settlement interface.
+func (u rejectingCurrentNPCShopCommit) WithinCharacterSettlement(ctx context.Context, characterID string, apply func(dnfrepo.Group) error) error {
 	return u.inner.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
 		if err := apply(tx); err != nil {
 			return err

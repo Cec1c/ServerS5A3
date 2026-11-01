@@ -11,6 +11,8 @@ import (
 var ErrRepoMissing = errors.New("dnf repository is missing")
 
 type Group struct {
+	BattlePassChanges *BattlePassChangeFeed // Commit-only in-process notification feed.
+	Activity          ActivityRepository
 	// Optional local credentials; absence disables local token issuance only.
 	LocalLogin           localaccount.Repository
 	Account              AccountRepository

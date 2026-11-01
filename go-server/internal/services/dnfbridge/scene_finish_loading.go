@@ -308,6 +308,8 @@ func buildCurrentFinishLoadingCharacterStateBody(
 
 type currentFinishLoadingExperiencePresentation struct {
 	GrowthContractBonus uint32
+	WelcomeBonus        uint32
+	FatigueBurnBonus    *uint32
 }
 
 func buildCurrentFinishLoadingCharacterStateBodyWithPresentation(
@@ -333,7 +335,11 @@ func buildCurrentFinishLoadingCharacterStateBodyWithPresentation(
 	}
 	writer.writeUint32(growthContractBonus)
 	writer.writeUint32(statU32(character, "finish_loading_independent_scalar", 0))
-	writer.writeUint32(statU32(character, "finish_loading_exp_category_4", 0))
+	fatigueBurn := statU32(character, "finish_loading_exp_category_4", 0)
+	if presentation != nil && presentation.FatigueBurnBonus != nil {
+		fatigueBurn = *presentation.FatigueBurnBonus
+	}
+	writer.writeUint32(fatigueBurn)
 	writer.writeUint32(statU32(character, "finish_loading_exp_category_5", 0))
 	writer.writeByte(0) // No persisted current dynamic EXP-category rows.
 	writer.writeUint32(statU32(character, "finish_loading_exp_category_6", 0))
@@ -341,7 +347,11 @@ func buildCurrentFinishLoadingCharacterStateBodyWithPresentation(
 	writeCurrentHonorExpertState(&writer, character)
 	writer.writeUint32(statU32(character, "finish_loading_exp_category_8", 0))
 	writer.writeUint32(0) // Consumed but unused by the current reader.
-	writer.writeUint32(statU32(character, "finish_loading_exp_category_9", 0))
+	welcome := statU32(character, "finish_loading_exp_category_9", 0)
+	if presentation != nil {
+		welcome = presentation.WelcomeBonus
+	}
+	writer.writeUint32(welcome)
 	writer.writeUint32(statU32(character, "finish_loading_exp_category_10", 0))
 	writer.writeUint32(statU32(character, "finish_loading_exp_category_11", 0))
 	return writer.bytes()

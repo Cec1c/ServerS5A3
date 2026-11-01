@@ -41,7 +41,9 @@ const (
 	currentDungeonClearRewardBonusMonsterReturnedHeroPart1Index
 	currentDungeonClearRewardBonusClearGrowthContractIndex
 	currentDungeonClearRewardBonusClearFatigueBurnIndex
-	currentDungeonClearRewardBonusUnknown10Index
+	// 现用EXE 0x1FFE7BB读取Bonus[10]，经0x358F1D0写入分类13，
+	// 0x35991EA据此生成幸运角色单人/组队明细；不能并入活动经验栏。
+	currentDungeonClearRewardBonusClearLuckyCharacterIndex
 	currentDungeonClearRewardBonusClearGuildIndex
 	currentDungeonClearRewardBonusMonsterPartyIndex
 	currentDungeonClearRewardBonusMonsterLuckyCharacterPartyIndex

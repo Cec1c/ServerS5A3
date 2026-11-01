@@ -155,6 +155,13 @@ func mysqlSchemaMigrations(options SchemaOptions) ([]string, error) {
 			fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INT NOT NULL DEFAULT 0", skillTable, quoteSQLIdentifier("synced_level")),
 			fmt.Sprintf("ALTER TABLE %s ADD COLUMN fatigue_spent BIGINT NULL", mysqlTable(database, tablePrefix, "clear_history")),
 		)
+		// Recommended-clear metrics exceed the original 32-character column.
+		// Upgrade both persisted events and aggregates without renaming keys or
+		// dropping the existing ledger; settlement writes them atomically.
+		for _, table := range []string{activityEventsTable, activityCountersTable} {
+			statements = append(statements, "ALTER TABLE "+mysqlTable(database, tablePrefix, table)+" MODIFY COLUMN metric VARCHAR(64) NOT NULL")
+		}
+		statements = append(statements, "ALTER TABLE "+mysqlTable(database, tablePrefix, activityCountersTable)+" ADD INDEX idx_activity_ranking (metric,bucket,account_id,character_id,total)")
 	}
 	return statements, nil
 }
@@ -187,6 +194,8 @@ func MySQLSchema(options SchemaOptions) ([]string, error) {
 			))
 		}
 		statements = append(statements, mysqlTableSchema(database, tablePrefix)...)
+		statements = append(statements, activitySchema(database, tablePrefix)...)
+		statements = append(statements, activityRankSchema(database, tablePrefix)...)
 		if options.IncludeCSharpLegacySchema {
 			legacy, err := csharpLegacyMySQLSchema(database, tablePrefix)
 			if err != nil {

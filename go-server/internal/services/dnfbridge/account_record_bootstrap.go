@@ -4,12 +4,14 @@ import (
 	"context"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/onlineevent"
+
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // 账号级记录按需补齐（account-level record bootstrap）。
 //
-// 现场（2026-09-25 香港 192.0.2.12，`/opt/dnf90/logs/packet_log.txt`
+// 现场（2026-09-25 香港 38.22.90.52，`/opt/dnf90/logs/packet_log.txt`
 // conn_id=game-000014，服务端日志同毫秒）：
 //
 //	16:37:42.960 INFO  login token bound game session account_id=dnf:10013
@@ -42,20 +44,17 @@ import (
 //     `session.accountID`（登录令牌 / 本地 PID 登记），或者会话已经**实际选中**
 //     了一个角色（此时 `accountIDForSession` 的共享兜底账号就是它要用的账号）。
 //     未定案的探测连接绝不触发，避免凭空造账号行。
-//   - **已存在 ⇒ 零写入**：MySQL 走原子 CreateIfAbsent，竞争失败返回
-//     created=false；账号、metadata 和 updated_at 均不更新。
-//   - **缺失 ⇒ 在同一物理事务内按服务端建档口径创建账号与 metadata**，并写
-//     WARN（这是数据缺口，不是正常路径，必须能在服务端日志里数出来）。
-//   - **AccountInventory 不预建**：所有读取方按空容器处理，首次真实共享物品
-//     写入才创建，避免空壳覆盖并发首写。
+//   - **已存在 ⇒ 只读**：一次 Load，零写入、零日志，热路径无副作用。
+//   - **缺失 ⇒ 按服务端自己的建档口径补一行**，并写 WARN（这是数据缺口，
+//     不是正常路径，必须能在服务端日志里数出来）。
 //
 // 绝不写 represent_account_name：`dnf_accounts` 上
 // `uk_dnf_accounts_represent_account_name` 是唯一键，凭空猜一个名字会把别人的
-// 名字撞掉（现场 `dnf:1` 上残留的 `represent_account_name='sample-account-a'` 正是无法逐行
+// 名字撞掉（现场 `dnf:1` 上残留的 `represent_account_name='smcz'` 正是无法逐行
 // 归因的共享账号残留，同一份报告的 4.2 C）。冒险团名字仍由客户端 op1437/op1444
 // 显式注册，本函数不代劳。
 //
-// 失败一律 fail-open：Load/Create/Save 出错只记 WARN 并返回 false，**绝不**把它变成
+// 失败一律 fail-open：Load/Save 出错只记 WARN 并返回 false，**绝不**把它变成
 // 会话级错误——宁可少一条账号行，也不能让玩家连选角都进不去。
 
 const (
@@ -110,7 +109,7 @@ func (s *Service) ensureAccountLevelRecords(
 	source string,
 ) bool {
 	accountID = strings.TrimSpace(accountID)
-	if accountID == "" || repos.Account == nil {
+	if accountID == "" || repos.Account == nil || session == nil || session.loginRevoked.Load() {
 		return false
 	}
 	_, found, err := repos.Account.Load(ctx, accountID)
@@ -129,6 +128,7 @@ func (s *Service) ensureAccountLevelRecords(
 	if found {
 		return true
 	}
+
 	now := s.gameplayNow().UTC()
 	record := dnfrepo.AccountRecord{
 		AccountID: accountID,
@@ -143,40 +143,36 @@ func (s *Service) ensureAccountLevelRecords(
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	created := false
-	if writer, ok := repos.Account.(dnfrepo.AccountCreateIfAbsentWriter); ok {
-		var createErr error
-		created, createErr = writer.CreateIfAbsent(ctx, record)
-		if createErr != nil {
-			s.logWarn("dnfbridge account record bootstrap create-if-absent failed",
-				"conn_id", session.connID,
-				"channel_id", session.channel.ID,
-				"account_id", accountID,
-				"source", source,
-				"error", createErr,
-				"impact", "account row was not verified; selected-character enter continues unchanged")
-			return false
+	// 已有账号上面的found分支直接返回，不补发。缺失账号若仍有历史角色，
+	// 属于数据修复，也不能当新手；查询失败不发资格，不妨碍原登录补档。
+	if s.options.currentClientVersion == "official-24.9" && s.currentPortedActivityEnabled(1370) &&
+		source == accountRecordBootstrapLoginSource && session.accountFromToken && repos.Character != nil {
+		if characters, err := repos.Character.ListByAccount(ctx, accountID, 1); err == nil && len(characters) == 0 {
+			record.Metadata[onlineevent.NewbieEligibleMetadataKey] = "pending"
 		}
-	} else {
-		if err := repos.Account.Save(ctx, record); err != nil {
-			s.logWarn("dnfbridge account record bootstrap save failed",
-				"conn_id", session.connID,
-				"channel_id", session.channel.ID,
-				"account_id", accountID,
-				"source", source,
-				"error", err,
-				"impact", "account row stays missing; the session continues and may still abort later")
-			return false
-		}
-		created = true
+	}
+	if session.loginRevoked.Load() {
+		return false
+	}
+	created, err := dnfrepo.CreateAccountIfAbsent(ctx, repos.Account, record)
+	if err != nil {
+		s.logWarn("dnfbridge account record bootstrap save failed",
+			"conn_id", session.connID,
+			"channel_id", session.channel.ID,
+			"account_id", accountID,
+			"source", source,
+			"error", err,
+			"impact", "account row stays missing; the session continues and may still abort later")
+		return false
 	}
 	if !created {
-		// 另一个登录/选角入口已提交了完整账号行。它的 metadata 是权威值；
-		// 本入口不得用预构造的 bootstrap 快照覆盖，也不再补容器。
+		// 另一个连接已经建档；资格、余额及领取位一律保留，不用旧快照覆盖。
 		return true
 	}
-	// AccountInventory 完全惰性：现有读取方把缺失视为空容器，首次真实物品
-	// 写入再 upsert。不要在这里写空壳，否则会与并发首写互相覆盖。
+
+	// 账号共享容器沿用正式建号的按需创建方式：缺失时各读取方按空容器处理，
+	// 首次写共享槽时由原事务建立。这里不再Load后Save空壳，避免慢连接覆盖
+	// 另一条连接已写入的真实物品；已有共享容器也不读取或改写。
 
 	// 这是数据缺口而非正常路径 ⇒ WARN + packet 事件双写：WARN 不受包日志缓冲
 	// 影响（可能没开包日志），packet 事件带 conn_id 便于与那次选角对齐。
@@ -186,6 +182,8 @@ func (s *Service) ensureAccountLevelRecords(
 		"account_id", accountID,
 		"source", source,
 		"account_created", true,
+		"account_inventory_created", false,
+		"account_inventory_error", nil,
 		"represent_account_name", "",
 		"reason", "account_level_row_missing_would_abort_selected_character_enter",
 		"impact", "crystal contract / adventure group / cargo account loads would abort the game connection")
@@ -193,6 +191,8 @@ func (s *Service) ensureAccountLevelRecords(
 		"account_id", accountID,
 		"source", source,
 		"state", accountRecordBootstrapState,
+		"account_inventory_created", false,
+		"account_inventory_error", nil,
 		"represent_account_name_written", false,
 		"reason", "account_level_row_missing_would_abort_selected_character_enter")
 	return true

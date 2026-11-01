@@ -141,7 +141,7 @@ func (a *PreparedSQLDB) Close() error {
 	return errors.Join(errs...)
 }
 
-func newSQLTransactionDB(tx *sql.Tx, parent SQLDB) sqlTransactionDB {
+func newSQLTransactionDB(tx sqlTransaction, parent SQLDB) sqlTransactionDB {
 	r := sqlTransactionDB{tx: tx}
 	if observed, ok := parent.(*ObservedSQLDB); ok {
 		r.observation = observed.Observation

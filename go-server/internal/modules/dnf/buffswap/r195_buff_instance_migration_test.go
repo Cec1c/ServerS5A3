@@ -155,7 +155,6 @@ func TestR195BuffSameTemplateItemsFollowRegisteredInstanceAcrossSwap(t *testing.
 		t.Fatalf("registration followed slot instead of instance: %+v", got)
 	}
 }
-
 func TestR195BuffInstanceMigrationRejectsForeignOwnerWithoutMutation(t *testing.T) {
 	r, ctx := fixture(t), context.Background()
 	if err := r.Inventory.Save(ctx, repo.InventoryRecord{CharacterID: "6"}); err != nil {

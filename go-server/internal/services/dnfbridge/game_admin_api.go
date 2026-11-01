@@ -131,6 +131,91 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 			out.Error = moderationError(err)
 		}
 
+	case "character_edit_status":
+		if req.Revision != 0 || len(req.Changes) != 0 || req.ListType != 0 || req.Slot != 0 || req.Stack != nil {
+			out.OK = false
+			out.Error = "invalid character edit status request"
+			break
+		}
+		var err error
+		out.CharacterEdit, err = s.administrativeCharacterEditStatus(req.AccountID, req.CharacterID)
+		if err != nil {
+			out.OK = false
+			out.Error = err.Error()
+		}
+	case "account_edit_status":
+		if req.CharacterID != 0 || req.Revision != 0 || len(req.Changes) != 0 || req.ListType != 0 || req.Slot != 0 || req.Stack != nil {
+			out.OK = false
+			out.Error = "invalid account edit status request"
+			break
+		}
+		var err error
+		out.AccountEdit, err = s.administrativeAccountEditStatus(req.AccountID)
+		if err != nil {
+			out.OK = false
+			out.Error = err.Error()
+		}
+
+	case "online_snapshot":
+		if req.CharacterID != 0 || req.Revision != 0 || len(req.Changes) != 0 || req.ListType != 0 || req.Slot != 0 || req.Stack != nil {
+			out.OK = false
+			out.Error = "invalid online snapshot request"
+			break
+		}
+		var err error
+		out.OnlineSnapshot, err = s.administrativeOnlineSnapshot()
+		if err != nil {
+			out.OK = false
+			out.Error = "online session snapshot unavailable"
+		}
+	case "activity_rank", "activity_rank_settle", "activity_rank_rewards":
+		s.handleActivityRankAdmin(r.Context(), req, &out)
+	case "account_activity", "account_activity_events":
+		repos, ok := s.repositoryGroup()
+		if !ok || repos.Activity == nil || req.ActivityQuery == nil {
+			out.OK = false
+			out.Error = "账号统计查询参数或仓储不可用"
+			break
+		}
+		if err := req.ActivityQuery.Validate(); err != nil {
+			out.OK = false
+			out.Error = "账号统计查询范围无效"
+			break
+		}
+		if req.Action == "account_activity" {
+			value, err := repos.Activity.Summary(r.Context(), *req.ActivityQuery)
+			if err != nil {
+				out.OK = false
+				out.Error = "账号统计读取失败"
+			} else {
+				out.ActivitySummary = &value
+				gold, goldErr := repository.SummarizeActivityGold(value.Metrics)
+				if goldErr != nil {
+					out.OK = false
+					out.Error = "金币统计合计无效"
+					break
+				}
+				out.GoldSummary = &gold
+				out.CharacterGold = map[string]repository.ActivityGoldSummary{}
+				for _, ch := range value.Characters {
+					v, err := repository.SummarizeActivityGold(ch.Metrics)
+					if err != nil {
+						out.OK = false
+						out.Error = "角色金币统计合计无效"
+						break
+					}
+					out.CharacterGold[ch.CharacterID] = v
+				}
+			}
+		} else {
+			value, err := repos.Activity.Events(r.Context(), *req.ActivityQuery)
+			if err != nil {
+				out.OK = false
+				out.Error = "账号统计明细读取失败"
+			} else {
+				out.ActivityEvents = value
+			}
+		}
 	case "online":
 		if req.CharacterID == 0 {
 			out.OK = false

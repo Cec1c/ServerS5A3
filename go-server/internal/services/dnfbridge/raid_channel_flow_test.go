@@ -110,6 +110,8 @@ func TestFiendWarReturnOriginPersistsAndRestores(t *testing.T) {
 					c, err = s.commitCurrentReconnectLocation(ctx, 29, c)
 				}
 			}
+			// A valid pre-raid ordinary origin is restored directly. The shared
+			// Seria room is the no-origin fallback covered by the next test.
 			if err != nil || currentReconnectLocationSnapshot(c) != origin ||
 				c.Stats[currentPVPReturnOriginMarker] != 0 ||
 				c.Stats[currentRaidReturnOriginMarker] != 0 ||
@@ -124,8 +126,15 @@ func TestFiendWarReturnOriginPersistsAndRestores(t *testing.T) {
 				stored.Stats[currentFiendWarReturnOriginMarker] != 0 {
 				t.Fatal("退场未持久化原位置或未清理专用频道来源")
 			}
-			// Keep the complete ordinary origin through both warm and cold raid exits.
-			if stored.Stats["prev_village_town_id"] != origin.townID || stored.Stats["prev_village_area_id"] != origin.areaID || stored.Stats["prev_village_pos_x"] != origin.positionX || stored.Stats["prev_village_pos_y"] != origin.positionY || stored.Stats["prev_village_direction"] != origin.direction {
+			// The complete pre-raid origin (town, area, position and direction)
+			// must survive both warm and cold exits until the room-door handler
+			// consumes it. This fixture declares only town tables, so it does not
+			// exercise op1425 itself and makes no claim about the final room exit.
+			if stored.Stats["prev_village_town_id"] != origin.townID ||
+				stored.Stats["prev_village_area_id"] != origin.areaID ||
+				stored.Stats["prev_village_pos_x"] != origin.positionX ||
+				stored.Stats["prev_village_pos_y"] != origin.positionY ||
+				stored.Stats["prev_village_direction"] != origin.direction {
 				t.Fatalf("退场房门丢失普通来源：%+v", stored.Stats)
 			}
 			after, stillPresent, err := repos.Quest.Load(ctx, "29")

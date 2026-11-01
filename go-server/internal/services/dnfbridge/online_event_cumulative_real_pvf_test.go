@@ -25,8 +25,13 @@ func TestRealPVFCumulativeAttendanceTwentyFiveQualifiedDaysAwardsExactEightItems
 		t.Fatal(e)
 	}
 	sha := sha256.Sum256(raw)
-	if hex.EncodeToString(sha[:]) != "369d072b82c715aea4e02813d89ad9225686983e147bc7be0ee0cae2e296bb06" {
-		t.Fatal("unexpected immutable PVF")
+	// This exercises the retained 2347 migration definition, not the current
+	// 228 panel's 20-day reward table. Only these exact resource editions are allowed.
+	switch hex.EncodeToString(sha[:]) {
+	case "369d072b82c715aea4e02813d89ad9225686983e147bc7be0ee0cae2e296bb06",
+		"94a2549598816198115340f84c0be2d31603ddeea58f70f27afe6f73b25e3df7":
+	default:
+		t.Fatalf("unexpected immutable PVF %x", sha)
 	}
 	archive, e := pvf.LoadArchive(pvf.Options{Path: path})
 	if e != nil {
@@ -36,6 +41,22 @@ func TestRealPVFCumulativeAttendanceTwentyFiveQualifiedDaysAwardsExactEightItems
 	rawCatalog, e := event.LoadAttendancePVFCatalog(ctx, archive)
 	if e != nil {
 		t.Fatal(e)
+	}
+	// Bind the accepted file hash to the complete legacy reward contract.
+	snapshot := rawCatalog.Snapshot()
+	if !reflect.DeepEqual(snapshot.ProcessDurationsSeconds, []int64{1800, 1800, 3600, 3600}) ||
+		!reflect.DeepEqual(snapshot.SumThresholds, []int64{5, 10, 15, 25}) ||
+		!reflect.DeepEqual(snapshot.RewardActivityForSum, []int64{0}) {
+		t.Fatalf("legacy resource contract changed: %+v", snapshot)
+	}
+	rewards := append(append([]event.AttendancePVFItemReward{}, snapshot.RewardItems...), snapshot.RewardItemsForSum...)
+	if len(rewards) != 8 {
+		t.Fatalf("legacy rewards=%+v, want eight", rewards)
+	}
+	for n, reward := range rewards {
+		if reward.ItemID != int64(490006574+n) || reward.Count != 1 || reward.DefinitionPath == "" {
+			t.Fatalf("legacy reward[%d]=%+v", n, reward)
+		}
 	}
 	catalog, e := buildCurrentSpendTimeRuntimeCatalog(rawCatalog)
 	if e != nil {

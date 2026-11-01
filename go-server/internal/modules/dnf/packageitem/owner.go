@@ -628,6 +628,29 @@ func (o *Owner) applyMagicBoxInTransaction(
 	}
 
 	record.UpdatedAt = time.Now()
+	if resolution.OnOpen != nil {
+		if !o.inMailboxTransaction || o.characters == nil {
+			return MagicBoxResult{}, ErrMailboxTransactionRequired
+		}
+		ch, found, err := o.characters.Load(ctx, result.CharacterID)
+		if err != nil {
+			return MagicBoxResult{}, err
+		}
+		if !found || ch.CharacterID != result.CharacterID || ch.AccountID != accountID {
+			return MagicBoxResult{}, ErrCharacterRequired
+		}
+		ch = dnfrepo.CloneCharacter(ch)
+		changed, err := resolution.OnOpen(&ch)
+		if err != nil {
+			return MagicBoxResult{}, err
+		}
+		if changed {
+			ch.UpdatedAt = record.UpdatedAt
+			if err := dnfrepo.SaveCharacterFields(ctx, o.characters, ch, dnfrepo.CharacterFieldStats); err != nil {
+				return MagicBoxResult{}, err
+			}
+		}
+	}
 	if err := dnfrepo.SaveInventoryFields(ctx, o.inventory, record, dnfrepo.InventoryFieldSlots); err != nil {
 		return MagicBoxResult{}, err
 	}

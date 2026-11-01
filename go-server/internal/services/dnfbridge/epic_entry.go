@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type currentEpicEntry struct {
@@ -177,7 +178,20 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
 	defer cancel()
 	cmd := entry.command
+
 	cmd.UpdatedAt = s.gameplayNow()
+	cmd.OnFatigueDebit = func(character *dnfrepo.CharacterRecord, consumed int64, at time.Time) error {
+		_, err := s.applyPrivateActivity(character, 6, uint32(consumed), at, at)
+		return err
+	}
+	cmd.Activity, err = s.currentActivityEvent(session, runtime, dnfrepo.ActivityFatigue, "epic_entry", "admission")
+	if err != nil {
+		return err
+	}
+	if cmd.Activity != nil {
+		cmd.Activity.OccurredAt = cmd.UpdatedAt
+	}
+
 	cmd.Project = func(slot int16, stack dnfrepo.ItemStack) (dnfrepo.ItemStack, error) {
 		item := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, slot, stack)
 		stack.RawEntry = append([]byte(nil), item.data[:]...)

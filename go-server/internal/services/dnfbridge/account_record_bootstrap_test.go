@@ -384,18 +384,23 @@ func TestAccountRecordBootstrapUsesCreateIfAbsentForMissingAccount(t *testing.T)
 func TestAccountRecordBootstrapFailsOpenWhenTheRepositoryIsUnavailable(t *testing.T) {
 	service, repositories := newAccountRecordBootstrapFixture(t)
 	session := newAccountRecordBootstrapSession()
+	session.selectedCharacterID = 10
 
 	injected := errors.New("injected account repository failure")
+	originalAccountStore := repositories.Account
 	repositories.Account = failingAccountStore{AccountRepository: repositories.Account, err: injected}
 	service.repositoryProvider = func() (dnfrepo.Group, bool) { return repositories, true }
 
-	// 补齐失败绝不能被升级成会话级错误：选角照常往下走（后续那一步自己会失败，
-	// 那是数据库整体不可用的另一类故障，不在这里兜）。
-	if err := service.sendUpperCSharpSelectInit(session, selectFirstSlotRequest()); err != nil {
-		t.Fatalf("account repository failure aborted the select path: %v", err)
+	// 只核对补档入口的失败开放契约；后续独立读取同一故障仓储可能失败，
+	// 不要求整个选角流程吞掉数据库故障。读失败也不能当作账号缺失后写入。
+	if service.ensureAccountRecordsForSelection(context.Background(), session, accountRecordBootstrapSelectSource) {
+		t.Fatal("unavailable account repository reported a verified account")
 	}
 	if session.selectedCharacterID != 10 {
 		t.Fatalf("selected character = %d, want 10", session.selectedCharacterID)
+	}
+	if _, found, err := originalAccountStore.Load(context.Background(), accountRecordBootstrapTestAccountID); err != nil || found {
+		t.Fatalf("load failure created an account: found=%t err=%v", found, err)
 	}
 }
 

@@ -85,18 +85,6 @@ func (s *Service) processCurrentLevelUpRewards(parent context.Context, character
 	if s == nil || s.options.currentClientVersion != "official-24.9" || characterID == "" {
 		return
 	}
-	// 命令尾与恢复线程可以竞争，同一事务的永久记录仍是最终防重依据。
-	if !s.levelUpRewards.opMu.TryLock() {
-		return
-	}
-	defer s.levelUpRewards.opMu.Unlock()
-	now := s.gameplayNow().UTC()
-	s.levelUpRewards.mu.Lock()
-	retry := s.levelUpRewards.retryAfter[characterID]
-	s.levelUpRewards.mu.Unlock()
-	if now.Before(retry) {
-		return
-	}
 	repos, available := s.repositoryGroup()
 	if !available || repos.Character == nil || repos.MailboxAssets == nil {
 		return
@@ -107,7 +95,23 @@ func (s *Service) processCurrentLevelUpRewards(parent context.Context, character
 	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
 	defer cancel()
 	character, found, err := repos.Character.Load(ctx, characterID)
+	if err == nil && found {
+		s.refreshCurrentLuckyCharacterAfterProgression(ctx, character)
+	}
 	if err == nil && (!found || !dnfrepo.HasPendingLevelUp(character)) {
+		return
+	}
+	// Cap revocation is independent of mail contention and retry delays.
+	// Permanent receipts still serialize and deduplicate reward delivery.
+	if !s.levelUpRewards.opMu.TryLock() {
+		return
+	}
+	defer s.levelUpRewards.opMu.Unlock()
+	now := s.gameplayNow().UTC()
+	s.levelUpRewards.mu.Lock()
+	retry := s.levelUpRewards.retryAfter[characterID]
+	s.levelUpRewards.mu.Unlock()
+	if now.Before(retry) {
 		return
 	}
 	var identity boundGameSessionCharacter

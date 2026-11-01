@@ -105,6 +105,9 @@ func TestRealPVFAntonPhase0FourAndMultiGroupStageCapacity(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, sessions, _ := phase0RewardFlowWithGroups(t, tc.groups)
+			// Capacity is checked for an actual current party, not only a
+			// frozen reward group. The fifth member remains in another group.
+			r195RewardParty(t, f.service, tc.party...)
 			flow := f.state.Battle.RewardFlow[0]
 			if flow == nil || len(flow.Recipients) != len(tc.groups) {
 				t.Fatalf("phase0 recipients=%d want=%d", len(flow.Recipients), len(tc.groups))
@@ -114,7 +117,7 @@ func TestRealPVFAntonPhase0FourAndMultiGroupStageCapacity(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.conn.write.Reset()
-			dispatchAntonCardRequest(t, f, sessions[0], 659, []byte{0})
+			dispatchAntonCardRequest(t, f, sessions[0], 659, []byte{1})
 			var owners []uint16
 			for stream := f.conn.write.Bytes(); len(stream) > 0; {
 				packet, rest := splitGameServerUpperPacket(t, stream)
@@ -152,7 +155,7 @@ func TestRealPVFAntonPhase0Natural659CardMasksAndOwnerCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 
 	var starts, acks, itemLists, goldLists int
 	var itemOwners, goldOwners []uint16
@@ -273,7 +276,7 @@ func TestRealPVFAntonPhase0Natural660SelectsOnlyFrozenPartyCard(t *testing.T) {
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	f.conn.write.Reset()
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
 
@@ -315,7 +318,7 @@ func TestRealPVFAntonPhase0ManualPartyDoesNotAddSecondDisplayDelay(t *testing.T)
 		if err := f.service.sendCurrentAntonTerminalResult(owner, state); err != nil {
 			t.Fatal(err)
 		}
-		dispatchAntonCardRequest(t, f, owner, 659, []byte{0})
+		dispatchAntonCardRequest(t, f, owner, 659, []byte{1})
 	}
 	flow := f.state.Battle.RewardFlow[0]
 	flow.AutoSelectAt = time.Now().Add(time.Minute)
@@ -338,7 +341,7 @@ func TestRealPVFAntonPhase0ReconnectKeepsSelectedPartyWithoutRegrant(t *testing.
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, session, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
 	if got := antonGrantedItemCount(t, f, "19", 10304529); got != 30 {
 		t.Fatalf("initial phase0 party reward=%d want=30", got)
@@ -376,7 +379,7 @@ func TestRealPVFAntonPhase0ReconnectKeepsSelectedPartyWithoutRegrant(t *testing.
 		t.Fatalf("phase0 reconnect lost/regranted party card: restored=%t count=%d ids=%v kind=%d", restored, antonGrantedItemCount(t, f, "19", 10304529), ids, cardKind)
 	}
 	f.conn.write.Reset()
-	dispatchAntonCardRequest(t, f, replacement, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, replacement, 659, []byte{1})
 	packet, rest := splitGameServerUpperPacket(t, f.conn.write.Bytes())
 	if packet.Header.MsgID != 659 || !bytes.Equal(packet.Body, []byte{1}) || len(rest) != 0 {
 		t.Fatal("phase0 reconnect 659 replay reopened/changed reward screen")
