@@ -13,6 +13,7 @@ import (
 
 	dnfauction "longheng.io/server/internal/modules/dnf/auction"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfequip "longheng.io/server/internal/modules/dnf/equip"
 
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -1612,7 +1613,16 @@ func buildCurrentAuctionItem83(stack dnfrepo.ItemStack) []byte {
 	}
 	binary.LittleEndian.PutUint32(item[0x01:0x05], currentAuctionUint32(stack.ItemID))
 	binary.LittleEndian.PutUint32(item[0x06:0x0A], currentAuctionUint32(stack.Count))
-	raw := stack.RawEntry
+	// The escrow keeps both RawEntry and Extra. Freshly granted or upgraded
+	// equipment may have no raw cache, so use the same durable projection as
+	// the inventory instead of displaying an empty +0 instance.
+	entry := currentItemListEntryFromStack(0, 0, stack)
+	raw := entry.data[:]
+	if !currentItemListStackExtraIsAvatar(stack.Extra) &&
+		!strings.Contains(strings.ToLower(stack.Extra["equipment_type"]), "creature") {
+		dnfequip.ProjectUpgradeFields(raw, stack.Extra)
+	}
+	copy(item[0x06:0x0A], raw[0x06:0x0A])
 	if len(raw) == currentItemListEntryWireSize {
 		if raw[0x0D] != 0 {
 			item[0] = 1

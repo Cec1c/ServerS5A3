@@ -12,6 +12,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	dnfequip "longheng.io/server/internal/modules/dnf/equip"
 	"longheng.io/server/internal/modules/dnf/itemquality"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -592,6 +593,9 @@ func mailboxAttachmentRaw(attachment dnfrepo.MailAttachment) []byte {
 	raw := make([]byte, mailboxItemRawSize)
 	if len(attachment.RawEntry) == mailboxItemRawSize {
 		copy(raw, attachment.RawEntry)
+	}
+	if !mailboxAttachmentIsAvatar(attachment) && !mailboxAttachmentRequiresClass26(attachment) {
+		dnfequip.ProjectUpgradeFields(raw, attachment.Extra)
 	}
 	binary.LittleEndian.PutUint16(raw[0:2], 0)
 	binary.LittleEndian.PutUint32(raw[2:6], uint32(attachment.ItemID))
