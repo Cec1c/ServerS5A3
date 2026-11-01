@@ -11,6 +11,9 @@ import (
 // helper mirrors its presentation tail without inventing an ACK or replaying
 // 587's start/cinematic transition.
 func (s *Service) restoreCurrentRaidSelectorProjection(session *gameSession, source string) error {
+	if err := s.restoreCurrentRaidSessionProjection(session, source); err != nil {
+		return err
+	}
 	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" ||
 		session.channel.Type != dnfenum.HiddenRaidType || !s.currentRaidAuthenticated(session) {
 		return nil

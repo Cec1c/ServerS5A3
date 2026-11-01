@@ -238,8 +238,10 @@ func (s *Service) handleCurrentAntonMovieCompletion(session *gameSession, op uin
 	return s.sendCurrentAntonRewardPackets(session, state, packets, true)
 }
 
-// All actual normal party_card choices have flag0. Ordinary descriptors use
-// native mode0; the helper resolves item class/name/icon from the actual PVF.
+// The configured choice flag belongs to the reward pool. NOTI600's last
+// descriptor byte has a different meaning: the current client hides that item
+// and displays the reward-limit notice when it is set. These descriptors are
+// actual granted contents, so keep that byte clear, including special pools.
 func currentAntonPartyDisplayItems(plan currentAntonRewardPlan) []raid.RewardDisplayItem {
 	var items []raid.RewardDisplayItem
 	for _, reward := range plan.Rewards {
@@ -249,7 +251,7 @@ func currentAntonPartyDisplayItems(plan currentAntonRewardPlan) []raid.RewardDis
 				continue
 			}
 		}
-		items = append(items, raid.RewardDisplayItem{ObjectKind: 0, ItemID: reward.Definition.ItemID, Quantity: uint16(reward.Count), Flags: plan.Choice.Flags})
+		items = append(items, raid.RewardDisplayItem{ObjectKind: 0, ItemID: reward.Definition.ItemID, Quantity: uint16(reward.Count)})
 	}
 	return items
 }
