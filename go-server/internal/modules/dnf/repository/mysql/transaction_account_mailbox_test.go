@@ -15,7 +15,25 @@ type accountMailSQLState struct {
 	begins, commits, rollbacks, writes int
 	queries                            []string
 	scenario                           string
+	rollbackDone                       chan struct{}
 }
+
+func newAccountMailSQLState(scenario string) *accountMailSQLState {
+	return &accountMailSQLState{scenario: scenario, rollbackDone: make(chan struct{})}
+}
+
+// database/sql can claim the canceled transaction in its awaitDone goroutine
+// before the caller's deferred Rollback. Join the actual driver call before
+// inspecting any counters; closing the channel also orders its counter write.
+func (s *accountMailSQLState) awaitRollback(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.rollbackDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("account mailbox driver rollback did not complete")
+	}
+}
+
 type accountMailSQLConnector struct{ s *accountMailSQLState }
 
 func (c accountMailSQLConnector) Connect(context.Context) (driver.Conn, error) {
@@ -84,11 +102,17 @@ func (tx accountMailSQLTx) Commit() error {
 	}
 	return nil
 }
-func (tx accountMailSQLTx) Rollback() error { tx.s.rollbacks++; return nil }
+func (tx accountMailSQLTx) Rollback() error {
+	tx.s.rollbacks++
+	if tx.s.rollbackDone != nil {
+		close(tx.s.rollbackDone)
+	}
+	return nil
+}
 func TestMySQLAccountMailboxOnePhysicalTransaction(t *testing.T) {
 	for _, scenario := range []string{"success", "foreign_owner", "account_missing", "account_scope", "mail_scope", "callback_failure", "write_failure", "commit_failure", "panic", "cancel"} {
 		t.Run(scenario, func(t *testing.T) {
-			s := &accountMailSQLState{scenario: scenario}
+			s := newAccountMailSQLState(scenario)
 			db := sql.OpenDB(accountMailSQLConnector{s})
 			defer db.Close()
 			u := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{db: SQLDBAdapter{DB: db}, readDBs: []string{"readonly"}, writeDBs: []string{"shard_a", "shard_b"}, tablePrefix: "dnf_", now: time.Now}}
@@ -136,6 +160,9 @@ func TestMySQLAccountMailboxOnePhysicalTransaction(t *testing.T) {
 				}()
 				err = invoke()
 			}()
+			if scenario == "cancel" {
+				s.awaitRollback(t)
+			}
 			if s.begins != 1 {
 				t.Fatalf("physical begins=%d", s.begins)
 			}
@@ -167,7 +194,7 @@ func TestMySQLAccountMailboxOnePhysicalTransaction(t *testing.T) {
 }
 
 func TestMySQLAccountMailboxLocksAccountBeforeCharacter(t *testing.T) {
-	state := &accountMailSQLState{scenario: "success"}
+	state := newAccountMailSQLState("success")
 	database := sql.OpenDB(accountMailSQLConnector{state})
 	defer database.Close()
 	uow := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{

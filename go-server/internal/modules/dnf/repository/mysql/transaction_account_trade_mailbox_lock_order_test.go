@@ -94,7 +94,7 @@ func TestMySQLAccountTradeMailboxLocksAccountBeforeParticipantsAndRollsBack(t *t
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			state := &accountMailSQLState{scenario: tc.mailSQLScenario}
+			state := newAccountMailSQLState(tc.mailSQLScenario)
 			db := sql.OpenDB(accountMailSQLConnector{state})
 			defer db.Close()
 			u := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{
@@ -120,6 +120,9 @@ func TestMySQLAccountTradeMailboxLocksAccountBeforeParticipantsAndRollsBack(t *t
 					return tc.callback(ctx, cancel, accounts)
 				})
 			}()
+			if errors.Is(tc.wantErr, context.Canceled) {
+				state.awaitRollback(t)
+			}
 
 			if state.begins != 1 {
 				t.Fatalf("physical transactions=%d, want 1", state.begins)

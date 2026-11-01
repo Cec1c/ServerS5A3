@@ -13,7 +13,7 @@ import (
 func TestMySQLAccountTradeMailboxAtomicScopes(t *testing.T) {
 	for _, scenario := range []string{"success", "foreign_owner", "account_missing", "account_scope", "character_scope", "inventory_scope", "mail_scope", "callback_failure", "write_failure", "commit_failure", "panic", "cancel"} {
 		t.Run(scenario, func(t *testing.T) {
-			state := &accountMailSQLState{scenario: scenario}
+			state := newAccountMailSQLState(scenario)
 			db := sql.OpenDB(accountMailSQLConnector{state})
 			defer db.Close()
 			u := &mysqlMailboxAssetUnitOfWork{router: mysqlRouter{db: SQLDBAdapter{DB: db}, readDBs: []string{"readonly"}, writeDBs: []string{"shard_a", "shard_b"}, tablePrefix: "dnf_", now: time.Now}}
@@ -64,6 +64,9 @@ func TestMySQLAccountTradeMailboxAtomicScopes(t *testing.T) {
 					return nil
 				})
 			}()
+			if scenario == "cancel" {
+				state.awaitRollback(t)
+			}
 			if state.begins != 1 {
 				t.Fatal(state)
 			}
