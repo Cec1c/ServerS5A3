@@ -25,6 +25,7 @@ func eventItemBridgeFixture(t *testing.T, catalog *pvfDungeonDropCatalog, archiv
 		t.Fatal(err)
 	}
 	c.Level = 90
+	c.Job = "0" // A real character has a valid persisted job for PVF job checks.
 	for _, err := range []error{
 		g.Account.Save(ctx, repo.AccountRecord{AccountID: c.AccountID}),
 		g.Character.Save(ctx, c),
@@ -126,7 +127,7 @@ func TestEventItemsRealPVFDispatchAndDurableEffects(t *testing.T) {
 				if state.MainSlotCount != 8 {
 					t.Fatalf("%+v", state)
 				}
-				wantOps = []uint16{13}
+				wantOps = []uint16{430, 14, 13}
 			case inventory.EventSilverCargo:
 				if state.PersonalCargoSlotCount != 40 {
 					t.Fatalf("%+v", state)
@@ -145,6 +146,9 @@ func TestEventItemsRealPVFDispatchAndDurableEffects(t *testing.T) {
 				frame, next := splitCurrentGameServerUpperPacketAuto(t, raw)
 				raw = next
 				ops = append(ops, frame.Header.MsgID)
+				if frame.Header.MsgID == 430 && (frame.Header.Classification != 1 || !bytes.Equal(frame.Body, []byte{1})) {
+					t.Fatalf("inventory upgrade ACK class=%d body=%x", frame.Header.Classification, frame.Body)
+				}
 				if frame.Header.MsgID == 515 && !bytes.Equal(frame.Body, []byte{1, 70, 0, 0, 88, 0, 0, 0}) {
 					t.Fatalf("action88 ACK %x", frame.Body)
 				}

@@ -2431,6 +2431,9 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 		)
 	}
 
+	if result, handled, err := o.tryTownPotion002(ctx, cmd); handled {
+		return result, err
+	}
 	if premiumResolver != nil {
 		resolution, err := premiumResolver(int64(cmd.ItemTemplateID))
 		if err != nil {

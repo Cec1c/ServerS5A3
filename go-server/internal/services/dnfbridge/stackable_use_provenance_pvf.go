@@ -75,5 +75,11 @@ func resolveCurrentStackableUseProvenance(catalog *pvfDungeonDropCatalog, itemID
 	resolution.StackableType = stackableType
 	resolution.ActionType = definition.ActionType
 	resolution.Found = true
+	if currentUpgradeRateBuffStackableToken(stackableType) == "[expert town potion]" {
+		resolution.TownPotion002, err = resolveTownPotion002(catalog, itemID)
+		if err != nil {
+			return resolution, err
+		}
+	}
 	return resolution, nil
 }
