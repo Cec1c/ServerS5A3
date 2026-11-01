@@ -145,9 +145,9 @@ func TestCurrentDungeonLiveHellRoomStartMapFrameDecodesToEmptyExtraTable(t *test
 	}
 }
 
-// The native u32 extra row is 20 bytes; the explicit legacy-u16 diagnostic
+// The native u32 extra row is 21 bytes; the explicit legacy-u16 diagnostic
 // row remains 19 bytes. Empty-room and actor rows retain their prior bytes.
-func TestCurrentDungeonStartMapExtraEntryNative20AndLegacy19(t *testing.T) {
+func TestCurrentDungeonStartMapExtraEntryNative21AndLegacy19(t *testing.T) {
 	base := liveHellRoomStartMapPacket()
 	if built, err := base.Build(); err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestCurrentDungeonStartMapExtraEntryNative20AndLegacy19(t *testing.T) {
 		0x00,       // amplify type
 		0x00, 0x00, // amplify value
 		0x00, 0x00, // extended u16
-		0x00,             // extended u8
+		0x00,             // ExtendedFlag
 		0x01, 0x00, 0xff, // fog / ridable / party
 	}
 	// extraCount 字节在 `19 + 11×21`（这一字节本来就存在），行紧跟其后。
@@ -193,7 +193,7 @@ func TestCurrentDungeonStartMapExtraEntryNative20AndLegacy19(t *testing.T) {
 		t.Fatalf("vendor-width extraCount=%d want=1", vendorBody[extraCountOffset])
 	}
 
-	// 原生20字节（= 显式 `u32`）：同样一条行，只是 GlobalSequence 宽度不同。
+	// 原生21字节（= 显式 `u32`）：同样一条行，只是 GlobalSequence 宽度不同。
 	current := base
 	current.ExtraEntries = []currentDungeonStartMapExtraEntry{probe}
 	current.ExtraEntryVendorWidth = false
@@ -201,14 +201,24 @@ func TestCurrentDungeonStartMapExtraEntryNative20AndLegacy19(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(currentBody) != 274 {
-		t.Fatalf("current-width body len=%d want=274", len(currentBody))
+	if len(currentBody) != 275 {
+		t.Fatalf("current-width body len=%d want=275", len(currentBody))
 	}
 	rowStart := extraCountOffset + 1
-	if currentBody[rowStart] != 0x00 || currentBody[rowStart+1] != 0x07 ||
-		currentBody[rowStart+2] != 0x00 || currentBody[rowStart+3] != 0x00 ||
-		currentBody[rowStart+5] != 0x6c {
-		t.Fatalf("current-width row prefix=% X (item id must sit at +5, u32 slot at +1)", currentBody[rowStart:rowStart+12])
+	wantCurrentRow := []byte{
+		0x00,                   // ObjectIndex
+		0x07, 0x00, 0x00, 0x00, // GlobalSeq u32 LE
+		0x6c, 0x02, 0x9b, 0x00, // 10158700
+		0x01, 0x00, 0x00, 0x00, // stack 1
+		0x00, 0x00, // endurance
+		0x00,       // amplify type
+		0x00, 0x00, // amplify value
+		0x00, 0x00, // extended value
+		0x00,             // ExtendedFlag
+		0x01, 0x00, 0xff, // fog / ridable / party
+	}
+	if tail := currentBody[rowStart:]; !bytes.Equal(tail, wantCurrentRow) {
+		t.Fatalf("current-width tail=% X\n                 want=% X", tail, wantCurrentRow)
 	}
 }
 
@@ -255,7 +265,7 @@ func TestDungeonPassiveObjectDropSwitchPolicy(t *testing.T) {
 		t.Fatal("auto width must stay current-without-a-row and vendor-with-a-row")
 	}
 	if startMapExtraEntryWidthCurrent.vendorLayout(true) {
-		t.Fatal("explicit u32 selects the native 20-byte row")
+		t.Fatal("explicit u32 selects the native 21-byte row")
 	}
 	if !startMapExtraEntryWidthVendor.vendorLayout(false) {
 		t.Fatal("explicit u16 must be vendor width even without a row")
