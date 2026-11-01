@@ -25,6 +25,7 @@ func eventItemBridgeFixture(t *testing.T, catalog *pvfDungeonDropCatalog, archiv
 		t.Fatal(err)
 	}
 	c.Level = 90
+	c.Job = "0" // A real character has a valid persisted job for PVF job checks.
 	for _, err := range []error{
 		g.Account.Save(ctx, repo.AccountRecord{AccountID: c.AccountID}),
 		g.Character.Save(ctx, c),
