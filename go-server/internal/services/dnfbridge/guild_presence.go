@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -64,11 +65,48 @@ func (s *Service) persistCurrentGuildPresence(observations ...currentGuildPresen
 		if err != nil {
 			s.logPacketEvent("game-guild-presence-persist-failed", "char_id", observation.owner.CharacterID, "error", err)
 		} else if guildID != 0 {
-			// Re-read current membership and binding for each recipient. No source
-			// asset reservation or dungeon lock is held while reserving peers.
-			s.refreshCurrentGuildText(ctx, guildID, boundGameSessionCharacter{}, true)
-			s.refreshCurrentGuildText(ctx, guildID, boundGameSessionCharacter{}, false)
+			s.queueCurrentGuildPresenceRefresh(ctx, guildID)
 		}
 		cancel()
+	}
+}
+
+// Last-seen is already durable. Optional projections belong to each recipient's
+// event loop: a member with a slow roster query or socket must not hold another
+// member's login/logout ACK. The callback reloads membership and rejects a
+// replaced character generation; no saved registry snapshot is replayed.
+func (s *Service) queueCurrentGuildPresenceRefresh(ctx context.Context, guildID uint32) {
+	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	if err != nil {
+		s.logInfo("dnfbridge guild presence refresh unavailable", "error", err)
+		return
+	}
+	guild, found := registry.GuildByID(guildID)
+	if !found {
+		return
+	}
+	for _, member := range dnfguild.SortedMembers(guild) {
+		id, err := strconv.ParseUint(member.CharacterID, 10, 16)
+		if err != nil || id == 0 {
+			continue
+		}
+		peer, online := s.onlineGameSessionCharacterSnapshot(uint16(id))
+		if !online {
+			continue
+		}
+		err = s.tryPostGameSessionCharacterEvent(peer.session, "guild-presence-refresh", peer.character, peer.generation, func() error {
+			ctx, cancel := s.currentGuildContext()
+			defer cancel()
+			for _, notice := range []bool{true, false} {
+				if err := s.refreshCurrentGuildTextPeer(ctx, guildID, peer, boundGameSessionCharacter{}, notice); err != nil {
+					s.logGameEvent(peer.session, "game-guild-presence-refresh-deferred", "error", err)
+					return nil
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			s.logGameEvent(peer.session, "game-guild-presence-refresh-deferred", "error", err)
+		}
 	}
 }
