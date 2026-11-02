@@ -86,6 +86,7 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 		"equipment-rental",
 		"epic-production",
 		"epic-book",
+		"epic-piece-shop",
 		"guardian-gem",
 		"equipment-socket",
 		"equipment-emblem-control",
@@ -121,6 +122,13 @@ func TestCurrentGameplayModulesHaveIndependentRegisteredOwners(t *testing.T) {
 	}
 	if !reflect.DeepEqual(currentGameplayModules.names, wantNames) {
 		t.Fatalf("module names=%v want=%v", currentGameplayModules.names, wantNames)
+	}
+	for _, opcode := range []uint16{816, 817, 818} {
+		for _, routes := range []map[uint16]registeredGameplayHandler{currentGameplayModules.legacyHandlers, currentGameplayModules.upperHandlers} {
+			if route, ok := routes[opcode]; !ok || route.module != "epic-piece-shop" {
+				t.Errorf("epic shop opcode=%d owner=%q found=%t", opcode, route.module, ok)
+			}
+		}
 	}
 	ownedRoutes := make(map[string]int, len(wantNames))
 	for _, route := range currentGameplayModules.legacyHandlers {
