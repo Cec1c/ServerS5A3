@@ -14,6 +14,8 @@ const Version = 1
 const Path = "/api/game/admin"
 
 type Request struct {
+	QQChange        *qqbinding.Change                  `json:"qqChange,omitempty"`
+	QQCheck         *qqbinding.CheckResult             `json:"qqCheck,omitempty"`
 	ActivityQuery   *repository.ActivityQuery          `json:"activityQuery,omitempty"`
 	PasswordReset   *PasswordReset                     `json:"passwordReset,omitempty"`
 	QQAck           *moderation.QQAck                  `json:"qqAck,omitempty"`
@@ -37,6 +39,8 @@ type Request struct {
 }
 
 type Response struct {
+	QQChecks           []qqbinding.Check                         `json:"qqChecks,omitempty"`
+	QQChanged          bool                                      `json:"qqChanged,omitempty"`
 	PasswordReset      *PasswordResetResult                      `json:"passwordReset,omitempty"`
 	ErrorCode          string                                    `json:"errorCode,omitempty"`
 	BanTargets         *moderation.BanTargets                    `json:"banTargets,omitempty"`

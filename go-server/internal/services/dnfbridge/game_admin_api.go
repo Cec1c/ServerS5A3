@@ -52,9 +52,27 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 				out.ErrorCode, out.Error = failure.code, failure.message
 			}
 		}
-	case "qq_settings", "qq_settings_save", "qq_bindings", "qq_complete", "qq_jobs", "qq_ack", "qq_blocked", "ban_targets":
+	case "qq_change", "qq_checks", "qq_check_result", "qq_check_due", "qq_settings", "qq_settings_save", "qq_bindings", "qq_complete", "qq_jobs", "qq_ack", "qq_blocked", "ban_targets":
 		var err error
 		switch req.Action {
+		case "qq_change":
+			if req.QQChange == nil {
+				err = errors.New("missing binding change")
+			} else {
+				out.QQBinding, err = a.changeQQBinding(r.Context(), *req.QQChange)
+				out.QQChanged = err == nil
+			}
+		case "qq_checks":
+			out.QQChecks, err = a.claimQQChecks(r.Context())
+		case "qq_check_due":
+			err = a.queueQQCheck(r.Context(), req.QQ)
+			out.QQChanged = err == nil
+		case "qq_check_result":
+			if req.QQCheck == nil {
+				err = errors.New("missing membership result")
+			} else {
+				out.QQChanged, err = a.finishQQCheck(r.Context(), *req.QQCheck)
+			}
 		case "ban_targets":
 			out.BanTargets, err = a.banTargets(r.Context(), a.db, req.AccountID)
 		case "qq_jobs":

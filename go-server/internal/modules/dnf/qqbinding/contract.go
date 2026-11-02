@@ -51,11 +51,53 @@ type Query struct {
 	Limit  int    `json:"limit"`
 }
 type Binding struct {
+	AccountID  string `json:"accountId"`
+	Account    string `json:"account"`
+	QQ         string `json:"qq"`
+	Group      string `json:"group"`
+	BoundAt    int64  `json:"boundAt"`
+	State      string `json:"state"`
+	Revision   uint64 `json:"revision"`
+	UpdatedAt  int64  `json:"updatedAt"`
+	CheckedAt  int64  `json:"checkedAt"`
+	CheckCause string `json:"checkCause"`
+}
+
+const MembershipIntervalSeconds = 6 * 60 * 60
+
+// Inactive records retain both unique identities. Only an explicit delete
+// releases them. Administrative disable is never undone by player rebinding.
+type Change struct {
 	AccountID string `json:"accountId"`
-	Account   string `json:"account"`
 	QQ        string `json:"qq"`
-	Group     string `json:"group"`
-	BoundAt   int64  `json:"boundAt"`
+	Revision  uint64 `json:"revision"`
+	Action    string `json:"action"`
+	RequestID string `json:"requestId"`
+}
+
+func (c Change) Validate() error {
+	if c.AccountID == "" || len(c.AccountID) > 64 || !Number.MatchString(c.QQ) || c.Revision == 0 || !regexp.MustCompile(`^[a-zA-Z0-9-]{16,80}$`).MatchString(c.RequestID) || (c.Action != "enable" && c.Action != "disable" && c.Action != "delete") {
+		return errors.New("绑定操作参数无效")
+	}
+	return nil
+}
+
+type Check struct {
+	AccountID        string   `json:"accountId"`
+	QQ               string   `json:"qq"`
+	Revision         uint64   `json:"revision"`
+	SettingsRevision uint64   `json:"settingsRevision"`
+	Lease            string   `json:"lease"`
+	Groups           []string `json:"groups"`
+}
+type CheckResult struct {
+	AccountID        string `json:"accountId"`
+	QQ               string `json:"qq"`
+	Revision         uint64 `json:"revision"`
+	SettingsRevision uint64 `json:"settingsRevision"`
+	Lease            string `json:"lease"`
+	Outcome          string `json:"outcome"` // member, absent, unknown
+	Group            string `json:"group"`
 }
 type Page struct {
 	Rows    []Binding `json:"rows"`
