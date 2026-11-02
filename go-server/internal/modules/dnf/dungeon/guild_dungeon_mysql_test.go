@@ -133,11 +133,35 @@ func TestGuildDungeonMySQLRewardsRollbackConcurrentAndReconnect(t *testing.T) {
 		g := group()
 		go func() { <-start; o, _ := NewOwner(g); _, err := o.CommitSettlement(ctx, cmd); errors <- err }()
 	}
-	close(start)
-	for i := 0; i < 8; i++ {
-		if err := <-errors; err != nil {
-			t.Fatal(err)
+	readCtx, cancelRead := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelRead()
+	err = g.Guild.(r.GuildReadUnitOfWork).WithinGuildRead(readCtx, func(view r.GuildReadView) error {
+		before, err := guild.Load(readCtx, view.Settings)
+		if err != nil {
+			return err
 		}
+		close(start)
+		for i := 0; i < 8; i++ {
+			select {
+			case err := <-errors:
+				if err != nil {
+					return err
+				}
+			case <-readCtx.Done():
+				return fmt.Errorf("display blocked settlement: %w", readCtx.Err())
+			}
+		}
+		after, err := guild.Load(readCtx, view.Settings)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(before, after) {
+			return fmt.Errorf("settlement changed active read snapshot")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	fresh := group()
 	reg, err = guild.Load(ctx, fresh.Settings)
@@ -148,6 +172,10 @@ func TestGuildDungeonMySQLRewardsRollbackConcurrentAndReconnect(t *testing.T) {
 		inv, _, err := fresh.Inventory.Load(ctx, id)
 		if err != nil || inv.Slots["0:121"].Count != 3 || reg.Guilds[1].Members[id].ContributionPoints != 20 {
 			t.Fatal("bad award", id, inv, err)
+		}
+		m := reg.Guilds[1].Members[id]
+		if m.DungeonContributionPoints == nil || *m.DungeonContributionPoints != 20 {
+			t.Fatal("bad dungeon contribution projection", id, m)
 		}
 	}
 	replayOwner, _ := NewOwner(group())
@@ -182,5 +210,8 @@ func TestGuildDungeonMySQLRewardsRollbackConcurrentAndReconnect(t *testing.T) {
 	reg, err = guild.Load(ctx, group().Settings)
 	if err != nil || reg.Guilds[1].Dungeon.Counts[8500] != 1 {
 		t.Fatal("old receipt altered new-cycle count", err)
+	}
+	if points := reg.Guilds[1].Members["1"].DungeonContributionPoints; points == nil || *points != 40 {
+		t.Fatal("replay/reset altered lifetime dungeon projection", points)
 	}
 }

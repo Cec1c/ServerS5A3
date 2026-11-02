@@ -11,6 +11,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/repository/memory"
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
@@ -21,6 +22,17 @@ func guildHallFixture(t *testing.T) (*Service, map[uint16]*gameSession, dnfrepo.
 	t.Helper()
 	s, original, repos := newTownMoveTest(t)
 	ctx := context.Background()
+	// Use one repository group so guild snapshots and character writes see the
+	// same store (the town fixture replaces Character with a separate fake).
+	seed, _, err := repos.Character.Load(ctx, "29")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repos = memory.NewMemoryGroup()
+	if err := repos.Character.Save(ctx, seed); err != nil {
+		t.Fatal(err)
+	}
+	s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
 	table, err := dnftown.Load(ctx, townMoveTestSource{
 		"town/town.lst":          "8 `GuildAgit.twn` 38 `new_Elvengard.twn`",
 		"town/GuildAgit.twn":     "[area]\n0 `Guildagit/GuildAgit_W.map` `[normal]`\n[/area]\n[area]\n1 `Guildagit/GuildAgit_1.map` `[dungeon gate]` 37\n[/area]\n[name]\n`公会大厅`",

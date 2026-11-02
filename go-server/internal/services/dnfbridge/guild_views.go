@@ -218,27 +218,16 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	session.guild.mu.Unlock()
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	repos, r, err := s.loadCurrentGuildRegistry(ctx)
-	if err != nil {
+	source, ok := s.boundGameSessionCharacterSnapshot(session)
+	if !ok {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
-	character, err := s.currentGuildOwnedSelectedCharacter(session)
+	g, err := s.readCurrentGuildDisplay(ctx, source, false)
+	if !s.boundGameSessionCharacterCurrent(source) {
+		return nil
+	}
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
-	}
-	g, _, _ := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
-	// Refresh only this detached read projection. Listing a guild is not a
-	// mutation and never rewrites another player's persisted profile.
-	if g != nil {
-		for id, m := range g.Members {
-			if c, found, e := repos.Character.Load(ctx, id); e == nil && found && c.AccountID == m.AccountID {
-				m.Name = c.Name
-				m.Level = c.Level
-				m.Job = c.Job
-				m.GrowType = strconv.FormatInt(c.Stats["grow_type"], 10)
-				g.Members[id] = m
-			}
-		}
 	}
 	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
 	cursor := opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberListNext)
