@@ -62,7 +62,7 @@ def require_no_tag_workflow(document):
     if not isinstance(events, dict) or not events:
         raise SyncError("Historical workflow trigger cannot be verified")
     for event, config in events.items():
-        if event in ("workflow_dispatch", "workflow_call", "schedule", "release"):
+        if event in ("workflow_dispatch", "workflow_call", "schedule", "release", "pull_request", "pull_request_target"):
             continue
         # Explicit branch-only push filters exclude tag pushes in Actions.
         if (event == "push" and isinstance(config, dict) and
