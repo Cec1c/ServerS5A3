@@ -87,7 +87,7 @@ func (a *accountAPIServer) handleLoginReplacement(ctx context.Context, w http.Re
 		}
 	}
 	a.service.logInfo("dnfbridge account login replaced previous launch", "account_id", accountID, "replaced_connections", len(displaced))
-	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{OK: true, AccountID: accountID, Token: token, BoundQQ: request.boundQQ, Message: "登录成功"})
+	writeAccountAPIJSON(w, http.StatusOK, accountAPIResponse{OK: true, AccountID: accountID, Token: token, BoundQQ: request.boundQQ, Message: "登录成功", Diagnostics: a.service.launcherDiagnostics.issue(token, request.DiagnosticCorrelationID, time.Now())})
 }
 
 // Caller holds accountLogins.mu. Password verification is performed before the

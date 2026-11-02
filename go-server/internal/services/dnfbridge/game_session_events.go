@@ -118,7 +118,11 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 					return eventloop.Result{}
 				}
 			}
-			return eventloop.Result{Err: task.run()}
+			err := task.run()
+			if task.source != "game-session-shutdown" {
+				s.captureLauncherContext(session, false)
+			}
+			return eventloop.Result{Err: err}
 		}),
 		eventloop.Options{
 			QueueSize:         gameSessionEventQueueSize,
@@ -267,6 +271,7 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 	defer cancel()
 	var cleanupCompleted atomic.Bool
 	cleanup := func() error {
+		s.captureLauncherContext(session, true)
 		if p := session.battlePassPush; p != nil {
 			p.stop(s)
 		}

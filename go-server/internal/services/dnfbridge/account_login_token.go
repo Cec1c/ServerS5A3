@@ -315,6 +315,7 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 	session.loginChannelFlowKey = sha256.Sum256([]byte(token))
 	session.sharedAccountFallbackReason = ""
 	s.mu.Unlock()
+	s.bindLauncherDiagnostics(session, token)
 	if session.clientPID != 0 {
 		if changed := s.confirmClientAccountPID(session.clientPID, accountID); changed {
 			s.logWarn("dnfbridge login token overrode the client PID account binding",

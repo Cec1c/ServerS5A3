@@ -78,23 +78,25 @@ type accountAPIServer struct {
 }
 
 type accountAPIRequest struct {
-	boundQQ          string
-	NewPassword      string `json:"newPassword"`
-	RequireQQBinding bool   `json:"requireQQBinding"`
-	Account          string `json:"account"`
-	Password         string `json:"password"`
-	Device           string `json:"device"`
+	DiagnosticCorrelationID string `json:"diagnosticCorrelationId,omitempty"`
+	boundQQ                 string
+	NewPassword             string `json:"newPassword"`
+	RequireQQBinding        bool   `json:"requireQQBinding"`
+	Account                 string `json:"account"`
+	Password                string `json:"password"`
+	Device                  string `json:"device"`
 }
 
 type accountAPIResponse struct {
-	Code        string   `json:"code,omitempty"`
-	RetryAfter  int64    `json:"retryAfter,omitempty"`
-	BindingCode string   `json:"bindingCode,omitempty"`
-	BoundQQ     string   `json:"boundQQ,omitempty"`
-	ExpiresAt   int64    `json:"expiresAt,omitempty"`
-	Groups      []string `json:"groups,omitempty"`
-	OK          bool     `json:"ok"`
-	AccountID   string   `json:"account_id,omitempty"`
+	Diagnostics *launcherDiagnosticGrant `json:"diagnostics,omitempty"`
+	Code        string                   `json:"code,omitempty"`
+	RetryAfter  int64                    `json:"retryAfter,omitempty"`
+	BindingCode string                   `json:"bindingCode,omitempty"`
+	BoundQQ     string                   `json:"boundQQ,omitempty"`
+	ExpiresAt   int64                    `json:"expiresAt,omitempty"`
+	Groups      []string                 `json:"groups,omitempty"`
+	OK          bool                     `json:"ok"`
+	AccountID   string                   `json:"account_id,omitempty"`
 	// Token 是本次登录的启动器令牌：启动器把它写进 TCLS 启动串的 outer token
 	// 字段，客户端会原样转发，服务端据此精确认账号（见 account_login_token.go）。
 	Token   string `json:"token,omitempty"`
@@ -156,6 +158,7 @@ func (s *Service) startAccountAPI(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", api.handleStatus)
+	mux.HandleFunc("/api/diagnostics/context", api.handleLauncherDiagnostics)
 	mux.HandleFunc("/api/account/register", api.handleRegister)
 	mux.HandleFunc("/api/account/login", api.handleLogin)
 	mux.HandleFunc("/api/account/binding-code", api.handleAccountSecurity)
