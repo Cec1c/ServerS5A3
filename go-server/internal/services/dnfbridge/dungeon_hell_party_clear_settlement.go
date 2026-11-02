@@ -346,6 +346,9 @@ func (s *Service) completeCurrentDungeonHellPartyFinalRoomAfterDeathLocked(
 	if err := s.recordCurrentActivityAbyss(session, runtime, scene, false); err != nil {
 		return err
 	}
+	if err := s.offerCurrentEpicShopLocked(session, runtime, scene); err != nil {
+		return err
+	}
 	mode := dungeonHellPartyClearSettlementModeFromEnv()
 	// `off` 档：一个字节都不发、场景/在册表都不读，逐字节等于本文件不存在。
 	if !mode.settles() {

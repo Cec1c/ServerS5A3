@@ -123,6 +123,8 @@ type runtimeDungeonState struct {
 	HellPartyWaves          []dungeonHellPartyWave
 	HellPartyDifficulty     byte
 	HellPartyStarted        bool
+	epicShop                *currentEpicShop
+	epicShopChecked         bool
 	hellEntryItemsCommitted bool
 	// hellPillarPeerDestroyKey 记录"柱子破坏已经投影给队友"的那个房间
 	// （`mapID:坐标`）。柱子本体的破坏客户端从不上报，服务端只能在
