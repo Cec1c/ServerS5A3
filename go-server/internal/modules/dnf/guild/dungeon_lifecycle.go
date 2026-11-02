@@ -181,6 +181,13 @@ func ApplyDungeonClear(ctx context.Context, settings r.SettingsRepository, catal
 		return DungeonReward{}, DungeonClearResult{}, ErrMileageOverflow
 	}
 	member.ContributionPoints += reward.Contribution
+	if member.DungeonContributionPoints != nil {
+		if *member.DungeonContributionPoints > member.ContributionPoints-reward.Contribution {
+			return DungeonReward{}, DungeonClearResult{}, ErrContributionState
+		}
+		points := *member.DungeonContributionPoints + reward.Contribution
+		member.DungeonContributionPoints = &points
+	}
 	g.Members[e.Owner.CharacterID] = member
 	counts[e.DungeonID] = count
 	g.Dungeon = &DungeonProgress{CycleKey: e.Cycle.Key, StartUnix: e.Cycle.StartUnix, EndUnix: e.Cycle.EndUnix, Counts: counts}

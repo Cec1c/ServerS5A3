@@ -382,6 +382,9 @@ func (s *Service) Start(ctx context.Context) error {
 	if err := s.initializePortedActivityPolicy(ctx); err != nil {
 		return err
 	}
+	if err := s.initializeGuildContributionProjection(ctx); err != nil {
+		return err
+	}
 	catalog, channelScript, err := s.loadChannelAssets()
 	if err != nil {
 		return err

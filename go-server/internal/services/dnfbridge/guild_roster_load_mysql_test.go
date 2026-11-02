@@ -18,24 +18,23 @@ import (
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	repomysql "longheng.io/server/internal/modules/dnf/repository/mysql"
+	"longheng.io/server/internal/platform/metrics"
 )
 
-type guildLoadSQL struct {
-	repomysql.SQLDBAdapter
-	reads, writes atomic.Int64
-}
-
-func (d *guildLoadSQL) QueryContext(ctx context.Context, q string, args ...any) (repomysql.SQLRows, error) {
-	d.reads.Add(1)
-	return d.SQLDBAdapter.QueryContext(ctx, q, args...)
-}
-func (d *guildLoadSQL) QueryRowContext(ctx context.Context, q string, args ...any) repomysql.SQLRow {
-	d.reads.Add(1)
-	return d.SQLDBAdapter.QueryRowContext(ctx, q, args...)
-}
-func (d *guildLoadSQL) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
-	d.writes.Add(1)
-	return d.SQLDBAdapter.ExecContext(ctx, q, args...)
+func guildLoadSQLCounts(registry *metrics.Registry) (reads, writes int64) {
+	registry.RunObservers()
+	for _, sample := range registry.Snapshot() {
+		if sample.Name != "dnf_mysql_operation_seconds_count" {
+			continue
+		}
+		switch sample.Labels["operation"] {
+		case "query", "queryrow":
+			reads += sample.Value
+		case "exec":
+			writes += sample.Value
+		}
+	}
+	return
 }
 
 type guildLoadSamples struct {
@@ -68,7 +67,9 @@ func (r *guildLoadSamples) snapshot() map[string]any {
 
 // This reproducible load isolates the changed roster/queue path. Probes measure
 // scheduling, not client rendering or op39 asset transactions (covered separately).
-// Set DNFBRIDGE_GUILD_LOAD_SECONDS=600 for four 150s ABBA phases on a disposable DB.
+// Set DNFBRIDGE_GUILD_LOAD_SECONDS=600 for two 300s phases on a disposable DB.
+// This measures the current consistent snapshot. Historical ABBA results belong
+// to their recorded source; swapping Character no longer changes this read API.
 func TestGuildRosterMixedLoadMySQL(t *testing.T) {
 	seconds, _ := strconv.Atoi(os.Getenv("DNFBRIDGE_GUILD_LOAD_SECONDS"))
 	if seconds == 0 {
@@ -112,7 +113,8 @@ func TestGuildRosterMixedLoadMySQL(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	counted := &guildLoadSQL{SQLDBAdapter: repomysql.SQLDBAdapter{DB: db}}
+	sqlMetrics := metrics.New()
+	counted := &repomysql.ObservedSQLDB{SQLDB: repomysql.SQLDBAdapter{DB: db}, Observation: repomysql.NewSQLObservation(sqlMetrics, db)}
 	group, err := repomysql.NewMySQLGroup(counted, repomysql.MySQLGroupOptions{DatabasePlan: plan})
 	if err != nil {
 		t.Fatal(err)
@@ -137,12 +139,9 @@ func TestGuildRosterMixedLoadMySQL(t *testing.T) {
 	if err := dnfguild.Save(ctx, group.Settings, registry, seedService.gameplayNow()); err != nil {
 		t.Fatal(err)
 	}
-	for phase, legacy := range []bool{true, false, false, true} {
+	for phase := 0; phase < 2; phase++ {
 		s, peers, _ := guildRosterLargeFixture(t, 24)
 		repos := group
-		if legacy {
-			repos.Character = &guildRosterCountCharacter{CharacterRepository: group.Character}
-		}
 		s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
 		runctx, cancel := context.WithCancel(ctx)
 		for _, p := range peers {
@@ -152,10 +151,10 @@ func TestGuildRosterMixedLoadMySQL(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		requests, presence, probes := &guildLoadSamples{}, &guildLoadSamples{}, &guildLoadSamples{}
+		requests, probes := &guildLoadSamples{}, &guildLoadSamples{}
 		var refused atomic.Int64
-		duration := time.Duration(seconds) * time.Second / 4
-		beforeReads, beforeWrites := counted.reads.Load(), counted.writes.Load()
+		duration := time.Duration(seconds) * time.Second / 2
+		beforeReads, beforeWrites := guildLoadSQLCounts(sqlMetrics)
 		var before, after runtime.MemStats
 		runtime.GC()
 		runtime.ReadMemStats(&before)
@@ -171,26 +170,7 @@ func TestGuildRosterMixedLoadMySQL(t *testing.T) {
 				for wave := 0; wave < waves; wave++ {
 					for _, p := range peers {
 						peer, _ := s.boundGameSessionCharacterSnapshot(p)
-						if legacy {
-							e := s.tryPostGameSessionCharacterEvent(p, "legacy-presence", peer.character, peer.generation, func() error {
-								start := time.Now()
-								ctx, cancel := s.currentGuildContext()
-								defer cancel()
-								var err error
-								for _, notice := range []bool{true, false} {
-									if err = s.refreshCurrentGuildTextPeer(ctx, 1, peer, boundGameSessionCharacter{}, notice); err != nil {
-										break
-									}
-								}
-								presence.add(time.Since(start), err)
-								return nil
-							})
-							if e != nil {
-								refused.Add(1)
-							}
-						} else {
-							s.requestCurrentGuildPresenceRefresh(peer, 1)
-						}
+						s.requestCurrentGuildPresenceRefresh(peer, 1)
 					}
 				}
 			}
@@ -231,16 +211,20 @@ func TestGuildRosterMixedLoadMySQL(t *testing.T) {
 		}
 		stopDrain()
 		runtime.ReadMemStats(&after)
-		report := map[string]any{"phase": phase, "legacy_full_reads_and_unmerged_queue": legacy, "seconds": time.Since(started).Seconds(), "offered_seconds": duration.Seconds(), "members": 190, "sessions": 24, "waves_per_peak": waves, "peaks": burstCount,
-			"sql_reads": counted.reads.Load() - beforeReads, "sql_writes": counted.writes.Load() - beforeWrites, "alloc_bytes": after.TotalAlloc - before.TotalAlloc, "gc_pause_ns": after.PauseTotalNs - before.PauseTotalNs,
-			"requests": requests.snapshot(), "legacy_presence": presence.snapshot(), "ordinary_queue": probes.snapshot(), "refused": refused.Load(), "coalesced": s.performance.guildRoster[guildRefreshCoalesced].Load(), "executed": s.performance.guildRoster[guildRefreshExecuted].Load()}
+		afterReads, afterWrites := guildLoadSQLCounts(sqlMetrics)
+		report := map[string]any{"phase": phase, "consistent_snapshot": true, "seconds": time.Since(started).Seconds(), "offered_seconds": duration.Seconds(), "members": 190, "sessions": 24, "waves_per_peak": waves, "peaks": burstCount,
+			"sql_reads": afterReads - beforeReads, "sql_writes": afterWrites - beforeWrites, "alloc_bytes": after.TotalAlloc - before.TotalAlloc, "gc_pause_ns": after.PauseTotalNs - before.PauseTotalNs,
+			"summary_queries": s.performance.guildRoster[guildSummaryQueries].Load(), "requests": requests.snapshot(), "ordinary_queue": probes.snapshot(), "refused": refused.Load(), "coalesced": s.performance.guildRoster[guildRefreshCoalesced].Load(), "executed": s.performance.guildRoster[guildRefreshExecuted].Load()}
 		wire, _ := json.Marshal(report)
 		t.Logf("GUILD_ROSTER_LOAD %s", wire)
-		if counted.writes.Load() != beforeWrites {
+		if afterWrites != beforeWrites {
 			t.Error("roster-only load wrote persistent state")
 		}
-		if !legacy && (refused.Load() != 0 || requests.errors != 0 || len(requests.samples) == 0 || len(probes.samples) == 0 || s.performance.guildRoster[guildRefreshFailed].Load() != 0 || s.performance.guildRoster[guildSummaryFallback].Load() != 0 || s.performance.guildRoster[guildSummaryFailed].Load() != 0) {
+		if refused.Load() != 0 || requests.errors != 0 || len(requests.samples) == 0 || len(probes.samples) == 0 || s.performance.guildRoster[guildRefreshFailed].Load() != 0 || s.performance.guildRoster[guildSummaryFallback].Load() != 0 || s.performance.guildRoster[guildSummaryFailed].Load() != 0 {
 			t.Error("optimized load dropped work or used failed/full summary reads")
+		}
+		if s.performance.guildRoster[guildSummaryQueries].Load() != int64(len(requests.samples))+s.performance.guildRoster[guildRefreshExecuted].Load() {
+			t.Error("expected one 190-member batch per roster request/refresh")
 		}
 		for _, p := range peers {
 			stopTestGameSessionEvents(t, s, p)

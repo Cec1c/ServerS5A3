@@ -130,6 +130,12 @@ func TestGuildItemHyperlinkRejectsInvalidIdentityAndBody(t *testing.T) {
 			case "trailing":
 				body = append(body, 0)
 			}
+			// Unbinding a member legitimately publishes an offline notice. Only
+			// bytes produced by the rejected hyperlink request count as forwarding.
+			before := map[*gameSession]int{}
+			for _, peer := range peers {
+				before[peer] = peer.conn.(*bufferConn).write.Len()
+			}
 			if err := s.handleCurrentItemHyperlinkMessage(p, 424, body); err != nil {
 				t.Fatal(err)
 			}
@@ -138,7 +144,7 @@ func TestGuildItemHyperlinkRejectsInvalidIdentityAndBody(t *testing.T) {
 				t.Fatalf("rejection=%x rest=%x", ack.Body, rest)
 			}
 			for _, peer := range peers {
-				if peer != p && peer.conn.(*bufferConn).write.Len() != 0 {
+				if peer != p && peer.conn.(*bufferConn).write.Len() != before[peer] {
 					t.Fatal("rejected request forwarded")
 				}
 			}
