@@ -273,10 +273,24 @@ type RandomOptionResolver func(targetItemID int64) (RandomOptionResolution, erro
 // means the material is not an upgrade ticket and the request must stay on
 // the pending normal-reinforcement path. SuccessWeight is the ticket's
 // success chance out of 100000 (percent*1000). TicketRandom marks the
-// [enchant random] multi-candidate family, currently unsupported.
+// [enchant random] multi-candidate family; RandomTicket carries its PVF rules.
+type UpgradeTicketChance struct {
+	Level, Weight int64
+}
+
+type UpgradeRandomTicket struct {
+	Chances    []UpgradeTicketChance
+	Rarities   []int64
+	Slot, Seal int64
+}
+
 type UpgradeTicketResolution struct {
-	TicketMode             string
-	TicketRandom           bool
+	TicketMode   string
+	TicketRandom bool
+	RandomTicket *UpgradeRandomTicket
+	TargetRarity int64
+	// A non-nil list is an explicit allowlist, including an empty (deny-all) list.
+	UsableItemIDs          []int64
 	TargetLevel            int64
 	SuccessWeight          int64
 	TargetUpgradeForbidden bool
