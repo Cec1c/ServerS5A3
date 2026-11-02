@@ -24,7 +24,12 @@ func npcDisjointQuantityCatalog(t *testing.T) *pvfDungeonDropCatalog {
 	// use its normal divisor; a probabilistic test could miss this regression.
 	source["etc/disjoint.etc"] = strings.ReplaceAll(source["etc/disjoint.etc"], "3166", "3332")
 	source["etc/disjoint.etc"] = strings.Replace(source["etc/disjoint.etc"], "0.19 5.65 8 20", "0.19 5.65 100 20", 1)
-	return catalog
+	// Rebuild the item index after changing the additional-material ID.
+	updated, err := newPVFDungeonDropCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return updated
 }
 
 func disjointQuantityForItem(rewards []currentDisjointReward, id uint32) uint32 {
