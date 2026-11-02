@@ -147,7 +147,8 @@ type pvfDungeonDropCatalog struct {
 	poolCache      map[int64][]dungeonMonsterDropPoolEntry
 	itemCache      map[uint32]dungeonDropItemDefinition
 	// 与当前PVF目录同生命周期，只缓存成功解析的静态分解规则。
-	disjointConfig *currentDisjointPVFConfig
+	disjointConfig     *currentDisjointPVFConfig
+	disjointEpicPieces *currentEpicPieceCatalog
 
 	// 装备合成目录与本份PVF生命周期一致，独立于掉落概率和物品投影缓存。
 	equipmentCompoundCatalog *dnfequipmentcompound.Catalog

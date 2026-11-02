@@ -1255,6 +1255,9 @@ func (s *Service) replayCurrentDungeonMonsterDeathLocked(
 ) error {
 	if runtime.Session != nil {
 		if scene, ok := runtime.Session.Scene(); ok {
+			if err := s.offerCurrentEpicShopLocked(session, runtime, scene); err != nil {
+				return err
+			}
 			if err := s.recordCurrentActivityAbyss(session, runtime, scene, false); err != nil {
 				return err
 			}

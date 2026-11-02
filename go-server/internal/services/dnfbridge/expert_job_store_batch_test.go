@@ -62,6 +62,9 @@ func TestRealPVFPlayerDisjointBatchAtomicResult(t *testing.T) {
 			ctx := context.Background()
 			repos := dnfrepomemory.NewMemoryGroup()
 			for _, id := range []string{"19", "20"} {
+				if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "account-" + id, Metadata: map[string]string{}}); err != nil {
+					t.Fatal(err)
+				}
 				gold := int64(1000)
 				if scenario == "total-fee" && id == "19" {
 					gold = 150

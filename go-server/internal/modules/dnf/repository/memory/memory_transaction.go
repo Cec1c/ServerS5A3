@@ -350,6 +350,7 @@ type memoryCharacterItemUnitOfWork struct {
 }
 
 type memoryCharacterTradeUnitOfWork struct {
+	account          *memoryAccountStore
 	activity         *memoryActivityStore
 	settings         repository.SettingsRepository
 	accountInventory repository.AccountInventoryRepository

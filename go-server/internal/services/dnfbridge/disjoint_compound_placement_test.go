@@ -53,6 +53,9 @@ func mustCurrentDisjointPlacementAssets(t *testing.T, slots map[string]dnfrepo.I
 		"equipment/valued_coat.equ":    "[equipment type] `[coat]`\n[rarity] 2\n[minimum level] 10\n[value] 30000\n",
 		"equipment/no_value_title.equ": "[equipment type] `[title name]`\n[rarity] 2\n[minimum level] 1\n",
 		"equipment/avatar_hat.equ":     "[equipment type] `[hat avatar]`\n[usable job] `[fighter]`\n[grade] 2\n",
+		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		currentEpicPieceInfoPath:   "[piece list] 5999 10300000\n[/piece list]\n",
+		"equipment/pricetable.tbl": "[rate] 1000 150 30\n",
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1.12 1.35 0.07 1.48 1.80 0.70 1.53\n[/cube creation const]\n" +
 			"[additional result]\n0 4 3033 3034 3035 3036 1 3166 1 3167 0 1 3229 1 3332\n[/additional result]\n" +

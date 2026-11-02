@@ -301,16 +301,17 @@ type EnchantResult struct {
 
 // UseStackableResult describes a typed stackable-use result once that owner is implemented.
 type UseStackableResult struct {
-	ItemUsageChanged bool
-	CharacterID      string
-	AccountID        string
-	ListType         byte
-	SlotIndex        int16
-	InstanceValue    int32
-	ItemID           int64
-	RemainingCount   int64
-	PreviousCount    int64
-	Changed          bool
+	ExperienceBuffChanged bool
+	ItemUsageChanged      bool
+	CharacterID           string
+	AccountID             string
+	ListType              byte
+	SlotIndex             int16
+	InstanceValue         int32
+	ItemID                int64
+	RemainingCount        int64
+	PreviousCount         int64
+	Changed               bool
 	// UnlimitedUse 为真表示这次命中的是 `[unlimited waste]` 族：PVF 明确"使用后不会
 	// 被消耗"，所以只回成功 ACK、**不扣源道具数量**（见 use_limited_waste.go）。
 	// 零值 false = 既有行为（扣 1 件）。
@@ -2608,6 +2609,7 @@ func (o *Owner) UseStackable(ctx context.Context, cmd Command, premiumResolver a
 		PreviousCount:           previousCount,
 		Changed:                 !skipSourceConsumption,
 		ItemUsageChanged:        cmd.UseItemUsage != nil,
+		ExperienceBuffChanged:   cmd.UseExperienceBuff != nil,
 		UnlimitedUse:            skipSourceConsumption,
 		PVFPath:                 pvfPath,
 		StackableType:           stackableType,

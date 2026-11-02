@@ -897,14 +897,15 @@ type EquipmentUpgradeNotice struct {
 type Result struct {
 	EquipmentUpgradeNotice *EquipmentUpgradeNotice
 
-	ItemUsageChanged  bool // committed with source consumption; bridge refreshes after ACK/slots
-	EquipmentMoveFact *EquipmentMoveFact
-	Decision          Decision
-	Handled           bool
-	ResponseAllowed   bool
-	Operation         string
-	Reason            string
-	UpperResponses    []UpperResponse
+	ItemUsageChanged      bool // committed with source consumption; bridge refreshes after ACK/slots
+	ExperienceBuffChanged bool // persisted potion effect; native icon follows ACK/slots
+	EquipmentMoveFact     *EquipmentMoveFact
+	Decision              Decision
+	Handled               bool
+	ResponseAllowed       bool
+	Operation             string
+	Reason                string
+	UpperResponses        []UpperResponse
 	// 穿戴装备原位修改后，在结果前按槽发送仓储权威op14，更新既有物品对象。
 	// 仅供附魔/精炼；装备移动继续使用自身的生命周期边界。
 	WornEquipmentSlotRefreshes []int16

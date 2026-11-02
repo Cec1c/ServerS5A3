@@ -48,6 +48,14 @@ func (s *Service) nativeResultPacketCanWait(p *gameSession, inner []byte) bool {
 	switch opcode {
 	case 14, 205:
 		return true
+	case currentEpicPieceBalanceSyncOpcode:
+		header := s.gameUpperHeaderSize()
+		if len(inner) < header+5 {
+			return false
+		}
+		body := inner[header:]
+		rows := binary.LittleEndian.Uint32(body[1:5])
+		return body[0] == 1 && rows > 0 && rows <= currentEpicPieceBalanceMaxEntries && len(body) == 5+int(rows)*8
 	case 1386, currentPCRoomTimePointStateID:
 		// 签到9字节和在线奖励17字节状态不会改变分解上下文。保留编码
 		// 顺序一并写回，避免定时刷新拆开结果；未知格式及超限仍立即释放。
