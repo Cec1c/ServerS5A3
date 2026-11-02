@@ -303,6 +303,9 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		if err := s.restoreCurrentGuildBuffProjection(session); err != nil {
 			return err
 		}
+		if err := s.sendCurrentExperiencePotionEffects(session); err != nil {
+			return err
+		}
 		session.townPostTransition.stage = currentTownPostTransitionGuildBuffsSent
 	}
 	if session.townPostTransition.stage < currentTownPostTransitionComplete {
