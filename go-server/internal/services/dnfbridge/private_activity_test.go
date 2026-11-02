@@ -52,7 +52,7 @@ func TestPrivateActivityFinalRaidOnly(t *testing.T) {
 		single      bool
 		retry       int
 		want        bool
-	}{{1, 0, false, 0, false}, {1, 1, false, 0, false}, {2, 0, false, 0, false}, {2, 1, false, 0, true}, {3, 0, false, 0, true}, {3, 0, false, 1, false}, {1, 1, true, 0, false}, {2, 1, true, 0, false}, {3, 0, true, 0, false}} {
+	}{{1, 0, false, 0, false}, {1, 1, false, 0, true}, {2, 0, false, 0, false}, {2, 1, false, 0, true}, {3, 0, false, 0, true}, {3, 0, false, 1, false}, {1, 1, true, 0, false}, {2, 1, true, 0, false}, {3, 0, true, 0, false}, {0, 1, false, 0, false}, {1, 2, false, 0, false}, {3, 1, false, 0, false}} {
 		f := &currentAntonRewardFlow{Mode: tc.mode, Phase: tc.phase, Single: tc.single, FiendWarRetryCount: uint32(tc.retry)}
 		if privateActivityFinalRaid(f) != tc.want {
 			t.Fatalf("%+v", tc)
