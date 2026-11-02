@@ -285,6 +285,7 @@ type currentDisjointRewardSlot struct {
 }
 
 type currentDisjointResult struct {
+	EpicPieces  map[uint32]uint32
 	Rewards     []currentDisjointRewardSlot
 	Updates     []currentItemListEntry
 	GoldAfter   int64
@@ -299,6 +300,7 @@ type currentDisjointBatchItem struct {
 
 // currentDisjointBatchResult 是一次批量分解的逐件产物，顺序 = 请求里的槽位顺序。
 type currentDisjointBatchResult struct {
+	EpicPieces  map[uint32]uint32
 	Items       []currentDisjointBatchItem
 	GoldAfter   int64
 	GoldChanged bool

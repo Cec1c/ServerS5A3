@@ -218,7 +218,7 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 		"ack_shape", shape, "ack_count", ackCount,
 		"refresh_shape", refreshShape,
 		"refresh_rows", refreshRows, "refresh_lists", refreshLists)
-	return nil
+	return s.sendCurrentDisjointEpicPieces(session, result.EpicPieces)
 }
 
 // currentDisjointBatchSlotRefreshes 把一次批量分解里"内容变了"的槽位翻成 op14 刷新行清单，
@@ -338,5 +338,8 @@ func (s *Service) commitCurrentDisjointItem(ctx context.Context, session *gameSe
 		}
 	}
 	s.logGameEvent(session, "game-disjoint-item-committed", "slot", request.SourceSlot, "tool_slot", request.ToolSlot, "context", request.Context, "fee", currentDelilahDisjointFee(request.Context, 1), "reward_rows", len(result.Rewards), "popup", "current_exe_op26")
+	if err := s.sendCurrentDisjointEpicPieces(session, result.EpicPieces); err != nil {
+		return errors.Join(errCurrentDisjointCommittedReply, err)
+	}
 	return nil
 }

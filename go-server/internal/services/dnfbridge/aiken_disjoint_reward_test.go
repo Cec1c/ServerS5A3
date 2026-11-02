@@ -28,6 +28,7 @@ func aikenDisjointTestCatalog(t *testing.T, customInfo string) *pvfDungeonDropCa
 			"[custom ability type]\n`warriors dungeon`\n[custom ability count] 2\n",
 		"equipment/ordinary_legend_coat.equ": "[equipment type] `[coat]`\n[rarity] 6\n[minimum level] 90\n[value] 1000\n",
 		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		currentEpicPieceInfoPath:   "[piece list] 5999 10300000\n[/piece list]\n",
 		"equipment/pricetable.tbl": "[rate] 1000 150 30\n",
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1.12 1.35 0.07 1.48 1.80 0.70 1.53\n[/cube creation const]\n" +

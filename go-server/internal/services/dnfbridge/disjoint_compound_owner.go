@@ -105,8 +105,9 @@ func currentDisjointMutationError(err error) error {
 
 // currentDisjointItemPlan 是一件已校验、尚未消耗的来源与其 PVF 产物。
 type currentDisjointItemPlan struct {
-	Slot    int16
-	Rewards []currentDisjointReward
+	EpicPieceID uint32
+	Slot        int16
+	Rewards     []currentDisjointReward
 }
 
 // currentPlanDisjointItemSource 做**单件体完全相同**的一份来源校验：槽位存在、
@@ -154,6 +155,12 @@ func currentPlanDisjointItemSource(
 		return plan, errCurrentDisjointRewardInvalid
 	}
 	plan.Rewards = rewards
+	if listType == dnfrepo.MainInventoryListType {
+		plan.EpicPieceID, err = catalog.currentDisjointEpicPieceID(definition, document)
+		if err != nil {
+			return plan, err
+		}
+	}
 	return plan, nil
 }
 
@@ -178,8 +185,9 @@ func (s *Service) commitCurrentDisjoint(
 
 	var result currentDisjointResult
 	command := dnfdisjoint.Command{
-		AccountID:   accountID,
-		CharacterID: characterID,
+		AccountLedger: listType == dnfrepo.MainInventoryListType,
+		AccountID:     accountID,
+		CharacterID:   characterID,
 		Project: func(assets *dnfdisjoint.Assets) (dnfdisjoint.Changes, error) {
 			inventory := assets.Inventory
 			account := assets.AccountInventory
@@ -198,8 +206,12 @@ func (s *Service) commitCurrentDisjoint(
 				return dnfdisjoint.Changes{}, err
 			}
 			result.Rewards = rewardSlots
+			result.EpicPieces = make(map[uint32]uint32)
+			if err := creditCurrentDisjointEpicPiece(assets, plan.EpicPieceID, result.EpicPieces); err != nil {
+				return dnfdisjoint.Changes{}, err
+			}
 			result.GoldAfter, result.GoldChanged = goldAfter, characterDirty
-			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
+			return dnfdisjoint.Changes{Account: len(result.EpicPieces) > 0, AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
 		},
 	}
 	switch listType {
@@ -244,8 +256,9 @@ func (s *Service) commitCurrentDisjointBatch(
 
 	var result currentDisjointBatchResult
 	command := dnfdisjoint.Command{
-		AccountID:   accountID,
-		CharacterID: characterID,
+		AccountLedger: true,
+		AccountID:     accountID,
+		CharacterID:   characterID,
 		Project: func(assets *dnfdisjoint.Assets) (dnfdisjoint.Changes, error) {
 			inventory := assets.Inventory
 			account := assets.AccountInventory
@@ -263,6 +276,7 @@ func (s *Service) commitCurrentDisjointBatch(
 				return dnfdisjoint.Changes{}, err
 			}
 			items := make([]currentDisjointBatchItem, 0, len(plans))
+			result.EpicPieces = make(map[uint32]uint32)
 			accountDirty := false
 			for _, plan := range plans {
 				delete(inventory.Slots, currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, plan.Slot))
@@ -273,11 +287,14 @@ func (s *Service) commitCurrentDisjointBatch(
 				if dirty {
 					accountDirty = true
 				}
+				if err := creditCurrentDisjointEpicPiece(assets, plan.EpicPieceID, result.EpicPieces); err != nil {
+					return dnfdisjoint.Changes{}, currentDisjointSlotError{Slot: plan.Slot, Err: err}
+				}
 				items = append(items, currentDisjointBatchItem{Slot: plan.Slot, Rewards: rewardSlots})
 			}
 			result.Items = items
 			result.GoldAfter, result.GoldChanged = goldAfter, characterDirty
-			return dnfdisjoint.Changes{AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
+			return dnfdisjoint.Changes{Account: len(result.EpicPieces) > 0, AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
 		},
 	}
 	if err := owner.DisjointEquipment(ctx, command); err != nil {

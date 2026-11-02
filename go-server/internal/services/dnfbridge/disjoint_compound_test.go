@@ -415,6 +415,7 @@ func mustCurrentDisjointTestAssets(t *testing.T, slots map[string]dnfrepo.ItemSt
 		"equipment/normal_coat.equ":      "[equipment type] `[coat]`\n[rarity] 0\n[minimum level] 10\n[value] 300\n",
 		"equipment/avatar_hat.equ":       "[equipment type] `[hat avatar]`\n[usable job] `[fighter]`\n[grade] 2\n",
 		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		currentEpicPieceInfoPath:                  "[piece list] 5999 10300000\n[/piece list]\n",
 		"equipment/pricetable.tbl":                "[rate] 1000 150 30\n",
 		"etc/disjoint.etc":                        "[cube index]\n`[no element]` 3037\n[/cube index]\n[cube creation const]\n150 1\n[/cube creation const]\n[additional result]\n1 3033\n[/additional result]\n[additional result const]\n10 5 0 100\n[/additional result const]\n[additional result expand]\n0\n[/additional result expand]\n[additional result expand const]\n0\n[/additional result expand const]\n[avatar disjoint info]\n[fighter]\n2559000 2559003 2559006 2559009 2559006 2559001 2559004 2559007 2559010 2559007 2559002 2559005 2559008 2559011 2559014\n[/fighter]\n[/avatar disjoint info]\n",
 		"etc/emblemcompound.etc":                  "[emblem compound info]\n1 2 9000\n[/emblem compound info]\n",

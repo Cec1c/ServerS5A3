@@ -77,6 +77,7 @@ func currentDisjointRarityFallbackAssets(t *testing.T, slots map[string]dnfrepo.
 		"equipment/no_rarity_no_value.equ": "[equipment type] `[coat]`\n[minimum level] 1\n",
 		"equipment/avatar_hat.equ":         "[equipment type] `[hat avatar]`\n[usable job] `[fighter]`\n[grade] 2\n",
 		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		currentEpicPieceInfoPath:   "[piece list] 5999 10300000\n[/piece list]\n",
 		"equipment/pricetable.tbl": "[rate] 1000 150 30\n",
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1 3\n[/cube creation const]\n" +
@@ -312,6 +313,7 @@ func TestInitialEquipmentSeededRowStillDecomposes(t *testing.T) {
 		"equipment/cross.equ":     "[equipment type] `[weapon]`\n[rarity] 0\n[minimum level] 1\n[value] 504\n[price] 700\n[attach type] `[free]`\n",
 		"equipment/pant.equ":      "[equipment type] `[pants]`\n[rarity] 0\n[minimum level] 1\n[value] 288\n[price] 400\n[attach type] `[free]`\n",
 		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		currentEpicPieceInfoPath:   "[piece list] 5999 10300000\n[/piece list]\n",
 		"equipment/pricetable.tbl": "[rate] 1000 150 30\n",
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1.12 1.35\n[/cube creation const]\n" +
