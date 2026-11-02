@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "classification": "群服内容",
+  "task": "item-text-20261102",
+  "baseline": {
+    "sha256": "95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c",
+    "bytes": 126018482
+  },
+  "tool": {
+    "name": "PVF-CLI pvf.exe",
+    "sha256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+    "bytes": 4681728,
+    "patch_schema": 2
+  },
+  "plan": {
+    "file": "item-text.schema2.json",
+    "sha256": "4566d81f3f752583c815707b47665824bdee9c080e455889ad7e6576d2eacf78",
+    "bytes": 15309
+  },
+  "baseline_tokens": [
+    "base-490701733.tokens.json",
+    "base-10151892.tokens.json",
+    "base-990031101.tokens.json"
+  ],
+  "expected_changes": [
+    {
+      "path": "stackable/cash/chn_490701733.stk",
+      "token_index": 1,
+      "old_string": "name_490701733",
+      "new_text": "黄金汪新春礼盒"
+    },
+    {
+      "path": "stackable/cash/chn_490701733.stk",
+      "token_index": 3,
+      "old_string": "explain_490701733",
+      "new_text": "开启后，将从新春爆竹奖励池中随机获得1份道具。"
+    },
+    {
+      "path": "stackable/10151001/10151892.stk",
+      "token_index": 3,
+      "old_string": "explain_10151892",
+      "new_text": "使用后，可对Lv1~90的装备进行一次便携增幅；只能在城镇或赛丽亚房间使用。"
+    },
+    {
+      "path": "stackable/private_aiken_exchange/990031101.stk",
+      "token_index": 3,
+      "old_string": "explain_10151892",
+      "new_text": "使用后，可对Lv1~90的装备进行一次便携增幅，并消耗5个塔尔玛的象征；只能在城镇或赛丽亚房间使用。"
+    }
+  ],
+  "expected_candidate": {
+    "sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+    "bytes": 126018619
+  },
+  "requirements": {
+    "changed_entries": 3,
+    "changed_text_tokens": 4,
+    "preserve_all_other_token_types_and_payload_bits": true,
+    "preserve_all_unchanged_archive_entries": true,
+    "preserve_old_string_pool_prefix": true,
+    "no_new_paths": true,
+    "reject_existing_target": true
+  },
+  "scope": {
+    "gameplay_changes": false,
+    "go_changes": false,
+    "deployment_changes": false,
+    "index_build": false,
+    "game_acceptance": false
+  },
+  "expected_entry_sha256": {
+    "stackable/10151001/10151892.stk": "943fdf1149b78e7a450a9e2770335080b7c82e107e9a98b026b9f023981cd16b",
+    "stackable/cash/chn_490701733.stk": "e1d99f47375e7615faa6e3a29c60309550cc652fb479319d165695bc67feb3f6",
+    "stackable/private_aiken_exchange/990031101.stk": "cfbf711f1aa17ae224f7842bd12c4d788eccc65a608b6caf60bf38cdf42b2414"
+  }
+}

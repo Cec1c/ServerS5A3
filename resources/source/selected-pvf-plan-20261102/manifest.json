@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "description": "Public 07-42 extraction: PKG001 plan with six added and seven modified PVF tokens",
+  "basePVFSHA256": "78f4943fbfb9dd67be1b64ca0c272d64a0c7ea6a331c8c7cd915c7b35aac0654",
+  "additionToolSHA256": "3925142558225cf3c8b4aa59fe8e010e4ffe2cbe72d362e17b36e9d92ae91921",
+  "patchToolSHA256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+  "expectedPVFSHA256": "da925d370e72e7662e96d05d48f58154a2c53d6a97f17306d962cb593ded0b5f",
+  "planArchiveSHA256": "021fb3e2074ade6fc0d270f227e8a063e48bed222749fd299533b68a09aae86c",
+  "plans": {
+    "additions-plan.json": {
+      "bytes": 9992,
+      "sha256": "b6152fea33eda96ee1e2ec573bd8b1517fc2740ebe43dacb10328bb0e67517c9"
+    },
+    "bounded-plan-1.json": {
+      "bytes": 15258375,
+      "sha256": "6f0d1c869f801e24b8a52d899c3febd5c5d5ed0471ba524dcb91c8c935148fa5"
+    },
+    "bounded-plan-2.json": {
+      "bytes": 16126631,
+      "sha256": "a85077f425093f2ee8c4e3a5edeb47e6db1ee6fe8ae15dfd353e1646b83f0c0b"
+    },
+    "bounded-plan-3.json": {
+      "bytes": 5034419,
+      "sha256": "d5dd6948c196058ff4fb906c309ebbb2f60f26be43b591c0d3abade1532a9b63"
+    }
+  }
+}

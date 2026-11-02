@@ -1,0 +1,16 @@
+{
+  "appended_strings": 4,
+  "changed_entries": 3,
+  "entry_sha256": {
+    "stackable/10151001/10151892.stk": "943fdf1149b78e7a450a9e2770335080b7c82e107e9a98b026b9f023981cd16b",
+    "stackable/cash/chn_490701733.stk": "e1d99f47375e7615faa6e3a29c60309550cc652fb479319d165695bc67feb3f6",
+    "stackable/private_aiken_exchange/990031101.stk": "cfbf711f1aa17ae224f7842bd12c4d788eccc65a608b6caf60bf38cdf42b2414"
+  },
+  "input_sha256": "95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c",
+  "out": "<candidate>/Script.pvf",
+  "output_bytes": 126018619,
+  "output_sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+  "schema": 2,
+  "unchanged_entries_verified": 1126435,
+  "verification": "all entry identities; exact old pools, approved appended strings and HASH; encrypted untouched groups; raw touched entries"
+}

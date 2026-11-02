@@ -75,7 +75,7 @@ func TestLevelUpTicketDefinitionsRealPVF(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc, _ := pvf.Parse("stackable/stackable.lst", text)
-	accepted, rejected, multi, random := 0, 0, 0, 0
+	accepted, rejected, multi, random, capsules := 0, 0, 0, 0, 0
 	var exclusions []int64
 	for _, e := range pvf.ParseList(doc) {
 		p := e.Path
@@ -99,6 +99,12 @@ func TestLevelUpTicketDefinitionsRealPVF(t *testing.T) {
 				return
 			}
 			accepted++
+			if e.ID == 990029201 {
+				capsules++
+				if d.TargetLevel != 90 || d.MinimumLevel != 1 || d.MaximumLevel != 89 || len(d.Outcomes) != 0 {
+					t.Fatalf("满级胶囊配置变化：%+v", d)
+				}
+			}
 			if d.MaximumGain > 1 {
 				multi++
 			}
@@ -107,10 +113,10 @@ func TestLevelUpTicketDefinitionsRealPVF(t *testing.T) {
 			}
 		})
 	}
-	if accepted+rejected != 578 || rejected != 3 || multi != 6 {
+	if capsules > 1 || accepted+rejected != 578+capsules || rejected != 3 || multi != 6 || random != 6 {
 		t.Fatalf("真实PVF范围变化：通过%d 拒绝%d 多级%d 随机表%d，拒绝%v", accepted, rejected, multi, random, exclusions)
 	}
-	t.Logf("实际索引578件：接入%d，额外规则拒绝%v，多级%d，含权重表%d", accepted, exclusions, multi, random)
+	t.Logf("实际索引%d件（含满级胶囊%d件）：接入%d，额外规则拒绝%v，多级%d，含权重表%d", accepted+rejected, capsules, accepted, exclusions, multi, random)
 }
 
 func levelUpTicketBridgeFixture(t *testing.T, id int64, level int) (*Service, *gameSession, repo.Group, *progression.Tables) {
@@ -226,6 +232,7 @@ func TestLevelUpTicketDispatchAndRefreshRealPVF(t *testing.T) {
 			var ops []uint16
 			var actorBodies [][]byte
 			var stateBody []byte
+			var buffs [][]byte
 			for len(rest) > 0 {
 				packet, next := splitCurrentGameServerUpperPacketAuto(t, rest)
 				rest = next
@@ -233,13 +240,20 @@ func TestLevelUpTicketDispatchAndRefreshRealPVF(t *testing.T) {
 				if packet.Header.MsgID == 2 {
 					actorBodies = append(actorBodies, packet.Body)
 				}
+				if packet.Header.MsgID == 1368 {
+					if packet.Header.Classification != 0 {
+						t.Fatal("Buff snapshot must be a notification")
+					}
+					buffs = append(buffs, packet.Body)
+				}
 				if packet.Header.MsgID == 37 {
 					stateBody = packet.Body
 				}
 			}
-			if len(ops) < 8 || !reflect.DeepEqual(ops[:5], []uint16{14, 2, 2, 37, 19}) {
+			if len(ops) < 9 || !reflect.DeepEqual(ops[:6], []uint16{14, 2, 2, 1368, 37, 19}) {
 				t.Fatalf("刷新序列错误：%v", ops)
 			}
+			assertLevelUpTicketEmptyBuffSnapshot(t, buffs)
 			assertLevelUpTicketActorSnapshots(t, s, p, c, actorBodies)
 			if dst := os.Getenv("DNF90_LEVEL_TICKET_FIXTURES"); dst != "" {
 				if err := os.MkdirAll(dst, 0755); err != nil {
@@ -415,5 +429,18 @@ func TestLevelUpTicketBridgeRejectsWithoutDebitRealPVF(t *testing.T) {
 				t.Fatalf("失败正文错误：%x 后续%x", ack.Body, rest)
 			}
 		})
+	}
+}
+
+// The fixture has no registered Buff loadout. After rebuilding the actor, the
+// current protocol must clear stale registrations exactly once, before op37.
+func assertLevelUpTicketEmptyBuffSnapshot(t *testing.T, bodies [][]byte) {
+	t.Helper()
+	want := []byte{0, 0, 33}
+	for slot := byte(0); slot < 33; slot++ {
+		want = append(want, 0, slot, 45, 255, 255)
+	}
+	if len(bodies) != 1 || !bytes.Equal(bodies[0], want) {
+		t.Fatalf("expected one empty current1368 snapshot, got %x", bodies)
 	}
 }

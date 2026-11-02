@@ -150,7 +150,7 @@ func (s *Service) persistPrivateActivityDungeon(ctx context.Context, session *ga
 	return s.persistPrivateActivity(ctx, s.accountIDForSession(session), strconv.Itoa(int(session.selectedCharacterID)), id, s.gameplayNow(), runtime.clearMapCompletionAt)
 }
 func privateActivityFinalRaid(f *currentAntonRewardFlow) bool {
-	return f != nil && !f.Single && f.FiendWarRetryCount == 0 && (f.Mode == 2 && f.Phase == 1 || f.Mode == 3 && f.Phase == 0)
+	return f != nil && !f.Single && f.FiendWarRetryCount == 0 && ((f.Mode == 1 || f.Mode == 2) && f.Phase == 1 || f.Mode == 3 && f.Phase == 0)
 }
 func (s *Service) settlePrivateActivity(ctx context.Context, session *gameSession, claim uint16, day, fingerprint int64, generation uint64) (activeness.Snapshot, error) {
 	if session == nil || session.selectedCharacterID == 0 || session.loginRevoked.Load() {
