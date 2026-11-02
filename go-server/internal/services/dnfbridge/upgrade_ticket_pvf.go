@@ -16,7 +16,7 @@ import (
 // ItemUpgradeConsumableResolver: the material stackable's
 // [equipment reinforcement ticket] / [equipment amplify reinforcement ticket]
 // sections carry TargetLevel and SuccessRatePercent (weight = percent*1000),
-// [enchant random] marks the unsupported multi-candidate family, and the
+// [enchant random] provides weighted levels and equipment restrictions, and the
 // target equipment's [impossible contents] may forbid upgrade flows.
 func (s *Service) alignedUpgradeTicketResolverForCommand(opcode dnfenum.CmdPacket) (alignedcmd.UpgradeTicketResolver, error) {
 	if opcode != dnfenum.CmdPacketUpgradeItem {
@@ -49,7 +49,7 @@ func resolveCurrentUpgradeTicketMetadata(catalog *pvfDungeonDropCatalog, source 
 	if catalog == nil || source == nil {
 		return alignedcmd.UpgradeTicketResolution{}, errDungeonDropSourceRequired
 	}
-	resolution := alignedcmd.UpgradeTicketResolution{TargetMinimumLevel: -1}
+	resolution := alignedcmd.UpgradeTicketResolution{TargetMinimumLevel: -1, TargetRarity: -1}
 	if materialItemID <= 0 || materialItemID > int64(^uint32(0)) || targetItemID <= 0 || targetItemID > int64(^uint32(0)) {
 		return resolution, nil
 	}
@@ -81,12 +81,16 @@ func resolveCurrentUpgradeTicketMetadata(catalog *pvfDungeonDropCatalog, source 
 	}
 	if _, found := materialDocument.Section("enchant random"); found {
 		resolution.TicketRandom = true
+		resolution.RandomTicket = parseUpgradeRandomTicket(materialDocument)
 		if resolution.TicketMode == "" {
-			// Carry a placeholder mode so the owner enters the resolved path
-			// and rejects the random family with its client-visible code
-			// before any mode matching happens.
 			resolution.TicketMode = "reinforce"
 			resolution.TicketPVFPath = materialDefinition.PVFPath
+		}
+	}
+	if resolution.TicketMode != "" {
+		resolution.MaterialUsableItemLevelMin, resolution.MaterialUsableItemLevelMax, resolution.MaterialUsableItemLevelSet = resolvePortableUsableItemLevel(materialDocument)
+		if _, found := materialDocument.Section("reinforcement usable item list"); found {
+			resolution.UsableItemIDs = append([]int64{}, materialDocument.Ints("reinforcement usable item list")...)
 		}
 	}
 	// 便携强化/增幅消耗品（一次性增幅器 / 凯丽的强化器）：厂商的
@@ -132,6 +136,9 @@ func resolveCurrentUpgradeTicketMetadata(catalog *pvfDungeonDropCatalog, source 
 	resolution.TargetMinimumLevel = -1
 	if minimum, found := targetDocument.Int("minimum level"); found {
 		resolution.TargetMinimumLevel = int(minimum)
+	}
+	if rarity, found := targetDocument.Int("rarity"); found {
+		resolution.TargetRarity = rarity
 	}
 	for _, value := range targetDocument.Texts("impossible contents") {
 		normalized := strings.ToLower(strings.Trim(value, "` []"))

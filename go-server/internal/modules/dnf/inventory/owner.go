@@ -3799,8 +3799,8 @@ type UpgradeTicketResult struct {
 // roll the level jumps directly to the ticket's target level, on failure the
 // level is retained without penalty; exactly one ticket is consumed either
 // way. The request's optional ticket slot is ignored, mirroring the
-// reference. Gold cost and the [enchant random] multi-candidate family are
-// still not owned here; the handler owns committed 0x0056 notices. Protect tickets are
+// reference. Random tickets draw from their PVF candidate weights, with the
+// same single-ticket transaction; the handler owns committed 0x0056 notices. Protect tickets are
 // (the normal NPC path owns them, see upgrade_protect_ticket.go). A portable
 // consumable (一次性增幅器 / 凯丽的强化器) resolves through this entry but is
 // **not** consumed here: it only carries its identity back so the request
@@ -3923,7 +3923,7 @@ func (o *Owner) UpgradeTicket(ctx context.Context, cmd Command, resolver aligned
 		result.ErrorCode = upgradeTicketErrorInvalidTarget
 		return result, nil
 	}
-	if resolution.TicketRandom {
+	if !upgradeTicketAllowsTarget(resolution, target) {
 		result.ErrorCode = upgradeTicketErrorForbidden
 		return result, nil
 	}
@@ -3961,8 +3961,11 @@ func (o *Owner) UpgradeTicket(ctx context.Context, cmd Command, resolver aligned
 		weight = 100000
 	}
 	roll := int64(rand.Intn(100000))
-	if roll < weight {
-		newLevel := resolution.TargetLevel
+	newLevel, succeeded := resolution.TargetLevel, roll < weight
+	if resolution.TicketRandom {
+		newLevel, succeeded = rollUpgradeRandomTicket(resolution.RandomTicket, roll)
+	}
+	if succeeded {
 		if newLevel < 0 {
 			newLevel = 0
 		}
