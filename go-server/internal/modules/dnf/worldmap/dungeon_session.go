@@ -79,6 +79,13 @@ type DungeonSession struct {
 	defeated map[uint32]struct{}
 }
 
+// Location is a scalar readback; it does not clone monsters, objects or rooms.
+func (s *DungeonSession) Location() (RoomCoordinate, int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.scene.Coordinate, s.scene.Map.Map.ID
+}
+
 func NewDungeonSession(run *DungeonRun) (*DungeonSession, error) {
 	if run == nil {
 		return nil, ErrDungeonRunRequired

@@ -14,6 +14,9 @@ func (s *Service) resolveSelectedCharacter(
 	session *gameSession,
 	request []byte,
 ) (uint16, string, dnfrepo.CharacterRecord, bool, int) {
+	// Only the selecting session owner updates diagnostic identity. Peer profile
+	// reads through characterForEnter must remain read-only for that session.
+	session.launcherCharacterID, session.launcherCharacterName = 0, ""
 	parsed := parseSelectCharacterRequest(request)
 	slot := parsed.slot
 	if !parsed.clear && len(request) > 0 {
@@ -71,6 +74,8 @@ func (s *Service) resolveSelectedCharacter(
 				if charID == 0 {
 					charID = 1
 				}
+				session.launcherCharacterID = charID
+				session.launcherCharacterName = selected.Name
 				charName := selected.Name
 				if charName == "" {
 					charName = csharpSelectCharacterName(charID)

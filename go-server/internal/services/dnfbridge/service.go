@@ -63,6 +63,7 @@ type Service struct {
 	guildDungeonCatalogMu        sync.Mutex
 	guildDungeonCatalog          *dnfguild.DungeonCatalog
 	guildTeleportMu              sync.Mutex
+	launcherDiagnostics          launcherDiagnosticStore
 	performance                  *bridgePerformanceMetrics
 	guildRankingMu               sync.Mutex
 	guildRankingCatalogMu        sync.Mutex
