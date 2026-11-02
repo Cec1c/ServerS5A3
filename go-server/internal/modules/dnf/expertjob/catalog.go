@@ -393,6 +393,7 @@ type EquipmentMetadata struct {
 	SellGold                    int64
 	AttachType                  string
 	DisjointForbidden           bool
+	WarriorsDungeon             bool
 }
 
 func (c *Catalog) Equipment(itemID int64) (EquipmentMetadata, error) {
@@ -414,6 +415,12 @@ func (c *Catalog) Equipment(itemID int64) (EquipmentMetadata, error) {
 		Level:      int(level),
 		Grade:      int(level),
 		AttachType: normalizeTag(firstText(doc, "attach type")),
+	}
+	for _, ability := range doc.Texts("custom ability type") {
+		if normalizeTag(ability) == "warriors dungeon" {
+			metadata.WarriorsDungeon = true
+			break
+		}
 	}
 	if grade, ok := doc.Int("grade"); ok && grade >= 0 && grade <= math.MaxInt32 {
 		metadata.Grade = int(grade)

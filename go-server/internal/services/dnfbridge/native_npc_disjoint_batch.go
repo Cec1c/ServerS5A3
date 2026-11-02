@@ -111,9 +111,9 @@ func commitNativeNPCDisjointRequests(ctx context.Context, owner *dnfdisjoint.Own
 		items[i].request = request
 	}
 	resolve := currentEquipmentDisjointResolver(config)
-	err := owner.DisjointEquipment(ctx, dnfdisjoint.Command{AccountID: accountID, CharacterID: characterID,
+	err := owner.DisjointEquipment(ctx, dnfdisjoint.Command{AccountLedger: true, AccountID: accountID, CharacterID: characterID,
 		Project: func(assets *dnfdisjoint.Assets) (dnfdisjoint.Changes, error) {
-			changed, accountDirty := false, false
+			changed, accountDirty, ledgerDirty := false, false, false
 			for i, request := range requests {
 				plan, err := currentPlanDisjointItemSource(catalog, assets.Inventory, request.ListType, request.SourceSlot, resolve)
 				if err != nil {
@@ -132,11 +132,23 @@ func commitNativeNPCDisjointRequests(ctx context.Context, owner *dnfdisjoint.Own
 					items[i].err = err
 					continue
 				}
+				var balances map[uint32]uint32
+				if plan.EpicPieceID != 0 {
+					ledger := dnfrepo.CloneAccount(*assets.Account)
+					balances = make(map[uint32]uint32)
+					if err := creditCurrentDisjointEpicPiece(&dnfdisjoint.Assets{Account: &ledger}, plan.EpicPieceID, balances); err != nil {
+						items[i].err = err
+						continue
+					}
+					*assets.Account = ledger
+				}
 				*assets.Inventory, *assets.AccountInventory = inventory, account
 				items[i].result.Rewards = rewards
+				items[i].result.EpicPieces = balances
+				ledgerDirty = ledgerDirty || len(balances) > 0
 				changed, accountDirty = true, accountDirty || dirty
 			}
-			return dnfdisjoint.Changes{Inventory: changed, AccountInventory: accountDirty}, nil
+			return dnfdisjoint.Changes{Account: ledgerDirty, Inventory: changed, AccountInventory: accountDirty}, nil
 		}})
 	return items, currentDisjointMutationError(err)
 }

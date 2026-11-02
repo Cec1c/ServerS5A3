@@ -118,6 +118,7 @@ type dungeonPartyInstance struct {
 	activityNonce             string
 	activityAbyssAt           time.Time
 	activityAbyssRecipients   []dungeonDropRecipient
+	epicShopEncounter         *currentEpicShopEncounter
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 
@@ -575,6 +576,9 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameS
 		}
 		if accept != nil && !accept(runtime, scene) {
 			return nil
+		}
+		if err := s.offerCurrentEpicShopLocked(peer, runtime, scene); err != nil {
+			return err
 		}
 		if err := s.persistCurrentDungeonRoomClearQuestLocked(peer, runtime); err != nil {
 			return err

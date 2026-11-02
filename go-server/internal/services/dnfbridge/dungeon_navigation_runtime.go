@@ -1962,6 +1962,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		"request_source", requestSource,
 		"body_len", len(startMapBody),
 		"sequence", "current_exe_op45_request_to_class0_op29_start_map")
+	if err := s.clearCurrentEpicShopAppearanceLocked(session, runtime); err != nil {
+		return err
+	}
 	if err := s.sendGameUpperRawClass(session, currentDungeonStartNotification, startMapBody, 0); err != nil {
 		return err
 	}
@@ -2064,6 +2067,11 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "dungeon_room_transition_committed")
 	}
 	runtime.Room = plan.TargetRoom
+	// The native NPC and quote belong to this visit to the hell room. Leaving
+	// ends the opportunity; a cached revisit cannot reopen a completed offer.
+	if runtime.epicShop != nil && !currentHellPartySceneIsHellRoom(runtime, committedScene) {
+		runtime.epicShop.Complete = true
+	}
 	runtime.commitDungeonNextObjectKey(plan.NextObjectKey)
 	runtime.Seed = plan.Seed
 	if !plan.LayerReturn {

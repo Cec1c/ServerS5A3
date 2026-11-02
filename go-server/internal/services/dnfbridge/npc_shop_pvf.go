@@ -110,13 +110,9 @@ func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, err
 	if len(buyable) == 0 {
 		return nil, fmt.Errorf("%w: no [item list] entries", errCurrentNPCShopCatalogUnavailable)
 	}
-	priceTable, err := parseDungeonCardPVFDocument(source, currentNPCShopPriceTablePath)
+	sellRate, err := loadCurrentEquipmentSellRate(source)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", errCurrentNPCShopCatalogUnavailable, currentNPCShopPriceTablePath, err)
-	}
-	rates := priceTable.Ints("rate")
-	if len(rates) < 1 || rates[0] <= 0 || rates[0] > math.MaxInt32 {
-		return nil, fmt.Errorf("%w: %s [rate] is invalid", errCurrentNPCShopCatalogUnavailable, currentNPCShopPriceTablePath)
+		return nil, err
 	}
 	trading, err := loadCurrentNPCTradingProducts(source)
 	if err != nil {
@@ -129,7 +125,7 @@ func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, err
 		npcItems:                  npcItems,
 		shopItems:                 shopItems,
 		shopNPCs:                  shopNPCs,
-		equipmentSellRatePermille: rates[0],
+		equipmentSellRatePermille: sellRate,
 		listedShopCount:           len(shopPaths),
 		loadedShopCount:           loadedShopCount,
 		missingShopCount:          missingShopCount,
@@ -199,12 +195,9 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 		if valueFound && value >= 0 {
 			base = value
 		}
-		if base > math.MaxInt64/shop.equipmentSellRatePermille {
-			return currentNPCShopPricing{}, fmt.Errorf("%w: item=%d sell price overflow", errCurrentNPCShopProductUnavailable, itemID)
-		}
-		sellGold = base * shop.equipmentSellRatePermille / 1000
-		if sellGold < 1 {
-			sellGold = 1
+		sellGold, err = currentEquipmentSellGold(base, shop.equipmentSellRatePermille)
+		if err != nil {
+			return currentNPCShopPricing{}, err
 		}
 	case dungeonDropItemStackable:
 		if valueFound && value >= 0 {

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
@@ -33,6 +34,9 @@ func TestRealPVFExpertMachineEpicRewardsAndRequesterWarehouse(t *testing.T) {
 			ctx := context.Background()
 			repos := dnfrepomemory.NewMemoryGroup()
 			for _, id := range []string{"19", "20"} {
+				if err := repos.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "account-" + id, Metadata: map[string]string{}}); err != nil {
+					t.Fatal(err)
+				}
 				if err := repos.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: id, AccountID: "account-" + id, Stats: map[string]int64{"gold": 1000, "expert_job_type": 3, "expert_job_exp": 10, currentExpertJobMachineGradeStat: 1, currentExpertJobMachineEnduranceStat: 300}}); err != nil {
 					t.Fatal(err)
 				}
@@ -49,7 +53,7 @@ func TestRealPVFExpertMachineEpicRewardsAndRequesterWarehouse(t *testing.T) {
 			}
 			service := &Service{repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }, expertJobCatalog: jobs, pvfItemCatalog: items}
 			session := &gameSession{selectedCharacterID: 19, accountID: "account-19"}
-			store := &currentExpertJobStore{OwnerCharacterID: owner, MachineGrade: 1, Endurance: 300, Cost: 100}
+			store := &currentExpertJobStore{OwnerCharacterID: owner, OwnerSession: &gameSession{selectedCharacterID: owner, accountID: fmt.Sprintf("account-%d", owner)}, MachineGrade: 1, Endurance: 300, Cost: 100}
 			result, err := service.commitCurrentExpertJobStoreDisjoint(ctx, session, store, currentExpertJobStoreDisjointRequest{OwnerID: owner, TargetList: 0, TargetSlot: 10})
 			if err != nil {
 				t.Fatal(err)

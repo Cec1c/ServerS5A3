@@ -17,6 +17,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 
+	dnfdisjoint "longheng.io/server/internal/modules/dnf/disjoint"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
@@ -152,17 +153,18 @@ type currentExpertJobStoreEnchantRequest struct {
 }
 
 type currentExpertJobStoreUseResult struct {
-	RequesterGold  int64
-	OwnerGold      int64
-	Endurance      int64
-	Experience     int64
-	LevelChanged   bool
-	Success        bool
-	TargetList     byte
-	TargetSlot     int16
-	Materials      []currentExpertJobExtractionMaterial
-	Qualifications []byte
-	ItemRefreshes  []alignedcmd.ItemSlotRefresh
+	EpicPieceBalances map[uint32]uint32
+	RequesterGold     int64
+	OwnerGold         int64
+	Endurance         int64
+	Experience        int64
+	LevelChanged      bool
+	Success           bool
+	TargetList        byte
+	TargetSlot        int16
+	Materials         []currentExpertJobExtractionMaterial
+	Qualifications    []byte
+	ItemRefreshes     []alignedcmd.ItemSlotRefresh
 }
 
 func parseCurrentExpertJobStoreCreateRequest(body []byte) (currentExpertJobStoreCreateRequest, error) {
@@ -1028,6 +1030,9 @@ func (s *Service) handleCurrentExpertJobStoreDisjoint(session *gameSession, opco
 	if err := s.sendGameUpperRawClass(session, opcode, buildCurrentExpertJobStoreDisjointSuccessBody(request, result), dnfproto.DefaultChannelClassification); err != nil {
 		return err
 	}
+	if err := s.sendCurrentDisjointEpicPieces(session, result.EpicPieceBalances); err != nil {
+		return err
+	}
 	if s.options.currentClientVersion == "official-24.9" && len(requests) > 1 {
 		// The aggregate ACK names only the first native source slot. Clear all
 		// consumed slots in one repository-backed op14 before rebuilding the
@@ -1091,99 +1096,117 @@ func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, 
 	if err != nil {
 		return currentExpertJobStoreUseResult{}, err
 	}
-	var result currentExpertJobStoreUseResult
-	err = s.mutateCurrentExpertJobStoreAssets(ctx, session, store, true, func(requesterCharacter *dnfrepo.CharacterRecord, requesterInventory *dnfrepo.InventoryRecord, ownerCharacter *dnfrepo.CharacterRecord, ownerInventory *dnfrepo.InventoryRecord, warehouse *dnfrepo.AccountInventoryRecord) error {
-		expectedEndurance := store.Endurance
-		for _, request := range requests {
-			if request.OwnerID != store.OwnerCharacterID || request.TargetList != 0 || request.TargetSlot < 0 {
-				return dnfexpertjob.ErrExtractionInvalid
-			}
-			jobType, experience, stateErr := currentExpertJobCharacterState(ownerCharacter)
-			if stateErr != nil || jobType != dnfexpertjob.DisjointerType {
-				return dnfexpertjob.ErrJobUnsupported
-			}
-			config, configured := jobCatalog.Disjointer()
-			if !configured {
-				return dnfexpertjob.ErrJobUnsupported
-			}
-			grade := int(currentExpertJobStatDefault(ownerCharacter.Stats, currentExpertJobMachineGradeStat, 1))
-			endurance := currentExpertJobStatDefault(ownerCharacter.Stats, currentExpertJobMachineEnduranceStat, config.InitialEndurance)
-			if grade != store.MachineGrade || endurance != expectedEndurance {
-				return dnfexpertjob.ErrMachineInvalid
-			}
-			targetKey := currentCeraShopInventorySlotKey(request.TargetList, request.TargetSlot)
-			target, found := requesterInventory.Slots[targetKey]
-			if !found || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
-				return dnfexpertjob.ErrExtractionInvalid
-			}
-			metadata, metadataErr := jobCatalog.Equipment(target.ItemID)
-			if metadataErr != nil || metadata.DisjointForbidden || metadata.AttachType == "trade delete" {
-				return dnfexpertjob.ErrExtractionInvalid
-			}
-			metadata.State = currentExpertJobEquipmentState(target)
-			plan, planErr := jobCatalog.PlanDisjointer(experience, grade, metadata, requesterCharacter.CharacterID == ownerCharacter.CharacterID, rand.IntN)
-			if planErr != nil {
-				return planErr
-			}
-			if endurance < plan.EnduranceReduction {
-				return dnfexpertjob.ErrMachineEndurance
-			}
-			requesterGold, ownerGold, feeErr := s.currentExpertJobSettleStoreFee(requesterCharacter, requesterInventory, ownerCharacter, ownerInventory, store.Cost)
-			if feeErr != nil {
-				return feeErr
-			}
-			delete(requesterInventory.Slots, targetKey)
-			rewards := make([]currentDisjointReward, 0, len(plan.Materials)+1)
-			for _, reward := range plan.Materials {
-				if reward.ItemID <= 0 || reward.ItemID > math.MaxUint32 || reward.Count <= 0 || reward.Count > math.MaxUint32 {
+	repositories, ok := s.repositoryGroup()
+	if !ok || session == nil || store == nil || session.selectedCharacterID == 0 || store.OwnerCharacterID == 0 {
+		return currentExpertJobStoreUseResult{}, dnfexpertjob.ErrOwnerUnavailable
+	}
+	ownerAccount := ""
+	if store.OwnerSession != nil {
+		ownerAccount = s.accountIDForSession(store.OwnerSession)
+	}
+	result := currentExpertJobStoreUseResult{EpicPieceBalances: map[uint32]uint32{}}
+	err = dnfexpertjob.DisjointStore(ctx, repositories, dnfexpertjob.StoreDisjointCommand{
+		AccountID: s.accountIDForSession(session), RequesterID: strconv.Itoa(int(session.selectedCharacterID)), OwnerID: strconv.Itoa(int(store.OwnerCharacterID)), OwnerAccountID: ownerAccount, UpdatedAt: s.gameplayNow(),
+		Project: func(assets *dnfexpertjob.StoreDisjointAssets) error {
+			requesterCharacter, requesterInventory, ownerCharacter, ownerInventory, warehouse := assets.Requester, assets.RequesterInventory, assets.Owner, assets.OwnerInventory, assets.Warehouse
+			expectedEndurance := store.Endurance
+			for _, request := range requests {
+				if request.OwnerID != store.OwnerCharacterID || request.TargetList != 0 || request.TargetSlot < 0 {
 					return dnfexpertjob.ErrExtractionInvalid
 				}
-				currentDisjointMergeReward(&rewards, currentDisjointReward{ItemID: uint32(reward.ItemID), Count: uint32(reward.Count)})
-			}
-			// Machine cube/big-win rules stay in expertjob. Soul rules come from
-			// the same runtime PVF as town disassembly, rather than a legacy table.
-			definition, err := items.ResolveItem(uint32(target.ItemID))
-			if err != nil {
-				return err
-			}
-			document, err := parseDungeonCardPVFDocument(items.source, definition.PVFPath)
-			if err != nil {
-				return err
-			}
-			townConfig, err := loadCurrentDisjointPVFConfig(items.source)
-			if err != nil {
-				return err
-			}
-			townRewards, err := currentEquipmentDisjointRewards(townConfig, document)
-			if err != nil {
-				return err
-			}
-			for _, reward := range townRewards {
-				if slot, soul := currentDisjointWarehouseFixedSlots[reward.ItemID]; soul && slot >= 360 {
-					currentDisjointMergeReward(&rewards, reward)
+				jobType, experience, stateErr := currentExpertJobCharacterState(ownerCharacter)
+				if stateErr != nil || jobType != dnfexpertjob.DisjointerType {
+					return dnfexpertjob.ErrJobUnsupported
 				}
-			}
-			rows, _, err := currentGrantDisjointRewards(requesterInventory, warehouse, items, rewards)
-			if err != nil {
-				return err
-			}
-			for _, row := range rows {
-				if err := mergeCurrentExpertJobBatchMaterial(&result.Materials, currentExpertJobExtractionMaterial{Slot: row.Slot, ItemID: row.ItemID, Count: row.Granted}); err != nil {
+				config, configured := jobCatalog.Disjointer()
+				if !configured {
+					return dnfexpertjob.ErrJobUnsupported
+				}
+				grade := int(currentExpertJobStatDefault(ownerCharacter.Stats, currentExpertJobMachineGradeStat, 1))
+				endurance := currentExpertJobStatDefault(ownerCharacter.Stats, currentExpertJobMachineEnduranceStat, config.InitialEndurance)
+				if grade != store.MachineGrade || endurance != expectedEndurance {
+					return dnfexpertjob.ErrMachineInvalid
+				}
+				targetKey := currentCeraShopInventorySlotKey(request.TargetList, request.TargetSlot)
+				target, found := requesterInventory.Slots[targetKey]
+				if !found || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
+					return dnfexpertjob.ErrExtractionInvalid
+				}
+				metadata, metadataErr := jobCatalog.Equipment(target.ItemID)
+				if metadataErr != nil || metadata.DisjointForbidden || metadata.AttachType == "trade delete" {
+					return dnfexpertjob.ErrExtractionInvalid
+				}
+				metadata.State = currentExpertJobEquipmentState(target)
+				plan, planErr := jobCatalog.PlanDisjointer(experience, grade, metadata, requesterCharacter.CharacterID == ownerCharacter.CharacterID, rand.IntN)
+				if planErr != nil {
+					return planErr
+				}
+				if endurance < plan.EnduranceReduction {
+					return dnfexpertjob.ErrMachineEndurance
+				}
+				requesterGold, ownerGold, feeErr := s.currentExpertJobSettleStoreFee(requesterCharacter, requesterInventory, ownerCharacter, ownerInventory, store.Cost)
+				if feeErr != nil {
+					return feeErr
+				}
+				delete(requesterInventory.Slots, targetKey)
+				rewards := make([]currentDisjointReward, 0, len(plan.Materials)+1)
+				for _, reward := range plan.Materials {
+					if reward.ItemID <= 0 || reward.ItemID > math.MaxUint32 || reward.Count <= 0 || reward.Count > math.MaxUint32 {
+						return dnfexpertjob.ErrExtractionInvalid
+					}
+					currentDisjointMergeReward(&rewards, currentDisjointReward{ItemID: uint32(reward.ItemID), Count: uint32(reward.Count)})
+				}
+				// Machine cube/big-win rules stay in expertjob. Soul rules come from
+				// the same runtime PVF as town disassembly, rather than a legacy table.
+				definition, err := items.ResolveItem(uint32(target.ItemID))
+				if err != nil {
 					return err
 				}
+				document, err := parseDungeonCardPVFDocument(items.source, definition.PVFPath)
+				if err != nil {
+					return err
+				}
+				pieceID, err := items.currentDisjointEpicPieceID(definition, document)
+				if err != nil {
+					return err
+				}
+				if err := creditCurrentDisjointEpicPiece(&dnfdisjoint.Assets{Account: assets.Account}, pieceID, result.EpicPieceBalances); err != nil {
+					return err
+				}
+				townConfig, err := loadCurrentDisjointPVFConfig(items.source)
+				if err != nil {
+					return err
+				}
+				townRewards, err := currentEquipmentDisjointRewards(townConfig, document)
+				if err != nil {
+					return err
+				}
+				for _, reward := range townRewards {
+					if slot, soul := currentDisjointWarehouseFixedSlots[reward.ItemID]; soul && slot >= 360 {
+						currentDisjointMergeReward(&rewards, reward)
+					}
+				}
+				rows, _, err := currentGrantDisjointRewards(requesterInventory, warehouse, items, rewards)
+				if err != nil {
+					return err
+				}
+				for _, row := range rows {
+					if err := mergeCurrentExpertJobBatchMaterial(&result.Materials, currentExpertJobExtractionMaterial{Slot: row.Slot, ItemID: row.ItemID, Count: row.Granted}); err != nil {
+						return err
+					}
+				}
+				if ownerCharacter.Stats == nil {
+					ownerCharacter.Stats = make(map[string]int64)
+				}
+				ownerCharacter.Stats["expert_job_exp"] = plan.FinalExperience
+				ownerCharacter.Stats[currentExpertJobMachineEnduranceStat] = endurance - plan.EnduranceReduction
+				result.RequesterGold, result.OwnerGold, result.Endurance = requesterGold, ownerGold, endurance-plan.EnduranceReduction
+				result.Experience += plan.ExperienceGain
+				result.LevelChanged = result.LevelChanged || plan.LevelChanged
+				expectedEndurance = result.Endurance
 			}
-			if ownerCharacter.Stats == nil {
-				ownerCharacter.Stats = make(map[string]int64)
-			}
-			ownerCharacter.Stats["expert_job_exp"] = plan.FinalExperience
-			ownerCharacter.Stats[currentExpertJobMachineEnduranceStat] = endurance - plan.EnduranceReduction
-			result.RequesterGold, result.OwnerGold, result.Endurance = requesterGold, ownerGold, endurance-plan.EnduranceReduction
-			result.Experience += plan.ExperienceGain
-			result.LevelChanged = result.LevelChanged || plan.LevelChanged
-			expectedEndurance = result.Endurance
-		}
-		return nil
-	})
+			return nil
+		}})
 	return result, err
 }
 
