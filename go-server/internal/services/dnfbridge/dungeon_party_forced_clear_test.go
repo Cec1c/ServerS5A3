@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"testing"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
@@ -11,6 +12,16 @@ import (
 )
 
 func TestPartyBossForcedAddsDieAndBothMembersEnterSettlement(t *testing.T) {
+	for _, queued := range []bool{false, true} {
+		name := "inline"
+		if queued {
+			name = "owner_queue"
+		}
+		t.Run(name, func(t *testing.T) { testPartyBossForcedAddsCompletion(t, queued) })
+	}
+}
+
+func testPartyBossForcedAddsCompletion(t *testing.T, queued bool) {
 	service, leaderRuntime := prepareTutorialScopeRuntime(t, tutorialScopeFixtureOptions{disableTutorial: true})
 	repositories, _ := service.repositoryGroup()
 	character := leaderRuntime.Character
@@ -50,6 +61,12 @@ func TestPartyBossForcedAddsDieAndBothMembersEnterSettlement(t *testing.T) {
 			t.Fatal("no shared instance")
 		}
 	}
+	if queued {
+		if err := service.startGameSessionEvents(context.Background(), follower); err != nil {
+			t.Fatal(err)
+		}
+		defer stopTestGameSessionEvents(t, service, follower)
+	}
 	room := leaderRuntime.Room.Snapshot()
 	boss, add := room.Monsters[0].ObjectKey, room.Monsters[1].ObjectKey
 	body := make([]byte, dungeoncmd.DieMonsterRequestSize)
@@ -57,6 +74,28 @@ func TestPartyBossForcedAddsDieAndBothMembersEnterSettlement(t *testing.T) {
 	binary.LittleEndian.PutUint16(body[4:], 99)
 	if err := service.handleDungeonMonsterDeath(leader, body); err != nil {
 		t.Fatal(err)
+	}
+	if queued {
+		drainPartyDeathRecipient(t, service, follower)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		for {
+			ready := false
+			if err := service.callGameSession(ctx, follower, "test-settlement-complete", func() error {
+				ready = followerRuntime.settlementEntrySent
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if ready {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("queued death never completed peer settlement")
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
 	}
 	for _, member := range []*gameSession{leader, follower} {
 		runtime := member.dungeon.runtime

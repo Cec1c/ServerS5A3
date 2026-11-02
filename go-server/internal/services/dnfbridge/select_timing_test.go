@@ -68,11 +68,37 @@ func TestSelectTimingSlowLogIsCorrelatedAndRateLimited(t *testing.T) {
 	if got := strings.Count(logs.String(), "dnfbridge select character timing"); got != 1 {
 		t.Fatalf("samples=%d logs=%s", got, logs.String())
 	}
-	for _, field := range []string{"synthetic-select", "ack_written", "identity_read_ms", "initialization_ms"} {
+	for _, field := range append([]string{"synthetic-select", "ack_written", "identity_read_ms", "initialization_ms"}, selectProjectionLogKeys[:]...) {
 		if !strings.Contains(logs.String(), field) {
 			t.Fatal("missing correlation", field)
 		}
 	}
+}
+
+func TestSelectProjectionFailurePreservesACKAndError(t *testing.T) {
+	s := &Service{}
+	p := &gameSession{conn: &bufferConn{}}
+	timing := s.beginSelectTiming(p)
+	p.channelSceneBatch = &currentChannelSceneBatch{started: time.Now()}
+	if err := s.sendGameUpperRawClass(p, 4, []byte{1}, 1); err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("projection fixture failure")
+	calls := 0
+	err := timing.measureProjection(selectProjectionWallet, func() error { calls++; return want })
+	if err != want || calls != 1 || !timing.ackWritten.IsZero() {
+		t.Fatal("measurement changed failure, calls or buffered ACK")
+	}
+	if timing.projections[selectProjectionWallet] < 0 {
+		t.Fatal("negative projection duration")
+	}
+	if err := s.finishCurrentOrdinaryChannelSceneBatch(p, err); err != want {
+		t.Fatal("batch lost projection error")
+	}
+	if !timing.ackWritten.IsZero() {
+		t.Fatal("failed batch was reported as written")
+	}
+	s.finishSelectTiming(p, timing, err)
 }
 
 func TestSelectTimingLoadingReportBelongsToOneSelection(t *testing.T) {
