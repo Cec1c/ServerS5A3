@@ -44,6 +44,7 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 		return err
 	}
 	session.channelExitAcknowledged = true
+	resetCurrentGuildPresenceRefresh(session, true)
 	s.logGameEvent(session, "game-channel-exit-acknowledged",
 		"source", source,
 		"request_body_len", len(body),
