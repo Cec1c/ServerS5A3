@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
@@ -211,6 +212,24 @@ func (s *Service) handleCurrentGuildInfo(session *gameSession, _ []byte) error {
 }
 
 func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, opcode uint16) error {
+	return s.handleCurrentGuildMemberListObserved(session, opcode, "client")
+}
+
+func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opcode uint16, source string) (result error) {
+	started := s.performanceStart()
+	var registryTime, summaryTime, buildTime, writeTime time.Duration
+	defer func() {
+		if started.IsZero() {
+			return
+		}
+		total := time.Since(started)
+		s.performance.record(perfGuildRosterTotal, total, result != nil)
+		if s.performance.admitSlowSample(perfGuildRosterTotal, total, time.Now()) {
+			s.logInfo("dnfbridge guild roster timing", "conn_id", session.connID, "generation", session.characterGeneration,
+				"source", source, "opcode", opcode, "total_ms", total.Milliseconds(), "registry_ms", registryTime.Milliseconds(),
+				"summary_ms", summaryTime.Milliseconds(), "build_ms", buildTime.Milliseconds(), "write_ms", writeTime.Milliseconds(), "failed", result != nil)
+		}
+	}()
 	s.logInfo("dnfbridge guild roster request", "conn_id", session.connID,
 		"char_id", session.selectedCharacterID, "opcode", opcode)
 	session.guild.mu.Lock()
@@ -219,6 +238,9 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	repos, r, err := s.loadCurrentGuildRegistry(ctx)
+	if !started.IsZero() {
+		registryTime = time.Since(started)
+	}
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
@@ -227,22 +249,14 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
 	g, _, _ := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
-	// Refresh only this detached read projection. Listing a guild is not a
-	// mutation and never rewrites another player's persisted profile.
-	if g != nil {
-		for id, m := range g.Members {
-			if c, found, e := repos.Character.Load(ctx, id); e == nil && found && c.AccountID == m.AccountID {
-				m.Name = c.Name
-				m.Level = c.Level
-				m.Job = c.Job
-				m.GrowType = strconv.FormatInt(c.Stats["grow_type"], 10)
-				g.Members[id] = m
-			}
-		}
-	}
 	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
 	cursor := opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberListNext)
 	if full {
+		summaryStart := s.performanceStart()
+		s.refreshCurrentGuildMemberSummaries(ctx, repos.Character, g)
+		if !summaryStart.IsZero() {
+			summaryTime = time.Since(summaryStart)
+		}
 		if err = s.sendCurrentGuildManagementProjection(session, g, false); err != nil {
 			return err
 		}
@@ -255,7 +269,63 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	s.logInfo("dnfbridge guild roster response", "conn_id", session.connID,
 		"char_id", session.selectedCharacterID, "opcode", opcode,
 		"members", members, "online", len(online), "full", full, "cursor", cursor)
-	return s.sendGameUpperSuccess(session, opcode, buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID())))
+	buildStart := s.performanceStart()
+	body := buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID()))
+	s.performanceEnd(perfGuildProjectionBuild, buildStart, nil)
+	if !buildStart.IsZero() {
+		buildTime = time.Since(buildStart)
+	}
+	// EXIT and this final roster frame share the scene fence, just like NOTI127.
+	if source == "client" {
+		session.townMu.Lock()
+	} else if !session.townMu.TryLock() {
+		return nil // preserve optional cross-session projection lock ordering
+	}
+	defer session.townMu.Unlock()
+	if session.channelExitAcknowledged {
+		return nil
+	}
+	writeStart := s.performanceStart()
+	err = s.sendGameUpperSuccess(session, opcode, body)
+	s.performanceEnd(perfGuildRosterWrite, writeStart, err)
+	if !writeStart.IsZero() {
+		writeTime = time.Since(writeStart)
+	}
+	return err
+}
+
+// Only detached display fields are hydrated. A failed batch keeps the registry
+// projection and never expands into N full loads or persists partial characters.
+func (s *Service) refreshCurrentGuildMemberSummaries(ctx context.Context, characters dnfrepo.CharacterRepository, g *dnfguild.Guild) {
+	if g == nil || len(g.Members) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(g.Members))
+	for id := range g.Members {
+		ids = append(ids, id)
+	}
+	s.guildRosterCounter(guildSummaryMembers, int64(len(ids)))
+	if _, ok := characters.(dnfrepo.CharacterGuildSummaryReader); !ok {
+		s.guildRosterCounter(guildSummaryFallback, 1)
+	}
+	start := s.performanceStart()
+	ctx, readCounts := dnfrepo.WithCharacterGuildSummaryReadCounts(ctx)
+	summaries, err := dnfrepo.LoadCharacterGuildSummaries(ctx, characters, ids)
+	s.guildRosterCounter(guildSummaryQueries, readCounts.Queries)
+	s.guildRosterCounter(guildSummaryFullLoads, readCounts.FullLoads)
+	s.performanceEnd(perfGuildMemberSummaryRead, start, err)
+	if err != nil {
+		s.guildRosterCounter(guildSummaryFailed, 1)
+		return
+	}
+	s.guildRosterCounter(guildSummaryRows, int64(len(summaries)))
+	for id, m := range g.Members {
+		if c, found := summaries[id]; found && c.CharacterID == id && c.AccountID == m.AccountID {
+			m.Name, m.Level, m.Job = c.Name, c.Level, c.Job
+			m.GrowType = strconv.FormatInt(c.GrowType, 10)
+			g.Members[id] = m
+		}
+	}
 }
 
 func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
@@ -275,7 +345,7 @@ func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
 		requested := peer.session.guild.memberListRequested
 		peer.session.guild.mu.Unlock()
 		if requested {
-			if err := s.handleCurrentGuildMemberListForOpcode(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList)); err != nil {
+			if err := s.handleCurrentGuildMemberListObserved(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership"); err != nil {
 				s.logGameEvent(peer.session, "game-guild-member-refresh-failed", "error", err)
 			}
 		}

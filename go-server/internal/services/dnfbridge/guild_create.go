@@ -53,6 +53,8 @@ type guildSessionState struct {
 	lastCreate            *dnfguild.CreateRequest
 	soloOperationID       string
 	memberListRequested   bool
+	presenceRefresh       *currentGuildPresenceRefresh
+	presenceRefreshClosed bool
 	cargoLoadedGuild      uint32
 	cargoLoadedGeneration uint64
 	cargoPending          uint32
@@ -248,7 +250,9 @@ func (s *Service) loadCurrentGuildRegistry(ctx context.Context) (dnfrepo.Group, 
 	if !ok || repositories.Settings == nil || repositories.Character == nil {
 		return dnfrepo.Group{}, dnfguild.Registry{}, dnfguild.ErrRepositoryUnavailable
 	}
+	started := s.performanceStart()
 	registry, err := dnfguild.Load(ctx, repositories.Settings)
+	s.performanceEnd(perfGuildRegistryRead, started, err)
 	return repositories, registry, err
 }
 
