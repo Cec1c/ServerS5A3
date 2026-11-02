@@ -342,6 +342,7 @@ type currentDisjointExpand struct {
 }
 
 type currentDisjointPVFConfig struct {
+	EquipmentSellRatePermille   int64
 	CubeItemID                  uint32
 	CubeBase                    float64
 	CubeMultipliers             []float64

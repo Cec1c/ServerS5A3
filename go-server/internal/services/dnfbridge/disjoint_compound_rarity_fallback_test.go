@@ -76,6 +76,8 @@ func currentDisjointRarityFallbackAssets(t *testing.T, slots map[string]dnfrepo.
 		// 缺 rarity 也缺 value/price：两个兜底同时生效，仍产出 1 个无色小晶块。
 		"equipment/no_rarity_no_value.equ": "[equipment type] `[coat]`\n[minimum level] 1\n",
 		"equipment/avatar_hat.equ":         "[equipment type] `[hat avatar]`\n[usable job] `[fighter]`\n[grade] 2\n",
+		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		"equipment/pricetable.tbl": "[rate] 1000 150 30\n",
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1 3\n[/cube creation const]\n" +
 			"[additional result]\n1 3033 1 3034 1 3035 1 3036 1 3166 1 3229 1 3332\n[/additional result]\n" +
@@ -309,6 +311,8 @@ func TestInitialEquipmentSeededRowStillDecomposes(t *testing.T) {
 		"stackable/soul.stk":      "[stackable type] `[material]`\n[stack limit] 999\n",
 		"equipment/cross.equ":     "[equipment type] `[weapon]`\n[rarity] 0\n[minimum level] 1\n[value] 504\n[price] 700\n[attach type] `[free]`\n",
 		"equipment/pant.equ":      "[equipment type] `[pants]`\n[rarity] 0\n[minimum level] 1\n[value] 288\n[price] 400\n[attach type] `[free]`\n",
+		// This synthetic fixture expresses values as sell gold; use an explicit identity rate.
+		"equipment/pricetable.tbl": "[rate] 1000 150 30\n",
 		"etc/disjoint.etc": "[cube index]\n`[no element]` 3037\n[/cube index]\n" +
 			"[cube creation const]\n150 1.12 1.35\n[/cube creation const]\n" +
 			"[additional result]\n0 1 3166 1 3166\n[/additional result]\n" +

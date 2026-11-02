@@ -39,6 +39,10 @@ func loadCurrentDisjointPVFConfig(source dnfpvf.Source) (currentDisjointPVFConfi
 		return currentDisjointPVFConfig{}, err
 	}
 	config := currentDisjointPVFConfig{CubeBase: 150, AvatarByJob: make(map[string][]uint32), EmblemBoosters: make(map[[2]int]uint32)}
+	config.EquipmentSellRatePermille, err = loadCurrentEquipmentSellRate(source)
+	if err != nil {
+		return currentDisjointPVFConfig{}, err
+	}
 	for _, section := range disjoint.Sections {
 		if !strings.EqualFold(strings.TrimSpace(section.Name), "cube index") {
 			continue
@@ -453,12 +457,9 @@ func currentEquipmentDisjointRewards(config currentDisjointPVFConfig, document *
 	if !levelFound || minimumLevel < 1 {
 		minimumLevel = 1
 	}
-	// 86JP DisjointResultCalculator.CalculateCubeCount 用
-	// `Math.Max(1, metadata.SellGold ?? 1)` 取卖价：装备行没有 [value]/[price]
-	// 时按 1 计，仍然产出至少一个无色小晶块。运行时 PVF 里绝大多数
-	// `[equipment type] [title name]` 称号与 `[crest]` 纹章都没有 [value]/[price]，
-	// 旧代码在这里直接报"奖励映射非法"，客户端的分解请求因此被拒并被显示成
-	// "物品栏空间不足"。
+	// [value] is the pre-rate pricing base. The reference calculator uses
+	// metadata.SellGold, which has already applied equipment/pricetable.tbl.
+	// Keep the existing missing/nonpositive value -> price -> 1 fallback.
 	sellValue, valueFound := document.Int("value")
 	if !valueFound || sellValue <= 0 {
 		sellValue, valueFound = document.Int("price")
@@ -466,8 +467,20 @@ func currentEquipmentDisjointRewards(config currentDisjointPVFConfig, document *
 	if !valueFound || sellValue <= 0 {
 		sellValue = 1
 	}
-	cubeCount := uint32(math.Max(1, math.Floor(float64(sellValue)*config.CubeMultipliers[multiplierIndex]/config.CubeBase)))
+	sellGold, err := currentEquipmentSellGold(sellValue, config.EquipmentSellRatePermille)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errCurrentDisjointRewardInvalid, err)
+	}
+	cubeValue := math.Max(1, math.Floor(float64(sellGold)*config.CubeMultipliers[multiplierIndex]/config.CubeBase))
+	if math.IsNaN(cubeValue) || math.IsInf(cubeValue, 0) || cubeValue > math.MaxUint32 {
+		return nil, errCurrentDisjointRewardInvalid
+	}
+	cubeCount := uint32(cubeValue)
 	rewards := []currentDisjointReward{{ItemID: config.CubeItemID, Count: cubeCount}}
+	customAbilityType, err := currentDisjointDocumentCustomAbilityType(document)
+	if err != nil {
+		return nil, err
+	}
 	// 86JP DisjointFile.GetAdditionalItems 走 MapRarityToAdditionalIndex：负值
 	// （缺 [rarity]）同样落到第 0 行，而不是"没有附加产物"。
 	additionalIndex := currentDisjointRarityRowIndex(rarity)
@@ -476,7 +489,9 @@ func currentEquipmentDisjointRewards(config currentDisjointPVFConfig, document *
 		if err != nil {
 			return nil, err
 		}
-		count, err := currentDisjointAdditionalCount(config, additionalIndex, int(minimumLevel))
+		// Aiken uses the normal additional-material quantity. Do not mutate
+		// the cached rarity row: ordinary legendary equipment still rolls it.
+		count, err := currentDisjointAdditionalCount(config, additionalIndex, int(minimumLevel), customAbilityType != "warriors dungeon")
 		if err != nil {
 			return nil, err
 		}
@@ -667,18 +682,20 @@ func currentDisjointTokensInts(tokens []dnfpvf.Token) []int64 {
 	return values
 }
 
-func currentDisjointAdditionalCount(config currentDisjointPVFConfig, rarity, level int) (uint32, error) {
+func currentDisjointAdditionalCount(config currentDisjointPVFConfig, rarity, level int, allowGreat bool) (uint32, error) {
 	if rarity < 0 || rarity >= len(config.AdditionalConsts) {
 		return 1, nil
 	}
 	consts := config.AdditionalConsts[rarity]
 	divisor := consts.NormalDivisor
-	roll, err := currentDisjointRandomPercent()
-	if err != nil {
-		return 0, err
-	}
-	if roll < currentDisjointClampPercent(consts.GreatChance) && consts.GreatDivisor > 0 {
-		divisor = consts.GreatDivisor
+	if allowGreat {
+		roll, err := currentDisjointRandomPercent()
+		if err != nil {
+			return 0, err
+		}
+		if roll < currentDisjointClampPercent(consts.GreatChance) && consts.GreatDivisor > 0 {
+			divisor = consts.GreatDivisor
+		}
 	}
 	return currentDisjointLevelDivisorCount(level, divisor)
 }
