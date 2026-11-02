@@ -53,6 +53,9 @@ func (a *accountAPIServer) ensureAccountSecuritySchema(ctx context.Context) erro
 			return err
 		}
 	}
+	if err := a.ensureQQBindingLifecycleSchema(ctx); err != nil {
+		return err
+	}
 	// Additive migration: existing enabled rules keep requiring binding, while
 	// disabled installations remain closed until an administrator opts in.
 	var columns int
@@ -173,7 +176,7 @@ func (a *accountAPIServer) requireQQBinding(ctx context.Context, accountID strin
 		return nil
 	}
 	var qq string
-	err = a.db.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=?", accountID).Scan(&qq)
+	err = a.db.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=? AND state='active'", accountID).Scan(&qq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return securityError(403, "qq_binding_required", "请先在登录器获取绑定码，并向 QQ 机器人发送绑定指令")
 	}
@@ -255,9 +258,13 @@ func (a *accountAPIServer) handleAccountSecurity(w http.ResponseWriter, r *http.
 		a.securityFailure(w, securityError(409, "binding_disabled", "当前服务器未启用 QQ 绑定"))
 		return
 	}
-	var qq string
-	err = tx.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=?", id).Scan(&qq)
-	if err == nil {
+	var qq, bindingState string
+	err = tx.QueryRowContext(ctx, "SELECT qq,state FROM "+a.table+"_qq_bindings WHERE account_id=? FOR UPDATE", id).Scan(&qq, &bindingState)
+	if err == nil && bindingState == "disabled" {
+		a.securityFailure(w, securityError(403, "binding_disabled", "该绑定已由管理员禁用，请联系管理员"))
+		return
+	}
+	if err == nil && bindingState == "active" {
 		if err = tx.Commit(); err != nil {
 			a.securityFailure(w, err)
 			return
@@ -265,7 +272,7 @@ func (a *accountAPIServer) handleAccountSecurity(w http.ResponseWriter, r *http.
 		writeAccountAPIJSON(w, 200, accountAPIResponse{OK: true, Message: "账号已绑定 QQ，可直接登录", BoundQQ: qq})
 		return
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		a.securityFailure(w, err)
 		return
 	}
@@ -357,17 +364,14 @@ func (a *accountAPIServer) completeQQBinding(ctx context.Context, in qqbinding.C
 	if expires <= time.Now().Unix() || failures >= 5 || hash != candidate {
 		return nil, invalid
 	}
-	out := qqbinding.Binding{AccountID: id, Account: account, QQ: in.QQ, Group: in.Group, BoundAt: time.Now().Unix()}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO "+a.table+"_qq_bindings(account_id,qq,group_id,bound_at,code_hash) VALUES(?,?,?,?,?)", id, in.QQ, in.Group, out.BoundAt, hash); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
-			return nil, errors.New("该 QQ 或账号已有绑定，每个 QQ 只能绑定一个账号")
-		}
+	out, err := a.saveVerifiedQQBinding(ctx, tx, id, account, in, hash)
+	if err != nil {
 		return nil, err
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM "+a.table+"_qq_codes WHERE account_id=?", id); err != nil {
 		return nil, err
 	}
-	return &out, tx.Commit()
+	return out, tx.Commit()
 }
 func (a *accountAPIServer) queryQQBindings(ctx context.Context, q qqbinding.Query) (*qqbinding.Page, error) {
 	if len(q.Search) > 64 || q.Offset < 0 || q.Offset > 1000000 || q.Limit < 0 || q.Limit > 100 {
@@ -383,14 +387,14 @@ func (a *accountAPIServer) queryQQBindings(ctx context.Context, q qqbinding.Quer
 	if err := a.db.QueryRowContext(ctx, "SELECT COUNT(*)"+from+filter, args...).Scan(&out.Total); err != nil {
 		return nil, err
 	}
-	rows, err := a.db.QueryContext(ctx, "SELECT b.account_id,a.account,b.qq,b.group_id,b.bound_at"+from+filter+" ORDER BY b.bound_at DESC,b.account_id LIMIT ? OFFSET ?", append(args, q.Limit+1, q.Offset)...)
+	rows, err := a.db.QueryContext(ctx, "SELECT b.account_id,a.account,b.qq,b.group_id,b.bound_at,b.state,b.revision,b.updated_at,b.checked_at,b.check_cause"+from+filter+" ORDER BY b.bound_at DESC,b.account_id LIMIT ? OFFSET ?", append(args, q.Limit+1, q.Offset)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var row qqbinding.Binding
-		if err = rows.Scan(&row.AccountID, &row.Account, &row.QQ, &row.Group, &row.BoundAt); err != nil {
+		if err = rows.Scan(&row.AccountID, &row.Account, &row.QQ, &row.Group, &row.BoundAt, &row.State, &row.Revision, &row.UpdatedAt, &row.CheckedAt, &row.CheckCause); err != nil {
 			return nil, err
 		}
 		out.Rows = append(out.Rows, row)

@@ -464,7 +464,7 @@ func (a *accountAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		a.securityFailure(w, err)
 		return
 	}
-	if err = a.db.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=?", accountID).Scan(&request.boundQQ); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err = a.db.QueryRowContext(ctx, "SELECT qq FROM "+a.table+"_qq_bindings WHERE account_id=? AND state='active'", accountID).Scan(&request.boundQQ); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		a.securityFailure(w, err)
 		return
 	}
