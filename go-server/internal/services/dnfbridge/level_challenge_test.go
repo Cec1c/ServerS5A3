@@ -176,3 +176,22 @@ func TestLevelChallengeRosterUsesDisplayIndexesAfterReorderAndDelete(t *testing.
 	check([]repo.CharacterRecord{roles[2], roles[0], roles[1]}, []byte{3, 2, 0, 0, 0, 0, 2, 0, 0, 0})
 	check(roles[:2], []byte{3, 1, 1, 0, 0, 0})
 }
+
+func TestLevelChallengeRosterProjectsOnlyEligibleRegisteredDisplayIndexes(t *testing.T) {
+	state := onlineevent.LevelChallengeState{
+		"89":      {},
+		"90":      {},
+		"91":      {},
+		"deleted": {},
+	}
+	characters := []repo.CharacterRecord{
+		{CharacterID: "90", Level: currentAdventureCharacterLevelCap, Stats: map[string]int64{onlineevent.LevelChallengeRoleStat: 1}},
+		{CharacterID: "ordinary", Level: currentAdventureCharacterLevelCap - 1, Stats: map[string]int64{onlineevent.LevelChallengeRoleStat: 1}},
+		{CharacterID: "89", Level: currentAdventureCharacterLevelCap - 1, Stats: map[string]int64{onlineevent.LevelChallengeRoleStat: 1}},
+		{CharacterID: "91", Level: currentAdventureCharacterLevelCap + 1, Stats: map[string]int64{onlineevent.LevelChallengeRoleStat: 1}},
+		{CharacterID: "deleted", Level: currentAdventureCharacterLevelCap - 1, Stats: map[string]int64{onlineevent.LevelChallengeRoleStat: 1, "delete_flag": 1}},
+	}
+	if actual := buildCurrentLevelChallengeRoster(state, characters, true); !bytes.Equal(actual, []byte{4, 1, 2, 0, 0, 0}) {
+		t.Fatalf("未满级有效注册角色名单=%x，期望历史count=4且仅投影displayIndex=2", actual)
+	}
+}

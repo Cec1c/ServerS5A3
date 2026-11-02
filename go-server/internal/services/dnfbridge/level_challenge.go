@@ -62,7 +62,7 @@ func buildCurrentLevelChallengeRoster(state onlineevent.LevelChallengeState, cha
 		if index >= rosterCount(characters) {
 			break
 		}
-		if _, ok := state[ch.CharacterID]; !ok || ch.Stats["delete_flag"] != 0 || ch.Stats[onlineevent.LevelChallengeRoleStat] != 1 {
+		if _, ok := state[ch.CharacterID]; !ok || ch.Stats["delete_flag"] != 0 || ch.Stats[onlineevent.LevelChallengeRoleStat] != 1 || ch.Level >= currentAdventureCharacterLevelCap {
 			continue
 		}
 		indexes = append(indexes, uint32(index))

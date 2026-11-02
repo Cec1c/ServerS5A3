@@ -1028,6 +1028,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 			return err
 		}
 	}
+	if result.ExperienceBuffChanged {
+		if err := s.sendCurrentExperiencePotionEffects(session); err != nil {
+			return err
+		}
+	}
 	refreshCombatPowerAffixes := len(result.WornEquipmentSlotRefreshes) != 0
 	postActionsDeferred := false
 	for _, action := range result.PostActions {

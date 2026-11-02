@@ -95,5 +95,8 @@ func (s *Service) handlePrivateQuestExperiencePotion(session *gameSession, body 
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "quest_experience_potion", []alignedcmd.ItemSlotRefresh{{ListType: 0, SlotIndex: slot}}); err != nil {
 		return true, err
 	}
-	return true, s.sendCurrentItemUsageForSession(session, "quest_experience_potion")
+	if err := s.sendCurrentItemUsageForSession(session, "quest_experience_potion"); err != nil {
+		return true, err
+	}
+	return true, s.sendCurrentExperiencePotionEffects(session)
 }
