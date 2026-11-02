@@ -522,10 +522,6 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		if err != nil {
 			return false, err
 		}
-		eventInfoBody, err = s.withPrivateFestivalCalendar(eventInfoBody)
-		if err != nil {
-			return false, fmt.Errorf("festival calendar: %w", err)
-		}
 		eventInfoTransport, err = zlibCompress(eventInfoBody)
 		if err != nil {
 			return false, fmt.Errorf("compress current spend-time op108: %w", err)
@@ -1174,5 +1170,15 @@ func (s *Service) buildCurrentCompleteActivityInfoForDay(session *gameSession, c
 		s.currentPortedCatalogAt(s.gameplayNow()),
 		s.currentBattlePassEntryAvailable(),
 	)
-	return eventInfoBody, fiendWarAvailable, err
+	if err != nil {
+		return nil, fiendWarAvailable, err
+	}
+	// Selector initialization and town refresh both replace the client's whole
+	// catalog. Compose the optional gift pages here, before either caller can
+	// publish and mark the descriptor initialized.
+	eventInfoBody, err = s.withPrivateFestivalCalendar(eventInfoBody)
+	if err != nil {
+		return nil, fiendWarAvailable, fmt.Errorf("festival calendar: %w", err)
+	}
+	return eventInfoBody, fiendWarAvailable, nil
 }

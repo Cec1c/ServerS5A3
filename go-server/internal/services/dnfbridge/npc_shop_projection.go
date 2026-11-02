@@ -82,37 +82,43 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 			if gold < totalCost {
 				return dnfnpcshop.Changes{}, fmt.Errorf("%w: need=%d have=%d", errCurrentNPCShopGoldInsufficient, totalCost, gold)
 			}
-			slots, grantErr := s.grantCurrentNPCShopProduct(inventory, pricing.Definition, request.Count)
+			grantSlots, accountDirty, inventoryDirty, grantErr := s.grantCurrentNPCShopProductToContainers(assets.AccountInventory, inventory, pricing.Definition, request.Count)
 			if grantErr != nil {
 				return dnfnpcshop.Changes{}, grantErr
 			}
-			if len(slots) != 1 {
-				return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d changed_slots=%d", errCurrentNPCShopProductUnavailable, request.ItemID, len(slots))
-			}
-			slot := int16(slots[0])
 			productList := currentNPCShopProductList(pricing.Definition)
-			key := currentCeraShopInventorySlotKey(productList, slot)
-			stack, found := inventory.Slots[key]
-			if !found || stack.ItemID != int64(request.ItemID) || stack.Count <= 0 {
-				return dnfnpcshop.Changes{}, errCurrentNPCShopProductUnavailable
-			}
-			if stack.Extra == nil {
-				stack.Extra = make(map[string]string, 6)
-			}
-			stack.Extra["last_grant_source"] = "npc_shop"
-			stack.Extra["last_npc_shop_context"] = strconv.FormatUint(uint64(request.ShopContext), 10)
-			stack.Extra["last_npc_shop_actor_context"] = strconv.FormatUint(uint64(request.ActorContext), 10)
-			itemEntry := currentItemListEntryFromStack(productList, slot, stack)
-			stack.RawEntry = append([]byte(nil), itemEntry.data[:]...)
-			inventory.Slots[key] = stack
 			goldAfter := gold - totalCost
 			character.Stats["gold"] = goldAfter
 			updates := []currentItemListEntry{currentGoldWalletItemListEntry(goldAfter)}
 			var medalUpdates []currentItemListEntry
-			if productList == currentGuildMedalInventoryListType {
-				medalUpdates = []currentItemListEntry{itemEntry}
-			} else {
-				updates = append(updates, itemEntry)
+			var itemEntry currentItemListEntry
+			for index, slot := range grantSlots {
+				key := currentCeraShopInventorySlotKey(productList, slot)
+				slots := inventory.Slots
+				if dnfrepo.IsAccountSharedInventorySlot(productList, slot) {
+					slots = assets.AccountInventory.Slots
+				}
+				stack, found := slots[key]
+				if !found || stack.ItemID != int64(request.ItemID) || stack.Count <= 0 {
+					return dnfnpcshop.Changes{}, errCurrentNPCShopProductUnavailable
+				}
+				if stack.Extra == nil {
+					stack.Extra = make(map[string]string, 6)
+				}
+				stack.Extra["last_grant_source"] = "npc_shop"
+				stack.Extra["last_npc_shop_context"] = strconv.FormatUint(uint64(request.ShopContext), 10)
+				stack.Extra["last_npc_shop_actor_context"] = strconv.FormatUint(uint64(request.ActorContext), 10)
+				entry := currentItemListEntryFromStack(productList, slot, stack)
+				stack.RawEntry = append([]byte(nil), entry.data[:]...)
+				slots[key] = stack
+				if index == 0 {
+					itemEntry = entry
+				}
+				if productList == currentGuildMedalInventoryListType {
+					medalUpdates = append(medalUpdates, entry)
+				} else {
+					updates = append(updates, entry)
+				}
 			}
 			sortCurrentItemListEntries(updates)
 			result = currentNPCShopBuyResult{
@@ -121,11 +127,11 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 				Item:              currentNPCShopBuyAckEntry(itemEntry, pricing.Definition, request.Count),
 				Updates:           updates,
 				GuildMedalUpdates: medalUpdates,
-				Slot:              slot,
+				Slot:              grantSlots[0],
 				ItemID:            request.ItemID,
 				Count:             request.Count,
 			}
-			return dnfnpcshop.Changes{Character: true, Inventory: true}, nil
+			return dnfnpcshop.Changes{Character: true, Inventory: inventoryDirty, AccountInventory: accountDirty}, nil
 		},
 	})
 	if err != nil {
@@ -254,35 +260,11 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 			}
 
 			// Grant the purchase.
-			grantSlots := make([]int16, 0, 1)
-			if warehouseSlot, warehouseItem := currentDisjointWarehouseFixedSlots[request.ItemID]; warehouseItem {
-				left, grantErr := grantCurrentDisjointWarehouseStack(account, pricing.Definition, warehouseSlot, int64(request.Count))
-				if grantErr != nil {
-					return dnfnpcshop.Changes{}, grantErr
-				}
-				if left < int64(request.Count) {
-					accountDirty = true
-					grantSlots = append(grantSlots, warehouseSlot)
-				}
-				if left > 0 {
-					overflowSlots, overflowErr := grantCurrentCeraShopProductAt(inventory, pricing.Definition, uint32(left), s.gameplayNow())
-					if overflowErr != nil {
-						return dnfnpcshop.Changes{}, overflowErr
-					}
-					for _, slot := range overflowSlots {
-						grantSlots = append(grantSlots, int16(slot))
-					}
-				}
-			} else {
-				slots, grantErr := s.grantCurrentNPCShopProduct(inventory, pricing.Definition, request.Count)
-				if grantErr != nil {
-					return dnfnpcshop.Changes{}, grantErr
-				}
-				if len(slots) != 1 {
-					return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d changed_slots=%d", errCurrentNPCShopProductUnavailable, request.ItemID, len(slots))
-				}
-				grantSlots = append(grantSlots, int16(slots[0]))
+			grantSlots, grantedAccount, _, grantErr := s.grantCurrentNPCShopProductToContainers(account, inventory, pricing.Definition, request.Count)
+			if grantErr != nil {
+				return dnfnpcshop.Changes{}, grantErr
 			}
+			accountDirty = accountDirty || grantedAccount
 			var itemEntry currentItemListEntry
 			productList := currentNPCShopProductList(pricing.Definition)
 			for index, slot := range grantSlots {
@@ -483,4 +465,44 @@ func (s *Service) grantCurrentNPCShopProduct(inventory *dnfrepo.InventoryRecord,
 		result[i] = uint16(slot)
 	}
 	return result, nil
+}
+
+// Gold and material purchases use the same destination policy: fixed account
+// warehouse cells first, then the existing backpack overflow path. The caller
+// persists both containers and the payment inside the NPC shop owner transaction.
+func (s *Service) grantCurrentNPCShopProductToContainers(account *dnfrepo.AccountInventoryRecord, inventory *dnfrepo.InventoryRecord, definition dungeonDropItemDefinition, count uint32) ([]int16, bool, bool, error) {
+	slots := make([]int16, 0, 2)
+	left := int64(count)
+	accountDirty := false
+	if warehouseSlot, warehouseItem := currentDisjointWarehouseFixedSlots[definition.ItemID]; warehouseItem {
+		var err error
+		warehouseDefinition := definition
+		if warehouseDefinition.StackLimit <= 0 || warehouseDefinition.StackLimit > math.MaxInt32 {
+			warehouseDefinition.StackLimit = math.MaxInt32
+		}
+		left, err = grantCurrentDisjointWarehouseStack(account, warehouseDefinition, warehouseSlot, left)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if left < int64(count) {
+			slots = append(slots, warehouseSlot)
+			accountDirty = true
+		}
+	}
+	if left > 0 {
+		bagSlots, err := s.grantCurrentNPCShopProduct(inventory, definition, uint32(left))
+		if err != nil {
+			return nil, false, false, err
+		}
+		if _, warehouseItem := currentDisjointWarehouseFixedSlots[definition.ItemID]; !warehouseItem && len(bagSlots) != 1 {
+			return nil, false, false, fmt.Errorf("%w: item=%d changed_slots=%d", errCurrentNPCShopProductUnavailable, definition.ItemID, len(bagSlots))
+		}
+		for _, slot := range bagSlots {
+			slots = append(slots, int16(slot))
+		}
+	}
+	if len(slots) == 0 {
+		return nil, false, false, errCurrentNPCShopProductUnavailable
+	}
+	return slots, accountDirty, left > 0, nil
 }
