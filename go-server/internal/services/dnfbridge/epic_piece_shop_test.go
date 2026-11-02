@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"longheng.io/server/internal/modules/dnf/epicbook"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -43,6 +44,32 @@ func epicShopFixture(t *testing.T, probability int) (*Service, *gameSession, *bu
 	return s, p, c, r
 }
 
+// The shop uses the official client profile, whose death request is 88 bytes
+// for one combat entry. The legacy hell-party helper sends a rejected 62-byte
+// request, so it cannot exercise the shop's real post-death generation hook.
+func killEpicShopActors(t *testing.T, s *Service, p *gameSession, keys ...uint32) {
+	t.Helper()
+	for _, key := range keys {
+		body := make([]byte, dungeoncmd.Official249DieMonsterBaseSize+dungeoncmd.Official249DieMonsterEntrySize)
+		binary.LittleEndian.PutUint32(body, key)
+		binary.LittleEndian.PutUint16(body[4:], currentSceneActorObjectKey(p.selectedCharacterID))
+		body[30] = 1
+		if err := s.handleDungeonMonsterDeath(p, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func killEpicShopRoom(t *testing.T, s *Service, p *gameSession, r *runtimeDungeonState) {
+	t.Helper()
+	killEpicShopActors(t, s, p, hellPartyRoomMonsterKeys(t, r)...)
+	killEpicShopActors(t, s, p, waveHellPartyActorKeys(t, r)...)
+	scene, _ := r.Session.Scene()
+	if !currentActivityHellReady(r, scene) {
+		t.Fatal("official death requests did not retire every frozen hell wave")
+	}
+}
+
 func shopPackets(t *testing.T, s *Service, c *bufferConn, op uint16) [][]byte {
 	t.Helper()
 	wire := append([]byte(nil), c.write.Bytes()...)
@@ -66,17 +93,17 @@ func shopChoice(id uint32) []byte {
 func TestEpicShopFinalWaveOnlySingleAppearanceAndNoStartRequired(t *testing.T) {
 	s, p, c, r := epicShopFixture(t, 100)
 	first, last := hellPartyRewardActorKeys(t, r)
-	killDungeonActors(t, s, p, hellPartyRoomMonsterKeys(t, r)...)
-	killDungeonActors(t, s, p, first...)
-	killDungeonActors(t, s, p, last[:len(last)-1]...)
+	killEpicShopActors(t, s, p, hellPartyRoomMonsterKeys(t, r)...)
+	killEpicShopActors(t, s, p, first...)
+	killEpicShopActors(t, s, p, last[:len(last)-1]...)
 	if r.epicShop != nil || len(shopPackets(t, s, c, 744)) != 0 {
 		t.Fatal("shop before final wave")
 	}
-	killDungeonActors(t, s, p, last[len(last)-1])
+	killEpicShopActors(t, s, p, last[len(last)-1])
 	if r.HellPartyStarted || r.epicShop == nil || !r.epicShop.Sent {
 		t.Fatal("missing shop without start notice")
 	}
-	killDungeonActors(t, s, p, last[len(last)-1])
+	killEpicShopActors(t, s, p, last[len(last)-1])
 	if bodies := shopPackets(t, s, c, 744); len(bodies) != 1 || !reflect.DeepEqual(bodies[0], []byte{1}) {
 		t.Fatal(bodies)
 	}
@@ -87,7 +114,7 @@ func TestEpicShopFinalWaveOnlySingleAppearanceAndNoStartRequired(t *testing.T) {
 
 func TestEpicShopZeroProbabilityAndRollFrozen(t *testing.T) {
 	s, p, c, r := epicShopFixture(t, 0)
-	killEntireHellRoomAndWaves(t, s, p, r)
+	killEpicShopRoom(t, s, p, r)
 	if !r.epicShopChecked || r.epicShop != nil || len(shopPackets(t, s, c, 744)) != 0 {
 		t.Fatal("zero probability spawned shop")
 	}
@@ -100,7 +127,7 @@ func TestEpicShopZeroProbabilityAndRollFrozen(t *testing.T) {
 
 func TestEpicShopNativeChoiceRefreshExchangeAndReplay(t *testing.T) {
 	s, p, c, r := epicShopFixture(t, 100)
-	killEntireHellRoomAndWaves(t, s, p, r)
+	killEpicShopRoom(t, s, p, r)
 	c.write.Reset()
 	if err := s.handleCurrentEpicShop(p, 816, shopChoice(10300001)); err != nil {
 		t.Fatal(err)
@@ -175,7 +202,7 @@ func TestEpicShopRejectsWrongRoomMalformedChoiceAndInsufficientMaterials(t *test
 	if err := s.handleCurrentEpicShop(p, 818, nil); err != nil {
 		t.Fatal(err)
 	}
-	killEntireHellRoomAndWaves(t, s, p, r)
+	killEpicShopRoom(t, s, p, r)
 	for _, body := range [][]byte{nil, {1, 2}, shopChoice(5001), append(shopChoice(10300001), 0)} {
 		if err := s.handleCurrentEpicShop(p, 816, body); err != nil {
 			t.Fatal(err)
@@ -222,7 +249,7 @@ func TestEpicShopPartyAppearanceRollSharedAndLateMemberRejected(t *testing.T) {
 	// Finish through the solo death path, then attach the independently owned
 	// party encounter to exercise the same lock and frozen membership rule.
 	r.partyInstance = nil
-	killEntireHellRoomAndWaves(t, s, p, r)
+	killEpicShopRoom(t, s, p, r)
 	r.epicShop = nil
 	r.epicShopChecked = false
 	r.partyInstance = instance
@@ -250,7 +277,7 @@ func TestEpicShopPartyAppearanceRollSharedAndLateMemberRejected(t *testing.T) {
 
 func TestEpicShopCommittedExchangeReplyFailureCannotCreditAgain(t *testing.T) {
 	s, p, _, r := epicShopFixture(t, 100)
-	killEntireHellRoomAndWaves(t, s, p, r)
+	killEpicShopRoom(t, s, p, r)
 	if err := s.handleCurrentEpicShop(p, 816, shopChoice(10300001)); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +302,7 @@ func TestEpicShopCommittedExchangeReplyFailureCannotCreditAgain(t *testing.T) {
 
 func TestEpicShopPartyPresentPeerReceivesSameEncounter(t *testing.T) {
 	s, p, c, r := epicShopFixture(t, 0)
-	killEntireHellRoomAndWaves(t, s, p, r)
+	killEpicShopRoom(t, s, p, r)
 	source := s.dungeonMonsterTable.source.(bridgePVFSource)
 	source[epicbook.ShopConfigPath] = "[npcIndex] 1130\n[epic piece provide] 5\n[epic piece received] 10\n[gabriel appearance probability] 100\n[list change chance] 5\n[list change cost] 100000\n[kind of epic piece] 5\n[same type] 0\n[normal type] 5\n"
 	peerConn := &bufferConn{}

@@ -68,3 +68,32 @@ The pass condition is exact:
 - The stack is balanced after every call: the return address plus the four-byte argument are consumed.
 
 This is an offline native filter check. It does not start the game or the native EXE, execute a full packet dispatcher, exercise a GUI consumer, or claim in-game acceptance.
+
+## Verify the existing receiver bodies
+
+```powershell
+python verify_receivers.py `
+  --exe <private-output-dir>/DNF.exe `
+  --receipt <private-output-dir>/receiver-verification.json
+```
+
+This separate verifier executes the pinned image's 744/745/817/818 receivers and actual integer packet readers in Unicorn. Seven cases cover clearing/setting the appearance flag, consuming all five material pairs, preserving the material IDs, incrementing the refresh count only on success, and setting completion/opening the result window only on success. The singleton lookup, RNG, GUI lookup/RTTI/open/close, logging/string helper and final NPC spawn boundary are explicit stubs. Common status decoding, the full dispatcher, NPC actor creation and rendered game UI are not exercised.
+
+## Server wire contract and policy
+
+All integers below are little-endian. Requests use the normal command class; 744/745 and balance updates use notification class 0. Replies to 816/817/818 use the existing common success/error prefix with no additional success body.
+
+| Opcode | Direction | Payload |
+| --- | --- | --- |
+| 744 | Server to client | `u8 appeared`; the existing receiver resets shop state and invokes the local NPC spawn boundary |
+| 745 | Server to client | `u8 count` followed by five `(u32 pieceID, u32 amount)` pairs |
+| 816 | Client to server | One `u32 pieceID`, mapped from the selected equipment by the native panel |
+| 817 | Client to server | Empty; pay for a new material list |
+| 818 | Client to server | Empty; exchange the current material list |
+| 1149 | Server to client | Existing absolute account piece balances, including zero balances after a debit |
+
+The server reads `etc/epicpieceshop.etc`: appearance probability is interpreted as a percentage, and reward quantity, material quantity, refresh cost and refresh limit come from that file. The supported native panel has five slots and a literal ten-piece requirement, so incompatible material count/type settings are rejected instead of silently charging an amount the panel cannot display.
+
+The appearance roll is frozen after the final normal-abyss wave; present party members share that roll and each has one exchange. Initial selection freezes the requested piece and quote. Repeating selection does not reroll materials; refresh is a separate paid request. Leaving the abyss room ends the offer and clears the native appearance flag. Account pieces are debited and credited atomically; committed exchange state is recorded before any response write. The current implementation does not offer the shop in rift or epic-road encounters.
+
+These are candidate source and offline compatibility checks. Client and server must be integrated together before any later release; neither this directory nor a successful CI run proves in-game acceptance or deployment.
