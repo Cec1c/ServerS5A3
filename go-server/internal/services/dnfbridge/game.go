@@ -21,12 +21,13 @@ import (
 )
 
 type gameSession struct {
-	battlePassBusiness    gameBattlePassState
-	battlePassPush        *gameBattlePassPushState
-	battlePassEntry       gameBattlePassState
-	launcherDiagnostic    *launcherDiagnosticBinding // serial event owner
-	launcherCharacterID   uint16                     // serial event owner; verified selection only
-	launcherCharacterName string                     // never updated by peer profile reads
+	experiencePotionEffects currentExperiencePotionProjection // serial event owner only
+	battlePassBusiness      gameBattlePassState
+	battlePassPush          *gameBattlePassPushState
+	battlePassEntry         gameBattlePassState
+	launcherDiagnostic      *launcherDiagnosticBinding // serial event owner
+	launcherCharacterID     uint16                     // serial event owner; verified selection only
+	launcherCharacterName   string                     // never updated by peer profile reads
 	// Written and read only by this session's serial event owner.
 	performanceEventQueuedAt            time.Time
 	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches

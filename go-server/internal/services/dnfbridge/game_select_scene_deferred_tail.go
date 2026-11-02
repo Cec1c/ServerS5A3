@@ -443,6 +443,9 @@ func (s *Service) sendDeferredSelectSceneTail(session *gameSession, source strin
 		if err := s.restoreAttendanceMarbleBuffs(session); err != nil {
 			return err
 		}
+		if err := s.sendCurrentExperiencePotionEffects(session); err != nil {
+			return err
+		}
 		session.sceneBootstrapTailPostStage = currentDeferredSelectSceneTailComplete
 	}
 	session.sceneBootstrapTailSent = true

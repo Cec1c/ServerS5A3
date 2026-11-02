@@ -29,6 +29,9 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		return
 	}
 	guildClock := s.ensureGameplayTimeQueue()
+	if session.experiencePotionEffects.timerName != "" {
+		guildClock.Cancel(session.experiencePotionEffects.timerName)
+	}
 	var guildObservations []currentGuildPresenceObservation
 	defer func() { s.persistCurrentGuildPresence(guildObservations...) }()
 	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
@@ -209,6 +212,9 @@ func (s *Service) unbindGameSession(session *gameSession) {
 	s.clearGoldDiagnosticSnapshot(session)
 	s.retireCurrentTagTournamentBattle(session)
 	guildClock := s.ensureGameplayTimeQueue()
+	if session.experiencePotionEffects.timerName != "" {
+		guildClock.Cancel(session.experiencePotionEffects.timerName)
+	}
 	s.closeCurrentGuildCreateSession(session)
 	s.unregisterLiveGameSession(session)
 	s.mu.Lock()

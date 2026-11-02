@@ -131,6 +131,9 @@ func (s *Service) handleCurrentExperienceItemUse(session *gameSession, body []by
 	if stack.ItemID == dnfrevivecoin.ConsumableItemID {
 		return s.handleCurrentReviveCoinItemUse(ctx, repositories, session, slotIndex)
 	}
+	if handled, err := s.tryCurrentExperienceCapsule(ctx, session, slotIndex, stack.ItemID); handled {
+		return err
+	}
 
 	book, err := s.resolveCurrentSkillBook(stack.ItemID)
 	if err != nil {
