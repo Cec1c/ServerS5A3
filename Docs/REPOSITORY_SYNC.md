@@ -11,7 +11,7 @@
 
 ## 配置
 
-GitHub 变量 `GITGUD_MIRROR_REPOSITORY` 指向镜像 HTTPS 仓库。Secret `GITGUD_SOURCE_MIRROR_TOKEN` 仅在受信主干镜像 job 中使用，并限定 Git 凭据的 GitGud URL 范围。PR job 不接触镜像或发布凭据。停用旧 GitGud→GitHub工作流和旧 SOURCE_MIRROR 身份。
+GitHub 变量 `GITGUD_MIRROR_REPOSITORY` 指向镜像 HTTPS 仓库。Secret `GITGUD_SOURCE_MIRROR_TOKEN` 仅在受信主干镜像 job 中使用，并限定 Git 凭据的 GitGud URL 范围。PR job 不接触镜像或发布凭据。停用旧 GitGud→GitHub源码同步；SOURCE_MIRROR 身份仍被独立客户端 Release 标签同步使用，不删除。
 
 GitGud 自动 push/MR CI 已禁用；可手动运行镜像提示，不构建 Windows，不作为任何正式发布 gate。Linux Verify 只在 GitHub PR/手动运行；源码、工具、容器和文档按 diff 分流，普通 push 不重复验证，同 PR 过时纯验证可取消。
 
