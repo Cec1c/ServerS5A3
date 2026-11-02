@@ -388,7 +388,7 @@ def checked_authority_proof(raw, expected_digest, nonce, run_id, phase, manifest
         raise ValueError('Authoritative pull proof hash mismatch')
     proof = json.loads(raw)
     expected = {'format': 1, 'runId': run_id, 'nonce': nonce, 'phase': phase,
-                'repository': 'https://gitgud.io/16ww/servers5a3.git', 'branch': 'master',
+                'repository': 'https://github.com/Cec1c/ServerS5A3.git', 'branch': 'master',
                 'passed': True, 'containsMaster': True, 'after': manifest['upstream'],
                 'candidate': manifest['sourceCommit']}
     if manifest.get('integrationMode') == 'emergency-selected-mr':

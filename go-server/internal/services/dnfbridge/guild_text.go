@@ -144,7 +144,7 @@ func (s *Service) refreshCurrentGuildTextPeer(ctx context.Context, guildID uint3
 		return err
 	}
 	defer release()
-	character, err := s.currentGuildOwnedSelectedCharacter(peer.session)
+	character, err := s.currentGuildOwnedSelectedIdentity(peer.session)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,11 @@ func (s *Service) refreshCurrentGuildTextPeer(ctx context.Context, guildID uint3
 	requested := peer.session.guild.memberListRequested
 	peer.session.guild.mu.Unlock()
 	if requested || peer == source {
-		return s.handleCurrentGuildMemberListForOpcode(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList))
+		trigger := "membership"
+		if source.session == nil {
+			trigger = "presence"
+		}
+		return s.handleCurrentGuildMemberListObserved(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger)
 	}
 	return nil
 }

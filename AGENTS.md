@@ -1,10 +1,20 @@
 # DNF90 Project Working Agreement
 
+## 2026-11-02 GitHub 权威与 Linux CI（替代旧 GitGud 权威/Windows 门禁）
+
+- 公开源码唯一权威为 https://github.com/Cec1c/ServerS5A3 `master`；所有公开功能、测试、文档和 CI 用 GitHub PR。GitGud 仅为异步单向快进镜像，镜像状态、自建 Runner 和旧 MR CI 不作为合并、群服同步或部署门槛。
+- 服务端只验证与构建 Linux，禁用 Windows CI 和 Windows 交叉构建。Windows 开发机的 BAT/Python 发布入口保留。公开 PR 在 GitHub 托管 Linux Runner 按路径分流；同 PR 取消过时纯验证，不在普通分支 push 和合并 push 重跑全套，不上传六份构建附件。
+- 群服已配置的私有累计仓库 `master` 仍为群服部署唯一权威，公开修复经 GitHub PR 后直接同步，群服内容用私有 `group/` PR。私有累计历史与配置不得回流公开。
+- 部署 prepare 不再重复 Go test/vet、Windows 构建和真实 PVF 回归；执行依赖校验和当次最新权威源码的 Linux 正式 server 构建，记录 `mode=linux-build-only`、`testsExecuted=false`。不是导入或复用 CI 证据。新缺陷/输入变化的必要专项在贡献阶段按范围执行。
+- 保留实际 pull、累计范围/资源身份、备份/回退、当次维护批准、串行切换及程序/健康读回。纯工具更新不重启游戏。同步与部署任务不自动取消；已确认范围不重复询问，断线先查原 request。
+- 完整开发机迁移与可转交说明见 [GitHub 权威迁移](Docs/GITHUB_AUTHORITY_MIGRATION.md)。下文早期同输入缓存/CGO必重测等约束不再用于部署准备，旧历史记录仅作留档。
+
+
 ## Start Here
 
 - CI 并行与限额变更遵循 [Runner 容量规范](Docs/CI_RUNNER_CAPACITY.md)：提高槽位时同时约束全部 CI 容器总资源，保持必要检查和附件回执；先测业务与资源影响，不将 Runner 服务自身限额当作 Docker 作业总限额。
 
-- **每次新部署必须当场拉取上游**：在本次部署 run 内，对专用干净权威主干工作树执行 `git pull --ff-only`，来源必须是 GitGud 上游 `master`，并记录执行时间、来源、拉取前后 SHA。核对候选已集成最新主干及有效改动，同时保留线上累计修复和本服扩展。拉取失败、来源不符、分叉或漏接更新时，在打包、上传、切换前拒绝执行。构建完成后再次拉取；有新提交则重新集成和验证。历史拉取回执、本地旧引用或口头确认不能替代本次检查。
+- **每次新部署必须当场拉取上游**：在本次部署 run 内，对专用干净权威主干工作树执行 `git pull --ff-only`，来源必须是 GitHub `Cec1c/ServerS5A3 master`，并记录执行时间、来源、拉取前后 SHA。核对候选已集成最新主干及有效改动，同时保留线上累计修复和本服扩展。拉取失败、来源不符、分叉或漏接更新时，在打包、上传、切换前拒绝执行。构建完成后再次拉取；有新提交则重新集成和验证。历史拉取回执、本地旧引用或口头确认不能替代本次检查。
 - **单独发布客户端也必须先 pull**：每次客户端更新、构建发布准备及仅客户端发布均执行上述权威主干实际拉取、证据记录、独立集成与固定提交构建检查；发布前再核对上游和实际玩家通道，有变化则重新集成验证。禁止直接将当前工作区或旧构建目录打包发布。
 - 已授权远端更新使用 `GAME_UPDATE_REMOTE.bat`，先 inspect actual active，再由 deploy 强制核对最新主干、完整范围、测试构建、备份、运行摘要、签名与频道；私有 profile 和累计基线不上传。工具及恢复来源约束见 [Docs/GAME_UPDATE.md](Docs/GAME_UPDATE.md)。
 
@@ -80,7 +90,7 @@ go test -buildvcs=false -count=1 ./internal/modules/dnf/...
 go test -buildvcs=false -count=1 ./internal/services/dnfbridge
 go test -buildvcs=false -count=1 ./cmd/server/control
 go vet ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
-go build -buildvcs=false -o ..\runtime\bin\DNF90Server.exe ./cmd/server/dnf90
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -o ../runtime/bin/DNF90Server ./cmd/server/dnf90
 ```
 
 Run deployment preflight without a database:
@@ -96,7 +106,7 @@ Run deployment preflight without a database:
 - Never record plaintext generated passwords in `changlog.md`, logs, screenshots, commits, or support bundles.
 - The requested runtime profile deliberately uses a plaintext `root` DSN. Keep it loopback-only and never commit generated runtime configuration.
 
-- 客户端 EXE 发布资产在上游 GitGud Release 与本方 GitHub Release 之间直接双向同步；GitGud fork 仅用于源码贡献，不参与 Release 镜像。EXE 同步不构建或部署服务端，源码仍通过 fork 的 PR/MR 进入上游。
+- 客户端 EXE 发布资产在上游 GitGud Release 与本方 GitHub Release 之间直接双向同步；GitGud fork 不再用于新源码贡献，不参与 Release 镜像。EXE 同步不构建或部署服务端，源码通过 GitHub PR 进入公开权威主干。
 
 ## Repository Boundary
 
@@ -107,7 +117,5 @@ Run deployment preflight without a database:
 
 ## 源码唯一权威与贡献
 
-- GitGud 上游 master 是唯一权威源；所有独立功能、修复、测试、文档和 CI 分支均通过 MR 进入上游，存在同项 MR 时更新原 MR。
 - 同步 Agent 自行妥善解决冲突，保留双方有效逻辑，验证后非强推更新；有用户授权时按评审要求合并，并读回上游最终 SHA。
-- GitHub 仅由 CI 单向快进镜像上游确切提交，不在 GitHub 开发或合并同步 PR，不反向推送 GitGud。GitGud fork 仅用于贡献分支；不能把仅推 fork 当作贡献完成。
 - 详见 Docs/REPOSITORY_SYNC.md。源码、Release、玩家通道、服务端累计部署和实机验收分别记录；私有累计源码不得直接上传公开上游。

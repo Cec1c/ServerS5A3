@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
@@ -211,6 +212,47 @@ func (s *Service) handleCurrentGuildInfo(session *gameSession, _ []byte) error {
 }
 
 func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, opcode uint16) error {
+	return s.handleCurrentGuildMemberListObserved(session, opcode, "client")
+}
+
+// Roster and text projections need existence/ownership, not gameplay fields.
+// Keep the same binding fence and use the existing non-saveable identity read.
+func (s *Service) currentGuildOwnedSelectedIdentity(session *gameSession) (dnfrepo.CharacterIdentity, error) {
+	bound, ok := s.boundGameSessionCharacterSnapshot(session)
+	if !ok || !s.boundGameSessionCharacterCurrent(bound) {
+		return dnfrepo.CharacterIdentity{}, dnfguild.ErrCharacterNotFound
+	}
+	ctx, cancel := s.currentGuildContext()
+	defer cancel()
+	repos, ok := s.repositoryGroup()
+	if !ok || repos.Character == nil {
+		return dnfrepo.CharacterIdentity{}, dnfguild.ErrRepositoryUnavailable
+	}
+	id := strconv.Itoa(int(bound.character))
+	character, found, err := dnfrepo.LoadCharacterIdentity(ctx, repos.Character, id)
+	if err != nil {
+		return dnfrepo.CharacterIdentity{}, err
+	}
+	if !found || character.CharacterID != id || character.AccountID != s.accountIDForSession(session) || !s.boundGameSessionCharacterCurrent(bound) {
+		return dnfrepo.CharacterIdentity{}, dnfguild.ErrCharacterNotFound
+	}
+	return character, nil
+}
+
+func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opcode uint16, source string) (result error) {
+	started := s.performanceStart()
+	var readTime, buildTime, writeTime time.Duration
+	defer func() {
+		if started.IsZero() {
+			return
+		}
+		total := time.Since(started)
+		s.performance.record(perfGuildRosterTotal, total, result != nil)
+		if s.performance.admitSlowSample(perfGuildRosterTotal, total, time.Now()) {
+			s.logInfo("dnfbridge guild roster timing", "conn_id", session.connID, "generation", session.characterGeneration,
+				"source", source, "opcode", opcode, "total_ms", total.Milliseconds(), "read_ms", readTime.Milliseconds(), "build_ms", buildTime.Milliseconds(), "write_ms", writeTime.Milliseconds(), "failed", result != nil)
+		}
+	}()
 	s.logInfo("dnfbridge guild roster request", "conn_id", session.connID,
 		"char_id", session.selectedCharacterID, "opcode", opcode)
 	session.guild.mu.Lock()
@@ -218,19 +260,23 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	session.guild.mu.Unlock()
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	source, ok := s.boundGameSessionCharacterSnapshot(session)
+	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
+	cursor := opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberListNext)
+	bound, ok := s.boundGameSessionCharacterSnapshot(session)
 	if !ok {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
-	g, err := s.readCurrentGuildDisplay(ctx, source, false)
-	if !s.boundGameSessionCharacterCurrent(source) {
+	readStart := s.performanceStart()
+	g, err := s.readCurrentGuildDisplay(ctx, bound, false, full)
+	if !readStart.IsZero() {
+		readTime = time.Since(readStart)
+	}
+	if !s.boundGameSessionCharacterCurrent(bound) {
 		return nil
 	}
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
-	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
-	cursor := opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberListNext)
 	if full {
 		if err = s.sendCurrentGuildManagementProjection(session, g, false); err != nil {
 			return err
@@ -244,7 +290,29 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	s.logInfo("dnfbridge guild roster response", "conn_id", session.connID,
 		"char_id", session.selectedCharacterID, "opcode", opcode,
 		"members", members, "online", len(online), "full", full, "cursor", cursor)
-	return s.sendGameUpperSuccess(session, opcode, buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID())))
+	buildStart := s.performanceStart()
+	body := buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID()))
+	s.performanceEnd(perfGuildProjectionBuild, buildStart, nil)
+	if !buildStart.IsZero() {
+		buildTime = time.Since(buildStart)
+	}
+	// EXIT and this final roster frame share the scene fence, just like NOTI127.
+	if source == "client" {
+		session.townMu.Lock()
+	} else if !session.townMu.TryLock() {
+		return nil // preserve optional cross-session projection lock ordering
+	}
+	defer session.townMu.Unlock()
+	if session.channelExitAcknowledged || !s.boundGameSessionCharacterCurrent(bound) {
+		return nil
+	}
+	writeStart := s.performanceStart()
+	err = s.sendGameUpperSuccess(session, opcode, body)
+	s.performanceEnd(perfGuildRosterWrite, writeStart, err)
+	if !writeStart.IsZero() {
+		writeTime = time.Since(writeStart)
+	}
+	return err
 }
 
 func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
@@ -264,7 +332,7 @@ func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
 		requested := peer.session.guild.memberListRequested
 		peer.session.guild.mu.Unlock()
 		if requested {
-			if err := s.handleCurrentGuildMemberListForOpcode(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList)); err != nil {
+			if err := s.handleCurrentGuildMemberListObserved(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership"); err != nil {
 				s.logGameEvent(peer.session, "game-guild-member-refresh-failed", "error", err)
 			}
 		}

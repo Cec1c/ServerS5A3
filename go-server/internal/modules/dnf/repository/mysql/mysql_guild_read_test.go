@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"fmt"
+	repo "longheng.io/server/internal/modules/dnf/repository"
 	"strings"
 	"testing"
 )
@@ -15,21 +16,35 @@ func TestGuildReadCharactersBatchBoundedByShards(t *testing.T) {
 				db := &fakeSQLDB{}
 				reader := &mysqlGuildCharacters{router: mysqlRouter{db: db, writeDBs: []string{"writer_a", "writer_b"}, readDBs: []string{"wrong_replica"}}}
 				ids := make([]string, n)
-				rows := make([]fakeSQLRows, 2)
+				groups := make([][]string, 2)
 				for i := range ids {
 					id := fmt.Sprint(i + 1)
 					ids[i] = id
 					shard := pickDatabase(id, 2)
-					rows[shard].rows = append(rows[shard].rows, fakeSQLRow{values: []any{id, "account" + id, "member" + id, "1", 90, int64(33), int64(0)}})
+					groups[shard] = append(groups[shard], id)
 				}
-				db.rowsets = rows
-				got, err := reader.LoadGuildCharacters(context.Background(), ids)
-				if err != nil || len(got) != n || len(db.execs) != 2 {
+				for _, group := range groups {
+					for start := 0; start < len(group); start += guildCharacterQueryBatchSize {
+						end := min(start+guildCharacterQueryBatchSize, len(group))
+						rows := fakeSQLRows{}
+						for _, id := range group[start:end] {
+							rows.rows = append(rows.rows, fakeSQLRow{values: []any{id, "account" + id, "member" + id, "1", 90, int64(33), int64(0)}})
+						}
+						db.rowsets = append(db.rowsets, rows)
+					}
+				}
+				wantQueries := len(db.rowsets)
+				ctx, counts := repo.WithGuildReadCounts(context.Background())
+				got, err := reader.LoadGuildCharacters(ctx, ids)
+				if err != nil || len(got) != n || len(db.execs) != wantQueries {
 					t.Fatalf("members=%d queries=%d err=%v", len(got), len(db.execs), err)
 				}
 				args := 0
 				for _, call := range db.execs {
 					args += len(call.Args)
+					if len(call.Args) > guildCharacterQueryBatchSize {
+						t.Fatalf("batch has %d ids, want at most %d", len(call.Args), guildCharacterQueryBatchSize)
+					}
 					if !strings.HasPrefix(call.Query, "SELECT c.character_id, c.account_id, c.name, c.job, c.level,") || strings.Contains(call.Query, "FOR UPDATE") || strings.Contains(call.Query, "wrong_replica") || strings.Contains(call.Query, "inventory") {
 						t.Fatal("non-projection query", call.Query)
 					}
@@ -37,7 +52,7 @@ func TestGuildReadCharactersBatchBoundedByShards(t *testing.T) {
 						t.Fatal("mirror compatibility mode lost", call.Query)
 					}
 				}
-				if args != n || got["1"].GrowType != 33 || got["1"].Level != 90 {
+				if args != n || counts.Queries != int64(len(db.execs)) || counts.Rows != int64(n) || got["1"].GrowType != 33 || got["1"].Level != 90 {
 					t.Fatal("identity/fields lost")
 				}
 				t.Logf("members=%d queries=%d bound_parameters=%d", n, len(db.execs), args)

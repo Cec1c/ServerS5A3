@@ -15,7 +15,7 @@ class AuthorityProofTests(unittest.TestCase):
         self.now = datetime.datetime.now(datetime.timezone.utc)
         self.manifest = {'upstream': 'a' * 40, 'sourceCommit': 'b' * 40, 'authorityInvocation': 'c' * 64}
         self.proof = {'format': 1, 'runId': 'run', 'nonce': 'c' * 64, 'phase': 'deploy',
-                      'repository': 'https://gitgud.io/16ww/servers5a3.git', 'branch': 'master',
+                      'repository': 'https://github.com/Cec1c/ServerS5A3.git', 'branch': 'master',
                       'passed': True, 'containsMaster': True, 'after': 'a' * 40,
                       'candidate': 'b' * 40, 'checkedAt': self.now.isoformat()}
 

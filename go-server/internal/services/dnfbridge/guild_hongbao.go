@@ -46,7 +46,7 @@ func (s *Service) handleCurrentGuildHongbaoQuery(session *gameSession, op uint16
 		return nil
 	}
 	defer release()
-	g, err := s.readCurrentGuildDisplay(ctx, source, op == currentGuildHongbaoPointsOpcode)
+	g, err := s.readCurrentGuildDisplay(ctx, source, op == currentGuildHongbaoPointsOpcode, true)
 	if !s.boundGameSessionCharacterCurrent(source) {
 		return nil
 	}

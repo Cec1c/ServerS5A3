@@ -30,7 +30,7 @@ func (s *Service) initializeGuildContributionProjection(ctx context.Context) err
 
 // Membership, current identities and contribution counters share one read
 // view. No registry/character writer lock or complete asset record is needed.
-func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameSessionCharacter, contribution bool) (*guild.Guild, error) {
+func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameSessionCharacter, contribution, hydrateMembers bool) (*guild.Guild, error) {
 	repos, ok := s.repositoryGroup()
 	if !ok {
 		return nil, guild.ErrRepositoryUnavailable
@@ -45,27 +45,42 @@ func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameS
 		if !s.boundGameSessionCharacterCurrent(source) {
 			return guild.ErrCharacterNotFound
 		}
+		registryStart := s.performanceStart()
 		registry, err := guild.Load(ctx, view.Settings)
+		s.performanceEnd(perfGuildRegistryRead, registryStart, err)
 		if err != nil {
 			return err
 		}
 		g, _, _ := registry.GuildForOwner(owner)
 		ids := []string{owner.CharacterID}
-		if g != nil {
+		if g != nil && hydrateMembers {
 			ids = make([]string, 0, len(g.Members))
 			for id := range g.Members {
 				ids = append(ids, id)
 			}
 		}
-		characters, err := view.Characters.LoadGuildCharacters(ctx, ids)
+		s.guildRosterCounter(guildSummaryMembers, int64(len(ids)))
+		summaryStart := s.performanceStart()
+		readCtx, counts := r.WithGuildReadCounts(ctx)
+		characters, err := view.Characters.LoadGuildCharacters(readCtx, ids)
+		s.performanceEnd(perfGuildMemberSummaryRead, summaryStart, err)
+		s.guildRosterCounter(guildSummaryQueries, counts.Queries)
+		s.guildRosterCounter(guildSummaryRows, int64(len(characters)))
 		if err != nil {
+			s.guildRosterCounter(guildSummaryFailed, 1)
 			return err
 		}
 		actor, found := characters[owner.CharacterID]
-		if !found || actor.AccountID != owner.AccountID || actor.DeleteFlag != 0 {
+		if !found || actor.CharacterID != owner.CharacterID || actor.AccountID != owner.AccountID || actor.DeleteFlag != 0 {
 			return guild.ErrCharacterNotFound
 		}
 		if g == nil {
+			return nil
+		}
+		// Continuation frames contain no member rows. Validate only the requester
+		// in the same snapshot and retain registry metadata without another batch.
+		if !hydrateMembers {
+			result = g
 			return nil
 		}
 		members := guild.SortedMembers(g)
