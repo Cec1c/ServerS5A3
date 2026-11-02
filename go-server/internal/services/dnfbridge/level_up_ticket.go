@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -56,6 +57,38 @@ func currentLevelUpTicketDefinition(id int64, path string, doc *dnfpvf.Document)
 	}
 	if d.MaximumGain < 1 || d.MaximumGain > currentAdventureCharacterLevelCap || d.MaximumLevel < d.MinimumLevel || d.MaximumLevel >= currentAdventureCharacterLevelCap {
 		return d, inventory.ErrLevelUpTicket
+	}
+	// Private extension: the client continues to use native op418. The target
+	// is read only from server-owned PVF, never from the request body. Old
+	// tickets without this field retain their fixed/random gain behaviour.
+	if target, found := doc.Section("private level target"); found {
+		if len(target) != 1 || target[0].Kind != dnfpvf.TokenInt || target[0].Int < 1 || target[0].Int > currentAdventureCharacterLevelCap {
+			return d, inventory.ErrLevelUpTicket
+		}
+		d.TargetLevel = int(target[0].Int)
+		if d.MinimumLevel < 1 || d.MaximumLevel >= d.TargetLevel {
+			return d, inventory.ErrLevelUpTicket
+		}
+		attach, ok := doc.Section("attach type")
+		if !ok || len(attach) != 1 || attach[0].Value != "[account]" {
+			return d, inventory.ErrLevelUpTicket
+		}
+		// Reject ambiguous target configuration instead of trusting whichever
+		// duplicate field the parser happens to return first.
+		for _, field := range []string{"private level target", "stackable type", "action type", "attach type", "levelup range", "minimum level", "maximum level"} {
+			count := 0
+			for _, section := range doc.Sections {
+				if strings.EqualFold(strings.TrimSpace(section.Name), field) {
+					count++
+				}
+			}
+			if count != 1 {
+				return d, inventory.ErrLevelUpTicket
+			}
+		}
+		if _, found := doc.Section("booster info"); found {
+			return d, inventory.ErrLevelUpTicket
+		}
 	}
 	d.Jobs = doc.Texts("usable job")
 	if len(d.Jobs) == 0 {

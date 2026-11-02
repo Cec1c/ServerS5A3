@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "passed": true,
+  "classification": "群服内容",
+  "baseline": {
+    "sha256": "95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c",
+    "bytes": 126018482
+  },
+  "tool": {
+    "name": "PVF-CLI pvf.exe",
+    "sha256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+    "bytes": 4681728,
+    "patch_schema": 2
+  },
+  "plan": {
+    "file": "item-text.schema2.json",
+    "sha256": "4566d81f3f752583c815707b47665824bdee9c080e455889ad7e6576d2eacf78",
+    "bytes": 15309
+  },
+  "candidate": {
+    "sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+    "bytes": 126018619
+  },
+  "changes": [
+    {
+      "path": "stackable/cash/chn_490701733.stk",
+      "token_index": 1,
+      "text": "黄金汪新春礼盒"
+    },
+    {
+      "path": "stackable/cash/chn_490701733.stk",
+      "token_index": 3,
+      "text": "开启后，将从新春爆竹奖励池中随机获得1份道具。"
+    },
+    {
+      "path": "stackable/10151001/10151892.stk",
+      "token_index": 3,
+      "text": "使用后，可对Lv1~90的装备进行一次便携增幅；只能在城镇或赛丽亚房间使用。"
+    },
+    {
+      "path": "stackable/private_aiken_exchange/990031101.stk",
+      "token_index": 3,
+      "text": "使用后，可对Lv1~90的装备进行一次便携增幅，并消耗5个塔尔玛的象征；只能在城镇或赛丽亚房间使用。"
+    }
+  ],
+  "verification": {
+    "changed_entries": 3,
+    "changed_text_tokens": 4,
+    "preserved_non_target_tokens": 194,
+    "appended_strings": 4,
+    "unchanged_entries_verified": 1126435,
+    "only_three_existing_entries_changed": true,
+    "all_entry_identities_verified": true,
+    "old_string_pool_prefix_preserved": true,
+    "encrypted_untouched_groups_verified": true,
+    "no_new_paths": true,
+    "token_documents_fully_read_back": true,
+    "text_documents_fully_read_back": true,
+    "independent_verify_receipt_matches_patch_receipt": true
+  },
+  "token_readback": [
+    {
+      "path": "stackable/cash/chn_490701733.stk",
+      "token_count": 122,
+      "changed_token_indices": [1, 3]
+    },
+    {
+      "path": "stackable/10151001/10151892.stk",
+      "token_count": 36,
+      "changed_token_indices": [3]
+    },
+    {
+      "path": "stackable/private_aiken_exchange/990031101.stk",
+      "token_count": 40,
+      "changed_token_indices": [3]
+    }
+  ],
+  "scope": {
+    "deployed": false,
+    "published": false,
+    "index_built": false,
+    "game_acceptance": false
+  }
+}

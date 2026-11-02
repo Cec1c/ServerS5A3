@@ -1,0 +1,223 @@
+{
+  "schema": 1,
+  "release": "resources-selected-20261102-item-text",
+  "resourceId": "selected-item-text-20261102-2e416c0b",
+  "classification": "public",
+  "authorization": {
+    "selected": [
+      "N02"
+    ],
+    "publicationScope": "N02 PVF and same-generation six GM indexes",
+    "deploymentAuthorized": false
+  },
+  "resourceIdentity": {
+    "pvf": {
+      "filename": "Script.pvf",
+      "bytes": 126018619,
+      "sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d"
+    },
+    "gmIndexSet": {
+      "count": 6,
+      "generationMatchesPvf": true,
+      "pvfBindingSha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+      "files": [
+        "pvf-directory.bin",
+        "items.json",
+        "item-details-v3-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+        "quests-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+        "professions-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+        "expert-jobs-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.json"
+      ]
+    }
+  },
+  "changeScope": {
+    "baselineRelease": "resources-selected-20261101",
+    "baselinePvf": {
+      "bytes": 126018482,
+      "sha256": "95147859374186dbeb99f998829a1c642f949e56942ac98be8b5af4492aefe1c",
+      "alreadyPublished": true
+    },
+    "currentPvf": {
+      "bytes": 126018619,
+      "sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d"
+    },
+    "changedEntries": 3,
+    "changedTextTokens": 4,
+    "changedItems": [
+      {
+        "itemId": 490701733,
+        "name": "黄金汪新春礼盒",
+        "pvfPath": "stackable/cash/chn_490701733.stk",
+        "changedTokens": [
+          "name",
+          "explain"
+        ]
+      },
+      {
+        "itemId": 10151892,
+        "name": "一次性增幅器 (Lv1~90)",
+        "pvfPath": "stackable/10151001/10151892.stk",
+        "changedTokens": [
+          "explain"
+        ]
+      },
+      {
+        "itemId": 990031101,
+        "name": "一次性增幅器 (Lv1~90)",
+        "pvfPath": "stackable/private_aiken_exchange/990031101.stk",
+        "changedTokens": [
+          "explain"
+        ]
+      }
+    ],
+    "unchangedPayload": "All other PVF entries and payload bits are unchanged. Quest, profession and expert-job index payloads are semantically equal; binary identities differ where the new PVF digest or directory addresses are embedded.",
+    "note": "The PVF is a cumulative data snapshot. This round adds only the three item-text entry changes and four changed text tokens described above."
+  },
+  "indexReuse": {
+    "reused": true,
+    "rebuilt": false,
+    "regenerated": false,
+    "sourceRecord": "Existing six-index generation receipt and independent verification record were read back and matched."
+  },
+  "verification": {
+    "sourceFilesRehashed": true,
+    "receiptsConsistent": true,
+    "independentVerificationPassed": true,
+    "independentRecordSha256": "b0cd470567be58b4e0b36e72451c36d68b69f2ee51f87b0c4cbbdbfb5f89795d",
+    "pvfDirectory": {
+      "format": "GMPVF001",
+      "entries": 1126438,
+      "files": 1126438,
+      "embeddedPvfBytes": 126018619,
+      "embeddedPvfSha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+      "tableChecksumOK": true,
+      "sizeEquationOK": true
+    },
+    "bindings": {
+      "itemDetails": true,
+      "quests": true,
+      "professions": true,
+      "itemsJson": true,
+      "expertJobs": true,
+      "pvfDirectory": true
+    },
+    "zipEntryHashesVerified": true
+  },
+  "payload": [
+    {
+      "archivePath": "Script.pvf",
+      "filename": "Script.pvf",
+      "kind": "pvf",
+      "package": "selected-item-text-20261102-pvf.zip",
+      "bytes": 126018619,
+      "sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d"
+    },
+    {
+      "archivePath": "pvf-directory.bin",
+      "filename": "pvf-directory.bin",
+      "kind": "gmIndex",
+      "format": "GMPVF001",
+      "package": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 72092160,
+      "sha256": "9bb30ad230eeda7e89bb6ebf873b50f9bc1e518bd9d5ca5776e3378954d57eec",
+      "pvfBindingVerified": true
+    },
+    {
+      "archivePath": "items.json",
+      "filename": "items.json",
+      "kind": "gmIndex",
+      "format": "items-json-v6",
+      "package": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 49656449,
+      "sha256": "7e8feb7ebdb05de5deed727310a38ca2f47cf0be75474b181a5cd51217cc1664",
+      "pvfBindingVerified": true
+    },
+    {
+      "archivePath": "item-details-v3-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+      "filename": "item-details-v3-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+      "kind": "gmIndex",
+      "format": "GMITEM02-v3",
+      "package": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 215072021,
+      "sha256": "f918e109d65740a5b9a4eab69b1b1058cea3b7c59eb5b593cbfebc28c7e4469e",
+      "pvfBindingVerified": true
+    },
+    {
+      "archivePath": "quests-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+      "filename": "quests-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+      "kind": "gmIndex",
+      "format": "GMQUEST1-v1",
+      "package": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 4263197,
+      "sha256": "615f355e7729fa814ccc638cb80533db36ce641b1e332d3dd46ded5d5f74e61d",
+      "pvfBindingVerified": true
+    },
+    {
+      "archivePath": "professions-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+      "filename": "professions-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+      "kind": "gmIndex",
+      "format": "GMPROF01-v1",
+      "package": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 415748,
+      "sha256": "70402a2a549ed73b8be8ed3908cb102a180f4a488744926a49aef9218b1fc2a5",
+      "pvfBindingVerified": true
+    },
+    {
+      "archivePath": "expert-jobs-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.json",
+      "filename": "expert-jobs-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.json",
+      "kind": "gmIndex",
+      "format": "expert-jobs-json-v1",
+      "package": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 1054,
+      "sha256": "2066e77a982378eb27de5a2faddf68b10fa25502efc55a7bb108b1b6c561f3ab",
+      "pvfBindingVerified": true
+    }
+  ],
+  "packages": [
+    {
+      "filename": "selected-item-text-20261102-pvf.zip",
+      "bytes": 106830703,
+      "sha256": "9fb8ea9fd26df0dd9bc03c012dbd96f7cf250067453d501c13face49c3cf51ae",
+      "entries": [
+        "Script.pvf"
+      ]
+    },
+    {
+      "filename": "selected-item-text-20261102-gm-indexes.zip",
+      "bytes": 263220345,
+      "sha256": "65bf8ec0e13fd3ffa92e278d4cb1be0626d8bd9ad5093162e1a842c93ef0c3e5",
+      "entries": [
+        "pvf-directory.bin",
+        "items.json",
+        "item-details-v3-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+        "quests-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+        "professions-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.bin",
+        "expert-jobs-v1-2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d.json"
+      ]
+    }
+  ],
+  "publicFiles": [
+    "selected-item-text-20261102-pvf.zip",
+    "selected-item-text-20261102-gm-indexes.zip",
+    "README.md",
+    "manifest.json",
+    "SHA256SUMS"
+  ],
+  "excluded": [
+    "source code",
+    "EXE and launcher",
+    "client NPK",
+    "channel table",
+    "deployment profile or address",
+    "logs and player data",
+    "credentials and signing keys",
+    "private history",
+    "private index-generation tools"
+  ],
+  "limitations": [
+    "The PVF is a cumulative data snapshot whose baseline was published in resources-selected-20261101.",
+    "This archive contains no new EXE, channel table or NPK.",
+    "Publishing these data files does not imply that every downstream server mechanism is public.",
+    "No deployment or game acceptance is performed by this package."
+  ]
+}

@@ -27,11 +27,13 @@ type LevelUpTicketDefinition struct {
 	ItemID                                  int64
 	PVFPath                                 string
 	MinimumLevel, MaximumLevel, MaximumGain int
-	Jobs                                    []string
-	Places                                  []string
-	CoolTimeMS                              int64
-	DisallowHardcore                        bool
-	Outcomes                                []LevelUpTicketOutcome
+	// TargetLevel is the private absolute target. Zero preserves native fixed/random gain.
+	TargetLevel      int
+	Jobs             []string
+	Places           []string
+	CoolTimeMS       int64
+	DisallowHardcore bool
+	Outcomes         []LevelUpTicketOutcome
 }
 type LevelUpTicketRequest struct {
 	AccountID, CharacterID string
@@ -68,6 +70,9 @@ func ApplyLevelUpTicket(ctx context.Context, g repo.Group, tables *progression.T
 	if g.CharacterSettlement == nil || tables == nil || catalog == nil || req.Revalidate == nil || req.CharacterID == "" || req.AccountID == "" || req.SlotIndex < 0 || now.IsZero() ||
 		req.LevelCap < 1 || req.LevelCap > math.MaxUint8 || d.ItemID <= 0 || d.ItemID > math.MaxUint32 || strings.TrimSpace(d.PVFPath) == "" || d.MaximumGain < 1 || d.MaximumGain > req.LevelCap ||
 		d.MinimumLevel < 0 || d.MaximumLevel < d.MinimumLevel || d.MaximumLevel >= req.LevelCap || d.CoolTimeMS < 0 || d.CoolTimeMS > math.MaxUint32 || len(d.Jobs) == 0 {
+		return LevelUpTicketResult{}, ErrLevelUpTicket
+	}
+	if d.TargetLevel != 0 && (d.TargetLevel < 1 || d.TargetLevel > req.LevelCap || d.MaximumLevel >= d.TargetLevel || d.MinimumLevel < 1 || len(d.Outcomes) != 0) {
 		return LevelUpTicketResult{}, ErrLevelUpTicket
 	}
 	var weight int64
@@ -164,6 +169,9 @@ func ApplyLevelUpTicket(ctx context.Context, g repo.Group, tables *progression.T
 			}
 		}
 		target := c.Level + levels
+		if d.TargetLevel != 0 {
+			target = d.TargetLevel
+		}
 		if target > req.LevelCap {
 			return fmt.Errorf("%w：升级目标%d超过上限", ErrLevelUpTicket, target)
 		}

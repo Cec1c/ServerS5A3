@@ -4,7 +4,7 @@
 
 在Windows x86 MSVC开发者命令提示符执行 `build.cmd`；也可把 `VCVARS32` 设置为安装的vcvars32.bat。输出是供静态集成的 `activity.payload`，不作为运行时DLL加载，编译过程不启动游戏。
 
-`skin_mapping.h` 仅含已授权NPK的帧号、尺寸、颜色和控件名；不包含内嵌位图。`layout.h` 是 `Activeness.xui` 的UTF-8嵌入数组。历史art003～009和无关图块未随本组件发布。两份NPK来源见仓库资源发布清单。
+`skin_mapping.h` 仅含已授权NPK的帧号、尺寸、颜色和控件名；不包含内嵌位图。`layout.h` 是 `Activeness.xui` 的UTF-8嵌入数组。经后续授权公开的历史活跃度帧映射及原始布局见 `../activeness-assets/`，无关图块不包含。两份NPK来源见仓库资源发布清单。
 
 `native_contract.h` 固定真实原生入口与HUD标识；`native-contract.json`记录匹配输入。宿主必须核验完整客户端身份、挂接调用约定、现有通知和累计代码。这里仅构建所选组件，不提供将整个私有混合payload覆盖到新EXE的脚本。钱包合计预检和七分之一费用实现未包含；禁止用此payload直接覆盖仍引用它们的旧节。
 
