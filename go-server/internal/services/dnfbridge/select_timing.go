@@ -11,6 +11,7 @@ type currentSelectTiming struct {
 	queue                                      time.Duration
 	identityRead, selectedRead, initialization time.Duration
 	batched                                    bool
+	projections                                [selectProjectionStageCount]time.Duration
 }
 
 type currentSelectLoadingTiming struct {
@@ -50,13 +51,14 @@ func (s *Service) finishSelectTiming(p *gameSession, timing *currentSelectTiming
 		// Reserve one correlated sample, without consuming the limiter first
 		// through generic stage logging. Failures share the same bounded rate.
 		if s.performance == nil || s.performance.admitSlowSample(perfSelectTotal, max(total, 300*time.Millisecond), time.Now()) {
-			s.logInfo("dnfbridge select character timing", "conn_id", p.connID, "char_id", p.selectedCharacterID,
+			args := []any{"conn_id", p.connID, "char_id", p.selectedCharacterID,
 				"request_started", timing.started.UTC().Format(time.RFC3339Nano), "queue_ms", timing.queue.Milliseconds(),
 				"resolve_ms", timing.resolve.Milliseconds(), "admission_ms", timing.admission.Milliseconds(),
 				"identity_read_ms", timing.identityRead.Milliseconds(), "selected_read_ms", timing.selectedRead.Milliseconds(),
 				"initialization_ms", timing.initialization.Milliseconds(), "batched", timing.batched,
 				"prepare_ms", timing.preparation.Milliseconds(), "ack_written", !written.IsZero(),
-				"ack_write_ms", selectElapsed(timing.started, written), "total_ms", total.Milliseconds(), "failed", err != nil)
+				"ack_write_ms", selectElapsed(timing.started, written), "total_ms", total.Milliseconds(), "failed", err != nil}
+			s.logInfo("dnfbridge select character timing", timing.appendProjectionLog(args)...)
 		}
 	}
 }

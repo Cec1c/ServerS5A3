@@ -466,74 +466,77 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 	peers := s.partyDungeonInstancePeers(runtime, selfCharacterID)
 	delivered := 0
 	for _, peer := range peers {
-		if peer.Session == nil {
+		identity, bound := s.boundGameSessionCharacterSnapshot(peer.Session)
+		if !bound || identity.character != peer.CharacterID {
 			continue
 		}
-		if err := s.sendGameUpperRawClass(
-			peer.Session,
-			uint16(dnfenum.CmdPacketNotifyDieMonster),
-			partyDungeonDeathBodyForRecipient(runtime, body, currentSceneActorObjectKey(peer.CharacterID)),
-			0,
-		); err != nil {
-			s.logGameEvent(session, "game-dungeon-party-instance-death-broadcast-failed",
-				"peer_char_id", peer.CharacterID,
-				"object_key", objectKey,
-				"error", err)
-			continue
+		// Own the projected bytes before returning to the killer. A recipient
+		// runs this on its own bounded queue, never under another owner's lock.
+		delivery := partyDungeonDeathDelivery{
+			identity: identity, scene: peer.Scene, room: runtime.Room,
+			instance: runtime.partyInstance, from: selfCharacterID, objectKey: objectKey,
+			body:   append([]byte(nil), partyDungeonDeathBodyForRecipient(runtime, body, currentSceneActorObjectKey(peer.CharacterID))...),
+			source: source,
 		}
-		delivered++
-		s.dispatchQuestMaterialPeer(peer.Session)
-		sceneCleared := false
-		sceneMarked := false
-		sceneMarkReason := "peer_scene_missing"
-		if peer.Scene != nil && objectKey != 0 {
-			cleared, markErr := peer.Scene.MarkHostileDefeated(objectKey)
-			switch {
-			case markErr == nil:
-				sceneMarked = true
-				sceneCleared = cleared
-				sceneMarkReason = "marked"
-			case errors.Is(markErr, worldmap.ErrHostileAlreadyDefeated):
-				sceneMarked = true
-				sceneMarkReason = "already_defeated"
-			case errors.Is(markErr, worldmap.ErrHostileNotBound):
-				// 队友那侧没有这个 object key：要么他还没宣告这间房（刚到图/在别的房间），
-				// 要么两边的房间对象不是同一份（key 序列分叉，见 partyDungeonSharedRoom）。
-				sceneMarkReason = "peer_scene_object_not_bound"
-			default:
-				sceneMarkReason = "peer_scene_mark_failed"
-				s.logGameEvent(session, "game-dungeon-party-instance-death-broadcast-failed",
-					"peer_char_id", peer.CharacterID,
-					"object_key", objectKey,
-					"reason", "peer_scene_mark_failed",
-					"error", markErr)
-			}
+		if s.postPartyDungeonDeath(delivery) {
+			delivered++ // queued for a live event loop; written in inline fixtures
 		}
-		if !sceneMarked && sceneMarkReason == "peer_scene_object_not_bound" {
-			s.logGameEvent(session, "game-dungeon-party-instance-death-broadcast-failed",
-				"peer_char_id", peer.CharacterID,
-				"object_key", objectKey,
-				"reason", sceneMarkReason,
-				"error", worldmap.ErrHostileNotBound)
-		}
-		if sceneCleared {
-			// 队友的副本场景因为这份权威死亡被清空了：结算链只在"自己会话里被接受的 op39"
-			// 上跑，所以必须替队友触发一次（否则只有击杀方会话会结算，队员通不了关）。
-			s.dispatchPartyDungeonPeerFinalRoomCompletion(peer.Session, runtime.partyInstance.id, objectKey)
-		}
-		s.logGameEvent(peer.Session, "game-dungeon-party-instance-death-broadcast",
-			"source", source,
-			"instance_id", runtime.partyInstance.id,
-			"object_key", objectKey,
-			"from_char_id", selfCharacterID,
-			"to_char_id", peer.CharacterID,
-			"peer_scene_marked", sceneMarked,
-			"peer_scene_mark_reason", sceneMarkReason,
-			"peer_room_cleared", sceneCleared,
-			"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),
-			"body_len", len(body))
 	}
 	return delivered
+}
+
+// The caller owns this recipient's dungeon lock. The immutable delivery is
+// checked again by deliverPartyDungeonDeath before reaching the transport.
+func (s *Service) applyPartyDungeonDeath(delivery partyDungeonDeathDelivery) (bool, error) {
+	peer := delivery.identity.session
+	if err := s.sendGameUpperRawClass(peer, uint16(dnfenum.CmdPacketNotifyDieMonster), delivery.body, 0); err != nil {
+		return false, err
+	}
+	sceneCleared := false
+	sceneMarked := false
+	sceneMarkReason := "peer_scene_missing"
+	if delivery.scene != nil && delivery.objectKey != 0 {
+		cleared, markErr := delivery.scene.MarkHostileDefeated(delivery.objectKey)
+		switch {
+		case markErr == nil:
+			sceneMarked = true
+			sceneCleared = cleared
+			sceneMarkReason = "marked"
+		case errors.Is(markErr, worldmap.ErrHostileAlreadyDefeated):
+			sceneMarked = true
+			sceneMarkReason = "already_defeated"
+		case errors.Is(markErr, worldmap.ErrHostileNotBound):
+			// 队友那侧没有这个 object key：要么他还没宣告这间房（刚到图/在别的房间），
+			// 要么两边的房间对象不是同一份（key 序列分叉，见 partyDungeonSharedRoom）。
+			sceneMarkReason = "peer_scene_object_not_bound"
+		default:
+			sceneMarkReason = "peer_scene_mark_failed"
+			s.logGameEvent(peer, "game-dungeon-party-instance-death-broadcast-failed",
+				"peer_char_id", delivery.identity.character,
+				"object_key", delivery.objectKey,
+				"reason", "peer_scene_mark_failed",
+				"error", markErr)
+		}
+	}
+	if !sceneMarked && sceneMarkReason == "peer_scene_object_not_bound" {
+		s.logGameEvent(peer, "game-dungeon-party-instance-death-broadcast-failed",
+			"peer_char_id", delivery.identity.character,
+			"object_key", delivery.objectKey,
+			"reason", sceneMarkReason,
+			"error", worldmap.ErrHostileNotBound)
+	}
+	s.logGameEvent(peer, "game-dungeon-party-instance-death-broadcast",
+		"source", delivery.source,
+		"instance_id", delivery.instance.id,
+		"object_key", delivery.objectKey,
+		"from_char_id", delivery.from,
+		"to_char_id", delivery.identity.character,
+		"peer_scene_marked", sceneMarked,
+		"peer_scene_mark_reason", sceneMarkReason,
+		"peer_room_cleared", sceneCleared,
+		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),
+		"body_len", len(delivery.body))
+	return sceneCleared, nil
 }
 
 // dispatchPartyDungeonPeerFinalRoomCompletion 在队友自己的事件循环里跑一次"最终房间完成"。

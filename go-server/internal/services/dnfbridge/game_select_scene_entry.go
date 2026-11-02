@@ -314,13 +314,15 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 		if packet.kind == "select_ack" {
 			// Clear an old/full-level role before constructing its scene; do not
 			// wait for the one-minute activity clock or reuse the previous role.
-			if err := s.sendCurrentLuckyCharacterState(session); err != nil {
+			if err := timing.measureProjection(selectProjectionLucky, func() error { return s.sendCurrentLuckyCharacterState(session) }); err != nil {
 				return err
 			}
-			if err := s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack"); err != nil {
+			if err := timing.measureProjection(selectProjectionFatiguePotion, func() error {
+				return s.sendCurrentFatiguePotionUsageForCharacter(ctx, session, selectedCharacter, "select_character_after_ack")
+			}); err != nil {
 				return err
 			}
-			if err := s.sendCurrentEpicWishSnapshot(session, "select_character_after_ack"); err != nil {
+			if err := timing.measureProjection(selectProjectionEpicWish, func() error { return s.sendCurrentEpicWishSnapshot(session, "select_character_after_ack") }); err != nil {
 				return err
 			}
 			// 收集箱整组状态必须紧跟选角 ack：厂商 9.16 参考环境实测顺序是
@@ -329,7 +331,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			// 与厂商逐字节同序（见 collectbox_state.go）。开关关闭时本调用是
 			// 纯 no-op：不读 PVF、不写任何字节。
 			if collectboxInitValue(s.options.collectboxInit) == collectboxInitSelectAck {
-				if err := s.sendCurrentCollectboxInitialization(session, "select_character_after_ack", false); err != nil {
+				if err := timing.measureProjection(selectProjectionCollectbox, func() error {
+					return s.sendCurrentCollectboxInitialization(session, "select_character_after_ack", false)
+				}); err != nil {
 					return err
 				}
 			}
@@ -337,21 +341,25 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			// as it consumes the select ACK. Restore the durable permission snapshot
 			// before the later story/scene packets so an already-unlocked character
 			// does not need to re-enter the dungeon selector to see its maps.
-			if err := s.sendCurrentDungeonPermissionSnapshot(ctx, session, "select_character_after_ack_before_worldmap_scene"); err != nil {
+			if err := timing.measureProjection(selectProjectionPermission, func() error {
+				return s.sendCurrentDungeonPermissionSnapshot(ctx, session, "select_character_after_ack_before_worldmap_scene")
+			}); err != nil {
 				return err
 			}
 			// 先同步参与状态，再进入新手副本或城镇；不依赖在线时钟，也不在此发奖。
-			if err := s.sendCurrentLevelChallengeSelectedState(session); err != nil {
+			if err := timing.measureProjection(selectProjectionLevelChallenge, func() error { return s.sendCurrentLevelChallengeSelectedState(session) }); err != nil {
 				s.logGameEvent(session, "升级大挑战参与状态暂缓", "source", "select_character_after_ack", "error", err)
 			}
 			// Current EXE sub_11DBE40 consumes class0/op1378 raw u32 before
 			// the selected scene is finalized. Send the durable per-character
 			// story-summary level immediately after the select ACK, before the
 			// tutorial/town route can emit any scene packet.
-			if err := s.sendCurrentStoryDigestLastLevel(session, selectedCharacter, hasSelectedCharacter, "select_character_after_ack_before_scene"); err != nil {
+			if err := timing.measureProjection(selectProjectionStoryDigest, func() error {
+				return s.sendCurrentStoryDigestLastLevel(session, selectedCharacter, hasSelectedCharacter, "select_character_after_ack_before_scene")
+			}); err != nil {
 				return err
 			}
-			if err := s.sendCurrentAccountNoticeProgress(ctx, session); err != nil {
+			if err := timing.measureProjection(selectProjectionAccountNotice, func() error { return s.sendCurrentAccountNoticeProgress(ctx, session) }); err != nil {
 				return err
 			}
 			startsInTutorial := selectedCharacterStartsInTutorial(selectedCharacter, hasSelectedCharacter)
@@ -388,16 +396,20 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 							"error", optionErr)
 					}
 				}
-				if err := s.sendEnterSelectDungeonState(session, "select_character_after_ack_15", false, false); err != nil {
+				if err := timing.measureProjection(selectProjectionTutorial, func() error {
+					return s.sendEnterSelectDungeonState(session, "select_character_after_ack_15", false, false)
+				}); err != nil {
 					return err
 				}
-				if err := s.sendCurrentSelectPreviewObjectState(ctx, session, charID, charName, selectedCharacter, hasSelectedCharacter, "select_character_after_scene_gate_op15"); err != nil {
+				if err := timing.measureProjection(selectProjectionTutorial, func() error {
+					return s.sendCurrentSelectPreviewObjectState(ctx, session, charID, charName, selectedCharacter, hasSelectedCharacter, "select_character_after_scene_gate_op15")
+				}); err != nil {
 					return err
 				}
 			} else {
 				s.armCurrentInitialTownRoute(session, charID)
 				if returnSelectTownReentryPending(session) {
-					if err := s.resumeCurrentInitialTownRouteAfterReturnSelect(session); err != nil {
+					if err := timing.measureProjection(selectProjectionTownReentry, func() error { return s.resumeCurrentInitialTownRouteAfterReturnSelect(session) }); err != nil {
 						return err
 					}
 				} else {
@@ -411,11 +423,11 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			}
 		}
 	}
-	if err := s.sendCurrentAccountWallet(session, true); err != nil {
+	if err := timing.measureProjection(selectProjectionWallet, func() error { return s.sendCurrentAccountWallet(session, true) }); err != nil {
 		s.logGameEvent(session, "选角账号钱包显示刷新暂缓", "error", err)
 	}
 	if session.channelReconnect {
-		return s.sendCurrentChannelReconnectTownEntry(session)
+		return timing.measureProjection(selectProjectionReconnect, func() error { return s.sendCurrentChannelReconnectTownEntry(session) })
 	}
 	session.sceneBootstrapTailDeferred = true
 	session.sceneBootstrapTailSent = false
