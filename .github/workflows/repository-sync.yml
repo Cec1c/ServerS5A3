@@ -1,47 +1,28 @@
 name: Repository sync
-
 on:
+  push:
+    branches: [master]
   schedule:
     - cron: '7 * * * *'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: repository-sync-master
   cancel-in-progress: false
-
 jobs:
   synchronize:
-    if: vars.GITGUD_UPSTREAM_REPOSITORY != ''
+    if: github.repository == 'Cec1c/ServerS5A3' && vars.GITGUD_MIRROR_REPOSITORY != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Prepare GitHub mirror-only SSH identity
+      - name: Fast-forward the asynchronous GitGud mirror
         env:
-          SYNC_KEY: ${{ secrets.SOURCE_MIRROR_SSH_KEY }}
-          SYNC_HOSTS: ${{ secrets.SOURCE_MIRROR_KNOWN_HOSTS }}
+          GITGUD_MIRROR_TOKEN: ${{ secrets.GITGUD_SOURCE_MIRROR_TOKEN }}
+          MIRROR: ${{ vars.GITGUD_MIRROR_REPOSITORY }}
         run: |
-          set -eu
-          test -n "$SYNC_KEY"
-          test -n "$SYNC_HOSTS"
-          install -d -m 700 "$RUNNER_TEMP/github-mirror-ssh"
-          printf '%s\n' "$SYNC_KEY" > "$RUNNER_TEMP/github-mirror-ssh/key"
-          printf '%s\n' "$SYNC_HOSTS" > "$RUNNER_TEMP/github-mirror-ssh/known_hosts"
-          chmod 600 "$RUNNER_TEMP/github-mirror-ssh/key"
-          echo "GIT_SSH_COMMAND=ssh -i $RUNNER_TEMP/github-mirror-ssh/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-mirror-ssh/known_hosts" >> "$GITHUB_ENV"
-      - name: Fast-forward GitHub to authoritative GitGud master
-        env:
-          GH_REPOSITORY: ${{ github.repository }}
-          UPSTREAM: ${{ vars.GITGUD_UPSTREAM_REPOSITORY }}
-        run: |
-          python3 scripts/ci/sync_repositories.py \
-            --github "git@github.com:$GH_REPOSITORY.git" \
-            --upstream "$UPSTREAM" --apply
-      - name: Remove temporary identity
-        if: always()
-        run: rm -f "$RUNNER_TEMP/github-mirror-ssh/key"
+          test -n "$GITGUD_MIRROR_TOKEN"
+          python3 scripts/ci/sync_repositories.py --github "https://github.com/${{ github.repository }}.git" --gitgud "$MIRROR" --apply

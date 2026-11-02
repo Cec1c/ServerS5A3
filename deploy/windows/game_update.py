@@ -20,7 +20,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 WORKER = ROOT / "deploy/remote/game_update.py"
 SSH_OPTIONS = ["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]
-AUTHORITATIVE_URL = "https://gitgud.io/16ww/servers5a3.git"
+AUTHORITATIVE_URL = "https://github.com/Cec1c/ServerS5A3.git"
 RUNTIME_CHANNEL_TARGET = "runtime/docker/data/channel.override.etc"
 RUNTIME_CHANNEL_CONTAINER = "/runtime/data/dnf/channel.override.etc"
 RUNTIME_CHANNEL_FILE = "channel.override.etc"
@@ -430,8 +430,8 @@ class Update:
                 if digest(Path(entry["path"])) != entry["sha256"]:
                     raise ValueError("Emergency validation evidence changed: " + entry["path"])
             results = json.loads(Path(e["validationResults"]).read_text(encoding="utf-8-sig"))
-            required = {"list", "domain", "bridge", "control", "vet", "windows", "linux"}
-            if {x["stage"] for x in results} != required or any(x["exitCode"] != 0 for x in results):
+            required = {"list", "domain", "bridge", "control", "vet", "linux"}
+            if {x["stage"] for x in results} - {"windows"} != required or any(x["exitCode"] != 0 for x in results):
                 raise ValueError("Emergency requires the complete successful existing validation")
             evidence_paths = {str(Path(x["path"]).resolve()) for x in e["evidenceFiles"]}
             if str(Path(e["validationResults"]).resolve()) not in evidence_paths:
@@ -462,35 +462,27 @@ class Update:
         env = os.environ.copy(); env.pop("DNFBRIDGE_PLAYER_TEST_DSN", None)
         env.pop("GOOS", None); env.pop("GOARCH", None); env.pop("GOFLAGS", None)
         env.pop("DNFBRIDGE_REAL_PVF_SMOKE", None)
-        commands = [
-            ["go", "version"], ["go", "list", "-buildvcs=false", "./..."],
-            ["go", "test", "-buildvcs=false", "-count=1", "./internal/modules/dnf/..."],
-            ["go", "test", "-buildvcs=false", "-count=1", "./internal/services/dnfbridge"],
-            ["go", "test", "-buildvcs=false", "-count=1", "./cmd/server/control"],
-            ["go", "vet", "./cmd/server/control", "./cmd/server/dnf90", "./cmd/server/doctor", "./internal/app/dnf90", "./internal/services/dnfbridge"],
-        ]
-        if os.name == "nt":
-            commands.append(["go", "build", "-buildvcs=false", "-o", str(self.stage / "DNF90Server.exe"), "./cmd/server/dnf90"])
+        pinned = source_state(source)
+        commands = [["go", "version"], ["go", "mod", "verify"]]
+        timings = []
         for index, command in enumerate(commands):
-            print("Validate:", " ".join(command), flush=True)
-            with (self.stage / ("check-" + str(index) + ".log")).open("wb") as log:
-                subprocess.run(command, cwd=source / "go-server", env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-        pvf_commands = self.profile.get("real_pvf_commands", [])
-        if pvf_commands:
-            path = Path(self.profile["pvf_file"].format(root=str(ROOT)))
-            before = json.loads((self.stage / "runtime-before.json").read_text())
-            if digest(path) != before["pvfSha256"]: raise ValueError("Test PVF differs from the running server")
-            env["DNFBRIDGE_REAL_PVF_SMOKE"] = str(path)
-            for index, command in enumerate(pvf_commands):
-                with (self.stage / ("pvf-" + str(index) + ".log")).open("wb") as log:
-                    subprocess.run(command, cwd=source / "go-server", env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-            env.pop("DNFBRIDGE_REAL_PVF_SMOKE")
+            with (self.stage / ("build-input-" + str(index) + ".log")).open("wb") as log:
+                subprocess.run(command, cwd=source / "go-server", env=env,
+                               stdout=log, stderr=subprocess.STDOUT, check=True)
         env["GOFLAGS"] = "-tags=timetzdata"
-        command = ["cmd", "/c", "build.bat", "linux", "amd64"] if os.name == "nt" else ["sh", "build.sh", "linux", "amd64"]
+        command = (["cmd", "/c", "build.bat", "linux", "amd64", "server"] if os.name == "nt"
+                   else ["sh", "build.sh", "linux", "amd64", "server"])
         with (self.stage / "linux-build.log").open("wb") as log:
             subprocess.run(command, cwd=source, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-        save(self.stage / "validation.json", {"sourceCommit": git(source, "rev-parse", "HEAD"),
-             "commands": commands + pvf_commands + [command], "passed": True, "databaseDSNConfigured": False})
+        if source_state(source) != pinned:
+            raise ValueError("Source changed during build")
+        save(self.stage / "validation.json", {
+            "sourceCommit": git(source, "rev-parse", "HEAD"), "mode": "linux-build-only",
+            "commands": commands + [command], "passed": True, "testsExecuted": False,
+            "testEvidence": {"reused": False, "executed": False,
+                             "reason": "contribution checks are not repeated during deployment"},
+            "databaseDSNConfigured": False, "artifactsRebuilt": True,
+            "freshBuildTimings": timings})
 
     def package(self, source, snapshot, changed):
         import shutil

@@ -15,6 +15,9 @@
 </div>
 
 > [!IMPORTANT]
+> **公开源码与贡献入口已迁至 [GitHub Cec1c/ServerS5A3](https://github.com/Cec1c/ServerS5A3)。新修复请提交 [GitHub PR](https://github.com/Cec1c/ServerS5A3/pulls)。** GitGud 仅为异步镜像；服务端 CI 只验证 Linux。开发机与 Agent 请按 [迁移交接](Docs/GITHUB_AUTHORITY_MIGRATION.md) 更新规则。
+
+> [!IMPORTANT]
 > **先选对频道表，再启动服务。** 首次 `prepare` 必须显式传入 `--channel-info`，使用[完整的 120 频道外部 ETC](go-server/internal/services/dnfbridge/testdata/channel_info.etc)，并按[频道表部署说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾出现能解析、却无法完成登录的情况；更新 PVF 时保留已选外部表，部署后核对实际加载路径、摘要和频道目录。
 
 ## 当前活动开放说明

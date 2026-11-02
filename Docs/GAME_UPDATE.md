@@ -1,5 +1,7 @@
 # 游戏服务更新入口
 
+自 2026-11-02 起，部署准备只执行依赖校验和最新权威源码的正式 Linux server 构建，记录 `mode=linux-build-only`、`testsExecuted=false`；不重复贡献阶段 Go test/vet、Windows 构建或真实 PVF 回归。旧全文中完整验证/缓存门禁的描述不再用于 prepare。实际 pull、备份、批准、切换和程序/健康读回继续保留。源码权威及迁移见 [GitHub 权威迁移](GITHUB_AUTHORITY_MIGRATION.md)。
+
 后续 agent 收到已授权的游戏服务更新任务时，直接使用根目录 `GAME_UPDATE_REMOTE.bat`。用户不需要手动执行。Windows 控制器为 `deploy/windows/game_update.py`，Linux worker 为 `deploy/remote/game_update.py`，每次经 SSH 标准输入执行并保存版本回执，不另写临时替换脚本。
 
 这条流程更新已配置的远端 Docker 实例的游戏二进制，保留 GM、数据库、玩家数据、PVF、频道与登录器。需要更新客户端或内容时，先完成 [CLIENT_RELEASE_SYNC.md](CLIENT_RELEASE_SYNC.md) 的 Release、实际玩家通道和摘要核验，再执行依赖它们的游戏更新。Git 提交、推送及 PR/MR 仍按 [REPOSITORY_SYNC.md](REPOSITORY_SYNC.md) 单独处理。
@@ -16,7 +18,7 @@
 
 ## Agent 执行顺序
 
-**每次新部署强制当场拉取权威主干。** 控制器在本次 run 的独立干净目录执行 `git pull --ff-only --no-rebase https://gitgud.io/16ww/servers5a3.git master`，核对远端 master 读回；常规部署要求该提交是候选的祖先，不读取历史回执授权部署。共享脏工作树保持原状。Windows 的独立拉取目录设置仓库级 `core.longpaths=true`，不修改全局 Git 配置。
+**每次新部署强制当场拉取权威主干。** 控制器在本次 run 的独立干净目录执行 `git pull --ff-only --no-rebase https://github.com/Cec1c/ServerS5A3.git master`，核对远端 master 读回；常规部署要求该提交是候选的祖先，不读取历史回执授权部署。共享脏工作树保持原状。Windows 的独立拉取目录设置仓库级 `core.longpaths=true`，不修改全局 Git 配置。
 
 首次验证前、打包前、上传前及远端 prepare/generate/deploy 各阶段都重新 pull。每次保存来源、分支、执行时间、拉取前后 SHA、候选 SHA 与本次随机运行标识。拉取失败、分叉、缺少主干或验证期间主干变化，均停止当前 run；集成并重新验证后使用新 run ID。源码 manifest 的 upstream 来自本次成功拉取，不再继承旧部署清单。
 
