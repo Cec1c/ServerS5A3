@@ -273,6 +273,7 @@ func TestPrivateCapsule012CandidateRealPVFDispatch(t *testing.T) {
 				var ops []uint16
 				var actors [][]byte
 				var state []byte
+				var buffs [][]byte
 				for len(rest) > 0 {
 					packet, next := splitCurrentGameServerUpperPacketAuto(t, rest)
 					rest = next
@@ -280,13 +281,20 @@ func TestPrivateCapsule012CandidateRealPVFDispatch(t *testing.T) {
 					if packet.Header.MsgID == 2 {
 						actors = append(actors, packet.Body)
 					}
+					if packet.Header.MsgID == 1368 {
+						if packet.Header.Classification != 0 {
+							t.Fatal("Buff snapshot must be a notification")
+						}
+						buffs = append(buffs, packet.Body)
+					}
 					if packet.Header.MsgID == 37 {
 						state = packet.Body
 					}
 				}
-				if len(ops) < 5 || !reflect.DeepEqual(ops[:5], []uint16{14, 2, 2, 37, 19}) {
+				if len(ops) < 6 || !reflect.DeepEqual(ops[:6], []uint16{14, 2, 2, 1368, 37, 19}) {
 					t.Fatal("native refresh sequence mismatch", ops)
 				}
+				assertLevelUpTicketEmptyBuffSnapshot(t, buffs)
 				assertLevelUpTicketActorSnapshots(t, s, p, c, actors)
 				if len(state) < 17 || state[0] != 90 || binary.LittleEndian.Uint32(state[1:]) != target || int(binary.LittleEndian.Uint16(state[9:])) != skill.Points.RemainingSP || int(binary.LittleEndian.Uint16(state[11:])) != skill.Points.RemainingSP || int(binary.LittleEndian.Uint16(state[13:])) != skill.Points.RemainingTP || int(binary.LittleEndian.Uint16(state[15:])) != skill.Points.RemainingTP {
 					t.Fatal("op37 EXP/level mismatch", state)
