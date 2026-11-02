@@ -176,6 +176,7 @@ func (s *Service) clearDepartedGuildSession(ctx context.Context, removed dnfguil
 		}
 	}
 	session.guild.mu.Lock()
+	clearCurrentGuildPresenceRefreshLocked(session)
 	session.guild.pendingName, session.guild.promotion = "", ""
 	session.guild.nameChecked, session.guild.createCommitted, session.guild.memberListRequested = false, false, false
 	session.guild.lastCreate, session.guild.soloOperationID = nil, ""

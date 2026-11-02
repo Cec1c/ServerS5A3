@@ -26,6 +26,7 @@ type gameSession struct {
 	battlePassPush          *gameBattlePassPushState
 	battlePassEntry         gameBattlePassState
 	launcherDiagnostic      *launcherDiagnosticBinding // serial event owner
+	partyDeaths             partyDungeonDeathQueue     // bounded, separately locked delivery mailbox
 	launcherCharacterID     uint16                     // serial event owner; verified selection only
 	launcherCharacterName   string                     // never updated by peer profile reads
 	// Written and read only by this session's serial event owner.

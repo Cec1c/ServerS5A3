@@ -151,6 +151,7 @@ func (s *Service) allocateGameSessionCharacterGenerationLocked(session *gameSess
 		next++
 	}
 	s.nextGameSessionGeneration = next
+	resetCurrentGuildPresenceRefresh(session, false)
 	session.characterGeneration = next
 	return next
 }

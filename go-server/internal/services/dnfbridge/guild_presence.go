@@ -94,19 +94,6 @@ func (s *Service) queueCurrentGuildPresenceRefresh(ctx context.Context, guildID 
 		if !online {
 			continue
 		}
-		err = s.tryPostGameSessionCharacterEvent(peer.session, "guild-presence-refresh", peer.character, peer.generation, func() error {
-			ctx, cancel := s.currentGuildContext()
-			defer cancel()
-			for _, notice := range []bool{true, false} {
-				if err := s.refreshCurrentGuildTextPeer(ctx, guildID, peer, boundGameSessionCharacter{}, notice); err != nil {
-					s.logGameEvent(peer.session, "game-guild-presence-refresh-deferred", "error", err)
-					return nil
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			s.logGameEvent(peer.session, "game-guild-presence-refresh-deferred", "error", err)
-		}
+		s.requestCurrentGuildPresenceRefresh(peer, guildID)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	guild "longheng.io/server/internal/modules/dnf/guild"
-	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 const currentGuildHongbaoListOpcode uint16 = 1300
@@ -47,63 +46,16 @@ func (s *Service) handleCurrentGuildHongbaoQuery(session *gameSession, op uint16
 		return nil
 	}
 	defer release()
-	repos, ok := s.repositoryGroup()
-	if !ok || repos.Guild == nil {
-		return fail()
-	}
-	var members []guild.Member
-	owner := repo.GuildOwner{CharacterID: strconv.Itoa(int(source.character)), AccountID: s.accountIDForSession(session)}
-	// The read uses the same guild lock as edits, but never saves or grants.
-	err = repos.Guild.WithinGuild(ctx, []repo.GuildOwner{owner}, func(tx repo.Group) error {
-		if !s.boundGameSessionCharacterCurrent(source) {
-			return guild.ErrCharacterNotFound
-		}
-		actor, found, e := tx.Character.Load(ctx, owner.CharacterID)
-		if e != nil {
-			return e
-		}
-		if !found || actor.CharacterID != owner.CharacterID || actor.AccountID != owner.AccountID {
-			return guild.ErrCharacterNotFound
-		}
-		r, e := guild.Load(ctx, tx.Settings)
-		if e != nil {
-			return e
-		}
-		g, _, found := r.GuildForOwner(owner)
-		if !found {
-			return guild.ErrNotMember
-		}
-		members = guild.SortedMembers(g)
-		if op == currentGuildHongbaoPointsOpcode {
-			members, e = guild.HongbaoContributionMembers(ctx, tx.Settings, g)
-			return e
-		}
-		return nil
-	})
+	g, err := s.readCurrentGuildDisplay(ctx, source, op == currentGuildHongbaoPointsOpcode, true)
 	if !s.boundGameSessionCharacterCurrent(source) {
 		return nil
 	}
-	if err != nil {
+	if err != nil || g == nil {
 		return fail()
 	}
+	members := guild.SortedMembers(g)
 	var response []byte
 	if op == currentGuildHongbaoPointsOpcode {
-		// Membership stores the profile observed when joining. Project current
-		// character data after releasing the guild transaction: its character
-		// scope only contains the requester, not every listed member.
-		current := members[:0]
-		for _, member := range members {
-			character, found, e := repos.Character.Load(ctx, member.CharacterID)
-			if e != nil {
-				return fail()
-			}
-			if !found || character.CharacterID != member.CharacterID || character.AccountID != member.AccountID || character.Stats["delete_flag"] != 0 {
-				continue
-			}
-			member.Name, member.Level = character.Name, character.Level
-			current = append(current, member)
-		}
-		members = current
 		response, err = buildCurrentGuildHongbaoPointsBody(members)
 		if err != nil {
 			return fail()

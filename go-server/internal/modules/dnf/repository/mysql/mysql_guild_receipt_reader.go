@@ -15,8 +15,9 @@ func (s *mysqlSettingsStore) WalkGuildSettlementReceipts(ctx context.Context, gu
 	for shard, database := range s.router.writeDBs {
 		settings := mysqlTable(database, s.router.tablePrefix, mysqlSettingsTable)
 		values := mysqlTable(database, s.router.tablePrefix, mysqlSettingValuesTable)
-		// No FOR UPDATE: the caller holds the guild registry lock and receipts
-		// are immutable. The prefix limits the scan to dungeon settlements.
+		// No FOR UPDATE: callers use a consistent read snapshot (or the legacy
+		// guild transaction), and receipts are immutable. Startup backfill only;
+		// initialized membership counters keep this scan out of display queries.
 		query := "SELECT s.scope, s.updated_at, v.entry_value FROM " + settings + " s JOIN " + values + " v ON v.scope = s.scope AND v.entry_key = ? WHERE s.scope LIKE ? AND CASE WHEN JSON_VALID(v.entry_value) THEN JSON_EXTRACT(v.entry_value, '$.GuildDungeon.GuildID') ELSE ? END = ?"
 		args := []any{"receipt", "guild-clear:v1:%", guildID, guildID}
 		if !since.IsZero() {

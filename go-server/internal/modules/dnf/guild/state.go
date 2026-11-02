@@ -118,9 +118,12 @@ type Member struct {
 	// ContributionPoints is the 公会贡献度 total the guild keeps for this
 	// member (红包 / 贡献币发放 read it). It is separate from Mileage, which is
 	// the guild's own 里程 pool.
-	ContributionPoints uint32    `json:"contribution_points,omitempty"`
-	JoinedAt           time.Time `json:"joined_at"`
-	AttendedAt         time.Time `json:"attended_at,omitempty"`
+	ContributionPoints uint32 `json:"contribution_points,omitempty"`
+	// Nil denotes a legacy membership awaiting startup receipt backfill.
+	// The counter is updated in the same transaction as the dungeon receipt.
+	DungeonContributionPoints *uint32   `json:"dungeon_contribution_points,omitempty"`
+	JoinedAt                  time.Time `json:"joined_at"`
+	AttendedAt                time.Time `json:"attended_at,omitempty"`
 	// ChatAt is the last 公会聊天 contribution grant; the rule is once per
 	// local day (help text 76515 进行公会聊天， 可以获得2点公会贡献。).
 	ChatAt time.Time `json:"chat_at,omitempty"`
@@ -379,16 +382,17 @@ func (r *Registry) Create(character dnfrepo.CharacterRecord, name string, now ti
 	}
 	r.NextID = id + 1
 	member := Member{
-		ServerGroup: group,
-		CharacterID: character.CharacterID,
-		AccountID:   character.AccountID,
-		Name:        character.Name,
-		Job:         character.Job,
-		GrowType:    memberGrowType(character),
-		Level:       character.Level,
-		Grade:       DefaultMasterGrade,
-		JoinedAt:    now,
-		AttendedAt:  now,
+		DungeonContributionPoints: new(uint32),
+		ServerGroup:               group,
+		CharacterID:               character.CharacterID,
+		AccountID:                 character.AccountID,
+		Name:                      character.Name,
+		Job:                       character.Job,
+		GrowType:                  memberGrowType(character),
+		Level:                     character.Level,
+		Grade:                     DefaultMasterGrade,
+		JoinedAt:                  now,
+		AttendedAt:                now,
 	}
 	guild := &Guild{
 		ID:                id,
@@ -504,16 +508,17 @@ func (r *Registry) JoinDirect(guildID uint32, character dnfrepo.CharacterRecord,
 		return Member{}, ErrMemberLimit
 	}
 	joined := Member{
-		ServerGroup: group,
-		CharacterID: character.CharacterID,
-		AccountID:   character.AccountID,
-		Name:        character.Name,
-		Job:         character.Job,
-		GrowType:    memberGrowType(character),
-		Level:       character.Level,
-		Grade:       DefaultMemberGrade,
-		JoinedAt:    now,
-		AttendedAt:  now,
+		DungeonContributionPoints: new(uint32),
+		ServerGroup:               group,
+		CharacterID:               character.CharacterID,
+		AccountID:                 character.AccountID,
+		Name:                      character.Name,
+		Job:                       character.Job,
+		GrowType:                  memberGrowType(character),
+		Level:                     character.Level,
+		Grade:                     DefaultMemberGrade,
+		JoinedAt:                  now,
+		AttendedAt:                now,
 	}
 	guild.Members[character.CharacterID] = joined
 	r.removeApplicationsForCharacter(character.CharacterID, now)
@@ -562,11 +567,12 @@ func (r *Registry) DecideApplication(guildID uint32, actorID, characterID string
 		return Member{}, ErrAlreadyMember
 	}
 	joined := Member{
-		ServerGroup: application.ServerGroup,
-		CharacterID: application.CharacterID,
-		AccountID:   application.AccountID,
-		Name:        application.Name,
-		Job:         application.Job,
+		DungeonContributionPoints: new(uint32),
+		ServerGroup:               application.ServerGroup,
+		CharacterID:               application.CharacterID,
+		AccountID:                 application.AccountID,
+		Name:                      application.Name,
+		Job:                       application.Job,
 		// Carry the advancement byte over from the application; without it a
 		// member who joined this way renders as their base class until the
 		// next member-list read reconciles it from the character repository.
@@ -708,6 +714,9 @@ func validateRegistry(r Registry) error {
 			return ErrInvalidRegistry
 		}
 		for key, m := range g.Members {
+			if m.DungeonContributionPoints != nil && *m.DungeonContributionPoints > m.ContributionPoints {
+				return ErrContributionState
+			}
 			if key == "" || m.CharacterID != key || m.AccountID == "" || members[key] || m.ServerGroup >= 250 {
 				return ErrInvalidRegistry
 			}

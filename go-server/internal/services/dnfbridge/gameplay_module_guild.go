@@ -66,6 +66,16 @@ func guildGameplayModule() gameplayModuleDefinition {
 			if session.selectedCharacterID == 0 && opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) {
 				return s.sendVendorGuildMemberListState(session, "guild_unselected")
 			}
+			// These display handlers validate the bound owner in the same read
+			// snapshot as membership and member identities. Avoid a redundant
+			// full character/asset read before that snapshot.
+			switch opcode {
+			case uint16(dnfenum.CmdPacketGuildMemerList), uint16(dnfenum.CmdPacketGuildMemerListNext),
+				uint16(dnfenum.CmdPacketGuildAllMemberList), uint16(dnfenum.CmdPacketGuildAllMemberListNext),
+				currentGuildHongbaoListOpcode, currentGuildHongbaoPointsOpcode:
+				s.logGameEvent(session, "game-guild-request", "opcode", opcode, "body_len", len(body))
+				return route(s, session, body)
+			}
 			if _, err := s.currentGuildOwnedSelectedCharacter(session); err != nil {
 				if opcode == currentGuildHongbaoListOpcode || opcode == currentGuildHongbaoPointsOpcode || opcode == currentGuildHongbaoHistoryOpcode {
 					return s.sendCurrentGuildHongbaoFailure(session, opcode)

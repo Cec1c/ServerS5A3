@@ -21,6 +21,7 @@ func TestGuildHongbaoPointsProjectsCurrentCharacterWithoutSaving(t *testing.T) {
 	}
 	m := reg.Guilds[1].Members["1"]
 	m.Level, m.Name, m.ContributionPoints, m.Mileage = 20, "旧角色名", 74, 999
+	m.DungeonContributionPoints = nil // Simulate a pre-projection membership and its historical receipt.
 	reg.Guilds[1].Members["1"] = m
 	if err := guild.Save(ctx, repos.Settings, reg, s.gameplayNow()); err != nil {
 		t.Fatal(err)
