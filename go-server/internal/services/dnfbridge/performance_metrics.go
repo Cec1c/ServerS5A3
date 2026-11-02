@@ -34,6 +34,11 @@ const (
 	perfSelectTotal
 	perfSelectAck
 	perfSelectLoadingReport
+	perfGuildRegistryRead
+	perfGuildMemberSummaryRead
+	perfGuildProjectionBuild
+	perfGuildRosterWrite
+	perfGuildRosterTotal
 	perfCount
 )
 
@@ -44,6 +49,8 @@ var bridgePerformanceNames = [perfCount]string{
 	"monster_enqueue_to_death", "guild_ranking", "guild_hongbao",
 	"select_queue", "select_resolve", "select_total", "select_ack_write",
 	"select_client_loading_report",
+	"guild_registry_read", "guild_member_summary_read", "guild_projection_build",
+	"guild_roster_write", "guild_roster_total",
 }
 var bridgePerformanceLimits = [...]time.Duration{5 * time.Millisecond, 10 * time.Millisecond, 25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, time.Second, 3 * time.Second}
 
@@ -54,9 +61,10 @@ type bridgePerformanceSeries struct {
 	buckets [len(bridgePerformanceLimits) + 1]atomic.Int64
 }
 type bridgePerformanceMetrics struct {
-	series    [perfCount]bridgePerformanceSeries
-	slowAfter [perfCount]atomic.Int64
-	slowEpoch time.Time
+	series      [perfCount]bridgePerformanceSeries
+	slowAfter   [perfCount]atomic.Int64
+	slowEpoch   time.Time
+	guildRoster [guildRosterCounterCount]atomic.Int64
 }
 
 func newBridgePerformanceMetrics(registry *metrics.Registry) *bridgePerformanceMetrics {
@@ -90,6 +98,9 @@ func (m *bridgePerformanceMetrics) record(stage int, duration time.Duration, fai
 	s.buckets[bucket].Add(1)
 }
 func (m *bridgePerformanceMetrics) observe(registry *metrics.Registry) {
+	for i, name := range guildRosterCounterNames {
+		registry.SetCounter("dnfbridge_guild_roster_total", map[string]string{"kind": name}, m.guildRoster[i].Load())
+	}
 	for i, name := range bridgePerformanceNames {
 		s := &m.series[i]
 		labels := map[string]string{"stage": name}

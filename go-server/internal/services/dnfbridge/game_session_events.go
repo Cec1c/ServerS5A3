@@ -64,6 +64,7 @@ type gameSessionEventTask struct {
 	characterGeneration uint64
 	async               bool
 	run                 func() error
+	discard             func()
 }
 
 func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSession) error {
@@ -94,6 +95,12 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 			if !ok || task.run == nil {
 				return eventloop.Result{Err: errInvalidGameSessionEvent}
 			}
+			ran := false
+			defer func() {
+				if !ran && task.discard != nil {
+					task.discard()
+				}
+			}()
 			if session.loginRevoked.Load() && task.source != "game-session-shutdown" {
 				if task.async {
 					return eventloop.Result{}
@@ -118,6 +125,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 					return eventloop.Result{}
 				}
 			}
+			ran = true
 			err := task.run()
 			if task.source != "game-session-shutdown" {
 				s.captureLauncherContext(session, false)
@@ -144,6 +152,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 }
 
 func (s *Service) beginGameSessionClose(session *gameSession) {
+	resetCurrentGuildPresenceRefresh(session, true)
 	session.stopGameTransport()
 	if session == nil || session.events == nil {
 		return
@@ -152,6 +161,7 @@ func (s *Service) beginGameSessionClose(session *gameSession) {
 }
 
 func (s *Service) stopGameSessionEvents(ctx context.Context, session *gameSession) error {
+	resetCurrentGuildPresenceRefresh(session, true)
 	if session == nil || session.events == nil || session.events.loop == nil {
 		return nil
 	}
@@ -242,6 +252,10 @@ func (s *Service) postGameSessionCharacterEvent(
 // tryPostGameSessionCharacterEvent never waits for queue capacity. Cross-session
 // fanout must not deadlock two owners when both destination queues are full.
 func (s *Service) tryPostGameSessionCharacterEvent(session *gameSession, source string, characterID uint16, generation uint64, run func() error) error {
+	return s.tryPostGameSessionCharacterEventWithDiscard(session, source, characterID, generation, run, nil)
+}
+
+func (s *Service) tryPostGameSessionCharacterEventWithDiscard(session *gameSession, source string, characterID uint16, generation uint64, run func() error, discard func()) error {
 	if session == nil || run == nil {
 		return errInvalidGameSessionEvent
 	}
@@ -257,7 +271,7 @@ func (s *Service) tryPostGameSessionCharacterEvent(session *gameSession, source 
 	}
 	return session.events.loop.Submit(eventloop.Event{
 		Type: source, Context: ctx, Priority: eventloop.PriorityMedium,
-		Data: gameSessionEventTask{source: source, characterID: characterID, characterGeneration: generation, async: true, run: run},
+		Data: gameSessionEventTask{source: source, characterID: characterID, characterGeneration: generation, async: true, run: run, discard: discard},
 	})
 }
 
@@ -335,6 +349,7 @@ func advanceGameSessionCharacterGeneration(session *gameSession) uint64 {
 	if session == nil {
 		return 0
 	}
+	resetCurrentGuildPresenceRefresh(session, false)
 	session.characterGeneration++
 	if session.characterGeneration == 0 {
 		session.characterGeneration++

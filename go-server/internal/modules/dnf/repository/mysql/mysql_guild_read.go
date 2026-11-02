@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"reflect"
 	"strings"
 
@@ -77,6 +78,8 @@ func (u *mysqlGuildUnitOfWork) CompareGuildRegistry(ctx context.Context, before,
 
 type mysqlGuildCharacters struct{ router mysqlRouter }
 
+const guildCharacterQueryBatchSize = 256
+
 func (s *mysqlGuildCharacters) LoadGuildCharacters(ctx context.Context, ids []string) (map[string]r.GuildCharacter, error) {
 	if len(ids) > 1000 || len(s.router.writeDBs) == 0 {
 		return nil, r.ErrGuildTransaction
@@ -88,7 +91,8 @@ func (s *mysqlGuildCharacters) LoadGuildCharacters(ctx context.Context, ids []st
 			return nil, r.ErrGuildTransaction
 		}
 		if !seen[id] {
-			groups[pickDatabase(id, len(groups))] = append(groups[pickDatabase(id, len(groups))], id)
+			shard := pickDatabase(id, len(groups))
+			groups[shard] = append(groups[shard], id)
 			seen[id] = true
 		}
 	}
@@ -105,34 +109,44 @@ func (s *mysqlGuildCharacters) LoadGuildCharacters(ctx context.Context, ids []st
 			fields = "COALESCE(g.stat_value, c.grow_type), COALESCE(d.stat_value, c.delete_flag)"
 			joins = " LEFT JOIN " + stats + " g ON g.character_id=c.character_id AND g.stat_key='grow_type' LEFT JOIN " + stats + " d ON d.character_id=c.character_id AND d.stat_key='delete_flag'"
 		}
-		query := "SELECT c.character_id, c.account_id, c.name, c.job, c.level, " + fields + " FROM " + table + " c" + joins + " WHERE c.character_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(group)), ",") + ")"
-		args := make([]any, len(group))
-		for i, id := range group {
-			args[i] = id
-		}
-		rows, err := s.router.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, err
-		}
-		err = func() error {
-			defer rows.Close()
-			for rows.Next() {
-				var c r.GuildCharacter
-				if err := rows.Scan(&c.CharacterID, &c.AccountID, &c.Name, &c.Job, &c.Level, &c.GrowType, &c.DeleteFlag); err != nil {
+		for start := 0; start < len(group); start += guildCharacterQueryBatchSize {
+			end := min(start+guildCharacterQueryBatchSize, len(group))
+			batchIDs := group[start:end]
+			query := "SELECT c.character_id, c.account_id, c.name, c.job, c.level, " + fields + " FROM " + table + " c" + joins + " WHERE c.character_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(batchIDs)), ",") + ")"
+			args := make([]any, len(batchIDs))
+			for i, id := range batchIDs {
+				args[i] = id
+			}
+			r.RecordGuildCharacterQuery(ctx)
+			batch := make([]r.GuildCharacter, 0, len(batchIDs))
+			err := func() (err error) {
+				rows, err := s.router.db.QueryContext(ctx, query, args...)
+				if err != nil {
 					return err
 				}
+				defer func() { err = errors.Join(err, rows.Close()) }()
+				for rows.Next() {
+					var c r.GuildCharacter
+					if err := rows.Scan(&c.CharacterID, &c.AccountID, &c.Name, &c.Job, &c.Level, &c.GrowType, &c.DeleteFlag); err != nil {
+						return err
+					}
+					batch = append(batch, c)
+				}
+				return rows.Err()
+			}()
+			if err != nil {
+				return nil, err
+			}
+			r.RecordGuildCharacterRows(ctx, int64(len(batch)))
+			for _, c := range batch {
 				if !seen[c.CharacterID] || pickDatabase(c.CharacterID, len(groups)) != shard {
-					return r.ErrGuildTransaction
+					return nil, r.ErrGuildTransaction
 				}
 				if _, duplicate := result[c.CharacterID]; duplicate {
-					return r.ErrGuildTransaction
+					return nil, r.ErrGuildTransaction
 				}
 				result[c.CharacterID] = c
 			}
-			return rows.Err()
-		}()
-		if err != nil {
-			return nil, err
 		}
 	}
 	return result, nil
