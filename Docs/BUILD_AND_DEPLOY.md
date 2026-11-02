@@ -72,7 +72,7 @@ git clone https://github.com/Cec1c/ServerS5A3.git
 cd ServerS5A3
 ```
 
-也可以在 GitHub 页面选择 **Code → Download ZIP**，解压后让 Agent 打开这个文件夹。需要持续更新和提交修改时，使用 Git 更方便。上游地址是 <https://gitgud.io/16ww/servers5a3>。
+也可以在 GitHub 页面选择 **Code → Download ZIP**，解压后让 Agent 打开这个文件夹。需要持续更新和提交修改时，使用 Git 更方便。权威源码地址是 <https://github.com/Cec1c/ServerS5A3>，GitGud 仅作异步镜像。
 
 对 Agent 说清楚希望得到什么结果即可。它缺少服务器地址、资源路径或使用范围时，你再补这些信息；编译报错和配置排查可以继续交给它处理。
 
@@ -333,4 +333,4 @@ go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor
 python3 -m unittest discover -s deploy/docker -p "test_*.py" -v
 ```
 
-贡献变更前阅读 [AGENTS.md](../AGENTS.md) 和[仓库协作流程](REPOSITORY_SYNC.md)。代码和文档通过 GitGud 上游 MR 集成，GitHub 随后镜像主干；每项修复说明触发条件、修改内容和验证结果。
+贡献变更前阅读 [AGENTS.md](../AGENTS.md) 和[仓库协作流程](REPOSITORY_SYNC.md)。代码和文档通过 GitHub PR 集成，GitGud 随后异步镜像主干；每项修复说明触发条件、修改内容和验证结果。

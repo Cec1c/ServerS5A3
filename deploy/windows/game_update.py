@@ -470,10 +470,13 @@ class Update:
                 subprocess.run(command, cwd=source / "go-server", env=env,
                                stdout=log, stderr=subprocess.STDOUT, check=True)
         env["GOFLAGS"] = "-tags=timetzdata"
-        command = (["cmd", "/c", "build.bat", "linux", "amd64", "server"] if os.name == "nt"
-                   else ["sh", "build.sh", "linux", "amd64", "server"])
+        env.update(GOOS="linux", GOARCH="amd64", CGO_ENABLED="0")
+        target = source / "dist/linux-amd64/DNF90Server"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        command = ["go", "build", "-buildvcs=false", "-mod=readonly", "-trimpath",
+                   "-o", str(target), "./cmd/server/dnf90"]
         with (self.stage / "linux-build.log").open("wb") as log:
-            subprocess.run(command, cwd=source, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+            subprocess.run(command, cwd=source / "go-server", env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         if source_state(source) != pinned:
             raise ValueError("Source changed during build")
         save(self.stage / "validation.json", {

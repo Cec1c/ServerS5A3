@@ -29,6 +29,10 @@ class BuildOnlyTests(unittest.TestCase):
         calls = []
         def run(argv, *args, **kwargs):
             calls.append(argv)
+            if argv[:2] == ["go", "build"]:
+                env = kwargs.get("env") or args[1]
+                self.assertEqual((env["GOOS"], env["GOARCH"], env["CGO_ENABLED"]), ("linux", "amd64", "0"))
+                self.assertEqual(env["GOFLAGS"], "-tags=timetzdata")
             if failure:
                 raise subprocess.CalledProcessError(1, argv)
             return Mock(returncode=0)
@@ -46,7 +50,8 @@ class BuildOnlyTests(unittest.TestCase):
     def test_only_dependency_check_and_fresh_linux_server_build(self):
         calls = self.invoke()
         self.assertEqual(calls[:2], [["go", "version"], ["go", "mod", "verify"]])
-        self.assertEqual(calls[-1][-3:], ["linux", "amd64", "server"])
+        self.assertEqual(calls[-1][:2], ["go", "build"])
+        self.assertEqual(calls[-1][-1], "./cmd/server/dnf90")
         self.assertEqual(len(calls), 3)
         receipt = json.loads((self.up.stage / "validation.json").read_text())
         self.assertEqual(receipt["mode"], "linux-build-only")

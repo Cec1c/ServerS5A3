@@ -129,7 +129,7 @@ dist/                                  构建产物
 
 ## 上游与贡献
 
-[16ww/servers5a3](https://gitgud.io/16ww/servers5a3) 是 GitGud 上游，当前 GitHub 仓库 [Cec1c/ServerS5A3](https://github.com/Cec1c/ServerS5A3) 镜像其主干。修复通过上游 Merge Request 集成，再同步到 GitHub。
+项目起源于 [16ww/servers5a3](https://gitgud.io/16ww/servers5a3)。当前公开权威为 [GitHub Cec1c/ServerS5A3](https://github.com/Cec1c/ServerS5A3)，贡献通过 GitHub PR 集成，GitGud 异步镜像主干。
 
 感谢上游作者和各位贡献者持续完善协议与玩法。根目录构建脚本及独立产物目录的组织参考了 [rewio/ServerS4A21](https://gitgud.io/rewio/ServerS4A21)。
 
