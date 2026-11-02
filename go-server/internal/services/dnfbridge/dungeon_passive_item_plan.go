@@ -19,7 +19,7 @@ type currentPassiveItemPlan struct {
 	itemID      uint32
 }
 
-// The DGN owns weighted item groups; MAP [item] children refer to a group and
+// The DGN owns item probability groups; MAP [item] children refer to a group and
 // specify the number of draws. Never assign an item to an object without these
 // two PVF records (in particular, an ordinary hell pillar has no [item] child).
 func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.DungeonRoomScene, seed uint32) ([]currentPassiveItemPlan, error) {
@@ -93,7 +93,11 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 				continue
 			}
 			for n := int64(0); n < spawn.Level; n++ {
-				pick := rng.Next(total)
+				// Unassigned probability below 10000 is a no-drop outcome.
+				// Normalizing a single 1500/2600 material to its group total
+				// incorrectly makes every breakable object award that item.
+				// Keep existing weighted selection for overfull PVF groups.
+				pick := rng.Next(max(currentDungeonDropDenominator, total))
 				for _, choice := range choices {
 					if pick < choice.weight {
 						plan = append(plan, currentPassiveItemPlan{index, choice.item})
@@ -130,6 +134,12 @@ func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession,
 		return err
 	}
 	if len(plan) == 0 {
+		// An empty draw is also final for this room. Returning after another
+		// room changed runtime.Seed must not turn a miss into a new roll.
+		if runtime.passiveItemDropsPlanned == nil {
+			runtime.passiveItemDropsPlanned = make(map[runtimeDungeonRoomKey]bool)
+		}
+		runtime.passiveItemDropsPlanned[room] = true
 		return nil
 	}
 	if actor == 0 {

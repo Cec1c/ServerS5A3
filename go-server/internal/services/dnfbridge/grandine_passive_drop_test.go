@@ -117,12 +117,19 @@ func TestRealPVFGrandineRoomRoutesKeepPassiveDropIdentity(t *testing.T) {
 				}
 
 				// A repeated room projection must reuse the original passive-drop ledger.
-				count := len(rt.DropOwner.byObjectKey)
+				count := 0
+				if rt.DropOwner != nil {
+					count = len(rt.DropOwner.byObjectKey)
+				}
 				if err := s.prepareCurrentDungeonPassiveObjectDrops(session, rt, sc, "rebuild"); err != nil {
 					t.Fatal(err)
 				}
 				again, _ := currentDungeonPassiveObjectDropEntries(rt, sc)
-				if len(rt.DropOwner.byObjectKey) != count || len(again) != len(rows) {
+				afterCount := 0
+				if rt.DropOwner != nil {
+					afterCount = len(rt.DropOwner.byObjectKey)
+				}
+				if afterCount != count || len(again) != len(rows) {
 					t.Fatal("room rebuild minted passive drops")
 				}
 				for i := range rows {
