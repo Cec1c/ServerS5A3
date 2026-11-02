@@ -215,6 +215,30 @@ func (s *Service) handleCurrentGuildMemberListForOpcode(session *gameSession, op
 	return s.handleCurrentGuildMemberListObserved(session, opcode, "client")
 }
 
+// Roster and text projections need existence/ownership, not gameplay fields.
+// Keep the same binding fence and use the existing non-saveable identity read.
+func (s *Service) currentGuildOwnedSelectedIdentity(session *gameSession) (dnfrepo.CharacterIdentity, error) {
+	bound, ok := s.boundGameSessionCharacterSnapshot(session)
+	if !ok || !s.boundGameSessionCharacterCurrent(bound) {
+		return dnfrepo.CharacterIdentity{}, dnfguild.ErrCharacterNotFound
+	}
+	ctx, cancel := s.currentGuildContext()
+	defer cancel()
+	repos, ok := s.repositoryGroup()
+	if !ok || repos.Character == nil {
+		return dnfrepo.CharacterIdentity{}, dnfguild.ErrRepositoryUnavailable
+	}
+	id := strconv.Itoa(int(bound.character))
+	character, found, err := dnfrepo.LoadCharacterIdentity(ctx, repos.Character, id)
+	if err != nil {
+		return dnfrepo.CharacterIdentity{}, err
+	}
+	if !found || character.CharacterID != id || character.AccountID != s.accountIDForSession(session) || !s.boundGameSessionCharacterCurrent(bound) {
+		return dnfrepo.CharacterIdentity{}, dnfguild.ErrCharacterNotFound
+	}
+	return character, nil
+}
+
 func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opcode uint16, source string) (result error) {
 	started := s.performanceStart()
 	var registryTime, summaryTime, buildTime, writeTime time.Duration
@@ -244,7 +268,7 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
-	character, err := s.currentGuildOwnedSelectedCharacter(session)
+	character, err := s.currentGuildOwnedSelectedIdentity(session)
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}

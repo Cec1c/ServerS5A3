@@ -144,7 +144,7 @@ func (s *Service) refreshCurrentGuildTextPeer(ctx context.Context, guildID uint3
 		return err
 	}
 	defer release()
-	character, err := s.currentGuildOwnedSelectedCharacter(peer.session)
+	character, err := s.currentGuildOwnedSelectedIdentity(peer.session)
 	if err != nil {
 		return err
 	}

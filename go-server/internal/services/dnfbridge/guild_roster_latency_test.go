@@ -74,10 +74,71 @@ func TestGuildPresenceRepeatedRefreshHasOneQueuedEvent(t *testing.T) {
 
 type guildRosterSummaryCharacter struct {
 	*guildRosterCountCharacter
-	reads  atomic.Int64
-	before func()
-	fail   error
-	filter func(map[string]dnfrepo.CharacterGuildSummary)
+	reads          atomic.Int64
+	identities     atomic.Int64
+	identityBefore func()
+	identityFilter func(*dnfrepo.CharacterIdentity)
+	identityErr    error
+	before         func()
+	fail           error
+	filter         func(map[string]dnfrepo.CharacterGuildSummary)
+}
+
+func (r *guildRosterSummaryCharacter) LoadCharacterIdentity(ctx context.Context, id string) (dnfrepo.CharacterIdentity, bool, error) {
+	r.identities.Add(1)
+	if r.identityBefore != nil {
+		r.identityBefore()
+	}
+	if r.identityErr != nil {
+		return dnfrepo.CharacterIdentity{}, false, r.identityErr
+	}
+	value, found, err := dnfrepo.LoadCharacterIdentity(ctx, r.CharacterRepository, id)
+	if r.identityFilter != nil {
+		r.identityFilter(&value)
+	}
+	return value, found, err
+}
+
+func TestGuildRosterIdentityReadKeepsOwnershipAndGenerationFence(t *testing.T) {
+	for _, mode := range []string{"valid", "account", "character", "generation", "query"} {
+		t.Run(mode, func(t *testing.T) {
+			s, peers, repos, _ := guildPresenceFixture(t)
+			p := peers[0]
+			r := &guildRosterSummaryCharacter{guildRosterCountCharacter: &guildRosterCountCharacter{CharacterRepository: repos.Character}}
+			switch mode {
+			case "account":
+				r.identityFilter = func(v *dnfrepo.CharacterIdentity) { v.AccountID = "different" }
+			case "character":
+				r.identityFilter = func(v *dnfrepo.CharacterIdentity) { v.CharacterID = "different" }
+			case "generation":
+				r.identityBefore = func() { s.mu.Lock(); advanceGameSessionCharacterGeneration(p); s.mu.Unlock() }
+			case "query":
+				r.identityErr = errors.New("identity query failed")
+			}
+			repos.Character = r
+			s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
+			_, err := s.currentGuildOwnedSelectedIdentity(p)
+			if (err == nil) != (mode == "valid") {
+				t.Fatalf("mode=%s err=%v", mode, err)
+			}
+			if r.loads.Load() != 0 || r.identities.Load() != 1 {
+				t.Fatalf("full=%d identity=%d", r.loads.Load(), r.identities.Load())
+			}
+		})
+	}
+}
+
+func TestGuildRosterContinuationWithIdentityCapabilityUsesNoFullLoads(t *testing.T) {
+	for _, op := range []uint16{139, 141} {
+		s, peers, repos, _ := guildPresenceFixture(t)
+		r := &guildRosterSummaryCharacter{guildRosterCountCharacter: &guildRosterCountCharacter{CharacterRepository: repos.Character}}
+		repos.Character = r
+		s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
+		guildDispatch(t, s, peers[0], op, nil)
+		if r.loads.Load() != 0 || r.reads.Load() != 0 || r.identities.Load() != 2 {
+			t.Fatalf("op%d full=%d members=%d identity=%d", op, r.loads.Load(), r.reads.Load(), r.identities.Load())
+		}
+	}
 }
 
 func (r *guildRosterSummaryCharacter) LoadCharacterGuildSummaries(ctx context.Context, ids []string) (map[string]dnfrepo.CharacterGuildSummary, error) {
@@ -160,8 +221,8 @@ func TestGuildRosterBatchMatchesLegacyProjectionAndDoesNotPersist(t *testing.T) 
 			if opcode == 67 || opcode == 140 {
 				wantReads = 1
 			}
-			if narrow.reads.Load() != wantReads || narrow.loads.Load() != 2 {
-				t.Fatalf("batch=%d complete=%d", narrow.reads.Load(), narrow.loads.Load())
+			if narrow.reads.Load() != wantReads || narrow.loads.Load() != 0 || narrow.identities.Load() != 2 {
+				t.Fatalf("batch=%d complete=%d identity=%d", narrow.reads.Load(), narrow.loads.Load(), narrow.identities.Load())
 			}
 			after, _, _ := repos.Settings.Load(ctx, dnfguild.RegistryScope)
 			unchanged, _, _ := base.Character.Load(ctx, "2")
@@ -201,7 +262,7 @@ func TestGuildRosterBatchFailureMissingAndWrongOwnerKeepRegistryFields(t *testin
 			repos.Character = narrow
 			s.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
 			guildDispatch(t, s, peers[0], 140, nil)
-			if !bytes.Equal(guildReply(t, peers[0], 140), want) || narrow.loads.Load() != 2 {
+			if !bytes.Equal(guildReply(t, peers[0], 140), want) || narrow.loads.Load() != 0 || narrow.identities.Load() != 2 {
 				t.Fatal("failed/mismatched batch changed membership or retried full member loads")
 			}
 		})
