@@ -65,6 +65,10 @@ func TestGuildDungeonSettlementPersistedReplayAndNextCycle(t *testing.T) {
 	if err != nil || reg.Guilds[1].Dungeon.Counts[8500] != 2 || reg.Guilds[1].Members[cmd.CharacterID].ContributionPoints != 40 || replay.Inventory.Slots["0:121"].Count != 6 {
 		t.Fatal("replay changed clear", err)
 	}
+	m := reg.Guilds[1].Members[cmd.CharacterID]
+	if m.DungeonContributionPoints == nil || *m.DungeonContributionPoints != 40 {
+		t.Fatal("replay changed dungeon contribution projection", m)
+	}
 	stale := second
 	newClear := clear
 	newClear.Entry.RunID = "uncommitted-old"
@@ -156,6 +160,10 @@ func TestGuildDungeonSettlementConcurrentDuplicate(t *testing.T) {
 	reg, err := guild.Load(context.Background(), repos.Settings)
 	if err != nil || reg.Guilds[1].Dungeon.Counts[8500] != 1 {
 		t.Fatal("duplicate count", err)
+	}
+	m := reg.Guilds[1].Members[cmd.CharacterID]
+	if m.DungeonContributionPoints == nil || *m.DungeonContributionPoints != 20 {
+		t.Fatal("duplicate contribution projection", m)
 	}
 	inv, _, _ := repos.Inventory.Load(context.Background(), cmd.CharacterID)
 	if inv.Slots["0:121"].Count != 3 {
