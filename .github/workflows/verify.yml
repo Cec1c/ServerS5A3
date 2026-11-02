@@ -1,40 +1,95 @@
 name: Verify
-
 on:
+  pull_request:
+    branches: [master]
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
-  source:
+  scope:
+    if: github.repository == 'Cec1c/ServerS5A3'
+    runs-on: ubuntu-latest
+    outputs:
+      game: ${{ steps.scope.outputs.game }}
+      tooling: ${{ steps.scope.outputs.tooling }}
+      container: ${{ steps.scope.outputs.container }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Select checks and validate change notes
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE"
+            python3 scripts/ci/verification_scope.py --base "$BASE"
+            python3 scripts/ci/changelog_fragments.py check --base "$BASE"
+          else
+            python3 scripts/ci/verification_scope.py --full
+            python3 scripts/ci/changelog_fragments.py check
+          fi
+  linux:
+    needs: scope
+    if: needs.scope.outputs.game == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: go-server/go.mod
           cache-dependency-path: go-server/go.sum
-      - name: Synchronization integration tests
+      - run: sh scripts/ci/test_core.sh
+      - name: Linux server build
+        run: sh build.sh linux amd64 server
+  tooling:
+    needs: scope
+    if: needs.scope.outputs.tooling == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: CI and Linux deployment controller regressions
         run: |
-          python3 -m pip install -r scripts/ci/requirements-release-sync.txt
+          python3 -m pip install -r scripts/ci/requirements-release-sync.txt cryptography requests
           python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
-      - name: Docker deployment boundary checks
-        run: python3 -m unittest discover -s deploy/docker -p 'test_*.py' -v
-      - name: Server/GM source boundary
-        run: python3 scripts/check_server_boundary.py
-      - name: Core validation
-        working-directory: go-server
+          python3 -m unittest discover -s deploy/docker -p 'test_*.py' -v
+          python3 -m unittest discover -s deploy/windows -p 'test_game_update*.py' -v
+          python3 -m unittest discover -s deploy/windows -p 'test_authoritative_source.py' -v
+          python3 -m unittest discover -s deploy/remote -p 'test_game_update*.py' -v
+          python3 -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
+          sh scripts/ci/test_build_components.sh
+  container:
+    needs: scope
+    if: needs.scope.outputs.container == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: docker build -t servers5a3-ci -f deploy/docker/Dockerfile .
+  required:
+    if: always() && github.repository == 'Cec1c/ServerS5A3'
+    needs: [scope, linux, tooling, container]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all selected jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          go list -buildvcs=false -mod=readonly ./...
-          go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/... ./internal/services/dnfbridge ./cmd/server/control
-          go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
-      - name: Linux build
-        run: sh build.sh linux amd64
-      - name: Windows build
-        run: sh build.sh windows amd64
-      - name: Linux container build
-        run: docker build -t servers5a3-ci -f deploy/docker/Dockerfile .
+          python3 - <<'PY'
+          import json, os
+          values = json.loads(os.environ["RESULTS"])
+          assert values["scope"]["result"] == "success", values
+          assert all(v["result"] in ("success", "skipped") for v in values.values()), values
+          PY

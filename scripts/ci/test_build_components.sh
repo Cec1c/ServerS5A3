@@ -16,7 +16,7 @@ EOF
 chmod +x "$WORK/go-fixture"
 export GO_EXE="$WORK/go-fixture"
 export BUILD_TEST_LOG="$WORK/calls"
-for target in linux windows; do
+for target in linux; do
   : > "$BUILD_TEST_LOG"
   sh "$WORK/build.sh" "$target" amd64 >/dev/null
   test "$(wc -l < "$BUILD_TEST_LOG" | tr -d ' ')" = 3

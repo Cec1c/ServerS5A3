@@ -86,6 +86,9 @@ class TagSSHTests(unittest.TestCase):
     def test_audited_exact_tag_push_and_readback(self):
         self.exercise_transfer('on:\n  push:\n    branches: [master]\n  workflow_dispatch:\n')
 
+    def test_pr_only_workflow_does_not_fire_on_tag_push(self):
+        self.exercise_transfer("on:\n  pull_request:\n    branches: [master]\n  workflow_dispatch:\n")
+
     def test_annotated_tag_preserved(self):
         self.exercise_transfer('on: workflow_dispatch\n', annotated=True)
 

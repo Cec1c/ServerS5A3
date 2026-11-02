@@ -21,7 +21,7 @@ python scripts/ci/changelog_fragments.py check --base <目标提交SHA>
 python -m unittest discover -s scripts/ci -p test_changelog_fragments.py -v
 ```
 
-GitLab MR CI 使用 `CI_MERGE_REQUEST_DIFF_BASE_SHA`，普通 push 使用非零 `CI_COMMIT_BEFORE_SHA`；初始分支没有比较基线时校验全部片段。缺少比较提交时失败，应完整获取历史，不静默跳过。输出 `dist/changelog-preview/release-notes.md` 与 `manifest.json` 为 CI artifact，不提交回主干。公开 GitHub 保留手动工作流入口，镜像职责保持。
+GitHub PR CI 使用实际 base SHA 检查片段，缺少基线时抓取精确提交；文档和片段不会触发 Go 全量。手动 Change notes 生成固定范围的 Markdown 与 manifest artifact，不提交回主干。GitGud 不再运行自动 MR/push CI。
 
 私有 PR 使用 `check --scope group --base <私有目标SHA>`，要求本 PR 有新增群服记录；私有同步后的完整检查使用 `--scope all`。公开修复经公开 MR 合并后同步到私有，不能为了通过私有检查把公开修复改标为群服内容。
 

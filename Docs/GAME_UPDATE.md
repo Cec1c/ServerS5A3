@@ -1,5 +1,7 @@
 # 游戏服务更新入口
 
+自 2026-11-02 起，部署准备只执行依赖校验和最新权威源码的正式 Linux server 构建，记录 `mode=linux-build-only`、`testsExecuted=false`；不重复贡献阶段 Go test/vet、Windows 构建或真实 PVF 回归。旧全文中完整验证/缓存门禁的描述不再用于 prepare。实际 pull、备份、批准、切换和程序/健康读回继续保留。源码权威及迁移见 [GitHub 权威迁移](GITHUB_AUTHORITY_MIGRATION.md)。
+
 后续 agent 收到已授权的游戏服务更新任务时，直接使用根目录 `GAME_UPDATE_REMOTE.bat`。用户不需要手动执行。Windows 控制器为 `deploy/windows/game_update.py`，Linux worker 为 `deploy/remote/game_update.py`，每次经 SSH 标准输入执行并保存版本回执，不另写临时替换脚本。
 
 这条流程更新已配置的远端 Docker 实例的游戏二进制，保留 GM、数据库、玩家数据、PVF、频道与登录器。需要更新客户端或内容时，先完成 [CLIENT_RELEASE_SYNC.md](CLIENT_RELEASE_SYNC.md) 的 Release、实际玩家通道和摘要核验，再执行依赖它们的游戏更新。Git 提交、推送及 PR/MR 仍按 [REPOSITORY_SYNC.md](REPOSITORY_SYNC.md) 单独处理。
@@ -16,7 +18,7 @@
 
 ## Agent 执行顺序
 
-**每次新部署强制当场拉取权威主干。** 控制器在本次 run 的独立干净目录执行 `git pull --ff-only --no-rebase https://gitgud.io/16ww/servers5a3.git master`，核对远端 master 读回；常规部署要求该提交是候选的祖先，不读取历史回执授权部署。共享脏工作树保持原状。Windows 的独立拉取目录设置仓库级 `core.longpaths=true`，不修改全局 Git 配置。
+**每次新部署强制当场拉取权威主干。** 控制器在本次 run 的独立干净目录执行 `git pull --ff-only --no-rebase https://github.com/Cec1c/ServerS5A3.git master`，核对远端 master 读回；常规部署要求该提交是候选的祖先，不读取历史回执授权部署。共享脏工作树保持原状。Windows 的独立拉取目录设置仓库级 `core.longpaths=true`，不修改全局 Git 配置。
 
 首次验证前、打包前、上传前及远端 prepare/generate/deploy 各阶段都重新 pull。每次保存来源、分支、执行时间、拉取前后 SHA、候选 SHA 与本次随机运行标识。拉取失败、分叉、缺少主干或验证期间主干变化，均停止当前 run；集成并重新验证后使用新 run ID。源码 manifest 的 upstream 来自本次成功拉取，不再继承旧部署清单。
 
@@ -25,7 +27,7 @@
 1. `GAME_UPDATE_REMOTE.bat inspect`：读取实际进程、镜像、累计源码清单、兼容资产和在线连接数。以远端 `runtime/active-game-baseline.json` 为部署基线，不以上游或本地 master 代替。
 2. 在干净的隔离工作树中基于该累计提交合入最新权威主干和精确修复，保留已上线的私有扩展。当前累计源码仓库位置从私有交接索引读取；需要时从该本地仓库获取对象，不向公共仓库推送私有基线。候选必须是当前累计提交及最新主干的后继，逐项审查有效改动，不能用仅保留一方的形式合并充当集成。
 3. 审查完整差异，将本次全部变更路径写为私有 JSON 字符串数组，例如 `runtime/game-update/reviewed-paths.json`。脚本严格比对，不自动接受整棵脏工作树。`go-server/` 及附带文档按已审范围打包；其他上游路径只有内容与本次权威主干完全相同才可随源码归档，不据此安装部署工具、发布客户端或替换运行配置。这些运行变更仍使用各自的已授权流程。
-4. 执行 `GAME_UPDATE_REMOTE.bat deploy --source <干净累计源码目录> --changed-files <已审查路径JSON>`。它固定候选提交和文件摘要，运行 list、领域/bridge/control 测试、vet、Windows 构建及 Linux 构建，然后打包、上传、生成配置、备份和切换游戏服务。测试日志持续写入回执目录，运行期间向用户提供进展。
+4. 执行 `GAME_UPDATE_REMOTE.bat deploy --source <干净累计源码目录> --changed-files <已审查路径JSON>`。它固定候选提交和文件摘要，执行 go mod verify 并正式构建 Linux server，然后打包、上传、生成配置、备份和切换游戏服务。构建日志持续写入回执目录，运行期间向用户提供进展。
 5. 脚本等候健康检查，再核对 `/proc/<pid>/exe`、镜像、环境与 UID、GM/DB 容器身份、PVF、频道、签名玩家清单及频道探针。成功后执行备份保留；清理失败记为待执行，不撤销已验证的游戏部署。
 6. 更新私有交接和 BUG 状态；自动化验证与游戏内验收分别记录。脚本通过不代表玩家交互已验收。
 

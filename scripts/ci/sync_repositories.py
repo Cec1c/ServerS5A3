@@ -1,4 +1,4 @@
-"""Mirror authoritative GitGud history to GitHub; never write to GitGud."""
+"""Mirror authoritative GitHub history to GitGud; never write to GitHub."""
 import argparse
 import base64
 import json
@@ -24,40 +24,40 @@ def git(directory, *arguments, check=True):
     return result
 
 
-def synchronize(github, upstream, branch="master", apply=False):
+def synchronize(github, gitgud, branch="master", apply=False):
     with tempfile.TemporaryDirectory(prefix="servers5a3-sync-") as temporary:
         git(temporary, "init", "--bare", "--quiet")
         if git(temporary, "check-ref-format", "--branch", branch, check=False).returncode:
             raise SyncError("Invalid branch name")
         reference = f"refs/heads/{branch}"
-        for name, url in (("github", github), ("upstream", upstream)):
+        for name, url in (("github", github), ("gitgud", gitgud)):
             git(temporary, "remote", "add", name, url)
             git(temporary, "fetch", "--no-tags", name, f"{reference}:refs/sync/{name}")
         heads = {name: git(temporary, "rev-parse", f"refs/sync/{name}").stdout.strip()
-                 for name in ("github", "upstream")}
+                 for name in ("github", "gitgud")}
         result = {"branch": branch, "before": heads, "applied": False, "direction": "equal"}
-        if heads["github"] == heads["upstream"]:
+        if heads["github"] == heads["gitgud"]:
             return result
-        if git(temporary, "merge-base", "--is-ancestor", heads["github"], heads["upstream"], check=False).returncode:
-            raise SyncError("GitHub is ahead or diverged; submit its changes by MR to authoritative GitGud. Neither remote was changed")
-        # CI definitions are reviewed in the authoritative upstream MR, just like
+        if git(temporary, "merge-base", "--is-ancestor", heads["gitgud"], heads["github"], check=False).returncode:
+            raise SyncError("GitGud is ahead or diverged; submit its changes by PR to authoritative GitHub. Neither remote was changed")
+        # CI definitions are reviewed in the authoritative GitHub PR, just like
         # other source. Execute only this checked-out script, never fetched code.
-        result["direction"] = "upstream-to-github"
-        result["commit"] = heads["upstream"]
+        result["direction"] = "github-to-gitgud"
+        result["commit"] = heads["github"]
         if apply:
-            for name in ("github", "upstream"):
+            for name in ("github", "gitgud"):
                 observed = git(temporary, "ls-remote", "--exit-code", name, reference).stdout.split()[0]
                 if observed != heads[name]:
                     raise SyncError("Remote changed before synchronization; retry with a fresh snapshot")
             # No force flag: an intervening destination commit is rejected by receive-pack.
-            git(temporary, "push", "github", f"{heads['upstream']}:{reference}")
+            git(temporary, "push", "gitgud", f"{heads['github']}:{reference}")
             observed = {}
-            for name in ("github", "upstream"):
+            for name in ("github", "gitgud"):
                 output = git(temporary, "ls-remote", "--exit-code", name, reference).stdout
                 observed[name] = output.split()[0]
             result["after"] = observed
             result["applied"] = True
-            if observed["github"] != observed["upstream"]:
+            if observed["github"] != observed["gitgud"]:
                 raise SyncError("Remote changed during synchronization; fetch again on the next run")
         return result
 
@@ -65,21 +65,21 @@ def synchronize(github, upstream, branch="master", apply=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--github", required=True)
-    parser.add_argument("--upstream", required=True)
+    parser.add_argument("--gitgud", required=True)
     parser.add_argument("--branch", default="master")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    token = os.environ.pop("GH_SYNC_TOKEN", "")
+    token = os.environ.pop("GITGUD_MIRROR_TOKEN", "")
     if token:
-        # URL-scoped config prevents forwarding GitHub credentials to GitGud.
-        encoded = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        # URL-scoped config prevents forwarding GitGud credentials to GitHub.
+        encoded = base64.b64encode(f"oauth2:{token}".encode()).decode()
         os.environ.update({
             "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+            "GIT_CONFIG_KEY_0": "http.https://gitgud.io/.extraheader",
             "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {encoded}",
         })
     try:
-        result = synchronize(args.github, args.upstream, args.branch, args.apply)
+        result = synchronize(args.github, args.gitgud, args.branch, args.apply)
     except SyncError as error:
         print(f"Synchronization stopped: {error}")
         raise SystemExit(1)
