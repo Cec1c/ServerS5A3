@@ -2148,6 +2148,10 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	// room move only needs the next room's loading completion, not a new actor.
 	session.setFinishLoadingGateState(false)
 	session.setFinishLoadingGateCompletion(false)
+	// Room moves do not repeat entry placement. Advance its peer-actor key at
+	// this committed transition too, before either member can finish loading;
+	// otherwise both retain the entry room and suppress every later resend.
+	s.recordDungeonPartyRunKey(session, runtime, committedScene)
 	s.logGameEvent(session, "game-dungeon-move-committed",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,
