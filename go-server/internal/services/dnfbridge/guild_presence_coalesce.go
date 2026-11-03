@@ -196,6 +196,17 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 			s.submitCurrentGuildPresenceRefresh(p)
 		}
 	}()
+	// Presence is already durable. A background management/roster snapshot
+	// must not occupy the combat packet queue or rebuild guild actors mid-run.
+	// Check at execution time: the player may have entered after enqueueing.
+	// Explicit window requests and later town refreshes read current storage.
+	session.dungeon.mu.Lock()
+	inDungeon := session.dungeon.runtime != nil
+	session.dungeon.mu.Unlock()
+	if inDungeon {
+		s.guildRosterCounter(guildRefreshDeferred, 1)
+		return nil
+	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	for _, notice := range []bool{true, false} {
