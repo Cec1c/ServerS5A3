@@ -1,0 +1,1801 @@
+{
+  "schema": 2,
+  "input_sha256": "ea2e2ef6f8743f93f293af9ca70afb993037eb5a17f245cddc0edc157c3a9fb7",
+  "edits": [
+    {
+      "path": "stackable/490009001/chn_490009269.stk",
+      "data_type": 1,
+      "before_sha256": "ef5b201ff82653bc29467235954a5477ae862fd464db3f1b8a67b45a584ddfb5",
+      "tokens": [
+        {
+          "type": 3,
+          "payload_u32": 2018
+        },
+        {
+          "type": 6,
+          "payload_u32": 5849411
+        },
+        {
+          "type": 3,
+          "payload_u32": 5466
+        },
+        {
+          "type": 6,
+          "payload_u32": 9356017
+        },
+        {
+          "type": 3,
+          "payload_u32": 5486
+        },
+        {
+          "type": 6,
+          "payload_u32": 7067465
+        },
+        {
+          "type": 3,
+          "payload_u32": 2060
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 5514
+        },
+        {
+          "type": 0,
+          "payload_u32": 6
+        },
+        {
+          "type": 3,
+          "payload_u32": 2110
+        },
+        {
+          "type": 6,
+          "payload_u32": 5550
+        },
+        {
+          "type": 3,
+          "payload_u32": 2180
+        },
+        {
+          "type": 3,
+          "payload_u32": 2208
+        },
+        {
+          "type": 6,
+          "payload_u32": 2236
+        },
+        {
+          "type": 3,
+          "payload_u32": 2252
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 754472
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 754792
+        },
+        {
+          "type": 0,
+          "payload_u32": 1000
+        },
+        {
+          "type": 3,
+          "payload_u32": 2284
+        },
+        {
+          "type": 6,
+          "payload_u32": 3574156
+        },
+        {
+          "type": 0,
+          "payload_u32": 1735
+        },
+        {
+          "type": 3,
+          "payload_u32": 152954
+        },
+        {
+          "type": 6,
+          "payload_u32": 152978
+        },
+        {
+          "type": 0,
+          "payload_u32": 34
+        },
+        {
+          "type": 3,
+          "payload_u32": 23612654
+        },
+        {
+          "type": 6,
+          "payload_u32": 98796584
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 2934
+        },
+        {
+          "type": 6,
+          "payload_u32": 2625956
+        },
+        {
+          "type": 3,
+          "payload_u32": 156212
+        },
+        {
+          "type": 6,
+          "payload_u32": 14872311
+        },
+        {
+          "type": 3,
+          "payload_u32": 31476
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009268
+        },
+        {
+          "type": 0,
+          "payload_u32": 60
+        },
+        {
+          "type": 3,
+          "payload_u32": 31508
+        },
+        {
+          "type": 3,
+          "payload_u32": 20395582
+        },
+        {
+          "type": 6,
+          "text": "character"
+        },
+        {
+          "type": 6,
+          "payload_u32": 3388726
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 98796604
+        },
+        {
+          "type": 3,
+          "payload_u32": 3658026
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009325
+        },
+        {
+          "type": 0,
+          "payload_u32": 10000
+        },
+        {
+          "type": 0,
+          "payload_u32": 3
+        },
+        {
+          "type": 3,
+          "payload_u32": 27958638
+        },
+        {
+          "type": 3,
+          "payload_u32": 98797086
+        },
+        {
+          "type": 3,
+          "payload_u32": 98810680
+        },
+        {
+          "type": 6,
+          "payload_u32": 98810724
+        },
+        {
+          "type": 6,
+          "payload_u32": 28702056
+        },
+        {
+          "type": 3,
+          "payload_u32": 98810744
+        },
+        {
+          "type": 3,
+          "payload_u32": 31604
+        },
+        {
+          "type": 6,
+          "payload_u32": 447834
+        },
+        {
+          "type": 3,
+          "payload_u32": 31656
+        }
+      ]
+    },
+    {
+      "path": "stackable/490009001/chn_490009270.stk",
+      "data_type": 1,
+      "before_sha256": "cebd772e2a2d597e536a8ffb0168b0a5704f54e7da99d20161f3b34cc6cc9ca1",
+      "tokens": [
+        {
+          "type": 3,
+          "payload_u32": 2018
+        },
+        {
+          "type": 6,
+          "payload_u32": 5849443
+        },
+        {
+          "type": 3,
+          "payload_u32": 5466
+        },
+        {
+          "type": 6,
+          "payload_u32": 9356153
+        },
+        {
+          "type": 3,
+          "payload_u32": 5486
+        },
+        {
+          "type": 6,
+          "payload_u32": 7067465
+        },
+        {
+          "type": 3,
+          "payload_u32": 2060
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 5514
+        },
+        {
+          "type": 0,
+          "payload_u32": 6
+        },
+        {
+          "type": 3,
+          "payload_u32": 2110
+        },
+        {
+          "type": 6,
+          "payload_u32": 5550
+        },
+        {
+          "type": 3,
+          "payload_u32": 2180
+        },
+        {
+          "type": 3,
+          "payload_u32": 2208
+        },
+        {
+          "type": 6,
+          "payload_u32": 2236
+        },
+        {
+          "type": 3,
+          "payload_u32": 2252
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 754792
+        },
+        {
+          "type": 0,
+          "payload_u32": 1000
+        },
+        {
+          "type": 3,
+          "payload_u32": 2284
+        },
+        {
+          "type": 6,
+          "payload_u32": 3574156
+        },
+        {
+          "type": 0,
+          "payload_u32": 2035
+        },
+        {
+          "type": 3,
+          "payload_u32": 152954
+        },
+        {
+          "type": 6,
+          "payload_u32": 2629606
+        },
+        {
+          "type": 0,
+          "payload_u32": 34
+        },
+        {
+          "type": 3,
+          "payload_u32": 23612654
+        },
+        {
+          "type": 6,
+          "payload_u32": 98794732
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 2934
+        },
+        {
+          "type": 6,
+          "payload_u32": 2625956
+        },
+        {
+          "type": 3,
+          "payload_u32": 156212
+        },
+        {
+          "type": 6,
+          "payload_u32": 14872311
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794772
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 10
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794818
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 101010789
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101040456
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101020601
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101030660
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101000632
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 102020457
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 102040522
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 102010551
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 102000487
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 102030459
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 2
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 104000523
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 104010509
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 104040527
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 104020507
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 104030511
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 3
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 106000414
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106020507
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106010443
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106030539
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106040416
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 4
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 106000414
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106020507
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106010443
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106030539
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 106040416
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 5
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 108000440
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 108010410
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 108020392
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 108040398
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 108030444
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 6
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 109010414
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 109030306
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 109000447
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 109040283
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 7
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 101010789
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101020601
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101030660
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 101000632
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 8
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 114000101
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 114010087
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 114020108
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 114030098
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 9
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 416010009
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 416020009
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 416000010
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 416030009
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98795022
+        },
+        {
+          "type": 6,
+          "payload_u32": 8235503
+        },
+        {
+          "type": 6,
+          "payload_u32": 8245757
+        },
+        {
+          "type": 6,
+          "payload_u32": 1605717
+        },
+        {
+          "type": 6,
+          "payload_u32": 1606059
+        },
+        {
+          "type": 6,
+          "payload_u32": 6076573
+        },
+        {
+          "type": 6,
+          "payload_u32": 8245775
+        },
+        {
+          "type": 6,
+          "payload_u32": 1606791
+        },
+        {
+          "type": 6,
+          "payload_u32": 1607491
+        },
+        {
+          "type": 6,
+          "payload_u32": 1606339
+        },
+        {
+          "type": 6,
+          "payload_u32": 1605401
+        },
+        {
+          "type": 6,
+          "payload_u32": 1605907
+        },
+        {
+          "type": 3,
+          "payload_u32": 98795070
+        },
+        {
+          "type": 3,
+          "payload_u32": 31604
+        },
+        {
+          "type": 6,
+          "payload_u32": 447834
+        },
+        {
+          "type": 3,
+          "payload_u32": 31656
+        },
+        {
+          "type": 3,
+          "payload_u32": 31476
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009268
+        },
+        {
+          "type": 0,
+          "payload_u32": 120
+        },
+        {
+          "type": 3,
+          "payload_u32": 31508
+        },
+        {
+          "type": 3,
+          "payload_u32": 20395582
+        },
+        {
+          "type": 6,
+          "text": "character"
+        },
+        {
+          "type": 6,
+          "payload_u32": 3388726
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 99207636
+        }
+      ]
+    },
+    {
+      "path": "stackable/490009001/chn_490009271.stk",
+      "data_type": 1,
+      "before_sha256": "2e0724d01ac100f873741bd06f0193604faa8050371560f80021e84675bdd3c4",
+      "tokens": [
+        {
+          "type": 3,
+          "payload_u32": 2018
+        },
+        {
+          "type": 6,
+          "payload_u32": 5813353
+        },
+        {
+          "type": 3,
+          "payload_u32": 5466
+        },
+        {
+          "type": 6,
+          "payload_u32": 9356205
+        },
+        {
+          "type": 3,
+          "payload_u32": 5486
+        },
+        {
+          "type": 6,
+          "payload_u32": 7067465
+        },
+        {
+          "type": 3,
+          "payload_u32": 2060
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 5514
+        },
+        {
+          "type": 0,
+          "payload_u32": 2
+        },
+        {
+          "type": 3,
+          "payload_u32": 2110
+        },
+        {
+          "type": 6,
+          "payload_u32": 5550
+        },
+        {
+          "type": 3,
+          "payload_u32": 2180
+        },
+        {
+          "type": 3,
+          "payload_u32": 2208
+        },
+        {
+          "type": 6,
+          "payload_u32": 2236
+        },
+        {
+          "type": 3,
+          "payload_u32": 2252
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 754792
+        },
+        {
+          "type": 0,
+          "payload_u32": 1000
+        },
+        {
+          "type": 3,
+          "payload_u32": 2284
+        },
+        {
+          "type": 6,
+          "payload_u32": 98795878
+        },
+        {
+          "type": 0,
+          "payload_u32": 1283
+        },
+        {
+          "type": 3,
+          "payload_u32": 152954
+        },
+        {
+          "type": 6,
+          "payload_u32": 2629606
+        },
+        {
+          "type": 0,
+          "payload_u32": 34
+        },
+        {
+          "type": 3,
+          "payload_u32": 23612654
+        },
+        {
+          "type": 6,
+          "payload_u32": 98796584
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 2934
+        },
+        {
+          "type": 6,
+          "payload_u32": 2625956
+        },
+        {
+          "type": 3,
+          "payload_u32": 156212
+        },
+        {
+          "type": 6,
+          "payload_u32": 14872311
+        },
+        {
+          "type": 3,
+          "payload_u32": 98796604
+        },
+        {
+          "type": 3,
+          "payload_u32": 3658026
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009272
+        },
+        {
+          "type": 0,
+          "payload_u32": 10000
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 27958638
+        },
+        {
+          "type": 3,
+          "payload_u32": 3658026
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009273
+        },
+        {
+          "type": 0,
+          "payload_u32": 10000
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 27958638
+        },
+        {
+          "type": 3,
+          "payload_u32": 98797086
+        },
+        {
+          "type": 3,
+          "payload_u32": 31476
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009268
+        },
+        {
+          "type": 0,
+          "payload_u32": 40
+        },
+        {
+          "type": 3,
+          "payload_u32": 31508
+        },
+        {
+          "type": 3,
+          "payload_u32": 20395582
+        },
+        {
+          "type": 6,
+          "text": "character"
+        },
+        {
+          "type": 6,
+          "payload_u32": 3388726
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        }
+      ]
+    },
+    {
+      "path": "stackable/490009001/chn_490009274.stk",
+      "data_type": 1,
+      "before_sha256": "5cb907131b0d62fe8774db0d195cd088d80dbaeecdd40c60d0c7bb9067a3f18a",
+      "tokens": [
+        {
+          "type": 3,
+          "payload_u32": 2018
+        },
+        {
+          "type": 6,
+          "payload_u32": 5772591
+        },
+        {
+          "type": 3,
+          "payload_u32": 5466
+        },
+        {
+          "type": 6,
+          "payload_u32": 9356525
+        },
+        {
+          "type": 3,
+          "payload_u32": 5486
+        },
+        {
+          "type": 6,
+          "payload_u32": 7067465
+        },
+        {
+          "type": 3,
+          "payload_u32": 2060
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 5514
+        },
+        {
+          "type": 0,
+          "payload_u32": 2
+        },
+        {
+          "type": 3,
+          "payload_u32": 2110
+        },
+        {
+          "type": 6,
+          "payload_u32": 5550
+        },
+        {
+          "type": 3,
+          "payload_u32": 2180
+        },
+        {
+          "type": 3,
+          "payload_u32": 2208
+        },
+        {
+          "type": 6,
+          "payload_u32": 2236
+        },
+        {
+          "type": 3,
+          "payload_u32": 2252
+        },
+        {
+          "type": 0,
+          "payload_u32": 70
+        },
+        {
+          "type": 3,
+          "payload_u32": 754792
+        },
+        {
+          "type": 0,
+          "payload_u32": 10000
+        },
+        {
+          "type": 3,
+          "payload_u32": 2284
+        },
+        {
+          "type": 6,
+          "payload_u32": 98795878
+        },
+        {
+          "type": 0,
+          "payload_u32": 1243
+        },
+        {
+          "type": 3,
+          "payload_u32": 152954
+        },
+        {
+          "type": 6,
+          "payload_u32": 152978
+        },
+        {
+          "type": 0,
+          "payload_u32": 34
+        },
+        {
+          "type": 3,
+          "payload_u32": 23612654
+        },
+        {
+          "type": 6,
+          "payload_u32": 98790382
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 2934
+        },
+        {
+          "type": 6,
+          "payload_u32": 98790398
+        },
+        {
+          "type": 3,
+          "payload_u32": 156212
+        },
+        {
+          "type": 6,
+          "payload_u32": 24836096
+        },
+        {
+          "type": 3,
+          "payload_u32": 98811388
+        },
+        {
+          "type": 6,
+          "payload_u32": 100479592
+        },
+        {
+          "type": 0,
+          "payload_u32": 79
+        },
+        {
+          "type": 3,
+          "payload_u32": 98811444
+        },
+        {
+          "type": 3,
+          "payload_u32": 98790424
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 98810680
+        },
+        {
+          "type": 6,
+          "payload_u32": 98810724
+        },
+        {
+          "type": 6,
+          "payload_u32": 28702056
+        },
+        {
+          "type": 3,
+          "payload_u32": 98810744
+        },
+        {
+          "type": 3,
+          "payload_u32": 31604
+        },
+        {
+          "type": 6,
+          "payload_u32": 447834
+        },
+        {
+          "type": 3,
+          "payload_u32": 31656
+        },
+        {
+          "type": 3,
+          "payload_u32": 31476
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009268
+        },
+        {
+          "type": 0,
+          "payload_u32": 60
+        },
+        {
+          "type": 3,
+          "payload_u32": 31508
+        },
+        {
+          "type": 3,
+          "payload_u32": 20395582
+        },
+        {
+          "type": 6,
+          "text": "character"
+        },
+        {
+          "type": 6,
+          "payload_u32": 3388726
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        }
+      ]
+    },
+    {
+      "path": "stackable/490009001/chn_490009275.stk",
+      "data_type": 1,
+      "before_sha256": "0dd85c12130decfdebf83500327694edbb3e3b4d7de41f4e63da9eef3f887b69",
+      "tokens": [
+        {
+          "type": 3,
+          "payload_u32": 2018
+        },
+        {
+          "type": 6,
+          "payload_u32": 5849521
+        },
+        {
+          "type": 3,
+          "payload_u32": 5466
+        },
+        {
+          "type": 6,
+          "payload_u32": 9356671
+        },
+        {
+          "type": 3,
+          "payload_u32": 5486
+        },
+        {
+          "type": 6,
+          "payload_u32": 7067465
+        },
+        {
+          "type": 3,
+          "payload_u32": 2060
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 5514
+        },
+        {
+          "type": 0,
+          "payload_u32": 3
+        },
+        {
+          "type": 3,
+          "payload_u32": 2110
+        },
+        {
+          "type": 6,
+          "payload_u32": 5550
+        },
+        {
+          "type": 3,
+          "payload_u32": 2180
+        },
+        {
+          "type": 3,
+          "payload_u32": 2208
+        },
+        {
+          "type": 6,
+          "payload_u32": 2236
+        },
+        {
+          "type": 3,
+          "payload_u32": 2252
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 754792
+        },
+        {
+          "type": 0,
+          "payload_u32": 1000
+        },
+        {
+          "type": 3,
+          "payload_u32": 2284
+        },
+        {
+          "type": 6,
+          "payload_u32": 16040858
+        },
+        {
+          "type": 0,
+          "payload_u32": 969
+        },
+        {
+          "type": 3,
+          "payload_u32": 152954
+        },
+        {
+          "type": 6,
+          "payload_u32": 152978
+        },
+        {
+          "type": 0,
+          "payload_u32": 34
+        },
+        {
+          "type": 3,
+          "payload_u32": 23612654
+        },
+        {
+          "type": 6,
+          "payload_u32": 98794732
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 2934
+        },
+        {
+          "type": 6,
+          "payload_u32": 2625956
+        },
+        {
+          "type": 3,
+          "payload_u32": 156212
+        },
+        {
+          "type": 6,
+          "payload_u32": 14872311
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794772
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794818
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794866
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 0,
+          "payload_u32": 0
+        },
+        {
+          "type": 3,
+          "payload_u32": 90887912
+        },
+        {
+          "type": 0,
+          "payload_u32": 400340207
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 90888004
+        },
+        {
+          "type": 3,
+          "payload_u32": 98794968
+        },
+        {
+          "type": 3,
+          "payload_u32": 98795022
+        },
+        {
+          "type": 6,
+          "payload_u32": 8233821
+        },
+        {
+          "type": 3,
+          "payload_u32": 98795070
+        },
+        {
+          "type": 3,
+          "payload_u32": 98810680
+        },
+        {
+          "type": 6,
+          "payload_u32": 98810724
+        },
+        {
+          "type": 6,
+          "payload_u32": 28702056
+        },
+        {
+          "type": 3,
+          "payload_u32": 98810744
+        },
+        {
+          "type": 3,
+          "payload_u32": 31476
+        },
+        {
+          "type": 0,
+          "payload_u32": 490009268
+        },
+        {
+          "type": 0,
+          "payload_u32": 20
+        },
+        {
+          "type": 3,
+          "payload_u32": 31508
+        },
+        {
+          "type": 3,
+          "payload_u32": 20395582
+        },
+        {
+          "type": 6,
+          "text": "character"
+        },
+        {
+          "type": 6,
+          "payload_u32": 3388726
+        },
+        {
+          "type": 0,
+          "payload_u32": 1
+        },
+        {
+          "type": 3,
+          "payload_u32": 31604
+        },
+        {
+          "type": 6,
+          "payload_u32": 447834
+        },
+        {
+          "type": 3,
+          "payload_u32": 31656
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# Frozen plans are byte-addressed by manifest SHA256 on every platform.
+*.schema1.json -text whitespace=cr-at-eol
+*.schema2.json -text whitespace=cr-at-eol
+*.patch -text

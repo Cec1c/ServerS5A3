@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "sourceScrollSHA256": "974780e913b7b4f11dc4df70f1dccfa6ab172f9e1cc522d8244848dc486a2101",
+  "npkName": "sprite_item_stackable_private_amp13.NPK",
+  "npkSHA256": "c1add31403537464ffec73c6756ab25adb0a41553a2455660647db65855ae85a",
+  "npkBytes": 1902,
+  "pngSHA256": "a4f7a53c04c2571320c22d4703bc88c1046bb17096ffa376552275f4d797a97c",
+  "items": [
+    990027307,
+    990027308,
+    990027309,
+    990027310,
+    990027311,
+    990027312
+  ],
+  "icon": "Item/stackable/private_amp13/amp13.img",
+  "frame": 0,
+  "toolSHA256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+  "originalInputSHA256": "c74cd44a6119aa7d01428e6bf471089de262e9c9eb088c42ddb7a8ccc5ec1d79",
+  "originalCandidateSHA256": "ea2e2ef6f8743f93f293af9ca70afb993037eb5a17f245cddc0edc157c3a9fb7",
+  "validation": {
+    "pixelRoundtrip": true,
+    "changedEntries": 6,
+    "unchangedEntriesVerified": 1126432,
+    "retainedGoldPrice400": true
+  },
+  "deployed": false
+}

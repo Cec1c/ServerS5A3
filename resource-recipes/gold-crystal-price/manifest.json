@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "classification": "功能修复",
+  "baselineSHA256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+  "toolSHA256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+  "planSHA256": "27f8e2d1f278fed2eeb4b19fd06841da17fbc7935da2b61bcfaca10de04d30d8",
+  "path": "stackable/material/cubepiece_gold.stk",
+  "price": 400,
+  "preservedValue": 400,
+  "beforeRawSHA256": "27438c1c0df553e31bb1d60def2b27ef093d5a34b4f4d084ee9f6a7c86b4c374",
+  "afterRawSHA256": "dea695819efe649926e1e64f0a1d3137831c61289103e2512869038cca6b94c2",
+  "insertAfterToken": 16,
+  "originalTokenCount": 30,
+  "addedTokenCount": 2
+}

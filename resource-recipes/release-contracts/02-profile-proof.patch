@@ -1,0 +1,165 @@
+diff --git a/deploy/remote/game_update.py b/deploy/remote/game_update.py
+--- a/deploy/remote/game_update.py
++++ b/deploy/remote/game_update.py
+@@ -172,12 +172,45 @@ def checked_pair_transition(raw, expected_sha, source, old, current, now):
+     return value
+ 
+ 
++def normalized_split_profile(before, after, pair):
++    """Only the verified publication profile may change resource hash fields."""
++    import copy
++    import re
++    normalized = copy.deepcopy(after)
++    if 'splitProfile' not in before and 'splitProfile' not in after:
++        if pair.get('kind') == 'exe-only' and ('splitConfigHashes' in before or 'splitConfigHashes' in after):
++            raise ValueError('EXE-only split profile evidence missing')
++        return normalized
++    prior, current = before.get('splitProfile'), after.get('splitProfile')
++    fields = {'path', 'sha256', 'value'}
++    if not isinstance(prior, dict) or not isinstance(current, dict) or set(prior) != fields or set(current) != fields:
++        raise ValueError('split profile evidence fields differ')
++    if not isinstance(prior['path'], str) or not prior['path'].startswith('/') or current['path'] != prior['path']:
++        raise ValueError('split profile path differs')
++    for state, proof in ((before, prior), (after, current)):
++        if (not isinstance(proof['value'], dict) or not isinstance(proof['sha256'], str) or
++                not re.fullmatch('[0-9a-f]{64}', proof['sha256']) or
++                state.get('splitConfigHashes', {}).get(proof['path']) != proof['sha256']):
++            raise ValueError('split profile fingerprint differs')
++    value = copy.deepcopy(current['value'])
++    for field, old_key, new_key in [('ExeSha256', 'baseExeSha256', 'exeSha256'),
++                                    ('PvfSha256', 'basePvfSha256', 'pvfSha256')]:
++        if prior['value'].get(field) != pair[old_key] or value.get(field) != pair[new_key]:
++            raise ValueError('split profile resource differs')
++        value[field] = prior['value'][field]
++    if value != prior['value']:
++        raise ValueError('split profile changed unrelated configuration')
++    normalized['splitProfile'] = copy.deepcopy(prior)
++    normalized['splitConfigHashes'][prior['path']] = prior['sha256']
++    return normalized
++
++
+ def checked_pair_management(before, after, pair):
+     """Resource generation may change; gateway/GM implementations must not."""
+     import copy
+     import re
+     if pair.get('kind') == 'exe-only':
+-        normalized = copy.deepcopy(after)
++        normalized = normalized_split_profile(before, after, pair)
+         if 'pid' in normalized:
+             normalized['pid'] = before.get('pid')
+         if before.get('mode') != 'external-gm' or before.get('pvfSha256') != pair['pvfSha256'] or normalized != before:
+@@ -193,7 +226,7 @@ def checked_pair_management(before, after, pair):
+         raise ValueError('paired management index generation differs')
+     if pair.get('bundle') == BUNDLE008_ID and after['indexes'] != BUNDLE008_INDEXES:
+         raise ValueError('cumulative GM index fingerprints differ')
+-    normalized = copy.deepcopy(after)
++    normalized = normalized_split_profile(before, after, pair)
+     if set(normalized) != set(before): raise ValueError('paired management fields changed')
+     for key in ('pid', 'pvfSha256', 'indexes', 'splitConfigHashes'):
+         if key in normalized: normalized[key] = before[key]
+@@ -603,6 +636,12 @@ def checked_edge_evidence(raw, expected_sha256, now):
+         raise ValueError('Split gateway PVF mismatch')
+     if not value.get('configHashes'):
+         raise ValueError('Split gateway configuration evidence missing')
++    if 'profileEvidence' in value:
++        profile = value['profileEvidence']
++        if (not isinstance(profile, dict) or set(profile) != {'path', 'sha256', 'value'} or
++                not isinstance(profile['value'], dict) or
++                value['configHashes'].get(profile['path']) != profile['sha256']):
++            raise ValueError('Split gateway profile evidence differs')
+     return value
+ 
+ 
+@@ -722,6 +761,11 @@ def atomic(path, data):
+         result = {'format': 1, 'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                   'published': read(h / 'state.json')['published'], 'management': management,
+                   'configHashes': {str(p): sha(p) for p in evidence_files}}
++        profile_path = Path(cfg['launcher_hub']['profile_file'])
++        profile_raw = profile_path.read_bytes()
++        profile_sha = hashlib.sha256(profile_raw).hexdigest()
++        assert result['configHashes'][str(profile_path)] == profile_sha, 'publication profile changed during snapshot'
++        result['profileEvidence'] = dict(path=str(profile_path), sha256=profile_sha, value=json.loads(profile_raw))
+         protected = cfg.get('protected_launcher_hub')
+         if protected:
+             result['protectedPublished'] = read(Path(protected['data_dir']) / 'state.json')['published']
+@@ -764,7 +808,10 @@ def management_snapshot():
+         assert 'gm' not in read(d / 'compose.json')['services'], 'legacy GM is still in active compose'
+         value = edge()
+         if value:
+-            return dict(value['management'], splitConfigHashes=value['configHashes']), []
++            management = dict(value['management'], splitConfigHashes=value['configHashes'])
++            if 'profileEvidence' in value:
++                management['splitProfile'] = value['profileEvidence']
++            return management, []
+         legacy = inspect('gm')
+         assert not legacy['State']['Running'], 'legacy GM must remain stopped'
+         return gateway_management_snapshot(r, run, sha)
+diff --git a/deploy/remote/test_game_update_exe_profile.py b/deploy/remote/test_game_update_exe_profile.py
+new file mode 100644
+--- /dev/null
++++ b/deploy/remote/test_game_update_exe_profile.py
+@@ -0,0 +1,64 @@
++"""Publication profile files change even while GM/index resources do not."""
++import copy
++import hashlib
++import importlib.util
++import json
++from pathlib import Path
++import unittest
++
++spec = importlib.util.spec_from_file_location('exe_profile_fixture', Path(__file__).with_name('test_game_update_exe_only.py'))
++fixture = importlib.util.module_from_spec(spec); spec.loader.exec_module(fixture)
++worker = fixture.WORKER
++
++class SplitProfileTests(unittest.TestCase):
++    def setUp(self):
++        self.f = fixture.ExeOnlyTransitionContractTests(); self.f.setUp()
++        self.path = '/srv/hub-private/profile.json'
++        self.before = self.add_profile(self.f.old_management, self.f.profile)
++        self.after = self.add_profile(self.f.after_management, dict(self.f.profile, ExeSha256=self.f.new_exe))
++
++    def add_profile(self, management, profile):
++        value = copy.deepcopy(management)
++        digest = hashlib.sha256(json.dumps(profile, indent=2).encode()).hexdigest()
++        value['splitConfigHashes'] = {self.path: digest, '/srv/gateway.json': 'f'*64}
++        value['splitProfile'] = dict(path=self.path, sha256=digest, value=copy.deepcopy(profile))
++        return value
++
++    def test_exe_profile_and_gateway_pid_change_pass_full_transition(self):
++        f=self.f
++        f.old['management']=self.before
++        f.current['management']=self.after
++        f.transition['afterManagement']=self.after
++        self.assertEqual(f.call_transition(), f.transition)
++        self.assertNotEqual(self.before['splitProfile']['sha256'], self.after['splitProfile']['sha256'])
++
++    def test_other_profile_fields_cannot_change_even_with_matching_hash(self):
++        for field, value in [('RequireQQBinding', False), ('GameHost', 'other.invalid'), ('newSwitch', True), ('PvfSha256', 'f'*64)]:
++            profile=dict(self.after['splitProfile']['value'], **{field:value})
++            with self.subTest(field=field), self.assertRaises(ValueError):
++                worker.checked_pair_management(self.before, self.add_profile(self.f.after_management,profile), self.f.pair)
++
++    def test_other_config_hash_or_profile_path_changes_are_rejected(self):
++        after=copy.deepcopy(self.after);after['splitConfigHashes']['/srv/gateway.json']='0'*64
++        with self.assertRaises(ValueError):worker.checked_pair_management(self.before,after,self.f.pair)
++        after=copy.deepcopy(self.after);after['splitProfile']['path']='/srv/other.json'
++        with self.assertRaises(ValueError):worker.checked_pair_management(self.before,after,self.f.pair)
++
++    def test_missing_or_unbound_profile_evidence_is_rejected(self):
++        for where in ('proof','hash','both'):
++            before,after=copy.deepcopy(self.before),copy.deepcopy(self.after)
++            if where=='hash':after['splitConfigHashes'][self.path]='0'*64
++            elif where=='both':before.pop('splitProfile');after.pop('splitProfile')
++            else:after.pop('splitProfile')
++            with self.subTest(where=where), self.assertRaises(ValueError):
++                worker.checked_pair_management(before,after,self.f.pair)
++
++    def test_legacy_pvf_and_exe_profile_contract_keeps_exact_other_fields(self):
++        spec=importlib.util.spec_from_file_location('pair_profile_fixture',Path(__file__).with_name('test_game_update_resource_pair.py'))
++        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
++        f=module.ResourcePairContractTests();f.setUp()
++        before=self.add_profile(f.old['management'],f.before['profile'])
++        after=self.add_profile(f.after_management,f.after['profile'])
++        worker.checked_pair_management(before,after,f.pair)
++
++if __name__=='__main__':unittest.main()
