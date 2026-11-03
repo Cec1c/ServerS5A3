@@ -691,6 +691,19 @@ func (s *Service) planCurrentDungeonMonsterDropsWithLuckyRate(
 			return nil, err
 		}
 	}
+	// Additional material rolls run after the existing item selections. Each
+	// configured row produces at most one personal ground item; death replay
+	// and pickup ownership continue to use the normal scene ledger.
+	configuredMaterialItems, err := currentDungeonConfiguredMaterialItems(dropCatalog,
+		specialDrops.MaterialByDungeon[runtime.Dungeon.ID], monsterType, rng)
+	if err != nil {
+		return nil, err
+	}
+	for _, itemID := range configuredMaterialItems {
+		if err := appendSelected(itemID); err != nil {
+			return nil, err
+		}
+	}
 	s.logGameEvent(nil, "game-dungeon-monster-special-drop-roll",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,
@@ -709,6 +722,7 @@ func (s *Service) planCurrentDungeonMonsterDropsWithLuckyRate(
 		"world_selected", worldSelected,
 		"world_selected_item", worldItemID,
 		"carbon_crystal_guaranteed", carbonCrystalSelected,
+		"configured_material_items", configuredMaterialItems,
 		"source", "runtime_pvf_independent_drop_and_world_drop")
 
 	// The LCG is advanced even when no standard scene item survived the real
