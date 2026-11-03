@@ -77,3 +77,64 @@ func TestPartyLoadingOldRoomCallbackCannotReleaseNextRoom(t *testing.T) {
 		t.Fatal("an old room's queued release wrote into the next room")
 	}
 }
+
+func TestPartyLoadingCachedRevisitDoesNotRestoreOldOwner(t *testing.T) {
+	s, leader, follower := partyMovePreflightFixture(t)
+	old := snapshotPartyDungeonLoadingOwner(leader)
+	moveLoadingCycleFixture(t, s, leader, follower)
+	// Clear both scene projections, then take the actual cached path back.
+	for _, peer := range []*gameSession{leader, follower} {
+		runtime := peer.dungeon.runtime
+		scene, _ := runtime.Session.Scene()
+		for _, key := range scene.BlockingHostiles {
+			if peer == leader {
+				if _, _, err := runtime.Room.CommitActorDeathReport(key, runtime.Session); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := runtime.Session.MarkHostileDefeated(key); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := s.handleDungeonMoveMap(leader, make([]byte, dungeoncmd.MoveMapRequestSize)); err != nil {
+		t.Fatal(err)
+	}
+	if leader.dungeon.runtime.Room != old.room {
+		t.Fatal("fixture did not return to the same cached room object")
+	}
+	if snapshotPartyDungeonLoadingOwner(leader) == old {
+		t.Fatal("returning to a cached room revived an earlier visit's loading callback")
+	}
+}
+
+func TestPartyLoadingStaggeredMoveRetainsOnlyNewRoomArrivals(t *testing.T) {
+	s, leader, follower := partyMovePreflightFixture(t)
+	partyID, members, ok := s.partyDungeonLoadingBarrierMembers(leader)
+	if !ok {
+		t.Fatal("fixture has no party barrier")
+	}
+	s.partyDungeonLoadingBarrierArrive(follower, partyID, members)
+	body := make([]byte, dungeoncmd.MoveMapRequestSize)
+	body[0] = 1
+	if err := s.handleDungeonMoveMapPlanned(leader, body, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	release, _, _, _, next := s.partyDungeonLoadingBarrierArrive(leader, partyID, members)
+	if release || next.Ready[follower.selectedCharacterID] {
+		t.Fatal("a peer still in the old room supplied readiness for the new room")
+	}
+	t.Cleanup(func() {
+		if next.Timer != nil {
+			next.Timer.Stop()
+		}
+	})
+	scene, _ := leader.dungeon.runtime.Session.Scene()
+	plan := runtimePartyDungeonMovePlan{target: runtimeDungeonRoomKeyFromScene(scene), seed: leader.dungeon.runtime.Seed}
+	if err := s.handleDungeonMoveMapPlanned(follower, body, &plan, false); err != nil {
+		t.Fatal(err)
+	}
+	release, _, _, _, last := s.partyDungeonLoadingBarrierArrive(follower, partyID, members)
+	if !release || !last.Ready[leader.selectedCharacterID] {
+		t.Fatal("the later room commit lost the already-ready member of the new room")
+	}
+}

@@ -188,6 +188,8 @@ type partyDungeonLoadingOwner struct {
 	session *gameSession
 	runtime *runtimeDungeonState
 	token   uint64
+	room    *runtimeDungeonRoom
+	visit   uint64
 }
 
 func snapshotPartyDungeonLoadingOwner(session *gameSession) partyDungeonLoadingOwner {
@@ -196,7 +198,12 @@ func snapshotPartyDungeonLoadingOwner(session *gameSession) partyDungeonLoadingO
 	}
 	session.dungeon.mu.Lock()
 	defer session.dungeon.mu.Unlock()
-	return partyDungeonLoadingOwner{session, session.dungeon.runtime, session.dungeon.runToken}
+	owner := partyDungeonLoadingOwner{session: session, runtime: session.dungeon.runtime, token: session.dungeon.runToken}
+	if owner.runtime != nil {
+		owner.room = owner.runtime.Room
+		owner.visit = owner.runtime.loadingRoomVisit
+	}
+	return owner
 }
 
 // Called before acquiring loadingMu: never acquire a dungeon lock beneath it.
@@ -244,7 +251,8 @@ func (s *Service) ensurePartyDungeonLoadingCycleLocked(session *gameSession, par
 				for _, id := range members {
 					previousOwner, existed := current.owners[id]
 					nextOwner, present := owners[id]
-					if existed && present && nextOwner.runtime != nil && previousOwner == nextOwner && current.Ready[id] {
+					if existed && present && nextOwner.runtime != nil && previousOwner == nextOwner &&
+						nextOwner.room == owner.room && nextOwner.visit == owner.visit && current.Ready[id] {
 						ready[id] = true
 					}
 				}

@@ -91,9 +91,12 @@ type runtimeDungeonState struct {
 	// 必须用它，不能回头读 Character.AccountID —— 角色行是"存储真值"，但账号级
 	// 权益的归属口径是会话账号；两者在"角色建在共享兜底账号 dnf:1 上、会话已由
 	// 令牌定案成 dnf:100xx"的现场形态下并不相同。
-	AccountID         string
-	Session           *worldmap.DungeonSession
-	Room              *runtimeDungeonRoom
+	AccountID string
+	Session   *worldmap.DungeonSession
+	Room      *runtimeDungeonRoom
+	// Incremented at each committed room transition, including cached revisits.
+	// A loading callback from an earlier visit must not release this visit.
+	loadingRoomVisit  uint64
 	randomizedObjects *currentDungeonRandomizedOwner
 	DropOwner         *runtimeDungeonDropOwner
 	NextObjectKey     uint32

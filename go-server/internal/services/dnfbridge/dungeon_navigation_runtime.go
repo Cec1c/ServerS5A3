@@ -2067,6 +2067,7 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "dungeon_room_transition_committed")
 	}
 	runtime.Room = plan.TargetRoom
+	runtime.loadingRoomVisit++
 	// The native NPC and quote belong to this visit to the hell room. Leaving
 	// ends the opportunity; a cached revisit cannot reopen a completed offer.
 	if runtime.epicShop != nil && !currentHellPartySceneIsHellRoom(runtime, committedScene) {
