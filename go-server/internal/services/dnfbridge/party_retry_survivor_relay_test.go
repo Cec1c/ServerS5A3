@@ -9,6 +9,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
@@ -233,12 +234,48 @@ func leaderExitThroughTownSceneConfirmation(
 	source string,
 ) {
 	t.Helper()
-	if err := s.handleGameCommand(leader, byte(dnfenum.GameCmdCommand), uint16(request), nil); err != nil {
-		t.Fatal(err)
+	var err error
+	switch request {
+	case dnfenum.CmdPacketGiveupGame:
+		// The current client sends active-run op42 as a bodyless upper packet.
+		// Keep op13 on its already-passing legacy fixture path.
+		packet, buildErr := dnfproto.BuildChannelPacket(
+			uint16(request),
+			[]byte{},
+			0,
+			dnfproto.DefaultChannelClassification,
+		)
+		if buildErr != nil {
+			t.Fatalf("build op%d request: %v", request, buildErr)
+		}
+		err = s.handleGameUpper(leader, packet)
+	case dnfenum.CmdPacketLeaveParty:
+		err = s.handleGameCommand(leader, byte(dnfenum.GameCmdCommand), uint16(request), nil)
+	default:
+		t.Fatalf("unsupported leader exit opcode %d", request)
+	}
+	if err != nil {
+		t.Fatalf("handle leader exit op%d: %v", request, err)
 	}
 	runtime := leader.dungeon.runtime
-	if runtime == nil || !runtime.townReturnPending || runtime.townReturnRequestMsgID != uint16(request) {
-		t.Fatalf("op%d did not retain the active run pending town evidence: %+v", request, runtime)
+	runtimePresent := runtime != nil
+	townReturnPending := false
+	townReturnRequestMsgID := uint16(0)
+	townReturnOp24Sent := false
+	if runtime != nil {
+		townReturnPending = runtime.townReturnPending
+		townReturnRequestMsgID = runtime.townReturnRequestMsgID
+		townReturnOp24Sent = runtime.townReturnOp24Sent
+	}
+	if !runtimePresent || !townReturnPending || townReturnRequestMsgID != uint16(request) {
+		t.Fatalf(
+			"op%d did not retain the active run pending town evidence: runtime_present=%t town_return_pending=%t town_return_request_msgid=%d town_return_op24_sent=%t",
+			request,
+			runtimePresent,
+			townReturnPending,
+			townReturnRequestMsgID,
+			townReturnOp24Sent,
+		)
 	}
 
 	// The current client confirms a pending op24 only through a town-side scene
