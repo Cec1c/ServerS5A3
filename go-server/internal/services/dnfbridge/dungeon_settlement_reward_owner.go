@@ -202,6 +202,9 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	}
 	drops, err := s.currentDungeonCommittedDropReceiptsLocked(session, runtime, result.Inventory)
 	if err != nil {
+		s.logGameEvent(session, "game-dungeon-settlement-plan-blocked",
+			"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+			"failure_stage", "committed_pickup_projection", "error", err)
 		return err
 	}
 	cardSlots := currentDungeonClearRewardCardSlotsFromRuntime(runtime, currentDungeonCardFlipRowStateValue(session))
@@ -274,6 +277,9 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		result.Skill.Points,
 	)
 	if err != nil {
+		s.logGameEvent(session, "game-dungeon-settlement-plan-blocked",
+			"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+			"failure_stage", "result_packet_plan", "error", err)
 		return err
 	}
 	if state := runtime.settlementCardRewardState; state != nil {
@@ -1035,6 +1041,15 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 			}
 		}
 	}
+	// The result list is a projection, not another pickup grant. A complete
+	// server-frozen pickup receipt can outlive its bag row (discard, consume,
+	// disassemble or move). Keep the historical grant proof and omit only its
+	// unavailable display row; never reconstruct that item from the receipt.
+	if errors.Is(err, errCurrentDungeonSettlementStateInvalid) {
+		drops, exempted, foreign, err = currentDungeonCommittedDropProjection(
+			runtime, inventory, exemptMode.exempts(), ownerMode.filtersForeignOwned(), selfActorObjectKey, true,
+		)
+	}
 	if err != nil || s == nil || session == nil || runtime == nil ||
 		(len(exempted) == 0 && len(foreign) == 0) {
 		return drops, err
@@ -1053,6 +1068,13 @@ func (s *Service) currentDungeonCommittedDropReceiptsLocked(
 		runStatus = string(runtime.Session.Snapshot().Run.Status)
 	}
 	for _, drop := range exempted {
+		if drop.AssetOwner == "committed_pickup_without_current_bag_projection" {
+			s.logGameEvent(session, "game-dungeon-settlement-historical-pickup-verified",
+				"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
+				"drop_object_key", drop.ObjectKey, "item_id", drop.ItemID,
+				"source", "owned_frozen_pickup_ack_and_inventory_row", "reward_granted", false)
+			continue
+		}
 		if drop.AssetOwner == "character_inventory_committed_consumption" {
 			s.logGameEvent(session, "game-dungeon-settlement-consumed-pickup-receipt",
 				"char_id", session.selectedCharacterID, "dungeon_id", runtime.Dungeon.ID,
@@ -1160,6 +1182,17 @@ func currentDungeonCommittedDropReceiptsFiltered(
 	[]currentDungeonSettlementForeignDropReceipt,
 	error,
 ) {
+	return currentDungeonCommittedDropProjection(runtime, inventory, exemptAccountLedgerDrops, filterForeignOwned, selfActorObjectKey, false, equipment...)
+}
+
+func currentDungeonCommittedDropProjection(
+	runtime *runtimeDungeonState,
+	inventory dnfrepo.InventoryRecord,
+	exemptAccountLedgerDrops, filterForeignOwned bool,
+	selfActorObjectKey uint16,
+	allowHistoricalProjection bool,
+	equipment ...dnfrepo.EquipmentRecord,
+) ([]currentDungeonClearRewardDrop, []currentDungeonSettlementExemptDropReceipt, []currentDungeonSettlementForeignDropReceipt, error) {
 	if runtime == nil || runtime.DropOwner == nil {
 		return nil, nil, nil, nil
 	}
@@ -1219,6 +1252,14 @@ func currentDungeonCommittedDropReceiptsFiltered(
 		slot, stack, found := currentDungeonCommittedPickupSlot(drop, inventory)
 		if !found {
 			if len(equipment) == 1 && currentDungeonCommittedPickupIsEquipped(drop, inventory, equipment[0]) {
+				continue
+			}
+			if allowHistoricalProjection && currentDungeonHistoricalPickupReceipt(drop, inventory.CharacterID, selfActorObjectKey) {
+				exempted = append(exempted, currentDungeonSettlementExemptDropReceipt{
+					ObjectKey: drop.ObjectKey, SceneSlot: drop.SceneSlot, ItemID: drop.Item.ItemID,
+					DestinationSlot: drop.DestinationSlot, StackCount: drop.Amount,
+					AssetOwner: "committed_pickup_without_current_bag_projection",
+				})
 				continue
 			}
 			return nil, nil, nil, errCurrentDungeonSettlementStateInvalid

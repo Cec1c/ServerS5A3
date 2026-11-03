@@ -195,7 +195,10 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			"settlement_entry_sent", runtime.settlementEntrySent,
 			"settlement_play_result_received", runtime.settlementPlayResultReceived,
 			"settlement_statistic_received", runtime.settlementStatisticReceived,
-			"reason", "completed_run_missing_play_result_or_statistic_barrier")
+			"settlement_result_plan_frozen", runtime.settlementResultPlan != nil,
+			"settlement_clear_reward_sent", runtime.settlementClearRewardSent,
+			"settlement_phase", runtime.settlementPhase.String(),
+			"reason", "completed_run_result_not_ready")
 		return nil
 	}
 	if snapshot.Run.Status != worldmap.DungeonRunActive && snapshot.Run.Status != worldmap.DungeonRunCompleted {
