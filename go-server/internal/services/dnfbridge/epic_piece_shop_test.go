@@ -18,6 +18,10 @@ func epicShopFixture(t *testing.T, probability int) (*Service, *gameSession, *bu
 	source := bridgeHellPartyClearSettlementPVF()
 	source[epicbook.ShopConfigPath] = fmt.Sprintf("[npcIndex] 1130\n[epic piece provide] 5\n[epic piece received] 10\n[gabriel appearance probability] %d\n[list change chance] 5\n[list change cost] 100000\n[kind of epic piece] 5\n[same type] 0\n[normal type] 5\n", probability)
 	source[currentEpicPieceInfoPath] = "[piece list] 5001 10300001 5002 10300002 5003 10300003 5004 10300004 5005 10300005 5006 10300006 5007 10300007\n[/piece list]"
+	for id := 5001; id <= 5007; id++ {
+		source[dungeonDropEquipmentList] += fmt.Sprintf("%d `shop/%d.equ`\n", id, id)
+		source[fmt.Sprintf("equipment/shop/%d.equ", id)] = "[equipment type] `[coat]`\n[rarity] 4\n[minimum level] 90\n[grade] 9\n"
+	}
 	s, p, c, r, _ := prepareHellPartyDungeonRuntimeForEntryTest(t, source)
 	s.options.currentClientVersion = "official-24.9"
 	s.options.epicPiecePush = epicPiecePushAlways

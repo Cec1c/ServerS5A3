@@ -167,9 +167,25 @@ func (s *Service) chooseCurrentEpicShopMaterials(shop *currentEpicShop, target u
 	if shop == nil || !shop.Book.isEpicPiece(target) {
 		return result, epicbook.ErrShop
 	}
+	items, err := s.dungeonMonsterCatalog()
+	if err != nil {
+		return result, err
+	}
+	levels, err := currentAbyssEpicPieceLevelIndexFor(items)
+	if err != nil {
+		return result, err
+	}
+	level, known := levels.levelOf(target)
+	if !known || level <= 0 {
+		return result, epicbook.ErrShop
+	}
+	// Use the selected equipment's original minimum level, not the piece's
+	// own level, the character level, or a contract-adjusted display level.
+	// A Lv90 target draws random materials only from Lv85 through Lv90.
 	pool := make([]uint32, 0, shop.Book.count()-1)
 	for _, id := range shop.Book.pieces {
-		if id != target {
+		materialLevel, resolved := levels.levelOf(id)
+		if id != target && resolved && materialLevel > 0 && materialLevel >= level-5 && materialLevel <= level {
 			pool = append(pool, id)
 		}
 	}
