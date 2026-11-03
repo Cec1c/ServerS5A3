@@ -34,7 +34,7 @@ type currentRaidDeadlineReturn struct {
 // The clock collects references under raidMu, never locks a peer's dungeon
 // mutex there. Individual workers serialize through the owning session loop.
 func (s *Service) queueCurrentRaidDeadlineReturns(now time.Time) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || now.IsZero() {
+	if s == nil || !s.isSupportedRaidClient() || now.IsZero() {
 		return
 	}
 	var owners []*currentRaidDeadlineReturn

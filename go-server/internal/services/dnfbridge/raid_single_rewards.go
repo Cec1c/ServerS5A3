@@ -20,8 +20,30 @@ const singleAntonSquadSourceID uint32 = 10304671
 const singleAntonCombinedSourceID uint32 = 10303189
 
 func loadCurrentSingleAntonRewards(catalog *pvfDungeonDropCatalog, sequence []uint32, now time.Time) (raid.AntonRewardConfiguration, error) {
-	if catalog == nil || len(sequence) != 6 || now.IsZero() {
+	if catalog == nil || len(sequence) == 0 || now.IsZero() {
 		return raid.AntonRewardConfiguration{}, raid.ErrRewardIneligible
+	}
+	if len(sequence) != 6 {
+		legacy, err := raid.ReadLegacyAntonSingle(catalog.source)
+		if err != nil {
+			return raid.AntonRewardConfiguration{}, err
+		}
+		matched := false
+		for _, route := range legacy.Routes {
+			if reflect.DeepEqual(route, sequence) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return raid.AntonRewardConfiguration{}, raid.ErrRewardIneligible
+		}
+		legacy.Rewards.MinimumClears = uint32(len(sequence))
+		config := raid.AntonRewardConfiguration{Phases: []raid.AntonPhaseRewards{legacy.Rewards}}
+		if err := validateCurrentAntonRewardDependencies(catalog, config, now); err != nil {
+			return raid.AntonRewardConfiguration{}, err
+		}
+		return config, nil
 	}
 	boxes := make([]currentBoosterDefinition, 0, 3)
 	for _, id := range []uint32{singleAntonPartyRewardID, singleAntonSquadSourceID, singleAntonCombinedSourceID} {
@@ -76,6 +98,10 @@ func loadCurrentSingleAntonRewards(catalog *pvfDungeonDropCatalog, sequence []ui
 // Expand the equivalent single source and nested random rewards using the
 // same direct-grant policy as normal raids. Player-choice rewards remain.
 func resolveCurrentSingleAntonSquadPlan(catalog *pvfDungeonDropCatalog, phase raid.AntonPhaseRewards, rank byte, roll func(int64) (int64, error), now time.Time) (currentAntonRewardPlan, error) {
+	choices, _, err := phase.Pool("squad_item", rank)
+	if err == nil && len(choices) > 0 && choices[0].ContainerID != singleAntonSquadSourceID {
+		return resolveCurrentAntonRewardPlan(catalog, phase, "squad_item", rank, roll, now)
+	}
 	return resolveCurrentSingleRaidSquadPlan(catalog, phase, rank, roll, now, singleAntonSquadSourceID, singleAntonCombinedSourceID)
 }
 

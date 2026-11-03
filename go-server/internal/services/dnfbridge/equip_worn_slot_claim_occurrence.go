@@ -206,6 +206,13 @@ func (s *Service) noteWornSlotClaimOccurrence(session *gameSession, body []byte)
 				s.currentWornClaimReceiptMatches(session, slot, statement)
 		}
 	}
+	if s.uses90NativeClient() && !inWindow {
+		// This client has no patched manual-request tail marker. Once the
+		// bounded login window ends, repeated identical drag-off requests and
+		// quick consecutive slot operations are legitimate legacy moves.
+		identicalLoginRepeat = false
+		burstContinuation = false
+	}
 	switch {
 	case occurrence > 1 && identicalLoginRepeat:
 		decision, reason = "swallow", "identical-login-reassert"

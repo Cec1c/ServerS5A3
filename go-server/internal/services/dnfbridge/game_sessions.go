@@ -91,6 +91,12 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	}
 	previous := s.gameSessions[charID]
 	characterChanged := session.selectedCharacterID != charID
+	if s.uses90NativeClient() && (characterChanged || session.equipLoginWearWindowOpenedAt.IsZero()) {
+		// Native90 does not send the newer type1345 scene-ready packet.
+		// Give its login echo guard a bounded selected-character epoch instead
+		// of classifying every subsequent manual unequip as a login echo.
+		session.equipLoginWearWindowOpenedAt = guildClock.Now()
+	}
 	if characterChanged || previous != session {
 		s.clearCurrentPeerProfileReferencesLocked(session)
 		session.laborDayAnchor = time.Time{}

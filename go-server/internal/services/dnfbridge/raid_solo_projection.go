@@ -10,7 +10,7 @@ import (
 // separate from raid group placement. It is intentionally idempotent and always
 // broadcasts so a repeated leave can repair a previous roster write failure.
 func (s *Service) refreshCurrentRaidSoloAfterPartyLeave(identity boundGameSessionCharacter, previous alignedcmd.PartyState) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || !s.boundGameSessionCharacterCurrent(identity) {
+	if s == nil || !s.isSupportedRaidClient() || !s.boundGameSessionCharacterCurrent(identity) {
 		return
 	}
 	s.refreshCurrentRaidSoloForPartyMembers(
@@ -36,7 +36,7 @@ func (s *Service) refreshCurrentRaidSoloForPartyMembers(ids []uint16, reason str
 // can be included in one roster packet rather than broadcasting an intermediate
 // group layout first.
 func (s *Service) updateCurrentRaidSoloForPartyMembers(ids []uint16, forceBroadcast bool) []runtimeRaidState {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || len(ids) == 0 {
+	if s == nil || !s.isSupportedRaidClient() || len(ids) == 0 {
 		return nil
 	}
 	manager := s.runtimePartyManagerForService()

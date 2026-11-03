@@ -13,7 +13,7 @@ const antonModeSelectionEventEnv = "DNFBRIDGE_ANTON_MODE_SELECTION"
 // Require both configured admission modes from the actual PVF. This advertises
 // only the chooser; it neither changes entry cost/counts nor admits a raid.
 func (s *Service) currentAntonModeSelectionAvailable(session *gameSession) bool {
-	if s == nil || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || !s.isSupportedRaidClient() {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(antonModeSelectionEventEnv))) {

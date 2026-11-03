@@ -654,7 +654,7 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 		rows,
 		hostSlot,
 		vendorDungeonPartyRoomSlotTableShape,
-		s.options.currentClientVersion == "official-24.9",
+		s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient(),
 		s.currentSceneActorRoute(),
 	)
 	room := ""

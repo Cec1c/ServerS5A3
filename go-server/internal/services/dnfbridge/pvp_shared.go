@@ -397,7 +397,7 @@ func (s *Service) returnCurrentPVPMemberToTown(member *currentPVPMember) error {
 	if err := s.sendPVPClass0Packet(member.session, currentPVPUserAreaMsgID, area, "pvp_leave_room_user_area"); err != nil {
 		return err
 	}
-	transition, err := buildCurrentSceneTransitionBody(p.TownID, p.AreaID, []currentSceneTransitionRow{{member.characterID, p.PositionX, p.PositionY, p.MovementCode, newCharacterInitialAreaState}})
+	transition, err := s.buildCurrentSceneTransitionBody(p.TownID, p.AreaID, []currentSceneTransitionRow{{member.characterID, p.PositionX, p.PositionY, p.MovementCode, newCharacterInitialAreaState}})
 	if err != nil {
 		return err
 	}

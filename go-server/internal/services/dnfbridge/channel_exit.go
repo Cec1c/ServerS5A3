@@ -26,6 +26,7 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 	// EXIT is explicit player intent. Do not let the subsequent socket
 	// handover preserve a party whose client has already left its scene.
 	if !session.channelExitAcknowledged {
+		s.leaveNativeAntonRaidOnChannelExit(session)
 		s.detachRuntimePartySession(session, "channel_exit")
 	}
 	cancelHandoff := s.rememberCurrentAuthenticatedChannelHandoff(session)

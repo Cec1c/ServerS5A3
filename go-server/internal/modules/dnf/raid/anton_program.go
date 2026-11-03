@@ -67,8 +67,23 @@ func antonUint(token dnfpvf.Token) (uint32, error) {
 }
 
 func LoadAntonProgram(source dnfpvf.Source) (*AntonProgram, error) {
+	return loadAntonProgramForProfile(source, false)
+}
+
+// Legacy native PVFs keep the separate single phase after the two team phases.
+func LoadNative90AntonTeamProgram(source dnfpvf.Source) (*AntonProgram, error) {
+	return loadAntonProgramForProfile(source, true)
+}
+
+func loadAntonProgramForProfile(source dnfpvf.Source, native90 bool) (*AntonProgram, error) {
 	const path = "etc/raid/anton.etc"
-	config, err := LoadBattleConfiguration(source, path)
+	var config BattleConfiguration
+	var err error
+	if native90 {
+		config, err = LoadLegacyAntonBattleConfiguration(source, 255)
+	} else {
+		config, err = LoadBattleConfiguration(source, path)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +128,14 @@ func LoadAntonProgram(source dnfpvf.Source) (*AntonProgram, error) {
 		section := doc.Sections[i]
 		name := strings.ToUpper(strings.TrimSpace(section.Name))
 		values := sectionValues(doc, section)
+		if native90 && name == "SINGLE RAID PHASE" {
+			for i++; i < len(doc.Sections) && !strings.EqualFold(strings.TrimSpace(doc.Sections[i].Name), "/SINGLE RAID PHASE"); i++ {
+			}
+			if i >= len(doc.Sections) {
+				return nil, fmt.Errorf("legacy Anton single phase unclosed")
+			}
+			continue
+		}
 		switch name {
 		case "PHASE":
 			phase++

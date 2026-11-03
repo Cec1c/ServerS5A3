@@ -28,7 +28,7 @@ type currentAntonHatcheryTransfer struct {
 
 // Caller holds dungeon.mu. Nested locks follow the established binding order.
 func (s *Service) captureCurrentAntonHatcheryTransferLocked(session *gameSession, request dungeoncmd.SelectDungeonRequest) *currentAntonHatcheryTransfer {
-	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" || request.DungeonID < 221 || request.DungeonID > 224 || request.Difficulty != 2 || !s.currentRaidAuthenticated(session) {
+	if s == nil || session == nil || !s.isSupportedRaidClient() || request.DungeonID < 221 || request.DungeonID > 224 || request.Difficulty != 2 || !s.currentRaidAuthenticated(session) {
 		return nil
 	}
 	s.raidMu.Lock()
@@ -41,7 +41,7 @@ func (s *Service) captureCurrentAntonHatcheryTransferLocked(session *gameSession
 // Caller holds every affected dungeon.mu, raidMu, and Service.mu. No peer queue,
 // packet write, repository transaction, or callback runs in this section.
 func (s *Service) captureCurrentAntonHatcheryTransferWithOwnersLocked(session *gameSession, request dungeoncmd.SelectDungeonRequest) *currentAntonHatcheryTransfer {
-	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" || request.Difficulty != 2 {
+	if s == nil || session == nil || !s.isSupportedRaidClient() || request.Difficulty != 2 {
 		return nil
 	}
 	old := session.dungeon.runtime

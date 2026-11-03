@@ -86,7 +86,7 @@ func (s *Service) prepareCurrentFiendWarReturn(p *gameSession, r *runtimeDungeon
 	origin := r.townReturnOrigin
 	if origin.CharacterID == p.selectedCharacterID && origin.PositionValid && int(origin.TownID) == town && int(origin.AreaID) == area {
 		row := currentSceneTransitionRow{ObjectOrResourceKey: currentSceneActorObjectKey(p.selectedCharacterID), Value1: origin.PositionX, Value2: origin.PositionY, Value3: origin.MovementCode}
-		body, err := buildCurrentSceneTransitionBody(byte(town), byte(area), []currentSceneTransitionRow{row})
+		body, err := s.buildCurrentSceneTransitionBody(byte(town), byte(area), []currentSceneTransitionRow{row})
 		if err != nil {
 			return currentDungeonTownTransition{}, err
 		}
@@ -100,7 +100,7 @@ func (s *Service) prepareCurrentFiendWarReturn(p *gameSession, r *runtimeDungeon
 		return currentDungeonTownTransition{}, fmt.Errorf("超时空回城坐标越界")
 	}
 	row := currentSceneTransitionRow{ObjectOrResourceKey: currentSceneActorObjectKey(p.selectedCharacterID), Value1: uint16(int16(x)), Value2: uint16(int16(y))}
-	body, err := buildCurrentSceneTransitionBody(byte(town), byte(area), []currentSceneTransitionRow{row})
+	body, err := s.buildCurrentSceneTransitionBody(byte(town), byte(area), []currentSceneTransitionRow{row})
 	if err != nil {
 		return currentDungeonTownTransition{}, err
 	}

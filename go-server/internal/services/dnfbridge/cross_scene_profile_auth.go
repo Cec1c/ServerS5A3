@@ -57,7 +57,7 @@ func (s *Service) currentCrossSceneProfileAllowed(ctx context.Context, source, t
 // too. Call without s.mu or raidMu held. No repository/PVF work or sends occur
 // under these checks, and no session party cache is imported as authority.
 func (s *Service) currentCrossSceneProfileMembership(source, target *gameSession, sourceID, targetID uint16) bool {
-	if s == nil || s.options.currentClientVersion != "official-24.9" ||
+	if s == nil || s.options.currentClientVersion != "official-24.9" || s.uses90NativeClient() ||
 		source == nil || target == nil || source == target ||
 		sourceID == 0 || targetID == 0 || sourceID == targetID {
 		return false

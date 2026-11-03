@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
@@ -11,6 +12,8 @@ import (
 )
 
 const currentDungeonAccountIncountPath = "etc/dungeonetc/dungeonincountinfo.etc"
+
+var errSilentForestRuleMissing = errors.New("silent forest account admission PVF rule missing")
 
 func (s *Service) currentSilentForestEntryLimit() (int64, error) {
 	if s == nil || s.initialEquipmentArchive == nil {
@@ -39,7 +42,7 @@ func (s *Service) currentSilentForestEntryLimit() (int64, error) {
 		limit = rows[i+2]
 	}
 	if limit == 0 {
-		return 0, fmt.Errorf("silent forest account admission PVF rule missing")
+		return 0, errSilentForestRuleMissing
 	}
 	return limit, nil
 }

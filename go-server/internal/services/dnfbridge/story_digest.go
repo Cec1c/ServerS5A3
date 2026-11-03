@@ -21,7 +21,7 @@ const currentStoryDigestLastLevelMsgID uint16 = 0x0562
 const official249StoryDigestLastLevelMsgID uint16 = 1377
 
 func (s *Service) storyDigestLastLevelMsgID() uint16 {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient() {
 		return official249StoryDigestLastLevelMsgID
 	}
 	return currentStoryDigestLastLevelMsgID

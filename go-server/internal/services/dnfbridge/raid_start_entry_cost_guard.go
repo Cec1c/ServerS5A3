@@ -53,7 +53,7 @@ func raidStartEntryCostGuardMode() string {
 // rollback switches belong to the legacy profile; they must not authorize an
 // official raid without committing every member's actual entry material.
 func (s *Service) raidStartEntryCostMode() string {
-	if s != nil && s.options.currentClientVersion == "official-24.9" {
+	if s != nil && s.isSupportedRaidClient() {
 		return raidStartEntryCostGuardEnforce
 	}
 	return raidStartEntryCostGuardMode()
@@ -339,7 +339,7 @@ func (s *Service) guardRaidStartEntryCost(session *gameSession, state runtimeRai
 		return dependencyFailure("entrance_requirements", err)
 	}
 	var daily *currentRaidDailyRule
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		mode := byte(0)
 		if session.channel.Type == dnfenum.RaidChannelType {
 			mode = 1

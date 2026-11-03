@@ -85,6 +85,16 @@ func currentRaidRouteForChannel(channelType int) (byte, bool) {
 
 func (s *Service) handleCurrentCreateRaid(session *gameSession, op uint16, body []byte) error {
 	req, err := raid.DecodeCurrentCreateRaidRequest(body)
+	if err != nil && s.uses90NativeClient() {
+		if legacyReq, legacyErr := raid.DecodeCreateRaidRequest(body); legacyErr == nil {
+			req = raid.CurrentInfoRequest{
+				Route:     legacyReq.RouteOrRaidType,
+				NameBytes: legacyReq.NameBytes,
+				UIFlags:   [3]byte{legacyReq.TailFlag, 0, 0},
+			}
+			err = nil
+		}
+	}
 	// Diagnostic-only: preserve the original short-circuit order and failure body.
 	// Reasons are fixed literals; never log names, owners, payloads or error text.
 	if err != nil {
@@ -162,6 +172,16 @@ func (s *Service) createCurrentRuntimeRaid(session *gameSession, req raid.Curren
 
 func (s *Service) handleCurrentModifyRaid(session *gameSession, op uint16, body []byte) error {
 	req, err := raid.DecodeCurrentModifyRaidInfoRequest(body)
+	if err != nil && s.options.currentClientVersion == "90cn" {
+		if legacyReq, legacyErr := raid.DecodeModifyRaidInfoRequest(body); legacyErr == nil {
+			req = raid.CurrentModifyInfoRequest{
+				Route:     legacyReq.RouteOrRaidType,
+				NameBytes: legacyReq.NameBytes,
+				UIFlags:   [2]byte{legacyReq.TailFlag, 0},
+			}
+			err = nil
+		}
+	}
 	if err != nil || !currentRaidNameValid(req.NameBytes) || !currentRaidFlagsSupported([3]byte{req.UIFlags[0], req.UIFlags[1], 0}) || !s.currentRaidAuthenticated(session) {
 		return s.sendRaidCommandFailure(session, op)
 	}
@@ -248,8 +268,8 @@ func buildCurrentRuntimeRaidMetadata(state runtimeRaidState, mode uint32) ([]byt
 }
 
 func (s *Service) buildRuntimeRaidRosterBody(state runtimeRaidState) ([]byte, error) {
-	if s.options.currentClientVersion == "official-24.9" {
-		return raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(state))
+	if s.isSupportedRaidClient() {
+		return raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(state), s.uses90NativeClient())
 	}
 	return raid.BuildMemberRefreshMode3Body(runtimeRaidMemberRefresh(state))
 }

@@ -23,6 +23,8 @@ const (
 	// Paired with protocol.observedTokenLoginBodySize: the complete
 	// 594-byte token-bearing request observed on 2026-10-14.
 	observedTokenLoginBodySize = 594
+	// Supplied 90CN EXE 8a7af614: observed 13+602 byte token login after CHANNELINFO.
+	observed90CN602LoginBodySize = 602
 )
 
 type currentInitialTownRouteStage byte
@@ -64,7 +66,8 @@ func isCurrentChannelReconnectDisplayProbeBodyLen(bodyLen int) bool {
 		bodyLen == currentObservedChannelReconnectDisplayProbeSize ||
 		bodyLen == v56ChannelReconnectDisplayProbeSize ||
 		bodyLen == v56RemoteChannelReconnectDisplayProbeSize ||
-		bodyLen == observedTokenLoginBodySize
+		bodyLen == observedTokenLoginBodySize ||
+		bodyLen == observed90CN602LoginBodySize
 }
 
 func markCurrentChannelReconnect(session *gameSession, bodyLen int) bool {

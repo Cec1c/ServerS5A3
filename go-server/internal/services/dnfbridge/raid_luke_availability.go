@@ -6,7 +6,7 @@ import "longheng.io/server/internal/modules/dnf/raid"
 // spending tickets. The normal raid must have both phases and all indexed
 // dependencies. The single route retains its own admission dependency check.
 func (s *Service) currentLukeNormalChannelAvailable(session *gameSession) bool {
-	if s == nil || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || !s.isSupportedRaidClient() {
 		return false
 	}
 	s.initialEquipmentMu.Lock()

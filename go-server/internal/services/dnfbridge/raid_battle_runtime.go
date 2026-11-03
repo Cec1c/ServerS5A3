@@ -42,7 +42,9 @@ type runtimeRaidBattle struct {
 	SingleSequence         []uint32
 	SingleIndex            int
 	// Frozen from the single catalog and symbol table before admission cost.
-	SingleHPSymbols map[uint32]uint32
+	SingleHPSymbols        map[uint32]uint32
+	LegacySingleTypeSymbol uint32
+	LegacySingleType       uint32
 	// Shared literal/symbol/timer executor; Mode 2 must carry an actual Luke
 	// program. The legacy field name does not select Anton's game rules.
 	Anton          *raid.AntonProgression
@@ -190,7 +192,7 @@ func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {
 // missing PVF links, exhausted weekly limits or an invalid owner cannot charge
 // a raid which has no usable battle instance.
 func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRaidState) (*runtimeRaidBattle, error) {
-	if s.options.currentClientVersion != "official-24.9" {
+	if !s.isSupportedRaidClient() {
 		return nil, nil
 	}
 	if !s.currentRaidAuthenticated(session) {
@@ -220,9 +222,31 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 	if err != nil {
 		return nil, err
 	}
-	config, err := raid.LoadBattleConfiguration(archive, path)
+	var legacy *raid.LegacyAntonSingle
+	singleRequested := state.TailFlag == 1 || (state.CurrentLayout && state.CurrentUIFlags[0] == 1)
+	if s.uses90NativeClient() && state.RouteOrRaidType == 0 {
+		if _, hasModernLinks := archive.FindFile("etc/raid/singleraidlinksystem.etc"); !hasModernLinks {
+			data, legacyErr := raid.ReadLegacyAntonSingle(archive)
+			if legacyErr != nil {
+				return nil, legacyErr
+			}
+			legacy = &data
+		}
+	}
+	var config raid.BattleConfiguration
+	if legacy != nil {
+		// Legacy resources omit the modern clear-limit field. This adapter
+		// uses the counter storage capacity; it does not infer a weekly entry
+		// policy from the ambiguous legacy WEEKLY ENTER COUNT tuple.
+		config, err = raid.LoadLegacyAntonBattleConfiguration(archive, 255)
+	} else {
+		config, err = raid.LoadBattleConfiguration(archive, path)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if legacy != nil && singleRequested {
+		config.PhaseLimitSeconds[0] = legacy.Timeout
 	}
 	policy, err := currentRaidWeeklyPolicy()
 	if err != nil {
@@ -283,17 +307,35 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 		if len(state.Members) != 1 {
 			return nil, fmt.Errorf("single raid requires exactly one member")
 		}
-		if _, err := raid.ValidateSingleRaidDependenciesForRoute(archive, state.RouteOrRaidType); err != nil {
-			return nil, fmt.Errorf("raid dungeon single catalog unavailable: %w", err)
-		}
-		b.SingleSequence, err = raid.LoadSingleRaidSequence(archive, state.RouteOrRaidType, leaderUsed)
-		if err != nil {
-			return nil, err
-		}
-		if mode == 1 {
-			b.SingleHPSymbols, err = raid.LoadSingleAntonHPSymbols(archive, config.WeeklyClearLimit)
+		if legacy != nil {
+			if _, err := raid.LegacyAntonWorldMapOptions(archive); err != nil {
+				return nil, err
+			}
+			// Route type 3 is one of the actual PVF trigger branches. Freeze
+			// that same value for the client symbol and every later projection.
+			b.SingleSequence = append([]uint32(nil), legacy.Routes[3]...)
+			if len(b.SingleSequence) == 0 {
+				return nil, fmt.Errorf("legacy Anton route type 3 unavailable")
+			}
+			b.SingleHPSymbols = legacy.Symbols
+			symbols, symbolErr := raid.LoadAntonSymbols(archive)
+			if symbolErr != nil || symbols["SINGLE RAID TYPE"] == 0 {
+				return nil, fmt.Errorf("legacy Anton route symbol unavailable")
+			}
+			b.LegacySingleTypeSymbol, b.LegacySingleType = symbols["SINGLE RAID TYPE"], 3
+		} else {
+			if _, err := raid.ValidateSingleRaidDependenciesForRoute(archive, state.RouteOrRaidType); err != nil {
+				return nil, fmt.Errorf("raid dungeon single catalog unavailable: %w", err)
+			}
+			b.SingleSequence, err = raid.LoadSingleRaidSequence(archive, state.RouteOrRaidType, leaderUsed)
 			if err != nil {
-				return nil, fmt.Errorf("raid dungeon single HP catalog unavailable: %w", err)
+				return nil, err
+			}
+			if mode == 1 {
+				b.SingleHPSymbols, err = raid.LoadSingleAntonHPSymbols(archive, config.WeeklyClearLimit)
+				if err != nil {
+					return nil, fmt.Errorf("raid dungeon single HP catalog unavailable: %w", err)
+				}
 			}
 		}
 		b.Dungeons = make([]raid.DungeonState, len(b.SingleSequence))
@@ -365,7 +407,12 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 			return nil, err
 		}
 		b.AntonFlowConfig = flowConfiguration
-		rewardConfiguration, err := raid.LoadAntonRewardConfiguration(archive)
+		var rewardConfiguration raid.AntonRewardConfiguration
+		if legacy != nil {
+			rewardConfiguration, err = raid.LoadNative90AntonTeamRewards(archive)
+		} else {
+			rewardConfiguration, err = raid.LoadAntonRewardConfiguration(archive)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -377,7 +424,12 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 			return nil, err
 		}
 		b.AntonRewards = &rewardConfiguration
-		program, err := raid.LoadAntonProgram(archive)
+		var program *raid.AntonProgram
+		if legacy != nil {
+			program, err = raid.LoadNative90AntonTeamProgram(archive)
+		} else {
+			program, err = raid.LoadAntonProgram(archive)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -418,7 +470,7 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 }
 
 func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtimeRaidState) error {
-	if s.options.currentClientVersion != "official-24.9" {
+	if !s.isSupportedRaidClient() {
 		return nil
 	}
 	b := state.Battle
@@ -511,7 +563,7 @@ func (s *Service) sendCurrentRaidBattleState(session *gameSession, state runtime
 }
 
 func (s *Service) currentRaidDungeonSelectionAllowed(session *gameSession, dungeonID uint32) bool {
-	if s.options.currentClientVersion != "official-24.9" || session == nil ||
+	if !s.isSupportedRaidClient() || session == nil ||
 		(session.channel.Type != dnfenum.RaidChannelType && session.channel.Type != dnfenum.HiddenRaidType && !isCurrentFiendWarChannel(session)) {
 		return true
 	}

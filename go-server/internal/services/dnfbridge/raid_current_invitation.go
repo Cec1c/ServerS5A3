@@ -22,6 +22,9 @@ type currentRaidInvitation struct {
 // The cross-context op820/handoff invitation contract is not enabled here.
 func (s *Service) handleCurrentRaidInvitationCommand(session *gameSession, op uint16, body []byte) (bool, error) {
 	if op == currentRaidPeerCheckOp {
+		if s.uses90NativeClient() {
+			return true, s.handleNative90RaidPeerCheck(session, op, body)
+		}
 		return true, s.handleCurrentRaidPeerCheck(session, op, body)
 	}
 	switch dnfenum.CmdPacket(op) {
@@ -197,6 +200,9 @@ func (s *Service) handleCurrentRaidInvitationAcceptance(session *gameSession, op
 	snapshot := cloneRuntimeRaidState(*state)
 	s.raidMu.Unlock()
 	if err := s.sendGameUpperRawClassCodec(session, op, append([]byte{1}, party.BuildResponsePeerAckPayload(req.TargetID, 10)...), 1, true); err != nil {
+		return err
+	}
+	if err := s.sendNative90AntonAdmissionObject(session, snapshot); err != nil {
 		return err
 	}
 	if err := s.sendRuntimeRaidMetadata(session, snapshot, 2); err != nil {

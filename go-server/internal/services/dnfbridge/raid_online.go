@@ -211,7 +211,7 @@ func (s *Service) broadcastRuntimePartyRaidExit(projection runtimePartyRaidExitP
 }
 
 func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		if handled, err := s.handleCurrentRaidInvitationCommand(session, typ, body); handled || err != nil {
 			return handled, err
 		}
@@ -219,7 +219,7 @@ func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body
 			return handled, err
 		}
 	}
-	if s.options.currentClientVersion == "official-24.9" && onlineRaidCommandKnown(typ) && !s.currentRaidAuthenticated(session) {
+	if s.isSupportedRaidClient() && onlineRaidCommandKnown(typ) && !s.currentRaidAuthenticated(session) {
 		if dnfenum.CmdPacket(typ) == dnfenum.CmdPacketCreateRaid {
 			s.logGameEvent(session, "game-current-raid-create-rejected", "op", typ, "reason", "dispatch_authentication_rejected")
 		}
@@ -227,7 +227,7 @@ func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body
 	}
 	switch dnfenum.CmdPacket(typ) {
 	case dnfenum.CmdPacketRaidSetSymbol:
-		if s.options.currentClientVersion == "official-24.9" {
+		if s.isSupportedRaidClient() {
 			if session.channel.Type == dnfenum.HiddenRaidType {
 				return true, s.handleCurrentLukeGeneratorSymbol(session, body)
 			}
@@ -235,12 +235,12 @@ func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body
 		}
 		return false, nil
 	case dnfenum.CmdPacketRaidMovieSkip:
-		if s.options.currentClientVersion == "official-24.9" {
+		if s.isSupportedRaidClient() {
 			return true, s.handleCurrentAntonMovieCompletion(session, typ, body)
 		}
 		return false, nil
 	case dnfenum.CmdPacketSelectRaidRewardCard:
-		if s.options.currentClientVersion == "official-24.9" {
+		if s.isSupportedRaidClient() {
 			return true, s.handleCurrentAntonRewardCard(session, typ, body)
 		}
 		return false, nil
@@ -263,7 +263,7 @@ func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body
 	case dnfenum.CmdPacketRaidMemberChangeState:
 		return true, s.handleOnlineRaidMemberChangeState(session, typ, body)
 	case dnfenum.CmdPacketRaidOtherChannelList:
-		if s.options.currentClientVersion == "official-24.9" {
+		if s.isSupportedRaidClient() {
 			return true, s.handleCurrentRaidSearch(session, typ, body)
 		}
 		return false, nil
@@ -273,7 +273,7 @@ func (s *Service) handleOnlineRaidCommand(session *gameSession, typ uint16, body
 }
 
 func (s *Service) handleOnlineCreateRaid(session *gameSession, typ uint16, body []byte) error {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		return s.handleCurrentCreateRaid(session, typ, body)
 	}
 	req, err := raid.DecodeCreateRaidRequest(body)
@@ -304,8 +304,8 @@ func (s *Service) handleOnlineCreateRaid(session *gameSession, typ uint16, body 
 }
 
 func (s *Service) sendRuntimeRaidMetadata(session *gameSession, state runtimeRaidState, mode uint32) error {
-	if s.options.currentClientVersion == "official-24.9" {
-		body, err := buildCurrentRuntimeRaidMetadata(state, mode)
+	if s.isSupportedRaidClient() {
+		body, err := raid.BuildCurrentMetadataBody(currentRuntimeRaidMetadata(state), mode, s.uses90NativeClient())
 		if err != nil {
 			return err
 		}
@@ -331,7 +331,7 @@ func (s *Service) sendRuntimeRaidMetadata(session *gameSession, state runtimeRai
 // Current ACK1359 returns a read-only object/roster. NOTI591 is a membership
 // update: its mode3 handler assigns the client's own raid, even for a viewer.
 func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte) error {
-	if s.options.currentClientVersion == "official-24.9" && !s.currentRaidAuthenticated(session) {
+	if s.isSupportedRaidClient() && !s.currentRaidAuthenticated(session) {
 		return nil
 	}
 	if len(body) != 5 || (body[0] != 1 && body[0] != 2) {
@@ -351,7 +351,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 	if runtimeRaidMemberIndex(state, selectedCharacterID(session)) < 0 && !s.currentRaidInfoVisible(session, state) {
 		return nil
 	}
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		// Retained membership cannot bypass the selected server/channel/route.
 		// A freshly restarted member has no local own-raid key. Install the
 		// complete object through the actual ACK's idempotent upsert, then
@@ -368,7 +368,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 			}
 			selector = 2
 		}
-		reply, err := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(state), selector)
+		reply, err := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(state), selector, s.uses90NativeClient())
 		if err != nil {
 			return err
 		}
@@ -406,7 +406,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 // This is read-only visibility of an existing directory object, not authority
 // to mutate it. Historical layouts retain their members-only behavior.
 func (s *Service) currentRaidInfoVisible(session *gameSession, state runtimeRaidState) bool {
-	if s.options.currentClientVersion != "official-24.9" || !state.CurrentLayout || session == nil || !s.currentRaidAuthenticated(session) {
+	if !s.isSupportedRaidClient() || !state.CurrentLayout || session == nil || !s.currentRaidAuthenticated(session) {
 		return false
 	}
 	route, supported := currentRaidRouteForChannel(int(session.channel.Type))
@@ -416,7 +416,7 @@ func (s *Service) currentRaidInfoVisible(session *gameSession, state runtimeRaid
 }
 
 func (s *Service) handleOnlineModifyRaidInfo(session *gameSession, typ uint16, body []byte) error {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		return s.handleCurrentModifyRaid(session, typ, body)
 	}
 	req, err := raid.DecodeModifyRaidInfoRequest(body)
@@ -448,7 +448,7 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 	}
 	var errs []error
 	var partyExit runtimePartyRaidExitProjection
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		var partyErr error
 		partyExit, partyErr = s.leaveRuntimePartyForRaidExit(session)
 		if partyErr != nil {
@@ -458,11 +458,11 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 	// In the current ACK665 reader the flag means forced removal (B6C7),
 	// not an empty directory object. Its ordinary branch still executes
 	// 01A64B80 and clears both the own-raid key and cached object pointer.
-	forcedExit := disbanded && s.options.currentClientVersion != "official-24.9"
+	forcedExit := disbanded && !s.isSupportedRaidClient()
 	if err := s.sendGameUpperRawClassCodec(session, typ, raid.BuildLeaveRaidResultBody(forcedExit), dnfproto.DefaultChannelClassification, true); err != nil {
 		errs = append(errs, err)
 	}
-	if s.options.currentClientVersion != "official-24.9" {
+	if !s.isSupportedRaidClient() {
 		storeRuntimePartyState(session, alignedcmd.PartyState{})
 		if err := s.sendRuntimePartyMemberRemoved(session, sourceID, alignedcmd.PartyState{}); err != nil {
 			errs = append(errs, err)
@@ -493,7 +493,7 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 	}
 	// The waiting UI compares metadata.Leader against the local UID; the
 	// roster's leader flag alone cannot enable the successor's controls.
-	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout {
+	if s.isSupportedRaidClient() && state.CurrentLayout {
 		for _, member := range state.Members {
 			peer, online := s.onlineGameSession(member.CharID)
 			if !online || !s.currentRaidAdmissionVisible(peer, state) {
@@ -516,7 +516,7 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 }
 
 func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body []byte) error {
-	if s.options.currentClientVersion == "official-24.9" && !s.currentRaidAuthenticated(session) {
+	if s.isSupportedRaidClient() && !s.currentRaidAuthenticated(session) {
 		return s.sendRaidCommandFailure(session, typ)
 	}
 	if err := raid.DecodeStartRaidRequest(body); err != nil {
@@ -534,7 +534,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 	if err := s.sendGameUpperRawClassCodec(session, typ, []byte{1}, dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
 	}
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		for _, member := range state.Members {
 			if peer, found := s.onlineGameSession(member.CharID); found {
 				if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
@@ -549,7 +549,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 	if err := s.applyRuntimeRaidParties(state); err != nil {
 		return err
 	}
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		for _, member := range state.Members {
 			peer, found := s.onlineGameSession(member.CharID)
 			if member.CharID == sourceID {
@@ -593,7 +593,7 @@ func (s *Service) handleOnlineRejoinRaid(session *gameSession, typ uint16, body 
 	sourceID := selectedCharacterID(session)
 	var state runtimeRaidState
 	var ok bool
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		// Rejoin restores only retained membership in the current directory.
 		// Validate the snapshot before any success or peer projection; a legacy
 		// object must not admit an official client through the old append path.
@@ -613,10 +613,13 @@ func (s *Service) handleOnlineRejoinRaid(session *gameSession, typ uint16, body 
 	if err := s.sendGameUpperRawClassCodec(session, typ, []byte{1}, dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
 	}
+	if err := s.sendNative90AntonAdmissionObject(session, state); err != nil {
+		return err
+	}
 	if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
 		return err
 	}
-	if s.options.currentClientVersion == "official-24.9" && state.Started && state.Battle != nil {
+	if s.isSupportedRaidClient() && state.Started && state.Battle != nil {
 		// Metadata/map/timer restoration must not replay NOTI587's start
 		// animation or already completed death/movie instructions.
 		if err := s.sendRuntimeRaidMetadata(session, state, 2); err != nil {
@@ -772,12 +775,20 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		return cloneRuntimeRaidState(*state), true, nil
 	}
 	soloBefore := make(map[uint16]bool, len(state.Members))
+	var nativeAntonMembersBefore []runtimeRaidMemberState
+	if s.uses90NativeClient() && state.CurrentLayout && state.RouteOrRaidType == 0 {
+		nativeAntonMembersBefore = append(nativeAntonMembersBefore, state.Members...)
+	}
 	for _, member := range state.Members {
 		soloBefore[member.CharID] = member.OrdinaryPartySolo
 	}
 	startCommitted := false
 	defer func() {
 		if startCommitted {
+			return
+		}
+		if nativeAntonMembersBefore != nil {
+			state.Members = nativeAntonMembersBefore
 			return
 		}
 		// normalize is also used directly by other projection tests. Preserve
@@ -917,7 +928,7 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	state.Members[index].OrdinaryPartySolo = false
 	runtimeRaidSortMembers(state.Members)
 	projectionChanged := false
-	if s.options.currentClientVersion == "official-24.9" && groupChanged && state.Started && state.Battle != nil && !state.Battle.TimedOut {
+	if s.isSupportedRaidClient() && groupChanged && state.Started && state.Battle != nil && !state.Battle.TimedOut {
 		entry, occupied := state.Battle.Participation[memberID]
 		if occupied && entry.RunID != "" && entry.Phase == state.Battle.Phase && state.Battle.MemberAccounts[memberID] != "" && (state.Battle.Anton == nil || entry.Attempt == state.Battle.Anton.Epoch()) {
 			state.Battle.ProgressVersion++
@@ -1056,7 +1067,7 @@ func (s *Service) nextRuntimeRaidKeyLocked(session *gameSession, sourceID uint16
 		channelID = uint32(uint16(session.channel.ID))
 	}
 	prefix := channelID << 16
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.isSupportedRaidClient() {
 		// Current 02024200 checks bits16..23 against global56A1E80
 		// (CHANNELINFO field8: selected channel), and bits24..31 against
 		// global56A1E74 (field7: advertised server) before parsing 591.
@@ -1376,7 +1387,7 @@ func currentRaidMemberActiveForPartySync(raid *runtimeRaidState, charID uint16) 
 // before any live member changes. Frozen Battle.MemberGroups and members with
 // active dungeon participation are never changed here.
 func (s *Service) synchronizeOrdinaryPartyRaidGroups(party alignedcmd.PartyState, source string) bool {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || party.PartyID <= 0 || party.UserID == 0 {
+	if s == nil || !s.isSupportedRaidClient() || party.PartyID <= 0 || party.UserID == 0 {
 		return false
 	}
 	members := runtimePartyMembers(party)

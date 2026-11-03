@@ -143,7 +143,7 @@ func parseOp9PartyFrameForProfile(t *testing.T, body []byte, hasIdentity, offici
 		offset += 3
 		rows = append(rows, row)
 	}
-	if offset+4 != len(body) {
+	if offset+3 != len(body) && offset+4 != len(body) {
 		t.Fatalf("op9 party post-slot tail offset=%d body len=%d body=% X", offset, len(body), body)
 	}
 	return rows, body[offset+1]
@@ -232,7 +232,7 @@ func TestDungeonContextPartyFrameCarriesMemberIdentityBlockForClientChannel(t *t
 	for _, row := range rows {
 		wantLen += 14 + len(row.name)
 	}
-	wantLen += 4
+	wantLen += 3
 	if len(body) != wantLen {
 		t.Fatalf("dungeon party frame len=%d want=%d body=% X", len(body), wantLen, body)
 	}
@@ -272,7 +272,7 @@ func TestTownContextPartyFrameKeepsSameChannelSlotRows(t *testing.T) {
 		t.Fatalf("town party leader slot=%d (uid=%d) want 0 = inviter 1001", selected, rows[selected].uid)
 	}
 	outerNameLen := int(binary.LittleEndian.Uint32(body[12:16]))
-	if want := 16 + outerNameLen + 13 + 1 + 12 + 4; len(body) != want {
+	if want := 16 + outerNameLen + 13 + 1 + 12 + 3; len(body) != want {
 		t.Fatalf("town party frame len=%d want=%d body=% X", len(body), want, body)
 	}
 	_ = member

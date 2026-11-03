@@ -194,3 +194,22 @@ func TestCurrentRaidRepeatedCreationDoesNotReplaceStartedOwner(t *testing.T) {
 		t.Fatal("replayed creation replaced running raid")
 	}
 }
+
+func Test90cnAntonCreateRaidAcceptsOneByteTail(t *testing.T) {
+	s, a, ac := prepareCurrentRaidTest(t)
+	s.options.currentClientVersion = "90cn"
+	// Live 90cn 19-byte frame: route 0, 13-byte name, 1-byte tail 0.
+	body := []byte{0, 13, 0, 0, 0, 0xb9, 0xa5, 0xbc, 0xe1, 0xb6, 0xd3, 0x20, 0x3a, 0x20, 0xcf, 0xf9, 0xd5, 0xc5, 0}
+	if err := s.handleOnlineCreateRaid(a, 664, body); err != nil {
+		t.Fatal(err)
+	}
+	metadata, rest := splitGameServerUpperPacket(t, ac.write.Bytes())
+	ack, rest2 := splitGameServerUpperPacket(t, rest)
+	refresh, rest3 := splitGameServerUpperPacket(t, rest2)
+	fourth, rest4 := splitGameServerUpperPacket(t, rest3)
+	t.Logf("meta=%d ack=%d ack_status=%d refresh=%d fourth=%d body_len=%d rest4_len=%d", metadata.Header.MsgID, ack.Header.MsgID, ack.Body[0], refresh.Header.MsgID, fourth.Header.MsgID, len(fourth.Body), len(rest4))
+	state, found := s.runtimeRaidForMember(a.selectedCharacterID)
+	if !found || state.RouteOrRaidType != 0 || string(state.NameBytes) != "\xb9\xa5\xbc\xe1\xb6\xd3 : \xcf\xf9\xd5\xc5" {
+		t.Fatalf("raid state not properly created: %+v", state)
+	}
+}

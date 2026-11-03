@@ -94,3 +94,11 @@ func TestOfficial249PartyRecordNativeBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNative90Op9UsesLegacyLayout(t *testing.T) {
+	s := &Service{options: options{currentClientVersion: "official-24.9", nativeClientProfile: "90cn"}}
+	body := s.buildCurrentSceneOp9ActorDisplayBodyInContext(1, dnfrepo.CharacterRecord{}, false, "test1", 11)
+	if _, err := readOfficial249PartyRecord(body, 11); err == nil {
+		t.Fatal("native 90cn profile unexpectedly produced official249 layout")
+	}
+}

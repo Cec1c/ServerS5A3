@@ -708,17 +708,6 @@ func TestHandleRequestPeerAcknowledgesVisibleTownTarget(t *testing.T) {
 		t.Fatalf("request peer ack = class %d msg %d body=% X",
 			packet.Header.Classification, packet.Header.MsgID, packet.Body)
 	}
-	partyState, rest := splitGameServerUpperPacket(t, rest)
-	wantPartyless := buildCurrentSceneOp9ActorRemovalBodyInContext(
-		currentSceneActorObjectKey(1002),
-		source.townActorOwnerChannel,
-	)
-	if partyState.Header.Classification != 0 ||
-		partyState.Header.MsgID != uint16(dnfenum.CmdPacketRecoverStamina) ||
-		!bytes.Equal(partyState.Body, wantPartyless) {
-		t.Fatalf("request peer partyless target state = class %d msg %d body=% X",
-			partyState.Header.Classification, partyState.Header.MsgID, partyState.Body)
-	}
 	selection, rest := splitGameServerUpperPacket(t, rest)
 	if selection.Header.Classification != 0 || selection.Header.MsgID != 0x0007 ||
 		!bytes.Equal(selection.Body, []byte{0xea, 0x03, 15, 0, 0, 0, 0, 0xff, 0xff}) {

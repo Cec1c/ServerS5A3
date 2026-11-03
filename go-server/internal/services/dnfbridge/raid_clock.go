@@ -14,7 +14,7 @@ const currentRaidClockName = "raid:active-instances"
 // Use the process gameplay time queue so shutdown cancels the scheduler.
 // No goroutine/timer is created per dungeon or per participant.
 func (s *Service) startCurrentRaidClock(ctx context.Context) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || !s.isSupportedRaidClient() {
 		return
 	}
 	if err := s.scheduleCurrentRaidClock(ctx); err != nil {
@@ -59,7 +59,7 @@ func (s *Service) scheduleCurrentRaidClock(ctx context.Context) error {
 }
 
 func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, []error) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || now.IsZero() {
+	if s == nil || !s.isSupportedRaidClient() || now.IsZero() {
 		return nil, nil
 	}
 	s.raidMu.Lock()

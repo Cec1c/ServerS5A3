@@ -19,7 +19,7 @@ func (s *Service) sendCurrentAdventureActorRefreshFromAccount(
 	state, err := s.currentAccountAdventureGroupState(ctx, dnfrepo.CharacterRecord{}, false, session)
 	if err != nil {
 		s.logGameEvent(session, "game-adventure-actor-refresh-skipped",
-			"msg_id", currentAdventureActorRefreshMsgID,
+			"msg_id", s.adventureActorRefreshWireID(),
 			"source", source,
 			"current_object_key", currentObjectKey,
 			"error", err,
@@ -28,7 +28,7 @@ func (s *Service) sendCurrentAdventureActorRefreshFromAccount(
 	}
 	body := buildCurrentAdventureActorRefreshBody(currentObjectKey, state.Summary)
 	s.logGameEvent(session, "game-adventure-actor-refresh-send",
-		"msg_id", currentAdventureActorRefreshMsgID,
+		"msg_id", s.adventureActorRefreshWireID(),
 		"classification", 0,
 		"source", source,
 		"current_object_key", currentObjectKey,
@@ -36,7 +36,7 @@ func (s *Service) sendCurrentAdventureActorRefreshFromAccount(
 		"raw_state_len", currentAdventureActorRefreshRawLength,
 		"total_point", state.Summary.TotalPoint,
 		"manage_level", state.Summary.ManageLevel)
-	return s.sendGameUpperRawClass(session, currentAdventureActorRefreshMsgID, body, 0)
+	return s.sendGameUpperRawClass(session, s.adventureActorRefreshWireID(), body, 0)
 }
 
 // sendCurrentAdventureInfoPushFromAccount owns the current-EXE class0/op1339
@@ -51,7 +51,7 @@ func (s *Service) sendCurrentAdventureInfoPushFromAccount(
 	state, err := s.currentAccountAdventureGroupInfoState(ctx, dnfrepo.CharacterRecord{}, false, session)
 	if err != nil {
 		s.logGameEvent(session, "game-adventure-info-push-skipped",
-			"msg_id", currentAdventureInfoPushMsgID,
+			"msg_id", s.adventureInfoPushWireID(),
 			"source", source,
 			"current_object_key", currentObjectKey,
 			"error", err,
@@ -61,7 +61,7 @@ func (s *Service) sendCurrentAdventureInfoPushFromAccount(
 	name, createdDate, dateSource, err := s.currentRepresentAccountIdentity(ctx, session)
 	if err != nil {
 		s.logGameEvent(session, "game-adventure-info-push-skipped",
-			"msg_id", currentAdventureInfoPushMsgID,
+			"msg_id", s.adventureInfoPushWireID(),
 			"source", source,
 			"error", err,
 			"reason", "represent_account_name_unavailable")
@@ -94,7 +94,7 @@ func (s *Service) sendCurrentSelectorAdventureInfoAfterHiddenProbe(session *game
 	state, err := s.currentAccountAdventureGroupInfoState(ctx, dnfrepo.CharacterRecord{}, false, session)
 	if err != nil {
 		s.logGameEvent(session, "game-selector-adventure-info-push-skipped",
-			"msg_id", currentAdventureInfoPushMsgID,
+			"msg_id", s.adventureInfoPushWireID(),
 			"slot", slot,
 			"error", err,
 			"reason", "account_summary_unavailable")
@@ -109,7 +109,7 @@ func (s *Service) sendCurrentSelectorAdventureInfoAfterHiddenProbe(session *game
 	}
 	if !slotExists {
 		s.logGameEvent(session, "game-selector-adventure-info-push-skipped",
-			"msg_id", currentAdventureInfoPushMsgID,
+			"msg_id", s.adventureInfoPushWireID(),
 			"slot", slot,
 			"reason", "remembered_slot_not_in_current_roster")
 		return nil
@@ -117,7 +117,7 @@ func (s *Service) sendCurrentSelectorAdventureInfoAfterHiddenProbe(session *game
 	name, createdDate, dateSource, err := s.currentRepresentAccountIdentity(ctx, session)
 	if err != nil {
 		s.logGameEvent(session, "game-selector-adventure-info-push-skipped",
-			"msg_id", currentAdventureInfoPushMsgID,
+			"msg_id", s.adventureInfoPushWireID(),
 			"slot", slot,
 			"error", err,
 			"reason", "represent_account_name_unavailable")
@@ -125,7 +125,7 @@ func (s *Service) sendCurrentSelectorAdventureInfoAfterHiddenProbe(session *game
 	}
 	if strings.TrimSpace(name) == "" {
 		s.logGameEvent(session, "game-selector-adventure-info-push-skipped",
-			"msg_id", currentAdventureInfoPushMsgID,
+			"msg_id", s.adventureInfoPushWireID(),
 			"slot", slot,
 			"reason", "represent_account_name_empty")
 		return nil
@@ -163,7 +163,7 @@ func (s *Service) sendCurrentAdventureInfoPushState(
 		projection,
 	)
 	s.logGameEvent(session, "game-adventure-info-push-send",
-		"msg_id", currentAdventureInfoPushMsgID,
+		"msg_id", s.adventureInfoPushWireID(),
 		"classification", 0,
 		"source", source,
 		"current_object_key", currentObjectKey,
@@ -180,5 +180,5 @@ func (s *Service) sendCurrentAdventureInfoPushState(
 		"represent_account_name_set", strings.TrimSpace(representAccountName) != "",
 		"created_date", createdDate,
 		"date_source", dateSource)
-	return s.sendGameUpperRawClass(session, currentAdventureInfoPushMsgID, body, 0)
+	return s.sendGameUpperRawClass(session, s.adventureInfoPushWireID(), body, 0)
 }

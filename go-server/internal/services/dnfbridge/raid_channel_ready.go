@@ -9,7 +9,7 @@ package dnfbridge
 const currentRaidChannelReadyMsgID uint16 = 1228
 
 func (s *Service) sendCurrentRaidChannelReady(session *gameSession, source string) error {
-	if s == nil || session == nil || session.selectedCharacterID == 0 || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || session == nil || session.selectedCharacterID == 0 || !s.isSupportedRaidClient() {
 		return nil
 	}
 	if _, supported := currentRaidRouteForChannel(int(session.channel.Type)); !supported {

@@ -103,7 +103,7 @@ func buildNoPackRosterBody(characters []dnfrepo.CharacterRecord) []byte {
 }
 
 func (s *Service) buildCurrentRosterBody(characters []dnfrepo.CharacterRecord) []byte {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.options.currentClientVersion == "official-24.9" && s.options.nativeClientProfile != "90cn" {
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		defer cancel()
 		permissions := s.currentRosterSpecialChannelPermissions(ctx, characters)
@@ -171,4 +171,9 @@ func defaultNoPackRosterHeader(count int) dnfrepo.CharacterRosterHeader {
 		PageCount:        rosterDefaultPageCount,
 		RosterFlag:       0,
 	}
+}
+
+// Keep native packet framing separate from gameplay feature selection.
+func (s *Service) uses90NativeClient() bool {
+	return s.options.nativeClientProfile == "90cn" || s.options.currentClientVersion == "90cn"
 }

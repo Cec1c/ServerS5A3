@@ -178,7 +178,7 @@ func (s *Service) sendCurrentInitialTownRoute(
 			"error", err)
 		return nil
 	}
-	transitionBody, err := buildCurrentSceneTransitionBody(townID, areaID, []currentSceneTransitionRow{row})
+	transitionBody, err := s.buildCurrentSceneTransitionBody(townID, areaID, []currentSceneTransitionRow{row})
 	if err != nil {
 		return err
 	}

@@ -497,7 +497,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 }
 
 func (s *Service) queueCurrentAntonRewardFlows() {
-	if s == nil || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || !s.isSupportedRaidClient() {
 		return
 	}
 	s.raidMu.Lock()

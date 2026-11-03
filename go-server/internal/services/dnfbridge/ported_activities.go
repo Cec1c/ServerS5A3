@@ -212,8 +212,11 @@ func (s *Service) sendCurrentPortedSelectorCatalog(session *gameSession) error {
 }
 
 func (s *Service) handleCurrentPortedActivityRequest(session *gameSession, op uint16, class byte, body []byte) (bool, error) {
-	// 当前EXE的1429是回归引导，即使活动关闭也不能落到历史清主线处理器。
-	if s.options.currentClientVersion == "official-24.9" && (op == currentReturneeGuideID || op == currentReturneeClaimID) {
+	// Newer official EXEs use 1429 for returnee guidance. The native90
+	// wire profile uses 1429 for the task-manual main-story sweep instead;
+	// gameplay version alone cannot select this overlapping command.
+	if s.options.currentClientVersion == "official-24.9" &&
+		((op == currentReturneeGuideID && !s.uses90NativeClient()) || op == currentReturneeClaimID) {
 		if class != 1 {
 			return true, nil
 		}

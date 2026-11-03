@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -164,10 +165,14 @@ func currentGameOptionNoticeEnabled() bool {
 // handleGameOptionCommand owns the four option saves. It returns handled=false
 // for every other opcode so the ordinary dispatch chain keeps running.
 func (s *Service) handleGameOptionCommand(session *gameSession, typ uint16, body []byte) (bool, error) {
+	s.logWarn("dnfbridge handleGameOptionCommand received", "typ", typ, "body_len", len(body))
 	switch typ {
 	case currentSaveGameOption1Opcode:
 		return true, s.handleSaveGameOption1(session, body)
 	case currentSaveGameOption2Opcode:
+		if s.uses90NativeClient() {
+			return true, s.handleNative90SharedHotkeySave(session, body)
+		}
 		return true, s.handleSaveGameOption2(session, body)
 	case currentSaveQuickchatOpcode:
 		return true, s.handleSaveQuickchat(session, body)
@@ -237,18 +242,27 @@ func (s *Service) handleSaveGameOption2(session *gameSession, body []byte) error
 			"reason", "invalid_length_prefixed_blob")
 		return nil
 	}
-	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	if session.selectedCharacterID != 0 {
+	targetCharID := session.selectedCharacterID
+	if targetCharID == 0 && session.townSceneReadyCharacterID != 0 {
+		targetCharID = session.townSceneReadyCharacterID
+	}
+	if targetCharID == 0 && session.initialTownRouteCharacterID != 0 {
+		targetCharID = session.initialTownRouteCharacterID
+	}
+	if targetCharID == 0 && session.selectedHotkeyNoticeCharacterID != 0 {
+		targetCharID = session.selectedHotkeyNoticeCharacterID
+	}
+	characterID := strconv.FormatUint(uint64(targetCharID), 10)
+	if targetCharID != 0 {
+		// A valid owner-checked native op198 is an explicit saved configuration.
+		// Its movement-key prefix alone cannot prove cross-job contamination.
 		err := s.saveCharacterSettingsValues(session, characterHotkeyConfigScope(characterID), map[string]string{
 			"hotkey_config_hex": hex.EncodeToString(blob),
 			"hotkey_config_len": strconv.Itoa(len(blob)),
 			"source":            "current_exe_op198",
 		})
 		if err != nil {
-			s.logWarn("dnfbridge hotkey config save failed",
-				"conn_id", session.connID,
-				"char_id", characterID,
-				"error", err)
+			s.logWarn("dnfbridge hotkey config save failed", "conn_id", session.connID, "char_id", characterID, "error", err)
 		}
 	}
 	// The account-scoped prefix is the only part of this blob that survives a
@@ -329,7 +343,7 @@ func (s *Service) handleSaveCharacterOption(session *gameSession, body []byte) e
 	blob, ok := lengthPrefixedOptionBlob(body, currentGameOptionBlobMaxLen)
 	// Pinned v97 NOTI390 reader (2255DB0) accepts exactly 512 bytes.
 	// Reject incompatible saves before they can replace a valid character snapshot.
-	if !ok || (s.options.currentClientVersion == "official-24.9" && len(blob) != 512) {
+	if !ok || (s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient() && len(blob) != 512) {
 		s.logGameEvent(session, "game-save-character-option-blocked",
 			"body_len", len(body),
 			"reason", "invalid_length_prefixed_blob")
@@ -564,7 +578,7 @@ func (s *Service) sendAccountGameOptionNotices(session *gameSession, source stri
 		return nil
 	}
 	if !found {
-		if s.options.currentClientVersion == "official-24.9" {
+		if s.options.currentClientVersion == "official-24.9" || s.uses90NativeClient() {
 			return s.sendAccountHotkeyNotice(session, source, accountID, nil)
 		}
 		return nil
@@ -596,21 +610,35 @@ func (s *Service) sendAccountGameOptionNotices(session *gameSession, source stri
 	return s.sendAccountHotkeyNotice(session, source, accountID, record.Values)
 }
 
+func isContaminatedCreatorWASD(slots []byte) bool {
+	return bytes.HasPrefix(slots, []byte("I01\t77\nI02\t55\nI03\t73\nI04\t58\n")) ||
+		bytes.HasPrefix(slots, []byte("I01\t77\r\nI02\t55\r\nI03\t73\r\nI04\t58\r\n"))
+}
+
 // sendSelectedCharacterHotkeyNotice restores the character-specific bank after
 // the connection has already consumed its account-option replay. Account options
 // remain connection-scoped; successful hotkey sends are scoped to the bound
 // character generation so a selection retry cannot repeatedly reset its keys.
 func (s *Service) sendSelectedCharacterHotkeyNotice(session *gameSession, source string) error {
 	if s == nil || session == nil || session.selectedCharacterID == 0 ||
-		s.options.currentClientVersion != "official-24.9" || !currentGameOptionNoticeEnabled() {
+		!s.currentFullHotkeyConfiguration() || !currentGameOptionNoticeEnabled() {
 		return nil
 	}
-	if session.selectedHotkeyNoticeCharacterID == session.selectedCharacterID &&
-		session.selectedHotkeyNoticeGeneration == session.characterGeneration {
-		s.logGameEvent(session, "game-selected-hotkey-notice-skipped", "source", source,
-			"char_id", session.selectedCharacterID, "character_generation", session.characterGeneration,
-			"reason", "selected_generation_already_sent")
-		return nil
+	if s.uses90NativeClient() {
+		if session.selectedHotkeyNoticeCharacterID == session.selectedCharacterID {
+			s.logGameEvent(session, "game-selected-hotkey-notice-skipped", "source", source,
+				"char_id", session.selectedCharacterID, "character_generation", session.characterGeneration,
+				"reason", "selected_character_already_sent_on_90cn")
+			return nil
+		}
+	} else {
+		if session.selectedHotkeyNoticeCharacterID == session.selectedCharacterID &&
+			session.selectedHotkeyNoticeGeneration == session.characterGeneration {
+			s.logGameEvent(session, "game-selected-hotkey-notice-skipped", "source", source,
+				"char_id", session.selectedCharacterID, "character_generation", session.characterGeneration,
+				"reason", "selected_generation_already_sent")
+			return nil
+		}
 	}
 	accountID := strings.TrimSpace(s.accountIDForSession(session))
 	if accountID == "" {
@@ -630,18 +658,29 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 	keyType := parseSettingsUint8(values["hotkey_key_type"])
 	slots := decodeSettingsHex(values["hotkey_slots_hex"])
 	slotSource := "account_op198_prefix"
-	if s.options.currentClientVersion == "official-24.9" {
+	targetCharID := session.selectedCharacterID
+	if targetCharID == 0 {
+		targetCharID = session.initialTownRouteCharacterID
+	}
+	if targetCharID == 0 {
+		targetCharID = session.townSceneReadyCharacterID
+	}
+	if targetCharID == 0 {
+		targetCharID = session.selectedHotkeyNoticeCharacterID
+	}
+	if s.currentFullHotkeyConfiguration() {
+		// 90cn 8a7af614: NOTI454 -> 1D54CA0 -> 1FA8E20/1FA8E50 -> 1FA8560.
 		// 2005E00 -> 2261680 consumes key type; 22616B0 -> 2260DC0
 		// then reads the complete u32-length-prefixed configuration string
 		// through 3752120/3752050, with a 0x578-byte capacity. The old
 		// one-slot account prefix cannot restore a player's key mappings.
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		repos, ok := s.repositoryGroup()
-		if !ok || repos.Settings == nil || session.selectedCharacterID == 0 {
+		if !ok || repos.Settings == nil || targetCharID == 0 {
 			cancel()
 			return nil
 		}
-		id := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
+		id := strconv.FormatUint(uint64(targetCharID), 10)
 		record, found, err := repos.Settings.Load(ctx, characterHotkeyConfigScope(id))
 		if err != nil {
 			cancel()
@@ -655,8 +694,7 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 		character, characterFound, characterErr := repos.Character.Load(ctx, id)
 		if characterErr != nil || !characterFound ||
 			strings.TrimSpace(character.AccountID) != strings.TrimSpace(accountID) ||
-			strings.TrimSpace(s.accountIDForSession(session)) != strings.TrimSpace(accountID) ||
-			strconv.FormatUint(uint64(session.selectedCharacterID), 10) != id {
+			strings.TrimSpace(s.accountIDForSession(session)) != strings.TrimSpace(accountID) {
 			cancel()
 			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "saved_configuration_character_unavailable_or_owner_changed")
 			return nil
@@ -666,7 +704,34 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 		if found {
 			slots = decodeSettingsHex(record.Values["hotkey_config_hex"])
 			slotSource = "character_op198_complete_configuration"
-		} else {
+			if len(slots) == 0 {
+				found = false
+			}
+		}
+		if s.uses90NativeClient() {
+			shared, sharedSource, sharedErr := s.loadNative90SharedHotkeys(ctx, repos, strings.TrimSpace(accountID))
+			if sharedErr != nil {
+				cancel()
+				s.logGameEvent(session, "game-native90-account-hotkey-load-failed", "error", sharedErr)
+				return nil
+			}
+			if len(shared) != 0 {
+				slots, slotSource, found = shared, sharedSource, true
+				record.Values = map[string]string{"source": "current_exe_op198"}
+			}
+		}
+		if found && !creator && s.uses90NativeClient() && record.Values["source"] != "current_exe_op198" && isContaminatedCreatorWASD(slots) {
+			cancel()
+			s.logGameEvent(session, "game-account-hotkey-notice-skipped", "reason", "contaminated_creator_wasd_on_normal_job")
+			return nil
+		}
+		if !found {
+			if s.uses90NativeClient() {
+				cancel()
+				session.selectedHotkeyNoticeCharacterID = session.selectedCharacterID
+				session.selectedHotkeyNoticeGeneration = session.characterGeneration
+				return nil // No saved configuration: do not reset native/local keys with a prefix or another profile default.
+			}
 			slots, err = s.nativeDefaultConfig(ctx, creator)
 			slotSource = "normal_default_pvf_configuration"
 			if creator {
@@ -711,8 +776,9 @@ func (s *Service) sendAccountHotkeyNotice(session *gameSession, source string, a
 	if err := s.sendGameUpperRawClass(session, s.currentAccountHotkeyNoticeID(), body, 0); err != nil {
 		return err
 	}
-	if s.options.currentClientVersion == "official-24.9" {
-		session.selectedHotkeyNoticeCharacterID = session.selectedCharacterID
+	s.logWarn("dnfbridge sending hotkey notice 454 to client", "conn_id", session.connID, "char_id", targetCharID, "slot_source", slotSource, "slots_len", len(slots))
+	if s.currentFullHotkeyConfiguration() {
+		session.selectedHotkeyNoticeCharacterID = targetCharID
 		session.selectedHotkeyNoticeGeneration = session.characterGeneration
 	}
 	s.logGameEvent(session, "game-account-hotkey-notice-send",
@@ -805,13 +871,17 @@ func currentHotkeySeededLayoutEnabled() bool {
 // Native registrations: NOTI390 -> 1FEA550 -> 2255DB0 (512-byte
 // character options); NOTI454 -> 2005E00 -> 2260DC0 (key type plus full config).
 func (s *Service) currentCharacterOptionNoticeID() uint16 {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient() {
 		return 390
 	}
 	return currentCharacterOptionNoticeMsgID
 }
+func (s *Service) currentFullHotkeyConfiguration() bool {
+	return s.options.currentClientVersion == "official-24.9" || s.uses90NativeClient()
+}
+
 func (s *Service) currentAccountHotkeyNoticeID() uint16 {
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.currentFullHotkeyConfiguration() {
 		return 454
 	}
 	return currentAccountHotkeyNoticeMsgID

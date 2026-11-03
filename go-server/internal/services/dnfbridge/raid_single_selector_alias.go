@@ -88,7 +88,7 @@ func currentRaidDungeonProjectionBody(b *runtimeRaidBattle, infection uint32) ([
 // Translate only an authenticated frozen single-Anton member. The existing
 // entry guard then checks the real open map, clocks and frozen runtime again.
 func (s *Service) resolveCurrentSingleAntonSelector(session *gameSession, requested uint32) uint32 {
-	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" || session.channel.Type != dnfenum.RaidChannelType || !s.currentRaidAuthenticated(session) {
+	if s == nil || session == nil || !s.isSupportedRaidClient() || session.channel.Type != dnfenum.RaidChannelType || !s.currentRaidAuthenticated(session) {
 		return requested
 	}
 	s.raidMu.Lock()

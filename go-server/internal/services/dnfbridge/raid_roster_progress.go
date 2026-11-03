@@ -5,7 +5,7 @@ import "context"
 // Roster-only changes share the projection revision, but never drive dungeon
 // settlement, reward flow, phase start or reconnect reset. Queue after NOTI591.
 func (s *Service) queueCurrentRaidRosterProgress(state runtimeRaidState) {
-	if s.options.currentClientVersion != "official-24.9" || !state.Started || state.Battle == nil {
+	if !s.isSupportedRaidClient() || !state.Started || state.Battle == nil {
 		return
 	}
 	for _, member := range state.Members {

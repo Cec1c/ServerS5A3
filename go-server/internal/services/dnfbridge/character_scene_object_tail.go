@@ -17,6 +17,10 @@ func writeCurrentSceneObjectEntryTailWithCreature(writer *packetWriter, characte
 }
 
 func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packetWriter, character dnfrepo.CharacterRecord, hasCharacter bool, creature currentEquippedCreatureSnapshot, adventureName string, guild ...currentSceneGuildProjection) {
+	writeSceneObjectEntryTailForProfile(writer, character, hasCharacter, creature, adventureName, false, guild...)
+}
+
+func writeSceneObjectEntryTailForProfile(writer *packetWriter, character dnfrepo.CharacterRecord, hasCharacter bool, creature currentEquippedCreatureSnapshot, adventureName string, native90 bool, guild ...currentSceneGuildProjection) {
 	var organization currentSceneGuildProjection
 	if len(guild) != 0 {
 		organization = guild[0]
@@ -115,7 +119,12 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	// Keep the matched client's trailing u16 even when projecting a guild.
 	// Omitting the u16 shifts 22C1650 onto profession/EXP and locks the menu
 	// as disguised; test1 type=3/EXP=36 reproduced this in the live cache.
-	writer.writeUint16(0)
+	// Native 90 sub_2003D40 reads DSTR + u32, with no trailing u16.
+	// Extra bytes shift mode8's next owner/key; sub_2008600 then uses a
+	// missing character model without a null check.
+	if !native90 {
+		writer.writeUint16(0)
+	}
 	writer.writeUint32(currentSceneActorStateEventArg) // v121 -> selected actor event 17/6599
 	writer.writeByte(0)                                // v122
 	// 1C05B70 is the disguise pair, not profession. 1C03F20 reads the

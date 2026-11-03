@@ -9,6 +9,10 @@ import (
 	"strconv"
 )
 
+func (s *Service) isSupportedRaidClient() bool {
+	return s != nil && (s.options.currentClientVersion == "official-24.9" || s.options.currentClientVersion == "90cn")
+}
+
 func (s *Service) currentRaidAdmissionRule(session *gameSession) (raid.AdmissionRule, error) {
 	if s == nil || session == nil {
 		return raid.AdmissionRule{}, fmt.Errorf("raid admission context unavailable")
@@ -54,7 +58,7 @@ func (s *Service) handleOnlineRaidEntryCostInfo(session *gameSession, opcode uin
 	if state.RaidKey == 0 {
 		return s.sendRaidCommandFailure(session, opcode)
 	}
-	if s.options.currentClientVersion == "official-24.9" && !s.currentRaidAdmissionVisible(session, state) {
+	if s.isSupportedRaidClient() && !s.currentRaidAdmissionVisible(session, state) {
 		return s.sendRaidCommandFailure(session, opcode)
 	}
 	statuses, rule, err := s.runtimeRaidEntryCostStatuses(session, state)
@@ -62,7 +66,7 @@ func (s *Service) handleOnlineRaidEntryCostInfo(session *gameSession, opcode uin
 		s.logGameEvent(session, "game-raid-entry-cost-rejected", "reason", err)
 		return s.sendRaidCommandFailure(session, opcode)
 	}
-	if s.options.currentClientVersion == "official-24.9" && !s.currentRaidAdmissionVisible(session, state) {
+	if s.isSupportedRaidClient() && !s.currentRaidAdmissionVisible(session, state) {
 		return nil
 	}
 	if err := s.sendGameUpperRawClassCodec(session, opcode, []byte{1}, dnfproto.DefaultChannelClassification, true); err != nil {

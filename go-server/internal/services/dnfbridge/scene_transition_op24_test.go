@@ -32,6 +32,40 @@ func TestBuildCurrentSceneTransitionBody(t *testing.T) {
 	}
 }
 
+func TestNative90SceneTransitionRowAlignment(t *testing.T) {
+	s := &Service{options: options{currentClientVersion: "official-24.9", nativeClientProfile: "90cn"}}
+	rows := []currentSceneTransitionRow{
+		{
+			ObjectOrResourceKey: 5,
+			Value1:              172,
+			Value2:              350,
+			Value3:              5,
+			Value4:              3,
+		},
+		{
+			ObjectOrResourceKey: 3,
+			Value1:              55,
+			Value2:              350,
+			Value3:              5,
+			Value4:              3,
+		},
+	}
+	body, err := s.buildCurrentSceneTransitionBody(30, 2, rows)
+	if err != nil {
+		t.Fatalf("build 90cn op24 body: %v", err)
+	}
+	// 90CN DNF.exe sub_1D901D0 reads 8 bytes per row: u16 key, u16 x, u16 y, u8 dir, u8 state.
+	// Total body length for 2 rows must be 4 + 2*8 = 20 bytes (no extra 1 byte per row).
+	want := []byte{
+		30, 2, 2, 0,
+		0x05, 0x00, 0xac, 0x00, 0x5e, 0x01, 0x05, 0x03,
+		0x03, 0x00, 0x37, 0x00, 0x5e, 0x01, 0x05, 0x03,
+	}
+	if !bytes.Equal(body, want) {
+		t.Fatalf("90cn op24 body = %x, want %x", body, want)
+	}
+}
+
 func TestCurrentSceneTransitionLocationRequiresRealFields(t *testing.T) {
 	tests := []struct {
 		name         string

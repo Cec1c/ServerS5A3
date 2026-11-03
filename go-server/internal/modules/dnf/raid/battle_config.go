@@ -30,6 +30,15 @@ func sectionValues(doc *dnfpvf.Document, section dnfpvf.Section) []dnfpvf.Token 
 }
 
 func LoadBattleConfiguration(source dnfpvf.Source, path string) (BattleConfiguration, error) {
+	return loadBattleConfiguration(source, path, 0)
+}
+
+// The optional limit is supplied only by the native90 local single-mode policy.
+func LoadLegacyAntonBattleConfiguration(source dnfpvf.Source, limit int) (BattleConfiguration, error) {
+	return loadBattleConfiguration(source, "etc/raid/anton.etc", limit)
+}
+
+func loadBattleConfiguration(source dnfpvf.Source, path string, legacyLimit int) (BattleConfiguration, error) {
 	text, err := source.ReadText(path)
 	if err != nil {
 		return BattleConfiguration{}, err
@@ -41,6 +50,12 @@ func LoadBattleConfiguration(source dnfpvf.Source, path string) (BattleConfigura
 	phaseMax, _ := doc.Int("PHASE MAX")
 	delay, _ := doc.Int("START DELAY TIME")
 	weekly, _ := doc.Int("WEEKLY CLEAR COUNT")
+	if weekly == 0 && legacyLimit > 0 && path == "etc/raid/anton.etc" {
+		if _, legacyErr := ReadLegacyAntonSingle(source); legacyErr != nil {
+			return BattleConfiguration{}, legacyErr
+		}
+		weekly = int64(legacyLimit)
+	}
 	times := doc.Ints("PHASE TIME OVER")
 	if phaseMax <= 0 || phaseMax > 255 || delay < 0 || delay > 3600 || weekly <= 0 || weekly > 255 || len(times) != int(phaseMax) {
 		return BattleConfiguration{}, fmt.Errorf("unsupported raid battle configuration: %s", path)

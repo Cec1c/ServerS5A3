@@ -159,7 +159,7 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyInContextWithSelectedChannel(
 }
 
 func (s *Service) buildCurrentSceneOp9ActorDisplayBodyInContext(sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool, fallbackName string, ownerChannel byte) []byte {
-	return buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(sceneObjectKey, character, hasCharacter, fallbackName, ownerChannel, int(ownerChannel), nil, 0, s.options.currentClientVersion == "official-24.9", s.currentSceneActorRoute())
+	return buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(sceneObjectKey, character, hasCharacter, fallbackName, ownerChannel, int(ownerChannel), nil, 0, s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient(), s.currentSceneActorRoute())
 }
 
 // Official 24.9 NOTI9 (2016350) reads one additional actor byte at
@@ -251,7 +251,9 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	writer.writeByte(0)
 	writer.writeByte(partyLeaderSlot)
 	writer.writeByte(0)
-	writer.writeByte(0)
+	if official249 {
+		writer.writeByte(0)
+	}
 	return writer.bytes()
 }
 

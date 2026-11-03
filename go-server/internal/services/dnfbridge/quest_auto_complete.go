@@ -129,7 +129,7 @@ func (s *Service) handleCurrentAutoCompleteMainQuest(session *gameSession, body 
 	targetQuestID := int64(requestSelector)
 	targetSource := "current_exe_nonzero_per_entry_selector"
 	if requestSelector == 0 {
-		targetSource = "zero_selector_requires_exactly_one_eligible_active_epic"
+		targetSource = "zero_selector_safe_main_story_sweep"
 	}
 	result, err := owner.ApplyAutoCompleteMain(ctx, catalog, dnfquest.AutoCompleteMainInput{
 		AccountID:   accountID,

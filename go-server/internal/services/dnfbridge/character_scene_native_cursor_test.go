@@ -61,3 +61,13 @@ func TestNativeSceneCursorAfterCreatureAndOrganizationNames(t *testing.T) {
 		}
 	}
 }
+
+func TestNative90SceneCursorNoTrailingU16(t *testing.T) {
+	character := dnfrepo.CharacterRecord{Name: "test_char", Stats: map[string]int64{"expert_job_type": 3, "expert_job_exp": 133}}
+	bodyFalse := buildSceneObjectListBodyForProfile(1, character, true, character.Name, currentEquippedCreatureSnapshot{}, "adv", 10, 0, false)
+	bodyTrue := buildSceneObjectListBodyForProfile(1, character, true, character.Name, currentEquippedCreatureSnapshot{}, "adv", 10, 0, true)
+
+	if len(bodyFalse)-len(bodyTrue) != 2 {
+		t.Fatalf("expected native90 to omit trailing u16 (delta 2 bytes), got false_len=%d true_len=%d delta=%d", len(bodyFalse), len(bodyTrue), len(bodyFalse)-len(bodyTrue))
+	}
+}
