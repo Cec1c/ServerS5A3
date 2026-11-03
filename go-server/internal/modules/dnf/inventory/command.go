@@ -65,6 +65,7 @@ type Command struct {
 	DamageFontIndex         uint16
 	Category                byte
 	Condition               byte
+	SortKeys                func(dnfrepo.ItemStack) (alignedcmd.InventorySortKeys, error)
 	NeedsOwner              string
 	// SortLock / SortLockRequested 承接 op713/714 的位置锁意图（DOC-067）：
 	// SortLock 由 opcode 决定（713=锁、714=解锁），不是 toggle。
@@ -174,6 +175,7 @@ func NewSortCommand(req alignedcmd.Request, parsed SortItemRequest) Command {
 	cmd.SourceListType = parsed.ListType
 	cmd.Category = parsed.Category
 	cmd.Condition = parsed.Condition
+	cmd.SortKeys = req.InventorySortKeys
 	return cmd
 }
 

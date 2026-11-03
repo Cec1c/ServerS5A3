@@ -629,6 +629,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		EquipmentPlacement:           equipmentPlacement,
 		InventoryItemPlacement:       s.currentInventoryMovePlacement,
 		InventoryCargoInsert:         s.currentInventoryCargoInsert,
+		InventorySortKeys:            s.currentInventorySortKeys,
 		AvatarClassifier:             s.currentCloneAvatarClassifier(),
 		NameTagChecker:               func(itemID uint32) bool { return s.currentIsNameTagItem(itemID) },
 		PetHatchResolver:             petHatchResolver,

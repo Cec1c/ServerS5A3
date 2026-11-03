@@ -1040,7 +1040,7 @@ func petInventorySlotSegment(slot int16) byte {
 }
 
 // Sort 按当前客户端已确认的 category 段整理物品栏，并只保存对应 inventory 字段。
-// 当前 Go 仓储还没有 sort-lock 表，所以这里只实现无锁安全子集；
+// 根据已确认的 condition 排序，保留位置锁和未参与整理的分页；
 // Main/Avatar/PersonalCargo 的专用 op13 刷新均由 handler 在成功 ACK 后发送。
 // Pet/list7 同时拥有 PetRecord 状态，必须由 typed pet owner 整体整理，通用 inventory owner fail-close。
 func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
@@ -1151,17 +1151,9 @@ func (o *Owner) Sort(ctx context.Context, cmd Command) (SortResult, error) {
 		return SortResult{}, fmt.Errorf("%w: candidates=%d targets=%d", ErrSortLockSlotMismatch, len(candidates), len(targets))
 	}
 
-	sort.SliceStable(candidates, func(i, j int) bool {
-		left := candidates[i]
-		right := candidates[j]
-		if left.kind != right.kind {
-			return left.kind < right.kind
-		}
-		if left.stack.ItemID != right.stack.ItemID {
-			return left.stack.ItemID < right.stack.ItemID
-		}
-		return left.slot < right.slot
-	})
+	if err := orderSortCandidates(candidates, cmd); err != nil {
+		return SortResult{}, err
+	}
 
 	changed := false
 	for index, candidate := range candidates {
