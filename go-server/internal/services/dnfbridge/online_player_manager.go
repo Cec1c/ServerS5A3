@@ -628,6 +628,7 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 	if current != nil && !current() {
 		return nil
 	}
+	displayOnly := partyFrame && s.currentTownDisplayOnlyProjection(target, actor, source)
 	if err := s.sendGameUpperRawClass(
 		target,
 		uint16(dnfenum.CmdPacketSetUDPIPPort),
@@ -636,18 +637,22 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 	); err != nil {
 		return fmt.Errorf("send remote town actor mode0: %w", err)
 	}
-	if err := s.sendGameUpperRawClass(
-		target,
-		uint16(dnfenum.CmdPacketSetUDPIPPort),
-		mode1Body,
-		0,
-	); err != nil {
-		return fmt.Errorf("send remote town actor mode1: %w", err)
+	if !displayOnly {
+		if err := s.sendGameUpperRawClass(target, uint16(dnfenum.CmdPacketSetUDPIPPort), mode1Body, 0); err != nil {
+			return fmt.Errorf("send remote town actor mode1: %w", err)
+		}
+		target.forgetTownDisplayPeer(charID)
+	} else {
+		target.rememberTownDisplayPeer(actorIdentity)
+	}
+	mode1SentBytes := 0
+	if !displayOnly {
+		mode1SentBytes = len(mode1Body)
 	}
 	s.logPacketEvent("game-town-copresence-actor-state-delivered",
 		"conn_id", target.connID, "channel_id", target.channel.ID,
 		"source", source, "target_char_id", targetCharacterID, "actor_char_id", charID,
-		"mode0_body_len", len(mode0Body), "mode1_body_len", len(mode1Body),
+		"mode0_body_len", len(mode0Body), "mode1_body_len", mode1SentBytes, "display_only", displayOnly,
 		"construction_us", constructionElapsed.Microseconds(), "send_us", time.Since(sendStarted).Microseconds())
 	if len(subtype0Body) != 0 {
 		s.sendPeerUserInfoSubtype0Appearance(target, subtype0Body, source+"_peer_userinfo_subtype0", charID)

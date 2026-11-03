@@ -402,6 +402,10 @@ type gameSession struct {
 	// 共用 dungeonPartyRunMu，换场时一起清空；默认 zero 时始终为空。
 	dungeonOwnerOverrideLogged map[uint16]bool
 	townMu                     sync.Mutex
+	// Records ordinary town peers that received the opt-in display-only form.
+	// This lock never spans repository work, packet writes or other locks.
+	townDisplayMu    sync.Mutex
+	townDisplayPeers map[uint16]boundGameSessionCharacter
 	// Serializes an op19 owner mutation and its ACK/slot projections with a
 	// taken appearance tail. Lock before party/town/avatar/wire locks; a
 	// synchronous post-action already runs inside the mutation's lock.

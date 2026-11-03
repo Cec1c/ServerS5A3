@@ -1406,10 +1406,12 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 // "connecting" again. Therefore scene reconstruction is strictly
 // op153-then-op9, without an op11 re-handshake.
 func (s *Service) sendRuntimePartyRosterLocal(session *gameSession, state alignedcmd.PartyState, source string) error {
-	if err := s.sendRuntimePartyRealtimeInfoLocal(session, state); err != nil {
-		return err
-	}
-	_, err := s.sendCurrentPartyActorFrameProjection(session, session, state, source)
+	// A roster refresh can be the first projection after membership changes.
+	// Validate the current frame and promote display-only peers before op153,
+	// just as the formation path does, then retain op153 -> op9 ordering.
+	_, err := s.sendCurrentPartyActorFrameProjectionBefore(session, session, state, source, func() error {
+		return s.sendRuntimePartyRealtimeInfoLocal(session, state)
+	})
 	return err
 }
 
@@ -2080,6 +2082,9 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 	// endpoints before op9 binds the scene-side member table. Sending op9 first
 	// leaves the client in its "connecting" state and prevents teammate map
 	// projection from becoming authoritative.
+	if err := s.upgradeTownDisplayPeersForParty(receiver, state); err != nil {
+		return false, err
+	}
 	if beforeFrame != nil {
 		if err := beforeFrame(); err != nil {
 			return false, err

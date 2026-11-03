@@ -18,6 +18,7 @@ type boundGameSessionCharacter struct {
 
 func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) {
 	if session != nil {
+		session.clearTownDisplayPeers()
 		session.townMu.Lock()
 		resetCurrentTownEnterSelectSceneLocked(session)
 		session.townMu.Unlock()

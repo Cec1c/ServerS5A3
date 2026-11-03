@@ -400,6 +400,7 @@ func setCurrentTownPositionSceneLocked(session *gameSession, characterID uint16,
 	if session == nil {
 		return
 	}
+	session.clearTownDisplayPeers()
 	clearCurrentTownSelectorOriginLocked(session)
 	advanceImageCommunicationSceneLocked(session)
 	resetCurrentTownEnterSelectSceneLocked(session)
