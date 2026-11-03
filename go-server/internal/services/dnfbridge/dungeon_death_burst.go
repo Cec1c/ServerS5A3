@@ -165,6 +165,7 @@ func (s *Service) handleCurrentDungeonDeathBurstWithContinuation(session *gameSe
 			if b.rewardsPending {
 				s.afterCurrentLevelUpRewardCommand(session)
 			}
+			resultErr = errors.Join(resultErr, s.flushCurrentMonsterAdventureInfo(session, b.runtime))
 		}()
 	}
 	for {
@@ -264,7 +265,7 @@ func (s *Service) sendCurrentDungeonMonsterExperienceState(session *gameSession,
 		return err
 	}
 	if result.AdventureExperienceGain > 0 {
-		return s.sendCurrentAdventureInfoPushFromAccount(session, session.selectedCharacterID, "monster_experience_committed")
+		return s.sendCurrentMonsterAdventureInfo(session, runtime, "monster_experience_committed")
 	}
 	return nil
 }
@@ -290,7 +291,7 @@ func (s *Service) flushCurrentDungeonDeathBurstLocked(session *gameSession) erro
 	s.logGameEvent(session, "连续击杀经验汇总通知", "committed_count", count, "body_len", len(body))
 	if b.adventurePending {
 		b.adventurePending = false
-		return s.sendCurrentAdventureInfoPushFromAccount(session, session.selectedCharacterID, "monster_experience_batch_committed")
+		return s.sendCurrentMonsterAdventureInfo(session, b.runtime, "monster_experience_batch_committed")
 	}
 	return nil
 }

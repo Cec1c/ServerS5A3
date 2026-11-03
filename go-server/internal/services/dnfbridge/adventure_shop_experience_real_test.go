@@ -85,9 +85,19 @@ func TestRealPVFAdventureShopExperienceSynchronizesAcrossCapsules(t *testing.T) 
 			assertInfo(frame.Body, wantGrowth, 1_000_000)
 		}
 	}
-	if pushes != 1 || wantGrowth%config.Capsule.MaximumExperience == 0 {
-		t.Fatal("连续击杀未刷新第二个胶囊的非零进度")
+	if pushes != 0 || !r.monsterAdventureInfoPending || wantGrowth%config.Capsule.MaximumExperience == 0 {
+		t.Fatal("未清房时仍发送完整冒险团，或第二个胶囊进度丢失")
 	}
+	// 战斗中主动打开冒险团仍读取已提交账号，不能等待清房才获得进度。
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleCurrentRequestAdventureInfo(p, []byte{99, 0}); err != nil {
+		t.Fatal(err)
+	}
+	frames := splitAllCurrentGameServerUpperPackets(t, p.conn.(*bufferConn).write.Bytes())
+	if len(frames) != 1 || frames[0].Header.MsgID != 1401 || frames[0].Body[0] != 1 {
+		t.Fatal("战斗中打开冒险团失败")
+	}
+	assertInfo(frames[0].Body[1:], wantGrowth, 1_000_000)
 	// 同账号的68级角色重新打开页面，检查账号累计不依赖当前满级角色快照。
 	c, _, err := repos.Character.Load(ctx, "99")
 	if err != nil {
@@ -111,7 +121,7 @@ func TestRealPVFAdventureShopExperienceSynchronizesAcrossCapsules(t *testing.T) 
 	if err := s.handleCurrentRequestAdventureInfo(p, []byte{100, 0}); err != nil {
 		t.Fatal(err)
 	}
-	frames := splitAllCurrentGameServerUpperPackets(t, p.conn.(*bufferConn).write.Bytes())
+	frames = splitAllCurrentGameServerUpperPackets(t, p.conn.(*bufferConn).write.Bytes())
 	if len(frames) != 1 || frames[0].Header.MsgID != 1401 || frames[0].Body[0] != 1 {
 		t.Fatal("未满级角色打开冒险团失败")
 	}

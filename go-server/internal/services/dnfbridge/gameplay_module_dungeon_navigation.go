@@ -3,6 +3,7 @@ package dnfbridge
 import "longheng.io/server/internal/modules/dnf/dnfenum"
 
 func dungeonNavigationGameplayModule() gameplayModuleDefinition {
+	progressOpcode := uint16(dnfenum.CmdPacketSequentialDungeonInfo)
 	selectOpcode := uint16(dnfenum.UpperMsgSelectEnter)
 	moveMapOpcode := uint16(dnfenum.CmdPacketMoveMap)
 	giveUpOpcode := uint16(dnfenum.CmdPacketGiveupGame)
@@ -11,7 +12,16 @@ func dungeonNavigationGameplayModule() gameplayModuleDefinition {
 
 	return gameplayModuleDefinition{
 		Name: "dungeon-navigation",
+		LegacyNormalizers: map[uint16]gameplayLegacyNormalizer{
+			progressOpcode: func(body []byte) []byte { return stripLegacyTransportTrailer(body, 4) },
+		},
 		LegacyHandlers: map[uint16]gameplayHandler{
+			progressOpcode: defaultClassGameplayHandler(
+				"game-luke-selector-progress-rejected", "command_class_mismatch",
+				func(service *Service, session *gameSession, body []byte) error {
+					return service.handleCurrentLukeSelectorProgress(session, body)
+				},
+			),
 			selectOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
 				service.logInfo("dnfbridge latest select-dungeon received",
 					"channel_id", session.channel.ID,
@@ -29,6 +39,12 @@ func dungeonNavigationGameplayModule() gameplayModuleDefinition {
 			},
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
+			progressOpcode: defaultClassGameplayHandler(
+				"game-luke-selector-progress-rejected", "command_class_mismatch",
+				func(service *Service, session *gameSession, body []byte) error {
+					return service.handleCurrentLukeSelectorProgress(session, body)
+				},
+			),
 			selectOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
 				return service.handleDungeonSelectUpper(session, request.Body)
 			},

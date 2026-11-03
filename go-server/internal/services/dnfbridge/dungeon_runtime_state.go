@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	monsterAdventureInfoPending              bool // committed EXP; UI roster waits until after room death notifications
 	partyExperienceReceipts                  map[currentPartyMonsterExperienceReceipt]bool
 	battlePassSkillSequence                  uint64
 	battlePassSkillSequenceSet               bool
@@ -241,6 +242,7 @@ type runtimeDungeonState struct {
 	actorPositionValid                   bool
 	fiendWarSceneDiagnostic              fiendWarSceneDiagnosticState
 	settlementDungeonPermissionSent      bool
+	settlementLukeProgressSent           bool
 	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState
 	settlementMonsterWelcomeBonus        uint32
@@ -1090,6 +1092,22 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 }
 
 func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sessions ...*gameSession) (dnfrepo.CharacterRecord, error) {
+	character, err := s.loadCurrentDungeonCharacterRecord(ctx, characterID, sessions...)
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, err
+	}
+	for _, p := range sessions {
+		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
+			applyCurrentFiendWarCharacterPosition(&character, p, characterID)
+			break
+		}
+	}
+	return character, nil
+}
+
+// Load an owned durable record without projecting live scene position. Counter
+// notices use only saved progression and can run while the caller holds townMu.
+func (s *Service) loadCurrentDungeonCharacterRecord(ctx context.Context, characterID uint16, sessions ...*gameSession) (dnfrepo.CharacterRecord, error) {
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Character == nil {
 		return dnfrepo.CharacterRecord{}, dungeoncmd.ErrOwnerUnavailable
@@ -1108,12 +1126,6 @@ func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sess
 	accountID := strings.TrimSpace(s.accountIDForSession(sessions...))
 	if stored := strings.TrimSpace(character.AccountID); stored != "" && accountID != "" && stored != accountID {
 		return dnfrepo.CharacterRecord{}, fmt.Errorf("%w: selected=%s stored=%s", errDungeonAccountMismatch, accountID, stored)
-	}
-	for _, p := range sessions {
-		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
-			applyCurrentFiendWarCharacterPosition(&character, p, characterID)
-			break
-		}
 	}
 	return character, nil
 }

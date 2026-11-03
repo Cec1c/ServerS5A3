@@ -46,7 +46,16 @@ func buildCurrentDungeonNormalPickupResultBody(
 	pickerActorObjectKey uint16,
 	destinationSlot uint16,
 ) ([]byte, error) {
-	if dropObjectKey == 0 || pickerActorObjectKey == 0 || destinationSlot == 0 {
+	return buildCurrentDungeonItemPickupResultBody(dropObjectKey, pickerActorObjectKey, destinationSlot, false)
+}
+
+func buildCurrentDungeonPickupResultForItem(dropObjectKey uint32, pickerActorObjectKey uint16, destinationSlot uint16, definition dungeonDropItemDefinition) ([]byte, error) {
+	c := currentPVFItemTargetContainer(definition)
+	return buildCurrentDungeonItemPickupResultBody(dropObjectKey, pickerActorObjectKey, destinationSlot, c.GuildMedal && c.ListType == 38 && c.SlotStart == 0)
+}
+
+func buildCurrentDungeonItemPickupResultBody(dropObjectKey uint32, pickerActorObjectKey uint16, destinationSlot uint16, allowZero bool) ([]byte, error) {
+	if dropObjectKey == 0 || pickerActorObjectKey == 0 || (destinationSlot == 0 && !allowZero) {
 		return nil, fmt.Errorf(
 			"%w: drop=%d picker=%d destination=%d",
 			errDungeonPickupResponseInvalid,
@@ -632,13 +641,14 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		}
 		return nil
 	}
-	responseBody, err := buildCurrentDungeonNormalPickupResultBody(
+	responseBody, err := buildCurrentDungeonPickupResultForItem(
 		drop.ObjectKey,
 		pickerActorObjectKey,
 		destinationSlot,
+		drop.Item,
 	)
 	if err != nil {
-		// The allocator only returns proved positive uint16 category slots, so
+		// The allocator returns a proved slot in the item's target container, so
 		// this is an invariant failure after a committed transaction. Consume
 		// the scene object to prevent a duplicate grant even if no ACK can be sent.
 		drop.Status = runtimeDungeonDropConsumed
@@ -655,7 +665,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 	drop.DestinationSlot = destinationSlot
 	drop.PickupResponseBody = append([]byte(nil), responseBody...)
 	itemUpdateBody := buildCurrentItemUpdateBody(
-		dnfrepo.MainInventoryListType,
+		currentDungeonPickupListType(drop.Item),
 		[]currentItemListEntry{itemUpdate},
 	)
 	drop.PickupItemUpdateBody = append([]byte(nil), itemUpdateBody...)
@@ -825,7 +835,10 @@ func buildCurrentDungeonPickupStack(
 	amount uint32,
 	qualitySeed ...uint32,
 ) (dnfrepo.ItemStack, error) {
-	entry, err := currentDungeonDeathDropItemState(uint16(slot), definition, amount, qualitySeed...)
+	if slot < 0 || amount == 0 || (slot == 0 && !currentPVFItemTargetContainer(definition).GuildMedal) {
+		return dnfrepo.ItemStack{}, errDungeonPickupItemInvalid
+	}
+	entry, err := buildCurrentDungeonItemInstanceState(uint16(slot), definition, amount, qualitySeed...)
 	if err != nil {
 		return dnfrepo.ItemStack{}, err
 	}
@@ -931,4 +944,13 @@ func currentDungeonPickupMainSlotKey(slot int16) string {
 // 原有通用发奖调用不带副本拾取来源，不计入获取统计。
 func grantCurrentDungeonPickupItem(ctx context.Context, repositories dnfrepo.Group, characterID string, definition dungeonDropItemDefinition, amount uint32, now time.Time, qualitySeed ...uint32) (uint16, currentItemListEntry, error) {
 	return grantCurrentDungeonPickupItemWithActivity(ctx, repositories, characterID, definition, amount, now, nil, qualitySeed...)
+}
+
+// Mirror the supported pickup placement, not every family supported by other grants.
+func currentDungeonPickupListType(definition dungeonDropItemDefinition) byte {
+	c := currentPVFItemTargetContainer(definition)
+	if c.GuildMedal || c.GuardianGem {
+		return c.ListType
+	}
+	return dnfrepo.MainInventoryListType
 }

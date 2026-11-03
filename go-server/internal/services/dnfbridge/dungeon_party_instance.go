@@ -612,7 +612,7 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameS
 			"object_key", objectKey,
 			"instance_id", instanceID,
 			"reason", "authoritative_peer_death_cleared_this_session_scene")
-		return nil
+		return s.flushCurrentMonsterAdventureInfo(peer, runtime)
 	}
 	if peer.events == nil || peer.events.loop == nil {
 		// 没有事件循环（协议用例）：同步执行，结果确定。

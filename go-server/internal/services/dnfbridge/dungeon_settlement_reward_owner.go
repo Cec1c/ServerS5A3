@@ -284,6 +284,14 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 	if len(permissionBody) != 0 {
 		plan.DungeonPermissionBody = append([]byte(nil), permissionBody...)
 	}
+	if currentLukeNormalDungeon(runtime) && permissionErr == nil && session.lukeSelectorProgressCharacterID == session.selectedCharacterID {
+		progress, err := s.currentLukeSelectorProgress(ctx, session)
+		if err != nil {
+			s.logGameEvent(session, "game-luke-selector-progress-freeze-failed", "reason", err)
+		} else {
+			plan.LukeSelectorProgressBody = append([]byte(nil), progress...)
+		}
+	}
 	plan.GuildDungeonItemSlots = guildDungeonRefreshSlots(result.GuildDungeonItems)
 	if currentDungeonIsDespairTower(runtime) {
 		floor, err := currentDespairFloor(runtime.Dungeon)
@@ -1133,8 +1141,8 @@ func currentDungeonCommittedDropReceiptsWithExemptions(
 
 // currentDungeonCommittedDropReceiptsFiltered 是收据校验的**唯一实现**。
 //
-// `exemptAccountLedgerDrops=false` 且 `filterForeignOwned=false` 时逐字节等于改动前
-// （两个开关都关掉的那条回退档走的就是这一支）。
+// 已验证的专用勋章容器收据在各档均独立校验，不投影到主背包结果行；
+// 两个策略开关只决定账号图鉴与队友收据，普通主背包判据保持。
 //
 // `filterForeignOwned=true` 时：一条已消耗掉落只有在它**属于本角色**（或者根本不该有归属）
 // 时才参与"必须在背包里找到"的校验，否则记进 foreign 并跳过。归属判据只读掉落自带的
@@ -1185,7 +1193,7 @@ func currentDungeonCommittedDropReceiptsFiltered(
 			})
 			continue
 		}
-		if drop.DestinationSlot == 0 {
+		if drop.DestinationSlot == 0 && !currentPVFItemTargetContainer(drop.Item).GuildMedal {
 			return nil, nil, nil, errCurrentDungeonSettlementStateInvalid
 		}
 		// 账号级史诗碎片：`destination_slot` 是哨兵、物品在账号账本里，**不进背包**。
@@ -1214,6 +1222,12 @@ func currentDungeonCommittedDropReceiptsFiltered(
 				continue
 			}
 			return nil, nil, nil, errCurrentDungeonSettlementStateInvalid
+		}
+		// A proved dedicated-container pickup is already persisted and refreshed
+		// through list38. It must not be projected as a main-bag result row.
+		if currentDungeonPickupListType(drop.Item) == currentGuildMedalInventoryListType {
+			exempted = append(exempted, currentDungeonSettlementExemptDropReceipt{ObjectKey: drop.ObjectKey, SceneSlot: drop.SceneSlot, ItemID: drop.Item.ItemID, DestinationSlot: slot, StackCount: uint32(stack.Count), AssetOwner: "character_guild_medal_inventory"})
+			continue
 		}
 		bySlot[slot] = currentDungeonClearRewardDrop{
 			ObjectKey: slot, TemplateID: drop.Item.ItemID, StackCount: uint32(stack.Count),
