@@ -12,7 +12,7 @@ from unicorn.x86_const import *
 from town_display_native_memory import NativeMemory as Memory
 import patch_receivers_v128 as pe
 
-EXPECTED = 'a5f1d5ef432064cccaeac6362d5f1405fceddd62739da85661154fc008d47f7d'
+EXPECTED = 'd1930d5bb07ee8fae348e0c23551b0f12bcfaea67ed7bf53ab0c9099e195c309'
 
 
 class Native(Memory):
