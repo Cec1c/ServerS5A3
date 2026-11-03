@@ -85,8 +85,8 @@ func TestPartyLoadingCachedRevisitDoesNotRestoreOldOwner(t *testing.T) {
 	// Clear both scene projections, then take the actual cached path back.
 	for _, peer := range []*gameSession{leader, follower} {
 		runtime := peer.dungeon.runtime
-		scene, _ := runtime.Session.Scene()
-		for _, key := range scene.BlockingHostiles {
+		for _, monster := range runtime.Room.Snapshot().Monsters {
+			key := monster.ObjectKey
 			if peer == leader {
 				if _, _, err := runtime.Room.CommitActorDeathReport(key, runtime.Session); err != nil {
 					t.Fatal(err)
