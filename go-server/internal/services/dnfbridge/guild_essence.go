@@ -263,6 +263,16 @@ func (s *Service) queueCurrentGuildEssenceRefresh(guildID uint32, skip uint16) {
 			if g == nil || g.ID != guildID {
 				return nil
 			}
+			// Peer income is already committed. Do not rebuild guild
+			// placements or block combat with its background snapshot.
+			// Town/member-window refresh reads the latest balance on return.
+			peer.session.dungeon.mu.Lock()
+			inDungeon := peer.session.dungeon.runtime != nil
+			peer.session.dungeon.mu.Unlock()
+			if inDungeon {
+				s.logGameEvent(peer.session, "game-guild-essence-peer-refresh-deferred", "reason", "dungeon_scene_owned")
+				return nil
+			}
 			return s.writeCurrentGuildEssenceSnapshot(peer.session)
 		}}})
 		if err != nil {

@@ -12,9 +12,16 @@ import (
 // is confirmed. Completion and automatic deadline returns never call this.
 // The remaining members retain their dungeon runtime and shared instance.
 func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance *dungeonPartyInstance) error {
+	_, err := s.leaveRuntimePartyDungeonMember(session, instance, "member_giveup_confirmed_town", true)
+	return err
+}
+
+// A disconnect uses the same retained-instance membership transition as a
+// confirmed personal return, but never writes to the socket being retired.
+func (s *Service) leaveRuntimePartyDungeonMember(session *gameSession, instance *dungeonPartyInstance, source string, notifyDeparting bool) (bool, error) {
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound || !s.boundGameSessionCharacterCurrent(identity) || instance == nil {
-		return nil
+		return false, nil
 	}
 	manager := s.runtimePartyManagerForService()
 	before, found := manager.SnapshotByUser(identity.character, identity.generation)
@@ -23,12 +30,12 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 		// Only the current authoritative socket may repair recorded generation
 		// drift. An old dungeon return must never remove a new party membership.
 		if !s.boundGameSessionCharacterCurrent(identity) {
-			return nil
+			return false, nil
 		}
 		before, found = manager.SnapshotByUser(identity.character, 0)
 	}
 	if !found || before.ID != instance.key.PartyID {
-		return nil
+		return false, nil
 	}
 	peers := dungeonPartyInstanceMemberSessions(instance, identity.character)
 	var next alignedcmd.PartyState
@@ -47,21 +54,21 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 			result = manager.LeaveDungeonExpected(identity.character, recordedGeneration, before.ID)
 			return result.OK
 		}) {
-			return nil
+			return false, nil
 		}
 		removed = result.OK
 		if removed {
-			s.logRuntimePartyMembershipRemoved("member_giveup_confirmed_town", identity.character, identity.generation, before, result)
+			s.logRuntimePartyMembershipRemoved(source, identity.character, identity.generation, before, result)
 			s.clearRuntimePartyProjection(identity.character, identity.generation)
 			next = s.publishRuntimePartySnapshot(result.Party)
 		}
 	} else if drifted {
 		next, _, removed = s.repairManagedRuntimePartyLeave(identity)
 	} else {
-		next, _, removed = s.leaveManagedRuntimeParty(identity, "member_giveup_confirmed_town")
+		next, _, removed = s.leaveManagedRuntimeParty(identity, source)
 	}
 	if !removed {
-		return nil
+		return false, nil
 	}
 	var errs error
 	if s.options.currentClientVersion != "official-24.9" {
@@ -75,15 +82,17 @@ func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance
 	} else {
 		s.syncRuntimePartyUDPRelay(next)
 	}
-	errs = errors.Join(errs, s.sendRuntimePartyDeparture(session, before.StateFor(before.Leader)))
+	if notifyDeparting {
+		errs = errors.Join(errs, s.sendRuntimePartyDeparture(session, before.StateFor(before.Leader)))
+	}
 	if s.options.currentClientVersion == "official-24.9" {
 		errs = errors.Join(errs, s.sendMemberGiveupSurvivorRosterAfterDeparture(next, instance, identity.character))
 	} else {
 		errs = errors.Join(errs, s.broadcastRuntimePartyMemberRemoved(before.StateFor(before.Leader), next, identity.character, session))
 	}
 	s.logGameEvent(session, "game-party-member-giveup-left", "char_id", identity.character,
-		"party_id", before.ID, "leader_char_id", before.Leader, "remaining_members", len(next.Members))
-	return errs
+		"party_id", before.ID, "leader_char_id", before.Leader, "remaining_members", len(next.Members), "source", source)
+	return true, errs
 }
 
 // A survivor can still be bound to a pre-entry selected-channel party record.
