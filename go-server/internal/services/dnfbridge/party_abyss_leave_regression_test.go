@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"longheng.io/server/internal/modules/dnf/guild"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 func TestDungeonDisconnectKeepsSurvivorPartyAndInstance(t *testing.T) {
@@ -39,6 +42,63 @@ func TestDungeonDisconnectKeepsSurvivorPartyAndInstance(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestThreeMemberDungeonLeaderDisconnectRetainsSharedRun(t *testing.T) {
+	var third *gameSession
+	s, leader, member, _, memberRuntime := partyDungeonDeathFixture(t, func(s *Service, leader, member *gameSession) {
+		repos, _ := s.repositoryGroup()
+		c, _, err := repos.Character.Load(context.Background(), "100")
+		if err != nil {
+			t.Fatal(err)
+		}
+		c = dnfrepo.CloneCharacter(c)
+		c.CharacterID = "101"
+		if err := repos.Character.Save(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+		third = &gameSession{conn: &bufferConn{}, channel: leader.channel, residentChannel: leader.channel}
+		s.bindGameSessionCharacter(third, 101)
+		state := runtimePartyStateSnapshot(leader)
+		state.Members = append(state.Members, alignedcmd.PartyMemberState{UserID: 101, UserState: 1, HPPercent: 100, MPPercent: 100})
+		for _, p := range []*gameSession{leader, member, third} {
+			storeRuntimePartyState(p, state)
+		}
+		if _, ok := s.bootstrapManagedRuntimePartyForSession(leader); !ok {
+			t.Fatal("three-member lobby was not registered")
+		}
+	})
+	s.options.currentClientVersion = "official-24.9"
+	runtime, _, err := s.prepareDungeonRuntime(context.Background(), third, dungeoncmd.SelectDungeonRequest{DungeonID: 700, Difficulty: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third.dungeon.runtime = runtime
+	scene, ok := runtime.Session.Scene()
+	if !ok {
+		t.Fatal("third member has no scene")
+	}
+	instance := s.adoptPartyDungeonInstance(third, runtime, scene)
+	if instance == nil || instance != memberRuntime.partyInstance {
+		t.Fatal("fixture did not share one three-member run")
+	}
+	s.recordDungeonPartyRunKey(third, runtime, scene)
+	before, _ := s.runtimePartyManagerForService().SnapshotByUser(99, 0)
+	s.unbindGameSession(leader)
+	for _, survivor := range []*gameSession{member, third} {
+		after, found := s.runtimePartyManagerForService().SnapshotByUser(survivor.selectedCharacterID, 0)
+		if !found || after.ID != before.ID || len(after.Members) != 2 || after.Leader != 100 {
+			t.Fatalf("three-member disconnect replaced surviving lobby: %+v", after)
+		}
+		key, valid := s.currentDungeonPartyRunKey(survivor)
+		if !valid || key.PartyID != after.ID || survivor.dungeon.runtime.partyInstance != instance {
+			t.Fatal("surviving run key no longer matches the central party")
+		}
+	}
+	peers := dungeonPartyInstanceMemberSessions(instance, 0)
+	if len(peers) != 2 {
+		t.Fatalf("instance retained %d occupants after disconnect; want 2", len(peers))
 	}
 }
 

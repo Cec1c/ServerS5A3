@@ -118,6 +118,13 @@ func (s *Service) fanOutCompletedDungeonReturnToPartyMembers(
 	if !dungeonPartyCompletionReturnFanoutEnabled() {
 		return 0
 	}
+	leader, bound := s.boundGameSessionCharacterSnapshot(session)
+	party, found := s.runtimePartyManagerForService().SnapshotByUser(leavingCharacterID, leader.generation)
+	if !bound || leader.character != leavingCharacterID || !found ||
+		party.ID != instance.key.PartyID || party.Leader != leavingCharacterID {
+		// A member's own settlement/give-up return cannot move anybody else.
+		return 0
+	}
 	peers := dungeonPartyInstanceMemberSessions(instance, leavingCharacterID)
 	if len(peers) == 0 {
 		return 0
@@ -139,13 +146,13 @@ func (s *Service) fanOutCompletedDungeonReturnToPartyMembers(
 			continue
 		}
 		if member.events == nil || member.events.loop == nil {
-			fannedOut += s.completePartyMemberReturnOnOwner(session, identity, instance, expectedRuntime, leavingCharacterID, source)
+			fannedOut += s.completePartyMemberReturnOnOwner(leader, identity, instance, expectedRuntime, leavingCharacterID, source)
 			continue
 		}
 		// Never wait for another player's event loop from this player's loop.
 		// Queue the whole route behind any in-flight quest ACK/snapshot batch.
 		err := s.tryPostGameSessionCharacterEvent(member, "party-completed-return", identity.character, identity.generation, func() error {
-			s.completePartyMemberReturnOnOwner(session, identity, instance, expectedRuntime, leavingCharacterID, source)
+			s.completePartyMemberReturnOnOwner(leader, identity, instance, expectedRuntime, leavingCharacterID, source)
 			return nil
 		})
 		if err != nil {
@@ -160,13 +167,19 @@ func (s *Service) fanOutCompletedDungeonReturnToPartyMembers(
 // Revalidate the character and exact runtime after waiting; an old request must
 // never return a replacement character or a later dungeon instance to town.
 func (s *Service) completePartyMemberReturnOnOwner(
-	session *gameSession, identity boundGameSessionCharacter,
+	leader, identity boundGameSessionCharacter,
 	instance *dungeonPartyInstance, expectedRuntime *runtimeDungeonState,
 	leavingCharacterID uint16, source string,
 ) int {
-	if !s.boundGameSessionCharacterCurrent(identity) {
+	if !s.boundGameSessionCharacterCurrent(identity) || !s.boundGameSessionCharacterCurrent(leader) {
 		return 0
 	}
+	party, found := s.runtimePartyManagerForService().SnapshotByUser(leavingCharacterID, leader.generation)
+	if leader.character != leavingCharacterID || !found ||
+		party.ID != instance.key.PartyID || party.Leader != leavingCharacterID {
+		return 0
+	}
+	session := leader.session
 	member := identity.session
 	if state := runtimePartyStateSnapshot(member); state.PartyID != int(instancePartyIDOfPartyDungeonInstance(instance)) {
 		return 0

@@ -212,6 +212,31 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 	} else if state.PartyID <= 0 {
 		return
 	}
+	if s.options.currentClientVersion == "official-24.9" {
+		session.dungeon.mu.Lock()
+		runtime := session.dungeon.runtime
+		var instance *dungeonPartyInstance
+		if runtime != nil {
+			instance = runtime.partyInstance
+		}
+		session.dungeon.mu.Unlock()
+		if instance != nil {
+			removed, err := s.leaveRuntimePartyDungeonMember(session, instance, "detach:"+source, false)
+			if removed {
+				// Keep the surviving lobby and remove the disconnected
+				// occupant from the shared room's progression barrier.
+				session.dungeon.mu.Lock()
+				if session.dungeon.runtime == runtime && runtime.partyInstance == instance {
+					s.releasePartyDungeonInstance(runtime, identity.character, "detach:"+source)
+				}
+				session.dungeon.mu.Unlock()
+				if err != nil {
+					s.logWarn("dnfbridge deferred dungeon party removal during session detach", "source", source, "char_id", identity.character, "error", err)
+				}
+				return
+			}
+		}
+	}
 	nextState, result, removed := s.leaveManagedRuntimeParty(identity, "detach:"+source)
 	if !removed && result.Reason == "stale_session" && s.partyLeaveRepair() == partyLeaveRepairOn {
 		nextState, result, removed = s.repairManagedRuntimePartyLeave(identity)
