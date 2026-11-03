@@ -285,17 +285,19 @@ type currentDisjointRewardSlot struct {
 }
 
 type currentDisjointResult struct {
-	EpicPieces  map[uint32]uint32
-	Rewards     []currentDisjointRewardSlot
-	Updates     []currentItemListEntry
-	GoldAfter   int64
-	GoldChanged bool
+	EpicPieceDisplay []currentDisjointRewardSlot
+	EpicPieces       map[uint32]uint32
+	Rewards          []currentDisjointRewardSlot
+	Updates          []currentItemListEntry
+	GoldAfter        int64
+	GoldChanged      bool
 }
 
 // currentDisjointBatchItem 是批量分解里单件的产物行（逐件回包与日志用）。
 type currentDisjointBatchItem struct {
-	Slot    int16
-	Rewards []currentDisjointRewardSlot
+	EpicPieceDisplay []currentDisjointRewardSlot
+	Slot             int16
+	Rewards          []currentDisjointRewardSlot
 }
 
 // currentDisjointBatchResult 是一次批量分解的逐件产物，顺序 = 请求里的槽位顺序。
@@ -500,7 +502,10 @@ func parseCurrentEmblemCompoundRequest(body []byte) (currentEmblemCompoundReques
 	return request, nil
 }
 
-func buildCurrentDisjointItemSuccessBody(request currentDisjointItemRequest, rewards []currentDisjointRewardSlot) []byte {
+func buildCurrentDisjointItemSuccessBody(request currentDisjointItemRequest, rewards []currentDisjointRewardSlot, display ...[]currentDisjointRewardSlot) []byte {
+	if len(display) == 1 {
+		rewards = currentDisjointWithDisplay(rewards, display[0])
+	}
 	var body packetWriter
 	body.writeByte(1)
 	body.writeUint16(uint16(request.SourceSlot))
@@ -564,7 +569,11 @@ func buildCurrentDisjointBatchAggregateSuccessBody(batch currentDisjointBatchReq
 		ListType:   dnfrepo.MainInventoryListType,
 		ToolSlot:   batch.ToolSlot,
 	}
-	return buildCurrentDisjointItemSuccessBody(request, currentDisjointBatchAggregatedRewards(items))
+	displayItems := make([]currentDisjointBatchItem, len(items))
+	for i, item := range items {
+		displayItems[i].Rewards = item.EpicPieceDisplay
+	}
+	return buildCurrentDisjointItemSuccessBody(request, currentDisjointBatchAggregatedRewards(items), currentDisjointBatchAggregatedRewards(displayItems))
 }
 
 func buildCurrentAvatarDisjointSuccessBody(request currentAvatarDisjointRequest, rewards []currentDisjointRewardSlot) []byte {

@@ -133,10 +133,12 @@ func commitNativeNPCDisjointRequests(ctx context.Context, owner *dnfdisjoint.Own
 					continue
 				}
 				var balances map[uint32]uint32
+				var granted uint32
 				if plan.EpicPieceID != 0 {
 					ledger := dnfrepo.CloneAccount(*assets.Account)
 					balances = make(map[uint32]uint32)
-					if err := creditCurrentDisjointEpicPiece(&dnfdisjoint.Assets{Account: &ledger}, plan.EpicPieceID, balances); err != nil {
+					granted, err = creditCurrentDisjointEpicPiece(&dnfdisjoint.Assets{Account: &ledger}, plan.EpicPieceID, balances)
+					if err != nil {
 						items[i].err = err
 						continue
 					}
@@ -145,6 +147,7 @@ func commitNativeNPCDisjointRequests(ctx context.Context, owner *dnfdisjoint.Own
 				*assets.Inventory, *assets.AccountInventory = inventory, account
 				items[i].result.Rewards = rewards
 				items[i].result.EpicPieces = balances
+				items[i].result.EpicPieceDisplay = currentDisjointEpicDisplayRow(plan.EpicPieceID, granted)
 				ledgerDirty = ledgerDirty || len(balances) > 0
 				changed, accountDirty = true, accountDirty || dirty
 			}
