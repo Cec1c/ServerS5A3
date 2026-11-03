@@ -1,4 +1,4 @@
-"""Enable the existing class0/op602 consumer in official cumulative V207.
+"""Enable the existing class0/op602 consumer in official cumulative V207/V208.
 
 Source-only tool: reads one known cumulative input and writes a separate candidate.
 No PVF, runtime process, server configuration or player file is changed.
@@ -12,7 +12,11 @@ from patch_receivers_v128 import headers, offset, checksum
 
 INPUT_SHA256 = "eca5ae9017176fb159ae22d6498b2a6805b8b93295042363a90f37f2daae7a03"
 INPUT_SIZE = 112549888
-APPROVED_INPUTS = {INPUT_SHA256: INPUT_SIZE}
+APPROVED_INPUTS = {
+    INPUT_SHA256: INPUT_SIZE,
+    # V208 differs from V207 only in the independently verified op817/818 byte.
+    "5ce2ce3f01dacd05a6ce542d088911cc4fceb0f44ffa85dfa3a0886339e7cb5c": 112549888,
+}
 BITMAP_VA = 0x6E92300
 GATE_VA = 0x6E83610
 REGISTRATION_VA = 0x2032630
@@ -23,7 +27,7 @@ OPCODE = 602
 def build(data):
     identity = hashlib.sha256(data).hexdigest()
     if APPROVED_INPUTS.get(identity) != len(data):
-        raise ValueError("official cumulative V207 SHA-256 and length required")
+        raise ValueError("audited cumulative V207/V208 SHA-256 and length required")
     opt, sections = headers(data)
     expected = b"\x6a\x00\x68" + struct.pack("<I", HANDLER_VA) + b"\x68" + struct.pack("<I", OPCODE)
     at = offset(sections, REGISTRATION_VA, len(expected))

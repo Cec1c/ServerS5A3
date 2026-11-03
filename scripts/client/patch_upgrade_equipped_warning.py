@@ -1,6 +1,6 @@
 """Reject worn reinforcement/amplification targets before the native op80 send.
 
-Reads an exact audited V207 image and writes a separate candidate. Reuses the
+Reads an exact audited cumulative image and writes a separate candidate. Reuses the
 native modal and dstr strings; does not change server, PVF, dstr or player files.
 """
 import argparse
@@ -15,6 +15,9 @@ APPROVED_INPUTS = {
     'eca5ae9017176fb159ae22d6498b2a6805b8b93295042363a90f37f2daae7a03': 112549888,
     '67f524e2c25b8ff0d57b10bf735510ddaac95965c143e11d404b144d7620327d': 112627712,
     'c3faebd7bcab6f45a6aa6b361c7388e061c98b9791fd33003f4390ed86d0430a': 112627712,
+    # V208 adds only op817/818; the second input also enables op602.
+    '5ce2ce3f01dacd05a6ce542d088911cc4fceb0f44ffa85dfa3a0886339e7cb5c': 112549888,
+    '27f66d19ea80f18abbe7d342d78cbc908b79d9c9c3691b109c1a958cd2492b85': 112549888,
 }
 PREVIOUS_INPUT = 'c3faebd7bcab6f45a6aa6b361c7388e061c98b9791fd33003f4390ed86d0430a'
 PREVIOUS_HELPER = bytes.fromhex('837d94030f8536000000837d90000f8c2c000000837d10010f8722000000837d10000f850c0000006a006873060000e9d52967fb6a006836530000e9c92967fb538bcee8c81c66fbe92a2a67fb')
@@ -92,7 +95,7 @@ def caller_helper(va, handled, caller):
 def build(data):
     identity = hashlib.sha256(data).hexdigest()
     if APPROVED_INPUTS.get(identity) != len(data):
-        raise ValueError('exact audited V207 SHA-256 and length required')
+        raise ValueError('exact audited cumulative SHA-256 and length required')
     opt, sections = headers(data)
     pe = struct.unpack_from('<I', data, 0x3c)[0]
     table = opt + struct.unpack_from('<H', data, pe + 20)[0]
