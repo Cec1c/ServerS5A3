@@ -105,6 +105,9 @@ func (s *Service) queueTownPeerPacket(target onlinePlayerInfo, actor *onlinePlay
 		valid = func() bool { return !s.onlinePlayers.PeerInSameArea(departed, target.CharacterID) }
 	}
 	s.queueTownPeerDelivery(target, source, valid, func() error {
+		if op == currentTownUserLeaveMsgID && len(body) == 2 {
+			target.Session.forgetTownDisplayPeer(uint16(body[0]) | uint16(body[1])<<8)
+		}
 		return s.sendCurrentSceneFixedClass0Packet(target.Session, op, body, source)
 	})
 }

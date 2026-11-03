@@ -289,6 +289,7 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 		if p := session.battlePassPush; p != nil {
 			p.stop(s)
 		}
+		session.clearTownDisplayPeers()
 		s.retireCurrentLukeSessionRun(session)
 		s.releaseCurrentRaidParticipationSession(session)
 		s.cancelCurrentDayDungeonCatalogRefresh(session)
