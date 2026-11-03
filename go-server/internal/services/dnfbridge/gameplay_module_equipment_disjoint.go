@@ -176,7 +176,7 @@ func (s *Service) handleCurrentDisjointBatchRequest(session *gameSession, body [
 				SourceSlot: item.Slot,
 				ListType:   dnfrepo.MainInventoryListType,
 				ToolSlot:   batch.ToolSlot,
-			}, item.Rewards)
+			}, item.Rewards, item.EpicPieceDisplay)
 			if err := s.sendGameUpperRawClass(session, opcode, ackBody, dnfproto.DefaultChannelClassification); err != nil {
 				return err
 			}
@@ -329,7 +329,7 @@ func (s *Service) commitCurrentDisjointItem(ctx context.Context, session *gameSe
 	if err != nil {
 		return err
 	}
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketDisjointItem), buildCurrentDisjointItemSuccessBody(request, result.Rewards), dnfproto.DefaultChannelClassification); err != nil {
+	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketDisjointItem), buildCurrentDisjointItemSuccessBody(request, result.Rewards, result.EpicPieceDisplay), dnfproto.DefaultChannelClassification); err != nil {
 		return errors.Join(errCurrentDisjointCommittedReply, err)
 	}
 	if result.GoldChanged {

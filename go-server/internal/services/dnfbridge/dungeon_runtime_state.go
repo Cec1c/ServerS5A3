@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	monsterAdventureInfoPending              bool // committed EXP; UI roster waits until after room death notifications
 	partyExperienceReceipts                  map[currentPartyMonsterExperienceReceipt]bool
 	battlePassSkillSequence                  uint64
 	battlePassSkillSequenceSet               bool
@@ -91,9 +92,12 @@ type runtimeDungeonState struct {
 	// 必须用它，不能回头读 Character.AccountID —— 角色行是"存储真值"，但账号级
 	// 权益的归属口径是会话账号；两者在"角色建在共享兜底账号 dnf:1 上、会话已由
 	// 令牌定案成 dnf:100xx"的现场形态下并不相同。
-	AccountID         string
-	Session           *worldmap.DungeonSession
-	Room              *runtimeDungeonRoom
+	AccountID string
+	Session   *worldmap.DungeonSession
+	Room      *runtimeDungeonRoom
+	// Incremented at each committed room transition, including cached revisits.
+	// A loading callback from an earlier visit must not release this visit.
+	loadingRoomVisit  uint64
 	randomizedObjects *currentDungeonRandomizedOwner
 	DropOwner         *runtimeDungeonDropOwner
 	NextObjectKey     uint32
@@ -238,6 +242,7 @@ type runtimeDungeonState struct {
 	actorPositionValid                   bool
 	fiendWarSceneDiagnostic              fiendWarSceneDiagnosticState
 	settlementDungeonPermissionSent      bool
+	settlementLukeProgressSent           bool
 	settlementLuckyStarResolved          bool
 	suspiciousVillageElevator            currentDungeonElevatorState
 	settlementMonsterWelcomeBonus        uint32
@@ -1087,6 +1092,22 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 }
 
 func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sessions ...*gameSession) (dnfrepo.CharacterRecord, error) {
+	character, err := s.loadCurrentDungeonCharacterRecord(ctx, characterID, sessions...)
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, err
+	}
+	for _, p := range sessions {
+		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
+			applyCurrentFiendWarCharacterPosition(&character, p, characterID)
+			break
+		}
+	}
+	return character, nil
+}
+
+// Load an owned durable record without projecting live scene position. Counter
+// notices use only saved progression and can run while the caller holds townMu.
+func (s *Service) loadCurrentDungeonCharacterRecord(ctx context.Context, characterID uint16, sessions ...*gameSession) (dnfrepo.CharacterRecord, error) {
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Character == nil {
 		return dnfrepo.CharacterRecord{}, dungeoncmd.ErrOwnerUnavailable
@@ -1105,12 +1126,6 @@ func (s *Service) dungeonCharacter(ctx context.Context, characterID uint16, sess
 	accountID := strings.TrimSpace(s.accountIDForSession(sessions...))
 	if stored := strings.TrimSpace(character.AccountID); stored != "" && accountID != "" && stored != accountID {
 		return dnfrepo.CharacterRecord{}, fmt.Errorf("%w: selected=%s stored=%s", errDungeonAccountMismatch, accountID, stored)
-	}
-	for _, p := range sessions {
-		if isCurrentFiendWarChannel(p) && p.selectedCharacterID == characterID {
-			applyCurrentFiendWarCharacterPosition(&character, p, characterID)
-			break
-		}
 	}
 	return character, nil
 }

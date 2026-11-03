@@ -118,6 +118,11 @@ func currentDungeonDeathDropItemState(
 			amount,
 		)
 	}
+	return buildCurrentDungeonItemInstanceState(sceneSlot, definition, amount, qualitySeed...)
+}
+
+// Inventory containers may use slot zero; scene drop slots remain nonzero.
+func buildCurrentDungeonItemInstanceState(slot uint16, definition dungeonDropItemDefinition, amount uint32, qualitySeed ...uint32) (currentItemListEntry, error) {
 	instanceValue := amount
 	if definition.Kind == dungeonDropItemEquipment {
 		instanceValue = 0
@@ -133,7 +138,7 @@ func currentDungeonDeathDropItemState(
 		}
 	}
 	var entry currentItemListEntry
-	entry.patchCore(int16(sceneSlot), definition.ItemID, instanceValue)
+	entry.patchCore(int16(slot), definition.ItemID, instanceValue)
 	if definition.Kind == dungeonDropItemEquipment && definition.Durability != 0 {
 		entry.setUint16(0x0B, definition.Durability)
 	}

@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"encoding/binary"
+	"errors"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
@@ -64,7 +65,8 @@ func (s *Service) handleDungeonBossDieCheck(session *gameSession, body []byte) e
 	session.dungeon.mu.Lock()
 	defer session.dungeon.mu.Unlock()
 	runtime := session.dungeon.runtime
-	return s.handleDungeonBossDieCheckLocked(session, runtime, request, false)
+	err = s.handleDungeonBossDieCheckLocked(session, runtime, request, false)
+	return errors.Join(err, s.flushCurrentMonsterAdventureInfo(session, runtime))
 }
 
 // handleDungeonBossDieCheckLocked owns the final-room request state machine.

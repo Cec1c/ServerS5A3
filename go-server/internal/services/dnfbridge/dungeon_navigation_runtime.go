@@ -1675,8 +1675,10 @@ func (s *Service) handleDungeonMoveMap(session *gameSession, body []byte) error 
 }
 
 type runtimePartyDungeonMovePlan struct {
-	target runtimeDungeonRoomKey
-	seed   uint32
+	target   runtimeDungeonRoomKey
+	seed     uint32
+	instance *dungeonPartyInstance
+	room     *runtimeDungeonRoom
 }
 
 func (s *Service) handleDungeonMoveMapPlanned(
@@ -1739,11 +1741,15 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	afterKnown := false
 	afterSeed := uint32(0)
 	committedScene := worldmap.DungeonRoomScene{}
+	var committedInstance *dungeonPartyInstance
+	var committedRoom *runtimeDungeonRoom
 	if session.dungeon.runtime != nil && session.dungeon.runtime.Session != nil {
 		if scene, ok := session.dungeon.runtime.Session.Scene(); ok {
 			after, afterKnown = runtimeDungeonRoomKeyFromScene(scene), true
 			afterSeed = session.dungeon.runtime.Seed
 			committedScene = scene
+			committedInstance = session.dungeon.runtime.partyInstance
+			committedRoom = session.dungeon.runtime.Room
 		}
 	}
 	session.dungeon.mu.Unlock()
@@ -1751,7 +1757,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 		return err
 	}
 	if fanoutParty && beforeKnown && afterKnown && before != after {
-		if err := s.moveRuntimePartyFollowers(session, body, runtimePartyDungeonMovePlan{target: after, seed: afterSeed}); err != nil {
+		if err := s.moveRuntimePartyFollowers(session, body, runtimePartyDungeonMovePlan{target: after, seed: afterSeed, instance: committedInstance, room: committedRoom}); err != nil {
 			return err
 		}
 	}
@@ -1813,6 +1819,15 @@ func (s *Service) moveRuntimePartyFollowers(leader *gameSession, body []byte, pl
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		err := s.callGameSession(ctx, follower, "runtime-party-dungeon-room-transition", func() error {
+			// A member's own op45 may have committed this exact shared plan
+			// before the leader's queued follow request. Do not send another
+			// op29 or debit fatigue again. Coordinates alone are insufficient.
+			follower.dungeon.mu.Lock()
+			alreadyCommitted := runtimePartyMovePlanCommitted(follower.dungeon.runtime, plan)
+			follower.dungeon.mu.Unlock()
+			if alreadyCommitted {
+				return nil
+			}
 			if err := s.handleDungeonMoveMapPlanned(follower, append([]byte(nil), body...), &plan, false); err != nil {
 				return err
 			}
@@ -1859,6 +1874,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
 		return err
 	}
+	if partyPlan != nil && partyPlan.instance != nil && runtime.partyInstance != partyPlan.instance {
+		return fmt.Errorf("%w: queued party move belongs to a different instance", errDungeonMoveRuntimeOwnerMismatch)
+	}
 	plan, err := s.planCurrentDungeonMove(runtime, request)
 	if err != nil {
 		currentScene, hasCurrentScene := runtime.Session.Scene()
@@ -1883,6 +1901,9 @@ func (s *Service) handleDungeonMoveRequestLocked(
 			return fmt.Errorf("party dungeon room topology mismatch got=%+v want=%+v", target, partyPlan.target)
 		}
 		plan.Seed = partyPlan.seed
+	}
+	if err := runtime.freezePartyDungeonMoveSeed(&plan); err != nil {
+		return err
 	}
 	s.cancelCurrentDungeonReturnAfterDungeonEvidenceLocked(
 		session,
@@ -2067,6 +2088,7 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "dungeon_room_transition_committed")
 	}
 	runtime.Room = plan.TargetRoom
+	runtime.loadingRoomVisit++
 	// The native NPC and quote belong to this visit to the hell room. Leaving
 	// ends the opportunity; a cached revisit cannot reopen a completed offer.
 	if runtime.epicShop != nil && !currentHellPartySceneIsHellRoom(runtime, committedScene) {
@@ -2147,6 +2169,10 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	// room move only needs the next room's loading completion, not a new actor.
 	session.setFinishLoadingGateState(false)
 	session.setFinishLoadingGateCompletion(false)
+	// Room moves do not repeat entry placement. Advance its peer-actor key at
+	// this committed transition too, before either member can finish loading;
+	// otherwise both retain the entry room and suppress every later resend.
+	s.recordDungeonPartyRunKey(session, runtime, committedScene)
 	s.logGameEvent(session, "game-dungeon-move-committed",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,

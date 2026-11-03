@@ -1,0 +1,5 @@
+# Frozen plans are byte-addressed by manifest SHA256 on every platform.
+*.schema1.json -text whitespace=cr-at-eol
+*.schema2.json -text whitespace=cr-at-eol
+# Unified diffs require a leading space on empty context lines, including EOF.
+*.patch -text whitespace=-blank-at-eol,-blank-at-eof

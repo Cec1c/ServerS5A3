@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "input_sha256": "2e416c0b5464b7aa9ddbd3949f7294a9f971d2546a1ed3df354f2815dc43b29d",
+  "edits": [
+    {
+      "path": "stackable/material/cubepiece_gold.stk",
+      "data_type": 1,
+      "before_sha256": "27438c1c0df553e31bb1d60def2b27ef093d5a34b4f4d084ee9f6a7c86b4c374",
+      "after_sha256": "dea695819efe649926e1e64f0a1d3137831c61289103e2512869038cca6b94c2",
+      "raw_base64": "A+IHAAAGUaofAANaFQAABkHjyAADDAgAAAAFAAAAA4oVAAAAAgAAAAM+CAAABq4VAAADhAgAAAOgCAAABgYxBQADzAgAAAABAAAAAyiDCwAAkAEAAAM0+gUAAJABAAAD7AgAAAY8QDcBACUBAAADIrsGAAbigwsAAB4AAAAD7kxoAQYQHXoBAAgAAAADOIQLAAZEwMAFA3YLAAAGUCznBQ=="
+    }
+  ]
+}

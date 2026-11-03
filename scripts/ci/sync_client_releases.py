@@ -141,8 +141,28 @@ def request(url, method="GET", token="", provider="", body=None, raw=False, miss
         time.sleep(2 * (attempt + 1))
 
 
-def download(url, cache, expected=None, fresh=False, missing=False):
+def package_download_headers(url, repository):
+    """Bind an API credential to one public project's canonical package path."""
+    p = safe_url(url)
+    prefix = f"/api/v4/projects/{repository.repository}/packages/generic/"
+    parts = p.path[len(prefix):].split("/") if p.path.startswith(prefix) else []
+    if (repository.provider != "gitlab" or p.netloc != repository.host or p.query or
+            len(parts) != 3 or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", part) for part in parts) or
+            not (NAME.fullmatch(parts[-1]) or SPLIT_NAME.fullmatch(parts[-1]))):
+        raise SyncError("Authenticated package URL is outside the configured project")
+    # A credential must never turn a private package into a public mirror.
+    project = repository.api("")
+    if (not isinstance(project, dict) or project.get("visibility") != "public" or
+            str(project.get("id")) != str(repository.repository)):
+        raise SyncError("Authenticated package download requires the configured public project")
+    return {"PRIVATE-TOKEN": repository.token}
+
+
+def download(url, cache, expected=None, fresh=False, missing=False, *, package_repository=None):
     safe_url(url)
+    headers = {"User-Agent": "ServerS5A3-client-release-sync/1"}
+    if package_repository is not None:
+        headers.update(package_download_headers(url, package_repository))
     cache = Path(cache)
     cache.mkdir(parents=True, exist_ok=True)
     target = cache / (hashlib.sha256(url.encode()).hexdigest() + ".zip")
@@ -151,8 +171,9 @@ def download(url, cache, expected=None, fresh=False, missing=False):
     partial = target.with_suffix(".part")
     for attempt in range(3):
         try:
-            # Public assets only: never forward an API credential to a CDN.
-            with OPENER.open(urllib.request.Request(url, headers={"User-Agent": "ServerS5A3-client-release-sync/1"}), timeout=60) as response, partial.open("wb") as out:
+            # HTTPSRedirect rejects every credential-bearing redirect, including
+            # same-host redirects. Public GitHub/CDN downloads remain anonymous.
+            with OPENER.open(urllib.request.Request(url, headers=headers), timeout=60) as response, partial.open("wb") as out:
                 size = 0
                 while block := response.read(1024 * 1024):
                     size += len(block)
@@ -345,6 +366,10 @@ class Repository:
     def api(self, path, **kwargs):
         return request(self.base + path, token=self.token, provider=self.provider, **kwargs)
 
+    def download_asset(self, url, cache, expected=None, fresh=False, missing=False):
+        options = {"package_repository": self} if self.provider == "gitlab" and self.token else {}
+        return download(url, cache, expected, fresh, missing, **options)
+
     def list(self, include_drafts=False):
         result = []
         for page in range(1, 21):
@@ -390,7 +415,7 @@ class Repository:
         if self.provider != "github" and cache is not None:
             for name,asset in item["assets"].items():
                 url = self.base + self.package_path(item,name,asset)
-                download(url,cache,asset["sha256"],fresh=True,missing=True)
+                self.download_asset(url,cache,asset["sha256"],fresh=True,missing=True)
         if self.provider == "github":
             drafts = [x for x in self.list(include_drafts=True) if x.get("draft") and x["tag_name"] == item["tag"]]
             if len(drafts) > 1:
@@ -459,7 +484,7 @@ class Repository:
             if record and expected is None:
                 raise SyncError("Asset missing from release provenance")
             metadata = split_metadata(name, record["assets"].get(name) if record else None)[1] if is_split else None
-            path = download(url, cache, expected, fresh)
+            path = self.download_asset(url, cache, expected, fresh)
             assets[name] = {"sha256": digest(path), "length": path.stat().st_size, "path": str(path), "url": url}
             if is_split:
                 assets[name]["split_archive"] = metadata
@@ -575,13 +600,13 @@ class Repository:
                 if hashlib.sha256(data).hexdigest()!=asset["sha256"]:
                     raise SyncError("Cached asset changed before upload")
                 # Package identity includes the immutable tag and digest-qualified
-                # file; retries inspect the existing public bytes before uploading.
+                # file; retries inspect the existing bytes before uploading.
                 path=self.package_path(item,name,asset)
                 url=self.base+path
-                existing=download(url,cache,asset["sha256"],fresh=True,missing=True)
+                existing=self.download_asset(url,cache,asset["sha256"],fresh=True,missing=True)
                 if existing is None:
                     self.api(path, method="PUT", body=data, raw=True)
-                    download(url,cache,asset["sha256"],fresh=True)
+                    self.download_asset(url,cache,asset["sha256"],fresh=True)
                 links.append({"name":name,"url":url,"link_type":"package"})
             self.api("/releases",method="POST",body={"tag_name":item["tag"],"name":item["name"],"description":body,"released_at":item["published"],"assets":{"links":links}})
         actual=self.identity(self.get(item["tag"]),cache,fresh=True)

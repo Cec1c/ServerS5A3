@@ -84,7 +84,10 @@ func (s *Service) dispatchCurrentDungeonMonsterExperienceToPeersLocked(source *g
 			current.Character = dnfrepo.CloneCharacter(result.Character)
 			body := buildCurrentFinishLoadingCharacterStateBodyWithPresentation(result.Character, result.Skill.Points,
 				&currentFinishLoadingExperiencePresentation{GrowthContractBonus: result.GrowthContractBonus})
-			return s.sendCurrentDungeonMonsterExperienceState(peer.Session, current, body, result)
+			if err := s.sendCurrentDungeonMonsterExperienceState(peer.Session, current, body, result); err != nil {
+				return err
+			}
+			return s.flushCurrentMonsterAdventureInfo(peer.Session, current)
 		}
 		if err := s.tryPostGameSessionCharacterEvent(peer.Session, "party-monster-experience", identity.character, identity.generation, run); err != nil {
 			s.logGameEvent(source, "game-party-monster-experience-deferred", "peer_char_id", identity.character, "monster_object_key", monster.ObjectKey, "error", err)

@@ -128,6 +128,7 @@ type gameSession struct {
 	characterGeneration                     uint64
 	raidProjection                          currentRaidProjectionOwner
 	selectedCharacterID                     uint16
+	lukeSelectorProgressCharacterID         uint16
 	questManualClearIdentity                boundGameSessionCharacter
 	questManualClearReadyAt                 time.Time
 	currentAccountFriendNames               map[string]struct{}

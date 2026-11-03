@@ -55,7 +55,8 @@ python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project U
 - 同 tag、附件名、长度、摘要、预览状态及标签提交完全相同则跳过。来源标记保留最初 Release 身份，重复同步不会制造新发行。
 - 同名附件或标签冲突，在写入前停止整批计划；不覆盖附件、不移动标签、不强推。应调查差异并以明确的新版本发布。
 - 全局预检包含裸 tag、孤立 package 和中断草稿；草稿的来源、预览位及已有资产摘要必须一致。
-- 写入前复核来源，写入后从目标重新下载并核对 ZIP 及其中 `DNF.exe` 的完整摘要。源 URL 限定到对应仓库附件/包路径，下载不携带 API 凭据。
+- 写入前复核来源，写入后从目标重新下载并核对 ZIP 及其中 `DNF.exe` 的完整摘要。GitHub 附件与 CDN 下载不携带 API 凭据。GitGud 固定项目的规范 generic package 路径可使用该项目已有令牌读取；先核实项目 ID 与 `visibility=public`，拒绝私有项目、跨项目、查询参数、编码/越级路径及非 ZIP 附件。带凭据的请求拒绝任何重定向，不向 CDN 转发令牌。
+- GitGud 鉴权下载成功只证明发布端可完整取包；不等同该 GitGud 地址匿名可用。GitHub 公开镜像、玩家实际签名通道和真实下载继续分别验证；令牌不写入 Release、下载地址、客户端或玩家配置。
 - GitHub 先上传到草稿，再公开；GitGud 先上传以内容摘要区分的 package，再创建 Release。中途失败保留已传附件和回执，检查后重跑；不删除既有发行。
 - 回执由 Actions 作为 artifact 保留。逐个仓库报告结果；真实同步方向与模拟测试分别记录。
 

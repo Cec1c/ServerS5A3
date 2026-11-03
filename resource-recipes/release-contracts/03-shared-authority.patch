@@ -1,0 +1,30 @@
+diff --git a/private-content/20261031-pkg001-economy/resource_controller.py b/private-content/20261031-pkg001-economy/resource_controller.py
+--- a/private-content/20261031-pkg001-economy/resource_controller.py
++++ b/private-content/20261031-pkg001-economy/resource_controller.py
+@@ -114,7 +114,7 @@ def phase(source,config,phase_name,audit,maintenance):
+               originAttemptSha256=hashlib.sha256(remote_attempt).hexdigest(),checkedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
+         save(audit/(phase_name+'-recovery-proof.json'),proof)
+     else:
+-        gate=AuthorityGate(audit/'authority-master',audit,run_id)
++        gate=AuthorityGate(source/'runtime/game-updates/.authority/master',audit,run_id)
+         gate.nonce=manifest['authorityInvocation']
+         gate.check(source,phase_name)
+         proof=gate.require(phase_name)
+diff --git a/private-content/20261031-pkg001-economy/test_resource_controller.py b/private-content/20261031-pkg001-economy/test_resource_controller.py
+--- a/private-content/20261031-pkg001-economy/test_resource_controller.py
++++ b/private-content/20261031-pkg001-economy/test_resource_controller.py
+@@ -154,10 +154,13 @@ def ssh(endpoint, argv, data=None):
+                 return mock.Mock(stdout=json.dumps(identity).encode())
+             with (self.subTest(identity=identity),
+                   mock.patch.object(controller, 'git', return_value=SOURCE_SHA),
+-                  mock.patch.object(controller, 'AuthorityGate'),
++                  mock.patch.object(controller, 'AuthorityGate') as gate,
+                   mock.patch.object(controller, 'ssh', side_effect=ssh)):
+                 with self.assertRaisesRegex(ValueError, 'remote resource identity differs'):
+                     controller.phase(self.source, self.config(), 'edge-publish', self.audit, 'confirmed window')
++            gate.assert_called_once_with(
++                self.source / 'runtime/game-updates/.authority/master',
++                self.audit, 'resource-run-1')
+             self.assertEqual(len(calls), 1)
+             self.assertFalse((self.audit/'edge-publish-attempt.json').exists())
+ 

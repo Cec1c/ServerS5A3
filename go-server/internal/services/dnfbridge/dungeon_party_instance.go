@@ -154,8 +154,10 @@ type dungeonPartyInstance struct {
 // partyDungeonSharedRoom 是实例内一个房间的共享内容：房间对象（怪物/清怪状态）
 // 加上它的完整场景，供后进图的成员把该房间并进自己的 `runtime.Rooms`。
 type partyDungeonSharedRoom struct {
-	Room  *runtimeDungeonRoom
-	Scene worldmap.DungeonRoomScene
+	Room          *runtimeDungeonRoom
+	Scene         worldmap.DungeonRoomScene
+	MoveSeed      uint32
+	MoveSeedKnown bool
 }
 
 // partyDungeonInstanceRegistry 按实例键注册队伍副本实例。
@@ -612,7 +614,7 @@ func (s *Service) dispatchPartyDungeonPeerFinalRoomCompletionChecked(peer *gameS
 			"object_key", objectKey,
 			"instance_id", instanceID,
 			"reason", "authoritative_peer_death_cleared_this_session_scene")
-		return nil
+		return s.flushCurrentMonsterAdventureInfo(peer, runtime)
 	}
 	if peer.events == nil || peer.events.loop == nil {
 		// 没有事件循环（协议用例）：同步执行，结果确定。

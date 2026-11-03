@@ -207,9 +207,11 @@ func (s *Service) commitCurrentDisjoint(
 			}
 			result.Rewards = rewardSlots
 			result.EpicPieces = make(map[uint32]uint32)
-			if err := creditCurrentDisjointEpicPiece(assets, plan.EpicPieceID, result.EpicPieces); err != nil {
+			granted, err := creditCurrentDisjointEpicPiece(assets, plan.EpicPieceID, result.EpicPieces)
+			if err != nil {
 				return dnfdisjoint.Changes{}, err
 			}
+			result.EpicPieceDisplay = currentDisjointEpicDisplayRow(plan.EpicPieceID, granted)
 			result.GoldAfter, result.GoldChanged = goldAfter, characterDirty
 			return dnfdisjoint.Changes{Account: len(result.EpicPieces) > 0, AccountInventory: accountDirty, Inventory: true, CharacterStats: characterDirty}, nil
 		},
@@ -287,10 +289,11 @@ func (s *Service) commitCurrentDisjointBatch(
 				if dirty {
 					accountDirty = true
 				}
-				if err := creditCurrentDisjointEpicPiece(assets, plan.EpicPieceID, result.EpicPieces); err != nil {
+				granted, err := creditCurrentDisjointEpicPiece(assets, plan.EpicPieceID, result.EpicPieces)
+				if err != nil {
 					return dnfdisjoint.Changes{}, currentDisjointSlotError{Slot: plan.Slot, Err: err}
 				}
-				items = append(items, currentDisjointBatchItem{Slot: plan.Slot, Rewards: rewardSlots})
+				items = append(items, currentDisjointBatchItem{Slot: plan.Slot, Rewards: rewardSlots, EpicPieceDisplay: currentDisjointEpicDisplayRow(plan.EpicPieceID, granted)})
 			}
 			result.Items = items
 			result.GoldAfter, result.GoldChanged = goldAfter, characterDirty

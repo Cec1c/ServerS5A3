@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "classification": "功能修复",
+  "task": "20261102-level-girl-limit",
+  "baseline": {
+    "sha256": "ea2e2ef6f8743f93f293af9ca70afb993037eb5a17f245cddc0edc157c3a9fb7",
+    "bytes": 126018654
+  },
+  "tool": {
+    "name": "PVF-CLI pvf.exe",
+    "sha256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+    "bytes": 4681728,
+    "patch_schema": 2
+  },
+  "plan": {
+    "file": "level-girl-limit.schema2.json",
+    "sha256": "cf42a9ef9afbf42f1861c7a9aede9616b7e68b51a891ba0a4e272a61067d8cc4",
+    "bytes": 35164
+  },
+  "expected_entries": [
+    {
+      "path": "stackable/490009001/chn_490009269.stk",
+      "token_file": "chn_490009269.stk.tokens.json",
+      "token_index": 39,
+      "raw_sha256": "ef5b201ff82653bc29467235954a5477ae862fd464db3f1b8a67b45a584ddfb5"
+    },
+    {
+      "path": "stackable/490009001/chn_490009270.stk",
+      "token_file": "chn_490009270.stk.tokens.json",
+      "token_index": 210,
+      "raw_sha256": "cebd772e2a2d597e536a8ffb0168b0a5704f54e7da99d20161f3b34cc6cc9ca1"
+    },
+    {
+      "path": "stackable/490009001/chn_490009271.stk",
+      "token_file": "chn_490009271.stk.tokens.json",
+      "token_index": 51,
+      "raw_sha256": "2e0724d01ac100f873741bd06f0193604faa8050371560f80021e84675bdd3c4"
+    },
+    {
+      "path": "stackable/490009001/chn_490009274.stk",
+      "token_file": "chn_490009274.stk.tokens.json",
+      "token_index": 50,
+      "raw_sha256": "5cb907131b0d62fe8774db0d195cd088d80dbaeecdd40c60d0c7bb9067a3f18a"
+    },
+    {
+      "path": "stackable/490009001/chn_490009275.stk",
+      "token_file": "chn_490009275.stk.tokens.json",
+      "token_index": 56,
+      "raw_sha256": "0dd85c12130decfdebf83500327694edbb3e3b4d7de41f4e63da9eef3f887b69"
+    }
+  ],
+  "expected_changes": [
+    {
+      "path": "stackable/490009001/chn_490009269.stk",
+      "token_index": 39,
+      "from_text": "account",
+      "to_text": "character"
+    },
+    {
+      "path": "stackable/490009001/chn_490009270.stk",
+      "token_index": 210,
+      "from_text": "account",
+      "to_text": "character"
+    },
+    {
+      "path": "stackable/490009001/chn_490009271.stk",
+      "token_index": 51,
+      "from_text": "account",
+      "to_text": "character"
+    },
+    {
+      "path": "stackable/490009001/chn_490009274.stk",
+      "token_index": 50,
+      "from_text": "account",
+      "to_text": "character"
+    },
+    {
+      "path": "stackable/490009001/chn_490009275.stk",
+      "token_index": 56,
+      "from_text": "account",
+      "to_text": "character"
+    }
+  ],
+  "requirements": {
+    "changed_entries": 5,
+    "changed_text_tokens": 5,
+    "unchanged_entries_verified_minimum": 1,
+    "preserve_all_other_token_types_and_payload_bits": true,
+    "preserve_purchase_limit_context": true,
+    "preserve_all_unchanged_archive_entries": true,
+    "no_new_paths": true,
+    "reject_existing_output": true
+  },
+  "scope": {
+    "gameplay_changes": true,
+    "go_changes": false,
+    "deployment_changes": false,
+    "resource_publish_changes": false,
+    "index_build_by_builder": false,
+    "network_operations": false
+  }
+}
