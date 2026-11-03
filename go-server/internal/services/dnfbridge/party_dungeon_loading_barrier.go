@@ -251,8 +251,11 @@ func (s *Service) ensurePartyDungeonLoadingCycleLocked(session *gameSession, par
 				for _, id := range members {
 					previousOwner, existed := current.owners[id]
 					nextOwner, present := owners[id]
+					// Visit counters are local to each runtime (a replacement can
+					// start at a different value). The unchanged owner's own visit
+					// is already checked above; only the shared room crosses owners.
 					if existed && present && nextOwner.runtime != nil && previousOwner == nextOwner &&
-						nextOwner.room == owner.room && nextOwner.visit == owner.visit && current.Ready[id] {
+						nextOwner.room == owner.room && current.Ready[id] {
 						ready[id] = true
 					}
 				}
