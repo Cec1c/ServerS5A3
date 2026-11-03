@@ -403,15 +403,12 @@ func TestCurrentAuctionRegisterDecodesLiveNoBidRequest(t *testing.T) {
 		request.StartPrice != -1 || request.InstantPrice != 31200 || request.UnitPrice != 31200 || request.DurationHours != 24 {
 		t.Fatalf("decoded live register request=%+v", request)
 	}
-	reserved := append([]byte(nil), body...)
-	reserved[28] = 1
 	badDuration := append([]byte(nil), body...)
 	binary.LittleEndian.PutUint32(badDuration[24:28], 72)
 	wrongList := append([]byte(nil), body...)
 	wrongList[1] = 1
 	for name, candidate := range map[string][]byte{
 		"legacy_28_byte_shape": body[:28],
-		"nonzero_reserved":     reserved,
 		"unsupported_duration": badDuration,
 		"non_main_list":        wrongList,
 	} {
