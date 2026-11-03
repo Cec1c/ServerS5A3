@@ -26,6 +26,9 @@ func (c *partyRetryRelayConn) RemoteAddr() net.Addr {
 // 2P/3P relay sockets must still carry both directions without re-learning a
 // replacement party, even though leadership and the visible roster changed.
 func TestThreeMemberRetryThenLeaderDisconnectKeepsSurvivorTraffic(t *testing.T) {
+	restoreDispatch := partyDungeonLoadingBarrierDispatch
+	partyDungeonLoadingBarrierDispatch = func(run func()) { run() }
+	defer func() { partyDungeonLoadingBarrierDispatch = restoreDispatch }()
 	s, leader, second, leaderConn, secondConn, trace := partyDungeonSyncFixture(t)
 	s.options.currentClientVersion = "official-24.9"
 	leader.conn = &partyRetryRelayConn{leaderConn, 1}
@@ -62,6 +65,20 @@ func TestThreeMemberRetryThenLeaderDisconnectKeepsSurvivorTraffic(t *testing.T) 
 	s.partyUDPRelay = relay
 	t.Cleanup(func() { _ = relay.Close() })
 	runPartyDungeonSyncEntry(t, s, leader)
+	finishLoading := func() {
+		t.Helper()
+		for _, peer := range []*gameSession{leader, second, third} {
+			if err := s.sendFinishLoadingStatus(peer, make([]byte, currentFinishLoadingLegacyRequestBodySize)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, peer := range []*gameSession{leader, second, third} {
+			if s.partyDungeonPostStartMapPlacementPending(peer) || !peer.finishLoadingGateSnapshot().State {
+				t.Fatalf("member %d did not finish loading", peer.selectedCharacterID)
+			}
+		}
+	}
+	finishLoading()
 	before, found := s.runtimePartyManagerForService().SnapshotByUser(99, 0)
 	if !found || len(before.Members) != 3 {
 		t.Fatal("fixture did not enter a managed three-member party")
@@ -79,6 +96,7 @@ func TestThreeMemberRetryThenLeaderDisconnectKeepsSurvivorTraffic(t *testing.T) 
 	if leader.dungeon.runtime == nil {
 		t.Fatal("retry removed the leader from its dungeon")
 	}
+	finishLoading()
 	instance := leader.dungeon.runtime.partyInstance
 	if instance == nil || instance == oldInstance || instance.key.PartyID != before.ID {
 		t.Fatal("retry did not replace the completed instance inside the same party")
