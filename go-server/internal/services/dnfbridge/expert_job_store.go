@@ -153,6 +153,7 @@ type currentExpertJobStoreEnchantRequest struct {
 }
 
 type currentExpertJobStoreUseResult struct {
+	EpicPieceDisplay  []currentDisjointRewardSlot
 	EpicPieceBalances map[uint32]uint32
 	RequesterGold     int64
 	OwnerGold         int64
@@ -1170,9 +1171,11 @@ func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, 
 				if err != nil {
 					return err
 				}
-				if err := creditCurrentDisjointEpicPiece(&dnfdisjoint.Assets{Account: assets.Account}, pieceID, result.EpicPieceBalances); err != nil {
+				granted, err := creditCurrentDisjointEpicPiece(&dnfdisjoint.Assets{Account: assets.Account}, pieceID, result.EpicPieceBalances)
+				if err != nil {
 					return err
 				}
+				result.EpicPieceDisplay = append(result.EpicPieceDisplay, currentDisjointEpicDisplayRow(pieceID, granted)...)
 				townConfig, err := loadCurrentDisjointPVFConfig(items.source)
 				if err != nil {
 					return err
@@ -1402,16 +1405,26 @@ func (s *Service) updateCurrentExpertJobStoreMachine(snapshot *currentExpertJobS
 }
 
 func buildCurrentExpertJobStoreDisjointSuccessBody(request currentExpertJobStoreDisjointRequest, result currentExpertJobStoreUseResult) []byte {
+	display := currentDisjointBatchAggregatedRewards([]currentDisjointBatchItem{{Rewards: result.EpicPieceDisplay}})
+	display = currentDisjointWithDisplay(nil, display)
+	if len(result.Materials)+len(display) > 255 {
+		display = nil
+	}
 	w := packetWriter{}
 	w.writeByte(1)
 	w.writeUint16(uint16(request.TargetSlot))
 	w.writeByte(request.TargetList)
 	w.writeUint16(request.OwnerID)
-	w.writeByte(byte(len(result.Materials)))
+	w.writeByte(byte(len(result.Materials) + len(display)))
 	for _, material := range result.Materials {
 		w.writeUint16(uint16(material.Slot))
 		w.writeUint32(material.ItemID)
 		w.writeUint32(material.Count)
+	}
+	for _, row := range display {
+		w.writeUint16(uint16(row.Slot))
+		w.writeUint32(row.ItemID)
+		w.writeUint32(row.Granted)
 	}
 	w.writeUint32(uint32(result.RequesterGold))
 	w.writeUint32(uint32(result.Endurance))

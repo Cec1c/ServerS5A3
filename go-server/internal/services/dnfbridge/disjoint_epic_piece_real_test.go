@@ -14,6 +14,7 @@ import (
 )
 
 func TestRealPVFEpicDisjointNPCAndPlayerLedgerAndWire(t *testing.T) {
+	t.Setenv(currentDisjointEpicDisplayEnv, "paired-v1")
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
 		t.Skip("real PVF required")
@@ -136,15 +137,38 @@ func TestRealPVFEpicDisjointNPCAndPlayerLedgerAndWire(t *testing.T) {
 				t.Fatalf("real equipment=%d piece=%d ledger=%d want=%d wire=%x", output, piece, balance, 30*count, conn.write.Bytes())
 			}
 			shown := uint32(0)
+			displayed := uint32(0)
 			for _, pkt := range splitAllGameServerUpperPackets(t, conn.write.Bytes()) {
 				if pkt.Header.MsgID == currentEpicPieceBalanceSyncOpcode && len(pkt.Body) == 13 && binary.LittleEndian.Uint32(pkt.Body[5:]) == piece {
 					shown = binary.LittleEndian.Uint32(pkt.Body[9:])
+				}
+				if (pkt.Header.MsgID == 26 || pkt.Header.MsgID == 235) && len(pkt.Body) >= 7 && pkt.Body[0] == 1 {
+					for i := 0; i < int(pkt.Body[6]); i++ {
+						at := 7 + 10*i
+						if at+10 > len(pkt.Body) {
+							t.Fatal("short result row")
+						}
+						if binary.LittleEndian.Uint16(pkt.Body[at:]) == 65535 {
+							if binary.LittleEndian.Uint32(pkt.Body[at+2:]) != piece {
+								t.Fatal("wrong display piece")
+							}
+							displayed += binary.LittleEndian.Uint32(pkt.Body[at+6:])
+						}
+					}
 				}
 			}
 			if shown != balance {
 				t.Fatal("real ledger missing from native update", shown, balance)
 			}
+			if displayed != count*30 {
+				t.Fatalf("result UI rows=%d want=%d", displayed, count*30)
+			}
 			after, _, _ := g.Inventory.Load(ctx, "19")
+			for _, item := range after.Slots {
+				if item.ItemID == int64(piece) {
+					t.Fatal("piece display entered bag")
+				}
+			}
 			for i := uint32(0); i < count; i++ {
 				if after.Slots[fmt.Sprintf("0:%d", 10+i)].ItemID != 0 {
 					t.Fatal("source not consumed")
