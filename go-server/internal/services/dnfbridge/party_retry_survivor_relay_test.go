@@ -50,6 +50,9 @@ func TestThreeMemberRetryThenLeaderDisconnectKeepsSurvivorTraffic(t *testing.T) 
 	for _, peer := range []*gameSession{leader, second, third} {
 		storeRuntimePartyState(peer, state)
 	}
+	if party, ok := s.bootstrapManagedRuntimePartyForSession(leader); !ok || len(party.Members) != 3 {
+		t.Fatal("fixture did not register its three-member lobby")
+	}
 	s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 101, TownID: 38, AreaID: 1, Session: third})
 	bindDungeonSelectorOriginForTestAt(t, s, third, 38, 1, 450, 234)
 	relay, err := newCurrentPartyUDPRelay(true, "127.0.0.1", testCurrentPartyUDPRelayPortStart(t), 12, nil)
@@ -62,6 +65,9 @@ func TestThreeMemberRetryThenLeaderDisconnectKeepsSurvivorTraffic(t *testing.T) 
 	before, found := s.runtimePartyManagerForService().SnapshotByUser(99, 0)
 	if !found || len(before.Members) != 3 {
 		t.Fatal("fixture did not enter a managed three-member party")
+	}
+	if leader.dungeon.runtime == nil || second.dungeon.runtime == nil || third.dungeon.runtime == nil {
+		t.Fatal("fixture did not enter all three members")
 	}
 	oldInstance := leader.dungeon.runtime.partyInstance
 	for _, peer := range []*gameSession{leader, second, third} {
