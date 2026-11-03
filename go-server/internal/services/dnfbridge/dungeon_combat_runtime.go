@@ -782,9 +782,13 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}
 	var deathDrops []currentDungeonDeathDropWire
 	dropSource := "none"
+	// A terminal rift boss ends combat even when its adds remain alive. The
+	// forced clear below runs after loot, so pre-clear state cannot gate this
+	// reward. The authoritative death ledger still owns its one-time trigger.
+	riftBossReward := (s.currentRiftEntryEnabled(runtime.Dungeon.ID) || s.currentTimeRiftLootEnabled(runtime.Dungeon.ID)) && bossActorDeath && scene.Boss
 	timing.mark(1)
 	if rewardMonsterCandidate {
-		if (s.currentRiftEntryEnabled(runtime.Dungeon.ID) || (s.currentTimeRiftLootEnabled(runtime.Dungeon.ID) && cleared)) && bossActorDeath && scene.Boss {
+		if riftBossReward {
 			deathDrops, err = s.planCurrentRiftBossDrops(session, runtime, scene)
 		} else {
 			deathDrops, err = s.planPartyDungeonMonsterDrops(session, runtime, rewardMonster, playerObjectKey)
@@ -811,7 +815,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"error", err)
 			deathDrops = nil
 		} else if len(deathDrops) != 0 {
-			if (s.currentRiftEntryEnabled(runtime.Dungeon.ID) || (s.currentTimeRiftLootEnabled(runtime.Dungeon.ID) && cleared)) && bossActorDeath && scene.Boss {
+			if riftBossReward {
 				dropSource = "particularhellparty_boss_guaranteed_fragments_and_epic_probability"
 			} else {
 				dropSource = "runtime_pvf_csharp_drop_formula_standard_item_branch"
