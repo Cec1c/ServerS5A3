@@ -205,7 +205,7 @@ type currentAuctionRegisterRequest struct {
 func decodeCurrentAuctionRegisterRequest(body []byte) (currentAuctionRegisterRequest, error) {
 	// Current NoPack sender writes the container byte before the slot:
 	// {u8 pay,u8 container,u16 slot,u32 item,i32 count,i32 start,i32 instant,
-	//  i32 unit,u32 duration_hours,9 zero reserved bytes}. The active client
+	//  i32 unit,u32 duration_hours,3*{u16 option,u8 value}}. The active client
 	// capture for slot 9/item 33608 is
 	// 00 00 09 00 48 83 00 00 01 00 00 00 ...; omitting container shifts every
 	// following field and rejects an otherwise valid registration at decode.
@@ -247,11 +247,11 @@ func decodeCurrentAuctionRegisterRequest(body []byte) (currentAuctionRegisterReq
 		UnitPrice:     int64(int32(binary.LittleEndian.Uint32(body[20:24]))),
 		DurationHours: binary.LittleEndian.Uint32(body[24:28]),
 	}
-	for _, value := range body[28:] {
-		if value != 0 {
-			return currentAuctionRegisterRequest{}, dnfauction.ErrInvalidRequest
-		}
-	}
+	// Bytes 28..36 are the client's random-option summary, not reserved zeros.
+	// The native sender writes {30000,0} three times for unidentified magic
+	// equipment, actual options for identified equipment, and zeros otherwise.
+	// Consume only their fixed wire width (checked above): escrow and projections
+	// must use the authoritative inventory instance, never client-supplied options.
 	if request.Slot < 0 || request.ItemID <= 0 || request.Count <= 0 ||
 		(request.DurationHours != 24 && request.DurationHours != 48) {
 		return currentAuctionRegisterRequest{}, dnfauction.ErrInvalidRequest
