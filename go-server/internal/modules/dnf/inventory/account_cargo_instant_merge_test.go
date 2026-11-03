@@ -84,11 +84,9 @@ func TestAccountCargoDepositAckProjectsCommittedMergeSlot(t *testing.T) {
 	if err != nil || !got.Handled || !got.ResponseAllowed {
 		t.Fatalf("deposit result=%+v err=%v", got, err)
 	}
-	// 包顺序：先 class1/op19 ACK，再 list 0 的 class0/0x000D 权威刷新，最后才是
-	// 账号金库整容器（由 PostActions 交给 bridge 构包，见 game_aligned.go 的
-	// PostActionRefreshSelectedAccountCargo）。
-	if len(got.UpperResponses) != 2 {
-		t.Fatalf("upper responses=%d, want ACK + list0 refresh", len(got.UpperResponses))
+	// ACK 后只投影本事务实际改变的两格，不替换整张背包/账号金库。
+	if len(got.UpperResponses) != 1 {
+		t.Fatalf("upper responses=%d, want ACK", len(got.UpperResponses))
 	}
 	ack := got.UpperResponses[0]
 	if ack.MsgID != uint16(dnfenum.CmdPacketMoveItemspace) || ack.Classification != 1 {
@@ -101,12 +99,12 @@ func TestAccountCargoDepositAckProjectsCommittedMergeSlot(t *testing.T) {
 	if endpoints.destList != listTypeAccountCargo || endpoints.destSlot != 3 {
 		t.Fatalf("ACK destination=(%d,%d), want the existing vault row (12,3)", endpoints.destList, endpoints.destSlot)
 	}
-	refresh := got.UpperResponses[1]
-	if refresh.MsgID != msgItemListRefresh || refresh.Classification != 0 || len(refresh.Body) == 0 || refresh.Body[0] != listTypeMain {
-		t.Fatalf("second packet=%+v, want class0 list0 refresh", refresh)
+	if len(got.PostActions) != 0 || got.AccountCargoMove == nil || len(got.AccountCargoMove.Rows) != 2 {
+		t.Fatalf("missing committed endpoint projection: %+v", got)
 	}
-	if !reflect.DeepEqual(got.PostActions, []alignedcmd.PostAction{alignedcmd.PostActionRefreshSelectedAccountCargo}) {
-		t.Fatalf("post actions=%v, want one account-cargo refresh", got.PostActions)
+	rows := got.AccountCargoMove.Rows
+	if rows[0].ListType != 0 || rows[0].SlotIndex != 21 || rows[0].Stack != nil || rows[1].ListType != 12 || rows[1].SlotIndex != 3 || rows[1].Stack == nil || rows[1].Stack.Count != 12 {
+		t.Fatalf("wrong committed rows: %+v", rows)
 	}
 	if !strings.Contains(got.Reason, "ackEndpoints=(0,21)->(12,3)") {
 		t.Fatalf("reason=%q, want the committed ACK endpoints recorded", got.Reason)
@@ -150,7 +148,7 @@ func TestAccountCargoWithdrawAckProjectsCommittedMergeSlot(t *testing.T) {
 		SelectedCharacterID: 77,
 		Repositories:        repos,
 	})
-	if err != nil || !got.ResponseAllowed || len(got.UpperResponses) != 2 {
+	if err != nil || !got.ResponseAllowed || len(got.UpperResponses) != 1 {
 		t.Fatalf("withdraw result=%+v err=%v", got, err)
 	}
 	endpoints := decodeMoveAckForTest(t, got.UpperResponses[0].Body)

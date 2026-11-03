@@ -151,6 +151,7 @@ type SellResult struct {
 
 // MoveResult 描述一次物品格子移动的写库结果；它不代表已经可以向旧客户端回成功 ACK。
 type MoveResult struct {
+	AccountCargoMove     *alignedcmd.AccountCargoMoveProjection
 	CharacterID          string
 	SourceListType       byte
 	SourceSlotIndex      int16

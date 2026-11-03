@@ -896,6 +896,7 @@ type EquipmentUpgradeNotice struct {
 }
 
 type Result struct {
+	AccountCargoMove       *AccountCargoMoveProjection
 	EquipmentUpgradeNotice *EquipmentUpgradeNotice
 
 	ItemUsageChanged      bool // committed with source consumption; bridge refreshes after ACK/slots

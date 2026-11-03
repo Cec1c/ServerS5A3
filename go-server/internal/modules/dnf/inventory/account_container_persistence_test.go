@@ -55,7 +55,7 @@ func TestPersistenceSortWireIncludesSharedRowsAfterAck(t *testing.T) {
 		}
 	}
 }
-func TestPersistenceAccountCargoRefreshIncludesMergedBagAndCrystal(t *testing.T) {
+func TestPersistenceAccountCargoDeltaKeepsMergedBagAndUntouchedCrystal(t *testing.T) {
 	ctx := context.Background()
 	r := dnfrepomemory.NewMemoryGroup()
 	r.Account.Save(ctx, dnfrepo.AccountRecord{AccountID: "a", Metadata: map[string]string{"account_cargo_level": "8"}})
@@ -67,11 +67,19 @@ func TestPersistenceAccountCargoRefreshIncludesMergedBagAndCrystal(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Refresh[0]["0:21"].Count != 12 || res.Refresh[0]["0:358"].Count != 500 {
-		t.Fatal("partial post-move snapshot", res)
+	if res.AccountCargoMove == nil || len(res.AccountCargoMove.Rows) != 2 {
+		t.Fatal("missing endpoint snapshot", res)
+	}
+	rows := res.AccountCargoMove.Rows
+	if rows[0].ListType != 12 || rows[0].SlotIndex != 3 || rows[0].Stack.Count != 4 || rows[1].ListType != 0 || rows[1].SlotIndex != 21 || rows[1].Stack.Count != 12 {
+		t.Fatal("wrong committed endpoints", rows)
+	}
+	account, _, _ := r.AccountInventory.Load(ctx, "a")
+	if account.Slots["0:358"].Count != 500 {
+		t.Fatal("move changed unrelated shared crystal", account)
 	}
 	got := ownerAppliedMoveResult(ctx, r.Settings, uint16(dnfenum.CmdPacketMoveItemspace), cmd, res)
-	if len(got.UpperResponses) != 2 || len(got.PostActions) != 1 || got.PostActions[0] != alignedcmd.PostActionRefreshSelectedAccountCargo {
+	if len(got.UpperResponses) != 1 || len(got.PostActions) != 0 || got.AccountCargoMove != res.AccountCargoMove {
 		t.Fatal("move refresh order", got)
 	}
 }

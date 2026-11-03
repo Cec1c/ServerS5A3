@@ -115,3 +115,18 @@ func TestSortEquipmentConditionsAndResolverFailureAreAtomic(t *testing.T) {
 		})
 	}
 }
+
+func TestAccountCargoMoveDoesNotReplaceWholeContainers(t *testing.T) {
+	ctx := context.Background()
+	repos := memory.NewMemoryGroup()
+	extra := stackableExtra("stackable/material/test.stk", "1000")
+	saveTestInventory(t, ctx, repos, r.InventoryRecord{CharacterID: "77", Slots: map[string]r.ItemStack{"0:121": {ItemID: 3277, Count: 4, Extra: extra}}})
+	saveTestAccountCargo(t, ctx, repos, "acc", map[string]r.ItemStack{"12:3": {ItemID: 3277, Count: 6, Extra: extra}})
+	got, err := NewHandler().Handle(ctx, alignedcmd.Request{Opcode: 19, Body: currentMoveItemspaceBody(0, 121, 0, 4, 12, 4, 0, 0, -1), AccountID: "acc", SelectedCharacterID: 77, Repositories: repos})
+	if err != nil || !got.ResponseAllowed {
+		t.Fatalf("result=%+v err=%v", got, err)
+	}
+	if len(got.UpperResponses) != 1 || len(got.PostActions) != 0 {
+		t.Fatalf("move still schedules whole container refresh: responses=%d post=%v", len(got.UpperResponses), got.PostActions)
+	}
+}
