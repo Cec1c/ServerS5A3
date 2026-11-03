@@ -1,0 +1,628 @@
+diff --git a/deploy/remote/game_update.py b/deploy/remote/game_update.py
+--- a/deploy/remote/game_update.py
++++ b/deploy/remote/game_update.py
+@@ -35,18 +35,24 @@ def checked_resource_pair(spec, old):
+     """Bind game resources; the fixed cumulative bundle has a separate table gate."""
+     import re
+     fields = {'basePvfSha256', 'baseExeSha256', 'pvfSha256', 'exeSha256', 'channelSha256'}
++    exe_only = isinstance(spec, dict) and spec.get('kind') == 'exe-only'
++    if exe_only:
++        fields = fields | {'kind'}
+     if isinstance(spec, dict) and 'bundle' in spec:
+         if spec['bundle'] != BUNDLE008_ID or any(spec.get(k) != BUNDLE008_CLIENT_FILES[n]['sha256'] for k, n in [('exeSha256', 'DNF.exe'), ('pvfSha256', 'Script.pvf')]) or spec.get('channelSha256') != BUNDLE008_CHANNEL_BASE:
+             raise ValueError('cumulative bundle identity differs')
+         fields = fields | {'bundle'}
+     if not isinstance(spec, dict) or set(spec) != fields:
+         raise ValueError('invalid paired resource fields')
+-    if any(not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v) for k, v in spec.items() if k != 'bundle'):
++    if any(not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v) for k, v in spec.items() if k not in ('bundle', 'kind')):
+         raise ValueError('invalid paired resource fingerprint')
+     if (spec['basePvfSha256'] != old['pvfSha256'] or spec['baseExeSha256'] != old['exeSha256'] or
+             spec['channelSha256'] != old['channelSha256']):
+         raise ValueError('paired resource baseline differs')
+-    if spec['pvfSha256'] == spec['basePvfSha256'] or spec['exeSha256'] == spec['baseExeSha256']:
++    if exe_only:
++        if 'bundle' in spec or spec['pvfSha256'] != spec['basePvfSha256'] or spec['exeSha256'] == spec['baseExeSha256']:
++            raise ValueError('EXE-only update must preserve PVF and replace EXE')
++    elif spec['pvfSha256'] == spec['basePvfSha256'] or spec['exeSha256'] == spec['baseExeSha256']:
+         raise ValueError('both paired resource identities must change')
+     return spec
+ 
+@@ -78,6 +84,8 @@ def checked_pair_publication(before, after, pair):
+         raise ValueError('paired source digest differs')
+     targets = ({name: row['sha256'] for name, row in BUNDLE008_CLIENT_FILES.items()}
+                if pair.get('bundle') == BUNDLE008_ID else {'DNF.exe': pair['exeSha256'], 'Script.pvf': pair['pvfSha256']})
++    if pair.get('kind') == 'exe-only':
++        targets = {'DNF.exe': pair['exeSha256']}
+     old_files = old_content['files']
+     new_files = content['files']
+     for files in (old_files, new_files):
+@@ -168,6 +176,13 @@ def checked_pair_management(before, after, pair):
+     """Resource generation may change; gateway/GM implementations must not."""
+     import copy
+     import re
++    if pair.get('kind') == 'exe-only':
++        normalized = copy.deepcopy(after)
++        if 'pid' in normalized:
++            normalized['pid'] = before.get('pid')
++        if before.get('mode') != 'external-gm' or before.get('pvfSha256') != pair['pvfSha256'] or normalized != before:
++            raise ValueError('EXE-only update changed GM, indexes or configuration')
++        return
+     pvf = pair['pvfSha256']
+     names = {'items.json', 'pvf-directory.bin', 'item-details-v3-' + pvf + '.bin',
+              'quests-v1-' + pvf + '.bin', 'professions-v1-' + pvf + '.bin', 'expert-jobs-v1-' + pvf + '.json'}
+@@ -852,13 +867,14 @@ def management_snapshot():
+     config_changed = config_mode is not None or config_multiplier is not None or config_percent is not None or config_encoding is not None or config_gold is not None
+     runtime_channel = src.get('runtimeChannelUpdate')
+     pair = src.get('runtimeResourceUpdate')
++    pvf_update = bool(pair and pair.get('kind') != 'exe-only')
+     cumulative_channel = bool(runtime_channel and runtime_channel.get('bundle') == BUNDLE008_ID)
+     checked_resource_channel_bundle(pair, runtime_channel)
+     if pair is not None:
+         checked_resource_pair(pair, old)
+         assert runtime_channel is None or cumulative_channel and pair.get('bundle') == BUNDLE008_ID, 'resource pair/channel bundle differs'
+         assert 'gm' not in container_names and args.edge_evidence is not None, 'paired resources require split external GM'
+-        if args.mode != 'rollback':
++        if args.mode != 'rollback' and pvf_update:
+             assert sha(s / 'Script.pvf') == pair['pvfSha256'], 'staged paired PVF changed'
+     target_pvf = pair['pvfSha256'] if pair else old['pvfSha256']
+     if runtime_channel is not None:
+@@ -889,7 +905,7 @@ def management_snapshot():
+     rollback_extra = list(dict.fromkeys(
+         [runtime_channel['target'], str(channel_metadata_path().relative_to(r))]
+         if runtime_channel is not None else []))
+-    if pair:
++    if pvf_update:
+         rollback_extra = list(dict.fromkeys(rollback_extra + [RUNTIME_PVF_TARGET,
+             'runtime/docker/data/manifest.json', str(channel_metadata_path().relative_to(r))]))
+     rollback_configs = rollback_config_paths(rollback_extra)
+@@ -978,7 +994,7 @@ def validate_before():
+             (s / RUNTIME_CHANNEL_FILE).chmod(0o644)
+             assert current['Config']['User'], 'runtime image user is missing'
+             report = run('docker', 'run', '--rm', '--network', 'none', '--user', current['Config']['User'],
+-                         '--mount', 'type=bind,source=' + str(s / 'Script.pvf' if pair else d / 'data/Script.pvf') + ',target=/assets/Script.pvf,readonly',
++                         '--mount', 'type=bind,source=' + str(s / 'Script.pvf' if pvf_update else d / 'data/Script.pvf') + ',target=/assets/Script.pvf,readonly',
+                          '--mount', 'type=bind,source=' + str(s / RUNTIME_CHANNEL_FILE) + ',target=/candidate/channel.override.etc,readonly',
+                          '--tmpfs', '/out:rw,size=1m,mode=1777',
+                          '--entrypoint', 'DNF90Assets', tag, '-pvf', '/assets/Script.pvf',
+@@ -1028,7 +1044,7 @@ def validate_before():
+             elif rel == 'server.env': assert (s / 'generated' / rel).read_bytes() == target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold), 'unapproved server environment change'
+             else: assert (s / 'generated' / rel).read_bytes() == (d / rel).read_bytes()
+         write(s / 'generated/instance.json', updated)
+-        if pair:
++        if pvf_update:
+             # Resource metadata is changed first; an explicit table update below
+             # supplies its separately validated rows, count and ports.
+             catalogs = {}
+@@ -1072,8 +1088,9 @@ def validate_before():
+         run('docker', 'image', 'save', '-o', str(backup / 'game-before.tar'), prepared['beforeTag'])
+         backup_receipt = {'backup': str(backup), 'databaseBackup': str(dump), 'databaseBackupSha256': sha(dump), 'beforeImage': prepared['beforeImage'], 'beforeTag': prepared['beforeTag'], 'beforeImageArchiveSha256': sha(backup / 'game-before.tar'), 'beforeChannelSha256': old['channelSha256'], 'beforeChannelCatalogSha256': sha(channel_metadata_path()), 'rollbackPreservesPlayerDatabase': True}
+         if pair:
+-            assert sha(backup / RUNTIME_PVF_TARGET) == old['pvfSha256'], 'PVF backup differs'
+-            backup_receipt['beforePvfSha256'] = old['pvfSha256']
++            if pvf_update:
++                assert sha(backup / RUNTIME_PVF_TARGET) == old['pvfSha256'], 'PVF backup differs'
++                backup_receipt['beforePvfSha256'] = old['pvfSha256']
+             backup_receipt['pairedResourceUpdate'] = pair
+         write(s / 'backup-receipt.json', backup_receipt)
+         project = before['server']['Config']['Labels']['com.docker.compose.project']
+@@ -1126,7 +1143,7 @@ def healthy():
+         assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold)
+         print('Verified database/config/image backups; switching game service only', flush=True)
+         try:
+-            if pair:
++            if pvf_update:
+                 catalogs = read(s / 'paired-catalogs.json')
+                 expected_catalogs = {rel: dict(read(r / rel), pvf_sha256=target_pvf)
+                                      for rel in dict.fromkeys(['runtime/docker/data/manifest.json', str(channel_metadata_path().relative_to(r))])}
+diff --git a/deploy/remote/test_game_update_exe_only.py b/deploy/remote/test_game_update_exe_only.py
+new file mode 100644
+--- /dev/null
++++ b/deploy/remote/test_game_update_exe_only.py
+@@ -0,0 +1,409 @@
++"""Synthetic contract tests for EXE-only game resource transitions."""
++
++import copy
++import datetime
++import hashlib
++import importlib.util
++import json
++from pathlib import Path
++import unittest
++
++
++ROOT = Path(__file__).resolve().parents[2]
++PRIVATE_PLANNER = ROOT / "private-content/20261101-client-only/client_publication_state.py"
++
++
++def load_module(name, path):
++    spec = importlib.util.spec_from_file_location(name, path)
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++WORKER = load_module("game_update_exe_only_worker", Path(__file__).with_name("game_update.py"))
++PLANNER = load_module("client_exe_only_planner", PRIVATE_PLANNER)
++
++
++def digest_json(value):
++    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
++    return hashlib.sha256(encoded).hexdigest()
++
++
++def resource(path, sha256, length, blob_sha256, blob_length, **overrides):
++    value = {
++        "Path": path,
++        "Sha256": sha256,
++        "Length": length,
++        "BlobSha256": blob_sha256,
++        "BlobLength": blob_length,
++        "Compression": "gzip",
++        "Downloadable": True,
++    }
++    value.update(overrides)
++    return value
++
++
++class ExeOnlyTransitionContractTests(unittest.TestCase):
++    def setUp(self):
++        self.now = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
++        self.old_exe = "a" * 64
++        self.new_exe = "e" * 64
++        self.pvf = "b" * 64
++        self.channel = "4" * 64
++        self.source_key = "local-guild:stable"
++        self.profile = {
++            "ApiUrl": "https://updates.example.invalid",
++            "ExeSha256": self.old_exe,
++            "PvfSha256": self.pvf,
++            "MinimumLauncherVersion": "1.0.5",
++            "AntiCheat": {"Enabled": True, "Policy": "reviewed"},
++            "RequireQQBinding": True,
++            "GameHost": "game.example.invalid",
++        }
++        old_files = [
++            resource("DNF.exe", self.old_exe, 1000, "1" * 64, 900, Origin="reviewed-client"),
++            resource("Script.pvf", self.pvf, 2000, "2" * 64, 1800, Origin="reviewed-pvf"),
++            resource(
++                "ImagePacks2/existing_app.NPK",
++                "c" * 64,
++                3000,
++                "3" * 64,
++                2500,
++                Compression="brotli",
++                Downloadable=False,
++                Policy={"owner": "existing-app"},
++            ),
++        ]
++        manifest_digest = digest_json({"files": old_files})
++        self.state = {
++            "authFingerprint": "synthetic-auth-metadata",
++            "sources": [{"id": "synthetic-source"}],
++            "sessions": {"session": {"expires": "future"}},
++            "sourceSequences": {self.source_key: 8, "other:stable": 31},
++            "sourceDigests": {self.source_key: manifest_digest, "other:stable": "d" * 64},
++            "published": {
++                "sequence": 20,
++                "product": "DNF90-Flutter",
++                "format": 1,
++                "profile": copy.deepcopy(self.profile),
++                "launcher": {"version": "1.0.5", "sha256": "c" * 64, "policy": "immutable"},
++                "news": [{"title": "keep"}],
++                "content": {
++                    "version": "client-old",
++                    "sourceId": "local-guild",
++                    "channel": "stable",
++                    "sourceSequence": 8,
++                    "sourcePayloadSha256": manifest_digest,
++                    "endpoint": "https://updates.example.invalid",
++                    "certificateSha256": "f" * 64,
++                    "files": copy.deepcopy(old_files),
++                },
++            },
++        }
++        self.replacement = {
++            "Sha256": self.new_exe,
++            "Length": 1100,
++            "BlobSha256": "9" * 64,
++            "BlobLength": 950,
++        }
++        self.plan_arguments = {
++            "state": self.state,
++            "profile": self.profile,
++            "replacement": self.replacement,
++            "version": "client-exe-only",
++            "expected_sequence": 20,
++            "expected_exe": self.old_exe,
++            "expected_pvf": self.pvf,
++        }
++        planned = PLANNER.plan(**self.plan_arguments)
++        self.before = copy.deepcopy(self.state["published"])
++        self.after = copy.deepcopy(planned["state"]["published"])
++        self.pair = {
++            "kind": "exe-only",
++            "basePvfSha256": self.pvf,
++            "baseExeSha256": self.old_exe,
++            "pvfSha256": self.pvf,
++            "exeSha256": self.new_exe,
++            "channelSha256": self.channel,
++        }
++        self.source = {
++            "sourceCommit": "1" * 40,
++            "serverSha256": "2" * 64,
++            "runtimeResourceUpdate": copy.deepcopy(self.pair),
++        }
++
++        indexes = {
++            "items.json": "6" * 64,
++            "pvf-directory.bin": "7" * 64,
++            "item-details-v3-" + self.pvf + ".bin": "8" * 64,
++            "quests-v1-" + self.pvf + ".bin": "9" * 64,
++            "professions-v1-" + self.pvf + ".bin": "a" * 64,
++            "expert-jobs-v1-" + self.pvf + ".json": "b" * 64,
++        }
++
++        def management(pid):
++            return {
++                "mode": "external-gm",
++                "pvfSha256": self.pvf,
++                "pid": pid,
++                "gatewaySha256": "5" * 64,
++                "indexes": copy.deepcopy(indexes),
++                "externalGM": {
++                    "pvfSha256": self.pvf,
++                    "indexes": copy.deepcopy(indexes),
++                    "programSha256": "3" * 64,
++                    "assetDirectory": "/assets/" + self.pvf,
++                    "at": "test",
++                    "catalogManifestHash": self.pvf,
++                },
++            }
++
++        self.old_management = management(123)
++        self.after_management = management(456)
++        self.old = {
++            "pvfSha256": self.pvf,
++            "exeSha256": self.old_exe,
++            "channelSha256": self.channel,
++            "publishedSha256": digest_json(self.before),
++            "management": copy.deepcopy(self.old_management),
++            "protectedPublished": copy.deepcopy(self.before),
++        }
++        self.current = {
++            "published": copy.deepcopy(self.after),
++            "management": copy.deepcopy(self.after_management),
++            "protectedPublished": copy.deepcopy(self.after),
++        }
++        self.transition = {
++            "format": 1,
++            "checkedAt": self.now.isoformat(),
++            "sourceCommit": self.source["sourceCommit"],
++            "serverSha256": self.source["serverSha256"],
++            "beforePublished": copy.deepcopy(self.before),
++            "afterPublished": copy.deepcopy(self.after),
++            "afterManagement": copy.deepcopy(self.after_management),
++            "channelSha256": self.channel,
++            "beforeProtected": copy.deepcopy(self.before),
++            "afterProtected": copy.deepcopy(self.after),
++        }
++
++    def raw_transition(self, value):
++        return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
++
++    def call_pair(self, spec, old=None):
++        old = self.old if old is None else old
++        snapshot = copy.deepcopy((spec, old))
++        try:
++            return WORKER.checked_resource_pair(spec, old)
++        finally:
++            self.assertEqual((spec, old), snapshot)
++
++    def call_publication(self, before, after, pair=None):
++        pair = self.pair if pair is None else pair
++        snapshot = copy.deepcopy((before, after, pair))
++        try:
++            return WORKER.checked_pair_publication(before, after, pair)
++        finally:
++            self.assertEqual((before, after, pair), snapshot)
++
++    def refresh_after_digest(self, after):
++        after["content"]["sourcePayloadSha256"] = digest_json({"files": after["content"]["files"]})
++
++    def call_transition(self, value=None, current=None, source=None, old=None, raw=None,
++                        expected_sha=None, now=None):
++        value = copy.deepcopy(self.transition) if value is None else value
++        current = self.current if current is None else current
++        source = self.source if source is None else source
++        old = self.old if old is None else old
++        raw = self.raw_transition(value) if raw is None else raw
++        expected_sha = hashlib.sha256(raw).hexdigest() if expected_sha is None else expected_sha
++        now = self.now if now is None else now
++        snapshot = copy.deepcopy((value, current, source, old, raw, expected_sha, now))
++        try:
++            return WORKER.checked_pair_transition(raw, expected_sha, source, old, current, now)
++        finally:
++            self.assertEqual((value, current, source, old, raw, expected_sha, now), snapshot)
++
++    def test_real_pure_plan_is_exe_only_and_rejects_baseline_errors(self):
++        planned = PLANNER.plan(**self.plan_arguments)
++        self.assertEqual(planned["changed"], ["DNF.exe"])
++        self.assertEqual((planned["beforeSequence"], planned["sequence"]), (20, 21))
++        self.assertEqual(planned["state"]["published"]["profile"]["PvfSha256"], self.pvf)
++        self.assertEqual(planned["state"]["published"]["profile"]["ExeSha256"], self.new_exe)
++
++        for overrides in (
++            {"expected_exe": "0" * 64},
++            {"expected_pvf": "0" * 64},
++            {"expected_sequence": 19},
++        ):
++            arguments = copy.deepcopy(self.plan_arguments)
++            arguments.update(overrides)
++            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
++                PLANNER.plan(**arguments)
++
++        for key in ("baseExeSha256", "basePvfSha256", "channelSha256"):
++            spec = copy.deepcopy(self.pair)
++            spec[key] = "0" * 64
++            with self.subTest(pair_baseline=key), self.assertRaisesRegex(
++                    ValueError, "paired resource baseline differs"):
++                self.call_pair(spec)
++
++    def test_exe_only_pair_requires_a_new_exe_and_an_identical_pvf(self):
++        self.assertIs(self.call_pair(self.pair), self.pair)
++        for key, value in (
++            ("exeSha256", self.old_exe),
++            ("pvfSha256", "f" * 64),
++        ):
++            spec = copy.deepcopy(self.pair)
++            spec[key] = value
++            with self.subTest(field=key), self.assertRaisesRegex(
++                    ValueError, "EXE-only update must preserve PVF and replace EXE"):
++                self.call_pair(spec)
++
++        with_bundle = copy.deepcopy(self.pair)
++        with_bundle["bundle"] = WORKER.BUNDLE008_ID
++        with self.assertRaises(ValueError):
++            self.call_pair(with_bundle)
++
++    def test_publication_accepts_only_exe_description_profile_and_sequences(self):
++        self.assertIsNone(self.call_publication(self.before, self.after))
++        self.assertEqual(self.before["sequence"] + 1, self.after["sequence"])
++        self.assertEqual(
++            self.before["content"]["sourceSequence"] + 1,
++            self.after["content"]["sourceSequence"],
++        )
++        self.assertEqual(self.after["content"]["files"][1:], self.before["content"]["files"][1:])
++        for field in ("launcher", "news", "product", "format"):
++            self.assertEqual(self.after[field], self.before[field])
++        expected_profile = copy.deepcopy(self.before["profile"])
++        expected_profile["ExeSha256"] = self.new_exe
++        self.assertEqual(self.after["profile"], expected_profile)
++        expected_exe = copy.deepcopy(self.before["content"]["files"][0])
++        expected_exe.update(self.replacement)
++        self.assertEqual(self.after["content"]["files"][0], expected_exe)
++
++    def test_publication_rejects_pvf_npk_launcher_policy_and_sequence_drift(self):
++        cases = (
++            (
++                "pvf",
++                lambda value: value["profile"].__setitem__("PvfSha256", "f" * 64),
++                False,
++                "paired profile identity differs",
++            ),
++            (
++                "other_file",
++                lambda value: value["content"]["files"][2].__setitem__("Sha256", "0" * 64),
++                True,
++                "changed unrelated APP, policy or content",
++            ),
++            (
++                "launcher",
++                lambda value: value["launcher"].__setitem__("version", "1.0.6"),
++                False,
++                "changed unrelated APP, policy or content",
++            ),
++            (
++                "policy",
++                lambda value: value["profile"]["AntiCheat"].__setitem__("Enabled", False),
++                False,
++                "changed unrelated APP, policy or content",
++            ),
++            (
++                "sequence",
++                lambda value: value.__setitem__("sequence", value["sequence"] + 1),
++                False,
++                "paired publication sequence differs",
++            ),
++        )
++        for name, mutate, refresh, message in cases:
++            after = copy.deepcopy(self.after)
++            mutate(after)
++            if refresh:
++                self.refresh_after_digest(after)
++            with self.subTest(case=name), self.assertRaisesRegex(ValueError, message):
++                self.call_publication(self.before, after)
++
++    def test_management_allows_only_the_top_level_gateway_pid_to_change(self):
++        self.assertIsNone(WORKER.checked_pair_management(
++            self.old_management, self.after_management, self.pair))
++
++        cases = (
++            ("gateway", lambda value: value.__setitem__("gatewaySha256", "0" * 64)),
++            ("gm", lambda value: value["externalGM"].__setitem__("programSha256", "0" * 64)),
++            ("index", lambda value: value["indexes"].__setitem__("items.json", "0" * 64)),
++            ("nested_index", lambda value: value["externalGM"]["indexes"].__setitem__(
++                "pvf-directory.bin", "0" * 64)),
++        )
++        for name, mutate in cases:
++            after = copy.deepcopy(self.after_management)
++            mutate(after)
++            with self.subTest(case=name), self.assertRaisesRegex(
++                    ValueError, "EXE-only update changed GM, indexes or configuration"):
++                WORKER.checked_pair_management(self.old_management, after, self.pair)
++
++    def test_transition_accepts_complete_fresh_exe_only_plan(self):
++        result = self.call_transition()
++        self.assertEqual(result, self.transition)
++        self.assertEqual(result["afterPublished"]["profile"]["PvfSha256"], self.pvf)
++        self.assertEqual(result["afterPublished"]["profile"]["ExeSha256"], self.new_exe)
++        self.assertEqual(result["afterManagement"]["pid"], self.after_management["pid"])
++
++    def test_transition_rejects_baseline_and_transition_bound_errors(self):
++        bad_old = copy.deepcopy(self.old)
++        bad_old["publishedSha256"] = "0" * 64
++        with self.assertRaisesRegex(ValueError, "old publication differs"):
++            self.call_transition(old=bad_old)
++
++        bad_source = copy.deepcopy(self.source)
++        bad_source["runtimeResourceUpdate"]["basePvfSha256"] = "0" * 64
++        with self.assertRaisesRegex(ValueError, "paired resource baseline differs"):
++            self.call_transition(source=bad_source)
++
++        drifts = (
++            ("pvf", lambda value: value["afterPublished"]["profile"].__setitem__(
++                "PvfSha256", "f" * 64), False),
++            ("gm", lambda value: value["afterManagement"]["externalGM"].__setitem__(
++                "programSha256", "0" * 64), False),
++            ("index", lambda value: value["afterManagement"]["indexes"].__setitem__(
++                "items.json", "0" * 64), False),
++            ("other_file", lambda value: value["afterPublished"]["content"]["files"][2].__setitem__(
++                "Sha256", "0" * 64), True),
++        )
++        for name, mutate, refresh in drifts:
++            value = copy.deepcopy(self.transition)
++            mutate(value)
++            if refresh:
++                self.refresh_after_digest(value["afterPublished"])
++            current = copy.deepcopy(self.current)
++            current["published"] = copy.deepcopy(value["afterPublished"])
++            current["management"] = copy.deepcopy(value["afterManagement"])
++            current["protectedPublished"] = copy.deepcopy(value["afterProtected"])
++            with self.subTest(case=name), self.assertRaises(ValueError):
++                self.call_transition(value=value, current=current)
++
++    def test_legacy_pair_contract_still_rejects_single_resource_changes(self):
++        exe_only = copy.deepcopy(self.pair)
++        exe_only.pop("kind")
++        pvf_only = copy.deepcopy(exe_only)
++        pvf_only["pvfSha256"] = "f" * 64
++        pvf_only["exeSha256"] = self.old_exe
++        for name, spec in (("exe_only", exe_only), ("pvf_only", pvf_only)):
++            with self.subTest(case=name), self.assertRaisesRegex(
++                    ValueError, "both paired resource identities must change"):
++                self.call_pair(spec)
++
++    def test_transition_evidence_accepts_the_300_second_boundary_only(self):
++        self.assertEqual(
++            self.call_transition(now=self.now + datetime.timedelta(seconds=300)),
++            self.transition,
++        )
++        with self.assertRaisesRegex(ValueError, "paired transition expired"):
++            self.call_transition(now=self.now + datetime.timedelta(seconds=301))
++
++        future = copy.deepcopy(self.transition)
++        future["checkedAt"] = (self.now + datetime.timedelta(seconds=1)).isoformat()
++        with self.assertRaisesRegex(ValueError, "paired transition expired"):
++            self.call_transition(value=future)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/deploy/windows/game_update.py b/deploy/windows/game_update.py
+--- a/deploy/windows/game_update.py
++++ b/deploy/windows/game_update.py
+@@ -608,9 +608,10 @@ def package(self, source, snapshot, changed):
+         manifest['pvfSha256'] = snapshot['pvfSha256']
+         if self.resource_pair:
+             spec, path = self.resource_pair['spec'], self.resource_pair['path']
+-            shutil.copy2(path, self.stage / 'Script.pvf')
+-            if digest(self.stage / 'Script.pvf') != spec['pvfSha256']:
+-                raise ValueError('Paired PVF changed while packaging')
++            if spec.get('kind') != 'exe-only':
++                shutil.copy2(path, self.stage / 'Script.pvf')
++                if digest(self.stage / 'Script.pvf') != spec['pvfSha256']:
++                    raise ValueError('Paired PVF changed while packaging')
+             manifest['runtimeResourceUpdate'] = spec
+             manifest['pvfSha256'] = spec['pvfSha256']
+         if self.recovery: manifest["sourceRecovery"] = self.recovery
+@@ -782,7 +783,7 @@ def upload(self):
+         self.ssh(["mkdir", "-p", str(PurePosixPath(self.remote_stage).parent)])
+         self.ssh(["mkdir", "-m", "700", self.remote_stage])
+         names = ["DNF90Server.gz", "game-source.tar.gz", "game-source.bundle", "game-source-manifest.json", "runtime-before.json", "compatibility-readback.json"]
+-        if self.resource_pair:
++        if self.resource_pair and self.resource_pair['spec'].get('kind') != 'exe-only':
+             resource_hit = False
+             if self.profile.get('resource_cache_dir'):
+                 resource = self.stage / 'Script.pvf'
+@@ -898,7 +899,7 @@ def activate(self, source, transition=None):
+             if not transition:
+                 raise ValueError('Paired activation requires transition evidence')
+             self.resource_pair = {'spec': manifest['runtimeResourceUpdate'], 'path': self.stage / 'Script.pvf'}
+-            if digest(self.resource_pair['path']) != self.resource_pair['spec']['pvfSha256']:
++            if self.resource_pair['spec'].get('kind') != 'exe-only' and digest(self.resource_pair['path']) != self.resource_pair['spec']['pvfSha256']:
+                 raise ValueError('Prepared PVF changed')
+             self.resource_transition = transition
+             value = json.loads(transition.read_text('utf8'))
+@@ -908,12 +909,22 @@ def activate(self, source, transition=None):
+             # Do not trust a caller-supplied "download passed" boolean. This
+             # activation performs both signatures and complete gzip downloads.
+             import importlib.util
+-            verifier_path = source / 'private-content/20261031-pkg001-economy/verify_pair_delivery.py'
++            exe_only = self.resource_pair['spec'].get('kind') == 'exe-only'
++            verifier_path = source / ('private-content/20261101-client-only/client_delivery.py' if exe_only else
++                                      'private-content/20261031-pkg001-economy/verify_pair_delivery.py')
++            if exe_only:
++                # This verifier is also imported from the game controller,
++                # where its sibling publication module is not on sys.path.
++                sys.path.insert(0, str(verifier_path.parent))
+             verifier_spec = importlib.util.spec_from_file_location('activation_delivery', verifier_path)
+             verifier = importlib.util.module_from_spec(verifier_spec); verifier_spec.loader.exec_module(verifier)
+             profiles = {key: json.loads(Path(self.profile[field].format(root=str(ROOT))).read_text('utf-8-sig'))
+                         for key, field in [('primary', 'player_profile'), ('protected', 'protected_player_profile')]}
+-            delivery = verifier.verify(profiles, pub, value['beforeProtected'], self.stage / 'activation-delivery')
++            if exe_only:
++                delivery = verifier.verify(profiles, value['beforePublished'], pub, value['beforeProtected'], provider=True)
++                save(self.stage / 'activation-delivery.json', delivery)
++            else:
++                delivery = verifier.verify(profiles, pub, value['beforeProtected'], self.stage / 'activation-delivery')
+             if delivery['protected'] != value['afterProtected']:
+                 raise ValueError('Protected publication differs from transition evidence')
+             # Downloads may take longer than the remote five-minute evidence
+diff --git a/deploy/windows/test_game_update_transfer.py b/deploy/windows/test_game_update_transfer.py
+--- a/deploy/windows/test_game_update_transfer.py
++++ b/deploy/windows/test_game_update_transfer.py
+@@ -20,6 +20,33 @@ def module(name, path):
+ 
+ 
+ class TransferTests(unittest.TestCase):
++    def test_exe_only_upload_does_not_read_or_transfer_pvf(self):
++        with tempfile.TemporaryDirectory() as d:
++            stage = Path(d)
++            up = controller.Update(dict(ssh_alias='example', remote_root='/srv/example', compose_project='example',
++                runtime_base_image='sha256:'+'a'*64, probe_command=['probe'], resource_cache_dir='/srv/private-cache'), 'exe-only-test')
++            up.stage = stage
++            up.resource_pair = {'spec': {'kind': 'exe-only'}}
++            up.require_authority = Mock()
++            for name in ['DNF90Server','game-source.tar.gz','game-source.bundle','runtime-before.json','compatibility-readback.json']:
++                (stage / name).write_bytes(name.encode())
++            record = transfer.compress_program(stage / 'DNF90Server')
++            (stage / 'game-source-manifest.json').write_text(json.dumps({'serverSha256':record['rawSha256'],'serverTransport':record}))
++            def ssh(argv, code=None, capture=True):
++                if code:
++                    payload = json.loads(code)
++                    self.assertNotEqual(payload.get('action'), 'cached_resource')
++                    return SimpleNamespace(stdout=json.dumps(dict(passed=True, sha256=record['rawSha256'])).encode())
++                return SimpleNamespace(stdout=b'')
++            up.ssh = ssh
++            with patch.object(controller.subprocess, 'run') as run:
++                up.upload()
++            names = [Path(c.args[0][-2]).name for c in run.call_args_list]
++            self.assertIn('DNF90Server.gz', names)
++            self.assertNotIn('Script.pvf', names)
++            self.assertFalse((stage / 'Script.pvf').exists())
++            self.assertTrue((stage / 'program-transfer.json').exists())
++
+     def test_controller_uses_compressed_program_and_only_skips_verified_cached_pvf(self):
+         for hit in (False, True):
+             with self.subTest(hit=hit), tempfile.TemporaryDirectory() as d:
