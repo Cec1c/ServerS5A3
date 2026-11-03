@@ -32,6 +32,10 @@ func (s *Service) preflightRuntimePartyRoomOwners(leader *gameSession, request d
 	source := runtimeDungeonRoomKeyFromScene(scene)
 	dungeonID, mazeIndex, seed := runtime.Dungeon.ID, runtime.MazeIndex, runtime.Seed
 	instance := runtime.partyInstance
+	// A member can reach this exact adjacent room before the leader's op45.
+	// Preview only: the normal planner still checks source combat and topology.
+	preview, previewErr := runtime.Session.PreviewMoveByteTransition(request.NextX, request.NextY)
+	target := runtimeDungeonRoomKeyFromScene(preview.Scene)
 	leader.dungeon.mu.Unlock()
 
 	for _, member := range runtimePartyMembers(state) {
@@ -48,6 +52,13 @@ func (s *Service) preflightRuntimePartyRoomOwners(leader *gameSession, request d
 		}
 		follower.dungeon.mu.Lock()
 		err := validateRuntimePartyRoomOwner(follower.dungeon.runtime, source, dungeonID, mazeIndex, seed, instance)
+		if err != nil && instance != nil && previewErr == nil {
+			fr := follower.dungeon.runtime
+			if fr != nil && fr.Dungeon.ID == dungeonID && fr.MazeIndex == mazeIndex &&
+				runtimePartyMovePlanCommitted(fr, runtimePartyDungeonMovePlan{target: target, seed: fr.Seed, instance: instance, room: fr.Room}) {
+				err = nil
+			}
+		}
 		follower.dungeon.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("party member %d cannot follow room transition: %w", member.UserID, err)
