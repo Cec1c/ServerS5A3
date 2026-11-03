@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestDungeonDisconnectKeepsSurvivorPartyAndInstance(t *testing.T) {
 
 func TestCompletedMemberPersonalExitDoesNotReturnLeader(t *testing.T) {
 	for _, opcode := range []uint16{13, 42, 72, 132} {
-		t.Run(string(rune('A'+opcode)), func(t *testing.T) {
+		t.Run(strconv.Itoa(int(opcode)), func(t *testing.T) {
 			f := newCompletionReturnPartyFixture(t)
 			f.service.options.currentClientVersion = "official-24.9"
 			for _, runtime := range []*runtimeDungeonState{f.leaderRuntime, f.memberRuntime} {
