@@ -232,7 +232,10 @@ func (s *Service) sendCurrentDimensionGateEntranceInfo(session *gameSession, sou
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		defer cancel()
-		character, err := s.dungeonCharacter(ctx, session.selectedCharacterID, session)
+		// This bootstrap notice is sent under townMu. Daily counters need the
+		// owned saved record, not the live Fiend War position overlay, which
+		// would acquire townMu again and prevent both entry and logout.
+		character, err := s.loadCurrentDungeonCharacterRecord(ctx, session.selectedCharacterID, session)
 		if err != nil {
 			return err
 		}

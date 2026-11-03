@@ -151,6 +151,12 @@ func (s *Service) sendCurrentDungeonSettlementResultsLocked(
 			"body_source", "current_exe_sub_1D37AC0_u16_count_u32_key_u8_state",
 			"state_source", "persisted_dungeon_clear_state_after_settlement")
 	}
+	if len(plan.LukeSelectorProgressBody) != 0 && !runtime.settlementLukeProgressSent {
+		if err := s.sendGameUpperRawClass(session, currentLukeSelectorProgressMsgID, plan.LukeSelectorProgressBody, 0); err != nil {
+			return err
+		}
+		runtime.settlementLukeProgressSent = true
+	}
 	if currentDungeonIsDespairTower(runtime) {
 		if err := s.sendCurrentDespairSettlementLocked(session, runtime, plan); err != nil {
 			return err

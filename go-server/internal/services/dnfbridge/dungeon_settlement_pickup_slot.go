@@ -18,13 +18,36 @@ func currentDungeonCommittedPickupSlot(
 	inventory dnfrepo.InventoryRecord,
 ) (uint16, dnfrepo.ItemStack, bool) {
 	if drop == nil || drop.Status != runtimeDungeonDropConsumed || drop.Item.ItemID == 0 ||
-		drop.DestinationSlot == 0 || drop.DestinationSlot > math.MaxInt16 {
+		(drop.DestinationSlot == 0 && !currentPVFItemTargetContainer(drop.Item).GuildMedal) || drop.DestinationSlot > math.MaxInt16 {
 		return 0, dnfrepo.ItemStack{}, false
 	}
-	valid := func(stack dnfrepo.ItemStack) bool {
-		return stack.ItemID == int64(drop.Item.ItemID) && stack.Count > 0 && stack.Count <= math.MaxUint32
+	listType := currentDungeonPickupListType(drop.Item)
+	slotKey := func(slot int16) string { return strconv.Itoa(int(listType)) + ":" + strconv.Itoa(int(slot)) }
+	if listType != 0 {
+		body := drop.PickupItemUpdateBody
+		if _, proven := currentDungeonCommittedPickupProof(drop); !proven || len(body) != 3+currentItemListEntryWireSize || body[0] != listType || binary.LittleEndian.Uint16(body[1:3]) != 1 || binary.LittleEndian.Uint16(body[3:5]) != drop.DestinationSlot || binary.LittleEndian.Uint32(body[5:9]) != drop.Item.ItemID {
+			return 0, dnfrepo.ItemStack{}, false
+		}
 	}
-	if stack, found := inventory.Slots[currentDungeonPickupMainSlotKey(int16(drop.DestinationSlot))]; found && valid(stack) {
+	valid := func(stack dnfrepo.ItemStack) bool {
+		if stack.ItemID != int64(drop.Item.ItemID) || stack.Count <= 0 || stack.Count > math.MaxUint32 {
+			return false
+		}
+		if listType != 0 {
+			// Template equality cannot prove which duplicate medal was picked.
+			row := drop.PickupItemUpdateBody[3:]
+			if len(stack.RawEntry) != len(row) {
+				return false
+			}
+			if drop.Item.Kind == dungeonDropItemEquipment {
+				return bytes.Equal(stack.RawEntry[2:], row[2:])
+			}
+			// A later merge can change a stackable's count, not its instance data.
+			return bytes.Equal(stack.RawEntry[2:6], row[2:6]) && bytes.Equal(stack.RawEntry[10:], row[10:])
+		}
+		return true
+	}
+	if stack, found := inventory.Slots[slotKey(int16(drop.DestinationSlot))]; found && valid(stack) {
 		return drop.DestinationSlot, stack, true
 	}
 	// The cached response is frozen only after the pickup transaction commits.
@@ -34,23 +57,24 @@ func currentDungeonCommittedPickupSlot(
 	if !proven || (drop.OwnerActorObjectKey != 0 && picker != drop.OwnerActorObjectKey) {
 		return 0, dnfrepo.ItemStack{}, false
 	}
+	resolved := false
 	var resolvedSlot uint16
 	var resolvedStack dnfrepo.ItemStack
 	for key, stack := range inventory.Slots {
-		listType, slot, parsed := parseSceneInventorySlotKey(key)
-		if !parsed || listType != 0 || slot <= 0 || key != currentDungeonPickupMainSlotKey(slot) || !valid(stack) {
+		candidateList, slot, parsed := parseSceneInventorySlotKey(key)
+		if !parsed || candidateList != listType || slot < 0 || (slot == 0 && listType == 0) || key != slotKey(slot) || !valid(stack) {
 			continue
 		}
-		if resolvedSlot != 0 {
+		if resolved {
 			return 0, dnfrepo.ItemStack{}, false
 		}
-		resolvedSlot, resolvedStack = uint16(slot), stack
+		resolvedSlot, resolvedStack, resolved = uint16(slot), stack, true
 	}
-	return resolvedSlot, resolvedStack, resolvedSlot != 0
+	return resolvedSlot, resolvedStack, resolved
 }
 
 func currentDungeonCommittedPickupProof(drop *runtimeDungeonDrop) (uint16, bool) {
-	if drop == nil || drop.Status != runtimeDungeonDropConsumed || drop.DestinationSlot == 0 ||
+	if drop == nil || drop.Status != runtimeDungeonDropConsumed || (drop.DestinationSlot == 0 && !currentPVFItemTargetContainer(drop.Item).GuildMedal) ||
 		len(drop.PickupResponseBody) != currentDungeonPickupResultSize {
 		return 0, false
 	}
@@ -58,7 +82,7 @@ func currentDungeonCommittedPickupProof(drop *runtimeDungeonDrop) (uint16, bool)
 	if picker == 0 || (drop.OwnerActorObjectKey != 0 && picker != drop.OwnerActorObjectKey && !drop.PartyShared && !drop.MapOwnedPassiveObject) {
 		return 0, false
 	}
-	proof, err := buildCurrentDungeonNormalPickupResultBody(drop.ObjectKey, picker, drop.DestinationSlot)
+	proof, err := buildCurrentDungeonPickupResultForItem(drop.ObjectKey, picker, drop.DestinationSlot, drop.Item)
 	return picker, err == nil && bytes.Equal(proof, drop.PickupResponseBody)
 }
 
@@ -76,7 +100,7 @@ func currentDungeonCommittedPickupIsEquipped(drop *runtimeDungeonDrop, inventory
 		return false
 	}
 	body := drop.PickupItemUpdateBody
-	if len(body) != 3+currentItemListEntryWireSize || body[0] != dnfrepo.MainInventoryListType ||
+	if len(body) != 3+currentItemListEntryWireSize || body[0] != currentDungeonPickupListType(drop.Item) ||
 		binary.LittleEndian.Uint16(body[1:3]) != 1 {
 		return false
 	}

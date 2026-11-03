@@ -90,7 +90,7 @@ func TestDungeonDeathBurstCapsuleAndHonorShareOneCommit(t *testing.T) {
 			}
 		}
 	}
-	if pushes != 1 || states != 1 {
+	if pushes != 0 || states != 1 || !p.dungeon.runtime.monsterAdventureInfoPending {
 		t.Fatalf("同批胶囊通知=%d 熟练度刷新=%d", pushes, states)
 	}
 	if probe.calls != 1 {

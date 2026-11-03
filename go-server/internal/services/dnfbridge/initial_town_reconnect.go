@@ -8,13 +8,14 @@ import (
 // sendCurrentChannelReconnectTownEntry rebuilds the selected actor after the
 // target-channel transport reconnect. An account-bound connection that
 // completed CHANNELINFO must use the same u8 channel in every town mode0/mode1
-// row; legacy/high-id fallbacks retain context zero. The connection bootstrap
+// row. High channel IDs retain the catalog-derived owner committed by bootstrap.
+// The connection bootstrap
 // already owns the one allowed class0/op1 and endpoint success.
 func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) error {
 	if s == nil || session == nil || !session.channelReconnect || session.selectedCharacterID == 0 {
 		return nil
 	}
-	if session.residentChannel.ID <= 0 || session.residentChannel.ID != session.channel.ID {
+	if !s.currentChannelReconnectIdentityCommitted(session) {
 		return fmt.Errorf(
 			"channel reconnect has no committed target identity: connected=%d resident=%d",
 			session.channel.ID,
@@ -22,6 +23,7 @@ func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) err
 		)
 	}
 	ownerChannel := currentConnectionTownActorOwnerContext(session)
+	s.logOwnerChannelSubstitution(session, "channel_reconnect_town_entry", int(ownerChannel))
 	session.townActorOwnerChannel = ownerChannel
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -191,4 +193,29 @@ func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) err
 		"report_client_spec_sent", true,
 		"final_packet", "class0_op574_post_op24_actor_ready_refresh")
 	return nil
+}
+
+// A high raw channel cannot fit the town actor's u8 owner field. Verify the
+// existing CHANNELINFO commitment against the actual catalog, rather than
+// demanding that its ordinary-channel alias equal the raw transport channel.
+// This never changes the transport channel or commits a replacement identity.
+func (s *Service) currentChannelReconnectIdentityCommitted(session *gameSession) bool {
+	if session.channel.ID <= currentOwnerChannelByteLimit {
+		return session.residentChannel.ID > 0 && session.residentChannel.ID == session.channel.ID
+	}
+	if !session.currentChannelResidentNoticeSent || s.catalog == nil {
+		return false
+	}
+	raw, found := s.catalog.Channel(session.channel.ID)
+	if !found || raw.ServerID != session.channel.ServerID ||
+		raw.Type != session.channel.Type || raw.Port != session.channel.Port {
+		return false
+	}
+	resident, found := s.catalog.ResidentFor(raw)
+	if !found || resident.ID != session.residentChannel.ID ||
+		resident.ServerID != session.residentChannel.ServerID {
+		return false
+	}
+	owner, ok := currentOwnerChannelFieldValue(resident.ID)
+	return ok && currentConnectionTownActorOwnerContext(session) == owner
 }

@@ -88,6 +88,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	defer session.dungeon.mu.Unlock()
 	timing.mark(0)
 	runtime := session.dungeon.runtime
+	defer func() {
+		// The burst owns the final projection after all commands in its segment.
+		if session.dungeonDeathBurst == nil {
+			resultErr = errors.Join(resultErr, s.flushCurrentMonsterAdventureInfo(session, runtime))
+		}
+	}()
 	if runtime == nil || runtime.Session == nil || runtime.Room == nil {
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 			"object_key", request.RuntimeObjectKey,
