@@ -221,8 +221,9 @@ func TestCurrentAuctionCancelAnnounces60091(t *testing.T) {
 		currentAuctionNoticeKindCancelBid,
 		0x71, 0x17, 0x00, 0x00, // 6001 little endian
 		0x00, 0x00,
+		0x00, // mandatory empty random-option summary
 	}
-	if len(notice.Body) != 8 || !bytes.Equal(notice.Body, want) {
+	if len(notice.Body) != 9 || !bytes.Equal(notice.Body, want) {
 		t.Fatalf("cancel notice body=% X want % X", notice.Body, want)
 	}
 	// The forfeited deposit: the return letter carries the item and no gold, and
