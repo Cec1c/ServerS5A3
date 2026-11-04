@@ -11,6 +11,8 @@ func onlineItemTradeStorageSourceList(list byte, slot int16) (byte, bool) {
 	switch list {
 	case repo.MainInventoryListType, 1:
 		return list, true
+	case currentPetInventoryListType:
+		return list, slot >= currentPVFPetArtifactSlotStart && slot <= currentPVFPetArtifactSlotEnd
 	case currentItemTradeCrystalWireList:
 		if slot >= repo.CrystalWarehouseFirstSlot && slot <= repo.CrystalWarehouseLastSlot {
 			return repo.MainInventoryListType, true
