@@ -22,9 +22,10 @@ type DungeonReward struct {
 // DungeonCatalog is immutable after parsing. The digest binds admission to the
 // same PVF rules at settlement, including reward quantities and prerequisites.
 type DungeonCatalog struct {
-	Rules   *DungeonUnlockRules
-	digest  string
-	rewards map[uint32][]DungeonReward
+	Rules        *DungeonUnlockRules
+	digest       string
+	rewards      map[uint32][]DungeonReward
+	repeatReward *DungeonRewardItem
 }
 
 func LoadDungeonCatalog(source pvf.Source) (*DungeonCatalog, error) {
@@ -69,6 +70,15 @@ func ParseDungeonCatalog(text string) (*DungeonCatalog, error) {
 			return a, nil
 		}
 		switch name {
+		case "repeat clear bonus reward":
+			if inDungeon || inReward || c.repeatReward != nil {
+				return nil, ErrDungeonUnlockRules
+			}
+			a, e := ints(2)
+			if e != nil || a[0] == 0 || a[1] == 0 {
+				return nil, ErrDungeonUnlockRules
+			}
+			c.repeatReward = &DungeonRewardItem{ItemID: a[0], Count: a[1]}
 		case "dungeon":
 			if inDungeon {
 				return nil, ErrDungeonUnlockRules
@@ -196,6 +206,9 @@ func (c *DungeonCatalog) Reward(id, count uint32) (DungeonReward, error) {
 
 func (c *DungeonCatalog) ItemIDs() []uint32 {
 	seen := map[uint32]bool{}
+	if c.repeatReward != nil {
+		seen[c.repeatReward.ItemID] = true
+	}
 	for _, rows := range c.rewards {
 		for _, row := range rows {
 			for _, item := range row.Items {

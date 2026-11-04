@@ -629,6 +629,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 		EquipmentPlacement:           equipmentPlacement,
 		InventoryItemPlacement:       s.currentInventoryMovePlacement,
 		InventoryCargoInsert:         s.currentInventoryCargoInsert,
+		InventorySortKeys:            s.currentInventorySortKeys,
 		AvatarClassifier:             s.currentCloneAvatarClassifier(),
 		NameTagChecker:               func(itemID uint32) bool { return s.currentIsNameTagItem(itemID) },
 		PetHatchResolver:             petHatchResolver,
@@ -1021,6 +1022,9 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 		return err
 	}
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
+		return err
+	}
+	if err := s.sendCommittedAccountCargoMove(session, result.AccountCargoMove); err != nil {
 		return err
 	}
 	if result.ItemUsageChanged {

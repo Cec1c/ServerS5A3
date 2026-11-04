@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -89,26 +90,27 @@ func (o *Owner) moveAccountCargo(ctx context.Context, characterID string, cmd Co
 		if err != nil || !result.Changed {
 			return err
 		}
-		switch result.Mode {
-		case "auto_stack", "auto_stack_reverse", "stack", "split", "reverse_split":
-			result.Refresh = make(map[byte]map[string]dnfrepo.ItemStack)
-			for _, listType := range []byte{cmd.SourceListType, cmd.DestinationListType} {
-				if listType == listTypeAccountCargo {
-					continue
-				}
-				if _, exists := result.Refresh[listType]; exists {
-					continue
-				}
-				view := character
-				if listType == listTypeMain {
-					view = dnfrepo.MergeAccountSharedInventory(character, cargo)
-				}
-				items, _ := itemMapForList(&view, listType)
-				result.Refresh[listType] = cloneItemMap(items)
-				result.RefreshListTypes = append(result.RefreshListTypes, listType)
-			}
+		if err := saveAccountCargoMove(ctx, accounts, characters, character, cargo, srcField, dstField, sourceCargo, destinationCargo, result); err != nil {
+			return err
 		}
-		return saveAccountCargoMove(ctx, accounts, characters, character, cargo, srcField, dstField, sourceCargo, destinationCargo, result)
+		projection := &alignedcmd.AccountCargoMoveProjection{AccountID: accountID, CharacterID: characterID}
+		for _, endpoint := range []alignedcmd.ItemSlotRefresh{
+			{ListType: result.SourceListType, SlotIndex: result.SourceSlotIndex},
+			{ListType: result.DestinationListType, SlotIndex: result.DestinationSlotIndex},
+		} {
+			items, _, _, err := accountCargoItemMap(&character, &cargo, endpoint.ListType)
+			if err != nil {
+				return err
+			}
+			row := alignedcmd.CommittedItemRow{ListType: endpoint.ListType, SlotIndex: endpoint.SlotIndex}
+			if stack, found := items[slotKey(endpoint.ListType, endpoint.SlotIndex)]; found {
+				cloned := cloneStack(stack)
+				row.Stack = &cloned
+			}
+			projection.Rows = append(projection.Rows, row)
+		}
+		result.AccountCargoMove = projection
+		return nil
 	})
 	if err != nil {
 		return MoveResult{}, err

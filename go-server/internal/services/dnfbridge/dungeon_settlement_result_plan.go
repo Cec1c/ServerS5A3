@@ -18,21 +18,22 @@ var (
 // bodies makes a retry resume after the last successful write without reading
 // newer repository state into an older settlement.
 type currentDungeonSettlementPacketPlan struct {
-	GuildDungeonItemSlots    []alignedcmd.ItemSlotRefresh
-	CharacterID              uint16
-	CompletionKey            string
-	Source                   string
-	ClientRankPoint          byte
-	PlayResultBody           []byte
-	CharacterBody            []byte
-	ClearRewardBody          []byte
-	PremiumServiceBody       []byte
-	DungeonPermissionBody    []byte
-	LukeSelectorProgressBody []byte
-	DespairResultBody        []byte
-	DespairItemSlots         []alignedcmd.ItemSlotRefresh
-	GriefResultBody          []byte
-	GriefItemSlots           []alignedcmd.ItemSlotRefresh
+	GuildDungeonRepeatRewardBody []byte
+	GuildDungeonItemSlots        []alignedcmd.ItemSlotRefresh
+	CharacterID                  uint16
+	CompletionKey                string
+	Source                       string
+	ClientRankPoint              byte
+	PlayResultBody               []byte
+	CharacterBody                []byte
+	ClearRewardBody              []byte
+	PremiumServiceBody           []byte
+	DungeonPermissionBody        []byte
+	LukeSelectorProgressBody     []byte
+	DespairResultBody            []byte
+	DespairItemSlots             []alignedcmd.ItemSlotRefresh
+	GriefResultBody              []byte
+	GriefItemSlots               []alignedcmd.ItemSlotRefresh
 }
 
 func buildCurrentDungeonSettlementPacketPlan(

@@ -1132,6 +1132,13 @@ func ownerAppliedMoveResult(ctx context.Context, settings dnfrepo.SettingsReposi
 	responses := []alignedcmd.UpperResponse{
 		class1Response(opcode, buildMoveItemspaceSuccessAck(ackCommand, moveValue)),
 	}
+	if result.AccountCargoMove != nil {
+		return alignedcmd.Result{
+			Handled: true, ResponseAllowed: true, Operation: cmd.Operation,
+			Reason:         fmt.Sprintf("account cargo move committed: %s moveMode=%s moveCount=%d ackEndpoints=(%d,%d)->(%d,%d); ACK then committed endpoint rows", cmd.String(), result.Mode, result.MoveCount, ackCommand.SourceListType, ackCommand.SourceSlotIndex, ackCommand.DestinationListType, ackCommand.DestinationSlotIndex),
+			UpperResponses: responses, AccountCargoMove: result.AccountCargoMove,
+		}
+	}
 	itemSlotRefreshes := make([]alignedcmd.ItemSlotRefresh, 0, 2)
 	crossContainerStack := result.Changed &&
 		result.Mode == "stack" &&

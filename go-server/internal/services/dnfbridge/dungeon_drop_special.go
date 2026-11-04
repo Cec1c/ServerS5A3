@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	dnfdrops "longheng.io/server/internal/modules/dnf/drop"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -40,6 +41,7 @@ type currentDungeonWorldDropLevel struct {
 }
 
 type currentDungeonSpecialDropCatalog struct {
+	MaterialByDungeon    map[int64][]dnfdrops.DungeonMaterialRule
 	IndependentByMonster map[int64][]currentDungeonIndependentDropEntry
 	WorldByLevel         map[int]currentDungeonWorldDropLevel
 	SkippedListFlag2     int
@@ -82,6 +84,14 @@ func loadCurrentDungeonSpecialDrops(source dnfpvf.Source) (*currentDungeonSpecia
 		}
 		catalog.IndependentByMonster = entries
 		catalog.SkippedListFlag2 = skipped
+		doc, parseErr := dnfpvf.Parse(currentDungeonIndependentDropPath, text)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		catalog.MaterialByDungeon, parseErr = dnfdrops.ParseDungeonMaterialRules(doc)
+		if parseErr != nil {
+			return nil, parseErr
+		}
 	}
 	// 90版怪物卡片单列在此表；末字段3是直接卡片项，不跟随[list]。
 	cardText, cardErr := source.ReadText(currentDungeonIndependentCardDropPath)

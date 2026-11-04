@@ -67,6 +67,7 @@ type dungeonDropItemDefinition struct {
 	ImpossibleContents       []string
 	EquipmentType            string
 	Grade                    int64
+	MinimumLevel             int64
 	Rarity                   int64
 	StackableType            string
 	EquipmentEffectID        uint16
@@ -352,6 +353,7 @@ func (c *pvfDungeonDropCatalog) ResolveItem(itemID uint32) (dungeonDropItemDefin
 		}
 		definition.EquipmentType, _ = document.Text("equipment type")
 		definition.Grade, _ = document.Int("grade")
+		definition.MinimumLevel, _ = document.Int("minimum level")
 		definition.Rarity, _ = document.Int("rarity")
 		for _, name := range []string{"durability", "maximum durability", "max durability"} {
 			value, found := document.Int(name)

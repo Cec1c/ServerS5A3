@@ -30,8 +30,9 @@ func guildDungeonBridgeCatalog(t *testing.T, s *Service) {
 	source := dungeonDropCatalogTestSource{
 		"monster/monster.lst": "", "equipment/equipment.lst": "",
 		guild.DungeonCatalogPath:  text,
-		"stackable/stackable.lst": "10154439 `guild.stk`",
+		"stackable/stackable.lst": "10154439 `guild.stk`\n10156320 `guild_box.stk`",
 		"stackable/guild.stk":     "[name] `Guild Reward Fixture`\n[stackable type] `[material]` 0\n[stack limit] 10000\n[minimum level] 1",
+		"stackable/guild_box.stk": "[name] `Guild Box Fixture`\n[stackable type] `[usable]` 0\n[stack limit] 10000\n[minimum level] 1",
 	}
 	items, err := newPVFDungeonDropCatalog(source)
 	if err != nil {

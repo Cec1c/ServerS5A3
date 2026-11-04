@@ -30,6 +30,7 @@ type Request struct {
 	EquipmentPlacement     EquipmentPlacementValidator
 	InventoryItemPlacement func(dnfrepo.ItemStack) (dnfplacement.SlotPolicy, error)
 	InventoryCargoInsert   func(dnfrepo.ItemStack, byte) error
+	InventorySortKeys      func(dnfrepo.ItemStack) (InventorySortKeys, error)
 	AvatarClassifier       AvatarClassifier
 	NameTagChecker         func(itemID uint32) bool
 	PetHatchResolver       PetHatchResolver
@@ -895,6 +896,7 @@ type EquipmentUpgradeNotice struct {
 }
 
 type Result struct {
+	AccountCargoMove       *AccountCargoMoveProjection
 	EquipmentUpgradeNotice *EquipmentUpgradeNotice
 
 	ItemUsageChanged      bool // committed with source consumption; bridge refreshes after ACK/slots
