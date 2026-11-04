@@ -1,3 +1,7 @@
+## 2026-11-05 可信开发者 quick
+
+仓库负责人已批准Cec1c、16www两位写权限开发者使用 `SOURCE_MERGE.bat --quick`，以绑定精确SHA的本地通过文字声明取得 `merge-ready` 合入资格，跳过远端CI等待。普通外部PR继续走CI；声明记为local-attested，不伪称cloud CI已通过。多个小修复合批验证，源码累计后直接prepare。详见 `Docs/TRUSTED_QUICK_MERGE.md`；私有入口支持 `GAME_UPDATE_REMOTE.bat prepare --quick` 串接公开合入/私有累计。备份完成后才交扳机，触发后不再准备；从决定部署到结果告知记录整轮时间。
+
 # DNF90 Project Working Agreement
 
 ## 2026-11-04 合批 CI 与接收端验哈
