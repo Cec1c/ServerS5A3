@@ -146,6 +146,7 @@ type currentBoosterRewardSlotDelta struct {
 
 type currentBoosterCommitResult struct {
 	WalletChanged       bool
+	NormalPointCredits  uint32
 	FateCurrencyChanged bool
 	FateGranted         uint32
 	ContractActivations []alignedcmd.PremiumContractActivation
