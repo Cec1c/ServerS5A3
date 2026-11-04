@@ -8,8 +8,9 @@ import (
 	"longheng.io/server/internal/modules/dnf/party"
 )
 
-// A member's explicit mid-run giveup leaves the party after the town scene
-// is confirmed. Completion and automatic deadline returns never call this.
+// An explicit personal giveup or leave-party request leaves the party after
+// the town scene is confirmed, including after completion. Result-page team
+// returns and automatic deadline returns keep their separate policies.
 // The remaining members retain their dungeon runtime and shared instance.
 func (s *Service) leaveRuntimePartyOnMemberGiveup(session *gameSession, instance *dungeonPartyInstance) error {
 	_, err := s.leaveRuntimePartyDungeonMember(session, instance, "member_giveup_confirmed_town", true)
