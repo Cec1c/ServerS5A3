@@ -1,5 +1,9 @@
 # DNF90 Project Working Agreement
 
+## 2026-11-04 合批 CI 与接收端验哈
+
+遵循 [合批发布规则](Docs/PUBLICATION_BATCHING.md)：已完成的小修复尽量合入一个累计 PR，保留各自提交与记录，最终 ready 组合跑一次完整 CI；Draft 只做范围检查，手动分支 CI 保留。部署不重跑完整测试。程序、资源及回退准备提前完成，接收端计算 SHA256 后只返回小回执，禁止将整包搬回开发机仅为验哈。相同不可变对象复用，切换不传大文件；本条替代下文旧重复拉取/全量回传要求。
+
 ## 2026-11-02 GitHub 权威与 Linux CI（替代旧 GitGud 权威/Windows 门禁）
 
 - 公开源码唯一权威为 https://github.com/Cec1c/ServerS5A3 `master`；所有公开功能、测试、文档和 CI 用 GitHub PR。GitGud 仅为异步单向快进镜像，镜像状态、自建 Runner 和旧 MR CI 不作为合并、群服同步或部署门槛。
