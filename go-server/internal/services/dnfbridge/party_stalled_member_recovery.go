@@ -2,6 +2,8 @@ package dnfbridge
 
 import (
 	"context"
+	"sync/atomic"
+
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
@@ -94,9 +96,11 @@ func (s *Service) prepareStalledPartyMemberRecovery(partyID uint16, binding curr
 		deliver: func(stillStalled func() bool) bool {
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 			defer cancel()
-			sent := false
+			// The owner queue can finish a running write after the caller's
+			// deadline; do not share an unsynchronized result with that task.
+			var sent atomic.Bool
 			err := s.callGameSession(ctx, p, "party-stalled-peer-recovery", func() error {
-				if !current() || !stillStalled() {
+				if ctx.Err() != nil || !current() || !stillStalled() {
 					return nil
 				}
 				p.dungeon.mu.Lock()
@@ -106,15 +110,15 @@ func (s *Service) prepareStalledPartyMemberRecovery(partyID uint16, binding curr
 					return nil
 				}
 				body := s.buildRuntimePartyPeerEndpointInfoForReceiver(p, state)
-				guard := func() bool { return current() && stillStalled() }
-				var writeErr error
-				sent, writeErr = s.sendRetiredPartyPacket(p, 0x000b, body, &state, guard, false)
+				guard := func() bool { return ctx.Err() == nil && current() && stillStalled() }
+				delivered, writeErr := s.sendRetiredPartyPacket(p, 0x000b, body, &state, guard, false)
+				sent.Store(delivered)
 				return writeErr
 			})
 			s.logGameEvent(p, "game-party-stalled-peer-endpoints-requested", "party_id", partyID,
-				"char_id", identity.character, "generation", identity.generation, "sent", sent, "error", err,
+				"char_id", identity.character, "generation", identity.generation, "sent", sent.Load(), "error", err,
 				"scope", "one_member_endpoint_table_only_no_roster_or_scene_reset")
-			return sent && err == nil
+			return sent.Load() && err == nil
 		},
 	}
 }
