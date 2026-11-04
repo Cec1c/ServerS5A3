@@ -2,11 +2,11 @@ package dungeon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"longheng.io/server/internal/modules/dnf/guild"
 	r "longheng.io/server/internal/modules/dnf/repository"
@@ -43,84 +43,66 @@ func seedRepeatProgress(t *testing.T, repos r.Group, id string, progress int64) 
 	}
 }
 
-func TestGuildDungeonRepeatRewardAtomicFailures(t *testing.T) {
-	for _, kind := range []string{"full bag", "late rollback", "missing box definition", "invalid balance", "changed policy"} {
-		t.Run(kind, func(t *testing.T) {
-			repos, cmd := repeatRewardFixture(t)
-			ctx := context.Background()
-			seedRepeatProgress(t, repos, cmd.CharacterID, 90)
-			original := repos.CharacterSettlement
-			validBox := cmd.GuildDungeon.Items[10156320]
-			switch kind {
-			case "full bag":
-				inv, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
-				inv.Slots = map[string]r.ItemStack{"0:121": {ItemID: 10154439, Count: 3}}
-				for i := 122; i <= 152; i++ {
-					inv.Slots[fmt.Sprintf("0:%d", i)] = r.ItemStack{ItemID: 222, Count: 1}
-				}
-				if err := repos.Inventory.Save(ctx, inv); err != nil {
-					t.Fatal(err)
-				}
-			case "late rollback":
-				repos.CharacterSettlement = guildSettlementFault{original, original.(r.GuildSettlementUnitOfWork), false}
-			case "missing box definition":
-				delete(cmd.GuildDungeon.Items, 10156320)
-			case "invalid balance":
-				seedRepeatProgress(t, repos, cmd.CharacterID, 100)
-			case "changed policy":
-				reg, _ := guild.Load(ctx, repos.Settings)
-				reg.DungeonPolicy = &guild.DungeonPolicy{ResetDay: 1, ResetHour: 6, UTCOffsetMinutes: 480, ClearUnitsPerMember: 1, RepeatRewardPercent: 20}
-				if err := guild.Save(ctx, repos.Settings, reg, cmd.UpdatedAt); err != nil {
-					t.Fatal(err)
-				}
-			}
-			before, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
-			invBefore, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
-			regBefore, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)
-			skillBefore, _, _ := repos.Skill.Load(ctx, cmd.CharacterID)
-			o, _ := NewOwner(repos)
-			if _, err := o.CommitSettlement(ctx, cmd); err == nil {
-				t.Fatal("invalid settlement committed")
-			}
-			after, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
-			invAfter, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
-			regAfter, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)
-			skillAfter, _, _ := repos.Skill.Load(ctx, cmd.CharacterID)
-			if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(invBefore, invAfter) || !reflect.DeepEqual(regBefore, regAfter) || !reflect.DeepEqual(skillBefore, skillAfter) {
-				t.Fatal("partial transaction survived")
-			}
-			_, found, err := repos.Settings.Load(ctx, r.GuildSettlementReceiptScope(cmd.GuildDungeon.Entry.Owner, cmd.CompletionKey))
-			if err != nil || found {
-				t.Fatal("failed clear wrote receipt", err)
-			}
-			// Repair only the injected fault, then retry the same completion key.
-			repos.CharacterSettlement = original
-			cmd.GuildDungeon.Items[10156320] = validBox
-			if kind == "full bag" {
-				delete(invAfter.Slots, "0:152")
-				if err := repos.Inventory.Save(ctx, invAfter); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if kind == "invalid balance" {
-				seedRepeatProgress(t, repos, cmd.CharacterID, 90)
-			}
-			if kind == "changed policy" {
-				reg, _ := guild.Load(ctx, repos.Settings)
-				reg.DungeonPolicy = nil
-				if err := guild.Save(ctx, repos.Settings, reg, cmd.UpdatedAt); err != nil {
-					t.Fatal(err)
-				}
-			}
-			o, _ = NewOwner(repos)
-			got, err := o.CommitSettlement(ctx, cmd)
-			if err != nil || !got.GuildDungeon.RepeatReward.Awarded || got.Character.Stats[guild.DungeonRepeatRewardProgressStat] != 0 {
-				t.Fatal("repaired retry", got.GuildDungeon, err)
-			}
-		})
+func killRewardCommand(cmd SettlementCommand, target string, total uint32) GuildDungeonKillCommand {
+	return GuildDungeonKillCommand{Clear: cmd.GuildDungeon, Target: target, Total: total, UpdatedAt: cmd.UpdatedAt}
+}
+func repeatBoxCount(inv r.InventoryRecord) int64 {
+	n := int64(0)
+	for _, v := range inv.Slots {
+		if v.ItemID == 10156320 {
+			n += v.Count
+		}
+	}
+	return n
+}
+func TestGuildDungeonRepeatRewardKillsAndPartialExit(t *testing.T) {
+	repos, cmd := repeatRewardFixture(t)
+	ctx := context.Background()
+	owner, _ := NewOwner(repos)
+	seedRepeatProgress(t, repos, cmd.CharacterID, 95)
+	for n := 0; n < 3; n++ {
+		if _, err := owner.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, fmt.Sprint(n), 7)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
+	if c.Stats[guild.DungeonRepeatRewardProgressStat] != 99 || c.Stats[guild.DungeonRepeatRewardFractionStat] != 28 {
+		t.Fatal(c.Stats)
+	}
+	// Abandon/re-enter preserves partial progress, then a new run has a new budget.
+	old := *cmd.GuildDungeon
+	next := old
+	next.Entry.RunID = "next"
+	cmd.GuildDungeon = &next
+	for n := 0; n < 7; n++ {
+		if _, err := owner.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, fmt.Sprint(n), 7)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, _, _ = repos.Character.Load(ctx, cmd.CharacterID)
+	inv, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
+	if c.Stats[guild.DungeonRepeatRewardProgressStat] != 9 || c.Stats[guild.DungeonRepeatRewardFractionStat] != 28 || repeatBoxCount(inv) != 1 {
+		t.Fatal(c.Stats, inv)
+	}
+	// Old run and old target stay deduplicated after another run and a new owner.
+	cmd.GuildDungeon = &old
+	owner, _ = NewOwner(repos)
+	if got, err := owner.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "0", 7)); err != nil || !got.Replayed {
+		t.Fatal(got, err)
+	}
+	after, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
+	if !reflect.DeepEqual(c, after) {
+		t.Fatal("old replay mutated progress")
+	}
+	// A clear still grants its original guild items but never invents more kills.
+	if _, err := owner.CommitSettlement(ctx, cmd); err != nil {
+		t.Fatal(err)
+	}
+	after, _, _ = repos.Character.Load(ctx, cmd.CharacterID)
+	if after.Stats[guild.DungeonRepeatRewardProgressStat] != 9 || after.Stats[guild.DungeonRepeatRewardFractionStat] != 28 {
+		t.Fatal("clear added progress")
 	}
 }
-
 func TestGuildDungeonRepeatRewardConcurrentFullBar(t *testing.T) {
 	repos, cmd := repeatRewardFixture(t)
 	ctx := context.Background()
@@ -129,7 +111,12 @@ func TestGuildDungeonRepeatRewardConcurrentFullBar(t *testing.T) {
 	errs := make(chan error, 12)
 	for i := 0; i < 12; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); o, _ := NewOwner(repos); _, err := o.CommitSettlement(ctx, cmd); errs <- err }()
+		go func() {
+			defer wg.Done()
+			o, _ := NewOwner(repos)
+			_, err := o.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "boss", 1))
+			errs <- err
+		}()
 	}
 	wg.Wait()
 	close(errs)
@@ -139,116 +126,105 @@ func TestGuildDungeonRepeatRewardConcurrentFullBar(t *testing.T) {
 		}
 	}
 	inv, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
-	boxes := int64(0)
-	for _, item := range inv.Slots {
-		if item.ItemID == 10156320 {
-			boxes += item.Count
-		}
-	}
 	c, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
-	reg, _ := guild.Load(ctx, repos.Settings)
-	if boxes != 1 || c.Stats[guild.DungeonRepeatRewardProgressStat] != 0 || reg.Guilds[1].Dungeon.Counts[8500] != 1 {
-		t.Fatal(boxes, c.Stats, reg.Guilds[1].Dungeon)
+	if repeatBoxCount(inv) != 1 || c.Stats[guild.DungeonRepeatRewardProgressStat] != 0 {
+		t.Fatal(inv, c)
 	}
-}
-
-func TestGuildDungeonRepeatRewardCharacterIsolationAndNewMonth(t *testing.T) {
-	repos, cmd := repeatRewardFixture(t)
-	ctx := context.Background()
-	seedRepeatProgress(t, repos, cmd.CharacterID, 80)
-	reg, _ := guild.Load(ctx, repos.Settings)
-	peer, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
-	peer.CharacterID = "peer"
-	peer.Name = "Peer"
-	peer.Stats[guild.DungeonRepeatRewardProgressStat] = 0
-	if err := repos.Character.Save(ctx, peer); err != nil {
-		t.Fatal(err)
-	}
-	skill, _, _ := repos.Skill.Load(ctx, cmd.CharacterID)
-	skill.CharacterID = peer.CharacterID
-	if err := repos.Skill.Save(ctx, skill); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.Inventory.Save(ctx, r.InventoryRecord{CharacterID: peer.CharacterID}); err != nil {
-		t.Fatal(err)
-	}
-	m := reg.Guilds[1].Members[cmd.CharacterID]
-	m.CharacterID = peer.CharacterID
-	m.Name = peer.Name
-	m.Grade = 4
-	reg.Guilds[1].Members[peer.CharacterID] = m
-	if err := guild.Save(ctx, repos.Settings, reg, cmd.UpdatedAt); err != nil {
-		t.Fatal(err)
-	}
-	owners := []r.GuildOwner{cmd.GuildDungeon.Entry.Owner, {AccountID: peer.AccountID, CharacterID: peer.CharacterID}}
-	entries, err := guild.PrepareDungeonEntries(reg, cmd.GuildDungeon.Catalog, 8500, owners, "shared-party", cmd.UpdatedAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, e := range entries {
-		pc := cmd
-		clear := *cmd.GuildDungeon
-		clear.Entry = e
-		clear.PartySize = 2
-		pc.GuildDungeon = &clear
-		pc.CharacterID = e.Owner.CharacterID
-		pc.CompletionKey = e.CompletionKey()
-		o, _ := NewOwner(repos)
-		res, err := o.CommitSettlement(ctx, pc)
-		want := int64(90)
-		if i == 1 {
-			want = 10
-		}
-		if err != nil || res.Character.Stats[guild.DungeonRepeatRewardProgressStat] != want {
-			t.Fatal(i, res.Character.Stats, err)
-		}
-	}
-	// Reset only the guild's monthly count. Personal 90 percent survives.
-	cmd.UpdatedAt = time.Unix(int64(entries[0].Cycle.EndUnix), 0)
-	reg, _ = guild.Load(ctx, repos.Settings)
-	fresh, err := guild.PrepareDungeonEntries(reg, cmd.GuildDungeon.Catalog, 8500, owners[:1], "next-month", cmd.UpdatedAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.GuildDungeon.Entry = fresh[0]
-	cmd.CompletionKey = fresh[0].CompletionKey()
 	o, _ := NewOwner(repos)
-	res, err := o.CommitSettlement(ctx, cmd)
-	if err != nil || !res.GuildDungeon.RepeatReward.Awarded || res.GuildDungeon.Count != 1 {
-		t.Fatal(res.GuildDungeon, err)
-	}
-	peer, _, _ = repos.Character.Load(ctx, peer.CharacterID)
-	if peer.Stats[guild.DungeonRepeatRewardProgressStat] != 10 {
-		t.Fatal("peer progress changed")
+	if _, err := o.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "spawned-extra", 1)); err == nil {
+		t.Fatal("exceeded run cap")
 	}
 }
 
-func TestGuildDungeonRepeatRewardPersistsAndGrantsOnce(t *testing.T) {
+type killRewardRollback struct {
+	r.CharacterSettlementUnitOfWork
+	kill r.GuildDungeonKillUnitOfWork
+}
+
+func (f killRewardRollback) WithinGuildDungeonKill(ctx context.Context, owner r.GuildOwner, key string, apply func(r.Group) error) error {
+	return f.kill.WithinGuildDungeonKill(ctx, owner, key, func(tx r.Group) error {
+		if err := apply(tx); err != nil {
+			return err
+		}
+		return errors.New("late failure")
+	})
+}
+func TestGuildDungeonRepeatRewardAtomicFailures(t *testing.T) {
+	for _, kind := range []string{"late rollback", "missing box", "invalid balance", "wrong owner", "changed budget"} {
+		t.Run(kind, func(t *testing.T) {
+			repos, cmd := repeatRewardFixture(t)
+			ctx := context.Background()
+			seedRepeatProgress(t, repos, cmd.CharacterID, 90)
+			original := repos.CharacterSettlement
+			box := cmd.GuildDungeon.Items[10156320]
+			entry := cmd.GuildDungeon.Entry
+			switch kind {
+			case "late rollback":
+				repos.CharacterSettlement = killRewardRollback{original, original.(r.GuildDungeonKillUnitOfWork)}
+			case "missing box":
+				delete(cmd.GuildDungeon.Items, 10156320)
+			case "invalid balance":
+				seedRepeatProgress(t, repos, cmd.CharacterID, 100)
+			case "wrong owner":
+				cmd.GuildDungeon.Entry.Owner.AccountID = "foreign"
+			case "changed budget":
+				cmd.GuildDungeon.Entry.RepeatRewardPercent = 35
+			}
+			before, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
+			invBefore, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
+			regBefore, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)
+			o, _ := NewOwner(repos)
+			if _, err := o.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "0", 1)); err == nil {
+				t.Fatal("fault committed")
+			}
+			after, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
+			invAfter, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
+			regAfter, _, _ := repos.Settings.Load(ctx, guild.RegistryScope)
+			if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(invBefore, invAfter) || !reflect.DeepEqual(regBefore, regAfter) {
+				t.Fatal("partial transaction")
+			}
+			_, found, _ := repos.Settings.Load(ctx, r.GuildDungeonKillReceiptScope(entry.Owner, entry.CompletionKey()))
+			if found {
+				t.Fatal("failed receipt persisted")
+			}
+			repos.CharacterSettlement = original
+			cmd.GuildDungeon.Items[10156320] = box
+			cmd.GuildDungeon.Entry = entry
+			seedRepeatProgress(t, repos, cmd.CharacterID, 90)
+			o, _ = NewOwner(repos)
+			if got, err := o.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "0", 1)); err != nil || !got.Reward.Awarded {
+				t.Fatal(got, err)
+			}
+		})
+	}
+}
+func TestGuildDungeonRepeatRewardFullBagMail(t *testing.T) {
 	repos, cmd := repeatRewardFixture(t)
 	ctx := context.Background()
-	owner, _ := NewOwner(repos)
-	for n := 1; n <= 20; n++ {
-		cmd.GuildDungeon.Entry.RunID = fmt.Sprintf("repeat-%d", n)
-		cmd.CompletionKey = cmd.GuildDungeon.Entry.CompletionKey()
-		result, err := owner.CommitSettlement(ctx, cmd)
-		if err != nil {
-			t.Fatal(n, err)
-		}
-		if got := result.Character.Stats["guild_dungeon_repeat_reward_progress"]; got != int64(n%10*10) {
-			t.Fatalf("clear %d progress=%d", n, got)
-		}
-		boxes := int64(0)
-		for _, item := range result.Inventory.Slots {
-			if item.ItemID == 10156320 {
-				boxes += item.Count
-			}
-		}
-		if boxes != int64(n/10) {
-			t.Fatalf("clear %d boxes=%d", n, boxes)
-		}
-		replay, err := owner.CommitSettlement(ctx, cmd)
-		if err != nil || !replay.Replayed || replay.Character.Stats["guild_dungeon_repeat_reward_progress"] != result.Character.Stats["guild_dungeon_repeat_reward_progress"] {
-			t.Fatal("replay", n, err)
-		}
+	seedRepeatProgress(t, repos, cmd.CharacterID, 90)
+	inv, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
+	inv.Slots = map[string]r.ItemStack{}
+	for i := 121; i <= 152; i++ {
+		inv.Slots[fmt.Sprintf("0:%d", i)] = r.ItemStack{ItemID: 222, Count: 1}
+	}
+	if err := repos.Inventory.Save(ctx, inv); err != nil {
+		t.Fatal(err)
+	}
+	o, _ := NewOwner(repos)
+	got, err := o.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "0", 1))
+	if err != nil || got.MailID == "" || !got.Reward.Awarded {
+		t.Fatal(got, err)
+	}
+	mailbox, _, err := repos.Mailbox.Load(ctx, cmd.CharacterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := o.CommitGuildDungeonKill(ctx, killRewardCommand(cmd, "0", 1))
+	if err != nil || !again.Replayed || again.MailID != got.MailID {
+		t.Fatal(again, err)
+	}
+	after, _, _ := repos.Mailbox.Load(ctx, cmd.CharacterID)
+	if !reflect.DeepEqual(mailbox, after) {
+		t.Fatal("duplicate mail")
 	}
 }

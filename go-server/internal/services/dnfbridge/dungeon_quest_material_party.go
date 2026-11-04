@@ -217,7 +217,7 @@ func (s *Service) commitQuestMaterialDeath(p *gameSession, rt *runtimeDungeonSta
 	if err != nil {
 		return runtimeDungeonDeathTarget{}, false, err
 	}
-	return rt.Room.commitActorDeathReportPrepared(key, rt.Session, true, prepare)
+	return s.commitGuildDungeonRewardDeath(p, rt, key, prepare)
 }
 
 func (s *Service) grantQuestMaterialInventory(inv *r.InventoryRecord, a questmaterial.Attempt) ([]int16, error) {

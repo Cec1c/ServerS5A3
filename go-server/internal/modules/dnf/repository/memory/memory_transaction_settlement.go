@@ -30,7 +30,7 @@ func (u *memoryCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 	characterID string,
 	apply func(repository.Group) error,
 ) error {
-	return u.withinSettlement(ctx, characterID, nil, "", apply)
+	return u.withinSettlement(ctx, characterID, nil, "", true, apply)
 }
 
 func (u *memoryCharacterSettlementUnitOfWork) WithinGuildSettlement(ctx context.Context, owner repository.GuildOwner, completion string, apply func(repository.Group) error) error {
@@ -40,10 +40,21 @@ func (u *memoryCharacterSettlementUnitOfWork) WithinGuildSettlement(ctx context.
 	if completion == "" || u == nil || u.settings == nil {
 		return repository.ErrGuildTransaction
 	}
-	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildSettlementReceiptScope(owner, completion), apply)
+	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildSettlementReceiptScope(owner, completion), true, apply)
 }
 
-func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Context, characterID string, owner *repository.GuildOwner, receiptScope string, apply func(repository.Group) error) (result error) {
+// Personal kill receipts need no global guild-registry lock.
+func (u *memoryCharacterSettlementUnitOfWork) WithinGuildDungeonKill(ctx context.Context, owner repository.GuildOwner, run string, apply func(repository.Group) error) error {
+	if _, err := repository.GuildOwners([]repository.GuildOwner{owner}); err != nil {
+		return err
+	}
+	if run == "" || u == nil {
+		return repository.ErrGuildTransaction
+	}
+	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildDungeonKillReceiptScope(owner, run), false, apply)
+}
+
+func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Context, characterID string, owner *repository.GuildOwner, receiptScope string, registry bool, apply func(repository.Group) error) (result error) {
 	characterID = strings.TrimSpace(characterID)
 	if characterID == "" || apply == nil || u == nil || u.character == nil ||
 		u.quests == nil || u.inventory == nil || u.equipment == nil || u.skills == nil {
@@ -155,13 +166,17 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 	}
 	var comboSettingsTx *memorySettlementSettingsTransaction
 	guildSettingsTx := map[string]*memorySettingsTransaction{}
+	settingsScopes := []string{receiptScope}
+	if registry {
+		settingsScopes = append([]string{repository.GuildRegistryScope}, settingsScopes...)
+	}
 	settingsBefore := map[string]repository.SettingsRecord{}
 	settingsExisted := map[string]bool{}
 	if owner != nil {
 		if u.settings == nil {
 			return repository.ErrGuildTransaction
 		}
-		for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
+		for _, scope := range settingsScopes {
 			record, found, err := u.settings.Load(ctx, scope)
 			if err != nil {
 				return err
@@ -268,7 +283,7 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 	}
 	// The shared aggregate mutex remains held until these durable records commit.
 	if owner != nil {
-		for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
+		for _, scope := range settingsScopes {
 			tx := guildSettingsTx[scope]
 			if tx == nil || !tx.dirty {
 				continue

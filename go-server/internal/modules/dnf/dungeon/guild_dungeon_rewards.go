@@ -31,12 +31,6 @@ func commitGuildDungeonClear(ctx context.Context, settings r.SettingsRepository,
 	if err != nil {
 		return guild.DungeonClearResult{}, nil, err
 	}
-	bonus, progress, err := guild.ApplyDungeonRepeatReward(character, clear.Catalog, clear.Entry.RepeatRewardPercent)
-	if err != nil {
-		return guild.DungeonClearResult{}, nil, err
-	}
-	result.RepeatReward = progress
-	reward.Items = append(reward.Items, bonus...)
 	if err = r.BindInventoryContainerState(ctx, settings, inventory); err != nil {
 		return guild.DungeonClearResult{}, nil, err
 	}

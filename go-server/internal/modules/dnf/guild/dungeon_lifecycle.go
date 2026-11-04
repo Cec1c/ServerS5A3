@@ -18,7 +18,6 @@ type DungeonPolicy struct {
 	ResetHour           int    `json:"reset_hour"`
 	UTCOffsetMinutes    int    `json:"utc_offset_minutes"`
 	ClearUnitsPerMember uint32 `json:"clear_units_per_member"`
-	RepeatRewardPercent uint32 `json:"repeat_reward_percent,omitempty"`
 }
 type DungeonCycle struct {
 	Key                string
@@ -103,7 +102,7 @@ func PrepareDungeonEntries(reg Registry, catalog *DungeonCatalog, id uint32, own
 	if err != nil {
 		return nil, err
 	}
-	percent, err := reg.DungeonPolicy.repeatRewardPercent()
+	percent, err := catalog.RepeatRewardRunPercent(id)
 	if err != nil {
 		return nil, err
 	}
