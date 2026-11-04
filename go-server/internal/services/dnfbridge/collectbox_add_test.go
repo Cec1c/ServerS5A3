@@ -76,6 +76,18 @@ func currentCollectboxLoadSlots(t *testing.T, repositories dnfrepo.Group) map[st
 	return record.Slots
 }
 
+func currentCollectboxLoadAccountSlots(t *testing.T, repositories dnfrepo.Group) map[string]dnfrepo.ItemStack {
+	t.Helper()
+	record, found, err := repositories.AccountInventory.Load(context.Background(), "account-1")
+	if err != nil {
+		t.Fatalf("load account inventory: %v", err)
+	}
+	if !found {
+		return nil
+	}
+	return record.Slots
+}
+
 // currentCollectboxStatePacketForBox 在已写出的包里找该箱的 class0/op1027 刷新。
 func currentCollectboxStatePacketForBox(t *testing.T, packets []dnfprotoPacketView, boxIndex byte) ([]byte, bool) {
 	t.Helper()
@@ -166,7 +178,8 @@ func TestCollectboxAddMovesBeadIntoBoxAndAcks(t *testing.T) {
 	if _, still := slots["0:30"]; still {
 		t.Fatalf("bead must leave the bag, slots = %+v", slots)
 	}
-	if got := dnfcollectbox.RegisteredItemIDs(dnfrepo.InventoryRecord{Slots: slots}, 2); len(got) != 1 || got[0] != int32(itemID) {
+	accountSlots := currentCollectboxLoadAccountSlots(t, repositories)
+	if got := dnfcollectbox.RegisteredItemIDs(dnfrepo.AccountInventoryRecord{Slots: accountSlots}, 2); len(got) != 1 || got[0] != int32(itemID) {
 		t.Fatalf("registered = %v want [%d]", got, itemID)
 	}
 }
@@ -200,7 +213,8 @@ func TestCollectboxAddSecondBeadKeepsCompleteImmediateState(t *testing.T) {
 		}
 	}
 	slots := currentCollectboxLoadSlots(t, repositories)
-	if slots["0:31"].Count != 1 || len(dnfcollectbox.RegisteredItemIDs(dnfrepo.InventoryRecord{Slots: slots}, 2)) != 2 {
+	accountSlots := currentCollectboxLoadAccountSlots(t, repositories)
+	if slots["0:31"].Count != 1 || len(dnfcollectbox.RegisteredItemIDs(dnfrepo.AccountInventoryRecord{Slots: accountSlots}, 2)) != 2 {
 		t.Fatalf("persisted slots=%+v", slots)
 	}
 }
@@ -250,6 +264,52 @@ func TestCollectboxAddSurvivesRelogin(t *testing.T) {
 	}
 }
 
+// TestCollectboxAddIsVisibleToAnotherCharacter proves the server read path is
+// account-scoped: character 19 performs the put, then character 21 on the same
+// account opens the same box and receives the same item id.
+func TestCollectboxAddIsVisibleToAnotherCharacter(t *testing.T) {
+	service, session, repositories, connection := newCurrentCollectboxAddTestService(t, collectboxMutationReference)
+	itemID := currentCollectboxAddTestItemID(t)
+	ctx := context.Background()
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
+		CharacterID: "21",
+		AccountID:   "account-1",
+		Stats:       make(map[string]int64),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+		CharacterID: "21",
+		Slots:       make(map[string]dnfrepo.ItemStack),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seedCurrentCollectboxAddBag(t, repositories, map[string]dnfrepo.ItemStack{
+		"0:30": {ItemID: int64(itemID), Count: 1},
+	})
+	connection.write.Reset()
+	if err := service.handleCurrentCollectboxAdd(session, currentCollectboxAddTestBody(2, 30, itemID)); err != nil {
+		t.Fatalf("add from character 19: %v", err)
+	}
+
+	otherSession := &gameSession{conn: &bufferConn{}, connID: "same-account-character-21", selectedCharacterID: 21}
+	box, ok := service.collectboxCatalog.Box(2)
+	if !ok {
+		t.Fatal("fixture box 2 missing")
+	}
+	ids := service.currentCollectboxRegisteredItemIDs(otherSession, box)
+	if len(ids) != 1 || ids[0] != int32(itemID) {
+		t.Fatalf("character 21 sees %v want [%d]", ids, itemID)
+	}
+	characterInventory, found, err := repositories.Inventory.Load(ctx, "21")
+	if err != nil || !found {
+		t.Fatalf("load character 21 inventory found=%t err=%v", found, err)
+	}
+	if len(characterInventory.Slots) != 0 {
+		t.Fatalf("character 21 inventory must stay empty, got %+v", characterInventory.Slots)
+	}
+}
+
 // TestCollectboxAddObserveOnlyKeepsLegacyBehaviour 钉住"一键回退"：
 // DNFBRIDGE_COLLECTBOX_MUTATION=observe_only 时必须恢复修复前行为
 // （不发包、不搬物品），只留观测日志。
@@ -270,7 +330,7 @@ func TestCollectboxAddObserveOnlyKeepsLegacyBehaviour(t *testing.T) {
 	if slots["0:30"].ItemID != int64(itemID) {
 		t.Fatalf("observe_only must not move the bead, slots = %+v", slots)
 	}
-	if got := dnfcollectbox.RegisteredItemIDs(dnfrepo.InventoryRecord{Slots: slots}, 2); len(got) != 0 {
+	if got := dnfcollectbox.RegisteredItemIDs(dnfrepo.AccountInventoryRecord{Slots: currentCollectboxLoadAccountSlots(t, repositories)}, 2); len(got) != 0 {
 		t.Fatalf("observe_only must not register, got %v", got)
 	}
 }

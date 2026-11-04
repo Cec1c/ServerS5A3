@@ -16,9 +16,9 @@ const (
 	SoulWarehouseLastSlot     int16 = 365
 )
 
-// AccountInventoryRepository stores the account-owned portion of list type 0.
-// The current client still addresses these entries as ordinary list-0 slots;
-// only their durable owner changes from character to account.
+// AccountInventoryRepository stores account-owned inventory slots. Client-visible
+// list-0 crystal/soul slots use their ordinary wire addresses; internal features
+// such as collectbox use reserved pseudo-container list type 101.
 type AccountInventoryRepository interface {
 	db.Store[AccountInventoryRecord]
 }
