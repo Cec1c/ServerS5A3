@@ -159,7 +159,7 @@ func TestR148DeathRejectsOtherShapesAndClasses(t *testing.T) {
 }
 
 func TestR148DeathZeroTailRetainsOwnerGuards(t *testing.T) {
-	for _, boundary := range []string{"no_runtime", "unselected", "wrong_character", "zero_lifecycle", "town_pending", "completed_first_death", "completed_after_revive"} {
+	for _, boundary := range []string{"no_runtime", "unselected", "wrong_character", "zero_lifecycle", "town_pending", "completed_without_entry", "completed_after_return"} {
 		t.Run(boundary, func(t *testing.T) {
 			s, g, r, q := r148DeathFixture(t)
 			switch boundary {
@@ -173,12 +173,14 @@ func TestR148DeathZeroTailRetainsOwnerGuards(t *testing.T) {
 				r.lifecycleToken = 0
 			case "town_pending":
 				r.townReturnPending = true
-			case "completed_first_death":
+			case "completed_without_entry":
 				r148Complete(t, s, g, r)
-			case "completed_after_revive":
+				r.settlementEntrySent = false
+			case "completed_after_return":
 				r148Dispatch(t, s, g, 40, make([]byte, 4))
 				r148AssertRevive(t, s, g, r)
 				r148Complete(t, s, g, r)
+				r.townReturnPending = true
 			}
 			before := r148Bag(t, s)
 			conn := g.conn.(*bufferConn)
@@ -222,13 +224,31 @@ func TestR148DeathMixedRepeatKeepsOneTimerAndOneReviveDebit(t *testing.T) {
 	if conn.write.Len() != 0 || !reflect.DeepEqual(paid, r148Bag(t, s)) || r.townReturnPending {
 		t.Fatal("revive replay/stale callback changed committed assets")
 	}
-	// Never grant a new completed death from a repeat of the same six bytes.
+	// Coordinates are not a death-event identity: a later legitimate death
+	// may occur at the same position after completion. Once that death is
+	// accepted, mixed duplicate reports and repeated coin requests still
+	// produce one debit, and none may arm another town-return timer.
 	r148Complete(t, s, g, r)
 	conn.write.Reset()
 	r148Dispatch(t, s, g, 40, []byte{218, 1, 234, 0, 0, 0})
+	r148Dispatch(t, s, g, 40, []byte{218, 1, 234, 0})
+	frames := splitUpperFrames(t, conn.write.Bytes())
+	if len(frames) != 1 || frames[0].msgID != 32 || !r.deathStateSent || r.deathReturnWaiting || !reflect.DeepEqual(paid, r148Bag(t, s)) {
+		t.Fatal("completed death repeat changed timer/assets or emitted duplicate notification")
+	}
 	r148Dispatch(t, s, g, 41, []byte{99, 0})
-	if conn.write.Len() != 0 || !reflect.DeepEqual(paid, r148Bag(t, s)) || r.deathStateSent {
-		t.Fatal("completed old death replay accepted")
+	paidAgain := r148Bag(t, s)
+	if r148Coins(t, s) != 1 || r.deathStateSent {
+		t.Fatal("second legitimate death did not revive with one debit")
+	}
+	conn.write.Reset()
+	r148Dispatch(t, s, g, 41, []byte{99, 0})
+	q.fire(q.task(t, 2), true)
+	if conn.write.Len() != 0 || !reflect.DeepEqual(paidAgain, r148Bag(t, s)) || r.townReturnPending {
+		t.Fatal("completed revive replay or stale timer changed committed state")
+	}
+	if scheduled, _, active := q.counts(); scheduled != 3 || active != 0 {
+		t.Fatal("completed death added a return timer")
 	}
 }
 
@@ -302,7 +322,7 @@ func TestR148DeathBothEntriesAndEnvironment(t *testing.T) {
 					if !reflect.DeepEqual(before, r148Bag(t, s)) {
 						t.Fatal("death admission changed assets")
 					}
-					if shape != "four" && shape != "six_zero" {
+					if shape != "four" && shape != "six_zero" && shape != "completed" {
 						if conn.write.Len() != 0 || r.deathStateSent || r.deathReturnWaiting {
 							t.Fatal("rejected request changed life or emitted response")
 						}
@@ -314,6 +334,16 @@ func TestR148DeathBothEntriesAndEnvironment(t *testing.T) {
 					p, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 					if p.Header.Classification != 0 || p.Header.MsgID != 32 || !bytes.Equal(p.Body, []byte{99, 0, 0, 0}) || len(rest) != 0 {
 						t.Fatal("accepted request has wrong death notification")
+					}
+					if shape == "completed" {
+						if !r.deathStateSent || r.deathReturnWaiting || r.townReturnPending {
+							t.Fatal("completed death did not retain only its life state")
+						}
+						if scheduled, _, active := q.counts(); scheduled != 0 || active != 0 {
+							t.Fatal("completed death scheduled a return timer")
+						}
+						r148AssertRevive(t, s, g, r)
+						return
 					}
 					task := q.task(t, 0)
 					if task.delay != currentDungeonDeathReturnDelay || !r.deathStateSent || !r.deathReturnWaiting {
