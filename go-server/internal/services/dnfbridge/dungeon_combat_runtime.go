@@ -188,6 +188,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
 	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
 	friendlyOwnerDeath := hasScene && s.currentDungeonFriendlyOwnerDeath(runtime, scene, request)
+	specialMonsterDeathTarget := runtime.Room.KnownSpecialMonsterActor(request.RuntimeObjectKey)
 	if friendlyAPCDeath || friendlyOwnerDeath {
 		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
 			// Repair a duplicate or failed notification without settling the kill
@@ -212,7 +213,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				}
 			}
 		}
-		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath {
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) &&
+			!friendlyAPCDeath && !storyProcDeath && !specialMonsterDeathTarget {
 			if !roomProvenHostile {
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 					"dungeon_id", runtime.Dungeon.ID,
@@ -259,7 +261,8 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			}
 		}
 	}
-	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget && !ownerSentinelOrdinaryTarget && !storyProcDeath && !friendlyAPCDeath {
+	if ownerIsSentinel && !scriptedTutorialDeath && !ownerSentinelBlockingClearTarget &&
+		!ownerSentinelOrdinaryTarget && !storyProcDeath && !friendlyAPCDeath && !specialMonsterDeathTarget {
 		target, retirementErr := runtime.Room.RetireNonHostileAIActor(request.RuntimeObjectKey)
 		if retirementErr != nil {
 			if hasScene {
@@ -385,6 +388,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		!roomProvenHostile &&
 		!friendlyAPCDeath &&
 		!friendlyOwnerDeath &&
+		!specialMonsterDeathTarget &&
 		!dungeonRuntimeContainsDeathOwnerObjectKey(runtime, uint32(request.OwnerObjectKey)) &&
 		!hitOwner.accepted {
 		if hitOwnerMode == dungeonPartyHitOwnerParty {
@@ -394,6 +398,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			s.logGameEvent(session, "game-dungeon-party-hit-clamped-to-one",
 				"attacker_char_id", hitOwner.partyPeerCharID,
 				"attacker_is_party_member", hitOwner.partyMember,
+				"attacker_recently_departed", hitOwner.recentlyDeparted,
 				"attacker_in_same_dungeon_instance", hitOwner.sameInstance,
 				"reporter_char_id", session.selectedCharacterID,
 				"target_object_key", request.RuntimeObjectKey,
@@ -422,6 +427,10 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		// 命中被接受：客户端按自己的真实伤害数值结算（服务端不计算伤害，这里只把
 		// "这次 op39 是两打一的正常形状"钉成一条可判读事件，并给出 damage_floor=real）。
 		verdict := dungeonPartyHitVerdictForAccepted(true)
+		gate := "party_peer_attacker_same_instance"
+		if hitOwner.recentlyDeparted {
+			gate = "recently_departed_party_peer_same_instance"
+		}
 		s.logGameEvent(session, "game-dungeon-party-hit-accepted",
 			"attacker_char_id", hitOwner.partyPeerCharID,
 			"reporter_char_id", session.selectedCharacterID,
@@ -430,12 +439,14 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			"player_object_key", playerObjectKey,
 			"party_id", hitOwner.partyID,
 			"instance_id", hitOwner.instanceID,
+			"attacker_is_party_member", hitOwner.partyMember,
+			"attacker_recently_departed", hitOwner.recentlyDeparted,
 			"same_party_dungeon_instance", true,
 			"request_layout", request.Layout,
 			"damage_evidence_combat_entries", request.CombatEntryCount,
 			"damage_floor", currentDungeonPartyHitDamageFloorLabel(verdict),
 			"clamped_to_one", false,
-			"gate", "party_peer_attacker_same_instance",
+			"gate", gate,
 			"switch", dungeonPartyHitOwnerEnv,
 			"mode", hitOwnerMode.String(),
 			"reason", hitOwner.reason)

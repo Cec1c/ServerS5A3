@@ -458,6 +458,30 @@ func (r *runtimeDungeonRoom) AnnouncedMonster(objectKey uint32) (runtimeDungeonM
 	return r.monsters[index], true
 }
 
+// KnownSpecialMonsterActor reports whether objectKey names a server-owned
+// special monster in this room. The current client reports these actors
+// through DIE_MONSTER with owner=ffff and a nonempty combat list even though
+// they have no HostileReference and do not own room-clear state.
+//
+// This is a read-only identity proof. The caller still goes through
+// RetireSpecialMonsterActor, so retired actors keep their existing idempotent
+// replay path and reward-wave behavior.
+func (r *runtimeDungeonRoom) KnownSpecialMonsterActor(objectKey uint32) bool {
+	if r == nil || objectKey == 0 {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	index, ok := r.extendedByObjectKey[objectKey]
+	if !ok {
+		return false
+	}
+	actor := r.extendedActors[index]
+	return actor.Kind == runtimeDungeonActorSpecialMonster &&
+		actor.HostileReference == nil &&
+		(actor.State == runtimeDungeonMonsterAnnounced || actor.State == runtimeDungeonMonsterDefeated)
+}
+
 // MonsterByReference resolves the PVF monster definition behind a room
 // HostileReference regardless of whether the live actor object is the ordinary
 // monster row or a current-EXE extended actor bound to the same reference. 86JP
