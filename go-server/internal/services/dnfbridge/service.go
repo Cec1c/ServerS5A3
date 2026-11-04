@@ -954,14 +954,26 @@ func (s *Service) loadChannelAssets() (*channelcatalog.Catalog, []byte, error) {
 }
 
 func (s *Service) buildChannelScript(raw []byte) ([]byte, error) {
+	index, err := channelinfo.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := channelcatalog.New(index, channelcatalog.Options{ServerID: s.channelServerID()})
+	if err != nil {
+		return nil, err
+	}
+	bootstrap, ok := catalog.BootstrapChannel(dnfenum.BootstrapChannelID)
+	if !ok {
+		return nil, fmt.Errorf("%w: no configured bootstrap or ordinary channel", channelcatalog.ErrEmpty)
+	}
 	if s.options.currentClientVersion == "official-24.9" {
-		return channelinfo.BuildOfficial249OnlineScript(raw, s.channelServerID(), s.channelAdvertiseID(), dnfenum.BootstrapChannelID)
+		return channelinfo.BuildOfficial249OnlineScript(raw, s.channelServerID(), s.channelAdvertiseID(), bootstrap.ID)
 	}
 	return channelinfo.Build90CNOnlineScript(
 		raw,
 		s.channelServerID(),
 		s.channelAdvertiseID(),
-		dnfenum.BootstrapChannelID,
+		bootstrap.ID,
 	)
 }
 

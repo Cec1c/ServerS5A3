@@ -54,10 +54,11 @@ func run(pvf, output, channel string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := catalog.Channel(dnfenum.BootstrapChannelID); !ok {
-		return fmt.Errorf("PVF lacks bootstrap channel %d", dnfenum.BootstrapChannelID)
+	bootstrap, ok := catalog.BootstrapChannel(dnfenum.BootstrapChannelID)
+	if !ok {
+		return fmt.Errorf("PVF lacks configured bootstrap or ordinary channel")
 	}
-	if _, err = channelinfo.Build90CNOnlineScript(data, dnfenum.LoginChannelServerIndex, 0, dnfenum.BootstrapChannelID); err != nil {
+	if _, err = channelinfo.Build90CNOnlineScript(data, dnfenum.LoginChannelServerIndex, 0, bootstrap.ID); err != nil {
 		return err
 	}
 	existing, err := os.ReadFile(output)
