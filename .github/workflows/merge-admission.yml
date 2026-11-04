@@ -1,0 +1,23 @@
+name: Merge admission
+on:
+  workflow_run:
+    workflows: [Verify]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+jobs:
+  admission:
+    if: github.repository == 'Cec1c/ServerS5A3'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # Only default-branch policy code, never candidate code or downloaded artifacts.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: master
+          persist-credentials: false
+      - run: python3 scripts/ci/merge_admission.py
+        env:
+          GH_TOKEN: ${{ github.token }}

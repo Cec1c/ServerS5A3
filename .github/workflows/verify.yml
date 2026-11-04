@@ -17,7 +17,7 @@ jobs:
       game: ${{ steps.scope.outputs.game }}
       tooling: ${{ steps.scope.outputs.tooling }}
       container: ${{ steps.scope.outputs.container }}
-      ready: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
+      ready: ${{ github.event_name == 'workflow_dispatch' || (!github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'quick-local-ci')) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -81,7 +81,7 @@ jobs:
           persist-credentials: false
       - run: docker build -t servers5a3-ci -f deploy/docker/Dockerfile .
   required:
-    if: always() && github.repository == 'Cec1c/ServerS5A3' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
+    if: always() && github.repository == 'Cec1c/ServerS5A3' && (github.event_name == 'workflow_dispatch' || (!github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'quick-local-ci')))
     needs: [scope, linux, tooling, container]
     runs-on: ubuntu-latest
     steps:
