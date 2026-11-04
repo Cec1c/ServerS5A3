@@ -138,7 +138,7 @@ func (s *Service) freezeCurrentGuildDungeonGroup(ctx context.Context, session *g
 	for i, entry := range entries {
 		runtimes[i].guildDungeonClear = &dungeon.GuildDungeonClear{Entry: entry, Catalog: catalog, PartySize: len(entries)}
 	}
-	return nil
+	return freezeGuildDungeonKillPlan(runtimes, entries)
 }
 
 func (s *Service) freezeCurrentGuildDungeonRewards(runtime *runtimeDungeonState) error {
@@ -149,6 +149,11 @@ func (s *Service) freezeCurrentGuildDungeonRewards(runtime *runtimeDungeonState)
 	if clear == nil || clear.Entry.DungeonID != uint32(runtime.Dungeon.ID) || !runtime.ordinaryFinalRoomClearAccepted || runtime.clearMapCompletionKey == "" {
 		return guild.ErrPermissionDenied
 	}
+	return s.resolveCurrentGuildDungeonRewardItems(runtime)
+}
+
+func (s *Service) resolveCurrentGuildDungeonRewardItems(runtime *runtimeDungeonState) error {
+	clear := runtime.guildDungeonClear
 	if clear.Items != nil {
 		return nil
 	}
@@ -192,6 +197,11 @@ func (s *Service) sendCurrentGuildDungeonSettlement(session *gameSession, runtim
 	}
 	if err := s.writeCurrentGuildDungeonSnapshot(session); err != nil {
 		return err
+	}
+	if len(plan.GuildDungeonRepeatRewardBody) > 0 {
+		if err := s.sendGameUpperRawClass(session, currentGuildDungeonRepeatRewardNotification, plan.GuildDungeonRepeatRewardBody, 0); err != nil {
+			return err
+		}
 	}
 	runtime.settlementGuildDungeonSent = true
 	s.queueCurrentGuildDungeonRefresh(runtime.guildDungeonClear.Entry.GuildID, session.selectedCharacterID)

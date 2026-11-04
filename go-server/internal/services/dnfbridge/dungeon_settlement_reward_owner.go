@@ -39,6 +39,7 @@ type currentDungeonSettlementRewardResources struct {
 }
 
 type currentDungeonSettlementCommitResult struct {
+	GuildDungeon      guild.DungeonClearResult
 	GuildDungeonItems []dnfdungeon.GuildDungeonGrantedItem
 	DespairItems      []dnfdungeon.DespairGrantedItem
 	GriefItems        []dnfdungeon.GriefGrantedItem
@@ -299,6 +300,12 @@ func (s *Service) produceCurrentDungeonSettlementPlanWithResourcesLocked(
 		}
 	}
 	plan.GuildDungeonItemSlots = guildDungeonRefreshSlots(result.GuildDungeonItems)
+	if result.GuildDungeon.RepeatReward.Enabled {
+		plan.GuildDungeonRepeatRewardBody, err = buildCurrentGuildDungeonRepeatRewardBody(result.GuildDungeon.RepeatReward.Display)
+		if err != nil {
+			return err
+		}
+	}
 	if currentDungeonIsDespairTower(runtime) {
 		floor, err := currentDespairFloor(runtime.Dungeon)
 		if err != nil {
@@ -783,6 +790,7 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		}
 	}
 	return currentDungeonSettlementCommitResult{
+		GuildDungeon:      result.GuildDungeon,
 		GuildDungeonItems: result.GuildDungeonItems,
 		DespairItems:      result.DespairItems,
 		GriefItems:        result.GriefItems,

@@ -21,7 +21,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) WithinCharacterSettlement(
 	characterID string,
 	apply func(repository.Group) error,
 ) error {
-	return u.withinSettlement(ctx, characterID, nil, "", apply)
+	return u.withinSettlement(ctx, characterID, nil, "", true, apply)
 }
 func (u *mysqlCharacterSettlementUnitOfWork) WithinGuildSettlement(ctx context.Context, owner repository.GuildOwner, completion string, apply func(repository.Group) error) error {
 	if _, err := repository.GuildOwners([]repository.GuildOwner{owner}); err != nil {
@@ -30,9 +30,21 @@ func (u *mysqlCharacterSettlementUnitOfWork) WithinGuildSettlement(ctx context.C
 	if completion == "" {
 		return repository.ErrGuildTransaction
 	}
-	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildSettlementReceiptScope(owner, completion), apply)
+	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildSettlementReceiptScope(owner, completion), true, apply)
 }
-func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Context, characterID string, owner *repository.GuildOwner, receiptScope string, apply func(repository.Group) error) error {
+
+// Personal kill receipts need no global guild-registry lock.
+func (u *mysqlCharacterSettlementUnitOfWork) WithinGuildDungeonKill(ctx context.Context, owner repository.GuildOwner, run string, apply func(repository.Group) error) error {
+	if _, err := repository.GuildOwners([]repository.GuildOwner{owner}); err != nil {
+		return err
+	}
+	if run == "" || u == nil {
+		return repository.ErrGuildTransaction
+	}
+	return u.withinSettlement(ctx, owner.CharacterID, &owner, repository.GuildDungeonKillReceiptScope(owner, run), false, apply)
+}
+
+func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Context, characterID string, owner *repository.GuildOwner, receiptScope string, registry bool, apply func(repository.Group) error) error {
 	characterID = strings.TrimSpace(characterID)
 	if characterID == "" || apply == nil || u == nil {
 		return repository.ErrCharacterSettlementTransactionUnavailable
@@ -100,7 +112,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	if store, ok := base.AccountInventory.(*mysqlAccountInventoryStore); ok {
 		store.trackSlotChanges = true
 	}
-	if owner != nil {
+	if owner != nil && registry {
 		table, err := txRouter.writeTable(mysqlSettingsTable, repository.GuildRegistryScope)
 		if err != nil {
 			return err
@@ -147,6 +159,9 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	}
 	if owner != nil {
 		txGroup.Settings = repository.GuildSettlementSettings(base.Settings, receiptScope)
+		if !registry {
+			txGroup.Settings = repository.GuildDungeonKillSettings(base.Settings, receiptScope)
+		}
 		txGroup.Mailbox = &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}
 	}
 	txGroup.Skill = scopeSkillPointLedger(txGroup.Skill, base.Skill, characterID)
