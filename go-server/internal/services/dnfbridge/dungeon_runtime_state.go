@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	pendingDeathPreparations                 map[uint32]*pendingDungeonDeathPreparation
 	guildDungeonKills                        *currentGuildDungeonKillPlan
 	monsterAdventureInfoPending              bool // committed EXP; UI roster waits until after room death notifications
 	partyExperienceReceipts                  map[currentPartyMonsterExperienceReceipt]bool

@@ -170,8 +170,9 @@ type Definition struct {
 }
 
 type Catalog struct {
-	ordered []Definition
-	byID    map[int64]Definition
+	monsterMaterialIndex map[int64][]monsterMaterialScope
+	ordered              []Definition
+	byID                 map[int64]Definition
 }
 
 type Snapshot struct {
@@ -271,6 +272,7 @@ func Load(ctx context.Context, index *dnfpvf.Index) (*Catalog, error) {
 	if len(catalog.ordered) == 0 {
 		return nil, ErrCatalogEmpty
 	}
+	catalog.buildMonsterMaterialIndex()
 	return catalog, nil
 }
 
