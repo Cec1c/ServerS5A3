@@ -84,9 +84,11 @@ class QuickTests(unittest.TestCase):
         with self.assertRaises(RuntimeError): self.run_merge()
         self.assertEqual(sum(p.endswith("/merge") for m,p,d in self.api.calls),1)
         self.assertEqual(json.loads(self.output.read_text())["state"],"inspect-original-operation")
-        self.api.calls=[]
-        with self.assertRaises(ValueError): self.run_merge()
-        self.assertFalse(any(m != "GET" for m,p,d in self.api.calls))
+        for _ in range(2):
+            self.api.calls=[]
+            with self.assertRaises(ValueError): self.run_merge()
+            self.assertFalse(any(m != "GET" for m,p,d in self.api.calls))
+            self.assertTrue(json.loads(self.output.read_text())["mergeSubmitted"])
 
     def test_existing_receipt_cannot_be_reused_for_other_commit(self):
         self.run_merge()
