@@ -139,7 +139,7 @@ func PlacePickupItem(record *dnfrepo.InventoryRecord, placement PickupItemPlacem
 	definition := placement.Definition
 	if record == nil || placement.Amount == 0 || definition.ItemID == 0 ||
 		definition.SlotStart < 0 || (definition.ListType == 0 && definition.SlotStart == 0) || definition.SlotEnd < definition.SlotStart ||
-		(definition.ListType != 0 && definition.ListType != 38) {
+		(definition.ListType != 0 && definition.ListType != 7 && definition.ListType != 38) {
 		return 0, dnfrepo.ItemStack{}, ErrPickupItemInvalid
 	}
 	if definition.Kind != PickupItemStackable && definition.Kind != PickupItemEquipment {

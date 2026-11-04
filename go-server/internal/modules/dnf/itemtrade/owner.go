@@ -31,6 +31,7 @@ var (
 const (
 	mainListType   byte = 0
 	avatarListType byte = 1
+	petListType    byte = 7
 
 	equipmentFirst  int16 = 9
 	equipmentLast   int16 = 64
@@ -407,6 +408,9 @@ func (o *Owner) destinationSlotPolicy(offer Offer, stack dnfrepo.ItemStack) (dnf
 // a sender's expanded high slot into a recipient with only the base capacity
 // persists the item but leaves it outside the recipient's visible cells.
 func destinationSlotRange(listType byte, sourceSlot int16) (int16, int16, bool) {
+	if listType == petListType {
+		return 140, 188, sourceSlot >= 140 && sourceSlot <= 188
+	}
 	if listType == avatarListType {
 		if sourceSlot < avatarFirst || sourceSlot > avatarLast {
 			return 0, 0, false
@@ -431,7 +435,7 @@ func destinationSlotRange(listType byte, sourceSlot int16) (int16, int16, bool) 
 }
 
 func supportedSourceList(listType byte) bool {
-	return listType == mainListType || listType == avatarListType
+	return listType == mainListType || listType == avatarListType || listType == petListType
 }
 
 // mergeTradeStack 按共同选格规则，把交易收下的 stack 并入收件人同身份的既有行，

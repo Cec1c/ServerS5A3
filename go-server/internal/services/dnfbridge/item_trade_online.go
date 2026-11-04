@@ -285,6 +285,16 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 		err != nil || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}
+	if sourceList == currentPetInventoryListType {
+		catalog, lookupErr := s.currentPVFItemCatalog()
+		if lookupErr != nil {
+			return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
+		}
+		definition, lookupErr := catalog.ResolveItem(uint32(stack.ItemID))
+		if lookupErr != nil || !currentPetArtifactTradeAllowed(definition, stack) {
+			return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
+		}
+	}
 	// The request's source-instance field is an opaque value read from the
 	// current client's live item object.  It is not the PVF item ID and is not
 	// stable across every equipment/stackable representation.  The repository
@@ -568,6 +578,9 @@ func (s *Service) commitOnlineItemTrade(trade *onlineItemTrade) error {
 		definition, err := catalog.ResolveItem(uint32(stack.ItemID))
 		if err != nil {
 			return dnfplacement.SlotPolicy{}, err
+		}
+		if offer.SourceList == currentPetInventoryListType && !currentPetArtifactTradeAllowed(definition, stack) {
+			return dnfplacement.SlotPolicy{}, itemtrade.ErrItemNotTradeable
 		}
 		return currentPVFItemPlacementPolicy(definition).ForGrant(), nil
 	})
