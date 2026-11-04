@@ -193,6 +193,11 @@ func (s *Service) sendCurrentGuildDungeonSettlement(session *gameSession, runtim
 	if err := s.writeCurrentGuildDungeonSnapshot(session); err != nil {
 		return err
 	}
+	if len(plan.GuildDungeonRepeatRewardBody) > 0 {
+		if err := s.sendGameUpperRawClass(session, currentGuildDungeonRepeatRewardNotification, plan.GuildDungeonRepeatRewardBody, 0); err != nil {
+			return err
+		}
+	}
 	runtime.settlementGuildDungeonSent = true
 	s.queueCurrentGuildDungeonRefresh(runtime.guildDungeonClear.Entry.GuildID, session.selectedCharacterID)
 	s.logGameEvent(session, "game-guild-dungeon-clear-projected", "guild_id", runtime.guildDungeonClear.Entry.GuildID, "dungeon_id", runtime.Dungeon.ID, "cycle", runtime.guildDungeonClear.Entry.Cycle.Key, "completion", runtime.guildDungeonClear.Entry.CompletionKey())

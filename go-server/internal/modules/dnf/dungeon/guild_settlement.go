@@ -52,6 +52,10 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 	result.GuildContribution.Replayed = true
 	if cmd.GuildDungeon != nil {
 		e := cmd.GuildDungeon.Entry
+		progress := receipt.GuildDungeon.RepeatReward
+		if progress.Progress >= 100 || progress.Display > 100 || (progress.Awarded && (!progress.Enabled || progress.Display != 100)) || (!progress.Awarded && progress.Display != progress.Progress) || (!progress.Enabled && (progress.Progress != 0 || progress.Display != 0)) {
+			return false, ErrSettlementStateInvalid
+		}
 		if receipt.GuildDungeon.GuildID != e.GuildID || receipt.GuildDungeon.DungeonID != e.DungeonID || receipt.GuildDungeon.CycleKey != e.Cycle.Key || receipt.GuildDungeon.Units > e.Cycle.Units {
 			return false, ErrSettlementStateInvalid
 		}

@@ -18,6 +18,7 @@ type DungeonPolicy struct {
 	ResetHour           int    `json:"reset_hour"`
 	UTCOffsetMinutes    int    `json:"utc_offset_minutes"`
 	ClearUnitsPerMember uint32 `json:"clear_units_per_member"`
+	RepeatRewardPercent uint32 `json:"repeat_reward_percent,omitempty"`
 }
 type DungeonCycle struct {
 	Key                string
@@ -36,10 +37,12 @@ type DungeonEntry struct {
 	JoinedAt             time.Time
 	Cycle                DungeonCycle
 	CatalogDigest, RunID string
+	RepeatRewardPercent  uint32
 }
 type DungeonClearResult struct {
 	GuildID, DungeonID, Units, Count, Contribution uint32
 	CycleKey                                       string
+	RepeatReward                                   DungeonRepeatRewardResult
 }
 
 func (p *DungeonPolicy) Cycle(now time.Time) (DungeonCycle, error) {
@@ -100,6 +103,10 @@ func PrepareDungeonEntries(reg Registry, catalog *DungeonCatalog, id uint32, own
 	if err != nil {
 		return nil, err
 	}
+	percent, err := reg.DungeonPolicy.repeatRewardPercent()
+	if err != nil {
+		return nil, err
+	}
 	entries := make([]DungeonEntry, 0, len(owners))
 	seen := map[string]bool{}
 	var guildID uint32
@@ -124,7 +131,7 @@ func PrepareDungeonEntries(reg Registry, catalog *DungeonCatalog, id uint32, own
 		if !open {
 			return nil, ErrPermissionDenied
 		}
-		entries = append(entries, DungeonEntry{Owner: owner, GuildID: g.ID, DungeonID: id, JoinedAt: m.JoinedAt, Cycle: cycle, CatalogDigest: catalog.digest, RunID: runID})
+		entries = append(entries, DungeonEntry{Owner: owner, GuildID: g.ID, DungeonID: id, JoinedAt: m.JoinedAt, Cycle: cycle, CatalogDigest: catalog.digest, RunID: runID, RepeatRewardPercent: percent})
 	}
 	return entries, nil
 }
@@ -146,7 +153,7 @@ func ApplyDungeonClear(ctx context.Context, settings r.SettingsRepository, catal
 		return DungeonReward{}, DungeonClearResult{}, err
 	}
 	e := expected[0]
-	if e.GuildID != entry.GuildID || e.Cycle != entry.Cycle || e.CatalogDigest != entry.CatalogDigest || !e.JoinedAt.Equal(entry.JoinedAt) {
+	if e.GuildID != entry.GuildID || e.Cycle != entry.Cycle || e.CatalogDigest != entry.CatalogDigest || !e.JoinedAt.Equal(entry.JoinedAt) || (catalog.repeatReward != nil && e.RepeatRewardPercent != entry.RepeatRewardPercent) {
 		return DungeonReward{}, DungeonClearResult{}, ErrPermissionDenied
 	}
 	g := reg.Guilds[e.GuildID]

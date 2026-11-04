@@ -956,6 +956,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 			return err
 		}
 	}
+	if err := s.sendCurrentGuildDungeonRepeatRewardOnEntry(session, runtime); err != nil {
+		return err
+	}
 	// 无论 op29 是否发出，这一句都必须执行：它是 actor `objectKey` 在**运行时**的绑定
 	// （`session.BindHostileObject` + `monsters[].State = announced`），op39 的 owner 校验
 	// 读的就是它。锦标赛地图上公告者换成 386，但 sequence 空间逐值不变。
