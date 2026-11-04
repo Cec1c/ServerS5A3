@@ -431,6 +431,11 @@ func (s *Service) loginChannel() (channelcatalog.Channel, error) {
 	if channel, ok := catalog.Channel(dnfenum.DefaultGameChannelID); ok {
 		return channel, nil
 	}
+	for _, channel := range catalog.Channels() {
+		if channel.ID > 0 && channel.ID <= currentOwnerChannelByteLimit && channelcatalog.IsResidentChannel(channel) {
+			return channel, nil
+		}
+	}
 	return channelcatalog.Channel{}, fmt.Errorf(
 		"%w: resident channel %d is missing",
 		channelcatalog.ErrEmpty,
