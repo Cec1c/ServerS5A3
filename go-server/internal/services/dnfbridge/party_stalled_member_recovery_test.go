@@ -9,7 +9,7 @@ import (
 
 func TestLearnedPartyMemberStallRecoveryIsBoundedAndTargeted(t *testing.T) {
 	for _, members := range []int{2, 3} {
-		for _, mode := range []string{"recover", "resumed", "scene_changed", "rejoined", "shutdown", "few_packets", "short_pause"} {
+		for _, mode := range []string{"recover", "resumed", "scene_changed", "rejoined", "shutdown", "few_packets", "burst_then_quiet", "short_pause"} {
 			t.Run(fmt.Sprintf("%d/%s", members, mode), func(t *testing.T) {
 				r, clients, bindings := partyUDPRelayFullMeshFixture(t, members)
 				r.stallTiming = partyUDPRelayStallTiming{idle: 5 * time.Second, confirm: 400 * time.Millisecond, poll: 5 * time.Millisecond}
@@ -54,7 +54,7 @@ func TestLearnedPartyMemberStallRecoveryIsBoundedAndTargeted(t *testing.T) {
 					// Only member 1 stops. All other directed paths keep moving,
 					// including the healthy 2<->3 pair in the three-member case.
 					for _, sender := range clients[1:] {
-						if mode == "few_packets" && iterations > 8 {
+						if (mode == "few_packets" && iterations > 8) || (mode == "burst_then_quiet" && iterations > 80) {
 							continue
 						}
 						for _, receiver := range clients {

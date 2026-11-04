@@ -9,6 +9,14 @@ type partyUDPRelayStallTiming struct {
 	idle, confirm, poll time.Duration
 }
 
+func (t partyUDPRelayStallTiming) peerRecentWindow() time.Duration {
+	window := t.confirm / 4
+	if window > t.idle {
+		window = t.idle
+	}
+	return window
+}
+
 func (r *currentPartyUDPRelay) stalledPeerTiming() partyUDPRelayStallTiming {
 	t := r.stallTiming
 	if t.idle <= 0 {
@@ -72,7 +80,7 @@ func (r *currentPartyUDPRelay) watchStalledPartyMember(incoming, target *current
 			return
 		}
 		reverse.mu.Lock()
-		active, reverseCount := now.Sub(reverse.lastReceivedAt) < timing.idle, reverse.received
+		active, reverseCount := now.Sub(reverse.lastReceivedAt) < timing.peerRecentWindow(), reverse.received
 		reverse.mu.Unlock()
 		if !active {
 			r.mu.Unlock()
@@ -119,7 +127,7 @@ func (r *currentPartyUDPRelay) stalledMemberCurrent(legs []partyUDPRelayStalledL
 		unchanged := pair.leg.received == pair.received
 		pair.leg.mu.Unlock()
 		pair.reverse.mu.Lock()
-		active := time.Since(pair.reverse.lastReceivedAt) < timing.idle
+		active := time.Since(pair.reverse.lastReceivedAt) < timing.peerRecentWindow()
 		progress := pair.reverse.received >= pair.reverseReceived+32
 		pair.reverse.mu.Unlock()
 		if !unchanged || !active || (enoughTraffic && !progress) {
