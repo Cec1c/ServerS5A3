@@ -709,7 +709,11 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// 本函数（`:493` 的闸门）只在 run_status=completed 时才会走到 ⇒ 这里就是
 		// **通关回城**这条路径，不走 dungeon_party_leader_exit.go 的解散。
 		if !s.retireCurrentFiendWarEncounterParty(session, runtime) {
-			if s.options.currentClientVersion == "official-24.9" && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) {
+			// Completion does not turn ESC give-up (42) into the result-page
+			// team return (72). Both explicit personal exits retain survivors.
+			if s.options.currentClientVersion == "official-24.9" &&
+				(runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) ||
+					runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame)) {
 				if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 					return err
 				}
@@ -946,7 +950,9 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	//   - 其余中途放弃：当前客户端仅退出本人，保留留图队伍并移交队长。
 	if s.retireCurrentFiendWarEncounterParty(session, runtime) {
 		// Every combat party is temporary; the attack-raid's numbered seats stay.
-	} else if s.options.currentClientVersion == "official-24.9" && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) {
+	} else if s.options.currentClientVersion == "official-24.9" &&
+		(runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketLeaveParty) ||
+			(committedStatus == worldmap.DungeonRunCompleted && runtime.townReturnRequestMsgID == uint16(dnfenum.CmdPacketGiveupGame))) {
 		if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 			s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
 		}

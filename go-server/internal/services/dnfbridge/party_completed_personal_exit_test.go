@@ -90,3 +90,42 @@ func TestCompletedPartyPersonalExitPreservesSurvivor(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletedPartyPersonalExitSceneConfirmationPreservesSurvivor(t *testing.T) {
+	for _, opcode := range []uint16{13, 42} {
+		t.Run(fmt.Sprint(opcode), func(t *testing.T) {
+			f := newCompletionReturnPartyFixture(t)
+			f.service.options.currentClientVersion = "official-24.9"
+			for _, runtime := range []*runtimeDungeonState{f.leaderRuntime, f.memberRuntime} {
+				if err := runtime.Session.CompleteCurrentRoom(); err != nil {
+					t.Fatal(err)
+				}
+				runtime.settlementClearRewardSent = true
+			}
+			transition, err := f.service.prepareCurrentDungeonTownTransitionForSession(context.Background(), f.leader, f.leader.selectedCharacterID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.leader.dungeon.mu.Lock()
+			err = f.service.sendCurrentDungeonReturnToTownLocked(f.leader, f.leaderRuntime, transition, opcode, "test_completed_personal_pending_route")
+			f.leader.dungeon.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.service.commitPendingDungeonReturnForSceneRequest(f.leader, "test_completed_personal_town_confirmation"); err != nil {
+				t.Fatal(err)
+			}
+			if f.leader.dungeon.runtime != nil || f.member.dungeon.runtime != f.memberRuntime || f.memberRuntime.partyInstance != f.instance {
+				t.Fatal("completed personal scene confirmation moved another player")
+			}
+			if _, found := f.service.runtimePartyManagerForService().SnapshotByUser(f.leader.selectedCharacterID, 0); found {
+				t.Fatal("completed personal scene confirmation retained departing membership")
+			}
+			for _, frame := range splitUpperFrames(t, f.memberConn.write.Bytes()) {
+				if frame.msgID == currentSceneTransitionMsgID {
+					t.Fatal("completed personal scene confirmation sent survivor a town transition")
+				}
+			}
+		})
+	}
+}
