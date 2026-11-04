@@ -65,6 +65,7 @@ def merge(repo, head, statement, output, pr=None, branch=None, base="master", ca
             return old
         if old.get("pr"):
             pr = old["pr"]
+        record["mergeSubmitted"] = old.get("mergeSubmitted", False)
     save(output, record)
     try:
         if pr is None:
