@@ -81,7 +81,7 @@ func TestCargoAndSortRefreshPreserveWalletQualityPair919(t *testing.T) {
 				body = []byte{0, 2}
 			}
 			result, err := dnfinventory.NewHandler().Handle(ctx, alignedcmd.Request{Opcode: opcode, Body: body, AccountID: "dnf:1", SelectedCharacterID: 19, Repositories: f.group})
-			if err != nil || !result.ResponseAllowed || len(result.UpperResponses) < 2 {
+			if err != nil || !result.ResponseAllowed || len(result.UpperResponses) == 0 {
 				t.Fatalf("owner result=%+v err=%v", result, err)
 			}
 			f.buffer.write.Reset()
@@ -92,26 +92,54 @@ func TestCargoAndSortRefreshPreserveWalletQualityPair919(t *testing.T) {
 			if ack.Header.MsgID != opcode || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, result.UpperResponses[0].Body) {
 				t.Fatalf("ACK changed or reordered: %+v", ack)
 			}
-			refresh, rest := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
-			if refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 || refresh.Body[0] != 0 {
-				t.Fatalf("not main refresh: %+v", refresh)
-			}
-			for len(rest) > 0 {
-				other, tail := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
-				if other.Header.MsgID != 13 || other.Header.Classification != 0 || len(other.Body) == 0 || (other.Body[0] != 2 && other.Body[0] != 12) {
-					t.Fatalf("unexpected extra frame: %+v", other)
+			var mainBody []byte
+			if tc.src == 12 || tc.dst == 12 {
+				if result.AccountCargoMove == nil || len(result.AccountCargoMove.Rows) != 2 || len(result.UpperResponses) != 1 || len(result.AuthoritativeListRefreshes) != 0 || len(result.PostActions) != 0 {
+					t.Fatalf("account move scheduled whole-list replacement: %+v", result)
 				}
-				rest = tail
+				for _, endpoint := range result.AccountCargoMove.Rows {
+					update, tail := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
+					if update.Header.MsgID != 14 || update.Header.Classification != 0 || len(update.Body) != 3+currentItemListEntryWireSize || update.Body[0] != endpoint.ListType || binary.LittleEndian.Uint16(update.Body[1:3]) != 1 || int16(binary.LittleEndian.Uint16(update.Body[3:5])) != endpoint.SlotIndex {
+						t.Fatalf("not a single committed endpoint: %+v", update)
+					}
+					if endpoint.ListType == 0 && (endpoint.SlotIndex == 0 || endpoint.SlotIndex == 14 || endpoint.SlotIndex == 359) {
+						t.Fatalf("unrelated wallet/coat/crystal touched: %+v", endpoint)
+					}
+					rest = tail
+				}
+				if len(rest) != 0 {
+					t.Fatalf("unexpected account move frames: %x", rest)
+				}
+				// The incremental wire leaves unrelated displayed rows intact. Also
+				// check their authoritative values after the same committed move.
+				var ok bool
+				mainBody, _, _, ok = f.service.buildCurrentItemListBodyForSession(ctx, f.session, 0)
+				if !ok {
+					t.Fatal("post-move authoritative snapshot unavailable")
+				}
+			} else {
+				refresh, tail := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
+				if refresh.Header.MsgID != 13 || refresh.Header.Classification != 0 || refresh.Body[0] != 0 {
+					t.Fatalf("not main refresh: %+v", refresh)
+				}
+				mainBody, rest = refresh.Body, tail
+				for len(rest) > 0 {
+					other, tail := splitGameServerUpperPacketWithHeader(t, rest, dnfproto.GameServerUpperHeaderSize16)
+					if other.Header.MsgID != 13 || other.Header.Classification != 0 || len(other.Body) == 0 || (other.Body[0] != 2 && other.Body[0] != 12) {
+						t.Fatalf("unexpected extra frame: %+v", other)
+					}
+					rest = tail
+				}
 			}
-			wallet, found := pair914Row(t, refresh.Body, 0)
+			wallet, found := pair914Row(t, mainBody, 0)
 			if !found || binary.LittleEndian.Uint32(wallet[6:10]) != 123456 {
 				t.Errorf("wallet missing/wrong: found=%t row=%x", found, wallet)
 			}
-			crystal, found := pair914Row(t, refresh.Body, 359)
+			crystal, found := pair914Row(t, mainBody, 359)
 			if !found || binary.LittleEndian.Uint32(crystal[6:10]) != 5000 {
 				t.Errorf("shared crystal missing/wrong: found=%t row=%x", found, crystal)
 			}
-			row, found := pair914Row(t, refresh.Body, 14)
+			row, found := pair914Row(t, mainBody, 14)
 			if !found {
 				t.Fatal("unrelated coat disappeared")
 			}
