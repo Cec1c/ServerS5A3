@@ -81,6 +81,19 @@ func (view ownedSourceSnapshot) stackForBinding(b Binding) (repo.ItemStack, bool
 		matches++
 		result = item
 	}
+	for key, item := range view.inventory.Warehouse {
+		parts := strings.Split(key, ":")
+		if len(parts) != 2 {
+			continue
+		}
+		list, e1 := strconv.ParseUint(parts[0], 10, 8)
+		index, e2 := strconv.ParseUint(parts[1], 10, 16)
+		if e1 != nil || e2 != nil || list != 2 || index >= 0x8000 || byte(list) != b.List || uint16(index) != b.Index {
+			continue
+		}
+		matches++
+		result = item
+	}
 	if matches != 1 || result.ItemID != b.ItemID || (b.Instance != "" && result.Extra[instanceKey] != b.Instance) {
 		return repo.ItemStack{}, false
 	}

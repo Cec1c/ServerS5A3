@@ -34,11 +34,18 @@ func TestCurrentEXECommands(t *testing.T) {
 		{"0000212cffff", Command{0, 33, 44, 0xffff}},
 		{"2600212cffff", Command{38, 33, 44, 0xffff}},
 		{"00000c030c00", Command{0, 12, 3, 12}},
+		{"26000c020700", Command{38, 12, 2, 7}},
 	} {
 		raw, _ := hex.DecodeString(tc.raw)
 		got, err := Parse(raw)
 		if err != nil || got != tc.want {
 			t.Fatalf("%s: got %+v/%v want %+v", tc.raw, got, err, tc.want)
+		}
+		if tc.want.List == 2 {
+			got, err = ParseCurrent(raw)
+			if err != nil || got != tc.want {
+				t.Fatalf("%s current: got %+v/%v want %+v", tc.raw, got, err, tc.want)
+			}
 		}
 	}
 	for _, raw := range []string{"0c003600", "2600222cffff", "260021003600", "26000c043600", "26000c2c3600", "26000c03ffff"} {
@@ -82,6 +89,118 @@ func TestRegistrationRemovalDisableAndOwnerIsolation(t *testing.T) {
 	after, _, _ := Load(ctx, r, "6", "account-6")
 	if !reflect.DeepEqual(s, after) {
 		t.Fatal("rejected command changed persisted state")
+	}
+}
+
+func TestRegistrationFromWarehousePersistsInstanceAndFollowsMoves(t *testing.T) {
+	r, ctx := fixture(t), context.Background()
+	inventory, found, err := r.Inventory.Load(ctx, "6")
+	if err != nil || !found {
+		t.Fatalf("load fixture inventory found=%t err=%v", found, err)
+	}
+	inventory.Warehouse = map[string]repo.ItemStack{
+		"2:7": {ItemID: 101040495, Count: 1},
+	}
+	if err := r.Inventory.Save(ctx, inventory); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyCurrent(ctx, r, "6", "account-6", Command{Skill: 38, Slot: 12, List: 2, Index: 7}); err != nil {
+		t.Fatalf("warehouse registration: %v", err)
+	}
+	state, found, err := Load(ctx, r, "6", "account-6")
+	if err != nil || !found {
+		t.Fatalf("load registration found=%t err=%v", found, err)
+	}
+	binding := state.Slots[12]
+	if binding.List != 2 || binding.Index != 7 || binding.ItemID != 101040495 ||
+		binding.Instance == "" || binding.SourceKind != SourceCurrentInstance {
+		t.Fatalf("warehouse binding = %+v", binding)
+	}
+	inventory, _, _ = r.Inventory.Load(ctx, "6")
+	if got := inventory.Warehouse["2:7"].Extra[instanceKey]; got != binding.Instance {
+		t.Fatalf("warehouse instance=%q want %q", got, binding.Instance)
+	}
+	projection, err := LoadResolvedOwned(ctx, r, "6", "account-6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item := projection.Items[12]; !item.HasCurrentStack || item.Binding.List != 2 || item.Binding.Index != 7 {
+		t.Fatalf("warehouse projection = %+v", item)
+	}
+
+	stack := inventory.Warehouse["2:7"]
+	delete(inventory.Warehouse, "2:7")
+	inventory.Slots["0:60"] = stack
+	if err := r.Inventory.Save(ctx, inventory); err != nil {
+		t.Fatal(err)
+	}
+	resolved, omitted, err := Resolve(ctx, r, "6", state)
+	if err != nil || omitted != 0 {
+		t.Fatalf("resolve after warehouse-to-bag move omitted=%d err=%v", omitted, err)
+	}
+	if got := resolved.Slots[12]; got.List != 0 || got.Index != 60 || got.Instance != binding.Instance {
+		t.Fatalf("resolved after move = %+v", got)
+	}
+}
+
+func TestWarehouseRegistrationWithoutInstanceDoesNotGuessAmongSameTemplates(t *testing.T) {
+	r, ctx := fixture(t), context.Background()
+	inventory, _, _ := r.Inventory.Load(ctx, "6")
+	inventory.Slots["0:60"] = repo.ItemStack{ItemID: 101040495, Count: 1}
+	inventory.Warehouse = map[string]repo.ItemStack{
+		"2:7": {ItemID: 101040495, Count: 1},
+	}
+	if err := r.Inventory.Save(ctx, inventory); err != nil {
+		t.Fatal(err)
+	}
+	state := State{
+		WireProfile: CurrentWireProfile,
+		Skill:       38,
+		Slots: map[byte]Binding{
+			12: {List: 2, Index: 7, ItemID: 101040495},
+		},
+	}
+	resolved, omitted, err := Resolve(ctx, r, "6", state)
+	if err != nil || omitted != 1 || len(resolved.Slots) != 0 {
+		t.Fatalf("ambiguous warehouse resolve=%+v omitted=%d err=%v", resolved, omitted, err)
+	}
+}
+
+func TestUniqueWarehouseCoordinateMigrationPersistsInstance(t *testing.T) {
+	r, ctx := fixture(t), context.Background()
+	inventory, _, _ := r.Inventory.Load(ctx, "6")
+	inventory.Warehouse = map[string]repo.ItemStack{
+		"2:7": {ItemID: 101040495, Count: 1},
+	}
+	if err := r.Inventory.Save(ctx, inventory); err != nil {
+		t.Fatal(err)
+	}
+	state := State{
+		WireProfile: CurrentWireProfile,
+		Skill:       38,
+		Slots: map[byte]Binding{
+			12: {List: 2, Index: 7, ItemID: 101040495},
+		},
+	}
+	raw, _ := json.Marshal(state)
+	if err := r.Settings.Save(ctx, repo.SettingsRecord{Scope: Scope("6"), Values: map[string]string{"state": string(raw)}}); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := LoadResolvedOwnedMigratingCurrentInstances(ctx, r, "6", "account-6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := projection.State.Slots[12]
+	if binding.List != 2 || binding.Index != 7 || binding.Instance == "" || binding.SourceKind != SourceCurrentInstance {
+		t.Fatalf("migrated warehouse binding = %+v", binding)
+	}
+	inventory, _, _ = r.Inventory.Load(ctx, "6")
+	if got := inventory.Warehouse["2:7"].Extra[instanceKey]; got != binding.Instance {
+		t.Fatalf("migrated warehouse instance=%q want %q", got, binding.Instance)
+	}
+	persisted, found, err := Load(ctx, r, "6", "account-6")
+	if err != nil || !found || persisted.Slots[12].Instance != binding.Instance {
+		t.Fatalf("persisted migrated registration found=%t state=%+v err=%v", found, persisted, err)
 	}
 }
 

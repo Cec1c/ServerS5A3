@@ -53,7 +53,7 @@ func migrateCurrentInstanceBindings(ctx context.Context, tx repo.Group, characte
 		}
 	}
 
-	changed, inventoryDirty, equipmentDirty := false, false, false
+	changed, inventoryDirty, warehouseDirty, equipmentDirty := false, false, false, false
 	for buffSlot, binding := range state.Slots {
 		if binding.Instance != "" || binding.SourceKind == SourceLegacyUID {
 			continue
@@ -77,6 +77,8 @@ func migrateCurrentInstanceBindings(ctx context.Context, tx repo.Group, characte
 			}
 			if loc.list == 3 {
 				equipmentDirty = true
+			} else if loc.list == 2 {
+				warehouseDirty = true
 			} else {
 				inventoryDirty = true
 			}
@@ -96,6 +98,11 @@ func migrateCurrentInstanceBindings(ctx context.Context, tx repo.Group, characte
 	}
 	if inventoryDirty {
 		if err := repo.SaveInventoryFields(ctx, tx.Inventory, view.inventory, repo.InventoryFieldSlots); err != nil {
+			return false, err
+		}
+	}
+	if warehouseDirty {
+		if err := repo.SaveInventoryFields(ctx, tx.Inventory, view.inventory, repo.InventoryFieldWarehouse); err != nil {
 			return false, err
 		}
 	}
@@ -174,7 +181,11 @@ func setOwnedInstance(view *ownedSourceSnapshot, loc location, itemID int64, ins
 	matches := 0
 	var key string
 	var stack repo.ItemStack
-	for entryKey, candidate := range view.inventory.Slots {
+	items := view.inventory.Slots
+	if loc.list == 2 {
+		items = view.inventory.Warehouse
+	}
+	for entryKey, candidate := range items {
 		list, index, ok := repo.ParseCurrentInventoryLocation(entryKey)
 		if !ok || list != loc.list || uint16(index) != loc.index {
 			continue
@@ -189,6 +200,10 @@ func setOwnedInstance(view *ownedSourceSnapshot, loc location, itemID int64, ins
 		stack.Extra = make(map[string]string, 1)
 	}
 	stack.Extra[instanceKey] = instance
-	view.inventory.Slots[key] = stack
+	if loc.list == 2 {
+		view.inventory.Warehouse[key] = stack
+	} else {
+		view.inventory.Slots[key] = stack
+	}
 	return nil
 }

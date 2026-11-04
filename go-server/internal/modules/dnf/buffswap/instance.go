@@ -27,6 +27,17 @@ func itemInstances(ctx context.Context, repos repo.Group, characterID string) (m
 			out[location{byte(list), uint16(index)}] = stack.Extra[instanceKey]
 		}
 	}
+	for key, stack := range inv.Warehouse {
+		parts := strings.Split(key, ":")
+		if len(parts) != 2 {
+			continue
+		}
+		list, e1 := strconv.ParseUint(parts[0], 10, 8)
+		index, e2 := strconv.ParseUint(parts[1], 10, 16)
+		if e1 == nil && e2 == nil && list == 2 && index < 0x8000 {
+			out[location{2, uint16(index)}] = stack.Extra[instanceKey]
+		}
+	}
 	worn, _, err := repos.Equipment.Load(ctx, characterID)
 	if err != nil {
 		return nil, err
@@ -98,7 +109,13 @@ func registerInstance(ctx context.Context, repos repo.Group, characterID string,
 			return "", err
 		}
 		key := fmt.Sprintf("%d:%d", list, index)
-		stack, exists := inv.Slots[key]
+		var stack repo.ItemStack
+		var exists bool
+		if list == 2 {
+			stack, exists = inv.Warehouse[key]
+		} else {
+			stack, exists = inv.Slots[key]
+		}
 		if !found || !exists || stack.ItemID != itemID {
 			return "", ErrInvalid
 		}
@@ -112,8 +129,14 @@ func registerInstance(ctx context.Context, repos repo.Group, characterID string,
 			stack.Extra = map[string]string{}
 		}
 		stack.Extra[instanceKey] = instance
-		inv.Slots[key] = stack
-		if err := repos.Inventory.Save(ctx, inv); err != nil {
+		field := repo.InventoryFieldSlots
+		if list == 2 {
+			inv.Warehouse[key] = stack
+			field = repo.InventoryFieldWarehouse
+		} else {
+			inv.Slots[key] = stack
+		}
+		if err := repo.SaveInventoryFields(ctx, repos.Inventory, inv, field); err != nil {
 			return "", err
 		}
 	}

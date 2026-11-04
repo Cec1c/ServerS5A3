@@ -164,6 +164,17 @@ func items(ctx context.Context, repos repo.Group, characterID string) (map[locat
 				result[location{byte(list), uint16(index)}] = item.ItemID
 			}
 		}
+		for key, item := range r.Warehouse {
+			parts := strings.Split(key, ":")
+			if len(parts) != 2 {
+				continue
+			}
+			list, e1 := strconv.ParseUint(parts[0], 10, 8)
+			index, e2 := strconv.ParseUint(parts[1], 10, 16)
+			if e1 == nil && e2 == nil && list == 2 && index < 0x8000 && item.ItemID > 0 && item.Count > 0 {
+				result[location{2, uint16(index)}] = item.ItemID
+			}
+		}
 	}
 	if repos.Equipment != nil {
 		r, _, err := repos.Equipment.Load(ctx, characterID)
