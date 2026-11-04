@@ -711,6 +711,15 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	} else {
 		target, cleared, reportErr = s.commitQuestMaterialDeath(session, runtime, request.RuntimeObjectKey)
 	}
+	if s.deferDungeonDeathPreparation(session, runtime, request.RuntimeObjectKey, body, sequence, reportErr) {
+		return nil
+	}
+	if reportErr == nil || errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+		if _, pending := runtime.pendingDeathPreparations[request.RuntimeObjectKey]; pending {
+			delete(runtime.pendingDeathPreparations, request.RuntimeObjectKey)
+			s.logGameEvent(session, "game-dungeon-death-preparation-recovered", "dungeon_id", runtime.Dungeon.ID, "object_key", request.RuntimeObjectKey)
+		}
+	}
 	if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
 		s.dispatchCurrentDungeonHuntDeathToPeersLocked(session, runtime, request.RuntimeObjectKey)
 		if err := s.persistCurrentDungeonHuntMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {

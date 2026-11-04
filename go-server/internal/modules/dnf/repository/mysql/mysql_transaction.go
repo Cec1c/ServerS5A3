@@ -493,6 +493,9 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// Reuse only the complete FOR UPDATE snapshot from this transaction.
+	// Partial/missing snapshots and second saves retain the established fallback.
+	txGroup.Character.(*mysqlCharStore).trackStatChanges = true
 	// 账本按账号键分库；仍然复用本次物理事务，不能沿用角色单库路由。
 	activityRouter := txRouter
 	activityRouter.readDBs = append([]string(nil), u.router.writeDBs...)

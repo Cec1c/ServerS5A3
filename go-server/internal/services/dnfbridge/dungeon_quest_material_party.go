@@ -52,6 +52,14 @@ func (s *Service) prepareQuestMaterialDeath(p *gameSession, rt *runtimeDungeonSt
 	if !ok {
 		return nil, nil
 	} // APC/passive/forced cleanup keep their own protocols.
+	// Production preloads this immutable catalog. Without it, retain the
+	// original path; no new resource load or character-state cache per kill.
+	s.questCatalogMu.Lock()
+	catalog := s.questCatalog
+	s.questCatalogMu.Unlock()
+	if catalog != nil && !catalog.MayDropMonsterMaterial(rt.Dungeon.ID, int64(rt.Request.Difficulty), monster.Spawn.MonsterID) {
+		return nil, nil
+	}
 	repos, ok := s.repositoryGroup()
 	if !ok {
 		// Combat-only/tutorial compositions have no quest subsystem. This is not
@@ -99,6 +107,9 @@ func (s *Service) prepareQuestMaterialDeath(p *gameSession, rt *runtimeDungeonSt
 				return nil, errors.New("quest material catalog unavailable")
 			}
 			candidates := currentQuestDropMatchEnemy(catalog, active, int64(rt.Dungeon.ID), int64(rt.Request.Difficulty), 1, monster.Spawn.MonsterID)
+			if len(candidates) == 0 {
+				return nil, nil
+			}
 			helper := false
 			growth := int64(0)
 			if len(candidates) > 0 && repos.Account != nil {
@@ -193,10 +204,14 @@ func (s *Service) armQuestMaterialRecovery(p *gameSession) error {
 	}
 	return queue.ScheduleAfter(fmt.Sprintf("quest-material:%s", p.connID), 5*time.Second, func(time.Time) {
 		_ = s.postGameSessionCharacterEvent(p, "quest-material-recovery", id, generation, func() error {
+			defer s.armQuestMaterialRecovery(p)
+			if err := s.recoverDungeonDeathPreparation(p); err != nil {
+				return err
+			}
 			if err := s.recoverQuestMaterials(p); err != nil {
 				s.logGameEvent(p, "game-quest-material-recovery-deferred", "error", err)
 			}
-			return s.armQuestMaterialRecovery(p)
+			return nil
 		})
 	})
 }
@@ -216,6 +231,15 @@ func (s *Service) commitQuestMaterialDeath(p *gameSession, rt *runtimeDungeonSta
 	prepare, err := s.prepareQuestMaterialDeath(p, rt, key)
 	if err != nil {
 		return runtimeDungeonDeathTarget{}, false, err
+	}
+	if prepare != nil {
+		original := prepare
+		prepare = func() error {
+			if err := original(); err != nil {
+				return &dungeonDeathPreparationError{cause: err}
+			}
+			return nil
+		}
 	}
 	return s.commitGuildDungeonRewardDeath(p, rt, key, prepare)
 }

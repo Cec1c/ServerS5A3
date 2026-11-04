@@ -5,7 +5,9 @@ package dnfbridge
 // is forwarded to the application logger.
 func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
 	switch kind {
-	case "game-dungeon-settlement-entry-blocked",
+	case "game-dungeon-death-preparation-deferred",
+		"game-dungeon-death-preparation-recovered",
+		"game-dungeon-settlement-entry-blocked",
 		"game-dungeon-settlement-entry-op31-send",
 		"game-dungeon-settlement-plan-blocked",
 		"game-dungeon-settlement-results-blocked",
