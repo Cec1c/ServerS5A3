@@ -315,6 +315,7 @@ func (u *mysqlCharacterItemUnitOfWork) WithinCharacterItems(ctx context.Context,
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	enableInventoryDeltaTracking(txGroup)
 	if err := apply(txGroup.Inventory, txGroup.Equipment); err != nil {
 		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}
@@ -390,6 +391,9 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	if len(ids) == 1 {
+		enableInventoryDeltaTracking(txGroup)
+	}
 	allowed := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		allowed[id] = struct{}{}
@@ -621,6 +625,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Con
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	enableInventoryDeltaTracking(txGroup)
 	accounts := &rentalScopedAccountRepository{accountID: accountID, base: txGroup.Account}
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: txGroup.Character}
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}

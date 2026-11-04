@@ -64,3 +64,36 @@ func (s *mysqlBagStore) rememberAccountTransactionFields(record repository.Inven
 	}
 	s.loadedSnapshot.UpdatedAt = record.UpdatedAt
 }
+
+// Only advance keys actually persisted by a successful slot-delta write.
+// Other in-memory edits and the other collection remain dirty against the last
+// known database state, including inserts and removals.
+func (s *mysqlBagStore) rememberAccountTransactionKeys(record repository.InventoryRecord, field repository.InventoryField, keys []string) {
+	if s.loadedSnapshot == nil || s.loadedSnapshot.CharacterID != record.CharacterID {
+		return
+	}
+	copy := repository.CloneInventory(record)
+	var before, after map[string]repository.ItemStack
+	switch field {
+	case repository.InventoryFieldSlots:
+		if s.loadedSnapshot.Slots == nil {
+			s.loadedSnapshot.Slots = make(map[string]repository.ItemStack)
+		}
+		before, after = s.loadedSnapshot.Slots, copy.Slots
+	case repository.InventoryFieldWarehouse:
+		if s.loadedSnapshot.Warehouse == nil {
+			s.loadedSnapshot.Warehouse = make(map[string]repository.ItemStack)
+		}
+		before, after = s.loadedSnapshot.Warehouse, copy.Warehouse
+	default:
+		return
+	}
+	for _, key := range keys {
+		if value, ok := after[key]; ok {
+			before[key] = value
+		} else {
+			delete(before, key)
+		}
+	}
+	s.loadedSnapshot.UpdatedAt = record.UpdatedAt
+}

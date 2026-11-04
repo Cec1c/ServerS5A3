@@ -39,6 +39,9 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountTradeMailbox(ctx context.Cont
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
 	router.lockReads = true
 	base := newMySQLGroupFromRouter(router, false)
+	if len(ids) == 1 {
+		enableInventoryDeltaTracking(base)
+	}
 	scope := map[string]struct{}{}
 	for _, id := range ids {
 		scope[id] = struct{}{}
