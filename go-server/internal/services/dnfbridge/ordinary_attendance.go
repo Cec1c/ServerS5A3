@@ -27,6 +27,22 @@ func (s *Service) currentOrdinaryCatalog(ctx context.Context) (*onlineevent.Ordi
 	if s == nil {
 		return nil, onlineevent.ErrOwnerUnavailable
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// PVF and its validated UI/reward definitions are immutable for this
+	// service lifetime. Player eligibility and claims remain transactional.
+	s.ordinaryCatalogMu.Lock()
+	defer s.ordinaryCatalogMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.ordinaryCatalog != nil {
+		return s.ordinaryCatalog, nil
+	}
 	s.initialEquipmentMu.Lock()
 	archive, err := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
@@ -47,7 +63,12 @@ func (s *Service) currentOrdinaryCatalog(ctx context.Context) (*onlineevent.Ordi
 	if err := validateOrdinaryAttendanceUI(mainUI, slotUI); err != nil {
 		return nil, err
 	}
-	return onlineevent.LoadOrdinaryCatalog(ctx, archive)
+	catalog, err := onlineevent.LoadOrdinaryCatalog(ctx, archive)
+	if err != nil {
+		return nil, err
+	}
+	s.ordinaryCatalog = catalog
+	return catalog, nil
 }
 
 func buildCurrentOrdinaryAttendanceBody(state onlineevent.OrdinarySnapshot) []byte {

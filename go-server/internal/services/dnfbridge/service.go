@@ -190,6 +190,8 @@ type Service struct {
 	dungeonRuleSource         initialEquipmentTextSource
 	weeklyCatalogMu           sync.Mutex
 	weeklyCatalog             *onlineevent.WeeklyCatalog
+	ordinaryCatalogMu         sync.Mutex
+	ordinaryCatalog           *onlineevent.OrdinaryCatalog
 	attendanceMarbleMu        sync.Mutex
 	attendanceMarbleCatalog   *attendanceMarbleCatalog
 	monthlyCatalogMu          sync.Mutex
