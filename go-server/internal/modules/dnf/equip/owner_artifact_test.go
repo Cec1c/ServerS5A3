@@ -2,11 +2,102 @@ package equip
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"testing"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
+
+func TestOwnerMoveGrantedArtifactRebuildsAndRoundTrips(t *testing.T) {
+	for color, target := range map[string]int16{"red": 27, "blue": 28, "green": 29} {
+		t.Run(color, func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			stack := dnfrepo.ItemStack{ItemID: 10006783, Count: 1, Extra: map[string]string{
+				"item_kind": "equipment", "pvf_path": "equipment/creature/artifact_" + color + "/test.equ",
+				"equipment_type": "[artifact " + color + "]", "quality_seed": "42",
+			}}
+			saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{"7:140": stack}})
+			saveTestEquipment(t, ctx, repos, dnfrepo.EquipmentRecord{CharacterID: "77", Entries: map[string]dnfrepo.EquipmentEntry{}})
+			validator := &recordingPlacementValidator{}
+			owner, err := NewOwnerWithPlacementValidator(repos, validator)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Current op19 identifies the artifact by item ID; its independent
+			// grant-time quality seed must also survive the native row rebuild.
+			cmd := MoveCommand{SelectedCharacterID: 77, SourceListType: wireListPet, SourceSlotIndex: 140, SourceInstanceValue: int32(stack.ItemID), MoveCount: 1, DestinationListType: wireListEquipment, DestinationSlotIndex: target}
+			if _, err := owner.Move(ctx, cmd); err != nil {
+				t.Fatal(err)
+			}
+			entry := loadTestEquipment(t, ctx, repos, "77").Entries[fmt.Sprint(target)]
+			if len(entry.RawEntry) != 0x77 || binary.LittleEndian.Uint32(entry.RawEntry[2:6]) != uint32(stack.ItemID) || binary.LittleEndian.Uint32(entry.RawEntry[6:10]) != 42 || binary.LittleEndian.Uint32(entry.RawEntry[14:18]) != uint32(stack.ItemID) || len(validator.placements) != 1 {
+				t.Fatalf("rebuilt artifact lost identity or PVF placement check: %+v", entry)
+			}
+			pet, ok, err := repos.Pet.Load(ctx, "77")
+			if err != nil || !ok || pet.Artifacts[color].ItemID != stack.ItemID {
+				t.Fatalf("worn projection: %+v %v", pet, err)
+			}
+			// A new owner reads committed records, as on reconnect.
+			owner, err = NewOwnerWithPlacementValidator(repos, validator)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := owner.Move(ctx, MoveCommand{SelectedCharacterID: 77, SourceListType: wireListEquipment, SourceSlotIndex: target, MoveCount: 1, DestinationListType: wireListPet, DestinationSlotIndex: 140}); err != nil {
+				t.Fatal(err)
+			}
+			back := loadTestInventory(t, ctx, repos, "77").Slots["7:140"]
+			if back.ItemID != stack.ItemID || back.Count != 1 || back.Extra["quality_seed"] != "42" || len(back.RawEntry) != 0x77 {
+				t.Fatalf("returned instance: %+v", back)
+			}
+			pet, _, err = repos.Pet.Load(ctx, "77")
+			if err != nil || len(pet.Artifacts) != 0 {
+				t.Fatalf("artifact survived unequip: %+v %v", pet, err)
+			}
+		})
+	}
+}
+
+func TestPetArtifactRawRebuildRequiresCompleteMatchingEvidence(t *testing.T) {
+	for _, bad := range []string{"missing_seed", "missing_type", "wrong_color", "creature", "outside_creature_path", "missing_op19_identity", "multiple_items"} {
+		t.Run(bad, func(t *testing.T) {
+			ctx := context.Background()
+			repos := dnfrepomemory.NewMemoryGroup()
+			stack := dnfrepo.ItemStack{ItemID: 10006783, Count: 1, Extra: map[string]string{"item_kind": "equipment", "pvf_path": "equipment/creature/artifact_red/test.equ", "equipment_type": "[artifact red]", "quality_seed": "42"}}
+			instance := int32(stack.ItemID)
+			switch bad {
+			case "missing_seed":
+				delete(stack.Extra, "quality_seed")
+			case "missing_type":
+				delete(stack.Extra, "equipment_type")
+			case "wrong_color":
+				stack.Extra["equipment_type"] = "[artifact blue]"
+			case "creature":
+				stack.Extra["equipment_type"] = "[creature]"
+			case "outside_creature_path":
+				stack.Extra["pvf_path"] = "equipment/weapon/test.equ"
+			case "missing_op19_identity":
+				instance = 0
+			case "multiple_items":
+				stack.Count = 2
+			}
+			saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{"7:140": stack}})
+			saveTestEquipment(t, ctx, repos, dnfrepo.EquipmentRecord{CharacterID: "77", Entries: map[string]dnfrepo.EquipmentEntry{}})
+			owner, err := NewOwnerWithPlacementValidator(repos, &recordingPlacementValidator{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := owner.Move(ctx, MoveCommand{SelectedCharacterID: 77, SourceListType: wireListPet, SourceSlotIndex: 140, SourceInstanceValue: instance, MoveCount: 1, DestinationListType: wireListEquipment, DestinationSlotIndex: 27}); err == nil {
+				t.Fatal("incomplete/mismatched artifact identity accepted")
+			}
+			if got := loadTestInventory(t, ctx, repos, "77").Slots["7:140"]; got.ItemID != stack.ItemID || got.Count != stack.Count || len(loadTestEquipment(t, ctx, repos, "77").Entries) != 0 {
+				t.Fatal("rejected wear changed assets")
+			}
+		})
+	}
+}
 
 func TestOwnerMoveEquipsArtifactToColorTarget(t *testing.T) {
 	ctx := context.Background()

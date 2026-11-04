@@ -86,6 +86,7 @@ func currentEquipmentRecipeUpgradeDocument(entry equipmentRecipeEntry, source dn
 
 type currentEquipmentRecipeUpgradePlan struct {
 	Key         string
+	ListType    byte
 	Slot        int16
 	Stack       dnfrepo.ItemStack
 	Output      dungeonDropItemDefinition
@@ -110,8 +111,13 @@ func planCurrentEquipmentRecipeUpgrade(entry equipmentRecipeEntry, items *pvfDun
 	}
 	output, err := items.ResolveItem(uint32(entry.Outputs[0].ItemID))
 	if err != nil || output.Kind != dungeonDropItemEquipment || input.EquipmentType != output.EquipmentType ||
-		currentPVFItemTargetContainer(input).ListType != dnfrepo.MainInventoryListType || currentPVFItemTargetContainer(output).ListType != dnfrepo.MainInventoryListType ||
 		!input.ExpirationDate.IsZero() || !output.ExpirationDate.IsZero() {
+		return nil, errCurrentEquipmentRecipeCompoundUnsupported
+	}
+	inputContainer, outputContainer := currentPVFItemTargetContainer(input), currentPVFItemTargetContainer(output)
+	main := inputContainer.ListType == dnfrepo.MainInventoryListType && outputContainer.ListType == dnfrepo.MainInventoryListType
+	medal := inputContainer.GuildMedal && outputContainer.GuildMedal
+	if !main && !medal {
 		return nil, errCurrentEquipmentRecipeCompoundUnsupported
 	}
 	for _, material := range entry.Materials[1:] {
@@ -123,7 +129,8 @@ func planCurrentEquipmentRecipeUpgrade(entry equipmentRecipeEntry, items *pvfDun
 	slots := make([]int, 0)
 	for key, stack := range inventory.Slots {
 		list, slot, ok := parseSceneInventorySlotKey(key)
-		if ok && list == dnfrepo.MainInventoryListType && slot >= 3 && !dnfrepo.IsAccountSharedInventorySlot(list, slot) && stack.ItemID == entry.Materials[0].ItemID && stack.Count == 1 && !currentNPCShopItemLocked(stack) {
+		legalSlot := main && slot >= 3 || medal && slot >= inputContainer.SlotStart && slot <= inputContainer.SlotEnd
+		if ok && list == inputContainer.ListType && legalSlot && !dnfrepo.IsAccountSharedInventorySlot(list, slot) && stack.ItemID == entry.Materials[0].ItemID && stack.Count == 1 && !currentNPCShopItemLocked(stack) {
 			slots = append(slots, int(slot))
 		}
 	}
@@ -131,8 +138,11 @@ func planCurrentEquipmentRecipeUpgrade(entry equipmentRecipeEntry, items *pvfDun
 	if len(slots) == 0 {
 		return nil, errCurrentEquipmentRecipeCompoundMaterials
 	}
+	if medal && len(slots) != 1 {
+		return nil, errCurrentEquipmentRecipeCompoundSourceInvalid
+	}
 	slot := int16(slots[0])
-	key := currentCeraShopInventorySlotKey(0, slot)
+	key := currentCeraShopInventorySlotKey(inputContainer.ListType, slot)
 	stack := dnfrepo.CloneInventory(dnfrepo.InventoryRecord{Slots: map[string]dnfrepo.ItemStack{key: inventory.Slots[key]}}).Slots[key]
 	if !stack.ExpireAt.IsZero() || currentItemListStackExpire(stack) != 0 ||
 		(len(stack.RawEntry) != 0 && (len(stack.RawEntry) != currentItemListEntryWireSize || binary.LittleEndian.Uint32(stack.RawEntry[2:6]) != uint32(stack.ItemID))) {
@@ -140,7 +150,7 @@ func planCurrentEquipmentRecipeUpgrade(entry equipmentRecipeEntry, items *pvfDun
 	}
 	// Slot selection is deterministic and performed inside the same owner UOW
 	// that will consume this exact instance, all materials, and the drawing.
-	return &currentEquipmentRecipeUpgradePlan{Key: key, Slot: slot, Stack: stack, Output: output, KeepSockets: entry.MaintainSocketStat}, nil
+	return &currentEquipmentRecipeUpgradePlan{Key: key, ListType: inputContainer.ListType, Slot: slot, Stack: stack, Output: output, KeepSockets: entry.MaintainSocketStat}, nil
 }
 
 func applyCurrentEquipmentRecipeUpgrade(inventory *dnfrepo.InventoryRecord, plan *currentEquipmentRecipeUpgradePlan) error {
@@ -173,7 +183,7 @@ func applyCurrentEquipmentRecipeUpgrade(inventory *dnfrepo.InventoryRecord, plan
 	for _, key := range []string{"seal_flag", "seal", "bind_flag", "bind"} {
 		stack.Extra[key] = fmt.Sprint(seal)
 	}
-	row := currentItemListEntryFromStack(0, plan.Slot, stack)
+	row := currentItemListEntryFromStack(plan.ListType, plan.Slot, stack)
 	row.data[0x0D] = seal
 	if !plan.KeepSockets {
 		for _, key := range currentEquipmentEmblemDataExtraKeys {

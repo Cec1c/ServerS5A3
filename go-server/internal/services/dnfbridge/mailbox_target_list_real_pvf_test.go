@@ -78,6 +78,9 @@ func TestRealPVFMailboxTargetListForPetFamilies(t *testing.T) {
 	}{
 		{itemID: 25, wantList: currentPetInventoryListType, wantLow: currentCeraShopPetConsumableSlotStart, wantHigh: currentCeraShopPetConsumableSlotEnd},
 		{itemID: 24, wantList: currentPetInventoryListType, wantLow: currentCeraShopPetConsumableSlotStart, wantHigh: currentCeraShopPetConsumableSlotEnd},
+		{itemID: 10006783, wantList: currentPetInventoryListType, wantLow: currentPVFPetArtifactSlotStart, wantHigh: currentPVFPetArtifactSlotEnd},
+		{itemID: 10006784, wantList: currentPetInventoryListType, wantLow: currentPVFPetArtifactSlotStart, wantHigh: currentPVFPetArtifactSlotEnd},
+		{itemID: 10006785, wantList: currentPetInventoryListType, wantLow: currentPVFPetArtifactSlotStart, wantHigh: currentPVFPetArtifactSlotEnd},
 		{itemID: 490701730, wantList: 0, wantLow: 65, wantHigh: 120},
 	} {
 		definition, err := catalog.ResolveItem(test.itemID)

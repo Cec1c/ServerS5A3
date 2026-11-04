@@ -2010,7 +2010,20 @@ func buildCurrentEquipmentRawEntryFromMoveEvidence(
 	equipSlot int16,
 	sourceInstanceValue int32,
 ) ([]byte, bool) {
-	if (sourceListType != wireListMain && sourceListType != wireListAvatar) ||
+	// 邮件等发放路径只有 PVF 身份和品质种子，不一定持久化不透明行。
+	// list 7 仅为匹配颜色穿戴槽的宠装复用同一重建规则，宠物本体仍走专用序列逻辑。
+	petArtifactSource := false
+	if sourceListType == wireListPet && strings.HasPrefix(strings.ToLower(strings.TrimSpace(stack.Extra["pvf_path"])), "equipment/creature/") {
+		switch strings.Trim(strings.ToLower(strings.TrimSpace(stack.Extra["equipment_type"])), "`") {
+		case "[artifact red]":
+			petArtifactSource = equipSlot == 27
+		case "[artifact blue]":
+			petArtifactSource = equipSlot == 28
+		case "[artifact green]":
+			petArtifactSource = equipSlot == 29
+		}
+	}
+	if (sourceListType != wireListMain && sourceListType != wireListAvatar && !petArtifactSource) ||
 		stack.ItemID <= 0 || stack.ItemID > int64(^uint32(0)) || stack.Count != 1 ||
 		sourceInstanceValue == 0 || stack.Extra == nil ||
 		!strings.EqualFold(strings.TrimSpace(stack.Extra["item_kind"]), "equipment") ||

@@ -214,6 +214,8 @@ func decodeCurrentAuctionRegisterRequest(body []byte) (currentAuctionRegisterReq
 	// account-scoped crystal/soul warehouse, which is how a seller lists
 	// 无色小晶块 and the rest of the cube family: this server keeps those slots
 	// account-owned, and the client therefore never sends them as container 0.
+	// Container 7 is accepted only for the pet-artifact segment (140..188);
+	// the authoritative PVF family is checked again before escrow registration.
 	// Any other value names a container this server cannot debit and stays
 	// refused.
 	if len(body) != currentAuctionRegisterRequestSize || body[0] != currentAuctionPayTypeGold {
@@ -226,6 +228,10 @@ func decodeCurrentAuctionRegisterRequest(body []byte) (currentAuctionRegisterReq
 	accountOwned := false
 	switch body[1] {
 	case currentExeInventoryMainListType:
+	case currentPetInventoryListType:
+		if rawSlot < uint16(currentPVFPetArtifactSlotStart) || rawSlot > uint16(currentPVFPetArtifactSlotEnd) {
+			return currentAuctionRegisterRequest{}, dnfauction.ErrInvalidRequest
+		}
 	case currentAuctionAccountContainerByte:
 		if !dnfrepo.IsAccountSharedInventorySlot(
 			dnfrepo.MainInventoryListType, int16(rawSlot)) {
@@ -237,7 +243,7 @@ func decodeCurrentAuctionRegisterRequest(body []byte) (currentAuctionRegisterReq
 	}
 	request := currentAuctionRegisterRequest{
 		PayType:       body[0],
-		ListType:      currentExeInventoryMainListType,
+		ListType:      body[1],
 		AccountOwned:  accountOwned,
 		Slot:          int16(rawSlot),
 		ItemID:        int64(binary.LittleEndian.Uint32(body[4:8])),
@@ -246,6 +252,9 @@ func decodeCurrentAuctionRegisterRequest(body []byte) (currentAuctionRegisterReq
 		InstantPrice:  int64(int32(binary.LittleEndian.Uint32(body[16:20]))),
 		UnitPrice:     int64(int32(binary.LittleEndian.Uint32(body[20:24]))),
 		DurationHours: binary.LittleEndian.Uint32(body[24:28]),
+	}
+	if accountOwned {
+		request.ListType = currentExeInventoryMainListType
 	}
 	// Bytes 28..36 are the client's random-option summary, not reserved zeros.
 	// The native sender writes {30000,0} three times for unidentified magic
@@ -501,7 +510,7 @@ func (s *Service) registerCurrentAuctionItemLocked(session *gameSession, body []
 	if err != nil {
 		return reject("decode", err)
 	}
-	const listType = byte(0)
+	listType := request.ListType
 	slot := request.Slot
 	itemID := request.ItemID
 	requestedCount := request.Count
@@ -535,6 +544,16 @@ func (s *Service) registerCurrentAuctionItemLocked(session *gameSession, body []
 	// there. The client has its own text for a lock, so name it.
 	if currentDungeonDiscardStackLocked(stack) {
 		return reject("item_locked", dnfauction.ErrItemUnavailable)
+	}
+	if listType == currentPetInventoryListType {
+		catalog, lookupErr := s.currentPVFItemCatalog()
+		if lookupErr != nil || catalog == nil {
+			return reject("pet_catalog", dnfauction.ErrItemUnavailable)
+		}
+		definition, lookupErr := catalog.ResolveItem(uint32(itemID))
+		if lookupErr != nil || !currentPVFItemTargetContainer(definition).PetArtifact {
+			return reject("pet_family", dnfauction.ErrItemUnavailable)
+		}
 	}
 	expectedBind, allowSealed, eligible := s.currentAuctionRegistrationPolicy(uint32(itemID), stack)
 	if !eligible {

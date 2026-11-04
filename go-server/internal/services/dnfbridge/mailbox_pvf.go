@@ -216,7 +216,9 @@ func mailboxItemResolutionFromPVF(definition dungeonDropItemDefinition, needsPri
 	// 判定不再各写一套：容器/分段一律问 currentPVFItemTargetContainer（唯一真源）。
 	container := currentPVFItemTargetContainer(definition)
 	switch {
-	case container.PetBody:
+	case container.PetBody, container.PetArtifact:
+		// 宠物装备与宠物本体都属于 list 7，分别使用分类器给出的独立槽段。
+		// 遗漏 PetArtifact 会把原版及自定义红/蓝/绿宠装全部领到人物装备页。
 		resolution.TargetListType = container.ListType
 		resolution.SlotStart = container.SlotStart
 		resolution.SlotEnd = container.SlotEnd

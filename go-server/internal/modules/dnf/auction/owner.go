@@ -468,7 +468,7 @@ func (o *Owner) EnsureEscrow(ctx context.Context) error {
 func (o *Owner) Register(ctx context.Context, cmd RegisterCommand) (Result, error) {
 	cmd.SellerID = strings.TrimSpace(cmd.SellerID)
 	cmd.AccountID = strings.TrimSpace(cmd.AccountID)
-	if o == nil || cmd.ListingID == 0 || cmd.SellerID == "" || cmd.AccountID == "" || cmd.SellerID == EscrowCharacterID || cmd.SourceSlot < 0 || (cmd.ListType != 0 && cmd.ListType != 1) || cmd.ExpectedID <= 0 || cmd.Count <= 0 || cmd.UnitPrice <= 0 || cmd.Duration <= 0 || cmd.ListingLimit <= 0 {
+	if o == nil || cmd.ListingID == 0 || cmd.SellerID == "" || cmd.AccountID == "" || cmd.SellerID == EscrowCharacterID || cmd.SourceSlot < 0 || (cmd.ListType != 0 && cmd.ListType != 1 && cmd.ListType != 7) || (cmd.ListType == 7 && (cmd.SourceSlot < 140 || cmd.SourceSlot > 188)) || cmd.ExpectedID <= 0 || cmd.Count <= 0 || cmd.UnitPrice <= 0 || cmd.Duration <= 0 || cmd.ListingLimit <= 0 {
 		return Result{}, ErrInvalidRequest
 	}
 	if cmd.StartPrice < -1 || cmd.StartPrice > cmd.UnitPrice {
@@ -1959,6 +1959,9 @@ func allocateSlot(slots map[string]dnfrepo.ItemStack, listType byte, preferred i
 	ranges := [][2]int16{{9, 64}, {65, 120}, {121, 176}, {177, 232}, {233, 288}, {289, 344}, {345, 353}}
 	if listType == 1 {
 		ranges = [][2]int16{{0, 500}}
+	}
+	if listType == 7 {
+		ranges = [][2]int16{{140, 188}}
 	}
 	for _, bounds := range ranges {
 		if preferred >= bounds[0] && preferred <= bounds[1] {

@@ -810,7 +810,7 @@ func currentDungeonPickupPlacement(
 		MergeIdentity: currentPVFGrantIdentity(definition),
 	}
 	container := currentPVFItemTargetContainer(definition)
-	if container.GuildMedal || container.GuardianGem {
+	if container.GuildMedal || container.GuardianGem || container.PetArtifact || container.PetBody || container.PetConsumable {
 		placement.Definition.ListType = container.ListType
 		placement.Definition.SlotStart = container.SlotStart
 		placement.Definition.SlotEnd = container.SlotEnd
@@ -835,7 +835,8 @@ func buildCurrentDungeonPickupStack(
 	amount uint32,
 	qualitySeed ...uint32,
 ) (dnfrepo.ItemStack, error) {
-	if slot < 0 || amount == 0 || (slot == 0 && !currentPVFItemTargetContainer(definition).GuildMedal) {
+	container := currentPVFItemTargetContainer(definition)
+	if slot < 0 || amount == 0 || (slot == 0 && !container.GuildMedal && !container.PetBody) {
 		return dnfrepo.ItemStack{}, errDungeonPickupItemInvalid
 	}
 	entry, err := buildCurrentDungeonItemInstanceState(uint16(slot), definition, amount, qualitySeed...)
@@ -888,7 +889,7 @@ func buildCurrentDungeonPickupStack(
 		stack, _ = applyCurrentPVFItemExpiration(stack, definition)
 	}
 	listType := byte(dnfrepo.MainInventoryListType)
-	if container := currentPVFItemTargetContainer(definition); container.GuildMedal || container.GuardianGem {
+	if container := currentPVFItemTargetContainer(definition); container.GuildMedal || container.GuardianGem || container.PetArtifact || container.PetBody || container.PetConsumable {
 		listType = container.ListType
 	}
 	entry = currentItemListEntryFromStack(listType, slot, stack)
@@ -949,7 +950,7 @@ func grantCurrentDungeonPickupItem(ctx context.Context, repositories dnfrepo.Gro
 // Mirror the supported pickup placement, not every family supported by other grants.
 func currentDungeonPickupListType(definition dungeonDropItemDefinition) byte {
 	c := currentPVFItemTargetContainer(definition)
-	if c.GuildMedal || c.GuardianGem {
+	if c.GuildMedal || c.GuardianGem || c.PetArtifact || c.PetBody || c.PetConsumable {
 		return c.ListType
 	}
 	return dnfrepo.MainInventoryListType

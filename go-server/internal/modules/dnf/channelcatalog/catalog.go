@@ -142,6 +142,23 @@ func (c *Catalog) Channel(id int) (Channel, bool) {
 	return cloneChannel(channel), ok
 }
 
+// BootstrapChannel keeps the historical script entrance where configured.
+// A deliberately reduced directory may instead use one of its real ordinary
+// channels; never synthesize a removed channel or select a raid as the fallback.
+func (c *Catalog) BootstrapChannel(preferred int) (Channel, bool) {
+	if channel, ok := c.Channel(preferred); ok {
+		return channel, true
+	}
+	if c != nil {
+		for _, channel := range c.channels {
+			if channel.ID > 0 && channel.ID <= 255 && isResidentChannel(channel) {
+				return cloneChannel(channel), true
+			}
+		}
+	}
+	return Channel{}, false
+}
+
 // ForPort 按本地游戏端口反查频道。
 func (c *Catalog) ForPort(port int) (Channel, bool) {
 	if c == nil {
