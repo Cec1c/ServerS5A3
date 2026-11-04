@@ -309,6 +309,7 @@ type gameSession struct {
 	// 对端是否已完成场景重建（dungeon_party_peer_actor_landing_resend.go）。
 	// 锁只在赋值/读取那几行内持有，不包网络、仓储或其它锁。
 	finishLoadingMu                    sync.Mutex
+	finishLoadingRevision              uint64
 	currentFinishLoadingStateSent      bool
 	currentFinishLoadingCompletionSent bool
 	postFinishLoadingPlayerStateSent   bool
@@ -781,6 +782,9 @@ func (s *gameSession) setFinishLoadingGateState(value bool) {
 		return
 	}
 	s.finishLoadingMu.Lock()
+	if s.currentFinishLoadingStateSent != value {
+		s.finishLoadingRevision++
+	}
 	s.currentFinishLoadingStateSent = value
 	s.finishLoadingMu.Unlock()
 }
@@ -790,6 +794,9 @@ func (s *gameSession) setFinishLoadingGateCompletion(value bool) {
 		return
 	}
 	s.finishLoadingMu.Lock()
+	if s.currentFinishLoadingCompletionSent != value {
+		s.finishLoadingRevision++
+	}
 	s.currentFinishLoadingCompletionSent = value
 	s.finishLoadingMu.Unlock()
 }
@@ -799,6 +806,9 @@ func (s *gameSession) setFinishLoadingGatePostFinish(value bool) {
 		return
 	}
 	s.finishLoadingMu.Lock()
+	if s.postFinishLoadingPlayerStateSent != value {
+		s.finishLoadingRevision++
+	}
 	s.postFinishLoadingPlayerStateSent = value
 	s.finishLoadingMu.Unlock()
 }
@@ -810,6 +820,9 @@ func (s *gameSession) setFinishLoadingGates(gates finishLoadingGates) {
 		return
 	}
 	s.finishLoadingMu.Lock()
+	if s.currentFinishLoadingStateSent != gates.State || s.currentFinishLoadingCompletionSent != gates.Completion || s.postFinishLoadingPlayerStateSent != gates.PostFinish {
+		s.finishLoadingRevision++
+	}
 	s.currentFinishLoadingStateSent = gates.State
 	s.currentFinishLoadingCompletionSent = gates.Completion
 	s.postFinishLoadingPlayerStateSent = gates.PostFinish

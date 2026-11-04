@@ -55,6 +55,12 @@ type currentPartyUDPRelayLeg struct {
 	// 下面的计数覆盖 readLoop 里**每一条** continue 路径：不匹配就静默丢弃的旧行为会把
 	// "通道建了但一个包都没通"和"包来了但被源校验挡掉"混成同一个症状（都是零转发）。
 	received              uint64
+	lastReceivedAt        time.Time
+	stallWatching         bool
+	stallRecoveryUsed     bool
+	stallRecoverySent     bool
+	stallRecoveryObserved bool
+	stallRetryAfter       time.Time
 	emptyPayload          uint64
 	rejectedSource        uint64
 	missingOppositeLeg    uint64
@@ -160,6 +166,7 @@ func (leg *currentPartyUDPRelayLeg) noteReceived() uint64 {
 	leg.mu.Lock()
 	defer leg.mu.Unlock()
 	leg.received++
+	leg.lastReceivedAt = time.Now()
 	return leg.received
 }
 
@@ -381,7 +388,9 @@ type currentPartyUDPRelay struct {
 	// kickTiming 是"催沉默端 + 重投待投首包"的节拍（见 party_udp_relay_silent_peer_kick.go）。
 	kickTiming partyUDPRelayKickTiming
 	// onSilentPeer 是"让沉默对端开口"的回调（party_udp_relay_silent_peer_kick.go）。nil = 不做。
-	onSilentPeer func(partyID, memberID uint16) bool
+	onSilentPeer       func(partyID, memberID uint16) bool
+	prepareStalledPeer func(uint16, currentPartyUDPRelayBinding) *partyUDPRelayRecoveryPlan
+	stallTiming        partyUDPRelayStallTiming
 	// done 在 Close 时关闭：所有 relay 级后台 goroutine（清扫器、看门狗）都监听它。
 	done chan struct{}
 	// pendingWindow 是待投队列的"周期重投总窗口"（DNFBRIDGE_PARTY_UDP_RELAY_RESEND_SECONDS，
@@ -428,6 +437,7 @@ type currentPartyUDPRelaySettings struct {
 	kickTiming             partyUDPRelayKickTiming
 	pendingWindow          time.Duration
 	onSilentPeer           func(partyID, memberID uint16) bool
+	prepareStalledPeer     func(uint16, currentPartyUDPRelayBinding) *partyUDPRelayRecoveryPlan
 	logWarn                func(string, ...any)
 	// viaPort >0 = 用共享端口替代定向腿口（见 currentPartyUDPRelay.viaPort）。
 	viaPort int
@@ -495,6 +505,7 @@ func newCurrentPartyUDPRelayWithSettings(settings currentPartyUDPRelaySettings) 
 		memoTTL:                settings.memoTTL,
 		kickTiming:             settings.kickTiming,
 		onSilentPeer:           settings.onSilentPeer,
+		prepareStalledPeer:     settings.prepareStalledPeer,
 		viaPort:                settings.viaPort,
 		logWarn:                logWarn,
 		done:                   make(chan struct{}),
@@ -823,6 +834,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 		leg.mu.Unlock()
 		r.rememberEndpoint(leg, source)
 		r.mu.Unlock()
+		r.logStalledMemberTrafficResumed(leg)
 		if firstLearn {
 			// 首包留存重放：这条腿第一次学到"写给它的对端"的真实端点 ⇒ 把之前为它
 			// 留存下来的（对向腿的）首包原样补投过去。off 档下本函数立即返回。
@@ -910,6 +922,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 		datagrams, bytesForwarded, first := leg.noteForwarded(n)
 		r.forwardedTotal.Add(1)
 		r.traceRelayDatagram(leg, source, n, buffer[:n], "forwarded_learned_endpoint")
+		r.watchStalledPartyMember(leg, opposite)
 		if first {
 			r.log("party UDP relay leg carries traffic",
 				"party_id", leg.key.partyID,

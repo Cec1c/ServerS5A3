@@ -1570,10 +1570,11 @@ func (s *Service) newPartyUDPRelayBackends() (*currentPartyUDPRelayRemote, *curr
 		observedEndpointFanout: s.partyUDPRelayObservedEndpointFanoutMode(),
 		// 共享端口档（0 = off）：把"定向腿口"换成"客户端唯一持续保活的那个 UDP 端口"，
 		// 见 party_udp_relay_via_port.go。零值 = 现行为。
-		viaPort:       s.partyUDPRelayViaPort(),
-		memoTTL:       s.partyUDPRelayMemoTTL(),
-		kickTiming:    s.partyUDPRelayKickTiming(),
-		pendingWindow: s.partyUDPRelayKickTiming().window,
+		viaPort:            s.partyUDPRelayViaPort(),
+		memoTTL:            s.partyUDPRelayMemoTTL(),
+		kickTiming:         s.partyUDPRelayKickTiming(),
+		pendingWindow:      s.partyUDPRelayKickTiming().window,
+		prepareStalledPeer: s.prepareStalledPartyMemberRecovery,
 		onSilentPeer: func(partyID, memberID uint16) bool {
 			if !s.partyUDPRelaySilentPeerKickMode() {
 				return false
