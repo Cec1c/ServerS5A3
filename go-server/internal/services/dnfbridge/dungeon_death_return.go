@@ -118,6 +118,28 @@ func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) e
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	characterID, readyReason := currentDungeonDeathRuntimeOwner(runtime, session)
+	if readyReason == "dungeon_run_not_active" && currentDungeonCompletedLifeOwner(runtime, session) {
+		// Combat completion does not prove the client actor survived every
+		// outstanding attack. Accept its death in this retained ordinary
+		// settlement, without starting a town-return timer or reopening combat.
+		if runtime.deathStateSent {
+			session.dungeon.mu.Unlock()
+			return nil
+		}
+		characterID = session.selectedCharacterID
+		err := s.sendGameUpperRawClass(session, currentDungeonDeathStateMsgID,
+			buildCurrentDungeonDeathStateBody(currentSceneActorObjectKey(characterID), 0, 0), 0)
+		if err == nil {
+			runtime.deathStateSent = true
+			markPartyDungeonLife(runtime, characterID, true)
+			partyDeathRuntime = runtime
+		}
+		s.logGameEvent(session, "game-dungeon-completed-character-death", "char_id", characterID,
+			"run_token", runtime.lifecycleToken, "sent", err == nil, "error", err,
+			"scope", "ordinary_settlement_life_only_no_return_timer_or_reward_change")
+		session.dungeon.mu.Unlock()
+		return err
+	}
 	session.dungeon.mu.Unlock()
 	if readyReason != "" {
 		s.logGameEvent(session, "game-dungeon-character-death-blocked",
@@ -491,9 +513,22 @@ type currentDungeonReviveCoinConsumeResult struct {
 
 // A completed ordinary run cancels its death-return timer when entering
 // settlement; that does not revive an actor whose death was already accepted.
-// Keep op40 admission active-only. Only op41 may use this retained death proof,
-// in the same committed run, before a town transition, without changing any
-// result/card/reward gate. Dedicated raid/tower/tournament rules stay separate.
+// A later op40 may establish that same proof after completion. Both requests
+// remain bound to the committed ordinary run before a town transition, without
+// changing any result/card/reward gate. Dedicated modes stay separate.
+func currentDungeonCompletedLifeOwner(runtime *runtimeDungeonState, session *gameSession) bool {
+	if runtime == nil || runtime.Session == nil || session == nil || session.dungeon.runtime != runtime ||
+		session.selectedCharacterID == 0 || !dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) ||
+		runtime.Session.Snapshot().Run.Status != worldmap.DungeonRunCompleted ||
+		runtime.raidEntry != nil || runtime.Tournament != nil || isPVFTutorialDungeon(runtime) ||
+		currentDungeonUsesDedicatedTowerResult(runtime) || runtime.townReturnPending ||
+		runtime.lifecycleToken == 0 || runtime.lifecycleToken != session.dungeon.runToken {
+		return false
+	}
+	return completedDungeonSettlementEntryReady(runtime, session.selectedCharacterID) &&
+		currentDungeonSettlementCompletionReady(runtime, worldmap.DungeonRunCompleted)
+}
+
 func currentDungeonReviveRuntimeOwner(runtime *runtimeDungeonState, session *gameSession) (uint16, string) {
 	characterID, reason := currentDungeonDeathRuntimeOwner(runtime, session)
 	if reason == "" {
@@ -502,12 +537,7 @@ func currentDungeonReviveRuntimeOwner(runtime *runtimeDungeonState, session *gam
 		}
 		return characterID, ""
 	}
-	if reason != "dungeon_run_not_active" || runtime.raidEntry != nil || runtime.Tournament != nil ||
-		isPVFTutorialDungeon(runtime) || currentDungeonUsesDedicatedTowerResult(runtime) ||
-		runtime.townReturnPending || !runtime.deathStateSent ||
-		runtime.lifecycleToken == 0 || runtime.lifecycleToken != session.dungeon.runToken ||
-		!completedDungeonSettlementEntryReady(runtime, session.selectedCharacterID) ||
-		!currentDungeonSettlementCompletionReady(runtime, worldmap.DungeonRunCompleted) {
+	if reason != "dungeon_run_not_active" || !currentDungeonCompletedLifeOwner(runtime, session) || !runtime.deathStateSent {
 		return 0, reason
 	}
 	return session.selectedCharacterID, ""

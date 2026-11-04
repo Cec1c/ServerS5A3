@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -20,7 +21,7 @@ import (
 // Rating payload and card reward plan are frozen test plans, not a real-PVF
 // combat/loot simulation or proof of the native unpicked-epic dialog.
 func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
-	for _, timing := range []string{"revive_before_completion", "revive_after_completion", "revive_after_result"} {
+	for _, timing := range []string{"revive_before_completion", "revive_after_completion", "revive_after_result", "death_after_completion", "death_after_result", "death_after_reward"} {
 		for _, exit := range []string{"town", "retry"} {
 			t.Run(timing+"/"+exit, func(t *testing.T) {
 				s, session, r := newBackToVillageRuntime(t)
@@ -49,11 +50,34 @@ func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
 					}
 					return cloneRound100Inventory(bag)
 				}
-				dispatch(uint16(dnfenum.CmdPacketDieCharacter), make([]byte, currentDungeonDieCharacterBodySize))
-				if !r.deathStateSent || !r.deathReturnWaiting {
-					t.Fatal("initial op40 must have an accepted death and timer")
+				fireStaleTimer := func() {}
+				if !strings.HasPrefix(timing, "death_after_") {
+					dispatch(uint16(dnfenum.CmdPacketDieCharacter), make([]byte, currentDungeonDieCharacterBodySize))
+					if !r.deathStateSent || !r.deathReturnWaiting {
+						t.Fatal("initial op40 must have an accepted death and timer")
+					}
+					staleTimer := queue.task(t, 0)
+					fireStaleTimer = func() { queue.fire(staleTimer, true) }
 				}
-				staleTimer := queue.task(t, 0)
+				lateDeath := func() {
+					t.Helper()
+					phase, reward := r.settlementPhase, r.settlementCardRewardCommitted
+					bag := loadBag()
+					conn.write.Reset()
+					dispatch(uint16(dnfenum.CmdPacketDieCharacter), make([]byte, currentDungeonDieCharacterBodySize))
+					noti, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+					if noti.Header.MsgID != currentDungeonDeathStateMsgID || noti.Header.Classification != 0 || !bytes.Equal(noti.Body, buildCurrentDungeonDeathStateBody(99, 0, 0)) || len(rest) != 0 {
+						t.Fatal("completed death must emit only the native death state")
+					}
+					conn.write.Reset()
+					dispatch(uint16(dnfenum.CmdPacketDieCharacter), make([]byte, currentDungeonDieCharacterBodySize))
+					if !r.deathStateSent || r.deathReturnWaiting || r.townReturnPending || conn.write.Len() != 0 || r.settlementPhase != phase || r.settlementCardRewardCommitted != reward || !reflect.DeepEqual(bag, loadBag()) {
+						t.Fatal("completed death replay changed timer, settlement or assets")
+					}
+					if _, _, active := queue.counts(); active != 0 {
+						t.Fatal("completed death scheduled an automatic town return")
+					}
+				}
 				// This synthetic owned ground item must survive completion and
 				// revive. It is not evidence of the native epic-warning dialog.
 				scene, _ := r.Session.Scene()
@@ -85,7 +109,7 @@ func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
 					bag := loadBag()
 					conn.write.Reset()
 					dispatch(uint16(dnfenum.CmdPacketUseCoin), coinBody)
-					queue.fire(staleTimer, true)
+					fireStaleTimer()
 					if !reflect.DeepEqual(bag, loadBag()) || conn.write.Len() != 0 || r.townReturnPending {
 						t.Fatal("coin replay or stale death timer mutated assets/scene")
 					}
@@ -109,6 +133,10 @@ func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
 				if timing == "revive_after_completion" {
 					revive()
 				}
+				if timing == "death_after_completion" {
+					lateDeath()
+					revive()
+				}
 				plan := currentDungeonSettlementPacketPlanForTest(t, r, 73)
 				r.settlementResultPlan = &plan
 				resultBody := make([]byte, currentDungeonPlayResultBaseSize)
@@ -116,6 +144,10 @@ func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
 				dispatch(uint16(dnfenum.CmdPacketSetPlayResult), resultBody)
 				dispatch(uint16(dnfenum.CmdPacketCharacterStatistic), make([]byte, currentDungeonCharacterStatisticBodySize))
 				if timing == "revive_after_result" {
+					revive()
+				}
+				if timing == "death_after_result" {
+					lateDeath()
 					revive()
 				}
 				before := loadBag()
@@ -160,6 +192,10 @@ func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
 				if again := captureRound100RetryAssets(t, s, 700); !reflect.DeepEqual(paid.character.Stats, again.character.Stats) || !reflect.DeepEqual(paid.inventory, again.inventory) {
 					t.Fatal("free-card replay granted assets twice")
 				}
+				if timing == "death_after_reward" {
+					lateDeath()
+					revive()
+				}
 				conn.write.Reset()
 				if exit == "town" {
 					dispatch(uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 2})
@@ -183,7 +219,7 @@ func TestR134CompletedDeathReviveThenSettlementExit(t *testing.T) {
 }
 
 func TestR134CompletedReviveRequiresRetainedDeathOwner(t *testing.T) {
-	for _, boundary := range []string{"late_death", "wrong_target", "wrong_character", "new_run_token", "no_entry", "unproved_completion", "pending_return", "raid", "coin_save_failure"} {
+	for _, boundary := range []string{"unreported_death", "wrong_target", "wrong_character", "new_run_token", "no_entry", "unproved_completion", "pending_return", "raid", "coin_save_failure"} {
 		t.Run(boundary, func(t *testing.T) {
 			s, session, r := newBackToVillageRuntime(t)
 			q := newFakeCurrentDungeonDeathTimerQueue()
@@ -202,7 +238,7 @@ func TestR134CompletedReviveRequiresRetainedDeathOwner(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if boundary != "late_death" {
+			if boundary != "unreported_death" {
 				dispatch(uint16(dnfenum.CmdPacketDieCharacter), make([]byte, currentDungeonDieCharacterBodySize))
 			}
 			if _, err := r.Room.AnnounceAllActors(r.Session); err != nil {
@@ -219,8 +255,6 @@ func TestR134CompletedReviveRequiresRetainedDeathOwner(t *testing.T) {
 			}
 			coin := []byte{99, 0}
 			switch boundary {
-			case "late_death":
-				dispatch(uint16(dnfenum.CmdPacketDieCharacter), make([]byte, currentDungeonDieCharacterBodySize))
 			case "wrong_target":
 				coin[0] = 100
 			case "wrong_character":
