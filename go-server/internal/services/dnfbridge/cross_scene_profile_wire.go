@@ -44,12 +44,22 @@ func (s *Service) sendCurrentCrossSceneProfileFrame(ctx context.Context, viewer,
 // order of gameplay handlers that send while holding dungeon.mu.
 func (s *Service) lockCurrentCrossSceneProfileForDelivery(ctx context.Context, viewer, actor *gameSession, needsHP bool) ([]byte, error) {
 	for {
-		if err := lockCurrentCrossSceneProfile(ctx, &actor.crossSceneAppearanceMu); err != nil {
+		if err := lockCurrentCrossSceneProfile(ctx, &viewer.wireMu); err != nil {
 			return nil, err
 		}
-		if err := lockCurrentCrossSceneProfile(ctx, &viewer.wireMu); err != nil {
-			actor.crossSceneAppearanceMu.Unlock()
-			return nil, err
+		// A busy recipient must not retain the shared actor lock while its
+		// unrelated gameplay write finishes. Other callers acquire appearance
+		// first, so the inverse acquisition here is strictly try-only.
+		if !actor.crossSceneAppearanceMu.TryLock() {
+			viewer.wireMu.Unlock()
+			timer := time.NewTimer(time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+				continue
+			}
 		}
 		var realtime []byte
 		ready := true

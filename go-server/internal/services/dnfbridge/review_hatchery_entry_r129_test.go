@@ -8,6 +8,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
@@ -131,7 +132,10 @@ func TestReviewHatcheryEntryR129PostStartMapWireContract(t *testing.T) {
 			}
 
 			localKey := currentSceneActorObjectKey(session.selectedCharacterID)
-			containerTypes := loginEquipmentBootstrapListTypes()
+			// The account Fate wallet is a separate bootstrap container, added
+			// after the equipment lists. Retain exact ordering and validate its
+			// row and adjacent weekly snapshot instead of ignoring extra op13s.
+			containerTypes := append(append([]byte(nil), loginEquipmentBootstrapListTypes()...), currentRaidCurrencyListType)
 			containerAt := 0
 			for index := startIndex + 1; index < firstPostStartMode1; index++ {
 				packet := packets[index]
@@ -140,6 +144,18 @@ func TestReviewHatcheryEntryR129PostStartMapWireContract(t *testing.T) {
 				}
 				if len(packet.Body) == 0 || containerAt >= len(containerTypes) || packet.Body[0] != containerTypes[containerAt] {
 					t.Fatalf("post-op29 pre-mode1 container[%d] body=%x want list=%v", containerAt, packet.Body, containerTypes)
+				}
+				if packet.Body[0] == currentRaidCurrencyListType {
+					if len(packet.Body) != 3+currentItemListEntryWireSize || binary.LittleEndian.Uint16(packet.Body[1:3]) != 1 || binary.LittleEndian.Uint16(packet.Body[3:5]) != 0 || binary.LittleEndian.Uint32(packet.Body[5:9]) != raidcurrency.FateItemID || binary.LittleEndian.Uint32(packet.Body[9:13]) != 0 {
+						t.Fatalf("hatchery empty account Fate row=%x", packet.Body)
+					}
+					if index+1 >= firstPostStartMode1 {
+						t.Fatal("hatchery Fate weekly snapshot missing before mode1")
+					}
+					weekly := packets[index+1]
+					if weekly.Header.Classification != 0 || weekly.Header.MsgID != 1456 || !bytes.Equal(weekly.Body, buildCurrentFateWeeklyBody(raidcurrency.State{})) {
+						t.Fatalf("hatchery Fate weekly packet=%+v body=%x", weekly.Header, weekly.Body)
+					}
 				}
 				containerAt++
 			}

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -496,7 +497,22 @@ func (s *Service) sendTownRemoteActorStateWithPartyFrame(
 	return s.sendTownRemoteActorStateChecked(target, actor, source, partyFrame, nil)
 }
 
+var errTownDisplayEligibilityChanged = errors.New("town display eligibility changed before delivery")
+
 func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onlinePlayerInfo, source string, partyFrame bool, current func() bool) error {
+	// A membership change can promote a lightweight actor while its body is
+	// being built. Neither attempt writes a prefix on this error, so rebuild
+	// once from the current membership rather than closing a healthy stream.
+	for attempt := 0; attempt < 2; attempt++ {
+		err := s.sendTownRemoteActorStateAttempt(target, actor, source, partyFrame, current)
+		if !errors.Is(err, errTownDisplayEligibilityChanged) {
+			return err
+		}
+	}
+	return errTownDisplayEligibilityChanged
+}
+
+func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onlinePlayerInfo, source string, partyFrame bool, current func() bool) error {
 	constructionStarted := time.Now()
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
 		return nil
@@ -513,6 +529,7 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 		}
 		actor.Session = actorIdentity.session
 	}
+	displayOnly := partyFrame && s.currentTownDisplayOnlyProjection(target, actor, source)
 	targetCharacterID := target.selectedCharacterID
 
 	ctx, cancel := gameTransportBudget(target, nil)
@@ -551,33 +568,36 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 	if err != nil {
 		return fmt.Errorf("build remote town actor mode0: %w", err)
 	}
-	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(
-		ctx,
-		actor.Session,
-		character,
-		hasCharacter,
-	)
-	if peerSkillPageTownEnabled() {
-		// Mark this ctx as "the body built from it goes to a peer" so the mode1 tail
-		// carries the real skill/switch page (same gate the dungeon-party path uses).
-		ctx = withDungeonPartyPeerSkillPageTarget(ctx, charID)
+	var mode1Body, subtype0Body []byte
+	if !displayOnly {
+		adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(
+			ctx,
+			actor.Session,
+			character,
+			hasCharacter,
+		)
+		if peerSkillPageTownEnabled() {
+			// Mark this ctx as "the body built from it goes to a peer" so the mode1 tail
+			// carries the real skill/switch page (same gate the dungeon-party path uses).
+			// Only a full projection reaches this block; a display-only actor must not
+			// read account, skill-page, or legacy USERINFO dependencies for an unsent body.
+			ctx = withDungeonPartyPeerSkillPageTarget(ctx, charID)
+		}
+		mode1Body = s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
+			ctx,
+			actor.Session,
+			character,
+			hasCharacter,
+			charID,
+			uint32(adventureSummary.ManageLevel),
+			remoteOwner,
+			true,
+		)
 	}
-	if peerSkillPageTownEnabled() {
-		// 城镇同屏（game-town-copresence-actor-state-send）这条链此前没有打"发给对端"的
-		// 标记，于是 mode1 尾块的技能页槽写成 0xff/0/0（空）⇒ 玩家在城镇里点别人看不到
-		// 对方的 buff 强化/换装页。这里只为【被同屏的那个人】的 body 打标记，
-		// 与队友那条链（dungeon_party_copresence.go）同构；默认档关闭 ⇒ 逐字节等于现状。
-		ctx = withDungeonPartyPeerSkillPageTarget(ctx, charID)
-	}
-	mode1Body := s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
-		ctx,
-		actor.Session,
-		character,
-		hasCharacter,
-		charID,
-		uint32(adventureSummary.ManageLevel),
-		remoteOwner,
-		true,
+	// Clone appearance uses this independent carrier even for display-only
+	// actors. Preserve it while avoiding only the unsent full mode1 work.
+	subtype0Body = s.peerActorUserInfoSubtype0BodyForProjection(
+		ctx, target, actor.Session, character, hasCharacter, charID, charName, mode0Body,
 	)
 	s.logPacketEvent("game-town-copresence-actor-state-send",
 		"conn_id", target.connID,
@@ -599,14 +619,8 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 		"mode1_body_len", len(mode1Body),
 		"body_source", "current_exe_mode0_create_then_mode1_bind_then_same_owner_op9_party_state_before_area_state")
 	// 判读事件：城镇同屏走的是与副本队友投影**同一个** mode0 外观载体，所以队友
-	// 时装缺链接这件事在城里同样成立（party_peer_appearance.go 文件头）。
-	//
-	// subtype0Body 是第二条外观载体（被投影角色自己的 USERINFO subtype0 外观列表）；
-	// 厂商的同屏口径就是这一条（TownHandler.cs:502-515），见
-	// party_peer_appearance_subtype0.go 的文件头。
-	subtype0Body := s.peerActorUserInfoSubtype0BodyForProjection(
-		ctx, target, actor.Session, character, hasCharacter, charID, charName, mode0Body,
-	)
+	// 时装缺链接这件事在城里同样成立（party_peer_appearance.go 文件头）。轻量投影
+	// 仅跳过 mode1；独立的克隆外观载体继续按原条件生成。
 	if target.selectedCharacterID != targetCharacterID || actor.Session.selectedCharacterID != charID {
 		return fmt.Errorf("remote town actor selection changed during construction: actor=%d receiver=%d", charID, targetCharacterID)
 	}
@@ -628,7 +642,19 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 	if current != nil && !current() {
 		return nil
 	}
-	displayOnly := partyFrame && s.currentTownDisplayOnlyProjection(target, actor, source)
+	// Building mode0 and applying HP can take long enough for a retained singleton
+	// to become a real party. Recheck immediately before the first wire write so a
+	// display-only actor is never combined with a stale full/lite construction.
+	currentDisplayOnly := partyFrame && s.currentTownDisplayOnlyProjection(target, actor, source)
+	if currentDisplayOnly != displayOnly {
+		return fmt.Errorf(
+			"%w: actor=%d initial=%t current=%t",
+			errTownDisplayEligibilityChanged,
+			charID,
+			displayOnly,
+			currentDisplayOnly,
+		)
+	}
 	if err := s.sendGameUpperRawClass(
 		target,
 		uint16(dnfenum.CmdPacketSetUDPIPPort),

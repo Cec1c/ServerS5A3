@@ -129,16 +129,21 @@ func TestCrossSceneProfileRechecksMembershipAfterWireWait(t *testing.T) {
 		}
 	}()
 	done := make(chan error, 1)
-	go func() { done <- batch.send(f.viewer2, f.actor, owner) }()
-	// Observe the actual sender holding the actor lock while it waits for the
-	// blocked recipient wire. Then remove that recipient through the owner.
-	until := time.Now().Add(time.Second)
-	for f.actor.crossSceneAppearanceMu.TryLock() {
-		f.actor.crossSceneAppearanceMu.Unlock()
-		if time.Now().After(until) {
-			t.Fatal("sender did not reach wire wait")
+	prepared := make(chan struct{})
+	var preparedOnce sync.Once
+	wrapCurrentCrossSceneProfileBatchCharacterLoads(t, f.service, func(id string) {
+		if id == "1001" {
+			preparedOnce.Do(func() { close(prepared) })
 		}
-		time.Sleep(time.Millisecond)
+	})
+	go func() { done <- batch.send(f.viewer2, f.actor, owner) }()
+	// Wait until the recipient was loaded while its wire remains blocked.
+	// Removing it must invalidate the eventual write; an actor lock is no
+	// longer retained during that unrelated wire wait.
+	select {
+	case <-prepared:
+	case <-time.After(time.Second):
+		t.Fatal("sender did not prepare recipient")
 	}
 	if result := f.service.runtimePartyManagerForService().LeaveCurrent(1001); !result.OK {
 		t.Fatalf("leave failed: %s", result.Reason)
@@ -156,6 +161,22 @@ func TestCrossSceneProfileRechecksMembershipAfterWireWait(t *testing.T) {
 	if f.viewer2Conn.write.Len() != 0 {
 		t.Fatal("departed member received queued profile")
 	}
+}
+
+func TestCrossSceneProfileBlockedRecipientWireDoesNotRetainActorLock(t *testing.T) {
+	f := newCurrentCrossSceneProfileBatchFixture(t)
+	f.target.wireMu.Lock()
+	defer f.target.wireMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := f.service.lockCurrentCrossSceneProfileForDelivery(ctx, f.target, f.actor, false)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked recipient error=%v", err)
+	}
+	if !f.actor.crossSceneAppearanceMu.TryLock() {
+		t.Fatal("blocked recipient retained actor lock")
+	}
+	f.actor.crossSceneAppearanceMu.Unlock()
 }
 
 func TestCrossSceneProfileWireMatchesExistingCodecAndRestoresDeadline(t *testing.T) {
