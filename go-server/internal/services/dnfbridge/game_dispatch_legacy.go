@@ -5,11 +5,17 @@ import (
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 )
 
-func (s *Service) handleLegacyGamePacket(session *gameSession, raw []byte) error {
+func (s *Service) handleLegacyGamePacket(session *gameSession, raw []byte) (resultErr error) {
 	packet, err := dnfproto.ParseLegacyGamePacket(raw)
 	if err != nil {
 		return err
 	}
+	started := s.performanceStart()
+	stage := perfLegacyOther
+	if packet.Header.Cmd == 1 && packet.Header.Type == 39 {
+		stage = perfUpper39
+	}
+	defer func() { s.performanceUpperEnd(stage, packet.Header.Type, packet.Header.Cmd, started, resultErr) }()
 	body := normalizeLegacyGameBody(packet.Header.Type, packet.Body)
 	runtimeName := runtimeCmdPacketName(packet.Header.Cmd, packet.Header.Type)
 	runtimeKnown := runtimeCmdPacketKnown(packet.Header.Cmd, packet.Header.Type)
