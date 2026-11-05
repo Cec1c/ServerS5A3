@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 PUBLIC = 'changelog.d'
 PRIVATE = '.pos5a3/changelog.d'
@@ -124,9 +125,42 @@ def changed_paths(root, base):
     return {p.decode('utf-8') for p in (tracked + untracked).split(b'\0') if p}
 
 
+def inherited_notes(root, scope):
+    """无基线时，把 HEAD 所有父提交里已有的片段视为已合并。
+
+    合并提交的片段可能只出现在第二父提交上，只看 HEAD~1 会把它误判为本次新增。
+    """
+    p = git(root, 'rev-parse', 'HEAD^@', check=False)
+    if p.returncode:
+        return set()
+    found = set()
+    for ref in p.stdout.decode().split():
+        found |= set(note_blobs(root, scope, ref))
+    return found
+
+
+def load_notes_tolerant(blobs, inherited):
+    """已合并的片段不可修改，因此只对本次新增的片段强制格式校验。
+
+    已存在于基线（或 HEAD~1）的片段即使不合规也只提示，否则一个历史格式片段
+    会让所有人的校验永久失败，而它们又按规范不得就地修改。
+    """
+    notes, legacy = [], []
+    for path, raw in sorted(blobs.items()):
+        if path in inherited:
+            try:
+                notes.append(parse_note(path, raw))
+            except NoteError:
+                legacy.append(path)
+            continue
+        notes.append(parse_note(path, raw))
+    ids = [n.id for n in notes]
+    require(len(ids) == len(set(ids)), 'duplicate fragment ID, including across public/private or types')
+    return notes, legacy
+
+
 def check(root, scope, base=None):
     current = note_blobs(root, scope)
-    notes = load_notes(current)
     if base:
         base = commit(root, base)
         previous = note_blobs(root, scope, base)
@@ -142,7 +176,15 @@ def check(root, scope, base=None):
         if scope == 'group':
             added = {p for p in added if p.startswith(PRIVATE + '/')}
         require(not paths or added, 'this change requires a new ' + ('group' if scope == 'group' else scope) + ' fragment')
-    return {'scope': scope, 'base': base, 'fragments': len(notes)}
+        inherited = set(previous)
+    else:
+        inherited = inherited_notes(root, scope)
+    notes, legacy = load_notes_tolerant(current, inherited)
+    for path in legacy:
+        print('warning: merged fragment predates the current format and cannot be edited in place: ' + path,
+              file=sys.stderr)
+    return {'scope': scope, 'base': base, 'fragments': len(notes) + len(legacy)}
+
 
 
 def render(root, scope, since=None, until='HEAD'):

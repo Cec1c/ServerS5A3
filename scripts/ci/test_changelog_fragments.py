@@ -128,6 +128,19 @@ class GitTests(unittest.TestCase):
             with self.assertRaises(c.NoteError):
                 c.check(self.root, 'public', base)
 
+    def test_inherited_malformed_fragment_does_not_block_new_work(self):
+        broken = self.add_note('legacy-broken')
+        self.write(broken, note('历史不合规').replace('## 验证'.encode(), b'## Check'))
+        base = self.commit()
+        self.add_note('fresh')
+        self.commit()
+        self.assertEqual(c.check(self.root, 'public', base)['fragments'], 2)
+        c.check(self.root, 'public')
+        self.write(self.add_note('bad-new'),
+                   note('新增不合规').replace('## 变更'.encode(), b'## Change'))
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public', base)
+
     def test_requires_note_and_freezes_legacy(self):
         self.write('code.txt', b'change\n')
         with self.assertRaises(c.NoteError):
