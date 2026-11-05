@@ -676,7 +676,10 @@ func (s *Service) handleOnlineRaidMemberChangeState(session *gameSession, typ ui
 		return nil
 	}
 	// MCP/IDA 证据显示 823 是客户端成员状态变化；可见同步走 0x24F 成员名单刷新。
-	return s.broadcastRuntimeRaidRefresh(state)
+	// A status notification changes no actor identity or appearance. Replaying
+	// every member's mode8 here rebuilds profiles during combat and can wait on
+	// dungeon locks for the entire shared preparation budget.
+	return s.broadcastRuntimeRaidRoster(state)
 }
 
 func normalizeRuntimeRaidMemberState(state byte) byte {
@@ -928,6 +931,14 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 }
 
 func (s *Service) broadcastRuntimeRaidRefresh(state runtimeRaidState) error {
+	return s.broadcastRuntimeRaidProjection(state, true)
+}
+
+func (s *Service) broadcastRuntimeRaidRoster(state runtimeRaidState) error {
+	return s.broadcastRuntimeRaidProjection(state, false)
+}
+
+func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, includeProfiles bool) error {
 	body, err := s.buildRuntimeRaidRosterBody(state)
 	if err != nil {
 		return err
@@ -940,9 +951,11 @@ func (s *Service) broadcastRuntimeRaidRefresh(state runtimeRaidState) error {
 		if !ok {
 			continue
 		}
-		if err := s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, profiles); err != nil {
-			s.failRuntimeRaidRecipient(session, "profiles", err)
-			continue
+		if includeProfiles {
+			if err := s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, profiles); err != nil {
+				s.failRuntimeRaidRecipient(session, "profiles", err)
+				continue
+			}
 		}
 		if err := s.sendGameUpperRawClassCodec(session, raid.RaidMemberRefreshMsgID, body, 0, true); err != nil {
 			s.failRuntimeRaidRecipient(session, "roster", err)
@@ -965,11 +978,18 @@ func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
 		return nil
 	}
 	groupStates := make([]alignedcmd.PartyState, 0)
+	preserved := make(map[int]bool)
 	for _, group := range runtimeRaidPartyGroups(state) {
 		if len(group) == 0 {
 			continue
 		}
-		partyState, replaced := s.replaceManagedRuntimeParty(runtimeRaidGroupPartyState(state, group))
+		desired := runtimeRaidGroupPartyState(state, group)
+		partyState, kept := s.matchPreformedRuntimeRaidParty(state, desired)
+		replaced := kept
+		if !kept {
+			partyState, replaced = s.replaceManagedRuntimeParty(desired)
+		}
+		preserved[partyState.PartyID] = kept
 		if !replaced {
 			return fmt.Errorf("raid party group could not be applied through runtime party manager")
 		}
@@ -985,7 +1005,13 @@ func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
 			if !ok {
 				continue
 			}
-			if err := s.sendRuntimePartySnapshot(session, partyState); err != nil {
+			var err error
+			if preserved[partyState.PartyID] {
+				err = s.sendRuntimePartyRosterRefresh(session, partyState, "raid_start_existing_party")
+			} else {
+				err = s.sendRuntimePartySnapshot(session, partyState)
+			}
+			if err != nil {
 				s.failRuntimeRaidRecipient(session, "party_snapshot", err)
 			}
 		}
@@ -1278,6 +1304,9 @@ func runtimeRaidMemberPlacementLimits(state runtimeRaidState) (byte, int) {
 // materialized in the anchor group, including when the normalized group already
 // matches, and occupies capacity while being planned.
 func planRuntimeRaidGroupSynchronization(raid runtimeRaidState, party alignedcmd.PartyState) ([]runtimeRaidMemberState, bool) {
+	if raid.Started && raid.CurrentLayout && raid.RouteOrRaidType <= 1 {
+		return planStartedRaidOrdinaryPartyGroup(raid, party)
+	}
 	members := runtimePartyMembers(party)
 	if party.UserID == 0 || len(members) < 2 {
 		return nil, false
@@ -1457,7 +1486,7 @@ func (s *Service) synchronizeOrdinaryPartyRaidGroups(party alignedcmd.PartyState
 			"anchor_group", normalizedRuntimeRaidGroup(snapshot.Members[runtimeRaidMemberIndex(snapshot, party.UserID)].GroupIndex),
 			"member_count", len(members))
 	}
-	err := s.broadcastRuntimeRaidRefresh(snapshot)
+	err := s.broadcastRuntimeRaidRoster(snapshot)
 	groupBroadcasted = true
 	if err != nil && anchorSession != nil {
 		s.logGameEvent(anchorSession, "game-party-raid-groups-sync-broadcast-failed",

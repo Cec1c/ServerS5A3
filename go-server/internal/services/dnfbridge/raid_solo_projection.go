@@ -98,7 +98,7 @@ func (s *Service) broadcastCurrentRaidSoloSnapshots(snapshots []runtimeRaidState
 		if len(snapshot.Members) > 0 {
 			anchor, _ = s.onlineGameSession(snapshot.Members[0].CharID)
 		}
-		if err := s.broadcastRuntimeRaidRefresh(snapshot); err != nil {
+		if err := s.broadcastRuntimeRaidRoster(snapshot); err != nil {
 			if anchor != nil {
 				s.logGameEvent(anchor, "game-raid-solo-roster-refresh-failed",
 					"raid_key", snapshot.RaidKey, "reason", reason, "error", err)

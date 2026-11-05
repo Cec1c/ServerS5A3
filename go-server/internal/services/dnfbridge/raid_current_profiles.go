@@ -26,9 +26,25 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, 
 	if !s.currentRaidInfoVisible(session, state) {
 		return nil
 	}
+	body, err := s.currentRuntimeRaidProfileBody(state, batch)
+	if err != nil || len(body) == 0 || !s.currentRaidInfoVisible(session, state) {
+		return err
+	}
+	s.logGameEvent(session, "game-current-raid-profiles-sent", "raid_key", state.RaidKey, "profile_count", (len(body)-4)/57, "member_count", len(state.Members))
+	if err := s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true); err != nil {
+		return err
+	}
+	s.sendCurrentRaidCrossSceneProfiles(batch, session, state)
+	return nil
+}
+
+func (s *Service) currentRuntimeRaidProfileBody(state runtimeRaidState, batch *currentCrossSceneProfileBatch) ([]byte, error) {
+	if body, found := batch.raidProfiles[state.RaidKey]; found {
+		return body, nil
+	}
 	repos, available := s.repositoryGroup()
 	if !available || repos.Character == nil {
-		return nil
+		return nil, nil
 	}
 	rows := make([]raid.CurrentProfileRecord, 0, len(state.Members))
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -52,17 +68,19 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, 
 		}
 		rows = append(rows, row)
 	}
-	if len(rows) == 0 || !s.currentRaidInfoVisible(session, state) {
-		return nil
+	if len(rows) == 0 {
+		return nil, nil
 	}
 	body, err := raid.BuildCurrentRaidProfilesBody(rows)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	s.logGameEvent(session, "game-current-raid-profiles-sent", "raid_key", state.RaidKey, "profile_count", len(rows), "member_count", len(state.Members))
-	if err := s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true); err != nil {
-		return err
+	// Partial reads remain retryable for the next receiver/broadcast.
+	if len(rows) == len(state.Members) {
+		if batch.raidProfiles == nil {
+			batch.raidProfiles = make(map[uint32][]byte)
+		}
+		batch.raidProfiles[state.RaidKey] = body
 	}
-	s.sendCurrentRaidCrossSceneProfiles(batch, session, state)
-	return nil
+	return body, nil
 }
