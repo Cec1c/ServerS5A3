@@ -29,6 +29,7 @@ func firstAntonFlowFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, 
 		t.Fatal(err)
 	}
 	f := raidSafetyFixture(t, archive, 2)
+	warmAntonRewardQuestFixture(t, f)
 	ensureRaidRewardAccount(t, f, "account-20")
 	f.service.options.currentClientVersion = "official-24.9"
 	session, peer := f.session(), f.session()

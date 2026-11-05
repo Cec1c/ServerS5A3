@@ -169,3 +169,13 @@ func TestRealPVFAntonRewardRNGFailuresAndFrozenRetry(t *testing.T) {
 		t.Fatal("missing gold pool invented")
 	}
 }
+
+// These cases test reward clocks/ownership, not cold quest-catalog startup.
+// Parse the real catalog before entering the production three-second repository
+// budget; otherwise low-CPU Linux runners fail before any reward assertion.
+func warmAntonRewardQuestFixture(t *testing.T, f *raidStartGuardFixture) {
+	t.Helper()
+	if _, err := f.service.loadQuestCatalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

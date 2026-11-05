@@ -28,6 +28,7 @@ func phase0RewardFlowWithGroups(t *testing.T, groups []byte) (*raidStartGuardFix
 		t.Fatal(err)
 	}
 	f := raidSafetyFixture(t, archive, len(groups))
+	warmAntonRewardQuestFixture(t, f)
 	f.service.options.currentClientVersion = "official-24.9"
 	sessions := make([]*gameSession, len(groups))
 	accounts := make(map[uint16]string, len(groups))
@@ -327,7 +328,14 @@ func TestRealPVFAntonPhase0ManualPartyDoesNotAddSecondDisplayDelay(t *testing.T)
 	if len(flow.Party) != 2 || flow.Party[19] == nil || flow.Party[20] == nil || !flow.Party[19].Committed || !flow.Party[20].Committed || len(flow.Squad) != 0 {
 		t.Fatalf("manual party selection ownership=%d committed=%v/%v squad=%d", len(flow.Party), flow.Party[19] != nil && flow.Party[19].Committed, flow.Party[20] != nil && flow.Party[20].Committed, len(flow.Squad))
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 2 || flow.SquadShownAt.IsZero() {
+	if !flow.PartyManual || flow.PartyCommittedAt.IsZero() {
+		t.Fatal("manual party completion was not marked")
+	}
+	manualAdvance := flow.PartyCommittedAt.Add(time.Second)
+	if !manualAdvance.Before(flow.AutoSelectAt) {
+		t.Fatal("manual regression must run before the unattended fallback")
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(manualAdvance, zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 2 || flow.SquadShownAt.IsZero() {
 		t.Fatalf("manual party group gained an extra squad display delay: squad=%d errs=%v", len(flow.Squad), errs)
 	}
 	if antonGrantedItemCount(t, f, "19", 10304529) != 30 || antonGrantedItemCount(t, f, "20", 10304529) != 30 {
@@ -411,4 +419,29 @@ func parsePhase0CardOwners(t *testing.T, body []byte) []uint16 {
 		t.Fatalf("card list trailing bytes: parsed=%d body=%x", pos, body)
 	}
 	return owners
+}
+
+// A manual selection by one owner does not select the other owner's card early.
+// Once that owner's real selection window expires, do not add another display hold.
+func TestRealPVFAntonPhase0MixedPartySelectionKeepsPeerWindow(t *testing.T) {
+	f, session, _ := firstAntonFlowFixture(t)
+	flow := f.state.Battle.RewardFlow[0]
+	if err := f.service.sendCurrentAntonTerminalResult(session, cloneRuntimeRaidState(*f.state)); err != nil {
+		t.Fatal(err)
+	}
+	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
+	flow.AutoSelectAt = time.Now().Add(time.Minute)
+	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
+	deadline := currentAntonPartySelectAt(flow, currentAntonMovieWindow(flow))
+	r195AdvanceRewardFlow(t, f.service, deadline.Add(-time.Nanosecond))
+	if len(flow.Squad) != 0 || flow.Party[20] != nil && flow.Party[20].Committed {
+		t.Fatal("manual peer shortened the unselected owner's window")
+	}
+	r195AdvanceRewardFlow(t, f.service, deadline)
+	if len(flow.Squad) != 2 || flow.SquadShownAt.IsZero() {
+		t.Fatal("mixed manual/automatic selection gained a second display delay")
+	}
+	if antonGrantedItemCount(t, f, "19", 10304529) != 30 || antonGrantedItemCount(t, f, "20", 10304529) != 30 {
+		t.Fatal("party reward amounts changed")
+	}
 }

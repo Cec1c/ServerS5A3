@@ -38,6 +38,7 @@ type currentAntonRewardFlow struct {
 	PartyShownAt       time.Time
 	PartySelectAfter   map[uint16]time.Time
 	PartyCommittedAt   time.Time
+	PartyManual        bool
 	SquadShownAt       time.Time
 	FinishedAt         time.Time
 	BreakUntil         time.Time
@@ -80,7 +81,7 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 	return &v
 }
 
-// A displayed final Luke/FiendWar party page can close locally without sending
+// A displayed team Anton/final Luke/FiendWar party page can close locally without sending
 // 660. Give each owner a bounded choice window after their actual display, while
 // retaining the original unattended deadline for absent or still-loading peers.
 // Twenty seconds is server policy, not a claimed MOVIE END TIME field meaning.
@@ -88,7 +89,7 @@ const currentRaidDisplayedPartyChoiceWindow = 20 * time.Second
 
 func (s *Service) markCurrentRaidPartySelectionShownLocked(instance string, phase byte, character uint16, at time.Time) {
 	f := s.antonRewardFlows[currentAntonFlowKey(instance, phase)]
-	if f == nil || at.IsZero() || !(f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single) {
+	if f == nil || at.IsZero() || !(f.Mode == 3 || !f.Single && (f.Mode == 1 || f.Mode == 2) && f.Phase == 1) {
 		return
 	}
 	for _, owner := range f.Recipients {
@@ -109,10 +110,11 @@ func currentAntonFlowKey(instance string, phase byte) string {
 	return instance + ":" + strconv.Itoa(int(phase))
 }
 
-// Normal Anton phase zero has two display stages. Automatic selection must
-// leave the committed party cards visible for one native movie window before
-// the squad list replaces them. Manual party selections preserve their own
-// completion time, so a fully manual group is not delayed a second time.
+// Normal Anton phase zero has two display stages. An unattended automatic
+// selection must leave the committed party cards visible for one native movie
+// window before the squad list replaces them. Once any owner has manually
+// selected, that party page has already been presented; do not impose the
+// unattended display hold a second time after the last manual card commits.
 func markCurrentAntonPartyCommittedLocked(f *currentAntonRewardFlow, now time.Time) bool {
 	if f == nil || !f.PartyCommittedAt.IsZero() {
 		return f != nil && !f.PartyCommittedAt.IsZero()
@@ -393,7 +395,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			}
 			if kind == 3 {
 				s.raidMu.Lock()
-				if markCurrentAntonPartyCommittedLocked(f, now) && f.Mode == 1 && !f.Single && f.Phase == 0 && now.Before(f.PartyCommittedAt.Add(movie)) {
+				if markCurrentAntonPartyCommittedLocked(f, now) && f.Mode == 1 && !f.Single && f.Phase == 0 && !f.PartyManual && now.Before(f.PartyCommittedAt.Add(movie)) {
 					s.raidMu.Unlock()
 					continue
 				}
@@ -406,7 +408,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 					if f.Mode == 1 && f.Phase == 0 && !f.Single {
 						selectAt = currentAntonPartySelectAt(f, movie)
 					}
-					if f.Mode == 3 || f.Mode == 2 && f.Phase == 1 && !f.Single {
+					if f.Mode == 3 || !f.Single && (f.Mode == 1 || f.Mode == 2) && f.Phase == 1 {
 						// An owner whose card screen really reached its socket uses
 						// exactly the frozen display window. The unattended deadline
 						// remains a fallback only for owners that never displayed, so

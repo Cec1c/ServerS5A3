@@ -10,7 +10,7 @@ import (
 )
 
 func TestR195RealDisplayedFinalCardsDoNotWaitUnattendedDeadline(t *testing.T) {
-	for _, mode := range []string{"luke_phase1", "fiendwar"} {
+	for _, mode := range []string{"anton_phase1", "luke_phase1", "fiendwar"} {
 		t.Run(mode, func(t *testing.T) {
 			f, sessions := r195MovieStageFixture(t, mode)
 			flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
@@ -53,7 +53,12 @@ func TestR195RealDisplayedFinalCardsDoNotWaitUnattendedDeadline(t *testing.T) {
 					t.Fatal(err)
 				}
 				wire := r195ReadFiendRewardWire(t, conn.write.Bytes())
-				r195WantFiendRewardWire(t, wire, flow, map[byte][]uint16{1: {session.selectedCharacterID}, 3: {19, 20}}, "kind1", "kind3")
+				partyOwners := []uint16{session.selectedCharacterID}
+				if mode == "anton_phase1" {
+					// This Anton fixture keeps both recipients in the same party/group.
+					partyOwners = []uint16{19, 20}
+				}
+				r195WantFiendRewardWire(t, wire, flow, map[byte][]uint16{1: partyOwners, 3: {19, 20}}, "kind1", "kind3")
 				conn.write.Reset()
 				if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil || conn.write.Len() != 0 {
 					t.Fatal("duplicate display was not silent", err)
@@ -67,7 +72,7 @@ func TestR195RealDisplayedFinalCardsDoNotWaitUnattendedDeadline(t *testing.T) {
 }
 
 func TestR195RealChoiceWindowIsPerRecipientAndPreservesManualCards(t *testing.T) {
-	for _, mode := range []string{"luke_phase1", "fiendwar"} {
+	for _, mode := range []string{"anton_phase1", "luke_phase1", "fiendwar"} {
 		t.Run(mode, func(t *testing.T) {
 			f, sessions := r195MovieStageFixture(t, mode)
 			flow := f.state.Battle.RewardFlow[f.state.Battle.Phase]
@@ -104,7 +109,7 @@ func TestR195ChoiceDeadlineScopeAndClone(t *testing.T) {
 				t.Fatal("foreign owner acquired a choice deadline")
 			}
 			s.markCurrentRaidPartySelectionShownLocked("choice", phase, 19, at)
-			want := mode == 3 || mode == 2 && phase == 1
+			want := mode == 3 || (mode == 1 || mode == 2) && phase == 1
 			if (len(flow.PartySelectAfter) != 0) != want {
 				t.Fatalf("mode%d phase%d deadline scope changed", mode, phase)
 			}
@@ -130,7 +135,7 @@ func r195AdvanceRewardFlow(t *testing.T, service *Service, at time.Time) {
 // The unattended deadline is a fallback for owners that never displayed, so an
 // earlier fallback must not shorten a late display.
 func TestR195DisplayedPartyWindowSurvivesEarlierUnattendedDeadline(t *testing.T) {
-	for _, mode := range []string{"luke_phase1", "fiendwar"} {
+	for _, mode := range []string{"anton_phase1", "luke_phase1", "fiendwar"} {
 		for _, tc := range []struct {
 			name   string
 			offset time.Duration

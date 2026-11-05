@@ -61,6 +61,7 @@ func (u antonCardFailLateAssets) WithinAccountCharacterLedgerMailboxAssets(
 func ownedAntonCardFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, runtimeRaidState) {
 	t.Helper()
 	f, session, state, now := onlineAntonTerminalFixture(t)
+	warmAntonRewardQuestFixture(t, f)
 	r195RewardParty(t, f.service, 19, 20)
 	if done, errs := f.service.commitCurrentRaidWeeklyIntents(now); len(done) != 1 || len(errs) != 0 {
 		t.Fatal(done, errs)

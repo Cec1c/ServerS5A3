@@ -407,6 +407,7 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 			selected.Committed = true
 			selected.Plan.FateGranted = result.Plan.FateGranted
 			if flow := live.Battle.RewardFlow[command.Phase]; flow != nil {
+				flow.PartyManual = true
 				markCurrentAntonPartyCommittedLocked(flow, time.Now())
 			}
 		}
