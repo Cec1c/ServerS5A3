@@ -74,6 +74,9 @@ type currentRaidProjectionOwner struct {
 	rewardFlowSignature    [32]byte
 	rewardDisplayIdentity  currentRaidProjectionIdentity
 	rewardDisplaySignature [32]byte
+	rewardDisplayShownAt   time.Time
+	singleAntonReturnAt    time.Time
+	singleAntonReturnTimer *time.Timer
 	participation          map[uint16]currentRaidParticipationPosition
 	clearEvents            map[currentRaidClearEvent]struct{}
 }
