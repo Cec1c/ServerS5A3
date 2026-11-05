@@ -20,6 +20,9 @@ type currentItemListEntry struct {
 	data             [currentItemListEntryWireSize]byte
 	avatarSocketData []byte
 	avatarColorData  []byte
+	// Projection metadata only; the current EXE reads list-3 optional blobs for
+	// worn actor slots 0..11. This flag is never serialized into the 0x77 row.
+	list3WornAvatar bool
 	// Local provenance only; never serialized into the 0x77 item row.
 	independentExpiration     bool
 	expirationProvenanceKnown bool

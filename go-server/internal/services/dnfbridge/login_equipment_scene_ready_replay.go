@@ -125,16 +125,23 @@ func loginEquipmentSceneReadyReplaySwitch() string {
 // 行布局与 `current_item_list_equipment_projection.go` 同一份 0x77 行：
 // 槽 u16@0 / itemID u32@2 / 耐久 u16@0x0B（厂商
 // `ItemListProtocolWriter.cs:157-161` 的 `slot, itemId, value, attr, durability`）。
+// List 3 actor slots 0..11 append two little-endian u32 lengths and their payloads;
+// slots 12..32 keep the bare 0x77 row. Every length is bounded by the remaining body.
+// Parsing only succeeds when the final cursor is exactly the end of the emitted body.
 func loginEquipmentContainerWireRowAudit(body []byte, entrySize int) (slots []string, durability []string, nonzero []string, rows int, ok bool) {
-	if body == nil || len(body) < 3 || entrySize <= 0x0D {
+	if body == nil || len(body) < 3 || entrySize <= 0x0D || body[0] != currentSocketListEquipment {
 		return nil, nil, nil, 0, false
 	}
 	count := int(binary.LittleEndian.Uint16(body[1:3]))
-	if count < 0 || 3+count*entrySize > len(body) {
-		return nil, nil, nil, 0, false
-	}
+	cursor := 3
+	slots = make([]string, 0, count)
+	durability = make([]string, 0, count)
 	for index := 0; index < count; index++ {
-		row := body[3+index*entrySize : 3+(index+1)*entrySize]
+		if len(body)-cursor < entrySize {
+			return nil, nil, nil, 0, false
+		}
+		row := body[cursor : cursor+entrySize]
+		cursor += entrySize
 		slot := int16(binary.LittleEndian.Uint16(row[0:2]))
 		word := binary.LittleEndian.Uint16(row[0x0B:0x0D])
 		slots = append(slots, strconv.Itoa(int(slot)))
@@ -142,6 +149,23 @@ func loginEquipmentContainerWireRowAudit(body []byte, entrySize int) (slots []st
 		if word != 0 {
 			nonzero = append(nonzero, fmt.Sprintf("%d:%d", slot, word))
 		}
+		if slot < 0 || slot > 11 {
+			continue
+		}
+		for blob := 0; blob < currentAvatarItemListOptionalBlobCount; blob++ {
+			if len(body)-cursor < 4 {
+				return nil, nil, nil, 0, false
+			}
+			blobSize := binary.LittleEndian.Uint32(body[cursor : cursor+4])
+			cursor += 4
+			if uint64(blobSize) > uint64(len(body)-cursor) {
+				return nil, nil, nil, 0, false
+			}
+			cursor += int(blobSize)
+		}
+	}
+	if cursor != len(body) {
+		return nil, nil, nil, 0, false
 	}
 	return slots, durability, nonzero, count, true
 }

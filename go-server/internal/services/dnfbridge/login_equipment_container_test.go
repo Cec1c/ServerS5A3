@@ -147,11 +147,37 @@ func requireCurrentLoginBootstrapTailPackets(t *testing.T, stream []byte) {
 }
 
 func loginItemListRowIDs(body []byte) map[int16]uint32 {
+	if len(body) < 3 || body[0] != currentSocketListEquipment {
+		return nil
+	}
 	count := int(binary.LittleEndian.Uint16(body[1:3]))
 	out := make(map[int16]uint32, count)
+	cursor := 3
 	for index := 0; index < count; index++ {
-		row := body[3+index*currentItemListEntryWireSize:]
-		out[int16(binary.LittleEndian.Uint16(row[0:2]))] = binary.LittleEndian.Uint32(row[2:6])
+		if len(body)-cursor < currentItemListEntryWireSize {
+			return nil
+		}
+		row := body[cursor : cursor+currentItemListEntryWireSize]
+		cursor += currentItemListEntryWireSize
+		slot := int16(binary.LittleEndian.Uint16(row[0:2]))
+		out[slot] = binary.LittleEndian.Uint32(row[2:6])
+		if slot < 0 || slot > 11 {
+			continue
+		}
+		for blob := 0; blob < currentAvatarItemListOptionalBlobCount; blob++ {
+			if len(body)-cursor < 4 {
+				return nil
+			}
+			blobSize := binary.LittleEndian.Uint32(body[cursor : cursor+4])
+			cursor += 4
+			if uint64(blobSize) > uint64(len(body)-cursor) {
+				return nil
+			}
+			cursor += int(blobSize)
+		}
+	}
+	if cursor != len(body) {
+		return nil
 	}
 	return out
 }
@@ -184,13 +210,30 @@ func TestLoginEquipmentContainerIsSentAtCharacterSelectWithLiveCharacterShape(t 
 	if !ok {
 		t.Fatalf("login bootstrap never sent list 3; containers=%v", bodies)
 	}
-	if got := int(binary.LittleEndian.Uint16(equipmentBody[1:3])); got != len(liveCharacter6EquipmentRows()) {
-		t.Fatalf("list 3 row count = %d, want %d", got, len(liveCharacter6EquipmentRows()))
+	equipmentRows := liveCharacter6EquipmentRows()
+	if got := int(binary.LittleEndian.Uint16(equipmentBody[1:3])); got != len(equipmentRows) {
+		t.Fatalf("list 3 row count = %d, want %d", got, len(equipmentRows))
 	}
-	if wantLen := 3 + len(liveCharacter6EquipmentRows())*currentItemListEntryWireSize; len(equipmentBody) != wantLen {
+	avatarRows := 0
+	for _, row := range equipmentRows {
+		if row.slot >= 0 && row.slot <= 11 {
+			avatarRows++
+		}
+	}
+	if avatarRows != 11 {
+		t.Fatalf("list 3 worn-avatar rows = %d, want 11", avatarRows)
+	}
+	wantLen := 3 + len(equipmentRows)*currentItemListEntryWireSize + avatarRows*currentAvatarItemListOptionalBlobCount*4
+	if wantLen != 3661 {
+		t.Fatalf("list 3 computed body_len = %d, want 3661", wantLen)
+	}
+	if len(equipmentBody) != wantLen {
 		t.Fatalf("list 3 body_len = %d, want %d", len(equipmentBody), wantLen)
 	}
 	rows := loginItemListRowIDs(equipmentBody)
+	if rows == nil {
+		t.Fatalf("list 3 body did not consume exactly under the mixed 0x77 + avatar-blob framing: %x", equipmentBody)
+	}
 	if rows[12] != 101040493 {
 		t.Fatalf("list 3 slot 12 item = %d, want 101040493 (live weapon)", rows[12])
 	}
