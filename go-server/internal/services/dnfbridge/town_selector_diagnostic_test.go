@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 )
 
 type townSelectorDiagnosticFailConn struct {
@@ -218,5 +220,52 @@ func TestTownSelectorDiagnosticDoesNotDuplicateEnabledPacketLog(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || !bytes.Contains(data, []byte(kind)) {
 		t.Fatalf("original packet event missing: %v %s", err, data)
+	}
+}
+
+// Production keeps packet logging disabled: preserve refusal decisions without
+// formatting private errors or claiming a pre-write decision was delivered.
+func TestTownSelectorDiagnosticRetainsPartyEntryRefusalBeforeWrite(t *testing.T) {
+	for _, failWrite := range []bool{false, true} {
+		t.Run(map[bool]string{false: "written", true: "write_failed"}[failWrite], func(t *testing.T) {
+			s, session, _ := newTownMoveTest(t)
+			var logs bytes.Buffer
+			s.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			privateErr := errors.New("PRIVATE_ENTRY_ACCOUNT_OR_RUNTIME_DATA")
+			conn := &townSelectorDiagnosticFailConn{err: privateErr}
+			if failWrite {
+				conn.failAt = 1
+			}
+			session.conn = conn
+			err := s.refuseDungeonSelectEntry(session, dungeoncmd.SelectDungeonRequest{DungeonID: 210, Difficulty: 2},
+				"dungeon_owner_validation_failed", "invalid_selection_state", currentSelectDungeonInvalidSelectionStateReason, privateErr,
+				"party_member_count", 4, "account_id", "PRIVATE_ACCOUNT", "raw", townSelectorDiagnosticPrivateValue{})
+			if failWrite && !errors.Is(err, privateErr) {
+				t.Fatalf("lost write failure: %v", err)
+			}
+			if !failWrite && err != nil {
+				t.Fatal(err)
+			}
+			event := townSelectorDiagnosticEvents(t, &logs)["game-dungeon-select-blocked"]
+			if event["phase"] != "entry_validation_rejected" || event["party_member_count"] != float64(4) || event["dungeon_id"] != float64(210) || event["reply_planned"] != true || event["failure_class"] != "invalid_selection_state" {
+				t.Fatalf("missing refusal decision: %v", event)
+			}
+			if _, exists := event["reply_sent"]; exists {
+				t.Fatal("pre-write decision reported as delivery")
+			}
+			if strings.Contains(logs.String(), "PRIVATE_") {
+				t.Fatal("private failure detail leaked")
+			}
+			if failWrite {
+				if conn.write.Len() != 0 {
+					t.Fatal("failed write emitted data")
+				}
+				return
+			}
+			packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			if packet.Header.MsgID != 16 || packet.Header.Classification != 1 || !bytes.Equal(packet.Body, []byte{0, currentSelectDungeonInvalidSelectionStateReason, 0}) || len(rest) != 0 {
+				t.Fatal("diagnostic changed refusal wire")
+			}
+		})
 	}
 }
