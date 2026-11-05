@@ -35,8 +35,9 @@ type Benefits struct {
 	ManageOption     uint64
 }
 
-// Summary is the pure account-wide result derived from character levels and
-// the current runtime PVF tables.
+// Summary is the account-wide level and wire progress. TotalPoint retains its
+// historical name: modern 2018 tables use EXP remaining in the current level;
+// legacy character-management tables use their cumulative character points.
 type Summary struct {
 	TotalPoint  uint64
 	ManageLevel int
