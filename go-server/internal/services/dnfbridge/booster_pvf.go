@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	cryptorand "crypto/rand"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -39,6 +40,15 @@ func resolveCurrentBoosterDefinition(
 	catalog *pvfDungeonDropCatalog,
 	sourceItemID uint32,
 	requestKind currentBoosterRequestKind,
+) (currentBoosterDefinition, error) {
+	return resolveCurrentBoosterDefinitionForCharacter(catalog, sourceItemID, requestKind, nil)
+}
+
+func resolveCurrentBoosterDefinitionForCharacter(
+	catalog *pvfDungeonDropCatalog,
+	sourceItemID uint32,
+	requestKind currentBoosterRequestKind,
+	character *dnfrepo.CharacterRecord,
 ) (currentBoosterDefinition, error) {
 	if catalog == nil || catalog.source == nil || sourceItemID == 0 {
 		return currentBoosterDefinition{}, errCurrentBoosterPVFInvalid
@@ -126,6 +136,10 @@ func resolveCurrentBoosterDefinition(
 			}
 		}
 		definition.Random, err = resolveCurrentMagicBox(catalog, catalog.source, int64(sourceItemID))
+		if errors.Is(err, errMagicBoxBoosterInfoGated) && character != nil {
+			definition.Random, err = resolveCurrentMagicBoxForCharacter(catalog, catalog.source, int64(sourceItemID), character)
+			definition.RandomCharacter = &currentBoosterRewardCharacter{Job: character.Job, Level: character.Level}
+		}
 		if err != nil {
 			return currentBoosterDefinition{}, err
 		}

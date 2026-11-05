@@ -1,0 +1,39 @@
+[grade]
+`[wedding]`
+[npc index]
+20013
+[complete npc index]
+20013
+[exposed by npc]
+1
+[job]
+`[all]`
+[grow type]
+-1
+[level]
+30 99
+[appear map]
+-1 -1 -1 -1
+[type]
+`[condition under clear]`
+[sub type]
+22
+[int data]
+-1 -1 5
+[/int data]
+
+[reward type]
+`[item]`
+[reward int data]
+10002616 1
+[/reward int data]
+
+[name]
+`准备结婚吧！ (1/2)`
+[depend message]
+`恭喜你们！ 接下来就该踏入婚姻的殿堂了。
+不过在此之前， 我想再确认下你们的决心。 要知道婚姻是非常神圣的事， 如果彼此有所保留， 幸福也不会长久。`
+[condition message]
+`    跟心上人一起组成2人队伍通关普通地下城5次。`
+[solve message]
+`经过这次考验， 我相信你们二人不管遇到任何磨难， 都可以用爱的力量去克服一切。 祝福你们！`

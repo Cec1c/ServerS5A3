@@ -64,6 +64,7 @@ type Service struct {
 	guildDungeonCatalog          *dnfguild.DungeonCatalog
 	guildTeleportMu              sync.Mutex
 	launcherDiagnostics          launcherDiagnosticStore
+	wedding                      currentWeddingRuntime
 	performance                  *bridgePerformanceMetrics
 	guildRankingMu               sync.Mutex
 	guildRankingCatalogMu        sync.Mutex
@@ -479,6 +480,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.partyUDPRelayRemote = partyRelayRemote
 	s.mu.Unlock()
 
+	s.startCurrentWeddingCeremonyTimers()
 	if err := s.listen(runCtx, s.options.channelListen, s.handleChannelConn); err != nil {
 		cancel()
 		_ = s.closePartyUDPRelayBackends()
@@ -849,6 +851,7 @@ func gameListenAddress(host string, port int) string {
 // Stop 关闭监听并等待连接处理退出。
 func (s *Service) Stop(ctx context.Context) error {
 	s.stopLocalLoginTokens()
+	s.stopCurrentWeddingCeremonyTimers()
 	if ctx == nil {
 		ctx = context.Background()
 	}

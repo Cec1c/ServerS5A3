@@ -49,6 +49,13 @@ func (s *Service) currentCharacterListLoginTransition(
 	if characterID == 0 || character.Stats == nil {
 		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", fmt.Errorf("selected character login location is unavailable")
 	}
+	character, guestDeparted, err := s.recoverCurrentWeddingGuestLogin(ctx, session, characterID, character)
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err
+	}
+	if guestDeparted {
+		return s.currentInitialTownTransition(ctx, session, characterID, character)
+	}
 	loginLocation, persistedTownID, fallbackReason, seriaRoomReason, err := s.currentCharacterListLoginLocationForSession(session, characterID, character)
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, 0, 0, currentSceneTransitionRow{}, "", err

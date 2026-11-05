@@ -141,6 +141,15 @@ func saveCharacterSupplement(
 			return saveErr
 		}
 	}
+	if _, ok := fields[repository.CharacterFieldWedding]; ok {
+		statsTable, err := router.writeTable(mysqlCharacterStatsTable, characterID)
+		if err != nil {
+			return err
+		}
+		if err := replaceCharacterWeddingStats(ctx, database, statsTable, characterID, record.Stats); err != nil {
+			return err
+		}
+	}
 	if _, ok := fields[repository.CharacterFieldLocation]; ok {
 		locationTable, err := router.writeTable(mysqlCharacterLocationTable, characterID)
 		if err != nil {
@@ -192,9 +201,10 @@ func replaceCharacterExtraStats(
 	stats map[string]int64,
 ) error {
 	// 升级事件和领取审计是永久事实，不能随普通数值整包替换被旧快照删除。
-	if _, err := database.ExecContext(ctx, "DELETE FROM "+table+" WHERE character_id = ? AND LEFT(stat_key, ?) <> ? AND LEFT(stat_key, ?) <> ?", characterID,
+	if _, err := database.ExecContext(ctx, "DELETE FROM "+table+" WHERE character_id = ? AND LEFT(stat_key, ?) <> ? AND LEFT(stat_key, ?) <> ? AND LEFT(stat_key, ?) <> ?", characterID,
 		len(repository.LevelUpEventStatPrefix), repository.LevelUpEventStatPrefix,
-		len(repository.LevelUpRewardStatPrefix), repository.LevelUpRewardStatPrefix); err != nil {
+		len(repository.LevelUpRewardStatPrefix), repository.LevelUpRewardStatPrefix,
+		len(repository.CharacterWeddingStatPrefix), repository.CharacterWeddingStatPrefix); err != nil {
 		return err
 	}
 	known := make(map[string]struct{}, len(mysqlCharacterStatColumns))
@@ -203,6 +213,9 @@ func replaceCharacterExtraStats(
 	}
 	query := "INSERT INTO " + table + " (character_id, stat_key, stat_value) VALUES (?, ?, ?)"
 	for _, key := range sortedStringKeys(stats) {
+		if repository.IsCharacterWeddingStat(key) {
+			continue
+		}
 		if _, ok := known[key]; ok {
 			continue
 		}
@@ -213,6 +226,22 @@ func replaceCharacterExtraStats(
 			keyQuery += " ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), stat_value)"
 		}
 		if _, err := database.ExecContext(ctx, keyQuery, characterID, key, stats[key]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func replaceCharacterWeddingStats(ctx context.Context, database SQLDB, table, characterID string, stats map[string]int64) error {
+	if _, err := database.ExecContext(ctx, "DELETE FROM "+table+" WHERE character_id = ? AND LEFT(stat_key, ?) = ?", characterID,
+		len(repository.CharacterWeddingStatPrefix), repository.CharacterWeddingStatPrefix); err != nil {
+		return err
+	}
+	for _, key := range sortedStringKeys(stats) {
+		if !repository.IsCharacterWeddingStat(key) {
+			continue
+		}
+		if _, err := database.ExecContext(ctx, "INSERT INTO "+table+" (character_id, stat_key, stat_value) VALUES (?, ?, ?)", characterID, key, stats[key]); err != nil {
 			return err
 		}
 	}

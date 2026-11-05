@@ -79,7 +79,8 @@ func (s *Service) persistCurrentDungeonClearMapCompletionPhaseA(
 	}
 	// An absent quest row means there is no persisted active quest to mutate.
 	// Avoid loading PVF or creating a synthetic row in that case.
-	if _, found, err := repositories.Quest.Load(ctx, characterID); err != nil {
+	activeRecord, found, err := repositories.Quest.Load(ctx, characterID)
+	if err != nil {
 		return err
 	} else if !found {
 		runtime.clearMapCompletionQuestIDs = nil
@@ -107,14 +108,33 @@ func (s *Service) persistCurrentDungeonClearMapCompletionPhaseA(
 	if err != nil {
 		return fmt.Errorf("create clear-map quest owner: %w", err)
 	}
+	weddingState, hasWeddingState := currentDungeonClearMapQuestState(activeRecord, 20737)
+	activeWedding := hasWeddingState && currentDungeonQuestStatusActive(weddingState.Status)
+	proof := s.currentWeddingClearPartnerProof(session, runtime)
 	result, err := owner.ApplyClearMapCompletion(ctx, catalog, characterID, dnfquest.ClearMapCompletionInput{
-		DungeonID:     runtime.Dungeon.ID,
-		MapID:         snapshot.Scene.Map.Map.ID,
-		CompletionKey: runtime.clearMapCompletionKey,
-		CompletedAt:   runtime.clearMapCompletionAt,
+		WeddingPartnerID: proof.partner,
+		DungeonID:        runtime.Dungeon.ID,
+		MapID:            snapshot.Scene.Map.Map.ID,
+		CompletionKey:    runtime.clearMapCompletionKey,
+		CompletedAt:      runtime.clearMapCompletionAt,
 	})
 	if err != nil {
+		if activeWedding {
+			s.logCurrentWeddingClearDiagnostic(session, runtime, proof, weddingState.ProgressValue, weddingState.ProgressValue, "persistence_failed")
+		}
 		return fmt.Errorf("persist clear-map quest phase A: %w", err)
+	}
+	if activeWedding {
+		remaining, outcome := weddingState.ProgressValue, "no_matching_wedding_clear"
+		for _, completion := range result.Completions {
+			if completion.QuestID == 20737 {
+				remaining, outcome = completion.RemainingTrigger, "persisted"
+				if completion.Idempotent {
+					outcome = "same_run_replay"
+				}
+			}
+		}
+		s.logCurrentWeddingClearDiagnostic(session, runtime, proof, weddingState.ProgressValue, remaining, outcome)
 	}
 	questIDs := make([]int64, 0, len(result.Completions))
 	for _, completion := range result.Completions {

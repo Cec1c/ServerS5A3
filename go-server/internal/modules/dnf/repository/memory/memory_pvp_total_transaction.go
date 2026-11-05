@@ -69,7 +69,7 @@ func (u *memoryRentalAssetUnitOfWork) WithinPVPTotal(ctx context.Context, accoun
 	for _, id := range ids {
 		if c.dirty[id] {
 			committed = append(committed, id)
-			if err := u.character.Save(ctx, c.records[id]); err != nil {
+			if err := c.commit(ctx, u.character, id); err != nil {
 				return rollback(err)
 			}
 		}

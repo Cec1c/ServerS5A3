@@ -137,7 +137,10 @@ func buildCurrentSceneObjectRawState(character dnfrepo.CharacterRecord, hasChara
 	// EXE (see .ida-mcp/scan_raw47_20260718): offset 0x07 is the required
 	// boolean read by sub_26908A0 marking the newly-created scene actor ready;
 	// offset 0x0A is the actor level read by sub_2059450/sub_269E330; offset
-	// 0x2C keeps the actor's own list/overhead entries visible in
+	// 0x17..0x1C carry marriage phase/ring/room points. Native 22C4EA0
+	// copies them into the shared actor-creation cache, and 22BE850 restores
+	// those fields whenever an own actor is rebuilt. Info1000 alone does not
+	// populate that cache. Offset 0x2C keeps the actor's own list/overhead entries visible in
 	// sub_11B6FF0/sub_11B7C90; offset 0x43 is the overhead icon record id that
 	// sub_1F60CE0 skips only when -1.
 	// +0x32到+0x42另由入场入口填入当前账号的冒险团名；其余未知字段保留零，
@@ -155,6 +158,7 @@ func buildCurrentSceneObjectRawState(character dnfrepo.CharacterRecord, hasChara
 	}
 	raw[actorSelfVisibleOffset] = 1
 	binary.LittleEndian.PutUint32(raw[actorOverheadIconOffset:actorOverheadIconOffset+4], 0xFFFFFFFF)
+	writeCurrentWeddingActorRawState(raw, character, hasCharacter)
 	return raw, true
 }
 

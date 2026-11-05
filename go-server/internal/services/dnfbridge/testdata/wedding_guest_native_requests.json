@@ -1,0 +1,7 @@
+[
+  {"name":"gift-chinese","opcode":1034,"length":20,"payload_hex":"785634121027000008000000d0c2bbe9bfecc0d6"},
+  {"name":"gift-empty","opcode":1034,"length":12,"payload_hex":"785634121027000000000000"},
+  {"name":"gift-live-length19","opcode":1034,"length":19,"payload_hex":"05000000102700000700000031323334353637"},
+  {"name":"gift-live-length18","opcode":1034,"length":18,"payload_hex":"050000001027000006000000313233343536"},
+  {"name":"guest-comment","opcode":1040,"length":16,"payload_hex":"7856341208000000d0c2bbe9bfecc0d6"}
+]

@@ -214,6 +214,7 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		txGroup.Activity = repository.ScopeCharacterActivity(activityTx, character)
 		characterTx.activity = txGroup.Activity
 	}
+	txGroup.Settings = repository.WithCharacterContainerRead(txGroup.Settings, u.settings, characterID)
 	if err := apply(txGroup); err != nil {
 		return err
 	}
@@ -235,7 +236,7 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		dirty         bool
 		save, restore func() error
 	}{
-		{characterTx.dirty, func() error { return u.character.Save(ctx, characterTx.record) }, func() error {
+		{characterTx.dirty, func() error { return characterTx.commit(ctx, u.character) }, func() error {
 			return restoreCharacterRecord(u.character, characterID, character, characterExists, true)
 		}},
 		{questTx.dirty, func() error { return u.quests.Save(ctx, questTx.record) }, func() error { return restoreQuestRecordIfDirty(u.quests, characterID, questRecord, questExists, true) }},

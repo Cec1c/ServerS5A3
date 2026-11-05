@@ -329,5 +329,5 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 		"stage", session.townPostTransition.stage,
 		"omit_scene_activation", session.townPostTransition.omitSceneActivation,
 		"sequence", currentTownPostTransitionPlayerStateSequence(session.townPostTransition.omitSceneActivation))
-	return nil
+	return s.queueCurrentWeddingBenefitsReplay(session, source)
 }

@@ -1,0 +1,23 @@
+{
+  "client_sha256": "a59db943c5f44c82e7db0e02305b3403aac3a16d0ec025b396e97da491a42231",
+  "cases": [
+    {
+      "name": "open-button",
+      "opcode": 1045,
+      "flag": 0,
+      "payload_hex": "0000000000000000000000000000"
+    },
+    {
+      "name": "open-generic",
+      "opcode": 1045,
+      "flag": 0,
+      "payload_hex": "0000000000000000000000000000"
+    },
+    {
+      "name": "close",
+      "opcode": 1045,
+      "flag": 1,
+      "payload_hex": "0000000000000000000000000001"
+    }
+  ]
+}

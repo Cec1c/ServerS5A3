@@ -663,6 +663,9 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 		}
 		s.logGameEvent(target, "game-party-clone-appearance-after-equipment", "peer_char_id", charID, "source", source)
 	}
+	if err := s.sendCurrentWeddingPeerInfo(ctx, target, character); err != nil {
+		return err
+	}
 	// Current EXE sub_1D64CA0 kind0 does not create an actor. Resolve and send
 	// the actor's actual runtime party state only after mode0 globally created
 	// and mode1 bound the remote object. An empty state clears stale join-party

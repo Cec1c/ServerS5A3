@@ -97,7 +97,7 @@ func (u *memoryAccountCharacterAssetUnitOfWork) WithinAccountCharacterPetAssets(
 		memoryLedgerWrite{dirty: accountTx.dirty, save: func() error { return u.accountInventory.Save(ctx, accountTx.record) }, restore: func() error {
 			return restoreAccountInventoryRecord(u.accountInventory, accountID, accountRecord, accountExists)
 		}},
-		memoryLedgerWrite{dirty: characterTx.dirty, save: func() error { return u.character.Save(ctx, characterTx.record) }, restore: func() error {
+		memoryLedgerWrite{dirty: characterTx.dirty, save: func() error { return characterTx.commit(ctx, u.character) }, restore: func() error {
 			return restoreCharacterRecord(u.character, characterID, characterRecord, characterExists, true)
 		}},
 		memoryLedgerWrite{dirty: inventoryTx.dirty, save: func() error { return u.inventory.Save(ctx, inventoryTx.record) }, restore: func() error {

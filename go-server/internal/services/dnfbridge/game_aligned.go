@@ -1292,6 +1292,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshSelectedPetMoveSlots:
+		defer s.queueCurrentWeddingBenefitsReplay(session, "pet_equipment_move_after_projection")
 		// 宠物/神器穿戴（op19 落点 list 3 槽 26..29）专用的回包后刷新：
 		// 旧口径是 5 个整容器的 class0/op13 全量重发（list 0/1/2/7/38，现场每次
 		// ≈23.9 KB），而落点 list 3 从来不在这份名单里。默认档按厂商

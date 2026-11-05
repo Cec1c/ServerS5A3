@@ -15,22 +15,20 @@ import (
 // mis-shaped request can never mutate anything.
 func experienceItemGameplayModule() gameplayModuleDefinition {
 	opcode := uint16(dnfenum.CmdPacketIncreaseStatus)
-	handler := func(service *Service, session *gameSession, body []byte) error {
-		return service.handleCurrentExperienceItemUse(session, body)
-	}
 	return gameplayModuleDefinition{
 		Name: "experience-item",
 		LegacyHandlers: map[uint16]gameplayHandler{
 			opcode: func(service *Service, session *gameSession, request gameplayRequest) error {
-				return handler(service, session, request.Body)
+				return currentWeddingCapsuleUseOrExperienceItemHandler(service, session, request)
 			},
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
-			opcode: defaultClassGameplayHandler(
-				"game-increase-status-request-blocked",
-				"current_exe_op30_command_class_mismatch",
-				handler,
-			),
+			opcode: func(service *Service, session *gameSession, request gameplayRequest) error {
+				if !requireDefaultGameplayClassification(service, session, request, "game-increase-status-request-blocked", "current_exe_op30_command_class_mismatch") {
+					return nil
+				}
+				return currentWeddingCapsuleUseOrExperienceItemHandler(service, session, request)
+			},
 		},
 	}
 }

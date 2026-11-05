@@ -122,7 +122,7 @@ func (u *memoryMailboxAssetUnitOfWork) WithinAccountTradeMailbox(ctx context.Con
 	for _, id := range ids {
 		if c.dirty[id] {
 			charTouched = append(charTouched, id)
-			if err = u.character.Save(ctx, c.records[id]); err != nil {
+			if err = c.commit(ctx, u.character, id); err != nil {
 				return err
 			}
 			if err = ctx.Err(); err != nil {

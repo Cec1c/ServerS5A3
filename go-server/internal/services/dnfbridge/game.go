@@ -82,15 +82,16 @@ type gameSession struct {
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
 	// sharedAccountWarnOnce 保证每条会话只写一条"落到共享账号"的 WARN。
-	sharedAccountWarnOnce sync.Once
-	channel               channelcatalog.Channel
-	residentChannel       channelcatalog.Channel
-	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
-	packetSeq             uint64
-	goldDiagnosticCount   atomic.Uint32
-	sequence              uint32
-	upperSeq              uint16
-	ctx                   context.Context
+	sharedAccountWarnOnce     sync.Once
+	channel                   channelcatalog.Channel
+	residentChannel           channelcatalog.Channel
+	coldChannelLanding        *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
+	packetSeq                 uint64
+	goldDiagnosticCount       atomic.Uint32
+	sequence                  uint32
+	upperSeq                  uint16
+	weddingCeremonyProjection currentWeddingCeremonyProjection
+	ctx                       context.Context
 
 	goldDiagnosticSnapshot atomic.Pointer[currentGoldDiagnosticSnapshot]
 

@@ -20,6 +20,12 @@ func townMapPathLooksLikeGuildHall(mapPath string) bool {
 // Guild IDs are scoped by town/area/channel in the existing presence key, so
 // they cannot collide with character IDs in a different Seria-room map.
 func (s *Service) currentTownAreaInstance(ctx context.Context, session *gameSession, character dnfrepo.CharacterRecord, mapPath string) (uint32, error) {
+	if townMapPathLooksLikeWeddingChurch(mapPath) {
+		return s.currentWeddingChurchInstance(ctx, session, character)
+	}
+	if townMapPathLooksLikeCoupleRoom(mapPath) {
+		return s.currentWeddingRoomInstance(ctx, session, character)
+	}
 	if !townMapPathLooksLikeGuildHall(mapPath) {
 		return townAreaInstanceForMapPath(mapPath, session.selectedCharacterID), nil
 	}

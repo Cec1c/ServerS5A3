@@ -106,7 +106,7 @@ func (u *memoryMailboxAssetUnitOfWork) WithinMailboxAssets(
 	}()
 	if characterTx.dirty {
 		characterAttempted = true
-		if err = u.character.Save(ctx, characterTx.record); err != nil {
+		if err = characterTx.commit(ctx, u.character); err != nil {
 			return err
 		}
 		if err = ctx.Err(); err != nil {

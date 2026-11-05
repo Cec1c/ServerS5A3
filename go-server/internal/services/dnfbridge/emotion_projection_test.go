@@ -170,6 +170,29 @@ func TestMoodRefreshSelfPeerAndClear(t *testing.T) {
 	f := newTownPartyActorHPFixture(t, false)
 	for _, mood := range []uint16{7, 1001, 0} {
 		f.reset()
+		if mood == 1001 {
+			repos, _ := f.service.repositoryGroup()
+			// The shared appearance fixture replaces Character with a fake
+			// store while its UOW still owns the original empty memory store.
+			// Bind this transactional case to one coherent character owner.
+			transactional := dnfrepomemory.NewMemoryGroup()
+			for _, pair := range [][2]*gameSession{{f.target, f.actor}, {f.actor, f.target}} {
+				id := fmt.Sprint(pair[0].selectedCharacterID)
+				c, found, err := repos.Character.Load(context.Background(), id)
+				if err != nil || !found {
+					t.Fatal("couple mood fixture character", err)
+				}
+				if c.Stats == nil {
+					c.Stats = map[string]int64{}
+				}
+				c.Stats["wedding_v1_phase"], c.Stats["wedding_v1_partner"] = 4, int64(pair[1].selectedCharacterID)
+				if err = dnfrepo.SaveCharacterFields(context.Background(), transactional.Character, c, append(dnfrepo.AllCharacterFields(), dnfrepo.CharacterFieldWedding)...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			repos.Character, repos.CharacterSettlement = transactional.Character, transactional.CharacterSettlement
+			f.service.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
+		}
 		b := []byte{byte(mood), byte(mood >> 8)}
 		if err := f.service.handleCurrentChangeEmotion(f.target, b); err != nil {
 			t.Fatal(err)
@@ -200,7 +223,7 @@ func TestMoodRefreshSelfPeerAndClear(t *testing.T) {
 				found = true
 			}
 			if !found {
-				t.Fatalf("recipient %d got no mood mode0", i)
+				t.Fatalf("recipient %d got no mood %d mode0", i, mood)
 			}
 		}
 	}
