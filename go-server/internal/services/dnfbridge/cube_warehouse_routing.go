@@ -334,13 +334,14 @@ func (s *Service) purgeCurrentInventoryCubes(
 			account.Slots = make(map[string]dnfrepo.ItemStack)
 		}
 		account.AccountID = accountID
-		changed := false
+		fields := make([]dnfrepo.InventoryField, 0, 2)
 		for _, container := range []struct {
 			name  string
+			field dnfrepo.InventoryField
 			slots map[string]dnfrepo.ItemStack
 		}{
-			{name: "slots", slots: updated.Slots},
-			{name: "warehouse", slots: updated.Warehouse},
+			{name: "slots", field: dnfrepo.InventoryFieldSlots, slots: updated.Slots},
+			{name: "warehouse", field: dnfrepo.InventoryFieldWarehouse, slots: updated.Warehouse},
 		} {
 			if len(container.slots) == 0 {
 				continue
@@ -350,6 +351,7 @@ func (s *Service) purgeCurrentInventoryCubes(
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
+			changed := false
 			for _, key := range keys {
 				stack := container.slots[key]
 				if stack.ItemID <= 0 || stack.Count <= 0 {
@@ -392,11 +394,16 @@ func (s *Service) purgeCurrentInventoryCubes(
 				remainder.RawEntry = nil
 				container.slots[key] = remainder
 			}
+			if changed {
+				fields = append(fields, container.field)
+			}
 		}
-		if !changed {
+		if len(fields) == 0 {
 			return nil
 		}
-		if err := dnfrepo.SaveInventoryFields(ctx, inventory, updated, dnfrepo.InventoryFieldSlots); err != nil {
+		// MySQL saves only named fields. Persist each source debit in the same
+		// transaction as the account credit, including partial warehouse moves.
+		if err := dnfrepo.SaveInventoryFields(ctx, inventory, updated, fields...); err != nil {
 			return err
 		}
 		return accounts.Save(ctx, account)
