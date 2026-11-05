@@ -256,25 +256,68 @@ func TestLoginEquipmentContainerReachesTheClientAfterTheSceneCommitLikeTheSceneP
 		t.Fatalf("post-commit login container differs from the pre-transition one; the same builder must emit the same rows")
 	}
 
-	// (3) 逐行字段：31 行、槽 12 武器 + 耐久 48。
-	rows := liveCharacter6EquipmentRows31()
-	entrySize := currentItemListEntrySizeForType(currentSocketListEquipment)
-	wantLen := 3 + len(rows)*entrySize
-	if len(postCommit) != wantLen {
-		t.Fatalf("container body_len = %d, want %d (3 + %d rows x %d)", len(postCommit), wantLen, len(rows), entrySize)
+	// (3) 逐行字段：31 行、槽 12 武器 + 耐久 48。槽 0..11 的每个
+	// 0x77 行后都有两个有界长度前缀及其 payload；槽 12..32 不加。
+	wantRows := liveCharacter6EquipmentRows31()
+	if len(postCommit) < 3 || postCommit[0] != currentSocketListEquipment {
+		t.Fatalf("container header = %x, want list 3", postCommit)
 	}
-	if got := int(binary.LittleEndian.Uint16(postCommit[1:3])); got != len(rows) {
-		t.Fatalf("container row count = %d, want %d", got, len(rows))
+	avatarRows := 0
+	for _, row := range wantRows {
+		if row.slot >= 0 && row.slot <= 11 {
+			avatarRows++
+		}
+	}
+	if avatarRows != 12 {
+		t.Fatalf("container worn-avatar rows = %d, want 12", avatarRows)
+	}
+	wantLen := 3 + len(wantRows)*currentItemListEntryWireSize + avatarRows*currentAvatarItemListOptionalBlobCount*4
+	if wantLen != 3788 {
+		t.Fatalf("container computed body_len = %d, want 3788", wantLen)
+	}
+	if len(postCommit) != wantLen {
+		t.Fatalf("container body_len = %d, want %d", len(postCommit), wantLen)
+	}
+	if got := int(binary.LittleEndian.Uint16(postCommit[1:3])); got != len(wantRows) {
+		t.Fatalf("container row count = %d, want %d", got, len(wantRows))
 	}
 	gotSlots := map[int16]uint32{}
 	gotDurability := map[int16]uint16{}
-	for index := 0; index < len(rows); index++ {
-		row := postCommit[3+index*entrySize : 3+(index+1)*entrySize]
+	cursor := 3
+	for index, wantRow := range wantRows {
+		if len(postCommit)-cursor < currentItemListEntryWireSize {
+			t.Fatalf("container row %d truncated at cursor %d", index, cursor)
+		}
+		row := postCommit[cursor : cursor+currentItemListEntryWireSize]
+		cursor += currentItemListEntryWireSize
 		slot := int16(binary.LittleEndian.Uint16(row[0:2]))
+		if slot != wantRow.slot {
+			t.Fatalf("container row %d slot = %d, want %d at cursor %d", index, slot, wantRow.slot, cursor-currentItemListEntryWireSize)
+		}
 		gotSlots[slot] = binary.LittleEndian.Uint32(row[2:6])
 		gotDurability[slot] = binary.LittleEndian.Uint16(row[0x0B:0x0D])
+		if slot < 0 || slot > 11 {
+			continue
+		}
+		for blob := 0; blob < currentAvatarItemListOptionalBlobCount; blob++ {
+			if len(postCommit)-cursor < 4 {
+				t.Fatalf("container row %d slot %d blob %d length truncated at cursor %d", index, slot, blob, cursor)
+			}
+			blobSize := int(binary.LittleEndian.Uint32(postCommit[cursor : cursor+4]))
+			cursor += 4
+			if blobSize > len(postCommit)-cursor {
+				t.Fatalf("container row %d slot %d blob %d size %d overruns %d remaining bytes", index, slot, blob, blobSize, len(postCommit)-cursor)
+			}
+			cursor += blobSize
+		}
 	}
-	for _, row := range rows {
+	if cursor != len(postCommit) {
+		t.Fatalf("container cursor = %d, body_len = %d; unexpected trailing bytes", cursor, len(postCommit))
+	}
+	if len(gotSlots) != len(wantRows) {
+		t.Fatalf("container distinct rows = %d, want %d", len(gotSlots), len(wantRows))
+	}
+	for _, row := range wantRows {
 		if gotSlots[row.slot] != uint32(row.itemID) {
 			t.Fatalf("slot %d item = %d, want %d", row.slot, gotSlots[row.slot], row.itemID)
 		}
@@ -296,7 +339,7 @@ func TestLoginEquipmentContainerReachesTheClientAfterTheSceneCommitLikeTheSceneP
 		"body_len=" + strconv.Itoa(wantLen),
 		"ordering_position=" + loginEquipmentSceneReadyReplayPosition,
 		"boundary=" + loginEquipmentSceneReadyReplayBoundary,
-		"slots_sent=" + sceneReadyReplayJoinSlots(rows),
+		"slots_sent=" + sceneReadyReplayJoinSlots(wantRows),
 		"switch=" + loginEquipmentSceneReadyReplayAfterSceneReady,
 		"switch_env=" + loginEquipmentSceneReadyReplayEnv,
 	} {
@@ -466,6 +509,9 @@ func TestLoginEquipmentContainerWireRowAuditReadsTheEmittedBytes(t *testing.T) {
 	if slots[0] != "0" || slots[12] != "12" {
 		t.Fatalf("audit slot list head = %v", slots[:13])
 	}
+	if got, want := strings.Join(slots, ","), sceneReadyReplayJoinSlots(liveCharacter6EquipmentRows31()); got != want {
+		t.Fatalf("audit slots = %q, want %q", got, want)
+	}
 	if durability[12] != "12:48" {
 		t.Fatalf("audit durability[12] = %q, want 12:48", durability[12])
 	}
@@ -477,5 +523,64 @@ func TestLoginEquipmentContainerWireRowAuditReadsTheEmittedBytes(t *testing.T) {
 	}
 	if _, _, _, _, bad := loginEquipmentContainerWireRowAudit([]byte{3, 0xff, 0xff}, entrySize); bad {
 		t.Fatal("audit accepted a row count that overruns the body")
+	}
+
+	rowBytes := func(slot int16, itemID uint32, durability uint16) []byte {
+		row := make([]byte, currentItemListEntryWireSize)
+		binary.LittleEndian.PutUint16(row[0:2], uint16(slot))
+		binary.LittleEndian.PutUint32(row[2:6], itemID)
+		binary.LittleEndian.PutUint16(row[0x0B:0x0D], durability)
+		return row
+	}
+	appendBlob := func(body, payload []byte) []byte {
+		var length [4]byte
+		binary.LittleEndian.PutUint32(length[:], uint32(len(payload)))
+		body = append(body, length[:]...)
+		return append(body, payload...)
+	}
+	oneAvatar := []byte{currentSocketListEquipment, 1, 0}
+	oneAvatar = append(oneAvatar, rowBytes(0, 42601, 4)...)
+	firstLengthOffset := len(oneAvatar)
+	oneAvatar = appendBlob(oneAvatar, []byte{0xaa, 0xbb, 0xcc})
+	secondLengthOffset := len(oneAvatar)
+	oneAvatar = appendBlob(oneAvatar, []byte{0x11, 0x22})
+	if gotSlots, gotDurability, _, gotRows, valid := loginEquipmentContainerWireRowAudit(oneAvatar, entrySize); !valid || gotRows != 1 || gotSlots[0] != "0" || gotDurability[0] != "0:4" {
+		t.Fatalf("audit rejected an exact two-blob row: rows=%d slots=%v durability=%v", gotRows, gotSlots, gotDurability)
+	}
+	for _, testCase := range []struct {
+		name string
+		body func() []byte
+	}{
+		{"first blob length truncated", func() []byte {
+			return append([]byte(nil), oneAvatar[:firstLengthOffset+3]...)
+		}},
+		{"first blob payload truncated", func() []byte {
+			return append([]byte(nil), oneAvatar[:firstLengthOffset+4+2]...)
+		}},
+		{"second blob length truncated", func() []byte {
+			return append([]byte(nil), oneAvatar[:secondLengthOffset+3]...)
+		}},
+		{"second blob payload truncated", func() []byte {
+			return append([]byte(nil), oneAvatar[:len(oneAvatar)-1]...)
+		}},
+		{"first blob oversize", func() []byte {
+			body := append([]byte(nil), oneAvatar...)
+			binary.LittleEndian.PutUint32(body[firstLengthOffset:firstLengthOffset+4], ^uint32(0))
+			return body
+		}},
+		{"second blob oversize", func() []byte {
+			body := append([]byte(nil), oneAvatar...)
+			binary.LittleEndian.PutUint32(body[secondLengthOffset:secondLengthOffset+4], ^uint32(0))
+			return body
+		}},
+		{"trailing byte", func() []byte {
+			return append(append([]byte(nil), oneAvatar...), 0)
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, _, _, _, bad := loginEquipmentContainerWireRowAudit(testCase.body(), entrySize); bad {
+				t.Fatal("audit accepted malformed optional-blob framing")
+			}
+		})
 	}
 }

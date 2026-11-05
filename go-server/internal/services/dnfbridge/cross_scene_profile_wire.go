@@ -93,8 +93,24 @@ func (s *Service) sendCurrentCrossSceneProfileFrames(ctx context.Context, viewer
 }
 
 func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Context, viewer, actor *gameSession, bodies [][]byte, current func() bool, completeAdmittedWrite bool) (bool, error) {
+	return s.sendCurrentCrossSceneProfileFramesWithPolicy(ctx, viewer, actor, bodies, current, completeAdmittedWrite, false)
+}
+
+// An automatic refresh contains one immutable frame. Admit it under the actor
+// lock, then keep only the recipient wire locked during the socket write. A
+// newer appearance for this recipient must still wait for that same wire, but
+// unrelated recipients and appearance invalidation need not wait for its socket.
+// Explicit multi-frame inspection retains its existing locking contract.
+func (s *Service) sendCurrentCrossSceneProfileRefreshFrame(ctx context.Context, viewer, actor *gameSession, body []byte, current func() bool, completeAdmittedWrite bool) (bool, error) {
+	return s.sendCurrentCrossSceneProfileFramesWithPolicy(ctx, viewer, actor, [][]byte{body}, current, completeAdmittedWrite, true)
+}
+
+func (s *Service) sendCurrentCrossSceneProfileFramesWithPolicy(ctx context.Context, viewer, actor *gameSession, bodies [][]byte, current func() bool, completeAdmittedWrite, immutableRefresh bool) (bool, error) {
 	if len(bodies) == 0 {
 		return false, errors.New("cross-scene profile frame list is empty")
+	}
+	if immutableRefresh && len(bodies) != 1 {
+		return false, errors.New("automatic cross-scene refresh requires one immutable frame")
 	}
 	ctx, cancel := context.WithTimeout(ctx, createWriteTimeout)
 	defer cancel()
@@ -114,7 +130,12 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Conte
 	if err != nil {
 		return false, err
 	}
-	defer actor.crossSceneAppearanceMu.Unlock()
+	appearanceHeld := true
+	defer func() {
+		if appearanceHeld {
+			actor.crossSceneAppearanceMu.Unlock()
+		}
+	}()
 	defer viewer.wireMu.Unlock()
 	writeCtx := ctx
 	if completeAdmittedWrite {
@@ -153,6 +174,10 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithBudget(ctx context.Conte
 			if err != nil {
 				return false, err
 			}
+		}
+		if immutableRefresh {
+			actor.crossSceneAppearanceMu.Unlock()
+			appearanceHeld = false
 		}
 		err := s.sendGameUpperRawClassCodecLocked(viewer, uint16(dnfenum.CmdPacketSetUDPIPPort), body, 0, true)
 		if err != nil {
