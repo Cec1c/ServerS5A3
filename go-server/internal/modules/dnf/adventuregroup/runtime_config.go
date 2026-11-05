@@ -70,6 +70,7 @@ type ExpeditionArea struct {
 }
 
 type RuntimeConfig struct {
+	Experience                 ExperienceConfig
 	CollectionGroups           []CollectionGroup
 	ShopCategories             []ShopCategory
 	Capsule                    CapsuleConfig
@@ -87,6 +88,7 @@ type RuntimeConfig struct {
 
 func (c RuntimeConfig) Clone() RuntimeConfig {
 	out := c
+	out.Experience.Costs = append([]uint64(nil), c.Experience.Costs...)
 	out.DayDungeonCharacterBonuses = make(map[int]int64, len(c.DayDungeonCharacterBonuses))
 	for level, bonus := range c.DayDungeonCharacterBonuses {
 		out.DayDungeonCharacterBonuses[level] = bonus
@@ -306,7 +308,12 @@ func loadRuntimeConfig(ctx context.Context, source dnfpvf.Source) (RuntimeConfig
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
+	experience, err := parseExperienceConfig(systemDoc)
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
 	config := RuntimeConfig{
+		Experience:                 experience,
 		DayDungeonCharacterBonuses: dayDungeonBonuses,
 		CollectionGroups:           parseCollectionGroups(systemDoc),
 		ShopCategories:             shops,

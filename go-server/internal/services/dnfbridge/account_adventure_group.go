@@ -112,6 +112,22 @@ func (s *Service) currentAccountAdventureGroupState(ctx context.Context, selecte
 	if err != nil {
 		return accountAdventureGroupState{}, err
 	}
+	if table.UsesAccountExperience() {
+		if repositories.Account == nil {
+			return accountAdventureGroupState{}, errAdventureGroupRosterUnavailable
+		}
+		account, found, loadErr := repositories.Account.Load(ctx, accountID)
+		if loadErr != nil {
+			return accountAdventureGroupState{}, loadErr
+		}
+		if !found || account.AccountID != accountID {
+			return accountAdventureGroupState{}, errAdventureGroupOwnerMismatch
+		}
+		summary, err = table.CalculateAccountExperience(account.HonorExp)
+		if err != nil {
+			return accountAdventureGroupState{}, err
+		}
+	}
 	return accountAdventureGroupState{
 		Characters: characters,
 		Summary:    summary,
@@ -169,6 +185,15 @@ func (s *Service) currentAccountAdventureGroupInfoState(
 
 // Shared read-only projection; observing a login remains the caller's choice.
 func (s *Service) projectCurrentAdventureAccountState(state accountAdventureGroupState, account dnfrepo.AccountRecord) (accountAdventureGroupState, error) {
+	if s.adventureGroupTable.UsesAccountExperience() {
+		// The full info path has just read the account again. Keep its level bar
+		// and capsule/shop fields on that same durable account snapshot.
+		var err error
+		state.Summary, err = s.adventureGroupTable.CalculateAccountExperience(account.HonorExp)
+		if err != nil {
+			return accountAdventureGroupState{}, err
+		}
+	}
 	total, err := dnfpvp.ReadTotalProgress(account)
 	if err != nil {
 		return accountAdventureGroupState{}, fmt.Errorf("读取冒险团决斗累计胜场：%w", err)

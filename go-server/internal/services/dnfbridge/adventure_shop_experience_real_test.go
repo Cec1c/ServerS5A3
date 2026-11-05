@@ -72,6 +72,16 @@ func TestRealPVFAdventureShopExperienceSynchronizesAcrossCapsules(t *testing.T) 
 	assertInfo := func(body []byte, growth uint64, claimExperience uint32) {
 		t.Helper()
 		raw := body[18 : 18+7424]
+		// Native BDF424 consumes current-level EXP / next-level cost. The
+		// existing committed account ledger contains all three maximum-level
+		// kills; legacy character-level points never reflected those awards.
+		wantExperience := uint64(award.Gain) * 3 * 3 / 10
+		if wantExperience >= 500_000_000 {
+			t.Fatal("fixture crossed modern level two")
+		}
+		if binary.LittleEndian.Uint32(raw[0:]) != 1 || binary.LittleEndian.Uint64(raw[8:]) != wantExperience {
+			t.Fatalf("modern account level/EXP = %d/%d, want 1/%d", binary.LittleEndian.Uint32(raw[0:]), binary.LittleEndian.Uint64(raw[8:]), wantExperience)
+		}
 		// 独立字段位置：5260数量，5264经验余数，7408累计胶囊经验，7416实际领取经验。
 		if binary.LittleEndian.Uint32(raw[5260:]) != 25 || binary.LittleEndian.Uint32(raw[5264:]) != wantBrave ||
 			binary.LittleEndian.Uint64(raw[7408:]) != growth || binary.LittleEndian.Uint32(raw[7416:]) != claimExperience {
