@@ -251,6 +251,18 @@ func (o *Owner) applyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	if !definitionKnown {
 		return AcceptResult{}, ErrQuestDefinitionMissing
 	}
+	if weddingPreparationDefinition(definition) {
+		if character.CharacterID != characterID || character.AccountID == "" || character.AccountID != cmd.AccountID {
+			return AcceptResult{}, ErrCharacterNotFound
+		}
+		eligibility, err = WithWeddingEligibility(ctx, o.characters, character, eligibility)
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		if eligibility.weddingPartner == "" {
+			return AcceptResult{}, ErrQuestNotAcceptable
+		}
+	}
 	// 一次接取只取一次时钟：Decide 与 Plan 必须用同一个服务日做每日投影，
 	// 否则恰好跨 06:00 换日时两边可能对“今天还能不能接”给出不同答案。
 	// DecideAccept is the same authority the client-facing acceptable-quest list
@@ -295,6 +307,9 @@ func (o *Owner) applyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 			"pvf_path":   plan.Path,
 			"quest_type": plan.Type,
 		},
+	}
+	if weddingPreparationDefinition(definition) {
+		record.States[int64(cmd.QuestID)].Extra["wedding_partner"] = eligibility.weddingPartner
 	}
 	if catalog.IsWorldMapHuntQuest(int64(cmd.QuestID)) {
 		record.States[int64(cmd.QuestID)].Extra[worldMapHuntProgressKey] = "1"
@@ -539,7 +554,7 @@ func (o *Owner) ApplySetTrigger(ctx context.Context, cmd Command) (PlanResult, e
 		result.EchoOnly = true
 		return result, nil
 	}
-	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" || state.Extra[worldMapHuntProgressKey] == "1" {
+	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" || state.Extra[worldMapHuntProgressKey] == "1" || cmd.QuestID == 20737 {
 		// A client trigger can echo the authoritative remaining count, but
 		// cannot substitute for a committed raid result or worldmap kill.
 		return result, nil
