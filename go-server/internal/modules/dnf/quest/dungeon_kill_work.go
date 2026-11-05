@@ -25,6 +25,12 @@ func (c *Catalog) DungeonKillWork(activeIDs []int64, input HuntEnemyKillInput) D
 			_, matches := huntEnemyMatchedChannel(definition.IntData, input)
 			work.HuntEnemy = work.HuntEnemy || matches
 		case "hunt monster":
+			// This prefilter has no world-map area or monster-kind evidence.
+			// Keep valid regional targets for the authoritative kill consumer.
+			if _, regional := worldMapHuntTargets(definition.IntData); regional {
+				work.HuntMonster = true
+				continue
+			}
 			_, matches := huntMonsterMatchedChannel(definition.IntData, HuntMonsterKillInput{
 				DungeonID: input.DungeonID, Difficulty: input.Difficulty, MonsterCode: input.EnemyCode,
 			})
