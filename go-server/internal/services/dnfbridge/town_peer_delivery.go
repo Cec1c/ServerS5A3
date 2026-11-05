@@ -71,7 +71,12 @@ func (s *Service) queueTownPeerDelivery(target onlinePlayerInfo, source string, 
 			}
 			if err := run(); err != nil {
 				s.logGameEvent(p, "game-town-peer-delivery-failed", "source", source, "error", err)
-				p.closeGameTransport()
+				// A twice-changing membership invalidates a body before its first
+				// byte. Its current formation/leave projection owns the replacement;
+				// unlike a failed write, this does not corrupt the transport.
+				if !errors.Is(err, errTownDisplayEligibilityChanged) {
+					p.closeGameTransport()
+				}
 			}
 			return nil
 		}},

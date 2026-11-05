@@ -818,6 +818,7 @@ func (s *Service) sendDungeonPartyFrameRoster(state alignedcmd.PartyState, sourc
 		}
 		return 0
 	}
+	batch := newPartyFrameCharacterBatch(s)
 	delivered := 0
 	for _, receiver := range sessions {
 		if err := s.sendGameUpperRawClassCodec(receiver, 0x0099, runtimePartyRealtimeInfoBody(state), 0, true); err != nil {
@@ -835,6 +836,7 @@ func (s *Service) sendDungeonPartyFrameRoster(state alignedcmd.PartyState, sourc
 				actor,
 				state,
 				source+"_dungeon_roster",
+				batch,
 			)
 			if err != nil {
 				s.logGameEvent(receiver, "game-dungeon-party-frame-roster-failed",
@@ -1768,8 +1770,22 @@ func (s *Service) sendCurrentPartyFrameProjection(session *gameSession, state al
 	return s.sendCurrentPartyActorFrameProjection(session, session, state, source)
 }
 
-func (s *Service) sendCurrentPartyActorFrameProjection(receiver *gameSession, actor *gameSession, state alignedcmd.PartyState, source string) (bool, error) {
-	return s.sendCurrentPartyActorFrameProjectionInContext(receiver, actor, state, source, nil, currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerSession})
+func (s *Service) sendCurrentPartyActorFrameProjection(
+	receiver *gameSession,
+	actor *gameSession,
+	state alignedcmd.PartyState,
+	source string,
+	batches ...*partyFrameCharacterBatch,
+) (bool, error) {
+	return s.sendCurrentPartyActorFrameProjectionInContext(
+		receiver,
+		actor,
+		state,
+		source,
+		nil,
+		currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerSession},
+		batches...,
+	)
 }
 
 // currentPartyFrameOwnerMode 选择 op9 记录第 7 字节（owner）的来源：
@@ -1844,14 +1860,37 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInDungeonContext(receiver 
 //
 // **本地角色自己那条记录一个字节都不改**：receiver 与 actor 是同一个角色时直接走原
 // 路径（副本上下文 0），开关只覆盖"发给他人的"包。
-func (s *Service) sendCurrentPartyActorFrameProjectionForDungeonPeer(receiver *gameSession, actor *gameSession, state alignedcmd.PartyState, source string) (bool, error) {
+func (s *Service) sendCurrentPartyActorFrameProjectionForDungeonPeer(
+	receiver *gameSession,
+	actor *gameSession,
+	state alignedcmd.PartyState,
+	source string,
+	batches ...*partyFrameCharacterBatch,
+) (bool, error) {
+	batch := currentPartyFrameCharacterBatch(s, batches)
 	if receiver == nil || actor == nil || actor.selectedCharacterID == receiver.selectedCharacterID {
-		return s.sendCurrentPartyActorFrameProjectionInDungeonContext(receiver, actor, state, source)
+		return s.sendCurrentPartyActorFrameProjectionInContext(
+			receiver,
+			actor,
+			state,
+			source,
+			nil,
+			currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerDungeonContext},
+			batch,
+		)
 	}
 	plan := s.partyDungeonPeerOwnerPlan(receiver)
 	if !plan.overridesPeerOwner() {
 		// zero 档（或收包者频道未提交）：走原路径，字节与日志都与现行为一致。
-		return s.sendCurrentPartyActorFrameProjectionInDungeonContext(receiver, actor, state, source)
+		return s.sendCurrentPartyActorFrameProjectionInContext(
+			receiver,
+			actor,
+			state,
+			source,
+			nil,
+			currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerDungeonContext},
+			batch,
+		)
 	}
 	s.logDungeonPartyOwnerOverride(receiver, actor.selectedCharacterID, plan, source)
 	return s.sendCurrentPartyActorFrameProjectionInContext(
@@ -1866,6 +1905,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionForDungeonPeer(receiver *g
 			Switch:         plan.Mode,
 			PeerActorOwner: plan.ActorOwner,
 		},
+		batch,
 	)
 }
 
@@ -1875,8 +1915,17 @@ func (s *Service) sendCurrentPartyActorFrameProjectionBefore(
 	state alignedcmd.PartyState,
 	source string,
 	beforeFrame func() error,
+	batches ...*partyFrameCharacterBatch,
 ) (bool, error) {
-	return s.sendCurrentPartyActorFrameProjectionInContext(receiver, actor, state, source, beforeFrame, currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerSession})
+	return s.sendCurrentPartyActorFrameProjectionInContext(
+		receiver,
+		actor,
+		state,
+		source,
+		beforeFrame,
+		currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerSession},
+		batches...,
+	)
 }
 
 func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
@@ -1886,7 +1935,9 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 	source string,
 	beforeFrame func() error,
 	ownerSelection currentPartyFrameOwnerSelection,
+	batches ...*partyFrameCharacterBatch,
 ) (bool, error) {
+	batch := currentPartyFrameCharacterBatch(s, batches)
 	receiverIdentity, ok := s.boundGameSessionCharacterSnapshot(receiver)
 	if !ok {
 		return false, nil
@@ -1915,7 +1966,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	characterID := actorIdentity.character
-	_, characterName, character, hasCharacter := s.characterForEnter(ctx, actorIdentity.session, characterID)
+	_, characterName, character, hasCharacter := batch.loadCharacter(ctx, actorIdentity)
 	if characterID == 0 {
 		return false, nil
 	}
@@ -1932,11 +1983,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 				continue
 			}
 		}
-		memberID, memberName, memberCharacter, memberHasCharacter := s.characterForEnter(
-			ctx,
-			memberIdentity.session,
-			memberIdentity.character,
-		)
+		memberID, memberName, memberCharacter, memberHasCharacter := batch.loadCharacter(ctx, memberIdentity)
 		if memberID != member.UserID {
 			continue
 		}
@@ -2128,6 +2175,7 @@ func (s *Service) broadcastCurrentPartyActorProjection(actor *gameSession, state
 	if s == nil || s.onlinePlayers == nil || actor == nil || actor.selectedCharacterID == 0 {
 		return nil
 	}
+	batch := newPartyFrameCharacterBatch(s)
 	for _, peer := range s.onlinePlayers.PeersInSameArea(actor.selectedCharacterID) {
 		if peer.Session == nil {
 			continue
@@ -2147,7 +2195,7 @@ func (s *Service) broadcastCurrentPartyActorProjection(actor *gameSession, state
 				"switch", townCopresenceSkipSamePartyFrameEnv)
 			continue
 		}
-		if _, err := s.sendCurrentPartyActorFrameProjection(peer.Session, actor, state, source+"_to_area_peer"); err != nil {
+		if _, err := s.sendCurrentPartyActorFrameProjection(peer.Session, actor, state, source+"_to_area_peer", batch); err != nil {
 			return err
 		}
 	}
