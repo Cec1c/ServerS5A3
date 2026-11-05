@@ -14,6 +14,7 @@ import (
 
 func TestWeddingEmptyInvitationReplayDoesNotLoadMutationPVFRules(t *testing.T) {
 	s, session, _ := newChannelReconnectTest(t)
+	s.wedding.rules = nil
 	s.options.currentClientVersion = "official-24.9"
 	s.bindGameSessionCharacter(session, 29)
 	if err := s.sendInitialCurrentWeddingGuestLetters(session); err != nil {
