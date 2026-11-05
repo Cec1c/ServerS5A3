@@ -12,6 +12,18 @@ import (
 	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
+func TestWeddingEmptyInvitationReplayDoesNotLoadMutationPVFRules(t *testing.T) {
+	s, session, _ := newChannelReconnectTest(t)
+	s.options.currentClientVersion = "official-24.9"
+	s.bindGameSessionCharacter(session, 29)
+	if err := s.sendInitialCurrentWeddingGuestLetters(session); err != nil {
+		t.Fatal(err)
+	}
+	if s.wedding.rules != nil || s.wedding.loadErr != nil {
+		t.Fatal("read-only invitation replay attempted to load mutation rules")
+	}
+}
+
 func TestWeddingLoginBenefitsReplayFollowsFullActorInitialization(t *testing.T) {
 	for _, phase := range []byte{wedding.Single, wedding.Engaged, wedding.Married} {
 		t.Run(fmt.Sprintf("phase-%d", phase), func(t *testing.T) {

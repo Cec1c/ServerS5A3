@@ -246,10 +246,14 @@ func (s *Service) sendInitialCurrentWeddingGuestLetters(session *gameSession) er
 	if !bound {
 		return nil
 	}
-	owner, err := s.currentWeddingOwner()
-	if err != nil {
-		return err
+	// Invitation replay only reads durable ledgers and host identities. It
+	// does not price or mutate a wedding, so unrelated ordinary logins must
+	// not acquire the PVF rule dependency of the mutation owner.
+	repos, available := s.repositoryGroup()
+	if !available || repos.Character == nil || repos.Settings == nil {
+		return wedding.ErrUnavailable
 	}
+	owner := wedding.Owner{Repositories: repos}
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	views, err := owner.GuestInvitations(ctx, strconv.Itoa(int(identity.character)), s.gameplayNow())

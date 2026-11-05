@@ -7,6 +7,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	r "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/repository/memory"
 	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
@@ -88,6 +89,28 @@ func TestWeddingGuildInvitationPrimesSilentRealMemberBeforeRoster(t *testing.T) 
 		f, repos := guildMemberProfileFixture(t)
 		s := f.service
 		ctx := context.Background()
+		// The shared profile fixture replaces Character with a fake store.
+		// Guild read views now own their character snapshot; bind both readers
+		// to one memory group instead of leaving its internal store empty.
+		coherent := memory.NewMemoryGroup()
+		for _, id := range []string{"29", "17"} {
+			c, found, err := repos.Character.Load(ctx, id)
+			if err != nil || !found {
+				t.Fatalf("load guild test character %s: found=%t err=%v", id, found, err)
+			}
+			if err := coherent.Character.Save(ctx, c); err != nil {
+				t.Fatal(err)
+			}
+		}
+		registry, found, err := repos.Settings.Load(ctx, r.GuildRegistryScope)
+		if err != nil || !found {
+			t.Fatalf("load guild test registry: found=%t err=%v", found, err)
+		}
+		if err := coherent.Settings.Save(ctx, registry); err != nil {
+			t.Fatal(err)
+		}
+		repos.Character, repos.Settings, repos.Guild = coherent.Character, coherent.Settings, coherent.Guild
+		s.repositoryProvider = func() (r.Group, bool) { return repos, true }
 		viewer, _, _ := repos.Character.Load(ctx, "29")
 		viewer.Stats["wedding_v1_phase"] = int64(wedding.Reserved)
 		viewer.Stats["wedding_v1_partner"] = 30
@@ -122,7 +145,10 @@ func TestWeddingGuildInvitationPrimesSilentRealMemberBeforeRoster(t *testing.T) 
 			t.Fatal("missing real guild roster")
 		}
 		if !offline && (prime < 0 || roster <= prime) {
-			t.Fatalf("member metadata decoded before real silent profile: prime=%d roster=%d", prime, roster)
+			bound, valid := s.boundGameSessionCharacterSnapshot(f.target)
+			display, displayErr := s.readCurrentGuildDisplay(ctx, bound, false, true)
+			primeErr := s.primeCurrentWeddingGuildRosterForBound(ctx, bound, display)
+			t.Fatalf("member metadata decoded before real silent profile: prime=%d roster=%d bound=%t read=%v prime=%v guild=%+v", prime, roster, valid, displayErr, primeErr, display)
 		}
 		if offline && prime >= 0 {
 			t.Fatal("offline member manufactured as an online actor")
