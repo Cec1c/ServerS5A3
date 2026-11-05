@@ -12,6 +12,9 @@ import (
 func singleAntonRewardReturnFixture(t *testing.T) (*raidStartGuardFixture, *gameSession, *currentAntonRewardFlow) {
 	t.Helper()
 	f, session, at := singleAntonCompletedRewardFixture(t)
+	// Assertions use the actual connection bytes, not packet-log output. Keep
+	// asynchronous completion callbacks independent of fixture logger cleanup.
+	f.service.packetLog = nil
 	flow := f.state.Battle.RewardFlow[0]
 	r := session.dungeon.runtime
 	// The reward fixture reduces completed maps directly. Supply the frozen
