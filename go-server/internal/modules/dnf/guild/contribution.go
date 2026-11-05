@@ -102,10 +102,13 @@ type ContributionDelivery struct {
 	MailID string
 }
 type ContributionIncome struct {
-	GuildID  uint32
-	Points   uint32
-	Delivery ContributionDelivery
-	Replayed bool
+	GuildID uint32
+	Points  uint32
+	// DungeonPoints is the portion already credited by this dungeon clear.
+	// Persist it so legacy projection only excludes scores that earned no coins.
+	DungeonPoints uint32
+	Delivery      ContributionDelivery
+	Replayed      bool
 }
 
 // Delivery runs only inside the caller's guild/character/mail transaction.
@@ -122,6 +125,8 @@ type ContributionMembership struct {
 }
 type ContributionActivity struct {
 	Event ContributionEvent
+	// Filled from the accepted dungeon result, never a client-supplied amount.
+	DungeonContribution uint32
 	// PartyMembers is frozen at the authoritative clear barrier, including self.
 	PartyMembers []r.GuildOwner
 	// FrozenGuilds records membership at the terminal barrier. Joining or
@@ -140,7 +145,7 @@ func ApplyContribution(ctx context.Context, tx r.Group, actor *r.CharacterRecord
 		return ContributionIncome{}, ErrContributionState
 	}
 	rule, exists := contract.Catalog.rules[activity.Event]
-	if !exists {
+	if !exists || (activity.DungeonContribution != 0 && activity.Event != ContributionGuildClear) {
 		return ContributionIncome{}, ErrContributionState
 	}
 	reg, err := Load(ctx, tx.Settings)
@@ -150,7 +155,14 @@ func ApplyContribution(ctx context.Context, tx r.Group, actor *r.CharacterRecord
 	owner := r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID}
 	g, member, found := reg.GuildForOwner(owner)
 	if !found {
+		if activity.DungeonContribution != 0 {
+			return ContributionIncome{}, ErrContributionState
+		}
 		return ContributionIncome{}, nil
+	}
+	if member.ContributionPoints < activity.DungeonContribution ||
+		(member.DungeonContributionPoints != nil && *member.DungeonContributionPoints < activity.DungeonContribution) {
+		return ContributionIncome{}, ErrContributionState
 	}
 	result := ContributionIncome{GuildID: g.ID, Delivery: ContributionDelivery{Slot: -1}}
 	end := itemexpiration.NextDailyDeleteAt(now).Unix()
@@ -187,7 +199,8 @@ func ApplyContribution(ctx context.Context, tx r.Group, actor *r.CharacterRecord
 			return ContributionIncome{}, ErrContributionState
 		}
 		if contract.Policy.GuildClearDailyAwards != 0 && uint64(count) >= uint64(rule.Threshold)*uint64(contract.Policy.GuildClearDailyAwards) {
-			return result, nil
+			amount = 0
+			break
 		}
 		count++
 		counts[activity.Event] = count
@@ -231,24 +244,28 @@ func ApplyContribution(ctx context.Context, tx r.Group, actor *r.CharacterRecord
 	for event, v := range counts {
 		actor.Stats[contributionPrefix+string(event)] = v
 	}
-	if amount == 0 {
+	earned := uint64(amount) + uint64(activity.DungeonContribution)
+	if earned == 0 {
 		return result, nil
 	}
-	if member.ContributionPoints > math.MaxUint32-amount {
+	if earned > math.MaxUint32 || member.ContributionPoints > math.MaxUint32-amount {
 		return ContributionIncome{}, ErrMileageOverflow
 	}
-	delivery, err := contract.Deliver(ctx, tx, actor, inventory, amount, activity.CompletionKey, now)
+	delivery, err := contract.Deliver(ctx, tx, actor, inventory, uint32(earned), activity.CompletionKey, now)
 	if err != nil {
 		return ContributionIncome{}, err
 	}
 	member.ContributionPoints += amount
+	if member.DungeonContributionPoints != nil {
+		*member.DungeonContributionPoints -= activity.DungeonContribution
+	}
 	g.Members[owner.CharacterID] = member
 	g.UpdatedAt = now
 	if err := Save(ctx, tx.Settings, reg, now); err != nil {
 		return ContributionIncome{}, err
 	}
-	r.AddBattlePassCounter(actor, 9, -1, int64(amount), now)
-	result.Points, result.Delivery = amount, delivery
+	r.AddBattlePassCounter(actor, 9, -1, int64(earned), now)
+	result.Points, result.DungeonPoints, result.Delivery = uint32(earned), activity.DungeonContribution, delivery
 	return result, nil
 }
 

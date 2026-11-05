@@ -48,6 +48,10 @@ func readGuildSettlementReceipt(ctx context.Context, settings r.SettingsReposito
 	if receipt.GuildContribution.Points > 0 && (receipt.GuildContribution.GuildID == 0 || (receipt.GuildContribution.Delivery.MailID == "" && receipt.GuildContribution.Delivery.Slot < 0)) {
 		return false, ErrSettlementStateInvalid
 	}
+	if c := receipt.GuildContribution; c.DungeonPoints > c.Points || c.DungeonPoints > receipt.GuildDungeon.Contribution ||
+		(c.DungeonPoints != 0 && c.GuildID != receipt.GuildDungeon.GuildID) {
+		return false, ErrSettlementStateInvalid
+	}
 	result.GuildContribution = receipt.GuildContribution
 	result.GuildContribution.Replayed = true
 	if cmd.GuildDungeon != nil {

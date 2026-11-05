@@ -133,9 +133,9 @@ func TestContributionGuildDungeonFiveClearsAndOldReceipt(t *testing.T) {
 			original.GuildContribution = &copyContract
 		}
 		res, err := o.CommitSettlement(ctx, cmd)
-		want := uint32(0)
+		want := uint32(20)
 		if i == 5 {
-			want = 10
+			want = 30
 		}
 		if err != nil || res.GuildContribution.Points != want {
 			t.Fatal(i, res.GuildContribution, err)
@@ -148,8 +148,16 @@ func TestContributionGuildDungeonFiveClearsAndOldReceipt(t *testing.T) {
 	}
 	after, _, _ := repos.Inventory.Load(ctx, cmd.CharacterID)
 	reg, _ := guild.Load(ctx, repos.Settings)
-	if !reflect.DeepEqual(before, after) || after.Slots["0:177"].Count != 10 || reg.Guilds[1].Members[cmd.CharacterID].ContributionPoints != 210 {
+	if !reflect.DeepEqual(before, after) || after.Slots["0:177"].Count != 210 || reg.Guilds[1].Members[cmd.CharacterID].ContributionPoints != 210 {
 		t.Fatal(after, reg.Guilds[1])
+	}
+	ch, _, _ := repos.Character.Load(ctx, cmd.CharacterID)
+	if ch.Stats[fmt.Sprintf("battlepass2:%s:9:-1", r.ActivityDay(cmd.UpdatedAt))] != 210 {
+		t.Fatal("battle pass did not count every paid dungeon point", ch.Stats)
+	}
+	members, err := guild.HongbaoContributionMembers(ctx, repos.Settings, reg.Guilds[1])
+	if err != nil || members[0].ContributionPoints != 210 {
+		t.Fatal("earned coin projection", members, err)
 	}
 }
 

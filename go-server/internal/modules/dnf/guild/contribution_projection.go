@@ -42,9 +42,10 @@ func HongbaoContributionMembers(ctx context.Context, settings r.SettingsReposito
 		}
 		err := reader.WalkGuildSettlementReceipts(ctx, g.ID, since, func(record r.SettingsRecord) error {
 			var receipt struct {
-				Version      int
-				Owner        r.GuildOwner
-				GuildDungeon DungeonClearResult
+				Version           int
+				Owner             r.GuildOwner
+				GuildDungeon      DungeonClearResult
+				GuildContribution ContributionIncome
 			}
 			if json.Unmarshal([]byte(record.Values["receipt"]), &receipt) != nil || receipt.Version != 1 || record.UpdatedAt.IsZero() {
 				return ErrContributionState
@@ -57,7 +58,12 @@ func HongbaoContributionMembers(ctx context.Context, settings r.SettingsReposito
 			if !found || m.DungeonContributionPoints != nil || m.AccountID != receipt.Owner.AccountID || record.UpdatedAt.Before(m.JoinedAt) {
 				return nil
 			}
-			totals[m.CharacterID] += uint64(d.Contribution)
+			paid := receipt.GuildContribution
+			if paid.DungeonPoints > d.Contribution || paid.DungeonPoints > paid.Points ||
+				(paid.DungeonPoints != 0 && paid.GuildID != d.GuildID) {
+				return ErrContributionState
+			}
+			totals[m.CharacterID] += uint64(d.Contribution - paid.DungeonPoints)
 			if totals[m.CharacterID] > uint64(m.ContributionPoints) {
 				return ErrContributionState
 			}
