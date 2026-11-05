@@ -144,6 +144,28 @@ func (s *Service) sendCurrentInitialTownRoute(
 		return nil
 	}
 
+	// This route belongs to the selected actor and its transition was already
+	// published. A repeated page-controller report only needs its original ACK;
+	// do not reload/init the actor, persist its login location, or rebuild the
+	// object/equipment/account projections while holding the town lock.
+	if session.initialTownRouteStage >= currentInitialTownRouteTransitionSent {
+		if acknowledgeProgress {
+			if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketChangeTutorialFlag), []byte{0}); err != nil {
+				return err
+			}
+		}
+		duplicateEvent := "game-initial-town-route-duplicate-ack-only"
+		if requireReturnSelectReentry {
+			session.returnSelectTownReentryPending = false
+			duplicateEvent = "game-initial-town-route-return-select-reentry-duplicate-skipped"
+		}
+		s.logGameEvent(session, duplicateEvent,
+			"char_id", session.selectedCharacterID,
+			"progress", progress,
+			"route_stage", session.initialTownRouteStage)
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	characterID, characterName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
@@ -245,19 +267,6 @@ func (s *Service) sendCurrentInitialTownRoute(
 			return err
 		}
 	}
-	if session.initialTownRouteStage >= currentInitialTownRouteTransitionSent {
-		duplicateEvent := "game-initial-town-route-duplicate-ack-only"
-		if requireReturnSelectReentry {
-			session.returnSelectTownReentryPending = false
-			duplicateEvent = "game-initial-town-route-return-select-reentry-duplicate-skipped"
-		}
-		s.logGameEvent(session, duplicateEvent,
-			"char_id", characterID,
-			"progress", progress,
-			"route_stage", session.initialTownRouteStage)
-		return nil
-	}
-
 	session.townActorOwnerChannel = ownerChannel
 	if err := s.sendCurrentInitialTownActorRoutePacketsLocked(
 		session,
