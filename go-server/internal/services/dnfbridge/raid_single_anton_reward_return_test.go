@@ -114,7 +114,9 @@ func TestRealPVFSingleAntonCompletionQueueReturnsAfterFinalDisplay(t *testing.T)
 	session.raidProjection.identity = session.raidProjection.resultIdentity
 	session.raidProjection.version = f.state.Battle.ProgressVersion
 	f.conn.write.Reset()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Instrumented runs also execute the real actor reconstruction here.
+	// Allow its cold resource parsing time without changing production budgets.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := f.service.startGameSessionEvents(ctx, session); err != nil {
 		t.Fatal(err)
