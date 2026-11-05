@@ -39,6 +39,9 @@ const (
 	perfGuildProjectionBuild
 	perfGuildRosterWrite
 	perfGuildRosterTotal
+	perfTownActorPrepare
+	perfLegacyOther
+	perfDeathBurstCommit
 	perfCount
 )
 
@@ -51,6 +54,8 @@ var bridgePerformanceNames = [perfCount]string{
 	"select_client_loading_report",
 	"guild_registry_read", "guild_member_summary_read", "guild_projection_build",
 	"guild_roster_write", "guild_roster_total",
+	"town_actor_prepare",
+	"legacy_other", "death_burst_commit",
 }
 var bridgePerformanceLimits = [...]time.Duration{5 * time.Millisecond, 10 * time.Millisecond, 25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, time.Second, 3 * time.Second}
 

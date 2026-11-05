@@ -18,7 +18,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	if packet.Header.MsgID == 39 {
 		stage = perfUpper39
 	}
-	defer func() { s.performanceEnd(stage, started, resultErr) }()
+	defer func() {
+		s.performanceUpperEnd(stage, packet.Header.MsgID, packet.Header.Classification, started, resultErr)
+	}()
 	if s.gmEditProtectionEnabled() && !session.accountFromToken {
 		if packet.Header.MsgID != 1 || packet.Header.Classification != dnfproto.DefaultChannelClassification {
 			return errPlayerAuthentication
