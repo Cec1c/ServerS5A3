@@ -120,7 +120,8 @@ type Member struct {
 	// the guild's own 里程 pool.
 	ContributionPoints uint32 `json:"contribution_points,omitempty"`
 	// Nil denotes a legacy membership awaiting startup receipt backfill.
-	// The counter is updated in the same transaction as the dungeon receipt.
+	// Counts only dungeon points that earned no contribution coins. Updated
+	// in the same transaction as the dungeon/contribution receipt.
 	DungeonContributionPoints *uint32   `json:"dungeon_contribution_points,omitempty"`
 	JoinedAt                  time.Time `json:"joined_at"`
 	AttendedAt                time.Time `json:"attended_at,omitempty"`

@@ -435,7 +435,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		}
 		var contribution guild.ContributionIncome
 		if c := cmd.GuildContribution; c != nil {
-			contribution, err = guild.ApplyContribution(ctx, tx, &character, &inventory, c.Contract, c.Activity, now)
+			activity := c.Activity
+			// The dungeon owner has already credited these points. Convert that
+			// exact PVF reward to coins/counters without crediting it a second time.
+			activity.DungeonContribution = guildClear.Contribution
+			contribution, err = guild.ApplyContribution(ctx, tx, &character, &inventory, c.Contract, activity, now)
 			if err != nil {
 				return err
 			}
