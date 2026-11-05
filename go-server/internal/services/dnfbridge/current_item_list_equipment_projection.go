@@ -25,6 +25,7 @@ func currentItemListEntryFromEquipment(equipped dnfrepo.EquipmentEntry) (current
 	// emblem state into its proved raw+0x3C..+0x44 vector.
 	raw := append([]byte(nil), equipped.RawEntry...)
 	entry := currentItemListEntryFromRaw(raw, extra)
+	entry.list3WornAvatar = actorSlot <= 11
 	entry.independentExpiration = currentGiftBoxInstanceHasIndependentExpiration(extra)
 	entry.expirationProvenanceKnown = true
 	currentApplyChronicleOptionsToEntry(&entry, extra)

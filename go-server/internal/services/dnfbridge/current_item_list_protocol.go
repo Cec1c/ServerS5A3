@@ -21,7 +21,7 @@ func buildCurrentItemListBody(listType byte, entries []currentItemListEntry, sta
 	writer.writeUint16(uint16(len(entries)))
 	for _, entry := range entries {
 		writer.writeBytes(entry.data[:])
-		if listType == 1 {
+		if listType == 1 || (listType == 3 && entry.list3WornAvatar) {
 			// 【2026-09-24 紧急回滚（临时）】list 1（装扮栏）的**页面行**必须继续带
 			// (socket,color) 两段长度前缀，即每行 0x77 + 8 = 127 字节。
 			//
@@ -36,6 +36,10 @@ func buildCurrentItemListBody(listType byte, entries []currentItemListEntry, sta
 			// 恢复计划：装扮页"同一套时装显示多份"必须用**客户端实测**重新定契约
 			// （A/B 两次重登：127 / 119 各一次截图对比），不能只靠反汇编推断；
 			// 在那之前保持 127（即本回滚）。详见 changlog.md 顶部同名那一节。
+			//
+			// Current EXE 251e2a0/251e2f0 also reads the same two optional blobs
+			// for list 3 when the projected actor slot is 0..11. Ordinary list-3
+			// equipment at actor slots 12..32 keeps its byte-exact 0x77 row.
 			writeCurrentAvatarItemListOptionalBlobs(&writer, entry)
 		}
 	}
@@ -49,9 +53,10 @@ func buildCurrentItemListBody(listType byte, entries []currentItemListEntry, sta
 	return writer.bytes()
 }
 
-// currentItemListEntrySizeForType 是"容器页(msg 13)"里每行的固定字节数。
-// list 1 的页面行带两段长度前缀的可选 blob（0x77 + 4 + 4 = 127），
-// 其它 list 的行就是裸的 0x77（与 msg 14 单行载体共用这两段前缀）。
+// currentItemListEntrySizeForType 返回容器页每行的基准字节数。
+// list 1 的页面行统一带两段长度前缀的可选 blob（0x77 + 4 + 4 = 127）。
+// list 3 是混合行：只有投影标记的穿戴装扮行追加这两段 blob，普通装备仍是
+// 裸的 0x77；需要逐行游标时不能把这里的基准宽度当作 list 3 的实际行宽。
 //
 // 本函数只用于日志与用例的"行宽自证"，不参与组包；组包在 buildCurrentItemListBody 里。
 func currentItemListEntrySizeForType(listType byte) int {
