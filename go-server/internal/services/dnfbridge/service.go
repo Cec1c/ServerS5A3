@@ -1041,6 +1041,7 @@ func (s *Service) logPacketEvent(kind string, args ...any) {
 	logger := s.packetLog
 	s.mu.Unlock()
 	if logger == nil {
+		s.logDungeonDeathTimingDiagnostic(kind, args...)
 		s.logTownLoadingDiagnostic(kind, args...)
 		s.logEmpireTeamSetupDiagnostic(kind, args...)
 		s.logDungeonSettlementDiagnostic(kind, args...)
