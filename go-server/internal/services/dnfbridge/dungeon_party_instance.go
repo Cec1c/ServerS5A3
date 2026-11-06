@@ -133,11 +133,15 @@ type dungeonPartyInstance struct {
 	sessions        map[uint16]*gameSession
 	// Exact runtime attachment owns membership retirement. Character IDs can
 	// already belong to a replacement socket/run when old cleanup arrives.
-	memberRuntimes         map[uint16]*runtimeDungeonState
-	scenes                 map[uint16]*worldmap.DungeonSession
-	positions              map[uint16]partyDungeonActorPosition
-	doorArrivals           map[partyDungeonDoorArrivalKey]map[uint16]partyDungeonDoorArrival
-	deadMembers            map[uint16]bool
+	memberRuntimes map[uint16]*runtimeDungeonState
+	scenes         map[uint16]*worldmap.DungeonSession
+	positions      map[uint16]partyDungeonActorPosition
+	doorArrivals   map[partyDungeonDoorArrivalKey]map[uint16]partyDungeonDoorArrival
+	deadMembers    map[uint16]bool
+	// departedOwners is a very short-lived witness for a member who left from
+	// the current dungeon. The client can report one last kill after its local
+	// party roster changed; only a live room target can use this witness.
+	departedOwners         map[uint16]time.Time
 	cardFlipSlots          [dungeonCardSlotsPerSide]currentDungeonOp71Slot
 	cardFlipKnown          [dungeonCardSideCount][dungeonCardSlotsPerSide]bool
 	cardFlipOwner          [dungeonCardSideCount][dungeonCardSlotsPerSide]uint16
@@ -299,6 +303,7 @@ func (s *Service) adoptPartyDungeonInstance(
 			if instance.memberRuntimes == nil {
 				instance.memberRuntimes = make(map[uint16]*runtimeDungeonState, 4)
 			}
+			delete(instance.departedOwners, characterID)
 			instance.memberRuntimes[characterID] = runtime
 			if runtime.Session != nil {
 				instance.scenes[characterID] = runtime.Session
@@ -975,6 +980,7 @@ func (s *Service) releasePartyDungeonInstance(runtime *runtimeDungeonState, char
 	}
 	recycled := false
 	var remaining int
+	now := registry.clock()
 	registry.mu.Lock()
 	instance.mu.Lock()
 	if instance.memberRuntimes[characterID] != runtime {
@@ -990,6 +996,17 @@ func (s *Service) releasePartyDungeonInstance(runtime *runtimeDungeonState, char
 	delete(instance.scenes, characterID)
 	delete(instance.positions, characterID)
 	remaining = len(instance.members)
+	if remaining > 0 && currentPartyDungeonLateDeathOwnerSource(source) {
+		if instance.departedOwners == nil {
+			instance.departedOwners = make(map[uint16]time.Time, 2)
+		}
+		for departedID, expiresAt := range instance.departedOwners {
+			if !now.Before(expiresAt) {
+				delete(instance.departedOwners, departedID)
+			}
+		}
+		instance.departedOwners[characterID] = now.Add(currentPartyDungeonDepartedOwnerGrace)
+	}
 	if remaining == 0 && registry.byKey != nil {
 		if current, ok := registry.byKey[instance.key]; ok && current == instance {
 			delete(registry.byKey, instance.key)

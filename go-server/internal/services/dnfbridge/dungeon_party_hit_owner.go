@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // 本文件实现"**两名队员打同一只怪时，其中一人的伤害变成 1**"这条缺陷的服务端侧修法。
@@ -106,6 +107,12 @@ func (s *Service) dungeonPartyHitOwnerGate() dungeonPartyHitOwnerMode {
 // 判定（事件字段 `damage_floor`）：`real` = 客户端按自己的真实数值结算；`1` = 退化成最小值。
 const currentDungeonPartyHitMinimumDamage = 1
 
+// A client can receive the local party roster update before its final monster
+// death packet reaches the server. Keep the departed actor identity usable
+// only for this short race window, only in the same dungeon instance, and only
+// for a target that still passes the normal server-owned room-death checks.
+const currentPartyDungeonDepartedOwnerGrace = 3 * time.Second
+
 // dungeonPartyHitVerdict 是"这一次命中/击杀上报"的服务端判定。
 type dungeonPartyHitVerdict int
 
@@ -153,8 +160,11 @@ type currentDungeonPartyHitOwnerResolution struct {
 	partyMember bool
 	// sameInstance = 这个队友此刻是否仍在**同一场**队伍副本实例里。
 	sameInstance bool
-	partyID      int
-	instanceID   uint64
+	// recentlyDeparted = actor 刚离开这同一场队伍副本实例，允许完成落差在
+	// 数秒内的最后一击；目标仍由房间权威死亡表验证。
+	recentlyDeparted bool
+	partyID          int
+	instanceID       uint64
 	// reason 是拒收/接受的原因，直接进事件字段。
 	reason string
 }
@@ -198,6 +208,21 @@ func (s *Service) resolveCurrentDungeonPartyHitOwner(
 		}
 	}
 	if peerCharID == 0 {
+		if instance := runtime.partyInstance; instance != nil {
+			resolution.instanceID = instance.id
+			if instance.key.PartyID != uint16(state.PartyID) {
+				resolution.reason = "shared_instance_belongs_to_another_party_generation"
+				return resolution
+			}
+			if dungeonPartyInstanceHasRecentDeparture(instance, relatedActorObjectKey, time.Now()) {
+				resolution.partyPeerCharID = relatedActorObjectKey
+				resolution.sameInstance = true
+				resolution.recentlyDeparted = true
+				resolution.accepted = true
+				resolution.reason = "recently_departed_party_peer_in_same_dungeon_instance"
+				return resolution
+			}
+		}
 		resolution.reason = "related_actor_is_not_a_member_of_the_reporting_session_party"
 		return resolution
 	}
@@ -232,4 +257,29 @@ func dungeonPartyInstanceHasMember(instance *dungeonPartyInstance, characterID u
 	defer instance.mu.Unlock()
 	_, ok := instance.members[characterID]
 	return ok
+}
+
+func currentPartyDungeonLateDeathOwnerSource(source string) bool {
+	return source == "back_to_village_committed"
+}
+
+func dungeonPartyInstanceHasRecentDeparture(
+	instance *dungeonPartyInstance,
+	characterID uint16,
+	now time.Time,
+) bool {
+	if instance == nil || characterID == 0 {
+		return false
+	}
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+	expiresAt, ok := instance.departedOwners[characterID]
+	if !ok {
+		return false
+	}
+	if !now.Before(expiresAt) {
+		delete(instance.departedOwners, characterID)
+		return false
+	}
+	return true
 }
