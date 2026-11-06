@@ -222,18 +222,10 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		packets = append(packets, currentAntonRewardPacket{opcode: 597, body: raid.BuildRemainingTimeBody(1, uint32(remaining))})
 	}
-	if !f.FinishedAt.IsZero() && !(f.Single && f.Mode == 1) {
-		// A legitimate raid runtime binding is required for this notification.
-		// Single Anton uses the completed actor/town route after its card
-		// display. Boss-die notification 115 is not a town transition.
-		session.dungeon.mu.Lock()
-		runtime := session.dungeon.runtime
-		bound := runtime != nil && runtime.raidEntry != nil && runtime.raidEntry.InstanceID == b.InstanceID && runtime.raidEntry.Phase == b.Phase && dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID)
-		session.dungeon.mu.Unlock()
-		if bound {
-			packets = append(packets, currentAntonRewardPacket{opcode: 115, body: []byte{0}})
-		}
-	}
+	// NOTI115 acknowledges a real boss-death request. It is neither a raid
+	// completion nor a town-return packet; even status zero consumes another
+	// byte in the current native reader. Reward projection must not replay it.
+
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, packet.class, true); err != nil {
 			s.logCurrentRaidRewardWire(session, packet, b.InstanceID, b.Mode, b.Phase, false, "send_failed")
