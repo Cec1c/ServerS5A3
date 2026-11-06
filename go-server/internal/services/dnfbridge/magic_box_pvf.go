@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/jobmap"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -22,12 +24,9 @@ var (
 	// (item 1, weight 101600024, count 100000) because the avatar row is five
 	// integers wide, not three.
 	errMagicBoxBoosterInfoShape = errors.New("magic box [booster info] row shape is invalid")
-	// errMagicBoxBoosterInfoGated reports a [booster info] family this server
-	// cannot project faithfully. [charactor] blocks carry a job label plus a
-	// level window (86JP PvfLib keeps both as BoosterRewardEntry
-	// CharacterJobLabel and applies them at use time), so granting the whole
-	// table would hand out every job's rows. The open fails closed instead.
-	errMagicBoxBoosterInfoGated = errors.New("magic box [booster info] family needs a job/level gate the server does not implement")
+	// A caller without an authoritative character must not grant every job's
+	// rows. The character-aware booster owner supplies and rechecks the gate.
+	errMagicBoxBoosterInfoGated = errors.New("magic box [booster info] family requires an authoritative job/level gate")
 )
 
 // alignedMagicBoxResolversForCommand keeps PVF loading request-driven. Only
@@ -130,6 +129,10 @@ func currentMagicBoxRewardContract(catalog *currentPremiumCatalog, itemID int64)
 // surface as errors so the open fails closed instead of granting a
 // plausible-looking item.
 func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source, boxItemID int64) (alignedcmd.MagicBoxResolution, error) {
+	return resolveCurrentMagicBoxForCharacter(catalog, source, boxItemID, nil)
+}
+
+func resolveCurrentMagicBoxForCharacter(catalog *pvfDungeonDropCatalog, source dnfpvf.Source, boxItemID int64, character *dnfrepo.CharacterRecord) (alignedcmd.MagicBoxResolution, error) {
 	resolution := alignedcmd.MagicBoxResolution{}
 	if catalog == nil || source == nil {
 		return resolution, errDungeonDropSourceRequired
@@ -179,7 +182,7 @@ func resolveCurrentMagicBox(catalog *pvfDungeonDropCatalog, source dnfpvf.Source
 	case "random upgradable legacy":
 		resolution.Groups = parseMagicBoxRandomGroups(document)
 	case "booster", "cera booster", "booster random":
-		groups, err := parseMagicBoxBoosterGroups(document)
+		groups, err := parseMagicBoxBoosterGroupsForCharacter(document, character)
 		if err != nil {
 			return alignedcmd.MagicBoxResolution{}, fmt.Errorf(
 				"magic box item=%d path=%s: %w",
@@ -296,6 +299,10 @@ func parseMagicBoxRandomGroups(document *dnfpvf.Document) []alignedcmd.MagicBoxR
 // error rather than a best-effort guess, so an unknown table can never be
 // misread into a plausible-looking reward.
 func parseMagicBoxBoosterGroups(document *dnfpvf.Document) ([]alignedcmd.MagicBoxRewardGroup, error) {
+	return parseMagicBoxBoosterGroupsForCharacter(document, nil)
+}
+
+func parseMagicBoxBoosterGroupsForCharacter(document *dnfpvf.Document, character *dnfrepo.CharacterRecord) ([]alignedcmd.MagicBoxRewardGroup, error) {
 	groups := make([]alignedcmd.MagicBoxRewardGroup, 0, 4)
 	inInfo := false
 	for _, section := range document.Sections {
@@ -309,6 +316,25 @@ func parseMagicBoxBoosterGroups(document *dnfpvf.Document) ([]alignedcmd.MagicBo
 		}
 		if !inInfo || strings.HasPrefix(name, "/") {
 			continue
+		}
+		if name == "charactor" {
+			tokens := document.Tokens[section.Start:section.End]
+			if len(tokens) == 0 {
+				continue
+			}
+			if len(tokens) != 1 || tokens[0].Kind != dnfpvf.TokenInt {
+				if character == nil {
+					return nil, errMagicBoxBoosterInfoGated
+				}
+				group, err := parseMagicBoxCharacterGroup(document, section, character)
+				if err != nil {
+					return nil, fmt.Errorf("section=%q: %w", section.Name, err)
+				}
+				if len(group.Entries) > 0 {
+					groups = append(groups, group)
+				}
+				continue
+			}
 		}
 		values := magicBoxSectionValues(document, section)
 		if len(values) == 0 {
@@ -326,6 +352,47 @@ func parseMagicBoxBoosterGroups(document *dnfpvf.Document) ([]alignedcmd.MagicBo
 		}
 	}
 	return groups, nil
+}
+
+// Current PVF [charactor] rows are: job label, minimum level, maximum level,
+// draw count, then item/weight/count triples. Each matching block remains an
+// independent draw, as in the reference InventoryPackageRewardResolver.
+func parseMagicBoxCharacterGroup(document *dnfpvf.Document, section dnfpvf.Section, character *dnfrepo.CharacterRecord) (alignedcmd.MagicBoxRewardGroup, error) {
+	tokens := document.Tokens[section.Start:section.End]
+	if len(tokens) < 7 || tokens[0].Kind != dnfpvf.TokenString || (len(tokens)-4)%3 != 0 {
+		return alignedcmd.MagicBoxRewardGroup{}, errMagicBoxBoosterInfoShape
+	}
+	job, err := strconv.Atoi(character.Job)
+	if err != nil || !jobmap.Valid(job) || character.Level <= 0 || character.Level > 255 {
+		return alignedcmd.MagicBoxRewardGroup{}, errMagicBoxBoosterInfoGated
+	}
+	label := strings.TrimSpace(tokens[0].Value)
+	known, matches := false, false
+	for candidate := 0; candidate <= jobmap.MaxID; candidate++ {
+		for _, tag := range jobmap.QuestTags(candidate) {
+			if strings.EqualFold(label, tag) {
+				known, matches = true, candidate == job
+			}
+		}
+	}
+	values := make([]int64, 0, len(tokens)-1)
+	for _, token := range tokens[1:] {
+		if token.Kind != dnfpvf.TokenInt {
+			return alignedcmd.MagicBoxRewardGroup{}, errMagicBoxBoosterInfoShape
+		}
+		values = append(values, token.Int)
+	}
+	if !known || values[0] < 1 || values[1] < values[0] || values[1] > 255 || values[2] <= 0 || values[2] > currentBoosterMaxRewardRows {
+		return alignedcmd.MagicBoxRewardGroup{}, errMagicBoxBoosterInfoShape
+	}
+	group, err := weightedMagicBoxBoosterGroup(values[2:], 3)
+	if err != nil {
+		return alignedcmd.MagicBoxRewardGroup{}, err
+	}
+	if !matches || int64(character.Level) < values[0] || int64(character.Level) > values[1] {
+		return alignedcmd.MagicBoxRewardGroup{}, nil
+	}
+	return group, nil
 }
 
 // parseMagicBoxBoosterGroup decodes one direct [booster info] child tag.

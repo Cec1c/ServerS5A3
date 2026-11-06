@@ -18,6 +18,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 var (
@@ -728,7 +729,30 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		started = finished
 	}
 	fatigueSpent := runtime.fatigueSpent
+	var capsule *wedding.CapsuleRules
+	if s.options.currentClientVersion == "official-24.9" && currentDungeonIsRecommendedClear(runtime) {
+		c, found, e := repositories.Character.Load(ctx, fmt.Sprint(session.selectedCharacterID))
+		if e != nil {
+			return currentDungeonSettlementCommitResult{}, e
+		}
+		if !found || c.AccountID != s.accountIDForSession(session) {
+			return currentDungeonSettlementCommitResult{}, wedding.ErrOwnership
+		}
+		state, e := wedding.Read(c)
+		if e != nil {
+			return currentDungeonSettlementCommitResult{}, e
+		}
+		if state.Phase == wedding.Married {
+			rules, e := s.currentWeddingExtensionRules()
+			if e != nil {
+				return currentDungeonSettlementCommitResult{}, e
+			}
+			value := rules.Capsule
+			capsule = &value
+		}
+	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		WeddingCapsule:         capsule,
 		BattlePassDungeonKind:  currentBattlePassAdaptedDungeonKind(runtime),
 		BattlePassNoCoinClear:  currentBattlePassDungeonClear(runtime) && !runtime.battlePassCoinUsed,
 		BattlePassSRankClear:   currentBattlePassDungeonClear(runtime) && runtime.battlePassSRankClear,
@@ -764,6 +788,11 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if capsule != nil {
+		if err := s.sendCurrentWeddingCapsuleGauge(session, result.Character); err != nil {
+			s.logGameEvent(session, "game-wedding-capsule-gauge-projection-deferred", "error", err)
+		}
+	}
 	if contribution != nil {
 		if err := s.projectCurrentGuildContribution(session, result.GuildContribution); err != nil {
 			s.logGameEvent(session, "game-guild-contribution-clear-projection-deferred", "error", err)

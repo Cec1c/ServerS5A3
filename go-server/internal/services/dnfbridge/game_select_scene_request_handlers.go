@@ -65,6 +65,9 @@ func (s *Service) sendFinishLoadingStatus(session *gameSession, request []byte) 
 	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketFinishLoading), nil); err != nil {
 		return err
 	}
+	if handled, err := s.handleCurrentWeddingChurchFinishLoading(session); handled || err != nil {
+		return err
+	}
 	// A completed dungeon return already published its town actor/scene state.
 	// The current client nevertheless emits its normal op37 request after that
 	// transition. Replaying the class0/op37 character-state reader at this

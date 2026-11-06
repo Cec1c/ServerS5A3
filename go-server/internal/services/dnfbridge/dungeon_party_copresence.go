@@ -590,6 +590,9 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	if !delivered {
 		return nil
 	}
+	if err := s.sendCurrentWeddingPeerInfo(ctx, receiver, character); err != nil {
+		return err
+	}
 	if len(subtype0Body) != 0 {
 		s.sendPeerUserInfoSubtype0Appearance(receiver, subtype0Body, source+"_peer_userinfo_subtype0", charID)
 	}

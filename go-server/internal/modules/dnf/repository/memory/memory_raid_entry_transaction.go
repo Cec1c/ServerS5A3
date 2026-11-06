@@ -9,6 +9,10 @@ import (
 
 // 独立团本入口事务，复用现有交易的限定角色快照及失败恢复。
 func (u *memoryCharacterTradeUnitOfWork) WithinRaidEntryAssets(ctx context.Context, ids []string, scope string, apply func(repository.CharacterRepository, repository.InventoryRepository, repository.SettingsRepository) error) error {
+	return u.withinScopedCharacterAssets(ctx, ids, scope, apply)
+}
+
+func (u *memoryCharacterTradeUnitOfWork) withinScopedCharacterAssets(ctx context.Context, ids []string, scope string, apply func(repository.CharacterRepository, repository.InventoryRepository, repository.SettingsRepository) error) error {
 
 	ids, err := repository.CharacterInventoryGroupIDs(ids)
 	if err != nil || apply == nil || u == nil || u.character == nil || u.inventory == nil || u.settings == nil || strings.TrimSpace(scope) == "" {
@@ -107,7 +111,7 @@ func (u *memoryCharacterTradeUnitOfWork) WithinRaidEntryAssets(ctx context.Conte
 			continue
 		}
 		committed = append(committed, committedTradeRecord{characterID: characterID, wallet: true})
-		if err := u.character.Save(ctx, characterTx.records[characterID]); err != nil {
+		if err := characterTx.commit(ctx, u.character, characterID); err != nil {
 			return rollback(err)
 		}
 	}

@@ -25,6 +25,7 @@ const (
 // ClearMapCompletionInput contains only facts owned by an authoritative final
 // dungeon completion. CompletionKey must be stable for replays of that run.
 type ClearMapCompletionInput struct {
+	WeddingPartnerID string
 	DungeonID        int64
 	MapID            int64
 	WorldMapAreaID   int64
@@ -35,11 +36,12 @@ type ClearMapCompletionInput struct {
 }
 
 type ClearMapCompletion struct {
-	QuestID         int64
-	Field           dnfrepo.QuestField
-	PreviousTrigger int64
-	PVFPath         string
-	Idempotent      bool
+	RemainingTrigger int64
+	QuestID          int64
+	Field            dnfrepo.QuestField
+	PreviousTrigger  int64
+	PVFPath          string
+	Idempotent       bool
 }
 
 // ClearMapCompletionPlan is a repository-independent mutation plan. Record is
@@ -99,7 +101,8 @@ func (c *Catalog) PlanClearMapCompletion(record dnfrepo.QuestRecord, input Clear
 				continue
 			}
 			definition, ok := c.byID[questID]
-			if !ok || !clearCompletionTargetMatches(definition, input) {
+			weddingClear := ok && weddingClearDefinition(definition) && !input.HellPartyOnly && input.WeddingPartnerID != "" && state.Extra["wedding_partner"] == input.WeddingPartnerID
+			if !ok || (!weddingClear && !clearCompletionTargetMatches(definition, input)) {
 				continue
 			}
 			completion := ClearMapCompletion{
@@ -112,6 +115,18 @@ func (c *Catalog) PlanClearMapCompletion(record dnfrepo.QuestRecord, input Clear
 				// Repository corruption is not a completed clear-map trigger and
 				// must never be normalized into a rewardable state here.
 				continue
+			}
+			if weddingClear {
+				if input.CompletedAt.Before(state.UpdatedAt) || state.ProgressValue > definition.IntData[2] {
+					continue
+				}
+				completion.RemainingTrigger = state.ProgressValue
+				if weddingClearRunCounted(state.Extra, input.CompletionKey) || state.ProgressValue == 0 {
+					completion.Idempotent = true
+					plan.Completions = append(plan.Completions, completion)
+					continue
+				}
+				completion.RemainingTrigger--
 			}
 			if state.ProgressValue == 0 {
 				completion.Idempotent = true
@@ -127,7 +142,7 @@ func (c *Catalog) PlanClearMapCompletion(record dnfrepo.QuestRecord, input Clear
 				plan.Completions = append(plan.Completions, completion)
 				continue
 			}
-			state.ProgressValue = 0
+			state.ProgressValue = completion.RemainingTrigger
 			state.UpdatedAt = input.CompletedAt
 			if state.Extra == nil {
 				state.Extra = make(map[string]string, 8)
@@ -136,7 +151,12 @@ func (c *Catalog) PlanClearMapCompletion(record dnfrepo.QuestRecord, input Clear
 			state.Extra["completion_key"] = input.CompletionKey
 			state.Extra["completion_dungeon_id"] = strconv.FormatInt(input.DungeonID, 10)
 			state.Extra["completion_map_id"] = strconv.FormatInt(input.MapID, 10)
-			state.Extra["reward_state"] = clearMapRewardPending
+			if weddingClear {
+				state.Extra[weddingClearRunMarkerKey(input.CompletionKey)] = "1"
+			}
+			if state.ProgressValue == 0 {
+				state.Extra["reward_state"] = clearMapRewardPending
+			}
 			state.Extra["pvf_path"] = definition.Path
 			state.Extra["quest_type"] = definition.Type
 			autoCompleteNoRewardSubQuestState(&state, definition, input.CompletedAt)

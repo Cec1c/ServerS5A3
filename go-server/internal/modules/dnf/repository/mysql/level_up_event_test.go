@@ -46,7 +46,9 @@ func TestMySQLLevelUpHistoryIsNotDeletedOrRegressedByOrdinaryStatsReplacement(t 
 		t.Fatal(err)
 	}
 	deleteQuery := database.execs[0]
-	if !strings.Contains(deleteQuery.Query, "AND LEFT(stat_key, ?) <> ? AND LEFT(stat_key, ?) <> ?") || len(deleteQuery.Args) != 5 {
+	if !strings.Contains(deleteQuery.Query, "AND LEFT(stat_key, ?) <> ? AND LEFT(stat_key, ?) <> ?") || len(deleteQuery.Args) != 7 ||
+		deleteQuery.Args[1] != len(repository.LevelUpEventStatPrefix) || deleteQuery.Args[2] != repository.LevelUpEventStatPrefix ||
+		deleteQuery.Args[3] != len(repository.LevelUpRewardStatPrefix) || deleteQuery.Args[4] != repository.LevelUpRewardStatPrefix {
 		t.Fatalf("ordinary replacement erases history=%+v", deleteQuery)
 	}
 	for _, q := range database.execs[1:] {

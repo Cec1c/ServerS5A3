@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 var (
@@ -146,6 +147,79 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	if cmd.QuestID == 0 {
 		return AcceptResult{}, ErrQuestIDRequired
 	}
+	definition, found := catalog.Find(int64(cmd.QuestID))
+	if !found || !weddingPreparationDefinition(definition) {
+		return o.applyAcceptAt(ctx, catalog, eligibility, cmd, now, false)
+	}
+	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
+	character, found, err := o.characters.Load(ctx, characterID)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	if !found || character.CharacterID != characterID || character.AccountID == "" || character.AccountID != cmd.AccountID {
+		return AcceptResult{}, ErrCharacterNotFound
+	}
+	hint, err := wedding.Read(character)
+	if err != nil || hint.Phase != wedding.Engaged {
+		return AcceptResult{}, ErrQuestNotAcceptable
+	}
+	partnerID := strconv.FormatInt(hint.PartnerID, 10)
+	ids := []string{characterID, partnerID}
+	if _, err := dnfrepo.WeddingPairScope(ids); err != nil {
+		return AcceptResult{}, ErrQuestNotAcceptable
+	}
+	unit, available := o.repositories.CharacterTrade.(dnfrepo.WeddingQuestUnitOfWork)
+	if !available {
+		return AcceptResult{}, ErrOwnerUnavailable
+	}
+	ids, _ = dnfrepo.CharacterInventoryGroupIDs(ids)
+	var result AcceptResult
+	err = unit.WithinWeddingQuests(ctx, ids, func(characters dnfrepo.CharacterRepository, quests dnfrepo.QuestRepository) error {
+		if characters == nil || quests == nil {
+			return ErrOwnerUnavailable
+		}
+		var current dnfrepo.CharacterRecord
+		for _, id := range ids {
+			row, found, err := characters.Load(ctx, id)
+			if err != nil {
+				return err
+			}
+			if !found || row.CharacterID != id {
+				return ErrQuestNotAcceptable
+			}
+			if id == characterID {
+				current = row
+			}
+		}
+		// The pre-transaction partner was only a lock hint. A cancellation or
+		// different engagement must be observed before any task is inserted.
+		state, err := wedding.Read(current)
+		if err != nil || state.Phase != wedding.Engaged || strconv.FormatInt(state.PartnerID, 10) != partnerID {
+			return ErrQuestNotAcceptable
+		}
+		scoped := *o
+		scoped.characters, scoped.quests = characters, quests
+		scoped.repositories.Character, scoped.repositories.Quest = characters, quests
+		scoped.repositories.CharacterTrade = nil
+		result, err = scoped.applyAcceptAt(ctx, catalog, eligibility, cmd, now, true)
+		return err
+	})
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	return result, nil
+}
+
+func (o *Owner) applyAcceptAt(ctx context.Context, catalog *Catalog, eligibility CharacterEligibility, cmd Command, now time.Time, pairLocked bool) (AcceptResult, error) {
+	if o == nil || o.characters == nil || o.quests == nil {
+		return AcceptResult{}, ErrOwnerUnavailable
+	}
+	if cmd.SelectedCharacterID == 0 {
+		return AcceptResult{}, ErrCharacterRequired
+	}
+	if cmd.QuestID == 0 {
+		return AcceptResult{}, ErrQuestIDRequired
+	}
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 	character, ok, err := o.characters.Load(ctx, characterID)
 	if err != nil {
@@ -176,6 +250,18 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	definition, definitionKnown := catalog.Find(int64(cmd.QuestID))
 	if !definitionKnown {
 		return AcceptResult{}, ErrQuestDefinitionMissing
+	}
+	if weddingPreparationDefinition(definition) {
+		if character.CharacterID != characterID || character.AccountID == "" || character.AccountID != cmd.AccountID {
+			return AcceptResult{}, ErrCharacterNotFound
+		}
+		eligibility, err = WithWeddingEligibility(ctx, o.characters, character, eligibility)
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		if eligibility.weddingPartner == "" {
+			return AcceptResult{}, ErrQuestNotAcceptable
+		}
 	}
 	// 一次接取只取一次时钟：Decide 与 Plan 必须用同一个服务日做每日投影，
 	// 否则恰好跨 06:00 换日时两边可能对“今天还能不能接”给出不同答案。
@@ -209,6 +295,7 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	if err != nil {
 		return AcceptResult{}, err
 	}
+	before := dnfrepo.CloneQuest(record)
 	if record.States == nil {
 		record.States = make(map[int64]dnfrepo.QuestState, 1)
 	}
@@ -220,6 +307,9 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 			"pvf_path":   plan.Path,
 			"quest_type": plan.Type,
 		},
+	}
+	if weddingPreparationDefinition(definition) {
+		record.States[int64(cmd.QuestID)].Extra["wedding_partner"] = eligibility.weddingPartner
 	}
 	if catalog.IsWorldMapHuntQuest(int64(cmd.QuestID)) {
 		record.States[int64(cmd.QuestID)].Extra[worldMapHuntProgressKey] = "1"
@@ -239,10 +329,19 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	}
 	record.CharacterID = characterID
 	record.UpdatedAt = now
-	// SaveFields is one atomic SQL upsert for the complete states JSON column.
-	// Event-item quests are rejected above because they require a wider asset
-	// transaction that this owner deliberately does not claim to provide.
-	if err := dnfrepo.SaveQuestFields(ctx, o.quests, record, dnfrepo.QuestFieldStates); err != nil {
+	if _, delta := o.quests.(dnfrepo.QuestDeltaWriter); !delta && !pairLocked &&
+		(clearMapRecordHasWeddingPreparation(before) || clearMapRecordHasWeddingPreparation(record)) {
+		return AcceptResult{}, ErrOwnerUnavailable
+	}
+	// Existing rows use the complete before/after delta, including linked
+	// activations. Preserve the original first-row upsert for ordinary accepts:
+	// the SQL delta writer requires an existing quest parent to lock.
+	if !hasRecord && !pairLocked {
+		err = dnfrepo.SaveQuestFields(ctx, o.quests, record, dnfrepo.QuestFieldStates)
+	} else {
+		err = dnfrepo.SaveQuestChanges(ctx, o.quests, before, record, dnfrepo.QuestFieldStates)
+	}
+	if err != nil {
 		return AcceptResult{}, err
 	}
 	persisted, ok, err := o.quests.Load(ctx, characterID)
@@ -333,6 +432,7 @@ func (o *Owner) ApplyGiveUpWithMaterialResolver(ctx context.Context, catalog *Ca
 		return GiveUpResult{}, ErrQuestNotActive
 	}
 	record = dnfrepo.CloneQuest(record)
+	before := dnfrepo.CloneQuest(record)
 	questID := int64(cmd.QuestID)
 	state, known := questStateFor(record, questID)
 	if !known || !isActiveQuestStatus(state.Status) {
@@ -353,7 +453,7 @@ func (o *Owner) ApplyGiveUpWithMaterialResolver(ctx context.Context, catalog *Ca
 	}
 	record.CharacterID = characterID
 	record.UpdatedAt = time.Now()
-	if err := dnfrepo.SaveQuestFields(ctx, o.quests, record, changedFields...); err != nil {
+	if err := dnfrepo.SaveQuestChanges(ctx, o.quests, before, record, changedFields...); err != nil {
 		return GiveUpResult{}, err
 	}
 	persisted, found, err := o.quests.Load(ctx, characterID)
@@ -441,6 +541,7 @@ func (o *Owner) ApplySetTrigger(ctx context.Context, cmd Command) (PlanResult, e
 		return result, nil
 	}
 	record = dnfrepo.CloneQuest(record)
+	before := dnfrepo.CloneQuest(record)
 	state, field, known := mutableQuestState(&record, int64(cmd.QuestID))
 	if !known {
 		return result, nil
@@ -453,7 +554,7 @@ func (o *Owner) ApplySetTrigger(ctx context.Context, cmd Command) (PlanResult, e
 		result.EchoOnly = true
 		return result, nil
 	}
-	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" || state.Extra[worldMapHuntProgressKey] == "1" {
+	if normalizeQuestTag(state.Extra["quest_type"]) == "raid phase clear" || state.Extra[worldMapHuntProgressKey] == "1" || cmd.QuestID == 20737 {
 		// A client trigger can echo the authoritative remaining count, but
 		// cannot substitute for a committed raid result or worldmap kill.
 		return result, nil
@@ -481,7 +582,7 @@ func (o *Owner) ApplySetTrigger(ctx context.Context, cmd Command) (PlanResult, e
 		record.Progress[int64(cmd.QuestID)] = state
 	}
 	record.UpdatedAt = time.Now()
-	if err := dnfrepo.SaveQuestFields(ctx, o.quests, record, field); err != nil {
+	if err := dnfrepo.SaveQuestChanges(ctx, o.quests, before, record, field); err != nil {
 		return PlanResult{}, err
 	}
 	result.StateChanged = true

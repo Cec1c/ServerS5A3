@@ -352,6 +352,8 @@ type memoryCharacterItemUnitOfWork struct {
 type memoryCharacterTradeUnitOfWork struct {
 	account          *memoryAccountStore
 	activity         *memoryActivityStore
+	mailbox          repository.MailboxRepository
+	quests           repository.QuestRepository
 	settings         repository.SettingsRepository
 	accountInventory repository.AccountInventoryRepository
 	mu               sync.Mutex
@@ -506,7 +508,7 @@ func (u *memoryCharacterProgressionUnitOfWork) WithinCharacterProgression(
 	}
 
 	if characterTx.dirty {
-		if err := u.character.Save(ctx, characterTx.record); err != nil {
+		if err := characterTx.commit(ctx, u.character); err != nil {
 			return errors.Join(err, restoreCharacterRecord(u.character, characterID, character, characterExists, true))
 		}
 	}
@@ -761,7 +763,7 @@ func (u *memoryCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx conte
 			continue
 		}
 		committed = append(committed, committedTradeRecord{characterID: characterID, wallet: true})
-		if err := u.character.Save(ctx, characterTx.records[characterID]); err != nil {
+		if err := characterTx.commit(ctx, u.character, characterID); err != nil {
 			return rollback(err)
 		}
 	}
@@ -792,6 +794,7 @@ type memoryCharacterTradeCharacterTransaction struct {
 	records        map[string]repository.CharacterRecord
 	exists         map[string]bool
 	dirty          map[string]bool
+	weddingDirty   map[string]bool
 }
 
 func (tx *memoryCharacterTradeCharacterTransaction) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
@@ -806,6 +809,10 @@ func (tx *memoryCharacterTradeCharacterTransaction) Load(ctx context.Context, ch
 }
 
 func (tx *memoryCharacterTradeCharacterTransaction) Save(ctx context.Context, record repository.CharacterRecord) error {
+	return tx.SaveFields(ctx, record, repository.CharacterSaveFields(ctx)...)
+}
+
+func (tx *memoryCharacterTradeCharacterTransaction) SaveFields(ctx context.Context, record repository.CharacterRecord, fields ...repository.CharacterField) error {
 	characterID := strings.TrimSpace(record.CharacterID)
 	if err := transactionContextError(ctx); err != nil {
 		return err
@@ -813,7 +820,19 @@ func (tx *memoryCharacterTradeCharacterTransaction) Save(ctx context.Context, re
 	if _, allowed := tx.allowed[characterID]; !allowed {
 		return db.ErrRecordKeyRequired
 	}
-	tx.records[characterID] = repository.CloneCharacter(record)
+	fields = repository.CharacterFields.Normalize(fields)
+	if len(fields) == 0 {
+		return nil
+	}
+	for _, field := range fields {
+		if field == repository.CharacterFieldWedding {
+			if tx.weddingDirty == nil {
+				tx.weddingDirty = make(map[string]bool)
+			}
+			tx.weddingDirty[characterID] = true
+		}
+	}
+	tx.records[characterID] = repository.MergeCharacterFields(tx.records[characterID], record, fields...)
 	tx.exists[characterID] = true
 	tx.dirty[characterID] = true
 	return nil
@@ -913,7 +932,7 @@ func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Conte
 	}
 
 	if characterTx.dirty {
-		if err := u.character.Save(ctx, characterTx.record); err != nil {
+		if err := characterTx.commit(ctx, u.character); err != nil {
 			return errors.Join(err, restoreCharacterRecord(u.character, characterID, character, characterExists, true))
 		}
 	}
@@ -1007,7 +1026,7 @@ func (u *memoryRentalAssetUnitOfWork) WithinRentalAssets(
 		}
 	}
 	if characterTx.dirty {
-		if err := u.character.Save(ctx, characterTx.record); err != nil {
+		if err := characterTx.commit(ctx, u.character); err != nil {
 			return errors.Join(
 				err,
 				restoreCharacterRecord(u.character, characterID, character, characterExists, true),
@@ -1138,7 +1157,7 @@ func (u *memoryCeraShopAssetUnitOfWork) withinCeraShopSkillAssets(ctx context.Co
 		}
 	}
 	if characterTx.dirty {
-		if err := u.character.Save(ctx, characterTx.record); err != nil {
+		if err := characterTx.commit(ctx, u.character); err != nil {
 			return errors.Join(
 				err,
 				restoreCharacterRecord(u.character, characterID, character, characterExists, true),
@@ -1218,12 +1237,13 @@ func (tx *memoryAccountTransaction) Save(ctx context.Context, record repository.
 }
 
 type memoryCharacterTransaction struct {
-	clear       *moderation.Clear
-	activity    repository.ActivityRepository
-	characterID string
-	record      repository.CharacterRecord
-	exists      bool
-	dirty       bool
+	clear        *moderation.Clear
+	activity     repository.ActivityRepository
+	characterID  string
+	record       repository.CharacterRecord
+	exists       bool
+	dirty        bool
+	weddingDirty bool
 }
 
 type memorySettingsTransaction struct {
@@ -1258,10 +1278,23 @@ func (tx *memoryCharacterTransaction) Load(ctx context.Context, characterID stri
 }
 
 func (tx *memoryCharacterTransaction) Save(ctx context.Context, record repository.CharacterRecord) error {
+	return tx.SaveFields(ctx, record, repository.CharacterSaveFields(ctx)...)
+}
+
+func (tx *memoryCharacterTransaction) SaveFields(ctx context.Context, record repository.CharacterRecord, fields ...repository.CharacterField) error {
 	if err := repository.TransactionKeyError(ctx, tx.characterID, record.CharacterID); err != nil {
 		return err
 	}
-	tx.record = repository.CloneCharacter(record)
+	fields = repository.CharacterFields.Normalize(fields)
+	if len(fields) == 0 {
+		return nil
+	}
+	for _, field := range fields {
+		if field == repository.CharacterFieldWedding {
+			tx.weddingDirty = true
+		}
+	}
+	tx.record = repository.MergeCharacterFields(tx.record, record, fields...)
 	tx.exists = true
 	tx.dirty = true
 	return nil
@@ -1284,7 +1317,7 @@ func restoreCharacterRecord(repo repository.CharacterRepository, characterID str
 		return nil
 	}
 	if existed {
-		return repo.Save(levelUpRollbackContext(), record)
+		return repository.SaveCharacterFields(levelUpRollbackContext(), repo, record, append(repository.AllCharacterFields(), repository.CharacterFieldWedding)...)
 	}
 	deleter, ok := repo.(interface {
 		Delete(context.Context, string) error

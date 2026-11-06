@@ -30,3 +30,32 @@ func TestStorePlacementMapLoadsImportedNPCsAndRejectsIncompleteData(t *testing.T
 		t.Fatal("nil source accepted")
 	}
 }
+
+func TestTownPlacementMapRevisedFileFallbackPreservesOriginalAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name, original string
+		wantNPC        int64
+		valid          bool
+	}{
+		{"revised-only", "", 20, true},
+		{"original-first", "[NPC]\n10 `[left]` 500 300 0\n[/NPC]", 10, true},
+		{"malformed-original", "[NPC]\n10 `[left]` 500\n[/NPC]", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := npcEnterTownSource{
+				"map/town/(r)root.map":   "[virtual movable area]\n0 0 1000 600\n[import script]\n`shared.map`",
+				"map/town/(r)shared.map": "[NPC]\n20 `[left]` 500 300 0\n[/NPC]",
+			}
+			if tc.original != "" {
+				source["map/town/root.map"] = tc.original
+			}
+			m, err := LoadTownPlacementMap(source, "Town\\ROOT.map")
+			if (err == nil) != tc.valid {
+				t.Fatalf("placement %+v error=%v", m, err)
+			}
+			if tc.valid && (len(m.NPCs) != 1 || m.NPCs[0].NPCID != tc.wantNPC) {
+				t.Fatalf("unexpected NPC authority: %+v", m.NPCs)
+			}
+		})
+	}
+}

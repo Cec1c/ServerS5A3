@@ -16,6 +16,7 @@ import (
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnftown "longheng.io/server/internal/modules/dnf/town"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 type townMoveTestSource map[string]string
@@ -1500,6 +1501,10 @@ func newTownMoveTest(t *testing.T) (*Service, *gameSession, dnfrepo.Group) {
 	}
 	service := &Service{
 		townCatalog: table,
+		// This synthetic town has no installed wedding furniture. Model its
+		// empty room-clear dependency explicitly; wedding rules/reward tests
+		// supply their own catalog rather than reading an external Script.pvf.
+		wedding: currentWeddingRuntime{rules: &wedding.Rules{}},
 		premiumCatalog: &currentPremiumCatalog{
 			contractsByItem: make(map[int64]currentPremiumContractInfo),
 			devilSlots:      make(map[uint32]currentPremiumDevilSlotInfo),

@@ -1,0 +1,47 @@
+[grade]
+`[wedding]`
+[npc index]
+20013
+[complete npc index]
+20013
+[exposed by npc]
+1
+[job]
+`[all]`
+[grow type]
+-1
+[level]
+30 99
+[pre required quest]
+20737
+[/pre required quest]
+
+[appear map]
+-1 -1 -1 -1
+[depend give item]
+
+[/depend give item]
+
+[type]
+`[seeking]`
+[sub type]
+-1
+[int data]
+10002610 1
+[/int data]
+
+[reward type]
+`[item]`
+[reward int data]
+10002901 5
+[/reward int data]
+
+[name]
+`准备结婚吧！ (2/2)`
+[depend message]
+`不过有时候光有勇气与信任还不够， 爱情的世界里往往还需要一些运气。
+如果二位对自己的爱情有信心， 认为这份力量可以经受住任何考验， 我建议你们可以试一试。`
+[condition message]
+`    请收集1个心意娃娃。 (心意娃娃可以从NPC大司祭处出售的真爱考验箱中随机获得)`
+[solve message]
+`除了你们对彼此的坚定不移之外， 连幸运女神都眷顾你们的这段爱情， 我相信你们的婚姻一定能天长地久。`

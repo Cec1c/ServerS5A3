@@ -531,7 +531,9 @@ func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID u
 		"body_len", len(wireBody),
 		"body_encoded", bodyEncoded,
 		"body_codec", bodyCodec)
-	return s.writeGameUpperPacketLocked(session, packet)
+	err = s.writeGameUpperPacketLocked(session, packet)
+	s.logCurrentWeddingWindowWire(session, msgID, classification, sequence, body, err == nil)
+	return err
 }
 
 func (s *Service) gameUpperHeaderSize() int {
