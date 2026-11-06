@@ -51,31 +51,37 @@ type currentRaidProjectionIdentity struct {
 // send from another member's command loop. wireMu still owns socket encoding.
 // Neither mutex is acquired while holding the raid aggregate mutex.
 type currentRaidProjectionOwner struct {
-	mu                     sync.Mutex
-	identity               currentRaidProjectionIdentity
-	version                uint64
-	symbolCursor           uint64
-	timers                 map[raid.AntonTimerKey]raid.AntonTimer
-	mapProjection          currentRaidMapProjection
-	initialized            bool
-	failed                 bool
-	startTransitionSent    bool
-	metadataReadyIdentity  currentRaidProjectionIdentity
-	metadataReady          bool
-	sessionRestorePending  bool
-	resultIdentity         currentRaidProjectionIdentity
-	resultSent             bool
-	movieIdentity          currentRaidProjectionIdentity
-	moviePromptSent        bool
-	movieCompleted         bool
-	rewardScreenIdentity   currentRaidProjectionIdentity
-	rewardScreenSent       bool
-	rewardFlowIdentity     currentRaidProjectionIdentity
-	rewardFlowSignature    [32]byte
-	rewardDisplayIdentity  currentRaidProjectionIdentity
-	rewardDisplaySignature [32]byte
-	participation          map[uint16]currentRaidParticipationPosition
-	clearEvents            map[currentRaidClearEvent]struct{}
+	mu                          sync.Mutex
+	identity                    currentRaidProjectionIdentity
+	version                     uint64
+	symbolCursor                uint64
+	timers                      map[raid.AntonTimerKey]raid.AntonTimer
+	mapProjection               currentRaidMapProjection
+	initialized                 bool
+	failed                      bool
+	startTransitionSent         bool
+	metadataReadyIdentity       currentRaidProjectionIdentity
+	metadataReady               bool
+	sessionRestorePending       bool
+	resultIdentity              currentRaidProjectionIdentity
+	resultSent                  bool
+	movieIdentity               currentRaidProjectionIdentity
+	moviePromptSent             bool
+	movieCompleted              bool
+	rewardScreenIdentity        currentRaidProjectionIdentity
+	rewardScreenSent            bool
+	rewardFlowIdentity          currentRaidProjectionIdentity
+	rewardFlowSignature         [32]byte
+	rewardDisplayIdentity       currentRaidProjectionIdentity
+	rewardDisplaySignature      [32]byte
+	rewardDisplayShownAt        time.Time
+	rewardSquadDisplayIdentity  currentRaidProjectionIdentity
+	rewardSquadDisplaySignature [32]byte
+	rewardSquadDisplayShownAt   time.Time
+	singleAntonReturnAt         time.Time
+	singleAntonReturnTimer      *time.Timer
+	participation               map[uint16]currentRaidParticipationPosition
+	clearEvents                 map[currentRaidClearEvent]struct{}
 }
 
 type currentRaidProjectionPacket struct {

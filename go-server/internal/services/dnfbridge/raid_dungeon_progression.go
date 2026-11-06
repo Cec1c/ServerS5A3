@@ -237,7 +237,10 @@ func (s *Service) queueCurrentRaidDungeonProgress(state runtimeRaidState) {
 				if err := s.sendCurrentAntonTerminalResult(peer, latest); err != nil {
 					return err
 				}
-				return s.sendCurrentAntonRewardFlowProjection(peer, latest)
+				if err := s.sendCurrentAntonRewardFlowProjection(peer, latest); err != nil {
+					return err
+				}
+				return s.sendCurrentAntonRewardReturn(peer, latest)
 			})
 			if err != nil {
 				s.logGameEvent(peer, "game-raid-dungeon-progress-send-failed", "raid_key", state.RaidKey, "error", err)

@@ -385,7 +385,7 @@ func TestRealPVFAntonFlowRareSquadGrantsContentsAndCurrentNestedDisplay(t *testi
 	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}
-	sawBreak, sawTimer, sawReturn := false, false, false
+	sawBreak, sawTimer := false, false
 	stream := f.conn.write.Bytes()
 	for len(stream) > 0 {
 		p, rest := splitGameServerUpperPacket(t, stream)
@@ -398,13 +398,13 @@ func TestRealPVFAntonFlowRareSquadGrantsContentsAndCurrentNestedDisplay(t *testi
 		if p.Header.MsgID == 596 && binary.LittleEndian.Uint32(p.Body[9:13]) == 600 {
 			sawTimer = true
 		}
-		if p.Header.MsgID == 115 && reflect.DeepEqual(p.Body, []byte{0}) {
-			sawReturn = true
+		if p.Header.MsgID == 115 {
+			t.Fatal("reward display replayed boss-death notification", p.Body)
 		}
 		stream = rest
 	}
-	if !sawBreak || !sawTimer || !sawReturn {
-		t.Fatal("finished phase did not restore actual break/owned return", sawBreak, sawTimer, sawReturn)
+	if !sawBreak || !sawTimer {
+		t.Fatal("finished phase did not restore actual break/timer", sawBreak, sawTimer)
 	}
 	// A late movie completion must ACK without covering the standby state.
 	f.conn.write.Reset()
