@@ -73,6 +73,10 @@ def parse_note(path, raw, *, legacy_sections=False):
     require(not MARKERS.search(text), 'conflict marker in ' + path)
     category = '功能修复' if parent == PUBLIC else '群服内容'
     prefix = '---\ncategory: ' + category + '\n---\n\n# '
+    if legacy_sections and not text.startswith('---\n'):
+        # Some already merged notes are plain prose. Preserve them verbatim;
+        # category and identity still come from the public/private path.
+        return Note(path, match[1], match[2], category, match[1], text.strip(), hashlib.sha256(raw).hexdigest())
     require(text.startswith(prefix), 'wrong category or fragment header: ' + path)
     title, sep, body = text[len(prefix):].partition('\n\n')
     require(sep and title.strip() == title and 1 <= len(title) <= 100 and '\n' not in title,
@@ -154,8 +158,8 @@ def load_notes_tolerant(blobs, inherited):
             try:
                 notes.append(parse_note(path, raw))
             except NoteError:
-                # Only the missing section layout is legacy. Keep the text in
-                # rendering and still reject malformed names, categories and IDs.
+                # Keep legacy prose in rendering; still check file identity,
+                # encoding, category when declared, and duplicate IDs.
                 notes.append(parse_note(path, raw, legacy_sections=True))
                 legacy.append(path)
             continue
@@ -214,7 +218,7 @@ def render(root, scope, since=None, until='HEAD'):
                   n.body.replace('## 变更\n', '### 变更\n').replace('## 验证\n', '### 验证\n'), '']
         manifest['fragments'].append({'id': n.id, 'path': n.path, 'type': n.kind,
                                       'category': n.category, 'sha256': n.sha256,
-                                      'legacySections': n.path in legacy})
+                                      'legacyFormat': n.path in legacy})
     if not selected:
         lines += ['此范围没有新增变更记录。', '']
     return '\n'.join(lines), manifest

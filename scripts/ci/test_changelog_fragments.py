@@ -151,9 +151,21 @@ class GitTests(unittest.TestCase):
         self.assertIn('历史内容', text)
         self.assertIn('## Check', text)
         row = next(x for x in manifest['fragments'] if x['path'] == broken)
-        self.assertTrue(row['legacySections'])
+        self.assertTrue(row['legacyFormat'])
         self.assertEqual(row['sha256'], c.hashlib.sha256(raw).hexdigest())
         self.assertEqual((self.root / broken).read_bytes(), raw)
+
+    def test_legacy_plain_prose_is_preserved_but_new_plain_prose_is_rejected(self):
+        path = self.add_note('plain-prose')
+        raw = b'Existing published note without frontmatter or headings.\n'
+        self.write(path, raw); base = self.commit()
+        fresh = self.add_note('new-note'); self.commit()
+        c.check(self.root, 'public', base)
+        text, manifest = c.render(self.root, 'public')
+        self.assertIn(raw.decode().strip(), text)
+        self.assertTrue(next(x for x in manifest['fragments'] if x['path']==path)['legacyFormat'])
+        self.write(fresh, raw)
+        with self.assertRaises(c.NoteError): c.check(self.root, 'public', base)
 
     def test_legacy_layout_does_not_hide_duplicate_id_or_invalid_category(self):
         broken = self.add_note('legacy-id')
