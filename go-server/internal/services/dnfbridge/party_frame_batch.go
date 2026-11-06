@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"strconv"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -36,10 +37,11 @@ func currentPartyFrameCharacterBatch(service *Service, batches []*partyFrameChar
 	return newPartyFrameCharacterBatch(service)
 }
 
-// loadCharacter preserves characterForEnter's repository semantics while
-// reusing one result for the same current session binding. A reconnect or
-// character-generation change invalidates that binding's cached row; the
-// caller's existing current-binding checks still decide whether to send it.
+// The op9 table serializes only character identity, name, job, level and grow
+// state. Loading an enter aggregate also reads equipment and probes/repairs
+// unrelated initialization for every member. Keep the authoritative full
+// character read, but leave that initialization to the actual enter path.
+// Results belong only to this synchronous batch and exact live binding.
 func (batch *partyFrameCharacterBatch) loadCharacter(
 	ctx context.Context,
 	identity boundGameSessionCharacter,
@@ -51,11 +53,21 @@ func (batch *partyFrameCharacterBatch) loadCharacter(
 		return entry.characterID, entry.name, entry.character, entry.hasCharacter
 	}
 
-	characterID, name, character, hasCharacter := batch.service.characterForEnter(
-		ctx,
-		identity.session,
-		identity.character,
-	)
+	characterID := identity.character
+	name := csharpSelectCharacterName(characterID)
+	var character dnfrepo.CharacterRecord
+	var hasCharacter bool
+	if repos, ok := batch.service.repositoryGroupFor(ctx); ok && repos.Character != nil && characterID != 0 {
+		var err error
+		character, hasCharacter, err = repos.Character.Load(ctx, strconv.Itoa(int(characterID)))
+		if err != nil {
+			batch.service.logGameEvent(identity.session, "game-party-frame-character-load-failed", "character_id", characterID, "error", err)
+			hasCharacter = false
+		}
+		if hasCharacter && character.Name != "" {
+			name = character.Name
+		}
+	}
 	batch.entries[identity.character] = partyFrameCharacterBatchEntry{
 		identity:     identity,
 		characterID:  characterID,

@@ -312,6 +312,7 @@ func (s *Service) commitCurrentDungeonDeathBurstLocked(session *gameSession) err
 		var err error
 		started := time.Now()
 		results, err = s.commitCurrentDungeonExperienceBatch(ctx, session, runtime, pending)
+		s.recordPerformance(perfDeathBurstCommit, time.Since(started), err != nil)
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
 			s.logGameEvent(session, "连续击杀经验提交耗时", "怪物数量", len(pending), "耗时毫秒", elapsed.Milliseconds(), "成功", err == nil)
 		}

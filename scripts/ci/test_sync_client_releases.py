@@ -18,6 +18,40 @@ class ClientReleaseTests(unittest.TestCase):
         self.gh=sync.Repository("github","github","owner/repo","token",True)
         self.item={"tag":"client-v105","commit":"a"*40,"source":"https://gitgud.io/source/repo/-/releases/client-v105","assets":{"DNF-v105.zip":{"sha256":"b"*64,"length":100}},"repo":self.up}
 
+    def test_latest_uses_version_and_skips_preview_drafts_resources_and_empty(self):
+        def row(number, **extra):
+            return dict(id=number, tag_name='client-v'+str(number), published_at='2026-11-06T00:00:00Z',
+                        assets=[{'name':'DNF.zip','size':100,'state':'uploaded'}], **extra)
+        candidates = [row(163), row(211), row(220, prerelease=True), row(230, draft=True)]
+        candidates += [dict(row(999), tag_name='resources-selected-20261106'), dict(row(240), assets=[])]
+        candidates += [dict(row(180), published_at='2026-12-01T00:00:00Z')]
+        with patch.object(self.gh, 'list', return_value=candidates), \
+             patch.object(self.gh, 'api', side_effect=[row(163), {}, row(211)]) as api:
+            result = self.gh.refresh_latest(apply=True)
+        self.assertEqual(result['tag'], 'client-v211')
+        self.assertTrue(result['applied'])
+        self.assertEqual(api.call_args_list[1].args, ('/releases/211',))
+        self.assertEqual(api.call_args_list[1].kwargs['body'], {'make_latest':'true'})
+
+    def test_latest_second_run_is_noop_and_dry_run_does_not_write(self):
+        row = dict(id=211, tag_name='client-v211', assets=[{'name':'DNF.zip.001','size':100}])
+        for current, apply in [(row, True), (dict(row, id=163, tag_name='client-v163'), False)]:
+            with self.subTest(apply=apply), patch.object(self.gh, 'list', return_value=[row]), \
+                 patch.object(self.gh, 'api', return_value=current) as api:
+                result = self.gh.refresh_latest(apply=apply)
+                self.assertFalse(result['applied'])
+                api.assert_called_once_with('/releases/latest', missing=True)
+
+    def test_latest_readback_must_match_and_readonly_destination_is_unchanged(self):
+        row = dict(id=211, tag_name='client-v211', assets=[{'name':'DNF.zip','size':100}])
+        with patch.object(self.gh, 'list', return_value=[row]), \
+             patch.object(self.gh, 'api', side_effect=[None, {}, {'id':163}]):
+            with self.assertRaisesRegex(sync.SyncError, 'Latest release readback'):
+                self.gh.refresh_latest(apply=True)
+        self.gh.writable = False
+        with patch.object(self.gh, 'api') as api:
+            self.assertIsNone(self.gh.refresh_latest(apply=True)); api.assert_not_called()
+
     def test_readonly_inventory_is_never_a_destination(self):
         actions=sync.plan({"upstream":[self.item],"gitgud":[],"github":[]},[self.up,self.gl,self.gh])
         self.assertEqual([r.key for r,_ in actions],["gitgud","github"])

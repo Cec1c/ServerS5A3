@@ -177,8 +177,8 @@ func TestTownDisplayLazyBuildSkipsMode1Dependencies(t *testing.T) {
 			reads.legacyQueries,
 		)
 	}
-	if reads.accountLoads != 1 || reads.skillLoads != 3 {
-		t.Fatalf("display-only account/skill loads=%d/%d, want existing mode0/HP reads 1/3", reads.accountLoads, reads.skillLoads)
+	if reads.accountLoads != 1 || reads.skillLoads != 2 {
+		t.Fatalf("display-only account/skill loads=%d/%d, want mode0/HP reads 1/2 without an op9 initialization probe", reads.accountLoads, reads.skillLoads)
 	}
 }
 

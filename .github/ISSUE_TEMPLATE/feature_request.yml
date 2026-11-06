@@ -1,0 +1,32 @@
+name: "功能建议 / Feature request"
+description: "提出玩法支持、工具或文档的改进建议"
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: "请先搜索已有建议。中文或 English 均可，优先说明使用场景和期望结果。"
+  - type: textarea
+    id: problem
+    attributes:
+      label: "使用场景 / Use case"
+      placeholder: "目前遇到什么限制？会影响谁、哪一步操作？"
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: "期望结果 / Desired behavior"
+      placeholder: "完成后用户应该能做什么？举一个具体例子。"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "建议方案与替代方法 / Proposal and alternatives"
+      description: "可补充现有做法、协议或版本依据、截图及相关 Issue；无需先提供实现。"
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: "配套依赖 / Compatibility"
+      description: "如涉及特定客户端、PVF、存档迁移或其他项目，请说明已知依赖。"
