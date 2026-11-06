@@ -2023,7 +2023,12 @@ func buildCurrentEquipmentRawEntryFromMoveEvidence(
 			petArtifactSource = equipSlot == 29
 		}
 	}
-	if (sourceListType != wireListMain && sourceListType != wireListAvatar && !petArtifactSource) ||
+	// Granted medals have the same identity evidence, but live in list 38.
+	// Admit only a flag into actor slot 32; the placement validator still
+	// checks the actual PVF type, character ownership and level before save.
+	medalSource := sourceListType == wireListGuildMedal && equipSlot == 32 &&
+		strings.Trim(strings.ToLower(strings.TrimSpace(stack.Extra["equipment_type"])), "`") == "[flag]"
+	if (sourceListType != wireListMain && sourceListType != wireListAvatar && !petArtifactSource && !medalSource) ||
 		stack.ItemID <= 0 || stack.ItemID > int64(^uint32(0)) || stack.Count != 1 ||
 		sourceInstanceValue == 0 || stack.Extra == nil ||
 		!strings.EqualFold(strings.TrimSpace(stack.Extra["item_kind"]), "equipment") ||
