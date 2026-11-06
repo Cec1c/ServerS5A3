@@ -450,6 +450,73 @@ func TestHandleTownSetUserAreaSendsCompleteAreaRosterWithSelectedActorLast(t *te
 	}
 }
 
+func TestHandleTownSetUserAreaNative90SendsCompleteAreaRoster(t *testing.T) {
+	service, session, _ := newTownMoveTest(t)
+	service.options.currentClientVersion = "official-24.9"
+	service.options.nativeClientProfile = "90cn"
+	service.onlinePlayers = newOnlinePlayerManager()
+	service.onlinePlayers.EnterArea(&onlinePlayerInfo{
+		CharacterID: 17,
+		TownID:      38,
+		AreaID:      0,
+		ChannelID:   int(session.channel.ID),
+		PositionX:   320,
+		PositionY:   210,
+		Direction:   1,
+		AreaState:   4,
+	})
+	if err := service.handleTownSetUserArea(session, buildTownMoveRequest(38, 0, 900, 250, 5)); err != nil {
+		t.Fatal(err)
+	}
+	packet, rest := splitTownAreaTransitionSequence(
+		t,
+		session.conn.(*bufferConn).write.Bytes(),
+		29,
+		38,
+		0,
+		900,
+		250,
+		5,
+		3,
+	)
+	wantBody, err := service.buildCurrentSceneTransitionBody(38, 0, []currentSceneTransitionRow{
+		{
+			ObjectOrResourceKey: currentSceneActorObjectKey(17),
+			Value1:              320,
+			Value2:              210,
+			Value3:              1,
+			Value4:              4,
+		},
+		{
+			ObjectOrResourceKey: currentSceneActorObjectKey(29),
+			Value1:              900,
+			Value2:              250,
+			Value3:              5,
+			Value4:              3,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if packet.Header.MsgID != currentSceneTransitionMsgID ||
+		packet.Header.Classification != 0 ||
+		!bytes.Equal(packet.Body, wantBody) {
+		t.Fatalf(
+			"native 90cn area roster header=%+v body=%x want=%x",
+			packet.Header,
+			packet.Body,
+			wantBody,
+		)
+	}
+	// 90cn op24 must be 4 + 2*8 = 20 bytes (exact 8-byte rows for sub_1D901D0).
+	if len(packet.Body) != 20 {
+		t.Fatalf("native 90cn op24 body len = %d, want 20", len(packet.Body))
+	}
+	if len(rest) != 0 {
+		t.Fatalf("unexpected trailing bytes: %x", rest)
+	}
+}
+
 func TestHandleTownSetUserAreaPreservesStationaryPartyRosterWithAreaUpdate(t *testing.T) {
 	service, session, repositories := newTownMoveTest(t)
 	service.options.gameUpperBodyCodec = gameUpperBodyCodecPlain

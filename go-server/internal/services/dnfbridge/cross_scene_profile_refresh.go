@@ -38,7 +38,7 @@ func currentCrossSceneProfileErrorKind(err error) string {
 }
 
 func (s *Service) sendCurrentPartyCrossSceneProfiles(snapshot party.RuntimePartySnapshot) {
-	if s.options.currentClientVersion != "official-24.9" || len(snapshot.Members) < 2 {
+	if s.options.currentClientVersion != "official-24.9" || s.uses90NativeClient() || len(snapshot.Members) < 2 {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
@@ -86,7 +86,7 @@ func (s *Service) sendCurrentRaidCrossSceneProfiles(batch *currentCrossSceneProf
 }
 
 func (s *Service) broadcastCurrentCrossSceneAppearance(actor *gameSession) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || s.options.currentClientVersion != "official-24.9" || s.uses90NativeClient() {
 		return
 	}
 	identity, ok := s.boundGameSessionCharacterSnapshot(actor)

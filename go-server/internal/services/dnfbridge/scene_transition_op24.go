@@ -17,7 +17,7 @@ type currentSceneTransitionRow struct {
 	Value4              byte
 }
 
-func buildCurrentSceneTransitionBody(townID byte, areaID byte, rows []currentSceneTransitionRow) ([]byte, error) {
+func buildCurrentSceneTransitionBodyForProfile(townID byte, areaID byte, rows []currentSceneTransitionRow, official249 bool) ([]byte, error) {
 	if len(rows) > int(^uint16(0)) {
 		return nil, fmt.Errorf("current scene transition row count %d exceeds u16", len(rows))
 	}
@@ -32,14 +32,25 @@ func buildCurrentSceneTransitionBody(townID byte, areaID byte, rows []currentSce
 		writer.writeUint16(row.Value2)
 		writer.writeByte(row.Value3)
 		writer.writeByte(row.Value4)
-		// Current 24.9 NOTI24 handler 02042900 reads three u16 and three
-		// u8 per row (020432C2..02043312). The last byte is consumed but
-		// unused by this handler; keep its native initial value of 1.
-		// Omitting it steals the next actor's low ID byte, so a multi-actor
-		// roster corrupts every later ID/position, including the selected actor.
-		writer.writeByte(1)
+		if official249 {
+			// Current 24.9 NOTI24 handler 02042900 reads three u16 and three
+			// u8 per row (020432C2..02043312). The last byte is consumed but
+			// unused by this handler; keep its native initial value of 1.
+			// Omitting it steals the next actor's low ID byte, so a multi-actor
+			// roster corrupts every later ID/position, including the selected actor.
+			writer.writeByte(1)
+		}
 	}
 	return writer.bytes(), nil
+}
+
+func buildCurrentSceneTransitionBody(townID byte, areaID byte, rows []currentSceneTransitionRow) ([]byte, error) {
+	return buildCurrentSceneTransitionBodyForProfile(townID, areaID, rows, true)
+}
+
+func (s *Service) buildCurrentSceneTransitionBody(townID byte, areaID byte, rows []currentSceneTransitionRow) ([]byte, error) {
+	official249 := s == nil || !s.uses90NativeClient()
+	return buildCurrentSceneTransitionBodyForProfile(townID, areaID, rows, official249)
 }
 
 func currentSceneTransitionLocation(character dnfrepo.CharacterRecord, hasCharacter bool) (byte, byte, error) {
@@ -78,7 +89,7 @@ func (s *Service) sendCurrentSceneTransitionOp24(session *gameSession, character
 	}
 
 	rows := []currentSceneTransitionRow(nil)
-	body, err := buildCurrentSceneTransitionBody(townID, areaID, rows)
+	body, err := s.buildCurrentSceneTransitionBody(townID, areaID, rows)
 	if err != nil {
 		return err
 	}

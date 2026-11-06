@@ -6,7 +6,7 @@ import "longheng.io/server/internal/modules/dnf/dnfenum"
 // whether a particular dungeon is currently open. The map-entry guard still
 // owns phase, deadline and dungeon availability checks.
 func (s *Service) currentRaidSelectorOpenAdmission(session *gameSession) (bool, string) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || session == nil ||
+	if s == nil || !s.isSupportedRaidClient() || session == nil ||
 		(session.channel.Type != dnfenum.RaidChannelType && session.channel.Type != dnfenum.HiddenRaidType) {
 		return true, "outside_anton_luke_selector_scope"
 	}

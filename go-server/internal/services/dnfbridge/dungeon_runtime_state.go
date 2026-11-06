@@ -324,6 +324,9 @@ func (s *Service) preloadDungeonWorldMap(ctx context.Context) error {
 	if s.options.currentClientVersion == "official-24.9" {
 		for route := byte(0); route < 2; route++ {
 			available, routeErr := raid.ValidateSingleRaidDependenciesForRoute(archive, route)
+			if routeErr != nil && route == 0 && s.uses90NativeClient() {
+				available, routeErr = raid.LegacyAntonWorldMapOptions(archive)
+			}
 			if routeErr != nil {
 				s.logPacketEvent("dnf-single-raid-map-dependencies-unavailable", "route", route, "effect", "single_start_rejected_before_material_commit", "error", routeErr)
 				continue

@@ -94,6 +94,12 @@ func (s *Service) buildCurrentChannelResidentNotice(channel channelcatalog.Chann
 	default:
 		return nil, fmt.Errorf("%w: unsupported current client version", errResidentChannelRange)
 	}
+	if s.options.nativeClientProfile != "" && s.options.nativeClientProfile != "90cn" {
+		return nil, fmt.Errorf("%w: unsupported native client profile", errResidentChannelRange)
+	}
+	if s.options.nativeClientProfile == "90cn" {
+		commandCount, notificationCount = currentChannelCommandPacketCount, currentChannelNotificationPacketCount
+	}
 	serverID := s.channelAdvertiseID()
 	if serverID < 0 || serverID > math.MaxInt32 ||
 		channel.ID <= 0 || channel.ID > math.MaxInt32 {

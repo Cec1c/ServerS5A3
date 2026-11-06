@@ -15,7 +15,7 @@ func (s *Service) currentAntonWaitingArea(townID, areaID byte) bool {
 	if s.currentLukeWaitingArea(townID, areaID) || s.currentFiendWarTownArea(townID, areaID) {
 		return true
 	}
-	if s == nil || s.options.currentClientVersion != "official-24.9" || townID != 19 || areaID != 2 {
+	if s == nil || !s.isSupportedRaidClient() || townID != 19 || areaID != 2 {
 		return false
 	}
 	area, found := s.townArea(int64(townID), int64(areaID))

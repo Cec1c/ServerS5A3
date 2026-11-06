@@ -31,7 +31,7 @@ func buffSwapReapplyEnabled() bool {
 // policy in the server so Docker, the controller and direct starts all persist
 // and restore the same state, even when an old deployment exports "off".
 func (s *Service) buffSwapReapplyEnabled() bool {
-	if s != nil && s.currentClientLoadoutOwnsBuffSwap1428() {
+	if s != nil && (s.uses90NativeClient() || s.currentClientLoadoutOwnsBuffSwap1428()) {
 		return true
 	}
 	return buffSwapReapplyEnabled()
@@ -47,7 +47,7 @@ func (s *Service) buffSwapReapplyEnabled() bool {
 // Under native reapply the late-boundary projection and sentinel answer remain
 // suppressed until the current client's 1428 downlink semantics are proved.
 func (s *Service) currentClientLoadoutOwnsBuffSwap1428() bool {
-	return s != nil && strings.TrimSpace(s.options.currentClientVersion) == "official-24.9"
+	return s != nil && !s.uses90NativeClient() && strings.TrimSpace(s.options.currentClientVersion) == "official-24.9"
 }
 
 // With the existing switch enabled,1426 belongs to the proven current BUFF
@@ -55,6 +55,11 @@ func (s *Service) currentClientLoadoutOwnsBuffSwap1428() bool {
 // they cannot complete an FPS loading gate or create registration state.
 func (s *Service) handleCurrentBuffSwap1426Command(session *gameSession, typ uint16, body []byte) (bool, error) {
 	if s == nil || session == nil || typ != currentBuffSwapRegistrationID || !s.buffSwapReapplyEnabled() {
+		return false, nil
+	}
+	if s.uses90NativeClient() {
+		// Native90 1426 is the FPS statistics message; its six-byte BUFF
+		// registration producer is 1428, with the skill at body[0:2].
 		return false, nil
 	}
 	return s.handleBuffSwapRegistration(session, body, true)
@@ -196,6 +201,11 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 			return nil
 		}
 		state, omitted := currentBuffOwnedWireState(projection), projection.Omitted
+		if s.uses90NativeClient() {
+			// The selected gameplay version does not change this client's
+			// 1369 consumer or its historical null-list sentinel 44.
+			state.WireProfile = ""
+		}
 		if !s.buffOwnedSendIdentityCurrent(identity) {
 			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "stale_owner_generation")
 			if diagnostics {

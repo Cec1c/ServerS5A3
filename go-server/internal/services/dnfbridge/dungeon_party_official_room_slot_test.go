@@ -147,3 +147,32 @@ func TestOfficial249RoomTableProfilesAndNativeFixture(t *testing.T) {
 		}
 	}
 }
+
+func TestNative90PartyRoomTableUsesLegacyLayout(t *testing.T) {
+	f := newInviteAcceptDungeonFixture(t)
+	f.service.options.currentClientVersion = "official-24.9"
+	f.service.options.nativeClientProfile = "90cn"
+	f.formPartyThroughClientAccept(t)
+	for _, session := range []*gameSession{f.leader, f.follower} {
+		session.conn.(*bufferConn).write.Reset()
+	}
+	f.selectDungeon(t, f.leader, 700)
+	foundTable := 0
+	for _, session := range []*gameSession{f.leader, f.follower} {
+		wire := session.conn.(*bufferConn).write.Bytes()
+		for len(wire) > 0 {
+			packet, rest := splitCurrentGameServerUpperPacketAuto(t, wire)
+			wire = rest
+			if packet.Header.Classification != 0 || packet.Header.MsgID != 9 || len(packet.Body) < 10 || packet.Body[9] != 0 {
+				continue
+			}
+			foundTable++
+			if _, _, _, err := readPartyRoomOfficial249Record(packet.Body, session.channel.ID); err == nil {
+				t.Fatalf("char%d native90 unexpectedly sent official249 room table layout body=%x", session.selectedCharacterID, packet.Body)
+			}
+		}
+	}
+	if foundTable < 2 {
+		t.Fatalf("expected at least 2 room slot tables, got %d", foundTable)
+	}
+}

@@ -49,7 +49,7 @@ func (s *Service) sendCurrentChannelReconnectTownEntry(session *gameSession) err
 	if err != nil {
 		return fmt.Errorf("commit channel reconnect location: %w", err)
 	}
-	transitionBody, err := buildCurrentSceneTransitionBody(
+	transitionBody, err := s.buildCurrentSceneTransitionBody(
 		townID,
 		areaID,
 		[]currentSceneTransitionRow{row},

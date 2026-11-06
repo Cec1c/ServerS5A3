@@ -369,7 +369,7 @@ func (s *Service) handleCurrentPrevVillage(session *gameSession, requestBody []b
 		Value3:              byte(direction),
 		Value4:              byte(areaState),
 	}
-	response, err := buildCurrentSceneTransitionBody(origin.TownID, origin.AreaID, []currentSceneTransitionRow{row})
+	response, err := s.buildCurrentSceneTransitionBody(origin.TownID, origin.AreaID, []currentSceneTransitionRow{row})
 	if err != nil {
 		return err
 	}

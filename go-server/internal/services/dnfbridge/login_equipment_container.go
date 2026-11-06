@@ -389,6 +389,13 @@ func (s *Service) sendLoginEquipmentWornSlotRow(session *gameSession, slot int16
 		return nil
 	}
 	body := buildCurrentItemUpdateBody(currentSocketListEquipment, []currentItemListEntry{entry})
+	if s.uses90NativeClient() && slot < 12 {
+		// Worn avatar slots 0..11 (including aura 9) use the same two
+		// extension blobs as list1. The ordinary equipment row alone leaves
+		// the native reader short by two length fields.
+		body = buildCurrentItemUpdateBody(1, []currentItemListEntry{entry})
+		body[0] = currentSocketListEquipment
+	}
 	s.logPacketEvent("game-login-equipment-slot-refresh-sent",
 		"conn_id", session.connID,
 		"channel_id", session.channel.ID,

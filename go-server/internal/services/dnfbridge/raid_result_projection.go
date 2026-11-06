@@ -30,7 +30,7 @@ func prepareCurrentAntonResultProjection(state runtimeRaidState, rewardOption by
 	if !state.Started || b == nil || (b.Mode != 1 && b.Mode != 2) || b.Phase > 1 || b.EnterAfter.IsZero() || b.Deadline.IsZero() || !b.Deadline.After(b.EnterAfter) || rewardOption > 1 || (!b.Single && !currentRaidHasTwoPhaseProgram(b)) {
 		return result, fmt.Errorf("Anton result instance unavailable")
 	}
-	if b.Single && (b.Phase != 0 || b.Anton != nil || len(b.SingleSequence) != 6 || len(b.MemberAccounts) != 1 || b.AntonRewards == nil || len(b.AntonRewards.Phases) != 1 || b.AntonRewards.Phases[0].MinimumClears != uint32(len(b.SingleSequence))) {
+	if b.Single && (b.Phase != 0 || b.Anton != nil || len(b.SingleSequence) == 0 || len(b.MemberAccounts) != 1 || b.AntonRewards == nil || len(b.AntonRewards.Phases) != 1 || b.AntonRewards.Phases[0].MinimumClears != uint32(len(b.SingleSequence))) {
 		return result, fmt.Errorf("single Anton result actual sequence/reward owner unavailable")
 	}
 	if b.PhaseCompleted == b.TimedOut {

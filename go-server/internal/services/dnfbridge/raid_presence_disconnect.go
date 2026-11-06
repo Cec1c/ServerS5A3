@@ -39,7 +39,7 @@ func (s *Service) raidPresenceContext(session *gameSession, state runtimeRaidSta
 }
 func (s *Service) noteCurrentRaidDisconnect(identity boundGameSessionCharacter) {
 	session := identity.session
-	if s == nil || s.options.currentClientVersion != "official-24.9" || session == nil || identity.character == 0 || identity.generation == 0 || !session.loginPacketSeen || !session.accountFromToken {
+	if s == nil || !s.isSupportedRaidClient() || session == nil || identity.character == 0 || identity.generation == 0 || !session.loginPacketSeen || !session.accountFromToken {
 		return
 	}
 	account := strings.TrimSpace(session.accountID)
@@ -81,6 +81,11 @@ func (s *Service) noteCurrentRaidDisconnect(identity boundGameSessionCharacter) 
 			path = "etc/raid/luke/luke.etc"
 		}
 		config, err := raid.LoadBattleConfiguration(archive, path)
+		if err != nil && s.uses90NativeClient() && snapshot.RouteOrRaidType == 0 {
+			if _, modern := archive.FindFile("etc/raid/singleraidlinksystem.etc"); !modern {
+				config, err = raid.LoadLegacyAntonBattleConfiguration(archive, 255)
+			}
+		}
 		if err != nil {
 			return
 		}
@@ -132,7 +137,7 @@ func (s *Service) noteCurrentRaidDisconnect(identity boundGameSessionCharacter) 
 	s.publishCurrentRaidPresence(copy, identity.character)
 }
 func (s *Service) restoreCurrentRaidPresence(session *gameSession) {
-	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" {
+	if s == nil || session == nil || !s.isSupportedRaidClient() {
 		return
 	}
 	s.raidMu.Lock()
@@ -191,7 +196,7 @@ func (s *Service) restoreCurrentRaidPresence(session *gameSession) {
 	s.publishCurrentRaidPresence(copy, identity.character)
 }
 func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || now.IsZero() {
+	if s == nil || !s.isSupportedRaidClient() || now.IsZero() {
 		return
 	}
 	changed := map[uint32]runtimeRaidState{}
@@ -269,6 +274,16 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 	}
 	s.raidMu.Unlock()
 	for _, state := range changed {
+		if s.uses90NativeClient() && state.CurrentLayout && state.RouteOrRaidType == 0 {
+			for _, member := range state.Members {
+				peer, online := s.onlineGameSession(member.CharID)
+				if online && s.currentRaidAdmissionVisible(peer, state) {
+					if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
+						s.failRuntimeRaidRecipient(peer, "disconnect_metadata", err)
+					}
+				}
+			}
+		}
 		s.publishCurrentRaidPresence(state, 0)
 		if expiredParticipation[state.RaidKey] {
 			s.queueCurrentRaidDungeonProgress(state)

@@ -161,6 +161,7 @@ type options struct {
 	gamePostBootstrap        string
 	gameUpperHeader          string
 	gameUpperBodyCodec       string
+	channelNoticePlain       bool
 	gameUpperClientBodyCodec string
 	gameDprotoMode           string
 	initialUDPPort1          int
@@ -168,6 +169,7 @@ type options struct {
 	commandCount             int
 	notificationCount        int
 	currentClientVersion     string
+	nativeClientProfile      string
 	defaultGroupLoginOnly    bool
 	gameStreamWaitTrace      bool
 	maxPacketBytes           int
@@ -802,6 +804,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 			"DNFBRIDGE_GAME_UPPER_BODY_CODEC",
 			gameUpperBodyCodecAuto,
 		)),
+		channelNoticePlain: envBool("DNFBRIDGE_CURRENT_CHANNEL_INFO_PLAINTEXT", false),
 		gameUpperClientBodyCodec: normalizeGameUpperClientBodyCodec(envString(
 			"DNFBRIDGE_GAME_UPPER_CLIENT_BODY_CODEC",
 			gameUpperClientBodyCodecPlain,
@@ -812,6 +815,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		commandCount:           envInt("DNF_COMMAND_PACKET_COUNT", defaultCommandCount),
 		notificationCount:      envInt("DNF_NOTIFICATION_PACKET_COUNT", defaultNotificationCount),
 		currentClientVersion:   envString("DNFBRIDGE_CURRENT_CLIENT_VERSION", "90cn"),
+		nativeClientProfile:    envString("DNFBRIDGE_NATIVE_CLIENT_PROFILE", ""),
 		defaultGroupLoginOnly:  envBool("DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY", false),
 		gameStreamWaitTrace:    envBool("DNFBRIDGE_GAME_STREAM_WAIT_TRACE", false),
 		maxPacketBytes:         envInt("DNF_MAX_PACKET_BYTES", defaultMaxPacketBytes),

@@ -215,24 +215,26 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 		if s.options.currentClientVersion == "official-24.9" {
 			targetParty = s.runtimePartyStateForSession(targetSession)
 		}
-		projected, projectionErr := s.sendCurrentPartyActorFrameProjection(
-			session,
-			targetSession,
-			targetParty,
-			"peer_selection_dynamic_target_party_state",
-		)
-		if projectionErr != nil {
-			return projectionErr
-		}
-		if !projected {
-			s.logGameEvent(session, "game-peer-selection-party-state-deferred",
-				"source_char_id", sourceID,
-				"target_id", parsed.TargetID,
-				"target_party_id", targetParty.PartyID,
-				"reason", "target_actor_projection_unavailable")
-			return nil
-		}
 		targetPartyActive := targetParty.PartyID > 0 && len(runtimePartyMembers(targetParty)) > 0
+		if targetPartyActive {
+			projected, projectionErr := s.sendCurrentPartyActorFrameProjection(
+				session,
+				targetSession,
+				targetParty,
+				"peer_selection_dynamic_target_party_state",
+			)
+			if projectionErr != nil {
+				return projectionErr
+			}
+			if !projected {
+				s.logGameEvent(session, "game-peer-selection-party-state-deferred",
+					"source_char_id", sourceID,
+					"target_id", parsed.TargetID,
+					"target_party_id", targetParty.PartyID,
+					"reason", "target_actor_projection_unavailable")
+				return nil
+			}
+		}
 		selectionBody := party.BuildRequestPeerSelectionNotice(parsed.TargetID, parsed.Value0, targetPartyActive)
 		s.logGameEvent(session, "game-peer-selection-notice-send",
 			"type", 0x0007,
@@ -2135,7 +2137,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		localChannelID,
 		projections,
 		leaderSlot,
-		s.options.currentClientVersion == "official-24.9",
+		s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient(),
 		s.currentSceneActorRoute(),
 	)
 	// The current party transport establishes the realtime roster and P2P

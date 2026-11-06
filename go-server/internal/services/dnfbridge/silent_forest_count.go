@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"strconv"
 
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
@@ -31,6 +32,13 @@ func (s *Service) sendCurrentSilentForestCount(session *gameSession, character d
 		return dnfdungeon.ErrOwnerUnavailable
 	}
 	limit, err := s.currentSilentForestEntryLimit()
+	// Older paired PVFs may omit this optional dungeon entirely. Do not invent
+	// quota or abort ordinary town login; actual admission still rejects the
+	// same missing rule in validateCurrentSilentForestEntry.
+	if errors.Is(err, errSilentForestRuleMissing) {
+		s.logGameEvent(session, "game-silent-forest-count-unavailable", "reason", "pvf_account_admission_rule_missing", "quota_sent", false)
+		return nil
+	}
 	if err != nil {
 		return err
 	}

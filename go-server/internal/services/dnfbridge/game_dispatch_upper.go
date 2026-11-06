@@ -210,6 +210,15 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	if handled, err := s.handleCurrentPortedActivityRequest(session, packet.Header.MsgID, packet.Header.Classification, packet.Body); handled {
 		return err
 	}
+	if handled, err := s.handleGameOptionCommand(session, packet.Header.MsgID, packet.Body); handled || err != nil {
+		return err
+	}
+	if handled, err := s.handleCurrentBuffSwap1426Command(session, packet.Header.MsgID, packet.Body); handled || err != nil {
+		return err
+	}
+	if handled, err := s.handleSkillSwitchInventoryCommand(session, packet.Header.MsgID, packet.Body); handled || err != nil {
+		return err
+	}
 	switch dnfenum.UpperMsg(packet.Header.MsgID) {
 	case dnfenum.UpperMsgGameEndpoint:
 		// 客户端在这个 class1/op1 登录包里带出启动器写入 TCLS 启动串的账号令牌，

@@ -11,7 +11,7 @@ const currentRaidTableReturnSource = "current_exe_raid_battle_table_op72_active_
 // buttons both emit 72/{1,2}. Keep completed runs on their result/reward route; an active
 // return is neither completion nor permission to retry or enter another map.
 func (s *Service) currentRaidTableActiveReturnReady(session *gameSession, runtime *runtimeDungeonState) bool {
-	if s.options.currentClientVersion != "official-24.9" || session == nil ||
+	if !s.isSupportedRaidClient() || session == nil ||
 		runtime == nil || runtime.Session == nil || runtime.raidEntry == nil ||
 		session.dungeon.runtime != runtime || !s.currentRaidAuthenticated(session) ||
 		!dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) ||

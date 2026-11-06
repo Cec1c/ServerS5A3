@@ -53,5 +53,11 @@ func currentSingleAntonHPBody(b *runtimeRaidBattle) ([]byte, error) {
 	if len(prefix) != 0 {
 		return nil, fmt.Errorf("single Anton HP clear prefix incomplete")
 	}
+	if b.LegacySingleTypeSymbol != 0 {
+		if _, exists := values[b.LegacySingleTypeSymbol]; exists {
+			return nil, fmt.Errorf("legacy Anton type symbol collides with HP")
+		}
+		values[b.LegacySingleTypeSymbol] = b.LegacySingleType
+	}
 	return raid.BuildSymbolBody(values)
 }

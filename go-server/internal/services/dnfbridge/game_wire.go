@@ -486,9 +486,15 @@ func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID u
 	bodyCodec := s.gameUpperBodyCodecMode()
 	requireCurrentClass0Opcode1Codec := classification == 0 && msgID == 1
 	if allowCodec && requireCurrentClass0Opcode1Codec {
-		wireBody = dnfproto.EncodeLatestUpperClass0Opcode1Body(body)
-		bodyEncoded = true
-		bodyCodec = "current_class0_op1_xor_b5_rotl2"
+		// Explicit compatibility for the 90cn decode-copy transport DLL. Other
+		// clients, including official-24.9, retain the existing native transform.
+		if s.options.channelNoticePlain && s.options.currentClientVersion == "90cn" {
+			bodyCodec = "current_class0_op1_plaintext"
+		} else {
+			wireBody = dnfproto.EncodeLatestUpperClass0Opcode1Body(body)
+			bodyEncoded = true
+			bodyCodec = "current_class0_op1_xor_b5_rotl2"
+		}
 	} else if allowCodec && classification == dnfproto.DefaultChannelClassification && bodyCodec != gameUpperBodyCodecPlain {
 		encodedBody, encoded, err := dnfproto.EncodeLatestUpperServerBody(msgID, body)
 		if err != nil {

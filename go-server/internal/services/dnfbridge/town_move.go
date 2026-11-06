@@ -341,7 +341,7 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 	// roster, matching the full-area roster role used by 86JP after it sends
 	// peer appearance and user-info records.
 	transitionRows = append(transitionRows, selfRow)
-	response, err := buildCurrentSceneTransitionBody(request.TownID, request.AreaID, transitionRows)
+	response, err := s.buildCurrentSceneTransitionBody(request.TownID, request.AreaID, transitionRows)
 	if err != nil {
 		return err
 	}

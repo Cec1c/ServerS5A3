@@ -43,11 +43,11 @@ func DecodeCurrentSearchRequest(body []byte) (CurrentSearchRequest, error) {
 // 0202D940: total32, offset32, count32, then current metadata objects and
 // their member counts. Offset is this server's echoed page start, bounded
 // by total as the native 01A54C30 setter does. It is not a roster or ACK831.
-func BuildCurrentSearchPageBody(total, offset uint32, entries []CurrentMetadata) ([]byte, error) {
+func BuildCurrentSearchPageBody(total, offset uint32, entries []CurrentMetadata, native90 ...bool) ([]byte, error) {
 	if offset > total || len(entries) > CurrentRaidSearchPageSize || uint64(offset)+uint64(len(entries)) > uint64(total) {
 		return nil, fmt.Errorf("invalid current raid search page bounds")
 	}
-	directory, err := BuildCurrentDirectoryBody(entries)
+	directory, err := BuildCurrentDirectoryBody(entries, native90...)
 	if err != nil {
 		return nil, err
 	}

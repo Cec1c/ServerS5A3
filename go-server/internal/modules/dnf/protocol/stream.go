@@ -46,6 +46,8 @@ const (
 	// upper authentication rather than treating it as an unauthenticated
 	// legacy command. This does not validate or bypass the login token.
 	observedTokenLoginBodySize = 594
+	// Supplied 90CN EXE 8a7af614: observed 13+602 byte token login after CHANNELINFO.
+	observed90CN602LoginBodySize = 602
 )
 
 // LatestGameStreamPacket 是从 game TCP 字节流切出的完整包。
@@ -287,7 +289,8 @@ func isKnownClientUpperMsg(msgID uint16, body []byte) bool {
 			bodyLen == currentObservedChannelDisplayRebindBodySize ||
 			bodyLen == v56ChannelDisplayRebindBodySize ||
 			bodyLen == v56RemoteChannelDisplayRebindBodySize ||
-			bodyLen == observedTokenLoginBodySize
+			bodyLen == observedTokenLoginBodySize ||
+			bodyLen == observed90CN602LoginBodySize
 	case 2:
 		// A channel transfer opens the target game port without requesting the
 		// ordinary roster and emits this exact 31-byte native upper probe.

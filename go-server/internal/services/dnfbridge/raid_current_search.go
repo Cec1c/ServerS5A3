@@ -106,7 +106,7 @@ func (s *Service) handleCurrentRaidSearch(session *gameSession, op uint16, body 
 	}
 	entries := s.currentRaidSearchEntries(session, req, name)
 	if req.Mode == 1 {
-		response, err := raid.BuildCurrentDirectoryBody(entries)
+		response, err := raid.BuildCurrentDirectoryBody(entries, s.uses90NativeClient())
 		if err != nil {
 			return err
 		}
@@ -121,7 +121,7 @@ func (s *Service) handleCurrentRaidSearch(session *gameSession, op uint16, body 
 	if end > uint64(total) {
 		end = uint64(total)
 	}
-	response, err := raid.BuildCurrentSearchPageBody(total, offset, entries[int(offset):int(end)])
+	response, err := raid.BuildCurrentSearchPageBody(total, offset, entries[int(offset):int(end)], s.uses90NativeClient())
 	if err != nil {
 		return err
 	}

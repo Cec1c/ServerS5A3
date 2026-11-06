@@ -26,10 +26,23 @@ func adventureGameplayModule() gameplayModuleDefinition {
 		currentAdventureRepresentCharactersMsgID:      adventureLegacyHandler((*Service).handleCurrentAdventureRepresentCharacters),
 		currentAdventureSelectRepresentativeMsgID:     adventureLegacyHandler((*Service).handleCurrentAdventureSelectRepresentative),
 	}
+	legacyHandlers[1403] = func(service *Service, session *gameSession, request gameplayRequest) error {
+		if !service.uses90NativeClient() {
+			return nil
+		}
+		return service.handleCurrentRequestAdventureInfo(session, request.Body)
+	}
 	return gameplayModuleDefinition{
 		Name:           "adventure-info",
 		LegacyHandlers: legacyHandlers,
 		UpperHandlers: map[uint16]gameplayHandler{
+			1403: defaultClassGameplayHandler("game-native-adventure-info-rejected", "unexpected_classification",
+				func(service *Service, session *gameSession, body []byte) error {
+					if !service.uses90NativeClient() {
+						return nil
+					}
+					return service.handleCurrentRequestAdventureInfo(session, body)
+				}),
 			currentAdventureSelectRepresentativeMsgID: defaultClassGameplayHandler(
 				"game-adventure-represent-select-rejected", "unexpected_classification",
 				func(service *Service, session *gameSession, body []byte) error {
@@ -224,7 +237,7 @@ func (s *Service) handleCurrentRequestAdventureInfo(session *gameSession, reques
 		state.Projection,
 	)
 	s.logGameEvent(session, "game-adventure-info-response-send",
-		"msg_id", currentAdventureInfoRequestMsgID,
+		"msg_id", s.adventureInfoRequestWireID(),
 		"classification", 1,
 		"selected_character_id", sourceID,
 		"target_character_id", targetID,
@@ -242,7 +255,7 @@ func (s *Service) handleCurrentRequestAdventureInfo(session *gameSession, reques
 		"growth_capsule_progress", state.Projection.Runtime.GrowthExperience,
 		"brave_experience_progress", state.Projection.Runtime.BraveExperience,
 		"capsule_claim_experience", state.Projection.CapsuleClaimExperience)
-	return s.sendGameUpperSuccess(session, currentAdventureInfoRequestMsgID, body)
+	return s.sendGameUpperSuccess(session, s.adventureInfoRequestWireID(), body)
 }
 
 func currentAdventureInfoRequestTarget(session *gameSession, request []byte) (uint16, bool) {

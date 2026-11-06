@@ -81,7 +81,7 @@ func TestBuildCurrentSceneOp9ActorPartyDisplayCarriesCurrentSlotTable(t *testing
 		}
 		offset += 3
 	}
-	if !bytes.Equal(body[offset:], []byte{0, 0, 0, 0}) {
+	if !bytes.Equal(body[offset:], []byte{0, 0, 0}) {
 		t.Fatalf("op9 party post-slot fields=% X want party leader slot 0 (slot zero row)", body[offset:])
 	}
 }
@@ -99,8 +99,8 @@ func TestBuildCurrentSceneOp9ActorPartyDisplaySelectsSoloMemberSlotZero(t *testi
 		},
 		0,
 	)
-	if !bytes.Equal(body[len(body)-4:], []byte{0, 0, 0, 0}) {
-		t.Fatalf("op9 solo party post-slot fields=% X want party leader slot 0", body[len(body)-4:])
+	if !bytes.Equal(body[len(body)-3:], []byte{0, 0, 0}) {
+		t.Fatalf("op9 solo party post-slot fields=% X want party leader slot 0", body[len(body)-3:])
 	}
 }
 

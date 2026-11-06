@@ -48,7 +48,7 @@ func (s *Service) sendRepresentAccountNameState(session *gameSession, name strin
 	var writer packetWriter
 	writer.writeRawDstr(encoded)
 	msgID := currentRepresentAccountNameStateMsgID
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient() {
 		// sub_201FD60 reads only DSTR(17 WCHAR destination). Sending the
 		// legacy 1371 name body reaches sub_201FE50's friend-count parser.
 		msgID = officialRepresentAccountNameStateMsgID
@@ -117,7 +117,7 @@ func (s *Service) sendRepresentAccountNameRegistrationAfterScene(session *gameSe
 
 func (s *Service) handleRepresentAccountNameDuplicateCheck(session *gameSession, body []byte) error {
 	responseMsgID := currentCmdRepresentNameDuplicateCheck
-	if s.options.currentClientVersion == "official-24.9" {
+	if s.options.currentClientVersion == "official-24.9" && !s.uses90NativeClient() {
 		responseMsgID = officialCmdRepresentNameDuplicateCheck
 	}
 	name, encoded, code, ok := parseRepresentAccountName(body)
@@ -161,7 +161,7 @@ func (s *Service) handleRepresentAccountNameDuplicateCheck(session *gameSession,
 // 1437 is now friend acceptance and 1444 saves recent emoticons: neither may
 // reach the represent-name persistence owner, even with a DSTR-shaped body.
 func (s *Service) handleOfficialRepresentAccountCommand(session *gameSession, msgID uint16, classification byte, body []byte) (bool, error) {
-	if s.options.currentClientVersion != "official-24.9" {
+	if s.options.currentClientVersion != "official-24.9" || s.uses90NativeClient() {
 		return false, nil
 	}
 	switch msgID {

@@ -42,6 +42,12 @@ func LoadAntonRewardConfiguration(source dnfpvf.Source) (AntonRewardConfiguratio
 	return loadConfiguredRaidRewards(source, "etc/raid/anton.etc", 0)
 }
 
+// Native90's older PVF uses a separate entry quota rather than the modern
+// clear-limit field; reward rows still come entirely from its real phases.
+func LoadNative90AntonTeamRewards(source dnfpvf.Source) (AntonRewardConfiguration, error) {
+	return loadConfiguredRaidRewardsForProfile(source, "etc/raid/anton.etc", 0, true)
+}
+
 // Luke uses its own actual reward table: phase zero qualifies all admitted
 // members and has no squad reward; phase one requires two owned clears.
 func LoadLukeRewardConfiguration(source dnfpvf.Source) (AntonRewardConfiguration, error) {
@@ -53,13 +59,23 @@ func LoadFiendWarRewardConfiguration(source dnfpvf.Source) (AntonRewardConfigura
 }
 
 func loadConfiguredRaidRewards(source dnfpvf.Source, path string, family byte) (AntonRewardConfiguration, error) {
+	return loadConfiguredRaidRewardsForProfile(source, path, family, false)
+}
+
+func loadConfiguredRaidRewardsForProfile(source dnfpvf.Source, path string, family byte, native90 bool) (AntonRewardConfiguration, error) {
 	luke, fiend := family == 1, family == 2
 	phaseCount := 2
 	if fiend {
 		phaseCount = 1
 	}
 	if !fiend {
-		if _, err := LoadBattleConfiguration(source, path); err != nil {
+		var err error
+		if native90 {
+			_, err = LoadLegacyAntonBattleConfiguration(source, 255)
+		} else {
+			_, err = LoadBattleConfiguration(source, path)
+		}
+		if err != nil {
 			return AntonRewardConfiguration{}, err
 		}
 	}

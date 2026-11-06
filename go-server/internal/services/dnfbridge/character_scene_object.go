@@ -77,11 +77,16 @@ func buildCurrentSceneObjectListBodyWithCreatureInContext(sceneObjectKey uint16,
 // guild or alter social state. An optional authoritative guild projection
 // replaces that display field for actual members.
 func buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool, fallbackName string, creature currentEquippedCreatureSnapshot, adventureName string, ownerChannel, serverRoute byte, guild ...currentSceneGuildProjection) []byte {
+	return buildSceneObjectListBodyForProfile(sceneObjectKey, character, hasCharacter, fallbackName, creature, adventureName, ownerChannel, serverRoute, false, guild...)
+}
+
+func buildSceneObjectListBodyForProfile(sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool, fallbackName string, creature currentEquippedCreatureSnapshot, adventureName string, ownerChannel, serverRoute byte, native90 bool, guild ...currentSceneGuildProjection) []byte {
 	if sceneObjectKey == 0 {
 		sceneObjectKey = currentSceneBootstrapObjectKey
 	}
-	if fallbackName == "" && hasCharacter {
-		fallbackName = character.Name
+	name := fallbackName
+	if name == "" && hasCharacter {
+		name = character.Name
 	}
 
 	var writer packetWriter
@@ -91,7 +96,18 @@ func buildCurrentSceneObjectListBodyWithCreatureAndAdventureNameInContext(sceneO
 	// well as the owner channel; a hardcoded server 0 selects a foreign actor.
 	writer.writeByte(serverRoute)
 	writer.writeByte(ownerChannel)
-	writeCurrentSceneObjectEntryWithCreatureAndAdventureName(&writer, sceneObjectKey, character, hasCharacter, fallbackName, creature, adventureName, guild...)
+	if !native90 {
+		writeCurrentSceneObjectEntryWithCreatureAndAdventureName(&writer, sceneObjectKey, character, hasCharacter, name, creature, adventureName, guild...)
+	} else {
+		if raw, ok := buildCurrentSceneObjectRawState(character, hasCharacter, name); ok {
+			writer.writeBytes(raw)
+		} else {
+			writer.writeZero(0x47)
+		}
+		writer.writeUint16(sceneObjectKey)
+		writeCurrentSceneObjectName(&writer, name)
+		writeSceneObjectEntryTailForProfile(&writer, character, hasCharacter, creature, adventureName, true, guild...)
+	}
 	return writer.bytes()
 }
 

@@ -25,7 +25,7 @@ func validateCurrentTownNPCEnterTown(source dnfpvf.Source, request currentTownSe
 }
 
 func (s *Service) currentTownNPCEnterTownRequest(session *gameSession, request *currentTownSetUserAreaRequest, character dnfrepo.CharacterRecord, targetArea dnftown.Area) bool {
-	if s == nil || request == nil || s.options.currentClientVersion != "official-24.9" || !currentTownNPCEnterTownShape(*request, character) {
+	if s == nil || request == nil || !s.isSupportedRaidClient() || !currentTownNPCEnterTownShape(*request, character) {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(townNPCEnterTownEnv))) {

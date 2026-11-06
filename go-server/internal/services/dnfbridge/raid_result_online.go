@@ -47,7 +47,7 @@ func (s *Service) currentAntonFinalWeeklyCommittedLocked(state runtimeRaidState)
 // The raid projection mutex serializes the result and phase transition with
 // starts/rejoins; no repository or transport runs while raidMu is held.
 func (s *Service) sendCurrentAntonTerminalResult(session *gameSession, captured runtimeRaidState) error {
-	if s == nil || s.options.currentClientVersion != "official-24.9" || captured.Battle == nil || (captured.Battle.Mode != 1 && captured.Battle.Mode != 2 && captured.Battle.FiendWar == nil) || (!captured.Battle.PhaseCompleted && !captured.Battle.TimedOut) {
+	if s == nil || !s.isSupportedRaidClient() || captured.Battle == nil || (captured.Battle.Mode != 1 && captured.Battle.Mode != 2 && captured.Battle.FiendWar == nil) || (!captured.Battle.PhaseCompleted && !captured.Battle.TimedOut) {
 		return nil
 	}
 	if !s.currentRaidAuthenticated(session) {

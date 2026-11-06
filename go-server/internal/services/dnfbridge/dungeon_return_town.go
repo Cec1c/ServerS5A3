@@ -313,7 +313,7 @@ func (s *Service) prepareCurrentDungeonTownTransition(
 	if err != nil {
 		return currentDungeonTownTransition{}, err
 	}
-	body, err := buildCurrentSceneTransitionBody(townID, areaID, []currentSceneTransitionRow{row})
+	body, err := s.buildCurrentSceneTransitionBody(townID, areaID, []currentSceneTransitionRow{row})
 	if err != nil {
 		return currentDungeonTownTransition{}, err
 	}

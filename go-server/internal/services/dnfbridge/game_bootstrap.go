@@ -374,6 +374,13 @@ func (s *Service) prepareGetUserInfoPassiveAccountState(session *gameSession) er
 				"source", "getuserinfo_before_roster",
 				"reason", "do_not_open_registration_or_security_modal_during_getuserinfo")
 		} else {
+			if s.uses90NativeClient() {
+				// Native 1D6D920 accepts a nonempty DSTR and register=0;
+				// prime the saved name before selector and town UI decisions.
+				if err := s.sendRepresentAccountNameState(session, name, false, "getuserinfo_saved_native_name"); err != nil {
+					return err
+				}
+			}
 			if slot, ok := currentSelectorAdventureInfoSlot(account.Metadata); ok {
 				session.selectorAdventureInfoPending = true
 				session.selectorAdventureInfoSlot = uint16(slot)

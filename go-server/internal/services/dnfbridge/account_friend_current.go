@@ -11,7 +11,17 @@ import (
 )
 
 func (s *Service) handleCurrentAccountFriendCommand(session *gameSession, op uint16, classification byte, body []byte) (bool, error) {
-	if s.options.currentClientVersion != "official-24.9" || op < 1436 || op > 1440 {
+	if s.options.currentClientVersion != "official-24.9" {
+		return false, nil
+	}
+	responseOp := op
+	if s.uses90NativeClient() {
+		// Native1437 belongs to name registration, not friend acceptance.
+		if op < 1438 || op > 1442 {
+			return false, nil
+		}
+		op -= 2
+	} else if op < 1436 || op > 1440 {
 		return false, nil
 	}
 	if classification != 1 {
@@ -19,31 +29,31 @@ func (s *Service) handleCurrentAccountFriendCommand(session *gameSession, op uin
 	}
 	r, err := decodeCurrentAccountFriendRequest(op, body)
 	if err != nil {
-		return true, s.sendGameUpperFailure(session, op, 3)
+		return true, s.sendGameUpperFailure(session, responseOp, 3)
 	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound {
 		return true, nil
 	}
 	if !session.loginPacketSeen || !session.accountFromToken || strings.TrimSpace(session.accountID) == "" {
-		return true, s.sendGameUpperFailure(session, op, 3)
+		return true, s.sendGameUpperFailure(session, responseOp, 3)
 	}
 	repositories, available := s.repositoryGroup()
 	if !available || repositories.Account == nil || repositories.Character == nil {
-		return true, s.sendGameUpperFailure(session, op, 3)
+		return true, s.sendGameUpperFailure(session, responseOp, 3)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	source, found, err := repositories.Character.Load(ctx, strconv.Itoa(int(identity.character)))
 	if err != nil || !found || source.AccountID != s.accountIDForSession(session) {
-		return true, s.sendGameUpperFailure(session, op, 3)
+		return true, s.sendGameUpperFailure(session, responseOp, 3)
 	}
 	owner := accountfriend.NewOwner(repositories)
 	var target repo.AccountRecord
 	if op == currentAccountFriendRemoveOpcode || op == currentAccountFriendNoteOpcode {
 		entries, listErr := owner.List(ctx, source.AccountID)
 		if listErr != nil {
-			return true, s.sendGameUpperFailure(session, op, 3)
+			return true, s.sendGameUpperFailure(session, responseOp, 3)
 		}
 		for _, entry := range entries {
 			if entry.Relation.State != accountfriend.Friend {
@@ -51,7 +61,7 @@ func (s *Service) handleCurrentAccountFriendCommand(session *gameSession, op uin
 			}
 			characters, listErr := repositories.Character.ListByAccount(ctx, entry.Account.AccountID, repo.DefaultCharacterSlotLimit)
 			if listErr != nil {
-				return true, s.sendGameUpperFailure(session, op, 3)
+				return true, s.sendGameUpperFailure(session, responseOp, 3)
 			}
 			for _, c := range characters {
 				if c.Name == r.Target && currentAdventureCharacterServerGroup(c) == currentAdventureCharacterServerGroup(source) {
@@ -66,23 +76,23 @@ func (s *Service) handleCurrentAccountFriendCommand(session *gameSession, op uin
 	} else {
 		id, exists, findErr := findRepresentAccountName(ctx, repositories.Account, r.Target)
 		if findErr != nil {
-			return true, s.sendGameUpperFailure(session, op, 3)
+			return true, s.sendGameUpperFailure(session, responseOp, 3)
 		}
 		if exists {
 			target, found, err = repositories.Account.Load(ctx, id)
 			if err != nil || !found || target.RepresentAccountName != r.Target {
-				return true, s.sendGameUpperFailure(session, op, 21)
+				return true, s.sendGameUpperFailure(session, responseOp, 21)
 			}
 		}
 	}
 	if target.AccountID == "" {
-		return true, s.sendGameUpperFailure(session, op, 21)
+		return true, s.sendGameUpperFailure(session, responseOp, 21)
 	}
 	if target.AccountID == source.AccountID {
-		return true, s.sendGameUpperFailure(session, op, 3)
+		return true, s.sendGameUpperFailure(session, responseOp, 3)
 	}
 	if !s.boundGameSessionCharacterCurrent(identity) {
-		return true, s.sendGameUpperFailure(session, op, 3)
+		return true, s.sendGameUpperFailure(session, responseOp, 3)
 	}
 	cmd := accountfriend.Command{AccountID: source.AccountID, CharacterID: source.CharacterID, TargetAccountID: target.AccountID, TargetName: target.RepresentAccountName, Text: r.Text}
 	switch op {
@@ -109,13 +119,13 @@ func (s *Service) handleCurrentAccountFriendCommand(session *gameSession, op uin
 			code = 20
 		}
 		s.logGameEvent(session, "game-account-friend-rejected", "opcode", op, "reason", "domain_transaction", "error", err)
-		return true, s.sendGameUpperFailure(session, op, code)
+		return true, s.sendGameUpperFailure(session, responseOp, code)
 	}
 	tail, err := buildCurrentAccountFriendSuccessTail(op, r)
 	if err != nil {
 		return true, err
 	}
-	if err = s.sendGameUpperSuccess(session, op, tail); err != nil {
+	if err = s.sendGameUpperSuccess(session, responseOp, tail); err != nil {
 		return true, err
 	}
 	s.logGameEvent(session, "game-account-friend-persisted", "opcode", op, "source_char_id", source.CharacterID)
@@ -443,12 +453,12 @@ func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source str
 		previous.generation == identity.generation && slices.Equal(previous.rows, rows)
 	if !unchanged {
 		for _, body := range removals {
-			if err := s.sendGameUpperRawClassCodec(session, 1373, body, 0, true); err != nil {
+			if err := s.sendGameUpperRawClassCodec(session, s.accountFriendNotificationWireID(1373), body, 0, true); err != nil {
 				return err
 			}
 		}
 		for _, body := range bodies {
-			if err := s.sendGameUpperRawClassCodec(session, 1371, body, 0, true); err != nil {
+			if err := s.sendGameUpperRawClassCodec(session, s.accountFriendNotificationWireID(1371), body, 0, true); err != nil {
 				return err
 			}
 		}
@@ -460,7 +470,7 @@ func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source str
 			rows: slices.Clone(rows), ready: true,
 		}
 	}
-	if err := s.sendGameUpperRawClassCodec(session, 1372, pendingBody, 0, true); err != nil {
+	if err := s.sendGameUpperRawClassCodec(session, s.accountFriendNotificationWireID(1372), pendingBody, 0, true); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-account-friend-list-send", "source", source, "characters", len(rows), "pending", len(pending), "removed", len(removals), "info_unchanged", unchanged)
@@ -515,4 +525,13 @@ func (s *Service) refreshCurrentAccountFriendPresence(session *gameSession, sour
 		}
 	}
 	s.refreshCurrentAccountFriendOwners(session, owners, source)
+}
+
+// Native90 reserves1371 for account-name state. Its friend notifications
+// occupy1372/1373/1374 instead of the standard24.9 1371/1372/1373.
+func (s *Service) accountFriendNotificationWireID(standard uint16) uint16 {
+	if s.uses90NativeClient() {
+		return standard + 1
+	}
+	return standard
 }

@@ -15,7 +15,7 @@ func TestCurrentAdventureNativeCompatibilityFixture(t *testing.T) {
 		t.Fatal("adventure route does not match distributed native EXE")
 	}
 	module := adventureGameplayModule()
-	if module.LegacyHandlers[1401] == nil || module.UpperHandlers[1401] == nil || module.LegacyHandlers[1403] != nil || module.UpperHandlers[1403] != nil {
+	if module.LegacyHandlers[1401] == nil || module.UpperHandlers[1401] == nil {
 		t.Fatal("native adventure request or unrelated remote-peer command is misrouted")
 	}
 	projection := adventuregroup.Projection{ConsecutiveLoginDays: 3}

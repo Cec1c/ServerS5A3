@@ -20,7 +20,7 @@ func (s *Service) currentRaidCompletedMapTownReturnReady(session *gameSession, r
 // mode narrows a caller to one raid family; the Luke spread-sanctum result
 // page uses this to avoid changing Anton or any other raid map.
 func (s *Service) currentRaidCompletedMapExitReceiptReady(session *gameSession, runtime *runtimeDungeonState, allowExpired, requireOrdinarySettlement bool, requiredMode byte) bool {
-	if s.options.currentClientVersion != "official-24.9" || !s.currentRaidAuthenticated(session) ||
+	if !s.isSupportedRaidClient() || !s.currentRaidAuthenticated(session) ||
 		runtime == nil || runtime.raidEntry == nil || session.dungeon.runtime != runtime ||
 		runtime.Session == nil || runtime.Session.Snapshot().Run.Status != worldmap.DungeonRunCompleted ||
 		requireOrdinarySettlement && !completedDungeonSettlementResultReady(runtime, session.selectedCharacterID) ||

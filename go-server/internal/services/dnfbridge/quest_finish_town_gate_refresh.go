@@ -121,7 +121,7 @@ func (s *Service) refreshCurrentTownQuestGateScene(session *gameSession, result 
 		}
 	}
 	rows = append(rows, self) // 当前原生读者把最后一行绑定为自己和镜头。
-	body, err := buildCurrentSceneTransitionBody(snapshot.TownID, snapshot.AreaID, rows)
+	body, err := s.buildCurrentSceneTransitionBody(snapshot.TownID, snapshot.AreaID, rows)
 	if err != nil {
 		return err
 	}

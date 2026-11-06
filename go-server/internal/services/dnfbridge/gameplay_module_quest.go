@@ -43,7 +43,7 @@ func questGameplayModule() gameplayModuleDefinition {
 			// The task-manual confirmation arrives as legacy op1429 with one
 			// u32 selector and owns the no-reward epic-skip transaction.
 			clearTicketOpcode: func(service *Service, session *gameSession, request gameplayRequest) error {
-				if service.options.currentClientVersion == "official-24.9" {
+				if service.options.currentClientVersion == "official-24.9" && !service.uses90NativeClient() {
 					return service.handleCurrentReturneeCommand(session, currentReturneeGuideID, request.Body)
 				}
 				return service.handleCurrentAutoCompleteMainQuest(session, request.Body)
@@ -80,7 +80,7 @@ func questGameplayModule() gameplayModuleDefinition {
 				if !requireDefaultGameplayClassification(service, session, request, "game-auto-complete-main-quest-blocked", "current_exe_op1429_command_class_mismatch") {
 					return nil
 				}
-				if service.options.currentClientVersion == "official-24.9" {
+				if service.options.currentClientVersion == "official-24.9" && !service.uses90NativeClient() {
 					return service.handleCurrentReturneeCommand(session, currentReturneeGuideID, request.Body)
 				}
 				return service.handleCurrentAutoCompleteMainQuest(session, request.Body)

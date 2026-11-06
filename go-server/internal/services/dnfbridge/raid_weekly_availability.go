@@ -40,7 +40,7 @@ func currentRaidWeeklyPolicy() (raid.WeeklyPolicy, error) {
 }
 
 func (s *Service) sendCurrentRaidWeeklyAvailability(session *gameSession, source string) error {
-	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" || !s.currentRaidAuthenticated(session) {
+	if s == nil || session == nil || !s.isSupportedRaidClient() || !s.currentRaidAuthenticated(session) {
 		return nil
 	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)

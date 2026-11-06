@@ -99,7 +99,7 @@ type CurrentMetadata struct {
 	Members   []CurrentMemberRecord
 }
 
-func writeCurrentMemberRecord(writer *packetWriter, member CurrentMemberRecord) error {
+func writeCurrentMemberRecord(writer *packetWriter, member CurrentMemberRecord, native90 ...bool) error {
 	if member.Core.CharKey == 0 {
 		return fmt.Errorf("current raid member has no character owner")
 	}
@@ -114,12 +114,16 @@ func writeCurrentMemberRecord(writer *packetWriter, member CurrentMemberRecord) 
 	if err := writeMemberRecord(writer, member.Core); err != nil {
 		return err
 	}
+	// Matched native90 17B6EF0 ends after Core.Field66BoolSource.
+	if len(native90) != 0 && native90[0] {
+		return nil
+	}
 	writer.writeByte(member.ExtraByte)
 	writer.writeRawDstr(extra)
 	return nil
 }
 
-func writeCurrentRoster(writer *packetWriter, members []CurrentMemberRecord) error {
+func writeCurrentRoster(writer *packetWriter, members []CurrentMemberRecord, native90 ...bool) error {
 	if len(members) > MaxAttackPartyMembers {
 		return errRaidMemberTooMany
 	}
@@ -130,27 +134,27 @@ func writeCurrentRoster(writer *packetWriter, members []CurrentMemberRecord) err
 			return fmt.Errorf("current raid roster repeats character owner")
 		}
 		seen[member.Core.CharKey] = true
-		if err := writeCurrentMemberRecord(writer, member); err != nil {
+		if err := writeCurrentMemberRecord(writer, member, native90...); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func BuildCurrentMemberRefreshMode3Body(raidKey uint32, members []CurrentMemberRecord) ([]byte, error) {
+func BuildCurrentMemberRefreshMode3Body(raidKey uint32, members []CurrentMemberRecord, native90 ...bool) ([]byte, error) {
 	if raidKey == 0 {
 		return nil, fmt.Errorf("current raid roster has no raid owner")
 	}
 	var writer packetWriter
 	writer.writeUint32(raidKey)
 	writer.writeUint32(RaidMemberRefreshMode3)
-	if err := writeCurrentRoster(&writer, members); err != nil {
+	if err := writeCurrentRoster(&writer, members, native90...); err != nil {
 		return nil, err
 	}
 	return writer.bytes(), nil
 }
 
-func BuildCurrentMetadataBody(info CurrentMetadata, mode uint32) ([]byte, error) {
+func BuildCurrentMetadataBody(info CurrentMetadata, mode uint32, native90 ...bool) ([]byte, error) {
 	if info.RaidKey == 0 || info.Leader.Core.CharKey == 0 || (mode != 0 && mode != 2) {
 		return nil, fmt.Errorf("current raid metadata has no owner or invalid mode")
 	}
@@ -166,33 +170,39 @@ func BuildCurrentMetadataBody(info CurrentMetadata, mode uint32) ([]byte, error)
 	var writer packetWriter
 	writer.writeUint32(info.RaidKey)
 	writer.writeUint32(mode)
-	if err := writeCurrentMetadataObject(&writer, info); err != nil {
+	if err := writeCurrentMetadataObject(&writer, info, native90...); err != nil {
 		return nil, err
 	}
 	if mode == 0 {
-		if err := writeCurrentRoster(&writer, info.Members); err != nil {
+		if err := writeCurrentRoster(&writer, info.Members, native90...); err != nil {
 			return nil, err
 		}
 	}
 	return writer.bytes(), nil
 }
 
-func writeCurrentMetadataObject(writer *packetWriter, info CurrentMetadata) error {
+func writeCurrentMetadataObject(writer *packetWriter, info CurrentMetadata, native90 ...bool) error {
 	writer.writeUint32(info.RaidKey)
 	writer.writeRawDstr(info.NameBytes)
 	writer.writeByte(info.Route)
 	writer.writeByte(info.State)
 	writer.writeByte(info.Phase)
 	writer.writeUint32(info.Field34)
-	writer.writeRaw(info.Flags[:])
-	return writeCurrentMemberRecord(writer, info.Leader)
+	// Matched native90 17B8910 reads one solo flag at +94, then
+	// immediately calls 17B6EF0 for the leader. Newer clients read four.
+	if len(native90) != 0 && native90[0] {
+		writer.writeByte(info.Flags[0])
+	} else {
+		writer.writeRaw(info.Flags[:])
+	}
+	return writeCurrentMemberRecord(writer, info.Leader, native90...)
 }
 
 // BuildCurrentInfoReplyBody is ACK1359 (01FB6070), not NOTI591. The
 // dispatcher consumes success, then the handler reads selector and raid key.
 // Selector1 reads only a roster; selector2 reads metadata followed by roster.
 // NOTI591 mode3 assigns the client's own raid and must not answer a view.
-func BuildCurrentInfoReplyBody(info CurrentMetadata, selector byte) ([]byte, error) {
+func BuildCurrentInfoReplyBody(info CurrentMetadata, selector byte, native90 ...bool) ([]byte, error) {
 	if info.RaidKey == 0 || (selector != 1 && selector != 2) {
 		return nil, fmt.Errorf("current raid info has no owner or invalid selector")
 	}
@@ -210,11 +220,11 @@ func BuildCurrentInfoReplyBody(info CurrentMetadata, selector byte) ([]byte, err
 	writer.writeByte(selector)
 	writer.writeUint32(info.RaidKey)
 	if selector == 2 {
-		if err := writeCurrentMetadataObject(&writer, info); err != nil {
+		if err := writeCurrentMetadataObject(&writer, info, native90...); err != nil {
 			return nil, err
 		}
 	}
-	if err := writeCurrentRoster(&writer, info.Members); err != nil {
+	if err := writeCurrentRoster(&writer, info.Members, native90...); err != nil {
 		return nil, err
 	}
 	return writer.bytes(), nil
@@ -224,7 +234,7 @@ func BuildCurrentInfoReplyBody(info CurrentMetadata, selector byte) ([]byte, err
 // u32 count, then the 01A5CA60 object and u8 member count for each row.
 // It does not contain the outer raid-key/mode pair used by NOTI591, nor a
 // roster. Entries must come from the actual raid owner, including leader.
-func BuildCurrentDirectoryBody(entries []CurrentMetadata) ([]byte, error) {
+func BuildCurrentDirectoryBody(entries []CurrentMetadata, native90 ...bool) ([]byte, error) {
 	var writer packetWriter
 	writer.writeUint32(uint32(len(entries)))
 	seen := make(map[uint32]bool, len(entries))
@@ -245,7 +255,7 @@ func BuildCurrentDirectoryBody(entries []CurrentMetadata) ([]byte, error) {
 		if !leaderFound {
 			return nil, fmt.Errorf("current raid directory leader missing from members")
 		}
-		if err := writeCurrentMetadataObject(&writer, entry); err != nil {
+		if err := writeCurrentMetadataObject(&writer, entry, native90...); err != nil {
 			return nil, err
 		}
 		writer.writeByte(byte(len(entry.Members)))

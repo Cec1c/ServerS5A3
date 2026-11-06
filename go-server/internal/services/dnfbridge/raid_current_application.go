@@ -139,6 +139,9 @@ func (s *Service) handleCurrentRaidApproval(session *gameSession, op uint16, req
 	if err := s.sendGameUpperRawClassCodec(session, op, append([]byte{1}, party.BuildResponsePeerAckPayload(req.TargetID, 10)...), 1, true); err != nil {
 		return err
 	}
+	if err := s.sendNative90AntonAdmissionObject(applicant, snapshot); err != nil {
+		return err
+	}
 	if err := s.sendRuntimeRaidMetadata(applicant, snapshot, 2); err != nil {
 		return err
 	}

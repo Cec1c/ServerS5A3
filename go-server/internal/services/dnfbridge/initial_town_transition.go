@@ -23,6 +23,9 @@ func (s *Service) currentInitialTownTransition(
 	if session != nil && isPVPChannel(session.channel) {
 		return s.currentPVPTownTransition(session, characterID, character)
 	}
+	if session != nil && (session.channel.Type == dnfenum.RaidChannelType || session.channel.Type == dnfenum.HiddenRaidType || session.channel.Type == 42) {
+		return s.currentRaidEntranceTownTransition(session, characterID, character)
+	}
 	return s.currentPersistedTownTransition(ctx, session, characterID, character, "selected_character_persisted_location_read_only")
 }
 

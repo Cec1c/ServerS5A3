@@ -79,3 +79,24 @@ const (
 	currentAdventureInfoCapsuleClaimExperienceOffset = 7416
 	currentSelectorAdventureInfoSlotMetadata         = adventuregroup.SelectorSlotMetadataKey
 )
+
+// Actual native EXE 8a7af614 registers 1340 -> C7DAF0 and
+// 1346 -> C7A4C0; its account-info command is 1403.
+func (s *Service) adventureInfoPushWireID() uint16 {
+	if s.uses90NativeClient() {
+		return 1340
+	}
+	return currentAdventureInfoPushMsgID
+}
+func (s *Service) adventureActorRefreshWireID() uint16 {
+	if s.uses90NativeClient() {
+		return 1346
+	}
+	return currentAdventureActorRefreshMsgID
+}
+func (s *Service) adventureInfoRequestWireID() uint16 {
+	if s.uses90NativeClient() {
+		return 1403
+	}
+	return currentAdventureInfoRequestMsgID
+}

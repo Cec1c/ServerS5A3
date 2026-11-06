@@ -2318,7 +2318,7 @@ func TestBuildCurrentSceneOp9ActorDisplayBodyUsesSafeMinimalRecord(t *testing.T)
 	}
 	body := buildCurrentSceneOp9ActorDisplayBody(currentSceneBootstrapObjectKey, character, true, "")
 	name := rosterNameBytes("hero")
-	wantLen := 34 + len(name)
+	wantLen := 33 + len(name)
 	if len(body) != wantLen {
 		t.Fatalf("current op9 body len = %d, want %d body=%x", len(body), wantLen, body)
 	}
@@ -2349,7 +2349,7 @@ func TestBuildCurrentSceneOp9ActorDisplayBodyUsesSafeMinimalRecord(t *testing.T)
 	if tail[13] != 0 {
 		t.Fatalf("current op9 slot_count = %d, want 0 to avoid raw_len/read_raw branch", tail[13])
 	}
-	if !bytes.Equal(tail[14:17], []byte{0, 0, 0}) || tail[17] != 0 {
+	if !bytes.Equal(tail[14:17], []byte{0, 0, 0}) {
 		t.Fatalf("current op9 post-slot/follow fields = %x, want zeros", tail[14:])
 	}
 }

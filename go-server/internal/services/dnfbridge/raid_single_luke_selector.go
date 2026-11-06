@@ -98,7 +98,7 @@ func currentSingleLukeDungeonProjectionBody(b *runtimeRaidBattle, infection uint
 // owner. The existing op16 guard still rechecks admission clocks, route, account,
 // generation and the native dungeon before it creates a runtime or writes assets.
 func (s *Service) resolveCurrentSingleLukeSelector(session *gameSession, requested uint32) uint32 {
-	if s == nil || session == nil || s.options.currentClientVersion != "official-24.9" || session.channel.Type != dnfenum.HiddenRaidType || !s.currentRaidAuthenticated(session) {
+	if s == nil || session == nil || !s.isSupportedRaidClient() || session.channel.Type != dnfenum.HiddenRaidType || !s.currentRaidAuthenticated(session) {
 		return requested
 	}
 	s.raidMu.Lock()

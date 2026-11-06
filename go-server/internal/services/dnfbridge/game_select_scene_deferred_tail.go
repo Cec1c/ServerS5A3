@@ -102,7 +102,7 @@ func (s *Service) sendInitialTownAdventureOverheadRefresh(session *gameSession, 
 			"reason", "represent_account_identity_unavailable",
 			"error", err)
 	} else if strings.TrimSpace(name) != "" {
-		if err := s.sendRepresentAccountNameState(session, name, false, source+"_op1371"); err != nil {
+		if err := s.sendRepresentAccountNameState(session, name, false, source+"_registered_native_state"); err != nil {
 			return err
 		}
 	}
