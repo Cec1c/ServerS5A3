@@ -1690,6 +1690,10 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	partyPlan *runtimePartyDungeonMovePlan,
 	fanoutParty bool,
 ) error {
+	return s.handleDungeonMoveMapFrom(session, body, partyPlan, fanoutParty, "")
+}
+
+func (s *Service) handleDungeonMoveMapFrom(session *gameSession, body []byte, partyPlan *runtimePartyDungeonMovePlan, fanoutParty bool, sourceOverride string) error {
 	if len(body) != dungeoncmd.MoveMapRequestSize {
 		s.logGameEvent(session, "game-dungeon-move-blocked",
 			"body_len", len(body),
@@ -1731,12 +1735,15 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	// **唯一**带已证实坐标字段的上报（副本内没有 op35/op36）。这里只记录 + 记日志：
 	// 门规则（3 取 2 / 4 取 3）本轮只做证据收集，不据此放行任何过图。
 	requestSource := "client_op45"
+	if sourceOverride != "" {
+		requestSource = sourceOverride
+	}
 	if partyPlan != nil {
 		// The follower plan reuses the leader's body. Its coordinates are not
 		// an arrival report from this session and must never cast another vote.
 		requestSource = "internal_party_plan"
 	}
-	if beforeKnown && partyPlan == nil {
+	if beforeKnown && partyPlan == nil && sourceOverride == "" {
 		s.recordCurrentDungeonDoorArrivalLocked(session, before, request)
 	}
 	err = s.handleDungeonMoveRequestLocked(session, request, len(body), requestSource, partyPlan)

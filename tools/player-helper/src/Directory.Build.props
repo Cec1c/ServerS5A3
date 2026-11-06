@@ -1,0 +1,1 @@
+<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NuGetAudit>false</NuGetAudit><Deterministic>true</Deterministic><DebugType>none</DebugType><PathMap>$(MSBuildThisFileDirectory)=/_/helper/</PathMap></PropertyGroup></Project>

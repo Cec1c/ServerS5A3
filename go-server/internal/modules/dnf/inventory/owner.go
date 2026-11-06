@@ -741,6 +741,11 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 		return MoveResult{}, ErrInventoryNotFound
 	}
 
+	if cmd.ValidateMoveSnapshot != nil {
+		if err := cmd.ValidateMoveSnapshot(record); err != nil {
+			return MoveResult{}, err
+		}
+	}
 	record = dnfrepo.CloneInventory(record)
 	record.CharacterID = characterID
 	if record.Slots == nil {

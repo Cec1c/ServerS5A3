@@ -321,6 +321,9 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
+	if err := s.startCurrentPlayerHelper(session); err != nil {
+		s.logGameEvent(session, "player-helper-start-deferred", "source", source, "error", err)
+	}
 	characterID := session.selectedCharacterID
 	characterGeneration := session.characterGeneration
 
@@ -1064,6 +1067,7 @@ func currentSpendTimeNextServiceBoundary(
 }
 
 func (s *Service) stopCurrentSpendTimeClock(session *gameSession, source string) {
+	s.stopCurrentPlayerHelper(session)
 	if session != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), currentSpendTimeWriteTimeout)
 		session.spendTime.mu.Lock()

@@ -332,65 +332,9 @@ func (s *Service) commitCurrentNPCShopSell(ctx context.Context, session *gameSes
 		AccountID:   accountID,
 		CharacterID: characterID,
 		Project: func(assets *dnfnpcshop.Assets) (dnfnpcshop.Changes, error) {
-			character := assets.Character
-			inventory := assets.Inventory
-			if character.Stats == nil {
-				return dnfnpcshop.Changes{}, errCurrentNPCShopOwnerUnavailable
-			}
-			key := currentCeraShopInventorySlotKey(request.ListType, request.Slot)
-			stack, found := inventory.Slots[key]
-			if !found || stack.ItemID <= 0 || stack.ItemID > math.MaxUint32 || stack.Count <= 0 {
-				return dnfnpcshop.Changes{}, fmt.Errorf("%w: list=%d slot=%d", errCurrentNPCShopProductUnavailable, request.ListType, request.Slot)
-			}
-			if currentNPCShopItemLocked(stack) {
-				return dnfnpcshop.Changes{}, fmt.Errorf("%w: list=%d slot=%d", errCurrentNPCShopItemLocked, request.ListType, request.Slot)
-			}
-			pricing, priceErr := resolveCurrentNPCShopActorPricing(shop, items, uint32(stack.ItemID), request.ActorContext)
-			if priceErr != nil {
-				return dnfnpcshop.Changes{}, priceErr
-			}
-			applied := int64(request.Count)
-			if applied > stack.Count {
-				applied = stack.Count
-			}
-			if pricing.Definition.Kind == dungeonDropItemEquipment {
-				applied = 1
-			}
-			if applied <= 0 || applied > math.MaxUint32 || pricing.SellGold > 0 && applied > math.MaxInt64/pricing.SellGold {
-				return dnfnpcshop.Changes{}, errCurrentNPCShopGoldOverflow
-			}
-			gold := character.Stats["gold"]
-			if gold < 0 || gold > math.MaxInt32 {
-				return dnfnpcshop.Changes{}, errCurrentNPCShopGoldOverflow
-			}
-			goldDelta := pricing.SellGold * applied
-			if goldDelta > math.MaxInt32-gold {
-				return dnfnpcshop.Changes{}, errCurrentNPCShopGoldOverflow
-			}
-			remaining := stack.Count - applied
-			var itemUpdate currentItemListEntry
-			if remaining <= 0 {
-				delete(inventory.Slots, key)
-				itemUpdate.patchCore(request.Slot, math.MaxUint32, 0)
-			} else {
-				stack.Count = remaining
-				itemUpdate = currentItemListEntryFromStack(request.ListType, request.Slot, stack)
-				stack.RawEntry = append([]byte(nil), itemUpdate.data[:]...)
-				inventory.Slots[key] = stack
-			}
-			goldAfter := gold + goldDelta
-			character.Stats["gold"] = goldAfter
-			updates := []currentItemListEntry{currentGoldWalletItemListEntry(goldAfter), itemUpdate}
-			sortCurrentItemListEntries(updates)
-			result = currentNPCShopSellResult{
-				GoldAfter: goldAfter,
-				ListType:  request.ListType,
-				Slot:      request.Slot,
-				Applied:   uint32(applied),
-				ItemID:    uint32(stack.ItemID),
-				Updates:   updates,
-			}
-			return dnfnpcshop.Changes{Character: true, Inventory: true}, nil
+			var err error
+			result, err = projectCurrentNPCShopSell(assets, shop, items, request)
+			return dnfnpcshop.Changes{Character: true, Inventory: true}, err
 		},
 	})
 	if err != nil {
@@ -505,4 +449,67 @@ func (s *Service) grantCurrentNPCShopProductToContainers(account *dnfrepo.Accoun
 		return nil, false, false, errCurrentNPCShopProductUnavailable
 	}
 	return slots, accountDirty, left > 0, nil
+}
+
+func projectCurrentNPCShopSell(assets *dnfnpcshop.Assets, shop *currentNPCShopCatalog, items *pvfDungeonDropCatalog, request currentNPCShopSellRequest) (currentNPCShopSellResult, error) {
+	var result currentNPCShopSellResult
+	character := assets.Character
+	inventory := assets.Inventory
+	if character.Stats == nil {
+		return currentNPCShopSellResult{}, errCurrentNPCShopOwnerUnavailable
+	}
+	key := currentCeraShopInventorySlotKey(request.ListType, request.Slot)
+	stack, found := inventory.Slots[key]
+	if !found || stack.ItemID <= 0 || stack.ItemID > math.MaxUint32 || stack.Count <= 0 {
+		return currentNPCShopSellResult{}, fmt.Errorf("%w: list=%d slot=%d", errCurrentNPCShopProductUnavailable, request.ListType, request.Slot)
+	}
+	if currentNPCShopItemLocked(stack) {
+		return currentNPCShopSellResult{}, fmt.Errorf("%w: list=%d slot=%d", errCurrentNPCShopItemLocked, request.ListType, request.Slot)
+	}
+	pricing, priceErr := resolveCurrentNPCShopActorPricing(shop, items, uint32(stack.ItemID), request.ActorContext)
+	if priceErr != nil {
+		return currentNPCShopSellResult{}, priceErr
+	}
+	applied := int64(request.Count)
+	if applied > stack.Count {
+		applied = stack.Count
+	}
+	if pricing.Definition.Kind == dungeonDropItemEquipment {
+		applied = 1
+	}
+	if applied <= 0 || applied > math.MaxUint32 || pricing.SellGold > 0 && applied > math.MaxInt64/pricing.SellGold {
+		return currentNPCShopSellResult{}, errCurrentNPCShopGoldOverflow
+	}
+	gold := character.Stats["gold"]
+	if gold < 0 || gold > math.MaxInt32 {
+		return currentNPCShopSellResult{}, errCurrentNPCShopGoldOverflow
+	}
+	goldDelta := pricing.SellGold * applied
+	if goldDelta > math.MaxInt32-gold {
+		return currentNPCShopSellResult{}, errCurrentNPCShopGoldOverflow
+	}
+	remaining := stack.Count - applied
+	var itemUpdate currentItemListEntry
+	if remaining <= 0 {
+		delete(inventory.Slots, key)
+		itemUpdate.patchCore(request.Slot, math.MaxUint32, 0)
+	} else {
+		stack.Count = remaining
+		itemUpdate = currentItemListEntryFromStack(request.ListType, request.Slot, stack)
+		stack.RawEntry = append([]byte(nil), itemUpdate.data[:]...)
+		inventory.Slots[key] = stack
+	}
+	goldAfter := gold + goldDelta
+	character.Stats["gold"] = goldAfter
+	updates := []currentItemListEntry{currentGoldWalletItemListEntry(goldAfter), itemUpdate}
+	sortCurrentItemListEntries(updates)
+	result = currentNPCShopSellResult{
+		GoldAfter: goldAfter,
+		ListType:  request.ListType,
+		Slot:      request.Slot,
+		Applied:   uint32(applied),
+		ItemID:    uint32(stack.ItemID),
+		Updates:   updates,
+	}
+	return result, nil
 }

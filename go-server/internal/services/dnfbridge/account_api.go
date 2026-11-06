@@ -161,6 +161,7 @@ func (s *Service) startAccountAPI(ctx context.Context) error {
 	mux.HandleFunc("/api/diagnostics/context", api.handleLauncherDiagnostics)
 	mux.HandleFunc("/api/account/register", api.handleRegister)
 	mux.HandleFunc("/api/account/login", api.handleLogin)
+	mux.HandleFunc("/api/account/helper", api.handlePlayerHelper)
 	mux.HandleFunc("/api/account/binding-code", api.handleAccountSecurity)
 	mux.HandleFunc("/api/account/password", api.handleAccountSecurity)
 	mux.HandleFunc("/api/player/admin", api.handlePlayerAdmin)
