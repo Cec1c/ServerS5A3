@@ -162,7 +162,7 @@ func (s *mysqlBagStore) SaveItemStackSlotDelta(
 	if err != nil {
 		return err
 	}
-	return withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
+	err = withMySQLWriteExecutor(ctx, s.router.db, func(database SQLDB) error {
 		if execErr := s.upsertRecord(ctx, database, table, characterID, record.UpdatedAt); execErr != nil {
 			return execErr
 		}
@@ -170,6 +170,10 @@ func (s *mysqlBagStore) SaveItemStackSlotDelta(
 			ctx, database, itemsTable, extraTable, "character_id", characterID, string(field), true, values, keys,
 		)
 	})
+	if err == nil && s.trackSlotChanges {
+		s.rememberAccountTransactionKeys(record, field, keys)
+	}
+	return err
 }
 
 func (s *mysqlBagStore) upsertRecord(

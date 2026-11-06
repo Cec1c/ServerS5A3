@@ -143,6 +143,21 @@ func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repos
 	return group
 }
 
+// enableInventoryDeltaTracking turns on the existing before-image comparison
+// for transaction-scoped character and account inventories. It is safe only
+// when one store instance can see at most one inventory for each owner kind.
+// Callers must therefore use it on single-character transactions, never on a
+// transaction that loads inventories for several characters through the same
+// store.
+func enableInventoryDeltaTracking(group repository.Group) {
+	if store, ok := group.Inventory.(*mysqlBagStore); ok {
+		store.trackSlotChanges = true
+	}
+	if store, ok := group.AccountInventory.(*mysqlAccountInventoryStore); ok {
+		store.trackSlotChanges = true
+	}
+}
+
 // NewMySQLGroupFromDB 使用标准库 *sql.DB 创建 DNF MySQL 仓储聚合。
 // 调用方负责管理 DB 生命周期和连接池参数。
 func NewMySQLGroupFromDB(db *sql.DB, options MySQLGroupOptions) (repository.Group, error) {

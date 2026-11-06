@@ -163,6 +163,7 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	} else {
 		record = dnfrepo.CloneQuest(record)
 	}
+	before := dnfrepo.CloneQuest(record)
 	// The explicitly enabled350 prerequisites retain exact physical ownership.
 	// This narrow policy does not change ordinary legacy quest acceptance.
 	if cmd.QuestID == 5578 || cmd.QuestID == 5579 {
@@ -239,10 +240,13 @@ func (o *Owner) ApplyAcceptAt(ctx context.Context, catalog *Catalog, eligibility
 	}
 	record.CharacterID = characterID
 	record.UpdatedAt = now
-	// SaveFields is one atomic SQL upsert for the complete states JSON column.
-	// Event-item quests are rejected above because they require a wider asset
-	// transaction that this owner deliberately does not claim to provide.
-	if err := dnfrepo.SaveQuestFields(ctx, o.quests, record, dnfrepo.QuestFieldStates); err != nil {
+	// SaveQuestChanges compares the before and after records and, for MySQL,
+	// replaces only the main quest and linked-subquest state rows that changed.
+	// Repositories without the optional delta capability retain the original
+	// whole-field save path. Event-item quests are rejected above because they
+	// require a wider asset transaction that this owner deliberately does not
+	// claim to provide.
+	if err := dnfrepo.SaveQuestChanges(ctx, o.quests, before, record, dnfrepo.QuestFieldStates); err != nil {
 		return AcceptResult{}, err
 	}
 	persisted, ok, err := o.quests.Load(ctx, characterID)
