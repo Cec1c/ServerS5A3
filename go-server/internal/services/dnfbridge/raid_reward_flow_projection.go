@@ -292,5 +292,17 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		o.rewardDisplayIdentity, o.rewardDisplaySignature = identity, displaySignature
 	}
+	// Keep an independent receipt for the actually written final team list.
+	// Normal phase two also projects a mutable local-party list; its combined
+	// dedup signature is not an ownership proof for automatic return.
+	for _, packet := range packets {
+		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 3 {
+			squadSignature := sha256.Sum256(packet.body)
+			if o.rewardSquadDisplayIdentity != identity || o.rewardSquadDisplaySignature != squadSignature {
+				o.rewardSquadDisplayShownAt = time.Now()
+			}
+			o.rewardSquadDisplayIdentity, o.rewardSquadDisplaySignature = identity, squadSignature
+		}
+	}
 	return nil
 }
