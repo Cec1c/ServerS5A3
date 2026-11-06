@@ -68,6 +68,13 @@ func (s *Service) applyCurrentAntonPrerequisiteQuestResult(session *gameSession,
 	if err != nil {
 		return err
 	}
+	// The channel rule identifies the prerequisite quest, not its objective
+	// dialect. A content pack may replace the original raid counter with a
+	// material submission. Only the original objective consumes phase-clear
+	// events; the replacement must not block the raid's committed result.
+	if definition, exists := catalog.Find(rule.AntonQuestID); exists && strings.ToLower(strings.Trim(definition.Type, " []\t\r\n")) != "raid phase clear" {
+		return nil
+	}
 	repos, found := s.repositoryGroupFor(ctx)
 	if !found {
 		return dnfquest.ErrOwnerUnavailable
