@@ -14,7 +14,8 @@ class ClientReleaseRetentionTests(unittest.TestCase):
     def repository(self, key, tags):
         rows = [{"tag_name": tag} for tag in tags]
         repo = SimpleNamespace(key=key, writable=True, list=Mock(return_value=rows),
-                               prepare=Mock(), publish=Mock())
+                               prepare=Mock(), publish=Mock(),
+                               refresh_latest=Mock(return_value={"changed": False, "applied": False}))
 
         def identity(row, *_args, **_kwargs):
             tag = row["tag_name"]
@@ -37,7 +38,11 @@ class ClientReleaseRetentionTests(unittest.TestCase):
             with patch("sys.argv", argv), patch.object(sync, "Repository", side_effect=[gl, gh]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 sync.main()
-            return json.loads(receipt.read_text(encoding="utf-8"))
+            result = json.loads(receipt.read_text(encoding="utf-8"))
+            gh.refresh_latest.assert_called_once_with(apply=True)
+            gl.refresh_latest.assert_not_called()
+            self.assertEqual(result["latest"], gh.refresh_latest.return_value)
+            return result
 
     def test_removed_old_releases_are_not_downloaded_or_recreated_in_either_direction(self):
         for old_source in ("gitgud", "github"):

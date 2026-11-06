@@ -15,7 +15,7 @@ import (
 )
 
 // Scheduling fixture only: pause the parent's Deadline query made by the real
-// sendFrames WithTimeout, AFTER batch.send has prepared the actor template.
+// sendFramesWithPolicy WithTimeout, AFTER batch.send has prepared the actor template.
 // Other Deadline calls (including repository budgets) are delegated normally.
 // No appearance/wire lock, cache warm-up, third viewer, or b.sent mutation.
 type p05L1V2DeadlineGate struct {
@@ -39,7 +39,7 @@ func (g *p05L1V2DeadlineGate) Deadline() (time.Time, bool) {
 	for {
 		frame, more := frames.Next()
 		stack = append(stack, frame.Function)
-		inFrames = inFrames || strings.HasSuffix(frame.Function, ".(*Service).sendCurrentCrossSceneProfileFramesWithBudget")
+		inFrames = inFrames || strings.HasSuffix(frame.Function, ".(*Service).sendCurrentCrossSceneProfileFramesWithPolicy")
 		inBatch = inBatch || strings.HasSuffix(frame.Function, ".(*currentCrossSceneProfileBatch).send")
 		if !more {
 			break

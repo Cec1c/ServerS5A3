@@ -23,6 +23,8 @@ python -m unittest discover -s scripts/ci -p test_changelog_fragments.py -v
 
 GitHub PR CI 使用实际 base SHA 检查片段，缺少基线时抓取精确提交；文档和片段不会触发 Go 全量。手动 Change notes 生成固定范围的 Markdown 与 manifest artifact，不提交回主干。GitGud 不再运行自动 MR/push CI。
 
+已存在于基线或已合并父提交中的旧片段若缺少格式头或“变更/验证”章节，检查会提示并保留原文；新片段仍按现行格式校验。汇总保留旧正文和原始 SHA256，并标记 `legacyFormat`，无需改写历史以恢复 CI。
+
 私有 PR 使用 `check --scope group --base <私有目标SHA>`，要求本 PR 有新增群服记录；私有同步后的完整检查使用 `--scope all`。公开修复经公开 MR 合并后同步到私有，不能为了通过私有检查把公开修复改标为群服内容。
 
 ## 发布汇总

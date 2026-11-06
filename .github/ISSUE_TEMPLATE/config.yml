@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "构建与部署文档 / Build and deployment"
+    url: https://github.com/Cec1c/ServerS5A3/blob/master/Docs/BUILD_AND_DEPLOY.md
+    about: "环境准备、部署命令和常见配置入口"
+  - name: "客户端与 PVF 下载 / Releases"
+    url: https://github.com/Cec1c/ServerS5A3/releases
+    about: "按发行说明选择配套资源，Latest 显示最新正式客户端归档"
+  - name: "PurpleMagic 登录器与 GM / Launcher and GM"
+    url: https://github.com/Cec1c/PurpleMagic/issues
+    about: "登录器界面、自更新及独立 GM 功能请在对应项目反馈"
