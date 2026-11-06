@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"strconv"
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
@@ -185,7 +184,9 @@ func (s *Service) handleCurrentCollectboxAdd(session *gameSession, body []byte) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	accountID := strings.TrimSpace(s.accountIDForSession(session))
 	result, err := owner.Put(ctx, dnfcollectbox.PutCommand{
+		AccountID:           accountID,
 		SelectedCharacterID: session.selectedCharacterID,
 		SourceList:          currentCollectboxAddSourceList,
 		SourceSlot:          request.SourceSlot,
@@ -230,7 +231,7 @@ func (s *Service) handleCurrentCollectboxAdd(session *gameSession, body []byte) 
 		"source_emptied", result.SourceEmptied,
 		"target_key", result.TargetKey,
 		"registered_count", len(s.currentCollectboxRegisteredItemIDs(session, box)),
-		"state_source", "runtime_pvf_collectbox_policy_atomic_character_inventory")
+		"state_source", "runtime_pvf_collectbox_policy_atomic_account_inventory")
 	return nil
 }
 
@@ -250,22 +251,26 @@ func collectboxMutationValue(raw string) string {
 	}
 }
 
-// currentCollectboxRegisteredItemsForSession 一次加载该角色全部箱子的登记条目。
+// currentCollectboxRegisteredItemsForSession 一次加载该账号全部箱子的登记条目。
 // 读失败只记一条事件并返回空表 —— 与其它目录读取一致，绝不让会话中断。
 func (s *Service) currentCollectboxRegisteredItemsForSession(session *gameSession) map[int32][]int32 {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil
 	}
 	repositories, ok := s.repositoryGroup()
-	if !ok || repositories.Inventory == nil {
+	if !ok || repositories.AccountInventory == nil {
+		return nil
+	}
+	accountID := strings.TrimSpace(s.accountIDForSession(session))
+	if accountID == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
-	characterID := strconv.Itoa(int(session.selectedCharacterID))
-	record, found, err := repositories.Inventory.Load(ctx, characterID)
+	record, found, err := repositories.AccountInventory.Load(ctx, accountID)
 	if err != nil || !found {
 		s.logGameEvent(session, "game-collectbox-registry-load-failed",
+			"account_id", accountID,
 			"char_id", session.selectedCharacterID,
 			"found", found,
 			"error", err)

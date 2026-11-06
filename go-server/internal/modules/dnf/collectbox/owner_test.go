@@ -13,6 +13,7 @@ import (
 // 现场缺陷：「收集箱直接无法交互 无法放置宝珠」。本文件的用例钉住"放进去"这
 // 一步的持久化语义：宝珠从背包扣掉、登记进箱子、同一次事务落库、重登后还在。
 const (
+	testAccountID   string = "account-1"
 	testCharacterID uint16 = 19
 	testBoxIndex    int32  = 2
 	testBeadItemID  int32  = 490007143
@@ -46,6 +47,12 @@ func newCollectboxTestGroup(t *testing.T, slots map[string]dnfrepo.ItemStack) dn
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := repositories.AccountInventory.Save(ctx, dnfrepo.AccountInventoryRecord{
+		AccountID: testAccountID,
+		Slots:     make(map[string]dnfrepo.ItemStack),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return repositories
 }
 
@@ -54,6 +61,15 @@ func loadTestSlots(t *testing.T, repositories dnfrepo.Group) map[string]dnfrepo.
 	record, found, err := repositories.Inventory.Load(context.Background(), "19")
 	if err != nil || !found {
 		t.Fatalf("load inventory found=%t err=%v", found, err)
+	}
+	return record.Slots
+}
+
+func loadTestAccountSlots(t *testing.T, repositories dnfrepo.Group) map[string]dnfrepo.ItemStack {
+	t.Helper()
+	record, found, err := repositories.AccountInventory.Load(context.Background(), testAccountID)
+	if err != nil || !found {
+		t.Fatalf("load account inventory found=%t err=%v", found, err)
 	}
 	return record.Slots
 }
@@ -69,6 +85,7 @@ func TestPutMovesBeadFromBagIntoBoxAndPersists(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := owner.Put(context.Background(), PutCommand{
+		AccountID:           testAccountID,
 		SelectedCharacterID: testCharacterID,
 		SourceList:          dnfrepo.MainInventoryListType,
 		SourceSlot:          testBagSlot,
@@ -86,19 +103,20 @@ func TestPutMovesBeadFromBagIntoBoxAndPersists(t *testing.T) {
 	if stack, still := slots["0:30"]; still {
 		t.Fatalf("bag slot 30 must be emptied, got %+v", stack)
 	}
-	registered := slots[RegisteredSlotKey(testBoxIndex, 0)]
+	accountSlots := loadTestAccountSlots(t, repositories)
+	registered := accountSlots[RegisteredSlotKey(testBoxIndex, 0)]
 	if registered.ItemID != int64(testBeadItemID) || registered.Count != 1 {
 		t.Fatalf("registered stack = %+v", registered)
 	}
 	if registered.Extra["collectbox_box_index"] != "2" || registered.Extra["collectbox_slot_index"] != "0" {
 		t.Fatalf("registered extras = %+v", registered.Extra)
 	}
-	ids := RegisteredItemIDs(dnfrepo.InventoryRecord{Slots: slots}, testBoxIndex)
+	ids := RegisteredItemIDs(dnfrepo.AccountInventoryRecord{Slots: accountSlots}, testBoxIndex)
 	if len(ids) != 1 || ids[0] != testBeadItemID {
 		t.Fatalf("RegisteredItemIDs = %v want [%d]", ids, testBeadItemID)
 	}
 	// 别的箱子不受影响。
-	if other := RegisteredItemIDs(dnfrepo.InventoryRecord{Slots: slots}, 3); len(other) != 0 {
+	if other := RegisteredItemIDs(dnfrepo.AccountInventoryRecord{Slots: accountSlots}, 3); len(other) != 0 {
 		t.Fatalf("box 3 must stay empty, got %v", other)
 	}
 }
@@ -113,6 +131,7 @@ func TestPutKeepsRemainingStackInBag(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := owner.Put(context.Background(), PutCommand{
+		AccountID:           testAccountID,
 		SelectedCharacterID: testCharacterID,
 		SourceSlot:          testBagSlot,
 		ItemID:              testBeadItemID,
@@ -127,8 +146,60 @@ func TestPutKeepsRemainingStackInBag(t *testing.T) {
 	if slots["0:30"].Count != 4 {
 		t.Fatalf("bag stack = %+v want count 4", slots["0:30"])
 	}
-	if slots[RegisteredSlotKey(testBoxIndex, 0)].Count != 1 {
-		t.Fatalf("registered stack must be a single item, got %+v", slots[RegisteredSlotKey(testBoxIndex, 0)])
+	accountSlots := loadTestAccountSlots(t, repositories)
+	if accountSlots[RegisteredSlotKey(testBoxIndex, 0)].Count != 1 {
+		t.Fatalf("registered stack must be a single item, got %+v", accountSlots[RegisteredSlotKey(testBoxIndex, 0)])
+	}
+}
+
+// TestCollectboxRegistryIsAccountSharedAcrossCharacters pins the ownership
+// change: a put from character 19 is visible through the same account record
+// while character 21's bag remains untouched.
+func TestCollectboxRegistryIsAccountSharedAcrossCharacters(t *testing.T) {
+	repositories := newCollectboxTestGroup(t, map[string]dnfrepo.ItemStack{
+		"0:30": {ItemID: int64(testBeadItemID), Count: 1},
+	})
+	ctx := context.Background()
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{
+		CharacterID: "21",
+		AccountID:   testAccountID,
+		Stats:       make(map[string]int64),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Inventory.Save(ctx, dnfrepo.InventoryRecord{
+		CharacterID: "21",
+		Slots:       make(map[string]dnfrepo.ItemStack),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	owner, err := NewOwner(repositories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Put(ctx, PutCommand{
+		AccountID:           testAccountID,
+		SelectedCharacterID: testCharacterID,
+		SourceSlot:          testBagSlot,
+		ItemID:              testBeadItemID,
+	}, testPolicy(time.Now().Add(time.Hour), testBeadItemID)); err != nil {
+		t.Fatalf("put from character 19: %v", err)
+	}
+
+	account, found, err := repositories.AccountInventory.Load(ctx, testAccountID)
+	if err != nil || !found {
+		t.Fatalf("load account inventory found=%t err=%v", found, err)
+	}
+	if got := RegisteredItemIDs(account, testBoxIndex); len(got) != 1 || got[0] != testBeadItemID {
+		t.Fatalf("account registry = %v want [%d]", got, testBeadItemID)
+	}
+	second, found, err := repositories.Inventory.Load(ctx, "21")
+	if err != nil || !found {
+		t.Fatalf("load character 21 inventory found=%t err=%v", found, err)
+	}
+	if _, leaked := second.Slots[RegisteredSlotKey(testBoxIndex, 0)]; leaked {
+		t.Fatalf("collectbox entry leaked into character 21 inventory: %+v", second.Slots)
 	}
 }
 
@@ -143,6 +214,7 @@ func TestPutRejectsItemOutsidePVFBoxSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = owner.Put(context.Background(), PutCommand{
+		AccountID:           testAccountID,
 		SelectedCharacterID: testCharacterID,
 		SourceSlot:          testBagSlot,
 		ItemID:              999999,
@@ -165,6 +237,7 @@ func TestPutRejectsMismatchedSourceSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = owner.Put(context.Background(), PutCommand{
+		AccountID:           testAccountID,
 		SelectedCharacterID: testCharacterID,
 		SourceSlot:          31,
 		ItemID:              testBeadItemID,
@@ -184,6 +257,7 @@ func TestPutRejectsExpiredBox(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = owner.Put(context.Background(), PutCommand{
+		AccountID:           testAccountID,
 		SelectedCharacterID: testCharacterID,
 		SourceSlot:          testBagSlot,
 		ItemID:              testBeadItemID,
@@ -207,6 +281,7 @@ func TestPutRejectsLockedItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = owner.Put(context.Background(), PutCommand{
+		AccountID:           testAccountID,
 		SelectedCharacterID: testCharacterID,
 		SourceSlot:          testBagSlot,
 		ItemID:              testBeadItemID,
@@ -227,12 +302,15 @@ func TestPutFillsBoxThenReportsFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := owner.Put(context.Background(), PutCommand{
-		SelectedCharacterID: testCharacterID, SourceSlot: testBagSlot, ItemID: testBeadItemID,
+		AccountID: testAccountID, SelectedCharacterID: testCharacterID, SourceSlot: testBagSlot, ItemID: testBeadItemID,
 	}, policy); err != nil {
 		t.Fatalf("first put: %v", err)
 	}
 	// 再放一颗（先补进背包）。
 	refilled := loadTestSlots(t, repositories)
+	if refilled == nil {
+		refilled = make(map[string]dnfrepo.ItemStack)
+	}
 	refilled["0:31"] = dnfrepo.ItemStack{ItemID: int64(testBeadItemID), Count: 1}
 	if err := repositories.Inventory.Save(context.Background(), dnfrepo.InventoryRecord{
 		CharacterID: "19", Slots: refilled,
@@ -240,7 +318,7 @@ func TestPutFillsBoxThenReportsFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = owner.Put(context.Background(), PutCommand{
-		SelectedCharacterID: testCharacterID, SourceSlot: 31, ItemID: testBeadItemID,
+		AccountID: testAccountID, SelectedCharacterID: testCharacterID, SourceSlot: 31, ItemID: testBeadItemID,
 	}, policy)
 	if !errors.Is(err, ErrBoxFull) {
 		t.Fatalf("err = %v want ErrBoxFull", err)
@@ -269,7 +347,7 @@ func TestRegisteredSlotKeyRoundTrips(t *testing.T) {
 
 // TestRegisteredItemIDsOrdersBySlotIndex 钉住下发顺序按槛位号升序（客户端按顺序铺格）。
 func TestRegisteredItemIDsOrdersBySlotIndex(t *testing.T) {
-	record := dnfrepo.InventoryRecord{Slots: map[string]dnfrepo.ItemStack{
+	record := dnfrepo.AccountInventoryRecord{Slots: map[string]dnfrepo.ItemStack{
 		RegisteredSlotKey(testBoxIndex, 4): {ItemID: 444},
 		RegisteredSlotKey(testBoxIndex, 0): {ItemID: 111},
 		RegisteredSlotKey(testBoxIndex, 2): {ItemID: 333},
@@ -291,8 +369,8 @@ func TestRegisteredItemIDsOrdersBySlotIndex(t *testing.T) {
 	}
 }
 
-// TestNewOwnerRequiresSettlementUnitOfWork 钉住 owner 必须拿到事务边界。
-func TestNewOwnerRequiresSettlementUnitOfWork(t *testing.T) {
+// TestNewOwnerRequiresAccountItemUnitOfWork 钉住 owner 必须拿到账号+角色事务边界。
+func TestNewOwnerRequiresAccountItemUnitOfWork(t *testing.T) {
 	if _, err := NewOwner(dnfrepo.Group{}); !errors.Is(err, ErrOwnerUnavailable) {
 		t.Fatalf("err = %v want ErrOwnerUnavailable", err)
 	}
