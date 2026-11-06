@@ -59,7 +59,7 @@ class Note:
     sha256: str
 
 
-def parse_note(path, raw):
+def parse_note(path, raw, *, legacy_sections=False):
     parent, name = path.rsplit('/', 1)
     match = NAME.fullmatch(name)
     require(parent in (PUBLIC, PRIVATE) and match, 'invalid fragment path: ' + path)
@@ -77,10 +77,13 @@ def parse_note(path, raw):
     title, sep, body = text[len(prefix):].partition('\n\n')
     require(sep and title.strip() == title and 1 <= len(title) <= 100 and '\n' not in title,
             'one short title is required: ' + path)
-    require(body.startswith('## 变更\n\n') and body.count('\n## 验证\n\n') == 1,
-            '变更 and 验证 sections are required: ' + path)
-    change, validation = body[len('## 变更\n\n'):].split('\n## 验证\n\n')
-    require(change.strip() and validation.strip(), 'empty change or validation: ' + path)
+    sections = body.startswith('## 变更\n\n') and body.count('\n## 验证\n\n') == 1
+    require(sections or legacy_sections, '变更 and 验证 sections are required: ' + path)
+    if sections:
+        change, validation = body[len('## 变更\n\n'):].split('\n## 验证\n\n')
+        require(change.strip() and validation.strip(), 'empty change or validation: ' + path)
+    else:
+        require(body.strip(), 'empty historical fragment: ' + path)
     require(not re.search(r'(?m)^# ', body), 'multiple fragment titles: ' + path)
     return Note(path, match[1], match[2], category, title, body.strip(), hashlib.sha256(raw).hexdigest())
 
@@ -125,12 +128,12 @@ def changed_paths(root, base):
     return {p.decode('utf-8') for p in (tracked + untracked).split(b'\0') if p}
 
 
-def inherited_notes(root, scope):
+def inherited_notes(root, scope, ref='HEAD'):
     """无基线时，把 HEAD 所有父提交里已有的片段视为已合并。
 
     合并提交的片段可能只出现在第二父提交上，只看 HEAD~1 会把它误判为本次新增。
     """
-    p = git(root, 'rev-parse', 'HEAD^@', check=False)
+    p = git(root, 'rev-parse', commit(root, ref) + '^@', check=False)
     if p.returncode:
         return set()
     found = set()
@@ -151,6 +154,9 @@ def load_notes_tolerant(blobs, inherited):
             try:
                 notes.append(parse_note(path, raw))
             except NoteError:
+                # Only the missing section layout is legacy. Keep the text in
+                # rendering and still reject malformed names, categories and IDs.
+                notes.append(parse_note(path, raw, legacy_sections=True))
                 legacy.append(path)
             continue
         notes.append(parse_note(path, raw))
@@ -183,7 +189,7 @@ def check(root, scope, base=None):
     for path in legacy:
         print('warning: merged fragment predates the current format and cannot be edited in place: ' + path,
               file=sys.stderr)
-    return {'scope': scope, 'base': base, 'fragments': len(notes) + len(legacy)}
+    return {'scope': scope, 'base': base, 'fragments': len(notes)}
 
 
 
@@ -195,10 +201,10 @@ def render(root, scope, since=None, until='HEAD'):
         require(git(root, 'merge-base', '--is-ancestor', since, until, check=False).returncode == 0,
                 'since must be an ancestor of until')
     blobs = note_blobs(root, scope, until)
-    notes = load_notes(blobs)
     old = note_blobs(root, scope, since) if since else {}
     for path, raw in old.items():
         require(blobs.get(path) == raw, 'released fragment changed or removed: ' + path)
+    notes, legacy = load_notes_tolerant(blobs, set(old) | inherited_notes(root, scope, until))
     selected = sorted((n for n in notes if n.path not in old), key=lambda n: (n.id, n.kind, n.path))
     lines = ['# 变更记录汇总', '', '> 以下为所选源码范围的记录；发布、部署和实机验收以各条验证状态及发布回执为准。', '',
              '范围：`' + (since or '全部历史片段') + '` → `' + until + '`', '']
@@ -207,7 +213,8 @@ def render(root, scope, since=None, until='HEAD'):
         lines += ['## ' + n.title, '', '`' + n.id + '` · ' + n.category + ' · ' + n.kind, '',
                   n.body.replace('## 变更\n', '### 变更\n').replace('## 验证\n', '### 验证\n'), '']
         manifest['fragments'].append({'id': n.id, 'path': n.path, 'type': n.kind,
-                                      'category': n.category, 'sha256': n.sha256})
+                                      'category': n.category, 'sha256': n.sha256,
+                                      'legacySections': n.path in legacy})
     if not selected:
         lines += ['此范围没有新增变更记录。', '']
     return '\n'.join(lines), manifest

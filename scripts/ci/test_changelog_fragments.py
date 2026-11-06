@@ -141,6 +141,41 @@ class GitTests(unittest.TestCase):
         with self.assertRaises(c.NoteError):
             c.check(self.root, 'public', base)
 
+    def test_render_keeps_legacy_text_and_hash_without_editing_history(self):
+        broken = self.add_note('legacy-render')
+        raw = note('历史内容').replace('## 验证'.encode(), b'## Check')
+        self.write(broken, raw)
+        self.commit()
+        self.add_note('current-render'); self.commit()
+        text, manifest = c.render(self.root, 'public')
+        self.assertIn('历史内容', text)
+        self.assertIn('## Check', text)
+        row = next(x for x in manifest['fragments'] if x['path'] == broken)
+        self.assertTrue(row['legacySections'])
+        self.assertEqual(row['sha256'], c.hashlib.sha256(raw).hexdigest())
+        self.assertEqual((self.root / broken).read_bytes(), raw)
+
+    def test_legacy_layout_does_not_hide_duplicate_id_or_invalid_category(self):
+        broken = self.add_note('legacy-id')
+        self.write(broken, note().replace('## 验证'.encode(), b'## Check'))
+        base = self.commit()
+        self.write(broken.replace('.fix.', '.docs.'), note())
+        with self.assertRaisesRegex(c.NoteError, 'duplicate'):
+            c.check(self.root, 'public', base)
+        (self.root / broken.replace('.fix.', '.docs.')).unlink()
+        self.write(broken, note(category='群服内容'))
+        base = self.commit(); self.add_note('fresh-valid')
+        with self.assertRaisesRegex(c.NoteError, 'category'):
+            c.check(self.root, 'public', base)
+
+    def test_merge_second_parent_legacy_note_is_recognized(self):
+        self.git('checkout', '-qb', 'legacy-branch')
+        broken = self.add_note('second-parent')
+        self.write(broken, note().replace('## 验证'.encode(), b'## Check')); self.commit()
+        self.git('checkout', 'master'); self.add_note('mainline'); self.commit()
+        self.git('merge', '--no-edit', 'legacy-branch')
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+
     def test_requires_note_and_freezes_legacy(self):
         self.write('code.txt', b'change\n')
         with self.assertRaises(c.NoteError):
