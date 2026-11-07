@@ -15,7 +15,8 @@ func TestPVPRoomAvatarVisibilityAfterBindingAndPeerJoin(t *testing.T) {
 			newSession := func(id uint16) *gameSession {
 				return &gameSession{conn: &bufferConn{}, selectedCharacterID: id,
 					accountID: "pvp-" + strconv.Itoa(int(id)), channel: s.catalog.Channels()[1],
-					townPositionSnapshot: currentTownPositionSnapshot{CharacterID: id, TownID: 10, PositionX: 400, PositionY: 220, PositionValid: true},
+					// AreaID=1 = PVP 频道共享广场（area 0 是独立房间，已禁止在那里发起决斗）。
+					townPositionSnapshot: currentTownPositionSnapshot{CharacterID: id, TownID: 10, AreaID: 1, PositionX: 400, PositionY: 220, PositionValid: true},
 					partyPeer:            currentPartyPeerEndpointRegistration{InnerIPv4: [4]byte{127, 0, 0, 1}, OuterIPv4: [4]byte{127, 0, 0, 1}, Port: 12000 + id, MTU: currentPartyPeerMinimumMTU}}
 			}
 			repos, _ := s.repositoryGroup()

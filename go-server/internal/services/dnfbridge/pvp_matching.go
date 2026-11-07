@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	// ★ pvp-matching-actor-visibility：自动匹配路径补发对方 op3 用户状态要用的枚举。
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 )
 
 // DNF sub_39E90B0/sub_39E9410: integrated=1, personVsPerson=0.
@@ -51,6 +54,35 @@ func (s *Service) currentPVPMatchingAvailable(session *gameSession) bool {
 	return session.dungeon.runtime == nil
 }
 
+// currentPVPStandaloneRoomRequest 判断「这条决斗请求是从独立房间里发起的」。
+//
+// PVP 频道 `town/pvp.twn` 有两个 area：
+//
+//	[area] 0  `Fair_PVP/Gate_Hendon.map`  `[gate]`    ← 独立房间，每角色一间
+//	[area] 1  `Fair_PVP/Hendon.map`       `[normal]`  ← 共享广场
+//
+// 2026-10-31 玩家实测：在独立房间（area 0）里发起匹配，进决斗房间**看不到对方**；
+// 即便修掉 op41 的 mapIndex（p26）仍然复现。用户决定**直接屏蔽**独立房间发起的
+// 决斗请求，只允许在广场（area 1）发起 —— 返回 true 表示要拒绝。
+//
+// ★ 取不到有效位置时 fail-open（放行）：宁可按老行为跑，也不要因为位置快照没建立
+// 就把所有人都挡在决斗外面。
+func currentPVPStandaloneRoomRequest(session *gameSession) bool {
+	if session == nil || !isPVPChannel(session.channel) {
+		return false
+	}
+	session.townMu.Lock()
+	position := session.townPositionSnapshot
+	session.townMu.Unlock()
+	return currentPVPStandaloneRoomPosition(position)
+}
+
+// currentPVPStandaloneRoomPosition 是上面的位置判据本体：已持有位置快照的调用点
+// （`handleMakePVPRoom`）直接用它，省掉二次加锁。
+func currentPVPStandaloneRoomPosition(position currentTownPositionSnapshot) bool {
+	return position.PositionValid && position.TownID == 10 && position.AreaID == 0
+}
+
 func (s *Service) cancelCurrentPVPMatchingLocked(session *gameSession) {
 	for i := len(s.pvpMatching) - 1; i >= 0; i-- {
 		if s.pvpMatching[i].member.session == session {
@@ -84,6 +116,13 @@ func (s *Service) handleCurrentPVPMatching(session *gameSession, opcode uint16, 
 		}
 		s.logGameEvent(session, "game-pvp-matching-cancelled")
 		return nil
+	}
+	// ★ 独立房间（area 0）发起的匹配一律拒绝：在那里发起决斗，进决斗房间会看不到
+	// 对方（op41 的 mapIndex 已修仍复现）。只允许在广场（area 1）发起。
+	// 放在 parse / 排队之前，避免把玩家塞进队列再撤回。
+	if currentPVPStandaloneRoomRequest(session) {
+		s.logGameEvent(session, "game-pvp-matching-rejected-standalone-room")
+		return s.sendGameUpperFailure(session, opcode, 1)
 	}
 	request, err := parseCurrentPVPMatchingRequest(body)
 	if err != nil || !currentPVPMatchingGameTypeAllowed(session, request.gameType) {
@@ -221,8 +260,12 @@ func (s *Service) pairCurrentPVPMatchingLocked(a, b *currentPVPMatchingRequest) 
 	if s.nextPVPMatchingToken == 0 || s.nextPVPMatchingToken == 0xffffffff {
 		s.nextPVPMatchingToken = 1
 	}
+	// ★ 自动匹配没有「玩家选图」这一步，必须在建房时就把地图定下来：
+	// op41（房间信息）从这里取 mapIndex，取到 0 客户端就不会预加载决斗地图，
+	// 等 op45 才加载 → 场景重建清掉刚下发的 actor → 进房看不到对方。
 	room := &currentPVPRoom{id: id, channelID: a.member.session.channel.ID, battleMode: 2,
-		request: currentPVPMakeRoomRequest{roomNameType: 5}, matchingToken: s.nextPVPMatchingToken}
+		request:       currentPVPMakeRoomRequest{roomNameType: 5, mapIndex: s.resolveCurrentPVPRoomMapIndexLocked(0)},
+		matchingToken: s.nextPVPMatchingToken}
 	if a.gameType == 7 {
 		room.battleMode = 8
 	}
@@ -270,6 +313,42 @@ func (s *Service) pairCurrentPVPMatchingLocked(a, b *currentPVPMatchingRequest) 
 		if err := s.sendGameUpperRawClass(member.session, 504, buildCurrentPVPMatchingRoster(room), 0); err != nil {
 			s.closeCurrentPVPMatchingLocked(room, nil)
 			return err
+		}
+		// ★ 自动匹配路径必须在这里补发对方 actor 的 area / state / visibility。
+		//
+		// `enterCurrentPVPRoomLocked` 在 `matchingToken != 0` 时提前 return
+		//（"Automatic matching publishes its roster after the native search ACK"），
+		// 把它末尾那段 actor 下发整个跳过了；手动开房路径正是靠那段让客户端建立对方的
+		// user-info —— 其中 `sendPVPActorVisibility`(op357) 对应 `sub_2692CF0`
+		// 恢复 user-info+554 并重绘完整皮肤，默认 bits=3 也必须发
+		//（新建 user-info 的 +554 是 0，等于"不可见"）。
+		//
+		// 只发 roster（op41/op504）不会创建 user-info，于是出现两条完全不同的现场表现：
+		//   * 从广场进房：大厅里广播过对方 actor，user-info 已存在 → 决斗里"看起来正常"；
+		//   * 从独立房间进房：大厅按角色分桶看不到对方，user-info 从未建立
+		//     → 决斗房间看不到对方、技能也打不到（2026-10-31 现场）。
+		//
+		// ★ 位置约束：op41 绑定 room model 之后、op505(completion) 之前 ——
+		// `pvp_matching_test.go:178` 断言最后一个包必须是 505。
+		for _, actor := range room.members[:2] {
+			if actor == nil || actor == member {
+				continue
+			}
+			p := actor.position
+			area := buildCurrentPVPUserAreaBody(actor.characterID, p.PositionX, p.PositionY, p.TownID, p.MovementCode, newCharacterInitialAreaState)
+			if err := s.sendPVPClass0Packet(member.session, currentPVPUserAreaMsgID, area, "pvp_matching_member_area"); err != nil {
+				s.closeCurrentPVPMatchingLocked(room, nil)
+				return err
+			}
+			state, _ := buildCurrentPVPUserStateBody(actor.characterID)
+			if err := s.sendGameUpperRawClass(member.session, uint16(dnfenum.CmdPacketNotifyUserState), state, 0); err != nil {
+				s.closeCurrentPVPMatchingLocked(room, nil)
+				return err
+			}
+			if err := s.sendPVPActorVisibility(member.session, actor.session); err != nil {
+				s.closeCurrentPVPMatchingLocked(room, nil)
+				return err
+			}
 		}
 		if err := s.sendGameUpperRawClass(member.session, 505, nil, 0); err != nil {
 			s.closeCurrentPVPMatchingLocked(room, nil)

@@ -26,7 +26,10 @@ func TestPVPMatchingNativeLifecycle(t *testing.T) {
 					p := &gameSession{conn: &bufferConn{}, accountID: "pvp-" + strconv.Itoa(int(id)),
 						selectedCharacterID: id, characterGeneration: uint64(id), channel: s.catalog.Channels()[1], sceneBootstrapTailSent: true}
 					p.channel.ID, p.channel.Type = 501, 8
-					p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: id, TownID: 10, AreaID: 0, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
+					// AreaID=1 是 PVP 频道的共享广场（`Fair_PVP/Hendon_Pub.map`）；
+					// area 0 是每角色一间的独立房间（`Fair_PVP/Gate_Hendon.map`），
+					// 服务端已禁止在那里发起决斗（p27），夹具必须站在广场。
+					p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: id, TownID: 10, AreaID: 1, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
 					p.partyPeer = currentPartyPeerEndpointRegistration{InnerIPv4: [4]byte{127, 0, 0, 1}, OuterIPv4: [4]byte{127, 0, 0, 1}, Port: 12000 + id, MTU: currentPartyPeerMinimumMTU}
 					s.gameSessions[id] = p
 					return p
