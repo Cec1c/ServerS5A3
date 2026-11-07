@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><AssemblyName>Arad.Helper.Loot</AssemblyName><Version>0.3.1</Version></PropertyGroup><ItemGroup><ProjectReference Include="../Contracts/Helper.Contracts.csproj" /></ItemGroup></Project>

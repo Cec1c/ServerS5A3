@@ -154,6 +154,12 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			"reason", "current_exe_op43_fixed_zero_mismatch")
 		return nil
 	}
+	return s.pickupCurrentDungeonOwnedDrop(session, request)
+}
+
+// Shared by the verified native request and the opt-in server helper.
+// The helper does not fabricate a network packet or trust player coordinates.
+func (s *Service) pickupCurrentDungeonOwnedDrop(session *gameSession, request dungeoncmd.GetItemRequest) error {
 	if session == nil {
 		return nil
 	}
@@ -211,6 +217,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			lookupOwners = append(lookupOwners, runtime.DropOwner)
 		}
 	}
+	var err error
 	var drop *runtimeDungeonDrop
 	for _, lookupOwner := range lookupOwners {
 		drop, err = lookupOwner.owned(

@@ -139,6 +139,11 @@ func (s *Service) sendSelectedIncrementalItemSlotRefreshes(
 	if len(refreshes) == 0 {
 		return nil
 	}
+	for _, refresh := range refreshes {
+		if refresh.ListType == 3 {
+			return fmt.Errorf("worn equipment cannot be projected from inventory; use the equipment repository refresh path")
+		}
+	}
 	if session == nil || session.selectedCharacterID == 0 {
 		return fmt.Errorf("aligned item-slot refresh requires a selected character")
 	}

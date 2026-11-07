@@ -47,6 +47,9 @@ func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, reques
 	if err != nil || !found || strings.TrimSpace(character.AccountID) != strings.TrimSpace(s.accountIDForSession(session)) {
 		return s.sendGameUpperFailure(session, typ, 1)
 	}
+	if handled, err := s.handleCurrentHelperChat(ctx, session, typ, request.Message); handled {
+		return err
+	}
 	if err := s.sendGameUpperSuccess(session, typ, nil); err != nil {
 		return err
 	}

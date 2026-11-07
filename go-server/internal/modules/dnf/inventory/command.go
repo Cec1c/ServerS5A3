@@ -16,6 +16,7 @@ import (
 
 // Command 是 inventory handler 交给后续 inventory/equipment/wallet owner 的最小命令计划。
 type Command struct {
+	ValidateMoveSnapshot    func(dnfrepo.InventoryRecord) error
 	ItemUsageResolver       alignedcmd.ItemUsageResolver
 	ItemUsageNow            time.Time
 	UseItemUsage            *itemusage.Definition
