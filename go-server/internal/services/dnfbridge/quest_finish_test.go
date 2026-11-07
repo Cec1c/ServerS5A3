@@ -13,6 +13,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfexpertjob "longheng.io/server/internal/modules/dnf/expertjob"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfprofession "longheng.io/server/internal/modules/dnf/profession"
 	"longheng.io/server/internal/modules/dnf/progression"
@@ -539,7 +540,9 @@ func TestCurrentQuestFinishItemAllocatorInstantiatesEquipmentUsablePeriod(t *tes
 		},
 	}
 	record := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{}}
-	before := time.Now().UTC().Add(2 * 24 * time.Hour)
+	// 相对 [usable period] 的到期时间吸附到服务日 06:00（北京时间），期望值用同一
+	// 函数计算；取 before/after 夹住发放时刻，避免恰好跨过边界时误判。
+	before := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Now().UTC().Add(2 * 24 * time.Hour))
 	receipts, err := currentQuestFinishItemAllocator(catalog)(&record, dnfquest.FinishItemGrantRequest{
 		QuestID: 3272, CompletionKey: "quest-finish/19/3272", Source: "pvf",
 		ItemID: 100300883, Count: 1,
@@ -551,9 +554,9 @@ func TestCurrentQuestFinishItemAllocatorInstantiatesEquipmentUsablePeriod(t *tes
 		t.Fatalf("限时装备回执数量=%d", len(receipts))
 	}
 	receipt := receipts[0]
-	after := time.Now().UTC().Add(2 * 24 * time.Hour)
+	after := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Now().UTC().Add(2 * 24 * time.Hour))
 	stack := record.Slots[receipt.SlotKey]
-	if stack.ExpireAt.Before(before.Add(-time.Second)) || stack.ExpireAt.After(after.Add(time.Second)) ||
+	if stack.ExpireAt.Before(before) || stack.ExpireAt.After(after) ||
 		stack.Extra["usable_period_days"] != "2" || stack.Extra["expiration_source"] != "runtime_pvf_usable_period_grant" ||
 		len(stack.RawEntry) != currentItemListEntryWireSize ||
 		binary.LittleEndian.Uint32(stack.RawEntry[currentItemListExpireTimeOffset:currentItemListExpireTimeOffset+4]) != uint32(stack.ExpireAt.Unix()) {

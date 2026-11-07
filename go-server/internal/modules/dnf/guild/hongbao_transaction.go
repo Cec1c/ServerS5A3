@@ -236,7 +236,13 @@ func (o *HongbaoOwner) Purchase(ctx context.Context, q HongbaoPurchaseRequest, n
 			return err
 		}
 		// Inventory and the native item row persist expiration in Unix seconds.
-		expires := time.Unix(now.Add(10*24*time.Hour).Unix(), 0).UTC()
+		//
+		// ★ 必须与相对 [usable period] 的发放口径一致：吸附到服务日 06:00。
+		//   红包道具是 PVF [usable period] 10 天，发放回调会按
+		//   `expires - 10 天` 反推发放时刻再比对 `item.ExpireAt == expires`
+		//   （guild_hongbao_runtime.go）。若这里给的是 now+10 天（任意秒），
+		//   反推后再吸附会前移，两者永远不相等 ⇒ 购买直接报 invalid hongbao catalog。
+		expires := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Add(10*24*time.Hour).Unix(), 0).UTC())
 		before := r.CloneInventory(tx.inventory)
 		slot, err := o.contract.GrantItem(ctx, tx.repos, &tx.actor, &tx.inventory, p, expires)
 		if err != nil {

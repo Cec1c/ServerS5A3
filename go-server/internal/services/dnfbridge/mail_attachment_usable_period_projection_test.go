@@ -10,6 +10,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 	platformpvf "longheng.io/server/internal/platform/pvf"
@@ -73,8 +74,9 @@ func TestMailboxItemResolutionProjectsRelativeUsablePeriod(t *testing.T) {
 	if resolution.ExpireAt.IsZero() {
 		t.Fatal("relative [usable period] coupon got no instance expiration projection")
 	}
-	lower := before.Add(24 * time.Hour).Add(-time.Minute)
-	upper := after.Add(24 * time.Hour).Add(time.Minute)
+	// 相对 [usable period] 吸附到服务日 06:00（北京时间），用同一函数算窗口。
+	lower := itemexpiration.DailyDeleteBoundaryAtOrAfter(before.Add(24 * time.Hour))
+	upper := itemexpiration.DailyDeleteBoundaryAtOrAfter(after.Add(24 * time.Hour))
 	if resolution.ExpireAt.Before(lower) || resolution.ExpireAt.After(upper) {
 		t.Fatalf("projected expiration=%s outside [%s,%s]", resolution.ExpireAt, lower, upper)
 	}
@@ -171,8 +173,8 @@ func TestMailboxClaimProjectsRelativeUsablePeriodEndToEnd(t *testing.T) {
 	if claimed.ExpireAt.IsZero() {
 		t.Fatal("claimed coupon landed with no instance expiration")
 	}
-	wantMin := started.Add(24 * time.Hour).Add(-time.Minute)
-	wantMax := time.Now().UTC().Add(24 * time.Hour).Add(time.Minute)
+	wantMin := itemexpiration.DailyDeleteBoundaryAtOrAfter(started.Add(24 * time.Hour))
+	wantMax := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Now().UTC().Add(24 * time.Hour))
 	if claimed.ExpireAt.Before(wantMin) || claimed.ExpireAt.After(wantMax) {
 		t.Fatalf("claimed expiration=%s outside [%s,%s]", claimed.ExpireAt, wantMin, wantMax)
 	}
@@ -232,13 +234,13 @@ func TestReconcileCurrentMailAttachmentExpirationsProjectsRelativeUsablePeriod(t
 		// 带上三个时刻，下次再有人踩到走时/时钟问题能一眼看出来：
 		// 投影 = anchor+[usable period]，只有它仍晚于 now 才会被写入。
 		t.Fatalf("repair changed=%d err=%v anchor=%s projected=%s now=%s",
-			changed, err, createdAt, createdAt.Add(24*time.Hour), time.Now().UTC())
+			changed, err, createdAt, itemexpiration.DailyDeleteBoundaryAtOrAfter(createdAt.Add(24*time.Hour)), time.Now().UTC())
 	}
 	mailbox, found, err := repositories.Mailbox.Load(ctx, "19")
 	if err != nil || !found {
 		t.Fatalf("load mailbox found=%t err=%v", found, err)
 	}
-	want := createdAt.Add(24 * time.Hour)
+	want := itemexpiration.DailyDeleteBoundaryAtOrAfter(createdAt.Add(24 * time.Hour))
 	if got := mailbox.Mails["7"].Attachments[0].ExpireAt; !got.Equal(want) {
 		t.Fatalf("attachment expiry=%s want=%s", got, want)
 	}

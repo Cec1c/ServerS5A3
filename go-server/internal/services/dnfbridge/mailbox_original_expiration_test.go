@@ -3,6 +3,8 @@ package dnfbridge
 import (
 	"testing"
 	"time"
+
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 )
 
 func TestMailboxOriginalExpiryMixedDeclarations(t *testing.T) {
@@ -18,8 +20,8 @@ func TestMailboxOriginalExpiryMixedDeclarations(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	for _, tc := range []p157RealMailCase{
-		{name: "relative_live", createdAt: now.Add(-2 * 24 * time.Hour), wantExpiry: now.Add(5 * 24 * time.Hour), wantUse: 65535, wantClaimed: true},
-		{name: "relative_expired", createdAt: now.Add(-8 * 24 * time.Hour), wantExpiry: now.Add(-24 * time.Hour), wantUse: 0, wantClaimed: true},
+		{name: "relative_live", createdAt: now.Add(-2 * 24 * time.Hour), wantExpiry: itemexpiration.DailyDeleteBoundaryAtOrAfter(now.Add(5 * 24 * time.Hour)), wantUse: 65535, wantClaimed: true},
+		{name: "relative_expired", createdAt: now.Add(-8 * 24 * time.Hour), wantExpiry: itemexpiration.DailyDeleteBoundaryAtOrAfter(now.Add(-24 * time.Hour)), wantUse: 0, wantClaimed: true},
 		{name: "original_instance", createdAt: now.Add(-2 * 24 * time.Hour), explicitExpireAt: now.Add(-time.Hour), wantExpiry: now.Add(-time.Hour), wantUse: 0, wantClaimed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) { p157RealMailRunCase(t, catalog, "default_mixed", "gm_off", tc) })
