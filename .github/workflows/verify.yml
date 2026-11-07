@@ -21,6 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          # Manual checks need both parents to recognize already merged notes.
+          fetch-depth: 2
           persist-credentials: false
       - name: Select checks and validate change notes
         id: scope

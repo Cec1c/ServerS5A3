@@ -1,0 +1,61 @@
+name: "错误报告 / Bug report"
+description: "反馈游戏逻辑、协议、构建或部署工具的问题"
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先搜索已有 Issue。中文或 English 均可；版本不明确时写“未知”，偶发问题也可以提交。
+        此处公开可见，日志与截图请移除密码、令牌、玩家账号和服务器连接信息。
+  - type: dropdown
+    id: component
+    attributes:
+      label: "问题范围 / Component"
+      options:
+        - 游戏玩法与数据
+        - 登录、频道、组队或网络协议
+        - 客户端与 PVF 配套
+        - Linux 构建、Docker 或部署工具
+        - CI、文档或其他
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: "实际结果与预期 / Actual and expected behavior"
+      placeholder: "发生了什么？正常情况下应该怎样？"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "操作过程 / Steps"
+      description: "写出问题前后的操作。无法稳定复现时，描述最后一次发生的过程。"
+      placeholder: |
+        1. 使用哪个角色职业、地图或功能
+        2. 单人或几人组队，执行了什么操作
+        3. 出现什么现象，是否每次发生
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: "版本与环境 / Versions and environment"
+      description: "填写已知项即可。Release 标签或提交 SHA 有助于定位。"
+      placeholder: |
+        服务端提交或版本：
+        客户端 EXE 版本 / SHA256：
+        PVF 版本 / SHA256：
+        服务端 Linux / Docker / MariaDB：
+        玩家 Windows 版本（如相关）：
+  - type: input
+    id: time
+    attributes:
+      label: "发生时间 / Time"
+      placeholder: "例如 2026-11-06 20:15 UTC+8；用于对齐日志"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "日志、截图及补充 / Logs and context"
+      description: "附相关时间段、报错或运行命令，可拖入截图。请说明已尝试的处理方法。"

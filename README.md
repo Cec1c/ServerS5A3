@@ -12,6 +12,8 @@
 
 [构建与部署](Docs/BUILD_AND_DEPLOY.md) ｜ [频道表必读](Docs/CHANNEL_TABLE_DEPLOYMENT.md) ｜ [活动开关](Docs/BUILD_AND_DEPLOY.md#当前活动开关与赛马关闭方法) ｜ [PVF 与配套 EXE](https://github.com/Cec1c/ServerS5A3/releases) ｜ [登录器与 GM](https://github.com/Cec1c/PurpleMagic)
 
+[报告问题](https://github.com/Cec1c/ServerS5A3/issues/new/choose) ｜ [参与贡献](CONTRIBUTING.md)
+
 </div>
 
 > [!IMPORTANT]

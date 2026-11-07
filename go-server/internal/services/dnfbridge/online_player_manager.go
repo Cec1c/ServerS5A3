@@ -638,6 +638,7 @@ func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onl
 	}
 	s.logCurrentPeerActorAppearanceEvent(target, actor.Session, source, mode0Body, mode1Body, subtype0Body)
 	constructionElapsed := time.Since(constructionStarted)
+	s.recordPerformance(perfTownActorPrepare, constructionElapsed, false)
 	sendStarted := time.Now()
 	if current != nil && !current() {
 		return nil

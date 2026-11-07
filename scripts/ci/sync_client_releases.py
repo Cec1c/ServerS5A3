@@ -383,6 +383,27 @@ class Repository:
         prefix = "/releases/tags/" if self.provider == "github" else "/releases/"
         return self.api(prefix + urllib.parse.quote(tag, safe=""), missing=True)
 
+    def refresh_latest(self, apply=False):
+        """Select the highest published stable client, independent of import order."""
+        if self.provider != 'github' or not self.writable:
+            return None
+        candidates = [r for r in self.list() if VERSION_TAG.fullmatch(r['tag_name'])
+                      and not r.get('draft') and not r.get('prerelease')
+                      and any((NAME.fullmatch(a['name']) or SPLIT_NAME.fullmatch(a['name'])) and a.get('size', 0) > 0
+                              and a.get('state', 'uploaded') == 'uploaded' for a in r.get('assets', []))]
+        if not candidates:
+            return None
+        candidate = max(candidates, key=lambda r: (int(VERSION_TAG.fullmatch(r['tag_name'])[1]),
+                                                   r.get('published_at', ''), r['id']))
+        current = self.api('/releases/latest', missing=True)
+        changed = current is None or current['id'] != candidate['id']
+        if apply and changed:
+            self.api(f"/releases/{candidate['id']}", method='PATCH', body={'make_latest':'true'})
+            if self.api('/releases/latest')['id'] != candidate['id']:
+                raise SyncError('Latest release readback differs')
+        return dict(tag=candidate['tag_name'], previous=current.get('tag_name') if current else None,
+                    changed=changed, applied=bool(apply and changed))
+
     def tag_commit(self, tag):
         if self.provider != "github":
             ref = self.api("/repository/tags/" + tag, missing=True)
@@ -720,7 +741,10 @@ def main():
             receipt["completed"].append({"target":repo.key,"tag":item["tag"],"verified":True})
             save_receipt(args.receipt,receipt)
             print(f"Published and verified {repo.key}: {item['tag']}",flush=True)
-    print(json.dumps({"planned":len(actions),"completed":len(receipt['completed'])}))
+    # Also repair metadata on a no-op sync. No asset transfer is needed here.
+    receipt['latest'] = repos[1].refresh_latest(apply=args.apply)
+    save_receipt(args.receipt, receipt)
+    print(json.dumps({"planned":len(actions),"completed":len(receipt['completed']), 'latest':receipt['latest']}))
 
 
 if __name__=="__main__":

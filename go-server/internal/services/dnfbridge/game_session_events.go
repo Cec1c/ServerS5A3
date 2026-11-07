@@ -90,7 +90,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 			if s.performance != nil && !event.SentAt.IsZero() {
 				s.performance.record(perfEventQueue, started.Sub(event.SentAt), false)
 			}
-			defer func() { s.performanceEnd(perfEventRun, started, result.Err) }()
+			defer func() { s.performanceEventEnd(event.Type, started, result.Err) }()
 			task, ok := event.Data.(gameSessionEventTask)
 			if !ok || task.run == nil {
 				return eventloop.Result{Err: errInvalidGameSessionEvent}

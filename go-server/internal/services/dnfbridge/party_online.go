@@ -13,6 +13,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/party"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // All online-party mutations below are routed through RuntimePartyManager.
@@ -1966,12 +1967,24 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	characterID := actorIdentity.character
-	_, characterName, character, hasCharacter := batch.loadCharacter(ctx, actorIdentity)
+	var characterName string
+	var character dnfrepo.CharacterRecord
+	var hasCharacter bool
+	partyActive := state.PartyID > 0
+	// A kind3 removal contains only the actor key and owner. Loading the full
+	// character here also probes/repairs legacy initialization, despite none of
+	// those fields being serialized. Keep the live identity/membership fences,
+	// and reserve repository construction for the kind0 member table.
+	if partyActive {
+		_, characterName, character, hasCharacter = batch.loadCharacter(ctx, actorIdentity)
+	}
 	if characterID == 0 {
 		return false, nil
 	}
-	members := runtimePartyMembers(state)
-	partyActive := state.PartyID > 0
+	var members []alignedcmd.PartyMemberState
+	if partyActive {
+		members = runtimePartyMembers(state)
+	}
 	projections := make([]currentSceneOp9PartyMemberProjection, 0, len(members))
 	projectionIdentities := make([]boundGameSessionCharacter, 0, len(members))
 	for _, member := range members {
