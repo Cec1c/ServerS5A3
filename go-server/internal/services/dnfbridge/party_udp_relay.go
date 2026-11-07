@@ -352,9 +352,12 @@ type currentPartyUDPRelay struct {
 	portStart int
 	portCount int
 	usedPorts map[int]struct{}
-	legs      map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg
-	closed    bool
-	wg        sync.WaitGroup
+	// pvpReleasedAt 记 PVP 腿端口的释放时刻，用于"下一局换一个端口"。
+	// 见 pvpRelayPortQuarantine 的现场依据。受 r.mu 保护。
+	pvpReleasedAt map[int]time.Time
+	legs          map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg
+	closed        bool
+	wg            sync.WaitGroup
 
 	// forwardedTotal 是全部腿（含已关闭的）累计转发的数据报数，原子累加，不参与转发逻辑。
 	forwardedTotal atomic.Uint64
@@ -540,6 +543,7 @@ func newCurrentPartyUDPRelayWithSettings(settings currentPartyUDPRelaySettings) 
 	relay.portStart = portStart
 	relay.portCount = portCount
 	relay.usedPorts = make(map[int]struct{})
+	relay.pvpReleasedAt = make(map[int]time.Time)
 	relay.legs = make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
 	relay.probes = make(map[uint16]currentPartyUDPRelayProbeEndpoint)
 	// 常驻原生探针监听（默认档；绑不上只记日志，绝不影响 dnfbridge 启动）。
@@ -652,6 +656,9 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 			toClose = append(toClose, existing)
 			delete(r.legs, key)
 			delete(r.usedPorts, int(existing.port))
+			if existing.key.pvp {
+				r.notePVPPortReleasedLocked(int(existing.port))
+			}
 		}
 	}
 	for key, leg := range newLegs {
@@ -744,7 +751,23 @@ func (r *currentPartyUDPRelay) Endpoint(partyID, ownerID, peerID uint16) ([4]byt
 	return address, leg.port, true
 }
 
+// newLegLocked 在端口池里给一条腿绑定一个 UDP 端口。
+//
+// ★ PVP 腿优先避开**上一局刚释放**的端口（`pvpRelayPortQuarantine`）：端口池是
+// "取最小空闲"，所以连续两局会拿到同一个端口，通告给客户端的对端端点也就一字不差，
+// 客户端那边的 UDP 会话四元组跨局完全不变 —— 现场表现就是第二局黑屏。
+// 静默期把端口池抽干时**忽略静默期再扫一遍**：绝不能让决斗开不起来。
 func (r *currentPartyUDPRelay) newLegLocked(key currentPartyUDPRelayLegKey, binding currentPartyUDPRelayBinding) (*currentPartyUDPRelayLeg, error) {
+	leg, err := r.newLegLockedPass(key, binding, key.pvp)
+	if err == nil || !key.pvp {
+		return leg, err
+	}
+	return r.newLegLockedPass(key, binding, false)
+}
+
+// newLegLockedPass 是 newLegLocked 的单趟扫描。honorQuarantine 为真时跳过
+// 仍处于静默期的 PVP 端口。
+func (r *currentPartyUDPRelay) newLegLockedPass(key currentPartyUDPRelayLegKey, binding currentPartyUDPRelayBinding, honorQuarantine bool) (*currentPartyUDPRelayLeg, error) {
 	for offset := 0; offset < r.portCount; offset++ {
 		port := r.portStart + offset
 		// Native keepalives keep targeting probe ports after party formation.
@@ -756,6 +779,11 @@ func (r *currentPartyUDPRelay) newLegLocked(key currentPartyUDPRelayLegKey, bind
 		}
 		if _, used := r.usedPorts[port]; used {
 			continue
+		}
+		if honorQuarantine {
+			if releasedAt, ok := r.pvpReleasedAt[port]; ok && time.Since(releasedAt) < pvpRelayPortQuarantine {
+				continue
+			}
 		}
 		conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: append(net.IP(nil), r.bindIP...), Port: port})
 		if err != nil {
@@ -780,7 +808,28 @@ func (r *currentPartyUDPRelay) releaseLegLocked(leg *currentPartyUDPRelayLeg) {
 		return
 	}
 	delete(r.usedPorts, int(leg.port))
+	if leg.key.pvp {
+		r.notePVPPortReleasedLocked(int(leg.port))
+	}
 	_ = leg.conn.Close()
+}
+
+// notePVPPortReleasedLocked 记下某个 PVP 腿端口刚被释放的时刻（调用方持 r.mu）。
+// 顺手清掉已经过了静默期的条目，避免这张表无限增长。
+func (r *currentPartyUDPRelay) notePVPPortReleasedLocked(port int) {
+	if r == nil || port <= 0 {
+		return
+	}
+	now := time.Now()
+	if r.pvpReleasedAt == nil {
+		r.pvpReleasedAt = make(map[int]time.Time)
+	}
+	for released, at := range r.pvpReleasedAt {
+		if now.Sub(at) >= pvpRelayPortQuarantine {
+			delete(r.pvpReleasedAt, released)
+		}
+	}
+	r.pvpReleasedAt[port] = now
 }
 
 func (r *currentPartyUDPRelay) removePartyLocked(partyID uint16) []*currentPartyUDPRelayLeg {

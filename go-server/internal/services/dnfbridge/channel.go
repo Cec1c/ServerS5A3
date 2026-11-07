@@ -518,7 +518,20 @@ func (s *Service) channelsForRequestMode(group string, bootstrap bool) []channel
 	// This also limits manual default-group refreshes, but not named groups.
 	if s.options.defaultGroupLoginOnly && isDefaultChannelGroup(group) {
 		for _, channel := range catalog.FilterForBootstrap(group) {
-			if channelcatalog.IsResidentChannel(channel) && channel.ID <= currentOwnerChannelByteLimit {
+			if channel.ID > currentOwnerChannelByteLimit {
+				continue
+			}
+			// 常驻城镇频道恒放行。团本频道（type 23/32 与 fiendwar 42/45）只在
+			// "刷新目录"（非登录引导）时放行：客户端频道列表按默认组目录渲染，
+			// 剔掉团本整族会让"团队模式频道"直接消失（2026-10-25 90CN 现场）；
+			// 而登录引导那一次仍只给常驻频道，落点候选集保持不变。
+			// 帝国竞技场（type 39 / [tagtournament]）同理：2026-10-29 现场"看不到
+			// 帝国竞技场频道"，就是因为它既不算常驻也不算团本，被整族剔掉了。
+			// 决斗场手动建房频道（type 24 / [pvp]）同理（2026-11-02 现场）。
+			if channelcatalog.IsResidentChannel(channel) ||
+				(!bootstrap && (channelcatalog.IsRaidChannel(channel) ||
+					channelcatalog.IsTagTournamentChannel(channel) ||
+					channelcatalog.IsPVPRoomChannel(channel))) {
 				channels = append(channels, channel)
 			}
 		}

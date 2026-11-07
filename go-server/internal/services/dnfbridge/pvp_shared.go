@@ -305,6 +305,12 @@ func (s *Service) handleMakePVPRoom(session *gameSession, body []byte, transport
 	position := session.townPositionSnapshot
 	session.townMu.Unlock()
 	inDojo := position.PositionValid && position.CharacterID == session.selectedCharacterID && position.TownID == 10 && position.AreaID == 4
+	// ★ 独立房间（area 0）不允许开房：在那里开出来的房间进决斗看不到对方。
+	// 与匹配路径同一套判据，见 `currentPVPStandaloneRoomRequest`。
+	if currentPVPStandaloneRoomPosition(position) {
+		s.logGameEvent(session, "game-pvp-make-room-rejected-standalone-room", "transport", transport)
+		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketMakePVPRoom), 19)
+	}
 	if (request.specialBattleMode != 0 && request.specialBattleMode != 1 && request.specialBattleMode != 3) ||
 		(request.specialBattleMode == 3 && !inDojo) ||
 		(request.specialBattleMode == 0 && (!isPVPChannel(session.channel) || session.channel.Type == 8)) ||
@@ -320,6 +326,10 @@ func (s *Service) handleMakePVPRoom(session *gameSession, body []byte, transport
 	if session.pvpRoom != nil || hasMultiMemberRuntimeParty(session) {
 		return nil
 	}
+	// 玩家在选图界面选「随机」时 mapIndex 也是 0，与自动匹配同样的问题：
+	// op41 报 0 客户端不预加载，op45 才报真实图 → 进房看不到对方。
+	// 这里统一在建房时落定，op41/op42/op45 报同一个索引。
+	request.mapIndex = s.resolveCurrentPVPRoomMapIndexLocked(request.mapIndex)
 	for _, queued := range s.pvpMatching {
 		if queued.member.session == session {
 			return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketMakePVPRoom), 19)
@@ -405,7 +415,26 @@ func (s *Service) returnCurrentPVPMemberToTown(member *currentPVPMember) error {
 		return err
 	}
 	state, _ := buildCurrentPVPUserStateBodyWithState(member.characterID, 0)
-	return s.sendGameUpperRawClass(member.session, uint16(dnfenum.CmdPacketNotifyUserState), state, 0)
+	if err := s.sendGameUpperRawClass(member.session, uint16(dnfenum.CmdPacketNotifyUserState), state, 0); err != nil {
+		return err
+	}
+	// ★ 返回城镇必须重新发布存在感。
+	//
+	// 决斗期间玩家不在任何城镇存在感桶里：本函数只发了 user-area / scene-transition /
+	// user-state 三个包，`publishTownPresenceInArea` 一次都没调用过。不重新发布的话：
+	//   * 其他玩家的 `PeerInSameArea` 永远找不到他 → 别人看不到他；
+	//   * 他自己的 `broadcastTownPlayerEnter` 也拿不到 peer 列表 → 他看不到别人。
+	// 现场表现就是「PVP 结束返回广场看不到其他玩家」（2026-10-31）。
+	//
+	// 落点用加入房间时的快照 `member.position`：从广场进的回广场(area 1，共享桶)，
+	// 从独立房间进的回独立房间(area 0，每角色一桶)。area_instance 由
+	// `currentTownAreaInstance` 按地图路径判定，这里不另外猜。
+	//
+	// ★ 必须用 `...HeldPVPMutex` 变体：本函数的所有调用点
+	//（`removeCurrentPVPMemberLocked` / `closeCurrentPVPMatchingLocked`）都持有
+	// `s.pvpMu`，而普通变体会去发 PVP 目录、内部再 `pvpMu.Lock()` → 自死锁。
+	s.publishTownPresenceInAreaHeldPVPMutex(member.session, p.TownID, p.AreaID, p.PositionX, p.PositionY, p.MovementCode, newCharacterInitialAreaState, "pvp_return_town")
+	return nil
 }
 
 func (s *Service) removeCurrentPVPMemberLocked(session *gameSession, notifySelf bool) {
@@ -433,6 +462,9 @@ func (s *Service) removeCurrentPVPMemberLocked(session *gameSession, notifySelf 
 	if room.started {
 		if room.match != nil && room.match.total != nil {
 			s.ensureGameplayTimeQueue().Cancel(currentPVPTotalPhaseTimerName(room, room.match))
+		}
+		if room.match != nil && room.match.relay != nil {
+			s.ensureGameplayTimeQueue().Cancel(currentPVPRelayTimerName(room, room.match))
 		}
 		if room.match != nil && room.match.resultSent {
 			s.ensureGameplayTimeQueue().Cancel(currentPVPResultTimerName(room, room.match))

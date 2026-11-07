@@ -287,6 +287,8 @@ func (s *Service) publishTownPresenceAfterSeriaRoomReturn(
 // 此时存在只落在本人专属实例桶里、共享桶里没有他 —— 等价于厂商参考实现那条
 // `game-town-presence-suppressed reason=private_seria_room`，只是我们把它表达在
 // `area_instance` 这个既有字段里，不额外多一个事件名。
+//
+// 下面这个是对外入口，签名与行为保持不变；持锁路径改用 `...HeldPVPMutex` 变体。
 func (s *Service) publishTownPresenceInArea(
 	session *gameSession,
 	townID byte,
@@ -296,6 +298,44 @@ func (s *Service) publishTownPresenceInArea(
 	direction byte,
 	areaState byte,
 	source string,
+) {
+	s.publishTownPresenceInAreaEx(session, townID, areaID, positionX, positionY, direction, areaState, source, true)
+}
+
+// publishTownPresenceInAreaHeldPVPMutex 供**已持有 `s.pvpMu`** 的路径使用。
+//
+// `sendCurrentPVPDailyState` / `sendCurrentPVPDirectory` 内部会自己 `s.pvpMu.Lock()`，
+// 在持锁路径里再调一次就是自死锁 —— 2026-10-31 `TestPVPMatchingNativeLifecycle/legacy/pending_udp`
+// 正是卡在这里满 5 分钟（`pairCurrentPVPMatchingLocked` 持锁 →
+// `closeCurrentPVPMatchingLocked` → `returnCurrentPVPMemberToTown` →
+// `publishTownPresenceInArea` → `sendCurrentPVPDirectory` → 重复 Lock）。
+//
+// 所以这条变体跳过那两个会重复加锁的下发；instance 判定、`EnterArea`、
+// actor 广播（`broadcastTownPlayerAreaChange` / `broadcastTownPlayerEnter`）全部照做，
+// 它们才是"能不能看见彼此"的决定因素。
+func (s *Service) publishTownPresenceInAreaHeldPVPMutex(
+	session *gameSession,
+	townID byte,
+	areaID byte,
+	positionX uint16,
+	positionY uint16,
+	direction byte,
+	areaState byte,
+	source string,
+) {
+	s.publishTownPresenceInAreaEx(session, townID, areaID, positionX, positionY, direction, areaState, source, false)
+}
+
+func (s *Service) publishTownPresenceInAreaEx(
+	session *gameSession,
+	townID byte,
+	areaID byte,
+	positionX uint16,
+	positionY uint16,
+	direction byte,
+	areaState byte,
+	source string,
+	sendPVPDirectory bool,
 ) {
 	if s == nil || s.onlinePlayers == nil || session == nil || session.selectedCharacterID == 0 {
 		return
@@ -330,7 +370,9 @@ func (s *Service) publishTownPresenceInArea(
 	if isPVPChannel(session.channel) && townID == 10 && areaID == 0 {
 		areaInstance = uint32(characterID)
 	}
-	if isPVPChannel(session.channel) {
+	// ★ sendPVPDirectory=false 只用于已持有 pvpMu 的路径：sendCurrentPVPDailyState /
+	// sendCurrentPVPDirectory 内部会自己 pvpMu.Lock()，重复加锁即自死锁。
+	if sendPVPDirectory && isPVPChannel(session.channel) {
 		if err := s.sendCurrentPVPDailyState(session); err != nil {
 			s.logGameEvent(session, "决斗战绩初始化失败", "error", err)
 		}
