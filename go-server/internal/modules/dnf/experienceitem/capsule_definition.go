@@ -274,6 +274,12 @@ var capsuleSectionNames = map[string]struct{}{
 	"weight": {}, "action usable place": {}, "display exp up info": {},
 	"purchase limit": {}, "npc gift disallowance": {}, "usable first growtype": {},
 	"use wav": {}, "name2": {},
+	// price 是道具的卖店价/商店价，纯交易数值，和胶囊行为无关。
+	// 早期漏了它，导致「带卖店价的胶囊」一律被判为未知段而无法使用
+	// （2026-11-07 线上 10005308「(50百分比)兔兔成长胶囊」就是这么废掉的：
+	// PVF 里同时有 [price] 500000 与 [need material] 10003231 1，
+	// 表示「50 万金币 + 1 个兔兔硬币购买」，与使用时的消耗无关）。
+	"price": {},
 }
 
 func isCapsuleStatusTag(value string) bool {

@@ -115,7 +115,7 @@ func TestAntonJarRealPVFExchangeThenOpen(t *testing.T) {
 	}
 }
 
-func TestAntonJarExplicitOpenMaterialsAndOtherJarRemainEnforced(t *testing.T) {
+func TestAntonJarExplicitOpenMaterialsAndExchangePriceNeverCharged(t *testing.T) {
 	for _, tc := range []struct {
 		id                int64
 		extra             string
@@ -124,7 +124,10 @@ func TestAntonJarExplicitOpenMaterialsAndOtherJarRemainEnforced(t *testing.T) {
 		{10094738, "", 0, 0},
 		{10094738, "[lottery use need item]\n10007367 2\n", 10007367, 2},
 		{10094738, "[sealing removal item]\n10007367 3\n", 10007367, 3},
-		{900, "", 10095702, 4},
+		// [need material] 是兑换价，任何罐子都不该在开启时再收一次。
+		// 曾经这里是 {900, "", 10095702, 4}：只给 10094738 开了硬编码豁免，
+		// 其它罐子继续按兑换价重复收费（490700581 异次元碎片礼盒就是这么中招的）。
+		{900, "", 0, 0},
 	} {
 		doc, err := dnfpvf.Parse("stackable/test.stk", "[stackable type]\n`[upgradable legacy]` 1\n[need material]\n10095702 4\n"+tc.extra)
 		if err != nil {

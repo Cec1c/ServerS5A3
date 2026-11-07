@@ -22,7 +22,9 @@ func TestFastLotteryTwentyOneOpensKeepIncrementalInventory(t *testing.T) {
 			ctx := context.Background()
 			_, source := newMagicBoxTestCatalog(t)
 			source["stackable/stackable.lst"] += "900 `fast.stk`\n"
-			fee := "[need material] 10007367 2\n"
+			// 免费罐子（不付金币）仍可能要求开启材料，但必须写在
+			// [lottery use need item] 里；[need material] 是兑换价，不再当开启成本。
+			fee := "[lottery use need item] 10007367 2\n"
 			if paid {
 				fee = "[lottery use cost] 100\n[lottery use need item] 10007367 2\n"
 			}

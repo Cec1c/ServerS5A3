@@ -473,20 +473,19 @@ func resolveMagicBoxNeedMaterial(document *dnfpvf.Document, boxItemID int64) (in
 		}
 		return itemID, count
 	}
-	// Keep the already validated lottery-jar policy separate from booster
-	// acquisition prices. The runtime Anton upgradable-legacy definition and
-	// its original transaction regressions use this top-level material vector;
-	// changing a revival booster must not silently waive a working jar cost.
+	// 只认显式开启材料 [lottery use need item]（开一次要交的材料）。
+	// 开启金币 [lottery use cost] 走另一条路径（currentLotteryOpeningGold）。
+	//
+	// ★ 绝不回退到顶层 [need material]。那个段是**兑换/购买价**：
+	// 「用 X 个材料在 NPC 商店换到这个盒子」，不是「每开一次再交一次」。
+	// 历史上这里是 `if len(ints)==0 && !explicitPrice && boxItemID != 10094738 {
+	// ints = document.Ints("need material") }`，靠硬编码豁免单个 ID 打补丁，
+	// 结果每遇到一个新盒子就再挂一个（490005029 复活币盒、10094738 安徒恩罐、
+	// 2026-11-07 线上 490700581「异次元碎片礼盒」——用 2 个 490700573 国庆
+	// 邀请函兑换，开启时又被扣 2 个，等于双倍消耗）。逐个加例外治不了根，
+	// 这里直接删掉整条回退。
 	if normalizeMagicBoxPVFType(magicBoxDocumentText(document, "stackable type")) == "upgradable legacy" {
 		ints = document.Ints("lottery use need item")
-		_, explicitPrice := document.Section("lottery use cost")
-		// 10094738 is purchased in the Anton raid shop with these four
-		// fragments. Its [need material] is the exchange cost, not a second
-		// opening cost. Keep explicit opening fees and every other jar's
-		// established behavior unchanged.
-		if len(ints) == 0 && !explicitPrice && boxItemID != 10094738 {
-			ints = document.Ints("need material")
-		}
 		if len(ints) >= 2 && ints[0] > 0 && ints[1] > 0 && ints[0] != boxItemID {
 			return ints[0], ints[1]
 		}
