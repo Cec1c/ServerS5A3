@@ -149,8 +149,16 @@ sealed class HelperWindow : Form
                 panel.SelectPlugin(plugin);if(!panel.Requested)panel.Toggle();
             }
             await plugins.ExecuteAsync(plugin,command=="pickup"?"toggle":command=="warehouse"?"cargo":command,new Dictionary<string,bool>());
-        }catch(Exception e){var panel=Panel();if(panel is not null){panel.ShowError(e.Message);if(!panel.Requested)panel.Toggle();}}
+        }catch(Exception e){ReportHotkeyError(Panel(),command,e.Message);}
         finally{invoking=false;}
+    }
+    static void ReportHotkeyError(GamePanel? panel,string command,string message)
+    {
+        if(panel is null)return;
+        panel.ShowError(message);
+        // A rejected room move is normal while monsters or a closed gate remain.
+        // Keep the player's panel visibility; Ctrl+Z remains the explicit opener.
+        if(!panel.Requested&&!command.StartsWith("room.",StringComparison.Ordinal))panel.Toggle();
     }
     void SaveUtilitySettings(string json)
     {
@@ -184,6 +192,13 @@ sealed class HelperWindow : Form
             var utilityData=new HelperPanel("便捷功能","便捷功能已就绪",[]){EditorKey="fixture-u",Toggles=[new("sell.0","出售 · 普通",false),new("sell.1","出售 · 高级",true)],Rows=[new("row.0.9","测试装备","×1")],Actions=[new("repair","装备维修"),new("sell","一键出售"),new("disjoint","一键分解"),new("cargo","远程仓库")]};panel.SetPanel("utilities",utilityData);
             panel.Toggle();for(int attempt=0;attempt<30&&!panel.Visible;attempt++){SetForegroundWindow(fake.Handle);await Task.Delay(100);}
             bool visible=panel.Visible&&fake.RectangleToScreen(fake.ClientRectangle).Contains(panel.Bounds);
+            bool roomErrorsKeepPanelState=true;
+            foreach(string direction in new[]{"left","up","right","down"}){
+                panel.Dismiss();ReportHotkeyError(panel,"room."+direction,"房间未清理");
+                await Task.Delay(30);roomErrorsKeepPanelState&=!panel.Requested&&!panel.Visible&&GetForegroundWindow()==fake.Handle;
+                panel.Toggle();ReportHotkeyError(panel,"room."+direction,"没有可通行的房间");
+                await Task.Delay(30);roomErrorsKeepPanelState&=panel.Requested&&panel.Visible&&GetForegroundWindow()==fake.Handle;
+            }
             bool shortcutHints=panel.FixtureRoomHint.Contains("Alt+←")&&panel.FixtureRoomHint.Contains("Alt+↑")&&panel.FixtureRoomHint.Contains("Alt+→")&&panel.FixtureRoomHint.Contains("Alt+↓")&&panel.FixtureRoomHint.Contains("清怪后")&&panel.FixtureRoomHint.Contains("队长");
             using(var custom=new GamePanel(fake.Handle,()=>fake.Handle,"fixture-hints",(_,_,_,_)=>Task.CompletedTask,["utilities"],new Dictionary<string,string>(config.Hotkeys){["room.left"]="Alt+J"})){shortcutHints&=custom.FixtureRoomHint.Contains("Alt+J")&&!custom.FixtureRoomHint.Contains("Alt+←");}
             bool readOnly=panel.FixtureReadOnlyFilters();panel.FixtureCapture(Path.Combine(output,"game-panel.png"));
@@ -235,7 +250,7 @@ sealed class HelperWindow : Form
             bool allow=false;observed.Clear();hotkey=new GameHotkey(Handle,()=>allow,config.Hotkeys,c=>observed.Add(c));allow=true;hotkey.Refresh();Press(0x11,0x5a);await Task.Delay(80);bool periodicHotkeyRefresh=observed.SetEquals(new[]{"panel"});hotkey.Dispose();hotkey=null;
             var leaseRecovery=await SessionBroker.ExerciseRecovery(Path.Combine(output,"connection-fixtures"));
             var nativeWarehouse=await SessionBroker.ExerciseNativeWarehouse(Path.Combine(output,"native-permission-fixtures"));
-            File.WriteAllText(Path.Combine(output,"ui-result.json"),JsonSerializer.Serialize(new{passed=shortcutHints&&hidden&&frozen&&visible&&readOnly&&invoked&&moved&&minimized&&restored&&dismissed&&hotkeys&&nativeHotkeys&&keysWhileOpen&&keysAfterCheckbox&&keysAfterButton&&keysAfterList&&keysAfterWheel&&keysAfterBackground&&rowsRefreshed&&allBasicKeys&&unboundChords&&heldMovementWithSkills&&ownedByGame&&ownedChatRetainsKeyboard&&ownedChatCtrlZ&&periodicHotkeyRefresh&&leaseRecovery.Values.All(x=>x)&&nativeWarehouse.Values.All(x=>x),shortcutHints,hidden,frozen,visible,readOnly,invoked,moved,minimized,restored,dismissed,hotkeys,nativeHotkeys,keysWhileOpen,keysAfterCheckbox,keysAfterButton,keysAfterList,keysAfterWheel,keysAfterBackground,rowsRefreshed,allBasicKeys,unboundChords,heldMovementWithSkills,ownedByGame,ownedChatRetainsKeyboard,ownedChatCtrlZ,periodicHotkeyRefresh,leaseRecovery,nativeWarehouse,basicKeyCount=basicKeys.Length,ownedChatTrace,keyboardRows,chordRows,standaloneManager=false,realGameTouched=false}));
+            File.WriteAllText(Path.Combine(output,"ui-result.json"),JsonSerializer.Serialize(new{passed=roomErrorsKeepPanelState&&shortcutHints&&hidden&&frozen&&visible&&readOnly&&invoked&&moved&&minimized&&restored&&dismissed&&hotkeys&&nativeHotkeys&&keysWhileOpen&&keysAfterCheckbox&&keysAfterButton&&keysAfterList&&keysAfterWheel&&keysAfterBackground&&rowsRefreshed&&allBasicKeys&&unboundChords&&heldMovementWithSkills&&ownedByGame&&ownedChatRetainsKeyboard&&ownedChatCtrlZ&&periodicHotkeyRefresh&&leaseRecovery.Values.All(x=>x)&&nativeWarehouse.Values.All(x=>x),roomErrorsKeepPanelState,shortcutHints,hidden,frozen,visible,readOnly,invoked,moved,minimized,restored,dismissed,hotkeys,nativeHotkeys,keysWhileOpen,keysAfterCheckbox,keysAfterButton,keysAfterList,keysAfterWheel,keysAfterBackground,rowsRefreshed,allBasicKeys,unboundChords,heldMovementWithSkills,ownedByGame,ownedChatRetainsKeyboard,ownedChatCtrlZ,periodicHotkeyRefresh,leaseRecovery,nativeWarehouse,basicKeyCount=basicKeys.Length,ownedChatTrace,keyboardRows,chordRows,standaloneManager=false,realGameTouched=false}));
         }catch(Exception e){File.WriteAllText(Path.Combine(output,"error.txt"),e.ToString());}
     }
     static void PressKey(byte key){keybd_event(key,0,0,0);keybd_event(key,0,2,0);}
