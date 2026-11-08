@@ -620,7 +620,28 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 		return false
 	}
 	newLegs := make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
-	for key, binding := range wanted {
+	// ★ 端口分配必须稳定：newLegLocked 在端口池里从 portStart 顺序扫描，
+	// **谁先被遍历谁拿小端口**。下面原先直接 `range wanted`（map），而 Go 的
+	// map 遍历顺序每次随机，于是同一个两人队重开一次，owner→端口 的映射就可能
+	// 整个翻转。2026-11-08 00:07 / 00:08 线上实测：
+	//   第一次 owner2→30002、owner5→30001；
+	//   第二次 owner2→30001、owner5→30002。
+	// 客户端会缓存第一次拿到的端口，翻转后一条腿全程收不到包
+	// （`party UDP relay legs closed … idle_legs=1`），表现就是客户端弹
+	// "防火墙"提示、一个玩家被踢回基地。
+	// 按 (ownerID, peerID) 升序固定遍历顺序，端口映射就与建队先后无关。
+	orderedLegKeys := make([]currentPartyUDPRelayLegKey, 0, len(wanted))
+	for key := range wanted {
+		orderedLegKeys = append(orderedLegKeys, key)
+	}
+	sort.Slice(orderedLegKeys, func(i, j int) bool {
+		if orderedLegKeys[i].ownerID != orderedLegKeys[j].ownerID {
+			return orderedLegKeys[i].ownerID < orderedLegKeys[j].ownerID
+		}
+		return orderedLegKeys[i].peerID < orderedLegKeys[j].peerID
+	})
+	for _, key := range orderedLegKeys {
+		binding := wanted[key]
 		if existing := r.legs[key]; existing != nil && existing.binding == binding && existing.peerBinding == byID[key.peerID] {
 			continue
 		}
