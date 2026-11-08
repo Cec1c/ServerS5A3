@@ -106,12 +106,9 @@ func (s *Service) currentAccountAdventureGroupState(ctx context.Context, selecte
 	}
 	rows := make([]adventuregroup.Character, 0, len(characters))
 	for _, character := range characters {
-		rows = append(rows, adventuregroup.Character{Level: character.Level})
+		rows = append(rows, adventuregroup.Character{Level: character.Level, Deleted: character.Stats["delete_flag"] != 0})
 	}
-	summary, err := table.Calculate(rows)
-	if err != nil {
-		return accountAdventureGroupState{}, err
-	}
+	var earned uint64
 	if table.UsesAccountExperience() {
 		if repositories.Account == nil {
 			return accountAdventureGroupState{}, errAdventureGroupRosterUnavailable
@@ -123,10 +120,11 @@ func (s *Service) currentAccountAdventureGroupState(ctx context.Context, selecte
 		if !found || account.AccountID != accountID {
 			return accountAdventureGroupState{}, errAdventureGroupOwnerMismatch
 		}
-		summary, err = table.CalculateAccountExperience(account.HonorExp)
-		if err != nil {
-			return accountAdventureGroupState{}, err
-		}
+		earned = account.HonorExp
+	}
+	summary, err := table.CalculateCombinedExperience(rows, earned)
+	if err != nil {
+		return accountAdventureGroupState{}, err
 	}
 	return accountAdventureGroupState{
 		Characters: characters,
@@ -189,7 +187,11 @@ func (s *Service) projectCurrentAdventureAccountState(state accountAdventureGrou
 		// The full info path has just read the account again. Keep its level bar
 		// and capsule/shop fields on that same durable account snapshot.
 		var err error
-		state.Summary, err = s.adventureGroupTable.CalculateAccountExperience(account.HonorExp)
+		rows := make([]adventuregroup.Character, 0, len(state.Characters))
+		for _, character := range state.Characters {
+			rows = append(rows, adventuregroup.Character{Level: character.Level, Deleted: character.Stats["delete_flag"] != 0})
+		}
+		state.Summary, err = s.adventureGroupTable.CalculateCombinedExperience(rows, account.HonorExp)
 		if err != nil {
 			return accountAdventureGroupState{}, err
 		}

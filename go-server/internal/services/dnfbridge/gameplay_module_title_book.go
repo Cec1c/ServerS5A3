@@ -18,6 +18,18 @@ func titleBookGameplayModule() gameplayModuleDefinition {
 			getOpcode: handleGet,
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
+			uint16(dnfenum.CmdPacketOtherUserTitleBookList): defaultClassGameplayHandler(
+				"game-peer-title-book-blocked", "current_exe_peer_title_book_class_mismatch",
+				func(service *Service, session *gameSession, body []byte) error {
+					return service.handleCurrentPeerInspectionPage(session, body, false)
+				},
+			),
+			currentPeerBuffInspectCommand: defaultClassGameplayHandler(
+				"game-peer-buff-inspect-blocked", "current_exe_peer_buff_inspect_class_mismatch",
+				func(service *Service, session *gameSession, body []byte) error {
+					return service.handleCurrentPeerInspectionPage(session, body, true)
+				},
+			),
 			putOpcode: defaultClassGameplayHandler(
 				"game-title-book-put-blocked",
 				"current_exe_title_book_command_class_mismatch",

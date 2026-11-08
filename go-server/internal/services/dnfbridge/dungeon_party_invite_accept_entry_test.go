@@ -168,6 +168,7 @@ func (fixture *inviteAcceptDungeonFixture) selectDungeon(t *testing.T, session *
 	if err := fixture.service.handleDungeonSelectUpper(session, body); err != nil {
 		t.Fatalf("op16 dungeon select for char %d: %v", session.selectedCharacterID, err)
 	}
+	completeNativePartyAdmissionForTest(t, fixture.service, session)
 }
 
 // releaseSharedLoadingBarrier 把全队 op37 都递上去（同 dungeon_entry_packets_test.go）：

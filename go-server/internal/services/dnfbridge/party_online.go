@@ -585,9 +585,8 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 	}
 	// The client emits the same op121 twice for one click. If the live party has
 	// already published this sender as a non-leader under the requested party,
-	// the second packet is the repeat of an already committed transfer. Answering
-	// it with a failure or repainting the roster makes the just-updated window
-	// briefly show an error or refresh again.
+	// the second packet is the repeat of an already committed transfer. Do not
+	// repaint the roster; official-24.9 still needs its completion reply.
 	if snapshot.Leader != identity.character && identity.session != nil &&
 		identity.session.lastPublishedPartyLeader == snapshot.Leader &&
 		identity.session.lastPublishedPartyID == int(snapshot.ID) &&
@@ -599,11 +598,11 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 			"char_id", identity.character, "party_id", snapshot.ID, "selected_slot", body[0],
 			"leader_char_id", snapshot.Leader, "reason", "sender_is_not_leader")
 	}
-	// 客户端给的字节是队伍框里的槽位。先按前端的 slot 精确匹配；匹配不到时
-	// 再按"槽位顺序的下标"回退一次（0 基/1 基各试一次），避免因为槽位编号
-	// 与显示序号的差异导致移交被静默丢弃。
+	// official-24.9 sends a fixed slot. A departed member leaves a hole, so
+	// interpreting a missing slot as a sorted-row index could transfer authority
+	// to a different player. Older profiles retain their index compatibility.
 	target, matched := runtimePartySnapshotMemberBySlot(snapshot, body[0])
-	if !matched {
+	if !matched && s.options.currentClientVersion != "official-24.9" {
 		if ordered := runtimePartyMembersBySlot(snapshot); len(ordered) > 0 {
 			switch {
 			case int(body[0]) < len(ordered):
@@ -637,12 +636,19 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 	// empty roster, actor removal or formation handshake is needed.
 	state := s.publishRuntimePartySnapshot(result.Party)
 	s.syncRuntimePartyUDPRelay(state)
-	if err := s.sendChangeHostRuntimePartySnapshots(state); err != nil {
-		return err
+	// The manager transfer is already committed. A failed peer or town observer
+	// projection must not turn this request into a rejection or suppress the
+	// remaining members' rosters and the requester's completion reply.
+	publicationErr := s.sendChangeHostRuntimePartySnapshots(state)
+	if publicationErr != nil {
+		s.logGameEvent(session, "game-party-change-host-publication-incomplete",
+			"party_id", result.Party.ID,
+			"source_char_id", identity.character,
+			"new_leader_id", target.UserID,
+			"error", publicationErr.Error())
 	}
-	// Mark the former leader only after the committed projection was delivered.
-	// A write failure therefore remains retryable instead of being mistaken for a
-	// completed duplicate on the next op121.
+	// Mark the former leader after the full publication attempt, even if one
+	// receiver failed, so the next identical request remains an idempotent ACK.
 	if identity.session != nil {
 		identity.session.lastPublishedPartyLeader = target.UserID
 		identity.session.lastPublishedPartyID = int(result.Party.ID)
@@ -654,7 +660,11 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 		"old_party_id", result.Previous.ID,
 		"new_party_id", result.Party.ID,
 		"member_count", len(result.Party.Members),
+		"publication_complete", publicationErr == nil,
 		"wire_contract", "atomic_host_projection_without_clear_window_or_endpoint_rehandshake")
+	if s.options.currentClientVersion == "official-24.9" {
+		return s.sendGameUpperSuccess(session, changeHostOpcode, nil)
+	}
 	return nil
 }
 
@@ -673,6 +683,15 @@ func (s *Service) republishChangeHostIdempotent(
 	selectedSlot byte,
 	reason string,
 ) error {
+	responseFrames := 0
+	wireContract := "client_repeat_of_an_already_committed_host_change_is_a_silent_noop"
+	if s.options.currentClientVersion == "official-24.9" {
+		responseFrames = 1
+		wireContract = "client_repeat_of_an_already_committed_host_change_gets_success_only"
+		if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketChangeHost), nil); err != nil {
+			return err
+		}
+	}
 	s.logGameEvent(session, "game-party-change-host-idempotent",
 		"source_char_id", selectedCharacterID(session),
 		"leader_char_id", snapshot.Leader,
@@ -680,8 +699,8 @@ func (s *Service) republishChangeHostIdempotent(
 		"party_id", snapshot.ID,
 		"member_count", len(snapshot.Members),
 		"reason", reason,
-		"response_frames", 0,
-		"wire_contract", "client_repeat_of_an_already_committed_host_change_is_a_silent_noop")
+		"response_frames", responseFrames,
+		"wire_contract", wireContract)
 	return nil
 }
 
@@ -1938,6 +1957,27 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 	ownerSelection currentPartyFrameOwnerSelection,
 	batches ...*partyFrameCharacterBatch,
 ) (bool, error) {
+	return s.sendCurrentPartyRecordProjectionInContext(receiver, actor, state, source, beforeFrame, ownerSelection, 0, batches...)
+}
+
+// retainedRecordID is only used for an official dungeon survivor's kind2
+// record update. The actor remains a current member for identity and wire
+// fencing; the record target must already be absent from the retained party.
+func (s *Service) sendCurrentPartyRecordProjectionInContext(
+	receiver *gameSession, actor *gameSession, state alignedcmd.PartyState,
+	source string, beforeFrame func() error, ownerSelection currentPartyFrameOwnerSelection,
+	retainedRecordID uint16, batches ...*partyFrameCharacterBatch,
+) (bool, error) {
+	if retainedRecordID != 0 {
+		if s.options.currentClientVersion != "official-24.9" || state.PartyID <= 0 || actor != receiver {
+			return false, fmt.Errorf("invalid retained dungeon party record target %d", retainedRecordID)
+		}
+		for _, member := range runtimePartyMembers(state) {
+			if member.UserID == retainedRecordID {
+				return false, fmt.Errorf("retained dungeon record target %d is still a member", retainedRecordID)
+			}
+		}
+	}
 	batch := currentPartyFrameCharacterBatch(s, batches)
 	receiverIdentity, ok := s.boundGameSessionCharacterSnapshot(receiver)
 	if !ok {
@@ -2138,6 +2178,12 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		s.options.currentClientVersion == "official-24.9",
 		s.currentSceneActorRoute(),
 	)
+	bodySource := "current_exe_sub_1D64CA0_kind0_party_slot_table_with_cross_channel_identity_branch"
+	if retainedRecordID != 0 {
+		objectKey = currentSceneActorObjectKey(retainedRecordID)
+		body = buildCurrentSceneOp9RetainedPartyBody(objectKey, receiverOwnerChannel, localChannelID, projections, leaderSlot, s.currentSceneActorRoute())
+		bodySource = "current_exe_kind2_retained_dungeon_party_slot_table"
+	}
 	// The current party transport establishes the realtime roster and P2P
 	// endpoints before op9 binds the scene-side member table. Sending op9 first
 	// leaves the client in its "connecting" state and prevents teammate map
@@ -2170,7 +2216,7 @@ func (s *Service) sendCurrentPartyActorFrameProjectionInContext(
 		"body_len", len(body),
 		"msg_id", uint16(dnfenum.CmdPacketRecoverStamina),
 		"classification", 0,
-		"body_source", "current_exe_sub_1D64CA0_kind0_party_slot_table_with_cross_channel_identity_branch",
+		"body_source", bodySource,
 	}
 	if ownerSelection.Switch != "" {
 		// 副本队友 A/B 路径：把档位与"同一次发给队友的 op2 owner"一并打出来，

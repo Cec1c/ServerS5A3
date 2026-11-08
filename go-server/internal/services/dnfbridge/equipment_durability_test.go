@@ -126,6 +126,17 @@ func TestDurabilityAutoRepairUsesCommittedQuotaAndRepairAck(t *testing.T) {
 	if err := g.Account.Save(ctx, a); err != nil {
 		t.Fatal(err)
 	}
+	worn, _, _ := g.Equipment.Load(ctx, "99")
+	coat := worn.Entries["12"]
+	coat.SlotIndex, coat.ItemID = 14, 200014
+	coat.RawEntry = append([]byte(nil), coat.RawEntry...)
+	binary.LittleEndian.PutUint32(coat.RawEntry[2:6], uint32(coat.ItemID))
+	coat.Extra = map[string]string{"durability": "1"}
+	worn.Entries["14"] = coat
+	if err := g.Equipment.Save(ctx, worn); err != nil {
+		t.Fatal(err)
+	}
+	s.repairCostCatalog.evidence[coat.ItemID] = alignedcmd.RepairCostEvidence{EquipmentType: "[coat]", MaxDurability: 60}
 	sendDurabilityFrame(t, s, se, 10, []byte{12}, 1)
 	data := se.conn.(*bufferConn).write.Bytes()
 	var ids []uint16
@@ -134,7 +145,7 @@ func TestDurabilityAutoRepairUsesCommittedQuotaAndRepairAck(t *testing.T) {
 		ids = append(ids, p.Header.MsgID)
 		data = rest
 	}
-	if !reflect.DeepEqual(ids, []uint16{48, 23, 14}) {
+	if !reflect.DeepEqual(ids, []uint16{48, 23, 23, 14}) {
 		t.Fatalf("repair order=%v", ids)
 	}
 	character, _, _ := g.Character.Load(ctx, "99")
@@ -144,6 +155,15 @@ func TestDurabilityAutoRepairUsesCommittedQuotaAndRepairAck(t *testing.T) {
 	e, _, _ := g.Equipment.Load(ctx, "99")
 	if binary.LittleEndian.Uint16(e.Entries["12"].RawEntry[11:13]) != 48 {
 		t.Fatal("auto repair not persisted")
+	}
+	if binary.LittleEndian.Uint16(e.Entries["14"].RawEntry[11:13]) != 60 {
+		t.Fatal("other worn item not restored")
+	}
+	se.conn.(*bufferConn).write.Reset()
+	sendDurabilityFrame(t, s, se, 10, []byte{12}, 1)
+	character, _, _ = g.Character.Load(ctx, "99")
+	if se.conn.(*bufferConn).write.Len() != 0 || premium.DailyUsage(character, premium.DevilSlotAutoRepair, time.Now().UTC()) != 1 {
+		t.Fatal("duplicate automatic repair")
 	}
 }
 

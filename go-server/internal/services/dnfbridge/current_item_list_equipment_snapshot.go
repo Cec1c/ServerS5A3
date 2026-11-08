@@ -24,6 +24,7 @@ func (s *Service) buildCurrentEquippedItemListBodyForSession(ctx context.Context
 	if !known {
 		return nil, "", 0, false
 	}
+	projectCurrentAikenSupportTitleItemRows(session, entries)
 	patchedUsePeriods, usePeriodErr := s.applyCurrentPVFUsePeriodsToEntriesWithLoadedCatalog(ctx, entries)
 	if usePeriodErr != nil {
 		s.logPacketEvent("game-upper-current-equipment-use-period-wire-projection-failed",
@@ -56,6 +57,7 @@ func (s *Service) buildCurrentEquipmentItemUpdateBodyForSession(ctx context.Cont
 	if !known {
 		return nil, "", 0, false
 	}
+	projectCurrentAikenSupportTitleEquipmentUpdates(session, entries)
 	source := "equipment"
 	if _, err := s.applyCurrentAvatarPVFTimeToEquipmentUpdates(ctx, entries); err != nil {
 		s.logPacketEvent("game-upper-avatar-equipment-update-time-catalog-fallback", "char_id", session.selectedCharacterID, "err", err)

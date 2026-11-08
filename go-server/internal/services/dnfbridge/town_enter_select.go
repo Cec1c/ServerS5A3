@@ -463,6 +463,7 @@ func (s *Service) retireCompletedDungeonForTownAction(session *gameSession, requ
 	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
 	session.dungeon.runtime = nil
+	setCurrentAikenSupportTitleProjection(session, nil)
 	retirementSource := "completed_run_other_dungeon_selector"
 	if requireOpenRaidMap {
 		// Retry retains its old return owner until a new standard entry commits.

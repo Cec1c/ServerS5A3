@@ -87,6 +87,16 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 			"shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", err)
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
+	if request.ItemID == uint32(currentAikenSupportTitleOwnedID) {
+		identity, bound := s.boundGameSessionCharacterSnapshot(session)
+		// Native itemshop 247 sends actor=0. Bind the title to Shua's
+		// actual Aiken entrance scene (NPC 486) as well as its exact shelf.
+		if !bound || request.ShopContext != 247 || (request.ActorContext != 0 && request.ActorContext != 486) || s.validateUpgradeNPCScene(identity, 486) != nil {
+			s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID,
+				"shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", "Aiken title NPC scene unavailable")
+			return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := s.commitCurrentNPCShopBuy(ctx, session, shop, items, request)

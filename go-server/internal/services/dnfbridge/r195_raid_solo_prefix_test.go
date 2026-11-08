@@ -522,7 +522,7 @@ func TestR195RaidSoloPrefixLeaveProjectsSoloAndPreservesRaidAuthority(t *testing
 	wantRoster := map[uint16][2]byte{
 		f.leaderID: {0, 0},
 		f.memberID: {0, 0},
-		f.awayID:   {3, 0},
+		f.awayID:   {0, 0},
 	}
 	f.assertRosters(t, f.leaderConn.write.Bytes(), wantRoster)
 	f.assertRosters(t, f.memberConn.write.Bytes(), wantRoster)
@@ -584,7 +584,7 @@ func TestR195RaidSoloPrefixLeaveProjectsSoloAndPreservesRaidAuthority(t *testing
 	f.assertRosters(t, f.leaderConn.write.Bytes(), map[uint16][2]byte{
 		f.leaderID: {1, 0},
 		f.memberID: {1, 1},
-		f.awayID:   {3, 0},
+		f.awayID:   {0, 0},
 	})
 }
 

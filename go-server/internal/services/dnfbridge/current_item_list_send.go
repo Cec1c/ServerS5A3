@@ -439,6 +439,7 @@ func (s *Service) sendSelectedCurrentEquipmentSlotItemUpdates(session *gameSessi
 			"reason", "no_occupied_equipment_entries")
 		return nil
 	}
+	projectCurrentAikenSupportTitleItemRows(session, entries)
 	patchedUsePeriods, usePeriodErr := s.applyCurrentPVFUsePeriodsToEntriesWithLoadedCatalog(ctx, entries)
 	if usePeriodErr != nil {
 		s.logPacketEvent("game-upper-current-equipment-slot-items-use-period-wire-projection-failed",

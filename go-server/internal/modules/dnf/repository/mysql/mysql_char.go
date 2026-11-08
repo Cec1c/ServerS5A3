@@ -557,6 +557,17 @@ func (s *mysqlCharStore) ListByAccount(ctx context.Context, accountID string, li
 }
 
 func (s *mysqlCharStore) SwapCharacterSlots(ctx context.Context, accountID string, slotA, slotB int) error {
+	return s.swapCharacterSlots(ctx, accountID, slotA, slotB, "", "")
+}
+
+func (s *mysqlCharStore) SwapCharacterSlotsFromSnapshot(ctx context.Context, accountID string, left, right repository.CharacterRecord) error {
+	if left.AccountID != accountID || right.AccountID != accountID || left.CharacterID == "" || right.CharacterID == "" {
+		return repository.ErrCharacterSlotMissing
+	}
+	return s.swapCharacterSlots(ctx, accountID, left.Slot, right.Slot, left.CharacterID, right.CharacterID)
+}
+
+func (s *mysqlCharStore) swapCharacterSlots(ctx context.Context, accountID string, slotA, slotB int, expectedA, expectedB string) error {
 	if err := ctxErr(ctx); err != nil {
 		return err
 	}
@@ -564,7 +575,7 @@ func (s *mysqlCharStore) SwapCharacterSlots(ctx context.Context, accountID strin
 	if accountID == "" {
 		return db.ErrRecordKeyRequired
 	}
-	if slotA == slotB {
+	if slotA == slotB && expectedA == "" {
 		return nil
 	}
 	if slotA < 0 || slotA >= repository.DefaultCharacterSlotLimit || slotB < 0 || slotB >= repository.DefaultCharacterSlotLimit {
@@ -617,6 +628,12 @@ func (s *mysqlCharStore) SwapCharacterSlots(ctx context.Context, accountID strin
 	left, okLeft := found[slotA]
 	right, okRight := found[slotB]
 	now := s.router.now().UTC()
+	if expectedA != "" && (!okLeft || !okRight || left.id != expectedA || right.id != expectedB) {
+		return errors.Join(repository.ErrCharacterSlotMissing, tx.Rollback())
+	}
+	if slotA == slotB {
+		return tx.Commit()
+	}
 	if !okLeft || !okRight {
 		return tx.Commit()
 	}

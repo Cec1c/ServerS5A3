@@ -20,6 +20,7 @@ type currentAntonRewardRecipient struct {
 // Pending grants survive lobby removal. They remain in-process intents; asset
 // receipts and completed weekly counts are persisted by their domain owners.
 type currentAntonRewardFlow struct {
+	EntryRefund        *raid.EntryDebit
 	FiendWarRetryCount uint32
 	InstanceID         string
 	RaidKey            uint32
@@ -56,6 +57,10 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 		return nil
 	}
 	v := *f
+	if f.EntryRefund != nil {
+		debit := *f.EntryRefund
+		v.EntryRefund = &debit
+	}
 	v.Recipients = append([]currentAntonRewardRecipient(nil), f.Recipients...)
 	v.Rewards.Ranks = append([]raid.AntonRankRange(nil), f.Rewards.Ranks...)
 	v.Rewards.Choices = append([]raid.AntonRewardChoice(nil), f.Rewards.Choices...)
@@ -251,6 +256,9 @@ func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) err
 }
 
 func (s *Service) currentAntonFlowWeeklyCommittedLocked(f *currentAntonRewardFlow) bool {
+	if f.EntryRefund != nil {
+		return true
+	}
 	if !f.Single && f.Phase == 0 && (f.Mode != 3 || f.FiendWarRetryCount > 0) {
 		return true
 	}
@@ -318,6 +326,10 @@ func freezeCurrentAntonAutomaticCard(f *currentAntonRewardFlow, recipient curren
 		if err != nil {
 			return nil, raid.RewardCommand{}, err
 		}
+		plan, err = addCurrentAntonTeamTokenBonus(f, kind, catalog, plan, roll)
+		if err != nil {
+			return nil, raid.RewardCommand{}, err
+		}
 		card = &currentAntonRewardCard{Card: position, Group: recipient.Group, Plan: plan}
 		cards[recipient.CharacterID] = card
 	}
@@ -364,6 +376,12 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 		owners := append([]currentAntonRewardRecipient(nil), f.Recipients...)
 		movie := currentAntonMovieWindow(f)
 		s.raidMu.Unlock()
+		if f.EntryRefund != nil {
+			if err := s.advanceCurrentRaidEntryRefundFlow(f, catalog, repos, now); err != nil {
+				errors = append(errors, err)
+			}
+			continue
+		}
 		if f.FiendWarRetryCount > 0 {
 			if err := s.advanceCurrentFiendWarRetryFlow(f, catalog, repos, now); err != nil {
 				errors = append(errors, err)

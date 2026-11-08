@@ -458,6 +458,13 @@ func (s *Service) sendDungeonPartyPeerActorState(
 	receiver, actor *gameSession,
 	source string,
 ) error {
+	return s.sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, actor, source, nil)
+}
+
+// Initial entry has a frozen runtime/room guard before the post-placement run
+// key exists. Other members may finish placement concurrently; their run-key
+// publication is not a scene transition. Live replays retain the run-key guard.
+func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, actor *gameSession, source string, initialRoomCurrent func() bool) error {
 	if receiver == nil || actor == nil || actor.selectedCharacterID == 0 {
 		return nil
 	}
@@ -572,7 +579,11 @@ func (s *Service) sendDungeonPartyPeerActorState(
 		}
 		currentReceiverRun, currentReceiverHasRun := s.currentDungeonPartyRunKey(receiver)
 		currentActorRun, currentActorHasRun := s.currentDungeonPartyRunKey(actor)
-		if receiverHasRun != currentReceiverHasRun || actorHasRun != currentActorHasRun || receiverRun != currentReceiverRun || actorRun != currentActorRun {
+		if initialRoomCurrent != nil {
+			if !initialRoomCurrent() {
+				return fmt.Errorf("initial peer actor shared room changed")
+			}
+		} else if receiverHasRun != currentReceiverHasRun || actorHasRun != currentActorHasRun || receiverRun != currentReceiverRun || actorRun != currentActorRun {
 			return nil
 		}
 		// Keep creation and binding adjacent on the receiver's stream. A leave

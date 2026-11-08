@@ -142,6 +142,17 @@ func (s *memoryCharStore) ListByAccount(ctx context.Context, accountID string, l
 }
 
 func (s *memoryCharStore) SwapCharacterSlots(ctx context.Context, accountID string, slotA, slotB int) error {
+	return s.swapCharacterSlots(ctx, accountID, slotA, slotB, "", "")
+}
+
+func (s *memoryCharStore) SwapCharacterSlotsFromSnapshot(ctx context.Context, accountID string, left, right repository.CharacterRecord) error {
+	if left.AccountID != accountID || right.AccountID != accountID || left.CharacterID == "" || right.CharacterID == "" {
+		return repository.ErrCharacterSlotMissing
+	}
+	return s.swapCharacterSlots(ctx, accountID, left.Slot, right.Slot, left.CharacterID, right.CharacterID)
+}
+
+func (s *memoryCharStore) swapCharacterSlots(ctx context.Context, accountID string, slotA, slotB int, expectedA, expectedB string) error {
 	if err := ctxErr(ctx); err != nil {
 		return err
 	}
@@ -149,12 +160,14 @@ func (s *memoryCharStore) SwapCharacterSlots(ctx context.Context, accountID stri
 	if accountID == "" {
 		return db.ErrRecordKeyRequired
 	}
-	if slotA == slotB {
+	if slotA == slotB && expectedA == "" {
 		return nil
 	}
 	if slotA < 0 || slotA >= repository.DefaultCharacterSlotLimit || slotB < 0 || slotB >= repository.DefaultCharacterSlotLimit {
 		return repository.ErrCharacterSlotMissing
 	}
+	s.storyDigestMu.Lock()
+	defer s.storyDigestMu.Unlock()
 	records, err := s.ListByAccount(ctx, accountID, repository.DefaultCharacterSlotLimit)
 	if err != nil {
 		return err
@@ -162,23 +175,29 @@ func (s *memoryCharStore) SwapCharacterSlots(ctx context.Context, accountID stri
 	var left, right repository.CharacterRecord
 	leftFound, rightFound := false, false
 	for _, record := range records {
-		switch record.Slot {
-		case slotA:
+		if record.Slot == slotA {
 			left, leftFound = record, true
-		case slotB:
+		}
+		if record.Slot == slotB {
 			right, rightFound = record, true
 		}
+	}
+	if expectedA != "" && (!leftFound || !rightFound || left.CharacterID != expectedA || right.CharacterID != expectedB) {
+		return repository.ErrCharacterSlotMissing
+	}
+	if slotA == slotB {
+		return nil
 	}
 	if !leftFound || !rightFound {
 		return nil
 	}
 	left.Slot, right.Slot = slotB, slotA
-	if err := s.Save(ctx, left); err != nil {
+	if err := s.savePreservingStoryDigest(ctx, left); err != nil {
 		return err
 	}
-	if err := s.Save(ctx, right); err != nil {
+	if err := s.savePreservingStoryDigest(ctx, right); err != nil {
 		left.Slot = slotA
-		_ = s.Save(context.Background(), left)
+		_ = s.savePreservingStoryDigest(context.Background(), left)
 		return err
 	}
 	return nil

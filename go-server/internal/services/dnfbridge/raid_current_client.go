@@ -249,6 +249,7 @@ func buildCurrentRuntimeRaidMetadata(state runtimeRaidState, mode uint32) ([]byt
 
 func (s *Service) buildRuntimeRaidRosterBody(state runtimeRaidState) ([]byte, error) {
 	if s.options.currentClientVersion == "official-24.9" {
+		state = s.currentRaidLivePartyProjection(state)
 		return raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(state))
 	}
 	return raid.BuildMemberRefreshMode3Body(runtimeRaidMemberRefresh(state))

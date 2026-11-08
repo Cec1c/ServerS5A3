@@ -83,7 +83,11 @@ func TestDungeonPeerRetirementOrderKeepsSurvivorSlots(t *testing.T) {
 							final = i
 						}
 					}
-					if frame.msgID == 9 && len(frame.body) == 15 && frame.body[9] == 2 && frame.body[10] == 0 {
+					if frame.msgID == 9 && len(frame.body) >= 15 && frame.body[9] == 2 {
+						rows := retainedDepartureRows(t, frame.body, currentClientSelectedChannelID(peer))
+						if len(rows) != count-1 {
+							t.Fatal("departed record would clear surviving models")
+						}
 						if binary.LittleEndian.Uint16(frame.body[4:6]) != 100 || retiredOwners[frame.body[7]] {
 							t.Fatal("unexpected retired record")
 						}

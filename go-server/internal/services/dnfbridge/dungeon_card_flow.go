@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -417,6 +418,18 @@ func (s *Service) handleDungeonEplpCommand(session *gameSession, body []byte) er
 		}
 		return s.sendCurrentCompletedDungeonReturnToTown(session, runtime, transition, uint16(dnfenum.CmdPacketEplpCommand), "current_exe_op72_closed_luke_energy_return")
 	}
+	// Team result actions belong to the leader. Reject a follower before any
+	// success ACK, automatic reward action or exit-gate consumption; rejecting
+	// only in the downstream retry/selector helper leaves its result page in
+	// an accepted-exit state even though no transition was started.
+	if (shouldRetrySameDungeon || shouldOpenOtherSelector) && !retryRequesterIsLeader {
+		s.logGameEvent(session, "game-dungeon-card-exit-blocked",
+			"char_id", session.selectedCharacterID,
+			"request_value_a", request.ValueA, "request_value_b", request.ValueB,
+			"reason", "completed_party_action_requires_leader")
+		session.dungeon.mu.Unlock()
+		return nil
+	}
 	if runtime == nil || !runtime.settlementClearRewardSent {
 		fields := []any{
 			"char_id", session.selectedCharacterID,
@@ -770,18 +783,49 @@ func (s *Service) cancelCurrentDungeonCardAutoFlipLocked(
 // flow with the client's own proven request (same dungeon, difficulty, and
 // entry options) cloned from the retired runtime.
 func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *runtimeDungeonState, source string) error {
+	return s.retryCurrentCompletedDungeonWithNativeAdmission(session, runtime, source, nil)
+}
+
+// A rejected result action may reopen only its own still-attached exit gate.
+// In particular, a late native-admission refusal must not undo a town return
+// that started while the connection query was waiting. This helper is also
+// safe on the admission worker's fallback path without a session event queue.
+func reopenCurrentCompletedDungeonExit(session *gameSession, runtime *runtimeDungeonState) {
+	if session == nil || runtime == nil {
+		return
+	}
+	session.dungeon.mu.Lock()
+	defer session.dungeon.mu.Unlock()
+	if session.dungeon.runtime == runtime && !runtime.townReturnPending {
+		runtime.settlementCardExitAckSent = false
+	}
+}
+
+func (s *Service) retryCurrentCompletedDungeonWithNativeAdmission(session *gameSession, runtime *runtimeDungeonState, source string, proof *partyNativeConnectionProof) error {
 	if session == nil || session.selectedCharacterID == 0 || runtime == nil || runtime.Session == nil {
 		return nil
 	}
+	// A rejected retry is still on the completed result page. Once this attempt
+	// finishes (including restoration of any retired owners), allow another
+	// click. Keep the gate consumed only while its native query is pending or a
+	// fresh run/town-return owner has actually replaced this completed runtime.
+	nativePending := false
+	defer func() {
+		if nativePending {
+			return
+		}
+		reopenCurrentCompletedDungeonExit(session, runtime)
+	}()
 	// Refuse a nonleader before submitting to any peer event queue. Otherwise
 	// simultaneous retries can create leader->peer and peer->leader waits.
+	// The cleanup above also covers leadership/readiness lost after the ACK.
 	partyState := runtimePartyStateSnapshot(session)
 	if partyState.PartyID > 0 && len(runtimePartyMembers(partyState)) >= 2 && partyState.UserID != session.selectedCharacterID {
 		return nil
 	}
 	characterID := session.selectedCharacterID
 	session.dungeon.mu.Lock()
-	ready := s.currentCompletedDungeonActionReady(session, runtime)
+	ready := session.dungeon.runtime == runtime && s.currentCompletedDungeonActionReady(session, runtime)
 	session.dungeon.mu.Unlock()
 	if !ready {
 		s.logGameEvent(session, "game-dungeon-card-exit-retry-blocked",
@@ -807,11 +851,6 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 		if outcome == storySuccessorAcceptFailed {
 			// 真实存储/上下文失败：不退休旧 runtime、不进无任务迷宫、不扣入场资产。
 			// 退回本次一次性退出门，玩家再点一次即可重试（接取本身是幂等的）。
-			session.dungeon.mu.Lock()
-			if session.dungeon.runtime == runtime {
-				runtime.settlementCardExitAckSent = false
-			}
-			session.dungeon.mu.Unlock()
 			s.logGameEvent(session, "game-dungeon-card-story-successor-retry-armed",
 				"char_id", characterID,
 				"dungeon_id", dungeonID,
@@ -831,11 +870,6 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 			if err := s.sendCurrentActiveQuestSnapshotChecked(session, "current_exe_op72_story_next_quest_after_accept"); err != nil {
 				// 投影没发出去就不能带着「DB 有任务、客户端没有」继续退休/入场：
 				// 退回一次性退出门，重试时接取幂等并补发同一投影。
-				session.dungeon.mu.Lock()
-				if session.dungeon.runtime == runtime {
-					runtime.settlementCardExitAckSent = false
-				}
-				session.dungeon.mu.Unlock()
 				s.logGameEvent(session, "game-dungeon-card-story-successor-snapshot-failed-retry-armed",
 					"char_id", characterID,
 					"dungeon_id", dungeonID,
@@ -855,11 +889,6 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 	}
 	nextLukeDungeonID, hasNextLukeDungeon, lukeErr := s.resolveCurrentLukeNormalNextDungeon(runtime)
 	if lukeErr != nil {
-		session.dungeon.mu.Lock()
-		if session.dungeon.runtime == runtime {
-			runtime.settlementCardExitAckSent = false
-		}
-		session.dungeon.mu.Unlock()
 		s.logGameEvent(session, "game-dungeon-card-luke-next-retry-armed",
 			"char_id", characterID,
 			"dungeon_id", dungeonID,
@@ -870,7 +899,48 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 			"error", lukeErr)
 		return nil
 	}
+	enterDungeonID := dungeonID
+	enterReason := "retired_runtime_cloned_op16_request"
+	if hasNextStory && nextDungeonID != dungeonID {
+		enterDungeonID = nextDungeonID
+		enterReason = "pvf_quest_chain_next_dungeon"
+	} else if hasNextLukeDungeon {
+		enterDungeonID = int64(nextLukeDungeonID)
+		enterReason = "pvf_luke_normal_sequence_next_dungeon"
+	}
+	request.DungeonID = uint32(enterDungeonID)
+	// Readiness is asynchronous, but retiring/restoring completed runs is one
+	// synchronous transaction. Keep every completed owner intact while waiting;
+	// only the bound leader continuation may retire them and commit a new run.
+	if proof == nil {
+		deferred, admissionErr := s.deferPartyNativeConnectionAdmissionWithContinuation(session,
+			encodeCurrentDungeonSelectRequest(request), s.runtimePartyStateForSession(session), nil, false, nil,
+			func(p *partyNativeConnectionProof) error {
+				return s.retryCurrentCompletedDungeonWithNativeAdmission(session, runtime, source, p)
+			}, func(cause error) error {
+				reopenCurrentCompletedDungeonExit(session, runtime)
+				s.logGameEvent(session, "game-dungeon-card-exit-native-admission-refused", "reason", "completed_run_preserved", "error", cause)
+				return nil
+			})
+		if admissionErr != nil {
+			return nil
+		}
+		if deferred {
+			nativePending = true
+			return nil
+		}
+	} else if !proof.ready.Load() || !s.partyNativeProofCurrent(proof) {
+		return nil
+	}
 	owners, ownerErr := s.captureCurrentRaidRetryReturnOwners(session, runtime)
+	if errors.Is(ownerErr, errCompletedPartyActionNotReady) {
+		// Capturing return owners is read-only. A peer still settling or leaving
+		// is a refused retry, not a fatal error for the leader's packet loop.
+		s.logGameEvent(session, "game-dungeon-card-exit-retry-blocked",
+			"char_id", characterID, "dungeon_id", dungeonID, "source", source,
+			"reason", "completed_return_owner_not_ready", "error", ownerErr)
+		return nil
+	}
 	if ownerErr != nil {
 		return ownerErr
 	}
@@ -906,23 +976,6 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 			"source", source)
 		return nil
 	}
-	enterDungeonID := dungeonID
-	enterReason := "retired_runtime_cloned_op16_request"
-	if hasNextStory && nextDungeonID != dungeonID {
-		// Story context (the dialog's 开始下个任务): the completed maze is
-		// quest-connected, so the client's own chain leads to the next quest's
-		// dungeon instead of a same-dungeon retry. Difficulty/entry options
-		// still come from the finished run.
-		enterDungeonID = nextDungeonID
-		enterReason = "pvf_quest_chain_next_dungeon"
-	} else if hasNextLukeDungeon {
-		// Ordinary Luke sequence 42 explicitly enables next-dungeon auto entry.
-		// The target was resolved before retirement, so a malformed sequence or
-		// missing world-map definition never detaches the completed run.
-		enterDungeonID = int64(nextLukeDungeonID)
-		enterReason = "pvf_luke_normal_sequence_next_dungeon"
-	}
-	request.DungeonID = uint32(enterDungeonID)
 	s.logGameEvent(session, "game-dungeon-card-exit-retry-enter",
 		"char_id", characterID,
 		"dungeon_id", dungeonID,
@@ -938,7 +991,7 @@ func (s *Service) retryCurrentCompletedDungeon(session *gameSession, runtime *ru
 		"area_id", origin.AreaID,
 		"source", source,
 		"body_source", enterReason)
-	return s.handleDungeonSelectUpper(session, encodeCurrentDungeonSelectRequest(request))
+	return s.handleDungeonSelectUpperPlannedWithNativeAdmission(session, encodeCurrentDungeonSelectRequest(request), nil, true, nil, false, proof)
 }
 
 // resolveNextStoryQuestDungeon resolves the story chain's next dungeon after a

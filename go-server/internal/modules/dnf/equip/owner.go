@@ -377,6 +377,15 @@ func (o *Owner) repairSingleEquipped(
 	}
 	entry.Extra["durability"] = strconv.FormatInt(maxDurability, 10)
 	record.Entries[key] = entry
+	if freeRepair {
+		repaired, repairErr := repairAllWornDurability(&record, cmd.SlotIndex, costResolver, time.Now().UTC())
+		if repairErr != nil {
+			return RepairResult{}, repairErr
+		}
+		for _, restored := range repaired {
+			result.RepairedEquipmentSlots = append(result.RepairedEquipmentSlots, restored.SlotIndex)
+		}
+	}
 	record.UpdatedAt = time.Now()
 	if err := dnfrepo.SaveEquipmentFields(ctx, equipment, record, dnfrepo.EquipmentFieldEntries); err != nil {
 		return RepairResult{}, err
@@ -385,7 +394,7 @@ func (o *Owner) repairSingleEquipped(
 	result.UpdatedGold = gold - cost
 	result.Changed = true
 	result.FreeRepair = freeRepair
-	result.RepairedEquipmentSlots = []int16{cmd.SlotIndex}
+	result.RepairedEquipmentSlots = append([]int16{cmd.SlotIndex}, result.RepairedEquipmentSlots...)
 	if err := dnfrepo.RecordCharacterGold(ctx, characters, character, dnfrepo.ActivityGoldRepair, result.Cost, character.UpdatedAt); err != nil {
 		return RepairResult{}, err
 	}

@@ -57,6 +57,8 @@ func TestRuntimeDeltasDisposableMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("first-quest-concurrency-and-rollback", func(t *testing.T) { runFirstQuestDeltaRealDB(t, ctx, db, name, g) })
+	t.Run("raid-failure-refund-mail", func(t *testing.T) { runRaidFailureRefundSQL(t, ctx, db, name, g) })
 	t.Run("progression-authority-and-rollback", func(t *testing.T) {
 		runProgressionRealDBCase(t, ctx, db, name, g)
 	})

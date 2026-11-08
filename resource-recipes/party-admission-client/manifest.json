@@ -1,0 +1,11 @@
+{
+  "kind": "exe-only",
+  "inputSha256": "7861cd3c546e73651ddfd28047686a29e580f5bebd38b1a7fd681d3b36fc24e0",
+  "outputSha256": "735ed3e96f178bd2b546be18ff38ba4a578c951092b1d97a352ab73db7333d8b",
+  "bytes": 112607232,
+  "recipe": "build_candidate.py",
+  "requiresPairedServerAdmission": true,
+  "pvfChanged": false,
+  "npkChanged": false,
+  "gameplayAcceptance": "pending"
+}

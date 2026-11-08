@@ -45,18 +45,17 @@ func TestRealPVFAntonRewardPlansAndAtomicGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[uint32]map[uint32]uint32{
-		10304474:  privateRaidExpectedZero(10304474, 1),
-		10304481:  privateRaidExpectedZero(10304481, 1),
-		10304479:  privateRaidExpectedZero(10304479, 1),
-		10304483:  privateRaidExpectedZero(10304483, 1),
-		10304484:  privateRaidExpectedZero(10304484, 1),
-		10304475:  privateRaidExpectedZero(10304475, 1),
-		10304480:  privateRaidExpectedZero(10304480, 1),
-		10157783:  privateRaidExpectedZero(10157783, 1),
-		10304485:  privateRaidExpectedZero(10304485, 1),
-		10304486:  privateRaidExpectedZero(10304486, 1),
-		10304487:  privateRaidExpectedZero(10304487, 1),
-		990027101: {2681917: 2000},
+		10304474: privateRaidExpectedZero(10304474, 1),
+		10304481: privateRaidExpectedZero(10304481, 1),
+		10304479: privateRaidExpectedZero(10304479, 1),
+		10304483: privateRaidExpectedZero(10304483, 1),
+		10304484: privateRaidExpectedZero(10304484, 1),
+		10304475: privateRaidExpectedZero(10304475, 1),
+		10304480: privateRaidExpectedZero(10304480, 1),
+		10157783: privateRaidExpectedZero(10157783, 1),
+		10304485: privateRaidExpectedZero(10304485, 1),
+		10304486: privateRaidExpectedZero(10304486, 1),
+		10304487: privateRaidExpectedZero(10304487, 1),
 	}
 
 	seen := map[uint32]bool{}

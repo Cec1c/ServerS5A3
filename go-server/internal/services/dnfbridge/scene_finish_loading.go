@@ -251,10 +251,12 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 	// of dungeon actor initialization. Replaying it after op37 opens that panel
 	// over the dungeon and can replace live room actor state, so this boundary
 	// deliberately emits only the skill refresh and current HP/MP placement.
-	placementBody := buildCurrentSceneActorPlacementBody()
+	placementBody := s.currentLocalDungeonPlacementBody(session)
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRequestBlacklist), placementBody, 0); err != nil {
 		return err
 	}
+	s.logGameEvent(session, "game-dungeon-local-slot-placement",
+		"char_id", charID, "slot", placementBody[0], "source", source)
 	// Only PVF tutorial scenes defer state 1 to this boundary.  Ordinary
 	// dungeons sent it after their proven mode0/mode1 actor binding above;
 	// replaying it here suppresses the native GetItem writer on the current EXE.

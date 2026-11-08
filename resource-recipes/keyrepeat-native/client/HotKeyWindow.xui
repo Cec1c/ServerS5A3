@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ROOT ScriptVer="1.0">
+    <TOOL ToolVer="1.0.0.1" />
+    <POPUPWINDOW AlignOffset="VECTOR:0, 0" AnchorType="NUM:0" GrayLine="NUM:0" GuideLinkIndex="NUM:0" HAlign="STR:CENTER" IsShowCloseButton="BOOL:false" IsShowTitleBar="BOOL:false" Size="VECTOR:635, 467" TailPos="NUM:0" TileOffset_="VECTOR:11, 11" TileSize="VECTOR:12, 13" TileStartingFrame="NUM:97" TileType="NUM:5" TitleAccessoryType="NUM:7" TitleStrStartPos="NUM:0" UserImagePackName="STR:Interface/WindowCommon.img" VAlign="STR:MIDDLE" />
+    <CONTROL>
+        <CNBoardImage BoardDrawType="STR:SCALE" BottomImgIndex="NUM:220" CenterImgIndex="NUM:217" HeightUnit="NUM:208" ID="STR:1" ImagePack="STR:Interface/WindowCommon.img" LeftBottomImgIndex="NUM:219" LeftImgIndex="NUM:216" LeftTopImgIndex="NUM:213" Pos="VECTOR:-1, 12" RightBottomIndex="NUM:221" RightImgIndex="NUM:218" RightTopImgIndex="NUM:215" Size="VECTOR:626, 208" TopImgIndex="NUM:214" WidthUnit="NUM:626">
+            <CNImagePattern ID="STR:-1" ImagePack="STR:Interface/WindowCommon.img" ImagePattenOption="NUM:0" Pos="VECTOR:2, 21" Size="VECTOR:0, 0" imagePattenFirstImgIndex="NUM:158" imagePattenLength="NUM:622" imagePattenSecondImgIndex="NUM:158" imagePattenThirdImgIndex="NUM:158" />
+        </CNBoardImage>
+        <CNBoardImage BoardDrawType="STR:SCALE" BottomImgIndex="NUM:220" CenterImgIndex="NUM:217" HeightUnit="NUM:160" ID="STR:-1" ImagePack="STR:Interface/WindowCommon.img" LeftBottomImgIndex="NUM:219" LeftImgIndex="NUM:216" LeftTopImgIndex="NUM:213" Pos="VECTOR:-1, 269" RightBottomIndex="NUM:221" RightImgIndex="NUM:218" RightTopImgIndex="NUM:215" Size="VECTOR:626, 160" TopImgIndex="NUM:214" WidthUnit="NUM:626" />
+        <CNImagePattern ID="STR:-1" ImagePack="STR:Interface/WindowCommon.img" ImagePattenOption="NUM:1" Pos="VECTOR:304, 275" Size="VECTOR:0, 0" imagePattenFirstImgIndex="NUM:256" imagePattenLength="NUM:147" imagePattenSecondImgIndex="NUM:256" imagePattenThirdImgIndex="NUM:256" />
+        <CNTabGroup ID="STR:0" Pos="VECTOR:-4, 240" Size="VECTOR:60, 20" TabType="STR:Line" selectTabIndex="NUM:0">
+            <CNTab ButtonName="STR:查看全部" ButtonPos="VECTOR:0, 0" ButtonSize="VECTOR:64, 21" Size="VECTOR:0, 0" TabButtonDrawType="STR:PatternDraw">
+                <CNTree ID="STR:2" Pos="VECTOR:-1, 31" Size="VECTOR:0, 0" TreeHeight="NUM:156" TreeWidth="NUM:620" treeColorB="NUM:255" treeColorG="NUM:255" treeColorR="NUM:255" />
+            </CNTab>
+            <CNTab ButtonName="STR:系统" ButtonPos="VECTOR:64, 0" ButtonSize="VECTOR:64, 21" DisableColor="COLOR:255, 240, 0" DownColor="COLOR:255, 240, 0" OverColor="COLOR:255, 240, 0" Size="VECTOR:0, 0" TabButtonDrawType="STR:PatternDraw" UpColor="COLOR:255, 240, 0">
+                <CNTree ID="STR:3" IsVisible="BOOL:false" Pos="VECTOR:-1, 31" Size="VECTOR:0, 0" TreeHeight="NUM:156" TreeWidth="NUM:620" treeColorB="NUM:255" treeColorG="NUM:255" treeColorR="NUM:255" />
+            </CNTab>
+            <CNTab ButtonName="STR:角色" ButtonPos="VECTOR:128, 0" ButtonSize="VECTOR:64, 21" DisableColor="COLOR:179, 107, 255" DownColor="COLOR:179, 107, 255" OverColor="COLOR:179, 107, 255" Size="VECTOR:0, 0" TabButtonDrawType="STR:PatternDraw" UpColor="COLOR:179, 107, 255">
+                <CNTree ID="STR:12" IsVisible="BOOL:false" Pos="VECTOR:-1, 31" Size="VECTOR:0, 0" TreeHeight="NUM:156" TreeWidth="NUM:620" treeColorB="NUM:255" treeColorG="NUM:255" treeColorR="NUM:255" />
+            </CNTab>
+            <CNTab ButtonName="STR:技能" ButtonPos="VECTOR:192, 0" ButtonSize="VECTOR:64, 21" DisableColor="COLOR:255, 149, 92" DownColor="COLOR:255, 149, 92" OverColor="COLOR:255, 149, 92" Size="VECTOR:0, 0" TabButtonDrawType="STR:PatternDraw" UpColor="COLOR:255, 149, 92">
+                <CNTree ID="STR:4" IsVisible="BOOL:false" Pos="VECTOR:-1, 31" Size="VECTOR:0, 0" TreeHeight="NUM:156" TreeWidth="NUM:620" treeColorB="NUM:255" treeColorG="NUM:255" treeColorR="NUM:255" />
+            </CNTab>
+            <CNTab ButtonName="STR:聊天快捷键" ButtonPos="VECTOR:256, 0" ButtonSize="VECTOR:64, 21" DisableColor="COLOR:150, 255, 30" DownColor="COLOR:150, 255, 30" OverColor="COLOR:150, 255, 30" Size="VECTOR:0, 0" TabButtonDrawType="STR:PatternDraw" UpColor="COLOR:150, 255, 30">
+                <CNTree ID="STR:5" IsVisible="BOOL:false" Pos="VECTOR:-1, 31" Size="VECTOR:0, 0" TreeHeight="NUM:156" TreeWidth="NUM:620" treeColorB="NUM:255" treeColorG="NUM:255" treeColorR="NUM:255" />
+            </CNTab>
+        </CNTabGroup>
+        <IControl ID="STR:14" Pos="VECTOR:-1, 272" Size="VECTOR:0, 0" />
+        <CNUIControlImage ID="STR:-1" ImagePack="STR:Interface2/keyoption/keyoption.img" Pos="VECTOR:367, 20" Size="VECTOR:10, 10" imageAutoResize="BOOL:false" imageIndex="NUM:120" />
+        <CNUIControlImage ID="STR:-1" ImagePack="STR:Interface2/keyoption/keyoption.img" Pos="VECTOR:426, 20" Size="VECTOR:10, 10" imageAutoResize="BOOL:false" imageIndex="NUM:137" />
+        <CNUIControlImage ID="STR:-1" ImagePack="STR:Interface2/keyoption/keyoption.img" Pos="VECTOR:484, 20" Size="VECTOR:10, 10" imageAutoResize="BOOL:false" imageIndex="NUM:121" />
+        <CNUIControlImage ID="STR:-1" ImagePack="STR:Interface2/keyoption/keyoption.img" Pos="VECTOR:554, 20" Size="VECTOR:10, 10" imageAutoResize="BOOL:false" imageIndex="NUM:122" />
+        <CNUIControlText ID="STR:-1" Pos="VECTOR:379, 20" Size="VECTOR:79, 11" TextColor="COLOR:255, 240, 0" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:系统" stringLenth="NUM:60" />
+        <CNUIControlText ID="STR:-1" Pos="VECTOR:438, 20" Size="VECTOR:79, 11" TextColor="COLOR:179, 107, 255" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:角色" stringLenth="NUM:60" />
+        <CNUIControlText ID="STR:-1" Pos="VECTOR:496, 20" Size="VECTOR:79, 11" TextColor="COLOR:255, 149, 92" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:技能" stringLenth="NUM:60" />
+        <CNUIControlText ID="STR:-1" Pos="VECTOR:566, 20" Size="VECTOR:79, 11" TextColor="COLOR:150, 255, 30" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:聊天快捷键" stringLenth="NUM:60" />
+        <CNButton ButtonDrawType="STR:NORMALIMAGE" ButtonName="STR:默认" DisableImg="NUM:15" DownImg="NUM:14" FontTypeStr="STR:system font" ID="STR:6" ImagePack="STR:interface/WindowCommon.img" IsFontShadow="BOOL:true" OverImg="NUM:13" Pos="VECTOR:0, 430" Size="VECTOR:56, 23" UpImg="NUM:12" />
+        <CNButton ButtonDrawType="STR:NORMALIMAGE" ButtonName="STR:保存" DisableImg="NUM:15" DownImg="NUM:14" FontTypeStr="STR:system font" ID="STR:7" ImagePack="STR:interface/WindowCommon.img" IsFontShadow="BOOL:true" OverImg="NUM:13" Pos="VECTOR:452, 430" Size="VECTOR:56, 23" UpImg="NUM:12" />
+        <CNButton ButtonDrawType="STR:NORMALIMAGE" ButtonName="STR:取消" DisableImg="NUM:15" DownImg="NUM:14" FontTypeStr="STR:system font" ID="STR:8" ImagePack="STR:interface/WindowCommon.img" IsFontShadow="BOOL:true" OverImg="NUM:13" Pos="VECTOR:510, 430" Size="VECTOR:56, 23" UpImg="NUM:12" />
+        <CNButton ButtonDrawType="STR:NORMALIMAGE" ButtonName="STR:关闭" DisableImg="NUM:15" DownImg="NUM:14" FontTypeStr="STR:system font" ID="STR:9" ImagePack="STR:interface/WindowCommon.img" IsFontShadow="BOOL:true" OverImg="NUM:13" Pos="VECTOR:568, 430" Size="VECTOR:56, 23" UpImg="NUM:12" />
+        <CNCheckBox CheckImgIndex="NUM:51" DisCheckImgIndex="NUM:261" DisableImgIndex="NUM:52" ID="STR:10" ImagePack="STR:interface/WindowCommon.img" IsCheck="BOOL:false" IsDrawNewStyleTitle="BOOL:true" OverImgIndex="NUM:50" Pos="VECTOR:493, 239" Size="VECTOR:22, 15" UncheckImgIndex="NUM:49" />
+        <CNUIControlText ID="STR:11" Pos="VECTOR:514, 241" Size="VECTOR:27, 11" TextColor="COLOR:255, 177, 0" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:hc_HotKeyWindow_42" stringLenth="NUM:150" />
+        <IControl ID="STR:13" Pos="VECTOR:-1, 12" Size="VECTOR:0, 0">
+            <UIContainer ModifiyValue="NUM:-1" Size="VECTOR:0, 0" UIPath="STR:UI/HotKey/Keyboard.xui" />
+        </IControl>
+        <CNUIControlText ID="STR:16" Pos="VECTOR:402, 240" Size="VECTOR:27, 11" TextColor="COLOR:255, 177, 0" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:普通攻击连发" stringLenth="NUM:150" />
+        <CNCheckBox CaptionType="STR:Right" CheckImgIndex="NUM:51" DisCheckImgIndex="NUM:261" DisableImgIndex="NUM:52" ID="STR:15" ImagePack="STR:interface/WindowCommon.img" IsCheck="BOOL:false" IsDrawNewStyleTitle="BOOL:true" OverImgIndex="NUM:50" Pos="VECTOR:381, 238" Size="VECTOR:104, 15" UncheckImgIndex="NUM:49" />
+        <CNCheckBox CaptionType="STR:Right" CheckImgIndex="NUM:51" DisCheckImgIndex="NUM:261" DisableImgIndex="NUM:52" ID="STR:17" ImagePack="STR:interface/WindowCommon.img" IsCheck="BOOL:false" IsDrawNewStyleTitle="BOOL:true" OverImgIndex="NUM:50" Pos="VECTOR:493, 224" Size="VECTOR:104, 15" UncheckImgIndex="NUM:49">
+            <CNUIControlText ID="STR:18" Pos="VECTOR:21, 2" Size="VECTOR:27, 11" TextColor="COLOR:255, 177, 0" font="STR:system font" isBold="BOOL:false" isOutLine="BOOL:false" isSortToEachLine="BOOL:false" lineGap="NUM:0" lineNum="NUM:0" sortType="NUM:0" string="STR:扩展技能栏" stringLenth="NUM:150" />
+        </CNCheckBox>
+    </CONTROL>
+</ROOT>
+ 

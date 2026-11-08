@@ -25,6 +25,13 @@ func (r *csharpLegacyUserInfoReader) writeNativeBuffSwapUserInfo(w *packetWriter
 	if err != nil {
 		state, rows = buffswap.State{}, nil
 	}
+	writeNativeBuffSwapRows(w, state, rows)
+	if r != nil && r.service != nil && r.session != nil {
+		r.service.logGameEvent(r.session, "game-buff-swap-native-userinfo", "char_id", r.characterID, "skill", state.Skill, "rows", len(rows), "error", err)
+	}
+}
+
+func writeNativeBuffSwapRows(w *packetWriter, state buffswap.State, rows []nativeBuffSwapItemRow) {
 	w.writeUint16(state.Skill)
 	w.writeByte(byte(len(rows)))
 	for _, row := range rows {
@@ -35,9 +42,6 @@ func (r *csharpLegacyUserInfoReader) writeNativeBuffSwapUserInfo(w *packetWriter
 		if row.rawBlocks {
 			writeCurrentAvatarItemListOptionalBlobs(w, row.entry)
 		}
-	}
-	if r != nil && r.service != nil && r.session != nil {
-		r.service.logGameEvent(r.session, "game-buff-swap-native-userinfo", "char_id", r.characterID, "skill", state.Skill, "rows", len(rows), "error", err)
 	}
 }
 

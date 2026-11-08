@@ -223,6 +223,23 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 		writer.writeByte(0)
 	} // native actor metadata +0x55, before member count
 
+	writeCurrentSceneOp9PartyRoster(&writer, ownerChannel, localChannel, members, partyLeaderSlot, official249)
+	return writer.bytes()
+}
+
+// Kind2 changes only the party record's member table. A surviving dungeon
+// must retain its members even in the record named after the departing actor:
+// that record can still own the local actor's party binding.
+func buildCurrentSceneOp9RetainedPartyBody(sceneObjectKey uint16, ownerChannel byte, localChannel int, members []currentSceneOp9PartyMemberProjection, partyLeaderSlot byte, serverRoute byte) []byte {
+	header := buildCurrentSceneOp9ActorRemovalBodyInContext(sceneObjectKey, ownerChannel, serverRoute)
+	header[9] = 2
+	var writer packetWriter
+	writer.writeBytes(header)
+	writeCurrentSceneOp9PartyRoster(&writer, ownerChannel, localChannel, members, partyLeaderSlot, true)
+	return writer.bytes()
+}
+
+func writeCurrentSceneOp9PartyRoster(writer *packetWriter, ownerChannel byte, localChannel int, members []currentSceneOp9PartyMemberProjection, partyLeaderSlot byte, official249 bool) {
 	members = currentSceneOp9PartyMembers(members)
 	writer.writeByte(byte(len(members)))
 	for _, member := range members {
@@ -231,8 +248,7 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 		// 判据是"记录 owner 字节 vs 客户端当前频道"（int 比较；会话频道 > 255 时任何
 		// u8 都不可能相等 ⇒ 一律写身份块）。见函数头注释。
 		if int(ownerChannel) != localChannel {
-			writer.writeByte(member.Job)
-			writer.writeByte(member.Level)
+			writeCurrentSceneOp9MemberLevelJob(writer, member.Level, member.Job, official249)
 			writer.writeByte(member.Grow)
 			writer.writeByte(0)
 			if official249 {
@@ -252,7 +268,22 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	writer.writeByte(partyLeaderSlot)
 	writer.writeByte(0)
 	writer.writeByte(0)
-	return writer.bytes()
+}
+
+// Native 24.9 NOTI9 reads the first byte into [ebp-368] and the second
+// into [ebp-381] at 2016BC1/2016BCF. Its new-wrapper branch stores the first
+// in profile+14 (encoded level, 2016FC3) and the second in profile+4 (job,
+// 2017037). The existing-wrapper branch does not initialize these fields,
+// so reversing them can affect only receivers missing that wrapper.
+// Keep the historic vendor profile's byte order independent.
+func writeCurrentSceneOp9MemberLevelJob(writer *packetWriter, level, job byte, official249 bool) {
+	if official249 {
+		writer.writeByte(level)
+		writer.writeByte(job)
+		return
+	}
+	writer.writeByte(job)
+	writer.writeByte(level)
 }
 
 // currentSceneOp9PartyMemberSlot 返回某个成员在队伍槽位表里的固定槽位，

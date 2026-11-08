@@ -30,12 +30,13 @@ type DecreaseDurabilityCommand struct {
 }
 
 type DecreaseDurabilityResult struct {
-	Entry        dnfrepo.EquipmentEntry
-	Previous     uint16
-	Current      uint16
-	Changed      bool
-	AutoRepaired bool
-	Gold         int64
+	Entry           dnfrepo.EquipmentEntry
+	Previous        uint16
+	Current         uint16
+	Changed         bool
+	AutoRepaired    bool
+	Gold            int64
+	RepairedEntries []dnfrepo.EquipmentEntry
 }
 
 func NewDurabilityOwner(repos dnfrepo.Group) (*DurabilityOwner, error) {
@@ -142,6 +143,7 @@ func (o *DurabilityOwner) Decrease(ctx context.Context, cmd DecreaseDurabilityCo
 			}
 		}
 		changed := old != current || auto || rawOld != old
+		var repaired []dnfrepo.EquipmentEntry
 		if changed {
 			binary.LittleEndian.PutUint16(entry.RawEntry[offset:offset+2], current)
 			if entry.Extra == nil {
@@ -159,12 +161,21 @@ func (o *DurabilityOwner) Decrease(ctx context.Context, cmd DecreaseDurabilityCo
 				}
 			}
 			record.Entries[key] = entry
+			if auto {
+				repaired, err = repairAllWornDurability(&record, cmd.Slot, resolve, now)
+				if err != nil {
+					return err
+				}
+				// The trigger row was already restored above; it still needs
+				// its committed client repair notification.
+				repaired = append([]dnfrepo.EquipmentEntry{entry}, repaired...)
+			}
 			record.UpdatedAt = now
 			if err := dnfrepo.SaveEquipmentFields(ctx, equipment, record, dnfrepo.EquipmentFieldEntries); err != nil {
 				return err
 			}
 		}
-		result = DecreaseDurabilityResult{Entry: entry, Previous: old, Current: current, Changed: changed, AutoRepaired: auto, Gold: character.Stats["gold"]}
+		result = DecreaseDurabilityResult{Entry: entry, Previous: old, Current: current, Changed: changed, AutoRepaired: auto, Gold: character.Stats["gold"], RepairedEntries: repaired}
 		return nil
 	})
 	if err != nil {

@@ -194,6 +194,7 @@ func (s *Service) commitCurrentAntonHatcheryTransferGroup(leader *gameSession, r
 			session.dungeon.runToken = nextCurrentDungeonDeathGeneration(session.dungeon.runToken)
 			r.lifecycleToken = session.dungeon.runToken
 			session.dungeon.runtime = r
+			setCurrentAikenSupportTitleProjection(session, r)
 			member.committed = true
 		}
 		return nil

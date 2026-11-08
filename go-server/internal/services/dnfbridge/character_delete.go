@@ -154,11 +154,14 @@ func (s *Service) handleGameDeleteCharacter(session *gameSession, body []byte) e
 		"delete_flag", characterDeleteDeletedFlag,
 		"roster_after", len(records)-1,
 		"roster_replay", "none_vendor_1005_1006")
-	s.removeCurrentSelectorRosterCharacter(session, target.CharacterID)
 	// 成功 ACK 回显请求里的客户端 0-based slot（厂商 :990-1003，勿用 charId）。
 	if err := s.sendGameDeleteCharacterSuccess(session, req.Slot); err != nil {
 		return err
 	}
+	// Only the successful reply tells the client to compact its vector. On a
+	// failed write keep the old binding, which rejects the now-deleted identity
+	// instead of interpreting an old index as the next surviving character.
+	s.removeCurrentSelectorRosterCharacter(session, target.CharacterID)
 	if err := s.sendCurrentLevelChallengeSelector(session); err != nil {
 		s.logGameEvent(session, "升级大挑战选角状态暂缓", "error", err, "source", "game-delete-character")
 	}

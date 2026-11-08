@@ -460,6 +460,7 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_return_transition_started")
 	if !runtime.townReturnPending {
 		runtime.townReturnPending = true
+		setCurrentAikenSupportTitleProjection(session, nil)
 		runtime.townReturnRequestMsgID = requestMsgID
 		runtime.townReturnSource = source
 		runtime.townReturnTransition = cloneCurrentDungeonTownTransition(transition)
@@ -558,6 +559,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_town_actor_route_started")
 		runtime.townReturnPending = true
+		setCurrentAikenSupportTitleProjection(session, nil)
 		runtime.townReturnRequestMsgID = requestMsgID
 		runtime.townReturnSource = source
 		runtime.townReturnTransition = cloneCurrentDungeonTownTransition(transition)
@@ -683,6 +685,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// completed_town_route 回城，最后一个成员到位后重建城镇同屏）。
 		leaderExitInstance = runtime.partyInstance
 		session.dungeon.runtime = nil
+		setCurrentAikenSupportTitleProjection(session, nil)
 		s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
 		if runtime.guildPractice != nil {
 			releaseCurrentGuildPracticeProjection(session)
@@ -911,6 +914,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	leaderExitInstance := runtime.partyInstance
 	leaderExitCharacterID := session.selectedCharacterID
 	session.dungeon.runtime = nil
+	setCurrentAikenSupportTitleProjection(session, nil)
 	s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
 	if runtime.guildPractice != nil {
 		releaseCurrentGuildPracticeProjection(session)
@@ -1123,6 +1127,7 @@ func resetDungeonReturnSceneGates(session *gameSession) {
 	if session == nil {
 		return
 	}
+	session.dungeonPlacementEpoch.Add(1)
 	session.runtimeAfterBlacklistSent = false
 	session.runtimeFinishLoadingGateSent = false
 	session.fpsFinishLoadingGateSent = false
@@ -1137,6 +1142,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	if session == nil {
 		return
 	}
+	session.dungeonPlacementEpoch.Add(1)
 	if session.selectedCharacterID == 0 {
 		// 返回选角结束原角色的对象归属；不能凭旧角色的写出记录跳过新登录。
 		session.selectedMainInventoryCharacterID = 0

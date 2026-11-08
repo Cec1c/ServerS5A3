@@ -21,14 +21,20 @@ import (
 )
 
 type gameSession struct {
-	experiencePotionEffects currentExperiencePotionProjection // serial event owner only
-	battlePassBusiness      gameBattlePassState
-	battlePassPush          *gameBattlePassPushState
-	battlePassEntry         gameBattlePassState
-	launcherDiagnostic      *launcherDiagnosticBinding // serial event owner
-	partyDeaths             partyDungeonDeathQueue     // bounded, separately locked delivery mailbox
-	launcherCharacterID     uint16                     // serial event owner; verified selection only
-	launcherCharacterName   string                     // never updated by peer profile reads
+	// Invalidates initial peer placement without taking another session dungeon lock under the wire lock.
+	dungeonPlacementEpoch     atomic.Uint64
+	peerResultDiagnosticCount uint8                             // serial event owner; bounded observations per connection
+	experiencePotionEffects   currentExperiencePotionProjection // serial event owner only
+	battlePassBusiness        gameBattlePassState
+	battlePassPush            *gameBattlePassPushState
+	battlePassEntry           gameBattlePassState
+	launcherDiagnostic        *launcherDiagnosticBinding // serial event owner
+	partyDeaths               partyDungeonDeathQueue     // bounded, separately locked delivery mailbox
+	launcherCharacterID       uint16                     // serial event owner; verified selection only
+	launcherCharacterName     string                     // never updated by peer profile reads
+	// Only the active Aiken instance may project the private support title's
+	// combat definition. Equipment in durable storage always keeps its neutral ID.
+	aikenSupportTitleActive atomic.Bool
 	// Written and read only by this session's serial event owner.
 	performanceEventQueuedAt            time.Time
 	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches

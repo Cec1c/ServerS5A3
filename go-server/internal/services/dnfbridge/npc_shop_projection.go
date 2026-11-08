@@ -33,6 +33,10 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 	if !pricing.Buyable {
 		return currentNPCShopBuyResult{}, fmt.Errorf("%w: item=%d listed=%t buy_gold=%d material_exchange=%t", errCurrentNPCShopProductUnavailable, request.ItemID, currentNPCShopContainsItem(shop, request.ItemID), pricing.BuyGold, pricing.MaterialExchange)
 	}
+	pricing, request, err = privateAikenAvatarCouponGrant(items, pricing, request)
+	if err != nil {
+		return currentNPCShopBuyResult{}, err
+	}
 	count, err := normalizeCurrentNPCShopBuyCount(pricing.Definition, request.Count)
 	if err != nil {
 		return currentNPCShopBuyResult{}, err

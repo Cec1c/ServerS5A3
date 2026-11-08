@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -11,6 +12,10 @@ import (
 // retry. Otherwise the follower still owns the old boss room and fails the
 // same-area selector and fresh-instance entry checks.
 func (s *Service) selectOtherDungeonForCompletedParty(leader *gameSession, runtime *runtimeDungeonState) error {
+	// Leadership or peer readiness may change after the result ACK. If the
+	// selector did not detach this completed runtime, leave its exit available
+	// for a later action, just as for a rejected same-dungeon retry.
+	defer reopenCurrentCompletedDungeonExit(leader, runtime)
 	state := runtimePartyStateSnapshot(leader)
 	if state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
 		return s.sendEnterSelectDungeonState(leader, "current_exe_op72_completed_select_other_dungeon", false, true)
@@ -19,6 +24,13 @@ func (s *Service) selectOtherDungeonForCompletedParty(leader *gameSession, runti
 		return nil
 	}
 	retired, err := s.retireCompletedPartyForAction(leader, runtime, false)
+	if errors.Is(err, errCompletedPartyActionNotReady) {
+		// A peer still settling is a refused action, not a broken connection.
+		// Returning this error to the packet loop would disconnect the leader.
+		s.logGameEvent(leader, "game-dungeon-card-other-selector-blocked",
+			"reason", "completed_party_not_ready", "error", err)
+		return nil
+	}
 	if err != nil || !retired {
 		return fmt.Errorf("retire completed party for dungeon selector: retired=%t error=%v", retired, err)
 	}

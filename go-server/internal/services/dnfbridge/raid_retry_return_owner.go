@@ -148,7 +148,7 @@ func (s *Service) captureCurrentRaidRetryReturnOwners(leader *gameSession, runti
 			var ok bool
 			peer, ok = s.onlineGameSession(id)
 			if !ok || peer == nil {
-				return nil, fmt.Errorf("raid retry return owner %d offline", id)
+				return nil, fmt.Errorf("%w: retry return owner %d offline", errCompletedPartyActionNotReady, id)
 			}
 		}
 		capture := func() error {
@@ -166,7 +166,7 @@ func (s *Service) captureCurrentRaidRetryReturnOwners(leader *gameSession, runti
 				valid = valid && old == runtime
 			}
 			if !valid {
-				return fmt.Errorf("raid retry completed return owner %d changed", id)
+				return fmt.Errorf("%w: retry completed return owner %d changed", errCompletedPartyActionNotReady, id)
 			}
 			peer.townMu.Lock()
 			gates := captureCurrentRaidRetrySceneGates(peer)
@@ -189,25 +189,31 @@ func (s *Service) captureCurrentRaidRetryReturnOwners(leader *gameSession, runti
 func (s *Service) restoreCurrentRaidRetryReturnOwners(leader *gameSession, owners []currentRaidRetryReturnOwner) {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	for _, owner := range owners {
-		if !owner.retired || owner.runtime.townReturnPending {
-			continue
-		}
+	for i := range owners {
+		// A timed-out call can leave its retirement callback running. Keep a
+		// pointer to the shared owner and inspect its permit only on the peer's
+		// event loop, after that callback, rather than copying a stale bool here.
+		owner := &owners[i]
 		restore := func() error {
 			peer := owner.session
+			if !owner.retired {
+				return nil
+			}
 			if peer.selectedCharacterID != owner.character || peer.characterGeneration != owner.generation || !s.currentRaidAuthenticated(peer) ||
 				peer.channel.ID != owner.channelID || peer.channel.Type != owner.channelType ||
 				s.accountIDForSession(peer) != owner.runtime.AccountID {
 				return nil
 			}
 			peer.dungeon.mu.Lock()
-			if peer.dungeon.runtime != nil {
+			if peer.dungeon.runtime != nil || owner.runtime.townReturnPending {
 				peer.dungeon.mu.Unlock()
 				return nil
 			}
 			peer.dungeon.runtime = owner.runtime
+			setCurrentAikenSupportTitleProjection(peer, owner.runtime)
 			if !s.currentCompletedDungeonActionReady(peer, owner.runtime) {
 				peer.dungeon.runtime = nil
+				setCurrentAikenSupportTitleProjection(peer, nil)
 				peer.dungeon.mu.Unlock()
 				return nil
 			}

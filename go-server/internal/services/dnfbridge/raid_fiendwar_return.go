@@ -193,7 +193,7 @@ func (s *Service) maintainCurrentFiendWarSession(p *gameSession) error {
 	if !exit || pending && (!retreat || op24Sent) {
 		return nil
 	}
-	if snapshot.Battle != nil && snapshot.Battle.PhaseCompleted {
+	if snapshot.Battle != nil && (snapshot.Battle.PhaseCompleted || snapshot.Battle.TimedOut) {
 		if err := s.sendCurrentRaidProgressProjection(p, snapshot, false, false); err != nil {
 			return err
 		}
@@ -203,7 +203,11 @@ func (s *Service) maintainCurrentFiendWarSession(p *gameSession) error {
 		if err := s.sendCurrentAntonRewardFlowProjection(p, snapshot); err != nil {
 			return err
 		}
-		if f := snapshot.Battle.RewardFlow[0]; f == nil || f.FinishedAt.IsZero() {
+		if snapshot.Battle.TimedOut {
+			if !s.currentRaidFailurePresentationReady(p, snapshot) {
+				return nil
+			}
+		} else if f := snapshot.Battle.RewardFlow[0]; f == nil || f.FinishedAt.IsZero() {
 			return nil
 		}
 	}

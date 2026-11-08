@@ -14,6 +14,7 @@ func (s *Service) armCurrentTownActorRoute(session *gameSession, characterID uin
 	if session == nil || characterID == 0 {
 		return
 	}
+	setCurrentAikenSupportTitleProjection(session, nil)
 	session.townMu.Lock()
 	session.completedTownSceneTailOwner = nil
 	resetCurrentTownPostTransitionPlayerState(session)

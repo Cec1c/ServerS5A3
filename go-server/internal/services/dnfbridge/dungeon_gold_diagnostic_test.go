@@ -199,8 +199,8 @@ func TestGoldDiagnosticDoesNotClaimSuppressedOrQueuedPacketsWereSent(t *testing.
 func TestGoldDiagnosticPreservesPickupCommitAndReplay(t *testing.T) {
 	s, runtime, repos := prepareCurrentDungeonDropTest(t, 0, 3227)
 	source := s.dungeonMonsterTable.source.(bridgePVFSource)
-	// The fixture's PVF declares a 1.0 gold difficulty bonus. With a base
-	// of 100 and zero variance the authoritative amount is exactly 100.
+	// The owned PVF rule fixture explicitly sets the gold difficulty bonus to 1.00.
+	// Keep exact pickup and replay assertions against that 100-gold input.
 	source[dungeonCardDropRulePath] = currentDungeonGoldDropTestRuleText()
 	source[dungeonCardGoldReferencePath] = "[gold drop ref table]\n20 100 0\n"
 	currentDungeonMonsterDropRulesByCatalog.Delete(s.dungeonMonsterTable)

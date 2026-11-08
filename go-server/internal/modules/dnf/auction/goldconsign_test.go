@@ -20,7 +20,7 @@ func goldFixture(t *testing.T) (context.Context, repo.Group, *GoldConsignOwner, 
 	now := time.Unix(1800000000, 0).UTC()
 	for _, id := range []string{"seller", "buyer", "other"} {
 		account := repo.AccountRecord{AccountID: "a-" + id}
-		shop.SetBalance(&account, 1000)
+		shop.SetBalance(&account, 10000)
 		if e := r.Account.Save(ctx, account); e != nil {
 			t.Fatal(e)
 		}
@@ -36,13 +36,13 @@ func goldFixture(t *testing.T) (context.Context, repo.Group, *GoldConsignOwner, 
 		t.Fatal(e)
 	}
 	o.now = func() time.Time { return now }
-	if _, e = o.Register(ctx, GoldConsignRegisterCommand{ListingID: 1, SellerID: "seller", AccountID: "a-seller", GoldItemID: 2681725, PriceCera: 111, DurationHour: 24}); e != nil {
+	if _, e = o.Register(ctx, GoldConsignRegisterCommand{ListingID: 1, SellerID: "seller", AccountID: "a-seller", GoldItemID: 2681725, PriceCera: 1110, DurationHour: 24}); e != nil {
 		t.Fatal(e)
 	}
 	return ctx, r, o, now
 }
 func goldBuy(id string) GoldConsignBuyCommand {
-	return GoldConsignBuyCommand{ListingID: 1, BuyerID: id, AccountID: "a-" + id, GoldItemID: 2681725, ExpectedCera: 111}
+	return GoldConsignBuyCommand{ListingID: 1, BuyerID: id, AccountID: "a-" + id, GoldItemID: 2681725, ExpectedCera: 1110}
 }
 func goldMailCount(t *testing.T, ctx context.Context, r repo.Group, id string) int {
 	t.Helper()
@@ -58,7 +58,7 @@ func TestGoldConsignAtomicSaleClaimSpendAndNoReplayAfterMailDeletion(t *testing.
 	if e != nil {
 		t.Fatal(e)
 	}
-	if result.CeraAfter != 889 || result.Listing.ProceedsCera != 105 {
+	if result.CeraAfter != 8890 || result.Listing.ProceedsCera != 1054 {
 		t.Fatal(result)
 	}
 	for range 3 {
@@ -86,7 +86,7 @@ func TestGoldConsignAtomicSaleClaimSpendAndNoReplayAfterMailDeletion(t *testing.
 		t.Fatal(claim, e)
 	}
 	seller, _, _ := r.Account.Load(ctx, "a-seller")
-	if shop.TokenCeraBalance(seller) != 105 {
+	if shop.TokenCeraBalance(seller) != 1054 {
 		t.Fatal(seller)
 	}
 	checkout, e := shop.NewOwner(r)
@@ -94,7 +94,7 @@ func TestGoldConsignAtomicSaleClaimSpendAndNoReplayAfterMailDeletion(t *testing.
 		t.Fatal(e)
 	}
 	paid, e := checkout.Checkout(ctx, shop.CheckoutCommand{AccountID: "a-seller", CharacterID: "seller", SettingsScope: "test:containers", Cost: 100, PayPolicy: shop.PayPolicyWaterfall, Project: func(*shop.CheckoutAssets) (shop.CheckoutChanges, error) { return shop.CheckoutChanges{}, nil }})
-	if e != nil || paid.CeraAfter != 1000 || paid.WalletAfter.TokenCera != 5 {
+	if e != nil || paid.CeraAfter != 10000 || paid.WalletAfter.TokenCera != 954 {
 		t.Fatal(paid, e)
 	}
 	if _, e = mail.NewOwner(r).Claim(ctx, "seller", mail.ExtractRequest{MailIDs: []uint32{1}}); e != nil && !errors.Is(e, mail.ErrMailboxAlreadyClaimed) {
@@ -114,11 +114,11 @@ func TestGoldConsignAtomicSaleClaimSpendAndNoReplayAfterMailDeletion(t *testing.
 		t.Fatal("删除邮件后补发了成交资产")
 	}
 	a, _, _ := r.Account.Load(ctx, "a-buyer")
-	if shop.Balance(a) != 889 {
+	if shop.Balance(a) != 8890 {
 		t.Fatal("重试重复扣款")
 	}
 	avg, n, e := o.AverageCeraPrice(ctx, 2681725)
-	if e != nil || avg != 111 || n != 1 {
+	if e != nil || avg != 1110 || n != 1 {
 		t.Fatal(avg, n, e)
 	}
 	escrow, _, _ := r.Character.Load(ctx, EscrowCharacterID)
@@ -131,20 +131,23 @@ func TestGoldConsignOnlyOneConcurrentBuyerAndValidations(t *testing.T) {
 	tests := []struct {
 		q    GoldConsignBuyCommand
 		want error
-	}{{GoldConsignBuyCommand{ListingID: 1, BuyerID: "seller", AccountID: "a-seller", ExpectedCera: 111, GoldItemID: 2681725}, ErrGoldConsignBuyerIsSeller}, {GoldConsignBuyCommand{ListingID: 1, BuyerID: "buyer", AccountID: "a-buyer", ExpectedCera: 112, GoldItemID: 2681725}, ErrPriceMismatch}, {GoldConsignBuyCommand{ListingID: 1, BuyerID: "buyer", AccountID: "a-buyer", ExpectedCera: 111, GoldItemID: 2681726}, ErrPriceMismatch}}
+	}{{GoldConsignBuyCommand{ListingID: 1, BuyerID: "seller", AccountID: "a-seller", ExpectedCera: 1110, GoldItemID: 2681725}, ErrGoldConsignBuyerIsSeller}, {GoldConsignBuyCommand{ListingID: 1, BuyerID: "buyer", AccountID: "a-buyer", ExpectedCera: 1111, GoldItemID: 2681725}, ErrPriceMismatch}, {GoldConsignBuyCommand{ListingID: 1, BuyerID: "buyer", AccountID: "a-buyer", ExpectedCera: 1110, GoldItemID: 2681726}, ErrPriceMismatch}}
 	for _, tt := range tests {
 		if _, e := o.Buy(ctx, tt.q); !errors.Is(e, tt.want) {
 			t.Fatal(e, tt.want)
 		}
 	}
 	a, _, _ := r.Account.Load(ctx, "a-buyer")
-	shop.SetTokenCeraBalance(&a, 100000)
+	shop.SetTokenCeraBalance(&a, 500)
+	shop.SetHappyTokenCeraBalance(&a, 600)
 	shop.SetBalance(&a, 0)
 	r.Account.Save(ctx, a)
 	if _, e := o.Buy(ctx, goldBuy("buyer")); !errors.Is(e, shop.ErrCeraInsufficient) {
-		t.Fatal("金币寄售错误地允许代币券付款", e)
+		t.Fatal("总余额不足1110仍允许付款", e)
 	}
-	shop.SetBalance(&a, 1000)
+	shop.SetTokenCeraBalance(&a, 0)
+	shop.SetHappyTokenCeraBalance(&a, 0)
+	shop.SetBalance(&a, 10000)
 	r.Account.Save(ctx, a)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -171,9 +174,9 @@ func TestGoldConsignOnlyOneConcurrentBuyerAndValidations(t *testing.T) {
 	}
 	for _, id := range []string{"buyer", "other"} {
 		a, _, _ := r.Account.Load(ctx, "a-"+id)
-		want := int64(1000)
+		want := int64(10000)
 		if id == won[0] {
-			want = 889
+			want = 8890
 		}
 		if shop.Balance(a) != want {
 			t.Fatal(id, shop.Balance(a), want)
@@ -218,7 +221,7 @@ func TestGoldConsignBuyFailuresRollBackWalletEscrowHistoryAndMail(t *testing.T) 
 				t.Fatal("未触发故障")
 			}
 			a, _, _ := r.Account.Load(ctx, "a-buyer")
-			if shop.Balance(a) != 1000 || goldMailCount(t, ctx, r, "buyer") != 0 {
+			if shop.Balance(a) != 10000 || goldMailCount(t, ctx, r, "buyer") != 0 {
 				t.Fatal("失败后残留扣款或邮件")
 			}
 			inv, _, _ := r.Inventory.Load(ctx, EscrowCharacterID)
@@ -286,7 +289,7 @@ func TestGoldConsignRecentAverageUsesTimeRatherThanHighestPrices(t *testing.T) {
 	for _, tc := range []struct {
 		p, want int64
 		ok      bool
-	}{{39, 0, false}, {40, 5, true}, {150, 5, true}, {151, 30, true}, {161, 40, true}, {171, 50, true}, {181, 95, true}} {
+	}{{0, 0, false}, {1, 5, true}, {39, 5, true}, {40, 5, true}, {150, 5, true}, {151, 30, true}, {161, 40, true}, {171, 50, true}, {181, 95, true}} {
 		fee, ok := ResolveGoldConsignFee(tc.p, 100, false)
 		if fee != tc.want || ok != tc.ok {
 			t.Fatal(tc, fee, ok)

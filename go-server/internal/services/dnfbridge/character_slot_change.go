@@ -36,7 +36,17 @@ func (s *Service) handleChangeCharacterSlot(session *gameSession, body []byte, u
 			"error", err)
 		return s.sendChangeCharacterSlotFailure(session, upper)
 	}
-	if err := owner.SwapSlots(ctx, accountID, slotA, slotB); err != nil {
+	if s.options.currentClientVersion == "official-24.9" {
+		// Native op295 sends compact vector indexes, not the persistent SQL slots.
+		rows := session.currentRenameRoster
+		if slotA < 0 || slotB < 0 || slotA >= len(rows) || slotB >= len(rows) {
+			return s.sendChangeCharacterSlotFailure(session, upper)
+		}
+		err = owner.SwapSlotsFromSnapshot(ctx, accountID, rows[slotA], rows[slotB])
+	} else {
+		err = owner.SwapSlots(ctx, accountID, slotA, slotB)
+	}
+	if err != nil {
 		s.logGameEvent(session, "game-character-slot-change-failed",
 			"upper", upper,
 			"account_id", accountID,

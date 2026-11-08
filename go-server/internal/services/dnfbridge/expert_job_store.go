@@ -1133,6 +1133,9 @@ func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, 
 				if !found || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
 					return dnfexpertjob.ErrExtractionInvalid
 				}
+				if currentAikenSupportTitleDisjointForbidden(target.ItemID) {
+					return dnfexpertjob.ErrExtractionInvalid
+				}
 				metadata, metadataErr := jobCatalog.Equipment(target.ItemID)
 				if metadataErr != nil || metadata.DisjointForbidden || metadata.AttachType == "trade delete" {
 					return dnfexpertjob.ErrExtractionInvalid

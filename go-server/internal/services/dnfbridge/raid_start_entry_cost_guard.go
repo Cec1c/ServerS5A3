@@ -142,6 +142,10 @@ func (s *Service) consumeRaidEntryCostForCharacters(ctx context.Context, ids []s
 }
 
 func (s *Service) consumeRaidEntryCostAndDaily(ctx context.Context, ids []string, leaderID, leaderAccount string, rule raid.AdmissionRule, daily *currentRaidDailyRule, holdings ...raid.AdmissionRule) (int64, error) {
+	return s.consumeRaidEntryCostAndReceipt(ctx, ids, leaderID, leaderAccount, rule, daily, nil, holdings...)
+}
+
+func (s *Service) consumeRaidEntryCostAndReceipt(ctx context.Context, ids []string, leaderID, leaderAccount string, rule raid.AdmissionRule, daily *currentRaidDailyRule, debit *raid.EntryDebit, holdings ...raid.AdmissionRule) (int64, error) {
 	if rule.ItemID == 0 || rule.Count <= 0 || strings.TrimSpace(leaderAccount) == "" {
 		return 0, fmt.Errorf("raid entry cost rule or owner unsupported")
 	}
@@ -161,6 +165,7 @@ func (s *Service) consumeRaidEntryCostAndDaily(ctx context.Context, ids []string
 		// Stable owner order matches other trade transactions. Validate every member
 		// under row locks before saving; a late shortage or save error rolls back all.
 		updated := make([]dnfrepo.InventoryRecord, 0, len(ids))
+		paid := make([]dnfrepo.CharacterRecord, 0, len(ids))
 		accounts := make([]string, 0, len(ids))
 		for _, id := range ids {
 			character, found, err := characters.Load(ctx, id)
@@ -186,6 +191,13 @@ func (s *Service) consumeRaidEntryCostAndDaily(ctx context.Context, ids []string
 			if err := takeRaidEntryCost(&inventory, rule); err != nil {
 				return fmt.Errorf("raid member %s: %w", id, err)
 			}
+			if debit != nil {
+				character = dnfrepo.CloneCharacter(character)
+				if err := raid.RecordEntryDebit(&character, *debit); err != nil {
+					return err
+				}
+				paid = append(paid, character)
+			}
 			updated = append(updated, inventory)
 			accounts = append(accounts, character.AccountID)
 		}
@@ -204,6 +216,11 @@ func (s *Service) consumeRaidEntryCostAndDaily(ctx context.Context, ids []string
 		}
 		for _, inventory := range updated {
 			if err := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); err != nil {
+				return err
+			}
+		}
+		for _, character := range paid {
+			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
 				return err
 			}
 		}
@@ -354,9 +371,16 @@ func (s *Service) guardRaidStartEntryCost(session *gameSession, state runtimeRai
 			}
 		}
 	}
-	consumed, err := s.consumeRaidEntryCostAndDaily(ctx, ids, strconv.Itoa(int(state.LeaderID)), s.accountIDForSession(session), rule, daily, holdings...)
+	var debit *raid.EntryDebit
+	if state.Battle != nil && s.options.currentClientVersion == "official-24.9" {
+		debit = &raid.EntryDebit{InstanceID: state.Battle.InstanceID, Mode: state.Battle.Mode, ItemID: rule.ItemID, Count: rule.Count, RefundItemID: rule.ItemID, RefundCount: rule.Count, PaidAt: state.Battle.StartedAt}
+	}
+	consumed, err := s.consumeRaidEntryCostAndReceipt(ctx, ids, strconv.Itoa(int(state.LeaderID)), s.accountIDForSession(session), rule, daily, debit, holdings...)
 	if err != nil {
 		return dependencyFailure("group_commit_failed", err)
+	}
+	if state.Battle != nil {
+		state.Battle.EntryDebit = debit
 	}
 	s.logGameEvent(session, "game-raid-start-entry-cost-consumed", "raid_key", state.RaidKey, "item_id", rule.ItemID, "required_each", rule.Count, "members", len(members), "consumed_total", consumed, "transaction", "all_members")
 	return true, nil

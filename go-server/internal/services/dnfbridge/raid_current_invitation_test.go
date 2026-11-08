@@ -77,7 +77,7 @@ func TestCurrentRaidInvitationActualDispatch(t *testing.T) {
 	roster, rest := splitGameServerUpperPacket(t, rest)
 	leaderRest := consumeCurrentRaidProfiles(t, ac.write.Bytes(), after)
 	leaderRoster, leaderRest := splitGameServerUpperPacket(t, leaderRest)
-	wantMetadata, _ := buildCurrentRuntimeRaidMetadata(after, 2)
+	wantMetadata, _ := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(after), 2)
 	wantRoster, _ := s.buildRuntimeRaidRosterBody(after)
 	if ack.Header.MsgID != 11 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, wantAck) || metadata.Header.MsgID != 591 || !bytes.Equal(metadata.Body, wantMetadata) || !bytes.Equal(roster.Body, wantRoster) || !bytes.Equal(leaderRoster.Body, wantRoster) || len(rest) != 0 || len(leaderRest) != 0 || len(s.currentRaidInvitations) != 0 || len(s.currentRaidApplications) != 0 {
 		t.Fatal("acceptance did not emit exact committed metadata/rosters")
@@ -374,7 +374,7 @@ func TestCurrentRaidInvitationLastSlotConcurrentAcceptance(t *testing.T) {
 		if p.Body[0] == 1 {
 			successes++
 			metadata, tail := splitGameServerUpperPacket(t, rest)
-			want, _ := buildCurrentRuntimeRaidMetadata(after, 2)
+			want, _ := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(after), 2)
 			if metadata.Header.MsgID != 591 || !bytes.Equal(metadata.Body, want) {
 				t.Fatal("winner metadata wrong")
 			}
