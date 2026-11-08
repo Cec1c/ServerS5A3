@@ -35,6 +35,10 @@ func TestRealPVFOrdinaryAmplifyAuthoritativePayment(t *testing.T) {
 			if err != nil || !quote.Resolved || quote.GoldCost <= 0 || quote.ConversionCount != 0 {
 				t.Fatalf("ordinary amplification quote=%+v err=%v", quote, err)
 			}
+			original, originalErr := service.alignedNativeUpgradeCostResolver()("amplify", 28309, 0, true, 1)
+			if originalErr != nil || quote.GoldCost != original.GoldCost/7+boolToPrivateGoldRemainder(original.GoldCost%7 != 0) {
+				t.Fatalf("group fee not one seventh: original=%+v quote=%+v err=%v", original, quote, originalErr)
+			}
 			t.Logf("real PVF item28309 amplification gold=%d", quote.GoldCost)
 			for _, short := range []bool{false, true} {
 				ctx := context.Background()

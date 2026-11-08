@@ -99,10 +99,12 @@ func (s *Service) sendCurrentAntonTerminalResult(session *gameSession, captured 
 			packets = append([]currentRaidProjectionPacket{{opcode: currentFiendWarStateNotice, body: []byte{3, 0}}}, packets...)
 		}
 	}
-	if !result.Failed {
+	if !result.Failed || b.FiendWar == nil {
 		// NOTI587's second field is stateArgument. In battle state2 it
 		// selects the phase animation; successful result state3 uses zero.
-		// NOTI601 carries the actual result phase independently.
+		// NOTI601 carries the actual result phase and success/failure. Anton
+		// and Luke also need state3 to open the result presentation; sending
+		// only failure601 leaves the expired countdown with no result stage.
 		packets = append(packets, currentRaidProjectionPacket{opcode: 587, body: []byte{3, 0}})
 	}
 	for _, packet := range packets {
@@ -115,6 +117,9 @@ func (s *Service) sendCurrentAntonTerminalResult(session *gameSession, captured 
 		}
 	}
 	o.resultIdentity, o.resultSent = identity, true
+	if result.Failed {
+		o.failureResultAt = s.currentRaidFailurePresentationNow()
+	}
 	s.logGameEvent(session, "game-raid-authoritative-result-sent", "raid_key", state.RaidKey, "phase", b.Phase, "failed", result.Failed, "seconds", result.ClearSeconds, "deaths", result.Deaths, "rank", result.DomainRank, "reward_option", option)
 	return nil
 }

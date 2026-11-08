@@ -102,7 +102,7 @@ func TestCurrentRaidCreateDiagnostic334AuthenticatedDispatchSuccess(t *testing.T
 	}
 	metadata, rest := splitGameServerUpperPacket(t, wire.write.Bytes())
 	ack, rest := splitGameServerUpperPacket(t, rest)
-	wantMetadata, err := buildCurrentRuntimeRaidMetadata(state, 0)
+	wantMetadata, err := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(state), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestCurrentRaidCreateDiagnostic334AuthenticatedDispatchSuccess(t *testing.T
 	}
 	rest = consumeCurrentRaidProfiles(t, rest, state)
 	roster, rest := splitGameServerUpperPacket(t, rest)
-	wantRoster, err := raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(state))
+	wantRoster, err := raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(raidAllSoloWireFixture(state)))
 	if err != nil {
 		t.Fatal(err)
 	}

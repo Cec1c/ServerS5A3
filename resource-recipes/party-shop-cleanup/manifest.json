@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "classification": "群服内容",
+  "baseline": {
+    "sha256": "608223c24ee383e6dfb94bd648e26e8794fdd63ff90917203aa2c36008dc48f3",
+    "bytes": 126020469
+  },
+  "archiveFiles": 1126438,
+  "toolSHA256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+  "planSHA256": "832fe20650f5b9ca497cd36c5e7906a093c196be68e7d8f4a9a074b393c3dd1b",
+  "changedPaths": [
+    "monster/newmonsters/metrocenter/hell/bariel/action/last.act",
+    "monster/newmonsters/metrocenter/hell/bariel1/action/last.act",
+    "stackable/490008001/chn_490008445.stk",
+    "etc/cerashop.etc"
+  ],
+  "furnace": {
+    "id": 490008445,
+    "path": "stackable/490008001/chn_490008445.stk",
+    "tokenIndex": 30,
+    "from": 1,
+    "to": 999,
+    "sourceReference": "Docs/SELECTED_PUBLICATION_20261108.md"
+  },
+  "shop": {
+    "path": "etc/cerashop.etc",
+    "section": "item",
+    "commodity": 105126,
+    "item": 490701734,
+    "count": 10,
+    "cera": 2000,
+    "label": "10个",
+    "insertBeforeToken": 219692,
+    "row": [
+      105126,
+      490701734,
+      10,
+      0,
+      0,
+      2000,
+      "10个",
+      0,
+      0
+    ]
+  },
+  "cleanup": {
+    "ids": [
+      67130,
+      67132,
+      67172,
+      67203,
+      67204,
+      67205
+    ],
+    "paths": [
+      "monster/newmonsters/metrocenter/hell/bariel/action/last.act",
+      "monster/newmonsters/metrocenter/hell/bariel1/action/last.act"
+    ],
+    "reference": "monster/event/bluemarble/agamemnon/action/die.act",
+    "sharedObjectsModified": false
+  },
+  "existingStringOffsetsPreserved": true,
+  "deployed": false,
+  "expected_candidate": {
+    "sha256": "073c3baa08410c537d843b9544315eb5fad7db657c10d8222bf9bc61fe71815b",
+    "bytes": 126020765
+  },
+  "validation": {
+    "passed": true,
+    "candidateSHA256": "073c3baa08410c537d843b9544315eb5fad7db657c10d8222bf9bc61fe71815b",
+    "bytes": 126020765,
+    "changedEntries": 4,
+    "unchangedEntriesVerified": 1126434,
+    "furnaceID": 490008445,
+    "furnaceStackLimit": 999,
+    "commodityID": 105126,
+    "voucherID": 490701734,
+    "quantity": 10,
+    "cera": 2000,
+    "cleanupIDs": [
+      67130,
+      67132,
+      67172,
+      67203,
+      67204,
+      67205
+    ],
+    "sharedObjectsPreserved": true,
+    "onlyFourReviewedDocumentsChanged": true,
+    "gameAcceptance": false,
+    "deployed": false
+  }
+}

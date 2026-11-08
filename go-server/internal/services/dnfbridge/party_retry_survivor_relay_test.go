@@ -102,6 +102,7 @@ func testThreeMemberLeaderExitKeepsSurvivorTraffic(
 	s.partyUDPRelay = relay
 	t.Cleanup(func() { _ = relay.Close() })
 	runPartyDungeonSyncEntry(t, s, leader)
+	completeNativePartyAdmissionForTest(t, s, leader)
 	finishLoading := func() {
 		t.Helper()
 		for _, peer := range []*gameSession{leader, second, third} {
@@ -135,6 +136,7 @@ func testThreeMemberLeaderExitKeepsSurvivorTraffic(
 		if err := s.handleGameCommand(leader, byte(dnfenum.GameCmdCommand), uint16(dnfenum.CmdPacketEplpCommand), []byte{1, 0}); err != nil {
 			t.Fatal(err)
 		}
+		completeNativePartyAdmissionForTest(t, s, leader)
 		if leader.dungeon.runtime == nil {
 			t.Fatal("retry removed the leader from its dungeon")
 		}

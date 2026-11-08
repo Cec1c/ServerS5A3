@@ -29,6 +29,7 @@ type runtimeRaidBattle struct {
 	LukeMemberRoutes       map[uint16]currentLukeMemberRoute
 	LukeSanctumMazeGroup   *currentLukeSanctumMazeGroup
 	InstanceID             string
+	EntryDebit             *raid.EntryDebit
 	Mode                   byte
 	ChannelID              int
 	ChannelType            byte
@@ -75,6 +76,10 @@ func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {
 		return nil
 	}
 	v := *b
+	if b.EntryDebit != nil {
+		debit := *b.EntryDebit
+		v.EntryDebit = &debit
+	}
 	v.FiendWar = b.FiendWar.Clone()
 	v.FiendWarMaps = map[string]map[int64]bool{}
 	for run, rows := range b.FiendWarMaps {

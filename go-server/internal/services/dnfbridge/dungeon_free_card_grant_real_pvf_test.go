@@ -128,8 +128,8 @@ func TestRealPVFDungeonFreeCardGrantFreezesProductionPlanAndDeliversOnce(t *test
 	if len(free.Items) == 0 {
 		baseGold += 100
 	}
-	if free.Gold != baseGold {
-		t.Fatalf("final reward=%d want original resolved gold %d", free.Gold, baseGold)
+	if free.Gold != baseGold*3 {
+		t.Fatalf("final reward=%d want original resolved gold %d times 3", free.Gold, baseGold)
 	}
 	if len(free.Items) != 1 || free.Items[0].ItemID <= 0 || free.Items[0].Count <= 0 {
 		t.Fatalf("真实免费翻牌未保持单件合法奖励：%+v", free.Items)

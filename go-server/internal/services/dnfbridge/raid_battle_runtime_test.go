@@ -177,6 +177,14 @@ func TestCurrentRaidBattleRealPVFAdmissionAndNativeProjection(t *testing.T) {
 				if b.Mode != route+1 || !b.Single || b.Phase != 0 || len(b.Dungeons) != 6 || b.Dungeons[0].State != 0 || b.Dungeons[1].State != 1 {
 					t.Fatal("single PVF link owner incorrect", b)
 				}
+				// Admission loads real PVF dependencies and may itself outlast
+				// the configured delay on a bounded CI host. First verify the
+				// real timestamp, then test the gate with an explicit future
+				// boundary, symmetric with the expired-boundary checks below.
+				if b.Configuration.StartDelaySeconds <= 0 || !b.EnterAfter.Equal(b.StartedAt.Add(time.Duration(b.Configuration.StartDelaySeconds)*time.Second)) {
+					t.Fatal("configured start delay timestamp incorrect")
+				}
+				f.state.Battle.EnterAfter = time.Now().Add(time.Minute)
 				if f.service.currentRaidDungeonSelectionAllowed(session, b.Dungeons[0].ID) {
 					t.Fatal("start delay ignored")
 				}

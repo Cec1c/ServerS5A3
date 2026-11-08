@@ -155,6 +155,9 @@ func (s *Service) sendCurrentRaidDeadlineReturn(owner *currentRaidDeadlineReturn
 	if err := s.sendCurrentAntonRewardFlowProjection(session, latest); err != nil {
 		return err
 	}
+	if !s.currentRaidFailurePresentationReady(session, latest) {
+		return nil
+	}
 	session.dungeon.mu.Lock()
 	if !s.currentRaidDeadlineReturnValid(owner) {
 		session.dungeon.mu.Unlock()

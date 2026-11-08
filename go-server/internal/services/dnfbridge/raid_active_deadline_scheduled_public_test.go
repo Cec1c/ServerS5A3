@@ -21,6 +21,7 @@ func TestRealPVFRaidDeadlineScheduledPublicPartyRegistry(t *testing.T) {
 	b := f.state.Battle
 	request := encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: 210, Difficulty: 2})
 	deadlineAuditV10Event(t, s, owners[0], func() error { return s.handleDungeonSelectUpper(owners[0], request) })
+	completeNativePartyAdmissionForTest(t, s, owners[0])
 	runs := make([]*runtimeDungeonState, 2)
 	for i := 0; i < 2; i++ {
 		p := owners[i]
@@ -95,6 +96,7 @@ func TestRealPVFRaidDeadlineScheduledPublicPartyRegistry(t *testing.T) {
 	}
 	q.fire(task, false)
 	for i := 0; i < 2; i++ {
+		completeRaidFailureMovieForDeadlineAudit(t, f, owners[i], runs[i])
 		deadlineAuditV10Wait(t, s, owners[i], runs[i], true)
 	}
 	s.raidMu.Lock()

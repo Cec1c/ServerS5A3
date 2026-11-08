@@ -65,6 +65,7 @@ type currentRaidProjectionOwner struct {
 	sessionRestorePending  bool
 	resultIdentity         currentRaidProjectionIdentity
 	resultSent             bool
+	failureResultAt        time.Time
 	movieIdentity          currentRaidProjectionIdentity
 	moviePromptSent        bool
 	movieCompleted         bool

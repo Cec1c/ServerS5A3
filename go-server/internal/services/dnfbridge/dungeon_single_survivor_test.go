@@ -29,7 +29,8 @@ func assertDungeonSurvivorRetainsParty(t *testing.T, survivor *gameSession, depa
 				}
 				restored = i
 			case 2:
-				if id != departing || len(frame.body) != 15 || frame.body[10] != 0 {
+				rows := retainedDepartureRows(t, frame.body, currentClientSelectedChannelID(survivor))
+				if id != departing || len(rows) != 1 || rows[0].uid != survivor.selectedCharacterID {
 					t.Fatal("wrong departing record")
 				}
 				departure = i

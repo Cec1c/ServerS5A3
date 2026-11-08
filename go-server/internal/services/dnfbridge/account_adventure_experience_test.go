@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"reflect"
+	"strings"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
@@ -12,9 +13,17 @@ import (
 
 func TestCurrentAccountAdventureExperienceReadsDurableOwnerAndNativeRemainder(t *testing.T) {
 	source := adventureShopExpirationSource("")
+	source[adventuregroup.CharacterManagementPath] = strings.Replace(source[adventuregroup.CharacterManagementPath], "1 90 10", "40 90 10", 1)
 	source[adventuregroup.AdventureSystem2018Path] += "[max adventure level]\n3\n[adventure exp rate]\n0.3\n[adventure exp table]\n1 `0` 2 `100` 3 `200`\n[/adventure exp table]\n"
 	s, session, repos, _, _, _ := newAdventureShopExpirationFixture(t, source)
 	ctx := context.Background()
+	// Keep this ledger-only fixture below the first roster threshold. The
+	// separate combined regression covers nonzero character-level baselines.
+	character, _, _ := repos.Character.Load(ctx, "31")
+	character.Level = 1
+	if err := repos.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
 	account, _, _ := repos.Account.Load(ctx, session.accountID)
 	account.HonorExp = 337
 	if err := repos.Account.Save(ctx, account); err != nil {
@@ -24,7 +33,6 @@ func TestCurrentAccountAdventureExperienceReadsDurableOwnerAndNativeRemainder(t 
 		t.Fatal(err)
 	}
 	s.options.accountID = "other"
-	character, _, _ := repos.Character.Load(ctx, "31")
 	for i := 0; i < 2; i++ {
 		state, err := s.currentAccountAdventureGroupInfoState(ctx, character, true, session)
 		if err != nil {

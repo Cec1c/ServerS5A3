@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"encoding/binary"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -98,6 +99,11 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 	for _, equipped := range record.Entries {
 		if equipped.SlotIndex < 0 || equipped.SlotIndex > 0xff || equipped.ItemID <= 0 {
 			continue
+		}
+		if r.session != nil && r.characterID == strconv.Itoa(int(r.session.selectedCharacterID)) &&
+			r.session.aikenSupportTitleActive.Load() &&
+			equipped.SlotIndex == currentAikenSupportTitleSlot && equipped.ItemID == currentAikenSupportTitleOwnedID {
+			equipped.ItemID = currentAikenSupportTitleCombatID
 		}
 		entry, entryOK := currentItemListEntryFromEquipment(equipped)
 		if !entryOK {

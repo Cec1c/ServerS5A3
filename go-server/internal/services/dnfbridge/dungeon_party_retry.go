@@ -2,8 +2,15 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// This refusal is emitted only by read-only completed-owner capture or the
+// whole-party preflight, before any completed runtime is detached. Callers may
+// keep the result page open;
+// retirement/transport errors after mutation must not use this sentinel.
+var errCompletedPartyActionNotReady = errors.New("completed party action not ready")
 
 // A settlement retry must retire every member before the ordinary town entry
 // preflight runs. Retiring only the leader leaves the peer in the previous
@@ -29,7 +36,7 @@ func (s *Service) retireCompletedPartyForAction(leader *gameSession, runtime *ru
 		return retired, err
 	}
 	if state.UserID != leader.selectedCharacterID || runtime.partyInstance == nil {
-		return false, fmt.Errorf("party retry requires the completed instance leader")
+		return false, fmt.Errorf("%w: party retry requires the completed instance leader", errCompletedPartyActionNotReady)
 	}
 	type memberRun struct {
 		session *gameSession
@@ -42,7 +49,7 @@ func (s *Service) retireCompletedPartyForAction(leader *gameSession, runtime *ru
 	for _, member := range members {
 		peer, online := s.onlineGameSession(member.UserID)
 		if !online || peer == nil {
-			return false, fmt.Errorf("party retry member %d is offline", member.UserID)
+			return false, fmt.Errorf("%w: party retry member %d is offline", errCompletedPartyActionNotReady, member.UserID)
 		}
 		peerState := runtimePartyStateSnapshot(peer)
 		peer.dungeon.mu.Lock()
@@ -62,7 +69,7 @@ func (s *Service) retireCompletedPartyForAction(leader *gameSession, runtime *ru
 		}
 		peer.dungeon.mu.Unlock()
 		if !valid {
-			return false, fmt.Errorf("party retry member %d has not completed the same settlement", member.UserID)
+			return false, fmt.Errorf("%w: party retry member %d has not completed the same settlement", errCompletedPartyActionNotReady, member.UserID)
 		}
 		runs = append(runs, memberRun{peer, old, origin})
 	}

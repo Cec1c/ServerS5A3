@@ -373,6 +373,9 @@ func projectCurrentExpertJobExtraction(assets *dnfexpertjob.Assets, jobCatalog *
 	if !extractorFound || extractor.ItemID <= 0 || currentNPCShopItemLocked(extractor) || !targetFound || target.ItemID <= 0 || target.ItemID > math.MaxUint32 || target.Count != 1 || currentNPCShopItemLocked(target) {
 		return result, dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
 	}
+	if currentAikenSupportTitleDisjointForbidden(target.ItemID) {
+		return result, dnfexpertjob.Changes{}, dnfexpertjob.ErrExtractionInvalid
+	}
 	metadata, err := jobCatalog.Equipment(target.ItemID)
 	if err != nil {
 		return result, dnfexpertjob.Changes{}, err

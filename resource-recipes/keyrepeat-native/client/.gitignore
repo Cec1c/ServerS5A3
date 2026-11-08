@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.obj
+*.lib
+*.exp
+*.payload
+*.exe
+*.map

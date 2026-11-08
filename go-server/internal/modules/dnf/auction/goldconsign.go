@@ -73,6 +73,14 @@ func GoldConsignTierAmount(itemID int64) (int64, bool) {
 	return 0, false
 }
 
+func GoldConsignMinimumPrice(itemID int64) (int64, bool) {
+	amount, ok := GoldConsignTierAmount(itemID)
+	if !ok {
+		return 0, false
+	}
+	return amount / 1000, true
+}
+
 func IsGoldConsignTier(itemID int64) bool {
 	_, ok := GoldConsignTierAmount(itemID)
 	return ok
@@ -88,8 +96,6 @@ func ResolveGoldConsignFee(price, average int64, hasAuctionCoupon bool) (feePerc
 	// Compare with integer maths throughout: price*100 against average*threshold
 	// avoids both floating point and an overflow on the 2亿 tier.
 	switch {
-	case price*100 < average*40:
-		return 0, false
 	case price*100 <= average*150:
 		return goldConsignBaseFee(hasAuctionCoupon), true
 	case price*100 <= average*160:
@@ -152,6 +158,8 @@ type GoldConsignResult struct {
 	Listing              GoldConsignListing
 	GoldAfter, CeraAfter int64
 	Repeated             bool
+	WalletAfter          shop.Wallet
+	Payment              shop.WalletPayment
 }
 type GoldConsignOwner struct {
 	owner        *Owner
@@ -277,6 +285,10 @@ func (o *GoldConsignOwner) Register(ctx context.Context, q GoldConsignRegisterCo
 	}
 	if q.ListingID == 0 || q.SellerID == "" || q.SellerID == EscrowCharacterID || q.AccountID == "" || q.PriceCera <= 0 || q.PriceCera > math.MaxInt32 || (q.DurationHour != 24 && q.DurationHour != 48) {
 		return GoldConsignResult{}, ErrInvalidRequest
+	}
+	minimumPrice, _ := GoldConsignMinimumPrice(q.GoldItemID)
+	if q.PriceCera < minimumPrice {
+		return GoldConsignResult{}, ErrGoldConsignPriceRejected
 	}
 	if e := o.EnsureEscrow(ctx); e != nil {
 		return GoldConsignResult{}, e
@@ -460,15 +472,17 @@ func (o *GoldConsignOwner) Buy(ctx context.Context, q GoldConsignBuyCommand) (Go
 		if !found {
 			return ErrNotOwner
 		}
-		balance := shop.Balance(account)
-		if balance < l.PriceCera {
-			return shop.ErrCeraInsufficient
+		// Private server policy matches the cash shop: happy tokens, regular
+		// tokens, then Cera. Plan and debit remain in the existing sale transaction.
+		payment, e := shop.PlanWalletPayment(shop.WalletBalance(account), l.PriceCera, shop.PayPolicyWaterfall)
+		if e != nil {
+			return errors.Join(shop.ErrCeraInsufficient, e)
 		}
 		if escrow.Stats["gold"] < l.GoldAmount {
 			return ErrGoldUnavailable
 		}
 		now := o.clock()
-		shop.SetBalance(&account, balance-l.PriceCera)
+		walletAfter := shop.ApplyWalletPayment(&account, payment)
 		account.UpdatedAt = now
 		escrow.Stats["gold"] -= l.GoldAmount
 		escrow.UpdatedAt = now
@@ -491,7 +505,7 @@ func (o *GoldConsignOwner) Buy(ctx context.Context, q GoldConsignBuyCommand) (Go
 		if e = i.Save(ctx, inv); e != nil {
 			return e
 		}
-		result = GoldConsignResult{Listing: l, CeraAfter: balance - l.PriceCera}
+		result = GoldConsignResult{Listing: l, CeraAfter: walletAfter.Cera, WalletAfter: walletAfter, Payment: payment}
 		return nil
 	})
 	if err != nil {

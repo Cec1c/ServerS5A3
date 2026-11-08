@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "classification": "群服内容",
+  "baseline": {
+    "sha256": "0bcf5c36966c93d7f515b0193eb506377fcea46ad7d3d59370216f5325b1f374",
+    "bytes": 126254126
+  },
+  "archiveFiles": 1126439,
+  "toolSHA256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+  "planSHA256": "5c5baead46b41a423aff62f5ab4645ead3c61e40cf84bfa01aa927c009a852d8",
+  "changedPaths": [
+    "stackable/10304001/10304540.stk",
+    "stackable/10304001/10304541.stk",
+    "stackable/10304001/10304542.stk",
+    "stackable/10304001/10304543.stk",
+    "stackable/10304001/10304544.stk",
+    "stackable/490009001/chn_490009969.stk",
+    "stackable/10304001/10304580.stk",
+    "stackable/10304001/10304581.stk",
+    "stackable/10304001/10304582.stk",
+    "stackable/10304001/10304583.stk",
+    "stackable/10304001/10304584.stk",
+    "etc/dungeonetc/dimensiondungeoninfo.etc",
+    "etc/raid/anton.etc"
+  ],
+  "existingStringOffsetsPreserved": true,
+  "deployed": false,
+  "expected_candidate": {
+    "sha256": "d3507920cdb8038b900ab9897fdc181ff97840c775a06d4c2108b656cc952c56",
+    "bytes": 126254247
+  },
+  "validation": {
+    "wholeArchiveVerified": true,
+    "semanticDiffVerified": true,
+    "changedEntries": 13,
+    "unchangedEntries": 1126426
+  }
+}

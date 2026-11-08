@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"encoding/binary"
 	"strconv"
 	"testing"
 
@@ -53,6 +54,8 @@ func TestPartyDungeonLeaveRequestReturnsOnlyTheLeavingMemberToTown(t *testing.T)
 					t.Fatal("returned member retained dungeon runtime")
 				}
 				assertPartyProjectionEmpty(t, "returned member", leaving)
+				assertDepartureRetiresSelfFirst(t, leaving)
+
 				if _, found := f.service.runtimePartyManagerForService().SnapshotByUser(leavingID, 0); found {
 					t.Fatal("returned member retained central party membership")
 				}
@@ -123,4 +126,41 @@ func TestPartyKickInsideDungeonReturnsOnlyTarget(t *testing.T) {
 		t.Fatal("kick disturbed remaining dungeon owner")
 	}
 	assertPartyProjectionEmpty(t, "kicked member", f.member)
+}
+
+// NOTI9's native slot removal also clears the local actor's party pointer when
+// removing a peer record. Self must be retired before any peer record or the
+// client loses its before/after transition and leaves the party HUD displayed.
+func assertDepartureRetiresSelfFirst(t *testing.T, leaving *gameSession) {
+	t.Helper()
+	assertDepartureStreamRetiresSelfFirst(t, leaving, leaving.conn.(*bufferConn).write.Bytes())
+}
+
+func assertDepartureStreamRetiresSelfFirst(t *testing.T, leaving *gameSession, stream []byte) {
+	t.Helper()
+	var owners []byte
+	peerSeen := false
+	for _, frame := range splitUpperFrames(t, stream) {
+		if frame.msgID != 9 || len(frame.body) != 15 || frame.body[9] != 2 || frame.body[10] != 0 {
+			continue
+		}
+		id := binary.LittleEndian.Uint16(frame.body[4:6])
+		if id == currentSceneActorObjectKey(leaving.selectedCharacterID) {
+			if peerSeen {
+				t.Fatal("self departure followed peer cleanup; native HUD teardown is lost")
+			}
+			owners = append(owners, frame.body[7])
+		} else {
+			if len(owners) == 0 {
+				t.Fatal("peer cleanup preceded self departure")
+			}
+			peerSeen = true
+		}
+	}
+	if len(owners) == 0 || owners[0] != currentClientSelectedChannel(leaving) {
+		t.Fatalf("self retirement did not start in selected channel: owners=%v", owners)
+	}
+	if !peerSeen {
+		t.Fatal("departure did not retire former peer records")
+	}
 }

@@ -1,0 +1,154 @@
+diff --git a/deploy/control/pvf_pipeline.py b/deploy/control/pvf_pipeline.py
+index 1dfc7a31..17c65c11 100644
+--- a/deploy/control/pvf_pipeline.py
++++ b/deploy/control/pvf_pipeline.py
+@@ -11,0 +12 @@ import sys
++import subprocess
+@@ -214 +215,9 @@ print(json.dumps(record))
+-        provider = json.loads(self.control.ssh(endpoint,provider_args,data=credentials).stdout)
++        try:
++            provider = json.loads(self.control.ssh(endpoint,provider_args,data=credentials).stdout)
++        except subprocess.CalledProcessError as error:
++            # Keep provider diagnostics private. A queue result must not contain
++            # signed URLs or provider responses, but the operator needs the
++            # original failure to reconcile an upload without replaying it.
++            with (self.root/'provider-failure.private.log').open('xb') as log:
++                log.write(error.stderr or b'')
++            raise RuntimeError('provider preparation failed; original private stderr retained') from None
+diff --git a/private-content/20261031-pkg001-economy/prepare_openlist_provider.py b/private-content/20261031-pkg001-economy/prepare_openlist_provider.py
+index 29a1e3f3..7b905cf0 100644
+--- a/private-content/20261031-pkg001-economy/prepare_openlist_provider.py
++++ b/private-content/20261031-pkg001-economy/prepare_openlist_provider.py
+@@ -12,0 +13,2 @@ import sys
++import time
++from urllib.error import HTTPError, URLError
+@@ -26,0 +29,14 @@ class NoRedirect(HTTPRedirectHandler):
++class ProviderHTTPError(ValueError):
++    def __init__(self,status):
++        self.status=status
++        super().__init__('OpenList HTTP status '+str(status))
++
++
++def transient_status(status):
++    return status in (408,429) or 500<=status<600
++
++
++def missing_object(obj):
++    return obj.get('code')==404 or (obj.get('code')==500 and obj.get('message')=='object not found' and obj.get('data') is None)
++
++
+@@ -70 +86,2 @@ class OpenList:
+-            if r.status!=200 or len(body)>1<<20:raise ValueError('OpenList HTTP failure')
++            if r.status!=200:raise ProviderHTTPError(r.status)
++            if len(body)>1<<20:raise ValueError('OpenList response exceeds limit')
+@@ -73,0 +91,11 @@ class OpenList:
++    def metadata(self,remote,wait_missing=False):
++        for attempt in range(3):
++            try:
++                obj=self.request('POST','/api/fs/get',dict(path=remote,password=''))
++                if not (wait_missing and missing_object(obj) and attempt<2):return obj
++            except ProviderHTTPError as error:
++                if not transient_status(error.status) or attempt==2:raise
++            except (OSError,http.client.HTTPException):
++                if attempt==2:raise
++            time.sleep(attempt+1)
++
+@@ -75,6 +103,14 @@ class OpenList:
+-        obj=self.request('POST','/api/fs/get',dict(path=remote,password=''))
+-        missing=obj.get('code')==404 or (obj.get('code')==500 and obj.get('message')=='object not found' and obj.get('data') is None)
+-        if missing:
+-            result=self.request('PUT','/api/fs/put',file=file,remote=remote)
+-            if result.get('code')!=200:raise ValueError('OpenList upload failed')
+-            obj=self.request('POST','/api/fs/get',dict(path=remote,password=''))
++        obj=self.metadata(remote)
++        if missing_object(obj):
++            # A lost response can follow a successful write. Never repeat PUT;
++            # reconcile its outcome with bounded reads and the complete digest.
++            try:
++                result=self.request('PUT','/api/fs/put',file=file,remote=remote)
++                code=result.get('code')
++                if code!=200 and (not isinstance(code,int) or not transient_status(code)):
++                    raise ValueError('OpenList upload failed')
++            except ProviderHTTPError as error:
++                if not transient_status(error.status):raise
++            except (OSError,http.client.HTTPException):
++                pass
++            obj=self.metadata(remote,wait_missing=True)
+@@ -88,7 +124,15 @@ class OpenList:
+-        h=hashlib.sha256();total=0
+-        with opener.open(Request(link,headers={'Accept-Encoding':'identity'}),timeout=90) as r:
+-            if r.status!=200:raise ValueError('OpenList provider readback failed')
+-            for block in iter(lambda:r.read(1<<20),b''):
+-                total+=len(block)
+-                if total>size:raise ValueError('OpenList provider exceeds expected size')
+-                h.update(block)
++        for attempt in range(3):
++            h=hashlib.sha256();total=0
++            try:
++                with opener.open(Request(link,headers={'Accept-Encoding':'identity'}),timeout=90) as r:
++                    if r.status!=200:raise ValueError('OpenList provider readback failed')
++                    for block in iter(lambda:r.read(1<<20),b''):
++                        total+=len(block)
++                        if total>size:raise ValueError('OpenList provider exceeds expected size')
++                        h.update(block)
++                break
++            except HTTPError as error:
++                if not transient_status(error.code) or attempt==2:raise
++            except (URLError,OSError,http.client.HTTPException):
++                if attempt==2:raise
++            time.sleep(attempt+1)
+diff --git a/private-content/20261031-pkg001-economy/test_openlist_publication.py b/private-content/20261031-pkg001-economy/test_openlist_publication.py
+index 620ddece..ce673dc2 100644
+--- a/private-content/20261031-pkg001-economy/test_openlist_publication.py
++++ b/private-content/20261031-pkg001-economy/test_openlist_publication.py
+@@ -8,0 +9 @@ import unittest
++from urllib.error import HTTPError
+@@ -21,0 +23,48 @@ class OpenListPublicationTests(unittest.TestCase):
++    def test_ambiguous_upload_and_delayed_metadata_reconcile_without_second_put(self):
++        with tempfile.TemporaryDirectory() as d:
++            p=Path(d)/'blob';p.write_bytes(b'complete uploaded bytes');h=hashlib.sha256(p.read_bytes()).hexdigest();remote='/cloud/'+h+'.blob'
++            found=dict(code=200,data=dict(name=Path(remote).name,size=p.stat().st_size,is_dir=False,raw_url='https://cloudcube.wuxi.cn/blob'))
++            missing=dict(code=500,message='object not found',data=None)
++            for upload in (TimeoutError('response lost'),dict(code=503)):
++                with self.subTest(upload=type(upload).__name__):
++                    c=provider.OpenList('http://127.0.0.1:29449','synthetic-token')
++                    c.request=Mock(side_effect=[missing,upload,missing,found])
++                    stream=io.BytesIO(p.read_bytes());stream.status=200;opener=Mock();opener.open.return_value=stream
++                    with patch.object(provider,'build_opener',return_value=opener),patch.object(provider.time,'sleep'):
++                        self.assertEqual(c.ensure(p,h,remote),dict(path=remote,size=p.stat().st_size))
++                    self.assertEqual([x.args[:2] for x in c.request.call_args_list],[('POST','/api/fs/get'),('PUT','/api/fs/put'),('POST','/api/fs/get'),('POST','/api/fs/get')])
++
++    def test_missing_after_ambiguous_upload_stops_at_bounded_reads(self):
++        with tempfile.TemporaryDirectory() as d:
++            p=Path(d)/'blob';p.write_bytes(b'bytes');h=hashlib.sha256(p.read_bytes()).hexdigest()
++            missing=dict(code=404);c=provider.OpenList('http://127.0.0.1:29449','synthetic-token')
++            c.request=Mock(side_effect=[missing,TimeoutError(),missing,missing,missing])
++            with patch.object(provider.time,'sleep') as sleep,self.assertRaisesRegex(ValueError,'metadata failure'):
++                c.ensure(p,h,'/cloud/'+h+'.blob')
++            self.assertEqual(c.request.call_count,5);self.assertEqual(sleep.call_count,2)
++            self.assertEqual(sum(x.args[0]=='PUT' for x in c.request.call_args_list),1)
++
++    def test_transient_readback_restarts_digest_but_corruption_and_denial_stop(self):
++        with tempfile.TemporaryDirectory() as d:
++            p=Path(d)/'blob';p.write_bytes(b'expected data');h=hashlib.sha256(p.read_bytes()).hexdigest();remote='/cloud/'+h+'.blob'
++            c=provider.OpenList('http://127.0.0.1:29449','synthetic-token')
++            c.request=Mock(return_value=dict(code=200,data=dict(name=Path(remote).name,size=p.stat().st_size,is_dir=False,raw_url='https://cloudcube.wuxi.cn/blob')))
++            stream=io.BytesIO(p.read_bytes());stream.status=200;opener=Mock();opener.open.side_effect=[HTTPError('https://cloudcube.wuxi.cn/blob',503,'temporary',{},None),stream]
++            with patch.object(provider,'build_opener',return_value=opener),patch.object(provider.time,'sleep'):
++                c.ensure(p,h,remote)
++            self.assertEqual(opener.open.call_count,2);self.assertEqual(c.request.call_count,1)
++            for status in (401,403):
++                opener=Mock();opener.open.side_effect=HTTPError('https://cloudcube.wuxi.cn/blob',status,'denied',{},None)
++                with patch.object(provider,'build_opener',return_value=opener),patch.object(provider.time,'sleep') as sleep,self.assertRaises(HTTPError):c.ensure(p,h,remote)
++                self.assertEqual(opener.open.call_count,1);sleep.assert_not_called()
++            stream=io.BytesIO(b'corrupt bytes');stream.status=200;opener=Mock();opener.open.return_value=stream
++            with patch.object(provider,'build_opener',return_value=opener),patch.object(provider.time,'sleep') as sleep,self.assertRaisesRegex(ValueError,'SHA256 differs|exceeds expected size'):c.ensure(p,h,remote)
++            self.assertEqual(opener.open.call_count,1);sleep.assert_not_called()
++
++    def test_upload_permission_denial_does_not_reconcile_or_retry(self):
++        with tempfile.TemporaryDirectory() as d:
++            p=Path(d)/'blob';p.write_bytes(b'bytes');h=hashlib.sha256(p.read_bytes()).hexdigest()
++            c=provider.OpenList('http://127.0.0.1:29449','synthetic-token');c.request=Mock(side_effect=[dict(code=404),provider.ProviderHTTPError(403)])
++            with patch.object(provider.time,'sleep') as sleep,self.assertRaises(provider.ProviderHTTPError):c.ensure(p,h,'/cloud/'+h+'.blob')
++            self.assertEqual(c.request.call_count,2);sleep.assert_not_called()
++

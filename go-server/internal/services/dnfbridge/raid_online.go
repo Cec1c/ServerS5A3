@@ -54,6 +54,9 @@ type runtimeRaidMemberState struct {
 	// one-member lobby. GroupIndex/SlotOrder remain the planned raid placement;
 	// Battle.MemberGroups remains the frozen reward grouping.
 	OrdinaryPartySolo bool
+	// A recruiting manager action owns this planned seat's display even before
+	// raid start materializes ordinary parties. Automatic admission seats do not.
+	RecruitingPlacementExplicit bool
 }
 
 // runtimePartyRaidExitProjection is the ordinary-party half of a successful
@@ -305,6 +308,7 @@ func (s *Service) handleOnlineCreateRaid(session *gameSession, typ uint16, body 
 
 func (s *Service) sendRuntimeRaidMetadata(session *gameSession, state runtimeRaidState, mode uint32) error {
 	if s.options.currentClientVersion == "official-24.9" {
+		state = s.currentRaidLivePartyProjection(state)
 		body, err := buildCurrentRuntimeRaidMetadata(state, mode)
 		if err != nil {
 			return err
@@ -827,7 +831,9 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		err = s.consumeCurrentFiendWarEntry(session, *state, battle)
 		allowed = err == nil
 	} else {
-		allowed, err = s.guardRaidStartEntryCost(session, cloneRuntimeRaidState(*state))
+		entryState := cloneRuntimeRaidState(*state)
+		entryState.Battle = battle
+		allowed, err = s.guardRaidStartEntryCost(session, entryState)
 	}
 	if err != nil || !allowed {
 		return runtimeRaidState{}, false, err
@@ -918,6 +924,9 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	state.Members[index].GroupIndex = targetGroup
 	state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(*state, targetGroup, memberID)
 	state.Members[index].OrdinaryPartySolo = false
+	if !state.Started && state.CurrentLayout && state.RouteOrRaidType <= 1 {
+		state.Members[index].RecruitingPlacementExplicit = true
+	}
 	runtimeRaidSortMembers(state.Members)
 	projectionChanged := false
 	if s.options.currentClientVersion == "official-24.9" && groupChanged && state.Started && state.Battle != nil && !state.Battle.TimedOut {

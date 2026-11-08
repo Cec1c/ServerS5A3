@@ -95,7 +95,10 @@ func TestQuestInventoryDeltaMatchesFullRowsAndPreservesUnrelatedItems(t *testing
 					t.Fatal("增量与原完整保存的全部关系行不同")
 				}
 				writes = append(writes, s.writes)
-				if optimized {
+				// This deployment also tracks before-images for the generic
+				// single-character transaction, so both routes must avoid
+				// touching unrelated slots.
+				{
 					for _, call := range s.calls {
 						for _, arg := range call.Args {
 							key, ok := arg.(string)
@@ -106,8 +109,8 @@ func TestQuestInventoryDeltaMatchesFullRowsAndPreservesUnrelatedItems(t *testing
 					}
 				}
 			}
-			if scenario != "不发放" && scenario != "回调失败" && writes[1] >= writes[0] {
-				t.Fatal("未减少无关物品写调用", writes)
+			if scenario != "不发放" && scenario != "回调失败" && writes[1] > writes[0] {
+				t.Fatal("显式增量写调用多于事务增量写", writes)
 			}
 			t.Logf("同一事务、同一最终关系行，写调用：%d→%d", writes[0], writes[1])
 		})

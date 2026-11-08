@@ -166,6 +166,7 @@ func (s *Service) removeCurrentSelectorRosterCharacter(session *gameSession, cha
 		}
 		copy(session.currentRenameRoster[index:], session.currentRenameRoster[index+1:])
 		session.currentRenameRoster = session.currentRenameRoster[:len(session.currentRenameRoster)-1]
+		s.rememberCurrentTagTournamentSentRoster(session, session.currentRenameRoster)
 		return
 	}
 }

@@ -8,6 +8,9 @@ import (
 
 func departureRowsInSelectedChannel(t *testing.T, body []byte, channel int) []op9PartyRow {
 	t.Helper()
+	if len(body) >= 15 && body[9] == 2 {
+		return retainedDepartureRows(t, body, channel)
+	}
 	if int(body[7]) != channel {
 		return parseRetirementCurrentRows(t, body)
 	}
@@ -55,6 +58,7 @@ func TestDungeonDepartureUpdatesSurvivorTownAndDungeonRecords(t *testing.T) {
 					if err := f.service.leaveRuntimePartyOnMemberGiveup(leaver, f.instance); err != nil {
 						t.Fatal(err)
 					}
+					assertDepartureRetiresSelfFirst(t, leaver)
 					for _, receiver := range peers {
 						if receiver == leaver {
 							continue
@@ -77,8 +81,14 @@ func TestDungeonDepartureUpdatesSurvivorTownAndDungeonRecords(t *testing.T) {
 								}
 								id := binary.LittleEndian.Uint16(frame.body[4:6])
 								if frame.body[9] == 2 {
-									if id != leavingID || len(frame.body) != 15 || frame.body[10] != 0 {
+									rows := retainedDepartureRows(t, frame.body, channel)
+									if id != leavingID || len(rows) != count-1 {
 										t.Fatal("wrong departed record")
+									}
+									for _, row := range rows {
+										if row.uid == leavingID {
+											t.Fatal("departed actor retained in record")
+										}
 									}
 									departures[owner]++
 								} else if frame.body[9] == 0 {

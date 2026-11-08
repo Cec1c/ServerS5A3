@@ -528,10 +528,10 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 		"msg_id", uint16(dnfenum.CmdPacketRequestBlacklist),
 		"classification", 0,
 		"body_len", len(placementBody),
-		"actor_slot", placementBody[0],
+		"placement_policy", "solo_zero_or_each_current_party_slot",
 		"placement_seed", placementBody[1],
-		"body_source", "current_exe_sub_1D41DA0_actor_slot_scene_commit")
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRequestBlacklist), placementBody, 0); err != nil {
+		"body_source", "current_exe_sub_1FF2EC0_actor_slot_scene_commit")
+	if err := s.sendInitialDungeonActorPlacements(session, runtime, scene, source); err != nil {
 		return err
 	}
 

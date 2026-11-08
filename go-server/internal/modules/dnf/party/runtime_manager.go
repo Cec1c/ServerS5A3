@@ -30,10 +30,11 @@ type RuntimePartyMember struct {
 }
 
 type RuntimePartySnapshot struct {
-	ID       uint16
-	Leader   uint16
-	Settings alignedcmd.PartyState
-	Members  []RuntimePartyMember
+	MembershipRevision uint64
+	ID                 uint16
+	Leader             uint16
+	Settings           alignedcmd.PartyState
+	Members            []RuntimePartyMember
 }
 
 type RuntimePartyResult struct {
@@ -50,10 +51,11 @@ type RuntimePartyResult struct {
 }
 
 type runtimeParty struct {
-	id       uint16
-	leader   uint16
-	settings alignedcmd.PartyState
-	members  [currentRuntimePartyMaxMembers]*RuntimePartyMember
+	membershipRevision uint64
+	id                 uint16
+	leader             uint16
+	settings           alignedcmd.PartyState
+	members            [currentRuntimePartyMaxMembers]*RuntimePartyMember
 }
 
 type runtimePartyInvite struct {
@@ -379,6 +381,7 @@ func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64,
 	}
 	previous := snapshotRuntimeParty(party)
 	party.leader = next.UserID
+	party.membershipRevision++
 	party.settings.UserID = next.UserID
 	party.settings.IsLeader = true
 	result := runtimePartySuccess(party, newLeader)
@@ -530,6 +533,7 @@ func (m *RuntimePartyManager) RebindSession(userID uint16, priorGeneration uint6
 	replacement.Slot = member.Slot
 	replacement.State = normalizeRuntimePartyMember(replacement.State, userID)
 	*member = replacement
+	party.membershipRevision++
 	m.clearInvitesForLocked(userID, priorGeneration)
 	return runtimePartySuccess(party, userID)
 }
@@ -557,6 +561,7 @@ func (m *RuntimePartyManager) Reposition(byUser uint16, byGeneration uint64, fro
 		return runtimePartyFailure("invalid_destination_slot")
 	}
 	party.members[fromSlot], party.members[toSlot] = party.members[toSlot], party.members[fromSlot]
+	party.membershipRevision++
 	if party.members[fromSlot] != nil {
 		party.members[fromSlot].Slot = fromSlot
 	}
@@ -664,6 +669,7 @@ func (p *runtimeParty) addAt(member RuntimePartyMember, slot byte) bool {
 	member.State = normalizeRuntimePartyMember(member.State, member.UserID)
 	member.State.Slot = slot
 	p.members[slot] = &member
+	p.membershipRevision++
 	return true
 }
 
@@ -671,6 +677,7 @@ func (p *runtimeParty) remove(userID uint16) bool {
 	for slot, member := range p.members {
 		if member != nil && member.UserID == userID {
 			p.members[slot] = nil
+			p.membershipRevision++
 			return true
 		}
 	}
@@ -691,7 +698,7 @@ func snapshotRuntimeParty(p *runtimeParty) RuntimePartySnapshot {
 	if p == nil {
 		return RuntimePartySnapshot{}
 	}
-	return RuntimePartySnapshot{ID: p.id, Leader: p.leader, Settings: cloneRuntimePartySettings(p.settings), Members: p.membersBySlot()}
+	return RuntimePartySnapshot{MembershipRevision: p.membershipRevision, ID: p.id, Leader: p.leader, Settings: cloneRuntimePartySettings(p.settings), Members: p.membersBySlot()}
 }
 
 func (s RuntimePartySnapshot) StateFor(userID uint16) alignedcmd.PartyState {

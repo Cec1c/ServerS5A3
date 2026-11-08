@@ -21,19 +21,23 @@ func (s *Service) sendRuntimePartyDeparture(receiver *gameSession, previous alig
 	}
 	current := s.currentPartyRetirementGuard(receiver, nil)
 	members := runtimePartyMembers(previous)
-	ordered := make([]uint16, 0, len(members)+1)
+	// The native slot setter clears each former member's actor->party pointer.
+	// A peer's empty record therefore also detaches the local actor. If that
+	// packet comes first, NOTI9's subsequent self record sees no previous
+	// local party and skips the HUD/network teardown branch. Retire the local
+	// record first while its before/after identity is still observable.
+	ordered := []uint16{identity.character}
 	for _, member := range members {
 		if member.UserID != identity.character {
 			ordered = append(ordered, member.UserID)
 		}
 	}
-	ordered = append(ordered, identity.character)
 	owners := []byte{currentSceneObjectContext}
 	if channel := currentClientSelectedChannel(receiver); channel != currentSceneObjectContext {
-		owners = append(owners, channel)
+		owners = append([]byte{channel}, owners...)
 	}
-	for _, owner := range owners {
-		for _, id := range ordered {
+	for _, id := range ordered {
+		for _, owner := range owners {
 			if id == 0 {
 				continue
 			}

@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -23,12 +24,6 @@ func assertAntonResultStream(t *testing.T, stream []byte, option byte, failed bo
 	packet, rest := splitGameServerUpperPacket(t, stream)
 	if packet.Header.MsgID != 601 || len(packet.Body) != 10 || packet.Body[9] != option || (packet.Body[0] == 1) != failed {
 		t.Fatal("incorrect authoritative result", packet)
-	}
-	if failed {
-		if len(rest) != 0 {
-			t.Fatal("timeout sent a successful phase transition")
-		}
-		return
 	}
 	packet, rest = splitGameServerUpperPacket(t, rest)
 	if packet.Header.MsgID != 587 || !bytes.Equal(packet.Body, []byte{3, 0}) || len(rest) != 0 {
@@ -139,6 +134,11 @@ func TestRealPVFAntonOnlineResultTimeoutAndPartialTransport(t *testing.T) {
 	}
 	assertAntonResultStream(t, f.conn.write.Bytes(), 1, true)
 	g, peer, state, at := onlineAntonTerminalFixture(t)
+	// Production preloads this catalog before accepting a session. Keep the
+	// transport failure test independent of a cold, actual-PVF catalog build.
+	if _, err := g.service.loadQuestCatalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if completed, errs := g.service.commitCurrentRaidWeeklyIntents(at); len(completed) != 1 || len(errs) != 0 {
 		t.Fatal(completed, errs)
 	}

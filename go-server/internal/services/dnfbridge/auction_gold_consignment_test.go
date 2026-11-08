@@ -17,7 +17,7 @@ func goldBridgeFixture(t *testing.T) (repo.Group, *Service, *gameSession, *buffe
 	ctx := context.Background()
 	for _, id := range []string{"10", "11"} {
 		a := repo.AccountRecord{AccountID: "a-" + id}
-		shop.SetBalance(&a, 1000)
+		shop.SetBalance(&a, 10000)
 		if e := r.Account.Save(ctx, a); e != nil {
 			t.Fatal(e)
 		}
@@ -37,7 +37,7 @@ func goldRegisterBody() []byte {
 	binary.LittleEndian.PutUint32(b[4:8], 2681725)
 	binary.LittleEndian.PutUint32(b[8:12], 1)
 	binary.LittleEndian.PutUint32(b[12:16], 0xffffffff)
-	binary.LittleEndian.PutUint32(b[16:20], 111)
+	binary.LittleEndian.PutUint32(b[16:20], 1110)
 	binary.LittleEndian.PutUint32(b[24:28], 24)
 	return b
 }
@@ -88,7 +88,7 @@ func TestCurrentAuctionGoldNativeRegisterSearchBuyAndRouteIsolation(t *testing.T
 	buyer := &gameSession{conn: buyerConn, selectedCharacterID: 11, accountID: "a-11"}
 	buy := make([]byte, 17)
 	buy[0] = 1
-	binary.LittleEndian.PutUint32(buy[1:5], 111)
+	binary.LittleEndian.PutUint32(buy[1:5], 1110)
 	binary.LittleEndian.PutUint64(buy[5:13], rows[0].ID)
 	binary.LittleEndian.PutUint32(buy[13:17], 2681725)
 	if e = s.handleCurrentAuctionCommand(buyer, 185, buy); e != nil {
@@ -99,7 +99,7 @@ func TestCurrentAuctionGoldNativeRegisterSearchBuyAndRouteIsolation(t *testing.T
 		t.Fatal(p)
 	}
 	p, rest = splitGameServerUpperPacketWithHeader(t, rest, 16)
-	if p.Header.MsgID != 53 || len(rest) != 0 || binary.LittleEndian.Uint32(p.Body[1:5]) != 889 {
+	if p.Header.MsgID != 53 || len(rest) != 0 || binary.LittleEndian.Uint32(p.Body[1:5]) != 8890 {
 		t.Fatal(p)
 	}
 	if len(mustGoldMailbox(t, r, "10").Mails) != 1 || len(mustGoldMailbox(t, r, "11").Mails) != 1 {
@@ -110,7 +110,7 @@ func TestCurrentAuctionGoldNativeRegisterSearchBuyAndRouteIsolation(t *testing.T
 		t.Fatal(e)
 	}
 	p, _ = splitGameServerUpperPacketWithHeader(t, conn.write.Bytes(), 16)
-	if p.Body[0] != 1 || p.Body[1] != 1 || binary.LittleEndian.Uint32(p.Body[2:6]) != 111 || binary.LittleEndian.Uint32(p.Body[6:10]) != 1 {
+	if p.Body[0] != 1 || p.Body[1] != 1 || binary.LittleEndian.Uint32(p.Body[2:6]) != 1110 || binary.LittleEndian.Uint32(p.Body[6:10]) != 1 {
 		t.Fatal(p)
 	}
 }
@@ -142,7 +142,7 @@ func TestCurrentAuctionGoldClockRestoresOfflineExpiryAndIgnoresHistory(t *testin
 	r, s, _, _ := goldBridgeFixture(t)
 	o, _ := auction.NewGoldConsignOwner(r)
 	ctx := context.Background()
-	if _, e := o.Register(ctx, auction.GoldConsignRegisterCommand{ListingID: 1, SellerID: "10", AccountID: "a-10", GoldItemID: 2681725, PriceCera: 111, DurationHour: 24}); e != nil {
+	if _, e := o.Register(ctx, auction.GoldConsignRegisterCommand{ListingID: 1, SellerID: "10", AccountID: "a-10", GoldItemID: 2681725, PriceCera: 1110, DurationHour: 24}); e != nil {
 		t.Fatal(e)
 	}
 	inv, _, _ := r.Inventory.Load(ctx, auction.EscrowCharacterID)
