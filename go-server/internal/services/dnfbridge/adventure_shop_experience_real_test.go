@@ -69,18 +69,19 @@ func TestRealPVFAdventureShopExperienceSynchronizesAcrossCapsules(t *testing.T) 
 	}
 	wantGrowth := uint64(116_914_950) + uint64(award.Gain)*3
 	wantBrave := uint32(5_131_134) + award.Gain*3
+	rosterProgress := uint64(561_800_000) * 1675 / 10850 // one level-90 character: 12,525 legacy points.
 	assertInfo := func(body []byte, growth uint64, claimExperience uint32) {
 		t.Helper()
 		raw := body[18 : 18+7424]
 		// Native BDF424 consumes current-level EXP / next-level cost. The
-		// existing committed account ledger contains all three maximum-level
-		// kills; legacy character-level points never reflected those awards.
-		wantExperience := uint64(award.Gain) * 3 * 3 / 10
-		if wantExperience >= 500_000_000 {
-			t.Fatal("fixture crossed modern level two")
+		// roster baseline is level three plus its within-level fraction. The
+		// three committed maximum-level kills add EXP to that same level.
+		wantExperience := rosterProgress + uint64(award.Gain)*3*3/10
+		if wantExperience >= 561_800_000 {
+			t.Fatal("fixture crossed modern level four")
 		}
-		if binary.LittleEndian.Uint32(raw[0:]) != 1 || binary.LittleEndian.Uint64(raw[8:]) != wantExperience {
-			t.Fatalf("modern account level/EXP = %d/%d, want 1/%d", binary.LittleEndian.Uint32(raw[0:]), binary.LittleEndian.Uint64(raw[8:]), wantExperience)
+		if binary.LittleEndian.Uint32(raw[0:]) != 3 || binary.LittleEndian.Uint64(raw[8:]) != wantExperience {
+			t.Fatalf("combined account level/EXP = %d/%d, want 3/%d", binary.LittleEndian.Uint32(raw[0:]), binary.LittleEndian.Uint64(raw[8:]), wantExperience)
 		}
 		// 独立字段位置：5260数量，5264经验余数，7408累计胶囊经验，7416实际领取经验。
 		if binary.LittleEndian.Uint32(raw[5260:]) != 25 || binary.LittleEndian.Uint32(raw[5264:]) != wantBrave ||
@@ -118,6 +119,7 @@ func TestRealPVFAdventureShopExperienceSynchronizesAcrossCapsules(t *testing.T) 
 	if err := repos.Character.Save(ctx, c); err != nil {
 		t.Fatal(err)
 	}
+	rosterProgress = uint64(561_800_000) * 6605 / 10850 // 90+68: 17,455 legacy points.
 	skill, _, err := repos.Skill.Load(ctx, "99")
 	if err != nil {
 		t.Fatal(err)

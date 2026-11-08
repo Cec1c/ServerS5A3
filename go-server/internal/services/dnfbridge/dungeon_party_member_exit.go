@@ -161,14 +161,18 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 func (s *Service) sendMemberGiveupSurvivorRosterInContext(receiver *gameSession, state alignedcmd.PartyState, departingID uint16, owner byte, current func() bool) (bool, error) {
 	selection := currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerExplicit, Owner: owner}
 	if departingID != 0 {
-		// Diff the local roster before clearing the departed actor's record;
-		// restore every surviving record before NOTI6 can erase its identity.
+		// Every record can still own a survivor's party binding. Give the
+		// departed actor's record the same retained roster, not an empty roster:
+		// native kind2 would otherwise destroy all its former peers' models and
+		// tear down the local network before the following kind0 can rebind it.
 		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, receiver, state, "member_giveup_network_roster", nil, selection)
 		if err != nil || !sent {
 			return false, err
 		}
-		body := s.buildCurrentPartyDepartureBody(departingID, owner)
-		sent, err = s.sendRetiredPartyPacket(receiver, uint16(dnfenum.CmdPacketRecoverStamina), body, &state, current, false)
+		if !current() {
+			return false, nil
+		}
+		sent, err = s.sendCurrentPartyRecordProjectionInContext(receiver, receiver, state, "member_giveup_retained_record", nil, selection, departingID)
 		if err != nil || !sent {
 			return false, err
 		}

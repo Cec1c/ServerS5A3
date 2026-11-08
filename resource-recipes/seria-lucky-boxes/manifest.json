@@ -1,0 +1,212 @@
+{
+  "schema": 2,
+  "classification": "群服内容",
+  "task": "赛丽亚的幸运新增三个礼盒资源候选",
+  "baseline": {
+    "sha256": "578764c07951ced626a94e97f30242d47bd6bc74bcc2347bedc55eeeb4965310",
+    "bytes": 126020764,
+    "archiveFiles": 1126438
+  },
+  "blessedBox": {
+    "itemId": 2682272,
+    "path": "stackable/ect/chn_random/chn_blessed_box.stk",
+    "rawSHA256": "e9bad263e6b21e506d7a478b45c1d00caef7fe3361f07010bc2ae2ea59bd021a",
+    "tokenCount": 1148,
+    "sectionTokenSHA256": [
+      "4dce0645f5b68fd41451d9f45cde8b129a20856dab85882fcbf20795cb162b9d",
+      "187f8d3d68833ac09d221f8a64baf9ad1cfabde2b645335fca75e6743e8b07cd",
+      "08ce55eb9d25a26ce7604afd3f257af6bf0c518f5b4e1a093ac85d7a25467710"
+    ],
+    "referenceWeights": [
+      {
+        "itemId": 490703089,
+        "name": "第2期稀有装扮礼盒 (白银系列)",
+        "weight": 300,
+        "count": 1,
+        "flag": 1
+      },
+      {
+        "itemId": 490703090,
+        "name": "第2期稀有装扮套装礼盒 (白银系列)",
+        "weight": 10,
+        "count": 1,
+        "flag": 1
+      }
+    ],
+    "appendedRewards": [
+      {
+        "itemId": 990032001,
+        "name": "梦想装扮合成器自选礼盒",
+        "weight": 300,
+        "count": 1,
+        "flag": 1,
+        "weightSourceItemId": 490703089
+      },
+      {
+        "itemId": 490702679,
+        "name": "神圣稀有克隆装扮套装礼盒",
+        "weight": 10,
+        "count": 1,
+        "flag": 1,
+        "weightSourceItemId": 490703090
+      },
+      {
+        "itemId": 490702678,
+        "name": "神圣稀有克隆装扮礼盒",
+        "weight": 300,
+        "count": 1,
+        "flag": 1,
+        "weightSourceItemId": 490703089
+      }
+    ],
+    "sectionCount": 3,
+    "insertedSectionIndex": 2
+  },
+  "targetItems": [
+    {
+      "itemId": 490702679,
+      "name": "神圣稀有克隆装扮套装礼盒",
+      "sourcePath": "stackable/cash/chn_490702679.stk"
+    },
+    {
+      "itemId": 490702678,
+      "name": "神圣稀有克隆装扮礼盒",
+      "sourcePath": "stackable/cash/chn_490702678.stk"
+    }
+  ],
+  "newItem": {
+    "itemId": 990032001,
+    "path": "stackable/private_seria_luck/990032001.stk",
+    "listPath": "stackable/stackable.lst",
+    "listValue": "private_seria_luck/990032001.stk",
+    "name": "梦想装扮合成器自选礼盒",
+    "explain": "开启后，可以从所有现有梦想装扮合成器中选择获得1个。各合成器原有的职业限制和有效期保持不变。",
+    "tradeable": true,
+    "grade": 1,
+    "rarity": 2,
+    "minimumLevel": 1,
+    "iconImage": "Item/stackable/cash.img",
+    "iconIndex": 3176,
+    "moveWav": "BONE_TOUCH",
+    "selectionCount": 1,
+    "selectionSyntax": {
+      "evidenceItemId": 10000743,
+      "evidencePath": "stackable/10000001/10000743.stk",
+      "boosterCategoryNum": 0,
+      "selectionNum": 1,
+      "categoryHeader": [0, 0],
+      "choiceSection": "stackable",
+      "rowShape": "[itemId, count]",
+      "serverParser": "go-server/internal/services/dnfbridge/booster_pvf.go"
+    },
+    "contents": [
+      {
+        "itemId": 10007246,
+        "name": "梦想装扮合成器 (天光云影套)",
+        "sourcePath": "stackable/cash/chn_20141030_AB_bind/AB_Bind_Upper_10007246.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10007847,
+        "name": "梦想装扮合成器 (黑色苍穹之翼)",
+        "sourcePath": "stackable/cash/chn_20150521_Absolute_Bindcube/chn_2015_Absolute_Upper_Bindcube_10007847.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10007848,
+        "name": "梦想装扮合成器 (金色苍穹之翼)",
+        "sourcePath": "stackable/cash/chn_20150521_Absolute_Bindcube/chn_2015_Absolute_Upper_Bindcube_10007848.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10007849,
+        "name": "梦想装扮合成器 (黑色战灵天舞)",
+        "sourcePath": "stackable/cash/chn_20150521_Absolute_Bindcube/chn_2015_Absolute_Upper_Bindcube_10007849.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10007850,
+        "name": "梦想装扮合成器 (金色战灵天舞)",
+        "sourcePath": "stackable/cash/chn_20150521_Absolute_Bindcube/chn_2015_Absolute_Upper_Bindcube_10007850.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10008906,
+        "name": "梦想装扮合成器 (黑色冥光天羽)",
+        "sourcePath": "stackable/cash/chn_20160407_Absolute_Bindcube/chn_2016_Absolute_Upper_Bindcube_10008906.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10008907,
+        "name": "梦想装扮合成器 (白色冥光天羽)",
+        "sourcePath": "stackable/cash/chn_20160407_Absolute_Bindcube/chn_2016_Absolute_Upper_Bindcube_10008907.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10008908,
+        "name": "梦想装扮合成器 (红色炽翎天痕)",
+        "sourcePath": "stackable/cash/chn_20160407_Absolute_Bindcube/chn_2016_Absolute_Upper_Bindcube_10008908.stk",
+        "absoluteExpiration": null
+      },
+      {
+        "itemId": 10008909,
+        "name": "梦想装扮合成器 (蓝色炽翎天痕)",
+        "sourcePath": "stackable/cash/chn_20160407_Absolute_Bindcube/chn_2016_Absolute_Upper_Bindcube_10008909.stk",
+        "absoluteExpiration": null
+      }
+    ],
+    "dreamCompositorPolicy": {
+      "originalCount": 11,
+      "includedCount": 9,
+      "coverage": "all nine current, distinct synthesizer series/variants",
+      "excludedExpiredDuplicates": [
+        {
+          "itemId": 490702922,
+          "name": "梦想装扮合成器 (红色炽翎天痕)",
+          "sourcePath": "stackable/cash/chn_490702922.stk",
+          "absoluteExpiration": "2018-11-01 06:00:00",
+          "sameNameAsValidItemId": 10008908,
+          "reason": "expired 2018 duplicate variant; original entry retained unmodified"
+        },
+        {
+          "itemId": 490702923,
+          "name": "梦想装扮合成器 (蓝色炽翎天痕)",
+          "sourcePath": "stackable/cash/chn_490702923.stk",
+          "absoluteExpiration": "2018-11-01 06:00:00",
+          "sameNameAsValidItemId": 10008909,
+          "reason": "expired 2018 duplicate variant; original entry retained unmodified"
+        }
+      ]
+    }
+  },
+  "stackableList": {
+    "path": "stackable/stackable.lst",
+    "rawSHA256": "0396c21837e52fe78b37b10c2a154855f313a4efe71a6f760e6b767dc17e6747",
+    "tokenCount": 115506
+  },
+  "tools": {
+    "pvfCli": {
+      "sha256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+      "sourceDirectory": "PVF-CLI-6834395da196f6cc6fa1d37a72c281a391f5094d"
+    },
+    "privateAdditions": {
+      "sha256": "d099b874c22decbb50925a968c04dd48746b6065c423e034602145bafb040b67",
+      "sourceRoot": "source/private-additions",
+      "sourceSHA256SUMS": "source/private-additions/SOURCE_SHA256SUMS.txt",
+      "buildCommand": "go build -buildvcs=false -trimpath -o private-additions.exe ./cmd/private-additions",
+      "sourceFiles": {
+        "cmd/private-additions/main.go": "f93a6c3c32cfd929230ce5d69638278bfb56b3b59f8180d24e6d64ff98c3a84c",
+        "internal/pvf/repack_add.go": "f7d81af3f4f88be9a44c3d40e0ba8a158b4027fe1869621724d28b46bdfccd56",
+        "internal/pvf/private_verify_additions.go": "1d744884a838f0e470ad88fc401ea7dad9206782615c2f6b20791801c02cdde6"
+      }
+    }
+  },
+  "expectedCandidate": {
+    "sha256": "0bcf5c36966c93d7f515b0193eb506377fcea46ad7d3d59370216f5325b1f374",
+    "bytes": 126254126
+  },
+  "indexesGenerated": false,
+  "deployed": false,
+  "published": false,
+  "gameAcceptance": false
+}

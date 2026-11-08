@@ -209,6 +209,14 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 	routed *partyDungeonEntryRoutedRequest,
 	admitted bool,
 ) error {
+	return s.handleDungeonSelectUpperPlannedWithNativeAdmission(session, body, prepared, fanoutParty, routed, admitted, nil)
+}
+
+func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
+	session *gameSession, body []byte, prepared *runtimePartyPreparedDungeonEntry,
+	fanoutParty bool, routed *partyDungeonEntryRoutedRequest, admitted bool, nativeProof *partyNativeConnectionProof,
+) error {
+	var nativeAdmissionDeferred bool
 	var fiendWarSelectionDiagnostic *currentFiendWarAdmissionDiagnostic
 	if prepared != nil && (prepared.session != session || prepared.current == nil || !prepared.current()) {
 		return errors.New("prepared party dungeon entry no longer owns this character or membership")
@@ -288,6 +296,9 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 	// 令牌 ⇒ 一包不发。这样就不必依赖"每个 return 点都记得应答"这种枚举。
 	if routed != nil {
 		defer func() {
+			if nativeAdmissionDeferred {
+				return
+			}
 			fallbackCtx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 			defer cancel()
 			s.answerRoutedPartyEntryOwnerOnRefusal(
@@ -469,6 +480,16 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 		s.dispatchRoutedPartyEnterAsLeader(leaderSession, session, body, routedRequest)
 		return nil
 	}
+	if prepared == nil && fanoutParty {
+		var admissionErr error
+		nativeAdmissionDeferred, admissionErr = s.deferPartyNativeConnectionAdmission(session, body, partyStateAtRequest, routed, admitted, nativeProof)
+		if admissionErr != nil {
+			return s.refusePartyNativeConnectionAdmission(session, body, partyStateAtRequest, routed, admissionErr)
+		}
+		if nativeAdmissionDeferred {
+			return nil
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	if prepared == nil {
@@ -607,6 +628,11 @@ func (s *Service) handleDungeonSelectUpperPlannedForAdmission(
 			"maze_index", runtime.MazeIndex)
 	}
 	if prepared == nil {
+		// Recheck immediately before the first entry asset mutation. Repository
+		// preflight can outlive the reply or race a town leave/leader handoff.
+		if nativeProof != nil && !s.partyNativeProofCurrent(nativeProof) {
+			return s.refusePartyNativeConnectionAdmission(session, body, partyStateAtRequest, routed, errors.New("native connection proof changed before entry commit"))
+		}
 		if err := s.commitCurrentGuildDungeonEntryFatigue(ctx, session, runtime, scene, preparedFollowers); err != nil {
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
 		}
@@ -1305,6 +1331,7 @@ func (s *Service) rollbackRuntimePartyPreparedFollowers(prepared []*runtimeParty
 		petClockRolledBack := false
 		if member.session.dungeon.runtime == member.runtime {
 			member.session.dungeon.runtime = nil
+			setCurrentAikenSupportTitleProjection(member.session, nil)
 			s.releasePartyDungeonInstance(member.runtime, member.session.selectedCharacterID, "party_entry_rollback")
 			if dungeonRuntimeOwnsCharacter(member.runtime, member.session.selectedCharacterID) {
 				if err := queueCurrentPetGrowthClockTransition(member.session, currentPetGrowthClockTown, s.gameplayNow(), "party_entry_rollback"); err != nil {
@@ -2092,6 +2119,7 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	}
 	runtime.Room = plan.TargetRoom
 	runtime.loadingRoomVisit++
+	session.dungeonPlacementEpoch.Add(1)
 	// The native NPC and quote belong to this visit to the hell room. Leaving
 	// ends the opportunity; a cached revisit cannot reopen a completed offer.
 	if runtime.epicShop != nil && !currentHellPartySceneIsHellRoom(runtime, committedScene) {

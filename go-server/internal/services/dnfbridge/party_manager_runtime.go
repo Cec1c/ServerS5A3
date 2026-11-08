@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -733,6 +734,7 @@ func (s *Service) sendChangeHostRuntimePartySnapshots(state alignedcmd.PartyStat
 	if !found {
 		return fmt.Errorf("runtime party %d is no longer current", state.PartyID)
 	}
+	var publicationErrors []error
 	for _, member := range snapshot.Members {
 		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || identity.generation != member.SessionGeneration {
@@ -743,11 +745,16 @@ func (s *Service) sendChangeHostRuntimePartySnapshots(state alignedcmd.PartyStat
 			snapshot.StateFor(member.UserID),
 			"managed_runtime_party_change_host_roster",
 		); err != nil {
-			return err
+			s.logGameEvent(identity.session, "game-party-change-host-publication-error",
+				"party_id", snapshot.ID,
+				"receiver_char_id", member.UserID,
+				"leader_char_id", snapshot.Leader,
+				"error", err.Error())
+			publicationErrors = append(publicationErrors, fmt.Errorf("member %d: %w", member.UserID, err))
 		}
 	}
 	// Dungeon members have no town-area table. Keep the existing complete
 	// dungeon projection (op153 followed by every member's op9 record).
 	s.sendDungeonPartyFrameRoster(state, "managed_runtime_party_change_host_dungeon_roster")
-	return nil
+	return errors.Join(publicationErrors...)
 }

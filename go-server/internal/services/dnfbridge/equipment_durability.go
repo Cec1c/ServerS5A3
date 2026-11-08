@@ -95,19 +95,23 @@ func (s *Service) handleCurrentDecreaseDurability(session *gameSession, request 
 	}
 	// Same post-commit repair sequence as the existing repair flow. Zero cost,
 	// unchanged wallet; premium usage was committed with the equipment.
-	ack := make([]byte, 10)
-	ack[0] = 1
-	binary.LittleEndian.PutUint32(ack[1:5], sceneInventoryUint32FromInt64(result.Gold))
-	ack[5] = 3
-	binary.LittleEndian.PutUint16(ack[6:8], uint16(result.Entry.SlotIndex))
-	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRepairEquipment), ack, 1); err != nil {
-		return err
+	entries := make([]currentItemListEntry, 0, len(result.RepairedEntries))
+	for _, repaired := range result.RepairedEntries {
+		entry, ok := currentItemListEntryFromEquipment(repaired)
+		if !ok {
+			return fmt.Errorf("committed durability equipment cannot project")
+		}
+		entries = append(entries, entry)
+		ack := make([]byte, 10)
+		ack[0] = 1
+		binary.LittleEndian.PutUint32(ack[1:5], sceneInventoryUint32FromInt64(result.Gold))
+		ack[5] = 3
+		binary.LittleEndian.PutUint16(ack[6:8], uint16(repaired.SlotIndex))
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRepairEquipment), ack, 1); err != nil {
+			return err
+		}
 	}
-	entry, ok := currentItemListEntryFromEquipment(result.Entry)
-	if !ok {
-		return fmt.Errorf("committed durability equipment cannot project")
-	}
-	return s.sendGameUpperRawClass(session, 14, buildCurrentItemUpdateBody(3, []currentItemListEntry{entry}), 0)
+	return s.sendGameUpperRawClass(session, 14, buildCurrentItemUpdateBody(3, entries), 0)
 }
 
 func (s *Service) commitCurrentDurability(ctx context.Context, character uint16, account string, slot int16) (dnfequip.DecreaseDurabilityResult, error) {

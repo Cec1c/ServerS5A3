@@ -152,6 +152,11 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	} else {
 		paid.Gold += 100
 	}
+	for _, bundle := range []*dungeonCardRewardBundle{&free, &paid} {
+		if err := applyCurrentDungeonCardFinalGoldMultiplier(bundle); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	_, account, character, premiumErr := s.currentPremiumServiceRecords(ctx, session)
 	cancel()
@@ -175,6 +180,9 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 			} else {
 				bundle.Gold += 100
 			}
+			if err := applyCurrentDungeonCardFinalGoldMultiplier(&bundle); err != nil {
+				return dungeonCardRewardBundle{}, err
+			}
 			return bundle, nil
 		})
 		cancel()
@@ -192,6 +200,9 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 			blackDiamond.Items = []dungeonCardItemReward{item}
 		} else {
 			blackDiamond.Gold += 100
+		}
+		if err := applyCurrentDungeonCardFinalGoldMultiplier(&blackDiamond); err != nil {
+			return err
 		}
 	}
 	if premiumErr == nil &&
@@ -233,6 +244,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		"dungeon_id", runtime.Dungeon.ID,
 		"plan_id", plan.ID,
 		"free_gold", free.Gold,
+		"gold_final_multiplier", currentDungeonCardFinalGoldMultiplier,
 		"gold_normal_kills", goldInputs.Kills.Normal,
 		"gold_champion_kills", goldInputs.Kills.Champion,
 		"gold_boss_kills", goldInputs.Kills.Boss,

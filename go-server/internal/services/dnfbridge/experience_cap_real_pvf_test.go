@@ -54,7 +54,8 @@ func TestRealPVFMaximumLevelExperienceCommitsRepeatedHonorAndSettlement(t *testi
 		t.Fatalf("fixture character found=%t err=%v", found, err)
 	}
 	character.Level = 90
-	character.Stats["exp"] = int64(next + 100)
+	historicalExperience := next + 100
+	character.Stats["exp"] = int64(historicalExperience)
 	character.Stats[currentHonorExpertLevelStatKey] = 58
 	character.Stats[currentHonorExpertProgressExperienceStatKey] = 6338510
 	if err := repos.Character.Save(ctx, character); err != nil {
@@ -87,13 +88,15 @@ func TestRealPVFMaximumLevelExperienceCommitsRepeatedHonorAndSettlement(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Character.Level != 90 || result.Character.Stats["exp"] != int64(entry) || result.Skill.Points != skill.Points ||
+		// Maximum-level awards advance HonorExpert while preserving the existing
+		// ordinary EXP ledger, including historical values above the entry floor.
+		if result.Character.Level != 90 || result.Character.Stats["exp"] != int64(historicalExperience) || result.Skill.Points != skill.Points ||
 			result.Character.Stats[currentHonorExpertLevelStatKey] != int64(expectedHonor.Level) || result.Character.Stats[currentHonorExpertProgressExperienceStatKey] != int64(expectedHonor.CurrentLevelExperience) {
 			t.Fatalf("award %d escaped cap or lost honor: %+v want honor=%+v", index, result, expectedHonor)
 		}
 		runtime.Character = dnfrepo.CloneCharacter(result.Character)
 		body := buildCurrentFinishLoadingCharacterStateBody(result.Character, result.Skill.Points)
-		if body[0] != 90 || binary.LittleEndian.Uint32(body[1:5]) != entry || binary.LittleEndian.Uint32(body[55:59]) != expectedHonor.Level || binary.LittleEndian.Uint64(body[59:67]) != expectedHonor.CurrentLevelExperience {
+		if body[0] != 90 || binary.LittleEndian.Uint32(body[1:5]) != historicalExperience || binary.LittleEndian.Uint32(body[55:59]) != expectedHonor.Level || binary.LittleEndian.Uint64(body[59:67]) != expectedHonor.CurrentLevelExperience {
 			t.Fatalf("award %d op37=%x", index, body)
 		}
 	}

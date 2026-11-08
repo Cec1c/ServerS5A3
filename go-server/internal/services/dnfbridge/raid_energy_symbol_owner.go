@@ -60,30 +60,12 @@ func (s *Service) recordCurrentAntonEnergySymbolLocked(session *gameSession, bod
 		}
 		source, objectID = raid.AntonSmallTransmission, 18865
 	} else if expected, ok := b.Anton.TransmissionBarrierOperand(raid.AntonLargeTransmission); ok && operand == expected {
-		count := 0
-		for _, object := range scene.PassiveObjects {
-			if object.ObjectID == 18864 {
-				count++
-			}
-		}
-		if count != 1 {
-			return runtimeRaidState{}, false, fmt.Errorf("large transmission room owner unavailable or ambiguous")
+		if _, err := currentAntonLargeTransmissionEvent(r); err != nil {
+			return runtimeRaidState{}, false, err
 		}
 		clear, found := b.ClearedRuns[e.RunID]
-		if r.Session.Snapshot().Run.Status != worldmap.DungeonRunCompleted || !found || clear.DungeonID != 218 || clear.Phase != e.Phase || clear.Attempt != e.Attempt || !sameRaidParticipants(clear.Participants, e.Participants) {
+		if !found || clear.DungeonID != 218 || clear.Phase != e.Phase || clear.Attempt != e.Attempt || !sameRaidParticipants(clear.Participants, e.Participants) {
 			return runtimeRaidState{}, false, fmt.Errorf("large transmission completed run owner unavailable")
-		}
-		notifiedBoss := false
-		for _, monster := range r.Room.Snapshot().Monsters {
-			if monster.Definition.ID != 69311 {
-				continue
-			}
-			_, accepted := r.Room.DefeatedDeathTarget(monster.ObjectKey)
-			_, notified := r.Room.DeathResponseBody(monster.ObjectKey)
-			notifiedBoss = notifiedBoss || (accepted && notified)
-		}
-		if !notifiedBoss {
-			return runtimeRaidState{}, false, fmt.Errorf("large transmission has no accepted notified energy boss")
 		}
 		source, objectID = raid.AntonLargeTransmission, 18864
 	} else {
@@ -116,4 +98,39 @@ func (s *Service) handleCurrentAntonEnergySymbol(session *gameSession, typ uint1
 		s.queueCurrentRaidDungeonProgress(state)
 	}
 	return s.sendGameUpperRawClassCodec(session, typ, []byte{1}, 1, true)
+}
+
+// A verified energy completion must not depend on the client's passive-object
+// last-action arriving after the settlement receipt. Use the same device ID as
+// CMT662 so a late notification or another participant cannot subtract twice.
+func currentAntonLargeTransmissionEvent(r *runtimeDungeonState) (string, error) {
+	if r == nil || r.raidEntry == nil || r.Dungeon.ID != 218 || r.Session == nil || r.Room == nil || r.Session.Snapshot().Run.Status != worldmap.DungeonRunCompleted {
+		return "", fmt.Errorf("large transmission completed runtime unavailable")
+	}
+	scene, ok := r.Session.Scene()
+	if !ok || scene.Coordinate != r.Room.Snapshot().Coordinate || scene.Map.Map.ID <= 0 {
+		return "", fmt.Errorf("large transmission completed room unavailable")
+	}
+	count := 0
+	for _, object := range scene.PassiveObjects {
+		if object.ObjectID == 18864 {
+			count++
+		}
+	}
+	if count != 1 {
+		return "", fmt.Errorf("large transmission room owner unavailable or ambiguous")
+	}
+	notifiedBoss := false
+	for _, monster := range r.Room.Snapshot().Monsters {
+		if monster.Definition.ID != 69311 {
+			continue
+		}
+		_, accepted := r.Room.DefeatedDeathTarget(monster.ObjectKey)
+		_, notified := r.Room.DeathResponseBody(monster.ObjectKey)
+		notifiedBoss = notifiedBoss || (accepted && notified)
+	}
+	if !notifiedBoss {
+		return "", fmt.Errorf("large transmission has no accepted notified energy boss")
+	}
+	return fmt.Sprintf("%s/%s/%d/transmission18864", r.raidEntry.RunID, scene.Coordinate.String(), scene.Map.Map.ID), nil
 }

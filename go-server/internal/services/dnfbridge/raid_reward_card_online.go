@@ -153,6 +153,9 @@ func (s *Service) handleCurrentAntonMovieCompletion(session *gameSession, op uin
 			return fmt.Errorf("raid movie transport previously failed")
 		}
 	}
+	if handled, err := s.handleCurrentRaidFailureMovieCompletion(session, op, req.Completed); handled {
+		return err
+	}
 	state, err := s.currentAntonRewardState(session)
 	if err != nil {
 		return s.sendRaidCommandFailure(session, op)

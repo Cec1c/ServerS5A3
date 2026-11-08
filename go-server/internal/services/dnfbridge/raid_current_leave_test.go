@@ -32,7 +32,7 @@ func TestCurrentRaidVoluntaryLeaveRefreshesSuccessorBeforeRoster(t *testing.T) {
 	for metadata.Header.MsgID == 9 {
 		metadata, rest = splitGameServerUpperPacket(t, rest)
 	}
-	want, err := buildCurrentRuntimeRaidMetadata(state, 2)
+	want, err := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(state), 2)
 	if err != nil || metadata.Header.MsgID != 591 || metadata.Header.Classification != 0 || !bytes.Equal(metadata.Body, want) || binary.LittleEndian.Uint32(metadata.Body[4:8]) != 2 {
 		t.Fatal("successor metadata must precede roster", metadata)
 	}

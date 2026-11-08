@@ -1,0 +1,3 @@
+# Large local-only PE experiment, never part of a source PR.
+/experimental/
+__pycache__/

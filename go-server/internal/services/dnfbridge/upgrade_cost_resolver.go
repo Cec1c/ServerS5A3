@@ -144,7 +144,7 @@ func (s *Service) candidateUpgradeCostResolver(session *gameSession) alignedcmd.
 					return alignedcmd.UpgradeCostResolution{}, err
 				}
 			}
-			return quote, nil
+			return privateGroupUpgradeGoldQuote(mode, quote), nil
 		}
 	}
 	return nil

@@ -254,6 +254,7 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		}
 		runtime.fatigueRooms[scene.Coordinate] = true
 		session.dungeon.runtime = runtime
+		setCurrentAikenSupportTitleProjection(session, runtime)
 		s.finishCurrentCharacterAssetReservationLocked(reservation)
 		return nil
 	}()

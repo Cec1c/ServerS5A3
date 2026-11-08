@@ -128,6 +128,9 @@ func (s *Service) broadcastPartyDungeonLife(session *gameSession, runtime *runti
 				}
 				continue
 			}
+			s.logGameEvent(peer, "game-dungeon-party-life-notify-sent",
+				"receiver_char_id", id, "actor_char_id", session.selectedCharacterID,
+				"party_id", state.PartyID, "instance_id", instance.id, "revived", revived)
 		}
 		if err := s.sendGameUpperRawClass(peer, 153, hp, 0); err != nil {
 			if firstError == nil {

@@ -44,6 +44,12 @@ type CharacterSlotSwapper interface {
 	SwapCharacterSlots(context.Context, string, int, int) error
 }
 
+// CharacterSnapshotSlotSwapper validates the sent identities while holding the
+// same write transaction used to swap their slots. No unchecked fallback.
+type CharacterSnapshotSlotSwapper interface {
+	SwapCharacterSlotsFromSnapshot(context.Context, string, CharacterRecord, CharacterRecord) error
+}
+
 // CharacterDeletedProfessionReader 供决斗专用角色检查删除冷却，缺少能力时拒绝创建。
 type CharacterDeletedProfessionReader interface {
 	LastDeletedProfession(context.Context, string, byte, byte) (CharacterRecord, bool, error)

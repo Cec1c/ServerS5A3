@@ -6,6 +6,34 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
 
+// Resolve the information-panel solo chip when serializing it, including the
+// first create/join metadata packet. Cached transition markers are not proof
+// that an ordinary party still exists. Planned raid seats and reward admission
+// remain untouched; only this detached client projection is changed. While
+// recruiting, an explicit manager placement takes precedence over the absence
+// of an ordinary party (those parties are materialized only at raid start).
+func (s *Service) currentRaidLivePartyProjection(state runtimeRaidState) runtimeRaidState {
+	if s == nil || !state.CurrentLayout || state.RouteOrRaidType > 1 {
+		return state
+	}
+	manager := s.runtimePartyManagerForService()
+	if manager == nil {
+		return state
+	}
+	state.Members = append([]runtimeRaidMemberState(nil), state.Members...)
+	for i := range state.Members {
+		member := &state.Members[i]
+		if !state.Started && member.RecruitingPlacementExplicit &&
+			member.GroupIndex > 0 && member.GroupIndex <= currentRaidGroupMaximum(state) {
+			member.OrdinaryPartySolo = false
+			continue
+		}
+		party, found := manager.SnapshotByUser(state.Members[i].CharID, 0)
+		state.Members[i].OrdinaryPartySolo = !found || len(party.Members) < 2
+	}
+	return state
+}
+
 // refreshCurrentRaidSoloAfterPartyLeave keeps the explicit leave/retry path
 // separate from raid group placement. It is intentionally idempotent and always
 // broadcasts so a repeated leave can repair a previous roster write failure.

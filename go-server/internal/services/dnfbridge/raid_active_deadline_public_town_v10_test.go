@@ -59,6 +59,11 @@ func deadlineAuditV10Admit(t *testing.T, a *platformpvf.Archive, solo bool) (*ra
 // authoritative character identities before the public 666 admission runs.
 func deadlineAuditV10AdmitConfigured(t *testing.T, a *platformpvf.Archive, solo bool, requestedMembers int, setup deadlineAuditV10CharacterSetup) (*raidStartGuardFixture, []*gameSession, []*deadlineAuditV10Conn, *fakeCurrentDungeonDeathTimerQueue) {
 	t.Helper()
+	// This public-flow fixture starts after connection discovery. Match the
+	// production owner-context profile; zero-owner town peers are correctly
+	// rejected before raid admission and now retire their transport.
+	t.Setenv(ownerContextUseClientChannelEnv, "on")
+
 	rule, err := raid.LoadAdmissionRule(a, "etc/raid/anton.etc")
 	if err != nil {
 		t.Fatal(err)
@@ -429,6 +434,8 @@ func TestRealPVFRaidDeadlineActivePublicLoadedTownChain(t *testing.T) {
 			}
 			request := encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: target, Difficulty: 2})
 			deadlineAuditV10Event(t, s, owners[0], func() error { return s.handleDungeonSelectUpper(owners[0], request) })
+			// Synthetic peers answer the native connection probe before admission resumes.
+			completeNativePartyAdmissionForTest(t, s, owners[0])
 			active := 1
 			if !solo {
 				active = 2
@@ -493,6 +500,7 @@ func TestRealPVFRaidDeadlineActivePublicLoadedTownChain(t *testing.T) {
 				}
 				s.queueCurrentRaidDeadlineReturns(q.Now())
 				for i := 0; i < active; i++ {
+					completeRaidFailureMovieForDeadlineAudit(t, f, owners[i], runs[i])
 					deadlineAuditV10Wait(t, s, owners[i], runs[i], kind != "typed24_write_failure")
 				}
 				if kind == "typed24_write_failure" {

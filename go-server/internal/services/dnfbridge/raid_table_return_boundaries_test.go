@@ -33,6 +33,7 @@ func raidTableLoaded(t *testing.T, a *platformpvf.Archive) (*raidStartGuardFixtu
 		})
 	}
 	dispatch(owners[0], 16, encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: 210, Difficulty: 2}))
+	completeNativePartyAdmissionForTest(t, s, owners[0])
 	runs := make([]*runtimeDungeonState, 2)
 	for i := 0; i < 2; i++ {
 		runs[i] = owners[i].dungeon.runtime

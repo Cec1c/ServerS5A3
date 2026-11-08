@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "classification": "群服内容",
+  "inputSha256": "e142a7e6d530a0e369c722cb7fcc90c18f2d18884a343096d88336aed29f75e4",
+  "outputSha256": "d333e4ce5f210a254932d7ba6e06e0649fc37f45ec248f033534e175e72e2d0b",
+  "bytes": 112607232,
+  "files": {
+    "build_candidate.py": "34ba2a958392e201e4b4d36261749cda6b35ac7313a3386c28c24d92327f8fb7",
+    "README.md": "e682f8df9112ada3a497f1f3e4783fb74d012e75df66f78fa398a9da90611805"
+  },
+  "publicSources": {
+    "anton": "c3e1342b995f013c8a3b5f3b0c0f72977bda11a5",
+    "buff": "c204c6b51172eca77ff66ff86b5adf360b60538b"
+  },
+  "gameAcceptance": false
+}

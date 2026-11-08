@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "private": true,
+  "sourceUpdate": "UI-20261105-007-shared-hook-recovery",
+  "baseExe": {
+    "sha256": "686eaa069ba3cc374520d249628efc9de89bf0892ad45ad1e4bd2d2206b08dc5",
+    "bytes": 112549888,
+    "releaseTag": "group-client-v211-town-gold-20261104"
+  },
+  "exe": {
+    "sha256": "e142a7e6d530a0e369c722cb7fcc90c18f2d18884a343096d88336aed29f75e4",
+    "bytes": 112607232
+  },
+  "payloadSha256": "082ddd5c5839c5d42b7c785457a7a26b615cbc9d9f202ad540f956aafb1a1bdb",
+  "npk": {
+    "path": "ImagePacks2/sprite_interface_privatekeyrepeat002.NPK",
+    "sha256": "3b22698ecb4cb1d066285654aefe447033eb784d33b042297b199fe9b3a1dc50",
+    "bytes": 1328
+  },
+  "gameAcceptance": false,
+  "independentRebuildMatched": true,
+  "generatedLayoutStable": true,
+  "offlineChecks": [
+    {
+      "name": "native-tests.json",
+      "passed": true,
+      "sha256": "c64235722d53ad4bb73b9294750eb7a8144501003bcfd058f15a849cd4d59939"
+    },
+    {
+      "name": "menu-native-tests.json",
+      "passed": true,
+      "sha256": "aacab5452c929f69181f28af25a025b690f17d22cd83ccd9df89ba3fc5f57907"
+    },
+    {
+      "name": "menu-abi-tests.json",
+      "passed": true,
+      "sha256": "3c4a69255a9f10528d0cb6236be8bc9565903414a9d54f24ba98e16db282456c"
+    },
+    {
+      "name": "menu-integration-tests.json",
+      "passed": true,
+      "sha256": "65dd569d9a5c3e30d3ccb9704398bece936e1edd7c7fdda2c9c1fe7b35c0787b"
+    },
+    {
+      "name": "cumulative-hooks-tests.json",
+      "passed": true,
+      "sha256": "1fd83fda60dee97b3a7bcb522569bdca9078481af128215e3251fca961a11eb1"
+    }
+  ],
+  "capabilityContractTests": 9,
+  "coreTestPassed": true,
+  "windowsNonExecutingImageCheckPassed": true,
+  "existingActivityAndConsumableChecksReusedForIdenticalExe": false,
+  "files": {
+    "assets/build_assets.py": "deca039bb3bc740d0faa5a68e650e1ec82b97cf8f300e7b464b8aeb2821d1de5",
+    "assets/native_assets.py": "2ba11549d856c1844961049a532101c8ec1ae413826de1412a87ad968fe1f8c1",
+    "client/.gitignore": "b96a074057272b0b1f11d13485d12105b9fffa6b66efd3a3f4ac83b56c18c882",
+    "client/binding.h": "0507e9a8f986f3da3d0e6ff31980530d28a258ac026f7170cb804639135c3d00",
+    "client/build.cmd": "d482a0f17248f617e61e009bd8bd1353dd82309cdb3005da80810fb37a399935",
+    "client/build_candidate.py": "7484458954042feffef0e769ec1c1f46116afbf15e6d2ec209ed40544bb5c91c",
+    "client/generate_layout.py": "5c055ba73e5629fd5cf148a401fbf215cd60027c9645b25954141d7152b1e8e2",
+    "client/HotKeyWindow.xui": "19c37ffbeba7b32cc8f415e2304a23a1637af6530ae5204e2764ded830a7f9a3",
+    "client/key_repeat.cpp": "76583ccb442a48973386442147e1979966c3e71cbca301737ca20733382ee9c6",
+    "client/KeyRepeat.xui": "95910fc85bb242d721182685d29685e45680861814f7467b29eaeaa7ddef17b3",
+    "client/layout.h": "e564435370ee2cf7e214ce85203da2b6268dc01a91e83425da0e55c212aabb54",
+    "client/MainMenu-original.xui": "9d96bad377551b9efc09ef5fcb93e4a45c690540298162207412d021d08b46bc",
+    "client/MainMenu.xui": "01548199eba37158f6d808270165f6594097937b1af2cea03cf8450ff9ec9ccf",
+    "client/repeat_core.h": "932a2ba725f1b46dc2150cf9517a982680dea915c47676565b34e0042967b87a",
+    "client/test_core.cpp": "68960b8aa81a3d12de7f06d1d0d0896ac0d37d5575e27791a9dcfd77fac5b0db",
+    "client/verification_paths.py": "cc01ae3f26bec6c4b696ca712fd9eff6d54b7d7a21cb2554a956e2b6838639be",
+    "client/verify_layout.py": "e5c897bab04f76fc5ec0a7875e4367c5b72407cd80a106a76bc1a2851f38e2bb",
+    "client/verify_menu.py": "6188cebb7ffbd1ccf090ac8e9752c71f2ce58c62b10b30f5b6643f8007d56dfd",
+    "client/verify_menu_abi.py": "b205eb240e09c0e2a642698baca7e09b213ac132cbc633b3b403552316a4add6",
+    "client/verify_menu_integration.py": "fbf775e5ea42dfd350e336ab53f14d4e24a3ca9f5c8a2f278d12a987a5601e6d",
+    "client/verify_native.py": "7477c904569bb1f1b9f5f853391ff39c122e8272548d587fe3d8312e5893ea13",
+    "README.md": "7a1ab0a6b38f750b08bfdf045ec01127d59cc8ab5f15da062eef4f0013d5eb0f",
+    "client/verify_cumulative_hooks.py": "755bc613671ef20203ca5e3235d35881ae4814eec6b5159c46df745c4ba95e74"
+  },
+  "gameAcceptanceSource": "Recovery candidate offline verified; in-game acceptance remains separate",
+  "unchangedLayoutNpkAndCoreProofReused": true
+}

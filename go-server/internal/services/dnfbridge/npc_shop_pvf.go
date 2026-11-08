@@ -256,6 +256,15 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 	}
 	// Material goods may also declare an explicit gold price (e.g. Luke raid
 	// equipment). Both costs belong to the same purchase transaction.
+	// Private support title: enforce the character lifetime allowance even
+	// for existing clients whose PVF has no purchase-limit declaration.
+	// No prior unlimited purchase is inferred from current inventory.
+	if itemID == uint32(currentAikenSupportTitleOwnedID) {
+		pricing.PurchaseLimitScope = "character"
+		pricing.PurchaseLimitPeriod = "accumulate"
+		pricing.PurchaseLimitValue = 1
+		pricing.PurchaseLimitReset = false
+	}
 	pricing.Buyable = listed && (materialExchange || buyGold > 0)
 	return pricing, nil
 }

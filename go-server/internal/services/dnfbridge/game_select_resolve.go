@@ -19,6 +19,19 @@ func (s *Service) resolveSelectedCharacter(
 	session.launcherCharacterID, session.launcherCharacterName = 0, ""
 	parsed := parseSelectCharacterRequest(request)
 	slot := parsed.slot
+	// Channel changes open a new TCP session but retain the client's compact op2
+	// vector. Restore only the roster from this authenticated login flow. A cache
+	// miss must never reinterpret a compact index as an occupied SQL slot.
+	if s.options.currentClientVersion == "official-24.9" && session.channelReconnect && parsed.source == "legacy_slot_or_char_id" && len(session.currentRenameRoster) == 0 {
+		server := s.channelServerID()
+		if server > 0 && server <= 255 {
+			session.currentRenameRoster = s.cachedCurrentTagTournamentSentRoster(session, byte(server))
+		}
+		if len(session.currentRenameRoster) == 0 {
+			s.logGameEvent(session, "game-channel-select-roster-missing", "request_index", slot)
+			return 0, "", dnfrepo.CharacterRecord{}, false, slot
+		}
+	}
 	if !parsed.clear && len(request) > 0 {
 		s.logGameEvent(session, "game-upper-select-character-request-opaque",
 			"body_len", len(request),

@@ -104,6 +104,14 @@ func (s *Service) reduceCurrentRaidDungeonClearLocked(session *gameSession, runt
 		if !currentRaidHasTwoPhaseProgram(b) {
 			return runtimeRaidState{}, false, fmt.Errorf("raid clear progression program unavailable")
 		}
+		energyEventID := ""
+		if b.Mode == 1 && b.Phase == 1 && dungeonID == 218 {
+			var ownerErr error
+			energyEventID, ownerErr = currentAntonLargeTransmissionEvent(runtime)
+			if ownerErr != nil {
+				return runtimeRaidState{}, false, ownerErr
+			}
+		}
 		// Commit elapsed timer effects even when they invalidate this clear.
 		// Discarding Tick on an old-attempt error would preserve a dead phase.
 		priorEpoch := b.Anton.Epoch()
@@ -143,6 +151,13 @@ func (s *Service) reduceCurrentRaidDungeonClearLocked(session *gameSession, runt
 		}
 		if replay {
 			return runtimeRaidState{}, false, fmt.Errorf("raid domain/aggregate clear journal mismatch")
+		}
+		if energyEventID != "" {
+			next, _, err = next.ApplyBarrierDamage(energyEventID, raid.AntonLargeTransmission, dungeonID, e.Attempt, now)
+			if err != nil {
+				b.ProgressVersion++
+				return cloneRuntimeRaidState(*state), true, err
+			}
 		}
 		b.Anton, b.Dungeons, b.PhaseCompleted = next, next.Dungeons(), next.PhaseCleared()
 	}

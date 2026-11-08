@@ -4,7 +4,9 @@ import (
 	"context"
 	"longheng.io/server/internal/modules/dnf/raid"
 	"longheng.io/server/internal/modules/dnf/raid/fiendwar"
+	repo "longheng.io/server/internal/modules/dnf/repository"
 	town "longheng.io/server/internal/modules/dnf/town"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -213,39 +215,59 @@ func TestRealPVFCurrentFiendWarFailureRefundOnceWithoutClearRewards(t *testing.T
 	if !b.FiendWarConfig.Retry {
 		t.Fatal("当前真实PVF未声明失败返票")
 	}
-	now := time.Now()
-	b.TimedOut = true
-	b.FiendWarEndedAt = now
-	if err := f.service.freezeCurrentFiendWarRetryLocked(*f.state, now); err != nil {
-		t.Fatal(err)
-	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(now, func(int64) (int64, error) { t.Fatal("返票不应抽取通关奖励"); return 0, nil }); len(errs) > 0 {
-		t.Fatal(errs)
-	}
-	before := int64(b.FiendWarConfig.EntryCost.Count) + 2
+	beforeBags := map[string]repo.InventoryRecord{}
 	for _, id := range []string{"19", "20"} {
 		bag, _, err := f.repos.Inventory.Load(context.Background(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
+		beforeBags[id] = repo.CloneInventory(bag)
+	}
+	now := time.Now()
+	b.TimedOut = true
+	b.FiendWarEndedAt = now
+	if err := f.service.freezeCurrentRaidFailureRefundLocked(*f.state, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(now, func(int64) (int64, error) { t.Fatal("返票不应抽取通关奖励"); return 0, nil }); len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	for _, id := range []string{"19", "20"} {
+		bag, _, err := f.repos.Inventory.Load(context.Background(), id)
+		if err != nil || !reflect.DeepEqual(bag.Slots, beforeBags[id].Slots) {
+			t.Fatal("邮件返票意外改变背包", id, err)
+		}
+		mailbox, _, err := f.repos.Mailbox.Load(context.Background(), id)
+		if err != nil || len(mailbox.Mails) != 1 {
+			t.Fatal("失败返票邮件应恰好一封", id, err)
+		}
 		var count int64
-		for _, stack := range bag.Slots {
-			if stack.ItemID == int64(b.FiendWarConfig.RetryItem.ItemID) {
-				count += stack.Count
+		for _, mail := range mailbox.Mails {
+			for _, item := range mail.Attachments {
+				if item.ItemID != int64(b.FiendWarConfig.RetryItem.ItemID) {
+					t.Fatal("失败返票道具与PVF不符")
+				}
+				count += item.Count
 			}
 		}
-		if count != before {
-			t.Fatal("返票数量错误", id, count, before)
+		if count != int64(b.FiendWarConfig.RetryItem.Count) {
+			t.Fatal("返票数量错误", id, count)
 		}
 	}
 	if b.RewardFlow[0] != nil || b.PhaseCompleted || len(f.service.raidWeeklyIntents) != 0 {
 		t.Fatal("失败生成通关奖励或周记录")
 	}
-	if err := f.service.freezeCurrentFiendWarRetryLocked(*f.state, now.Add(time.Second)); err != nil {
+	if err := f.service.freezeCurrentRaidFailureRefundLocked(*f.state, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(now.Add(time.Second), zeroAntonRoll); len(errs) > 0 {
 		t.Fatal(errs)
+	}
+	for _, id := range []string{"19", "20"} {
+		mailbox, _, err := f.repos.Mailbox.Load(context.Background(), id)
+		if err != nil || len(mailbox.Mails) != 1 {
+			t.Fatal("失败重试重复发票", id, err)
+		}
 	}
 	if !f.service.resetCurrentFiendWarFailureLocked(f.state, now.Add(time.Hour)) || f.state.Started || f.state.Battle != nil {
 		t.Fatal("返票完成并退出副本后没有恢复招募")

@@ -73,7 +73,7 @@ func TestCurrentRaidApplicationActualDispatchRequiresApprovalAndJoinsOnlyOnce(t 
 	appRest = consumeCurrentRaidProfiles(t, appRest, after)
 	appRoster, appRest := splitGameServerUpperPacket(t, appRest)
 	wantAck := append([]byte{1}, party.BuildResponsePeerAckPayload(b.selectedCharacterID, 10)...)
-	wantMetadata, _ := buildCurrentRuntimeRaidMetadata(after, 2)
+	wantMetadata, _ := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(after), 2)
 	wantRoster, _ := s.buildRuntimeRaidRosterBody(after)
 	if !bytes.Equal(ack.Body, wantAck) || len(rest) != 0 || len(appRest) != 0 || !bytes.Equal(metadata.Body, wantMetadata) || !bytes.Equal(appRoster.Body, wantRoster) || !bytes.Equal(leaderRoster.Body, wantRoster) {
 		t.Fatal("approval did not project committed real roster")

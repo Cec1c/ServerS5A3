@@ -93,6 +93,9 @@ func validateCurrentAntonRewardDependencies(catalog *pvfDungeonDropCatalog, conf
 	for _, phase := range config.Phases {
 		for _, choice := range phase.Choices {
 			roots = append(roots, choice.ContainerID)
+			if choice.ContainerID == 10304480 {
+				roots = append(roots, 2681917) // team kill-phase supplemental wallet reward
+			}
 		}
 	}
 	return validateCurrentRaidRewardContents(catalog, roots, now)

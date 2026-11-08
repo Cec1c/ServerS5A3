@@ -382,9 +382,9 @@ func buildDungeonPartyRoomSlotTableBodyForProfile(
 		writer.writeByte(row.Slot)
 		writer.writeUint16(row.UserID)
 		// 副本里 owner(0) 永远不等于客户端所选频道，所以每一行都带**跨频道内联身份块**
-		// （job/level/grow/0 + DSTR 名字）——厂商两条夹具都是 16B 行。
-		writer.writeByte(row.Job)
-		writer.writeByte(row.Level)
+		// Current 24.9 initializes level before job; keep the older vendor
+		// fixture's job/level order only for its own profile.
+		writeCurrentSceneOp9MemberLevelJob(&writer, row.Level, row.Job, official249)
 		writer.writeByte(row.Grow)
 		writer.writeByte(0)
 		if official249 {

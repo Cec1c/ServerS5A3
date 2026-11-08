@@ -170,6 +170,16 @@ func (s *mysqlQuestStore) SaveQuestChanges(ctx context.Context, before, after re
 		router := s.router
 		router.db = db
 		router.lockReads = true
+		// A newly created character has no quest parent. Establish the lock
+		// anchor before SELECT FOR UPDATE (concurrent missing-row gap locks
+		// followed by INSERT can deadlock). Never replace existing state or
+		// revive a missing parent from a nonempty/partial stale snapshot.
+		if !before.PlanningPartial && len(before.States) == 0 && len(before.Progress) == 0 {
+			query := buildUpsert(table, []string{"character_id", "updated_at"}, []string{updateValue("character_id")})
+			if _, err := db.ExecContext(ctx, query, id, timeOrNow(after.UpdatedAt, s.router.now)); err != nil {
+				return err
+			}
+		}
 		// All ordinary saves upsert this same parent before touching children.
 		// Locking it also serializes absence checks against add/give-up/finish.
 		var lockedID string

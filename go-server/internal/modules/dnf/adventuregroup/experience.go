@@ -83,16 +83,64 @@ func (t *Tables) UsesAccountExperience() bool {
 // is needed. Applying the PVF rate to the cumulative ledger retains fractions
 // across small awards and is independent of how kill batches were grouped.
 func (t *Tables) CalculateAccountExperience(earned uint64) (Summary, error) {
+	remaining, err := t.accountExperienceTotal(earned)
+	if err != nil {
+		return Summary{}, err
+	}
+	return t.summaryForAccountExperience(remaining), nil
+}
+
+func (t *Tables) accountExperienceTotal(earned uint64) (*big.Int, error) {
 	if !t.UsesAccountExperience() {
-		return Summary{}, ErrTableEmpty
+		return nil, ErrTableEmpty
 	}
 	c := t.runtime.Experience
 	if c.RateNumerator == 0 || c.RateDenominator == 0 {
-		return Summary{}, ErrTableMalformed
+		return nil, ErrTableMalformed
 	}
 	remaining := new(big.Int).SetUint64(earned)
 	remaining.Mul(remaining, new(big.Int).SetUint64(c.RateNumerator))
 	remaining.Quo(remaining, new(big.Int).SetUint64(c.RateDenominator))
+	return remaining, nil
+}
+
+// CalculateCombinedExperience retains the existing roster-derived level and
+// fraction, then adds the committed maximum-level EXP ledger. Legacy points
+// and modern EXP have different scales: map a completed legacy level to the
+// same modern level, and its remaining fraction to that modern level's cost.
+// This is a read-only projection, never a grant written back to HonorExp.
+func (t *Tables) CalculateCombinedExperience(characters []Character, earned uint64) (Summary, error) {
+	roster, err := t.Calculate(characters)
+	if err != nil || !t.UsesAccountExperience() {
+		return roster, err
+	}
+	remaining, err := t.accountExperienceTotal(earned)
+	if err != nil {
+		return Summary{}, err
+	}
+	costs := t.runtime.Experience.Costs
+	level := roster.ManageLevel
+	if level >= len(costs) {
+		return Summary{ManageLevel: len(costs), Benefits: t.BenefitsForLevel(len(costs))}, nil
+	}
+	// Level zero was a legacy state. Modern accounts start at level one.
+	if level > 0 {
+		for i := 1; i < level; i++ {
+			remaining.Add(remaining, new(big.Int).SetUint64(costs[i]))
+		}
+		if level < len(t.manageThresholds) {
+			lower, upper := t.manageThresholds[level-1], t.manageThresholds[level]
+			fraction := new(big.Int).SetUint64(roster.TotalPoint - lower)
+			fraction.Mul(fraction, new(big.Int).SetUint64(costs[level]))
+			fraction.Quo(fraction, new(big.Int).SetUint64(upper-lower))
+			remaining.Add(remaining, fraction)
+		}
+	}
+	return t.summaryForAccountExperience(remaining), nil
+}
+
+func (t *Tables) summaryForAccountExperience(remaining *big.Int) Summary {
+	c := t.runtime.Experience
 	level := 1
 	for level < len(c.Costs) {
 		cost := new(big.Int).SetUint64(c.Costs[level])
@@ -106,5 +154,5 @@ func (t *Tables) CalculateAccountExperience(earned uint64) (Summary, error) {
 	if level < len(c.Costs) {
 		progress = remaining.Uint64() // strictly below the next uint64 cost
 	}
-	return Summary{ManageLevel: level, TotalPoint: progress, Benefits: t.BenefitsForLevel(level)}, nil
+	return Summary{ManageLevel: level, TotalPoint: progress, Benefits: t.BenefitsForLevel(level)}
 }

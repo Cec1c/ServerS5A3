@@ -46,8 +46,8 @@ func TestCurrentRaidActualDispatchCreatesQueriesAndModifiesVerifiedLayout(t *tes
 		}
 		rest = consumeCurrentRaidProfiles(t, rest, state)
 		roster, rest := splitGameServerUpperPacket(t, rest)
-		wantMetadata, err := buildCurrentRuntimeRaidMetadata(state, 0)
-		wantRoster, rosterErr := raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(state))
+		wantMetadata, err := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(state), 0)
+		wantRoster, rosterErr := raid.BuildCurrentMemberRefreshMode3Body(state.RaidKey, currentRuntimeRaidMembers(raidAllSoloWireFixture(state)))
 		if err != nil || rosterErr != nil || len(rest) != 0 || metadata.Header.Classification != 0 || metadata.Header.MsgID != 591 || ack.Header.Classification != 1 || roster.Header.Classification != 0 || roster.Header.MsgID != 591 || !bytes.Equal(metadata.Body, wantMetadata) || !bytes.Equal(roster.Body, wantRoster) {
 			t.Fatal("current owner must precede ACK before native waiting UI opens")
 		}
@@ -82,7 +82,7 @@ func TestCurrentRaidActualDispatchCreatesQueriesAndModifiesVerifiedLayout(t *tes
 		metadata, rest = splitGameServerUpperPacket(t, rest)
 		rest = consumeCurrentRaidProfiles(t, rest, state)
 		_, rest = splitGameServerUpperPacket(t, rest)
-		wantMetadata, _ = buildCurrentRuntimeRaidMetadata(state, 2)
+		wantMetadata, _ = buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(state), 2)
 		if state.CurrentUIFlags != flags || !bytes.Equal(state.NameBytes, rosterNameBytes("改名")) || !bytes.Equal(ack.Body, []byte{1}) || !bytes.Equal(metadata.Body, wantMetadata) || len(rest) != 0 {
 			t.Fatal("current modify lost flags or metadata update")
 		}

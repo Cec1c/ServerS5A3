@@ -263,6 +263,7 @@ func TestRealPVFRaidDeadlinePublicCharacterResetRebindRejectsOldOwnerObserved(t 
 		t.Fatal(errs)
 	}
 	s.queueCurrentRaidDeadlineReturns(q.Now())
+	completeRaidFailureMovieForDeadlineAudit(t, f, p, r)
 	deadlineAuditV10Wait(t, s, p, r, true)
 	var old *currentRaidDeadlineReturn
 	deadlineAuditV10Event(t, s, p, func() error {

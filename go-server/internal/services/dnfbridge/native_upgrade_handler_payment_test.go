@@ -56,11 +56,11 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 		{"legacy_kill_switch_control", "off", 476, 5, 5, 100000, false, false},
 		{"default_jonathan_conversion", "", 476, 5, 4, 100000, false, true},
 		{"candidate_jonathan", "candidate", 476, 5, 4, 100000, false, true},
-		{"candidate_ordinary", "candidate", 1, 5, 5, 15025, false, false},
-		{"default_ordinary_gold", "", 1, 5, 5, 15025, false, false},
+		{"candidate_ordinary", "candidate", 1, 5, 5, 87860, false, false},
+		{"default_ordinary_gold", "", 1, 5, 5, 87860, false, false},
 		{"candidate_missing_stone", "candidate", 476, 0, 0, 100000, true, false},
 		{"default_missing_stone", "", 476, 0, 0, 100000, true, false},
-		{"default_ordinary_insufficient_gold", "", 1, 5, 5, 84974, true, false},
+		{"default_ordinary_insufficient_gold", "", 1, 5, 5, 12139, true, false},
 		{"default_ordinary_exact_gold", "", 1, 5, 5, 0, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,9 +69,9 @@ func TestR4RealPVFJonathanHandlerPaymentReplay(t *testing.T) {
 			repos := memory.NewMemoryGroup()
 			character := dnfrepo.CharacterRecord{CharacterID: "77", AccountID: account, Level: 90, Stats: map[string]int64{"gold": 100000}}
 			if tc.name == "default_ordinary_insufficient_gold" {
-				character.Stats["gold"] = 84974
+				character.Stats["gold"] = 12139
 			} else if tc.name == "default_ordinary_exact_gold" {
-				character.Stats["gold"] = 84975
+				character.Stats["gold"] = 12140
 			}
 			target := realForgingWeaponStack(28309, 45)
 			binary.LittleEndian.PutUint16(target.RawEntry[:2], 54)

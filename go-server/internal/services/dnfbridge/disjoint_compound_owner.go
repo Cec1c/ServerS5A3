@@ -139,6 +139,9 @@ func currentPlanDisjointItemSource(
 	if !found || source.ItemID <= 0 || source.ItemID > math.MaxUint32 || !validCount || currentNPCShopItemLocked(source) {
 		return plan, errCurrentDisjointSourceInvalid
 	}
+	if currentAikenSupportTitleDisjointForbidden(source.ItemID) {
+		return plan, errCurrentDisjointSourceInvalid
+	}
 	definition, err := catalog.ResolveItem(uint32(source.ItemID))
 	if err != nil || (!definition.ExpirationDate.IsZero() && !time.Now().UTC().Before(definition.ExpirationDate)) {
 		return plan, errCurrentDisjointSourceInvalid

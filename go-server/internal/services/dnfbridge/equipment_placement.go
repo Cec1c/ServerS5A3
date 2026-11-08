@@ -17,20 +17,21 @@ import (
 )
 
 var (
-	errEquipmentPlacementServiceRequired   = errors.New("equipment placement service is required")
-	errEquipmentPlacementAccountRequired   = errors.New("equipment placement account is required")
-	errEquipmentPlacementCharacterRequired = errors.New("equipment placement selected character is required")
-	errEquipmentPlacementRepositoryMissing = errors.New("equipment placement character repository is missing")
-	errEquipmentPlacementCharacterMissing  = errors.New("equipment placement selected character is missing")
-	errEquipmentPlacementOwnerMismatch     = errors.New("equipment placement selected character owner mismatch")
-	errEquipmentPlacementItemUnknown       = errors.New("equipment placement item is not in equipment/equipment.lst")
-	errEquipmentPlacementPVFInvalid        = errors.New("equipment placement item PVF is unavailable")
-	errEquipmentPlacementPVFTypeUnknown    = errors.New("equipment placement item PVF equipment type is unsupported")
-	errEquipmentPlacementSourceUnknown     = errors.New("equipment placement source list is unsupported")
-	errEquipmentPlacementSlotClassMismatch = errors.New("equipment placement target slot class mismatch")
-	errEquipmentPlacementSlotTypeMismatch  = errors.New("equipment placement target slot does not match PVF equipment type")
-	errEquipmentPlacementAuraSkinLocked    = errors.New("equipment placement aura skin slot is locked")
-	errEquipmentPlacementLevelInsufficient = errors.New("equipment placement character level below PVF minimum level")
+	errEquipmentPlacementServiceRequired      = errors.New("equipment placement service is required")
+	errEquipmentPlacementAccountRequired      = errors.New("equipment placement account is required")
+	errEquipmentPlacementCharacterRequired    = errors.New("equipment placement selected character is required")
+	errEquipmentPlacementRepositoryMissing    = errors.New("equipment placement character repository is missing")
+	errEquipmentPlacementCharacterMissing     = errors.New("equipment placement selected character is missing")
+	errEquipmentPlacementOwnerMismatch        = errors.New("equipment placement selected character owner mismatch")
+	errEquipmentPlacementItemUnknown          = errors.New("equipment placement item is not in equipment/equipment.lst")
+	errEquipmentPlacementPVFInvalid           = errors.New("equipment placement item PVF is unavailable")
+	errEquipmentPlacementPVFTypeUnknown       = errors.New("equipment placement item PVF equipment type is unsupported")
+	errEquipmentPlacementSourceUnknown        = errors.New("equipment placement source list is unsupported")
+	errEquipmentPlacementSlotClassMismatch    = errors.New("equipment placement target slot class mismatch")
+	errEquipmentPlacementSlotTypeMismatch     = errors.New("equipment placement target slot does not match PVF equipment type")
+	errEquipmentPlacementAuraSkinLocked       = errors.New("equipment placement aura skin slot is locked")
+	errEquipmentPlacementLevelInsufficient    = errors.New("equipment placement character level below PVF minimum level")
+	errEquipmentPlacementAikenTitleRestricted = errors.New("Aiken support title requires a second-awakened male or female support priest")
 )
 
 const (
@@ -161,6 +162,10 @@ func (v *currentEquipmentPlacementValidator) ValidateEquipmentPlacement(ctx cont
 			characterID,
 			character.CharacterID,
 		)
+	}
+	if placement.ItemID == currentAikenSupportTitleCombatID ||
+		(placement.ItemID == currentAikenSupportTitleOwnedID && !currentAikenSupportTitleEligible(character)) {
+		return fmt.Errorf("%w: item=%d character=%s", errEquipmentPlacementAikenTitleRestricted, placement.ItemID, characterID)
 	}
 
 	rule, err := v.validatePVFItem(placement.ItemID)

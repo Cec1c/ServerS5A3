@@ -190,6 +190,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	if typ == playerStatsGameOpcode {
 		return s.handlePlayerStatsGame(session, body)
 	}
+	if typ == partyNativeConnectionOpcode {
+		return s.handlePartyNativeConnectionReply(session, body)
+	}
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)
 	}
@@ -442,6 +445,7 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 // **今天这条完全相同的路**（同样的 aligned pending-module 证据 + 零回包），
 // 而不是另写一份"看起来像"的静默分支。
 func (s *Service) handleGameLegacyFallbackCommand(session *gameSession, cmd byte, typ uint16, body []byte) error {
+	s.observeCurrentLegacyPeerResult(session, cmd, typ, body)
 	if handled, err := s.handleAlignedGameCommand(session, cmd, typ, body); handled || err != nil {
 		return err
 	}

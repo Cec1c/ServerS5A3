@@ -81,6 +81,7 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 		}
 		s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "return_select_character")
 		session.dungeon.runtime = nil
+		setCurrentAikenSupportTitleProjection(session, nil)
 		// 换角色前必须把成员名额从队伍实例里摘掉（selectedCharacterID 紧接着会被清零）。
 		s.releasePartyDungeonInstance(runtime, session.selectedCharacterID, "return_select_character")
 	}

@@ -184,11 +184,16 @@ func (s *Service) consumeCurrentFiendWarEntry(p *gameSession, state runtimeRaidS
 		ids = append(ids, strconv.Itoa(int(id)))
 	}
 	rule := raid.AdmissionRule{ItemID: b.FiendWarConfig.EntryCost.ItemID, Count: int64(b.FiendWarConfig.EntryCost.Count)}
+	debit := &raid.EntryDebit{InstanceID: b.InstanceID, Mode: 3, ItemID: rule.ItemID, Count: rule.Count, RefundItemID: rule.ItemID, RefundCount: rule.Count, PaidAt: b.StartedAt}
+	if b.FiendWarConfig.Retry {
+		debit.RefundItemID = b.FiendWarConfig.RetryItem.ItemID
+		debit.RefundCount = int64(b.FiendWarConfig.RetryItem.Count)
+	}
 	policy, err := currentRaidWeeklyPolicy()
 	if err != nil {
 		return err
 	}
-	return u.WithinRaidEntryAssets(ctx, ids, fiendwar.FiendWarDailyScope, func(c repo.CharacterRepository, i repo.InventoryRepository, settings repo.SettingsRepository) error {
+	err = u.WithinRaidEntryAssets(ctx, ids, fiendwar.FiendWarDailyScope, func(c repo.CharacterRepository, i repo.InventoryRepository, settings repo.SettingsRepository) error {
 		daily, _, err := settings.Load(ctx, fiendwar.FiendWarDailyScope)
 		if err != nil {
 			return err
@@ -222,6 +227,13 @@ func (s *Service) consumeCurrentFiendWarEntry(p *gameSession, state runtimeRaidS
 			if err = takeRaidEntryCost(&bag, rule); err != nil {
 				return err
 			}
+			actor = repo.CloneCharacter(actor)
+			if err = raid.RecordEntryDebit(&actor, *debit); err != nil {
+				return err
+			}
+			if err = repo.SaveCharacterFields(ctx, c, actor, repo.CharacterFieldStats); err != nil {
+				return err
+			}
 			bags = append(bags, bag)
 			accounts = append(accounts, actor.AccountID)
 		}
@@ -236,4 +248,8 @@ func (s *Service) consumeCurrentFiendWarEntry(p *gameSession, state runtimeRaidS
 		}
 		return settings.Save(ctx, next)
 	})
+	if err == nil {
+		b.EntryDebit = debit
+	}
+	return err
 }
