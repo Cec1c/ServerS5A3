@@ -730,6 +730,8 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			"slot_refreshes", len(result.ItemSlotRefreshes))
 	}
 	s.commitDungeonConsumptionSnapshot(session, consumptionSnapshot, result)
+	// 消耗品召唤源登记（`[summon apc]`）：op44 成功之后才可能产生人偶击杀。
+	s.recordCurrentDungeonPuppetLease(session, typ, result)
 	// delta 档：模块已经把奖励写进库了，这里立刻算差分并把逐槽增量挂到
 	// `result.ItemSlotRefreshes`（`sendAlignedUpperResponses` 会在 ACK 之后无条件发成
 	// class0/msg14），同时把仍需整容器的例外容器记到会话上供后置动作读取。

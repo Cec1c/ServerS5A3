@@ -196,6 +196,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
 	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
 	friendlyOwnerDeath := hasScene && s.currentDungeonFriendlyOwnerDeath(runtime, scene, request)
+	logCurrentSentinelDeathShape(s, session, runtime, request)
 	if friendlyAPCDeath || friendlyOwnerDeath {
 		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
 			// Repair a duplicate or failed notification without settling the kill
@@ -212,6 +213,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	var storyProcEvidence dungeonStoryProcDeathEvidence
 	storyProcDeath := false
 	ekernFactionDeath := false
+	puppetAllyDeath := false
 	if ownerIsSentinel {
 		if hasScene {
 			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
@@ -222,6 +224,15 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			}
 		}
 		ekernFactionDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && s.currentEkernFactionDeath(runtime, scene, request)
+		// 动态友方（消耗品人偶）与本图声明的剧情 APC：贡献键由客户端分配，服务端
+		// 只能证明"本局/本图存在友方来源"，因此单独走有界租约，见 dungeon_puppet_lease.go。
+		puppetAllyDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && !ekernFactionDeath &&
+			s.currentDungeonPuppetAllyDeath(session, runtime, scene, request)
+		if puppetAllyDeath {
+			if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+			}
+		}
 		if ekernFactionDeath {
 			if target, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
 				if err := s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
@@ -235,7 +246,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				return err
 			}
 		}
-		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath && !ekernFactionDeath {
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath && !ekernFactionDeath && !puppetAllyDeath {
 			if !roomProvenHostile {
 				diagnosticReason = "sentinel_shape_rejected"
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -264,9 +275,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "owner_sentinel_request_shape_unproven_but_target_is_announced_live_room_hostile",
 				"source", "server_owned_announced_actor_table")
 		}
-		if ekernFactionDeath {
-			// Both actors are ordinary blocking hostiles. Do not promote this
-			// PVF faction death into a scripted boss or APC-retirement event.
+		if ekernFactionDeath || puppetAllyDeath {
+			// 双方都是普通阻挡怪 / 本房已证明存在友方来源：不要升级成脚本 Boss 或
+			// 非敌对 actor 退役事件，按普通怪死亡提交。
 			ownerSentinelOrdinaryTarget = true
 		} else if hasScene {
 			scriptedTutorialMonster, scriptedTutorialEvidence, scriptedTutorialDeath = s.isPVFTutorialScriptedMonsterDeath(
@@ -1221,6 +1232,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
 		"friendly_apc_contribution_proven", friendlyAPCDeath,
 		"ekern_faction_contribution_proven", ekernFactionDeath,
+		"puppet_ally_contribution_proven", puppetAllyDeath,
 		"friendly_owner_proven", friendlyOwnerDeath,
 		"response_kind", target.ResponseKind,
 		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),

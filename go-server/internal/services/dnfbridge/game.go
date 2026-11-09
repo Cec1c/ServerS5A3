@@ -50,6 +50,8 @@ type gameSession struct {
 	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
 	fiendWarProjection                  currentFiendWarProjection
 	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
+	// 消耗品召唤源租约（[summon apc]），跨副本运行有效，只由本会话事件循环读写。
+	puppetLease *currentDungeonPuppetLease
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
