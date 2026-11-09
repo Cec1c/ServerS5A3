@@ -29,9 +29,21 @@ func newMemoryCharStore() *memoryCharStore {
 // Save preserves the two monotonic story-summary scalars when an unrelated
 // character-stats writer saves a stale aggregate snapshot.
 func (s *memoryCharStore) Save(ctx context.Context, record repository.CharacterRecord) error {
+	return s.SaveFields(ctx, record, repository.CharacterSaveFields(ctx)...)
+}
+
+func (s *memoryCharStore) SaveFields(ctx context.Context, record repository.CharacterRecord, fields ...repository.CharacterField) error {
+	fields = repository.CharacterFields.Normalize(fields)
+	if len(fields) == 0 {
+		return nil
+	}
 	s.storyDigestMu.Lock()
 	defer s.storyDigestMu.Unlock()
-	return s.savePreservingStoryDigest(ctx, record)
+	existing, _, err := s.MemoryStore.Load(ctx, record.CharacterID)
+	if err != nil {
+		return err
+	}
+	return s.savePreservingStoryDigest(ctx, repository.MergeCharacterFields(existing, record, fields...))
 }
 
 func (s *memoryCharStore) savePreservingStoryDigest(ctx context.Context, record repository.CharacterRecord) error {

@@ -6,6 +6,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 // sendCurrentInitialTownPlayerState completes the selected town actor before
@@ -163,10 +164,13 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCurrentRaidChannelReady(session, source+"_selected_raid_town_before_mode1"); err != nil {
 		return err
 	}
+	if err := s.sendCurrentInitialWeddingState(session); err != nil {
+		return err
+	}
 	// 同窗口的第二条 init 次数报文：厂商 NOTI 0x0326 `DIMENSION_GATE_ENTRANCE_INFO`
 	// （次元门/魔界裂缝每日进入次数）。厂商把它注册在 `InitPacketBuilderRegistry.cs:106`，
 	// 即 `WeddingInfo` 之后、`StrikerSupportTagCharacter` 之前；我方登录进城序列是一条
-	// 合并路由且不下发 WeddingInfo/StrikerSupportTag，因此放在同窗口已按厂商顺序钉过的
+	// 合并路由；WeddingInfo 使用当前 EXE 已核对的 1000 通知。次元门仍放在同窗口的
 	// op1303 之后、op1340/mode0-mode1/定型 op24 城镇提交之前 —— 即城镇 UI 打开前的
 	// init 窗口内。详见 dimension_gate_entrance.go 头部依据。
 	if err := s.sendCurrentDimensionGateEntranceInfo(session, source+"_after_raid_daily_availability_before_mode1"); err != nil {
@@ -261,6 +265,13 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		// 记账：登录路径上这一帧带装备 create 行的 mode1 已经发出
 		// （`login_mode1_last_before_commit.go`：提交前最后一条 mode1 必须是这一种）。
 		s.noteLoginMode1Send(session, mode1Body, "initial_town_full_equipment_mode1_before_player_state")
+	}
+	if s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled() {
+		// The final full actor snapshot has replaced its Buff block. Do not
+		// depend on optional 1345/finish-loading callbacks to restore group1.
+		if err := s.sendBuffSwapReapply(session, source+"_paired_after_initial_mode1"); err != nil {
+			return err
+		}
 	}
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_initial_mode1"); err != nil {
 		return err
@@ -486,5 +497,13 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		"object_key", objectKey,
 		"route_stage", stage,
 		"next_owner", "typed_op24_final_transition_commit")
+	// The early Info1000 precedes full mode1/actor reconstruction. Its model
+	// can retain the ring while the new actor's marriage fields stay zero.
+	// Replay after the current scene event releases its town/asset locks, using
+	// the fresh session binding and relationship rather than this old snapshot.
+	// Other phases already have clear attributes and keep their original UI flow.
+	if state, err := wedding.Read(character); err == nil && state.Phase == wedding.Married {
+		return s.queueCurrentWeddingBenefitsReplay(session, source+"_after_initial_town_player_state")
+	}
 	return nil
 }

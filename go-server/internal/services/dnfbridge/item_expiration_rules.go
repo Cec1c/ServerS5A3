@@ -48,7 +48,21 @@ func currentPVFItemDefinitionWithUsablePeriodAt(
 		)
 	}
 	expireUnix := nowUnix + definition.UsablePeriodDays*int64((24*time.Hour)/time.Second)
-	definition.ExpirationDate = time.Unix(expireUnix, 0).UTC()
+	// ★ 相对 [usable period] 的到期时间吸附到"服务日 06:00（北京时间）"（2026-11-07）。
+	//
+	// PVF 里限期道具其实有三种写法，这里只处理第一种：
+	//   [usable period] N        → 相对期限（本函数），now + N×24h
+	//   [expiration date]        → 绝对日期，运营登记时**已经写成 06:00:00**
+	//                              （90CN 实例：stackable/10000001/10000214.stk = 2028-12-31 06:00:00）
+	//   [daily delete item] 1    → 次日 06:00 删（NextDailyDeleteAt，另有分支）
+	// 三者不会同时出现在同一个道具上（已与运营确认），所以这里覆盖 ExpirationDate 是安全的。
+	//
+	// 为什么必须吸附：相对天数落到**秒**，同一天连开的同一个限期道具每次得到不同的
+	// 绝对时间，而背包堆叠合并（randomRewardExpirationMatches）要求过期时间整数秒相等
+	// ⇒ 合并永远失败，同种道具散成十几格（现场：10008064 在角色 30 背包里 8 行 8 个秒）。
+	//
+	// 口径与上面两种格式一致：北京时间 06:00；有效期只会变长（最多 +24h），不会更短。
+	definition.ExpirationDate = itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(expireUnix, 0).UTC())
 	definition.ExpirationFromUsablePeriod = true
 	return definition, nil
 }

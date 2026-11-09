@@ -142,7 +142,7 @@ func (s *Service) handleCurrentRaidApproval(session *gameSession, op uint16, req
 	if err := s.sendRuntimeRaidMetadata(applicant, snapshot, 2); err != nil {
 		return err
 	}
-	if err := s.broadcastRuntimeRaidRefresh(snapshot); err != nil {
+	if err := s.broadcastRuntimeRaidJoinRefresh(snapshot, req.TargetID); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-current-raid-application-approved", "raid_key", snapshot.RaidKey, "applicant", req.TargetID, "leader", leader.character, "member_count", len(snapshot.Members), "group_index", member.GroupIndex, "slot_order", member.SlotOrder)

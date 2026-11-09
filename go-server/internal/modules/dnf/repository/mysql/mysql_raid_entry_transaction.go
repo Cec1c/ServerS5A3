@@ -9,6 +9,10 @@ import (
 )
 
 func (u *mysqlCharacterTradeUnitOfWork) WithinRaidEntryAssets(ctx context.Context, ids []string, scope string, apply func(repository.CharacterRepository, repository.InventoryRepository, repository.SettingsRepository) error) error {
+	return u.withinScopedCharacterAssets(ctx, ids, scope, apply)
+}
+
+func (u *mysqlCharacterTradeUnitOfWork) withinScopedCharacterAssets(ctx context.Context, ids []string, scope string, apply func(repository.CharacterRepository, repository.InventoryRepository, repository.SettingsRepository) error) error {
 
 	ids, err := repository.CharacterInventoryGroupIDs(ids)
 	if err != nil || u == nil || apply == nil || strings.TrimSpace(scope) == "" {

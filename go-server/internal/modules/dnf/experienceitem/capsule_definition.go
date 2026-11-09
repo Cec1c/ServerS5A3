@@ -274,6 +274,11 @@ var capsuleSectionNames = map[string]struct{}{
 	"weight": {}, "action usable place": {}, "display exp up info": {},
 	"purchase limit": {}, "npc gift disallowance": {}, "usable first growtype": {},
 	"use wav": {}, "name2": {},
+	// price 是道具的卖店价/商店价，纯交易数值，和胶囊行为无关。
+	// 早期漏了它，导致「带卖店价的胶囊」一律被判为未知段而无法使用
+	// （线上 10005308「(50百分比)兔兔成长胶囊」同时有 [price] 500000 与
+	// [need material] 10003231 1，表示购买价，与使用消耗无关）。
+	"price": {},
 }
 
 func isCapsuleStatusTag(value string) bool {

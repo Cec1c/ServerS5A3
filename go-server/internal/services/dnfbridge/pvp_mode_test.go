@@ -141,7 +141,8 @@ func TestPVPModeJoinAndSeatChanges(t *testing.T) {
 			s := pvpRoomTestService(t)
 			newSession := func(id uint16) *gameSession {
 				peer := &gameSession{conn: &bufferConn{}, selectedCharacterID: id, accountID: "pvp-" + strconv.Itoa(int(id)), channel: s.catalog.Channels()[1], sceneBootstrapTailSent: true}
-				peer.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: id, TownID: 10, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
+				// AreaID=1 = PVP 频道共享广场（area 0 是独立房间，已禁止在那里发起决斗）。
+				peer.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: id, TownID: 10, AreaID: 1, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
 				peer.partyPeer = currentPartyPeerEndpointRegistration{InnerIPv4: [4]byte{127, 0, 0, 1}, OuterIPv4: [4]byte{127, 0, 0, 1}, Port: 12000 + id, MTU: currentPartyPeerMinimumMTU}
 				return peer
 			}

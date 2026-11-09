@@ -12,30 +12,26 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-func TestFateShopExplicitOpeningFeesPreserved(t *testing.T) {
+func TestMagicBoxOpeningMaterialSemantics(t *testing.T) {
 	for _, tc := range []struct {
-		id                int64
 		extra             string
 		wantID, wantCount int64
 	}{
-		{10157775, "", 0, 0},
-		{10157776, "", 0, 0},
-		{10159652, "", 0, 0},
-		{10159653, "", 0, 0},
-
-		{10157775, "[lottery use need item]\n10007367 2\n", 10007367, 2},
-		{10157775, "[sealing removal item]\n10007367 3\n", 10007367, 3},
-		{10159653, "[lottery use need item]\n10007367 2\n", 10007367, 2},
-		{10159653, "[sealing removal item]\n10007367 3\n", 10007367, 3},
-		{900, "", 10095702, 4},
+		// Top-level [need material] is an exchange price for every jar, not
+		// an opening fee. The behavior must not depend on an item-ID whitelist.
+		{"", 0, 0},
+		{"[lottery use need item]\n10007367 2\n", 10007367, 2},
+		{"[sealing removal item]\n10007367 3\n", 10007367, 3},
 	} {
-		doc, err := dnfpvf.Parse("stackable/test.stk", "[stackable type]\n`[upgradable legacy]` 1\n[need material]\n10095702 4\n"+tc.extra)
-		if err != nil {
-			t.Fatal(err)
-		}
-		id, count := resolveMagicBoxNeedMaterial(doc, tc.id)
-		if id != tc.wantID || count != tc.wantCount {
-			t.Fatalf("item=%d extra=%q got=%d/%d want=%d/%d", tc.id, tc.extra, id, count, tc.wantID, tc.wantCount)
+		for _, id := range []int64{900, 10157775, 10159653} {
+			doc, err := dnfpvf.Parse("stackable/test.stk", "[stackable type]\n`[upgradable legacy]` 1\n[need material]\n10095702 4\n"+tc.extra)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotID, count := resolveMagicBoxNeedMaterial(doc, id)
+			if gotID != tc.wantID || count != tc.wantCount {
+				t.Fatalf("item=%d extra=%q got=%d/%d want=%d/%d", id, tc.extra, gotID, count, tc.wantID, tc.wantCount)
+			}
 		}
 	}
 }

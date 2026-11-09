@@ -17,8 +17,13 @@ func (s *Service) queueCurrentRaidRosterProgress(state runtimeRaidState) {
 		// Never synchronously wait for the manager's own event loop from its
 		// inbound callback. Aggregate locks are released before queueing/IO.
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			defer cancel()
+			// Waiting behind scene loading is not a socket write. Keep this
+			// committed update until the session ends; transport writes retain
+			// their own bounded deadlines and the callback rechecks live owners.
+			ctx := peer.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
 			err := s.callGameSession(ctx, peer, "raid-live-roster-progress", func() error {
 				if !s.boundGameSessionCharacterCurrent(identity) || !s.currentRaidAuthenticated(peer) {
 					return nil

@@ -322,7 +322,7 @@ func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (reposito
 
 // Save 保存完整 DNF 角色记录到 MySQL。
 func (s *mysqlCharStore) Save(ctx context.Context, record repository.CharacterRecord) error {
-	return s.SaveFields(ctx, record, repository.AllCharacterFields()...)
+	return s.SaveFields(ctx, record, repository.CharacterSaveFields(ctx)...)
 }
 
 // CreateCharacter 只执行 INSERT，避免账号槽位唯一键冲突时把旧角色 upsert 覆盖。

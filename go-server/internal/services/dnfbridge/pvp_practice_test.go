@@ -17,15 +17,17 @@ func TestCurrentPVPPracticeNativeLifecycle(t *testing.T) {
 		for _, battleMode := range []byte{6, 10} {
 			t.Run(route+strconv.Itoa(int(battleMode)), func(t *testing.T) {
 				s := pvpRoomTestService(t)
+				// AreaID=1 = PVP 频道共享广场：p27 起独立房间（area 0）禁止发起决斗。
 				a := &gameSession{conn: &bufferConn{}, accountID: "pvp-29", selectedCharacterID: 29, channel: s.catalog.Channels()[1],
-					townPositionSnapshot: currentTownPositionSnapshot{CharacterID: 29, TownID: 10, AreaID: 0, PositionX: 400, PositionY: 220, PositionValid: true}}
+					townPositionSnapshot: currentTownPositionSnapshot{CharacterID: 29, TownID: 10, AreaID: 1, PositionX: 400, PositionY: 220, PositionValid: true}}
 				a.channel.Type = 8
 				if battleMode == 10 {
 					a.channel.Type = 1
 					a.townPositionSnapshot.AreaID = 4
 				}
+				// 对手同样站在广场（见上）。
 				b := &gameSession{conn: &bufferConn{}, accountID: "pvp-30", selectedCharacterID: 30, channel: a.channel,
-					townPositionSnapshot: currentTownPositionSnapshot{CharacterID: 30, TownID: 10, AreaID: 0, PositionX: 400, PositionY: 220, PositionValid: true}}
+					townPositionSnapshot: currentTownPositionSnapshot{CharacterID: 30, TownID: 10, AreaID: 1, PositionX: 400, PositionY: 220, PositionValid: true}}
 				if err := s.sendCurrentPVPDirectory(b); err != nil {
 					t.Fatal(err)
 				}

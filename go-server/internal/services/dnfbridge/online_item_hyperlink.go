@@ -72,13 +72,13 @@ func decodeCurrentItemHyperlinkRequest(body []byte) (currentItemHyperlinkRequest
 }
 
 // Current class0/370 callback 0x2A042F0 reads type(u8), sender(u16),
-// channel(u8), the original message DSTR, count(u8), N*148 item bytes, then
+// character server group(u8), the original message DSTR, count(u8), N*148 item bytes, then
 // an empty DSTR. 0x29EFE20 consumes the fixed item rows.
-func buildCurrentItemHyperlinkNoticeBody(channel byte, senderID uint16, message []byte, items [][]byte) []byte {
+func buildCurrentItemHyperlinkNoticeBody(serverGroup byte, senderID uint16, message []byte, items [][]byte) []byte {
 	var writer packetWriter
 	writer.writeByte(currentAreaChatMessageType)
 	writer.writeUint16(senderID)
-	writer.writeByte(channel)
+	writer.writeByte(serverGroup)
 	writer.writeRawDstr(message)
 	writer.writeByte(byte(len(items)))
 	for _, item := range items {
@@ -118,6 +118,10 @@ func (s *Service) handleCurrentItemHyperlinkMessage(session *gameSession, typ ui
 			"reason", "bound_character_owner_mismatch")
 		return s.sendGameUpperFailure(session, typ, 1)
 	}
+	group, groupOK := currentChatCharacterServerGroup(character)
+	if !groupOK {
+		return s.sendGameUpperFailure(session, typ, 1)
+	}
 	if err := s.sendGameUpperSuccess(session, typ, nil); err != nil {
 		return err
 	}
@@ -129,11 +133,7 @@ func (s *Service) handleCurrentItemHyperlinkMessage(session *gameSession, typ ui
 		if !current || recipientIdentity.character != selectedCharacterID(recipient) {
 			continue
 		}
-		channel, channelOK := currentSessionOwnerChannelField(recipient)
-		if !channelOK {
-			continue
-		}
-		notice := buildCurrentItemHyperlinkNoticeBody(channel, sourceID, request.Message, request.Items)
+		notice := buildCurrentItemHyperlinkNoticeBody(group, sourceID, request.Message, request.Items)
 		if err := s.sendGameUpperRawClassCodec(recipient, currentItemHyperlinkNotifyOpcode, notice, 0, true); err != nil {
 			if recipient == session {
 				return err
@@ -146,6 +146,7 @@ func (s *Service) handleCurrentItemHyperlinkMessage(session *gameSession, typ ui
 	}
 	s.logGameEvent(session, "game-item-hyperlink-forwarded", "source_char_id", sourceID,
 		"hint_ignored", request.Hint, "message_len", len(request.Message), "item_count", len(request.Items),
-		"recipients", sent, "body_source", "current_exe_cmd424_noti370_type_sender_channel_message_items_empty_dstr")
+		"recipients", sent, "sender_server_group", group,
+		"body_source", "current_exe_cmd424_noti370_type_sender_server_group_message_items_empty_dstr")
 	return nil
 }

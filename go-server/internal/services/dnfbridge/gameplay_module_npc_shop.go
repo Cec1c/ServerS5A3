@@ -109,6 +109,15 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
 	s.logAikenExchangeCommitted(session, request, result)
+	if result.WeddingRoom != nil {
+		// The purchase is already durable. A broken buyer socket must not
+		// prevent the online spouse receiving the shared room inventory.
+		defer func() {
+			if err := s.publishCurrentWeddingFurnitureRoom(session); err != nil {
+				s.logGameEvent(session, "game-wedding-furniture-room-publish-failed", "error", err)
+			}
+		}()
+	}
 	err = s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketBuyItem), buildCurrentNPCShopBuySuccessBody(result), dnfproto.DefaultChannelClassification)
 	s.logAikenExchange(session, request, "aiken-exchange-send-result", "msg_id", 21, "committed", true, "send_ok", err == nil)
 	if err != nil {
@@ -121,6 +130,16 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 	}
 	if len(result.GuildMedalUpdates) > 0 {
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(currentGuildMedalInventoryListType, result.GuildMedalUpdates), 0); err != nil {
+			return err
+		}
+	}
+	if result.WeddingRoom != nil {
+		if err := s.writeCurrentWeddingRoom(session, *result.WeddingRoom); err != nil {
+			return err
+		}
+	}
+	if result.CostItemID == 10002606 {
+		if err := s.sendCurrentWeddingLovePoints(session, uint32(result.CostItemNewCount)); err != nil {
 			return err
 		}
 	}

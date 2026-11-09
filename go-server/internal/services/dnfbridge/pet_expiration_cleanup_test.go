@@ -82,7 +82,12 @@ func runR176HatchedPetExpiry(t *testing.T, catalog *pvfDungeonDropCatalog, pets 
 	for _, mode := range []string{"due", "before", "wrong_account", "permanent", "mismatch", "rollback", "worn", "online", "online_retry"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
-			now := time.Date(2026, 10, 21, 1, 0, 0, 0, time.UTC)
+			// ★ now 必须落在服务日 06:00 边界上（这里是 2026-10-22 06:00 CST）。
+			//   相对 [usable period] 的到期时间会吸附到 06:00 边界，本用例的整套
+			//   断言都建立在「蛋恰好在 now 过期」之上（due 模式要删、before 模式
+			//   差 1 秒不删）。若 now 取任意时刻，蛋的到期时间会落到 now 之后最多
+			//   24 小时，due 就不再 due。issued 同样落在边界上，吸附后正好回到 now。
+			now := time.Date(2026, 10, 21, 22, 0, 0, 0, time.UTC)
 			s, repos, q := newDailyDeleteTestService(t, now)
 			s.pvfItemCatalog = catalog
 			s.petCatalog = pets

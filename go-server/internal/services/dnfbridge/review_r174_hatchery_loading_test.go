@@ -7,16 +7,27 @@ import (
 )
 
 func TestR174HatcheryStartsFreshLoadingCycle(t *testing.T) {
-	s, leader, peer, _, _, target := actualAntonHatcheryTransferParty(t)
+	s, leader, peer, oldLeader, oldPeer, target := actualAntonHatcheryTransferParty(t)
+	// Native admission now requires the actual manager roster and bound
+	// generations. The historical session-only party was refused before a
+	// hatchery was installed, making its later loading assertion misleading.
+	t.Setenv("DNFBRIDGE_PARTY_NATIVE_ADMISSION", "")
+	a02RewardPartyWithSessionGenerations(t, s, leader, peer)
+	snapshot, managed := s.runtimePartyManagerForService().SnapshotByUser(leader.selectedCharacterID, leader.characterGeneration)
+	if !managed {
+		t.Fatal("fixture lost authoritative party")
+	}
+	s.publishRuntimePartySnapshot(snapshot)
+	partyID := snapshot.ID
 	members := []uint16{99, 100}
-	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(leader, 12, members); release {
+	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(leader, partyID, members); release {
 		t.Fatal("first energy member released")
 	}
-	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(peer, 12, members); !release {
+	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(peer, partyID, members); !release {
 		t.Fatal("energy cycle not released")
 	}
 	s.partyDungeonLoadingMu.Lock()
-	old := s.partyDungeonLoadingCycles[12]
+	old := s.partyDungeonLoadingCycles[partyID]
 	// Keep the already released period inside the merge window across expensive
 	// actual PVF preparation. No timer or synthetic target runtime is injected.
 	old.released = time.Now().Add(time.Hour)
@@ -24,24 +35,37 @@ func TestR174HatcheryStartsFreshLoadingCycle(t *testing.T) {
 	if err := s.handleDungeonSelectUpper(leader, encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: target, Difficulty: 2})); err != nil {
 		t.Fatal(err)
 	}
+	s.partyNativeAdmission.mu.Lock()
+	proof := s.partyNativeAdmission.bySession[leader]
+	s.partyNativeAdmission.mu.Unlock()
+	if proof == nil {
+		t.Fatal("hatchery selection did not request current native readiness")
+	}
+	completeNativePartyAdmissionForTest(t, s, leader)
+	if leader.dungeon.runtime == oldLeader || peer.dungeon.runtime == oldPeer || leader.dungeon.runtime.Dungeon.ID != int64(target) || peer.dungeon.runtime.Dungeon.ID != int64(target) {
+		t.Fatal("readiness did not commit both hatchery owners")
+	}
+	if !s.partyDungeonPostStartMapPlacementPending(leader) || !s.partyDungeonPostStartMapPlacementPending(peer) {
+		t.Fatal("new hatchery placement was not pending before stale callbacks")
+	}
 	s.partyDungeonLoadingMu.Lock()
-	next := s.partyDungeonLoadingCycles[12]
+	next := s.partyDungeonLoadingCycles[partyID]
 	stale, armed := next == old || next.Released, next.Timer != nil
 	s.partyDungeonLoadingMu.Unlock()
 	// A previously queued timeout/release must not consume the new scene's
 	// pending placement, even after its old Timer.Stop has returned.
-	s.forceReleasePartyDungeonLoadingCycle(12, old, "stale_energy_timeout")
-	s.releasePartyDungeonLoadingCycle(12, old, members, members, "stale_energy_release")
+	s.forceReleasePartyDungeonLoadingCycle(partyID, old, "stale_energy_timeout")
+	s.releasePartyDungeonLoadingCycle(partyID, old, members, members, "stale_energy_release")
 	if !s.partyDungeonPostStartMapPlacementPending(leader) || !s.partyDungeonPostStartMapPlacementPending(peer) {
 		t.Fatal("old cycle consumed new hatchery placement")
 	}
 	if stale || !armed {
 		t.Fatalf("new hatchery inherited old loading state: stale=%v watchdog=%v", stale, armed)
 	}
-	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(leader, 12, members); release {
+	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(leader, partyID, members); release {
 		t.Fatal("first hatchery member released without peer")
 	}
-	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(peer, 12, members); !release {
+	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(peer, partyID, members); !release {
 		t.Fatal("both hatchery members did not release")
 	}
 }

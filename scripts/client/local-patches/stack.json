@@ -1,0 +1,53 @@
+{
+  "comment": "我方独立于上游的 DNF.exe 补丁栈。patches 按顺序应用；releases 记录每个已生成版本的来源与摘要。说明见 README.md。",
+  "patches": [
+    {
+      "id": "pvp-relay-gate",
+      "module": "pvp_relay_gate",
+      "since": "v2.0.8",
+      "doc": "Docs/PVP_RELAY_DICE_20261102.md",
+      "verify": "verify/verify_pvp_relay_gate.py"
+    },
+    {
+      "id": "imeup-all-keys",
+      "module": "imeup_all_keys",
+      "since": "v2.0.8.2",
+      "doc": "scripts/client/local-patches/patches/imeup_all_keys.py",
+      "verify": "verify/verify_imeup_all_keys.py"
+    }
+  ],
+  "releases": [
+    {
+      "version": "v2.0.8",
+      "upstream": "V207",
+      "upstreamSHA256": "eca5ae9017176fb159ae22d6498b2a6805b8b93295042363a90f37f2daae7a03",
+      "patches": ["pvp-relay-gate"],
+      "outputSHA256": "c6adcdffe2973ff02d524c1287ae952458857a55ef16947484d2215c43d392ca",
+      "status": "2026-11-03 已发布到 90CN 更新通道"
+    },
+    {
+      "version": "v2.0.8.1",
+      "upstream": "V208",
+      "upstreamSHA256": "5ce2ce3f01dacd05a6ce542d088911cc4fceb0f44ffa85dfa3a0886339e7cb5c",
+      "patches": ["pvp-relay-gate"],
+      "outputSHA256": "58b7c5e61435df2ccdd30dce412a33c213943a530e492d27656135fa6d735fc2",
+      "status": "gitee Release client-v2.0.8.1，未进 90CN 更新通道"
+    },
+    {
+      "version": "v2.0.8.2",
+      "upstream": "V208",
+      "upstreamSHA256": "5ce2ce3f01dacd05a6ce542d088911cc4fceb0f44ffa85dfa3a0886339e7cb5c",
+      "patches": ["pvp-relay-gate", "imeup-all-keys"],
+      "outputSHA256": "de0d10b4e05f7005994dfc31c8d40fedd30205d705ed7d00cc2891080f64b5f3",
+      "status": "gitee Release client-v2.0.8.2；未上线，已被 v2.1.1.1 取代"
+    },
+    {
+      "version": "v2.1.1.1",
+      "upstream": "V211",
+      "upstreamSHA256": "d1930d5bb07ee8fae348e0c23551b0f12bcfaea67ed7bf53ab0c9099e195c309",
+      "patches": ["pvp-relay-gate", "imeup-all-keys"],
+      "outputSHA256": "163b615d5285849939e32c6392eb01d0aedf5c9ec98b3ad70df5ca49e2e1f366",
+      "status": "gitee Release client-v2.1.1.1；2026-11-04 15:38（北京时间）已发布到 90CN 更新通道，网关版本标签 2.0.11，min_version 为空（可选更新）"
+    }
+  ]
+}

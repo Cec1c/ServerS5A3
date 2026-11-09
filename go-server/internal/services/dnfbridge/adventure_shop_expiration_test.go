@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/adventuregroup"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
@@ -112,7 +113,8 @@ func verifyAdventurePotionExpiration(t *testing.T, source dnfpvf.Source) {
 	if err != nil || len(inv.Slots) != 1 {
 		t.Fatalf("inventory=%+v err=%v", inv, err)
 	}
-	want := q.now.Add(7 * 24 * time.Hour)
+	// 2026-11-07 起相对期限吸附到服务日 06:00（北京时间）。
+	want := itemexpiration.DailyDeleteBoundaryAtOrAfter(q.now.Add(7 * 24 * time.Hour))
 	_, rest := splitGameServerUpperPacket(t, session.conn.(*bufferConn).write.Bytes())
 	update, _ := splitGameServerUpperPacket(t, rest)
 	if update.Header.MsgID != 14 || len(update.Body) != 3+currentItemListEntryWireSize ||

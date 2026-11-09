@@ -15,7 +15,9 @@ import (
 func TestOfficial249LotteryReturnsNativeItemAndCommitsOnce(t *testing.T) {
 	_, source := newMagicBoxTestCatalog(t)
 	source["stackable/stackable.lst"] += "900 `cash/anton.stk`\n"
-	source["stackable/cash/anton.stk"] = "[stackable type] `[upgradable legacy]` 1\n[stack limit] 100\n[need material] 10007367 4\n[int data] 2600014 4167 1\n[/int data]\n"
+	// 开启材料必须是显式 [lottery use need item]；顶层 [need material]
+	// 是 NPC 兑换价，不是每开一次再付一次。
+	source["stackable/cash/anton.stk"] = "[stackable type] `[upgradable legacy]` 1\n[stack limit] 100\n[lottery use need item] 10007367 4\n[int data] 2600014 4167 1\n[/int data]\n"
 	catalog, err := newPVFDungeonDropCatalog(source)
 	if err != nil {
 		t.Fatal(err)

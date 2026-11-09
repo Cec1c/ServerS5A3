@@ -242,10 +242,10 @@ func TestRealPVFAntonPhase0SquadStageTimingAndCapacity(t *testing.T) {
 	if len(partyOwners) != 2 || partyOwners[0] != 19 || partyOwners[1] != 20 || len(squadOwners) != 0 {
 		t.Fatalf("phase0 auto party reveal owners=%v squad=%v", partyOwners, squadOwners)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 0 {
 		t.Fatalf("phase0 squad opened before party display window: errs=%v", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(20*time.Second), zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 2 || flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 2 || flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() {
 		t.Fatalf("phase0 squad stage at display boundary: errs=%v", errs)
 	}
 	f.conn.write.Reset()

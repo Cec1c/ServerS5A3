@@ -156,10 +156,23 @@ const (
 	CharacterFieldStats    CharacterField = "stats"
 	CharacterFieldLocation CharacterField = "location"
 	CharacterFieldRoster   CharacterField = "roster"
+	// Wedding is an explicit authority to replace wedding_v1_* statistics.
+	// Ordinary stats/full saves must preserve that independently transacted state.
+	CharacterFieldWedding CharacterField = "wedding"
 )
 
 // SaveCharacterFields 保存角色指定字段；底层不支持局部保存时退化为整条保存。
 func SaveCharacterFields(ctx context.Context, repo CharacterRepository, record CharacterRecord, fields ...CharacterField) error {
+	// Preserve explicit authority through decorators that only expose Store.Save.
+	for _, field := range fields {
+		if field == CharacterFieldWedding {
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			ctx = context.WithValue(ctx, characterWeddingWriteContextKey{}, CharacterFields.Normalize(fields))
+			break
+		}
+	}
 	return db.SaveFields(ctx, repo, record, CharacterFields.Normalize, fields...)
 }
 

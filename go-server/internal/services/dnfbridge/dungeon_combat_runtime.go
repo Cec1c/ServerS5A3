@@ -53,6 +53,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}()
 	request, err := s.decodeCurrentDungeonMonsterDeath(body)
 	if err != nil {
+		s.logEkernRejectedRequestDiagnostic(session, body, "death", "decode_rejected")
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 			"body_len", len(body),
 			"reason", "current_exe_op39_request_malformed",
@@ -60,6 +61,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		return nil
 	}
 	if len(request.OpaqueTail) != 0 {
+		s.logEkernRejectedRequestDiagnostic(session, body, "death", "opaque_tail_rejected")
 		s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 			"object_key", request.RuntimeObjectKey,
 			"body_len", len(body),
@@ -99,6 +101,12 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			"object_key", request.RuntimeObjectKey,
 			"reason", "dungeon_runtime_missing")
 		return nil
+	}
+	diagnostic := s.beginEkernDiagnosticLocked(runtime, "death", len(body))
+	diagnosticReason := "other_dispatch"
+	if diagnostic != nil {
+		diagnostic.addDeathRequest(s, session, runtime, request)
+		defer func() { s.finishEkernDiagnosticLocked(runtime, diagnostic, diagnosticReason, resultErr) }()
 	}
 	// 特殊波次/APC/被动对象及重复报告可能走各自的完成入口；它们开始
 	// 处理前先提交之前普通怪的经验，不能让待提交奖励跨过这些生命周期。
@@ -188,6 +196,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
 	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
 	friendlyOwnerDeath := hasScene && s.currentDungeonFriendlyOwnerDeath(runtime, scene, request)
+	logCurrentSentinelDeathShape(s, session, runtime, request)
 	if friendlyAPCDeath || friendlyOwnerDeath {
 		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
 			// Repair a duplicate or failed notification without settling the kill
@@ -203,6 +212,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	ownerSentinelBlockingClearSource := ""
 	var storyProcEvidence dungeonStoryProcDeathEvidence
 	storyProcDeath := false
+	ekernFactionDeath := false
+	puppetAllyDeath := false
+	factionDeath := false
 	if ownerIsSentinel {
 		if hasScene {
 			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
@@ -212,8 +224,41 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				}
 			}
 		}
-		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath {
+		ekernFactionDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && s.currentEkernFactionDeath(runtime, scene, request)
+		// 通用阵营互杀：艾肯规则只认普通怪行，运行期投放的怪解析不出阵营，
+		// 这里补一条两种 actor 都能解析的路径。见 dungeon_faction_death.go。
+		factionDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && !ekernFactionDeath &&
+			s.currentDungeonRoomFactionDeath(runtime, scene, request)
+		if factionDeath {
+			if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+			}
+		}
+		// 动态友方（消耗品人偶）与本图声明的剧情 APC：贡献键由客户端分配，服务端
+		// 只能证明"本局/本图存在友方来源"，因此单独走有界租约，见 dungeon_puppet_lease.go。
+		puppetAllyDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && !ekernFactionDeath &&
+			s.currentDungeonPuppetAllyDeath(session, runtime, scene, request)
+		if puppetAllyDeath {
+			if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+			}
+		}
+		if ekernFactionDeath {
+			if target, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+				if err := s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
+					return err
+				}
+				// Suppress further copies after repairing the failed notification.
+				body, err := buildCurrentDungeonDeathNotificationBodyWithDrops(target.ObjectKey, target.ResponseKind, nil)
+				if err == nil {
+					runtime.Room.RecordDeathResponseBody(request.RuntimeObjectKey, body)
+				}
+				return err
+			}
+		}
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath && !ekernFactionDeath && !puppetAllyDeath && !factionDeath {
 			if !roomProvenHostile {
+				diagnosticReason = "sentinel_shape_rejected"
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
 					"dungeon_id", runtime.Dungeon.ID,
 					"maze_index", runtime.MazeIndex,
@@ -240,7 +285,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "owner_sentinel_request_shape_unproven_but_target_is_announced_live_room_hostile",
 				"source", "server_owned_announced_actor_table")
 		}
-		if hasScene {
+		if ekernFactionDeath || puppetAllyDeath || factionDeath {
+			// 双方都是普通阻挡怪 / 本房已证明存在友方来源：不要升级成脚本 Boss 或
+			// 非敌对 actor 退役事件，按普通怪死亡提交。
+			ownerSentinelOrdinaryTarget = true
+		} else if hasScene {
 			scriptedTutorialMonster, scriptedTutorialEvidence, scriptedTutorialDeath = s.isPVFTutorialScriptedMonsterDeath(
 				runtime,
 				scene,
@@ -387,6 +436,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		!friendlyOwnerDeath &&
 		!dungeonRuntimeContainsDeathOwnerObjectKey(runtime, uint32(request.OwnerObjectKey)) &&
 		!hitOwner.accepted {
+		diagnosticReason = "owner_mismatch"
 		if hitOwnerMode == dungeonPartyHitOwnerParty {
 			// 判定会退化成最小伤害 1：把"谁打谁、为什么被判无效"一次写清，下一次实测单看
 			// 这一行就能判出缺陷 B 是否还在。
@@ -696,6 +746,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	var target runtimeDungeonDeathTarget
 	var cleared bool
 	var reportErr error
+	diagnosticReason = "ordinary_death"
 	// A room-owned boss object is not proof that the shared mechanism permits
 	// its death. Also gate a defeated target before any replay side effects.
 	fiendWarBossTarget, _, _ := currentDungeonRuntimeObjectBossActor(runtime, request.RuntimeObjectKey,
@@ -712,6 +763,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		target, cleared, reportErr = s.commitQuestMaterialDeath(session, runtime, request.RuntimeObjectKey)
 	}
 	if s.deferDungeonDeathPreparation(session, runtime, request.RuntimeObjectKey, body, sequence, reportErr) {
+		diagnosticReason = "preparation_deferred"
 		return nil
 	}
 	if reportErr == nil || errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
@@ -727,6 +779,10 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		}
 	}
 	if reportErr != nil {
+		diagnosticReason = "actor_state_rejected"
+		if errors.Is(reportErr, errDungeonMonsterAlreadyDefeated) {
+			diagnosticReason = "already_defeated"
+		}
 		// 阶段二（队伍级共享实例）：同一只怪被两个成员各自判定死亡时，后到的那次请求
 		// 落在**共享房间**里必然是 already_defeated。此时不能只记 blocked：
 		// 请求方的客户端以为怪还活着（它会把它打成白色残影），必须把既有的权威死亡状态
@@ -878,6 +934,10 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if deathResponseErr == nil {
 		deathWriteStarted := s.performanceStart()
 		deathNotifyErr = s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, responseBody, playerObjectKey), 0)
+		if diagnostic != nil {
+			diagnostic.ordinaryNotifyAttempted = true
+			diagnostic.ordinaryNotifyWritten = deathNotifyErr == nil
+		}
 		s.performanceEnd(perfMonsterDeathWrite, deathWriteStarted, deathNotifyErr)
 		s.performanceEnd(perfMonsterEnqueueToDeath, session.performanceEventQueuedAt, deathNotifyErr)
 	}
@@ -1181,6 +1241,9 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"owner_sentinel_blocking_clear_source", ownerSentinelBlockingClearSource,
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
 		"friendly_apc_contribution_proven", friendlyAPCDeath,
+		"ekern_faction_contribution_proven", ekernFactionDeath,
+		"room_faction_contribution_proven", factionDeath,
+		"puppet_ally_contribution_proven", puppetAllyDeath,
 		"friendly_owner_proven", friendlyOwnerDeath,
 		"response_kind", target.ResponseKind,
 		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),

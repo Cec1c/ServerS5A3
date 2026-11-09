@@ -150,14 +150,14 @@ func currentGoldConsignAsListings(listings []dnfauction.GoldConsignListing) []dn
 	return out
 }
 
-func buildCurrentGoldConsignSearchBody(listings []dnfauction.GoldConsignListing, page uint32, pageSize int) []byte {
-	body := buildCurrentAuctionSearchBodyPage(
+func buildCurrentGoldConsignSearchBody(listings []dnfauction.GoldConsignListing, offset uint32, limit int) []byte {
+	body := buildCurrentAuctionSearchBodyWindow(
 		currentGoldConsignAsListings(listings),
 		// Gold certificates are deliberately NOT item-auction eligible, so the
 		// item predicate must not filter them out here.
 		func(uint32) bool { return true },
-		page,
-		pageSize,
+		offset,
+		limit,
 	)
 	if len(body) > 0 {
 		body[0] = currentAuctionPayTypeConsignment
@@ -356,9 +356,9 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 		}
 		return s.sendCurrentAccountWallet(session)
 	case uint16(dnfenum.CmdPacketAuctionSearchByItemkey):
-		page, items, ok := decodeCurrentAuctionSearchBody(body, 1)
+		offset, items, ok := decodeCurrentAuctionSearchBody(body, 1)
 		if !ok && len(body) == 10 && body[7] == 0 {
-			page = binary.LittleEndian.Uint32(body[1:5])
+			offset = binary.LittleEndian.Uint32(body[1:5])
 			ok = true
 		}
 		if !ok {
@@ -375,7 +375,7 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 		if e != nil {
 			return fail(e)
 		}
-		return s.sendGameUpperSuccess(session, opcode, buildCurrentGoldConsignSearchBody(listings, page, 100))
+		return s.sendGameUpperSuccess(session, opcode, buildCurrentGoldConsignSearchBody(listings, offset, currentAuctionSearchBatchSize))
 	case uint16(dnfenum.CmdPacketAuctionSearchByNoitemkey):
 		if len(body) != currentAuctionGoldCategoryRequestSize {
 			return fail(dnfauction.ErrInvalidRequest)
@@ -384,7 +384,7 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 		if e != nil {
 			return fail(e)
 		}
-		return s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketAuctionSearchByItemkey), buildCurrentGoldConsignSearchBody(listings, binary.LittleEndian.Uint32(body[1:5]), 100))
+		return s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketAuctionSearchByItemkey), buildCurrentGoldConsignSearchBody(listings, binary.LittleEndian.Uint32(body[1:5]), currentAuctionSearchBatchSize))
 	case uint16(dnfenum.CmdPacketAuctionMyRegistedItemInfo):
 		if len(body) != 1 {
 			return fail(dnfauction.ErrInvalidRequest)

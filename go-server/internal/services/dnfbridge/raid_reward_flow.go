@@ -86,11 +86,12 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 	return &v
 }
 
-// A displayed team Anton/final Luke/FiendWar party page can close locally without sending
-// 660. Give each owner a bounded choice window after their actual display, while
-// retaining the original unattended deadline for absent or still-loading peers.
-// Twenty seconds is server policy, not a claimed MOVIE END TIME field meaning.
-const currentRaidDisplayedPartyChoiceWindow = 20 * time.Second
+// NOTI600 constructs the reward-card panel with a 0x3a98 (15000 ms) timer, and
+// the matching party-panel tick expires at the same value. This card-choice
+// control is independent of MOVIE END TIME. The party subpanel also uses this
+// timer in native stage4 before the team panel can replace it. Cinematic
+// fallbacks and the final team-display completion still use their own windows.
+const currentRaidNativeCardChoiceWindow = 15 * time.Second
 
 func (s *Service) markCurrentRaidPartySelectionShownLocked(instance string, phase byte, character uint16, at time.Time) {
 	f := s.antonRewardFlows[currentAntonFlowKey(instance, phase)]
@@ -105,7 +106,7 @@ func (s *Service) markCurrentRaidPartySelectionShownLocked(instance string, phas
 			f.PartySelectAfter = make(map[uint16]time.Time)
 		}
 		if _, exists := f.PartySelectAfter[character]; !exists {
-			f.PartySelectAfter[character] = at.Add(currentRaidDisplayedPartyChoiceWindow)
+			f.PartySelectAfter[character] = at.Add(currentRaidNativeCardChoiceWindow)
 		}
 		return
 	}
@@ -116,10 +117,10 @@ func currentAntonFlowKey(instance string, phase byte) string {
 }
 
 // Normal Anton phase zero has two display stages. An unattended automatic
-// selection must leave the committed party cards visible for one native movie
-// window before the squad list replaces them. Once any owner has manually
-// selected, that party page has already been presented; do not impose the
-// unattended display hold a second time after the last manual card commits.
+// selection must leave the committed party cards visible for the native
+// stage4 card window before the squad list replaces them. Once any owner has
+// manually selected, that party page has already been presented; do not impose
+// the unattended display hold a second time after the last manual card commits.
 func markCurrentAntonPartyCommittedLocked(f *currentAntonRewardFlow, now time.Time) bool {
 	if f == nil || !f.PartyCommittedAt.IsZero() {
 		return f != nil && !f.PartyCommittedAt.IsZero()
@@ -142,11 +143,10 @@ func currentAntonMovieWindow(f *currentAntonRewardFlow) time.Duration {
 	return time.Duration(movie) * time.Second
 }
 
-// The phase-clear timestamp starts the server clock, but a client 659 need
-// not arrive at that instant. Automatic party selection must leave
-// a full movie window after the card list was actually delivered. If no client
-// reached the card screen, the base deadline still opens that screen and one
-// movie window is left before the unattended fallback commits it.
+// The phase-clear timestamp starts the server fallback clock, but a client 659
+// need not arrive at that instant. Once a card list was actually delivered,
+// use the native card-panel timer for its automatic flip. The unattended
+// deadline remains the fallback when no screen reached any client.
 func currentAntonPartySelectAt(f *currentAntonRewardFlow, movie time.Duration) time.Time {
 	if f == nil {
 		return time.Time{}
@@ -158,7 +158,7 @@ func currentAntonPartySelectAt(f *currentAntonRewardFlow, movie time.Duration) t
 		}
 		return at
 	}
-	if shown := f.PartyShownAt.Add(movie); shown.After(at) {
+	if shown := f.PartyShownAt.Add(currentRaidNativeCardChoiceWindow); shown.After(at) {
 		at = shown
 	}
 	return at
@@ -337,19 +337,34 @@ func freezeCurrentAntonAutomaticCard(f *currentAntonRewardFlow, recipient curren
 	return card, command, nil
 }
 
+// Reward resolution uses the same immutable PVF drop catalog that startup
+// already preloads for ordinary dungeon drops. Rebuilding that catalog on the
+// card clock is observable: the status tick and a 660 request can otherwise
+// spend several seconds rereading the three item lists before they reach the
+// wire. Synthetic fixtures that do not install a monster catalog keep the
+// existing on-demand construction path.
+func (s *Service) currentAntonRewardDropCatalog() (*pvfDungeonDropCatalog, error) {
+	if table, err := s.dungeonMonsterCatalog(); err == nil {
+		if catalog, dropErr := table.DropCatalog(); dropErr == nil {
+			return catalog, nil
+		}
+	}
+	s.initialEquipmentMu.Lock()
+	archive, err := s.initialEquipmentArchiveLocked()
+	s.initialEquipmentMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return newPVFDungeonDropCatalog(archive)
+}
+
 // No raid mutex is held during repository work. A lost response is replayed
 // using the same frozen plan/receipt; changing membership cannot reroll it.
 func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64) (int64, error)) ([]runtimeRaidState, []error) {
 	if now.IsZero() {
 		return nil, nil
 	}
-	s.initialEquipmentMu.Lock()
-	archive, err := s.initialEquipmentArchiveLocked()
-	s.initialEquipmentMu.Unlock()
-	if err != nil {
-		return nil, []error{err}
-	}
-	catalog, err := newPVFDungeonDropCatalog(archive)
+	catalog, err := s.currentAntonRewardDropCatalog()
 	if err != nil {
 		return nil, []error{err}
 	}
@@ -413,7 +428,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			}
 			if kind == 3 {
 				s.raidMu.Lock()
-				if markCurrentAntonPartyCommittedLocked(f, now) && f.Mode == 1 && !f.Single && f.Phase == 0 && !f.PartyManual && now.Before(f.PartyCommittedAt.Add(movie)) {
+				if markCurrentAntonPartyCommittedLocked(f, now) && f.Mode == 1 && !f.Single && f.Phase == 0 && !f.PartyManual && now.Before(f.PartyCommittedAt.Add(currentRaidNativeCardChoiceWindow)) {
 					s.raidMu.Unlock()
 					continue
 				}

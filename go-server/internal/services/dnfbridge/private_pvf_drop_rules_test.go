@@ -59,6 +59,61 @@ func TestPrivateNativePVFHellChangesRealRewards(t *testing.T) {
 	}
 }
 
+func TestPrivateNativePVFHellFiltersCandidatesByDungeonLevelBand(t *testing.T) {
+	t.Setenv(abyssItemLevelFloorEnv, "")
+	t.Setenv(abyssItemLevelCeilingEnv, "")
+
+	highLevelItem := uint32(hellPartyRewardTestItem)
+	lowLevelItem := highLevelItem + 1
+	source := bridgeHellPartyRewardPVF()
+	source[hellPartyRewardDropInfoPath] = privateNativeHellText(1000, 4)
+	source["equipment/equipment.lst"] = fmt.Sprintf(
+		"%d `weapon/test_drop.equ`\n%d `weapon/test_low_level_drop.equ`\n",
+		highLevelItem,
+		lowLevelItem,
+	)
+	equipmentBody := func(name string, minimumLevel int64) string {
+		return fmt.Sprintf(
+			"[name]\n`%s`\n[durability]\n50\n[attach type]\n`[trade]`\n[minimum level]\n%d\n[grade]\n%d\n[rarity]\n%d\n[creation rate]\n100\n[equipment type]\n`[weapon]`\n",
+			name,
+			minimumLevel,
+			hellPartyRewardTestBasisLevel,
+			hellPartyRewardRarityEpic,
+		)
+	}
+	source["equipment/weapon/test_drop.equ"] = equipmentBody("eligible level 85", abyssItemLevelFloorDefault)
+	source["equipment/weapon/test_low_level_drop.equ"] = equipmentBody("excluded level 80", abyssItemLevelFloorDefault-5)
+
+	catalog, err := newPVFDungeonDropCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := hellPartyRewardRequest{
+		DungeonMinimumLevel:  87,
+		DungeonBasisLevel:    hellPartyRewardTestBasisLevel,
+		DungeonDifficulty:    1,
+		AbyssPartyDifficulty: 1,
+		RewardRollCount:      32,
+		dropCatalog:          catalog,
+		rng:                  newCurrentDungeonDropLCG(1),
+	}
+	result, err := currentNativePVFHellReward(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.RarityCandidates[hellPartyRewardRarityIndex(hellPartyRewardRarityEpic)]; got != 1 {
+		t.Fatalf("epic candidates=%d want only the level-85 item; result=%+v", got, result)
+	}
+	if len(result.Selected) != int(request.RewardRollCount) {
+		t.Fatalf("selected=%d want=%d", len(result.Selected), request.RewardRollCount)
+	}
+	for _, selected := range result.Selected {
+		if selected.ItemID != highLevelItem {
+			t.Fatalf("selected item=%d want=%d; the level-80 candidate must be filtered", selected.ItemID, highLevelItem)
+		}
+	}
+}
+
 func TestPrivateNativePVFHellActualDeathReplay(t *testing.T) {
 	source := bridgeAbyssEpicFragmentPVF()
 	source[hellPartyRewardDropInfoPath] = privateNativeHellText(1000, 0)

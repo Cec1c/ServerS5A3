@@ -18,6 +18,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/onlineevent"
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 const (
@@ -33,6 +34,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	WeddingCapsule                              *wedding.CapsuleRules
 	BattlePassDungeonKind                       uint32
 	BattlePassNoCoinClear, BattlePassSRankClear bool
 	ReturneeDimensionClear                      bool // 服务端已核实的异界终局；不依赖战令。
@@ -313,6 +315,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 				return ErrSettlementStateInvalid
 			}
 			dnfrepo.AddBattlePassCounter(&character, 0, -1, 1, now)
+			if cmd.WeddingCapsule != nil {
+				if err := wedding.AccumulateCapsuleClear(&character, *cmd.WeddingCapsule); err != nil {
+					return err
+				}
+			}
 			count := character.Stats[adventuregroup.RecommendedDungeonClearStatKey]
 			if count < 0 {
 				return ErrSettlementStateInvalid
@@ -447,7 +454,11 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 		character.UpdatedAt = now
 		skill.Points = planned.SkillPoints.New
 		skill.UpdatedAt = now
-		if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, character, dnfrepo.CharacterFieldBase, dnfrepo.CharacterFieldStats); err != nil {
+		characterFields := []dnfrepo.CharacterField{dnfrepo.CharacterFieldBase, dnfrepo.CharacterFieldStats}
+		if cmd.RecommendedDungeonClear && cmd.WeddingCapsule != nil {
+			characterFields = append(characterFields, dnfrepo.CharacterFieldWedding)
+		}
+		if err := dnfrepo.SaveCharacterFields(ctx, tx.Character, character, characterFields...); err != nil {
 			return err
 		}
 		if err := dnfrepo.SaveSkillFields(ctx, tx.Skill, skill, dnfrepo.SkillFieldPoints); err != nil {

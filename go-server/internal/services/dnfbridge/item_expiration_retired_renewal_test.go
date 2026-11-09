@@ -10,6 +10,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 	platformpvf "longheng.io/server/internal/platform/pvf"
@@ -124,7 +125,7 @@ func TestCurrentPVFItemDefinitionForGrantRenewsRetiredAbsoluteDateAndLeavesOther
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRelative := time.Unix(now.Unix()+86400, 0).UTC()
+	wantRelative := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Unix()+86400, 0).UTC())
 	if !relative.ExpirationDate.Equal(wantRelative) {
 		t.Fatalf("relative usable period changed: %s want %s", relative.ExpirationDate, wantRelative)
 	}
@@ -559,7 +560,7 @@ func TestRealScriptPVFRetiredAbsoluteDatesAreRenewedOnEveryPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantCoupon := time.Unix(now.Unix()+86400, 0).UTC()
+	wantCoupon := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Unix()+86400, 0).UTC())
 	if !grantedCoupon.ExpirationDate.Equal(wantCoupon) {
 		t.Fatalf("relative coupon grant=%s want=%s", grantedCoupon.ExpirationDate, wantCoupon)
 	}

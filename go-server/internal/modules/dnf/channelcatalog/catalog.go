@@ -275,6 +275,39 @@ func IsResidentChannel(channel Channel) bool {
 	return isResidentChannel(channel)
 }
 
+// IsRaidChannel 报告该频道是否属于团队/攻坚队家族（type 23/32，或 fiendwar 的 42/45）。
+//
+// 2026-10-25：90CN 现场"看不到团队模式频道"。默认组目录被
+// `DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY=true` 收窄成只留常驻城镇频道，团本频道被整族
+// 剔除；客户端的频道列表是按默认组目录渲染的，于是团队频道直接消失。
+// 桥接层需要在默认组里重新放行团本频道，因此把 `isRaid` 导出，避免两处判据漂移。
+func IsRaidChannel(channel Channel) bool {
+	return isRaid(channel)
+}
+
+// IsTagTournamentChannel 报告该频道是否属于「帝国竞技场」（tagtournament）家族。
+//
+// 2026-10-29：90CN 现场"看不到帝国竞技场频道"。原因是 type 39 在
+// nonResidentChannelTypes 黑名单里（不算常驻城镇），又不在 IsRaidChannel 的
+// 团本家族里，于是被 `DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY=true` 的默认组过滤
+// 整条剔掉 —— 和 2026-10-25「看不到团队模式频道」是同一个机制。
+//
+// 判据用 type 39 **或** group 名，两者任一命中即可：线上数据是
+// 187 <chn_channel_info_049> 39 [tagtournament]，但换数据集时
+// 只改其中一个字段的情况出现过，双判据更稳。
+func IsTagTournamentChannel(channel Channel) bool {
+	return channel.Type == 39 || normalizeGroup(channel.Group) == "tagtournament"
+}
+
+// IsPVPRoomChannel 报告该频道是否为决斗场手动建房频道（type 24 且 [pvp] 分组）。
+//
+// 2026-11-02：90CN 现场"看不到手动建房频道"。type 24 在
+// nonResidentChannelTypes 黑名单里，又不属于团本或帝国竞技场，于是被
+// `DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY=true` 的默认组过滤整条剔掉。
+func IsPVPRoomChannel(channel Channel) bool {
+	return channel.Type == 24 && normalizeGroup(channel.Group) == "pvp"
+}
+
 func normalizeGroup(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.Trim(value, "`")

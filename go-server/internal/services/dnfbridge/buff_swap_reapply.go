@@ -16,6 +16,16 @@ const currentBuffSwapSnapshotID uint16 = 1368
 const currentBuffSwapRowsID uint16 = 1367
 const currentBuffSwapRegistrationID uint16 = 1426
 
+// The paired local-test profile adds explicit native group identity. The
+// original six-byte client and all other deployments keep their wire format.
+func buffGroupSyncEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DNFBRIDGE_BUFF_GROUP_SYNC"))) {
+	case "on", "1", "true":
+		return true
+	}
+	return false
+}
+
 // Legacy clients retain their explicit compatibility opt-in. Current clients
 // use the service policy below and do not require an environment switch.
 func buffSwapReapplyEnabled() bool {
@@ -65,6 +75,14 @@ func (s *Service) handleNativeBuffSwapRegistration(session *gameSession, body []
 }
 
 func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, current bool) (bool, error) {
+	var group *byte
+	if current && s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled() && len(body) == 8 && body[0] == 0xb7 {
+		value := body[1]
+		if value > 1 {
+			return true, nil
+		}
+		group, body = &value, body[2:]
+	}
 	c, err := buffswap.Parse(body)
 	if current {
 		c, err = buffswap.ParseCurrent(body)
@@ -80,7 +98,11 @@ func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, 
 			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 			defer cancel()
 			if current {
-				err = buffswap.ApplyCurrentWithWornResolver(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), c, currentEXEActorEquipmentSlot)
+				if group != nil {
+					err = buffswap.ApplyCurrentGroupWithWornResolver(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), *group, c, currentEXEActorEquipmentSlot)
+				} else {
+					err = buffswap.ApplyCurrentWithWornResolver(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), c, currentEXEActorEquipmentSlot)
+				}
 			} else {
 				err = buffswap.Apply(ctx, repos, strconv.Itoa(int(session.selectedCharacterID)), s.accountIDForSession(session), c)
 			}
@@ -96,7 +118,15 @@ func (s *Service) handleBuffSwapRegistration(session *gameSession, body []byte, 
 	}
 	s.logGameEvent(session, event, "char_id", session.selectedCharacterID, "skill", c.Skill, "equipment_slot", c.Slot, "source_list", c.List, "source_slot", c.Index, "wire_profile", wireProfile, "error", err)
 	if err == nil {
+		if group != nil {
+			return true, s.sendBuffSwapReapplyOwnedGroup(session, "registration_changed", false, false, true, group)
+		}
 		return true, s.sendBuffSwapReapplyForRegistration(session, "registration_changed")
+	}
+	if group != nil {
+		// The paired native producer edits optimistically before sending.
+		// A rejected write restores that exact group's authoritative state.
+		return true, s.sendBuffSwapReapplyOwnedGroup(session, "registration_rejected", false, false, true, group)
 	}
 	return true, nil
 }
@@ -157,6 +187,18 @@ func (s *Service) sendBuffSwapReapplyAfterNonAppearanceWear(session *gameSession
 // through this function. The replay cache is therefore updated by direct sends
 // as well; only a successful socket write is recorded.
 func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, skipUnregistered, skipUnchanged, diagnostics bool) error {
+	if s != nil && s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled() {
+		for group := byte(0); group < 2; group++ {
+			if err := s.sendBuffSwapReapplyOwnedGroup(session, source, skipUnregistered, false, diagnostics, &group); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return s.sendBuffSwapReapplyOwnedGroup(session, source, skipUnregistered, skipUnchanged, diagnostics, nil)
+}
+
+func (s *Service) sendBuffSwapReapplyOwnedGroup(session *gameSession, source string, skipUnregistered, skipUnchanged, diagnostics bool, group *byte) error {
 	if s == nil || session == nil {
 		return nil
 	}
@@ -186,7 +228,13 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	characterID := strconv.Itoa(int(identity.character))
-	projection, err := buffswap.LoadResolvedOwnedMigratingCurrentInstances(ctx, repos, characterID, identity.accountID)
+	var projection buffswap.OwnedProjection
+	var err error
+	if group != nil {
+		projection, err = buffswap.LoadResolvedOwnedGroup(ctx, repos, characterID, identity.accountID, *group)
+	} else {
+		projection, err = buffswap.LoadResolvedOwnedMigratingCurrentInstances(ctx, repos, characterID, identity.accountID)
+	}
 	if err == nil {
 		if skipUnregistered && !projection.Found {
 			s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "current_native_registration_absent")
@@ -211,8 +259,12 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 			}
 			unchanged := s.buffReplayUnchanged(session, identity, snapshotID, body)
 			wireID, wireBody := snapshotID, body
-			if skipUnregistered && snapshotID == currentBuffSwapSnapshotID && s.buffReplaySkillCurrent(session, identity, state.Skill) {
+			if snapshotID == currentBuffSwapSnapshotID && skipUnregistered && s.buffReplaySkillCurrent(session, identity, state.Skill) {
 				wireID, wireBody = currentBuffSwapRowsID, body[2:]
+			}
+			if group != nil {
+				wireID = currentBuffSwapRowsID
+				wireBody = append([]byte{0xfe, *group, byte(state.Skill), byte(state.Skill >> 8)}, body[2:]...)
 			}
 			if skipUnchanged && unchanged {
 				s.logGameEvent(session, "game-buff-swap-native-reapply-skipped", "source", source, "reason", "unchanged_projection_after_unrelated_wear", "msg_id", snapshotID)
@@ -225,8 +277,9 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 			// objects and replaces registration rows without 1368's 997210
 			// manager reset. v154 execution confirms both entries still invoke
 			// 9980A0(actor,0xF1). Rebuilds must refresh these pointers even if
-			// their list/index bytes did not change. Explicit registration and
-			// login keep the full snapshot, as does a skill not yet sent here.
+			// their list/index bytes did not change. Legacy explicit registration
+			// and login retain the full snapshot. Paired group envelopes restore
+			// their selection directly without the manager reset or toggle.
 			if err := s.sendGameUpperRawClass(session, wireID, wireBody, 0); err != nil {
 				if diagnostics {
 					s.logBuffSwapDiagnostic(session, "failed", "socket_write_failed", source, identity, wireID, body, len(wireBody), state, omitted)
@@ -235,7 +288,9 @@ func (s *Service) sendBuffSwapReapplyOwned(session *gameSession, source string, 
 			}
 			// Cache the canonical logical state after either successful wire
 			// form. A failed row update must remain eligible for retry.
-			s.rememberBuffReplay(session, identity, snapshotID, body)
+			if group == nil {
+				s.rememberBuffReplay(session, identity, snapshotID, body)
+			}
 			s.logGameEvent(session, "game-buff-swap-native-reapply-sent", "source", source, "skill", state.Skill, "rows", len(state.Slots), "omitted", omitted, "msg_id", wireID, "classification", 0, "body_len", len(wireBody))
 			if diagnostics {
 				s.logBuffSwapDiagnostic(session, "sent", "wire_write_succeeded", source, identity, wireID, body, len(wireBody), state, omitted)

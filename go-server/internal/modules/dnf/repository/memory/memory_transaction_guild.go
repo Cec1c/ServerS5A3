@@ -150,7 +150,7 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 		id := owner.CharacterID
 		if chars.dirty[id] {
 			touched = append(touched, id)
-			if err = u.character.Save(ctx, chars.records[id]); err != nil {
+			if err = chars.commit(ctx, u.character, id); err != nil {
 				return err
 			}
 			if err = ctx.Err(); err != nil {

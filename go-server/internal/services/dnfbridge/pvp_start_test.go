@@ -152,8 +152,12 @@ func TestPVPRandomStartExcludesRandomRowAndEndIndex(t *testing.T) {
 		}
 		_, rest := splitCurrentGameServerUpperPacketAuto(t, owner.conn.(*bufferConn).write.Bytes())
 		start, _ := splitCurrentGameServerUpperPacketAuto(t, rest)
-		if start.Header.MsgID != 45 || !bytes.Equal(start.Body, []byte{1, 2}) || room.request.mapIndex != 0 {
-			t.Fatalf("random start must resolve the only actual map and retain room choice: %x", start.Body)
+		// op45 必须报真实索引（1，唯一一张实际地图），并回写房间，
+		// 让随后广播的 op42 房间状态与之一致 —— 两者不一致会让客户端按 0 号
+		// 「随机行」处理，不预加载决斗地图。
+		if start.Header.MsgID != 45 || !bytes.Equal(start.Body, []byte{1, 2}) || room.request.mapIndex != 1 {
+			t.Fatalf("random start must resolve the only actual map and write it back to the room: %x mapIndex=%d",
+				start.Body, room.request.mapIndex)
 		}
 	}
 }

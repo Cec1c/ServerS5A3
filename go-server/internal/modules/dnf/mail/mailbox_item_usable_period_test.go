@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -174,7 +175,8 @@ func TestMailboxClaimUsablePeriodAnchorsOnMailCreatedAt(t *testing.T) {
 	if stack.Count != 1 {
 		t.Fatalf("claimed count = %d, want 1", stack.Count)
 	}
-	want := createdAt.Add(time.Duration(usablePeriodClaimDays) * 24 * time.Hour)
+	// 2026-11-07 起相对期限吸附到服务日 06:00（北京时间），与背包发放同一口径。
+	want := itemexpiration.DailyDeleteBoundaryAtOrAfter(createdAt.Add(time.Duration(usablePeriodClaimDays) * 24 * time.Hour))
 	assertClaimedUsablePeriodExpiry(t, stack, want, usablePeriodClaimDays)
 	if stack.ExpireAt.Equal(projectedAtClaim) {
 		t.Fatalf("claim used the fresh grant projection %s instead of CreatedAt+days %s", projectedAtClaim, want)
@@ -206,7 +208,7 @@ func TestMailboxClaimExplicitAttachmentExpiryWinsWithoutRenewal(t *testing.T) {
 	if !stack.ExpireAt.Equal(explicitExpire) {
 		t.Fatalf("claimed expire_at = %s, want the original attachment expiry %s", stack.ExpireAt.Format(time.RFC3339), explicitExpire.Format(time.RFC3339))
 	}
-	if renewed := createdAt.Add(time.Duration(usablePeriodClaimDays) * 24 * time.Hour); stack.ExpireAt.Equal(renewed) {
+	if renewed := itemexpiration.DailyDeleteBoundaryAtOrAfter(createdAt.Add(time.Duration(usablePeriodClaimDays) * 24 * time.Hour)); stack.ExpireAt.Equal(renewed) {
 		t.Fatalf("explicit expired attachment was renewed to %s", renewed)
 	}
 	assertClaimedUsablePeriodExpiry(t, stack, explicitExpire, usablePeriodClaimDays)

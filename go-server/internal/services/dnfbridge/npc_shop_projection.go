@@ -12,6 +12,7 @@ import (
 	dnfnpcshop "longheng.io/server/internal/modules/dnf/npcshop"
 	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 var (
@@ -55,6 +56,9 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 	}
 	if pricing.Definition.Kind == dungeonDropItemStackable && pricing.Definition.StackLimit > 0 && int64(request.Count) > pricing.Definition.StackLimit {
 		return currentNPCShopBuyResult{}, fmt.Errorf("%w: item=%d count=%d stack_limit=%d", errCurrentNPCShopProductUnavailable, request.ItemID, request.Count, pricing.Definition.StackLimit)
+	}
+	if strings.Trim(pricing.Definition.StackableType, "[] ") == "couple room item" {
+		return s.commitCurrentWeddingFurnitureBuy(ctx, session, pricing, request)
 	}
 	if pricing.MaterialExchange {
 		return s.commitCurrentNPCShopMaterialExchange(ctx, session, pricing, request)
@@ -215,6 +219,16 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 				}
 				result.CostItemID = raidcurrency.FateItemID
 				result.CostItemNewCount = int64(state.Balance)
+			} else if pricing.NeedMaterialItem == uint32(wedding.LovePointItemID) {
+				if err := wedding.DebitLovePoints(character, totalMaterial); err != nil {
+					return dnfnpcshop.Changes{}, err
+				}
+				state, err := wedding.Read(*character)
+				if err != nil {
+					return dnfnpcshop.Changes{}, err
+				}
+				result.CostItemID = uint32(wedding.LovePointItemID)
+				result.CostItemNewCount = state.LovePoints
 			} else if materialSlot, warehouseMaterial := currentDisjointWarehouseFixedSlots[pricing.NeedMaterialItem]; warehouseMaterial {
 				key := dnfrepo.AccountSharedInventorySlotKey(materialSlot)
 				stack, exists := account.Slots[key]
@@ -313,7 +327,24 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 			result.ItemID = request.ItemID
 			result.Count = request.Count
 			character.Stats["gold"] = gold
-			return dnfnpcshop.Changes{Account: fateCost, AccountInventory: accountDirty, Inventory: true, Character: totalGold != 0}, nil
+			countedCost := pricing.NeedMaterialItem == 10158964 || pricing.NeedMaterialItem == dnfrepo.BattlePassFateItemID
+			if countedCost {
+				dnfrepo.AddBattlePassCounter(character, 28, int64(pricing.NeedMaterialItem), 1, s.gameplayNow())
+			}
+			var colorlessSpent int64
+			if int64(pricing.NeedMaterialItem) == dnfrepo.ColorlessCubeItemID {
+				colorlessSpent = totalMaterial
+			}
+			fields := []dnfrepo.CharacterField{}
+			lovePointCost := pricing.NeedMaterialItem == uint32(wedding.LovePointItemID)
+			if lovePointCost {
+				fields = append(fields, dnfrepo.CharacterFieldWedding)
+			}
+			return dnfnpcshop.Changes{
+				Account: fateCost, AccountInventory: accountDirty, Inventory: true,
+				Character:       totalGold != 0 || countedCost || lovePointCost,
+				CharacterFields: fields, ColorlessSpent: colorlessSpent,
+			}, nil
 		},
 	})
 	if err != nil {

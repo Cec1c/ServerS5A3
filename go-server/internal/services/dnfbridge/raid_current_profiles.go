@@ -23,6 +23,10 @@ func newCurrentRaidProfileBatch(s *Service, ctx context.Context) *currentCrossSc
 }
 
 func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch) error {
+	return s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, batch, nil)
+}
+
+func (s *Service) sendCurrentRuntimeRaidProfilesWithBatchForActors(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch, actors map[uint16]bool) error {
 	if !s.currentRaidInfoVisible(session, state) {
 		return nil
 	}
@@ -34,7 +38,7 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, 
 	if err := s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true); err != nil {
 		return err
 	}
-	s.sendCurrentRaidCrossSceneProfiles(batch, session, state)
+	s.sendCurrentRaidCrossSceneProfilesForActors(batch, session, state, actors)
 	return nil
 }
 

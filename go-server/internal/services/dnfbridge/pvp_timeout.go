@@ -45,6 +45,11 @@ func (s *Service) handleCurrentPVPTimeout(session *gameSession, body []byte) err
 		!room.started || room.match == nil || room.match.resultSent || room.match.settlementPending || !room.combatant(room.seatFor(session)) {
 		return nil
 	}
+	// Native 373FBCE skips C2S56 in relay mode. A stale ordinary-match
+	// timeout must not settle a relay roster while reserves are still alive.
+	if room.match.relay != nil {
+		return nil
+	}
 	s.initialEquipmentMu.Lock()
 	archive, err := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()

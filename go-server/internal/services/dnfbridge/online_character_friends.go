@@ -191,11 +191,12 @@ func (s *Service) buildCurrentCharacterFriendListBody(rows []dnfrepo.CharacterRe
 		w.writeByte(byte(row.Level))
 		w.writeUint32(uint32(job))
 		w.writeByte(characterGrowTypeByte(row))
-		// Ordinary local character friends do not own special friend-state Y/Z
-		// or the trailing cross-service flag. Keep their inactive values; do not
-		// derive these fields from guessed account counters or actor IDs.
+		// The current native reader stores this trailing u32 at friend+38.
+		// Wedding's named invitation copies it to its target row, including
+		// offline friends. Supply the persistent character ID, never a GUID or
+		// an account counter. The surrounding flags retain their native defaults.
 		w.writeByte(0)
-		w.writeUint32(0)
+		w.writeUint32(uint32(n))
 		w.writeByte(0)
 	}
 	return w.bytes(), nil

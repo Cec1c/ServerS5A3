@@ -17,13 +17,16 @@ const (
 )
 
 // Current NOTI12 / 2035370 resolves the sender from the scene actor registry.
-// It reads type(u8), sender(u16), channel(u8), message(DSTR), extra(DSTR).
+// It reads type(u8), sender(u16), character server group(u8), message(DSTR),
+// extra(DSTR). 20354AB stores that byte in chat record+1C. It is not the
+// connection's channel: confusing them makes a local name a foreign-server
+// menu target. Delivery scope is still the authoritative channel/area bucket.
 // NOTI118 is a megaphone route and can discard ordinary type-3 messages.
-func buildCurrentAreaChatNoticeBody(channelID byte, senderID uint16, message []byte) []byte {
+func buildCurrentAreaChatNoticeBody(serverGroup byte, senderID uint16, message []byte) []byte {
 	var writer packetWriter
 	writer.writeByte(currentAreaChatMessageType)
 	writer.writeUint16(senderID)
-	writer.writeByte(channelID)
+	writer.writeByte(serverGroup)
 	writer.writeRawDstr(message)
 	writer.writeRawDstr(nil)
 	return writer.bytes()
@@ -47,6 +50,10 @@ func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, reques
 	if err != nil || !found || strings.TrimSpace(character.AccountID) != strings.TrimSpace(s.accountIDForSession(session)) {
 		return s.sendGameUpperFailure(session, typ, 1)
 	}
+	group, groupOK := currentChatCharacterServerGroup(character)
+	if !groupOK {
+		return s.sendGameUpperFailure(session, typ, 1)
+	}
 	if err := s.sendGameUpperSuccess(session, typ, nil); err != nil {
 		return err
 	}
@@ -59,8 +66,7 @@ func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, reques
 		if id == 0 {
 			continue
 		}
-		channel, _ := currentSessionOwnerChannelField(recipient)
-		body := buildCurrentAreaChatNoticeBody(channel, sourceID, request.Message)
+		body := buildCurrentAreaChatNoticeBody(group, sourceID, request.Message)
 		if err := s.sendGameUpperRawClassCodec(recipient, currentAreaChatNotifyOpcode, body, 0, true); err != nil {
 			if recipient == session {
 				return err
@@ -70,7 +76,8 @@ func (s *Service) handleCurrentAreaChat(session *gameSession, typ uint16, reques
 	}
 	s.logGameEvent(session, "game-area-chat-forwarded", "source_char_id", sourceID,
 		"message_type", request.MessageType, "message_len", len(request.Message), "recipients", len(recipients),
-		"body_source", "current_exe_cmd17_noti12_type_sender_channel_two_dstr")
+		"sender_server_group", group,
+		"body_source", "current_exe_cmd17_noti12_type_sender_server_group_two_dstr")
 	return nil
 }
 

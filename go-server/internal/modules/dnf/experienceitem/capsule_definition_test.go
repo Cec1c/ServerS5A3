@@ -297,3 +297,20 @@ func TestCapsuleValidateRejectsDirectBadDefinitions(t *testing.T) {
 		})
 	}
 }
+
+// TestParseCapsuleAcceptsTradeOnlySections 守住「纯交易字段不影响胶囊可用性」。
+// [price] 是卖店价、[need material] 是 NPC 兑换价，两者都不参与胶囊行为。
+func TestParseCapsuleAcceptsTradeOnlySections(t *testing.T) {
+	doc := parseCapsuleTestDocument(t, capsuleFixture(
+		"`[expPercentUp]` 50",
+		"[price]\n500000\n"+
+			"[need material]\n10003231 1\n",
+	))
+	capsule, found, err := ParseCapsule(10005308, doc)
+	if err != nil || !found {
+		t.Fatalf("ParseCapsule found=%t err=%v", found, err)
+	}
+	if capsule.Kind != CapsulePercent || capsule.Amount != 50 {
+		t.Fatalf("capsule effect = %+v", capsule)
+	}
+}

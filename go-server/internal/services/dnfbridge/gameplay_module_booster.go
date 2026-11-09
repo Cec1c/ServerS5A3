@@ -263,6 +263,11 @@ func (s *Service) commitCurrentBooster(
 		CharacterID:   characterID,
 		UpdatedAt:     now,
 		Project: func(assets *dnfbooster.Assets) (dnfbooster.Changes, error) {
+			if gate := definition.RandomCharacter; gate != nil {
+				if assets.Character == nil || assets.Character.Job != gate.Job || assets.Character.Level != gate.Level {
+					return dnfbooster.Changes{}, errCurrentBoosterOwnerUnavailable
+				}
+			}
 			inventory := assets.Inventory
 			account := assets.AccountInventory
 			sourceKey := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, request.SourceSlot)
@@ -604,7 +609,7 @@ func (s *Service) prepareCurrentBooster(
 	if !found || stack.ItemID <= 0 || stack.ItemID > math.MaxUint32 || stack.Count <= 0 || stack.Count > math.MaxUint32 {
 		return currentBoosterDefinition{}, errCurrentBoosterSourceMissing
 	}
-	definition, err := resolveCurrentBoosterDefinition(catalog, uint32(stack.ItemID), request.Kind)
+	definition, err := resolveCurrentBoosterDefinitionForCharacter(catalog, uint32(stack.ItemID), request.Kind, &character)
 	if err != nil {
 		return currentBoosterDefinition{}, err
 	}

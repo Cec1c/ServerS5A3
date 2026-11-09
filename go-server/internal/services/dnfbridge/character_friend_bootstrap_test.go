@@ -9,12 +9,17 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	proto "longheng.io/server/internal/modules/dnf/protocol"
 	repo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 func TestCharacterFriendReselectionRestoresBeforeTownWithoutOp37(t *testing.T) {
 	s, session, repositories := newTownMoveTest(t)
 	s.options.currentClientVersion = "official-24.9"
 	s.adventureGroupTable = loadAdventureGroupTestTables(t)
+	// Initial marriage projection also reads the durable guest-invitation
+	// index for single characters. Supply its rule dependency in this isolated
+	// scene fixture instead of opening an unrelated default Script.pvf path.
+	s.wedding.rules = &wedding.Rules{MinimumLevel: 30, QuestIDs: []int64{20737, 20738}}
 	session.accountID, session.accountFromToken, session.loginPacketSeen = "dnf:1", true, true
 	session.selectedCharacterID = 0
 	ctx := context.Background()

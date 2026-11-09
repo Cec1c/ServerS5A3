@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"fmt"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/raid"
 )
@@ -27,9 +28,16 @@ func (s *Service) sendCurrentRaidMovieSkipPrompt(session *gameSession, captured 
 	}
 	if o.movieIdentity != identity {
 		o.movieIdentity, o.moviePromptSent, o.movieCompleted = identity, false, false
+		o.moviePromptAt = time.Time{}
 	}
 	packets := []currentAntonRewardPacket{{opcode: op, class: 1, body: []byte{1}}}
-	prompt := !o.movieCompleted && !o.moviePromptSent
+	now := s.currentRaidFailurePresentationNow()
+	// NOTI599's native movie prompt silently does nothing until its movie
+	// window exists. Failure input can arrive before that window is ready;
+	// a successful socket write is not a client completion receipt. Allow a
+	// bounded retry on later input, without changing the failure/return owner.
+	retry := b.TimedOut && o.moviePromptSent && !now.Before(o.moviePromptAt.Add(time.Second))
+	prompt := !o.movieCompleted && (!o.moviePromptSent || retry)
 	if prompt {
 		packets = append(packets, currentAntonRewardPacket{opcode: 599})
 	}
@@ -45,6 +53,7 @@ func (s *Service) sendCurrentRaidMovieSkipPrompt(session *gameSession, captured 
 		}
 		if packet.opcode == 599 {
 			o.moviePromptSent = true
+			o.moviePromptAt = now
 		}
 	}
 	s.logInfo("dnfbridge raid movie stage", "kind", "game-raid-movie-stage", "char_id", identity.CharID, "instance_id", identity.InstanceID, "mode", b.Mode, "phase", b.Phase, "stage", 0, "prompt_written", prompt)

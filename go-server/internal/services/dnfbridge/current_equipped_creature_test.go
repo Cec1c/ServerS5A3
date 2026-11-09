@@ -11,7 +11,8 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-func TestCurrentEquippedCreatureProjectsSameRealStateAcrossOp2Modes(t *testing.T) {
+func TestCurrentEquippedCreatureKeepsMode0AndLevelButLeavesMode1Mode3NameTagRawAtZero(t *testing.T) {
+	t.Setenv(peerSkillPageEnv, "off")
 	const (
 		characterID    = "77"
 		itemID         = uint32(0x17e69f80)
@@ -70,15 +71,29 @@ func TestCurrentEquippedCreatureProjectsSameRealStateAcrossOp2Modes(t *testing.T
 	if mode0ItemID != itemID || !bytes.Equal(mode0Name, rosterNameBytes("petty")) || mode0Alive != 1 {
 		t.Fatalf("mode0 creature item=%#x name=%x alive=%d body=%x", mode0ItemID, mode0Name, mode0Alive, mode0)
 	}
+	reader := csharpLegacyUserInfoReader{
+		ctx:         context.Background(),
+		characterID: characterID,
+		service:     &service,
+	}
+	equipmentRows := reader.currentMode1EquipmentObjectRows()
 
 	mode1 := service.buildCurrentSelectedUserInfoMode1Body(context.Background(), nil, nil, character, true, 77)
 	if got := mode1[currentMode1CreateCountOffset]; got != 0 {
 		t.Fatalf("slot26 must not enter normal equipment create list: count=%d body=%x", got, mode1)
 	}
-	mode1RawOffset := currentMode1CreateRowsOffset + 4 + 2 + 1
-	assertCurrentCreatureRawForTest(t, "mode1", mode1, mode1RawOffset, itemID, serialOrHandle, creatureLevel)
+	mode1CreateRows, mode1Raw8Offset := peerCreatureMode1CreateRowsForTest(t, mode1, equipmentRows)
+	if len(mode1CreateRows) != 0 {
+		t.Fatalf("mode1 slot26 create rows=%d want=0", len(mode1CreateRows))
+	}
+	peerCreatureAssertZeroNameTagRaw8ForTest(t, "mode1", mode1, mode1Raw8Offset)
+	peerCreatureAssertCreatureLevelForTest(t, "mode1", mode1, mode1Raw8Offset, creatureLevel)
 
 	mode3 := service.buildCurrentSelectedUserInfoMode3Body(context.Background(), nil, nil, character, true, 77)
+	mode3CreateRows, mode3Raw8Offset := peerCreatureMode3CreateRowsForTest(t, mode3, equipmentRows)
+	if len(mode3CreateRows) != 0 {
+		t.Fatalf("mode3 slot26 create rows=%d want=0", len(mode3CreateRows))
+	}
 	mode3TailOffset := 0x17 + int(binary.LittleEndian.Uint32(mode3[0x13:0x17]))
 	if !bytes.Equal(
 		mode1[currentMode1StatDataOffset:currentMode1ObjectTailOffset],
@@ -89,8 +104,8 @@ func TestCurrentEquippedCreatureProjectsSameRealStateAcrossOp2Modes(t *testing.T
 	if got := mode3[mode3TailOffset+1]; got != 0 {
 		t.Fatalf("slot26 must not enter mode3 normal equipment create list: count=%d body=%x", got, mode3)
 	}
-	mode3RawOffset := mode3TailOffset + 2 + 4
-	assertCurrentCreatureRawForTest(t, "mode3", mode3, mode3RawOffset, itemID, serialOrHandle, creatureLevel)
+	peerCreatureAssertZeroNameTagRaw8ForTest(t, "mode3", mode3, mode3Raw8Offset)
+	peerCreatureAssertCreatureLevelForTest(t, "mode3", mode3, mode3Raw8Offset, creatureLevel)
 }
 
 func TestCurrentMode1EquippedCreatureRestoresInstanceAndEnchant(t *testing.T) {
@@ -300,20 +315,4 @@ func currentMode0CreatureForTest(t *testing.T, body []byte) (uint32, []byte, byt
 		t.Fatalf("mode0 creature name truncated len=%d at %d/%d", nameLen, offset, len(body))
 	}
 	return itemID, append([]byte(nil), body[nameStart:nameEnd]...), body[nameEnd]
-}
-
-func assertCurrentCreatureRawForTest(t *testing.T, mode string, body []byte, rawOffset int, itemID uint32, serialOrHandle uint32, level byte) {
-	t.Helper()
-	if rawOffset < 0 || rawOffset+12 > len(body) {
-		t.Fatalf("%s creature raw truncated at %d/%d body=%x", mode, rawOffset, len(body), body)
-	}
-	if got := binary.LittleEndian.Uint32(body[rawOffset : rawOffset+4]); got != itemID {
-		t.Fatalf("%s creature item id=%#x want=%#x body=%x", mode, got, itemID, body)
-	}
-	if got := binary.LittleEndian.Uint32(body[rawOffset+4 : rawOffset+8]); got != serialOrHandle {
-		t.Fatalf("%s creature serial/handle=%d want=%d body=%x", mode, got, serialOrHandle, body)
-	}
-	if got := body[rawOffset+8+3]; got != level {
-		t.Fatalf("%s creature level=%d want=%d body=%x", mode, got, level, body)
-	}
 }

@@ -63,6 +63,11 @@ func currentEXEActorEquipmentSlotForWornSlot(slot int16) (uint64, bool) {
 		return uint64(slot + 1), true
 	case slot == 23:
 		return 25, true
+	case slot >= 27 && slot <= 29:
+		// Imported pet artifacts retain the current actor slots 27..29 but may
+		// predate current_exe_equipment_type. The placement table proves these
+		// three slots directly; do not reinterpret them as ordinary worn slots.
+		return uint64(slot), true
 	case slot == 32:
 		return 32, true
 	default:
@@ -126,7 +131,12 @@ func currentMode1EquipmentCreateRowHasVerifiedState(row currentMode1EquipmentObj
 		len(row.lateRawC) > 0 || len(row.lateRawD) > 0 || len(row.lateRawE) > 0 {
 		return true
 	}
+	// In the current create wire, bindFlag is +0x13 amplification type and
+	// marker16 is +0x14 amplification value. Either durable field requires the
+	// full create row when state112 is the native no-state sentinel 0xffffffff;
+	// the ordinary zero state already passes the exact-state branch above.
 	return row.linkedItemID != 0 || row.auxValue != 0 || row.auxByte != 0 ||
+		row.bindFlag != 0 || row.marker16 != 0 ||
 		row.state112 != 0xffffffff ||
 		row.state120 != 0 || row.state160 != 0 || row.state128 != 0 ||
 		row.state140 != 0 || row.state144 != 0 || row.resourceByte != 0 ||

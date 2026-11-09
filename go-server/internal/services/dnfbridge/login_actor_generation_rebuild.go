@@ -377,6 +377,28 @@ func (s *Service) rebuildLoginActorGenerationAfterSceneCommit(session *gameSessi
 	); err != nil {
 		return err
 	}
+	pairedBuffReapply := s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled()
+	reapplyBuff := func() error {
+		buffErr := s.sendBuffSwapReapply(session, trigger+"_after_actor_generation_rebuild")
+		if buffErr != nil {
+			// Keep untrusted send/provider errors intact for the caller while
+			// retaining the existing bounded diagnostic at either send position.
+			s.logPacketEvent("game-login-actor-generation-buff-refresh-failed",
+				"conn_id", session.connID,
+				"char_id", charID,
+				"source", trigger+"_after_actor_generation_rebuild",
+				"diagnostic_source", "buff_snapshot_send",
+				"error", buffErr)
+		}
+		return buffErr
+	}
+	// The paired groups must survive even when the following title, gem or
+	// pet refresh fails after the legacy single-skill mode1 was accepted.
+	if pairedBuffReapply {
+		if err := reapplyBuff(); err != nil {
+			return err
+		}
+	}
 	// 本档（DNFBRIDGE_SKILL_SWITCH_ANSWER_AT_SCENE_READY，默认 off ⇒ 零字节、零日志）：
 	// 这条链【进出城镇与进副本都会走】，而"换装登记的 +10"在副本内不生效
 	// （现场实测：副本内破极兵刃 Lv.16 = 基础 10 + 身上穿戴 +6，少了登记的 +10）。
@@ -450,16 +472,9 @@ func (s *Service) rebuildLoginActorGenerationAfterSceneCommit(session *gameSessi
 			"source", trigger+"_after_actor_generation_rebuild",
 			"error", petErr)
 	}
-	buffErr := s.sendBuffSwapReapply(session, trigger+"_after_actor_generation_rebuild")
-	if buffErr != nil {
-		// Send/Write/provider returns are untrusted, including every joined leaf.
-		// Keep the original object for errors.Join; only the log hashes its text.
-		s.logPacketEvent("game-login-actor-generation-buff-refresh-failed",
-			"conn_id", session.connID,
-			"char_id", charID,
-			"source", trigger+"_after_actor_generation_rebuild",
-			"diagnostic_source", "buff_snapshot_send",
-			"error", buffErr)
+	var buffErr error
+	if !pairedBuffReapply {
+		buffErr = reapplyBuff()
 	}
 	return errors.Join(petErr, buffErr)
 }

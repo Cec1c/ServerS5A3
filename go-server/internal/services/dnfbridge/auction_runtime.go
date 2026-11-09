@@ -50,6 +50,10 @@ const (
 	// the send: the opening bid becomes -1 when it is 0 or equal to the buyout,
 	// and the buyout becomes -1 when it is 0.
 	currentAuctionPriceAbsent = int64(-1)
+	// The auction client requests 60-record batches. Its list window shows ten
+	// records per page and requests the next batch on the first page after the
+	// loaded batch is exhausted.
+	currentAuctionSearchBatchSize = 60
 )
 
 // Client-visible auction failure codes, read straight off the auction panel's
@@ -1128,16 +1132,16 @@ func auctionPayoutRecordFields(s *Service, payout dnfauction.Payout, mailed bool
 
 func (s *Service) searchCurrentAuctionItemsLocked(session *gameSession, body []byte) error {
 	opcode := uint16(dnfenum.CmdPacketAuctionSearchByItemkey)
-	// 金币寄售 shares op186 with the item auction and reuses its page/count/
+	// 金币寄售 shares op186 with the item auction and reuses its offset/count/
 	// itemId layout, but sets mode 1 and omits the 8-byte detail tail. Live
 	// capture 2026-09-21T09:35:47Z, packet_log.txt: op186 body
-	// `0100000000001F01A59C7DEB2800` = mode 1 + page 0 + count 1 +
+	// `0100000000001F01A59C7DEB2800` = mode 1 + offset 0 + count 1 +
 	// category 40101 + item 2681725 (「1百万」), 14 bytes, no tail. Only that
 	// mode byte is diverted, so every item-panel search keeps the path below.
 	if len(body) > 0 && body[0] == currentAuctionPayTypeConsignment {
 		return s.sendGameUpperRawClass(session, opcode, []byte{0, currentAuctionFailureCode, 1}, 1)
 	}
-	page, itemIDs, ok := decodeCurrentAuctionSearchItemIDs(body)
+	offset, itemIDs, ok := decodeCurrentAuctionSearchItemIDs(body)
 	if !ok {
 		return s.sendGameUpperFailure(session, opcode, currentAuctionFailureCode)
 	}
@@ -1151,7 +1155,7 @@ func (s *Service) searchCurrentAuctionItemsLocked(session *gameSession, body []b
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentAuctionFailureCode)
 	}
-	bodyOut := buildCurrentAuctionSearchBodyPage(listings, s.currentAuctionItemEligible, page, 100)
+	bodyOut := buildCurrentAuctionSearchBodyWindow(listings, s.currentAuctionItemEligible, offset, currentAuctionSearchBatchSize)
 	return s.sendGameUpperSuccess(session, opcode, bodyOut)
 }
 
@@ -1184,7 +1188,7 @@ func (s *Service) searchCurrentAuctionCategoryLocked(session *gameSession, body 
 	if len(body) != 20 || body[0] != currentAuctionPayTypeGold {
 		return s.sendGameUpperFailure(session, responseOpcode, currentAuctionFailureCode)
 	}
-	page := binary.LittleEndian.Uint32(body[1:5])
+	offset := binary.LittleEndian.Uint32(body[1:5])
 	category := currentAuctionCategoryRequestCode(body)
 	owner, err := s.currentAuctionOwner()
 	if err != nil {
@@ -1199,13 +1203,13 @@ func (s *Service) searchCurrentAuctionCategoryLocked(session *gameSession, body 
 	eligible := func(itemID uint32) bool {
 		return s.currentAuctionItemEligible(itemID) && s.currentAuctionCategoryEligible(category, itemID)
 	}
-	bodyOut := buildCurrentAuctionSearchBodyPage(listings, eligible, page, 100)
+	bodyOut := buildCurrentAuctionSearchBodyWindow(listings, eligible, offset, currentAuctionSearchBatchSize)
 	// A code the client sends but this build cannot place is worth a log line: it is
 	// either a newer client tree or a node whose membership rule is still unproven.
 	if _, found := currentAuctionCategoryNodeFor(category); !found {
-		s.logGameEvent(session, "game-auction-category-unmapped", "category", category, "page", page)
+		s.logGameEvent(session, "game-auction-category-unmapped", "category", category, "offset", offset)
 	} else if currentAuctionCategoryIsUnpinned(category) {
-		s.logGameEvent(session, "game-auction-category-unpinned", "category", category, "page", page)
+		s.logGameEvent(session, "game-auction-category-unpinned", "category", category, "offset", offset)
 	}
 	return s.sendGameUpperSuccess(session, responseOpcode, bodyOut)
 }
@@ -1390,7 +1394,7 @@ func decodeCurrentAuctionSearchBody(body []byte, mode byte) (uint32, []uint32, b
 	if len(body) < 10 || body[0] != mode {
 		return 0, nil, false
 	}
-	page := binary.LittleEndian.Uint32(body[1:5])
+	offset := binary.LittleEndian.Uint32(body[1:5])
 	count := int(body[7])
 	end := 10 + count*4
 	if count == 0 || end > len(body) || len(body)-end > 8 {
@@ -1403,7 +1407,7 @@ func decodeCurrentAuctionSearchBody(body []byte, mode byte) (uint32, []uint32, b
 			return 0, nil, false
 		}
 	}
-	return page, items, true
+	return offset, items, true
 }
 
 // decodeCurrentAuctionSearchItemIDs is the item-auction entry point for the
@@ -1414,10 +1418,16 @@ func decodeCurrentAuctionSearchItemIDs(body []byte) (uint32, []uint32, bool) {
 }
 
 func buildCurrentAuctionSearchBody(listings []dnfauction.Listing, stackable func(uint32) bool) []byte {
-	return buildCurrentAuctionSearchBodyPage(listings, stackable, 0, math.MaxUint16)
+	return buildCurrentAuctionSearchBodyWindow(listings, stackable, 0, math.MaxUint16)
 }
 
-func buildCurrentAuctionSearchBodyPage(listings []dnfauction.Listing, eligible func(uint32) bool, page uint32, pageSize int) []byte {
+// buildCurrentAuctionSearchBodyWindow applies a record offset, not a page
+// number. Both op186 and op187 carry the absolute zero-based record offset in
+// request body[1:5]. The client loads a batch, displays ten records per page,
+// and sends the next record offset once that batch is exhausted. Multiplying
+// the request value by a server page size skips far beyond a 13-page result
+// set and makes every later batch look empty.
+func buildCurrentAuctionSearchBodyWindow(listings []dnfauction.Listing, eligible func(uint32) bool, offset uint32, limit int) []byte {
 	rows := make([]dnfauction.Listing, 0, len(listings))
 	for _, listing := range listings {
 		if listing.Item.ItemID <= 0 || listing.Item.ItemID > math.MaxUint32 || eligible == nil || !eligible(uint32(listing.Item.ItemID)) {
@@ -1426,15 +1436,15 @@ func buildCurrentAuctionSearchBodyPage(listings []dnfauction.Listing, eligible f
 		rows = append(rows, listing)
 	}
 	total := len(rows)
-	if pageSize <= 0 || pageSize > math.MaxUint16 {
-		pageSize = math.MaxUint16
+	if limit <= 0 || limit > math.MaxUint16 {
+		limit = math.MaxUint16
 	}
-	start64 := uint64(page) * uint64(pageSize)
+	start64 := uint64(offset)
 	if start64 >= uint64(len(rows)) {
 		rows = nil
 	} else {
 		start := int(start64)
-		end := min(len(rows), start+pageSize)
+		end := min(len(rows), start+limit)
 		rows = rows[start:end]
 	}
 	var response packetWriter

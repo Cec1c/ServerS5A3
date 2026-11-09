@@ -98,7 +98,7 @@ func TestR73CurrentItemHyperlinkAckThenTwoItemNotice(t *testing.T) {
 		ack.Header.MsgID != uint16(dnfenum.CmdPacketItemHyperlinkMessage) || !bytes.Equal(ack.Body, []byte{1}) {
 		t.Fatalf("ack header=%+v body=%x", ack.Header, ack.Body)
 	}
-	wantNotice := buildCurrentItemHyperlinkNoticeBody(42, 1, request.Message, request.Items)
+	wantNotice := buildCurrentItemHyperlinkNoticeBody(0, 1, request.Message, request.Items)
 	self, rest := splitGameServerUpperPacket(t, rest)
 	if self.Header.Classification != 0 || self.Header.MsgID != currentItemHyperlinkNotifyOpcode ||
 		!bytes.Equal(self.Body, wantNotice) || len(rest) != 0 {

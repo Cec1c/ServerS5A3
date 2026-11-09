@@ -614,6 +614,9 @@ type options struct {
 	// 证据见 dungeon_death_room_proof.go。
 	dungeonDeathRoomProof dungeonDeathRoomProofMode
 
+	// Opt-in, bounded Ekern evidence only; never changes death admission.
+	ekernDeathDiagnostic bool
+
 	// partyDungeonLoadingBarrier 是 DNFBRIDGE_PARTY_DUNGEON_LOADING_BARRIER 的归一化取值
 	// （零值 = vendor = 厂商行为：组队副本里落位与 op37 主状态按"全队 op37 到齐"放行）。
 	// `legacy` = 改动前（各自请求各自放行）。
@@ -1140,6 +1143,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 	// `room_proven` = op39 目标在册即放行。见 dungeon_death_room_proof.go。
 	opts.dungeonDeathRoomProof = readDungeonDeathRoomProofMode(
 		envString(dungeonDeathRoomProofEnv, ""))
+	opts.ekernDeathDiagnostic = envBool(ekernDeathDiagnosticEnv, false)
 	// 全员读条屏障（厂商 `party_dungeon_shared_loading_barrier`）：
 	// **默认 vendor = 组队副本里落位与 op37 主状态按"全队 op37 到齐"放行**；
 	// `legacy` = 改动前（各自请求各自放行）。见 party_dungeon_loading_barrier.go。

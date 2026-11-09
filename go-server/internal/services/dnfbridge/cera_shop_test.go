@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	"longheng.io/server/internal/modules/dnf/premium"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -274,9 +275,9 @@ func TestCurrentCeraShopPurchasePersistsUsablePeriodWithoutMergingLegacyRow(t *t
 	// C# 86JP TryMergeStack merges same-ItemID stacks regardless of expiration.
 	// The legacy row at 0:65 absorbs the purchase and gets the PVF expiration applied.
 	merged := inventory.Slots["0:65"]
-	minExpire := time.Unix(before.Unix()+10*86400, 0).UTC()
-	maxExpire := time.Unix(time.Now().UTC().Unix()+10*86400, 0).UTC()
-	if merged.Count != 2 || merged.ItemID != 43 || merged.ExpireAt.Before(minExpire) || merged.ExpireAt.After(maxExpire) {
+	// 2026-11-07 起相对期限吸附到服务日 06:00（北京时间）。
+	wantExpire := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(before.Unix()+10*86400, 0).UTC())
+	if merged.Count != 2 || merged.ItemID != 43 || !merged.ExpireAt.Equal(wantExpire) {
 		t.Fatalf("merged row=%+v want count=2 with expiration", merged)
 	}
 	if _, hasOldSlot := inventory.Slots["0:66"]; hasOldSlot {

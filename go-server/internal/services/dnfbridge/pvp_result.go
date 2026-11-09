@@ -13,6 +13,7 @@ import (
 
 type currentPVPMatch struct {
 	total             *currentPVPTotalMatch
+	relay             *currentPVPRelayMatch
 	dead              [currentPVPRoomSeatCount]bool
 	kills             [currentPVPRoomSeatCount]uint32
 	ended             [currentPVPRoomSeatCount]bool
@@ -69,6 +70,9 @@ func (s *Service) handleCurrentPVPDeath(session *gameSession, body []byte) error
 	if !room.combatant(seat) || room.match.dead[seat] {
 		return nil
 	}
+	if room.match.relay != nil && !room.relayFighter(seat) {
+		return nil
+	}
 	if m := room.match.total; m != nil && (m.choosing || m.selected[seat] >= 3) {
 		return nil
 	}
@@ -83,6 +87,9 @@ func (s *Service) handleCurrentPVPDeath(session *gameSession, body []byte) error
 			}
 		}
 		if killer == 0xff {
+			return nil
+		}
+		if room.match.relay != nil && !room.relayFighter(int(killer)) {
 			return nil
 		}
 	}
@@ -106,6 +113,9 @@ func (s *Service) handleCurrentPVPDeath(session *gameSession, body []byte) error
 	winner, terminal := room.survivingPVPWinner()
 	s.logGameEvent(session, "game-pvp-death-accepted", "room_id", room.id, "seat", seat, "killer", killer, "terminal", terminal)
 	if !terminal {
+		if room.match.relay != nil {
+			return s.finishCurrentPVPRelayRoundLocked(room)
+		}
 		return nil
 	}
 	return s.sendCurrentPVPResultLocked(room, session, winner)
@@ -116,6 +126,9 @@ func (s *Service) sendCurrentPVPResultLocked(room *currentPVPRoom, session *game
 		return nil
 	}
 	if !room.match.settlementPending {
+		if room.match.relay != nil {
+			s.ensureGameplayTimeQueue().Cancel(currentPVPRelayTimerName(room, room.match))
+		}
 		if room.match.total != nil {
 			s.ensureGameplayTimeQueue().Cancel(currentPVPTotalPhaseTimerName(room, room.match))
 		}

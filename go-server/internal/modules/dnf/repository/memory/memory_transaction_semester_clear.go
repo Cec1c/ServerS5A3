@@ -89,7 +89,7 @@ func (u *memorySemesterClearUnitOfWork) WithinSemesterClear(ctx context.Context,
 	for _, owner := range ordered {
 		if chars.dirty[owner.CharacterID] {
 			touched = append(touched, owner.CharacterID)
-			if err = u.character.Save(ctx, chars.records[owner.CharacterID]); err != nil {
+			if err = chars.commit(ctx, u.character, owner.CharacterID); err != nil {
 				return err
 			}
 			if err = ctx.Err(); err != nil {

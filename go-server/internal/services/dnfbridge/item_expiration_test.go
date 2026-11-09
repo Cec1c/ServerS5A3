@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 	platformpvf "longheng.io/server/internal/platform/pvf"
@@ -41,7 +42,7 @@ func TestCurrentPVFItemDefinitionForGrantResolvesUsablePeriodOnce(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := time.Unix(now.Unix()+30*86400, 0).UTC()
+	want := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Unix()+30*86400, 0).UTC())
 	if !granted.ExpirationDate.Equal(want) || granted.ExpirationDate.Equal(staticDate) {
 		t.Fatalf("grant expiration=%s want=%s static=%s", granted.ExpirationDate, want, staticDate)
 	}
@@ -60,7 +61,7 @@ func TestCurrentPVFItemDefinitionForGrantResolvesUsablePeriodOnce(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEquipment := time.Unix(now.Unix()+2*86400, 0).UTC()
+	wantEquipment := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Unix()+2*86400, 0).UTC())
 	if !grantedEquipment.ExpirationDate.Equal(wantEquipment) {
 		t.Fatalf("equipment grant expiration=%s want=%s", grantedEquipment.ExpirationDate, wantEquipment)
 	}

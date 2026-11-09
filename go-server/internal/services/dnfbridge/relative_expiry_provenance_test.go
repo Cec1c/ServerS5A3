@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
@@ -21,7 +22,7 @@ func TestRelativeExpiryProvenanceKeepsResolvedPeriod(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := issued.Add(7 * 24 * time.Hour)
+			want := itemexpiration.DailyDeleteBoundaryAtOrAfter(issued.Add(7 * 24 * time.Hour))
 			if !raw.ExpirationDate.IsZero() || !resolved.ExpirationDate.Equal(want) {
 				t.Fatal("grant changed the static definition or lost its clock")
 			}
@@ -53,7 +54,7 @@ func TestRelativeExpiryProvenanceHistoricalAdventurePurchase(t *testing.T) {
 	if err != nil || !found || len(inv.Slots) != 1 {
 		t.Fatalf("inventory found=%t err=%v slots=%d", found, err, len(inv.Slots))
 	}
-	want := issued.Add(7 * 24 * time.Hour)
+	want := itemexpiration.DailyDeleteBoundaryAtOrAfter(issued.Add(7 * 24 * time.Hour))
 	for _, stack := range inv.Slots {
 		if !stack.ExpireAt.Equal(want) || len(stack.RawEntry) != currentItemListEntryWireSize || binary.LittleEndian.Uint32(stack.RawEntry[0x38:0x3c]) != uint32(want.Unix()) {
 			t.Fatalf("formal purchase changed its issue-clock deadline: got=%s want=%s", stack.ExpireAt, want)
@@ -99,7 +100,9 @@ func TestRelativeExpiryProvenanceRealPotion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := issued.Add(7 * 24 * time.Hour)
+	// Issued at 08:00 CST: seven days later is after that service day's
+	// 06:00 boundary, so the relative deadline rounds up to the next one.
+	want := time.Date(2026, 10, 10, 22, 0, 0, 0, time.UTC)
 	stack, _ := applyCurrentPVFItemExpirationAt(dnfrepo.ItemStack{ItemID: 10304122, Count: 1}, resolved, want.Add(24*time.Hour))
 	if !stack.ExpireAt.Equal(want) {
 		t.Fatalf("active potion relative deadline changed to %s, want %s", stack.ExpireAt, want)

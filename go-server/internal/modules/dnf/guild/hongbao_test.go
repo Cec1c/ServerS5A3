@@ -181,7 +181,7 @@ func TestHongbaoPurchaseFourTiersAndAtomicProjection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Product.Price != price || res.Wallet.Cera != 200000-int64(price) || res.Wallet.TokenCera != 123 || res.Wallet.HappyTokenCera != 456 || !res.ExpireAt.Equal(now.Add(240*time.Hour)) {
+			if res.Product.Price != price || res.Wallet.Cera != 200000-int64(price) || res.Wallet.TokenCera != 123 || res.Wallet.HappyTokenCera != 456 || !res.ExpireAt.Equal(itemexpiration.DailyDeleteBoundaryAtOrAfter(now.Add(240*time.Hour))) {
 				t.Fatal(res)
 			}
 			inv, _, _ := repos.Inventory.Load(context.Background(), "1")

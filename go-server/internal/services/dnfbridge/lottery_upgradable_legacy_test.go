@@ -14,7 +14,7 @@ import (
 func TestUpgradableLegacyLotteryConsumesJarMaterialAndGrantsOnce(t *testing.T) {
 	_, source := newMagicBoxTestCatalog(t)
 	source["stackable/stackable.lst"] += "900 `cash/anton.stk`\n"
-	source["stackable/cash/anton.stk"] = "[stackable type] `[upgradable legacy]` 1\n[stack limit] 100\n[need material] 10007367 4\n[int data] 2600014 4167 1\n[/int data]\n"
+	source["stackable/cash/anton.stk"] = "[stackable type] `[upgradable legacy]` 1\n[stack limit] 100\n[lottery use need item] 10007367 4\n[int data] 2600014 4167 1\n[/int data]\n"
 	catalog, err := newPVFDungeonDropCatalog(source)
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +74,51 @@ func TestUpgradableLegacyLotteryConsumesJarMaterialAndGrantsOnce(t *testing.T) {
 				t.Fatal("duplicate animation confirmation granted again")
 			}
 		})
+	}
+}
+
+// TestUpgradableLegacyLotteryIgnoresExchangePriceNeedMaterial 守住
+// 「[need material] 是兑换价、不是开启价」这条通用语义。
+// 背包里没有任何材料时，带 [need material] 的罐子仍应正常开启。
+func TestUpgradableLegacyLotteryIgnoresExchangePriceNeedMaterial(t *testing.T) {
+	_, source := newMagicBoxTestCatalog(t)
+	source["stackable/stackable.lst"] += "900 `cash/anton.stk`\n"
+	source["stackable/cash/anton.stk"] = "[stackable type] `[upgradable legacy]` 1\n[stack limit] 100\n[need material] 10007367 4\n[int data] 2600014 4167 1\n[/int data]\n"
+	catalog, err := newPVFDungeonDropCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repositories := dnfrepomemory.NewMemoryGroup()
+	if err := repositories.Character.Save(ctx, dnfrepo.CharacterRecord{CharacterID: "19", AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
+	initial := dnfrepo.InventoryRecord{CharacterID: "19", Slots: map[string]dnfrepo.ItemStack{
+		"0:75": {ItemID: 900, Count: 1},
+	}}
+	if err := repositories.Inventory.Save(ctx, initial); err != nil {
+		t.Fatal(err)
+	}
+	service := currentBoosterTestService(catalog, repositories)
+	session := &gameSession{conn: &bufferConn{}, selectedCharacterID: 19}
+	if err := service.handleCurrentLotteryItem(session, []byte{0, 0, 75, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.handleCurrentLotteryOverflowConfirm(session, []byte{1, 27, 0}); err != nil {
+		t.Fatal(err)
+	}
+	after, _, _ := repositories.Inventory.Load(ctx, "19")
+	if _, ok := after.Slots["0:75"]; ok {
+		t.Fatal("jar was not consumed")
+	}
+	var rewardCount int64
+	for _, stack := range after.Slots {
+		if stack.ItemID == 2600014 {
+			rewardCount += stack.Count
+		}
+	}
+	if rewardCount != 1 {
+		t.Fatalf("reward count=%d slots=%v", rewardCount, after.Slots)
 	}
 }
 

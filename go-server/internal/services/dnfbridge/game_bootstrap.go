@@ -573,7 +573,14 @@ func (s *Service) buildLoginSuccess(channel channelcatalog.Channel) []byte {
 	writer.writeByte(channelType)
 	writer.writeByte(1)
 	writer.writeUint32(s.options.gameOuterToken)
-	writer.writeAsciiDstr(s.options.serverIP)
+	// The current official-24.9 receiver consumes the endpoint fields and the
+	// fixed account-state tail directly after the token. A variable-length
+	// server-IP DSTR here shifts those bytes into native state flags; in the
+	// 927634 client an IP character can set 0x56A3810, which suppresses the
+	// raid invitation window for mode 10 while still playing its prompt sound.
+	if s.options.currentClientVersion != "official-24.9" {
+		writer.writeAsciiDstr(s.options.serverIP)
+	}
 	writer.writeInt32(channel.Port)
 	writer.writeInt32(0)
 

@@ -141,6 +141,12 @@ func TestCurrentPVPFatigueAccelerationAndRoundInfo(t *testing.T) {
 func TestPVPFatigueNativeRequestsAndPaymentRetry(t *testing.T) {
 	for _, upper := range []bool{false, true} {
 		s := pvpRoomTestService(t)
+		// This wire retry fixture has no private activity configuration. Supply
+		// its cached absence explicitly so lazy PVF loading needs no disk asset.
+		archive := &platformpvf.Archive{}
+		s.initialEquipmentArchive = archive
+		privateActivityCatalogs.Store(archive, privateActivityCatalogResult{})
+		t.Cleanup(func() { privateActivityCatalogs.Delete(archive) })
 		conn := &pvpFailNthConn{}
 		session := &gameSession{conn: conn, accountID: "pvp-29", selectedCharacterID: 29}
 		room := &currentPVPRoom{id: 7, battleMode: 10, request: currentPVPMakeRoomRequest{dojoDifficulty: 1}}
@@ -181,8 +187,12 @@ func TestPVPFatigueNativeRequestsAndPaymentRetry(t *testing.T) {
 		// "仅决斗场"移植刻意没有注册该 opcode，所以这一段一并去掉，只验证街机付费链路。
 		conn.write.Reset()
 		conn.failAt = conn.writes + 1
-		if err := send(1271, []byte{1, 1}); err == nil {
+		paymentErr := send(1271, []byte{1, 1})
+		if paymentErr == nil {
 			t.Fatal("missing injected payment publication error")
+		}
+		if conn.writes != conn.failAt {
+			t.Fatalf("payment did not reach injected network failure: %v", paymentErr)
 		}
 		stored, _, _ := repos.Character.Load(ctx, "29")
 		if stored.Stats["fatigue"] != 148 || !room.arcade.paid {

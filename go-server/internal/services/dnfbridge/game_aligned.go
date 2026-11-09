@@ -616,6 +616,7 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			s.logGameEvent(session, "game-guardian-shield-resolver-unavailable", "原因", guardianShieldResolverErr)
 		}
 	}
+	raidEntryCostInventoryBefore := s.captureRuntimeRaidEntryCostInventoryBeforeCommand(session, typ)
 	session.party.mu.Lock()
 	result, ok, err := gameAlignedRegistry.Route(context.Background(), alignedcmd.Request{
 		Command:                      cmd,
@@ -730,6 +731,8 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			"slot_refreshes", len(result.ItemSlotRefreshes))
 	}
 	s.commitDungeonConsumptionSnapshot(session, consumptionSnapshot, result)
+	// 消耗品召唤源登记（`[summon apc]`）：op44 成功之后才可能产生人偶击杀。
+	s.recordCurrentDungeonPuppetLease(session, typ, result)
 	// delta 档：模块已经把奖励写进库了，这里立刻算差分并把逐槽增量挂到
 	// `result.ItemSlotRefreshes`（`sendAlignedUpperResponses` 会在 ACK 之后无条件发成
 	// class0/msg14），同时把仍需整容器的例外容器记到会话上供后置动作读取。
@@ -825,6 +828,17 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 			if typ == uint16(dnfenum.CmdPacketRepairEquipment) {
 				s.logInfo("dnfbridge repair response sent", "conn_id", session.connID,
 					"char_id", session.selectedCharacterID, "responses", len(result.UpperResponses))
+			}
+			if refreshErr := s.refreshRuntimeRaidEntryCostInventoryAfterCommand(session, raidEntryCostInventoryBefore); refreshErr != nil {
+				// The inventory transaction and its ACK/rows have already committed.
+				// A read-only admission refresh failure must not turn that move into
+				// a false client failure; the next inventory change or explicit query
+				// retries from durable state.
+				s.logWarn("dnfbridge raid entry-cost inventory refresh deferred",
+					"conn_id", session.connID,
+					"char_id", session.selectedCharacterID,
+					"operation", result.Operation,
+					"error", refreshErr)
 			}
 			if loginEquipment.planned {
 				s.sendLoginEquipmentNoopSlotRows(session, loginEquipment, "login_wear_noop_after_ack")
@@ -1292,6 +1306,7 @@ func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.
 		}
 		return nil
 	case alignedcmd.PostActionRefreshSelectedPetMoveSlots:
+		defer s.queueCurrentWeddingBenefitsReplay(session, "pet_equipment_move_after_projection")
 		// 宠物/神器穿戴（op19 落点 list 3 槽 26..29）专用的回包后刷新：
 		// 旧口径是 5 个整容器的 class0/op13 全量重发（list 0/1/2/7/38，现场每次
 		// ≈23.9 KB），而落点 list 3 从来不在这份名单里。默认档按厂商

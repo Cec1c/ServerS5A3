@@ -178,6 +178,10 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 		GrowType: characterGrowTypeInt(character),
 	}
 	var policyErr error
+	eligibility, policyErr = dnfquest.WithWeddingEligibility(ctx, repos.Character, character, eligibility)
+	if policyErr != nil {
+		return nil, false
+	}
 	if character.CharacterID == strconv.Itoa(int(session.selectedCharacterID)) && strings.TrimSpace(character.AccountID) == s.accountIDForSession(session) && record.CharacterID == character.CharacterID {
 		eligibility, policyErr = catalog.WithEpicRoadEvent350Eligibility(eligibility, s.currentEpicRoadActivityAvailable())
 	}
