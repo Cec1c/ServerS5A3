@@ -176,6 +176,22 @@ func (snapshot *guildReadSnapshot) owned(owner r.GuildOwner) *Guild {
 	return g
 }
 
+// ReadGuildMembership returns only the registry's claimed owner. Callers must
+// validate that owner against the authoritative character before using any
+// guild display or benefit. An absent membership needs no character lookup.
+func ReadGuildMembership(ctx context.Context, settings r.SettingsRepository, characterID string) (r.GuildOwner, bool, error) {
+	snapshot, err := loadGuildReadSnapshot(ctx, settings)
+	if err != nil {
+		return r.GuildOwner{}, false, err
+	}
+	id, found := snapshot.owners[characterID]
+	if !found {
+		return r.GuildOwner{}, false, nil
+	}
+	member := snapshot.registry.Guilds[id].Members[characterID]
+	return r.GuildOwner{CharacterID: characterID, AccountID: member.AccountID}, true, nil
+}
+
 // ReadGuildDisplay returns a detached display object. Mutations by packet
 // projection cannot poison another session's membership or cached facts.
 func ReadGuildDisplay(ctx context.Context, settings r.SettingsRepository, owner r.GuildOwner) (*Guild, error) {

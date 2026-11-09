@@ -23,6 +23,10 @@ func (s *Service) currentSceneGuild(ctx context.Context, characterID uint16) (cu
 	if !ok || repos.Settings == nil {
 		return currentSceneGuildProjection{}, nil
 	}
+	_, member, err := guild.ReadGuildMembership(ctx, repos.Settings, strconv.Itoa(int(characterID)))
+	if err != nil || !member {
+		return currentSceneGuildProjection{}, err
+	}
 	character, found, err := dnfrepo.LoadCharacterIdentity(ctx, repos.Character, strconv.Itoa(int(characterID)))
 	if err != nil {
 		return currentSceneGuildProjection{}, err
