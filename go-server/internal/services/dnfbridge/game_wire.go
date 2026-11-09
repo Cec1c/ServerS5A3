@@ -472,9 +472,13 @@ func (s *Service) sendGameUpperRawClassCodec(session *gameSession, msgID uint16,
 		// Rearm from repositories outside wireMu on either outcome.
 		defer s.rearmCurrentRelativeExpirationAfterItems(session, body)
 	}
-	return s.withGameWire(session, func() error {
+	err := s.withGameWire(session, func() error {
 		return s.sendGameUpperRawClassCodecLocked(session, msgID, body, classification, allowCodec)
 	})
+	if err == nil && classification == 0 && msgID == uint16(dnfenum.CmdPacketNotifyDieMonster) && len(body) >= 3 && body[2] != 0 {
+		s.wakeCurrentPlayerHelper(session)
+	}
+	return err
 }
 
 // Caller holds session.wireMu for sequence allocation, codec and socket write.

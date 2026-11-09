@@ -1085,7 +1085,7 @@ func (s *Service) commitCurrentExpertJobStoreDisjoint(ctx context.Context, sessi
 	return s.commitCurrentExpertJobStoreDisjointBatch(ctx, session, store, []currentExpertJobStoreDisjointRequest{request})
 }
 
-func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, session *gameSession, store *currentExpertJobStore, requests []currentExpertJobStoreDisjointRequest) (currentExpertJobStoreUseResult, error) {
+func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, session *gameSession, store *currentExpertJobStore, requests []currentExpertJobStoreDisjointRequest, guards ...func(*dnfexpertjob.StoreDisjointAssets) error) (currentExpertJobStoreUseResult, error) {
 	if len(requests) == 0 || len(requests) > currentDisjointBatchMaxItems {
 		return currentExpertJobStoreUseResult{}, dnfexpertjob.ErrExtractionInvalid
 	}
@@ -1109,6 +1109,11 @@ func (s *Service) commitCurrentExpertJobStoreDisjointBatch(ctx context.Context, 
 	err = dnfexpertjob.DisjointStore(ctx, repositories, dnfexpertjob.StoreDisjointCommand{
 		AccountID: s.accountIDForSession(session), RequesterID: strconv.Itoa(int(session.selectedCharacterID)), OwnerID: strconv.Itoa(int(store.OwnerCharacterID)), OwnerAccountID: ownerAccount, UpdatedAt: s.gameplayNow(),
 		Project: func(assets *dnfexpertjob.StoreDisjointAssets) error {
+			for _, guard := range guards {
+				if err := guard(assets); err != nil {
+					return err
+				}
+			}
 			requesterCharacter, requesterInventory, ownerCharacter, ownerInventory, warehouse := assets.Requester, assets.RequesterInventory, assets.Owner, assets.OwnerInventory, assets.Warehouse
 			expectedEndurance := store.Endurance
 			for _, request := range requests {

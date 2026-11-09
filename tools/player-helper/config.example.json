@@ -1,0 +1,11 @@
+{
+  "Format": 1,
+  "EnabledPlugins": [],
+  "Pickup": {"Gold": false, "EquipmentMask": 0, "StackableMask": 0},
+  "Utilities": {"SellMask": 0, "DisjointMask": 0},
+  "Hotkeys": {
+    "panel": "Ctrl+Z", "pickup": "Alt+Q", "sell": "Alt+S", "disjoint": "Alt+D",
+    "warehouse": "Alt+F", "repair": "Alt+W",
+    "room.left": "Alt+Left", "room.right": "Alt+Right", "room.up": "Alt+Up", "room.down": "Alt+Down"
+  }
+}

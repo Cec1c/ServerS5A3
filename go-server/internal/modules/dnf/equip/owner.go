@@ -83,6 +83,8 @@ type RepairCommand struct {
 	SlotIndex           int16
 	QuickRepair         bool
 	AutoRepair          bool
+	PreviewOnly         bool
+	ValidateSnapshot    func(dnfrepo.CharacterRecord, dnfrepo.InventoryRecord, dnfrepo.EquipmentRecord) error
 }
 
 // RepairResult 描述穿戴装备耐久修理的写库结果；当前只允许零金币单件修理由上层回成功 ACK。
@@ -472,6 +474,11 @@ func (o *Owner) repairAllInTransaction(
 		invRecord.Slots = make(map[string]dnfrepo.ItemStack)
 	}
 
+	if cmd.ValidateSnapshot != nil {
+		if err := cmd.ValidateSnapshot(character, invRecord, equipRecord); err != nil {
+			return RepairResult{}, err
+		}
+	}
 	autoRepairActive := cmd.AutoRepair && o.premiumActive(ctx, cmd.AccountID, premium.DevilSlotType(premium.DevilSlotAutoRepair))
 	freeRepair := false
 	targets := make([]repairAllTarget, 0, 16)
@@ -549,6 +556,12 @@ func (o *Owner) repairAllInTransaction(
 	}
 	if total > gold {
 		return RepairResult{}, fmt.Errorf("%w: cost=%d gold=%d", ErrRepairGoldInsufficient, total, gold)
+	}
+	if cmd.PreviewOnly {
+		result.Cost = total
+		result.UpdatedGold = gold - total
+		result.RepairedCount = len(targets)
+		return result, nil
 	}
 	dnfrepo.AddBattlePassCounter(&character, 18, -1, 1, time.Now())
 	character.Stats["gold"] = gold - total

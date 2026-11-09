@@ -313,6 +313,8 @@ func (s *Service) bindGameSessionAccountFromLoginToken(session *gameSession, cla
 	session.accountID = accountID
 	session.accountFromToken = true
 	session.loginChannelFlowKey = sha256.Sum256([]byte(token))
+	session.helperAccessDigest = sha256.Sum256([]byte(helperCredential(token)))
+	session.helperActionsAccessDigest = sha256.Sum256([]byte(helperActionCredential(token)))
 	session.sharedAccountFallbackReason = ""
 	s.mu.Unlock()
 	s.bindLauncherDiagnostics(session, token)

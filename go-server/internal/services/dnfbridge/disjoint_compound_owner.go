@@ -249,6 +249,7 @@ func (s *Service) commitCurrentDisjointBatch(
 	slots []int16,
 	contextValue uint32,
 	resolve func(dungeonDropItemDefinition, *dnfpvf.Document) ([]currentDisjointReward, error),
+	guards ...func(*dnfdisjoint.Assets) error,
 ) (currentDisjointBatchResult, error) {
 	if session == nil || session.selectedCharacterID == 0 || catalog == nil || catalog.source == nil ||
 		resolve == nil || len(slots) == 0 {
@@ -265,6 +266,11 @@ func (s *Service) commitCurrentDisjointBatch(
 		AccountID:     accountID,
 		CharacterID:   characterID,
 		Project: func(assets *dnfdisjoint.Assets) (dnfdisjoint.Changes, error) {
+			for _, guard := range guards {
+				if err := guard(assets); err != nil {
+					return dnfdisjoint.Changes{}, err
+				}
+			}
 			inventory := assets.Inventory
 			account := assets.AccountInventory
 			plans := make([]currentDisjointItemPlan, 0, len(slots))

@@ -82,8 +82,11 @@ type gameSession struct {
 	// loginPacketSeen 表示客户端已经交过 class1/op1 登录包：此后账号不会再变。
 	loginPacketSeen bool
 	// 只在令牌已验证后设置，用于关联同一登录会话的明确换线交接，不作为账号认证。
-	loginChannelFlowKey [32]byte
-	channelExitHandoff  *currentAuthenticatedChannelHandoff
+	helperActionsAccessDigest [32]byte
+	helperUtility             helperUtilityState
+	helperAccessDigest        [32]byte
+	loginChannelFlowKey       [32]byte
+	channelExitHandoff        *currentAuthenticatedChannelHandoff
 	// sharedAccountFallbackReason 记录"为什么会落到共享兜底账号"，
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
@@ -447,6 +450,7 @@ type gameSession struct {
 	portedActivityNextRefresh      time.Time
 	laborDayAnchor                 time.Time
 	spendTime                      currentSpendTimeClockState
+	helper                         currentPlayerHelper
 	// Owned by the serialized session event loop; full catalogs omit yesterday's flag.
 	activityCatalogDayEvent uint16
 	weeklyAttendance        currentWeeklyAttendanceProjection
