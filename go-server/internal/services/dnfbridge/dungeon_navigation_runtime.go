@@ -1718,6 +1718,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	fanoutParty bool,
 ) error {
 	if len(body) != dungeoncmd.MoveMapRequestSize {
+		s.logEkernRejectedRequestDiagnostic(session, body, "move", "move_boundary_rejected")
 		s.logGameEvent(session, "game-dungeon-move-blocked",
 			"body_len", len(body),
 			"expected_body_len", dungeoncmd.MoveMapRequestSize,
@@ -1727,6 +1728,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	}
 	request, err := dungeoncmd.DecodeMoveMapRequest(body)
 	if err != nil {
+		s.logEkernRejectedRequestDiagnostic(session, body, "move", "move_decode_rejected")
 		s.logGameEvent(session, "game-dungeon-move-blocked",
 			"body_len", len(body),
 			"reason", "current_exe_op45_request_malformed",
@@ -1738,6 +1740,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	}
 	if fanoutParty && partyPlan == nil {
 		if err := s.preflightRuntimePartyRoomOwners(session, request); err != nil {
+			s.logEkernRejectedRequestDiagnostic(session, body, "move", "party_room_owner_preflight_rejected")
 			s.logGameEvent(session, "game-dungeon-move-blocked",
 				"next_x", request.NextX, "next_y", request.NextY,
 				"reason", "party_member_room_owner_preflight_failed", "error", err)
@@ -1892,7 +1895,7 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	requestBodyLen int,
 	requestSource string,
 	partyPlan *runtimePartyDungeonMovePlan,
-) error {
+) (resultErr error) {
 	runtime := session.dungeon.runtime
 	if runtime == nil || runtime.Session == nil || runtime.Room == nil {
 		s.logGameEvent(session, "game-dungeon-move-blocked",
@@ -1900,6 +1903,12 @@ func (s *Service) handleDungeonMoveRequestLocked(
 			"next_y", request.NextY,
 			"reason", "dungeon_runtime_missing")
 		return nil
+	}
+	diagnostic := s.beginEkernDiagnosticLocked(runtime, "move", requestBodyLen)
+	diagnosticReason := "move_dispatch"
+	if diagnostic != nil {
+		diagnostic.fields = append(diagnostic.fields, "next_x", request.NextX, "next_y", request.NextY)
+		defer func() { s.finishEkernDiagnosticLocked(runtime, diagnostic, diagnosticReason, resultErr) }()
 	}
 	if err := s.persistCurrentDungeonRoomClearQuestLocked(session, runtime); err != nil {
 		return err
@@ -1909,6 +1918,10 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	}
 	plan, err := s.planCurrentDungeonMove(runtime, request)
 	if err != nil {
+		diagnosticReason = "move_preflight_rejected"
+		if diagnostic != nil {
+			diagnostic.fields = append(diagnostic.fields, "current_room_not_cleared", errors.Is(err, worldmap.ErrRunCurrentRoomNotCleared))
+		}
 		currentScene, hasCurrentScene := runtime.Session.Scene()
 		source := plan.Source.Coordinate.String()
 		if hasCurrentScene {
@@ -2204,6 +2217,7 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	// this committed transition too, before either member can finish loading;
 	// otherwise both retain the entry room and suppress every later resend.
 	s.recordDungeonPartyRunKey(session, runtime, committedScene)
+	diagnosticReason = "move_committed"
 	s.logGameEvent(session, "game-dungeon-move-committed",
 		"dungeon_id", runtime.Dungeon.ID,
 		"maze_index", runtime.MazeIndex,
