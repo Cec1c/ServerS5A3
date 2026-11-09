@@ -174,8 +174,13 @@ func TestCompletedRaidMapPartyRetryRetiresOnlyOwnedCompletedGroupWithoutOrdinary
 func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t *testing.T) {
 	for _, fault := range []string{"new_entry_refused", "close_after_group_retire"} {
 		t.Run(fault, func(t *testing.T) {
-			s, leader, peer, _, _, _ := partyDungeonSyncFixture(t)
-			runPartyDungeonSyncEntry(t, s, leader)
+			// Retry uses native readiness and therefore needs the authoritative
+			// roster formed by the real invite/accept and first-entry path.
+			f := newLeaderHandoffRoundtripFixture(t)
+			s, leader, peer := f.service, f.leader, f.follower
+			f.formPartyThroughClientAccept(t)
+			f.selectDungeon(t, leader, 700)
+			f.finishLeaderHandoffLoading(t, leader, peer)
 			s.options.currentClientVersion = "official-24.9"
 			leader.channel = channelcatalog.Channel{ID: 23, Type: 23}
 			peer.channel = leader.channel
@@ -186,7 +191,13 @@ func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t
 				completePartyRetryFixture(t, s, session)
 				session.accountID = session.dungeon.runtime.AccountID
 				session.loginPacketSeen, session.accountFromToken = true, true
-				s.bindGameSessionCharacter(session, session.selectedCharacterID)
+				// Keep the real entry's binding and authoritative membership.
+				if _, bound := s.boundGameSessionCharacterSnapshot(session); !bound {
+					t.Fatal("actual entry lost its bound character")
+				}
+				if _, managed := s.runtimePartyManagerForService().SnapshotByUser(session.selectedCharacterID, session.characterGeneration); !managed {
+					t.Fatal("actual entry lost its authoritative membership generation")
+				}
 				r := session.dungeon.runtime
 				r.settlementCardLayoutSent, r.settlementCardSelectionSent, r.settlementCardRewardCommitted = false, false, false
 				r.settlementPhase = currentDungeonSettlementPhaseResultShown
@@ -234,6 +245,14 @@ func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t
 				t.Fatal("completed raid fixture members do not share an instance")
 			}
 			originalProvider := s.repositoryProvider
+			for _, owner := range []*gameSession{leader, peer} {
+				owner.dungeon.mu.Lock()
+				ready := s.currentCompletedDungeonActionReady(owner, owner.dungeon.runtime)
+				owner.dungeon.mu.Unlock()
+				if !ready || !s.currentRaidDungeonSelectionAllowed(owner, uint32(oldLeader.Dungeon.ID)) {
+					t.Fatalf("raid retry fixture not ready for char=%d: completed=%t\n%s", owner.selectedCharacterID, ready, testPacketLogText(t, s))
+				}
+			}
 			if fault == "close_after_group_retire" {
 				s.repositoryProvider = func() (dnfrepo.Group, bool) {
 					// Current retirement uses frozen character facts, so it no
@@ -250,7 +269,7 @@ func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t
 			err := s.retryCurrentCompletedDungeon(leader, oldLeader, "test_raid_party_retry_new_entry_refusal")
 			completeNativePartyAdmissionForTest(t, s, leader)
 			if fault == "close_after_group_retire" && !closedDuringRetire {
-				t.Fatal("post-retirement re-entry closure not exercised")
+				t.Fatalf("post-retirement re-entry closure not exercised\n%s", testPacketLogText(t, s))
 			}
 			retired := leader.dungeon.runtime == nil
 			if fault == "new_entry_refused" || fault == "close_after_group_retire" {

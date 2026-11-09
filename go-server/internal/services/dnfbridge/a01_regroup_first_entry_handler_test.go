@@ -470,16 +470,10 @@ func a01RegroupAssertEntryWire(t *testing.T, frames []a01RegroupFrame, receiver,
 	if body := frames[skills].body; len(body) < 4 || int(binary.LittleEndian.Uint32(body[:4])) != len(body)-4 {
 		t.Fatal("real post-finish op19 is missing its length-delimited skill payload")
 	}
-	postFinishPlacement := -1
-	for i := skills + 1; i < len(frames); i++ {
-		if frame := frames[i]; frame.class == 0 && frame.msgID == 120 && bytes.Equal(frame.body, []byte{0, 0}) {
-			postFinishPlacement = i
-			break
-		}
-	}
-	if postFinishPlacement < 0 {
-		t.Fatal("post-finish placement did not follow real op19")
-	}
+	// Current model registration consumes the first valid op120, already
+	// proved between op37 ACK and main state above. Peer refresh still follows
+	// real op19; it must not depend on replaying a placement/reset notification.
+	peerProjectionBoundary := skills
 
 	// Validate all peer roster records, then require a complete
 	// ordered peer creation triple after THIS receiver's actual loading tail.
@@ -509,7 +503,7 @@ func a01RegroupAssertEntryWire(t *testing.T, frames []a01RegroupFrame, receiver,
 				}
 			}
 		}
-		if i <= postFinishPlacement {
+		if i <= peerProjectionBoundary {
 			continue
 		}
 		switch part {
@@ -528,8 +522,8 @@ func a01RegroupAssertEntryWire(t *testing.T, frames []a01RegroupFrame, receiver,
 		}
 	}
 	if mode0 < 0 || mode1 <= mode0 || roster <= mode1 {
-		t.Fatalf("receiver=%d peer=%d lacks mode0->mode1->op9 after post-finish op120=%d: %d/%d/%d",
-			receiver.selectedCharacterID, peer.selectedCharacterID, postFinishPlacement, mode0, mode1, roster)
+		t.Fatalf("receiver=%d peer=%d lacks mode0->mode1->op9 after real op19=%d: %d/%d/%d",
+			receiver.selectedCharacterID, peer.selectedCharacterID, peerProjectionBoundary, mode0, mode1, roster)
 	}
 }
 

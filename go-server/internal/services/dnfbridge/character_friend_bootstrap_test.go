@@ -52,17 +52,10 @@ func TestCharacterFriendReselectionRestoresBeforeTownWithoutOp37(t *testing.T) {
 		if err := s.handleGameUpper(session, roster); err != nil {
 			t.Fatal(err)
 		}
-		var selected [2]byte
 		conn.write.Reset()
-		// The writer above sent one compact row; select row zero, not ID 29.
-		binary.LittleEndian.PutUint16(selected[:], 0)
-		selection, _ := proto.BuildChannelPacket(uint16(dnfenum.UpperMsgSelectCharacter), selected[:], 0, proto.DefaultChannelClassification)
-		if err := s.handleGameUpper(session, selection); err != nil {
-			t.Fatal(err)
-		}
-		if session.selectedCharacterID != 29 {
-			t.Fatalf("compact selection did not bind owner 29: cycle=%d selected=%d", cycle, session.selectedCharacterID)
-		}
+		// Reuse the real roster writer/compact op4 helper. This isolated fixture
+		// has no retained LOGIN-flow cache; do not guess an occupied SQL slot.
+		scope44Select(t, s, session, 29)
 		if err := s.handleDungeonTutorialFlag(session, []byte{currentDungeonTutorialFinalPrefix, 36, 0, 0, 0, currentDungeonTutorialFinalCommit}); err != nil {
 			t.Fatal(err)
 		}
