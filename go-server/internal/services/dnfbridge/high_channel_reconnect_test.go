@@ -19,6 +19,7 @@ func TestHighChannelReconnectSelectKeepsRawChannelAndCommittedOwner(t *testing.T
 	for _, id := range []int{261, 262, 263, 508} {
 		t.Run(strconv.Itoa(id), func(t *testing.T) {
 			s, p, repos, raw := directFiendWarLoginFixture(t, id)
+			primeCurrentSelectorRosterForTest(t, s, p)
 			p.channelReconnect = true
 			p.gameEndpointSuccessSent = true
 			owner := p.connectionTownActorOwnerChannel
@@ -26,7 +27,7 @@ func TestHighChannelReconnectSelectKeepsRawChannelAndCommittedOwner(t *testing.T
 				t.Fatal("fixture must use a catalog-derived u8 owner for a high raw channel")
 			}
 			body := make([]byte, 2)
-			binary.LittleEndian.PutUint16(body, 29)
+			binary.LittleEndian.PutUint16(body, 0)
 			frame, err := dnfproto.BuildChannelPacket(4, body, 2, dnfproto.DefaultChannelClassification)
 			if err != nil {
 				t.Fatal(err)

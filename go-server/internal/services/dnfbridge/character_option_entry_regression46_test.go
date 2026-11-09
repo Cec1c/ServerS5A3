@@ -81,15 +81,10 @@ func scope44Select(t *testing.T, s *Service, se *gameSession, id uint16) {
 	t.Helper()
 	rows := se.currentRenameRoster
 	if len(rows) == 0 {
-		repositories, ok := s.repositoryGroup()
-		if !ok {
-			t.Fatal("selector fixture repository missing")
-		}
-		var err error
-		rows, err = s.listCharacters(context.Background(), repositories, s.accountIDForSession(se))
-		if err != nil {
-			t.Fatal(err)
-		}
+		// The current request indexes the roster actually sent to this login
+		// flow; a local SQL list alone does not establish that binding.
+		primeCurrentSelectorRosterForTest(t, s, se)
+		rows = se.currentRenameRoster
 	}
 	rowIndex := -1
 	for index, row := range rows {

@@ -176,20 +176,38 @@ func (snapshot *guildReadSnapshot) owned(owner r.GuildOwner) *Guild {
 	return g
 }
 
-// ReadGuildMembership returns only the registry's claimed owner. Callers must
-// validate that owner against the authoritative character before using any
-// guild display or benefit. An absent membership needs no character lookup.
-func ReadGuildMembership(ctx context.Context, settings r.SettingsRepository, characterID string) (r.GuildOwner, bool, error) {
+// GuildReadMembership binds one operation to one immutable registry view and
+// one character. Acquire a new handle for each read operation, then validate
+// the authoritative character before requesting a display or entitlement.
+type GuildReadMembership struct {
+	snapshot    *guildReadSnapshot
+	characterID string
+}
+
+func ReadGuildMembership(ctx context.Context, settings r.SettingsRepository, characterID string) (*GuildReadMembership, bool, error) {
 	snapshot, err := loadGuildReadSnapshot(ctx, settings)
 	if err != nil {
-		return r.GuildOwner{}, false, err
+		return nil, false, err
 	}
-	id, found := snapshot.owners[characterID]
+	_, found := snapshot.owners[characterID]
 	if !found {
-		return r.GuildOwner{}, false, nil
+		return nil, false, nil
 	}
-	member := snapshot.registry.Guilds[id].Members[characterID]
-	return r.GuildOwner{CharacterID: characterID, AccountID: member.AccountID}, true, nil
+	return &GuildReadMembership{snapshot: snapshot, characterID: characterID}, true, nil
+}
+
+func (membership *GuildReadMembership) Display(owner r.GuildOwner) (*Guild, error) {
+	if membership == nil || membership.characterID != owner.CharacterID {
+		return nil, nil
+	}
+	return membership.snapshot.display(owner)
+}
+
+func (membership *GuildReadMembership) Entitlement(owner r.GuildOwner) (GuildEntitlement, bool) {
+	if membership == nil || membership.characterID != owner.CharacterID {
+		return GuildEntitlement{}, false
+	}
+	return membership.snapshot.entitlement(owner)
 }
 
 // ReadGuildDisplay returns a detached display object. Mutations by packet
@@ -199,12 +217,16 @@ func ReadGuildDisplay(ctx context.Context, settings r.SettingsRepository, owner 
 	if err != nil {
 		return nil, err
 	}
+	return snapshot.display(owner)
+}
+
+func (snapshot *guildReadSnapshot) display(owner r.GuildOwner) (*Guild, error) {
 	g := snapshot.owned(owner)
 	if g == nil {
 		return nil, nil
 	}
 	var result Guild
-	if err = json.Unmarshal(snapshot.encoded[g.ID], &result); err != nil {
+	if err := json.Unmarshal(snapshot.encoded[g.ID], &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -224,13 +246,18 @@ func ReadGuildEntitlement(ctx context.Context, settings r.SettingsRepository, ow
 	if err != nil {
 		return GuildEntitlement{}, false, err
 	}
+	result, found := snapshot.entitlement(owner)
+	return result, found, nil
+}
+
+func (snapshot *guildReadSnapshot) entitlement(owner r.GuildOwner) (GuildEntitlement, bool) {
 	g := snapshot.owned(owner)
 	if g == nil {
-		return GuildEntitlement{}, false, nil
+		return GuildEntitlement{}, false
 	}
 	result := GuildEntitlement{ID: g.ID, Mark: g.Mark, Name: g.Name, Benefits: make(map[byte]Benefit, len(g.Benefits))}
 	for kind, value := range g.Benefits {
 		result.Benefits[kind] = value
 	}
-	return result, true, nil
+	return result, true
 }

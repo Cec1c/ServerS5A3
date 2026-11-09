@@ -172,7 +172,7 @@ func TestCompletedRaidMapPartyRetryRetiresOnlyOwnedCompletedGroupWithoutOrdinary
 }
 
 func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t *testing.T) {
-	for _, fault := range []string{"new_entry_refused", "close_during_peer_retire"} {
+	for _, fault := range []string{"new_entry_refused", "close_after_group_retire"} {
 		t.Run(fault, func(t *testing.T) {
 			s, leader, peer, _, _, _ := partyDungeonSyncFixture(t)
 			runPartyDungeonSyncEntry(t, s, leader)
@@ -234,9 +234,12 @@ func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t
 				t.Fatal("completed raid fixture members do not share an instance")
 			}
 			originalProvider := s.repositoryProvider
-			if fault == "close_during_peer_retire" {
+			if fault == "close_after_group_retire" {
 				s.repositoryProvider = func() (dnfrepo.Group, bool) {
-					if !closedDuringRetire && peer.dungeon.runtime == nil && leader.dungeon.runtime == oldLeader {
+					// Current retirement uses frozen character facts, so it no
+					// longer reads this provider between members. Close at the
+					// first real re-entry read after both old owners retired.
+					if !closedDuringRetire && peer.dungeon.runtime == nil && leader.dungeon.runtime == nil {
 						closedDuringRetire = true
 						b.Dungeons[0].State = 1
 						b.PhaseCompleted = true
@@ -245,11 +248,12 @@ func TestCompletedRaidMapPartyRejectedNewEntryRestoresAllCompletedReturnOwners(t
 				}
 			}
 			err := s.retryCurrentCompletedDungeon(leader, oldLeader, "test_raid_party_retry_new_entry_refusal")
-			if fault == "close_during_peer_retire" && !closedDuringRetire {
-				t.Fatal("mid-peer retirement closure not exercised")
+			completeNativePartyAdmissionForTest(t, s, leader)
+			if fault == "close_after_group_retire" && !closedDuringRetire {
+				t.Fatal("post-retirement re-entry closure not exercised")
 			}
 			retired := leader.dungeon.runtime == nil
-			if fault == "new_entry_refused" || fault == "close_during_peer_retire" {
+			if fault == "new_entry_refused" || fault == "close_after_group_retire" {
 				if err != nil || retired || leader.dungeon.runtime != oldLeader || peer.dungeon.runtime != oldPeer || oldLeader.partyInstance == nil || oldLeader.partyInstance != oldPeer.partyInstance {
 					t.Fatal("owned raid group retirement failed", retired, err)
 				}

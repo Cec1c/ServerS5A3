@@ -126,3 +126,33 @@ func TestGuildReadSnapshotConcurrentMissLoadsOnce(t *testing.T) {
 		t.Fatalf("concurrent duplicate loads=%d", store.loads)
 	}
 }
+
+func TestGuildReadMembershipBindsCharacterAndOneRegistryView(t *testing.T) {
+	store, reg, owner, now := newSnapshotSettingsFixture(t)
+	other := r.GuildOwner{CharacterID: "2", AccountID: "b"}
+	if _, err := reg.JoinDirect(1, r.CharacterRecord{CharacterID: other.CharacterID, AccountID: other.AccountID, Name: "other", Level: 90, Stats: map[string]int64{"server_group_id": 1}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(context.Background(), store, reg, now); err != nil {
+		t.Fatal(err)
+	}
+	membership, found, err := ReadGuildMembership(context.Background(), store, owner.CharacterID)
+	if err != nil || !found {
+		t.Fatal(found, err)
+	}
+	if display, err := membership.Display(other); err != nil || display != nil {
+		t.Fatal("membership handle crossed characters", display, err)
+	}
+	if _, found := membership.Entitlement(r.GuildOwner{CharacterID: owner.CharacterID, AccountID: "foreign"}); found {
+		t.Fatal("membership handle accepted foreign account")
+	}
+	if display, err := membership.Display(owner); err != nil || display == nil || display.ID != 1 {
+		t.Fatal(display, err)
+	}
+	if entitlement, found := membership.Entitlement(owner); !found || entitlement.ID != 1 {
+		t.Fatal(entitlement, found)
+	}
+	if store.loads != 1 {
+		t.Fatalf("one operation reread registry %d times", store.loads)
+	}
+}

@@ -85,6 +85,7 @@ func TestA01RegroupFirstEntryThroughHandlers(t *testing.T) {
 					if err := s.handleDungeonSelectUpper(newLeader, request); err != nil {
 						t.Fatalf("first op16 char=%d: %v", newLeader.selectedCharacterID, err)
 					}
+					completeNativePartyAdmissionForTest(t, s, newLeader)
 					for _, session := range []*gameSession{newLeader, leaver} {
 						if !s.partyDungeonPostStartMapPlacementPending(session) {
 							t.Fatalf("char %d was not held for real op37", session.selectedCharacterID)
@@ -568,9 +569,9 @@ func a01RegroupOfficialPartyRows(t *testing.T, body []byte) ([]op9PartyRow, byte
 	}
 	rows := make([]op9PartyRow, 0, count)
 	for i := 0; i < count; i++ {
-		identity := take(8) // slot, key, job, level, grow, flag, extra flag
+		identity := take(8) // current profile: slot, key, level, job, grow, flags
 		row := op9PartyRow{slot: identity[0], uid: binary.LittleEndian.Uint16(identity[1:3]),
-			hasIdentity: true, job: identity[3], level: identity[4], grow: identity[5]}
+			hasIdentity: true, job: identity[4], level: identity[3], grow: identity[5]}
 		if identity[6] != 0 || identity[7] != 0 {
 			t.Fatal("unexpected official member identity flags")
 		}

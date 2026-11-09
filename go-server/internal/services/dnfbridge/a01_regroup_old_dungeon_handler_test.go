@@ -162,6 +162,7 @@ func a01OldDungeonEnter(t *testing.T, s *Service, leader, member, absent *gameSe
 	if err := s.handleDungeonSelectUpper(leader, request); err != nil {
 		t.Fatalf("party=%d first op16: %v", partyID, err)
 	}
+	completeNativePartyAdmissionForTest(t, s, leader)
 	for _, session := range []*gameSession{leader, member} {
 		if !s.partyDungeonPostStartMapPlacementPending(session) {
 			t.Fatalf("char=%d not held for actual op37", session.selectedCharacterID)

@@ -593,6 +593,26 @@ func newChannelReconnectTest(t *testing.T) (*Service, *gameSession, dnfrepo.Grou
 	return service, session, repositories
 }
 
+// Publish the compact roster retained by the simulated current client through
+// its real writer. Discard only setup packets before measuring the next route.
+func primeCurrentSelectorRosterForTest(t *testing.T, service *Service, session *gameSession) {
+	t.Helper()
+	if service.options.currentClientVersion != "official-24.9" {
+		t.Fatal("roster fixture requires current client profile")
+	}
+	conn, ok := session.conn.(*bufferConn)
+	if !ok {
+		t.Fatal("publish setup roster before replacing the measurement connection")
+	}
+	if err := service.sendCharacterBootstrap(session, "test_retained_current_client_roster"); err != nil {
+		t.Fatal(err)
+	}
+	if len(session.currentRenameRoster) == 0 {
+		t.Fatal("current client roster was not published")
+	}
+	conn.write.Reset()
+}
+
 func splitAllCurrentGameServerUpperPackets(t *testing.T, stream []byte) []dnfproto.ChannelPacket {
 	t.Helper()
 	packets := make([]dnfproto.ChannelPacket, 0)

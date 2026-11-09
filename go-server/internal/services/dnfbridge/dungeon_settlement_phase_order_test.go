@@ -134,6 +134,9 @@ func TestCurrentDungeonExitActionsAutoFlipFreeCardBeforeTransition(t *testing.T)
 		t.Run(map[byte]string{0: "retry", 1: "select_other", 2: "return_town"}[option], func(t *testing.T) {
 			service, runtime, session, connection, _ := prepareCompletedSettlementRuntime(t)
 			completeCurrentDungeonRatingForCardPhaseTest(t, service, runtime, session, connection)
+			if err := service.handleDungeonCharacterStatistic(session, make([]byte, currentDungeonCharacterStatisticBodySize)); err != nil {
+				t.Fatal(err)
+			}
 
 			if err := service.handleGameUpper(session,
 				buildCurrentDungeonClientUpperForPhaseTest(t, uint16(dnfenum.CmdPacketScoreScrollState), nil)); err != nil {

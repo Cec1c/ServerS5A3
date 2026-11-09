@@ -21,7 +21,7 @@ func (s *Service) currentGuildForSelectedCharacter(session *gameSession) (*dnfgu
 		return nil, dnfguild.ErrRepositoryUnavailable
 	}
 	started := s.performanceStart()
-	_, member, err := dnfguild.ReadGuildMembership(ctx, repos.Settings, strconv.Itoa(int(session.selectedCharacterID)))
+	membership, member, err := dnfguild.ReadGuildMembership(ctx, repos.Settings, strconv.Itoa(int(session.selectedCharacterID)))
 	if err != nil || !member {
 		s.performanceEnd(perfGuildRegistryRead, started, err)
 		return nil, err
@@ -31,7 +31,7 @@ func (s *Service) currentGuildForSelectedCharacter(session *gameSession) (*dnfgu
 		s.performanceEnd(perfGuildRegistryRead, started, err)
 		return nil, err
 	}
-	g, err := dnfguild.ReadGuildDisplay(ctx, repos.Settings, dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
+	g, err := membership.Display(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	s.performanceEnd(perfGuildRegistryRead, started, err)
 	return g, err
 }

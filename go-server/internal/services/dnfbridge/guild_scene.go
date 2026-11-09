@@ -23,7 +23,7 @@ func (s *Service) currentSceneGuild(ctx context.Context, characterID uint16) (cu
 	if !ok || repos.Settings == nil {
 		return currentSceneGuildProjection{}, nil
 	}
-	_, member, err := guild.ReadGuildMembership(ctx, repos.Settings, strconv.Itoa(int(characterID)))
+	membership, member, err := guild.ReadGuildMembership(ctx, repos.Settings, strconv.Itoa(int(characterID)))
 	if err != nil || !member {
 		return currentSceneGuildProjection{}, err
 	}
@@ -34,10 +34,7 @@ func (s *Service) currentSceneGuild(ctx context.Context, characterID uint16) (cu
 	if !found {
 		return currentSceneGuildProjection{}, nil
 	}
-	g, found, err := guild.ReadGuildEntitlement(ctx, repos.Settings, dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
-	if err != nil {
-		return currentSceneGuildProjection{}, err
-	}
+	g, found := membership.Entitlement(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	if !found {
 		return currentSceneGuildProjection{}, nil
 	}

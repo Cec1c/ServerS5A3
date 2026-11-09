@@ -89,6 +89,7 @@ func TestOrdinaryReconnectDoesNotPublishStreetAckBeforeCompleteRoom(t *testing.T
 	s.options.currentClientVersion = "official-24.9"
 	s.options.gameUpperBodyCodec = gameUpperBodyCodecPlain
 	p.channelReconnect = true
+	primeCurrentSelectorRosterForTest(t, s, p)
 	c := &channelSceneWriteConn{}
 	p.conn = c
 	if err := s.sendUpperCSharpSelectInit(p, []byte{0, 0}); err != nil {
