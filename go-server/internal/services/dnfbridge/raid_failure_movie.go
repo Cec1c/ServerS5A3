@@ -64,13 +64,10 @@ func (s *Service) handleCurrentRaidFailureMovieCompletion(p *gameSession, op uin
 	}
 	identity := currentRaidProjectionIdentity{InstanceID: b.InstanceID, Phase: b.Phase, CharID: p.selectedCharacterID, Generation: p.characterGeneration}
 	o := &p.raidProjection
-	o.mu.Lock()
-	done := o.movieCompleted && o.movieIdentity == identity
-	o.mu.Unlock()
 	packets := []currentAntonRewardPacket{{opcode: op, class: 1, body: []byte{1}}}
-	if !done {
-		packets = append(packets, currentAntonRewardPacket{opcode: 587, class: 0, body: []byte{4, 1}})
-	}
+	// Current NOTI587 state 4 calls the reward-window opener regardless of
+	// its second byte. A failure has no card model; acknowledge completion
+	// and release the existing deadline return without opening empty cards.
 	if err := s.sendCurrentAntonRewardPackets(p, state, packets, false); err != nil {
 		return true, err
 	}

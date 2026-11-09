@@ -31,7 +31,7 @@ func (s *Service) handleCurrentGuildRankingBoard(session *gameSession, request [
 		return fail(err)
 	}
 	defer release()
-	if _, err = s.currentGuildOwnedSelectedCharacter(session); err != nil {
+	if _, err = s.currentGuildOwnedSelectedIdentity(session); err != nil {
 		return fail(err)
 	}
 	_, reg, err := s.loadCurrentGuildRegistry(ctx)

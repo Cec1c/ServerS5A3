@@ -80,6 +80,21 @@ func (r *characterPetScopedInventoryRepository) SaveFields(ctx context.Context, 
 	return repository.SaveInventoryFields(ctx, r.base, record, fields...)
 }
 
+func (r *characterPetScopedInventoryRepository) SaveItemStackSlotDelta(ctx context.Context, record repository.InventoryRecord, collection string, keys []string) error {
+	if err := repository.TransactionKeyError(ctx, r.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	if writer, ok := r.base.(repository.ItemStackSlotDeltaWriter); ok {
+		return writer.SaveItemStackSlotDelta(ctx, record, collection, keys)
+	}
+	field := repository.InventoryField(collection)
+	if field != repository.InventoryFieldSlots && field != repository.InventoryFieldWarehouse {
+		return repository.ErrCharacterPetTransactionUnavailable
+	}
+	repository.NotifyInventoryWriteFallback(repository.InventoryWriteFallbackEvent{Target: "inventory", Reason: "repository_does_not_support_delta", Repo: "pet-scoped-base"})
+	return repository.SaveInventoryFields(ctx, r.base, record, field)
+}
+
 type characterPetScopedEquipmentRepository struct {
 	characterID string
 	base        repository.EquipmentRepository
@@ -104,6 +119,17 @@ func (r *characterPetScopedEquipmentRepository) SaveFields(ctx context.Context, 
 		return err
 	}
 	return repository.SaveEquipmentFields(ctx, r.base, record, fields...)
+}
+
+func (r *characterPetScopedEquipmentRepository) SaveEquipmentEntryDelta(ctx context.Context, record repository.EquipmentRecord, keys []string) error {
+	if err := repository.TransactionKeyError(ctx, r.characterID, record.CharacterID); err != nil {
+		return err
+	}
+	if writer, ok := r.base.(repository.EquipmentEntryDeltaWriter); ok {
+		return writer.SaveEquipmentEntryDelta(ctx, record, keys)
+	}
+	repository.NotifyInventoryWriteFallback(repository.InventoryWriteFallbackEvent{Target: "equipment", Reason: "repository_does_not_support_delta", Repo: "pet-scoped-base"})
+	return repository.SaveEquipmentFields(ctx, r.base, record, repository.EquipmentFieldEntries)
 }
 
 type characterPetScopedPetRepository struct {

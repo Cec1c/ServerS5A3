@@ -2,9 +2,11 @@ package dnfbridge
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -13,6 +15,48 @@ import (
 	memory "longheng.io/server/internal/modules/dnf/repository/memory"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
+
+// Use the same archive as the real item catalog, as Service startup does with
+// env.PVF. Do not warm optional catalogs or extend the real mutation deadline:
+// a remaining cold-path failure must still be visible to these tests.
+func configureRealPVFLotteryFixture(t *testing.T, service *Service, catalog *pvfDungeonDropCatalog) {
+	t.Helper()
+	archive, ok := catalog.source.(*platformpvf.Archive)
+	if !ok || archive == nil {
+		t.Fatalf("real lottery fixture requires an archive, got %T", catalog.source)
+	}
+	service.initialEquipmentArchive = archive
+	path := filepath.Join(t.TempDir(), "lottery-packets.log")
+	logger, err := openPacketLogger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.packetLog = logger
+	t.Cleanup(func() {
+		// Close flushes the buffered events before reading, including on Fatal.
+		if err := logger.Close(); err != nil {
+			t.Errorf("close lottery diagnostic: %v", err)
+		}
+		if !t.Failed() {
+			return
+		}
+		events, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read lottery diagnostic: %v", err)
+			return
+		}
+		t.Logf("lottery packet events:\n%s", events)
+		// Error-valued event fields are redacted by packetLogger. Compare the
+		// exact fingerprint, not the whole subtest's elapsed time, for evidence
+		// of this sentinel. Wrapped errors can have a different fingerprint.
+		t.Logf("deadline_sentinel reason_len=%d reason_sha256=%x; canceled_sentinel reason_sha256=%x",
+			len(context.DeadlineExceeded.Error()), sha256.Sum256([]byte(context.DeadlineExceeded.Error())),
+			sha256.Sum256([]byte(context.Canceled.Error())))
+		t.Logf("fixture_archive=%s archive_load_error=%v premium_catalog_ready=%t premium_catalog_error=%v",
+			archive.Snapshot().Path, service.initialEquipmentLoadErr,
+			service.premiumCatalog != nil, service.premiumCatalogLoadErr)
+	})
+}
 
 func TestAntonJarRealPVFExchangeThenOpen(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
@@ -60,6 +104,7 @@ func TestAntonJarRealPVFExchangeThenOpen(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := currentBoosterTestService(catalog, repos)
+			configureRealPVFLotteryFixture(t, s, catalog)
 			s.options.currentClientVersion = "official-24.9"
 			conn := &bufferConn{}
 			session := &gameSession{conn: conn, selectedCharacterID: 19}
@@ -81,7 +126,7 @@ func TestAntonJarRealPVFExchangeThenOpen(t *testing.T) {
 			}
 			packets := drainUpperPackets(t, conn)
 			if len(packets) < 2 || packets[0].msgID != 27 || len(packets[0].body) != 126 || packets[0].body[0] != 1 {
-				t.Fatalf("opening did not return real success result")
+				t.Fatalf("opening did not return real success result: packets=%+v", packets)
 			}
 			after, _, err := repos.Inventory.Load(ctx, "19")
 			if err != nil {
@@ -170,6 +215,7 @@ func TestAntonJarFullEquipmentBagDoesNotConsumeJar(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := currentBoosterTestService(catalog, repos)
+	configureRealPVFLotteryFixture(t, s, catalog)
 	s.options.currentClientVersion = "official-24.9"
 	conn := &bufferConn{}
 	session := &gameSession{conn: conn, selectedCharacterID: 19}

@@ -28,6 +28,13 @@ func TestPublicP14AntonManualToFlowDoesNotReplay(t *testing.T) {
 				f, p, at = singleAntonCompletedRewardFixture(t)
 			} else {
 				f, p, _, at = onlineAntonTerminalFixture(t)
+				peer, ok := f.service.onlineGameSession(20)
+				if !ok {
+					t.Fatal("fixture cleared peer missing")
+				}
+				// A raid group alone no longer makes a card visible to peers;
+				// this scenario also owns a current ordinary party.
+				a02RewardPartyWithSessionGenerations(t, f.service, p, peer)
 				// This older terminal fixture predates reward-flow setup. Load the
 				// actual flow config and run its normal entitlement freeze, rather
 				// than manufacturing a card/reward map or treating nil as a defect.
@@ -48,6 +55,14 @@ func TestPublicP14AntonManualToFlowDoesNotReplay(t *testing.T) {
 			}
 			f.conn.write.Reset()
 			dispatchAntonCardRequest(t, f, p, 659, []byte{0})
+			// Zero requests the native skip prompt; only one confirms that
+			// the movie has ended and can open the reward selection.
+			r195MovieWantPromptWire(t, f.conn.write.Bytes(), true)
+			if f.state.Battle.RewardCardReady[f.state.Battle.Phase][p.selectedCharacterID] || len(antonNativeCardBodies(t, f)) != 0 {
+				t.Fatal("skip request prematurely opened reward selection")
+			}
+			f.conn.write.Reset()
+			dispatchAntonCardRequest(t, f, p, 659, []byte{1})
 			if len(antonNativeCardBodies(t, f)) != 2 {
 				t.Fatal("manual movie completion omitted masks")
 			}
@@ -130,7 +145,7 @@ func TestPublicP14AntonManualMaskReconnectRestoresWithoutGrant(t *testing.T) {
 	if err := f.service.sendCurrentAntonTerminalResult(old, state); err != nil {
 		t.Fatal(err)
 	}
-	dispatchAntonCardRequest(t, f, old, 659, []byte{0})
+	dispatchAntonCardRequest(t, f, old, 659, []byte{1})
 	replacement := f.session()
 	conn := &bufferConn{}
 	replacement.conn, replacement.loginPacketSeen, replacement.accountFromToken = conn, true, true
@@ -163,7 +178,7 @@ func TestPublicP14AntonManualMaskReconnectRestoresWithoutGrant(t *testing.T) {
 		t.Fatalf("fresh owned connection restore screens=%d lists=%d", screens, lists)
 	}
 	conn.write.Reset()
-	if err := f.service.handleCurrentAntonMovieCompletion(replacement, 659, []byte{0}); err != nil {
+	if err := f.service.handleCurrentAntonMovieCompletion(replacement, 659, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.service.sendCurrentAntonRewardFlowProjection(replacement, state); err != nil {
@@ -197,6 +212,7 @@ func TestPublicP14AntonLaterPeerRevealDoesNotRestartScreen(t *testing.T) {
 	if !ok {
 		t.Fatal("fixture cleared peer missing")
 	}
+	a02RewardPartyWithSessionGenerations(t, s, leader, peer)
 	left, right := &publicP14ConcurrentConn{bufferConn: &bufferConn{}}, &publicP14ConcurrentConn{bufferConn: &bufferConn{}}
 	leader.conn, peer.conn = left, right
 	ctx, cancel := context.WithCancel(context.Background())
@@ -233,7 +249,7 @@ func TestPublicP14AntonLaterPeerRevealDoesNotRestartScreen(t *testing.T) {
 	for _, p := range []*gameSession{leader, peer} {
 		call(p, func() error { return s.sendCurrentAntonTerminalResult(p, state) })
 		// Complete upper packet dispatch, inside the owning event loop.
-		call(p, func() error { return dispatch(p, 659, []byte{0}) })
+		call(p, func() error { return dispatch(p, 659, []byte{1}) })
 	}
 	left.take()
 	right.take()
@@ -279,8 +295,10 @@ func TestPublicP14AntonLaterPeerRevealDoesNotRestartScreen(t *testing.T) {
 			squads++
 		}
 	}
-	if screens != 1 || squads != 1 {
-		t.Fatalf("new squad screen suppressed/replayed: screens=%d lists=%d", screens, squads)
+	// R182 keeps the already-open reward screen across the party-to-squad
+	// update. The new committed squad list must arrive without restarting it.
+	if screens != 0 || squads != 1 {
+		t.Fatalf("squad update lost or reward screen restarted: screens=%d lists=%d", screens, squads)
 	}
 	// Replay of the now delivered squad projection does not add assets or UI.
 	call(leader, func() error { return s.sendCurrentAntonRewardFlowProjection(leader, cloneRuntimeRaidState(*f.state)) })

@@ -77,6 +77,19 @@ func (s *readOnlyGuildSettings) Load(ctx context.Context, scope string) (Setting
 	}
 	return s.base.Load(ctx, scope)
 }
+
+func (s *readOnlyGuildSettings) GuildSnapshotNamespace() *GuildSnapshotNamespace {
+	if reader, ok := s.base.(GuildSnapshotRevisionReader); ok {
+		return reader.GuildSnapshotNamespace()
+	}
+	return nil
+}
+func (s *readOnlyGuildSettings) LoadGuildSnapshotRevision(ctx context.Context) (string, bool, error) {
+	if reader, ok := s.base.(GuildSnapshotRevisionReader); ok {
+		return reader.LoadGuildSnapshotRevision(ctx)
+	}
+	return "", false, ErrGuildTransaction
+}
 func (*readOnlyGuildSettings) Save(context.Context, SettingsRecord) error { return ErrGuildTransaction }
 func (s *readOnlyGuildSettings) WalkGuildSettlementReceipts(ctx context.Context, guildID uint32, since time.Time, visit func(SettingsRecord) error) error {
 	r, ok := s.base.(GuildSettlementReceiptReader)

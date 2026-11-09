@@ -99,8 +99,17 @@ func TestSQLObservationPreservesPreparedTransaction(t *testing.T) {
 	registry.RunObservers()
 	for _, sample := range registry.Snapshot() {
 		for key := range sample.Labels {
-			if key != "path" && key != "operation" && key != "le" {
+			if key != "path" && key != "operation" && key != "le" && key != "family" {
 				t.Fatalf("unbounded label %s", key)
+			}
+			if key == "family" {
+				found := false
+				for _, name := range sqlFamilyNames {
+					found = found || sample.Labels[key] == name
+				}
+				if !found {
+					t.Fatalf("unbounded family value %q", sample.Labels[key])
+				}
 			}
 		}
 	}

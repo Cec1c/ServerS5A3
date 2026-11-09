@@ -100,6 +100,11 @@ func NewMySQLGroup(db SQLDB, options MySQLGroupOptions) (repository.Group, error
 }
 
 func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repository.Group {
+	if includeTransactions && router.guildSnapshotNamespace == nil {
+		if _, ok := router.db.(sqlTxBeginner); ok {
+			router.guildSnapshotNamespace = &repository.GuildSnapshotNamespace{}
+		}
+	}
 	base := mysqlStoreBase{router: router}
 	group := repository.Group{
 		BattlePassChanges: router.battlePassChanges,

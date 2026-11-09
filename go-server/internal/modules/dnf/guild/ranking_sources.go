@@ -39,6 +39,18 @@ func SampleRankingMembers(ctx context.Context, characters r.CharacterRepository,
 		accountIDs = append(accountIDs, id)
 	}
 	sort.Strings(accountIDs)
+	if reader, ok := characters.(r.GuildRankingSnapshotReader); ok {
+		memberIDs := make([]string, 0, len(owners))
+		for id := range owners {
+			memberIDs = append(memberIDs, id)
+		}
+		sort.Strings(memberIDs)
+		snapshot, err := reader.LoadGuildRankingSnapshot(ctx, accountIDs, memberIDs, rosterLimit)
+		if err != nil {
+			return nil, err
+		}
+		characters = &rankingSnapshotCharacters{CharacterRepository: characters, snapshot: snapshot}
+	}
 	facts := make(map[string]RankingMemberFacts, len(owners))
 	for _, accountID := range accountIDs {
 		roster, err := characters.ListByAccount(ctx, accountID, rosterLimit)

@@ -132,10 +132,11 @@ type insertShape struct {
 	prefix       string
 	placeholders string
 	columns      int
+	suffix       string
 }
 
 func (s insertShape) single() string {
-	return s.prefix + s.placeholders
+	return s.prefix + s.placeholders + s.suffix
 }
 
 func (s insertShape) rows(count int) string {
@@ -151,6 +152,7 @@ func (s insertShape) rows(count int) string {
 		}
 		builder.WriteString(s.placeholders)
 	}
+	builder.WriteString(s.suffix)
 	return builder.String()
 }
 

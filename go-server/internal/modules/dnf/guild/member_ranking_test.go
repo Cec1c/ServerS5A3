@@ -193,7 +193,7 @@ func testMemberRankingRaid(t *testing.T, repos r.Group) {
 		}
 	}
 	// Existing two-owner operations retain their boundary.
-	if err := repos.Guild.WithinGuild(ctx, []r.GuildOwner{{"a1", "1"}, {"a2", "2"}, {"a3", "3"}}, func(r.Group) error { return nil }); err == nil {
+	if err := repos.Guild.WithinGuild(ctx, []r.GuildOwner{{AccountID: "a1", CharacterID: "1"}, {AccountID: "a2", CharacterID: "2"}, {AccountID: "a3", CharacterID: "3"}}, func(r.Group) error { return nil }); err == nil {
 		t.Fatal("ordinary scope widened")
 	}
 }

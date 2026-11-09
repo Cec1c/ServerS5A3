@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "patchSHA256": "c07a72ddc926e2a5d3bbd3d083d780b43770aab7dfb4153e73c24b4b842b29d9",
+  "files": {
+    "deploy/control/resource_bundle.py": {
+      "baseSHA256": "554723d94ec5f05e2e2706938d8c2e4cb2d0b1beeabd6e7fded6e9f6da1ee298",
+      "resultSHA256": "4c0bf8a8fb5f6239fe1a0a1c35acc982bad420e9e1f6e08b3371c6cef1efe2c3"
+    },
+    "deploy/control/test_equipment_save_scope_inbox.py": {
+      "baseSHA256": null,
+      "resultSHA256": "e4dca18e770836c97ebd98b07d2eb9e80a11d9082bc30de9801280f2381228cb"
+    },
+    "deploy/remote/game_update.py": {
+      "baseSHA256": "1a2aed1031647ed17c5f6915f6d6aff7773251747a177866fc8ba2250648ef07",
+      "resultSHA256": "d6bcd4438b9cbeb449125e1992218b529c893df9a30eb06bbebec762e47f1489"
+    },
+    "deploy/remote/test_game_update_candidate_generator.py": {
+      "baseSHA256": "396461fde64dd73d1727fb7e80b70258cbc579e5fbcf119d0dd4e035cbfe0f71",
+      "resultSHA256": "ed92a1cf0fe0921b2f18450a41cf74337e5dbcfa677f2b56b44676983b570aaa"
+    },
+    "deploy/remote/test_game_update_equipment_save_scope.py": {
+      "baseSHA256": null,
+      "resultSHA256": "f9bce412c7454d7b87663295ac65d6784eae160275aff767b6efe74ccaced4ab"
+    }
+  }
+}

@@ -73,6 +73,7 @@ type runtimeDungeonState struct {
 	semesterRun                              *currentSemesterRun
 	epicEntry                                *currentEpicEntry
 	raidEntry                                *currentRaidDungeonEntry
+	raidTablePartyReturn                     *currentRaidTablePartyReturn
 	fiendWarRetreatKeepsParty                bool
 	antonMapReturnOwner                      *currentAntonMapReturnOwner
 	lukeClosedEnergyReturn                   *currentLukeClosedEnergyReturnOwner

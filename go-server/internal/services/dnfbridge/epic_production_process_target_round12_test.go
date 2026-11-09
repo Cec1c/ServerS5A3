@@ -26,7 +26,7 @@ import (
 //     回一个合法目标号）/ 普通武器（真实 [weapon]，但不属于任何职业的 production item）
 //     全部拒绝，且角色 Stats、背包、周计数逐值不变 —— 不允许"先扣料再报错"的部分提交。
 //  2. 固定资源样本 108000520 在临界加工（charge = maxChargePoint-1）仍成功：
-//     ACK charge = maxChargePoint、周计数 +1、材料各扣 1。
+//     ACK charge = maxChargePoint、周计数 +1、材料各扣 1，发武器并清除目标与进度。
 //  3. 目标校验不重新按当前职业筛选：同一把真档 production 武器换成别的职业也放行。
 func TestRealPVFEpicProductionProcessTargetRound12(t *testing.T) {
 	service, session, connection := newCurrentEpicProductionRealPVFService(
@@ -177,6 +177,13 @@ func TestRealPVFEpicProductionProcessTargetRound12(t *testing.T) {
 			if update.Header.MsgID != 14 {
 				t.Fatalf("material update msg=%d", update.Header.MsgID)
 			}
+			completion, rest := splitLongHengGameServerUpperPacket(t, rest)
+			if completion.Header.MsgID != service.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish) ||
+				completion.Header.Classification != 1 || len(completion.Body) != 9 || completion.Body[0] != 1 ||
+				binary.LittleEndian.Uint32(completion.Body[1:5]) != epicProductionLiveTargetItemID ||
+				binary.LittleEndian.Uint32(completion.Body[5:9]) != uint32(maxCharge) {
+				t.Fatalf("completion msg=%d class=%d body=%x", completion.Header.MsgID, completion.Header.Classification, completion.Body)
+			}
 			info, trailing := splitLongHengGameServerUpperPacket(t, rest)
 			if info.Header.MsgID != service.epicProductionInfoMsgID() || info.Header.Classification != 0 || len(trailing) != 0 {
 				t.Fatalf("info push msg=%d class=%d trailing=%d", info.Header.MsgID, info.Header.Classification, len(trailing))
@@ -185,8 +192,8 @@ func TestRealPVFEpicProductionProcessTargetRound12(t *testing.T) {
 			if err != nil || !found {
 				t.Fatalf("character found=%t err=%v", found, err)
 			}
-			if character.Stats[currentEpicProductionTargetStat] != int64(epicProductionLiveTargetItemID) ||
-				character.Stats[currentEpicProductionChargeStat] != maxCharge ||
+			if character.Stats[currentEpicProductionTargetStat] != 0 ||
+				character.Stats[currentEpicProductionChargeStat] != 0 ||
 				character.Stats[currentEpicProductionWeeklyCountStat] != 3 {
 				t.Fatalf("persisted stats=%v", character.Stats)
 			}
@@ -196,6 +203,18 @@ func TestRealPVFEpicProductionProcessTargetRound12(t *testing.T) {
 			}
 			if inventory.Slots["0:122"].Count != 9 || inventory.Slots["0:127"].Count != 9 {
 				t.Fatalf("consumed items=%v", inventory.Slots)
+			}
+			weapons := 0
+			for _, stack := range inventory.Slots {
+				if stack.ItemID == int64(epicProductionLiveTargetItemID) {
+					weapons++
+					if stack.Count != 1 || len(stack.RawEntry) == 0 {
+						t.Fatalf("completed weapon=%+v", stack)
+					}
+				}
+			}
+			if weapons != 1 {
+				t.Fatalf("completed weapons=%d, want one", weapons)
 			}
 		})
 	}

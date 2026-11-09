@@ -85,6 +85,7 @@ func TestA01RegroupFirstEntryThroughHandlers(t *testing.T) {
 					if err := s.handleDungeonSelectUpper(newLeader, request); err != nil {
 						t.Fatalf("first op16 char=%d: %v", newLeader.selectedCharacterID, err)
 					}
+					completeNativePartyAdmissionForTest(t, s, newLeader)
 					for _, session := range []*gameSession{newLeader, leaver} {
 						if !s.partyDungeonPostStartMapPlacementPending(session) {
 							t.Fatalf("char %d was not held for real op37", session.selectedCharacterID)
@@ -469,16 +470,10 @@ func a01RegroupAssertEntryWire(t *testing.T, frames []a01RegroupFrame, receiver,
 	if body := frames[skills].body; len(body) < 4 || int(binary.LittleEndian.Uint32(body[:4])) != len(body)-4 {
 		t.Fatal("real post-finish op19 is missing its length-delimited skill payload")
 	}
-	postFinishPlacement := -1
-	for i := skills + 1; i < len(frames); i++ {
-		if frame := frames[i]; frame.class == 0 && frame.msgID == 120 && bytes.Equal(frame.body, []byte{0, 0}) {
-			postFinishPlacement = i
-			break
-		}
-	}
-	if postFinishPlacement < 0 {
-		t.Fatal("post-finish placement did not follow real op19")
-	}
+	// Current model registration consumes the first valid op120, already
+	// proved between op37 ACK and main state above. Peer refresh still follows
+	// real op19; it must not depend on replaying a placement/reset notification.
+	peerProjectionBoundary := skills
 
 	// Validate all peer roster records, then require a complete
 	// ordered peer creation triple after THIS receiver's actual loading tail.
@@ -508,7 +503,7 @@ func a01RegroupAssertEntryWire(t *testing.T, frames []a01RegroupFrame, receiver,
 				}
 			}
 		}
-		if i <= postFinishPlacement {
+		if i <= peerProjectionBoundary {
 			continue
 		}
 		switch part {
@@ -527,8 +522,8 @@ func a01RegroupAssertEntryWire(t *testing.T, frames []a01RegroupFrame, receiver,
 		}
 	}
 	if mode0 < 0 || mode1 <= mode0 || roster <= mode1 {
-		t.Fatalf("receiver=%d peer=%d lacks mode0->mode1->op9 after post-finish op120=%d: %d/%d/%d",
-			receiver.selectedCharacterID, peer.selectedCharacterID, postFinishPlacement, mode0, mode1, roster)
+		t.Fatalf("receiver=%d peer=%d lacks mode0->mode1->op9 after real op19=%d: %d/%d/%d",
+			receiver.selectedCharacterID, peer.selectedCharacterID, peerProjectionBoundary, mode0, mode1, roster)
 	}
 }
 
@@ -568,9 +563,9 @@ func a01RegroupOfficialPartyRows(t *testing.T, body []byte) ([]op9PartyRow, byte
 	}
 	rows := make([]op9PartyRow, 0, count)
 	for i := 0; i < count; i++ {
-		identity := take(8) // slot, key, job, level, grow, flag, extra flag
+		identity := take(8) // current profile: slot, key, level, job, grow, flags
 		row := op9PartyRow{slot: identity[0], uid: binary.LittleEndian.Uint16(identity[1:3]),
-			hasIdentity: true, job: identity[3], level: identity[4], grow: identity[5]}
+			hasIdentity: true, job: identity[4], level: identity[3], grow: identity[5]}
 		if identity[6] != 0 || identity[7] != 0 {
 			t.Fatal("unexpected official member identity flags")
 		}

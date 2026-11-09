@@ -16,13 +16,14 @@ import (
 )
 
 type mysqlRouter struct {
-	battlePassChanges *repository.BattlePassChangeFeed
-	db                SQLDB
-	readDBs           []string
-	writeDBs          []string
-	tablePrefix       string
-	now               func() time.Time
-	lockReads         bool
+	guildSnapshotNamespace *repository.GuildSnapshotNamespace
+	battlePassChanges      *repository.BattlePassChangeFeed
+	db                     SQLDB
+	readDBs                []string
+	writeDBs               []string
+	tablePrefix            string
+	now                    func() time.Time
+	lockReads              bool
 }
 
 type mysqlStoreBase struct {

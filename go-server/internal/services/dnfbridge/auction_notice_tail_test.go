@@ -107,7 +107,7 @@ func TestCurrentAuctionGoldMailNoticeLifecycle(t *testing.T) {
 			if action == "buy" {
 				body := make([]byte, 17)
 				body[0] = 1
-				binary.LittleEndian.PutUint32(body[1:5], 111)
+				binary.LittleEndian.PutUint32(body[1:5], 1110)
 				binary.LittleEndian.PutUint64(body[5:13], rows[0].ID)
 				binary.LittleEndian.PutUint32(body[13:17], 2681725)
 				if err := s.handleCurrentAuctionCommand(buyer, 185, body); err != nil {

@@ -798,6 +798,7 @@ func (db sqlTransactionDB) ExecContext(ctx context.Context, q string, args ...an
 		timing.Record(repository.TransactionWrite, time.Since(timedStart), 1)
 	}
 	db.observation.finish(1, sqlObserveExec, start, 0, err)
+	db.observation.finishFamily(sqlObserveExec, start, 0, []sqlFamilyObservation{sqlFamily(q)})
 	return result, err
 }
 func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...any) (SQLRows, error) {
@@ -815,7 +816,7 @@ func (db sqlTransactionDB) QueryContext(ctx context.Context, q string, args ...a
 			rows = timedTransactionRows{SQLRows: rows, timing: timing, phase: phase}
 		}
 	}
-	return observedRows(db.observation, 1, start, rows, err)
+	return observedRows(db.observation, 1, start, rows, err, sqlFamily(q))
 }
 func (db sqlTransactionDB) QueryRowContext(ctx context.Context, q string, args ...any) SQLRow {
 	timing := repository.TransactionTimingFromContext(ctx)
@@ -830,7 +831,7 @@ func (db sqlTransactionDB) QueryRowContext(ctx context.Context, q string, args .
 		timing.Record(phase, time.Since(timedStart), 1)
 		row = timedTransactionRow{SQLRow: row, timing: timing, phase: phase}
 	}
-	return observedRow(db.observation, 1, start, row)
+	return observedRow(db.observation, 1, start, row, sqlFamily(q))
 }
 
 func (r *rentalScopedCharacterRepository) RecordActivity(ctx context.Context, event repository.ActivityEvent) (bool, error) {

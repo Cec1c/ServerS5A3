@@ -26,6 +26,15 @@ func (s *Service) withCurrentDungeonPartyRetirement(identity boundGameSessionCha
 		// Room coordinates legitimately advance inside the same instance.
 		current.RoomX, current.RoomY, current.MapID = 0, 0, 0
 		retired.RoomX, retired.RoomY, retired.MapID = 0, 0, 0
+		// Navigation also replaces the room seed. A frozen raid admission
+		// identifies the run independently of that seed; the instance retains
+		// its entry-room key while the session records the latest room.
+		// Ordinary runs still need the seed guard, as they lack this identity.
+		if current.RaidKey != 0 && current.RaidKey == retired.RaidKey &&
+			current.RaidInstanceID != "" && current.RaidInstanceID == retired.RaidInstanceID &&
+			current.RaidRunID != "" && current.RaidRunID == retired.RaidRunID {
+			current.Seed, retired.Seed = 0, 0
+		}
 		if current != retired {
 			return false
 		}

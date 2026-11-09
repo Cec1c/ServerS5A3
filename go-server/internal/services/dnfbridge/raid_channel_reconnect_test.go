@@ -52,6 +52,7 @@ func TestManualRaidReconnectCommitsTargetAndCompletesTownRoute(t *testing.T) {
 			session.residentChannel = channelcatalog.Channel{ID: 11, Type: 11, Port: 10011}
 			session.connectionTownActorOwnerChannel = byte(target.ID)
 			session.townActorOwnerChannel = byte(target.ID)
+			primeCurrentSelectorRosterForTest(t, service, session)
 			if withProbe {
 				probe, err := proto.BuildChannelPacket(uint16(dnfenum.UpperMsgCharacterRoster), make([]byte, currentChannelReconnectProbeSize), 1, proto.DefaultChannelClassification)
 				if err != nil {
@@ -62,7 +63,7 @@ func TestManualRaidReconnectCommitsTargetAndCompletesTownRoute(t *testing.T) {
 				}
 			}
 			body := make([]byte, 2)
-			binary.LittleEndian.PutUint16(body, 29)
+			binary.LittleEndian.PutUint16(body, 0)
 			frame, err := proto.BuildChannelPacket(uint16(dnfenum.UpperMsgSelectCharacter), body, 2, proto.DefaultChannelClassification)
 			if err != nil {
 				t.Fatal(err)

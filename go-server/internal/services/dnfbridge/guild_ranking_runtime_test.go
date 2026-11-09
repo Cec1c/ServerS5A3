@@ -39,6 +39,9 @@ func TestGuildRankingQueryRoutesPersistsAndRetainsActualMonths(t *testing.T) {
 	s, peers, repos, q := rankingBridgeFixture(t)
 	ctx := context.Background()
 	beforeCharacter, _, _ := repos.Character.Load(ctx, "1")
+	if _, err := s.refreshCurrentGuildRanking(ctx, r.GuildOwner{}); err != nil {
+		t.Fatal(err)
+	}
 	guildDispatch(t, s, peers[0], 1503, []byte{1, 0})
 	body := guildReply(t, peers[0], 1503)
 	if len(body) != 109 || body[0] != 1 || binary.LittleEndian.Uint32(body[5:]) != 1 {
@@ -74,6 +77,9 @@ func TestGuildRankingQueryRoutesPersistsAndRetainsActualMonths(t *testing.T) {
 		t.Fatal("fresh query recomputed or wrote ranking")
 	}
 	q.now = guild.RankingMonthStart(q.now).AddDate(0, 1, 0)
+	if _, err := s.refreshCurrentGuildRanking(ctx, r.GuildOwner{}); err != nil {
+		t.Fatal(err)
+	}
 	guildDispatch(t, s, peers[0], 1503, []byte{1, 0})
 	reg, _ = guild.Load(ctx, repos.Settings)
 	if reg.Ranking.View(1, q.now)[1] != rows[0] {

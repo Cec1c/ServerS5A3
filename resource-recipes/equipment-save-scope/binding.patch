@@ -1,0 +1,433 @@
+diff --git a/deploy/control/resource_bundle.py b/deploy/control/resource_bundle.py
+index fbbcc648..28a1690e 100644
+--- a/deploy/control/resource_bundle.py
++++ b/deploy/control/resource_bundle.py
+@@ -15,0 +16,11 @@ LIMIT = 4 << 30
++SPEC_FIELDS = {
++    'kind', 'bundle', 'pvfSha256', 'basePvfSha256', 'baseExeSha256', 'exeSha256',
++    'channelSha256', 'clientFiles', 'disjointEpicDisplay', 'townDisplayOnly',
++    'equipmentSaveScope',
++}
++
++
++def checked_spec(spec):
++    if not isinstance(spec, dict) or not set(spec) <= SPEC_FIELDS:
++        raise ValueError('invalid resource spec fields')
++    return spec
+@@ -30,0 +42 @@ def client_files(spec):
++    worker.paired_equipment_save_scope(spec)
+@@ -34,0 +47,2 @@ def bundle_names(spec):
++    checked_spec(spec)
++    pins = client_files(spec)
+@@ -36 +49,0 @@ def bundle_names(spec):
+-        pins = client_files(spec)
+@@ -44 +56,0 @@ def bundle_names(spec):
+-        pins = client_files(spec)
+diff --git a/deploy/control/test_equipment_save_scope_inbox.py b/deploy/control/test_equipment_save_scope_inbox.py
+new file mode 100644
+index 00000000..dd31c439
+--- /dev/null
++++ b/deploy/control/test_equipment_save_scope_inbox.py
+@@ -0,0 +1,81 @@
++"""Paired-inbox contract for the closed equipment save scope field."""
++
++import copy
++import hashlib
++from pathlib import Path
++import tempfile
++import unittest
++
++import resource_bundle as bundles
++
++ABSENT = object()
++
++
++class EquipmentSaveScopeInbox(unittest.TestCase):
++    def spec(self, scope=ABSENT):
++        value = {
++            'kind': 'pvf-only',
++            'basePvfSha256': 'a' * 64,
++            'baseExeSha256': 'b' * 64,
++            'pvfSha256': 'c' * 64,
++            'exeSha256': 'b' * 64,
++            'channelSha256': 'd' * 64,
++        }
++        if scope is not ABSENT:
++            value['equipmentSaveScope'] = scope
++        return value
++
++    def manifest(self, spec):
++        files = {name: {'sha256': 'e' * 64, 'bytes': 1}
++                 for name in bundles.names(spec['pvfSha256'])}
++        files['Script.pvf']['sha256'] = spec['pvfSha256']
++        return {'schema': 1, 'spec': spec, 'files': files}
++
++    def test_scope_is_closed_and_optional(self):
++        for scope in ('collection', 'entry'):
++            with self.subTest(scope=scope):
++                spec = self.spec(scope)
++                self.assertEqual(bundles.manifest(self.manifest(spec))['spec'], spec)
++        spec = self.spec()
++        self.assertEqual(bundles.manifest(self.manifest(spec))['spec'], spec)
++
++    def test_invalid_or_environment_style_values_are_rejected(self):
++        for scope in ('', 'ENTRY', ' entry', 'on', 'off', True, 1, None, ['entry']):
++            with self.subTest(scope=scope), self.assertRaisesRegex(
++                    ValueError, 'equipment save scope must be collection or entry'):
++                bundles.manifest(self.manifest(self.spec(scope)))
++
++    def test_arbitrary_environment_name_is_not_a_bundle_field(self):
++        spec = self.spec('entry')
++        spec['DNFBRIDGE_EQUIPMENT_SAVE_SCOPE'] = 'entry'
++        value = self.manifest(spec)
++        with self.assertRaisesRegex(ValueError, 'invalid resource spec fields'):
++            bundles.manifest(value)
++
++    def test_validation_does_not_mutate_the_spec_or_manifest(self):
++        spec = self.spec('entry')
++        value = self.manifest(spec)
++        snapshot = copy.deepcopy(value)
++        self.assertEqual(bundles.manifest(value), snapshot)
++        self.assertEqual(value, snapshot)
++
++    def test_pack_and_unpack_preserve_the_exact_scope(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            inputs = root / 'inputs'
++            inputs.mkdir()
++            pvf = b'equipment-scope-pvf'
++            (inputs / 'Script.pvf').write_bytes(pvf)
++            for name in bundles.names(hashlib.sha256(pvf).hexdigest()) - {'Script.pvf'}:
++                (inputs / name).write_bytes(b'index')
++            spec = self.spec('entry')
++            spec['pvfSha256'] = hashlib.sha256(pvf).hexdigest()
++            archive = root / 'bundle.tar.gz'
++            pin = bundles.pack(spec, inputs, archive)
++            received = bundles.unpack(archive, pin['sha256'], root / 'received')
++            self.assertEqual(received['spec'], spec)
++            self.assertEqual(received['spec']['equipmentSaveScope'], 'entry')
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/deploy/remote/game_update.py b/deploy/remote/game_update.py
+index 50cdf537..2d4d804d 100644
+--- a/deploy/remote/game_update.py
++++ b/deploy/remote/game_update.py
+@@ -13,0 +14 @@ TOWN_DISPLAY_KEY = 'DNFBRIDGE_TOWN_DISPLAY_ONLY'
++EQUIPMENT_SAVE_SCOPE_KEY = 'DNFBRIDGE_EQUIPMENT_SAVE_SCOPE'
+@@ -178,0 +180,42 @@ def town_display_snapshot(instance, container_env, process_env, exe):
++def checked_equipment_save_scope(value):
++    if type(value) is not str or value not in ('collection', 'entry'):
++        raise ValueError('equipment save scope must be collection or entry')
++    return value
++
++
++def paired_equipment_save_scope(pair):
++    if not isinstance(pair, dict) or 'equipmentSaveScope' not in pair:
++        return None
++    return checked_equipment_save_scope(pair['equipmentSaveScope'])
++
++
++def checked_equipment_save_scope_target(instance, pair):
++    requested = paired_equipment_save_scope(pair)
++    if requested is None:
++        return None
++    compatibility = instance.get('runtime_compatibility', {})
++    if not isinstance(compatibility, dict):
++        raise ValueError('runtime compatibility must be an object')
++    if EQUIPMENT_SAVE_SCOPE_KEY in compatibility:
++        checked_equipment_save_scope(compatibility[EQUIPMENT_SAVE_SCOPE_KEY])
++    return requested
++
++
++def equipment_save_scope_snapshot(instance, container_env, process_env):
++    compatibility = instance.get('runtime_compatibility', {})
++    if not isinstance(compatibility, dict):
++        raise ValueError('runtime compatibility must be an object')
++    source = compatibility.get(EQUIPMENT_SAVE_SCOPE_KEY)
++    if EQUIPMENT_SAVE_SCOPE_KEY in compatibility:
++        checked_equipment_save_scope(source)
++    container = container_env.get(EQUIPMENT_SAVE_SCOPE_KEY)
++    if EQUIPMENT_SAVE_SCOPE_KEY in container_env:
++        checked_equipment_save_scope(container)
++    process = process_env.get(EQUIPMENT_SAVE_SCOPE_KEY)
++    if EQUIPMENT_SAVE_SCOPE_KEY in process_env:
++        checked_equipment_save_scope(process)
++    assert container == source and process == source, 'equipment save scope environment differs'
++    return dict(sourceMode=source, containerMode=container, processMode=process,
++                effectiveMode=source or 'collection')
++
++
+@@ -195,0 +239,3 @@ def checked_resource_pair(spec, old):
++    if isinstance(spec, dict) and 'equipmentSaveScope' in spec:
++        paired_equipment_save_scope(spec)
++        fields = fields | {'equipmentSaveScope'}
+@@ -202 +248 @@ def checked_resource_pair(spec, old):
+-    if any(not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v) for k, v in spec.items() if k not in ('bundle', 'kind', 'clientFiles', 'disjointEpicDisplay', 'townDisplayOnly')):
++    if any(not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v) for k, v in spec.items() if k not in ('bundle', 'kind', 'clientFiles', 'disjointEpicDisplay', 'townDisplayOnly', 'equipmentSaveScope')):
+@@ -568 +614 @@ def gold_diagnostic_character(manifest):
+-def target_instance(instance, image, mode, multiplier=None, percent=None, channel_source=None, encoding=None, gold=None, display=None, town=None):
++def target_instance(instance, image, mode, multiplier=None, percent=None, channel_source=None, encoding=None, gold=None, display=None, town=None, equipment=None):
+@@ -587,0 +634,7 @@ def target_instance(instance, image, mode, multiplier=None, percent=None, channe
++    if equipment is not None:
++        compatibility = updated.get('runtime_compatibility', {})
++        if not isinstance(compatibility, dict):
++            raise ValueError('runtime compatibility must be an object')
++        compatibility = dict(compatibility)
++        compatibility[EQUIPMENT_SAVE_SCOPE_KEY] = checked_equipment_save_scope(equipment)
++        updated['runtime_compatibility'] = compatibility
+@@ -591 +644 @@ def target_instance(instance, image, mode, multiplier=None, percent=None, channe
+-def target_environment(environment, mode, multiplier=None, percent=None, encoding=None, gold=None, display=None, town=None):
++def target_environment(environment, mode, multiplier=None, percent=None, encoding=None, gold=None, display=None, town=None, equipment=None):
+@@ -606,0 +660,2 @@ def target_environment(environment, mode, multiplier=None, percent=None, encodin
++    if equipment is not None:
++        updated[EQUIPMENT_SAVE_SCOPE_KEY] = checked_equipment_save_scope(equipment)
+@@ -610,2 +665,2 @@ def target_environment(environment, mode, multiplier=None, percent=None, encodin
+-def target_env_bytes(before, mode, multiplier=None, percent=None, encoding=None, gold=None, display=None, town=None):
+-    if mode is None and multiplier is None and percent is None and encoding is None and gold is None and display is None and town is None: return before
++def target_env_bytes(before, mode, multiplier=None, percent=None, encoding=None, gold=None, display=None, town=None, equipment=None):
++    if mode is None and multiplier is None and percent is None and encoding is None and gold is None and display is None and town is None and equipment is None: return before
+@@ -626,0 +682,2 @@ def target_env_bytes(before, mode, multiplier=None, percent=None, encoding=None,
++    if equipment is not None:
++        changes[EQUIPMENT_SAVE_SCOPE_KEY] = checked_equipment_save_scope(equipment)
+@@ -637 +694,2 @@ def target_env_bytes(before, mode, multiplier=None, percent=None, encoding=None,
+-            order = (TOURNAMENT_KEY, MAIN_QUEST_EXP_KEY, MAIN_QUEST_PERCENT_KEY, CHANNEL_ENCODING_KEY, GOLD_DIAGNOSTIC_KEY, DISJOINT_DISPLAY_KEY, TOWN_DISPLAY_KEY)
++            order = (TOURNAMENT_KEY, MAIN_QUEST_EXP_KEY, MAIN_QUEST_PERCENT_KEY, EQUIPMENT_SAVE_SCOPE_KEY,
++                     CHANNEL_ENCODING_KEY, GOLD_DIAGNOSTIC_KEY, DISJOINT_DISPLAY_KEY, TOWN_DISPLAY_KEY)
+@@ -1263,0 +1322 @@ def main():
++        snapshot['equipmentSaveScope'] = equipment_save_scope_snapshot(inst, dict(x.split('=', 1) for x in inspect('server')['Config']['Env']), process_env)
+@@ -1265 +1324 @@ def main():
+-            snapshot = {key: snapshot[key] for key in ["active", "sourceManifest", "sourceManifestSha256", "serverSha256", "containers", "pvfSha256", "channelSha256", "channel", "exeSha256", "sequence", "sessions", "management", "tournament", "mainQuestExperience", "channelScriptEncoding", "goldDiagnostic", "disjointEpicDisplay", "townDisplayOnly"]}
++            snapshot = {key: snapshot[key] for key in ["active", "sourceManifest", "sourceManifestSha256", "serverSha256", "containers", "pvfSha256", "channelSha256", "channel", "exeSha256", "sequence", "sessions", "management", "tournament", "mainQuestExperience", "channelScriptEncoding", "goldDiagnostic", "disjointEpicDisplay", "townDisplayOnly", "equipmentSaveScope"]}
+@@ -1277 +1336,2 @@ def main():
+-    config_changed = config_mode is not None or config_multiplier is not None or config_percent is not None or config_encoding is not None or config_gold is not None or config_display is not None or config_town is not None
++    config_equip = checked_equipment_save_scope_target(read(d / 'instance.json'), src.get('runtimeResourceUpdate'))
++    config_changed = config_mode is not None or config_multiplier is not None or config_percent is not None or config_encoding is not None or config_gold is not None or config_display is not None or config_town is not None or config_equip is not None
+@@ -1457 +1517 @@ def main():
+-                                  runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding, config_gold, config_display, config_town)
++                                  runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding, config_gold, config_display, config_town, config_equip)
+@@ -1476 +1536 @@ def main():
+-            config_percent, config_encoding, config_gold, config_display, config_town))
++            config_percent, config_encoding, config_gold, config_display, config_town, config_equip))
+@@ -1479 +1539 @@ def main():
+-            elif rel == 'server.env': assert (s / 'generated' / rel).read_bytes() == target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town), 'unapproved server environment change'
++            elif rel == 'server.env': assert (s / 'generated' / rel).read_bytes() == target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town, config_equip), 'unapproved server environment change'
+@@ -1497 +1557 @@ def main():
+-        write(s / 'config-generation.json', {'changedInstanceKeys': changed_keys, 'changedComposeKeys': changed_compose_keys, 'environmentPreserved': not config_changed, 'tournamentMode': config_mode, 'mainQuestExpMultiplier': config_multiplier, 'mainQuestExpPercent': config_percent, 'channelScriptEncoding': config_encoding, 'goldDiagnosticCharacter': config_gold, 'disjointEpicDisplay': config_display, 'townDisplayOnly': config_town, 'deploymentUIDPreserved': True, 'runtimeChannel': runtime_channel is not None})
++        write(s / 'config-generation.json', {'changedInstanceKeys': changed_keys, 'changedComposeKeys': changed_compose_keys, 'environmentPreserved': not config_changed, 'tournamentMode': config_mode, 'mainQuestExpMultiplier': config_multiplier, 'mainQuestExpPercent': config_percent, 'channelScriptEncoding': config_encoding, 'goldDiagnosticCharacter': config_gold, 'disjointEpicDisplay': config_display, 'townDisplayOnly': config_town, 'equipmentSaveScope': config_equip, 'deploymentUIDPreserved': True, 'runtimeChannel': runtime_channel is not None})
+@@ -1605,2 +1665,2 @@ def main():
+-                                                runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding, config_gold, config_display, config_town), 'unapproved instance change'
+-        assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town)
++                                                runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding, config_gold, config_display, config_town, config_equip), 'unapproved instance change'
++        assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town, config_equip)
+@@ -1645 +1705 @@ def main():
+-            assert dict(x.split('=', 1) for x in after['server']['Config']['Env']) == target_environment(dict(x.split('=', 1) for x in before['server']['Config']['Env']), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town)
++            assert dict(x.split('=', 1) for x in after['server']['Config']['Env']) == target_environment(dict(x.split('=', 1) for x in before['server']['Config']['Env']), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town, config_equip)
+@@ -1697 +1757 @@ def main():
+-            assert (d / 'server.env').read_bytes() == target_env_bytes((backup / 'runtime/docker/server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town)
++            assert (d / 'server.env').read_bytes() == target_env_bytes((backup / 'runtime/docker/server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding, config_gold, config_display, config_town, config_equip)
+@@ -1719,0 +1780 @@ def main():
++            receipt['equipmentSaveScope'] = equipment_save_scope_snapshot(new_instance, dict(x.split('=', 1) for x in after['server']['Config']['Env']), process_env)
+diff --git a/deploy/remote/test_game_update_candidate_generator.py b/deploy/remote/test_game_update_candidate_generator.py
+index 097a3d5b..d9dbd098 100644
+--- a/deploy/remote/test_game_update_candidate_generator.py
++++ b/deploy/remote/test_game_update_candidate_generator.py
+@@ -40 +40 @@ class CandidateGenerator(unittest.TestCase):
+-                    config_gold=None, config_display='paired-v1', config_town=town)
++                    config_gold=None, config_display='paired-v1', config_town=town, config_equip=None)
+@@ -42 +42 @@ class CandidateGenerator(unittest.TestCase):
+-                expected = w.target_env_bytes(before, None, display='paired-v1', town=town)
++                expected = w.target_env_bytes(before, None, display='paired-v1', town=town, equipment=None)
+diff --git a/deploy/remote/test_game_update_equipment_save_scope.py b/deploy/remote/test_game_update_equipment_save_scope.py
+new file mode 100644
+index 00000000..f98c43d5
+--- /dev/null
++++ b/deploy/remote/test_game_update_equipment_save_scope.py
+@@ -0,0 +1,186 @@
++"""Closed equipment save scope binding through config, environment and rollback."""
++
++import ast
++import copy
++import importlib.util
++from pathlib import Path
++import tempfile
++import unittest
++
++
++HERE = Path(__file__).resolve()
++
++
++def load_module(name, path):
++    spec = importlib.util.spec_from_file_location(name, path)
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++WORKER = load_module('equipment_scope_worker', HERE.with_name('game_update.py'))
++GENERATOR = HERE.parents[1] / 'docker' / 'manage.py'
++KEY = 'DNFBRIDGE_EQUIPMENT_SAVE_SCOPE'
++CLIENT = 'd1930d5bb07ee8fae348e0c23551b0f12bcfaea67ed7bf53ab0c9099e195c309'
++ABSENT = object()
++
++
++class EquipmentSaveScopeContract(unittest.TestCase):
++    def pair(self, scope=ABSENT):
++        value = dict(
++            kind='paired',
++            baseExeSha256='a' * 64,
++            basePvfSha256='b' * 64,
++            exeSha256=CLIENT,
++            pvfSha256='d' * 64,
++            channelSha256='c' * 64,
++            townDisplayOnly='on',
++            disjointEpicDisplay='paired-v1',
++            clientFiles={'DNF.exe': {'sha256': CLIENT, 'bytes': 112549888}},
++        )
++        if scope is not ABSENT:
++            value['equipmentSaveScope'] = scope
++        return value
++
++    def old(self):
++        return dict(exeSha256='a' * 64, pvfSha256='b' * 64, channelSha256='c' * 64)
++
++    def test_spec_field_is_closed_optional_and_compatible_with_existing_modes(self):
++        for scope in ('collection', 'entry'):
++            with self.subTest(scope=scope):
++                pair = self.pair(scope)
++                self.assertEqual(WORKER.paired_equipment_save_scope(pair), scope)
++                self.assertIs(WORKER.checked_resource_pair(pair, self.old()), pair)
++                self.assertEqual(WORKER.checked_town_display_target({}, pair, 'a' * 64), 'on')
++                self.assertEqual(WORKER.checked_disjoint_display_target({}, pair, 'a' * 64), 'paired-v1')
++        without = self.pair()
++        self.assertIsNone(WORKER.paired_equipment_save_scope(without))
++        self.assertIs(WORKER.checked_resource_pair(without, self.old()), without)
++
++    def test_invalid_values_and_arbitrary_environment_fields_are_rejected(self):
++        for scope in ('', 'ENTRY', ' entry', 'on', 'off', True, 1, None, ['entry']):
++            with self.subTest(scope=scope), self.assertRaisesRegex(
++                    ValueError, 'equipment save scope must be collection or entry'):
++                WORKER.paired_equipment_save_scope(self.pair(scope))
++        arbitrary = self.pair('entry')
++        arbitrary[KEY] = 'entry'
++        with self.assertRaisesRegex(ValueError, 'invalid paired resource fields'):
++            WORKER.checked_resource_pair(arbitrary, self.old())
++
++    def test_instance_environment_bytes_and_live_snapshot_agree(self):
++        before = {
++            'keep': 'unchanged',
++            'runtime_compatibility': {
++                'DNFBRIDGE_INVENTORY_SAVE_SCOPE': 'slot',
++                KEY: 'collection',
++            },
++        }
++        original = copy.deepcopy(before)
++        pair = self.pair('entry')
++        requested = WORKER.checked_equipment_save_scope_target(before, pair)
++        instance = WORKER.target_instance(before, 'new-image', None, equipment=requested)
++        self.assertEqual(before, original)
++        self.assertEqual(instance['runtime_compatibility'][KEY], 'entry')
++        self.assertEqual(instance['runtime_compatibility']['DNFBRIDGE_INVENTORY_SAVE_SCOPE'], 'slot')
++
++        raw = (b'KEEP=value\n'
++               b'DNFBRIDGE_INVENTORY_SAVE_SCOPE=slot\n'
++               b'DNFBRIDGE_EQUIPMENT_SAVE_SCOPE=collection\n'
++               b'DNFBRIDGE_CHANNEL_SCRIPT_ENCODING=gbk\n'
++               b'DNFBRIDGE_TOWN_DISPLAY_ONLY=on\n')
++        updated = WORKER.target_env_bytes(raw, None, encoding='gbk', town='on', equipment='entry')
++        self.assertEqual(updated.count((KEY + '=').encode()), 1)
++        self.assertIn((KEY + '=entry\n').encode(), updated)
++        self.assertEqual(WORKER.target_env_bytes(updated, None, equipment='collection'), raw)
++        rollback_paths = WORKER.rollback_config_paths([])
++        self.assertIn('runtime/docker/instance.json', rollback_paths)
++        self.assertIn('runtime/docker/server.env', rollback_paths)
++
++        env = WORKER.target_environment(
++            {'KEEP': 'value', 'DNFBRIDGE_INVENTORY_SAVE_SCOPE': 'slot',
++             'DNFBRIDGE_CHANNEL_SCRIPT_ENCODING': 'gbk', 'DNFBRIDGE_TOWN_DISPLAY_ONLY': 'on'},
++            None, encoding='gbk', town='on', equipment='entry')
++        self.assertEqual(WORKER.equipment_save_scope_snapshot(instance, env, env)['effectiveMode'], 'entry')
++        with self.assertRaisesRegex(AssertionError, 'equipment save scope environment differs'):
++            wrong = dict(env)
++            wrong[KEY] = 'collection'
++            WORKER.equipment_save_scope_snapshot(instance, env, wrong)
++
++    def test_missing_scope_preserves_existing_config_and_environment(self):
++        before = {
++            'runtime_compatibility': {
++                'DNFBRIDGE_INVENTORY_SAVE_SCOPE': 'slot',
++                KEY: 'entry',
++            },
++        }
++        raw = (b'DNFBRIDGE_INVENTORY_SAVE_SCOPE=slot\n'
++               b'DNFBRIDGE_EQUIPMENT_SAVE_SCOPE=entry\n')
++        self.assertIsNone(WORKER.checked_equipment_save_scope_target(before, self.pair()))
++        self.assertEqual(WORKER.target_instance(before, 'new-image', None), dict(before, server_image='new-image'))
++        self.assertEqual(WORKER.target_env_bytes(raw, None), raw)
++        self.assertEqual(WORKER.target_environment({'A': 'unchanged'}, None), {'A': 'unchanged'})
++        self.assertEqual(WORKER.equipment_save_scope_snapshot(before, {KEY: 'entry'}, {KEY: 'entry'})['effectiveMode'], 'entry')
++        self.assertEqual(WORKER.equipment_save_scope_snapshot({}, {}, {})['effectiveMode'], 'collection')
++
++    def test_invalid_instance_value_is_not_silently_replaced(self):
++        instance = {'runtime_compatibility': {KEY: 'slot'}}
++        with self.assertRaisesRegex(ValueError, 'equipment save scope must be collection or entry'):
++            WORKER.checked_equipment_save_scope_target(instance, self.pair('entry'))
++        with self.assertRaisesRegex(ValueError, 'equipment save scope must be collection or entry'):
++            WORKER.equipment_save_scope_snapshot(instance, {}, {})
++
++    def test_real_generator_matches_expected_bytes_and_keeps_existing_order(self):
++        manage = load_module('equipment_scope_generator', GENERATOR)
++        config = {
++            'host_ip': '192.168.1.50', 'server_ip': '10.254.90.2',
++            'database_ip': '10.254.90.3', 'subnet': '10.254.90.0/24',
++            'database_password': 'fixture', 'root_password': 'fixture',
++            'admin_token': 'ab' * 24, 'body_codec': 'plaintext',
++            'client_body_codec': 'plaintext', 'joust_event_enabled': True,
++            'runtime_compatibility': {'DNFBRIDGE_INVENTORY_SAVE_SCOPE': 'slot'},
++            'channel_script_encoding': 'gbk', 'gold_diagnostic_character': 42,
++            'disjoint_epic_display': 'paired-v1', 'town_display_only': 'off',
++        }
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            manage.RUNTIME = root / 'before'
++            manage.generate(config, {'ports': [10006]})
++            before = (manage.RUNTIME / 'server.env').read_bytes()
++
++            updated = WORKER.target_instance(
++                config, 'reviewed-image', None, display='paired-v1',
++                town='on', equipment='entry')
++            manage.RUNTIME = root / 'generated'
++            manage.generate(updated, {'ports': [10006]})
++            generated = manage.RUNTIME / 'server.env'
++            expected = WORKER.target_env_bytes(
++                before, None, display='paired-v1', town='on', equipment='entry')
++            WORKER.checked_generated_environment(generated, expected)
++            self.assertEqual(generated.read_bytes(), expected)
++
++            manage.RUNTIME = root / 'default'
++            manage.generate(WORKER.target_instance(config, 'reviewed-image', None), {'ports': [10006]})
++            self.assertEqual((manage.RUNTIME / 'server.env').read_bytes(), before)
++
++    def test_all_production_target_calls_thread_the_binding(self):
++        tree = ast.parse(HERE.with_name('game_update.py').read_text(encoding='utf-8'))
++        names = {'target_instance', 'target_environment', 'target_env_bytes'}
++        calls = [node for node in ast.walk(tree)
++                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
++                 and node.func.id in names]
++        self.assertGreaterEqual(len(calls), 7)
++        for call in calls:
++            with self.subTest(line=call.lineno, function=call.func.id):
++                self.assertTrue(call.args)
++                self.assertEqual(ast.unparse(call.args[-1]), 'config_equip')
++        changed = [node.value for node in ast.walk(tree)
++                   if isinstance(node, ast.Assign)
++                   and any(isinstance(target, ast.Name) and target.id == 'config_changed'
++                           for target in node.targets)]
++        self.assertEqual(len(changed), 1)
++        self.assertIn('config_equip', {node.id for node in ast.walk(changed[0])
++                                       if isinstance(node, ast.Name)})
++
++
++if __name__ == '__main__':
++    unittest.main()

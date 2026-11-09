@@ -38,7 +38,8 @@ type sqlObservationSeries struct {
 // No query text, schema, parameter, player identity or dynamic label is retained.
 // Query lifetime includes row consumption; QueryRow finishes at Scan.
 type SQLObservation struct {
-	series [2][sqlObserveKinds]sqlObservationSeries
+	series   [2][sqlObserveKinds]sqlObservationSeries
+	families [len(sqlFamilyNames)][sqlObserveKinds]sqlFamilySeries
 }
 
 func NewSQLObservation(registry *metrics.Registry, pool *sql.DB) *SQLObservation {
@@ -47,6 +48,7 @@ func NewSQLObservation(registry *metrics.Registry, pool *sql.DB) *SQLObservation
 	}
 	o := &SQLObservation{}
 	registry.RegisterObserver(SQLObservationName, func(r *metrics.Registry) {
+		o.observeFamilies(r)
 		for path := range o.series {
 			for kind := range o.series[path] {
 				s := &o.series[path][kind]
@@ -72,6 +74,7 @@ func NewSQLObservation(registry *metrics.Registry, pool *sql.DB) *SQLObservation
 		}
 		if pool != nil {
 			stats := pool.Stats()
+			r.SetGauge("dnf_mysql_pool_max_open", nil, int64(stats.MaxOpenConnections))
 			r.SetGauge("dnf_mysql_pool_in_use", nil, int64(stats.InUse))
 			r.SetGauge("dnf_mysql_pool_idle", nil, int64(stats.Idle))
 			r.SetCounter("dnf_mysql_pool_wait_total", nil, stats.WaitCount)
@@ -130,17 +133,18 @@ func (a *ObservedSQLDB) ExecContext(ctx context.Context, q string, args ...any) 
 	start := a.Observation.start()
 	result, err := a.SQLDB.ExecContext(ctx, q, args...)
 	a.Observation.finish(0, sqlObserveExec, start, 0, err)
+	a.Observation.finishFamily(sqlObserveExec, start, 0, []sqlFamilyObservation{sqlFamily(q)})
 	return result, err
 }
 func (a *ObservedSQLDB) QueryContext(ctx context.Context, q string, args ...any) (SQLRows, error) {
 	start := a.Observation.start()
 	rows, err := a.SQLDB.QueryContext(ctx, q, args...)
-	return observedRows(a.Observation, 0, start, rows, err)
+	return observedRows(a.Observation, 0, start, rows, err, sqlFamily(q))
 }
 func (a *ObservedSQLDB) QueryRowContext(ctx context.Context, q string, args ...any) SQLRow {
 	start := a.Observation.start()
 	row := a.SQLDB.QueryRowContext(ctx, q, args...)
-	return observedRow(a.Observation, 0, start, row)
+	return observedRow(a.Observation, 0, start, row, sqlFamily(q))
 }
 func (a *ObservedSQLDB) PingContext(ctx context.Context) error {
 	start := a.Observation.start()
@@ -155,13 +159,14 @@ type observedSQLRow struct {
 	path     int
 	start    time.Time
 	once     sync.Once
+	family   []sqlFamilyObservation
 }
 
-func observedRow(o *SQLObservation, path int, start time.Time, row SQLRow) SQLRow {
+func observedRow(o *SQLObservation, path int, start time.Time, row SQLRow, family ...sqlFamilyObservation) SQLRow {
 	if o == nil {
 		return row
 	}
-	return &observedSQLRow{SQLRow: row, observer: o, path: path, start: start}
+	return &observedSQLRow{SQLRow: row, observer: o, path: path, start: start, family: family}
 }
 func (r *observedSQLRow) Scan(dest ...any) error {
 	err := r.SQLRow.Scan(dest...)
@@ -171,6 +176,7 @@ func (r *observedSQLRow) Scan(dest ...any) error {
 			count = 1
 		}
 		r.observer.finish(r.path, sqlObserveRow, r.start, count, err)
+		r.observer.finishFamily(sqlObserveRow, r.start, count, r.family)
 	})
 	return err
 }
@@ -183,20 +189,25 @@ type observedSQLRows struct {
 	once     sync.Once
 	rows     int64
 	scanErr  error
+	family   []sqlFamilyObservation
 }
 
-func observedRows(o *SQLObservation, path int, start time.Time, rows SQLRows, err error) (SQLRows, error) {
+func observedRows(o *SQLObservation, path int, start time.Time, rows SQLRows, err error, family ...sqlFamilyObservation) (SQLRows, error) {
 	if o == nil {
 		return rows, err
 	}
 	if err != nil {
 		o.finish(path, sqlObserveQuery, start, 0, err)
+		o.finishFamily(sqlObserveQuery, start, 0, family)
 		return rows, err
 	}
-	return &observedSQLRows{SQLRows: rows, observer: o, path: path, start: start}, nil
+	return &observedSQLRows{SQLRows: rows, observer: o, path: path, start: start, family: family}, nil
 }
 func (r *observedSQLRows) finish(err error) {
-	r.once.Do(func() { r.observer.finish(r.path, sqlObserveQuery, r.start, r.rows, errors.Join(r.scanErr, err)) })
+	r.once.Do(func() {
+		r.observer.finish(r.path, sqlObserveQuery, r.start, r.rows, errors.Join(r.scanErr, err))
+		r.observer.finishFamily(sqlObserveQuery, r.start, r.rows, r.family)
+	})
 }
 func (r *observedSQLRows) Next() bool {
 	ok := r.SQLRows.Next()

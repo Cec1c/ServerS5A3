@@ -52,11 +52,13 @@ func TestRealPVFConfiguredRadianceDropAndPickup(t *testing.T) {
 		name, rank  string
 	}{
 		{310, 71001, "时间广场", "[boss]"},
+		{310, 71006, "时间广场", "[normal]"},
 		{311, 63767, "兽人峡谷", "[boss]"},
 		{312, 65736, "恐怖的栖息地", "[boss]"},
 		{313, 65707, "疾风地带", "[boss]"},
 		{314, 63796, "红色魔女之森", "[boss]"},
 		{315, 63767, "血色防线", "[boss]"},
+		{315, 63764, "血色防线", "[normal]"},
 		{316, 63804, "魔界裂缝", "[boss]"},
 		{7539, 107002063, "时空裂缝", "[normal]"},
 		{7539, 107002064, "时空裂缝", "[boss]"},
@@ -73,10 +75,8 @@ func TestRealPVFConfiguredRadianceDropAndPickup(t *testing.T) {
 		if r.Dungeon.Metadata.Name != tc.name {
 			t.Fatal("dungeon identity", tc.id, r.Dungeon.Metadata.Name)
 		}
-		want := [4]int{0, 0, 0, 100000}
-		if tc.id == 7539 {
-			want = [4]int{10000, 10000, 10000, 100000}
-		}
+		// The eight-map drop policy is independent of epic crafting quota.
+		want := [4]int{10000, 10000, 10000, 100000}
 		rules := special.MaterialByDungeon[tc.id]
 		if len(rules) != 1 || rules[0].ItemID != testRadianceItem || rules[0].Probability != want {
 			t.Fatal("candidate rates", tc.id, rules)

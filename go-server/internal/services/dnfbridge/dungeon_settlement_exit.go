@@ -347,6 +347,7 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			source,
 		)
 	}
+	var raidPartyReturn *currentRaidTablePartyReturn
 	if requestMsgID == uint16(dnfenum.CmdPacketEplpCommand) {
 		source = currentRaidTableReturnSource
 		if !runtime.townReturnAckSent {
@@ -356,6 +357,8 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			}
 			runtime.townReturnAckSent = true
 		}
+		raidPartyReturn = s.prepareCurrentRaidTablePartyReturnLocked(session, runtime)
+		runtime.raidTablePartyReturn = raidPartyReturn
 	}
 	err = s.sendCurrentDungeonReturnToTownLocked(
 		session,
@@ -369,7 +372,13 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 			s.logGameEvent(session, "超时空整队撤退未提交", "error", retreatErr)
 		}
 	}
+	if !runtime.townReturnPending {
+		runtime.raidTablePartyReturn = nil
+	}
 	session.dungeon.mu.Unlock()
+	if err == nil {
+		s.queueCurrentRaidTablePartyReturn(raidPartyReturn)
+	}
 	return err
 }
 
