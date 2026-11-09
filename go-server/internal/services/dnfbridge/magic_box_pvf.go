@@ -496,7 +496,7 @@ func resolveMagicBoxNeedMaterial(document *dnfpvf.Document, boxItemID int64) (in
 
 func currentRaidShopJarExchangePrice(itemID int64) bool {
 	switch itemID {
-	case 10094738, 10157775, 10157776, 10159652:
+	case 10094738, 10157775, 10157776, 10159652, 10159653:
 		return true
 	default:
 		return false

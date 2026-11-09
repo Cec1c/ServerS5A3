@@ -116,3 +116,79 @@ func TestCurrentDungeonPartyRetirementAllowsRoomCoordinateAdvanceWithinInstance(
 		t.Fatalf("same instance apply count=%d want 1", applied)
 	}
 }
+
+func TestRaidDungeonPartyRetirementAllowsRoomSeedChangeOnlyWithinFrozenRun(t *testing.T) {
+	for _, scenario := range []string{"same-run", "new-run", "new-instance", "new-raid", "ordinary-seed"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newLeaderExitFixture(t)
+			f.instance.key.RaidKey = 41
+			f.instance.key.RaidInstanceID = "raid-instance"
+			f.instance.key.RaidRunID = "admitted-run"
+			if scenario == "ordinary-seed" {
+				f.instance.key.RaidKey = 0
+				f.instance.key.RaidInstanceID, f.instance.key.RaidRunID = "", ""
+			}
+			current := f.instance.key
+			current.Seed++
+			current.RoomX++
+			current.MapID++
+			switch scenario {
+			case "new-run":
+				current.RaidRunID = "replacement-run"
+			case "new-instance":
+				current.RaidInstanceID = "replacement-instance"
+			case "new-raid":
+				current.RaidKey++
+			}
+			f.member.dungeon.runtime = nil
+			f.member.dungeonPartyRun, f.member.dungeonPartyRunValid = current, true
+			identity, ok := f.service.boundGameSessionCharacterSnapshot(f.member)
+			if !ok {
+				t.Fatal("missing bound member")
+			}
+			applied := 0
+			got := f.service.withCurrentDungeonPartyRetirement(identity, f.instance, func() bool { applied++; return true })
+			want := scenario == "same-run"
+			if got != want || applied != map[bool]int{false: 0, true: 1}[want] {
+				t.Fatalf("retirement accepted=%t apply=%d want accepted=%t", got, applied, want)
+			}
+		})
+	}
+}
+
+func TestRaidDungeonPartyRetirementAfterRoomChangeRemovesOnlyReturningMember(t *testing.T) {
+	f := newLeaderExitFixture(t)
+	f.service.options.currentClientVersion = "official-24.9"
+	addRetirementPeer(t, f, 101)
+	addRetirementPeer(t, f, 102)
+	before, _ := f.service.runtimePartyManagerForService().SnapshotByUser(99, 0)
+	round69AlignInstancePartyID(t, f, before.ID)
+	f.instance.key.RaidKey = 41
+	f.instance.key.RaidInstanceID, f.instance.key.RaidRunID = "raid-instance", "admitted-run"
+	current := f.instance.key
+	current.Seed++
+	current.RoomX++
+	current.MapID++
+	f.member.dungeonPartyRun, f.member.dungeonPartyRunValid = current, true
+	f.member.dungeon.runtime = nil
+	f.service.releasePartyDungeonInstance(f.memberRuntime, 100, "back_to_village_committed")
+	if err := f.service.leaveRuntimePartyOnMemberGiveup(f.member, f.instance); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := f.service.runtimePartyManagerForService().SnapshotByUser(100, 0); found {
+		t.Fatal("returning member stayed in the ordinary party after instance removal")
+	}
+	after, found := f.service.runtimePartyManagerForService().SnapshotByUser(99, 0)
+	if !found || after.ID != before.ID || len(after.Members) != 3 || f.leader.dungeon.runtime != f.leaderRuntime {
+		t.Fatalf("survivor party/instance changed: %+v", after)
+	}
+	removed := false
+	for _, frame := range splitUpperFrames(t, f.leaderConn.write.Bytes()) {
+		if frame.msgID == currentTownUserLeaveMsgID {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatal("survivor never received actor removal")
+	}
+}

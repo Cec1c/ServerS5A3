@@ -18,13 +18,12 @@ func (s *Service) currentGuildMonsterExperienceBonus(ctx context.Context, sessio
 	if !ok || repos.Settings == nil || session == nil || base == 0 {
 		return 0, nil
 	}
-	reg, err := guild.Load(ctx, repos.Settings)
+	entitlement, found, err := guild.ReadGuildEntitlement(ctx, repos.Settings, r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
 	if err != nil {
 		return 0, err
 	}
-	g, _, found := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
 	if !found {
 		return 0, nil
 	}
-	return guild.MonsterExperienceBonus(g, base, s.gameplayNow()), nil
+	return guild.MonsterExperienceBonus(&guild.Guild{Benefits: entitlement.Benefits}, base, s.gameplayNow()), nil
 }

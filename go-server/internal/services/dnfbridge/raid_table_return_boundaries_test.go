@@ -33,12 +33,15 @@ func raidTableLoaded(t *testing.T, a *platformpvf.Archive) (*raidStartGuardFixtu
 		})
 	}
 	dispatch(owners[0], 16, encodeCurrentDungeonSelectRequest(dungeoncmd.SelectDungeonRequest{DungeonID: 210, Difficulty: 2}))
+	// Reply as synthetic clients to the real pending connection challenge and
+	// wait for its owner continuation; op16 is asynchronous while this gate runs.
+	// This is a protocol fixture, not proof of physical client UDP readiness.
 	completeNativePartyAdmissionForTest(t, s, owners[0])
 	runs := make([]*runtimeDungeonState, 2)
 	for i := 0; i < 2; i++ {
 		runs[i] = owners[i].dungeon.runtime
 		if runs[i] == nil || runs[i].raidEntry == nil || runs[i].Dungeon.ID != 210 {
-			t.Fatal("real op16 admission failed")
+			t.Fatalf("real op16 admission failed; fixture trace:\n%s", f.logText(t))
 		}
 		dispatch(owners[i], 37, make([]byte, 8))
 	}

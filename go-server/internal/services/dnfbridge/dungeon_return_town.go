@@ -768,6 +768,7 @@ func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 	runtime.townReturnAckSent = false
 	runtime.townReturnSource = ""
 	runtime.townReturnTransition = currentDungeonTownTransition{}
+	runtime.raidTablePartyReturn = nil
 }
 
 // acknowledgeCurrentDungeonGiveupReturnLocked holds dungeon.mu. The saved
@@ -841,9 +842,13 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 			source+"_resume_confirmed_return",
 		)
 	}
-	if runtime.townReturnSource == currentRaidTableReturnSource && !s.currentRaidTableActiveReturnReady(session, runtime) {
+	if (runtime.townReturnSource == currentRaidTableReturnSource || runtime.townReturnSource == currentRaidTablePartyReturnSource) && !s.currentRaidTableActiveReturnReady(session, runtime) {
 		session.dungeon.mu.Unlock()
 		return fmt.Errorf("raid table return owner changed before town confirmation")
+	}
+	if runtime.raidTablePartyReturn != nil && !s.currentRaidTablePartyReturnMatches(session, runtime, runtime.raidTablePartyReturn) {
+		session.dungeon.mu.Unlock()
+		return fmt.Errorf("raid table party changed before town confirmation")
 	}
 	snapshot := runtime.Session.Snapshot()
 	deadlineOwner := runtime.raidDeadlineReturn
@@ -964,6 +969,9 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 		s.settleRuntimePartyOnDungeonCompletionReturn(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
 	} else if runtime.fiendWarRetreatKeepsParty {
 		s.logGameEvent(session, "超时空整队撤退已保留临时队伍", "source", source)
+	} else if runtime.raidTablePartyReturn != nil {
+		s.logGameEvent(session, "game-raid-table-return-party-retained", "source", source,
+			"leader_char_id", runtime.raidTablePartyReturn.leader.character)
 	} else if deadlineOwner != nil {
 		// An automatic phase deadline is not a player-requested leader leave.
 		// Keep the still-authoritative party/relay; every admitted occupant

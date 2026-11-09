@@ -46,12 +46,11 @@ func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameS
 			return guild.ErrCharacterNotFound
 		}
 		registryStart := s.performanceStart()
-		registry, err := guild.Load(ctx, view.Settings)
+		g, err := guild.ReadGuildDisplay(ctx, view.Settings, owner)
 		s.performanceEnd(perfGuildRegistryRead, registryStart, err)
 		if err != nil {
 			return err
 		}
-		g, _, _ := registry.GuildForOwner(owner)
 		ids := []string{owner.CharacterID}
 		if g != nil && hydrateMembers {
 			ids = make([]string, 0, len(g.Members))

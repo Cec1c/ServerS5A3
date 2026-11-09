@@ -67,6 +67,8 @@ type Service struct {
 	launcherDiagnostics          launcherDiagnosticStore
 	performance                  *bridgePerformanceMetrics
 	guildRankingMu               sync.Mutex
+	guildRankingGate             chan struct{}
+	guildRankingWake             chan struct{}
 	guildRankingCatalogMu        sync.Mutex
 	guildRankingRules            *dnfguild.RankingRules
 	guildEssenceCatalog          *dnfguild.EssenceCatalog                                                    // guarded by guildDungeonCatalogMu

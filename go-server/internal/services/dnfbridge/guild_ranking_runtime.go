@@ -48,7 +48,7 @@ func (s *Service) handleCurrentGuildRanking(session *gameSession, request []byte
 		return fail(err)
 	}
 	defer release()
-	actor, err := s.currentGuildOwnedSelectedCharacter(session)
+	actor, err := s.currentGuildOwnedSelectedIdentity(session)
 	if err != nil {
 		return fail(err)
 	}
@@ -64,9 +64,12 @@ func (s *Service) handleCurrentGuildRanking(session *gameSession, request []byte
 		return fail(guild.ErrNotMember)
 	}
 	guildID := g.ID
-	reg, err = s.refreshCurrentGuildRanking(ctx, owner)
-	if err != nil {
-		return fail(err)
+	// A query never samples all accounts on the player's event loop. The
+	// existing sampler owns refreshes; an unavailable/expired result retains
+	// the native failure response instead of presenting stale scores as fresh.
+	if !currentGuildRankingFresh(reg, s.gameplayNow()) {
+		s.requestCurrentGuildRankingRefresh()
+		return fail(guild.ErrRankingSnapshotChanged)
 	}
 	g, _, member = reg.GuildForOwner(owner)
 	if !member || g.ID != guildID || !s.boundGameSessionCharacterCurrent(peer) {
@@ -88,8 +91,13 @@ func (s *Service) handleCurrentGuildRanking(session *gameSession, request []byte
 func (s *Service) refreshCurrentGuildRanking(ctx context.Context, owner r.GuildOwner) (result guild.Registry, resultErr error) {
 	started := s.performanceStart()
 	defer func() { s.performanceEnd(perfGuildRanking, started, resultErr) }()
-	s.guildRankingMu.Lock()
-	defer s.guildRankingMu.Unlock()
+	gate, _ := s.currentGuildRankingChannels()
+	select {
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
+	case <-ctx.Done():
+		return guild.Registry{}, ctx.Err()
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		repos, reg, err := s.loadCurrentGuildRegistry(ctx)
 		if err != nil {
@@ -164,16 +172,22 @@ func (s *Service) startCurrentGuildRankingSampler(ctx context.Context) {
 	if !s.options.guildRankingEnabled {
 		return
 	}
+	_, wake := s.currentGuildRankingChannels()
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		timer := time.NewTimer(time.Second)
 		defer timer.Stop()
+		var retryAt time.Time
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-timer.C:
+			case <-wake:
+				if time.Now().Before(retryAt) {
+					continue
+				}
 			}
 			callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			_, err := s.refreshCurrentGuildRanking(callCtx, r.GuildOwner{})
@@ -183,13 +197,53 @@ func (s *Service) startCurrentGuildRankingSampler(ctx context.Context) {
 			}
 			now := s.gameplayNow()
 			delay := currentGuildRankingInterval
+			if err != nil {
+				delay = 5 * time.Second
+				retryAt = time.Now().Add(delay)
+			} else {
+				retryAt = time.Time{}
+			}
 			boundary := guild.RankingMonthStart(now).AddDate(0, 1, 0)
 			if d := boundary.Sub(now); d > 0 && d < delay {
 				delay = d
 			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			timer.Reset(delay)
 		}
 	}()
+}
+
+func currentGuildRankingFresh(reg guild.Registry, now time.Time) bool {
+	if reg.Ranking == nil || reg.Ranking.Current == nil {
+		return false
+	}
+	p := reg.Ranking.Current
+	return !p.SampledAt.After(now) && p.Start.Equal(guild.RankingMonthStart(now)) && now.Sub(p.SampledAt) < currentGuildRankingInterval
+}
+
+func (s *Service) currentGuildRankingChannels() (chan struct{}, chan struct{}) {
+	s.guildRankingMu.Lock()
+	defer s.guildRankingMu.Unlock()
+	if s.guildRankingGate == nil {
+		s.guildRankingGate = make(chan struct{}, 1)
+	}
+	if s.guildRankingWake == nil {
+		s.guildRankingWake = make(chan struct{}, 1)
+	}
+	return s.guildRankingGate, s.guildRankingWake
+}
+
+func (s *Service) requestCurrentGuildRankingRefresh() {
+	_, wake := s.currentGuildRankingChannels()
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
 }
 
 // Shared terminal facts survive a teammate returning to town before the other

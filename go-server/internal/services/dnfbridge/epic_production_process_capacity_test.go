@@ -16,8 +16,8 @@ import (
 )
 
 // A stale/repeated process request must not spend materials or a weekly use
-// once the persisted target has no remaining charge capacity. This does not
-// implement or assume a completion/claim request.
+// once the persisted target has no remaining charge capacity, or the final
+// charge has already awarded the weapon and cleared that target.
 func TestRealPVFEpicProductionProcessCapacity(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
@@ -79,8 +79,20 @@ func TestRealPVFEpicProductionProcessCapacity(t *testing.T) {
 					}
 					saved, _, _ := repos.Character.Load(ctx, "2")
 					items, _, _ := repos.Inventory.Load(ctx, "2")
-					if saved.Stats[currentEpicProductionChargeStat] != int64(catalog.maxChargePoint) || saved.Stats[currentEpicProductionWeeklyCountStat] != 3 || items.Slots["0:122"].Count != 9 || items.Slots["0:127"].Count != 9 {
+					if saved.Stats[currentEpicProductionChargeStat] != 0 || saved.Stats[currentEpicProductionTargetStat] != 0 || saved.Stats[currentEpicProductionWeeklyCountStat] != 3 || items.Slots["0:122"].Count != 9 || items.Slots["0:127"].Count != 9 {
 						t.Fatalf("last valid charge failed: stats=%v items=%v", saved.Stats, items.Slots)
+					}
+					weapons := 0
+					for _, stack := range items.Slots {
+						if stack.ItemID == 108000520 {
+							weapons++
+							if stack.Count != 1 || len(stack.RawEntry) == 0 {
+								t.Fatalf("completed weapon=%+v", stack)
+							}
+						}
+					}
+					if weapons != 1 {
+						t.Fatalf("completed weapons=%d, want one", weapons)
 					}
 					conn.write.Reset()
 				}

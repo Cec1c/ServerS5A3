@@ -606,6 +606,9 @@ func TestTownEnterSelectOp15DoesNotSendOp27WithActiveDungeonRuntime(t *testing.T
 
 func TestTownEnterSelectOp15AfterBackToVillageIsSceneFinalizerOnly(t *testing.T) {
 	service, session, runtime := newBackToVillageRuntime(t)
+	// Town restoration includes the authenticated character's guild snapshot.
+	session.accountID = runtime.Character.AccountID
+	service.bindGameSessionCharacter(session, session.selectedCharacterID)
 	if err := service.handleDungeonBackToVillage(session, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -653,6 +656,8 @@ func TestTownEnterSelectOp15AfterBackToVillageIsSceneFinalizerOnly(t *testing.T)
 
 func TestTownEnterSelectAfterBackToVillageFinalizerCanOpenSelectorOnNextIntent(t *testing.T) {
 	service, session, runtime := newBackToVillageRuntime(t)
+	session.accountID = runtime.Character.AccountID
+	service.bindGameSessionCharacter(session, session.selectedCharacterID)
 	if err := service.handleDungeonBackToVillage(session, nil); err != nil {
 		t.Fatalf("start pending back-to-village return: %v", err)
 	}

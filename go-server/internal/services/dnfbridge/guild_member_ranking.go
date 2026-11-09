@@ -29,7 +29,7 @@ func (s *Service) handleCurrentGuildMemberRanking(session *gameSession, request 
 		return fail(err)
 	}
 	defer release()
-	actor, err := s.currentGuildOwnedSelectedCharacter(session)
+	actor, err := s.currentGuildOwnedSelectedIdentity(session)
 	if err != nil {
 		return fail(err)
 	}

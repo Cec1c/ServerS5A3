@@ -17,7 +17,9 @@ import (
 func TestRealPVFRaidTableReturnActive(t *testing.T) {
 	catalog, _ := actualAntonRewardFixture(t)
 	a := catalog.source.(*platformpvf.Archive)
-	for _, kind := range []string{"op13_personal", "op42_control", "table72"} {
+	// Leader table72 now has its own whole-party regression. Personal exits
+	// must retain this original boundary: only the requesting player leaves.
+	for _, kind := range []string{"op13_personal", "op42_control"} {
 		t.Run(kind, func(t *testing.T) {
 			f, owners, conns, _ := deadlineAuditV10Admit(t, a, false)
 			s := f.service
@@ -40,7 +42,7 @@ func TestRealPVFRaidTableReturnActive(t *testing.T) {
 			for i := 0; i < 2; i++ {
 				runs[i] = owners[i].dungeon.runtime
 				if runs[i] == nil || runs[i].raidEntry == nil || runs[i].Dungeon.ID != 210 {
-					t.Fatal("real op16 admission failed")
+					t.Fatalf("real op16 admission failed; fixture trace:\n%s", f.logText(t))
 				}
 				dispatch(owners[i], 37, make([]byte, 8))
 			}
@@ -87,10 +89,6 @@ func TestRealPVFRaidTableReturnActive(t *testing.T) {
 				op = 13
 			}
 			var body []byte
-			if kind == "table72" {
-				op = 72
-				body = []byte{1, 2}
-			}
 			dispatch(owners[0], op, body)
 			after, _, err := f.repos.Character.Load(context.Background(), strconv.Itoa(int(owners[0].selectedCharacterID)))
 			if err != nil {

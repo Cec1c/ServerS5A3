@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"longheng.io/server/internal/modules/dnf/repository"
-	"strings"
 )
 
 // mergeCharacterExtraStat 合并一条 `dnf_character_stats` 行到记录里。
@@ -201,22 +200,14 @@ func replaceCharacterExtraStats(
 	for _, stat := range mysqlCharacterStatColumns {
 		known[stat.key] = struct{}{}
 	}
-	query := "INSERT INTO " + table + " (character_id, stat_key, stat_value) VALUES (?, ?, ?)"
+	var changed []string
 	for _, key := range sortedStringKeys(stats) {
 		if _, ok := known[key]; ok {
 			continue
 		}
-		keyQuery := query
-		if _, event := repository.LevelUpEventLevel(key); event {
-			keyQuery += " ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), IF(stat_value < 0 OR VALUES(stat_value) >= 0, stat_value, VALUES(stat_value)))"
-		} else if strings.HasPrefix(key, repository.LevelUpRewardStatPrefix) {
-			keyQuery += " ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), stat_value)"
-		}
-		if _, err := database.ExecContext(ctx, keyQuery, characterID, key, stats[key]); err != nil {
-			return err
-		}
+		changed = append(changed, key)
 	}
-	return nil
+	return writeCharacterStatRows(ctx, database, table, characterID, changed, stats, false)
 }
 
 func characterRosterColumns() []string {

@@ -11,21 +11,23 @@ import (
 )
 
 func (s *Service) currentGuildForSelectedCharacter(session *gameSession) (*dnfguild.Guild, error) {
-	ctx, cancel := s.currentGuildContext()
-	defer cancel()
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if _, _, found := registry.GuildForCharacter(strconv.Itoa(int(session.selectedCharacterID))); !found {
+	if session == nil || session.selectedCharacterID == 0 {
 		return nil, nil
 	}
-	character, err := s.currentGuildOwnedSelectedCharacter(session)
+	ctx, cancel := s.currentGuildContext()
+	defer cancel()
+	character, err := s.currentGuildOwnedSelectedIdentity(session)
 	if err != nil {
 		return nil, err
 	}
-	g, _, _ := registry.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
-	return g, nil
+	repos, ok := s.repositoryGroup()
+	if !ok || repos.Settings == nil {
+		return nil, dnfguild.ErrRepositoryUnavailable
+	}
+	started := s.performanceStart()
+	g, err := dnfguild.ReadGuildDisplay(ctx, repos.Settings, dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
+	s.performanceEnd(perfGuildRegistryRead, started, err)
+	return g, err
 }
 
 func currentGuildMemberChannelByte(channel int) byte {

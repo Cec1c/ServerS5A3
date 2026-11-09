@@ -21,9 +21,12 @@ func TestFateShopExplicitOpeningFeesPreserved(t *testing.T) {
 		{10157775, "", 0, 0},
 		{10157776, "", 0, 0},
 		{10159652, "", 0, 0},
+		{10159653, "", 0, 0},
 
 		{10157775, "[lottery use need item]\n10007367 2\n", 10007367, 2},
 		{10157775, "[sealing removal item]\n10007367 3\n", 10007367, 3},
+		{10159653, "[lottery use need item]\n10007367 2\n", 10007367, 2},
+		{10159653, "[sealing removal item]\n10007367 3\n", 10007367, 3},
 		{900, "", 10095702, 4},
 	} {
 		doc, err := dnfpvf.Parse("stackable/test.stk", "[stackable type]\n`[upgradable legacy]` 1\n[need material]\n10095702 4\n"+tc.extra)
@@ -38,7 +41,7 @@ func TestFateShopExplicitOpeningFeesPreserved(t *testing.T) {
 }
 
 func TestFateShopPurchasedJarsOpenWithoutSecondPayment(t *testing.T) {
-	for _, id := range []int64{10157775, 10157776, 10159652} {
+	for _, id := range []int64{10157775, 10157776, 10159652, 10159653} {
 		for _, full := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%d/full_%t", id, full), func(t *testing.T) {
 				source := dungeonDropCatalogTestSource{

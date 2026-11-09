@@ -7,6 +7,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
+	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
 )
@@ -219,10 +220,19 @@ func TestRegroupEntryRollbackLiteralKeepsTheStaleSelectorContext(t *testing.T) {
 func followerSelectorPageFrameCount(t *testing.T, conn *bufferConn) int {
 	t.Helper()
 	count := 0
-	for _, frame := range splitUpperFrames(t, conn.write.Bytes()) {
-		if frame.msgID == currentDungeonContextMsgID {
+	// Real PVF entry also writes resource packets whose marker is not an upper
+	// checksum. Frame the mixed stream, retaining checksum validation for every
+	// selector context counted by this assertion.
+	stream := conn.write.Bytes()
+	for len(stream) != 0 {
+		frame, rest := splitCurrentGameServerUpperPacketAuto(t, stream)
+		if frame.Header.MsgID == currentDungeonContextMsgID {
+			if _, err := dnfproto.ParseChannelPacket(stream[:len(stream)-len(rest)]); err != nil {
+				t.Fatalf("selector context checksum: %v", err)
+			}
 			count++
 		}
+		stream = rest
 	}
 	return count
 }

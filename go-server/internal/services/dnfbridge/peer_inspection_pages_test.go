@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"reflect"
 	"testing"
 
@@ -13,6 +14,27 @@ import (
 )
 
 func TestPeerInspectionBuffButtonTargetAndOwnership(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		name := "upper"
+		if legacy {
+			name = "native_legacy"
+		}
+		t.Run(name, func(t *testing.T) { testPeerInspectionBuffButtonTargetAndOwnership(t, legacy) })
+	}
+}
+
+func peerInspectionDispatchForTest(legacy bool) func(*Service, *gameSession, uint16, byte, []byte) (bool, error) {
+	if legacy {
+		return func(s *Service, session *gameSession, opcode uint16, class byte, body []byte) (bool, error) {
+			// The shipped sender writes cmd=1, a 13-byte legacy header and a u16
+			// target. Exercise parsing, authentication and the production registry.
+			return true, s.handleLegacyGamePacket(session, buildLegacyGamePacketForBridgeTest(class, opcode, 1, body))
+		}
+	}
+	return currentGameplayModules.DispatchUpper
+}
+
+func testPeerInspectionBuffButtonTargetAndOwnership(t *testing.T, legacy bool) {
 	t.Setenv(buffSwapReapplyEnv, "on")
 	t.Setenv(peerUserInfoIdentityCarrierEnv, "off")
 	r := newSkillSwitchInventoryRepos(t)
@@ -44,8 +66,8 @@ func TestPeerInspectionBuffButtonTargetAndOwnership(t *testing.T) {
 	s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 1, TownID: 1, AreaID: 2, Session: viewer})
 	s.onlinePlayers.EnterArea(&onlinePlayerInfo{CharacterID: 5, TownID: 1, AreaID: 2, Session: target})
 	before, _, _ := r.Settings.Load(ctx, buffswap.Scope("5"))
-	reg := mustGameplayModuleRegistry(titleBookGameplayModule())
-	handled, err := reg.DispatchUpper(s, viewer, currentPeerBuffInspectCommand, 1, []byte{5, 0})
+	dispatch := peerInspectionDispatchForTest(legacy)
+	handled, err := dispatch(s, viewer, currentPeerBuffInspectCommand, 1, []byte{5, 0})
 	if err != nil || !handled {
 		t.Fatal(handled, err)
 	}
@@ -66,7 +88,7 @@ func TestPeerInspectionBuffButtonTargetAndOwnership(t *testing.T) {
 	}
 	for _, body := range [][]byte{nil, {5}, {5, 0, 0}, {1, 0}, {99, 0}} {
 		conn.write.Reset()
-		if _, err := reg.DispatchUpper(s, viewer, 1497, 1, body); err != nil {
+		if _, err := dispatch(s, viewer, 1497, 1, body); err != nil {
 			t.Fatal(err)
 		}
 		if conn.write.Len() != 0 {
@@ -74,14 +96,14 @@ func TestPeerInspectionBuffButtonTargetAndOwnership(t *testing.T) {
 		}
 	}
 	conn.write.Reset()
-	if _, err := reg.DispatchUpper(s, viewer, 1497, 0, []byte{5, 0}); err != nil {
+	if _, err := dispatch(s, viewer, 1497, 0, []byte{5, 0}); err != nil {
 		t.Fatal(err)
 	}
 	if conn.write.Len() != 0 {
 		t.Fatal("wrong class accepted")
 	}
 	target.channel.ID = 43
-	if _, err := reg.DispatchUpper(s, viewer, 1497, 1, []byte{5, 0}); err != nil {
+	if _, err := dispatch(s, viewer, 1497, 1, []byte{5, 0}); err != nil {
 		t.Fatal(err)
 	}
 	if conn.write.Len() != 0 {
@@ -90,6 +112,16 @@ func TestPeerInspectionBuffButtonTargetAndOwnership(t *testing.T) {
 }
 
 func TestPeerInspectionTitleButtonEmptyFilledAndScope(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		name := "upper"
+		if legacy {
+			name = "native_legacy"
+		}
+		t.Run(name, func(t *testing.T) { testPeerInspectionTitleButtonEmptyFilledAndScope(t, legacy) })
+	}
+}
+
+func testPeerInspectionTitleButtonEmptyFilledAndScope(t *testing.T, legacy bool) {
 	for _, populated := range []bool{false, true} {
 		f := newTownPartyActorHPFixture(t, false)
 		s, viewer, conn := f.service, f.target, f.targetConn
@@ -107,9 +139,9 @@ func TestPeerInspectionTitleButtonEmptyFilledAndScope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reg := mustGameplayModuleRegistry(titleBookGameplayModule())
+		dispatch := peerInspectionDispatchForTest(legacy)
 		f.reset()
-		if handled, err := reg.DispatchUpper(s, viewer, 423, 1, []byte{17, 0}); err != nil || !handled {
+		if handled, err := dispatch(s, viewer, 423, 1, []byte{17, 0}); err != nil || !handled {
 			t.Fatal(handled, err)
 		}
 		packets := drainUpperPackets(t, conn)
@@ -134,15 +166,55 @@ func TestPeerInspectionTitleButtonEmptyFilledAndScope(t *testing.T) {
 		if !reflect.DeepEqual(after, before) {
 			t.Fatal("inspection mutated inventory")
 		}
+		for _, body := range [][]byte{nil, {17}, {17, 0, 0}, {29, 0}, {99, 0}} {
+			conn.write.Reset()
+			if _, err := dispatch(s, viewer, 423, 1, body); err != nil {
+				t.Fatal(err)
+			}
+			if conn.write.Len() != 0 {
+				t.Fatalf("invalid title request replied: %x", body)
+			}
+		}
+		if _, err := dispatch(s, viewer, 423, 0, []byte{17, 0}); err != nil {
+			t.Fatal(err)
+		}
+		if conn.write.Len() != 0 {
+			t.Fatal("wrong title class accepted")
+		}
 		info := f.actorInfo
 		info.AreaID++
 		s.onlinePlayers.EnterArea(&info)
 		conn.write.Reset()
-		if _, err := reg.DispatchUpper(s, viewer, 423, 1, []byte{17, 0}); err != nil {
+		if _, err := dispatch(s, viewer, 423, 1, []byte{17, 0}); err != nil {
 			t.Fatal(err)
 		}
 		if conn.write.Len() != 0 {
 			t.Fatal("other area accepted")
+		}
+	}
+}
+
+// Produced by verify_requests.py from the shipped cumulative client, with
+// only final transport length/checksum/sequence adapted. Both requests have
+// a 13-byte header and exactly two body bytes; they are not upper packets.
+func TestPeerInspectionNativeLegacyTitleFrame(t *testing.T) {
+	f := newTownPartyActorHPFixture(t, false)
+	raw, err := hex.DecodeString("01a7010f0000000000000001001100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.service.handleLegacyGamePacket(f.target, raw); err != nil {
+		t.Fatal(err)
+	}
+	packets := drainUpperPackets(t, f.targetConn)
+	if len(packets) != 5 {
+		t.Fatalf("native legacy title request did not open the book: pages=%d", len(packets))
+	}
+	for category, p := range packets {
+		if p.msgID != 358 || len(p.body) != 11 || p.body[0] != 1 ||
+			binary.LittleEndian.Uint16(p.body[1:]) != 17 ||
+			binary.LittleEndian.Uint32(p.body[3:]) != uint32(category) {
+			t.Fatalf("native legacy title page %d: %x", category, p.body)
 		}
 	}
 }

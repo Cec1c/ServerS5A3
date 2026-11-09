@@ -289,9 +289,10 @@ func TestRealPVFRaidFailureMovieCompletionDoesNotOpenRewards(t *testing.T) {
 	if ack.Header.MsgID != 659 || len(ack.Body) != 1 || ack.Body[0] != 1 {
 		t.Fatal("missing failure movie completion ack")
 	}
-	stage, rest := splitGameServerUpperPacket(t, rest)
-	if stage.Header.MsgID != 587 || len(stage.Body) != 2 || stage.Body[0] != 4 || stage.Body[1] != 1 || len(rest) != 0 {
-		t.Fatal("missing failure-only result stage", stage)
+	if len(rest) != 0 {
+		// Current NOTI587 state 4 unconditionally calls the card-window
+		// opener at 02001639; its second byte does not make it failure-only.
+		t.Fatal("failure movie completion must not enter the reward screen")
 	}
 	if !f.service.currentRaidFailurePresentationReady(p, *f.state) || len(b.RewardCardReady[0]) != 0 || len(b.RewardCards[0]) != 0 || b.PhaseCompleted || len(f.service.raidWeeklyIntents) != 0 {
 		t.Fatal("failure movie completion created clear eligibility")

@@ -978,6 +978,13 @@ func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, include
 }
 
 func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
+	// A manual Anton phase-two start reuses the start command, but its raid
+	// seats are not authority to recreate ordinary parties formed during
+	// phase one. Keep their IDs, slots and live UDP transports intact.
+	if b := state.Battle; s.options.currentClientVersion == "official-24.9" &&
+		b != nil && b.Mode == 1 && !b.Single && b.Phase > 0 {
+		return nil
+	}
 	// FiendWar's 1..8 placements are personal raid seats, not ordinary party
 	// rows. Its only party is the temporary combat party created from the
 	// confirmed source-map encounter roster. Applying this helper at raid start

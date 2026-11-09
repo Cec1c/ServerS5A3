@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -255,10 +256,30 @@ func (s *Service) sendEnterSelectDungeonState(
 		// the same town scene, preventing a duplicate op27 on its op35 flush.
 		s.clearDeferredTownEnterSelectRequest(session, "superseded_by_ready_request")
 	}
+	var followersPreparedFirst bool
 	if contextReady {
 		if err := s.restoreCurrentTagTournamentBeforeSelect(session); err != nil {
 			s.logGameEvent(session, "帝国竞技场选图前恢复挑战失败", "error", err)
 			return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEnterSelectDungeon), currentSelectDungeonInvalidSelectionStateReason)
+		}
+		// Opening the leader page can immediately broadcast the native peer selector
+		// list. Finish follower page writes first: a follower's later op27 would
+		// otherwise initialize its page after that one-shot list arrived. Keep the
+		// existing member/self-prepare path below, after that member's own context.
+		partyState := runtimePartyStateSnapshot(session)
+		followersPreparedFirst = partyState.PartyID > 0 &&
+			partyState.UserID != 0 && partyState.UserID == session.selectedCharacterID
+		if followersPreparedFirst {
+			if err := s.synchronizeRuntimePartyMembersEnterSelect(session, source+"_party_members"); err != nil {
+				// 队长的 op15 成功体与 op27 上下文都还没发出：队员准备失败时，先用原协议
+				// EnterSelectDungeon 失败回包应答这条请求，避免客户端对失败请求静默无响应；
+				// 原始错误仍交给上层（read loop 视 handler 错误为致命、会关连接）。
+				// 失败回包自身也写失败时用 errors.Join 同时保留两个错误，不吞任何一个。
+				if replyErr := s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketEnterSelectDungeon), currentSelectDungeonInvalidSelectionStateReason); replyErr != nil {
+					return errors.Join(err, replyErr)
+				}
+				return err
+			}
 		}
 	}
 	packetCount := 2
@@ -330,7 +351,7 @@ func (s *Service) sendEnterSelectDungeonState(
 		if err := s.sendCurrentTownEnterSelectContext(session, source+"_after_op15_ack_fatigue"); err != nil {
 			return err
 		}
-		if contextReady {
+		if contextReady && !followersPreparedFirst {
 			if err := s.synchronizeRuntimePartyMembersEnterSelect(session, source+"_party_members"); err != nil {
 				return err
 			}

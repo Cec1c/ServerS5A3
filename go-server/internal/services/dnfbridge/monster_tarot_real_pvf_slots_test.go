@@ -195,6 +195,7 @@ func TestRealPVFMonsterTarotOp27EveryRewardContainerAndSlot(t *testing.T) {
 					t.Fatalf("load before inventory found=%t err=%v", found, err)
 				}
 				service := currentBoosterTestService(catalog, repositories)
+				configureRealPVFLotteryFixture(t, service, catalog)
 				service.options.currentClientVersion = "official-24.9"
 				connection := &bufferConn{}
 				session := &gameSession{

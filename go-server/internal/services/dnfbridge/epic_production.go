@@ -102,10 +102,11 @@ type currentEpicProductionProcessRequest struct {
 }
 
 type currentEpicProductionProcessResult struct {
-	ChargePoint uint32
-	WeeklyCount uint32
-	BigSuccess  bool
-	Updates     []currentItemListEntry
+	CompletedItemID uint32
+	ChargePoint     uint32
+	WeeklyCount     uint32
+	BigSuccess      bool
+	Updates         []currentItemListEntry
 }
 
 type currentEpicProductionChangeRequest struct {
@@ -2003,6 +2004,44 @@ func (s *Service) commitCurrentEpicProductionProcess(
 		character.Stats[currentEpicProductionChargeStat] = charge
 		character.Stats[currentEpicProductionWeeklyCountStat] = weeklyCount + 1
 		character.Stats[currentEpicProductionWeekStartStat] = weekStart
+		var completedItemID uint32
+		if charge == int64(catalog.maxChargePoint) {
+			// Completion alone needs the target equipment definition. Resolve it
+			// lazily inside the asset transaction so ordinary progress remains
+			// usable with lightweight/in-memory PVF sources that do not carry the
+			// full equipment tree.
+			s.initialEquipmentMu.Lock()
+			completionSource, completionErr := s.initialEquipmentArchiveLocked()
+			s.initialEquipmentMu.Unlock()
+			if completionErr != nil {
+				return completionErr
+			}
+			completionItems, completionErr := s.currentPVFItemCatalog()
+			if completionErr != nil {
+				return completionErr
+			}
+			definition, err := validateCurrentEpicProductionEquipment(completionSource, completionItems, uint32(target))
+			if err != nil {
+				return err
+			}
+			slots, err := grantCurrentCeraShopProductAt(&inventory, definition, 1, now)
+			if err != nil {
+				return err
+			}
+			if len(slots) != 1 {
+				return errCurrentEpicProductionInvalid
+			}
+			slot := int16(slots[0])
+			key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
+			stack := inventory.Slots[key]
+			entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, slot, stack)
+			stack.RawEntry = append([]byte(nil), entry.data[:]...)
+			inventory.Slots[key] = stack
+			updates = append(updates, entry)
+			completedItemID = uint32(target)
+			character.Stats[currentEpicProductionTargetStat] = 0
+			character.Stats[currentEpicProductionChargeStat] = 0
+		}
 		character.UpdatedAt = now.UTC()
 		inventory.UpdatedAt = now.UTC()
 		if saveErr := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); saveErr != nil {
@@ -2013,10 +2052,11 @@ func (s *Service) commitCurrentEpicProductionProcess(
 		}
 		sortCurrentItemListEntries(updates)
 		result = currentEpicProductionProcessResult{
-			ChargePoint: uint32(charge),
-			WeeklyCount: uint32(weeklyCount + 1),
-			BigSuccess:  bigSuccess,
-			Updates:     updates,
+			CompletedItemID: completedItemID,
+			ChargePoint:     uint32(charge),
+			WeeklyCount:     uint32(weeklyCount + 1),
+			BigSuccess:      bigSuccess,
+			Updates:         updates,
 		}
 		return nil
 	})
@@ -2071,6 +2111,16 @@ func (s *Service) handleCurrentEpicProductionProcess(session *gameSession, body 
 	}
 	if len(result.Updates) != 0 {
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(dnfrepo.MainInventoryListType, result.Updates), 0); err != nil {
+			return err
+		}
+	}
+	if result.CompletedItemID != 0 {
+		// Native 1415 consumes target + charge. A full charge opens its
+		// completion presentation and clears its selected target. The weapon
+		// has already been granted in the same transaction as the final cost.
+		completion := buildCurrentEpicProductionStartSuccessBody(result.CompletedItemID)
+		binary.LittleEndian.PutUint32(completion[4:8], result.ChargePoint)
+		if err := s.sendGameUpperSuccess(session, s.currentEpicProductionCommandID(dnfenum.CmdPacketEpicProductionStartFinish), completion); err != nil {
 			return err
 		}
 	}
