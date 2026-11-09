@@ -211,6 +211,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	ownerSentinelBlockingClearSource := ""
 	var storyProcEvidence dungeonStoryProcDeathEvidence
 	storyProcDeath := false
+	ekernFactionDeath := false
 	if ownerIsSentinel {
 		if hasScene {
 			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
@@ -220,7 +221,21 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				}
 			}
 		}
-		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath {
+		ekernFactionDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && s.currentEkernFactionDeath(runtime, scene, request)
+		if ekernFactionDeath {
+			if target, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+				if err := s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey); err != nil {
+					return err
+				}
+				// Suppress further copies after repairing the failed notification.
+				body, err := buildCurrentDungeonDeathNotificationBodyWithDrops(target.ObjectKey, target.ResponseKind, nil)
+				if err == nil {
+					runtime.Room.RecordDeathResponseBody(request.RuntimeObjectKey, body)
+				}
+				return err
+			}
+		}
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath && !ekernFactionDeath {
 			if !roomProvenHostile {
 				diagnosticReason = "sentinel_shape_rejected"
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -249,7 +264,11 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "owner_sentinel_request_shape_unproven_but_target_is_announced_live_room_hostile",
 				"source", "server_owned_announced_actor_table")
 		}
-		if hasScene {
+		if ekernFactionDeath {
+			// Both actors are ordinary blocking hostiles. Do not promote this
+			// PVF faction death into a scripted boss or APC-retirement event.
+			ownerSentinelOrdinaryTarget = true
+		} else if hasScene {
 			scriptedTutorialMonster, scriptedTutorialEvidence, scriptedTutorialDeath = s.isPVFTutorialScriptedMonsterDeath(
 				runtime,
 				scene,
@@ -1201,6 +1220,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"owner_sentinel_blocking_clear_source", ownerSentinelBlockingClearSource,
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
 		"friendly_apc_contribution_proven", friendlyAPCDeath,
+		"ekern_faction_contribution_proven", ekernFactionDeath,
 		"friendly_owner_proven", friendlyOwnerDeath,
 		"response_kind", target.ResponseKind,
 		"response_opcode", uint16(dnfenum.CmdPacketNotifyDieMonster),
