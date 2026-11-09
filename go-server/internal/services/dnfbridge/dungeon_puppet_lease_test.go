@@ -222,3 +222,56 @@ func TestPuppetAllyDeathBossTargetSettles(t *testing.T) {
 		t.Fatal("boss target was not defeated; run would brick")
 	}
 }
+
+// 同房两只在册怪互杀：不需要人偶租约；贡献者不在册、或贡献者就是目标时拒绝。
+func TestRoomFactionDeathSettlesAnnouncedMonsterKills(t *testing.T) {
+	s, p, rt := puppetLeaseFixture(t)
+	monsters := rt.Room.Snapshot().Monsters
+	conn := p.conn.(*bufferConn)
+	body := puppetAllyDeathBodyKind(monsters[1].ObjectKey, currentDungeonPuppetContributionKindMonster, uint16(monsters[0].ObjectKey))
+	if err := s.handleDungeonMonsterDeath(p, body); err != nil {
+		t.Fatal(err)
+	}
+	ack := abyssOp38Bodies(t, conn.write.Bytes())
+	if len(ack) != 1 || len(ack[0]) < 2 || uint32(binary.LittleEndian.Uint16(ack[0])) != monsters[1].ObjectKey {
+		t.Fatalf("announced monster kill was not notified: %x", ack)
+	}
+	if _, defeated := rt.Room.DefeatedDeathTarget(monsters[1].ObjectKey); !defeated {
+		t.Fatal("announced monster kill was not settled")
+	}
+
+	unknown, _, unknownRT := puppetLeaseFixture(t)
+	unknownMonsters := unknownRT.Room.Snapshot().Monsters
+	scene, _ := unknownRT.Session.Scene()
+	req, err := unknown.decodeCurrentDungeonMonsterDeath(
+		puppetAllyDeathBodyKind(unknownMonsters[1].ObjectKey, currentDungeonPuppetContributionKindMonster, 65000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.currentDungeonRoomFactionDeath(unknownRT, scene, req) {
+		t.Fatal("unannounced contributor was admitted")
+	}
+}
+
+// 贡献者已经死了（残留效果晚一步打死目标）也必须结算。
+func TestRoomFactionDeathAcceptsAlreadyDefeatedContributor(t *testing.T) {
+	s, p, rt := puppetLeaseFixture(t)
+	monsters := rt.Room.Snapshot().Monsters
+	conn := p.conn.(*bufferConn)
+	first := ekernDiagnosticBody(monsters[0].ObjectKey, ^uint16(0), 0)
+	if err := s.handleDungeonMonsterDeath(p, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, defeated := rt.Room.DefeatedDeathTarget(monsters[0].ObjectKey); !defeated {
+		t.Fatal("contributor was not defeated first")
+	}
+	conn.write.Reset()
+	body := puppetAllyDeathBodyKind(monsters[1].ObjectKey, currentDungeonPuppetContributionKindMonster, uint16(monsters[0].ObjectKey))
+	if err := s.handleDungeonMonsterDeath(p, body); err != nil {
+		t.Fatal(err)
+	}
+	ack := abyssOp38Bodies(t, conn.write.Bytes())
+	if len(ack) != 1 || len(ack[0]) < 2 || uint32(binary.LittleEndian.Uint16(ack[0])) != monsters[1].ObjectKey {
+		t.Fatalf("defeated-contributor kill was not notified: %x", ack)
+	}
+}

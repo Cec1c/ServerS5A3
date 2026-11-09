@@ -214,6 +214,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	storyProcDeath := false
 	ekernFactionDeath := false
 	puppetAllyDeath := false
+	factionDeath := false
 	if ownerIsSentinel {
 		if hasScene {
 			storyProcEvidence, storyProcDeath = s.currentDungeonStoryProcDeath(session, runtime, scene, request)
@@ -224,6 +225,15 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			}
 		}
 		ekernFactionDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && s.currentEkernFactionDeath(runtime, scene, request)
+		// 通用阵营互杀：艾肯规则只认普通怪行，运行期投放的怪解析不出阵营，
+		// 这里补一条两种 actor 都能解析的路径。见 dungeon_faction_death.go。
+		factionDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && !ekernFactionDeath &&
+			s.currentDungeonRoomFactionDeath(runtime, scene, request)
+		if factionDeath {
+			if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {
+				return s.replayCurrentDungeonMonsterDeathLocked(session, runtime, request.RuntimeObjectKey)
+			}
+		}
 		// 动态友方（消耗品人偶）与本图声明的剧情 APC：贡献键由客户端分配，服务端
 		// 只能证明"本局/本图存在友方来源"，因此单独走有界租约，见 dungeon_puppet_lease.go。
 		puppetAllyDeath = hasScene && !storyProcDeath && !friendlyAPCDeath && !ekernFactionDeath &&
@@ -246,7 +256,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				return err
 			}
 		}
-		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath && !ekernFactionDeath && !puppetAllyDeath {
+		if (request.Layout != dungeoncmd.DieMonsterRequestLayoutVariableCombat || request.CombatEntryCount != 0) && !friendlyAPCDeath && !storyProcDeath && !ekernFactionDeath && !puppetAllyDeath && !factionDeath {
 			if !roomProvenHostile {
 				diagnosticReason = "sentinel_shape_rejected"
 				s.logGameEvent(session, "game-dungeon-monster-death-blocked",
@@ -275,7 +285,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 				"reason", "owner_sentinel_request_shape_unproven_but_target_is_announced_live_room_hostile",
 				"source", "server_owned_announced_actor_table")
 		}
-		if ekernFactionDeath || puppetAllyDeath {
+		if ekernFactionDeath || puppetAllyDeath || factionDeath {
 			// 双方都是普通阻挡怪 / 本房已证明存在友方来源：不要升级成脚本 Boss 或
 			// 非敌对 actor 退役事件，按普通怪死亡提交。
 			ownerSentinelOrdinaryTarget = true
@@ -1232,6 +1242,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		"owner_sentinel_ordinary_target", ownerSentinelOrdinaryTarget,
 		"friendly_apc_contribution_proven", friendlyAPCDeath,
 		"ekern_faction_contribution_proven", ekernFactionDeath,
+		"room_faction_contribution_proven", factionDeath,
 		"puppet_ally_contribution_proven", puppetAllyDeath,
 		"friendly_owner_proven", friendlyOwnerDeath,
 		"response_kind", target.ResponseKind,
