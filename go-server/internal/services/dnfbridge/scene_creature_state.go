@@ -469,9 +469,22 @@ func (s *Service) sendSelectedActorMode1AppearanceWithPostState(session *gameSes
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), body, 0); err != nil {
 		return err
 	}
+	// Paired mode1 still contains the legacy single-skill Buff block. Restore
+	// both groups before an unrelated creature/title/gem suffix can fail.
+	pairedBuffReapply := s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled()
+	reapplyBuff := func() error {
+		if committedWear {
+			return s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode1")
+		}
+		return s.sendBuffSwapReapply(session, operation+"_after_equipment_mode1")
+	}
+	if pairedBuffReapply {
+		if err := reapplyBuff(); err != nil {
+			return err
+		}
+	}
 	// Full mode1 recreates the equipped creature object; its dynamic enchant
 	// state belongs to the subsequent same-instance, pet-only item refresh.
-	var err error
 	if refreshCreature {
 		creature, loadErr := s.currentEquippedCreatureForCharacterWithError(ctx, strconv.Itoa(int(charID)))
 		if loadErr != nil {
@@ -492,13 +505,10 @@ func (s *Service) sendSelectedActorMode1AppearanceWithPostState(session *gameSes
 	if err := s.sendSelectedActorGuardianGemRowRefresh(session, operation+"_after_equipment_mode1"); err != nil {
 		return err
 	}
-	if committedWear {
-		err = s.sendBuffSwapReapplyAfterCommittedWear(session, operation+"_after_equipment_mode1")
-	} else {
-		err = s.sendBuffSwapReapply(session, operation+"_after_equipment_mode1")
-	}
-	if err != nil {
-		return err
+	if !pairedBuffReapply {
+		if err := reapplyBuff(); err != nil {
+			return err
+		}
 	}
 	s.broadcastCurrentCrossSceneAppearance(session)
 	return nil

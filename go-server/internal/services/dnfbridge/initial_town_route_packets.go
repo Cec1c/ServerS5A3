@@ -330,6 +330,11 @@ func (s *Service) sendCurrentTownActorPrerequisitesLocked(
 			// 记账：这一帧 mode1 已经发出，行数从**已发出的包体**里读回
 			// （`login_mode1_last_before_commit.go`）。
 			s.noteLoginMode1Send(session, mode1Body, "initial_town_actor_prerequisites_mode1_before_player_state")
+			if s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled() {
+				if err := s.sendBuffSwapReapply(session, "initial_town_prerequisite_paired_after_mode1"); err != nil {
+					return err
+				}
+			}
 		} else {
 			s.logPacketEvent("game-initial-town-prerequisite-mode1-skipped",
 				"conn_id", session.connID,

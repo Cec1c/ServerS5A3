@@ -165,6 +165,12 @@ type currentGuildMemberProfileFrame struct {
 }
 
 func (s *Service) sendCurrentGuildMemberProfile(ctx context.Context, a currentGuildMemberProfileAccess) error {
+	return s.sendCurrentGuildMemberProfileWithPolicy(ctx, a, false)
+}
+
+// cacheOnly sends the existing silent mode8 cache projection. It does not
+// send the separate mode3 inspection request or create a visible scene actor.
+func (s *Service) sendCurrentGuildMemberProfileWithPolicy(ctx context.Context, a currentGuildMemberProfileAccess, cacheOnly bool) error {
 	c, err := s.validateCurrentGuildMemberProfileAccess(ctx, a)
 	if err != nil {
 		return nil
@@ -198,6 +204,9 @@ func (s *Service) sendCurrentGuildMemberProfile(ctx context.Context, a currentGu
 			return err
 		}
 		frames = []currentGuildMemberProfileFrame{{2, 0, priming}, {2, 0, mode3}}
+		if cacheOnly {
+			frames = frames[:1]
+		}
 	}
 	return s.sendCurrentGuildMemberProfileFrames(ctx, a, revision, frames)
 }

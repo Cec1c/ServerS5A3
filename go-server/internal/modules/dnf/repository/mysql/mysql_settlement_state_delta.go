@@ -45,7 +45,7 @@ func characterStatSnapshotEligible(stats map[string]int64) bool {
 
 func saveChangedCharacterStats(ctx context.Context, database SQLDB, table, id string, before, after map[string]int64) error {
 	for _, key := range sortedStringKeys(before) {
-		if isMySQLCharacterMirrorStatKey(key) || permanentCharacterStat(key) {
+		if isMySQLCharacterMirrorStatKey(key) || permanentCharacterStat(key) || repository.IsCharacterWeddingStat(key) {
 			continue
 		}
 		if _, exists := after[key]; !exists {
@@ -56,7 +56,7 @@ func saveChangedCharacterStats(ctx context.Context, database SQLDB, table, id st
 	}
 	var changed []string
 	for _, key := range sortedStringKeys(after) {
-		if isMySQLCharacterMirrorStatKey(key) {
+		if isMySQLCharacterMirrorStatKey(key) || repository.IsCharacterWeddingStat(key) {
 			continue
 		}
 		if value, exists := before[key]; exists && value == after[key] {

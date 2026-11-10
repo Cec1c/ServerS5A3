@@ -76,7 +76,14 @@ func (s *Service) currentCrossSceneRaidPair(state runtimeRaidState, viewer, acto
 }
 
 func (s *Service) sendCurrentRaidCrossSceneProfiles(batch *currentCrossSceneProfileBatch, viewer *gameSession, state runtimeRaidState) {
+	s.sendCurrentRaidCrossSceneProfilesForActors(batch, viewer, state, nil)
+}
+
+func (s *Service) sendCurrentRaidCrossSceneProfilesForActors(batch *currentCrossSceneProfileBatch, viewer *gameSession, state runtimeRaidState, actors map[uint16]bool) {
 	for _, member := range state.Members {
+		if actors != nil && !actors[member.CharID] {
+			continue
+		}
 		actor, ok := s.onlineGameSession(member.CharID)
 		if !ok || !s.currentCrossSceneRaidPair(state, viewer, actor) {
 			continue

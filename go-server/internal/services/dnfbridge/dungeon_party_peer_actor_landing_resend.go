@@ -171,11 +171,13 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 		}
 		delivered := false
 		if decision == "resent" {
-			if err := s.sendDungeonPartyPeerActorState(
+			projected, err := s.sendDungeonPartyPeerActorStateForRun(
 				peer,
 				session,
 				source+"_peer_actor_landing_resend",
-			); err != nil {
+				ownKey,
+			)
+			if err != nil {
 				s.releaseDungeonPeerActorResend(peer, ownKey, identity)
 				decision, reason, delivered = "failed", "peer_actor_landing_resend_send_failed", false
 				s.logGameEvent(session, "game-party-dungeon-peer-actor-landing-resend-failed",
@@ -183,9 +185,12 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 					"char_id", peer.selectedCharacterID,
 					"peer_char_id", session.selectedCharacterID,
 					"error", err)
-			} else {
+			} else if projected {
 				delivered = true
 				sent++
+			} else {
+				s.releaseDungeonPeerActorResend(peer, ownKey, identity)
+				decision, reason = "deferred", "peer_actor_projection_became_stale_before_delivery"
 			}
 		}
 		// 这一行是"下一次实测一眼可判"的那一条：点名**这一场副本的运行键（世代）**、

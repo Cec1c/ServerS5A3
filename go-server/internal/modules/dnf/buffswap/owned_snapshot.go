@@ -39,7 +39,10 @@ type OwnedProjectionOptions struct {
 	// bindings to the physical item identity in the same owned transaction.
 	// Ambiguous same-template registrations are never guessed.
 	MigrateCurrentInstances bool
-	legacyLists             []byte
+	// Group selects one native group's skill tree without changing the active
+	// compatibility view. Group projections never migrate the active tree.
+	Group       *byte
+	legacyLists []byte
 }
 
 func validateBindingIdentity(b Binding) error {
@@ -213,9 +216,28 @@ func LoadResolvedOwnedMigratingCurrentInstances(ctx context.Context, base repo.G
 	return LoadResolvedOwnedWithOptions(ctx, base, characterID, accountID, OwnedProjectionOptions{MigrateCurrentInstances: true})
 }
 
+// LoadResolvedOwnedGroup reads exactly one native group's selected skill tree.
+// It uses the same owner/instance/pet transaction as the legacy projection but
+// never writes the active compatibility tree or another group's bindings.
+func LoadResolvedOwnedGroup(ctx context.Context, base repo.Group, characterID, accountID string, group byte) (OwnedProjection, error) {
+	if group >= SelectedGroupCount {
+		return OwnedProjection{}, ErrInvalid
+	}
+	groupCopy := group
+	return LoadResolvedOwnedWithOptions(ctx, base, characterID, accountID, OwnedProjectionOptions{Group: &groupCopy})
+}
+
 func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characterID, accountID string, options OwnedProjectionOptions) (OwnedProjection, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	var selectedGroup byte
+	groupView := options.Group != nil
+	if groupView {
+		selectedGroup = *options.Group
+		if selectedGroup >= SelectedGroupCount {
+			return OwnedProjection{}, ErrInvalid
+		}
 	}
 	var result OwnedProjection
 	err := repo.WithinBuffOwnedSnapshot(ctx, base, characterID, accountID, func(tx repo.Group) error {
@@ -235,6 +257,27 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 		if !found {
 			result.State = State{WireProfile: CurrentWireProfile}
 			return nil
+		}
+		if groupView {
+			ensureSkillSlots(&state)
+			ensureSelectedSkills(&state)
+			selectedSkill, selected := state.SelectedSkills[selectedGroup]
+			if !selected {
+				result.State = State{WireProfile: state.WireProfile, Slots: map[byte]Binding{}}
+				return nil
+			}
+			state = State{
+				WireProfile: state.WireProfile,
+				Skill:       selectedSkill,
+				Slots:       cloneBindingMap(state.SkillSlots[selectedSkill]),
+			}
+			if state.Slots == nil {
+				state.Slots = make(map[byte]Binding)
+			}
+			// A group projection is read-only for instance identity. In
+			// particular it must not persist the selected group through the
+			// legacy active Skill/Slots view.
+			options.MigrateCurrentInstances = false
 		}
 		// Skill-only/cleared states need no item container/Legacy/Pet dependency.
 		if len(state.Slots) == 0 {

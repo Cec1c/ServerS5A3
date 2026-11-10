@@ -167,6 +167,7 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	txGroup.Skill = scopeSkillPointLedger(txGroup.Skill, base.Skill, characterID)
 	txGroup.Activity = &mysqlCharacterActivityStore{mysqlActivityStore: base.Activity.(*mysqlActivityStore), characterID: characterID}
 	base.Character.(*mysqlCharStore).activity = txGroup.Activity
+	txGroup.Settings = repository.WithCharacterContainerRead(txGroup.Settings, base.Settings, characterID)
 	if err := apply(txGroup); err != nil {
 		return errors.Join(err, rollbackTimedSQLTransaction(ctx, tx))
 	}

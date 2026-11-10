@@ -121,6 +121,29 @@ func (s *Service) handleCurrentGiveUpQuest(session *gameSession, body []byte) er
 		}
 		return item.Kind == dungeonDropItemStackable && strings.TrimSpace(item.StackableType) == "[material]", nil
 	})
+	var collecting dnfquest.CollectingGiveUpResult
+	if errors.Is(err, dnfquest.ErrGiveUpNeedsAssets) {
+		collecting, err = owner.ApplyCollectingGiveUp(ctx, catalog, dnfquest.NewQuestIDCommand(alignedcmd.Request{
+			AccountID: s.accountIDForSession(session), SelectedCharacterID: session.selectedCharacterID,
+		}, "giveup_quest", request), func(itemID int64) (string, error) {
+			if itemID <= 0 || itemID > math.MaxUint32 {
+				return "", dnfquest.ErrGiveUpNeedsAssets
+			}
+			items, err := s.currentPVFItemCatalog()
+			if err != nil {
+				return "", err
+			}
+			item, err := items.ResolveItem(uint32(itemID))
+			if err != nil {
+				return "", err
+			}
+			if item.Kind != dungeonDropItemStackable {
+				return "", dnfquest.ErrGiveUpNeedsAssets
+			}
+			return strings.TrimSpace(item.StackableType), nil
+		})
+		result = collecting.GiveUpResult
+	}
 	if err != nil {
 		s.logGameEvent(session, "game-upper-give-up-quest-blocked",
 			"quest_id", request.QuestID,
@@ -144,6 +167,11 @@ func (s *Service) handleCurrentGiveUpQuest(session *gameSession, body []byte) er
 		}
 	}
 
+	if len(collecting.Reclaimed) != 0 {
+		if err := s.sendCurrentGiveUpQuestItemUpdate(session, collecting); err != nil {
+			return err
+		}
+	}
 	var payload packetWriter
 	payload.writeUint16(result.QuestID)
 	s.logGameEvent(session, "game-upper-give-up-quest-success-send",
@@ -158,4 +186,23 @@ func (s *Service) handleCurrentGiveUpQuest(session *gameSession, body []byte) er
 	session.clearCurrentAcceptQuestReplay(newCurrentAcceptQuestReplayKey(session.selectedCharacterID, request))
 	session.suppressCurrentGiveUpQuestReplay(replayKey)
 	return nil
+}
+
+func (s *Service) sendCurrentGiveUpQuestItemUpdate(session *gameSession, result dnfquest.CollectingGiveUpResult) error {
+	entries := make([]currentItemListEntry, 0, len(result.Reclaimed))
+	for _, item := range result.Reclaimed {
+		var entry currentItemListEntry
+		if item.PostCount == 0 {
+			entry.patchCore(int16(item.SlotIndex), math.MaxUint32, 0)
+		} else {
+			stack, ok := result.Inventory.Slots[item.SlotKey]
+			if !ok || stack.ItemID != item.ItemID || stack.Count != item.PostCount {
+				return errCurrentFinishQuestAckShape
+			}
+			entry = currentItemListEntryFromStack(0, int16(item.SlotIndex), stack)
+		}
+		entries = append(entries, entry)
+	}
+	s.logGameEvent(session, "game-upper-give-up-quest-item-update-send", "quest_id", result.QuestID, "slots", len(entries))
+	return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(0, entries), 0)
 }

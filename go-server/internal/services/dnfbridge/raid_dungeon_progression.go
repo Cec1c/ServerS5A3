@@ -216,16 +216,21 @@ func (s *Service) queueCurrentRaidDungeonProgress(state runtimeRaidState) {
 	}
 	s.queueCurrentRaidWeeklyClears()
 	for _, member := range state.Members {
-		peer, found := s.onlineGameSession(member.CharID)
+		identity, found := s.onlineGameSessionCharacterSnapshot(member.CharID)
 		if !found {
 			continue
 		}
-		id, generation := member.CharID, peer.characterGeneration
+		peer, id := identity.session, identity.character
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			defer cancel()
+			// A busy owner may legitimately spend longer than a wire deadline
+			// loading a map. Its queued journal update lives with the session,
+			// while every actual transport write remains separately bounded.
+			ctx := peer.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
 			err := s.callGameSession(ctx, peer, "raid-owned-dungeon-progress", func() error {
-				if peer.selectedCharacterID != id || peer.characterGeneration != generation || !s.currentRaidAuthenticated(peer) {
+				if !s.boundGameSessionCharacterCurrent(identity) || !s.currentRaidAuthenticated(peer) {
 					return nil
 				}
 				s.raidMu.Lock()
@@ -252,7 +257,10 @@ func (s *Service) queueCurrentRaidDungeonProgress(state runtimeRaidState) {
 				if err := s.sendCurrentAntonTerminalResult(peer, latest); err != nil {
 					return err
 				}
-				return s.sendCurrentAntonRewardFlowProjection(peer, latest)
+				if err := s.sendCurrentAntonRewardFlowProjection(peer, latest); err != nil {
+					return err
+				}
+				return s.sendCurrentAntonRewardReturn(peer, latest)
 			})
 			if err != nil {
 				s.logGameEvent(peer, "game-raid-dungeon-progress-send-failed", "raid_key", state.RaidKey, "error", err)

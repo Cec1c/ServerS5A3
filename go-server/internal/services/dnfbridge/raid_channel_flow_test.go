@@ -29,6 +29,16 @@ func TestRaidLoginReplyNativeChannelType(t *testing.T) {
 			if len(body) < 4 || body[2] != want {
 				t.Fatalf("频道%+v登录类型不符：%s %x", channel, profile, body)
 			}
+			if profile == "official-24.9" {
+				// The official-24.9 endpoint success has a fixed post-token
+				// layout; legacy profiles retain the historical DSTR prefix.
+				// Its full layout and native invitation gates are covered by
+				// TestOfficial249LoginSuccessLeavesRaidInviteWindowGateClear.
+				if len(body) != 40 {
+					t.Fatalf("official-24.9 login body len=%d, want 40: %x", len(body), body)
+				}
+				continue
+			}
 			body[2] = legacy[2]
 			if !bytes.Equal(body, legacy) {
 				t.Fatal("登录应答非目标字段改变")

@@ -286,7 +286,13 @@ func testRealPVFTotalTeamActorsAndCatalog(t *testing.T, professions [][2]byte) {
 	for _, p := range []*gameSession{session, peer} {
 		p.channel = channelcatalog.Channel{ID: 75, Type: 8, Group: "pvp"}
 		p.characterGeneration, p.sceneBootstrapTailSent = 1, true
-		p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: p.selectedCharacterID, TownID: 10, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
+		// PR74 admits matching from the shared plaza and deliberately rejects
+		// the per-character gate room (area 0). This end-to-end fixture must
+		// start from the real shared area while preserving that refusal guard.
+		p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: p.selectedCharacterID, TownID: 10, AreaID: 1, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
+		if currentPVPStandaloneRoomRequest(p) {
+			t.Fatal("total-match fixture must originate in the shared plaza")
+		}
 		p.partyPeer = currentPartyPeerEndpointRegistration{InnerIPv4: [4]byte{127, 0, 0, 1}, OuterIPv4: [4]byte{127, 0, 0, 1}, Port: 12000 + p.selectedCharacterID, MTU: currentPartyPeerMinimumMTU}
 		s.gameSessions[p.selectedCharacterID] = p
 		p.conn.(*bufferConn).write.Reset()

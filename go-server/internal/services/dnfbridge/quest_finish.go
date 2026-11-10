@@ -60,6 +60,15 @@ func (session *gameSession) markCurrentFinishQuestAnswered(key currentFinishQues
 	session.questReplay.finishAnswered[key] = struct{}{}
 }
 
+func (session *gameSession) clearCurrentFinishQuestReplayForQuest(characterID, questID uint16) {
+	if session == nil {
+		return
+	}
+	session.questReplay.finishMu.Lock()
+	defer session.questReplay.finishMu.Unlock()
+	delete(session.questReplay.finishAnswered, currentFinishQuestReplayKey{characterID: characterID, questID: questID})
+}
+
 func (s *Service) handleCurrentFinishQuest(session *gameSession, body []byte) error {
 	if session == nil || session.selectedCharacterID == 0 {
 		return nil

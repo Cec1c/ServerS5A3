@@ -17,3 +17,27 @@ func currentRaidMemberPhaseClearCount(state runtimeRaidState, characterID uint16
 	}
 	return byte(registered)
 }
+
+// Zero counters need no cached row. This keeps an untouched initial table from
+// triggering a redundant roster while still detecting a phase reset to zero.
+func currentRaidMemberClearCounters(state runtimeRaidState) map[uint16]byte {
+	counts := make(map[uint16]byte)
+	for _, member := range state.Members {
+		if count := currentRaidMemberPhaseClearCount(state, member.CharID); count != 0 {
+			counts[member.CharID] = count
+		}
+	}
+	return counts
+}
+
+func sameCurrentRaidMemberClearCounters(previous, next map[uint16]byte) bool {
+	if len(previous) != len(next) {
+		return false
+	}
+	for id, count := range next {
+		if previous[id] != count {
+			return false
+		}
+	}
+	return true
+}

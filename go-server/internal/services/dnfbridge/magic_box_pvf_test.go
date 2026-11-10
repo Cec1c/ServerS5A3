@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -214,10 +215,10 @@ func TestResolveCurrentMagicBoxRewardItemMetadata(t *testing.T) {
 	if item.ItemID != 2600014 || item.Kind != "stackable" || item.StackLimit != 100 || !item.Seal || item.UsablePeriodDays != 30 {
 		t.Fatalf("reward item = %+v", item)
 	}
-	minExpire := time.Unix(before.Unix()+30*86400, 0).UTC()
-	maxExpire := time.Unix(time.Now().UTC().Unix()+30*86400, 0).UTC()
-	if item.ExpireAt.Before(minExpire) || item.ExpireAt.After(maxExpire) {
-		t.Fatalf("reward expiration=%s outside %s..%s", item.ExpireAt, minExpire, maxExpire)
+	// 2026-11-07 起吸附到服务日 06:00（北京时间）。
+	wantExpire := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(before.Unix()+30*86400, 0).UTC())
+	if !item.ExpireAt.Equal(wantExpire) {
+		t.Fatalf("reward expiration=%s want=%s", item.ExpireAt, wantExpire)
 	}
 	if item.SlotStart != 65 || item.SlotEnd != 120 {
 		t.Fatalf("slot range = %d-%d, want 65-120", item.SlotStart, item.SlotEnd)

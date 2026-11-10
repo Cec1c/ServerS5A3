@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 const currentMode1EquipmentCreateRowBaseWireSize = 56
@@ -96,9 +98,26 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 		return nil
 	}
 	rows := make([]currentMode1EquipmentObjectRow, 0, len(record.Entries))
+	var pets dnfrepo.PetRecord
+	petLoaded := false
 	for _, equipped := range record.Entries {
 		if equipped.SlotIndex < 0 || equipped.SlotIndex > 0xff || equipped.ItemID <= 0 {
 			continue
+		}
+		// Remote actor and inspect bodies must recover the same durable card
+		// as the owner's cold-login projection. Never write this fallback back
+		// to equipment or borrow another creature's card.
+		if equipped.SlotIndex == 26 && currentEquippedCreatureFromEquipment(equipped).valid() && currentEquippedCreatureEnchantCardID(equipped) == 0 && repos.Pet != nil {
+			if !petLoaded {
+				petLoaded = true
+				loaded, present, petErr := repos.Pet.Load(r.ctx, r.characterID)
+				if petErr == nil && present && loaded.CharacterID == r.characterID {
+					pets = loaded
+				} else if petErr != nil && r.session != nil {
+					r.service.logGameEvent(r.session, "game-upper-userinfo-creature-enchant-load-failed", "character_id", r.characterID, "error", petErr)
+				}
+			}
+			equipped = currentEquippedCreatureWithDurableEnchant(equipped, pets)
 		}
 		if r.session != nil && r.characterID == strconv.Itoa(int(r.session.selectedCharacterID)) &&
 			r.session.aikenSupportTitleActive.Load() &&

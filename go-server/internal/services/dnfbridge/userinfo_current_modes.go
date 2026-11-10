@@ -27,6 +27,7 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode1WithEquipmentInCon
 	r.logMissingCurrentUserInfoStats(row, character)
 	statBlob := r.buildCurrentUserInfoMode1StatBlob(row, character)
 	creature := r.currentEquippedCreature()
+	nameTagItemID, nameTagExpireTime := r.currentUserInfoNameTagState(character, row)
 	extraEquipmentSlotState := currentExtraEquipmentSlotState(character)
 	var w packetWriter
 	w.writeByte(1)
@@ -51,6 +52,8 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode1WithEquipmentInCon
 		statBlob,
 		extraEquipmentSlotState,
 		creature,
+		nameTagItemID,
+		nameTagExpireTime,
 	)
 	return w.bytes()
 }
@@ -73,6 +76,7 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode3InContext(characte
 	r.logMissingCurrentUserInfoStats(row, character)
 	statBlob := r.buildCurrentUserInfoMode1StatBlob(row, character)
 	creature := r.currentEquippedCreature()
+	nameTagItemID, nameTagExpireTime := r.currentUserInfoNameTagState(character, row)
 	extraEquipmentSlotState := currentExtraEquipmentSlotState(character)
 
 	var w packetWriter
@@ -93,7 +97,7 @@ func (r *csharpLegacyUserInfoReader) buildCurrentUserInfoMode3InContext(characte
 	w.writeUint32(statU32(character, "exp", 0))
 	w.writeUint32(uint32(len(statBlob)))
 	w.writeBytes(statBlob)
-	r.writeCurrentUserInfoMode3ObjectTail(&w, character, extraEquipmentSlotState, creature)
+	r.writeCurrentUserInfoMode3ObjectTail(&w, character, extraEquipmentSlotState, creature, nameTagItemID, nameTagExpireTime)
 	return w.bytes()
 }
 
@@ -111,7 +115,7 @@ func currentExtraEquipmentSlotState(character dnfrepo.CharacterRecord) byte {
 	return state
 }
 
-func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *packetWriter, character dnfrepo.CharacterRecord, extraEquipmentSlotState byte, creature currentEquippedCreatureSnapshot) {
+func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *packetWriter, character dnfrepo.CharacterRecord, extraEquipmentSlotState byte, creature currentEquippedCreatureSnapshot, nameTagItemID, nameTagExpireTime uint32) {
 	// MCP/IDA sub_2008600: mode=3 is the current EXE object stat refresh path.
 	// The first byte after sub_2002B30 is stored at
 	// actor.vfunc_0xA98()+0x1AC. This is the current reader's durable
@@ -128,8 +132,11 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *pack
 		writeCurrentMode1EquipmentCreateRow(w, row)
 	}
 	w.writeUint32(0) // sub_1D77560 final state dword
-	w.writeUint32(creature.itemID)
-	w.writeUint32(creature.serialOrHandle) // sub_20077D0 equipped creature {item id, serial/handle}
+	// Current 927634 sub_22C32B0 reads name-tag endpoint 30 here.
+	// A pet ID recreates an unenchanted slot-26 object and overwrites the
+	// complete pet row above. Creature level follows the skill block below.
+	w.writeUint32(nameTagItemID)
+	w.writeUint32(nameTagExpireTime)
 	// 技能页：off 档与原实现逐字节相同（0xff + 两个 0x00）；on 档见 peer_skill_page.go。
 	if len(r.peerSkills) != 0 {
 		w.writeBytes(r.peerSkills)
@@ -169,7 +176,7 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode3ObjectTail(w *pack
 	w.writeByte(0)   // sub_20070C0 count
 }
 
-func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode1ObjectTail(w *packetWriter, objectKey uint16, includeEquipment bool, adventureLevel uint32, totalExperience uint32, statBlob []byte, extraEquipmentSlotState byte, creature currentEquippedCreatureSnapshot) {
+func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode1ObjectTail(w *packetWriter, objectKey uint16, includeEquipment bool, adventureLevel uint32, totalExperience uint32, statBlob []byte, extraEquipmentSlotState byte, creature currentEquippedCreatureSnapshot, nameTagItemID, nameTagExpireTime uint32) {
 	// MCP/IDA sub_2008010 reads two compact current helper blocks after
 	// raw16+objectKey before the extra-equipment-slot state.
 	// Keep repeated mode1 refreshes on the same authoritative cumulative
@@ -233,8 +240,11 @@ func (r *csharpLegacyUserInfoReader) writeCurrentUserInfoMode1ObjectTail(w *pack
 			}
 		}
 	}
-	w.writeUint32(creature.itemID)
-	w.writeUint32(creature.serialOrHandle) // sub_20077D0 equipped creature {item id, serial/handle}
+	// Current 927634 sub_22C32B0 reads name-tag endpoint 30 here.
+	// A pet ID recreates an unenchanted slot-26 object and overwrites the
+	// complete pet row above. Creature level follows the skill block below.
+	w.writeUint32(nameTagItemID)
+	w.writeUint32(nameTagExpireTime)
 	// sub_2003420 reads the selected resource byte and then two empty resource
 	// group lists. For the current actor those lists are consumed by sub_2002F10.
 	// 技能页：默认档 peer 只在「这条 body 是发给队友的」时写真实技能页

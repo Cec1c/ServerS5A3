@@ -286,6 +286,9 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
 	if full {
+		if primeErr := s.primeCurrentWeddingGuildRosterForBound(ctx, bound, g); primeErr != nil {
+			s.logGameEvent(session, "game-wedding-guild-roster-prime-deferred", "error", primeErr)
+		}
 		if err = s.sendCurrentGuildManagementProjection(session, g, false); err != nil {
 			return err
 		}

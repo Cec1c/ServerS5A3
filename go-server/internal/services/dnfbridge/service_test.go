@@ -1116,8 +1116,9 @@ func TestSendGameInitial(t *testing.T) {
 
 func TestBuildLoginSuccessMatchesCurrentExeMsg1Layout(t *testing.T) {
 	service := &Service{options: options{
-		serverIP:       "198.51.100.115",
-		gameOuterToken: 0x11223344,
+		currentClientVersion: "official-24.9",
+		serverIP:             "198.51.100.115",
+		gameOuterToken:       0x11223344,
 	}}
 	channel := channelcatalog.Channel{ID: 19, Type: 22, Name: "ch.19", Port: 10019}
 
@@ -1137,11 +1138,10 @@ func TestBuildLoginSuccessMatchesCurrentExeMsg1Layout(t *testing.T) {
 	if got := binary.LittleEndian.Uint32(body[4:8]); got != service.options.gameOuterToken {
 		t.Fatalf("outer token = 0x%08x, want 0x%08x", got, service.options.gameOuterToken)
 	}
-	ipLen := int(binary.LittleEndian.Uint32(body[8:12]))
-	if ipLen != len(service.options.serverIP) {
-		t.Fatalf("ip len = %d, want %d", ipLen, len(service.options.serverIP))
-	}
-	portOffset := 12 + ipLen
+	// Current official-24.9 has no server-IP DSTR in this response. Its first
+	// post-token field is the game port; a legacy IP length here shifts the
+	// account tail and sets native invitation gates from IP text.
+	portOffset := 8
 	if got := binary.LittleEndian.Uint32(body[portOffset : portOffset+4]); got != uint32(channel.Port) {
 		t.Fatalf("port = %d, want %d", got, channel.Port)
 	}

@@ -76,18 +76,25 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 		if !s.claimDungeonPeerActorResend(session, runKey, identity) {
 			continue
 		}
-		if err := s.sendDungeonPartyPeerActorState(
+		delivered, err := s.sendDungeonPartyPeerActorStateForRun(
 			session,
 			peer,
 			source+"_peer_actor_resend",
-		); err != nil {
+			runKey,
+		)
+		if err != nil || !delivered {
 			s.releaseDungeonPeerActorResend(session, runKey, identity)
+		}
+		if err != nil {
 			s.logGameEvent(session, "game-dungeon-party-peer-actor-resend-failed",
 				"source", source,
 				"char_id", session.selectedCharacterID,
 				"peer_char_id", member.UserID,
 				"error", err)
 			return
+		}
+		if !delivered {
+			continue
 		}
 		resent = append(resent, member.UserID)
 	}

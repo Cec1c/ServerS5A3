@@ -440,16 +440,28 @@ func (s *Service) handleOnlineModifyRaidInfo(session *gameSession, typ uint16, b
 }
 
 func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body []byte) error {
-	if _, err := raid.DecodeLeaveRaidRequest(body); err != nil {
+	req, err := raid.DecodeLeaveRaidRequest(body)
+	if err != nil {
 		s.logGameEvent(session, "game-raid-leave-body-invalid", "type", typ, "body_len", len(body), "error", err)
 		return s.sendRaidCommandFailure(session, typ)
 	}
 	sourceID := selectedCharacterID(session)
+	if s.options.currentClientVersion == "official-24.9" && req.RaidOrMemberKey != 0 && req.RaidOrMemberKey != sourceID {
+		return s.handleCurrentRaidMemberKick(session, typ, req.RaidOrMemberKey)
+	}
 	wasAntonWaiting := s.currentAntonWaitingAreaPresence(session)
 	state, removed, disbanded := s.removeRuntimeRaidMember(sourceID)
 	if !removed {
 		return s.sendRaidCommandFailure(session, typ)
 	}
+	forcedExit := disbanded && s.options.currentClientVersion != "official-24.9"
+	return s.finishOnlineRaidDeparture(session, typ, state, disbanded, wasAntonWaiting, forcedExit)
+}
+
+// The departure notification belongs to the removed session. In particular,
+// ACK665 clears the receiver's own raid UI even when it requested another UID.
+func (s *Service) finishOnlineRaidDeparture(session *gameSession, typ uint16, state runtimeRaidState, disbanded, wasAntonWaiting, forcedExit bool) error {
+	sourceID := selectedCharacterID(session)
 	var errs []error
 	var partyExit runtimePartyRaidExitProjection
 	if s.options.currentClientVersion == "official-24.9" {
@@ -462,7 +474,6 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 	// In the current ACK665 reader the flag means forced removal (B6C7),
 	// not an empty directory object. Its ordinary branch still executes
 	// 01A64B80 and clears both the own-raid key and cached object pointer.
-	forcedExit := disbanded && s.options.currentClientVersion != "official-24.9"
 	if err := s.sendGameUpperRawClassCodec(session, typ, raid.BuildLeaveRaidResultBody(forcedExit), dnfproto.DefaultChannelClassification, true); err != nil {
 		errs = append(errs, err)
 	}
@@ -527,8 +538,17 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 		s.logGameEvent(session, "game-raid-start-body-invalid", "type", typ, "body_len", len(body), "error", err)
 		return s.sendRaidCommandFailure(session, typ)
 	}
+	started := time.Now()
+	previous := started
+	markStage := func(stage string) {
+		now := time.Now()
+		s.logInfo("dnfbridge raid start stage", "conn_id", session.connID, "channel_id", session.channel.ID, "stage", stage,
+			"duration_ms", now.Sub(previous).Milliseconds(), "total_ms", now.Sub(started).Milliseconds())
+		previous = now
+	}
 	sourceID := selectedCharacterID(session)
 	state, ok, err := s.startRuntimeRaidWithEntryCost(session)
+	markStage("prepare_and_admission")
 	if err != nil {
 		s.logGameEvent(session, "game-raid-start-rejected", "source_char_id", sourceID, "error", err)
 	}
@@ -547,12 +567,15 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 			}
 		}
 	}
-	if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
+	markStage("metadata")
+	if err := s.broadcastRuntimeRaidStartRefresh(state); err != nil {
 		return err
 	}
+	markStage("roster_and_profiles")
 	if err := s.applyRuntimeRaidParties(state); err != nil {
 		return err
 	}
+	markStage("parties")
 	if s.options.currentClientVersion == "official-24.9" {
 		for _, member := range state.Members {
 			peer, found := s.onlineGameSession(member.CharID)
@@ -566,6 +589,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 			}
 		}
 	}
+	markStage("battle_projection")
 	// Reuse the verified container refresh only after a successful group commit.
 	// log/off emit exactly the established success sequence without this refresh.
 	if isCurrentFiendWarChannel(session) || s.raidStartEntryCostMode() == raidStartEntryCostGuardEnforce {
@@ -581,6 +605,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 			}
 		}
 	}
+	markStage("entry_cost_containers")
 	s.logGameEvent(session, "game-raid-started",
 		"type", typ,
 		"raid_key", state.RaidKey,
@@ -655,7 +680,7 @@ func (s *Service) handleOnlineRaidManagerWork(session *gameSession, typ uint16, 
 	}
 	// S2C669 is DoNothing. Publish roster first, then only the changed
 	// live participation projection; no phase-start/reward side effects.
-	if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
+	if err := s.broadcastRuntimeRaidRoster(state); err != nil {
 		return err
 	}
 	if projectionChanged {
@@ -943,11 +968,33 @@ func (s *Service) broadcastRuntimeRaidRefresh(state runtimeRaidState) error {
 	return s.broadcastRuntimeRaidProjection(state, true)
 }
 
+func (s *Service) broadcastRuntimeRaidStartRefresh(state runtimeRaidState) error {
+	if s.options.currentClientVersion != "official-24.9" {
+		return s.broadcastRuntimeRaidRefresh(state)
+	}
+	// All members were admitted before start. Refresh category1 properties,
+	// placement and committed ticket counts, not every peer's full appearance.
+	// Ordinary-party formation retains its own required actor priming below.
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, 0, false)
+}
+
 func (s *Service) broadcastRuntimeRaidRoster(state runtimeRaidState) error {
 	return s.broadcastRuntimeRaidProjection(state, false)
 }
 
 func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, includeProfiles bool) error {
+	return s.broadcastRuntimeRaidProjectionForJoin(state, includeProfiles, 0)
+}
+
+func (s *Service) broadcastRuntimeRaidJoinRefresh(state runtimeRaidState, joined uint16) error {
+	return s.broadcastRuntimeRaidProjectionForJoin(state, true, joined)
+}
+
+func (s *Service) broadcastRuntimeRaidProjectionForJoin(state runtimeRaidState, includeProfiles bool, joined uint16) error {
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, joined, true)
+}
+
+func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaidState, includeProfiles bool, joined uint16, includeAppearance bool) error {
 	body, err := s.buildRuntimeRaidRosterBody(state)
 	if err != nil {
 		return err
@@ -955,13 +1002,20 @@ func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, include
 	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancelProfiles()
 	profiles := newCurrentRaidProfileBatch(s, profileCtx)
+	admission := &currentRaidAdmissionBatch{}
 	for _, member := range state.Members {
 		session, ok := s.onlineGameSession(member.CharID)
 		if !ok {
 			continue
 		}
 		if includeProfiles {
-			if err := s.sendCurrentRuntimeRaidProfilesWithBatch(session, state, profiles); err != nil {
+			var actors map[uint16]bool
+			if !includeAppearance {
+				actors = map[uint16]bool{}
+			} else if joined != 0 && member.CharID != joined {
+				actors = map[uint16]bool{joined: true}
+			}
+			if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, profiles, actors); err != nil {
 				s.failRuntimeRaidRecipient(session, "profiles", err)
 				continue
 			}
@@ -970,8 +1024,10 @@ func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, include
 			s.failRuntimeRaidRecipient(session, "roster", err)
 			continue
 		}
-		if err := s.sendCurrentRuntimeRaidEntryCost(session, state); err != nil {
-			s.failRuntimeRaidRecipient(session, "entry_cost", err)
+		if includeProfiles {
+			if err := s.sendCurrentRuntimeRaidEntryCostWithBatch(session, state, admission); err != nil {
+				s.failRuntimeRaidRecipient(session, "entry_cost", err)
+			}
 		}
 	}
 	return nil

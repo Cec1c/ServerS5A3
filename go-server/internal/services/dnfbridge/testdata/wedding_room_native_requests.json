@@ -1,0 +1,57 @@
+{
+  "client_sha256": "a59db943c5f44c82e7db0e02305b3403aac3a16d0ec025b396e97da491a42231",
+  "cases": [
+    {
+      "name": "place",
+      "opcode": 1046,
+      "native_start": "0x1ac583f",
+      "payload_hex": "00000000000000000000000000010700fda09800000000fda09800",
+      "outer_header_hex": "011604000000000000080110f4",
+      "from_bag": true,
+      "from_slot": 7,
+      "source_item": 10002685,
+      "to_bag": false,
+      "to_slot": 0,
+      "destination_hint": 10002685
+    },
+    {
+      "name": "place-high-slot",
+      "opcode": 1046,
+      "native_start": "0x1ac583f",
+      "payload_hex": "000000000000000000000000000127006da19800001b006da19800",
+      "outer_header_hex": "011604000000000000080110f4",
+      "from_bag": true,
+      "from_slot": 39,
+      "source_item": 10002797,
+      "to_bag": false,
+      "to_slot": 27,
+      "destination_hint": 10002797
+    },
+    {
+      "name": "remove",
+      "opcode": 1046,
+      "native_start": "0x1ac30e5",
+      "payload_hex": "00000000000000000000000000000000fda09800010700fda09800",
+      "outer_header_hex": "011604000000000000080110f4",
+      "from_bag": false,
+      "from_slot": 0,
+      "source_item": 10002685,
+      "to_bag": true,
+      "to_slot": 7,
+      "destination_hint": 10002685
+    },
+    {
+      "name": "remove-high-slot",
+      "opcode": 1046,
+      "native_start": "0x1ac30e5",
+      "payload_hex": "00000000000000000000000000001b006da198000127006da19800",
+      "outer_header_hex": "011604000000000000080110f4",
+      "from_bag": false,
+      "from_slot": 27,
+      "source_item": 10002797,
+      "to_bag": true,
+      "to_slot": 39,
+      "destination_hint": 10002797
+    }
+  ]
+}

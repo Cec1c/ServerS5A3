@@ -15,6 +15,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/cerashop"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/guild"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	"longheng.io/server/internal/modules/dnf/protocol"
 	"longheng.io/server/internal/modules/dnf/pvf"
 	r "longheng.io/server/internal/modules/dnf/repository"
@@ -268,7 +269,9 @@ func TestGuildHongbaoProductionFourProducts(t *testing.T) {
 					item, slot = v, k
 				}
 			}
-			if item.Count != 1 || item.ExpireAt.Before(s.gameplayNow().Add(239*time.Hour)) || item.ExpireAt.After(s.gameplayNow().Add(241*time.Hour)) {
+			// 红包道具是 10 天限期，到期时间吸附到服务日 06:00（北京时间）。
+			wantExpire := itemexpiration.DailyDeleteBoundaryAtOrAfter(s.gameplayNow().Add(10 * 24 * time.Hour))
+			if item.Count != 1 || !item.ExpireAt.Equal(wantExpire) {
 				t.Fatal(item)
 			}
 			before := r.CloneInventory(inv)

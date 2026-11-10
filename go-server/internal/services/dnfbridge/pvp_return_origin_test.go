@@ -90,7 +90,8 @@ func TestPVPMatchingNativeModeAcceptsLive75OrdinaryRequest(t *testing.T) {
 	p := &gameSession{conn: &bufferConn{}, accountID: "pvp-29", selectedCharacterID: 29, channel: s.catalog.Channels()[1]}
 	p.channel.ID, p.channel.Type = 75, 8
 	s.bindGameSessionCharacter(p, 29)
-	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 29, TownID: 10, AreaID: 0, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
+	// AreaID=1 = PVP 频道共享广场：p27 起独立房间（area 0）禁止发起决斗。
+	p.townPositionSnapshot = currentTownPositionSnapshot{CharacterID: 29, TownID: 10, AreaID: 1, PositionX: 474, PositionY: 234, MovementCode: 5, PositionValid: true}
 	// 现场05:41请求包体；不能把未选三角色队伍当成普通1对1的前提。
 	body := []byte{1, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 0}
 	if err := s.handleCurrentPVPMatching(p, 520, body); err != nil {

@@ -197,6 +197,13 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 		// A later scene change already won; never replay an old committed trip.
 		return nil
 	}
+	if townMapPathLooksLikeWeddingChurch(area.MapPath) && !currentWeddingChurchMoveAllowed(character, request.TownID, request.AreaID) {
+		_, guest, guestErr := s.currentWeddingGuestChurchInstance(ctx, session, character)
+		if !guest || guestErr != nil || character.Stats["town_id"] != int64(request.TownID) || character.Stats["area_id"] != int64(request.AreaID) {
+			s.logTownSetUserAreaBlocked(session, request, "wedding_church_requires_owned_reservation_route")
+			return s.rejectCurrentGuildHallMove(session, request)
+		}
+	}
 	areaInstance, err := s.currentTownAreaInstance(ctx, session, character, area.MapPath)
 	if err != nil {
 		s.logTownSetUserAreaBlocked(session, request, "guild_hall_requires_current_owned_membership")
@@ -618,7 +625,7 @@ func (s *Service) handleTownSetUserAreaWithCommit(session *gameSession, body []b
 		}
 	}
 	finishCurrentCompletedTownSceneTailAfterAreaCommitLocked(session, completedTailOwner)
-	return nil
+	return s.queueCurrentWeddingCeremonyRecovery(session)
 }
 
 func (s *Service) townAreaNeedQuestsCompleted(

@@ -83,8 +83,17 @@ func TestLocalDefaultGroupLandingCoversRepeatRequestsWithoutChangingNamedGroups(
 			}
 			for _, channel := range channels {
 				original, exists := catalog.Channel(channel.ID)
-				if !exists || !reflect.DeepEqual(original, channel) || !channelcatalog.IsResidentChannel(channel) || channel.ID > currentOwnerChannelByteLimit {
-					t.Fatalf("local directory contains a changed or non-resident row: %+v", channel)
+				if !exists || !reflect.DeepEqual(original, channel) || channel.ID > currentOwnerChannelByteLimit {
+					t.Fatalf("local directory contains a changed or oversized row: %+v", channel)
+				}
+				// 登录引导只允许常驻城镇频道；刷新目录额外放行团本频道，
+				// 否则客户端的频道列表里看不到"团队模式频道"（2026-10-25 现场）。
+				// 帝国竞技场（type 39 / [tagtournament]）同理（2026-10-29 现场）。
+				if channelcatalog.IsResidentChannel(channel) {
+					continue
+				}
+				if bootstrap || !(channelcatalog.IsRaidChannel(channel) || channelcatalog.IsTagTournamentChannel(channel) || channelcatalog.IsPVPRoomChannel(channel)) {
+					t.Fatalf("local directory group=%q bootstrap=%t has a non-resident row: %+v", group, bootstrap, channel)
 				}
 			}
 		}
@@ -95,5 +104,74 @@ func TestLocalDefaultGroupLandingCoversRepeatRequestsWithoutChangingNamedGroups(
 	service.options.defaultGroupLoginOnly = false
 	if got := service.channelsForRequestMode("cain", false); !reflect.DeepEqual(got, complete) {
 		t.Fatal("disabling local restriction must restore the complete directory")
+	}
+}
+
+// TestLocalDefaultGroupRefreshKeepsRaidChannelsVisible 锁死 2026-10-25 90CN 现场：
+// `DNFBRIDGE_DEFAULT_GROUP_LOGIN_ONLY=true` 曾把默认组目录收窄成"只留常驻城镇频道"，
+// 团本整族（type 23/32）被剔除，客户端频道列表里"团队模式频道"直接消失。
+// 契约：刷新目录必须同时含常驻城镇频道和团本频道；登录引导仍只含常驻频道，
+// 落点候选集不变。
+func TestLocalDefaultGroupRefreshKeepsRaidChannelsVisible(t *testing.T) {
+	service := &Service{options: options{
+		channelInfoFile:       filepath.Join("testdata", "channel_info.etc"),
+		channelServerID:       1,
+		defaultGroupLoginOnly: true,
+	}}
+	catalog, script, err := service.loadChannelAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.catalog, service.channelScript = catalog, script
+
+	refresh := service.channelsForRequestMode("cain", false)
+	raid := 0
+	for _, channel := range refresh {
+		if channelcatalog.IsRaidChannel(channel) {
+			raid++
+		}
+	}
+	if raid == 0 {
+		t.Fatal("refresh directory lost every raid channel; 团队模式频道 would disappear from the client list")
+	}
+	for _, id := range []int{23, 28, 221, 241} {
+		found := false
+		for _, channel := range refresh {
+			if channel.ID == id {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("refresh directory missing raid channel %d", id)
+		}
+	}
+
+	// 决斗场手动建房频道（2026-11-02 现场）：刷新目录必须可见。
+	pvpRoomFound := false
+	for _, channel := range refresh {
+		if channel.ID == 192 && channelcatalog.IsPVPRoomChannel(channel) {
+			pvpRoomFound = true
+		}
+	}
+	if !pvpRoomFound {
+		t.Fatal("refresh directory missing manual PVP room channel 192")
+	}
+
+	// 登录引导那一次仍只给常驻城镇频道：落点候选集不允许因为本次放行而变大。
+	bootstrap := service.channelsForRequestMode("cain", true)
+	for _, channel := range bootstrap {
+		if !channelcatalog.IsResidentChannel(channel) || channelcatalog.IsPVPRoomChannel(channel) {
+			t.Fatalf("bootstrap directory must stay resident-only, got %+v", channel)
+		}
+	}
+	// 具名组请求不受影响。
+	named := service.channelsForRequestMode("[raid]", false)
+	for _, channel := range named {
+		if !channelcatalog.IsRaidChannel(channel) {
+			t.Fatalf("named raid group returned a non-raid row: %+v", channel)
+		}
+	}
+	if len(named) == 0 {
+		t.Fatal("named raid group must not be empty")
 	}
 }

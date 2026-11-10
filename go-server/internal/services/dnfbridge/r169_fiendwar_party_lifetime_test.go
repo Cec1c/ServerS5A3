@@ -15,10 +15,35 @@ func TestR169FiendWarReturnRetiresTemporaryPartyPreservesEightSeatOwners(t *test
 	frozen := r.raidEntry.fiendWarParty
 	numbers := cloneRuntimeRaidBattle(f.state.Battle).MemberGroups
 	raidMembers := append([]runtimeRaidMemberState(nil), f.state.Members...)
-	// Exercise the common post-detach hook used by both confirmed return routes.
+	// A returned member must not dissolve a party while a peer remains in the
+	// exact encounter run. Exercise both post-detach returns: only the final
+	// departure may retire the frozen party, preserving the eight-seat owners.
 	p[0].dungeon.runtime = nil
 	if !s.retireCurrentFiendWarEncounterParty(p[0], r) {
 		t.Fatal("FiendWar return not handled")
+	}
+	for _, peer := range p {
+		current, found := s.runtimePartyManagerForService().SnapshotByUser(peer.selectedCharacterID, 0)
+		if !found || current.ID != frozen.ID {
+			t.Fatal("first return retired the party while a peer remained in the run")
+		}
+		if got := runtimePartyStateSnapshot(peer); got.PartyID != int(frozen.ID) {
+			t.Fatal("first return cleared a still-active party projection", got.PartyID)
+		}
+	}
+	if !reflect.DeepEqual(numbers, f.state.Battle.MemberGroups) || !reflect.DeepEqual(raidMembers, f.state.Members) {
+		t.Fatal("first return changed personal raid numbers")
+	}
+	last := p[len(p)-1]
+	lastRuntime := last.dungeon.runtime
+	if lastRuntime == nil || lastRuntime.raidEntry == nil || lastRuntime.raidEntry.RunID != r.raidEntry.RunID {
+		t.Fatal("last member is not attached to the same run")
+	}
+	for _, peer := range p[1:] {
+		peer.dungeon.runtime = nil
+	}
+	if !s.retireCurrentFiendWarEncounterParty(last, lastRuntime) {
+		t.Fatal("last return not handled")
 	}
 	for _, peer := range p {
 		if _, found := s.runtimePartyManagerForService().SnapshotByUser(peer.selectedCharacterID, 0); found {

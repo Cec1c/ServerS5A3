@@ -70,7 +70,9 @@ type materialQuestBuffer struct {
 
 func (b *materialQuestBuffer) Load(ctx context.Context, k string) (r.QuestRecord, bool, error) {
 	if q, ok := b.records[k]; ok {
-		return r.CloneQuest(q), b.existed[k], nil
+		// A newly saved transaction record already exists for subsequent reads;
+		// keep existed unchanged for compensation against the original store.
+		return r.CloneQuest(q), b.existed[k] || b.dirty[k], nil
 	}
 	q, ok, e := b.base.Load(ctx, k)
 	if e == nil {

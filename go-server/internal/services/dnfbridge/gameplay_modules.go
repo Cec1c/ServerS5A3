@@ -1,6 +1,7 @@
 package dnfbridge
 
 var currentGameplayModules = mustGameplayModuleRegistry(
+	weddingGameplayModule(),
 	chatGameplayModule(),
 	aikenUpgradeGameplayModule(),
 	guildCompoundGameplayModule(),

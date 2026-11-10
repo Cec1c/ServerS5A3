@@ -381,22 +381,30 @@ func (s *Service) projectDungeonPartyPeerActors(session *gameSession, source str
 			continue
 		}
 		if s.claimDungeonPeerProjection(session, peerIdentity) {
-			if err := s.sendDungeonPartyPeerActorState(
+			sent, err := s.sendDungeonPartyPeerActorStateForRun(
 				session,
 				peer,
 				source+"_peer_actor_to_self",
-			); err != nil {
+				ownKey,
+			)
+			if err != nil || !sent {
 				s.releaseDungeonPeerProjection(session, peerIdentity)
+			}
+			if err != nil {
 				return err
 			}
 		}
 		if s.claimDungeonPeerProjection(peer, self) {
-			if err := s.sendDungeonPartyPeerActorState(
+			sent, err := s.sendDungeonPartyPeerActorStateForRun(
 				peer,
 				session,
 				source+"_self_actor_to_peer",
-			); err != nil {
+				ownKey,
+			)
+			if err != nil || !sent {
 				s.releaseDungeonPeerProjection(peer, self)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -465,17 +473,35 @@ func (s *Service) sendDungeonPartyPeerActorState(
 // key exists. Other members may finish placement concurrently; their run-key
 // publication is not a scene transition. Live replays retain the run-key guard.
 func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, actor *gameSession, source string, initialRoomCurrent func() bool) error {
+	// Preserve the initial-placement contract. Its caller owns the final
+	// membership/room fence; an op9 deferral must not introduce a new error
+	// after the actor descriptors were already delivered. Runtime reservations
+	// use ForRun below and consume only its explicit completion result.
+	_, err := s.sendDungeonPartyPeerActorStateObserved(receiver, actor, source, initialRoomCurrent, nil)
+	return err
+}
+
+// A guarded skip is not a completed projection. Reservations belong to the
+// exact shared room and may be consumed only after mode0, mode1 and op9 land.
+func (s *Service) sendDungeonPartyPeerActorStateForRun(receiver, actor *gameSession, source string, run dungeonPartyRunKey) (bool, error) {
+	return s.sendDungeonPartyPeerActorStateObserved(receiver, actor, source, nil, &run)
+}
+
+func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSession, source string, initialRoomCurrent func() bool, expectedRun *dungeonPartyRunKey) (bool, error) {
 	if receiver == nil || actor == nil || actor.selectedCharacterID == 0 {
-		return nil
+		return false, nil
 	}
 	receiverIdentity, receiverCurrent := s.boundGameSessionCharacterSnapshot(receiver)
 	actorIdentity, actorCurrent := s.boundGameSessionCharacterSnapshot(actor)
 	if !receiverCurrent || !actorCurrent {
-		return nil
+		return false, nil
 	}
 	membershipCurrent := s.currentPartyProjectionMembershipGuard(actorIdentity, nil)
 	receiverRun, receiverHasRun := s.currentDungeonPartyRunKey(receiver)
 	actorRun, actorHasRun := s.currentDungeonPartyRunKey(actor)
+	if expectedRun != nil && (!receiverHasRun || !actorHasRun || receiverRun != *expectedRun || actorRun != *expectedRun) {
+		return false, nil
+	}
 	// owner 计划：默认 zero = 两个 owner 都是副本场景上下文 0（现行为）；
 	// channel = 两个都是收包者频道号；mixed = op2 取频道号、op9 取 0。
 	// 权威写入点与三档理由见 partyDungeonPeerOwnerPlan。
@@ -483,7 +509,7 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 	if currentClientSelectedChannel(receiver) == currentSceneObjectContext {
 		// 会话频道未提交，或者 > 255（u8 owner 字段装不下，客户端频道无法用字节表达）。
 		// 两条都**明确失败**：绝不截断成 `byte(508)`=252 那种"另一个频道号"。
-		return fmt.Errorf(
+		return false, fmt.Errorf(
 			"dungeon peer actor client channel is not expressible as an owner byte: connected=%d character=%d",
 			receiver.channel.ID,
 			receiver.selectedCharacterID,
@@ -502,11 +528,11 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 	var err error
 	ctx, err = s.currentRemoteActorEquipmentSnapshot(ctx, actor, actorIdentity.character)
 	if err != nil {
-		return fmt.Errorf("snapshot dungeon peer equipment: %w", err)
+		return false, fmt.Errorf("snapshot dungeon peer equipment: %w", err)
 	}
 	charID, charName, character, hasCharacter := s.characterForEnter(ctx, actor, actorIdentity.character)
 	if charID != actorIdentity.character || !hasCharacter {
-		return fmt.Errorf(
+		return false, fmt.Errorf(
 			"dungeon peer actor repository record unavailable: requested=%d loaded=%d found=%t",
 			actorIdentity.character,
 			charID,
@@ -523,14 +549,14 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 		ownerPlan.ActorOwner,
 	)
 	if err != nil {
-		return fmt.Errorf("build dungeon peer actor mode0: %w", err)
+		return false, fmt.Errorf("build dungeon peer actor mode0: %w", err)
 	}
 	// This frame arrives after dungeon USER_STATE and may create or reuse an
 	// actor. Native mode0 copies its state into actor+0x4c, so a town default
 	// would undo state=1, including when the appearance frame is repeated.
 	mode0Body, err = projectCurrentDungeonPeerActorState(mode0Body, currentSceneActorObjectKey(charID))
 	if err != nil {
-		return fmt.Errorf("project dungeon peer actor state: %w", err)
+		return false, fmt.Errorf("project dungeon peer actor state: %w", err)
 	}
 	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, actor, character, hasCharacter)
 	mode1Body := s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
@@ -579,6 +605,9 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 		}
 		currentReceiverRun, currentReceiverHasRun := s.currentDungeonPartyRunKey(receiver)
 		currentActorRun, currentActorHasRun := s.currentDungeonPartyRunKey(actor)
+		if expectedRun != nil && (!currentReceiverHasRun || !currentActorHasRun || currentReceiverRun != *expectedRun || currentActorRun != *expectedRun) {
+			return nil
+		}
 		if initialRoomCurrent != nil {
 			if !initialRoomCurrent() {
 				return fmt.Errorf("initial peer actor shared room changed")
@@ -596,10 +625,13 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 		delivered = true
 		return nil
 	}); err != nil {
-		return fmt.Errorf("send dungeon peer actor snapshot: %w", err)
+		return false, fmt.Errorf("send dungeon peer actor snapshot: %w", err)
 	}
 	if !delivered {
-		return nil
+		return false, nil
+	}
+	if err := s.sendCurrentWeddingPeerInfo(ctx, receiver, character); err != nil {
+		return false, err
 	}
 	if len(subtype0Body) != 0 {
 		s.sendPeerUserInfoSubtype0Appearance(receiver, subtype0Body, source+"_peer_userinfo_subtype0", charID)
@@ -608,17 +640,21 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 	// clone links. Reapply the proved appearance after equipment/identity.
 	if len(subtype0Body) != 0 && currentSceneObjectAppearanceBodyHasCloneLink(mode0Body) {
 		if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketSetUDPIPPort), mode0Body, 0); err != nil {
-			return err
+			return false, err
 		}
 		s.logGameEvent(receiver, "game-party-clone-appearance-after-equipment", "peer_char_id", charID, "source", source)
 	}
-	if _, err := s.sendCurrentPartyActorFrameProjectionForDungeonPeer(
+	frameSent, err := s.sendCurrentPartyActorFrameProjectionForDungeonPeer(
 		receiver,
 		actor,
 		runtimePartyStateSnapshot(actor),
 		source+"_op9",
-	); err != nil {
-		return fmt.Errorf("send dungeon peer actor op9: %w", err)
+	)
+	if err != nil {
+		return false, fmt.Errorf("send dungeon peer actor op9: %w", err)
+	}
+	if !frameSent {
+		return false, nil
 	}
 	s.logGameEvent(receiver, "game-dungeon-party-peer-actor-delivered",
 		"source", source, "receiver_char_id", receiver.selectedCharacterID,
@@ -630,5 +666,5 @@ func (s *Service) sendDungeonPartyPeerActorStateWithInitialRoomGuard(receiver, a
 	// actor_slot+seed、不带 actor key）与 op23 两条都已在 07-05 / 02:12 两版复测过——
 	// 队友仍然不可见，同族实现也没有对应的副本内落位原语（详见函数头注释）。
 	// 缺少的客户端证据：副本场景里"非本地 actor 被登记进房间 actor 表"。
-	return nil
+	return true, nil
 }

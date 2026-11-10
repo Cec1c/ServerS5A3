@@ -41,7 +41,7 @@ func phase0AllCardsFaceDown(t *testing.T, body []byte) {
 
 // The actual card screen can arrive after the phase-completion clock. The
 // automatic selection must not commit the party cards before that screen was
-// delivered, and the first delivery must retain one real movie window.
+// delivered, and the first delivery must retain the native card-panel timer.
 func TestRealPVFAntonPhase0AutoSelectionWaitsForActualShow(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
@@ -82,20 +82,23 @@ func TestRealPVFAntonPhase0AutoSelectionWaitsForActualShow(t *testing.T) {
 	if flow.PartyShownAt.IsZero() {
 		t.Fatal("successful party list delivery did not anchor the selection clock")
 	}
-	if got, want := currentAntonPartySelectAt(flow, movie), flow.PartyShownAt.Add(movie); !got.Equal(want) {
-		t.Fatalf("selection deadline=%v want actual-show window=%v", got, want)
+	if got, want := currentAntonPartySelectAt(flow, movie), flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow); !got.Equal(want) {
+		t.Fatalf("selection deadline=%v want native card window=%v", got, want)
 	}
 
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(movie-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
 		t.Fatal("automatic party selection crossed the actual-show window", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(movie), zeroAntonRoll); len(errs) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	if antonGrantedItemCount(t, f, "19", 10304529) != 30 || flow.PartyCommittedAt.IsZero() || len(flow.Squad) != 0 || !flow.SquadShownAt.IsZero() {
 		t.Fatal("automatic party commit did not preserve the party stage")
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyCommittedAt.Add(movie), zeroAntonRoll); len(errs) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyCommittedAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 0 {
+		t.Fatal("squad stage crossed the native party stage4 timer", errs)
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyCommittedAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	if antonGrantedItemCount(t, f, "19", 10093974) != 19 || flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() {
@@ -112,7 +115,6 @@ func TestRealPVFAntonPhase0LateNatural659ShowsBeforeAutomaticGrant(t *testing.T)
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	flow.PartyShownAt = time.Time{}
-	movie := currentAntonMovieWindow(flow)
 	state := cloneRuntimeRaidState(*f.state)
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {
 		t.Fatal(err)
@@ -145,10 +147,10 @@ func TestRealPVFAntonPhase0LateNatural659ShowsBeforeAutomaticGrant(t *testing.T)
 	if antonGrantedItemCount(t, f, "19", 10304529) != 0 {
 		t.Fatal("natural 659 granted before automatic selection")
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(movie-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
 		t.Fatal("late show did not retain its full display window", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(movie), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
 		t.Fatal("late natural 659 did not commit after its actual-show window", errs)
 	}
 }
@@ -162,10 +164,11 @@ func TestRealPVFAntonPhase0UnattendedSelectionHasBoundedFallback(t *testing.T) {
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {
 		t.Fatal(err)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
-		t.Fatal("unattended fallback fired before the automatic offer window", errs)
+	deadline := currentAntonPartySelectAt(flow, movie)
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(deadline.Add(-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
+		t.Fatal("unattended fallback fired before the card-panel window", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt.Add(movie), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(deadline, zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
 		t.Fatal("unattended party selection has no bounded fallback", errs)
 	}
 }

@@ -8,6 +8,7 @@ var (
 		CharacterFieldStats,
 		CharacterFieldLocation,
 		CharacterFieldRoster,
+		CharacterFieldWedding,
 	})
 	InventoryFields = db.NewFieldRegistry([]InventoryField{
 		InventoryFieldSlots,
@@ -41,7 +42,8 @@ var (
 )
 
 func AllCharacterFields() []CharacterField {
-	return CharacterFields.All()
+	// Wedding requires explicit ownership; a stale full snapshot is not authority.
+	return []CharacterField{CharacterFieldBase, CharacterFieldStats, CharacterFieldLocation, CharacterFieldRoster}
 }
 
 func AllInventoryFields() []InventoryField {

@@ -13,6 +13,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -56,7 +57,9 @@ func TestDespairAvatarRewardKeepsResolvedGrantPeriod(t *testing.T) {
 		t.Fatal("missing avatar draws")
 	}
 	for _, reward := range rt.settlementDespairRewards.Items {
-		if reward.ListType != 1 || reward.Stack.Extra["item_kind"] != "avatar" || reward.Stack.ExpireAt.Before(before.Truncate(time.Second).Add(48*time.Hour)) || reward.Stack.ExpireAt.After(s.gameplayNow().UTC().Add(48*time.Hour+time.Second)) {
+		// 相对 [usable period] 的到期时间吸附到服务日 06:00（北京时间）。
+		wantExpire := itemexpiration.DailyDeleteBoundaryAtOrAfter(before.Truncate(time.Second).Add(48 * time.Hour))
+		if reward.ListType != 1 || reward.Stack.Extra["item_kind"] != "avatar" || !reward.Stack.ExpireAt.Equal(wantExpire) {
 			t.Fatalf("avatar period=%v list=%d", reward.Stack.ExpireAt, reward.ListType)
 		}
 	}

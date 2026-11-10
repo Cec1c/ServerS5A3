@@ -108,7 +108,7 @@ func (u *memoryCharacterTradeUnitOfWork) WithinCharacterWarehouseTrade(ctx conte
 		if c.dirty[id] {
 			original, existed := originalCharacters[id], originalCharacterExists[id]
 			undo = append(undo, func() error { return restoreCharacterRecord(u.character, id, original, existed, true) })
-			if err := u.character.Save(ctx, c.records[id]); err != nil {
+			if err := c.commit(ctx, u.character, id); err != nil {
 				return rollback(err)
 			}
 		}

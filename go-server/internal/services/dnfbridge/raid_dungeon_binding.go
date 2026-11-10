@@ -204,7 +204,18 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 			}
 		}
 		a, ok := b.FiendWar.AreaForDungeon(int(runtime.Dungeon.ID))
-		if !ok || fiendOrigin.CharacterID != session.selectedCharacterID || !fiendOrigin.PositionValid || int(fiendOrigin.TownID) != b.FiendWar.Config.WaitingTown || int(fiendOrigin.AreaID) != a.Index {
+		if !ok || fiendOrigin.CharacterID != session.selectedCharacterID || !fiendOrigin.PositionValid || int(fiendOrigin.TownID) != b.FiendWar.Config.WaitingTown {
+			return fmt.Errorf("超时空遭遇战缺少目标区域的真实客户端坐标")
+		}
+		// 只有**进图发起者**必须站在目标区域。
+		//
+		// 随行的同区域队友此刻仍在出发区域，这正是官方规则的形态：
+		// 「同一区域里的玩家，只要有一人进入战斗区域，其余人也一起进」。
+		// 要求队友也站在目标区域，会把整队人挡在门外 —— 现场表现就是
+		// 「进图失败，然后返回基地」。发起者用 entry.Participants[0] 判定
+		// （targets 由 session + followers 组成，第一个就是发起者）。
+		if (len(entry.Participants) == 0 || entry.Participants[0] == session.selectedCharacterID) &&
+			int(fiendOrigin.AreaID) != a.Index {
 			return fmt.Errorf("超时空遭遇战缺少目标区域的真实客户端坐标")
 		}
 		entry.fiendWarOrigin = fiendOrigin

@@ -193,7 +193,7 @@ func TestRound17bRelativeAndDailyRowsSurviveTheLatePass(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := time.Unix(now.Unix()+24*60*60, 0).UTC()
+		want := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Unix()+24*60*60, 0).UTC())
 		if !grantDefinition.ExpirationDate.Equal(want) {
 			t.Fatalf("grant deadline=%s want %s", grantDefinition.ExpirationDate, want)
 		}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
@@ -128,11 +129,11 @@ func TestCurrentCeraPackageLegacyRouteAtomicallyConsumesAndGrantsPVFRewards(t *t
 		t.Fatalf("source after=%+v raw=%x", source, source.RawEntry)
 	}
 	stackable, found := inventory.Slots["0:121"]
-	minExpire := time.Unix(before.Unix()+7*86400, 0).UTC()
-	maxExpire := time.Unix(time.Now().UTC().Unix()+7*86400, 0).UTC()
+	// 2026-11-07 起相对期限吸附到服务日 06:00（北京时间）。
+	wantExpire := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(before.Unix()+7*86400, 0).UTC())
 	if !found || stackable.ItemID != 600 || stackable.Count != 3 || stackable.Extra["source"] != "cera_package" ||
 		stackable.Extra["usable_period_days"] != "7" || stackable.Extra["expiration_source"] != "runtime_pvf_usable_period_grant" ||
-		stackable.ExpireAt.Before(minExpire) || stackable.ExpireAt.After(maxExpire) ||
+		!stackable.ExpireAt.Equal(wantExpire) ||
 		binary.LittleEndian.Uint32(stackable.RawEntry[currentItemListExpireTimeOffset:currentItemListExpireTimeOffset+4]) != uint32(stackable.ExpireAt.Unix()) {
 		t.Fatalf("stackable reward=%+v found=%t", stackable, found)
 	}

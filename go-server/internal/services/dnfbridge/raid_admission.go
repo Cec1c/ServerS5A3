@@ -92,6 +92,20 @@ func (s *Service) currentRaidAdmissionVisible(session *gameSession, state runtim
 }
 
 func (s *Service) runtimeRaidEntryCostStatuses(session *gameSession, state runtimeRaidState) ([]raid.EntryCostStatus, raid.AdmissionRule, error) {
+	return s.runtimeRaidEntryCostStatusesWithOwners(session, state, nil)
+}
+
+// A single broadcast reads one committed inventory snapshot for each member.
+// Recipient ownership and the live roster are still checked for every send.
+type currentRaidAdmissionBatch struct {
+	loaded   bool
+	statuses []raid.EntryCostStatus
+	rule     raid.AdmissionRule
+	owners   map[uint16]string
+	err      error
+}
+
+func (s *Service) runtimeRaidEntryCostStatusesWithOwners(session *gameSession, state runtimeRaidState, owners map[uint16]string) ([]raid.EntryCostStatus, raid.AdmissionRule, error) {
 	rule, err := s.currentRaidAdmissionRule(session)
 	if err != nil {
 		return nil, rule, err
@@ -112,6 +126,9 @@ func (s *Service) runtimeRaidEntryCostStatuses(session *gameSession, state runti
 		if member.CharID == session.selectedCharacterID && character.AccountID != s.accountIDForSession(session) {
 			return nil, rule, fmt.Errorf("raid admission owner mismatch")
 		}
+		if owners != nil {
+			owners[member.CharID] = character.AccountID
+		}
 		inventory, found, err := repos.Inventory.Load(ctx, id)
 		if err != nil || !found {
 			return nil, rule, fmt.Errorf("raid admission inventory unavailable")
@@ -130,10 +147,29 @@ func (s *Service) sendRuntimeRaidEntryCostStatuses(session *gameSession, state r
 // NOTI598 is independently parsed by the current client. Send it after the
 // roster is installed, including approval refreshes that do not trigger CMD658.
 func (s *Service) sendCurrentRuntimeRaidEntryCost(session *gameSession, state runtimeRaidState) error {
+	return s.sendCurrentRuntimeRaidEntryCostWithBatch(session, state, nil)
+}
+
+func (s *Service) sendCurrentRuntimeRaidEntryCostWithBatch(session *gameSession, state runtimeRaidState, batch *currentRaidAdmissionBatch) error {
 	if !s.currentRaidAdmissionVisible(session, state) {
 		return nil
 	}
-	statuses, rule, err := s.runtimeRaidEntryCostStatuses(session, state)
+	var statuses []raid.EntryCostStatus
+	var rule raid.AdmissionRule
+	var err error
+	if batch == nil {
+		statuses, rule, err = s.runtimeRaidEntryCostStatuses(session, state)
+	} else {
+		if !batch.loaded {
+			batch.loaded = true
+			batch.owners = make(map[uint16]string)
+			batch.statuses, batch.rule, batch.err = s.runtimeRaidEntryCostStatusesWithOwners(session, state, batch.owners)
+		}
+		statuses, rule, err = batch.statuses, batch.rule, batch.err
+		if err == nil && batch.owners[selectedCharacterID(session)] != s.accountIDForSession(session) {
+			return nil
+		}
+	}
 	if err != nil {
 		s.logGameEvent(session, "game-current-raid-entry-cost-refresh-unavailable", "raid_key", state.RaidKey)
 		return nil

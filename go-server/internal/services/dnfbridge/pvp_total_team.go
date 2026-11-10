@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -11,6 +12,22 @@ import (
 	dnfpvp "longheng.io/server/internal/modules/dnf/pvp"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
+
+// errPVPTotalTeamNameTaken 表示队伍名已被**别的账号**占用。
+//
+// 单独成哨兵错误是为了让调用处能把「重名」和「查询失败」分成两个响应码：
+// 客户端对「重名」要提示"名称已存在"，对「查询失败」要提示"稍后重试"，
+// 两者用同一个码时玩家看到的永远是后一种。
+var errPVPTotalTeamNameTaken = errors.New("pvp total team name already registered")
+
+// currentPVPTotalTeamNameDuplicateCode 是「名称重复」的响应码。
+//
+// 口径对齐同一台机器上的另外两处查重：角色名 checkNameCodeDuplicated = 0x14（20），
+// 冒险团名 representAccountNameDuplicateCode = 20。
+//
+// 之前这里回的是 3，而 3 在冒险团那条链上是**重试码**（representAccountNameRetryCode），
+// 客户端会把重名显示成"系统繁忙"，甚至不刷新界面。
+const currentPVPTotalTeamNameDuplicateCode byte = 20
 
 func parsePVPTotalTeamName(body []byte, tail int) (string, []byte, error) {
 	if len(body) < 4 {
@@ -41,7 +58,7 @@ func (s *Service) checkPVPTotalTeamName(ctx context.Context, repos dnfrepo.Group
 		return err
 	}
 	if found && owner != accountID {
-		return fmt.Errorf("team name already registered")
+		return errPVPTotalTeamNameTaken
 	}
 	return nil
 }
@@ -78,10 +95,29 @@ func (s *Service) handlePVPTotalTeam(session *gameSession, opcode uint16, body [
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	if err := s.checkPVPTotalTeamName(ctx, repos, session.accountID, name); err != nil {
+		duplicated := errors.Is(err, errPVPTotalTeamNameTaken)
+		s.logGameEvent(session, "game-pvp-total-team-name-check", "opcode", opcode,
+			"available", false, "duplicated", duplicated, "error", err)
+		if duplicated {
+			return s.sendGameUpperFailure(session, opcode, currentPVPTotalTeamNameDuplicateCode)
+		}
 		return s.sendGameUpperFailure(session, opcode, 3)
 	}
 	if opcode == 872 {
-		return s.sendGameUpperSuccess(session, opcode, nil)
+		// ★ 成功时回显队伍名（2026-11-06）。
+		//
+		// 同一台机器上「冒险团名称查重」的成功响应就是 `[1] + rawDstr(名字)`
+		//（account_represent_name.go:152-157）；PVP 这条之前只回 `[1]`，
+		// 客户端按 `[1]+dstr` 解析时读到越界就静默失败 —— 现场表现正是
+		// 「输入队伍名后点检查重复，界面毫无反应」，而服务端日志里 11 次请求
+		// 全是成功（body_len=1）。
+		//
+		// ⚠️ 本改动**未经客户端实测**：若客户端实际只需要裸 `[1]`，
+		// 多出来的 dstr 会被忽略；若它需要名字，这一版才修得好。
+		var w packetWriter
+		w.writeRawDstr(rosterNameBytes(name))
+		s.logGameEvent(session, "game-pvp-total-team-name-check", "opcode", opcode, "available", true)
+		return s.sendGameUpperSuccess(session, opcode, w.bytes())
 	}
 	if opcode == 873 {
 		if session.selectedCharacterID == 0 {

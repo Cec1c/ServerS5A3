@@ -131,6 +131,13 @@ func (s *Service) sendSelectedSceneUserInfo23Mode1Only(session *gameSession, sou
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSetUDPIPPort), body, 0); err != nil {
 		return err
 	}
+	// Mode1 carries only the legacy active Buff view. Restore both native
+	// groups before marking this actor snapshot complete, including reselect.
+	if s.currentClientLoadoutOwnsBuffSwap1428() && buffGroupSyncEnabled() {
+		if err := s.sendBuffSwapReapply(session, source+"_paired_after_mode1"); err != nil {
+			return err
+		}
+	}
 	// The following current-town op23 carries the same repository-backed
 	// visibility bits while binding the selected actor. Sending op357 here
 	// would detach and reinsert fashion components a second time during login.

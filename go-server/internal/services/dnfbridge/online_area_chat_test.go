@@ -70,7 +70,7 @@ func TestCurrentAreaChatEchoesAndIsolatesOtherChannelsAndPrivateRooms(t *testing
 				t.Fatalf("sender ack=%+v", ack)
 			}
 			echo, rest := splitGameServerUpperPacket(t, rest)
-			want := buildCurrentAreaChatNoticeBody(42, 1, []byte("hello"))
+			want := buildCurrentAreaChatNoticeBody(0, 1, []byte("hello"))
 			if echo.Header.MsgID != currentAreaChatNotifyOpcode || echo.Header.Classification != 0 || !bytes.Equal(echo.Body, want) || len(rest) != 0 {
 				t.Fatalf("sender echo=%+v trailing=%d", echo, len(rest))
 			}

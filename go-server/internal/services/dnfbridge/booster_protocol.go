@@ -135,6 +135,14 @@ type currentBoosterDefinition struct {
 	MaterialCount          int64
 	LotteryGoldCost        int64
 	Random                 alignedcmd.MagicBoxResolution
+	RandomCharacter        *currentBoosterRewardCharacter
+}
+
+// Job/level-dependent rewards must still belong to this character snapshot
+// when the asset transaction commits, rather than only at the preflight read.
+type currentBoosterRewardCharacter struct {
+	Job   string
+	Level int
 }
 
 type currentBoosterRewardSlotDelta struct {

@@ -222,16 +222,10 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 		}
 		packets = append(packets, currentAntonRewardPacket{opcode: 597, body: raid.BuildRemainingTimeBody(1, uint32(remaining))})
 	}
-	if !f.FinishedAt.IsZero() {
-		// A legitimate raid runtime binding is required for this notification.
-		session.dungeon.mu.Lock()
-		runtime := session.dungeon.runtime
-		bound := runtime != nil && runtime.raidEntry != nil && runtime.raidEntry.InstanceID == b.InstanceID && runtime.raidEntry.Phase == b.Phase && dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID)
-		session.dungeon.mu.Unlock()
-		if bound {
-			packets = append(packets, currentAntonRewardPacket{opcode: 115, body: []byte{0}})
-		}
-	}
+	// NOTI115 acknowledges a real boss-death request. It is neither a raid
+	// completion nor a town-return packet; even status zero consumes another
+	// byte in the current native reader. Reward projection must not replay it.
+
 	for _, packet := range packets {
 		if err := s.sendGameUpperRawClassCodec(session, packet.opcode, packet.body, packet.class, true); err != nil {
 			s.logCurrentRaidRewardWire(session, packet, b.InstanceID, b.Mode, b.Phase, false, "send_failed")
@@ -293,7 +287,22 @@ func (s *Service) sendCurrentAntonRewardFlowProjection(session *gameSession, cap
 	}
 	o.rewardFlowIdentity, o.rewardFlowSignature = identity, signature
 	if displaySignature != [32]byte{} {
+		if o.rewardDisplayIdentity != identity || o.rewardDisplaySignature != displaySignature {
+			o.rewardDisplayShownAt = time.Now()
+		}
 		o.rewardDisplayIdentity, o.rewardDisplaySignature = identity, displaySignature
+	}
+	// Keep an independent receipt for the actually written final team list.
+	// Normal phase two also projects a mutable local-party list; its combined
+	// dedup signature is not an ownership proof for automatic return.
+	for _, packet := range packets {
+		if packet.opcode == 600 && len(packet.body) > 0 && packet.body[0] == 3 {
+			squadSignature := sha256.Sum256(packet.body)
+			if o.rewardSquadDisplayIdentity != identity || o.rewardSquadDisplaySignature != squadSignature {
+				o.rewardSquadDisplayShownAt = time.Now()
+			}
+			o.rewardSquadDisplayIdentity, o.rewardSquadDisplaySignature = identity, squadSignature
+		}
 	}
 	return nil
 }

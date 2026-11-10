@@ -88,6 +88,9 @@ func TestOfficialCharacterFriendsPersistOfflineReloadAndDelete(t *testing.T) {
 	if binary.LittleEndian.Uint16(list.Body[9:]) != 0 {
 		t.Fatal("offline friend invented online channel")
 	}
+	if len(list.Body) < 6 || binary.LittleEndian.Uint32(list.Body[len(list.Body)-5:]) != 5 {
+		t.Fatal("offline friend lost persistent wedding invitation target")
+	}
 	if bc.write.Len() != 0 {
 		t.Fatal("one-way addition notified target")
 	}

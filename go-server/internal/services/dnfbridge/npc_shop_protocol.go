@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 const (
@@ -43,6 +44,7 @@ type currentNPCShopSellRequest struct {
 }
 
 type currentNPCShopBuyResult struct {
+	WeddingRoom       *wedding.Room
 	GuildMedalUpdates []currentItemListEntry
 	GoldAfter         int64
 	SPAfter           int64

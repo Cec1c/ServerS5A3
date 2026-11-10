@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -85,7 +86,10 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		return err
 	}
 	s.refreshCurrentAccountFriendPresence(session, "finish_loading_after_player_state")
-	return s.sendBuffSwapReapply(session, source+"_after_finish_loading_player_state")
+	if err := s.sendBuffSwapReapply(session, source+"_after_finish_loading_player_state"); err != nil {
+		return err
+	}
+	return errors.Join(s.queueCurrentWeddingBenefitsReplay(session, source), s.queueCurrentWeddingCeremonyRecovery(session))
 }
 
 // sendCurrentFinishLoadingCharacterStateSnapshot writes the class0/op37

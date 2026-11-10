@@ -12,6 +12,7 @@ import (
 	"time"
 
 	driver "github.com/go-sql-driver/mysql"
+	"longheng.io/server/internal/modules/dnf/itemexpiration"
 	r "longheng.io/server/internal/modules/dnf/repository"
 	repomysql "longheng.io/server/internal/modules/dnf/repository/mysql"
 )
@@ -23,7 +24,8 @@ func TestHongbaoPurchaseUsesNativeSecondPrecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := time.Unix(now.Add(10*24*time.Hour).Unix(), 0).UTC()
+	// 到期时间吸附到服务日 06:00（北京时间）；仍是整秒精度，只是不再是 now+10 天。
+	want := itemexpiration.DailyDeleteBoundaryAtOrAfter(time.Unix(now.Add(10*24*time.Hour).Unix(), 0).UTC())
 	inv, _, _ := repos.Inventory.Load(context.Background(), "1")
 	if !result.ExpireAt.Equal(want) || !inv.Slots[result.Slot].ExpireAt.Equal(want) {
 		t.Fatal(result.ExpireAt, inv)

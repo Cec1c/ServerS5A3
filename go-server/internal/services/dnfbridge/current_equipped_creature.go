@@ -11,12 +11,10 @@ import (
 )
 
 // currentEquippedCreatureSnapshot is the one durable creature projection used
-// by all current-EXE class0/op2 actor modes. Equipment slot 26 owns whether a
-// creature is worn; PetRecord supplies the hatched creature's name and level.
-//
-// Current EXE sub_20077D0 consumes {itemID, serialOrHandle}. The second dword
-// is the same value stored at raw offset 24 in the slot-26 equipment entry and
-// passed as constructor field a10 by sub_1D77560.
+// by current-EXE actor projections. Equipment slot 26 owns whether a
+// creature is worn; PetRecord supplies its name and level. The equipment
+// create row carries its instance and enchant. The raw8 after equipment in
+// mode1/mode3 belongs to name-tag endpoint 30 and must not carry this snapshot.
 type currentEquippedCreatureSnapshot struct {
 	itemID         uint32
 	serialOrHandle uint32
@@ -244,9 +242,9 @@ func (s *Service) currentEquippedCreatureEnrichNameFromPVF(snapshot *currentEqui
 }
 
 func currentEquippedCreatureSerialFromRaw(raw []byte) uint32 {
-	// op2/sub_20077D0 consumes the constructor-a10 field repeated at +24 in a
-	// current pet equipment row. Do not fall back to the ordinary +5 equipment
-	// instance: ordinary equipment instance values are not creature serials.
+	// A legacy pet equipment row repeats its durable serial at +24.
+	// Do not fall back to the ordinary +5 equipment instance: ordinary
+	// equipment instance values are not creature serials.
 	if len(raw) >= 28 {
 		return binary.LittleEndian.Uint32(raw[24:28])
 	}

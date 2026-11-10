@@ -35,10 +35,12 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/wedding"
 )
 
 // errGameDeleteCharacterIDUnavailable：角色号不是正十进制数，无法按 GM 口径腾出墓碑槽。
 var errGameDeleteCharacterIDUnavailable = errors.New("game delete character: non-positive character id")
+var errGameDeleteCharacterMarriage = errors.New("game delete character: relationship must be dissolved first")
 
 const (
 	// characterDeleteAckEnv 是删除角色回包开关名。
@@ -55,6 +57,9 @@ const (
 	characterDeleteAckBadRequest   = 0x02
 	characterDeleteAckNameMismatch = 0x15
 	characterDeleteAckBlocked      = 0x28
+	// Current native DELETE_CHARACTER 1faf040, failure 1faf2be: 0x24
+	// opens DSTR25005, which explicitly requires engagement/marriage to end.
+	characterDeleteAckMarriage = 0x24
 
 	// characterDeleteDeletedFlag 与 GM 软删同值（gmtool/api_character_delete.go:115）。
 	characterDeleteDeletedFlag = 1
@@ -131,7 +136,11 @@ func (s *Service) handleGameDeleteCharacter(session *gameSession, body []byte) e
 			"character_id", target.CharacterID,
 			"slot", slotIndex,
 			"error", err)
-		return s.sendGameDeleteCharacterError(session, characterDeleteAckBlocked)
+		code := byte(characterDeleteAckBlocked)
+		if errors.Is(err, errGameDeleteCharacterMarriage) {
+			code = characterDeleteAckMarriage
+		}
+		return s.sendGameDeleteCharacterError(session, code)
 	}
 	if visible, verifyErr := s.gameCharacterStillVisible(ctx, repos, accountID, target.CharacterID); verifyErr != nil || visible {
 		// 与 GM 软删同一口径（api_character_delete.go:271-282）：读不回来不算成功。
@@ -204,19 +213,35 @@ func (s *Service) softDeleteGameCharacter(
 		// 负墓碑槽需要正的十进制角色号（gmtool chardelTombstoneSlot:776-781 同样拒绝）。
 		return 0, 0, errGameDeleteCharacterIDUnavailable
 	}
-	updated := dnfrepo.CloneCharacter(record)
-	if updated.Stats == nil {
-		updated.Stats = make(map[string]int64, 1)
+	if repos.CharacterAssets == nil {
+		return 0, 0, dnfrepo.ErrCharacterAssetTransactionUnavailable
 	}
-	previousSlot := updated.Slot
-	updated.Stats["delete_flag"] = characterDeleteDeletedFlag
+	previousSlot := record.Slot
 	// 墓碑槽 = -角色号：选人槽位区间是 [0, defaultCharacterSlots)，墓碑行不会被任何
 	// 列表/选角读面看到；角色号是主键，-角色号 天然唯一（同槽位删两次不会撞唯一键）。
 	tombstoneSlot := -characterID
-	updated.Slot = tombstoneSlot
-	updated.UpdatedAt = time.Now().UTC()
-	if err := dnfrepo.SaveCharacterFields(ctx, repos.Character, updated,
-		dnfrepo.CharacterFieldBase, dnfrepo.CharacterFieldStats); err != nil {
+	err := repos.CharacterAssets.WithinCharacterAssets(ctx, record.CharacterID, func(chars dnfrepo.CharacterRepository, _ dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+		current, found, err := chars.Load(ctx, record.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !found || current.CharacterID != record.CharacterID || current.AccountID != record.AccountID || current.Name != record.Name || current.Slot != record.Slot || current.Slot < 0 || current.Stats["delete_flag"] != 0 {
+			return dnfrepo.ErrCharacterAssetTransactionUnavailable
+		}
+		state, err := wedding.Read(current)
+		if err != nil || state.Phase != wedding.Single {
+			return errGameDeleteCharacterMarriage
+		}
+		updated := dnfrepo.CloneCharacter(current)
+		if updated.Stats == nil {
+			updated.Stats = make(map[string]int64, 1)
+		}
+		updated.Stats["delete_flag"] = characterDeleteDeletedFlag
+		updated.Slot = tombstoneSlot
+		updated.UpdatedAt = time.Now().UTC()
+		return dnfrepo.SaveCharacterFields(ctx, chars, updated, dnfrepo.CharacterFieldBase, dnfrepo.CharacterFieldStats)
+	})
+	if err != nil {
 		return previousSlot, tombstoneSlot, err
 	}
 	return previousSlot, tombstoneSlot, nil

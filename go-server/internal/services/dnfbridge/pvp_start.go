@@ -32,6 +32,61 @@ func currentPVPStartMapOrder(source initialEquipmentTextSource) ([]int64, error)
 	return order, nil
 }
 
+// ensureCurrentPVPMapOrderLocked 保证 `s.pvpMapOrder` 已从 PVF 加载（受 `s.pvpMu` 保护）。
+func (s *Service) ensureCurrentPVPMapOrderLocked() error {
+	if s.pvpMapOrder != nil {
+		return nil
+	}
+	s.initialEquipmentMu.Lock()
+	archive, err := s.initialEquipmentArchiveLocked()
+	s.initialEquipmentMu.Unlock()
+	if err == nil {
+		s.pvpMapOrder, err = currentPVPStartMapOrder(archive)
+	}
+	return err
+}
+
+// currentPVPStartMapIndexLocked 返回一张**真实可用**的决斗地图索引（1..len-1）。
+//
+// ★ 索引 0 在 PVF `etc/pvpmapbasicdata.etc` 里对应 `50000`「随机行」，客户端拿到它
+// 不会预加载任何地图。所以**房间信息 op41 必须发真实索引**，否则客户端要等到 op45
+// 才开始加载决斗地图；而服务端此前下发的 op23/op3/op357 都落在城镇场景里，
+// 场景重建后整张 actor 表被清空 —— 现场表现就是「匹配进决斗房间看不到对方」。
+//
+// 2026-10-31 实测（90CN）：匹配路径 op41 的 mapIndex 是 0、op45 却是 4/3（两者不一致），
+// 玩家看不到对方；手动开房由玩家选了地图，op41 与 op45 一致，一切正常。
+func (s *Service) currentPVPStartMapIndexLocked() (int, error) {
+	if err := s.ensureCurrentPVPMapOrderLocked(); err != nil {
+		return 0, err
+	}
+	if len(s.pvpMapOrder) < 2 {
+		return 0, fmt.Errorf("PVP map order has %d entries", len(s.pvpMapOrder))
+	}
+	return 1 + rand.IntN(len(s.pvpMapOrder)-1), nil
+}
+
+// resolveCurrentPVPRoomMapIndexLocked 在建房时就把「这一局用哪张图」定下来。
+//
+// ★ op41（房间信息）与 op45（开始决斗）必须报同一张图，而且都不能是 0。
+// 索引 0 在 PVF 里是 `50000` 随机行，客户端拿到 0 不会预加载决斗地图，要等服务端
+// 发 op45 才开始加载；而场景重建会把此前下发的 actor 全清掉 —— 现场表现就是
+// 「匹配进决斗房间看不到对方」。
+//
+// 手动开房由玩家选了具体地图（非 0）→ 原样保留；自动匹配 / 玩家选「随机」→ 这里就抽签，
+// 保证 op41、op42、op45 三条包报的是同一个索引。
+func (s *Service) resolveCurrentPVPRoomMapIndexLocked(requested int16) int16 {
+	if requested != 0 {
+		return requested
+	}
+	index, err := s.currentPVPStartMapIndexLocked()
+	if err != nil {
+		// 地图表取不到时保持 0：op45 启动前还会再取一次，取不到就以 19 拒绝，
+		// 不在建房阶段把玩家踢回大厅。
+		return 0
+	}
+	return int16(index)
+}
+
 func (s *Service) startCurrentPVPRoomLocked(room *currentPVPRoom, owner *gameSession) error {
 	reject := func(code byte, reason string) error {
 		s.logGameEvent(owner, "game-pvp-start-rejected", "room_id", room.id, "reason", reason)
@@ -76,25 +131,27 @@ func (s *Service) startCurrentPVPRoomLocked(room *currentPVPRoom, owner *gameSes
 	if (room.battleMode == 2 || room.battleMode == 3 || room.battleMode == 5 || room.battleMode == 8) && (red == 0 || red != blue) {
 		return reject(14, "unbalanced_teams")
 	}
-	if s.pvpMapOrder == nil {
-		s.initialEquipmentMu.Lock()
-		archive, err := s.initialEquipmentArchiveLocked()
-		s.initialEquipmentMu.Unlock()
-		if err == nil {
-			s.pvpMapOrder, err = currentPVPStartMapOrder(archive)
-		}
-		if err != nil {
-			return reject(19, "runtime_pvp_map_list_unavailable")
-		}
+	if err := s.ensureCurrentPVPMapOrderLocked(); err != nil {
+		return reject(19, "runtime_pvp_map_list_unavailable")
 	}
 	selected := int(room.request.mapIndex)
 	if selected < 0 || selected >= len(s.pvpMapOrder) {
 		return reject(19, "map_index_out_of_range")
 	}
 	if selected == 0 {
-		selected = 1 + rand.IntN(len(s.pvpMapOrder)-1)
+		var err error
+		selected, err = s.currentPVPStartMapIndexLocked()
+		if err != nil {
+			return reject(19, "runtime_pvp_map_list_unavailable")
+		}
 	}
+	// 回写房间：op42（房间状态）与赛后广播都读 `room.request.mapIndex`，
+	// 不回写就会出现「op45 报图 A、op42 报 0」的不一致。
+	room.request.mapIndex = int16(selected)
 	room.match = &currentPVPMatch{winner: 0xff, startedAt: s.gameplayNow()}
+	if room.battleMode == 3 {
+		room.match.relay = newCurrentPVPRelayMatch()
+	}
 	if room.battleMode == 8 {
 		room.match.total = newCurrentPVPTotalMatch()
 	}
@@ -148,6 +205,12 @@ func (s *Service) handleCurrentPVPMatchSignal(session *gameSession, opcode uint1
 	s.pvpMu.Lock()
 	defer s.pvpMu.Unlock()
 	if room := session.pvpRoom; room != nil && room.started {
+		if s.pvpRooms[room.id] != room || room.channelID != session.channel.ID || room.seatFor(session) < 0 {
+			return nil
+		}
+		if room.battleMode == 3 {
+			return s.handleCurrentPVPRelayLoadLocked(room, session, opcode)
+		}
 		if room.battleMode == 8 {
 			return s.handleCurrentPVPTotalLoadLocked(room, session, opcode)
 		}

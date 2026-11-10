@@ -235,9 +235,10 @@ func currentNativePVFHellReward(request hellPartyRewardRequest) (hellPartyReward
 	if err != nil {
 		return r, err
 	}
+	band := abyssItemLevelBandFromEnv().forDungeon(request.DungeonMinimumLevel, request.DungeonBasisLevel)
 	var candidates [6][]dungeonDropWeightedItem
 	for rarity := int64(0); rarity < 6; rarity++ {
-		candidates[rarity] = pool.candidatesWithBand(low, high, rarity, abyssItemLevelBand{})
+		candidates[rarity] = pool.candidatesWithBand(low, high, rarity, band)
 		r.RarityCandidates[rarity] = len(candidates[rarity])
 	}
 	r.RarityCandidatesKnown = true

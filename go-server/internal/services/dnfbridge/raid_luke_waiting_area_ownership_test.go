@@ -325,7 +325,8 @@ func TestRealPVFLukeWaiting39StartLeaveAndNetworkScopeLoss(t *testing.T) {
 					}
 					return
 				}
-				if err := s.handleOnlineLeaveRaid(session, 665, []byte{0, 1}); err != nil {
+				// The native voluntary-exit sender writes this character's UID.
+				if err := s.handleOnlineLeaveRaid(session, 665, []byte{29, 0}); err != nil {
 					t.Fatal(err)
 				}
 			}

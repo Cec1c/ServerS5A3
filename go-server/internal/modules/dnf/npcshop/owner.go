@@ -29,6 +29,9 @@ type Assets struct {
 }
 
 type Changes struct {
+	// Protected numeric ledgers need their explicit repository field in
+	// addition to ordinary character stats. The client never supplies this.
+	CharacterFields  []dnfrepo.CharacterField
 	Account          bool
 	AccountInventory bool
 	Character        bool
@@ -188,7 +191,14 @@ func (o *Owner) Mutate(ctx context.Context, command Command) error {
 		}
 		if changes.Character {
 			character.UpdatedAt = now
-			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, dnfrepo.CharacterFieldStats); err != nil {
+			fields := []dnfrepo.CharacterField{dnfrepo.CharacterFieldStats}
+			for _, field := range changes.CharacterFields {
+				if field != dnfrepo.CharacterFieldWedding {
+					return ErrProjectorRequired
+				}
+				fields = append(fields, field)
+			}
+			if err := dnfrepo.SaveCharacterFields(ctx, characters, character, fields...); err != nil {
 				return err
 			}
 		}

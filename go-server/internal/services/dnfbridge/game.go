@@ -36,20 +36,22 @@ type gameSession struct {
 	// combat definition. Equipment in durable storage always keeps its neutral ID.
 	aikenSupportTitleActive atomic.Bool
 	// Written and read only by this session's serial event owner.
-	performanceEventQueuedAt            time.Time
-	privateFestivalCommittedSerial      uint64                         // protected by Service.mu; survives character switches
-	dungeonPermissionMigrationAccount   string                         // 只记本会话已完成归并的账号，不缓存权限值。
-	peerProfileSubscription             currentPeerProfileSubscription // protected by Service.mu
-	accountRank                         gameAccountRankState           // 限流和请求号由会话循环访问。
-	battlePassLast                      time.Time                      // 战令预览限流，仅会话循环访问。
-	playerStats                         gamePlayerStatsState           // 请求/缓存只由会话循环使用，busy跨工作协程。
-	professionChangeMu                  sync.Mutex
-	professionChangePending             *currentProfessionChangePending
-	pendingItemExpiryProjection         *currentItemExpiryProjection          // selected-character event loop only
-	fiendWarPendingMove                 *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
-	fiendWarAdmissionDiagnosticKey      currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
-	fiendWarProjection                  currentFiendWarProjection
-	pvpClientGameType                   uint32 // 本次客户端选择的匹配类型，原子读取与更新。
+	performanceEventQueuedAt          time.Time
+	privateFestivalCommittedSerial    uint64                         // protected by Service.mu; survives character switches
+	dungeonPermissionMigrationAccount string                         // 只记本会话已完成归并的账号，不缓存权限值。
+	peerProfileSubscription           currentPeerProfileSubscription // protected by Service.mu
+	accountRank                       gameAccountRankState           // 限流和请求号由会话循环访问。
+	battlePassLast                    time.Time                      // 战令预览限流，仅会话循环访问。
+	playerStats                       gamePlayerStatsState           // 请求/缓存只由会话循环使用，busy跨工作协程。
+	professionChangeMu                sync.Mutex
+	professionChangePending           *currentProfessionChangePending
+	pendingItemExpiryProjection       *currentItemExpiryProjection          // selected-character event loop only
+	fiendWarPendingMove               *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
+	fiendWarAdmissionDiagnosticKey    currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
+	fiendWarProjection                currentFiendWarProjection
+	pvpClientGameType                 uint32 // 本次客户端选择的匹配类型，原子读取与更新。
+	// 消耗品召唤源租约（[summon apc]），跨副本运行有效，只由本会话事件循环读写。
+	puppetLease                         *currentDungeonPuppetLease
 	auctionLastSearchOpcode             uint16
 	auctionLastSearchBody               []byte
 	auctionServiceOpenMask              byte
@@ -88,15 +90,16 @@ type gameSession struct {
 	// 取值见 repository_access.go 的 sharedAccountReason* 常量。
 	sharedAccountFallbackReason string
 	// sharedAccountWarnOnce 保证每条会话只写一条"落到共享账号"的 WARN。
-	sharedAccountWarnOnce sync.Once
-	channel               channelcatalog.Channel
-	residentChannel       channelcatalog.Channel
-	coldChannelLanding    *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
-	packetSeq             uint64
-	goldDiagnosticCount   atomic.Uint32
-	sequence              uint32
-	upperSeq              uint16
-	ctx                   context.Context
+	sharedAccountWarnOnce     sync.Once
+	channel                   channelcatalog.Channel
+	residentChannel           channelcatalog.Channel
+	coldChannelLanding        *currentColdChannelLanding // 首次选角前的受控频道更正，由会话事件循环保护。
+	packetSeq                 uint64
+	goldDiagnosticCount       atomic.Uint32
+	sequence                  uint32
+	upperSeq                  uint16
+	weddingCeremonyProjection currentWeddingCeremonyProjection
+	ctx                       context.Context
 
 	goldDiagnosticSnapshot atomic.Pointer[currentGoldDiagnosticSnapshot]
 

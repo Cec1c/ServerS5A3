@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -40,15 +41,29 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	}
 	if f := latest.Battle.RewardFlow[latest.Battle.Phase]; f != nil && !f.SquadShownAt.IsZero() {
 		// A delayed click/movie packet must not reopen party masks over the
-		// already committed squad/break screen. Preserve only its command ACK.
+		// already committed squad/break screen. A final Anton kind0 reply is
+		// different: it completes the already-owned party card with no gold
+		// descriptors. The clock may settle the squad before that request arrives.
+		var goldReply []byte
+		if !markScreen && latest.Battle.Mode == 1 && latest.Battle.Phase == 1 && !f.Single {
+			if card := f.Party[session.selectedCharacterID]; card != nil && card.Committed {
+				goldReply, err = raid.BuildRewardListBody(0, []raid.RewardDisplayCard{{CharacterID: session.selectedCharacterID, CardType: card.Card}})
+				if err != nil {
+					return err
+				}
+			}
+		}
+		ownedGoldReply := func(packet currentAntonRewardPacket) bool {
+			return len(goldReply) != 0 && packet.class == 0 && packet.opcode == 600 && bytes.Equal(packet.body, goldReply)
+		}
 		for _, packet := range packets {
-			if packet.class != 1 {
+			if packet.class != 1 && !ownedGoldReply(packet) {
 				s.logCurrentRaidRewardWire(session, packet, latest.Battle.InstanceID, latest.Battle.Mode, latest.Battle.Phase, false, "squad_shown_at_filtered")
 			}
 		}
 		filtered := packets[:0]
 		for _, packet := range packets {
-			if packet.class == 1 {
+			if packet.class == 1 || ownedGoldReply(packet) {
 				filtered = append(filtered, packet)
 			}
 		}
@@ -354,16 +369,6 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 	if req.Kind == 2 {
 		return s.sendRaidCommandFailure(session, op)
 	}
-	s.initialEquipmentMu.Lock()
-	archive, err := s.initialEquipmentArchiveLocked()
-	s.initialEquipmentMu.Unlock()
-	if err != nil {
-		return s.sendRaidCommandFailure(session, op)
-	}
-	catalog, err := newPVFDungeonDropCatalog(archive)
-	if err != nil {
-		return s.sendRaidCommandFailure(session, op)
-	}
 	if req.Kind == 0 {
 		s.raidMu.Lock()
 		live := s.runtimeRaidByMemberLocked(session.selectedCharacterID)
@@ -386,6 +391,10 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 			return err
 		}
 		return s.sendCurrentAntonRewardPackets(session, state, []currentAntonRewardPacket{{opcode: 600, body: display}, {opcode: op, class: 1, body: []byte{1}}}, false)
+	}
+	catalog, err := s.currentAntonRewardDropCatalog()
+	if err != nil {
+		return s.sendRaidCommandFailure(session, op)
 	}
 	card, command, err := s.freezeCurrentAntonPartyCard(session, state, req.Card, catalog, secureCurrentBoosterRoll)
 	if err != nil {
