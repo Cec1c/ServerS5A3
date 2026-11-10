@@ -7,8 +7,29 @@ on:
     - cron: '13,43 * * * *'
   workflow_dispatch:
     inputs:
+      operation:
+        description: 'sync正常同步；prepare-tag创建当前可信主干标签；publish验证并发布已上传草稿后同步'
+        type: choice
+        options: [sync, prepare-tag, publish]
+        default: sync
       tag:
         description: '仅同步指定客户端标签；留空检查 V180 及以后版本'
+        required: false
+        type: string
+      expected_head:
+        description: 'prepare-tag/publish绑定的完整当前master SHA'
+        required: false
+        type: string
+      release_id:
+        description: 'publish绑定的已有草稿Release ID'
+        required: false
+        type: string
+      zip_sha256:
+        description: 'publish绑定的完整ZIP SHA256'
+        required: false
+        type: string
+      exe_sha256:
+        description: 'publish绑定的完整EXE SHA256'
         required: false
         type: string
 
@@ -33,7 +54,22 @@ jobs:
         run: python3 -m pip install -r scripts/ci/requirements-release-sync.txt
       - name: Validate release synchronization
         run: python3 -m unittest discover -s scripts/ci -p 'test_sync_client*.py' -v
+      - name: Validate trusted client publication
+        if: github.event_name == 'workflow_dispatch' && inputs.operation != 'sync'
+        run: python3 -m unittest discover -s scripts/ci -p 'test_publish_client_release_draft.py' -v
+      - name: Prepare exact current tag or publish reviewed draft
+        if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'prepare-tag' || inputs.operation == 'publish')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLIENT_PUBLICATION_STAGE: ${{ inputs.operation }}
+          CLIENT_RELEASE_TAG: ${{ inputs.tag }}
+          CLIENT_EXPECTED_HEAD: ${{ inputs.expected_head }}
+          CLIENT_RELEASE_ID: ${{ inputs.release_id }}
+          CLIENT_ZIP_SHA256: ${{ inputs.zip_sha256 }}
+          CLIENT_EXE_SHA256: ${{ inputs.exe_sha256 }}
+        run: python3 scripts/ci/publish_client_release_draft.py
       - name: Prepare existing GitHub mirror identity for audited tags
+        if: inputs.operation != 'prepare-tag'
         env:
           SYNC_KEY: ${{ secrets.SOURCE_MIRROR_SSH_KEY }}
           SYNC_HOSTS: ${{ secrets.SOURCE_MIRROR_KNOWN_HOSTS }}
@@ -47,6 +83,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/client-release-ssh/key"
           echo "GIT_SSH_COMMAND=ssh -i $RUNNER_TEMP/client-release-ssh/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/client-release-ssh/known_hosts" >> "$GITHUB_ENV"
       - name: Synchronize client EXE releases with GitGud
+        if: inputs.operation != 'prepare-tag'
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -71,5 +108,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: client-release-sync
-          path: ${{ runner.temp }}/client-release-sync.json
+          path: |
+            ${{ runner.temp }}/client-release-sync.json
+            ${{ runner.temp }}/public-client-publication.json
           if-no-files-found: ignore
