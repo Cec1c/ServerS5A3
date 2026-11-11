@@ -32,8 +32,8 @@
 //
 // # 叠加规则（同模式只取一件，取最高）
 //
-// 真档 15 件药水的加成在本次 PVF 改动后**都是** 10000，所以"取最高"与"取最新"在当前
-// 数据下不可区分；实现按更保守的**同模式只保留最高的一件**（`max`），因此
+// 当前已确认药水缺省加成为10000，显式PVF值优先，所以"取最高"与"取最新"在当前
+// 数据下不可区分；实现按更保守的**同模式取最高有效加成，各来源独立到期**（`max`），因此
 // 「强化的奥秘 + 强化秘药」不会叠成 ×1.21。厂商参考里**没有**这族药水的任何实现
 // （C# `ItemUpgradeConsumableResolver` 只认券/便携/随机附魔三族），所以这条规则是
 // 按上游"厂商无参考就只取最高的一件"的指示定的，不是抄来的。
@@ -43,8 +43,7 @@
 // # 开关
 //
 //	DNFBRIDGE_UPGRADE_SUCCESS_BOOST
-//	  未设置 / 空        = 默认档：加成值取 PVF `[upgrade prob increase]`（本次 PVF 改动
-//	                       给 15 件都写了 10000 ⇒ ×1.1）。
+//	  未设置 / 空        = 默认档：加成值取 PVF `[upgrade prob increase]`（字段缺省时，两类已确认Buff采用10000 ⇒ ×1.1）。
 //	  数字（如 `1.1`）    = 运营覆盖：所有模式的加成强制用这个**乘数**（1.1 = ×1.1）。
 //	                       写成 `1.0` / `1` / `off` / `none` / `legacy` / `0` = **不加成**
 //	                       （= 逐字节回到改动前：药水照旧只被消耗）。
@@ -149,63 +148,88 @@ func upgradeRateBuffApplyBonus(resolution alignedcmd.UpgradeRateBuffResolution) 
 // 同模式只保留**最高**的加成（max），到期时间取"现在 + PVF 持续时间"。
 // 显式关掉加成（bonus < 0）时仍然刷新到期时间——客户端那边 buff 图标照样会出现，
 // 我们只是不把它算进掷点。
-func recordUpgradeRateBuff(
-	character *dnfrepo.CharacterRecord,
-	resolution alignedcmd.UpgradeRateBuffResolution,
-	itemID int64,
-	now time.Time,
-) (int64, int, bool) {
-	if character == nil || resolution.DurationMillis <= 0 {
+func recordUpgradeRateBuff(character *dnfrepo.CharacterRecord, resolution alignedcmd.UpgradeRateBuffResolution, itemID int64, now time.Time) (int64, int, bool) {
+	if character == nil || resolution.DurationMillis <= 0 || itemID <= 0 {
 		return 0, 0, false
 	}
 	untilKey, bonusKey, itemKey, ok := upgradeRateBuffKeys(resolution.Mode)
 	if !ok {
 		return 0, 0, false
 	}
-	bonus := upgradeRateBuffApplyBonus(resolution)
-	until := now.Unix() + resolution.DurationMillis/1000
 	if character.Stats == nil {
-		character.Stats = make(map[string]int64, 3)
+		character.Stats = make(map[string]int64)
 	}
-	// 同模式取最高：既有的、还没过期的加成更高时不降级（只把时间往后推）。
-	if existingUntil := character.Stats[untilKey]; existingUntil > now.Unix() {
-		if existingBonus := character.Stats[bonusKey]; existingBonus > int64(bonus) {
-			bonus = int(existingBonus)
+	prefix := upgradeRateBuffUntilKeyPrefix + resolution.Mode + "_source_"
+	// Import the old single-source ledger once, retaining its original expiry.
+	if !hasUpgradeBuffSources(character.Stats, prefix) && character.Stats[untilKey] > now.Unix() {
+		character.Stats[prefix+"legacy_until_unix"] = character.Stats[untilKey]
+		character.Stats[prefix+"legacy_bonus"] = character.Stats[bonusKey]
+	}
+	for key, until := range character.Stats {
+		if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, "_until_unix") && until <= now.Unix() {
+			delete(character.Stats, strings.TrimSuffix(key, "_until_unix")+"_bonus")
+			delete(character.Stats, key)
 		}
 	}
-	character.Stats[untilKey] = until
-	character.Stats[bonusKey] = int64(bonus)
-	character.Stats[itemKey] = itemID
+	source := prefix + strconv.FormatInt(itemID, 10)
+	character.Stats[source+"_until_unix"] = now.Unix() + resolution.DurationMillis/1000
+	character.Stats[source+"_bonus"] = int64(upgradeRateBuffApplyBonus(resolution))
+	bonus, until := upgradeBuffSourceMaximum(character.Stats, prefix, now.Unix())
+	// Compatibility projection; readers use source expiries when present.
+	character.Stats[untilKey], character.Stats[bonusKey], character.Stats[itemKey] = until, int64(bonus), itemID
 	return until, bonus, true
 }
 
-// upgradeRateBuffActiveBonus 读出某个模式当前生效的加成（十万分比）。
-// 没记账 / 已过期 / 显式关掉（<0）都返回 0 = 不加成。
-//
-// 读取时**再套一次** `DNFBRIDGE_UPGRADE_SUCCESS_BOOST` 覆盖：这样 `off` / `1` 对
-// **已经记上的** buff 立刻生效（不用等它过期），而记账里保留的仍是"当时生效的加成"。
-// 覆盖本身**不会**凭空产生 buff：没有生效中的账，一律返回 0。
+func hasUpgradeBuffSources(stats map[string]int64, prefix string) bool {
+	for key := range stats {
+		if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, "_until_unix") {
+			return true
+		}
+	}
+	return false
+}
+
+func upgradeBuffSourceMaximum(stats map[string]int64, prefix string, now int64) (int, int64) {
+	bonus, until := 0, int64(0)
+	for key, expiry := range stats {
+		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, "_until_unix") || expiry <= now {
+			continue
+		}
+		value := stats[strings.TrimSuffix(key, "_until_unix")+"_bonus"]
+		if value > int64(bonus) || value == int64(bonus) && expiry > until {
+			bonus, until = int(value), expiry
+		}
+	}
+	return min(upgradeSuccessWeightScale, bonus), until
+}
+
+// Highest active source wins. A short potion cannot borrow a long potion's life.
 func upgradeRateBuffActiveBonus(character dnfrepo.CharacterRecord, mode string, now time.Time) (int, int64) {
 	untilKey, bonusKey, _, ok := upgradeRateBuffKeys(mode)
 	if !ok || character.Stats == nil {
 		return 0, 0
 	}
-	until := character.Stats[untilKey]
-	if until <= now.Unix() {
-		return 0, until
+	prefix := upgradeRateBuffUntilKeyPrefix + mode + "_source_"
+	var bonus int
+	var until int64
+	if hasUpgradeBuffSources(character.Stats, prefix) {
+		bonus, until = upgradeBuffSourceMaximum(character.Stats, prefix, now.Unix())
+	} else {
+		until = character.Stats[untilKey]
+		if until <= now.Unix() {
+			return 0, until
+		}
+		bonus = int(character.Stats[bonusKey])
 	}
-	bonus := character.Stats[bonusKey]
 	if bonus <= 0 {
 		return 0, until
 	}
-	if bonus > upgradeSuccessWeightScale {
-		bonus = upgradeSuccessWeightScale
-	}
-	if override, ok := upgradeRateBuffBoostOverride(); ok {
+	bonus = min(upgradeSuccessWeightScale, bonus)
+	if override, found := upgradeRateBuffBoostOverride(); found {
 		if override <= 0 {
 			return 0, until
 		}
-		bonus = int64(override)
+		bonus = override
 	}
-	return int(bonus), until
+	return bonus, until
 }

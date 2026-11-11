@@ -157,7 +157,7 @@ func (s *Service) handleRuntimePartyDirectoryJoin(session *gameSession, body []b
 			"reason", result.Reason)
 		return true, s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0)
 	}
-	s.synchronizeOrdinaryPartyRaidGroups(state, "party_directory_join")
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_directory_join", result.Party)
 	if err := s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0); err != nil {
 		return true, err
 	}

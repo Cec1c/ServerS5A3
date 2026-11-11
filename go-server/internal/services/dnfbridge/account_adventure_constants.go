@@ -27,14 +27,15 @@ const (
 	currentAdventureInfoManageLevelOffset  = 0
 	currentAdventureInfoCurrentPointOffset = 8
 	currentAdventureInfoLoginDaysOffset    = 20
-	// 现用EXE E654E3..E6555B -> BEE0D8..BEE147；BE8BA0..BE8D09
-	// 按界面顺序读取推荐、决斗、绝望、悲叹、安徒恩、卢克和超时空。
+	// Native E654E3..E6555B -> BEE0D8..BEE147 -> BE8B96..BE8D09.
+	// Bind to PVF slot IDs, not their visual grid positions: slot03/04 are
+	// Anton/Luke; slot05/06 are Despair/Grief. Native slot08 is Fiend War.
 	currentAdventureInfoRecommendedOffset = 16
 	currentAdventureInfoPVPWinOffset      = 32
-	currentAdventureInfoDespairOffset     = 24
-	currentAdventureInfoGriefOffset       = 28
-	currentAdventureInfoAntonOffset       = 36
-	currentAdventureInfoLukeOffset        = 40
+	currentAdventureInfoDespairOffset     = 36
+	currentAdventureInfoGriefOffset       = 40
+	currentAdventureInfoAntonOffset       = 24
+	currentAdventureInfoLukeOffset        = 28
 	currentAdventureInfoFiendWarOffset    = 7420
 	// E654E3/E6552B copy raw+40/+48 to manager+EC/+F4; BEE108/BEE120
 	// project them to basic-info UI+494/+49C. BDF380 reads job+498,

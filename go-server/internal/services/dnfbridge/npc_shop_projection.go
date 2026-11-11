@@ -113,6 +113,9 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 				if stack.Extra == nil {
 					stack.Extra = make(map[string]string, 6)
 				}
+				if err := s.initializePrivateGrowthGrant(&stack); err != nil {
+					return dnfnpcshop.Changes{}, err
+				}
 				stack.Extra["last_grant_source"] = "npc_shop"
 				stack.Extra["last_npc_shop_context"] = strconv.FormatUint(uint64(request.ShopContext), 10)
 				stack.Extra["last_npc_shop_actor_context"] = strconv.FormatUint(uint64(request.ActorContext), 10)
@@ -296,6 +299,9 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 				}
 				if stack.Extra == nil {
 					stack.Extra = make(map[string]string, 4)
+				}
+				if err := s.initializePrivateGrowthGrant(&stack); err != nil {
+					return dnfnpcshop.Changes{}, err
 				}
 				stack.Extra["last_grant_source"] = "npc_shop"
 				stack.Extra["last_npc_shop_context"] = strconv.FormatUint(uint64(request.ShopContext), 10)

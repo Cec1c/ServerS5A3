@@ -393,10 +393,11 @@ func (o *Owner) withinCharacterAssetTransaction(ctx context.Context, characterID
 	if o.assets == nil {
 		return ErrCharacterAssetTxnRequired
 	}
-	return o.assets.WithinCharacterAssets(ctx, characterID, func(characters dnfrepo.CharacterRepository, inventory dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+	return o.assets.WithinCharacterAssets(ctx, characterID, func(characters dnfrepo.CharacterRepository, inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
 		txOwner := *o
 		txOwner.characters = characters
 		txOwner.repo = inventory
+		txOwner.equipment = equipment
 		txOwner.inItemTransaction = true
 		return apply(&txOwner)
 	})
@@ -406,11 +407,12 @@ func (o *Owner) withinAccountCharacterAssetTransaction(ctx context.Context, acco
 	if o.accountAssets == nil {
 		return dnfrepo.ErrAccountCharacterAssetTransactionUnavailable
 	}
-	return o.accountAssets.WithinAccountCharacterAssets(ctx, accountID, characterID, func(accountInventory dnfrepo.AccountInventoryRepository, characters dnfrepo.CharacterRepository, inventory dnfrepo.InventoryRepository, _ dnfrepo.EquipmentRepository) error {
+	return o.accountAssets.WithinAccountCharacterAssets(ctx, accountID, characterID, func(accountInventory dnfrepo.AccountInventoryRepository, characters dnfrepo.CharacterRepository, inventory dnfrepo.InventoryRepository, equipment dnfrepo.EquipmentRepository) error {
 		txOwner := *o
 		txOwner.accountRepo = accountInventory
 		txOwner.characters = characters
 		txOwner.repo = inventory
+		txOwner.equipment = equipment
 		txOwner.inItemTransaction = true
 		return apply(&txOwner)
 	})
@@ -1445,6 +1447,13 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		result.ErrorCode = upgradeErrorDurability
 		return result, nil
 	}
+	if _, _, growth := GrowthTicketType(target.ItemID); growth {
+		mode, _, valid := GrowthTicketMode(target)
+		if !valid || mode != cmd.Mode || !GrowthTicketUsable(target, time.Now()) {
+			result.ErrorCode = upgradeErrorWrongMode
+			return result, nil
+		}
+	}
 	result.TargetNoticeStack = cloneStack(target)
 	oldLevel := upgradeLevelOf(target)
 	result.OldLevel = oldLevel
@@ -1576,6 +1585,10 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 		character.Stats = make(map[string]int64, 1)
 	}
 	result.UpdatedGold = character.Stats["gold"]
+	equippedBonus, err := o.equippedUpgradeBonus(ctx, characterID, cmd)
+	if err != nil {
+		return UpgradeResult{}, err
+	}
 	goldCost := upgradeGoldCostOf(target, cmd.Mode, oldLevel)
 	var conversionKey string
 	var conversionItemID int64
@@ -1586,6 +1599,7 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 			return UpgradeResult{}, &upgradeCostResolutionError{cause: err}
 		}
 		if quote.Resolved {
+			quote = discountedUpgradeQuote(quote, equippedBonus.GoldDiscount)
 			if quote.GoldCost < 0 || quote.ConversionCount < 0 || (quote.ConversionCount > 0 && quote.ConversionItemID <= 0) {
 				return UpgradeResult{}, &upgradeCostResolutionError{cause: fmt.Errorf("invalid upgrade cost resolution")}
 			}
@@ -1625,6 +1639,9 @@ func (o *Owner) Upgrade(ctx context.Context, cmd Command) (UpgradeResult, error)
 	if successWeight <= 0 && !cmd.UpgradePolicyRequired {
 		successWeight = currentUpgradeSuccessBase // backward compat: guaranteed success
 	}
+	successWeight = min(currentUpgradeSuccessBase, max(0, successWeight+equippedBonus.AddWeight))
+	successWeight = int(int64(successWeight) * int64(10000+equippedBonus.CompoundRate) / 10000)
+	successWeight = min(currentUpgradeSuccessBase, successWeight)
 	// 十万分比**乘算**加成（厂商 `CalculateFinalSuccessWeight` 的 multiplier 分支）：
 	// 便携消耗品 `[action type]` 第 3 参数（真档只出现在「成功之兆强化器/增幅器」
 	// = 30000 ⇒ ×1.3）。结果封顶 100000 = 必定成功，因此不会与失败惩罚档错位。
@@ -2088,6 +2105,14 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		setRandomTitleEnchantFields(&target, resolution.RandomTitleEnchantConfigID, resolution.RandomTitleEnchantRowID)
 	} else {
 		setEnchantFields(&target, resolution.CardItemID, upgradeCount)
+		if cmd.TargetListType == listTypePet {
+			// Unequipping a creature copies its pet-specific aliases into the bag
+			// row. Equip reads those aliases before the generic fields, so a later
+			// bead must replace them too; otherwise A survives a B enchant and
+			// re-equipping restores A while the typed PetEntry already contains B.
+			target.Extra["pet_enchant_card_item_id"] = strconv.FormatInt(resolution.CardItemID, 10)
+			target.Extra["pet_enchant_upgrade_count"] = strconv.Itoa(int(upgradeCount))
+		}
 	}
 	if wornPetTarget {
 		// 穿戴中的宠物：更新装备表槽 26 那一行（Extra + raw），并把结果作为
@@ -2099,7 +2124,12 @@ func (o *Owner) Enchant(ctx context.Context, cmd Command, resolver alignedcmd.En
 		wornEquipment.CharacterID = characterID
 		wornEquipment.Entries[strconv.Itoa(int(currentPetWornEquipmentSlot))] = wornEntry
 		result.WornPetTarget = true
-		result.WornPetUpdatedStack = cloneStack(target)
+		// setEnchantFields only knows the 0x77 inventory layout. A worn creature
+		// uses the 43-byte layout, so its raw row (and raw_entry_hex cache) still
+		// contains the previous card after a second replacement. Build the
+		// immediate op14 result from the entry that was just written; otherwise
+		// an A->B replacement can answer with A while both durable stores contain B.
+		result.WornPetUpdatedStack = cloneStack(stackFromWornPetEntry(wornEntry))
 	} else if wornEquipmentTarget {
 		wornEntry = setWornEquipmentEnchantFields(wornEntry, resolution.CardItemID, upgradeCount)
 		wornEquipment.Entries[wornKey] = wornEntry
@@ -2200,6 +2230,25 @@ func stackFromWornPetEntry(entry dnfrepo.EquipmentEntry) dnfrepo.ItemStack {
 		ExpireAt: entry.ExpireAt,
 		RawEntry: append([]byte(nil), entry.RawEntry...),
 		Extra:    extra,
+	}
+	// Both the 43-byte worn summary and a current 0x77 row repeat the creature
+	// serial at +24. A short/legacy row without that field falls back to Extra.
+	serial := int64(0)
+	if len(stack.RawEntry) >= 28 {
+		serial = int64(binary.LittleEndian.Uint32(stack.RawEntry[24:28]))
+	}
+	if serial == 0 {
+		serial = firstExtraInt(extra, 0,
+			"creature_serial_or_handle", "creature_key", "creature_serial", "pet_serial", "serial", "handle")
+	}
+	if serial > 0 {
+		// A list-3 creature row stores its instance/handle at +0x06, not the
+		// generic stack count. writeCommonItemListEntry reads that field through
+		// amount_or_count; leaving Count==1 makes the same-template op14 look
+		// like a different creature and can leave the old enchant in the client
+		// object cache. This marker is response-only: setWornPetEntryEnchantFields
+		// does not copy it into EquipmentEntry and Count remains 1.
+		extra["amount_or_count"] = strconv.FormatInt(serial, 10)
 	}
 	if len(stack.RawEntry) >= 0x15 {
 		if card := binary.LittleEndian.Uint32(stack.RawEntry[0x10:0x14]); card > 0 {
@@ -3914,6 +3963,13 @@ func (o *Owner) UpgradeTicket(ctx context.Context, cmd Command, resolver aligned
 		return result, nil
 	}
 	result.TicketResolved = true
+	// A growth coupon remains equipment while being trained by an ordinary
+	// fixed/random upgrade coupon. Keep its binding, attribute and instance
+	// validity; all ordinary coupon restrictions and transaction rules follow.
+	if _, _, growth := GrowthTicketType(target.ItemID); growth && !GrowthTicketUsable(target, time.Now()) {
+		result.ErrorCode = upgradeTicketErrorForbidden
+		return result, nil
+	}
 	if !strings.EqualFold(strings.TrimSpace(resolution.TargetKind), "equipment") {
 		result.ErrorCode = upgradeTicketErrorInvalidTarget
 		return result, nil

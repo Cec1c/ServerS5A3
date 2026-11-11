@@ -63,6 +63,7 @@ func (s *Service) currentRaidSearchEntries(session *gameSession, req raid.Curren
 				continue
 			}
 		}
+		state = s.currentRaidLivePartyProjection(state)
 		entries = append(entries, currentRuntimeRaidMetadata(state))
 	}
 	sort.Slice(entries, func(i, j int) bool {

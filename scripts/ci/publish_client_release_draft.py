@@ -56,13 +56,17 @@ def publish(*, stage, repository, head, tag, release_id, zip_sha, exe_sha,
     require(str(release_id).isdigit() and re.fullmatch(r'[0-9a-f]{64}', zip_sha or '')
             and re.fullmatch(r'[0-9a-f]{64}', exe_sha or ''), 'exact release and content identities required')
     row = call('GET', prefix + '/releases/' + str(release_id))
-    require(row.get('tag_name') == tag and row.get('prerelease') is False,
+    preview = row.get('prerelease')
+    require(row.get('tag_name') == tag and type(preview) is bool,
             'release tag/channel differs')
     record = sync.provenance(row.get('body') or '')
     name = tag + '.zip'
     require(record and record.get('tag') == tag and record.get('commit') == head
-            and record.get('preview') is False and set(record.get('assets', {})) == {name},
+            and record.get('preview') is preview and set(record.get('assets', {})) == {name},
             'release provenance differs')
+    prior_latest = call('GET', prefix + '/releases/latest')['id'] if preview else None
+    require(not preview or prior_latest != int(release_id),
+            'experimental release must not be stable Latest')
     require(len(row.get('assets', [])) == 1, 'one exact client ZIP required')
     asset = row['assets'][0]
     expected = record['assets'][name]
@@ -81,19 +85,22 @@ def publish(*, stage, repository, head, tag, release_id, zip_sha, exe_sha,
     require(current_tag and current_tag['object']['type'] == 'commit'
             and current_tag['object']['sha'] == head, 'tag moved before publication')
     if row.get('draft'):
-        call('PATCH', prefix + '/releases/' + str(release_id), {'draft': False, 'make_latest': 'true'})
+        call('PATCH', prefix + '/releases/' + str(release_id),
+             {'draft': False, 'make_latest': 'false' if preview else 'true'})
     actual = call('GET', prefix + '/releases/tags/' + tag)
     stable_asset_keys = ('id', 'name', 'size', 'state', 'digest')
     observed_assets = [tuple(a.get(k) for k in stable_asset_keys) for a in actual.get('assets', [])]
     original_assets = [tuple(a.get(k) for k in stable_asset_keys) for a in row['assets']]
     require(actual.get('id') == int(release_id) and actual.get('draft') is False
-            and actual.get('prerelease') is False
+            and actual.get('prerelease') is preview
             and observed_assets == original_assets
             and sync.provenance(actual.get('body') or '') == record,
             'published release readback differs')
-    require(call('GET', prefix + '/releases/latest')['id'] == int(release_id), 'Latest pointer differs')
+    require(call('GET', prefix + '/releases/latest')['id'] == (prior_latest if preview else int(release_id)),
+            'Latest pointer differs')
     return dict(stage=stage, state='published', releaseId=int(release_id), tag=tag, head=head,
-                zipSHA256=zip_sha, exe=exe, fullDownloadVerified=True,
+                zipSHA256=zip_sha, exe=exe, fullDownloadVerified=True, prerelease=preview,
+                stableLatestPreserved=preview,
                 alreadyPublished=not row.get('draft'), url=actual['html_url'])
 
 

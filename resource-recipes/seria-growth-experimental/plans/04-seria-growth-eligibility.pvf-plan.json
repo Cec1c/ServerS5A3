@@ -1,0 +1,1700 @@
+{
+  "input_sha256": "d9243e2af6e12d784233c1841b358278b9838f37f073ab0d3f77e34012120c3c",
+  "additions": [
+    {
+      "Path": "equipment/private_seria_growth/990033101.equ",
+      "AppendToExisting": true,
+      "ReplaceExistingTokens": true,
+      "AppendTokens": [
+        {
+          "Type": 3,
+          "Value": 2018,
+          "Text": "[name]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 35352417,
+          "Text": "成长型强化券",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 267608,
+          "Text": "[basic explain]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Text": "可像武器一样培养，成功等级+1；失败按武器规则处理，保护券有效。\n最高+31。右键选择背包中的目标装备，将本券等级赋予目标并消耗本券。\n目标等级必须低于本券；增幅券同时赋予对应异次元属性。"
+        },
+        {
+          "Type": 3,
+          "Value": 2060,
+          "Text": "[grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5514,
+          "Text": "[rarity]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 4,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2110,
+          "Text": "[usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 5550,
+          "Text": "[all]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2180,
+          "Text": "[/usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2208,
+          "Text": "[attach type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31090,
+          "Text": "[account]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2252,
+          "Text": "[minimum level]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90
+        },
+        {
+          "Type": 3,
+          "Value": 391732,
+          "Text": "[price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 754472,
+          "Text": "[value]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 797392,
+          "Text": "[repair price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2284,
+          "Text": "[icon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 2506980,
+          "Text": "Item/stackable/cash_cn.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 323,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 441122,
+          "Text": "[field image]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 754658,
+          "Text": "Item/FieldImage.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 9,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2980,
+          "Text": "[equipment type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 3250376,
+          "Text": "[weapon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 23,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5776,
+          "Text": "[sub type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 3250496,
+          "Text": "[durability]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 35,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5532,
+          "Text": "[weight]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 1,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 131972,
+          "Text": "[equipment physical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132710,
+          "Text": "[equipment magical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132764,
+          "Text": "[separate attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31476,
+          "Text": "[need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 10158124,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 3,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31508,
+          "Text": "[/need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31376,
+          "Text": "[impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 37218,
+          "Text": "disjoint",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31420,
+          "Text": "gift",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1021682,
+          "Text": "separate upgrade",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31430,
+          "Text": "[/impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 1134866,
+          "Text": "[equipment grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1134902,
+          "Text": "superlative",
+          "PreservePayload": true
+        }
+      ]
+    },
+    {
+      "Path": "equipment/private_seria_growth/990033102.equ",
+      "AppendToExisting": true,
+      "ReplaceExistingTokens": true,
+      "AppendTokens": [
+        {
+          "Type": 3,
+          "Value": 2018,
+          "Text": "[name]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 35352665,
+          "Text": "成长型力量增幅券",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 267608,
+          "Text": "[basic explain]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Text": "可像武器一样培养，成功等级+1；失败按武器规则处理，保护券有效。\n最高+31。右键选择背包中的目标装备，将本券等级赋予目标并消耗本券。\n目标等级必须低于本券；增幅券同时赋予对应异次元属性。"
+        },
+        {
+          "Type": 3,
+          "Value": 2060,
+          "Text": "[grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5514,
+          "Text": "[rarity]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 4,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2110,
+          "Text": "[usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 5550,
+          "Text": "[all]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2180,
+          "Text": "[/usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2208,
+          "Text": "[attach type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31090,
+          "Text": "[account]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2252,
+          "Text": "[minimum level]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90
+        },
+        {
+          "Type": 3,
+          "Value": 391732,
+          "Text": "[price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 754472,
+          "Text": "[value]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 797392,
+          "Text": "[repair price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2284,
+          "Text": "[icon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 2506980,
+          "Text": "Item/stackable/cash_cn.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 943,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 441122,
+          "Text": "[field image]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 754658,
+          "Text": "Item/FieldImage.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 9,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2980,
+          "Text": "[equipment type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 3250376,
+          "Text": "[weapon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 23,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5776,
+          "Text": "[sub type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 3250496,
+          "Text": "[durability]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 35,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5532,
+          "Text": "[weight]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 1,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 131972,
+          "Text": "[equipment physical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132710,
+          "Text": "[equipment magical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132764,
+          "Text": "[separate attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31476,
+          "Text": "[need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 10158124,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 3,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31508,
+          "Text": "[/need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31376,
+          "Text": "[impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 37218,
+          "Text": "disjoint",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31420,
+          "Text": "gift",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1021682,
+          "Text": "separate upgrade",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31430,
+          "Text": "[/impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 1134866,
+          "Text": "[equipment grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1134902,
+          "Text": "superlative",
+          "PreservePayload": true
+        }
+      ]
+    },
+    {
+      "Path": "equipment/private_seria_growth/990033103.equ",
+      "AppendToExisting": true,
+      "ReplaceExistingTokens": true,
+      "AppendTokens": [
+        {
+          "Type": 3,
+          "Value": 2018,
+          "Text": "[name]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 35352683,
+          "Text": "成长型智力增幅券",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 267608,
+          "Text": "[basic explain]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Text": "可像武器一样培养，成功等级+1；失败按武器规则处理，保护券有效。\n最高+31。右键选择背包中的目标装备，将本券等级赋予目标并消耗本券。\n目标等级必须低于本券；增幅券同时赋予对应异次元属性。"
+        },
+        {
+          "Type": 3,
+          "Value": 2060,
+          "Text": "[grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5514,
+          "Text": "[rarity]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 4,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2110,
+          "Text": "[usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 5550,
+          "Text": "[all]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2180,
+          "Text": "[/usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2208,
+          "Text": "[attach type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31090,
+          "Text": "[account]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2252,
+          "Text": "[minimum level]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90
+        },
+        {
+          "Type": 3,
+          "Value": 391732,
+          "Text": "[price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 754472,
+          "Text": "[value]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 797392,
+          "Text": "[repair price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2284,
+          "Text": "[icon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 2506980,
+          "Text": "Item/stackable/cash_cn.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 943,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 441122,
+          "Text": "[field image]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 754658,
+          "Text": "Item/FieldImage.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 9,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2980,
+          "Text": "[equipment type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 3250376,
+          "Text": "[weapon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 23,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5776,
+          "Text": "[sub type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 3250496,
+          "Text": "[durability]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 35,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5532,
+          "Text": "[weight]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 1,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 131972,
+          "Text": "[equipment physical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132710,
+          "Text": "[equipment magical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132764,
+          "Text": "[separate attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31476,
+          "Text": "[need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 10158124,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 3,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31508,
+          "Text": "[/need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31376,
+          "Text": "[impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 37218,
+          "Text": "disjoint",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31420,
+          "Text": "gift",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1021682,
+          "Text": "separate upgrade",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31430,
+          "Text": "[/impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 1134866,
+          "Text": "[equipment grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1134902,
+          "Text": "superlative",
+          "PreservePayload": true
+        }
+      ]
+    },
+    {
+      "Path": "equipment/private_seria_growth/990033104.equ",
+      "AppendToExisting": true,
+      "ReplaceExistingTokens": true,
+      "AppendTokens": [
+        {
+          "Type": 3,
+          "Value": 2018,
+          "Text": "[name]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 35352701,
+          "Text": "成长型体力增幅券",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 267608,
+          "Text": "[basic explain]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Text": "可像武器一样培养，成功等级+1；失败按武器规则处理，保护券有效。\n最高+31。右键选择背包中的目标装备，将本券等级赋予目标并消耗本券。\n目标等级必须低于本券；增幅券同时赋予对应异次元属性。"
+        },
+        {
+          "Type": 3,
+          "Value": 2060,
+          "Text": "[grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5514,
+          "Text": "[rarity]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 4,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2110,
+          "Text": "[usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 5550,
+          "Text": "[all]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2180,
+          "Text": "[/usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2208,
+          "Text": "[attach type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31090,
+          "Text": "[account]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2252,
+          "Text": "[minimum level]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90
+        },
+        {
+          "Type": 3,
+          "Value": 391732,
+          "Text": "[price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 754472,
+          "Text": "[value]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 797392,
+          "Text": "[repair price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2284,
+          "Text": "[icon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 2506980,
+          "Text": "Item/stackable/cash_cn.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 943,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 441122,
+          "Text": "[field image]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 754658,
+          "Text": "Item/FieldImage.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 9,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2980,
+          "Text": "[equipment type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 3250376,
+          "Text": "[weapon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 23,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5776,
+          "Text": "[sub type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 3250496,
+          "Text": "[durability]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 35,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5532,
+          "Text": "[weight]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 1,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 131972,
+          "Text": "[equipment physical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132710,
+          "Text": "[equipment magical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132764,
+          "Text": "[separate attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31476,
+          "Text": "[need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 10158124,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 3,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31508,
+          "Text": "[/need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31376,
+          "Text": "[impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 37218,
+          "Text": "disjoint",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31420,
+          "Text": "gift",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1021682,
+          "Text": "separate upgrade",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31430,
+          "Text": "[/impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 1134866,
+          "Text": "[equipment grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1134902,
+          "Text": "superlative",
+          "PreservePayload": true
+        }
+      ]
+    },
+    {
+      "Path": "equipment/private_seria_growth/990033105.equ",
+      "AppendToExisting": true,
+      "ReplaceExistingTokens": true,
+      "AppendTokens": [
+        {
+          "Type": 3,
+          "Value": 2018,
+          "Text": "[name]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 35352719,
+          "Text": "成长型精神增幅券",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 267608,
+          "Text": "[basic explain]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Text": "可像武器一样培养，成功等级+1；失败按武器规则处理，保护券有效。\n最高+31。右键选择背包中的目标装备，将本券等级赋予目标并消耗本券。\n目标等级必须低于本券；增幅券同时赋予对应异次元属性。"
+        },
+        {
+          "Type": 3,
+          "Value": 2060,
+          "Text": "[grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5514,
+          "Text": "[rarity]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 4,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2110,
+          "Text": "[usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 5550,
+          "Text": "[all]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2180,
+          "Text": "[/usable job]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2208,
+          "Text": "[attach type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31090,
+          "Text": "[account]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 2252,
+          "Text": "[minimum level]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 90
+        },
+        {
+          "Type": 3,
+          "Value": 391732,
+          "Text": "[price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 754472,
+          "Text": "[value]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 797392,
+          "Text": "[repair price]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2284,
+          "Text": "[icon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 2506980,
+          "Text": "Item/stackable/cash_cn.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 943,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 441122,
+          "Text": "[field image]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 754658,
+          "Text": "Item/FieldImage.img",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 9,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 2980,
+          "Text": "[equipment type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 3250376,
+          "Text": "[weapon]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 23,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5776,
+          "Text": "[sub type]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 3250496,
+          "Text": "[durability]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 35,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 5532,
+          "Text": "[weight]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 1,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 131972,
+          "Text": "[equipment physical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132710,
+          "Text": "[equipment magical attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 132764,
+          "Text": "[separate attack]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 0,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31476,
+          "Text": "[need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 0,
+          "Value": 10158124,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 0,
+          "Value": 3,
+          "Text": "",
+          "PreservePayload": false
+        },
+        {
+          "Type": 3,
+          "Value": 31508,
+          "Text": "[/need material]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31376,
+          "Text": "[impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 37218,
+          "Text": "disjoint",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 31420,
+          "Text": "gift",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1021682,
+          "Text": "separate upgrade",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 31430,
+          "Text": "[/impossible contents]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 3,
+          "Value": 1134866,
+          "Text": "[equipment grade]",
+          "PreservePayload": true
+        },
+        {
+          "Type": 6,
+          "Value": 1134902,
+          "Text": "superlative",
+          "PreservePayload": true
+        }
+      ]
+    }
+  ]
+}

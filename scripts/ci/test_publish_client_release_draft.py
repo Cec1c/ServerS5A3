@@ -391,6 +391,33 @@ class PublicationTests(unittest.TestCase):
         self.assertTrue(result["alreadyPublished"])
         self.assertTrue(result["fullDownloadVerified"])
 
+    def test_experimental_draft_keeps_stable_latest(self):
+        record = self.record()
+        record["preview"] = True
+        row = self.row(record)
+        row["prerelease"] = True
+        fake, call, fetch = self.fake(release=row, latest_id=21200)
+        result = publication.publish(**self.kwargs(), call=call, fetch=fetch)
+        self.assertEqual(fake.writes(), [(
+            "PATCH", "repos/" + publication.REPOSITORY + "/releases/" + str(RELEASE_ID),
+            {"draft": False, "make_latest": "false"},
+        )])
+        self.assertEqual(fake.latest_id, 21200)
+        self.assertTrue(result["prerelease"])
+        self.assertTrue(result["stableLatestPreserved"])
+        self.assertTrue(result["fullDownloadVerified"])
+
+    def test_experimental_release_cannot_already_be_stable_latest(self):
+        record = self.record()
+        record["preview"] = True
+        row = self.row(record)
+        row["prerelease"] = True
+        fake, call, fetch = self.fake(release=row, latest_id=RELEASE_ID)
+        with self.assertRaisesRegex(sync.SyncError, "must not be stable Latest"):
+            publication.publish(**self.kwargs(), call=call, fetch=fetch)
+        self.assert_no_writes(fake)
+        self.assertEqual(fake.fetch_calls, [])
+
     def test_published_readback_mismatch_is_rejected(self):
         def release_id(actual):
             actual["id"] += 1

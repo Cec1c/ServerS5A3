@@ -39,6 +39,9 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	if packet.Header.MsgID == privateActivityOpcode {
 		return s.handlePrivateActivity(session, packet.Header.Classification, packet.Body)
 	}
+	if packet.Header.MsgID == privateGrowthOpcode {
+		return s.handlePrivateGrowth(session, packet.Header.Classification, packet.Body)
+	}
 	if packet.Header.MsgID == privateFestivalOpcode {
 		return s.handlePrivateFestival(session, packet.Header.Classification, packet.Body)
 	}

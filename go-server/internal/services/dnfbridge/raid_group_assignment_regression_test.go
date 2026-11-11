@@ -94,7 +94,7 @@ func TestCurrentRaidApplicationApprovalAssignsCapacityAwareGroupAndSlot(t *testi
 	}
 }
 
-func TestAntonStartMaterializesUnassignedMemberGroupBeforePartyProjection(t *testing.T) {
+func TestAntonStartCanonicalizesAdmissionWithoutFormingUneditedSoloParties(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
 		t.Skip("requires current PVF")
@@ -153,8 +153,13 @@ func TestAntonStartMaterializesUnassignedMemberGroupBeforePartyProjection(t *tes
 		t.Fatalf("follower canonical placement group=%d slot=%d, want group=%d slot=1",
 			follower.GroupIndex, follower.SlotOrder, runtimeRaidDefaultGroup)
 	}
-	if groups := runtimeRaidPartyGroups(*f.state); len(groups) != 1 || len(groups[0]) != 2 {
-		t.Fatalf("raid parties after canonical start=%v, want one two-member group", groupSizesForTest(groups))
+	if groups := runtimeRaidPartyGroups(*f.state); len(groups) != 0 {
+		t.Fatalf("canonical admission seats formed unedited parties: %v", groupSizesForTest(groups))
+	}
+	for _, member := range f.state.Members {
+		if !member.OrdinaryPartySolo {
+			t.Fatal("unedited member lost solo intent at start")
+		}
 	}
 }
 

@@ -41,6 +41,8 @@ type Request struct {
 	UpgradePolicyResolver  UpgradePolicyResolver
 	UpgradeCostResolver    UpgradeCostResolver
 
+	UpgradeEquippedBonusResolver UpgradeEquippedBonusResolver
+
 	// GuildMedalUpgradeResolver resolves only the current list38 flag sender.
 	GuildMedalUpgradeResolver GuildMedalUpgradeResolver
 	// ForgingResolver 让 op438（锻造 / 别升级 separate upgrade）拿到这一次

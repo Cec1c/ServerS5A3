@@ -82,12 +82,13 @@ type Command struct {
 	UpgradePolicyRequired     bool
 	UpgradePolicyCurrentLevel byte
 	// MaterialItemID/Count are the runtime-PVF upgrade table requirement.
-	UpgradeMaterialItemID  int
-	UpgradeMaterialCount   int
-	UpgradeCostResolver    alignedcmd.UpgradeCostResolver
-	UpgradeNPCPresent      bool
-	UpgradeNPCID           uint16
-	UpgradeNPCMaterialSlot int16
+	UpgradeMaterialItemID        int
+	UpgradeMaterialCount         int
+	UpgradeCostResolver          alignedcmd.UpgradeCostResolver
+	UpgradeEquippedBonusResolver alignedcmd.UpgradeEquippedBonusResolver
+	UpgradeNPCPresent            bool
+	UpgradeNPCID                 uint16
+	UpgradeNPCMaterialSlot       int16
 	// DestroyBonusItemID/Count: compensation item on destruction.
 	UpgradeDestroyBonusItemID int
 	UpgradeDestroyBonusCount  int
@@ -270,6 +271,7 @@ func NewUpgradeCommand(req alignedcmd.Request, parsed UpgradeItemRequest) Comman
 	cmd.TargetItemName = parsed.TargetItemName
 	cmd.UpgradeNoticeLevel = -1
 	cmd.UpgradeCostResolver = req.UpgradeCostResolver
+	cmd.UpgradeEquippedBonusResolver = req.UpgradeEquippedBonusResolver
 	cmd.UpgradeNPCPresent = parsed.NPCContextPresent
 	cmd.UpgradeNPCID = parsed.NPCTemplateID
 	cmd.UpgradeNPCMaterialSlot = parsed.NPCMaterialSlotIndex

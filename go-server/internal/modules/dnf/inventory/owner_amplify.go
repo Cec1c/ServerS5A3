@@ -113,6 +113,9 @@ func (o *Owner) mutateAmplifyItem(ctx context.Context, cmd Command, resolver ali
 		return result, nil
 	}
 	result.TargetItemID = target.ItemID
+	if _, _, growth := GrowthTicketType(target.ItemID); growth && !GrowthTicketUsable(target, time.Now()) {
+		return result, nil
+	}
 	if isEquipmentLocked(target) {
 		return result, nil
 	}

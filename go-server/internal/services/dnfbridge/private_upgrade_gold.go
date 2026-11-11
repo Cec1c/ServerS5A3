@@ -14,5 +14,8 @@ func privateGroupUpgradeGoldQuote(mode string, quote alignedcmd.UpgradeCostResol
 		cost++
 	}
 	quote.GoldCost = cost
+	if mode == "reinforce" {
+		quote.GoldDivisor = 7
+	}
 	return quote
 }

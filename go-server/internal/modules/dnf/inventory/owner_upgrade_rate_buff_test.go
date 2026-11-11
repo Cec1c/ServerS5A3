@@ -295,15 +295,15 @@ func TestRecordUpgradeRateBuffTakesTheHighestNotTheProduct(t *testing.T) {
 	if got := character.Stats["upgrade_rate_buff_reinforce_bonus"]; got != 10000 {
 		t.Fatalf("bonus after two uses = %d, want 10000 (never ×1.1×1.1)", got)
 	}
-	if got := character.Stats["upgrade_rate_buff_reinforce_until_unix"]; got != now.Add(time.Minute).Unix()+600 {
-		t.Fatalf("until after the second use = %d, want the later expiry", got)
+	if got := character.Stats["upgrade_rate_buff_reinforce_until_unix"]; got != now.Unix()+1800 {
+		t.Fatalf("until after the second use = %d, want the original stronger source expiry", got)
 	}
 	// 第三件加成更高：升到 20000。
 	if _, bonus, ok := recordUpgradeRateBuff(&character, rateBuffResolution(3, "reinforce", 20000, 600000), 33, now); !ok || bonus != 20000 {
 		t.Fatalf("third (higher) record bonus=%d ok=%t, want 20000", bonus, ok)
 	}
 	// 已过期的旧账不参与"取最高"。
-	character.Stats["upgrade_rate_buff_reinforce_until_unix"] = now.Unix() - 1
+	now = now.Add(31 * time.Minute)
 	if _, bonus, ok := recordUpgradeRateBuff(&character, rateBuffResolution(4, "reinforce", 7000, 600000), 44, now); !ok || bonus != 7000 {
 		t.Fatalf("after expiry bonus=%d ok=%t, want the fresh 7000", bonus, ok)
 	}
