@@ -174,7 +174,7 @@ func TestRealPVFUpgradeRateBuffCarriesTheWrittenParameter(t *testing.T) {
 
 // 原始生产真档（**未改**）：同一批 item id 一个都没有加成段（BonusWeight = 0），
 // 但模式与时长照旧 —— 这就是"改动只加了那一段"的对照面。
-func TestRealPVFUpgradeRateBuffWithoutTheParameterOnTheUntouchedArchive(t *testing.T) {
+func TestRealPVFUpgradeRateBuffUsesApprovedDefaultWhenParameterAbsent(t *testing.T) {
 	// The current smoke archive contains intentional server PVF edits. A baseline
 	// comparison must receive its own original archive, not assume smoke is pristine.
 	pvfPath := strings.TrimSpace(os.Getenv("DNFBRIDGE_REAL_PVF_BUFF_ORIGINAL"))
@@ -198,8 +198,8 @@ func TestRealPVFUpgradeRateBuffWithoutTheParameterOnTheUntouchedArchive(t *testi
 			t.Fatalf("item=%d got mode=%q duration=%d, want %q %d",
 				test.itemID, resolution.Mode, resolution.DurationMillis, test.wantMode, test.duration)
 		}
-		if resolution.BonusWeight != 0 {
-			t.Fatalf("item=%d bonus=%d on the untouched archive, want 0 (the parameter is what the PVF edit adds)",
+		if resolution.BonusWeight != 10000 {
+			t.Fatalf("item=%d bonus=%d on the untouched archive, want 10000 from the approved family default",
 				test.itemID, resolution.BonusWeight)
 		}
 	}

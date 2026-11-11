@@ -7,7 +7,7 @@ import (
 )
 
 func TestRuntimePartySnapshotCommitGuard(t *testing.T) {
-	for _, mode := range []string{"same", "leave", "leader", "slot", "generation", "duplicate"} {
+	for _, mode := range []string{"same", "leave", "leader", "slot", "generation", "duplicate", "revision", "join_leave_aba"} {
 		t.Run(mode, func(t *testing.T) {
 			m := NewRuntimePartyManager()
 			created := m.Create(testRuntimePartyMember(101, 1), alignedcmd.PartyState{MaxMembers: 4})
@@ -24,6 +24,11 @@ func TestRuntimePartySnapshotCommitGuard(t *testing.T) {
 				expected.Members[1].SessionGeneration++
 			case "duplicate":
 				expected.Members[1] = expected.Members[0]
+			case "revision":
+				expected.MembershipRevision++
+			case "join_leave_aba":
+				m.Join(created.Party.ID, testRuntimePartyMember(303, 3))
+				m.Leave(303, 3)
 			}
 			called := false
 			sentinel := errors.New("commit result")

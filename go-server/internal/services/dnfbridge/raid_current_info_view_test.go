@@ -1,14 +1,12 @@
 package dnfbridge
 
 import (
-	"bytes"
 	"encoding/binary"
 	"reflect"
 	"testing"
 
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
-	"longheng.io/server/internal/modules/dnf/raid"
 )
 
 func TestCurrentRaidDirectoryViewerGetsActualRosterWithoutJoining(t *testing.T) {
@@ -32,9 +30,13 @@ func TestCurrentRaidDirectoryViewerGetsActualRosterWithoutJoining(t *testing.T) 
 		}
 		raw := consumeCurrentRaidProfiles(t, vc.write.Bytes(), state)
 		ack, rest := splitGameServerUpperPacket(t, raw)
-		want, err := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(state), selector)
-		if err != nil || len(rest) != 0 || ack.Header.Classification != 1 || ack.Header.MsgID != 1359 || !bytes.Equal(ack.Body, want) {
+		if len(rest) != 0 || ack.Header.Classification != 1 || ack.Header.MsgID != 1359 {
 			t.Fatal("viewer must receive ACK1359, without own-raid assignment NOTI591")
+		}
+		leaderGroup, rows := raidPreviewACKRosterForTest(t, ack.Body, state.RaidKey, selector)
+		assertRaidPreviewGroupsForTest(t, rows, map[uint16][2]byte{leader.selectedCharacterID: {0, 0}})
+		if selector == 2 && leaderGroup != 0 {
+			t.Fatalf("unedited solo leader preview group=%d want=0", leaderGroup)
 		}
 		after, _ := s.runtimeRaidForMember(leader.selectedCharacterID)
 		if _, joined := s.runtimeRaidForMember(viewer.selectedCharacterID); joined || len(s.raids) != 1 || !reflect.DeepEqual(after, state) || lc.write.Len() != 0 {

@@ -47,6 +47,7 @@ func (s *Service) restoreCurrentRaidSessionProjection(session *gameSession, sour
 	if err != nil {
 		return err
 	}
+	state = s.currentRaidLivePartyProjection(state)
 	reply, err := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(state), 2)
 	if err != nil {
 		return err

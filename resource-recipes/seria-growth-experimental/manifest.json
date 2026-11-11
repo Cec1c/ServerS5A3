@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "classification": "群服内容（实验性）",
+  "task": "赛丽亚50换50礼盒与统一成长型装备券（实验性）",
+  "baseline_sha256": "a8b2aae3e0058ca08b83c39d0713fb8208a86349ebabf94ba062702b7f75ca0a",
+  "final_candidate_sha256": "d0dca8fb7d1a512165f2214431e07ab47a62368affb96b94ba61f2b16d6dc57f",
+  "final_scope": {
+    "changed": 68,
+    "added": 0
+  },
+  "steps": [
+    {
+      "step": 1,
+      "plan": "plans/01-seria-growth-tickets.pvf-plan.json",
+      "input_sha256": "a8b2aae3e0058ca08b83c39d0713fb8208a86349ebabf94ba062702b7f75ca0a",
+      "output_sha256": "f19ab47af1ed79da024af6eb2a98f734e5850b46d8a5c3f506f03573048688b6"
+    },
+    {
+      "step": 2,
+      "plan": "plans/02-seria-growth-native.pvf-plan.json",
+      "input_sha256": "f19ab47af1ed79da024af6eb2a98f734e5850b46d8a5c3f506f03573048688b6",
+      "output_sha256": "00a6ebd31fdc7faf2d529c829310e2936c50a39b8061c1590ff6b76faad1c765"
+    },
+    {
+      "step": 3,
+      "plan": "plans/03-seria-growth-original-ui.pvf-plan.json",
+      "input_sha256": "00a6ebd31fdc7faf2d529c829310e2936c50a39b8061c1590ff6b76faad1c765",
+      "output_sha256": "d9243e2af6e12d784233c1841b358278b9838f37f073ab0d3f77e34012120c3c"
+    },
+    {
+      "step": 4,
+      "plan": "plans/04-seria-growth-eligibility.pvf-plan.json",
+      "input_sha256": "d9243e2af6e12d784233c1841b358278b9838f37f073ab0d3f77e34012120c3c",
+      "output_sha256": "a036225627c9610e38e60d2fd918e02ffb55942f97cf3b0bb3216ce298127069"
+    },
+    {
+      "step": 5,
+      "plan": "plans/05-seria-growth-unified-ticket.pvf-plan.json",
+      "input_sha256": "a036225627c9610e38e60d2fd918e02ffb55942f97cf3b0bb3216ce298127069",
+      "output_sha256": "d0dca8fb7d1a512165f2214431e07ab47a62368affb96b94ba61f2b16d6dc57f"
+    }
+  ],
+  "tools": {
+    "pvfCliSHA256": "32954604a61342de3304b6412c8df8e038cd1998a4c94829ca5152c7ccef5178",
+    "privateAdditions": {
+      "source": "../seria-lucky-boxes/source/private-additions",
+      "buildCommand": "go build -buildvcs=false -trimpath -o private-additions.exe ./cmd/private-additions",
+      "binarySHA256Used": "e667300fd8a26cb327cfc08505fc1f52518d6ab0d93bdaebc7ec41ab8362268f"
+    }
+  },
+  "deployed": false,
+  "published": false,
+  "gameAcceptance": false
+}

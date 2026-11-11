@@ -117,6 +117,12 @@ func TestPartyAcceptDoesNotOverfillFullRaidGroup(t *testing.T) {
 		{CharID: 201, GroupIndex: 1, SlotOrder: 2},
 		{CharID: 202, GroupIndex: 1, SlotOrder: 3},
 	})
+	// These are actual manager placements, not automatic solo admission seats.
+	for i := range state.Members {
+		if state.Members[i].CharID != 100 {
+			state.Members[i].RecruitingPlacementExplicit = true
+		}
+	}
 	fixture.formPartyThroughClientAccept(t)
 	member, _ := runtimeRaidMemberForTest(*state, 100)
 	if member.GroupIndex != 2 || member.SlotOrder != 0 {
@@ -180,6 +186,11 @@ func TestPartyAcceptCountsRawZeroAgainstFullGroupCapacity(t *testing.T) {
 		{CharID: 201, GroupIndex: 1, SlotOrder: 2},
 		{CharID: 202, GroupIndex: 1, SlotOrder: 3},
 	})
+	for i := range state.Members {
+		if state.Members[i].CharID != 100 {
+			state.Members[i].RecruitingPlacementExplicit = true
+		}
+	}
 	state.Members[1].GroupIndex, state.Members[1].SlotOrder = 0, 0
 	fixture.formPartyThroughClientAccept(t)
 	member, _ := runtimeRaidMemberForTest(*state, 100)

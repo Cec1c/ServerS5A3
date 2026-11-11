@@ -18,7 +18,7 @@ func TestAdventureContentNativeOffsetsStaySeparateFromCollection(t *testing.T) {
 	p.CollectionCounts[0], p.CollectionCounts[19] = 2, 3
 	body := buildCurrentAdventureInfoBodyWithState(20, adventuregroup.Summary{ManageLevel: 7}, nil, "", 20261013, p)
 	raw := body[18 : 18+7424]
-	for kind, offset := range []int{16, 32, 24, 28, 36, 40, 7420} {
+	for kind, offset := range []int{16, 32, 36, 40, 24, 28, 7420} {
 		if got := binary.LittleEndian.Uint32(raw[offset : offset+4]); got != p.ContentCounts[kind] {
 			t.Fatalf("第%d项在原生偏移%d读到%d", kind, offset, got)
 		}

@@ -16,7 +16,7 @@ func (m *RuntimePartyManager) WithSoloMember(userID uint16, apply func() error) 
 	return apply()
 }
 
-// WithSnapshot holds membership/leader/slot identity through a short commit.
+// WithSnapshot holds membership revision, leader and slot identity through a short commit.
 // apply must not call the party manager or perform network writes.
 func (m *RuntimePartyManager) WithSnapshot(expected RuntimePartySnapshot, apply func() error) error {
 	if m == nil || expected.ID == 0 || apply == nil {
@@ -25,7 +25,7 @@ func (m *RuntimePartyManager) WithSnapshot(expected RuntimePartySnapshot, apply 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := m.parties[expected.ID]
-	if p == nil || p.leader != expected.Leader || p.count() != len(expected.Members) {
+	if p == nil || p.membershipRevision != expected.MembershipRevision || p.leader != expected.Leader || p.count() != len(expected.Members) {
 		return ErrRuntimePartyChanged
 	}
 	seen := map[uint16]bool{}

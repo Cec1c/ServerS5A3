@@ -25,6 +25,9 @@ func TestPrivateGroupUpgradeGoldSeventh(t *testing.T) {
 			got := privateGroupUpgradeGoldQuote(mode, quote)
 			want := quote
 			want.GoldCost = tc.want
+			if mode == "reinforce" && tc.original > 0 {
+				want.GoldDivisor = 7
+			}
 			if got != want {
 				t.Fatalf("%s original=%d got=%+v want=%+v", mode, tc.original, got, want)
 			}

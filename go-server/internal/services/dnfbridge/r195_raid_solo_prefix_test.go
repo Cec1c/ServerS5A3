@@ -928,6 +928,15 @@ func TestR195RaidSoloPrefixJoinClearsSoloWhenGroupSyncIsRejected(t *testing.T) {
 		f.addAwayRaidMember(t, 1, 1)
 		f.addSyntheticRaidMember(t, 30, 1, 2)
 		f.addSyntheticRaidMember(t, 31, 1, 3)
+		// Capacity is reserved by explicit recruiting placements, not by the
+		// automatically assigned seats of unrelated solo members.
+		f.service.raidMu.Lock()
+		for i := range f.service.raids[f.raidKey].Members {
+			if f.service.raids[f.raidKey].Members[i].CharID != f.memberID {
+				f.service.raids[f.raidKey].Members[i].RecruitingPlacementExplicit = true
+			}
+		}
+		f.service.raidMu.Unlock()
 		f.setRawPlacement(t, f.memberID, 2, 0)
 		f.setSolo(t, f.leaderID, true)
 		f.setSolo(t, f.memberID, true)
@@ -1018,6 +1027,11 @@ func TestR195RaidSoloPrefixFailedStartDoesNotClearSolo(t *testing.T) {
 	f.addSyntheticRaidMember(t, 30, 1, 2)
 	f.addSyntheticRaidMember(t, 31, 1, 3)
 	f.addSyntheticRaidMember(t, 32, 1, 3)
+	f.service.raidMu.Lock()
+	for i := range f.service.raids[f.raidKey].Members {
+		f.service.raids[f.raidKey].Members[i].RecruitingPlacementExplicit = true
+	}
+	f.service.raidMu.Unlock()
 	wantGroups := map[uint16][2]byte{
 		f.leaderID: {1, 0},
 		f.memberID: {1, 1},

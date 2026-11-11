@@ -21,6 +21,7 @@ import (
 )
 
 type gameSession struct {
+	growthTicketPending *privateGrowthPending // selected-character event owner only
 	// Invalidates initial peer placement without taking another session dungeon lock under the wire lock.
 	dungeonPlacementEpoch     atomic.Uint64
 	peerResultDiagnosticCount uint8                             // serial event owner; bounded observations per connection

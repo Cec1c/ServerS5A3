@@ -1090,7 +1090,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 	if result.AlreadyMember {
 		return s.sendRuntimePartyRosterRefresh(joiner, result.Party.StateFor(selectedCharacterID(joiner)), "party_invite_existing_member_confirmation")
 	}
-	s.synchronizeOrdinaryPartyRaidGroups(state, "party_invite_accept")
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_invite_accept", result.Party)
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return err
 	}
@@ -1192,7 +1192,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 			"party_id", state.PartyID, "member_count", len(result.Party.Members))
 		return s.sendRuntimePartyRosterRefresh(session, result.Party.StateFor(selectedCharacterID(session)), "party_entry_existing_member_confirmation")
 	}
-	s.synchronizeOrdinaryPartyRaidGroups(state, "party_entry_into_party")
+	s.synchronizeOrdinaryPartyRaidGroups(state, "party_entry_into_party", result.Party)
 	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ const townPotion002CooldownKey = "town_potion002_10007343_next_ms"
 // deliberately continues to reject the family, including metadata-only rows.
 func (o *Owner) tryTownPotion002(ctx context.Context, cmd Command) (UseStackableResult, bool, error) {
 	// Leave unrelated owners and their resolver/error order untouched.
-	if cmd.ItemTemplateID != 10007343 {
+	if cmd.ItemTemplateID != 10007343 && cmd.ItemTemplateID != 2600025 && cmd.ItemTemplateID != 2749959 {
 		return UseStackableResult{}, false, nil
 	}
 	if cmd.StackableUseProvenanceResolver == nil {
@@ -30,8 +30,8 @@ func (o *Owner) tryTownPotion002(ctx context.Context, cmd Command) (UseStackable
 	}
 	d := r.TownPotion002
 	if !r.Found || r.ItemID != int64(cmd.ItemTemplateID) || stackableTypeToken(r.StackableType) != "[expert town potion]" || r.ActionType != "" || d == nil ||
-		d.ItemID != 10007343 || d.ItemID != r.ItemID || d.PVFPath != r.PVFPath || d.MinimumLevel != 1 || d.CooldownMillis != 60000 ||
-		d.Buff.Mode != "reinforce" || d.Buff.BonusWeight != 10000 || d.Buff.DurationMillis != 30000 || d.Buff.PVFPath != d.PVFPath ||
+		d.ItemID != int64(cmd.ItemTemplateID) || d.ItemID != r.ItemID || d.PVFPath != r.PVFPath || d.MinimumLevel != 1 || !validUpgradeTownPotionTimes(d.ItemID, d.CooldownMillis, d.Buff.DurationMillis) ||
+		d.Buff.Mode != "reinforce" || d.Buff.BonusWeight != 10000 || d.Buff.PVFPath != d.PVFPath ||
 		cmd.Operation != "use_stackable" || cmd.SourceListType != listTypeMain || cmd.SourceInstanceValue == 0 || cmd.ReservedValue != 0 {
 		return UseStackableResult{}, true, ErrUseStackableContractRequired
 	}
@@ -86,7 +86,7 @@ func (o *Owner) tryTownPotion002(ctx context.Context, cmd Command) (UseStackable
 		if (!stack.ExpireAt.IsZero() && !now.Before(stack.ExpireAt)) || (expire > 0 && now.Unix() >= expire) || (!d.ExpirationDate.IsZero() && !now.Before(d.ExpirationDate)) {
 			return fmt.Errorf("town potion source expired")
 		}
-		if c.Stats[townPotion002CooldownKey] > now.UnixMilli() {
+		if c.Stats[upgradeTownPotionCooldownKey(d.ItemID)] > now.UnixMilli() {
 			return fmt.Errorf("town potion cooldown active")
 		}
 		// An operational boost-disable must not turn this newly supported potion
@@ -98,7 +98,7 @@ func (o *Owner) tryTownPotion002(ctx context.Context, cmd Command) (UseStackable
 		if !ok || bonus <= 0 {
 			return ErrUseStackableContractRequired
 		}
-		c.Stats[townPotion002CooldownKey] = now.UnixMilli() + d.CooldownMillis
+		c.Stats[upgradeTownPotionCooldownKey(d.ItemID)] = now.UnixMilli() + d.CooldownMillis
 		previous := stack.Count
 		stack.Count--
 		if stack.Count == 0 {
@@ -124,4 +124,17 @@ func (o *Owner) tryTownPotion002(ctx context.Context, cmd Command) (UseStackable
 		return UseStackableResult{}, true, err
 	}
 	return result, true, nil
+}
+
+func validUpgradeTownPotionTimes(id, cooldown, duration int64) bool {
+	if id == 10007343 {
+		return cooldown == 60000 && duration == 30000
+	}
+	return (id == 2600025 || id == 2749959) && cooldown == 1800000 && duration == 1800000
+}
+func upgradeTownPotionCooldownKey(id int64) string {
+	if id == 10007343 {
+		return townPotion002CooldownKey
+	}
+	return "town_potion002_" + strconv.FormatInt(id, 10) + "_next_ms"
 }

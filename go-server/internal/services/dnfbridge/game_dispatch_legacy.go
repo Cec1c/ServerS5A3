@@ -168,6 +168,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	if typ == privateActivityOpcode {
 		return s.handlePrivateActivity(session, cmd, body)
 	}
+	if typ == privateGrowthOpcode {
+		return s.handlePrivateGrowth(session, cmd, body)
+	}
 	if typ == privateFestivalOpcode {
 		return s.handlePrivateFestival(session, cmd, body)
 	}

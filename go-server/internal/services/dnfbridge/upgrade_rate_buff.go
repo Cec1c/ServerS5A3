@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"fmt"
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
@@ -17,16 +18,9 @@ import (
 //	[item upgrad buff usual upgrade]    → "reinforce"（强化的奥秘 / 强化秘药 / 凯丽的幸福强化药剂 …）
 //	[item upgrad buff amplify upgrade]  → "amplify"（永恒的增幅的秘密 / 壕罐的增幅秘笈 …）
 //
-// 真档全量普查（生产 Script.pvf sha256=afa00e75…，54789 个 stackable）：这两族**共 15 件**
-// （12 强化 + 3 增幅），逐件的 `[explain]` 都写明"增加强化/增幅成功几率"，持续时间分别是
-// 30 / 10 / 3 分钟（`[stat change duration]` 1800000 / 600000 / 180000 ms）。
-//
-// 加成参数 = `[upgrade prob increase]`，这是**厂商自己的标签名**
-// （PvfLib `EquipmentFile.cs:182 case "upgrade prob increase"` → `UpgradeProbabilityIncrease`），
-// 单位是十万分比（厂商 `ItemUpgradeModels.cs:271-273`：「86 [action type] 第3参数按十万分比
-// 额外加成保存，30000表示在基础成功率上额外加30%」）。本次改动**在副本 PVF 上**给这 15 件
-// 各追加一行 `[upgrade prob increase] 10000`（= ×1.1）；改动只发生在副本文件里，
-// 线上真档未动，落地由上游决定（见报告）。
+// 当前104有20个已登记模板（16强化、4增幅）。原生类型确认其用途，
+// 缺省按已批准口径乘1.1；显式PVF [upgrade prob increase] 仍优先，0关闭。
+// 不向原生stackable插入新标签，不把类型后的堆叠参数当作概率。
 //
 // 为什么由 op44 解析、op50 读账：op50 请求体里没有任何 buff 字段（线上 62/62 条都是
 // 16+nameLen 字节、无尾随数据），服务端只能在自己扣药水的时候记账。
@@ -76,9 +70,13 @@ func resolveCurrentUpgradeRateBuff(catalog *pvfDungeonDropCatalog, source dnfpvf
 		return resolution, nil
 	}
 	resolution.Mode = mode
+	resolution.BonusWeight = 10000 // approved default for these two proven native families
 	resolution.PVFPath = definition.PVFPath
-	if bonus, found := document.Int("upgrade prob increase"); found && bonus > 0 {
-		resolution.BonusWeight = int(bonus)
+	if values, present := document.Section("upgrade prob increase"); present {
+		if len(values) != 1 || values[0].Kind != dnfpvf.TokenInt || values[0].Int < 0 || values[0].Int > 100000 {
+			return resolution, fmt.Errorf("invalid upgrade buff probability field")
+		}
+		resolution.BonusWeight = int(values[0].Int)
 	}
 	if duration, found := document.Int("stat change duration"); found && duration > 0 {
 		resolution.DurationMillis = duration

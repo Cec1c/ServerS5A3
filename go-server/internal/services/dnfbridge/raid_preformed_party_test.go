@@ -1,6 +1,8 @@
 package dnfbridge
 
 import (
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
+	"longheng.io/server/internal/modules/dnf/party"
 	"net"
 	"testing"
 )
@@ -58,5 +60,46 @@ func TestRaidStartKeepsPreformedPartyUDPAndDoesNotRehandshake(t *testing.T) {
 	left, right := runtimePartyStateSnapshot(f.leader), runtimePartyStateSnapshot(f.follower)
 	if left.PartyID == right.PartyID || len(runtimePartyMembers(left)) != 1 || len(runtimePartyMembers(right)) != 1 {
 		t.Fatal("changed raid groups were incorrectly preserved")
+	}
+}
+
+func TestRaidStartKeepsPreformedPartyLeaderAndSlotHole(t *testing.T) {
+	f := newInviteAcceptDungeonFixture(t)
+	f.service.options.currentClientVersion = "official-24.9"
+	f.formPartyThroughClientAccept(t)
+	third := &gameSession{conn: &bufferConn{}, connID: "raid-slot-hole", channel: f.channel, residentChannel: f.channel}
+	f.service.bindGameSessionCharacter(third, 101)
+	manager := f.service.runtimePartyManagerForService()
+	initial, _ := manager.SnapshotByUser(99, 0)
+	joined := manager.Join(initial.ID, party.RuntimePartyMember{UserID: 101, SessionGeneration: boundGeneration(t, f.service, third), State: alignedcmd.PartyMemberState{UserID: 101}})
+	if !joined.OK {
+		t.Fatal("third join failed")
+	}
+	transferred := manager.TransferLeader(99, boundGeneration(t, f.service, f.leader), 101, boundGeneration(t, f.service, third))
+	if !transferred.OK {
+		t.Fatal("leader transfer failed")
+	}
+	left := manager.Leave(100, boundGeneration(t, f.service, f.follower))
+	if !left.OK {
+		t.Fatal("middle leave failed")
+	}
+	f.service.publishRuntimePartySnapshot(left.Party)
+	state := runtimeRaidState{RaidKey: 99, LeaderID: 99, CurrentLayout: true, Members: []runtimeRaidMemberState{{CharID: 99, GroupIndex: 1}, {CharID: 101, GroupIndex: 1, SlotOrder: 2}}}
+	planned, err := f.service.prepareCurrentRaidStartPartyIntent(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned.Started = true
+	if err := f.service.applyRuntimeRaidParties(planned); err != nil {
+		t.Fatal(err)
+	}
+	after, ok := manager.SnapshotByID(initial.ID)
+	if !ok || after.Leader != 101 || runtimePartySlotList(after) != "0:99,2:101" || after.MembershipRevision != left.Party.MembershipRevision {
+		t.Fatalf("preformed party recreated or renumbered: %+v", after)
+	}
+	for _, session := range []*gameSession{f.leader, third} {
+		if got := runtimePartyStateSnapshot(session); got.PartyID != int(initial.ID) || got.UserID != 101 {
+			t.Fatalf("party projection changed: %+v", got)
+		}
 	}
 }

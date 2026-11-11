@@ -5,7 +5,9 @@ import "longheng.io/server/internal/modules/dnf/alignedcmd"
 // Waiting-room free parties own the live group projection after raid start.
 // A solo marker hides a former placement and must not reserve its group seats.
 // Other parties keep their groups; frozen reward admission is never modified.
-func planStartedRaidOrdinaryPartyGroup(raid runtimeRaidState, party alignedcmd.PartyState) ([]runtimeRaidMemberState, bool) {
+// Only a newly formed two-member party picks the first free group; a later
+// join/refresh keeps the already-live party's number when it remains available.
+func planStartedRaidOrdinaryPartyGroup(raid runtimeRaidState, party alignedcmd.PartyState, newlyFormed ...bool) ([]runtimeRaidMemberState, bool) {
 	members := runtimePartyMembers(party)
 	maximum, capacity := runtimeRaidMemberPlacementLimits(raid)
 	anchor := runtimeRaidMemberIndex(raid, party.UserID)
@@ -29,7 +31,8 @@ func planStartedRaidOrdinaryPartyGroup(raid runtimeRaidState, party alignedcmd.P
 		}
 	}
 	group := normalizedRuntimeRaidGroup(raid.Members[anchor].GroupIndex)
-	if group < 1 || group > maximum || blocked[group] {
+	fresh := len(newlyFormed) > 0 && newlyFormed[0]
+	if fresh || group < 1 || group > maximum || blocked[group] {
 		group = 0
 		for candidate := byte(1); candidate <= maximum; candidate++ {
 			if !blocked[candidate] {

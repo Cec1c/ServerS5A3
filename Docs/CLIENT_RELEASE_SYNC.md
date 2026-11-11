@@ -57,7 +57,7 @@ python scripts/ci/sync_client_releases.py --github OWNER/REPO --gitgud-project U
 1. 在当前公开master运行 `operation=prepare-tag`，填写新 `client-v<数字>` 标签及完整 `expected_head`。工作流核对调用者为已有可信写权限身份、运行于公开仓库master、工作流SHA与当场master均等于该head，再创建一次精确标签并读回。同标签同head只读回，异head拒绝。
 2. 标签实际存在后，操作者在该已有标签下创建草稿Release并上传唯一ZIP，正文带原同步契约的来源与ZIP/EXE摘要。随后运行 `operation=publish`，填写同一tag/head、草稿 `release_id`、完整 `zip_sha256` 及 `exe_sha256`。
 
-发布步骤用短期工作流令牌从固定GitHub API读取草稿附件，API转向官方CDN时移除鉴权，完整下载ZIP并检查其长度、来源记录、归档成员与EXE摘要。冻结主干和标签再次核对后才公开并设为Latest；实际公开状态、附件与Latest全部读回，然后沿既有镜像步骤同步GitGud。若镜像后续失败，已发布结果保留，按原tag对账后继续同步，不另建发行或删除附件。
+发布步骤用短期工作流令牌从固定GitHub API读取草稿附件，API转向官方CDN时移除鉴权，完整下载ZIP并检查其长度、来源记录、归档成员与EXE摘要。冻结主干和标签再次核对后才公开；正式发行设为Latest，实验性发行须同时具有`prerelease=true`和来源记录`preview=true`，发布时使用`make_latest=false`并核对原稳定Latest保持。实际公开状态、附件与Latest全部读回，然后沿既有镜像步骤同步GitGud。若镜像后续失败，已发布结果保留，按原tag对账后继续同步，不另建发行或删除附件。
 
 这条入口只发布已审核成品，不运行归档中的脚本，不构建/部署服务端、不切换玩家通道、不修改现有发行或标签。它只允许当前主干的精确SHA，不放宽历史提交的SSH标签审查，也不将本机身份当作工作流令牌。准备标签与发布回执一并保留于原同步artifact。
 

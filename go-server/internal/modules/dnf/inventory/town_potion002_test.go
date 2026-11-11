@@ -29,6 +29,8 @@ func townPotion002Fixture(t *testing.T) (repo.Group, Command) {
 
 func TestTownPotion002CrystalEffectAndCooldown(t *testing.T) {
 	g, cmd := townPotion002Fixture(t)
+	// This case feeds the persisted sources into op50, which uses the real clock.
+	cmd.ItemUsageNow = time.Now().UTC()
 	o, _ := NewOwner(g)
 	ctx := context.Background()
 	r, err := o.UseStackable(ctx, cmd, nil)

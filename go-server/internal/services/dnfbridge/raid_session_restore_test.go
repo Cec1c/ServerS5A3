@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"testing"
@@ -192,6 +193,12 @@ func TestRealPVFRaidSessionRestoreObjectWriteFailureKeepsRetryGate(t *testing.T)
 
 func TestRealPVFRaidSessionRestoreFinishLoadingDoesNotAdvanceProgressBeforeObject(t *testing.T) {
 	f := newRaidSelectorRestoreR195Fixture(t)
+	// This fixture starts after character selection. Load the real job catalog
+	// before the timed command, as the character-selection path already does.
+	// Keep the command timeout and all wire-order assertions unchanged.
+	if _, err := f.service.initialCharacterSkills(context.Background(), 0); err != nil {
+		t.Fatalf("initialize selected character skill catalog: %v", err)
+	}
 	if pending, _, _ := r195RaidSessionRestoreFlags(f.session); !pending {
 		t.Fatal("replacement published without restore gate")
 	}
