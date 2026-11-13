@@ -28,6 +28,7 @@
   },
   "protocol": {
     "profile": "90cn-decode-bypass-v1",
+    "buffGroupSync": "auto",
     "gameUpperHeader": "server16",
     "gameUpperBodyCodec": "plaintext",
     "gameUpperClientBodyCodec": "plaintext",

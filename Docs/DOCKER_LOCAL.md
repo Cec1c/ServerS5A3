@@ -26,6 +26,13 @@ The [activity table and closing procedure](BUILD_AND_DEPLOY.md#当前活动开�
 
 ## Prepare and start
 
+Fresh preparations select and persist the Buff protocol automatically: current
+V212+ clients use grouped Buff synchronization, and the known legacy v56 client
+uses its old protocol when supplied through `--client-dir`. Unknown or missing
+client files require an explicit `--buff-group-sync on|off` choice. A server-only
+fresh install defaults to the current V212+ client. Existing instance settings
+are preserved. See [Buff deployment and client pairing](BUFF_GROUP_DEPLOYMENT.md).
+
 From the repository root on Windows:
 
 ```bat

@@ -298,6 +298,15 @@ func validateInstance(cfg instanceConfig) error {
 	default:
 		return errorsf("protocol.profile must be 90cn-decode-bypass-v1 or %s", officialNativeProtocolProfile)
 	}
+	switch cfg.Protocol.BuffGroupSync {
+	case "", "auto", "off":
+	case "on":
+		if cfg.Protocol.Profile != officialNativeProtocolProfile {
+			return errorsf("protocol.buffGroupSync=on requires the official native client profile")
+		}
+	default:
+		return errorsf("protocol.buffGroupSync must be auto, on or off when configured")
+	}
 	if cfg.Protocol.GameUpperHeader != "server16" {
 		return errorsf("protocol.gameUpperHeader must be server16 for this client profile")
 	}
