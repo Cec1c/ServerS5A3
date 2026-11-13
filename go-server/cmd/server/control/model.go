@@ -52,6 +52,7 @@ type gameConfig struct {
 
 type protocolConfig struct {
 	Profile                     string `json:"profile"`
+	BuffGroupSync               string `json:"buffGroupSync,omitempty"`
 	GameUpperHeader             string `json:"gameUpperHeader"`
 	GameUpperBodyCodec          string `json:"gameUpperBodyCodec"`
 	GameUpperClientBodyCodec    string `json:"gameUpperClientBodyCodec"`

@@ -1,6 +1,16 @@
 # V212 双组 Buff 部署配置
 
-V212 客户端已经包含双组 Buff 协议，服务端也实现了对应的 8 字节 1426 请求。只有 `official-24.9` 与该协议成对使用时，才通过 `DNFBRIDGE_BUFF_GROUP_SYNC=on` 启用显式组号。未配置时生成器不注入该变量，服务端保持原有的关闭行为；生成器只接受精确的 `on` 或 `off`，不会把该功能设为全局默认值。
+V212 客户端已经包含双组 Buff 协议，服务端也实现了对应的 8 字节 1426 请求。配套 `official-24.9` 环境通过 `DNFBRIDGE_BUFF_GROUP_SYNC=on` 启用显式组号。当前搭建入口为全新实例选择配套设置；旧实例省略设置时仍保持原行为，服务程序本身的全局默认值不变。
+
+## 全新搭建
+
+Docker 首次 `prepare` 创建实例时，默认面向当前公开的 V212 及后续双组客户端，自动把 `buff_group_sync: "on"` 保存到 `runtime/docker/instance.json`，并写入游戏服务使用的 `server.env`。无需再手动补环境变量。
+
+如果同时传入 `--client-dir`，首次准备会核对 `DNF.exe`：已验证的 V212、V213、V214 选择 `on`，旧版 v56 选择 `off`；文件缺失或摘要未知时停止准备，要求明确选择配套协议。仅服务端部署、没有客户端目录时按当前 V212+ 选择 `on`。使用其他经过自行验证的旧客户端，可以在首次准备时传入 `--buff-group-sync off`；明确配套的双组客户端使用 `--buff-group-sync on`。选择会持久保存，重复准备不会自动改写。
+
+普通控制器的新 `instance.example.json` 带 `protocol.buffGroupSync: "auto"`。使用 `native-channel-profile-official-24.9` 配套 V212+ 时解析为 `on`，旧 `90cn-decode-bypass-v1` 保持原协议。控制器把选择显式传给游戏子进程，外层继承环境的清理不会再丢掉该设置。旧版官方原生客户端可显式设 `protocol.buffGroupSync: "off"`；已有实例省略该字段时不自动迁移。
+
+这些默认值面向配套客户端。独立的 `LOCAL_CLIENT.bat` 仍限其原有 v56 文件，V212/V214 应使用对应登录器。直接运行游戏服务程序、自定义启动脚本及旧实例升级仍按下节显式配置。
 
 ## 协议配对
 
@@ -11,7 +21,7 @@ V212 客户端已经包含双组 Buff 协议，服务端也实现了对应的 8 
 
 开关未配置或为 `off` 时，服务端把 8 字节 1426 当作非法请求消费，不保存组号，也不向该组回投影。角色或场景重建时使用的是旧的完整快照投影；被拒绝的登记没有持久状态可恢复，客户端临时显示的双组选择会被空快照替换。因此，配套 V212 客户端需要显式设为 `on`。
 
-`deploy/templates/buff-group-v212.compatibility.json` 是配置片段。已有实例应把其中的字段合并到 `runtime/docker/instance.json`，保留密码、地址、PVF、频道表、镜像和其他兼容设置；直接用片段覆盖整个实例文件会使生成器失去这些字段。
+`deploy/templates/buff-group-v212.compatibility.json` 是配置片段。已有实例应把其中的字段合并到 `runtime/docker/instance.json`，保留密码、地址、PVF、频道表、镜像和其他兼容设置；直接用片段覆盖整个实例文件会使生成器失去这些字段。如果已有顶层 `buff_group_sync`，使用相同的 `on/off` 或只保留一个来源，冲突配置会被拒绝。
 
 ```json
 {

@@ -444,6 +444,16 @@ func runtimeEnvironment(cfg instanceConfig) []string {
 		values["DNFBRIDGE_PARTY_UDP_RELAY_SEED_FORWARD"] = "on"
 		values["DNFBRIDGE_PARTY_UDP_RELAY_PROBE_PORTS"] = fmt.Sprintf("2311,2312,%d", relayPortStart)
 	}
+	buffGroupSync := cfg.Protocol.BuffGroupSync
+	if buffGroupSync == "auto" {
+		buffGroupSync = ""
+		if cfg.Protocol.Profile == officialNativeProtocolProfile {
+			buffGroupSync = "on"
+		}
+	}
+	if buffGroupSync == "on" || buffGroupSync == "off" {
+		values["DNFBRIDGE_BUFF_GROUP_SYNC"] = buffGroupSync
+	}
 	insertBatchRows := cfg.Database.InsertBatchRows
 	if insertBatchRows == 0 {
 		// Existing instance files need no migration to enable batched saves.

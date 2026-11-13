@@ -17,6 +17,14 @@ RUNTIME = ROOT / "runtime" / "docker"
 IMAGE = "servers5a3-local:dev"
 PROJECT = "servers5a3-local"
 
+BUFF_GROUP_SYNC_KEY = "DNFBRIDGE_BUFF_GROUP_SYNC"
+BUFF_GROUP_CLIENTS = {
+    "69ea3a8b38d70af340baed28ec03e88162e7d3e434f5f99c9d5b71dafc12f544": "on",  # V212
+    "a28601e349a65a1ec0356995b693a326620d81887031c17b76b5b73daaeb5216": "on",  # V213
+    "6402835223a23f9e4300c57c175d1b990b78ab0eecc46bd03fd373d0893e73f4": "on",  # V214
+    "bc613e368e8fd49c50c35163f2ed8a28564fc23342701a5a6c22b839f3bf6b7a": "off",  # legacy v56
+}
+
 RUNTIME_COMPATIBILITY_VALUES = {
     "DNFBRIDGE_MYSQL_INSERT_BATCH": None,
     "DNFBRIDGE_INVENTORY_SAVE_SCOPE": ("collection", "slot"),
@@ -63,6 +71,33 @@ def runtime_compatibility_env(config):
             raise ValueError(f"runtime_compatibility value is not allowed: {key}={value}")
         validated[key] = value
     return validated
+
+
+def buff_group_sync_env(config, compatibility):
+    mode = config.get("buff_group_sync")
+    if "buff_group_sync" in config and mode not in ("auto", "on", "off"):
+        raise ValueError("buff_group_sync must be auto, on or off")
+    explicit = compatibility.get(BUFF_GROUP_SYNC_KEY)
+    if (mode == "on" or explicit == "on") and config.get("client_version", "official-24.9") != "official-24.9":
+        raise ValueError("buff_group_sync on requires client_version official-24.9")
+    if explicit is not None:
+        if mode in ("on", "off") and mode != explicit:
+            raise ValueError("buff_group_sync conflicts with runtime_compatibility")
+        return explicit
+    if mode != "auto":
+        return mode  # Old instance files retain their unconfigured behavior.
+    if config.get("client_version", "official-24.9") != "official-24.9":
+        return "off"
+    client_dir = config.get("client_dir")
+    if not client_dir:
+        return "on"  # A fresh server-only installation targets the current public client.
+    executable = Path(client_dir) / "DNF.exe"
+    if not executable.is_file():
+        raise ValueError("buff_group_sync auto requires DNF.exe in client_dir; select on for V212+ or off for a legacy client")
+    mode = BUFF_GROUP_CLIENTS.get(digest(executable))
+    if mode is None:
+        raise ValueError("buff_group_sync auto does not recognize DNF.exe; select the verified on/off client protocol explicitly")
+    return mode
 
 
 def run(*args, capture=False):
@@ -138,7 +173,8 @@ def check_network(config):
 
 def prepare(args):
     instance = RUNTIME / "instance.json"
-    if instance.exists():
+    existing = instance.exists()
+    if existing:
         config = json.loads(instance.read_text(encoding="utf-8"))
         if args.host_ip:
             config["host_ip"] = private_ipv4(args.host_ip)
@@ -154,7 +190,15 @@ def prepare(args):
             "client_dir": str(Path(args.client_dir).resolve()) if args.client_dir else "",
             "body_codec": "plaintext", "client_body_codec": "plaintext",
             "default_group_login_only": True,
+            "client_version": "official-24.9",
+            "buff_group_sync": "auto",
         }
+    if getattr(args, "buff_group_sync", None) is not None:
+        config["buff_group_sync"] = args.buff_group_sync
+    compatibility = runtime_compatibility_env(config)
+    buff_group_sync = buff_group_sync_env(config, compatibility)
+    if not existing and config["buff_group_sync"] == "auto":
+        config["buff_group_sync"] = buff_group_sync
     management_token(config)
     private_ipv4(config["host_ip"])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -251,6 +295,7 @@ def generate(c, catalog):
     if buff_swap_reapply is not None and buff_swap_reapply not in ("on", "off"):
         raise ValueError("buff_swap_reapply must be 'on' or 'off' when configured")
     compatibility_env = runtime_compatibility_env(c)
+    buff_group_sync = buff_group_sync_env(c, compatibility_env)
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
@@ -361,6 +406,8 @@ create_databases = false
     if percent is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"] = str(percent)
     env.update(compatibility_env)
+    if buff_group_sync is not None:
+        env[BUFF_GROUP_SYNC_KEY] = buff_group_sync
     if encoding is not None:
         env["DNFBRIDGE_CHANNEL_SCRIPT_ENCODING"] = encoding
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
@@ -401,6 +448,8 @@ def main():
     parser.add_argument("--pvf")
     parser.add_argument("--host-ip")
     parser.add_argument("--client-dir")
+    parser.add_argument("--buff-group-sync", choices=("auto", "on", "off"),
+                        help="Fresh installs select V212+ automatically; use off only for a legacy client")
     parser.add_argument("--channel-info", help="Explicit external channel table; preserves the PVF-extracted table")
     parser.add_argument("--runtime-dir", type=Path, default=RUNTIME)
     parser.add_argument("--project", default=PROJECT)
