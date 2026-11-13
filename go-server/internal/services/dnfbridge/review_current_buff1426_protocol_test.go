@@ -227,7 +227,12 @@ func TestReviewCurrentBuff1426MigratesHistoricalStateWithoutLosingBinding(t *tes
 		t.Fatalf("historical switch did not retain1369: %v", old)
 	}
 	state, found, err := buffswap.Load(context.Background(), r, "1", "dnf:10001")
-	if err != nil || !found || len(state.Slots) != 1 || state.Slots[12].ItemID != 101040493 {
+	if err != nil || !found || len(state.SkillSlots[38]) != 1 || state.SkillSlots[38][12].ItemID != 101040493 {
 		t.Fatalf("profile transition lost item: %+v %v", state, err)
 	}
+	// The historical projection keeps its original single-view behavior; the
+	// saved current skill tree must become active again on current selection.
+	reviewCurrentBuffDispatch(t, s, session, reviewCurrentBuffCommand(38, 33, 45, 0xffff))
+	reviewCurrentBuffProvenance(t, r, 38, 1)
+	reviewCurrentBuffSnapshot(t, conn, 38, true)
 }
