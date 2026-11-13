@@ -364,9 +364,17 @@ func TestWearMoveAppearanceRefreshCostStaysOnTheActorProjection(t *testing.T) {
 			t.Fatalf("%s bytes=%d must be below the full container replay=%d",
 				measured.name, measured.bytes, containerReplay.bytes)
 		}
-		if measured.equipmentLoads > 6 {
-			t.Fatalf("%s read the equipment record %d times, want the actor projection only",
-				measured.name, measured.equipmentLoads)
+		// Independent Linux comparison of the public baseline and selected
+		// candidate both reports mode0=1 and mode1=7. Keep separate budgets:
+		// the legacy rollback assembles the full actor, while mode0 reads only
+		// its appearance. Neither path may replay inventory containers.
+		equipmentBudget := 1
+		if measured.name == "mode1_rollback" {
+			equipmentBudget = 7
+		}
+		if measured.equipmentLoads > equipmentBudget {
+			t.Fatalf("%s read the equipment record %d times, budget %d",
+				measured.name, measured.equipmentLoads, equipmentBudget)
 		}
 	}
 	// mode0 的角色体是定长的；mode1 随穿戴件数增长 ⇒ 真实体量角色上默认档必须更小

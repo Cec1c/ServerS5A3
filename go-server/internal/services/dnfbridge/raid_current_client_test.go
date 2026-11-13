@@ -69,7 +69,7 @@ func TestCurrentRaidActualDispatchCreatesQueriesAndModifiesVerifiedLayout(t *tes
 		raw := consumeCurrentRaidProfiles(t, ac.write.Bytes(), state)
 		ack, rest = splitGameServerUpperPacket(t, raw)
 		roster, rest = splitGameServerUpperPacket(t, rest)
-		wantInfo, _ := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(state), 2)
+		wantInfo, _ := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(raidAllSoloWireFixture(state)), 2)
 		if len(rest) != 0 || ack.Header.Classification != 1 || ack.Header.MsgID != 1359 || !bytes.Equal(ack.Body, wantInfo) || roster.Header.Classification != 0 || roster.Header.MsgID != 591 || !bytes.Equal(roster.Body, wantRoster) || len(s.raids) != 1 {
 			t.Fatal("actual upper query did not update existing current object")
 		}
