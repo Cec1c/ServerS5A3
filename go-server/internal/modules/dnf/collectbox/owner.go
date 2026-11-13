@@ -2,15 +2,14 @@
 // "put one bead/orb into the selected box" action. Wire dispatch and PVF
 // parsing stay in dnfbridge; this package only owns the atomic item move.
 //
-// 持久化口径沿用同仓 titlebook 的先例（internal/modules/dnf/titlebook/owner.go）：
-// 收集箱登记条目**不是**客户端可请求的容器，所以它借用 InventoryRecord.Slots
-// 上的一个保留 list type 作为持久化伪容器。这样：
+// 收集箱登记条目不是客户端可请求的容器，所以它借用仓库记录 Slots
+// 上的一个保留 list type 作为持久化伪容器。收集箱是账号资产，登记条目落在
+// AccountInventoryRecord.Slots；角色背包只承担来源/取回物品。这样：
 //
-//  1. 「从背包扣掉宝珠」与「把宝珠登记进箱子」落在**同一次**
-//     SaveInventoryFields / 同一个事务里（见 WithinCharacterSettlement），
-//     不会出现"扣了没登记"或"登记了没扣"的中间态；
-//  2. 重登后由同一份 InventoryRecord 读回，天然保留；
-//  3. 不新增表、不写迁移，与 dnf_legacy_character_items 现有 schema 完全兼容。
+//  1. 「从角色背包扣掉宝珠」与「把宝珠登记进账号收集箱」落在同一次
+//     WithinAccountCharacterItems 事务里，不会出现单边提交；
+//  2. 同账号所有角色读同一份 AccountInventoryRecord，天然账号共享；
+//  3. 不新增表，复用现有 dnf_account_inventory_items schema。
 package collectbox
 
 import (
@@ -27,7 +26,7 @@ import (
 )
 
 const (
-	// ListType 是收集箱登记条目在 InventoryRecord.Slots 里的保留伪容器号。
+	// ListType 是收集箱登记条目在 AccountInventoryRecord.Slots 里的保留伪容器号。
 	//
 	// 101 与 titlebook.ListType = 100 相邻，两者都不在任何客户端可请求的容器
 	// 清单里：dnfbridge.currentSelectedItemListTypes 只含 {0,1,2,7,38}，另有
@@ -44,6 +43,7 @@ const (
 )
 
 var (
+	ErrAccountRequired   = errors.New("collectbox account id required")
 	ErrOwnerUnavailable  = errors.New("collectbox owner unavailable")
 	ErrCharacterRequired = errors.New("collectbox selected character id required")
 	ErrInventoryNotFound = errors.New("collectbox inventory record not found")
@@ -79,6 +79,7 @@ type Policy struct {
 //	[2:4] u16 LE source inventory slot
 //	[4:8] u32 LE item id
 type PutCommand struct {
+	AccountID           string
 	SelectedCharacterID uint16
 	// SourceList 是来源容器号；当前客户端固定 0（主背包）。
 	SourceList byte
@@ -104,19 +105,19 @@ type PutResult struct {
 	RegisteredItemIDs []int32
 }
 
-// Owner executes one collectbox put inside the character settlement
+// Owner executes one collectbox put inside the account+character item
 // transaction supplied by the repository group.
 type Owner struct {
-	settlements dnfrepo.CharacterSettlementUnitOfWork
+	items dnfrepo.AccountCharacterItemUnitOfWork
 }
 
-// NewOwner 复用 titlebook 用的同一条角色事务边界：它把整个 Group 交给回调，
-// 因此背包扣减与收集箱登记共用一次提交，不需要新增 UnitOfWork 方法。
+// NewOwner reuses the account+character item transaction boundary so the
+// character bag decrement and account collectbox registration share one commit.
 func NewOwner(repos dnfrepo.Group) (*Owner, error) {
-	if repos.Inventory == nil || repos.CharacterSettlement == nil {
+	if repos.AccountInventory == nil || repos.Inventory == nil || repos.AccountItems == nil {
 		return nil, ErrOwnerUnavailable
 	}
-	return &Owner{settlements: repos.CharacterSettlement}, nil
+	return &Owner{items: repos.AccountItems}, nil
 }
 
 // Put 把来源槽位上的 itemID 移入 policy 指定的收集箱的空槛位。
@@ -124,8 +125,12 @@ func NewOwner(repos dnfrepo.Group) (*Owner, error) {
 // 校验顺序刻意是"先证来源、再证 PVF、最后找空位"：任何一步失败都在写库之前
 // 返回，事务回滚后背包保持原样。
 func (o *Owner) Put(ctx context.Context, cmd PutCommand, policy Policy) (PutResult, error) {
-	if o == nil || o.settlements == nil {
+	if o == nil || o.items == nil {
 		return PutResult{}, ErrOwnerUnavailable
+	}
+	accountID := strings.TrimSpace(cmd.AccountID)
+	if accountID == "" {
+		return PutResult{}, ErrAccountRequired
 	}
 	if cmd.SelectedCharacterID == 0 {
 		return PutResult{}, ErrCharacterRequired
@@ -142,8 +147,15 @@ func (o *Owner) Put(ctx context.Context, cmd PutCommand, policy Policy) (PutResu
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
 
 	var result PutResult
-	err := o.settlements.WithinCharacterSettlement(ctx, characterID, func(tx dnfrepo.Group) error {
-		inventory, loadErr := loadInventory(ctx, tx.Inventory, characterID)
+	err := o.items.WithinAccountCharacterItems(ctx, accountID, characterID, func(
+		accounts dnfrepo.AccountInventoryRepository,
+		inventories dnfrepo.InventoryRepository,
+	) error {
+		inventory, loadErr := loadInventory(ctx, inventories, characterID)
+		if loadErr != nil {
+			return loadErr
+		}
+		accountInventory, loadErr := loadAccountInventory(ctx, accounts, accountID)
 		if loadErr != nil {
 			return loadErr
 		}
@@ -155,7 +167,7 @@ func (o *Owner) Put(ctx context.Context, cmd PutCommand, policy Policy) (PutResu
 		if itemLocked(source) {
 			return fmt.Errorf("%w: list=%d slot=%d", ErrSourceLocked, cmd.SourceList, cmd.SourceSlot)
 		}
-		slotIndex, found := firstFreeSlot(inventory.Slots, policy)
+		slotIndex, found := firstFreeSlot(accountInventory.Slots, policy)
 		if !found {
 			return fmt.Errorf("%w: box=%d slot_count=%d", ErrBoxFull, policy.BoxIndex, policy.SlotCount)
 		}
@@ -178,9 +190,13 @@ func (o *Owner) Put(ctx context.Context, cmd PutCommand, policy Policy) (PutResu
 			inventory.Slots[sourceKey] = source
 		}
 		targetKey := RegisteredSlotKey(policy.BoxIndex, slotIndex)
-		inventory.Slots[targetKey] = registered
+		accountInventory.Slots[targetKey] = registered
 		inventory.UpdatedAt = mutationTime(cmd.UpdatedAt)
-		if saveErr := dnfrepo.SaveInventoryFields(ctx, tx.Inventory, inventory, dnfrepo.InventoryFieldSlots); saveErr != nil {
+		accountInventory.UpdatedAt = mutationTime(cmd.UpdatedAt)
+		if saveErr := dnfrepo.SaveInventoryFields(ctx, inventories, inventory, dnfrepo.InventoryFieldSlots); saveErr != nil {
+			return saveErr
+		}
+		if saveErr := accounts.Save(ctx, accountInventory); saveErr != nil {
 			return saveErr
 		}
 		result = PutResult{
@@ -192,7 +208,7 @@ func (o *Owner) Put(ctx context.Context, cmd PutCommand, policy Policy) (PutResu
 			SourceRemaining:   remainingCount,
 			SourceEmptied:     remainingCount <= 0,
 			TargetKey:         targetKey,
-			RegisteredItemIDs: RegisteredItemIDs(inventory, policy.BoxIndex),
+			RegisteredItemIDs: RegisteredItemIDs(accountInventory, policy.BoxIndex),
 		}
 		return nil
 	})
@@ -204,7 +220,7 @@ func (o *Owner) Put(ctx context.Context, cmd PutCommand, policy Policy) (PutResu
 
 // RegisteredItemIDs 返回某个箱子里**已登记**的条目 id，按槛位号升序。
 // 只读，不修改记录；调用方给 nil 记录时返回 nil。
-func RegisteredItemIDs(record dnfrepo.InventoryRecord, boxIndex int32) []int32 {
+func RegisteredItemIDs(record dnfrepo.AccountInventoryRecord, boxIndex int32) []int32 {
 	if boxIndex < 0 || boxIndex > MaxBoxIndex {
 		return nil
 	}
@@ -221,7 +237,7 @@ func RegisteredItemIDs(record dnfrepo.InventoryRecord, boxIndex int32) []int32 {
 
 // RegisteredItemIDsByBox 一次遍历返回全部箱子的登记条目，避免初始化时按箱
 // 反复扫同一张 map。
-func RegisteredItemIDsByBox(record dnfrepo.InventoryRecord) map[int32][]int32 {
+func RegisteredItemIDsByBox(record dnfrepo.AccountInventoryRecord) map[int32][]int32 {
 	grouped := make(map[int32][]registeredEntry)
 	for key, stack := range record.Slots {
 		index, slotIndex, ok := parseRegisteredSlotKey(key)
@@ -336,6 +352,35 @@ func loadInventory(ctx context.Context, repository dnfrepo.InventoryRepository, 
 		inventory.Slots = make(map[string]dnfrepo.ItemStack)
 	}
 	return inventory, nil
+}
+
+func loadAccountInventory(
+	ctx context.Context,
+	repository dnfrepo.AccountInventoryRepository,
+	accountID string,
+) (dnfrepo.AccountInventoryRecord, error) {
+	if repository == nil {
+		return dnfrepo.AccountInventoryRecord{}, ErrOwnerUnavailable
+	}
+	record, found, err := repository.Load(ctx, accountID)
+	if err != nil {
+		return dnfrepo.AccountInventoryRecord{}, err
+	}
+	if !found {
+		record = dnfrepo.AccountInventoryRecord{AccountID: accountID}
+	} else if strings.TrimSpace(record.AccountID) != accountID {
+		return dnfrepo.AccountInventoryRecord{}, fmt.Errorf(
+			"%w: account=%s record=%s",
+			ErrOwnerUnavailable,
+			accountID,
+			record.AccountID,
+		)
+	}
+	record = dnfrepo.CloneAccountInventory(record)
+	if record.Slots == nil {
+		record.Slots = make(map[string]dnfrepo.ItemStack)
+	}
+	return record, nil
 }
 
 func inventoryKey(listType byte, slot int16) string {
