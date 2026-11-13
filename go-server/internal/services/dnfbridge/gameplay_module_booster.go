@@ -179,6 +179,8 @@ func (s *Service) handleCurrentBoosterItem(session *gameSession, body []byte) er
 		"selected_count", len(request.Selections),
 		"reward_count", len(result.Rewards),
 		"rewards", fmt.Sprint(result.Rewards),
+		// 970001 的 970002 奖励直接进入账号普通点券，不占背包格。
+		"normal_point_credits", result.NormalPointCredits,
 		"changed_lists", fmt.Sprint(result.ChangedLists),
 		"container_lists", fmt.Sprint(grantContainerLists),
 		"item_grant_notice", itemGrantNoticeMode(),
@@ -226,6 +228,8 @@ func (s *Service) commitCurrentBooster(
 	for id, count := range rewardAmounts {
 		vouchers = vouchers.Add(currentRewardVoucherCounts(id, count))
 	}
+	normalPointReward := int64(definition.Source.ItemID) == currentBoosterNormalPointSourceItemID &&
+		rewardAmounts[uint32(currentBoosterNormalPointRewardItemID)] > 0
 	// op27 requires a real item-container projection before any asset mutation.
 	if request.AllowLotteryGold {
 		// Official CMD27 classifies Fate into the real account container (44)
@@ -257,7 +261,7 @@ func (s *Service) commitCurrentBooster(
 	}
 	err = owner.Open(ctx, dnfbooster.Command{
 		ItemUsage:     definition.ItemUsage,
-		AccountLedger: len(pieceRewards) > 0 || len(contractRewards) > 0 || rewardAmounts[raidcurrency.FateItemID] > 0 || !vouchers.IsZero(),
+		AccountLedger: len(pieceRewards) > 0 || len(contractRewards) > 0 || rewardAmounts[raidcurrency.FateItemID] > 0 || !vouchers.IsZero() || normalPointReward,
 		GoldCost:      definition.LotteryGoldCost,
 		AccountID:     accountID,
 		CharacterID:   characterID,
@@ -365,6 +369,21 @@ func (s *Service) commitCurrentBooster(
 			changedRewardKeys := make(map[string]struct{})
 			accountDirty := false
 			for _, reward := range rewards {
+				if credited, creditErr := currentBoosterCreditNormalPoints(
+					assets.Account,
+					int64(definition.Source.ItemID),
+					reward,
+				); creditErr != nil {
+					return dnfbooster.Changes{}, creditErr
+				} else if credited > 0 {
+					result.NormalPointCredits += credited
+					result.WalletChanged = true
+					result.Rewards = append(result.Rewards, currentBoosterGrantedReward{
+						ItemID: reward.Definition.ItemID,
+						Count:  reward.Count,
+					})
+					continue
+				}
 				if cerashop.IsVoucher(int64(reward.Definition.ItemID)) {
 					result.Rewards = append(result.Rewards, currentBoosterGrantedReward{ItemID: reward.Definition.ItemID, Count: reward.Count})
 					continue
@@ -480,6 +499,53 @@ func (s *Service) commitCurrentBooster(
 	}
 	return result, nil
 }
+
+// V201 的普通点券钱包只缺这一条旧服定制分流：970002 在 PVF 中是普通
+// [material]，只有来源 970001 的奖励才应改写 account_cera。其它礼包即使
+// 开出同一道具号也保持材料语义，避免把通用奖励误吞成余额。
+const (
+	currentBoosterNormalPointSourceItemID int64 = 970001
+	currentBoosterNormalPointRewardItemID int64 = 970002
+)
+
+func currentBoosterCreditNormalPoints(
+	account *dnfrepo.AccountRecord,
+	sourceItemID int64,
+	reward currentBoosterReward,
+) (uint32, error) {
+	if int64(reward.Definition.ItemID) != currentBoosterNormalPointRewardItemID ||
+		sourceItemID != currentBoosterNormalPointSourceItemID ||
+		reward.Count == 0 {
+		return 0, nil
+	}
+	if account == nil {
+		return 0, errCurrentBoosterOwnerUnavailable
+	}
+	if currentBoosterRawCeraBalanceNegative(account) {
+		return 0, errCurrentBoosterNormalPointBalanceInvalid
+	}
+	balance := cerashop.Balance(*account)
+	count := int64(reward.Count)
+	if balance < 0 || count > cerashop.MaxWalletBalance-balance {
+		return 0, cerashop.ErrWalletOverflow
+	}
+	cerashop.SetBalance(account, balance+count)
+	return reward.Count, nil
+}
+
+func currentBoosterRawCeraBalanceNegative(account *dnfrepo.AccountRecord) bool {
+	if account == nil {
+		return false
+	}
+	raw := strings.TrimSpace(account.Metadata["account_cera"])
+	if raw == "" {
+		return false
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	return err == nil && value < 0
+}
+
+var errCurrentBoosterNormalPointBalanceInvalid = errors.New("booster: normal point cera balance is negative")
 
 func currentBoosterInventoryCounts(inventory *dnfrepo.InventoryRecord) map[string]int64 {
 	counts := make(map[string]int64)
