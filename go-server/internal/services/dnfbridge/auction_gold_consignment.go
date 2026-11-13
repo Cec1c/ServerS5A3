@@ -243,6 +243,9 @@ func (s *Service) notifyGoldConsignMailbox(id string) {
 	}
 }
 func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode uint16, body []byte) error {
+	if isCurrentAuctionReadCommand(opcode) {
+		return s.prepareCurrentGoldConsignReadLocked(session, opcode, body).send(s, session)
+	}
 	replyOpcode := opcode
 	if opcode == uint16(dnfenum.CmdPacketAuctionSearchByNoitemkey) {
 		replyOpcode = uint16(dnfenum.CmdPacketAuctionSearchByItemkey)
@@ -260,45 +263,6 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 	}
 	id, account := selectedCharacterIDString(session), s.accountIDForSession(session)
 	switch opcode {
-	case uint16(dnfenum.CmdPacketAuctionAskAveragePrice):
-		if len(body) != 6 || body[5] != 0 {
-			return fail(dnfauction.ErrInvalidRequest)
-		}
-		avg, n, e := owner.AverageCeraPrice(ctx, int64(binary.LittleEndian.Uint32(body[1:5])))
-		if e != nil {
-			return fail(e)
-		}
-		var w packetWriter
-		w.writeByte(1)
-		w.writeUint32(uint32(avg))
-		w.writeUint32(uint32(n))
-		// 没有成交时为0；价格阶梯来自当前实际挂单，不重复伪造成交均价。
-		listings, e := owner.Search(ctx, []int64{int64(binary.LittleEndian.Uint32(body[1:5]))})
-		if e != nil {
-			return fail(e)
-		}
-		prices, counts := [6]uint32{}, [6]uint32{}
-		index := -1
-		for _, l := range listings {
-			price := uint32(l.PriceCera)
-			if index >= 0 && prices[index] == price {
-				counts[index]++
-				continue
-			}
-			if index == 5 {
-				break
-			}
-			index++
-			prices[index] = price
-			counts[index] = 1
-		}
-		for _, v := range prices {
-			w.writeUint32(v)
-		}
-		for _, v := range counts {
-			w.writeUint32(v)
-		}
-		return s.sendGameUpperSuccess(session, opcode, w.bytes())
 	case uint16(dnfenum.CmdPacketAuctionRegistItem):
 		q, e := decodeCurrentGoldConsignRegisterRequest(body)
 		if e != nil {
@@ -355,6 +319,71 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 			return e
 		}
 		return s.sendCurrentAccountWallet(session)
+	default:
+		return fail(dnfauction.ErrInvalidRequest)
+	}
+}
+
+func (s *Service) prepareCurrentGoldConsignReadLocked(session *gameSession, opcode uint16, body []byte) currentAuctionReadResponse {
+	replyOpcode := opcode
+	if opcode == uint16(dnfenum.CmdPacketAuctionSearchByNoitemkey) {
+		replyOpcode = uint16(dnfenum.CmdPacketAuctionSearchByItemkey)
+	}
+	fail := func(e error) currentAuctionReadResponse {
+		s.logGameEvent(session, "金币寄售请求拒绝", "opcode", replyOpcode, "error", e)
+		return currentAuctionReadRaw(replyOpcode, []byte{0, currentGoldConsignFailureCode(e), 1}, 1)
+	}
+	owner, e := s.currentGoldConsignOwner()
+	if e != nil {
+		return fail(e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	// 所有交易结果都先持久化；维护失败留待离线时钟重试，不把已提交交易倒退为失败。
+	if _, e = owner.Maintain(ctx); e != nil {
+		s.logGameEvent(session, "金币寄售邮件或到期结算暂缓", "error", e)
+	}
+	id := selectedCharacterIDString(session)
+	switch opcode {
+	case uint16(dnfenum.CmdPacketAuctionAskAveragePrice):
+		if len(body) != 6 || body[5] != 0 {
+			return fail(dnfauction.ErrInvalidRequest)
+		}
+		avg, n, e := owner.AverageCeraPrice(ctx, int64(binary.LittleEndian.Uint32(body[1:5])))
+		if e != nil {
+			return fail(e)
+		}
+		var w packetWriter
+		w.writeByte(1)
+		w.writeUint32(uint32(avg))
+		w.writeUint32(uint32(n))
+		// 没有成交时为0；价格阶梯来自当前实际挂单，不重复伪造成交均价。
+		listings, e := owner.Search(ctx, []int64{int64(binary.LittleEndian.Uint32(body[1:5]))})
+		if e != nil {
+			return fail(e)
+		}
+		prices, counts := [6]uint32{}, [6]uint32{}
+		index := -1
+		for _, l := range listings {
+			price := uint32(l.PriceCera)
+			if index >= 0 && prices[index] == price {
+				counts[index]++
+				continue
+			}
+			if index == 5 {
+				break
+			}
+			index++
+			prices[index] = price
+			counts[index] = 1
+		}
+		for _, v := range prices {
+			w.writeUint32(v)
+		}
+		for _, v := range counts {
+			w.writeUint32(v)
+		}
+		return currentAuctionReadSuccess(opcode, w.bytes())
 	case uint16(dnfenum.CmdPacketAuctionSearchByItemkey):
 		offset, items, ok := decodeCurrentAuctionSearchBody(body, 1)
 		if !ok && len(body) == 10 && body[7] == 0 {
@@ -375,7 +404,7 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 		if e != nil {
 			return fail(e)
 		}
-		return s.sendGameUpperSuccess(session, opcode, buildCurrentGoldConsignSearchBody(listings, offset, currentAuctionSearchBatchSize))
+		return currentAuctionReadSuccess(opcode, buildCurrentGoldConsignSearchBody(listings, offset, currentAuctionSearchBatchSize))
 	case uint16(dnfenum.CmdPacketAuctionSearchByNoitemkey):
 		if len(body) != currentAuctionGoldCategoryRequestSize {
 			return fail(dnfauction.ErrInvalidRequest)
@@ -384,7 +413,7 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 		if e != nil {
 			return fail(e)
 		}
-		return s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketAuctionSearchByItemkey), buildCurrentGoldConsignSearchBody(listings, binary.LittleEndian.Uint32(body[1:5]), currentAuctionSearchBatchSize))
+		return currentAuctionReadSuccess(uint16(dnfenum.CmdPacketAuctionSearchByItemkey), buildCurrentGoldConsignSearchBody(listings, binary.LittleEndian.Uint32(body[1:5]), currentAuctionSearchBatchSize))
 	case uint16(dnfenum.CmdPacketAuctionMyRegistedItemInfo):
 		if len(body) != 1 {
 			return fail(dnfauction.ErrInvalidRequest)
@@ -393,12 +422,12 @@ func (s *Service) handleCurrentGoldConsignLocked(session *gameSession, opcode ui
 		if e != nil {
 			return fail(e)
 		}
-		return s.sendGameUpperSuccess(session, opcode, buildCurrentGoldConsignOwnedBody(listings, id))
+		return currentAuctionReadSuccess(opcode, buildCurrentGoldConsignOwnedBody(listings, id))
 	case uint16(dnfenum.CmdPacketAuctionMyBiddingInfo):
 		if len(body) != 1 {
 			return fail(dnfauction.ErrInvalidRequest)
 		}
-		return s.sendGameUpperSuccess(session, opcode, []byte{1, 0, 0})
+		return currentAuctionReadSuccess(opcode, []byte{1, 0, 0})
 	default:
 		return fail(dnfauction.ErrInvalidRequest)
 	}

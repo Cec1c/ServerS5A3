@@ -400,6 +400,13 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	}
 	characters := &characterTradeScopedCharacterRepository{allowed: allowed, base: txGroup.Character, activity: txGroup.Activity}
 	inventories := &characterTradeScopedInventoryRepository{allowed: allowed, base: txGroup.Inventory}
+	// Each allowed owner gets its own complete before-image on this same SQL
+	// transaction. Loading the second trader must not replace the first one's
+	// baseline, nor the escrow's baseline in auction operations.
+	inventories.byOwner = make(map[string]repository.InventoryRepository, len(ids))
+	for _, id := range ids {
+		inventories.byOwner[id] = &mysqlBagStore{mysqlStoreBase: mysqlStoreBase{router: txRouter}, trackSlotChanges: true}
+	}
 	var warehouse repository.AccountInventoryRepository
 	if warehouseOwner != "" {
 		warehouse = &characterSettlementAccountInventoryRepository{characterID: warehouseOwner, characters: characters, accounts: txGroup.AccountInventory}
@@ -449,6 +456,14 @@ func (r *characterTradeScopedCharacterRepository) NextNumericID(context.Context)
 type characterTradeScopedInventoryRepository struct {
 	allowed map[string]struct{}
 	base    repository.InventoryRepository
+	byOwner map[string]repository.InventoryRepository
+}
+
+func (r *characterTradeScopedInventoryRepository) ownerStore(id string) repository.InventoryRepository {
+	if store := r.byOwner[strings.TrimSpace(id)]; store != nil {
+		return store
+	}
+	return r.base
 }
 
 func (r *characterTradeScopedInventoryRepository) Load(ctx context.Context, characterID string) (repository.InventoryRecord, bool, error) {
@@ -456,21 +471,21 @@ func (r *characterTradeScopedInventoryRepository) Load(ctx context.Context, char
 	if _, allowed := r.allowed[characterID]; !allowed {
 		return repository.InventoryRecord{}, false, repository.ErrCharacterTradeTransactionUnavailable
 	}
-	return r.base.Load(ctx, characterID)
+	return r.ownerStore(characterID).Load(ctx, characterID)
 }
 
 func (r *characterTradeScopedInventoryRepository) Save(ctx context.Context, record repository.InventoryRecord) error {
 	if _, allowed := r.allowed[strings.TrimSpace(record.CharacterID)]; !allowed {
 		return repository.ErrCharacterTradeTransactionUnavailable
 	}
-	return r.base.Save(ctx, record)
+	return r.ownerStore(record.CharacterID).Save(ctx, record)
 }
 
 func (r *characterTradeScopedInventoryRepository) SaveFields(ctx context.Context, record repository.InventoryRecord, fields ...repository.InventoryField) error {
 	if _, allowed := r.allowed[strings.TrimSpace(record.CharacterID)]; !allowed {
 		return repository.ErrCharacterTradeTransactionUnavailable
 	}
-	return repository.SaveInventoryFields(ctx, r.base, record, fields...)
+	return repository.SaveInventoryFields(ctx, r.ownerStore(record.CharacterID), record, fields...)
 }
 
 func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Context, characterID string, apply func(repository.CharacterRepository, repository.InventoryRepository, repository.EquipmentRepository) error) error {

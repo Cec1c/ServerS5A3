@@ -14,6 +14,12 @@ type InventoryRepository interface {
 	db.Store[InventoryRecord]
 }
 
+// InventorySlotPrefixReader is a read-only projection, never a complete bag
+// before-image. Callers cannot pass its result directly to SaveInventoryFields.
+type InventorySlotPrefixReader interface {
+	LoadInventorySlotPrefix(context.Context, string, string) (map[string]ItemStack, error)
+}
+
 // InventoryRecord 是角色背包仓储记录。
 type InventoryRecord struct {
 	CharacterID string               `json:"character_id"`

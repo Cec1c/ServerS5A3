@@ -28,7 +28,9 @@ func (u *mysqlGuildUnitOfWork) WithinGuildRead(ctx context.Context, apply func(r
 	router.readDBs = append([]string(nil), router.writeDBs...)
 	router.lockReads = false
 	base := mysqlStoreBase{router: router}
-	if err := apply(r.GuildReadView{Settings: r.ReadOnlyGuildSettings(&mysqlSettingsStore{mysqlStoreBase: base}), Characters: &mysqlGuildCharacters{router: router}}); err != nil {
+	settings := newGuildReadSettings(&mysqlSettingsStore{mysqlStoreBase: base})
+	defer settings.reset()
+	if err := apply(r.GuildReadView{Settings: r.ReadOnlyGuildSettings(settings), Characters: &mysqlGuildCharacters{router: router}}); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {

@@ -95,7 +95,9 @@ func (s *Service) leaveRuntimePartyDungeonMember(session *gameSession, instance 
 		errs = errors.Join(errs, s.sendRuntimePartyDeparture(session, before.StateFor(before.Leader)))
 	}
 	if s.options.currentClientVersion == "official-24.9" {
-		errs = errors.Join(errs, s.sendMemberGiveupSurvivorRosterAfterDeparture(next, instance, identity.character))
+		errs = errors.Join(errs, s.sendMemberGiveupSurvivorRosterAfterDepartureMode(next, instance, identity.character, !notifyDeparting, nil))
+	} else if !notifyDeparting {
+		s.queueDetachedPartyMemberRemoved(before.StateFor(before.Leader), next, identity.character)
 	} else {
 		errs = errors.Join(errs, s.broadcastRuntimePartyMemberRemoved(before.StateFor(before.Leader), next, identity.character, session))
 	}
@@ -111,6 +113,10 @@ func (s *Service) sendMemberGiveupSurvivorRoster(state alignedcmd.PartyState, in
 }
 
 func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.PartyState, instance *dungeonPartyInstance, departingID uint16) error {
+	return s.sendMemberGiveupSurvivorRosterAfterDepartureMode(state, instance, departingID, false, nil)
+}
+
+func (s *Service) sendMemberGiveupSurvivorRosterAfterDepartureMode(state alignedcmd.PartyState, instance *dungeonPartyInstance, departingID uint16, deferPeers bool, only *gameSession) error {
 	var errs error
 	members := runtimePartyMembers(state)
 	// The return caller holds its own dungeon lock. Never acquire a peer's
@@ -122,6 +128,15 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 			continue
 		}
 		receiver := identity.session
+		if only != nil && receiver != only {
+			continue
+		}
+		if deferPeers {
+			errs = errors.Join(errs, s.queueDetachedPartyProjection(identity, state, func() error {
+				return s.sendMemberGiveupSurvivorRosterAfterDepartureMode(state, instance, departingID, false, receiver)
+			}))
+			continue
+		}
 		current := s.currentPartyRetirementGuard(receiver, &state)
 		if !current() {
 			continue

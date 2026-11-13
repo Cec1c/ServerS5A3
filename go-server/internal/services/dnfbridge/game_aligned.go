@@ -1042,6 +1042,11 @@ func (s *Service) sendAlignedUpperResponses(session *gameSession, result aligned
 	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, result.Operation, result.ItemSlotRefreshes); err != nil {
 		return err
 	}
+	if result.CharacterGoldChanged {
+		if err := s.sendCommittedCharacterGold(session); err != nil {
+			return err
+		}
+	}
 	if err := s.sendCommittedAccountCargoMove(session, result.AccountCargoMove); err != nil {
 		return err
 	}

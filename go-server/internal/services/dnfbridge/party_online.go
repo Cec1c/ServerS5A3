@@ -804,6 +804,10 @@ func (s *Service) broadcastRuntimePartyWalkoutNotice(state alignedcmd.PartyState
 // 判据只用 `currentDungeonPartyRunKey`（各自的 dungeonPartyRunMu，不碰任何会话的 dungeon.mu），
 // 并且要求两人落在**同一个副本运行键**上，避免把不同场的成员画到彼此房间里。
 func (s *Service) sendDungeonPartyFrameRoster(state alignedcmd.PartyState, source string) int {
+	return s.sendDungeonPartyFrameRosterForReceiver(state, source, nil)
+}
+
+func (s *Service) sendDungeonPartyFrameRosterForReceiver(state alignedcmd.PartyState, source string, only *gameSession) int {
 	if s == nil || state.PartyID <= 0 {
 		return 0
 	}
@@ -858,6 +862,9 @@ func (s *Service) sendDungeonPartyFrameRoster(state alignedcmd.PartyState, sourc
 	batch := newPartyFrameCharacterBatch(s)
 	delivered := 0
 	for _, receiver := range sessions {
+		if only != nil && receiver != only {
+			continue
+		}
 		if err := s.sendGameUpperRawClassCodec(receiver, 0x0099, runtimePartyRealtimeInfoBody(state), 0, true); err != nil {
 			s.logGameEvent(receiver, "game-dungeon-party-frame-roster-failed",
 				"conn_id", receiver.connID,

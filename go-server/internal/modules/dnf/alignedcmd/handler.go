@@ -966,6 +966,9 @@ type Result struct {
 	// that grants no fragment.
 	EpicPieceCredits     []MailboxEpicPieceCredit
 	AccountWalletChanged bool
+	// CharacterGoldChanged requests an authoritative class0/op14 gold row
+	// after the successful claim ACK. Account wallet currencies are separate.
+	CharacterGoldChanged bool
 	// FateCurrencyChanged reports that this command increased the account-wide
 	// Fate wallet after applying the weekly acquisition cap. The bridge owns the
 	// client projection because Fate owns no inventory row.

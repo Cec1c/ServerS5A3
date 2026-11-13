@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,28 +16,60 @@ import (
 const currentAuctionMaintenanceTimer = "dnf:auction:escrow-maintenance"
 
 func (s *Service) startCurrentAuctionClock(ctx context.Context) {
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
 	s.auctionMu.Lock()
+	defer s.auctionMu.Unlock()
+	if s.auctionMaintenanceContext != nil && s.auctionMaintenanceContext.Err() == nil {
+		return
+	}
 	s.auctionMaintenanceContext = ctx
+	s.auctionMaintenanceScheduled = false
+	s.auctionMaintenanceWake = make(chan struct{}, 1)
+	s.wg.Add(1)
+	go s.runCurrentAuctionMaintenance(ctx, s.auctionMaintenanceWake)
 	s.scheduleCurrentAuctionMaintenanceLocked(0)
-	s.auctionMu.Unlock()
 }
 
 func (s *Service) scheduleCurrentAuctionMaintenanceLocked(delay time.Duration) {
 	ctx := s.auctionMaintenanceContext
-	if ctx == nil || ctx.Err() != nil {
+	if ctx == nil || ctx.Err() != nil || s.auctionMaintenanceScheduled {
 		return
 	}
+	wake := s.auctionMaintenanceWake
+	s.auctionMaintenanceScheduled = true
 	if err := s.ensureGameplayTimeQueue().ScheduleAfter(currentAuctionMaintenanceTimer, delay, func(time.Time) {
 		if ctx.Err() != nil {
 			return
 		}
+		// Shared gameplay timers must never wait on the auction mutex or SQL.
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}); err != nil {
+		s.auctionMaintenanceScheduled = false
+		s.logGameEvent(nil, "拍卖结算计时登记失败", "error", err)
+	}
+}
+
+func (s *Service) runCurrentAuctionMaintenance(ctx context.Context, wake <-chan struct{}) {
+	defer s.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		}
 		s.auctionMu.Lock()
-		defer s.auctionMu.Unlock()
 		if ctx.Err() != nil {
+			s.auctionMu.Unlock()
 			return
 		}
+		s.auctionMaintenanceScheduled = false
 		operation, cancel := context.WithTimeout(ctx, createWriteTimeout)
-		pending, err := s.maintainCurrentAuctionLocked(operation)
+		pending, err := s.maintainCurrentAuctionSafelyLocked(operation)
 		cancel()
 		if err != nil {
 			s.logGameEvent(nil, "拍卖到期结算暂缓", "error", err)
@@ -44,9 +77,20 @@ func (s *Service) scheduleCurrentAuctionMaintenanceLocked(delay time.Duration) {
 		if pending || err != nil {
 			s.scheduleCurrentAuctionMaintenanceLocked(30 * time.Second)
 		}
-	}); err != nil {
-		s.logGameEvent(nil, "拍卖结算计时登记失败", "error", err)
+		s.auctionMu.Unlock()
 	}
+}
+
+func (s *Service) maintainCurrentAuctionSafelyLocked(ctx context.Context) (pending bool, err error) {
+	// The shared time queue used to recover callback panics. Keep the same
+	// isolation after moving SQL work to the service-owned worker.
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			pending = true
+			err = fmt.Errorf("auction maintenance panic: %v", recovered)
+		}
+	}()
+	return s.maintainCurrentAuctionLocked(ctx)
 }
 
 // 重启后从持久托管恢复到期和未投递邮件。离线买卖双方不依赖打开拍卖窗口。
@@ -61,9 +105,15 @@ func (s *Service) maintainCurrentAuctionLocked(ctx context.Context) (bool, error
 		return false, err
 	}
 	subjects := map[string]bool{}
+	now := time.Now()
 	for key, item := range escrow.Slots {
 		if !currentAuctionPendingKey(key) {
 			continue
+		}
+		if strings.HasPrefix(key, "auction:listing:") {
+			if expires, err := strconv.ParseInt(item.Extra["expires_at"], 10, 64); err == nil && time.Unix(expires, 0).After(now) {
+				continue // Live listings need no recipient recovery yet.
+			}
 		}
 		for _, field := range []string{"seller_id", "buyer_id", "bidder_id"} {
 			if id := strings.TrimSpace(item.Extra[field]); id != "" {
@@ -76,16 +126,29 @@ func (s *Service) maintainCurrentAuctionLocked(ctx context.Context) (bool, error
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	// Continue after the last attempted recipient, including failed recipients.
+	// A bad early mailbox cannot monopolize every bounded maintenance window.
+	if len(ids) > 0 {
+		start := sort.SearchStrings(ids, s.auctionMaintenanceCursor)
+		for start < len(ids) && ids[start] <= s.auctionMaintenanceCursor {
+			start++
+		}
+		ids = append(ids[start:], ids[:start]...)
+	}
 	owner, err := s.currentAuctionOwner()
 	if err != nil {
 		return true, err
 	}
-	s.settleCurrentAuctionWonListingsLocked(nil)
+	s.settleCurrentAuctionWonListingsWithContextLocked(ctx, nil)
 	var deferred []error
-	for _, id := range ids {
+	for index, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return true, err
 		}
+		if index >= 8 {
+			break
+		}
+		s.auctionMaintenanceCursor = id
 		actor, present, err := r.Character.Load(ctx, id)
 		if err != nil {
 			deferred = append(deferred, err)

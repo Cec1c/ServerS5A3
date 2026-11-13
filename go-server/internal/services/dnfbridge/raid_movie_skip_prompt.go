@@ -33,10 +33,11 @@ func (s *Service) sendCurrentRaidMovieSkipPrompt(session *gameSession, captured 
 	packets := []currentAntonRewardPacket{{opcode: op, class: 1, body: []byte{1}}}
 	now := s.currentRaidFailurePresentationNow()
 	// NOTI599's native movie prompt silently does nothing until its movie
-	// window exists. Failure input can arrive before that window is ready;
+	// window exists. Success or failure input can arrive before it is ready;
 	// a successful socket write is not a client completion receipt. Allow a
-	// bounded retry on later input, without changing the failure/return owner.
-	retry := b.TimedOut && o.moviePromptSent && !now.Before(o.moviePromptAt.Add(time.Second))
+	// bounded retry on later input. Only the actual completion request may
+	// release the movie stage; retries do not create reward eligibility.
+	retry := o.moviePromptSent && !now.Before(o.moviePromptAt.Add(time.Second))
 	prompt := !o.movieCompleted && (!o.moviePromptSent || retry)
 	if prompt {
 		packets = append(packets, currentAntonRewardPacket{opcode: 599})

@@ -42,16 +42,17 @@ func (s *Service) sendCurrentAuctionNoticeToOnlineRecipient(characterID uint16, 
 	if s == nil || characterID == 0 || itemID <= 0 || itemID > math.MaxUint32 {
 		return nil
 	}
-	session, online := s.onlineGameSession(characterID)
+	identity, online := s.onlineGameSessionCharacterSnapshot(characterID)
 	if !online {
 		return nil
 	}
-	return s.sendGameUpperRawClass(
-		session,
-		currentAuctionNoticeMsgID,
-		buildCurrentAuctionNoticeBody(route, kind, uint32(itemID)),
-		0,
-	)
+	return s.tryPostGameSessionCharacterEvent(identity.session, "auction-delivery-notice", identity.character, identity.generation, func() error {
+		if !s.boundGameSessionCharacterCurrent(identity) {
+			return nil
+		}
+		return s.sendGameUpperRawClass(identity.session, currentAuctionNoticeMsgID,
+			buildCurrentAuctionNoticeBody(route, kind, uint32(itemID)), 0)
+	})
 }
 
 func (s *Service) notifyCurrentAuctionNoticeID(characterID string, route, kind byte, itemID int64) {

@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"context"
-	"fmt"
 	"longheng.io/server/internal/modules/dnf/raid"
 	"strconv"
 	"strings"
@@ -276,21 +275,12 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 	}
 }
 func (s *Service) publishCurrentRaidPresence(state runtimeRaidState, excluded uint16) {
-	body, err := s.buildRuntimeRaidRosterBody(state)
-	if err != nil {
-		s.logWarn("raid presence body failed", "error", err)
-		return
-	}
 	for _, member := range state.Members {
 		if member.CharID == excluded {
 			continue
 		}
-		peer, ok := s.onlineGameSession(member.CharID)
-		if !ok || !s.currentRaidInfoVisible(peer, state) || !s.raidPresenceContext(peer, state, strings.TrimSpace(peer.accountID)) {
-			continue
-		}
-		if err := s.sendGameUpperRawClassCodec(peer, raid.RaidMemberRefreshMsgID, body, 0, true); err != nil {
-			s.logWarn("raid presence projection failed", "error", fmt.Sprint(err))
+		if identity, ok := s.onlineGameSessionCharacterSnapshot(member.CharID); ok {
+			s.requestCurrentRaidRefresh(identity, state, false)
 		}
 	}
 }

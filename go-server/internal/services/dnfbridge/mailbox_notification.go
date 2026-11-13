@@ -22,14 +22,14 @@ func (s *Service) sendMailboxAlarmForSession(session *gameSession, characterID u
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	result, err := mail.NewOwner(repos).Open(ctx, strconv.FormatUint(uint64(characterID), 10))
+	unread, err := mail.UnreadCount(ctx, repos, strconv.FormatUint(uint64(characterID), 10), s.gameplayNow())
 	if err != nil {
 		return fmt.Errorf("load mailbox alarm state: %w", err)
 	}
 	if err := s.sendGameUpperRawClass(
 		session,
 		mail.MailboxAlarmNotificationMessageID,
-		mail.BuildAlarmNotification(result.Unread),
+		mail.BuildAlarmNotification(unread),
 		0,
 	); err != nil {
 		return err
@@ -37,7 +37,7 @@ func (s *Service) sendMailboxAlarmForSession(session *gameSession, characterID u
 	s.logGameEvent(session, "game-mailbox-alarm-sent",
 		"source", source,
 		"char_id", characterID,
-		"unread", result.Unread)
+		"unread", unread)
 	return nil
 }
 
@@ -48,9 +48,14 @@ func (s *Service) sendMailboxAlarmForSession(session *gameSession, characterID u
 // optional live notice safe without giving the domain module transport
 // ownership.
 func (s *Service) sendMailboxAlarmToOnlineRecipient(characterID uint16) error {
-	session, online := s.onlineGameSession(characterID)
+	identity, online := s.onlineGameSessionCharacterSnapshot(characterID)
 	if !online {
 		return nil
 	}
-	return s.sendMailboxAlarmForSession(session, characterID, "online_recipient_mail_delivery")
+	return s.tryPostGameSessionCharacterEvent(identity.session, "mailbox-delivery-alarm", identity.character, identity.generation, func() error {
+		if !s.boundGameSessionCharacterCurrent(identity) {
+			return nil
+		}
+		return s.sendMailboxAlarmForSession(identity.session, characterID, "online_recipient_mail_delivery")
+	})
 }
