@@ -138,6 +138,7 @@ type gameSession struct {
 	events                                  *gameSessionEvents
 	characterGeneration                     uint64
 	raidProjection                          currentRaidProjectionOwner
+	raidRefresh                             currentRaidRefreshQueue
 	selectedCharacterID                     uint16
 	lukeSelectorProgressCharacterID         uint16
 	questManualClearIdentity                boundGameSessionCharacter

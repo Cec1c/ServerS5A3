@@ -407,7 +407,7 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 	if err := s.sendCurrentLevelChallengeSelector(session); err != nil {
 		s.logGameEvent(session, "升级大挑战选角状态暂缓", "error", err)
 	}
-	body := s.buildUpperGetUserInfoRosterBody(session)
+	body, characters, rosterErr := s.buildUpperGetUserInfoRosterBodyWithRecords(session)
 	s.logPacketEvent("game-upper-get-userinfo-bootstrap-send",
 		"conn_id", session.connID,
 		"channel_id", session.channel.ID,
@@ -446,12 +446,19 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 
 	noteEmptyRosterSlotProbe(session, body)
 	s.rememberCurrentRenameRoster(session, session.currentRenameRosterPrepared)
-	if repos, ok := s.repositoryGroup(); ok && repos.Character != nil {
+	// The empty roster and the passive account state have already been sent.
+	// Return the single failed query result instead of retrying the same
+	// account listing that the old combo path performed.
+	if rosterErr != nil {
+		return rosterErr
+	}
+	// Reuse the complete rows returned by the roster query for the combo
+	// preload. currentRenameRosterPrepared is capped to the selectable roster
+	// width, while every returned row must still receive its durable combo
+	// page cache.
+	if len(characters) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		characters, err := s.listCharacters(ctx, repos, s.accountIDForSession(session))
-		if err == nil {
-			err = s.sendCurrentDarkKnightComboPreload(session, ctx, characters, "get_userinfo_roster")
-		}
+		err := s.sendCurrentDarkKnightComboPreload(session, ctx, characters, "get_userinfo_roster")
 		cancel()
 		if err != nil {
 			return err
@@ -466,6 +473,15 @@ func (s *Service) sendUpperGetUserInfoRosterBootstrapEnvelope(session *gameSessi
 }
 
 func (s *Service) buildUpperGetUserInfoRosterBody(session *gameSession) []byte {
+	body, _, _ := s.buildUpperGetUserInfoRosterBodyWithRecords(session)
+	return body
+}
+
+// buildUpperGetUserInfoRosterBodyWithRecords builds the passive role-selector
+// roster and returns the complete repository rows used for it. Callers that
+// send the per-character combo preload right after the roster reuse these rows
+// instead of issuing a second ListByAccount within the same response.
+func (s *Service) buildUpperGetUserInfoRosterBodyWithRecords(session *gameSession) ([]byte, []dnfrepo.CharacterRecord, error) {
 	session.currentRenameRosterPrepared = nil
 	repos, ok := s.repositoryGroup()
 	// 这里就是"玩家即将看到哪个角色表"的决定性时刻：账号如果仍然没识别出来，
@@ -478,7 +494,7 @@ func (s *Service) buildUpperGetUserInfoRosterBody(session *gameSession) []byte {
 	accountID := s.accountIDForSession(session)
 	if !ok || repos.Character == nil {
 		s.logGameEvent(session, "game-upper-getuserinfo-roster-repository-missing", "account_id", accountID)
-		return buildCSharpEmptyRosterBody()
+		return buildCSharpEmptyRosterBody(), nil, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -486,12 +502,12 @@ func (s *Service) buildUpperGetUserInfoRosterBody(session *gameSession) []byte {
 	characters, err := s.listCharacters(ctx, repos, accountID)
 	if err != nil {
 		s.logGameEvent(session, "game-upper-getuserinfo-roster-list-failed", "account_id", accountID, "error", err)
-		return buildCSharpEmptyRosterBody()
+		return buildCSharpEmptyRosterBody(), nil, err
 	}
 	// GET_USERINFO 是客户端请求触发的被动角色表；这里只从仓库构造 roster，不触发栏位扩展包。
 	s.logGameEvent(session, "game-upper-getuserinfo-roster-built", "account_id", accountID, "count", len(characters))
 	session.currentRenameRosterPrepared = append([]dnfrepo.CharacterRecord(nil), characters[:rosterCount(characters)]...)
-	return s.buildCurrentRosterBody(characters)
+	return s.buildCurrentRosterBody(characters), characters, nil
 }
 
 func (s *Service) buildInitialLoginNotice(channel channelcatalog.Channel) []byte {

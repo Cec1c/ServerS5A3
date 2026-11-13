@@ -252,16 +252,16 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 			if member.UserID == identity.character {
 				continue
 			}
-			if target, online := s.onlineGameSession(member.UserID); online {
-				if err := s.sendRuntimePartySnapshot(target, alignedcmd.PartyState{}); err != nil {
+			if target, online := s.onlineGameSessionCharacterSnapshot(member.UserID); online {
+				if err := s.queueDetachedPartyProjection(target, alignedcmd.PartyState{}, func() error {
+					return s.sendRuntimePartySnapshot(target.session, alignedcmd.PartyState{})
+				}); err != nil {
 					s.logWarn("dnfbridge deferred retired party clear during session detach", "source", source, "char_id", identity.character, "error", err)
 				}
 			}
 		}
 		s.syncRuntimePartyUDPRelay(nextState)
-		if err := s.sendManagedRuntimePartySnapshots(nextState); err != nil {
-			s.logWarn("dnfbridge deferred rebuilt party snapshot during session detach", "source", source, "char_id", identity.character, "error", err)
-		}
+		s.queueDetachedPartySnapshots(nextState)
 		return
 	}
 	if nextState.PartyID > 0 {
@@ -269,11 +269,5 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 	} else if state.PartyID > 0 {
 		s.closeRuntimePartyUDPRelay(state.PartyID)
 	}
-	if err := s.broadcastRuntimePartyMemberRemoved(state, nextState, identity.character, session); err != nil {
-		s.logWarn("dnfbridge deferred party member removal during session detach",
-			"source", source,
-			"char_id", identity.character,
-			"party_id", nextState.PartyID,
-			"error", err)
-	}
+	s.queueDetachedPartyMemberRemoved(state, nextState, identity.character)
 }

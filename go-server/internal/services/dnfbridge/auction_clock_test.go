@@ -82,11 +82,25 @@ func TestAuctionClockEmptyLedgerAndCancelledRunDoNotCreateOrMutateAssets(t *test
 	q := newFakeCurrentDungeonDeathTimerQueue()
 	s := &Service{gameplayTimers: q, repositoryProvider: func() (repo.Group, bool) { return r, true }}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); s.wg.Wait() }()
 	s.startCurrentAuctionClock(ctx)
 	if q.scheduleCount != 1 {
 		t.Fatal("启动未登记单一恢复检查")
 	}
 	q.tasks[0].callback(time.Now())
+	deadline := time.Now().Add(time.Second)
+	for {
+		s.auctionMu.Lock()
+		completed := !s.auctionMaintenanceScheduled
+		s.auctionMu.Unlock()
+		if completed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("empty maintenance did not complete")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if q.scheduleCount != 1 {
 		t.Fatal("空托管持续轮询")
 	}

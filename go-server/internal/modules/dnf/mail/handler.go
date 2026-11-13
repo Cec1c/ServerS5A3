@@ -174,6 +174,7 @@ func handleMailboxExtract(ctx context.Context, req alignedcmd.Request) (alignedc
 		buildExtractObjectAck(result.ClaimObjects),
 	)
 	out.AccountWalletChanged = result.WalletChanged
+	out.CharacterGoldChanged = result.Gold > 0
 	out.FateCurrencyChanged = result.FateCurrencyChanged
 	out.PremiumContractActivations = result.ContractActivations
 	// 小晶块/灵魂并入账号晶块仓库后，槽位行（list 0 354..365）由下面这一处统一带上

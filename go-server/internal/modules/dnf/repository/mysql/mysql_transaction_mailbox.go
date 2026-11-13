@@ -44,6 +44,12 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinMailboxAssets(
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	base := newMySQLGroupFromRouter(txRouter, false)
+	// The inventory repository handed to apply is pinned to assetCharacterID,
+	// so this store can register at most one owner's before-image for the
+	// lifetime of the transaction. Enable the existing dirty-slot comparison so
+	// escrow outbound saves rewrite only the slots they changed; a collection
+	// that was never loaded still falls back to a full write.
+	enableInventoryDeltaTracking(base)
 	base.Character.(*mysqlCharStore).activity = &mysqlCharacterActivityStore{mysqlActivityStore: base.Activity.(*mysqlActivityStore), characterID: assetCharacterID}
 	characters := &characterSettlementScopedCharacterRepository{
 		characterID: assetCharacterID,

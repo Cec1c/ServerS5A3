@@ -1,7 +1,6 @@
 package dnfbridge
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -220,51 +219,6 @@ func (s *Service) queueCurrentRaidDungeonProgress(state runtimeRaidState) {
 		if !found {
 			continue
 		}
-		peer, id := identity.session, identity.character
-		go func() {
-			// A busy owner may legitimately spend longer than a wire deadline
-			// loading a map. Its queued journal update lives with the session,
-			// while every actual transport write remains separately bounded.
-			ctx := peer.ctx
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			err := s.callGameSession(ctx, peer, "raid-owned-dungeon-progress", func() error {
-				if !s.boundGameSessionCharacterCurrent(identity) || !s.currentRaidAuthenticated(peer) {
-					return nil
-				}
-				s.raidMu.Lock()
-				live := s.runtimeRaidByMemberLocked(id)
-				valid := live != nil && live.Started && live.RaidKey == state.RaidKey && live.Battle != nil &&
-					live.Battle.InstanceID == state.Battle.InstanceID && live.Battle.Phase == state.Battle.Phase &&
-					live.Battle.ProgressVersion >= state.Battle.ProgressVersion &&
-					live.Battle.MemberAccounts[id] == s.accountIDForSession(peer)
-				var latest runtimeRaidState
-				if valid {
-					latest = cloneRuntimeRaidState(*live)
-				}
-				s.raidMu.Unlock()
-				if !valid {
-					return nil
-				}
-				if latest.Battle.Phase == 1 && !latest.Battle.PhaseCompleted && !latest.Battle.TimedOut {
-					if err := s.sendCurrentRaidBattleState(peer, latest); err != nil {
-						return err
-					}
-				} else if err := s.sendCurrentRaidProgressProjection(peer, latest, false, false); err != nil {
-					return err
-				}
-				if err := s.sendCurrentAntonTerminalResult(peer, latest); err != nil {
-					return err
-				}
-				if err := s.sendCurrentAntonRewardFlowProjection(peer, latest); err != nil {
-					return err
-				}
-				return s.sendCurrentAntonRewardReturn(peer, latest)
-			})
-			if err != nil {
-				s.logGameEvent(peer, "game-raid-dungeon-progress-send-failed", "raid_key", state.RaidKey, "error", err)
-			}
-		}()
+		s.requestCurrentRaidRefresh(identity, state, true)
 	}
 }

@@ -1,6 +1,8 @@
 package dnfbridge
 
 import (
+	"time"
+
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
@@ -45,18 +47,24 @@ func (s *Service) handleUpperReturnSelectCharacter(session *gameSession, body []
 		return nil
 	}
 
+	started := time.Now()
 	previousCharacterID, abandonedDungeon := s.resetGameSessionForCharacterSelect(session)
+	cleanup := time.Since(started)
 	s.logGameEvent(session, "game-upper-return-select-character-send",
 		"previous_char_id", previousCharacterID,
 		"dungeon_runtime_abandoned", abandonedDungeon,
 		"sequence", "class1_op7_success_then_wait_for_client_op8")
-	return s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketReturnSelectCharacter), nil)
+	err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketReturnSelectCharacter), nil)
+	s.logInfo("dnfbridge return select timing", "conn_id", session.connID, "previous_char_id", previousCharacterID,
+		"cleanup_ms", cleanup.Milliseconds(), "total_ms", time.Since(started).Milliseconds(), "failed", err != nil)
+	return err
 }
 
 func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint16, bool) {
 	if s == nil || session == nil {
 		return 0, false
 	}
+	started := time.Now()
 	s.clearGoldDiagnosticSnapshot(session)
 	s.retireCurrentTagTournamentBattle(session)
 	s.closeCurrentGuildCreateSession(session)
@@ -64,10 +72,14 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	s.closeCurrentPVPSession(session)
 	s.closeCurrentExpertJobStoreSession(session, true)
 	s.retireCurrentLukeSessionRun(session)
+	closed := time.Now()
 	s.detachRuntimePartySession(session, "return_select_character")
+	partyDetached := time.Now()
 	s.stopCurrentSpendTimeClock(session, "return_select_character")
+	spendStopped := time.Now()
 	s.stopCurrentPetGrowthClock(session, "return_select_character")
 	s.stopCurrentDailyDeleteClock(session)
+	clocksStopped := time.Now()
 
 	abandonedDungeon := false
 	session.dungeon.mu.Lock()
@@ -110,7 +122,9 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	session.selectedCharacterID = 0
 	s.mu.Unlock()
 	session.dungeon.mu.Unlock()
+	identityCleared := time.Now()
 	s.persistCurrentGuildPresence(guildObservation)
+	presenceSaved := time.Now()
 
 	if presenceEvicted {
 		if len(evictedPeers) > 0 {
@@ -131,5 +145,12 @@ func (s *Service) resetGameSessionForCharacterSelect(session *gameSession) (uint
 	session.channelReconnect = false
 	session.townActorOwnerChannel = currentConnectionTownActorOwnerContext(session)
 	s.releaseCharacterEditAdmission(session)
+	if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
+		s.logInfo("dnfbridge return select cleanup timing", "conn_id", session.connID, "previous_char_id", previousCharacterID,
+			"close_ms", closed.Sub(started).Milliseconds(), "party_ms", partyDetached.Sub(closed).Milliseconds(),
+			"spend_ms", spendStopped.Sub(partyDetached).Milliseconds(), "pet_daily_ms", clocksStopped.Sub(spendStopped).Milliseconds(),
+			"identity_dungeon_ms", identityCleared.Sub(clocksStopped).Milliseconds(), "guild_ms", presenceSaved.Sub(identityCleared).Milliseconds(),
+			"tail_ms", time.Since(presenceSaved).Milliseconds(), "total_ms", elapsed.Milliseconds())
+	}
 	return previousCharacterID, abandonedDungeon
 }

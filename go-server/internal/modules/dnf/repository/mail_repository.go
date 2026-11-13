@@ -13,6 +13,25 @@ type MailboxRepository interface {
 	db.Store[MailboxRecord]
 }
 
+// MailboxUnreadHeader is the narrow read-only projection needed to count
+// unread mail. It deliberately omits mail bodies, attachments, currency,
+// claim state, and every other writable mailbox field.
+type MailboxUnreadHeader struct {
+	MailID       string
+	Read         bool
+	Deleted      bool
+	CreatedAt    time.Time
+	ExpireAt     time.Time
+	MailboxSaved string
+}
+
+// MailboxUnreadReader is an optional read-only capability for mailbox
+// implementations that can return unread-count headers without loading the
+// writable mailbox aggregate.
+type MailboxUnreadReader interface {
+	ListUnreadHeaders(ctx context.Context, characterID string) ([]MailboxUnreadHeader, error)
+}
+
 // MailboxRecord is the durable mailbox aggregate for one character.
 type MailboxRecord struct {
 	CharacterID string                `json:"character_id"`

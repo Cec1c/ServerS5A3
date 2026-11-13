@@ -101,34 +101,38 @@ type Service struct {
 	// 角色开两条传输，见 online_player_manager.go 的 LeaveAreaSession 注释）正是现场
 	// 2026-09-26 的关键形态：目录 owner 那条 socket 关闭时，角色其实还在另一条 socket
 	// 上玩。见 game_sessions.go 的 handoverRuntimePartyToLiveSession。
-	liveGameSessions          map[string]*gameSession
-	nextGameSessionGeneration uint64
-	auctionMaintenanceContext context.Context
-	auctionCategoryExtraOnce  sync.Once
-	auctionCategoryExpertJobs map[uint32][]byte
-	auctionCategoryExtractors map[uint32]bool
-	auctionCategoryExtraErr   error
-	auctionMu                 sync.Mutex
-	auctionItemEligibility    func(uint32) bool
-	auctionCategoryItem       func(uint16, uint32) bool
-	pvpMu                     sync.Mutex
-	pvpRooms                  map[uint16]*currentPVPRoom
-	pvpMatching               []*currentPVPMatchingRequest // protected by pvpMu
-	nextPVPMatchingToken      uint32
-	pvpSubscribers            map[*gameSession]int
-	pvpMapOrder               []int64                 // protected by pvpMu
-	pvpDailyCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
-	pvpTotalCatalog           *dnfpvp.Catalog         // protected by initialEquipmentMu
-	pvpFatigueRules           *currentPVPFatigueRules // protected by initialEquipmentMu
-	tradeMu                   sync.Mutex
-	itemTrades                map[uint16]*onlineItemTrade
-	expertJobStoreMu          sync.Mutex
-	expertJobStoreOpMu        sync.Mutex
-	expertJobStores           map[uint16]*currentExpertJobStore
-	expertJobVisitors         map[*gameSession]uint16
-	raidMu                    sync.Mutex
-	raids                     map[uint32]*runtimeRaidState
-	currentRaidDisconnects    map[uint16]currentRaidDisconnectSeat
+	liveGameSessions            map[string]*gameSession
+	nextGameSessionGeneration   uint64
+	auctionMaintenanceContext   context.Context
+	auctionMaintenanceWake      chan struct{}
+	auctionMaintenanceScheduled bool
+	auctionMaintenanceCursor    string
+	auctionCategoryExtraOnce    sync.Once
+	auctionCategoryExpertJobs   map[uint32][]byte
+	auctionCategoryExtractors   map[uint32]bool
+	auctionCategoryExtraErr     error
+	auctionMu                   sync.Mutex
+	auctionItemEligibility      func(uint32) bool
+	auctionCategoryItem         func(uint16, uint32) bool
+	pvpMu                       sync.Mutex
+	pvpRooms                    map[uint16]*currentPVPRoom
+	pvpMatching                 []*currentPVPMatchingRequest // protected by pvpMu
+	nextPVPMatchingToken        uint32
+	pvpSubscribers              map[*gameSession]int
+	pvpMapOrder                 []int64                 // protected by pvpMu
+	pvpDailyCatalog             *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpTotalCatalog             *dnfpvp.Catalog         // protected by initialEquipmentMu
+	pvpFatigueRules             *currentPVPFatigueRules // protected by initialEquipmentMu
+	tradeMu                     sync.Mutex
+	itemTrades                  map[uint16]*onlineItemTrade
+	expertJobStoreMu            sync.Mutex
+	expertJobStoreOpMu          sync.Mutex
+	expertJobStores             map[uint16]*currentExpertJobStore
+	expertJobVisitors           map[*gameSession]uint16
+	raidMu                      sync.Mutex
+	raids                       map[uint32]*runtimeRaidState
+	currentRaidDisconnects      map[uint16]currentRaidDisconnectSeat
+	currentRaidRefreshRevision  uint64 // raidMu; orders snapshots before per-owner enqueue
 	// Protected by raidMu; bounds queued deadline cleanup to one worker per runtime.
 	currentRaidDeadlineQueued map[*runtimeDungeonState]bool
 	currentRaidApplications   map[uint16]currentRaidApplication

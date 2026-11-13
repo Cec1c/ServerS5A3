@@ -81,7 +81,15 @@ func r195ExportCoinPublicWire(t *testing.T, f *raidStartGuardFixture, payer, pee
 }
 
 func TestR195LukeUseCoinPublicPathPublishesCommitted775AndRejectsStaleQueue(t *testing.T) {
-	f, payer, runtime, _, _ := reviewActualLukeCoinFixtureForDungeon(t, false, 5311)
+	f, payer, runtime, _, _ := reviewActualLukeCoinFixtureForDungeonWithSetup(t, false, 5311, func(f *raidStartGuardFixture, p *gameSession) {
+		// The older domain fixture kept an Anton directory key while using
+		// Luke channel 32. Give this wire/restore test a real channel namespace
+		// before it freezes any runs, phase rewards or waiting-area ownership.
+		old := f.state.RaidKey
+		f.state.RaidKey = uint32(f.service.channelAdvertiseID())<<24 | uint32(p.channel.ID)<<16 | old&0xffff
+		delete(f.service.raids, old)
+		f.service.raids[f.state.RaidKey] = f.state
+	})
 	if runtime == nil {
 		t.Fatal("real Luke public coin fixture unavailable")
 	}
@@ -111,6 +119,19 @@ func TestR195LukeUseCoinPublicPathPublishesCommitted775AndRejectsStaleQueue(t *t
 		}
 		t.Cleanup(func() { stopTestGameSessionEvents(t, f.service, current) })
 	}
+	// The peer was bound after this battle existed. Complete its real owned
+	// object restoration before expecting background coin progress; do not
+	// bypass sessionRestorePending or send 775 to a missing client object.
+	if err := f.service.callGameSession(ctx, peer, "r195-coin-peer-object-restore", func() error {
+		return f.service.restoreCurrentRaidSessionProjection(peer, "coin_fixture_scene_loading")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if pending, initialized, failed := r195RaidSessionRestoreFlags(peer); pending || !initialized || failed {
+		t.Fatal("coin peer own-object restore incomplete", pending, initialized, failed)
+	}
+	payerConn, peerConn = &deadlineAuditV10Conn{}, &deadlineAuditV10Conn{}
+	payer.conn, peer.conn = payerConn, peerConn
 
 	stale := cloneRuntimeRaidState(*f.state)
 	beforeCount, beforeVersion := battle.PhaseCoins[battle.Phase], battle.ProgressVersion
@@ -128,8 +149,8 @@ func TestR195LukeUseCoinPublicPathPublishesCommitted775AndRejectsStaleQueue(t *t
 		t.Fatalf("public op41 commit: waiting=%t coin=%d version=%d", runtime.deathReturnWaiting, battle.PhaseCoins[battle.Phase], battle.ProgressVersion)
 	}
 
-	// The handler queues progress after releasing dungeon.mu through untracked
-	// goroutines. Wait for both subscribers to publish the committed revision,
+	// The handler queues progress after releasing dungeon.mu. Wait for both
+	// subscribers to publish the committed revision,
 	// then use the same medium queue as an explicit ordering barrier. This avoids
 	// assuming how many life/coin projections the handler happened to enqueue.
 	reviewManagerWaitVersion(t, payer, battle.ProgressVersion)

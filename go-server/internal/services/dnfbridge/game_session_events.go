@@ -156,6 +156,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 }
 
 func (s *Service) beginGameSessionClose(session *gameSession) {
+	resetCurrentRaidRefresh(session, true)
 	resetCurrentGuildPresenceRefresh(session, true)
 	session.stopGameTransport()
 	if session == nil || session.events == nil {
@@ -165,6 +166,7 @@ func (s *Service) beginGameSessionClose(session *gameSession) {
 }
 
 func (s *Service) stopGameSessionEvents(ctx context.Context, session *gameSession) error {
+	resetCurrentRaidRefresh(session, true)
 	resetCurrentGuildPresenceRefresh(session, true)
 	if session == nil || session.events == nil || session.events.loop == nil {
 		return nil
@@ -355,6 +357,7 @@ func advanceGameSessionCharacterGeneration(session *gameSession) uint64 {
 		return 0
 	}
 	resetCurrentGuildPresenceRefresh(session, false)
+	resetCurrentRaidRefresh(session, false)
 	session.characterGeneration++
 	if session.characterGeneration == 0 {
 		session.characterGeneration++

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"sort"
+	"strings"
 )
 
 func withMySQLWriteExecutor(ctx context.Context, database SQLDB, apply func(SQLDB) error) error {
@@ -98,11 +99,19 @@ func loadItemStackCollection(
 	itemTable, extraTable, ownerColumn, ownerID, collection string,
 	withCollection bool,
 ) (map[string]repository.ItemStack, error) {
+	return loadItemStackCollectionPrefix(ctx, database, itemTable, extraTable, ownerColumn, ownerID, collection, withCollection, "")
+}
+
+func loadItemStackCollectionPrefix(ctx context.Context, database SQLDB, itemTable, extraTable, ownerColumn, ownerID, collection string, withCollection bool, prefix string) (map[string]repository.ItemStack, error) {
 	where := quoteSQLIdentifier(ownerColumn) + " = ?"
 	args := []any{ownerID}
 	if withCollection {
 		where += " AND collection_name = ?"
 		args = append(args, collection)
+	}
+	if prefix != "" {
+		where += " AND entry_key LIKE ? ESCAPE '!'"
+		args = append(args, strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(prefix)+"%")
 	}
 	query := "SELECT entry_key, item_id, item_count, bind_flag, expire_at, raw_entry FROM " + itemTable + " WHERE " + where + " ORDER BY entry_key"
 	rows, err := database.QueryContext(ctx, query, args...)
@@ -134,12 +143,7 @@ func loadItemStackCollection(
 		return nil, err
 	}
 
-	extraWhere := quoteSQLIdentifier(ownerColumn) + " = ?"
-	extraArgs := []any{ownerID}
-	if withCollection {
-		extraWhere += " AND collection_name = ?"
-		extraArgs = append(extraArgs, collection)
-	}
+	extraWhere, extraArgs := where, args
 	extraQuery := "SELECT entry_key, extra_key, extra_value FROM " + extraTable + " WHERE " + extraWhere + " ORDER BY entry_key, extra_key"
 	extras, err := database.QueryContext(ctx, extraQuery, extraArgs...)
 	if err != nil {
