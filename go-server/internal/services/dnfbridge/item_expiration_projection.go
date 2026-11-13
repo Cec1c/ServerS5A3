@@ -297,6 +297,7 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 	}
 	expirationDate := definition.ExpirationDate
 	if instanceExpire := currentItemListStackExpire(stack); instanceExpire != 0 &&
+		!currentRenewedLutherDeadline(stack.ItemID, definition) &&
 		currentGiftBoxHistoryExpiration(definition, instanceExpire, currentGiftBoxInstanceHasIndependentExpiration(stack.Extra)).IsZero() &&
 		!currentJoustEventHasRetiredInstanceExpiration(
 			sceneInventoryUint32FromInt64(stack.ItemID), instanceExpire, definition.ExpirationDate) &&
@@ -348,6 +349,16 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 			changed = true
 		}
 	}
+	if currentRenewedLutherDeadline(stack.ItemID, definition) {
+		if _, ok := stack.Extra["usable_period_days"]; ok {
+			delete(stack.Extra, "usable_period_days")
+			changed = true
+		}
+		if stack.Extra["expiration_source"] == "runtime_pvf_usable_period_grant" {
+			stack.Extra["expiration_source"] = "runtime_pvf_fixed_2028"
+			changed = true
+		}
+	}
 	if !stack.ExpireAt.Equal(expirationDate) {
 		stack.ExpireAt = expirationDate
 		changed = true
@@ -365,6 +376,17 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 
 func applyCurrentPVFItemExpiration(stack dnfrepo.ItemStack, definition dungeonDropItemDefinition) (dnfrepo.ItemStack, bool) {
 	return applyCurrentPVFItemExpirationAt(stack, definition, time.Now().UTC())
+}
+
+// This explicitly renewed Luther product no longer has a relative rental.
+// Require the matching new PVF definition; an old or unrelated PVF cannot
+// silently renew items. Explicit GM deadlines are handled earlier.
+func currentRenewedLutherDeadline(id int64, d dungeonDropItemDefinition) bool {
+	if id != 490007117 {
+		return false
+	}
+	deadline := time.Date(2028, time.December, 31, 23, 59, 59, 0, currentPVFExpirationDateLocation)
+	return d.Kind == dungeonDropItemStackable && d.ItemID == uint32(id) && d.UsablePeriodDays == 0 && !d.ExpirationFromUsablePeriod && d.ExpirationDate.Equal(deadline)
 }
 
 // ---------------------------------------------------------------------------

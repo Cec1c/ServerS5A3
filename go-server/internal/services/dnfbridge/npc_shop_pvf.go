@@ -47,9 +47,46 @@ type currentNPCShopPricing struct {
 	MaterialExchange    bool
 	NeedMaterialItem    uint32
 	NeedMaterialCount   int64
+	AdditionalMaterials []currentNPCShopMaterialCost
 	// ExchangeGold is the explicit [price] charged alongside [need material].
 	// A sell [value] alone must not turn a material-only exchange into a gold sale.
 	ExchangeGold int64
+}
+
+type currentNPCShopMaterialCost struct {
+	ItemID uint32
+	Count  int64
+}
+
+// Keep the first pair available to existing single-material callers, while
+// validating and preserving every PVF pair for the atomic purchase.
+func currentNPCShopMaterials(document *dnfpvf.Document) ([]currentNPCShopMaterialCost, error) {
+	tokens, found := document.Section("need material")
+	if !found {
+		return nil, nil
+	}
+	if len(tokens) == 0 || len(tokens)%2 != 0 {
+		return nil, fmt.Errorf("%w: incomplete need material", errCurrentNPCShopProductUnavailable)
+	}
+	var costs []currentNPCShopMaterialCost
+	indices := make(map[uint32]int)
+	for i := 0; i < len(tokens); i += 2 {
+		id, count := tokens[i], tokens[i+1]
+		if id.Kind != dnfpvf.TokenInt || count.Kind != dnfpvf.TokenInt || id.Int <= 0 || id.Int > math.MaxUint32 || count.Int <= 0 {
+			return nil, fmt.Errorf("%w: invalid need material pair", errCurrentNPCShopProductUnavailable)
+		}
+		itemID := uint32(id.Int)
+		if index, exists := indices[itemID]; exists {
+			if costs[index].Count > math.MaxInt64-count.Int {
+				return nil, fmt.Errorf("%w: need material overflow", errCurrentNPCShopProductUnavailable)
+			}
+			costs[index].Count += count.Int
+		} else {
+			indices[itemID] = len(costs)
+			costs = append(costs, currentNPCShopMaterialCost{ItemID: itemID, Count: count.Int})
+		}
+	}
+	return costs, nil
 }
 
 func newCurrentNPCShopCatalog(source dnfpvf.Source) (*currentNPCShopCatalog, error) {
@@ -211,8 +248,11 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 	if sellGold < 0 || sellGold > math.MaxInt32 {
 		return currentNPCShopPricing{}, fmt.Errorf("%w: item=%d sell_gold=%d", errCurrentNPCShopProductUnavailable, itemID, sellGold)
 	}
-	needMaterial := document.Ints("need material")
-	materialExchange := len(needMaterial) >= 2 && needMaterial[0] > 0 && needMaterial[0] <= math.MaxUint32 && needMaterial[1] > 0
+	materials, err := currentNPCShopMaterials(document)
+	if err != nil {
+		return currentNPCShopPricing{}, err
+	}
+	materialExchange := len(materials) > 0
 	_, listed := shop.buyableItems[itemID]
 	pricing := currentNPCShopPricing{
 		Definition:       definition,
@@ -229,7 +269,7 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 		if len(tokens) != 3 || tokens[0].Kind != dnfpvf.TokenString || tokens[1].Kind != dnfpvf.TokenString ||
 			tokens[2].Kind != dnfpvf.TokenInt ||
 			(tokens[0].Value != "character" && tokens[0].Value != "account") ||
-			(tokens[1].Value != "daily" && tokens[1].Value != "weekly" && tokens[1].Value != "accumulate") ||
+			(tokens[1].Value != "daily" && tokens[1].Value != "weekly" && tokens[1].Value != "monthly" && tokens[1].Value != "accumulate") ||
 			tokens[2].Int <= 0 || tokens[2].Int > math.MaxInt32 {
 			return currentNPCShopPricing{}, fmt.Errorf("%w: invalid purchase limit item=%d", errCurrentNPCShopProductUnavailable, itemID)
 		}
@@ -245,8 +285,9 @@ func resolveCurrentNPCShopPricing(shop *currentNPCShopCatalog, items *pvfDungeon
 		_, pricing.PurchaseLimitReset = document.Section("reset daily purchase item")
 	}
 	if materialExchange {
-		pricing.NeedMaterialItem = uint32(needMaterial[0])
-		pricing.NeedMaterialCount = needMaterial[1]
+		pricing.NeedMaterialItem = materials[0].ItemID
+		pricing.NeedMaterialCount = materials[0].Count
+		pricing.AdditionalMaterials = materials[1:]
 		if priceFound {
 			if price < 0 {
 				return currentNPCShopPricing{}, fmt.Errorf("%w: item=%d negative exchange price", errCurrentNPCShopProductUnavailable, itemID)

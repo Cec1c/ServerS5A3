@@ -161,6 +161,16 @@ func (s *Service) promoteResidentGameSession(session *gameSession, charID uint16
 	if s == nil || session == nil || charID == 0 || session.selectedCharacterID != charID {
 		return
 	}
+	// Town projection can run while this canonical session owns a paid asset
+	// reservation (for example, guild teleport). Keeping the same binding is
+	// read-only: waiting for that reservation would wait for our own caller.
+	// Actual replacement still passes through the reservation mutation gate.
+	s.mu.Lock()
+	if s.gameSessions[charID] == session {
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
 	s.lockCurrentCharacterBindingMutation(session, charID)
 	if s.gameSessions == nil {
 		s.gameSessions = make(map[uint16]*gameSession)

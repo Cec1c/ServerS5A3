@@ -115,7 +115,13 @@ func TestR195LukePartyOnlyCompletionWire(t *testing.T) {
 		return packets
 	}
 	r195LukeWantCompletionWire(t, send("uncommitted", session), "state4", "kind1")
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.AutoSelectAt, zeroAntonRoll); len(errs) != 0 {
+	at := flow.AutoSelectAt
+	for _, deadline := range flow.PartySelectAfter {
+		if deadline.After(at) {
+			at = deadline
+		}
+	}
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(at, zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	r195LukeAssertNoSquadAssets(t, f, flow)
@@ -138,7 +144,7 @@ func TestR195LukePartyOnlyCompletionWire(t *testing.T) {
 	r195RewardParty(t, f.service, 19, 20)
 	f.state.Members[1].GroupIndex = f.state.Members[0].GroupIndex
 	changed := send("changed_party", session)
-	r195LukeWantCompletionWire(t, changed, "kind1", "empty3", "state5")
+	r195LukeWantCompletionWire(t, changed, "kind1", "state5")
 	body, err := hex.DecodeString(changed[0].BodyHex)
 	if err != nil || !reflect.DeepEqual(parsePhase0CardOwners(t, body), []uint16{19, 20}) {
 		t.Fatal("changed party body was lost", err, changed)

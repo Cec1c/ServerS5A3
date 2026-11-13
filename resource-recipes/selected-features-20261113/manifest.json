@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "basePvfSHA256": "d0dca8fb7d1a512165f2214431e07ab47a62368affb96b94ba61f2b16d6dc57f",
+  "planSHA256": "c4173d65e650a99342d5b4321fca80576730891745c9169d3c0b17bb4dabeba0",
+  "changedPaths": [
+    "equipment/character/gunner/avatar/cap/aiahat_samorana.equ",
+    "equipment/character/gunner/avatar/neck/acloak_nobleruby.equ",
+    "equipment/character/partset/rareset.equ",
+    "etc/cerashop.etc",
+    "etc/chn_coupon.etc",
+    "stackable/490007001/chn_490007117.stk"
+  ],
+  "selections": [
+    "C13",
+    "C19",
+    "C20",
+    "C22",
+    "E09"
+  ],
+  "rawPVFIncluded": false,
+  "unselectedRecipeChangesIncluded": false,
+  "outputPvfSHA256": "5d7eb550238e6b9a9fc18b4dde6fc510c2050a809aaa44b757a5beb79ece03ed",
+  "unchangedFilesPreserved": 1126595,
+  "newTokensVerified": true
+}

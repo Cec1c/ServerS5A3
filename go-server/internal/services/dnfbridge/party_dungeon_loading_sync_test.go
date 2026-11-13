@@ -448,33 +448,32 @@ func TestPartyDungeonSharedLoadingBarrierReleasesBothMembersAfterTheLastOp37(t *
 
 // TestPartyDungeonSharedLoadingBarrierTimesOutAndStillReleasesThePlacement 是"失败放行"
 // 回归：谁都没发 op37 时，落位必须在超时后被放行，绝不能永久卡在读条界面。
-func TestPartyDungeonSharedLoadingBarrierTimesOutAndStillReleasesThePlacement(t *testing.T) {
-	restoreTimeout := partyDungeonLoadingBarrierTimeout
-	partyDungeonLoadingBarrierTimeout = 20 * time.Millisecond
-	defer func() { partyDungeonLoadingBarrierTimeout = restoreTimeout }()
-
-	service, leader, _, leaderConn, followerConn, _ := partyDungeonSyncFixture(t)
+func TestPartyDungeonSharedLoadingBarrierTimeoutNeverReleasesSlowMember(t *testing.T) {
+	restoreDispatch := partyDungeonLoadingBarrierDispatch
+	partyDungeonLoadingBarrierDispatch = func(run func()) { run() }
+	defer func() { partyDungeonLoadingBarrierDispatch = restoreDispatch }()
+	service, leader, follower, lc, fc, _ := partyDungeonSyncFixture(t)
 	runPartyDungeonSyncEntry(t, service, leader)
-
-	deadline := time.Now().Add(5 * time.Second)
-	var log string
-	for time.Now().Before(deadline) {
-		log = testPacketLogText(t, service)
-		// Each release callback logs after writing its placement. Observing both
-		// packets does not mean either asynchronous callback has finished yet.
-		if partyDungeonSyncConnHasPlacement(t, leaderConn) && partyDungeonSyncConnHasPlacement(t, followerConn) &&
-			strings.Count(log, "kind=game-party-dungeon-loading-released ") == 2 {
-			break
+	partyID, _, _ := service.partyDungeonLoadingBarrierMembers(leader)
+	cycle := service.currentPartyDungeonLoadingCycle(partyID)
+	// No acknowledgement and then only one acknowledgement: repeated watchdog
+	// intervals must never create an early scene or consume pending placement.
+	for phase := 0; phase < 2; phase++ {
+		for n := 0; n < 3; n++ {
+			service.forceReleasePartyDungeonLoadingCycle(partyID, cycle, "slow_peer_watchdog")
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	for name, conn := range map[string]*partyDungeonSyncConn{"leader": leaderConn, "follower": followerConn} {
-		if !partyDungeonSyncConnHasPlacement(t, conn) {
-			t.Fatalf("%s placement was never released after the barrier timeout", name)
+		if cycle.Released || partyDungeonSyncConnHasPlacement(t, lc) || partyDungeonSyncConnHasPlacement(t, fc) {
+			t.Fatal("watchdog released before all op37")
+		}
+		if err := service.sendFinishLoadingStatus(leader, make([]byte, currentFinishLoadingLegacyRequestBodySize)); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if got := strings.Count(log, "kind=game-party-dungeon-loading-released "); got != 2 {
-		t.Fatalf("timeout release events=%d want=2 (one completed callback per member):\n%s", got, log)
+	if err := service.sendFinishLoadingStatus(follower, make([]byte, currentFinishLoadingLegacyRequestBodySize)); err != nil {
+		t.Fatal(err)
+	}
+	if !cycle.Released || !partyDungeonSyncConnHasPlacement(t, lc) || !partyDungeonSyncConnHasPlacement(t, fc) {
+		t.Fatal("last op37 did not release both members")
 	}
 }
 

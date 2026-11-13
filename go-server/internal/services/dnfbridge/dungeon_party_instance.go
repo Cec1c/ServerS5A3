@@ -128,9 +128,12 @@ type dungeonPartyInstance struct {
 	key             dungeonPartyRunKey
 	createdAt       time.Time
 	entryPartyCount int
-	lastSeenAt      time.Time
-	members         map[uint16]time.Time
-	sessions        map[uint16]*gameSession
+	// Native per-actor party records may outlive earlier personal departures.
+	// Bound to this instance; eight is the client's maximum slot count.
+	retiredPartyRecordKeys [8]uint16
+	lastSeenAt             time.Time
+	members                map[uint16]time.Time
+	sessions               map[uint16]*gameSession
 	// Exact runtime attachment owns membership retirement. Character IDs can
 	// already belong to a replacement socket/run when old cleanup arrives.
 	memberRuntimes         map[uint16]*runtimeDungeonState
@@ -458,6 +461,7 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 	objectKey uint32,
 	body []byte,
 	source string,
+	phases ...partyDeathDeliveryPhase,
 ) int {
 	if s == nil || runtime == nil || len(body) == 0 {
 		return 0
@@ -467,6 +471,10 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 		selfCharacterID = session.selectedCharacterID
 	}
 	peers := s.partyDungeonInstancePeers(runtime, selfCharacterID)
+	phase := partyDeathFull
+	if len(phases) != 0 {
+		phase = phases[0]
+	}
 	delivered := 0
 	for _, peer := range peers {
 		identity, bound := s.boundGameSessionCharacterSnapshot(peer.Session)
@@ -480,6 +488,7 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 			instance: runtime.partyInstance, from: selfCharacterID, objectKey: objectKey,
 			body:   append([]byte(nil), partyDungeonDeathBodyForRecipient(runtime, body, currentSceneActorObjectKey(peer.CharacterID))...),
 			source: source,
+			phase:  phase,
 		}
 		if s.postPartyDungeonDeath(delivery) {
 			delivered++ // queued for a live event loop; written in inline fixtures
@@ -492,8 +501,13 @@ func (s *Service) broadcastPartyDungeonInstanceDeathNotification(
 // checked again by deliverPartyDungeonDeath before reaching the transport.
 func (s *Service) applyPartyDungeonDeath(delivery partyDungeonDeathDelivery) (bool, error) {
 	peer := delivery.identity.session
-	if err := s.sendGameUpperRawClass(peer, uint16(dnfenum.CmdPacketNotifyDieMonster), delivery.body, 0); err != nil {
-		return false, err
+	if delivery.phase != partyDeathStateOnly {
+		if err := s.sendGameUpperRawClass(peer, uint16(dnfenum.CmdPacketNotifyDieMonster), delivery.body, 0); err != nil {
+			return false, err
+		}
+	}
+	if delivery.phase == partyDeathVisualOnly {
+		return false, nil
 	}
 	sceneCleared := false
 	sceneMarked := false

@@ -173,8 +173,8 @@ func TestDungeonSurvivorTownRecordsWriteFailureStopsBeforeFollowingRecords(t *te
 		t.Fatalf("write attempts=%d want 2: helper continued after the failed frame", conn.attempts)
 	}
 	frames := splitUpperFrames(t, baseConn.write.Bytes())
-	if len(frames) != 1 || frames[0].msgID != 9 || frames[0].body[9] != 0 || binary.LittleEndian.Uint16(frames[0].body[4:6]) != 99 {
-		t.Fatalf("need the survivor's new roster before the failed departing-record update: %+v", frames)
+	if len(frames) != 1 || frames[0].msgID != 9 || len(frames[0].body) != 10 || frames[0].body[9] != 3 || binary.LittleEndian.Uint16(frames[0].body[4:6]) != 99 {
+		t.Fatalf("need the singleton's first native reset and stop before any later roster after failure: %+v", frames)
 	}
 }
 

@@ -17,6 +17,10 @@ const (
 	CouponMainStory       = "main_story"
 	CouponFirstAwakening  = "first_awakening"
 	CouponSecondAwakening = "second_awakening"
+	CouponNamedQuests     = "named_quests"
+	CouponAchievement     = "achievement"
+	CouponSideQuests      = "side_quests"
+	CouponSingleQuest     = "single_quest"
 )
 
 // ClearCoupon is resolved from the actual inventory item's PVF, never from a
@@ -32,6 +36,7 @@ type ClearCoupon struct {
 	ExcludedBranches [][2]int
 	DisallowHardcore bool
 	Places           []string
+	QuestIDs         []int64
 }
 
 type UseClearCouponInput struct {
@@ -41,6 +46,8 @@ type UseClearCouponInput struct {
 	Now                    time.Time
 	Profiles               *profession.Profiles
 	Skills                 *skill.Table
+	AllocateItem           FinishItemAllocator
+	NormalizeSource        func(repo.ItemStack) (repo.ItemStack, error)
 	// ValidateSource runs under the settlement lock, before any mutation.
 	ValidateSource func(repo.CharacterRecord, repo.ItemStack) error
 }
@@ -56,6 +63,8 @@ type UseClearCouponResult struct {
 	CutoffLevel        int
 	Changed            bool
 	Awakened           bool
+	SlotsExpanded      bool
+	Items              []FinishCommittedItem
 }
 
 // UseClearCoupon revalidates ownership, source and eligibility under the same
@@ -64,7 +73,7 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 	if o == nil || o.repositories.CharacterSettlement == nil || catalog == nil || input.AccountID == "" || input.CharacterID == "" || input.Slot < 0 || input.Coupon.ItemID <= 0 || input.Now.IsZero() {
 		return UseClearCouponResult{}, ErrCouponClearUnavailable
 	}
-	if input.Coupon.Kind != CouponMainStory && input.Coupon.Kind != CouponFirstAwakening && input.Coupon.Kind != CouponSecondAwakening {
+	if input.Coupon.Kind != CouponMainStory && input.Coupon.Kind != CouponFirstAwakening && input.Coupon.Kind != CouponSecondAwakening && input.Coupon.Kind != CouponNamedQuests && input.Coupon.Kind != CouponAchievement && input.Coupon.Kind != CouponSideQuests {
 		return UseClearCouponResult{}, ErrCouponClearUnavailable
 	}
 	var result UseClearCouponResult
@@ -100,7 +109,7 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 				return ErrQuestNotAcceptable
 			}
 		}
-		if input.Coupon.Kind == CouponSecondAwakening {
+		{
 			if c.Stats["delete_flag"] != 0 || input.Coupon.DisallowHardcore && c.Stats["is_hardcore_mode"] != 0 {
 				return ErrQuestNotAcceptable
 			}
@@ -124,7 +133,18 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 		}
 		key := "0:" + strconv.Itoa(int(input.Slot))
 		stack, found := inv.Slots[key]
-		if !found || stack.ItemID != input.Coupon.ItemID || stack.Count <= 0 || stack.Count > math.MaxInt32 || (!stack.ExpireAt.IsZero() && !input.Now.Before(stack.ExpireAt)) {
+		if !found || stack.ItemID != input.Coupon.ItemID || stack.Count <= 0 || stack.Count > math.MaxInt32 {
+			return ErrCouponClearUnavailable
+		}
+		if input.NormalizeSource != nil {
+			stack, err = input.NormalizeSource(stack)
+			if err != nil {
+				return err
+			}
+			inv = repo.CloneInventory(inv)
+			inv.Slots[key] = stack
+		}
+		if !stack.ExpireAt.IsZero() && !input.Now.Before(stack.ExpireAt) {
 			return ErrCouponClearUnavailable
 		}
 		if input.ValidateSource != nil {
@@ -158,6 +178,18 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 			result.ChangedQuestIDs = append(plan.ChangedQuestIDs, plan.ChangedLinkedSubIDs...)
 			result.CutoffLevel = cutoff
 			fields = plan.ChangedFields
+		} else if input.Coupon.Kind == CouponNamedQuests || input.Coupon.Kind == CouponAchievement || input.Coupon.Kind == CouponSideQuests {
+			inv = repo.CloneInventory(inv)
+			fields, err = catalog.applySelectedCouponQuests(&result, &inv, eligibility, input)
+			if err != nil {
+				return err
+			}
+			if result.SlotsExpanded {
+				result.Character.UpdatedAt = input.Now
+				if err := repo.SaveCharacterFields(ctx, tx.Character, result.Character, repo.CharacterFieldStats); err != nil {
+					return err
+				}
+			}
 		} else {
 			// Both normal awakening stages use the existing PVF-backed transition.
 			// External self-awakening coupons have a different gate; not inferred here.
@@ -240,7 +272,7 @@ func (o *Owner) UseClearCoupon(ctx context.Context, catalog *Catalog, input UseC
 				return err
 			}
 		}
-		if len(fields) == 0 && !result.Awakened {
+		if len(fields) == 0 && !result.Awakened && !result.SlotsExpanded {
 			return nil
 		}
 		result.Quests.UpdatedAt = input.Now

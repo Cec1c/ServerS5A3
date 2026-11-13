@@ -6,6 +6,9 @@ from unittest.mock import patch
 import manage
 
 
+BUFF_GROUP_SYNC_KEY = "DNFBRIDGE_BUFF_GROUP_SYNC"
+
+
 class BuffSwapReapplyConfiguration(unittest.TestCase):
     def local_config(self):
         return {"host_ip": "192.168.1.50", "server_ip": "10.253.90.2",
@@ -58,6 +61,7 @@ class RuntimeCompatibilityConfiguration(unittest.TestCase):
             "DNFBRIDGE_PARTY_PEER_ENDPOINTS_AFTER_ROSTER": "repeat",
             "DNFBRIDGE_PARTY_PEER_ENDPOINT_REBROADCAST": "on",
             "DNFBRIDGE_LOGIN_AREA_GATES": "strict",
+            BUFF_GROUP_SYNC_KEY: "on",
             "DNFBRIDGE_HOTKEY_SEEDED_LAYOUT": "off",
             "DNFBRIDGE_SKILL_SWITCH_CANDIDATE_PAIRS": "off",
             "DNFBRIDGE_LOGIN_SKILL_SWITCH_LOADOUT_AFTER_COMMIT": "before_transition_only",
@@ -69,6 +73,10 @@ class RuntimeCompatibilityConfiguration(unittest.TestCase):
     def generated_env(self, directory, config):
         manage.generate(config, {"ports": [10006]})
         return (Path(directory) / "server.env").read_text()
+
+    def generated_env_bytes(self, directory, config):
+        manage.generate(config, {"ports": [10006]})
+        return (Path(directory) / "server.env").read_bytes()
 
     def test_all_runtime_compatibility_settings_are_rendered(self):
         compatibility = self.compatibility_settings()
@@ -83,6 +91,51 @@ class RuntimeCompatibilityConfiguration(unittest.TestCase):
                 env = self.generated_env(directory, config)
                 self.assertNotIn("DNFBRIDGE_MYSQL_INSERT_BATCH=", env)
                 self.assertNotIn("DNFBRIDGE_INVENTORY_SAVE_SCOPE=", env)
+                self.assertNotIn(BUFF_GROUP_SYNC_KEY + "=", env)
+
+    def test_buff_group_sync_on_and_off_are_rendered_by_full_generate(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            for value in ("on", "off"):
+                with self.subTest(value=value):
+                    env = self.generated_env_bytes(
+                        directory,
+                        self.local_config() | {"runtime_compatibility": {BUFF_GROUP_SYNC_KEY: value}},
+                    )
+                    self.assertIn((BUFF_GROUP_SYNC_KEY + "=" + value + "\n").encode(), env)
+
+    def test_unconfigured_buff_group_sync_keeps_existing_env_bytes(self):
+        settings = self.compatibility_settings()
+        settings.pop(BUFF_GROUP_SYNC_KEY)
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            plain = self.generated_env_bytes(directory, self.local_config())
+            empty = self.generated_env_bytes(
+                directory, self.local_config() | {"runtime_compatibility": {}}
+            )
+            self.assertEqual(plain, empty)
+            self.assertNotIn(BUFF_GROUP_SYNC_KEY.encode(), plain)
+
+            baseline = self.generated_env_bytes(
+                directory, self.local_config() | {"runtime_compatibility": settings}
+            )
+            self.assertNotIn(BUFF_GROUP_SYNC_KEY.encode(), baseline)
+            for value in ("on", "off"):
+                with self.subTest(value=value):
+                    env = self.generated_env_bytes(
+                        directory,
+                        self.local_config() | {"runtime_compatibility": settings | {BUFF_GROUP_SYNC_KEY: value}},
+                    )
+                    line = (BUFF_GROUP_SYNC_KEY + "=" + value + "\n").encode()
+                    self.assertIn(line, env)
+                    self.assertEqual(baseline, env.replace(line, b"", 1))
+
+    def test_buff_group_sync_rejects_non_exact_values(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            for value in (True, False, "ON", "true", "1", 1):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, BUFF_GROUP_SYNC_KEY):
+                    self.generated_env(
+                        directory,
+                        self.local_config() | {"runtime_compatibility": {BUFF_GROUP_SYNC_KEY: value}},
+                    )
 
     def test_sensitive_and_unknown_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):

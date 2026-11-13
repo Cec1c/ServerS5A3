@@ -93,5 +93,11 @@ func (s *Service) currentEpicRoadActivityAvailable() bool {
 	s.initialEquipmentMu.Lock()
 	a, e := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
-	return e == nil && validateCurrentEpicRoadActivity(a) == nil
+	if e != nil || a == nil {
+		return false // Do not cache archive acquisition failures.
+	}
+	s.epicRoadValidationOnce.Do(func() {
+		s.epicRoadValidationOK = validateCurrentEpicRoadActivity(a) == nil
+	})
+	return s.epicRoadValidationOK
 }

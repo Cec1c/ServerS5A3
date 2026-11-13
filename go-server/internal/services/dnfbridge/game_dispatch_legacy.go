@@ -168,6 +168,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	if typ == privateActivityOpcode {
 		return s.handlePrivateActivity(session, cmd, body)
 	}
+	if typ == privateClientFeaturesOpcode {
+		return s.handlePrivateClientFeatures(session, cmd, body)
+	}
 	if typ == privateGrowthOpcode {
 		return s.handlePrivateGrowth(session, cmd, body)
 	}
@@ -195,6 +198,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	}
 	if typ == partyNativeConnectionOpcode {
 		return s.handlePartyNativeConnectionReply(session, body)
+	}
+	if typ == dungeonPeerNativeRegistrationOpcode {
+		return s.handleDungeonPeerNativeRegistrationReply(session, body)
 	}
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)

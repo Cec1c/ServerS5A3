@@ -46,7 +46,9 @@ func TestCurrentRaidRetainedMemberQueryRestoresOnlyItsOwnClient(t *testing.T) {
 			s.bindGameSessionCharacter(fresh, fresh.selectedCharacterID)
 			req := []byte{selector, 0, 0, 0, 0}
 			binary.LittleEndian.PutUint32(req[1:], state.RaidKey)
-			wantInfo, _ := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(state), 2)
+			// This fixture has raid seats but no ordinary party. Query metadata
+			// uses the same live solo projection as create/join dispatch fixtures.
+			wantInfo, _ := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(raidAllSoloWireFixture(state)), 2)
 			wantRoster, _ := s.buildRuntimeRaidRosterBody(state)
 			for repeat := 0; repeat < 2; repeat++ {
 				conn.write.Reset()
@@ -57,7 +59,7 @@ func TestCurrentRaidRetainedMemberQueryRestoresOnlyItsOwnClient(t *testing.T) {
 				ack, rest := splitGameServerUpperPacket(t, raw)
 				roster, rest := splitGameServerUpperPacket(t, rest)
 				if len(rest) != 0 || ack.Header.MsgID != 1359 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, wantInfo) || roster.Header.MsgID != 591 || roster.Header.Classification != 0 || !bytes.Equal(roster.Body, wantRoster) {
-					t.Fatal("restored member requires complete object before own-raid roster")
+					t.Fatalf("restored member requires complete object before own-raid roster: tail=%d info=%t roster=%t ack=%d/%d roster=%d/%d", len(rest), bytes.Equal(ack.Body, wantInfo), bytes.Equal(roster.Body, wantRoster), ack.Header.Classification, ack.Header.MsgID, roster.Header.Classification, roster.Header.MsgID)
 				}
 				if dir := os.Getenv("DNF90_CURRENT_RAID_RESTORE_NATIVE_DIR"); dir != "" && !asLeader && repeat == 0 && selector == 2 {
 					for name, body := range map[string][]byte{"owned-info.bin": ack.Body, "owned-roster.bin": roster.Body} {

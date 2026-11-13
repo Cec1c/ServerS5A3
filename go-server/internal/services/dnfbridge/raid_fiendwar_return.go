@@ -207,7 +207,7 @@ func (s *Service) maintainCurrentFiendWarSession(p *gameSession) error {
 			if !s.currentRaidFailurePresentationReady(p, snapshot) {
 				return nil
 			}
-		} else if f := snapshot.Battle.RewardFlow[0]; f == nil || f.FinishedAt.IsZero() {
+		} else if !currentRaidOwnerSquadDisplayFinished(p, snapshot, time.Now()) {
 			return nil
 		}
 	}

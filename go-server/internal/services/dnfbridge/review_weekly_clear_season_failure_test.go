@@ -151,7 +151,9 @@ func TestReviewWeeklyUnavailableNonRecommendedDisabledAndExpiredDoNotBlockCore(t
 			var season onlineevent.WeeklySeason
 			switch mode {
 			case "nonrecommended":
-				r.Dungeon.Metadata.RecommendedLevels = nil
+				// An absent range uses the dungeon's minimum/basis-level fallback.
+				// Use an explicit range that excludes the level-one fixture.
+				r.Dungeon.Metadata.RecommendedLevels = []int64{91, 100}
 				g.CeraShopAssets = reviewWeeklyActivationFailure{g.CeraShopAssets}
 			case "disabled":
 				var e error

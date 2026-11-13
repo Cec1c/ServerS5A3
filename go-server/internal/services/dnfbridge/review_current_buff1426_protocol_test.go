@@ -210,8 +210,14 @@ func TestReviewCurrentBuff1426MigratesHistoricalStateWithoutLosingBinding(t *tes
 	}
 	conn.write.Reset()
 	reviewCurrentBuffDispatch(t, s, session, reviewCurrentBuffCommand(39, 33, 45, 0xffff))
-	reviewCurrentBuffProvenance(t, r, 39, 1)
-	reviewCurrentBuffSnapshot(t, conn, 39, true)
+	// Selecting another skill must not inherit the historical skill's rows.
+	// Migration keeps those bindings under skill 38 for a later switch back.
+	reviewCurrentBuffProvenance(t, r, 39, 0)
+	reviewCurrentBuffSnapshot(t, conn, 39, false)
+	migrated, found, err := buffswap.Load(context.Background(), r, "1", "dnf:10001")
+	if err != nil || !found || len(migrated.Slots) != 0 || len(migrated.SkillSlots[38]) != 1 || migrated.SkillSlots[38][12].ItemID != 101040493 || migrated.SkillSlots[38][12].Instance == "" {
+		t.Fatalf("historical skill binding was not retained independently: %+v %v", migrated, err)
+	}
 	// Another historical command deliberately selects the historical profile.
 	if err := s.handleGameCommand(session, 1, 1428, reviewCurrentBuffCommand(38, 33, 44, 0xffff)); err != nil {
 		t.Fatal(err)

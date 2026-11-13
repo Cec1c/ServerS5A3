@@ -71,6 +71,14 @@ func (s *Service) leaveRuntimePartyDungeonMember(session *gameSession, instance 
 	if !removed {
 		return false, nil
 	}
+	instance.mu.Lock()
+	for _, member := range before.Members {
+		if member.Slot < 8 {
+			instance.retiredPartyRecordKeys[member.Slot] = member.UserID
+		}
+	}
+	instance.mu.Unlock()
+	s.partyDungeonLoadingBarrierForceRelease(before.ID, "member_left_party")
 	var errs error
 	if s.options.currentClientVersion != "official-24.9" {
 		for _, peer := range peers {
@@ -129,6 +137,19 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 			errs = errors.Join(errs, s.sendRuntimePartyMemberRemoved(receiver, 0, state))
 			continue
 		}
+		if departingID != 0 && len(members) == 1 {
+			// Updating an active roster directly from two rows to one does not
+			// retire the native party HUD/network's previous peer entries. This
+			// is visible when a four-player party shrinks to its last fixed slot.
+			// There are no surviving remote actors to preserve now: retire the
+			// local client binding before restoring its server-owned singleton.
+			// Keep the manager, fixed slot and dungeon instance unchanged.
+			sent, err := s.resetDungeonSingletonPartyDisplay(receiver, state, instance, departingID, current)
+			if err != nil || !sent {
+				errs = errors.Join(errs, err)
+				continue
+			}
+		}
 		owners := []byte{currentSceneObjectContext}
 		if owner := currentClientSelectedChannel(receiver); owner != currentSceneObjectContext {
 			owners = append([]byte{owner}, owners...)
@@ -156,6 +177,41 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDeparture(state alignedcmd.
 		errs = errors.Join(errs, err)
 	}
 	return errs
+}
+
+func (s *Service) resetDungeonSingletonPartyDisplay(receiver *gameSession, state alignedcmd.PartyState, instance *dungeonPartyInstance, departingID uint16, current func() bool) (bool, error) {
+	if s.options.currentClientVersion != "official-24.9" || len(runtimePartyMembers(state)) != 1 {
+		return false, nil
+	}
+	owners := []byte{currentSceneObjectContext}
+	if owner := currentClientSelectedChannel(receiver); owner != currentSceneObjectContext {
+		owners = append([]byte{owner}, owners...)
+	}
+	instance.mu.Lock()
+	keys := instance.retiredPartyRecordKeys
+	instance.mu.Unlock()
+	ordered := []uint16{selectedCharacterID(receiver), departingID}
+	for _, key := range keys {
+		seen := key == 0
+		for _, old := range ordered {
+			seen = seen || old == key
+		}
+		if !seen {
+			ordered = append(ordered, key)
+		}
+	}
+	for _, key := range ordered {
+		for _, owner := range owners {
+			// The paired kind3 retirement helper preserves the living local
+			// drawable. Empty kind2 would run the destructive ordinary slot setter.
+			sent, err := s.sendRetiredPartyPacket(receiver, 9,
+				buildCurrentSceneOp9ActorRemovalBodyInContext(currentSceneActorObjectKey(key), owner, s.currentSceneActorRoute()), &state, current, false)
+			if err != nil || !sent {
+				return false, err
+			}
+		}
+	}
+	return s.sendRetiredPartyPacket(receiver, 0x99, runtimePartyRealtimeInfoBody(alignedcmd.PartyState{}), &state, current, false)
 }
 
 func (s *Service) sendMemberGiveupSurvivorRosterInContext(receiver *gameSession, state alignedcmd.PartyState, departingID uint16, owner byte, current func() bool) (bool, error) {

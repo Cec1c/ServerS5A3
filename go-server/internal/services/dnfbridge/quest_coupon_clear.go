@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/itemlock"
 	"longheng.io/server/internal/modules/dnf/jobmap"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
@@ -26,6 +28,10 @@ const (
 	currentQuestLevelClearActionIndex         uint32 = 179
 	currentFirstAwakeningCouponActionIndex    uint32 = 118
 	currentSecondAwakeningCouponActionIndex   uint32 = 121
+	currentNamedQuestCouponActionIndex        uint32 = 129
+	currentAchievementCouponActionIndex       uint32 = 98
+	currentSideQuestCouponActionIndex         uint32 = 77
+	currentModernSideQuestCouponActionIndex   uint32 = 180
 	currentQuestClearCouponBodySize                  = 19
 	currentQuestClearCouponAckSize                   = 10 // Legacy fatigue helper below; not the quest reply.
 	currentQuestClearCouponDebugCommand              = "//lvclear"
@@ -45,7 +51,7 @@ func decodeCurrentQuestClearCouponRequest(body []byte) (currentQuestClearCouponR
 		return currentQuestClearCouponRequest{}, false
 	}
 	r := currentQuestClearCouponRequest{SourceSlotIndex: int16(binary.LittleEndian.Uint16(body[:2])), ListType: body[2], ActionIndex: binary.LittleEndian.Uint32(body[7:11])}
-	if r.ActionIndex != currentQuestClearCouponActionIndex && r.ActionIndex != currentFirstAwakeningCouponActionIndex && r.ActionIndex != currentQuestLevelClearActionIndex && r.ActionIndex != currentSecondAwakeningCouponActionIndex {
+	if r.ActionIndex != currentQuestClearCouponActionIndex && r.ActionIndex != currentFirstAwakeningCouponActionIndex && r.ActionIndex != currentQuestLevelClearActionIndex && r.ActionIndex != currentSecondAwakeningCouponActionIndex && r.ActionIndex != currentNamedQuestCouponActionIndex && r.ActionIndex != currentAchievementCouponActionIndex && r.ActionIndex != currentSideQuestCouponActionIndex && r.ActionIndex != currentModernSideQuestCouponActionIndex {
 		return currentQuestClearCouponRequest{}, false
 	}
 	r.ReservedValid = binary.LittleEndian.Uint32(body[3:7]) == 0 && binary.LittleEndian.Uint32(body[11:15]) == 0 && binary.LittleEndian.Uint32(body[15:19]) == 0
@@ -104,6 +110,33 @@ func resolveCurrentQuestCoupon(catalog *pvfDungeonDropCatalog, itemID int64, act
 		return coupon, dnfquest.ErrCouponClearUnavailable
 	}
 	switch strings.ToLower(strings.TrimSpace(def.ActionType)) {
+	case "[side quest clear]":
+		// Current EXE parser 0x3adaed2 -> 180; registered at 0x24f8311,
+		// handler 0x24ee6e0 jumps directly to the native op515 sender.
+		if action != currentModernSideQuestCouponActionIndex {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Kind = dnfquest.CouponSideQuests
+	case "[quest clear coupon]":
+		if action != 109 {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Kind = dnfquest.CouponSingleQuest
+	case "[any quest clear]":
+		if action != currentNamedQuestCouponActionIndex {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Kind = dnfquest.CouponNamedQuests
+	case "[achievement quest clear]":
+		if action != currentAchievementCouponActionIndex {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Kind = dnfquest.CouponAchievement
+	case "[quest clear]":
+		if action != currentSideQuestCouponActionIndex {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Kind = dnfquest.CouponSideQuests
 	case currentQuestClearCouponActionGmQuestClear:
 		if action != currentQuestClearCouponActionIndex {
 			return coupon, dnfquest.ErrCouponClearUnavailable
@@ -137,6 +170,17 @@ func resolveCurrentQuestCoupon(catalog *pvfDungeonDropCatalog, itemID int64, act
 	maxLevel, _ := doc.Int("maximum level")
 	coupon.MinimumLevel = int(minLevel)
 	coupon.MaximumLevel = int(maxLevel)
+	if coupon.Kind == dnfquest.CouponNamedQuests {
+		coupon.QuestIDs = append([]int64(nil), doc.Ints("action type")...)
+		if len(coupon.QuestIDs) == 0 || len(coupon.QuestIDs) > 256 {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		for _, id := range coupon.QuestIDs {
+			if id <= 0 || id > 0xffff {
+				return coupon, dnfquest.ErrCouponClearUnavailable
+			}
+		}
+	}
 	if strings.EqualFold(def.ActionType, currentQuestClearCouponActionLevelClear) {
 		limits := doc.Ints("action type")
 		if len(limits) != 1 || limits[0] <= 0 {
@@ -169,7 +213,63 @@ func resolveCurrentQuestCoupon(catalog *pvfDungeonDropCatalog, itemID int64, act
 	if coupon.Kind == dnfquest.CouponSecondAwakening {
 		return resolveSecondAwakeningCouponConditions(coupon, doc)
 	}
+	for _, place := range doc.Texts("action usable place") {
+		if place != "[village]" && place != "[seria room]" {
+			return coupon, dnfquest.ErrCouponClearUnavailable
+		}
+		coupon.Places = append(coupon.Places, place)
+	}
+	for _, section := range doc.Sections {
+		if section.Name != "impossible contents" {
+			continue
+		}
+		for _, token := range doc.Tokens[section.Start:section.End] {
+			switch token.Value {
+			case "hardcore mode":
+				coupon.DisallowHardcore = true
+			case "ban redeemitem", "gift":
+			default:
+				return coupon, dnfquest.ErrCouponClearUnavailable
+			}
+		}
+	}
 	return coupon, nil
+}
+
+func (s *Service) currentCouponPlaceAllowed(p *gameSession, coupon dnfquest.ClearCoupon) bool {
+	if len(coupon.Places) == 0 {
+		return true
+	}
+	p.townMu.Lock()
+	position := p.townPositionSnapshot
+	p.townMu.Unlock()
+	area, known := s.townArea(int64(position.TownID), int64(position.AreaID))
+	if !known || !position.PositionValid || area.MapPath == "" {
+		return false
+	}
+	place := "[village]"
+	if townMapPathLooksLikeSeria(area.MapPath) {
+		place = "[seria room]"
+	}
+	for _, allowed := range coupon.Places {
+		if allowed == place {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeCurrentQuestCouponSource(held dnfrepo.ItemStack, definition dungeonDropItemDefinition, now time.Time) (dnfrepo.ItemStack, error) {
+	// Renewal of a retired PVF date does not authorize overriding an explicit
+	// per-instance GM deadline, even when the GM projection feature is disabled.
+	if itemlock.IsLockedAt(held, now) || currentGMExpirationOverrideMarked(held.Extra) && currentDungeonDiscardStackExpired(held, now) {
+		return held, dnfquest.ErrCouponClearUnavailable
+	}
+	projected, _ := applyCurrentPVFItemExpirationAt(held, definition, now)
+	if currentDungeonDiscardStackExpired(projected, now) {
+		return held, dnfquest.ErrCouponClearUnavailable
+	}
+	return projected, nil
 }
 
 func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []byte) (bool, error) {
@@ -213,11 +313,21 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 	if err != nil {
 		return reject("coupon_invalid", err)
 	}
+	if !s.currentCouponPlaceAllowed(session, coupon) {
+		return reject("coupon_place_invalid", nil)
+	}
 	quests, err := s.loadQuestCatalog(ctx)
 	if err != nil {
 		return reject("quest_catalog_unavailable", err)
 	}
-	input := dnfquest.UseClearCouponInput{AccountID: s.accountIDForSession(session), CharacterID: id, Slot: r.SourceSlotIndex, Coupon: coupon, Now: s.gameplayNow()}
+	input := dnfquest.UseClearCouponInput{AccountID: s.accountIDForSession(session), CharacterID: id, Slot: r.SourceSlotIndex, Coupon: coupon, Now: s.gameplayNow(), AllocateItem: currentQuestFinishItemAllocator(catalog)}
+	definition, err := catalog.ResolveItem(uint32(stack.ItemID))
+	if err != nil {
+		return reject("item_definition_missing", err)
+	}
+	input.NormalizeSource = func(held dnfrepo.ItemStack) (dnfrepo.ItemStack, error) {
+		return normalizeCurrentQuestCouponSource(held, definition, input.Now)
+	}
 	if coupon.Kind == dnfquest.CouponFirstAwakening {
 		input.Profiles, input.Skills, err = s.currentProfessionResources(ctx)
 		if err != nil {
@@ -241,11 +351,20 @@ func (s *Service) handleCurrentQuestClearCouponUse(session *gameSession, body []
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketUseStackableAction), buildCurrentQuestCouponResult(r, true), dnfproto.DefaultChannelClassification); err != nil {
 		return true, err
 	}
-	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "quest_coupon_committed", []alignedcmd.ItemSlotRefresh{{ListType: r.ListType, SlotIndex: r.SourceSlotIndex}}); err != nil {
+	refreshes := []alignedcmd.ItemSlotRefresh{{ListType: r.ListType, SlotIndex: r.SourceSlotIndex}}
+	for _, item := range result.Items {
+		refreshes = append(refreshes, alignedcmd.ItemSlotRefresh{ListType: dnfrepo.MainInventoryListType, SlotIndex: int16(item.SlotIndex)})
+	}
+	if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "quest_coupon_committed", refreshes); err != nil {
 		return true, err
 	}
 	if result.Awakened {
 		if err := s.sendCurrentAwakeningCouponSnapshots(ctx, session, result); err != nil {
+			return true, err
+		}
+	}
+	if result.SlotsExpanded {
+		if err := s.sendCurrentFinishQuestSlotExpansionMode1Snapshot(session, dnfquest.FinishCommitResult{AtomicCommitted: true, HasSlotExpansion: true, CharacterID: id, PostCommitCharacter: result.Character}); err != nil {
 			return true, err
 		}
 	}

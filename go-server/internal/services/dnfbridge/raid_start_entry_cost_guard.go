@@ -189,7 +189,8 @@ func (s *Service) consumeRaidEntryCostAndReceipt(ctx context.Context, ids []stri
 				}
 			}
 			if err := takeRaidEntryCost(&inventory, rule); err != nil {
-				return fmt.Errorf("raid member %s: %w", id, err)
+				idValue, _ := strconv.ParseUint(id, 10, 16)
+				return &raidStartRejection{message: "队员入场材料不足，请补齐门票", members: []uint16{uint16(idValue)}, cause: fmt.Errorf("raid member %s: %w", id, err)}
 			}
 			if debit != nil {
 				character = dnfrepo.CloneCharacter(character)
@@ -308,7 +309,7 @@ func (s *Service) guardRaidStartEntryCost(session *gameSession, state runtimeRai
 			minimum = rule.SoloMinimumMembers
 		}
 		if single > 1 || len(state.Members) < minimum {
-			return dependencyFailure("raid_member_minimum", fmt.Errorf("members=%d minimum=%d solo_flag=%d", len(state.Members), minimum, single))
+			return dependencyFailure("raid_member_minimum", &raidStartRejection{message: fmt.Sprintf("攻坚人数不符合当前模式要求，至少需要%d人", minimum)})
 		}
 		if state.CurrentLayout {
 			if rule.MaximumMembers < minimum || rule.MaximumMembers > raid.MaxAttackPartyMembers || len(state.Members) > rule.MaximumMembers || (single == 1 && len(state.Members) != 1) {
@@ -342,7 +343,7 @@ func (s *Service) guardRaidStartEntryCost(session *gameSession, state runtimeRai
 	}
 	s.logGameEvent(session, "game-raid-start-entry-cost-guard", "decision", decision, "mode", mode, "raid_key", state.RaidKey, "item_id", rule.ItemID, "required", rule.Count, "member_count", len(statuses), "short_count", len(short), "owned", strings.Join(owned, ","), "reason", reason)
 	if decision == "reject" {
-		return false, nil
+		return false, &raidStartRejection{message: "队员入场材料不足，请补齐门票", members: append([]uint16(nil), short...)}
 	}
 	if mode != raidStartEntryCostGuardEnforce {
 		return true, nil

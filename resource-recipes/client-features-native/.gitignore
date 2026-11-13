@@ -1,0 +1,7 @@
+native/build/
+*.obj
+*.res
+*.dll
+*.exp
+*.lib
+__pycache__/

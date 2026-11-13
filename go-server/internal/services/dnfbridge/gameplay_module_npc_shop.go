@@ -138,14 +138,20 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 			return err
 		}
 	}
-	if result.CostItemID == 10002606 {
-		if err := s.sendCurrentWeddingLovePoints(session, uint32(result.CostItemNewCount)); err != nil {
-			return err
-		}
+	balances := result.MaterialBalances
+	if len(balances) == 0 && result.CostItemID != 0 {
+		balances = []currentNPCShopMaterialCost{{ItemID: result.CostItemID, Count: result.CostItemNewCount}}
 	}
-	if result.CostItemID == raidcurrency.FateItemID {
-		if err := s.sendCurrentFateSnapshot(ctx, session, false); err != nil {
-			return err
+	for _, balance := range balances {
+		if balance.ItemID == 10002606 {
+			if err := s.sendCurrentWeddingLovePoints(session, uint32(balance.Count)); err != nil {
+				return err
+			}
+		}
+		if balance.ItemID == raidcurrency.FateItemID {
+			if err := s.sendCurrentFateSnapshot(ctx, session, false); err != nil {
+				return err
+			}
 		}
 	}
 	s.logGameEvent(session, "game-npc-shop-buy-committed", "item_id", result.ItemID, "count", result.Count, "slot", result.Slot, "gold_after", result.GoldAfter, "incremental_entries", len(result.Updates), "ack_body", "current_exe_sub_1D27590", "item_update_body", "current_exe_class0_op14_raw77")

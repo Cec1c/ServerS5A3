@@ -188,6 +188,7 @@ func (s *Service) resendDungeonPartyPeerActorToAlreadyLandedMembers(session *gam
 			} else if projected {
 				delivered = true
 				sent++
+				s.scheduleDungeonPeerActorRecovery(peer, session, ownKey)
 			} else {
 				s.releaseDungeonPeerActorResend(peer, ownKey, identity)
 				decision, reason = "deferred", "peer_actor_projection_became_stale_before_delivery"

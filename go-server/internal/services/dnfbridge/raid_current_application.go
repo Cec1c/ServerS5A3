@@ -12,6 +12,7 @@ import (
 
 type currentRaidApplication struct {
 	raidKey   uint32
+	raidOwner *runtimeRaidState
 	applicant boundGameSessionCharacter
 	leader    boundGameSessionCharacter
 	expires   time.Time
@@ -92,7 +93,7 @@ func (s *Service) handleCurrentRaidApplication(session *gameSession, op uint16, 
 			delete(s.currentRaidApplications, id)
 		}
 	}
-	pending := currentRaidApplication{raidKey: target.RaidKey, applicant: applicant, leader: leader, expires: now.Add(2 * time.Minute)}
+	pending := currentRaidApplication{raidKey: target.RaidKey, raidOwner: target, applicant: applicant, leader: leader, expires: now.Add(2 * time.Minute)}
 	s.currentRaidApplications[applicant.character] = pending
 	s.raidMu.Unlock()
 	if err := s.sendGameUpperRawClassCodec(leader.session, raid.CurrentRaidApplicationMsgID, notice, 0, true); err != nil {
@@ -117,23 +118,37 @@ func (s *Service) handleCurrentRaidApproval(session *gameSession, op uint16, req
 	leader, bound := s.boundGameSessionCharacterSnapshot(session)
 	s.raidMu.Lock()
 	pending, found := s.currentRaidApplications[req.TargetID]
-	state := s.raids[pending.raidKey]
+	s.raidMu.Unlock()
 	applicant := pending.applicant.session
-	if !bound || !found || pending.leader != leader || !pending.expires.After(time.Now()) || state == nil || !state.CurrentLayout || state.LeaderID != leader.character || state.Started || state.CurrentUIFlags[0] != 0 || len(state.Members) >= currentRaidMemberMaximum(*state) || applicant == nil || applicant.channel.ID != session.channel.ID || applicant.channel.Type != session.channel.Type || s.runtimeRaidByMemberLocked(req.TargetID) != nil || !s.boundGameSessionCharacterCurrent(pending.applicant) || !s.boundGameSessionCharacterCurrent(pending.leader) || !s.currentRaidAuthenticated(applicant) {
-		s.raidMu.Unlock()
+	// Repository latency must not hold the shared raid lock. The exact pending
+	// capability, raid object and both bindings are checked again at commit.
+	if !bound || !found || pending.leader != leader || !pending.expires.After(time.Now()) || applicant == nil || !s.currentRaidAuthenticated(applicant) {
 		return s.sendRaidCommandFailure(session, op)
 	}
 	row, available := s.currentRaidApplicantRecord(applicant, raid.CurrentOtherChannelJoinRequest{})
 	if !available {
+		return s.sendRaidCommandFailure(session, op)
+	}
+	s.raidMu.Lock()
+	state := s.raids[pending.raidKey]
+	if s.currentRaidApplications[req.TargetID] != pending || !pending.expires.After(time.Now()) || state == nil || state != pending.raidOwner || !state.CurrentLayout || state.LeaderID != leader.character || state.Started || state.CurrentUIFlags[0] != 0 || len(state.Members) >= currentRaidMemberMaximum(*state) || applicant.channel.ID != session.channel.ID || applicant.channel.Type != session.channel.Type || s.runtimeRaidByMemberLocked(req.TargetID) != nil || !s.currentRaidInfoContextVisible(applicant, *state) || row.CharKey != pending.applicant.character {
+		s.raidMu.Unlock()
+		return s.sendRaidCommandFailure(session, op)
+	}
+	s.mu.Lock()
+	if !s.currentRaidInvitationIdentityLocked(pending.applicant) || !s.currentRaidInvitationIdentityLocked(pending.leader) {
+		s.mu.Unlock()
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}
 	member, placed := appendRuntimeRaidMemberWithLegalGroup(state, runtimeRaidMemberState{CharID: row.CharKey, Name: row.Name, Level: uint32(row.Level), Job: row.Job, GrowType: row.Grow, UserState: 1, HPPercent: 100, MPPercent: 100})
 	if !placed {
+		s.mu.Unlock()
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}
 	delete(s.currentRaidApplications, req.TargetID)
+	s.mu.Unlock()
 	snapshot := cloneRuntimeRaidState(*state)
 	s.raidMu.Unlock()
 	if err := s.sendGameUpperRawClassCodec(session, op, append([]byte{1}, party.BuildResponsePeerAckPayload(req.TargetID, 10)...), 1, true); err != nil {

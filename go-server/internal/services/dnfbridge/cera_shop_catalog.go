@@ -39,6 +39,7 @@ type currentCeraShopProduct struct {
 // pvfCeraShopCatalog owns only static runtime PVF state.  Inventory placement
 // and Cera deduction are handled within the character settlement transaction.
 type pvfCeraShopCatalog struct {
+	discountCoupons       map[uint32]currentCeraDiscountCoupon
 	products              map[uint32]currentCeraShopProduct
 	bonusByCommodity      map[uint32][]currentCeraShopBonusItem
 	festivals             *festival.Catalog
@@ -118,7 +119,17 @@ func newPVFCeraShopCatalog(source dnfpvf.Source) (*pvfCeraShopCatalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &pvfCeraShopCatalog{products: products, bonusByCommodity: bonusByCommodity, festivals: festivals, items: items, source: source}, nil
+	discounts, err := parseCurrentCeraDiscountCoupons(document, products)
+	if err != nil {
+		return nil, err
+	}
+	for discount, rule := range discounts {
+		// A coupon changes the price, not the package's accompanying gifts.
+		if gifts := bonusByCommodity[rule.Base]; len(gifts) != 0 {
+			bonusByCommodity[discount] = append([]currentCeraShopBonusItem(nil), gifts...)
+		}
+	}
+	return &pvfCeraShopCatalog{products: products, discountCoupons: discounts, bonusByCommodity: bonusByCommodity, festivals: festivals, items: items, source: source}, nil
 }
 
 func parseCurrentCeraShopProductSection(

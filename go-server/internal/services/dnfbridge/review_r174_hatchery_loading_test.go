@@ -105,9 +105,16 @@ func TestR174LoadingTimerCannotReleaseReplacementCycle(t *testing.T) {
 		t.Fatal("old callback consumed placement")
 	}
 	s.forceReleasePartyDungeonLoadingCycle(partyID, current, "current_timeout")
-	if s.partyDungeonPostStartMapPlacementPending(leader) || s.partyDungeonPostStartMapPlacementPending(peer) {
-		t.Fatal("current timeout failed to release placement")
+	if !s.partyDungeonPostStartMapPlacementPending(leader) || !s.partyDungeonPostStartMapPlacementPending(peer) || current.Released {
+		t.Fatal("current timeout released without readiness")
 	}
+	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(leader, partyID, members); release {
+		t.Fatal("first member released early")
+	}
+	if release, _, _, _, _ := s.partyDungeonLoadingBarrierArrive(peer, partyID, members); !release {
+		t.Fatal("last member did not release")
+	}
+	s.releasePartyDungeonLoadingCycle(partyID, current, members, members, "all_members_ready")
 }
 
 func TestR174LoadingReleaseSkipsSessionThatChangedBeforeCallback(t *testing.T) {

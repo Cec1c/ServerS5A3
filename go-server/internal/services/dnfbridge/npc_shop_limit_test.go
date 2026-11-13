@@ -82,7 +82,7 @@ func TestNPCShopAccumulatePurchaseLimitParsing(t *testing.T) {
 	}{
 		{name: "accumulate", limit: "`account` `accumulate` 1"},
 		{name: "accumulate_with_daily_marker", limit: "`account` `accumulate` 1", reset: true},
-		{name: "unknown_period", limit: "`account` `monthly` 1", reject: true},
+		{name: "unknown_period", limit: "`account` `yearly` 1", reject: true},
 		{name: "unknown_scope", limit: "`unknown` `accumulate` 1", reject: true},
 		{name: "zero_maximum", limit: "`account` `accumulate` 0", reject: true},
 		{name: "negative_maximum", limit: "`account` `accumulate` -1", reject: true},

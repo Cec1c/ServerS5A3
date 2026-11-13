@@ -38,6 +38,7 @@ func TestEpicRoadActualActiveEntryRejectionPreservesTickets(t *testing.T) {
 				t.Fatal(e)
 			}
 			s.options.currentClientVersion = "official-24.9"
+			s.initialEquipmentArchive = actual.initialEquipmentArchive
 			s.worldMapTable = table
 			s.worldMapResolver = resolver
 			active := a.dungeon.runtime
@@ -124,6 +125,10 @@ func TestEpicRoadActualPreparedEntryCommitChargesOnce(t *testing.T) {
 				t.Fatal("prepare charged", v.Slots["0:1"].Count)
 			}
 			before, _, _ := g.Character.Load(ctx, "99")
+			activityBefore, err := g.Activity.Summary(ctx, repo.ActivityQuery{AccountID: before.AccountID})
+			if err != nil {
+				t.Fatal(err)
+			}
 			if e = freezeCurrentDungeonTownReturnOrigin(a, runtime); e != nil {
 				t.Fatal(e)
 			}
@@ -149,7 +154,9 @@ func TestEpicRoadActualPreparedEntryCommitChargesOnce(t *testing.T) {
 				t.Fatal("replayed epic entry awarded twice")
 			}
 			summary, err := g.Activity.Summary(ctx, repo.ActivityQuery{AccountID: after.AccountID})
-			if err != nil || summary.Metrics[repo.ActivityFatigue] != 1 {
+			// The fixture has already committed its ordinary dungeon once.
+			// This admission must add exactly one, including after replay.
+			if err != nil || summary.Metrics[repo.ActivityFatigue]-activityBefore.Metrics[repo.ActivityFatigue] != 1 {
 				t.Fatal("史诗之路入场漏记或重放重复记账", summary, err)
 			}
 		})

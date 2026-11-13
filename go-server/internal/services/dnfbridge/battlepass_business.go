@@ -9,6 +9,7 @@ import (
 	"fmt"
 	bp "longheng.io/server/internal/modules/dnf/battlepass"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
+	"longheng.io/server/internal/modules/dnf/raid"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/platform/eventloop"
 	"strconv"
@@ -404,6 +405,11 @@ func loadBattlePassCounters(ctx context.Context, g repo.Group, account string, p
 		}
 	}
 	counters := bp.Counters(chars, repo.ActivityDay(policy.Start), repo.ActivityDay(now))
+	for _, ch := range chars {
+		for day, amount := range raid.UncountedRewardFateByDay(ch, repo.ActivityDay(policy.Start), repo.ActivityDay(now)) {
+			counters = append(counters, bp.Counter{Day: day, Kind: 43, Param: -1, Amount: amount})
+		}
+	}
 	fatigue, e := loadBattlePassFatigueCounters(ctx, g, account, policy, now)
 	if e != nil {
 		return nil, e

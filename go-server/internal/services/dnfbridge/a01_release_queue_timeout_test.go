@@ -151,11 +151,13 @@ func TestA01ReleaseQueueTimeoutMustRecoverAfterGate(t *testing.T) {
 	// a worker ran. A repair may finish dispatch early or wait for delivery.
 	holdCtx, cancelHold := context.WithTimeout(waitCtx, createWriteTimeout)
 	defer cancelHold()
-	healthyState, err := a01ReleaseQueueAwaitComplete(waitCtx, s, healthy)
-	if err != nil {
-		t.Fatalf("healthy member must finish while peer gate is closed: state=%+v err=%v", healthyState, err)
+	healthyState, err := a01AdmissionObserve(waitCtx, s, healthy)
+	if err != nil || !healthyState.Observed || healthyState.State || healthyState.Completion {
+		t.Fatalf("healthy scene escaped preparation barrier: %+v %v", healthyState, err)
 	}
-	a01ReleaseQueueAssertWire(t, healthyConn, healthyStart, "healthy before gate opens")
+	if got := a01AdmissionTailCounts(t, healthyConn, healthyStart); got != [3]int{} {
+		t.Fatalf("early healthy activation %v", got)
+	}
 	if !s.partyDungeonPostStartMapPlacementPending(blocked) {
 		t.Fatal("blocked member's placement was consumed outside its gated loop")
 	}
@@ -190,6 +192,10 @@ func TestA01ReleaseQueueTimeoutMustRecoverAfterGate(t *testing.T) {
 			blockedState, recoveryErr, testPacketLogText(t, s))
 	}
 	a01ReleaseQueueAssertWire(t, blockedConn, blockedStart, "blocked member after recovery")
+	if _, err := a01ReleaseQueueAwaitComplete(recoveryCtx, s, healthy); err != nil {
+		t.Fatal(err)
+	}
+	a01ReleaseQueueAssertWire(t, healthyConn, healthyStart, "healthy after shared recovery")
 	select {
 	case <-releaseDone:
 	case <-waitCtx.Done():

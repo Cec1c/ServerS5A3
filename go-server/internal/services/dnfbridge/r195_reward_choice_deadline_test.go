@@ -55,7 +55,6 @@ func TestR195RealDisplayedFinalCardsDoNotWaitUnattendedDeadline(t *testing.T) {
 				wire := r195ReadFiendRewardWire(t, conn.write.Bytes())
 				partyOwners := []uint16{session.selectedCharacterID}
 				if mode == "anton_phase1" {
-					// This Anton fixture keeps both recipients in the same party/group.
 					partyOwners = []uint16{19, 20}
 				}
 				r195WantFiendRewardWire(t, wire, flow, map[byte][]uint16{1: partyOwners, 3: {19, 20}}, "kind1", "kind3")
@@ -109,7 +108,7 @@ func TestR195ChoiceDeadlineScopeAndClone(t *testing.T) {
 				t.Fatal("foreign owner acquired a choice deadline")
 			}
 			s.markCurrentRaidPartySelectionShownLocked("choice", phase, 19, at)
-			want := mode == 3 || (mode == 1 || mode == 2) && phase == 1
+			want := true // Every raid phase now owns its personal display clock.
 			if (len(flow.PartySelectAfter) != 0) != want {
 				t.Fatalf("mode%d phase%d deadline scope changed", mode, phase)
 			}

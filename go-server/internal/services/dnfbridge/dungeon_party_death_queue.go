@@ -17,8 +17,9 @@ const (
 
 // One bounded mailbox per recipient. The normal event queue may be briefly
 // full: retain every distinct death and retry one wakeup, without waiting in
-// another player's owner or spawning a goroutine per death. Each wakeup sends
-// one frame on the recipient owner, leaving ordinary requests room to run.
+// another player's owner or spawning a goroutine per death. Visuals use a
+// bounded burst between owner events; progression consumes one FIFO entry
+// per wakeup, leaving ordinary requests room to run.
 type partyDungeonDeathQueue struct {
 	mu       sync.Mutex
 	watch    sync.Once
@@ -130,6 +131,7 @@ func (s *Service) submitPartyDeathQueue(peer *gameSession) {
 }
 
 func (s *Service) runPartyDeathQueue(peer *gameSession) {
+	s.drainPartyDeathVisuals(peer)
 	q := &peer.partyDeaths
 	q.mu.Lock()
 	if q.closed || len(q.items) == 0 {
@@ -153,4 +155,40 @@ func (s *Service) runPartyDeathQueue(peer *gameSession) {
 	q.queued = false
 	q.mu.Unlock()
 	s.submitPartyDeathQueue(peer)
+}
+
+// Called only on the recipient's session owner, between complete events.
+// A visual notice has no experience, quest or room-transition side effects.
+// Do not make it wait for one mailbox wakeup per older progression event.
+// State deliveries keep their FIFO and still follow the committed reward.
+func (s *Service) drainPartyDeathVisuals(peer *gameSession) {
+	q := &peer.partyDeaths
+	for sent := 0; sent < 32; sent++ {
+		q.mu.Lock()
+		at := -1
+		if !q.closed {
+			for i := range q.items {
+				if q.items[i].phase == partyDeathVisualOnly {
+					at = i
+					break
+				}
+			}
+		}
+		if at < 0 {
+			q.mu.Unlock()
+			return
+		}
+		d := q.items[at]
+		q.bytes -= len(d.body)
+		copy(q.items[at:], q.items[at+1:])
+		q.items[len(q.items)-1] = partyDungeonDeathDelivery{}
+		q.items = q.items[:len(q.items)-1]
+		if len(q.items) == 0 {
+			q.items = nil
+		}
+		q.mu.Unlock()
+		// Rechecks character generation, scene, membership and transport under
+		// the recipient lock. No foreign owner or direct producer writes.
+		_ = s.deliverPartyDungeonDeath(d)
+	}
 }

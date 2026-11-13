@@ -287,16 +287,20 @@ func TestInviteAcceptThenLeaderDungeonSelectFromReplacementSessionKeepsParty(t *
 	// 现场：选图那条 op16 走的是第二条连接。
 	fixture.selectDungeon(t, auxiliary, 700)
 	fixture.releaseSharedLoadingBarrier(t, auxiliary, fixture.follower)
-	// 合成夹具里队员那条 op37 可能在"读职业技能表"那一步失败（缺 Script.pvf），
-	// 屏障于是等不到全员到齐。这里用**生产同一条超时放行路径**把它放出去，
-	// 断言放行仍然回到辅助那条会话（不是角色目录里的那一条）。若上面两条 op37 已经
-	// 正常放行，这次 force release 是 no-op，断言同样成立。
+	// This routing fixture lacks profession tables. Record both synthetic load
+	// acknowledgements explicitly, then use the ordinary all-ready release;
+	// a timeout may no longer bypass a missing acknowledgement.
 	if fixture.service.partyDungeonPostStartMapPlacementPending(auxiliary) {
-		partyState := fixture.service.runtimePartyStateForSession(auxiliary)
-		fixture.service.partyDungeonLoadingBarrierForceRelease(
-			uint16(partyState.PartyID),
-			"test_timeout_waiting_for_all_members_op37",
-		)
+		partyID, members, ok := fixture.service.partyDungeonLoadingBarrierMembers(auxiliary)
+		if !ok {
+			t.Fatal("missing shared barrier")
+		}
+		for _, member := range []*gameSession{auxiliary, fixture.follower} {
+			release, _, _, _, _ := fixture.service.partyDungeonLoadingBarrierArrive(member, partyID, members)
+			if release {
+				fixture.service.releasePartyDungeonLoadingCycle(partyID, fixture.service.currentPartyDungeonLoadingCycle(partyID), members, members, "fixture_all_ready")
+			}
+		}
 	}
 
 	log := testPacketLogText(t, fixture.service)

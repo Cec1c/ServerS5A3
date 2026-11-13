@@ -39,7 +39,7 @@ func festivalCartUnits(c *pvfCeraShopCatalog, q currentCeraShopPurchaseRequest) 
 		return out
 	}
 	for _, r := range q.Items {
-		if p := c.festivals.Commodities[r.CommodityID]; p != 0 {
+		if p := c.festivals.Commodities[c.couponBaseCommodity(r.CommodityID)]; p != 0 {
 			out[p]++
 		}
 	}
@@ -108,7 +108,7 @@ func projectPrivateFestivalPurchase(c *pvfCeraShopCatalog, a *repo.AccountRecord
 	}
 	// Resolved checkout products must agree with the whitelist and paid units.
 	for _, p := range purchases {
-		if c.festivals.Commodities[p.Product.CommodityID] != 0 && (p.Product.Count != 1 || p.Product.CeraPrice == 0) {
+		if c.festivals.Commodities[c.couponBaseCommodity(p.Product.CommodityID)] != 0 && (p.Product.Count != 1 || p.Product.CeraPrice == 0) {
 			return festival.ErrInvalid
 		}
 	}

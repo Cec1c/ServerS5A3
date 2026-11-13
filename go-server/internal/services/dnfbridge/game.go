@@ -109,7 +109,8 @@ type gameSession struct {
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
 	wireMu                  sync.Mutex
-	wireWriteContext        context.Context // wireMu; active logical write budget
+	wireWriteContext        context.Context           // wireMu; active logical write budget
+	wireWritePacket         gameWritePacketDiagnostic // wireMu; immediate upper-frame identity only
 	selectTimingMu          sync.Mutex
 	selectTiming            *currentSelectTiming        // selectTimingMu
 	selectLoadingTiming     *currentSelectLoadingTiming // selectTimingMu
@@ -223,6 +224,7 @@ type gameSession struct {
 	// dungeonPeerActorResent 是"副本内队友 actor 补发"的幂等表（键 = 房间 + 地图 + party）。
 	// 只在 session.dungeonPartyRunMu 下读写，见 dungeon_party_peer_actor_resend.go。
 	dungeonPeerActorResent map[dungeonPeerActorResendKey]bool
+	dungeonPeerRecovery    map[dungeonPeerActorResendKey]*dungeonPeerActorRecovery
 	// vendorInjectEmitted 是"厂商登录相位包注入"的每会话幂等表（键 = 注入表行号）。
 	// 只在 session.wireMu 下读写，见 upper_vendor_inject.go。
 	vendorInjectEmitted                  map[int]bool
@@ -312,6 +314,7 @@ type gameSession struct {
 	// pendingPostStartMapMu 保护它（屏障放行发生在另一个会话的 goroutine 上）。
 	// 见 party_dungeon_loading_barrier.go。
 	pendingPostStartMapMu             sync.Mutex
+	partyLoadingPrepared              *partyLoadingPreparation // own session event loop only
 	pendingPostStartMapPlacement      *pendingPostStartMapPlacement
 	deferredDungeonUserStateObjectKey uint16
 	// finishLoadingMu 保护下面三个 finish-loading 门闩。写点全部在所属会话的
@@ -542,10 +545,11 @@ type townPostTransitionState struct {
 // mu 守护 runtime、runToken 与 deathTower 的全部读写（含定时器回调与
 // handler 路径），原有 dungeonMu 的临界区与锁序惯例保持不变。
 type dungeonSessionState struct {
-	mu         sync.Mutex
-	runtime    *runtimeDungeonState
-	runToken   uint64
-	deathTower *deathTowerRuntime
+	mu              sync.Mutex
+	runtime         *runtimeDungeonState
+	runToken        uint64
+	partyRetirement currentDungeonPartyRetirement
+	deathTower      *deathTowerRuntime
 }
 
 func (s *Service) handleGameConn(ctx context.Context, conn net.Conn) {

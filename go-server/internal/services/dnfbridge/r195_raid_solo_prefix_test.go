@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"encoding/binary"
+	"errors"
 	"reflect"
 	"strconv"
 	"testing"
@@ -1039,7 +1040,8 @@ func TestR195RaidSoloPrefixFailedStartDoesNotClearSolo(t *testing.T) {
 
 	f.leaderConn.write.Reset()
 	_, started, err := f.service.startRuntimeRaidWithEntryCost(f.leader)
-	if err != nil {
+	var rejection *raidStartRejection
+	if err != nil && !errors.As(err, &rejection) {
 		t.Fatalf("failed start returned an unexpected transaction error: %v", err)
 	}
 	if started {

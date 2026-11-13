@@ -941,6 +941,14 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		s.performanceEnd(perfMonsterDeathWrite, deathWriteStarted, deathNotifyErr)
 		s.performanceEnd(perfMonsterEnqueueToDeath, session.performanceEventQueuedAt, deathNotifyErr)
 	}
+	// The committed room death and exact drop response are already final.
+	// Queue peers' visual death before their experience transaction and before
+	// the killer's SQL work; otherwise each peer waits behind reward I/O.
+	// Keep progression exactly once even when the killer transport fails.
+	if deathResponseErr == nil && deathNotifyErr == nil {
+		s.broadcastPartyDungeonInstanceDeathNotification(session, runtime,
+			request.RuntimeObjectKey, responseBody, "op39_authoritative_death_before_experience", partyDeathVisualOnly)
+	}
 	timing.mark(3)
 	var monsterExperience currentDungeonMonsterExperienceCommitResult
 	var monsterExperienceBody []byte
@@ -1014,13 +1022,10 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if barrierErr != nil {
 		s.logGameEvent(session, "game-raid-constructor-barrier-rejected", "object_key", request.RuntimeObjectKey, "error", barrierErr)
 	}
-	s.broadcastPartyDungeonInstanceDeathNotification(
-		session,
-		runtime,
-		request.RuntimeObjectKey,
-		responseBody,
-		"op39_authoritative_death_after_killer_notification",
-	)
+	// Completion remains after progression. The earlier mailbox entry owns
+	// the visual frame; this one applies scene/quest/final-room state only.
+	s.broadcastPartyDungeonInstanceDeathNotification(session, runtime,
+		request.RuntimeObjectKey, responseBody, "op39_authoritative_progression_committed", partyDeathStateOnly)
 	if stagedStoryForcedCombatEnd != nil {
 		forcedVisual, forcedCleared, flushErr := s.flushCurrentDungeonForcedCombatEndLocked(
 			session,

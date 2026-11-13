@@ -33,6 +33,12 @@ func TestPartyDungeonLeaveRequestReturnsOnlyTheLeavingMemberToTown(t *testing.T)
 				if err := freezeCurrentDungeonTownReturnOrigin(leaving, leaving.dungeon.runtime); err != nil {
 					t.Fatal(err)
 				}
+				// The live failure occurs after ordinary room navigation changes seed.
+				advanced := f.instance.key
+				advanced.Seed += 37
+				advanced.RoomX++
+				advanced.MapID++
+				leaving.dungeonPartyRun, leaving.dungeonPartyRunValid = advanced, true
 				before, _ := f.service.runtimePartyManagerForService().SnapshotByUser(leavingID, 0)
 				stayingRuntime := staying.dungeon.runtime
 				var err error

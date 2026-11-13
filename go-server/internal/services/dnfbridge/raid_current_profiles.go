@@ -27,12 +27,26 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatch(session *gameSession, 
 }
 
 func (s *Service) sendCurrentRuntimeRaidProfilesWithBatchForActors(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch, actors map[uint16]bool) error {
-	if !s.currentRaidInfoVisible(session, state) {
+	peer, err := batch.peer(session)
+	if err != nil {
+		return raidProfilePreparationError(err)
+	}
+	visible := func() bool {
+		return peer != nil && peer.current(s) && session.loginPacketSeen && session.accountFromToken &&
+			peer.account == s.accountIDForSession(session) && s.currentRaidInfoContextVisible(session, state)
+	}
+	if !visible() {
+		return nil
+	}
+	if !s.currentRaidInfoContextVisible(session, state) {
 		return nil
 	}
 	body, err := s.currentRuntimeRaidProfileBody(state, batch)
-	if err != nil || len(body) == 0 || !s.currentRaidInfoVisible(session, state) {
-		return err
+	if err != nil {
+		return raidProfilePreparationError(err)
+	}
+	if len(body) == 0 || !visible() {
+		return nil
 	}
 	s.logGameEvent(session, "game-current-raid-profiles-sent", "raid_key", state.RaidKey, "profile_count", (len(body)-4)/57, "member_count", len(state.Members))
 	if err := s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true); err != nil {
@@ -46,19 +60,22 @@ func (s *Service) currentRuntimeRaidProfileBody(state runtimeRaidState, batch *c
 	if body, found := batch.raidProfiles[state.RaidKey]; found {
 		return body, nil
 	}
-	repos, available := s.repositoryGroup()
+	repos, available := s.repositoryGroupFor(batch.ctx)
 	if !available || repos.Character == nil {
 		return nil, nil
 	}
 	rows := make([]raid.CurrentProfileRecord, 0, len(state.Members))
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(batch.ctx, createWriteTimeout)
 	defer cancel()
 	for _, member := range state.Members {
 		if member.CharID == 0 {
 			continue
 		}
 		character, found, err := repos.Character.Load(ctx, strconv.Itoa(int(member.CharID)))
-		if err != nil || !found || character.CharacterID != strconv.Itoa(int(member.CharID)) || character.Level <= 0 || character.Level > 65535 {
+		if err != nil {
+			return nil, err
+		}
+		if !found || character.CharacterID != strconv.Itoa(int(member.CharID)) || character.Level <= 0 || character.Level > 65535 {
 			continue
 		}
 		job, err := strconv.ParseUint(character.Job, 10, 8)

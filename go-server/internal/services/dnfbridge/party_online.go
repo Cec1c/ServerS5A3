@@ -260,6 +260,23 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 	if !sourceBound || !targetBound || targetIdentity.session == nil {
 		return nil
 	}
+	// The native Join menu may address any visible member. Consent belongs
+	// to the current leader, not necessarily the clicked actor.
+	if s.options.currentClientVersion == "official-24.9" && (parsed.Mode == 0 || parsed.Mode == 12) {
+		manager := s.runtimePartyManagerForService()
+		sourceParty, sourceInParty := manager.SnapshotByUser(sourceIdentity.character, sourceIdentity.generation)
+		targetParty, targetInParty := manager.SnapshotByUser(targetIdentity.character, targetIdentity.generation)
+		if targetInParty && (!sourceInParty || len(sourceParty.Members) == 1) && targetParty.Leader != targetIdentity.character {
+			leader, online := s.onlineGameSessionCharacterSnapshot(targetParty.Leader)
+			if !online || leader.session == nil || s.partyChannelMismatch(session, leader.session) ||
+				!s.onlinePlayers.PeerInSameArea(sourceID, leader.character) {
+				return s.sendCurrentTownPVPFailure(session, typ, partyCommandFailureGeneric, parsed.Mode)
+			}
+			s.logGameEvent(session, "game-party-join-request-routed-to-leader",
+				"char_id", sourceID, "clicked_char_id", parsed.TargetID, "leader_char_id", leader.character, "party_id", targetParty.ID)
+			targetIdentity = leader
+		}
+	}
 	inviteRecorded := false
 	var recordedRequest party.RuntimePeerRequest
 	if manager := s.runtimePartyManagerForService(); manager != nil {
@@ -284,8 +301,8 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 			"source_char_id", sourceID,
 			"target_id", parsed.TargetID,
 			"mode", parsed.Mode,
-			"reason", "session_generation_changed_before_invite_registration")
-		return nil
+			"reason", "request_conflicts_with_current_party_or_pending_consent")
+		return s.sendCurrentTownPVPFailure(session, typ, partyCommandFailureGeneric, parsed.Mode)
 	}
 	s.logGameEvent(session, "game-party-peer-request-direction-registered",
 		"char_id", sourceID, "target_char_id", parsed.TargetID, "mode", parsed.Mode,

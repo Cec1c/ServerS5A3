@@ -1,8 +1,7 @@
 package dnfbridge
 
-// Reward entitlement is frozen at completion, but a party card belongs on
-// another player's screen only while both are in the current party and raid
-// group. Never use a session's potentially stale party projection here.
+// Eligibility is frozen at clear; visibility follows the viewer's current
+// squad. Personal completion is handled separately from this shared roster.
 func (s *Service) currentRaidPartyRewardDisplayMembers(session *gameSession, state runtimeRaidState) map[uint16]bool {
 	visible := map[uint16]bool{}
 	if session == nil || state.Battle == nil {
@@ -16,8 +15,7 @@ func (s *Service) currentRaidPartyRewardDisplayMembers(session *gameSession, sta
 	visible[owner] = true
 	group := state.Members[index].GroupIndex
 	if state.Battle.Mode == 3 {
-		// Fiend War encounter parties are retired on clear. Its existing raid
-		// roster display is independent of that temporary party lifecycle.
+		// Fiend War retires its temporary encounter party at clear.
 		for _, member := range state.Members {
 			if member.GroupIndex == group {
 				visible[member.CharID] = true

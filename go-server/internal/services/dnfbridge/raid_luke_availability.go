@@ -12,9 +12,21 @@ func (s *Service) currentLukeNormalChannelAvailable(session *gameSession) bool {
 	s.initialEquipmentMu.Lock()
 	source, err := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
-	if err == nil {
-		_, err = raid.LoadLukeProgram(source)
+	if err == nil && source != nil {
+		s.lukeVisibilityOnce.Do(func() {
+			s.lukeVisibilityErr = validateLukeChannelVisibility(source)
+		})
+		err = s.lukeVisibilityErr
 	}
+	if err != nil || source == nil {
+		s.logGameEvent(session, "game-luke-channel-availability", "event_id", currentLukeChannelEventID, "available", false, "error", err)
+		return false
+	}
+	return true
+}
+
+func validateLukeChannelVisibility(source interface{ ReadText(string) (string, error) }) error {
+	_, err := raid.LoadLukeProgram(source)
 	if err == nil {
 		_, err = raid.LoadLukeRewardConfiguration(source)
 	}
@@ -34,9 +46,5 @@ func (s *Service) currentLukeNormalChannelAvailable(session *gameSession) bool {
 			err = raid.ValidateDungeonDependencies(source, ids)
 		}
 	}
-	if err != nil {
-		s.logGameEvent(session, "game-luke-channel-availability", "event_id", currentLukeChannelEventID, "available", false, "error", err)
-		return false
-	}
-	return true
+	return err
 }

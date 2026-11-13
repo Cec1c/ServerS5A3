@@ -59,6 +59,7 @@ func r3AntonPhase0DisplayedFixture(t *testing.T) (*raidStartGuardFixture, []*gam
 	ensureRaidRewardAccount(t, f, "account-20")
 	flow := f.state.Battle.RewardFlow[0]
 	flow.PartyShownAt = time.Time{}
+	flow.PartySelectAfter = nil
 	for _, session := range sessions {
 		session.conn = &bufferConn{}
 		r195RewardParty(t, f.service, session.selectedCharacterID)
@@ -77,7 +78,12 @@ func r3AntonPhase0DisplayedFixture(t *testing.T) (*raidStartGuardFixture, []*gam
 	if flow.PartyShownAt.IsZero() || len(flow.Party) != 0 || flow.PartyManual {
 		t.Fatal("natural movie completion did not start an unselected party screen")
 	}
-	deadline := flow.PartyShownAt.Add(15 * time.Second)
+	var deadline time.Time
+	for _, personal := range flow.PartySelectAfter {
+		if personal.After(deadline) {
+			deadline = personal
+		}
+	}
 	if !deadline.After(flow.AutoSelectAt) {
 		t.Fatal("fixture must model a natural movie completing after the fallback")
 	}
@@ -118,7 +124,13 @@ func r3WantCommittedCardWire(t *testing.T, got r195FiendRewardWire, flow *curren
 
 func TestRealPVFR3AntonPhase0TeamProjectionAtNativeCardDeadline(t *testing.T) {
 	f, sessions, flow, selectedAt := r3AntonPhase0DisplayedFixture(t)
-	r195AdvanceRewardFlow(t, f.service, selectedAt.Add(-time.Nanosecond))
+	firstAt := selectedAt
+	for _, personal := range flow.PartySelectAfter {
+		if personal.Before(firstAt) {
+			firstAt = personal
+		}
+	}
+	r195AdvanceRewardFlow(t, f.service, firstAt.Add(-time.Nanosecond))
 	if len(flow.Party) != 0 || len(flow.Squad) != 0 {
 		t.Fatal("card rewards committed before the native choice deadline")
 	}
@@ -206,7 +218,7 @@ func TestRealPVFR3AntonPhase0TeamDeadlineRollbackRetainsFrozenPlan(t *testing.T)
 	f.repos.AccountAssets = newAntonCardFailLateAssets(original)
 	_, errs := f.service.advanceCurrentAntonRewardFlows(teamAt, zeroAntonRoll)
 	f.repos.AccountAssets = original
-	if len(errs) != 1 || len(flow.Squad) != 1 || flow.Squad[19].Committed || !flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() {
+	if len(errs) != 2 || len(flow.Squad) != 2 || flow.Squad[19].Committed || !flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() {
 		t.Fatal("failed native-deadline grant advanced the team display", errs)
 	}
 	frozen := cloneCurrentAntonRewardPlan(flow.Squad[19].Plan)
@@ -215,11 +227,11 @@ func TestRealPVFR3AntonPhase0TeamDeadlineRollbackRetainsFrozenPlan(t *testing.T)
 			t.Fatal("rolled-back team grant changed party rewards or leaked team assets")
 		}
 	}
-	r195AdvanceRewardFlow(t, f.service, flow.NextAttempt.Add(-time.Nanosecond))
+	r195AdvanceRewardFlow(t, f.service, flow.OwnerNextAttempt[19].Add(-time.Nanosecond))
 	if flow.Squad[19].Committed || !flow.SquadShownAt.IsZero() {
 		t.Fatal("native card deadline bypassed grant retry backoff")
 	}
-	retryAt := flow.NextAttempt
+	retryAt := flow.OwnerNextAttempt[19]
 	r195AdvanceRewardFlow(t, f.service, retryAt)
 	if !flow.SquadShownAt.Equal(retryAt) || !reflect.DeepEqual(frozen, flow.Squad[19].Plan) || !reflect.DeepEqual(party, flow.Party) {
 		t.Fatal("team retry rerolled frozen rewards or lost the manual/automatic party state")

@@ -62,7 +62,7 @@ import (
 //   - 组队副本（≥2 人 + 会话有活动副本运行时）里收到 op37 时：照旧立刻回
 //     classification=1 的 ACK（`game-upper-finish-loading-status-send`），记一条
 //     `game-party-dungeon-loading-ready`，但**不发** op37 主状态与后续；
-//   - 全员到齐（或超时/掉线）后统一放行：先补被压住的落位
+//   - 所有仍在队伍的在线成员到齐后统一放行：先补被压住的落位
 //     （`sendPendingPostStartMapPlayerPlacement`），再发
 //     `sendCurrentFinishLoadingReleaseTail`（= 既有的 op37 主状态 + op30 + op19 +
 //     post-finish 状态 + 队友 actor 补发），并记 `game-party-dungeon-loading-released`。
@@ -82,24 +82,13 @@ const (
 	partyDungeonLoadingBarrierValueLegacy = "legacy"
 )
 
-// partyDungeonLoadingBarrierTimeout 是屏障的**超时放行**上限。
-//
-// 放行路径写死在下面两处，绝不长时间卡人：
-//   - `partyDungeonLoadingBarrierArrive` 在第一名成员到达时起一个 `time.AfterFunc`；
-//   - `deferPartyDungeonPostStartMapPlacement` 在压住落位时也起一个（防止"谁都没发
-//     op37"这种极端情况把落位永久压住）。
-//
-// 到期一律走 `partyDungeonLoadingBarrierForceRelease`：给**所有**成员补发被压住的落位
-// （他们要靠 op120/op3 才能进图，进而才会发 op37），给**已经上报过 op37 的**成员补发
-// op37 释放尾段。10s 远大于厂商实测的 0.09s～1.5s，也不至于让玩家真的干等。
+// Watchdog interval, not an entry deadline. A slow connected member keeps the
+// entire party behind the barrier. Only actual departures can reduce the set;
+// release requires readiness for every remaining member's exact scene owner.
 var partyDungeonLoadingBarrierTimeout = 10 * time.Second
 
-// partyDungeonLoadingBarrierRegroupWindow 是"刚放行完又来一次 op37"的合并窗口。
-//
-// 客户端有可能在同一次读条里补发第二条 op37（重传 / legacy 与 protected 两条边界）。
-// 若第二次被当成一个**新周期**，队友那条迟迟不来就会白等一整个超时。放行后 2s 内的
-// 重复到达直接按"已放行"处理，不重新组队。
-var partyDungeonLoadingBarrierRegroupWindow = 2 * time.Second
+// Duplicate op37 stays in its exact scene-owner cycle regardless of elapsed
+// time. A new runtime, room, visit or session starts the next loading cycle.
 
 // partyDungeonLoadingBarrierDispatch 决定"放行动作"怎么派发。
 //
@@ -155,13 +144,15 @@ type pendingPostStartMapPlacement struct {
 
 // partyDungeonLoadingCycle 是一次"全队读条"的组队状态（每个队伍一条）。
 type partyDungeonLoadingCycle struct {
-	PartyID   uint16
-	Cycle     int
-	Ready     map[uint16]bool
-	Released  bool
-	released  time.Time
-	Timer     *time.Timer
-	membersAt []uint16
+	preparing           map[uint16]*partyLoadingPreparation
+	activationScheduled bool
+	PartyID             uint16
+	Cycle               int
+	Ready               map[uint16]bool
+	Released            bool
+	released            time.Time
+	Timer               *time.Timer
+	membersAt           []uint16
 	// owners keeps the actual session, including a replacement socket.
 	owners map[uint16]partyDungeonLoadingOwner
 	// admissions coalesces work waiting for capacity or execution. Placement-only
@@ -171,6 +162,7 @@ type partyDungeonLoadingCycle struct {
 }
 
 type partyDungeonLoadingAdmissionKey struct {
+	phase     byte
 	character uint16
 	tail      bool
 }
@@ -230,7 +222,7 @@ func (s *Service) ensurePartyDungeonLoadingCycleLocked(session *gameSession, par
 		previous, known = current.owners[session.selectedCharacterID]
 	}
 	changed := known && previous != owner
-	if current == nil || changed || (current.Released && time.Since(current.released) >= partyDungeonLoadingBarrierRegroupWindow) {
+	if current == nil || changed {
 		next := 1
 		ready := make(map[uint16]bool)
 		if current != nil {
@@ -374,8 +366,8 @@ func (s *Service) repushDungeonPartyRosterAfterFinishLoading(session *gameSessio
 
 // partyDungeonLoadingBarrierMembers 判断这次 op37 是否要进屏障，并给出**要等的成员**。
 //
-// 只等"在线且当前有活动副本运行时"的队友：队友掉线、或者人还在城镇（没有副本运行时）
-// 时不能被算进集合，否则每人一发 op37 都要白等一个超时。
+// 在线队友即使尚未建立活动副本运行时也必须等待，不能把较慢客户端当作已离队。
+// 只有实际掉线或离队才能从等待集合移除。
 func (s *Service) partyDungeonLoadingBarrierMembers(session *gameSession) (uint16, []uint16, bool) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return 0, nil, false
@@ -401,7 +393,7 @@ func (s *Service) partyDungeonLoadingBarrierMembers(session *gameSession) (uint1
 			continue
 		}
 		peer, online := s.onlineGameSession(member.UserID)
-		if !online || peer == nil || !currentDungeonSceneActive(peer) {
+		if !online || peer == nil {
 			continue
 		}
 		peerIDs = append(peerIDs, member.UserID)
@@ -463,7 +455,7 @@ func (s *Service) partyDungeonLoadingBarrierArrive(
 	return true, first, current.Cycle, slot, current
 }
 
-// partyDungeonLoadingBarrierForceRelease 是超时/异常路径的统一放行入口。
+// partyDungeonLoadingBarrierForceRelease 保留原调用名；现在仅检查离队与全员就绪。
 func (s *Service) partyDungeonLoadingBarrierForceRelease(partyID uint16, reason string) {
 	s.forceReleasePartyDungeonLoadingCycle(partyID, nil, reason)
 }
@@ -474,25 +466,87 @@ func (s *Service) forceReleasePartyDungeonLoadingCycle(partyID uint16, expected 
 	}
 	s.partyDungeonLoadingMu.Lock()
 	current := s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
+	if current != nil && current.Released && current.preparing != nil && !current.activationScheduled && (expected == nil || current == expected) {
+		s.partyDungeonLoadingMu.Unlock()
+		s.checkPartyLoadingPreparation(partyID, current, reason)
+		return
+	}
 	if current == nil || current.Released || (expected != nil && current != expected) {
 		s.partyDungeonLoadingMu.Unlock()
 		return
 	}
-	current.Released = true
-	current.released = time.Now()
 	if current.Timer != nil {
 		current.Timer.Stop()
 		current.Timer = nil
 	}
 	members := append([]uint16(nil), current.membersAt...)
-	ready := make([]uint16, 0, len(current.Ready))
-	for charID := range current.Ready {
-		ready = append(ready, charID)
+	owners := make(map[uint16]partyDungeonLoadingOwner, len(current.owners))
+	for id, owner := range current.owners {
+		owners[id] = owner
 	}
 	s.partyDungeonLoadingMu.Unlock()
-	// 超时路径：所有人补落位（他们要靠 op120/op3 才能进图、进而才会发 op37），
-	// 只有**上报过 op37 的**成员才补 op37 释放尾段。
-	s.releasePartyDungeonLoadingCycle(partyID, current, members, ready, reason)
+	// A timeout is a liveness check, never permission to enter early. Resolve
+	// online membership outside loadingMu (session/dungeon locks must not nest
+	// beneath it). A connected member without a committed runtime still waits.
+	live := make(map[uint16]partyDungeonLoadingOwner, len(members))
+	for _, id := range members {
+		peer, online := s.onlineGameSession(id)
+		if !online || peer == nil || peer.ctx != nil && peer.ctx.Err() != nil {
+			continue
+		}
+		// The actual dungeon connection may be an auxiliary connection, while
+		// the online directory intentionally retains the canonical town socket.
+		if owner := owners[id]; owner.session != nil && owner.session.selectedCharacterID == id && (owner.session.ctx == nil || owner.session.ctx.Err() == nil) {
+			peer = owner.session
+		}
+		state := s.runtimePartyStateForSession(peer)
+		if uint16(state.PartyID) != partyID {
+			continue
+		}
+		live[id] = snapshotPartyDungeonLoadingOwner(peer)
+	}
+	s.partyDungeonLoadingMu.Lock()
+	if s.partyDungeonLoadingCycles[partyID] != current || current.Released {
+		s.partyDungeonLoadingMu.Unlock()
+		return
+	}
+	if current.Timer != nil {
+		current.Timer.Stop()
+		current.Timer = nil
+	}
+	ready := make([]uint16, 0, len(live))
+	allReady := true
+	for _, id := range current.membersAt {
+		owner, connected := live[id]
+		if !connected {
+			// A concurrent arrival added a member after the liveness snapshot.
+			known := false
+			for _, previous := range members {
+				known = known || id == previous
+			}
+			if !known {
+				allReady = false
+			}
+			continue
+		}
+		if !current.Ready[id] || owner.runtime == nil || owner != owners[id] || owner != current.owners[id] {
+			allReady = false
+		}
+		ready = append(ready, id)
+	}
+	if !allReady {
+		current.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() {
+			s.forceReleasePartyDungeonLoadingCycle(partyID, current, "still_waiting_for_all_members_op37")
+		})
+		s.partyDungeonLoadingMu.Unlock()
+		return
+	}
+	current.Released = true
+	current.released = time.Now()
+	s.partyDungeonLoadingMu.Unlock()
+	// Only an actually departed peer may be removed. Every remaining member
+	// must have reported readiness for this exact room/session generation.
+	s.releasePartyDungeonLoadingCycle(partyID, current, ready, ready, reason)
 }
 
 // releasePartyDungeonLoadingCycle 给名单里的每个成员统一下发被压住的落位；
@@ -526,6 +580,20 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 	for id, owner := range expected.owners {
 		owners[id] = owner
 	}
+	if expected.preparing == nil {
+		expected.preparing = make(map[uint16]*partyLoadingPreparation)
+		for _, id := range members {
+			if owner, ok := owners[id]; ok && owner.session != nil && owner.runtime != nil {
+				expected.preparing[id] = &partyLoadingPreparation{owner: owner, wantTail: releaseTail[id]}
+			}
+		}
+		expected.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() { s.checkPartyLoadingPreparation(partyID, expected, "prepare_watchdog") })
+	}
+	for id := range releaseTail {
+		if p := expected.preparing[id]; p != nil {
+			p.wantTail = true
+		}
+	}
 	s.partyDungeonLoadingMu.Unlock()
 	// Each member keeps its own session loop, bounded dispatch wait and the existing
 	// cycle/owner guard. Only the wait for the previous member is removed: the
@@ -555,9 +623,13 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 // through withGameWire, and sending peer actors to another session's socket
 // from this loop is the same pattern movement/copresence broadcasts already use.
 func (s *Service) releasePartyDungeonLoadingMember(partyID uint16, expected *partyDungeonLoadingCycle, charID uint16, owner partyDungeonLoadingOwner, wantTail bool, trigger string) {
+	s.releasePartyDungeonLoadingMemberPhase(partyID, expected, charID, owner, wantTail, trigger, 0)
+}
+
+func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected *partyDungeonLoadingCycle, charID uint16, owner partyDungeonLoadingOwner, wantTail bool, trigger string, phase byte) {
 	session := owner.session
 	var identity boundGameSessionCharacter
-	key := partyDungeonLoadingAdmissionKey{character: charID, tail: wantTail}
+	key := partyDungeonLoadingAdmissionKey{character: charID, tail: wantTail, phase: phase}
 	var admission *partyDungeonLoadingAdmission
 	if session.events != nil && session.events.loop != nil {
 		var current bool
@@ -579,6 +651,49 @@ func (s *Service) releasePartyDungeonLoadingMember(partyID uint16, expected *par
 		}
 		if s.currentPartyDungeonLoadingCycle(partyID) != expected || snapshotPartyDungeonLoadingOwner(session) != owner {
 			return nil
+		}
+		s.partyDungeonLoadingMu.Lock()
+		plan := expected.preparing[charID]
+		retiredPlan := expected.preparing != nil && plan == nil
+		s.partyDungeonLoadingMu.Unlock()
+		if retiredPlan {
+			return nil
+		}
+		if plan != nil && phase == 0 {
+			s.partyDungeonLoadingMu.Lock()
+			prepared := plan.ready || expected.activationScheduled
+			prepareTail := plan.wantTail
+			s.partyDungeonLoadingMu.Unlock()
+			if prepared {
+				return nil
+			}
+			session.partyLoadingPrepared = plan
+			defer func() { session.partyLoadingPrepared = nil }()
+			err := s.restoreCurrentRaidSessionProjection(session, "shared_loading_prepare")
+			if err == nil {
+				err = s.sendPendingPostStartMapPlayerPlacement(session, "party_dungeon_shared_loading_barrier")
+			}
+			if err == nil && prepareTail {
+				plan.finishBody, err = s.prepareCurrentFinishLoadingCharacterStateSnapshot(session, "shared_loading_prepare")
+			}
+			if err != nil {
+				session.partyLoadingPrepared = nil
+				s.logGameEvent(session, "game-party-loading-prepare-failed", "char_id", charID, "error", err)
+				return err
+			}
+			s.markPartyLoadingPrepared(partyID, expected, charID, plan, trigger)
+			return nil
+		}
+		if plan != nil {
+			session.partyLoadingPrepared = plan
+			defer func() { session.partyLoadingPrepared = nil }()
+			activation := plan.activation
+			plan.activation = nil
+			for _, activate := range activation {
+				if err := activate(); err != nil {
+					return err
+				}
+			}
 		}
 		err := s.sendPendingPostStartMapPlayerPlacement(session, "party_dungeon_shared_loading_barrier")
 		if err == nil && wantTail {
@@ -835,19 +950,32 @@ func (s *Service) sendPendingPostStartMapPlayerPlacement(session *gameSession, s
 		"char_id", session.selectedCharacterID,
 		"deferred_source", pending.Source,
 		"barrier", "party_dungeon_shared_loading_barrier")
-	return s.sendCurrentPostStartMapPlayerPlacement(
+	plan := session.partyLoadingPrepared
+	activationCount, afterCount := 0, 0
+	if plan != nil {
+		activationCount, afterCount = len(plan.activation), len(plan.after)
+	}
+	err := s.sendCurrentPostStartMapPlayerPlacement(
 		session,
 		pending.Runtime,
 		scene,
 		"party_dungeon_shared_loading_barrier",
 	)
+	if err != nil && plan != nil && snapshotPartyDungeonLoadingOwner(session) == plan.owner {
+		plan.activation, plan.after = plan.activation[:activationCount], plan.after[:afterCount]
+		session.pendingPostStartMapMu.Lock()
+		if session.pendingPostStartMapPlacement == nil {
+			session.pendingPostStartMapPlacement = pending
+		}
+		session.pendingPostStartMapMu.Unlock()
+	}
+	return err
 }
 
 // deferPartyDungeonPostStartMapPlacement 决定这一次落位要不要压到读条屏障之后。
 //
-// 返回 true 表示已压住（调用方不要再直接发送）。压住时会同时给本队起一个超时看门狗
-// —— 万一没有任何成员发 op37，落位也不会被永久压住（见
-// partyDungeonLoadingBarrierTimeout 的说明）。
+// 返回 true 表示已压住（调用方不要再直接发送）。看门狗只清理离队成员，
+// 不会让仍有在线成员未发 op37 的队伍提前进入。
 func (s *Service) deferPartyDungeonPostStartMapPlacement(
 	session *gameSession,
 	runtime *runtimeDungeonState,
@@ -879,7 +1007,7 @@ func (s *Service) deferPartyDungeonPostStartMapPlacement(
 	return true
 }
 
-// partyDungeonLoadingBarrierArmWatchdog 在没有成员到达时也能超时放行。
+// partyDungeonLoadingBarrierArmWatchdog 定期检查在线状态，不以等待时长放行。
 func (s *Service) partyDungeonLoadingBarrierArmWatchdog(session *gameSession, partyID uint16, members []uint16) {
 	if s == nil || session == nil || partyID == 0 {
 		return

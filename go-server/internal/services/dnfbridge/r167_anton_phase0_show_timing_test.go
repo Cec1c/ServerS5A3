@@ -46,6 +46,7 @@ func TestRealPVFAntonPhase0AutoSelectionWaitsForActualShow(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	flow.PartyShownAt = time.Time{}
+	flow.PartySelectAfter = nil
 	movie := currentAntonMovieWindow(flow)
 	state := cloneRuntimeRaidState(*f.state)
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {
@@ -86,17 +87,24 @@ func TestRealPVFAntonPhase0AutoSelectionWaitsForActualShow(t *testing.T) {
 		t.Fatalf("selection deadline=%v want native card window=%v", got, want)
 	}
 
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartySelectAfter[19].Add(-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
 		t.Fatal("automatic party selection crossed the actual-show window", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartySelectAfter[19], zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
 	}
 	if antonGrantedItemCount(t, f, "19", 10304529) != 30 || flow.PartyCommittedAt.IsZero() || len(flow.Squad) != 0 || !flow.SquadShownAt.IsZero() {
 		t.Fatal("automatic party commit did not preserve the party stage")
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyCommittedAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || len(flow.Squad) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.Party[19].CommittedAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || flow.TeamDisplayReady[19] {
 		t.Fatal("squad stage crossed the native party stage4 timer", errs)
+	}
+	f.conn.write.Reset()
+	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := antonNativeCardBodies(t, f)[3]; present {
+		t.Fatal("early shared grant advanced this owner's native page")
 	}
 	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyCommittedAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 {
 		t.Fatal(errs)
@@ -115,6 +123,7 @@ func TestRealPVFAntonPhase0LateNatural659ShowsBeforeAutomaticGrant(t *testing.T)
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	flow.PartyShownAt = time.Time{}
+	flow.PartySelectAfter = nil
 	state := cloneRuntimeRaidState(*f.state)
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {
 		t.Fatal(err)
@@ -147,10 +156,10 @@ func TestRealPVFAntonPhase0LateNatural659ShowsBeforeAutomaticGrant(t *testing.T)
 	if antonGrantedItemCount(t, f, "19", 10304529) != 0 {
 		t.Fatal("natural 659 granted before automatic selection")
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartySelectAfter[19].Add(-time.Nanosecond), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 0 {
 		t.Fatal("late show did not retain its full display window", errs)
 	}
-	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartyShownAt.Add(currentRaidNativeCardChoiceWindow), zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
+	if _, errs := f.service.advanceCurrentAntonRewardFlows(flow.PartySelectAfter[19], zeroAntonRoll); len(errs) != 0 || antonGrantedItemCount(t, f, "19", 10304529) != 30 {
 		t.Fatal("late natural 659 did not commit after its actual-show window", errs)
 	}
 }
@@ -159,6 +168,7 @@ func TestRealPVFAntonPhase0UnattendedSelectionHasBoundedFallback(t *testing.T) {
 	f, session, _ := firstAntonFlowFixture(t)
 	flow := f.state.Battle.RewardFlow[0]
 	flow.PartyShownAt = time.Time{}
+	flow.PartySelectAfter = nil
 	movie := currentAntonMovieWindow(flow)
 	state := cloneRuntimeRaidState(*f.state)
 	if err := f.service.sendCurrentAntonTerminalResult(session, state); err != nil {

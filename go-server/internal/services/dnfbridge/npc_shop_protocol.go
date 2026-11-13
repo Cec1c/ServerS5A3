@@ -56,6 +56,7 @@ type currentNPCShopBuyResult struct {
 	Count             uint32
 	CostItemID        uint32
 	CostItemNewCount  int64
+	MaterialBalances  []currentNPCShopMaterialCost
 }
 
 type currentNPCShopSellResult struct {
