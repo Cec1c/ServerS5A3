@@ -74,6 +74,7 @@ func TestDungeonDepartureUpdatesSurvivorTownAndDungeonRecords(t *testing.T) {
 						}
 						rosters, departures := map[byte]int{}, map[byte]int{}
 						actorIndex, realtimeIndex, lastRoster := -1, -1, -1
+						emptyRealtime := 0
 						retired := map[byte]map[uint16]bool{}
 						for index, frame := range splitUpperFrames(t, receiver.conn.(*bufferConn).write.Bytes()) {
 							if frame.msgID == 9 {
@@ -140,6 +141,13 @@ func TestDungeonDepartureUpdatesSurvivorTownAndDungeonRecords(t *testing.T) {
 								actorIndex = index
 							}
 							if frame.msgID == 153 {
+								if len(frame.body) == 0 {
+									t.Fatal("truncated realtime roster")
+								}
+								if count == 2 && frame.body[0] == 0 && lastRoster < 0 {
+									emptyRealtime++
+									continue // Native singleton binding reset precedes its restored row.
+								}
 								if frame.body[0] != byte(count-1) {
 									t.Fatal("surviving realtime roster lost")
 								}
@@ -156,6 +164,9 @@ func TestDungeonDepartureUpdatesSurvivorTownAndDungeonRecords(t *testing.T) {
 							if rosters[owner] == 0 || departures[owner] != 1 {
 								t.Fatalf("receiver=%d owner=%d roster=%d departure=%d; both stored contexts must learn departure", receiver.selectedCharacterID, owner, rosters[owner], departures[owner])
 							}
+						}
+						if count == 2 && emptyRealtime != 1 || count > 2 && emptyRealtime != 0 {
+							t.Fatal("unexpected singleton realtime reset count")
 						}
 						if actorIndex <= lastRoster || realtimeIndex <= actorIndex {
 							t.Fatal("active actor removed before both contexts were updated")
